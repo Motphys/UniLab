@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "unilab"
+dynamic = ["version"]
+description = "Universal Lab for Robot Learning"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "numpy",
+    "torch",
+    "mujoco>=3.3.7",
+    "gymnasium",
+    "imageio",
+    "etils",
+    "ml_collections",
+    "tensordict",
+    "rsl-rl-lib>=3.3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+[tool.setuptools.dynamic]
+version = {attr = "unilab.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["unilab*"]

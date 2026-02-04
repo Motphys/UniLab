@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+dist/
+.eggs/
+*.egg-info/
+
+# IDEs
+.vscode/
+.idea/
+
+# Project specific
+logs/
+data/
+.DS_Store
+
+output/
+third-party
+agent.md
+
