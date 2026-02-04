@@ -1,2 +1,1 @@
-from .joystick import Go1WalkTaskMj
-from .cfg import Go1WalkNpEnvCfg
+from .joystick import Go1WalkTaskMj, Go1JoystickCfg

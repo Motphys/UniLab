@@ -46,14 +46,10 @@ def rsl_rl_config(env_name: str) -> config_dict.ConfigDict:
         resume_path=None,  # updated from load_run and chkpt
     )
 
-    if env_name in (
-        "Go1JoystickFlatTerrain",
-        "Go2JoystickFlatTerrain",
-    ):
-        rl_config.max_iterations = 1000
     if env_name == "Go1JoystickFlatTerrain":
         rl_config.algorithm.learning_rate = 3e-4
-        rl_config.algorithm.schedule = "fixed"
+        rl_config.algorithm.schedule = "adaptive"
+        rl_config.max_iterations = 1000
     elif env_name == "Go2JoystickFlatTerrain":
         rl_config.algorithm.entropy_coef = 0.01
         rl_config.algorithm.learning_rate = 1.0e-3

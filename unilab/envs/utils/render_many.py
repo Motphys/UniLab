@@ -21,6 +21,9 @@ _worker_ctx = {}
 def init_worker(model_path, shape):
     """Initialize MuJoCo context for worker process."""
     _worker_ctx['model'] = mujoco.MjModel.from_xml_path(model_path)
+    _worker_ctx['model'].vis.global_.offwidth = 3840
+    _worker_ctx['model'].vis.global_.offheight = 2160
+
     _worker_ctx['data'] = mujoco.MjData(_worker_ctx['model'])
     _worker_ctx['renderer'] = mujoco.Renderer(_worker_ctx['model'], height=shape[1], width=shape[0])
 
@@ -161,25 +164,25 @@ def render_frame_job(args):
         set_state(data, state_batch[i], offsets[i] if offsets is not None else None)
         mujoco.mjv_addGeoms(model, data, vopt, pert, catmask, renderer.scene)
 
-    renderer.render()
-    return renderer.read_pixels()
+    return renderer.render()
 
-def render_states_to_video(state_list, model_path, output_path, fps=30, width=1280, height=720, num_processes=8):
+def render_states_get_frames(state_list, model_path, width=1280, height=720, num_processes=8, camera_id=-1):
     """
-    Render a list of physics states to a video file using parallel processing.
+    Render a list of physics states and return the list of frames.
     
     Args:
         state_list: List of numpy arrays, each shape (num_envs, state_dim).
         model_path: Path to the mujoco XML model file.
-        output_path: Path to save the output video.
-        fps: Frames per second for the video.
         width: Width of the video.
         height: Height of the video.
         num_processes: Number of parallel processes to use.
+        camera_id: Camera ID to render from.
+    Returns:
+        List of numpy arrays (H, W, 3) (RGB)
     """
     if not state_list:
         print("No states to render.")
-        return
+        return []
 
     num_envs = state_list[0].shape[0]
     offsets = get_grid_offsets(num_envs)
@@ -196,6 +199,14 @@ def render_states_to_video(state_list, model_path, output_path, fps=30, width=12
         # map preserves order
         results = pool.map(render_frame_job, tasks)
         frames.extend(results)
+    
+    return frames
+
+def render_states_to_video(state_list, model_path, output_path, fps=30, width=1280, height=720, num_processes=8):
+    """
+    Render a list of physics states to a video file using parallel processing.
+    """
+    frames = render_states_get_frames(state_list, model_path, width, height, num_processes)
             
     print(f"Saving video to {output_path}...")
     imageio.mimsave(output_path, frames, fps=fps)

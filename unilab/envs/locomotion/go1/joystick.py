@@ -1,51 +1,85 @@
+from etils import epath
 import gymnasium as gym
 import mujoco
 import numpy as np
+from dataclasses import dataclass, field
 
+from unilab import ROOT_PATH
 from unilab.envs import registry
-from unilab.envs.locomotion.go1.cfg import Go1WalkNpEnvCfg
-from unilab.envs.mujoco_env.mj_env import MjNpEnv, MjNpEnvState
-from unilab.envs.utils.math_utils import quat_rotate_inverse, quat_mul, axis_angle_to_quat, quat_rotate
+from unilab.envs.mujoco_env.mj_env import MjNpEnvState
+from unilab.envs.utils.math_utils import quat_rotate_inverse, quat_mul, axis_angle_to_quat
 
-@registry.env("go1-flat-terrain-walk", sim_backend="mujoco")
-class Go1WalkTaskMj(MjNpEnv):
-    def __init__(self, cfg: Go1WalkNpEnvCfg, num_envs=1):
+from unilab.envs.locomotion.go1.base import Go1BaseMjEnv, Go1BaseCfg
+
+# ----------------- Configuration -----------------
+
+@dataclass
+class InitState:
+    # the initial position of the robot in the world frame
+    pos = [0.0, 0.0, 0.27] # Go1 is slightly shorter? Go2 was 0.278. Go1 cfg says 0.278 in provided context?
+    # Checking go1/cfg.py context: pos = [0.0, 0.0, 0.278]
+
+@dataclass
+class Commands:
+    vel_limit = [
+        [-1.5, -0.8, -1.2],  # min: vel_x [m/s], vel_y [m/s], ang_vel [rad/s]
+        [ 1.5,  0.8,  1.2],  # max
+    ]
+
+@dataclass
+class RewardConfig:
+    scales: dict[str, float] = field(
+        default_factory=lambda: {
+            # Tracking
+            "tracking_lin_vel": 1.0,
+            "tracking_ang_vel": 0.5,
+            # Base
+            "lin_vel_z": -0.5,
+            "ang_vel_xy": -0.05,
+            "orientation": -5.0,
+            # Other
+            "dof_pos_limits": -1.0,
+            "pose": 0.5,
+            "termination": -1.0,
+            "stand_still": -0.5,
+            # Regularization
+            "torques": -0.0002,
+            "action_rate": -0.01,
+            "energy": -0.0,
+            # Feet
+            "feet_clearance": -0.0,
+            "feet_height": -0.0,
+            "feet_slip": -0.0,
+            "feet_air_time": 1.0,
+            "base_height": -10.0,
+        }
+    )
+
+    tracking_sigma: float = 0.25
+    max_foot_height: float = 0.1
+
+@registry.envcfg("Go1JoystickFlatTerrain")
+@dataclass
+class Go1JoystickCfg(Go1BaseCfg):
+    model_file: str = str(epath.Path(__file__).parent / "xml" / "scene_mjx_feetonly_flat_terrain.xml")
+    max_episode_seconds: float = 20.0
+    init_state: InitState = field(default_factory=InitState)
+    commands: Commands = field(default_factory=Commands)
+    reward_config: RewardConfig = field(default_factory=RewardConfig)
+
+# ----------------- Environment -----------------
+
+@registry.env("Go1JoystickFlatTerrain", sim_backend="mujoco")
+class Go1WalkTaskMj(Go1BaseMjEnv):
+    def __init__(self, cfg: Go1JoystickCfg, num_envs=1):
         super().__init__(cfg, num_envs)
 
-        # Modify PD gains to match mujoco_playground go2/base.py
-        self._model.dof_damping[6:] = cfg.control_config.Kd
-        self._model.actuator_gainprm[:, 0] = cfg.control_config.Kp
-        self._model.actuator_biasprm[:, 1] = -cfg.control_config.Kp
-
-        self.nq = self._model.nq
-        self.nv = self._model.nv
-        # Offsets in physics_state (mjSTATE_FULLPHYSICS: time, qpos, qvel, act, qacc_warmstart)
-        # assuming time (1), qpos(nq), qvel(nv) ...
-        self._idx_qpos = 1
-        self._idx_qvel = 1 + self.nq
-
-        self._num_dof_pos = self.nq - 7 # Floating base 7
-        self._num_dof_vel = self.nv - 6 # Floating base 6
-        
-        self._init_action_space()
-        self._num_action = self._action_space.shape[0]
-        self._init_obs_space()
-        self._num_observation = self._observation_space.shape[0]
-        
-        self._init_dof_vel = np.zeros(
-            (self._num_dof_vel,),
-            dtype=np.float32,
-        )
-        # Compute init dof pos from keyframe 0 or qpos0
-        # MjModel.qpos0 contains default position
-        self._init_qpos = self._model.qpos0.copy()
-        
-        self._init_buffer()
-        self._init_sensor_indices()
         self._init_reward_functions()
+        self._init_obs_space()
 
     def _init_reward_functions(self):
-        """Register reward functions with standardized signature (state -> term)."""
+        """Register reward functions."""
+        # Mix of base rewards and task specific rewards
         self._reward_fns = {
             "lin_vel_z": self._reward_lin_vel_z,
             "ang_vel_xy": self._reward_ang_vel_xy,
@@ -54,71 +88,22 @@ class Go1WalkTaskMj(MjNpEnv):
             "dof_vel": self._reward_dof_vel,
             "dof_acc": lambda s: self._reward_dof_acc(s, s.info),
             "action_rate": lambda s: self._reward_action_rate(s.info),
-            "tracking_lin_vel": lambda s: self._reward_tracking_lin_vel(s, s.info["commands"]),
-            "tracking_ang_vel": lambda s: self._reward_tracking_ang_vel(s, s.info["commands"]),
-            "stand_still": lambda s: self._reward_stand_still(s, s.info["commands"]),
-            "feet_air_time": lambda s: self._reward_feet_air_time(s.info["commands"], s.info),
             "termination": lambda s: self._reward_termination(s.terminated),
             "dof_pos_limits": lambda s: self._cost_joint_pos_limits(s),
             "pose": lambda s: self._reward_pose(s),
             "energy": lambda s: self._cost_energy(s),
+            # Task specific
+            "tracking_lin_vel": lambda s: self._reward_tracking_lin_vel(s, s.info["commands"]),
+            "tracking_ang_vel": lambda s: self._reward_tracking_ang_vel(s, s.info["commands"]),
+            "stand_still": lambda s: self._reward_stand_still(s, s.info["commands"]),
+            "feet_air_time": lambda s: self._reward_feet_air_time(s.info["commands"], s.info),
             "feet_clearance": lambda s: self._cost_feet_clearance(s),
             "feet_height": lambda s: self._cost_feet_height(s.info),
             "feet_slip": lambda s: self._cost_feet_slip(s, s.info),
             "base_height": lambda s: self._reward_base_height(s),
         }
 
-    def _reward_base_height(self, state: MjNpEnvState):
-        # Penalize base height deviation from target
-        base_height = state.physics_state[:, self._idx_qpos + 2]
-        target_height = self._cfg.init_state.pos[2]
-        return np.square(base_height - target_height)
-
-    def _init_sensor_indices(self):
-        super()._init_sensor_indices()
-        
-        # 1. Contact Sensors
-        # Strict match: expected names FR_floor_found etc. based on xml definition
-        prefixes = ["FR", "FL", "RR", "RL"]
-        contact_names = [f"{p}_floor_found" for p in prefixes]
-        
-        self.contact_sensor_indices = []
-        for name in contact_names:
-            self.contact_sensor_indices.extend(self._get_sensor_indices(name))
-        
-        print(f"Mapped contact sensors: {contact_names} -> {self.contact_sensor_indices}")
-
-        # 2. Global State Sensors
-        # Enforce exact naming from scene_mjx_feetonly_flat_terrain.xml
-        self.idx_global_pos = self._get_sensor_indices("position")
-        self.idx_orientation = self._get_sensor_indices("orientation")
-        self.idx_global_linvel = self._get_sensor_indices("global_linvel")
-        self.idx_global_angvel = self._get_sensor_indices("global_angvel")
-        self.idx_upvector = self._get_sensor_indices("upvector")
-
-        # 3. Local/Proprioceptive Sensors
-        self.idx_linvel = self._get_sensor_indices("local_linvel")
-        self.idx_gyro = self._get_sensor_indices("gyro")
-
-        # 4. Foot Position Sensors
-        self.foot_pos_sensor_indices = []
-        for p in prefixes:
-            self.foot_pos_sensor_indices.append(self._get_sensor_indices(f"{p}_pos"))
-            
-    def _get_sensor_indices(self, name):
-        """Helper to get data indices from sensor name."""
-        if name not in self.sensor_indices:
-             # Allow optional sensors or raise? original raised.
-             # I will raise to fail fast if important.
-             raise ValueError(f"Sensor '{name}' not found.")
-        sensor_id = self.sensor_indices[name]
-        adr = self._model.sensor_adr[sensor_id]
-        dim = self._model.sensor_dim[sensor_id]
-        return list(range(adr, adr + dim))
-
-
     def _init_obs_space(self):
-        # model = self.model
         num_dof_vel = self._num_dof_vel
         num_joint_angle = self._num_dof_pos
         num_linvel = 3
@@ -129,197 +114,22 @@ class Go1WalkTaskMj(MjNpEnv):
 
         num_obs = num_linvel + num_gyro + num_gravity + num_joint_angle + num_dof_vel + num_actions + num_command
 
-        self._observation_space = gym.spaces.Box(-np.inf, np.inf, (num_obs,), dtype=np.float32)
-
-    def _init_action_space(self):
-        model = self.model
-        # nu = number of actuators
-        self._action_space = gym.spaces.Box(
-            np.array(model.actuator_ctrlrange[:, 0]),
-            np.array(model.actuator_ctrlrange[:, 1]),
-            (model.nu,),
-            dtype=np.float32,
+        self._observation_space = gym.spaces.Box(
+             low=np.float32(-np.inf), 
+             high=np.float32(np.inf), 
+             shape=(num_obs,), 
+             dtype=np.float32
         )
-
-    @property
-    def action_space(self) -> gym.spaces.Box:
-        return self._action_space
 
     @property
     def observation_space(self) -> gym.spaces.Box:
         return self._observation_space
 
-    def get_dof_pos(self, state: MjNpEnvState):
-        # qpos[7:]
-        # Extract qpos from physics_state
-        return state.physics_state[:, self._idx_qpos + 7 : self._idx_qpos + self.nq]
-
-    def get_dof_vel(self, state: MjNpEnvState):
-        # qvel[6:]
-        return state.physics_state[:, self._idx_qvel + 6 : self._idx_qvel + self.nv]
-
-    def _init_buffer(self):
-        cfg = self._cfg
-        assert isinstance(cfg, Go1WalkNpEnvCfg)
-        # init buffers
-
-        self.reset_buf = np.ones(self._num_envs, dtype=bool)
-        self.gravity_vec = np.array([0, 0, -1], dtype=np.float32)
-        # self.commands_scale = np.array([1.0, 1.0, 1.0], dtype=np.float32)
-
-        self.default_angles = np.zeros(self._num_action, dtype=np.float32)
-        self.hip_indices = []
-        self.calf_indices = []
-        
-        # Try to find "home" keyframe to init default pose
-        key_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_KEY, "home")
-        if key_id >= 0:
-            print(f"Using keyframe 'home' (id {key_id}) for initial state.")
-            self._init_qpos = self._model.key_qpos[key_id].copy()
-            self.default_angles = self._init_qpos[7:].astype(np.float32)
-        else:
-            raise ValueError("Keyframe 'home' not found in model.")
-
-        # Populate indices
-        for i in range(self._model.nu):
-            name = mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_ACTUATOR, i)
-            if not name: continue
-                    
-            if "hip" in name:
-                self.hip_indices.append(i)
-            if "calf" in name:
-                self.calf_indices.append(i)
-        
-        print("Default joint angles:", self.default_angles)
-
-        # Foot stuff handle in _init_sensor_indices
-        self._init_foot_linvel_sensor_indices()
-        
-        # Cache joint limits for reward
-        if self._model.njnt > 1:
-             self.dof_pos_limits = self._model.jnt_range[1:1+self._num_dof_pos].copy()
-             self.soft_dof_pos_limits = self.dof_pos_limits * 0.95
-        else:
-             self.dof_pos_limits = np.zeros((self._num_dof_pos, 2))
-             self.soft_dof_pos_limits = np.zeros((self._num_dof_pos, 2))
-
-    def _init_foot_linvel_sensor_indices(self):
-        # Match XML order: FR, FL, RR, RL
-        foot_sites = ["FR", "FL", "RR", "RL"]
-        self.foot_linvel_sensor_indices = []
-        for site in foot_sites:
-            name = f"{site}_global_linvel"
-            self.foot_linvel_sensor_indices.append(self._get_sensor_indices(name))
-
-    def apply_action(self, actions, state):
-        # Update info for rewards
-        state.info["last_dof_vel"] = self.get_dof_vel(state)
-        state.info["last_last_actions"] = state.info["last_actions"] # Keep history of last last
-        state.info["last_actions"] = state.info["current_actions"]
-        state.info["current_actions"] = actions
-        
-        # Compute control
-        ctrl = self._compute_target_jq(actions)
-        return ctrl
-
-    def _compute_target_jq(self, actions):
-        # Compute target position from actions.
-        target_jq = actions * self.cfg.control_config.action_scale + self.default_angles
-        return target_jq
-
-    def get_local_linvel(self, state: MjNpEnvState) -> np.ndarray:
-        return state.sensor_data[:, self.idx_linvel]
-
-    def get_gyro(self, state: MjNpEnvState) -> np.ndarray:
-        return state.sensor_data[:, self.idx_gyro]
-
-    def get_global_linvel(self, state: MjNpEnvState) -> np.ndarray:
-        return state.sensor_data[:, self.idx_global_linvel]
-
-    def get_global_angvel(self, state: MjNpEnvState) -> np.ndarray:
-        return state.sensor_data[:, self.idx_global_angvel]
-
-    def get_upvector(self, state: MjNpEnvState) -> np.ndarray:
-        return state.sensor_data[:, self.idx_upvector]
-
-    def update_state(self, state, obs_required=True):
-        # 1. Always update intermediate state info (sensors, math) needed for rewards/termination
-        self._update_cache(state)
-        
-        # 2. Compute Observation if required (for agent)
-        if obs_required:
-            state = self.update_observation(state)
-            
-        # 3. Check termination and calculate reward
-        state = self.update_terminated(state)
-        state = self.update_reward(state)
-        return state
-
-    def _update_cache(self, state: MjNpEnvState):
-        """Update cached info based on current physics/sensor state."""
-        info = state.info
-        
-        # A. Update Local Gravity
-        base_quat = state.physics_state[:, self._idx_qpos+3 : self._idx_qpos+7]
-        local_gravity = quat_rotate_inverse(base_quat, self.gravity_vec)
-        info["local_gravity"] = local_gravity
-        
-        # B. Update Contacts
-        if len(self.contact_sensor_indices) > 0:
-            contact_vals = state.sensor_data[:, self.contact_sensor_indices]
-            current_contacts = (contact_vals > 0.1)
-        else:
-            current_contacts = np.zeros((self._num_envs, 4), dtype=bool)
-
-        # C. Update Air Time
-        if "feet_air_time" not in info:
-             info["feet_air_time"] = np.zeros((self._num_envs, 4), dtype=np.float32)
-
-        info["feet_air_time"] += self.cfg.ctrl_dt
-        
-        # D. Update Swing Peak & Foot Tracking (requires global foot pos)
-        self._update_foot_tracking(state, info, current_contacts)
-
-        # Apply reset for next step
-        info["feet_air_time"] *= ~current_contacts
-        info["contacts"] = current_contacts
-
-    def _update_foot_tracking(self, state, info, current_contacts):
-        # Calculate foot global Z for swing height reward
-        batch_size = current_contacts.shape[0]
-        
-        if "swing_peak" not in info:
-            info["swing_peak"] = np.zeros((batch_size, 4), dtype=np.float32)
-            
-        foot_rel_pos_list = []
-        for idx_list in self.foot_pos_sensor_indices:
-             foot_rel_pos_list.append(state.sensor_data[:, idx_list])
-        foot_rel_pos = np.stack(foot_rel_pos_list, axis=1) # (N, 4, 3)
-        
-        base_pos = state.sensor_data[:, self.idx_global_pos] # (N, 3)
-        base_quat = state.sensor_data[:, self.idx_orientation] # (N, 4)
-        
-        # Calculate Forward Kinematics manually: Global = Base + R * Local
-        base_quat_conj = base_quat.copy()
-        base_quat_conj[:, 1:] *= -1 # Conjugate
-        
-        foot_global_z = np.zeros((batch_size, 4), dtype=np.float32)
-        for i in range(4):
-            vec = foot_rel_pos[:, i, :]
-            # quat_rotate_inverse(q_conj, v) = q * v * q^-1 (Standard Rotate)
-            vec_rot = quat_rotate_inverse(base_quat_conj, vec)
-            foot_global_z[:, i] = (vec_rot + base_pos)[:, 2]
-            
-        info["foot_pos_z"] = foot_global_z
-        
-        # update swing peak
-        p_fz = foot_global_z
-        info["swing_peak"] = np.maximum(info["swing_peak"], p_fz)
-        # Reset peak on contact
-        info["swing_peak"] *= ~current_contacts
-        info["swing_peak"] = np.maximum(info["swing_peak"], foot_global_z)
-        info["swing_peak_at_contact"] = info["swing_peak"] * current_contacts
-        info["swing_peak"] *= ~current_contacts
+    def _reward_base_height(self, state: MjNpEnvState):
+        # Penalize base height deviation from target
+        base_height = state.physics_state[:, self._idx_qpos + 2]
+        target_height = self._cfg.init_state.pos[2]
+        return np.square(base_height - target_height)
 
     def _get_obs(self, state: MjNpEnvState, info: dict) -> np.ndarray:
         # Get raw data (copy to allow noise injection without side effects)
@@ -358,27 +168,134 @@ class Go1WalkTaskMj(MjNpEnv):
             ]
         )
         return obs
+    
+    def update_state(self, state: MjNpEnvState, obs_required: bool = True) -> MjNpEnvState:
+        # 1. Update Physics Cache (contacts, foot pos, etc.)
+        self._update_cache(state)
+        
+        # 2. Check Termination
+        state = self.update_terminated(state)
+        
+        # 3. Compute Rewards
+        state = self._compute_rewards(state)
+        
+        # 4. Update Observation (if required)
+        if obs_required:
+            state = self.update_observation(state)
+            
+        return state
 
     def update_observation(self, state: MjNpEnvState):
         obs = self._get_obs(state, state.info)
         return state.replace(obs=obs)
 
+    def _compute_rewards(self, state: MjNpEnvState) -> MjNpEnvState:
+        total_reward = np.zeros(self._num_envs, dtype=np.float32)
+        
+        # Initialize dictionary for logging
+        log = {}
+        reward_components = {}
+
+        for name, scale in self.cfg.reward_config.scales.items():
+            if scale == 0:
+                continue
+            if name not in self._reward_fns:
+                continue
+                
+            rew = self._reward_fns[name](state)
+            weighted_rew = rew * scale
+            total_reward += weighted_rew
+            
+            # Store mean weighted reward per step for logging (gs_playground style)
+            log[f"reward/{name}"] = np.mean(weighted_rew)
+            reward_components[name] = weighted_rew
+            
+        # Log other info metrics
+        if "feet_air_time" in state.info:
+            log["metrics/feet_air_time"] = np.mean(state.info["feet_air_time"])
+        if "contacts" in state.info:
+            log["metrics/contact_rate"] = np.mean(state.info.get("contacts", np.zeros_like(total_reward)).astype(float))
+            
+        state.info["log"] = log
+        state.info["reward_components"] = reward_components
+
+        # Scale reward by dt (mujoco_playground style)
+        total_reward *= self.cfg.ctrl_dt
+        
+        # Clip reward (mujoco_playground style)
+        total_reward = np.clip(total_reward, 0.0, 10000.0)
+            
+        return state.replace(reward=total_reward)
+
+    def _update_cache(self, state: MjNpEnvState):
+        """Update cached info based on current physics/sensor state."""
+        super()._update_cache(state)
+        info = state.info
+        current_contacts = info["contacts"]
+
+        # C. Update Air Time
+        if "feet_air_time" not in info:
+            info["feet_air_time"] = np.zeros((self._num_envs, 4), dtype=np.float32)
+
+        info["feet_air_time"] += self.cfg.ctrl_dt
+        
+        # Capture air time at contact (before reset)
+        info["air_time_at_contact"] = info["feet_air_time"] * current_contacts
+        
+        # Reset air time for feet in contact
+        info["feet_air_time"] *= ~current_contacts
+        
+        # D. Update Swing Peak & Foot Tracking (requires global foot pos)
+        self._update_foot_tracking(state, info, current_contacts)
+
+
+    def _update_foot_tracking(self, state, info, current_contacts):
+        # Calculate foot global Z for swing height reward
+        batch_size = current_contacts.shape[0]
+        
+        if "swing_peak" not in info:
+            info["swing_peak"] = np.zeros((batch_size, 4), dtype=np.float32)
+            
+        foot_rel_pos_list = []
+        for idx_list in self.foot_pos_sensor_indices:
+             foot_rel_pos_list.append(state.sensor_data[:, idx_list])
+        if foot_rel_pos_list:
+            foot_rel_pos = np.stack(foot_rel_pos_list, axis=1) # (N, 4, 3)
+            
+            base_pos = state.sensor_data[:, self.idx_global_pos] # (N, 3)
+            base_quat = state.sensor_data[:, self.idx_orientation] # (N, 4)
+            
+            # Calculate Forward Kinematics manually: Global = Base + R * Local
+            base_quat_conj = base_quat.copy()
+            base_quat_conj[:, 1:] *= -1 # Conjugate
+            
+            foot_global_z = np.zeros((batch_size, 4), dtype=np.float32)
+            for i in range(4):
+                vec = foot_rel_pos[:, i, :]
+                # quat_rotate_inverse(q_conj, v) = q * v * q^-1 (Standard Rotate)
+                vec_rot = quat_rotate_inverse(base_quat_conj, vec)
+                foot_global_z[:, i] = (vec_rot + base_pos)[:, 2]
+                
+            info["foot_pos_z"] = foot_global_z
+            
+            # update swing peak
+            p_fz = foot_global_z
+            info["swing_peak"] = np.maximum(info["swing_peak"], p_fz)
+            # Reset peak on contact
+            info["swing_peak"] *= ~current_contacts
+            info["swing_peak"] = np.maximum(info["swing_peak"], foot_global_z)
+            info["swing_peak_at_contact"] = info["swing_peak"] * current_contacts
+            info["swing_peak"] *= ~current_contacts
+
     def update_terminated(self, state: MjNpEnvState) -> MjNpEnvState:
         local_gravity = state.info["local_gravity"]
         up_z = -local_gravity[:, 2]
         
-        # 1. Orientation termination
         is_fallen = up_z <= 0.5
-
+        
         return state.replace(
             terminated=is_fallen,
         )
-
-    def update_feet_air_time(self, info: dict):
-        feet_air_time = info["feet_air_time"]
-        feet_air_time += self.cfg.ctrl_dt
-        feet_air_time *= ~info["contacts"]
-        return feet_air_time
 
     def resample_commands(self, num_envs: int):
         commands = np.random.uniform(
@@ -387,45 +304,11 @@ class Go1WalkTaskMj(MjNpEnv):
             size=(num_envs, 3),
         )
 
+        # Standard practice: set small percentage of commands to zero to train standing still
         mask = np.random.random(num_envs) < 0.05
         commands[mask] = 0.0
         
         return commands
-
-    def update_reward(self, state: MjNpEnvState) -> MjNpEnvState:
-        # Optimized: Calculate reward accumulatively using registered functions
-        total_reward = np.zeros(self._num_envs, dtype=np.float32)
-        scales = self.cfg.reward_config.scales
-        
-        # Logging dictionary for rsl_rl
-        log = {}
-        
-        for name, scale in scales.items():
-            if scale == 0.0:
-                continue
-                
-            if name in self._reward_fns:
-                # Call standardized lambda/method
-                term = self._reward_fns[name](state)
-                weighted_reward = term * scale
-                total_reward += weighted_reward
-                
-                # Log average weighted reward per step
-                log[f"reward/{name}"] = np.mean(weighted_reward)
-        
-        # Log other info metrics
-        if "feet_air_time" in state.info:
-            log["metrics/feet_air_time"] = np.mean(state.info["feet_air_time"])
-        if "contacts" in state.info:
-            log["metrics/contact_rate"] = np.mean(state.info["contacts"].astype(float))
-
-        # Store log in info
-        state.info["log"] = log
-        
-        # Clip reward
-        total_reward = np.clip(total_reward, 0.0, 10000.0)
-        
-        return state.replace(reward=total_reward)
 
     def reset(self, env_indices: np.ndarray) -> tuple[np.ndarray, dict]:
         num_reset = len(env_indices)
@@ -507,6 +390,8 @@ class Go1WalkTaskMj(MjNpEnv):
         
         # Manually call update_cache to populate local_gravity/contacts/etc.
         self._update_cache(obs_state)
+        # Reset feet_air_time to 0.0 as it was incremented by update_cache
+        info["feet_air_time"][:] = 0.0
 
         # Call _get_obs ONCE for the entire batch
         obs_batch = self._get_obs(obs_state, info)
@@ -514,53 +399,11 @@ class Go1WalkTaskMj(MjNpEnv):
         # MjNpEnv expects: new_physics_states, new_obs, info
         return obs_physics_state, obs_batch, info
 
-    # ------------ reward functions----------------
-    def _reward_lin_vel_z(self, state):
-        # Penalize z axis base linear velocity
-        # Matches joystick.py _cost_lin_vel_z using global_linvel
-        global_linvel = self.get_global_linvel(state)
-        return np.square(global_linvel[:, 2])
-
-    def _reward_ang_vel_xy(self, state):
-        # Penalize xy axes base angular velocity
-        # Matches joystick.py _cost_ang_vel_xy using global_angvel
-        global_angvel = self.get_global_angvel(state)
-        return np.sum(np.square(global_angvel[:, :2]), axis=1)
-
-    def _reward_orientation(self, state):
-        # Penalize non flat base orientation
-        # Matches joystick.py _cost_orientation using upvector (Global Z axis of body)
-        upvector = self.get_upvector(state)
-        return np.sum(np.square(upvector[:, :2]), axis=1)
-
-    def _reward_torques(self, state):
-        return np.sum(np.square(state.ctrl), axis=1)
-
-    def _reward_dof_vel(self, state):
-        # Penalize dof velocities
-        return np.sum(np.square(self.get_dof_vel(state)), axis=1)
-
-    def _reward_dof_acc(self, state, info):
-        # Penalize dof accelerations
-        return np.sum(
-            np.square((info["last_dof_vel"] - self.get_dof_vel(state)) / self.cfg.ctrl_dt),
-            axis=1,
-        )
-
-    def _reward_action_rate(self, info: dict):
-        # Penalize changes in actions
-        action_diff = info["current_actions"] - info["last_actions"]
-        return np.sum(np.square(action_diff), axis=1)
-
-    def _reward_termination(self, done):
-        # Terminal reward / penalty
-        return done
-
     def _reward_feet_air_time(self, commands: np.ndarray, info: dict):
         # Reward for taking long steps: (air_time - threshold) * first_contact
         air_time = info.get("air_time_at_contact", np.zeros((self._num_envs, 4)))
         
-        rew_air_time = np.sum((air_time - 0.1) * (air_time > 0.0), axis=1)
+        rew_air_time = np.sum((air_time - 0.1) * (air_time > 0.0), axis=1) # threshold 0.1? match go2
         
         # Reward is only non-zero when commands are non-zero
         rew_air_time *= np.linalg.norm(commands[:, :3], axis=1) > 0.01
@@ -580,30 +423,6 @@ class Go1WalkTaskMj(MjNpEnv):
         return np.sum(np.abs(self.get_dof_pos(state) - self.default_angles), axis=1) * (
             cmd_norm < 0.01
         )
-
-    def _cost_energy(self, state: MjNpEnvState):
-        # Energy = sum(abs(qvel) * abs(torque))
-        return np.sum(np.abs(self.get_dof_vel(state)) * np.abs(state.ctrl), axis=1)
-
-    def _reward_pose(self, state: MjNpEnvState):
-        # Penalize deviation from default pose
-        qpos = self.get_dof_pos(state)
-        weight = np.tile(np.array([1.0, 1.0, 0.1]), 4)
-        error = np.sum(np.square(qpos - self.default_angles) * weight, axis=1)
-        return np.exp(-error)
-
-    def _cost_joint_pos_limits(self, state: MjNpEnvState):
-        # Penalize joints if they cross soft limits.
-        qpos = self.get_dof_pos(state)
-        soft_lower = self.soft_dof_pos_limits[:, 0]
-        soft_upper = self.soft_dof_pos_limits[:, 1]
-        
-        # Lower violation
-        out_of_limits = -np.clip(qpos - soft_lower, None, 0.0)
-        # Upper violation
-        out_of_limits += np.clip(qpos - soft_upper, 0.0, None)
-        
-        return np.sum(out_of_limits, axis=1)
 
     def _cost_feet_slip(self, state, info):
         # Penalize foot velocity while in contact
@@ -643,10 +462,13 @@ class Go1WalkTaskMj(MjNpEnv):
         
         target = self.cfg.reward_config.max_foot_height
         if target < 0.0001:
-            raise ValueError(f"Invalid target feet height: {target}")
+            return np.zeros(self._num_envs)
         
         error = peak / target - 1.0
         mask = (peak > 0.001) 
         
         cmd_norm = np.linalg.norm(info["commands"], axis=1)
         return np.sum(np.square(error) * mask, axis=1) * (cmd_norm > 0.01)
+
+    def _reward_termination(self, done):
+        return done

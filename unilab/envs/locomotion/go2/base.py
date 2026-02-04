@@ -85,9 +85,11 @@ class Go2BaseMjEnv(MjNpEnv):
     def _init_action_space(self):
         model = self.model
         # nu = number of actuators
+        low = np.array(model.actuator_ctrlrange[:, 0], dtype=np.float32)
+        high = np.array(model.actuator_ctrlrange[:, 1], dtype=np.float32)
         self._action_space = gym.spaces.Box(
-            np.array(model.actuator_ctrlrange[:, 0]),
-            np.array(model.actuator_ctrlrange[:, 1]),
+            low,
+            high,
             (model.nu,),
             dtype=np.float32,
         )

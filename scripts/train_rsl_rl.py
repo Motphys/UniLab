@@ -3,11 +3,13 @@ import os
 import sys
 import argparse
 import numpy as np
+import datetime
 from pathlib import Path
 import pkgutil
 import importlib
 import torch
 from tensordict import TensorDict
+import mediapy as media
 
 # Add workspace root to python path dynamically
 ROOT_DIR = Path(__file__).parent.parent
@@ -88,17 +90,18 @@ class RslRlVecEnvWrapper:
         # Check for dones
         done_indices = torch.nonzero(dones).flatten()
         if len(done_indices) > 0:
-            infos["episode"] = {
-                "r": self.episode_returns[done_indices].clone(),
-                "l": self.episode_lengths[done_indices].clone()
-            }
-            # Reset buffers for done envs
-            self.episode_returns[done_indices] = 0
-            self.episode_lengths[done_indices] = 0
-            
             # Handle limits and timeouts (RSL-RL expects 'time_outs' in extras/infos)
             if hasattr(state, "truncated"):
                 infos["time_outs"] = torch.tensor(state.truncated, device=self.device, dtype=torch.bool)
+            
+            # Reset buffers for done envs
+            self.episode_returns[done_indices] = 0
+            self.episode_lengths[done_indices] = 0
+
+        # Pass per-step logs if available (gs_playground style)
+        # prioritizing 'log' over 'episode' allows per-step metric logging
+        if hasattr(state, "info") and "log" in state.info:
+            infos["log"] = state.info["log"]
         
         obs_dict = TensorDict(
             {"policy": obs}, 
@@ -139,10 +142,19 @@ class RslRlVecEnvWrapper:
 
 
 def get_latest_run(log_dir):
-    """Find the latest run in the log directory."""
+    """Find the latest run in the log directory that contains a model."""
     if not os.path.exists(log_dir):
         return None
     runs = sorted([d for d in os.listdir(log_dir) if os.path.isdir(os.path.join(log_dir, d)) and d != "git"])
+    
+    # Iterate backwards to find first run with models
+    for run_id in reversed(runs):
+        run_path = os.path.join(log_dir, run_id)
+        # Check if any .pt file exists
+        if any(f.endswith(".pt") for f in os.listdir(run_path)):
+            return run_path
+            
+    # Fallback to just the latest directory if no models found (though it will likely fail later)
     if len(runs) > 0:
         return os.path.join(log_dir, runs[-1])
     return None
@@ -169,7 +181,12 @@ def main():
         cfg.max_iterations = max(1, max_iters)
         print(f"Overriding max_iterations to {max_iters} based on num_timesteps {args.num_timesteps}")
 
-    log_root = ROOT_DIR / "logs" / "rsl_rl_train"
+    if not args.play_only:
+        timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+        log_dir = str(ROOT_DIR / "logs" / "rsl_rl_train" / args.task / timestamp)
+    else:
+        log_dir = None
+
     if torch.cuda.is_available():
         device = "cuda"
     elif torch.backends.mps.is_available():
@@ -188,7 +205,7 @@ def main():
         train_cfg = cfg.to_dict()
         
         # Runner
-        runner = OnPolicyRunner(wrapped_env, train_cfg, log_dir=str(log_root), device=device)
+        runner = OnPolicyRunner(wrapped_env, train_cfg, log_dir=log_dir, device=device)
         
         # Load capability for training (resume)
         resume_path = None
@@ -197,11 +214,11 @@ def main():
             if os.path.exists(args.load_run):
                 resume_path = args.load_run
             else:
-                # Check in log_root/task/run
-                # The structure is usually log_root/task_name/run_name
-                # If load_run is just a name or number?
-                task_log_dir = log_root / args.task
-                run_path = task_log_dir / args.load_run
+                # Check in logs/rsl_rl_train/task_name
+                # The structure is log_root/task_name/timestamp
+                # If load_run is just a timestamp?
+                base_log_dir = ROOT_DIR / "logs" / "rsl_rl_train" / args.task
+                run_path = base_log_dir / args.load_run
                 if run_path.exists():
                     resume_path = str(run_path)
         
@@ -221,34 +238,50 @@ def main():
         train_cfg = cfg.to_dict()
         
         # Need to find the model to load
-        task_log_dir = log_root / args.task
+        base_log_dir = ROOT_DIR / "logs" / "rsl_rl_train" / args.task
         load_path = None
         
         if args.load_run == "-1":
-            load_path = get_latest_run(str(task_log_dir))
+            load_path = get_latest_run(str(base_log_dir))
         else:
             if os.path.exists(args.load_run):
                 load_path = args.load_run
             else:
-                load_path = str(task_log_dir / args.load_run)
+                load_path = str(base_log_dir / args.load_run)
                  
         if not load_path or not os.path.exists(load_path):
             print(f"Could not find run to load at {load_path}")
             sys.exit(1)
+            
+        # If load_path is a directory, find the latest model file
+        if os.path.isdir(load_path):
+            model_files = [f for f in os.listdir(load_path) if f.startswith("model_") and f.endswith(".pt")]
+            if len(model_files) > 0:
+                # Sort by iteration number
+                model_files.sort(key=lambda x: int(x.split("_")[1].split(".")[0]))
+                load_path_dir = load_path # keep dir for video output
+                load_path = os.path.join(load_path, model_files[-1])
+                print(f"Loading latest model: {load_path}")
+            else:
+                print(f"No model files found in {load_path}")
+                sys.exit(1)
+        else:
+            load_path_dir = os.path.dirname(load_path)
              
         # Initialize runner just to load policy
-        runner = OnPolicyRunner(wrapped_env, train_cfg, log_dir=str(log_root), device=device)
+        # NOTE: For play, we don't care about log_dir so much, but runner needs it
+        runner = OnPolicyRunner(wrapped_env, train_cfg, log_dir=log_dir, device=device)
         runner.load(load_path)
         policy = runner.get_inference_policy(device=device)
         
-        output_video = Path(load_path) / "play_video.mp4"
+        output_video = Path(load_path_dir) / "play_video.mp4"
         
         print(f"Rendering video to {output_video}...")
         # Reset Environment
         obs, _ = wrapped_env.reset()
         
         state_list = []
-        num_steps = 300
+        num_steps = 150
         
         # Collect states
         print("Collecting physics states...")
@@ -260,14 +293,18 @@ def main():
                 state_copy = env.state.physics_state.copy()
                 state_list.append(state_copy)
         
-        render_many.render_states_to_video(
+        print("Rendering frames...")
+        # Use render_many to get frames, then use mediapy to save
+        frames = render_many.render_states_get_frames(
             state_list, 
             env.cfg.model_file, 
-            str(output_video), 
-            fps=int(1.0/env.cfg.ctrl_dt),
             width=1280,
-            height=720
+            height=720,
+            camera_id=-1 # or specific camera
         )
+
+        print(f"Saving video to {output_video} with mediapy...")
+        media.write_video(str(output_video), frames, fps=int(1.0/env.cfg.ctrl_dt))
 
 if __name__ == "__main__":
     main()
