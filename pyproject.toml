@@ -20,6 +20,7 @@ dependencies = [
     "rsl-rl-lib>=3.3.0,<5.0.0",
     "packaging",
     "mediapy",
+    "tensorboard",
 ]
 
 [project.optional-dependencies]

@@ -68,6 +68,7 @@ def convert_config_v3_to_v4(cfg: dict) -> dict:
             "hidden_dims": policy.get("actor_hidden_dims", [256, 256, 256]),
             "activation": policy.get("activation", "elu"),
             "init_noise_std": policy.get("init_noise_std", 1.0),
+            "stochastic": True,  # Required: MLPModel needs this to create output distribution
         }
         cfg["critic"] = {
             "class_name": "MLPModel",
