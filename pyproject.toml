@@ -17,7 +17,9 @@ dependencies = [
     "etils",
     "ml_collections",
     "tensordict",
-    "rsl-rl-lib>=3.3.0",
+    "rsl-rl-lib>=3.3.0,<5.0.0",
+    "packaging",
+    "mediapy",
 ]
 
 [project.optional-dependencies]

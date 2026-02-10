@@ -43,6 +43,8 @@ except ImportError:
     print("Could not import rsl_rl. Please ensure it is installed.")
     sys.exit(1)
 
+from unilab.utils.rsl_rl_compat import is_rsl_rl_v4, convert_config_v3_to_v4
+
 class RslRlVecEnvWrapper:
     """Wrapper to adapt MjNpEnv to RSL-RL OnPolicyRunner interface."""
     def __init__(self, env, device='cuda'):
@@ -203,6 +205,8 @@ def main():
         
         # Convert ConfigDict to regular dict for RSL-RL
         train_cfg = cfg.to_dict()
+        if is_rsl_rl_v4():
+            train_cfg = convert_config_v3_to_v4(train_cfg)
         
         # Runner
         runner = OnPolicyRunner(wrapped_env, train_cfg, log_dir=log_dir, device=device)
@@ -236,6 +240,8 @@ def main():
         # We need a dummy wrapper just to be compatible with runner for loading policy
         wrapped_env = RslRlVecEnvWrapper(env, device=device)
         train_cfg = cfg.to_dict()
+        if is_rsl_rl_v4():
+            train_cfg = convert_config_v3_to_v4(train_cfg)
         
         # Need to find the model to load
         base_log_dir = ROOT_DIR / "logs" / "rsl_rl_train" / args.task
