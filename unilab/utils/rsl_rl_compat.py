@@ -60,6 +60,10 @@ def convert_config_v3_to_v4(cfg: dict) -> dict:
     """
     cfg = deepcopy(cfg)
 
+    # Remove deprecated fields, but capture value for migration first
+    empirical_normalization = cfg.pop("empirical_normalization", False)
+    cfg.pop("runner_class_name", None)
+
     # Convert policy → actor + critic
     if "policy" in cfg:
         policy = cfg.pop("policy")
@@ -69,11 +73,13 @@ def convert_config_v3_to_v4(cfg: dict) -> dict:
             "activation": policy.get("activation", "elu"),
             "init_noise_std": policy.get("init_noise_std", 1.0),
             "stochastic": True,  # Required: MLPModel needs this to create output distribution
+            "obs_normalization": empirical_normalization,
         }
         cfg["critic"] = {
             "class_name": "MLPModel",
             "hidden_dims": policy.get("critic_hidden_dims", [256, 256, 256]),
             "activation": policy.get("activation", "elu"),
+            "obs_normalization": empirical_normalization,
         }
 
     # 4.x requires rnd_cfg in algorithm config (can be None)
@@ -84,9 +90,5 @@ def convert_config_v3_to_v4(cfg: dict) -> dict:
 
     # 4.x requires obs_groups
     cfg.setdefault("obs_groups", {"default": ["policy"]})
-
-    # Remove deprecated fields
-    cfg.pop("empirical_normalization", None)
-    cfg.pop("runner_class_name", None)
 
     return cfg
