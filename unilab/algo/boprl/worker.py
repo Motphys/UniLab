@@ -84,6 +84,8 @@ class RolloutWorker:
         }
 
         self.episode_metrics = {}
+        # Per-step log entries (matching rsl_rl's extras["log"] / extras["episode"])
+        self.step_log_entries = []
 
     def init_policy(self, policy_cfg):
         """Initialize worker policy architecture on CPU."""
@@ -168,6 +170,8 @@ class RolloutWorker:
         dones_list = []
         log_prob_list = []
         truncated_list = []
+        mu_list = []
+        sigma_list = []
 
         # TensorDict reuse? No, better to recreate wrapper or slice.
         # But for speed, just wrap current_obs.
@@ -186,6 +190,9 @@ class RolloutWorker:
                 actions = self.actor(obs_td, stochastic_output=True)
                 # It also updates self.distribution internally so we can get log_prob
                 log_prob = self.actor.get_output_log_prob(actions)
+                # Store mu and sigma for analytical KL in PPO update
+                action_mean = self.actor.output_mean.detach()
+                action_std = self.actor.output_std.detach()
 
             # 3. Step
             actions_np = actions.cpu().numpy()
@@ -209,6 +216,9 @@ class RolloutWorker:
             log_prob_list.append(log_prob)
             # Store truncated (time-out) for bootstrap correction
             truncated_list.append(torch.as_tensor(truncated, device=self.device, dtype=torch.bool))
+            # Store mu/sigma for analytical KL in PPO update
+            mu_list.append(action_mean)
+            sigma_list.append(action_std)
 
             # Update obs
             self.current_obs = torch.as_tensor(next_obs, device=self.device, dtype=torch.float32)
@@ -217,29 +227,21 @@ class RolloutWorker:
             rew_tensor = torch.as_tensor(rew, device=self.device, dtype=torch.float32)
             dones_tensor = torch.as_tensor(dones, device=self.device, dtype=torch.bool)
 
-            # 1. Manual total
+            # 1. Per-episode total reward and length (for episode_returns / episode_lengths)
             self.episode_sums["reward"] += rew_tensor
             self.episode_sums["length"] += 1
 
-            # 2. Detailed components
-            if isinstance(infos, dict) and "reward_components" in infos:
-                for key, val in infos["reward_components"].items():
-                    # val is expected to be array of shape (num_envs,)
-                    val_tensor = torch.as_tensor(val, device=self.device, dtype=torch.float32)
-                    if key not in self.episode_sums:
-                        self.episode_sums[key] = torch.zeros(self.num_envs, device=self.device)
-                    self.episode_sums[key] += val_tensor
+            # 2. Per-step log entries (matching rsl_rl's extras["log"])
+            #    These are already per-step cross-env means (scalars), computed by env
+            if isinstance(infos, dict) and "log" in infos:
+                self.step_log_entries.append(infos["log"])
 
             # Collect completed episodes
             done_indices = torch.nonzero(dones_tensor).squeeze(-1)
             if len(done_indices) > 0:
-                for key, val_tensor in self.episode_sums.items():
-                    # Map names for compatibility with runner
-                    metric_name = key
-                    if key == "reward":
-                        metric_name = "episode_returns"
-                    if key == "length":
-                        metric_name = "episode_lengths"
+                for key in ["reward", "length"]:
+                    val_tensor = self.episode_sums[key]
+                    metric_name = "episode_returns" if key == "reward" else "episode_lengths"
 
                     if metric_name not in self.episode_metrics:
                         self.episode_metrics[metric_name] = []
@@ -261,16 +263,23 @@ class RolloutWorker:
             "dones": torch.stack(dones_list),
             "truncated": torch.stack(truncated_list),
             "actions_log_prob": torch.stack(log_prob_list),
+            "mu": torch.stack(mu_list),
+            "sigma": torch.stack(sigma_list),
             "last_obs": self.current_obs.clone(),  # s_{T+1} for GAE bootstrap
         }
 
         # Prepare metrics to return
         metrics = self.episode_metrics.copy()
 
-        # Reset completed
+        # Include per-step log entries for reward component logging (rsl_rl style)
+        step_logs = self.step_log_entries.copy()
+
+        # Reset
         self.episode_metrics = {}
+        self.step_log_entries = []
 
         ret_storage["metrics"] = metrics
+        ret_storage["step_logs"] = step_logs
 
         return ret_storage
 

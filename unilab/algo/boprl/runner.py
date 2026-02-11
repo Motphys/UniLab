@@ -122,7 +122,16 @@ class BOPRLRunner:
         device = self.learner.device
 
         # Separate time-series data (dim=1 cat) vs single-step data (dim=0 cat)
-        time_series_keys = ["observations", "actions", "rewards", "dones", "truncated", "actions_log_prob"]
+        time_series_keys = [
+            "observations",
+            "actions",
+            "rewards",
+            "dones",
+            "truncated",
+            "actions_log_prob",
+            "mu",
+            "sigma",
+        ]
         single_step_keys = ["last_obs"]  # [N, D] per worker, cat along dim=0
 
         for k in time_series_keys:
@@ -139,12 +148,15 @@ class BOPRLRunner:
         return batch_dict
 
     def _aggregate_metrics(self, results):
-        """Aggregate episode metrics from worker results."""
+        """Aggregate episode metrics and per-step log entries from worker results."""
         for r in results:
             if "metrics" in r:
                 m = r["metrics"]
                 for key, val_list in m.items():
                     self.metrics_buffers[key].extend(val_list)
+            # Collect per-step log entries (rsl_rl style: extras["log"])
+            if "step_logs" in r:
+                self.step_log_accumulator.extend(r["step_logs"])
 
     def learn(self, max_iterations=1000, save_interval=50, log_dir=None):
         """Main training loop with async double-buffered pipeline and rsl_rl-style logging.
@@ -164,6 +176,8 @@ class BOPRLRunner:
 
         # Metrics buffers (same as rsl_rl Logger)
         self.metrics_buffers = defaultdict(lambda: deque(maxlen=100))
+        # Per-step log accumulator (rsl_rl style: mean over steps, reset each iteration)
+        self.step_log_accumulator = []
 
         # TensorBoard writer
         tb_writer = None
@@ -268,12 +282,21 @@ class BOPRLRunner:
             if mean_ep_len is not None:
                 log_string += f"""{"Mean episode length:":>{pad}} {mean_ep_len:.2f}\n"""
 
-            for key in sorted(self.metrics_buffers.keys()):
-                if key in ["episode_returns", "episode_lengths"]:
-                    continue
-                if len(self.metrics_buffers[key]) > 0:
-                    pretty_key = "Mean " + key.replace("_", " ")
-                    log_string += f"""{pretty_key+":":>{pad}} {statistics.mean(self.metrics_buffers[key]):.4f}\n"""
+            # Per-step reward components (matching rsl_rl Logger format)
+            # Aggregate step_log_accumulator: each entry is a dict of {key: scalar}
+            # Compute mean over all steps for each key, then clear
+            step_log_means = {}
+            if self.step_log_accumulator:
+                all_keys = set()
+                for entry in self.step_log_accumulator:
+                    all_keys.update(entry.keys())
+                for key in sorted(all_keys):
+                    vals = [e[key] for e in self.step_log_accumulator if key in e]
+                    step_log_means[key] = sum(vals) / len(vals)
+                self.step_log_accumulator = []
+
+            for key in sorted(step_log_means.keys()):
+                log_string += f"""{f"{key}:":>{pad}} {step_log_means[key]:.4f}\n"""
 
             if hasattr(self.learner.actor, "output_std") and self.learner.actor.distribution is not None:
                 log_string += (
@@ -303,12 +326,12 @@ class BOPRLRunner:
                 tb_writer.add_scalar("Perf/total_fps", fps, it)
                 tb_writer.add_scalar("Perf/collection_time", collect_time, it)
                 tb_writer.add_scalar("Perf/learning_time", learn_time, it)
-                # Reward components
-                for key in sorted(self.metrics_buffers.keys()):
-                    if key in ["episode_returns", "episode_lengths"]:
-                        continue
-                    if len(self.metrics_buffers[key]) > 0:
-                        tb_writer.add_scalar(f"Train/{key}", statistics.mean(self.metrics_buffers[key]), it)
+                # Per-step reward components (matching rsl_rl format)
+                for key, value in step_log_means.items():
+                    if "/" in key:
+                        tb_writer.add_scalar(key, value, it)
+                    else:
+                        tb_writer.add_scalar(f"Episode/{key}", value, it)
 
         # No pending batch to process — the prefetch pipeline processes each batch
         # exactly once in the loop body. The last collected batch (current_batch)

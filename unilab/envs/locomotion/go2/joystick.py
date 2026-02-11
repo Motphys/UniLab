@@ -229,8 +229,9 @@ class Go2WalkTaskMj(Go2BaseMjEnv):
         # Scale reward by dt (mujoco_playground style)
         total_reward *= self.cfg.ctrl_dt
 
-        # Clip reward magnitude (allow negatives for penalties)
-        total_reward = np.clip(total_reward, -10000.0, 10000.0)
+        # Clip reward to non-negative to prevent early suicide (agent terminating
+        # on purpose to avoid accumulating negative rewards)
+        total_reward = np.clip(total_reward, 0.0, 10000.0)
 
         return state.replace(reward=total_reward)
 

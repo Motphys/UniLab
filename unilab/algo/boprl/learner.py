@@ -149,7 +149,10 @@ class BOPRLLearner:
         return batch_dict
 
     def update(self, batch_dict):
-        """Perform PPO update with adaptive LR schedule.
+        """Perform PPO update with per-mini-batch adaptive LR (matching rsl_rl exactly).
+
+        Uses analytical Gaussian KL divergence between old and new policy outputs
+        (mu, sigma) for stable LR adaptation, matching rsl_rl's PPO implementation.
 
         Returns:
             dict with loss metrics
@@ -161,6 +164,8 @@ class BOPRLLearner:
         advantages_flat = batch_dict["advantages"].flatten(0, 1)
         old_log_probs_flat = batch_dict["actions_log_prob"].flatten(0, 1)
         old_values_flat = batch_dict["values"].flatten(0, 1)
+        old_mu_flat = batch_dict["mu"].flatten(0, 1)  # [T*N, A]
+        old_sigma_flat = batch_dict["sigma"].flatten(0, 1)  # [T*N, A]
 
         # Normalize advantages globally (before mini-batch split, matching rsl_rl)
         advantages_flat = (advantages_flat - advantages_flat.mean()) / (advantages_flat.std() + 1e-8)
@@ -174,6 +179,7 @@ class BOPRLLearner:
         mean_value_loss = 0.0
         mean_surrogate_loss = 0.0
         mean_entropy = 0.0
+        mean_kl = 0.0
         num_updates = 0
 
         for epoch in range(self.num_learning_epochs):
@@ -190,12 +196,40 @@ class BOPRLLearner:
                 advantages_mini = advantages_flat[batch_idx]
                 old_log_probs_mini = old_log_probs_flat[batch_idx]
                 old_values_mini = old_values_flat[batch_idx]
+                old_mu_mini = old_mu_flat[batch_idx]
+                old_sigma_mini = old_sigma_flat[batch_idx]
 
                 # Forward pass
                 _ = self.actor(obs_mini_td, stochastic_output=True)
                 actions_log_prob = self.actor.get_output_log_prob(actions_mini)
                 value = self.critic(obs_mini_td).squeeze(-1)
                 entropy = self.actor.output_entropy.mean()
+
+                # Current policy mu/sigma
+                mu = self.actor.output_mean
+                sigma = self.actor.output_std
+
+                # Analytical Gaussian KL divergence (matching rsl_rl exactly):
+                # D_KL(N_old || N_new) = sum_i [ln(σ_new/σ_old) + (σ_old² + (μ_old - μ_new)²)/(2σ_new²) - 0.5]
+                if self.desired_kl is not None and self.schedule == "adaptive":
+                    with torch.inference_mode():
+                        kl = torch.sum(
+                            torch.log(sigma / old_sigma_mini + 1e-5)
+                            + (old_sigma_mini.pow(2) + (old_mu_mini - mu).pow(2)) / (2.0 * sigma.pow(2))
+                            - 0.5,
+                            dim=-1,
+                        )
+                        kl_mean = torch.mean(kl)
+
+                        if kl_mean > self.desired_kl * 2.0:
+                            self.learning_rate = max(1e-5, self.learning_rate / 1.5)
+                        elif kl_mean < self.desired_kl / 2.0 and kl_mean > 0.0:
+                            self.learning_rate = min(1e-2, self.learning_rate * 1.5)
+
+                        for param_group in self.optimizer.param_groups:
+                            param_group["lr"] = self.learning_rate
+
+                        mean_kl += kl_mean.item()
 
                 # PPO Surrogate Loss
                 ratio = torch.exp(actions_log_prob - old_log_probs_mini)
@@ -226,30 +260,10 @@ class BOPRLLearner:
                 mean_entropy += entropy.item()
                 num_updates += 1
 
-        # Adaptive LR via KL divergence — computed ONCE after all epochs on full batch.
-        # Per-mini-batch KL adaptation causes sawtooth oscillation (LR recovers in early
-        # epochs but collapses in later epochs), leading to LR stuck at floor.
-        # Computing after all epochs gives a stable KL estimate of total policy change.
-        if self.desired_kl is not None and self.schedule == "adaptive":
-            with torch.inference_mode():
-                _ = self.actor(obs_td, stochastic_output=True)
-                final_log_probs = self.actor.get_output_log_prob(actions_flat)
-                log_ratio = final_log_probs - old_log_probs_flat
-                # Schulman KL approximation: E[ratio - 1 - log(ratio)]
-                approx_kl = ((torch.exp(log_ratio) - 1) - log_ratio).mean()
-
-                if approx_kl > self.desired_kl * 2.0:
-                    self.learning_rate = max(1e-5, self.learning_rate / 1.5)
-                elif approx_kl < self.desired_kl / 2.0 and approx_kl > 0.0:
-                    self.learning_rate = min(1e-2, self.learning_rate * 1.5)
-
-                for param_group in self.optimizer.param_groups:
-                    param_group["lr"] = self.learning_rate
-
         num_updates = max(num_updates, 1)
         return {
             "surrogate": mean_surrogate_loss / num_updates,
             "value_function": mean_value_loss / num_updates,
             "entropy": mean_entropy / num_updates,
-            "kl": approx_kl.item() if self.schedule == "adaptive" else 0.0,
+            "kl": mean_kl / num_updates if self.schedule == "adaptive" else 0.0,
         }
