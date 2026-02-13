@@ -458,61 +458,36 @@ def save_plots(
     saved: List[str] = []
 
     workloads = sorted({r.workload for r in records})
+    dtypes = sorted({r.dtype for r in records})
     for workload in workloads:
-        subset = [r for r in records if r.workload == workload]
-        backend_dtype_keys = sorted({f"{r.backend}[{r.dtype}]" for r in subset})
+        for dtype in dtypes:
+            subset = [r for r in records if r.workload == workload and r.dtype == dtype]
+            if not subset:
+                continue
 
-        fig, ax = plt.subplots(figsize=(8, 5))
-        for key in backend_dtype_keys:
-            backend, dtype = key.removesuffix("]").split("[")
-            b_records = sorted(
-                [r for r in subset if r.backend == backend and r.dtype == dtype],
-                key=lambda x: x.size,
-            )
-            x = [r.size for r in b_records]
-            y = [r.mean_sec for r in b_records]
-            yerr = [r.std_sec for r in b_records]
-            ax.errorbar(x, y, yerr=yerr, marker="o", capsize=3, label=key)
+            backends = sorted({r.backend for r in subset})
+            gfig, gax = plt.subplots(figsize=(8, 5))
+            for backend in backends:
+                b_records = sorted(
+                    [r for r in subset if r.backend == backend],
+                    key=lambda x: x.size,
+                )
+                x = [r.size for r in b_records]
+                y = [r.gflops_per_sec for r in b_records]
+                gax.plot(x, y, marker="o", label=backend)
 
-        ax.set_title(f"{workload} time vs size")
-        ax.set_xlabel("matrix size (N for NxN)")
-        ax.set_ylabel("mean time (sec)")
-        ax.set_xscale("log", base=2)
-        ax.grid(True, alpha=0.3)
-        ax.legend()
-        fig.tight_layout()
+            gax.set_title(f"GFLOPS/s vs size ({workload}, {dtype})")
+            gax.set_xlabel("matrix size (N for NxN)")
+            gax.set_ylabel("GFLOPS/s")
+            gax.set_xscale("log", base=2)
+            gax.grid(True, alpha=0.3)
+            gax.legend()
+            gfig.tight_layout()
 
-        out_file = plot_dir / f"{file_prefix}_{workload}_time.png"
-        fig.savefig(out_file, dpi=160)
-        plt.close(fig)
-        saved.append(str(out_file.resolve()))
-
-    for workload in workloads:
-        subset = [r for r in records if r.workload == workload]
-        backend_dtype_keys = sorted({f"{r.backend}[{r.dtype}]" for r in subset})
-
-        gfig, gax = plt.subplots(figsize=(8, 5))
-        for key in backend_dtype_keys:
-            backend, dtype = key.removesuffix("]").split("[")
-            b_records = sorted(
-                [r for r in subset if r.backend == backend and r.dtype == dtype],
-                key=lambda x: x.size,
-            )
-            x = [r.size for r in b_records]
-            y = [r.gflops_per_sec for r in b_records]
-            gax.plot(x, y, marker="o", label=key)
-
-        gax.set_title(f"GFLOPS/s vs size ({workload})")
-        gax.set_xlabel("matrix size (N for NxN)")
-        gax.set_ylabel("GFLOPS/s")
-        gax.set_xscale("log", base=2)
-        gax.grid(True, alpha=0.3)
-        gax.legend()
-        gfig.tight_layout()
-        g_out = plot_dir / f"{file_prefix}_{workload}_gflops.png"
-        gfig.savefig(g_out, dpi=160)
-        plt.close(gfig)
-        saved.append(str(g_out.resolve()))
+            g_out = plot_dir / f"{file_prefix}_{workload}_{dtype}_gflops.png"
+            gfig.savefig(g_out, dpi=160)
+            plt.close(gfig)
+            saved.append(str(g_out.resolve()))
 
     return saved
 
