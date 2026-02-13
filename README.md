@@ -99,7 +99,7 @@ python scripts/train_appo.py --task Go2JoystickFlatTerrain --play_only
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `--num_workers` | 4 | Ray rollout worker 数量 |
+| `--num_workers` | 1 | Ray rollout worker 数量 |
 | `--total_envs` | 1024 | 总环境数（均分到各 worker） |
 | `--steps_per_env` | 24 | 每个环境每次迭代的步数 |
 | `--max_iterations` | 1500 | 最大训练迭代次数 |

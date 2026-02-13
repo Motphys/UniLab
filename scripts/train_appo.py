@@ -212,7 +212,7 @@ def main():
     parser.add_argument("--task", type=str, default="Go2JoystickFlatTerrain", help="Task name")
     parser.add_argument("--play_only", action="store_true", help="Play mode only")
     parser.add_argument("--load_run", type=str, default="-1", help="Run ID to load or path")
-    parser.add_argument("--num_workers", type=int, default=4, help="Number of Ray rollout workers")
+    parser.add_argument("--num_workers", type=int, default=1, help="Number of Ray rollout workers")
 
     # Auto-detect device
     default_device = "cpu"
