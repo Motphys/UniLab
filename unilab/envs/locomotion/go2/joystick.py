@@ -38,14 +38,14 @@ class RewardConfig:
             "tracking_ang_vel": 1.0,
             # Base
             "lin_vel_z": -0.5,
-            "ang_vel_xy": -0.05,
-            "orientation": -5.0,
+            "ang_vel_xy": -0.01,
+            "orientation": -1.0,
             # "base_height": -5.0,
             # Other
             "dof_pos_limits": -1.0,
             "pose": 0.5,
             "termination": -1.0,
-            "stand_still": -1.0,
+            "stand_still": -0.2,
             # Regularization
             "torques": -0.0002,
             "action_rate": -0.01,
