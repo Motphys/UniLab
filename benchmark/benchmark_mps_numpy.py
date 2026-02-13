@@ -1,3 +1,263 @@
+import argparse
+import json
+import time
+from datetime import datetime
+from pathlib import Path
+
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+
+
+DEFAULT_ENV_LIST = [256, 512, 1024, 2048, 4096]
+DEFAULT_ITERS = 200
+OUTPUT_DIR = Path("benchmark/outputs/mps_rollout_pipeline")
+OUTPUT_JSON = OUTPUT_DIR / "benchmark_mps_numpy_real_mac.json"
+OUTPUT_PNG = OUTPUT_DIR / "mps_pipeline_same_task_two_modes_real_mac.png"
+DEVICE = "mps"
+
+
+def sync_device():
+    if torch.backends.mps.is_available():
+        torch.mps.synchronize()
+
+
+def parse_env_list(raw: str) -> list[int]:
+    if not raw:
+        return DEFAULT_ENV_LIST
+    return [int(x.strip()) for x in raw.split(",") if x.strip()]
+
+
+def build_idx():
+    return {
+        "lin": [0, 1, 2],
+        "gyro": [3, 4, 5],
+        "glin": [6, 7, 8],
+        "gang": [9, 10, 11],
+        "up": [12, 13, 14],
+        "contacts": [15, 16, 17, 18],
+        "feet_linvel": [[19, 20, 21], [22, 23, 24], [25, 26, 27], [28, 29, 30]],
+        "feet_pos": [[31, 32, 33], [34, 35, 36], [37, 38, 39], [40, 41, 42]],
+    }
+
+
+def numpy_postprocess(sd: np.ndarray, idx: dict):
+    lin = sd[:, idx["lin"]]
+    gyr = sd[:, idx["gyro"]]
+    glin = sd[:, idx["glin"]]
+    gang = sd[:, idx["gang"]]
+    up = sd[:, idx["up"]]
+    contacts = sd[:, idx["contacts"]] > 0.1
+    feet = np.stack([sd[:, it] for it in idx["feet_linvel"]], axis=1)
+    foot_pos = np.stack([sd[:, it] for it in idx["feet_pos"]], axis=1)
+    v = np.sum(np.square(glin[:, :2] - lin[:, :2]), axis=1)
+    a = np.square(gyr[:, 2] - gang[:, 2])
+    o = np.sum(np.square(up[:, :2]), axis=1)
+    slip = np.sum(np.sum(np.square(feet[..., :2]), axis=-1) * contacts, axis=1)
+    z = foot_pos[..., 2].mean(axis=1)
+    rew = np.exp(-v) + np.exp(-a) - 0.1 * o - 0.01 * slip + 0.001 * z
+    obs = np.hstack([lin, gyr, up, glin, gang]).astype(np.float32, copy=False)
+    done = (contacts.sum(axis=1) <= 0).astype(np.bool_)
+    return obs, rew.astype(np.float32, copy=False), done
+
+
+def mps_postprocess(sensor_t: torch.Tensor, idx_t: dict):
+    lin = sensor_t[:, idx_t["lin"]]
+    gyr = sensor_t[:, idx_t["gyro"]]
+    glin = sensor_t[:, idx_t["glin"]]
+    gang = sensor_t[:, idx_t["gang"]]
+    up = sensor_t[:, idx_t["up"]]
+    contacts = sensor_t[:, idx_t["contacts"]] > 0.1
+    feet = torch.stack([sensor_t[:, it] for it in idx_t["feet_linvel"]], dim=1)
+    foot_pos = torch.stack([sensor_t[:, it] for it in idx_t["feet_pos"]], dim=1)
+    v = torch.sum((glin[:, :2] - lin[:, :2]) ** 2, dim=1)
+    a = (gyr[:, 2] - gang[:, 2]) ** 2
+    o = torch.sum(up[:, :2] ** 2, dim=1)
+    slip = torch.sum(torch.sum(feet[..., :2] ** 2, dim=-1) * contacts, dim=1)
+    z = foot_pos[..., 2].mean(dim=1)
+    rew = torch.exp(-v) + torch.exp(-a) - 0.1 * o - 0.01 * slip + 0.001 * z
+    obs = torch.hstack([lin, gyr, up, glin, gang])
+    done = contacts.sum(dim=1) <= 0
+    return obs, rew, done
+
+
+def bench_one_envnum(num_envs: int, iters: int, idx: dict):
+    sd = np.random.randn(num_envs, 56).astype(np.float32)
+    idx_t = {
+        "lin": torch.as_tensor(idx["lin"], device=DEVICE, dtype=torch.long),
+        "gyro": torch.as_tensor(idx["gyro"], device=DEVICE, dtype=torch.long),
+        "glin": torch.as_tensor(idx["glin"], device=DEVICE, dtype=torch.long),
+        "gang": torch.as_tensor(idx["gang"], device=DEVICE, dtype=torch.long),
+        "up": torch.as_tensor(idx["up"], device=DEVICE, dtype=torch.long),
+        "contacts": torch.as_tensor(idx["contacts"], device=DEVICE, dtype=torch.long),
+        "feet_linvel": [torch.as_tensor(v, device=DEVICE, dtype=torch.long) for v in idx["feet_linvel"]],
+        "feet_pos": [torch.as_tensor(v, device=DEVICE, dtype=torch.long) for v in idx["feet_pos"]],
+    }
+
+    for _ in range(20):
+        obs_np, rew_np, done_np = numpy_postprocess(sd, idx)
+        _ = torch.as_tensor(obs_np, device=DEVICE, dtype=torch.float32)
+        _ = torch.as_tensor(rew_np, device=DEVICE, dtype=torch.float32)
+        _ = torch.as_tensor(done_np, device=DEVICE, dtype=torch.bool)
+    for _ in range(20):
+        sensor_t = torch.as_tensor(sd, device=DEVICE, dtype=torch.float32)
+        _ = mps_postprocess(sensor_t, idx_t)
+    sync_device()
+
+    cpu_compute = 0.0
+    cpu_transfer = 0.0
+    mps_transfer = 0.0
+    mps_compute = 0.0
+
+    for _ in range(iters):
+        t0 = time.perf_counter()
+        obs_np, rew_np, done_np = numpy_postprocess(sd, idx)
+        t1 = time.perf_counter()
+        _ = torch.as_tensor(obs_np, device=DEVICE, dtype=torch.float32)
+        _ = torch.as_tensor(rew_np, device=DEVICE, dtype=torch.float32)
+        _ = torch.as_tensor(done_np, device=DEVICE, dtype=torch.bool)
+        sync_device()
+        t2 = time.perf_counter()
+        cpu_compute += t1 - t0
+        cpu_transfer += t2 - t1
+
+    for _ in range(iters):
+        t0 = time.perf_counter()
+        sensor_t = torch.as_tensor(sd, device=DEVICE, dtype=torch.float32)
+        sync_device()
+        t1 = time.perf_counter()
+        _ = mps_postprocess(sensor_t, idx_t)
+        sync_device()
+        t2 = time.perf_counter()
+        mps_transfer += t1 - t0
+        mps_compute += t2 - t1
+
+    cpu_compute_ms = cpu_compute / iters * 1000.0
+    cpu_transfer_ms = cpu_transfer / iters * 1000.0
+    mps_transfer_ms = mps_transfer / iters * 1000.0
+    mps_compute_ms = mps_compute / iters * 1000.0
+    cpu_total_ms = cpu_compute_ms + cpu_transfer_ms
+    mps_total_ms = mps_transfer_ms + mps_compute_ms
+    return {
+        "num_envs": num_envs,
+        "iterations": iters,
+        "cpu_mode": {
+            "compute_numpy_ms": cpu_compute_ms,
+            "transfer_obs_rew_done_to_mps_ms": cpu_transfer_ms,
+            "total_ms": cpu_total_ms,
+        },
+        "mps_mode": {
+            "transfer_sensor_to_mps_ms": mps_transfer_ms,
+            "compute_on_mps_ms": mps_compute_ms,
+            "total_ms": mps_total_ms,
+        },
+        "speedup_cpu_div_mps": cpu_total_ms / mps_total_ms if mps_total_ms > 0 else 0.0,
+    }
+
+
+def plot_results(results: list[dict], output_png: Path):
+    envs = [r["num_envs"] for r in results]
+    x = np.arange(len(envs), dtype=float)
+    w = 0.34
+    cpu_compute = np.array([r["cpu_mode"]["compute_numpy_ms"] for r in results])
+    cpu_transfer = np.array([r["cpu_mode"]["transfer_obs_rew_done_to_mps_ms"] for r in results])
+    mps_transfer = np.array([r["mps_mode"]["transfer_sensor_to_mps_ms"] for r in results])
+    mps_compute = np.array([r["mps_mode"]["compute_on_mps_ms"] for r in results])
+
+    fig, ax = plt.subplots(figsize=(11, 6))
+    x_cpu = x - w / 2
+    x_mps = x + w / 2
+    ax.bar(x_cpu, cpu_compute, w, label="CPU mode: numpy compute", color="#D99A9A")
+    ax.bar(
+        x_cpu,
+        cpu_transfer,
+        w,
+        bottom=cpu_compute,
+        label="CPU mode: obs/rew/done -> mps",
+        color="#EBCED6",
+    )
+    ax.bar(x_mps, mps_transfer, w, label="MPS mode: sensor -> mps", color="#8FB3CC")
+    ax.bar(
+        x_mps,
+        mps_compute,
+        w,
+        bottom=mps_transfer,
+        label="MPS mode: mps compute",
+        color="#A8CFAE",
+    )
+
+    cpu_total = cpu_compute + cpu_transfer
+    mps_total = mps_transfer + mps_compute
+    for i in range(len(envs)):
+        ax.text(x_cpu[i], cpu_total[i] + 0.05, f"{cpu_total[i]:.2f}", ha="center", va="bottom", fontsize=9)
+        ax.text(x_mps[i], mps_total[i] + 0.05, f"{mps_total[i]:.2f}", ha="center", va="bottom", fontsize=9)
+
+    ax.set_title("Mac MPS: same-task two compute modes (measured)")
+    ax.set_xlabel("num_envs")
+    ax.set_ylabel("Time per step (ms)")
+    ax.set_xticks(x)
+    ax.set_xticklabels([str(v) for v in envs])
+    ax.grid(axis="y", alpha=0.25)
+    ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), borderaxespad=0.0, fontsize=9)
+    fig.tight_layout()
+    output_png.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_png, dpi=180)
+    plt.close(fig)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--env_list", type=str, default=",".join(str(v) for v in DEFAULT_ENV_LIST))
+    parser.add_argument("--iters", type=int, default=DEFAULT_ITERS)
+    parser.add_argument("--output_json", type=str, default=str(OUTPUT_JSON))
+    parser.add_argument("--output_png", type=str, default=str(OUTPUT_PNG))
+    args = parser.parse_args()
+
+    if not torch.backends.mps.is_available():
+        raise RuntimeError("MPS is not available on this machine.")
+
+    env_list = parse_env_list(args.env_list)
+    idx = build_idx()
+    all_results = []
+    for nenv in env_list:
+        one = bench_one_envnum(nenv, args.iters, idx)
+        all_results.append(one)
+        print(
+            f"[{nenv}] CPU={one['cpu_mode']['total_ms']:.3f} ms, "
+            f"MPS={one['mps_mode']['total_ms']:.3f} ms, "
+            f"speedup_cpu_div_mps={one['speedup_cpu_div_mps']:.3f}"
+        )
+
+    output_json = Path(args.output_json)
+    output_png = Path(args.output_png)
+    output_json.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "meta": {
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "device": DEVICE,
+            "torch_version": torch.__version__,
+            "mps_built": bool(torch.backends.mps.is_built()),
+            "mps_available": bool(torch.backends.mps.is_available()),
+            "env_list": env_list,
+            "iters": args.iters,
+            "note": "Measured directly. No projected model.",
+        },
+        "results": all_results,
+    }
+    with output_json.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+
+    plot_results(all_results, output_png)
+    print(f"Saved JSON: {output_json}")
+    print(f"Saved PNG:  {output_png}")
+
+
+if __name__ == "__main__":
+    main()
+    raise SystemExit(0)
 import json
 import time
 from datetime import datetime
