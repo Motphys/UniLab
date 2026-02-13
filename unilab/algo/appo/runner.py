@@ -4,13 +4,13 @@ import time
 import numpy as np
 from collections import defaultdict
 
-from unilab.algo.boprl.worker import RolloutWorker
-from unilab.algo.boprl.learner import BOPRLLearner
+from unilab.algo.appo.worker import RolloutWorker
+from unilab.algo.appo.learner import APPOLearner
 from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4
 from rsl_rl.utils import resolve_callable
 
 
-class BOPRLRunner:
+class APPORunner:
     def __init__(
         self,
         env_name,
@@ -28,11 +28,10 @@ class BOPRLRunner:
         self.num_envs_per_worker = num_envs_per_worker
 
         # 1. Prepare Config
-        # Ensure compatibility
         if is_rsl_rl_v4():
             self.rl_cfg = convert_config_v3_to_v4(rl_cfg)
         else:
-            self.rl_cfg = rl_cfg  # Fallback for local dev if rsl_rl 3.x
+            self.rl_cfg = rl_cfg
 
         # 2. Init Ray
         if not ray.is_initialized():
@@ -50,43 +49,21 @@ class BOPRLRunner:
         ]
 
         # 4. Initialize Policy on Workers
-        # Get policy config from rl_cfg
         policy_cfg = {
             "actor": self.rl_cfg["actor"],
             "obs_groups": self.rl_cfg.get("obs_groups", {"default": ["policy"]}),
         }
 
-        # Init policies
         futures = [w.init_policy.remote(policy_cfg) for w in self.workers]
         ray.get(futures)
         print("Workers initialized.")
 
         # 5. Create Learner (Local GPU)
-        # Determine shapes from a worker or environment
-        # We need Env info to create learner models
-        # Let's ask first worker for env info
-        # Or instantiate a dummy env locally? No, heavy.
-        # Worker has num_envs and num_actions.
-        # We need observation shape.
-        # Let's add get_env_info to worker
-
-        # For now assume known or hardcode from cfg?
-        # Better: ask worker.
-        # But worker.sample requires initialized policy.
-        # init_policy creates dummy obs.
-
-        # We reconstruct Actor/Critic here.
-        obs_dim = 48  # Hardcoded for Go2 Flat? No, bad practice.
-        # TODO: Get obs_dim from worker
-        # Let's create a temporary dummy env or read from config if possible?
-        # unilab.envs.registry has specs?
-        # Hack: just create one env instance locally to get dims, then close it.
         from unilab.envs import registry
 
         temp_env = registry.make(env_name, **env_cfg_overrides)
         obs_dim = temp_env.observation_space.shape[0]
         num_actions = temp_env.action_space.shape[0]
-        # num_local_envs = temp_env.num_envs # This defaults to 1 if not overridden!
         temp_env.close()
 
         self.num_envs_per_worker = num_envs_per_worker
@@ -113,30 +90,22 @@ class BOPRLRunner:
         if "class_name" in algo_cfg:
             del algo_cfg["class_name"]
 
-        self.learner = BOPRLLearner(actor, critic, device=device, **algo_cfg)
+        self.learner = APPOLearner(actor, critic, device=device, **algo_cfg)
 
     def _collate_results(self, results):
         """Collate worker results into a single batch dict on learner device."""
         batch_dict = {}
         device = self.learner.device
 
-        # Separate time-series data (dim=1 cat) vs single-step data (dim=0 cat)
         time_series_keys = [
-            "observations",
-            "actions",
-            "rewards",
-            "dones",
-            "truncated",
-            "actions_log_prob",
-            "mu",
-            "sigma",
+            "observations", "actions", "rewards", "dones",
+            "truncated", "actions_log_prob", "mu", "sigma",
         ]
-        single_step_keys = ["last_obs"]  # [N, D] per worker, cat along dim=0
+        single_step_keys = ["last_obs"]
 
         for k in time_series_keys:
             if k in results[0]:
                 tensors = [r[k] for r in results]
-                # NOTE: non_blocking=False to avoid MPS async transfer issues
                 batch_dict[k] = torch.cat(tensors, dim=1).to(device, non_blocking=False)
 
         for k in single_step_keys:
@@ -153,40 +122,33 @@ class BOPRLRunner:
                 m = r["metrics"]
                 for key, val_list in m.items():
                     self.metrics_buffers[key].extend(val_list)
-            # Collect per-step log entries (rsl_rl style: extras["log"])
             if "step_logs" in r:
                 self.step_log_accumulator.extend(r["step_logs"])
 
     def learn(self, max_iterations=1000, save_interval=50, log_dir=None):
-        """Main training loop with async double-buffered pipeline and rsl_rl-style logging.
+        """Main training loop with async double-buffered pipeline.
 
-        Pipeline design (true overlap):
-          Iter 0: sync weights → collect batch_0 (cold start, no overlap)
+        Pipeline:
+          Iter 0: sync weights → collect batch_0 (cold start)
           Iter n>0:
-            1. Start async collection (workers use weights from previous sync)
-            2. While workers collect, process & train on previous batch (GPU)
+            1. Start async collection for NEXT batch
+            2. While workers collect, process & train on CURRENT batch (GPU)
             3. Wait for collection to finish
-            4. Sync updated weights to workers (fast, for next iteration)
-
-        This maximizes CPU/GPU overlap: GPU trains while CPU collects.
+            4. Sync weights for next iteration
         """
         import statistics
         from collections import deque
 
-        # Metrics buffers (same as rsl_rl Logger)
         self.metrics_buffers = defaultdict(lambda: deque(maxlen=100))
-        # Per-step log accumulator (rsl_rl style: mean over steps, reset each iteration)
         self.step_log_accumulator = []
 
         # TensorBoard writer
         tb_writer = None
         if log_dir:
             import os
-
             os.makedirs(log_dir, exist_ok=True)
             try:
                 from torch.utils.tensorboard import SummaryWriter
-
                 tb_writer = SummaryWriter(log_dir=log_dir, flush_secs=10)
             except ImportError:
                 print("  [Warning] tensorboard not installed, skipping TB logging")
@@ -197,11 +159,10 @@ class BOPRLRunner:
         width = 80
         pad = 40
 
-        # CRITICAL: Set learner to training mode so EmpiricalNormalization.update() works
+        # Set learner to training mode
         self.learner.train_mode()
 
-        # === Prefetch Async Pipeline ===
-        # Pre-collect first batch (no overlap possible)
+        # === Prefetch Pipeline ===
         weights = self.learner.get_weights()
         weights_ref = ray.put(weights)
         ray.get([w.set_weights.remote(weights_ref) for w in self.workers])
@@ -216,24 +177,24 @@ class BOPRLRunner:
         for it in range(max_iterations):
             iter_start = time.time()
 
-            # 1. Sync latest weights to workers for NEXT batch
+            # 1. Sync latest weights to workers
             sync_start = time.time()
             weights = self.learner.get_weights()
             weights_ref = ray.put(weights)
             ray.get([w.set_weights.remote(weights_ref) for w in self.workers])
             sync_time = time.time() - sync_start
 
-            # 2. Start async collection for NEXT batch (workers use updated weights)
+            # 2. Start async collection (workers use potentially stale weights)
             collect_start = time.time()
             sample_futures = [w.sample.remote(self.steps_per_env) for w in self.workers]
 
-            # 3. While workers collect on CPU, process & train on CURRENT batch on GPU
+            # 3. Train on CURRENT batch while collection happens
             learn_start = time.time()
             current_batch = self.learner.process_batch(current_batch)
             loss_dict = self.learner.update(current_batch)
             learn_time = time.time() - learn_start
 
-            # 4. Wait for collection to finish → becomes current_batch for next iter
+            # 4. Wait for collection
             results = ray.get(sample_futures)
             collect_time = time.time() - collect_start
 
@@ -249,10 +210,9 @@ class BOPRLRunner:
             if log_dir and save_interval > 0 and (it % save_interval == 0 or it == max_iterations - 1):
                 self._save_checkpoint(log_dir, it)
 
-            # === Logging (rsl_rl style) ===
+            # === Logging ===
             fps = int(collection_size / iteration_time)
 
-            # Gather metrics
             mean_reward = None
             mean_ep_len = None
             if "episode_returns" in self.metrics_buffers and len(self.metrics_buffers["episode_returns"]) > 0:
@@ -260,9 +220,8 @@ class BOPRLRunner:
             if "episode_lengths" in self.metrics_buffers and len(self.metrics_buffers["episode_lengths"]) > 0:
                 mean_ep_len = statistics.mean(self.metrics_buffers["episode_lengths"])
 
-            # Console output
             log_string = f"""{"#" * width}\n"""
-            log_string += f"""\033[1m{f" Learning iteration {it}/{max_iterations} ".center(width)}\033[0m \n\n"""
+            log_string += f"""\033[1m{f" APPO iteration {it}/{max_iterations} ".center(width)}\033[0m \n\n"""
 
             log_string += (
                 f"""{"Total steps:":>{pad}} {tot_timesteps} \n"""
@@ -281,9 +240,7 @@ class BOPRLRunner:
             if mean_ep_len is not None:
                 log_string += f"""{"Mean episode length:":>{pad}} {mean_ep_len:.2f}\n"""
 
-            # Per-step reward components (matching rsl_rl Logger format)
-            # Aggregate step_log_accumulator: each entry is a dict of {key: scalar}
-            # Compute mean over all steps for each key, then clear
+            # Per-step reward components
             step_log_means = {}
             if self.step_log_accumulator:
                 all_keys = set()
@@ -313,7 +270,7 @@ class BOPRLRunner:
             )
             print(log_string)
 
-            # TensorBoard logging
+            # TensorBoard
             if tb_writer is not None:
                 for key, value in loss_dict.items():
                     tb_writer.add_scalar(f"Loss/{key}", value, it)
@@ -325,16 +282,11 @@ class BOPRLRunner:
                 tb_writer.add_scalar("Perf/total_fps", fps, it)
                 tb_writer.add_scalar("Perf/collection_time", collect_time, it)
                 tb_writer.add_scalar("Perf/learning_time", learn_time, it)
-                # Per-step reward components (matching rsl_rl format)
                 for key, value in step_log_means.items():
                     if "/" in key:
                         tb_writer.add_scalar(key, value, it)
                     else:
                         tb_writer.add_scalar(f"Episode/{key}", value, it)
-
-        # No pending batch to process — the prefetch pipeline processes each batch
-        # exactly once in the loop body. The last collected batch (current_batch)
-        # is for the next iteration that won't happen, so we skip it.
 
         if tb_writer is not None:
             tb_writer.close()
@@ -342,13 +294,13 @@ class BOPRLRunner:
     def _save_checkpoint(self, log_dir, iteration):
         """Save model checkpoint."""
         import os
-
         os.makedirs(log_dir, exist_ok=True)
         path = os.path.join(log_dir, f"model_{iteration}.pt")
         torch.save(
             {
                 "actor_state_dict": self.learner.actor.state_dict(),
                 "critic_state_dict": self.learner.critic.state_dict(),
+                "target_actor_state_dict": self.learner.target_actor.state_dict(),
                 "optimizer_state_dict": self.learner.optimizer.state_dict(),
                 "iteration": iteration,
             },

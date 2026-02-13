@@ -34,18 +34,18 @@ class RewardConfig:
     scales: dict[str, float] = field(
         default_factory=lambda: {
             # Tracking
-            "tracking_lin_vel": 4.0,
-            "tracking_ang_vel": 2.0,
+            "tracking_lin_vel": 2.0,
+            "tracking_ang_vel": 1.0,
             # Base
             "lin_vel_z": -0.5,
-            "ang_vel_xy": -0.01,
-            "orientation": -1.0,
+            "ang_vel_xy": -0.05,
+            "orientation": -5.0,
             # "base_height": -5.0,
             # Other
             "dof_pos_limits": -1.0,
-            "pose": 0.1,
+            "pose": 0.5,
             "termination": -1.0,
-            "stand_still": -0.2,
+            "stand_still": -1.0,
             # Regularization
             "torques": -0.0002,
             "action_rate": -0.01,
@@ -299,8 +299,15 @@ class Go2WalkTaskMj(Go2BaseMjEnv):
 
         is_fallen = up_z <= 0.5
 
+        # Base contact termination: if base height drops below threshold,
+        # the body is in contact with the ground
+        base_height = state.physics_state[:, self._idx_qpos + 2]
+        base_contact = base_height < 0.18  # Go2 standing height ~0.278m
+
+        terminated = np.logical_or(is_fallen, base_contact)
+
         return state.replace(
-            terminated=is_fallen,
+            terminated=terminated,
         )
 
     def resample_commands(self, num_envs: int):

@@ -31,7 +31,7 @@ def ensure_registries():
 
 ensure_registries()
 
-from unilab.algo.boprl.runner import BOPRLRunner
+from unilab.algo.appo.runner import APPORunner
 from unilab.config import locomotion_params
 from unilab.envs import registry
 from unilab.envs.utils import render_many
@@ -52,14 +52,13 @@ def get_latest_run(log_dir):
 
 
 def play(args, rl_cfg):
-    """Play mode: load a trained BOPRL checkpoint and render video."""
+    """Play mode: load a trained APPO checkpoint and render video."""
     import mediapy as media
     from tensordict import TensorDict
     from rsl_rl.models import MLPModel
     from rsl_rl.utils import resolve_callable
     from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4
 
-    # Must match training config: force log std
     if "policy" in rl_cfg:
         rl_cfg["policy"]["noise_std_type"] = "log"
     elif "actor" in rl_cfg:
@@ -71,7 +70,7 @@ def play(args, rl_cfg):
     device = args.device
 
     # --- Locate checkpoint ---
-    base_log_dir = ROOT_DIR / "logs" / "boprl_train" / args.task
+    base_log_dir = ROOT_DIR / "logs" / "appo_train" / args.task
     load_path = None
 
     if args.load_run == "-1":
@@ -160,7 +159,6 @@ def play(args, rl_cfg):
 
 def train(args, rl_cfg):
     """Training mode."""
-    # Force log std for stability (prevents negative std crashes on MPS)
     env_cfg_overrides = {}
     if "policy" in rl_cfg:
         rl_cfg["policy"]["noise_std_type"] = "log"
@@ -173,16 +171,16 @@ def train(args, rl_cfg):
 
     # Setup logging directory
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    log_dir = str(ROOT_DIR / "logs" / "boprl_train" / args.task / timestamp)
+    log_dir = str(ROOT_DIR / "logs" / "appo_train" / args.task / timestamp)
 
     print(
-        f"Starting BOPRL Runner with {args.num_workers} workers, "
+        f"Starting APPO Runner with {args.num_workers} workers, "
         f"total_envs={args.total_envs} ({num_envs_per_worker}/worker) "
         f"on learner_device={args.device}..."
     )
     print(f"Log dir: {log_dir}")
 
-    runner = BOPRLRunner(
+    runner = APPORunner(
         env_name=args.task,
         env_cfg_overrides=env_cfg_overrides,
         rl_cfg=rl_cfg,
@@ -203,7 +201,6 @@ def train(args, rl_cfg):
     except Exception as e:
         print(f"Error during training: {e}")
         import traceback
-
         traceback.print_exc()
     finally:
         print("Closing runner...")
@@ -211,7 +208,7 @@ def train(args, rl_cfg):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train or Play BOPRL agent (Ray-based)")
+    parser = argparse.ArgumentParser(description="Train or Play APPO agent (Ray-based)")
     parser.add_argument("--task", type=str, default="Go2JoystickFlatTerrain", help="Task name")
     parser.add_argument("--play_only", action="store_true", help="Play mode only")
     parser.add_argument("--load_run", type=str, default="-1", help="Run ID to load or path")
