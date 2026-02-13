@@ -72,6 +72,7 @@ def convert_config_v3_to_v4(cfg: dict) -> dict:
             "hidden_dims": policy.get("actor_hidden_dims", [256, 256, 256]),
             "activation": policy.get("activation", "elu"),
             "init_noise_std": policy.get("init_noise_std", 1.0),
+            "noise_std_type": policy.get("noise_std_type", "scalar"),
             "stochastic": True,  # Required: MLPModel needs this to create output distribution
             "obs_normalization": empirical_normalization,
         }
@@ -89,6 +90,19 @@ def convert_config_v3_to_v4(cfg: dict) -> dict:
         # but needs to stay for the runner to resolve it, so leave it alone
 
     # 4.x requires obs_groups
-    cfg.setdefault("obs_groups", {"default": ["policy"]})
+    obs_groups = cfg.get("obs_groups", {})
+    if "default" in obs_groups:
+        if "actor" not in obs_groups:
+            obs_groups["actor"] = obs_groups["default"]
+        if "critic" not in obs_groups:
+            obs_groups["critic"] = obs_groups["default"]
+    else:
+        # Fallback if no groups defined at all (from V3 policy)
+        if "actor" not in obs_groups:
+            obs_groups["actor"] = ["policy"]
+        if "critic" not in obs_groups:
+            obs_groups["critic"] = ["policy"]
+            
+    cfg["obs_groups"] = obs_groups
 
     return cfg

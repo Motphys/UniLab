@@ -21,6 +21,8 @@ dependencies = [
     "packaging",
     "mediapy",
     "tensorboard",
+    "ray[default]>=2.9.0",
+    "typing-extensions",
 ]
 
 [project.optional-dependencies]
