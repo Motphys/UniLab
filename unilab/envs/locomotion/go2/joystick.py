@@ -34,8 +34,8 @@ class RewardConfig:
     scales: dict[str, float] = field(
         default_factory=lambda: {
             # Tracking
-            "tracking_lin_vel": 2.0,
-            "tracking_ang_vel": 1.0,
+            "tracking_lin_vel": 4.0,
+            "tracking_ang_vel": 2.0,
             # Base
             "lin_vel_z": -0.5,
             "ang_vel_xy": -0.01,
@@ -43,7 +43,7 @@ class RewardConfig:
             # "base_height": -5.0,
             # Other
             "dof_pos_limits": -1.0,
-            "pose": 0.5,
+            "pose": 0.1,
             "termination": -1.0,
             "stand_still": -0.2,
             # Regularization
@@ -197,10 +197,11 @@ class Go2WalkTaskMj(Go2BaseMjEnv):
     def _compute_rewards(self, state: MjNpEnvState) -> MjNpEnvState:
         total_reward = np.zeros(self._num_envs, dtype=np.float32)
 
-        # Initialize dictionary for logging
-        log = {}
-        # Also store raw components for episodic accumulation in the wrapper
-        reward_components = {}
+        # Only compute per-component logging every 4th step to reduce np.mean overhead
+        step_count = state.info.get("steps", np.zeros(self._num_envs, dtype=np.int32))
+        should_log = int(step_count[0]) % 4 == 0
+
+        log = {} if should_log else state.info.get("log", {})
 
         for name, scale in self.cfg.reward_config.scales.items():
             if scale == 0:
@@ -212,19 +213,18 @@ class Go2WalkTaskMj(Go2BaseMjEnv):
             weighted_rew = rew * scale
             total_reward += weighted_rew
 
-            # Store mean weighted reward per step for logging (gs_playground style)
-            log[f"reward/{name}"] = np.mean(weighted_rew)
-            # Store raw for aggregation
-            reward_components[name] = weighted_rew
+            if should_log:
+                log[f"reward/{name}"] = np.mean(weighted_rew)
 
         # Log other info metrics
-        if "feet_air_time" in state.info:
-            log["metrics/feet_air_time"] = np.mean(state.info["feet_air_time"])
-        if "contacts" in state.info:
-            log["metrics/contact_rate"] = np.mean(state.info.get("contacts", np.zeros_like(total_reward)).astype(float))
+        if should_log:
+            if "feet_air_time" in state.info:
+                log["metrics/feet_air_time"] = np.mean(state.info["feet_air_time"])
+            if "contacts" in state.info:
+                log["metrics/contact_rate"] = np.mean(state.info.get("contacts", np.zeros_like(total_reward)).astype(float))
 
         state.info["log"] = log
-        state.info["reward_components"] = reward_components
+        state.info["reward_components"] = {}  # Keep key for compatibility
 
         # Scale reward by dt (mujoco_playground style)
         total_reward *= self.cfg.ctrl_dt

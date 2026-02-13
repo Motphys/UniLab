@@ -107,7 +107,6 @@ class RolloutWorker:
         cls_name = actor_cfg.pop("class_name")
         actor_class = resolve_callable(cls_name)
 
-        print(f"DEBUG WORKER {self.env_name}: Actor Config: {actor_cfg}")
         self.actor = actor_class(td_example, obs_groups, "actor", self.num_actions, **actor_cfg).to(self.device)
         self.actor.eval()
 
@@ -128,116 +127,68 @@ class RolloutWorker:
 
     @torch.inference_mode()
     def sample(self, num_steps):
-        """Collect num_steps transitions."""
+        """Collect num_steps transitions with pre-allocated buffers."""
         if self.actor is None:
             raise RuntimeError("Policy not initialized!")
 
-        storage = {
-            "observations": [],
-            "actions": [],
-            "rewards": [],
-            "dones": [],
-            "values": [],  # Not computed here (unless we add critic)
-            "actions_log_prob": [],
-            "returns": [],  # Computed on learner? Or here with critic?
-            # For strict PPO, we need values/returns.
-            # If we don't have critic on worker, we send raw trajectories to learner.
-            # Learner computes values? But learner needs state for value.
-            # So we send states.
-        }
+        N = self.num_envs
+        T = num_steps
+        obs_dim = self.env.observation_space.shape[0]
+        act_dim = self.num_actions
+        dev = self.device
 
-        # Important: detailed PPO needs GAE, which needs Value(s_t).
-        # We need Critic on worker to compute Value(s_t), OR we send s_t to learner.
-        # Sending s_t (obs) to learner is fine. Learner can compute V(s_t) with its critic.
-        # But we need V(s_{t+1}) for GAE.
-        # So Learner needs (s_t, r_t, d_t, s_{t+1}).
+        # Pre-allocate storage tensors (avoids per-step allocation + final torch.stack)
+        obs_buf = torch.zeros((T, N, obs_dim), device=dev, dtype=torch.float32)
+        act_buf = torch.zeros((T, N, act_dim), device=dev, dtype=torch.float32)
+        rew_buf = torch.zeros((T, N), device=dev, dtype=torch.float32)
+        dones_buf = torch.zeros((T, N), device=dev, dtype=torch.bool)
+        truncated_buf = torch.zeros((T, N), device=dev, dtype=torch.bool)
+        logprob_buf = torch.zeros((T, N), device=dev, dtype=torch.float32)
+        mu_buf = torch.zeros((T, N, act_dim), device=dev, dtype=torch.float32)
+        sigma_buf = torch.zeros((T, N, act_dim), device=dev, dtype=torch.float32)
 
-        # Baseline approach: Worker collects (s_t, a_t, r_t, d_t).
-        # Learner computes V(s_t) and GAE.
-        # Advantage of computing V on worker: parallelism.
-        # Disadvantage: need to sync critic weights to worker.
-        # Let's sync critic too? It matches "Async PPO" better.
-        # But for minimal bandwidth, just sync actor (policy) and compute global critic on GPU.
-        # GPU is fast at batch inference. CPU worker is slow at neural net inference.
-        # So "CPU Physics, GPU Learning" implies minimal NN on CPU.
-        # Thus: Only Actor on CPU (for action selection).
-        # Critic on GPU (for Value & Update).
+        # Reusable TensorDict for actor inference (avoid per-step creation)
+        obs_td = TensorDict({"policy": self.current_obs}, batch_size=N, device=dev)
 
-        # Pre-allocate storage lists (minor opt)
-        obs_list = []
-        act_list = []
-        rew_list = []
-        dones_list = []
-        log_prob_list = []
-        truncated_list = []
-        mu_list = []
-        sigma_list = []
+        for t in range(T):
+            # 1. Store obs & run actor
+            obs_buf[t] = self.current_obs
+            obs_td["policy"] = self.current_obs  # In-place update
 
-        # TensorDict reuse? No, better to recreate wrapper or slice.
-        # But for speed, just wrap current_obs.
+            actions = self.actor(obs_td, stochastic_output=True)
+            logprob_buf[t] = self.actor.get_output_log_prob(actions)
+            mu_buf[t] = self.actor.output_mean
+            sigma_buf[t] = self.actor.output_std
+            act_buf[t] = actions
 
-        for _ in range(num_steps):
-            # 1. Obs
-            # obs_td = TensorDict({"policy": self.current_obs}, batch_size=self.num_envs, device=self.device)
-            # Optimization: construct TensorDict once? No, current_obs changes.
-            # But TensorDict overhead is small.
+            # 2. Step environment
+            state = self.env.step(actions.cpu().numpy())
 
-            with torch.inference_mode():
-                obs_td = TensorDict({"policy": self.current_obs}, batch_size=self.num_envs, device=self.device)
-
-                # 2. Action
-                # MLPModel.forward(stochastic_output=True) samples automatically
-                actions = self.actor(obs_td, stochastic_output=True)
-                # It also updates self.distribution internally so we can get log_prob
-                log_prob = self.actor.get_output_log_prob(actions)
-                # Store mu and sigma for analytical KL in PPO update
-                action_mean = self.actor.output_mean.detach()
-                action_std = self.actor.output_std.detach()
-
-            # 3. Step
-            actions_np = actions.cpu().numpy()
-
-            state = self.env.step(actions_np)
-
-            # Unpack state
             next_obs = state.obs
             rew = state.reward
             terminated = state.terminated
-            truncated = state.truncated
+            truncated_np = state.truncated
             infos = state.info
+            dones = np.logical_or(terminated, truncated_np)
 
-            dones = np.logical_or(terminated, truncated)
+            # 3. Write directly into pre-allocated buffers
+            rew_buf[t] = torch.as_tensor(rew, device=dev, dtype=torch.float32)
+            dones_buf[t] = torch.as_tensor(dones, device=dev, dtype=torch.bool)
+            truncated_buf[t] = torch.as_tensor(truncated_np, device=dev, dtype=torch.bool)
 
-            # Store (keep purely tensor)
-            obs_list.append(obs_td)
-            act_list.append(actions)
-            rew_list.append(torch.as_tensor(rew, device=self.device, dtype=torch.float32))
-            dones_list.append(torch.as_tensor(dones, device=self.device, dtype=torch.bool))
-            log_prob_list.append(log_prob)
-            # Store truncated (time-out) for bootstrap correction
-            truncated_list.append(torch.as_tensor(truncated, device=self.device, dtype=torch.bool))
-            # Store mu/sigma for analytical KL in PPO update
-            mu_list.append(action_mean)
-            sigma_list.append(action_std)
+            # 4. Update obs
+            self.current_obs = torch.as_tensor(next_obs, device=dev, dtype=torch.float32)
 
-            # Update obs
-            self.current_obs = torch.as_tensor(next_obs, device=self.device, dtype=torch.float32)
-
-            # Metrics Accumulation
-            rew_tensor = torch.as_tensor(rew, device=self.device, dtype=torch.float32)
-            dones_tensor = torch.as_tensor(dones, device=self.device, dtype=torch.bool)
-
-            # 1. Per-episode total reward and length (for episode_returns / episode_lengths)
-            self.episode_sums["reward"] += rew_tensor
+            # 5. Metrics accumulation
+            self.episode_sums["reward"] += rew_buf[t]
             self.episode_sums["length"] += 1
 
-            # 2. Per-step log entries (matching rsl_rl's extras["log"])
-            #    These are already per-step cross-env means (scalars), computed by env
+            # Per-step log entries (rsl_rl extras["log"])
             if isinstance(infos, dict) and "log" in infos:
                 self.step_log_entries.append(infos["log"])
 
             # Collect completed episodes
-            done_indices = torch.nonzero(dones_tensor).squeeze(-1)
+            done_indices = torch.nonzero(dones_buf[t]).squeeze(-1)
             if len(done_indices) > 0:
                 for key in ["reward", "length"]:
                     val_tensor = self.episode_sums[key]
@@ -246,35 +197,23 @@ class RolloutWorker:
                     if metric_name not in self.episode_metrics:
                         self.episode_metrics[metric_name] = []
                     self.episode_metrics[metric_name].extend(val_tensor[done_indices].cpu().tolist())
-
-                    # Reset
                     val_tensor[done_indices] = 0.0
 
-        # Stack
-        # Ensure we return expected keys for Learner
-
-        # Learner expects: observations, actions, rewards, dones, actions_log_prob
-        # observations must be [T, N, D] (or TensorDict)
-
+        # Return pre-stacked buffers (no torch.stack needed)
         ret_storage = {
-            "observations": torch.stack([td["policy"] for td in obs_list]),
-            "actions": torch.stack(act_list),
-            "rewards": torch.stack(rew_list),
-            "dones": torch.stack(dones_list),
-            "truncated": torch.stack(truncated_list),
-            "actions_log_prob": torch.stack(log_prob_list),
-            "mu": torch.stack(mu_list),
-            "sigma": torch.stack(sigma_list),
-            "last_obs": self.current_obs.clone(),  # s_{T+1} for GAE bootstrap
+            "observations": obs_buf,
+            "actions": act_buf,
+            "rewards": rew_buf,
+            "dones": dones_buf,
+            "truncated": truncated_buf,
+            "actions_log_prob": logprob_buf,
+            "mu": mu_buf,
+            "sigma": sigma_buf,
+            "last_obs": self.current_obs.clone(),
         }
 
-        # Prepare metrics to return
         metrics = self.episode_metrics.copy()
-
-        # Include per-step log entries for reward component logging (rsl_rl style)
         step_logs = self.step_log_entries.copy()
-
-        # Reset
         self.episode_metrics = {}
         self.step_log_entries = []
 
@@ -285,7 +224,6 @@ class RolloutWorker:
 
     def get_metrics(self):
         """Return gathered metrics."""
-        # TODO: Implement proper metric aggregation
         return {}
 
     def close(self):

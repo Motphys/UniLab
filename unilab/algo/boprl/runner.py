@@ -57,7 +57,6 @@ class BOPRLRunner:
         }
 
         # Init policies
-        print(f"DEBUG RUNNER: Policy Config sent to workers: {policy_cfg['actor']}")
         futures = [w.init_policy.remote(policy_cfg) for w in self.workers]
         ray.get(futures)
         print("Workers initialized.")

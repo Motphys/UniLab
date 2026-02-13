@@ -145,6 +145,7 @@ class BOPRLLearner:
         batch_dict["values"] = values
         batch_dict["advantages"] = advantages
         batch_dict["returns"] = returns
+        batch_dict["_obs_td"] = obs_td  # Cache for update() to avoid rebuilding
 
         return batch_dict
 
@@ -170,8 +171,10 @@ class BOPRLLearner:
         # Normalize advantages globally (before mini-batch split, matching rsl_rl)
         advantages_flat = (advantages_flat - advantages_flat.mean()) / (advantages_flat.std() + 1e-8)
 
-        # Pre-wrap obs in TensorDict ONCE
-        obs_td = TensorDict({"policy": obs_flat}, batch_size=obs_flat.shape[0], device=self.device)
+        # Reuse cached TensorDict from process_batch if available
+        obs_td = batch_dict.get("_obs_td")
+        if obs_td is None:
+            obs_td = TensorDict({"policy": obs_flat}, batch_size=obs_flat.shape[0], device=self.device)
 
         batch_size = obs_flat.shape[0]
         mini_batch_size = batch_size // self.num_mini_batches
