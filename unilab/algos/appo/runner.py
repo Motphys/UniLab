@@ -4,8 +4,8 @@ import time
 import numpy as np
 from collections import defaultdict
 
-from unilab.algo.appo.worker import RolloutWorker
-from unilab.algo.appo.learner import APPOLearner
+from unilab.algos.appo.worker import RolloutWorker
+from unilab.algos.appo.learner import APPOLearner
 from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4
 from rsl_rl.utils import resolve_callable
 

@@ -31,7 +31,7 @@ def ensure_registries():
 
 ensure_registries()
 
-from unilab.algo.appo.runner import APPORunner
+from unilab.algos.appo.runner import APPORunner
 from unilab.config import locomotion_params
 from unilab.envs import registry
 from unilab.envs.utils import render_many
