@@ -33,6 +33,11 @@ class PPOConfig:
     min_learning_rate: float = 1e-5
     max_learning_rate: float = 1e-2
     normalize_advantage_per_mini_batch: bool = False
+    adaptive_kl_beta: float = 0.9
+    adaptive_lr_decay: float = 1.5
+    adaptive_lr_growth: float = 1.2
+    adaptive_lr_update_interval: int = 1
+    target_kl_stop: float | None = None
 
 
 class PPOTrainer:
@@ -44,6 +49,7 @@ class PPOTrainer:
         self.learning_rate = float(cfg.learning_rate)
         self.optimizer = optim.Adam(learning_rate=self.learning_rate)
         self.loss_and_grad = nn.value_and_grad(model, self._loss_fn)
+        self._kl_ema: float | None = None
 
     @staticmethod
     def _all_finite(tree) -> bool:
@@ -94,9 +100,9 @@ class PPOTrainer:
             value_pred_clipped = old_values + mx.clip(values - old_values, -self.cfg.clip_param, self.cfg.clip_param)
             value_losses = (values - returns) ** 2
             value_losses_clipped = (value_pred_clipped - returns) ** 2
-            value_loss = 0.5 * mx.mean(mx.maximum(value_losses, value_losses_clipped))
+            value_loss = mx.mean(mx.maximum(value_losses, value_losses_clipped))
         else:
-            value_loss = 0.5 * mx.mean((returns - values) ** 2)
+            value_loss = mx.mean((returns - values) ** 2)
 
         return policy_loss + self.cfg.value_loss_coef * value_loss - self.cfg.entropy_coef * entropy
 
@@ -124,14 +130,22 @@ class PPOTrainer:
         surr1 = ratio * advantages
         surr2 = mx.clip(ratio, 1.0 - self.cfg.clip_param, 1.0 + self.cfg.clip_param) * advantages
         policy_loss = -mx.mean(mx.minimum(surr1, surr2))
+        clip_fraction = mx.mean((mx.abs(ratio - 1.0) > self.cfg.clip_param).astype(mx.float32))
 
         if self.cfg.use_clipped_value_loss:
             value_pred_clipped = old_values + mx.clip(values - old_values, -self.cfg.clip_param, self.cfg.clip_param)
             value_losses = (values - returns) ** 2
             value_losses_clipped = (value_pred_clipped - returns) ** 2
-            value_loss = 0.5 * mx.mean(mx.maximum(value_losses, value_losses_clipped))
+            value_loss = mx.mean(mx.maximum(value_losses, value_losses_clipped))
         else:
-            value_loss = 0.5 * mx.mean((returns - values) ** 2)
+            value_loss = mx.mean((returns - values) ** 2)
+
+        ratio_mean = mx.mean(ratio)
+        ratio_max = mx.max(ratio)
+        std_mean = mx.mean(sigma)
+        adv_std = mx.std(advantages)
+        returns_var = mx.var(returns)
+        explained_variance = 1.0 - mx.var(returns - values) / (returns_var + 1e-8)
 
         # Match rsl-rl style analytic KL for adaptive LR.
         kl = mx.sum(
@@ -141,21 +155,50 @@ class PPOTrainer:
             axis=-1,
         )
         kl_mean = mx.mean(kl)
-        mx.eval(policy_loss, value_loss, entropy, kl_mean)
+        mx.eval(
+            policy_loss,
+            value_loss,
+            entropy,
+            kl_mean,
+            clip_fraction,
+            ratio_mean,
+            ratio_max,
+            std_mean,
+            adv_std,
+            explained_variance,
+        )
         return {
             "surrogate": float(policy_loss.item()),
             "value": float(value_loss.item()),
             "entropy": float(entropy.item()),
             "approx_kl": float(kl_mean.item()),
+            "clip_fraction": float(clip_fraction.item()),
+            "ratio_mean": float(ratio_mean.item()),
+            "ratio_max": float(ratio_max.item()),
+            "std_mean": float(std_mean.item()),
+            "adv_std": float(adv_std.item()),
+            "value_explained_variance": float(explained_variance.item()),
         }
 
     def update(self, buffer: RolloutBuffer) -> Dict[str, float]:
-        agg = {"surrogate": 0.0, "value": 0.0, "entropy": 0.0, "approx_kl": 0.0}
+        agg = {
+            "surrogate": 0.0,
+            "value": 0.0,
+            "entropy": 0.0,
+            "approx_kl": 0.0,
+            "clip_fraction": 0.0,
+            "ratio_mean": 0.0,
+            "ratio_max": 0.0,
+            "std_mean": 0.0,
+            "adv_std": 0.0,
+            "value_explained_variance": 0.0,
+        }
         updates = 0
         skipped_nonfinite_loss = 0
         skipped_nonfinite_grads = 0
         rolled_back_updates = 0
         skipped_nonfinite_metrics = 0
+        early_stopped_kl = 0
         for batch in buffer.mini_batch_generator(self.cfg.num_mini_batches, self.cfg.num_learning_epochs):
             # Keep a copy for rollback if this update corrupts parameters.
             param_backup = tree_map(lambda x: mx.array(x), self.model.parameters())
@@ -186,13 +229,30 @@ class PPOTrainer:
                 skipped_nonfinite_metrics += 1
                 continue
 
+            if self.cfg.target_kl_stop is not None and metrics["approx_kl"] > self.cfg.target_kl_stop:
+                early_stopped_kl += 1
+                break
+
             if self.cfg.schedule == "adaptive" and self.cfg.desired_kl is not None:
                 kl = metrics["approx_kl"]
-                if kl > self.cfg.desired_kl * 2.0:
-                    self.learning_rate = max(self.cfg.min_learning_rate, self.learning_rate / 1.5)
-                elif 0.0 < kl < self.cfg.desired_kl / 2.0:
-                    self.learning_rate = min(self.cfg.max_learning_rate, self.learning_rate * 1.5)
-                self.optimizer.learning_rate = mx.array(self.learning_rate, dtype=mx.float32)
+                if self._kl_ema is None:
+                    self._kl_ema = kl
+                else:
+                    beta = min(max(self.cfg.adaptive_kl_beta, 0.0), 0.999)
+                    self._kl_ema = beta * self._kl_ema + (1.0 - beta) * kl
+                if (updates + 1) % max(1, int(self.cfg.adaptive_lr_update_interval)) == 0:
+                    kl_for_lr = self._kl_ema
+                    if kl_for_lr > self.cfg.desired_kl * 2.0:
+                        self.learning_rate = max(
+                            self.cfg.min_learning_rate,
+                            self.learning_rate / max(self.cfg.adaptive_lr_decay, 1.01),
+                        )
+                    elif 0.0 < kl_for_lr < self.cfg.desired_kl / 2.0:
+                        self.learning_rate = min(
+                            self.cfg.max_learning_rate,
+                            self.learning_rate * max(self.cfg.adaptive_lr_growth, 1.0),
+                        )
+                    self.optimizer.learning_rate = mx.array(self.learning_rate, dtype=mx.float32)
 
             for key in agg:
                 agg[key] += metrics[key]
@@ -207,6 +267,7 @@ class PPOTrainer:
                 "skipped_nonfinite_grads": float(skipped_nonfinite_grads),
                 "rolled_back_updates": float(rolled_back_updates),
                 "skipped_nonfinite_metrics": float(skipped_nonfinite_metrics),
+                "early_stopped_kl": float(early_stopped_kl),
             }
         out = {key: value / updates for key, value in agg.items()}
         out["learning_rate"] = self.learning_rate
@@ -215,4 +276,5 @@ class PPOTrainer:
         out["skipped_nonfinite_grads"] = float(skipped_nonfinite_grads)
         out["rolled_back_updates"] = float(rolled_back_updates)
         out["skipped_nonfinite_metrics"] = float(skipped_nonfinite_metrics)
+        out["early_stopped_kl"] = float(early_stopped_kl)
         return out

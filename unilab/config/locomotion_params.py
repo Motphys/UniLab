@@ -30,10 +30,16 @@ def rsl_rl_config(env_name: str) -> config_dict.ConfigDict:
             gamma=0.99,
             lam=0.95,
             desired_kl=0.01,
+            target_kl_stop=None,
             max_grad_norm=1.0,
+            adaptive_kl_beta=0.9,
+            adaptive_lr_growth=1.1,
+            adaptive_lr_decay=1.2,
+            adaptive_lr_update_interval=5,
+            forward_velocity_bonus_coef=0.0,
         ),
         num_steps_per_env=24,  # per iteration
-        max_iterations=100000,  # number of policy updates
+        max_iterations=101,  # number of policy updates
         empirical_normalization=True,
         # logging
         save_interval=50,  # check for potential saves every this many iterations
@@ -58,6 +64,7 @@ def rsl_rl_config(env_name: str) -> config_dict.ConfigDict:
         rl_config.save_interval = 100
         rl_config.max_iterations = 101
         rl_config.empirical_normalization = False
+        rl_config.algorithm.forward_velocity_bonus_coef = 0.5
     elif env_name == "Go2JoystickFlatTerrain":
         rl_config.algorithm.entropy_coef = 0.01
         rl_config.algorithm.learning_rate = 1.0e-3
@@ -69,5 +76,6 @@ def rsl_rl_config(env_name: str) -> config_dict.ConfigDict:
         rl_config.save_interval = 100
         rl_config.max_iterations = 101
         rl_config.empirical_normalization = False
+        rl_config.algorithm.forward_velocity_bonus_coef = 0.5
 
     return rl_config
