@@ -1,4 +1,3 @@
-from typing import Optional
 from ml_collections import config_dict
 
 def rsl_rl_config(env_name: str) -> config_dict.ConfigDict:
@@ -30,10 +29,23 @@ def rsl_rl_config(env_name: str) -> config_dict.ConfigDict:
             gamma=0.99,
             lam=0.95,
             desired_kl=0.01,
+            target_kl_stop=None,
             max_grad_norm=1.0,
+            adaptive_kl_beta=0.9,
+            adaptive_lr_growth=1.1,
+            adaptive_lr_decay=1.2,
+            adaptive_lr_update_interval=5,
+            fast_mode=True,
+            metrics_interval=8,
+            finite_check_interval=8,
+            enable_compile=False,
+            warmup_strict_iters=10,
+            warmup_metrics_interval=2,
+            warmup_finite_check_interval=2,
+            disable_finite_checks=True,
         ),
         num_steps_per_env=24,  # per iteration
-        max_iterations=100000,  # number of policy updates
+        max_iterations=101,  # number of policy updates
         empirical_normalization=True,
         # logging
         save_interval=50,  # check for potential saves every this many iterations

@@ -21,5 +21,6 @@ UniLab.md
 Changelog.md
 
 benchmark/outputs/
-
 unilab/algos/rsl_rl
+
+mlx_learn/

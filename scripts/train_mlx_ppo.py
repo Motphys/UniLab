@@ -138,7 +138,7 @@ def main() -> None:
     parser.add_argument("--task", type=str, required=True, help="Task name")
     parser.add_argument("--play_only", action="store_true", help="Play mode only")
     parser.add_argument("--load_run", type=str, default="-1", help="Run ID to load, run path, or model file path")
-    parser.add_argument("--env_num", type=int, default=1024, help="Number of parallel envs")
+    parser.add_argument("--env_num", type=int, default=4096, help="Number of parallel envs")
     parser.add_argument("--play_env_num", type=int, default=16, help="Number of play envs")
     parser.add_argument("--play_steps", type=int, default=150, help="Number of steps for play video")
     parser.add_argument("--steps_per_env", type=int, default=None, help="Rollout horizon per iteration")
@@ -171,8 +171,6 @@ def main() -> None:
         env = registry.make(args.task, num_envs=play_env_num, sim_backend="mujoco")
         obs_dim = env.observation_space.shape[0]
         action_dim = env.action_space.shape[0]
-        action_low = env.action_space.low.astype(np.float32)
-        action_high = env.action_space.high.astype(np.float32)
         model = build_model(cfg, obs_dim, action_dim)
 
         load_path: Path | None = None
@@ -213,10 +211,9 @@ def main() -> None:
         print("[MLX PPO] Collecting physics states for play...")
         for _ in range(args.play_steps):
             obs_mx = mx.array(obs, dtype=mx.float32)
-            action_mean = model.policy(obs_mx)
-            actions = np.asarray(action_mean, dtype=np.float32)
+            actions_mx = model.policy(obs_mx)
+            actions = np.asarray(actions_mx, dtype=np.float32)
             actions = np.where(np.isfinite(actions), actions, 0.0).astype(np.float32)
-            actions = np.clip(actions, action_low, action_high)
             state = env.step(actions)
             raw_obs = state.obs
             bad_mask = ~np.isfinite(raw_obs).all(axis=1)
@@ -270,6 +267,23 @@ def main() -> None:
         "schedule": str(getattr(algo_cfg, "schedule", "fixed")),
         "desired_kl": float(getattr(algo_cfg, "desired_kl", 0.01)),
         "reward_normalization": bool(getattr(algo_cfg, "reward_normalization", False)),
+        "target_kl_stop": (
+            float(getattr(algo_cfg, "target_kl_stop"))
+            if getattr(algo_cfg, "target_kl_stop", None) is not None
+            else None
+        ),
+        "adaptive_kl_beta": float(getattr(algo_cfg, "adaptive_kl_beta", 0.9)),
+        "adaptive_lr_growth": float(getattr(algo_cfg, "adaptive_lr_growth", 1.2)),
+        "adaptive_lr_decay": float(getattr(algo_cfg, "adaptive_lr_decay", 1.5)),
+        "adaptive_lr_update_interval": int(getattr(algo_cfg, "adaptive_lr_update_interval", 1)),
+        "fast_mode": bool(getattr(algo_cfg, "fast_mode", False)),
+        "metrics_interval": int(getattr(algo_cfg, "metrics_interval", 1)),
+        "finite_check_interval": int(getattr(algo_cfg, "finite_check_interval", 1)),
+        "enable_compile": bool(getattr(algo_cfg, "enable_compile", False)),
+        "warmup_strict_iters": int(getattr(algo_cfg, "warmup_strict_iters", 0)),
+        "warmup_metrics_interval": int(getattr(algo_cfg, "warmup_metrics_interval", 1)),
+        "warmup_finite_check_interval": int(getattr(algo_cfg, "warmup_finite_check_interval", 1)),
+        "disable_finite_checks": bool(getattr(algo_cfg, "disable_finite_checks", False)),
         "seed": args.seed,
         "timestamp": timestamp,
     }
@@ -289,8 +303,6 @@ def main() -> None:
 
     obs_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
-    action_low = env.action_space.low.astype(np.float32)
-    action_high = env.action_space.high.astype(np.float32)
 
     model = build_model(cfg, obs_dim, action_dim)
     ppo_cfg = PPOConfig(
@@ -307,6 +319,23 @@ def main() -> None:
         schedule=str(getattr(algo_cfg, "schedule", "fixed")),
         desired_kl=float(getattr(algo_cfg, "desired_kl", 0.01)),
         normalize_advantage_per_mini_batch=bool(getattr(algo_cfg, "normalize_advantage_per_mini_batch", False)),
+        adaptive_kl_beta=float(getattr(algo_cfg, "adaptive_kl_beta", 0.9)),
+        adaptive_lr_growth=float(getattr(algo_cfg, "adaptive_lr_growth", 1.2)),
+        adaptive_lr_decay=float(getattr(algo_cfg, "adaptive_lr_decay", 1.5)),
+        adaptive_lr_update_interval=int(getattr(algo_cfg, "adaptive_lr_update_interval", 1)),
+        fast_mode=bool(getattr(algo_cfg, "fast_mode", False)),
+        metrics_interval=int(getattr(algo_cfg, "metrics_interval", 1)),
+        finite_check_interval=int(getattr(algo_cfg, "finite_check_interval", 1)),
+        enable_compile=bool(getattr(algo_cfg, "enable_compile", False)),
+        warmup_strict_iters=int(getattr(algo_cfg, "warmup_strict_iters", 0)),
+        warmup_metrics_interval=int(getattr(algo_cfg, "warmup_metrics_interval", 1)),
+        warmup_finite_check_interval=int(getattr(algo_cfg, "warmup_finite_check_interval", 1)),
+        disable_finite_checks=bool(getattr(algo_cfg, "disable_finite_checks", False)),
+        target_kl_stop=(
+            float(getattr(algo_cfg, "target_kl_stop"))
+            if getattr(algo_cfg, "target_kl_stop", None) is not None
+            else None
+        ),
     )
     trainer = PPOTrainer(model, ppo_cfg)
     use_reward_norm = bool(getattr(algo_cfg, "reward_normalization", False))
@@ -336,6 +365,22 @@ def main() -> None:
 
     log(f"[MLX PPO] task={args.task} envs={args.env_num} steps={num_steps} iters={max_iterations}")
     log(f"[MLX PPO] run={timestamp} lr={learning_rate:.6f}")
+    log(
+        "[MLX PPO] perf_mode fast_mode={} metrics_interval={} finite_check_interval={} compile={}".format(
+            ppo_cfg.fast_mode,
+            ppo_cfg.metrics_interval,
+            ppo_cfg.finite_check_interval,
+            ppo_cfg.enable_compile,
+        )
+    )
+    log(
+        "[MLX PPO] perf_warmup warmup_iters={} warmup_metrics_interval={} warmup_finite_interval={} disable_finite_checks={}".format(
+            ppo_cfg.warmup_strict_iters,
+            ppo_cfg.warmup_metrics_interval,
+            ppo_cfg.warmup_finite_check_interval,
+            ppo_cfg.disable_finite_checks,
+        )
+    )
     log(f"[MLX PPO] log_dir={log_dir}")
     if tb_writer is not None:
         log("[MLX PPO] tensorboard=enabled")
@@ -363,6 +408,8 @@ def main() -> None:
         bad_obs_count = 0
         bad_reward_count = 0
         forced_reset_count = 0
+        reward_component_sums: dict[str, float] = {}
+        reward_component_counts: dict[str, int] = {}
         for _ in range(num_steps):
             model.update_normalization(mx.array(obs, dtype=mx.float32))
             obs_mx = mx.array(obs, dtype=mx.float32)
@@ -370,8 +417,9 @@ def main() -> None:
             actions = np.asarray(actions_mx, dtype=np.float32)
             bad_action_count += int(np.size(actions) - np.isfinite(actions).sum())
             actions = np.where(np.isfinite(actions), actions, 0.0).astype(np.float32)
-            clipped_actions = np.clip(actions, action_low, action_high)
-            state = env.step(clipped_actions)
+            # Keep behavior actions consistent with PPO storage (match rsl-rl style).
+            executed_actions = actions
+            state = env.step(executed_actions)
 
             raw_rewards = state.reward
             raw_dones = state.done
@@ -399,6 +447,20 @@ def main() -> None:
             if hasattr(state, "truncated"):
                 timeouts = np.asarray(state.truncated, dtype=np.float32)
                 rewards = rewards + ppo_cfg.gamma * np.asarray(values_mx, dtype=np.float32) * timeouts
+
+            if hasattr(state, "info") and isinstance(state.info, dict):
+                step_log = state.info.get("log", {})
+                if isinstance(step_log, dict):
+                    for key, value in step_log.items():
+                        try:
+                            scalar_value = float(value)
+                        except (TypeError, ValueError):
+                            continue
+                        if not np.isfinite(scalar_value):
+                            continue
+                        reward_component_sums[key] = reward_component_sums.get(key, 0.0) + scalar_value
+                        reward_component_counts[key] = reward_component_counts.get(key, 0) + 1
+
             rewards_mx = mx.array(rewards, dtype=mx.float32)
             if reward_normalizer is not None:
                 rewards_mx = mx.squeeze(reward_normalizer(rewards_mx), axis=-1)
@@ -432,7 +494,7 @@ def main() -> None:
         learn_start = time.perf_counter()
         last_values = model.value(mx.array(obs, dtype=mx.float32))
         buffer.compute_returns_and_advantages(last_values)
-        metrics = trainer.update(buffer)
+        metrics = trainer.update(buffer, iteration=it)
         learn_time = time.perf_counter() - learn_start
         iter_time = time.perf_counter() - iter_start
         total_time += iter_time
@@ -444,6 +506,13 @@ def main() -> None:
         skipped_nonfinite_grads = float(metrics.get("skipped_nonfinite_grads", 0.0))
         rolled_back_updates = float(metrics.get("rolled_back_updates", 0.0))
         skipped_nonfinite_metrics = float(metrics.get("skipped_nonfinite_metrics", 0.0))
+        early_stopped_kl = float(metrics.get("early_stopped_kl", 0.0))
+        clip_fraction = float(metrics.get("clip_fraction", 0.0))
+        ratio_mean = float(metrics.get("ratio_mean", 0.0))
+        ratio_max = float(metrics.get("ratio_max", 0.0))
+        std_mean = float(metrics.get("std_mean", 0.0))
+        adv_std = float(metrics.get("adv_std", 0.0))
+        value_explained_variance = float(metrics.get("value_explained_variance", 0.0))
         mean_reward = float(np.mean(reward_history[-100:])) if reward_history else 0.0
         mean_ep_len = float(np.mean(length_history[-100:])) if length_history else 0.0
 
@@ -468,10 +537,22 @@ def main() -> None:
             tb_writer.add_scalar("Perf/skipped_nonfinite_grads", skipped_nonfinite_grads, it)
             tb_writer.add_scalar("Perf/rolled_back_updates", rolled_back_updates, it)
             tb_writer.add_scalar("Perf/skipped_nonfinite_metrics", skipped_nonfinite_metrics, it)
+            tb_writer.add_scalar("Perf/early_stopped_kl", early_stopped_kl, it)
+            tb_writer.add_scalar("Policy/clip_fraction", clip_fraction, it)
+            tb_writer.add_scalar("Policy/ratio_mean", ratio_mean, it)
+            tb_writer.add_scalar("Policy/ratio_max", ratio_max, it)
+            tb_writer.add_scalar("Policy/std_mean", std_mean, it)
+            tb_writer.add_scalar("Policy/adv_std", adv_std, it)
+            tb_writer.add_scalar("Value/explained_variance", value_explained_variance, it)
             tb_writer.add_scalar("Train/mean_reward", mean_reward, it)
             tb_writer.add_scalar("Train/mean_episode_length", mean_ep_len, it)
             tb_writer.add_scalar("Train/mean_reward/time", mean_reward, int(total_time))
             tb_writer.add_scalar("Train/mean_episode_length/time", mean_ep_len, int(total_time))
+            for key, summed in reward_component_sums.items():
+                count = reward_component_counts.get(key, 0)
+                if count <= 0:
+                    continue
+                tb_writer.add_scalar(f"{key}", summed / count, it)
             tb_writer.flush()
 
         if save_interval > 0 and (it % save_interval == 0 or it == max_iterations - 1):
@@ -486,7 +567,9 @@ def main() -> None:
                 "[iter {}/{}] reward={:.3f} ep_len={:.1f} "
                 "loss_pi={:.4f} loss_v={:.4f} ent={:.4f} kl={:.5f} lr={:.6f} fps={} "
                 "collect={:.3f}s learn={:.3f}s bad(a/o/r)={}/{}/{} forced_reset={} "
-                "upd={} skip(loss/grad/met)={}/{}/{} rollback={}".format(
+                "clip_frac={:.3f} ratio(mean/max)={:.3f}/{:.3f} "
+                "std={:.4f} adv_std={:.4f} v_exp={:.3f} "
+                "upd={} skip(loss/grad/met)={}/{}/{} rollback={} kl_stop={}".format(
                     it + 1,
                     max_iterations,
                     mean_reward,
@@ -503,11 +586,18 @@ def main() -> None:
                     bad_obs_count,
                     bad_reward_count,
                     forced_reset_count,
+                    clip_fraction,
+                    ratio_mean,
+                    ratio_max,
+                    std_mean,
+                    adv_std,
+                    value_explained_variance,
                     int(updates_applied),
                     int(skipped_nonfinite_loss),
                     int(skipped_nonfinite_grads),
                     int(skipped_nonfinite_metrics),
                     int(rolled_back_updates),
+                    int(early_stopped_kl),
                 )
             )
 

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Dict, Generator
-import random
 
 import mlx.core as mx
+import numpy as np
 
 
 @dataclass
@@ -99,12 +99,14 @@ class RolloutBuffer:
         values = mx.reshape(self.values, (batch_size,))
 
         for _ in range(num_epochs):
-            indices = list(range(batch_size))
-            random.shuffle(indices)
+            shuffled = np.random.permutation(batch_size)
+            # Build all mini-batch indices once per epoch to reduce Python overhead.
+            batch_indices = mx.array(
+                shuffled.reshape(num_mini_batches, mini_batch_size),
+                dtype=mx.int32,
+            )
             for i in range(num_mini_batches):
-                start = i * mini_batch_size
-                end = start + mini_batch_size
-                idx = mx.array(indices[start:end], dtype=mx.int32)
+                idx = batch_indices[i]
                 yield {
                     "obs": obs[idx],
                     "actions": actions[idx],
