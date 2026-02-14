@@ -342,105 +342,212 @@ def save_plots(records: List[ConversionRecord], plot_dir: Path, file_prefix: str
 
     plot_dir.mkdir(parents=True, exist_ok=True)
     saved: List[str] = []
+    backend_order = ["numpy", "mlx", "torch_cpu", "torch_mps"]
+    backend_label = {
+        "numpy": "numpy",
+        "mlx": "mlx",
+        "torch_cpu": "torch.cpu",
+        "torch_mps": "torch.mps",
+    }
+    dtype_order = ["float32", "float16"]
+    dtype_style = {
+        "float32": {"color": "#1f77b4", "marker": "o"},
+        "float16": {"color": "#ff7f0e", "marker": "s"},
+    }
 
-    # Keep only the by-dtype faceted style: compare backend pairs in each subplot.
-    def plot_facet_by_dtype(
-        metric_name: str,
-        y_label: str,
-        title: str,
-        suffix: str,
-        log_y: bool,
-    ) -> str:
-        local_dtype_keys = sorted({_dtype_key(r) for r in records})
-        local_pair_keys = sorted({_pair_key(r) for r in records})
-        n_dtype = len(local_dtype_keys)
-        dcols = min(2, max(1, n_dtype))
-        drows = (n_dtype + dcols - 1) // dcols
+    fig, axes = plt.subplots(
+        4,
+        4,
+        figsize=(18.5, 16.0),
+        sharex=True,
+        sharey=True,
+    )
+    y_lo, y_hi = _positive_ylim(records, "mean_sec")
+    legend_handles = {}
 
-        fig, axes = plt.subplots(
-            drows,
-            dcols,
-            figsize=(6.2 * dcols, 4.1 * drows),
-            sharex=True,
-            sharey=True,
-        )
-        if hasattr(axes, "flatten"):
-            ax_list = list(axes.flatten())
-        else:
-            ax_list = [axes]
-
-        y_lo, y_hi = _positive_ylim(records, metric_name)
-        legend_handles = {}
-        for idx, dtype_key in enumerate(local_dtype_keys):
-            ax = ax_list[idx]
-            subset_dtype = [r for r in records if _dtype_key(r) == dtype_key]
-            for pair in local_pair_keys:
+    for row, dst in enumerate(backend_order):
+        for col, src in enumerate(backend_order):
+            ax = axes[row][col]
+            has_any_curve = False
+            for dtype_name in dtype_order:
                 vals = sorted(
-                    [r for r in subset_dtype if _pair_key(r) == pair],
+                    [
+                        r
+                        for r in records
+                        if r.source_backend == src
+                        and r.target_backend == dst
+                        and r.source_dtype == dtype_name
+                        and r.target_dtype == dtype_name
+                    ],
+                    key=lambda x: x.size,
+                )
+                if not vals:
+                    continue
+
+                x = [v.size for v in vals]
+                y = [v.mean_sec for v in vals]
+                style = dtype_style[dtype_name]
+                line = ax.plot(
+                    x,
+                    y,
+                    marker=style["marker"],
+                    linewidth=1.2,
+                    markersize=3.8,
+                    color=style["color"],
+                    label=dtype_name,
+                )[0]
+                if dtype_name not in legend_handles:
+                    legend_handles[dtype_name] = line
+                has_any_curve = True
+
+            ax.set_yscale("log")
+            ax.set_xscale("log", base=2)
+            ax.set_ylim(y_lo, y_hi)
+            ax.grid(True, alpha=0.25)
+
+            if row == 0:
+                ax.set_title(f"From: {backend_label[src]}", fontsize=10.5)
+            if col == 0:
+                ax.set_ylabel(f"To: {backend_label[dst]}\ntime (sec)", fontsize=9.5)
+            if row == len(backend_order) - 1:
+                ax.set_xlabel("size (N for NxN)", fontsize=9.5)
+            if not has_any_curve:
+                ax.text(
+                    0.5,
+                    0.5,
+                    "no data",
+                    transform=ax.transAxes,
+                    ha="center",
+                    va="center",
+                    fontsize=8.5,
+                    alpha=0.7,
+                )
+
+    fig.suptitle("Conversion time vs size (4x4 To/From storage)", fontsize=14, y=0.995)
+    if legend_handles:
+        fig.legend(
+            [legend_handles[d] for d in dtype_order if d in legend_handles],
+            [d for d in dtype_order if d in legend_handles],
+            loc="upper center",
+            bbox_to_anchor=(0.5, 0.972),
+            ncol=2,
+            fontsize=10,
+            frameon=False,
+        )
+    fig.tight_layout(rect=[0.02, 0.03, 1, 0.95])
+    outfile = plot_dir / f"{file_prefix}_conversion_time_4x4.png"
+    fig.savefig(outfile, dpi=180, bbox_inches="tight", pad_inches=0.2)
+    plt.close(fig)
+    saved.append(str(outfile.resolve()))
+
+    # Focused figure: only numpy/mlx/torch.mps conversions.
+    # Layout: 2 rows (float16, float32) x 3 cols (one From backend per column).
+    focused_backends = ["numpy", "mlx", "torch_mps"]
+    row_dtypes = ["float16", "float32"]
+    to_colors = {
+        "numpy": "#1f77b4",
+        "mlx": "#ff7f0e",
+        "torch_mps": "#2ca02c",
+    }
+
+    fig2, axes2 = plt.subplots(
+        2,
+        3,
+        figsize=(14.5, 8.0),
+        sharex=True,
+        sharey=True,
+    )
+    y_lo2, y_hi2 = _positive_ylim(
+        [
+            r
+            for r in records
+            if r.source_backend in {"numpy", "mlx", "torch_mps"}
+            and r.target_backend in {"numpy", "mlx", "torch_mps"}
+            and r.source_dtype == r.target_dtype
+            and r.source_dtype in {"float16", "float32"}
+            and r.source_backend != r.target_backend
+        ],
+        "mean_sec",
+    )
+    legend_handles2 = {}
+
+    for row, dtype_name in enumerate(row_dtypes):
+        for col, src in enumerate(focused_backends):
+            ax = axes2[row][col]
+            dst_candidates = [b for b in focused_backends if b != src]
+            for dst in dst_candidates:
+                vals = sorted(
+                    [
+                        r
+                        for r in records
+                        if r.source_backend == src
+                        and r.target_backend == dst
+                        and r.source_dtype == dtype_name
+                        and r.target_dtype == dtype_name
+                    ],
                     key=lambda x: x.size,
                 )
                 if not vals:
                     continue
                 x = [v.size for v in vals]
-                y = [getattr(v, metric_name) for v in vals]
+                y = [v.mean_sec for v in vals]
+                label = f"{backend_label[src]} -> {backend_label[dst]}"
                 line = ax.plot(
                     x,
                     y,
                     marker="o",
                     linewidth=1.3,
                     markersize=3.8,
-                    label=pair,
+                    color=to_colors[dst],
+                    label=label,
                 )[0]
-                if pair not in legend_handles:
-                    legend_handles[pair] = line
+                if label not in legend_handles2:
+                    legend_handles2[label] = line
 
-            ax.set_title(dtype_key, fontsize=10)
+            if row == 0:
+                ax.set_title(f"From: {backend_label[src]}", fontsize=10.5)
+            if col == 0:
+                ax.set_ylabel(f"{dtype_name}\ntime (sec)", fontsize=9.5)
+            if row == len(row_dtypes) - 1:
+                ax.set_xlabel("size (N for NxN)", fontsize=9.5)
+            ax.set_yscale("log")
             ax.set_xscale("log", base=2)
-            if log_y:
-                ax.set_yscale("log")
-            ax.set_ylim(y_lo, y_hi)
+            ax.set_ylim(y_lo2, y_hi2)
             ax.grid(True, alpha=0.25)
 
-        for ax in ax_list[n_dtype:]:
-            ax.axis("off")
+            # Mark empty panels explicitly when a backend is unavailable.
+            if not ax.lines:
+                ax.text(
+                    0.5,
+                    0.5,
+                    "no data",
+                    transform=ax.transAxes,
+                    ha="center",
+                    va="center",
+                    fontsize=8.5,
+                    alpha=0.7,
+                )
 
-        fig.suptitle(title, fontsize=14, y=0.992)
-        fig.supxlabel("matrix size (N for NxN)")
-        fig.supylabel(y_label)
-        if legend_handles:
-            fig.legend(
-                list(legend_handles.values()),
-                list(legend_handles.keys()),
-                loc="upper center",
-                bbox_to_anchor=(0.5, 0.965),
-                ncol=min(4, max(1, len(legend_handles))),
-                fontsize=8.5,
-                frameon=False,
-            )
-        fig.tight_layout(rect=[0.03, 0.08, 1, 0.88])
-        outfile = plot_dir / f"{file_prefix}_{suffix}.png"
-        fig.savefig(outfile, dpi=180, bbox_inches="tight", pad_inches=0.2)
-        plt.close(fig)
-        return str(outfile.resolve())
-
-    saved.append(
-        plot_facet_by_dtype(
-            metric_name="mean_sec",
-            y_label="mean time (sec)",
-            title="Conversion time vs size (faceted by dtype)",
-            suffix="conversion_time",
-            log_y=True,
-        )
+    fig2.suptitle(
+        "Conversion time vs size (cols=From, lines=To; numpy/mlx/torch.mps)",
+        fontsize=13.5,
+        y=0.995,
     )
-    saved.append(
-        plot_facet_by_dtype(
-            metric_name="effective_gbps",
-            y_label="effective GB/s",
-            title="Conversion effective GB/s vs size (faceted by dtype)",
-            suffix="conversion_gbps",
-            log_y=True,
+    if legend_handles2:
+        fig2.legend(
+            list(legend_handles2.values()),
+            list(legend_handles2.keys()),
+            loc="upper center",
+            bbox_to_anchor=(0.5, 0.96),
+            ncol=3,
+            fontsize=9.5,
+            frameon=False,
         )
-    )
+    fig2.tight_layout(rect=[0.02, 0.03, 1, 0.92])
+    outfile2 = plot_dir / f"{file_prefix}_conversion_time_numpy_mlx_torchmps_2x3.png"
+    fig2.savefig(outfile2, dpi=180, bbox_inches="tight", pad_inches=0.2)
+    plt.close(fig2)
+    saved.append(str(outfile2.resolve()))
 
     return saved
 
@@ -485,7 +592,7 @@ def main() -> None:
     parser.add_argument("--sizes", type=str, default="", help="Comma-separated sizes.")
     parser.add_argument("--pow2-start", type=int, default=5, help="Default start pow for sizes.")
     parser.add_argument("--pow2-end", type=int, default=14, help="Default end pow for sizes.")
-    parser.add_argument("--dtypes", type=str, default="float16,float32", help="Target dtypes csv.")
+    parser.add_argument("--dtypes", type=str, default="float16,float32", help="Dtypes to benchmark (same-dtype only).")
     parser.add_argument("--warmup", type=int, default=2, help="Warmup iterations.")
     parser.add_argument("--repeat", type=int, default=5, help="Measured iterations.")
     parser.add_argument(
@@ -545,45 +652,42 @@ def main() -> None:
     pairs: List[Tuple[str, str]] = []
     for src in enabled_backends:
         for dst in enabled_backends:
-            if src == dst:
-                continue
             pairs.append((src, dst))
 
     for size in sizes:
         print(f"\nRunning conversion benchmarks for size={size} ...")
         for src, dst in pairs:
-            for src_dtype in dtypes:
-                for dst_dtype in dtypes:
-                    case_name = f"{src}({src_dtype})->{dst}({dst_dtype})"
-                    try:
-                        source = create_source(src, size, src_dtype)
+            for dtype_name in dtypes:
+                case_name = f"{src}({dtype_name})->{dst}({dtype_name})"
+                try:
+                    source = create_source(src, size, dtype_name)
 
-                        def op() -> None:
-                            out = convert_value(source, src, dst, dst_dtype)
-                            sync_if_needed(src, dst, out)
+                    def op() -> None:
+                        out = convert_value(source, src, dst, dtype_name)
+                        sync_if_needed(src, dst, out)
 
-                        elapsed = bench_callable(op, args.warmup, args.repeat)
-                        records.append(
-                            summarize(
-                                source_backend=src,
-                                target_backend=dst,
-                                source_dtype_name=src_dtype,
-                                target_dtype_name=dst_dtype,
-                                size=size,
-                                warmup=args.warmup,
-                                repeat=args.repeat,
-                                elapsed=elapsed,
-                            )
+                    elapsed = bench_callable(op, args.warmup, args.repeat)
+                    records.append(
+                        summarize(
+                            source_backend=src,
+                            target_backend=dst,
+                            source_dtype_name=dtype_name,
+                            target_dtype_name=dtype_name,
+                            size=size,
+                            warmup=args.warmup,
+                            repeat=args.repeat,
+                            elapsed=elapsed,
                         )
-                    except Exception as e:
-                        skipped.append(
-                            {
-                                "size": str(size),
-                                "case": case_name,
-                                "reason": str(e),
-                            }
-                        )
-                        print(f"  - skipped {case_name}: {e}")
+                    )
+                except Exception as e:
+                    skipped.append(
+                        {
+                            "size": str(size),
+                            "case": case_name,
+                            "reason": str(e),
+                        }
+                    )
+                    print(f"  - skipped {case_name}: {e}")
 
     plot_files = save_plots(records, plot_dir=plot_dir, file_prefix=out_path.stem)
     payload = {
