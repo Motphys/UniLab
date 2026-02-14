@@ -1,12 +1,12 @@
-<mujoco model="go2 scene">
-  <include file="go2.xml"/>
+<mujoco model="go1 scene">
+  <include file="go1.xml"/>
 
   <statistic center="0 0 0.1" extent="0.8"/>
 
   <visual>
     <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0"/>
     <rgba haze="0.15 0.25 0.35 1"/>
-    <global azimuth="-130" elevation="-20"/>
+    <global azimuth="120" elevation="-20"/>
   </visual>
 
   <asset>
@@ -21,17 +21,19 @@
     <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/>
   </worldbody>
 
+
   <keyframe>
     <key name="home" qpos="
-        0 0 0.3  1 0 0 0  
-        0 0.8 -1.5 
-        0 0.8 -1.5 
-        0 1 -1.5 
-        0 1 -1.5" 
+        0 0 0.27 1 0 0 0  
+        0 0.9 -1.8
+        0 0.9 -1.8
+        0 1 -1.8
+        0 1 -1.8"
       ctrl="
-        0 0.8 -1.5 
-        0 0.8 -1.5 
-        0 1 -1.5 
-        0 1 -1.5"/>
+        0 0.9 -1.8
+        0 0.9 -1.8
+        0 1 -1.8
+        0 1 -1.8"/>
   </keyframe>
+
 </mujoco>
