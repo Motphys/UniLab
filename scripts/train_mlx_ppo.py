@@ -280,7 +280,10 @@ def main() -> None:
         "metrics_interval": int(getattr(algo_cfg, "metrics_interval", 1)),
         "finite_check_interval": int(getattr(algo_cfg, "finite_check_interval", 1)),
         "enable_compile": bool(getattr(algo_cfg, "enable_compile", False)),
-        "forward_velocity_bonus_coef": float(getattr(algo_cfg, "forward_velocity_bonus_coef", 0.0)),
+        "warmup_strict_iters": int(getattr(algo_cfg, "warmup_strict_iters", 0)),
+        "warmup_metrics_interval": int(getattr(algo_cfg, "warmup_metrics_interval", 1)),
+        "warmup_finite_check_interval": int(getattr(algo_cfg, "warmup_finite_check_interval", 1)),
+        "disable_finite_checks": bool(getattr(algo_cfg, "disable_finite_checks", False)),
         "seed": args.seed,
         "timestamp": timestamp,
     }
@@ -300,8 +303,6 @@ def main() -> None:
 
     obs_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
-    action_low = env.action_space.low.astype(np.float32)
-    action_high = env.action_space.high.astype(np.float32)
 
     model = build_model(cfg, obs_dim, action_dim)
     ppo_cfg = PPOConfig(
@@ -326,6 +327,10 @@ def main() -> None:
         metrics_interval=int(getattr(algo_cfg, "metrics_interval", 1)),
         finite_check_interval=int(getattr(algo_cfg, "finite_check_interval", 1)),
         enable_compile=bool(getattr(algo_cfg, "enable_compile", False)),
+        warmup_strict_iters=int(getattr(algo_cfg, "warmup_strict_iters", 0)),
+        warmup_metrics_interval=int(getattr(algo_cfg, "warmup_metrics_interval", 1)),
+        warmup_finite_check_interval=int(getattr(algo_cfg, "warmup_finite_check_interval", 1)),
+        disable_finite_checks=bool(getattr(algo_cfg, "disable_finite_checks", False)),
         target_kl_stop=(
             float(getattr(algo_cfg, "target_kl_stop"))
             if getattr(algo_cfg, "target_kl_stop", None) is not None
@@ -334,7 +339,6 @@ def main() -> None:
     )
     trainer = PPOTrainer(model, ppo_cfg)
     use_reward_norm = bool(getattr(algo_cfg, "reward_normalization", False))
-    forward_velocity_bonus_coef = float(getattr(algo_cfg, "forward_velocity_bonus_coef", 0.0))
     reward_normalizer = (
         EmpiricalDiscountedVariationNormalization(gamma=ppo_cfg.gamma) if use_reward_norm else None
     )
@@ -369,6 +373,14 @@ def main() -> None:
             ppo_cfg.enable_compile,
         )
     )
+    log(
+        "[MLX PPO] perf_warmup warmup_iters={} warmup_metrics_interval={} warmup_finite_interval={} disable_finite_checks={}".format(
+            ppo_cfg.warmup_strict_iters,
+            ppo_cfg.warmup_metrics_interval,
+            ppo_cfg.warmup_finite_check_interval,
+            ppo_cfg.disable_finite_checks,
+        )
+    )
     log(f"[MLX PPO] log_dir={log_dir}")
     if tb_writer is not None:
         log("[MLX PPO] tensorboard=enabled")
@@ -393,13 +405,11 @@ def main() -> None:
 
         collect_start = time.perf_counter()
         bad_action_count = 0
-        clipped_action_count = 0
         bad_obs_count = 0
         bad_reward_count = 0
         forced_reset_count = 0
         reward_component_sums: dict[str, float] = {}
         reward_component_counts: dict[str, int] = {}
-        forward_velocity_bonus_total = 0.0
         for _ in range(num_steps):
             model.update_normalization(mx.array(obs, dtype=mx.float32))
             obs_mx = mx.array(obs, dtype=mx.float32)
@@ -409,7 +419,6 @@ def main() -> None:
             actions = np.where(np.isfinite(actions), actions, 0.0).astype(np.float32)
             # Keep behavior actions consistent with PPO storage (match rsl-rl style).
             executed_actions = actions
-            clipped_action_count += int(np.sum(np.abs(np.clip(actions, action_low, action_high) - actions) > 1e-6))
             state = env.step(executed_actions)
 
             raw_rewards = state.reward
@@ -435,15 +444,6 @@ def main() -> None:
                 raw_dones[bad_indices] = 1.0
 
             rewards = np.nan_to_num(raw_rewards, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32)
-            if forward_velocity_bonus_coef > 0.0:
-                # Encourage moving along the commanded x velocity to avoid standing local optimum.
-                obs_for_bonus = np.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32)
-                cmd_x = obs_for_bonus[:, -3]
-                vel_x = obs_for_bonus[:, 0]
-                same_direction_speed = np.maximum(0.0, vel_x * np.sign(cmd_x))
-                vel_bonus = forward_velocity_bonus_coef * same_direction_speed * float(env.cfg.ctrl_dt)
-                rewards = rewards + vel_bonus.astype(np.float32)
-                forward_velocity_bonus_total += float(np.mean(vel_bonus))
             if hasattr(state, "truncated"):
                 timeouts = np.asarray(state.truncated, dtype=np.float32)
                 rewards = rewards + ppo_cfg.gamma * np.asarray(values_mx, dtype=np.float32) * timeouts
@@ -494,7 +494,7 @@ def main() -> None:
         learn_start = time.perf_counter()
         last_values = model.value(mx.array(obs, dtype=mx.float32))
         buffer.compute_returns_and_advantages(last_values)
-        metrics = trainer.update(buffer)
+        metrics = trainer.update(buffer, iteration=it)
         learn_time = time.perf_counter() - learn_start
         iter_time = time.perf_counter() - iter_start
         total_time += iter_time
@@ -529,7 +529,6 @@ def main() -> None:
             tb_writer.add_scalar("Perf/learning_time", learn_time, it)
             tb_writer.add_scalar("Perf/iteration_time", iter_time, it)
             tb_writer.add_scalar("Perf/non_finite_actions", float(bad_action_count), it)
-            tb_writer.add_scalar("Perf/clipped_actions", float(clipped_action_count), it)
             tb_writer.add_scalar("Perf/non_finite_obs", float(bad_obs_count), it)
             tb_writer.add_scalar("Perf/non_finite_rewards", float(bad_reward_count), it)
             tb_writer.add_scalar("Perf/forced_resets", float(forced_reset_count), it)
@@ -549,12 +548,6 @@ def main() -> None:
             tb_writer.add_scalar("Train/mean_episode_length", mean_ep_len, it)
             tb_writer.add_scalar("Train/mean_reward/time", mean_reward, int(total_time))
             tb_writer.add_scalar("Train/mean_episode_length/time", mean_ep_len, int(total_time))
-            if forward_velocity_bonus_coef > 0.0:
-                tb_writer.add_scalar(
-                    "forward_velocity_bonus",
-                    forward_velocity_bonus_total / max(num_steps, 1),
-                    it,
-                )
             for key, summed in reward_component_sums.items():
                 count = reward_component_counts.get(key, 0)
                 if count <= 0:
@@ -574,7 +567,7 @@ def main() -> None:
                 "[iter {}/{}] reward={:.3f} ep_len={:.1f} "
                 "loss_pi={:.4f} loss_v={:.4f} ent={:.4f} kl={:.5f} lr={:.6f} fps={} "
                 "collect={:.3f}s learn={:.3f}s bad(a/o/r)={}/{}/{} forced_reset={} "
-                "clipped_a={} clip_frac={:.3f} ratio(mean/max)={:.3f}/{:.3f} "
+                "clip_frac={:.3f} ratio(mean/max)={:.3f}/{:.3f} "
                 "std={:.4f} adv_std={:.4f} v_exp={:.3f} "
                 "upd={} skip(loss/grad/met)={}/{}/{} rollback={} kl_stop={}".format(
                     it + 1,
@@ -593,7 +586,6 @@ def main() -> None:
                     bad_obs_count,
                     bad_reward_count,
                     forced_reset_count,
-                    clipped_action_count,
                     clip_fraction,
                     ratio_mean,
                     ratio_max,

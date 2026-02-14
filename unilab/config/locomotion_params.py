@@ -1,4 +1,3 @@
-from typing import Optional
 from ml_collections import config_dict
 
 def rsl_rl_config(env_name: str) -> config_dict.ConfigDict:
@@ -37,10 +36,13 @@ def rsl_rl_config(env_name: str) -> config_dict.ConfigDict:
             adaptive_lr_decay=1.2,
             adaptive_lr_update_interval=5,
             fast_mode=True,
-            metrics_interval=4,
-            finite_check_interval=4,
+            metrics_interval=8,
+            finite_check_interval=8,
             enable_compile=False,
-            forward_velocity_bonus_coef=0.0,
+            warmup_strict_iters=10,
+            warmup_metrics_interval=2,
+            warmup_finite_check_interval=2,
+            disable_finite_checks=True,
         ),
         num_steps_per_env=24,  # per iteration
         max_iterations=101,  # number of policy updates
@@ -68,7 +70,6 @@ def rsl_rl_config(env_name: str) -> config_dict.ConfigDict:
         rl_config.save_interval = 100
         rl_config.max_iterations = 101
         rl_config.empirical_normalization = False
-        rl_config.algorithm.forward_velocity_bonus_coef = 0.5
     elif env_name == "Go2JoystickFlatTerrain":
         rl_config.algorithm.entropy_coef = 0.01
         rl_config.algorithm.learning_rate = 1.0e-3
@@ -80,6 +81,5 @@ def rsl_rl_config(env_name: str) -> config_dict.ConfigDict:
         rl_config.save_interval = 100
         rl_config.max_iterations = 101
         rl_config.empirical_normalization = False
-        rl_config.algorithm.forward_velocity_bonus_coef = 0.5
 
     return rl_config

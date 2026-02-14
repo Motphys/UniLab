@@ -42,6 +42,10 @@ class PPOConfig:
     metrics_interval: int = 1
     finite_check_interval: int = 1
     enable_compile: bool = False
+    warmup_strict_iters: int = 0
+    warmup_metrics_interval: int = 1
+    warmup_finite_check_interval: int = 1
+    disable_finite_checks: bool = False
 
 
 class PPOTrainer:
@@ -54,14 +58,11 @@ class PPOTrainer:
         self.optimizer = optim.Adam(learning_rate=self.learning_rate)
         self.loss_and_grad = nn.value_and_grad(model, self._loss_fn)
         self.compiled_loss_and_grad = self.loss_and_grad
-        self.compile_active = False
         if self.cfg.enable_compile and hasattr(mx, "compile"):
             try:
                 self.compiled_loss_and_grad = mx.compile(self.loss_and_grad)
-                self.compile_active = True
             except Exception:
                 self.compiled_loss_and_grad = self.loss_and_grad
-                self.compile_active = False
         self._kl_ema: float | None = None
 
     @staticmethod
@@ -193,7 +194,7 @@ class PPOTrainer:
             "value_explained_variance": float(explained_variance.item()),
         }
 
-    def update(self, buffer: RolloutBuffer) -> Dict[str, float]:
+    def update(self, buffer: RolloutBuffer, iteration: int = -1) -> Dict[str, float]:
         agg = {
             "surrogate": 0.0,
             "value": 0.0,
@@ -213,12 +214,23 @@ class PPOTrainer:
         skipped_nonfinite_metrics = 0
         early_stopped_kl = 0
         last_metrics: Dict[str, float] | None = None
-        metrics_interval = max(1, int(self.cfg.metrics_interval))
-        finite_check_interval = max(1, int(self.cfg.finite_check_interval))
+        in_warmup = (iteration >= 0) and (iteration < int(self.cfg.warmup_strict_iters))
+        metrics_interval = (
+            max(1, int(self.cfg.warmup_metrics_interval))
+            if in_warmup
+            else max(1, int(self.cfg.metrics_interval))
+        )
+        finite_check_interval = (
+            max(1, int(self.cfg.warmup_finite_check_interval))
+            if in_warmup
+            else max(1, int(self.cfg.finite_check_interval))
+        )
         for batch_idx, batch in enumerate(
             buffer.mini_batch_generator(self.cfg.num_mini_batches, self.cfg.num_learning_epochs)
         ):
             do_full_checks = (not self.cfg.fast_mode) or (batch_idx % finite_check_interval == 0)
+            if self.cfg.disable_finite_checks:
+                do_full_checks = False
             do_metrics = (not self.cfg.fast_mode) or (batch_idx % metrics_interval == 0) or (last_metrics is None)
 
             # Keep backup only in safe mode.
@@ -234,7 +246,6 @@ class PPOTrainer:
             except Exception:
                 # Fallback: some MLX versions do not support compiling this closure shape.
                 self.compiled_loss_and_grad = self.loss_and_grad
-                self.compile_active = False
                 loss, grads = self.loss_and_grad(self.model, batch)
             if do_full_checks and (not mx.all(mx.isfinite(loss)).item()):
                 skipped_nonfinite_loss += 1
