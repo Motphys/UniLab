@@ -47,9 +47,17 @@ def rsl_rl_config(env_name: str) -> config_dict.ConfigDict:
     )
 
     if env_name == "Go1JoystickFlatTerrain":
-        rl_config.algorithm.learning_rate = 3e-4
+        # Align Go1 training hyper-parameters with the current Go2 setup.
+        rl_config.algorithm.entropy_coef = 0.01
+        rl_config.algorithm.learning_rate = 1.0e-3
         rl_config.algorithm.schedule = "adaptive"
-        rl_config.max_iterations = 1000
+        rl_config.algorithm.value_loss_coef = 1.0
+        rl_config.algorithm.num_learning_epochs = 5
+        rl_config.algorithm.num_mini_batches = 4
+        rl_config.num_steps_per_env = 24
+        rl_config.save_interval = 100
+        rl_config.max_iterations = 101
+        rl_config.empirical_normalization = False
     elif env_name == "Go2JoystickFlatTerrain":
         rl_config.algorithm.entropy_coef = 0.01
         rl_config.algorithm.learning_rate = 1.0e-3

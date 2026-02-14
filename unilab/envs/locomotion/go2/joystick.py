@@ -1,10 +1,8 @@
 from etils import epath
-
 import gymnasium as gym
 import mujoco
 import numpy as np
 from dataclasses import dataclass, field
-
 
 from unilab.envs import registry
 from unilab.envs.mujoco_env.mj_env import MjNpEnvState
@@ -33,7 +31,6 @@ class Commands:
 class RewardConfig:
     scales: dict[str, float] = field(
         default_factory=lambda: {
-            # Genesis go2_train.py reward scales (1:1).
             "tracking_lin_vel": 1.0,
             "tracking_ang_vel": 0.2,
             "lin_vel_z": -1.0,
