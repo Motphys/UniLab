@@ -38,6 +38,10 @@ class PPOConfig:
     adaptive_lr_growth: float = 1.2
     adaptive_lr_update_interval: int = 1
     target_kl_stop: float | None = None
+    fast_mode: bool = False
+    metrics_interval: int = 1
+    finite_check_interval: int = 1
+    enable_compile: bool = False
 
 
 class PPOTrainer:
@@ -49,6 +53,15 @@ class PPOTrainer:
         self.learning_rate = float(cfg.learning_rate)
         self.optimizer = optim.Adam(learning_rate=self.learning_rate)
         self.loss_and_grad = nn.value_and_grad(model, self._loss_fn)
+        self.compiled_loss_and_grad = self.loss_and_grad
+        self.compile_active = False
+        if self.cfg.enable_compile and hasattr(mx, "compile"):
+            try:
+                self.compiled_loss_and_grad = mx.compile(self.loss_and_grad)
+                self.compile_active = True
+            except Exception:
+                self.compiled_loss_and_grad = self.loss_and_grad
+                self.compile_active = False
         self._kl_ema: float | None = None
 
     @staticmethod
@@ -199,41 +212,78 @@ class PPOTrainer:
         rolled_back_updates = 0
         skipped_nonfinite_metrics = 0
         early_stopped_kl = 0
-        for batch in buffer.mini_batch_generator(self.cfg.num_mini_batches, self.cfg.num_learning_epochs):
-            # Keep a copy for rollback if this update corrupts parameters.
-            param_backup = tree_map(lambda x: mx.array(x), self.model.parameters())
-            optim_state_backup = tree_map(lambda x: mx.array(x), self.optimizer.state)
-            loss, grads = self.loss_and_grad(self.model, batch)
-            if not mx.all(mx.isfinite(loss)).item():
+        last_metrics: Dict[str, float] | None = None
+        metrics_interval = max(1, int(self.cfg.metrics_interval))
+        finite_check_interval = max(1, int(self.cfg.finite_check_interval))
+        for batch_idx, batch in enumerate(
+            buffer.mini_batch_generator(self.cfg.num_mini_batches, self.cfg.num_learning_epochs)
+        ):
+            do_full_checks = (not self.cfg.fast_mode) or (batch_idx % finite_check_interval == 0)
+            do_metrics = (not self.cfg.fast_mode) or (batch_idx % metrics_interval == 0) or (last_metrics is None)
+
+            # Keep backup only in safe mode.
+            if self.cfg.fast_mode:
+                param_backup = None
+                optim_state_backup = None
+            else:
+                param_backup = tree_map(lambda x: mx.array(x), self.model.parameters())
+                optim_state_backup = tree_map(lambda x: mx.array(x), self.optimizer.state)
+
+            try:
+                loss, grads = self.compiled_loss_and_grad(self.model, batch)
+            except Exception:
+                # Fallback: some MLX versions do not support compiling this closure shape.
+                self.compiled_loss_and_grad = self.loss_and_grad
+                self.compile_active = False
+                loss, grads = self.loss_and_grad(self.model, batch)
+            if do_full_checks and (not mx.all(mx.isfinite(loss)).item()):
                 skipped_nonfinite_loss += 1
                 continue
-            if not self._all_finite(grads):
+            if do_full_checks and (not self._all_finite(grads)):
                 skipped_nonfinite_grads += 1
                 continue
             grads = self._clip_grads(grads)
-            if not self._all_finite(grads):
+            if do_full_checks and (not self._all_finite(grads)):
                 skipped_nonfinite_grads += 1
                 continue
             self.optimizer.update(self.model, grads)
             mx.eval(loss, self.model.parameters(), self.optimizer.state)
-            if not self._all_finite(self.model.parameters()):
-                # Roll back this step if parameters become non-finite.
-                self.model.update(param_backup)
-                self.optimizer.state = optim_state_backup
-                mx.eval(self.model.parameters())
-                rolled_back_updates += 1
+            if do_full_checks and (not self._all_finite(self.model.parameters())):
+                if not self.cfg.fast_mode and param_backup is not None and optim_state_backup is not None:
+                    # Roll back this step if parameters become non-finite.
+                    self.model.update(param_backup)
+                    self.optimizer.state = optim_state_backup
+                    mx.eval(self.model.parameters())
+                    rolled_back_updates += 1
+                else:
+                    skipped_nonfinite_grads += 1
                 continue
 
-            metrics = self._metrics(batch)
-            if not all(math.isfinite(v) for v in metrics.values()):
-                skipped_nonfinite_metrics += 1
-                continue
+            if do_metrics:
+                metrics = self._metrics(batch)
+                if not all(math.isfinite(v) for v in metrics.values()):
+                    skipped_nonfinite_metrics += 1
+                    continue
+                last_metrics = metrics
+            else:
+                metrics = last_metrics if last_metrics is not None else {
+                    "surrogate": 0.0,
+                    "value": 0.0,
+                    "entropy": 0.0,
+                    "approx_kl": 0.0,
+                    "clip_fraction": 0.0,
+                    "ratio_mean": 1.0,
+                    "ratio_max": 1.0,
+                    "std_mean": 0.0,
+                    "adv_std": 0.0,
+                    "value_explained_variance": 0.0,
+                }
 
             if self.cfg.target_kl_stop is not None and metrics["approx_kl"] > self.cfg.target_kl_stop:
                 early_stopped_kl += 1
                 break
 
-            if self.cfg.schedule == "adaptive" and self.cfg.desired_kl is not None:
+            if do_metrics and self.cfg.schedule == "adaptive" and self.cfg.desired_kl is not None:
                 kl = metrics["approx_kl"]
                 if self._kl_ema is None:
                     self._kl_ema = kl

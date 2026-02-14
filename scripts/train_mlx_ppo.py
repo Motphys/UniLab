@@ -276,6 +276,10 @@ def main() -> None:
         "adaptive_lr_growth": float(getattr(algo_cfg, "adaptive_lr_growth", 1.2)),
         "adaptive_lr_decay": float(getattr(algo_cfg, "adaptive_lr_decay", 1.5)),
         "adaptive_lr_update_interval": int(getattr(algo_cfg, "adaptive_lr_update_interval", 1)),
+        "fast_mode": bool(getattr(algo_cfg, "fast_mode", False)),
+        "metrics_interval": int(getattr(algo_cfg, "metrics_interval", 1)),
+        "finite_check_interval": int(getattr(algo_cfg, "finite_check_interval", 1)),
+        "enable_compile": bool(getattr(algo_cfg, "enable_compile", False)),
         "forward_velocity_bonus_coef": float(getattr(algo_cfg, "forward_velocity_bonus_coef", 0.0)),
         "seed": args.seed,
         "timestamp": timestamp,
@@ -318,6 +322,10 @@ def main() -> None:
         adaptive_lr_growth=float(getattr(algo_cfg, "adaptive_lr_growth", 1.2)),
         adaptive_lr_decay=float(getattr(algo_cfg, "adaptive_lr_decay", 1.5)),
         adaptive_lr_update_interval=int(getattr(algo_cfg, "adaptive_lr_update_interval", 1)),
+        fast_mode=bool(getattr(algo_cfg, "fast_mode", False)),
+        metrics_interval=int(getattr(algo_cfg, "metrics_interval", 1)),
+        finite_check_interval=int(getattr(algo_cfg, "finite_check_interval", 1)),
+        enable_compile=bool(getattr(algo_cfg, "enable_compile", False)),
         target_kl_stop=(
             float(getattr(algo_cfg, "target_kl_stop"))
             if getattr(algo_cfg, "target_kl_stop", None) is not None
@@ -353,6 +361,14 @@ def main() -> None:
 
     log(f"[MLX PPO] task={args.task} envs={args.env_num} steps={num_steps} iters={max_iterations}")
     log(f"[MLX PPO] run={timestamp} lr={learning_rate:.6f}")
+    log(
+        "[MLX PPO] perf_mode fast_mode={} metrics_interval={} finite_check_interval={} compile={}".format(
+            ppo_cfg.fast_mode,
+            ppo_cfg.metrics_interval,
+            ppo_cfg.finite_check_interval,
+            ppo_cfg.enable_compile,
+        )
+    )
     log(f"[MLX PPO] log_dir={log_dir}")
     if tb_writer is not None:
         log("[MLX PPO] tensorboard=enabled")

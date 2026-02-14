@@ -36,6 +36,10 @@ def rsl_rl_config(env_name: str) -> config_dict.ConfigDict:
             adaptive_lr_growth=1.1,
             adaptive_lr_decay=1.2,
             adaptive_lr_update_interval=5,
+            fast_mode=True,
+            metrics_interval=4,
+            finite_check_interval=4,
+            enable_compile=False,
             forward_velocity_bonus_coef=0.0,
         ),
         num_steps_per_env=24,  # per iteration
