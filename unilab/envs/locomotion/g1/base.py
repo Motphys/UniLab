@@ -111,8 +111,8 @@ class G1BaseMjEnv(MjNpEnv):
         super()._init_sensor_indices()
         self.idx_linvel = self._get_sensor_indices(self._cfg.sensor.local_linvel)
         self.idx_gyro = self._get_sensor_indices(self._cfg.sensor.gyro)
-        self.idx_global_linvel = self._get_sensor_indices("global_linvel")
         self.idx_upvector = self._get_sensor_indices("upvector")
+        self._idx_torso_upvector = self._get_sensor_indices("torso_upvector")
 
     def get_dof_pos(self, state: MjNpEnvState):
         return state.physics_state[:, self._idx_qpos + 7 : self._idx_qpos + 7 + self._num_action]
@@ -124,8 +124,6 @@ class G1BaseMjEnv(MjNpEnv):
         return state.physics_state[:, self._idx_qpos + 3 : self._idx_qpos + 7]
 
     def get_global_linvel(self, state: MjNpEnvState) -> np.ndarray:
-        if self.idx_global_linvel is not None:
-            return state.sensor_data[:, self.idx_global_linvel]
         return state.physics_state[:, self._idx_qvel : self._idx_qvel + 3]
 
     def get_local_linvel(self, state: MjNpEnvState) -> np.ndarray:
