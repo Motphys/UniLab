@@ -32,17 +32,27 @@ class RewardConfig:
             "tracking_lin_vel": 2.0,
             "tracking_ang_vel": 0.2,
             "lin_vel_z": -1.0,
-            "ang_vel_xy": -0.1,
-            "base_height": -20.0,
+            "ang_vel_xy": -0.25, #-1.0
+            # "base_height": -500.0, #-20.0,
+            "orientation": -5.0, #-10.0,
             "action_rate": -0.01,
-            "similar_to_default": -0.02,
+            # "similar_to_default": -0.02,
+            "pose": -0.05, #-0.02,
         }
     )
     tracking_sigma: float = 0.25
     base_height_target: float = 0.79
     min_base_height: float = 0.55
     max_tilt_deg: float = 25.0
-
+    pose_weights: list[float] = field(
+        default_factory=lambda: [
+            0.01, 1.0, 5.0, 0.01, 5.0, 5.0,
+            0.01, 1.0, 5.0, 0.01, 5.0, 5.0,
+            50.0, 50.0, 50.0, 
+            50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 
+            50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0,
+        ]
+    )
 
 @registry.envcfg("G1JoystickFlatTerrain")
 @dataclass
@@ -58,6 +68,11 @@ class G1JoystickCfg(G1BaseCfg):
 class G1WalkTaskMj(G1BaseMjEnv):
     def __init__(self, cfg: G1JoystickCfg, num_envs=1):
         super().__init__(cfg, num_envs)
+        self._pose_weights = np.asarray(self.cfg.reward_config.pose_weights, dtype=np.float32)
+        if self._pose_weights.shape[0] != self._num_action:
+            raise ValueError(
+                f"pose_weights length {self._pose_weights.shape[0]} does not match dof count {self._num_action}"
+            )
         self._init_reward_functions()
         self._init_obs_space()
 
@@ -66,10 +81,12 @@ class G1WalkTaskMj(G1BaseMjEnv):
             "tracking_lin_vel": lambda s: self._reward_tracking_lin_vel(s, s.info["commands"]),
             "tracking_ang_vel": lambda s: self._reward_tracking_ang_vel(s, s.info["commands"]),
             "lin_vel_z": self._reward_lin_vel_z,
+            "orientation": self._reward_orientation,
             "ang_vel_xy": self._reward_ang_vel_xy,
             "action_rate": lambda s: self._reward_action_rate(s.info),
             "base_height": self._reward_base_height,
-            "similar_to_default": self._reward_similar_to_default,
+            # "similar_to_default": self._reward_similar_to_default,
+            "pose": self._reward_pose,
         }
 
     def _init_obs_space(self):
@@ -101,6 +118,15 @@ class G1WalkTaskMj(G1BaseMjEnv):
     def _reward_ang_vel_xy(self, state: MjNpEnvState):
         gyro = self.get_gyro(state)
         return np.sum(np.square(gyro[:, :2]), axis=1)
+
+    def _reward_orientation(self, state: MjNpEnvState):
+        torso_upvector = state.sensor_data[:, self._idx_torso_upvector]
+        return np.sum(np.square(torso_upvector[:, :2]), axis=1)
+
+    def _reward_pose(self, state: MjNpEnvState):
+        dof_pos = self.get_dof_pos(state)
+        pose_error = np.square(dof_pos - self.default_angles)
+        return np.sum(pose_error * self._pose_weights[None, :], axis=1)
 
     def _get_obs(self, state: MjNpEnvState, info: dict) -> np.ndarray:
         linear_vel = self.get_local_linvel(state).copy()

@@ -90,11 +90,9 @@ class G1BaseMjEnv(MjNpEnv):
         self.reset_buf = np.ones(self._num_envs, dtype=bool)
         self.default_angles = np.zeros(self._num_action, dtype=np.float32)
 
-        key_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_KEY, "home")
+        key_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_KEY, "stand")
         if key_id < 0:
-            key_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_KEY, "stand")
-        if key_id < 0:
-            raise ValueError("Keyframe 'home' or 'stand' not found in model.")
+            raise ValueError("Keyframe 'stand' not found in model.")
 
         self._init_qpos = self._model.key_qpos[key_id].copy()
         self.default_angles = self._init_qpos[7 : 7 + self._num_action].astype(np.float32)
