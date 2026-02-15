@@ -13,7 +13,7 @@ from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseMjEnv
 
 @dataclass
 class InitState:
-    pos = [0.0, 0.0, 0.79]
+    pos = [0.0, 0.0, 0.754]
 
 
 @dataclass
@@ -31,16 +31,20 @@ class RewardConfig:
         default_factory=lambda: {
             "tracking_lin_vel": 2.0,
             "tracking_ang_vel": 0.2,
+            "feet_phase": 1.0,
             "lin_vel_z": -1.0,
-            "ang_vel_xy": -0.25, #-1.0
-            # "base_height": -500.0, #-20.0,
-            "orientation": -5.0, #-10.0,
+            "ang_vel_xy": -0.25,
+            "base_height": -500.0,
+            "orientation": -5.0,
             "action_rate": -0.01,
             # "similar_to_default": -0.02,
-            "pose": -0.05, #-0.02,
+            "pose": -0.1, #-0.02,
         }
     )
     tracking_sigma: float = 0.25
+    gait_frequency: float = 1.5
+    feet_phase_swing_height: float = 0.09
+    feet_phase_tracking_sigma: float = 0.008
     base_height_target: float = 0.79
     min_base_height: float = 0.55
     max_tilt_deg: float = 25.0
@@ -68,6 +72,12 @@ class G1JoystickCfg(G1BaseCfg):
 class G1WalkTaskMj(G1BaseMjEnv):
     def __init__(self, cfg: G1JoystickCfg, num_envs=1):
         super().__init__(cfg, num_envs)
+        self._idx_left_foot_pos = self._get_sensor_indices("left_foot_pos")
+        self._idx_right_foot_pos = self._get_sensor_indices("right_foot_pos")
+        if self._idx_left_foot_pos is None or self._idx_right_foot_pos is None:
+            raise ValueError("Sensors 'left_foot_pos' and 'right_foot_pos' are required for feet_phase reward.")
+        self._gait_phase_delta = np.float32(2.0 * np.pi * self.cfg.reward_config.gait_frequency * self.cfg.ctrl_dt)
+        self._feet_height_offset = self._compute_feet_height_offset()
         self._pose_weights = np.asarray(self.cfg.reward_config.pose_weights, dtype=np.float32)
         if self._pose_weights.shape[0] != self._num_action:
             raise ValueError(
@@ -80,6 +90,7 @@ class G1WalkTaskMj(G1BaseMjEnv):
         self._reward_fns = {
             "tracking_lin_vel": lambda s: self._reward_tracking_lin_vel(s, s.info["commands"]),
             "tracking_ang_vel": lambda s: self._reward_tracking_ang_vel(s, s.info["commands"]),
+            "feet_phase": self._reward_feet_phase,
             "lin_vel_z": self._reward_lin_vel_z,
             "orientation": self._reward_orientation,
             "ang_vel_xy": self._reward_ang_vel_xy,
@@ -128,6 +139,48 @@ class G1WalkTaskMj(G1BaseMjEnv):
         pose_error = np.square(dof_pos - self.default_angles)
         return np.sum(pose_error * self._pose_weights[None, :], axis=1)
 
+    def _expected_foot_height(self, phase: np.ndarray) -> np.ndarray:
+        x = (phase + np.pi) / (2.0 * np.pi)
+        swing_height = self.cfg.reward_config.feet_phase_swing_height
+        stance_x = np.clip(2.0 * x, 0.0, 1.0)
+        swing_x = np.clip(2.0 * x - 1.0, 0.0, 1.0)
+        stance = swing_height * (stance_x * stance_x * (3.0 - 2.0 * stance_x))
+        swing = swing_height * (1.0 - swing_x * swing_x * (3.0 - 2.0 * swing_x))
+        return np.where(x <= 0.5, stance, swing)
+
+    def _reward_feet_phase(self, state: MjNpEnvState):
+        phase = state.info["gait_phase"]
+        left_phase = phase
+        right_phase = phase + np.pi
+        left_expected = self._expected_foot_height(left_phase)
+        right_expected = self._expected_foot_height(right_phase)
+        left_height = state.sensor_data[:, self._idx_left_foot_pos][:, 2] - self._feet_height_offset[0]
+        right_height = state.sensor_data[:, self._idx_right_foot_pos][:, 2] - self._feet_height_offset[1]
+        total_error = np.square(left_height - left_expected) + np.square(right_height - right_expected)
+        return np.exp(-total_error / self.cfg.reward_config.feet_phase_tracking_sigma)
+
+    def _advance_gait_phase(self, info: dict):
+        phase = info.get("gait_phase")
+        if phase is None:
+            phase = np.zeros((self._num_envs,), dtype=np.float32)
+            info["gait_phase"] = phase
+        phase += self._gait_phase_delta
+        np.remainder(phase + np.pi, 2.0 * np.pi, out=phase)
+        phase -= np.pi
+
+    def _compute_feet_height_offset(self) -> np.ndarray:
+        mj_data = self._worker_data[0]
+        mj_data.time = 0.0
+        mj_data.qpos[:] = self._init_qpos
+        mj_data.qvel[:] = 0.0
+        mj_data.ctrl[:] = 0.0
+        mj_data.qacc[:] = 0.0
+        mj_data.qacc_warmstart[:] = 0.0
+        mujoco.mj_forward(self._model, mj_data)
+        left_z = mj_data.sensordata[self._idx_left_foot_pos][2]
+        right_z = mj_data.sensordata[self._idx_right_foot_pos][2]
+        return np.asarray([left_z, right_z], dtype=np.float32)
+
     def _get_obs(self, state: MjNpEnvState, info: dict) -> np.ndarray:
         linear_vel = self.get_local_linvel(state).copy()
         gyro = self.get_gyro(state).copy()
@@ -158,6 +211,7 @@ class G1WalkTaskMj(G1BaseMjEnv):
         return state.replace(obs=obs)
 
     def _compute_rewards(self, state: MjNpEnvState) -> MjNpEnvState:
+        self._advance_gait_phase(state.info)
         total_reward = np.zeros(self._num_envs, dtype=np.float32)
         log = {}
 
@@ -227,6 +281,7 @@ class G1WalkTaskMj(G1BaseMjEnv):
             "current_actions": np.zeros((num_reset, self._num_action), dtype=np.float32),
             "last_actions": np.zeros((num_reset, self._num_action), dtype=np.float32),
             "commands": commands,
+            "gait_phase": np.random.uniform(-np.pi, np.pi, size=(num_reset,)).astype(np.float32),
         }
 
         sensor_batch = np.zeros((num_reset, self._model.nsensordata), dtype=np.float32)
