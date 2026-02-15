@@ -89,6 +89,17 @@ def convert_config_v3_to_v4(cfg: dict) -> dict:
         # Remove class_name for algorithm - it's popped by construct_algorithm
         # but needs to stay for the runner to resolve it, so leave it alone
 
+        # Strip mlx_ppo-only parameters that rsl_rl PPO does not accept
+        _MLX_PPO_ONLY_KEYS = {
+            "adaptive_kl_beta", "adaptive_lr_decay", "adaptive_lr_growth",
+            "adaptive_lr_update_interval", "target_kl_stop", "fast_mode",
+            "metrics_interval", "finite_check_interval", "enable_compile",
+            "warmup_strict_iters", "warmup_metrics_interval",
+            "warmup_finite_check_interval", "disable_finite_checks",
+        }
+        for key in _MLX_PPO_ONLY_KEYS:
+            cfg["algorithm"].pop(key, None)
+
     # 4.x requires obs_groups
     obs_groups = cfg.get("obs_groups", {})
     if "default" in obs_groups:

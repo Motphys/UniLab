@@ -83,3 +83,89 @@ def rsl_rl_config(env_name: str) -> config_dict.ConfigDict:
         rl_config.empirical_normalization = False
 
     return rl_config
+
+
+def fast_td3_config(env_name: str) -> config_dict.ConfigDict:
+    """Returns tuned FastTD3 config for the given environment."""
+
+    rl_config = config_dict.create(
+        seed=1,
+        obs_groups={"default": ["policy"]},
+        actor=config_dict.create(
+            class_name="MLPModel",
+            hidden_dims=[512, 256, 128],
+            activation="elu",
+            init_noise_std=1.0,
+            noise_std_type="scalar",
+            stochastic=False,
+            obs_normalization=True,
+        ),
+        critic=config_dict.create(
+            class_name="MLPModel",
+            hidden_dims=[512, 256, 128],
+            activation="elu",
+            obs_normalization=False,
+        ),
+        algorithm=config_dict.create(
+            class_name="FastTD3",
+            learning_rate=3e-4,
+            gamma=0.99,
+            max_grad_norm=1.0,
+            tau=0.005,
+            policy_delay=2,
+            policy_noise=0.2,
+            noise_clip=0.5,
+        ),
+        num_steps_per_env=24,
+        max_iterations=1500,
+        save_interval=50,
+    )
+
+    if env_name in ("Go2JoystickFlatTerrain", "Go1JoystickFlatTerrain"):
+        rl_config.algorithm.learning_rate = 1e-3
+        rl_config.algorithm.gamma = 0.99
+
+    return rl_config
+
+
+def fast_sac_config(env_name: str) -> config_dict.ConfigDict:
+    """Returns tuned FastSAC config for the given environment."""
+
+    rl_config = config_dict.create(
+        seed=1,
+        obs_groups={"default": ["policy"]},
+        actor=config_dict.create(
+            class_name="MLPModel",
+            hidden_dims=[512, 256, 128],
+            activation="elu",
+            init_noise_std=1.0,
+            noise_std_type="scalar",
+            stochastic=True,
+            obs_normalization=True,
+        ),
+        critic=config_dict.create(
+            class_name="MLPModel",
+            hidden_dims=[512, 256, 128],
+            activation="elu",
+            obs_normalization=False,
+        ),
+        algorithm=config_dict.create(
+            class_name="FastSAC",
+            learning_rate=3e-4,
+            gamma=0.99,
+            max_grad_norm=1.0,
+            tau=0.005,
+            init_alpha=0.2,
+            alpha_lr=3e-4,
+        ),
+        num_steps_per_env=24,
+        max_iterations=1500,
+        save_interval=50,
+    )
+
+    if env_name in ("Go2JoystickFlatTerrain", "Go1JoystickFlatTerrain"):
+        rl_config.algorithm.learning_rate = 1e-3
+        rl_config.algorithm.gamma = 0.99
+
+    return rl_config
+

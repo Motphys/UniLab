@@ -191,14 +191,33 @@ def render_states_get_frames(state_list, model_path, width=1280, height=720, num
     print(f"Rendering {len(state_list)} frames for {num_envs} envs with {num_processes} processes...")
     
     # Prepare arguments for each frame
-    tasks = [(s, offsets, False) for s in state_list]
+    tasks = [(s, offsets, False) for s in state_list] # Should include shape? No, init_worker uses shape from initargs.
+    # Wait, render_frame_job expects (state_batch, offsets, transparent)? Yes.
     
     frames = []
-    # Use multiprocessing Pool to render frames in parallel
-    with Pool(processes=num_processes, initializer=init_worker, initargs=(model_path, shape)) as pool:
-        # map preserves order
-        results = pool.map(render_frame_job, tasks)
-        frames.extend(results)
+    
+    if num_processes <= 1:
+        # Serial execution (safe for Ray)
+        # Initialize context manually
+        init_worker(model_path, shape)
+        try:
+            for task in tasks:
+                res = render_frame_job(task)
+                frames.append(res)
+        finally:
+            # Cleanup context if needed? global _worker_ctx
+            pass
+    else:
+        # Use multiprocessing Pool
+        # On macOS, 'spawn' is default for start_method in recent Python, but 'fork' might be default for multiprocessing.Pool?
+        # If Ray is running, 'fork' is dangerous. 'spawn' is safer.
+        # But 'spawn' is slower to start.
+        # Let's try 'spawn' context if available.
+        import multiprocessing
+        ctx = multiprocessing.get_context("spawn")
+        with ctx.Pool(processes=num_processes, initializer=init_worker, initargs=(model_path, shape)) as pool:
+            results = pool.map(render_frame_job, tasks)
+            frames.extend(results)
     
     return frames
 
