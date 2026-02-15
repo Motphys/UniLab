@@ -138,7 +138,7 @@ def main() -> None:
     parser.add_argument("--task", type=str, required=True, help="Task name")
     parser.add_argument("--play_only", action="store_true", help="Play mode only")
     parser.add_argument("--load_run", type=str, default="-1", help="Run ID to load, run path, or model file path")
-    parser.add_argument("--env_num", type=int, default=4096, help="Number of parallel envs")
+    parser.add_argument("--env_num", type=int, default=None, help="Number of parallel envs (task default if unset)")
     parser.add_argument("--play_env_num", type=int, default=16, help="Number of play envs")
     parser.add_argument("--play_steps", type=int, default=150, help="Number of steps for play video")
     parser.add_argument("--steps_per_env", type=int, default=None, help="Rollout horizon per iteration")
@@ -149,6 +149,8 @@ def main() -> None:
     parser.add_argument("--log_root", type=str, default="logs/mlx_rl_train", help="Root directory for training logs")
     parser.add_argument("--save_interval", type=int, default=50, help="Checkpoint save interval")
     args = parser.parse_args()
+    if args.env_num is None:
+        args.env_num = locomotion_params.get_default_env_num(args.task)
 
     np.random.seed(args.seed)
 

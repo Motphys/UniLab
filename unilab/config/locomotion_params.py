@@ -1,5 +1,18 @@
 from ml_collections import config_dict
 
+
+DEFAULT_ENV_NUM_BY_TASK: dict[str, int] = {
+    "G1JoystickFlatTerrain": 2048,
+    "Go1JoystickFlatTerrain": 4096,
+    "Go2JoystickFlatTerrain": 4096,
+}
+
+
+def get_default_env_num(env_name: str) -> int:
+    """Returns default number of parallel environments for a task."""
+    return int(DEFAULT_ENV_NUM_BY_TASK.get(env_name, 4096))
+
+
 def rsl_rl_config(env_name: str) -> config_dict.ConfigDict:
     """Returns tuned RSL-RL PPO config for the given environment."""
 
@@ -80,7 +93,7 @@ def rsl_rl_config(env_name: str) -> config_dict.ConfigDict:
         rl_config.algorithm.num_mini_batches = 4
         rl_config.num_steps_per_env = 24
         rl_config.save_interval = 50
-        rl_config.max_iterations = 160
+        rl_config.max_iterations = 220
         rl_config.empirical_normalization = False
     elif env_name == "Go2JoystickFlatTerrain":
         rl_config.algorithm.entropy_coef = 0.01

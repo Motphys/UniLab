@@ -167,11 +167,13 @@ def main():
     parser.add_argument("--task", type=str, required=True, help="Task name")
     parser.add_argument("--play_only", action="store_true", help="Play mode only")
     parser.add_argument("--load_run", type=str, default="-1", help="Run ID to load or path")
-    parser.add_argument("--env_num", type=int, default=4096, help="Number of training envs")
+    parser.add_argument("--env_num", type=int, default=None, help="Number of training envs (task default if unset)")
     parser.add_argument("--play_env_num", type=int, default=16, help="Number of play envs")
     parser.add_argument("--num_timesteps", type=int, default=None, help="Overwritten total timesteps")
     
     args = parser.parse_args()
+    if args.env_num is None:
+        args.env_num = locomotion_params.get_default_env_num(args.task)
     
     # Load config
     cfg = locomotion_params.rsl_rl_config(args.task)
