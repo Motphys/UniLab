@@ -45,7 +45,7 @@ class RewardConfig:
     gait_frequency: float = 1.5
     feet_phase_swing_height: float = 0.09
     feet_phase_tracking_sigma: float = 0.008
-    base_height_target: float = 0.79
+    base_height_target: float = 0.754
     min_base_height: float = 0.55
     max_tilt_deg: float = 25.0
     pose_weights: list[float] = field(
@@ -77,7 +77,6 @@ class G1WalkTaskMj(G1BaseMjEnv):
         if self._idx_left_foot_pos is None or self._idx_right_foot_pos is None:
             raise ValueError("Sensors 'left_foot_pos' and 'right_foot_pos' are required for feet_phase reward.")
         self._gait_phase_delta = np.float32(2.0 * np.pi * self.cfg.reward_config.gait_frequency * self.cfg.ctrl_dt)
-        self._feet_height_offset = self._compute_feet_height_offset()
         self._pose_weights = np.asarray(self.cfg.reward_config.pose_weights, dtype=np.float32)
         if self._pose_weights.shape[0] != self._num_action:
             raise ValueError(
@@ -154,10 +153,16 @@ class G1WalkTaskMj(G1BaseMjEnv):
         right_phase = phase + np.pi
         left_expected = self._expected_foot_height(left_phase)
         right_expected = self._expected_foot_height(right_phase)
-        left_height = state.sensor_data[:, self._idx_left_foot_pos][:, 2] - self._feet_height_offset[0]
-        right_height = state.sensor_data[:, self._idx_right_foot_pos][:, 2] - self._feet_height_offset[1]
+        left_height, right_height = self._get_feet_height_rel_ground(state)
         total_error = np.square(left_height - left_expected) + np.square(right_height - right_expected)
         return np.exp(-total_error / self.cfg.reward_config.feet_phase_tracking_sigma)
+
+    def _get_feet_height_rel_ground(self, state: MjNpEnvState) -> tuple[np.ndarray, np.ndarray]:
+        left_world_z = state.sensor_data[:, self._idx_left_foot_pos][:, 2]
+        right_world_z = state.sensor_data[:, self._idx_right_foot_pos][:, 2]
+        # Flat terrain: floor plane is z=0. Keep this as explicit interface for future terrain queries.
+        ground_z = 0.0
+        return left_world_z - ground_z, right_world_z - ground_z
 
     def _advance_gait_phase(self, info: dict):
         phase = info.get("gait_phase")
@@ -167,19 +172,6 @@ class G1WalkTaskMj(G1BaseMjEnv):
         phase += self._gait_phase_delta
         np.remainder(phase + np.pi, 2.0 * np.pi, out=phase)
         phase -= np.pi
-
-    def _compute_feet_height_offset(self) -> np.ndarray:
-        mj_data = self._worker_data[0]
-        mj_data.time = 0.0
-        mj_data.qpos[:] = self._init_qpos
-        mj_data.qvel[:] = 0.0
-        mj_data.ctrl[:] = 0.0
-        mj_data.qacc[:] = 0.0
-        mj_data.qacc_warmstart[:] = 0.0
-        mujoco.mj_forward(self._model, mj_data)
-        left_z = mj_data.sensordata[self._idx_left_foot_pos][2]
-        right_z = mj_data.sensordata[self._idx_right_foot_pos][2]
-        return np.asarray([left_z, right_z], dtype=np.float32)
 
     def _get_obs(self, state: MjNpEnvState, info: dict) -> np.ndarray:
         linear_vel = self.get_local_linvel(state).copy()
