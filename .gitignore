@@ -5,22 +5,15 @@ dist/
 *.egg-info/
 
 # IDEs
+.cursor/
 .vscode/
 .idea/
 
 # Project specific
 logs/
-data/
 .DS_Store
-
-output/
-third-party
-agent.md
-
-UniLab.md
-Changelog.md
 
 benchmark/outputs/
 unilab/algos/rsl_rl
 
-mlx_learn/
+third-party

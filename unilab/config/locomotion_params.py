@@ -1,5 +1,18 @@
 from ml_collections import config_dict
 
+
+DEFAULT_ENV_NUM_BY_TASK: dict[str, int] = {
+    "G1JoystickFlatTerrain": 2048,
+    "Go1JoystickFlatTerrain": 4096,
+    "Go2JoystickFlatTerrain": 4096,
+}
+
+
+def get_default_env_num(env_name: str) -> int:
+    """Returns default number of parallel environments for a task."""
+    return int(DEFAULT_ENV_NUM_BY_TASK.get(env_name, 4096))
+
+
 def rsl_rl_config(env_name: str) -> config_dict.ConfigDict:
     """Returns tuned RSL-RL PPO config for the given environment."""
 
@@ -70,6 +83,18 @@ def rsl_rl_config(env_name: str) -> config_dict.ConfigDict:
         rl_config.save_interval = 100
         rl_config.max_iterations = 101
         rl_config.empirical_normalization = False
+    elif env_name == "G1JoystickFlatTerrain":
+        # Humanoid needs slightly longer horizon but keep aggressive defaults.
+        rl_config.algorithm.entropy_coef = 0.01
+        rl_config.algorithm.learning_rate = 1.0e-3
+        rl_config.algorithm.schedule = "adaptive"
+        rl_config.algorithm.value_loss_coef = 1.0
+        rl_config.algorithm.num_learning_epochs = 5
+        rl_config.algorithm.num_mini_batches = 4
+        rl_config.num_steps_per_env = 24
+        rl_config.save_interval = 50
+        rl_config.max_iterations = 220
+        rl_config.empirical_normalization = False
     elif env_name == "Go2JoystickFlatTerrain":
         rl_config.algorithm.entropy_coef = 0.01
         rl_config.algorithm.learning_rate = 1.0e-3
@@ -121,7 +146,7 @@ def fast_td3_config(env_name: str) -> config_dict.ConfigDict:
         save_interval=50,
     )
 
-    if env_name in ("Go2JoystickFlatTerrain", "Go1JoystickFlatTerrain"):
+    if env_name in ("Go2JoystickFlatTerrain", "Go1JoystickFlatTerrain", "G1JoystickFlatTerrain"):
         rl_config.algorithm.learning_rate = 1e-3
         rl_config.algorithm.gamma = 0.99
 
@@ -163,7 +188,7 @@ def fast_sac_config(env_name: str) -> config_dict.ConfigDict:
         save_interval=50,
     )
 
-    if env_name in ("Go2JoystickFlatTerrain", "Go1JoystickFlatTerrain"):
+    if env_name in ("Go2JoystickFlatTerrain", "Go1JoystickFlatTerrain", "G1JoystickFlatTerrain"):
         rl_config.algorithm.learning_rate = 1e-3
         rl_config.algorithm.gamma = 0.99
 
