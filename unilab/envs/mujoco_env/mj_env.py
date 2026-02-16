@@ -1,6 +1,7 @@
 
 import abc
 import dataclasses
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import List, Optional, Tuple, Any
 from multiprocessing import cpu_count
@@ -47,6 +48,7 @@ class MjNpEnv(ABEnv):
     _num_envs: int
     _rollout_runner: rollout.Rollout = None
     _worker_data: List[mujoco.MjData] = None # Pool of workers for rollout
+    _reset_forward_executor: Optional[ThreadPoolExecutor] = None
     _last_sensor_traj: np.ndarray = None
 
     def __init__(self, cfg: EnvCfg, num_envs: int = 1):
@@ -68,6 +70,7 @@ class MjNpEnv(ABEnv):
         # Create worker MjData pool
         # These are purely for computation and do not hold persistent environment state.
         self._worker_data = [mujoco.MjData(self._model) for _ in range(self._n_threads)]
+        self._reset_forward_executor = ThreadPoolExecutor(max_workers=self._n_threads) if self._n_threads > 1 else None
         
         # Using persistent rollout runner
         self._rollout_runner = rollout.Rollout(nthread=self._n_threads)
@@ -91,6 +94,70 @@ class MjNpEnv(ABEnv):
     def close(self):
         if self._rollout_runner is not None:
              self._rollout_runner = None
+        if self._reset_forward_executor is not None:
+            self._reset_forward_executor.shutdown(wait=True)
+            self._reset_forward_executor = None
+
+    @staticmethod
+    def _forward_sensor_chunk(
+        model: mujoco.MjModel,
+        mj_data: mujoco.MjData,
+        qpos_batch: np.ndarray,
+        qvel_batch: np.ndarray,
+        sensor_batch: np.ndarray,
+        start: int,
+        end: int,
+    ) -> None:
+        for i in range(start, end):
+            mj_data.time = 0.0
+            mj_data.qpos[:] = qpos_batch[i]
+            mj_data.qvel[:] = qvel_batch[i]
+            mj_data.ctrl[:] = 0.0
+            mj_data.qacc[:] = 0.0
+            mj_data.qacc_warmstart[:] = 0.0
+            mujoco.mj_forward(model, mj_data)
+            sensor_batch[i] = mj_data.sensordata
+
+    def _compute_sensor_batch_from_qpos_qvel(
+        self,
+        qpos_batch: np.ndarray,
+        qvel_batch: np.ndarray,
+    ) -> np.ndarray:
+        num_reset = qpos_batch.shape[0]
+        sensor_batch = np.empty((num_reset, self._model.nsensordata), dtype=np.float32)
+        if num_reset == 0:
+            return sensor_batch
+
+        # For small resets, single-thread path avoids extra scheduling overhead.
+        if self._reset_forward_executor is None or num_reset < 64:
+            self._forward_sensor_chunk(
+                self._model, self._worker_data[0], qpos_batch, qvel_batch, sensor_batch, 0, num_reset
+            )
+            return sensor_batch
+
+        nworkers = min(self._n_threads, num_reset)
+        chunk_size = (num_reset + nworkers - 1) // nworkers
+        futures = []
+        for worker_id in range(nworkers):
+            start = worker_id * chunk_size
+            end = min(start + chunk_size, num_reset)
+            if start >= end:
+                break
+            futures.append(
+                self._reset_forward_executor.submit(
+                    self._forward_sensor_chunk,
+                    self._model,
+                    self._worker_data[worker_id],
+                    qpos_batch,
+                    qvel_batch,
+                    sensor_batch,
+                    start,
+                    end,
+                )
+            )
+        for fut in futures:
+            fut.result()
+        return sensor_batch
 
     @property
     def model(self) -> mujoco.MjModel:

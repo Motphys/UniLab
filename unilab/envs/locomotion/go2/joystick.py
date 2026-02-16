@@ -250,20 +250,7 @@ class Go2WalkTaskMj(Go2BaseMjEnv):
             "commands": commands,
         }
 
-        sensor_batch = np.zeros((num_reset, self._model.nsensordata), dtype=np.float32)
-        mj_data = self._worker_data[0]  # Use first worker for utility
-
-        for i in range(num_reset):
-            mj_data.time = 0.0
-            mj_data.qpos[:] = qpos_batch[i]
-            mj_data.qvel[:] = qvel_batch[i]
-            mj_data.ctrl[:] = 0.0
-            mj_data.qacc[:] = 0.0
-            mj_data.qacc_warmstart[:] = 0.0
-
-            mujoco.mj_forward(self._model, mj_data)
-
-            sensor_batch[i] = mj_data.sensordata
+        sensor_batch = self._compute_sensor_batch_from_qpos_qvel(qpos_batch, qvel_batch)
 
         # Update Global Sensor State
         if hasattr(self, "_state") and self._state is not None:

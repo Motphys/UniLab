@@ -13,6 +13,7 @@ import torch
 import mlx.core as mx
 
 from unilab.envs import registry
+from unilab.envs.mujoco_env.rollout_mlx import RolloutMLXBridge
 import unilab.envs.locomotion.go1.joystick  # noqa: F401
 
 
@@ -83,6 +84,115 @@ def measure_physics_step_ms(num_envs: int, iters: int) -> float:
             elapsed += t1 - t0
         return elapsed / iters * 1000.0
     finally:
+        env.close()
+
+
+def measure_physics_step_mlx_action_ms(num_envs: int, iters: int) -> float:
+    """Measure env.step when actions are provided as MLX arrays."""
+    env = registry.make("Go1JoystickFlatTerrain", num_envs=num_envs, sim_backend="mujoco")
+    try:
+        _ = env.reset(np.arange(env.num_envs))
+        action_low = env.action_space.low.astype(np.float32)
+        action_high = env.action_space.high.astype(np.float32)
+        actions_np = np.random.uniform(
+            action_low, action_high, size=(env.num_envs, env.action_space.shape[0])
+        ).astype(np.float32)
+        actions_mx = mx.array(actions_np, dtype=mx.float32)
+        mx.eval(actions_mx)
+
+        for _ in range(20):
+            _ = env.step(actions_mx)
+
+        elapsed = 0.0
+        for _ in range(iters):
+            t0 = time.perf_counter()
+            _ = env.step(actions_mx)
+            t1 = time.perf_counter()
+            elapsed += t1 - t0
+        return elapsed / iters * 1000.0
+    finally:
+        env.close()
+
+
+def measure_rollout_bridge_mlx_pipeline_ms(
+    num_envs: int,
+    iters: int,
+    idx_mx: dict,
+    scalars_mx: dict,
+) -> dict:
+    """End-to-end: MLX action -> MuJoCo rollout -> MLX sensordata/reward."""
+    env = registry.make("Go1JoystickFlatTerrain", num_envs=num_envs, sim_backend="mujoco")
+    bridge = RolloutMLXBridge(nthread=env._n_threads)
+    try:
+        _ = env.reset(np.arange(env.num_envs))
+        action_low = env.action_space.low.astype(np.float32)
+        action_high = env.action_space.high.astype(np.float32)
+        actions_np = np.random.uniform(
+            action_low, action_high, size=(env.num_envs, env.action_space.shape[0])
+        ).astype(np.float32)
+        actions_mx = mx.array(actions_np, dtype=mx.float32)
+        last_actions_mx = mx.zeros_like(actions_mx)
+        commands_mx = mx.array(env.state.info["commands"], dtype=mx.float32)
+        initial_state = env.state.physics_state
+
+        # Zero-order hold across MuJoCo substeps.
+        control_mx = mx.broadcast_to(actions_mx[:, None, :], (env.num_envs, env.cfg.sim_substeps, env.action_space.shape[0]))
+        mx.eval(control_mx, commands_mx, last_actions_mx)
+
+        for _ in range(10):
+            rollout_out = bridge.rollout_mlx(
+                model=env._model,
+                data=env._worker_data,
+                initial_state=initial_state,
+                control=control_mx,
+                nstep=env.cfg.sim_substeps,
+            )
+            obs_mx, rew_mx, done_mx = mlx_postprocess_go1(
+                sensor_mx=rollout_out.sensordata_mx[:, -1, :],
+                physics_mx=rollout_out.state_mx[:, -1, :],
+                current_mx=actions_mx,
+                last_mx=last_actions_mx,
+                commands_mx=commands_mx,
+                idx_mx=idx_mx,
+                scalars=scalars_mx,
+            )
+            mx.eval(obs_mx, rew_mx, done_mx)
+
+        rollout_elapsed = 0.0
+        post_elapsed = 0.0
+        for _ in range(iters):
+            t0 = time.perf_counter()
+            rollout_out = bridge.rollout_mlx(
+                model=env._model,
+                data=env._worker_data,
+                initial_state=initial_state,
+                control=control_mx,
+                nstep=env.cfg.sim_substeps,
+            )
+            t1 = time.perf_counter()
+            obs_mx, rew_mx, done_mx = mlx_postprocess_go1(
+                sensor_mx=rollout_out.sensordata_mx[:, -1, :],
+                physics_mx=rollout_out.state_mx[:, -1, :],
+                current_mx=actions_mx,
+                last_mx=last_actions_mx,
+                commands_mx=commands_mx,
+                idx_mx=idx_mx,
+                scalars=scalars_mx,
+            )
+            mx.eval(obs_mx, rew_mx, done_mx)
+            t2 = time.perf_counter()
+            rollout_elapsed += t1 - t0
+            post_elapsed += t2 - t1
+
+        rollout_ms = rollout_elapsed / iters * 1000.0
+        post_ms = post_elapsed / iters * 1000.0
+        return {
+            "rollout_with_mlx_action_ms": rollout_ms,
+            "mlx_postprocess_from_rollout_ms": post_ms,
+            "total_ms": rollout_ms + post_ms,
+        }
+    finally:
+        bridge.close()
         env.close()
 
 
@@ -243,6 +353,7 @@ def mlx_postprocess_go1(
 
 def bench_one_envnum(num_envs: int, iters: int, layout: dict):
     physics_step_ms = measure_physics_step_ms(num_envs=num_envs, iters=iters)
+    physics_step_mlx_action_ms = measure_physics_step_mlx_action_ms(num_envs=num_envs, iters=iters)
 
     sensor_np = np.random.randn(num_envs, layout["sensor_dim"]).astype(np.float32)
     physics_np = np.random.randn(num_envs, layout["physics_dim"]).astype(np.float32)
@@ -306,6 +417,12 @@ def bench_one_envnum(num_envs: int, iters: int, layout: dict):
         "action_rate": mx.array(layout["reward_scales"].get("action_rate", 0.0), dtype=mx.float32),
         "similar_to_default": mx.array(layout["reward_scales"].get("similar_to_default", 0.0), dtype=mx.float32),
     }
+    bridge_mlx = measure_rollout_bridge_mlx_pipeline_ms(
+        num_envs=num_envs,
+        iters=iters,
+        idx_mx=idx_mx,
+        scalars_mx=scalars_mx,
+    )
 
     # Warmup
     for _ in range(20):
@@ -437,6 +554,12 @@ def bench_one_envnum(num_envs: int, iters: int, layout: dict):
         },
         "physics_step_mode": {
             "physics_step_ms": physics_step_ms,
+            "physics_step_mlx_action_input_ms": physics_step_mlx_action_ms,
+        },
+        "mlx_rollout_bridge_mode": {
+            "rollout_with_mlx_action_ms": bridge_mlx["rollout_with_mlx_action_ms"],
+            "mlx_postprocess_from_rollout_ms": bridge_mlx["mlx_postprocess_from_rollout_ms"],
+            "total_ms": bridge_mlx["total_ms"],
         },
         "cpu_numpy_mode": {
             "compute_numpy_ms": cpu_compute_ms,
@@ -601,10 +724,12 @@ def main():
         all_results.append(one)
         print(
             f"[{nenv}] Physics={one['physics_step_mode']['physics_step_ms']:.3f} ms, "
+            f"Physics(mlx_action)={one['physics_step_mode']['physics_step_mlx_action_input_ms']:.3f} ms, "
             f"CPU={one['cpu_numpy_mode']['total_with_physics_ms']:.3f} ms, "
             f"Torch.MPS={one['torch_mps_mode']['total_with_physics_ms']:.3f} ms, "
             f"MLX={one['mlx_mode']['total_with_physics_ms']:.3f} ms, "
             f"MLX->Torch.MPS={one['mlx_to_torch_mps_mode']['total_with_physics_ms']:.3f} ms, "
+            f"MLXBridge(rollout+post)={one['mlx_rollout_bridge_mode']['total_ms']:.3f} ms, "
             f"cpu/torch={one['speedup_cpu_div_torch_mps']:.3f}, "
             f"cpu/mlx={one['speedup_cpu_div_mlx']:.3f}, "
             f"torch/mlx={one['speedup_torch_mps_div_mlx']:.3f}, "
