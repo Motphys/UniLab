@@ -18,7 +18,6 @@ except ModuleNotFoundError:
     from device_info import get_device_info_dict, get_device_info_line
 
 from unilab.envs import registry
-import unilab.envs.locomotion.go1.joystick  # noqa: F401
 
 try:
     from mujoco import mlx_step as mj_mlx_step
@@ -128,10 +127,10 @@ def measure_rollout_bridge_mlx_pipeline_ms(
         control_mx = mx.broadcast_to(actions_mx[:, None, :], (env.num_envs, env.cfg.sim_substeps, env.action_space.shape[0]))
         mx.eval(control_mx, commands_mx, last_actions_mx)
         model_batch = [env._model] * env.num_envs
-        with mj_mlx_step.RolloutMLX(nthread=env._n_threads) as runner:
+        with mj_mlx_step.MlxStepRunner(nthread=env._n_threads) as runner:
 
             for _ in range(10):
-                rollout_out = runner.rollout(
+                rollout_out = runner.step(
                     model=model_batch,
                     data=env._worker_data,
                     initial_state=initial_state,
@@ -154,7 +153,7 @@ def measure_rollout_bridge_mlx_pipeline_ms(
             post_elapsed = 0.0
             for _ in range(iters):
                 t0 = time.perf_counter()
-                rollout_out = runner.rollout(
+                rollout_out = runner.step(
                     model=model_batch,
                     data=env._worker_data,
                     initial_state=initial_state,

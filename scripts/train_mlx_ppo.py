@@ -10,11 +10,12 @@ import importlib
 import json
 import pickle
 import pkgutil
+import math
+import statistics
 import sys
 import time
 from pathlib import Path
 
-import numpy as np
 import mlx.core as mx
 from mlx.utils import tree_map
 
@@ -96,7 +97,7 @@ def save_trainer_state(path: Path, trainer: PPOTrainer, iteration: int) -> None:
     payload = {
         "iteration": int(iteration),
         "learning_rate": float(trainer.learning_rate),
-        "optimizer_state": tree_map(lambda x: np.asarray(x), trainer.optimizer.state),
+        "optimizer_state": tree_map(lambda x: x.tolist(), trainer.optimizer.state),
     }
     with path.open("wb") as f:
         pickle.dump(payload, f)
@@ -116,7 +117,7 @@ def build_model(cfg, obs_dim: int, action_dim: int) -> MLPActorCritic:
     """Build actor-critic model from locomotion config."""
     policy_cfg = cfg.policy
     init_noise_std = float(getattr(policy_cfg, "init_noise_std", 1.0))
-    init_log_std = float(np.log(max(init_noise_std, 1e-6)))
+    init_log_std = float(math.log(max(init_noise_std, 1e-6)))
     obs_norm = bool(getattr(cfg, "empirical_normalization", False))
     noise_std_type = str(getattr(policy_cfg, "noise_std_type", "scalar"))
     state_dependent_std = bool(getattr(policy_cfg, "state_dependent_std", False))
@@ -152,7 +153,7 @@ def main() -> None:
     if args.env_num is None:
         args.env_num = locomotion_params.get_default_env_num(args.task)
 
-    np.random.seed(args.seed)
+    mx.random.seed(args.seed)
 
     cfg = locomotion_params.rsl_rl_config(args.task)
     algo_cfg = cfg.algorithm
@@ -206,26 +207,28 @@ def main() -> None:
 
         if env.state is None:
             env.init_state()
-        _, obs, _ = env.reset(np.arange(env.num_envs))
-        obs = obs.astype(np.float32)
+        _, obs, _ = env.reset(mx.arange(env.num_envs, dtype=mx.int32))
+        obs = mx.array(obs, dtype=mx.float32)
 
         state_list = []
         print("[MLX PPO] Collecting physics states for play...")
         for _ in range(args.play_steps):
             obs_mx = mx.array(obs, dtype=mx.float32)
             actions_mx = model.policy(obs_mx)
-            actions = np.asarray(actions_mx, dtype=np.float32)
-            actions = np.where(np.isfinite(actions), actions, 0.0).astype(np.float32)
+            actions = mx.where(mx.isfinite(actions_mx), actions_mx, mx.zeros_like(actions_mx))
             state = env.step(actions)
-            raw_obs = state.obs
-            bad_mask = ~np.isfinite(raw_obs).all(axis=1)
-            if np.any(bad_mask):
-                bad_indices = np.where(bad_mask)[0]
-                _, reset_obs, _ = env.reset(bad_indices)
-                raw_obs = raw_obs.copy()
-                raw_obs[bad_indices] = reset_obs
-            obs = np.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32)
-            state_list.append(env.state.physics_state.copy())
+            raw_obs = mx.array(state.obs, dtype=mx.float32)
+            bad_mask = mx.logical_not(mx.all(mx.isfinite(raw_obs), axis=1))
+            if bool(mx.any(bad_mask).item()):
+                bad_indices = [i for i, flag in enumerate(bad_mask.tolist()) if flag]
+                _, reset_obs, _ = env.reset(mx.array(bad_indices, dtype=mx.int32))
+                raw_obs_rows = raw_obs.tolist()
+                reset_rows = mx.array(reset_obs, dtype=mx.float32).tolist()
+                for k, idx in enumerate(bad_indices):
+                    raw_obs_rows[idx] = reset_rows[k]
+                raw_obs = mx.array(raw_obs_rows, dtype=mx.float32)
+            obs = mx.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0)
+            state_list.append(env.state.physics_state)
 
         output_dir = run_dir if run_dir is not None else task_log_root
         output_video = output_dir / "play_video.mp4"
@@ -300,8 +303,8 @@ def main() -> None:
     env = registry.make(args.task, num_envs=args.env_num, sim_backend="mujoco")
     if env.state is None:
         env.init_state()
-    _, obs, _ = env.reset(np.arange(env.num_envs))
-    obs = obs.astype(np.float32)
+    _, obs, _ = env.reset(mx.arange(env.num_envs, dtype=mx.int32))
+    obs = mx.array(obs, dtype=mx.float32)
 
     obs_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
@@ -387,8 +390,8 @@ def main() -> None:
     if tb_writer is not None:
         log("[MLX PPO] tensorboard=enabled")
 
-    episode_returns = np.zeros((args.env_num,), dtype=np.float32)
-    episode_lengths = np.zeros((args.env_num,), dtype=np.int32)
+    episode_returns = mx.zeros((args.env_num,), dtype=mx.float32)
+    episode_lengths = mx.zeros((args.env_num,), dtype=mx.int32)
     reward_history = []
     length_history = []
     collection_size = num_steps * args.env_num
@@ -416,39 +419,40 @@ def main() -> None:
             model.update_normalization(mx.array(obs, dtype=mx.float32))
             obs_mx = mx.array(obs, dtype=mx.float32)
             actions_mx, log_probs_mx, values_mx, action_mean_mx, action_std_mx = model.act(obs_mx)
-            actions = np.asarray(actions_mx, dtype=np.float32)
-            bad_action_count += int(np.size(actions) - np.isfinite(actions).sum())
-            actions = np.where(np.isfinite(actions), actions, 0.0).astype(np.float32)
+            actions = mx.where(mx.isfinite(actions_mx), actions_mx, mx.zeros_like(actions_mx))
+            bad_action_count += int(actions.size - int(mx.sum(mx.isfinite(actions)).item()))
             # Keep behavior actions consistent with PPO storage (match rsl-rl style).
             executed_actions = actions
             state = env.step(executed_actions)
 
-            raw_rewards = state.reward
-            raw_dones = state.done
-            raw_obs = state.obs
-            bad_reward_count += int(np.size(raw_rewards) - np.isfinite(raw_rewards).sum())
-            bad_obs_count += int(np.size(raw_obs) - np.isfinite(raw_obs).sum())
+            raw_rewards = mx.array(state.reward, dtype=mx.float32)
+            raw_dones = mx.array(state.done, dtype=mx.float32)
+            raw_obs = mx.array(state.obs, dtype=mx.float32)
+            bad_reward_count += int(raw_rewards.size - int(mx.sum(mx.isfinite(raw_rewards)).item()))
+            bad_obs_count += int(raw_obs.size - int(mx.sum(mx.isfinite(raw_obs)).item()))
 
             # If any env has non-finite transition data, force reset only those envs.
-            obs_bad_mask = ~np.isfinite(raw_obs).all(axis=1)
-            rew_bad_mask = ~np.isfinite(raw_rewards)
-            done_bad_mask = ~np.isfinite(raw_dones)
-            bad_env_mask = np.logical_or(obs_bad_mask, np.logical_or(rew_bad_mask, done_bad_mask))
-            if np.any(bad_env_mask):
-                bad_indices = np.where(bad_env_mask)[0]
-                forced_reset_count += int(bad_indices.size)
-                _, reset_obs, _ = env.reset(bad_indices)
-                raw_obs = raw_obs.copy()
-                raw_rewards = raw_rewards.copy()
-                raw_dones = raw_dones.copy()
-                raw_obs[bad_indices] = reset_obs
-                raw_rewards[bad_indices] = 0.0
-                raw_dones[bad_indices] = 1.0
+            obs_bad_mask = mx.logical_not(mx.all(mx.isfinite(raw_obs), axis=1))
+            rew_bad_mask = mx.logical_not(mx.isfinite(raw_rewards))
+            done_bad_mask = mx.logical_not(mx.isfinite(raw_dones))
+            bad_env_mask = mx.logical_or(obs_bad_mask, mx.logical_or(rew_bad_mask, done_bad_mask))
+            if bool(mx.any(bad_env_mask).item()):
+                bad_indices = [i for i, flag in enumerate(bad_env_mask.tolist()) if flag]
+                forced_reset_count += len(bad_indices)
+                _, reset_obs, _ = env.reset(mx.array(bad_indices, dtype=mx.int32))
+                raw_obs_rows = raw_obs.tolist()
+                reset_rows = mx.array(reset_obs, dtype=mx.float32).tolist()
+                for k, idx in enumerate(bad_indices):
+                    raw_obs_rows[idx] = reset_rows[k]
+                raw_obs = mx.array(raw_obs_rows, dtype=mx.float32)
+                bad_mask_f32 = bad_env_mask.astype(mx.float32)
+                raw_rewards = raw_rewards * (1.0 - bad_mask_f32)
+                raw_dones = mx.where(bad_env_mask, mx.ones_like(raw_dones), raw_dones)
 
-            rewards = np.nan_to_num(raw_rewards, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32)
+            rewards = mx.nan_to_num(raw_rewards, nan=0.0, posinf=0.0, neginf=0.0).astype(mx.float32)
             if hasattr(state, "truncated"):
-                timeouts = np.asarray(state.truncated, dtype=np.float32)
-                rewards = rewards + ppo_cfg.gamma * np.asarray(values_mx, dtype=np.float32) * timeouts
+                timeouts = mx.array(state.truncated, dtype=mx.float32)
+                rewards = rewards + ppo_cfg.gamma * values_mx.astype(mx.float32) * timeouts
 
             if hasattr(state, "info") and isinstance(state.info, dict):
                 step_log = state.info.get("log", {})
@@ -458,7 +462,7 @@ def main() -> None:
                             scalar_value = float(value)
                         except (TypeError, ValueError):
                             continue
-                        if not np.isfinite(scalar_value):
+                        if not math.isfinite(scalar_value):
                             continue
                         reward_component_sums[key] = reward_component_sums.get(key, 0.0) + scalar_value
                         reward_component_counts[key] = reward_component_counts.get(key, 0) + 1
@@ -466,29 +470,33 @@ def main() -> None:
             rewards_mx = mx.array(rewards, dtype=mx.float32)
             if reward_normalizer is not None:
                 rewards_mx = mx.squeeze(reward_normalizer(rewards_mx), axis=-1)
-            dones = np.where(np.isfinite(raw_dones), raw_dones, 1.0).astype(np.float32)
-            next_obs = np.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32)
-            model.update_normalization(mx.array(next_obs, dtype=mx.float32))
+            dones = mx.where(mx.isfinite(raw_dones), raw_dones, mx.ones_like(raw_dones)).astype(mx.float32)
+            next_obs = mx.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0).astype(mx.float32)
+            model.update_normalization(next_obs)
 
             buffer.add(
-                obs=obs_mx,
+                obs=obs,
                 actions=actions_mx,
                 log_probs=log_probs_mx,
                 action_mean=action_mean_mx,
                 action_std=action_std_mx,
                 rewards=rewards_mx,
-                dones=mx.array(dones, dtype=mx.float32),
+                dones=dones,
                 values=values_mx,
             )
 
             episode_returns += rewards
             episode_lengths += 1
-            done_idx = np.where(dones > 0.5)[0]
-            if done_idx.size > 0:
-                reward_history.extend(episode_returns[done_idx].tolist())
-                length_history.extend(episode_lengths[done_idx].tolist())
-                episode_returns[done_idx] = 0.0
-                episode_lengths[done_idx] = 0
+            done_mask = dones > 0.5
+            if bool(mx.any(done_mask).item()):
+                done_indices = [i for i, flag in enumerate(done_mask.tolist()) if flag]
+                ep_ret_list = episode_returns.tolist()
+                ep_len_list = episode_lengths.tolist()
+                for idx in done_indices:
+                    reward_history.append(float(ep_ret_list[idx]))
+                    length_history.append(float(ep_len_list[idx]))
+                episode_returns = mx.where(done_mask, mx.zeros_like(episode_returns), episode_returns)
+                episode_lengths = mx.where(done_mask, mx.zeros_like(episode_lengths), episode_lengths)
 
             obs = next_obs
 
@@ -501,7 +509,7 @@ def main() -> None:
         iter_time = time.perf_counter() - iter_start
         total_time += iter_time
         fps = int(collection_size / max(iter_time, 1e-8))
-        mean_noise_std = float(np.mean(np.asarray(mx.exp(model.clipped_log_std()), dtype=np.float32)))
+        mean_noise_std = float(mx.mean(mx.exp(model.clipped_log_std())).item())
         current_lr = float(metrics.get("learning_rate", trainer.learning_rate))
         updates_applied = float(metrics.get("updates_applied", 0.0))
         skipped_nonfinite_loss = float(metrics.get("skipped_nonfinite_loss", 0.0))
@@ -515,8 +523,8 @@ def main() -> None:
         std_mean = float(metrics.get("std_mean", 0.0))
         adv_std = float(metrics.get("adv_std", 0.0))
         value_explained_variance = float(metrics.get("value_explained_variance", 0.0))
-        mean_reward = float(np.mean(reward_history[-100:])) if reward_history else 0.0
-        mean_ep_len = float(np.mean(length_history[-100:])) if length_history else 0.0
+        mean_reward = float(statistics.mean(reward_history[-100:])) if reward_history else 0.0
+        mean_ep_len = float(statistics.mean(length_history[-100:])) if length_history else 0.0
 
         if tb_writer is not None:
             # Align tags with rsl-rl logger conventions as much as possible.

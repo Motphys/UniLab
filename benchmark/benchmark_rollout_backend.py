@@ -107,7 +107,7 @@ def _run_mlx(
 ) -> float:
     t0 = time.perf_counter()
     for _ in range(niter):
-        out = runner.rollout(
+        out = runner.step(
             model=model_list,
             data=data_list,
             initial_state=initial_state_mx,
@@ -120,7 +120,7 @@ def _run_mlx(
 
 
 def _has_native_mujoco_mlx_step() -> bool:
-    return mj_mlx_step is not None and hasattr(mj_mlx_step, "RolloutMLX")
+    return mj_mlx_step is not None and hasattr(mj_mlx_step, "MlxStepRunner")
 
 
 def _load_task_model(task_name: str) -> mujoco.MjModel:
@@ -152,7 +152,7 @@ def _bench_one_task(
         control[:] = ctrl0.reshape((1, 1, model.nu))
         state_buf = np.empty((batch_size, nstep, nstate), dtype=np.float64)
         sensordata_buf = np.empty((batch_size, nstep, model.nsensordata), dtype=np.float64)
-        with mj_rollout.Rollout(nthread=nthread) as numpy_runner, mj_mlx_step.RolloutMLX(
+        with mj_rollout.Rollout(nthread=nthread) as numpy_runner, mj_mlx_step.MlxStepRunner(
             nthread=nthread
         ) as mlx_runner:
             initial_state_mx = mx.array(initial_state, dtype=mx.float32)
