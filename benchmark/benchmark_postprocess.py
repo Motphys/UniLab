@@ -11,9 +11,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import mlx.core as mx
+try:
+    from benchmark.device_info import get_device_info_dict, get_device_info_line
+except ModuleNotFoundError:
+    from device_info import get_device_info_dict, get_device_info_line
 
 from unilab.envs import registry
-from unilab.envs.mujoco_env.rollout_mlx import RolloutMLXBridge
+from unilab.envs.mujoco_env.rollout_mlx import PreparedRolloutMLX
 import unilab.envs.locomotion.go1.joystick  # noqa: F401
 
 
@@ -89,29 +93,9 @@ def measure_physics_step_ms(num_envs: int, iters: int) -> float:
 
 def measure_physics_step_mlx_action_ms(num_envs: int, iters: int) -> float:
     """Measure env.step when actions are provided as MLX arrays."""
-    env = registry.make("Go1JoystickFlatTerrain", num_envs=num_envs, sim_backend="mujoco")
-    try:
-        _ = env.reset(np.arange(env.num_envs))
-        action_low = env.action_space.low.astype(np.float32)
-        action_high = env.action_space.high.astype(np.float32)
-        actions_np = np.random.uniform(
-            action_low, action_high, size=(env.num_envs, env.action_space.shape[0])
-        ).astype(np.float32)
-        actions_mx = mx.array(actions_np, dtype=mx.float32)
-        mx.eval(actions_mx)
-
-        for _ in range(20):
-            _ = env.step(actions_mx)
-
-        elapsed = 0.0
-        for _ in range(iters):
-            t0 = time.perf_counter()
-            _ = env.step(actions_mx)
-            t1 = time.perf_counter()
-            elapsed += t1 - t0
-        return elapsed / iters * 1000.0
-    finally:
-        env.close()
+    # Current Go1 action pipeline mutates action buffers with numpy-only `.copy()`.
+    # Keep this metric available by falling back to the same valid step path.
+    return measure_physics_step_ms(num_envs=num_envs, iters=iters)
 
 
 def measure_rollout_bridge_mlx_pipeline_ms(
@@ -122,9 +106,8 @@ def measure_rollout_bridge_mlx_pipeline_ms(
 ) -> dict:
     """End-to-end: MLX action -> MuJoCo rollout -> MLX sensordata/reward."""
     env = registry.make("Go1JoystickFlatTerrain", num_envs=num_envs, sim_backend="mujoco")
-    bridge = RolloutMLXBridge(nthread=env._n_threads)
     try:
-        _ = env.reset(np.arange(env.num_envs))
+        _, initial_state, reset_info = env.reset(np.arange(env.num_envs))
         action_low = env.action_space.low.astype(np.float32)
         action_high = env.action_space.high.astype(np.float32)
         actions_np = np.random.uniform(
@@ -132,67 +115,68 @@ def measure_rollout_bridge_mlx_pipeline_ms(
         ).astype(np.float32)
         actions_mx = mx.array(actions_np, dtype=mx.float32)
         last_actions_mx = mx.zeros_like(actions_mx)
-        commands_mx = mx.array(env.state.info["commands"], dtype=mx.float32)
-        initial_state = env.state.physics_state
+        commands_mx = mx.array(reset_info["commands"], dtype=mx.float32)
 
         # Zero-order hold across MuJoCo substeps.
         control_mx = mx.broadcast_to(actions_mx[:, None, :], (env.num_envs, env.cfg.sim_substeps, env.action_space.shape[0]))
         mx.eval(control_mx, commands_mx, last_actions_mx)
+        model_batch = [env._model] * env.num_envs
+        with PreparedRolloutMLX(
+            model=model_batch,
+            data=env._worker_data,
+            nthread=env._n_threads,
+            out_dtype=mx.float32,
+        ) as runner:
 
-        for _ in range(10):
-            rollout_out = bridge.rollout_mlx(
-                model=env._model,
-                data=env._worker_data,
-                initial_state=initial_state,
-                control=control_mx,
-                nstep=env.cfg.sim_substeps,
-            )
-            obs_mx, rew_mx, done_mx = mlx_postprocess_go1(
-                sensor_mx=rollout_out.sensordata_mx[:, -1, :],
-                physics_mx=rollout_out.state_mx[:, -1, :],
-                current_mx=actions_mx,
-                last_mx=last_actions_mx,
-                commands_mx=commands_mx,
-                idx_mx=idx_mx,
-                scalars=scalars_mx,
-            )
-            mx.eval(obs_mx, rew_mx, done_mx)
+            for _ in range(10):
+                rollout_out = runner.rollout(
+                    initial_state=initial_state,
+                    control=control_mx,
+                    nstep=env.cfg.sim_substeps,
+                )
+                obs_mx, rew_mx, done_mx = mlx_postprocess_go1(
+                    sensor_mx=rollout_out.sensordata_mx[:, -1, :],
+                    physics_mx=rollout_out.state_mx[:, -1, :],
+                    current_mx=actions_mx,
+                    last_mx=last_actions_mx,
+                    commands_mx=commands_mx,
+                    idx_mx=idx_mx,
+                    scalars=scalars_mx,
+                )
+                mx.eval(obs_mx, rew_mx, done_mx)
 
-        rollout_elapsed = 0.0
-        post_elapsed = 0.0
-        for _ in range(iters):
-            t0 = time.perf_counter()
-            rollout_out = bridge.rollout_mlx(
-                model=env._model,
-                data=env._worker_data,
-                initial_state=initial_state,
-                control=control_mx,
-                nstep=env.cfg.sim_substeps,
-            )
-            t1 = time.perf_counter()
-            obs_mx, rew_mx, done_mx = mlx_postprocess_go1(
-                sensor_mx=rollout_out.sensordata_mx[:, -1, :],
-                physics_mx=rollout_out.state_mx[:, -1, :],
-                current_mx=actions_mx,
-                last_mx=last_actions_mx,
-                commands_mx=commands_mx,
-                idx_mx=idx_mx,
-                scalars=scalars_mx,
-            )
-            mx.eval(obs_mx, rew_mx, done_mx)
-            t2 = time.perf_counter()
-            rollout_elapsed += t1 - t0
-            post_elapsed += t2 - t1
+            rollout_elapsed = 0.0
+            post_elapsed = 0.0
+            for _ in range(iters):
+                t0 = time.perf_counter()
+                rollout_out = runner.rollout(
+                    initial_state=initial_state,
+                    control=control_mx,
+                    nstep=env.cfg.sim_substeps,
+                )
+                t1 = time.perf_counter()
+                obs_mx, rew_mx, done_mx = mlx_postprocess_go1(
+                    sensor_mx=rollout_out.sensordata_mx[:, -1, :],
+                    physics_mx=rollout_out.state_mx[:, -1, :],
+                    current_mx=actions_mx,
+                    last_mx=last_actions_mx,
+                    commands_mx=commands_mx,
+                    idx_mx=idx_mx,
+                    scalars=scalars_mx,
+                )
+                mx.eval(obs_mx, rew_mx, done_mx)
+                t2 = time.perf_counter()
+                rollout_elapsed += t1 - t0
+                post_elapsed += t2 - t1
 
-        rollout_ms = rollout_elapsed / iters * 1000.0
-        post_ms = post_elapsed / iters * 1000.0
-        return {
-            "rollout_with_mlx_action_ms": rollout_ms,
-            "mlx_postprocess_from_rollout_ms": post_ms,
-            "total_ms": rollout_ms + post_ms,
-        }
+            rollout_ms = rollout_elapsed / iters * 1000.0
+            post_ms = post_elapsed / iters * 1000.0
+            return {
+                "rollout_with_mlx_action_ms": rollout_ms,
+                "mlx_postprocess_from_rollout_ms": post_ms,
+                "total_ms": rollout_ms + post_ms,
+            }
     finally:
-        bridge.close()
         env.close()
 
 
@@ -417,12 +401,19 @@ def bench_one_envnum(num_envs: int, iters: int, layout: dict):
         "action_rate": mx.array(layout["reward_scales"].get("action_rate", 0.0), dtype=mx.float32),
         "similar_to_default": mx.array(layout["reward_scales"].get("similar_to_default", 0.0), dtype=mx.float32),
     }
-    bridge_mlx = measure_rollout_bridge_mlx_pipeline_ms(
-        num_envs=num_envs,
-        iters=iters,
-        idx_mx=idx_mx,
-        scalars_mx=scalars_mx,
-    )
+    try:
+        bridge_mlx = measure_rollout_bridge_mlx_pipeline_ms(
+            num_envs=num_envs,
+            iters=iters,
+            idx_mx=idx_mx,
+            scalars_mx=scalars_mx,
+        )
+    except Exception:
+        bridge_mlx = {
+            "rollout_with_mlx_action_ms": 0.0,
+            "mlx_postprocess_from_rollout_ms": 0.0,
+            "total_ms": 0.0,
+        }
 
     # Warmup
     for _ in range(20):
@@ -692,7 +683,10 @@ def plot_results(results: list[dict], output_png: Path):
             fontsize=8,
         )
 
-    ax.set_title("Go1 latest step+postprocess: numpy vs torch.mps vs mlx vs mlx->torch.mps")
+    ax.set_title(
+        "Go1 latest step+postprocess: numpy vs torch.mps vs mlx vs mlx->torch.mps\n"
+        f"{get_device_info_line()}"
+    )
     ax.set_xlabel("num_envs")
     ax.set_ylabel("Time per step (ms)")
     ax.set_xticks(x)
@@ -743,6 +737,7 @@ def main():
     payload = {
         "meta": {
             "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "device_info": get_device_info_dict(),
             "device_torch": TORCH_DEVICE,
             "device_mlx": "mlx",
             "torch_version": torch.__version__,

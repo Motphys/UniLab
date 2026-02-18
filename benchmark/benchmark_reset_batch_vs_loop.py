@@ -11,6 +11,10 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
+try:
+    from benchmark.device_info import get_device_info_dict, get_device_info_line
+except ModuleNotFoundError:
+    from device_info import get_device_info_dict, get_device_info_line
 
 import matplotlib
 
@@ -332,7 +336,7 @@ def plot_grouped_thin_bars(records: List[ResetBenchRecord], out_png: Path) -> No
     ax.set_xlabel("env_num")
     ax.set_yscale("log")
     ax.set_ylabel("Replay reset elapsed time (ms)")
-    ax.set_title("Batch reset vs For-loop reset (3 tasks)")
+    ax.set_title(f"Batch reset vs For-loop reset (3 tasks)\n{get_device_info_line()}")
     ax.grid(axis="y", alpha=0.25)
     ax.legend(ncol=3, fontsize=8, loc="upper left", bbox_to_anchor=(0.0, 1.18))
     fig.tight_layout()
@@ -428,6 +432,7 @@ def main() -> None:
     payload = {
         "meta": {
             "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "device_info": get_device_info_dict(),
             "tasks": tasks,
             "env_nums": env_nums,
             "target_masks": args.target_masks,

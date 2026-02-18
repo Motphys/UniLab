@@ -20,6 +20,10 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Tuple
+try:
+    from benchmark.device_info import get_device_info_dict, get_device_info_line
+except ModuleNotFoundError:
+    from device_info import get_device_info_dict, get_device_info_line
 
 try:
     import numpy as np
@@ -423,7 +427,11 @@ def save_plots(records: List[ConversionRecord], plot_dir: Path, file_prefix: str
                     alpha=0.7,
                 )
 
-    fig.suptitle("Conversion time vs size (4x4 To/From storage)", fontsize=14, y=0.995)
+    fig.suptitle(
+        f"Conversion time vs size (4x4 To/From storage)\n{get_device_info_line()}",
+        fontsize=13,
+        y=0.995,
+    )
     if legend_handles:
         fig.legend(
             [legend_handles[d] for d in dtype_order if d in legend_handles],
@@ -529,8 +537,8 @@ def save_plots(records: List[ConversionRecord], plot_dir: Path, file_prefix: str
                 )
 
     fig2.suptitle(
-        "Conversion time vs size (cols=From, lines=To; numpy/mlx/torch.mps)",
-        fontsize=13.5,
+        f"Conversion time vs size (cols=From, lines=To; numpy/mlx/torch.mps)\n{get_device_info_line()}",
+        fontsize=12.5,
         y=0.995,
     )
     if legend_handles2:
@@ -693,6 +701,7 @@ def main() -> None:
     payload = {
         "meta": {
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+            "device_info": get_device_info_dict(),
             "sizes": sizes,
             "dtypes": dtypes,
             "warmup": args.warmup,

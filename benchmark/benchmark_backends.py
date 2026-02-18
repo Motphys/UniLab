@@ -20,6 +20,10 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Dict, List, Tuple
+try:
+    from benchmark.device_info import get_device_info_dict, get_device_info_line
+except ModuleNotFoundError:
+    from device_info import get_device_info_dict, get_device_info_line
 
 try:
     import numpy as np
@@ -476,7 +480,7 @@ def save_plots(
                 y = [r.gflops_per_sec for r in b_records]
                 gax.plot(x, y, marker="o", label=backend)
 
-            gax.set_title(f"GFLOPS/s vs size ({workload}, {dtype})")
+            gax.set_title(f"GFLOPS/s vs size ({workload}, {dtype})\n{get_device_info_line()}")
             gax.set_xlabel("matrix size (N for NxN)")
             gax.set_ylabel("GFLOPS/s")
             gax.set_xscale("log", base=2)
@@ -594,6 +598,7 @@ def main() -> None:
     payload = {
         "meta": {
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+            "device_info": get_device_info_dict(),
             "sizes": sizes,
             "dtypes": dtypes,
             "warmup": args.warmup,

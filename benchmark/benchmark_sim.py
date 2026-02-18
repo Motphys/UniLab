@@ -21,6 +21,10 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
+try:
+    from benchmark.device_info import get_device_info_dict, get_device_info_line
+except ModuleNotFoundError:
+    from device_info import get_device_info_dict, get_device_info_line
 
 import matplotlib
 matplotlib.use("Agg")
@@ -382,7 +386,10 @@ def plot_results(records: List[SimRecord], plot_dir: Path):
         
         ax.plot(x, y, marker='o', label=backend)
         
-    ax.set_title("MuJoCo Simulation Speed (Steps Per Second) vs Batch Size")
+    ax.set_title(
+        "MuJoCo Simulation Speed (Steps Per Second) vs Batch Size\n"
+        f"{get_device_info_line()}"
+    )
     ax.set_xlabel("Batch Size")
     ax.set_ylabel("Total Steps Per Second (log scale)")
     ax.set_xscale("log", base=2)
@@ -505,7 +512,7 @@ def main():
 
 
         # 4. MJX (GPU)
-        if jax.devices()[0].platform == "cpu":
+        if mjx and jax and jax.devices()[0].platform == "cpu":
             print("JAX CPU device found, skipping MJX benchmark")
         else:
             try:
@@ -557,6 +564,7 @@ def main():
     data = {
         "meta": {
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "device_info": get_device_info_dict(),
             "xml": args.xml,
             "steps": args.steps
         },
