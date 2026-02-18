@@ -21,11 +21,10 @@ import numpy as np
 
 import mlx.core as mx
 
-from unilab.envs.mujoco_env.rollout_mlx import (
-    PreparedRolloutMLX,
-    RolloutMLXBuffers,
-    has_native_mujoco_mlx_rollout,
-)
+try:
+    from mujoco import mlx_step as mj_mlx_step
+except Exception:
+    mj_mlx_step = None
 from unilab.envs.locomotion.g1.joystick import G1JoystickCfg
 from unilab.envs.locomotion.go1.joystick import Go1JoystickCfg
 from unilab.envs.locomotion.go2.joystick import Go2JoystickCfg
@@ -98,15 +97,30 @@ def _run_numpy(
 
 
 def _run_mlx(
-    session: PreparedRolloutMLX,
-    buffers: RolloutMLXBuffers,
+    runner,
+    model_list,
+    data_list,
+    initial_state_mx,
+    control_mx,
+    nstep: int,
     niter: int,
 ) -> float:
     t0 = time.perf_counter()
     for _ in range(niter):
-        out = session.rollout_with_buffers(buffers)
+        out = runner.rollout(
+            model=model_list,
+            data=data_list,
+            initial_state=initial_state_mx,
+            control=control_mx,
+            nstep=nstep,
+            out_dtype=mx.float32,
+        )
         mx.eval(out.state_mx, out.sensordata_mx)
     return (time.perf_counter() - t0) / niter
+
+
+def _has_native_mujoco_mlx_step() -> bool:
+    return mj_mlx_step is not None and hasattr(mj_mlx_step, "RolloutMLX")
 
 
 def _load_task_model(task_name: str) -> mujoco.MjModel:
@@ -138,15 +152,11 @@ def _bench_one_task(
         control[:] = ctrl0.reshape((1, 1, model.nu))
         state_buf = np.empty((batch_size, nstep, nstate), dtype=np.float64)
         sensordata_buf = np.empty((batch_size, nstep, model.nsensordata), dtype=np.float64)
-        with mj_rollout.Rollout(nthread=nthread) as numpy_runner, PreparedRolloutMLX(
-            model=model_list,
-            data=data_list,
-            nthread=nthread,
-            out_dtype=mx.float32,
-        ) as session:
-            buffers = session.allocate_buffers(model=model, nbatch=batch_size, nstep=nstep)
-            buffers.initial_state_mx = mx.array(initial_state, dtype=mx.float32)
-            buffers.control_mx = mx.array(control, dtype=mx.float32)
+        with mj_rollout.Rollout(nthread=nthread) as numpy_runner, mj_mlx_step.RolloutMLX(
+            nthread=nthread
+        ) as mlx_runner:
+            initial_state_mx = mx.array(initial_state, dtype=mx.float32)
+            control_mx = mx.array(control, dtype=mx.float32)
 
             _run_numpy(
                 numpy_runner,
@@ -158,7 +168,15 @@ def _bench_one_task(
                 sensordata_buf,
                 warmup,
             )
-            _run_mlx(session, buffers, warmup)
+            _run_mlx(
+                mlx_runner,
+                model_list,
+                data_list,
+                initial_state_mx,
+                control_mx,
+                nstep,
+                warmup,
+            )
 
             numpy_t = _run_numpy(
                 numpy_runner,
@@ -170,7 +188,15 @@ def _bench_one_task(
                 sensordata_buf,
                 iters,
             )
-            mlx_t = _run_mlx(session, buffers, iters)
+            mlx_t = _run_mlx(
+                mlx_runner,
+                model_list,
+                data_list,
+                initial_state_mx,
+                control_mx,
+                nstep,
+                iters,
+            )
 
         records.append(
             BenchRecord(
@@ -353,13 +379,13 @@ def main():
             raise ValueError(
                 f"Unknown task '{name}'. Available: {list(TASK_CONFIGS.keys())}"
             )
-    if not has_native_mujoco_mlx_rollout():
+    if not _has_native_mujoco_mlx_step():
         raise RuntimeError(
-            "Native MLX rollout backend is unavailable. "
-            "This benchmark now requires native mujoco.rollout_mlx."
+            "Native MLX step backend is unavailable. "
+            "This benchmark now requires native mujoco.mlx_step."
         )
 
-    print(f"MLX native rollout available: {has_native_mujoco_mlx_rollout()}")
+    print(f"MLX native step available: {_has_native_mujoco_mlx_step()}")
     print(f"Tasks: {task_names}")
     print(f"Batch sizes: {batch_sizes}")
 
@@ -388,7 +414,7 @@ def main():
             "nthread": args.nthread,
             "warmup": args.warmup,
             "iters": args.iters,
-            "native_rollout_available": has_native_mujoco_mlx_rollout(),
+            "native_mlx_step_available": _has_native_mujoco_mlx_step(),
         },
         "results": [asdict(r) for r in records],
     }

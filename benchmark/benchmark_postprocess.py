@@ -11,14 +11,19 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import mlx.core as mx
+import mujoco
 try:
     from benchmark.device_info import get_device_info_dict, get_device_info_line
 except ModuleNotFoundError:
     from device_info import get_device_info_dict, get_device_info_line
 
 from unilab.envs import registry
-from unilab.envs.mujoco_env.rollout_mlx import PreparedRolloutMLX
 import unilab.envs.locomotion.go1.joystick  # noqa: F401
+
+try:
+    from mujoco import mlx_step as mj_mlx_step
+except Exception:
+    mj_mlx_step = None
 
 
 DEFAULT_ENV_LIST = [256, 512, 1024, 2048, 4096]
@@ -105,6 +110,8 @@ def measure_rollout_bridge_mlx_pipeline_ms(
     scalars_mx: dict,
 ) -> dict:
     """End-to-end: MLX action -> MuJoCo rollout -> MLX sensordata/reward."""
+    if mj_mlx_step is None:
+        raise RuntimeError("Native mujoco.mlx_step is unavailable.")
     env = registry.make("Go1JoystickFlatTerrain", num_envs=num_envs, sim_backend="mujoco")
     try:
         _, initial_state, reset_info = env.reset(np.arange(env.num_envs))
@@ -121,18 +128,16 @@ def measure_rollout_bridge_mlx_pipeline_ms(
         control_mx = mx.broadcast_to(actions_mx[:, None, :], (env.num_envs, env.cfg.sim_substeps, env.action_space.shape[0]))
         mx.eval(control_mx, commands_mx, last_actions_mx)
         model_batch = [env._model] * env.num_envs
-        with PreparedRolloutMLX(
-            model=model_batch,
-            data=env._worker_data,
-            nthread=env._n_threads,
-            out_dtype=mx.float32,
-        ) as runner:
+        with mj_mlx_step.RolloutMLX(nthread=env._n_threads) as runner:
 
             for _ in range(10):
                 rollout_out = runner.rollout(
+                    model=model_batch,
+                    data=env._worker_data,
                     initial_state=initial_state,
                     control=control_mx,
                     nstep=env.cfg.sim_substeps,
+                    out_dtype=mx.float32,
                 )
                 obs_mx, rew_mx, done_mx = mlx_postprocess_go1(
                     sensor_mx=rollout_out.sensordata_mx[:, -1, :],
@@ -150,9 +155,12 @@ def measure_rollout_bridge_mlx_pipeline_ms(
             for _ in range(iters):
                 t0 = time.perf_counter()
                 rollout_out = runner.rollout(
+                    model=model_batch,
+                    data=env._worker_data,
                     initial_state=initial_state,
                     control=control_mx,
                     nstep=env.cfg.sim_substeps,
+                    out_dtype=mx.float32,
                 )
                 t1 = time.perf_counter()
                 obs_mx, rew_mx, done_mx = mlx_postprocess_go1(
