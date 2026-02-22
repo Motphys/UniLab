@@ -17,16 +17,17 @@ Thirdparty:
 
 ## 安装 (Installation)
 
-1. **克隆仓库**:
+1. **安装依赖**:
+   项目依赖 `mujoco-mlx`，当前从 [TestPyPI](https://test.pypi.org/project/mujoco-mlx/) 获取。在项目根目录下运行：
+   ```bash
+   pip install -i https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple mujoco-mlx==3.5.0
+   ```
+
+2. **克隆仓库**:
    ```bash
    git clone https://github.com/TATP-233/UniLab.git
    cd UniLab
-   ```
-
-2. **安装依赖**:
-   项目依赖 `mujoco-mlx`，当前从 [TestPyPI](https://test.pypi.org/project/mujoco-mlx/) 获取。在项目根目录下运行：
-   ```bash
-   pip install -i https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple -e .
+   pip install -e .
    ```
 
 ## 训练与回放指南
@@ -37,9 +38,6 @@ Thirdparty:
 ```bash
 # 基本训练
 python scripts/train_rsl_rl.py --task Go2JoystickFlatTerrain
-
-# 指定环境数量 (默认 1024)
-python scripts/train_rsl_rl.py --task Go2JoystickFlatTerrain --env_num 2048
 ```
 
 ### 2. 回放与渲染视频 (Play / Evaluation)
@@ -47,7 +45,7 @@ python scripts/train_rsl_rl.py --task Go2JoystickFlatTerrain --env_num 2048
 
 ```bash
 # 加载最新的一次训练结果进行回放并渲染
-python scripts/train_rsl_rl.py --task Go2JoystickFlatTerrain --play_only --load_run -1
+python scripts/train_rsl_rl.py --task Go2JoystickFlatTerrain --play_only
 ```
 
 ### 3. 加载特定 Run 继续训练
