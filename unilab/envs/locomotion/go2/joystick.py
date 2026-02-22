@@ -2,11 +2,12 @@ from etils import epath
 import gymnasium as gym
 import math
 import mlx.core as mx
+import numpy as np
 from dataclasses import dataclass, field
 
 from unilab.envs import registry
 from unilab.envs.mujoco_env.mj_env import MjMlxEnvState
-from unilab.envs.utils.math_utils import quat_mul, axis_angle_to_quat
+from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
 
 from unilab.envs.locomotion.go2.base import Go2BaseMjEnv, Go2BaseCfg
 
@@ -61,6 +62,7 @@ class Go2JoystickCfg(Go2BaseCfg):
 class Go2WalkTaskMj(Go2BaseMjEnv):
     def __init__(self, cfg: Go2JoystickCfg, num_envs=1):
         super().__init__(cfg, num_envs)
+        self._enable_reward_log = True
 
         self._init_reward_functions()
         self._init_obs_space()
@@ -161,14 +163,15 @@ class Go2WalkTaskMj(Go2BaseMjEnv):
 
     def update_observation(self, state: MjMlxEnvState):
         obs = self._get_obs(state, state.info)
-        return state.replace(obs=obs)
+        state.obs = obs
+        return state
 
     def _compute_rewards(self, state: MjMlxEnvState) -> MjMlxEnvState:
         total_reward = mx.zeros((self._num_envs,), dtype=mx.float32)
 
         # Only compute per-component logging every 4th step to reduce np.mean overhead
         step_count = state.info.get("steps", mx.zeros((self._num_envs,), dtype=mx.uint32))
-        should_log = int(step_count[0].item()) % 4 == 0
+        should_log = self._enable_reward_log and (int(step_count[0].item()) % 4 == 0)
 
         log = {} if should_log else state.info.get("log", {})
 
@@ -186,12 +189,13 @@ class Go2WalkTaskMj(Go2BaseMjEnv):
                 log[f"reward/{name}"] = float(mx.mean(weighted_rew).item())
 
         state.info["log"] = log
-        state.info["reward_components"] = {}  # Keep key for compatibility
+        state.info["reward_components"] = {}
 
         # Match genesis behavior: sum(reward_i * scale_i * dt).
         total_reward *= self.cfg.ctrl_dt
 
-        return state.replace(reward=total_reward)
+        state.reward = total_reward
+        return state
 
     def update_terminated(self, state: MjMlxEnvState) -> MjMlxEnvState:
         # Genesis termination uses roll/pitch absolute angle > 10 degrees.
@@ -201,7 +205,8 @@ class Go2WalkTaskMj(Go2BaseMjEnv):
             mx.abs(local_gravity[:, 0]) > sin_limit,
             mx.abs(local_gravity[:, 1]) > sin_limit,
         )
-        return state.replace(terminated=bad_roll_or_pitch)
+        state.terminated = bad_roll_or_pitch
+        return state
 
     def resample_commands(self, num_envs: int):
         low = mx.array(self.cfg.commands.vel_limit[0], dtype=mx.float32)
@@ -212,37 +217,20 @@ class Go2WalkTaskMj(Go2BaseMjEnv):
     def reset(self, env_indices: mx.array) -> tuple[mx.array, mx.array, dict]:
         num_reset = len(env_indices)
 
-        qpos_batch = mx.broadcast_to(self._init_qpos[None, :], (num_reset, self._init_qpos.shape[0]))
+        # Build reset states on host to avoid MLX->NumPy sync in sensor-forward path.
+        init_qpos_np = np.asarray(self._init_qpos, dtype=np.float64)
+        init_dof_vel_np = np.asarray(self._init_dof_vel, dtype=np.float64)
+        qpos_batch = np.broadcast_to(init_qpos_np[None, :], (num_reset, init_qpos_np.shape[0])).copy()
+        qvel_batch = np.zeros((num_reset, self.nv), dtype=np.float64)
+        qvel_batch[:, 6:] = init_dof_vel_np
 
-        qvel_batch = mx.zeros((num_reset, self.nv), dtype=mx.float32)
-        qvel_batch[:, 6:] = mx.broadcast_to(self._init_dof_vel[None, :], (num_reset, self._init_dof_vel.shape[0]))
-
-        # Domain Randomization (joystick.py reference)
-        # 1. Base Position Noise (x, y) ~ U(-0.5, 0.5)
-        dxy = mx.random.uniform(shape=(num_reset, 2), dtype=mx.float32) - 0.5
+        # Domain Randomization
+        dxy = np.random.uniform(-0.5, 0.5, (num_reset, 2))
         qpos_batch[:, 0:2] += dxy
-
-        # 2. Base Orientation Noise (yaw) ~ U(-pi, pi)
-        yaw = (mx.random.uniform(shape=(num_reset,), dtype=mx.float32) * 2.0 - 1.0) * math.pi
-        axis = mx.zeros((num_reset, 3), dtype=mx.float32)
-        axis[:, 2] = 1.0  # Z-axis
-        quat_yaw = axis_angle_to_quat(axis, yaw)
-
-        # q_new = q_old * q_yaw (Quaternion multiplication)
-        qpos_batch[:, 3:7] = quat_mul(qpos_batch[:, 3:7], quat_yaw)
-
-        # 3. Base Velocity Noise ~ U(-0.5, 0.5) for 6DoF
-        qvel_batch[:, 0:6] = mx.random.uniform(shape=(num_reset, 6), dtype=mx.float32) - 0.5
-
-        if hasattr(self, "_state") and self._state is not None:
-            idx_list = [int(i) for i in env_indices.tolist()]
-            prev = self._state.physics_state[idx_list]
-            prev[:, 0] = 0.0
-            prev[:, self._idx_qpos : self._idx_qpos + self.nq] = qpos_batch
-            prev[:, self._idx_qvel : self._idx_qvel + self.nv] = qvel_batch
-            idx_act = self._idx_qvel + self.nv
-            prev[:, idx_act:] = 0.0
-            self._state.physics_state = self._scatter_rows(self._state.physics_state, idx_list, prev)
+        yaw = np.random.uniform(-math.pi, math.pi, num_reset)
+        quat_yaw = np_yaw_to_quat(yaw)
+        qpos_batch[:, 3:7] = np_quat_mul(qpos_batch[:, 3:7], quat_yaw)
+        qvel_batch[:, 0:6] = np.random.uniform(-0.5, 0.5, (num_reset, 6))
 
         commands = self.resample_commands(num_reset)
 
@@ -253,16 +241,17 @@ class Go2WalkTaskMj(Go2BaseMjEnv):
         }
 
         sensor_batch = self._compute_sensor_batch_from_qpos_qvel(qpos_batch, qvel_batch)
+        qpos_batch_mx = mx.array(qpos_batch, dtype=mx.float32)
+        qvel_batch_mx = mx.array(qvel_batch, dtype=mx.float32)
 
-        # Update Global Sensor State
+        # Update global sensor cache without host-side index conversion.
         if hasattr(self, "_state") and self._state is not None:
-            idx_list = [int(i) for i in env_indices.tolist()]
-            self._state.sensor_data = self._scatter_rows(self._state.sensor_data, idx_list, sensor_batch)
+            self._state.sensor_data = self._scatter_rows(self._state.sensor_data, env_indices, sensor_batch)
 
         # Reconstruct physics state
         obs_physics_state = mx.zeros((num_reset, self.physics_state_dim), dtype=mx.float32)
-        obs_physics_state[:, self._idx_qpos : self._idx_qpos + self.nq] = qpos_batch
-        obs_physics_state[:, self._idx_qvel : self._idx_qvel + self.nv] = qvel_batch
+        obs_physics_state[:, self._idx_qpos : self._idx_qpos + self.nq] = qpos_batch_mx
+        obs_physics_state[:, self._idx_qvel : self._idx_qvel + self.nv] = qvel_batch_mx
 
         obs_state = MjMlxEnvState(
             physics_state=obs_physics_state,

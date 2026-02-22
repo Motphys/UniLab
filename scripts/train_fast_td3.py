@@ -31,6 +31,7 @@ ensure_registries()
 
 from unilab.algos.fast_td3.runner import FastTD3Runner  # noqa: E402
 from unilab.config import locomotion_params  # noqa: E402
+from unilab.utils.mlx_torch_utils import mlx_to_torch, to_numpy
 
 
 
@@ -55,7 +56,7 @@ def play(args, rl_cfg):
     from rsl_rl.models import MLPModel
     from rsl_rl.utils import resolve_callable
     from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4
-    from unilab.envs.utils import render_many
+    from unilab.utils import render_many
     from unilab.envs import registry
 
     if is_rsl_rl_v4():
@@ -150,16 +151,17 @@ def play(args, rl_cfg):
     # Let's import numpy
     import numpy as np
     
-    # Check reset signature or just pass all indices
-    all_indices = np.arange(args.play_env_num)
     try:
-        # Try call with env_indices
-        _, obs_np, _ = env.reset(all_indices)
+        import mlx.core as mx
+        env_indices = mx.arange(args.play_env_num, dtype=mx.int32)
+    except ImportError:
+        env_indices = np.arange(args.play_env_num)
+    try:
+        _, obs_out, _ = env.reset(env_indices)
     except TypeError:
-        # Fallback to standard gym reset
-        obs_np, _ = env.reset()
+        obs_out, _ = env.reset()
 
-    obs = torch.tensor(obs_np, device=device, dtype=torch.float32)
+    obs = mlx_to_torch(obs_out, device)
 
     state_list = []
     num_steps = 200 # ~4s
@@ -187,29 +189,16 @@ def play(args, rl_cfg):
             # In train_appo.py: state = env.step(actions_np); obs=state.obs...
             # This implies it returns an object with attributes.
             state = env.step(actions_np)
-            
-            # Check return type
-            if hasattr(state, "obs"):
-                obs_np = state.obs
-                # physics_state?
-                if hasattr(state, "physics_state"): # MjNpEnv usually has this?
-                     # Wait, previous train_rsl_rl.py used env.state.physics_state.copy()
-                     # If state is returned object, maybe it has it?
-                     pass
-            else:
-                 # Standard gym tuple (obs, rew, term, trunc, info)
-                 obs_np = state[0]
-            
-            # Update obs
-            obs = torch.tensor(obs_np, device=device, dtype=torch.float32)
 
-            # Save state
-            # If env has .state attribute
+            if hasattr(state, "obs"):
+                obs = mlx_to_torch(state.obs, device)
+            else:
+                obs = mlx_to_torch(state[0], device)
+
             if hasattr(env, "state") and hasattr(env.state, "physics_state"):
-                state_copy = env.state.physics_state.copy()
-                state_list.append(state_copy)
+                state_list.append(to_numpy(env.state.physics_state).copy())
             elif hasattr(state, "physics_state"):
-                 state_list.append(state.physics_state.copy())
+                state_list.append(to_numpy(state.physics_state).copy())
 
     print("Rendering frames...")
     # Fix num_processes=1 for safety

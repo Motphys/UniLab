@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -42,6 +43,7 @@ class BenchRecord:
     nstep: int
     nthread: int
     avg_time_sec: float
+    output_shape_mode: str = "n/a"
 
 
 TASK_CONFIGS = {
@@ -115,8 +117,20 @@ def _run_mlx(
             nstep=nstep,
             out_dtype=mx.float32,
         )
-        mx.eval(out.state_mx, out.sensordata_mx)
+        if isinstance(out, tuple):
+            state_mx, sensor_mx = out
+        else:
+            state_mx, sensor_mx = out.state_mx, out.sensordata_mx
+        mx.eval(state_mx, sensor_mx)
     return (time.perf_counter() - t0) / niter
+
+
+def _infer_output_shape_mode(out) -> str:
+    if isinstance(out, tuple):
+        state_mx, _ = out
+    else:
+        state_mx = out.state_mx
+    return "last_only" if state_mx.ndim == 2 else "full_traj"
 
 
 def _has_native_mujoco_mlx_step() -> bool:
@@ -127,6 +141,13 @@ def _load_task_model(task_name: str) -> mujoco.MjModel:
     cfg_cls = TASK_CONFIGS[task_name]
     cfg = cfg_cls()
     return mujoco.MjModel.from_xml_path(cfg.model_file)
+
+
+def _geomean(values: List[float]) -> float:
+    vals = [v for v in values if v > 0.0]
+    if not vals:
+        return 0.0
+    return float(math.exp(sum(math.log(v) for v in vals) / len(vals)))
 
 
 def _bench_one_task(
@@ -177,6 +198,15 @@ def _bench_one_task(
                 nstep,
                 warmup,
             )
+            probe_out = mlx_runner.step(
+                model=model_list,
+                data=data_list,
+                initial_state=initial_state_mx,
+                control=control_mx,
+                nstep=nstep,
+                out_dtype=mx.float32,
+            )
+            output_shape_mode = _infer_output_shape_mode(probe_out)
 
             numpy_t = _run_numpy(
                 numpy_runner,
@@ -206,6 +236,7 @@ def _bench_one_task(
                 nstep=nstep,
                 nthread=nthread,
                 avg_time_sec=numpy_t,
+                output_shape_mode="n/a",
             )
         )
         records.append(
@@ -216,6 +247,7 @@ def _bench_one_task(
                 nstep=nstep,
                 nthread=nthread,
                 avg_time_sec=mlx_t,
+                output_shape_mode=output_shape_mode,
             )
         )
         print(
@@ -265,7 +297,7 @@ def _plot(records: List[BenchRecord], out_png: Path, batch_sizes: List[int]):
         mlx_offset = pair_start + bar_width + pair_inner_gap + 0.5 * bar_width
 
         for backend, offset in (("numpy", numpy_offset), ("mlx_native", mlx_offset)):
-            y = [value_map[(task_name, backend, b)] for b in batch_sizes]
+            y = [value_map.get((task_name, backend, b), np.nan) for b in batch_sizes]
             ax.bar(
                 x + offset,
                 y,
@@ -415,6 +447,50 @@ def main():
             "warmup": args.warmup,
             "iters": args.iters,
             "native_mlx_step_available": _has_native_mujoco_mlx_step(),
+            "mlx_output_shape_modes": sorted(
+                {r.output_shape_mode for r in records if r.backend == "mlx_native"}
+            ),
+        },
+        "summary": {
+            "speedup_numpy_over_mlx_by_task": {
+                task_name: {
+                    "geomean": _geomean(
+                        [
+                            next(
+                                r.avg_time_sec
+                                for r in records
+                                if r.task == task_name and r.backend == "numpy" and r.batch_size == b
+                            )
+                            / max(
+                                next(
+                                    r.avg_time_sec
+                                    for r in records
+                                    if r.task == task_name and r.backend == "mlx_native" and r.batch_size == b
+                                ),
+                                1e-12,
+                            )
+                            for b in batch_sizes
+                        ]
+                    ),
+                    "by_batch_size": {
+                        str(b): next(
+                            r.avg_time_sec
+                            for r in records
+                            if r.task == task_name and r.backend == "numpy" and r.batch_size == b
+                        )
+                        / max(
+                            next(
+                                r.avg_time_sec
+                                for r in records
+                                if r.task == task_name and r.backend == "mlx_native" and r.batch_size == b
+                            ),
+                            1e-12,
+                        )
+                        for b in batch_sizes
+                    },
+                }
+                for task_name in task_names
+            }
         },
         "results": [asdict(r) for r in records],
     }

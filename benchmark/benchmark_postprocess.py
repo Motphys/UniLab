@@ -1,5 +1,8 @@
 import argparse
+import importlib
 import json
+import math
+import pkgutil
 import time
 from datetime import datetime
 from pathlib import Path
@@ -25,6 +28,22 @@ except Exception:
     mj_mlx_step = None
 
 
+def ensure_registries() -> None:
+    """Import locomotion env modules so they are registered."""
+    try:
+        import unilab.envs.locomotion
+
+        package = unilab.envs.locomotion
+        if hasattr(package, "__path__"):
+            for _, name, _ in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
+                try:
+                    importlib.import_module(name)
+                except Exception:
+                    pass
+    except ImportError:
+        pass
+
+
 DEFAULT_ENV_LIST = [256, 512, 1024, 2048, 4096]
 DEFAULT_ITERS = 200
 OUTPUT_DIR = Path("benchmark/outputs/postprocess")
@@ -44,6 +63,13 @@ def parse_env_list(raw: str) -> list[int]:
     return [int(x.strip()) for x in raw.split(",") if x.strip()]
 
 
+def geomean(values: list[float]) -> float:
+    vals = [v for v in values if v > 0.0]
+    if not vals:
+        return 0.0
+    return float(math.exp(sum(math.log(v) for v in vals) / len(vals)))
+
+
 def build_go1_layout() -> dict:
     env = registry.make("Go1JoystickFlatTerrain", num_envs=1, sim_backend="mujoco")
     layout = {
@@ -58,7 +84,7 @@ def build_go1_layout() -> dict:
         "idx_qvel": int(env._idx_qvel),
         "nq": int(env.nq),
         "nv": int(env.nv),
-        "default_angles": env.default_angles.astype(np.float32).copy(),
+        "default_angles": np.asarray(env.default_angles, dtype=np.float32).copy(),
         "tracking_sigma": float(env.cfg.reward_config.tracking_sigma),
         "base_height_target": float(env.cfg.reward_config.base_height_target),
         "ctrl_dt": float(env.cfg.ctrl_dt),
@@ -74,7 +100,7 @@ def build_go1_layout() -> dict:
 def measure_physics_step_ms(num_envs: int, iters: int) -> float:
     env = registry.make("Go1JoystickFlatTerrain", num_envs=num_envs, sim_backend="mujoco")
     try:
-        _ = env.reset(np.arange(env.num_envs))
+        initial_state, _, _ = env.reset(np.arange(env.num_envs))
         action_low = env.action_space.low.astype(np.float32)
         action_high = env.action_space.high.astype(np.float32)
         actions = np.random.uniform(action_low, action_high, size=(env.num_envs, env.action_space.shape[0])).astype(
@@ -95,11 +121,92 @@ def measure_physics_step_ms(num_envs: int, iters: int) -> float:
         env.close()
 
 
-def measure_physics_step_mlx_action_ms(num_envs: int, iters: int) -> float:
-    """Measure env.step when actions are provided as MLX arrays."""
-    # Current Go1 action pipeline mutates action buffers with numpy-only `.copy()`.
-    # Keep this metric available by falling back to the same valid step path.
-    return measure_physics_step_ms(num_envs=num_envs, iters=iters)
+def _unpack_rollout_out(step_out):
+    if isinstance(step_out, tuple):
+        state_mx, sensor_mx = step_out
+    else:
+        state_mx, sensor_mx = step_out.state_mx, step_out.sensordata_mx
+    if state_mx.ndim == 3:
+        return state_mx[:, -1, :], sensor_mx[:, -1, :]
+    return state_mx, sensor_mx
+
+
+def measure_physics_step_mlx_native_ms(num_envs: int, iters: int) -> float:
+    """Measure pure MuJoCo physics stepping via native mujoco.mlx_step."""
+    if mj_mlx_step is None:
+        raise RuntimeError("Native mujoco.mlx_step is unavailable.")
+    env = registry.make("Go1JoystickFlatTerrain", num_envs=num_envs, sim_backend="mujoco")
+    try:
+        initial_state, _, _ = env.reset(np.arange(env.num_envs))
+        action_low = env.action_space.low.astype(np.float32)
+        action_high = env.action_space.high.astype(np.float32)
+        actions_np = np.random.uniform(
+            action_low,
+            action_high,
+            size=(env.num_envs, env.action_space.shape[0]),
+        ).astype(np.float32)
+        actions_mx = mx.array(actions_np, dtype=mx.float32)
+        control_mx = mx.broadcast_to(
+            actions_mx[:, None, :],
+            (env.num_envs, env.cfg.sim_substeps, env.action_space.shape[0]),
+        )
+        model_batch = [env._model] * env.num_envs
+        initial_state = mx.array(initial_state, dtype=mx.float32)
+        with mj_mlx_step.MlxStepRunner(nthread=env._n_threads) as runner:
+            for _ in range(20):
+                try:
+                    step_out = runner.step(
+                        model=model_batch,
+                        data=env._worker_data,
+                        initial_state=initial_state,
+                        control=control_mx,
+                        nstep=env.cfg.sim_substeps,
+                        out_dtype=mx.float32,
+                        return_last_only=True,
+                    )
+                except TypeError:
+                    step_out = runner.step(
+                        model=model_batch,
+                        data=env._worker_data,
+                        initial_state=initial_state,
+                        control=control_mx,
+                        nstep=env.cfg.sim_substeps,
+                        out_dtype=mx.float32,
+                    )
+                last_state_mx, last_sensor_mx = _unpack_rollout_out(step_out)
+                mx.eval(last_state_mx, last_sensor_mx)
+                initial_state = last_state_mx
+
+            elapsed = 0.0
+            for _ in range(iters):
+                t0 = time.perf_counter()
+                try:
+                    step_out = runner.step(
+                        model=model_batch,
+                        data=env._worker_data,
+                        initial_state=initial_state,
+                        control=control_mx,
+                        nstep=env.cfg.sim_substeps,
+                        out_dtype=mx.float32,
+                        return_last_only=True,
+                    )
+                except TypeError:
+                    step_out = runner.step(
+                        model=model_batch,
+                        data=env._worker_data,
+                        initial_state=initial_state,
+                        control=control_mx,
+                        nstep=env.cfg.sim_substeps,
+                        out_dtype=mx.float32,
+                    )
+                last_state_mx, last_sensor_mx = _unpack_rollout_out(step_out)
+                mx.eval(last_state_mx, last_sensor_mx)
+                t1 = time.perf_counter()
+                elapsed += t1 - t0
+                initial_state = last_state_mx
+        return elapsed / iters * 1000.0
+    finally:
+        env.close()
 
 
 def measure_rollout_bridge_mlx_pipeline_ms(
@@ -113,7 +220,7 @@ def measure_rollout_bridge_mlx_pipeline_ms(
         raise RuntimeError("Native mujoco.mlx_step is unavailable.")
     env = registry.make("Go1JoystickFlatTerrain", num_envs=num_envs, sim_backend="mujoco")
     try:
-        _, initial_state, reset_info = env.reset(np.arange(env.num_envs))
+        initial_state, _, reset_info = env.reset(np.arange(env.num_envs))
         action_low = env.action_space.low.astype(np.float32)
         action_high = env.action_space.high.astype(np.float32)
         actions_np = np.random.uniform(
@@ -130,17 +237,29 @@ def measure_rollout_bridge_mlx_pipeline_ms(
         with mj_mlx_step.MlxStepRunner(nthread=env._n_threads) as runner:
 
             for _ in range(10):
-                rollout_out = runner.step(
-                    model=model_batch,
-                    data=env._worker_data,
-                    initial_state=initial_state,
-                    control=control_mx,
-                    nstep=env.cfg.sim_substeps,
-                    out_dtype=mx.float32,
-                )
+                try:
+                    rollout_out = runner.step(
+                        model=model_batch,
+                        data=env._worker_data,
+                        initial_state=initial_state,
+                        control=control_mx,
+                        nstep=env.cfg.sim_substeps,
+                        out_dtype=mx.float32,
+                        return_last_only=True,
+                    )
+                except TypeError:
+                    rollout_out = runner.step(
+                        model=model_batch,
+                        data=env._worker_data,
+                        initial_state=initial_state,
+                        control=control_mx,
+                        nstep=env.cfg.sim_substeps,
+                        out_dtype=mx.float32,
+                    )
+                last_state_mx, last_sensor_mx = _unpack_rollout_out(rollout_out)
                 obs_mx, rew_mx, done_mx = mlx_postprocess_go1(
-                    sensor_mx=rollout_out.sensordata_mx[:, -1, :],
-                    physics_mx=rollout_out.state_mx[:, -1, :],
+                    sensor_mx=last_sensor_mx,
+                    physics_mx=last_state_mx,
                     current_mx=actions_mx,
                     last_mx=last_actions_mx,
                     commands_mx=commands_mx,
@@ -148,23 +267,36 @@ def measure_rollout_bridge_mlx_pipeline_ms(
                     scalars=scalars_mx,
                 )
                 mx.eval(obs_mx, rew_mx, done_mx)
+                initial_state = last_state_mx
 
             rollout_elapsed = 0.0
             post_elapsed = 0.0
             for _ in range(iters):
                 t0 = time.perf_counter()
-                rollout_out = runner.step(
-                    model=model_batch,
-                    data=env._worker_data,
-                    initial_state=initial_state,
-                    control=control_mx,
-                    nstep=env.cfg.sim_substeps,
-                    out_dtype=mx.float32,
-                )
+                try:
+                    rollout_out = runner.step(
+                        model=model_batch,
+                        data=env._worker_data,
+                        initial_state=initial_state,
+                        control=control_mx,
+                        nstep=env.cfg.sim_substeps,
+                        out_dtype=mx.float32,
+                        return_last_only=True,
+                    )
+                except TypeError:
+                    rollout_out = runner.step(
+                        model=model_batch,
+                        data=env._worker_data,
+                        initial_state=initial_state,
+                        control=control_mx,
+                        nstep=env.cfg.sim_substeps,
+                        out_dtype=mx.float32,
+                    )
                 t1 = time.perf_counter()
+                last_state_mx, last_sensor_mx = _unpack_rollout_out(rollout_out)
                 obs_mx, rew_mx, done_mx = mlx_postprocess_go1(
-                    sensor_mx=rollout_out.sensordata_mx[:, -1, :],
-                    physics_mx=rollout_out.state_mx[:, -1, :],
+                    sensor_mx=last_sensor_mx,
+                    physics_mx=last_state_mx,
                     current_mx=actions_mx,
                     last_mx=last_actions_mx,
                     commands_mx=commands_mx,
@@ -175,6 +307,7 @@ def measure_rollout_bridge_mlx_pipeline_ms(
                 t2 = time.perf_counter()
                 rollout_elapsed += t1 - t0
                 post_elapsed += t2 - t1
+                initial_state = last_state_mx
 
             rollout_ms = rollout_elapsed / iters * 1000.0
             post_ms = post_elapsed / iters * 1000.0
@@ -343,8 +476,8 @@ def mlx_postprocess_go1(
 
 
 def bench_one_envnum(num_envs: int, iters: int, layout: dict):
-    physics_step_ms = measure_physics_step_ms(num_envs=num_envs, iters=iters)
-    physics_step_mlx_action_ms = measure_physics_step_mlx_action_ms(num_envs=num_envs, iters=iters)
+    physics_step_env_wrapper_ms = measure_physics_step_ms(num_envs=num_envs, iters=iters)
+    physics_step_mlx_native_ms = measure_physics_step_mlx_native_ms(num_envs=num_envs, iters=iters)
 
     sensor_np = np.random.randn(num_envs, layout["sensor_dim"]).astype(np.float32)
     physics_np = np.random.randn(num_envs, layout["physics_dim"]).astype(np.float32)
@@ -551,8 +684,8 @@ def bench_one_envnum(num_envs: int, iters: int, layout: dict):
             "num_action": layout["num_action"],
         },
         "physics_step_mode": {
-            "physics_step_ms": physics_step_ms,
-            "physics_step_mlx_action_input_ms": physics_step_mlx_action_ms,
+            "physics_step_mlx_native_ms": physics_step_mlx_native_ms,
+            "physics_step_env_wrapper_ms": physics_step_env_wrapper_ms,
         },
         "mlx_rollout_bridge_mode": {
             "rollout_with_mlx_action_ms": bridge_mlx["rollout_with_mlx_action_ms"],
@@ -563,26 +696,26 @@ def bench_one_envnum(num_envs: int, iters: int, layout: dict):
             "compute_numpy_ms": cpu_compute_ms,
             "transfer_obs_rew_done_to_torch_mps_ms": cpu_transfer_ms,
             "total_ms": cpu_total_ms,
-            "total_with_physics_ms": cpu_total_ms + physics_step_ms,
+            "total_with_physics_ms": cpu_total_ms + physics_step_mlx_native_ms,
         },
         "torch_mps_mode": {
             "transfer_all_numpy_to_torch_mps_ms": torch_transfer_ms,
             "compute_postprocess_on_torch_mps_ms": torch_compute_ms,
             "total_ms": torch_total_ms,
-            "total_with_physics_ms": torch_total_ms + physics_step_ms,
+            "total_with_physics_ms": torch_total_ms + physics_step_mlx_native_ms,
         },
         "mlx_mode": {
             "transfer_all_numpy_to_mlx_ms": mlx_transfer_ms,
             "compute_postprocess_on_mlx_ms": mlx_compute_ms,
             "total_ms": mlx_total_ms,
-            "total_with_physics_ms": mlx_total_ms + physics_step_ms,
+            "total_with_physics_ms": mlx_total_ms + physics_step_mlx_native_ms,
         },
         "mlx_to_torch_mps_mode": {
             "transfer_all_numpy_to_mlx_ms": mlx_torch_transfer_ms,
             "compute_postprocess_on_mlx_ms": mlx_torch_compute_ms,
             "transfer_postprocess_result_mlx_to_torch_mps_ms": mlx_to_torch_transfer_ms,
             "total_ms": mlx_to_torch_total_ms,
-            "total_with_physics_ms": mlx_to_torch_total_ms + physics_step_ms,
+            "total_with_physics_ms": mlx_to_torch_total_ms + physics_step_mlx_native_ms,
         },
         "speedup_cpu_div_torch_mps": cpu_total_ms / torch_total_ms if torch_total_ms > 0 else 0.0,
         "speedup_cpu_div_mlx": cpu_total_ms / mlx_total_ms if mlx_total_ms > 0 else 0.0,
@@ -608,7 +741,7 @@ def plot_results(results: list[dict], output_png: Path):
     mlx_to_torch_transfer = np.array(
         [r["mlx_to_torch_mps_mode"]["transfer_postprocess_result_mlx_to_torch_mps_ms"] for r in results]
     )
-    physics_step = np.array([r["physics_step_mode"]["physics_step_ms"] for r in results])
+    physics_step = np.array([r["physics_step_mode"]["physics_step_mlx_native_ms"] for r in results])
 
     fig, ax = plt.subplots(figsize=(13, 6.5))
     x_cpu = x - 1.5 * w
@@ -707,6 +840,7 @@ def plot_results(results: list[dict], output_png: Path):
 
 
 def main():
+    ensure_registries()
     parser = argparse.ArgumentParser()
     parser.add_argument("--env_list", type=str, default=",".join(str(v) for v in DEFAULT_ENV_LIST))
     parser.add_argument("--iters", type=int, default=DEFAULT_ITERS)
@@ -724,8 +858,8 @@ def main():
         one = bench_one_envnum(nenv, args.iters, layout)
         all_results.append(one)
         print(
-            f"[{nenv}] Physics={one['physics_step_mode']['physics_step_ms']:.3f} ms, "
-            f"Physics(mlx_action)={one['physics_step_mode']['physics_step_mlx_action_input_ms']:.3f} ms, "
+            f"[{nenv}] Physics(mlx_native)={one['physics_step_mode']['physics_step_mlx_native_ms']:.3f} ms, "
+            f"Physics(env_wrapper)={one['physics_step_mode']['physics_step_env_wrapper_ms']:.3f} ms, "
             f"CPU={one['cpu_numpy_mode']['total_with_physics_ms']:.3f} ms, "
             f"Torch.MPS={one['torch_mps_mode']['total_with_physics_ms']:.3f} ms, "
             f"MLX={one['mlx_mode']['total_with_physics_ms']:.3f} ms, "
@@ -753,7 +887,22 @@ def main():
             "env_list": env_list,
             "iters": args.iters,
             "task": "Go1JoystickFlatTerrain",
-            "note": "Postprocess logic synchronized with latest Go1JoystickFlatTerrain.",
+            "note": "Postprocess logic synchronized with latest Go1JoystickFlatTerrain; physics step uses native mujoco.mlx_step.",
+        },
+        "summary": {
+            "geomean_speedup_cpu_over_mlx_postprocess": geomean(
+                [r["speedup_cpu_div_mlx"] for r in all_results]
+            ),
+            "geomean_speedup_torch_over_mlx_postprocess": geomean(
+                [r["speedup_torch_mps_div_mlx"] for r in all_results]
+            ),
+            "geomean_env_wrapper_over_mlx_native_physics": geomean(
+                [
+                    r["physics_step_mode"]["physics_step_env_wrapper_ms"]
+                    / max(r["physics_step_mode"]["physics_step_mlx_native_ms"], 1e-12)
+                    for r in all_results
+                ]
+            ),
         },
         "results": all_results,
     }
