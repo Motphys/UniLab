@@ -31,11 +31,15 @@ def ensure_registries():
 
 ensure_registries()
 
-from unilab.algos.appo.runner import APPORunner
+from unilab.algos.torch.appo.runner import APPORunner
 from unilab.config import locomotion_params
 from unilab.envs import registry
 from unilab.utils import render_many
 from unilab.utils.mlx_torch_utils import mlx_to_torch, to_numpy
+
+
+
+
 
 
 def get_latest_run(log_dir):

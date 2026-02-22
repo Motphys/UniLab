@@ -48,8 +48,8 @@ ensure_registries()
 from unilab.config import locomotion_params
 from unilab.envs import registry
 from unilab.utils import render_many
-from unilab.algos.mlx_rl import EmpiricalDiscountedVariationNormalization, RolloutBuffer
-from unilab.algos.mlx_ppo import MLPActorCritic, PPOConfig, PPOTrainer
+from unilab.algos.mlx.common import EmpiricalDiscountedVariationNormalization, RolloutBuffer
+from unilab.algos.mlx.ppo import MLPActorCritic, PPOConfig, PPOTrainer
 
 TASK_STEP_TUNING = {
     # Tuned for faster collection_time on each task.

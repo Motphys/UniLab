@@ -11,7 +11,7 @@ import mlx.nn as nn
 import mlx.optimizers as optim
 from mlx.utils import tree_flatten, tree_map
 
-from unilab.algos.mlx_rl import RolloutBuffer, diag_gaussian_entropy, diag_gaussian_log_prob
+from unilab.algos.mlx.common import RolloutBuffer, diag_gaussian_entropy, diag_gaussian_log_prob
 from .model import MLPActorCritic
 
 

@@ -29,7 +29,7 @@ def ensure_registries():
 
 ensure_registries()
 
-from unilab.algos.fast_td3.runner import FastTD3Runner  # noqa: E402
+from unilab.algos.torch.fast_td3.runner import FastTD3Runner  # noqa: E402
 from unilab.config import locomotion_params  # noqa: E402
 from unilab.utils.mlx_torch_utils import mlx_to_torch, to_numpy
 
