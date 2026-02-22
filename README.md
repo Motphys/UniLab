@@ -2,12 +2,12 @@
 
 ## TODO
 
-- [ ] 增加 Bipedal Locomotion 任务
-- [ ] 增加 FastTD3 和 FastSAC，torch.mps
+- [x] 增加 Bipedal Locomotion 任务
+- [x] 增加 FastTD3 和 FastSAC，torch.mps
 - [ ] 把 FastTD3 和 FastSAC 迁移到 mlx
 - [ ] 设计统一训练框架，支持不同的算法（ppo、TD3、SAC）和后端（mlx 和 pytorch）
 - [ ] 适配 mimic/amp 算法，支持人形Whole-Body Tracking
-- [ ] (*)用MLX重写 MuJoCo
+- [x] (*)用MLX重写 MuJoCo
 
 Thirdparty:
    1. https://github.com/mujocolab/mjlab
