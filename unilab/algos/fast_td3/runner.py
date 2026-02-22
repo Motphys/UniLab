@@ -392,7 +392,7 @@ class FastTD3Runner:
         
         # Setup video recording
         try:
-            from unilab.envs.utils import render_many
+            from unilab.utils import render_many
             import mediapy as media
             from unilab.envs import registry
             

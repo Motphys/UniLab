@@ -34,7 +34,8 @@ ensure_registries()
 
 from unilab.envs import registry
 from unilab.config import locomotion_params
-from unilab.envs.utils import render_many
+from unilab.utils import render_many
+from unilab.utils.mlx_torch_utils import mlx_to_torch, to_numpy
 
 # Try importing rsl_rl
 try:
@@ -79,10 +80,10 @@ class RslRlVecEnvWrapper:
         # Step the environment
         state = self.env.step(actions_np)
         
-        # Convert output to torch (GPU)
-        obs = torch.tensor(state.obs, device=self.device, dtype=torch.float32)
-        rewards = torch.tensor(state.reward, device=self.device, dtype=torch.float32)
-        dones = torch.tensor(state.done, device=self.device, dtype=torch.bool)
+        # Convert output to torch (MLX/numpy -> torch, prefer from_dlpack for MPS)
+        obs = mlx_to_torch(state.obs, self.device)
+        rewards = mlx_to_torch(state.reward, self.device)
+        dones = mlx_to_torch(state.done, self.device).bool()
         
         # Update logging info
         self.episode_returns += rewards
@@ -94,7 +95,7 @@ class RslRlVecEnvWrapper:
         if len(done_indices) > 0:
             # Handle limits and timeouts (RSL-RL expects 'time_outs' in extras/infos)
             if hasattr(state, "truncated"):
-                infos["time_outs"] = torch.tensor(state.truncated, device=self.device, dtype=torch.bool)
+                infos["time_outs"] = mlx_to_torch(state.truncated, self.device).bool()
             
             # Reset buffers for done envs
             self.episode_returns[done_indices] = 0
@@ -114,32 +115,36 @@ class RslRlVecEnvWrapper:
         return obs_dict, rewards, dones, infos
 
     def reset(self):
-        # Reset all environments
+        # Reset all environments (MLX backend expects mx.array for env_indices)
         if self.env.state is None:
             self.env.init_state()
+        try:
+            import mlx.core as mx
+            env_indices = mx.arange(self.num_envs, dtype=mx.int32)
+        except ImportError:
+            env_indices = np.arange(self.num_envs)
+        _, obs_out, _ = self.env.reset(env_indices)
+        obs = mlx_to_torch(obs_out, self.device)
 
-        _, obs_np, _ = self.env.reset(np.arange(self.num_envs))
-        obs = torch.tensor(obs_np, device=self.device, dtype=torch.float32)
-        
         self.episode_returns[:] = 0
         self.episode_lengths[:] = 0
-        
+
         return TensorDict(
-            {"policy": obs}, 
-            batch_size=self.num_envs, 
+            {"policy": obs},
+            batch_size=self.num_envs,
             device=self.device
         ), {}
 
     def get_observations(self):
-        obs = torch.tensor(self.env.state.obs, device=self.device, dtype=torch.float32)
+        obs = mlx_to_torch(self.env.state.obs, self.device)
         return TensorDict(
-            {"policy": obs}, 
-            batch_size=self.num_envs, 
+            {"policy": obs},
+            batch_size=self.num_envs,
             device=self.device
         )
 
     def get_privileged_observations(self):
-        obs = torch.tensor(self.env.state.obs, device=self.device, dtype=torch.float32)
+        obs = mlx_to_torch(self.env.state.obs, self.device)
         return obs
 
 
@@ -291,15 +296,13 @@ def main():
         state_list = []
         num_steps = 150
         
-        # Collect states
+        # Collect states (physics_state may be MLX -> numpy for render_many)
         print("Collecting physics states...")
         with torch.inference_mode():
             for _ in range(num_steps):
                 actions = policy(obs)
                 obs, _, _, _ = wrapped_env.step(actions)
-                # Copy physics state
-                state_copy = env.state.physics_state.copy()
-                state_list.append(state_copy)
+                state_list.append(to_numpy(env.state.physics_state).copy())
         
         print("Rendering frames...")
         # Use render_many to get frames, then use mediapy to save

@@ -1,12 +1,13 @@
 from etils import epath
 import gymnasium as gym
-import mujoco
+import math
+import mlx.core as mx
 import numpy as np
 from dataclasses import dataclass, field
 
 from unilab.envs import registry
-from unilab.envs.mujoco_env.mj_env import MjNpEnvState
-from unilab.envs.utils.math_utils import quat_mul, axis_angle_to_quat
+from unilab.envs.mujoco_env.mj_env import MjMlxEnvState
+from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
 
 from unilab.envs.locomotion.go2.base import Go2BaseMjEnv, Go2BaseCfg
 
@@ -61,6 +62,7 @@ class Go2JoystickCfg(Go2BaseCfg):
 class Go2WalkTaskMj(Go2BaseMjEnv):
     def __init__(self, cfg: Go2JoystickCfg, num_envs=1):
         super().__init__(cfg, num_envs)
+        self._enable_reward_log = True
 
         self._init_reward_functions()
         self._init_obs_space()
@@ -89,37 +91,37 @@ class Go2WalkTaskMj(Go2BaseMjEnv):
         num_obs = num_linvel + num_gyro + num_gravity + num_joint_angle + num_dof_vel + num_actions + num_command
 
         self._observation_space = gym.spaces.Box(
-            low=np.float32(-np.inf), high=np.float32(np.inf), shape=(num_obs,), dtype=np.float32
+            low=-float("inf"), high=float("inf"), shape=(num_obs,), dtype=float
         )
 
     @property
     def observation_space(self) -> gym.spaces.Box:
         return self._observation_space
 
-    def _reward_base_height(self, state: MjNpEnvState):
+    def _reward_base_height(self, state: MjMlxEnvState):
         # Penalize base height deviation from target.
         base_height = state.physics_state[:, self._idx_qpos + 2]
         target_height = self._cfg.reward_config.base_height_target
-        return np.square(base_height - target_height)
+        return mx.square(base_height - target_height)
 
-    def _reward_similar_to_default(self, state: MjNpEnvState):
+    def _reward_similar_to_default(self, state: MjMlxEnvState):
         # Penalize joint pose deviations from default posture.
-        return np.sum(np.abs(self.get_dof_pos(state) - self.default_angles), axis=1)
+        return mx.sum(mx.abs(self.get_dof_pos(state) - self.default_angles), axis=1)
 
-    def _get_obs(self, state: MjNpEnvState, info: dict) -> np.ndarray:
+    def _get_obs(self, state: MjMlxEnvState, info: dict) -> mx.array:
         # Get raw data (copy to allow noise injection without side effects)
-        linear_vel = self.get_local_linvel(state).copy()
-        gyro = self.get_gyro(state).copy()
-        local_gravity = (-self.get_upvector(state)).copy()
-        dof_pos = self.get_dof_pos(state).copy()
-        dof_vel = self.get_dof_vel(state).copy()
+        linear_vel = self.get_local_linvel(state)
+        gyro = self.get_gyro(state)
+        local_gravity = -self.get_upvector(state)
+        dof_pos = self.get_dof_pos(state)
+        dof_vel = self.get_dof_vel(state)
 
         # Apply Observation Noise if enabled
         noise_cfg = self.cfg.noise_config
         if noise_cfg.level > 0.0:
 
             def add_noise(val, scale):
-                noise = (np.random.rand(*val.shape) * 2 - 1) * noise_cfg.level * scale
+                noise = (mx.random.uniform(shape=val.shape, dtype=mx.float32) * 2.0 - 1.0) * noise_cfg.level * scale
                 return val + noise
 
             gyro = add_noise(gyro, noise_cfg.scale_gyro)
@@ -132,7 +134,7 @@ class Go2WalkTaskMj(Go2BaseMjEnv):
         command = info["commands"]
         last_actions = info["current_actions"]
 
-        obs = np.hstack(
+        obs = mx.concatenate(
             [
                 linear_vel,
                 gyro,
@@ -141,11 +143,12 @@ class Go2WalkTaskMj(Go2BaseMjEnv):
                 dof_vel,
                 last_actions,
                 command,
-            ]
+            ],
+            axis=1,
         )
         return obs
 
-    def update_state(self, state: MjNpEnvState, obs_required: bool = True) -> MjNpEnvState:
+    def update_state(self, state: MjMlxEnvState, obs_required: bool = True) -> MjMlxEnvState:
         # 1. Check Termination
         state = self.update_terminated(state)
 
@@ -158,16 +161,17 @@ class Go2WalkTaskMj(Go2BaseMjEnv):
 
         return state
 
-    def update_observation(self, state: MjNpEnvState):
+    def update_observation(self, state: MjMlxEnvState):
         obs = self._get_obs(state, state.info)
-        return state.replace(obs=obs)
+        state.obs = obs
+        return state
 
-    def _compute_rewards(self, state: MjNpEnvState) -> MjNpEnvState:
-        total_reward = np.zeros(self._num_envs, dtype=np.float32)
+    def _compute_rewards(self, state: MjMlxEnvState) -> MjMlxEnvState:
+        total_reward = mx.zeros((self._num_envs,), dtype=mx.float32)
 
         # Only compute per-component logging every 4th step to reduce np.mean overhead
-        step_count = state.info.get("steps", np.zeros(self._num_envs, dtype=np.int32))
-        should_log = int(step_count[0]) % 4 == 0
+        step_count = state.info.get("steps", mx.zeros((self._num_envs,), dtype=mx.uint32))
+        should_log = self._enable_reward_log and (int(step_count[0].item()) % 4 == 0)
 
         log = {} if should_log else state.info.get("log", {})
 
@@ -182,86 +186,74 @@ class Go2WalkTaskMj(Go2BaseMjEnv):
             total_reward += weighted_rew
 
             if should_log:
-                log[f"reward/{name}"] = np.mean(weighted_rew)
+                log[f"reward/{name}"] = float(mx.mean(weighted_rew).item())
 
         state.info["log"] = log
-        state.info["reward_components"] = {}  # Keep key for compatibility
+        state.info["reward_components"] = {}
 
         # Match genesis behavior: sum(reward_i * scale_i * dt).
         total_reward *= self.cfg.ctrl_dt
 
-        return state.replace(reward=total_reward)
+        state.reward = total_reward
+        return state
 
-    def update_terminated(self, state: MjNpEnvState) -> MjNpEnvState:
+    def update_terminated(self, state: MjMlxEnvState) -> MjMlxEnvState:
         # Genesis termination uses roll/pitch absolute angle > 10 degrees.
         local_gravity = -self.get_upvector(state)
-        sin_limit = np.sin(np.deg2rad(10.0))
-        bad_roll_or_pitch = np.logical_or(
-            np.abs(local_gravity[:, 0]) > sin_limit,
-            np.abs(local_gravity[:, 1]) > sin_limit,
+        sin_limit = math.sin(math.radians(10.0))
+        bad_roll_or_pitch = mx.logical_or(
+            mx.abs(local_gravity[:, 0]) > sin_limit,
+            mx.abs(local_gravity[:, 1]) > sin_limit,
         )
-        return state.replace(terminated=bad_roll_or_pitch)
+        state.terminated = bad_roll_or_pitch
+        return state
 
     def resample_commands(self, num_envs: int):
-        commands = np.random.uniform(
-            low=self.cfg.commands.vel_limit[0],
-            high=self.cfg.commands.vel_limit[1],
-            size=(num_envs, 3),
-        )
+        low = mx.array(self.cfg.commands.vel_limit[0], dtype=mx.float32)
+        high = mx.array(self.cfg.commands.vel_limit[1], dtype=mx.float32)
+        commands = low + (high - low) * mx.random.uniform(shape=(num_envs, 3), dtype=mx.float32)
         return commands
 
-    def reset(self, env_indices: np.ndarray) -> tuple[np.ndarray, dict]:
+    def reset(self, env_indices: mx.array) -> tuple[mx.array, mx.array, dict]:
         num_reset = len(env_indices)
 
-        qpos_batch = np.tile(self._init_qpos, (num_reset, 1))
-
+        # Build reset states on host to avoid MLX->NumPy sync in sensor-forward path.
+        init_qpos_np = np.asarray(self._init_qpos, dtype=np.float64)
+        init_dof_vel_np = np.asarray(self._init_dof_vel, dtype=np.float64)
+        qpos_batch = np.broadcast_to(init_qpos_np[None, :], (num_reset, init_qpos_np.shape[0])).copy()
         qvel_batch = np.zeros((num_reset, self.nv), dtype=np.float64)
-        qvel_batch[:, 6:] = self._init_dof_vel
+        qvel_batch[:, 6:] = init_dof_vel_np
 
-        # Domain Randomization (joystick.py reference)
-        # 1. Base Position Noise (x, y) ~ U(-0.5, 0.5)
+        # Domain Randomization
         dxy = np.random.uniform(-0.5, 0.5, (num_reset, 2))
         qpos_batch[:, 0:2] += dxy
-
-        # 2. Base Orientation Noise (yaw) ~ U(-pi, pi)
-        yaw = np.random.uniform(-np.pi, np.pi, num_reset)
-        axis = np.zeros((num_reset, 3))
-        axis[:, 2] = 1.0  # Z-axis
-        quat_yaw = axis_angle_to_quat(axis, yaw)
-
-        # q_new = q_old * q_yaw (Quaternion multiplication)
-        qpos_batch[:, 3:7] = quat_mul(qpos_batch[:, 3:7], quat_yaw)
-
-        # 3. Base Velocity Noise ~ U(-0.5, 0.5) for 6DoF
+        yaw = np.random.uniform(-math.pi, math.pi, num_reset)
+        quat_yaw = np_yaw_to_quat(yaw)
+        qpos_batch[:, 3:7] = np_quat_mul(qpos_batch[:, 3:7], quat_yaw)
         qvel_batch[:, 0:6] = np.random.uniform(-0.5, 0.5, (num_reset, 6))
-
-        if hasattr(self, "_state") and self._state is not None:
-            self._state.physics_state[env_indices, 0] = 0.0
-            self._state.physics_state[env_indices, self._idx_qpos : self._idx_qpos + self.nq] = qpos_batch
-            self._state.physics_state[env_indices, self._idx_qvel : self._idx_qvel + self.nv] = qvel_batch
-            idx_act = self._idx_qvel + self.nv
-            self._state.physics_state[env_indices, idx_act:] = 0.0
 
         commands = self.resample_commands(num_reset)
 
         info = {
-            "current_actions": np.zeros((num_reset, self._num_action), dtype=np.float32),
-            "last_actions": np.zeros((num_reset, self._num_action), dtype=np.float32),
+            "current_actions": mx.zeros((num_reset, self._num_action), dtype=mx.float32),
+            "last_actions": mx.zeros((num_reset, self._num_action), dtype=mx.float32),
             "commands": commands,
         }
 
         sensor_batch = self._compute_sensor_batch_from_qpos_qvel(qpos_batch, qvel_batch)
+        qpos_batch_mx = mx.array(qpos_batch, dtype=mx.float32)
+        qvel_batch_mx = mx.array(qvel_batch, dtype=mx.float32)
 
-        # Update Global Sensor State
+        # Update global sensor cache without host-side index conversion.
         if hasattr(self, "_state") and self._state is not None:
-            self._state.sensor_data[env_indices] = sensor_batch
+            self._state.sensor_data = self._scatter_rows(self._state.sensor_data, env_indices, sensor_batch)
 
         # Reconstruct physics state
-        obs_physics_state = np.zeros((num_reset, self.physics_state_dim), dtype=np.float64)
-        obs_physics_state[:, self._idx_qpos : self._idx_qpos + self.nq] = qpos_batch
-        obs_physics_state[:, self._idx_qvel : self._idx_qvel + self.nv] = qvel_batch
+        obs_physics_state = mx.zeros((num_reset, self.physics_state_dim), dtype=mx.float32)
+        obs_physics_state[:, self._idx_qpos : self._idx_qpos + self.nq] = qpos_batch_mx
+        obs_physics_state[:, self._idx_qvel : self._idx_qvel + self.nv] = qvel_batch_mx
 
-        obs_state = MjNpEnvState(
+        obs_state = MjMlxEnvState(
             physics_state=obs_physics_state,
             sensor_data=sensor_batch,
             obs=None,
@@ -275,13 +267,13 @@ class Go2WalkTaskMj(Go2BaseMjEnv):
         # Call _get_obs ONCE for the entire batch
         obs_batch = self._get_obs(obs_state, info)
 
-        # MjNpEnv expects: new_physics_states, new_obs, info
+        # MjMlxEnv expects: new_physics_states, new_obs, info
         return obs_physics_state, obs_batch, info
 
-    def _reward_tracking_lin_vel(self, state, commands: np.ndarray):
-        lin_vel_error = np.sum(np.square(commands[:, :2] - self.get_local_linvel(state)[:, :2]), axis=1)
-        return np.exp(-lin_vel_error / self.cfg.reward_config.tracking_sigma)
+    def _reward_tracking_lin_vel(self, state, commands: mx.array):
+        lin_vel_error = mx.sum(mx.square(commands[:, :2] - self.get_local_linvel(state)[:, :2]), axis=1)
+        return mx.exp(-lin_vel_error / self.cfg.reward_config.tracking_sigma)
 
-    def _reward_tracking_ang_vel(self, state, commands: np.ndarray):
-        ang_vel_error = np.square(commands[:, 2] - self.get_gyro(state)[:, 2])
-        return np.exp(-ang_vel_error / self.cfg.reward_config.tracking_sigma)
+    def _reward_tracking_ang_vel(self, state, commands: mx.array):
+        ang_vel_error = mx.square(commands[:, 2] - self.get_gyro(state)[:, 2])
+        return mx.exp(-ang_vel_error / self.cfg.reward_config.tracking_sigma)

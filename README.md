@@ -24,9 +24,9 @@ Thirdparty:
    ```
 
 2. **安装依赖**:
-   在项目根目录下运行：
+   项目依赖 `mujoco-mlx`，当前从 [TestPyPI](https://test.pypi.org/project/mujoco-mlx/) 获取。在项目根目录下运行：
    ```bash
-   pip install -e .
+   pip install -i https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple -e .
    ```
 
 ## 训练与回放指南

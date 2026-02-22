@@ -115,7 +115,6 @@ class MLPActorCritic(nn.Module):
         actions = mean + noise * std
         log_probs = diag_gaussian_log_prob(actions, mean, log_std)
         values = self.value(obs)
-        mx.eval(actions, log_probs, values, mean, std)
         return actions, log_probs, values, mean, std
 
     def current_action_std(self, action_shape: tuple[int, ...]) -> mx.array:

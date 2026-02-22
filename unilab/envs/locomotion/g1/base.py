@@ -1,11 +1,10 @@
 import gymnasium as gym
 import mujoco
-import numpy as np
+import mlx.core as mx
 from dataclasses import dataclass, field
 
 from unilab.envs.base import EnvCfg
-from unilab.envs.mujoco_env.mj_env import MjNpEnv, MjNpEnvState
-from unilab.envs.utils.math_utils import quat_rotate_inverse
+from unilab.envs.mujoco_env.mj_env import MjMlxEnv, MjMlxEnvState
 
 
 @dataclass
@@ -51,7 +50,7 @@ class G1BaseCfg(EnvCfg):
     ctrl_dt: float = 0.02
 
 
-class G1BaseMjEnv(MjNpEnv):
+class G1BaseMjEnv(MjMlxEnv):
     def __init__(self, cfg: G1BaseCfg, num_envs: int = 1):
         super().__init__(cfg, num_envs)
 
@@ -71,31 +70,31 @@ class G1BaseMjEnv(MjNpEnv):
         self._init_action_space()
         self._num_action = self._action_space.shape[0]
 
-        self._init_dof_vel = np.zeros((self._num_dof_vel,), dtype=np.float32)
-        self._init_qpos = self._model.qpos0.copy()
+        self._init_dof_vel = mx.zeros((self._num_dof_vel,), dtype=mx.float32)
+        self._init_qpos = mx.array(self._model.qpos0.copy(), dtype=mx.float32)
 
         self._init_buffer()
         self._init_sensor_indices()
 
     def _init_action_space(self):
-        low = np.array(self._model.actuator_ctrlrange[:, 0], dtype=np.float32)
-        high = np.array(self._model.actuator_ctrlrange[:, 1], dtype=np.float32)
-        self._action_space = gym.spaces.Box(low, high, (self._model.nu,), dtype=np.float32)
+        low = self._model.actuator_ctrlrange[:, 0].copy()
+        high = self._model.actuator_ctrlrange[:, 1].copy()
+        self._action_space = gym.spaces.Box(low, high, (self._model.nu,), dtype=float)
 
     @property
     def action_space(self) -> gym.spaces.Box:
         return self._action_space
 
     def _init_buffer(self):
-        self.reset_buf = np.ones(self._num_envs, dtype=bool)
-        self.default_angles = np.zeros(self._num_action, dtype=np.float32)
+        self.reset_buf = mx.ones((self._num_envs,), dtype=mx.bool_)
+        self.default_angles = mx.zeros((self._num_action,), dtype=mx.float32)
 
         key_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_KEY, "stand")
         if key_id < 0:
             raise ValueError("Keyframe 'stand' not found in model.")
 
-        self._init_qpos = self._model.key_qpos[key_id].copy()
-        self.default_angles = self._init_qpos[7 : 7 + self._num_action].astype(np.float32)
+        self._init_qpos = mx.array(self._model.key_qpos[key_id].copy(), dtype=mx.float32)
+        self.default_angles = self._init_qpos[7 : 7 + self._num_action]
 
     def _get_sensor_indices(self, name: str):
         if name not in self.sensor_indices:
@@ -111,40 +110,35 @@ class G1BaseMjEnv(MjNpEnv):
         self.idx_gyro = self._get_sensor_indices(self._cfg.sensor.gyro)
         self.idx_upvector = self._get_sensor_indices("upvector")
         self._idx_torso_upvector = self._get_sensor_indices("torso_upvector")
+        if self.idx_linvel is None:
+            raise ValueError("Sensor 'local_linvel' is required for G1.")
+        if self.idx_gyro is None:
+            raise ValueError(f"Sensor '{self._cfg.sensor.gyro}' is required for G1.")
+        if self.idx_upvector is None:
+            raise ValueError("Sensor 'upvector' is required for G1.")
+        if self._idx_torso_upvector is None:
+            raise ValueError("Sensor 'torso_upvector' is required for G1.")
 
-    def get_dof_pos(self, state: MjNpEnvState):
+    def get_dof_pos(self, state: MjMlxEnvState):
         return state.physics_state[:, self._idx_qpos + 7 : self._idx_qpos + 7 + self._num_action]
 
-    def get_dof_vel(self, state: MjNpEnvState):
+    def get_dof_vel(self, state: MjMlxEnvState):
         return state.physics_state[:, self._idx_qvel + 6 : self._idx_qvel + 6 + self._num_action]
 
-    def _get_base_quat(self, state: MjNpEnvState) -> np.ndarray:
-        return state.physics_state[:, self._idx_qpos + 3 : self._idx_qpos + 7]
-
-    def get_global_linvel(self, state: MjNpEnvState) -> np.ndarray:
+    def get_global_linvel(self, state: MjMlxEnvState) -> mx.array:
         return state.physics_state[:, self._idx_qvel : self._idx_qvel + 3]
 
-    def get_local_linvel(self, state: MjNpEnvState) -> np.ndarray:
-        if self.idx_linvel is not None:
-            return state.sensor_data[:, self.idx_linvel]
-        quat = self._get_base_quat(state)
-        global_vel = self.get_global_linvel(state)
-        return quat_rotate_inverse(quat, global_vel)
+    def get_local_linvel(self, state: MjMlxEnvState) -> mx.array:
+        return state.sensor_data[:, self.idx_linvel]
 
-    def get_gyro(self, state: MjNpEnvState) -> np.ndarray:
-        if self.idx_gyro is not None:
-            return state.sensor_data[:, self.idx_gyro]
-        return state.physics_state[:, self._idx_qvel + 3 : self._idx_qvel + 6]
+    def get_gyro(self, state: MjMlxEnvState) -> mx.array:
+        return state.sensor_data[:, self.idx_gyro]
 
-    def get_upvector(self, state: MjNpEnvState) -> np.ndarray:
-        if self.idx_upvector is not None:
-            return state.sensor_data[:, self.idx_upvector]
-        quat = self._get_base_quat(state)
-        world_up = np.array([0.0, 0.0, 1.0], dtype=np.float32)
-        return quat_rotate_inverse(quat, world_up)
+    def get_upvector(self, state: MjMlxEnvState) -> mx.array:
+        return state.sensor_data[:, self.idx_upvector]
 
-    def apply_action(self, actions: np.ndarray, state: MjNpEnvState) -> np.ndarray:
-        state.info["last_actions"] = state.info["current_actions"].copy()
+    def apply_action(self, actions: mx.array, state: MjMlxEnvState) -> mx.array:
+        state.info["last_actions"] = mx.array(state.info["current_actions"])
         state.info["current_actions"] = actions
 
         exec_actions = (
@@ -154,10 +148,10 @@ class G1BaseMjEnv(MjNpEnv):
         )
         return exec_actions * self._cfg.control_config.action_scale + self.default_angles
 
-    def _reward_lin_vel_z(self, state: MjNpEnvState):
+    def _reward_lin_vel_z(self, state: MjMlxEnvState):
         global_linvel = self.get_global_linvel(state)
-        return np.square(global_linvel[:, 2])
+        return mx.square(global_linvel[:, 2])
 
     def _reward_action_rate(self, info: dict):
         action_diff = info["current_actions"] - info["last_actions"]
-        return np.sum(np.square(action_diff), axis=1)
+        return mx.sum(mx.square(action_diff), axis=1)

@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 """
-Benchmark conversion efficiency across backends:
+Benchmark same-dtype transfer efficiency across backends:
 - numpy
 - torch (cpu)
 - torch (mps)
 - mlx
-
-Covers backend-to-backend conversion and dtype conversion together.
 """
 
 from __future__ import annotations
@@ -219,12 +217,18 @@ def from_numpy(arr, target_backend: str, target_dtype_name: str):
     if target_backend == "torch_cpu":
         if torch is None:
             raise RuntimeError("torch unavailable")
-        return torch.from_numpy(arr).to(dtype=torch_dtype(target_dtype_name), device="cpu")
+        t = torch.from_numpy(arr)
+        if t.dtype != torch_dtype(target_dtype_name):
+            t = t.to(dtype=torch_dtype(target_dtype_name))
+        return t
 
     if target_backend == "torch_mps":
         if torch is None:
             raise RuntimeError("torch unavailable")
-        return torch.from_numpy(arr).to(dtype=torch_dtype(target_dtype_name), device="mps")
+        t = torch.from_numpy(arr)
+        if t.dtype != torch_dtype(target_dtype_name):
+            t = t.to(dtype=torch_dtype(target_dtype_name))
+        return t.to(device="mps")
 
     if target_backend == "mlx":
         if mx is None:
@@ -235,17 +239,36 @@ def from_numpy(arr, target_backend: str, target_dtype_name: str):
 
 
 def convert_value(value, source_backend: str, target_backend: str, target_dtype_name: str):
+    # Only benchmark same-dtype transfers. Cross-dtype conversion is intentionally excluded.
+    if source_backend == target_backend:
+        return value
+
+    # Fast paths first.
     if source_backend == "torch_cpu" and target_backend == "torch_mps":
-        return value.to(device="mps", dtype=torch_dtype(target_dtype_name))
+        return value.to(device="mps")
     if source_backend == "torch_mps" and target_backend == "torch_cpu":
-        return value.to(device="cpu", dtype=torch_dtype(target_dtype_name))
+        return value.to(device="cpu")
 
-    if source_backend in ("torch_cpu", "torch_mps") and target_backend in ("torch_cpu", "torch_mps"):
-        device = "cpu" if target_backend == "torch_cpu" else "mps"
-        return value.to(device=device, dtype=torch_dtype(target_dtype_name))
+    # DLPack bridge: mlx -> torch
+    if source_backend == "mlx" and target_backend == "torch_cpu":
+        t = torch.from_dlpack(value)
+        if t.dtype != torch_dtype(target_dtype_name):
+            t = t.to(dtype=torch_dtype(target_dtype_name))
+        return t
+    if source_backend == "mlx" and target_backend == "torch_mps":
+        t = torch.from_dlpack(value)
+        if t.dtype != torch_dtype(target_dtype_name):
+            t = t.to(dtype=torch_dtype(target_dtype_name))
+        return t.to(device="mps")
 
-    if source_backend == "mlx" and target_backend == "mlx":
-        return value.astype(mlx_dtype(target_dtype_name))
+    # DLPack bridge: torch -> mlx
+    if source_backend == "torch_cpu" and target_backend == "mlx":
+        return mx.array(torch.utils.dlpack.to_dlpack(value.detach()))
+    if source_backend == "torch_mps" and target_backend == "mlx":
+        # MLX currently cannot consume an MPS torch DLPack capsule directly.
+        # Keep the path minimal: one device hop to CPU then DLPack import.
+        cpu_value = value.detach().to(device="cpu")
+        return mx.array(torch.utils.dlpack.to_dlpack(cpu_value))
 
     arr = to_numpy(value, source_backend)
     return from_numpy(arr, target_backend, target_dtype_name)
@@ -600,7 +623,7 @@ def main() -> None:
     parser.add_argument("--sizes", type=str, default="", help="Comma-separated sizes.")
     parser.add_argument("--pow2-start", type=int, default=5, help="Default start pow for sizes.")
     parser.add_argument("--pow2-end", type=int, default=14, help="Default end pow for sizes.")
-    parser.add_argument("--dtypes", type=str, default="float16,float32", help="Dtypes to benchmark (same-dtype only).")
+    parser.add_argument("--dtypes", type=str, default="float16,float32", help="Dtypes to benchmark (same-dtype paths only).")
     parser.add_argument("--warmup", type=int, default=2, help="Warmup iterations.")
     parser.add_argument("--repeat", type=int, default=5, help="Measured iterations.")
     parser.add_argument(
@@ -660,6 +683,8 @@ def main() -> None:
     pairs: List[Tuple[str, str]] = []
     for src in enabled_backends:
         for dst in enabled_backends:
+            if src == dst:
+                continue
             pairs.append((src, dst))
 
     for size in sizes:

@@ -34,7 +34,8 @@ ensure_registries()
 from unilab.algos.appo.runner import APPORunner
 from unilab.config import locomotion_params
 from unilab.envs import registry
-from unilab.envs.utils import render_many
+from unilab.utils import render_many
+from unilab.utils.mlx_torch_utils import mlx_to_torch, to_numpy
 
 
 def get_latest_run(log_dir):
@@ -121,10 +122,15 @@ def play(args, rl_cfg):
     output_video = Path(load_path_dir) / "play_video.mp4"
     print(f"Rendering video to {output_video}...")
 
-    # Reset
+    # Reset (MLX backend may return MLX arrays; convert to torch)
     env.init_state()
-    _, obs_np, _ = env.reset(np.arange(args.play_env_num))
-    obs = torch.tensor(obs_np, device=device, dtype=torch.float32)
+    try:
+        import mlx.core as mx
+        env_indices = mx.arange(args.play_env_num, dtype=mx.int32)
+    except ImportError:
+        env_indices = np.arange(args.play_env_num)
+    _, obs_out, _ = env.reset(env_indices)
+    obs = mlx_to_torch(obs_out, device)
 
     state_list = []
     num_steps = 150
@@ -137,10 +143,8 @@ def play(args, rl_cfg):
             actions_np = actions.detach().cpu().numpy()
 
             state = env.step(actions_np)
-            obs = torch.tensor(state.obs, device=device, dtype=torch.float32)
-
-            state_copy = state.physics_state.copy()
-            state_list.append(state_copy)
+            obs = mlx_to_torch(state.obs, device)
+            state_list.append(to_numpy(state.physics_state).copy())
 
     print("Rendering frames...")
     frames = render_many.render_states_get_frames(

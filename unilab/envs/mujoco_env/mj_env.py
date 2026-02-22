@@ -1,36 +1,39 @@
 
 import abc
 import dataclasses
+import os
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import List, Optional, Tuple, Any
 from multiprocessing import cpu_count
 
 import mujoco
-from mujoco import rollout
+from mujoco import mlx_step
+import mlx.core as mx
 import numpy as np
 
 from unilab.envs.base import ABEnv, EnvCfg
 
 @dataclass
-class MjNpEnvState:
-    physics_state: np.ndarray  # (num_envs, nstate) - MjState (full physics)
-    sensor_data: np.ndarray    # (num_envs, nsensordata) - MjData.sensordata
-    ctrl: np.ndarray           # (num_envs, ncontrol) - Current control input
-    obs: np.ndarray
-    reward: np.ndarray
-    terminated: np.ndarray
-    truncated: np.ndarray
+class MjMlxEnvState:
+    physics_state: mx.array  # (num_envs, nstate) - MjState (full physics)
+    sensor_data: mx.array    # (num_envs, nsensordata) - MjData.sensordata
+    ctrl: mx.array           # (num_envs, ncontrol) - Current control input
+    obs: mx.array
+    reward: mx.array
+    terminated: mx.array
+    truncated: mx.array
     info: dict
 
     @property
-    def done(self) -> np.ndarray:
+    def done(self) -> mx.array:
         """
         Check if the environment is done.
         """
-        return np.logical_or(self.terminated, self.truncated)
+        return mx.logical_or(self.terminated, self.truncated)
 
-    def replace(self, **updates) -> "MjNpEnvState":
+    def replace(self, **updates) -> "MjMlxEnvState":
         return dataclasses.replace(self, **updates)
 
     def validate(self):
@@ -41,15 +44,15 @@ class MjNpEnvState:
         assert self.ctrl.shape[0] == num_envs, self.ctrl.shape
 
 
-class MjNpEnv(ABEnv):
+class MjMlxEnv(ABEnv):
     _model: mujoco.MjModel
     _cfg: EnvCfg
-    _state: MjNpEnvState = None
+    _state: MjMlxEnvState = None
     _num_envs: int
-    _rollout_runner: rollout.Rollout = None
-    _worker_data: List[mujoco.MjData] = None # Pool of workers for rollout
+    _step_runner: mlx_step.MlxStepRunner = None
+    _worker_data: List[mujoco.MjData] = None # Preallocated MuJoCo compute workers
     _reset_forward_executor: Optional[ThreadPoolExecutor] = None
-    _last_sensor_traj: np.ndarray = None
+    _last_sensor_traj: mx.array = None
 
     def __init__(self, cfg: EnvCfg, num_envs: int = 1):
         self._cfg = cfg
@@ -63,17 +66,29 @@ class MjNpEnv(ABEnv):
         # Validate that model timestep matches config
         # self._model.opt.timestep = cfg.sim_dt # Already set
         
-        # Configure Thread Pool for Rollout
-        # We use min(num_envs, cpu_count) threads.
-        self._n_threads = min(num_envs, cpu_count())
+        # Configure thread pool for rollout.
+        # Allow explicit override by env var; otherwise auto-tune for large batches.
+        thread_override = os.getenv("UNILAB_MLX_STEP_THREADS")
+        if thread_override is not None:
+            self._n_threads = min(num_envs, max(1, int(thread_override)))
+        else:
+            host_threads = cpu_count()
+            if num_envs >= 4096:
+                auto_threads = max(host_threads, 56)
+            elif num_envs >= 2048:
+                auto_threads = max(host_threads, 32)
+            else:
+                auto_threads = host_threads
+            self._n_threads = min(num_envs, auto_threads)
+        self._step_chunk_size = max(1, int(os.getenv("UNILAB_MLX_STEP_CHUNK", "16")))
         
         # Create worker MjData pool
         # These are purely for computation and do not hold persistent environment state.
         self._worker_data = [mujoco.MjData(self._model) for _ in range(self._n_threads)]
         self._reset_forward_executor = ThreadPoolExecutor(max_workers=self._n_threads) if self._n_threads > 1 else None
         
-        # Using persistent rollout runner
-        self._rollout_runner = rollout.Rollout(nthread=self._n_threads)
+        # Persistent MLX simulation-step runner.
+        self._step_runner = mlx_step.MlxStepRunner(nthread=self._n_threads)
 
         self._init_sensor_indices()
 
@@ -92,11 +107,19 @@ class MjNpEnv(ABEnv):
         return mujoco.mj_stateSize(self._model, mujoco.mjtState.mjSTATE_FULLPHYSICS)
 
     def close(self):
-        if self._rollout_runner is not None:
-             self._rollout_runner = None
+        if self._step_runner is not None:
+             self._step_runner = None
         if self._reset_forward_executor is not None:
             self._reset_forward_executor.shutdown(wait=True)
             self._reset_forward_executor = None
+
+    @staticmethod
+    def _scatter_rows(base: mx.array, indices: mx.array, updates: mx.array) -> mx.array:
+        if indices.size == 0:
+            return base
+        idx = indices.astype(mx.int32)
+        current = mx.take(base, idx, axis=0)
+        return base.at[idx].add(updates - current)
 
     @staticmethod
     def _forward_sensor_chunk(
@@ -116,24 +139,26 @@ class MjNpEnv(ABEnv):
             mj_data.qacc[:] = 0.0
             mj_data.qacc_warmstart[:] = 0.0
             mujoco.mj_forward(model, mj_data)
-            sensor_batch[i] = mj_data.sensordata
+            sensor_batch[i, :] = mj_data.sensordata
 
     def _compute_sensor_batch_from_qpos_qvel(
         self,
-        qpos_batch: np.ndarray,
-        qvel_batch: np.ndarray,
-    ) -> np.ndarray:
+        qpos_batch,
+        qvel_batch,
+    ) -> mx.array:
         num_reset = qpos_batch.shape[0]
-        sensor_batch = np.empty((num_reset, self._model.nsensordata), dtype=np.float32)
         if num_reset == 0:
-            return sensor_batch
+            return mx.zeros((0, self._model.nsensordata), dtype=mx.float32)
+        sensor_batch = np.empty((num_reset, self._model.nsensordata), dtype=np.float32)
+        qpos_np = np.asarray(qpos_batch, dtype=np.float64)
+        qvel_np = np.asarray(qvel_batch, dtype=np.float64)
 
         # For small resets, single-thread path avoids extra scheduling overhead.
         if self._reset_forward_executor is None or num_reset < 64:
             self._forward_sensor_chunk(
-                self._model, self._worker_data[0], qpos_batch, qvel_batch, sensor_batch, 0, num_reset
+                self._model, self._worker_data[0], qpos_np, qvel_np, sensor_batch, 0, num_reset
             )
-            return sensor_batch
+            return mx.array(sensor_batch, dtype=mx.float32)
 
         nworkers = min(self._n_threads, num_reset)
         chunk_size = (num_reset + nworkers - 1) // nworkers
@@ -148,8 +173,8 @@ class MjNpEnv(ABEnv):
                     self._forward_sensor_chunk,
                     self._model,
                     self._worker_data[worker_id],
-                    qpos_batch,
-                    qvel_batch,
+                    qpos_np,
+                    qvel_np,
                     sensor_batch,
                     start,
                     end,
@@ -157,7 +182,7 @@ class MjNpEnv(ABEnv):
             )
         for fut in futures:
             fut.result()
-        return sensor_batch
+        return mx.array(sensor_batch, dtype=mx.float32)
 
     @property
     def model(self) -> mujoco.MjModel:
@@ -167,7 +192,7 @@ class MjNpEnv(ABEnv):
         return self._model
 
     @property
-    def state(self) -> MjNpEnvState:
+    def state(self) -> MjMlxEnvState:
         """
         Get the current environment state
         """
@@ -184,7 +209,7 @@ class MjNpEnv(ABEnv):
     def num_envs(self) -> int:
         return self._num_envs
 
-    def init_state(self) -> MjNpEnvState:
+    def init_state(self) -> MjMlxEnvState:
         """
         Create a new environment state
         """
@@ -192,17 +217,29 @@ class MjNpEnv(ABEnv):
         nsensordata = self._model.nsensordata
         ncontrol = self._model.nu
         
-        physics_state = np.zeros((self._num_envs, nstate), dtype=np.float64)
-        sensor_data = np.zeros((self._num_envs, nsensordata), dtype=np.float64)
-        ctrl = np.zeros((self._num_envs, ncontrol), dtype=np.float64)
+        physics_state = mx.zeros((self._num_envs, nstate), dtype=mx.float32)
+        sensor_data = mx.zeros((self._num_envs, nsensordata), dtype=mx.float32)
+        ctrl = mx.zeros((self._num_envs, ncontrol), dtype=mx.float32)
+
+        obs = mx.zeros((self._num_envs, self.observation_space.shape[0]), dtype=mx.float32)
+        reward = mx.zeros((self._num_envs,), dtype=mx.float32)
+        terminated = mx.ones((self._num_envs,), dtype=mx.bool_)
+        truncated = mx.zeros((self._num_envs,), dtype=mx.bool_)
+        info = {
+            "steps": mx.zeros((self._num_envs,), dtype=mx.uint32),
+            "timing": {
+                "env_step_total_ms": 0.0,
+                "step_core_ms": 0.0,
+                "update_state_ms": 0.0,
+                "reset_done_ms": 0.0,
+                "reset_index_extract_ms": 0.0,
+                "reset_call_ms": 0.0,
+                "reset_scatter_ms": 0.0,
+                "reset_info_merge_ms": 0.0,
+            },
+        }
         
-        obs = np.zeros((self._num_envs, self.observation_space.shape[0]), dtype=np.float32)
-        reward = np.zeros((self._num_envs,), dtype=np.float32)
-        terminated = np.ones((self._num_envs,), dtype=bool)
-        truncated = np.zeros((self._num_envs,), dtype=bool)
-        info = {"steps": np.zeros((self._num_envs,), dtype=np.uint64)}
-        
-        self._state = MjNpEnvState(physics_state, sensor_data, ctrl, obs, reward, terminated, truncated, info)
+        self._state = MjMlxEnvState(physics_state, sensor_data, ctrl, obs, reward, terminated, truncated, info)
         self._reset_done_envs()
         self._state.validate()
         return self._state
@@ -211,60 +248,86 @@ class MjNpEnv(ABEnv):
         """
         Reset the environments that are done. 
         """
+        t_reset_start = time.perf_counter()
         state = self._state
         done = state.done
         assert done.shape == (self._num_envs,)
-        if not np.any(done):
+        t_index0 = time.perf_counter()
+        done_np = np.asarray(done, dtype=np.bool_)
+        idx_np = np.flatnonzero(done_np)
+        done_count = int(idx_np.size)
+        if done_count == 0:
+            timing = state.info.setdefault("timing", {})
+            timing["reset_done_ms"] = (time.perf_counter() - t_reset_start) * 1000.0
+            timing["reset_index_extract_ms"] = (time.perf_counter() - t_index0) * 1000.0
+            timing["reset_call_ms"] = 0.0
+            timing["reset_scatter_ms"] = 0.0
+            timing["reset_info_merge_ms"] = 0.0
             return
+        env_indices = mx.array(idx_np.astype(np.int32), dtype=mx.int32)
+        index_extract_time = time.perf_counter() - t_index0
+        scatter_time = 0.0
 
-        np.putmask(state.info["steps"], done, 0)
-        
-        # Indices of envs to reset
-        indices = np.where(done)[0]
+        t_scatter0 = time.perf_counter()
+        steps = state.info["steps"]
+        state.info["steps"] = self._scatter_rows(
+            steps,
+            env_indices,
+            mx.zeros((done_count,), dtype=steps.dtype),
+        )
+        scatter_time += time.perf_counter() - t_scatter0
         
         # Call reset. 
         # Note: reset now is responsible for returning new physics states for these indices
-        new_physics_states, new_obs, info1 = self.reset(indices)
+        t_call0 = time.perf_counter()
+        new_physics_states, new_obs, info1 = self.reset(env_indices)
+        reset_call_time = time.perf_counter() - t_call0
         
         # Update state
-        state.physics_state[indices] = new_physics_states
+        t_scatter0 = time.perf_counter()
+        state.physics_state = self._scatter_rows(state.physics_state, env_indices, new_physics_states)
         if new_obs is not None:
-             state.obs[indices] = new_obs
+            state.obs = self._scatter_rows(state.obs, env_indices, new_obs)
+        scatter_time += time.perf_counter() - t_scatter0
         
-        # NOTE: sensor_data is NOT automatically updated by setting physics_state 
-        # until the next physics_step via rollout!
-        # If reset() returned None for obs, it implies we expect env to compute it from sensor_data?
-        # BUT sensor_data is stale (pre-reset).
-        # We must either:
-        # A) Compute Obs manually in reset using analytical kinematics (hard)
-        # B) Run a 0-step forward kinematics rollout to update sensor_data (cleaner)
-        # C) Or just rely on next step.
-        # But RSL-RL wrapper calls reset_all() -> reset() -> _update_buffers(obs).
-        
-        # If new_obs is None, we need to compute it.
-        if new_obs is None:
-            # This means we relied on sensor_data in _compute_obs, but sensor_data is stale!
-            # We should probably run a minimal forward step or re-compute.
-            pass
+        assert new_obs is not None
 
         # Update info
+        info_merge_time = 0.0
         if info1:
+            t_info0 = time.perf_counter()
 
-            def replace_dict_values(dst, new_values, mask):
+            def replace_dict_values(dst, new_values):
                 for key, value in new_values.items():
                     if key not in dst:
-                        dst[key] = value
-                    else:
-                        if isinstance(value, np.ndarray):
-                            dst[key][mask] = value
+                        if isinstance(value, mx.array):
+                            full_shape = (self._num_envs,) + tuple(value.shape[1:])
+                            dst[key] = mx.zeros(full_shape, dtype=value.dtype)
                         elif isinstance(value, dict):
-                            assert isinstance(dst[key], dict)
-                            replace_dict_values(dst[key], value, mask)
+                            dst[key] = {}
+                        else:
+                            dst[key] = value
 
-            replace_dict_values(state.info, info1, done)
+                    if isinstance(value, mx.array):
+                        dst[key] = self._scatter_rows(dst[key], env_indices, value)
+                    elif isinstance(value, dict):
+                        assert isinstance(dst[key], dict)
+                        replace_dict_values(dst[key], value)
+                    else:
+                        dst[key] = value
+
+            replace_dict_values(state.info, info1)
+            info_merge_time = time.perf_counter() - t_info0
+
+        timing = state.info.setdefault("timing", {})
+        timing["reset_done_ms"] = (time.perf_counter() - t_reset_start) * 1000.0
+        timing["reset_index_extract_ms"] = index_extract_time * 1000.0
+        timing["reset_call_ms"] = reset_call_time * 1000.0
+        timing["reset_scatter_ms"] = scatter_time * 1000.0
+        timing["reset_info_merge_ms"] = info_merge_time * 1000.0
         
-        # Since we reset state, we assume sensor data might be stale until next step, 
-        # or reset should computed it. Ideally physics_step will update sensor_data.
+        # Since we reset state, sensor data may be stale until next step,
+        # unless reset path already computed it.
 
     def _update_truncate(self):
         """
@@ -275,16 +338,16 @@ class MjNpEnv(ABEnv):
         self._state.truncated = self._state.info["steps"] >= self._cfg.max_episode_steps
 
     @abc.abstractmethod
-    def apply_action(self, actions: np.ndarray, state: MjNpEnvState) -> np.ndarray:
+    def apply_action(self, actions: mx.array, state: MjMlxEnvState) -> mx.array:
         """
         Compute control input from actions.
         
         Returns:
-            np.ndarray: The control input (ctrl) for the physics step. Shape (num_envs, ncontrol)
+            mx.array: The control input (ctrl) for the physics step. Shape (num_envs, ncontrol)
         """
 
     @abc.abstractmethod
-    def update_state(self, state: MjNpEnvState, obs_required: bool = True) -> MjNpEnvState:
+    def update_state(self, state: MjMlxEnvState, obs_required: bool = True) -> MjMlxEnvState:
         """
         Update the environment state after physics step (e.g. compute obs, rewards)
         """
@@ -292,25 +355,25 @@ class MjNpEnv(ABEnv):
     @abc.abstractmethod
     def reset(
         self,
-        env_indices: np.ndarray,
-    ) -> Tuple[np.ndarray, np.ndarray, dict]:
+        env_indices: mx.array,
+    ) -> Tuple[mx.array, mx.array, dict]:
         """
         Reset the environment for the done envs
 
         Args:
-            env_indices (np.ndarray): The indices of the envs being reset
+            env_indices (mx.array): The indices of the envs being reset
 
         Returns:
             tuple:
-                - new_physics_states (np.ndarray): (len(indices), nstate)
-                - new_obs (np.ndarray): (len(indices), obs_dim)
+                - new_physics_states (mx.array): (len(indices), nstate)
+                - new_obs (mx.array): (len(indices), obs_dim)
                 - info (dict): Additional info
         """
         pass
 
-    def physics_step(self):
+    def _step_core(self):
         """
-        Step the physics simulation for all environments in parallel using mujoco.rollout.
+        Step the physics simulation for all environments in parallel using mujoco.mlx_step.
         """
         nsubsteps = self._cfg.sim_substeps
         
@@ -318,39 +381,27 @@ class MjNpEnv(ABEnv):
         initial_state = self._state.physics_state
         ctrl = self._state.ctrl
         
-        # Rollout expects control shape (nbatch, nstep, ncontrol)
-        # We assume zero-order hold (constant action) across substeps
-        # Tile ctrl: (B, D) -> (B, nsubsteps, D)
-        control_traj = np.tile(ctrl[:, None, :], (1, nsubsteps, 1))
-        
-        # Execute rollout
-        # Note: We pass self._worker_data which has length == self._n_threads
-        # rollout will handle checking len(data) == nthread and distributing nbatch tasks
-        state_traj, sensor_traj = self._rollout_runner.rollout(
-            self._model, 
-            self._worker_data, 
-            initial_state=initial_state, 
+        # MLX step runner expects control shape (B, T, D); zero-order hold across substeps.
+        control_traj = mx.broadcast_to(ctrl[:, None, :], (self._num_envs, nsubsteps, ctrl.shape[-1]))
+        state_traj, sensor_traj = self._step_runner.step(
+            model=self._model,
+            data=self._worker_data,
+            initial_state=initial_state,
             control=control_traj,
-            nstep=nsubsteps
+            nstep=nsubsteps,
+            chunk_size=self._step_chunk_size,
+            out_dtype=mx.float32,
+            return_last_only=True,
         )
+        self._last_sensor_traj = sensor_traj
+        self._state.sensor_data[:] = self._last_sensor_traj
+        self._state.physics_state[:] = state_traj
 
-        # Store sensor data for potential rendering usage
-        # We only really care about the LAST step sensor data for rendering the current frame
-        if sensor_traj is not None and sensor_traj.size > 0:
-            self._last_sensor_traj = sensor_traj[:, -1, :]
-            # Update state sensor data
-            self._state.sensor_data[:] = self._last_sensor_traj
-        
-        # Update physics state (for next step)
-        # Get the final state from the trajectory
-        if state_traj is not None and state_traj.size > 0:
-            self._state.physics_state[:] = state_traj[:, -1, :]
-
-    def _prev_physics_step(self):
+    def _pre_step(self):
         state = self._state
-        state.reward.fill(0.0)
-        state.terminated.fill(False)
-        state.truncated.fill(False)
+        state.reward[:] = 0.0
+        state.terminated[:] = False
+        state.truncated[:] = False
 
     def _before_chunk_step(self, data: Any):
         """
@@ -358,9 +409,12 @@ class MjNpEnv(ABEnv):
         """
         pass
 
-    def step(self, actions: np.ndarray) -> MjNpEnvState:
+    def step(self, actions: mx.array) -> MjMlxEnvState:
+        step_t0 = time.perf_counter()
         if self._state is None:
             self.init_state()
+
+        actions = mx.array(actions, dtype=mx.float32)
 
         # Handle action dimensions
         # 1. auto crop if input action dim > action_space dim
@@ -378,21 +432,27 @@ class MjNpEnv(ABEnv):
         # Hook for chunk start
         self._before_chunk_step(None) # No longer passing list of MjData
 
-        cumulative_reward = np.zeros(self._num_envs, dtype=np.float32)
-        chunk_terminated = np.zeros(self._num_envs, dtype=bool)
-        chunk_truncated = np.zeros(self._num_envs, dtype=bool)
+        cumulative_reward = mx.zeros((self._num_envs,), dtype=mx.float32)
+        chunk_terminated = mx.zeros((self._num_envs,), dtype=mx.bool_)
+        chunk_truncated = mx.zeros((self._num_envs,), dtype=mx.bool_)
+        step_core_time = 0.0
+        update_state_time = 0.0
 
         for t in range(num_steps):
-            self._prev_physics_step()
+            self._pre_step()
             
             # Apply Action: Now updates self._state.ctrl
             self._state.ctrl[:] = self.apply_action(actions[:, t], self._state)
             
-            self.physics_step()
+            t_core0 = time.perf_counter()
+            self._step_core()
+            step_core_time += time.perf_counter() - t_core0
             
             # Optimization: only compute obs on last step
             is_last_step = (t == num_steps - 1)
+            t_upd0 = time.perf_counter()
             self._state = self.update_state(self._state, obs_required=is_last_step)
+            update_state_time += time.perf_counter() - t_upd0
                 
             self._state.info["steps"] += 1
             
@@ -402,8 +462,8 @@ class MjNpEnv(ABEnv):
             self._update_truncate()
             
             # Accumulate done flags
-            chunk_terminated |= self._state.terminated
-            chunk_truncated |= self._state.truncated
+            chunk_terminated = mx.logical_or(chunk_terminated, self._state.terminated)
+            chunk_truncated = mx.logical_or(chunk_truncated, self._state.truncated)
         
         # Apply accumulated flags to state
         self._state.terminated = chunk_terminated
@@ -411,7 +471,14 @@ class MjNpEnv(ABEnv):
         self._state.reward = cumulative_reward
         
         # Reset done envs at the very end of the chunk
+        t_reset0 = time.perf_counter()
         self._reset_done_envs()
+        reset_done_time = time.perf_counter() - t_reset0
+        timing = self._state.info.setdefault("timing", {})
+        timing["env_step_total_ms"] = (time.perf_counter() - step_t0) * 1000.0
+        timing["step_core_ms"] = step_core_time * 1000.0
+        timing["update_state_ms"] = update_state_time * 1000.0
+        timing["reset_done_ms"] = reset_done_time * 1000.0
         
         return self._state
 
@@ -420,4 +487,4 @@ class MjNpEnv(ABEnv):
         if id == -1:
             raise ValueError(f"Sensor {name} not found in model")
         adr = self._model.sensor_adr[id]
-        return np.arange(adr, adr + dim)
+        return mx.arange(adr, adr + dim)

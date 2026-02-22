@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import Dict, Generator
 
 import mlx.core as mx
-import numpy as np
 
 
 @dataclass
@@ -99,11 +98,11 @@ class RolloutBuffer:
         values = mx.reshape(self.values, (batch_size,))
 
         for _ in range(num_epochs):
-            shuffled = np.random.permutation(batch_size)
+            shuffled = mx.random.permutation(batch_size)
             # Build all mini-batch indices once per epoch to reduce Python overhead.
-            batch_indices = mx.array(
-                shuffled.reshape(num_mini_batches, mini_batch_size),
-                dtype=mx.int32,
+            batch_indices = mx.reshape(
+                shuffled.astype(mx.int32),
+                (num_mini_batches, mini_batch_size),
             )
             for i in range(num_mini_batches):
                 idx = batch_indices[i]

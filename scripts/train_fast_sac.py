@@ -31,6 +31,7 @@ ensure_registries()
 
 from unilab.algos.fast_sac.runner import FastSACRunner  # noqa: E402
 from unilab.config import locomotion_params  # noqa: E402
+from unilab.utils.mlx_torch_utils import mlx_to_torch, to_numpy
 
 
 
@@ -55,7 +56,7 @@ def play(args, rl_cfg):
     from rsl_rl.models import MLPModel
     from rsl_rl.utils import resolve_callable
     from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4
-    from unilab.envs.utils import render_many
+    from unilab.utils import render_many
     from unilab.envs import registry
 
     if is_rsl_rl_v4():
@@ -135,13 +136,17 @@ def play(args, rl_cfg):
     print(f"Rendering video to {output_video}...")
 
     import numpy as np
-    all_indices = np.arange(args.play_env_num)
     try:
-        _, obs_np, _ = env.reset(all_indices)
+        import mlx.core as mx
+        env_indices = mx.arange(args.play_env_num, dtype=mx.int32)
+    except ImportError:
+        env_indices = np.arange(args.play_env_num)
+    try:
+        _, obs_out, _ = env.reset(env_indices)
     except TypeError:
-        obs_np, _ = env.reset()
+        obs_out, _ = env.reset()
 
-    obs = torch.tensor(obs_np, device=device, dtype=torch.float32)
+    obs = mlx_to_torch(obs_out, device)
 
     state_list = []
     num_steps = 200 # ~4s
@@ -195,17 +200,14 @@ def play(args, rl_cfg):
 
             state = env.step(actions_np)
             if hasattr(state, "obs"):
-                obs_np = state.obs
+                obs = mlx_to_torch(state.obs, device)
             else:
-                 obs_np = state[0]
-            
-            obs = torch.tensor(obs_np, device=device, dtype=torch.float32)
+                obs = mlx_to_torch(state[0], device)
 
             if hasattr(env, "state") and hasattr(env.state, "physics_state"):
-                state_copy = env.state.physics_state.copy()
-                state_list.append(state_copy)
+                state_list.append(to_numpy(env.state.physics_state).copy())
             elif hasattr(state, "physics_state"):
-                 state_list.append(state.physics_state.copy())
+                state_list.append(to_numpy(state.physics_state).copy())
 
     print("Rendering frames...")
     frames = render_many.render_states_get_frames(
