@@ -4,6 +4,7 @@ Benchmark MLP inference overhead for ANE (Apple Neural Engine).
 
 env_num from 2^8 to 2^14. Model size aligned with locomotion policy (obs_dim=48,
 hidden=[256,256,256], action_dim=12). ANE uses EnumeratedShapes and Core ML CPU_AND_NE.
+Per config: 5 runs, drop min and max, report mean (and std) of the middle 3.
 Outputs JSON and plots.
 """
 
@@ -75,6 +76,19 @@ def _safe_envs_per_sec(env_num: int, mean_sec: float) -> float:
     mean_sec = max(mean_sec, _MIN_MEAN_SEC)
     return env_num / mean_sec
 
+# 测 5 次，去掉最小、最大各 1 个，对中间 3 个取平均
+REPEAT_COUNT = 5
+
+def _trimmed_mean(samples: List[float]) -> Tuple[float, float, List[float]]:
+    """Drop one min and one max, return (mean of middle, std of middle, trimmed list)."""
+    if len(samples) < 3:
+        m = statistics.mean(samples)
+        s = statistics.pstdev(samples) if len(samples) > 1 else 0.0
+        return m, s, list(samples)
+    sorted_s = sorted(samples)
+    trimmed = sorted_s[1:-1]
+    return statistics.mean(trimmed), statistics.pstdev(trimmed), trimmed
+
 def bench_callable(
     fn: Callable[[], None],
     sync_fn: Callable[[], None],
@@ -101,6 +115,7 @@ def _build_and_convert_coreml_ane(
     env_nums: List[int],
     mlmodel_path: str,
     seed: int = 42,
+    precision: ct.precision = ct.precision.FLOAT32,
 ) -> bool:
     """Convert to Core ML with EnumeratedShapes so model can run on ANE (no flexible batch)."""
     dims = [obs_dim] + hidden_dims + [action_dim]
@@ -117,11 +132,24 @@ def _build_and_convert_coreml_ane(
         shapes = [[n, obs_dim] for n in env_nums]
         default_shape = [env_nums[-1], obs_dim]
         input_shape = ct.EnumeratedShapes(shapes=shapes, default=default_shape)
+        
+        # For FP8, we need to use an optimization pass after conversion
+        compute_precision = ct.precision.FLOAT16 if precision == ct.precision.FLOAT16 else ct.precision.FLOAT32
+        
         mlmodel = ct.convert(
             traced,
             convert_to="mlprogram",
             inputs=[ct.TensorType(name="x", shape=input_shape)],
+            compute_precision=compute_precision,
         )
+        
+        if precision == "FLOAT8":
+            import coremltools.optimize.coreml as cto
+            op_config = cto.OptimizationConfig(
+                global_config=cto.OpLinearQuantizerConfig(mode="linear_symmetric", dtype="int8")
+            )
+            mlmodel = cto.linear_quantize_weights(mlmodel, config=op_config)
+            
         mlmodel.save(mlmodel_path)
         return True
     except Exception as e:
@@ -155,8 +183,7 @@ def run_ane(
         _ = model.predict({input_name: x})
 
     elapsed = bench_callable(fwd, lambda: None, warmup, repeat)
-    mean_sec = statistics.mean(elapsed)
-    std_sec = statistics.pstdev(elapsed) if len(elapsed) > 1 else 0.0
+    mean_sec, std_sec, _ = _trimmed_mean(elapsed)
     return MLPBenchRecord(
         backend="ane",
         env_num=env_num,
@@ -305,7 +332,8 @@ def main() -> None:
         help="Comma-separated hidden layer sizes",
     )
     parser.add_argument("--warmup", type=int, default=2)
-    parser.add_argument("--repeat", type=int, default=5)
+    parser.add_argument("--repeat", type=int, default=REPEAT_COUNT,
+                        help=f"Number of samples per config; we drop min/max and average the rest (default: {REPEAT_COUNT})")
     parser.add_argument(
         "--out",
         type=str,
@@ -331,45 +359,76 @@ def main() -> None:
     all_records: List[MLPBenchRecord] = []
     skipped: List[Dict[str, str]] = []
 
-    ane_path = tempfile.mkdtemp(suffix=".mlpackage")
-    ane_model = None
-    
-    print("\nBuilding and converting model for ANE...", flush=True)
-    if _build_and_convert_coreml_ane(
-        args.obs_dim, args.action_dim, hidden_dims, env_nums, ane_path
-    ):
-        try:
-            ane_model = ct.models.MLModel(ane_path, compute_units=ct.ComputeUnit.CPU_AND_NE)
-        except Exception as e:
-            print(f"Failed to load Core ML model: {e}")
-    else:
-        print("Failed to convert model to Core ML.")
+    precisions = {
+        "fp32": ct.precision.FLOAT32,
+        "fp16": ct.precision.FLOAT16,
+        "int8": "FLOAT8" # CoreML uses int8 for weight quantization
+    }
 
-    if ane_model is not None:
-        print("\nDetected backends (ANE):", flush=True)
-        print("  - ane: yes", flush=True)
-        _log_ane_phase()
+    for prec_name, prec_val in precisions.items():
+        ane_path = tempfile.mkdtemp(suffix=f"_{prec_name}.mlpackage")
+        ane_model = None
+        cpu_model = None
         
-        for env_num in env_nums:
-            print(f"\nRunning env_num={env_num} ...", flush=True)
-            print(f"  >> ane env_num={env_num} starting...", flush=True)
+        print(f"\nBuilding and converting model for ANE ({prec_name})...", flush=True)
+        if _build_and_convert_coreml_ane(
+            args.obs_dim, args.action_dim, hidden_dims, env_nums, ane_path, precision=prec_val
+        ):
             try:
-                rec = run_ane(env_num, args.obs_dim, ane_model, args.warmup, args.repeat)
-                if rec is not None:
-                    all_records.append(rec)
-                    print(f"  ane: mean={rec.mean_sec*1000:.3f} ms, envs/s={rec.envs_per_sec:.1f}", flush=True)
-                else:
-                    skipped.append({"backend": "ane", "env_num": str(env_num), "reason": "unavailable"})
+                ane_model = ct.models.MLModel(ane_path, compute_units=ct.ComputeUnit.CPU_AND_NE)
+                cpu_model = ct.models.MLModel(ane_path, compute_units=ct.ComputeUnit.CPU_ONLY)
             except Exception as e:
-                skipped.append({"backend": "ane", "env_num": str(env_num), "reason": str(e)})
-                print(f"  ane: skip - {e}", flush=True)
-    else:
-        print("\nANE model could not be loaded. Skipping benchmark.")
+                print(f"Failed to load Core ML model ({prec_name}): {e}")
+        else:
+            print(f"Failed to convert model to Core ML ({prec_name}).")
 
-    try:
-        shutil.rmtree(ane_path, ignore_errors=True)
-    except Exception:
-        pass
+        if cpu_model is not None:
+            backend_name = f"cpu_only_{prec_name}"
+            print(f"\nDetected backends ({backend_name} Baseline):", flush=True)
+            print(f"  - {backend_name}: yes", flush=True)
+            
+            for env_num in env_nums:
+                print(f"\nRunning env_num={env_num} ...", flush=True)
+                print(f"  >> {backend_name} env_num={env_num} starting...", flush=True)
+                try:
+                    rec = run_ane(env_num, args.obs_dim, cpu_model, args.warmup, args.repeat)
+                    if rec is not None:
+                        rec.backend = backend_name
+                        all_records.append(rec)
+                        print(f"  {backend_name}: mean={rec.mean_sec*1000:.3f} ms, envs/s={rec.envs_per_sec:.1f}", flush=True)
+                    else:
+                        skipped.append({"backend": backend_name, "env_num": str(env_num), "reason": "unavailable"})
+                except Exception as e:
+                    skipped.append({"backend": backend_name, "env_num": str(env_num), "reason": str(e)})
+                    print(f"  {backend_name}: skip - {e}", flush=True)
+
+        if ane_model is not None:
+            backend_name = f"ane_{prec_name}"
+            print(f"\nDetected backends ({backend_name}):", flush=True)
+            print(f"  - {backend_name}: yes", flush=True)
+            _log_ane_phase()
+            
+            for env_num in env_nums:
+                print(f"\nRunning env_num={env_num} ...", flush=True)
+                print(f"  >> {backend_name} env_num={env_num} starting...", flush=True)
+                try:
+                    rec = run_ane(env_num, args.obs_dim, ane_model, args.warmup, args.repeat)
+                    if rec is not None:
+                        rec.backend = backend_name
+                        all_records.append(rec)
+                        print(f"  {backend_name}: mean={rec.mean_sec*1000:.3f} ms, envs/s={rec.envs_per_sec:.1f}", flush=True)
+                    else:
+                        skipped.append({"backend": backend_name, "env_num": str(env_num), "reason": "unavailable"})
+                except Exception as e:
+                    skipped.append({"backend": backend_name, "env_num": str(env_num), "reason": str(e)})
+                    print(f"  {backend_name}: skip - {e}", flush=True)
+        else:
+            print(f"\nANE model ({prec_name}) could not be loaded. Skipping benchmark.")
+
+        try:
+            shutil.rmtree(ane_path, ignore_errors=True)
+        except Exception:
+            pass
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
