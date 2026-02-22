@@ -73,10 +73,10 @@ class Go2BaseMjEnv(MjMlxEnv):
         # Init init_dof_vel which is used in reset
         self._init_dof_vel = mx.zeros(
             (self._num_dof_vel,),
-            dtype=mx.float32,
+            dtype=self._mlx_dtype,
         )
         # Compute init dof pos from keyframe 0 or qpos0
-        self._init_qpos = mx.array(self._model.qpos0.copy(), dtype=mx.float32)
+        self._init_qpos = mx.array(self._model.qpos0.copy(), dtype=self._mlx_dtype)
         
         self._init_buffer()
         self._init_sensor_indices()
@@ -107,13 +107,13 @@ class Go2BaseMjEnv(MjMlxEnv):
         # Generic buffers
         self.reset_buf = mx.ones((self._num_envs,), dtype=mx.bool_)
 
-        self.default_angles = mx.zeros((self._num_action,), dtype=mx.float32)
+        self.default_angles = mx.zeros((self._num_action,), dtype=self._mlx_dtype)
         
         # Try to find "home" keyframe to init default pose
         key_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_KEY, "home")
         if key_id >= 0:
             print(f"Using keyframe 'home' (id {key_id}) for initial state.")
-            self._init_qpos = mx.array(self._model.key_qpos[key_id].copy(), dtype=mx.float32)
+            self._init_qpos = mx.array(self._model.key_qpos[key_id].copy(), dtype=self._mlx_dtype)
             self.default_angles = self._init_qpos[7:]
         else:
             raise ValueError("Keyframe 'home' not found in model.")

@@ -79,7 +79,7 @@ class G1WalkTaskMj(G1BaseMjEnv):
         if self._idx_left_foot_pos is None or self._idx_right_foot_pos is None:
             raise ValueError("Sensors 'left_foot_pos' and 'right_foot_pos' are required for feet_phase reward.")
         self._gait_phase_delta = float(2.0 * math.pi * self.cfg.reward_config.gait_frequency * self.cfg.ctrl_dt)
-        self._pose_weights = mx.array(self.cfg.reward_config.pose_weights, dtype=mx.float32)
+        self._pose_weights = mx.array(self.cfg.reward_config.pose_weights, dtype=self._mlx_dtype)
         if self._pose_weights.shape[0] != self._num_action:
             raise ValueError(
                 f"pose_weights length {self._pose_weights.shape[0]} does not match dof count {self._num_action}"
@@ -169,7 +169,7 @@ class G1WalkTaskMj(G1BaseMjEnv):
     def _advance_gait_phase(self, info: dict):
         phase = info.get("gait_phase")
         if phase is None:
-            phase = mx.zeros((self._num_envs,), dtype=mx.float32)
+            phase = mx.zeros((self._num_envs,), dtype=self._mlx_dtype)
             info["gait_phase"] = phase
         phase += self._gait_phase_delta
         phase = mx.remainder(phase + math.pi, 2.0 * math.pi) - math.pi
@@ -185,7 +185,7 @@ class G1WalkTaskMj(G1BaseMjEnv):
         noise_cfg = self.cfg.noise_config
         if noise_cfg.level > 0.0:
             def add_noise(val, scale):
-                noise = (mx.random.uniform(shape=val.shape, dtype=mx.float32) * 2.0 - 1.0) * noise_cfg.level * scale
+                noise = (mx.random.uniform(shape=val.shape, dtype=self._mlx_dtype) * 2.0 - 1.0) * noise_cfg.level * scale
                 return val + noise
 
             gyro = add_noise(gyro, noise_cfg.scale_gyro)
@@ -207,7 +207,7 @@ class G1WalkTaskMj(G1BaseMjEnv):
 
     def _compute_rewards(self, state: MjMlxEnvState) -> MjMlxEnvState:
         self._advance_gait_phase(state.info)
-        total_reward = mx.zeros((self._num_envs,), dtype=mx.float32)
+        total_reward = mx.zeros((self._num_envs,), dtype=self._mlx_dtype)
         step_count = state.info.get("steps", mx.zeros((self._num_envs,), dtype=mx.uint32))
         should_log = self._enable_reward_log and (int(step_count[0].item()) % 4 == 0)
         log = {} if should_log else state.info.get("log", {})
@@ -247,9 +247,9 @@ class G1WalkTaskMj(G1BaseMjEnv):
         return state
 
     def resample_commands(self, num_envs: int):
-        low = mx.array(self.cfg.commands.vel_limit[0], dtype=mx.float32)
-        high = mx.array(self.cfg.commands.vel_limit[1], dtype=mx.float32)
-        return low + (high - low) * mx.random.uniform(shape=(num_envs, 3), dtype=mx.float32)
+        low = mx.array(self.cfg.commands.vel_limit[0], dtype=self._mlx_dtype)
+        high = mx.array(self.cfg.commands.vel_limit[1], dtype=self._mlx_dtype)
+        return low + (high - low) * mx.random.uniform(shape=(num_envs, 3), dtype=self._mlx_dtype)
 
     def reset(self, env_indices: mx.array):
         num_reset = len(env_indices)
@@ -269,20 +269,20 @@ class G1WalkTaskMj(G1BaseMjEnv):
 
         commands = self.resample_commands(num_reset)
         info = {
-            "current_actions": mx.zeros((num_reset, self._num_action), dtype=mx.float32),
-            "last_actions": mx.zeros((num_reset, self._num_action), dtype=mx.float32),
+            "current_actions": mx.zeros((num_reset, self._num_action), dtype=self._mlx_dtype),
+            "last_actions": mx.zeros((num_reset, self._num_action), dtype=self._mlx_dtype),
             "commands": commands,
-            "gait_phase": (mx.random.uniform(shape=(num_reset,), dtype=mx.float32) * 2.0 - 1.0) * math.pi,
+            "gait_phase": (mx.random.uniform(shape=(num_reset,), dtype=self._mlx_dtype) * 2.0 - 1.0) * math.pi,
         }
 
         sensor_batch = self._compute_sensor_batch_from_qpos_qvel(qpos_batch, qvel_batch)
-        qpos_batch_mx = mx.array(qpos_batch, dtype=mx.float32)
-        qvel_batch_mx = mx.array(qvel_batch, dtype=mx.float32)
+        qpos_batch_mx = mx.array(qpos_batch, dtype=self._mlx_dtype)
+        qvel_batch_mx = mx.array(qvel_batch, dtype=self._mlx_dtype)
 
         if hasattr(self, "_state") and self._state is not None:
             self._state.sensor_data = self._scatter_rows(self._state.sensor_data, env_indices, sensor_batch)
 
-        obs_physics_state = mx.zeros((num_reset, self.physics_state_dim), dtype=mx.float32)
+        obs_physics_state = mx.zeros((num_reset, self.physics_state_dim), dtype=self._mlx_dtype)
         obs_physics_state[:, self._idx_qpos : self._idx_qpos + self.nq] = qpos_batch_mx
         obs_physics_state[:, self._idx_qvel : self._idx_qvel + self.nv] = qvel_batch_mx
 

@@ -54,6 +54,7 @@ class PPOTrainer:
     def __init__(self, model: MLPActorCritic, cfg: PPOConfig) -> None:
         self.model = model
         self.cfg = cfg
+        self._dtype = getattr(model, "dtype", mx.float32)
         self.learning_rate = float(cfg.learning_rate)
         self.optimizer = optim.Adam(learning_rate=self.learning_rate)
         self.loss_and_grad = nn.value_and_grad(model, self._loss_fn)
@@ -81,7 +82,7 @@ class PPOTrainer:
         leaves = [leaf for _, leaf in tree_flatten(grads)]
         if not leaves:
             return grads
-        sq_norm = mx.array(0.0, dtype=mx.float32)
+        sq_norm = mx.array(0.0, dtype=self._dtype)
         for leaf in leaves:
             sq_norm = sq_norm + mx.sum(leaf * leaf)
         global_norm = mx.sqrt(sq_norm + 1e-12)
@@ -144,7 +145,7 @@ class PPOTrainer:
         surr1 = ratio * advantages
         surr2 = mx.clip(ratio, 1.0 - self.cfg.clip_param, 1.0 + self.cfg.clip_param) * advantages
         policy_loss = -mx.mean(mx.minimum(surr1, surr2))
-        clip_fraction = mx.mean((mx.abs(ratio - 1.0) > self.cfg.clip_param).astype(mx.float32))
+        clip_fraction = mx.mean((mx.abs(ratio - 1.0) > self.cfg.clip_param).astype(self._dtype))
 
         if self.cfg.use_clipped_value_loss:
             value_pred_clipped = old_values + mx.clip(values - old_values, -self.cfg.clip_param, self.cfg.clip_param)
@@ -313,7 +314,7 @@ class PPOTrainer:
                             self.cfg.max_learning_rate,
                             self.learning_rate * max(self.cfg.adaptive_lr_growth, 1.0),
                         )
-                    self.optimizer.learning_rate = mx.array(self.learning_rate, dtype=mx.float32)
+                    self.optimizer.learning_rate = mx.array(self.learning_rate, dtype=self._dtype)
 
             for key in agg:
                 agg[key] += metrics[key]

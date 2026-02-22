@@ -113,17 +113,17 @@ def save_trainer_state(path: Path, trainer: PPOTrainer, iteration: int) -> None:
         pickle.dump(payload, f)
 
 
-def load_trainer_state(path: Path, trainer: PPOTrainer) -> int:
+def load_trainer_state(path: Path, trainer: PPOTrainer, dtype=mx.float32) -> int:
     """Load optimizer state and trainer metadata."""
     with path.open("rb") as f:
         payload = pickle.load(f)
     trainer.learning_rate = float(payload.get("learning_rate", trainer.learning_rate))
-    trainer.optimizer.learning_rate = mx.array(trainer.learning_rate, dtype=mx.float32)
+    trainer.optimizer.learning_rate = mx.array(trainer.learning_rate, dtype=dtype)
     trainer.optimizer.state = tree_map(lambda x: mx.array(x), payload["optimizer_state"])
     return int(payload.get("iteration", -1))
 
 
-def build_model(cfg, obs_dim: int, action_dim: int) -> MLPActorCritic:
+def build_model(cfg, obs_dim: int, action_dim: int, dtype=mx.float32) -> MLPActorCritic:
     """Build actor-critic model from locomotion config."""
     policy_cfg = cfg.policy
     init_noise_std = float(getattr(policy_cfg, "init_noise_std", 1.0))
@@ -141,6 +141,7 @@ def build_model(cfg, obs_dim: int, action_dim: int) -> MLPActorCritic:
         obs_normalization=obs_norm,
         noise_std_type=noise_std_type,
         state_dependent_std=state_dependent_std,
+        dtype=dtype,
     )
 
 
@@ -159,9 +160,15 @@ def main() -> None:
     parser.add_argument("--log_interval", type=int, default=10, help="Print every N iterations")
     parser.add_argument("--log_root", type=str, default="logs/mlx_rl_train", help="Root directory for training logs")
     parser.add_argument("--save_interval", type=int, default=50, help="Checkpoint save interval")
+    parser.add_argument("--fp16", action="store_true", help="Pure FP16: env and training in float16 (sets UNILAB_MLX_DTYPE=float16)")
     args = parser.parse_args()
     if args.env_num is None:
         args.env_num = locomotion_params.get_default_env_num(args.task)
+
+    use_fp16 = getattr(args, "fp16", False)
+    if use_fp16:
+        os.environ["UNILAB_MLX_DTYPE"] = "float16"
+    dtype = mx.float16 if use_fp16 else mx.float32
 
     mx.random.seed(args.seed)
 
@@ -185,7 +192,7 @@ def main() -> None:
         env = registry.make(args.task, num_envs=play_env_num, sim_backend="mujoco")
         obs_dim = env.observation_space.shape[0]
         action_dim = env.action_space.shape[0]
-        model = build_model(cfg, obs_dim, action_dim)
+        model = build_model(cfg, obs_dim, action_dim, dtype=dtype)
 
         load_path: Path | None = None
         if args.load_run == "-1":
@@ -219,25 +226,16 @@ def main() -> None:
         if env.state is None:
             env.init_state()
         _, obs, _ = env.reset(mx.arange(env.num_envs, dtype=mx.int32))
-        obs = mx.array(obs, dtype=mx.float32)
+        obs = mx.array(obs)
 
         state_list = []
         print("[MLX PPO] Collecting physics states for play...")
         for _ in range(args.play_steps):
-            obs_mx = mx.array(obs, dtype=mx.float32)
+            obs_mx = obs
             actions_mx = model.policy(obs_mx)
             actions = mx.where(mx.isfinite(actions_mx), actions_mx, mx.zeros_like(actions_mx))
             state = env.step(actions)
-            raw_obs = mx.array(state.obs, dtype=mx.float32)
-            bad_mask = mx.logical_not(mx.all(mx.isfinite(raw_obs), axis=1))
-            if bool(mx.any(bad_mask).item()):
-                bad_indices = [i for i, flag in enumerate(bad_mask.tolist()) if flag]
-                _, reset_obs, _ = env.reset(mx.array(bad_indices, dtype=mx.int32))
-                raw_obs_rows = raw_obs.tolist()
-                reset_rows = mx.array(reset_obs, dtype=mx.float32).tolist()
-                for k, idx in enumerate(bad_indices):
-                    raw_obs_rows[idx] = reset_rows[k]
-                raw_obs = mx.array(raw_obs_rows, dtype=mx.float32)
+            raw_obs = state.obs
             obs = mx.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0)
             # Append a copy: physics_state is updated in-place each step, so we must snapshot per frame.
             state_list.append(np.asarray(env.state.physics_state).copy())
@@ -321,12 +319,14 @@ def main() -> None:
     if env.state is None:
         env.init_state()
     _, obs, _ = env.reset(mx.arange(env.num_envs, dtype=mx.int32))
-    obs = mx.array(obs, dtype=mx.float32)
+    obs = mx.array(obs)
 
     obs_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
 
-    model = build_model(cfg, obs_dim, action_dim)
+    model = build_model(cfg, obs_dim, action_dim, dtype=dtype)
+    if use_fp16:
+        model.update(tree_map(lambda p: p.astype(mx.float16), model.parameters()))
     ppo_cfg = PPOConfig(
         num_learning_epochs=int(algo_cfg.num_learning_epochs),
         num_mini_batches=int(algo_cfg.num_mini_batches),
@@ -362,7 +362,7 @@ def main() -> None:
     trainer = PPOTrainer(model, ppo_cfg)
     use_reward_norm = bool(getattr(algo_cfg, "reward_normalization", False))
     reward_normalizer = (
-        EmpiricalDiscountedVariationNormalization(gamma=ppo_cfg.gamma) if use_reward_norm else None
+        EmpiricalDiscountedVariationNormalization(gamma=ppo_cfg.gamma, dtype=dtype) if use_reward_norm else None
     )
 
     if args.load_run != "-1":
@@ -377,38 +377,37 @@ def main() -> None:
             ckpt = None
         if ckpt is not None and ckpt.exists():
             model.load_weights(str(ckpt), strict=True)
+            if use_fp16:
+                model.update(tree_map(lambda p: p.astype(mx.float16), model.parameters()))
             log(f"[MLX PPO] resumed_from={ckpt}")
             if ckpt.stem.startswith("model_"):
                 iter_id = ckpt.stem.split("_")[1]
                 trainer_state_path = ckpt.with_name(f"trainer_{iter_id}.pkl")
                 if trainer_state_path.exists():
-                    resumed_it = load_trainer_state(trainer_state_path, trainer)
+                    resumed_it = load_trainer_state(trainer_state_path, trainer, dtype=dtype)
                     log(f"[MLX PPO] resumed_trainer_state={trainer_state_path} iter={resumed_it}")
 
     log(f"[MLX PPO] task={args.task} envs={args.env_num} steps={num_steps} iters={max_iterations}")
-    log(f"[MLX PPO] run={timestamp} lr={learning_rate:.6f}")
+    log(f"[MLX PPO] run={timestamp} lr={learning_rate:.6f} fp16={use_fp16}")
     log(
-        "[MLX PPO] perf_mode fast_mode={} metrics_interval={} finite_check_interval={} compile={}".format(
+        "[MLX PPO] perf_mode fast_mode={} metrics_interval={} compile={}".format(
             ppo_cfg.fast_mode,
             ppo_cfg.metrics_interval,
-            ppo_cfg.finite_check_interval,
             ppo_cfg.enable_compile,
         )
     )
     log(f"[MLX PPO] profile profile_collection={profile_collection}")
     log(
-        "[MLX PPO] perf_warmup warmup_iters={} warmup_metrics_interval={} warmup_finite_interval={} disable_finite_checks={}".format(
+        "[MLX PPO] perf_warmup warmup_iters={} warmup_metrics_interval={}".format(
             ppo_cfg.warmup_strict_iters,
             ppo_cfg.warmup_metrics_interval,
-            ppo_cfg.warmup_finite_check_interval,
-            ppo_cfg.disable_finite_checks,
         )
     )
     log(f"[MLX PPO] log_dir={log_dir}")
     if tb_writer is not None:
         log("[MLX PPO] tensorboard=enabled")
 
-    episode_returns = np.zeros((args.env_num,), dtype=np.float32)
+    episode_returns = np.zeros((args.env_num,), dtype=(np.float16 if use_fp16 else np.float32))
     episode_lengths = np.zeros((args.env_num,), dtype=np.int32)
     reward_window = deque(maxlen=100)
     length_window = deque(maxlen=100)
@@ -424,20 +423,12 @@ def main() -> None:
             action_dim=action_dim,
             gamma=ppo_cfg.gamma,
             lam=ppo_cfg.lam,
+            dtype=dtype,
         )
 
         collect_start = time.perf_counter()
-        bad_action_count = 0
-        bad_obs_count = 0
-        bad_reward_count = 0
-        forced_reset_count = 0
         reward_component_sums: dict[str, float] = {}
         reward_component_counts: dict[str, int] = {}
-        finite_checks_enabled = not ppo_cfg.disable_finite_checks
-        do_finite_checks = finite_checks_enabled and (
-            it < ppo_cfg.warmup_strict_iters
-            or (it % max(int(ppo_cfg.finite_check_interval), 1) == 0)
-        )
         collect_reward_components = not ppo_cfg.fast_mode
         track_episode_stats = True
         model_act_time = 0.0
@@ -449,7 +440,6 @@ def main() -> None:
         env_reset_call_time = 0.0
         env_reset_scatter_time = 0.0
         env_reset_info_merge_time = 0.0
-        finite_check_time = 0.0
         buffer_add_time = 0.0
         episode_stats_time = 0.0
         for _ in range(num_steps):
@@ -457,13 +447,8 @@ def main() -> None:
             t_act0 = time.perf_counter()
             actions_mx, log_probs_mx, values_mx, action_mean_mx, action_std_mx = model.act(obs_mx)
             model_act_time += time.perf_counter() - t_act0
-            actions = actions_mx
-            if do_finite_checks:
-                t_fin0 = time.perf_counter()
-                actions = mx.where(mx.isfinite(actions_mx), actions_mx, mx.zeros_like(actions_mx))
-                bad_action_count += int(actions.size - int(mx.sum(mx.isfinite(actions)).item()))
-                finite_check_time += time.perf_counter() - t_fin0
-            # Keep behavior actions consistent with PPO storage (match rsl-rl style).
+            # Conversion boundary: model action → env; clamp Nan/Inf only here.
+            actions = mx.where(mx.isfinite(actions_mx), actions_mx, mx.zeros_like(actions_mx))
             executed_actions = actions
             t_env0 = time.perf_counter()
             state = env.step(executed_actions)
@@ -479,42 +464,16 @@ def main() -> None:
                     env_reset_scatter_time += float(timing_info.get("reset_scatter_ms", 0.0)) / 1000.0
                     env_reset_info_merge_time += float(timing_info.get("reset_info_merge_ms", 0.0)) / 1000.0
 
-            raw_rewards = state.reward.astype(mx.float32)
-            raw_dones = state.done.astype(mx.float32)
-            raw_obs = state.obs.astype(mx.float32)
-            if do_finite_checks:
-                t_fin0 = time.perf_counter()
-                bad_reward_count += int(raw_rewards.size - int(mx.sum(mx.isfinite(raw_rewards)).item()))
-                bad_obs_count += int(raw_obs.size - int(mx.sum(mx.isfinite(raw_obs)).item()))
-
-                # If any env has non-finite transition data, force reset only those envs.
-                obs_bad_mask = mx.logical_not(mx.all(mx.isfinite(raw_obs), axis=1))
-                rew_bad_mask = mx.logical_not(mx.isfinite(raw_rewards))
-                done_bad_mask = mx.logical_not(mx.isfinite(raw_dones))
-                bad_env_mask = mx.logical_or(obs_bad_mask, mx.logical_or(rew_bad_mask, done_bad_mask))
-                if bool(mx.any(bad_env_mask).item()):
-                    bad_indices = [i for i, flag in enumerate(bad_env_mask.tolist()) if flag]
-                    forced_reset_count += len(bad_indices)
-                    _, reset_obs, _ = env.reset(mx.array(bad_indices, dtype=mx.int32))
-                    raw_obs_rows = raw_obs.tolist()
-                    reset_rows = mx.array(reset_obs, dtype=mx.float32).tolist()
-                    for k, idx in enumerate(bad_indices):
-                        raw_obs_rows[idx] = reset_rows[k]
-                    raw_obs = mx.array(raw_obs_rows, dtype=mx.float32)
-                    bad_mask_f32 = bad_env_mask.astype(mx.float32)
-                    raw_rewards = raw_rewards * (1.0 - bad_mask_f32)
-                    raw_dones = mx.where(bad_env_mask, mx.ones_like(raw_dones), raw_dones)
-                rewards = mx.nan_to_num(raw_rewards, nan=0.0, posinf=0.0, neginf=0.0).astype(mx.float32)
-                dones = mx.where(mx.isfinite(raw_dones), raw_dones, mx.ones_like(raw_dones)).astype(mx.float32)
-                next_obs = mx.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0).astype(mx.float32)
-                finite_check_time += time.perf_counter() - t_fin0
-            else:
-                rewards = raw_rewards.astype(mx.float32)
-                dones = raw_dones.astype(mx.float32)
-                next_obs = raw_obs.astype(mx.float32)
+            # Conversion boundary: env output → rollout; sanitize Nan/Inf only here (no forced reset).
+            raw_rewards = state.reward
+            raw_dones = state.done
+            raw_obs = state.obs
+            rewards = mx.nan_to_num(raw_rewards, nan=0.0, posinf=0.0, neginf=0.0)
+            dones = mx.where(mx.isfinite(raw_dones), raw_dones, mx.ones_like(raw_dones)).astype(dtype)
+            next_obs = mx.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0)
             if hasattr(state, "truncated"):
-                timeouts = mx.array(state.truncated, dtype=mx.float32)
-                rewards = rewards + ppo_cfg.gamma * values_mx.astype(mx.float32) * timeouts
+                timeouts = mx.array(state.truncated, dtype=dtype)
+                rewards = rewards + ppo_cfg.gamma * values_mx * timeouts
 
             if collect_reward_components and hasattr(state, "info") and isinstance(state.info, dict):
                 step_log = state.info.get("log", {})
@@ -548,13 +507,14 @@ def main() -> None:
 
             if track_episode_stats:
                 t_ep0 = time.perf_counter()
-                rewards_np = np.asarray(rewards, dtype=np.float32)
-                dones_np = np.asarray(dones, dtype=np.float32)
+                # Conversion boundary: MLX → numpy for stats; sanitize only here.
+                rewards_np = np.nan_to_num(np.asarray(rewards), nan=0.0, posinf=0.0, neginf=0.0)
+                dones_np = np.asarray(dones)
                 episode_returns += rewards_np
                 episode_lengths += 1
                 done_idx = np.flatnonzero(dones_np > 0.5)
                 if done_idx.size > 0:
-                    done_returns = episode_returns[done_idx].astype(np.float32, copy=False)
+                    done_returns = episode_returns[done_idx]
                     done_lengths = episode_lengths[done_idx].astype(np.int32, copy=False)
                     reward_window.extend(done_returns)
                     length_window.extend(done_lengths)
@@ -613,12 +573,7 @@ def main() -> None:
                 tb_writer.add_scalar("Perf/env_reset_scatter_time", env_reset_scatter_time, it)
                 tb_writer.add_scalar("Perf/env_reset_info_merge_time", env_reset_info_merge_time, it)
                 tb_writer.add_scalar("Perf/buffer_add_time", buffer_add_time, it)
-                tb_writer.add_scalar("Perf/finite_check_time", finite_check_time, it)
                 tb_writer.add_scalar("Perf/episode_stats_time", episode_stats_time, it)
-            tb_writer.add_scalar("Perf/non_finite_actions", float(bad_action_count), it)
-            tb_writer.add_scalar("Perf/non_finite_obs", float(bad_obs_count), it)
-            tb_writer.add_scalar("Perf/non_finite_rewards", float(bad_reward_count), it)
-            tb_writer.add_scalar("Perf/forced_resets", float(forced_reset_count), it)
             tb_writer.add_scalar("Perf/updates_applied", updates_applied, it)
             tb_writer.add_scalar("Perf/skipped_nonfinite_loss", skipped_nonfinite_loss, it)
             tb_writer.add_scalar("Perf/skipped_nonfinite_grads", skipped_nonfinite_grads, it)
@@ -653,11 +608,11 @@ def main() -> None:
             log(
                 "[iter {}/{}] reward={:.3f} ep_len={:.1f} "
                 "loss_pi={:.4f} loss_v={:.4f} ent={:.4f} kl={:.5f} lr={:.6f} fps={} "
-                "collect={:.3f}s learn={:.3f}s bad(a/o/r)={}/{}/{} forced_reset={} "
+                "collect={:.3f}s learn={:.3f}s "
                 "clip_frac={:.3f} ratio(mean/max)={:.3f}/{:.3f} "
                 "std={:.4f} adv_std={:.4f} v_exp={:.3f} "
                 "upd={} skip(loss/grad/met)={}/{}/{} rollback={} kl_stop={} "
-                "prof(act/step/core/post/reset/buf/fin/ep)={:.3f}/{:.3f}/{:.3f}/{:.3f}/{:.3f}/{:.3f}/{:.3f}/{:.3f} "
+                "prof(act/step/core/post/reset/buf/ep)={:.3f}/{:.3f}/{:.3f}/{:.3f}/{:.3f}/{:.3f}/{:.3f} "
                 "reset_sub(idx/call/scatter/info)={:.3f}/{:.3f}/{:.3f}/{:.3f}".format(
                     it + 1,
                     max_iterations,
@@ -671,10 +626,6 @@ def main() -> None:
                     fps,
                     collect_time,
                     learn_time,
-                    bad_action_count,
-                    bad_obs_count,
-                    bad_reward_count,
-                    forced_reset_count,
                     clip_fraction,
                     ratio_mean,
                     ratio_max,
@@ -693,7 +644,6 @@ def main() -> None:
                     env_step_postprocess_time,
                     env_step_reset_time,
                     buffer_add_time,
-                    finite_check_time,
                     episode_stats_time,
                     env_reset_index_time,
                     env_reset_call_time,

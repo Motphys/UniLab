@@ -155,6 +155,7 @@ class MLXPPOAgent:
         with trainer_state_path.open("rb") as f:
             payload = pickle.load(f)
         self.trainer.learning_rate = float(payload.get("learning_rate", self.trainer.learning_rate))
-        self.trainer.optimizer.learning_rate = mx.array(self.trainer.learning_rate, dtype=mx.float32)
+        dtype = getattr(self.model, "dtype", mx.float32)
+        self.trainer.optimizer.learning_rate = mx.array(self.trainer.learning_rate, dtype=dtype)
         self.trainer.optimizer.state = tree_map(lambda x: mx.array(x), payload["optimizer_state"])
         return int(payload.get("iteration", -1))

@@ -90,6 +90,10 @@ class MjMlxEnv(ABEnv):
         # Persistent MLX simulation-step runner.
         self._step_runner = mlx_step.MlxStepRunner(nthread=self._n_threads)
 
+        # Float dtype for MLX state/obs/ctrl/reward (global option: UNILAB_MLX_DTYPE=fp16|float16 for FP16)
+        _dtype_str = os.getenv("UNILAB_MLX_DTYPE", "float32").strip().lower()
+        self._mlx_dtype = mx.float16 if _dtype_str in ("float16", "fp16") else mx.float32
+
         self._init_sensor_indices()
 
     def _init_sensor_indices(self):
@@ -148,7 +152,7 @@ class MjMlxEnv(ABEnv):
     ) -> mx.array:
         num_reset = qpos_batch.shape[0]
         if num_reset == 0:
-            return mx.zeros((0, self._model.nsensordata), dtype=mx.float32)
+            return mx.zeros((0, self._model.nsensordata), dtype=self._mlx_dtype)
         sensor_batch = np.empty((num_reset, self._model.nsensordata), dtype=np.float32)
         qpos_np = np.asarray(qpos_batch, dtype=np.float64)
         qvel_np = np.asarray(qvel_batch, dtype=np.float64)
@@ -158,7 +162,7 @@ class MjMlxEnv(ABEnv):
             self._forward_sensor_chunk(
                 self._model, self._worker_data[0], qpos_np, qvel_np, sensor_batch, 0, num_reset
             )
-            return mx.array(sensor_batch, dtype=mx.float32)
+            return mx.array(sensor_batch, dtype=self._mlx_dtype)
 
         nworkers = min(self._n_threads, num_reset)
         chunk_size = (num_reset + nworkers - 1) // nworkers
@@ -182,7 +186,7 @@ class MjMlxEnv(ABEnv):
             )
         for fut in futures:
             fut.result()
-        return mx.array(sensor_batch, dtype=mx.float32)
+        return mx.array(sensor_batch, dtype=self._mlx_dtype)
 
     @property
     def model(self) -> mujoco.MjModel:
@@ -217,12 +221,12 @@ class MjMlxEnv(ABEnv):
         nsensordata = self._model.nsensordata
         ncontrol = self._model.nu
         
-        physics_state = mx.zeros((self._num_envs, nstate), dtype=mx.float32)
-        sensor_data = mx.zeros((self._num_envs, nsensordata), dtype=mx.float32)
-        ctrl = mx.zeros((self._num_envs, ncontrol), dtype=mx.float32)
+        physics_state = mx.zeros((self._num_envs, nstate), dtype=self._mlx_dtype)
+        sensor_data = mx.zeros((self._num_envs, nsensordata), dtype=self._mlx_dtype)
+        ctrl = mx.zeros((self._num_envs, ncontrol), dtype=self._mlx_dtype)
 
-        obs = mx.zeros((self._num_envs, self.observation_space.shape[0]), dtype=mx.float32)
-        reward = mx.zeros((self._num_envs,), dtype=mx.float32)
+        obs = mx.zeros((self._num_envs, self.observation_space.shape[0]), dtype=self._mlx_dtype)
+        reward = mx.zeros((self._num_envs,), dtype=self._mlx_dtype)
         terminated = mx.ones((self._num_envs,), dtype=mx.bool_)
         truncated = mx.zeros((self._num_envs,), dtype=mx.bool_)
         info = {
@@ -390,7 +394,7 @@ class MjMlxEnv(ABEnv):
             control=control_traj,
             nstep=nsubsteps,
             chunk_size=self._step_chunk_size,
-            out_dtype=mx.float32,
+            out_dtype=self._mlx_dtype,
             return_last_only=True,
         )
         self._last_sensor_traj = sensor_traj
@@ -410,67 +414,39 @@ class MjMlxEnv(ABEnv):
         pass
 
     def step(self, actions: mx.array) -> MjMlxEnvState:
+        """
+        Step with actions of shape (B, D) only.
+        B = num_envs, D = action_space.shape[0].
+        """
         step_t0 = time.perf_counter()
         if self._state is None:
             self.init_state()
 
-        actions = mx.array(actions, dtype=mx.float32)
+        actions = mx.array(actions, dtype=self._mlx_dtype)
+        assert actions.ndim == 2, f"actions must be (B, D), got ndim={actions.ndim}"
+        assert actions.shape[0] == self._num_envs, (
+            f"actions.shape[0] must be num_envs={self._num_envs}, got {actions.shape[0]}"
+        )
+        assert actions.shape[1] == self.action_space.shape[0], (
+            f"actions.shape[1] must be action_dim={self.action_space.shape[0]}, got {actions.shape[1]}"
+        )
 
-        # Handle action dimensions
-        # 1. auto crop if input action dim > action_space dim
-        if actions.shape[-1] > self.action_space.shape[0]:
-            actions = actions[..., :self.action_space.shape[0]]
+        self._before_chunk_step(None)
 
-        # 2. handle chunk action (B, T, D) vs single action (B, D)
-        if actions.ndim == 2:
-            # (B, D) -> (B, 1, D)
-            actions = actions[:, None, :]
-        
-        # Now actions is (B, T, D)
-        num_steps = actions.shape[1]
-        
-        # Hook for chunk start
-        self._before_chunk_step(None) # No longer passing list of MjData
+        self._pre_step()
+        self._state.ctrl[:] = self.apply_action(actions, self._state)
 
-        cumulative_reward = mx.zeros((self._num_envs,), dtype=mx.float32)
-        chunk_terminated = mx.zeros((self._num_envs,), dtype=mx.bool_)
-        chunk_truncated = mx.zeros((self._num_envs,), dtype=mx.bool_)
-        step_core_time = 0.0
-        update_state_time = 0.0
+        t_core0 = time.perf_counter()
+        self._step_core()
+        step_core_time = time.perf_counter() - t_core0
 
-        for t in range(num_steps):
-            self._pre_step()
-            
-            # Apply Action: Now updates self._state.ctrl
-            self._state.ctrl[:] = self.apply_action(actions[:, t], self._state)
-            
-            t_core0 = time.perf_counter()
-            self._step_core()
-            step_core_time += time.perf_counter() - t_core0
-            
-            # Optimization: only compute obs on last step
-            is_last_step = (t == num_steps - 1)
-            t_upd0 = time.perf_counter()
-            self._state = self.update_state(self._state, obs_required=is_last_step)
-            update_state_time += time.perf_counter() - t_upd0
-                
-            self._state.info["steps"] += 1
-            
-            # Accumulate reward before reset might clear it
-            cumulative_reward += self._state.reward
+        t_upd0 = time.perf_counter()
+        self._state = self.update_state(self._state, obs_required=True)
+        update_state_time = time.perf_counter() - t_upd0
 
-            self._update_truncate()
-            
-            # Accumulate done flags
-            chunk_terminated = mx.logical_or(chunk_terminated, self._state.terminated)
-            chunk_truncated = mx.logical_or(chunk_truncated, self._state.truncated)
-        
-        # Apply accumulated flags to state
-        self._state.terminated = chunk_terminated
-        self._state.truncated = chunk_truncated
-        self._state.reward = cumulative_reward
-        
-        # Reset done envs at the very end of the chunk
+        self._state.info["steps"] += 1
+        self._update_truncate()
+
         t_reset0 = time.perf_counter()
         self._reset_done_envs()
         reset_done_time = time.perf_counter() - t_reset0
@@ -479,7 +455,7 @@ class MjMlxEnv(ABEnv):
         timing["step_core_ms"] = step_core_time * 1000.0
         timing["update_state_ms"] = update_state_time * 1000.0
         timing["reset_done_ms"] = reset_done_time * 1000.0
-        
+
         return self._state
 
     def _get_sensor_range(self, name, dim):

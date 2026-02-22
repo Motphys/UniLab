@@ -18,6 +18,7 @@ class RolloutBuffer:
     action_dim: int
     gamma: float
     lam: float
+    dtype: type = mx.float32
 
     def __post_init__(self) -> None:
         self.observations: list[mx.array] = []
@@ -28,8 +29,8 @@ class RolloutBuffer:
         self.rewards: list[mx.array] = []
         self.dones: list[mx.array] = []
         self.values: list[mx.array] = []
-        self.advantages = mx.zeros((self.num_steps, self.num_envs), dtype=mx.float32)
-        self.returns = mx.zeros((self.num_steps, self.num_envs), dtype=mx.float32)
+        self.advantages = mx.zeros((self.num_steps, self.num_envs), dtype=self.dtype)
+        self.returns = mx.zeros((self.num_steps, self.num_envs), dtype=self.dtype)
         self.step = 0
 
     def add(
@@ -59,9 +60,9 @@ class RolloutBuffer:
         rewards = self.rewards
         dones = self.dones
         values = self.values
-        gae = mx.zeros((self.num_envs,), dtype=mx.float32)
-        advantages: list[mx.array] = [mx.zeros((self.num_envs,), dtype=mx.float32) for _ in range(self.num_steps)]
-        returns: list[mx.array] = [mx.zeros((self.num_envs,), dtype=mx.float32) for _ in range(self.num_steps)]
+        gae = mx.zeros((self.num_envs,), dtype=self.dtype)
+        advantages: list[mx.array] = [mx.zeros((self.num_envs,), dtype=self.dtype) for _ in range(self.num_steps)]
+        returns: list[mx.array] = [mx.zeros((self.num_envs,), dtype=self.dtype) for _ in range(self.num_steps)]
         for t in reversed(range(self.num_steps)):
             if t == self.num_steps - 1:
                 next_values = last_values
@@ -126,6 +127,6 @@ class RolloutBuffer:
         self.rewards = []
         self.dones = []
         self.values = []
-        self.advantages = mx.zeros((self.num_steps, self.num_envs), dtype=mx.float32)
-        self.returns = mx.zeros((self.num_steps, self.num_envs), dtype=mx.float32)
+        self.advantages = mx.zeros((self.num_steps, self.num_envs), dtype=self.dtype)
+        self.returns = mx.zeros((self.num_steps, self.num_envs), dtype=self.dtype)
         self.step = 0

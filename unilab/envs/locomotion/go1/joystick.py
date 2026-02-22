@@ -122,7 +122,7 @@ class Go1WalkTaskMj(Go1BaseMjEnv):
         if noise_cfg.level > 0.0:
 
             def add_noise(val, scale):
-                noise = (mx.random.uniform(shape=val.shape, dtype=mx.float32) * 2.0 - 1.0) * noise_cfg.level * scale
+                noise = (mx.random.uniform(shape=val.shape, dtype=self._mlx_dtype) * 2.0 - 1.0) * noise_cfg.level * scale
                 return val + noise
 
             gyro = add_noise(gyro, noise_cfg.scale_gyro)
@@ -168,7 +168,7 @@ class Go1WalkTaskMj(Go1BaseMjEnv):
         return state
 
     def _compute_rewards(self, state: MjMlxEnvState) -> MjMlxEnvState:
-        total_reward = mx.zeros((self._num_envs,), dtype=mx.float32)
+        total_reward = mx.zeros((self._num_envs,), dtype=self._mlx_dtype)
         step_count = state.info.get("steps", mx.zeros((self._num_envs,), dtype=mx.uint32))
         should_log = self._enable_reward_log and (int(step_count[0].item()) % 4 == 0)
         log = {} if should_log else state.info.get("log", {})
@@ -201,12 +201,12 @@ class Go1WalkTaskMj(Go1BaseMjEnv):
         return state
 
     def resample_commands(self, num_envs: int):
-        low = mx.array(self.cfg.commands.vel_limit[0], dtype=mx.float32)
-        high = mx.array(self.cfg.commands.vel_limit[1], dtype=mx.float32)
-        commands = low + (high - low) * mx.random.uniform(shape=(num_envs, 3), dtype=mx.float32)
+        low = mx.array(self.cfg.commands.vel_limit[0], dtype=self._mlx_dtype)
+        high = mx.array(self.cfg.commands.vel_limit[1], dtype=self._mlx_dtype)
+        commands = low + (high - low) * mx.random.uniform(shape=(num_envs, 3), dtype=self._mlx_dtype)
 
         # Standard practice: set small percentage of commands to zero to train standing still
-        # mask = mx.random.uniform(shape=(num_envs,), dtype=mx.float32) < 0.05
+        # mask = mx.random.uniform(shape=(num_envs,), dtype=self._mlx_dtype) < 0.05
         # commands[mask] = 0.0
         
         return commands
@@ -231,21 +231,21 @@ class Go1WalkTaskMj(Go1BaseMjEnv):
         commands = self.resample_commands(num_reset)
 
         info = {
-            "current_actions": mx.zeros((num_reset, self._num_action), dtype=mx.float32),
-            "last_actions": mx.zeros((num_reset, self._num_action), dtype=mx.float32),
+            "current_actions": mx.zeros((num_reset, self._num_action), dtype=self._mlx_dtype),
+            "last_actions": mx.zeros((num_reset, self._num_action), dtype=self._mlx_dtype),
             "commands": commands,
         }
 
         sensor_batch = self._compute_sensor_batch_from_qpos_qvel(qpos_batch, qvel_batch)
-        qpos_batch_mx = mx.array(qpos_batch, dtype=mx.float32)
-        qvel_batch_mx = mx.array(qvel_batch, dtype=mx.float32)
+        qpos_batch_mx = mx.array(qpos_batch, dtype=self._mlx_dtype)
+        qvel_batch_mx = mx.array(qvel_batch, dtype=self._mlx_dtype)
 
         # Update Global Sensor State
         if hasattr(self, "_state") and self._state is not None:
             self._state.sensor_data = self._scatter_rows(self._state.sensor_data, env_indices, sensor_batch)
 
         # Reconstruct physics state
-        obs_physics_state = mx.zeros((num_reset, self.physics_state_dim), dtype=mx.float32)
+        obs_physics_state = mx.zeros((num_reset, self.physics_state_dim), dtype=self._mlx_dtype)
         obs_physics_state[:, self._idx_qpos : self._idx_qpos + self.nq] = qpos_batch_mx
         obs_physics_state[:, self._idx_qvel : self._idx_qvel + self.nv] = qvel_batch_mx
 

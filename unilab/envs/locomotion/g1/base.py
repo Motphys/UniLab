@@ -70,8 +70,8 @@ class G1BaseMjEnv(MjMlxEnv):
         self._init_action_space()
         self._num_action = self._action_space.shape[0]
 
-        self._init_dof_vel = mx.zeros((self._num_dof_vel,), dtype=mx.float32)
-        self._init_qpos = mx.array(self._model.qpos0.copy(), dtype=mx.float32)
+        self._init_dof_vel = mx.zeros((self._num_dof_vel,), dtype=self._mlx_dtype)
+        self._init_qpos = mx.array(self._model.qpos0.copy(), dtype=self._mlx_dtype)
 
         self._init_buffer()
         self._init_sensor_indices()
@@ -87,13 +87,13 @@ class G1BaseMjEnv(MjMlxEnv):
 
     def _init_buffer(self):
         self.reset_buf = mx.ones((self._num_envs,), dtype=mx.bool_)
-        self.default_angles = mx.zeros((self._num_action,), dtype=mx.float32)
+        self.default_angles = mx.zeros((self._num_action,), dtype=self._mlx_dtype)
 
         key_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_KEY, "stand")
         if key_id < 0:
             raise ValueError("Keyframe 'stand' not found in model.")
 
-        self._init_qpos = mx.array(self._model.key_qpos[key_id].copy(), dtype=mx.float32)
+        self._init_qpos = mx.array(self._model.key_qpos[key_id].copy(), dtype=self._mlx_dtype)
         self.default_angles = self._init_qpos[7 : 7 + self._num_action]
 
     def _get_sensor_indices(self, name: str):

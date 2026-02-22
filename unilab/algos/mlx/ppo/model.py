@@ -27,13 +27,15 @@ class MLPActorCritic(nn.Module):
         obs_normalization: bool = False,
         noise_std_type: str = "log",
         state_dependent_std: bool = False,
+        dtype=mx.float32,
     ) -> None:
         super().__init__()
         self.action_dim = int(action_dim)
+        self.dtype = dtype
         self.noise_std_type = noise_std_type
         self.state_dependent_std = bool(state_dependent_std)
         self.obs_normalization = bool(obs_normalization)
-        self.obs_normalizer = EmpiricalNormalization(obs_dim) if self.obs_normalization else None
+        self.obs_normalizer = EmpiricalNormalization(obs_dim, dtype=dtype) if self.obs_normalization else None
         actor_output_dim = action_dim * 2 if self.state_dependent_std else action_dim
         self.actor = MLP(obs_dim, actor_output_dim, actor_hidden_dims, activation=activation)
         self.critic = MLP(obs_dim, 1, critic_hidden_dims, activation=activation)
@@ -50,9 +52,9 @@ class MLPActorCritic(nn.Module):
                 raise ValueError(f"Unknown noise_std_type: {self.noise_std_type}")
         else:
             if self.noise_std_type == "scalar":
-                self.std = mx.full((action_dim,), float(mx.exp(mx.array(init_log_std)).item()))
+                self.std = mx.full((action_dim,), float(mx.exp(mx.array(init_log_std)).item()), dtype=self.dtype)
             elif self.noise_std_type == "log":
-                self.log_std = mx.full((action_dim,), float(init_log_std))
+                self.log_std = mx.full((action_dim,), float(init_log_std), dtype=self.dtype)
             else:
                 raise ValueError(f"Unknown noise_std_type: {self.noise_std_type}")
         self.min_log_std = float(min_log_std)
