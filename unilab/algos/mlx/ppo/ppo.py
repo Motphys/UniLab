@@ -226,9 +226,15 @@ class PPOTrainer:
             if in_warmup
             else max(1, int(self.cfg.finite_check_interval))
         )
+        target_dtype = self._dtype
         for batch_idx, batch in enumerate(
             buffer.mini_batch_generator(self.cfg.num_mini_batches, self.cfg.num_learning_epochs)
         ):
+            # Mixed precision: cast batch to model dtype (e.g. float32) when buffer is float16.
+            batch = tree_map(
+                lambda x: x.astype(target_dtype) if hasattr(x, "astype") and getattr(x, "dtype", None) != target_dtype else x,
+                batch,
+            )
             do_full_checks = (not self.cfg.fast_mode) or (batch_idx % finite_check_interval == 0)
             if self.cfg.disable_finite_checks:
                 do_full_checks = False

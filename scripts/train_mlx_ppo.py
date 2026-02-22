@@ -160,7 +160,7 @@ def main() -> None:
     parser.add_argument("--log_interval", type=int, default=10, help="Print every N iterations")
     parser.add_argument("--log_root", type=str, default="logs/mlx_rl_train", help="Root directory for training logs")
     parser.add_argument("--save_interval", type=int, default=50, help="Checkpoint save interval")
-    parser.add_argument("--fp16", action="store_true", help="Pure FP16: env and training in float16 (sets UNILAB_MLX_DTYPE=float16)")
+    parser.add_argument("--fp16", action="store_true", help="Mixed precision: env/buffer float16, model/optimizer float32 (sets UNILAB_MLX_DTYPE=float16)")
     args = parser.parse_args()
     if args.env_num is None:
         args.env_num = locomotion_params.get_default_env_num(args.task)
@@ -168,7 +168,9 @@ def main() -> None:
     use_fp16 = getattr(args, "fp16", False)
     if use_fp16:
         os.environ["UNILAB_MLX_DTYPE"] = "float16"
+    # Mixed precision: env and buffer use float16 to save memory; model and optimizer stay float32 to avoid nan on update.
     dtype = mx.float16 if use_fp16 else mx.float32
+    model_dtype = mx.float32 if use_fp16 else dtype
 
     mx.random.seed(args.seed)
 
@@ -186,13 +188,14 @@ def main() -> None:
         log_root = ROOT_DIR / log_root
     task_log_root = log_root / args.task
 
-    # PLAY MODE
+    # PLAY MODE (mixed precision: model in float32 when fp16)
     if args.play_only:
+        play_model_dtype = mx.float32 if use_fp16 else dtype
         play_env_num = args.play_env_num
         env = registry.make(args.task, num_envs=play_env_num, sim_backend="mujoco")
         obs_dim = env.observation_space.shape[0]
         action_dim = env.action_space.shape[0]
-        model = build_model(cfg, obs_dim, action_dim, dtype=dtype)
+        model = build_model(cfg, obs_dim, action_dim, dtype=play_model_dtype)
 
         load_path: Path | None = None
         if args.load_run == "-1":
@@ -231,9 +234,10 @@ def main() -> None:
         state_list = []
         print("[MLX PPO] Collecting physics states for play...")
         for _ in range(args.play_steps):
-            obs_mx = obs
-            actions_mx = model.policy(obs_mx)
+            obs_for_model = obs.astype(play_model_dtype) if getattr(obs, "dtype", None) != play_model_dtype else obs
+            actions_mx = model.policy(obs_for_model)
             actions = mx.where(mx.isfinite(actions_mx), actions_mx, mx.zeros_like(actions_mx))
+            actions = actions.astype(dtype) if getattr(actions, "dtype", None) != dtype else actions
             state = env.step(actions)
             raw_obs = state.obs
             obs = mx.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0)
@@ -324,9 +328,7 @@ def main() -> None:
     obs_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
 
-    model = build_model(cfg, obs_dim, action_dim, dtype=dtype)
-    if use_fp16:
-        model.update(tree_map(lambda p: p.astype(mx.float16), model.parameters()))
+    model = build_model(cfg, obs_dim, action_dim, dtype=model_dtype)
     ppo_cfg = PPOConfig(
         num_learning_epochs=int(algo_cfg.num_learning_epochs),
         num_mini_batches=int(algo_cfg.num_mini_batches),
@@ -362,7 +364,7 @@ def main() -> None:
     trainer = PPOTrainer(model, ppo_cfg)
     use_reward_norm = bool(getattr(algo_cfg, "reward_normalization", False))
     reward_normalizer = (
-        EmpiricalDiscountedVariationNormalization(gamma=ppo_cfg.gamma, dtype=dtype) if use_reward_norm else None
+        EmpiricalDiscountedVariationNormalization(gamma=ppo_cfg.gamma, dtype=model_dtype) if use_reward_norm else None
     )
 
     if args.load_run != "-1":
@@ -377,14 +379,12 @@ def main() -> None:
             ckpt = None
         if ckpt is not None and ckpt.exists():
             model.load_weights(str(ckpt), strict=True)
-            if use_fp16:
-                model.update(tree_map(lambda p: p.astype(mx.float16), model.parameters()))
             log(f"[MLX PPO] resumed_from={ckpt}")
             if ckpt.stem.startswith("model_"):
                 iter_id = ckpt.stem.split("_")[1]
                 trainer_state_path = ckpt.with_name(f"trainer_{iter_id}.pkl")
                 if trainer_state_path.exists():
-                    resumed_it = load_trainer_state(trainer_state_path, trainer, dtype=dtype)
+                    resumed_it = load_trainer_state(trainer_state_path, trainer, dtype=model_dtype)
                     log(f"[MLX PPO] resumed_trainer_state={trainer_state_path} iter={resumed_it}")
 
     log(f"[MLX PPO] task={args.task} envs={args.env_num} steps={num_steps} iters={max_iterations}")
@@ -443,13 +443,13 @@ def main() -> None:
         buffer_add_time = 0.0
         episode_stats_time = 0.0
         for _ in range(num_steps):
-            obs_mx = obs
+            obs_for_model = obs.astype(model_dtype) if obs.dtype != model_dtype else obs
             t_act0 = time.perf_counter()
-            actions_mx, log_probs_mx, values_mx, action_mean_mx, action_std_mx = model.act(obs_mx)
+            actions_mx, log_probs_mx, values_mx, action_mean_mx, action_std_mx = model.act(obs_for_model)
             model_act_time += time.perf_counter() - t_act0
             # Conversion boundary: model action → env; clamp Nan/Inf only here.
             actions = mx.where(mx.isfinite(actions_mx), actions_mx, mx.zeros_like(actions_mx))
-            executed_actions = actions
+            executed_actions = actions.astype(dtype) if actions.dtype != dtype else actions
             t_env0 = time.perf_counter()
             state = env.step(executed_actions)
             env_step_total_time += time.perf_counter() - t_env0
@@ -473,7 +473,9 @@ def main() -> None:
             next_obs = mx.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0)
             if hasattr(state, "truncated"):
                 timeouts = mx.array(state.truncated, dtype=dtype)
-                rewards = rewards + ppo_cfg.gamma * values_mx * timeouts
+                rewards = rewards + ppo_cfg.gamma * values_mx.astype(rewards.dtype) * timeouts
+            if rewards.dtype != dtype:
+                rewards = rewards.astype(dtype)
 
             if collect_reward_components and hasattr(state, "info") and isinstance(state.info, dict):
                 step_log = state.info.get("log", {})
@@ -488,20 +490,22 @@ def main() -> None:
                         reward_component_sums[key] = reward_component_sums.get(key, 0.0) + scalar_value
                         reward_component_counts[key] = reward_component_counts.get(key, 0) + 1
 
-            rewards_mx = rewards
+            rewards_mx = rewards.astype(model_dtype) if reward_normalizer is not None and rewards.dtype != model_dtype else rewards
             if reward_normalizer is not None:
                 rewards_mx = mx.squeeze(reward_normalizer(rewards_mx), axis=-1)
+            if reward_normalizer is not None and dtype != model_dtype:
+                rewards_mx = rewards_mx.astype(dtype)
 
             t_buf0 = time.perf_counter()
             buffer.add(
                 obs=obs,
-                actions=actions_mx,
-                log_probs=log_probs_mx,
-                action_mean=action_mean_mx,
-                action_std=action_std_mx,
+                actions=actions_mx.astype(dtype) if actions_mx.dtype != dtype else actions_mx,
+                log_probs=log_probs_mx.astype(dtype) if log_probs_mx.dtype != dtype else log_probs_mx,
+                action_mean=action_mean_mx.astype(dtype) if action_mean_mx.dtype != dtype else action_mean_mx,
+                action_std=action_std_mx.astype(dtype) if action_std_mx.dtype != dtype else action_std_mx,
                 rewards=rewards_mx,
                 dones=dones,
-                values=values_mx,
+                values=values_mx.astype(dtype) if values_mx.dtype != dtype else values_mx,
             )
             buffer_add_time += time.perf_counter() - t_buf0
 
@@ -526,8 +530,9 @@ def main() -> None:
 
         collect_time = time.perf_counter() - collect_start
         learn_start = time.perf_counter()
-        last_values = model.value(obs)
-        buffer.compute_returns_and_advantages(last_values)
+        last_values = model.value(obs.astype(model_dtype) if obs.dtype != model_dtype else obs)
+        last_values_buf = last_values.astype(dtype) if last_values.dtype != dtype else last_values
+        buffer.compute_returns_and_advantages(last_values_buf)
         metrics = trainer.update(buffer, iteration=it)
         learn_time = time.perf_counter() - learn_start
         iter_time = time.perf_counter() - iter_start
