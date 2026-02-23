@@ -8,6 +8,7 @@ dist/
 .cursor/
 .vscode/
 .idea/
+.kiro/
 
 # Project specific
 logs/

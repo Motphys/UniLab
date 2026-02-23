@@ -4,7 +4,9 @@
 
 - [x] 增加 Bipedal Locomotion 任务
 - [x] 增加 FastTD3 和 FastSAC，torch.mps
-- [ ] 把 FastTD3 和 FastSAC 迁移到 mlx
+- [x] 把 FastTD3 和 FastSAC 迁移到 mlx
+- [ ] 把 FastTD3 和 FastSAC 调稳定
+- [ ] 写轻量版 Ray，跑满cpu 和 gpu
 - [ ] 设计统一训练框架，支持不同的算法（ppo、TD3、SAC）和后端（mlx 和 pytorch）
 - [ ] 适配 mimic/amp 算法，支持人形Whole-Body Tracking
 - [x] (*)用MLX重写 MuJoCo
