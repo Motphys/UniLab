@@ -5,7 +5,6 @@ import sys
 import os
 import datetime
 from pathlib import Path
-import torch
 import pkgutil
 import importlib
 
@@ -26,18 +25,6 @@ def ensure_registries():
     except ImportError:
         pass
 
-    try:
-        import unilab.envs.locomotion.walking
-        package = unilab.envs.locomotion.walking
-        if hasattr(package, "__path__"):
-            for _, name, ispkg in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
-                try:
-                    importlib.import_module(name)
-                except Exception:
-                    pass
-    except ImportError:
-        pass
-
 
 def main():
     parser = argparse.ArgumentParser(description="Train FastTD3 (no Ray)")
@@ -45,6 +32,8 @@ def main():
     parser.add_argument("--max_iterations", type=int, default=1500)
     parser.add_argument("--save_interval", type=int, default=50)
     parser.add_argument("--num_envs", type=int, default=4096)
+    parser.add_argument("--obs_dim", type=int, default=48)
+    parser.add_argument("--action_dim", type=int, default=12)
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--collector_device", type=str, default=None)
     parser.add_argument("--log_dir", type=str, default=None)
@@ -72,25 +61,15 @@ def main():
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         args.log_dir = os.path.join("logs", f"fast_td3_{args.task}_{timestamp}")
 
-    rl_cfg = {
-        "obs_groups": {
-            "actor": {"policy": 48},
-        },
-        "actor": {
-            "class_name": "rsl_rl.models.MLPModel",
-            "num_actions": 12,
-        },
-    }
-
     from unilab.algos.torch.fast_td3.runner import FastTD3Runner
 
     runner = FastTD3Runner(
         env_name=args.task,
-        env_cfg_overrides={},
-        rl_cfg=rl_cfg,
         device=args.device,
         collector_device=args.collector_device,
         num_envs=args.num_envs,
+        obs_dim=args.obs_dim,
+        action_dim=args.action_dim,
         steps_per_env=args.steps_per_env,
         replay_buffer_n=args.replay_buffer_n,
         batch_size=args.batch_size,

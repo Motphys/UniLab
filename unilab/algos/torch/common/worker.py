@@ -1,4 +1,4 @@
-"""Off-policy collector for TD3 and SAC (no Ray dependency).
+"""Off-policy collector for SAC and TD3 (no Ray dependency).
 
 Collects (obs, action, reward, next_obs, done) transitions using the current
 actor policy.  Runs in a subprocess; writes to a SharedReplayBuffer.
@@ -8,6 +8,11 @@ import torch
 import numpy as np
 import pkgutil
 import importlib
+
+
+def _to_numpy_f32(x) -> np.ndarray:
+    """Convert mlx array / numpy array / scalar to numpy float32."""
+    return np.array(x, copy=False).astype(np.float32)
 
 
 # Ensure all environment modules are imported so they are registered
@@ -39,24 +44,50 @@ def ensure_registries():
         pass
 
 
+def _build_actor(algo_type, obs_dim, action_dim, actor_hidden_dim, use_layer_norm, collector_device):
+    """Build the correct actor model based on algorithm type."""
+    if algo_type == "sac":
+        from unilab.algos.torch.fast_sac.learner import SACActor
+        actor = SACActor(
+            obs_dim=obs_dim,
+            action_dim=action_dim,
+            hidden_dim=actor_hidden_dim,
+            use_layer_norm=use_layer_norm,
+            device=collector_device,
+        )
+    elif algo_type == "td3":
+        from unilab.algos.torch.fast_td3.learner import TD3Actor
+        actor = TD3Actor(
+            obs_dim=obs_dim,
+            action_dim=action_dim,
+            hidden_dim=actor_hidden_dim,
+            use_layer_norm=use_layer_norm,
+            device=collector_device,
+        )
+    else:
+        raise ValueError(f"Unknown algo_type: {algo_type}")
+    return actor
+
+
 def off_policy_collector_fn(
     stop_event,
     env_name: str,
     env_cfg_overrides: dict,
-    rl_cfg: dict,
     num_envs: int,
-    steps_per_env: int,
     shm_buffer_name: str,
     buffer_capacity: int,
     obs_dim: int,
     action_dim: int,
     weight_sync_name: str,
     weight_param_shapes: dict,
+    algo_type: str = "sac",
+    actor_hidden_dim: int = 512,
+    use_layer_norm: bool = True,
     collector_device: str = "cpu",
     exploration_noise: float = 0.1,
     warmup_steps: int = 5000,
     metrics_queue=None,
-    algo_type: str = "sac",  # "sac" or "td3"
+    **kwargs,
 ):
     """Entry point for the off-policy collector subprocess.
 
@@ -65,8 +96,6 @@ def off_policy_collector_fn(
     """
     from unilab.algos.torch.common.async_runner import SharedReplayBuffer, SharedWeightSync
     from unilab.envs import registry
-    from tensordict import TensorDict
-    from rsl_rl.utils import resolve_callable
 
     ensure_registries()
 
@@ -82,23 +111,13 @@ def off_policy_collector_fn(
     env = registry.make(env_name, num_envs=num_envs, sim_backend="mujoco")
 
     # --- Build actor model ---
-    from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4
-
-    cfg = dict(rl_cfg)
-    if is_rsl_rl_v4():
-        cfg = convert_config_v3_to_v4(cfg)
-
-    obs_example = torch.zeros((num_envs, obs_dim), device=collector_device)
-    td_example = TensorDict({"policy": obs_example}, batch_size=num_envs)
-
-    actor_cfg = cfg["actor"].copy()
-    actor_cls = resolve_callable(actor_cfg.pop("class_name"))
-    actor = actor_cls(td_example, cfg["obs_groups"], "actor", action_dim, **actor_cfg)
-    actor = actor.to(collector_device)
+    actor = _build_actor(algo_type, obs_dim, action_dim, actor_hidden_dim, use_layer_norm, collector_device)
     actor.eval()
 
-    # --- Load initial weights ---
-    weight_sync.read_weights_into(dict(actor.state_dict()))
+    # --- Load initial weights from shared memory ---
+    sd = dict(actor.state_dict())
+    weight_sync.read_weights_into(sd)
+    actor.load_state_dict(sd)
     local_weight_version = weight_sync.version
 
     # --- Reset environment ---
@@ -113,11 +132,7 @@ def off_policy_collector_fn(
     except TypeError:
         obs_out, _ = env.reset()
 
-    # Convert obs
-    if hasattr(obs_out, "__array__"):
-        obs_np = np.array(obs_out, dtype=np.float32)
-    else:
-        obs_np = obs_out.astype(np.float32)
+    obs_np = _to_numpy_f32(obs_out)
 
     total_steps = 0
     ep_rewards = []
@@ -138,50 +153,79 @@ def off_policy_collector_fn(
                 actions_np = np.random.uniform(-1, 1, (num_envs, action_dim)).astype(np.float32)
             else:
                 obs_torch = torch.from_numpy(obs_np).to(collector_device)
-                obs_td = TensorDict({"policy": obs_torch}, batch_size=num_envs, device=collector_device)
-                actions_torch = actor(obs_td)
 
-                if algo_type == "td3":
+                if algo_type == "sac":
+                    # SAC: stochastic actor — use explore()
+                    actions_torch = actor.explore(obs_torch)
+                elif algo_type == "td3":
                     # TD3: deterministic + exploration noise
-                    actions_torch = torch.tanh(actions_torch)
+                    actions_torch = actor(obs_torch)
                     noise = torch.randn_like(actions_torch) * exploration_noise
                     actions_torch = (actions_torch + noise).clamp(-1, 1)
                 else:
-                    # SAC: stochastic policy (actor already samples)
-                    actions_torch = torch.tanh(actions_torch)
+                    actions_torch = torch.zeros((num_envs, action_dim), device=collector_device)
 
                 actions_np = actions_torch.cpu().numpy().astype(np.float32)
 
-        # Step environment
-        state = env.step(actions_np)
+        # Step environment (convert actions to mlx if needed)
+        try:
+            import mlx.core as mx
+            actions_mx = mx.array(actions_np)
+            ctrl = env.apply_action(actions_mx, env._state)
+            state = env._step_physics(ctrl)
+            state = env.update_state(state)
+            env._state = state
+        except Exception:
+            # Fallback: use env.step if available
+            state = env.step(actions_np)
 
-        if hasattr(state, "obs"):
+        # Extract observations, rewards, dones
+        if hasattr(state, "obs") and state.obs is not None:
             next_obs_raw = state.obs
-            reward_raw = state.reward if hasattr(state, "reward") else np.zeros(num_envs)
-            done_raw = state.terminated if hasattr(state, "terminated") else np.zeros(num_envs)
-        else:
+            reward_raw = state.reward if hasattr(state, "reward") and state.reward is not None else np.zeros(num_envs)
+            done_raw = state.terminated if hasattr(state, "terminated") and state.terminated is not None else np.zeros(num_envs)
+            truncated_raw = state.truncated if hasattr(state, "truncated") and state.truncated is not None else np.zeros(num_envs)
+        elif isinstance(state, tuple):
             next_obs_raw = state[0]
             reward_raw = state[1] if len(state) > 1 else np.zeros(num_envs)
             done_raw = state[2] if len(state) > 2 else np.zeros(num_envs)
-
-        # Convert to numpy
-        if hasattr(next_obs_raw, "__array__"):
-            next_obs_np = np.array(next_obs_raw, dtype=np.float32)
+            truncated_raw = state[3] if len(state) > 3 else np.zeros(num_envs)
         else:
-            next_obs_np = next_obs_raw.astype(np.float32)
+            continue
 
-        rewards_np = np.array(reward_raw, dtype=np.float32).ravel()
-        dones_np = np.array(done_raw, dtype=np.float32).ravel()
+        # Convert to numpy (handles both mlx and numpy)
+        next_obs_np = _to_numpy_f32(next_obs_raw)
+        rewards_np = _to_numpy_f32(reward_raw).ravel()
+        dones_np = _to_numpy_f32(done_raw).ravel()
+        truncated_np = _to_numpy_f32(truncated_raw).ravel()
+
+        # Combined done = terminated | truncated
+        combined_dones = np.clip(dones_np + truncated_np, 0, 1)
 
         # Write to shared replay buffer
-        replay_buffer.add_batch(obs_np, actions_np, rewards_np, next_obs_np, dones_np)
+        replay_buffer.add_batch(obs_np, actions_np, rewards_np, next_obs_np, combined_dones)
 
-        # Track metrics
+        # Track episode rewards
         current_ep_rewards += rewards_np
-        for i in range(num_envs):
-            if dones_np[i] > 0.5:
-                ep_rewards.append(float(current_ep_rewards[i]))
-                current_ep_rewards[i] = 0.0
+        reset_mask = combined_dones > 0.5
+
+        # Handle resets
+        if np.any(reset_mask):
+            for i in range(num_envs):
+                if reset_mask[i]:
+                    ep_rewards.append(float(current_ep_rewards[i]))
+                    current_ep_rewards[i] = 0.0
+
+            # Reset terminated environments
+            try:
+                import mlx.core as mx
+                reset_indices = mx.array(np.where(reset_mask)[0], dtype=mx.int32)
+                if len(reset_indices) > 0:
+                    new_physics, new_obs, new_info = env.reset(reset_indices)
+                    reset_idx_np = np.where(reset_mask)[0]
+                    next_obs_np[reset_idx_np] = _to_numpy_f32(new_obs)
+            except Exception:
+                pass
 
         total_steps += num_envs
 
@@ -202,4 +246,3 @@ def off_policy_collector_fn(
     # Cleanup
     replay_buffer.close()
     weight_sync.close()
-    env.close()
