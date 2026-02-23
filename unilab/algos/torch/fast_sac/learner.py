@@ -1,235 +1,533 @@
-"""FastSAC Learner — Soft Actor-Critic with automatic entropy tuning.
+"""FastSAC Learner — replicated from holosoma's FastSAC implementation.
 
-Key features:
-- Twin Q-networks (take min for target Q, same as TD3)
-- Stochastic policy (tanh-squashed Gaussian)
+Network architecture:
+- Actor: MLP with SiLU + LayerNorm, tanh-squashed Gaussian
+- Critic: Distributional Q-Networks (C51 variant, num_atoms=101)
 - Automatic entropy coefficient (alpha) learning
-- Soft target network updates
-- Running reward normalization to prevent Q-value explosion
-- Works with rsl_rl MLPModel for actor/critic
+
+Hyperparameters aligned with holosoma FastSACConfig defaults.
 """
 
+from __future__ import annotations
+
 import copy
+import math
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
-from itertools import chain
-from tensordict import TensorDict
-
-from rsl_rl.models import MLPModel
-from rsl_rl.utils import resolve_optimizer
+from typing import Dict, Tuple
 
 
-class RunningMeanStd:
-    """Running mean/std for reward normalization (Welford's algorithm)."""
+# ---------------------------------------------------------------------------
+# Actor Network (holosoma-style: SiLU + LayerNorm + Tanh squashing)
+# ---------------------------------------------------------------------------
 
-    def __init__(self, device="cpu"):
-        self.mean = torch.tensor(0.0, device=device)
-        self.var = torch.tensor(1.0, device=device)
-        self.count = 0
+class SACActor(nn.Module):
+    """Stochastic actor for SAC with tanh-squashed Gaussian policy.
 
-    def update(self, x):
-        batch_mean = x.mean()
-        batch_var = x.var() if x.numel() > 1 else torch.tensor(0.0, device=x.device)
-        batch_count = x.numel()
-
-        delta = batch_mean - self.mean
-        total_count = self.count + batch_count
-
-        if total_count == 0:
-            return
-
-        self.mean = self.mean + delta * batch_count / total_count
-        m_a = self.var * self.count
-        m_b = batch_var * batch_count
-        m2 = m_a + m_b + delta**2 * self.count * batch_count / total_count
-        self.var = m2 / total_count
-        self.count = total_count
-
-    def normalize(self, x):
-        return (x - self.mean) / (self.var.sqrt() + 1e-8)
-
-
-class FastSACLearner:
-    """SAC learner that trains on GPU from replay buffer samples."""
+    Architecture: Linear→LN→SiLU → Linear→LN→SiLU → Linear→LN→SiLU → fc_mu + fc_logstd
+    Hidden dims: [hidden_dim, hidden_dim//2, hidden_dim//4]
+    """
 
     def __init__(
         self,
-        actor: MLPModel,
-        critic1: MLPModel,
-        critic2: MLPModel,
-        # SAC hyper-parameters
-        gamma: float = 0.99,
-        tau: float = 0.005,
+        obs_dim: int,
+        action_dim: int,
+        hidden_dim: int = 512,
+        log_std_max: float = 0.0,
+        log_std_min: float = -5.0,
+        use_tanh: bool = True,
+        use_layer_norm: bool = True,
+        device: str | torch.device = "cpu",
+        action_scale: torch.Tensor | None = None,
+        action_bias: torch.Tensor | None = None,
+    ):
+        super().__init__()
+        self.obs_dim = obs_dim
+        self.action_dim = action_dim
+        self.log_std_max = log_std_max
+        self.log_std_min = log_std_min
+        self.use_tanh = use_tanh
+        self.device_ = device  # avoid name collision with nn.Module.device
+
+        self.net = nn.Sequential(
+            nn.Linear(obs_dim, hidden_dim, device=device),
+            nn.LayerNorm(hidden_dim, device=device) if use_layer_norm else nn.Identity(),
+            nn.SiLU(),
+            nn.Linear(hidden_dim, hidden_dim // 2, device=device),
+            nn.LayerNorm(hidden_dim // 2, device=device) if use_layer_norm else nn.Identity(),
+            nn.SiLU(),
+            nn.Linear(hidden_dim // 2, hidden_dim // 4, device=device),
+            nn.LayerNorm(hidden_dim // 4, device=device) if use_layer_norm else nn.Identity(),
+            nn.SiLU(),
+        )
+        self.fc_mu = nn.Linear(hidden_dim // 4, action_dim, device=device)
+        self.fc_logstd = nn.Linear(hidden_dim // 4, action_dim, device=device)
+
+        # Zero-init output heads (holosoma style)
+        nn.init.constant_(self.fc_mu.weight, 0.0)
+        nn.init.constant_(self.fc_mu.bias, 0.0)
+        nn.init.constant_(self.fc_logstd.weight, 0.0)
+        nn.init.constant_(self.fc_logstd.bias, 0.0)
+
+        # Action scaling
+        if action_scale is not None:
+            self.register_buffer("action_scale", action_scale.to(device))
+        else:
+            self.register_buffer("action_scale", torch.ones(action_dim, device=device))
+        if action_bias is not None:
+            self.register_buffer("action_bias", action_bias.to(device))
+        else:
+            self.register_buffer("action_bias", torch.zeros(action_dim, device=device))
+
+    def forward(self, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Returns (action, mean, log_std)."""
+        x = self.net(obs)
+        mean = self.fc_mu(x)
+        log_std = self.fc_logstd(x)
+
+        # Squash log_std to [log_std_min, log_std_max] (SpinUp / Denis Yarats style)
+        log_std = torch.tanh(log_std)
+        log_std = self.log_std_min + 0.5 * (self.log_std_max - self.log_std_min) * (log_std + 1)
+
+        if self.use_tanh:
+            tanh_mean = torch.tanh(mean)
+            action = tanh_mean * self.action_scale + self.action_bias
+        else:
+            action = mean
+
+        return action, mean, log_std
+
+    def get_actions_and_log_probs(self, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Sample actions and compute log probabilities."""
+        _, mean, log_std = self(obs)
+        std = log_std.exp()
+        dist = torch.distributions.Normal(mean, std)
+        raw_action = dist.rsample()
+
+        if self.use_tanh:
+            tanh_action = torch.tanh(raw_action)
+            action = tanh_action * self.action_scale + self.action_bias
+            log_prob = dist.log_prob(raw_action)
+            log_prob -= torch.log(1 - tanh_action.pow(2) + 1e-6)
+            log_prob -= torch.log(self.action_scale + 1e-6)
+        else:
+            action = raw_action
+            log_prob = dist.log_prob(raw_action)
+
+        log_prob = log_prob.sum(1)
+        return action, log_prob
+
+    @torch.no_grad()
+    def explore(self, obs: torch.Tensor, deterministic: bool = False) -> torch.Tensor:
+        """Get exploration actions."""
+        _, mean, log_std = self(obs)
+        if deterministic:
+            if self.use_tanh:
+                return torch.tanh(mean) * self.action_scale + self.action_bias
+            return mean
+
+        std = log_std.exp()
+        dist = torch.distributions.Normal(mean, std)
+        raw_action = dist.rsample()
+
+        if self.use_tanh:
+            return torch.tanh(raw_action) * self.action_scale + self.action_bias
+        return raw_action
+
+
+# ---------------------------------------------------------------------------
+# Distributional Q-Network (C51 variant, from holosoma)
+# ---------------------------------------------------------------------------
+
+class DistributionalQNetwork(nn.Module):
+    """Single distributional Q-network (C51).
+
+    Architecture: Linear→LN→SiLU → Linear→LN→SiLU → Linear→LN→SiLU → Linear(num_atoms)
+    Input: concat(obs, action)
+    """
+
+    def __init__(
+        self,
+        obs_dim: int,
+        action_dim: int,
+        num_atoms: int = 101,
+        v_min: float = -20.0,
+        v_max: float = 20.0,
+        hidden_dim: int = 768,
+        use_layer_norm: bool = True,
+        device: str | torch.device = "cpu",
+    ):
+        super().__init__()
+        self.num_atoms = num_atoms
+        self.v_min = v_min
+        self.v_max = v_max
+
+        input_dim = obs_dim + action_dim
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim, device=device),
+            nn.LayerNorm(hidden_dim, device=device) if use_layer_norm else nn.Identity(),
+            nn.SiLU(),
+            nn.Linear(hidden_dim, hidden_dim // 2, device=device),
+            nn.LayerNorm(hidden_dim // 2, device=device) if use_layer_norm else nn.Identity(),
+            nn.SiLU(),
+            nn.Linear(hidden_dim // 2, hidden_dim // 4, device=device),
+            nn.LayerNorm(hidden_dim // 4, device=device) if use_layer_norm else nn.Identity(),
+            nn.SiLU(),
+            nn.Linear(hidden_dim // 4, num_atoms, device=device),
+        )
+
+    def forward(self, obs: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+        x = torch.cat([obs, actions], dim=-1)
+        return self.net(x)
+
+    def projection(
+        self,
+        obs: torch.Tensor,
+        actions: torch.Tensor,
+        rewards: torch.Tensor,
+        bootstrap: torch.Tensor,
+        discount: torch.Tensor,
+        q_support: torch.Tensor,
+        device: torch.device,
+    ) -> torch.Tensor:
+        """Categorical projection for distributional RL."""
+        delta_z = (self.v_max - self.v_min) / (self.num_atoms - 1)
+        batch_size = rewards.shape[0]
+
+        target_z = rewards.unsqueeze(1) + bootstrap.unsqueeze(1) * discount.unsqueeze(1) * q_support
+        target_z = target_z.clamp(self.v_min, self.v_max)
+        b = (target_z - self.v_min) / delta_z
+        lower = torch.floor(b).long()
+        upper = torch.ceil(b).long()
+
+        is_integer = upper == lower
+        lower_mask = torch.logical_and((lower > 0), is_integer)
+        upper_mask = torch.logical_and((lower == 0), is_integer)
+
+        lower = torch.where(lower_mask, lower - 1, lower)
+        upper = torch.where(upper_mask, upper + 1, upper)
+
+        next_dist = F.softmax(self(obs, actions), dim=1)
+        proj_dist = torch.zeros_like(next_dist)
+        offset = (
+            torch.linspace(0, (batch_size - 1) * self.num_atoms, batch_size, device=device)
+            .unsqueeze(1)
+            .expand(batch_size, self.num_atoms)
+            .long()
+        )
+
+        lower_indices = (lower + offset).view(-1)
+        upper_indices = (upper + offset).view(-1)
+        max_index = proj_dist.numel() - 1
+        lower_indices = torch.clamp(lower_indices, 0, max_index)
+        upper_indices = torch.clamp(upper_indices, 0, max_index)
+
+        proj_dist.view(-1).index_add_(0, lower_indices, (next_dist * (upper.float() - b)).view(-1))
+        proj_dist.view(-1).index_add_(0, upper_indices, (next_dist * (b - lower.float())).view(-1))
+        return proj_dist
+
+
+class SACCritic(nn.Module):
+    """Ensemble of distributional Q-networks for SAC.
+
+    Uses ``num_q_networks`` independent DistributionalQNetwork instances.
+    """
+
+    def __init__(
+        self,
+        obs_dim: int,
+        action_dim: int,
+        num_atoms: int = 101,
+        v_min: float = -20.0,
+        v_max: float = 20.0,
+        hidden_dim: int = 768,
+        use_layer_norm: bool = True,
+        num_q_networks: int = 2,
+        device: str | torch.device = "cpu",
+    ):
+        super().__init__()
+        self.obs_dim = obs_dim
+        self.action_dim = action_dim
+        self.num_atoms = num_atoms
+        self.v_min = v_min
+        self.v_max = v_max
+        self.num_q_networks = num_q_networks
+
+        self.qnets = nn.ModuleList([
+            DistributionalQNetwork(
+                obs_dim=obs_dim,
+                action_dim=action_dim,
+                num_atoms=num_atoms,
+                v_min=v_min,
+                v_max=v_max,
+                hidden_dim=hidden_dim,
+                use_layer_norm=use_layer_norm,
+                device=device,
+            )
+            for _ in range(num_q_networks)
+        ])
+
+        self.register_buffer("q_support", torch.linspace(v_min, v_max, num_atoms, device=device))
+
+    def forward(self, obs: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+        """Returns stacked logits: (num_q_nets, batch, num_atoms)."""
+        outputs = [qnet(obs, actions) for qnet in self.qnets]
+        return torch.stack(outputs, dim=0)
+
+    def projection(
+        self,
+        obs: torch.Tensor,
+        actions: torch.Tensor,
+        rewards: torch.Tensor,
+        bootstrap: torch.Tensor,
+        discount: torch.Tensor,
+    ) -> torch.Tensor:
+        """Project for all Q-networks: (num_q_nets, batch, num_atoms)."""
+        projections = [
+            qnet.projection(obs, actions, rewards, bootstrap, discount,
+                          self.q_support, self.q_support.device)
+            for qnet in self.qnets
+        ]
+        return torch.stack(projections, dim=0)
+
+    def get_value(self, probs: torch.Tensor) -> torch.Tensor:
+        """Calculate value from probabilities using support."""
+        return torch.sum(probs * self.q_support, dim=-1)
+
+
+# ---------------------------------------------------------------------------
+# FastSACLearner — the training algorithm
+# ---------------------------------------------------------------------------
+
+class FastSACLearner:
+    """FastSAC learner with holosoma-aligned hyperparameters.
+
+    Key hyperparameters (aligned with holosoma FastSACConfig):
+    - gamma=0.97, tau=0.125
+    - batch_size=8192, num_updates=8, policy_frequency=4
+    - alpha_init=0.001, target_entropy_ratio=0.0
+    - AdamW with betas=(0.9, 0.95), weight_decay=0.001
+    - Distributional critic (C51, num_atoms=101)
+    """
+
+    def __init__(
+        self,
+        obs_dim: int,
+        action_dim: int,
+        device: str = "cpu",
+        # Hyperparameters aligned with holosoma
+        gamma: float = 0.97,
+        tau: float = 0.125,
         actor_lr: float = 3e-4,
         critic_lr: float = 3e-4,
         alpha_lr: float = 3e-4,
-        init_alpha: float = 0.2,
-        target_entropy: float | None = None,
-        num_actions: int = 12,
-        max_grad_norm: float = 1.0,
-        normalize_rewards: bool = True,
-        optimizer: str = "adam",
-        device: str = "cpu",
-        **kwargs,
+        alpha_init: float = 0.001,
+        target_entropy_ratio: float = 0.0,
+        actor_hidden_dim: int = 512,
+        critic_hidden_dim: int = 768,
+        num_atoms: int = 101,
+        v_min: float = -20.0,
+        v_max: float = 20.0,
+        num_q_networks: int = 2,
+        use_layer_norm: bool = True,
+        use_tanh: bool = True,
+        log_std_max: float = 0.0,
+        log_std_min: float = -5.0,
+        weight_decay: float = 0.001,
+        max_grad_norm: float = 0.0,
+        use_autotune: bool = True,
     ):
         self.device = device
         self.gamma = gamma
         self.tau = tau
         self.max_grad_norm = max_grad_norm
-        self.learning_rate = actor_lr  # exposed for logging
-        self.normalize_rewards = normalize_rewards
+        self.use_autotune = use_autotune
 
-        # Running reward stats for normalization
-        self.reward_rms = RunningMeanStd(device=device) if normalize_rewards else None
+        # Build actor
+        self.actor = SACActor(
+            obs_dim=obs_dim,
+            action_dim=action_dim,
+            hidden_dim=actor_hidden_dim,
+            log_std_max=log_std_max,
+            log_std_min=log_std_min,
+            use_tanh=use_tanh,
+            use_layer_norm=use_layer_norm,
+            device=device,
+        )
 
-        # Networks
-        self.actor = actor.to(device)
-        self.critic1 = critic1.to(device)
-        self.critic2 = critic2.to(device)
+        # Build critic ensemble
+        self.qnet = SACCritic(
+            obs_dim=obs_dim,
+            action_dim=action_dim,
+            num_atoms=num_atoms,
+            v_min=v_min,
+            v_max=v_max,
+            hidden_dim=critic_hidden_dim,
+            use_layer_norm=use_layer_norm,
+            num_q_networks=num_q_networks,
+            device=device,
+        )
 
-        # Target critics only (no target actor in SAC)
-        self.target_critic1 = copy.deepcopy(self.critic1).to(device)
-        self.target_critic2 = copy.deepcopy(self.critic2).to(device)
-        for net in [self.target_critic1, self.target_critic2]:
-            net.eval()
-            for p in net.parameters():
-                p.requires_grad = False
+        # Target critic
+        self.qnet_target = SACCritic(
+            obs_dim=obs_dim,
+            action_dim=action_dim,
+            num_atoms=num_atoms,
+            v_min=v_min,
+            v_max=v_max,
+            hidden_dim=critic_hidden_dim,
+            use_layer_norm=use_layer_norm,
+            num_q_networks=num_q_networks,
+            device=device,
+        )
+        self.qnet_target.load_state_dict(self.qnet.state_dict())
 
-        # Automatic entropy tuning
-        if target_entropy is None:
-            self.target_entropy = -float(num_actions)
-        else:
-            self.target_entropy = target_entropy
-
+        # Entropy coefficient
         self.log_alpha = torch.tensor(
-            [float(torch.log(torch.tensor(init_alpha)))],
-            dtype=torch.float32, device=device, requires_grad=True,
+            [math.log(alpha_init)], requires_grad=True, device=device
+        )
+        self.target_entropy = -action_dim * target_entropy_ratio
+
+        # Optimizers (AdamW with holosoma betas)
+        self.q_optimizer = optim.AdamW(
+            self.qnet.parameters(),
+            lr=critic_lr,
+            weight_decay=weight_decay,
+            betas=(0.9, 0.95),
+        )
+        self.actor_optimizer = optim.AdamW(
+            self.actor.parameters(),
+            lr=actor_lr,
+            weight_decay=weight_decay,
+            betas=(0.9, 0.95),
+        )
+        self.alpha_optimizer = optim.AdamW(
+            [self.log_alpha],
+            lr=alpha_lr,
+            betas=(0.9, 0.95),
         )
 
-        # Optimisers
-        opt_cls = resolve_optimizer(optimizer)
-        self.actor_optimizer = opt_cls(self.actor.parameters(), lr=actor_lr)
-        self.critic_optimizer = opt_cls(
-            chain(self.critic1.parameters(), self.critic2.parameters()), lr=critic_lr,
-        )
-        self.alpha_optimizer = opt_cls([self.log_alpha], lr=alpha_lr)
+        # Step counter
+        self.update_count = 0
 
-    @property
-    def alpha(self):
-        return self.log_alpha.exp().item()
+    def update_critic(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
+        """One critic update step."""
+        obs = batch["obs"]
+        actions = batch["actions"]
+        rewards = batch["rewards"]
+        next_obs = batch["next_obs"]
+        dones = batch["dones"]
 
-    def train_mode(self):
-        self.actor.train()
-        self.critic1.train()
-        self.critic2.train()
+        bootstrap = (1.0 - dones).float()
+        discount = torch.full_like(dones, self.gamma)
 
-    def eval_mode(self):
-        self.actor.eval()
-        self.critic1.eval()
-        self.critic2.eval()
-
-    def get_weights(self):
-        return {"actor_state_dict": self.actor.state_dict()}
-
-    def update(self, obs, actions, rewards, next_obs, dones):
-        """One SAC gradient step.
-
-        All inputs: tensors on self.device.
-        obs, next_obs: [B, D]  |  actions: [B, A]  |  rewards, dones: [B]
-        """
-        # Reward normalization to prevent Q-value explosion
-        if self.reward_rms is not None:
-            self.reward_rms.update(rewards)
-            rewards = self.reward_rms.normalize(rewards)
-
-        alpha = self.log_alpha.exp().detach()
-
-        # --- Critic update ---
         with torch.no_grad():
-            obs_td_next = TensorDict(
-                {"policy": next_obs}, batch_size=next_obs.shape[0], device=self.device,
+            next_actions, next_log_probs = self.actor.get_actions_and_log_probs(next_obs)
+            # Distributional target with entropy bonus
+            adjusted_rewards = rewards - discount * bootstrap * self.log_alpha.exp() * next_log_probs
+
+            target_distributions = self.qnet_target.projection(
+                next_obs, next_actions, adjusted_rewards, bootstrap, discount
             )
-            # Sample next actions from current policy
-            next_actions = self.actor(obs_td_next, stochastic_output=True)
-            next_log_prob = self.actor.get_output_log_prob(next_actions)  # [B]
+            target_values = self.qnet_target.get_value(target_distributions)
 
-            # Target Q
-            q_input_next = TensorDict(
-                {"policy": torch.cat([next_obs, next_actions], dim=-1)},
-                batch_size=next_obs.shape[0],
-                device=self.device,
+        # Critic loss: cross-entropy with projected distributions
+        q_outputs = self.qnet(obs, actions)
+        critic_log_probs = F.log_softmax(q_outputs, dim=-1)
+        critic_losses = -torch.sum(target_distributions * critic_log_probs, dim=-1)
+        qf_loss = critic_losses.mean(dim=1).sum(dim=0)
+
+        self.q_optimizer.zero_grad(set_to_none=True)
+        qf_loss.backward()
+
+        critic_grad_norm = torch.tensor(0.0, device=self.device)
+        if self.max_grad_norm > 0:
+            critic_grad_norm = torch.nn.utils.clip_grad_norm_(
+                self.qnet.parameters(), max_norm=self.max_grad_norm
             )
-            target_q1 = self.target_critic1(q_input_next).squeeze(-1)
-            target_q2 = self.target_critic2(q_input_next).squeeze(-1)
-            target_q = torch.min(target_q1, target_q2) - alpha * next_log_prob
-            target_value = rewards + (1.0 - dones) * self.gamma * target_q
+        self.q_optimizer.step()
 
-        # Current Q
-        q_input = TensorDict(
-            {"policy": torch.cat([obs, actions], dim=-1)},
-            batch_size=obs.shape[0],
-            device=self.device,
-        )
-        q1 = self.critic1(q_input).squeeze(-1)
-        q2 = self.critic2(q_input).squeeze(-1)
+        # Alpha loss
+        alpha_loss = torch.tensor(0.0, device=self.device)
+        if self.use_autotune:
+            self.alpha_optimizer.zero_grad(set_to_none=True)
+            alpha_loss = (-self.log_alpha.exp() * (next_log_probs.detach() + self.target_entropy)).mean()
+            alpha_loss.backward()
+            self.alpha_optimizer.step()
 
-        critic_loss = nn.functional.mse_loss(q1, target_value) + nn.functional.mse_loss(q2, target_value)
+        return {
+            "qf_loss": qf_loss.item(),
+            "critic_grad_norm": critic_grad_norm.item(),
+            "alpha_loss": alpha_loss.item(),
+            "alpha": self.log_alpha.exp().item(),
+            "target_q_max": target_values.max().item(),
+            "target_q_min": target_values.min().item(),
+        }
 
-        self.critic_optimizer.zero_grad(set_to_none=True)
-        critic_loss.backward()
-        nn.utils.clip_grad_norm_(
-            chain(self.critic1.parameters(), self.critic2.parameters()),
-            self.max_grad_norm,
-        )
-        self.critic_optimizer.step()
+    def update_actor(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
+        """One actor update step."""
+        obs = batch["obs"]
 
-        # --- Actor update ---
-        obs_td = TensorDict(
-            {"policy": obs}, batch_size=obs.shape[0], device=self.device,
-        )
-        new_actions = self.actor(obs_td, stochastic_output=True)
-        new_log_prob = self.actor.get_output_log_prob(new_actions)
+        actions, log_probs = self.actor.get_actions_and_log_probs(obs)
 
-        q_input_actor = TensorDict(
-            {"policy": torch.cat([obs, new_actions], dim=-1)},
-            batch_size=obs.shape[0],
-            device=self.device,
-        )
-        q1_pi = self.critic1(q_input_actor).squeeze(-1)
-        q2_pi = self.critic2(q_input_actor).squeeze(-1)
-        q_pi = torch.min(q1_pi, q2_pi)
+        with torch.no_grad():
+            _, _, log_std = self.actor(obs)
+            action_std = log_std.exp().mean()
+            policy_entropy = -log_probs.mean()
 
-        actor_loss = (alpha * new_log_prob - q_pi).mean()
+        q_outputs = self.qnet(obs, actions)
+        q_probs = F.softmax(q_outputs, dim=-1)
+        q_values = self.qnet.get_value(q_probs)
+        qf_value = q_values.mean(dim=0)
+        actor_loss = (self.log_alpha.exp().detach() * log_probs - qf_value).mean()
 
         self.actor_optimizer.zero_grad(set_to_none=True)
         actor_loss.backward()
-        nn.utils.clip_grad_norm_(self.actor.parameters(), self.max_grad_norm)
+
+        actor_grad_norm = torch.tensor(0.0, device=self.device)
+        if self.max_grad_norm > 0:
+            actor_grad_norm = torch.nn.utils.clip_grad_norm_(
+                self.actor.parameters(), max_norm=self.max_grad_norm
+            )
         self.actor_optimizer.step()
 
-        # --- Alpha update ---
-        alpha_loss = -(self.log_alpha * (new_log_prob.detach() + self.target_entropy)).mean()
-
-        self.alpha_optimizer.zero_grad(set_to_none=True)
-        alpha_loss.backward()
-        self.alpha_optimizer.step()
-
-        # --- Soft update targets ---
-        self._soft_update(self.target_critic1, self.critic1)
-        self._soft_update(self.target_critic2, self.critic2)
-
         return {
-            "critic_loss": critic_loss.item(),
             "actor_loss": actor_loss.item(),
-            "alpha_loss": alpha_loss.item(),
-            "alpha": self.alpha,
-            "q1_mean": q1.mean().item(),
-            "q2_mean": q2.mean().item(),
-            "entropy": -new_log_prob.mean().item(),
+            "actor_grad_norm": actor_grad_norm.item(),
+            "policy_entropy": policy_entropy.item(),
+            "action_std": action_std.item(),
         }
 
-    def _soft_update(self, target, source):
-        for tp, sp in zip(target.parameters(), source.parameters()):
-            tp.data.copy_(self.tau * sp.data + (1.0 - self.tau) * tp.data)
-        for tb, sb in zip(target.buffers(), source.buffers()):
-            tb.data.copy_(sb.data)
+    def soft_update_target(self) -> None:
+        """Polyak-average update of the target Q-network."""
+        with torch.no_grad():
+            src_ps = [p.data for p in self.qnet.parameters()]
+            tgt_ps = [p.data for p in self.qnet_target.parameters()]
+            torch._foreach_mul_(tgt_ps, 1.0 - self.tau)
+            torch._foreach_add_(tgt_ps, src_ps, alpha=self.tau)
+
+    def get_state_dict(self) -> Dict[str, any]:
+        """Save all components."""
+        return {
+            "actor": self.actor.state_dict(),
+            "qnet": self.qnet.state_dict(),
+            "qnet_target": self.qnet_target.state_dict(),
+            "log_alpha": self.log_alpha.detach().cpu(),
+            "actor_optimizer": self.actor_optimizer.state_dict(),
+            "q_optimizer": self.q_optimizer.state_dict(),
+            "alpha_optimizer": self.alpha_optimizer.state_dict(),
+            "update_count": self.update_count,
+        }
+
+    def load_state_dict(self, state_dict: Dict) -> None:
+        """Load all components."""
+        self.actor.load_state_dict(state_dict["actor"])
+        self.qnet.load_state_dict(state_dict["qnet"])
+        self.qnet_target.load_state_dict(state_dict["qnet_target"])
+        self.log_alpha.data.copy_(state_dict["log_alpha"].to(self.device))
+        self.actor_optimizer.load_state_dict(state_dict["actor_optimizer"])
+        self.q_optimizer.load_state_dict(state_dict["q_optimizer"])
+        self.alpha_optimizer.load_state_dict(state_dict["alpha_optimizer"])
+        self.update_count = state_dict.get("update_count", 0)

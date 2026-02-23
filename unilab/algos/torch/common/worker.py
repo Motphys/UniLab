@@ -1,18 +1,13 @@
-"""Off-policy Ray rollout worker for TD3 and SAC.
+"""Off-policy collector for TD3 and SAC (no Ray dependency).
 
 Collects (obs, action, reward, next_obs, done) transitions using the current
-actor policy (with exploration noise).  Designed to run on CPU while the
-learner trains on MPS/GPU.
+actor policy.  Runs in a subprocess; writes to a SharedReplayBuffer.
 """
 
-import ray
 import torch
 import numpy as np
 import pkgutil
 import importlib
-from tensordict import TensorDict
-
-from rsl_rl.utils import resolve_callable
 
 
 # Ensure all environment modules are imported so they are registered
@@ -25,170 +20,186 @@ def ensure_registries():
             for _, name, ispkg in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
                 try:
                     importlib.import_module(name)
-                except Exception as e:
-                    print(f"[OffPolicyWorker] Warning: failed to import {name}: {e}")
-    except ImportError as e:
-        print(f"[OffPolicyWorker] Warning: failed to import unilab.envs.locomotion: {e}")
+                except Exception:
+                    pass
+    except ImportError:
+        pass
+
+    try:
+        import unilab.envs.locomotion.walking
+
+        package = unilab.envs.locomotion.walking
+        if hasattr(package, "__path__"):
+            for _, name, ispkg in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
+                try:
+                    importlib.import_module(name)
+                except Exception:
+                    pass
+    except ImportError:
+        pass
 
 
-ensure_registries()
+def off_policy_collector_fn(
+    stop_event,
+    env_name: str,
+    env_cfg_overrides: dict,
+    rl_cfg: dict,
+    num_envs: int,
+    steps_per_env: int,
+    shm_buffer_name: str,
+    buffer_capacity: int,
+    obs_dim: int,
+    action_dim: int,
+    weight_sync_name: str,
+    weight_param_shapes: dict,
+    collector_device: str = "cpu",
+    exploration_noise: float = 0.1,
+    warmup_steps: int = 5000,
+    metrics_queue=None,
+    algo_type: str = "sac",  # "sac" or "td3"
+):
+    """Entry point for the off-policy collector subprocess.
 
-from unilab.envs import registry  # noqa: E402
+    Creates the environment + actor, collects transitions, and writes
+    them to the SharedReplayBuffer via shared memory.
+    """
+    from unilab.algos.torch.common.async_runner import SharedReplayBuffer, SharedWeightSync
+    from unilab.envs import registry
+    from tensordict import TensorDict
+    from rsl_rl.utils import resolve_callable
 
+    ensure_registries()
 
-@ray.remote
-class OffPolicyWorker:
-    """Ray actor that collects transitions for off-policy algorithms."""
+    # --- Connect to shared memory ---
+    replay_buffer = SharedReplayBuffer(
+        buffer_capacity, obs_dim, action_dim, create=False, shm_name=shm_buffer_name
+    )
+    weight_sync = SharedWeightSync(
+        weight_param_shapes, create=False, shm_name=weight_sync_name
+    )
 
-    def __init__(self, env_name, env_cfg_overrides, device="cpu", exploration_noise=0.1):
-        self.device = device
-        self.env_name = env_name
-        self.exploration_noise = exploration_noise
+    # --- Create environment ---
+    env = registry.make(env_name, num_envs=num_envs, sim_backend="mujoco")
 
-        # Ensure registries are populated in this process
-        ensure_registries()
+    # --- Build actor model ---
+    from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4
 
-        # Debug: print registered envs
-        registered = registry.list_registered_envs()
-        print(f"[OffPolicyWorker] Registered envs: {list(registered.keys())}")
+    cfg = dict(rl_cfg)
+    if is_rsl_rl_v4():
+        cfg = convert_config_v3_to_v4(cfg)
 
-        num_envs = env_cfg_overrides.pop("num_envs", 1)
-        self.env = registry.make(env_name, num_envs=num_envs)
-        self.num_envs = self.env.num_envs
-        self.num_actions = self.env.action_space.shape[0]
-        self.obs_dim = self.env.observation_space.shape[0]
+    obs_example = torch.zeros((num_envs, obs_dim), device=collector_device)
+    td_example = TensorDict({"policy": obs_example}, batch_size=num_envs)
 
-        self.actor = None
+    actor_cfg = cfg["actor"].copy()
+    actor_cls = resolve_callable(actor_cfg.pop("class_name"))
+    actor = actor_cls(td_example, cfg["obs_groups"], "actor", action_dim, **actor_cfg)
+    actor = actor.to(collector_device)
+    actor.eval()
 
-        # Reset env
-        all_indices = np.arange(self.num_envs)
-        _, obs, _ = self.env.reset(all_indices)
-        self.current_obs = torch.as_tensor(obs, device=device, dtype=torch.float32)
+    # --- Load initial weights ---
+    weight_sync.read_weights_into(dict(actor.state_dict()))
+    local_weight_version = weight_sync.version
 
-        # Episode metrics
-        self.episode_sums = {
-            "reward": torch.zeros(self.num_envs, dtype=torch.float32, device=self.device),
-            "length": torch.zeros(self.num_envs, dtype=torch.int32, device=self.device),
-        }
-        self.episode_metrics = {}
-        self.step_log_entries = []
+    # --- Reset environment ---
+    try:
+        import mlx.core as mx
+        env_indices = mx.arange(num_envs, dtype=mx.int32)
+    except ImportError:
+        env_indices = np.arange(num_envs)
 
-    def init_policy(self, policy_cfg):
-        """Initialize worker policy architecture on CPU."""
-        obs_example = torch.zeros((self.num_envs, self.obs_dim), device=self.device)
-        obs_groups = policy_cfg.get("obs_groups", {"default": ["policy"]})
-        td_example = TensorDict({"policy": obs_example}, batch_size=self.num_envs)
+    try:
+        _, obs_out, _ = env.reset(env_indices)
+    except TypeError:
+        obs_out, _ = env.reset()
 
-        actor_cfg = policy_cfg["actor"].copy()
-        cls_name = actor_cfg.pop("class_name")
-        actor_class = resolve_callable(cls_name)
+    # Convert obs
+    if hasattr(obs_out, "__array__"):
+        obs_np = np.array(obs_out, dtype=np.float32)
+    else:
+        obs_np = obs_out.astype(np.float32)
 
-        self.actor = actor_class(
-            td_example, obs_groups, "actor", self.num_actions, **actor_cfg
-        ).to(self.device)
-        self.actor.eval()
+    total_steps = 0
+    ep_rewards = []
+    current_ep_rewards = np.zeros(num_envs, dtype=np.float32)
 
-    def set_weights(self, weights):
-        """Update local policy weights."""
-        if self.actor is None:
-            raise RuntimeError("Policy not initialized!")
-        if "actor_state_dict" in weights:
-            self.actor.load_state_dict(weights["actor_state_dict"])
-        else:
-            self.actor.load_state_dict(weights)
+    # --- Collection loop ---
+    while not stop_event.is_set():
+        # Check for weight updates
+        if weight_sync.version > local_weight_version:
+            sd = dict(actor.state_dict())
+            local_weight_version = weight_sync.read_weights_into(sd)
+            actor.load_state_dict(sd)
 
-    def set_exploration_noise(self, noise):
-        """Update exploration noise level."""
-        self.exploration_noise = noise
-
-    @torch.inference_mode()
-    def sample(self, num_steps, stochastic=False):
-        """Collect num_steps transitions.
-
-        Args:
-            num_steps: Number of environment steps to collect per environment.
-            stochastic: If True, sample from stochastic policy (SAC).
-                        If False, use deterministic + Gaussian noise (TD3).
-
-        Returns:
-            dict with pre-stacked buffers + metrics.
-        """
-        if self.actor is None:
-            raise RuntimeError("Policy not initialized!")
-
-        N = self.num_envs
-        T = num_steps
-        dev = self.device
-
-        # Pre-allocate buffers
-        obs_buf = torch.zeros((T, N, self.obs_dim), device=dev, dtype=torch.float32)
-        act_buf = torch.zeros((T, N, self.num_actions), device=dev, dtype=torch.float32)
-        rew_buf = torch.zeros((T, N), device=dev, dtype=torch.float32)
-        next_obs_buf = torch.zeros((T, N, self.obs_dim), device=dev, dtype=torch.float32)
-        dones_buf = torch.zeros((T, N), device=dev, dtype=torch.float32)
-
-        obs_td = TensorDict({"policy": self.current_obs}, batch_size=N, device=dev)
-
-        for t in range(T):
-            obs_buf[t] = self.current_obs
-            obs_td["policy"] = self.current_obs
-
-            if stochastic:
-                actions = self.actor(obs_td, stochastic_output=True)
+        # Select action
+        with torch.no_grad():
+            if total_steps < warmup_steps:
+                # Random exploration during warmup
+                actions_np = np.random.uniform(-1, 1, (num_envs, action_dim)).astype(np.float32)
             else:
-                actions = self.actor(obs_td)
-                noise = torch.randn_like(actions) * self.exploration_noise
-                actions = (actions + noise).clamp(-1.0, 1.0)
+                obs_torch = torch.from_numpy(obs_np).to(collector_device)
+                obs_td = TensorDict({"policy": obs_torch}, batch_size=num_envs, device=collector_device)
+                actions_torch = actor(obs_td)
 
-            act_buf[t] = actions
+                if algo_type == "td3":
+                    # TD3: deterministic + exploration noise
+                    actions_torch = torch.tanh(actions_torch)
+                    noise = torch.randn_like(actions_torch) * exploration_noise
+                    actions_torch = (actions_torch + noise).clamp(-1, 1)
+                else:
+                    # SAC: stochastic policy (actor already samples)
+                    actions_torch = torch.tanh(actions_torch)
 
-            # Step environment — unilab env returns a state object
-            state = self.env.step(actions.cpu().numpy())
-            next_obs = state.obs
-            rew = state.reward
-            terminated = state.terminated
-            truncated = state.truncated
-            infos = state.info
-            dones = np.logical_or(terminated, truncated)
+                actions_np = actions_torch.cpu().numpy().astype(np.float32)
 
-            rew_buf[t] = torch.as_tensor(rew, device=dev, dtype=torch.float32)
-            next_obs_t = torch.as_tensor(next_obs, device=dev, dtype=torch.float32)
-            next_obs_buf[t] = next_obs_t
-            dones_buf[t] = torch.as_tensor(dones, device=dev, dtype=torch.float32)
+        # Step environment
+        state = env.step(actions_np)
 
-            self.current_obs = next_obs_t
+        if hasattr(state, "obs"):
+            next_obs_raw = state.obs
+            reward_raw = state.reward if hasattr(state, "reward") else np.zeros(num_envs)
+            done_raw = state.terminated if hasattr(state, "terminated") else np.zeros(num_envs)
+        else:
+            next_obs_raw = state[0]
+            reward_raw = state[1] if len(state) > 1 else np.zeros(num_envs)
+            done_raw = state[2] if len(state) > 2 else np.zeros(num_envs)
 
-            # Metrics
-            self.episode_sums["reward"] += rew_buf[t]
-            self.episode_sums["length"] += 1
+        # Convert to numpy
+        if hasattr(next_obs_raw, "__array__"):
+            next_obs_np = np.array(next_obs_raw, dtype=np.float32)
+        else:
+            next_obs_np = next_obs_raw.astype(np.float32)
 
-            if isinstance(infos, dict) and "log" in infos:
-                self.step_log_entries.append(infos["log"])
+        rewards_np = np.array(reward_raw, dtype=np.float32).ravel()
+        dones_np = np.array(done_raw, dtype=np.float32).ravel()
 
-            done_indices = torch.nonzero(dones_buf[t]).squeeze(-1)
-            if len(done_indices) > 0:
-                for key in ["reward", "length"]:
-                    val_tensor = self.episode_sums[key]
-                    metric_name = "episode_returns" if key == "reward" else "episode_lengths"
-                    if metric_name not in self.episode_metrics:
-                        self.episode_metrics[metric_name] = []
-                    self.episode_metrics[metric_name].extend(val_tensor[done_indices].cpu().tolist())
-                    val_tensor[done_indices] = 0.0
+        # Write to shared replay buffer
+        replay_buffer.add_batch(obs_np, actions_np, rewards_np, next_obs_np, dones_np)
 
-        ret = {
-            "observations": obs_buf,        # [T, N, D]
-            "actions": act_buf,              # [T, N, A]
-            "rewards": rew_buf,              # [T, N]
-            "next_observations": next_obs_buf,  # [T, N, D]
-            "dones": dones_buf,              # [T, N]
-            "metrics": self.episode_metrics.copy(),
-            "step_logs": self.step_log_entries.copy(),
-        }
+        # Track metrics
+        current_ep_rewards += rewards_np
+        for i in range(num_envs):
+            if dones_np[i] > 0.5:
+                ep_rewards.append(float(current_ep_rewards[i]))
+                current_ep_rewards[i] = 0.0
 
-        self.episode_metrics = {}
-        self.step_log_entries = []
-        return ret
+        total_steps += num_envs
 
-    def close(self):
-        if hasattr(self, "env"):
-            self.env.close()
+        # Send metrics periodically
+        if metrics_queue is not None and total_steps % (num_envs * 10) == 0 and ep_rewards:
+            import statistics
+            try:
+                metrics_queue.put_nowait({
+                    "total_steps": total_steps,
+                    "mean_ep_reward": statistics.mean(ep_rewards[-100:]),
+                    "buffer_size": replay_buffer.size,
+                })
+            except Exception:
+                pass
+
+        obs_np = next_obs_np
+
+    # Cleanup
+    replay_buffer.close()
+    weight_sync.close()
+    env.close()
