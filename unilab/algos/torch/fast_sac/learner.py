@@ -91,6 +91,11 @@ class SACActor(nn.Module):
         log_std = torch.tanh(log_std)
         log_std = self.log_std_min + 0.5 * (self.log_std_max - self.log_std_min) * (log_std + 1)
 
+        # NaN protection: clamp mean to prevent exploding values
+        mean = torch.clamp(mean, -10.0, 10.0)
+        mean = torch.nan_to_num(mean, nan=0.0)
+        log_std = torch.nan_to_num(log_std, nan=self.log_std_min)
+
         if self.use_tanh:
             tanh_mean = torch.tanh(mean)
             action = tanh_mean * self.action_scale + self.action_bias
@@ -395,17 +400,20 @@ class FastSACLearner:
             self.qnet.parameters(),
             lr=critic_lr,
             weight_decay=weight_decay,
+            fused=True,
             betas=(0.9, 0.95),
         )
         self.actor_optimizer = optim.AdamW(
             self.actor.parameters(),
             lr=actor_lr,
             weight_decay=weight_decay,
+            fused=True,
             betas=(0.9, 0.95),
         )
         self.alpha_optimizer = optim.AdamW(
             [self.log_alpha],
             lr=alpha_lr,
+            fused=True,
             betas=(0.9, 0.95),
         )
 
@@ -425,7 +433,6 @@ class FastSACLearner:
 
         with torch.no_grad():
             next_actions, next_log_probs = self.actor.get_actions_and_log_probs(next_obs)
-            # Distributional target with entropy bonus
             adjusted_rewards = rewards - discount * bootstrap * self.log_alpha.exp() * next_log_probs
 
             target_distributions = self.qnet_target.projection(
@@ -435,35 +442,43 @@ class FastSACLearner:
 
         # Critic loss: cross-entropy with projected distributions
         q_outputs = self.qnet(obs, actions)
-        critic_log_probs = F.log_softmax(q_outputs, dim=-1)
+        critic_log_probs = F.log_softmax(q_outputs, dim=-1).clamp(min=-30.0)
         critic_losses = -torch.sum(target_distributions * critic_log_probs, dim=-1)
         qf_loss = critic_losses.mean(dim=1).sum(dim=0)
 
-        self.q_optimizer.zero_grad(set_to_none=True)
-        qf_loss.backward()
 
-        critic_grad_norm = torch.tensor(0.0, device=self.device)
-        if self.max_grad_norm > 0:
-            critic_grad_norm = torch.nn.utils.clip_grad_norm_(
-                self.qnet.parameters(), max_norm=self.max_grad_norm
-            )
-        self.q_optimizer.step()
+        # Skip if NaN
+        if torch.isfinite(qf_loss):
+            self.q_optimizer.zero_grad(set_to_none=True)
+            qf_loss.backward()
+            if self.max_grad_norm > 0:
+                critic_grad_norm = torch.nn.utils.clip_grad_norm_(
+                    self.qnet.parameters(), max_norm=self.max_grad_norm
+                )
+            else:
+                critic_grad_norm = torch.tensor(0.0, device=self.device)
+            self.q_optimizer.step()
+        else:
+            critic_grad_norm = torch.tensor(0.0, device=self.device)
 
-        # Alpha loss
+        # Alpha loss (temperature update) - matching holosoma
         alpha_loss = torch.tensor(0.0, device=self.device)
         if self.use_autotune:
             self.alpha_optimizer.zero_grad(set_to_none=True)
+            # using next_log_probs like holosoma
+            # holosoma: alpha_loss = (-self.log_alpha.exp() * (next_state_log_probs.detach() + self.target_entropy)).mean()
             alpha_loss = (-self.log_alpha.exp() * (next_log_probs.detach() + self.target_entropy)).mean()
-            alpha_loss.backward()
-            self.alpha_optimizer.step()
+            if torch.isfinite(alpha_loss):
+                alpha_loss.backward()
+                self.alpha_optimizer.step()
 
         return {
             "qf_loss": qf_loss.item(),
             "critic_grad_norm": critic_grad_norm.item(),
-            "alpha_loss": alpha_loss.item(),
-            "alpha": self.log_alpha.exp().item(),
             "target_q_max": target_values.max().item(),
             "target_q_min": target_values.min().item(),
+            "alpha_loss": alpha_loss.item(),
+            "alpha": self.log_alpha.exp().item(),
         }
 
     def update_actor(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
@@ -480,18 +495,22 @@ class FastSACLearner:
         q_outputs = self.qnet(obs, actions)
         q_probs = F.softmax(q_outputs, dim=-1)
         q_values = self.qnet.get_value(q_probs)
-        qf_value = q_values.mean(dim=0)
+        qf_value = q_values.mean(dim=0) # Using mean instead of min disables CDQ (per holosoma paper)
         actor_loss = (self.log_alpha.exp().detach() * log_probs - qf_value).mean()
 
-        self.actor_optimizer.zero_grad(set_to_none=True)
-        actor_loss.backward()
-
-        actor_grad_norm = torch.tensor(0.0, device=self.device)
-        if self.max_grad_norm > 0:
-            actor_grad_norm = torch.nn.utils.clip_grad_norm_(
-                self.actor.parameters(), max_norm=self.max_grad_norm
-            )
-        self.actor_optimizer.step()
+        # Skip if NaN
+        if torch.isfinite(actor_loss):
+            self.actor_optimizer.zero_grad(set_to_none=True)
+            actor_loss.backward()
+            if self.max_grad_norm > 0:
+                actor_grad_norm = torch.nn.utils.clip_grad_norm_(
+                    self.actor.parameters(), max_norm=self.max_grad_norm
+                )
+            else:
+                actor_grad_norm = torch.tensor(0.0, device=self.device)
+            self.actor_optimizer.step()
+        else:
+            actor_grad_norm = torch.tensor(0.0, device=self.device)
 
         return {
             "actor_loss": actor_loss.item(),

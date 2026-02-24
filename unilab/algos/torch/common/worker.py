@@ -2,6 +2,10 @@
 
 Collects (obs, action, reward, next_obs, done) transitions using the current
 actor policy.  Runs in a subprocess; writes to a SharedReplayBuffer.
+
+Data flow:
+  env.step(actions_mx) → state (mlx)  →  np.asarray()  →  replay buffer (numpy)
+  obs (mlx) → np.asarray → torch.from_numpy → actor → actions (torch) → mx.array → env
 """
 
 import torch
@@ -10,16 +14,15 @@ import pkgutil
 import importlib
 
 
-def _to_numpy_f32(x) -> np.ndarray:
-    """Convert mlx array / numpy array / scalar to numpy float32."""
-    return np.array(x, copy=False).astype(np.float32)
+def _mx_to_np(x) -> np.ndarray:
+    """Convert mlx/numpy/scalar to contiguous numpy float32."""
+    return np.asarray(x, dtype=np.float32)
 
 
-# Ensure all environment modules are imported so they are registered
 def ensure_registries():
+    """Import all env modules so they are registered."""
     try:
         import unilab.envs.locomotion
-
         package = unilab.envs.locomotion
         if hasattr(package, "__path__"):
             for _, name, ispkg in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
@@ -30,43 +33,21 @@ def ensure_registries():
     except ImportError:
         pass
 
-    try:
-        import unilab.envs.locomotion.walking
 
-        package = unilab.envs.locomotion.walking
-        if hasattr(package, "__path__"):
-            for _, name, ispkg in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
-                try:
-                    importlib.import_module(name)
-                except Exception:
-                    pass
-    except ImportError:
-        pass
-
-
-def _build_actor(algo_type, obs_dim, action_dim, actor_hidden_dim, use_layer_norm, collector_device):
+def _build_actor(algo_type, obs_dim, action_dim, actor_hidden_dim, use_layer_norm, device):
     """Build the correct actor model based on algorithm type."""
     if algo_type == "sac":
         from unilab.algos.torch.fast_sac.learner import SACActor
-        actor = SACActor(
-            obs_dim=obs_dim,
-            action_dim=action_dim,
-            hidden_dim=actor_hidden_dim,
-            use_layer_norm=use_layer_norm,
-            device=collector_device,
-        )
+        return SACActor(obs_dim=obs_dim, action_dim=action_dim,
+                        hidden_dim=actor_hidden_dim, use_layer_norm=use_layer_norm,
+                        device=device)
     elif algo_type == "td3":
         from unilab.algos.torch.fast_td3.learner import TD3Actor
-        actor = TD3Actor(
-            obs_dim=obs_dim,
-            action_dim=action_dim,
-            hidden_dim=actor_hidden_dim,
-            use_layer_norm=use_layer_norm,
-            device=collector_device,
-        )
+        return TD3Actor(obs_dim=obs_dim, action_dim=action_dim,
+                        hidden_dim=actor_hidden_dim, use_layer_norm=use_layer_norm,
+                        device=device)
     else:
         raise ValueError(f"Unknown algo_type: {algo_type}")
-    return actor
 
 
 def off_policy_collector_fn(
@@ -89,17 +70,44 @@ def off_policy_collector_fn(
     metrics_queue=None,
     **kwargs,
 ):
-    """Entry point for the off-policy collector subprocess.
+    """Entry point for the off-policy collector subprocess."""
+    import traceback
+    try:
+        _run_collector(
+            stop_event=stop_event,
+            env_name=env_name, env_cfg_overrides=env_cfg_overrides,
+            num_envs=num_envs, shm_buffer_name=shm_buffer_name,
+            buffer_capacity=buffer_capacity, obs_dim=obs_dim, action_dim=action_dim,
+            weight_sync_name=weight_sync_name, weight_param_shapes=weight_param_shapes,
+            algo_type=algo_type, actor_hidden_dim=actor_hidden_dim,
+            use_layer_norm=use_layer_norm, collector_device=collector_device,
+            exploration_noise=exploration_noise, warmup_steps=warmup_steps,
+            metrics_queue=metrics_queue,
+        )
+    except Exception as e:
+        traceback.print_exc()
+        if metrics_queue is not None:
+            try:
+                metrics_queue.put_nowait({"error": str(e)})
+            except Exception:
+                pass
 
-    Creates the environment + actor, collects transitions, and writes
-    them to the SharedReplayBuffer via shared memory.
-    """
+
+def _run_collector(
+    stop_event,
+    env_name, env_cfg_overrides, num_envs,
+    shm_buffer_name, buffer_capacity, obs_dim, action_dim,
+    weight_sync_name, weight_param_shapes,
+    algo_type, actor_hidden_dim, use_layer_norm, collector_device,
+    exploration_noise, warmup_steps, metrics_queue,
+):
+    import mlx.core as mx
     from unilab.algos.torch.common.async_runner import SharedReplayBuffer, SharedWeightSync
     from unilab.envs import registry
 
     ensure_registries()
 
-    # --- Connect to shared memory ---
+    # Connect to shared memory
     replay_buffer = SharedReplayBuffer(
         buffer_capacity, obs_dim, action_dim, create=False, shm_name=shm_buffer_name
     )
@@ -107,38 +115,38 @@ def off_policy_collector_fn(
         weight_param_shapes, create=False, shm_name=weight_sync_name
     )
 
-    # --- Create environment ---
+    # Create environment
     env = registry.make(env_name, num_envs=num_envs, sim_backend="mujoco")
 
-    # --- Build actor model ---
+    # Build actor
     actor = _build_actor(algo_type, obs_dim, action_dim, actor_hidden_dim, use_layer_norm, collector_device)
     actor.eval()
 
-    # --- Load initial weights from shared memory ---
+    # Load initial weights
     sd = dict(actor.state_dict())
     weight_sync.read_weights_into(sd)
     actor.load_state_dict(sd)
     local_weight_version = weight_sync.version
 
-    # --- Reset environment ---
-    try:
-        import mlx.core as mx
-        env_indices = mx.arange(num_envs, dtype=mx.int32)
-    except ImportError:
-        env_indices = np.arange(num_envs)
-
-    try:
-        _, obs_out, _ = env.reset(env_indices)
-    except TypeError:
-        obs_out, _ = env.reset()
-
-    obs_np = _to_numpy_f32(obs_out)
-
     total_steps = 0
     ep_rewards = []
+    ep_lengths = []
     current_ep_rewards = np.zeros(num_envs, dtype=np.float32)
+    current_ep_lengths = np.zeros(num_envs, dtype=np.int32)
+    # Track reward components
+    from collections import defaultdict
+    ep_reward_components = defaultdict(list)
 
-    # --- Collection loop ---
+    # Use env.step() which handles init_state, apply_action, physics, update_state, reset internally
+    # First call to env.step will auto-init
+    # We need initial obs — do a warmup step with zeros
+    actions_mx = mx.zeros((num_envs, action_dim), dtype=mx.float32)
+    state = env.step(actions_mx)
+    obs_np = _mx_to_np(state.obs)
+    import time as _time
+    _last_log_time = _time.time()
+
+    # Collection loop
     while not stop_event.is_set():
         # Check for weight updates
         if weight_sync.version > local_weight_version:
@@ -149,100 +157,84 @@ def off_policy_collector_fn(
         # Select action
         with torch.no_grad():
             if total_steps < warmup_steps:
-                # Random exploration during warmup
                 actions_np = np.random.uniform(-1, 1, (num_envs, action_dim)).astype(np.float32)
             else:
                 obs_torch = torch.from_numpy(obs_np).to(collector_device)
-
                 if algo_type == "sac":
-                    # SAC: stochastic actor — use explore()
                     actions_torch = actor.explore(obs_torch)
                 elif algo_type == "td3":
-                    # TD3: deterministic + exploration noise
                     actions_torch = actor(obs_torch)
                     noise = torch.randn_like(actions_torch) * exploration_noise
                     actions_torch = (actions_torch + noise).clamp(-1, 1)
                 else:
                     actions_torch = torch.zeros((num_envs, action_dim), device=collector_device)
+                actions_np = actions_torch.cpu().numpy()
 
-                actions_np = actions_torch.cpu().numpy().astype(np.float32)
+        # Step environment — env.step() handles everything
+        actions_mx = mx.array(actions_np)
+        state = env.step(actions_mx)
 
-        # Step environment (convert actions to mlx if needed)
-        try:
-            import mlx.core as mx
-            actions_mx = mx.array(actions_np)
-            ctrl = env.apply_action(actions_mx, env._state)
-            state = env._step_physics(ctrl)
-            state = env.update_state(state)
-            env._state = state
-        except Exception:
-            # Fallback: use env.step if available
-            state = env.step(actions_np)
+        # Extract data as numpy
+        next_obs_np = _mx_to_np(state.obs)
+        rewards_np = _mx_to_np(state.reward).ravel()
+        terminated_np = _mx_to_np(state.terminated).ravel() if state.terminated is not None else np.zeros(num_envs, dtype=np.float32)
+        truncated_np = _mx_to_np(state.truncated).ravel() if state.truncated is not None else np.zeros(num_envs, dtype=np.float32)
+        combined_dones = np.clip(terminated_np + truncated_np, 0, 1)
 
-        # Extract observations, rewards, dones
-        if hasattr(state, "obs") and state.obs is not None:
-            next_obs_raw = state.obs
-            reward_raw = state.reward if hasattr(state, "reward") and state.reward is not None else np.zeros(num_envs)
-            done_raw = state.terminated if hasattr(state, "terminated") and state.terminated is not None else np.zeros(num_envs)
-            truncated_raw = state.truncated if hasattr(state, "truncated") and state.truncated is not None else np.zeros(num_envs)
-        elif isinstance(state, tuple):
-            next_obs_raw = state[0]
-            reward_raw = state[1] if len(state) > 1 else np.zeros(num_envs)
-            done_raw = state[2] if len(state) > 2 else np.zeros(num_envs)
-            truncated_raw = state[3] if len(state) > 3 else np.zeros(num_envs)
-        else:
-            continue
-
-        # Convert to numpy (handles both mlx and numpy)
-        next_obs_np = _to_numpy_f32(next_obs_raw)
-        rewards_np = _to_numpy_f32(reward_raw).ravel()
-        dones_np = _to_numpy_f32(done_raw).ravel()
-        truncated_np = _to_numpy_f32(truncated_raw).ravel()
-
-        # Combined done = terminated | truncated
-        combined_dones = np.clip(dones_np + truncated_np, 0, 1)
-
-        # Write to shared replay buffer
+        # Write to replay buffer
         replay_buffer.add_batch(obs_np, actions_np, rewards_np, next_obs_np, combined_dones)
 
-        # Track episode rewards
+        # Track episode rewards and lengths
         current_ep_rewards += rewards_np
+        current_ep_lengths += 1
         reset_mask = combined_dones > 0.5
-
-        # Handle resets
         if np.any(reset_mask):
             for i in range(num_envs):
                 if reset_mask[i]:
                     ep_rewards.append(float(current_ep_rewards[i]))
+                    ep_lengths.append(float(current_ep_lengths[i]))
                     current_ep_rewards[i] = 0.0
+                    current_ep_lengths[i] = 0
 
-            # Reset terminated environments
-            try:
-                import mlx.core as mx
-                reset_indices = mx.array(np.where(reset_mask)[0], dtype=mx.int32)
-                if len(reset_indices) > 0:
-                    new_physics, new_obs, new_info = env.reset(reset_indices)
-                    reset_idx_np = np.where(reset_mask)[0]
-                    next_obs_np[reset_idx_np] = _to_numpy_f32(new_obs)
-            except Exception:
-                pass
-
+        obs_np = next_obs_np
         total_steps += num_envs
+
+        # Progress log every 2 seconds
+        now = _time.time()
+        if now - _last_log_time > 2.0:
+            _last_log_time = now
+            phase = "warmup" if total_steps < warmup_steps else "policy"
+            mean_r = np.mean(ep_rewards[-50:]) if ep_rewards else 0.0
+
+        # Extract reward components from env info
+        log_info = state.info.get("log", {})
+        if log_info:
+            for k, v in log_info.items():
+                if k.startswith("reward/"):
+                    ep_reward_components[k].append(v)
 
         # Send metrics periodically
         if metrics_queue is not None and total_steps % (num_envs * 10) == 0 and ep_rewards:
             import statistics
             try:
-                metrics_queue.put_nowait({
+                msg = {
                     "total_steps": total_steps,
                     "mean_ep_reward": statistics.mean(ep_rewards[-100:]),
+                    "mean_ep_length": statistics.mean(ep_lengths[-100:]) if ep_lengths else 0.0,
                     "buffer_size": replay_buffer.size,
-                })
+                }
+                # Add mean reward components
+                if ep_reward_components:
+                    components_mean = {}
+                    for k, vals in ep_reward_components.items():
+                        if vals:
+                            components_mean[k] = statistics.mean(vals)
+                    msg["reward_components"] = components_mean
+                    ep_reward_components.clear()  # reset after sending
+
+                metrics_queue.put_nowait(msg)
             except Exception:
                 pass
 
-        obs_np = next_obs_np
-
-    # Cleanup
     replay_buffer.close()
     weight_sync.close()

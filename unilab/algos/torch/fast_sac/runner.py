@@ -19,11 +19,15 @@ from unilab.algos.torch.common.async_runner import (
     SharedWeightSync,
 )
 from unilab.algos.torch.common.worker import off_policy_collector_fn
+from unilab.algos.torch.common.logger import TrainingLogger
 from unilab.algos.torch.fast_sac.learner import FastSACLearner
 
 
 class FastSACRunner(AsyncRunner):
-    """FastSAC async runner using shared memory (no Ray dependency)."""
+    """FastSAC async runner using shared memory (no Ray dependency).
+
+    obs_dim and action_dim are auto-detected from the environment if not provided.
+    """
 
     def __init__(
         self,
@@ -32,12 +36,10 @@ class FastSACRunner(AsyncRunner):
         device: str | None = None,
         collector_device: str | None = None,
         num_envs: int = 4096,
-        obs_dim: int = 48,
-        action_dim: int = 12,
         steps_per_env: int = 24,
         replay_buffer_n: int = 1024,
         batch_size: int = 8192,
-        warmup_steps: int = 5000,
+        warmup_steps: int = 0,
         updates_per_step: int = 8,
         policy_frequency: int = 4,
         # Holosoma-aligned defaults
@@ -53,6 +55,7 @@ class FastSACRunner(AsyncRunner):
         num_atoms: int = 101,
         exploration_noise: float = 0.1,
         use_layer_norm: bool = True,
+        max_grad_norm: float = 0.0,
         **kwargs,
     ):
         super().__init__(
@@ -64,8 +67,6 @@ class FastSACRunner(AsyncRunner):
             num_envs=num_envs,
         )
 
-        self.obs_dim = obs_dim
-        self.action_dim = action_dim
         self.steps_per_env = steps_per_env
         self.replay_buffer_n = replay_buffer_n
         self.batch_size = batch_size
@@ -86,6 +87,23 @@ class FastSACRunner(AsyncRunner):
         self.actor_hidden_dim = actor_hidden_dim
         self.critic_hidden_dim = critic_hidden_dim
         self.num_atoms = num_atoms
+        self.max_grad_norm = max_grad_norm
+
+        # Auto-detect obs/action dim from env
+        self.obs_dim, self.action_dim = self._detect_dims()
+
+    def _detect_dims(self):
+        """Create a tiny env to read obs/action dims, then close it."""
+        from unilab.envs import registry
+        from unilab.algos.torch.common.worker import ensure_registries
+        ensure_registries()
+
+        env = registry.make(self.env_name, num_envs=1, sim_backend="mujoco")
+        obs_dim = env.observation_space.shape[0]
+        action_dim = env.action_space.shape[0]
+        env.close()
+
+        return obs_dim, action_dim
 
     def _build_learner(self) -> FastSACLearner:
         return FastSACLearner(
@@ -103,6 +121,7 @@ class FastSACRunner(AsyncRunner):
             critic_hidden_dim=self.critic_hidden_dim,
             num_atoms=self.num_atoms,
             use_layer_norm=self.use_layer_norm,
+            max_grad_norm=self.max_grad_norm,
         )
 
     def _collector_fn(self, stop_event, **kwargs):
@@ -117,10 +136,8 @@ class FastSACRunner(AsyncRunner):
         """Main training loop."""
         os.makedirs(log_dir, exist_ok=True)
 
-        # Build learner
         learner = self._build_learner()
 
-        # Create shared replay buffer
         buffer_capacity = self.replay_buffer_n * self.num_envs
         shared_buffer = SharedReplayBuffer(
             capacity=buffer_capacity,
@@ -130,21 +147,17 @@ class FastSACRunner(AsyncRunner):
         )
         self._shared_resources.append(shared_buffer)
 
-        # Create shared weight sync
         weight_sync = SharedWeightSync.from_state_dict(
             learner.actor.state_dict(), create=True
         )
         self._shared_resources.append(weight_sync)
 
-        # Metrics queue
         metrics_queue = mp.Queue(maxsize=100)
 
-        # Resolve weight param shapes for collector
         weight_param_shapes = {
             name: p.shape for name, p in learner.actor.state_dict().items()
         }
 
-        # Start collector process
         collector_kwargs = {
             "env_name": self.env_name,
             "env_cfg_overrides": self.env_cfg_overrides,
@@ -168,77 +181,110 @@ class FastSACRunner(AsyncRunner):
             kwargs={"stop_event": self._stop_event, **collector_kwargs},
         )
 
-        # --- Training loop ---
-        print(f"FastSAC training: waiting for buffer to fill (warmup={self.warmup_steps})...")
+        logger = TrainingLogger(
+            algo_name="FastSAC",
+            max_iterations=max_iterations,
+            num_envs=self.num_envs,
+            env_name=self.env_name,
+            obs_dim=self.obs_dim,
+            action_dim=self.action_dim,
+        )
+        logger.start()
 
         reward_history = deque(maxlen=100)
-        start_time = time.time()
+        latest_reward_components = {}
+        last_buf_log = 0
 
         for iteration in range(1, max_iterations + 1):
-            # Wait for enough data
+            iter_start = time.time()
+            # Wait for enough data, checking collector health
             while shared_buffer.size < self.batch_size:
+                if not self._check_collector_alive():
+                    self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
+                    logger.log_status("[red]ERROR: Collector process died. Exiting.[/]")
+                    logger.finish()
+                    return
+                # Progress during buffer fill
+                cur_size = shared_buffer.size
+                if cur_size - last_buf_log >= self.num_envs * 10:
+                    last_buf_log = cur_size
+                    logger.log_buffer_fill(cur_size, self.batch_size)
                 time.sleep(0.1)
-                self._drain_metrics(metrics_queue, reward_history)
+                self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
 
-            self._drain_metrics(metrics_queue, reward_history)
+            self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
+            collect_time = time.time() - iter_start
 
-            # Training updates
+            train_start = time.time()
             iter_metrics = defaultdict(list)
             for update_idx in range(self.updates_per_step):
                 batch = shared_buffer.sample_torch(self.batch_size, self.device)
 
-                # Critic update
                 critic_metrics = learner.update_critic(batch)
                 for k, v in critic_metrics.items():
                     iter_metrics[k].append(v)
 
-                # Actor update (delayed)
                 if update_idx % self.policy_frequency == 1:
                     actor_metrics = learner.update_actor(batch)
                     for k, v in actor_metrics.items():
                         iter_metrics[k].append(v)
 
-                # Soft update target
                 learner.soft_update_target()
 
             learner.update_count += 1
-
-            # Sync weights to collector
             weight_sync.write_weights(learner.actor.state_dict())
+            train_time = time.time() - train_start
 
-            # Logging
-            if iteration % 10 == 0:
-                elapsed = time.time() - start_time
-                avg_metrics = {k: statistics.mean(v) for k, v in iter_metrics.items() if v}
-                mean_reward = statistics.mean(reward_history) if reward_history else 0.0
+            avg_metrics = {k: statistics.mean(v) for k, v in iter_metrics.items() if v}
+            mean_reward = statistics.mean(reward_history) if reward_history else 0.0
 
-                print(
-                    f"[{iteration}/{max_iterations}] "
-                    f"t={elapsed:.0f}s | "
-                    f"buf={shared_buffer.size} | "
-                    f"rew={mean_reward:.3f} | "
-                    f"q_loss={avg_metrics.get('qf_loss', 0):.3f} | "
-                    f"a_loss={avg_metrics.get('actor_loss', 0):.3f} | "
-                    f"alpha={avg_metrics.get('alpha', 0):.4f}"
-                )
+            logger.log_step(
+                iteration=iteration,
+                metrics=avg_metrics,
+                reward=mean_reward,
+                reward_components=latest_reward_components,
+                collect_time=collect_time,
+                train_time=train_time,
+            )
 
-            # Save checkpoint
             if save_interval > 0 and iteration % save_interval == 0:
                 ckpt_path = os.path.join(log_dir, f"model_{iteration}.pt")
                 torch.save(learner.get_state_dict(), ckpt_path)
-                print(f"Saved checkpoint: {ckpt_path}")
+                logger.log_save(ckpt_path)
 
-        # Final save
         ckpt_path = os.path.join(log_dir, f"model_{max_iterations}.pt")
         torch.save(learner.get_state_dict(), ckpt_path)
-        print(f"Training complete. Final checkpoint: {ckpt_path}")
+        logger.log_save(ckpt_path)
+        logger.finish()
+
+    def _check_collector_alive(self) -> bool:
+        """Check if the collector subprocess is still running."""
+        if self._collector_process is not None and not self._collector_process.is_alive():
+            return False
+        return True
 
     @staticmethod
-    def _drain_metrics(queue, reward_history):
+    def _drain_metrics(queue, reward_history, reward_components, logger: TrainingLogger):
         while not queue.empty():
             try:
                 m = queue.get_nowait()
+                if "error" in m:
+                    logger.log_status(f"[red]Collector ERROR: {m['error']}[/]")
+                
+                updated_rew = False
                 if "mean_ep_reward" in m:
                     reward_history.append(m["mean_ep_reward"])
+                    updated_rew = True
+                
+                if "reward_components" in m:
+                    reward_components.clear()
+                    reward_components.update(m["reward_components"])
+
+                if "mean_ep_length" in m:
+                    logger.update_ep_length(m["mean_ep_length"])
+
+                if "total_steps" in m and "buffer_size" in m:
+                    logger.log_collector(m["total_steps"], m["buffer_size"], m.get("mean_ep_reward", 0.0) if updated_rew else 0.0)
+
             except Exception:
                 break

@@ -32,8 +32,11 @@ class SharedReplayBuffer:
     and learner processes can read/write the same numpy arrays without any
     serialisation overhead.
 
-    Buffer capacity = ``capacity`` (total transitions, should be ``buffer_n * num_envs``).
+    ptr and size are stored as int32 values at the END of the shared memory
+    block, so both processes see the same counters.
     """
+
+    _META_INTS = 2  # ptr, size
 
     def __init__(
         self,
@@ -48,25 +51,26 @@ class SharedReplayBuffer:
         self.obs_dim = obs_dim
         self.action_dim = action_dim
 
-        # Compute byte sizes for each field (float32 = 4 bytes)
         _f32 = np.dtype(np.float32).itemsize
+        _i32 = np.dtype(np.int32).itemsize
         self._obs_bytes = capacity * obs_dim * _f32
         self._act_bytes = capacity * action_dim * _f32
-        self._scalar_bytes = capacity * _f32  # reward / done each
+        self._scalar_bytes = capacity * _f32
 
-        total_bytes = (
+        data_bytes = (
             2 * self._obs_bytes       # obs + next_obs
             + self._act_bytes         # actions
             + 2 * self._scalar_bytes  # rewards + dones
         )
+        meta_bytes = self._META_INTS * _i32  # ptr, size
+        total_bytes = data_bytes + meta_bytes
 
         if create:
             self._shm = shared_memory.SharedMemory(create=True, size=total_bytes)
         else:
-            assert shm_name is not None, "Must provide shm_name when create=False"
+            assert shm_name is not None
             self._shm = shared_memory.SharedMemory(name=shm_name, create=False)
 
-        # Build numpy views (zero-copy) over the shared buffer
         buf = self._shm.buf
         offset = 0
 
@@ -85,11 +89,11 @@ class SharedReplayBuffer:
         self.dones = np.ndarray((capacity,), dtype=np.float32, buffer=buf[offset:])
         offset += self._scalar_bytes
 
-        # Atomic counters (shared between processes)
-        self._ptr = mp.Value("i", 0)
-        self._size = mp.Value("i", 0)
-
-    # -- properties ----------------------------------------------------------
+        # Meta counters — stored in the shared memory block itself
+        self._meta = np.ndarray((self._META_INTS,), dtype=np.int32, buffer=buf[offset:])
+        if create:
+            self._meta[0] = 0  # ptr
+            self._meta[1] = 0  # size
 
     @property
     def name(self) -> str:
@@ -97,13 +101,11 @@ class SharedReplayBuffer:
 
     @property
     def ptr(self) -> int:
-        return self._ptr.value
+        return int(self._meta[0])
 
     @property
     def size(self) -> int:
-        return self._size.value
-
-    # -- write (collector side) ----------------------------------------------
+        return int(self._meta[1])
 
     def add_batch(
         self,
@@ -113,41 +115,27 @@ class SharedReplayBuffer:
         next_obs: np.ndarray,
         dones: np.ndarray,
     ) -> None:
-        """Insert a batch of transitions into the ring buffer.
-
-        All arrays have leading dimension ``batch_size``.
-        """
         batch_size = obs.shape[0]
-        start = self._ptr.value % self.capacity
+        start = int(self._meta[0]) % self.capacity
 
         if start + batch_size <= self.capacity:
-            # Contiguous write
             self.obs[start : start + batch_size] = obs
             self.next_obs[start : start + batch_size] = next_obs
             self.actions[start : start + batch_size] = actions
             self.rewards[start : start + batch_size] = rewards
             self.dones[start : start + batch_size] = dones
         else:
-            # Wrap-around write
             first = self.capacity - start
-            self.obs[start:] = obs[:first]
-            self.obs[:batch_size - first] = obs[first:]
-            self.next_obs[start:] = next_obs[:first]
-            self.next_obs[:batch_size - first] = next_obs[first:]
-            self.actions[start:] = actions[:first]
-            self.actions[:batch_size - first] = actions[first:]
-            self.rewards[start:] = rewards[:first]
-            self.rewards[:batch_size - first] = rewards[first:]
-            self.dones[start:] = dones[:first]
-            self.dones[:batch_size - first] = dones[first:]
+            self.obs[start:] = obs[:first];           self.obs[:batch_size - first] = obs[first:]
+            self.next_obs[start:] = next_obs[:first]; self.next_obs[:batch_size - first] = next_obs[first:]
+            self.actions[start:] = actions[:first];   self.actions[:batch_size - first] = actions[first:]
+            self.rewards[start:] = rewards[:first];   self.rewards[:batch_size - first] = rewards[first:]
+            self.dones[start:] = dones[:first];       self.dones[:batch_size - first] = dones[first:]
 
-        self._ptr.value += batch_size
-        self._size.value = min(self._size.value + batch_size, self.capacity)
-
-    # -- read (learner side) -------------------------------------------------
+        self._meta[0] += batch_size
+        self._meta[1] = min(int(self._meta[1]) + batch_size, self.capacity)
 
     def sample(self, batch_size: int) -> Dict[str, np.ndarray]:
-        """Uniformly sample a batch from the buffer (numpy arrays)."""
         indices = np.random.randint(0, self.size, size=batch_size)
         return {
             "obs": self.obs[indices].copy(),
@@ -157,19 +145,11 @@ class SharedReplayBuffer:
             "dones": self.dones[indices].copy(),
         }
 
-    def sample_torch(
-        self, batch_size: int, device: str = "cpu"
-    ) -> Dict[str, torch.Tensor]:
-        """Sample and convert to torch tensors on the given device."""
+    def sample_torch(self, batch_size: int, device: str = "cpu") -> Dict[str, torch.Tensor]:
         data = self.sample(batch_size)
-        return {
-            k: torch.from_numpy(v).to(device, non_blocking=True) for k, v in data.items()
-        }
-
-    # -- lifecycle -----------------------------------------------------------
+        return {k: torch.from_numpy(v).to(device, non_blocking=True) for k, v in data.items()}
 
     def cleanup(self) -> None:
-        """Release shared memory (call from the *creating* process only)."""
         try:
             self._shm.close()
             self._shm.unlink()
@@ -177,7 +157,6 @@ class SharedReplayBuffer:
             pass
 
     def close(self) -> None:
-        """Detach from shared memory (call from non-creating process)."""
         try:
             self._shm.close()
         except Exception:
@@ -215,23 +194,19 @@ class SharedOnPolicyStorage:
         _f32 = np.dtype(np.float32).itemsize
         n = num_envs * num_steps
 
-        # Per-buffer byte sizes
-        obs_bytes = n * obs_dim * _f32         # obs
-        act_bytes = n * action_dim * _f32      # actions
-        scalar_bytes = n * _f32                # rewards / dones / log_probs / mu / sigma each
-
-        # We also store last_obs = (num_envs, obs_dim)
+        obs_bytes = n * obs_dim * _f32
+        act_bytes = n * action_dim * _f32
+        scalar_bytes = n * _f32
         last_obs_bytes = num_envs * obs_dim * _f32
 
-        # Total per buffer
         per_buffer = (
-            obs_bytes           # obs
-            + act_bytes         # actions
+            obs_bytes
+            + act_bytes
             + scalar_bytes * 5  # rewards, dones, truncated, log_probs, values
-            + last_obs_bytes    # last_obs
+            + last_obs_bytes
         )
 
-        total_bytes = 2 * per_buffer  # double buffer
+        total_bytes = 2 * per_buffer
 
         if create:
             self._shm = shared_memory.SharedMemory(create=True, size=total_bytes)
@@ -245,12 +220,21 @@ class SharedOnPolicyStorage:
             self._make_views(per_buffer),
         ]
 
-        # Synchronisation primitives
-        self._write_idx = mp.Value("i", 0)     # which buffer the collector writes to
-        self._ready = [mp.Event(), mp.Event()]  # signalled when a buffer is filled
+        if create:
+            self._write_idx = mp.Value("i", 0)
+            self._read_idx = mp.Value("i", 0)
+            self._ready = [mp.Event(), mp.Event()]
+        else:
+            self._write_idx = None
+            self._read_idx = None
+            self._ready = None
+
+    def attach_sync_primitives(self, write_idx, read_idx, ready_events):
+        self._write_idx = write_idx
+        self._read_idx = read_idx
+        self._ready = ready_events
 
     def _make_views(self, base_offset: int) -> Dict[str, np.ndarray]:
-        """Create numpy views for one buffer starting at ``base_offset``."""
         buf = self._shm.buf
         n = self.num_envs * self.num_steps
         _f32 = np.dtype(np.float32).itemsize
@@ -294,24 +278,24 @@ class SharedOnPolicyStorage:
 
     @property
     def read_buffer(self) -> Dict[str, np.ndarray]:
-        return self._buffers[(self._write_idx.value + 1) % 2]
+        return self._buffers[self._read_idx.value % 2]
 
     def signal_write_done(self) -> None:
-        """Collector calls this after filling a buffer."""
         idx = self._write_idx.value % 2
         self._ready[idx].set()
         self._write_idx.value += 1
 
     def wait_for_data(self, timeout: float = 30.0) -> bool:
-        """Learner blocks until the *read* buffer is ready."""
-        read_idx = (self._write_idx.value + 1) % 2
-        result = self._ready[read_idx].wait(timeout=timeout)
+        idx = self._read_idx.value % 2
+        result = self._ready[idx].wait(timeout=timeout)
         if result:
-            self._ready[read_idx].clear()
+            self._ready[idx].clear()
         return result
 
+    def advance_read(self) -> None:
+        self._read_idx.value += 1
+
     def read_torch(self, device: str = "cpu") -> Dict[str, torch.Tensor]:
-        """Read the current read-buffer and convert to torch tensors."""
         views = self.read_buffer
         return {k: torch.from_numpy(v.copy()).to(device) for k, v in views.items()}
 
@@ -338,6 +322,9 @@ class SharedWeightSync:
 
     The learner writes its ``actor.state_dict()`` into a flat shared buffer;
     the collector reads and loads the weights.
+
+    The version counter is stored as an int32 at the END of the shared memory
+    block so both processes see the same value.
     """
 
     def __init__(
@@ -350,9 +337,12 @@ class SharedWeightSync:
         self._param_shapes = param_shapes
         self._param_names = list(param_shapes.keys())
 
-        # Calculate total number of float32 parameters
         total_numel = sum(s.numel() for s in param_shapes.values())
-        total_bytes = total_numel * np.dtype(np.float32).itemsize
+        _f32 = np.dtype(np.float32).itemsize
+        _i32 = np.dtype(np.int32).itemsize
+        data_bytes = total_numel * _f32
+        meta_bytes = _i32  # version counter
+        total_bytes = data_bytes + meta_bytes
 
         if create:
             self._shm = shared_memory.SharedMemory(create=True, size=max(total_bytes, 1))
@@ -361,8 +351,11 @@ class SharedWeightSync:
             self._shm = shared_memory.SharedMemory(name=shm_name, create=False)
 
         self._buffer = np.ndarray((total_numel,), dtype=np.float32, buffer=self._shm.buf)
-        self._lock = mp.Lock()
-        self._version = mp.Value("i", 0)
+        # Version counter at the end of the buffer
+        self._version_arr = np.ndarray((1,), dtype=np.int32,
+                                        buffer=self._shm.buf[data_bytes:])
+        if create:
+            self._version_arr[0] = 0
         self._total_numel = total_numel
 
     @property
@@ -371,42 +364,34 @@ class SharedWeightSync:
 
     @property
     def version(self) -> int:
-        return self._version.value
+        return int(self._version_arr[0])
 
     @classmethod
     def from_state_dict(cls, state_dict: Dict[str, torch.Tensor], **kwargs) -> "SharedWeightSync":
-        """Create from a model's ``state_dict()``."""
         param_shapes = {name: p.shape for name, p in state_dict.items()}
         obj = cls(param_shapes, **kwargs)
         obj.write_weights(state_dict)
         return obj
 
     def write_weights(self, state_dict: Dict[str, torch.Tensor]) -> None:
-        """Learner writes weights (called from learner process)."""
-        with self._lock:
-            offset = 0
-            for name in self._param_names:
-                param = state_dict[name]
-                flat = param.detach().cpu().numpy().ravel()
-                n = flat.shape[0]
-                self._buffer[offset : offset + n] = flat
-                offset += n
-            self._version.value += 1
+        offset = 0
+        for name in self._param_names:
+            param = state_dict[name]
+            flat = param.detach().cpu().numpy().ravel()
+            n = flat.shape[0]
+            self._buffer[offset : offset + n] = flat
+            offset += n
+        self._version_arr[0] += 1
 
     def read_weights_into(self, state_dict: Dict[str, torch.Tensor]) -> int:
-        """Collector reads weights into an existing state_dict (in-place).
-
-        Returns the version number that was read.
-        """
-        with self._lock:
-            offset = 0
-            for name in self._param_names:
-                param = state_dict[name]
-                n = param.numel()
-                data = self._buffer[offset : offset + n].copy()
-                param.data.copy_(torch.from_numpy(data.reshape(param.shape)))
-                offset += n
-            return self._version.value
+        offset = 0
+        for name in self._param_names:
+            param = state_dict[name]
+            n = param.numel()
+            data = self._buffer[offset : offset + n].copy()
+            param.data.copy_(torch.from_numpy(data.reshape(param.shape)))
+            offset += n
+        return int(self._version_arr[0])
 
     def cleanup(self) -> None:
         try:
@@ -427,7 +412,6 @@ class SharedWeightSync:
 # ---------------------------------------------------------------------------
 
 def _get_default_device() -> str:
-    """Return the best available device string for this platform."""
     if torch.cuda.is_available():
         return "cuda:0"
     elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
@@ -443,8 +427,6 @@ class AsyncRunner(ABC):
     - Shared memory allocation / cleanup
     - Collector process lifecycle
     - Main training loop skeleton
-
-    Designed for Mac (MPS) with extensibility hooks for NPU.
     """
 
     def __init__(
@@ -462,50 +444,27 @@ class AsyncRunner(ABC):
         self.env_cfg_overrides = env_cfg_overrides
         self.rl_cfg = rl_cfg
         self.device = device or _get_default_device()
-        # Collector can run on a separate device (default: same as learner)
         self.collector_device = collector_device or self.device
         self.num_envs = num_envs
         self.extra_kwargs = kwargs
 
-        # Will be initialised by subclass
         self._collector_process: mp.Process | None = None
         self._stop_event = mp.Event()
-        self._shared_resources: list = []  # track for cleanup
-
-    # -- abstract methods (subclass must implement) --------------------------
+        self._shared_resources: list = []
 
     @abstractmethod
     def _build_learner(self) -> Any:
-        """Create and return the learner object on ``self.device``."""
         ...
 
     @abstractmethod
-    def _collector_fn(
-        self,
-        stop_event: mp.Event,
-        **kwargs,
-    ) -> None:
-        """Entry point for the collector subprocess.
-
-        Must create the environment, run rollouts, and write to the shared
-        replay buffer / storage.  Should check ``stop_event`` periodically.
-        """
+    def _collector_fn(self, stop_event: mp.Event, **kwargs) -> None:
         ...
 
     @abstractmethod
-    def learn(
-        self,
-        max_iterations: int,
-        save_interval: int = 50,
-        log_dir: str = "logs",
-    ) -> None:
-        """Main training loop.  Subclass implements the full loop."""
+    def learn(self, max_iterations: int, save_interval: int = 50, log_dir: str = "logs") -> None:
         ...
-
-    # -- lifecycle -----------------------------------------------------------
 
     def _start_collector(self, target_fn: Callable, kwargs: dict) -> None:
-        """Launch the collector subprocess."""
         self._collector_process = mp.Process(
             target=target_fn,
             kwargs=kwargs,
@@ -514,17 +473,12 @@ class AsyncRunner(ABC):
         self._collector_process.start()
 
     def close(self) -> None:
-        """Cleanly shut down the collector process and release shared memory."""
-        # Signal collector to stop
         self._stop_event.set()
-
         if self._collector_process is not None and self._collector_process.is_alive():
             self._collector_process.join(timeout=10)
             if self._collector_process.is_alive():
                 self._collector_process.terminate()
                 self._collector_process.join(timeout=5)
-
-        # Clean up shared memory
         for resource in self._shared_resources:
             if hasattr(resource, "cleanup"):
                 resource.cleanup()

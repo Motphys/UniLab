@@ -29,73 +29,189 @@ def ensure_registries():
 def main():
     parser = argparse.ArgumentParser(description="Train FastSAC (no Ray)")
     parser.add_argument("--task", type=str, default="Go2JoystickFlatTerrain")
-    parser.add_argument("--max_iterations", type=int, default=1500)
-    parser.add_argument("--save_interval", type=int, default=50)
-    parser.add_argument("--num_envs", type=int, default=4096)
-    parser.add_argument("--obs_dim", type=int, default=48, help="Observation dimension")
-    parser.add_argument("--action_dim", type=int, default=12, help="Action dimension")
-    parser.add_argument("--device", type=str, default=None, help="Training device (auto-detect if None)")
-    parser.add_argument("--collector_device", type=str, default=None, help="Collector device (mps/cpu/npu)")
+    parser.add_argument("--max_iterations", type=int, default=None, help="Override max iterations from config")
+    parser.add_argument("--num_envs", type=int, default=1024, help="Override num_envs from config")
+    parser.add_argument("--device", type=str, default=None)
+    parser.add_argument("--collector_device", type=str, default=None)
     parser.add_argument("--log_dir", type=str, default=None)
-    # Holosoma-aligned hyperparameters
-    parser.add_argument("--batch_size", type=int, default=8192)
-    parser.add_argument("--updates_per_step", type=int, default=8)
-    parser.add_argument("--policy_frequency", type=int, default=4)
-    parser.add_argument("--gamma", type=float, default=0.97)
-    parser.add_argument("--tau", type=float, default=0.125)
-    parser.add_argument("--alpha_init", type=float, default=0.001)
-    parser.add_argument("--actor_lr", type=float, default=3e-4)
-    parser.add_argument("--critic_lr", type=float, default=3e-4)
-    parser.add_argument("--actor_hidden_dim", type=int, default=512)
-    parser.add_argument("--critic_hidden_dim", type=int, default=768)
-    parser.add_argument("--num_atoms", type=int, default=101)
-    parser.add_argument("--warmup_steps", type=int, default=5000)
-    parser.add_argument("--replay_buffer_n", type=int, default=1024)
-    parser.add_argument("--steps_per_env", type=int, default=24)
-    parser.add_argument("--exploration_noise", type=float, default=0.1)
-
+    parser.add_argument("--play_only", action="store_true", help="Play mode only")
+    parser.add_argument("--load_run", type=str, default="-1", help="Run ID to load or path")
+    parser.add_argument("--play_env_num", type=int, default=16, help="Number of play envs")
     args = parser.parse_args()
 
     ensure_registries()
 
+    # Load config
+    from unilab.config.locomotion_params import fast_sac_config
+    cfg = fast_sac_config(args.task)
+
+    # CLI overrides
+    if args.max_iterations is not None:
+        cfg.max_iterations = args.max_iterations
+    if args.num_envs is not None:
+        cfg.num_envs = args.num_envs
+
     if args.log_dir is None:
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        args.log_dir = os.path.join("logs", f"fast_sac_{args.task}_{timestamp}")
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        args.log_dir = os.path.join(ROOT_DIR, "logs", "fast_sac", args.task, timestamp)
 
-    from unilab.algos.torch.fast_sac.runner import FastSACRunner
+    if not args.play_only:
+        from unilab.algos.torch.fast_sac.runner import FastSACRunner
 
-    runner = FastSACRunner(
-        env_name=args.task,
-        device=args.device,
-        collector_device=args.collector_device,
-        num_envs=args.num_envs,
-        obs_dim=args.obs_dim,
-        action_dim=args.action_dim,
-        steps_per_env=args.steps_per_env,
-        replay_buffer_n=args.replay_buffer_n,
-        batch_size=args.batch_size,
-        warmup_steps=args.warmup_steps,
-        updates_per_step=args.updates_per_step,
-        policy_frequency=args.policy_frequency,
-        gamma=args.gamma,
-        tau=args.tau,
-        actor_lr=args.actor_lr,
-        critic_lr=args.critic_lr,
-        alpha_init=args.alpha_init,
-        actor_hidden_dim=args.actor_hidden_dim,
-        critic_hidden_dim=args.critic_hidden_dim,
-        num_atoms=args.num_atoms,
-        exploration_noise=args.exploration_noise,
-    )
-
-    try:
-        runner.learn(
-            max_iterations=args.max_iterations,
-            save_interval=args.save_interval,
-            log_dir=args.log_dir,
+        runner = FastSACRunner(
+            env_name=args.task,
+            device=args.device,
+            collector_device=args.collector_device,
+            num_envs=cfg.num_envs,
+            steps_per_env=cfg.num_steps_per_env,
+            replay_buffer_n=cfg.replay_buffer_n,
+            batch_size=cfg.batch_size,
+            warmup_steps=cfg.warmup_steps,
+            updates_per_step=cfg.updates_per_step,
+            policy_frequency=cfg.policy_frequency,
+            gamma=cfg.gamma,
+            tau=cfg.tau,
+            actor_lr=cfg.actor_lr,
+            critic_lr=cfg.critic_lr,
+            alpha_lr=cfg.alpha_lr,
+            alpha_init=cfg.alpha_init,
+            target_entropy_ratio=cfg.target_entropy_ratio,
+            actor_hidden_dim=cfg.actor_hidden_dim,
+            critic_hidden_dim=cfg.critic_hidden_dim,
+            num_atoms=cfg.num_atoms,
+            exploration_noise=cfg.exploration_noise,
+            use_layer_norm=cfg.use_layer_norm,
         )
-    finally:
-        runner.close()
+
+        try:
+            runner.learn(
+                max_iterations=cfg.max_iterations,
+                save_interval=cfg.save_interval,
+                log_dir=args.log_dir,
+            )
+        finally:
+            runner.close()
+            
+    else:
+        # Play mode
+        import torch
+        import numpy as np
+        import mediapy as media
+        from unilab.envs import registry
+        from unilab.utils.run_utils import get_latest_run
+        from unilab.utils import render_many
+        from unilab.algos.torch.common.worker import _build_actor
+
+        device = args.device or ("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
+        print(f"Using device for play: {device}")
+
+        # Create env
+        env = registry.make(args.task, num_envs=args.play_env_num, sim_backend="mujoco")
+        obs_dim = env.observation_space.shape[0]
+        action_dim = env.action_space.shape[0]
+
+        # Build actor
+        actor = _build_actor(
+            algo_type="sac",
+            obs_dim=obs_dim,
+            action_dim=action_dim,
+            actor_hidden_dim=cfg.actor_hidden_dim,
+            use_layer_norm=cfg.use_layer_norm,
+            device=device,
+        )
+        actor.eval()
+
+        # Load weights
+        base_log_dir = os.path.join(ROOT_DIR, "logs", "fast_sac", args.task)
+        if args.task.endswith("Play") and (not os.path.exists(base_log_dir) or not os.listdir(base_log_dir)):
+            base_log_dir = os.path.join(ROOT_DIR, "logs", "fast_sac", args.task[:-4])
+
+        load_path = None
+        if args.load_run == "-1":
+            if os.path.exists(base_log_dir):
+                all_runs = sorted([d for d in os.listdir(base_log_dir) if os.path.isdir(os.path.join(base_log_dir, d))])
+                if all_runs:
+                    latest_run_dir = os.path.join(base_log_dir, all_runs[-1])
+                    model_files = [f for f in os.listdir(latest_run_dir) if f.startswith("model_") and f.endswith(".pt")]
+                    if model_files:
+                        model_files.sort(key=lambda x: int(x.split("_")[1].split(".")[0]))
+                        load_path = os.path.join(latest_run_dir, model_files[-1])
+                        load_path_dir = latest_run_dir
+        else:
+            if os.path.exists(args.load_run):
+                load_path = args.load_run
+                load_path_dir = os.path.dirname(load_path)
+            else:
+                potential_dir = os.path.join(base_log_dir, args.load_run)
+                if os.path.isdir(potential_dir):
+                    model_files = [f for f in os.listdir(potential_dir) if f.startswith("model_") and f.endswith(".pt")]
+                    if model_files:
+                        model_files.sort(key=lambda x: int(x.split("_")[1].split(".")[0]))
+                        load_path = os.path.join(potential_dir, model_files[-1])
+                        load_path_dir = potential_dir
+
+        if not load_path or not os.path.exists(load_path):
+            print(f"Could not find run to load. load_path={load_path}")
+            sys.exit(1)
+
+        print(f"Loading model: {load_path}")
+        checkpoint = torch.load(load_path, map_location=device, weights_only=True)
+        # FastSAC Learner get_state_dict() returns {"actor": ..., "qnet": ...}
+        actor.load_state_dict(checkpoint["actor"])
+
+        output_video = os.path.join(load_path_dir, "play_video.mp4")
+        print(f"Rendering video to {output_video}...")
+
+        # Reset Env
+        if env.state is None:
+            env.init_state()
+        try:
+            import mlx.core as mx
+            env_indices = mx.arange(args.play_env_num, dtype=mx.int32)
+        except ImportError:
+            env_indices = np.arange(args.play_env_num)
+            
+        _, obs_out, _ = env.reset(env_indices)
+        from unilab.algos.torch.common.worker import _mx_to_np
+        obs_np = _mx_to_np(obs_out)
+
+        state_list = []
+        num_steps = 150
+
+        from unilab.utils.mlx_torch_utils import to_numpy
+        
+        print("Collecting physics states...")
+        with torch.inference_mode():
+            for _ in range(num_steps):
+                obs_torch = torch.from_numpy(obs_np).to(device)
+                
+                # SAC explore with deterministic=True
+                actions_torch = actor.explore(obs_torch, deterministic=True)
+                actions_np = actions_torch.cpu().numpy()
+                
+                state = env.step(actions_np)
+                
+                if hasattr(state, "obs"):
+                    next_obs_raw = state.obs
+                else:
+                    next_obs_raw = state[0]
+                    
+                obs_np = _mx_to_np(next_obs_raw)
+                    
+                state_list.append(to_numpy(env.state.physics_state).copy())
+
+        print("Rendering frames...")
+        frames = render_many.render_states_get_frames(
+            state_list, 
+            env.cfg.model_file, 
+            width=1280,
+            height=720,
+            camera_id=-1 
+        )
+
+        print(f"Saving video to {output_video} with mediapy...")
+        media.write_video(str(output_video), frames, fps=int(1.0/env.cfg.ctrl_dt))
+        print("Done.")
 
 
 if __name__ == "__main__":

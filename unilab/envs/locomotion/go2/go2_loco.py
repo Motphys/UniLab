@@ -21,7 +21,7 @@ from unilab.envs import registry
 from unilab.envs.mujoco_env.mj_env import MjMlxEnvState
 from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
 
-from unilab.envs.locomotion.go2.base import Go2BaseMjEnv, Go2BaseCfg
+from unilab.envs.locomotion.go2.base import Go2BaseMjEnv, Go2BaseCfg, ControlConfig, NoiseConfig
 
 # ----------------- Configuration -----------------
 
@@ -35,8 +35,8 @@ class LocoInitState:
 class LocoCommands:
     """Velocity command ranges aligned with IsaacLab Go2 config."""
     vel_limit = [
-        [-1.0, -1.0, -1.0],  # min: vel_x, vel_y, ang_vel
-        [1.0, 1.0, 1.0],     # max
+        [0.5, 0, 0],  # min: vel_x, vel_y, ang_vel
+        [0.5, 0, 0],     # max
     ]
     resampling_time: float = 10.0  # seconds between command resampling
 
@@ -51,21 +51,22 @@ class LocoRewardConfig:
     scales: dict[str, float] = field(
         default_factory=lambda: {
             # Task rewards
-            "track_lin_vel_xy_exp": 1.5,
-            "track_ang_vel_z_exp": 0.75,
+            "alive": 1.0,
+            "track_lin_vel_xy_exp": 1.0,
+            "track_ang_vel_z_exp": 0.5,
             # Penalty terms
-            "lin_vel_z_l2": -2.0,
+            "dof_pos_l2_from_default": -0.05,
+            "foot_height_tracking": -0.01,
+            "action_rate_l2": -0.005,
+            "flat_orientation_l2": -0.5,
+            "lin_vel_z_l2": -1.0,
             "ang_vel_xy_l2": -0.05,
-            "dof_torques_l2": -0.0002,
-            "dof_acc_l2": -2.5e-7,
-            "action_rate_l2": -0.01,
-            "feet_air_time": 0.01,
-            "flat_orientation_l2": -1.0,
+            "termination_penalty": -50.0,
         }
     )
 
     # Tracking reward parameters
-    tracking_sigma: float = 0.25  # std = sqrt(0.25)
+    tracking_sigma: float = 0.5  # Increased to prevent sharp decay at edge of command bounds
 
     # Base height target
     base_height_target: float = 0.30
@@ -77,6 +78,7 @@ class LocoTerminationConfig:
     base_contact_threshold: float = 1.0  # force threshold for base contact termination
     # Fallback to orientation check if contact sensor not available
     max_tilt_angle_deg: float = 30.0
+    min_base_height: float = 0.20  # terminate if base height drops below this
 
 
 @registry.envcfg("Go2LocoFlatTerrain")
@@ -88,6 +90,7 @@ class Go2LocoCfg(Go2BaseCfg):
     commands: LocoCommands = field(default_factory=LocoCommands)
     reward_config: LocoRewardConfig = field(default_factory=LocoRewardConfig)
     termination_config: LocoTerminationConfig = field(default_factory=LocoTerminationConfig)
+    control_config: ControlConfig = field(default_factory=lambda: ControlConfig(action_scale=0.25))
 
 
 # ----------------- Environment -----------------
@@ -128,15 +131,16 @@ class Go2LocoTaskMj(Go2BaseMjEnv):
     def _init_reward_functions(self):
         """Register all reward functions."""
         self._reward_fns = {
+            "alive": self._reward_alive,
             "track_lin_vel_xy_exp": lambda s: self._reward_track_lin_vel_xy_exp(s, s.info["commands"]),
             "track_ang_vel_z_exp": lambda s: self._reward_track_ang_vel_z_exp(s, s.info["commands"]),
+            "dof_pos_l2_from_default": self._reward_dof_pos_l2_from_default,
+            "foot_height_tracking": self._reward_foot_height_tracking,
+            "action_rate_l2": lambda s: self._reward_action_rate(s.info),
+            "flat_orientation_l2": self._reward_flat_orientation_l2,
             "lin_vel_z_l2": self._reward_lin_vel_z,
             "ang_vel_xy_l2": self._reward_ang_vel_xy_l2,
-            "dof_torques_l2": self._reward_dof_torques_l2,
-            "dof_acc_l2": self._reward_dof_acc_l2,
-            "action_rate_l2": lambda s: self._reward_action_rate(s.info),
-            "feet_air_time": self._reward_feet_air_time,
-            "flat_orientation_l2": self._reward_flat_orientation_l2,
+            "termination_penalty": self._reward_termination_penalty,
         }
 
     def _init_obs_space(self):
@@ -164,6 +168,15 @@ class Go2LocoTaskMj(Go2BaseMjEnv):
 
     # ------------- Reward Functions (IsaacLab-aligned) ----------------
 
+    def _reward_alive(self, state: MjMlxEnvState):
+        """Reward for staying alive."""
+        return mx.ones((self._num_envs,), dtype=self._mlx_dtype)
+
+    def _reward_termination_penalty(self, state: MjMlxEnvState):
+        """Penalty for early termination (e.g. base contact/tilt)."""
+        # state.terminated is a boolean array, convert to float for the reward
+        return state.terminated.astype(self._mlx_dtype)
+
     def _reward_track_lin_vel_xy_exp(self, state: MjMlxEnvState, commands: mx.array):
         """Exponential tracking of linear velocity commands (x, y).
 
@@ -186,33 +199,22 @@ class Go2LocoTaskMj(Go2BaseMjEnv):
         gyro = self.get_gyro(state)
         return mx.sum(mx.square(gyro[:, :2]), axis=1)
 
-    def _reward_dof_torques_l2(self, state: MjMlxEnvState):
-        """Penalize joint torques (IsaacLab: dof_torques_l2).
+    def _reward_dof_pos_l2_from_default(self, state: MjMlxEnvState):
+        """Penalize joint limits/extreme configurations (Default-pose penalty)."""
+        dof_pos = self.get_dof_pos(state)
+        # Using default joint positions as target
+        return mx.sum(mx.square(dof_pos - self.default_angles), axis=1)
 
-        Uses ctrl as proxy for torques in position-controlled joints.
-        """
-        if state.ctrl is not None:
-            return mx.sum(mx.square(state.ctrl), axis=1)
-        return mx.zeros((self._num_envs,), dtype=self._mlx_dtype)
-
-    def _reward_dof_acc_l2(self, state: MjMlxEnvState):
-        """Penalize joint accelerations (IsaacLab: dof_acc_l2).
-
-        Approximated as (vel_t - vel_{t-1}) / dt.
-        """
-        dof_vel = self.get_dof_vel(state)
-        dof_acc = (dof_vel - self._prev_dof_vel) / self.cfg.ctrl_dt
-        self._prev_dof_vel = dof_vel
-        return mx.sum(mx.square(dof_acc), axis=1)
-
-    def _reward_feet_air_time(self, state: MjMlxEnvState):
-        """Encourage feet to be in the air (simplified version).
-
-        Uses base height as proxy — higher base ≈ feet are lifted.
-        """
+    def _reward_foot_height_tracking(self, state: MjMlxEnvState):
+        """Simple foot-height tracking term to guide swing motion."""
+        # A simple heuristic: punish too high base/feet deviations, 
+        # or just penalize ground clearance slightly to discourage moonwalking.
+        # Since we just want to replace the complex feet_air_time, 
+        # we can use base height tracking as a proxy for foot height rhythm, 
+        # or implement a simple variance penalty.
         base_height = state.physics_state[:, self._idx_qpos + 2]
         target = self.cfg.reward_config.base_height_target
-        return mx.maximum(base_height - target, mx.zeros_like(base_height))
+        return mx.square(base_height - target)
 
     def _reward_flat_orientation_l2(self, state: MjMlxEnvState):
         """Penalize non-flat orientation (IsaacLab: flat_orientation_l2).
@@ -282,7 +284,11 @@ class Go2LocoTaskMj(Go2BaseMjEnv):
             if name not in self._reward_fns:
                 continue
 
-            rew = self._reward_fns[name](state)
+            try:
+                rew = self._reward_fns[name](state)
+            except Exception as e:
+                print(f"Error evaluating reward {name}: {e}")
+                raise
             weighted_rew = rew * scale
             total_reward += weighted_rew
 
@@ -313,7 +319,11 @@ class Go2LocoTaskMj(Go2BaseMjEnv):
             mx.abs(local_gravity[:, 0]) > sin_limit,
             mx.abs(local_gravity[:, 1]) > sin_limit,
         )
-        state.terminated = bad_orientation
+        
+        base_height = state.physics_state[:, self._idx_qpos + 2]
+        bad_height = base_height < self.cfg.termination_config.min_base_height
+        
+        state.terminated = mx.logical_or(bad_orientation, bad_height)
         return state
 
     # ------------- Commands ----------------
@@ -389,3 +399,28 @@ class Go2LocoTaskMj(Go2BaseMjEnv):
         obs_batch = self._get_obs(obs_state, info)
 
         return obs_physics_state, obs_batch, info
+
+
+# ----------------- Play Environment -----------------
+
+
+@dataclass
+class LocoPlayCommands(LocoCommands):
+    """Play commands with fixed forward velocity."""
+    vel_limit = [
+        [1.0, 0.0, 0.0],  # min: vel_x, vel_y, ang_vel
+        [1.0, 0.0, 0.0],  # max
+    ]
+
+
+@registry.envcfg("Go2LocoFlatTerrainPlay")
+@dataclass
+class Go2LocoPlayCfg(Go2LocoCfg):
+    commands: LocoPlayCommands = field(default_factory=LocoPlayCommands)
+    noise_config: NoiseConfig = field(default_factory=lambda: NoiseConfig(level=0.0))
+
+
+@registry.env("Go2LocoFlatTerrainPlay", sim_backend="mujoco")
+class Go2LocoPlayTaskMj(Go2LocoTaskMj):
+    """Play environment inheriting from Go2LocoFlatTerrain, without noise and with fixed forward commands."""
+    pass
