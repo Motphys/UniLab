@@ -111,86 +111,91 @@ def rsl_rl_config(env_name: str) -> config_dict.ConfigDict:
 
 
 def fast_td3_config(env_name: str) -> config_dict.ConfigDict:
-    """Returns tuned FastTD3 config for the given environment."""
+    """Returns tuned FastTD3 config for the given environment.
+
+    Hyperparameters aligned with holosoma FastSACConfig defaults.
+    """
 
     rl_config = config_dict.create(
         seed=1,
-        obs_groups={"default": ["policy"]},
-        actor=config_dict.create(
-            class_name="MLPModel",
-            hidden_dims=[512, 256, 128],
-            activation="elu",
-            init_noise_std=1.0,
-            noise_std_type="scalar",
-            stochastic=False,
-            obs_normalization=True,
-        ),
-        critic=config_dict.create(
-            class_name="MLPModel",
-            hidden_dims=[512, 256, 128],
-            activation="elu",
-            obs_normalization=False,
-        ),
-        algorithm=config_dict.create(
-            class_name="FastTD3",
-            learning_rate=3e-4,
-            gamma=0.99,
-            max_grad_norm=1.0,
-            tau=0.005,
-            policy_delay=2,
-            policy_noise=0.2,
-            noise_clip=0.5,
-        ),
+        # Network architecture (holosoma-aligned)
+        actor_hidden_dim=512,
+        critic_hidden_dim=768,
+        use_layer_norm=True,
+        num_atoms=101,         # distributional C51
+        # Training
+        num_envs=4096,
+        batch_size=8192,
+        updates_per_step=8,
+        warmup_steps=5000,
+        replay_buffer_n=1024,
         num_steps_per_env=24,
         max_iterations=1500,
         save_interval=50,
+        # Optimizer (AdamW, holosoma-style)
+        actor_lr=3e-4,
+        critic_lr=3e-4,
+        # Algorithm
+        gamma=0.97,
+        tau=0.125,
+        policy_delay=4,
+        exploration_noise=0.5,
+        policy_noise=0.2,
+        noise_clip=0.5,
     )
 
-    if env_name in ("Go2JoystickFlatTerrain", "Go1JoystickFlatTerrain", "G1JoystickFlatTerrain"):
-        rl_config.algorithm.learning_rate = 1e-3
-        rl_config.algorithm.gamma = 0.99
+    if env_name in ("Go2JoystickFlatTerrain", "Go2LocoFlatTerrain"):
+        pass  # defaults are tuned for Go2
+    elif env_name in ("Go1JoystickFlatTerrain",):
+        rl_config.num_envs = 4096
+    elif env_name in ("G1JoystickFlatTerrain",):
+        rl_config.num_envs = 2048
 
     return rl_config
 
 
 def fast_sac_config(env_name: str) -> config_dict.ConfigDict:
-    """Returns tuned FastSAC config for the given environment."""
+    """Returns tuned FastSAC config for the given environment.
+
+    Hyperparameters aligned with holosoma FastSACConfig defaults.
+    """
 
     rl_config = config_dict.create(
         seed=1,
-        obs_groups={"default": ["policy"]},
-        actor=config_dict.create(
-            class_name="MLPModel",
-            hidden_dims=[512, 256, 128],
-            activation="elu",
-            init_noise_std=1.0,
-            noise_std_type="scalar",
-            stochastic=True,
-            obs_normalization=True,
-        ),
-        critic=config_dict.create(
-            class_name="MLPModel",
-            hidden_dims=[512, 256, 128],
-            activation="elu",
-            obs_normalization=False,
-        ),
-        algorithm=config_dict.create(
-            class_name="FastSAC",
-            learning_rate=3e-4,
-            gamma=0.99,
-            max_grad_norm=1.0,
-            tau=0.005,
-            init_alpha=0.2,
-            alpha_lr=3e-4,
-        ),
+        # Network architecture (holosoma-aligned)
+        actor_hidden_dim=512,
+        critic_hidden_dim=768,
+        use_layer_norm=True,
+        num_atoms=101,         # distributional C51
+        # Training
+        num_envs=4096,
+        batch_size=8192,
+        updates_per_step=4,
+        warmup_steps=20000,
+        replay_buffer_n=1024,
         num_steps_per_env=24,
         max_iterations=1500,
         save_interval=50,
+        # Optimizer (AdamW, holosoma-style)
+        actor_lr=3e-4,
+        critic_lr=3e-4,
+        alpha_lr=3e-4,
+        # Algorithm
+        gamma=0.97,
+        tau=0.125,
+        alpha_init=0.01,
+        target_entropy_ratio=0.0,
+        policy_frequency=4,
+        exploration_noise=0.1,
     )
 
-    if env_name in ("Go2JoystickFlatTerrain", "Go1JoystickFlatTerrain", "G1JoystickFlatTerrain"):
-        rl_config.algorithm.learning_rate = 1e-3
-        rl_config.algorithm.gamma = 0.99
+    if env_name in ("Go2JoystickFlatTerrain", "Go2LocoFlatTerrain"):
+        pass  # defaults are tuned for Go2
+    elif env_name in ("Go1JoystickFlatTerrain",):
+        rl_config.num_envs = 4096
+    elif env_name in ("G1JoystickFlatTerrain",):
+        rl_config.num_envs = 2048
 
     return rl_config
+
 

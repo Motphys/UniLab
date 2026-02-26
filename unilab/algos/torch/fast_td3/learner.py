@@ -1,221 +1,267 @@
-"""FastTD3 Learner — Twin Delayed DDPG with async Ray workers.
+"""FastTD3 Learner — Twin Delayed DDPG with distributional critics.
 
-Key features:
-- Twin Q-networks (take min for target Q)
-- Delayed policy updates (every `policy_delay` critic updates)
-- Target policy smoothing (clipped noise on target actions)
-- Soft target network update (tau)
-- Running reward normalization to prevent Q-value explosion
-- Works with rsl_rl MLPModel for actor/critic
+Network architecture (replicated from holosoma):
+- Actor: MLP with SiLU + LayerNorm, deterministic + exploration noise
+- Critic: Distributional Q-Networks (C51 variant, num_atoms=101)
+
+Hyperparameters aligned with holosoma FastSACConfig defaults.
 """
+
+from __future__ import annotations
 
 import copy
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
-from itertools import chain
-from tensordict import TensorDict
-
-from rsl_rl.models import MLPModel
-from rsl_rl.utils import resolve_optimizer
+from typing import Dict, Tuple
 
 
-class RunningMeanStd:
-    """Running mean/std for reward normalization (Welford's algorithm)."""
+# ---------------------------------------------------------------------------
+# TD3 Actor (deterministic, SiLU + LayerNorm)
+# ---------------------------------------------------------------------------
 
-    def __init__(self, device="cpu"):
-        self.mean = torch.tensor(0.0, device=device)
-        self.var = torch.tensor(1.0, device=device)
-        self.count = 0
+class TD3Actor(nn.Module):
+    """Deterministic actor for TD3.
 
-    def update(self, x):
-        batch_mean = x.mean()
-        batch_var = x.var() if x.numel() > 1 else torch.tensor(0.0, device=x.device)
-        batch_count = x.numel()
-
-        delta = batch_mean - self.mean
-        total_count = self.count + batch_count
-
-        if total_count == 0:
-            return
-
-        self.mean = self.mean + delta * batch_count / total_count
-        m_a = self.var * self.count
-        m_b = batch_var * batch_count
-        m2 = m_a + m_b + delta**2 * self.count * batch_count / total_count
-        self.var = m2 / total_count
-        self.count = total_count
-
-    def normalize(self, x):
-        return (x - self.mean) / (self.var.sqrt() + 1e-8)
-
-
-class FastTD3Learner:
-    """TD3 learner that trains on GPU from replay buffer samples."""
+    Architecture: Linear→LN→SiLU → Linear→LN→SiLU → Linear→LN→SiLU → Linear→Tanh
+    """
 
     def __init__(
         self,
-        actor: MLPModel,
-        critic1: MLPModel,
-        critic2: MLPModel,
-        # TD3 hyper-parameters
-        gamma: float = 0.99,
-        tau: float = 0.005,
-        policy_delay: int = 2,
-        policy_noise: float = 0.2,
-        noise_clip: float = 0.5,
+        obs_dim: int,
+        action_dim: int,
+        hidden_dim: int = 512,
+        use_layer_norm: bool = True,
+        device: str | torch.device = "cpu",
+    ):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(obs_dim, hidden_dim, device=device),
+            nn.LayerNorm(hidden_dim, device=device) if use_layer_norm else nn.Identity(),
+            nn.SiLU(),
+            nn.Linear(hidden_dim, hidden_dim // 2, device=device),
+            nn.LayerNorm(hidden_dim // 2, device=device) if use_layer_norm else nn.Identity(),
+            nn.SiLU(),
+            nn.Linear(hidden_dim // 2, hidden_dim // 4, device=device),
+            nn.LayerNorm(hidden_dim // 4, device=device) if use_layer_norm else nn.Identity(),
+            nn.SiLU(),
+            nn.Linear(hidden_dim // 4, action_dim, device=device),
+            nn.Tanh(),
+        )
+
+    def forward(self, obs: torch.Tensor) -> torch.Tensor:
+        return self.net(obs)
+
+
+# Reuse DistributionalQNetwork and Critic from FastSAC
+from unilab.algos.torch.fast_sac.learner import DistributionalQNetwork, SACCritic
+
+
+# ---------------------------------------------------------------------------
+# FastTD3Learner
+# ---------------------------------------------------------------------------
+
+class FastTD3Learner:
+    """FastTD3 learner with holosoma-aligned hyperparameters.
+
+    Key hyperparameters (aligned with holosoma):
+    - gamma=0.97, tau=0.125
+    - batch_size=8192, policy_delay=4
+    - AdamW with betas=(0.9, 0.95), weight_decay=0.001
+    - Distributional critic (C51, num_atoms=101)
+    - Target noise clipping for policy smoothing
+    """
+
+    def __init__(
+        self,
+        obs_dim: int,
+        action_dim: int,
+        device: str = "cpu",
+        # Hyperparameters aligned with holosoma
+        gamma: float = 0.97,
+        tau: float = 0.125,
         actor_lr: float = 3e-4,
         critic_lr: float = 3e-4,
-        max_grad_norm: float = 1.0,
-        normalize_rewards: bool = True,
-        optimizer: str = "adam",
-        device: str = "cpu",
-        **kwargs,
+        actor_hidden_dim: int = 512,
+        critic_hidden_dim: int = 768,
+        num_atoms: int = 101,
+        v_min: float = -20.0,
+        v_max: float = 20.0,
+        num_q_networks: int = 2,
+        use_layer_norm: bool = True,
+        weight_decay: float = 0.001,
+        max_grad_norm: float = 0.0,
+        # TD3-specific
+        policy_noise: float = 0.2,
+        noise_clip: float = 0.5,
+        exploration_noise: float = 0.1,
     ):
         self.device = device
         self.gamma = gamma
         self.tau = tau
-        self.policy_delay = policy_delay
+        self.max_grad_norm = max_grad_norm
         self.policy_noise = policy_noise
         self.noise_clip = noise_clip
-        self.max_grad_norm = max_grad_norm
-        self.learning_rate = actor_lr  # exposed for logging
-        self.normalize_rewards = normalize_rewards
+        self.exploration_noise = exploration_noise
 
-        # Running reward stats for normalization
-        self.reward_rms = RunningMeanStd(device=device) if normalize_rewards else None
+        # Build actor
+        self.actor = TD3Actor(
+            obs_dim=obs_dim,
+            action_dim=action_dim,
+            hidden_dim=actor_hidden_dim,
+            use_layer_norm=use_layer_norm,
+            device=device,
+        )
+        self.actor_target = TD3Actor(
+            obs_dim=obs_dim,
+            action_dim=action_dim,
+            hidden_dim=actor_hidden_dim,
+            use_layer_norm=use_layer_norm,
+            device=device,
+        )
+        self.actor_target.load_state_dict(self.actor.state_dict())
 
-        # Networks
-        self.actor = actor.to(device)
-        self.critic1 = critic1.to(device)
-        self.critic2 = critic2.to(device)
+        # Build critic ensemble (distributional)
+        self.qnet = SACCritic(
+            obs_dim=obs_dim,
+            action_dim=action_dim,
+            num_atoms=num_atoms,
+            v_min=v_min,
+            v_max=v_max,
+            hidden_dim=critic_hidden_dim,
+            use_layer_norm=use_layer_norm,
+            num_q_networks=num_q_networks,
+            device=device,
+        )
+        self.qnet_target = SACCritic(
+            obs_dim=obs_dim,
+            action_dim=action_dim,
+            num_atoms=num_atoms,
+            v_min=v_min,
+            v_max=v_max,
+            hidden_dim=critic_hidden_dim,
+            use_layer_norm=use_layer_norm,
+            num_q_networks=num_q_networks,
+            device=device,
+        )
+        self.qnet_target.load_state_dict(self.qnet.state_dict())
 
-        # Target networks
-        self.target_actor = copy.deepcopy(self.actor).to(device)
-        self.target_critic1 = copy.deepcopy(self.critic1).to(device)
-        self.target_critic2 = copy.deepcopy(self.critic2).to(device)
-        for net in [self.target_actor, self.target_critic1, self.target_critic2]:
-            net.eval()
-            for p in net.parameters():
-                p.requires_grad = False
-
-        # Optimisers
-        opt_cls = resolve_optimizer(optimizer)
-        self.actor_optimizer = opt_cls(self.actor.parameters(), lr=actor_lr)
-        self.critic_optimizer = opt_cls(
-            chain(self.critic1.parameters(), self.critic2.parameters()), lr=critic_lr
+        # Optimizers (AdamW, holosoma style)
+        self.q_optimizer = optim.AdamW(
+            self.qnet.parameters(),
+            lr=critic_lr,
+            weight_decay=weight_decay,
+            betas=(0.9, 0.95),
+        )
+        self.actor_optimizer = optim.AdamW(
+            self.actor.parameters(),
+            lr=actor_lr,
+            weight_decay=weight_decay,
+            betas=(0.9, 0.95),
         )
 
-        self._update_step = 0
+        self.update_count = 0
 
-    # ---- public helpers ----
-    def train_mode(self):
-        self.actor.train()
-        self.critic1.train()
-        self.critic2.train()
+    def update_critic(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
+        """One critic update step."""
+        obs = batch["obs"]
+        actions = batch["actions"]
+        rewards = batch["rewards"]
+        next_obs = batch["next_obs"]
+        dones = batch["dones"]
 
-    def eval_mode(self):
-        self.actor.eval()
-        self.critic1.eval()
-        self.critic2.eval()
+        bootstrap = (1.0 - dones).float()
+        discount = torch.full_like(dones, self.gamma)
 
-    def get_weights(self):
-        """Return actor weights for syncing to Ray workers."""
-        return {"actor_state_dict": self.actor.state_dict()}
-
-    # ---- core update ----
-    def update(self, obs, actions, rewards, next_obs, dones):
-        """One TD3 gradient step.
-
-        All inputs are tensors already on self.device with shapes:
-            obs, next_obs: [B, D]
-            actions:       [B, A]
-            rewards, dones: [B]
-
-        Returns:
-            dict of scalar loss metrics
-        """
-        self._update_step += 1
-
-        # Reward normalization to prevent Q-value explosion
-        if self.reward_rms is not None:
-            self.reward_rms.update(rewards)
-            rewards = self.reward_rms.normalize(rewards)
-
-        # --- Critic update ---
         with torch.no_grad():
             # Target policy smoothing
-            obs_td_next = TensorDict({"policy": next_obs}, batch_size=next_obs.shape[0], device=self.device)
-            # Squash action to [-1, 1] (critical for TD3 stability)
-            next_actions = torch.tanh(self.target_actor(obs_td_next))
-            noise = (torch.randn_like(next_actions) * self.policy_noise).clamp(
+            noise = (torch.randn_like(actions) * self.policy_noise).clamp(
                 -self.noise_clip, self.noise_clip
             )
-            next_actions = (next_actions + noise).clamp(-1.0, 1.0)
+            next_actions = (self.actor_target(next_obs) + noise).clamp(-1, 1)
 
-            # Construct obs+action input for Q networks
-            q_input_next = TensorDict(
-                {"policy": torch.cat([next_obs, next_actions], dim=-1)},
-                batch_size=next_obs.shape[0],
-                device=self.device,
+            # Distributional target
+            target_distributions = self.qnet_target.projection(
+                next_obs, next_actions, rewards, bootstrap, discount
             )
-            target_q1 = self.target_critic1(q_input_next).squeeze(-1)
-            target_q2 = self.target_critic2(q_input_next).squeeze(-1)
-            target_q = torch.min(target_q1, target_q2)
-            target_value = rewards + (1.0 - dones) * self.gamma * target_q
+            target_values = self.qnet_target.get_value(target_distributions)
 
-        # Current Q values
-        q_input = TensorDict(
-            {"policy": torch.cat([obs, actions], dim=-1)},
-            batch_size=obs.shape[0],
-            device=self.device,
-        )
-        q1 = self.critic1(q_input).squeeze(-1)
-        q2 = self.critic2(q_input).squeeze(-1)
+        # Critic loss (distributional cross-entropy)
+        q_outputs = self.qnet(obs, actions)
+        critic_log_probs = F.log_softmax(q_outputs, dim=-1)
+        critic_losses = -torch.sum(target_distributions * critic_log_probs, dim=-1)
+        qf_loss = critic_losses.mean(dim=1).sum(dim=0)
 
-        critic_loss = nn.functional.mse_loss(q1, target_value) + nn.functional.mse_loss(q2, target_value)
+        self.q_optimizer.zero_grad(set_to_none=True)
+        qf_loss.backward()
 
-        self.critic_optimizer.zero_grad(set_to_none=True)
-        critic_loss.backward()
-        nn.utils.clip_grad_norm_(
-            chain(self.critic1.parameters(), self.critic2.parameters()),
-            self.max_grad_norm,
-        )
-        self.critic_optimizer.step()
-
-        # --- Delayed policy update ---
-        actor_loss_val = 0.0
-        if self._update_step % self.policy_delay == 0:
-            obs_td = TensorDict({"policy": obs}, batch_size=obs.shape[0], device=self.device)
-            # Squash action to [-1, 1]
-            pred_actions = torch.tanh(self.actor(obs_td))
-            q_input_actor = TensorDict(
-                {"policy": torch.cat([obs, pred_actions], dim=-1)},
-                batch_size=obs.shape[0],
-                device=self.device,
+        critic_grad_norm = torch.tensor(0.0, device=self.device)
+        if self.max_grad_norm > 0:
+            critic_grad_norm = torch.nn.utils.clip_grad_norm_(
+                self.qnet.parameters(), max_norm=self.max_grad_norm
             )
-            actor_loss = -self.critic1(q_input_actor).mean()
-
-            self.actor_optimizer.zero_grad(set_to_none=True)
-            actor_loss.backward()
-            nn.utils.clip_grad_norm_(self.actor.parameters(), self.max_grad_norm)
-            self.actor_optimizer.step()
-            actor_loss_val = actor_loss.item()
-
-            # Soft update target networks
-            self._soft_update(self.target_actor, self.actor)
-            self._soft_update(self.target_critic1, self.critic1)
-            self._soft_update(self.target_critic2, self.critic2)
+        self.q_optimizer.step()
 
         return {
-            "critic_loss": critic_loss.item(),
-            "actor_loss": actor_loss_val,
-            "q1_mean": q1.mean().item(),
-            "q2_mean": q2.mean().item(),
+            "qf_loss": qf_loss.item(),
+            "critic_grad_norm": critic_grad_norm.item(),
+            "target_q_max": target_values.max().item(),
+            "target_q_min": target_values.min().item(),
         }
 
-    def _soft_update(self, target, source):
-        for tp, sp in zip(target.parameters(), source.parameters()):
-            tp.data.copy_(self.tau * sp.data + (1.0 - self.tau) * tp.data)
-        for tb, sb in zip(target.buffers(), source.buffers()):
-            tb.data.copy_(sb.data)
+    def update_actor(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
+        """One actor update step."""
+        obs = batch["obs"]
+        actions = self.actor(obs)
+
+        # Use mean Q-value across ensemble
+        q_outputs = self.qnet(obs, actions)
+        q_probs = F.softmax(q_outputs, dim=-1)
+        q_values = self.qnet.get_value(q_probs)
+        actor_loss = -q_values.mean()
+
+        self.actor_optimizer.zero_grad(set_to_none=True)
+        actor_loss.backward()
+
+        actor_grad_norm = torch.tensor(0.0, device=self.device)
+        if self.max_grad_norm > 0:
+            actor_grad_norm = torch.nn.utils.clip_grad_norm_(
+                self.actor.parameters(), max_norm=self.max_grad_norm
+            )
+        self.actor_optimizer.step()
+
+        return {
+            "actor_loss": actor_loss.item(),
+            "actor_grad_norm": actor_grad_norm.item(),
+        }
+
+    def soft_update_targets(self) -> None:
+        """Polyak-average update of target networks."""
+        with torch.no_grad():
+            # Actor target
+            for p, tp in zip(self.actor.parameters(), self.actor_target.parameters()):
+                tp.data.mul_(1.0 - self.tau).add_(p.data, alpha=self.tau)
+            # Critic target
+            for p, tp in zip(self.qnet.parameters(), self.qnet_target.parameters()):
+                tp.data.mul_(1.0 - self.tau).add_(p.data, alpha=self.tau)
+
+    def get_state_dict(self) -> Dict:
+        return {
+            "actor": self.actor.state_dict(),
+            "actor_target": self.actor_target.state_dict(),
+            "qnet": self.qnet.state_dict(),
+            "qnet_target": self.qnet_target.state_dict(),
+            "actor_optimizer": self.actor_optimizer.state_dict(),
+            "q_optimizer": self.q_optimizer.state_dict(),
+            "update_count": self.update_count,
+        }
+
+    def load_state_dict(self, state_dict: Dict) -> None:
+        self.actor.load_state_dict(state_dict["actor"])
+        self.actor_target.load_state_dict(state_dict["actor_target"])
+        self.qnet.load_state_dict(state_dict["qnet"])
+        self.qnet_target.load_state_dict(state_dict["qnet_target"])
+        self.actor_optimizer.load_state_dict(state_dict["actor_optimizer"])
+        self.q_optimizer.load_state_dict(state_dict["q_optimizer"])
+        self.update_count = state_dict.get("update_count", 0)

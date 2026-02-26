@@ -88,6 +88,42 @@ def vtrace_advantages(
     return vs, advantages
 
 
+import torch.nn as nn
+from torch.distributions import Normal
+
+class APPOActorWrapper(nn.Module):
+    def __init__(self, core_model, action_dim):
+        super().__init__()
+        self.core = core_model
+        self.std = nn.Parameter(torch.ones(action_dim))
+        self.distribution = None
+
+    def forward(self, obs_dict, stochastic_output=False, **kwargs):
+        mean = self.core(obs_dict, **kwargs)
+        self.distribution = Normal(mean, mean * 0. + self.std)
+        if stochastic_output:
+            return self.distribution.sample()
+        return mean
+
+    def get_output_log_prob(self, actions):
+        return self.distribution.log_prob(actions).sum(dim=-1)
+
+    @property
+    def output_mean(self):
+        return self.distribution.mean
+
+    @property
+    def output_std(self):
+        return self.distribution.stddev
+
+    @property
+    def output_entropy(self):
+        return self.distribution.entropy().sum(dim=-1)
+
+    def update_normalization(self, obs_dict, **kwargs):
+        if hasattr(self.core, "update_normalization"):
+            self.core.update_normalization(obs_dict, **kwargs)
+
 class APPOLearner:
     """Asynchronous PPO Learner.
 
@@ -193,8 +229,12 @@ class APPOLearner:
         Workers use the behavior policy (which may be stale).
         Includes EmpiricalNormalization buffers.
         """
+    def get_state_dict(self):
+        """Return full learner state for checkpointing."""
         return {
-            "actor_state_dict": self.actor.state_dict(),
+            "actor": self.actor.state_dict(),
+            "critic": self.critic.state_dict(),
+            "optimizer": self.optimizer.state_dict(),
         }
 
     def process_batch(self, batch_dict):
@@ -283,8 +323,6 @@ class APPOLearner:
         behavior_log_probs_flat = batch_dict["actions_log_prob"].flatten(0, 1)
         old_values_flat = batch_dict["values"].flatten(0, 1)
         target_log_probs_flat = batch_dict["target_log_probs"].flatten(0, 1)
-        old_mu_flat = batch_dict["mu"].flatten(0, 1)
-        old_sigma_flat = batch_dict["sigma"].flatten(0, 1)
 
         # Normalize advantages globally
         advantages_flat = (advantages_flat - advantages_flat.mean()) / (advantages_flat.std() + 1e-8)
@@ -293,6 +331,12 @@ class APPOLearner:
         obs_td = batch_dict.get("_obs_td")
         if obs_td is None:
             obs_td = TensorDict({"policy": obs_flat}, batch_size=obs_flat.shape[0], device=self.device)
+
+        # Compute old mu/sigma using target actor for KL divergence
+        with torch.inference_mode():
+            self.target_actor(obs_td, stochastic_output=False)
+            old_mu_flat = self.target_actor.output_mean
+            old_sigma_flat = self.target_actor.output_std
 
         batch_size = obs_flat.shape[0]
         mini_batch_size = batch_size // self.num_mini_batches

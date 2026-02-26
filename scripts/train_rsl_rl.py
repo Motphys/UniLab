@@ -45,6 +45,7 @@ except ImportError:
     sys.exit(1)
 
 from unilab.utils.rsl_rl_compat import is_rsl_rl_v4, convert_config_v3_to_v4
+from unilab.utils.run_utils import get_latest_run
 
 class RslRlVecEnvWrapper:
     """Wrapper to adapt MjNpEnv to RSL-RL OnPolicyRunner interface."""
@@ -148,23 +149,6 @@ class RslRlVecEnvWrapper:
         return obs
 
 
-def get_latest_run(log_dir):
-    """Find the latest run in the log directory that contains a model."""
-    if not os.path.exists(log_dir):
-        return None
-    runs = sorted([d for d in os.listdir(log_dir) if os.path.isdir(os.path.join(log_dir, d)) and d != "git"])
-    
-    # Iterate backwards to find first run with models
-    for run_id in reversed(runs):
-        run_path = os.path.join(log_dir, run_id)
-        # Check if any .pt file exists
-        if any(f.endswith(".pt") for f in os.listdir(run_path)):
-            return run_path
-            
-    # Fallback to just the latest directory if no models found (though it will likely fail later)
-    if len(runs) > 0:
-        return os.path.join(log_dir, runs[-1])
-    return None
 
 
 def main():

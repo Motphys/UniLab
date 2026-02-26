@@ -1,314 +1,254 @@
-import ray
-import torch
-import time
-import numpy as np
-from collections import defaultdict
+"""APPO Runner — Asynchronous PPO with native multiprocessing (no Ray).
 
-from unilab.algos.torch.appo.worker import RolloutWorker
-from unilab.algos.torch.appo.learner import APPOLearner
+Pipeline:
+  1. Collector subprocess collects on-policy rollouts → SharedOnPolicyStorage
+  2. Learner reads rollouts, computes V-trace corrected updates
+  3. Weights synced back to collector via SharedWeightSync
+"""
+
+import multiprocessing as mp
+import os
+import time
+import statistics
+import torch
+from collections import defaultdict, deque
+
+from unilab.algos.torch.common.async_runner import (
+    AsyncRunner,
+    SharedOnPolicyStorage,
+    SharedWeightSync,
+)
+from unilab.algos.torch.appo.worker import appo_collector_fn
+from unilab.algos.torch.appo.learner import APPOLearner, APPOActorWrapper
+from unilab.algos.torch.common.logger import TrainingLogger
 from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4
 from rsl_rl.utils import resolve_callable
 
+class APPORunner(AsyncRunner):
+    """APPO async runner using shared memory (no Ray dependency)."""
 
-class APPORunner:
     def __init__(
         self,
-        env_name,
-        env_cfg_overrides,
-        rl_cfg,
-        device="cuda:0",
-        num_workers=4,
-        steps_per_env=24,
-        num_envs_per_worker=1,
+        env_name: str,
+        env_cfg_overrides: dict,
+        rl_cfg: dict,
+        device: str | None = None,
+        collector_device: str | None = None,
+        num_envs: int = 1024,
+        steps_per_env: int = 24,
+        num_workers: int = 1,  # kept for API compat, but only 1 collector used
     ):
-        self.device = device
-        self.env_name = env_name
-        self.num_workers = num_workers
+        super().__init__(
+            env_name=env_name,
+            env_cfg_overrides=env_cfg_overrides,
+            rl_cfg=rl_cfg,
+            device=device,
+            collector_device=collector_device,
+            num_envs=num_envs,
+        )
+
         self.steps_per_env = steps_per_env
-        self.num_envs_per_worker = num_envs_per_worker
 
-        # 1. Prepare Config
-        if is_rsl_rl_v4():
-            self.rl_cfg = convert_config_v3_to_v4(rl_cfg)
+        # Resolve dims
+        self._resolve_dims()
+
+    def _resolve_dims(self):
+        self.obs_dim, self.action_dim = self._detect_dims()
+
+        # Update rl_cfg so internal RSL-RL networks get correct observation dimension
+        if "obs_groups" not in self.rl_cfg:
+            self.rl_cfg["obs_groups"] = {"actor": {"policy": self.obs_dim}}
         else:
-            self.rl_cfg = rl_cfg
+            actor_group = self.rl_cfg["obs_groups"].get("actor", self.rl_cfg["obs_groups"].get("policy", {}))
+            if isinstance(actor_group, dict) and "policy" in actor_group:
+                actor_group["policy"] = self.obs_dim
 
-        # 2. Init Ray
-        if not ray.is_initialized():
-            ray.init()
+    def _detect_dims(self):
+        """Create a tiny env to read obs/action dims, then close it."""
+        from unilab.envs import registry
+        from unilab.algos.torch.common.worker import ensure_registries
+        ensure_registries()
 
-        # 3. Create Workers
-        print(f"Spawning {num_workers} workers with {num_envs_per_worker} envs each...")
+        env = registry.make(self.env_name, num_envs=1, sim_backend="mujoco")
+        obs_dim = env.observation_space.shape[0]
+        action_dim = env.action_space.shape[0]
+        env.close()
 
-        worker_env_cfg = env_cfg_overrides.copy()
-        worker_env_cfg["num_envs"] = num_envs_per_worker
+        return obs_dim, action_dim
 
-        self.workers = [
-            RolloutWorker.remote(env_name=env_name, env_cfg_overrides=worker_env_cfg, device="cpu")
-            for _ in range(num_workers)
-        ]
+    def _build_learner(self):
+        cfg = dict(self.rl_cfg)
+        if is_rsl_rl_v4():
+            cfg = convert_config_v3_to_v4(cfg)
 
-        # 4. Initialize Policy on Workers
-        policy_cfg = {
-            "actor": self.rl_cfg["actor"],
-            "obs_groups": self.rl_cfg.get("obs_groups", {"default": ["policy"]}),
+        from tensordict import TensorDict
+        import torch
+        obs_example = torch.zeros((self.num_envs, self.obs_dim), device=self.device)
+        td_example = TensorDict({"policy": obs_example}, batch_size=self.num_envs)
+
+        # Build actor 
+        actor_cfg = cfg.get("policy", cfg.get("actor", {})).copy()
+        actor_cls = resolve_callable(actor_cfg.pop("class_name"))
+        actor_cfg.pop("num_actions", None)
+        actor_core = actor_cls(td_example, cfg["obs_groups"], "actor", self.action_dim, **actor_cfg)
+        actor = APPOActorWrapper(actor_core, self.action_dim)
+
+        # Build critic
+        critic_cfg = cfg.get("critic", cfg.get("policy", cfg.get("actor", {}))).copy()
+        critic_cls = resolve_callable(critic_cfg.pop("class_name", "rsl_rl.models.MLPModel"))
+        critic_cfg.pop("num_actions", None)
+        critic = critic_cls(td_example, cfg["obs_groups"], "actor", 1, **critic_cfg)
+
+        learner = APPOLearner(
+            actor=actor,
+            critic=critic,
+            td_example=td_example,
+            rl_cfg=cfg,
+            obs_dim=self.obs_dim,
+            action_dim=self.action_dim,
+            device=self.device,
+            num_envs=self.num_envs,
+            steps_per_env=self.steps_per_env,
+        )
+        return learner
+
+    def _collector_fn(self, stop_event, **kwargs):
+        appo_collector_fn(stop_event=stop_event, **kwargs)
+
+    def learn(
+        self,
+        max_iterations: int = 1500,
+        save_interval: int = 50,
+        log_dir: str = "logs",
+    ):
+        os.makedirs(log_dir, exist_ok=True)
+
+        learner = self._build_learner()
+
+        # Create shared storage
+        shared_storage = SharedOnPolicyStorage(
+            num_envs=self.num_envs,
+            num_steps=self.steps_per_env,
+            obs_dim=self.obs_dim,
+            action_dim=self.action_dim,
+            create=True,
+        )
+        self._shared_resources.append(shared_storage)
+
+        # Create weight sync
+        weight_sync = SharedWeightSync.from_state_dict(
+            learner.actor.state_dict(), create=True
+        )
+        self._shared_resources.append(weight_sync)
+
+        weight_param_shapes = {
+            name: p.shape for name, p in learner.actor.state_dict().items()
         }
 
-        futures = [w.init_policy.remote(policy_cfg) for w in self.workers]
-        ray.get(futures)
-        print("Workers initialized.")
+        metrics_queue = mp.Queue(maxsize=100)
 
-        # 5. Create Learner (Local GPU)
-        from unilab.envs import registry
-
-        temp_env = registry.make(env_name, **env_cfg_overrides)
-        obs_dim = temp_env.observation_space.shape[0]
-        num_actions = temp_env.action_space.shape[0]
-        temp_env.close()
-
-        self.num_envs_per_worker = num_envs_per_worker
-        self.total_envs = num_workers * num_envs_per_worker
-
-        print(f"Obs Dim: {obs_dim}, Actions: {num_actions}, Total Envs: {self.total_envs}")
-
-        # Create Actor/Critic models on GPU
-        obs_example = torch.zeros((self.total_envs, obs_dim), device=device)
-        from tensordict import TensorDict
-
-        td_example = TensorDict({"policy": obs_example}, batch_size=self.total_envs)
-
-        actor_cfg = self.rl_cfg["actor"].copy()
-        critic_cfg = self.rl_cfg["critic"].copy()
-
-        actor_cls = resolve_callable(actor_cfg.pop("class_name"))
-        critic_cls = resolve_callable(critic_cfg.pop("class_name"))
-
-        actor = actor_cls(td_example, self.rl_cfg["obs_groups"], "actor", num_actions, **actor_cfg)
-        critic = critic_cls(td_example, self.rl_cfg["obs_groups"], "critic", 1, **critic_cfg)
-
-        algo_cfg = self.rl_cfg["algorithm"].copy()
-        if "class_name" in algo_cfg:
-            del algo_cfg["class_name"]
-
-        self.learner = APPOLearner(actor, critic, device=device, **algo_cfg)
-
-    def _collate_results(self, results):
-        """Collate worker results into a single batch dict on learner device."""
-        batch_dict = {}
-        device = self.learner.device
-
-        time_series_keys = [
-            "observations", "actions", "rewards", "dones",
-            "truncated", "actions_log_prob", "mu", "sigma",
-        ]
-        single_step_keys = ["last_obs"]
-
-        for k in time_series_keys:
-            if k in results[0]:
-                tensors = [r[k] for r in results]
-                batch_dict[k] = torch.cat(tensors, dim=1).to(device, non_blocking=False)
-
-        for k in single_step_keys:
-            if k in results[0]:
-                tensors = [r[k] for r in results]
-                batch_dict[k] = torch.cat(tensors, dim=0).to(device, non_blocking=False)
-
-        return batch_dict
-
-    def _aggregate_metrics(self, results):
-        """Aggregate episode metrics and per-step log entries from worker results."""
-        for r in results:
-            if "metrics" in r:
-                m = r["metrics"]
-                for key, val_list in m.items():
-                    self.metrics_buffers[key].extend(val_list)
-            if "step_logs" in r:
-                self.step_log_accumulator.extend(r["step_logs"])
-
-    def learn(self, max_iterations=1000, save_interval=50, log_dir=None):
-        """Main training loop with async double-buffered pipeline.
-
-        Pipeline:
-          Iter 0: sync weights → collect batch_0 (cold start)
-          Iter n>0:
-            1. Start async collection for NEXT batch
-            2. While workers collect, process & train on CURRENT batch (GPU)
-            3. Wait for collection to finish
-            4. Sync weights for next iteration
-        """
-        import statistics
-        from collections import deque
-
-        self.metrics_buffers = defaultdict(lambda: deque(maxlen=100))
-        self.step_log_accumulator = []
-
-        # TensorBoard writer
-        tb_writer = None
-        if log_dir:
-            import os
-            os.makedirs(log_dir, exist_ok=True)
-            try:
-                from torch.utils.tensorboard import SummaryWriter
-                tb_writer = SummaryWriter(log_dir=log_dir, flush_secs=10)
-            except ImportError:
-                print("  [Warning] tensorboard not installed, skipping TB logging")
-
-        tot_timesteps = 0
-        tot_time = 0.0
-        collection_size = self.steps_per_env * self.total_envs
-        width = 80
-        pad = 40
-
-        # Set learner to training mode
-        self.learner.train_mode()
-
-        # === Prefetch Pipeline ===
-        weights = self.learner.get_weights()
-        weights_ref = ray.put(weights)
-        ray.get([w.set_weights.remote(weights_ref) for w in self.workers])
-
-        precollect_start = time.time()
-        results = ray.get([w.sample.remote(self.steps_per_env) for w in self.workers])
-        precollect_time = time.time() - precollect_start
-        current_batch = self._collate_results(results)
-        self._aggregate_metrics(results)
-        print(f"  [Prefetch] Initial collection: {precollect_time:.2f}s")
-
-        for it in range(max_iterations):
-            iter_start = time.time()
-
-            # 1. Sync latest weights to workers
-            sync_start = time.time()
-            weights = self.learner.get_weights()
-            weights_ref = ray.put(weights)
-            ray.get([w.set_weights.remote(weights_ref) for w in self.workers])
-            sync_time = time.time() - sync_start
-
-            # 2. Start async collection (workers use potentially stale weights)
-            collect_start = time.time()
-            sample_futures = [w.sample.remote(self.steps_per_env) for w in self.workers]
-
-            # 3. Train on CURRENT batch while collection happens
-            learn_start = time.time()
-            current_batch = self.learner.process_batch(current_batch)
-            loss_dict = self.learner.update(current_batch)
-            learn_time = time.time() - learn_start
-
-            # 4. Wait for collection
-            results = ray.get(sample_futures)
-            collect_time = time.time() - collect_start
-
-            # 5. Collate new data
-            current_batch = self._collate_results(results)
-            self._aggregate_metrics(results)
-
-            iteration_time = time.time() - iter_start
-            tot_timesteps += collection_size
-            tot_time += iteration_time
-
-            # Checkpoint saving
-            if log_dir and save_interval > 0 and (it % save_interval == 0 or it == max_iterations - 1):
-                self._save_checkpoint(log_dir, it)
-
-            # === Logging ===
-            fps = int(collection_size / iteration_time)
-
-            mean_reward = None
-            mean_ep_len = None
-            if "episode_returns" in self.metrics_buffers and len(self.metrics_buffers["episode_returns"]) > 0:
-                mean_reward = statistics.mean(self.metrics_buffers["episode_returns"])
-            if "episode_lengths" in self.metrics_buffers and len(self.metrics_buffers["episode_lengths"]) > 0:
-                mean_ep_len = statistics.mean(self.metrics_buffers["episode_lengths"])
-
-            log_string = f"""{"#" * width}\n"""
-            log_string += f"""\033[1m{f" APPO iteration {it}/{max_iterations} ".center(width)}\033[0m \n\n"""
-
-            log_string += (
-                f"""{"Total steps:":>{pad}} {tot_timesteps} \n"""
-                f"""{"Steps per second:":>{pad}} {fps:.0f} \n"""
-                f"""{"Collection time:":>{pad}} {collect_time:.3f}s \n"""
-                f"""{"Learning time:":>{pad}} {learn_time:.3f}s \n"""
-                f"""{"Weight sync time:":>{pad}} {sync_time:.3f}s \n"""
-                f"""{"Learning rate:":>{pad}} {self.learner.learning_rate:.6f}\n"""
-            )
-
-            for key, value in loss_dict.items():
-                log_string += f"""{f"{key}:":>{pad}} {value:.4f}\n"""
-
-            if mean_reward is not None:
-                log_string += f"""{"Mean reward:":>{pad}} {mean_reward:.2f}\n"""
-            if mean_ep_len is not None:
-                log_string += f"""{"Mean episode length:":>{pad}} {mean_ep_len:.2f}\n"""
-
-            # Per-step reward components
-            step_log_means = {}
-            if self.step_log_accumulator:
-                all_keys = set()
-                for entry in self.step_log_accumulator:
-                    all_keys.update(entry.keys())
-                for key in sorted(all_keys):
-                    vals = [e[key] for e in self.step_log_accumulator if key in e]
-                    step_log_means[key] = sum(vals) / len(vals)
-                self.step_log_accumulator = []
-
-            for key in sorted(step_log_means.keys()):
-                log_string += f"""{f"{key}:":>{pad}} {step_log_means[key]:.4f}\n"""
-
-            if hasattr(self.learner.actor, "output_std") and self.learner.actor.distribution is not None:
-                log_string += (
-                    f"""{"Mean action noise std:":>{pad}} {self.learner.actor.output_std.mean().item():.2f}\n"""
-                )
-
-            done_it = it + 1
-            remaining_it = max_iterations - done_it
-            eta = tot_time / done_it * remaining_it if done_it > 0 else 0
-            log_string += (
-                f"""{"-" * width}\n"""
-                f"""{"Iteration time:":>{pad}} {iteration_time:.2f}s\n"""
-                f"""{"Time elapsed:":>{pad}} {time.strftime("%H:%M:%S", time.gmtime(tot_time))}\n"""
-                f"""{"ETA:":>{pad}} {time.strftime("%H:%M:%S", time.gmtime(eta))}\n"""
-            )
-            print(log_string)
-
-            # TensorBoard
-            if tb_writer is not None:
-                for key, value in loss_dict.items():
-                    tb_writer.add_scalar(f"Loss/{key}", value, it)
-                if mean_reward is not None:
-                    tb_writer.add_scalar("Train/mean_reward", mean_reward, it)
-                if mean_ep_len is not None:
-                    tb_writer.add_scalar("Train/mean_episode_length", mean_ep_len, it)
-                tb_writer.add_scalar("Train/learning_rate", self.learner.learning_rate, it)
-                tb_writer.add_scalar("Perf/total_fps", fps, it)
-                tb_writer.add_scalar("Perf/collection_time", collect_time, it)
-                tb_writer.add_scalar("Perf/learning_time", learn_time, it)
-                for key, value in step_log_means.items():
-                    if "/" in key:
-                        tb_writer.add_scalar(key, value, it)
-                    else:
-                        tb_writer.add_scalar(f"Episode/{key}", value, it)
-
-        if tb_writer is not None:
-            tb_writer.close()
-
-    def _save_checkpoint(self, log_dir, iteration):
-        """Save model checkpoint."""
-        import os
-        os.makedirs(log_dir, exist_ok=True)
-        path = os.path.join(log_dir, f"model_{iteration}.pt")
-        torch.save(
-            {
-                "actor_state_dict": self.learner.actor.state_dict(),
-                "critic_state_dict": self.learner.critic.state_dict(),
-                "target_actor_state_dict": self.learner.target_actor.state_dict(),
-                "optimizer_state_dict": self.learner.optimizer.state_dict(),
-                "iteration": iteration,
-            },
-            path,
+        # Start collector
+        collector_kwargs = {
+            "env_name": self.env_name,
+            "env_cfg_overrides": self.env_cfg_overrides,
+            "rl_cfg": self.rl_cfg,
+            "num_envs": self.num_envs,
+            "steps_per_env": self.steps_per_env,
+            "shm_storage_name": shared_storage.name,
+            "sync_primitives": (shared_storage._write_idx, shared_storage._read_idx, shared_storage._ready),
+            "obs_dim": self.obs_dim,
+            "action_dim": self.action_dim,
+            "weight_sync_name": weight_sync.name,
+            "weight_param_shapes": weight_param_shapes,
+            "metrics_queue": metrics_queue,
+            "collector_device": self.collector_device,
+        }
+        self._start_collector(
+            target_fn=appo_collector_fn,
+            kwargs={"stop_event": self._stop_event, **collector_kwargs},
         )
-        print(f"  [Checkpoint] Saved to {path}")
 
-    def close(self):
-        for w in self.workers:
-            w.close.remote()
-        ray.shutdown()
+        logger = TrainingLogger(
+            algo_name="APPO",
+            max_iterations=max_iterations,
+            num_envs=self.num_envs,
+            env_name=self.env_name,
+            obs_dim=self.obs_dim,
+            action_dim=self.action_dim,
+        )
+        logger.start()
+        logger.log_status("Waiting for first rollout...")
+
+        reward_history = deque(maxlen=100)
+        start_time = time.time()
+        total_steps = 0
+        last_metrics_msg = {}
+
+        for iteration in range(1, max_iterations + 1):
+            iter_start = time.time()
+            # Wait for collector to provide data
+            if not shared_storage.wait_for_data(timeout=60.0):
+                logger.log_status(f"[yellow]Warning: Timeout waiting for data at iteration {iteration}[/]")
+                continue
+
+            # Read data and update
+            rollout_data = shared_storage.read_torch(self.device)
+            shared_storage.advance_read()
+            collect_time = time.time() - iter_start
+
+            train_start = time.time()
+            batch_dict = {}
+            for k, v in rollout_data.items():
+                if k != "last_obs" and v.ndim >= 2:
+                    batch_dict[k] = v.transpose(0, 1)
+                else:
+                    batch_dict[k] = v
+
+            if "obs" in batch_dict:
+                batch_dict["observations"] = batch_dict.pop("obs")
+            if "log_probs" in batch_dict:
+                batch_dict["actions_log_prob"] = batch_dict.pop("log_probs")
+
+            learner.process_batch(batch_dict)
+            metrics = learner.update(batch_dict)
+
+            # Sync weights
+            weight_sync.write_weights(learner.actor.state_dict())
+            train_time = time.time() - train_start
+
+            # Logging
+            try:
+                while not metrics_queue.empty():
+                    last_metrics_msg = metrics_queue.get_nowait()
+            except Exception:
+                pass
+
+            mean_reward = last_metrics_msg.get("mean_ep_reward", 0.0)
+            mean_length = last_metrics_msg.get("mean_ep_length", 0.0)
+            reward_components = last_metrics_msg.get("reward_components", {})
+            metrics["episode_length"] = mean_length
+
+            logger.log_step(
+                iteration=iteration,
+                metrics=metrics,
+                reward=mean_reward,
+                reward_components=reward_components,
+                collect_time=collect_time,
+                train_time=train_time,
+            )
+
+            # Save
+            if save_interval > 0 and iteration % save_interval == 0:
+                ckpt_path = os.path.join(log_dir, f"model_{iteration}.pt")
+                torch.save(learner.get_state_dict(), ckpt_path)
+                logger.log_save(ckpt_path)
+
+        ckpt_path = os.path.join(log_dir, f"model_{max_iterations}.pt")
+        torch.save(learner.get_state_dict(), ckpt_path)
+        logger.log_save(ckpt_path)
+        logger.finish()
+
+    def _check_collector_alive(self) -> bool:
+        if self._collector_process is not None and not self._collector_process.is_alive():
+            return False
+        return True
