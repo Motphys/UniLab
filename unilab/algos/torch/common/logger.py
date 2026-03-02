@@ -1,4 +1,4 @@
-"""Rich-based training logger — modular, plug-and-play for all RL algorithms.
+"""Rich-based training logger with TensorBoard / W&B support.
 
 Usage:
     from unilab.algos.torch.common.logger import TrainingLogger
@@ -7,6 +7,8 @@ Usage:
         algo_name="FastSAC",
         max_iterations=1500,
         num_envs=4096,
+        log_dir="logs/run_01",            # for tensorboard
+        log_backend="tensorboard",        # "tensorboard", "wandb", or "none"
     )
 
     logger.start()                       # Begin Live display
@@ -29,6 +31,7 @@ Usage:
 
 from __future__ import annotations
 
+import os
 import time
 from collections import deque
 from rich.console import Console
@@ -76,6 +79,7 @@ class TrainingLogger:
     - Timing: collect/train per step, total elapsed, ETA
     - Buffer fill progress bar
     - Checkpoint save notifications
+    - TensorBoard / W&B backend logging
     """
 
     def __init__(
@@ -87,6 +91,10 @@ class TrainingLogger:
         obs_dim: int = 0,
         action_dim: int = 0,
         refresh_per_second: int = 4,
+        log_dir: str = "",
+        log_backend: str = "tensorboard",  # "tensorboard", "wandb", "none"
+        wandb_project: str = "unilab",
+        wandb_name: str = "",
     ):
         self.algo_name = algo_name
         self.max_iterations = max_iterations
@@ -96,7 +104,7 @@ class TrainingLogger:
         self.action_dim = action_dim
 
         self._console = Console()
-        self._live: Optional[Live] = None
+        self._live = None
         self._refresh_rate = refresh_per_second
 
         # State
@@ -109,8 +117,8 @@ class TrainingLogger:
 
         # Metrics history (for sparkline / trend)
         self._reward_history: deque = deque(maxlen=200)
-        self._latest_metrics: Dict[str, float] = {}
-        self._latest_reward_components: Dict[str, float] = {}
+        self._latest_metrics: dict[str, float] = {}
+        self._latest_reward_components: dict[str, float] = {}
 
         # Timing
         self._collect_time: float = 0.0
@@ -120,6 +128,54 @@ class TrainingLogger:
         # Status message
         self._status: str = "Initializing..."
         self._last_save: str = ""
+
+        # ---- Backend logging ----
+        self._log_backend = log_backend.lower()
+        self._log_dir = log_dir
+        self._tb_writer = None
+        self._wandb_run = None
+
+        if self._log_backend == "tensorboard" and log_dir:
+            self._init_tensorboard(log_dir)
+        elif self._log_backend == "wandb":
+            self._init_wandb(
+                project=wandb_project,
+                name=wandb_name or f"{algo_name}_{env_name}",
+                log_dir=log_dir,
+            )
+
+    def _init_tensorboard(self, log_dir: str):
+        """Initialize TensorBoard SummaryWriter."""
+        try:
+            from torch.utils.tensorboard import SummaryWriter
+            tb_dir = os.path.join(log_dir, "tb")
+            os.makedirs(tb_dir, exist_ok=True)
+            self._tb_writer = SummaryWriter(log_dir=tb_dir)
+            self._console.print(f"[dim]📊 TensorBoard logging to: {tb_dir}[/]")
+        except ImportError:
+            self._console.print("[yellow]⚠ tensorboard not installed, skipping TB logging[/]")
+
+    def _init_wandb(self, project: str, name: str, log_dir: str):
+        """Initialize Weights & Biases run."""
+        try:
+            import wandb
+            self._wandb_run = wandb.init(
+                project=project,
+                name=name,
+                config={
+                    "algo": self.algo_name,
+                    "env": self.env_name,
+                    "num_envs": self.num_envs,
+                    "obs_dim": self.obs_dim,
+                    "action_dim": self.action_dim,
+                    "max_iterations": self.max_iterations,
+                },
+                dir=log_dir or None,
+                reinit=True,
+            )
+            self._console.print(f"[dim]📊 W&B logging to project: {project}, run: {name}[/]")
+        except ImportError:
+            self._console.print("[yellow]⚠ wandb not installed, skipping W&B logging[/]")
 
     # ---- Lifecycle ----
 
@@ -148,6 +204,13 @@ class TrainingLogger:
             )
         )
 
+        # Close backends
+        if self._tb_writer:
+            self._tb_writer.close()
+        if self._wandb_run:
+            import wandb
+            wandb.finish()
+
     # ---- Logging API ----
 
     def log_buffer_fill(self, current: int, target: int):
@@ -173,12 +236,12 @@ class TrainingLogger:
     def log_step(
         self,
         iteration: int,
-        metrics: Dict[str, float] | None = None,
+        metrics: dict[str, float] | None = None,
         reward: float | None = None,
-        reward_components: Dict[str, float] | None = None,
+        reward_components: dict[str, float] | None = None,
         collect_time: float = 0.0,
         train_time: float = 0.0,
-        extra_info: Dict[str, Any] | None = None,
+        extra_info: dict | None = None,
     ):
         """Log one training iteration."""
         self._iteration = iteration
@@ -194,8 +257,63 @@ class TrainingLogger:
             self._latest_reward_components = reward_components
 
         self._status = "Training"
-        # Print the dashboard periodically
+        # Print the dashboard
         self._console.print(self._build_display())
+
+        # ---- Write to backend ----
+        self._backend_log_step(iteration, metrics, reward, reward_components, collect_time, train_time)
+
+    def _backend_log_step(
+        self,
+        iteration: int,
+        metrics: dict[str, float] | None,
+        reward: float | None,
+        reward_components: dict[str, float] | None,
+        collect_time: float,
+        train_time: float,
+    ):
+        """Write metrics to TensorBoard / W&B."""
+        global_step = self._total_steps if self._total_steps > 0 else iteration
+
+        # ---- TensorBoard ----
+        if self._tb_writer:
+            w = self._tb_writer
+            if metrics:
+                for k, v in metrics.items():
+                    w.add_scalar(f"train/{k}", v, global_step)
+            if reward is not None:
+                w.add_scalar("reward/mean", reward, global_step)
+            if reward_components:
+                for k, v in reward_components.items():
+                    w.add_scalar(f"reward/{k}", v, global_step)
+            if self._mean_ep_length > 0:
+                w.add_scalar("episode/length", self._mean_ep_length, global_step)
+            w.add_scalar("perf/collect_time_ms", collect_time * 1000, global_step)
+            w.add_scalar("perf/train_time_ms", train_time * 1000, global_step)
+            elapsed = time.time() - self._start_time if self._start_time else 0
+            if elapsed > 0 and self._total_steps > 0:
+                w.add_scalar("perf/steps_per_sec", self._total_steps / elapsed, global_step)
+
+        # ---- W&B ----
+        if self._wandb_run:
+            import wandb
+            log_dict = {"iteration": iteration}
+            if metrics:
+                for k, v in metrics.items():
+                    log_dict[f"train/{k}"] = v
+            if reward is not None:
+                log_dict["reward/mean"] = reward
+            if reward_components:
+                for k, v in reward_components.items():
+                    log_dict[f"reward/{k}"] = v
+            if self._mean_ep_length > 0:
+                log_dict["episode/length"] = self._mean_ep_length
+            log_dict["perf/collect_time_ms"] = collect_time * 1000
+            log_dict["perf/train_time_ms"] = train_time * 1000
+            elapsed = time.time() - self._start_time if self._start_time else 0
+            if elapsed > 0 and self._total_steps > 0:
+                log_dict["perf/steps_per_sec"] = self._total_steps / elapsed
+            wandb.log(log_dict, step=global_step)
 
     def log_save(self, path: str):
         """Log a checkpoint save."""
@@ -211,10 +329,7 @@ class TrainingLogger:
 
     def _refresh(self):
         if self._status != "Training":
-            # Only print warming up, buffer fill, or status changes, 
-            # or if training, we'll let `log_step` explicitly call print if needed (or throttle it)
             pass
-        # To avoid spamming, we will just print periodically in log_step instead or on major events.
 
     def _build_display(self) -> Panel:
         """Build the full rich display panel."""

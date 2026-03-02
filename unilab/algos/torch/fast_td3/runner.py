@@ -194,6 +194,7 @@ class FastTD3Runner:
             env_name=self.env_name,
             obs_dim=self.obs_dim,
             action_dim=self.action_dim,
+            log_dir=log_dir,
         )
         logger.start()
 
