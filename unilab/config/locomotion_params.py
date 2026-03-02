@@ -113,41 +113,49 @@ def rsl_rl_config(env_name: str) -> config_dict.ConfigDict:
 def fast_td3_config(env_name: str) -> config_dict.ConfigDict:
     """Returns tuned FastTD3 config for the given environment.
 
-    Hyperparameters aligned with holosoma FastSACConfig defaults.
+    Hyperparameters aligned with reference FastTD3 repository
+    (Go1JoystickFlatTerrain / MuJoCoPlayground defaults).
     """
 
     rl_config = config_dict.create(
         seed=1,
-        # Network architecture (holosoma-aligned)
-        actor_hidden_dim=512,
-        critic_hidden_dim=768,
-        use_layer_norm=True,
-        num_atoms=101,         # distributional C51
+        # Network architecture (reference FastTD3)
+        actor_hidden_dim=256,
+        critic_hidden_dim=512,
+        num_atoms=101,          # distributional C51
+        init_scale=0.01,        # actor output layer init
         # Training
         num_envs=4096,
         batch_size=8192,
-        updates_per_step=8,
-        warmup_steps=5000,
-        replay_buffer_n=1024,
-        num_steps_per_env=24,
-        max_iterations=1500,
-        save_interval=50,
-        # Optimizer (AdamW, holosoma-style)
+        num_updates=4,
+        warmup_steps=50,
+        buffer_size=1000,      # per-env buffer size
+        total_timesteps=5000,
+        save_interval=500,
+        # Optimizer (AdamW)
         actor_lr=3e-4,
         critic_lr=3e-4,
+        weight_decay=0.1,
         # Algorithm
         gamma=0.97,
-        tau=0.125,
-        policy_delay=4,
-        exploration_noise=0.5,
+        tau=0.1,
+        policy_frequency=2,
         policy_noise=0.2,
         noise_clip=0.5,
+        # Per-env exploration noise
+        std_min=0.4,
+        std_max=1.0,
+        # Distributional
+        v_min=-10.0,
+        v_max=10.0,
+        use_cdq=True,
+        obs_normalization=True,
     )
 
     if env_name in ("Go2JoystickFlatTerrain", "Go2LocoFlatTerrain"):
         pass  # defaults are tuned for Go2
     elif env_name in ("Go1JoystickFlatTerrain",):
-        rl_config.num_envs = 4096
+        pass  # same as default
     elif env_name in ("G1JoystickFlatTerrain",):
         rl_config.num_envs = 2048
 
