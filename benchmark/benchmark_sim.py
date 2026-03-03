@@ -4,7 +4,8 @@ Benchmark MuJoCo simulation speed:
 - MuJoCo CPU Naive (Single Thread Loop)
 - MuJoCo Rollout Single-Core (nstep=1 loop)
 - MuJoCo Rollout Multi-Core (nstep=1 loop)
-- MJX (GPU/Metal via JAX)
+- MuJoCo Warp (GPU via NVIDIA Warp)
+- MJX (GPU/Metal via JAX, disabled by default)
 - MotrixSim (batch physics backend)
 
 Supports loading standard XML models or custom paths.
@@ -54,6 +55,11 @@ try:
     import motrixsim as mtx
 except ImportError:
     mtx = None
+
+try:
+    import mujoco_warp as mj_warp
+except ImportError:
+    mj_warp = None
 
 
 @dataclass
@@ -367,6 +373,48 @@ def run_motrixsim(xml_path: str, batch_size: int, steps: int, warmup: int = 20) 
         print(f"motrixsim error bs={batch_size}: {e}")
         return SimRecord("motrixsim_failed", "failed", batch_size, steps, 0, 0, 0)
 
+def run_mujoco_warp(xml_path: str, batch_size: int, steps: int, warmup: int = 5) -> SimRecord:
+    """Run MuJoCo Warp backend (GPU via NVIDIA Warp)."""
+    if mj_warp is None:
+        return SimRecord("mujoco_warp", "missing_dependency", batch_size, steps, 0, 0, 0)
+
+    try:
+        import warp
+        mj_model = mujoco.MjModel.from_xml_path(xml_path)
+        warp_model = mj_warp.put_model(mj_model)
+        # nworld=batch_size creates a batched Data object on GPU
+        warp_data = mj_warp.make_data(mj_model, nworld=batch_size)
+
+        def _do_step():
+            mj_warp.step(warp_model, warp_data)
+            warp.synchronize()
+
+        # Warmup
+        for _ in range(warmup):
+            _do_step()
+
+        start = time.perf_counter()
+        for _ in range(steps):
+            _do_step()
+        end = time.perf_counter()
+
+        elapsed = max(end - start, 1e-6)
+        total_steps = batch_size * steps
+        sps = total_steps / elapsed
+        return SimRecord(
+            backend="mujoco_warp",
+            model_name="xml",
+            batch_size=batch_size,
+            steps=steps,
+            elapsed_sec=elapsed,
+            sps=sps,
+            sps_per_env=sps / batch_size if batch_size > 0 else 0.0,
+        )
+    except Exception as e:
+        print(f"mujoco_warp error bs={batch_size}: {e}")
+        return SimRecord("mujoco_warp_failed", "failed", batch_size, steps, 0, 0, 0)
+
+
 def plot_results(records: List[SimRecord], plot_dir: Path):
     if not records:
         return
@@ -417,8 +465,8 @@ def plot_results(records: List[SimRecord], plot_dir: Path):
 def main():
     parser = argparse.ArgumentParser(description="Benchmark MuJoCo Simulation Speed")
     parser.add_argument("--xml", type=str, default=os.path.join(os.path.dirname(__file__), "xmls/humanoid/humanoid.xml"), help="Path to XML model.")
-    parser.add_argument("--batch-sizes", type=str, default="64,128,256,512,1024,2048,4096", help="Comma separated batch sizes")
-    parser.add_argument("--steps", type=int, default=1000, help="Simulation steps per run")
+    parser.add_argument("--batch-sizes", type=str, default="64,128,256,512,1024,2048,4096,8192,16384,32768", help="Comma separated batch sizes")
+    parser.add_argument("--steps", type=int, default=100, help="Simulation steps per run")
     parser.add_argument(
         "--rollout-multi-skip-checks",
         type=str,
@@ -435,7 +483,21 @@ def main():
         choices=["auto", "on", "off"],
         help="Enable MotrixSim backend benchmark: auto=run when dependency exists.",
     )
-    
+    parser.add_argument(
+        "--warp",
+        type=str,
+        default="auto",
+        choices=["auto", "on", "off"],
+        help="Enable MuJoCo Warp (GPU) backend benchmark: auto=run when dependency exists.",
+    )
+    parser.add_argument(
+        "--mjx",
+        type=str,
+        default="off",
+        choices=["auto", "on", "off"],
+        help="Enable MJX (JAX) backend benchmark: auto=run when dependency exists. Default off.",
+    )
+
     args = parser.parse_args()
     
     batch_sizes = [int(x) for x in args.batch_sizes.split(",")]
@@ -468,6 +530,8 @@ def main():
     
     skip_checks_flags = parse_skip_checks_mode(args.rollout_multi_skip_checks)
     run_motrixsim_flag = args.motrixsim == "on" or (args.motrixsim == "auto" and mtx is not None)
+    run_warp_flag = args.warp == "on" or (args.warp == "auto" and mj_warp is not None)
+    run_mjx_flag = args.mjx == "on" or (args.mjx == "auto" and mjx is not None)
 
     for bs in batch_sizes:
         # 1. MuJoCo Naive Serial (Single-thread CPU loop)
@@ -515,42 +579,51 @@ def main():
                 print(f"{backend_name} error bs={bs}: {e}")
 
 
-        # 4. MJX (GPU)
-        if mjx and jax and jax.devices()[0].platform == "cpu":
-            print("JAX CPU device found, skipping MJX benchmark")
-        else:
+        # 4. MuJoCo Warp (GPU)
+        if run_warp_flag:
             try:
-                r_mjx = run_mjx(model, bs, args.steps)
-                print(f"{r_mjx.backend:<25} | {bs:<6} | {r_mjx.sps:<12.1f} | {r_mjx.elapsed_sec:<8.4f}")
-                if r_mjx.elapsed_sec > 0 or r_mjx.sps > 0:
-                    records.append(r_mjx)
+                r_warp = run_mujoco_warp(args.xml, bs, args.steps)
+                print(f"{r_warp.backend:<25} | {bs:<6} | {r_warp.sps:<12.1f} | {r_warp.elapsed_sec:<8.4f}")
+                if r_warp.elapsed_sec > 0 or r_warp.sps > 0:
+                    records.append(r_warp)
             except Exception as e:
-                # Fallback to CPU if Metal fails (common on current MJX + Metal combination)
-                if "Unsupported device" in str(e) or "METAL" in str(e):
-                    if bs <= 1024:
-                        try:
-                            # Explicitly get CPU device
-                            cpu_devs = jax.devices("cpu")
-                            if not cpu_devs:
-                                print(f"mjx_cpu_fallback error bs={bs}: No CPU devices found")
-                            else:
-                                cpu_dev = cpu_devs[0]
-                                # IMPORTANT: We must temporarily set default device to CPU
-                                # because some internal mjx ops might not respect explicit device args
-                                with jax.default_device(cpu_dev):
-                                    r_mjx_cpu = run_mjx(model, bs, args.steps, device=cpu_dev)
-                                
-                                print(f"{r_mjx_cpu.backend:<25} | {bs:<6} | {r_mjx_cpu.sps:<12.1f} | {r_mjx_cpu.elapsed_sec:<8.4f}")
-                                if r_mjx_cpu.elapsed_sec > 0:
-                                    records.append(r_mjx_cpu)
-                        except Exception as e2:
-                            print(f"mjx_cpu_fallback error bs={bs}: {e2}")
-                    else:
-                        print(f"{'mjx':<25} | {bs:<6} | {'SKIP':<12} | {'-'}")
-                else:
-                    print(f"mjx_metal error bs={bs}: {e}")
+                print(f"mujoco_warp error bs={bs}: {e}")
+        elif args.warp == "on":
+            print(f"{'mujoco_warp':<25} | {bs:<6} | {'MISSING':<12} | {'-'}")
 
-        # 5. MotrixSim backend
+        # 5. MJX (JAX, disabled by default)
+        if run_mjx_flag:
+            if mjx and jax and jax.devices()[0].platform == "cpu":
+                print("JAX CPU device found, skipping MJX benchmark")
+            else:
+                try:
+                    r_mjx = run_mjx(model, bs, args.steps)
+                    print(f"{r_mjx.backend:<25} | {bs:<6} | {r_mjx.sps:<12.1f} | {r_mjx.elapsed_sec:<8.4f}")
+                    if r_mjx.elapsed_sec > 0 or r_mjx.sps > 0:
+                        records.append(r_mjx)
+                except Exception as e:
+                    # Fallback to CPU if Metal fails (common on current MJX + Metal combination)
+                    if "Unsupported device" in str(e) or "METAL" in str(e):
+                        if bs <= 1024:
+                            try:
+                                cpu_devs = jax.devices("cpu")
+                                if not cpu_devs:
+                                    print(f"mjx_cpu_fallback error bs={bs}: No CPU devices found")
+                                else:
+                                    cpu_dev = cpu_devs[0]
+                                    with jax.default_device(cpu_dev):
+                                        r_mjx_cpu = run_mjx(model, bs, args.steps, device=cpu_dev)
+                                    print(f"{r_mjx_cpu.backend:<25} | {bs:<6} | {r_mjx_cpu.sps:<12.1f} | {r_mjx_cpu.elapsed_sec:<8.4f}")
+                                    if r_mjx_cpu.elapsed_sec > 0:
+                                        records.append(r_mjx_cpu)
+                            except Exception as e2:
+                                print(f"mjx_cpu_fallback error bs={bs}: {e2}")
+                        else:
+                            print(f"{'mjx':<25} | {bs:<6} | {'SKIP':<12} | {'-'}")
+                    else:
+                        print(f"mjx error bs={bs}: {e}")
+
+        # 6. MotrixSim backend
         if run_motrixsim_flag:
             try:
                 r_mtx = run_motrixsim(args.xml, bs, args.steps)
