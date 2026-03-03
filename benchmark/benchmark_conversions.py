@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import platform
 import statistics
 import time
 from dataclasses import asdict, dataclass
@@ -22,6 +23,8 @@ try:
     from benchmark.device_info import get_device_info_dict, get_device_info_line
 except ModuleNotFoundError:
     from device_info import get_device_info_dict, get_device_info_line
+
+_IS_MACOS = platform.system() == "Darwin"
 
 try:
     import numpy as np
@@ -43,6 +46,7 @@ try:
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    import matplotlib.ticker
 except Exception:  # pragma: no cover
     plt = None
 
@@ -101,16 +105,27 @@ def pow2_sizes(start_pow: int, end_pow: int) -> List[int]:
 
 
 def available_backends() -> Dict[str, bool]:
-    return {
+    backends: Dict[str, bool] = {
         "numpy": np is not None,
         "torch_cpu": torch is not None,
-        "torch_mps": bool(
+    }
+    if _IS_MACOS:
+        backends["torch_mps"] = bool(
             torch is not None
             and hasattr(torch.backends, "mps")
             and torch.backends.mps.is_available()
-        ),
-        "mlx": mx is not None,
-    }
+        )
+        backends["mlx"] = mx is not None
+    else:
+        backends["torch_cuda"] = bool(
+            torch is not None and torch.cuda.is_available()
+        )
+    return backends
+
+
+def _get_cuda_device(backend: str) -> str:
+    """Return the CUDA device string for a given backend, e.g. 'cuda:0'."""
+    return "cuda"
 
 
 def bench_callable(fn: Callable[[], None], warmup: int, repeat: int) -> List[float]:
@@ -188,6 +203,11 @@ def create_source(backend: str, size: int, dtype_name: str):
             raise RuntimeError("torch mps unavailable")
         return torch.randn(shape, dtype=torch_dtype(dtype_name), device="mps")
 
+    if backend == "torch_cuda":
+        if torch is None or not torch.cuda.is_available():
+            raise RuntimeError("torch cuda unavailable")
+        return torch.randn(shape, dtype=torch_dtype(dtype_name), device="cuda")
+
     if backend == "mlx":
         if mx is None:
             raise RuntimeError("mlx unavailable")
@@ -203,7 +223,7 @@ def to_numpy(value, source_backend: str):
         raise RuntimeError("numpy unavailable")
     if source_backend == "numpy":
         return value
-    if source_backend in ("torch_cpu", "torch_mps"):
+    if source_backend in ("torch_cpu", "torch_mps", "torch_cuda"):
         return value.detach().to("cpu").numpy()
     if source_backend == "mlx":
         return np.array(value)
@@ -230,6 +250,14 @@ def from_numpy(arr, target_backend: str, target_dtype_name: str):
             t = t.to(dtype=torch_dtype(target_dtype_name))
         return t.to(device="mps")
 
+    if target_backend == "torch_cuda":
+        if torch is None or not torch.cuda.is_available():
+            raise RuntimeError("torch cuda unavailable")
+        t = torch.from_numpy(arr)
+        if t.dtype != torch_dtype(target_dtype_name):
+            t = t.to(dtype=torch_dtype(target_dtype_name))
+        return t.to(device="cuda")
+
     if target_backend == "mlx":
         if mx is None:
             raise RuntimeError("mlx unavailable")
@@ -248,6 +276,14 @@ def convert_value(value, source_backend: str, target_backend: str, target_dtype_
         return value.to(device="mps")
     if source_backend == "torch_mps" and target_backend == "torch_cpu":
         return value.to(device="cpu")
+    if source_backend == "torch_cpu" and target_backend == "torch_cuda":
+        return value.to(device="cuda")
+    if source_backend == "torch_cuda" and target_backend == "torch_cpu":
+        return value.to(device="cpu")
+    if source_backend == "torch_cuda" and target_backend == "torch_mps":
+        return value.to(device="cpu").to(device="mps")
+    if source_backend == "torch_mps" and target_backend == "torch_cuda":
+        return value.to(device="cpu").to(device="cuda")
 
     # DLPack bridge: mlx -> torch
     if source_backend == "mlx" and target_backend == "torch_cpu":
@@ -280,6 +316,9 @@ def sync_if_needed(source_backend: str, target_backend: str, out_value) -> None:
     if torch is not None and hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         if source_backend == "torch_mps" or target_backend == "torch_mps":
             torch.mps.synchronize()
+    if torch is not None and torch.cuda.is_available():
+        if source_backend == "torch_cuda" or target_backend == "torch_cuda":
+            torch.cuda.synchronize()
 
 
 def summarize(
@@ -369,25 +408,35 @@ def save_plots(records: List[ConversionRecord], plot_dir: Path, file_prefix: str
 
     plot_dir.mkdir(parents=True, exist_ok=True)
     saved: List[str] = []
-    backend_order = ["numpy", "mlx", "torch_cpu", "torch_mps"]
-    backend_label = {
-        "numpy": "numpy",
-        "mlx": "mlx",
-        "torch_cpu": "torch.cpu",
-        "torch_mps": "torch.mps",
-    }
+    if _IS_MACOS:
+        backend_order = ["numpy", "mlx", "torch_cpu", "torch_mps"]
+        backend_label = {
+            "numpy": "numpy",
+            "mlx": "mlx",
+            "torch_cpu": "torch.cpu",
+            "torch_mps": "torch.mps",
+        }
+    else:
+        backend_order = ["numpy", "torch_cpu", "torch_cuda"]
+        backend_label = {
+            "numpy": "numpy",
+            "torch_cpu": "torch.cpu",
+            "torch_cuda": "torch.cuda",
+        }
     dtype_order = ["float32", "float16"]
     dtype_style = {
         "float32": {"color": "#1f77b4", "marker": "o"},
         "float16": {"color": "#ff7f0e", "marker": "s"},
     }
 
+    n_backends = len(backend_order)
     fig, axes = plt.subplots(
-        4,
-        4,
-        figsize=(18.5, 16.0),
+        n_backends,
+        n_backends,
+        figsize=(5.5 * n_backends, 4.5 * n_backends),
         sharex=True,
         sharey=True,
+        squeeze=False,
     )
     y_lo, y_hi = _positive_ylim(records, "mean_sec")
     legend_handles = {}
@@ -436,7 +485,7 @@ def save_plots(records: List[ConversionRecord], plot_dir: Path, file_prefix: str
                 ax.set_title(f"From: {backend_label[src]}", fontsize=10.5)
             if col == 0:
                 ax.set_ylabel(f"To: {backend_label[dst]}\ntime (sec)", fontsize=9.5)
-            if row == len(backend_order) - 1:
+            if row == n_backends - 1:
                 ax.set_xlabel("size (N for NxN)", fontsize=9.5)
             if not has_any_curve:
                 ax.text(
@@ -465,21 +514,37 @@ def save_plots(records: List[ConversionRecord], plot_dir: Path, file_prefix: str
             fontsize=10,
             frameon=False,
         )
+    all_sizes_fig1 = sorted({r.size for r in records})
+    for ax_row in axes:
+        for ax in ax_row:
+            ax.set_xticks(all_sizes_fig1)
+            ax.xaxis.set_major_formatter(
+                matplotlib.ticker.FuncFormatter(lambda v, _: str(int(v)))
+            )
+            ax.tick_params(axis="x", labelrotation=45, labelsize=7.5)
     fig.tight_layout(rect=[0.02, 0.03, 1, 0.95])
     outfile = plot_dir / f"{file_prefix}_conversion_time_4x4.png"
     fig.savefig(outfile, dpi=180, bbox_inches="tight", pad_inches=0.2)
     plt.close(fig)
     saved.append(str(outfile.resolve()))
 
-    # Focused figure: only numpy/mlx/torch.mps conversions.
+    # Focused figure: only the main 3 backends per platform.
     # Layout: 2 rows (float16, float32) x 3 cols (one From backend per column).
-    focused_backends = ["numpy", "mlx", "torch_mps"]
+    if _IS_MACOS:
+        focused_backends = ["numpy", "mlx", "torch_mps"]
+        to_colors = {
+            "numpy": "#1f77b4",
+            "mlx": "#ff7f0e",
+            "torch_mps": "#2ca02c",
+        }
+    else:
+        focused_backends = ["numpy", "torch_cpu", "torch_cuda"]
+        to_colors = {
+            "numpy": "#1f77b4",
+            "torch_cpu": "#9467bd",
+            "torch_cuda": "#2ca02c",
+        }
     row_dtypes = ["float16", "float32"]
-    to_colors = {
-        "numpy": "#1f77b4",
-        "mlx": "#ff7f0e",
-        "torch_mps": "#2ca02c",
-    }
 
     fig2, axes2 = plt.subplots(
         2,
@@ -559,8 +624,9 @@ def save_plots(records: List[ConversionRecord], plot_dir: Path, file_prefix: str
                     alpha=0.7,
                 )
 
+    focused_label = "numpy/mlx/torch.mps" if _IS_MACOS else "numpy/torch.cpu/torch.cuda"
     fig2.suptitle(
-        f"Conversion time vs size (cols=From, lines=To; numpy/mlx/torch.mps)\n{get_device_info_line()}",
+        f"Conversion time vs size (cols=From, lines=To; {focused_label})\n{get_device_info_line()}",
         fontsize=12.5,
         y=0.995,
     )
@@ -574,6 +640,14 @@ def save_plots(records: List[ConversionRecord], plot_dir: Path, file_prefix: str
             fontsize=9.5,
             frameon=False,
         )
+    all_sizes_fig2 = sorted({r.size for r in records})
+    for ax_row in axes2:
+        for ax in ax_row:
+            ax.set_xticks(all_sizes_fig2)
+            ax.xaxis.set_major_formatter(
+                matplotlib.ticker.FuncFormatter(lambda v, _: str(int(v)))
+            )
+            ax.tick_params(axis="x", labelrotation=45, labelsize=7.5)
     fig2.tight_layout(rect=[0.02, 0.03, 1, 0.92])
     outfile2 = plot_dir / f"{file_prefix}_conversion_time_numpy_mlx_torchmps_2x3.png"
     fig2.savefig(outfile2, dpi=180, bbox_inches="tight", pad_inches=0.2)

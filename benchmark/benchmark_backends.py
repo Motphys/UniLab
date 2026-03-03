@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import platform
 import statistics
 import time
 from dataclasses import asdict, dataclass
@@ -24,6 +25,8 @@ try:
     from benchmark.device_info import get_device_info_dict, get_device_info_line
 except ModuleNotFoundError:
     from device_info import get_device_info_dict, get_device_info_line
+
+_IS_MACOS = platform.system() == "Darwin"
 
 try:
     import numpy as np
@@ -390,17 +393,66 @@ def run_mlx(size: int, warmup: int, repeat: int, dtype_name: str) -> List[BenchR
     ]
 
 
+def run_torch_cuda(size: int, warmup: int, repeat: int, dtype_name: str) -> List[BenchRecord]:
+    if torch is None or not torch.cuda.is_available():
+        return []
+
+    device = torch.device("cuda")
+    dtype = torch_dtype(dtype_name)
+    a = torch.randn((size, size), dtype=dtype, device=device)
+    b = torch.randn((size, size), dtype=dtype, device=device)
+
+    def mm():
+        _ = a @ b
+
+    def ew():
+        _ = torch.tanh(a * 1.1 + b * 0.9) + torch.sin(a - b)
+
+    sync = lambda: torch.cuda.synchronize()
+    mm_t = bench_callable(mm, sync, warmup, repeat)
+    ew_t = bench_callable(ew, sync, warmup, repeat)
+
+    return [
+        summarize(
+            "torch_cuda",
+            dtype_name,
+            "matmul",
+            size,
+            warmup,
+            repeat,
+            mm_t,
+            matmul_gflops(size),
+        ),
+        summarize(
+            "torch_cuda",
+            dtype_name,
+            "elemwise",
+            size,
+            warmup,
+            repeat,
+            ew_t,
+            elemwise_gflops(size),
+        ),
+    ]
+
+
 def available_backends() -> Dict[str, bool]:
-    return {
+    backends: Dict[str, bool] = {
         "numpy": np is not None,
         "torch_cpu": torch is not None,
-        "torch_mps": bool(
+    }
+    if _IS_MACOS:
+        backends["torch_mps"] = bool(
             torch is not None
             and hasattr(torch.backends, "mps")
             and torch.backends.mps.is_available()
-        ),
-        "mlx": mx is not None,
-    }
+        )
+        backends["mlx"] = mx is not None
+    else:
+        backends["torch_cuda"] = bool(
+            torch is not None and torch.cuda.is_available()
+        )
+    return backends
 
 
 def print_table(records: List[BenchRecord]) -> None:
@@ -484,6 +536,12 @@ def save_plots(
             gax.set_xlabel("matrix size (N for NxN)")
             gax.set_ylabel("GFLOPS/s")
             gax.set_xscale("log", base=2)
+            gax.set_yscale("log")
+            all_sizes = sorted({r.size for r in subset})
+            gax.set_xticks(all_sizes)
+            gax.xaxis.set_major_formatter(
+                matplotlib.ticker.FuncFormatter(lambda v, _: str(int(v)))
+            )
             gax.grid(True, alpha=0.3)
             gax.legend()
             gfig.tight_layout()
@@ -553,12 +611,20 @@ def main() -> None:
     for n in sizes:
         print(f"\nRunning size={n} ...")
         for dtype_name in dtypes:
-            for backend_name, fn in (
-                ("numpy", run_numpy),
-                ("torch_cpu", run_torch_cpu),
-                ("torch_mps", run_torch_mps),
-                ("mlx", run_mlx),
-            ):
+            if _IS_MACOS:
+                backend_fns = [
+                    ("numpy", run_numpy),
+                    ("torch_cpu", run_torch_cpu),
+                    ("torch_mps", run_torch_mps),
+                    ("mlx", run_mlx),
+                ]
+            else:
+                backend_fns = [
+                    ("numpy", run_numpy),
+                    ("torch_cpu", run_torch_cpu),
+                    ("torch_cuda", run_torch_cuda),
+                ]
+            for backend_name, fn in backend_fns:
                 if n > 1024 and backend_name in {"numpy", "torch_cpu"}:
                     skipped_cases.append(
                         {
