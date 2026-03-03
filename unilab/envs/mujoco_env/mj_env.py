@@ -1,3 +1,4 @@
+from __future__ import annotations
 
 import abc
 import dataclasses
@@ -9,8 +10,12 @@ from typing import List, Optional, Tuple, Any
 from multiprocessing import cpu_count
 
 import mujoco
-from mujoco import mlx_step
-import mlx.core as mx
+try:
+    from mujoco import mlx_step
+    import mlx.core as mx
+except Exception:
+    mlx_step = None
+    mx = None
 import numpy as np
 
 from unilab.envs.base import ABEnv, EnvCfg

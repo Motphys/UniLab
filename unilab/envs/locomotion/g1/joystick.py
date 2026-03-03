@@ -1,9 +1,14 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 
 from etils import epath
 import gymnasium as gym
 import math
-import mlx.core as mx
+try:
+    import mlx.core as mx
+except Exception:
+    mx = None
 import numpy as np
 
 from unilab.envs import registry

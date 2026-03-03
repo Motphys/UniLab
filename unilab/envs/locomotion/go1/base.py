@@ -1,6 +1,11 @@
+from __future__ import annotations
+
 import gymnasium as gym
 import mujoco
-import mlx.core as mx
+try:
+    import mlx.core as mx
+except Exception:
+    mx = None
 from dataclasses import dataclass, field
 
 from unilab.envs.base import EnvCfg

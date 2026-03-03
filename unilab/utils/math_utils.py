@@ -1,4 +1,9 @@
-import mlx.core as mx
+from __future__ import annotations
+
+try:
+    import mlx.core as mx
+except Exception:
+    mx = None
 import numpy as np
 
 def quat_mul(q1, q2):

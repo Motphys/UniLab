@@ -10,10 +10,15 @@ Key differences from Go2JoystickFlatTerrain:
 - Larger velocity command ranges (suitable for training robust locomotion)
 """
 
+from __future__ import annotations
+
 from etils import epath
 import gymnasium as gym
 import math
-import mlx.core as mx
+try:
+    import mlx.core as mx
+except Exception:
+    mx = None
 import numpy as np
 from dataclasses import dataclass, field
 

@@ -19,18 +19,20 @@ Thirdparty:
 
 ## 安装 (Installation)
 
-1. **安装依赖**:
-   项目依赖 `mujoco-mlx`，当前从 [TestPyPI](https://test.pypi.org/project/mujoco-mlx/) 获取。在项目根目录下运行：
-   ```bash
-   pip install -i https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple mujoco-mlx==3.5.0
-   ```
-
-2. **克隆仓库**:
+1. **克隆仓库并安装**:
    ```bash
    git clone https://github.com/TATP-233/UniLab.git
    cd UniLab
    pip install -e .
    ```
+   安装时会根据平台自动选择依赖：
+   - **macOS**：安装 `mujoco-mlx==3.5.0`（来自 TestPyPI）和 `mlx`
+   - **Linux / Windows**：安装标准 `mujoco>=3.5.0`
+
+   > macOS 用户若遇到 `mujoco-mlx` 找不到，请先添加 TestPyPI 源：
+   > ```bash
+   > pip install -e . --extra-index-url https://test.pypi.org/simple/
+   > ```
 
 ## 训练与回放指南
 

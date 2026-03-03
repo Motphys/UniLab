@@ -390,10 +390,14 @@ def plot_results(records: List[SimRecord], plot_dir: Path):
         "MuJoCo Simulation Speed (Steps Per Second) vs Batch Size\n"
         f"{get_device_info_line()}"
     )
+    all_batch_sizes = sorted({r.batch_size for r in records})
     ax.set_xlabel("Batch Size")
     ax.set_ylabel("Total Steps Per Second (log scale)")
     ax.set_xscale("log", base=2)
     ax.set_yscale("log")
+    ax.set_xticks(all_batch_sizes)
+    ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: str(int(v))))
+    ax.tick_params(axis="x", rotation=45)
     # Show denser log ticks (1/2/5 * 10^n) so the y-axis is easier to read.
     ax.yaxis.set_major_locator(mticker.LogLocator(base=10.0, subs=(1.0, 2.0, 5.0)))
     ax.yaxis.set_major_formatter(mticker.LogFormatterSciNotation(base=10, labelOnlyBase=False))

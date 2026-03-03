@@ -15,6 +15,7 @@
 
 <mujoco model="Humanoid">
   <option timestep="0.005"/>
+  <!-- <option timestep="0.005" integrator="implicit" iterations="10"/> -->
 
   <visual>
     <map force="0.1" zfar="30"/>

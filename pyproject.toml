@@ -11,7 +11,9 @@ requires-python = ">=3.8"
 dependencies = [
     "numpy",
     "torch",
-    "mujoco-mlx==3.5.0",
+    "mujoco-mlx==3.5.0 ; sys_platform == 'darwin'",
+    "mujoco>=3.5.0    ; sys_platform != 'darwin'",
+    "mlx              ; sys_platform == 'darwin'",
     "gymnasium",
     "imageio",
     "etils",
@@ -28,9 +30,6 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest",
-]
-mlx = [
-    "mlx",
 ]
 
 [tool.setuptools.dynamic]
