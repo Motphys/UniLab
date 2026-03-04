@@ -170,6 +170,17 @@ def appo_collector_fn(
 
                 obs_np = to_float32_np(next_obs_raw)
 
+                # Handle true terminal observations
+                if hasattr(state, "info") and "_final_observation" in state.info:
+                    has_final = state.info["_final_observation"]
+                    if hasattr(has_final, "item"):
+                        has_final_np = to_float32_np(has_final).astype(bool)
+                    else:
+                        has_final_np = np.asarray(has_final, dtype=bool)
+                    if np.any(has_final_np):
+                        final_obs_np = to_float32_np(state.info["final_observation"])
+                        obs_np[has_final_np] = final_obs_np[has_final_np]
+
                 # Track metrics
                 total_steps += num_envs
                 current_ep_rewards += reward_raw

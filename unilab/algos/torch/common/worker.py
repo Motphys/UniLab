@@ -175,11 +175,23 @@ def _run_collector(
         state = env.step(actions_mx)
 
         # Extract data as numpy
+        # Extract data as numpy
         next_obs_np = _mx_to_np(state.obs)
         rewards_np = _mx_to_np(state.reward).ravel()
         terminated_np = _mx_to_np(state.terminated).ravel() if state.terminated is not None else np.zeros(num_envs, dtype=np.float32)
         truncated_np = _mx_to_np(state.truncated).ravel() if state.truncated is not None else np.zeros(num_envs, dtype=np.float32)
         combined_dones = np.clip(terminated_np + truncated_np, 0, 1)
+
+        # Handle true terminal observations
+        if "_final_observation" in state.info:
+            has_final = state.info["_final_observation"]
+            if hasattr(has_final, "item"):
+                has_final_np = _mx_to_np(has_final).astype(bool)
+            else:
+                has_final_np = np.asarray(has_final, dtype=bool)
+            if np.any(has_final_np):
+                final_obs_np = _mx_to_np(state.info["final_observation"])
+                next_obs_np[has_final_np] = final_obs_np[has_final_np]
 
         # Write to replay buffer
         replay_buffer.add_batch(obs_np, actions_np, rewards_np, next_obs_np, combined_dones)

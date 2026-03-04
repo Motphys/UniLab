@@ -233,15 +233,16 @@ class FastTD3Runner:
             truncated = _mx_to_torch(truncated_mx, collect_device)
             dones_float = (terminated + truncated).clamp(max=1.0)
 
-            # Compute true next obs (use reset obs for done envs)
-            # NOTE: env._reset_done_envs() has already been called inside env.step(),
-            # so state.obs already contains the reset obs for done envs.
-            # We need the pre-reset next_obs for the buffer. Since the env auto-resets,
-            # we store the current state.obs which is post-reset for done envs.
-            # The buffer should store the terminal obs for learning, not the reset obs.
-            # However, since env auto-resets, we need to track the pre-reset obs.
-            # For simplicity, we use the auto-reset obs (standard in vectorized envs).
-            # The bootstrap flag handles this: bootstrap=0 for true terminal, 1 for truncated.
+            # Compute true next obs: env auto-resets, replacing state.obs with the reset obs.
+            # Using the reset obs for truncated episodes causes incorrect bootstrapping.
+            # We use state.info["final_observation"] where state.info["_final_observation"] is true.
+            if "_final_observation" in state.info:
+                has_final = state.info["_final_observation"]
+                if hasattr(has_final, "item"): # mlx array
+                    has_final = _mx_to_torch(has_final, collect_device).bool()
+                if has_final.any():
+                    final_obs = _mx_to_torch(state.info["final_observation"], collect_device)
+                    next_obs[has_final] = final_obs[has_final]
 
             # Track episode rewards
             ep_rewards += rewards
