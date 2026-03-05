@@ -540,14 +540,14 @@ class TrainingLogger:
             "Terminated Rate", f"{self._terminated_rate * 100:.1f}%",
         )
 
-        util_pct = self._buffer_utilization * 100
-        if util_pct >= 98:
-            util_str = f"[bold red]{util_pct:.1f}%  (overwriting!)[/]"
-        elif util_pct >= 80:
-            util_str = f"[yellow]{util_pct:.1f}%[/]"
+        util = self._buffer_utilization
+        if util >= 1.5:
+            util_str = f"[bold red]{util:.2f}  (collector >> learner)[/]"
+        elif util >= 1.0:
+            util_str = f"[yellow]{util:.2f}[/]"
         else:
-            util_str = f"{util_pct:.1f}%"
-        table.add_row("Buf Utilization", util_str, "", "")
+            util_str = f"[green]{util:.2f}[/]"
+        table.add_row("Write/Read", util_str, "", "")
 
         table.add_row(
             "Envs", f"{self.num_envs:,}",

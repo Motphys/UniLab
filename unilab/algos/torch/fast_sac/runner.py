@@ -202,6 +202,7 @@ class FastSACRunner(AsyncRunner):
         reward_history = deque(maxlen=100)
         latest_reward_components = {}
         last_buf_log = 0
+        write_read_ema = 0.0  # EMA of write/consume ratio
 
         for iteration in range(1, max_iterations + 1):
             iter_start = time.time()
@@ -225,11 +226,9 @@ class FastSACRunner(AsyncRunner):
 
             train_start = time.time()
             iter_metrics = defaultdict(list)
+            ptr_before = shared_buffer.ptr
             for update_idx in range(self.updates_per_step):
-                logger.update_buffer_utilization(shared_buffer.utilization())
-
                 batch = shared_buffer.sample_torch(self.batch_size, self.device)
-
                 critic_metrics = learner.update_critic(batch)
                 for k, v in critic_metrics.items():
                     iter_metrics[k].append(v)
@@ -244,6 +243,11 @@ class FastSACRunner(AsyncRunner):
             learner.update_count += 1
             weight_sync.write_weights(learner.actor.state_dict())
             train_time = time.time() - train_start
+
+            write_delta = shared_buffer.ptr - ptr_before
+            consume = self.batch_size * self.updates_per_step
+            write_read_ema = 0.9 * write_read_ema + 0.1 * (write_delta / max(consume, 1))
+            logger.update_buffer_utilization(write_read_ema)
 
             avg_metrics = {k: statistics.mean(v) for k, v in iter_metrics.items() if v}
             mean_reward = statistics.mean(reward_history) if reward_history else 0.0
