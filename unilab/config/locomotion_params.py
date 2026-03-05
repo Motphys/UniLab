@@ -179,8 +179,8 @@ def fast_sac_config(env_name: str) -> config_dict.ConfigDict:
         num_envs=4096,
         batch_size=8192,
         updates_per_step=4,
-        warmup_steps=20000,
-        replay_buffer_n=1024,
+        warmup_steps=10000,
+        replay_buffer_n=512,
         num_steps_per_env=24,
         max_iterations=1500,
         save_interval=50,
@@ -198,12 +198,12 @@ def fast_sac_config(env_name: str) -> config_dict.ConfigDict:
     )
 
     if env_name in ("Go2JoystickFlatTerrain", "Go2LocoFlatTerrain"):
-        pass  # defaults are tuned for Go2
+        rl_config.num_envs = 8192
+        rl_config.max_iterations = 3000
     elif env_name in ("Go1JoystickFlatTerrain",):
-        rl_config.num_envs = 4096
+        rl_config.num_envs = 1024
+        rl_config.max_iterations = 2000
     elif env_name in ("G1JoystickFlatTerrain",):
-        rl_config.num_envs = 2048
+        rl_config.max_iterations = 3000
 
     return rl_config
-
-

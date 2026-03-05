@@ -124,6 +124,12 @@ class TrainingLogger:
         self._collect_time: float = 0.0
         self._train_time: float = 0.0
         self._iter_times: deque = deque(maxlen=50)
+        self._collector_env_step_ms: float = 0.0
+        self._collector_step_core_ms: float = 0.0
+        self._collector_update_state_ms: float = 0.0
+        self._collector_reset_done_ms: float = 0.0
+        self._timeout_rate: float = 0.0
+        self._terminated_rate: float = 0.0
 
         # Status message
         self._status: str = "Initializing..."
@@ -225,6 +231,18 @@ class TrainingLogger:
         """Update mean episode length from collector."""
         self._mean_ep_length = length
 
+    def update_collector_timing(self, timing_ms: dict[str, float]):
+        """Update collector-side environment timing (milliseconds)."""
+        self._collector_env_step_ms = float(timing_ms.get("env_step_total_ms", self._collector_env_step_ms))
+        self._collector_step_core_ms = float(timing_ms.get("step_core_ms", self._collector_step_core_ms))
+        self._collector_update_state_ms = float(timing_ms.get("update_state_ms", self._collector_update_state_ms))
+        self._collector_reset_done_ms = float(timing_ms.get("reset_done_ms", self._collector_reset_done_ms))
+
+    def update_done_rates(self, timeout_rate: float, terminated_rate: float):
+        """Update timeout/terminated ratio among completed episodes in collector window."""
+        self._timeout_rate = float(timeout_rate)
+        self._terminated_rate = float(terminated_rate)
+
     def log_collector(self, total_steps: int, buffer_size: int, mean_reward: float = 0.0):
         """Update collector progress (called periodically from metrics queue drain)."""
         self._total_steps = total_steps
@@ -290,6 +308,12 @@ class TrainingLogger:
                 w.add_scalar("episode/length", self._mean_ep_length, global_step)
             w.add_scalar("perf/collect_time_ms", collect_time * 1000, global_step)
             w.add_scalar("perf/train_time_ms", train_time * 1000, global_step)
+            w.add_scalar("perf/collector_env_step_total_ms", self._collector_env_step_ms, global_step)
+            w.add_scalar("perf/collector_step_core_ms", self._collector_step_core_ms, global_step)
+            w.add_scalar("perf/collector_update_state_ms", self._collector_update_state_ms, global_step)
+            w.add_scalar("perf/collector_reset_done_ms", self._collector_reset_done_ms, global_step)
+            w.add_scalar("perf/timeout_rate", self._timeout_rate, global_step)
+            w.add_scalar("perf/terminated_rate", self._terminated_rate, global_step)
             elapsed = time.time() - self._start_time if self._start_time else 0
             if elapsed > 0 and self._total_steps > 0:
                 w.add_scalar("perf/steps_per_sec", self._total_steps / elapsed, global_step)
@@ -310,6 +334,12 @@ class TrainingLogger:
                 log_dict["episode/length"] = self._mean_ep_length
             log_dict["perf/collect_time_ms"] = collect_time * 1000
             log_dict["perf/train_time_ms"] = train_time * 1000
+            log_dict["perf/collector_env_step_total_ms"] = self._collector_env_step_ms
+            log_dict["perf/collector_step_core_ms"] = self._collector_step_core_ms
+            log_dict["perf/collector_update_state_ms"] = self._collector_update_state_ms
+            log_dict["perf/collector_reset_done_ms"] = self._collector_reset_done_ms
+            log_dict["perf/timeout_rate"] = self._timeout_rate
+            log_dict["perf/terminated_rate"] = self._terminated_rate
             elapsed = time.time() - self._start_time if self._start_time else 0
             if elapsed > 0 and self._total_steps > 0:
                 log_dict["perf/steps_per_sec"] = self._total_steps / elapsed
@@ -401,7 +431,7 @@ class TrainingLogger:
                 name = k.replace("_", " ").title()
                 val_str = _fmt_number(v)
                 style = "red" if v > 10 else "yellow"
-                table.add_row(f"📉 {name}", f"[{style}]{val_str}[/]")
+                table.add_row(f"{name}", f"[{style}]{val_str}[/]")
 
             for k in other_keys:
                 v = self._latest_metrics[k]
@@ -480,16 +510,28 @@ class TrainingLogger:
         elapsed = time.time() - self._start_time if self._start_time else 0
 
         table.add_row(
-            "⏱ Elapsed", _fmt_time(elapsed),
-            "📦 Buffer", f"{self._buffer_size:,}",
+            "Elapsed", _fmt_time(elapsed),
+            "Buffer", f"{self._buffer_size:,}",
         )
         table.add_row(
-            "🔄 Collect", f"{self._collect_time * 1000:.1f}ms",
-            "🧠 Train", f"{self._train_time * 1000:.1f}ms",
+            "Collect", f"{self._collect_time * 1000:.1f}ms",
+            "Train", f"{self._train_time * 1000:.1f}ms",
+        )
+        table.add_row(
+            "Phys Step", f"{self._collector_env_step_ms:.1f}ms",
+            "Step Core", f"{self._collector_step_core_ms:.1f}ms",
+        )
+        table.add_row(
+            "Update", f"{self._collector_update_state_ms:.1f}ms",
+            "Reset", f"{self._collector_reset_done_ms:.1f}ms",
+        )
+        table.add_row(
+            "Timeout Rate", f"{self._timeout_rate * 100:.1f}%",
+            "Terminated Rate", f"{self._terminated_rate * 100:.1f}%",
         )
 
         table.add_row(
-            "🌐 Envs", f"{self.num_envs:,}",
+            "Envs", f"{self.num_envs:,}",
             "", ""
         )
 
@@ -497,7 +539,7 @@ class TrainingLogger:
         if elapsed > 0 and self._total_steps > 0:
             sps = self._total_steps / elapsed
             table.add_row(
-                "🚀 Steps/s", f"{sps:,.0f}",
+                "Steps/s", f"{sps:,.0f}",
                 "", ""
             )
 

@@ -30,7 +30,7 @@ def main():
     parser = argparse.ArgumentParser(description="Train FastSAC (native multiprocessing)")
     parser.add_argument("--task", type=str, default="Go2JoystickFlatTerrain")
     parser.add_argument("--max_iterations", type=int, default=None, help="Override max iterations from config")
-    parser.add_argument("--num_envs", type=int, default=1024, help="Override num_envs from config")
+    parser.add_argument("--num_envs", type=int, default=None, help="Override num_envs from config")
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--collector_device", type=str, default=None)
     parser.add_argument("--log_dir", type=str, default=None)

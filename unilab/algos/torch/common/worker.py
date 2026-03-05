@@ -129,11 +129,24 @@ def _run_collector(
     current_ep_lengths = np.zeros(num_envs, dtype=np.int32)
     from collections import defaultdict
     ep_reward_components = defaultdict(list)
+    timing_accum_ms = defaultdict(float)
+    timing_count = 0
+    done_count_window = 0
+    timeout_count_window = 0
+    terminated_count_window = 0
 
     # Initial step to get first observation
     actions_np = np.zeros((num_envs, action_dim), dtype=np.float32)
     state = env.step(actions_np)
     obs_np = np.asarray(state.obs, dtype=np.float32)
+    max_episode_steps = getattr(getattr(env, "cfg", None), "max_episode_steps", None)
+    if max_episode_steps is not None and int(max_episode_steps) > 0:
+        step_offsets = np.random.randint(0, int(max_episode_steps), size=(num_envs,), dtype=np.uint32)
+        if hasattr(env, "state") and env.state is not None and isinstance(getattr(env.state, "info", None), dict):
+            if "steps" in env.state.info:
+                env.state.info["steps"][:] = step_offsets
+        if isinstance(getattr(state, "info", None), dict) and "steps" in state.info:
+            state.info["steps"][:] = step_offsets
     import time as _time
     _last_log_time = _time.time()
 
@@ -164,12 +177,26 @@ def _run_collector(
         # Step environment
         state = env.step(actions_np)
 
+        timing_info = state.info.get("timing", {}) if hasattr(state, "info") else {}
+        if timing_info:
+            for key in ("env_step_total_ms", "step_core_ms", "update_state_ms", "reset_done_ms"):
+                if key in timing_info:
+                    timing_accum_ms[key] += float(timing_info[key])
+            timing_count += 1
+
         # Extract data as numpy
         next_obs_np = np.asarray(state.obs, dtype=np.float32)
         rewards_np = np.asarray(state.reward, dtype=np.float32).ravel()
         terminated_np = np.asarray(state.terminated, dtype=np.float32).ravel() if state.terminated is not None else np.zeros(num_envs, dtype=np.float32)
         truncated_np = np.asarray(state.truncated, dtype=np.float32).ravel() if state.truncated is not None else np.zeros(num_envs, dtype=np.float32)
         combined_dones = np.clip(terminated_np + truncated_np, 0, 1)
+        done_mask_np = combined_dones > 0.5
+        timeout_mask_np = truncated_np > 0.5
+        terminated_mask_np = np.logical_and(terminated_np > 0.5, ~timeout_mask_np)
+
+        done_count_window += int(np.count_nonzero(done_mask_np))
+        timeout_count_window += int(np.count_nonzero(timeout_mask_np))
+        terminated_count_window += int(np.count_nonzero(terminated_mask_np))
 
         # Handle true terminal observations
         if "_final_observation" in state.info:
@@ -180,7 +207,7 @@ def _run_collector(
                 next_obs_np[has_final_np] = final_obs_np[has_final_np]
 
         # Write to replay buffer
-        replay_buffer.add_batch(obs_np, actions_np, rewards_np, next_obs_np, combined_dones)
+        replay_buffer.add_batch(obs_np, actions_np, rewards_np, next_obs_np, terminated_np, truncated_np)
 
         # Track episode rewards - vectorized
         current_ep_rewards += rewards_np
@@ -228,6 +255,20 @@ def _run_collector(
                             components_mean[k] = statistics.mean(vals)
                     msg["reward_components"] = components_mean
                     ep_reward_components.clear()  # reset after sending
+
+                if timing_count > 0:
+                    msg["collector_timing_ms"] = {
+                        k: (v / timing_count) for k, v in timing_accum_ms.items()
+                    }
+                    timing_accum_ms.clear()
+                    timing_count = 0
+
+                if done_count_window > 0:
+                    msg["timeout_rate"] = timeout_count_window / done_count_window
+                    msg["terminated_rate"] = terminated_count_window / done_count_window
+                    done_count_window = 0
+                    timeout_count_window = 0
+                    terminated_count_window = 0
 
                 metrics_queue.put_nowait(msg)
             except Exception:

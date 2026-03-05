@@ -69,6 +69,13 @@ class ConversionRecord:
     max_sec: float
     effective_gbps: float
 
+
+@dataclass
+class BenchmarkDataset:
+    label: str
+    records: List[ConversionRecord]
+    payload: Dict[str, Any]
+
 def dtype_bytes(dtype_name: str) -> int:
     if dtype_name in ("float16",):
         return 2
@@ -283,6 +290,300 @@ def load_records_from_json(json_path: Path) -> List[ConversionRecord]:
             )
         )
     return records
+
+
+def _device_label_from_payload(payload: Dict[str, Any], fallback: str) -> str:
+    meta = payload.get("meta", {}) if isinstance(payload, dict) else {}
+    device = meta.get("device_info", {}) if isinstance(meta, dict) else {}
+    chip = str(device.get("chip", "")).strip()
+    gpu_name = str(device.get("gpu_name", "")).strip()
+    platform_name = str(device.get("platform", "")).strip()
+    if chip:
+        return chip
+    if gpu_name:
+        return gpu_name
+    if platform_name:
+        return platform_name
+    return fallback
+
+
+def load_dataset_from_json(json_path: Path, label: str = "") -> BenchmarkDataset:
+    payload: Dict[str, Any] = json.loads(json_path.read_text(encoding="utf-8"))
+    records = load_records_from_json(json_path)
+    final_label = label.strip() if label else _device_label_from_payload(payload, json_path.stem)
+    return BenchmarkDataset(label=final_label, records=records, payload=payload)
+
+
+def save_merged_device_plot(datasets: List[BenchmarkDataset], plot_dir: Path, file_prefix: str) -> List[str]:
+    if plt is None or not datasets:
+        return []
+
+    non_empty = [d for d in datasets if d.records]
+    if len(non_empty) < 2:
+        return []
+
+    union_backends = set()
+    for dataset in non_empty:
+        union_backends.update(
+            b
+            for r in dataset.records
+            for b in (r.source_backend, r.target_backend)
+        )
+
+    if len(union_backends) < 2:
+        return []
+
+    preferred_order = ["numpy", "mlx", "torch_cpu", "torch_mps", "torch_cuda"]
+    backend_label = {
+        "numpy": "numpy",
+        "mlx": "mlx",
+        "torch_cpu": "torch.cpu",
+        "torch_mps": "torch.mps",
+        "torch_cuda": "torch.cuda",
+    }
+    ordered_backends = [b for b in preferred_order if b in union_backends]
+    extras = sorted(union_backends - set(ordered_backends))
+    ordered_backends.extend(extras)
+    n_backends = len(ordered_backends)
+
+    all_records = [r for d in non_empty for r in d.records]
+    y_lo, y_hi = _positive_ylim(all_records, "mean_sec")
+    dtype_order = ["float16", "float32"]
+    dtype_marker = {"float16": "o", "float32": "s"}
+
+    colors = matplotlib.colormaps.get_cmap("tab10").resampled(len(non_empty))
+    fig, axes = plt.subplots(
+        n_backends,
+        n_backends,
+        figsize=(5.5 * n_backends, 4.8 * n_backends),
+        sharex=True,
+        sharey=True,
+        squeeze=False,
+    )
+
+    legend_handles: Dict[str, Any] = {}
+
+    for row, dst in enumerate(ordered_backends):
+        for col, src in enumerate(ordered_backends):
+            ax = axes[row][col]
+            has_data = False
+
+            if src != dst:
+                for ds_idx, dataset in enumerate(non_empty):
+                    color = colors(ds_idx)
+                    for dtype_name in dtype_order:
+                        vals = sorted(
+                            [
+                                r
+                                for r in dataset.records
+                                if r.source_backend == src
+                                and r.target_backend == dst
+                                and r.source_dtype == dtype_name
+                                and r.target_dtype == dtype_name
+                            ],
+                            key=lambda x: x.size,
+                        )
+                        if not vals:
+                            continue
+
+                        x = [v.size for v in vals]
+                        y = [v.mean_sec for v in vals]
+                        legend_name = f"{dataset.label} | {dtype_name}"
+                        line = ax.plot(
+                            x,
+                            y,
+                            marker=dtype_marker[dtype_name],
+                            linewidth=1.25,
+                            markersize=3.8,
+                            color=color,
+                            alpha=0.95,
+                            label=legend_name,
+                        )[0]
+                        if legend_name not in legend_handles:
+                            legend_handles[legend_name] = line
+                        has_data = True
+
+            ax.set_yscale("log")
+            ax.set_xscale("log", base=2)
+            ax.set_ylim(y_lo, y_hi)
+            ax.grid(True, alpha=0.25)
+
+            if row == 0:
+                ax.set_title(f"From: {backend_label.get(src, src)}", fontsize=10.5)
+            if col == 0:
+                ax.set_ylabel(f"To: {backend_label.get(dst, dst)}\ntime (sec)", fontsize=9.5)
+            if row == n_backends - 1:
+                ax.set_xlabel("size (N for NxN)", fontsize=9.5)
+
+            if not has_data:
+                ax.text(
+                    0.5,
+                    0.5,
+                    "no data",
+                    transform=ax.transAxes,
+                    ha="center",
+                    va="center",
+                    fontsize=8.5,
+                    alpha=0.7,
+                )
+
+    fig.suptitle(
+        "Merged conversion time vs size across devices\n(all available backend pairs)",
+        fontsize=13,
+        y=0.995,
+    )
+
+    if legend_handles:
+        fig.legend(
+            list(legend_handles.values()),
+            list(legend_handles.keys()),
+            loc="upper center",
+            bbox_to_anchor=(0.5, 0.972),
+            ncol=min(4, max(1, len(legend_handles))),
+            fontsize=9.5,
+            frameon=False,
+        )
+
+    all_sizes = sorted({r.size for r in all_records})
+    for ax_row in axes:
+        for ax in ax_row:
+            ax.set_xticks(all_sizes)
+            ax.xaxis.set_major_formatter(
+                matplotlib.ticker.FuncFormatter(lambda v, _: str(int(v)))
+            )
+            ax.tick_params(axis="x", labelrotation=45, labelsize=7.5)
+
+    plot_dir.mkdir(parents=True, exist_ok=True)
+    saved: List[str] = []
+
+    fig.tight_layout(rect=[0.02, 0.03, 1, 0.95])
+    outfile = plot_dir / f"{file_prefix}_conversion_time_merged_devices.png"
+    fig.savefig(outfile, dpi=180, bbox_inches="tight", pad_inches=0.2)
+    plt.close(fig)
+    saved.append(str(outfile.resolve()))
+
+    ordered_pairs = []
+    for src in ordered_backends:
+        for dst in ordered_backends:
+            if src == dst:
+                continue
+            has_any = any(
+                (r.source_backend == src and r.target_backend == dst)
+                for dataset in non_empty
+                for r in dataset.records
+            )
+            if has_any:
+                ordered_pairs.append((src, dst))
+
+    if ordered_pairs:
+        row_dtypes = ["float16", "float32"]
+        fig2, axes2 = plt.subplots(
+            len(row_dtypes),
+            len(ordered_pairs),
+            figsize=(4.0 * len(ordered_pairs), 4.3 * len(row_dtypes)),
+            sharex=True,
+            sharey=True,
+            squeeze=False,
+        )
+
+        for row, dtype_name in enumerate(row_dtypes):
+            for col, (src, dst) in enumerate(ordered_pairs):
+                ax = axes2[row][col]
+                has_data = False
+                for ds_idx, dataset in enumerate(non_empty):
+                    vals = sorted(
+                        [
+                            r
+                            for r in dataset.records
+                            if r.source_backend == src
+                            and r.target_backend == dst
+                            and r.source_dtype == dtype_name
+                            and r.target_dtype == dtype_name
+                        ],
+                        key=lambda x: x.size,
+                    )
+                    if not vals:
+                        continue
+
+                    x = [v.size for v in vals]
+                    y = [v.mean_sec for v in vals]
+                    color = colors(ds_idx)
+                    line_label = f"{dataset.label} | {dtype_name}"
+                    ax.plot(
+                        x,
+                        y,
+                        marker=dtype_marker[dtype_name],
+                        linewidth=1.25,
+                        markersize=3.8,
+                        color=color,
+                        alpha=0.95,
+                        label=line_label,
+                    )
+                    has_data = True
+
+                if row == 0:
+                    ax.set_title(
+                        f"{backend_label.get(src, src)} -> {backend_label.get(dst, dst)}",
+                        fontsize=9.8,
+                    )
+                if col == 0:
+                    ax.set_ylabel(f"{dtype_name}\ntime (sec)", fontsize=9.5)
+                if row == len(row_dtypes) - 1:
+                    ax.set_xlabel("size (N for NxN)", fontsize=9.5)
+
+                ax.set_yscale("log")
+                ax.set_xscale("log", base=2)
+                ax.set_ylim(y_lo, y_hi)
+                ax.grid(True, alpha=0.25)
+
+                if not has_data:
+                    ax.text(
+                        0.5,
+                        0.5,
+                        "no data",
+                        transform=ax.transAxes,
+                        ha="center",
+                        va="center",
+                        fontsize=8.5,
+                        alpha=0.7,
+                    )
+
+        legend_handles2: Dict[str, Any] = {}
+        for ax_row in axes2:
+            for ax in ax_row:
+                handles, labels = ax.get_legend_handles_labels()
+                for handle, label in zip(handles, labels):
+                    if label not in legend_handles2:
+                        legend_handles2[label] = handle
+                ax.set_xticks(all_sizes)
+                ax.xaxis.set_major_formatter(
+                    matplotlib.ticker.FuncFormatter(lambda v, _: str(int(v)))
+                )
+                ax.tick_params(axis="x", labelrotation=45, labelsize=7.5)
+
+        fig2.suptitle(
+            "Merged conversion time across devices (all available conversion pairs)",
+            fontsize=12.5,
+            y=0.995,
+        )
+        if legend_handles2:
+            fig2.legend(
+                list(legend_handles2.values()),
+                list(legend_handles2.keys()),
+                loc="upper center",
+                bbox_to_anchor=(0.5, 0.965),
+                ncol=min(3, max(1, len(legend_handles2))),
+                fontsize=9,
+                frameon=False,
+            )
+
+        fig2.tight_layout(rect=[0.02, 0.03, 1, 0.93])
+        outfile2 = plot_dir / f"{file_prefix}_conversion_time_merged_devices_focused.png"
+        fig2.savefig(outfile2, dpi=180, bbox_inches="tight", pad_inches=0.2)
+        plt.close(fig2)
+        saved.append(str(outfile2.resolve()))
+
+    return saved
 
 def save_plots(records: List[ConversionRecord], plot_dir: Path, file_prefix: str) -> List[str]:
     if plt is None or not records:
@@ -601,11 +902,49 @@ def main() -> None:
         default="",
         help="Input JSON path for --plot-only. Defaults to --out if omitted.",
     )
+    parser.add_argument(
+        "--merge-jsons",
+        type=str,
+        default="",
+        help="Comma-separated JSON files to merge and plot in one figure (e.g. linux.json,m3max.json).",
+    )
+    parser.add_argument(
+        "--merge-labels",
+        type=str,
+        default="",
+        help="Optional comma-separated labels for --merge-jsons, same count as files.",
+    )
     args = parser.parse_args()
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     plot_dir = Path(args.plot_dir) if args.plot_dir else out_path.resolve().parent
+
+    if args.merge_jsons:
+        merge_paths = [Path(s.strip()) for s in args.merge_jsons.split(",") if s.strip()]
+        if len(merge_paths) < 2:
+            raise ValueError("--merge-jsons 需要至少两个 JSON 文件")
+
+        labels = [s.strip() for s in args.merge_labels.split(",") if s.strip()] if args.merge_labels else []
+        if labels and len(labels) != len(merge_paths):
+            raise ValueError("--merge-labels 数量必须与 --merge-jsons 一致")
+
+        datasets: List[BenchmarkDataset] = []
+        for idx, path in enumerate(merge_paths):
+            if not path.exists():
+                raise FileNotFoundError(f"merge JSON not found: {path}")
+            label = labels[idx] if labels else ""
+            datasets.append(load_dataset_from_json(path, label=label))
+
+        merged_files = save_merged_device_plot(datasets, plot_dir=plot_dir, file_prefix=out_path.stem)
+        if not merged_files:
+            print("No merged plot generated (possibly no common backend pairs or matplotlib unavailable).")
+            return
+
+        print("Saved merged device plot:")
+        for f in merged_files:
+            print(f"  - {f}")
+        return
 
     if args.plot_only:
         json_in = Path(args.plot_json) if args.plot_json else out_path

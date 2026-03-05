@@ -18,6 +18,7 @@ from unilab.algos.torch.common.async_runner import AsyncRunner
 from unilab.algos.torch.common.worker import off_policy_collector_fn
 from unilab.algos.torch.common.logger import TrainingLogger
 from unilab.algos.torch.fast_sac.learner import FastSACLearner
+from unilab.ipc.async_runner import _SPAWN_CTX
 
 
 class FastSACRunner(AsyncRunner):
@@ -149,7 +150,7 @@ class FastSACRunner(AsyncRunner):
         )
         self._shared_resources.append(weight_sync)
 
-        metrics_queue = mp.Queue(maxsize=100)
+        metrics_queue = _SPAWN_CTX.Queue(maxsize=100)
 
         weight_param_shapes = {
             name: p.shape for name, p in learner.actor.state_dict().items()
@@ -284,6 +285,15 @@ class FastSACRunner(AsyncRunner):
 
                 if "mean_ep_length" in m:
                     logger.update_ep_length(m["mean_ep_length"])
+
+                if "collector_timing_ms" in m:
+                    logger.update_collector_timing(m["collector_timing_ms"])
+
+                if "timeout_rate" in m or "terminated_rate" in m:
+                    logger.update_done_rates(
+                        timeout_rate=float(m.get("timeout_rate", 0.0)),
+                        terminated_rate=float(m.get("terminated_rate", 0.0)),
+                    )
 
                 if "total_steps" in m and "buffer_size" in m:
                     logger.log_collector(m["total_steps"], m["buffer_size"], m.get("mean_ep_reward", 0.0) if updated_rew else 0.0)

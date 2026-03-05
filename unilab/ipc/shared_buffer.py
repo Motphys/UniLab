@@ -6,9 +6,11 @@ from multiprocessing import shared_memory
 from typing import Dict
 import numpy as np
 
+_SPAWN_CTX = mp.get_context("spawn")
+
 
 class SharedReplayBuffer:
-    """Zero-copy ring buffer in shared memory for (obs, act, rew, next_obs, done)."""
+    """Zero-copy ring buffer in shared memory for (obs, act, rew, next_obs, done, truncated)."""
 
     _META_INTS = 2  # ptr, size
 
@@ -32,14 +34,14 @@ class SharedReplayBuffer:
         self._scalar_bytes = capacity * _f32
 
         data_bytes = (
-            2 * self._obs_bytes + self._act_bytes + 2 * self._scalar_bytes
+            2 * self._obs_bytes + self._act_bytes + 3 * self._scalar_bytes
         )
         meta_bytes = self._META_INTS * _i32
         total_bytes = data_bytes + meta_bytes
 
         if create:
             self._shm = shared_memory.SharedMemory(create=True, size=total_bytes)
-            self._lock = mp.Lock()
+            self._lock = _SPAWN_CTX.Lock()
         else:
             assert shm_name is not None
             self._shm = shared_memory.SharedMemory(name=shm_name, create=False)
@@ -58,6 +60,8 @@ class SharedReplayBuffer:
         offset += self._scalar_bytes
         self.dones = np.ndarray((capacity,), dtype=np.float32, buffer=buf[offset:])
         offset += self._scalar_bytes
+        self.truncated = np.ndarray((capacity,), dtype=np.float32, buffer=buf[offset:])
+        offset += self._scalar_bytes
 
         self._meta = np.ndarray((self._META_INTS,), dtype=np.int32, buffer=buf[offset:])
         if create:
@@ -67,6 +71,7 @@ class SharedReplayBuffer:
             self.actions[:] = 0.0
             self.rewards[:] = 0.0
             self.dones[:] = 0.0
+            self.truncated[:] = 0.0
 
     @property
     def name(self) -> str:
@@ -87,6 +92,7 @@ class SharedReplayBuffer:
         rewards: np.ndarray,
         next_obs: np.ndarray,
         dones: np.ndarray,
+        truncated: np.ndarray,
     ) -> None:
         batch_size = obs.shape[0]
         start = int(self._meta[0]) % self.capacity
@@ -97,6 +103,7 @@ class SharedReplayBuffer:
             self.actions[start : start + batch_size] = actions
             self.rewards[start : start + batch_size] = rewards
             self.dones[start : start + batch_size] = dones
+            self.truncated[start : start + batch_size] = truncated
         else:
             first = self.capacity - start
             self.obs[start:] = obs[:first]; self.obs[:batch_size - first] = obs[first:]
@@ -104,6 +111,7 @@ class SharedReplayBuffer:
             self.actions[start:] = actions[:first]; self.actions[:batch_size - first] = actions[first:]
             self.rewards[start:] = rewards[:first]; self.rewards[:batch_size - first] = rewards[first:]
             self.dones[start:] = dones[:first]; self.dones[:batch_size - first] = dones[first:]
+            self.truncated[start:] = truncated[:first]; self.truncated[:batch_size - first] = truncated[first:]
 
         with self._lock:
             self._meta[0] += batch_size
@@ -119,6 +127,7 @@ class SharedReplayBuffer:
             "rewards": self.rewards[indices],
             "next_obs": self.next_obs[indices],
             "dones": self.dones[indices],
+            "truncated": self.truncated[indices],
         }
 
     def sample_torch(self, batch_size: int, device: str = "cpu"):
@@ -132,6 +141,7 @@ class SharedReplayBuffer:
             "rewards": torch.from_numpy(self.rewards[indices]).to(device, non_blocking=True),
             "next_obs": torch.from_numpy(self.next_obs[indices]).to(device, non_blocking=True),
             "dones": torch.from_numpy(self.dones[indices]).to(device, non_blocking=True),
+            "truncated": torch.from_numpy(self.truncated[indices]).to(device, non_blocking=True),
         }
 
     def sample_mlx(self, batch_size: int):
@@ -145,6 +155,7 @@ class SharedReplayBuffer:
             "rewards": mx.array(self.rewards[indices]),
             "next_obs": mx.array(self.next_obs[indices]),
             "dones": mx.array(self.dones[indices]),
+            "truncated": mx.array(self.truncated[indices]),
         }
 
     def utilization(self) -> float:

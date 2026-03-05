@@ -426,8 +426,12 @@ class FastSACLearner:
         rewards = batch["rewards"]
         next_obs = batch["next_obs"]
         dones = batch["dones"]
+        truncated = batch.get("truncated")
 
-        bootstrap = (1.0 - dones).float()
+        if truncated is None:
+            bootstrap = (1.0 - dones).float()
+        else:
+            bootstrap = torch.clamp(1.0 - dones.float() + truncated.float(), 0.0, 1.0)
         discount = torch.full_like(dones, self.gamma)
 
         with torch.no_grad():

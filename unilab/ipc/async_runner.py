@@ -5,6 +5,8 @@ import multiprocessing as mp
 from abc import ABC, abstractmethod
 from typing import Any, Callable
 
+_SPAWN_CTX = mp.get_context("spawn")
+
 
 class AsyncRunner(ABC):
     """Base class for async RL algorithms.
@@ -35,7 +37,7 @@ class AsyncRunner(ABC):
         self.extra_kwargs = kwargs
 
         self._collector_process: mp.Process | None = None
-        self._stop_event = mp.Event()
+        self._stop_event = _SPAWN_CTX.Event()
         self._shared_resources: list = []
 
     @abstractmethod
@@ -56,7 +58,7 @@ class AsyncRunner(ABC):
         ...
 
     def _start_collector(self, target_fn: Callable, kwargs: dict) -> None:
-        self._collector_process = mp.Process(target=target_fn, kwargs=kwargs, daemon=True)
+        self._collector_process = _SPAWN_CTX.Process(target=target_fn, kwargs=kwargs, daemon=True)
         self._collector_process.start()
 
     def close(self) -> None:
