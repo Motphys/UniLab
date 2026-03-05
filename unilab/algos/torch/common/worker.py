@@ -62,6 +62,7 @@ def off_policy_collector_fn(
     warmup_steps: int = 5000,
     metrics_queue=None,
     buffer_lock=None,
+    weight_sync_lock=None,
     **kwargs,
 ):
     """Entry point for the off-policy collector subprocess."""
@@ -77,6 +78,7 @@ def off_policy_collector_fn(
             use_layer_norm=use_layer_norm, collector_device=collector_device,
             exploration_noise=exploration_noise, warmup_steps=warmup_steps,
             metrics_queue=metrics_queue, buffer_lock=buffer_lock,
+            weight_sync_lock=weight_sync_lock,
         )
     except Exception as e:
         traceback.print_exc()
@@ -94,6 +96,7 @@ def _run_collector(
     weight_sync_name, weight_param_shapes,
     algo_type, actor_hidden_dim, use_layer_norm, collector_device,
     exploration_noise, warmup_steps, metrics_queue, buffer_lock,
+    weight_sync_lock,
 ):
     from unilab.ipc import SharedReplayBuffer, SharedWeightSync
     from unilab.envs import registry
@@ -102,11 +105,11 @@ def _run_collector(
 
     # Connect to shared memory
     replay_buffer = SharedReplayBuffer(
-        buffer_capacity, obs_dim, action_dim, create=False, shm_name=shm_buffer_name
+        buffer_capacity, obs_dim, action_dim, create=False, shm_name=shm_buffer_name,
+        lock=buffer_lock,
     )
-    replay_buffer._lock = buffer_lock
     weight_sync = SharedWeightSync(
-        weight_param_shapes, create=False, shm_name=weight_sync_name
+        weight_param_shapes, create=False, shm_name=weight_sync_name, lock=weight_sync_lock
     )
 
     # Create environment - use numpy backend for PyTorch algorithms

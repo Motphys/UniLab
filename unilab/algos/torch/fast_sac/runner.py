@@ -122,6 +122,13 @@ class FastSACRunner(AsyncRunner):
             max_grad_norm=self.max_grad_norm,
         )
 
+    def _get_default_device(self) -> str:
+        if torch.cuda.is_available():
+            return "cuda"
+        if torch.backends.mps.is_available():
+            return "mps"
+        return "cpu"
+
     def _collector_fn(self, stop_event, **kwargs):
         off_policy_collector_fn(stop_event=stop_event, **kwargs)
 
@@ -165,6 +172,7 @@ class FastSACRunner(AsyncRunner):
             "obs_dim": self.obs_dim,
             "action_dim": self.action_dim,
             "weight_sync_name": weight_sync.name,
+            "weight_sync_lock": weight_sync._lock,
             "weight_param_shapes": weight_param_shapes,
             "algo_type": "sac",
             "actor_hidden_dim": self.actor_hidden_dim,
@@ -218,8 +226,7 @@ class FastSACRunner(AsyncRunner):
             train_start = time.time()
             iter_metrics = defaultdict(list)
             for update_idx in range(self.updates_per_step):
-                if shared_buffer.utilization() > 0.98:
-                    logger.log_status("[yellow]Warning: Buffer 98% full - learner may be slow[/]")
+                logger.update_buffer_utilization(shared_buffer.utilization())
 
                 batch = shared_buffer.sample_torch(self.batch_size, self.device)
 

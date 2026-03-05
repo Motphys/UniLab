@@ -22,6 +22,7 @@ class SharedReplayBuffer:
         *,
         create: bool = True,
         shm_name: str | None = None,
+        lock=None,
     ):
         self.capacity = capacity
         self.obs_dim = obs_dim
@@ -45,7 +46,8 @@ class SharedReplayBuffer:
         else:
             assert shm_name is not None
             self._shm = shared_memory.SharedMemory(name=shm_name, create=False)
-            self._lock = None
+            assert lock is not None, "lock must be provided when attaching to existing shared buffer"
+            self._lock = lock
 
         buf = self._shm.buf
         offset = 0
@@ -95,25 +97,25 @@ class SharedReplayBuffer:
         truncated: np.ndarray,
     ) -> None:
         batch_size = obs.shape[0]
-        start = int(self._meta[0]) % self.capacity
-
-        if start + batch_size <= self.capacity:
-            self.obs[start : start + batch_size] = obs
-            self.next_obs[start : start + batch_size] = next_obs
-            self.actions[start : start + batch_size] = actions
-            self.rewards[start : start + batch_size] = rewards
-            self.dones[start : start + batch_size] = dones
-            self.truncated[start : start + batch_size] = truncated
-        else:
-            first = self.capacity - start
-            self.obs[start:] = obs[:first]; self.obs[:batch_size - first] = obs[first:]
-            self.next_obs[start:] = next_obs[:first]; self.next_obs[:batch_size - first] = next_obs[first:]
-            self.actions[start:] = actions[:first]; self.actions[:batch_size - first] = actions[first:]
-            self.rewards[start:] = rewards[:first]; self.rewards[:batch_size - first] = rewards[first:]
-            self.dones[start:] = dones[:first]; self.dones[:batch_size - first] = dones[first:]
-            self.truncated[start:] = truncated[:first]; self.truncated[:batch_size - first] = truncated[first:]
-
         with self._lock:
+            start = int(self._meta[0]) % self.capacity
+
+            if start + batch_size <= self.capacity:
+                self.obs[start : start + batch_size] = obs
+                self.next_obs[start : start + batch_size] = next_obs
+                self.actions[start : start + batch_size] = actions
+                self.rewards[start : start + batch_size] = rewards
+                self.dones[start : start + batch_size] = dones
+                self.truncated[start : start + batch_size] = truncated
+            else:
+                first = self.capacity - start
+                self.obs[start:] = obs[:first]; self.obs[:batch_size - first] = obs[first:]
+                self.next_obs[start:] = next_obs[:first]; self.next_obs[:batch_size - first] = next_obs[first:]
+                self.actions[start:] = actions[:first]; self.actions[:batch_size - first] = actions[first:]
+                self.rewards[start:] = rewards[:first]; self.rewards[:batch_size - first] = rewards[first:]
+                self.dones[start:] = dones[:first]; self.dones[:batch_size - first] = dones[first:]
+                self.truncated[start:] = truncated[:first]; self.truncated[:batch_size - first] = truncated[first:]
+
             self._meta[0] += batch_size
             self._meta[1] = min(int(self._meta[1]) + batch_size, self.capacity)
 

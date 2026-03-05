@@ -6,11 +6,14 @@ from multiprocessing import shared_memory
 from typing import Dict
 import numpy as np
 
+_SPAWN_CTX = mp.get_context("spawn")
+
 
 class SharedWeightSync:
     """Synchronize actor weights between learner and collector."""
 
-    def __init__(self, param_shapes: Dict, *, create: bool = True, shm_name: str | None = None):
+    def __init__(self, param_shapes: Dict, *, create: bool = True, shm_name: str | None = None,
+                 lock=None):
         self._param_shapes = param_shapes
         self._param_names = list(param_shapes.keys())
 
@@ -23,9 +26,12 @@ class SharedWeightSync:
 
         if create:
             self._shm = shared_memory.SharedMemory(create=True, size=max(total_bytes, 1))
+            self._lock = _SPAWN_CTX.Lock()
         else:
             assert shm_name is not None
             self._shm = shared_memory.SharedMemory(name=shm_name, create=False)
+            # lock must be passed in from the parent process when attaching
+            self._lock = lock
 
         self._buffer = np.ndarray((total_numel,), dtype=np.float32, buffer=self._shm.buf)
         self._version_arr = np.ndarray((1,), dtype=np.int32, buffer=self._shm.buf[data_bytes:])
@@ -49,25 +55,27 @@ class SharedWeightSync:
         return obj
 
     def write_weights(self, state_dict) -> None:
-        offset = 0
-        for name in self._param_names:
-            param = state_dict[name]
-            flat = param.detach().cpu().numpy().ravel()
-            n = flat.shape[0]
-            self._buffer[offset : offset + n] = flat
-            offset += n
-        self._version_arr[0] += 1
+        with self._lock:
+            offset = 0
+            for name in self._param_names:
+                param = state_dict[name]
+                flat = param.detach().cpu().numpy().ravel()
+                n = flat.shape[0]
+                self._buffer[offset : offset + n] = flat
+                offset += n
+            self._version_arr[0] += 1
 
     def read_weights_into(self, state_dict) -> int:
         import torch
-        offset = 0
-        for name in self._param_names:
-            param = state_dict[name]
-            n = param.numel()
-            data = self._buffer[offset : offset + n].copy()
-            param.data.copy_(torch.from_numpy(data.reshape(param.shape)))
-            offset += n
-        return int(self._version_arr[0])
+        with self._lock:
+            offset = 0
+            for name in self._param_names:
+                param = state_dict[name]
+                n = param.numel()
+                data = self._buffer[offset : offset + n].copy()
+                param.data.copy_(torch.from_numpy(data.reshape(param.shape)))
+                offset += n
+            return int(self._version_arr[0])
 
     def cleanup(self) -> None:
         try:

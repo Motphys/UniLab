@@ -34,12 +34,11 @@ from __future__ import annotations
 import os
 import time
 from collections import deque
-from rich.console import Console
+from rich.console import Console, Group
+from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-from rich.columns import Columns
-from rich.layout import Layout
 from rich import box
 
 
@@ -104,7 +103,7 @@ class TrainingLogger:
         self.action_dim = action_dim
 
         self._console = Console()
-        self._live = None
+        self._live: Live | None = None
         self._refresh_rate = refresh_per_second
 
         # State
@@ -130,6 +129,7 @@ class TrainingLogger:
         self._collector_reset_done_ms: float = 0.0
         self._timeout_rate: float = 0.0
         self._terminated_rate: float = 0.0
+        self._buffer_utilization: float = 0.0
 
         # Status message
         self._status: str = "Initializing..."
@@ -157,9 +157,9 @@ class TrainingLogger:
             tb_dir = os.path.join(log_dir, "tb")
             os.makedirs(tb_dir, exist_ok=True)
             self._tb_writer = SummaryWriter(log_dir=tb_dir)
-            self._console.print(f"[dim]📊 TensorBoard logging to: {tb_dir}[/]")
+            self._console.print(f"[dim]TensorBoard logging to: {tb_dir}[/]")
         except ImportError:
-            self._console.print("[yellow]⚠ tensorboard not installed, skipping TB logging[/]")
+            self._console.print("[yellow]tensorboard not installed, skipping TB logging[/]")
 
     def _init_wandb(self, project: str, name: str, log_dir: str):
         """Initialize Weights & Biases run."""
@@ -179,27 +179,36 @@ class TrainingLogger:
                 dir=log_dir or None,
                 reinit=True,
             )
-            self._console.print(f"[dim]📊 W&B logging to project: {project}, run: {name}[/]")
+            self._console.print(f"[dim]W&B logging to project: {project}, run: {name}[/]")
         except ImportError:
-            self._console.print("[yellow]⚠ wandb not installed, skipping W&B logging[/]")
+            self._console.print("[yellow]wandb not installed, skipping W&B logging[/]")
 
     # ---- Lifecycle ----
 
     def start(self):
-        """Begin the logging."""
+        """Begin the Live display."""
         self._start_time = time.time()
         self._status = "Warming up..."
-        self._console.print(self._build_display())
+        self._live = Live(
+            self._build_display(),
+            console=self._console,
+            refresh_per_second=self._refresh_rate,
+            transient=False,
+        )
+        self._live.start()
 
     def finish(self):
-        """End the logging and print summary."""
-        self._console.print(self._build_display())
+        """Stop the Live display and print a summary."""
+        if self._live is not None:
+            self._live.update(self._build_display())
+            self._live.stop()
+            self._live = None
 
         elapsed = time.time() - self._start_time
         self._console.print()
         self._console.print(
             Panel(
-                f"[bold green]✓ Training complete[/]\n"
+                f"[bold green]Training complete[/]\n"
                 f"  Algo: [cyan]{self.algo_name}[/] | Env: [cyan]{self.env_name}[/]\n"
                 f"  Iterations: [yellow]{self._iteration}[/]/{self.max_iterations}\n"
                 f"  Total time: [yellow]{_fmt_time(elapsed)}[/]\n"
@@ -210,7 +219,6 @@ class TrainingLogger:
             )
         )
 
-        # Close backends
         if self._tb_writer:
             self._tb_writer.close()
         if self._wandb_run:
@@ -242,6 +250,10 @@ class TrainingLogger:
         """Update timeout/terminated ratio among completed episodes in collector window."""
         self._timeout_rate = float(timeout_rate)
         self._terminated_rate = float(terminated_rate)
+
+    def update_buffer_utilization(self, utilization: float):
+        """Update buffer fill ratio (0.0–1.0). Displayed in the timing panel."""
+        self._buffer_utilization = float(utilization)
 
     def log_collector(self, total_steps: int, buffer_size: int, mean_reward: float = 0.0):
         """Update collector progress (called periodically from metrics queue drain)."""
@@ -275,8 +287,7 @@ class TrainingLogger:
             self._latest_reward_components = reward_components
 
         self._status = "Training"
-        # Print the dashboard
-        self._console.print(self._build_display())
+        self._refresh()
 
         # ---- Write to backend ----
         self._backend_log_step(iteration, metrics, reward, reward_components, collect_time, train_time)
@@ -358,8 +369,8 @@ class TrainingLogger:
     # ---- Display Building ----
 
     def _refresh(self):
-        if self._status != "Training":
-            pass
+        if self._live is not None:
+            self._live.update(self._build_display())
 
     def _build_display(self) -> Panel:
         """Build the full rich display panel."""
@@ -392,7 +403,6 @@ class TrainingLogger:
         grid.add_column(ratio=1)
         grid.add_row(left, right)
 
-        from rich.console import Group
         main_group = Group(
             header_panel,
             grid,
@@ -473,7 +483,7 @@ class TrainingLogger:
                 trend = ""
 
             table.add_row(
-                f"[bold]⭐ Mean Reward[/] {trend}",
+                f"[bold]Mean Reward[/] {trend}",
                 f"[bold green]{mean_rew:.3f}[/]"
             )
             table.add_row("  Peak", f"[dim]{peak_rew:.3f}[/]")
@@ -502,10 +512,10 @@ class TrainingLogger:
             expand=True,
             pad_edge=False,
         )
-        table.add_column("Item", style="white")
-        table.add_column("Value", style="yellow", justify="right")
-        table.add_column("Item", style="white")
-        table.add_column("Value", style="yellow", justify="right")
+        table.add_column("Item", style="white", ratio=2, no_wrap=True)
+        table.add_column("Value", style="yellow", justify="right", ratio=1, no_wrap=True)
+        table.add_column("Item", style="white", ratio=2, no_wrap=True)
+        table.add_column("Value", style="yellow", justify="right", ratio=1, no_wrap=True)
 
         elapsed = time.time() - self._start_time if self._start_time else 0
 
@@ -529,6 +539,15 @@ class TrainingLogger:
             "Timeout Rate", f"{self._timeout_rate * 100:.1f}%",
             "Terminated Rate", f"{self._terminated_rate * 100:.1f}%",
         )
+
+        util_pct = self._buffer_utilization * 100
+        if util_pct >= 98:
+            util_str = f"[bold red]{util_pct:.1f}%  (overwriting!)[/]"
+        elif util_pct >= 80:
+            util_str = f"[yellow]{util_pct:.1f}%[/]"
+        else:
+            util_str = f"{util_pct:.1f}%"
+        table.add_row("Buf Utilization", util_str, "", "")
 
         table.add_row(
             "Envs", f"{self.num_envs:,}",
