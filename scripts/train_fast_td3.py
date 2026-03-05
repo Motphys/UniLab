@@ -167,23 +167,13 @@ def main():
         # Reset Env
         if env.state is None:
             env.init_state()
-        try:
-            import mlx.core as mx
-            env_indices = mx.arange(args.play_env_num, dtype=mx.int32)
-        except ImportError:
-            env_indices = np.arange(args.play_env_num)
+        env_indices = np.arange(args.play_env_num, dtype=np.int32)
 
         _, obs_out, _ = env.reset(env_indices)
-
-        def _mx_to_np(x):
-            return np.array(x, copy=False)
-
-        obs_np = _mx_to_np(obs_out)
+        obs_np = np.asarray(obs_out, dtype=np.float32)
 
         state_list = []
         num_steps = 150
-
-        from unilab.utils.mlx_torch_utils import to_numpy
 
         print("Collecting physics states...")
         with torch.inference_mode():
@@ -201,9 +191,9 @@ def main():
                 else:
                     next_obs_raw = state[0]
 
-                obs_np = _mx_to_np(next_obs_raw)
+                obs_np = np.asarray(next_obs_raw, dtype=np.float32)
 
-                state_list.append(to_numpy(env.state.physics_state).copy())
+                state_list.append(np.asarray(env.state.physics_state, dtype=np.float32).copy())
 
         print("Rendering frames...")
         from unilab.utils import render_many

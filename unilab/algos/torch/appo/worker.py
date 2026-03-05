@@ -92,12 +92,8 @@ def appo_collector_fn(
     actor.load_state_dict(sd)
     local_weight_version = weight_sync.version
 
-    # Reset environment
-    try:
-        import mlx.core as mx
-        env_indices = mx.arange(num_envs, dtype=mx.int32)
-    except ImportError:
-        env_indices = np.arange(num_envs)
+    # Reset environment with numpy indices to keep torch backend MLX-free
+    env_indices = np.arange(num_envs, dtype=np.int32)
 
     try:
         _, obs_out, _ = env.reset(env_indices)
@@ -173,10 +169,7 @@ def appo_collector_fn(
                 # Handle true terminal observations
                 if hasattr(state, "info") and "_final_observation" in state.info:
                     has_final = state.info["_final_observation"]
-                    if hasattr(has_final, "item"):
-                        has_final_np = to_float32_np(has_final).astype(bool)
-                    else:
-                        has_final_np = np.asarray(has_final, dtype=bool)
+                    has_final_np = np.asarray(has_final, dtype=bool)
                     if np.any(has_final_np):
                         final_obs_np = to_float32_np(state.info["final_observation"])
                         obs_np[has_final_np] = final_obs_np[has_final_np]

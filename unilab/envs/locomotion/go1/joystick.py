@@ -37,7 +37,7 @@ class RewardConfig:
             "tracking_lin_vel": 1.0,
             "tracking_ang_vel": 0.2,
             "lin_vel_z": -5.0,
-            "ang_vel_xy": -0.02,
+            "ang_vel_xy": -0.1, #-0.02 #ppo
             "base_height": -100.0,
             "action_rate": -0.005,
             "similar_to_default": -0.1,

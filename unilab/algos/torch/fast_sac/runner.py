@@ -13,14 +13,12 @@ import statistics
 import torch
 from collections import defaultdict, deque
 
-from unilab.algos.torch.common.async_runner import (
-    AsyncRunner,
-    SharedReplayBuffer,
-    SharedWeightSync,
-)
+from unilab.ipc import SharedReplayBuffer, SharedWeightSync
+from unilab.algos.torch.common.async_runner import AsyncRunner
 from unilab.algos.torch.common.worker import off_policy_collector_fn
 from unilab.algos.torch.common.logger import TrainingLogger
 from unilab.algos.torch.fast_sac.learner import FastSACLearner
+from unilab.ipc.async_runner import _SPAWN_CTX
 
 
 class FastSACRunner(AsyncRunner):
@@ -124,6 +122,13 @@ class FastSACRunner(AsyncRunner):
             max_grad_norm=self.max_grad_norm,
         )
 
+    def _get_default_device(self) -> str:
+        if torch.cuda.is_available():
+            return "cuda"
+        if torch.backends.mps.is_available():
+            return "mps"
+        return "cpu"
+
     def _collector_fn(self, stop_event, **kwargs):
         off_policy_collector_fn(stop_event=stop_event, **kwargs)
 
@@ -152,7 +157,7 @@ class FastSACRunner(AsyncRunner):
         )
         self._shared_resources.append(weight_sync)
 
-        metrics_queue = mp.Queue(maxsize=100)
+        metrics_queue = _SPAWN_CTX.Queue(maxsize=100)
 
         weight_param_shapes = {
             name: p.shape for name, p in learner.actor.state_dict().items()
@@ -167,6 +172,7 @@ class FastSACRunner(AsyncRunner):
             "obs_dim": self.obs_dim,
             "action_dim": self.action_dim,
             "weight_sync_name": weight_sync.name,
+            "weight_sync_lock": weight_sync._lock,
             "weight_param_shapes": weight_param_shapes,
             "algo_type": "sac",
             "actor_hidden_dim": self.actor_hidden_dim,
@@ -175,6 +181,7 @@ class FastSACRunner(AsyncRunner):
             "exploration_noise": self.exploration_noise,
             "warmup_steps": self.warmup_steps,
             "metrics_queue": metrics_queue,
+            "buffer_lock": shared_buffer._lock,
         }
         self._start_collector(
             target_fn=off_policy_collector_fn,
@@ -195,6 +202,7 @@ class FastSACRunner(AsyncRunner):
         reward_history = deque(maxlen=100)
         latest_reward_components = {}
         last_buf_log = 0
+        write_read_ema = 0.0  # EMA of write/consume ratio
 
         for iteration in range(1, max_iterations + 1):
             iter_start = time.time()
@@ -218,9 +226,9 @@ class FastSACRunner(AsyncRunner):
 
             train_start = time.time()
             iter_metrics = defaultdict(list)
+            ptr_before = shared_buffer.ptr
             for update_idx in range(self.updates_per_step):
                 batch = shared_buffer.sample_torch(self.batch_size, self.device)
-
                 critic_metrics = learner.update_critic(batch)
                 for k, v in critic_metrics.items():
                     iter_metrics[k].append(v)
@@ -235,6 +243,11 @@ class FastSACRunner(AsyncRunner):
             learner.update_count += 1
             weight_sync.write_weights(learner.actor.state_dict())
             train_time = time.time() - train_start
+
+            write_delta = shared_buffer.ptr - ptr_before
+            consume = self.batch_size * self.updates_per_step
+            write_read_ema = 0.9 * write_read_ema + 0.1 * (write_delta / max(consume, 1))
+            logger.update_buffer_utilization(write_read_ema)
 
             avg_metrics = {k: statistics.mean(v) for k, v in iter_metrics.items() if v}
             mean_reward = statistics.mean(reward_history) if reward_history else 0.0
@@ -283,6 +296,15 @@ class FastSACRunner(AsyncRunner):
 
                 if "mean_ep_length" in m:
                     logger.update_ep_length(m["mean_ep_length"])
+
+                if "collector_timing_ms" in m:
+                    logger.update_collector_timing(m["collector_timing_ms"])
+
+                if "timeout_rate" in m or "terminated_rate" in m:
+                    logger.update_done_rates(
+                        timeout_rate=float(m.get("timeout_rate", 0.0)),
+                        terminated_rate=float(m.get("terminated_rate", 0.0)),
+                    )
 
                 if "total_steps" in m and "buffer_size" in m:
                     logger.log_collector(m["total_steps"], m["buffer_size"], m.get("mean_ep_reward", 0.0) if updated_rew else 0.0)

@@ -21,9 +21,6 @@ import torch.nn.functional as F
 import torch.optim as optim
 from typing import Dict
 
-from tensordict import TensorDict
-
-
 # ---------------------------------------------------------------------------
 # Distributional Q-Network (C51)
 # ---------------------------------------------------------------------------

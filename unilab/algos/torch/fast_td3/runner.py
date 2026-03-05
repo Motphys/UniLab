@@ -21,14 +21,9 @@ from unilab.algos.torch.fast_td3.learner import FastTD3Learner, SimpleReplayBuff
 from unilab.algos.torch.common.logger import TrainingLogger
 
 
-def _mx_to_torch(x, device):
-    """Convert MLX array to torch tensor."""
+def _to_torch(x, device):
+    """Convert numpy-like array to torch tensor."""
     return torch.from_numpy(np.array(x, copy=False)).to(device=device, dtype=torch.float32)
-
-
-def _mx_to_np(x):
-    """Convert MLX array to numpy."""
-    return np.array(x, copy=False)
 
 
 class FastTD3Runner:
@@ -154,7 +149,6 @@ class FastTD3Runner:
         log_dir: str = "logs",
     ):
         """Main training loop (synchronous, single-process)."""
-        import mlx.core as mx
         from unilab.envs import registry
 
         os.makedirs(log_dir, exist_ok=True)
@@ -182,9 +176,9 @@ class FastTD3Runner:
         # Init env
         if env.state is None:
             env.init_state()
-        env_indices = mx.arange(self.num_envs, dtype=mx.int32)
-        _, obs_mx, _ = env.reset(env_indices)
-        obs = _mx_to_torch(obs_mx, collect_device)  # obs on CPU
+        env_indices = np.arange(self.num_envs, dtype=np.int32)
+        _, obs_raw, _ = env.reset(env_indices)
+        obs = _to_torch(obs_raw, collect_device)  # obs on CPU
 
         # Logger
         logger = TrainingLogger(
@@ -218,19 +212,19 @@ class FastTD3Runner:
                 actions_gpu = learner.actor.explore(obs=norm_obs, dones=dones_gpu)
                 actions = actions_gpu.cpu()  # back to CPU for env
 
-            # Step env (MuJoCo on CPU via MLX)
+            # Step env (MuJoCo on CPU)
             actions_np = actions.float().numpy()
             state = env.step(actions_np)
 
-            next_obs_mx = state.obs
-            rewards_mx = state.reward
-            terminated_mx = state.terminated
-            truncated_mx = state.truncated
+            next_obs_raw = state.obs
+            rewards_raw = state.reward
+            terminated_raw = state.terminated
+            truncated_raw = state.truncated
 
-            next_obs = _mx_to_torch(next_obs_mx, collect_device)
-            rewards = _mx_to_torch(rewards_mx, collect_device)
-            terminated = _mx_to_torch(terminated_mx, collect_device)
-            truncated = _mx_to_torch(truncated_mx, collect_device)
+            next_obs = _to_torch(next_obs_raw, collect_device)
+            rewards = _to_torch(rewards_raw, collect_device)
+            terminated = _to_torch(terminated_raw, collect_device)
+            truncated = _to_torch(truncated_raw, collect_device)
             dones_float = (terminated + truncated).clamp(max=1.0)
 
             # Compute true next obs: env auto-resets, replacing state.obs with the reset obs.
@@ -238,10 +232,9 @@ class FastTD3Runner:
             # We use state.info["final_observation"] where state.info["_final_observation"] is true.
             if "_final_observation" in state.info:
                 has_final = state.info["_final_observation"]
-                if hasattr(has_final, "item"): # mlx array
-                    has_final = _mx_to_torch(has_final, collect_device).bool()
+                has_final = _to_torch(has_final, collect_device).bool()
                 if has_final.any():
-                    final_obs = _mx_to_torch(state.info["final_observation"], collect_device)
+                    final_obs = _to_torch(state.info["final_observation"], collect_device)
                     next_obs[has_final] = final_obs[has_final]
 
             # Track episode rewards

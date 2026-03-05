@@ -10,7 +10,6 @@ Hyperparameters aligned with holosoma FastSACConfig defaults.
 
 from __future__ import annotations
 
-import copy
 import math
 import torch
 import torch.nn as nn
@@ -104,8 +103,8 @@ class SACActor(nn.Module):
 
         return action, mean, log_std
 
-    def get_actions_and_log_probs(self, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Sample actions and compute log probabilities."""
+    def get_actions_and_log_probs(self, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Sample actions and compute log probabilities. Returns (action, log_prob, log_std)."""
         _, mean, log_std = self(obs)
         std = log_std.exp()
         dist = torch.distributions.Normal(mean, std)
@@ -122,7 +121,7 @@ class SACActor(nn.Module):
             log_prob = dist.log_prob(raw_action)
 
         log_prob = log_prob.sum(1)
-        return action, log_prob
+        return action, log_prob, log_std
 
     @torch.no_grad()
     def explore(self, obs: torch.Tensor, deterministic: bool = False) -> torch.Tensor:
@@ -395,25 +394,28 @@ class FastSACLearner:
         )
         self.target_entropy = -action_dim * target_entropy_ratio
 
+        # fused AdamW requires CUDA; MPS and CPU do not support it
+        _fused = isinstance(device, str) and device.startswith("cuda")
+
         # Optimizers (AdamW with holosoma betas)
         self.q_optimizer = optim.AdamW(
             self.qnet.parameters(),
             lr=critic_lr,
             weight_decay=weight_decay,
-            fused=True,
+            fused=_fused,
             betas=(0.9, 0.95),
         )
         self.actor_optimizer = optim.AdamW(
             self.actor.parameters(),
             lr=actor_lr,
             weight_decay=weight_decay,
-            fused=True,
+            fused=_fused,
             betas=(0.9, 0.95),
         )
         self.alpha_optimizer = optim.AdamW(
             [self.log_alpha],
             lr=alpha_lr,
-            fused=True,
+            fused=_fused,
             betas=(0.9, 0.95),
         )
 
@@ -427,12 +429,16 @@ class FastSACLearner:
         rewards = batch["rewards"]
         next_obs = batch["next_obs"]
         dones = batch["dones"]
+        truncated = batch.get("truncated")
 
-        bootstrap = (1.0 - dones).float()
+        if truncated is None:
+            bootstrap = (1.0 - dones).float()
+        else:
+            bootstrap = torch.clamp(1.0 - dones.float() + truncated.float(), 0.0, 1.0)
         discount = torch.full_like(dones, self.gamma)
 
         with torch.no_grad():
-            next_actions, next_log_probs = self.actor.get_actions_and_log_probs(next_obs)
+            next_actions, next_log_probs, _ = self.actor.get_actions_and_log_probs(next_obs)
             adjusted_rewards = rewards - discount * bootstrap * self.log_alpha.exp() * next_log_probs
 
             target_distributions = self.qnet_target.projection(
@@ -485,10 +491,9 @@ class FastSACLearner:
         """One actor update step."""
         obs = batch["obs"]
 
-        actions, log_probs = self.actor.get_actions_and_log_probs(obs)
+        actions, log_probs, log_std = self.actor.get_actions_and_log_probs(obs)
 
         with torch.no_grad():
-            _, _, log_std = self.actor(obs)
             action_std = log_std.exp().mean()
             policy_entropy = -log_probs.mean()
 
@@ -522,10 +527,8 @@ class FastSACLearner:
     def soft_update_target(self) -> None:
         """Polyak-average update of the target Q-network."""
         with torch.no_grad():
-            src_ps = [p.data for p in self.qnet.parameters()]
-            tgt_ps = [p.data for p in self.qnet_target.parameters()]
-            torch._foreach_mul_(tgt_ps, 1.0 - self.tau)
-            torch._foreach_add_(tgt_ps, src_ps, alpha=self.tau)
+            for tgt, src in zip(self.qnet_target.parameters(), self.qnet.parameters()):
+                tgt.data.mul_(1.0 - self.tau).add_(src.data, alpha=self.tau)
 
     def get_state_dict(self) -> Dict[str, any]:
         """Save all components."""
