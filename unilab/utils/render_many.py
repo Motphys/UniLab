@@ -197,7 +197,7 @@ def render_states_get_frames(state_list, model_path, width=1280, height=720, num
     frames = []
     
     if num_processes <= 1:
-        # Serial execution (safe for Ray)
+        # Serial execution
         # Initialize context manually
         init_worker(model_path, shape)
         try:
@@ -209,10 +209,7 @@ def render_states_get_frames(state_list, model_path, width=1280, height=720, num
             pass
     else:
         # Use multiprocessing Pool
-        # On macOS, 'spawn' is default for start_method in recent Python, but 'fork' might be default for multiprocessing.Pool?
-        # If Ray is running, 'fork' is dangerous. 'spawn' is safer.
-        # But 'spawn' is slower to start.
-        # Let's try 'spawn' context if available.
+        # On macOS, use spawn to avoid forking OpenGL/MuJoCo contexts.
         import multiprocessing
         ctx = multiprocessing.get_context("spawn")
         with ctx.Pool(processes=num_processes, initializer=init_worker, initargs=(model_path, shape)) as pool:

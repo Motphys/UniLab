@@ -1,4 +1,4 @@
-"""Train APPO agent — native multiprocessing, no Ray."""
+"""Train APPO agent — native multiprocessing."""
 
 import argparse
 import sys
@@ -40,7 +40,7 @@ def ensure_registries():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train APPO (no Ray)")
+    parser = argparse.ArgumentParser(description="Train APPO (native multiprocessing)")
     parser.add_argument("--task", type=str, default="Go2JoystickFlatTerrain")
     parser.add_argument("--max_iterations", type=int, default=1500)
     parser.add_argument("--save_interval", type=int, default=50)

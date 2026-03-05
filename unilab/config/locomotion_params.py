@@ -81,7 +81,7 @@ def rsl_rl_config(env_name: str) -> config_dict.ConfigDict:
         rl_config.algorithm.num_mini_batches = 4
         rl_config.num_steps_per_env = 24
         rl_config.save_interval = 100
-        rl_config.max_iterations = 101
+        rl_config.max_iterations = 151
         rl_config.empirical_normalization = False
     elif env_name == "G1JoystickFlatTerrain":
         # Humanoid needs slightly longer horizon but keep aggressive defaults.

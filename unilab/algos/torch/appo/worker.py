@@ -1,4 +1,4 @@
-"""APPO Rollout Worker — runs in a subprocess (no Ray dependency).
+"""APPO Rollout Worker — runs in a subprocess.
 
 Collects on-policy rollouts and writes to SharedOnPolicyStorage.
 """

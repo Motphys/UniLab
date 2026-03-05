@@ -1,1 +1,1 @@
-from .mj_env import MjMlxEnv, MjMlxEnvState
+from .mj_env import MjNpEnv, MjNpEnvState

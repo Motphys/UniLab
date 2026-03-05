@@ -24,7 +24,7 @@ import numpy as np
 from dataclasses import dataclass, field
 
 from unilab.envs import registry
-from unilab.envs.mujoco_env.mj_env import MjMlxEnvState
+from unilab.envs.mujoco_env.mj_env import MjNpEnvState
 from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
 
 from unilab.envs.locomotion.go2.base import Go2BaseMjEnv, Go2BaseCfg, ControlConfig, NoiseConfig
@@ -159,7 +159,7 @@ class Go2LocoTaskMj(Go2BaseMjEnv):
 
     # ------------- Reward Functions (MuJoCo Playground aligned) ----------------
 
-    def _reward_tracking_lin_vel(self, state: MjMlxEnvState, commands: mx.array):
+    def _reward_tracking_lin_vel(self, state: MjNpEnvState, commands: mx.array):
         """Exponential tracking of linear velocity commands (x, y).
 
         r = exp(-||cmd_xy - vel_xy||^2 / sigma)
@@ -170,23 +170,23 @@ class Go2LocoTaskMj(Go2BaseMjEnv):
         )
         return mx.exp(-lin_vel_error / self.cfg.reward_config.tracking_sigma)
 
-    def _reward_tracking_ang_vel(self, state: MjMlxEnvState, commands: mx.array):
+    def _reward_tracking_ang_vel(self, state: MjNpEnvState, commands: mx.array):
         """Exponential tracking of angular velocity command (yaw)."""
         gyro = self.get_gyro(state)
         ang_vel_error = mx.square(commands[:, 2] - gyro[:, 2])
         return mx.exp(-ang_vel_error / self.cfg.reward_config.tracking_sigma)
 
-    def _reward_orientation(self, state: MjMlxEnvState):
+    def _reward_orientation(self, state: MjNpEnvState):
         """Penalize non-flat orientation using projected gravity."""
         local_gravity = -self.get_upvector(state)
         return mx.sum(mx.square(local_gravity[:, :2]), axis=1)
 
-    def _reward_ang_vel_xy(self, state: MjMlxEnvState):
+    def _reward_ang_vel_xy(self, state: MjNpEnvState):
         """Penalize roll/pitch angular velocity."""
         gyro = self.get_gyro(state)
         return mx.sum(mx.square(gyro[:, :2]), axis=1)
 
-    def _reward_energy(self, state: MjMlxEnvState):
+    def _reward_energy(self, state: MjNpEnvState):
         """Penalize energy: sum of |torque × dof_vel|.
 
         Encourages energy-efficient policies for sim2real transfer.
@@ -200,7 +200,7 @@ class Go2LocoTaskMj(Go2BaseMjEnv):
         torques = self.cfg.control_config.Kp * (target_jq - dof_pos) - self.cfg.control_config.Kd * dof_vel
         return mx.sum(mx.abs(torques * dof_vel), axis=1)
 
-    def _reward_torques(self, state: MjMlxEnvState):
+    def _reward_torques(self, state: MjNpEnvState):
         """Penalize torques squared for smooth policies."""
         dof_vel = self.get_dof_vel(state)
         actions = state.info.get("current_actions", mx.zeros((self._num_envs, self._num_action), dtype=self._mlx_dtype))
@@ -209,14 +209,14 @@ class Go2LocoTaskMj(Go2BaseMjEnv):
         torques = self.cfg.control_config.Kp * (target_jq - dof_pos) - self.cfg.control_config.Kd * dof_vel
         return mx.sum(mx.square(torques), axis=1)
 
-    def _reward_pose(self, state: MjMlxEnvState):
+    def _reward_pose(self, state: MjNpEnvState):
         """Penalize deviation from default joint pose."""
         dof_pos = self.get_dof_pos(state)
         return mx.sum(mx.square(dof_pos - self.default_angles), axis=1)
 
     # ------------- Observation ----------------
 
-    def _get_obs(self, state: MjMlxEnvState, info: dict) -> mx.array:
+    def _get_obs(self, state: MjNpEnvState, info: dict) -> mx.array:
         linear_vel = self.get_local_linvel(state)
         gyro = self.get_gyro(state)
         local_gravity = -self.get_upvector(state)
@@ -248,19 +248,19 @@ class Go2LocoTaskMj(Go2BaseMjEnv):
 
     # ------------- State Update ----------------
 
-    def update_state(self, state: MjMlxEnvState, obs_required: bool = True) -> MjMlxEnvState:
+    def update_state(self, state: MjNpEnvState, obs_required: bool = True) -> MjNpEnvState:
         state = self.update_terminated(state)
         state = self._compute_rewards(state)
         if obs_required:
             state = self.update_observation(state)
         return state
 
-    def update_observation(self, state: MjMlxEnvState):
+    def update_observation(self, state: MjNpEnvState):
         obs = self._get_obs(state, state.info)
         state.obs = obs
         return state
 
-    def _compute_rewards(self, state: MjMlxEnvState) -> MjMlxEnvState:
+    def _compute_rewards(self, state: MjNpEnvState) -> MjNpEnvState:
         total_reward = mx.zeros((self._num_envs,), dtype=self._mlx_dtype)
 
         step_count = state.info.get("steps", mx.zeros((self._num_envs,), dtype=mx.uint32))
@@ -293,7 +293,7 @@ class Go2LocoTaskMj(Go2BaseMjEnv):
 
     # ------------- Termination ----------------
 
-    def update_terminated(self, state: MjMlxEnvState) -> MjMlxEnvState:
+    def update_terminated(self, state: MjNpEnvState) -> MjNpEnvState:
         """Terminate if base tilts too much or drops too low."""
         local_gravity = -self.get_upvector(state)
         max_tilt = self.cfg.termination_config.max_tilt_angle_deg
@@ -364,7 +364,7 @@ class Go2LocoTaskMj(Go2BaseMjEnv):
         obs_physics_state[:, self._idx_qpos : self._idx_qpos + self.nq] = qpos_batch_mx
         obs_physics_state[:, self._idx_qvel : self._idx_qvel + self.nv] = qvel_batch_mx
 
-        obs_state = MjMlxEnvState(
+        obs_state = MjNpEnvState(
             physics_state=obs_physics_state,
             sensor_data=sensor_batch,
             obs=None,

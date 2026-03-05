@@ -10,7 +10,6 @@ Benchmark MuJoCo simulation speed:
 
 Supports loading standard XML models or custom paths.
 """
-
 from __future__ import annotations
 
 import argparse
@@ -23,9 +22,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 try:
-    from benchmark.device_info import get_device_info_dict, get_device_info_line
+    from benchmark.core.device_info import get_device_info_dict, get_device_info_line
 except ModuleNotFoundError:
-    from device_info import get_device_info_dict, get_device_info_line
+    from core.device_info import get_device_info_dict, get_device_info_line
 
 import matplotlib
 matplotlib.use("Agg")
@@ -60,7 +59,6 @@ try:
     import mujoco_warp as mj_warp
 except ImportError:
     mj_warp = None
-
 
 @dataclass
 class SimRecord:
@@ -227,7 +225,6 @@ def run_mujoco_rollout_runner(
         sps_per_env=sps / batch_size
     )
 
-
 def parse_skip_checks_mode(mode: str) -> List[bool]:
     m = mode.strip().lower()
     if m == "both":
@@ -340,7 +337,6 @@ def run_mjx(model, batch_size: int, steps: int, warmup: int = 5, device=None) ->
         # Re-raise to let caller handle or fallback
         raise e
 
-
 def run_motrixsim(xml_path: str, batch_size: int, steps: int, warmup: int = 20) -> SimRecord:
     if mtx is None:
         return SimRecord("motrixsim", "missing_dependency", batch_size, steps, 0, 0, 0)
@@ -413,7 +409,6 @@ def run_mujoco_warp(xml_path: str, batch_size: int, steps: int, warmup: int = 5)
     except Exception as e:
         print(f"mujoco_warp error bs={batch_size}: {e}")
         return SimRecord("mujoco_warp_failed", "failed", batch_size, steps, 0, 0, 0)
-
 
 def plot_results(records: List[SimRecord], plot_dir: Path):
     if not records:
@@ -577,7 +572,6 @@ def main():
                     records.append(r_roll)
             except Exception as e:
                 print(f"{backend_name} error bs={bs}: {e}")
-
 
         # 4. MuJoCo Warp (GPU)
         if run_warp_flag:

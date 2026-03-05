@@ -7,14 +7,19 @@ hidden=[256,256,256], action_dim=12). ANE uses EnumeratedShapes and Core ML CPU_
 Per config: 5 runs, drop min and max, report mean (and std) of the middle 3.
 Outputs JSON and plots.
 """
-
 from __future__ import annotations
+
+try:
+    from benchmark.core import bench_callable, MLPBenchRecord, mlp_param_count, trimmed_mean, print_mlp_table
+    from benchmark.core.device_info import get_device_info_dict, get_device_info_line
+except ModuleNotFoundError:
+    from core import bench_callable, MLPBenchRecord, mlp_param_count, trimmed_mean, print_mlp_table
+    from core.device_info import get_device_info_dict, get_device_info_line
+
 
 import argparse
 import json
 import os
-import statistics
-import time
 import warnings
 import shutil
 import tempfile
@@ -23,10 +28,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
-try:
-    from benchmark.device_info import get_device_info_dict, get_device_info_line
-except ModuleNotFoundError:
-    from device_info import get_device_info_dict, get_device_info_line
 
 import numpy as np
 import torch
@@ -49,26 +50,6 @@ DEFAULT_ENV_NUM_POW_MAX = 15
 _OBS_CLIP_LOW, _OBS_CLIP_HIGH = -3.0, 3.0
 _MIN_MEAN_SEC = 1e-12
 
-@dataclass
-class MLPBenchRecord:
-    backend: str
-    env_num: int
-    warmup: int
-    repeat: int
-    elapsed_sec: List[float]
-    mean_sec: float
-    std_sec: float
-    min_sec: float
-    max_sec: float
-    envs_per_sec: float
-
-def env_nums_pow2(pow_min: int, pow_max: int) -> List[int]:
-    return [2 ** k for k in range(pow_min, pow_max + 1)]
-
-def mlp_param_count(obs_dim: int, action_dim: int, hidden_dims: List[int]) -> int:
-    """Total number of parameters (weights + biases) for obs->hidden->...->action MLP."""
-    dims = [obs_dim] + hidden_dims + [action_dim]
-    return sum((dims[i] + 1) * dims[i + 1] for i in range(len(dims) - 1))
 
 def _safe_envs_per_sec(env_num: int, mean_sec: float) -> float:
     if mean_sec is None or mean_sec <= 0 or env_num <= 0:
@@ -79,33 +60,6 @@ def _safe_envs_per_sec(env_num: int, mean_sec: float) -> float:
 # 测 5 次，去掉最小、最大各 1 个，对中间 3 个取平均
 REPEAT_COUNT = 5
 
-def _trimmed_mean(samples: List[float]) -> Tuple[float, float, List[float]]:
-    """Drop one min and one max, return (mean of middle, std of middle, trimmed list)."""
-    if len(samples) < 3:
-        m = statistics.mean(samples)
-        s = statistics.pstdev(samples) if len(samples) > 1 else 0.0
-        return m, s, list(samples)
-    sorted_s = sorted(samples)
-    trimmed = sorted_s[1:-1]
-    return statistics.mean(trimmed), statistics.pstdev(trimmed), trimmed
-
-def bench_callable(
-    fn: Callable[[], None],
-    sync_fn: Callable[[], None],
-    warmup: int,
-    repeat: int,
-) -> List[float]:
-    for _ in range(warmup):
-        fn()
-        sync_fn()
-    samples: List[float] = []
-    for _ in range(repeat):
-        t0 = time.perf_counter()
-        fn()
-        sync_fn()
-        t1 = time.perf_counter()
-        samples.append(max(0.0, t1 - t0))
-    return samples
 
 # ---------- Core ML ANE (Apple Neural Engine, no CPU fallback) ----------
 def _build_and_convert_coreml_ane(
@@ -183,7 +137,7 @@ def run_ane(
         _ = model.predict({input_name: x})
 
     elapsed = bench_callable(fwd, lambda: None, warmup, repeat)
-    mean_sec, std_sec, _ = _trimmed_mean(elapsed)
+    mean_sec, std_sec, _ = trimmed_mean(elapsed)
     return MLPBenchRecord(
         backend="ane",
         env_num=env_num,
@@ -197,45 +151,6 @@ def run_ane(
         envs_per_sec=_safe_envs_per_sec(env_num, mean_sec),
     )
 
-def print_table(records: List[MLPBenchRecord]) -> None:
-    if not records:
-        print("No benchmark records.")
-        return
-    headers = [
-        "backend",
-        "env_num",
-        "mean_sec",
-        "std_sec",
-        "min_sec",
-        "max_sec",
-        "envs_per_sec",
-    ]
-    rows = []
-    for r in records:
-        rows.append(
-            [
-                r.backend,
-                str(r.env_num),
-                f"{r.mean_sec:.6f}",
-                f"{r.std_sec:.6f}",
-                f"{r.min_sec:.6f}",
-                f"{r.max_sec:.6f}",
-                f"{r.envs_per_sec:.1f}",
-            ]
-        )
-    col_w = [len(h) for h in headers]
-    for row in rows:
-        for i, v in enumerate(row):
-            col_w[i] = max(col_w[i], len(v))
-
-    def fmt_row(vals: List[str]) -> str:
-        return " | ".join(v.ljust(col_w[i]) for i, v in enumerate(vals))
-
-    sep = "-+-".join("-" * w for w in col_w)
-    print(fmt_row(headers))
-    print(sep)
-    for row in rows:
-        print(fmt_row(row))
 
 def save_plots(
     records: List[MLPBenchRecord],
@@ -312,16 +227,10 @@ def main() -> None:
         description="Benchmark MLP inference for ANE (Apple Neural Engine)."
     )
     parser.add_argument(
-        "--env-pow-min",
-        type=int,
-        default=DEFAULT_ENV_NUM_POW_MIN,
-        help=f"Min exponent for env_num=2^k (default: {DEFAULT_ENV_NUM_POW_MIN})",
-    )
-    parser.add_argument(
-        "--env-pow-max",
-        type=int,
-        default=DEFAULT_ENV_NUM_POW_MAX,
-        help=f"Max exponent for env_num=2^k (default: {DEFAULT_ENV_NUM_POW_MAX})",
+        "--sizes",
+        type=str,
+        default=",".join(str(2**k) for k in range(DEFAULT_ENV_NUM_POW_MIN, DEFAULT_ENV_NUM_POW_MAX + 1)),
+        help="Comma-separated env_num sizes (default: 256,512,1024,...)",
     )
     parser.add_argument("--obs-dim", type=int, default=DEFAULT_OBS_DIM)
     parser.add_argument("--action-dim", type=int, default=DEFAULT_ACTION_DIM)
@@ -348,7 +257,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    env_nums = env_nums_pow2(args.env_pow_min, args.env_pow_max)
+    env_nums = [int(x.strip()) for x in args.sizes.split(",") if x.strip()]
     hidden_dims = [int(x.strip()) for x in args.hidden_dims.split(",") if x.strip()]
     if not hidden_dims:
         hidden_dims = list(DEFAULT_HIDDEN_DIMS)
@@ -457,7 +366,7 @@ def main() -> None:
     out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     print(f"\nSaved results to: {out_path.resolve()}")
     print()
-    print_table(all_records)
+    print_mlp_table(all_records)
     if plot_files:
         print("\n生成图片路径:")
         for f in plot_files:
