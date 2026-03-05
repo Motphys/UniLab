@@ -94,6 +94,13 @@ class SharedReplayBuffer:
         if create:
             self._meta[0] = 0  # ptr
             self._meta[1] = 0  # size
+            # Zero-initialize all data arrays to prevent garbage data (NaN/Inf)
+            # from being sampled before the collector fills them
+            self.obs[:] = 0.0
+            self.next_obs[:] = 0.0
+            self.actions[:] = 0.0
+            self.rewards[:] = 0.0
+            self.dones[:] = 0.0
 
     @property
     def name(self) -> str:

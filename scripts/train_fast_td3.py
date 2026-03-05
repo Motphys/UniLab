@@ -1,4 +1,4 @@
-"""Train FastTD3 agent — native multiprocessing, no Ray."""
+"""Train FastTD3 agent — synchronous single-process training."""
 
 import argparse
 import sys
@@ -27,12 +27,11 @@ def ensure_registries():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train FastTD3 (no Ray)")
-    parser.add_argument("--task", type=str, default="Go2JoystickFlatTerrain")
+    parser = argparse.ArgumentParser(description="Train FastTD3")
+    parser.add_argument("--task", type=str, default="Go2LocoFlatTerrain")
     parser.add_argument("--max_iterations", type=int, default=None)
     parser.add_argument("--num_envs", type=int, default=None)
     parser.add_argument("--device", type=str, default=None)
-    parser.add_argument("--collector_device", type=str, default=None)
     parser.add_argument("--log_dir", type=str, default=None)
     parser.add_argument("--play_only", action="store_true", help="Play mode only")
     parser.add_argument("--load_run", type=str, default="-1", help="Run ID to load or path")
@@ -45,7 +44,7 @@ def main():
     cfg = fast_td3_config(args.task)
 
     if args.max_iterations is not None:
-        cfg.max_iterations = args.max_iterations
+        cfg.total_timesteps = args.max_iterations
     if args.num_envs is not None:
         cfg.num_envs = args.num_envs
 
@@ -59,14 +58,13 @@ def main():
         runner = FastTD3Runner(
             env_name=args.task,
             device=args.device,
-            collector_device=args.collector_device,
             num_envs=cfg.num_envs,
-            steps_per_env=cfg.num_steps_per_env,
-            replay_buffer_n=cfg.replay_buffer_n,
+            buffer_size=cfg.buffer_size,
             batch_size=cfg.batch_size,
             warmup_steps=cfg.warmup_steps,
-            updates_per_step=cfg.updates_per_step,
-            policy_delay=cfg.policy_delay,
+            num_updates=cfg.num_updates,
+            policy_frequency=cfg.policy_frequency,
+            total_timesteps=cfg.total_timesteps,
             gamma=cfg.gamma,
             tau=cfg.tau,
             actor_lr=cfg.actor_lr,
@@ -74,28 +72,31 @@ def main():
             actor_hidden_dim=cfg.actor_hidden_dim,
             critic_hidden_dim=cfg.critic_hidden_dim,
             num_atoms=cfg.num_atoms,
-            exploration_noise=cfg.exploration_noise,
-            use_layer_norm=cfg.use_layer_norm,
+            v_min=cfg.v_min,
+            v_max=cfg.v_max,
+            init_scale=cfg.init_scale,
+            std_min=cfg.std_min,
+            std_max=cfg.std_max,
+            policy_noise=cfg.policy_noise,
+            noise_clip=cfg.noise_clip,
+            weight_decay=cfg.weight_decay,
+            use_cdq=cfg.use_cdq,
+            obs_normalization=cfg.obs_normalization,
         )
 
-        try:
-            runner.learn(
-                max_iterations=cfg.max_iterations,
-                save_interval=cfg.save_interval,
-                log_dir=args.log_dir,
-            )
-        finally:
-            runner.close()
-            
+        runner.learn(
+            max_iterations=cfg.total_timesteps,
+            save_interval=cfg.save_interval,
+            log_dir=args.log_dir,
+        )
+
     else:
         # Play mode
         import torch
         import numpy as np
         import mediapy as media
         from unilab.envs import registry
-        from unilab.utils.run_utils import get_latest_run
-        from unilab.utils import render_many
-        from unilab.algos.torch.common.worker import _build_actor
+        from unilab.algos.torch.fast_td3.learner import Actor
 
         device = args.device or ("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
         print(f"Using device for play: {device}")
@@ -106,12 +107,14 @@ def main():
         action_dim = env.action_space.shape[0]
 
         # Build actor
-        actor = _build_actor(
-            algo_type="td3",
-            obs_dim=obs_dim,
-            action_dim=action_dim,
-            actor_hidden_dim=cfg.actor_hidden_dim,
-            use_layer_norm=cfg.use_layer_norm,
+        actor = Actor(
+            n_obs=obs_dim,
+            n_act=action_dim,
+            num_envs=args.play_env_num,
+            init_scale=cfg.init_scale,
+            hidden_dim=cfg.actor_hidden_dim,
+            std_min=cfg.std_min,
+            std_max=cfg.std_max,
             device=device,
         )
         actor.eval()
@@ -151,8 +154,12 @@ def main():
 
         print(f"Loading model: {load_path}")
         checkpoint = torch.load(load_path, map_location=device, weights_only=True)
-        # FastTD3 Learner get_state_dict() returns {"actor": ..., "qnet": ...}
-        actor.load_state_dict(checkpoint["actor"])
+        # Filter out buffers with shape mismatch (e.g. noise_scales depends on num_envs)
+        actor_state = {
+            k: v for k, v in checkpoint["actor"].items()
+            if k not in ("noise_scales",)
+        }
+        actor.load_state_dict(actor_state, strict=False)
 
         output_video = os.path.join(load_path_dir, "play_video.mp4")
         print(f"Rendering video to {output_video}...")
@@ -165,43 +172,47 @@ def main():
             env_indices = mx.arange(args.play_env_num, dtype=mx.int32)
         except ImportError:
             env_indices = np.arange(args.play_env_num)
-            
+
         _, obs_out, _ = env.reset(env_indices)
-        from unilab.algos.torch.common.worker import _mx_to_np
+
+        def _mx_to_np(x):
+            return np.array(x, copy=False)
+
         obs_np = _mx_to_np(obs_out)
 
         state_list = []
         num_steps = 150
 
         from unilab.utils.mlx_torch_utils import to_numpy
-        
+
         print("Collecting physics states...")
         with torch.inference_mode():
             for _ in range(num_steps):
                 obs_torch = torch.from_numpy(obs_np).to(device)
-                
+
                 # TD3 inference (deterministic)
                 actions_torch = actor(obs_torch)
                 actions_np = actions_torch.cpu().numpy()
-                
+
                 state = env.step(actions_np)
-                
+
                 if hasattr(state, "obs"):
                     next_obs_raw = state.obs
                 else:
                     next_obs_raw = state[0]
-                    
+
                 obs_np = _mx_to_np(next_obs_raw)
-                    
+
                 state_list.append(to_numpy(env.state.physics_state).copy())
 
         print("Rendering frames...")
+        from unilab.utils import render_many
         frames = render_many.render_states_get_frames(
-            state_list, 
-            env.cfg.model_file, 
+            state_list,
+            env.cfg.model_file,
             width=1280,
             height=720,
-            camera_id=-1 
+            camera_id=-1
         )
 
         print(f"Saving video to {output_video} with mediapy...")

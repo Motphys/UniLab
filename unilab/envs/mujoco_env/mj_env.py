@@ -285,7 +285,28 @@ class MjMlxEnv(ABEnv):
             mx.zeros((done_count,), dtype=steps.dtype),
         )
         scatter_time += time.perf_counter() - t_scatter0
+
+        # Save true terminal observations before resetting (Gymnasium standard)
+        if "final_observation" not in state.info:
+            state.info["final_observation"] = mx.zeros_like(state.obs)
+            state.info["_final_observation"] = mx.zeros((self._num_envs,), dtype=mx.bool_)
         
+        # Mark all as False initially, then True for done envs
+        state.info["_final_observation"][:] = False
+        state.info["_final_observation"] = self._scatter_rows(
+            state.info["_final_observation"], 
+            env_indices, 
+            mx.ones((done_count,), dtype=mx.bool_)
+        )
+        
+        # Save terminal obs
+        terminal_obs = mx.take(state.obs, env_indices, axis=0)
+        state.info["final_observation"] = self._scatter_rows(
+            state.info["final_observation"],
+            env_indices,
+            terminal_obs
+        )
+
         # Call reset. 
         # Note: reset now is responsible for returning new physics states for these indices
         t_call0 = time.perf_counter()
