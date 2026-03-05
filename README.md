@@ -27,7 +27,7 @@ Thirdparty:
    ```bash
    git clone https://github.com/TATP-233/UniLab.git
    cd UniLab
-   pip install -i https://test.pypi.org/simple/ mujoco-uni==3.5.0.post2
+   pip install --extra-index-url https://test.pypi.org/simple/ mujoco-uni==3.5.0.post2
    pip install -e .
    ```
 
