@@ -136,15 +136,15 @@ class SharedReplayBuffer:
         import torch
         with self._lock:
             current_size = int(self._meta[1])
-        indices = np.random.randint(0, current_size, size=batch_size)
-        return {
-            "obs": torch.from_numpy(self.obs[indices]).to(device, non_blocking=True),
-            "actions": torch.from_numpy(self.actions[indices]).to(device, non_blocking=True),
-            "rewards": torch.from_numpy(self.rewards[indices]).to(device, non_blocking=True),
-            "next_obs": torch.from_numpy(self.next_obs[indices]).to(device, non_blocking=True),
-            "dones": torch.from_numpy(self.dones[indices]).to(device, non_blocking=True),
-            "truncated": torch.from_numpy(self.truncated[indices]).to(device, non_blocking=True),
-        }
+            indices = np.random.randint(0, current_size, size=batch_size)
+            return {
+                "obs": torch.tensor(self.obs[indices], dtype=torch.float32).to(device, non_blocking=True),
+                "actions": torch.tensor(self.actions[indices], dtype=torch.float32).to(device, non_blocking=True),
+                "rewards": torch.tensor(self.rewards[indices], dtype=torch.float32).to(device, non_blocking=True),
+                "next_obs": torch.tensor(self.next_obs[indices], dtype=torch.float32).to(device, non_blocking=True),
+                "dones": torch.tensor(self.dones[indices], dtype=torch.float32).to(device, non_blocking=True),
+                "truncated": torch.tensor(self.truncated[indices], dtype=torch.float32).to(device, non_blocking=True),
+            }
 
     def sample_mlx(self, batch_size: int):
         import mlx.core as mx
