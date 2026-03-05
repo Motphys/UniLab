@@ -12,7 +12,7 @@ except Exception:
 import numpy as np
 
 from unilab.envs import registry
-from unilab.envs.mujoco_env.mj_env import MjMlxEnvState
+from unilab.envs.mujoco_env.mjx_env import MjMlxEnvState
 from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseMjEnv
 from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
 

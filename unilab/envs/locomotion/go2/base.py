@@ -9,7 +9,7 @@ except Exception:
 from dataclasses import dataclass, field
 
 from unilab.envs.base import EnvCfg
-from unilab.envs.mujoco_env.mj_env import MjMlxEnv, MjMlxEnvState
+from unilab.envs.mujoco_env.mjx_env import MjMlxEnv, MjMlxEnvState
 
 # ----------------- Configuration -----------------
 

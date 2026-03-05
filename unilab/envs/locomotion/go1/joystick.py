@@ -12,7 +12,7 @@ import numpy as np
 from dataclasses import dataclass, field
 
 from unilab.envs import registry
-from unilab.envs.mujoco_env.mj_env import MjMlxEnvState
+from unilab.envs.mujoco_env.mjx_env import MjMlxEnvState
 from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
 
 from unilab.envs.locomotion.go1.base import Go1BaseMjEnv, Go1BaseCfg
