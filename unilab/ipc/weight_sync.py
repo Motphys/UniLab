@@ -1,0 +1,83 @@
+"""Shared weight synchronization for actor networks."""
+
+from __future__ import annotations
+import multiprocessing as mp
+from multiprocessing import shared_memory
+from typing import Dict
+import numpy as np
+
+
+class SharedWeightSync:
+    """Synchronize actor weights between learner and collector."""
+
+    def __init__(self, param_shapes: Dict, *, create: bool = True, shm_name: str | None = None):
+        self._param_shapes = param_shapes
+        self._param_names = list(param_shapes.keys())
+
+        total_numel = sum(s.numel() for s in param_shapes.values())
+        _f32 = np.dtype(np.float32).itemsize
+        _i32 = np.dtype(np.int32).itemsize
+        data_bytes = total_numel * _f32
+        meta_bytes = _i32
+        total_bytes = data_bytes + meta_bytes
+
+        if create:
+            self._shm = shared_memory.SharedMemory(create=True, size=max(total_bytes, 1))
+        else:
+            assert shm_name is not None
+            self._shm = shared_memory.SharedMemory(name=shm_name, create=False)
+
+        self._buffer = np.ndarray((total_numel,), dtype=np.float32, buffer=self._shm.buf)
+        self._version_arr = np.ndarray((1,), dtype=np.int32, buffer=self._shm.buf[data_bytes:])
+        if create:
+            self._version_arr[0] = 0
+        self._total_numel = total_numel
+
+    @property
+    def name(self) -> str:
+        return self._shm.name
+
+    @property
+    def version(self) -> int:
+        return int(self._version_arr[0])
+
+    @classmethod
+    def from_state_dict(cls, state_dict, **kwargs):
+        param_shapes = {name: p.shape for name, p in state_dict.items()}
+        obj = cls(param_shapes, **kwargs)
+        obj.write_weights(state_dict)
+        return obj
+
+    def write_weights(self, state_dict) -> None:
+        offset = 0
+        for name in self._param_names:
+            param = state_dict[name]
+            flat = param.detach().cpu().numpy().ravel()
+            n = flat.shape[0]
+            self._buffer[offset : offset + n] = flat
+            offset += n
+        self._version_arr[0] += 1
+
+    def read_weights_into(self, state_dict) -> int:
+        import torch
+        offset = 0
+        for name in self._param_names:
+            param = state_dict[name]
+            n = param.numel()
+            data = self._buffer[offset : offset + n].copy()
+            param.data.copy_(torch.from_numpy(data.reshape(param.shape)))
+            offset += n
+        return int(self._version_arr[0])
+
+    def cleanup(self) -> None:
+        try:
+            self._shm.close()
+            self._shm.unlink()
+        except Exception:
+            pass
+
+    def close(self) -> None:
+        try:
+            self._shm.close()
+        except Exception:
+            pass

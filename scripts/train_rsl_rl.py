@@ -35,7 +35,7 @@ ensure_registries()
 from unilab.envs import registry
 from unilab.config import locomotion_params
 from unilab.utils import render_many
-from unilab.utils.mlx_torch_utils import mlx_to_torch, to_numpy
+from unilab.utils.torch_utils import to_torch, to_numpy
 
 # Try importing rsl_rl
 try:
@@ -81,10 +81,10 @@ class RslRlVecEnvWrapper:
         # Step the environment
         state = self.env.step(actions_np)
         
-        # Convert output to torch (MLX/numpy -> torch, prefer from_dlpack for MPS)
-        obs = mlx_to_torch(state.obs, self.device)
-        rewards = mlx_to_torch(state.reward, self.device)
-        dones = mlx_to_torch(state.done, self.device).bool()
+        # Convert output to torch tensors on target device
+        obs = to_torch(state.obs, self.device)
+        rewards = to_torch(state.reward, self.device)
+        dones = to_torch(state.done, self.device).bool()
         
         # Update logging info
         self.episode_returns += rewards
@@ -96,7 +96,7 @@ class RslRlVecEnvWrapper:
         if len(done_indices) > 0:
             # Handle limits and timeouts (RSL-RL expects 'time_outs' in extras/infos)
             if hasattr(state, "truncated"):
-                infos["time_outs"] = mlx_to_torch(state.truncated, self.device).bool()
+                infos["time_outs"] = to_torch(state.truncated, self.device).bool()
             
             # Reset buffers for done envs
             self.episode_returns[done_indices] = 0
@@ -125,7 +125,7 @@ class RslRlVecEnvWrapper:
         except ImportError:
             env_indices = np.arange(self.num_envs)
         _, obs_out, _ = self.env.reset(env_indices)
-        obs = mlx_to_torch(obs_out, self.device)
+        obs = to_torch(obs_out, self.device)
 
         self.episode_returns[:] = 0
         self.episode_lengths[:] = 0
@@ -137,7 +137,7 @@ class RslRlVecEnvWrapper:
         ), {}
 
     def get_observations(self):
-        obs = mlx_to_torch(self.env.state.obs, self.device)
+        obs = to_torch(self.env.state.obs, self.device)
         return TensorDict(
             {"policy": obs},
             batch_size=self.num_envs,
@@ -145,7 +145,7 @@ class RslRlVecEnvWrapper:
         )
 
     def get_privileged_observations(self):
-        obs = mlx_to_torch(self.env.state.obs, self.device)
+        obs = to_torch(self.env.state.obs, self.device)
         return obs
 
 

@@ -4,21 +4,14 @@ Collects (obs, action, reward, next_obs, done) transitions using the current
 actor policy.  Runs in a subprocess; writes to a SharedReplayBuffer.
 
 Data flow:
-  env.step(actions_mx) → state (mlx)  →  np.asarray()  →  replay buffer (numpy)
-  obs (mlx) → np.asarray → torch.from_numpy → actor → actions (torch) → mx.array → env
+    env.step(actions_np) → state (numpy-like) → np.asarray() → replay buffer (numpy)
+    obs (numpy-like) → np.asarray → torch.from_numpy → actor → actions (torch) → numpy → env
 """
 
 import torch
 import numpy as np
 import pkgutil
 import importlib
-
-
-def _mx_to_np(x) -> np.ndarray:
-    """Convert mlx/numpy/scalar to contiguous numpy float32."""
-    return np.asarray(x, dtype=np.float32)
-
-
 def ensure_registries():
     """Import all env modules so they are registered."""
     try:
@@ -68,6 +61,7 @@ def off_policy_collector_fn(
     exploration_noise: float = 0.1,
     warmup_steps: int = 5000,
     metrics_queue=None,
+    buffer_lock=None,
     **kwargs,
 ):
     """Entry point for the off-policy collector subprocess."""
@@ -82,7 +76,7 @@ def off_policy_collector_fn(
             algo_type=algo_type, actor_hidden_dim=actor_hidden_dim,
             use_layer_norm=use_layer_norm, collector_device=collector_device,
             exploration_noise=exploration_noise, warmup_steps=warmup_steps,
-            metrics_queue=metrics_queue,
+            metrics_queue=metrics_queue, buffer_lock=buffer_lock,
         )
     except Exception as e:
         traceback.print_exc()
@@ -99,10 +93,9 @@ def _run_collector(
     shm_buffer_name, buffer_capacity, obs_dim, action_dim,
     weight_sync_name, weight_param_shapes,
     algo_type, actor_hidden_dim, use_layer_norm, collector_device,
-    exploration_noise, warmup_steps, metrics_queue,
+    exploration_noise, warmup_steps, metrics_queue, buffer_lock,
 ):
-    import mlx.core as mx
-    from unilab.algos.torch.common.async_runner import SharedReplayBuffer, SharedWeightSync
+    from unilab.ipc import SharedReplayBuffer, SharedWeightSync
     from unilab.envs import registry
 
     ensure_registries()
@@ -111,11 +104,12 @@ def _run_collector(
     replay_buffer = SharedReplayBuffer(
         buffer_capacity, obs_dim, action_dim, create=False, shm_name=shm_buffer_name
     )
+    replay_buffer._lock = buffer_lock
     weight_sync = SharedWeightSync(
         weight_param_shapes, create=False, shm_name=weight_sync_name
     )
 
-    # Create environment
+    # Create environment - use numpy backend for PyTorch algorithms
     env = registry.make(env_name, num_envs=num_envs, sim_backend="mujoco")
 
     # Build actor
@@ -133,16 +127,13 @@ def _run_collector(
     ep_lengths = []
     current_ep_rewards = np.zeros(num_envs, dtype=np.float32)
     current_ep_lengths = np.zeros(num_envs, dtype=np.int32)
-    # Track reward components
     from collections import defaultdict
     ep_reward_components = defaultdict(list)
 
-    # Use env.step() which handles init_state, apply_action, physics, update_state, reset internally
-    # First call to env.step will auto-init
-    # We need initial obs — do a warmup step with zeros
-    actions_mx = mx.zeros((num_envs, action_dim), dtype=mx.float32)
-    state = env.step(actions_mx)
-    obs_np = _mx_to_np(state.obs)
+    # Initial step to get first observation
+    actions_np = np.zeros((num_envs, action_dim), dtype=np.float32)
+    state = env.step(actions_np)
+    obs_np = np.asarray(state.obs, dtype=np.float32)
     import time as _time
     _last_log_time = _time.time()
 
@@ -170,43 +161,37 @@ def _run_collector(
                     actions_torch = torch.zeros((num_envs, action_dim), device=collector_device)
                 actions_np = actions_torch.cpu().numpy()
 
-        # Step environment — env.step() handles everything
-        actions_mx = mx.array(actions_np)
-        state = env.step(actions_mx)
+        # Step environment
+        state = env.step(actions_np)
 
         # Extract data as numpy
-        # Extract data as numpy
-        next_obs_np = _mx_to_np(state.obs)
-        rewards_np = _mx_to_np(state.reward).ravel()
-        terminated_np = _mx_to_np(state.terminated).ravel() if state.terminated is not None else np.zeros(num_envs, dtype=np.float32)
-        truncated_np = _mx_to_np(state.truncated).ravel() if state.truncated is not None else np.zeros(num_envs, dtype=np.float32)
+        next_obs_np = np.asarray(state.obs, dtype=np.float32)
+        rewards_np = np.asarray(state.reward, dtype=np.float32).ravel()
+        terminated_np = np.asarray(state.terminated, dtype=np.float32).ravel() if state.terminated is not None else np.zeros(num_envs, dtype=np.float32)
+        truncated_np = np.asarray(state.truncated, dtype=np.float32).ravel() if state.truncated is not None else np.zeros(num_envs, dtype=np.float32)
         combined_dones = np.clip(terminated_np + truncated_np, 0, 1)
 
         # Handle true terminal observations
         if "_final_observation" in state.info:
             has_final = state.info["_final_observation"]
-            if hasattr(has_final, "item"):
-                has_final_np = _mx_to_np(has_final).astype(bool)
-            else:
-                has_final_np = np.asarray(has_final, dtype=bool)
+            has_final_np = np.asarray(has_final, dtype=bool)
             if np.any(has_final_np):
-                final_obs_np = _mx_to_np(state.info["final_observation"])
+                final_obs_np = np.asarray(state.info["final_observation"], dtype=np.float32)
                 next_obs_np[has_final_np] = final_obs_np[has_final_np]
 
         # Write to replay buffer
         replay_buffer.add_batch(obs_np, actions_np, rewards_np, next_obs_np, combined_dones)
 
-        # Track episode rewards and lengths
+        # Track episode rewards - vectorized
         current_ep_rewards += rewards_np
         current_ep_lengths += 1
         reset_mask = combined_dones > 0.5
-        if np.any(reset_mask):
-            for i in range(num_envs):
-                if reset_mask[i]:
-                    ep_rewards.append(float(current_ep_rewards[i]))
-                    ep_lengths.append(float(current_ep_lengths[i]))
-                    current_ep_rewards[i] = 0.0
-                    current_ep_lengths[i] = 0
+        reset_indices = np.where(reset_mask)[0]
+        if len(reset_indices) > 0:
+            ep_rewards.extend(current_ep_rewards[reset_indices].tolist())
+            ep_lengths.extend(current_ep_lengths[reset_indices].tolist())
+            current_ep_rewards[reset_indices] = 0.0
+            current_ep_lengths[reset_indices] = 0
 
         obs_np = next_obs_np
         total_steps += num_envs

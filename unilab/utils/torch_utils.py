@@ -1,4 +1,4 @@
-"""Convert MLX / numpy arrays to torch (e.g. MPS). MLX -> torch.mps uses torch.from_dlpack when available."""
+"""Generic array <-> torch conversion utilities."""
 
 from __future__ import annotations
 
@@ -6,17 +6,18 @@ import numpy as np
 import torch
 
 
-def mlx_to_torch(x, device: str | torch.device) -> torch.Tensor:
-    """Convert MLX array or numpy array to torch on the given device. Prefer torch.from_dlpack for MLX -> MPS."""
+def to_torch(x, device: str | torch.device) -> torch.Tensor:
+    """Convert numpy-like input to torch on the target device.
+
+    Supports torch tensors, numpy arrays, and any array exposing ``__dlpack__``.
+    """
     if isinstance(x, torch.Tensor):
         return x.to(device)
     if isinstance(x, np.ndarray):
         return torch.from_numpy(x).to(device)
-    # MLX array: try DLPack then fallback to numpy
     try:
         if hasattr(x, "__dlpack__"):
-            t = torch.from_dlpack(x)
-            return t.to(device)
+            return torch.from_dlpack(x).to(device)
     except Exception:
         pass
     arr = np.asarray(x, dtype=np.float32)
@@ -24,7 +25,7 @@ def mlx_to_torch(x, device: str | torch.device) -> torch.Tensor:
 
 
 def to_numpy(x) -> np.ndarray:
-    """Convert MLX array or torch tensor to numpy for e.g. render_many."""
+    """Convert torch tensor or numpy-like input to numpy."""
     if isinstance(x, np.ndarray):
         return x
     if isinstance(x, torch.Tensor):

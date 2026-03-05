@@ -13,11 +13,8 @@ import statistics
 import torch
 from collections import defaultdict, deque
 
-from unilab.algos.torch.common.async_runner import (
-    AsyncRunner,
-    SharedReplayBuffer,
-    SharedWeightSync,
-)
+from unilab.ipc import SharedReplayBuffer, SharedWeightSync
+from unilab.algos.torch.common.async_runner import AsyncRunner
 from unilab.algos.torch.common.worker import off_policy_collector_fn
 from unilab.algos.torch.common.logger import TrainingLogger
 from unilab.algos.torch.fast_sac.learner import FastSACLearner
@@ -175,6 +172,7 @@ class FastSACRunner(AsyncRunner):
             "exploration_noise": self.exploration_noise,
             "warmup_steps": self.warmup_steps,
             "metrics_queue": metrics_queue,
+            "buffer_lock": shared_buffer._lock,
         }
         self._start_collector(
             target_fn=off_policy_collector_fn,
@@ -219,6 +217,9 @@ class FastSACRunner(AsyncRunner):
             train_start = time.time()
             iter_metrics = defaultdict(list)
             for update_idx in range(self.updates_per_step):
+                if shared_buffer.utilization() > 0.98:
+                    logger.log_status("[yellow]Warning: Buffer 98% full - learner may be slow[/]")
+
                 batch = shared_buffer.sample_torch(self.batch_size, self.device)
 
                 critic_metrics = learner.update_critic(batch)
