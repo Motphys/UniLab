@@ -4,12 +4,16 @@
 
 - [x] 增加 Bipedal Locomotion 任务
 - [x] 增加 FastTD3 和 FastSAC，torch.mps
-- [x] 把 FastTD3 和 FastSAC 迁移到 mlx
-- [ ] 把 FastTD3 和 FastSAC 调稳定
-- [ ] 写轻量版 Ray，跑满cpu 和 gpu
-- [ ] 设计统一训练框架，支持不同的算法（ppo、TD3、SAC）和后端（mlx 和 pytorch）
-- [ ] 适配 mimic/amp 算法，支持人形Whole-Body Tracking
-- [x] (*)用MLX重写 MuJoCo
+- [ ] @czx  把 FastTD3 和 FastSAC 调稳定 
+- [ ] @yves 把稳定的 FastTD3 和 FastSAC 迁移到 mlx
+- [x] @czx  写轻量版并行采样，跑满cpu 和 gpu @czx
+- [ ] @yves 优化调度器，跨 torch/mlx @yves
+- [ ] @yves 优化调度器，测试把 rollout 移动到 cpu 的效率提升
+- [ ] @yves 设计统一训练框架，支持不同的算法（ppo、TD3、SAC）和后端（mlx 和 pytorch）
+- [ ] @jdx  适配 mimic/amp 算法，支持人形Whole-Body Tracking
+- [x] @yves 兼容 linux 平台
+- [ ] @jdx  适配 motrixsim
+- [x] @yves 发布 mujoco-uni
 
 Thirdparty:
    1. https://github.com/mujocolab/mjlab
@@ -23,16 +27,9 @@ Thirdparty:
    ```bash
    git clone https://github.com/TATP-233/UniLab.git
    cd UniLab
+   pip install -i https://test.pypi.org/simple/ mujoco-uni==3.5.0.post2
    pip install -e .
    ```
-   安装时会根据平台自动选择依赖：
-   - **macOS**：安装 `mujoco-mlx==3.5.0`（来自 TestPyPI）和 `mlx`
-   - **Linux / Windows**：安装标准 `mujoco>=3.5.0`
-
-   > macOS 用户若遇到 `mujoco-mlx` 找不到，请先添加 TestPyPI 源：
-   > ```bash
-   > pip install -e . --extra-index-url https://test.pypi.org/simple/
-   > ```
 
 ## 训练与回放指南
 
@@ -71,7 +68,7 @@ python scripts/train_rsl_rl.py --task Go2JoystickFlatTerrain --load_run "2024-02
 
 ## APPO (Asynchronous PPO)
 
-基于 [IMPACT (Luo et al., 2020)](https://arxiv.org/abs/1912.00167) 的异步 PPO 实现，使用 Ray 实现 CPU 物理仿真与 GPU 策略训练的流水线并行。
+基于 [IMPACT (Luo et al., 2020)](https://arxiv.org/abs/1912.00167) 的异步 PPO 实现，使用原生多进程实现 CPU 物理仿真与 GPU 策略训练的流水线并行。
 
 ### 核心特性
 
@@ -85,12 +82,12 @@ python scripts/train_rsl_rl.py --task Go2JoystickFlatTerrain --load_run "2024-02
 ### 架构
 
 ```
-┌──────────────┐         ┌──────────────────┐
-│  Ray Worker  │  CPU    │   APPOLearner    │  GPU/MPS
-│  (rollout)   │────────▶│  V-trace + PPO   │
-│  π_behavior  │  batch  │  π_current       │
-└──────────────┘         │  π_target (EMA)  │
-                         └──────────────────┘
+┌────────────────┐         ┌──────────────────┐
+│ Collector Proc │ CPU     │   APPOLearner    │  GPU/MPS
+│  (rollout)     │────────▶│  V-trace + PPO   │
+│  π_behavior    │  batch  │  π_current       │
+└────────────────┘         │  π_target (EMA)  │
+                           └──────────────────┘
 ```
 
 ### 训练
@@ -116,7 +113,7 @@ python scripts/train_appo.py --task Go2JoystickFlatTerrain --play_only
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `--num_workers` | 1 | Ray rollout worker 数量 |
+| `--num_workers` | 1 | Collector 进程数量（当前建议 1） |
 | `--total_envs` | 1024 | 总环境数（均分到各 worker） |
 | `--steps_per_env` | 24 | 每个环境每次迭代的步数 |
 | `--max_iterations` | 1500 | 最大训练迭代次数 |

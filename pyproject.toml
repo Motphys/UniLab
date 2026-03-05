@@ -11,9 +11,7 @@ requires-python = ">=3.8"
 dependencies = [
     "numpy",
     "torch",
-    "mujoco-mlx==3.5.0 ; sys_platform == 'darwin'",
-    "mujoco>=3.5.0    ; sys_platform != 'darwin'",
-    "mlx              ; sys_platform == 'darwin'",
+    "mujoco-uni==3.5.0.post2",
     "gymnasium",
     "imageio",
     "etils",
@@ -23,8 +21,8 @@ dependencies = [
     "packaging",
     "mediapy",
     "tensorboard",
-    "ray[default]>=2.9.0",
     "typing-extensions",
+    "mlx ; sys_platform == 'darwin'",
 ]
 
 [project.optional-dependencies]

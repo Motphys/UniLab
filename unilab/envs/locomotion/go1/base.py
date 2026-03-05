@@ -2,14 +2,11 @@ from __future__ import annotations
 
 import gymnasium as gym
 import mujoco
-try:
-    import mlx.core as mx
-except Exception:
-    mx = None
+import numpy as np
 from dataclasses import dataclass, field
 
 from unilab.envs.base import EnvCfg
-from unilab.envs.mujoco_env.mjx_env import MjMlxEnv, MjMlxEnvState
+from unilab.envs.mujoco_env.mj_env import MjNpEnv, MjNpEnvState
 
 # ----------------- Configuration -----------------
 
@@ -54,7 +51,7 @@ class Go1BaseCfg(EnvCfg):
 
 # ----------------- Environment -----------------
 
-class Go1BaseMjEnv(MjMlxEnv):
+class Go1BaseMjEnv(MjNpEnv):
     def __init__(self, cfg: Go1BaseCfg, num_envs=1):
         super().__init__(cfg, num_envs)
 
@@ -75,12 +72,11 @@ class Go1BaseMjEnv(MjMlxEnv):
         self._num_action = self._action_space.shape[0]
 
         # Init init_dof_vel which is used in reset
-        self._init_dof_vel = mx.zeros(
+        self._init_dof_vel = np.zeros(
             (self._num_dof_vel,),
-            dtype=self._mlx_dtype,
+            dtype=self._np_dtype,
         )
-        # Compute init dof pos from keyframe 0 or qpos0
-        self._init_qpos = mx.array(self._model.qpos0.copy(), dtype=self._mlx_dtype)
+        self._init_qpos = np.array(self._model.qpos0.copy(), dtype=self._np_dtype)
         
         self._init_buffer()
         self._init_sensor_indices()
@@ -101,22 +97,21 @@ class Go1BaseMjEnv(MjMlxEnv):
     def action_space(self) -> gym.spaces.Box:
         return self._action_space
 
-    def get_dof_pos(self, state: MjMlxEnvState):
+    def get_dof_pos(self, state: MjNpEnvState):
         return state.physics_state[:, self._idx_qpos + 7 : self._idx_qpos + self.nq]
 
-    def get_dof_vel(self, state: MjMlxEnvState):
+    def get_dof_vel(self, state: MjNpEnvState):
         return state.physics_state[:, self._idx_qvel + 6 : self._idx_qvel + self.nv]
 
     def _init_buffer(self):
         # Generic buffers
-        self.reset_buf = mx.ones((self._num_envs,), dtype=mx.bool_)
-
-        self.default_angles = mx.zeros((self._num_action,), dtype=self._mlx_dtype)
+        self.reset_buf = np.ones((self._num_envs,), dtype=bool)
+        self.default_angles = np.zeros((self._num_action,), dtype=self._np_dtype)
         
         # Try to find "home" keyframe to init default pose
         key_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_KEY, "home")
         if key_id >= 0:
-            self._init_qpos = mx.array(self._model.key_qpos[key_id].copy(), dtype=self._mlx_dtype)
+            self._init_qpos = np.array(self._model.key_qpos[key_id].copy(), dtype=self._np_dtype)
             self.default_angles = self._init_qpos[7:]
         else:
             raise ValueError("Keyframe 'home' not found in model.")
@@ -141,31 +136,29 @@ class Go1BaseMjEnv(MjMlxEnv):
         return list(range(adr, adr + dim))
     
     def apply_action(self, actions, state):
-        # Update action history for regularization rewards.
-        state.info["last_actions"] = mx.array(state.info["current_actions"])
+        state.info["last_actions"] = np.array(state.info["current_actions"])
         state.info["current_actions"] = actions
-        
-        # Scale actions
+
         ctrl = actions * self._cfg.control_config.action_scale + self.default_angles
         return ctrl
-    
+
     def get_local_linvel(self, state):
         return state.sensor_data[:, self.idx_linvel]
 
-    def get_gyro(self, state: MjMlxEnvState) -> mx.array:
+    def get_gyro(self, state: MjNpEnvState) -> np.ndarray:
         return state.sensor_data[:, self.idx_gyro]
 
-    def get_global_linvel(self, state: MjMlxEnvState) -> mx.array:
+    def get_global_linvel(self, state: MjNpEnvState) -> np.ndarray:
         return state.sensor_data[:, self.idx_global_linvel]
 
-    def get_upvector(self, state: MjMlxEnvState) -> mx.array:
+    def get_upvector(self, state: MjNpEnvState) -> np.ndarray:
         return state.sensor_data[:, self.idx_upvector]
-        
+
     def _reward_lin_vel_z(self, state):
         global_linvel = self.get_global_linvel(state)
-        return mx.square(global_linvel[:, 2])
+        return np.square(global_linvel[:, 2])
 
     def _reward_action_rate(self, info: dict):
         action_diff = info["current_actions"] - info["last_actions"]
-        return mx.sum(mx.square(action_diff), axis=1)
+        return np.sum(np.square(action_diff), axis=1)
 

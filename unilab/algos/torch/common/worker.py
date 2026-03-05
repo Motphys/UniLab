@@ -1,4 +1,4 @@
-"""Off-policy collector for SAC and TD3 (no Ray dependency).
+"""Off-policy collector for SAC and TD3.
 
 Collects (obs, action, reward, next_obs, done) transitions using the current
 actor policy.  Runs in a subprocess; writes to a SharedReplayBuffer.

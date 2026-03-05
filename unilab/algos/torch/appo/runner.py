@@ -1,4 +1,4 @@
-"""APPO Runner — Asynchronous PPO with native multiprocessing (no Ray).
+"""APPO Runner — Asynchronous PPO with native multiprocessing.
 
 Pipeline:
   1. Collector subprocess collects on-policy rollouts → SharedOnPolicyStorage
@@ -25,7 +25,7 @@ from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4
 from rsl_rl.utils import resolve_callable
 
 class APPORunner(AsyncRunner):
-    """APPO async runner using shared memory (no Ray dependency)."""
+    """APPO async runner using shared memory."""
 
     def __init__(
         self,

@@ -148,6 +148,7 @@ def build_model(cfg, obs_dim: int, action_dim: int, dtype=mx.float32) -> MLPActo
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train or Play PPO with MLX + NumPy only.")
     parser.add_argument("--task", type=str, required=True, help="Task name")
+    parser.add_argument("--sim_backend", type=str, default="mujoco", choices=["mujoco"], help="Simulator backend")
     parser.add_argument("--play_only", action="store_true", help="Play mode only")
     parser.add_argument("--load_run", type=str, default="-1", help="Run ID to load, run path, or model file path")
     parser.add_argument("--env_num", type=int, default=None, help="Number of parallel envs (task default if unset)")
@@ -162,6 +163,8 @@ def main() -> None:
     parser.add_argument("--save_interval", type=int, default=50, help="Checkpoint save interval")
     parser.add_argument("--fp16", action="store_true", help="Mixed precision: env/buffer float16, model/optimizer float32 (sets UNILAB_MLX_DTYPE=float16)")
     args = parser.parse_args()
+    resolved_sim_backend = "mujoco"
+
     if args.env_num is None:
         args.env_num = locomotion_params.get_default_env_num(args.task)
 
@@ -192,7 +195,7 @@ def main() -> None:
     if args.play_only:
         play_model_dtype = mx.float32 if use_fp16 else dtype
         play_env_num = args.play_env_num
-        env = registry.make(args.task, num_envs=play_env_num, sim_backend="mujoco")
+        env = registry.make(args.task, num_envs=play_env_num, sim_backend=resolved_sim_backend)
         obs_dim = env.observation_space.shape[0]
         action_dim = env.action_space.shape[0]
         model = build_model(cfg, obs_dim, action_dim, dtype=play_model_dtype)
@@ -228,7 +231,8 @@ def main() -> None:
 
         if env.state is None:
             env.init_state()
-        _, obs, _ = env.reset(mx.arange(env.num_envs, dtype=mx.int32))
+        play_reset_indices = np.arange(env.num_envs, dtype=np.int32)
+        _, obs, _ = env.reset(play_reset_indices)
         obs = mx.array(obs)
 
         state_list = []
@@ -238,7 +242,8 @@ def main() -> None:
             actions_mx = model.policy(obs_for_model)
             actions = mx.where(mx.isfinite(actions_mx), actions_mx, mx.zeros_like(actions_mx))
             actions = actions.astype(dtype) if getattr(actions, "dtype", None) != dtype else actions
-            state = env.step(actions)
+            env_actions = np.asarray(actions)
+            state = env.step(env_actions)
             raw_obs = state.obs
             obs = mx.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0)
             # Append a copy: physics_state is updated in-place each step, so we must snapshot per frame.
@@ -278,6 +283,7 @@ def main() -> None:
 
     run_meta = {
         "task": args.task,
+        "sim_backend": resolved_sim_backend,
         "env_num": args.env_num,
         "steps_per_env": num_steps,
         "max_iterations": max_iterations,
@@ -314,15 +320,16 @@ def main() -> None:
     except Exception as e:
         log(f"[Warning] TensorBoard disabled: {e}")
 
-    preset = TASK_STEP_TUNING[args.task]
-    os.environ["UNILAB_MLX_STEP_THREADS"] = preset["threads"]
-    os.environ["UNILAB_MLX_STEP_CHUNK"] = preset["chunk"]
-    env = registry.make(args.task, num_envs=args.env_num, sim_backend="mujoco")
+    preset = TASK_STEP_TUNING.get(args.task, {"threads": "32", "chunk": "16"})
+    os.environ["UNILAB_MUJOCO_STEP_THREADS"] = preset["threads"]
+    os.environ["UNILAB_MUJOCO_STEP_CHUNK"] = preset["chunk"]
+    env = registry.make(args.task, num_envs=args.env_num, sim_backend=resolved_sim_backend)
     if bool(getattr(algo_cfg, "fast_mode", False)) and hasattr(env, "_enable_reward_log"):
         env._enable_reward_log = False
     if env.state is None:
         env.init_state()
-    _, obs, _ = env.reset(mx.arange(env.num_envs, dtype=mx.int32))
+    reset_indices = np.arange(env.num_envs, dtype=np.int32)
+    _, obs, _ = env.reset(reset_indices)
     obs = mx.array(obs)
 
     obs_dim = env.observation_space.shape[0]
@@ -387,7 +394,7 @@ def main() -> None:
                     resumed_it = load_trainer_state(trainer_state_path, trainer, dtype=model_dtype)
                     log(f"[MLX PPO] resumed_trainer_state={trainer_state_path} iter={resumed_it}")
 
-    log(f"[MLX PPO] task={args.task} envs={args.env_num} steps={num_steps} iters={max_iterations}")
+    log(f"[MLX PPO] task={args.task} backend={resolved_sim_backend} envs={args.env_num} steps={num_steps} iters={max_iterations}")
     log(f"[MLX PPO] run={timestamp} lr={learning_rate:.6f} fp16={use_fp16}")
     log(
         "[MLX PPO] perf_mode fast_mode={} metrics_interval={} compile={}".format(
@@ -451,7 +458,8 @@ def main() -> None:
             actions = mx.where(mx.isfinite(actions_mx), actions_mx, mx.zeros_like(actions_mx))
             executed_actions = actions.astype(dtype) if actions.dtype != dtype else actions
             t_env0 = time.perf_counter()
-            state = env.step(executed_actions)
+            env_actions = np.asarray(executed_actions)
+            state = env.step(env_actions)
             env_step_total_time += time.perf_counter() - t_env0
             if isinstance(state.info, dict):
                 timing_info = state.info.get("timing", {})
@@ -465,9 +473,9 @@ def main() -> None:
                     env_reset_info_merge_time += float(timing_info.get("reset_info_merge_ms", 0.0)) / 1000.0
 
             # Conversion boundary: env output → rollout; sanitize Nan/Inf only here (no forced reset).
-            raw_rewards = state.reward
-            raw_dones = state.done
-            raw_obs = state.obs
+            raw_rewards = mx.array(state.reward)
+            raw_dones = mx.array(state.done)
+            raw_obs = mx.array(state.obs)
             rewards = mx.nan_to_num(raw_rewards, nan=0.0, posinf=0.0, neginf=0.0)
             dones = mx.where(mx.isfinite(raw_dones), raw_dones, mx.ones_like(raw_dones)).astype(dtype)
             next_obs = mx.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0)

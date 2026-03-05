@@ -1,7 +1,7 @@
 """Replay Buffer for off-policy RL algorithms (TD3, SAC).
 
 Simple ring-buffer implementation that stores transitions as flat tensors
-and supports batch insertion from multiple Ray workers + uniform random sampling.
+and supports batch insertion from multiple collector workers + uniform random sampling.
 """
 
 import torch

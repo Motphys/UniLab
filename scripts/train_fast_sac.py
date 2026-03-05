@@ -1,4 +1,4 @@
-"""Train FastSAC agent — native multiprocessing, no Ray."""
+"""Train FastSAC agent — native multiprocessing."""
 
 import argparse
 import sys
@@ -27,7 +27,7 @@ def ensure_registries():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train FastSAC (no Ray)")
+    parser = argparse.ArgumentParser(description="Train FastSAC (native multiprocessing)")
     parser.add_argument("--task", type=str, default="Go2JoystickFlatTerrain")
     parser.add_argument("--max_iterations", type=int, default=None, help="Override max iterations from config")
     parser.add_argument("--num_envs", type=int, default=1024, help="Override num_envs from config")

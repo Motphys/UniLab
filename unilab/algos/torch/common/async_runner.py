@@ -1,6 +1,6 @@
 """Lightweight async runner framework using Python native multiprocessing + shared memory.
 
-Replaces Ray with zero-copy shared memory for inter-process communication.
+Uses zero-copy shared memory for inter-process communication.
 Designed for Mac (MPS) with extensibility for NPU.
 
 Key components:
