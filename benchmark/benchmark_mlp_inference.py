@@ -16,8 +16,14 @@ Fairness (公平性): Same warmup/repeat, model shape, OBS clip [-3,3]; timing i
 device sync (MPS/JAX/MLX). Weights: numpy/numba seed 42, torch* manual_seed(42),
 onnx/coreml/ane from torch 42, jax key 42. Input: rng(43) or equivalent per backend.
 """
-
 from __future__ import annotations
+
+try:
+    from benchmark.core import bench_callable, available_backends, MLPBenchRecord, mlp_param_count, trimmed_mean, print_mlp_table
+    from benchmark.core.device_info import get_device_info_dict, get_device_info_line
+except ModuleNotFoundError:
+    from core import bench_callable, available_backends, MLPBenchRecord, mlp_param_count, trimmed_mean, print_mlp_table
+    from core.device_info import get_device_info_dict, get_device_info_line
 
 import argparse
 import json
@@ -31,10 +37,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
-try:
-    from benchmark.device_info import get_device_info_dict, get_device_info_line
-except ModuleNotFoundError:
-    from device_info import get_device_info_dict, get_device_info_line
 
 try:
     import numpy as np
@@ -47,7 +49,6 @@ _MX = None
 _NN_MLX = None
 _TORCH_NUM_THREADS: Optional[int] = None  # set by main() --threads for CPU matmul
 
-
 def _get_torch():
     global _TORCH
     if _TORCH is None:
@@ -59,7 +60,6 @@ def _get_torch():
             pass
     return _TORCH
 
-
 def _get_mlx():
     global _MX, _NN_MLX
     if _MX is None:
@@ -69,7 +69,6 @@ def _get_mlx():
         except Exception:
             pass
     return _MX, _NN_MLX
-
 
 try:
     import numba
@@ -106,7 +105,6 @@ try:
 except Exception:
     plt = None
 
-
 # Model config aligned with locomotion tasks (Go1/Go2/G1 style policy)
 DEFAULT_OBS_DIM = 48
 DEFAULT_ACTION_DIM = 12
@@ -114,79 +112,15 @@ DEFAULT_HIDDEN_DIMS = [256, 256, 256]
 DEFAULT_ENV_NUM_POW_MIN = 8
 DEFAULT_ENV_NUM_POW_MAX = 15
 
-
-@dataclass
-class MLPBenchRecord:
-    backend: str
-    env_num: int
-    warmup: int
-    repeat: int
-    elapsed_sec: List[float]
-    mean_sec: float
-    std_sec: float
-    min_sec: float
-    max_sec: float
-    envs_per_sec: float
-
-
-def env_nums_pow2(pow_min: int, pow_max: int) -> List[int]:
-    return [2 ** k for k in range(pow_min, pow_max + 1)]
-
-
-def mlp_param_count(obs_dim: int, action_dim: int, hidden_dims: List[int]) -> int:
-    """Total number of parameters (weights + biases) for obs->hidden->...->action MLP."""
-    dims = [obs_dim] + hidden_dims + [action_dim]
-    return sum((dims[i] + 1) * dims[i + 1] for i in range(len(dims) - 1))
-
-
 # Safe divisor to avoid divide-by-zero and overflow (e.g. envs_per_sec = env_num / mean_sec)
 _MIN_MEAN_SEC = 1e-12
-
 
 def _safe_envs_per_sec(env_num: int, mean_sec: float) -> float:
     if mean_sec is None or mean_sec <= 0 or env_num <= 0:
         return 0.0
     mean_sec = max(mean_sec, _MIN_MEAN_SEC)
     return env_num / mean_sec
-
-
-def bench_callable(
-    fn: Callable[[], None],
-    sync_fn: Callable[[], None],
-    warmup: int,
-    repeat: int,
-) -> List[float]:
-    for _ in range(warmup):
-        fn()
-        sync_fn()
-    samples: List[float] = []
-    for _ in range(repeat):
-        t0 = time.perf_counter()
-        fn()
-        sync_fn()
-        t1 = time.perf_counter()
-        # Clamp to non-negative to avoid bad values from clock or very fast runs
-        samples.append(max(0.0, t1 - t0))
     return samples
-
-
-# ---------- NumPy MLP (shared weights as arrays) ----------
-def _numpy_mlp_forward(
-    x: np.ndarray,
-    weights: List[np.ndarray],
-    biases: List[np.ndarray],
-) -> np.ndarray:
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", category=RuntimeWarning)
-        out = x
-        for i in range(len(weights)):
-            out = out @ weights[i] + biases[i]
-            out = np.clip(out, -1e4, 1e4).astype(out.dtype)  # avoid overflow/underflow
-            if i < len(weights) - 1:
-                out = np.tanh(out)
-    return out
-
-
 # Input/activation range to avoid overflow (e.g. float32) in large batches
 _OBS_CLIP_LOW, _OBS_CLIP_HIGH = -3.0, 3.0
 
@@ -194,7 +128,6 @@ _OBS_CLIP_LOW, _OBS_CLIP_HIGH = -3.0, 3.0
 # Weights: numpy/numba seed=42; torch* we set manual_seed(42); onnx/coreml/ane from torch seed 42; jax key 42.
 # Input: numpy/numba/onnx/coreml/ane rng(43); torch* manual_seed(43); mlx/jax fixed seed so reproducible.
 # Same model shape everywhere: obs_dim, hidden_dims, action_dim.
-
 
 def build_numpy_mlp(
     obs_dim: int,
@@ -213,6 +146,11 @@ def build_numpy_mlp(
         biases.append(b)
     return weights, biases
 
+def _numpy_mlp_forward(x: np.ndarray, weights: List[np.ndarray], biases: List[np.ndarray]) -> np.ndarray:
+    out = x
+    for i in range(len(weights) - 1):
+        out = np.tanh(out @ weights[i] + biases[i])
+    return out @ weights[-1] + biases[-1]
 
 def run_numpy(
     env_num: int,
@@ -253,7 +191,6 @@ def run_numpy(
         envs_per_sec=_safe_envs_per_sec(env_num, mean_sec),
     )
 
-
 # ---------- Numba (4-layer MLP, nopython + fastmath) ----------
 if numba is not None and jit is not None:
 
@@ -274,7 +211,6 @@ if numba is not None and jit is not None:
         out = np.tanh(out @ w1 + b1)
         out = np.tanh(out @ w2 + b2)
         return out @ w3 + b3
-
 
 def run_numba(
     env_num: int,
@@ -319,7 +255,6 @@ def run_numba(
         envs_per_sec=_safe_envs_per_sec(env_num, mean_sec),
     )
 
-
 # ---------- JAX (jax.jit) ----------
 def _jax_mlp_forward(x, params):
     out = x
@@ -329,7 +264,6 @@ def _jax_mlp_forward(x, params):
         if i < len(params) - 1:
             out = jnp.tanh(out)
     return out
-
 
 def run_jax(
     env_num: int,
@@ -376,7 +310,6 @@ def run_jax(
         max_sec=max(elapsed),
         envs_per_sec=_safe_envs_per_sec(env_num, mean_sec),
     )
-
 
 # ---------- PyTorch CPU ----------
 def run_torch_cpu(
@@ -425,7 +358,6 @@ def run_torch_cpu(
         max_sec=max(elapsed),
         envs_per_sec=_safe_envs_per_sec(env_num, mean_sec),
     )
-
 
 def run_torch_cpu_compile(
     env_num: int,
@@ -486,7 +418,6 @@ def run_torch_cpu_compile(
         envs_per_sec=_safe_envs_per_sec(env_num, mean_sec),
     )
 
-
 # ---------- PyTorch MPS ----------
 def run_torch_mps(
     env_num: int,
@@ -540,7 +471,6 @@ def run_torch_mps(
         max_sec=max(elapsed),
         envs_per_sec=_safe_envs_per_sec(env_num, mean_sec),
     )
-
 
 def run_torch_mps_compile(
     env_num: int,
@@ -608,7 +538,6 @@ def run_torch_mps_compile(
         envs_per_sec=_safe_envs_per_sec(env_num, mean_sec),
     )
 
-
 # ---------- MLX ----------
 def run_mlx(
     env_num: int,
@@ -661,7 +590,6 @@ def run_mlx(
         max_sec=max(elapsed),
         envs_per_sec=_safe_envs_per_sec(env_num, mean_sec),
     )
-
 
 def run_mlx_compile(
     env_num: int,
@@ -718,7 +646,6 @@ def run_mlx_compile(
         envs_per_sec=_safe_envs_per_sec(env_num, mean_sec),
     )
 
-
 # ---------- ONNX Runtime ----------
 def _build_and_export_onnx(
     obs_dim: int,
@@ -756,7 +683,6 @@ def _build_and_export_onnx(
     except Exception:
         return False
 
-
 def run_onnx(
     env_num: int,
     obs_dim: int,
@@ -793,7 +719,6 @@ def run_onnx(
         envs_per_sec=_safe_envs_per_sec(env_num, mean_sec),
     )
 
-
 # ---------- Core ML ----------
 def _build_and_convert_coreml(
     obs_dim: int,
@@ -826,7 +751,6 @@ def _build_and_convert_coreml(
         return True
     except Exception:
         return False
-
 
 def run_coreml(
     env_num: int,
@@ -863,7 +787,6 @@ def run_coreml(
         max_sec=max(elapsed),
         envs_per_sec=_safe_envs_per_sec(env_num, mean_sec),
     )
-
 
 # ---------- Core ML ANE (Apple Neural Engine, no CPU fallback) ----------
 def _build_and_convert_coreml_ane(
@@ -902,7 +825,6 @@ def _build_and_convert_coreml_ane(
     except Exception:
         return False
 
-
 def _log_ane_phase() -> None:
     """Log that ANE phase uses Core ML with compute_units=CPU_AND_NE.
     Apple provides no Python API to confirm at runtime whether ANE was used; to verify,
@@ -911,7 +833,6 @@ def _log_ane_phase() -> None:
         "  [ANE] Core ML loaded with compute_units=CPU_AND_NE (no runtime ANE-usage check; see doc).",
         flush=True,
     )
-
 
 def run_ane(
     env_num: int,
@@ -949,7 +870,6 @@ def run_ane(
         envs_per_sec=_safe_envs_per_sec(env_num, mean_sec),
     )
 
-
 def available_backends(include_lazy: bool = True) -> Dict[str, bool]:
     out = {
         "numpy": np is not None,
@@ -981,47 +901,6 @@ def available_backends(include_lazy: bool = True) -> Dict[str, bool]:
         out["mlx"] = out["mlx_compile"] = False
         out["onnxruntime"] = out["coreml"] = out["ane"] = False
     return out
-
-
-def print_table(records: List[MLPBenchRecord]) -> None:
-    if not records:
-        print("No benchmark records.")
-        return
-    headers = [
-        "backend",
-        "env_num",
-        "mean_sec",
-        "std_sec",
-        "min_sec",
-        "max_sec",
-        "envs_per_sec",
-    ]
-    rows = []
-    for r in records:
-        rows.append(
-            [
-                r.backend,
-                str(r.env_num),
-                f"{r.mean_sec:.6f}",
-                f"{r.std_sec:.6f}",
-                f"{r.min_sec:.6f}",
-                f"{r.max_sec:.6f}",
-                f"{r.envs_per_sec:.1f}",
-            ]
-        )
-    col_w = [len(h) for h in headers]
-    for row in rows:
-        for i, v in enumerate(row):
-            col_w[i] = max(col_w[i], len(v))
-
-    def fmt_row(vals: List[str]) -> str:
-        return " | ".join(v.ljust(col_w[i]) for i, v in enumerate(vals))
-
-    sep = "-+-".join("-" * w for w in col_w)
-    print(fmt_row(headers))
-    print(sep)
-    for row in rows:
-        print(fmt_row(row))
 
 
 def save_plots(
@@ -1095,22 +974,15 @@ def save_plots(
 
     return saved
 
-
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Benchmark MLP inference: numpy, numba, jax, torch (cpu/mps), torch.compile, mlx, mlx.compile, onnxruntime, coreml, ane."
     )
     parser.add_argument(
-        "--env-pow-min",
-        type=int,
-        default=DEFAULT_ENV_NUM_POW_MIN,
-        help=f"Min exponent for env_num=2^k (default: {DEFAULT_ENV_NUM_POW_MIN})",
-    )
-    parser.add_argument(
-        "--env-pow-max",
-        type=int,
-        default=DEFAULT_ENV_NUM_POW_MAX,
-        help=f"Max exponent for env_num=2^k (default: {DEFAULT_ENV_NUM_POW_MAX})",
+        "--sizes",
+        type=str,
+        default=",".join(str(2**k) for k in range(DEFAULT_ENV_NUM_POW_MIN, DEFAULT_ENV_NUM_POW_MAX + 1)),
+        help="Comma-separated env_num sizes (default: 256,512,1024,...)",
     )
     parser.add_argument("--obs-dim", type=int, default=DEFAULT_OBS_DIM)
     parser.add_argument("--action-dim", type=int, default=DEFAULT_ACTION_DIM)
@@ -1160,7 +1032,7 @@ def main() -> None:
     else:
         _TORCH_NUM_THREADS = None
 
-    env_nums = env_nums_pow2(args.env_pow_min, args.env_pow_max)
+    env_nums = [int(x.strip()) for x in args.sizes.split(",") if x.strip()]
     hidden_dims = [int(x.strip()) for x in args.hidden_dims.split(",") if x.strip()]
     if not hidden_dims:
         hidden_dims = list(DEFAULT_HIDDEN_DIMS)
@@ -1335,12 +1207,11 @@ def main() -> None:
     out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     print(f"\nSaved results to: {out_path.resolve()}")
     print()
-    print_table(all_records)
+    print_mlp_table(all_records)
     if plot_files:
         print("\n生成图片路径:")
         for f in plot_files:
             print(f"  {f}")
-
 
 if __name__ == "__main__":
     main()

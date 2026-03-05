@@ -6,7 +6,6 @@ Benchmark same-dtype transfer efficiency across backends:
 - torch (mps)
 - mlx
 """
-
 from __future__ import annotations
 
 import argparse
@@ -19,37 +18,38 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Tuple
+
 try:
-    from benchmark.device_info import get_device_info_dict, get_device_info_line
+    from benchmark.core import bench_callable, parse_sizes, parse_dtypes, normalize_dtypes, available_backends, numpy_dtype, torch_dtype, mlx_dtype, print_table
+    from benchmark.core.device_info import get_device_info_dict, get_device_info_line
 except ModuleNotFoundError:
-    from device_info import get_device_info_dict, get_device_info_line
+    from core import bench_callable, parse_sizes, parse_dtypes, normalize_dtypes, available_backends, numpy_dtype, torch_dtype, mlx_dtype, print_table
+    from core.device_info import get_device_info_dict, get_device_info_line
 
 _IS_MACOS = platform.system() == "Darwin"
 
 try:
     import numpy as np
-except Exception:  # pragma: no cover
+except Exception:
     np = None
 
 try:
     import torch
-except Exception:  # pragma: no cover
+except Exception:
     torch = None
 
 try:
     import mlx.core as mx
-except Exception:  # pragma: no cover
+except Exception:
     mx = None
 
 try:
     import matplotlib
-
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import matplotlib.ticker
-except Exception:  # pragma: no cover
+except Exception:
     plt = None
-
 
 @dataclass
 class ConversionRecord:
@@ -69,77 +69,6 @@ class ConversionRecord:
     max_sec: float
     effective_gbps: float
 
-
-def parse_csv(text: str) -> List[str]:
-    vals = [p.strip() for p in text.split(",") if p.strip()]
-    if not vals:
-        raise ValueError("empty csv value")
-    return vals
-
-
-def normalize_dtypes(dtypes: List[str]) -> List[str]:
-    # Keep the conversion benchmark aligned with Apple GPU/AMX-friendly dtypes.
-    allowed = {"float16", "float32"}
-    kept: List[str] = []
-    for dt in dtypes:
-        if dt in allowed and dt not in kept:
-            kept.append(dt)
-        elif dt not in allowed:
-            print(f"  - skip dtype={dt}: disabled for this benchmark profile")
-    if not kept:
-        raise ValueError("No valid dtypes left. Use float16,float32.")
-    return kept
-
-
-def parse_sizes(text: str) -> List[int]:
-    vals = [int(p.strip()) for p in text.split(",") if p.strip()]
-    if not vals:
-        raise ValueError("empty sizes")
-    return vals
-
-
-def pow2_sizes(start_pow: int, end_pow: int) -> List[int]:
-    if start_pow > end_pow:
-        raise ValueError("pow2_start must be <= pow2_end")
-    return [2**k for k in range(start_pow, end_pow + 1)]
-
-
-def available_backends() -> Dict[str, bool]:
-    backends: Dict[str, bool] = {
-        "numpy": np is not None,
-        "torch_cpu": torch is not None,
-    }
-    if _IS_MACOS:
-        backends["torch_mps"] = bool(
-            torch is not None
-            and hasattr(torch.backends, "mps")
-            and torch.backends.mps.is_available()
-        )
-        backends["mlx"] = mx is not None
-    else:
-        backends["torch_cuda"] = bool(
-            torch is not None and torch.cuda.is_available()
-        )
-    return backends
-
-
-def _get_cuda_device(backend: str) -> str:
-    """Return the CUDA device string for a given backend, e.g. 'cuda:0'."""
-    return "cuda"
-
-
-def bench_callable(fn: Callable[[], None], warmup: int, repeat: int) -> List[float]:
-    for _ in range(warmup):
-        fn()
-    samples: List[float] = []
-    for _ in range(repeat):
-        t0 = time.perf_counter()
-        fn()
-        t1 = time.perf_counter()
-        samples.append(t1 - t0)
-    return samples
-
-
 def dtype_bytes(dtype_name: str) -> int:
     if dtype_name in ("float16",):
         return 2
@@ -148,43 +77,6 @@ def dtype_bytes(dtype_name: str) -> int:
     if dtype_name in ("float64", "int64"):
         return 8
     raise ValueError(f"Unsupported dtype: {dtype_name}")
-
-
-def torch_dtype(dtype_name: str):
-    if torch is None:
-        raise RuntimeError("torch unavailable")
-    mapping = {
-        "float16": torch.float16,
-        "float32": torch.float32,
-    }
-    if dtype_name not in mapping:
-        raise ValueError(f"Unsupported torch dtype: {dtype_name}")
-    return mapping[dtype_name]
-
-
-def numpy_dtype(dtype_name: str):
-    if np is None:
-        raise RuntimeError("numpy unavailable")
-    mapping = {
-        "float16": np.float16,
-        "float32": np.float32,
-    }
-    if dtype_name not in mapping:
-        raise ValueError(f"Unsupported numpy dtype: {dtype_name}")
-    return mapping[dtype_name]
-
-
-def mlx_dtype(dtype_name: str):
-    if mx is None:
-        raise RuntimeError("mlx unavailable")
-    mapping = {
-        "float16": mx.float16,
-        "float32": mx.float32,
-    }
-    if dtype_name not in mapping:
-        raise ValueError(f"Unsupported mlx dtype: {dtype_name}")
-    return mapping[dtype_name]
-
 
 def create_source(backend: str, size: int, dtype_name: str):
     shape = (size, size)
@@ -217,7 +109,6 @@ def create_source(backend: str, size: int, dtype_name: str):
 
     raise ValueError(f"Unsupported backend: {backend}")
 
-
 def to_numpy(value, source_backend: str):
     if np is None:
         raise RuntimeError("numpy unavailable")
@@ -228,7 +119,6 @@ def to_numpy(value, source_backend: str):
     if source_backend == "mlx":
         return np.array(value)
     raise ValueError(f"Unsupported source backend: {source_backend}")
-
 
 def from_numpy(arr, target_backend: str, target_dtype_name: str):
     if target_backend == "numpy":
@@ -264,7 +154,6 @@ def from_numpy(arr, target_backend: str, target_dtype_name: str):
         return mx.array(arr, dtype=mlx_dtype(target_dtype_name))
 
     raise ValueError(f"Unsupported target backend: {target_backend}")
-
 
 def convert_value(value, source_backend: str, target_backend: str, target_dtype_name: str):
     # Only benchmark same-dtype transfers. Cross-dtype conversion is intentionally excluded.
@@ -309,7 +198,6 @@ def convert_value(value, source_backend: str, target_backend: str, target_dtype_
     arr = to_numpy(value, source_backend)
     return from_numpy(arr, target_backend, target_dtype_name)
 
-
 def sync_if_needed(source_backend: str, target_backend: str, out_value) -> None:
     if target_backend == "mlx":
         mx.eval(out_value)
@@ -319,7 +207,6 @@ def sync_if_needed(source_backend: str, target_backend: str, out_value) -> None:
     if torch is not None and torch.cuda.is_available():
         if source_backend == "torch_cuda" or target_backend == "torch_cuda":
             torch.cuda.synchronize()
-
 
 def summarize(
     source_backend: str,
@@ -357,14 +244,11 @@ def summarize(
         effective_gbps=effective_gbps,
     )
 
-
 def _pair_key(r: ConversionRecord) -> str:
     return f"{r.source_backend}->{r.target_backend}"
 
-
 def _dtype_key(r: ConversionRecord) -> str:
     return f"{r.source_dtype}->{r.target_dtype}"
-
 
 def _positive_ylim(records: List[ConversionRecord], metric_name: str) -> Tuple[float, float]:
     vals = [float(getattr(r, metric_name)) for r in records if float(getattr(r, metric_name)) > 0]
@@ -373,7 +257,6 @@ def _positive_ylim(records: List[ConversionRecord], metric_name: str) -> Tuple[f
     lo = min(vals)
     hi = max(vals)
     return (max(lo * 0.8, 1e-12), hi * 1.25)
-
 
 def load_records_from_json(json_path: Path) -> List[ConversionRecord]:
     payload: Dict[str, Any] = json.loads(json_path.read_text(encoding="utf-8"))
@@ -400,7 +283,6 @@ def load_records_from_json(json_path: Path) -> List[ConversionRecord]:
             )
         )
     return records
-
 
 def save_plots(records: List[ConversionRecord], plot_dir: Path, file_prefix: str) -> List[str]:
     if plt is None or not records:
@@ -656,7 +538,6 @@ def save_plots(records: List[ConversionRecord], plot_dir: Path, file_prefix: str
 
     return saved
 
-
 def print_table(records: List[ConversionRecord]) -> None:
     if not records:
         print("No conversion records.")
@@ -689,14 +570,11 @@ def print_table(records: List[ConversionRecord]) -> None:
     for row in rows:
         print(fmt(row))
 
-
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Benchmark conversion efficiency among numpy/torch(cpu,mps)/mlx."
     )
-    parser.add_argument("--sizes", type=str, default="", help="Comma-separated sizes.")
-    parser.add_argument("--pow2-start", type=int, default=5, help="Default start pow for sizes.")
-    parser.add_argument("--pow2-end", type=int, default=14, help="Default end pow for sizes.")
+    parser.add_argument("--sizes", type=str, default=",".join(str(2**k) for k in range(5, 15)), help="Comma-separated sizes.")
     parser.add_argument("--dtypes", type=str, default="float16,float32", help="Dtypes to benchmark (same-dtype paths only).")
     parser.add_argument("--warmup", type=int, default=2, help="Warmup iterations.")
     parser.add_argument("--repeat", type=int, default=5, help="Measured iterations.")
@@ -742,8 +620,8 @@ def main() -> None:
                 print(f"  - {f}")
         return
 
-    sizes = parse_sizes(args.sizes) if args.sizes.strip() else pow2_sizes(args.pow2_start, args.pow2_end)
-    dtypes = normalize_dtypes(parse_csv(args.dtypes))
+    sizes = parse_sizes(args.sizes)
+    dtypes = normalize_dtypes(parse_dtypes(args.dtypes))
     backends = available_backends()
     enabled_backends = [k for k, v in backends.items() if v]
 
@@ -773,7 +651,7 @@ def main() -> None:
                         out = convert_value(source, src, dst, dtype_name)
                         sync_if_needed(src, dst, out)
 
-                    elapsed = bench_callable(op, args.warmup, args.repeat)
+                    elapsed = bench_callable(op, lambda: None, args.warmup, args.repeat)
                     records.append(
                         summarize(
                             source_backend=src,
@@ -825,7 +703,6 @@ def main() -> None:
         print(f"Skipped cases: {len(skipped)}")
     print()
     print_table(records)
-
 
 if __name__ == "__main__":
     main()

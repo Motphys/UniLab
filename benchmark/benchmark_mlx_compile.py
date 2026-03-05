@@ -18,9 +18,9 @@ Outputs JSON results and a multi-panel PNG plot.
 Usage:
     python benchmark/benchmark_mlx_compile.py
     python benchmark/benchmark_mlx_compile.py --warmup 10 --repeat 50
-"""
-
 from __future__ import annotations
+
+"""
 
 import argparse
 import json
@@ -32,9 +32,9 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
 try:
-    from benchmark.device_info import get_device_info_dict, get_device_info_line
+    from benchmark.core.device_info import get_device_info_dict, get_device_info_line
 except ModuleNotFoundError:
-    from device_info import get_device_info_dict, get_device_info_line
+    from core.device_info import get_device_info_dict, get_device_info_line
 
 import matplotlib
 matplotlib.use("Agg")
@@ -56,7 +56,6 @@ _DEFAULT_OBS_DIM = 48
 _DEFAULT_ACTION_DIM = 12
 _DEFAULT_NUM_LAYERS = 3
 
-
 # ── data classes ───────────────────────────────────────────────────────────────
 @dataclass
 class CompileRecord:
@@ -72,7 +71,6 @@ class CompileRecord:
     compiled_std_sec: float
     speedup: float          # plain_mean / compiled_mean
 
-
 # ── timing helper ──────────────────────────────────────────────────────────────
 def _bench(fn: Callable[[], None], warmup: int, repeat: int) -> List[float]:
     """Run *fn* warmup times, then time it repeat times. Returns list of elapsed [sec]."""
@@ -87,7 +85,6 @@ def _bench(fn: Callable[[], None], warmup: int, repeat: int) -> List[float]:
         times.append(time.perf_counter() - t0)
     return times
 
-
 def _first_call_time(fn: Callable[[], None]) -> float:
     """Measure a single cold-call latency (before any compilation caching)."""
     mx.eval(mx.array(0))
@@ -95,7 +92,6 @@ def _first_call_time(fn: Callable[[], None]) -> float:
     fn()
     mx.eval(mx.array(0))
     return time.perf_counter() - t0
-
 
 # ── kernel definitions for plain and compiled variants ────────────────────────
 def _build_elementwise(batch_size: int, hidden: int):
@@ -116,7 +112,6 @@ def _build_elementwise(batch_size: int, hidden: int):
         mx.eval(y)
 
     return plain, compiled
-
 
 def _build_linear_activation(batch_size: int, obs_dim: int, hidden: int):
     """Single linear layer + tanh — fundamental op in policy networks."""
@@ -139,7 +134,6 @@ def _build_linear_activation(batch_size: int, obs_dim: int, hidden: int):
         mx.eval(y)
 
     return plain, compiled
-
 
 def _build_mlp(batch_size: int, obs_dim: int, action_dim: int, hidden: int, n_layers: int):
     """Multi-layer MLP — typical locomotion policy forward pass."""
@@ -177,7 +171,6 @@ def _build_mlp(batch_size: int, obs_dim: int, action_dim: int, hidden: int, n_la
 
     return plain, compiled
 
-
 def _build_softmax_norm(batch_size: int, hidden: int):
     """Softmax + layer-norm inspired: fused reduction-heavy kernel."""
     x = mx.random.normal((batch_size, hidden), dtype=mx.float32)
@@ -202,7 +195,6 @@ def _build_softmax_norm(batch_size: int, hidden: int):
 
     return plain, compiled
 
-
 # ── per-kernel benchmark runner ───────────────────────────────────────────────
 _KERNEL_BUILDERS: Dict[str, Callable] = {
     "elementwise_tanh": _build_elementwise,
@@ -210,7 +202,6 @@ _KERNEL_BUILDERS: Dict[str, Callable] = {
     "mlp_forward":       _build_mlp,
     "softmax_norm":      _build_softmax_norm,
 }
-
 
 def _build_kernel(
     kernel: str,
@@ -230,7 +221,6 @@ def _build_kernel(
         return _build_softmax_norm(batch_size, hidden)
     else:
         raise ValueError(f"Unknown kernel: {kernel}")
-
 
 def run_compile_benchmark(
     kernel: str,
@@ -283,7 +273,6 @@ def run_compile_benchmark(
         compiled_std_sec=compiled_std,
         speedup=speedup,
     )
-
 
 # ── plotting ──────────────────────────────────────────────────────────────────
 def plot_results(
@@ -376,7 +365,6 @@ def plot_results(
     fig2.savefig(out2, dpi=150)
     print(f"Saved overhead plot → {out2}")
     plt.close(fig2)
-
 
 # ── main ──────────────────────────────────────────────────────────────────────
 def main():
@@ -472,7 +460,6 @@ def main():
     # ── plot ───────────────────────────────────────────────────────────────────
     if any(all_records.values()):
         plot_results(all_records, batch_sizes, Path(args.plot_dir))
-
 
 if __name__ == "__main__":
     main()

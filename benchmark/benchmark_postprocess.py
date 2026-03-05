@@ -14,11 +14,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import mlx.core as mx
-import mujoco
-try:
-    from benchmark.device_info import get_device_info_dict, get_device_info_line
-except ModuleNotFoundError:
-    from device_info import get_device_info_dict, get_device_info_line
 
 from unilab.envs import registry
 
@@ -27,9 +22,13 @@ try:
 except Exception:
     mj_mlx_step = None
 
-
 def ensure_registries() -> None:
     """Import locomotion env modules so they are registered."""
+try:
+    from benchmark.core.device_info import get_device_info_dict, get_device_info_line
+except ModuleNotFoundError:
+    from core.device_info import get_device_info_dict, get_device_info_line
+
     try:
         import unilab.envs.locomotion
 
@@ -43,7 +42,6 @@ def ensure_registries() -> None:
     except ImportError:
         pass
 
-
 DEFAULT_ENV_LIST = [256, 512, 1024, 2048, 4096]
 DEFAULT_ITERS = 200
 OUTPUT_DIR = Path("benchmark/outputs/postprocess")
@@ -51,24 +49,20 @@ OUTPUT_JSON = OUTPUT_DIR / "latest_postprocess_benchmark.json"
 OUTPUT_PNG = OUTPUT_DIR / "latest_postprocess_latency.png"
 TORCH_DEVICE = "mps"
 
-
 def sync_torch_mps():
     if torch.backends.mps.is_available():
         torch.mps.synchronize()
-
 
 def parse_env_list(raw: str) -> list[int]:
     if not raw:
         return DEFAULT_ENV_LIST
     return [int(x.strip()) for x in raw.split(",") if x.strip()]
 
-
 def geomean(values: list[float]) -> float:
     vals = [v for v in values if v > 0.0]
     if not vals:
         return 0.0
     return float(math.exp(sum(math.log(v) for v in vals) / len(vals)))
-
 
 def build_go1_layout() -> dict:
     env = registry.make("Go1JoystickFlatTerrain", num_envs=1, sim_backend="mujoco")
@@ -96,7 +90,6 @@ def build_go1_layout() -> dict:
     env.close()
     return layout
 
-
 def measure_physics_step_ms(num_envs: int, iters: int) -> float:
     env = registry.make("Go1JoystickFlatTerrain", num_envs=num_envs, sim_backend="mujoco")
     try:
@@ -120,16 +113,9 @@ def measure_physics_step_ms(num_envs: int, iters: int) -> float:
     finally:
         env.close()
 
-
 def _unpack_rollout_out(step_out):
-    if isinstance(step_out, tuple):
-        state_mx, sensor_mx = step_out
-    else:
-        state_mx, sensor_mx = step_out.state_mx, step_out.sensordata_mx
-    if state_mx.ndim == 3:
-        return state_mx[:, -1, :], sensor_mx[:, -1, :]
-    return state_mx, sensor_mx
-
+    state_mx, sensor_mx = step_out
+    return state_mx[:, -1, :], sensor_mx[:, -1, :]
 
 def measure_physics_step_mlx_native_ms(num_envs: int, iters: int) -> float:
     """Measure pure MuJoCo physics stepping via native mujoco.mlx_step."""
@@ -154,25 +140,14 @@ def measure_physics_step_mlx_native_ms(num_envs: int, iters: int) -> float:
         initial_state = mx.array(initial_state, dtype=mx.float32)
         with mj_mlx_step.MlxStepRunner(nthread=env._n_threads) as runner:
             for _ in range(20):
-                try:
-                    step_out = runner.step(
-                        model=model_batch,
-                        data=env._worker_data,
-                        initial_state=initial_state,
-                        control=control_mx,
-                        nstep=env.cfg.sim_substeps,
-                        out_dtype=mx.float32,
-                        return_last_only=True,
-                    )
-                except TypeError:
-                    step_out = runner.step(
-                        model=model_batch,
-                        data=env._worker_data,
-                        initial_state=initial_state,
-                        control=control_mx,
-                        nstep=env.cfg.sim_substeps,
-                        out_dtype=mx.float32,
-                    )
+                step_out = runner.step(
+                    model=model_batch,
+                    data=env._worker_data,
+                    initial_state=initial_state,
+                    control=control_mx,
+                    nstep=env.cfg.sim_substeps,
+                    out_dtype=mx.float32,
+                )
                 last_state_mx, last_sensor_mx = _unpack_rollout_out(step_out)
                 mx.eval(last_state_mx, last_sensor_mx)
                 initial_state = last_state_mx
@@ -180,25 +155,14 @@ def measure_physics_step_mlx_native_ms(num_envs: int, iters: int) -> float:
             elapsed = 0.0
             for _ in range(iters):
                 t0 = time.perf_counter()
-                try:
-                    step_out = runner.step(
-                        model=model_batch,
-                        data=env._worker_data,
-                        initial_state=initial_state,
-                        control=control_mx,
-                        nstep=env.cfg.sim_substeps,
-                        out_dtype=mx.float32,
-                        return_last_only=True,
-                    )
-                except TypeError:
-                    step_out = runner.step(
-                        model=model_batch,
-                        data=env._worker_data,
-                        initial_state=initial_state,
-                        control=control_mx,
-                        nstep=env.cfg.sim_substeps,
-                        out_dtype=mx.float32,
-                    )
+                step_out = runner.step(
+                    model=model_batch,
+                    data=env._worker_data,
+                    initial_state=initial_state,
+                    control=control_mx,
+                    nstep=env.cfg.sim_substeps,
+                    out_dtype=mx.float32,
+                )
                 last_state_mx, last_sensor_mx = _unpack_rollout_out(step_out)
                 mx.eval(last_state_mx, last_sensor_mx)
                 t1 = time.perf_counter()
@@ -207,7 +171,6 @@ def measure_physics_step_mlx_native_ms(num_envs: int, iters: int) -> float:
         return elapsed / iters * 1000.0
     finally:
         env.close()
-
 
 def measure_rollout_bridge_mlx_pipeline_ms(
     num_envs: int,
@@ -237,25 +200,14 @@ def measure_rollout_bridge_mlx_pipeline_ms(
         with mj_mlx_step.MlxStepRunner(nthread=env._n_threads) as runner:
 
             for _ in range(10):
-                try:
-                    rollout_out = runner.step(
-                        model=model_batch,
-                        data=env._worker_data,
-                        initial_state=initial_state,
-                        control=control_mx,
-                        nstep=env.cfg.sim_substeps,
-                        out_dtype=mx.float32,
-                        return_last_only=True,
-                    )
-                except TypeError:
-                    rollout_out = runner.step(
-                        model=model_batch,
-                        data=env._worker_data,
-                        initial_state=initial_state,
-                        control=control_mx,
-                        nstep=env.cfg.sim_substeps,
-                        out_dtype=mx.float32,
-                    )
+                rollout_out = runner.step(
+                    model=model_batch,
+                    data=env._worker_data,
+                    initial_state=initial_state,
+                    control=control_mx,
+                    nstep=env.cfg.sim_substeps,
+                    out_dtype=mx.float32,
+                )
                 last_state_mx, last_sensor_mx = _unpack_rollout_out(rollout_out)
                 obs_mx, rew_mx, done_mx = mlx_postprocess_go1(
                     sensor_mx=last_sensor_mx,
@@ -273,25 +225,14 @@ def measure_rollout_bridge_mlx_pipeline_ms(
             post_elapsed = 0.0
             for _ in range(iters):
                 t0 = time.perf_counter()
-                try:
-                    rollout_out = runner.step(
-                        model=model_batch,
-                        data=env._worker_data,
-                        initial_state=initial_state,
-                        control=control_mx,
-                        nstep=env.cfg.sim_substeps,
-                        out_dtype=mx.float32,
-                        return_last_only=True,
-                    )
-                except TypeError:
-                    rollout_out = runner.step(
-                        model=model_batch,
-                        data=env._worker_data,
-                        initial_state=initial_state,
-                        control=control_mx,
-                        nstep=env.cfg.sim_substeps,
-                        out_dtype=mx.float32,
-                    )
+                rollout_out = runner.step(
+                    model=model_batch,
+                    data=env._worker_data,
+                    initial_state=initial_state,
+                    control=control_mx,
+                    nstep=env.cfg.sim_substeps,
+                    out_dtype=mx.float32,
+                )
                 t1 = time.perf_counter()
                 last_state_mx, last_sensor_mx = _unpack_rollout_out(rollout_out)
                 obs_mx, rew_mx, done_mx = mlx_postprocess_go1(
@@ -318,7 +259,6 @@ def measure_rollout_bridge_mlx_pipeline_ms(
             }
     finally:
         env.close()
-
 
 def numpy_postprocess_go1(
     sensor_data: np.ndarray,
@@ -385,7 +325,6 @@ def numpy_postprocess_go1(
     done = (upvector[:, 2] <= 0.5).astype(np.bool_)
     return obs, reward, done
 
-
 def torch_postprocess_go1(
     sensor_t: torch.Tensor,
     physics_t: torch.Tensor,
@@ -430,7 +369,6 @@ def torch_postprocess_go1(
     done = upvector[:, 2] <= 0.5
     return obs, reward, done
 
-
 def mlx_postprocess_go1(
     sensor_mx: mx.array,
     physics_mx: mx.array,
@@ -474,9 +412,11 @@ def mlx_postprocess_go1(
     done = upvector[:, 2] <= 0.5
     return obs, reward, done
 
-
 def bench_one_envnum(num_envs: int, iters: int, layout: dict):
-    physics_step_env_wrapper_ms = measure_physics_step_ms(num_envs=num_envs, iters=iters)
+    try:
+        physics_step_env_wrapper_ms = measure_physics_step_ms(num_envs=num_envs, iters=iters)
+    except Exception:
+        physics_step_env_wrapper_ms = 0.0
     physics_step_mlx_native_ms = measure_physics_step_mlx_native_ms(num_envs=num_envs, iters=iters)
 
     sensor_np = np.random.randn(num_envs, layout["sensor_dim"]).astype(np.float32)
@@ -581,6 +521,8 @@ def bench_one_envnum(num_envs: int, iters: int, layout: dict):
 
     cpu_compute = 0.0
     cpu_transfer = 0.0
+    cpu_to_mlx_compute = 0.0
+    cpu_to_mlx_transfer = 0.0
     torch_transfer = 0.0
     torch_compute = 0.0
     mlx_transfer = 0.0
@@ -602,6 +544,20 @@ def bench_one_envnum(num_envs: int, iters: int, layout: dict):
         t2 = time.perf_counter()
         cpu_compute += t1 - t0
         cpu_transfer += t2 - t1
+
+    for _ in range(iters):
+        t0 = time.perf_counter()
+        obs_np, rew_np, done_np = numpy_postprocess_go1(
+            sensor_np, physics_np, current_actions_np, last_actions_np, commands_np, layout
+        )
+        t1 = time.perf_counter()
+        obs_mx = mx.array(obs_np, dtype=mx.float32)
+        rew_mx = mx.array(rew_np, dtype=mx.float32)
+        done_mx = mx.array(done_np, dtype=mx.bool_)
+        mx.eval(obs_mx, rew_mx, done_mx)
+        t2 = time.perf_counter()
+        cpu_to_mlx_compute += t1 - t0
+        cpu_to_mlx_transfer += t2 - t1
 
     for _ in range(iters):
         t0 = time.perf_counter()
@@ -661,6 +617,8 @@ def bench_one_envnum(num_envs: int, iters: int, layout: dict):
 
     cpu_compute_ms = cpu_compute / iters * 1000.0
     cpu_transfer_ms = cpu_transfer / iters * 1000.0
+    cpu_to_mlx_compute_ms = cpu_to_mlx_compute / iters * 1000.0
+    cpu_to_mlx_transfer_ms = cpu_to_mlx_transfer / iters * 1000.0
     torch_transfer_ms = torch_transfer / iters * 1000.0
     torch_compute_ms = torch_compute / iters * 1000.0
     mlx_transfer_ms = mlx_transfer / iters * 1000.0
@@ -670,6 +628,7 @@ def bench_one_envnum(num_envs: int, iters: int, layout: dict):
     mlx_to_torch_transfer_ms = mlx_to_torch_transfer / iters * 1000.0
 
     cpu_total_ms = cpu_compute_ms + cpu_transfer_ms
+    cpu_to_mlx_total_ms = cpu_to_mlx_compute_ms + cpu_to_mlx_transfer_ms
     torch_total_ms = torch_transfer_ms + torch_compute_ms
     mlx_total_ms = mlx_transfer_ms + mlx_compute_ms
     mlx_to_torch_total_ms = mlx_torch_transfer_ms + mlx_torch_compute_ms + mlx_to_torch_transfer_ms
@@ -698,6 +657,12 @@ def bench_one_envnum(num_envs: int, iters: int, layout: dict):
             "total_ms": cpu_total_ms,
             "total_with_physics_ms": cpu_total_ms + physics_step_mlx_native_ms,
         },
+        "cpu_numpy_to_mlx_mode": {
+            "compute_numpy_ms": cpu_to_mlx_compute_ms,
+            "transfer_obs_rew_done_to_mlx_ms": cpu_to_mlx_transfer_ms,
+            "total_ms": cpu_to_mlx_total_ms,
+            "total_with_physics_ms": cpu_to_mlx_total_ms + physics_step_mlx_native_ms,
+        },
         "torch_mps_mode": {
             "transfer_all_numpy_to_torch_mps_ms": torch_transfer_ms,
             "compute_postprocess_on_torch_mps_ms": torch_compute_ms,
@@ -719,6 +684,7 @@ def bench_one_envnum(num_envs: int, iters: int, layout: dict):
         },
         "speedup_cpu_div_torch_mps": cpu_total_ms / torch_total_ms if torch_total_ms > 0 else 0.0,
         "speedup_cpu_div_mlx": cpu_total_ms / mlx_total_ms if mlx_total_ms > 0 else 0.0,
+        "speedup_cpu_to_mlx_div_mlx": cpu_to_mlx_total_ms / mlx_total_ms if mlx_total_ms > 0 else 0.0,
         "speedup_torch_mps_div_mlx": torch_total_ms / mlx_total_ms if mlx_total_ms > 0 else 0.0,
         "speedup_cpu_div_mlx_to_torch_mps": cpu_total_ms / mlx_to_torch_total_ms if mlx_to_torch_total_ms > 0 else 0.0,
         "speedup_torch_mps_div_mlx_to_torch_mps": torch_total_ms / mlx_to_torch_total_ms
@@ -726,14 +692,15 @@ def bench_one_envnum(num_envs: int, iters: int, layout: dict):
         else 0.0,
     }
 
-
 def plot_results(results: list[dict], output_png: Path):
     envs = [r["num_envs"] for r in results]
     x = np.arange(len(envs), dtype=float)
-    w = 0.19
+    w = 0.15
 
     cpu_compute = np.array([r["cpu_numpy_mode"]["compute_numpy_ms"] for r in results])
     cpu_transfer = np.array([r["cpu_numpy_mode"]["transfer_obs_rew_done_to_torch_mps_ms"] for r in results])
+    cpu_to_mlx_compute = np.array([r["cpu_numpy_to_mlx_mode"]["compute_numpy_ms"] for r in results])
+    cpu_to_mlx_transfer = np.array([r["cpu_numpy_to_mlx_mode"]["transfer_obs_rew_done_to_mlx_ms"] for r in results])
     torch_transfer = np.array([r["torch_mps_mode"]["transfer_all_numpy_to_torch_mps_ms"] for r in results])
     torch_compute = np.array([r["torch_mps_mode"]["compute_postprocess_on_torch_mps_ms"] for r in results])
     mlx_transfer = np.array([r["mlx_mode"]["transfer_all_numpy_to_mlx_ms"] for r in results])
@@ -743,78 +710,172 @@ def plot_results(results: list[dict], output_png: Path):
     )
     physics_step = np.array([r["physics_step_mode"]["physics_step_mlx_native_ms"] for r in results])
 
-    fig, ax = plt.subplots(figsize=(13, 6.5))
-    x_cpu = x - 1.5 * w
-    x_torch = x - 0.5 * w
-    x_mlx = x + 0.5 * w
-    x_mlx_torch = x + 1.5 * w
+    fig, (ax_top, ax_bottom) = plt.subplots(2, 1, figsize=(13, 10), sharex=True)
+    x_cpu = x - 2.0 * w
+    x_cpu_mlx = x - 1.0 * w
+    x_torch = x
+    x_mlx = x + 1.0 * w
+    x_mlx_torch = x + 2.0 * w
 
-    ax.bar(x_cpu, physics_step, w, label="Physics step (shared)", color="#9AA0A6")
-    ax.bar(x_torch, physics_step, w, label="_nolegend_", color="#9AA0A6")
-    ax.bar(x_mlx, physics_step, w, label="_nolegend_", color="#9AA0A6")
-    ax.bar(x_mlx_torch, physics_step, w, label="_nolegend_", color="#9AA0A6")
+    ax_top.bar(x_cpu, physics_step, w, label="Shared: MuJoCo physics step", color="#9AA0A6")
+    ax_top.bar(x_cpu_mlx, physics_step, w, label="_nolegend_", color="#9AA0A6")
+    ax_top.bar(x_torch, physics_step, w, label="_nolegend_", color="#9AA0A6")
+    ax_top.bar(x_mlx, physics_step, w, label="_nolegend_", color="#9AA0A6")
+    ax_top.bar(x_mlx_torch, physics_step, w, label="_nolegend_", color="#9AA0A6")
 
-    ax.bar(x_cpu, cpu_compute, w, bottom=physics_step, label="CPU mode: numpy compute", color="#D99A9A")
-    ax.bar(
+    ax_top.bar(x_cpu, cpu_compute, w, bottom=physics_step, label="Path A (CPU->Torch): numpy compute", color="#D99A9A")
+    ax_top.bar(
         x_cpu,
         cpu_transfer,
         w,
         bottom=physics_step + cpu_compute,
-        label="CPU mode: obs/rew/done -> torch.mps",
+        label="Path A (CPU->Torch): obs/rew/done -> torch.mps",
         color="#EBCED6",
     )
-    ax.bar(x_torch, torch_transfer, w, bottom=physics_step, label="Torch.mps mode: numpy -> torch.mps", color="#8FB3CC")
-    ax.bar(
+    ax_top.bar(
+        x_cpu_mlx,
+        cpu_to_mlx_compute,
+        w,
+        bottom=physics_step,
+        label="Path B (CPU->MLX): numpy compute",
+        color="#D7B78B",
+    )
+    ax_top.bar(
+        x_cpu_mlx,
+        cpu_to_mlx_transfer,
+        w,
+        bottom=physics_step + cpu_to_mlx_compute,
+        label="Path B (CPU->MLX): obs/rew/done -> mlx",
+        color="#EFD9B7",
+    )
+    ax_top.bar(
+        x_torch,
+        torch_transfer,
+        w,
+        bottom=physics_step,
+        label="Path C (Torch native): numpy -> torch.mps",
+        color="#8FB3CC",
+    )
+    ax_top.bar(
         x_torch,
         torch_compute,
         w,
         bottom=physics_step + torch_transfer,
-        label="Torch.mps mode: torch.mps compute",
+        label="Path C (Torch native): torch.mps compute",
         color="#A8CFAE",
     )
-    ax.bar(x_mlx, mlx_transfer, w, bottom=physics_step, label="MLX mode: numpy -> mlx", color="#E1B15A")
-    ax.bar(
+    ax_top.bar(x_mlx, mlx_transfer, w, bottom=physics_step, label="Path D (MLX native): numpy -> mlx", color="#E1B15A")
+    ax_top.bar(
         x_mlx,
         mlx_compute,
         w,
         bottom=physics_step + mlx_transfer,
-        label="MLX mode: mlx compute",
+        label="Path D (MLX native): mlx compute",
         color="#F3D9A5",
     )
-    ax.bar(
+    ax_top.bar(
         x_mlx_torch,
         mlx_transfer,
         w,
         bottom=physics_step,
-        label="MLX->Torch mode: numpy -> mlx",
+        label="Path E (MLX->Torch): numpy -> mlx",
         color="#B78BD0",
     )
-    ax.bar(
+    ax_top.bar(
         x_mlx_torch,
         mlx_compute,
         w,
         bottom=physics_step + mlx_transfer,
-        label="MLX->Torch mode: mlx compute",
+        label="Path E (MLX->Torch): mlx compute",
         color="#CDA9E4",
     )
-    ax.bar(
+    ax_top.bar(
         x_mlx_torch,
         mlx_to_torch_transfer,
         w,
         bottom=physics_step + mlx_transfer + mlx_compute,
-        label="MLX->Torch mode: mlx result -> torch.mps",
+        label="Path E (MLX->Torch): mlx result -> torch.mps",
+        color="#E7D0F4",
+    )
+
+    ax_bottom.bar(x_cpu, cpu_compute, w, label="Path A (CPU->Torch): numpy compute", color="#D99A9A")
+    ax_bottom.bar(
+        x_cpu,
+        cpu_transfer,
+        w,
+        bottom=cpu_compute,
+        label="Path A (CPU->Torch): obs/rew/done -> torch.mps",
+        color="#EBCED6",
+    )
+    ax_bottom.bar(x_cpu_mlx, cpu_to_mlx_compute, w, label="Path B (CPU->MLX): numpy compute", color="#D7B78B")
+    ax_bottom.bar(
+        x_cpu_mlx,
+        cpu_to_mlx_transfer,
+        w,
+        bottom=cpu_to_mlx_compute,
+        label="Path B (CPU->MLX): obs/rew/done -> mlx",
+        color="#EFD9B7",
+    )
+    ax_bottom.bar(x_torch, torch_transfer, w, label="Path C (Torch native): numpy -> torch.mps", color="#8FB3CC")
+    ax_bottom.bar(
+        x_torch,
+        torch_compute,
+        w,
+        bottom=torch_transfer,
+        label="Path C (Torch native): torch.mps compute",
+        color="#A8CFAE",
+    )
+    ax_bottom.bar(x_mlx, mlx_transfer, w, label="Path D (MLX native): numpy -> mlx", color="#E1B15A")
+    ax_bottom.bar(
+        x_mlx,
+        mlx_compute,
+        w,
+        bottom=mlx_transfer,
+        label="Path D (MLX native): mlx compute",
+        color="#F3D9A5",
+    )
+    ax_bottom.bar(x_mlx_torch, mlx_transfer, w, label="Path E (MLX->Torch): numpy -> mlx", color="#B78BD0")
+    ax_bottom.bar(
+        x_mlx_torch,
+        mlx_compute,
+        w,
+        bottom=mlx_transfer,
+        label="Path E (MLX->Torch): mlx compute",
+        color="#CDA9E4",
+    )
+    ax_bottom.bar(
+        x_mlx_torch,
+        mlx_to_torch_transfer,
+        w,
+        bottom=mlx_transfer + mlx_compute,
+        label="Path E (MLX->Torch): mlx result -> torch.mps",
         color="#E7D0F4",
     )
 
     cpu_total = physics_step + cpu_compute + cpu_transfer
+    cpu_to_mlx_total = physics_step + cpu_to_mlx_compute + cpu_to_mlx_transfer
     torch_total = physics_step + torch_transfer + torch_compute
     mlx_total = physics_step + mlx_transfer + mlx_compute
     mlx_to_torch_total = physics_step + mlx_transfer + mlx_compute + mlx_to_torch_transfer
+    cpu_post_total = cpu_compute + cpu_transfer
+    cpu_to_mlx_post_total = cpu_to_mlx_compute + cpu_to_mlx_transfer
+    torch_post_total = torch_transfer + torch_compute
+    mlx_post_total = mlx_transfer + mlx_compute
+    mlx_to_torch_post_total = mlx_transfer + mlx_compute + mlx_to_torch_transfer
+
     for i in range(len(envs)):
-        ax.text(x_cpu[i], cpu_total[i] + 0.03, f"{cpu_total[i]:.2f}", ha="center", va="bottom", fontsize=8)
-        ax.text(x_torch[i], torch_total[i] + 0.03, f"{torch_total[i]:.2f}", ha="center", va="bottom", fontsize=8)
-        ax.text(x_mlx[i], mlx_total[i] + 0.03, f"{mlx_total[i]:.2f}", ha="center", va="bottom", fontsize=8)
-        ax.text(
+        ax_top.text(x_cpu[i], cpu_total[i] + 0.03, f"{cpu_total[i]:.2f}", ha="center", va="bottom", fontsize=8)
+        ax_top.text(
+            x_cpu_mlx[i],
+            cpu_to_mlx_total[i] + 0.03,
+            f"{cpu_to_mlx_total[i]:.2f}",
+            ha="center",
+            va="bottom",
+            fontsize=8,
+        )
+        ax_top.text(x_torch[i], torch_total[i] + 0.03, f"{torch_total[i]:.2f}", ha="center", va="bottom", fontsize=8)
+        ax_top.text(x_mlx[i], mlx_total[i] + 0.03, f"{mlx_total[i]:.2f}", ha="center", va="bottom", fontsize=8)
+        ax_top.text(
             x_mlx_torch[i],
             mlx_to_torch_total[i] + 0.03,
             f"{mlx_to_torch_total[i]:.2f}",
@@ -823,21 +884,50 @@ def plot_results(results: list[dict], output_png: Path):
             fontsize=8,
         )
 
-    ax.set_title(
-        "Go1 latest step+postprocess: numpy vs torch.mps vs mlx vs mlx->torch.mps\n"
+        ax_bottom.text(x_cpu[i], cpu_post_total[i] + 0.03, f"{cpu_post_total[i]:.2f}", ha="center", va="bottom", fontsize=8)
+        ax_bottom.text(
+            x_cpu_mlx[i],
+            cpu_to_mlx_post_total[i] + 0.03,
+            f"{cpu_to_mlx_post_total[i]:.2f}",
+            ha="center",
+            va="bottom",
+            fontsize=8,
+        )
+        ax_bottom.text(x_torch[i], torch_post_total[i] + 0.03, f"{torch_post_total[i]:.2f}", ha="center", va="bottom", fontsize=8)
+        ax_bottom.text(x_mlx[i], mlx_post_total[i] + 0.03, f"{mlx_post_total[i]:.2f}", ha="center", va="bottom", fontsize=8)
+        ax_bottom.text(
+            x_mlx_torch[i],
+            mlx_to_torch_post_total[i] + 0.03,
+            f"{mlx_to_torch_post_total[i]:.2f}",
+            ha="center",
+            va="bottom",
+            fontsize=8,
+        )
+
+    ax_top.set_title(
+        "Go1 latest step+postprocess (Top: with shared physics; Bottom: postprocess only)\n"
         f"{get_device_info_line()}"
     )
-    ax.set_xlabel("num_envs")
-    ax.set_ylabel("Time per step (ms)")
-    ax.set_xticks(x)
-    ax.set_xticklabels([str(v) for v in envs])
-    ax.grid(axis="y", alpha=0.25)
-    ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), borderaxespad=0.0, fontsize=8)
+    ax_top.set_ylabel("Time per step (ms)")
+    ax_top.grid(axis="y", alpha=0.25)
+    ax_top.legend(
+        title="Execution paths",
+        loc="upper left",
+        bbox_to_anchor=(1.01, 1.0),
+        borderaxespad=0.0,
+        fontsize=8,
+        title_fontsize=9,
+    )
+
+    ax_bottom.set_xlabel("num_envs")
+    ax_bottom.set_ylabel("Postprocess time (ms)")
+    ax_bottom.set_xticks(x)
+    ax_bottom.set_xticklabels([str(v) for v in envs])
+    ax_bottom.grid(axis="y", alpha=0.25)
     fig.tight_layout()
     output_png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_png, dpi=180)
     plt.close(fig)
-
 
 def main():
     ensure_registries()
@@ -861,12 +951,14 @@ def main():
             f"[{nenv}] Physics(mlx_native)={one['physics_step_mode']['physics_step_mlx_native_ms']:.3f} ms, "
             f"Physics(env_wrapper)={one['physics_step_mode']['physics_step_env_wrapper_ms']:.3f} ms, "
             f"CPU={one['cpu_numpy_mode']['total_with_physics_ms']:.3f} ms, "
+            f"CPU->MLX={one['cpu_numpy_to_mlx_mode']['total_with_physics_ms']:.3f} ms, "
             f"Torch.MPS={one['torch_mps_mode']['total_with_physics_ms']:.3f} ms, "
             f"MLX={one['mlx_mode']['total_with_physics_ms']:.3f} ms, "
             f"MLX->Torch.MPS={one['mlx_to_torch_mps_mode']['total_with_physics_ms']:.3f} ms, "
             f"MLXBridge(rollout+post)={one['mlx_rollout_bridge_mode']['total_ms']:.3f} ms, "
             f"cpu/torch={one['speedup_cpu_div_torch_mps']:.3f}, "
             f"cpu/mlx={one['speedup_cpu_div_mlx']:.3f}, "
+            f"cpu->mlx/mlx={one['speedup_cpu_to_mlx_div_mlx']:.3f}, "
             f"torch/mlx={one['speedup_torch_mps_div_mlx']:.3f}, "
             f"cpu/mlx->torch={one['speedup_cpu_div_mlx_to_torch_mps']:.3f}, "
             f"torch/mlx->torch={one['speedup_torch_mps_div_mlx_to_torch_mps']:.3f}"
@@ -893,6 +985,9 @@ def main():
             "geomean_speedup_cpu_over_mlx_postprocess": geomean(
                 [r["speedup_cpu_div_mlx"] for r in all_results]
             ),
+            "geomean_speedup_cpu_to_mlx_over_mlx_postprocess": geomean(
+                [r["speedup_cpu_to_mlx_div_mlx"] for r in all_results]
+            ),
             "geomean_speedup_torch_over_mlx_postprocess": geomean(
                 [r["speedup_torch_mps_div_mlx"] for r in all_results]
             ),
@@ -912,7 +1007,6 @@ def main():
     plot_results(all_results, output_png)
     print(f"Saved JSON: {output_json}")
     print(f"Saved PNG:  {output_png}")
-
 
 if __name__ == "__main__":
     main()
