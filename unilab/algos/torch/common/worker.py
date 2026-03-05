@@ -103,6 +103,10 @@ def _run_collector(
 
     ensure_registries()
 
+    # Handle ANE device
+    use_ane = (collector_device == "ane")
+    torch_device = "cpu" if use_ane else collector_device
+
     # Connect to shared memory
     replay_buffer = SharedReplayBuffer(
         buffer_capacity, obs_dim, action_dim, create=False, shm_name=shm_buffer_name,
@@ -112,11 +116,11 @@ def _run_collector(
         weight_param_shapes, create=False, shm_name=weight_sync_name, lock=weight_sync_lock
     )
 
-    # Create environment - use numpy backend for PyTorch algorithms
+    # Create environment
     env = registry.make(env_name, num_envs=num_envs, sim_backend="mujoco")
 
     # Build actor
-    actor = _build_actor(algo_type, obs_dim, action_dim, actor_hidden_dim, use_layer_norm, collector_device)
+    actor = _build_actor(algo_type, obs_dim, action_dim, actor_hidden_dim, use_layer_norm, torch_device)
     actor.eval()
 
     # Load initial weights
@@ -124,6 +128,12 @@ def _run_collector(
     weight_sync.read_weights_into(sd)
     actor.load_state_dict(sd)
     local_weight_version = weight_sync.version
+
+    # Convert to ANE if requested
+    if use_ane:
+        from unilab.algos.torch.common.ane_actor import ANEActor
+        actor = ANEActor(actor, obs_dim, action_dim)
+        print("✓ Using ANE for inference")
 
     total_steps = 0
     ep_rewards = []
@@ -155,27 +165,32 @@ def _run_collector(
 
     # Collection loop
     while not stop_event.is_set():
-        # Check for weight updates
-        if weight_sync.version > local_weight_version:
+        # Check for weight updates (skip for ANE)
+        if not use_ane and weight_sync.version > local_weight_version:
             sd = dict(actor.state_dict())
             local_weight_version = weight_sync.read_weights_into(sd)
             actor.load_state_dict(sd)
 
         # Select action
-        with torch.no_grad():
-            if total_steps < warmup_steps:
-                actions_np = np.random.uniform(-1, 1, (num_envs, action_dim)).astype(np.float32)
+        if total_steps < warmup_steps:
+            actions_np = np.random.uniform(-1, 1, (num_envs, action_dim)).astype(np.float32)
+        else:
+            if use_ane:
+                # ANE inference (numpy input/output)
+                actions_np = actor.explore(obs_np, deterministic=False)
             else:
-                obs_torch = torch.from_numpy(obs_np).to(collector_device)
-                if algo_type == "sac":
-                    actions_torch = actor.explore(obs_torch)
-                elif algo_type == "td3":
-                    actions_torch = actor(obs_torch)
-                    noise = torch.randn_like(actions_torch) * exploration_noise
-                    actions_torch = (actions_torch + noise).clamp(-1, 1)
-                else:
-                    actions_torch = torch.zeros((num_envs, action_dim), device=collector_device)
-                actions_np = actions_torch.cpu().numpy()
+                # PyTorch inference
+                with torch.no_grad():
+                    obs_torch = torch.from_numpy(obs_np).to(torch_device)
+                    if algo_type == "sac":
+                        actions_torch = actor.explore(obs_torch)
+                    elif algo_type == "td3":
+                        actions_torch = actor(obs_torch)
+                        noise = torch.randn_like(actions_torch) * exploration_noise
+                        actions_torch = (actions_torch + noise).clamp(-1, 1)
+                    else:
+                        actions_torch = torch.zeros((num_envs, action_dim), device=torch_device)
+                    actions_np = actions_torch.cpu().numpy()
 
         # Step environment
         state = env.step(actions_np)
