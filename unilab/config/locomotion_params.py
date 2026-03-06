@@ -128,7 +128,7 @@ def fast_td3_config(env_name: str) -> config_dict.ConfigDict:
         num_envs=4096,
         batch_size=8192,
         num_updates=4,
-        warmup_steps=50,
+        warmup_steps=100,
         buffer_size=1000,      # per-env buffer size
         total_timesteps=5000,
         save_interval=500,

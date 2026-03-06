@@ -163,6 +163,16 @@ def main():
         }
         actor.load_state_dict(actor_state, strict=False)
 
+        # Build normalizer
+        from unilab.algos.torch.fast_td3.learner import EmpiricalNormalization
+        if cfg.obs_normalization:
+            normalizer = EmpiricalNormalization(shape=obs_dim, device=device)
+            if "obs_normalizer" in checkpoint and checkpoint["obs_normalizer"] is not None:
+                normalizer.load_state_dict(checkpoint["obs_normalizer"])
+            normalizer.eval()
+        else:
+            normalizer = torch.nn.Identity()
+
         output_video = os.path.join(load_path_dir, "play_video.mp4")
         print(f"Rendering video to {output_video}...")
 
@@ -181,6 +191,9 @@ def main():
         with torch.inference_mode():
             for _ in range(num_steps):
                 obs_torch = torch.from_numpy(obs_np).to(device)
+                
+                # Apply normalization if configured
+                obs_torch = normalizer(obs_torch, update=False) if isinstance(normalizer, EmpiricalNormalization) else obs_torch
 
                 # TD3 inference (deterministic)
                 actions_torch = actor(obs_torch)

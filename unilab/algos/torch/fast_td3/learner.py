@@ -244,7 +244,7 @@ class Actor(nn.Module):
             return act
 
         noise = torch.randn_like(act) * self.noise_scales
-        return act + noise
+        return (act + noise).clamp(-1.0, 1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -512,9 +512,11 @@ class FastTD3Learner:
 
         self.update_count = 0
 
-    def normalize_obs(self, obs: torch.Tensor, update: bool = True) -> torch.Tensor:
+    def normalize_obs(self, obs: torch.Tensor, update: bool = False) -> torch.Tensor:
         """Normalize observations using running statistics."""
-        return self.obs_normalizer(obs) if not isinstance(self.obs_normalizer, nn.Identity) else obs
+        if not isinstance(self.obs_normalizer, nn.Identity):
+            return self.obs_normalizer(obs, update=update)
+        return obs
 
     def update_critic(self, data: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One critic update step."""

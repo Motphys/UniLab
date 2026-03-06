@@ -210,7 +210,7 @@ class FastTD3Runner:
             with torch.no_grad():
                 obs_gpu = obs.to(train_device)
                 dones_gpu = dones.to(train_device) if dones is not None else None
-                norm_obs = learner.normalize_obs(obs_gpu)
+                norm_obs = learner.normalize_obs(obs_gpu, update=True)
                 actions_gpu = learner.actor.explore(obs=norm_obs, dones=dones_gpu)
                 actions = actions_gpu.cpu()  # back to CPU for env
 
