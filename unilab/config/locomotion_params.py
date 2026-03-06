@@ -193,6 +193,7 @@ def fast_sac_config(env_name: str) -> config_dict.ConfigDict:
         alpha_init=0.01,
         target_entropy_ratio=0.0,
         policy_frequency=4,
+        max_grad_norm=0.0,         # holosoma: max_grad_norm=0.0
     )
 
     if env_name in ("Go2JoystickFlatTerrain", "Go2LocoFlatTerrain"):
@@ -202,6 +203,15 @@ def fast_sac_config(env_name: str) -> config_dict.ConfigDict:
         rl_config.num_envs = 1024
         rl_config.max_iterations = 2000
     elif env_name in ("G1JoystickFlatTerrain",):
-        rl_config.max_iterations = 3000
+        raise NotImplementedError("G1JoystickFlatTerrain config is not implemented for FastSAC, Please use G1JoystickFlatTerrainSAC instead.")
+    elif env_name in ("G1JoystickFlatTerrainSAC",):
+        # G1 (29 DOF humanoid): overrides that differ from defaults
+        rl_config.updates_per_step = 8       # holosoma: num_updates=8  (default: 4)
+        rl_config.replay_buffer_n = 1024     # holosoma: buffer_size=1024 (default: 512)
+        rl_config.warmup_steps = 0           # holosoma: learning_starts=10 (default: 10000)
+        rl_config.alpha_init = 0.001         # holosoma: alpha_init=0.001 (default: 0.01)
+        rl_config.target_entropy_ratio = 1.0 # target_entropy=-action_dim (default: 0.0)
+        rl_config.max_iterations = 25000     # holosoma: num_learning_iterations=50000
+        rl_config.save_interval = 1000       # holosoma: save_interval=1000
 
     return rl_config
