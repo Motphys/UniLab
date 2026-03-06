@@ -173,7 +173,7 @@ class Critic(nn.Module):
 # Actor (deterministic, ReLU, per-env noise)
 # ---------------------------------------------------------------------------
 
-class Actor(nn.Module):
+class TD3Actor(nn.Module):
     """Deterministic actor with per-environment exploration noise.
 
     Architecture: Linear→ReLU → Linear→ReLU → Linear→ReLU → Linear→Tanh
@@ -448,7 +448,7 @@ class FastTD3Learner:
         self.max_iterations = max_iterations
 
         # Build actor
-        self.actor = Actor(
+        self.actor = TD3Actor(
             n_obs=obs_dim,
             n_act=action_dim,
             num_envs=num_envs,
@@ -520,12 +520,12 @@ class FastTD3Learner:
 
     def update_critic(self, data: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One critic update step."""
-        observations = data["observations"]
+        observations = data["obs"]
         actions = data["actions"]
         rewards = data["rewards"]
-        next_observations = data["next_observations"]
+        next_observations = data["next_obs"]
         dones = data["dones"].bool()
-        truncations = data["truncations"].bool()
+        truncations = data["truncated"].bool()
 
         bootstrap = (truncations | ~dones).float()
         discount = torch.full_like(rewards, self.gamma)
@@ -577,7 +577,7 @@ class FastTD3Learner:
 
     def update_actor(self, data: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One actor update step."""
-        observations = data["observations"]
+        observations = data["obs"]
 
         qf1, qf2 = self.qnet(observations, self.actor(observations))
         qf1_value = self.qnet.get_value(F.softmax(qf1, dim=1))

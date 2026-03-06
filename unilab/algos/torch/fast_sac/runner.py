@@ -40,7 +40,7 @@ class FastSACRunner(AsyncRunner):
         updates_per_step: int = 8,
         policy_frequency: int = 4,
         # Collection/training synchronization
-        sync_collection: bool = False,
+        sync_collection: bool = True,
         env_steps_per_sync: int = 1,
         # Holosoma-aligned defaults
         gamma: float = 0.97,

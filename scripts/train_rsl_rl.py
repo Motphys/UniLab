@@ -147,10 +147,86 @@ class RslRlVecEnvWrapper:
 
 
 
+def play_rsl_rl(args, cfg, device):
+    """Play mode for RSL-RL."""
+    import torch
+    import mediapy as media
+    from unilab.envs import registry
+    from unilab.utils import render_many
+    from unilab.utils.torch_utils import to_numpy
+
+    env = registry.make(args.task, num_envs=args.play_env_num, sim_backend="mujoco")
+    wrapped_env = RslRlVecEnvWrapper(env, device=device)
+    train_cfg = cfg.to_dict()
+    if is_rsl_rl_v4():
+        train_cfg = convert_config_v3_to_v4(train_cfg)
+
+    base_log_dir = ROOT_DIR / "logs" / "rsl_rl_train" / args.task
+    load_path = None
+
+    if args.load_run == "-1":
+        load_path = get_latest_run(str(base_log_dir))
+    else:
+        if os.path.exists(args.load_run):
+            load_path = args.load_run
+        else:
+            load_path = str(base_log_dir / args.load_run)
+
+    if not load_path or not os.path.exists(load_path):
+        print(f"Could not find run to load at {load_path}")
+        return
+
+    if os.path.isdir(load_path):
+        model_files = [f for f in os.listdir(load_path) if f.startswith("model_") and f.endswith(".pt")]
+        if len(model_files) > 0:
+            model_files.sort(key=lambda x: int(x.split("_")[1].split(".")[0]))
+            load_path_dir = load_path
+            load_path = os.path.join(load_path, model_files[-1])
+            print(f"Loading latest model: {load_path}")
+        else:
+            print(f"No model files found in {load_path}")
+            return
+    else:
+        load_path_dir = os.path.dirname(load_path)
+
+    log_dir = str(ROOT_DIR / "logs" / "rsl_rl_train" / args.task / "play_temp")
+    runner = OnPolicyRunner(wrapped_env, train_cfg, log_dir=log_dir, device=device)
+    runner.load(load_path)
+    policy = runner.get_inference_policy(device=device)
+
+    output_video = Path(load_path_dir) / "play_video.mp4"
+    print(f"Rendering video to {output_video}...")
+
+    obs, _ = wrapped_env.reset()
+    state_list = []
+    num_steps = 150
+
+    print("Collecting physics states...")
+    with torch.inference_mode():
+        for _ in range(num_steps):
+            actions = policy(obs)
+            obs, _, _, _ = wrapped_env.step(actions)
+            state_list.append(to_numpy(env.state.physics_state).copy())
+
+    print("Rendering frames...")
+    frames = render_many.render_states_get_frames(
+        state_list,
+        env.cfg.model_file,
+        width=1280,
+        height=720,
+        camera_id=-1
+    )
+
+    print(f"Saving video to {output_video} with mediapy...")
+    media.write_video(str(output_video), frames, fps=int(1.0/env.cfg.ctrl_dt))
+    print("Done.")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Train or Play RSL-RL agent")
     parser.add_argument("--task", type=str, required=True, help="Task name")
-    parser.add_argument("--play_only", action="store_true", help="Play mode only")
+    parser.add_argument("--play_only", action="store_true", help="Skip training, only play")
+    parser.add_argument("--no_play", action="store_true", help="Skip play after training")
     parser.add_argument("--load_run", type=str, default="-1", help="Run ID to load or path")
     parser.add_argument("--env_num", type=int, default=None, help="Number of training envs (task default if unset)")
     parser.add_argument("--play_env_num", type=int, default=16, help="Number of play envs")
@@ -227,84 +303,10 @@ def main():
             runner.load(resume_path)
              
         runner.learn(num_learning_iterations=cfg.max_iterations, init_at_random_ep_len=True)
-        
-    # PLAY MODE
-    else:
-        # Create environment (play num)
-        env = registry.make(args.task, num_envs=args.play_env_num, sim_backend="mujoco")
-        
-        # We need a dummy wrapper just to be compatible with runner for loading policy
-        wrapped_env = RslRlVecEnvWrapper(env, device=device)
-        train_cfg = cfg.to_dict()
-        if is_rsl_rl_v4():
-            train_cfg = convert_config_v3_to_v4(train_cfg)
-        
-        # Need to find the model to load
-        base_log_dir = ROOT_DIR / "logs" / "rsl_rl_train" / args.task
-        load_path = None
-        
-        if args.load_run == "-1":
-            load_path = get_latest_run(str(base_log_dir))
-        else:
-            if os.path.exists(args.load_run):
-                load_path = args.load_run
-            else:
-                load_path = str(base_log_dir / args.load_run)
-                 
-        if not load_path or not os.path.exists(load_path):
-            print(f"Could not find run to load at {load_path}")
-            sys.exit(1)
-            
-        # If load_path is a directory, find the latest model file
-        if os.path.isdir(load_path):
-            model_files = [f for f in os.listdir(load_path) if f.startswith("model_") and f.endswith(".pt")]
-            if len(model_files) > 0:
-                # Sort by iteration number
-                model_files.sort(key=lambda x: int(x.split("_")[1].split(".")[0]))
-                load_path_dir = load_path # keep dir for video output
-                load_path = os.path.join(load_path, model_files[-1])
-                print(f"Loading latest model: {load_path}")
-            else:
-                print(f"No model files found in {load_path}")
-                sys.exit(1)
-        else:
-            load_path_dir = os.path.dirname(load_path)
-             
-        # Initialize runner just to load policy
-        # NOTE: For play, we don't care about log_dir so much, but runner needs it
-        runner = OnPolicyRunner(wrapped_env, train_cfg, log_dir=log_dir, device=device)
-        runner.load(load_path)
-        policy = runner.get_inference_policy(device=device)
-        
-        output_video = Path(load_path_dir) / "play_video.mp4"
-        
-        print(f"Rendering video to {output_video}...")
-        # Reset Environment
-        obs, _ = wrapped_env.reset()
-        
-        state_list = []
-        num_steps = 150
-        
-        # Collect states (physics_state may be MLX -> numpy for render_many)
-        print("Collecting physics states...")
-        with torch.inference_mode():
-            for _ in range(num_steps):
-                actions = policy(obs)
-                obs, _, _, _ = wrapped_env.step(actions)
-                state_list.append(to_numpy(env.state.physics_state).copy())
-        
-        print("Rendering frames...")
-        # Use render_many to get frames, then use mediapy to save
-        frames = render_many.render_states_get_frames(
-            state_list, 
-            env.cfg.model_file, 
-            width=1280,
-            height=720,
-            camera_id=-1 # or specific camera
-        )
 
-        print(f"Saving video to {output_video} with mediapy...")
-        media.write_video(str(output_video), frames, fps=int(1.0/env.cfg.ctrl_dt))
+    if args.play_only or not args.no_play:
+        play_rsl_rl(args, cfg, device)
+
 
 if __name__ == "__main__":
     main()

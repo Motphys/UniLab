@@ -145,11 +145,96 @@ def build_model(cfg, obs_dim: int, action_dim: int, dtype=mx.float32) -> MLPActo
     )
 
 
+def play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root):
+    """Play mode for MLX PPO."""
+    import mlx.core as mx
+    import numpy as np
+    from unilab.envs import registry
+    from unilab.utils import render_many
+
+    play_model_dtype = mx.float32 if use_fp16 else dtype
+    play_env_num = args.play_env_num
+    env = registry.make(args.task, num_envs=play_env_num, sim_backend=resolved_sim_backend)
+    obs_dim = env.observation_space.shape[0]
+    action_dim = env.action_space.shape[0]
+    model = build_model(cfg, obs_dim, action_dim, dtype=play_model_dtype)
+
+    load_path: Path | None = None
+    if args.load_run == "-1":
+        latest_run = get_latest_run(task_log_root)
+        if latest_run is not None:
+            load_path = get_latest_checkpoint(latest_run)
+            run_dir = latest_run
+        else:
+            run_dir = None
+    else:
+        candidate = Path(args.load_run)
+        if not candidate.exists():
+            candidate = task_log_root / args.load_run
+        if candidate.is_dir():
+            load_path = get_latest_checkpoint(candidate)
+            run_dir = candidate
+        elif candidate.is_file():
+            load_path = candidate
+            run_dir = candidate.parent
+        else:
+            load_path = None
+            run_dir = None
+
+    if load_path is None or not load_path.exists():
+        print(f"Could not find valid model checkpoint from --load_run={args.load_run}")
+        env.close()
+        return
+
+    model.load_weights(str(load_path), strict=True)
+    print(f"[MLX PPO] Loaded model: {load_path}")
+
+    if env.state is None:
+        env.init_state()
+    play_reset_indices = np.arange(env.num_envs, dtype=np.int32)
+    _, obs, _ = env.reset(play_reset_indices)
+    obs = mx.array(obs)
+
+    state_list = []
+    print("[MLX PPO] Collecting physics states for play...")
+    for _ in range(args.play_steps):
+        obs_for_model = obs.astype(play_model_dtype) if getattr(obs, "dtype", None) != play_model_dtype else obs
+        actions_mx = model.policy(obs_for_model)
+        actions = mx.where(mx.isfinite(actions_mx), actions_mx, mx.zeros_like(actions_mx))
+        actions = actions.astype(dtype) if getattr(actions, "dtype", None) != dtype else actions
+        env_actions = np.asarray(actions)
+        state = env.step(env_actions)
+        raw_obs = state.obs
+        obs = mx.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0)
+        state_list.append(np.asarray(env.state.physics_state).copy())
+
+    output_dir = run_dir if run_dir is not None else task_log_root
+    output_video = output_dir / "play_video.mp4"
+    print(f"[MLX PPO] Rendering video to {output_video} ...")
+    frames = render_many.render_states_get_frames(
+        state_list,
+        env.cfg.model_file,
+        width=1280,
+        height=720,
+        camera_id=-1,
+    )
+    try:
+        import mediapy as media
+    except ImportError:
+        print("mediapy is required for play video export. Install with `pip install mediapy`.")
+        env.close()
+        return
+    media.write_video(str(output_video), frames, fps=int(1.0 / env.cfg.ctrl_dt))
+    print(f"[MLX PPO] Play video saved: {output_video}")
+    env.close()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train or Play PPO with MLX + NumPy only.")
     parser.add_argument("--task", type=str, required=True, help="Task name")
     parser.add_argument("--sim_backend", type=str, default="mujoco", choices=["mujoco"], help="Simulator backend")
-    parser.add_argument("--play_only", action="store_true", help="Play mode only")
+    parser.add_argument("--play_only", action="store_true", help="Skip training, only play")
+    parser.add_argument("--no_play", action="store_true", help="Skip play after training")
     parser.add_argument("--load_run", type=str, default="-1", help="Run ID to load, run path, or model file path")
     parser.add_argument("--env_num", type=int, default=None, help="Number of parallel envs (task default if unset)")
     parser.add_argument("--play_env_num", type=int, default=16, help="Number of play envs")
@@ -192,83 +277,8 @@ def main() -> None:
         log_root = ROOT_DIR / log_root
     task_log_root = log_root / args.task
 
-    # PLAY MODE (mixed precision: model in float32 when fp16)
     if args.play_only:
-        play_model_dtype = mx.float32 if use_fp16 else dtype
-        play_env_num = args.play_env_num
-        env = registry.make(args.task, num_envs=play_env_num, sim_backend=resolved_sim_backend)
-        obs_dim = env.observation_space.shape[0]
-        action_dim = env.action_space.shape[0]
-        model = build_model(cfg, obs_dim, action_dim, dtype=play_model_dtype)
-
-        load_path: Path | None = None
-        if args.load_run == "-1":
-            latest_run = get_latest_run(task_log_root)
-            if latest_run is not None:
-                load_path = get_latest_checkpoint(latest_run)
-                run_dir = latest_run
-            else:
-                run_dir = None
-        else:
-            candidate = Path(args.load_run)
-            if not candidate.exists():
-                candidate = task_log_root / args.load_run
-            if candidate.is_dir():
-                load_path = get_latest_checkpoint(candidate)
-                run_dir = candidate
-            elif candidate.is_file():
-                load_path = candidate
-                run_dir = candidate.parent
-            else:
-                load_path = None
-                run_dir = None
-
-        if load_path is None or not load_path.exists():
-            print(f"Could not find valid model checkpoint from --load_run={args.load_run}")
-            sys.exit(1)
-
-        model.load_weights(str(load_path), strict=True)
-        print(f"[MLX PPO] Loaded model: {load_path}")
-
-        if env.state is None:
-            env.init_state()
-        play_reset_indices = np.arange(env.num_envs, dtype=np.int32)
-        _, obs, _ = env.reset(play_reset_indices)
-        obs = mx.array(obs)
-
-        state_list = []
-        print("[MLX PPO] Collecting physics states for play...")
-        for _ in range(args.play_steps):
-            obs_for_model = obs.astype(play_model_dtype) if getattr(obs, "dtype", None) != play_model_dtype else obs
-            actions_mx = model.policy(obs_for_model)
-            actions = mx.where(mx.isfinite(actions_mx), actions_mx, mx.zeros_like(actions_mx))
-            actions = actions.astype(dtype) if getattr(actions, "dtype", None) != dtype else actions
-            env_actions = np.asarray(actions)
-            state = env.step(env_actions)
-            raw_obs = state.obs
-            obs = mx.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0)
-            # Append a copy: physics_state is updated in-place each step, so we must snapshot per frame.
-            state_list.append(np.asarray(env.state.physics_state).copy())
-
-        output_dir = run_dir if run_dir is not None else task_log_root
-        output_video = output_dir / "play_video.mp4"
-        print(f"[MLX PPO] Rendering video to {output_video} ...")
-        frames = render_many.render_states_get_frames(
-            state_list,
-            env.cfg.model_file,
-            width=1280,
-            height=720,
-            camera_id=-1,
-        )
-        try:
-            import mediapy as media  # type: ignore[reportMissingImports]
-        except ImportError:
-            print("mediapy is required for play video export. Install with `pip install mediapy`.")
-            env.close()
-            sys.exit(1)
-        media.write_video(str(output_video), frames, fps=int(1.0 / env.cfg.ctrl_dt))
-        print(f"[MLX PPO] Play video saved: {output_video}")
-        env.close()
+        play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root)
         return
 
     # TRAIN MODE
@@ -698,6 +708,9 @@ def main() -> None:
         import wandb
         wandb.finish()
     log_fp.close()
+
+    if not args.no_play:
+        play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root)
 
 
 if __name__ == "__main__":
