@@ -27,7 +27,7 @@ def ensure_registries():
         pass
 
 
-def _build_actor(algo_type, obs_dim, action_dim, actor_hidden_dim, use_layer_norm, device, num_envs=1):
+def _build_actor(algo_type, obs_dim, action_dim, actor_hidden_dim, use_layer_norm, device, num_envs=1, obs_normalization=False):
     """Build the correct actor model based on algorithm type."""
     if algo_type == "sac":
         from unilab.algos.torch.fast_sac.learner import SACActor
@@ -66,6 +66,8 @@ def off_policy_collector_fn(
     collection_ready_queue=None,
     trainer_done_queue=None,
     env_steps_per_sync: int = 1,
+    obs_normalization: bool = False,
+    shared_obs_normalizer_stats=None,
     **kwargs,
 ):
     """Entry point for the off-policy collector subprocess."""
@@ -86,6 +88,8 @@ def off_policy_collector_fn(
             weight_sync_lock=weight_sync_lock, sync_collection=sync_collection,
             collection_ready_queue=collection_ready_queue, trainer_done_queue=trainer_done_queue,
             env_steps_per_sync=env_steps_per_sync,
+            obs_normalization=obs_normalization,
+            shared_obs_normalizer_stats=shared_obs_normalizer_stats,
         )
     except Exception as e:
         print(f"[Collector] Exception: {e}", file=sys.stderr, flush=True)
@@ -105,26 +109,30 @@ def _run_collector(
     algo_type, actor_hidden_dim, use_layer_norm, collector_device,
     exploration_noise, warmup_steps, metrics_queue, buffer_lock,
     weight_sync_lock, sync_collection, collection_ready_queue, trainer_done_queue, env_steps_per_sync,
+    obs_normalization, shared_obs_normalizer_stats
 ):
     from unilab.ipc import SharedReplayBuffer, SharedWeightSync
     from unilab.envs import registry
 
     ensure_registries()
+    
+    # Initialize environment
+    env = registry.make(env_name, num_envs=num_envs, sim_backend="mujoco")
+    if env.state is None:
+        env.init_state()
 
     # Connect to shared memory
     replay_buffer = SharedReplayBuffer(
         buffer_capacity, obs_dim, action_dim, create=False, shm_name=shm_buffer_name,
         lock=buffer_lock,
     )
+    # Connect to weight sync
     weight_sync = SharedWeightSync(
         weight_param_shapes, create=False, shm_name=weight_sync_name, lock=weight_sync_lock
     )
 
-    # Create environment - use numpy backend for PyTorch algorithms
-    env = registry.make(env_name, num_envs=num_envs, sim_backend="mujoco")
-
     # Build actor
-    actor = _build_actor(algo_type, obs_dim, action_dim, actor_hidden_dim, use_layer_norm, collector_device, num_envs)
+    actor = _build_actor(algo_type, obs_dim, action_dim, actor_hidden_dim, use_layer_norm, collector_device, num_envs, obs_normalization)
     actor.eval()
 
     # Load initial weights
@@ -172,13 +180,28 @@ def _run_collector(
             sd = dict(actor.state_dict())
             local_weight_version = weight_sync.read_weights_into(sd)
             actor.load_state_dict(sd)
+            
+            # Update normalizer stats
+            if obs_normalization and shared_obs_normalizer_stats is not None:
+                stats = shared_obs_normalizer_stats.get()
+                if stats is not None:
+                    # Apply stats to a local normalizer if needed, or directly to actor
+                    pass # Handled by EmpiricalNormalization in learner if actor possesses it. We need a local normalizer.
+                    
+        # Normalize obs_np
+        obs_np_input = obs_np
+        if obs_normalization and shared_obs_normalizer_stats is not None:
+            stats = shared_obs_normalizer_stats.get()
+            if stats is not None:
+                mean, std = stats
+                obs_np_input = (obs_np - mean) / (std + 1e-8)
 
         # Select action
         with torch.no_grad():
             if total_steps < warmup_steps:
                 actions_np = np.random.uniform(-1, 1, (num_envs, action_dim)).astype(np.float32)
             else:
-                obs_torch = torch.from_numpy(obs_np).to(collector_device)
+                obs_torch = torch.from_numpy(obs_np_input).to(collector_device)
                 if algo_type == "sac":
                     actions_torch = actor.explore(obs_torch)
                 elif algo_type == "td3":

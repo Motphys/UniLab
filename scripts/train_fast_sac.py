@@ -178,6 +178,7 @@ def main():
             alpha_lr=cfg.alpha_lr,
             alpha_init=cfg.alpha_init,
             target_entropy_ratio=cfg.target_entropy_ratio,
+            obs_normalization=cfg.obs_normalization,
             actor_hidden_dim=cfg.actor_hidden_dim,
             critic_hidden_dim=cfg.critic_hidden_dim,
             num_atoms=cfg.num_atoms,

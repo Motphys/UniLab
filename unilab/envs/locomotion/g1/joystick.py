@@ -10,6 +10,7 @@ import numpy as np
 from unilab.envs import registry
 from unilab.envs.mujoco_env.mj_env import MjNpEnvState
 from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseMjEnv
+from unilab.envs.curriculum import EpisodeLengthTracker, PenaltyCurriculum
 from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
 
 
@@ -322,18 +323,21 @@ class SACRewardConfig(RewardConfig):
     scales: dict[str, float] = field(
         default_factory=lambda: {
             "tracking_lin_vel": 2.0,
-            "tracking_ang_vel": 1.0,
-            "feet_phase": 3.0,
-            "lin_vel_z": -1.0,
-            "ang_vel_xy": -0.25,
-            "orientation": -5.0,
-            "action_rate": -0.5,
+            "tracking_ang_vel": 1.5,
+            "feet_phase": 5.0,
+            "ang_vel_xy": -1.0,
+            "orientation": -10.0,
+            "action_rate": -2.0,
             "pose": -0.5,
             "alive": 10.0,
             "penalty_close_feet_xy": -10.0,
+            "penalty_feet_ori": -5.0,
         }
     )
+    gait_frequency: float = 1.0  # holosoma uses 1.0 Hz
     close_feet_threshold: float = 0.15
+    max_tilt_deg: float = 60.0
+    min_base_height: float = 0.35
 
 
 @registry.envcfg("G1JoystickFlatTerrainSAC")
@@ -350,9 +354,34 @@ class G1JoystickSACCfg(G1BaseCfg):
 class G1WalkTaskMjSAC(G1WalkTaskMj):
     """SAC variant: obs scaling, sin/cos gait phase, close-feet penalty, wider randomization."""
 
+    def __init__(self, cfg: G1JoystickSACCfg, num_envs=1):
+        super().__init__(cfg, num_envs)
+        self._episode_steps = np.zeros((self._num_envs,), dtype=np.int32)
+        self._episode_reward_sums = {name: np.zeros((self._num_envs,), dtype=self._np_dtype) for name in self.cfg.reward_config.scales}
+
+        # Curriculum learning
+        self._episode_length_tracker = EpisodeLengthTracker(num_envs)
+        self._penalty_curriculum = PenaltyCurriculum(
+            self,
+            enabled=True,
+            initial_scale=0.5,
+            min_scale=0.5,
+            max_scale=1.0,
+            level_down_threshold=150.0,
+            level_up_threshold=750.0,
+            degree=0.001,
+        )
+
     def _init_reward_functions(self):
         super()._init_reward_functions()
+        self._reward_fns["alive"] = lambda s: np.ones((self._num_envs,), dtype=self._np_dtype)
         self._reward_fns["penalty_close_feet_xy"] = self._reward_penalty_close_feet_xy
+        self._reward_fns["penalty_feet_ori"] = self._reward_penalty_feet_ori
+
+    def _reward_penalty_feet_ori(self, state: MjNpEnvState):
+        left_upvector = state.sensor_data[:, self._idx_left_foot_upvector]
+        right_upvector = state.sensor_data[:, self._idx_right_foot_upvector]
+        return np.linalg.norm(left_upvector[:, :2], axis=1) + np.linalg.norm(right_upvector[:, :2], axis=1)
 
     def _init_obs_space(self):
         num_obs = (
@@ -375,8 +404,39 @@ class G1WalkTaskMjSAC(G1WalkTaskMj):
         dist = np.linalg.norm(left_xy - right_xy, axis=1)
         return (dist < self.cfg.reward_config.close_feet_threshold).astype(self._np_dtype)
 
+    def _compute_rewards(self, state: MjNpEnvState) -> MjNpEnvState:
+        """Override to track episode statistics for curriculum learning."""
+        self._advance_gait_phase(state.info)
+        total_reward = np.zeros((self._num_envs,), dtype=self._np_dtype)
+        step_count = state.info.get("steps", np.zeros((self._num_envs,), dtype=np.uint32))
+        should_log = self._enable_reward_log and (int(step_count[0]) % 4 == 0)
+        log = {} if should_log else state.info.get("log", {})
+
+        for name, scale in self.cfg.reward_config.scales.items():
+            if scale == 0 or name not in self._reward_fns:
+                continue
+            rew = self._reward_fns[name](state)
+            weighted_rew = rew * scale
+            total_reward += weighted_rew
+
+            # Track episode sums
+            self._episode_reward_sums[name] += weighted_rew
+
+            if should_log:
+                log[f"reward/{name}"] = float(np.mean(weighted_rew))
+
+        state.info["log"] = log
+        state.info["reward_components"] = {}
+        total_reward *= self.cfg.ctrl_dt
+        state.reward = total_reward
+
+        # Increment episode steps
+        self._episode_steps += 1
+
+        return state
+
     def _get_obs(self, state: MjNpEnvState, info: dict) -> np.ndarray:
-        linear_vel = self.get_local_linvel(state)
+        linear_vel = self.get_local_linvel(state) * 2.0
         gyro = self.get_gyro(state) * 0.25
         local_gravity = -self.get_upvector(state)
         dof_pos = self.get_dof_pos(state)
@@ -438,9 +498,17 @@ class G1WalkTaskMjSAC(G1WalkTaskMj):
                 log = {}
                 for name in self._episode_reward_sums:
                     log[f"reward/{name}"] = float(
-                        np.mean(self._episode_reward_sums[name][active_idx]) / self._max_episode_steps
+                        np.mean(self._episode_reward_sums[name][active_idx]) / self.cfg.max_episode_steps
                     )
                 self._pending_reset_log = log
+
+                # Update curriculum learning
+                episode_lengths = self._episode_steps[active_idx]
+                self._episode_length_tracker.update(episode_lengths)
+                self._penalty_curriculum.update(self._episode_length_tracker.average_length)
+                log["curriculum/average_episode_length"] = float(self._episode_length_tracker.average_length)
+                log["curriculum/penalty_scale"] = float(self._penalty_curriculum.current_scale)
+
         for name in self._episode_reward_sums:
             self._episode_reward_sums[name][env_indices] = 0.0
         self._episode_steps[env_indices] = 0

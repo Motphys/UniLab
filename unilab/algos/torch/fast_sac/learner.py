@@ -329,6 +329,7 @@ class FastSACLearner:
         alpha_lr: float = 3e-4,
         alpha_init: float = 0.001,
         target_entropy_ratio: float = 0.0,
+        obs_normalization: bool = True,
         actor_hidden_dim: int = 512,
         critic_hidden_dim: int = 768,
         num_atoms: int = 101,
@@ -348,6 +349,11 @@ class FastSACLearner:
         self.tau = tau
         self.max_grad_norm = max_grad_norm
         self.use_autotune = use_autotune
+
+        if obs_normalization:
+            self.obs_normalizer = EmpiricalNormalization(shape=obs_dim, device=device)
+        else:
+            self.obs_normalizer = nn.Identity()
 
         # Build actor
         self.actor = SACActor(
@@ -425,10 +431,10 @@ class FastSACLearner:
 
     def update_critic(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One critic update step."""
-        obs = batch["obs"]
+        obs = self.obs_normalizer(batch["obs"])
         actions = batch["actions"]
         rewards = batch["rewards"]
-        next_obs = batch["next_obs"]
+        next_obs = self.obs_normalizer(batch["next_obs"])
         dones = batch["dones"]
         truncated = batch.get("truncated")
 
@@ -490,7 +496,8 @@ class FastSACLearner:
 
     def update_actor(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One actor update step."""
-        obs = batch["obs"]
+        # Note: Do not update mean/std here, critic already did or inference does it without update
+        obs = self.obs_normalizer(batch["obs"], update=False)
 
         actions, log_probs, log_std = self.actor.get_actions_and_log_probs(obs)
 
@@ -554,3 +561,58 @@ class FastSACLearner:
         self.q_optimizer.load_state_dict(state_dict["q_optimizer"])
         self.alpha_optimizer.load_state_dict(state_dict["alpha_optimizer"])
         self.update_count = state_dict.get("update_count", 0)
+
+class EmpiricalNormalization(nn.Module):
+    """Normalize mean and variance of observations using running statistics."""
+
+    def __init__(self, shape, device, eps=1e-2):
+        super().__init__()
+        self.eps = eps
+        self.device = device
+        self.register_buffer("_mean", torch.zeros(shape).unsqueeze(0).to(device))
+        self.register_buffer("_var", torch.ones(shape).unsqueeze(0).to(device))
+        self.register_buffer("_std", torch.ones(shape).unsqueeze(0).to(device))
+        self.register_buffer("count", torch.tensor(0, dtype=torch.long).to(device))
+
+    @property
+    def mean(self):
+        return self._mean.squeeze(0).clone()
+
+    @property
+    def std(self):
+        return self._std.squeeze(0).clone()
+
+    @torch.no_grad()
+    def forward(
+        self, x: torch.Tensor, center: bool = True, update: bool = True
+    ) -> torch.Tensor:
+        if self.training and update:
+            self.update(x)
+        if center:
+            return (x - self._mean) / (self._std + self.eps)
+        else:
+            return x / (self._std + self.eps)
+
+    def update(self, x):
+        batch_size = x.shape[0]
+        batch_mean = torch.mean(x, dim=0, keepdim=True)
+        batch_var = torch.var(x, dim=0, keepdim=True, unbiased=False)
+
+        new_count = self.count + batch_size
+
+        # Welford's online algorithm
+        delta = batch_mean - self._mean
+        self._mean.copy_(self._mean + delta * (batch_size / new_count))
+        delta2 = batch_mean - self._mean
+        m_a = self._var * self.count
+        m_b = batch_var * batch_size
+        M2 = m_a + m_b + delta2.pow(2) * (self.count * batch_size / new_count)
+        self._var.copy_(M2 / new_count)
+        self._std.copy_(self._var.sqrt())
+        self.count.copy_(new_count)
+
+    def inverse(self, y):
+        return y * (self._std + self.eps) + self._mean
+
+
+# ---------------------------------------------------------------------------

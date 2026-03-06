@@ -194,6 +194,7 @@ def fast_sac_config(env_name: str) -> config_dict.ConfigDict:
         tau=0.125,
         alpha_init=0.01,
         target_entropy_ratio=0.0,
+        obs_normalization=True,
         policy_frequency=4,
         max_grad_norm=0.0,         # holosoma: max_grad_norm=0.0
     )
@@ -213,7 +214,6 @@ def fast_sac_config(env_name: str) -> config_dict.ConfigDict:
         rl_config.replay_buffer_n = 1024     # holosoma: buffer_size=1024 (default: 512)
         rl_config.warmup_steps = 0           # holosoma: learning_starts=10 (default: 10000)
         rl_config.alpha_init = 0.001         # holosoma: alpha_init=0.001 (default: 0.01)
-        rl_config.target_entropy_ratio = 1.0 # target_entropy=-action_dim (default: 0.0)
         rl_config.max_iterations = 25000     # holosoma: num_learning_iterations=50000
         rl_config.save_interval = 1000       # holosoma: save_interval=1000
 

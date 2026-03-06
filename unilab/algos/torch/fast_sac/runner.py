@@ -12,6 +12,7 @@ import time
 import statistics
 import torch
 from collections import defaultdict, deque
+from functools import partial
 
 from unilab.ipc import SharedReplayBuffer, SharedWeightSync
 from unilab.algos.torch.common.async_runner import AsyncRunner
@@ -20,6 +21,26 @@ from unilab.algos.torch.common.logger import TrainingLogger
 from unilab.algos.torch.fast_sac.learner import FastSACLearner
 from unilab.ipc.async_runner import _SPAWN_CTX
 
+# Helper class for obs norm stats at module level to make it picklable
+class SharedObsNormStats:
+    def __init__(self, ctx):
+        self.q = ctx.Queue(maxsize=2)
+        self.last_stats = None
+    def put(self, stats):
+        # Empty first
+        while not self.q.empty():
+            try:
+                self.q.get_nowait()
+            except:
+                pass
+        self.q.put(stats)
+    def get(self):
+        try:
+            while not self.q.empty():
+                self.last_stats = self.q.get_nowait()
+        except:
+            pass
+        return self.last_stats
 
 class FastSACRunner(AsyncRunner):
     """FastSAC async runner using shared memory (no Ray dependency).
@@ -50,6 +71,7 @@ class FastSACRunner(AsyncRunner):
         alpha_lr: float = 3e-4,
         alpha_init: float = 0.001,
         target_entropy_ratio: float = 1.0,
+        obs_normalization: bool = True,
         actor_hidden_dim: int = 512,
         critic_hidden_dim: int = 768,
         num_atoms: int = 101,
@@ -82,6 +104,7 @@ class FastSACRunner(AsyncRunner):
         self.alpha_lr = alpha_lr
         self.alpha_init = alpha_init
         self.target_entropy_ratio = target_entropy_ratio
+        self.obs_normalization = obs_normalization
         self.actor_hidden_dim = actor_hidden_dim
         self.critic_hidden_dim = critic_hidden_dim
         self.num_atoms = num_atoms
@@ -115,6 +138,7 @@ class FastSACRunner(AsyncRunner):
             alpha_lr=self.alpha_lr,
             alpha_init=self.alpha_init,
             target_entropy_ratio=self.target_entropy_ratio,
+            obs_normalization=self.obs_normalization,
             actor_hidden_dim=self.actor_hidden_dim,
             critic_hidden_dim=self.critic_hidden_dim,
             num_atoms=self.num_atoms,
@@ -169,6 +193,11 @@ class FastSACRunner(AsyncRunner):
 
         metrics_queue = _SPAWN_CTX.Queue(maxsize=100)
 
+        # Added obs normalization sync
+        self.shared_obs_normalizer_stats = None
+        if self.obs_normalization:
+            self.shared_obs_normalizer_stats = SharedObsNormStats(_SPAWN_CTX)
+
         weight_param_shapes = {
             name: p.shape for name, p in learner.actor.state_dict().items()
         }
@@ -194,6 +223,8 @@ class FastSACRunner(AsyncRunner):
             "collection_ready_queue": collection_ready_queue,
             "trainer_done_queue": trainer_done_queue,
             "env_steps_per_sync": self.env_steps_per_sync,
+            "obs_normalization": self.obs_normalization,
+            "shared_obs_normalizer_stats": self.shared_obs_normalizer_stats,
         }
         self._start_collector(
             target_fn=off_policy_collector_fn,
@@ -233,7 +264,17 @@ class FastSACRunner(AsyncRunner):
 
             # Synchronized collection: wait for the collector to gather the next chunk.
             if self.sync_collection and collection_ready_queue is not None:
-                collection_ready_queue.get()
+                import queue
+                while True:
+                    try:
+                        collection_ready_queue.get(timeout=1.0)
+                        break
+                    except queue.Empty:
+                        if not self._check_collector_alive():
+                            self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
+                            logger.log_status("[red]ERROR: Collector process died. Exiting.[/]")
+                            logger.finish()
+                            return
             else:
                 # Async mode: wait for enough data, checking collector health
                 while shared_buffer.size < self.batch_size:
@@ -272,6 +313,9 @@ class FastSACRunner(AsyncRunner):
                         iter_metrics[k].append(v)
 
                 learner.soft_update_target()
+
+            if self.obs_normalization and getattr(learner, "obs_normalizer", None) is not None:
+                self.shared_obs_normalizer_stats.put((learner.obs_normalizer.mean.cpu().numpy(), learner.obs_normalizer.std.cpu().numpy()))
 
             learner.update_count += 1
             weight_sync.write_weights(learner.actor.state_dict())
