@@ -45,7 +45,7 @@ class FastSACRunner(AsyncRunner):
         critic_lr: float = 3e-4,
         alpha_lr: float = 3e-4,
         alpha_init: float = 0.001,
-        target_entropy_ratio: float = 0.0,
+        target_entropy_ratio: float = 1.0,
         actor_hidden_dim: int = 512,
         critic_hidden_dim: int = 768,
         num_atoms: int = 101,
@@ -219,8 +219,12 @@ class FastSACRunner(AsyncRunner):
             train_start = time.time()
             iter_metrics = defaultdict(list)
             ptr_before = shared_buffer.ptr
+            # Sample once for all updates, then slice on GPU — avoids N×CPU→GPU transfers
+            large_batch = shared_buffer.sample_torch(self.batch_size * self.updates_per_step, self.device)
             for update_idx in range(self.updates_per_step):
-                batch = shared_buffer.sample_torch(self.batch_size, self.device)
+                s = update_idx * self.batch_size
+                e = s + self.batch_size
+                batch = {k: v[s:e] for k, v in large_batch.items()}
                 critic_metrics = learner.update_critic(batch)
                 for k, v in critic_metrics.items():
                     iter_metrics[k].append(v)

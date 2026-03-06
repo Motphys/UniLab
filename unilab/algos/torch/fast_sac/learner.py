@@ -417,6 +417,7 @@ class FastSACLearner:
             lr=alpha_lr,
             fused=_fused,
             betas=(0.9, 0.95),
+            weight_decay=0.0,
         )
 
         # Step counter
