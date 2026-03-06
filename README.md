@@ -40,6 +40,22 @@ UniLab 采用**统一内存异构运算架构**：
 - [ ] @jdx  适配 motrixsim
 - [x] @yves 发布 mujoco-uni
 
+### MuJoCo 后端训练状态
+
+|   算法     | Go1 | Go2 | G1 |
+|------------|-----|-----|----|
+| ppo(torch) |  🔛 | 🔛  | 🔛 |
+| sac(torch) |  🔛 | ⚠️  | ⚠️ |
+| td3(torch) |  ⚠️ | 🔛  | ⚠️ |
+| ppo(mlx)   |  🔛 | 🔛  | 🔛 |
+| sac(mlx)   |  ⚠️ | ⚠️  | ⚠️ |
+| td3(mlx)   |  ⚠️ | ⚠️  | ⚠️ |
+
+**说明**：
+- ✅ 已支持 Full Command
+- 🔛 已支持 Simple Command
+- ⚠️ 开发中
+
 Thirdparty:
    1. https://github.com/mujocolab/mjlab
    2. https://github.com/amazon-far/holosoma
