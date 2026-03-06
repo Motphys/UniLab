@@ -8,7 +8,7 @@
 - [ ] @yves 把稳定的 FastTD3 和 FastSAC 迁移到 mlx
 - [x] @czx  写轻量版并行采样，跑满cpu 和 gpu @czx
 - [ ] @yves 优化调度器，跨 torch/mlx @yves
-- [ ] @yves 优化调度器，测试把 rollout 移动到 cpu 的效率提升
+- [x] @yves 优化调度器，测试把 rollout 移动到 cpu 的效率提升
 - [ ] @yves 设计统一训练框架，支持不同的算法（ppo、TD3、SAC）和后端（mlx 和 pytorch）
 - [ ] @jdx  适配 mimic/amp 算法，支持人形Whole-Body Tracking
 - [x] @yves 兼容 linux 平台
