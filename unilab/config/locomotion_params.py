@@ -181,7 +181,6 @@ def fast_sac_config(env_name: str) -> config_dict.ConfigDict:
         updates_per_step=4,
         warmup_steps=10000,
         replay_buffer_n=512,
-        num_steps_per_env=24,
         max_iterations=1500,
         save_interval=50,
         # Optimizer (AdamW, holosoma-style)
@@ -194,7 +193,6 @@ def fast_sac_config(env_name: str) -> config_dict.ConfigDict:
         alpha_init=0.01,
         target_entropy_ratio=0.0,
         policy_frequency=4,
-        exploration_noise=0.1,
     )
 
     if env_name in ("Go2JoystickFlatTerrain", "Go2LocoFlatTerrain"):

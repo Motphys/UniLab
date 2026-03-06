@@ -63,7 +63,6 @@ def main():
             device=args.device,
             collector_device=args.collector_device,
             num_envs=cfg.num_envs,
-            steps_per_env=cfg.num_steps_per_env,
             replay_buffer_n=cfg.replay_buffer_n,
             batch_size=cfg.batch_size,
             warmup_steps=cfg.warmup_steps,
@@ -79,7 +78,6 @@ def main():
             actor_hidden_dim=cfg.actor_hidden_dim,
             critic_hidden_dim=cfg.critic_hidden_dim,
             num_atoms=cfg.num_atoms,
-            exploration_noise=cfg.exploration_noise,
             use_layer_norm=cfg.use_layer_norm,
         )
 

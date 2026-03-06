@@ -30,11 +30,9 @@ class FastSACRunner(AsyncRunner):
     def __init__(
         self,
         env_name: str,
-        env_cfg_overrides: dict = None,
         device: str | None = None,
         collector_device: str | None = None,
         num_envs: int = 4096,
-        steps_per_env: int = 24,
         replay_buffer_n: int = 1024,
         batch_size: int = 8192,
         warmup_steps: int = 0,
@@ -51,27 +49,23 @@ class FastSACRunner(AsyncRunner):
         actor_hidden_dim: int = 512,
         critic_hidden_dim: int = 768,
         num_atoms: int = 101,
-        exploration_noise: float = 0.1,
         use_layer_norm: bool = True,
         max_grad_norm: float = 0.0,
-        **kwargs,
     ):
         super().__init__(
             env_name=env_name,
-            env_cfg_overrides=env_cfg_overrides or {},
+            env_cfg_overrides={},
             rl_cfg={},
             device=device,
             collector_device=collector_device,
             num_envs=num_envs,
         )
 
-        self.steps_per_env = steps_per_env
         self.replay_buffer_n = replay_buffer_n
         self.batch_size = batch_size
         self.warmup_steps = warmup_steps
         self.updates_per_step = updates_per_step
         self.policy_frequency = policy_frequency
-        self.exploration_noise = exploration_noise
         self.use_layer_norm = use_layer_norm
 
         # Learner hyperparameters
@@ -165,7 +159,6 @@ class FastSACRunner(AsyncRunner):
 
         collector_kwargs = {
             "env_name": self.env_name,
-            "env_cfg_overrides": self.env_cfg_overrides,
             "num_envs": self.num_envs,
             "shm_buffer_name": shared_buffer.name,
             "buffer_capacity": buffer_capacity,
@@ -178,7 +171,6 @@ class FastSACRunner(AsyncRunner):
             "actor_hidden_dim": self.actor_hidden_dim,
             "use_layer_norm": self.use_layer_norm,
             "collector_device": self.collector_device,
-            "exploration_noise": self.exploration_noise,
             "warmup_steps": self.warmup_steps,
             "metrics_queue": metrics_queue,
             "buffer_lock": shared_buffer._lock,

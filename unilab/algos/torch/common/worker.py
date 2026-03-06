@@ -46,7 +46,6 @@ def _build_actor(algo_type, obs_dim, action_dim, actor_hidden_dim, use_layer_nor
 def off_policy_collector_fn(
     stop_event,
     env_name: str,
-    env_cfg_overrides: dict,
     num_envs: int,
     shm_buffer_name: str,
     buffer_capacity: int,
@@ -70,7 +69,7 @@ def off_policy_collector_fn(
     try:
         _run_collector(
             stop_event=stop_event,
-            env_name=env_name, env_cfg_overrides=env_cfg_overrides,
+            env_name=env_name,
             num_envs=num_envs, shm_buffer_name=shm_buffer_name,
             buffer_capacity=buffer_capacity, obs_dim=obs_dim, action_dim=action_dim,
             weight_sync_name=weight_sync_name, weight_param_shapes=weight_param_shapes,
@@ -91,7 +90,7 @@ def off_policy_collector_fn(
 
 def _run_collector(
     stop_event,
-    env_name, env_cfg_overrides, num_envs,
+    env_name, num_envs,
     shm_buffer_name, buffer_capacity, obs_dim, action_dim,
     weight_sync_name, weight_param_shapes,
     algo_type, actor_hidden_dim, use_layer_norm, collector_device,
