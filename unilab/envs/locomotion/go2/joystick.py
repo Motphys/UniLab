@@ -36,15 +36,20 @@ class RewardConfig:
             "tracking_lin_vel": 1.0,
             "tracking_ang_vel": 0.2,
             "lin_vel_z": -5.0,
-            "ang_vel_xy": -0.1, #-0.02 #ppo
+            "ang_vel_xy": -0.02,
             "base_height": -100.0,
             "action_rate": -0.005,
             "similar_to_default": -0.1,
+            "alive": 0.0,
+            "foot_lift_reward": 0.2,
+            "foot_drag_penalty": -0.0,
         }
     )
 
     tracking_sigma: float = 0.25
     base_height_target: float = 0.3
+    target_foot_height: float = 0.08
+    foot_clearance_sigma: float = 0.02
 
 
 @registry.envcfg("Go2JoystickFlatTerrain")
@@ -80,6 +85,9 @@ class Go2WalkTaskMj(Go2BaseMjEnv):
             "action_rate": lambda s: self._reward_action_rate(s.info),
             "base_height": lambda s: self._reward_base_height(s),
             "similar_to_default": lambda s: self._reward_similar_to_default(s),
+            "alive": self._reward_alive,
+            "foot_lift_reward": self._reward_foot_lift,
+            "foot_drag_penalty": self._reward_foot_drag,
         }
 
     def _init_obs_space(self):
@@ -201,8 +209,14 @@ class Go2WalkTaskMj(Go2BaseMjEnv):
         return state
 
     def update_terminated(self, state: MjNpEnvState) -> MjNpEnvState:
-        is_fallen = (self.get_upvector(state)[:, 2] <= 0.5)
-        state.terminated = is_fallen
+        # Genesis termination uses roll/pitch absolute angle > 10 degrees.
+        local_gravity = -self.get_upvector(state)
+        sin_limit = math.sin(math.radians(20.0))
+        bad_roll_or_pitch = np.logical_or(
+            np.abs(local_gravity[:, 0]) > sin_limit,
+            np.abs(local_gravity[:, 1]) > sin_limit,
+        )
+        state.terminated = bad_roll_or_pitch
         return state
 
     def resample_commands(self, num_envs: int):
@@ -272,3 +286,46 @@ class Go2WalkTaskMj(Go2BaseMjEnv):
     def _reward_ang_vel_xy(self, state: MjNpEnvState):
         gyro = self.get_gyro(state)
         return np.sum(np.square(gyro[:, :2]), axis=1)
+
+    def _reward_alive(self, state: MjNpEnvState):
+        return np.ones((self._num_envs,), dtype=self._np_dtype)
+
+    def _reward_foot_lift(self, state: MjNpEnvState):
+        """
+        Positive reward for lifting the foot close to target_height during the swing phase.
+        Uses an exponential function: exp(-error^2 / sigma) so max reward is at target height.
+        """
+        foot_pos = self.get_foot_pos(state)
+        foot_heights = foot_pos[..., 2]
+        
+        foot_contact = self.get_foot_contact(state)
+        is_swing = (foot_contact < 0.5)
+        
+        target_height = self.cfg.reward_config.target_foot_height
+        sigma = self.cfg.reward_config.foot_clearance_sigma
+            
+        error_sq = np.square(foot_heights - target_height)
+        reward = np.exp(-error_sq / sigma) * is_swing
+            
+        return np.sum(reward, axis=1)
+
+    def _reward_foot_drag(self, state: MjNpEnvState):
+        """
+        Penalty (negative) for swing feet that are dangerously close to the ground.
+        Penalizes height < (target_height / 2).
+        """
+        foot_pos = self.get_foot_pos(state)
+        foot_heights = foot_pos[..., 2]
+        
+        foot_contact = self.get_foot_contact(state)
+        is_swing = (foot_contact < 0.5)
+        
+        # Define a safety threshold (e.g., half the target height)
+        safe_height = self.cfg.reward_config.target_foot_height / 2.0
+        
+        # Penalize feet that are below the safe height
+        height_error = np.clip(safe_height - foot_heights, 0.0, None)
+        
+        error = np.square(height_error) * is_swing
+            
+        return np.sum(error, axis=1)

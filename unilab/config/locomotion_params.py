@@ -198,8 +198,9 @@ def fast_sac_config(env_name: str) -> config_dict.ConfigDict:
     )
 
     if env_name in ("Go2JoystickFlatTerrain", "Go2LocoFlatTerrain"):
+        rl_config.gamma = 0.99
         rl_config.num_envs = 1024
-        rl_config.max_iterations = 2000
+        rl_config.max_iterations = 1500
     elif env_name in ("Go1JoystickFlatTerrain",):
         rl_config.num_envs = 1024
         rl_config.max_iterations = 2000

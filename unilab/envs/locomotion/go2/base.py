@@ -127,6 +127,15 @@ class Go2BaseMjEnv(MjNpEnv):
         # Resolve required sensors for observation/tracking.
         self.idx_global_linvel = self._get_sensor_indices("global_linvel")
         self.idx_upvector = self._get_sensor_indices("upvector")
+        
+        self.foot_names = ["FL_pos", "FR_pos", "RL_pos", "RR_pos"]
+        self.idx_foot_pos = [self._get_sensor_indices(name) for name in self.foot_names]
+
+        self.foot_vel_names = ["FL_vel", "FR_vel", "RL_vel", "RR_vel"]
+        self.idx_foot_vel = [self._get_sensor_indices(name) for name in self.foot_vel_names]
+
+        self.foot_contact_names = ["FL_foot_contact", "FR_foot_contact", "RL_foot_contact", "RR_foot_contact"]
+        self.idx_foot_contact = [self._get_sensor_indices(name) for name in self.foot_contact_names]
 
     def _get_sensor_indices(self, name):
         if name not in self.sensor_indices:
@@ -165,6 +174,21 @@ class Go2BaseMjEnv(MjNpEnv):
 
     def get_upvector(self, state: MjNpEnvState) -> np.ndarray:
         return state.sensor_data[:, self.idx_upvector]
+
+    def get_foot_pos(self, state: MjNpEnvState) -> np.ndarray:
+        # returns shape (num_envs, 4, 3)
+        foot_pos = [state.sensor_data[:, idx] for idx in self.idx_foot_pos]
+        return np.stack(foot_pos, axis=1)
+
+    def get_foot_vel(self, state: MjNpEnvState) -> np.ndarray:
+        # returns shape (num_envs, 4, 3)
+        foot_vel = [state.sensor_data[:, idx] for idx in self.idx_foot_vel]
+        return np.stack(foot_vel, axis=1)
+
+    def get_foot_contact(self, state: MjNpEnvState) -> np.ndarray:
+        # returns shape (num_envs, 4)
+        foot_contact = [state.sensor_data[:, idx[0]] for idx in self.idx_foot_contact]
+        return np.stack(foot_contact, axis=1)
         
     def _reward_lin_vel_z(self, state):
         global_linvel = self.get_global_linvel(state)
