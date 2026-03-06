@@ -36,6 +36,7 @@ def main():
     parser.add_argument("--play_only", action="store_true", help="Play mode only")
     parser.add_argument("--load_run", type=str, default="-1", help="Run ID to load or path")
     parser.add_argument("--play_env_num", type=int, default=16, help="Number of play envs")
+    parser.add_argument("--logger", type=str, default="tensorboard", choices=["tensorboard", "wandb", "none", "no_print"])
     args = parser.parse_args()
 
     ensure_registries()
@@ -88,6 +89,7 @@ def main():
             max_iterations=cfg.total_timesteps,
             save_interval=cfg.save_interval,
             log_dir=args.log_dir,
+            logger_type=args.logger,
         )
 
     else:

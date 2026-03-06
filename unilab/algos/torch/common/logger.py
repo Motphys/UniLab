@@ -102,6 +102,9 @@ class TrainingLogger:
         self.obs_dim = obs_dim
         self.action_dim = action_dim
 
+        self._no_print = (log_backend.lower() == "no_print")
+        self._log_backend = "none" if self._no_print else log_backend.lower()
+
         self._console = Console()
         self._live: Live | None = None
         self._refresh_rate = refresh_per_second
@@ -136,7 +139,6 @@ class TrainingLogger:
         self._last_save: str = ""
 
         # ---- Backend logging ----
-        self._log_backend = log_backend.lower()
         self._log_dir = log_dir
         self._tb_writer = None
         self._wandb_run = None
@@ -157,9 +159,11 @@ class TrainingLogger:
             tb_dir = os.path.join(log_dir, "tb")
             os.makedirs(tb_dir, exist_ok=True)
             self._tb_writer = SummaryWriter(log_dir=tb_dir)
-            self._console.print(f"[dim]TensorBoard logging to: {tb_dir}[/]")
+            if not self._no_print:
+                self._console.print(f"[dim]TensorBoard logging to: {tb_dir}[/]")
         except ImportError:
-            self._console.print("[yellow]tensorboard not installed, skipping TB logging[/]")
+            if not self._no_print:
+                self._console.print("[yellow]tensorboard not installed, skipping TB logging[/]")
 
     def _init_wandb(self, project: str, name: str, log_dir: str):
         """Initialize Weights & Biases run."""
@@ -179,9 +183,11 @@ class TrainingLogger:
                 dir=log_dir or None,
                 reinit=True,
             )
-            self._console.print(f"[dim]W&B logging to project: {project}, run: {name}[/]")
+            if not self._no_print:
+                self._console.print(f"[dim]W&B logging to project: {project}, run: {name}[/]")
         except ImportError:
-            self._console.print("[yellow]wandb not installed, skipping W&B logging[/]")
+            if not self._no_print:
+                self._console.print("[yellow]wandb not installed, skipping W&B logging[/]")
 
     # ---- Lifecycle ----
 
@@ -189,13 +195,14 @@ class TrainingLogger:
         """Begin the Live display."""
         self._start_time = time.time()
         self._status = "Warming up..."
-        self._live = Live(
-            self._build_display(),
-            console=self._console,
-            refresh_per_second=self._refresh_rate,
-            transient=False,
-        )
-        self._live.start()
+        if not self._no_print:
+            self._live = Live(
+                self._build_display(),
+                console=self._console,
+                refresh_per_second=self._refresh_rate,
+                transient=False,
+            )
+            self._live.start()
 
     def finish(self):
         """Stop the Live display and print a summary."""
@@ -205,19 +212,20 @@ class TrainingLogger:
             self._live = None
 
         elapsed = time.time() - self._start_time
-        self._console.print()
-        self._console.print(
-            Panel(
-                f"[bold green]Training complete[/]\n"
-                f"  Algo: [cyan]{self.algo_name}[/] | Env: [cyan]{self.env_name}[/]\n"
-                f"  Iterations: [yellow]{self._iteration}[/]/{self.max_iterations}\n"
-                f"  Total time: [yellow]{_fmt_time(elapsed)}[/]\n"
-                f"  Total env steps: [yellow]{self._total_steps:,}[/]\n"
-                + (f"  Last checkpoint: [dim]{self._last_save}[/]" if self._last_save else ""),
-                title="[bold]Training Summary[/]",
-                border_style="green",
+        if not self._no_print:
+            self._console.print()
+            self._console.print(
+                Panel(
+                    f"[bold green]Training complete[/]\n"
+                    f"  Algo: [cyan]{self.algo_name}[/] | Env: [cyan]{self.env_name}[/]\n"
+                    f"  Iterations: [yellow]{self._iteration}[/]/{self.max_iterations}\n"
+                    f"  Total time: [yellow]{_fmt_time(elapsed)}[/]\n"
+                    f"  Total env steps: [yellow]{self._total_steps:,}[/]\n"
+                    + (f"  Last checkpoint: [dim]{self._last_save}[/]" if self._last_save else ""),
+                    title="[bold]Training Summary[/]",
+                    border_style="green",
+                )
             )
-        )
 
         if self._tb_writer:
             self._tb_writer.close()
