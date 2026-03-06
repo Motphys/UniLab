@@ -30,6 +30,7 @@ class FastSACRunner(AsyncRunner):
     def __init__(
         self,
         env_name: str,
+        env_cfg_overrides: dict = None,
         device: str | None = None,
         collector_device: str | None = None,
         num_envs: int = 4096,

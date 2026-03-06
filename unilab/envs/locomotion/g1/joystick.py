@@ -20,7 +20,7 @@ class InitState:
 
 @dataclass
 class Commands:
-    # Fixed forward command — PPO baseline.
+    # Fixed forward command for fastest convergence.
     vel_limit = [
         [0.5, 0.0, 0.0],
         [0.5, 0.0, 0.0],
@@ -36,10 +36,11 @@ class RewardConfig:
             "feet_phase": 1.0,
             "lin_vel_z": -1.0,
             "ang_vel_xy": -0.25,
+            "base_height": -500.0,
             "orientation": -5.0,
             "action_rate": -0.01,
-            "pose": -0.1,
-            "alive": 10.0,
+            # "similar_to_default": -0.02,
+            "pose": -0.1, #-0.02,
         }
     )
     tracking_sigma: float = 0.25
@@ -53,8 +54,8 @@ class RewardConfig:
         default_factory=lambda: [
             0.01, 1.0, 5.0, 0.01, 5.0, 5.0,
             0.01, 1.0, 5.0, 0.01, 5.0, 5.0,
-            50.0, 50.0, 50.0,
-            50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0,
+            50.0, 50.0, 50.0, 
+            50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 
             50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0,
         ]
     )
@@ -86,14 +87,6 @@ class G1WalkTaskMj(G1BaseMjEnv):
             )
         self._init_reward_functions()
         self._init_obs_space()
-        # Episodic reward accumulators (holosoma-style logging)
-        self._episode_reward_sums: dict[str, np.ndarray] = {
-            name: np.zeros(self._num_envs, dtype=np.float64)
-            for name in self.cfg.reward_config.scales
-        }
-        self._episode_steps = np.zeros(self._num_envs, dtype=np.int32)
-        self._pending_reset_log: dict[str, float] = {}
-        self._max_episode_steps: int = self.cfg.max_episode_steps or 1
 
     def _init_reward_functions(self):
         self._reward_fns = {
@@ -104,8 +97,9 @@ class G1WalkTaskMj(G1BaseMjEnv):
             "orientation": self._reward_orientation,
             "ang_vel_xy": self._reward_ang_vel_xy,
             "action_rate": lambda s: self._reward_action_rate(s.info),
+            "base_height": self._reward_base_height,
+            # "similar_to_default": self._reward_similar_to_default,
             "pose": self._reward_pose,
-            "alive": lambda s: np.ones(self._num_envs, dtype=self._np_dtype),
         }
 
     def _init_obs_space(self):
@@ -215,12 +209,9 @@ class G1WalkTaskMj(G1BaseMjEnv):
     def _compute_rewards(self, state: MjNpEnvState) -> MjNpEnvState:
         self._advance_gait_phase(state.info)
         total_reward = np.zeros((self._num_envs,), dtype=self._np_dtype)
-
-        # Emit log flushed from previous truncated resets
-        log: dict = {}
-        if self._pending_reset_log:
-            log.update(self._pending_reset_log)
-            self._pending_reset_log = {}
+        step_count = state.info.get("steps", np.zeros((self._num_envs,), dtype=np.uint32))
+        should_log = self._enable_reward_log and (int(step_count[0]) % 4 == 0)
+        log = {} if should_log else state.info.get("log", {})
 
         for name, scale in self.cfg.reward_config.scales.items():
             if scale == 0 or name not in self._reward_fns:
@@ -228,22 +219,8 @@ class G1WalkTaskMj(G1BaseMjEnv):
             rew = self._reward_fns[name](state)
             weighted_rew = rew * scale
             total_reward += weighted_rew
-            self._episode_reward_sums[name] += weighted_rew.astype(np.float64)
-
-        self._episode_steps += 1
-
-        # Log episodic mean for terminated envs, then reset their accumulators
-        terminated = state.terminated
-        if self._enable_reward_log and terminated is not None:
-            done_idx = np.where(terminated)[0]
-            if len(done_idx) > 0:
-                for name in self._episode_reward_sums:
-                    log[f"reward/{name}"] = float(
-                        np.mean(self._episode_reward_sums[name][done_idx]) / self._max_episode_steps
-                    )
-                for name in self._episode_reward_sums:
-                    self._episode_reward_sums[name][done_idx] = 0.0
-                self._episode_steps[done_idx] = 0
+            if should_log:
+                log[f"reward/{name}"] = float(np.mean(weighted_rew))
 
         state.info["log"] = log
         state.info["reward_components"] = {}
@@ -276,21 +253,6 @@ class G1WalkTaskMj(G1BaseMjEnv):
         return low + (high - low) * np.random.uniform(size=(num_envs, 3)).astype(self._np_dtype)
 
     def reset(self, env_indices: np.ndarray):
-        # Flush episodic log for truncated envs (terminated ones logged in _compute_rewards)
-        if self._enable_reward_log and len(env_indices) > 0:
-            active_mask = self._episode_steps[env_indices] > 0
-            active_idx = env_indices[active_mask]
-            if len(active_idx) > 0:
-                log = {}
-                for name in self._episode_reward_sums:
-                    log[f"reward/{name}"] = float(
-                        np.mean(self._episode_reward_sums[name][active_idx]) / self._max_episode_steps
-                    )
-                self._pending_reset_log = log
-        for name in self._episode_reward_sums:
-            self._episode_reward_sums[name][env_indices] = 0.0
-        self._episode_steps[env_indices] = 0
-
         num_reset = len(env_indices)
         init_qpos_np = np.asarray(self._init_qpos, dtype=np.float64)
         init_dof_vel_np = np.asarray(self._init_dof_vel, dtype=np.float64)
@@ -465,6 +427,9 @@ class G1WalkTaskMjSAC(G1WalkTaskMj):
         return qpos_batch, qvel_batch
 
     def reset(self, env_indices: np.ndarray):
+        # Ensure env_indices is numpy array
+        env_indices = np.asarray(env_indices, dtype=np.int32)
+
         # Flush episodic log for truncated envs
         if self._enable_reward_log and len(env_indices) > 0:
             active_mask = self._episode_steps[env_indices] > 0

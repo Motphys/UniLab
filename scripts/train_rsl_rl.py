@@ -116,14 +116,10 @@ class RslRlVecEnvWrapper:
         return obs_dict, rewards, dones, infos
 
     def reset(self):
-        # Reset all environments (MLX backend expects mx.array for env_indices)
+        # Reset all environments
         if self.env.state is None:
             self.env.init_state()
-        try:
-            import mlx.core as mx
-            env_indices = mx.arange(self.num_envs, dtype=mx.int32)
-        except ImportError:
-            env_indices = np.arange(self.num_envs)
+        env_indices = np.arange(self.num_envs, dtype=np.int32)
         _, obs_out, _ = self.env.reset(env_indices)
         obs = to_torch(obs_out, self.device)
 
