@@ -46,7 +46,6 @@ def _build_actor(algo_type, obs_dim, action_dim, actor_hidden_dim, use_layer_nor
 def off_policy_collector_fn(
     stop_event,
     env_name: str,
-    env_cfg_overrides: dict,
     num_envs: int,
     shm_buffer_name: str,
     buffer_capacity: int,
@@ -63,14 +62,20 @@ def off_policy_collector_fn(
     metrics_queue=None,
     buffer_lock=None,
     weight_sync_lock=None,
+    sync_collection: bool = False,
+    collection_ready_queue=None,
+    trainer_done_queue=None,
+    env_steps_per_sync: int = 1,
     **kwargs,
 ):
     """Entry point for the off-policy collector subprocess."""
     import traceback
+    import sys
     try:
+        print("[Collector] Entry point called", file=sys.stderr, flush=True)
         _run_collector(
             stop_event=stop_event,
-            env_name=env_name, env_cfg_overrides=env_cfg_overrides,
+            env_name=env_name,
             num_envs=num_envs, shm_buffer_name=shm_buffer_name,
             buffer_capacity=buffer_capacity, obs_dim=obs_dim, action_dim=action_dim,
             weight_sync_name=weight_sync_name, weight_param_shapes=weight_param_shapes,
@@ -78,10 +83,13 @@ def off_policy_collector_fn(
             use_layer_norm=use_layer_norm, collector_device=collector_device,
             exploration_noise=exploration_noise, warmup_steps=warmup_steps,
             metrics_queue=metrics_queue, buffer_lock=buffer_lock,
-            weight_sync_lock=weight_sync_lock,
+            weight_sync_lock=weight_sync_lock, sync_collection=sync_collection,
+            collection_ready_queue=collection_ready_queue, trainer_done_queue=trainer_done_queue,
+            env_steps_per_sync=env_steps_per_sync,
         )
     except Exception as e:
-        traceback.print_exc()
+        print(f"[Collector] Exception: {e}", file=sys.stderr, flush=True)
+        traceback.print_exc(file=sys.stderr)
         if metrics_queue is not None:
             try:
                 metrics_queue.put_nowait({"error": str(e)})
@@ -91,12 +99,12 @@ def off_policy_collector_fn(
 
 def _run_collector(
     stop_event,
-    env_name, env_cfg_overrides, num_envs,
+    env_name, num_envs,
     shm_buffer_name, buffer_capacity, obs_dim, action_dim,
     weight_sync_name, weight_param_shapes,
     algo_type, actor_hidden_dim, use_layer_norm, collector_device,
     exploration_noise, warmup_steps, metrics_queue, buffer_lock,
-    weight_sync_lock,
+    weight_sync_lock, sync_collection, collection_ready_queue, trainer_done_queue, env_steps_per_sync,
 ):
     from unilab.ipc import SharedReplayBuffer, SharedWeightSync
     from unilab.envs import registry
@@ -152,6 +160,10 @@ def _run_collector(
             state.info["steps"][:] = step_offsets
     import time as _time
     _last_log_time = _time.time()
+
+    # Track env.step calls collected since the last learner phase.
+    env_steps_since_sync = 0
+
 
     # Collection loop
     while not stop_event.is_set():
@@ -225,13 +237,19 @@ def _run_collector(
 
         obs_np = next_obs_np
         total_steps += num_envs
+        env_steps_since_sync += 1
+
+        # Signal the learner once this collection chunk is ready.
+        if sync_collection and collection_ready_queue is not None and trainer_done_queue is not None:
+            if env_steps_since_sync >= env_steps_per_sync:
+                collection_ready_queue.put(1)
+                trainer_done_queue.get()  # Wait for trainer
+                env_steps_since_sync = 0
 
         # Progress log every 2 seconds
         now = _time.time()
         if now - _last_log_time > 2.0:
             _last_log_time = now
-            phase = "warmup" if total_steps < warmup_steps else "policy"
-            mean_r = np.mean(ep_rewards[-50:]) if ep_rewards else 0.0
 
         # Extract reward components from env info
         log_info = state.info.get("log", {})

@@ -133,6 +133,8 @@ class TrainingLogger:
         self._timeout_rate: float = 0.0
         self._terminated_rate: float = 0.0
         self._buffer_utilization: float = 0.0
+        self._sync_collection: bool = False
+        self._env_steps_per_sync: int = 0
 
         # Status message
         self._status: str = "Initializing..."
@@ -262,6 +264,11 @@ class TrainingLogger:
     def update_buffer_utilization(self, utilization: float):
         """Update buffer fill ratio (0.0–1.0). Displayed in the timing panel."""
         self._buffer_utilization = float(utilization)
+
+    def set_collection_sync(self, enabled: bool, env_steps_per_sync: int = 0):
+        """Set collection/training synchronization status for display."""
+        self._sync_collection = enabled
+        self._env_steps_per_sync = env_steps_per_sync
 
     def log_collector(self, total_steps: int, buffer_size: int, mean_reward: float = 0.0):
         """Update collector progress (called periodically from metrics queue drain)."""
@@ -559,7 +566,7 @@ class TrainingLogger:
 
         table.add_row(
             "Envs", f"{self.num_envs:,}",
-            "", ""
+            "Sync Collect", f"{'✓' if self._sync_collection else '✗'} ({self._env_steps_per_sync})" if self._sync_collection else "✗"
         )
 
         # Steps per second

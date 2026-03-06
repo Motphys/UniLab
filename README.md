@@ -1,5 +1,30 @@
 # UniLab
 
+## 设计哲学
+
+UniLab 的核心目标是验证一个命题：**robot locomotion RL 不需要依赖 GPU 仿真后端**。
+
+主流框架（Isaac Lab、holosoma 等）将物理仿真、replay buffer、策略训练全部放在 GPU 上，形成紧耦合的全 GPU pipeline。这带来极高的吞吐量，但也引入了强硬件依赖（需要高端 CUDA GPU）和架构复杂度（CUDA graph、warp kernel、GPU 内存管理）。
+
+UniLab 采用**统一内存异构运算架构**：
+
+```
+┌───────────────────┐     统一共享内存     ┌────────────────────┐
+│   CPU 物理仿真    │ ──────────────────▶  │   GPU 策略训练     │
+│  mujoco.rollout   │   SharedReplayBuffer │  PPO / SAC / TD3   │
+│    多线程并行     │     (POSIX shm)      │    CUDA / MPS      │
+└───────────────────┘                      └────────────────────┘
+```
+
+- **CPU 仿真**：MuJoCo 的 CPU 多线程 rollout，无需 GPU 仿真内核
+- **统一内存**：Collector 和 Learner 通过共享内存解耦，运行在独立进程
+- **GPU 训练**：策略网络仍在 GPU 上训练，发挥 GPU 的并行计算优势
+- **硬件无关**：Mac（MPS）、Linux（CUDA）均可运行
+
+这不是对 GPU pipeline 的妥协，而是对"异构运算各司其职"的主动选择。
+
+---
+
 ## TODO
 
 - [x] 增加 Bipedal Locomotion 任务

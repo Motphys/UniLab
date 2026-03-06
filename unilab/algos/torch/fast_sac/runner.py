@@ -30,16 +30,17 @@ class FastSACRunner(AsyncRunner):
     def __init__(
         self,
         env_name: str,
-        env_cfg_overrides: dict = None,
         device: str | None = None,
         collector_device: str | None = None,
         num_envs: int = 4096,
-        steps_per_env: int = 24,
         replay_buffer_n: int = 1024,
         batch_size: int = 8192,
         warmup_steps: int = 0,
         updates_per_step: int = 8,
         policy_frequency: int = 4,
+        # Collection/training synchronization
+        sync_collection: bool = False,
+        env_steps_per_sync: int = 1,
         # Holosoma-aligned defaults
         gamma: float = 0.97,
         tau: float = 0.125,
@@ -47,32 +48,30 @@ class FastSACRunner(AsyncRunner):
         critic_lr: float = 3e-4,
         alpha_lr: float = 3e-4,
         alpha_init: float = 0.001,
-        target_entropy_ratio: float = 0.0,
+        target_entropy_ratio: float = 1.0,
         actor_hidden_dim: int = 512,
         critic_hidden_dim: int = 768,
         num_atoms: int = 101,
-        exploration_noise: float = 0.1,
         use_layer_norm: bool = True,
         max_grad_norm: float = 0.0,
-        **kwargs,
     ):
         super().__init__(
             env_name=env_name,
-            env_cfg_overrides=env_cfg_overrides or {},
+            env_cfg_overrides={},
             rl_cfg={},
             device=device,
             collector_device=collector_device,
             num_envs=num_envs,
         )
 
-        self.steps_per_env = steps_per_env
         self.replay_buffer_n = replay_buffer_n
         self.batch_size = batch_size
         self.warmup_steps = warmup_steps
         self.updates_per_step = updates_per_step
         self.policy_frequency = policy_frequency
-        self.exploration_noise = exploration_noise
         self.use_layer_norm = use_layer_norm
+        self.sync_collection = sync_collection
+        self.env_steps_per_sync = env_steps_per_sync
 
         # Learner hyperparameters
         self.gamma = gamma
@@ -158,6 +157,15 @@ class FastSACRunner(AsyncRunner):
         )
         self._shared_resources.append(weight_sync)
 
+        # Coordinator for synchronized collection/training
+        collection_ready_queue = None
+        trainer_done_queue = None
+        if self.sync_collection:
+            collection_ready_queue = _SPAWN_CTX.Queue(maxsize=1)
+            trainer_done_queue = _SPAWN_CTX.Queue(maxsize=1)
+            trainer_done_queue.put(1)  # Initial signal
+            print(f"[Runner] Collection sync enabled: env_steps_per_sync={self.env_steps_per_sync}")
+
         metrics_queue = _SPAWN_CTX.Queue(maxsize=100)
 
         weight_param_shapes = {
@@ -166,7 +174,6 @@ class FastSACRunner(AsyncRunner):
 
         collector_kwargs = {
             "env_name": self.env_name,
-            "env_cfg_overrides": self.env_cfg_overrides,
             "num_envs": self.num_envs,
             "shm_buffer_name": shared_buffer.name,
             "buffer_capacity": buffer_capacity,
@@ -179,15 +186,28 @@ class FastSACRunner(AsyncRunner):
             "actor_hidden_dim": self.actor_hidden_dim,
             "use_layer_norm": self.use_layer_norm,
             "collector_device": self.collector_device,
-            "exploration_noise": self.exploration_noise,
             "warmup_steps": self.warmup_steps,
             "metrics_queue": metrics_queue,
             "buffer_lock": shared_buffer._lock,
+            "sync_collection": self.sync_collection,
+            "collection_ready_queue": collection_ready_queue,
+            "trainer_done_queue": trainer_done_queue,
+            "env_steps_per_sync": self.env_steps_per_sync,
         }
         self._start_collector(
             target_fn=off_policy_collector_fn,
             kwargs={"stop_event": self._stop_event, **collector_kwargs},
         )
+
+        # Check if collector started
+        import time
+        time.sleep(0.5)
+        if self._collector_process is not None:
+            print(f"[Runner] Collector process alive: {self._collector_process.is_alive()}")
+            if not self._collector_process.is_alive():
+                print(f"[Runner] Collector process exit code: {self._collector_process.exitcode}")
+        else:
+            print("[Runner] Collector process is None!")
 
         logger = TrainingLogger(
             algo_name="FastSAC",
@@ -199,6 +219,7 @@ class FastSACRunner(AsyncRunner):
             log_dir=log_dir,
             log_backend=logger_type,
         )
+        logger.set_collection_sync(self.sync_collection, self.env_steps_per_sync)
         logger.start()
 
         reward_history = deque(maxlen=100)
@@ -208,20 +229,25 @@ class FastSACRunner(AsyncRunner):
 
         for iteration in range(1, max_iterations + 1):
             iter_start = time.time()
-            # Wait for enough data, checking collector health
-            while shared_buffer.size < self.batch_size:
-                if not self._check_collector_alive():
+
+            # Synchronized collection: wait for the collector to gather the next chunk.
+            if self.sync_collection and collection_ready_queue is not None:
+                collection_ready_queue.get()
+            else:
+                # Async mode: wait for enough data, checking collector health
+                while shared_buffer.size < self.batch_size:
+                    if not self._check_collector_alive():
+                        self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
+                        logger.log_status("[red]ERROR: Collector process died. Exiting.[/]")
+                        logger.finish()
+                        return
+                    # Progress during buffer fill
+                    cur_size = shared_buffer.size
+                    if cur_size - last_buf_log >= self.num_envs * 10:
+                        last_buf_log = cur_size
+                        logger.log_buffer_fill(cur_size, self.batch_size)
+                    time.sleep(0.1)
                     self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
-                    logger.log_status("[red]ERROR: Collector process died. Exiting.[/]")
-                    logger.finish()
-                    return
-                # Progress during buffer fill
-                cur_size = shared_buffer.size
-                if cur_size - last_buf_log >= self.num_envs * 10:
-                    last_buf_log = cur_size
-                    logger.log_buffer_fill(cur_size, self.batch_size)
-                time.sleep(0.1)
-                self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
 
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
             collect_time = time.time() - iter_start
@@ -229,8 +255,12 @@ class FastSACRunner(AsyncRunner):
             train_start = time.time()
             iter_metrics = defaultdict(list)
             ptr_before = shared_buffer.ptr
+            # Sample once for all updates, then slice on GPU — avoids N×CPU→GPU transfers
+            large_batch = shared_buffer.sample_torch(self.batch_size * self.updates_per_step, self.device)
             for update_idx in range(self.updates_per_step):
-                batch = shared_buffer.sample_torch(self.batch_size, self.device)
+                s = update_idx * self.batch_size
+                e = s + self.batch_size
+                batch = {k: v[s:e] for k, v in large_batch.items()}
                 critic_metrics = learner.update_critic(batch)
                 for k, v in critic_metrics.items():
                     iter_metrics[k].append(v)
@@ -245,6 +275,10 @@ class FastSACRunner(AsyncRunner):
             learner.update_count += 1
             weight_sync.write_weights(learner.actor.state_dict())
             train_time = time.time() - train_start
+
+            # Let collection resume after the learner finishes this phase.
+            if self.sync_collection and trainer_done_queue is not None:
+                trainer_done_queue.put(1)
 
             write_delta = shared_buffer.ptr - ptr_before
             consume = self.batch_size * self.updates_per_step

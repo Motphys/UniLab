@@ -34,6 +34,8 @@ def main():
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--collector_device", type=str, default=None)
     parser.add_argument("--log_dir", type=str, default=None)
+    parser.add_argument("--sync_collection", action="store_true", help="Pause collection while the learner trains")
+    parser.add_argument("--env_steps_per_sync", type=int, default=1, help="Collector env.step calls to gather before each learner phase")
     parser.add_argument("--play_only", action="store_true", help="Play mode only")
     parser.add_argument("--load_run", type=str, default="-1", help="Run ID to load or path")
     parser.add_argument("--play_env_num", type=int, default=16, help="Number of play envs")
@@ -64,7 +66,6 @@ def main():
             device=args.device,
             collector_device=args.collector_device,
             num_envs=cfg.num_envs,
-            steps_per_env=cfg.num_steps_per_env,
             replay_buffer_n=cfg.replay_buffer_n,
             batch_size=cfg.batch_size,
             warmup_steps=cfg.warmup_steps,
@@ -80,8 +81,9 @@ def main():
             actor_hidden_dim=cfg.actor_hidden_dim,
             critic_hidden_dim=cfg.critic_hidden_dim,
             num_atoms=cfg.num_atoms,
-            exploration_noise=cfg.exploration_noise,
             use_layer_norm=cfg.use_layer_norm,
+            sync_collection=args.sync_collection,
+            env_steps_per_sync=args.env_steps_per_sync,
         )
 
         try:
@@ -100,19 +102,16 @@ def main():
         import numpy as np
         import mediapy as media
         from unilab.envs import registry
-        from unilab.utils.run_utils import get_latest_run
         from unilab.utils import render_many
         from unilab.algos.torch.common.worker import _build_actor
 
         device = args.device or ("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
         print(f"Using device for play: {device}")
 
-        # Create env
         env = registry.make(args.task, num_envs=args.play_env_num, sim_backend="mujoco")
         obs_dim = env.observation_space.shape[0]
         action_dim = env.action_space.shape[0]
 
-        # Build actor
         actor = _build_actor(
             algo_type="sac",
             obs_dim=obs_dim,
@@ -121,54 +120,52 @@ def main():
             use_layer_norm=cfg.use_layer_norm,
             device=device,
         )
-        actor.eval()
 
-        # Load weights
+        # Resolve checkpoint path
         base_log_dir = os.path.join(ROOT_DIR, "logs", "fast_sac", args.task)
-        if args.task.endswith("Play") and (not os.path.exists(base_log_dir) or not os.listdir(base_log_dir)):
-            base_log_dir = os.path.join(ROOT_DIR, "logs", "fast_sac", args.task[:-4])
-
         load_path = None
+        load_path_dir = None
         if args.load_run == "-1":
             if os.path.exists(base_log_dir):
                 all_runs = sorted([d for d in os.listdir(base_log_dir) if os.path.isdir(os.path.join(base_log_dir, d))])
                 if all_runs:
                     latest_run_dir = os.path.join(base_log_dir, all_runs[-1])
-                    model_files = [f for f in os.listdir(latest_run_dir) if f.startswith("model_") and f.endswith(".pt")]
+                    model_files = sorted(
+                        [f for f in os.listdir(latest_run_dir) if f.startswith("model_") and f.endswith(".pt")],
+                        key=lambda x: int(x.split("_")[1].split(".")[0]),
+                    )
                     if model_files:
-                        model_files.sort(key=lambda x: int(x.split("_")[1].split(".")[0]))
                         load_path = os.path.join(latest_run_dir, model_files[-1])
                         load_path_dir = latest_run_dir
+        elif os.path.exists(args.load_run):
+            load_path = args.load_run
+            load_path_dir = os.path.dirname(load_path)
         else:
-            if os.path.exists(args.load_run):
-                load_path = args.load_run
-                load_path_dir = os.path.dirname(load_path)
-            else:
-                potential_dir = os.path.join(base_log_dir, args.load_run)
-                if os.path.isdir(potential_dir):
-                    model_files = [f for f in os.listdir(potential_dir) if f.startswith("model_") and f.endswith(".pt")]
-                    if model_files:
-                        model_files.sort(key=lambda x: int(x.split("_")[1].split(".")[0]))
-                        load_path = os.path.join(potential_dir, model_files[-1])
-                        load_path_dir = potential_dir
+            potential_dir = os.path.join(base_log_dir, args.load_run)
+            if os.path.isdir(potential_dir):
+                model_files = sorted(
+                    [f for f in os.listdir(potential_dir) if f.startswith("model_") and f.endswith(".pt")],
+                    key=lambda x: int(x.split("_")[1].split(".")[0]),
+                )
+                if model_files:
+                    load_path = os.path.join(potential_dir, model_files[-1])
+                    load_path_dir = potential_dir
 
         if not load_path or not os.path.exists(load_path):
-            print(f"Could not find run to load. load_path={load_path}")
+            print(f"Could not find checkpoint. load_path={load_path}")
             sys.exit(1)
 
         print(f"Loading model: {load_path}")
         checkpoint = torch.load(load_path, map_location=device, weights_only=True)
-        # FastSAC Learner get_state_dict() returns {"actor": ..., "qnet": ...}
         actor.load_state_dict(checkpoint["actor"])
+        actor.eval()
 
         output_video = os.path.join(load_path_dir, "play_video.mp4")
         print(f"Rendering video to {output_video}...")
 
-        # Reset Env
         if env.state is None:
             env.init_state()
         env_indices = np.arange(args.play_env_num, dtype=np.int32)
-            
         _, obs_out, _ = env.reset(env_indices)
         obs_np = np.asarray(obs_out, dtype=np.float32)
 
@@ -179,33 +176,22 @@ def main():
         with torch.inference_mode():
             for _ in range(num_steps):
                 obs_torch = torch.from_numpy(obs_np).to(device)
-                
-                # SAC explore with deterministic=True
-                actions_torch = actor.explore(obs_torch, deterministic=True)
-                actions_np = actions_torch.cpu().numpy()
-                
+                actions_np = actor.explore(obs_torch, deterministic=True).cpu().numpy()
                 state = env.step(actions_np)
-                
-                if hasattr(state, "obs"):
-                    next_obs_raw = state.obs
-                else:
-                    next_obs_raw = state[0]
-                    
-                obs_np = np.asarray(next_obs_raw, dtype=np.float32)
-                    
+                obs_np = np.asarray(state.obs, dtype=np.float32)
                 state_list.append(np.asarray(env.state.physics_state, dtype=np.float32).copy())
 
         print("Rendering frames...")
         frames = render_many.render_states_get_frames(
-            state_list, 
-            env.cfg.model_file, 
+            state_list,
+            env.cfg.model_file,
             width=1280,
             height=720,
-            camera_id=-1 
+            camera_id=-1,
         )
 
         print(f"Saving video to {output_video} with mediapy...")
-        media.write_video(str(output_video), frames, fps=int(1.0/env.cfg.ctrl_dt))
+        media.write_video(str(output_video), frames, fps=int(1.0 / env.cfg.ctrl_dt))
         print("Done.")
 
 

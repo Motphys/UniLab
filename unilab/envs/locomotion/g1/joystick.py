@@ -20,7 +20,7 @@ class InitState:
 
 @dataclass
 class Commands:
-    # Fixed forward command for fastest convergence.
+    # Fixed forward command — PPO baseline.
     vel_limit = [
         [0.5, 0.0, 0.0],
         [0.5, 0.0, 0.0],
@@ -36,11 +36,10 @@ class RewardConfig:
             "feet_phase": 1.0,
             "lin_vel_z": -1.0,
             "ang_vel_xy": -0.25,
-            "base_height": -500.0,
             "orientation": -5.0,
             "action_rate": -0.01,
-            # "similar_to_default": -0.02,
-            "pose": -0.1, #-0.02,
+            "pose": -0.1,
+            "alive": 10.0,
         }
     )
     tracking_sigma: float = 0.25
@@ -54,8 +53,8 @@ class RewardConfig:
         default_factory=lambda: [
             0.01, 1.0, 5.0, 0.01, 5.0, 5.0,
             0.01, 1.0, 5.0, 0.01, 5.0, 5.0,
-            50.0, 50.0, 50.0, 
-            50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 
+            50.0, 50.0, 50.0,
+            50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0,
             50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0,
         ]
     )
@@ -87,6 +86,14 @@ class G1WalkTaskMj(G1BaseMjEnv):
             )
         self._init_reward_functions()
         self._init_obs_space()
+        # Episodic reward accumulators (holosoma-style logging)
+        self._episode_reward_sums: dict[str, np.ndarray] = {
+            name: np.zeros(self._num_envs, dtype=np.float64)
+            for name in self.cfg.reward_config.scales
+        }
+        self._episode_steps = np.zeros(self._num_envs, dtype=np.int32)
+        self._pending_reset_log: dict[str, float] = {}
+        self._max_episode_steps: int = self.cfg.max_episode_steps or 1
 
     def _init_reward_functions(self):
         self._reward_fns = {
@@ -97,9 +104,8 @@ class G1WalkTaskMj(G1BaseMjEnv):
             "orientation": self._reward_orientation,
             "ang_vel_xy": self._reward_ang_vel_xy,
             "action_rate": lambda s: self._reward_action_rate(s.info),
-            "base_height": self._reward_base_height,
-            # "similar_to_default": self._reward_similar_to_default,
             "pose": self._reward_pose,
+            "alive": lambda s: np.ones(self._num_envs, dtype=self._np_dtype),
         }
 
     def _init_obs_space(self):
@@ -209,9 +215,12 @@ class G1WalkTaskMj(G1BaseMjEnv):
     def _compute_rewards(self, state: MjNpEnvState) -> MjNpEnvState:
         self._advance_gait_phase(state.info)
         total_reward = np.zeros((self._num_envs,), dtype=self._np_dtype)
-        step_count = state.info.get("steps", np.zeros((self._num_envs,), dtype=np.uint32))
-        should_log = self._enable_reward_log and (int(step_count[0]) % 4 == 0)
-        log = {} if should_log else state.info.get("log", {})
+
+        # Emit log flushed from previous truncated resets
+        log: dict = {}
+        if self._pending_reset_log:
+            log.update(self._pending_reset_log)
+            self._pending_reset_log = {}
 
         for name, scale in self.cfg.reward_config.scales.items():
             if scale == 0 or name not in self._reward_fns:
@@ -219,8 +228,22 @@ class G1WalkTaskMj(G1BaseMjEnv):
             rew = self._reward_fns[name](state)
             weighted_rew = rew * scale
             total_reward += weighted_rew
-            if should_log:
-                log[f"reward/{name}"] = float(np.mean(weighted_rew))
+            self._episode_reward_sums[name] += weighted_rew.astype(np.float64)
+
+        self._episode_steps += 1
+
+        # Log episodic mean for terminated envs, then reset their accumulators
+        terminated = state.terminated
+        if self._enable_reward_log and terminated is not None:
+            done_idx = np.where(terminated)[0]
+            if len(done_idx) > 0:
+                for name in self._episode_reward_sums:
+                    log[f"reward/{name}"] = float(
+                        np.mean(self._episode_reward_sums[name][done_idx]) / self._max_episode_steps
+                    )
+                for name in self._episode_reward_sums:
+                    self._episode_reward_sums[name][done_idx] = 0.0
+                self._episode_steps[done_idx] = 0
 
         state.info["log"] = log
         state.info["reward_components"] = {}
@@ -253,6 +276,21 @@ class G1WalkTaskMj(G1BaseMjEnv):
         return low + (high - low) * np.random.uniform(size=(num_envs, 3)).astype(self._np_dtype)
 
     def reset(self, env_indices: np.ndarray):
+        # Flush episodic log for truncated envs (terminated ones logged in _compute_rewards)
+        if self._enable_reward_log and len(env_indices) > 0:
+            active_mask = self._episode_steps[env_indices] > 0
+            active_idx = env_indices[active_mask]
+            if len(active_idx) > 0:
+                log = {}
+                for name in self._episode_reward_sums:
+                    log[f"reward/{name}"] = float(
+                        np.mean(self._episode_reward_sums[name][active_idx]) / self._max_episode_steps
+                    )
+                self._pending_reset_log = log
+        for name in self._episode_reward_sums:
+            self._episode_reward_sums[name][env_indices] = 0.0
+        self._episode_steps[env_indices] = 0
+
         num_reset = len(env_indices)
         init_qpos_np = np.asarray(self._init_qpos, dtype=np.float64)
         init_dof_vel_np = np.asarray(self._init_dof_vel, dtype=np.float64)
@@ -260,7 +298,6 @@ class G1WalkTaskMj(G1BaseMjEnv):
         qvel_batch = np.zeros((num_reset, self.nv), dtype=np.float64)
         qvel_batch[:, 6:] = init_dof_vel_np
 
-        # Light randomization
         dxy = np.random.uniform(-0.2, 0.2, (num_reset, 2))
         qpos_batch[:, 0:2] += dxy
         yaw = np.random.uniform(-(math.pi / 6.0), math.pi / 6.0, num_reset)
@@ -303,3 +340,169 @@ class G1WalkTaskMj(G1BaseMjEnv):
     def _reward_tracking_ang_vel(self, state: MjNpEnvState, commands: np.ndarray):
         ang_vel_error = np.square(commands[:, 2] - self.get_gyro(state)[:, 2])
         return np.exp(-ang_vel_error / self.cfg.reward_config.tracking_sigma)
+
+
+# ---------------------------------------------------------------------------
+# SAC-specific configuration and environment
+# ---------------------------------------------------------------------------
+
+@dataclass
+class SACCommands:
+    vel_limit = [
+        [-1.0, -0.5, -1.0],
+        [1.0, 0.5, 1.0],
+    ]
+    zero_cmd_prob: float = 0.15
+
+
+@dataclass
+class SACRewardConfig(RewardConfig):
+    scales: dict[str, float] = field(
+        default_factory=lambda: {
+            "tracking_lin_vel": 2.0,
+            "tracking_ang_vel": 1.0,
+            "feet_phase": 3.0,
+            "lin_vel_z": -1.0,
+            "ang_vel_xy": -0.25,
+            "orientation": -5.0,
+            "action_rate": -0.5,
+            "pose": -0.5,
+            "alive": 10.0,
+            "penalty_close_feet_xy": -10.0,
+        }
+    )
+    close_feet_threshold: float = 0.15
+
+
+@registry.envcfg("G1JoystickFlatTerrainSAC")
+@dataclass
+class G1JoystickSACCfg(G1BaseCfg):
+    model_file: str = str(epath.Path(__file__).parent / "xml" / "scene_flat.xml")
+    max_episode_seconds: float = 20.0
+    init_state: InitState = field(default_factory=InitState)
+    commands: SACCommands = field(default_factory=SACCommands)
+    reward_config: SACRewardConfig = field(default_factory=SACRewardConfig)
+
+
+@registry.env("G1JoystickFlatTerrainSAC", sim_backend="mujoco")
+class G1WalkTaskMjSAC(G1WalkTaskMj):
+    """SAC variant: obs scaling, sin/cos gait phase, close-feet penalty, wider randomization."""
+
+    def _init_reward_functions(self):
+        super()._init_reward_functions()
+        self._reward_fns["penalty_close_feet_xy"] = self._reward_penalty_close_feet_xy
+
+    def _init_obs_space(self):
+        num_obs = (
+            3   # linvel
+            + 3   # gyro
+            + 3   # gravity
+            + self._num_action  # joint angle diff
+            + self._num_action  # dof_vel
+            + self._num_action  # last actions
+            + 3   # command
+            + 2   # gait phase sin/cos
+        )
+        self._observation_space = gym.spaces.Box(
+            low=-float("inf"), high=float("inf"), shape=(num_obs,), dtype=float
+        )
+
+    def _reward_penalty_close_feet_xy(self, state: MjNpEnvState):
+        left_xy = state.sensor_data[:, self._idx_left_foot_pos][:, :2]
+        right_xy = state.sensor_data[:, self._idx_right_foot_pos][:, :2]
+        dist = np.linalg.norm(left_xy - right_xy, axis=1)
+        return (dist < self.cfg.reward_config.close_feet_threshold).astype(self._np_dtype)
+
+    def _get_obs(self, state: MjNpEnvState, info: dict) -> np.ndarray:
+        linear_vel = self.get_local_linvel(state)
+        gyro = self.get_gyro(state) * 0.25
+        local_gravity = -self.get_upvector(state)
+        dof_pos = self.get_dof_pos(state)
+        dof_vel = self.get_dof_vel(state) * 0.05
+
+        noise_cfg = self.cfg.noise_config
+        if noise_cfg.level > 0.0:
+            def add_noise(val, scale):
+                noise = (np.random.uniform(size=val.shape).astype(self._np_dtype) * 2.0 - 1.0) * noise_cfg.level * scale
+                return val + noise
+
+            gyro = add_noise(gyro, noise_cfg.scale_gyro)
+            local_gravity = add_noise(local_gravity, noise_cfg.scale_gravity)
+            dof_pos = add_noise(dof_pos, noise_cfg.scale_joint_angle)
+            dof_vel = add_noise(dof_vel, noise_cfg.scale_joint_vel)
+            linear_vel = add_noise(linear_vel, noise_cfg.scale_linvel)
+
+        diff = dof_pos - self.default_angles
+        command = info["commands"]
+        last_actions = info["current_actions"]
+        phase = info["gait_phase"]
+        gait_obs = np.stack([np.sin(phase), np.cos(phase)], axis=1)
+
+        return np.concatenate([linear_vel, gyro, local_gravity, diff, dof_vel, last_actions, command, gait_obs], axis=1)
+
+    def resample_commands(self, num_envs: int):
+        low = np.array(self.cfg.commands.vel_limit[0], dtype=self._np_dtype)
+        high = np.array(self.cfg.commands.vel_limit[1], dtype=self._np_dtype)
+        commands = low + (high - low) * np.random.uniform(size=(num_envs, 3)).astype(self._np_dtype)
+        zero_mask = np.random.uniform(size=(num_envs,)) < self.cfg.commands.zero_cmd_prob
+        commands[zero_mask] = 0.0
+        return commands
+
+    def _reset_body(self, num_reset: int):
+        """Wider randomization for SAC."""
+        init_qpos_np = np.asarray(self._init_qpos, dtype=np.float64)
+        init_dof_vel_np = np.asarray(self._init_dof_vel, dtype=np.float64)
+        qpos_batch = np.broadcast_to(init_qpos_np[None, :], (num_reset, init_qpos_np.shape[0])).copy()
+        qvel_batch = np.zeros((num_reset, self.nv), dtype=np.float64)
+        qvel_batch[:, 6:] = init_dof_vel_np
+
+        dxy = np.random.uniform(-0.5, 0.5, (num_reset, 2))
+        qpos_batch[:, 0:2] += dxy
+        yaw = np.random.uniform(-math.pi, math.pi, num_reset)
+        quat_yaw = np_yaw_to_quat(yaw)
+        qpos_batch[:, 3:7] = np_quat_mul(qpos_batch[:, 3:7], quat_yaw)
+        qvel_batch[:, 0:6] = np.random.uniform(-0.5, 0.5, (num_reset, 6))
+        return qpos_batch, qvel_batch
+
+    def reset(self, env_indices: np.ndarray):
+        # Flush episodic log for truncated envs
+        if self._enable_reward_log and len(env_indices) > 0:
+            active_mask = self._episode_steps[env_indices] > 0
+            active_idx = env_indices[active_mask]
+            if len(active_idx) > 0:
+                log = {}
+                for name in self._episode_reward_sums:
+                    log[f"reward/{name}"] = float(
+                        np.mean(self._episode_reward_sums[name][active_idx]) / self._max_episode_steps
+                    )
+                self._pending_reset_log = log
+        for name in self._episode_reward_sums:
+            self._episode_reward_sums[name][env_indices] = 0.0
+        self._episode_steps[env_indices] = 0
+
+        num_reset = len(env_indices)
+        qpos_batch, qvel_batch = self._reset_body(num_reset)
+
+        commands = self.resample_commands(num_reset)
+        info = {
+            "current_actions": np.zeros((num_reset, self._num_action), dtype=self._np_dtype),
+            "last_actions": np.zeros((num_reset, self._num_action), dtype=self._np_dtype),
+            "commands": commands,
+            "gait_phase": (np.random.uniform(size=(num_reset,)).astype(self._np_dtype) * 2.0 - 1.0) * math.pi,
+        }
+
+        obs_physics_state_np = np.zeros((num_reset, self.physics_state_dim), dtype=np.float64)
+        obs_physics_state_np[:, self._idx_qpos : self._idx_qpos + self.nq] = qpos_batch
+        obs_physics_state_np[:, self._idx_qvel : self._idx_qvel + self.nv] = qvel_batch
+
+        sensor_batch = self._compute_sensor_batch_from_state(obs_physics_state_np)
+        obs_physics_state = np.asarray(obs_physics_state_np, dtype=self._np_dtype)
+
+        obs_state = MjNpEnvState(
+            physics_state=obs_physics_state,
+            sensor_data=sensor_batch,
+            obs=None, reward=None, terminated=None, truncated=None, ctrl=None,
+            info=info,
+        )
+        obs_batch = self._get_obs(obs_state, info)
+        return obs_physics_state, obs_batch, info
