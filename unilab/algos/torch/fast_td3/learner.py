@@ -435,7 +435,7 @@ class FastTD3Learner:
         noise_clip: float = 0.5,
         policy_frequency: int = 2,
         # Training
-        total_timesteps: int = 50000,
+        max_iterations: int = 50000,
         obs_normalization: bool = True,
     ):
         self.device = device
@@ -445,7 +445,7 @@ class FastTD3Learner:
         self.noise_clip = noise_clip
         self.policy_frequency = policy_frequency
         self.use_cdq = use_cdq
-        self.total_timesteps = total_timesteps
+        self.max_iterations = max_iterations
 
         # Build actor
         self.actor = Actor(
@@ -501,12 +501,12 @@ class FastTD3Learner:
         # Cosine LR schedulers
         self.q_scheduler = optim.lr_scheduler.CosineAnnealingLR(
             self.q_optimizer,
-            T_max=total_timesteps,
+            T_max=max_iterations,
             eta_min=torch.tensor(critic_lr, device=device),
         )
         self.actor_scheduler = optim.lr_scheduler.CosineAnnealingLR(
             self.actor_optimizer,
-            T_max=total_timesteps,
+            T_max=max_iterations,
             eta_min=torch.tensor(actor_lr, device=device),
         )
 

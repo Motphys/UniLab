@@ -45,7 +45,7 @@ def main():
     cfg = fast_td3_config(args.task)
 
     if args.max_iterations is not None:
-        cfg.total_timesteps = args.max_iterations
+        cfg.max_iterations = args.max_iterations
     if args.num_envs is not None:
         cfg.num_envs = args.num_envs
 
@@ -65,7 +65,7 @@ def main():
             warmup_steps=cfg.warmup_steps,
             num_updates=cfg.num_updates,
             policy_frequency=cfg.policy_frequency,
-            total_timesteps=cfg.total_timesteps,
+            max_iterations=cfg.max_iterations,
             gamma=cfg.gamma,
             tau=cfg.tau,
             actor_lr=cfg.actor_lr,
@@ -86,7 +86,7 @@ def main():
         )
 
         runner.learn(
-            max_iterations=cfg.total_timesteps,
+            max_iterations=cfg.max_iterations,
             save_interval=cfg.save_interval,
             log_dir=args.log_dir,
             logger_type=args.logger,
