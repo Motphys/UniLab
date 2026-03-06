@@ -24,7 +24,7 @@ class NoiseConfig:
 class ControlConfig:
     # action scale: target angle = actionScale * action + defaultAngle
     action_scale: float = 0.25
-    Kp: float = 20.0
+    Kp: float = 35.0
     Kd: float = 0.5
     simulate_action_latency: bool = True
 
@@ -47,7 +47,7 @@ class Go2BaseCfg(EnvCfg):
     control_config: ControlConfig = field(default_factory=ControlConfig)
     asset: Asset = field(default_factory=Asset)
     sensor: Sensor = field(default_factory=Sensor)
-    sim_dt: float = 0.02
+    sim_dt: float = 0.01
     ctrl_dt: float = 0.02
 
 # ----------------- Environment -----------------
@@ -112,7 +112,6 @@ class Go2BaseMjEnv(MjNpEnv):
         # Try to find "home" keyframe to init default pose
         key_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_KEY, "home")
         if key_id >= 0:
-            print(f"Using keyframe 'home' (id {key_id}) for initial state.")
             self._init_qpos = np.array(self._model.key_qpos[key_id].copy(), dtype=self._np_dtype)
             self.default_angles = self._init_qpos[7:]
         else:

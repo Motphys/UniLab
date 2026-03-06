@@ -35,8 +35,9 @@ class RewardConfig:
         default_factory=lambda: {
             "tracking_lin_vel": 1.0,
             "tracking_ang_vel": 0.2,
-            "lin_vel_z": -1.0,
-            "base_height": -50.0,
+            "lin_vel_z": -5.0,
+            "ang_vel_xy": -0.1, #-0.02 #ppo
+            "base_height": -100.0,
             "action_rate": -0.005,
             "similar_to_default": -0.1,
         }
@@ -75,6 +76,7 @@ class Go2WalkTaskMj(Go2BaseMjEnv):
             "tracking_lin_vel": lambda s: self._reward_tracking_lin_vel(s, s.info["commands"]),
             "tracking_ang_vel": lambda s: self._reward_tracking_ang_vel(s, s.info["commands"]),
             "lin_vel_z": self._reward_lin_vel_z,
+            "ang_vel_xy": self._reward_ang_vel_xy,
             "action_rate": lambda s: self._reward_action_rate(s.info),
             "base_height": lambda s: self._reward_base_height(s),
             "similar_to_default": lambda s: self._reward_similar_to_default(s),
@@ -199,14 +201,8 @@ class Go2WalkTaskMj(Go2BaseMjEnv):
         return state
 
     def update_terminated(self, state: MjNpEnvState) -> MjNpEnvState:
-        # Genesis termination uses roll/pitch absolute angle > 10 degrees.
-        local_gravity = -self.get_upvector(state)
-        sin_limit = math.sin(math.radians(10.0))
-        bad_roll_or_pitch = np.logical_or(
-            np.abs(local_gravity[:, 0]) > sin_limit,
-            np.abs(local_gravity[:, 1]) > sin_limit,
-        )
-        state.terminated = bad_roll_or_pitch
+        is_fallen = (self.get_upvector(state)[:, 2] <= 0.5)
+        state.terminated = is_fallen
         return state
 
     def resample_commands(self, num_envs: int):
@@ -272,3 +268,7 @@ class Go2WalkTaskMj(Go2BaseMjEnv):
     def _reward_tracking_ang_vel(self, state, commands: np.ndarray):
         ang_vel_error = np.square(commands[:, 2] - self.get_gyro(state)[:, 2])
         return np.exp(-ang_vel_error / self.cfg.reward_config.tracking_sigma)
+
+    def _reward_ang_vel_xy(self, state: MjNpEnvState):
+        gyro = self.get_gyro(state)
+        return np.sum(np.square(gyro[:, :2]), axis=1)
