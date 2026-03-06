@@ -321,7 +321,8 @@ class FastSACRunner(AsyncRunner):
                 m = queue.get_nowait()
                 if "error" in m:
                     logger.log_status(f"[red]Collector ERROR: {m['error']}[/]")
-                
+                    raise RuntimeError(f"Collector process failed: {m['error']}")
+
                 updated_rew = False
                 if "mean_ep_reward" in m:
                     reward_history.append(m["mean_ep_reward"])
