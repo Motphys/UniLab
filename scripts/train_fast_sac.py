@@ -34,6 +34,8 @@ def main():
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--collector_device", type=str, default=None)
     parser.add_argument("--log_dir", type=str, default=None)
+    parser.add_argument("--sync_collection", action="store_true", help="Pause collection while the learner trains")
+    parser.add_argument("--env_steps_per_sync", type=int, default=1, help="Collector env.step calls to gather before each learner phase")
     parser.add_argument("--play_only", action="store_true", help="Play mode only")
     parser.add_argument("--load_run", type=str, default="-1", help="Run ID to load or path")
     parser.add_argument("--play_env_num", type=int, default=16, help="Number of play envs")
@@ -79,6 +81,8 @@ def main():
             critic_hidden_dim=cfg.critic_hidden_dim,
             num_atoms=cfg.num_atoms,
             use_layer_norm=cfg.use_layer_norm,
+            sync_collection=args.sync_collection,
+            env_steps_per_sync=args.env_steps_per_sync,
         )
 
         try:

@@ -179,10 +179,11 @@ def fast_sac_config(env_name: str) -> config_dict.ConfigDict:
         num_envs=4096,
         batch_size=8192,
         updates_per_step=4,
-        warmup_steps=10000,
+        warmup_steps=1000,
         replay_buffer_n=512,
+        env_steps_per_sync=1,
         max_iterations=1500,
-        save_interval=50,
+        save_interval=500,
         # Optimizer (AdamW, holosoma-style)
         actor_lr=3e-4,
         critic_lr=3e-4,
@@ -200,7 +201,7 @@ def fast_sac_config(env_name: str) -> config_dict.ConfigDict:
         rl_config.num_envs = 8192
         rl_config.max_iterations = 3000
     elif env_name in ("Go1JoystickFlatTerrain",):
-        rl_config.num_envs = 1024
+        rl_config.num_envs = 4096
         rl_config.max_iterations = 2000
     elif env_name in ("G1JoystickFlatTerrain",):
         raise NotImplementedError("G1JoystickFlatTerrain config is not implemented for FastSAC, Please use G1JoystickFlatTerrainSAC instead.")
