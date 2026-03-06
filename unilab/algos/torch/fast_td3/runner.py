@@ -48,7 +48,7 @@ class FastTD3Runner:
         warmup_steps: int = 10,
         num_updates: int = 8,
         policy_frequency: int = 2,
-        total_timesteps: int = 50000,
+        max_iterations: int = 50000,
         # Algorithm
         gamma: float = 0.97,
         tau: float = 0.1,
@@ -85,7 +85,7 @@ class FastTD3Runner:
         self.warmup_steps = warmup_steps
         self.num_updates = num_updates
         self.policy_frequency = policy_frequency
-        self.total_timesteps = total_timesteps
+        self.max_iterations = max_iterations
 
         # Detect env dims
         self.obs_dim, self.action_dim = self._detect_dims()
@@ -113,7 +113,7 @@ class FastTD3Runner:
             policy_noise=policy_noise,
             noise_clip=noise_clip,
             policy_frequency=policy_frequency,
-            total_timesteps=total_timesteps,
+            max_iterations=max_iterations,
             obs_normalization=obs_normalization,
         )
 
@@ -147,13 +147,14 @@ class FastTD3Runner:
         max_iterations: int | None = None,
         save_interval: int = 50,
         log_dir: str = "logs",
+        logger_type: str = "tensorboard",
     ):
         """Main training loop (synchronous, single-process)."""
         from unilab.envs import registry
 
         os.makedirs(log_dir, exist_ok=True)
 
-        total_timesteps = max_iterations if max_iterations else self.total_timesteps
+        max_iterations = max_iterations if max_iterations else self.max_iterations
         collect_device = "cpu"  # CPU: replay buffer + env data
         train_device = self.device               # GPU: actor inference + training
 
@@ -183,12 +184,13 @@ class FastTD3Runner:
         # Logger
         logger = TrainingLogger(
             algo_name="FastTD3",
-            max_iterations=total_timesteps,
+            max_iterations=max_iterations,
             num_envs=self.num_envs,
             env_name=self.env_name,
             obs_dim=self.obs_dim,
             action_dim=self.action_dim,
             log_dir=log_dir,
+            log_backend=logger_type,
         )
         logger.start()
 
@@ -199,22 +201,33 @@ class FastTD3Runner:
         ep_lengths = torch.zeros(self.num_envs, device=collect_device)
         latest_reward_components = {}
         dones = None
+        
+        timeout_count = 0
+        terminated_count = 0
+        dones_total = 0
+        
+        write_read_ema = 0.0  # EMA of write/consume ratio
 
-        for global_step in range(1, total_timesteps + 1):
+        for global_step in range(1, max_iterations + 1):
             iter_start = time.time()
+            t1 = time.perf_counter()
 
             # ---- Environment step ----
             # Actor inference on GPU, env step on CPU
             with torch.no_grad():
                 obs_gpu = obs.to(train_device)
                 dones_gpu = dones.to(train_device) if dones is not None else None
-                norm_obs = learner.normalize_obs(obs_gpu)
+                norm_obs = learner.normalize_obs(obs_gpu, update=True)
                 actions_gpu = learner.actor.explore(obs=norm_obs, dones=dones_gpu)
                 actions = actions_gpu.cpu()  # back to CPU for env
+
+            t_core = time.perf_counter()
 
             # Step env (MuJoCo on CPU)
             actions_np = actions.float().numpy()
             state = env.step(actions_np)
+            
+            t2 = time.perf_counter()
 
             next_obs_raw = state.obs
             rewards_raw = state.reward
@@ -265,6 +278,14 @@ class FastTD3Runner:
 
             obs = next_obs
             dones = dones_float
+            
+            
+            timeout_count += truncated.sum().item()
+            terminated_count += terminated.sum().item()
+            # Dones total represents the number of EPISODES finished
+            dones_total += dones_float.sum().item()
+
+            t3 = time.perf_counter()
 
             # Extract reward components from env log
             if hasattr(state, "info") and "log" in state.info:
@@ -321,9 +342,30 @@ class FastTD3Runner:
                     buffer_size=rb.size,
                 )
 
+                # Update Write/Read ratio
+                consume = batch_per_env * self.num_envs * self.num_updates
+                write_read_ema = 0.9 * write_read_ema + 0.1 * (self.num_envs / max(consume, 1))
+                logger.update_buffer_utilization(write_read_ema)
+
                 # Logging — every step
                 avg_metrics = {k: statistics.mean(v) for k, v in iter_metrics.items() if v}
                 mean_reward = statistics.mean(reward_history) if reward_history else 0.0
+
+                logger.update_collector_timing({
+                    "env_step_total_ms": (t2 - t1) * 1000,
+                    "step_core_ms": (t_core - t1) * 1000,
+                    "update_state_ms": (t2 - t_core) * 1000,
+                    "reset_done_ms": (t3 - t2) * 1000,
+                })
+                
+                if dones_total > 0:
+                    logger.update_done_rates(
+                        timeout_rate=timeout_count / dones_total,
+                        terminated_rate=terminated_count / dones_total,
+                    )
+                    timeout_count = 0
+                    terminated_count = 0
+                    dones_total = 0
 
                 logger.log_step(
                     iteration=global_step,
@@ -345,11 +387,11 @@ class FastTD3Runner:
                 logger.log_save(ckpt_path)
 
         # Final save
-        ckpt_path = os.path.join(log_dir, f"model_{total_timesteps}.pt")
+        ckpt_path = os.path.join(log_dir, f"model_{max_iterations}.pt")
         torch.save(learner.get_state_dict(), ckpt_path)
         logger.log_save(ckpt_path)
         logger.finish()
-        print(f"Training complete. {total_timesteps} steps.")
+        print(f"Training complete. {max_iterations} steps.")
 
         # Cleanup
         env.close()

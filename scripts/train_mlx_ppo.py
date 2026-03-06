@@ -162,6 +162,7 @@ def main() -> None:
     parser.add_argument("--log_root", type=str, default="logs/mlx_rl_train", help="Root directory for training logs")
     parser.add_argument("--save_interval", type=int, default=50, help="Checkpoint save interval")
     parser.add_argument("--fp16", action="store_true", help="Mixed precision: env/buffer float16, model/optimizer float32 (sets UNILAB_MLX_DTYPE=float16)")
+    parser.add_argument("--logger", type=str, default="tensorboard", choices=["tensorboard", "wandb", "none", "no_print"])
     args = parser.parse_args()
     resolved_sim_backend = "mujoco"
 
@@ -277,7 +278,8 @@ def main() -> None:
     log_fp = log_file_path.open("a", encoding="utf-8")
 
     def log(msg: str) -> None:
-        print(msg)
+        if args.logger != "no_print":
+            print(msg)
         log_fp.write(msg + "\n")
         log_fp.flush()
 
@@ -315,10 +317,19 @@ def main() -> None:
     (log_dir / "run_config.json").write_text(json.dumps(run_meta, indent=2), encoding="utf-8")
 
     tb_writer = None
-    try:
-        tb_writer = TensorboardScalarWriter(log_dir)
-    except Exception as e:
-        log(f"[Warning] TensorBoard disabled: {e}")
+    if args.logger == "tensorboard":
+        try:
+            tb_writer = TensorboardScalarWriter(log_dir)
+        except Exception as e:
+            log(f"[Warning] TensorBoard disabled: {e}")
+
+    wandb_run = None
+    if args.logger == "wandb":
+        try:
+            import wandb
+            wandb_run = wandb.init(project="unilab", name=f"mlx_ppo_{args.task}", config=run_meta, dir=log_dir, reinit=True)
+        except ImportError:
+            log("[Warning] wandb not installed, skipping W&B logging")
 
     preset = TASK_STEP_TUNING.get(args.task, {"threads": "32", "chunk": "16"})
     os.environ["UNILAB_MUJOCO_STEP_THREADS"] = preset["threads"]
@@ -563,52 +574,65 @@ def main() -> None:
         mean_reward = float(statistics.mean(reward_window)) if reward_window else 0.0
         mean_ep_len = float(statistics.mean(length_window)) if length_window else 0.0
 
-        if tb_writer is not None:
-            # Align tags with rsl-rl logger conventions as much as possible.
-            tb_writer.add_scalar("Loss/surrogate", metrics["surrogate"], it)
-            tb_writer.add_scalar("Loss/value_function", metrics["value"], it)
-            tb_writer.add_scalar("Loss/entropy", metrics["entropy"], it)
-            tb_writer.add_scalar("Loss/approx_kl", metrics["approx_kl"], it)
-            tb_writer.add_scalar("Loss/learning_rate", current_lr, it)
-            tb_writer.add_scalar("Policy/mean_noise_std", mean_noise_std, it)
-            tb_writer.add_scalar("Perf/total_fps", fps, it)
-            tb_writer.add_scalar("Perf/collection_time", collect_time, it)
-            tb_writer.add_scalar("Perf/learning_time", learn_time, it)
-            tb_writer.add_scalar("Perf/iteration_time", iter_time, it)
+        if tb_writer is not None or wandb_run is not None:
+            log_dict = {
+                "Loss/surrogate": metrics["surrogate"],
+                "Loss/value_function": metrics["value"],
+                "Loss/entropy": metrics["entropy"],
+                "Loss/approx_kl": metrics["approx_kl"],
+                "Loss/learning_rate": current_lr,
+                "Policy/mean_noise_std": mean_noise_std,
+                "Perf/total_fps": fps,
+                "Perf/collection_time": collect_time,
+                "Perf/learning_time": learn_time,
+                "Perf/iteration_time": iter_time,
+                "Perf/updates_applied": updates_applied,
+                "Perf/skipped_nonfinite_loss": skipped_nonfinite_loss,
+                "Perf/skipped_nonfinite_grads": skipped_nonfinite_grads,
+                "Perf/rolled_back_updates": rolled_back_updates,
+                "Perf/skipped_nonfinite_metrics": skipped_nonfinite_metrics,
+                "Perf/early_stopped_kl": early_stopped_kl,
+                "Policy/clip_fraction": clip_fraction,
+                "Policy/ratio_mean": ratio_mean,
+                "Policy/ratio_max": ratio_max,
+                "Policy/std_mean": std_mean,
+                "Policy/adv_std": adv_std,
+                "Value/explained_variance": value_explained_variance,
+                "Train/mean_reward": mean_reward,
+                "Train/mean_episode_length": mean_ep_len,
+            }
             if profile_collection:
-                tb_writer.add_scalar("Perf/model_act_time", model_act_time, it)
-                tb_writer.add_scalar("Perf/env_step_total_time", env_step_total_time, it)
-                tb_writer.add_scalar("Perf/env_step_core_time", env_step_core_time, it)
-                tb_writer.add_scalar("Perf/env_step_postprocess_time", env_step_postprocess_time, it)
-                tb_writer.add_scalar("Perf/env_step_reset_time", env_step_reset_time, it)
-                tb_writer.add_scalar("Perf/env_reset_index_time", env_reset_index_time, it)
-                tb_writer.add_scalar("Perf/env_reset_call_time", env_reset_call_time, it)
-                tb_writer.add_scalar("Perf/env_reset_scatter_time", env_reset_scatter_time, it)
-                tb_writer.add_scalar("Perf/env_reset_info_merge_time", env_reset_info_merge_time, it)
-                tb_writer.add_scalar("Perf/buffer_add_time", buffer_add_time, it)
-                tb_writer.add_scalar("Perf/episode_stats_time", episode_stats_time, it)
-            tb_writer.add_scalar("Perf/updates_applied", updates_applied, it)
-            tb_writer.add_scalar("Perf/skipped_nonfinite_loss", skipped_nonfinite_loss, it)
-            tb_writer.add_scalar("Perf/skipped_nonfinite_grads", skipped_nonfinite_grads, it)
-            tb_writer.add_scalar("Perf/rolled_back_updates", rolled_back_updates, it)
-            tb_writer.add_scalar("Perf/skipped_nonfinite_metrics", skipped_nonfinite_metrics, it)
-            tb_writer.add_scalar("Perf/early_stopped_kl", early_stopped_kl, it)
-            tb_writer.add_scalar("Policy/clip_fraction", clip_fraction, it)
-            tb_writer.add_scalar("Policy/ratio_mean", ratio_mean, it)
-            tb_writer.add_scalar("Policy/ratio_max", ratio_max, it)
-            tb_writer.add_scalar("Policy/std_mean", std_mean, it)
-            tb_writer.add_scalar("Policy/adv_std", adv_std, it)
-            tb_writer.add_scalar("Value/explained_variance", value_explained_variance, it)
-            tb_writer.add_scalar("Train/mean_reward", mean_reward, it)
-            tb_writer.add_scalar("Train/mean_episode_length", mean_ep_len, it)
-            tb_writer.add_scalar("Train/mean_reward/time", mean_reward, int(total_time))
-            tb_writer.add_scalar("Train/mean_episode_length/time", mean_ep_len, int(total_time))
+                log_dict.update({
+                    "Perf/model_act_time": model_act_time,
+                    "Perf/env_step_total_time": env_step_total_time,
+                    "Perf/env_step_core_time": env_step_core_time,
+                    "Perf/env_step_postprocess_time": env_step_postprocess_time,
+                    "Perf/env_step_reset_time": env_step_reset_time,
+                    "Perf/env_reset_index_time": env_reset_index_time,
+                    "Perf/env_reset_call_time": env_reset_call_time,
+                    "Perf/env_reset_scatter_time": env_reset_scatter_time,
+                    "Perf/env_reset_info_merge_time": env_reset_info_merge_time,
+                    "Perf/buffer_add_time": buffer_add_time,
+                    "Perf/episode_stats_time": episode_stats_time,
+                })
             for key, summed in reward_component_sums.items():
                 count = reward_component_counts.get(key, 0)
-                if count <= 0:
-                    continue
-                tb_writer.add_scalar(f"{key}", summed / count, it)
-            tb_writer.flush()
+                if count > 0:
+                    log_dict[key] = summed / count
+
+            if tb_writer is not None:
+                for k, v in log_dict.items():
+                    tb_writer.add_scalar(k, v, it)
+                tb_writer.add_scalar("Train/mean_reward/time", mean_reward, int(total_time))
+                tb_writer.add_scalar("Train/mean_episode_length/time", mean_ep_len, int(total_time))
+                tb_writer.flush()
+            
+            if wandb_run is not None:
+                wb_dict = dict(log_dict)
+                wb_dict["Train/mean_reward/time"] = mean_reward
+                wb_dict["Train/mean_episode_length/time"] = mean_ep_len
+                import wandb
+                wandb.log(wb_dict, step=it)
 
         if save_interval > 0 and (it % save_interval == 0 or it == max_iterations - 1):
             ckpt_path = log_dir / f"model_{it}.safetensors"
@@ -670,6 +694,9 @@ def main() -> None:
     log("[MLX PPO] training completed.")
     if tb_writer is not None:
         tb_writer.close()
+    if wandb_run is not None:
+        import wandb
+        wandb.finish()
     log_fp.close()
 
 

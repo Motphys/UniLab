@@ -128,9 +128,9 @@ def fast_td3_config(env_name: str) -> config_dict.ConfigDict:
         num_envs=4096,
         batch_size=8192,
         num_updates=4,
-        warmup_steps=50,
+        warmup_steps=100,
         buffer_size=1000,      # per-env buffer size
-        total_timesteps=5000,
+        max_iterations=5000,
         save_interval=500,
         # Optimizer (AdamW)
         actor_lr=3e-4,
@@ -153,6 +153,7 @@ def fast_td3_config(env_name: str) -> config_dict.ConfigDict:
     )
 
     if env_name in ("Go2JoystickFlatTerrain", "Go2LocoFlatTerrain"):
+        rl_config.max_iterations = 2000
         pass  # defaults are tuned for Go2
     elif env_name in ("Go1JoystickFlatTerrain",):
         pass  # same as default
@@ -198,8 +199,9 @@ def fast_sac_config(env_name: str) -> config_dict.ConfigDict:
     )
 
     if env_name in ("Go2JoystickFlatTerrain", "Go2LocoFlatTerrain"):
-        rl_config.num_envs = 8192
-        rl_config.max_iterations = 3000
+        rl_config.gamma = 0.99
+        rl_config.num_envs = 1024
+        rl_config.max_iterations = 1500
     elif env_name in ("Go1JoystickFlatTerrain",):
         rl_config.num_envs = 1024
         rl_config.max_iterations = 2000

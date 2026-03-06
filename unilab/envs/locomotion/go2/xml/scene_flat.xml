@@ -21,6 +21,13 @@
     <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/>
   </worldbody>
 
+  <sensor>
+    <contact name="FL_foot_contact" geom1="floor" geom2="FL" data="found" num="1" reduce="mindist"/>
+    <contact name="FR_foot_contact" geom1="floor" geom2="FR" data="found" num="1" reduce="mindist"/>
+    <contact name="RL_foot_contact" geom1="floor" geom2="RL" data="found" num="1" reduce="mindist"/>
+    <contact name="RR_foot_contact" geom1="floor" geom2="RR" data="found" num="1" reduce="mindist"/>
+  </sensor>
+
   <keyframe>
     <key name="home" qpos="
         0 0 0.3  1 0 0 0  

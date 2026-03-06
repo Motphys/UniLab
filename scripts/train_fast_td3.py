@@ -36,6 +36,7 @@ def main():
     parser.add_argument("--play_only", action="store_true", help="Play mode only")
     parser.add_argument("--load_run", type=str, default="-1", help="Run ID to load or path")
     parser.add_argument("--play_env_num", type=int, default=16, help="Number of play envs")
+    parser.add_argument("--logger", type=str, default="tensorboard", choices=["tensorboard", "wandb", "none", "no_print"])
     args = parser.parse_args()
 
     ensure_registries()
@@ -44,7 +45,7 @@ def main():
     cfg = fast_td3_config(args.task)
 
     if args.max_iterations is not None:
-        cfg.total_timesteps = args.max_iterations
+        cfg.max_iterations = args.max_iterations
     if args.num_envs is not None:
         cfg.num_envs = args.num_envs
 
@@ -64,7 +65,7 @@ def main():
             warmup_steps=cfg.warmup_steps,
             num_updates=cfg.num_updates,
             policy_frequency=cfg.policy_frequency,
-            total_timesteps=cfg.total_timesteps,
+            max_iterations=cfg.max_iterations,
             gamma=cfg.gamma,
             tau=cfg.tau,
             actor_lr=cfg.actor_lr,
@@ -85,9 +86,10 @@ def main():
         )
 
         runner.learn(
-            max_iterations=cfg.total_timesteps,
+            max_iterations=cfg.max_iterations,
             save_interval=cfg.save_interval,
             log_dir=args.log_dir,
+            logger_type=args.logger,
         )
 
     else:
@@ -161,6 +163,16 @@ def main():
         }
         actor.load_state_dict(actor_state, strict=False)
 
+        # Build normalizer
+        from unilab.algos.torch.fast_td3.learner import EmpiricalNormalization
+        if cfg.obs_normalization:
+            normalizer = EmpiricalNormalization(shape=obs_dim, device=device)
+            if "obs_normalizer" in checkpoint and checkpoint["obs_normalizer"] is not None:
+                normalizer.load_state_dict(checkpoint["obs_normalizer"])
+            normalizer.eval()
+        else:
+            normalizer = torch.nn.Identity()
+
         output_video = os.path.join(load_path_dir, "play_video.mp4")
         print(f"Rendering video to {output_video}...")
 
@@ -179,6 +191,9 @@ def main():
         with torch.inference_mode():
             for _ in range(num_steps):
                 obs_torch = torch.from_numpy(obs_np).to(device)
+                
+                # Apply normalization if configured
+                obs_torch = normalizer(obs_torch, update=False) if isinstance(normalizer, EmpiricalNormalization) else obs_torch
 
                 # TD3 inference (deterministic)
                 actions_torch = actor(obs_torch)

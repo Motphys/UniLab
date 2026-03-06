@@ -217,10 +217,15 @@
     <framelinvel objtype="site" objname="RR" name="RR_global_linvel"/>
     <framelinvel objtype="site" objname="RL" name="RL_global_linvel"/> -->
 
-    <!-- <framepos objtype="site" objname="FR" name="FR_pos" reftype="site" refname="imu"/>
-    <framepos objtype="site" objname="FL" name="FL_pos" reftype="site" refname="imu"/>
-    <framepos objtype="site" objname="RR" name="RR_pos" reftype="site" refname="imu"/>
-    <framepos objtype="site" objname="RL" name="RL_pos" reftype="site" refname="imu"/> -->
+    <framepos objtype="geom" objname="FR" name="FR_pos"/>
+    <framepos objtype="geom" objname="FL" name="FL_pos"/>
+    <framepos objtype="geom" objname="RR" name="RR_pos"/>
+    <framepos objtype="geom" objname="RL" name="RL_pos"/>
+
+    <framelinvel objtype="geom" objname="FR" name="FR_vel"/>
+    <framelinvel objtype="geom" objname="FL" name="FL_vel"/>
+    <framelinvel objtype="geom" objname="RR" name="RR_vel"/>
+    <framelinvel objtype="geom" objname="RL" name="RL_vel"/>
   </sensor>
 
 </mujoco>

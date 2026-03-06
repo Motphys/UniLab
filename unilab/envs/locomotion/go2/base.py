@@ -24,7 +24,7 @@ class NoiseConfig:
 class ControlConfig:
     # action scale: target angle = actionScale * action + defaultAngle
     action_scale: float = 0.25
-    Kp: float = 20.0
+    Kp: float = 35.0
     Kd: float = 0.5
     simulate_action_latency: bool = True
 
@@ -47,7 +47,7 @@ class Go2BaseCfg(EnvCfg):
     control_config: ControlConfig = field(default_factory=ControlConfig)
     asset: Asset = field(default_factory=Asset)
     sensor: Sensor = field(default_factory=Sensor)
-    sim_dt: float = 0.02
+    sim_dt: float = 0.01
     ctrl_dt: float = 0.02
 
 # ----------------- Environment -----------------
@@ -112,7 +112,6 @@ class Go2BaseMjEnv(MjNpEnv):
         # Try to find "home" keyframe to init default pose
         key_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_KEY, "home")
         if key_id >= 0:
-            print(f"Using keyframe 'home' (id {key_id}) for initial state.")
             self._init_qpos = np.array(self._model.key_qpos[key_id].copy(), dtype=self._np_dtype)
             self.default_angles = self._init_qpos[7:]
         else:
@@ -128,6 +127,15 @@ class Go2BaseMjEnv(MjNpEnv):
         # Resolve required sensors for observation/tracking.
         self.idx_global_linvel = self._get_sensor_indices("global_linvel")
         self.idx_upvector = self._get_sensor_indices("upvector")
+        
+        self.foot_names = ["FL_pos", "FR_pos", "RL_pos", "RR_pos"]
+        self.idx_foot_pos = [self._get_sensor_indices(name) for name in self.foot_names]
+
+        self.foot_vel_names = ["FL_vel", "FR_vel", "RL_vel", "RR_vel"]
+        self.idx_foot_vel = [self._get_sensor_indices(name) for name in self.foot_vel_names]
+
+        self.foot_contact_names = ["FL_foot_contact", "FR_foot_contact", "RL_foot_contact", "RR_foot_contact"]
+        self.idx_foot_contact = [self._get_sensor_indices(name) for name in self.foot_contact_names]
 
     def _get_sensor_indices(self, name):
         if name not in self.sensor_indices:
@@ -166,6 +174,21 @@ class Go2BaseMjEnv(MjNpEnv):
 
     def get_upvector(self, state: MjNpEnvState) -> np.ndarray:
         return state.sensor_data[:, self.idx_upvector]
+
+    def get_foot_pos(self, state: MjNpEnvState) -> np.ndarray:
+        # returns shape (num_envs, 4, 3)
+        foot_pos = [state.sensor_data[:, idx] for idx in self.idx_foot_pos]
+        return np.stack(foot_pos, axis=1)
+
+    def get_foot_vel(self, state: MjNpEnvState) -> np.ndarray:
+        # returns shape (num_envs, 4, 3)
+        foot_vel = [state.sensor_data[:, idx] for idx in self.idx_foot_vel]
+        return np.stack(foot_vel, axis=1)
+
+    def get_foot_contact(self, state: MjNpEnvState) -> np.ndarray:
+        # returns shape (num_envs, 4)
+        foot_contact = [state.sensor_data[:, idx[0]] for idx in self.idx_foot_contact]
+        return np.stack(foot_contact, axis=1)
         
     def _reward_lin_vel_z(self, state):
         global_linvel = self.get_global_linvel(state)

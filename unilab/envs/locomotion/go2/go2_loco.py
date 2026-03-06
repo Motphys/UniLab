@@ -159,32 +159,32 @@ class Go2LocoTaskMj(Go2BaseMjEnv):
 
     # ------------- Reward Functions (MuJoCo Playground aligned) ----------------
 
-    def _reward_tracking_lin_vel(self, state: MjNpEnvState, commands: mx.array):
+    def _reward_tracking_lin_vel(self, state: MjNpEnvState, commands: np.ndarray):
         """Exponential tracking of linear velocity commands (x, y).
 
         r = exp(-||cmd_xy - vel_xy||^2 / sigma)
         """
         lin_vel = self.get_local_linvel(state)
-        lin_vel_error = mx.sum(
-            mx.square(commands[:, :2] - lin_vel[:, :2]), axis=1
+        lin_vel_error = np.sum(
+            np.square(commands[:, :2] - lin_vel[:, :2]), axis=1
         )
-        return mx.exp(-lin_vel_error / self.cfg.reward_config.tracking_sigma)
+        return np.exp(-lin_vel_error / self.cfg.reward_config.tracking_sigma)
 
-    def _reward_tracking_ang_vel(self, state: MjNpEnvState, commands: mx.array):
+    def _reward_tracking_ang_vel(self, state: MjNpEnvState, commands: np.ndarray):
         """Exponential tracking of angular velocity command (yaw)."""
         gyro = self.get_gyro(state)
-        ang_vel_error = mx.square(commands[:, 2] - gyro[:, 2])
-        return mx.exp(-ang_vel_error / self.cfg.reward_config.tracking_sigma)
+        ang_vel_error = np.square(commands[:, 2] - gyro[:, 2])
+        return np.exp(-ang_vel_error / self.cfg.reward_config.tracking_sigma)
 
     def _reward_orientation(self, state: MjNpEnvState):
         """Penalize non-flat orientation using projected gravity."""
         local_gravity = -self.get_upvector(state)
-        return mx.sum(mx.square(local_gravity[:, :2]), axis=1)
+        return np.sum(np.square(local_gravity[:, :2]), axis=1)
 
     def _reward_ang_vel_xy(self, state: MjNpEnvState):
         """Penalize roll/pitch angular velocity."""
         gyro = self.get_gyro(state)
-        return mx.sum(mx.square(gyro[:, :2]), axis=1)
+        return np.sum(np.square(gyro[:, :2]), axis=1)
 
     def _reward_energy(self, state: MjNpEnvState):
         """Penalize energy: sum of |torque × dof_vel|.
@@ -194,29 +194,29 @@ class Go2LocoTaskMj(Go2BaseMjEnv):
         dof_vel = self.get_dof_vel(state)
         # Torques ≈ Kp * (target - pos) - Kd * vel, approximated by ctrl force
         # Use actuator force from the state's control * gain as torque proxy
-        actions = state.info.get("current_actions", mx.zeros((self._num_envs, self._num_action), dtype=self._mlx_dtype))
+        actions = state.info.get("current_actions", np.zeros((self._num_envs, self._num_action), dtype=self._np_dtype))
         target_jq = self._compute_target_jq(actions)
         dof_pos = self.get_dof_pos(state)
         torques = self.cfg.control_config.Kp * (target_jq - dof_pos) - self.cfg.control_config.Kd * dof_vel
-        return mx.sum(mx.abs(torques * dof_vel), axis=1)
+        return np.sum(np.abs(torques * dof_vel), axis=1)
 
     def _reward_torques(self, state: MjNpEnvState):
         """Penalize torques squared for smooth policies."""
         dof_vel = self.get_dof_vel(state)
-        actions = state.info.get("current_actions", mx.zeros((self._num_envs, self._num_action), dtype=self._mlx_dtype))
+        actions = state.info.get("current_actions", np.zeros((self._num_envs, self._num_action), dtype=self._np_dtype))
         target_jq = self._compute_target_jq(actions)
         dof_pos = self.get_dof_pos(state)
         torques = self.cfg.control_config.Kp * (target_jq - dof_pos) - self.cfg.control_config.Kd * dof_vel
-        return mx.sum(mx.square(torques), axis=1)
+        return np.sum(np.square(torques), axis=1)
 
     def _reward_pose(self, state: MjNpEnvState):
         """Penalize deviation from default joint pose."""
         dof_pos = self.get_dof_pos(state)
-        return mx.sum(mx.square(dof_pos - self.default_angles), axis=1)
+        return np.sum(np.square(dof_pos - self.default_angles), axis=1)
 
     # ------------- Observation ----------------
 
-    def _get_obs(self, state: MjNpEnvState, info: dict) -> mx.array:
+    def _get_obs(self, state: MjNpEnvState, info: dict) -> np.array:
         linear_vel = self.get_local_linvel(state)
         gyro = self.get_gyro(state)
         local_gravity = -self.get_upvector(state)
@@ -227,7 +227,7 @@ class Go2LocoTaskMj(Go2BaseMjEnv):
         noise_cfg = self.cfg.noise_config
         if noise_cfg.level > 0.0:
             def add_noise(val, scale):
-                noise = (mx.random.uniform(shape=val.shape, dtype=self._mlx_dtype) * 2.0 - 1.0) * noise_cfg.level * scale
+                noise = (np.random.uniform(shape=val.shape, dtype=self._np_dtype) * 2.0 - 1.0) * noise_cfg.level * scale
                 return val + noise
 
             gyro = add_noise(gyro, noise_cfg.scale_gyro)
@@ -240,7 +240,7 @@ class Go2LocoTaskMj(Go2BaseMjEnv):
         command = info["commands"]
         last_actions = info["current_actions"]
 
-        obs = mx.concatenate(
+        obs = np.concatenate(
             [linear_vel, gyro, local_gravity, diff, dof_vel, last_actions, command],
             axis=1,
         )
@@ -261,9 +261,9 @@ class Go2LocoTaskMj(Go2BaseMjEnv):
         return state
 
     def _compute_rewards(self, state: MjNpEnvState) -> MjNpEnvState:
-        total_reward = mx.zeros((self._num_envs,), dtype=self._mlx_dtype)
+        total_reward = np.zeros((self._num_envs,), dtype=self._np_dtype)
 
-        step_count = state.info.get("steps", mx.zeros((self._num_envs,), dtype=mx.uint32))
+        step_count = state.info.get("steps", np.zeros((self._num_envs,), dtype=np.uint32))
         should_log = self._enable_reward_log and (int(step_count[0].item()) % 4 == 0)
         log = {} if should_log else state.info.get("log", {})
 
@@ -282,7 +282,7 @@ class Go2LocoTaskMj(Go2BaseMjEnv):
             total_reward += weighted_rew
 
             if should_log:
-                log[f"reward/{name}"] = float(mx.mean(weighted_rew).item())
+                log[f"reward/{name}"] = float(np.mean(weighted_rew).item())
 
         state.info["log"] = log
         state.info["reward_components"] = {}
@@ -299,30 +299,28 @@ class Go2LocoTaskMj(Go2BaseMjEnv):
         max_tilt = self.cfg.termination_config.max_tilt_angle_deg
         sin_limit = math.sin(math.radians(max_tilt))
 
-        bad_orientation = mx.logical_or(
-            mx.abs(local_gravity[:, 0]) > sin_limit,
-            mx.abs(local_gravity[:, 1]) > sin_limit,
+        bad_orientation = np.logical_or(
+            np.abs(local_gravity[:, 0]) > sin_limit,
+            np.abs(local_gravity[:, 1]) > sin_limit,
         )
 
         base_height = state.physics_state[:, self._idx_qpos + 2]
         bad_height = base_height < self.cfg.termination_config.min_base_height
 
-        state.terminated = mx.logical_or(bad_orientation, bad_height)
+        state.terminated = np.logical_or(bad_orientation, bad_height)
         return state
 
     # ------------- Commands ----------------
 
     def resample_commands(self, num_envs: int):
-        low = mx.array(self.cfg.commands.vel_limit[0], dtype=self._mlx_dtype)
-        high = mx.array(self.cfg.commands.vel_limit[1], dtype=self._mlx_dtype)
-        commands = low + (high - low) * mx.random.uniform(
-            shape=(num_envs, 3), dtype=self._mlx_dtype
-        )
+        low = np.array(self.cfg.commands.vel_limit[0], dtype=self._np_dtype)
+        high = np.array(self.cfg.commands.vel_limit[1], dtype=self._np_dtype)
+        commands = low + (high - low) * np.random.uniform(size=(num_envs, 3)).astype(self._np_dtype)
         return commands
 
     # ------------- Reset ----------------
 
-    def reset(self, env_indices: mx.array) -> tuple[mx.array, mx.array, dict]:
+    def reset(self, env_indices: np.ndarray) -> tuple[np.ndarray, np.ndarray, dict]:
         num_reset = len(env_indices)
 
         init_qpos_np = np.asarray(self._init_qpos, dtype=np.float64)
@@ -344,22 +342,22 @@ class Go2LocoTaskMj(Go2BaseMjEnv):
         commands = self.resample_commands(num_reset)
 
         info = {
-            "current_actions": mx.zeros((num_reset, self._num_action), dtype=self._mlx_dtype),
-            "last_actions": mx.zeros((num_reset, self._num_action), dtype=self._mlx_dtype),
+            "current_actions": np.zeros((num_reset, self._num_action), dtype=self._np_dtype),
+            "last_actions": np.zeros((num_reset, self._num_action), dtype=self._np_dtype),
             "commands": commands,
         }
 
         sensor_batch = self._compute_sensor_batch_from_qpos_qvel(qpos_batch, qvel_batch)
-        qpos_batch_mx = mx.array(qpos_batch, dtype=self._mlx_dtype)
-        qvel_batch_mx = mx.array(qvel_batch, dtype=self._mlx_dtype)
+        qpos_batch_mx = np.array(qpos_batch, dtype=self._np_dtype)
+        qvel_batch_mx = np.array(qvel_batch, dtype=self._np_dtype)
 
         if hasattr(self, "_state") and self._state is not None:
             self._state.sensor_data = self._scatter_rows(
                 self._state.sensor_data, env_indices, sensor_batch
             )
 
-        obs_physics_state = mx.zeros(
-            (num_reset, self.physics_state_dim), dtype=self._mlx_dtype
+        obs_physics_state = np.zeros(
+            (num_reset, self.physics_state_dim), dtype=self._np_dtype
         )
         obs_physics_state[:, self._idx_qpos : self._idx_qpos + self.nq] = qpos_batch_mx
         obs_physics_state[:, self._idx_qvel : self._idx_qvel + self.nv] = qvel_batch_mx

@@ -137,6 +137,7 @@ class FastSACRunner(AsyncRunner):
         max_iterations: int = 1500,
         save_interval: int = 50,
         log_dir: str = "logs",
+        logger_type: str = "tensorboard",
     ):
         """Main training loop."""
         os.makedirs(log_dir, exist_ok=True)
@@ -196,6 +197,7 @@ class FastSACRunner(AsyncRunner):
             obs_dim=self.obs_dim,
             action_dim=self.action_dim,
             log_dir=log_dir,
+            log_backend=logger_type,
         )
         logger.start()
 
