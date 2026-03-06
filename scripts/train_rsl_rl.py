@@ -159,6 +159,7 @@ def main():
     parser.add_argument("--env_num", type=int, default=None, help="Number of training envs (task default if unset)")
     parser.add_argument("--play_env_num", type=int, default=16, help="Number of play envs")
     parser.add_argument("--num_timesteps", type=int, default=None, help="Overwritten total timesteps")
+    parser.add_argument("--logger", type=str, default="tensorboard", choices=["tensorboard", "wandb", "none", "no_print"])
     
     args = parser.parse_args()
     if args.env_num is None:
@@ -196,6 +197,14 @@ def main():
         
         # Convert ConfigDict to regular dict for RSL-RL
         train_cfg = cfg.to_dict()
+        
+        if "runner" not in train_cfg:
+            train_cfg["runner"] = {}
+        if args.logger in ["tensorboard", "wandb"]:
+            train_cfg["runner"]["logger"] = args.logger
+        else:
+            train_cfg["runner"]["logger"] = "none"
+
         if is_rsl_rl_v4():
             train_cfg = convert_config_v3_to_v4(train_cfg)
         
