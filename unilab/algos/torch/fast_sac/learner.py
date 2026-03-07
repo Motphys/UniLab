@@ -85,19 +85,8 @@ class SACActor(nn.Module):
     def forward(self, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Returns (action, mean, log_std)."""
         x = self.net(obs)
-
-        # === NaN Debug: Check network output ===
-        if torch.isnan(x).any():
-            print(f"[NaN Debug Actor] network output x contains NaN: {torch.isnan(x).sum().item()} / {x.numel()}")
-
         mean = self.fc_mu(x)
         log_std = self.fc_logstd(x)
-
-        # === NaN Debug: Check raw outputs ===
-        if torch.isnan(mean).any():
-            print(f"[NaN Debug Actor] raw mean contains NaN: {torch.isnan(mean).sum().item()} / {mean.numel()}")
-        if torch.isnan(log_std).any():
-            print(f"[NaN Debug Actor] raw log_std contains NaN: {torch.isnan(log_std).sum().item()} / {log_std.numel()}")
 
         # Squash log_std to [log_std_min, log_std_max] (SpinUp / Denis Yarats style)
         log_std = torch.tanh(log_std)
@@ -119,57 +108,21 @@ class SACActor(nn.Module):
     def get_actions_and_log_probs(self, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Sample actions and compute log probabilities. Returns (action, log_prob, log_std)."""
         _, mean, log_std = self(obs)
-
-        # === NaN Debug: Check actor forward outputs ===
-        if torch.isnan(mean).any():
-            print(f"[NaN Debug Actor] mean contains NaN: {torch.isnan(mean).sum().item()} / {mean.numel()}")
-        if torch.isnan(log_std).any():
-            print(f"[NaN Debug Actor] log_std contains NaN: {torch.isnan(log_std).sum().item()} / {log_std.numel()}")
-
         std = log_std.exp()
-
-        # === NaN Debug: Check std ===
-        if torch.isnan(std).any() or torch.isinf(std).any():
-            print(f"[NaN Debug Actor] std is NaN/Inf: {torch.isnan(std).sum().item()} NaN, {torch.isinf(std).sum().item()} Inf")
-            print(f"[NaN Debug Actor] log_std range: [{log_std.min().item()}, {log_std.max().item()}]")
-
         dist = torch.distributions.Normal(mean, std)
         raw_action = dist.rsample()
-
-        # === NaN Debug: Check sampled action ===
-        if torch.isnan(raw_action).any():
-            print(f"[NaN Debug Actor] raw_action contains NaN: {torch.isnan(raw_action).sum().item()} / {raw_action.numel()}")
 
         if self.use_tanh:
             tanh_action = torch.tanh(raw_action)
             action = tanh_action * self.action_scale + self.action_bias
             log_prob = dist.log_prob(raw_action)
-
-            # === NaN Debug: Check log_prob before correction ===
-            if torch.isnan(log_prob).any():
-                print(f"[NaN Debug Actor] log_prob (before tanh correction) contains NaN: {torch.isnan(log_prob).sum().item()} / {log_prob.numel()}")
-
             log_prob -= torch.log(1 - tanh_action.pow(2) + 1e-6)
-
-            # === NaN Debug: Check log_prob after tanh correction ===
-            if torch.isnan(log_prob).any():
-                print(f"[NaN Debug Actor] log_prob (after tanh correction) contains NaN: {torch.isnan(log_prob).sum().item()} / {log_prob.numel()}")
-                print(f"[NaN Debug Actor] tanh_action range: [{tanh_action.min().item()}, {tanh_action.max().item()}]")
-                print(f"[NaN Debug Actor] 1-tanh^2 min: {(1 - tanh_action.pow(2)).min().item()}")
-
             log_prob -= torch.log(self.action_scale + 1e-6)
         else:
             action = raw_action
             log_prob = dist.log_prob(raw_action)
 
         log_prob = log_prob.sum(1)
-
-        # === NaN Debug: Check final outputs ===
-        if torch.isnan(action).any():
-            print(f"[NaN Debug Actor] final action contains NaN: {torch.isnan(action).sum().item()} / {action.numel()}")
-        if torch.isnan(log_prob).any():
-            print(f"[NaN Debug Actor] final log_prob contains NaN: {torch.isnan(log_prob).sum().item()} / {log_prob.numel()}")
-
         return action, log_prob, log_std
 
     @torch.no_grad()
@@ -501,6 +454,8 @@ class FastSACLearner:
         critic_log_probs = F.log_softmax(q_outputs, dim=-1).clamp(min=-30.0)
         critic_losses = -torch.sum(target_distributions * critic_log_probs, dim=-1)
         qf_loss = critic_losses.mean(dim=1).sum(dim=0)
+
+
         # Skip if NaN
         if torch.isfinite(qf_loss):
             self.q_optimizer.zero_grad(set_to_none=True)
@@ -527,11 +482,11 @@ class FastSACLearner:
                 self.alpha_optimizer.step()
 
         return {
-            "qf_loss": qf_loss.item() if torch.isfinite(qf_loss) else float('nan'),
+            "qf_loss": qf_loss.item(),
             "critic_grad_norm": critic_grad_norm.item(),
-            "target_q_max": target_values.max().item() if torch.isfinite(target_values).all() else float('nan'),
-            "target_q_min": target_values.min().item() if torch.isfinite(target_values).all() else float('nan'),
-            "alpha_loss": alpha_loss.item() if torch.isfinite(alpha_loss) else float('nan'),
+            "target_q_max": target_values.max().item(),
+            "target_q_min": target_values.min().item(),
+            "alpha_loss": alpha_loss.item(),
             "alpha": self.log_alpha.exp().item(),
         }
 
