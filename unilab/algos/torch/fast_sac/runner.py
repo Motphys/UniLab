@@ -281,22 +281,17 @@ class FastSACRunner(AsyncRunner):
                 s = update_idx * self.batch_size
                 e = s + self.batch_size
                 batch = {k: v[s:e] for k, v in large_batch.items()}
-                critic_metrics = learner.update_critic(batch)
-                for k, v in critic_metrics.items():
+
+                # Use unified update interface
+                step_metrics = learner.update(batch)
+                for k, v in step_metrics.items():
                     iter_metrics[k].append(v)
-
-                if update_idx % self.policy_frequency == 1:
-                    actor_metrics = learner.update_actor(batch)
-                    for k, v in actor_metrics.items():
-                        iter_metrics[k].append(v)
-
-                learner.soft_update_target()
 
             if self.obs_normalization and getattr(learner, "obs_normalizer", None) is not None:
                 self.shared_obs_normalizer_stats.put((learner.obs_normalizer.mean.cpu().numpy(), learner.obs_normalizer.std.cpu().numpy()))
 
             learner.update_count += 1
-            weight_sync.write_weights(learner.actor.state_dict())
+            weight_sync.write_weights(learner.get_actor_state_dict())
             train_time = time.time() - train_start
 
             # Let collection resume after the learner finishes this phase.

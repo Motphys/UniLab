@@ -24,6 +24,7 @@ from typing import Dict
 from unilab.algos.torch.common.normalization import EmpiricalNormalization
 from unilab.algos.torch.common.networks import DistributionalQNetwork, Critic
 from unilab.algos.torch.common.stability import check_nan_loss, clip_gradients
+from unilab.algos.torch.offpolicy.learner import OffPolicyLearner
 
 # ---------------------------------------------------------------------------
 # Actor (deterministic, ReLU, per-env noise)
@@ -196,7 +197,7 @@ class SimpleReplayBuffer(nn.Module):
 # FastTD3 Learner
 # ---------------------------------------------------------------------------
 
-class FastTD3Learner:
+class FastTD3Learner(OffPolicyLearner):
     """FastTD3 learner aligned with reference FastTD3 repository.
 
     Key hyperparameters (from Go1JoystickFlatTerrain):
@@ -449,3 +450,17 @@ class FastTD3Learner:
         self.actor_optimizer.load_state_dict(state_dict["actor_optimizer"])
         self.q_optimizer.load_state_dict(state_dict["q_optimizer"])
         self.update_count = state_dict.get("update_count", 0)
+
+    def update(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
+        metrics = {}
+        metrics.update(self.update_critic(batch))
+        if self.update_count % self.policy_frequency == 0:
+            metrics.update(self.update_actor(batch))
+        self.soft_update()
+        return metrics
+
+    def get_actor_state_dict(self) -> Dict:
+        return self.actor.state_dict()
+
+    def load_actor_state_dict(self, state_dict: Dict):
+        self.actor.load_state_dict(state_dict)
