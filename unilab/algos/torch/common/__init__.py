@@ -1,5 +1,6 @@
 # Off-policy common components (replay buffer, worker)
 
 from unilab.algos.torch.common.normalization import EmpiricalNormalization
+from unilab.algos.torch.common.networks import DistributionalQNetwork, Critic
 
-__all__ = ["EmpiricalNormalization"]
+__all__ = ["EmpiricalNormalization", "DistributionalQNetwork", "Critic"]
