@@ -14,33 +14,12 @@ import torch
 from collections import defaultdict, deque
 from functools import partial
 
-from unilab.ipc import SharedReplayBuffer, SharedWeightSync
+from unilab.ipc import SharedReplayBuffer, SharedWeightSync, SharedObsNormStats
 from unilab.algos.torch.common.async_runner import AsyncRunner
 from unilab.algos.torch.common.worker import off_policy_collector_fn
 from unilab.algos.torch.common.logger import TrainingLogger
 from unilab.algos.torch.fast_sac.learner import FastSACLearner
 from unilab.ipc.async_runner import _SPAWN_CTX
-
-# Helper class for obs norm stats at module level to make it picklable
-class SharedObsNormStats:
-    def __init__(self, ctx):
-        self.q = ctx.Queue(maxsize=2)
-        self.last_stats = None
-    def put(self, stats):
-        # Empty first
-        while not self.q.empty():
-            try:
-                self.q.get_nowait()
-            except:
-                pass
-        self.q.put(stats)
-    def get(self):
-        try:
-            while not self.q.empty():
-                self.last_stats = self.q.get_nowait()
-        except:
-            pass
-        return self.last_stats
 
 class FastSACRunner(AsyncRunner):
     """FastSAC async runner using shared memory (no Ray dependency).

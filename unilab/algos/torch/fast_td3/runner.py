@@ -13,13 +13,12 @@ import statistics
 import torch
 from collections import defaultdict, deque
 
-from unilab.ipc import SharedReplayBuffer, SharedWeightSync
+from unilab.ipc import SharedReplayBuffer, SharedWeightSync, SharedObsNormStats
 from unilab.algos.torch.common.async_runner import AsyncRunner
 from unilab.algos.torch.common.worker import off_policy_collector_fn
 from unilab.algos.torch.common.logger import TrainingLogger
 from unilab.algos.torch.fast_td3.learner import FastTD3Learner
 from unilab.ipc.async_runner import _SPAWN_CTX
-from unilab.algos.torch.fast_sac.runner import SharedObsNormStats
 
 
 class FastTD3Runner(AsyncRunner):
