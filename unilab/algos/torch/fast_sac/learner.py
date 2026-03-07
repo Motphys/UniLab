@@ -331,7 +331,6 @@ class FastSACLearner:
         alpha_lr: float = 3e-4,
         alpha_init: float = 0.001,
         target_entropy_ratio: float = 0.0,
-        obs_normalization: bool = True,
         actor_hidden_dim: int = 512,
         critic_hidden_dim: int = 768,
         num_atoms: int = 101,
@@ -351,11 +350,6 @@ class FastSACLearner:
         self.tau = tau
         self.max_grad_norm = max_grad_norm
         self.use_autotune = use_autotune
-
-        if obs_normalization:
-            self.obs_normalizer = EmpiricalNormalization(shape=obs_dim, device=device)
-        else:
-            self.obs_normalizer = nn.Identity()
 
         # Build actor
         self.actor = SACActor(
@@ -433,10 +427,10 @@ class FastSACLearner:
 
     def update_critic(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One critic update step."""
-        obs = self.obs_normalizer(batch["obs"])
+        obs = batch["obs"]
         actions = batch["actions"]
         rewards = batch["rewards"]
-        next_obs = self.obs_normalizer(batch["next_obs"])
+        next_obs = batch["next_obs"]
         dones = batch["dones"]
         truncated = batch.get("truncated")
 
@@ -498,8 +492,7 @@ class FastSACLearner:
 
     def update_actor(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One actor update step."""
-        # Note: Do not update mean/std here, critic already did or inference does it without update
-        obs = self.obs_normalizer(batch["obs"], update=False)
+        obs = batch["obs"]
 
         actions, log_probs, log_std = self.actor.get_actions_and_log_probs(obs)
 

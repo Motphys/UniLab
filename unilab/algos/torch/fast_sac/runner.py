@@ -117,7 +117,6 @@ class FastSACRunner(AsyncRunner):
             alpha_lr=self.alpha_lr,
             alpha_init=self.alpha_init,
             target_entropy_ratio=self.target_entropy_ratio,
-            obs_normalization=self.obs_normalization,
             actor_hidden_dim=self.actor_hidden_dim,
             critic_hidden_dim=self.critic_hidden_dim,
             num_atoms=self.num_atoms,
