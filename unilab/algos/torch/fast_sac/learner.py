@@ -18,7 +18,6 @@ import torch.optim as optim
 from typing import Dict, Tuple
 
 from unilab.algos.torch.common.normalization import EmpiricalNormalization
-from unilab.algos.torch.offpolicy.learner import OffPolicyLearner
 
 
 # ---------------------------------------------------------------------------
@@ -355,7 +354,7 @@ class SACCritic(nn.Module):
 # FastSACLearner — the training algorithm
 # ---------------------------------------------------------------------------
 
-class FastSACLearner(OffPolicyLearner):
+class FastSACLearner:
     """FastSAC learner with holosoma-aligned hyperparameters.
 
     Key hyperparameters (aligned with holosoma FastSACConfig):
@@ -472,7 +471,6 @@ class FastSACLearner(OffPolicyLearner):
 
         # Step counter
         self.update_count = 0
-        self.policy_frequency = 1
 
     def update_critic(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One critic update step."""
@@ -603,31 +601,6 @@ class FastSACLearner(OffPolicyLearner):
         self.q_optimizer.load_state_dict(state_dict["q_optimizer"])
         self.alpha_optimizer.load_state_dict(state_dict["alpha_optimizer"])
         self.update_count = state_dict.get("update_count", 0)
-
-    # OffPolicyLearner interface implementation
-    def update(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
-        """Unified update method for OffPolicyLearner interface."""
-        metrics = {}
-
-        # Update critic (includes alpha update)
-        metrics.update(self.update_critic(batch))
-
-        # Update actor (with policy frequency)
-        if self.update_count % self.policy_frequency == 0:
-            metrics.update(self.update_actor(batch))
-
-        # Soft update target
-        self.soft_update_target()
-
-        return metrics
-
-    def get_actor_state_dict(self) -> Dict:
-        """Get actor weights for OffPolicyLearner interface."""
-        return self.actor.state_dict()
-
-    def load_actor_state_dict(self, state_dict: Dict):
-        """Load actor weights for OffPolicyLearner interface."""
-        self.actor.load_state_dict(state_dict)
 
 
 # ---------------------------------------------------------------------------

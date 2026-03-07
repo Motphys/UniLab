@@ -10,7 +10,6 @@ from unilab.ipc.safe_replay_buffer import SafeReplayBuffer
 from unilab.algos.torch.common.async_runner import AsyncRunner
 from unilab.algos.torch.common.worker import off_policy_collector_fn
 from unilab.algos.torch.common.logger import TrainingLogger
-from unilab.algos.torch.offpolicy.learner import OffPolicyLearner
 from unilab.ipc.async_runner import _SPAWN_CTX
 
 
@@ -19,7 +18,7 @@ class OffPolicyRunner(AsyncRunner):
 
     def __init__(
         self,
-        learner: OffPolicyLearner,
+        learner,
         env_name: str,
         algo_type: str,  # "sac" or "td3"
         num_envs: int = 4096,
@@ -103,7 +102,7 @@ class OffPolicyRunner(AsyncRunner):
 
         # Setup weight sync
         weight_sync = SharedWeightSync.from_state_dict(
-            self.learner.get_actor_state_dict(), create=True
+            self.learner.actor.state_dict(), create=True
         )
         self._shared_resources.append(weight_sync)
 
@@ -124,7 +123,7 @@ class OffPolicyRunner(AsyncRunner):
             shared_obs_normalizer_stats = SharedObsNormStats(_SPAWN_CTX)
 
         # Start collector
-        weight_param_shapes = {k: v.shape for k, v in self.learner.get_actor_state_dict().items()}
+        weight_param_shapes = {k: v.shape for k, v in self.learner.actor.state_dict().items()}
         collector_kwargs = {
             "env_name": self.env_name,
             "num_envs": self.num_envs,
@@ -221,15 +220,23 @@ class OffPolicyRunner(AsyncRunner):
                 s = update_idx * self.batch_size
                 e = s + self.batch_size
                 batch = {k: v[s:e] for k, v in large_batch.items()}
-                step_metrics = self.learner.update(batch)
-                for k, v in step_metrics.items():
+
+                critic_metrics = self.learner.update_critic(batch)
+                for k, v in critic_metrics.items():
                     iter_metrics[k].append(v)
+
+                if update_idx % self.policy_frequency == 1:
+                    actor_metrics = self.learner.update_actor(batch)
+                    for k, v in actor_metrics.items():
+                        iter_metrics[k].append(v)
+
+                self.learner.soft_update_target()
 
             if self.obs_normalization and getattr(self.learner, "obs_normalizer", None) is not None:
                 shared_obs_normalizer_stats.put((self.learner.obs_normalizer.mean.cpu().numpy(), self.learner.obs_normalizer.std.cpu().numpy()))
 
             self.learner.update_count += 1
-            weight_sync.write_weights(self.learner.get_actor_state_dict())
+            weight_sync.write_weights(self.learner.actor.state_dict())
             train_time = time.time() - train_start
 
             if self.sync_collection and trainer_done_queue:
