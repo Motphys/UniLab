@@ -18,6 +18,7 @@ import torch.optim as optim
 from typing import Dict, Tuple
 
 from unilab.algos.torch.common.normalization import EmpiricalNormalization
+from unilab.algos.torch.common.stability import safe_tensor
 
 
 # ---------------------------------------------------------------------------
@@ -93,9 +94,8 @@ class SACActor(nn.Module):
         log_std = self.log_std_min + 0.5 * (self.log_std_max - self.log_std_min) * (log_std + 1)
 
         # NaN protection: clamp mean to prevent exploding values
-        mean = torch.clamp(mean, -10.0, 10.0)
-        mean = torch.nan_to_num(mean, nan=0.0)
-        log_std = torch.nan_to_num(log_std, nan=self.log_std_min)
+        mean = safe_tensor(mean, nan_value=0.0, clamp_range=(-10.0, 10.0))
+        log_std = safe_tensor(log_std, nan_value=self.log_std_min, clamp_range=(self.log_std_min, self.log_std_max))
 
         if self.use_tanh:
             tanh_mean = torch.tanh(mean)
