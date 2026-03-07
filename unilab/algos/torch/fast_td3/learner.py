@@ -22,7 +22,7 @@ import torch.optim as optim
 from typing import Dict
 
 from unilab.algos.torch.common.normalization import EmpiricalNormalization
-from unilab.algos.torch.common.networks import DistributionalQNetwork, Critic
+from unilab.algos.torch.common.networks import Critic
 from unilab.algos.torch.common.stability import check_nan_loss, clip_gradients
 from unilab.algos.torch.offpolicy.learner import OffPolicyLearner
 
@@ -105,95 +105,6 @@ class TD3Actor(nn.Module):
 
 
 # ---------------------------------------------------------------------------
-# Replay Buffer
-# ---------------------------------------------------------------------------
-
-class SimpleReplayBuffer(nn.Module):
-    """Simple replay buffer shaped [n_env, buffer_size, ...].
-
-    Matches the reference FastTD3 implementation with per-env circular buffers.
-    """
-
-    def __init__(
-        self,
-        n_env: int,
-        buffer_size: int,
-        n_obs: int,
-        n_act: int,
-        device=None,
-    ):
-        super().__init__()
-        self.n_env = n_env
-        self.buffer_size = buffer_size
-        self.n_obs = n_obs
-        self.n_act = n_act
-        self.device = device
-
-        self.observations = torch.zeros(
-            (n_env, buffer_size, n_obs), device=device, dtype=torch.float
-        )
-        self.actions = torch.zeros(
-            (n_env, buffer_size, n_act), device=device, dtype=torch.float
-        )
-        self.rewards = torch.zeros(
-            (n_env, buffer_size), device=device, dtype=torch.float
-        )
-        self.dones = torch.zeros(
-            (n_env, buffer_size), device=device, dtype=torch.long
-        )
-        self.truncations = torch.zeros(
-            (n_env, buffer_size), device=device, dtype=torch.long
-        )
-        self.next_observations = torch.zeros(
-            (n_env, buffer_size, n_obs), device=device, dtype=torch.float
-        )
-        self.ptr = 0
-
-    @torch.no_grad()
-    def extend(self, transition: Dict):
-        """Add a single timestep of transitions for all environments."""
-        ptr = self.ptr % self.buffer_size
-        self.observations[:, ptr] = transition["observations"]
-        self.actions[:, ptr] = transition["actions"]
-        self.rewards[:, ptr] = transition["rewards"]
-        self.dones[:, ptr] = transition["dones"]
-        self.truncations[:, ptr] = transition["truncations"]
-        self.next_observations[:, ptr] = transition["next_observations"]
-        self.ptr += 1
-
-    @torch.no_grad()
-    def sample(self, batch_size: int):
-        """Sample a batch of transitions. Returns (n_env * batch_size) transitions."""
-        max_idx = min(self.buffer_size, self.ptr)
-        indices = torch.randint(
-            0, max_idx, (self.n_env, batch_size), device=self.device
-        )
-        obs_indices = indices.unsqueeze(-1).expand(-1, -1, self.n_obs)
-        act_indices = indices.unsqueeze(-1).expand(-1, -1, self.n_act)
-
-        flat_size = self.n_env * batch_size
-        observations = torch.gather(self.observations, 1, obs_indices).reshape(flat_size, self.n_obs)
-        next_observations = torch.gather(self.next_observations, 1, obs_indices).reshape(flat_size, self.n_obs)
-        actions = torch.gather(self.actions, 1, act_indices).reshape(flat_size, self.n_act)
-        rewards = torch.gather(self.rewards, 1, indices).reshape(flat_size)
-        dones = torch.gather(self.dones, 1, indices).reshape(flat_size)
-        truncations = torch.gather(self.truncations, 1, indices).reshape(flat_size)
-
-        return {
-            "observations": observations,
-            "actions": actions,
-            "rewards": rewards,
-            "dones": dones,
-            "truncations": truncations,
-            "next_observations": next_observations,
-        }
-
-    @property
-    def size(self):
-        return min(self.ptr, self.buffer_size) * self.n_env
-
-
-# ---------------------------------------------------------------------------
 # FastTD3 Learner
 # ---------------------------------------------------------------------------
 
@@ -245,7 +156,6 @@ class FastTD3Learner(OffPolicyLearner):
         self.noise_clip = noise_clip
         self.policy_frequency = policy_frequency
         self.use_cdq = use_cdq
-        self.max_iterations = max_iterations
 
         # Build actor
         self.actor = TD3Actor(
@@ -296,18 +206,6 @@ class FastTD3Learner(OffPolicyLearner):
             list(self.actor.parameters()),
             lr=torch.tensor(actor_lr, device=device),
             weight_decay=weight_decay,
-        )
-
-        # Cosine LR schedulers
-        self.q_scheduler = optim.lr_scheduler.CosineAnnealingLR(
-            self.q_optimizer,
-            T_max=max_iterations,
-            eta_min=torch.tensor(critic_lr, device=device),
-        )
-        self.actor_scheduler = optim.lr_scheduler.CosineAnnealingLR(
-            self.actor_optimizer,
-            T_max=max_iterations,
-            eta_min=torch.tensor(actor_lr, device=device),
         )
 
         self.update_count = 0
@@ -420,11 +318,6 @@ class FastTD3Learner(OffPolicyLearner):
         tgt_ps = [p.data for p in self.qnet_target.parameters()]
         torch._foreach_mul_(tgt_ps, 1.0 - self.tau)
         torch._foreach_add_(tgt_ps, src_ps, alpha=self.tau)
-
-    def step_schedulers(self):
-        """Step learning rate schedulers."""
-        self.q_scheduler.step()
-        self.actor_scheduler.step()
 
     def get_state_dict(self) -> Dict:
         return {

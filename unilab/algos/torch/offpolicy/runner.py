@@ -6,6 +6,7 @@ import torch
 from collections import deque
 
 from unilab.ipc import SharedReplayBuffer, SharedWeightSync, SharedObsNormStats
+from unilab.ipc.safe_replay_buffer import SafeReplayBuffer
 from unilab.algos.torch.common.async_runner import AsyncRunner
 from unilab.algos.torch.common.worker import off_policy_collector_fn
 from unilab.algos.torch.common.logger import TrainingLogger
@@ -34,13 +35,14 @@ class OffPolicyRunner(AsyncRunner):
         actor_hidden_dim: int = 512,
         use_layer_norm: bool = True,
         obs_normalization: bool = False,
+        safe_replay_buffer: bool = False,
     ):
         super().__init__(
             env_name=env_name,
             env_cfg_overrides={},
             rl_cfg={},
             device=device,
-            collector_device=collector_device,
+            collector_device=collector_device or "cpu",
             num_envs=num_envs,
         )
 
@@ -56,6 +58,7 @@ class OffPolicyRunner(AsyncRunner):
         self.actor_hidden_dim = actor_hidden_dim
         self.use_layer_norm = use_layer_norm
         self.obs_normalization = obs_normalization
+        self.safe_replay_buffer = safe_replay_buffer
 
         self.obs_dim, self.action_dim = self._detect_dims()
 
@@ -89,7 +92,8 @@ class OffPolicyRunner(AsyncRunner):
 
         # Setup shared buffer
         buffer_capacity = self.replay_buffer_n * self.num_envs
-        shared_buffer = SharedReplayBuffer(
+        buffer_cls = SafeReplayBuffer if self.safe_replay_buffer else SharedReplayBuffer
+        shared_buffer = buffer_cls(
             capacity=buffer_capacity,
             obs_dim=self.obs_dim,
             action_dim=self.action_dim,

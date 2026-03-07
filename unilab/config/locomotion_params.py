@@ -110,111 +110,155 @@ def rsl_rl_config(env_name: str) -> config_dict.ConfigDict:
     return rl_config
 
 
-def fast_td3_config(env_name: str) -> config_dict.ConfigDict:
-    """Returns tuned FastTD3 config for the given environment.
+def offpolicy_config(algo: str, env_name: str) -> config_dict.ConfigDict:
+    """Return a unified off-policy config schema for SAC/TD3.
 
-    Hyperparameters aligned with reference FastTD3 repository
-    (Go1JoystickFlatTerrain / MuJoCoPlayground defaults).
+    Common keys are aligned across algorithms to make training infra reusable.
+    Algo-specific options are stored under ``algo_params``.
     """
+    algo_name = algo.lower()
+    if algo_name == "sac":
+        cfg = config_dict.create(
+            seed=1,
+            actor_hidden_dim=512,
+            critic_hidden_dim=768,
+            use_layer_norm=True,
+            num_atoms=101,
+            num_envs=4096,
+            batch_size=8192,
+            updates_per_step=4,
+            warmup_steps=1000,
+            replay_buffer_n=512,
+            env_steps_per_sync=1,
+            max_iterations=1500,
+            save_interval=500,
+            actor_lr=3e-4,
+            critic_lr=3e-4,
+            alpha_lr=3e-4,
+            gamma=0.97,
+            tau=0.125,
+            alpha_init=0.01,
+            target_entropy_ratio=0.0,
+            obs_normalization=True,
+            policy_frequency=4,
+            max_grad_norm=0.0,
+        )
 
-    rl_config = config_dict.create(
-        seed=1,
-        # Network architecture (reference FastTD3)
-        actor_hidden_dim=256,
-        critic_hidden_dim=512,
-        num_atoms=101,          # distributional C51
-        init_scale=0.01,        # actor output layer init
-        # Training
-        num_envs=4096,
-        batch_size=8192,
-        num_updates=4,
-        warmup_steps=100,
-        buffer_size=1000,      # per-env buffer size
-        max_iterations=5000,
-        save_interval=500,
-        # Optimizer (AdamW)
-        actor_lr=3e-4,
-        critic_lr=3e-4,
-        weight_decay=0.1,
-        # Algorithm
-        gamma=0.97,
-        tau=0.1,
-        policy_frequency=2,
-        policy_noise=0.2,
-        noise_clip=0.5,
-        # Per-env exploration noise
-        std_min=0.4,
-        std_max=1.0,
-        # Distributional
-        v_min=-10.0,
-        v_max=10.0,
-        use_cdq=True,
-        obs_normalization=True,
-    )
+        if env_name in ("Go2JoystickFlatTerrain", "Go2LocoFlatTerrain"):
+            cfg.gamma = 0.99
+            cfg.num_envs = 1024
+            cfg.max_iterations = 1500
+        elif env_name in ("Go1JoystickFlatTerrain",):
+            cfg.num_envs = 4096
+            cfg.max_iterations = 2000
+        elif env_name in ("G1JoystickFlatTerrain",):
+            raise NotImplementedError("G1JoystickFlatTerrain config is not implemented for FastSAC, Please use G1JoystickFlatTerrainSAC instead.")
+        elif env_name in ("G1JoystickFlatTerrainSAC",):
+            cfg.updates_per_step = 8
+            cfg.replay_buffer_n = 1024
+            cfg.warmup_steps = 0
+            cfg.alpha_init = 0.001
+            cfg.max_iterations = 25000
+            cfg.save_interval = 1000
 
-    if env_name in ("Go2JoystickFlatTerrain", "Go2LocoFlatTerrain"):
-        rl_config.max_iterations = 2000
-        pass  # defaults are tuned for Go2
-    elif env_name in ("Go1JoystickFlatTerrain",):
-        pass  # same as default
-    elif env_name in ("G1JoystickFlatTerrain",):
-        rl_config.num_envs = 2048
+        return config_dict.create(
+            algo="sac",
+            algo_log_name="fast_sac",
+            seed=cfg.seed,
+            num_envs=cfg.num_envs,
+            batch_size=cfg.batch_size,
+            replay_buffer_n=cfg.replay_buffer_n,
+            updates_per_step=cfg.updates_per_step,
+            warmup_steps=cfg.warmup_steps,
+            policy_frequency=cfg.policy_frequency,
+            env_steps_per_sync=cfg.env_steps_per_sync,
+            max_iterations=cfg.max_iterations,
+            save_interval=cfg.save_interval,
+            gamma=cfg.gamma,
+            tau=cfg.tau,
+            actor_lr=cfg.actor_lr,
+            critic_lr=cfg.critic_lr,
+            actor_hidden_dim=cfg.actor_hidden_dim,
+            critic_hidden_dim=cfg.critic_hidden_dim,
+            num_atoms=cfg.num_atoms,
+            obs_normalization=cfg.obs_normalization,
+            use_layer_norm=cfg.use_layer_norm,
+            algo_params=config_dict.create(
+                alpha_lr=cfg.alpha_lr,
+                alpha_init=cfg.alpha_init,
+                target_entropy_ratio=cfg.target_entropy_ratio,
+                max_grad_norm=cfg.max_grad_norm,
+            ),
+        )
 
-    return rl_config
+    if algo_name == "td3":
+        cfg = config_dict.create(
+            seed=1,
+            actor_hidden_dim=256,
+            critic_hidden_dim=512,
+            num_atoms=101,
+            init_scale=0.01,
+            num_envs=4096,
+            batch_size=8192,
+            num_updates=4,
+            warmup_steps=100,
+            buffer_size=1000,
+            max_iterations=5000,
+            save_interval=500,
+            actor_lr=3e-4,
+            critic_lr=3e-4,
+            weight_decay=0.1,
+            gamma=0.97,
+            tau=0.1,
+            policy_frequency=2,
+            policy_noise=0.2,
+            noise_clip=0.5,
+            std_min=0.4,
+            std_max=1.0,
+            v_min=-10.0,
+            v_max=10.0,
+            use_cdq=True,
+            obs_normalization=True,
+        )
 
+        if env_name in ("Go2JoystickFlatTerrain", "Go2LocoFlatTerrain"):
+            cfg.max_iterations = 2000
+        elif env_name in ("G1JoystickFlatTerrain",):
+            cfg.num_envs = 2048
 
-def fast_sac_config(env_name: str) -> config_dict.ConfigDict:
-    """Returns tuned FastSAC config for the given environment.
+        return config_dict.create(
+            algo="td3",
+            algo_log_name="fast_td3",
+            seed=cfg.seed,
+            num_envs=cfg.num_envs,
+            batch_size=cfg.batch_size,
+            replay_buffer_n=cfg.buffer_size,
+            updates_per_step=cfg.num_updates,
+            warmup_steps=cfg.warmup_steps,
+            policy_frequency=cfg.policy_frequency,
+            env_steps_per_sync=1,
+            max_iterations=cfg.max_iterations,
+            save_interval=cfg.save_interval,
+            gamma=cfg.gamma,
+            tau=cfg.tau,
+            actor_lr=cfg.actor_lr,
+            critic_lr=cfg.critic_lr,
+            actor_hidden_dim=cfg.actor_hidden_dim,
+            critic_hidden_dim=cfg.critic_hidden_dim,
+            num_atoms=cfg.num_atoms,
+            obs_normalization=cfg.obs_normalization,
+            use_layer_norm=False,
+            algo_params=config_dict.create(
+                weight_decay=cfg.weight_decay,
+                v_min=cfg.v_min,
+                v_max=cfg.v_max,
+                init_scale=cfg.init_scale,
+                std_min=cfg.std_min,
+                std_max=cfg.std_max,
+                policy_noise=cfg.policy_noise,
+                noise_clip=cfg.noise_clip,
+                use_cdq=cfg.use_cdq,
+            ),
+        )
 
-    Hyperparameters aligned with holosoma FastSACConfig defaults.
-    """
-
-    rl_config = config_dict.create(
-        seed=1,
-        # Network architecture (holosoma-aligned)
-        actor_hidden_dim=512,
-        critic_hidden_dim=768,
-        use_layer_norm=True,
-        num_atoms=101,         # distributional C51
-        # Training
-        num_envs=4096,
-        batch_size=8192,
-        updates_per_step=4,
-        warmup_steps=1000,
-        replay_buffer_n=512,
-        env_steps_per_sync=1,
-        max_iterations=1500,
-        save_interval=500,
-        # Optimizer (AdamW, holosoma-style)
-        actor_lr=3e-4,
-        critic_lr=3e-4,
-        alpha_lr=3e-4,
-        # Algorithm
-        gamma=0.97,
-        tau=0.125,
-        alpha_init=0.01,
-        target_entropy_ratio=0.0,
-        obs_normalization=True,
-        policy_frequency=4,
-        max_grad_norm=0.0,         # holosoma: max_grad_norm=0.0
-    )
-
-    if env_name in ("Go2JoystickFlatTerrain", "Go2LocoFlatTerrain"):
-        rl_config.gamma = 0.99
-        rl_config.num_envs = 1024
-        rl_config.max_iterations = 1500
-    elif env_name in ("Go1JoystickFlatTerrain",):
-        rl_config.num_envs = 4096
-        rl_config.max_iterations = 2000
-    elif env_name in ("G1JoystickFlatTerrain",):
-        raise NotImplementedError("G1JoystickFlatTerrain config is not implemented for FastSAC, Please use G1JoystickFlatTerrainSAC instead.")
-    elif env_name in ("G1JoystickFlatTerrainSAC",):
-        # G1 (29 DOF humanoid): overrides that differ from defaults
-        rl_config.updates_per_step = 8       # holosoma: num_updates=8  (default: 4)
-        rl_config.replay_buffer_n = 1024     # holosoma: buffer_size=1024 (default: 512)
-        rl_config.warmup_steps = 0           # holosoma: learning_starts=10 (default: 10000)
-        rl_config.alpha_init = 0.001         # holosoma: alpha_init=0.001 (default: 0.01)
-        rl_config.max_iterations = 25000     # holosoma: num_learning_iterations=50000
-        rl_config.save_interval = 1000       # holosoma: save_interval=1000
-
-    return rl_config
+    raise ValueError(f"Unsupported off-policy algo: {algo}")

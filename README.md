@@ -82,11 +82,9 @@ python scripts/train_rsl_rl.py --task Go2JoystickFlatTerrain
 # PPO (MLX - Apple Silicon)
 python scripts/train_mlx_ppo.py --task Go2JoystickFlatTerrain
 
-# FastSAC
-python scripts/train_fast_sac.py --task Go2JoystickFlatTerrain
-
-# FastTD3
-python scripts/train_fast_td3.py --task Go1JoystickFlatTerrain
+# Unified OffPolicy entry (recommended)
+python scripts/train_offpolicy.py --algo sac --task Go1JoystickFlatTerrain
+python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain
 
 # APPO
 python scripts/train_appo.py --task Go2JoystickFlatTerrain
@@ -101,10 +99,10 @@ python scripts/train_appo.py --task Go2JoystickFlatTerrain
 ```bash
 # 回放最新训练结果
 python scripts/train_rsl_rl.py --task Go2JoystickFlatTerrain --play_only
-python scripts/train_fast_sac.py --task Go2JoystickFlatTerrain --play_only
+python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain --play_only
 
 # 加载特定 checkpoint 回放
-python scripts/train_fast_td3.py --task Go1JoystickFlatTerrain --play_only --load_run "2024-02-04_12-00-00"
+python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain --play_only --load_run "2024-02-04_12-00-00"
 ```
 
 ### 3. 加载特定 Run 继续训练
@@ -113,8 +111,8 @@ python scripts/train_fast_td3.py --task Go1JoystickFlatTerrain --play_only --loa
 # PPO 继续训练
 python scripts/train_rsl_rl.py --task Go2JoystickFlatTerrain --load_run "2024-02-04_12-00-00"
 
-# FastSAC 继续训练
-python scripts/train_fast_sac.py --task Go2JoystickFlatTerrain --load_run "2024-02-04_12-00-00"
+# OffPolicy (SAC) 继续训练
+python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain --load_run "2024-02-04_12-00-00"
 ```
 
 ### 通用参数说明
@@ -125,6 +123,7 @@ python scripts/train_fast_sac.py --task Go2JoystickFlatTerrain --load_run "2024-
 *   `--load_run`: 指定加载的运行 ID，默认 `-1`（最新）
 *   `--play_env_num`: 回放时的环境数量（默认 16）
 *   `--logger`: 日志后端（`tensorboard` / `wandb` / `none`）
+*   `--safe_replay_buffer`: 启用安全 replay 采样保护（默认关闭，仅排查稳定性时建议开启）
 
 ---
 
@@ -144,27 +143,25 @@ python scripts/train_fast_sac.py --task Go2JoystickFlatTerrain --load_run "2024-
 ### 训练
 
 ```bash
-# FastSAC 训练
-python scripts/train_fast_sac.py --task Go2JoystickFlatTerrain
-
-# FastTD3 训练
-python scripts/train_fast_td3.py --task Go1JoystickFlatTerrain
+# Unified entry
+python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain
+python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain
 
 # 异步模式（更高吞吐量）
-python scripts/train_fast_sac.py --task Go2JoystickFlatTerrain --no_sync_collection
+python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain --no_sync_collection
 
 # 跳过训练后的自动 play
-python scripts/train_fast_td3.py --task Go1JoystickFlatTerrain --no_play
+python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain --no_play
 ```
 
 ### 回放
 
 ```bash
 # 仅回放模式
-python scripts/train_fast_sac.py --task Go2JoystickFlatTerrain --play_only
+python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain --play_only
 
 # 加载特定 checkpoint
-python scripts/train_fast_td3.py --task Go1JoystickFlatTerrain --play_only --load_run "2024-02-04_12-00-00"
+python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain --play_only --load_run "2024-02-04_12-00-00"
 ```
 
 ### 参数说明
@@ -179,10 +176,24 @@ python scripts/train_fast_td3.py --task Go1JoystickFlatTerrain --play_only --loa
 | `--env_steps_per_sync` | 1 | 同步模式下每次收集的步数 |
 | `--play_only` | False | 仅回放，跳过训练 |
 | `--no_play` | False | 训练后跳过自动回放 |
+| `--safe_replay_buffer` | False | 启用安全 replay 采样保护 |
 
 ### 平台特定说明
 
-**macOS 多进程数据竞争问题**：在 macOS 上使用 MPS 设备时，`SharedReplayBuffer` 的异步数据传输（`non_blocking=True`）可能导致偶发性 NaN。已通过使用同步传输（`non_blocking=False`）修复。此问题在 Linux 上未出现。
+**macOS 多进程数据竞争问题**：在 macOS 上使用 MPS 设备时，异步数据传输可能导致偶发性 NaN。当前 off-policy 训练默认采用性能优先的共享 buffer 路径；如遇数据稳定性问题，可开启 `--safe_replay_buffer`。
+
+### OffPolicy 回归基准
+
+```bash
+python benchmark/benchmark_offpolicy_regression.py \
+   --algo sac \
+   --task Go1JoystickFlatTerrain \
+   --iterations 2 \
+   --num_envs 64 \
+   --repeats 3
+```
+
+结果会输出并写入 `outputs/backends/offpolicy_regression.json`，可用于改动前后时延对比。
 
 ---
 
