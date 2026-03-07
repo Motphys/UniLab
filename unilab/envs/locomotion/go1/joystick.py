@@ -179,20 +179,20 @@ class Go1WalkTaskMj(Go1BaseMjEnv):
                 continue
             if name not in self._reward_fns:
                 continue
-                
+
             rew = self._reward_fns[name](state)
             weighted_rew = rew * scale
             total_reward += weighted_rew
-            
+
             if should_log:
                 log[f"reward/{name}"] = float(np.mean(weighted_rew))
-            
+
         state.info["log"] = log
         state.info["reward_components"] = {}
 
         # Keep the same dt scaling style used in Go2.
         total_reward *= self.cfg.ctrl_dt
-    
+
         state.reward = total_reward
         return state
 
@@ -262,11 +262,13 @@ class Go1WalkTaskMj(Go1BaseMjEnv):
         return obs_physics_state, obs_batch, info
 
     def _reward_tracking_lin_vel(self, state, commands: np.ndarray):
-        lin_vel_error = np.sum(np.square(commands[:, :2] - self.get_local_linvel(state)[:, :2]), axis=1)
+        local_linvel = self.get_local_linvel(state)[:, :2]
+        lin_vel_error = np.sum(np.square(commands[:, :2] - local_linvel), axis=1)
         return np.exp(-lin_vel_error / self.cfg.reward_config.tracking_sigma)
 
     def _reward_tracking_ang_vel(self, state, commands: np.ndarray):
-        ang_vel_error = np.square(commands[:, 2] - self.get_gyro(state)[:, 2])
+        gyro = self.get_gyro(state)[:, 2]
+        ang_vel_error = np.square(commands[:, 2] - gyro)
         return np.exp(-ang_vel_error / self.cfg.reward_config.tracking_sigma)
 
     def _reward_ang_vel_xy(self, state: MjNpEnvState):

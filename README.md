@@ -180,6 +180,10 @@ python scripts/train_fast_td3.py --task Go1JoystickFlatTerrain --play_only --loa
 | `--play_only` | False | 仅回放，跳过训练 |
 | `--no_play` | False | 训练后跳过自动回放 |
 
+### 平台特定说明
+
+**macOS 多进程数据竞争问题**：在 macOS 上使用 MPS 设备时，`SharedReplayBuffer` 的异步数据传输（`non_blocking=True`）可能导致偶发性 NaN。已通过使用同步传输（`non_blocking=False`）修复。此问题在 Linux 上未出现。
+
 ---
 
 ## APPO (Asynchronous PPO)

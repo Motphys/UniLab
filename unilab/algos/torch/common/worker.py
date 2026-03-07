@@ -225,6 +225,7 @@ def _run_collector(
         # Extract data as numpy
         next_obs_np = np.asarray(state.obs, dtype=np.float32)
         rewards_np = np.asarray(state.reward, dtype=np.float32).ravel()
+
         terminated_np = np.asarray(state.terminated, dtype=np.float32).ravel() if state.terminated is not None else np.zeros(num_envs, dtype=np.float32)
         truncated_np = np.asarray(state.truncated, dtype=np.float32).ravel() if state.truncated is not None else np.zeros(num_envs, dtype=np.float32)
         combined_dones = np.clip(terminated_np + truncated_np, 0, 1)

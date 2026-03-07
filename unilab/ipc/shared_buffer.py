@@ -97,6 +97,7 @@ class SharedReplayBuffer:
         truncated: np.ndarray,
     ) -> None:
         batch_size = obs.shape[0]
+
         with self._lock:
             start = int(self._meta[0]) % self.capacity
 
@@ -144,7 +145,9 @@ class SharedReplayBuffer:
             dones_copy = self.dones[indices].copy()
             truncated_copy = self.truncated[indices].copy()
 
-        return {
+        # Use non-blocking transfer with single sync to avoid race conditions
+        # Non-blocking is faster, but requires explicit sync to prevent data corruption
+        result = {
             "obs": torch.from_numpy(obs_copy).to(device, non_blocking=True),
             "actions": torch.from_numpy(actions_copy).to(device, non_blocking=True),
             "rewards": torch.from_numpy(rewards_copy).to(device, non_blocking=True),
@@ -152,6 +155,15 @@ class SharedReplayBuffer:
             "dones": torch.from_numpy(dones_copy).to(device, non_blocking=True),
             "truncated": torch.from_numpy(truncated_copy).to(device, non_blocking=True),
         }
+
+        # Synchronize once to ensure all async transfers complete
+        if device != "cpu":
+            if device.startswith("cuda"):
+                torch.cuda.synchronize()
+            elif device == "mps":
+                torch.mps.synchronize()
+
+        return result
 
     def sample_mlx(self, batch_size: int):
         import mlx.core as mx
