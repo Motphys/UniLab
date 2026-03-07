@@ -511,6 +511,7 @@ class FastTD3Learner:
         )
 
         self.update_count = 0
+        self.weight_decay = weight_decay
 
     def normalize_obs(self, obs: torch.Tensor, update: bool = False) -> torch.Tensor:
         """Normalize observations using running statistics."""
@@ -565,8 +566,17 @@ class FastTD3Learner:
         ).mean()
         qf_loss = qf1_loss + qf2_loss
 
+        if torch.isnan(qf_loss) or torch.isinf(qf_loss):
+            return {
+                "qf_loss": float('nan'),
+                "qf_max": 0.0,
+                "qf_min": 0.0,
+            }
+
         self.q_optimizer.zero_grad(set_to_none=True)
         qf_loss.backward()
+        if self.weight_decay > 0:
+            torch.nn.utils.clip_grad_norm_(self.qnet.parameters(), max_norm=10.0)
         self.q_optimizer.step()
 
         return {
@@ -590,8 +600,13 @@ class FastTD3Learner:
 
         actor_loss = -qf_value.mean()
 
+        if torch.isnan(actor_loss) or torch.isinf(actor_loss):
+            return {"actor_loss": float('nan')}
+
         self.actor_optimizer.zero_grad(set_to_none=True)
         actor_loss.backward()
+        if self.weight_decay > 0:
+            torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=10.0)
         self.actor_optimizer.step()
 
         return {"actor_loss": actor_loss.item()}

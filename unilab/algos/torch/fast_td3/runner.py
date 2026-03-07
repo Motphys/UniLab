@@ -19,6 +19,7 @@ from unilab.algos.torch.common.worker import off_policy_collector_fn
 from unilab.algos.torch.common.logger import TrainingLogger
 from unilab.algos.torch.fast_td3.learner import FastTD3Learner
 from unilab.ipc.async_runner import _SPAWN_CTX
+from unilab.algos.torch.fast_sac.runner import SharedObsNormStats
 
 
 class FastTD3Runner(AsyncRunner):
@@ -170,6 +171,10 @@ class FastTD3Runner(AsyncRunner):
         )
         self._shared_resources.append(shared_buffer)
 
+        shared_obs_normalizer_stats = None
+        if self.obs_normalization:
+            shared_obs_normalizer_stats = SharedObsNormStats(_SPAWN_CTX)
+
         weight_sync = SharedWeightSync.from_state_dict(
             learner.actor.state_dict(), create=True
         )
@@ -211,6 +216,8 @@ class FastTD3Runner(AsyncRunner):
             "collection_ready_queue": collection_ready_queue,
             "trainer_done_queue": trainer_done_queue,
             "env_steps_per_sync": self.env_steps_per_sync,
+            "obs_normalization": self.obs_normalization,
+            "shared_obs_normalizer_stats": shared_obs_normalizer_stats,
         }
         self._start_collector(
             target_fn=off_policy_collector_fn,
@@ -292,6 +299,13 @@ class FastTD3Runner(AsyncRunner):
                 learner.soft_update()
 
             weight_sync.write_weights(learner.actor.state_dict())
+
+            if self.obs_normalization and shared_obs_normalizer_stats is not None:
+                if hasattr(learner, 'obs_normalizer') and not isinstance(learner.obs_normalizer, torch.nn.Identity):
+                    mean = learner.obs_normalizer.mean.cpu().numpy()
+                    std = learner.obs_normalizer.std.cpu().numpy()
+                    shared_obs_normalizer_stats.put((mean, std))
+
             train_time = time.time() - train_start
 
             # Let collection resume
