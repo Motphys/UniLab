@@ -151,9 +151,13 @@ class Go1WalkTask(Go1BaseEnv):
         qpos = np.tile(self._init_qpos, (num_reset, 1))
         qvel = np.tile(self._init_qvel, (num_reset, 1))
 
+        # Domain Randomization
+        dxy = np.random.uniform(-0.5, 0.5, (num_reset, 2))
+        qpos[:, 0:2] += dxy
         yaw = np.random.uniform(-np.pi, np.pi, (num_reset,))
         quat_yaw = np_yaw_to_quat(yaw)
-        qpos[:, 3:7] = np_quat_mul(quat_yaw, qpos[:, 3:7])
+        qpos[:, 3:7] = np_quat_mul(qpos[:, 3:7], quat_yaw)
+        qvel[:, 0:6] = np.random.uniform(-0.5, 0.5, (num_reset, 6))
 
         self._backend.set_state(env_indices, qpos, qvel)
 
