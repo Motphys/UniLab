@@ -98,7 +98,12 @@ class NpEnv(ABEnv):
         if info1:
             for key, value in info1.items():
                 if key not in self._state.info:
-                    self._state.info[key] = value
+                    if isinstance(value, np.ndarray):
+                        full_shape = (self._num_envs,) + value.shape[1:]
+                        self._state.info[key] = np.zeros(full_shape, dtype=value.dtype)
+                        self._state.info[key][env_indices] = value
+                    else:
+                        self._state.info[key] = value
                 elif isinstance(value, np.ndarray):
                     self._state.info[key][env_indices] = value
 
