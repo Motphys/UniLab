@@ -4,12 +4,12 @@ from unilab.ipc.shared_buffer import SharedReplayBuffer
 from unilab.ipc.shared_storage import SharedOnPolicyStorage
 from unilab.ipc.weight_sync import SharedWeightSync
 from unilab.ipc.async_runner import AsyncRunner
-from unilab.ipc.sync_barrier import BatchCoordinator
+from unilab.ipc.shared_obs_stats import SharedObsNormStats
 
 __all__ = [
     "SharedReplayBuffer",
     "SharedOnPolicyStorage",
     "SharedWeightSync",
     "AsyncRunner",
-    "BatchCoordinator",
+    "SharedObsNormStats",
 ]

@@ -97,6 +97,7 @@ class SharedReplayBuffer:
         truncated: np.ndarray,
     ) -> None:
         batch_size = obs.shape[0]
+
         with self._lock:
             start = int(self._meta[0]) % self.capacity
 
@@ -137,14 +138,32 @@ class SharedReplayBuffer:
         with self._lock:
             current_size = int(self._meta[1])
             indices = np.random.randint(0, current_size, size=batch_size)
-            return {
-                "obs": torch.tensor(self.obs[indices], dtype=torch.float32).to(device, non_blocking=True),
-                "actions": torch.tensor(self.actions[indices], dtype=torch.float32).to(device, non_blocking=True),
-                "rewards": torch.tensor(self.rewards[indices], dtype=torch.float32).to(device, non_blocking=True),
-                "next_obs": torch.tensor(self.next_obs[indices], dtype=torch.float32).to(device, non_blocking=True),
-                "dones": torch.tensor(self.dones[indices], dtype=torch.float32).to(device, non_blocking=True),
-                "truncated": torch.tensor(self.truncated[indices], dtype=torch.float32).to(device, non_blocking=True),
-            }
+            obs_copy = self.obs[indices].copy()
+            actions_copy = self.actions[indices].copy()
+            rewards_copy = self.rewards[indices].copy()
+            next_obs_copy = self.next_obs[indices].copy()
+            dones_copy = self.dones[indices].copy()
+            truncated_copy = self.truncated[indices].copy()
+
+        # Use non-blocking transfer with single sync to avoid race conditions
+        # Non-blocking is faster, but requires explicit sync to prevent data corruption
+        result = {
+            "obs": torch.from_numpy(obs_copy).to(device, non_blocking=True),
+            "actions": torch.from_numpy(actions_copy).to(device, non_blocking=True),
+            "rewards": torch.from_numpy(rewards_copy).to(device, non_blocking=True),
+            "next_obs": torch.from_numpy(next_obs_copy).to(device, non_blocking=True),
+            "dones": torch.from_numpy(dones_copy).to(device, non_blocking=True),
+            "truncated": torch.from_numpy(truncated_copy).to(device, non_blocking=True),
+        }
+
+        # Synchronize once to ensure all async transfers complete
+        if device != "cpu":
+            if device.startswith("cuda"):
+                torch.cuda.synchronize()
+            elif device == "mps":
+                torch.mps.synchronize()
+
+        return result
 
     def sample_mlx(self, batch_size: int):
         import mlx.core as mx

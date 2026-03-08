@@ -23,8 +23,24 @@ class NoiseConfig:
 class ControlConfig:
     # target angle = action_scale * action + default_angle
     action_scale: float = 0.25
-    Kp: float = 80.0
-    Kd: float = 2.0
+    # Kp: list[float] | float = field(
+    #     default_factory=lambda: [
+    #         40.179, 99.098, 40.179, 99.098, 28.501, 28.501,  # left leg
+    #         40.179, 99.098, 40.179, 99.098, 28.501, 28.501,  # right leg
+    #         40.179, 28.501, 28.501,                          # waist
+    #         14.251, 14.251, 14.251, 14.251, 14.251, 16.778, 16.778,  # left arm
+    #         14.251, 14.251, 14.251, 14.251, 14.251, 16.778, 16.778,  # right arm
+    #     ]
+    # )
+    # Kd: list[float] | float = field(
+    #     default_factory=lambda: [
+    #         2.558, 6.309, 2.558, 6.309, 1.814, 1.814,  # left leg
+    #         2.558, 6.309, 2.558, 6.309, 1.814, 1.814,  # right leg
+    #         2.558, 1.814, 1.814,                       # waist
+    #         0.907, 0.907, 0.907, 0.907, 0.907, 1.068, 1.068,  # left arm
+    #         0.907, 0.907, 0.907, 0.907, 0.907, 1.068, 1.068,  # right arm
+    #     ]
+    # )
     simulate_action_latency: bool = False
 
 
@@ -57,9 +73,12 @@ class G1BaseMjEnv(MjNpEnv):
         super().__init__(cfg, num_envs)
 
         # Override default PD gains for faster early training convergence.
-        self._model.dof_damping[6:] = cfg.control_config.Kd
-        self._model.actuator_gainprm[:, 0] = cfg.control_config.Kp
-        self._model.actuator_biasprm[:, 1] = -cfg.control_config.Kp
+        # 已经在mjcf中加上了
+        # kd_arr = np.array(cfg.control_config.Kd) if isinstance(cfg.control_config.Kd, (list, np.ndarray)) else cfg.control_config.Kd
+        # kp_arr = np.array(cfg.control_config.Kp) if isinstance(cfg.control_config.Kp, (list, np.ndarray)) else cfg.control_config.Kp
+        # self._model.dof_damping[6:] = kd_arr
+        # self._model.actuator_gainprm[:, 0] = kp_arr
+        # self._model.actuator_biasprm[:, 1] = -kp_arr
 
         self.nq = self._model.nq
         self.nv = self._model.nv
@@ -112,6 +131,8 @@ class G1BaseMjEnv(MjNpEnv):
         self.idx_gyro = self._get_sensor_indices(self._cfg.sensor.gyro)
         self.idx_upvector = self._get_sensor_indices("upvector")
         self._idx_torso_upvector = self._get_sensor_indices("torso_upvector")
+        self._idx_left_foot_upvector = self._get_sensor_indices("left_foot_upvector")
+        self._idx_right_foot_upvector = self._get_sensor_indices("right_foot_upvector")
         if self.idx_linvel is None:
             raise ValueError("Sensor 'local_linvel' is required for G1.")
         if self.idx_gyro is None:
@@ -120,6 +141,10 @@ class G1BaseMjEnv(MjNpEnv):
             raise ValueError("Sensor 'upvector' is required for G1.")
         if self._idx_torso_upvector is None:
             raise ValueError("Sensor 'torso_upvector' is required for G1.")
+        if self._idx_left_foot_upvector is None:
+            raise ValueError("Sensor 'left_foot_upvector' is required for G1.")
+        if self._idx_right_foot_upvector is None:
+            raise ValueError("Sensor 'right_foot_upvector' is required for G1.")
 
     def get_dof_pos(self, state: MjNpEnvState):
         return state.physics_state[:, self._idx_qpos + 7 : self._idx_qpos + 7 + self._num_action]

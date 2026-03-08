@@ -13,11 +13,7 @@ import statistics
 import torch
 from collections import defaultdict, deque
 
-from unilab.algos.torch.common.async_runner import (
-    AsyncRunner,
-    SharedOnPolicyStorage,
-    SharedWeightSync,
-)
+from unilab.ipc import AsyncRunner, SharedOnPolicyStorage, SharedWeightSync
 from unilab.algos.torch.appo.worker import appo_collector_fn
 from unilab.algos.torch.appo.learner import APPOLearner, APPOActorWrapper
 from unilab.algos.torch.common.logger import TrainingLogger
@@ -66,7 +62,7 @@ class APPORunner(AsyncRunner):
     def _detect_dims(self):
         """Create a tiny env to read obs/action dims, then close it."""
         from unilab.envs import registry
-        from unilab.algos.torch.common.worker import ensure_registries
+        from unilab.algos.torch.common.utils import ensure_registries
         ensure_registries()
 
         env = registry.make(self.env_name, num_envs=1, sim_backend="mujoco")

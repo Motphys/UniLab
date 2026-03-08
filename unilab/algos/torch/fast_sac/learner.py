@@ -17,6 +17,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 from typing import Dict, Tuple
 
+from unilab.algos.torch.common.normalization import EmpiricalNormalization
+
 
 # ---------------------------------------------------------------------------
 # Actor Network (holosoma-style: SiLU + LayerNorm + Tanh squashing)
@@ -554,3 +556,6 @@ class FastSACLearner:
         self.q_optimizer.load_state_dict(state_dict["q_optimizer"])
         self.alpha_optimizer.load_state_dict(state_dict["alpha_optimizer"])
         self.update_count = state_dict.get("update_count", 0)
+
+
+# ---------------------------------------------------------------------------
