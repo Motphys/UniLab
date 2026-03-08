@@ -180,8 +180,6 @@ python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain --pla
 
 ### 平台特定说明
 
-**macOS 多进程数据竞争问题**：在 macOS 上使用 MPS 设备时，异步数据传输可能导致偶发性 NaN。当前 off-policy 训练默认采用性能优先的共享 buffer 路径；如遇数据稳定性问题，可开启 `--safe_replay_buffer`。
-
 ### OffPolicy 回归基准
 
 ```bash

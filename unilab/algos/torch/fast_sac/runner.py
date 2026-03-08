@@ -33,10 +33,9 @@ class FastSACRunner(OffPolicyRunner):
         num_atoms: int = 101,
         use_layer_norm: bool = True,
         max_grad_norm: float = 0.0,
-        safe_replay_buffer: bool = False,
     ):
         from unilab.envs import registry
-        from unilab.algos.torch.common.worker import ensure_registries
+        from unilab.algos.torch.common.utils import ensure_registries
         import torch
 
         ensure_registries()
@@ -83,5 +82,4 @@ class FastSACRunner(OffPolicyRunner):
             actor_hidden_dim=actor_hidden_dim,
             use_layer_norm=use_layer_norm,
             obs_normalization=obs_normalization,
-            safe_replay_buffer=safe_replay_buffer,
         )

@@ -7,7 +7,7 @@ import datetime
 import argparse
 from pathlib import Path
 
-from unilab.algos.torch.common.worker import ensure_registries
+from unilab.algos.torch.common.utils import ensure_registries
 
 
 def default_device(torch_module, preferred: str | None = None) -> str:
@@ -82,7 +82,6 @@ def build_offpolicy_parser(
     parser.add_argument("--load_run", type=str, default="-1", help="Run ID to load or checkpoint path")
     parser.add_argument("--play_env_num", type=int, default=16, help="Number of play envs")
     parser.add_argument("--logger", type=str, default="tensorboard", choices=["tensorboard", "wandb", "none", "no_print"])
-    parser.add_argument("--safe_replay_buffer", action="store_true", help="Enable conservative safe replay sampling guard")
     return parser
 
 
@@ -123,7 +122,6 @@ def run_offpolicy(algo: str, args, root_dir: Path) -> None:
 
 def _build_runner(algo_name: str, args, cfg):
     """Build algorithm runner from unified config."""
-    safe_replay_buffer = args.safe_replay_buffer
     collector_device = args.collector_device or "cpu"
 
     if algo_name == "sac":
@@ -154,7 +152,6 @@ def _build_runner(algo_name: str, args, cfg):
             max_grad_norm=cfg.algo_params.max_grad_norm,
             sync_collection=not args.no_sync_collection,
             env_steps_per_sync=cfg.env_steps_per_sync,
-            safe_replay_buffer=safe_replay_buffer,
         )
 
     if algo_name == "td3":
@@ -189,7 +186,6 @@ def _build_runner(algo_name: str, args, cfg):
             weight_decay=cfg.algo_params.weight_decay,
             use_cdq=cfg.algo_params.use_cdq,
             obs_normalization=cfg.obs_normalization,
-            safe_replay_buffer=safe_replay_buffer,
         )
 
     raise ValueError(f"Unsupported algo: {algo_name}")
@@ -202,7 +198,7 @@ def play_offpolicy(algo_name: str, args, cfg, root_dir: Path) -> None:
     import torch
     from unilab.envs import registry
     from unilab.utils import render_many
-    from unilab.algos.torch.common.worker import _build_actor
+    from unilab.algos.torch.common.utils import build_actor
 
     device = default_device(torch, args.device)
     print(f"Using device for play: {device}")
@@ -213,7 +209,7 @@ def play_offpolicy(algo_name: str, args, cfg, root_dir: Path) -> None:
 
     normalizer = None
     if algo_name == "sac":
-        actor = _build_actor(
+        actor = build_actor(
             algo_type="sac",
             obs_dim=obs_dim,
             action_dim=action_dim,

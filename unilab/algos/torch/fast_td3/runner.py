@@ -39,7 +39,6 @@ class FastTD3Runner(OffPolicyRunner):
         weight_decay: float = 0.1,
         use_cdq: bool = True,
         obs_normalization: bool = True,
-        safe_replay_buffer: bool = False,
     ):
         obs_dim, action_dim = self._detect_obs_action_dims(env_name)
         learner = FastTD3Learner(
@@ -85,7 +84,6 @@ class FastTD3Runner(OffPolicyRunner):
             actor_hidden_dim=actor_hidden_dim,
             use_layer_norm=False,
             obs_normalization=obs_normalization,
-            safe_replay_buffer=safe_replay_buffer,
         )
 
     @staticmethod
@@ -100,7 +98,7 @@ class FastTD3Runner(OffPolicyRunner):
     @staticmethod
     def _detect_obs_action_dims(env_name: str) -> tuple[int, int]:
         from unilab.envs import registry
-        from unilab.algos.torch.common.worker import ensure_registries
+        from unilab.algos.torch.common.utils import ensure_registries
 
         ensure_registries()
         env = registry.make(env_name, num_envs=1, sim_backend="mujoco")
