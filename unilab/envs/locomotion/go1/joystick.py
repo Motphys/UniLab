@@ -88,7 +88,7 @@ class Go1WalkTask(Go1BaseEnv):
         dof_vel = self.get_dof_vel()
         qpos = self._backend.get_qpos()
 
-        terminated = gravity[:, 2] < 0.5
+        terminated = gravity[:, 2] <= 0.5
         reward = self._compute_reward(state.info, linvel, gyro, dof_pos, qpos)
         obs = self._compute_obs(state.info, linvel, gyro, gravity, dof_pos, dof_vel)
         return state.replace(obs=obs, reward=reward, terminated=terminated)
