@@ -168,11 +168,10 @@ class Go1WalkTask(Go1BaseEnv):
         )
 
         info = {
-            "commands": np.zeros((self._num_envs, 3), dtype=np.float32),
-            "current_actions": np.zeros((self._num_envs, self._num_action), dtype=np.float32),
-            "last_actions": np.zeros((self._num_envs, self._num_action), dtype=np.float32),
+            "commands": commands,
+            "current_actions": np.zeros((num_reset, self._num_action), dtype=np.float32),
+            "last_actions": np.zeros((num_reset, self._num_action), dtype=np.float32),
         }
-        info["commands"][env_indices] = commands
 
         linvel = self.get_local_linvel()
         gyro = self.get_gyro()
