@@ -114,3 +114,6 @@ class MuJoCoBackend(ISimBackend):
     @property
     def model(self):
         return self._model
+
+    def get_physics_state(self) -> np.ndarray:
+        return self._physics_state

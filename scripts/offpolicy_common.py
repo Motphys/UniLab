@@ -284,7 +284,7 @@ def play_offpolicy(algo_name: str, args, cfg, root_dir: Path) -> None:
 
             state = env.step(actions_np)
             obs_np = np.asarray(state.obs, dtype=np.float32)
-            state_list.append(np.asarray(env.state.physics_state, dtype=np.float32).copy())
+            state_list.append(np.asarray(env._backend.get_physics_state(), dtype=np.float32).copy())
 
     print("Rendering frames...")
     frames = render_many.render_states_get_frames(
