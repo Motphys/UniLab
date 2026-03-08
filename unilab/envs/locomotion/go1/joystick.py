@@ -173,10 +173,11 @@ class Go1WalkTask(Go1BaseEnv):
             "last_actions": np.zeros((num_reset, self._num_action), dtype=np.float32),
         }
 
-        linvel = self.get_local_linvel()
-        gyro = self.get_gyro()
-        gravity = self._backend.get_sensor_data("upvector")
-        dof_pos = self.get_dof_pos()
-        dof_vel = self.get_dof_vel()
+        linvel = self.get_local_linvel()[env_indices]
+        gyro = self.get_gyro()[env_indices]
+        gravity = self._backend.get_sensor_data("upvector")[env_indices]
+        dof_pos = self.get_dof_pos()[env_indices]
+        dof_vel = self.get_dof_vel()[env_indices]
         obs = self._compute_obs(info, linvel, gyro, gravity, dof_pos, dof_vel)
-        return obs[env_indices], obs[env_indices], {k: v[env_indices] for k, v in info.items()}
+        return obs, obs, info
+
