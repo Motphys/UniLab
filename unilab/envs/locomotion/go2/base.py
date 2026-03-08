@@ -25,7 +25,7 @@ class ControlConfig:
     action_scale: float = 0.25
     Kp: float = 35.0
     Kd: float = 0.5
-    simulate_action_latency: bool = True
+    simulate_action_latency: bool = False
 
 
 @dataclass
