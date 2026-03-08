@@ -215,22 +215,24 @@ class OffPolicyRunner(AsyncRunner):
             iter_metrics = defaultdict(list)
             ptr_before = shared_buffer.ptr
 
+            # Local variable for faster access in hot loop
+            learner = self.learner
             large_batch = shared_buffer.sample_torch(self.batch_size * self.updates_per_step, self.device)
             for update_idx in range(self.updates_per_step):
                 s = update_idx * self.batch_size
                 e = s + self.batch_size
                 batch = {k: v[s:e] for k, v in large_batch.items()}
 
-                critic_metrics = self.learner.update_critic(batch)
+                critic_metrics = learner.update_critic(batch)
                 for k, v in critic_metrics.items():
                     iter_metrics[k].append(v)
 
                 if update_idx % self.policy_frequency == 1:
-                    actor_metrics = self.learner.update_actor(batch)
+                    actor_metrics = learner.update_actor(batch)
                     for k, v in actor_metrics.items():
                         iter_metrics[k].append(v)
 
-                self.learner.soft_update_target()
+                learner.soft_update_target()
 
             if self.obs_normalization and getattr(self.learner, "obs_normalizer", None) is not None:
                 shared_obs_normalizer_stats.put((self.learner.obs_normalizer.mean.cpu().numpy(), self.learner.obs_normalizer.std.cpu().numpy()))
