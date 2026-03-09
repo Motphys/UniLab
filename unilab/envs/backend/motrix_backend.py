@@ -26,7 +26,7 @@ class MotrixBackend(ISimBackend):
         self._render_app = None
 
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> None:
-        self._data.actuator_ctrls[:] = ctrl
+        self._data.actuator_ctrls = np.ascontiguousarray(ctrl)
         for _ in range(nsteps):
             self._model.step(self._data)
 
@@ -47,16 +47,20 @@ class MotrixBackend(ISimBackend):
         qpos_motrix = qpos.copy()
         qpos_motrix[:, 3:7] = qpos[:, [4, 5, 6, 3]]
 
-        # Motrix API limitation: set_dof_pos/vel only support single env slice
-        # Must use loop, but minimize overhead by batching forward_kinematic
-        for i, env_idx in enumerate(env_indices):
-            mask = np.zeros(self._num_envs, dtype=bool)
-            mask[env_idx] = True
-            data_slice = self._data[mask]
-            data_slice.set_dof_vel(qvel[i:i+1])
-            data_slice.set_dof_pos(qpos_motrix[i:i+1], self._model)
+        # Create mask for batch operation
+        mask = np.zeros(self._num_envs, dtype=bool)
+        mask[env_indices] = True
+        data_slice = self._data[mask]
 
-        # Single forward_kinematic call for all modified envs
+        # Batch set state
+        data_slice.reset(self._model)
+        data_slice.set_dof_vel(qvel)
+        data_slice.set_dof_pos(qpos_motrix, self._model)
+
+        # Set control to joint positions (actuator target for PD control)
+        ctrl = qpos_motrix[:, 7:]
+        data_slice.actuator_ctrls = np.ascontiguousarray(ctrl)
+
         self._model.forward_kinematic(self._data)
 
     @property

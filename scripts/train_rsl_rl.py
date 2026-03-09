@@ -198,11 +198,24 @@ def play_rsl_rl(args, cfg, device):
         print("Close the render window to exit.")
         env._backend.init_renderer()
         obs, _ = wrapped_env.reset()
+
+        import time
+        last_render_time = time.perf_counter()
+        render_dt = 1.0 / 60.0  # 60 FPS
+
         with torch.inference_mode():
             try:
                 while True:
                     actions = policy(obs)
                     obs, _, _, _ = wrapped_env.step(actions)
+
+                    # Time sync for rendering
+                    current_time = time.perf_counter()
+                    elapsed = current_time - last_render_time
+                    if elapsed < render_dt:
+                        time.sleep(render_dt - elapsed)
+                    last_render_time = time.perf_counter()
+
                     env._backend.render()
             except Exception as e:
                 if "RenderClosedError" in str(type(e).__name__):
@@ -270,7 +283,8 @@ def main():
 
     if not args.play_only:
         timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-        log_dir = str(ROOT_DIR / "logs" / "rsl_rl_train" / args.task / timestamp)
+        backend_suffix = f"_{args.sim_backend}" if args.sim_backend != "mujoco" else ""
+        log_dir = str(ROOT_DIR / "logs" / "rsl_rl_train" / args.task / f"{timestamp}{backend_suffix}")
     else:
         log_dir = None
 

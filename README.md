@@ -57,11 +57,11 @@ UniLab 采用**统一内存异构运算架构**：
 
 |   算法     | Go1 | Go2 | G1 |
 |------------|-----|-----|----|
-| appo(torch)|     |     |    |
-| ppo(torch) |     |     |    |
-| sac(torch) |     |     |    |
+| ppo(torch) |  ✅ |     |    |
+| ppo(mlx)   |  ✅ |     |    |
+| sac(torch) |  ✅ |     |    |
 | td3(torch) |     |     |    |
-| ppo(mlx)   |     |     |    |
+| appo(torch)|     |     |    |
 
 **说明**：
 - ✅ 已支持
@@ -82,6 +82,28 @@ Thirdparty:
    pip install --extra-index-url https://test.pypi.org/simple/ mujoco-uni==3.5.0.post2
    pip install -e .
    ```
+
+2. **可选：安装 Motrix 后端支持**:
+   ```bash
+   pip install -e ".[motrix]"
+   ```
+
+## 仿真后端 (Simulation Backends)
+
+UniLab 支持两种仿真后端：
+
+- **MuJoCo** (默认)
+- **Motrix** (可选)
+
+### 使用 Motrix 后端
+
+```bash
+# 训练
+python scripts/train_rsl_rl.py --task Go1JoystickFlatTerrain --sim_backend motrix
+
+# 回放（交互式可视化）
+python scripts/train_rsl_rl.py --task Go1JoystickFlatTerrain --sim_backend motrix --play_only
+```
 
 ## 训练与回放指南
 
