@@ -55,8 +55,8 @@ def envcfg(name: str) -> Callable[[Type[TEnvCfg]], Type[TEnvCfg]]:
 
 def register_env(name: str, env_cls: Type[ABEnv], sim_backend: str):
     """Register an environment class with a name and simulation backend."""
-    if sim_backend not in ["np", "mujoco"]:
-        raise ValueError(f"Unsupported simulation backend: {sim_backend}. Only 'np' and 'mujoco' are supported.")
+    if sim_backend not in ["np", "mujoco", "motrix"]:
+        raise ValueError(f"Unsupported simulation backend: {sim_backend}. Only 'np', 'mujoco', and 'motrix' are supported.")
 
     if name not in _envs:
         raise ValueError(f"Environment '{name}' is not registered. Please register the config first.")
