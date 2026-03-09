@@ -206,7 +206,7 @@ def play_rsl_rl(args, cfg, device):
         for _ in range(num_steps):
             actions = policy(obs)
             obs, _, _, _ = wrapped_env.step(actions)
-            state_list.append(to_numpy(env.state.physics_state).copy())
+            state_list.append(to_numpy(env._backend.get_physics_state()).copy())
 
     print("Rendering frames...")
     frames = render_many.render_states_get_frames(
