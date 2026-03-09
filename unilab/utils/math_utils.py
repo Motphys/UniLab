@@ -1,15 +1,24 @@
 from __future__ import annotations
 
-try:
-    import mlx.core as mx
-except Exception:
-    mx = None
+import importlib
 import numpy as np
+
+
+def _require_mlx_core():
+    """Import MLX lazily so non-MLX workflows don't crash at module import time."""
+    try:
+        return importlib.import_module("mlx.core")
+    except Exception as exc:
+        raise RuntimeError(
+            "MLX backend is unavailable. Use NumPy helpers (np_quat_mul/np_yaw_to_quat) in non-MLX paths."
+        ) from exc
+
 
 def quat_mul(q1, q2):
     """
     Multiply two quaternions.
     """
+    mx = _require_mlx_core()
     w1, x1, y1, z1 = q1[:, 0], q1[:, 1], q1[:, 2], q1[:, 3]
     w2, x2, y2, z2 = q2[:, 0], q2[:, 1], q2[:, 2], q2[:, 3]
     return mx.stack([
@@ -23,6 +32,7 @@ def axis_angle_to_quat(axis, angle):
     """
     Convert axis-angle to quaternion.
     """
+    mx = _require_mlx_core()
     half_angle = angle / 2
     c = mx.cos(half_angle)
     s = mx.sin(half_angle)

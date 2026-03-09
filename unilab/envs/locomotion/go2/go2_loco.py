@@ -16,10 +16,6 @@ from __future__ import annotations
 from etils import epath
 import gymnasium as gym
 import math
-try:
-    import mlx.core as mx
-except Exception:
-    mx = None
 import numpy as np
 from dataclasses import dataclass, field
 

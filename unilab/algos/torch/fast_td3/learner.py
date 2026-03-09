@@ -311,12 +311,17 @@ class FastTD3Learner:
         return {"actor_loss": actor_loss.item()}
 
     @torch.no_grad()
-    def soft_update(self):
+    def soft_update_target(self) -> None:
         """Polyak-average update of target critic network."""
         src_ps = [p.data for p in self.qnet.parameters()]
         tgt_ps = [p.data for p in self.qnet_target.parameters()]
         torch._foreach_mul_(tgt_ps, 1.0 - self.tau)
         torch._foreach_add_(tgt_ps, src_ps, alpha=self.tau)
+
+    @torch.no_grad()
+    def soft_update(self) -> None:
+        """Backward-compatible alias for older call sites."""
+        self.soft_update_target()
 
     def get_state_dict(self) -> Dict:
         return {
@@ -342,4 +347,3 @@ class FastTD3Learner:
         self.actor_optimizer.load_state_dict(state_dict["actor_optimizer"])
         self.q_optimizer.load_state_dict(state_dict["q_optimizer"])
         self.update_count = state_dict.get("update_count", 0)
-
