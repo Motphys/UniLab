@@ -1,6 +1,7 @@
 import numpy as np
 try:
     import motrixsim as mtx
+    from motrixsim.render import RenderApp, RenderSettings
     MOTRIX_AVAILABLE = True
 except ImportError:
     MOTRIX_AVAILABLE = False
@@ -22,6 +23,7 @@ class MotrixBackend(ISimBackend):
 
         self._data = mtx.SceneData(self._model, batch=[num_envs])
         self._body = self._model.get_body(body_name)
+        self._render_app = None
 
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> None:
         self._data.actuator_ctrls[:] = ctrl
@@ -56,3 +58,35 @@ class MotrixBackend(ISimBackend):
     @property
     def model(self):
         return self._model
+
+    @property
+    def data(self):
+        return self._data
+
+    def init_renderer(self, spacing: float = 5.0):
+        """Initialize interactive renderer for visualization"""
+        if self._render_app is not None:
+            return
+
+        cols = int(np.ceil(np.sqrt(self._num_envs)))
+        offsets = []
+        for i in range(self._num_envs):
+            row = i // cols
+            col = i % cols
+            offsets.append([col * spacing, row * spacing, 0.0])
+
+        self._render_app = RenderApp()
+        settings = RenderSettings.performance()
+        settings.enable_shadow = True
+        self._render_app.launch(
+            self._model,
+            batch=self._num_envs,
+            render_offset=offsets,
+            render_settings=settings,
+        )
+
+    def render(self):
+        """Render current state (interactive visualization)"""
+        if self._render_app is None:
+            self.init_renderer()
+        self._render_app.sync(data=self._data)

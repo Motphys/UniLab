@@ -150,9 +150,7 @@ class RslRlVecEnvWrapper:
 def play_rsl_rl(args, cfg, device):
     """Play mode for RSL-RL."""
     import torch
-    import mediapy as media
     from unilab.envs import registry
-    from unilab.utils import render_many
     from unilab.utils.torch_utils import to_numpy
 
     env = registry.make(args.task, num_envs=args.play_env_num, sim_backend=args.sim_backend)
@@ -194,32 +192,47 @@ def play_rsl_rl(args, cfg, device):
     runner.load(load_path)
     policy = runner.get_inference_policy(device=device)
 
-    output_video = Path(load_path_dir) / "play_video.mp4"
-    print(f"Rendering video to {output_video}...")
+    # Use native rendering for motrix backend
+    if args.sim_backend == "motrix":
+        print("Starting interactive visualization (motrix native renderer)...")
+        env._backend.init_renderer()
+        obs, _ = wrapped_env.reset()
+        with torch.inference_mode():
+            while True:
+                actions = policy(obs)
+                obs, _, _, _ = wrapped_env.step(actions)
+                env._backend.render()
+    else:
+        # MuJoCo backend: render to video
+        import mediapy as media
+        from unilab.utils import render_many
 
-    obs, _ = wrapped_env.reset()
-    state_list = []
-    num_steps = 150
+        output_video = Path(load_path_dir) / "play_video.mp4"
+        print(f"Rendering video to {output_video}...")
 
-    print("Collecting physics states...")
-    with torch.inference_mode():
-        for _ in range(num_steps):
-            actions = policy(obs)
-            obs, _, _, _ = wrapped_env.step(actions)
-            state_list.append(to_numpy(env._backend.get_physics_state()).copy())
+        obs, _ = wrapped_env.reset()
+        state_list = []
+        num_steps = 150
 
-    print("Rendering frames...")
-    frames = render_many.render_states_get_frames(
-        state_list,
-        env.cfg.model_file,
-        width=1280,
-        height=720,
-        camera_id=-1
-    )
+        print("Collecting physics states...")
+        with torch.inference_mode():
+            for _ in range(num_steps):
+                actions = policy(obs)
+                obs, _, _, _ = wrapped_env.step(actions)
+                state_list.append(to_numpy(env._backend.get_physics_state()).copy())
 
-    print(f"Saving video to {output_video} with mediapy...")
-    media.write_video(str(output_video), frames, fps=int(1.0/env.cfg.ctrl_dt))
-    print("Done.")
+        print("Rendering frames...")
+        frames = render_many.render_states_get_frames(
+            state_list,
+            env.cfg.model_file,
+            width=1280,
+            height=720,
+            camera_id=-1
+        )
+
+        print(f"Saving video to {output_video} with mediapy...")
+        media.write_video(str(output_video), frames, fps=int(1.0/env.cfg.ctrl_dt))
+        print("Done.")
 
 
 def main():
