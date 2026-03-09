@@ -4,16 +4,17 @@ import mujoco
 from mujoco import rollout, batch_forward
 import numpy as np
 from .base import ISimBackend
+from ..dtype_config import get_global_dtype
 
 
 class MuJoCoBackend(ISimBackend):
     """MuJoCo 后端实现"""
 
-    def __init__(self, model_file: str, num_envs: int, sim_dt: float, body_name: str = None, np_dtype=np.float32):
+    def __init__(self, model_file: str, num_envs: int, sim_dt: float, body_name: str = None, np_dtype=None):
         self._model = mujoco.MjModel.from_xml_path(model_file)
         self._model.opt.timestep = sim_dt
         self._num_envs = num_envs
-        self._np_dtype = np_dtype
+        self._np_dtype = np_dtype if np_dtype is not None else get_global_dtype()
 
         # 线程配置
         thread_override = os.getenv("UNILAB_MUJOCO_STEP_THREADS")
@@ -67,11 +68,11 @@ class MuJoCoBackend(ISimBackend):
         control_traj = np.broadcast_to(ctrl[:, None, :], (self._num_envs, nsteps, ctrl.shape[-1]))
         state_traj, sensor_traj = self._rollout.rollout(
             self._model, self._worker_data,
-            initial_state=self._physics_state,
+            initial_state=self._physics_state.astype(np.float64),
             control=control_traj, nstep=nsteps
         )
-        self._physics_state[:] = state_traj[:, -1, :]
-        self._sensor_data[:] = sensor_traj[:, -1, :]
+        self._physics_state[:] = state_traj[:, -1, :].astype(self._np_dtype)
+        self._sensor_data[:] = sensor_traj[:, -1, :].astype(self._np_dtype)
 
     def get_dof_pos(self) -> np.ndarray:
         return self._dof_pos_view
@@ -93,19 +94,18 @@ class MuJoCoBackend(ISimBackend):
         state_np[:, self._idx_qpos : self._idx_qpos + self.nq] = qpos
         state_np[:, self._idx_qvel : self._idx_qvel + self.nv] = qvel
 
-        # 使用 batch_forward 更新传感器
         _, sensor_np = self._forward_runner.forward(
             model=self._model,
             data=self._worker_data,
             initial_state=state_np,
             chunk_size=max(1, num_reset // self._n_threads),
             skipsensor=False,
-            out_dtype=self._np_dtype,
+            out_dtype=np.float64,
             return_state=True,
         )
 
         self._physics_state[env_indices] = state_np.astype(self._np_dtype)
-        self._sensor_data[env_indices] = sensor_np
+        self._sensor_data[env_indices] = sensor_np.astype(self._np_dtype)
 
     @property
     def num_envs(self) -> int:

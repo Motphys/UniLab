@@ -7,6 +7,7 @@ import gymnasium as gym
 
 from unilab.envs.base import ABEnv, EnvCfg
 from unilab.envs.backend import ISimBackend
+from unilab.envs.dtype_config import get_global_dtype
 
 
 @dataclass
@@ -47,8 +48,9 @@ class NpEnv(ABEnv):
         return self._state
 
     def init_state(self) -> NpEnvState:
-        obs = np.zeros((self._num_envs, self.observation_space.shape[0]), dtype=np.float32)
-        reward = np.zeros((self._num_envs,), dtype=np.float32)
+        dtype = get_global_dtype()
+        obs = np.zeros((self._num_envs, self.observation_space.shape[0]), dtype=dtype)
+        reward = np.zeros((self._num_envs,), dtype=dtype)
         terminated = np.ones((self._num_envs,), dtype=bool)
         truncated = np.zeros((self._num_envs,), dtype=bool)
         info = {"steps": np.zeros((self._num_envs,), dtype=np.uint32)}

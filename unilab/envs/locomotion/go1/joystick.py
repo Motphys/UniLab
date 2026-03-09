@@ -9,6 +9,7 @@ from unilab.envs import registry
 from unilab.envs.np_env import NpEnvState
 from unilab.envs.backend import create_backend
 from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
+from unilab.envs.dtype_config import get_global_dtype
 
 from unilab.envs.locomotion.go1.base import Go1BaseEnv, Go1BaseCfg
 
@@ -97,10 +98,11 @@ class Go1WalkTask(Go1BaseEnv):
         diff = dof_pos - self.default_angles
         command = info["commands"]
         last_actions = info.get("current_actions", np.zeros_like(diff))
-        return np.concatenate([linvel, gyro, -gravity, diff, dof_vel, last_actions, command], axis=1, dtype=np.float32)
+        return np.concatenate([linvel, gyro, -gravity, diff, dof_vel, last_actions, command], axis=1, dtype=get_global_dtype())
 
     def _compute_reward(self, info: dict, linvel, gyro, dof_pos, qpos) -> np.ndarray:
-        reward = np.zeros((self._num_envs,), dtype=np.float32)
+        dtype = get_global_dtype()
+        reward = np.zeros((self._num_envs,), dtype=dtype)
         cfg = self._cfg.reward_config
 
         step_count = info.get("steps", np.zeros((self._num_envs,), dtype=np.uint32))
@@ -169,8 +171,8 @@ class Go1WalkTask(Go1BaseEnv):
 
         info = {
             "commands": commands,
-            "current_actions": np.zeros((num_reset, self._num_action), dtype=np.float32),
-            "last_actions": np.zeros((num_reset, self._num_action), dtype=np.float32),
+            "current_actions": np.zeros((num_reset, self._num_action), dtype=get_global_dtype()),
+            "last_actions": np.zeros((num_reset, self._num_action), dtype=get_global_dtype()),
         }
 
         linvel = self.get_local_linvel()[env_indices]
