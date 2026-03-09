@@ -23,7 +23,7 @@ class NoiseConfig:
 @dataclass
 class ControlConfig:
     action_scale: float = 0.25
-    Kp: float = 20.0
+    Kp: float = 35.0
     Kd: float = 0.5
     simulate_action_latency: bool = False
 
