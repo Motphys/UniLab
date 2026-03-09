@@ -45,6 +45,11 @@ Go1 training on dev/uni_motrix branch failed to converge (reward -6.5 → -1.45)
 - **Fix**: Added `get_physics_state()` method
 - **Commit**: 0554c9a
 
+### 9. PD Control Gain (Kp)
+- **Issue**: Kp changed from 35.0 to 20.0 during refactoring
+- **Fix**: Restored Kp=35.0 to match main branch
+- **Commit**: f2923ad
+
 ## Results
 
 ### Training Metrics (8M steps)
