@@ -46,6 +46,7 @@ class MotrixBackend(ISimBackend):
         mask = np.zeros(self._num_envs, dtype=bool)
         mask[env_indices] = True
         data_slice = self._data[mask]
+        data_slice.reset(self._model)
         data_slice.set_dof_pos(qpos, self._model)
         data_slice.set_dof_vel(qvel)
         self._model.forward_kinematic(data_slice)
