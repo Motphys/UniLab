@@ -90,6 +90,7 @@ class G1JoystickPPOCfg(G1BaseCfg):
 
 
 @registry.env("G1JoystickFlatTerrain", sim_backend="mujoco")
+@registry.env("G1JoystickFlatTerrain", sim_backend="motrix")
 class G1JoystickPPO(G1BaseEnv):
     def __init__(self, cfg: G1JoystickPPOCfg, num_envs=1, backend_type="mujoco"):
         backend = create_backend(backend_type, cfg.model_file, num_envs, cfg.sim_dt, body_name=cfg.asset.body_name)
@@ -270,6 +271,7 @@ class G1JoystickCfg(G1BaseCfg):
 
 
 @registry.env("G1WalkTaskMjSAC", sim_backend="mujoco")
+@registry.env("G1WalkTaskMjSAC", sim_backend="motrix")
 class G1WalkTask(G1JoystickPPO):
     """SAC environment - simpler rewards than PPO version."""
 

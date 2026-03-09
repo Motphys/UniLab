@@ -52,6 +52,7 @@ class Go1JoystickCfg(Go1BaseCfg):
 
 
 @registry.env("Go1JoystickFlatTerrain", sim_backend="mujoco")
+@registry.env("Go1JoystickFlatTerrain", sim_backend="motrix")
 class Go1WalkTask(Go1BaseEnv):
     def __init__(self, cfg: Go1JoystickCfg, num_envs=1, backend_type="mujoco"):
         backend = create_backend(backend_type, cfg.model_file, num_envs, cfg.sim_dt, body_name=cfg.asset.body_name)
