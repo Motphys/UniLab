@@ -195,13 +195,20 @@ def play_rsl_rl(args, cfg, device):
     # Use native rendering for motrix backend
     if args.sim_backend == "motrix":
         print("Starting interactive visualization (motrix native renderer)...")
+        print("Close the render window to exit.")
         env._backend.init_renderer()
         obs, _ = wrapped_env.reset()
         with torch.inference_mode():
-            while True:
-                actions = policy(obs)
-                obs, _, _, _ = wrapped_env.step(actions)
-                env._backend.render()
+            try:
+                while True:
+                    actions = policy(obs)
+                    obs, _, _, _ = wrapped_env.step(actions)
+                    env._backend.render()
+            except Exception as e:
+                if "RenderClosedError" in str(type(e).__name__):
+                    print("Render window closed.")
+                else:
+                    raise
     else:
         # MuJoCo backend: render to video
         import mediapy as media
