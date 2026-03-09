@@ -47,14 +47,17 @@ class MotrixBackend(ISimBackend):
         qpos_motrix = qpos.copy()
         qpos_motrix[:, 3:7] = qpos[:, [4, 5, 6, 3]]
 
-        # Set state for each environment individually (motrix API limitation)
+        # Motrix API limitation: set_dof_pos/vel only support single env slice
+        # Must use loop, but minimize overhead by batching forward_kinematic
         for i, env_idx in enumerate(env_indices):
             mask = np.zeros(self._num_envs, dtype=bool)
             mask[env_idx] = True
             data_slice = self._data[mask]
             data_slice.set_dof_vel(qvel[i:i+1])
             data_slice.set_dof_pos(qpos_motrix[i:i+1], self._model)
-            self._model.forward_kinematic(data_slice)
+
+        # Single forward_kinematic call for all modified envs
+        self._model.forward_kinematic(self._data)
 
     @property
     def num_envs(self) -> int:
