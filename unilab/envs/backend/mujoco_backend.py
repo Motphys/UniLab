@@ -37,8 +37,8 @@ class MuJoCoBackend(ISimBackend):
 
         # 状态存储
         nstate = mujoco.mj_stateSize(self._model, mujoco.mjtState.mjSTATE_FULLPHYSICS)
-        self._physics_state = np.zeros((num_envs, nstate), dtype=np_dtype)
-        self._sensor_data = np.zeros((num_envs, self._model.nsensordata), dtype=np_dtype)
+        self._physics_state = np.zeros((num_envs, nstate), dtype=self._np_dtype)
+        self._sensor_data = np.zeros((num_envs, self._model.nsensordata), dtype=self._np_dtype)
 
         # 索引
         self.nq = self._model.nq
