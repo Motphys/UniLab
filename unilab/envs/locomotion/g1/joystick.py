@@ -44,7 +44,6 @@ class RewardConfig:
 
 
 @registry.envcfg("G1WalkTaskMjSAC")
-@registry.envcfg("G1JoystickFlatTerrain")
 @dataclass
 class G1JoystickCfg(G1BaseCfg):
     model_file: str = str(epath.Path(__file__).parent / "xml" / "scene_flat.xml")
@@ -55,7 +54,6 @@ class G1JoystickCfg(G1BaseCfg):
 
 
 @registry.env("G1WalkTaskMjSAC", sim_backend="mujoco")
-@registry.env("G1JoystickFlatTerrain", sim_backend="mujoco")
 class G1WalkTask(G1BaseEnv):
     def __init__(self, cfg: G1JoystickCfg, num_envs=1, backend_type="mujoco"):
         backend = create_backend(backend_type, cfg.model_file, num_envs, cfg.sim_dt, body_name=cfg.asset.body_name)
