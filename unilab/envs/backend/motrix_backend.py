@@ -45,12 +45,19 @@ class MotrixBackend(ISimBackend):
     def set_state(self, env_indices: np.ndarray, qpos: np.ndarray, qvel: np.ndarray) -> None:
         # Convert quaternion from mujoco (wxyz) to motrix (xyzw)
         qpos_motrix = qpos.copy()
-        qpos_motrix[:, 3:7] = qpos[:, [4, 5, 6, 3]]  # wxyz -> xyzw
+        # qpos format: [x, y, z, qw, qx, qy, qz, joint1, joint2, ...]
+        # motrix needs: [x, y, z, qx, qy, qz, qw, joint1, joint2, ...]
+        qpos_motrix[:, 3:7] = qpos[:, [4, 5, 6, 3]]  # [qw,qx,qy,qz] -> [qx,qy,qz,qw]
 
-        # Batch assignment
-        self._data.dof_pos[env_indices] = qpos_motrix
-        self._data.dof_vel[env_indices] = qvel
-        self._model.forward_kinematic(self._data)
+        # Use mask to get data slice, then set state
+        mask = np.zeros(self._num_envs, dtype=bool)
+        mask[env_indices] = True
+        data_slice = self._data[mask]
+
+        # MotrixLab approach: use set_dof_pos/set_dof_vel methods
+        data_slice.set_dof_vel(qvel)
+        data_slice.set_dof_pos(qpos_motrix, self._model)
+        self._model.forward_kinematic(data_slice)
 
     @property
     def num_envs(self) -> int:

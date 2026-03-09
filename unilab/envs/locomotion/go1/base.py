@@ -87,6 +87,7 @@ class Go1BaseEnv(NpEnv):
         self.default_angles = np.zeros((self._num_action,), dtype=dtype)
         model = self._backend.model
         if hasattr(model, 'key_qpos'):
+            # MuJoCo backend
             key_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_KEY, "home")
             if key_id >= 0:
                 self._init_qpos = np.array(model.key_qpos[key_id].copy(), dtype=dtype)
@@ -94,7 +95,14 @@ class Go1BaseEnv(NpEnv):
             else:
                 raise ValueError("Keyframe 'home' not found")
             self._init_qvel = np.zeros((model.nv,), dtype=dtype)
+        elif hasattr(model, 'keyframes') and model.num_keyframes > 0:
+            # Motrix backend
+            kf = model.keyframes[0]  # Use first keyframe (should be "home")
+            self._init_qpos = np.array(kf.dof_pos, dtype=dtype)
+            self.default_angles = self._init_qpos[7:]
+            self._init_qvel = np.zeros((model.num_dof_vel,), dtype=dtype)
         else:
+            # Fallback
             self._init_qpos = model.compute_init_dof_pos()
             self.default_angles = self._init_qpos[-self._num_action:]
             self._init_qvel = np.zeros((model.num_dof_vel,), dtype=dtype)
