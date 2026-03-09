@@ -45,19 +45,16 @@ class MotrixBackend(ISimBackend):
     def set_state(self, env_indices: np.ndarray, qpos: np.ndarray, qvel: np.ndarray) -> None:
         # Convert quaternion from mujoco (wxyz) to motrix (xyzw)
         qpos_motrix = qpos.copy()
-        # qpos format: [x, y, z, qw, qx, qy, qz, joint1, joint2, ...]
-        # motrix needs: [x, y, z, qx, qy, qz, qw, joint1, joint2, ...]
-        qpos_motrix[:, 3:7] = qpos[:, [4, 5, 6, 3]]  # [qw,qx,qy,qz] -> [qx,qy,qz,qw]
+        qpos_motrix[:, 3:7] = qpos[:, [4, 5, 6, 3]]
 
-        # Use mask to get data slice, then set state
-        mask = np.zeros(self._num_envs, dtype=bool)
-        mask[env_indices] = True
-        data_slice = self._data[mask]
-
-        # MotrixLab approach: use set_dof_pos/set_dof_vel methods
-        data_slice.set_dof_vel(qvel)
-        data_slice.set_dof_pos(qpos_motrix, self._model)
-        self._model.forward_kinematic(data_slice)
+        # Set state for each environment individually (motrix API limitation)
+        for i, env_idx in enumerate(env_indices):
+            mask = np.zeros(self._num_envs, dtype=bool)
+            mask[env_idx] = True
+            data_slice = self._data[mask]
+            data_slice.set_dof_vel(qvel[i:i+1])
+            data_slice.set_dof_pos(qpos_motrix[i:i+1], self._model)
+            self._model.forward_kinematic(data_slice)
 
     @property
     def num_envs(self) -> int:
