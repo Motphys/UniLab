@@ -48,7 +48,7 @@ from unilab.utils.rsl_rl_compat import is_rsl_rl_v4, convert_config_v3_to_v4
 from unilab.utils.run_utils import get_latest_run
 
 class RslRlVecEnvWrapper:
-    """Wrapper to adapt MjNpEnv to RSL-RL OnPolicyRunner interface."""
+    """Wrapper to adapt NpEnv to RSL-RL OnPolicyRunner interface."""
     def __init__(self, env, device='cuda'):
         self.env = env
         # Expose cfg to RSL-RL runner if needed (some versions check env.cfg)
@@ -155,7 +155,7 @@ def play_rsl_rl(args, cfg, device):
     from unilab.utils import render_many
     from unilab.utils.torch_utils import to_numpy
 
-    env = registry.make(args.task, num_envs=args.play_env_num, sim_backend="mujoco")
+    env = registry.make(args.task, num_envs=args.play_env_num, sim_backend=args.sim_backend)
     wrapped_env = RslRlVecEnvWrapper(env, device=device)
     train_cfg = cfg.to_dict()
     if is_rsl_rl_v4():
@@ -232,6 +232,7 @@ def main():
     parser.add_argument("--play_env_num", type=int, default=16, help="Number of play envs")
     parser.add_argument("--num_timesteps", type=int, default=None, help="Overwritten total timesteps")
     parser.add_argument("--logger", type=str, default="tensorboard", choices=["tensorboard", "wandb", "none", "no_print"])
+    parser.add_argument("--sim_backend", type=str, default="mujoco", choices=["mujoco", "motrix"], help="Simulation backend")
     
     args = parser.parse_args()
     if args.env_num is None:
@@ -264,7 +265,7 @@ def main():
     # TRAIN MODE
     if not args.play_only:
         # Create environment
-        env = registry.make(args.task, num_envs=args.env_num, sim_backend="mujoco")
+        env = registry.make(args.task, num_envs=args.env_num, sim_backend=args.sim_backend)
         wrapped_env = RslRlVecEnvWrapper(env, device=device)
         
         # Convert ConfigDict to regular dict for RSL-RL
