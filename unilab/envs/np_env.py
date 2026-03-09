@@ -58,21 +58,38 @@ class NpEnv(ABEnv):
         return self._state
 
     def step(self, actions: np.ndarray) -> NpEnvState:
+        import time
+        step_t0 = time.perf_counter()
+
         if self._state is None:
             self.init_state()
 
         ctrl = self.apply_action(actions, self._state)
-        self._backend.step(ctrl, self._cfg.sim_substeps)
 
+        t0 = time.perf_counter()
+        self._backend.step(ctrl, self._cfg.sim_substeps)
+        step_core_time = time.perf_counter() - t0
+
+        t0 = time.perf_counter()
         self._state = self.update_state(self._state)
+        update_state_time = time.perf_counter() - t0
+
         self._state.info["steps"] += 1
 
         if self._cfg.max_episode_steps:
             np.greater_equal(self._state.info["steps"], self._cfg.max_episode_steps, out=self._state.truncated)
 
         done = self._state.done
+        t0 = time.perf_counter()
         if np.any(done):
             self._reset_done_envs()
+        reset_done_time = time.perf_counter() - t0
+
+        timing = self._state.info.setdefault("timing", {})
+        timing["env_step_total_ms"] = (time.perf_counter() - step_t0) * 1000.0
+        timing["step_core_ms"] = step_core_time * 1000.0
+        timing["update_state_ms"] = update_state_time * 1000.0
+        timing["reset_done_ms"] = reset_done_time * 1000.0
 
         return self._state
 
