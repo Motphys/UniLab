@@ -43,14 +43,14 @@ class MotrixBackend(ISimBackend):
         return self._model.get_sensor_value(name, self._data)
 
     def set_state(self, env_indices: np.ndarray, qpos: np.ndarray, qvel: np.ndarray) -> None:
-        for i, env_idx in enumerate(env_indices):
-            mask = np.zeros(self._num_envs, dtype=bool)
-            mask[env_idx] = True
-            data_slice = self._data[mask]
-            data_slice.reset(self._model)
-            data_slice.set_dof_vel(qvel[i:i+1])
-            data_slice.set_dof_pos(qpos[i:i+1], self._model)
-            self._model.forward_kinematic(data_slice)
+        # Convert quaternion from mujoco (wxyz) to motrix (xyzw)
+        qpos_motrix = qpos.copy()
+        qpos_motrix[:, 3:7] = qpos[:, [4, 5, 6, 3]]  # wxyz -> xyzw
+
+        # Batch assignment
+        self._data.dof_pos[env_indices] = qpos_motrix
+        self._data.dof_vel[env_indices] = qvel
+        self._model.forward_kinematic(self._data)
 
     @property
     def num_envs(self) -> int:
