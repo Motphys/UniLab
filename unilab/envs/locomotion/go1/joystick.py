@@ -97,7 +97,7 @@ class Go1WalkTask(Go1BaseEnv):
         diff = dof_pos - self.default_angles
         command = info["commands"]
         last_actions = info.get("current_actions", np.zeros_like(diff))
-        return np.concatenate([linvel, gyro, -gravity, diff, dof_vel, last_actions, command], axis=1)
+        return np.concatenate([linvel, gyro, -gravity, diff, dof_vel, last_actions, command], axis=1, dtype=np.float32)
 
     def _compute_reward(self, info: dict, linvel, gyro, dof_pos, qpos) -> np.ndarray:
         reward = np.zeros((self._num_envs,), dtype=np.float32)
