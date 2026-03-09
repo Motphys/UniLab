@@ -43,13 +43,12 @@ class MotrixBackend(ISimBackend):
         return self._model.get_sensor_value(name, self._data)
 
     def set_state(self, env_indices: np.ndarray, qpos: np.ndarray, qvel: np.ndarray) -> None:
-        for i, env_idx in enumerate(env_indices):
-            mask = np.zeros(self._num_envs, dtype=bool)
-            mask[env_idx] = True
-            data_slice = self._data[mask]
-            data_slice.set_dof_pos(qpos[i:i+1], self._model)
-            data_slice.set_dof_vel(qvel[i:i+1])
-            self._model.forward_kinematic(data_slice)
+        mask = np.zeros(self._num_envs, dtype=bool)
+        mask[env_indices] = True
+        data_slice = self._data[mask]
+        data_slice.set_dof_pos(qpos, self._model)
+        data_slice.set_dof_vel(qvel)
+        self._model.forward_kinematic(data_slice)
 
     @property
     def num_envs(self) -> int:
