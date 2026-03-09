@@ -1,9 +1,9 @@
-"""Rich-based training logger with TensorBoard / W&B support.
+"""Rich-based training logger for off-policy RL algorithms (SAC, TD3, etc).
 
 Usage:
-    from unilab.algos.torch.common.logger import TrainingLogger
+    from unilab.utils.offpolicy_logger import OffPolicyLogger
 
-    logger = TrainingLogger(
+    logger = OffPolicyLogger(
         algo_name="FastSAC",
         max_iterations=1500,
         num_envs=4096,
@@ -68,8 +68,8 @@ def _fmt_number(v: float, width: int = 8) -> str:
     return f"{v:.2e}"
 
 
-class TrainingLogger:
-    """Modular Rich training logger for RL algorithms.
+class OffPolicyLogger:
+    """Rich logger for off-policy RL algorithms (SAC, TD3, etc).
 
     Features:
     - Real-time Live table with training metrics
@@ -426,7 +426,7 @@ class TrainingLogger:
 
         return Panel(
             main_group,
-            title=f"[bold] 🚀 UniLab Training Dashboard [/]",
+            title=f"[bold] 🚀 UniLab Off-Policy Training [/]",
             border_style="bright_blue",
             padding=(0, 1),
         )

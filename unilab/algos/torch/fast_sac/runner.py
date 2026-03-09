@@ -36,7 +36,7 @@ class FastSACRunner(OffPolicyRunner):
         sim_backend: str = "mujoco",
     ):
         from unilab.envs import registry
-        from unilab.algos.torch.common.utils import ensure_registries
+        from unilab.utils.algo_utils import ensure_registries
         import torch
 
         ensure_registries()
