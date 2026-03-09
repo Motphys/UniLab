@@ -93,7 +93,7 @@ class Go1BaseEnv(NpEnv):
                 self._init_qpos = np.array(model.key_qpos[key_id].copy(), dtype=dtype)
                 self.default_angles = self._init_qpos[7:]
             else:
-                raise ValueError("Keyframe 'home' not found")
+                raise ValueError("Keyframe 'home' not found in MuJoCo model")
             self._init_qvel = np.zeros((model.nv,), dtype=dtype)
         elif hasattr(model, 'keyframes') and model.num_keyframes > 0:
             # Motrix backend
@@ -102,10 +102,7 @@ class Go1BaseEnv(NpEnv):
             self.default_angles = self._init_qpos[7:]
             self._init_qvel = np.zeros((model.num_dof_vel,), dtype=dtype)
         else:
-            # Fallback
-            self._init_qpos = model.compute_init_dof_pos()
-            self.default_angles = self._init_qpos[-self._num_action:]
-            self._init_qvel = np.zeros((model.num_dof_vel,), dtype=dtype)
+            raise ValueError("No keyframe found in model. Model must have either MuJoCo key_qpos or Motrix keyframes.")
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
         state.info["last_actions"] = state.info.get("current_actions", np.zeros_like(actions))
