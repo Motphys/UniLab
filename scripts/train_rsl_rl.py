@@ -48,7 +48,7 @@ from unilab.utils.rsl_rl_compat import is_rsl_rl_v4, convert_config_v3_to_v4
 from unilab.utils.run_utils import get_latest_run
 
 class RslRlVecEnvWrapper:
-    """Wrapper to adapt MjNpEnv to RSL-RL OnPolicyRunner interface."""
+    """Wrapper to adapt NpEnv to RSL-RL OnPolicyRunner interface."""
     def __init__(self, env, device='cuda'):
         self.env = env
         # Expose cfg to RSL-RL runner if needed (some versions check env.cfg)
@@ -150,12 +150,10 @@ class RslRlVecEnvWrapper:
 def play_rsl_rl(args, cfg, device):
     """Play mode for RSL-RL."""
     import torch
-    import mediapy as media
     from unilab.envs import registry
-    from unilab.utils import render_many
     from unilab.utils.torch_utils import to_numpy
 
-    env = registry.make(args.task, num_envs=args.play_env_num, sim_backend="mujoco")
+    env = registry.make(args.task, num_envs=args.play_env_num, sim_backend=args.sim_backend)
     wrapped_env = RslRlVecEnvWrapper(env, device=device)
     train_cfg = cfg.to_dict()
     if is_rsl_rl_v4():
@@ -194,32 +192,67 @@ def play_rsl_rl(args, cfg, device):
     runner.load(load_path)
     policy = runner.get_inference_policy(device=device)
 
-    output_video = Path(load_path_dir) / "play_video.mp4"
-    print(f"Rendering video to {output_video}...")
+    # Use native rendering for motrix backend
+    if args.sim_backend == "motrix":
+        print("Starting interactive visualization (motrix native renderer)...")
+        print("Close the render window to exit.")
+        env._backend.init_renderer()
+        obs, _ = wrapped_env.reset()
 
-    obs, _ = wrapped_env.reset()
-    state_list = []
-    num_steps = 150
+        import time
+        last_render_time = time.perf_counter()
+        render_dt = 1.0 / 60.0  # 60 FPS
 
-    print("Collecting physics states...")
-    with torch.inference_mode():
-        for _ in range(num_steps):
-            actions = policy(obs)
-            obs, _, _, _ = wrapped_env.step(actions)
-            state_list.append(to_numpy(env.state.physics_state).copy())
+        with torch.inference_mode():
+            try:
+                while True:
+                    actions = policy(obs)
+                    obs, _, _, _ = wrapped_env.step(actions)
 
-    print("Rendering frames...")
-    frames = render_many.render_states_get_frames(
-        state_list,
-        env.cfg.model_file,
-        width=1280,
-        height=720,
-        camera_id=-1
-    )
+                    # Time sync for rendering
+                    current_time = time.perf_counter()
+                    elapsed = current_time - last_render_time
+                    if elapsed < render_dt:
+                        time.sleep(render_dt - elapsed)
+                    last_render_time = time.perf_counter()
 
-    print(f"Saving video to {output_video} with mediapy...")
-    media.write_video(str(output_video), frames, fps=int(1.0/env.cfg.ctrl_dt))
-    print("Done.")
+                    env._backend.render()
+            except Exception as e:
+                if "RenderClosedError" in str(type(e).__name__):
+                    print("Render window closed.")
+                else:
+                    raise
+    else:
+        # MuJoCo backend: render to video
+        import mediapy as media
+        from unilab.utils import render_many
+
+        output_video = Path(load_path_dir) / "play_video.mp4"
+        print(f"Rendering video to {output_video}...")
+
+        obs, _ = wrapped_env.reset()
+        state_list = []
+        num_steps = 150
+
+        print("Collecting physics states...")
+        with torch.inference_mode():
+            for _ in range(num_steps):
+                actions = policy(obs)
+                obs, _, _, _ = wrapped_env.step(actions)
+                state_list.append(to_numpy(env._backend.get_physics_state()).copy())
+
+        print("Rendering frames...")
+        frames = render_many.render_states_get_frames(
+            state_list,
+            env.cfg.model_file,
+            width=1280,
+            height=720,
+            camera_id=-1
+        )
+
+        print(f"Saving video to {output_video} with mediapy...")
+        media.write_video(str(output_video), frames, fps=int(1.0/env.cfg.ctrl_dt))
+        print("Done.")
 
 
 def main():
@@ -232,6 +265,7 @@ def main():
     parser.add_argument("--play_env_num", type=int, default=16, help="Number of play envs")
     parser.add_argument("--num_timesteps", type=int, default=None, help="Overwritten total timesteps")
     parser.add_argument("--logger", type=str, default="tensorboard", choices=["tensorboard", "wandb", "none", "no_print"])
+    parser.add_argument("--sim_backend", type=str, default="mujoco", choices=["mujoco", "motrix"], help="Simulation backend")
     
     args = parser.parse_args()
     if args.env_num is None:
@@ -249,7 +283,8 @@ def main():
 
     if not args.play_only:
         timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-        log_dir = str(ROOT_DIR / "logs" / "rsl_rl_train" / args.task / timestamp)
+        backend_suffix = f"_{args.sim_backend}" if args.sim_backend != "mujoco" else ""
+        log_dir = str(ROOT_DIR / "logs" / "rsl_rl_train" / args.task / f"{timestamp}{backend_suffix}")
     else:
         log_dir = None
 
@@ -264,7 +299,7 @@ def main():
     # TRAIN MODE
     if not args.play_only:
         # Create environment
-        env = registry.make(args.task, num_envs=args.env_num, sim_backend="mujoco")
+        env = registry.make(args.task, num_envs=args.env_num, sim_backend=args.sim_backend)
         wrapped_env = RslRlVecEnvWrapper(env, device=device)
         
         # Convert ConfigDict to regular dict for RSL-RL

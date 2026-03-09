@@ -33,6 +33,7 @@ class OffPolicyRunner(AsyncRunner):
         actor_hidden_dim: int = 512,
         use_layer_norm: bool = True,
         obs_normalization: bool = False,
+        sim_backend: str = "mujoco",
     ):
         super().__init__(
             env_name=env_name,
@@ -41,6 +42,7 @@ class OffPolicyRunner(AsyncRunner):
             device=device,
             collector_device=collector_device or "cpu",
             num_envs=num_envs,
+            sim_backend=sim_backend,
         )
 
         self.learner = learner

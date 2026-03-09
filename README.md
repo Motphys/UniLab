@@ -39,20 +39,32 @@ UniLab 采用**统一内存异构运算架构**：
 - [x] @yves 兼容 linux 平台
 - [ ] @jdx  适配 motrixsim
 - [x] @yves 发布 mujoco-uni
+- [x] @yves 统一仿真后端
 
-### MuJoCo 后端训练状态
+### 训练状态
+
+#### Mujoco后端
 
 |   算法     | Go1 | Go2 | G1 |
 |------------|-----|-----|----|
-| appo(torch)|  🔛 | 🔛  | 🔛 |
-| ppo(torch) |  🔛 | 🔛  | 🔛 |
-| sac(torch) |  🔛 | 🔛  | ⚠️ |
-| td3(torch) |  🔛 | 🔛  | ⚠️ |
-| ppo(mlx)   |  🔛 | 🔛  | 🔛 |
+| ppo(torch) |  ✅ | ⚠️  | ✅ |
+| ppo(mlx)   |  ✅ | ⚠️  | ✅ |
+| sac(torch) |  ✅ | ⚠️  | ⚠️ |
+| td3(torch) |  ⚠️ | ⚠️  | ⚠️ |
+| appo(torch)|     |     |    |
+
+#### Motrix后端
+
+|   算法     | Go1 | Go2 | G1 |
+|------------|-----|-----|----|
+| ppo(torch) |  ✅ |     |    |
+| ppo(mlx)   |  ✅ |     |    |
+| sac(torch) |  ✅ |     |    |
+| td3(torch) |     |     |    |
+| appo(torch)|     |     |    |
 
 **说明**：
-- ✅ 已支持 Full Command
-- 🔛 已支持并测试通过
+- ✅ 已支持
 - ⚠️ 开发中
 
 Thirdparty:
@@ -70,6 +82,28 @@ Thirdparty:
    pip install --extra-index-url https://test.pypi.org/simple/ mujoco-uni==3.5.0.post2
    pip install -e .
    ```
+
+2. **可选：安装 Motrix 后端支持**:
+   ```bash
+   pip install -e ".[motrix]"
+   ```
+
+## 仿真后端 (Simulation Backends)
+
+UniLab 支持两种仿真后端：
+
+- **MuJoCo** (默认)
+- **Motrix** (可选)
+
+### 使用 Motrix 后端
+
+```bash
+# 训练
+python scripts/train_rsl_rl.py --task Go1JoystickFlatTerrain --sim_backend motrix
+
+# 回放（交互式可视化）
+python scripts/train_rsl_rl.py --task Go1JoystickFlatTerrain --sim_backend motrix --play_only
+```
 
 ## 训练与回放指南
 

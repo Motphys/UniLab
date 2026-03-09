@@ -39,8 +39,9 @@ class FastTD3Runner(OffPolicyRunner):
         weight_decay: float = 0.1,
         use_cdq: bool = True,
         obs_normalization: bool = True,
+        sim_backend: str = "mujoco",
     ):
-        obs_dim, action_dim = self._detect_obs_action_dims(env_name)
+        obs_dim, action_dim = self._detect_obs_action_dims(env_name, sim_backend)
         learner = FastTD3Learner(
             obs_dim=obs_dim,
             action_dim=action_dim,
@@ -84,6 +85,7 @@ class FastTD3Runner(OffPolicyRunner):
             actor_hidden_dim=actor_hidden_dim,
             use_layer_norm=False,
             obs_normalization=obs_normalization,
+            sim_backend=sim_backend,
         )
 
     @staticmethod
@@ -96,12 +98,12 @@ class FastTD3Runner(OffPolicyRunner):
         return "cpu"
 
     @staticmethod
-    def _detect_obs_action_dims(env_name: str) -> tuple[int, int]:
+    def _detect_obs_action_dims(env_name: str, sim_backend: str = "mujoco") -> tuple[int, int]:
         from unilab.envs import registry
         from unilab.algos.torch.common.utils import ensure_registries
 
         ensure_registries()
-        env = registry.make(env_name, num_envs=1, sim_backend="mujoco")
+        env = registry.make(env_name, num_envs=1, sim_backend=sim_backend)
         obs_dim = env.observation_space.shape[0]
         action_dim = env.action_space.shape[0]
         env.close()
