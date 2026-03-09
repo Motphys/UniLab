@@ -75,7 +75,7 @@ class MotrixBackend(SimBackend):
     def data(self):
         return self._data
 
-    def init_renderer(self, spacing: float = 5.0):
+    def init_renderer(self, spacing: float = 1.0):
         """Initialize interactive renderer for visualization"""
         if self._render_app is not None:
             return
