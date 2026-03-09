@@ -1,9 +1,9 @@
-from .base import ISimBackend
+from .base import SimBackend
 from .mujoco_backend import MuJoCoBackend
 from .motrix_backend import MotrixBackend, MOTRIX_AVAILABLE
 
 
-def create_backend(backend_type: str, model_file: str, num_envs: int, sim_dt: float, **kwargs) -> ISimBackend:
+def create_backend(backend_type: str, model_file: str, num_envs: int, sim_dt: float, **kwargs) -> SimBackend:
     """创建仿真后端
 
     Args:
@@ -14,7 +14,7 @@ def create_backend(backend_type: str, model_file: str, num_envs: int, sim_dt: fl
         **kwargs: 其他参数
 
     Returns:
-        ISimBackend 实例
+        SimBackend 实例
     """
     if backend_type == "mujoco":
         return MuJoCoBackend(model_file, num_envs, sim_dt, **kwargs)
@@ -26,4 +26,4 @@ def create_backend(backend_type: str, model_file: str, num_envs: int, sim_dt: fl
         raise ValueError(f"Unknown backend: {backend_type}")
 
 
-__all__ = ["ISimBackend", "MuJoCoBackend", "MotrixBackend", "create_backend"]
+__all__ = ["SimBackend", "MuJoCoBackend", "MotrixBackend", "create_backend"]

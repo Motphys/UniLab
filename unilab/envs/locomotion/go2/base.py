@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 from unilab.envs.base import EnvCfg
 from unilab.envs.np_env import NpEnv, NpEnvState
-from unilab.envs.backend import ISimBackend
+from unilab.envs.backend import SimBackend
 
 
 @dataclass
@@ -53,7 +53,7 @@ class Go2BaseCfg(EnvCfg):
 
 
 class Go2BaseEnv(NpEnv):
-    def __init__(self, cfg: Go2BaseCfg, backend: ISimBackend, num_envs=1):
+    def __init__(self, cfg: Go2BaseCfg, backend: SimBackend, num_envs=1):
         super().__init__(cfg, backend, num_envs)
 
         if hasattr(backend.model, 'dof_damping'):

@@ -28,18 +28,18 @@ UniLab 采用**统一内存异构运算架构**：
 ## TODO
 
 - [x] 增加 Bipedal Locomotion 任务
-- [x] 增加 FastTD3 和 FastSAC，torch.mps
-- [ ] @czx  把 FastTD3 和 FastSAC 调稳定 
-- [ ] @yves 把稳定的 FastTD3 和 FastSAC 迁移到 mlx
+- [x] @czx 增加 FastTD3 和 FastSAC，torch.mps
 - [x] @czx  写轻量版并行采样，跑满cpu 和 gpu @czx
-- [ ] @yves 优化调度器，跨 torch/mlx @yves
 - [x] @yves 优化调度器，测试把 rollout 移动到 cpu 的效率提升
-- [ ] @yves 设计统一训练框架，支持不同的算法（ppo、TD3、SAC）和后端（mlx 和 pytorch）
-- [ ] @jdx  适配 mimic/amp 算法，支持人形Whole-Body Tracking
 - [x] @yves 兼容 linux 平台
-- [ ] @jdx  适配 motrixsim
+- [x] @yves 优化IPC，做到数值稳定，跨 torch/mlx
 - [x] @yves 发布 mujoco-uni
 - [x] @yves 统一仿真后端
+- [ ] @czx  把 FastTD3 调稳定
+- [ ] @jdx  适配 mimic/amp 算法，支持人形Whole-Body Tracking
+- [ ] @jdx  算法适配 motrixsim
+- [ ] @yves 把稳定的 FastTD3 和 FastSAC 迁移到 mlx
+- [ ] @yves 写 onnx 导出和 sim2sim
 
 ### 训练状态
 

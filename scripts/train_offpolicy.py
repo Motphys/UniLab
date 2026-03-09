@@ -254,8 +254,7 @@ def main() -> None:
 
     if args.log_dir is None:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        backend_suffix = f"_{args.sim_backend}" if args.sim_backend != "mujoco" else ""
-        args.log_dir = os.path.join(ROOT_DIR, "logs", cfg.algo_log_name, args.task, f"{timestamp}{backend_suffix}")
+        args.log_dir = os.path.join(ROOT_DIR, "logs", cfg.algo_log_name, args.task, f"{timestamp}_{args.sim_backend}")
 
     if not args.play_only:
         runner = build_runner(algo_name, args, cfg)

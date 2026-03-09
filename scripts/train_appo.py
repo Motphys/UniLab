@@ -174,7 +174,7 @@ def main():
 
     if args.log_dir is None:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        args.log_dir = os.path.join(ROOT_DIR, "logs", "appo", args.task, timestamp)
+        args.log_dir = os.path.join(ROOT_DIR, "logs", "appo", args.task, f"{timestamp}_mujoco")
 
     rl_cfg = {
         "obs_groups": {

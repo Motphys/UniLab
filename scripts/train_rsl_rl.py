@@ -283,8 +283,7 @@ def main():
 
     if not args.play_only:
         timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-        backend_suffix = f"_{args.sim_backend}" if args.sim_backend != "mujoco" else ""
-        log_dir = str(ROOT_DIR / "logs" / "rsl_rl_train" / args.task / f"{timestamp}{backend_suffix}")
+        log_dir = str(ROOT_DIR / "logs" / "rsl_rl_train" / args.task / f"{timestamp}_{args.sim_backend}")
     else:
         log_dir = None
 

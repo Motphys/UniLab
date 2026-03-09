@@ -2,7 +2,7 @@ import abc
 import numpy as np
 
 
-class ISimBackend(abc.ABC):
+class SimBackend(abc.ABC):
     """仿真后端统一接口"""
 
     @abc.abstractmethod

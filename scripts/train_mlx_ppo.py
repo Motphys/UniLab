@@ -145,6 +145,15 @@ def build_model(cfg, obs_dim: int, action_dim: int, dtype=mx.float32) -> MLPActo
     )
 
 
+def _get_physics_state_snapshot(env) -> np.ndarray:
+    """Get physics state in a backend-compatible way for MuJoCo video rendering."""
+    if hasattr(env, "_backend") and hasattr(env._backend, "get_physics_state"):
+        return np.asarray(env._backend.get_physics_state(), dtype=np.float32).copy()
+    if hasattr(env, "state") and hasattr(env.state, "physics_state"):
+        return np.asarray(env.state.physics_state, dtype=np.float32).copy()
+    raise AttributeError("Env backend does not expose physics state for video rendering")
+
+
 def play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root):
     """Play mode for MLX PPO."""
     import mlx.core as mx
@@ -195,6 +204,43 @@ def play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root
     _, obs, _ = env.reset(play_reset_indices)
     obs = mx.array(obs)
 
+    if resolved_sim_backend == "motrix":
+        print("[MLX PPO] Starting interactive visualization (motrix native renderer)...")
+        print("[MLX PPO] Close the render window to exit.")
+        env._backend.init_renderer()
+
+        last_render_time = time.perf_counter()
+        render_dt = 1.0 / 60.0
+
+        try:
+            while True:
+                obs_for_model = obs.astype(play_model_dtype) if getattr(obs, "dtype", None) != play_model_dtype else obs
+                actions_mx = model.policy(obs_for_model)
+                actions = mx.where(mx.isfinite(actions_mx), actions_mx, mx.zeros_like(actions_mx))
+                actions = actions.astype(dtype) if getattr(actions, "dtype", None) != dtype else actions
+                env_actions = np.asarray(actions)
+                state = env.step(env_actions)
+                raw_obs = state.obs
+                obs = mx.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0)
+
+                current_time = time.perf_counter()
+                elapsed = current_time - last_render_time
+                if elapsed < render_dt:
+                    time.sleep(render_dt - elapsed)
+                last_render_time = time.perf_counter()
+
+                env._backend.render()
+        except Exception as e:
+            if "RenderClosedError" in str(type(e).__name__):
+                print("[MLX PPO] Render window closed.")
+            else:
+                raise
+        env.close()
+        return
+
+    output_dir = run_dir if run_dir is not None else task_log_root
+    output_video = output_dir / "play_video.mp4"
+
     state_list = []
     print("[MLX PPO] Collecting physics states for play...")
     for _ in range(args.play_steps):
@@ -206,10 +252,8 @@ def play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root
         state = env.step(env_actions)
         raw_obs = state.obs
         obs = mx.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0)
-        state_list.append(np.asarray(env.state.physics_state).copy())
+        state_list.append(_get_physics_state_snapshot(env))
 
-    output_dir = run_dir if run_dir is not None else task_log_root
-    output_video = output_dir / "play_video.mp4"
     print(f"[MLX PPO] Rendering video to {output_video} ...")
     frames = render_many.render_states_get_frames(
         state_list,
@@ -232,7 +276,7 @@ def play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train or Play PPO with MLX + NumPy only.")
     parser.add_argument("--task", type=str, required=True, help="Task name")
-    parser.add_argument("--sim_backend", type=str, default="mujoco", choices=["mujoco"], help="Simulator backend")
+    parser.add_argument("--sim_backend", type=str, default="mujoco", choices=["mujoco", "motrix"], help="Simulator backend")
     parser.add_argument("--play_only", action="store_true", help="Skip training, only play")
     parser.add_argument("--no_play", action="store_true", help="Skip play after training")
     parser.add_argument("--load_run", type=str, default="-1", help="Run ID to load, run path, or model file path")
@@ -249,7 +293,7 @@ def main() -> None:
     parser.add_argument("--fp16", action="store_true", help="Mixed precision: env/buffer float16, model/optimizer float32 (sets UNILAB_MLX_DTYPE=float16)")
     parser.add_argument("--logger", type=str, default="tensorboard", choices=["tensorboard", "wandb", "none", "no_print"])
     args = parser.parse_args()
-    resolved_sim_backend = "mujoco"
+    resolved_sim_backend = args.sim_backend
 
     if args.env_num is None:
         args.env_num = locomotion_params.get_default_env_num(args.task)
@@ -282,7 +326,7 @@ def main() -> None:
         return
 
     # TRAIN MODE
-    log_dir = task_log_root / timestamp
+    log_dir = task_log_root / f"{timestamp}_{resolved_sim_backend}"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file_path = log_dir / "train.log"
     log_fp = log_file_path.open("a", encoding="utf-8")

@@ -3,11 +3,11 @@ from multiprocessing import cpu_count
 import mujoco
 from mujoco import rollout, batch_forward
 import numpy as np
-from .base import ISimBackend
+from .base import SimBackend
 from ..dtype_config import get_global_dtype
 
 
-class MuJoCoBackend(ISimBackend):
+class MuJoCoBackend(SimBackend):
     """MuJoCo 后端实现"""
 
     def __init__(self, model_file: str, num_envs: int, sim_dt: float, body_name: str = None, np_dtype=None):
