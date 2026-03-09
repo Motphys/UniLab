@@ -10,7 +10,7 @@ Data flow:
 
 import torch
 import numpy as np
-from unilab.algos.torch.common.utils import ensure_registries, build_actor
+from unilab.utils.algo_utils import ensure_registries, build_actor
 
 
 def off_policy_collector_fn(

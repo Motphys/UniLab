@@ -6,7 +6,7 @@ import numpy as np
 import gymnasium as gym
 
 from unilab.envs.base import ABEnv, EnvCfg
-from unilab.envs.backend import ISimBackend
+from unilab.envs.backend import SimBackend
 from unilab.envs.dtype_config import get_global_dtype
 
 
@@ -29,7 +29,7 @@ class NpEnvState:
 class NpEnv(ABEnv):
     """统一的 numpy 环境基类（backend-agnostic）"""
 
-    def __init__(self, cfg: EnvCfg, backend: ISimBackend, num_envs: int):
+    def __init__(self, cfg: EnvCfg, backend: SimBackend, num_envs: int):
         self._cfg = cfg
         self._backend = backend
         self._num_envs = num_envs

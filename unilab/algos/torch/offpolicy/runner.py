@@ -8,7 +8,7 @@ from collections import deque
 from unilab.ipc import SharedReplayBuffer, SharedWeightSync, SharedObsNormStats
 from unilab.ipc.async_runner import AsyncRunner
 from unilab.algos.torch.offpolicy.worker import off_policy_collector_fn
-from unilab.algos.torch.common.logger import TrainingLogger
+from unilab.utils.offpolicy_logger import OffPolicyLogger
 from unilab.ipc.async_runner import _SPAWN_CTX
 
 
@@ -62,7 +62,7 @@ class OffPolicyRunner(AsyncRunner):
 
     def _detect_dims(self):
         from unilab.envs import registry
-        from unilab.algos.torch.common.utils import ensure_registries
+        from unilab.utils.algo_utils import ensure_registries
         ensure_registries()
         env = registry.make(self.env_name, num_envs=1, sim_backend="mujoco")
         obs_dim = env.observation_space.shape[0]
@@ -156,7 +156,7 @@ class OffPolicyRunner(AsyncRunner):
             print(f"[Runner] Collector process alive: {self._collector_process.is_alive()}")
 
         # Setup logger
-        logger = TrainingLogger(
+        logger = OffPolicyLogger(
             algo_name=f"Fast{self.algo_type.upper()}",
             max_iterations=max_iterations,
             num_envs=self.num_envs,

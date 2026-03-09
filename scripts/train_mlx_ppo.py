@@ -48,6 +48,7 @@ ensure_registries()
 from unilab.config import locomotion_params
 from unilab.envs import registry
 from unilab.utils import render_many
+from unilab.utils.onpolicy_logger import OnPolicyLogger
 from unilab.algos.mlx.common import EmpiricalDiscountedVariationNormalization, RolloutBuffer
 from unilab.algos.mlx.ppo import MLPActorCritic, PPOConfig, PPOTrainer
 
@@ -145,6 +146,15 @@ def build_model(cfg, obs_dim: int, action_dim: int, dtype=mx.float32) -> MLPActo
     )
 
 
+def _get_physics_state_snapshot(env) -> np.ndarray:
+    """Get physics state in a backend-compatible way for MuJoCo video rendering."""
+    if hasattr(env, "_backend") and hasattr(env._backend, "get_physics_state"):
+        return np.asarray(env._backend.get_physics_state(), dtype=np.float32).copy()
+    if hasattr(env, "state") and hasattr(env.state, "physics_state"):
+        return np.asarray(env.state.physics_state, dtype=np.float32).copy()
+    raise AttributeError("Env backend does not expose physics state for video rendering")
+
+
 def play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root):
     """Play mode for MLX PPO."""
     import mlx.core as mx
@@ -195,6 +205,43 @@ def play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root
     _, obs, _ = env.reset(play_reset_indices)
     obs = mx.array(obs)
 
+    if resolved_sim_backend == "motrix":
+        print("[MLX PPO] Starting interactive visualization (motrix native renderer)...")
+        print("[MLX PPO] Close the render window to exit.")
+        env._backend.init_renderer()
+
+        last_render_time = time.perf_counter()
+        render_dt = 1.0 / 60.0
+
+        try:
+            while True:
+                obs_for_model = obs.astype(play_model_dtype) if getattr(obs, "dtype", None) != play_model_dtype else obs
+                actions_mx = model.policy(obs_for_model)
+                actions = mx.where(mx.isfinite(actions_mx), actions_mx, mx.zeros_like(actions_mx))
+                actions = actions.astype(dtype) if getattr(actions, "dtype", None) != dtype else actions
+                env_actions = np.asarray(actions)
+                state = env.step(env_actions)
+                raw_obs = state.obs
+                obs = mx.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0)
+
+                current_time = time.perf_counter()
+                elapsed = current_time - last_render_time
+                if elapsed < render_dt:
+                    time.sleep(render_dt - elapsed)
+                last_render_time = time.perf_counter()
+
+                env._backend.render()
+        except Exception as e:
+            if "RenderClosedError" in str(type(e).__name__):
+                print("[MLX PPO] Render window closed.")
+            else:
+                raise
+        env.close()
+        return
+
+    output_dir = run_dir if run_dir is not None else task_log_root
+    output_video = output_dir / "play_video.mp4"
+
     state_list = []
     print("[MLX PPO] Collecting physics states for play...")
     for _ in range(args.play_steps):
@@ -206,10 +253,8 @@ def play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root
         state = env.step(env_actions)
         raw_obs = state.obs
         obs = mx.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0)
-        state_list.append(np.asarray(env.state.physics_state).copy())
+        state_list.append(_get_physics_state_snapshot(env))
 
-    output_dir = run_dir if run_dir is not None else task_log_root
-    output_video = output_dir / "play_video.mp4"
     print(f"[MLX PPO] Rendering video to {output_video} ...")
     frames = render_many.render_states_get_frames(
         state_list,
@@ -232,7 +277,7 @@ def play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train or Play PPO with MLX + NumPy only.")
     parser.add_argument("--task", type=str, required=True, help="Task name")
-    parser.add_argument("--sim_backend", type=str, default="mujoco", choices=["mujoco"], help="Simulator backend")
+    parser.add_argument("--sim_backend", type=str, default="mujoco", choices=["mujoco", "motrix"], help="Simulator backend")
     parser.add_argument("--play_only", action="store_true", help="Skip training, only play")
     parser.add_argument("--no_play", action="store_true", help="Skip play after training")
     parser.add_argument("--load_run", type=str, default="-1", help="Run ID to load, run path, or model file path")
@@ -249,7 +294,7 @@ def main() -> None:
     parser.add_argument("--fp16", action="store_true", help="Mixed precision: env/buffer float16, model/optimizer float32 (sets UNILAB_MLX_DTYPE=float16)")
     parser.add_argument("--logger", type=str, default="tensorboard", choices=["tensorboard", "wandb", "none", "no_print"])
     args = parser.parse_args()
-    resolved_sim_backend = "mujoco"
+    resolved_sim_backend = args.sim_backend
 
     if args.env_num is None:
         args.env_num = locomotion_params.get_default_env_num(args.task)
@@ -282,7 +327,7 @@ def main() -> None:
         return
 
     # TRAIN MODE
-    log_dir = task_log_root / timestamp
+    log_dir = task_log_root / f"{timestamp}_{resolved_sim_backend}"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file_path = log_dir / "train.log"
     log_fp = log_file_path.open("a", encoding="utf-8")
@@ -345,8 +390,7 @@ def main() -> None:
     os.environ["UNILAB_MUJOCO_STEP_THREADS"] = preset["threads"]
     os.environ["UNILAB_MUJOCO_STEP_CHUNK"] = preset["chunk"]
     env = registry.make(args.task, num_envs=args.env_num, sim_backend=resolved_sim_backend)
-    if bool(getattr(algo_cfg, "fast_mode", False)) and hasattr(env, "_enable_reward_log"):
-        env._enable_reward_log = False
+    # Keep reward log enabled for logger display
     if env.state is None:
         env.init_state()
     reset_indices = np.arange(env.num_envs, dtype=np.int32)
@@ -435,6 +479,17 @@ def main() -> None:
     if tb_writer is not None:
         log("[MLX PPO] tensorboard=enabled")
 
+    rich_logger = OnPolicyLogger(
+        algo_name="MLX_PPO",
+        max_iterations=max_iterations,
+        num_envs=args.env_num,
+        num_steps=num_steps,
+        env_name=args.task,
+        log_dir=log_dir,
+        log_backend=args.logger,
+    )
+    rich_logger.start()
+
     episode_returns = np.zeros((args.env_num,), dtype=(np.float16 if use_fp16 else np.float32))
     episode_lengths = np.zeros((args.env_num,), dtype=np.int32)
     reward_window = deque(maxlen=100)
@@ -457,7 +512,7 @@ def main() -> None:
         collect_start = time.perf_counter()
         reward_component_sums: dict[str, float] = {}
         reward_component_counts: dict[str, int] = {}
-        collect_reward_components = not ppo_cfg.fast_mode
+        collect_reward_components = True  # Always collect for logger display
         track_episode_stats = True
         model_act_time = 0.0
         env_step_total_time = 0.0
@@ -584,6 +639,27 @@ def main() -> None:
         mean_reward = float(statistics.mean(reward_window)) if reward_window else 0.0
         mean_ep_len = float(statistics.mean(length_window)) if length_window else 0.0
 
+        reward_components_avg = {}
+        for key, summed in reward_component_sums.items():
+            count = reward_component_counts.get(key, 0)
+            if count > 0:
+                reward_components_avg[key] = summed / count
+
+        rich_logger.log_step(
+            iteration=it,
+            metrics={
+                "surrogate": metrics["surrogate"],
+                "value": metrics["value"],
+                "entropy": metrics["entropy"],
+                "approx_kl": metrics["approx_kl"],
+            },
+            reward=mean_reward,
+            reward_components=reward_components_avg,
+            collect_time=collect_time,
+            train_time=learn_time,
+        )
+        rich_logger.update_ep_length(mean_ep_len)
+
         if tb_writer is not None or wandb_run is not None:
             log_dict = {
                 "Loss/surrogate": metrics["surrogate"],
@@ -649,59 +725,12 @@ def main() -> None:
             model.save_weights(str(ckpt_path))
             trainer_state_path = log_dir / f"trainer_{it}.pkl"
             save_trainer_state(trainer_state_path, trainer, it)
-            log(f"[MLX PPO] checkpoint_saved={ckpt_path}")
-
-        if (it + 1) % args.log_interval == 0 or it == 0:
-            log(
-                "[iter {}/{}] reward={:.3f} ep_len={:.1f} "
-                "loss_pi={:.4f} loss_v={:.4f} ent={:.4f} kl={:.5f} lr={:.6f} fps={} "
-                "collect={:.3f}s learn={:.3f}s "
-                "clip_frac={:.3f} ratio(mean/max)={:.3f}/{:.3f} "
-                "std={:.4f} adv_std={:.4f} v_exp={:.3f} "
-                "upd={} skip(loss/grad/met)={}/{}/{} rollback={} kl_stop={} "
-                "prof(act/step/core/post/reset/buf/ep)={:.3f}/{:.3f}/{:.3f}/{:.3f}/{:.3f}/{:.3f}/{:.3f} "
-                "reset_sub(idx/call/scatter/info)={:.3f}/{:.3f}/{:.3f}/{:.3f}".format(
-                    it + 1,
-                    max_iterations,
-                    mean_reward,
-                    mean_ep_len,
-                    metrics["surrogate"],
-                    metrics["value"],
-                    metrics["entropy"],
-                    metrics["approx_kl"],
-                    current_lr,
-                    fps,
-                    collect_time,
-                    learn_time,
-                    clip_fraction,
-                    ratio_mean,
-                    ratio_max,
-                    std_mean,
-                    adv_std,
-                    value_explained_variance,
-                    int(updates_applied),
-                    int(skipped_nonfinite_loss),
-                    int(skipped_nonfinite_grads),
-                    int(skipped_nonfinite_metrics),
-                    int(rolled_back_updates),
-                    int(early_stopped_kl),
-                    model_act_time,
-                    env_step_total_time,
-                    env_step_core_time,
-                    env_step_postprocess_time,
-                    env_step_reset_time,
-                    buffer_add_time,
-                    episode_stats_time,
-                    env_reset_index_time,
-                    env_reset_call_time,
-                    env_reset_scatter_time,
-                    env_reset_info_merge_time,
-                )
-            )
+            rich_logger.log_save(str(ckpt_path))
 
     mx.eval(model.parameters())
     env.close()
     log("[MLX PPO] training completed.")
+    rich_logger.finish()
     if tb_writer is not None:
         tb_writer.close()
     if wandb_run is not None:

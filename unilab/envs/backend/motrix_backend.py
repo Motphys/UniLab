@@ -6,10 +6,10 @@ try:
 except ImportError:
     MOTRIX_AVAILABLE = False
 
-from .base import ISimBackend
+from .base import SimBackend
 
 
-class MotrixBackend(ISimBackend):
+class MotrixBackend(SimBackend):
     """MotrixSim 后端实现"""
 
     def __init__(self, model_file: str, num_envs: int, sim_dt: float, body_name: str = "base", np_dtype=np.float32):
@@ -75,7 +75,7 @@ class MotrixBackend(ISimBackend):
     def data(self):
         return self._data
 
-    def init_renderer(self, spacing: float = 5.0):
+    def init_renderer(self, spacing: float = 1.0):
         """Initialize interactive renderer for visualization"""
         if self._render_app is not None:
             return

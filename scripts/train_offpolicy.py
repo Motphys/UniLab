@@ -11,7 +11,7 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
 
-from unilab.algos.torch.common.utils import ensure_registries
+from unilab.utils.algo_utils import ensure_registries
 
 
 def default_device(torch_module, preferred: str | None = None) -> str:
@@ -130,7 +130,7 @@ def play_offpolicy(algo_name: str, args, cfg) -> None:
     import torch
     from unilab.envs import registry
     from unilab.utils import render_many
-    from unilab.algos.torch.common.utils import build_actor
+    from unilab.utils.algo_utils import build_actor
 
     device = default_device(torch, args.device)
     print(f"Using device for play: {device}")
@@ -254,8 +254,7 @@ def main() -> None:
 
     if args.log_dir is None:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        backend_suffix = f"_{args.sim_backend}" if args.sim_backend != "mujoco" else ""
-        args.log_dir = os.path.join(ROOT_DIR, "logs", cfg.algo_log_name, args.task, f"{timestamp}{backend_suffix}")
+        args.log_dir = os.path.join(ROOT_DIR, "logs", cfg.algo_log_name, args.task, f"{timestamp}_{args.sim_backend}")
 
     if not args.play_only:
         runner = build_runner(algo_name, args, cfg)

@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 from unilab.envs.base import EnvCfg
 from unilab.envs.np_env import NpEnv, NpEnvState
-from unilab.envs.backend import ISimBackend
+from unilab.envs.backend import SimBackend
 
 
 @dataclass
@@ -51,7 +51,7 @@ class G1BaseCfg(EnvCfg):
 
 
 class G1BaseEnv(NpEnv):
-    def __init__(self, cfg: G1BaseCfg, backend: ISimBackend, num_envs=1):
+    def __init__(self, cfg: G1BaseCfg, backend: SimBackend, num_envs=1):
         super().__init__(cfg, backend, num_envs)
         self._init_action_space()
         self._num_action = self._action_space.shape[0]
