@@ -10,6 +10,7 @@ from unilab.envs.backend import create_backend
 from unilab.envs.dtype_config import get_global_dtype
 from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
 from unilab.envs.locomotion.g1.joystick import G1JoystickPPO, InitState
+from unilab.envs.curriculum import EpisodeLengthTracker, PenaltyCurriculum
 
 
 @dataclass
@@ -81,6 +82,11 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
         self._enable_reward_log = True
         self._gait_phase_delta = float(2.0 * np.pi * cfg.reward_config.gait_frequency * cfg.ctrl_dt)
         self._pose_weights = np.array(cfg.reward_config.pose_weights, dtype=get_global_dtype())
+
+        # Curriculum learning
+        self._episode_tracker = EpisodeLengthTracker(num_envs)
+        self._penalty_curriculum = PenaltyCurriculum(self, enabled=True, initial_scale=0.5, min_scale=0.5, max_scale=1.0, degree=0.001)
+
         self._init_obs_space()
         self._init_reward_functions()
 
@@ -138,3 +144,20 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
 
     def _reward_alive(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
         return np.ones((self._num_envs,), dtype=get_global_dtype())
+
+    def update_state(self, state):
+        """Override to add curriculum update."""
+        # Track episode lengths for curriculum
+        if np.any(state.done):
+            done_indices = np.where(state.done)[0]
+            episode_lengths = state.info["steps"][done_indices]
+            self._episode_tracker.update(episode_lengths)
+            self._penalty_curriculum.update(self._episode_tracker.average_length)
+
+            # Log curriculum metrics
+            if "log" not in state.info:
+                state.info["log"] = {}
+            state.info["log"]["curriculum/average_episode_length"] = float(self._episode_tracker.average_length)
+            state.info["log"]["curriculum/penalty_scale"] = float(self._penalty_curriculum.current_scale)
+
+        return super().update_state(state)
