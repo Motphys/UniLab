@@ -158,11 +158,9 @@ class OffPolicyLogger:
         """Initialize TensorBoard SummaryWriter."""
         try:
             from torch.utils.tensorboard import SummaryWriter
-            tb_dir = os.path.join(log_dir, "tb")
-            os.makedirs(tb_dir, exist_ok=True)
-            self._tb_writer = SummaryWriter(log_dir=tb_dir)
+            self._tb_writer = SummaryWriter(log_dir=log_dir)
             if not self._no_print:
-                self._console.print(f"[dim]TensorBoard logging to: {tb_dir}[/]")
+                self._console.print(f"[dim]TensorBoard logging to: {log_dir}[/]")
         except ImportError:
             if not self._no_print:
                 self._console.print("[yellow]tensorboard not installed, skipping TB logging[/]")
