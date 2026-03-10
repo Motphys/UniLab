@@ -35,7 +35,6 @@ class OffPolicyRunner(AsyncRunner):
         obs_normalization: bool = False,
         sim_backend: str = "mujoco",
         use_gpu_buffer: bool = True,
-        gpu_buffer_sync_interval: int = 10,
     ):
         super().__init__(
             env_name=env_name,
@@ -60,7 +59,6 @@ class OffPolicyRunner(AsyncRunner):
         self.use_layer_norm = use_layer_norm
         self.obs_normalization = obs_normalization
         self.use_gpu_buffer = use_gpu_buffer and device != "cpu"
-        self.gpu_buffer_sync_interval = gpu_buffer_sync_interval
 
         self.obs_dim, self.action_dim = self._detect_dims()
 
@@ -235,7 +233,7 @@ class OffPolicyRunner(AsyncRunner):
             # Sample from GPU buffer or host buffer
             if gpu_buffer is not None:
                 # Sync new data before sampling
-                synced = gpu_buffer.sync_new_data(shared_buffer)
+                gpu_buffer.sync_new_data(shared_buffer)
 
                 if gpu_buffer.size >= self.batch_size * self.updates_per_step:
                     large_batch = gpu_buffer.sample(self.batch_size * self.updates_per_step)
