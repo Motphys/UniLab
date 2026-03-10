@@ -138,8 +138,8 @@ class Go2WalkTask(Go2BaseEnv):
         return np.exp(-ang_vel_error / self._cfg.reward_config.tracking_sigma)
 
     def _reward_lin_vel_z(self, info: dict) -> np.ndarray:
-        linvel = self.get_local_linvel()
-        return np.square(linvel[:, 2])
+        global_linvel = self._backend.get_sensor_data("global_linvel")
+        return np.square(global_linvel[:, 2])
 
     def _reward_ang_vel_xy(self, info: dict) -> np.ndarray:
         gyro = self.get_gyro()
