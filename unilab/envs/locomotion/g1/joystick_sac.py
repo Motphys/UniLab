@@ -14,15 +14,16 @@ from unilab.envs.curriculum import EpisodeLengthTracker, PenaltyCurriculum
 
 
 @dataclass
+class ControlConfigSAC:
+    action_scale: float = 0.5  # 增大到0.5，给机器人更多控制权限
+    simulate_action_latency: bool = False
+
+@dataclass
 class Commands:
     """对齐 holosoma: 多方向命令采样"""
-    # vel_limit = [
-    #     [-0.6, -0.4, -0.8],  # [vx_min, vy_min, vyaw_min]
-    #     [1.0, 0.4, 0.8]      # [vx_max, vy_max, vyaw_max]
-    # ]
     vel_limit = [
-        [0.5, 0., 0.],  # [vx_min, vy_min, vyaw_min]
-        [0.5, 0., 0.]   # [vx_max, vy_max, vyaw_max]
+        [-0.6, -0.4, -0.8],  # [vx_min, vy_min, vyaw_min]
+        [1.0, 0.4, 0.8]      # [vx_max, vy_max, vyaw_max]
     ]
 
 @dataclass
@@ -73,6 +74,7 @@ class G1JoystickSACCfg(G1BaseCfg):
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
     reward_config: RewardConfigSAC = field(default_factory=RewardConfigSAC)
+    control_config: ControlConfigSAC = field(default_factory=ControlConfigSAC)
 
 
 @registry.env("G1WalkTaskMjSAC", sim_backend="mujoco")
