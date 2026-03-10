@@ -137,31 +137,45 @@ class SharedReplayBuffer:
         import torch
         with self._lock:
             current_size = int(self._meta[1])
-            indices = np.random.randint(0, current_size, size=batch_size)
-            obs_copy = self.obs[indices].copy()
-            actions_copy = self.actions[indices].copy()
-            rewards_copy = self.rewards[indices].copy()
-            next_obs_copy = self.next_obs[indices].copy()
-            dones_copy = self.dones[indices].copy()
-            truncated_copy = self.truncated[indices].copy()
 
-        # Use non-blocking transfer with single sync to avoid race conditions
-        # Non-blocking is faster, but requires explicit sync to prevent data corruption
-        result = {
-            "obs": torch.from_numpy(obs_copy).to(device, non_blocking=True),
-            "actions": torch.from_numpy(actions_copy).to(device, non_blocking=True),
-            "rewards": torch.from_numpy(rewards_copy).to(device, non_blocking=True),
-            "next_obs": torch.from_numpy(next_obs_copy).to(device, non_blocking=True),
-            "dones": torch.from_numpy(dones_copy).to(device, non_blocking=True),
-            "truncated": torch.from_numpy(truncated_copy).to(device, non_blocking=True),
-        }
+        indices = np.random.randint(0, current_size, size=batch_size)
+        obs_copy = self.obs[indices].copy()
+        actions_copy = self.actions[indices].copy()
+        rewards_copy = self.rewards[indices].copy()
+        next_obs_copy = self.next_obs[indices].copy()
+        dones_copy = self.dones[indices].copy()
+        truncated_copy = self.truncated[indices].copy()
 
-        # Synchronize once to ensure all async transfers complete
-        if device != "cpu":
-            if device.startswith("cuda"):
-                torch.cuda.synchronize()
-            elif device == "mps":
-                torch.mps.synchronize()
+        # Use pinned memory for CUDA (MPS doesn't support pin_memory)
+        use_pinned = device.startswith("cuda")
+
+        if use_pinned:
+            result = {
+                "obs": torch.from_numpy(obs_copy).pin_memory().to(device, non_blocking=True),
+                "actions": torch.from_numpy(actions_copy).pin_memory().to(device, non_blocking=True),
+                "rewards": torch.from_numpy(rewards_copy).pin_memory().to(device, non_blocking=True),
+                "next_obs": torch.from_numpy(next_obs_copy).pin_memory().to(device, non_blocking=True),
+                "dones": torch.from_numpy(dones_copy).pin_memory().to(device, non_blocking=True),
+                "truncated": torch.from_numpy(truncated_copy).pin_memory().to(device, non_blocking=True),
+            }
+        elif device != "cpu":
+            result = {
+                "obs": torch.from_numpy(obs_copy).to(device, non_blocking=True),
+                "actions": torch.from_numpy(actions_copy).to(device, non_blocking=True),
+                "rewards": torch.from_numpy(rewards_copy).to(device, non_blocking=True),
+                "next_obs": torch.from_numpy(next_obs_copy).to(device, non_blocking=True),
+                "dones": torch.from_numpy(dones_copy).to(device, non_blocking=True),
+                "truncated": torch.from_numpy(truncated_copy).to(device, non_blocking=True),
+            }
+        else:
+            result = {
+                "obs": torch.from_numpy(obs_copy),
+                "actions": torch.from_numpy(actions_copy),
+                "rewards": torch.from_numpy(rewards_copy),
+                "next_obs": torch.from_numpy(next_obs_copy),
+                "dones": torch.from_numpy(dones_copy),
+                "truncated": torch.from_numpy(truncated_copy),
+            }
 
         return result
 

@@ -38,6 +38,7 @@ class SharedWeightSync:
         if create:
             self._version_arr[0] = 0
         self._total_numel = total_numel
+        self._cpu_buffer = None
 
     @property
     def name(self) -> str:
@@ -55,14 +56,18 @@ class SharedWeightSync:
         return obj
 
     def write_weights(self, state_dict) -> None:
+        import torch
+        if self._cpu_buffer is None:
+            self._cpu_buffer = torch.empty(self._total_numel, dtype=torch.float32)
+
         with self._lock:
             offset = 0
             for name in self._param_names:
                 param = state_dict[name]
-                flat = param.detach().cpu().numpy().ravel()
-                n = flat.shape[0]
-                self._buffer[offset : offset + n] = flat
+                n = param.numel()
+                self._cpu_buffer[offset:offset+n] = param.detach().cpu().flatten()
                 offset += n
+            self._buffer[:] = self._cpu_buffer.numpy()
             self._version_arr[0] += 1
 
     def read_weights_into(self, state_dict) -> int:
