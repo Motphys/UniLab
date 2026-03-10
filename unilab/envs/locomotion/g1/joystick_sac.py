@@ -16,9 +16,13 @@ from unilab.envs.curriculum import EpisodeLengthTracker, PenaltyCurriculum
 @dataclass
 class Commands:
     """对齐 holosoma: 多方向命令采样"""
+    # vel_limit = [
+    #     [-0.6, -0.4, -0.8],  # [vx_min, vy_min, vyaw_min]
+    #     [1.0, 0.4, 0.8]      # [vx_max, vy_max, vyaw_max]
+    # ]
     vel_limit = [
-        [-0.6, -0.4, -0.8],  # [vx_min, vy_min, vyaw_min]
-        [1.0, 0.4, 0.8]      # [vx_max, vy_max, vyaw_max]
+        [0.5, 0., 0.],  # [vx_min, vy_min, vyaw_min]
+        [0.5, 0., 0.]   # [vx_max, vy_max, vyaw_max]
     ]
 
 @dataclass
@@ -83,9 +87,17 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
         self._gait_phase_delta = float(2.0 * np.pi * cfg.reward_config.gait_frequency * cfg.ctrl_dt)
         self._pose_weights = np.array(cfg.reward_config.pose_weights, dtype=get_global_dtype())
 
-        # Curriculum learning
+        # Curriculum learning - 更宽松的初始配置
         self._episode_tracker = EpisodeLengthTracker(num_envs)
-        self._penalty_curriculum = PenaltyCurriculum(self, enabled=True, initial_scale=0.5, min_scale=0.5, max_scale=1.0, degree=0.001)
+        self._penalty_curriculum = PenaltyCurriculum(
+            self, enabled=True,
+            initial_scale=0.1,      # 从0.1开始，更容易
+            min_scale=0.1,          # 最小0.1
+            max_scale=1.0,          # 最大1.0
+            level_down_threshold=50.0,   # 低于50步降低难度
+            level_up_threshold=500.0,    # 高于500步增加难度
+            degree=0.002            # 调整速度加快
+        )
 
         self._init_obs_space()
         self._init_reward_functions()
