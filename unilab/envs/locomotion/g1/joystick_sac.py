@@ -147,17 +147,22 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
 
     def update_state(self, state):
         """Override to add curriculum update."""
-        # Track episode lengths for curriculum
+        # Call parent first to compute terminated/truncated
+        state = super().update_state(state)
+
+        # Track episode lengths AFTER parent update (when terminated is set)
+        # Note: steps will be incremented in np_env.step() after this returns
         if np.any(state.done):
             done_indices = np.where(state.done)[0]
-            episode_lengths = state.info["steps"][done_indices]
+            # Add 1 because steps will be incremented after update_state
+            episode_lengths = state.info["steps"][done_indices] + 1
             self._episode_tracker.update(episode_lengths)
             self._penalty_curriculum.update(self._episode_tracker.average_length)
 
-            # Log curriculum metrics
+            # Always log curriculum metrics when episode ends
             if "log" not in state.info:
                 state.info["log"] = {}
             state.info["log"]["curriculum/average_episode_length"] = float(self._episode_tracker.average_length)
             state.info["log"]["curriculum/penalty_scale"] = float(self._penalty_curriculum.current_scale)
 
-        return super().update_state(state)
+        return state
