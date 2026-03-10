@@ -35,7 +35,7 @@ class OffPolicyRunner(AsyncRunner):
         obs_normalization: bool = False,
         sim_backend: str = "mujoco",
         use_gpu_buffer: bool = True,
-        gpu_buffer_sync_interval: int = 1,
+        gpu_buffer_sync_interval: int = 10,
     ):
         super().__init__(
             env_name=env_name,
@@ -234,19 +234,14 @@ class OffPolicyRunner(AsyncRunner):
 
             # Sample from GPU buffer or host buffer
             if gpu_buffer is not None:
-                # Sync from host (always sync on first iteration or every sync_interval)
-                if iteration == 1 or iteration % self.gpu_buffer_sync_interval == 1:
-                    synced = gpu_buffer.sync_from_host(shared_buffer)
-                    if synced > 0 and iteration % 10 == 1:
-                        logger.log_status(f"Synced {synced} samples to GPU buffer")
+                # Sync new data before sampling
+                synced = gpu_buffer.sync_new_data(shared_buffer)
 
-                # GPU sampling (fallback to host if not enough data)
                 if gpu_buffer.size >= self.batch_size * self.updates_per_step:
                     large_batch = gpu_buffer.sample(self.batch_size * self.updates_per_step)
                 else:
                     large_batch = shared_buffer.sample_torch(self.batch_size * self.updates_per_step, self.device)
             else:
-                # Fallback to host sampling
                 large_batch = shared_buffer.sample_torch(self.batch_size * self.updates_per_step, self.device)
 
             for update_idx in range(self.updates_per_step):

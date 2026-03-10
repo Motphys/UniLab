@@ -41,7 +41,7 @@ class FastTD3Runner(OffPolicyRunner):
         obs_normalization: bool = True,
         sim_backend: str = "mujoco",
         use_gpu_buffer: bool = True,
-        gpu_buffer_sync_interval: int = 1,
+        gpu_buffer_sync_interval: int = 10,
     ):
         obs_dim, action_dim = self._detect_obs_action_dims(env_name, sim_backend)
         learner = FastTD3Learner(
