@@ -343,6 +343,8 @@
     <accelerometer site="imu_in_pelvis" name="imu-pelvis-linear-acceleration" cutoff="157" noise="0.01"/>
     <framepos objtype="site" objname="left_foot" name="left_foot_pos"/>
     <framepos objtype="site" objname="right_foot" name="right_foot_pos"/>
+    <framequat objtype="site" objname="left_foot" name="left_foot_quat"/>
+    <framequat objtype="site" objname="right_foot" name="right_foot_quat"/>
     <framezaxis objtype="site" objname="imu_in_pelvis" name="upvector"/>
     <framezaxis objtype="site" objname="imu_in_torso" name="torso_upvector"/>
     <framezaxis objtype="site" objname="left_foot" name="left_foot_upvector"/>
