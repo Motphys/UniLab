@@ -40,6 +40,7 @@ class FastTD3Runner(OffPolicyRunner):
         use_cdq: bool = True,
         obs_normalization: bool = True,
         sim_backend: str = "mujoco",
+        use_gpu_buffer: bool = True,
     ):
         obs_dim, action_dim = self._detect_obs_action_dims(env_name, sim_backend)
         learner = FastTD3Learner(
@@ -86,6 +87,7 @@ class FastTD3Runner(OffPolicyRunner):
             use_layer_norm=False,
             obs_normalization=obs_normalization,
             sim_backend=sim_backend,
+            use_gpu_buffer=use_gpu_buffer,
         )
 
     @staticmethod

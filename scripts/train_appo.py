@@ -188,12 +188,17 @@ def main():
     if not args.play_only:
         from unilab.algos.torch.appo.runner import APPORunner
 
+        collector_device = args.collector_device
+        if collector_device == "gpu":
+            import torch
+            collector_device = "mps" if torch.backends.mps.is_available() else "cuda"
+
         runner = APPORunner(
             env_name=args.task,
             env_cfg_overrides={},
             rl_cfg=rl_cfg,
             device=args.device,
-            collector_device=args.collector_device,
+            collector_device=collector_device,
             num_envs=args.total_envs,
             steps_per_env=args.steps_per_env,
         )

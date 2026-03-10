@@ -34,6 +34,7 @@ class FastSACRunner(OffPolicyRunner):
         use_layer_norm: bool = True,
         max_grad_norm: float = 0.0,
         sim_backend: str = "mujoco",
+        use_gpu_buffer: bool = True,
     ):
         from unilab.envs import registry
         from unilab.utils.algo_utils import ensure_registries
@@ -84,4 +85,5 @@ class FastSACRunner(OffPolicyRunner):
             use_layer_norm=use_layer_norm,
             obs_normalization=obs_normalization,
             sim_backend=sim_backend,
+            use_gpu_buffer=use_gpu_buffer,
         )
