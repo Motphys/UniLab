@@ -73,14 +73,13 @@ class OptimizedGPUReplayBuffer:
                 shared_buffer.truncated[:new_samples - first]
             ])
 
-        # Async transfer to GPU (non-blocking for CUDA only)
-        non_blocking = self.device.startswith('cuda')
-        obs_gpu = torch.from_numpy(obs_np).to(self.device, non_blocking=non_blocking)
-        next_obs_gpu = torch.from_numpy(next_obs_np).to(self.device, non_blocking=non_blocking)
-        actions_gpu = torch.from_numpy(actions_np).to(self.device, non_blocking=non_blocking)
-        rewards_gpu = torch.from_numpy(rewards_np).to(self.device, non_blocking=non_blocking)
-        dones_gpu = torch.from_numpy(dones_np).to(self.device, non_blocking=non_blocking)
-        truncated_gpu = torch.from_numpy(truncated_np).to(self.device, non_blocking=non_blocking)
+        # Async transfer to GPU
+        obs_gpu = torch.from_numpy(obs_np).to(self.device, non_blocking=True)
+        next_obs_gpu = torch.from_numpy(next_obs_np).to(self.device, non_blocking=True)
+        actions_gpu = torch.from_numpy(actions_np).to(self.device, non_blocking=True)
+        rewards_gpu = torch.from_numpy(rewards_np).to(self.device, non_blocking=True)
+        dones_gpu = torch.from_numpy(dones_np).to(self.device, non_blocking=True)
+        truncated_gpu = torch.from_numpy(truncated_np).to(self.device, non_blocking=True)
 
         # Write to GPU buffer
         gpu_start = self._ptr % self.capacity
