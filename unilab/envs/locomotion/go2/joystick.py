@@ -116,8 +116,13 @@ class Go2WalkTask(Go2BaseEnv):
         for name, scale in cfg.scales.items():
             if scale == 0 or name not in self._reward_fns:
                 continue
-            reward += self._reward_fns[name](info) * scale
+            rew = self._reward_fns[name](info)
+            reward += rew * scale
+            if "log" not in info:
+                info["log"] = {}
+            info["log"][f"reward/{name}"] = float(np.mean(rew * scale))
 
+        reward *= self._cfg.ctrl_dt
         return reward
 
     def _reward_tracking_lin_vel(self, info: dict) -> np.ndarray:
