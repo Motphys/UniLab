@@ -38,10 +38,14 @@ class RewardConfig:
             "action_rate": -0.005,
             "similar_to_default": -0.1,
             "alive": 0.0,
+            "foot_lift_reward": 0.2,
+            "foot_drag_penalty": -0.0,
         }
     )
     tracking_sigma: float = 0.25
     base_height_target: float = 0.3
+    target_foot_height: float = 0.08
+    foot_clearance_sigma: float = 0.02
 
 
 @registry.envcfg("Go2JoystickFlatTerrain")
@@ -68,6 +72,12 @@ class Go2WalkTask(Go2BaseEnv):
             "tracking_ang_vel": self._reward_tracking_ang_vel,
             "lin_vel_z": self._reward_lin_vel_z,
             "ang_vel_xy": self._reward_ang_vel_xy,
+            "base_height": self._reward_base_height,
+            "action_rate": self._reward_action_rate,
+            "similar_to_default": self._reward_similar_to_default,
+            "alive": self._reward_alive,
+            "foot_lift_reward": self._reward_foot_lift,
+            "foot_drag_penalty": self._reward_foot_drag,
         }
 
     def _init_obs_space(self):
@@ -129,6 +139,41 @@ class Go2WalkTask(Go2BaseEnv):
     def _reward_ang_vel_xy(self, info: dict) -> np.ndarray:
         gyro = self.get_gyro()
         return np.sum(np.square(gyro[:, :2]), axis=1)
+
+    def _reward_base_height(self, info: dict) -> np.ndarray:
+        base_height = self._backend.get_body_pos(self._cfg.asset.body_name)[:, 2]
+        return np.square(base_height - self._cfg.reward_config.base_height_target)
+
+    def _reward_action_rate(self, info: dict) -> np.ndarray:
+        action_diff = info["current_actions"] - info["last_actions"]
+        return np.sum(np.square(action_diff), axis=1)
+
+    def _reward_similar_to_default(self, info: dict) -> np.ndarray:
+        return np.sum(np.abs(self.get_dof_pos() - self.default_angles), axis=1)
+
+    def _reward_alive(self, info: dict) -> np.ndarray:
+        return np.ones((self._num_envs,), dtype=np.float32)
+
+    def _reward_foot_lift(self, info: dict) -> np.ndarray:
+        foot_pos = self.get_foot_pos()
+        foot_heights = foot_pos[..., 2]
+        foot_contact = self.get_foot_contact()
+        is_swing = (foot_contact < 0.5)
+        target_height = self._cfg.reward_config.target_foot_height
+        sigma = self._cfg.reward_config.foot_clearance_sigma
+        error_sq = np.square(foot_heights - target_height)
+        reward = np.exp(-error_sq / sigma) * is_swing
+        return np.sum(reward, axis=1)
+
+    def _reward_foot_drag(self, info: dict) -> np.ndarray:
+        foot_pos = self.get_foot_pos()
+        foot_heights = foot_pos[..., 2]
+        foot_contact = self.get_foot_contact()
+        is_swing = (foot_contact < 0.5)
+        safe_height = self._cfg.reward_config.target_foot_height / 2.0
+        height_error = np.clip(safe_height - foot_heights, 0.0, None)
+        error = np.square(height_error) * is_swing
+        return np.sum(error, axis=1)
 
     def _compute_termination(self) -> np.ndarray:
         gravity = self._backend.get_sensor_data("upvector")

@@ -121,3 +121,15 @@ class Go2BaseEnv(NpEnv):
 
     def get_dof_vel(self) -> np.ndarray:
         return self._backend.get_dof_vel()
+
+    def get_foot_pos(self) -> np.ndarray:
+        """Get foot positions. Returns shape (num_envs, 4, 3)"""
+        foot_names = ["FL_pos", "FR_pos", "RL_pos", "RR_pos"]
+        foot_pos = [self._backend.get_sensor_data(name) for name in foot_names]
+        return np.stack(foot_pos, axis=1)
+
+    def get_foot_contact(self) -> np.ndarray:
+        """Get foot contact forces. Returns shape (num_envs, 4)"""
+        contact_names = ["FL_foot_contact", "FR_foot_contact", "RL_foot_contact", "RR_foot_contact"]
+        contacts = [self._backend.get_sensor_data(name)[:, 0] for name in contact_names]
+        return np.stack(contacts, axis=1)
