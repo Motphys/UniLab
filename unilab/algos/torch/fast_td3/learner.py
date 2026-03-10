@@ -15,6 +15,7 @@ Hyperparameters aligned with reference Go1JoystickFlatTerrain config.
 
 from __future__ import annotations
 
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -44,8 +45,8 @@ class TD3Actor(nn.Module):
         num_envs: int,
         init_scale: float,
         hidden_dim: int,
-        std_min: float = 0.05,
-        std_max: float = 0.8,
+        log_std_min: float = -3.0,
+        log_std_max: float = 0.0,
         device: torch.device = None,
     ):
         super().__init__()
@@ -65,12 +66,14 @@ class TD3Actor(nn.Module):
         nn.init.normal_(self.fc_mu[0].weight, 0.0, init_scale)
         nn.init.constant_(self.fc_mu[0].bias, 0.0)
 
+        std_min = float(math.exp(log_std_min))
+        std_max = float(math.exp(log_std_max))
         noise_scales = (
             torch.rand(num_envs, 1, device=device) * (std_max - std_min) + std_min
         )
         self.register_buffer("noise_scales", noise_scales)
-        self.register_buffer("std_min", torch.as_tensor(std_min, device=device))
-        self.register_buffer("std_max", torch.as_tensor(std_max, device=device))
+        self.register_buffer("log_std_min", torch.as_tensor(log_std_min, device=device))
+        self.register_buffer("log_std_max", torch.as_tensor(log_std_max, device=device))
         self.n_envs = num_envs
         self.device = device
 
@@ -79,16 +82,25 @@ class TD3Actor(nn.Module):
         action = self.fc_mu(x)
         return action
 
+    @torch.no_grad()
     def explore(
-        self, obs: torch.Tensor, dones: torch.Tensor = None, deterministic: bool = False
+        self,
+        obs: torch.Tensor,
+        dones: torch.Tensor | None = None,
+        deterministic: bool = False,
     ) -> torch.Tensor:
         """Forward pass with per-env exploration noise."""
-        # Resample noise for environments that are done
+        if isinstance(dones, bool):
+            deterministic = dones
+            dones = None
+
         if dones is not None and dones.sum() > 0:
+            std_min = torch.exp(self.log_std_min)
+            std_max = torch.exp(self.log_std_max)
             new_scales = (
                 torch.rand(self.n_envs, 1, device=obs.device)
-                * (self.std_max - self.std_min)
-                + self.std_min
+                * (std_max - std_min)
+                + std_min
             )
             dones_view = dones.view(-1, 1) > 0
             self.noise_scales.copy_(
@@ -136,8 +148,8 @@ class FastTD3Learner:
         v_min: float = -10.0,
         v_max: float = 10.0,
         init_scale: float = 0.01,
-        std_min: float = 0.2,
-        std_max: float = 0.8,
+        log_std_min: float = -3.0,
+        log_std_max: float = 0.0,
         weight_decay: float = 0.1,
         use_cdq: bool = True,
         # TD3-specific
@@ -163,8 +175,8 @@ class FastTD3Learner:
             num_envs=num_envs,
             init_scale=init_scale,
             hidden_dim=actor_hidden_dim,
-            std_min=std_min,
-            std_max=std_max,
+            log_std_min=log_std_min,
+            log_std_max=log_std_max,
             device=device,
         )
 

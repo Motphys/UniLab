@@ -113,8 +113,8 @@ def build_runner(algo_name: str, args, cfg):
             actor_lr=cfg.actor_lr, critic_lr=cfg.critic_lr, actor_hidden_dim=cfg.actor_hidden_dim,
             critic_hidden_dim=cfg.critic_hidden_dim, num_atoms=cfg.num_atoms,
             v_min=cfg.algo_params.v_min, v_max=cfg.algo_params.v_max,
-            init_scale=cfg.algo_params.init_scale, std_min=cfg.algo_params.std_min,
-            std_max=cfg.algo_params.std_max, policy_noise=cfg.algo_params.policy_noise,
+            init_scale=cfg.algo_params.init_scale, log_std_min=cfg.algo_params.log_std_min,
+            log_std_max=cfg.algo_params.log_std_max, policy_noise=cfg.algo_params.policy_noise,
             noise_clip=cfg.algo_params.noise_clip, weight_decay=cfg.algo_params.weight_decay,
             use_cdq=cfg.algo_params.use_cdq, obs_normalization=cfg.obs_normalization,
             sim_backend=args.sim_backend,
@@ -145,7 +145,7 @@ def play_offpolicy(algo_name: str, args, cfg) -> None:
     elif algo_name == "td3":
         from unilab.algos.torch.fast_td3.learner import TD3Actor, EmpiricalNormalization
         actor = TD3Actor(obs_dim, action_dim, args.play_env_num, cfg.algo_params.init_scale,
-                        cfg.actor_hidden_dim, cfg.algo_params.std_min, cfg.algo_params.std_max, device)
+                        cfg.actor_hidden_dim, cfg.algo_params.log_std_min, cfg.algo_params.log_std_max, device)
         if cfg.obs_normalization:
             normalizer = EmpiricalNormalization(shape=obs_dim, device=device)
     else:
