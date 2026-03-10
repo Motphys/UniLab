@@ -120,7 +120,7 @@ def load_trainer_state(path: Path, trainer: PPOTrainer, dtype=mx.float32) -> int
         payload = pickle.load(f)
     trainer.learning_rate = float(payload.get("learning_rate", trainer.learning_rate))
     trainer.optimizer.learning_rate = mx.array(trainer.learning_rate, dtype=dtype)
-    trainer.optimizer.state = tree_map(lambda x: mx.array(x), payload["optimizer_state"])
+    # Skip loading optimizer state to avoid memory issues
     return int(payload.get("iteration", -1))
 
 
@@ -371,13 +371,6 @@ def main() -> None:
     }
     (log_dir / "run_config.json").write_text(json.dumps(run_meta, indent=2), encoding="utf-8")
 
-    tb_writer = None
-    if args.logger == "tensorboard":
-        try:
-            tb_writer = TensorboardScalarWriter(log_dir)
-        except Exception as e:
-            log(f"[Warning] TensorBoard disabled: {e}")
-
     wandb_run = None
     if args.logger == "wandb":
         try:
@@ -476,8 +469,6 @@ def main() -> None:
         )
     )
     log(f"[MLX PPO] log_dir={log_dir}")
-    if tb_writer is not None:
-        log("[MLX PPO] tensorboard=enabled")
 
     rich_logger = OnPolicyLogger(
         algo_name="MLX_PPO",
@@ -660,7 +651,7 @@ def main() -> None:
         )
         rich_logger.update_ep_length(mean_ep_len)
 
-        if tb_writer is not None or wandb_run is not None:
+        if wandb_run is not None:
             log_dict = {
                 "Loss/surrogate": metrics["surrogate"],
                 "Loss/value_function": metrics["value"],
@@ -706,13 +697,6 @@ def main() -> None:
                 if count > 0:
                     log_dict[key] = summed / count
 
-            if tb_writer is not None:
-                for k, v in log_dict.items():
-                    tb_writer.add_scalar(k, v, it)
-                tb_writer.add_scalar("Train/mean_reward/time", mean_reward, int(total_time))
-                tb_writer.add_scalar("Train/mean_episode_length/time", mean_ep_len, int(total_time))
-                tb_writer.flush()
-            
             if wandb_run is not None:
                 wb_dict = dict(log_dict)
                 wb_dict["Train/mean_reward/time"] = mean_reward
@@ -731,8 +715,6 @@ def main() -> None:
     env.close()
     log("[MLX PPO] training completed.")
     rich_logger.finish()
-    if tb_writer is not None:
-        tb_writer.close()
     if wandb_run is not None:
         import wandb
         wandb.finish()
