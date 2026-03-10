@@ -148,7 +148,7 @@ def offpolicy_config(algo: str, env_name: str) -> config_dict.ConfigDict:
         elif env_name in ("G1WalkTaskMjSAC",):
             cfg.updates_per_step = 8
             cfg.replay_buffer_n = 1024
-            cfg.warmup_steps = 0
+            cfg.warmup_steps = 1000  # 添加warmup用于初期探索
             cfg.alpha_init = 0.001
             cfg.max_iterations = 25000
             cfg.save_interval = 1000
