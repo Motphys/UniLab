@@ -13,8 +13,8 @@ from unilab.envs.mujoco_env.mj_env import MjNpEnv, MjNpEnvState
 
 @dataclass
 class NoiseConfig:
-    level: float = 0.0
-    scale_joint_angle: float = 0.05   # rad
+    level: float = 1.0
+    scale_joint_angle: float = 0.02   # rad
 
 
 @dataclass

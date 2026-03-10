@@ -166,6 +166,15 @@ class AllegroRotationMj(AllegroBaseMjEnv):
 
         # Update observation lag history
         dof_pos_norm = 2.0 * (dof_pos - self._dof_mid) / (self._dof_range + 1e-8)
+
+        # Add observation noise
+        noise_cfg = self._cfg.noise_config
+        if noise_cfg.level > 0.0:
+            dof_pos_norm += (
+                np.random.uniform(-1.0, 1.0, dof_pos_norm.shape).astype(self._np_dtype)
+                * noise_cfg.level * noise_cfg.scale_joint_angle
+            )
+
         current_obs = np.concatenate([dof_pos_norm, targets, ball_pos], axis=1)  # (N, 35)
 
         obs_lag_history = state.info.get("obs_lag_history", np.zeros((self._num_envs, 3, 35), dtype=self._np_dtype))
