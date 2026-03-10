@@ -34,6 +34,8 @@ class OffPolicyRunner(AsyncRunner):
         use_layer_norm: bool = True,
         obs_normalization: bool = False,
         sim_backend: str = "mujoco",
+        use_gpu_buffer: bool = True,
+        gpu_buffer_sync_interval: int = 1,
     ):
         super().__init__(
             env_name=env_name,
@@ -57,6 +59,8 @@ class OffPolicyRunner(AsyncRunner):
         self.actor_hidden_dim = actor_hidden_dim
         self.use_layer_norm = use_layer_norm
         self.obs_normalization = obs_normalization
+        self.use_gpu_buffer = use_gpu_buffer and device != "cpu"
+        self.gpu_buffer_sync_interval = gpu_buffer_sync_interval
 
         self.obs_dim, self.action_dim = self._detect_dims()
 
@@ -97,6 +101,18 @@ class OffPolicyRunner(AsyncRunner):
             create=True,
         )
         self._shared_resources.append(shared_buffer)
+
+        # Setup GPU buffer if enabled
+        gpu_buffer = None
+        if self.use_gpu_buffer:
+            from unilab.ipc import GPUReplayBuffer
+            gpu_buffer = GPUReplayBuffer(
+                capacity=buffer_capacity,
+                obs_dim=self.obs_dim,
+                action_dim=self.action_dim,
+                device=self.device,
+            )
+            print(f"[Runner] GPU buffer enabled on {self.device}")
 
         # Setup weight sync
         weight_sync = SharedWeightSync.from_state_dict(
@@ -215,7 +231,21 @@ class OffPolicyRunner(AsyncRunner):
 
             # Local variable for faster access in hot loop
             learner = self.learner
-            large_batch = shared_buffer.sample_torch(self.batch_size * self.updates_per_step, self.device)
+
+            # Sample from GPU buffer or host buffer
+            if gpu_buffer is not None:
+                # Sync from host every sync_interval iterations
+                if iteration % self.gpu_buffer_sync_interval == 1:
+                    synced = gpu_buffer.sync_from_host(shared_buffer)
+                    if synced > 0 and iteration % 10 == 1:
+                        logger.log_status(f"Synced {synced} samples to GPU buffer")
+
+                # GPU sampling
+                large_batch = gpu_buffer.sample(self.batch_size * self.updates_per_step)
+            else:
+                # Fallback to host sampling
+                large_batch = shared_buffer.sample_torch(self.batch_size * self.updates_per_step, self.device)
+
             for update_idx in range(self.updates_per_step):
                 s = update_idx * self.batch_size
                 e = s + self.batch_size
