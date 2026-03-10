@@ -85,6 +85,9 @@ def build_parser() -> argparse.ArgumentParser:
 def build_runner(algo_name: str, args, cfg):
     """Build algorithm runner from unified config."""
     collector_device = args.collector_device or "cpu"
+    if collector_device == "gpu":
+        import torch
+        collector_device = "mps" if torch.backends.mps.is_available() else "cuda"
 
     if algo_name == "sac":
         from unilab.algos.torch.fast_sac.runner import FastSACRunner
