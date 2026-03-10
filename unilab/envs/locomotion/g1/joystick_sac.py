@@ -120,9 +120,9 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
         """惩罚脚部姿态偏差"""
         left_foot_quat = self._backend.get_sensor_data("left_foot_quat")
         right_foot_quat = self._backend.get_sensor_data("right_foot_quat")
-        # 简化：惩罚 quat 的 x,y 分量（roll/pitch）
-        return np.square(left_foot_quat[:, 0]) + np.square(left_foot_quat[:, 1]) + \
-               np.square(right_foot_quat[:, 0]) + np.square(right_foot_quat[:, 1])
+        # MuJoCo quat: [w,x,y,z], 惩罚 x,y 分量（roll/pitch）
+        return np.square(left_foot_quat[:, 1]) + np.square(left_foot_quat[:, 2]) + \
+               np.square(right_foot_quat[:, 1]) + np.square(right_foot_quat[:, 2])
 
     def _reward_feet_phase(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
         """步态相位奖励：鼓励正确的摆动腿高度"""
