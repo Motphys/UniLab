@@ -150,7 +150,7 @@ def render_frame_job(args):
         center_x = np.mean(offsets[:, 0])
         center_y = np.mean(offsets[:, 1])
         cam.lookat = [center_x, center_y, 0.0]
-        cam.distance = 6.0
+        cam.distance = 2.0 # 6.0
         cam.elevation = -20
         cam.azimuth = 90
         cam.type = mujoco.mjtCamera.mjCAMERA_FREE

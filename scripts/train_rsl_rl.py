@@ -17,23 +17,22 @@ sys.path.append(str(ROOT_DIR))
 
 # Ensure all environment modules are imported so they are registered
 def ensure_registries():
-    try:
-        import unilab.envs.locomotion
-        package = unilab.envs.locomotion
-        if hasattr(package, "__path__"):
-             for _, name, ispkg in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
-                try:
-                    importlib.import_module(name)
-                except Exception as e:
-                    # Ignore errors during discovery
-                    pass
-    except ImportError:
-        pass
+    for pkg_name in ("unilab.envs.locomotion", "unilab.envs.manipulation"):
+        try:
+            package = importlib.import_module(pkg_name)
+            if hasattr(package, "__path__"):
+                for _, name, _ in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
+                    try:
+                        importlib.import_module(name)
+                    except Exception:
+                        pass
+        except ImportError:
+            pass
 
 ensure_registries()
 
 from unilab.envs import registry
-from unilab.config import locomotion_params
+from unilab.config import locomotion_params, manipulation_params
 from unilab.utils import render_many
 from unilab.utils.torch_utils import to_torch, to_numpy
 
@@ -199,11 +198,10 @@ def play_rsl_rl(args, cfg, device):
 
     obs, _ = wrapped_env.reset()
     state_list = []
-    num_steps = 150
 
     print("Collecting physics states...")
     with torch.inference_mode():
-        for _ in range(num_steps):
+        for _ in range(args.play_steps):
             actions = policy(obs)
             obs, _, _, _ = wrapped_env.step(actions)
             state_list.append(to_numpy(env.state.physics_state).copy())
@@ -230,15 +228,20 @@ def main():
     parser.add_argument("--load_run", type=str, default="-1", help="Run ID to load or path")
     parser.add_argument("--env_num", type=int, default=None, help="Number of training envs (task default if unset)")
     parser.add_argument("--play_env_num", type=int, default=16, help="Number of play envs")
+    parser.add_argument("--play_steps", type=int, default=200, help="Number of steps for play video")
     parser.add_argument("--num_timesteps", type=int, default=None, help="Overwritten total timesteps")
     parser.add_argument("--logger", type=str, default="tensorboard", choices=["tensorboard", "wandb", "none", "no_print"])
     
     args = parser.parse_args()
+
+    # Determine which params module to use based on task registration
+    params = manipulation_params if args.task in manipulation_params.DEFAULT_ENV_NUM_BY_TASK else locomotion_params
+
     if args.env_num is None:
-        args.env_num = locomotion_params.get_default_env_num(args.task)
-    
+        args.env_num = params.get_default_env_num(args.task)
+
     # Load config
-    cfg = locomotion_params.rsl_rl_config(args.task)
+    cfg = params.rsl_rl_config(args.task)
     
     # Override Max Iterations if timesteps provided
     if args.num_timesteps:
