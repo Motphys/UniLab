@@ -234,14 +234,17 @@ class OffPolicyRunner(AsyncRunner):
 
             # Sample from GPU buffer or host buffer
             if gpu_buffer is not None:
-                # Sync from host every sync_interval iterations
-                if iteration % self.gpu_buffer_sync_interval == 1:
+                # Sync from host (always sync on first iteration or every sync_interval)
+                if iteration == 1 or iteration % self.gpu_buffer_sync_interval == 1:
                     synced = gpu_buffer.sync_from_host(shared_buffer)
                     if synced > 0 and iteration % 10 == 1:
                         logger.log_status(f"Synced {synced} samples to GPU buffer")
 
-                # GPU sampling
-                large_batch = gpu_buffer.sample(self.batch_size * self.updates_per_step)
+                # GPU sampling (fallback to host if not enough data)
+                if gpu_buffer.size >= self.batch_size * self.updates_per_step:
+                    large_batch = gpu_buffer.sample(self.batch_size * self.updates_per_step)
+                else:
+                    large_batch = shared_buffer.sample_torch(self.batch_size * self.updates_per_step, self.device)
             else:
                 # Fallback to host sampling
                 large_batch = shared_buffer.sample_torch(self.batch_size * self.updates_per_step, self.device)
