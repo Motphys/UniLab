@@ -12,40 +12,23 @@ def ppo_config(env_name: str) -> config_dict.ConfigDict:
         num_envs=4096,
         num_steps_per_env=24,
         max_iterations=101,
-        save_interval=50,
-        learning_rate=3.0e-4,
-        entropy_coef=0.001,
-        schedule="fixed",
+        save_interval=100,
+        learning_rate=1.0e-3,
+        entropy_coef=0.01,
+        schedule="adaptive", #"fixed",
         value_loss_coef=1.0,
         num_learning_epochs=5,
         num_mini_batches=4,
-        empirical_normalization=True,
+        empirical_normalization=False,
     )
 
     if env_name == "Go1JoystickFlatTerrain":
-        cfg.num_envs = 4096
-        cfg.entropy_coef = 0.01
-        cfg.learning_rate = 1.0e-3
-        cfg.schedule = "adaptive"
-        cfg.save_interval = 100
         cfg.max_iterations = 151
-        cfg.empirical_normalization = False
     elif env_name == "G1JoystickFlatTerrain":
         cfg.num_envs = 2048
-        cfg.entropy_coef = 0.01
-        cfg.learning_rate = 1.0e-3
-        cfg.schedule = "adaptive"
-        cfg.save_interval = 50
         cfg.max_iterations = 220
-        cfg.empirical_normalization = False
     elif env_name == "Go2JoystickFlatTerrain":
-        cfg.num_envs = 4096
-        cfg.entropy_coef = 0.01
-        cfg.learning_rate = 1.0e-3
-        cfg.schedule = "adaptive"
-        cfg.save_interval = 100
-        cfg.max_iterations = 101
-        cfg.empirical_normalization = False
+        pass
 
     return config_dict.create(
         algo="ppo",
@@ -137,21 +120,16 @@ def offpolicy_config(algo: str, env_name: str) -> config_dict.ConfigDict:
         )
 
         if env_name in ("Go2JoystickFlatTerrain", "Go2LocoFlatTerrain"):
-            cfg.gamma = 0.99
             cfg.num_envs = 1024
-            cfg.max_iterations = 1500
         elif env_name in ("Go1JoystickFlatTerrain",):
-            cfg.num_envs = 4096
             cfg.max_iterations = 2000
         elif env_name in ("G1JoystickFlatTerrain",):
             raise NotImplementedError("G1JoystickFlatTerrain config is not implemented for FastSAC, Please use G1WalkTaskMjSAC instead.")
         elif env_name in ("G1WalkTaskMjSAC",):
             cfg.updates_per_step = 8
             cfg.replay_buffer_n = 1024
-            cfg.warmup_steps = 1000  # 添加warmup用于初期探索
             cfg.alpha_init = 0.001
             cfg.max_iterations = 25000
-            cfg.save_interval = 1000
 
         return config_dict.create(
             algo="sac",
