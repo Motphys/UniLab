@@ -21,11 +21,10 @@ class ControlConfigSAC:
 @dataclass
 class Commands:
     """对齐 holosoma: 多方向命令采样"""
-    # vel_limit = [
-    #     [-0.6, -0.4, -0.8],  # [vx_min, vy_min, vyaw_min]
-    #     [1.0, 0.4, 0.8]      # [vx_max, vy_max, vyaw_max]
-    # ]
-    vel_limit = [[0.5, 0.0, 0.0], [0.5, 0.0, 0.0]]
+    vel_limit = [
+        [-0.6, -0.4, -0.8],  # [vx_min, vy_min, vyaw_min]
+        [1.0, 0.4, 0.8]      # [vx_max, vy_max, vyaw_max]
+    ]
 
 @dataclass
 class RewardConfigSAC:
