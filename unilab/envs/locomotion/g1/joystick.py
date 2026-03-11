@@ -131,6 +131,14 @@ class G1JoystickPPO(G1BaseEnv):
         gait_phase = info.get("gait_phase", np.zeros((self._num_envs, 2), dtype=get_global_dtype()))
         return np.concatenate([linvel, gyro, -gravity, diff, dof_vel, last_actions, command, gait_phase], axis=1, dtype=get_global_dtype())
 
+    def get_obs_structure(self) -> dict:
+        """Return observation structure for symmetry augmentation."""
+        return {
+            'linvel': 3, 'gyro': 3, 'gravity': 3,
+            'dof_pos': self._num_action, 'dof_vel': self._num_action, 'actions': self._num_action,
+            'command': 3, 'gait_phase': 2
+        }
+
     def _compute_reward(self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel, qpos) -> np.ndarray:
         dtype = get_global_dtype()
         reward = np.zeros((self._num_envs,), dtype=dtype)

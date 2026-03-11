@@ -181,6 +181,8 @@ class OffPolicyRunner(AsyncRunner):
             log_backend=logger_type,
         )
         logger.set_collection_sync(self.sync_collection, self.env_steps_per_sync)
+        if hasattr(self.learner, 'use_symmetry') and self.learner.use_symmetry:
+            logger.log_status("Symmetry augmentation: enabled")
         logger.start()
 
         reward_history = deque(maxlen=100)

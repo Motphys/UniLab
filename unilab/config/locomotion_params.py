@@ -134,7 +134,7 @@ def offpolicy_config(algo: str, env_name: str) -> config_dict.ConfigDict:
             cfg.max_iterations = 5000
             cfg.save_interval = 1000
             cfg.num_envs = 2048
-            cfg.use_symmetry = False
+            cfg.use_symmetry = True
 
         return config_dict.create(
             algo="sac",
