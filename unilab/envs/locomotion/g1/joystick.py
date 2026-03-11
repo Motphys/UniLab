@@ -99,7 +99,7 @@ class G1JoystickPPO(G1BaseEnv):
         }
 
     def _init_obs_space(self):
-        num_obs = 3 + 3 + 3 + self._num_action + self._num_action + self._num_action + 3 + 1
+        num_obs = 3 + 3 + 3 + self._num_action + self._num_action + self._num_action + 3 + 2
         self._observation_space = gym.spaces.Box(
             low=-float("inf"), high=float("inf"), shape=(num_obs,), dtype=float
         )
@@ -128,7 +128,7 @@ class G1JoystickPPO(G1BaseEnv):
         diff = dof_pos - self.default_angles
         command = info["commands"]
         last_actions = info.get("current_actions", np.zeros_like(diff))
-        gait_phase = info.get("gait_phase", np.zeros((self._num_envs, 1), dtype=get_global_dtype()))
+        gait_phase = info.get("gait_phase", np.zeros((self._num_envs, 2), dtype=get_global_dtype()))
         return np.concatenate([linvel, gyro, -gravity, diff, dof_vel, last_actions, command, gait_phase], axis=1, dtype=get_global_dtype())
 
     def _compute_reward(self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel, qpos) -> np.ndarray:
@@ -163,13 +163,30 @@ class G1JoystickPPO(G1BaseEnv):
         return np.exp(-ang_vel_error / self._cfg.reward_config.tracking_sigma)
 
     def _reward_feet_phase(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
+        """步态相位奖励：鼓励正确的摆动腿高度"""
         left_foot = self._backend.get_sensor_data("left_foot_pos")
         right_foot = self._backend.get_sensor_data("right_foot_pos")
-        gait_phase = info.get("gait_phase", np.zeros((self._num_envs, 1), dtype=get_global_dtype()))
+        gait_phase = info.get("gait_phase", np.zeros((self._num_envs, 2), dtype=get_global_dtype()))
 
-        target_height = self._cfg.reward_config.feet_phase_swing_height * np.abs(np.sin(gait_phase[:, 0]))
-        left_error = np.square(left_foot[:, 2] - target_height)
-        right_error = np.square(right_foot[:, 2] - target_height)
+        def cubic_bezier_height(phi, swing_height):
+            # Convert phi from [0, 2π] to [-π, π]
+            phi_normalized = np.fmod(phi + np.pi, 2 * np.pi) - np.pi
+            x = (phi_normalized + np.pi) / (2 * np.pi)
+
+            def cubic_bezier_interpolation(y_start, y_end, t):
+                y_diff = y_end - y_start
+                bezier = t**3 + 3 * (t**2 * (1 - t))
+                return y_start + y_diff * bezier
+
+            stance = cubic_bezier_interpolation(np.zeros_like(x), np.full_like(x, swing_height), 2 * x)
+            swing = cubic_bezier_interpolation(np.full_like(x, swing_height), np.zeros_like(x), 2 * x - 1)
+            return np.where(x <= 0.5, stance, swing)
+
+        swing_height = self._cfg.reward_config.feet_phase_swing_height
+        left_target = cubic_bezier_height(gait_phase[:, 0], swing_height)
+        right_target = cubic_bezier_height(gait_phase[:, 1], swing_height)
+        left_error = np.square(left_foot[:, 2] - left_target)
+        right_error = np.square(right_foot[:, 2] - right_target)
         return np.exp(-(left_error + right_error) / self._cfg.reward_config.feet_phase_tracking_sigma)
 
     def _reward_lin_vel_z(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
@@ -217,7 +234,10 @@ class G1JoystickPPO(G1BaseEnv):
             "commands": commands,
             "current_actions": np.zeros((num_reset, self._num_action), dtype=dtype),
             "last_actions": np.zeros((num_reset, self._num_action), dtype=dtype),
-            "gait_phase": np.random.uniform(0, 2 * np.pi, (num_reset, 1)).astype(dtype),
+            "gait_phase": np.column_stack([
+                np.random.uniform(0, 2 * np.pi, num_reset),
+                np.random.uniform(0, 2 * np.pi, num_reset) + np.pi
+            ]).astype(dtype),
         }
 
         linvel = self.get_local_linvel()[env_indices]
@@ -232,8 +252,9 @@ class G1JoystickPPO(G1BaseEnv):
         state.info["last_actions"] = state.info.get("current_actions", np.zeros_like(actions))
         state.info["current_actions"] = actions
 
-        gait_phase = state.info.get("gait_phase", np.zeros((self._num_envs, 1), dtype=get_global_dtype()))
+        gait_phase = state.info.get("gait_phase", np.zeros((self._num_envs, 2), dtype=get_global_dtype()))
         gait_phase[:, 0] = (gait_phase[:, 0] + self._gait_phase_delta) % (2 * np.pi)
+        gait_phase[:, 1] = (gait_phase[:, 1] + self._gait_phase_delta) % (2 * np.pi)
         state.info["gait_phase"] = gait_phase
 
         return actions * self._cfg.control_config.action_scale + self.default_angles

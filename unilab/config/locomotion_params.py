@@ -126,10 +126,11 @@ def offpolicy_config(algo: str, env_name: str) -> config_dict.ConfigDict:
         elif env_name in ("G1JoystickFlatTerrain",):
             raise NotImplementedError("G1JoystickFlatTerrain config is not implemented for FastSAC, Please use G1WalkTaskMjSAC instead.")
         elif env_name in ("G1WalkTaskMjSAC",):
-            cfg.updates_per_step = 8
+            cfg.updates_per_step = 12
             cfg.replay_buffer_n = 1024
             cfg.alpha_init = 0.001
-            cfg.max_iterations = 25000
+            cfg.max_iterations = 5000
+            cfg.save_interval = 1000
 
         return config_dict.create(
             algo="sac",
