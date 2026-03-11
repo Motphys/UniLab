@@ -268,11 +268,11 @@ def main():
     parser.add_argument("--sim_backend", type=str, default="mujoco", choices=["mujoco", "motrix"], help="Simulation backend")
     
     args = parser.parse_args()
-    if args.env_num is None:
-        args.env_num = locomotion_params.get_default_env_num(args.task)
-    
+
     # Load config
-    cfg = locomotion_params.rsl_rl_config(args.task)
+    cfg = locomotion_params.ppo_config(args.task)
+    if args.env_num is None:
+        args.env_num = cfg.num_envs
     
     # Override Max Iterations if timesteps provided
     if args.num_timesteps:
