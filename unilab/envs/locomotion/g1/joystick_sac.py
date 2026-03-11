@@ -15,16 +15,17 @@ from unilab.envs.curriculum import EpisodeLengthTracker, PenaltyCurriculum
 
 @dataclass
 class ControlConfigSAC:
-    action_scale: float = 0.5  # 增大到0.5，给机器人更多控制权限
+    action_scale: float = 1.  # holosoma 0.25
     simulate_action_latency: bool = False
 
 @dataclass
 class Commands:
     """对齐 holosoma: 多方向命令采样"""
-    vel_limit = [
-        [-0.6, -0.4, -0.8],  # [vx_min, vy_min, vyaw_min]
-        [1.0, 0.4, 0.8]      # [vx_max, vy_max, vyaw_max]
-    ]
+    # vel_limit = [
+    #     [-0.6, -0.4, -0.8],  # [vx_min, vy_min, vyaw_min]
+    #     [1.0, 0.4, 0.8]      # [vx_max, vy_max, vyaw_max]
+    # ]
+    vel_limit = [[0.5, 0.0, 0.0], [0.5, 0.0, 0.0]]
 
 @dataclass
 class RewardConfigSAC:
@@ -33,20 +34,20 @@ class RewardConfigSAC:
         default_factory=lambda: {
             "tracking_lin_vel": 2.0,      # holosoma: 2.0
             "tracking_ang_vel": 1.5,      # holosoma: 1.5
-            "ang_vel_xy": -1.0,           # holosoma: -1.0 (penalty_ang_vel_xy)
-            "orientation": -10.0,         # holosoma: -10.0 (penalty_orientation)
-            "action_rate": -2.0,          # holosoma: -2.0 (penalty_action_rate)
-            "pose": -0.5,                 # holosoma: -0.5 (weighted pose penalty)
-            "close_feet_xy": -10.0,       # holosoma: -10.0 (penalty_close_feet_xy)
-            "feet_ori": -5.0,             # holosoma: -5.0 (penalty_feet_ori)
+            "penalty_ang_vel_xy": -1.0,
+            "penalty_orientation": -10.0,
+            "penalty_action_rate": -2.0,
+            "pose": -0.05,                # holosoma: -0.5 (weighted pose penalty)
+            "penalty_close_feet_xy": -10.0,
+            "penalty_feet_ori": -5.0,
             "feet_phase": 5.0,            # holosoma: 5.0 (gait phase reward)
             "alive": 10.0,                # holosoma: 10.0
         }
     )
     tracking_sigma: float = 0.25
     base_height_target: float = 0.754
-    min_base_height: float = 0.55
-    max_tilt_deg: float = 25.0
+    min_base_height: float = 0.4  # 放宽以允许更多探索
+    max_tilt_deg: float = 60.0  # 放宽以允许更多探索
     # gait 参数
     gait_frequency: float = 1.5
     # feet_phase 参数
@@ -109,12 +110,12 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
         self._reward_fns = {
             "tracking_lin_vel": self._reward_tracking_lin_vel,
             "tracking_ang_vel": self._reward_tracking_ang_vel,
-            "ang_vel_xy": self._reward_ang_vel_xy,
-            "orientation": self._reward_orientation,
-            "action_rate": self._reward_action_rate,
+            "penalty_ang_vel_xy": self._reward_ang_vel_xy,
+            "penalty_orientation": self._reward_orientation,
+            "penalty_action_rate": self._reward_action_rate,
             "pose": self._reward_pose,
-            "close_feet_xy": self._reward_close_feet_xy,
-            "feet_ori": self._reward_feet_ori,
+            "penalty_close_feet_xy": self._reward_close_feet_xy,
+            "penalty_feet_ori": self._reward_feet_ori,
             "feet_phase": self._reward_feet_phase,
             "alive": self._reward_alive,
         }
@@ -148,16 +149,60 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
         """步态相位奖励：鼓励正确的摆动腿高度"""
         left_foot = self._backend.get_sensor_data("left_foot_pos")
         right_foot = self._backend.get_sensor_data("right_foot_pos")
-        gait_phase = info.get("gait_phase", np.zeros((self._num_envs, 1), dtype=get_global_dtype()))
+        gait_phase = info.get("gait_phase", np.zeros((self._num_envs, 2), dtype=get_global_dtype()))
 
-        cfg = self._cfg.reward_config
-        target_height = cfg.swing_height * np.abs(np.sin(gait_phase[:, 0]))
-        left_error = np.square(left_foot[:, 2] - target_height)
-        right_error = np.square(right_foot[:, 2] - target_height)
-        return np.exp(-(left_error + right_error) / cfg.feet_phase_tracking_sigma)
+        def cubic_bezier_height(phi, swing_height):
+            x = (phi + np.pi) / (2 * np.pi)
+            y_diff = swing_height
+            bezier = x**3 + 3 * (x**2 * (1 - x))
+            stance = y_diff * bezier * 2
+            swing = swing_height - y_diff * (2 * x - 1)**3 - 3 * y_diff * ((2 * x - 1)**2 * (2 - 2 * x))
+            return np.where(x <= 0.5, stance, swing)
+
+        swing_height = self._cfg.reward_config.swing_height
+        left_target = cubic_bezier_height(gait_phase[:, 0], swing_height)
+        right_target = cubic_bezier_height(gait_phase[:, 1], swing_height)
+        left_error = np.square(left_foot[:, 2] - left_target)
+        right_error = np.square(right_foot[:, 2] - right_target)
+        return np.exp(-(left_error + right_error) / self._cfg.reward_config.feet_phase_tracking_sigma)
 
     def _reward_alive(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
         return np.ones((self._num_envs,), dtype=get_global_dtype())
+
+    def _reward_lin_vel_z(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
+        """惩罚 z 方向线速度"""
+        return np.square(linvel[:, 2])
+
+    def _reward_base_height(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
+        """惩罚基座高度偏差"""
+        base_height = qpos[:, 2]
+        return np.square(base_height - self._cfg.reward_config.base_height_target)
+
+    def _reward_torques(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
+        """惩罚力矩"""
+        torques = info.get("torques", np.zeros((self._num_envs, self._num_action), dtype=get_global_dtype()))
+        return np.sum(np.abs(torques), axis=1)
+
+    def _reward_energy(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
+        """惩罚能量消耗"""
+        torques = info.get("torques", np.zeros((self._num_envs, self._num_action), dtype=get_global_dtype()))
+        return np.sum(np.abs(dof_vel) * np.abs(torques), axis=1)
+
+    def _reward_dof_acc(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
+        """惩罚关节加速度"""
+        qacc = info.get("qacc", np.zeros((self._num_envs, self._num_action), dtype=get_global_dtype()))
+        return np.sum(np.square(qacc), axis=1)
+
+    def _reward_upright(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
+        """奖励直立姿态（mjlab flat_orientation）"""
+        xy_squared = np.sum(np.square(gravity[:, :2]), axis=1)
+        return np.exp(-xy_squared / 0.25)
+
+    def _reward_feet_air_time(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
+        """奖励脚离地时间"""
+        air_time = info.get("feet_air_time", np.zeros((self._num_envs, 2), dtype=get_global_dtype()))
+        in_range = (air_time > 0.05) & (air_time < 0.5)
+        return np.sum(in_range.astype(float), axis=1)
 
     def update_state(self, state):
         """Override to add curriculum update."""
