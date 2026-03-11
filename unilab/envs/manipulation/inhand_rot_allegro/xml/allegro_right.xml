@@ -152,7 +152,7 @@
               <geom class="distal_collision"/>
               <body name="ff_tip">
                 <geom class="fingertip_visual"/>
-                <geom class="fingertip_collision"/>
+                <geom name="ff_tip_col" class="fingertip_collision"/>
               </body>
             </body>
           </body>
@@ -177,7 +177,7 @@
               <geom class="distal_collision"/>
               <body name="mf_tip">
                 <geom class="fingertip_visual"/>
-                <geom class="fingertip_collision"/>
+                <geom name="mf_tip_col" class="fingertip_collision"/>
               </body>
             </body>
           </body>
@@ -202,7 +202,7 @@
               <geom class="distal_collision"/>
               <body name="rf_tip">
                 <geom class="fingertip_visual"/>
-                <geom class="fingertip_collision"/>
+                <geom name="rf_tip_col" class="fingertip_collision"/>
               </body>
             </body>
           </body>
@@ -227,7 +227,7 @@
               <geom class="thumb_distal_collision"/>
               <body name="th_tip">
                 <geom class="thumbtip_visual"/>
-                <geom class="thumbtip_collision"/>
+                <geom name="th_tip_col" class="thumbtip_collision"/>
               </body>
             </body>
           </body>

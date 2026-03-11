@@ -9,17 +9,6 @@ Algorithm:
   4. Optionally filter by fingertip-ball distance.
   5. Save collected states as (N, 23) float32 numpy array:
          [hand_qpos(16), ball_pos(3), ball_quat(4)]
-
-Usage:
-    # From UniLab root:
-    python unilab/envs/manipulation/inhand_rot_allegro/gen_grasp.py
-
-    # Debug with live viewer (16 envs, watch env[0]):
-    python unilab/envs/manipulation/inhand_rot_allegro/gen_grasp.py \\
-        --num_envs 16 --viewer
-
-    python unilab/envs/manipulation/inhand_rot_allegro/pre_grasp.py \\
-        --num_envs 2048 --target 50000 --quality_check
 """
 
 from __future__ import annotations
@@ -65,58 +54,39 @@ ensure_registries()
 
 from unilab.envs import registry  # noqa: E402  (after sys.path setup)
 from unilab.utils import render_many  # noqa: E402
+from unilab.envs.dtype_config import get_global_dtype  # noqa: E402
+# Explicit import to guarantee the @registry.env decorator runs,
+# since ensure_registries() silently swallows import errors.
+from unilab.envs.manipulation.inhand_rot_allegro import rotation as _rotation_register
+_ = _rotation_register  # side-effect import: triggers @registry.env decorator
 
 
 # ── Quality-check helpers ────────────────────────────────────────────────────
 
-def _get_body_ids(model, names: list[str]) -> list[int]:
-    ids = []
-    for name in names:
-        bid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, name)
-        if bid < 0:
-            raise ValueError(f"Body '{name}' not found in model")
-        ids.append(bid)
-    return ids
+_CONTACT_SENSORS = ["ff_contact", "mf_contact", "rf_contact", "th_contact"]
 
 
 def check_grasp_quality(
-    physics_states: np.ndarray,
-    model,
-    fingertip_ids: list[int],
-    ball_body_id: int,
-    max_tip_dist: float = 0.1,
-    min_close_tips: int = 2,
-    close_threshold: float = 0.05,
+    backend,
+    success_idx: np.ndarray,
+    min_contacts: int = 2,
 ) -> np.ndarray:
-    """Return boolean mask indicating quality grasps.
-
-    Conditions (mirror HORA allegro_hand_grasp.py):
-      1. All 4 fingertips within *max_tip_dist* of the ball centre.
-      2. At least *min_close_tips* fingertips within *close_threshold* of ball.
+    """Return boolean mask for grasps where at least *min_contacts* fingertips
+    are in contact with the ball, based on MuJoCo contact sensors.
 
     Args:
-        physics_states: (N, nstate) float physics states.
+        backend:       The MuJoCo backend (has get_sensor_data(name) → (N,) array).
+        success_idx:   Indices of the environments that survived the episode.
+        min_contacts:  Minimum number of fingertips that must touch the ball (default 2).
     Returns:
-        Boolean mask of shape (N,).
+        Boolean mask of shape (len(success_idx),).
     """
-    n = len(physics_states)
-    state_spec = mujoco.mjtState.mjSTATE_FULLPHYSICS
-    mask = np.zeros(n, dtype=bool)
-
-    tmp = mujoco.MjData(model)
-    for i, ps in enumerate(physics_states):
-        mujoco.mj_setState(model, tmp, ps.astype(np.float64), state_spec)
-        mujoco.mj_forward(model, tmp)
-
-        ball_pos = tmp.xpos[ball_body_id]                          # (3,)
-        tip_pos  = np.stack([tmp.xpos[tid] for tid in fingertip_ids])  # (4, 3)
-        dists    = np.linalg.norm(tip_pos - ball_pos, axis=1)     # (4,)
-
-        cond1 = bool(np.all(dists < max_tip_dist))
-        cond2 = int(np.sum(dists < close_threshold)) >= min_close_tips
-        mask[i] = cond1 and cond2
-
-    return mask
+    contacts = np.stack(
+        [backend.get_sensor_data(name)[success_idx, 0] for name in _CONTACT_SENSORS],
+        axis=1,
+    )  # (k, 4)  — each sensor outputs a scalar (1.0 = contact found, 0.0 = none)
+    n_contacts = np.sum(contacts > 0.5, axis=1)  # (k,)
+    return n_contacts >= min_contacts
 
 
 # ── Main collection loop ─────────────────────────────────────────────────────
@@ -141,12 +111,10 @@ def collect_grasps(args) -> None:
     # Zero actions → PD holds at whatever prev_ctrl was set to during reset
     # (= canonical pre-grasp keyframe pose).
     zero_actions = np.zeros(
-        (args.num_envs, env.action_space.shape[0]), dtype=env._np_dtype
+        (args.num_envs, env.action_space.shape[0]), dtype=get_global_dtype()
     )
 
-    # Body IDs for quality filtering.
-    fingertip_ids = _get_body_ids(env._model, ["ff_tip", "mf_tip", "rf_tip", "th_tip"])
-    ball_body_id  = _get_body_ids(env._model, ["ball"])[0]
+    # Body IDs for quality filtering no longer needed — check_grasp_quality uses numpy only.
 
     max_ep_steps = env.cfg.max_episode_steps
     print(
@@ -165,9 +133,9 @@ def collect_grasps(args) -> None:
     state_spec = mujoco.mjtState.mjSTATE_FULLPHYSICS
 
     # Separate MjData for the viewer so rollout workers are untouched.
-    viz_data = mujoco.MjData(env._model) if args.viewer else None
+    viz_data = mujoco.MjData(env._backend.model) if args.viewer else None
     viewer_ctx = (
-        mujoco.viewer.launch_passive(env._model, viz_data)
+        mujoco.viewer.launch_passive(env._backend.model, viz_data)
         if args.viewer
         else contextlib.nullcontext()
     )
@@ -175,18 +143,19 @@ def collect_grasps(args) -> None:
     with viewer_ctx as viewer:
 
         while (
-            sum(len(s) for s in cache) < args.target
+            (args.record_video or sum(len(s) for s in cache) < args.target)
+            and step_idx < (args.video_steps if args.record_video else int(1e18))
             and (viewer is None or viewer.is_running())
         ):
             t0 = time.perf_counter()
 
             # ── Manual step (mirrors env.step() but defers auto-reset) ────────
-            env._pre_step()
-            env._state.ctrl[:] = env.apply_action(zero_actions, env._state)
-            env._step_core()
-            env._state = env.update_state(env._state, obs_required=False)
+            ctrl = env.apply_action(zero_actions, env._state)
+            env._backend.step(ctrl, env._cfg.sim_substeps)
+            env._state = env.update_state(env._state)
             env._state.info["steps"] += 1
-            env._update_truncate()
+            if env._cfg.max_episode_steps:
+                np.greater_equal(env._state.info["steps"], env._cfg.max_episode_steps, out=env._state.truncated)
 
             # ── Capture states BEFORE reset ────────────────────────────────────
             truncated  = env._state.truncated   # (N,) bool
@@ -196,12 +165,10 @@ def collect_grasps(args) -> None:
             success_mask = truncated & ~terminated
             if success_mask.any():
                 success_idx = np.where(success_mask)[0]
-                ps = env._state.physics_state[success_idx]   # (k, nstate)
+                ps = env._backend.get_physics_state()[success_idx]   # (k, nstate)
 
                 if args.quality_check:
-                    quality = check_grasp_quality(
-                        ps, env._model, fingertip_ids, ball_body_id
-                    )
+                    quality = check_grasp_quality(env._backend, success_idx)
                     ps = ps[quality]
 
                 if len(ps) > 0:
@@ -226,18 +193,18 @@ def collect_grasps(args) -> None:
 
             # ── Record video states ────────────────────────────────────────────
             if video_states is not None and step_idx < args.video_steps:
-                video_states.append(env._state.physics_state.copy())
+                video_states.append(env._backend.get_physics_state().copy())
 
             step_idx += 1
 
             # ── Viewer refresh (env[0] only) ───────────────────────────────────
             if viewer is not None:
                 mujoco.mj_setState(
-                    env._model, viz_data,
-                    env._state.physics_state[0].astype(np.float64),
+                    env._backend.model, viz_data,
+                    env._backend.get_physics_state()[0].astype(np.float64),
                     state_spec,
                 )
-                mujoco.mj_forward(env._model, viz_data)
+                mujoco.mj_forward(env._backend.model, viz_data)
                 viewer.sync()
                 # Pace to real-time.
                 elapsed = time.perf_counter() - t0
@@ -245,24 +212,27 @@ def collect_grasps(args) -> None:
                     time.sleep(env.cfg.ctrl_dt - elapsed)
 
     # ── Save ──────────────────────────────────────────────────────────────
-    if not cache:
-        print("[gen_grasp] No grasps collected.")
-        return
-    cache_arr = np.concatenate(cache, axis=0)[: args.target]
-    output = Path(args.output)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    np.save(str(output), cache_arr)
-    print(f"\n[gen_grasp] Saved {len(cache_arr):,} grasps → {output}")
+    logs_dir = ROOT_DIR / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    video_path = logs_dir / "gen_grasp.mp4"
+
+    if not args.record_video:
+        if not cache:
+            print("[gen_grasp] No grasps collected.")
+            return
+        cache_arr = np.concatenate(cache, axis=0)[: args.target]
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        np.save(str(output), cache_arr)
+        print(f"\n[gen_grasp] Saved {len(cache_arr):,} grasps → {output}")
 
     # ── Render video ──────────────────────────────────────────────────────
     if video_states:
-        video_path = output.parent / "pre_grasp_video.mp4"
         print(f"Rendering video to {video_path}...")
-        downsampled = video_states[::2]  # 50Hz -> 25Hz
         frames = render_many.render_states_get_frames(
-            downsampled, env.cfg.model_file, width=1280, height=720, camera_id=-1
+            video_states, env.cfg.model_file, width=1280, height=720, camera_id=-1
         )
-        media.write_video(str(video_path), frames, fps=25)
+        media.write_video(str(video_path), frames, fps=20)
         print(f"Video saved to {video_path}")
 
 
@@ -276,8 +246,8 @@ def main():
         description="Generate stable AllegroInhandRotation grasp states"
     )
     parser.add_argument(
-        "--num_envs", type=int, default=2048,
-        help="Number of parallel MuJoCo envs (default: 2048)",
+        "--num_envs", type=int, default=16384,
+        help="Number of parallel MuJoCo envs (default: 16384)",
     )
     parser.add_argument(
         "--target", type=int, default=50_000,
@@ -296,16 +266,20 @@ def main():
         help="Open a live MuJoCo viewer showing env[0] (useful for debugging with --num_envs 16)",
     )
     parser.add_argument(
-        "--quality_check", action="store_true",
-        help="Filter grasps by fingertip-ball distance",
+        "--quality_check", action="store_true", default=True,
+        help="Filter grasps by fingertip-ball distance (default: True)",
+    )
+    parser.add_argument(
+        "--no_quality_check", dest="quality_check", action="store_false",
+        help="Disable fingertip-ball distance filtering",
     )
     parser.add_argument(
         "--record_video", action="store_true",
         help="Record video of the 16 parallel envs",
     )
     parser.add_argument(
-        "--video_steps", type=int, default=1500,
-        help="Number of steps to record for video (default: 150)",
+        "--video_steps", type=int, default=400,
+        help="Number of steps to record for video (default: 400)",
     )
     args = parser.parse_args()
     collect_grasps(args)
