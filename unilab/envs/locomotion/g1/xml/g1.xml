@@ -1,7 +1,7 @@
 <mujoco model="g1_29dof_rev_1_0">
   <compiler angle="radian" meshdir="assets"/>
 
-  <option integrator="implicitfast"/>
+  <option integrator="implicitfast" timestep="0.006666666666666667"/>
 
   <default>
     <default class="g1">
@@ -343,6 +343,8 @@
     <accelerometer site="imu_in_pelvis" name="imu-pelvis-linear-acceleration" cutoff="157" noise="0.01"/>
     <framepos objtype="site" objname="left_foot" name="left_foot_pos"/>
     <framepos objtype="site" objname="right_foot" name="right_foot_pos"/>
+    <framequat objtype="site" objname="left_foot" name="left_foot_quat"/>
+    <framequat objtype="site" objname="right_foot" name="right_foot_quat"/>
     <framezaxis objtype="site" objname="imu_in_pelvis" name="upvector"/>
     <framezaxis objtype="site" objname="imu_in_torso" name="torso_upvector"/>
     <framezaxis objtype="site" objname="left_foot" name="left_foot_upvector"/>
