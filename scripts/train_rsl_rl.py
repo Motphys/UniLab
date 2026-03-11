@@ -212,7 +212,10 @@ def play_rsl_rl(args, cfg, device):
         env.cfg.model_file,
         width=1280,
         height=720,
-        camera_id=-1
+        camera_id=-1,
+        cam_distance=args.cam_distance,
+        cam_elevation=args.cam_elevation,
+        cam_azimuth=args.cam_azimuth,
     )
 
     print(f"Saving video to {output_video} with mediapy...")
@@ -231,6 +234,10 @@ def main():
     parser.add_argument("--play_steps", type=int, default=200, help="Number of steps for play video")
     parser.add_argument("--num_timesteps", type=int, default=None, help="Overwritten total timesteps")
     parser.add_argument("--logger", type=str, default="tensorboard", choices=["tensorboard", "wandb", "none", "no_print"])
+    # Video rendering
+    parser.add_argument("--cam_distance", type=float, default=6.0, help="Camera distance for play video")
+    parser.add_argument("--cam_elevation", type=float, default=-20.0, help="Camera elevation angle (degrees) for play video")
+    parser.add_argument("--cam_azimuth", type=float, default=90.0, help="Camera azimuth angle (degrees) for play video")
     
     args = parser.parse_args()
 

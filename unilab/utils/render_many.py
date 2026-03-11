@@ -36,9 +36,9 @@ def init_worker(model_path, shape):
 def render_frame_job(args):
     """
     Worker function to render a single frame.
-    args: (state_batch, offsets, transparent, shape)
+    args: (state_batch, offsets, transparent, cam_distance, cam_elevation, cam_azimuth)
     """
-    state_batch, offsets, transparent = args
+    state_batch, offsets, transparent, cam_distance, cam_elevation, cam_azimuth = args
     
     model = _worker_ctx['model']
     data = _worker_ctx['data']
@@ -156,9 +156,9 @@ def render_frame_job(args):
         center_x = np.mean(offsets[:, 0])
         center_y = np.mean(offsets[:, 1])
         cam.lookat = [center_x, center_y, 0.0]
-        cam.distance = 2.0 # 6.0
-        cam.elevation = -20
-        cam.azimuth = 90
+        cam.distance = cam_distance
+        cam.elevation = cam_elevation
+        cam.azimuth = cam_azimuth
         cam.type = mujoco.mjtCamera.mjCAMERA_FREE
     else:
         cam.type = mujoco.mjtCamera.mjCAMERA_FREE
@@ -172,10 +172,11 @@ def render_frame_job(args):
 
     return renderer.render()
 
-def render_states_get_frames(state_list, model_path, width=1280, height=720, num_processes=8, camera_id=-1):
+def render_states_get_frames(state_list, model_path, width=1280, height=720, num_processes=8,
+                             camera_id=-1, cam_distance=2.0, cam_elevation=-20, cam_azimuth=90):
     """
     Render a list of physics states and return the list of frames.
-    
+
     Args:
         state_list: List of numpy arrays, each shape (num_envs, state_dim).
         model_path: Path to the mujoco XML model file.
@@ -183,6 +184,9 @@ def render_states_get_frames(state_list, model_path, width=1280, height=720, num
         height: Height of the video.
         num_processes: Number of parallel processes to use.
         camera_id: Camera ID to render from.
+        cam_distance: Camera distance from lookat point.
+        cam_elevation: Camera elevation angle in degrees.
+        cam_azimuth: Camera azimuth angle in degrees.
     Returns:
         List of numpy arrays (H, W, 3) (RGB)
     """
@@ -197,8 +201,7 @@ def render_states_get_frames(state_list, model_path, width=1280, height=720, num
     print(f"Rendering {len(state_list)} frames for {num_envs} envs with {num_processes} processes...")
     
     # Prepare arguments for each frame
-    tasks = [(s, offsets, False) for s in state_list] # Should include shape? No, init_worker uses shape from initargs.
-    # Wait, render_frame_job expects (state_batch, offsets, transparent)? Yes.
+    tasks = [(s, offsets, False, cam_distance, cam_elevation, cam_azimuth) for s in state_list]
     
     frames = []
     
@@ -224,11 +227,14 @@ def render_states_get_frames(state_list, model_path, width=1280, height=720, num
     
     return frames
 
-def render_states_to_video(state_list, model_path, output_path, fps=30, width=1280, height=720, num_processes=8):
+def render_states_to_video(state_list, model_path, output_path, fps=30, width=1280, height=720,
+                           num_processes=8, cam_distance=2.0, cam_elevation=-20, cam_azimuth=90):
     """
     Render a list of physics states to a video file using parallel processing.
     """
-    frames = render_states_get_frames(state_list, model_path, width, height, num_processes)
+    frames = render_states_get_frames(state_list, model_path, width, height, num_processes,
+                                      cam_distance=cam_distance, cam_elevation=cam_elevation,
+                                      cam_azimuth=cam_azimuth)
             
     print(f"Saving video to {output_path}...")
     imageio.mimsave(output_path, frames, fps=fps)
