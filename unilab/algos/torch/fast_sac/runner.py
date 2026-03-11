@@ -75,6 +75,11 @@ class FastSACRunner(OffPolicyRunner):
             obs_structure=obs_structure,
         )
 
+        # Auto-adjust batch_size when symmetry is enabled
+        if use_symmetry:
+            batch_size = batch_size // 2
+            print(f"[FastSAC] Symmetry enabled: batch_size adjusted to {batch_size} (effective: {batch_size * 2})")
+
         super().__init__(
             learner=learner,
             env_name=env_name,

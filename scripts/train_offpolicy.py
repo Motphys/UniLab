@@ -102,7 +102,7 @@ def build_runner(algo_name: str, args, cfg):
             critic_hidden_dim=cfg.critic_hidden_dim, num_atoms=cfg.num_atoms,
             use_layer_norm=cfg.use_layer_norm, max_grad_norm=cfg.algo_params.max_grad_norm,
             sync_collection=not args.no_sync_collection, env_steps_per_sync=cfg.env_steps_per_sync,
-            sim_backend=args.sim_backend,
+            sim_backend=args.sim_backend, use_symmetry=cfg.use_symmetry,
         )
 
     if algo_name == "td3":
@@ -173,7 +173,6 @@ def play_offpolicy(algo_name: str, args, cfg) -> None:
             normalizer.eval()
 
     output_video = os.path.join(load_path_dir, "play_video.mp4")
-    print(f"Rendering video to {output_video}...")
 
     if env.state is None:
         env.init_state()
@@ -217,7 +216,6 @@ def play_offpolicy(algo_name: str, args, cfg) -> None:
 
     # MuJoCo backend: render to video
     output_video = os.path.join(load_path_dir, "play_video.mp4")
-    print(f"Rendering video to {output_video}...")
 
     state_list = []
     num_steps = 150
@@ -235,7 +233,7 @@ def play_offpolicy(algo_name: str, args, cfg) -> None:
 
     print("Rendering frames...")
     frames = render_many.render_states_get_frames(state_list, env.cfg.model_file, width=1280, height=720, camera_id=-1)
-    print(f"Saving video to {output_video}...")
+    print(f"Saving video to {output_video} ...")
     media.write_video(str(output_video), frames, fps=int(1.0 / env.cfg.ctrl_dt))
     print("Done.")
 
