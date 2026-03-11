@@ -117,6 +117,7 @@ def offpolicy_config(algo: str, env_name: str) -> config_dict.ConfigDict:
             obs_normalization=True,
             policy_frequency=4,
             max_grad_norm=0.0,
+            use_symmetry=False,
         )
 
         if env_name in ("Go2JoystickFlatTerrain", "Go2LocoFlatTerrain"):
@@ -126,11 +127,14 @@ def offpolicy_config(algo: str, env_name: str) -> config_dict.ConfigDict:
         elif env_name in ("G1JoystickFlatTerrain",):
             raise NotImplementedError("G1JoystickFlatTerrain config is not implemented for FastSAC, Please use G1WalkTaskMjSAC instead.")
         elif env_name in ("G1WalkTaskMjSAC",):
-            cfg.updates_per_step = 12
+            cfg.updates_per_step = 8
             cfg.replay_buffer_n = 1024
-            cfg.alpha_init = 0.001
+            cfg.alpha_init = 0.005
+            cfg.target_entropy_ratio = 0.2
             cfg.max_iterations = 5000
             cfg.save_interval = 1000
+            cfg.num_envs = 2048
+            cfg.use_symmetry = False
 
         return config_dict.create(
             algo="sac",
@@ -154,6 +158,7 @@ def offpolicy_config(algo: str, env_name: str) -> config_dict.ConfigDict:
             num_atoms=cfg.num_atoms,
             obs_normalization=cfg.obs_normalization,
             use_layer_norm=cfg.use_layer_norm,
+            use_symmetry=cfg.get("use_symmetry", True),
             algo_params=config_dict.create(
                 alpha_lr=cfg.alpha_lr,
                 alpha_init=cfg.alpha_init,
