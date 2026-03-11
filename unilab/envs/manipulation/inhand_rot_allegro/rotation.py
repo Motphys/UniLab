@@ -6,6 +6,39 @@ import gymnasium as gym
 import numpy as np
 from etils import epath
 
+
+# ─────────────────────────── Quaternion helpers ───────────────────────────
+# All quaternions are w-first: [w, x, y, z], shape (N, 4)
+
+def _quat_conjugate(q: np.ndarray) -> np.ndarray:
+    conj = q.copy()
+    conj[:, 1:] *= -1
+    return conj
+
+
+def _quat_mul(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
+    w1, x1, y1, z1 = q1[:, 0], q1[:, 1], q1[:, 2], q1[:, 3]
+    w2, x2, y2, z2 = q2[:, 0], q2[:, 1], q2[:, 2], q2[:, 3]
+    return np.stack([
+        w1*w2 - x1*x2 - y1*y2 - z1*z2,
+        w1*x2 + x1*w2 + y1*z2 - z1*y2,
+        w1*y2 - x1*z2 + y1*w2 + z1*x2,
+        w1*z2 + x1*y2 - y1*x2 + z1*w2,
+    ], axis=1)
+
+
+def _quat_to_axis_angle(q: np.ndarray) -> np.ndarray:
+    """Convert unit quaternion (w-first) to axis-angle vector (N, 3)."""
+    # Normalise to w >= 0 to avoid the double-cover ambiguity
+    q = q * np.where(q[:, 0:1] >= 0, 1.0, -1.0)
+    w = np.clip(q[:, 0], -1.0, 1.0)
+    angle = 2.0 * np.arccos(w)                          # (N,)  in [0, π]
+    sin_half = np.sqrt(np.maximum(1.0 - w ** 2, 0.0))  # (N,)
+    axis = np.where(sin_half[:, None] > 1e-8,
+                    q[:, 1:] / sin_half[:, None],
+                    q[:, 1:])                            # (N, 3)
+    return axis * angle[:, None]
+
 from unilab.envs import registry
 from unilab.envs.mujoco_env.mj_env import MjNpEnvState
 from unilab.envs.manipulation.inhand_rot_allegro.base import AllegroBaseCfg, AllegroBaseMjEnv
@@ -111,8 +144,12 @@ class AllegroRotationMj(AllegroBaseMjEnv):
         }
 
     def _reward_rotate(self, state: MjNpEnvState) -> np.ndarray:
-        """Reward the component of ball angular velocity along the target axis."""
-        ball_angvel = self.get_ball_angvel(state)          # (N, 3)
+        """Reward the component of ball angular velocity along the target axis.
+        Angular velocity is derived from quaternion finite difference, not physics state."""
+        ball_angvel = state.info.get(
+            "ball_angvel_from_quat",
+            np.zeros((self._num_envs, 3), dtype=self._np_dtype),
+        )
         vec_dot = ball_angvel @ self._rot_axis             # (N,)
         r = self._cfg.reward_config
         return np.clip(vec_dot, r.angvel_clip_min, r.angvel_clip_max)
@@ -145,13 +182,23 @@ class AllegroRotationMj(AllegroBaseMjEnv):
         # Compute velocities using finite differences
         dof_pos = self.get_hand_dof_pos(state)
         ball_pos = self.get_ball_pos(state)
+        ball_quat = self.get_ball_quat(state)  # (N, 4) w-first
 
         dof_vel = (dof_pos - state.info.get("prev_dof_pos", dof_pos)) / self._cfg.ctrl_dt
         ball_linvel = (ball_pos - state.info.get("prev_ball_pos", ball_pos)) / self._cfg.ctrl_dt
 
-        # Store current positions for next step
+        # Angular velocity from quaternion finite difference:
+        #   angdiff = quat_to_axis_angle(q_curr * conjugate(q_prev))
+        #   angvel  = angdiff / dt
+        prev_ball_quat = state.info.get("prev_ball_quat", ball_quat)
+        rel_quat = _quat_mul(ball_quat, _quat_conjugate(prev_ball_quat))
+        ball_angvel_from_quat = _quat_to_axis_angle(rel_quat) / self._cfg.ctrl_dt
+
+        # Store current positions/orientations for next step
         state.info["prev_dof_pos"] = dof_pos.copy()
         state.info["prev_ball_pos"] = ball_pos.copy()
+        state.info["prev_ball_quat"] = ball_quat.copy()
+        state.info["ball_angvel_from_quat"] = ball_angvel_from_quat
 
         # Compute PD torques: torque = Kp * (target - pos) - Kd * vel
         targets = state.info["prev_ctrl"]
@@ -296,6 +343,7 @@ class AllegroRotationMj(AllegroBaseMjEnv):
             "init_pose":       init_ctrl.copy(),
             "prev_dof_pos":    init_ctrl.copy(),
             "prev_ball_pos":   ball_pos_f32.copy(),
+            "prev_ball_quat":  ball_quat.astype(self._np_dtype).copy(),
             "obs_lag_history": obs_lag_history,
         }
 
