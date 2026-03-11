@@ -163,16 +163,23 @@ class G1JoystickPPO(G1BaseEnv):
         return np.exp(-ang_vel_error / self._cfg.reward_config.tracking_sigma)
 
     def _reward_feet_phase(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
+        """步态相位奖励：鼓励正确的摆动腿高度"""
         left_foot = self._backend.get_sensor_data("left_foot_pos")
         right_foot = self._backend.get_sensor_data("right_foot_pos")
         gait_phase = info.get("gait_phase", np.zeros((self._num_envs, 2), dtype=get_global_dtype()))
 
         def cubic_bezier_height(phi, swing_height):
-            x = (phi + np.pi) / (2 * np.pi)
-            y_diff = swing_height
-            bezier = x**3 + 3 * (x**2 * (1 - x))
-            stance = y_diff * bezier * 2
-            swing = swing_height - y_diff * (2 * x - 1)**3 - 3 * y_diff * ((2 * x - 1)**2 * (2 - 2 * x))
+            # Convert phi from [0, 2π] to [-π, π]
+            phi_normalized = np.fmod(phi + np.pi, 2 * np.pi) - np.pi
+            x = (phi_normalized + np.pi) / (2 * np.pi)
+
+            def cubic_bezier_interpolation(y_start, y_end, t):
+                y_diff = y_end - y_start
+                bezier = t**3 + 3 * (t**2 * (1 - t))
+                return y_start + y_diff * bezier
+
+            stance = cubic_bezier_interpolation(np.zeros_like(x), np.full_like(x, swing_height), 2 * x)
+            swing = cubic_bezier_interpolation(np.full_like(x, swing_height), np.zeros_like(x), 2 * x - 1)
             return np.where(x <= 0.5, stance, swing)
 
         swing_height = self._cfg.reward_config.feet_phase_swing_height

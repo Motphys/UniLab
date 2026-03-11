@@ -36,7 +36,7 @@ class Asset:
 @dataclass
 class Sensor:
     local_linvel = "local_linvel"
-    gyro = "imu-pelvis-angular-velocity"
+    gyro = "gyro"
 
 
 @dataclass

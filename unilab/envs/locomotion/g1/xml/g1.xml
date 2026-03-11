@@ -337,17 +337,20 @@
 
   <sensor>
     <velocimeter site="imu_in_pelvis" name="local_linvel"/>
-    <gyro site="imu_in_torso" name="imu-torso-angular-velocity" cutoff="34.9" noise="0.0005"/>
-    <accelerometer site="imu_in_torso" name="imu-torso-linear-acceleration" cutoff="157" noise="0.01"/>
-    <gyro site="imu_in_pelvis" name="imu-pelvis-angular-velocity" cutoff="34.9" noise="0.0005"/>
+    <!-- <gyro site="imu_in_pelvis" name="imu-pelvis-angular-velocity" cutoff="34.9" noise="0.0005"/>
     <accelerometer site="imu_in_pelvis" name="imu-pelvis-linear-acceleration" cutoff="157" noise="0.01"/>
+    <framezaxis objtype="site" objname="imu_in_pelvis" name="pelvis_upvector"/> -->
+
+    <gyro site="imu_in_torso" name="gyro" cutoff="34.9" noise="0.0005"/>
+    <accelerometer site="imu_in_torso" name="acceleration" cutoff="157" noise="0.01"/>
+    <framezaxis objname="imu_in_torso" objtype="site" name="upvector"/>
+
     <framepos objtype="site" objname="left_foot" name="left_foot_pos"/>
-    <framepos objtype="site" objname="right_foot" name="right_foot_pos"/>
     <framequat objtype="site" objname="left_foot" name="left_foot_quat"/>
-    <framequat objtype="site" objname="right_foot" name="right_foot_quat"/>
-    <framezaxis objtype="site" objname="imu_in_pelvis" name="upvector"/>
-    <framezaxis objtype="site" objname="imu_in_torso" name="torso_upvector"/>
     <framezaxis objtype="site" objname="left_foot" name="left_foot_upvector"/>
+
+    <framepos objtype="site" objname="right_foot" name="right_foot_pos"/>
+    <framequat objtype="site" objname="right_foot" name="right_foot_quat"/>
     <framezaxis objtype="site" objname="right_foot" name="right_foot_upvector"/>
   </sensor>
 

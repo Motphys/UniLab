@@ -37,21 +37,21 @@ class RewardConfigSAC:
             "penalty_ang_vel_xy": -1.0,
             "penalty_orientation": -10.0,
             "penalty_action_rate": -2.0,
-            "pose": -0.05,                # holosoma: -0.5 (weighted pose penalty)
-            "penalty_close_feet_xy": -10.0,
-            "penalty_feet_ori": -5.0,
+            "pose": -0.5,                 # holosoma: -0.5 (weighted pose penalty)
+            # "penalty_close_feet_xy": -10.0,
+            "penalty_feet_ori": -25.0,    # holosoma: 5.0 (feet ori penalty)
             "feet_phase": 5.0,            # holosoma: 5.0 (gait phase reward)
             "alive": 10.0,                # holosoma: 10.0
         }
     )
     tracking_sigma: float = 0.25
     base_height_target: float = 0.754
-    min_base_height: float = 0.4  # 放宽以允许更多探索
-    max_tilt_deg: float = 60.0  # 放宽以允许更多探索
+    min_base_height: float = 0.3  # 放宽以允许更多探索
+    max_tilt_deg: float = 65.0  # 放宽以允许更多探索
     # gait 参数
     gait_frequency: float = 1.5
     # feet_phase 参数
-    swing_height: float = 0.09
+    feet_phase_swing_height: float = 0.09
     feet_phase_tracking_sigma: float = 0.008
     # close_feet_xy 参数
     close_feet_threshold: float = 0.15
@@ -114,7 +114,7 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
             "penalty_orientation": self._reward_orientation,
             "penalty_action_rate": self._reward_action_rate,
             "pose": self._reward_pose,
-            "penalty_close_feet_xy": self._reward_close_feet_xy,
+            # "penalty_close_feet_xy": self._reward_close_feet_xy,
             "penalty_feet_ori": self._reward_feet_ori,
             "feet_phase": self._reward_feet_phase,
             "alive": self._reward_alive,
@@ -144,27 +144,6 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
         # MuJoCo quat: [w,x,y,z], 惩罚 x,y 分量（roll/pitch）
         return np.square(left_foot_quat[:, 1]) + np.square(left_foot_quat[:, 2]) + \
                np.square(right_foot_quat[:, 1]) + np.square(right_foot_quat[:, 2])
-
-    def _reward_feet_phase(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
-        """步态相位奖励：鼓励正确的摆动腿高度"""
-        left_foot = self._backend.get_sensor_data("left_foot_pos")
-        right_foot = self._backend.get_sensor_data("right_foot_pos")
-        gait_phase = info.get("gait_phase", np.zeros((self._num_envs, 2), dtype=get_global_dtype()))
-
-        def cubic_bezier_height(phi, swing_height):
-            x = (phi + np.pi) / (2 * np.pi)
-            y_diff = swing_height
-            bezier = x**3 + 3 * (x**2 * (1 - x))
-            stance = y_diff * bezier * 2
-            swing = swing_height - y_diff * (2 * x - 1)**3 - 3 * y_diff * ((2 * x - 1)**2 * (2 - 2 * x))
-            return np.where(x <= 0.5, stance, swing)
-
-        swing_height = self._cfg.reward_config.swing_height
-        left_target = cubic_bezier_height(gait_phase[:, 0], swing_height)
-        right_target = cubic_bezier_height(gait_phase[:, 1], swing_height)
-        left_error = np.square(left_foot[:, 2] - left_target)
-        right_error = np.square(right_foot[:, 2] - right_target)
-        return np.exp(-(left_error + right_error) / self._cfg.reward_config.feet_phase_tracking_sigma)
 
     def _reward_alive(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
         return np.ones((self._num_envs,), dtype=get_global_dtype())
