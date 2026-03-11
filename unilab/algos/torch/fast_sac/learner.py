@@ -344,6 +344,9 @@ class FastSACLearner:
         weight_decay: float = 0.001,
         max_grad_norm: float = 0.0,
         use_autotune: bool = True,
+        use_symmetry: bool = False,
+        mujoco_model = None,
+        obs_structure: dict = None,
     ):
         self.device = device
         self.gamma = gamma
@@ -425,6 +428,12 @@ class FastSACLearner:
         # Step counter
         self.update_count = 0
 
+        # Symmetry augmentation (G1 only)
+        self.use_symmetry = use_symmetry and (action_dim == 29) and (mujoco_model is not None) and (obs_structure is not None)
+        if self.use_symmetry:
+            from unilab.envs.locomotion.g1.symmetry import G1SymmetryAugmentation
+            self.symmetry = G1SymmetryAugmentation(mujoco_model, obs_structure, device=device)
+
     def update_critic(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One critic update step."""
         obs = batch["obs"]
@@ -433,6 +442,15 @@ class FastSACLearner:
         next_obs = batch["next_obs"]
         dones = batch["dones"]
         truncated = batch.get("truncated")
+
+        # Apply symmetry augmentation
+        if self.use_symmetry:
+            obs, actions = self.symmetry.augment(obs, actions)
+            next_obs = torch.cat([next_obs, self.symmetry.mirror_obs(next_obs)], dim=0)
+            rewards = rewards.repeat(2)
+            dones = dones.repeat(2)
+            if truncated is not None:
+                truncated = truncated.repeat(2)
 
         if truncated is None:
             bootstrap = (1.0 - dones).float()
@@ -493,6 +511,10 @@ class FastSACLearner:
     def update_actor(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One actor update step."""
         obs = batch["obs"]
+
+        # Apply symmetry augmentation
+        if self.use_symmetry:
+            obs = torch.cat([obs, self.symmetry.mirror_obs(obs)], dim=0)
 
         actions, log_probs, log_std = self.actor.get_actions_and_log_probs(obs)
 
