@@ -1,9 +1,9 @@
-"""Rich-based training logger with TensorBoard / W&B support.
+"""Rich-based training logger for off-policy RL algorithms (SAC, TD3, etc).
 
 Usage:
-    from unilab.algos.torch.common.logger import TrainingLogger
+    from unilab.utils.offpolicy_logger import OffPolicyLogger
 
-    logger = TrainingLogger(
+    logger = OffPolicyLogger(
         algo_name="FastSAC",
         max_iterations=1500,
         num_envs=4096,
@@ -68,8 +68,8 @@ def _fmt_number(v: float, width: int = 8) -> str:
     return f"{v:.2e}"
 
 
-class TrainingLogger:
-    """Modular Rich training logger for RL algorithms.
+class OffPolicyLogger:
+    """Rich logger for off-policy RL algorithms (SAC, TD3, etc).
 
     Features:
     - Real-time Live table with training metrics
@@ -158,11 +158,9 @@ class TrainingLogger:
         """Initialize TensorBoard SummaryWriter."""
         try:
             from torch.utils.tensorboard import SummaryWriter
-            tb_dir = os.path.join(log_dir, "tb")
-            os.makedirs(tb_dir, exist_ok=True)
-            self._tb_writer = SummaryWriter(log_dir=tb_dir)
+            self._tb_writer = SummaryWriter(log_dir=log_dir)
             if not self._no_print:
-                self._console.print(f"[dim]TensorBoard logging to: {tb_dir}[/]")
+                self._console.print(f"[dim]TensorBoard logging to: {log_dir}[/]")
         except ImportError:
             if not self._no_print:
                 self._console.print("[yellow]tensorboard not installed, skipping TB logging[/]")
@@ -426,7 +424,7 @@ class TrainingLogger:
 
         return Panel(
             main_group,
-            title=f"[bold] 🚀 UniLab Training Dashboard [/]",
+            title=f"[bold] 🚀 UniLab Off-Policy Training [/]",
             border_style="bright_blue",
             padding=(0, 1),
         )

@@ -10,7 +10,7 @@ Data flow:
 
 import torch
 import numpy as np
-from unilab.algos.torch.common.utils import ensure_registries, build_actor
+from unilab.utils.algo_utils import ensure_registries, build_actor
 
 
 def off_policy_collector_fn(
@@ -38,6 +38,7 @@ def off_policy_collector_fn(
     env_steps_per_sync: int = 1,
     obs_normalization: bool = False,
     shared_obs_normalizer_stats=None,
+    sim_backend: str = "mujoco",
     **kwargs,
 ):
     """Entry point for the off-policy collector subprocess."""
@@ -60,6 +61,7 @@ def off_policy_collector_fn(
             env_steps_per_sync=env_steps_per_sync,
             obs_normalization=obs_normalization,
             shared_obs_normalizer_stats=shared_obs_normalizer_stats,
+            sim_backend=sim_backend,
         )
     except Exception as e:
         print(f"[Collector] Exception: {e}", file=sys.stderr, flush=True)
@@ -79,7 +81,7 @@ def _run_collector(
     algo_type, actor_hidden_dim, use_layer_norm, collector_device,
     exploration_noise, warmup_steps, metrics_queue, buffer_lock,
     weight_sync_lock, sync_collection, collection_ready_queue, trainer_done_queue, env_steps_per_sync,
-    obs_normalization, shared_obs_normalizer_stats
+    obs_normalization, shared_obs_normalizer_stats, sim_backend
 ):
     from unilab.ipc import SharedReplayBuffer, SharedWeightSync
     from unilab.envs import registry
@@ -87,7 +89,7 @@ def _run_collector(
     ensure_registries()
     
     # Initialize environment
-    env = registry.make(env_name, num_envs=num_envs, sim_backend="mujoco")
+    env = registry.make(env_name, num_envs=num_envs, sim_backend=sim_backend)
     if env.state is None:
         env.init_state()
 

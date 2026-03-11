@@ -1,44 +1,69 @@
 from ml_collections import config_dict
 
 
-DEFAULT_ENV_NUM_BY_TASK: dict[str, int] = {
-    "G1JoystickFlatTerrain": 2048,
-    "Go1JoystickFlatTerrain": 4096,
-    "Go2JoystickFlatTerrain": 4096,
-}
+def ppo_config(env_name: str) -> config_dict.ConfigDict:
+    """Return unified PPO config for RSL-RL.
 
-
-def get_default_env_num(env_name: str) -> int:
-    """Returns default number of parallel environments for a task."""
-    return int(DEFAULT_ENV_NUM_BY_TASK.get(env_name, 4096))
-
-
-def rsl_rl_config(env_name: str) -> config_dict.ConfigDict:
-    """Returns tuned RSL-RL PPO config for the given environment."""
-
-    rl_config = config_dict.create(
+    Common keys are aligned across tasks to make training infra reusable.
+    Task-specific options are configured per environment.
+    """
+    cfg = config_dict.create(
         seed=1,
+        num_envs=4096,
+        num_steps_per_env=24,
+        max_iterations=101,
+        save_interval=100,
+        learning_rate=1.0e-3,
+        entropy_coef=0.01,
+        schedule="adaptive", #"fixed",
+        value_loss_coef=1.0,
+        num_learning_epochs=5,
+        num_mini_batches=4,
+        empirical_normalization=False,
+    )
+
+    if env_name == "Go1JoystickFlatTerrain":
+        cfg.max_iterations = 151
+    elif env_name == "G1JoystickFlatTerrain":
+        cfg.num_envs = 2048
+        cfg.max_iterations = 220
+    elif env_name == "Go2JoystickFlatTerrain":
+        pass
+
+    return config_dict.create(
+        algo="ppo",
+        algo_log_name="rsl_rl_ppo",
+        seed=cfg.seed,
+        num_envs=cfg.num_envs,
+        num_steps_per_env=cfg.num_steps_per_env,
+        max_iterations=cfg.max_iterations,
+        save_interval=cfg.save_interval,
+        empirical_normalization=cfg.empirical_normalization,
         runner_class_name="OnPolicyRunner",
-        obs_groups={"default": ["policy"]}, # Compatibility with new rsl-rl
+        obs_groups={"default": ["policy"]},
+        experiment_name="test",
+        run_name="",
+        resume=False,
+        load_run="-1",
+        checkpoint=-1,
+        resume_path=None,
         policy=config_dict.create(
             init_noise_std=1.0,
             actor_hidden_dims=[512, 256, 128],
             critic_hidden_dims=[512, 256, 128],
-            # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid
             activation="elu",
             class_name="ActorCritic",
         ),
         algorithm=config_dict.create(
             class_name="PPO",
-            value_loss_coef=1.0,
+            value_loss_coef=cfg.value_loss_coef,
             use_clipped_value_loss=True,
             clip_param=0.2,
-            entropy_coef=0.001,
-            num_learning_epochs=5,
-            # mini batch size = num_envs*nsteps / nminibatches
-            num_mini_batches=4,
-            learning_rate=3.0e-4,  # 5.e-4
-            schedule="fixed",  # could be adaptive, fixed
+            entropy_coef=cfg.entropy_coef,
+            num_learning_epochs=cfg.num_learning_epochs,
+            num_mini_batches=cfg.num_mini_batches,
+            learning_rate=cfg.learning_rate,
+            schedule=cfg.schedule,
             gamma=0.99,
             lam=0.95,
             desired_kl=0.01,
@@ -57,57 +82,7 @@ def rsl_rl_config(env_name: str) -> config_dict.ConfigDict:
             warmup_finite_check_interval=2,
             disable_finite_checks=True,
         ),
-        num_steps_per_env=24,  # per iteration
-        max_iterations=101,  # number of policy updates
-        empirical_normalization=True,
-        # logging
-        save_interval=50,  # check for potential saves every this many iterations
-        experiment_name="test",
-        run_name="",
-        # load and resume
-        resume=False,
-        load_run="-1",  # -1 = last run
-        checkpoint=-1,  # -1 = last saved model
-        resume_path=None,  # updated from load_run and chkpt
     )
-
-    if env_name == "Go1JoystickFlatTerrain":
-        # Align Go1 training hyper-parameters with the current Go2 setup.
-        rl_config.algorithm.entropy_coef = 0.01
-        rl_config.algorithm.learning_rate = 1.0e-3
-        rl_config.algorithm.schedule = "adaptive"
-        rl_config.algorithm.value_loss_coef = 1.0
-        rl_config.algorithm.num_learning_epochs = 5
-        rl_config.algorithm.num_mini_batches = 4
-        rl_config.num_steps_per_env = 24
-        rl_config.save_interval = 100
-        rl_config.max_iterations = 151
-        rl_config.empirical_normalization = False
-    elif env_name == "G1JoystickFlatTerrain":
-        # Humanoid needs slightly longer horizon but keep aggressive defaults.
-        rl_config.algorithm.entropy_coef = 0.01
-        rl_config.algorithm.learning_rate = 1.0e-3
-        rl_config.algorithm.schedule = "adaptive"
-        rl_config.algorithm.value_loss_coef = 1.0
-        rl_config.algorithm.num_learning_epochs = 5
-        rl_config.algorithm.num_mini_batches = 4
-        rl_config.num_steps_per_env = 24
-        rl_config.save_interval = 50
-        rl_config.max_iterations = 220
-        rl_config.empirical_normalization = False
-    elif env_name == "Go2JoystickFlatTerrain":
-        rl_config.algorithm.entropy_coef = 0.01
-        rl_config.algorithm.learning_rate = 1.0e-3
-        rl_config.algorithm.schedule = "adaptive"
-        rl_config.algorithm.value_loss_coef = 1.0
-        rl_config.algorithm.num_learning_epochs = 5
-        rl_config.algorithm.num_mini_batches = 4
-        rl_config.num_steps_per_env = 24
-        rl_config.save_interval = 100
-        rl_config.max_iterations = 101
-        rl_config.empirical_normalization = False
-
-    return rl_config
 
 
 def offpolicy_config(algo: str, env_name: str) -> config_dict.ConfigDict:
@@ -145,21 +120,16 @@ def offpolicy_config(algo: str, env_name: str) -> config_dict.ConfigDict:
         )
 
         if env_name in ("Go2JoystickFlatTerrain", "Go2LocoFlatTerrain"):
-            cfg.gamma = 0.99
             cfg.num_envs = 1024
-            cfg.max_iterations = 1500
         elif env_name in ("Go1JoystickFlatTerrain",):
-            cfg.num_envs = 4096
             cfg.max_iterations = 2000
         elif env_name in ("G1JoystickFlatTerrain",):
-            raise NotImplementedError("G1JoystickFlatTerrain config is not implemented for FastSAC, Please use G1JoystickFlatTerrainSAC instead.")
-        elif env_name in ("G1JoystickFlatTerrainSAC",):
+            raise NotImplementedError("G1JoystickFlatTerrain config is not implemented for FastSAC, Please use G1WalkTaskMjSAC instead.")
+        elif env_name in ("G1WalkTaskMjSAC",):
             cfg.updates_per_step = 8
             cfg.replay_buffer_n = 1024
-            cfg.warmup_steps = 0
             cfg.alpha_init = 0.001
             cfg.max_iterations = 25000
-            cfg.save_interval = 1000
 
         return config_dict.create(
             algo="sac",
@@ -213,8 +183,8 @@ def offpolicy_config(algo: str, env_name: str) -> config_dict.ConfigDict:
             policy_frequency=2,
             policy_noise=0.2,
             noise_clip=0.5,
-            std_min=0.4,
-            std_max=1.0,
+            log_std_min=-0.9,
+            log_std_max=0.0,
             v_min=-10.0,
             v_max=10.0,
             use_cdq=True,
@@ -253,8 +223,8 @@ def offpolicy_config(algo: str, env_name: str) -> config_dict.ConfigDict:
                 v_min=cfg.v_min,
                 v_max=cfg.v_max,
                 init_scale=cfg.init_scale,
-                std_min=cfg.std_min,
-                std_max=cfg.std_max,
+                log_std_min=cfg.log_std_min,
+                log_std_max=cfg.log_std_max,
                 policy_noise=cfg.policy_noise,
                 noise_clip=cfg.noise_clip,
                 use_cdq=cfg.use_cdq,

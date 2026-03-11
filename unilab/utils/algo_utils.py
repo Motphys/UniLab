@@ -30,6 +30,6 @@ def build_actor(algo_type, obs_dim, action_dim, actor_hidden_dim, use_layer_norm
         from unilab.algos.torch.fast_td3.learner import TD3Actor
         return TD3Actor(n_obs=obs_dim, n_act=action_dim, num_envs=num_envs,
                         hidden_dim=actor_hidden_dim, init_scale=0.01,
-                        std_min=0.4, std_max=1.0, device=device)
+                        log_std_min=-0.9, log_std_max=0.0, device=device)
     else:
         raise ValueError(f"Unknown algo_type: {algo_type}")

@@ -174,7 +174,7 @@ def main():
 
     if args.log_dir is None:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        args.log_dir = os.path.join(ROOT_DIR, "logs", "appo", args.task, timestamp)
+        args.log_dir = os.path.join(ROOT_DIR, "logs", "appo", args.task, f"{timestamp}_mujoco")
 
     rl_cfg = {
         "obs_groups": {
@@ -188,12 +188,17 @@ def main():
     if not args.play_only:
         from unilab.algos.torch.appo.runner import APPORunner
 
+        collector_device = args.collector_device
+        if collector_device == "gpu":
+            import torch
+            collector_device = "mps" if torch.backends.mps.is_available() else "cuda"
+
         runner = APPORunner(
             env_name=args.task,
             env_cfg_overrides={},
             rl_cfg=rl_cfg,
             device=args.device,
-            collector_device=args.collector_device,
+            collector_device=collector_device,
             num_envs=args.total_envs,
             steps_per_env=args.steps_per_env,
         )

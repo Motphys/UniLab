@@ -33,13 +33,15 @@ class FastSACRunner(OffPolicyRunner):
         num_atoms: int = 101,
         use_layer_norm: bool = True,
         max_grad_norm: float = 0.0,
+        sim_backend: str = "mujoco",
+        use_gpu_buffer: bool = True,
     ):
         from unilab.envs import registry
-        from unilab.algos.torch.common.utils import ensure_registries
+        from unilab.utils.algo_utils import ensure_registries
         import torch
 
         ensure_registries()
-        env = registry.make(env_name, num_envs=1, sim_backend="mujoco")
+        env = registry.make(env_name, num_envs=1, sim_backend=sim_backend)
         obs_dim = env.observation_space.shape[0]
         action_dim = env.action_space.shape[0]
         env.close()
@@ -82,4 +84,6 @@ class FastSACRunner(OffPolicyRunner):
             actor_hidden_dim=actor_hidden_dim,
             use_layer_norm=use_layer_norm,
             obs_normalization=obs_normalization,
+            sim_backend=sim_backend,
+            use_gpu_buffer=use_gpu_buffer,
         )

@@ -8,7 +8,7 @@ from collections import deque
 from unilab.ipc import SharedReplayBuffer, SharedWeightSync, SharedObsNormStats
 from unilab.ipc.async_runner import AsyncRunner
 from unilab.algos.torch.offpolicy.worker import off_policy_collector_fn
-from unilab.algos.torch.common.logger import TrainingLogger
+from unilab.utils.offpolicy_logger import OffPolicyLogger
 from unilab.ipc.async_runner import _SPAWN_CTX
 
 
@@ -33,6 +33,8 @@ class OffPolicyRunner(AsyncRunner):
         actor_hidden_dim: int = 512,
         use_layer_norm: bool = True,
         obs_normalization: bool = False,
+        sim_backend: str = "mujoco",
+        use_gpu_buffer: bool = True,
     ):
         super().__init__(
             env_name=env_name,
@@ -41,6 +43,7 @@ class OffPolicyRunner(AsyncRunner):
             device=device,
             collector_device=collector_device or "cpu",
             num_envs=num_envs,
+            sim_backend=sim_backend,
         )
 
         self.learner = learner
@@ -55,12 +58,13 @@ class OffPolicyRunner(AsyncRunner):
         self.actor_hidden_dim = actor_hidden_dim
         self.use_layer_norm = use_layer_norm
         self.obs_normalization = obs_normalization
+        self.use_gpu_buffer = use_gpu_buffer and device != "cpu"
 
         self.obs_dim, self.action_dim = self._detect_dims()
 
     def _detect_dims(self):
         from unilab.envs import registry
-        from unilab.algos.torch.common.utils import ensure_registries
+        from unilab.utils.algo_utils import ensure_registries
         ensure_registries()
         env = registry.make(self.env_name, num_envs=1, sim_backend="mujoco")
         obs_dim = env.observation_space.shape[0]
@@ -95,6 +99,18 @@ class OffPolicyRunner(AsyncRunner):
             create=True,
         )
         self._shared_resources.append(shared_buffer)
+
+        # Setup GPU buffer if enabled
+        gpu_buffer = None
+        if self.use_gpu_buffer:
+            from unilab.ipc import GPUReplayBuffer
+            gpu_buffer = GPUReplayBuffer(
+                capacity=buffer_capacity,
+                obs_dim=self.obs_dim,
+                action_dim=self.action_dim,
+                device=self.device,
+            )
+            print(f"[Runner] GPU buffer enabled on {self.device}")
 
         # Setup weight sync
         weight_sync = SharedWeightSync.from_state_dict(
@@ -154,7 +170,7 @@ class OffPolicyRunner(AsyncRunner):
             print(f"[Runner] Collector process alive: {self._collector_process.is_alive()}")
 
         # Setup logger
-        logger = TrainingLogger(
+        logger = OffPolicyLogger(
             algo_name=f"Fast{self.algo_type.upper()}",
             max_iterations=max_iterations,
             num_envs=self.num_envs,
@@ -213,7 +229,19 @@ class OffPolicyRunner(AsyncRunner):
 
             # Local variable for faster access in hot loop
             learner = self.learner
-            large_batch = shared_buffer.sample_torch(self.batch_size * self.updates_per_step, self.device)
+
+            # Sample from GPU buffer or host buffer
+            if gpu_buffer is not None:
+                # Sync new data before sampling
+                gpu_buffer.sync_new_data(shared_buffer)
+
+                if gpu_buffer.size >= self.batch_size * self.updates_per_step:
+                    large_batch = gpu_buffer.sample(self.batch_size * self.updates_per_step)
+                else:
+                    large_batch = shared_buffer.sample_torch(self.batch_size * self.updates_per_step, self.device)
+            else:
+                large_batch = shared_buffer.sample_torch(self.batch_size * self.updates_per_step, self.device)
+
             for update_idx in range(self.updates_per_step):
                 s = update_idx * self.batch_size
                 e = s + self.batch_size

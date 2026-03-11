@@ -32,15 +32,17 @@ class FastTD3Runner(OffPolicyRunner):
         v_min: float = -10.0,
         v_max: float = 10.0,
         init_scale: float = 0.01,
-        std_min: float = 0.4,
-        std_max: float = 1.0,
+        log_std_min: float = -0.9,
+        log_std_max: float = 0.0,
         policy_noise: float = 0.2,
         noise_clip: float = 0.5,
         weight_decay: float = 0.1,
         use_cdq: bool = True,
         obs_normalization: bool = True,
+        sim_backend: str = "mujoco",
+        use_gpu_buffer: bool = True,
     ):
-        obs_dim, action_dim = self._detect_obs_action_dims(env_name)
+        obs_dim, action_dim = self._detect_obs_action_dims(env_name, sim_backend)
         learner = FastTD3Learner(
             obs_dim=obs_dim,
             action_dim=action_dim,
@@ -56,8 +58,8 @@ class FastTD3Runner(OffPolicyRunner):
             v_min=v_min,
             v_max=v_max,
             init_scale=init_scale,
-            std_min=std_min,
-            std_max=std_max,
+            log_std_min=log_std_min,
+            log_std_max=log_std_max,
             weight_decay=weight_decay,
             use_cdq=use_cdq,
             policy_noise=policy_noise,
@@ -84,6 +86,8 @@ class FastTD3Runner(OffPolicyRunner):
             actor_hidden_dim=actor_hidden_dim,
             use_layer_norm=False,
             obs_normalization=obs_normalization,
+            sim_backend=sim_backend,
+            use_gpu_buffer=use_gpu_buffer,
         )
 
     @staticmethod
@@ -96,12 +100,12 @@ class FastTD3Runner(OffPolicyRunner):
         return "cpu"
 
     @staticmethod
-    def _detect_obs_action_dims(env_name: str) -> tuple[int, int]:
+    def _detect_obs_action_dims(env_name: str, sim_backend: str = "mujoco") -> tuple[int, int]:
         from unilab.envs import registry
-        from unilab.algos.torch.common.utils import ensure_registries
+        from unilab.utils.algo_utils import ensure_registries
 
         ensure_registries()
-        env = registry.make(env_name, num_envs=1, sim_backend="mujoco")
+        env = registry.make(env_name, num_envs=1, sim_backend=sim_backend)
         obs_dim = env.observation_space.shape[0]
         action_dim = env.action_space.shape[0]
         env.close()

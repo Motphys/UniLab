@@ -16,7 +16,7 @@ from collections import defaultdict, deque
 from unilab.ipc import AsyncRunner, SharedOnPolicyStorage, SharedWeightSync
 from unilab.algos.torch.appo.worker import appo_collector_fn
 from unilab.algos.torch.appo.learner import APPOLearner, APPOActorWrapper
-from unilab.algos.torch.common.logger import TrainingLogger
+from unilab.utils.offpolicy_logger import OffPolicyLogger
 from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4
 from rsl_rl.utils import resolve_callable
 
@@ -62,7 +62,7 @@ class APPORunner(AsyncRunner):
     def _detect_dims(self):
         """Create a tiny env to read obs/action dims, then close it."""
         from unilab.envs import registry
-        from unilab.algos.torch.common.utils import ensure_registries
+        from unilab.utils.algo_utils import ensure_registries
         ensure_registries()
 
         env = registry.make(self.env_name, num_envs=1, sim_backend="mujoco")
@@ -165,7 +165,7 @@ class APPORunner(AsyncRunner):
             kwargs={"stop_event": self._stop_event, **collector_kwargs},
         )
 
-        logger = TrainingLogger(
+        logger = OffPolicyLogger(
             algo_name="APPO",
             max_iterations=max_iterations,
             num_envs=self.num_envs,
