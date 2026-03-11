@@ -35,13 +35,17 @@ UniLab 采用**统一内存异构运算架构**：
 - [x] @yves 统一仿真后端
 - [ ] @czx  把 FastTD3 调稳定
 - [ ] @jdx  适配 mimic/amp 算法，支持人形Whole-Body Tracking
-- [ ] @jdx  算法适配 motrixsim
 - [ ] @ymr  增加灵巧操作案例
+- [] ** G1+off-policy调稳定 **
+- [ ] @yves 全 command space
 - [ ] @yves 增加非对称观测
 - [ ] @yves 完善域随机化
+- [ ] @yves 写onnx导出和sim2sim
+- [ ] @jdx  sim2real
 - [ ] @yves 把稳定的 FastTD3 和 FastSAC 迁移到 mlx
-- [ ] @yves 写 onnx 导出和 sim2sim
-- [ ] motrix step 提速
+- [ ] @Motphys 算法适配 motrixsim
+- [ ] @Motphys motrix step 提速
+
 
 ### 训练状态
 
