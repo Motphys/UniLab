@@ -1,0 +1,8 @@
+<KinBody name="tennis_ball">
+  <Body type="static" name="tennis_ball">
+    <Geom type="trimesh">
+      <Render>textured.dae</Render>
+      <Data>textured.dae</Data>
+    </Geom>
+  </Body>
+</KinBody>
