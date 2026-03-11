@@ -128,8 +128,8 @@ def offpolicy_config(algo: str, env_name: str) -> config_dict.ConfigDict:
             raise NotImplementedError("G1JoystickFlatTerrain config is not implemented for FastSAC, Please use G1WalkTaskMjSAC instead.")
         elif env_name in ("G1WalkTaskMjSAC",):
             cfg.updates_per_step = 8
-            cfg.replay_buffer_n = 1024
-            cfg.alpha_init = 0.005
+            cfg.replay_buffer_n = 512
+            cfg.alpha_init = 0.01
             cfg.target_entropy_ratio = 0.2
             cfg.max_iterations = 5000
             cfg.save_interval = 1000
