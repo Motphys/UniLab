@@ -28,16 +28,25 @@ def _quat_mul(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
 
 
 def _quat_to_axis_angle(q: np.ndarray) -> np.ndarray:
-    """Convert unit quaternion (w-first) to axis-angle vector (N, 3)."""
-    # Normalise to w >= 0 to avoid the double-cover ambiguity
-    q = q * np.where(q[:, 0:1] >= 0, 1.0, -1.0)
-    w = np.clip(q[:, 0], -1.0, 1.0)
-    angle = 2.0 * np.arccos(w)                          # (N,)  in [0, π]
-    sin_half = np.sqrt(np.maximum(1.0 - w ** 2, 0.0))  # (N,)
-    axis = np.where(sin_half[:, None] > 1e-8,
-                    q[:, 1:] / sin_half[:, None],
-                    q[:, 1:])                            # (N, 3)
-    return axis * angle[:, None]
+    """Convert unit quaternion (w-first: [w, x, y, z]) to axis-angle vector (N, 3).
+
+    Adapted from PyTorch3D (real-part-last) to MuJoCo w-first convention.
+    Uses atan2 + Taylor expansion for numerical stability near zero rotation.
+    """
+    xyz = q[:, 1:]                                             # (N, 3) imaginary part
+    w   = q[:, 0:1]                                            # (N, 1) real part
+    norms      = np.linalg.norm(xyz, axis=-1, keepdims=True)  # (N, 1)
+    half_angle = np.arctan2(norms, w)                          # (N, 1)
+    angle      = 2.0 * half_angle                              # (N, 1)
+    small      = np.abs(angle) < 1e-6                         # (N, 1)
+    # sin(x/2)/x:  for small x use Taylor  0.5 - x²/48
+    safe_angle = np.where(small, 1.0, angle)
+    sin_half_over_angle = np.where(
+        small,
+        0.5 - angle ** 2 / 48.0,
+        np.sin(half_angle) / safe_angle,
+    )
+    return xyz / sin_half_over_angle                           # (N, 3)
 
 from unilab.envs import registry
 from unilab.envs.mujoco_env.mj_env import MjNpEnvState
