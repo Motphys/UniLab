@@ -28,7 +28,7 @@ class G1SymmetryAugmentation:
                 joint_map[i] = i
         self.joint_map = torch.tensor([joint_map[i] for i in range(len(actuator_names))], device=device, dtype=torch.long)
 
-        # Sign flip
+        # Sign flip: which joints need negation after mirroring
         flip_names = {"roll", "yaw"}
         sign_mask = [1.0] * len(actuator_names)
         for i, name in enumerate(actuator_names):
@@ -61,7 +61,9 @@ class G1SymmetryAugmentation:
                 self.obs_flip_mask[idx + 1] = -1.0
                 self.obs_flip_mask[idx + 2] = -1.0
             elif key == 'gait_phase':
-                self.obs_flip_mask[idx] = -1.0
+                # Swap left and right gait phases
+                self.obs_joint_map[idx] = idx + 1
+                self.obs_joint_map[idx + 1] = idx
             idx += dim
 
     def mirror_action(self, action: torch.Tensor) -> torch.Tensor:

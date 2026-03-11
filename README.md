@@ -33,19 +33,20 @@ UniLab 采用**统一内存异构运算架构**：
 - [x] @yves 优化IPC，做到数值稳定，跨 torch/mlx
 - [x] @yves 发布 mujoco-uni
 - [x] @yves 统一仿真后端
-- [ ] @czx  把 FastTD3 调稳定
-- [ ] @jdx  适配 mimic/amp 算法，支持人形Whole-Body Tracking
-- [ ] @ymr  增加灵巧操作案例
-- [] ** G1+off-policy调稳定 **
-- [ ] @yves 全 command space
+- [x] @yves G1+off-policy调稳定
+- [x] @yves G1 full command space
+- [ ] @yves 增加G1对称性数据增强
 - [ ] @yves 增加非对称观测
-- [ ] @yves 完善域随机化
-- [ ] @yves 写onnx导出和sim2sim
+- [ ] @ymr  增加灵巧操作案例
+- [ ] @czx  把 FastTD3+Go2 调稳定
+- [ ] @jdx  适配 mimic/amp 算法，支持人形Whole-Body Tracking
+- [ ] @yves mujoco域随机化,需要改 mujoco-uni 源码
+- [ ] @jdx  motrixsim域随机化
+- [ ] @jdx  写onnx导出和sim2sim
 - [ ] @jdx  sim2real
 - [ ] @yves 把稳定的 FastTD3 和 FastSAC 迁移到 mlx
 - [ ] @Motphys 算法适配 motrixsim
 - [ ] @Motphys motrix step 提速
-
 
 ### 训练状态
 
@@ -55,7 +56,7 @@ UniLab 采用**统一内存异构运算架构**：
 |------------|-----|-----|----|
 | ppo(torch) |  ✅ |     | ✅ |
 | ppo(mlx)   |  ✅ |     | ✅ |
-| sac(torch) |  ✅ | ⚠️  | ⚠️ |
+| sac(torch) |  ✅ | ⚠️  | ✅ |
 | td3(torch) |  ⚠️ | ⚠️  | ⚠️ |
 | appo(torch)|     |     |    |
 
