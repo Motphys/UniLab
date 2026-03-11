@@ -46,7 +46,7 @@ class G1BaseCfg(EnvCfg):
     control_config: ControlConfig = field(default_factory=ControlConfig)
     asset: Asset = field(default_factory=Asset)
     sensor: Sensor = field(default_factory=Sensor)
-    sim_dt: float = 0.005
+    sim_dt: float = 0.02 / 3.
     ctrl_dt: float = 0.02
 
 

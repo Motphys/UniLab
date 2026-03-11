@@ -1,7 +1,7 @@
 <mujoco model="g1_29dof_rev_1_0">
   <compiler angle="radian" meshdir="assets"/>
 
-  <option integrator="implicitfast"/>
+  <option integrator="implicitfast" timestep="0.006666666666666667"/>
 
   <default>
     <default class="g1">
