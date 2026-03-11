@@ -44,4 +44,12 @@
             1.104 1.163 0.953 -0.138"/>
   </keyframe>
 
+
+  <sensor>
+    <contact name="ff_contact" geom1="ff_tip_col" geom2="ball" data="found" num="1" reduce="mindist"/>
+    <contact name="mf_contact" geom1="mf_tip_col" geom2="ball" data="found" num="1" reduce="mindist"/>
+    <contact name="rf_contact" geom1="rf_tip_col" geom2="ball" data="found" num="1" reduce="mindist"/>
+    <contact name="th_contact" geom1="th_tip_col" geom2="ball" data="found" num="1" reduce="mindist"/>
+  </sensor>
+
 </mujoco>

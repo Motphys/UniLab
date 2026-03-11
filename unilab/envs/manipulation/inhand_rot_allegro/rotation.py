@@ -49,7 +49,8 @@ def _quat_to_axis_angle(q: np.ndarray) -> np.ndarray:
     return xyz / sin_half_over_angle                           # (N, 3)
 
 from unilab.envs import registry
-from unilab.envs.mujoco_env.mj_env import MjNpEnvState
+from unilab.envs.np_env import NpEnvState
+from unilab.envs.backend import create_backend
 from unilab.envs.manipulation.inhand_rot_allegro.base import AllegroBaseCfg, AllegroBaseMjEnv
 
 # ─────────────────────────── Configuration ────────────────────────────
@@ -110,8 +111,9 @@ class AllegroRotationCfg(AllegroBaseCfg):
 @registry.env("AllegroInhandRotation", sim_backend="mujoco")
 class AllegroRotationMj(AllegroBaseMjEnv):
 
-    def __init__(self, cfg: AllegroRotationCfg, num_envs: int = 1):
-        super().__init__(cfg, num_envs)
+    def __init__(self, cfg: AllegroRotationCfg, num_envs: int = 1, backend_type: str = "mujoco"):
+        backend = create_backend(backend_type, cfg.model_file, num_envs, cfg.sim_dt)
+        super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True
 
         # Normalisation constants for joint-position observation.
@@ -152,7 +154,7 @@ class AllegroRotationMj(AllegroBaseMjEnv):
             "work":        lambda s: self._reward_work(s.info),
         }
 
-    def _reward_rotate(self, state: MjNpEnvState) -> np.ndarray:
+    def _reward_rotate(self, state: NpEnvState) -> np.ndarray:
         """Reward the component of ball angular velocity along the target axis.
         Angular velocity is derived from quaternion finite difference, not physics state."""
         ball_angvel = state.info.get(
@@ -163,14 +165,14 @@ class AllegroRotationMj(AllegroBaseMjEnv):
         r = self._cfg.reward_config
         return np.clip(vec_dot, r.angvel_clip_min, r.angvel_clip_max)
 
-    def _reward_obj_linvel(self, state: MjNpEnvState) -> np.ndarray:
+    def _reward_obj_linvel(self, state: NpEnvState) -> np.ndarray:
         """L1 penalty on ball linear velocity (encourages pure spin, no translation)."""
         ball_linvel = state.info.get("ball_linvel", np.zeros((self._num_envs, 3), dtype=self._np_dtype))
         return np.sum(np.abs(ball_linvel), axis=1)
 
-    def _reward_pose_diff(self, state: MjNpEnvState) -> np.ndarray:
+    def _reward_pose_diff(self, state: NpEnvState) -> np.ndarray:
         """Penalise hand-joint drift from the initial grasp configuration."""
-        diff = self.get_hand_dof_pos(state) - state.info["init_pose"]  # (N, 16)
+        diff = self.get_hand_dof_pos() - state.info["init_pose"]  # (N, 16)
         return np.sum(np.square(diff), axis=1)
 
     def _reward_torque(self, info: dict) -> np.ndarray:
@@ -187,11 +189,11 @@ class AllegroRotationMj(AllegroBaseMjEnv):
 
     # ── Core update pipeline ─────────────────────────────────────────
 
-    def update_state(self, state: MjNpEnvState, obs_required: bool = True) -> MjNpEnvState:
+    def update_state(self, state: NpEnvState) -> NpEnvState:
         # Compute velocities using finite differences
-        dof_pos = self.get_hand_dof_pos(state)
-        ball_pos = self.get_ball_pos(state)
-        ball_quat = self.get_ball_quat(state)  # (N, 4) w-first
+        dof_pos = self.get_hand_dof_pos()
+        ball_pos = self.get_ball_pos()
+        ball_quat = self.get_ball_quat()  # (N, 4) w-first
 
         dof_vel = (dof_pos - state.info.get("prev_dof_pos", dof_pos)) / self._cfg.ctrl_dt
         ball_linvel = (ball_pos - state.info.get("prev_ball_pos", ball_pos)) / self._cfg.ctrl_dt
@@ -238,18 +240,17 @@ class AllegroRotationMj(AllegroBaseMjEnv):
         obs_lag_history[:, -1] = current_obs
         state.info["obs_lag_history"] = obs_lag_history
 
-        state = self._update_terminated(state)
-        state = self._compute_rewards(state)
-        if obs_required:
-            state.obs = self._get_obs(state, state.info)
-        return state
+        terminated = self._update_terminated()
+        reward, log = self._compute_rewards(state)
+        state.info["log"] = log
+        obs = self._get_obs(state.info)
+        return state.replace(obs=obs, reward=reward, terminated=terminated)
 
-    def _update_terminated(self, state: MjNpEnvState) -> MjNpEnvState:
-        ball_z = self.get_ball_pos(state)[:, 2]   # (N,)
-        state.terminated = ball_z < self._cfg.reward_config.reset_z_threshold
-        return state
+    def _update_terminated(self) -> np.ndarray:
+        ball_z = self.get_ball_pos()[:, 2]   # (N,)
+        return ball_z < self._cfg.reward_config.reset_z_threshold
 
-    def _compute_rewards(self, state: MjNpEnvState) -> MjNpEnvState:
+    def _compute_rewards(self, state: NpEnvState) -> tuple:
         total = np.zeros(self._num_envs, dtype=self._np_dtype)
         step_count = state.info.get("steps", np.zeros(self._num_envs, dtype=np.uint32))
         should_log = self._enable_reward_log and (int(step_count[0]) % 4 == 0)
@@ -266,19 +267,17 @@ class AllegroRotationMj(AllegroBaseMjEnv):
         if should_log:
             log["reward/total"] = float(np.mean(total))
 
-        state.info["log"] = log
-        state.reward = total * self._cfg.ctrl_dt
-        return state
+        return total * self._cfg.ctrl_dt, log
 
-    def _get_obs(self, state: MjNpEnvState, info: dict) -> np.ndarray:
-        """Extract observation from state. Pure function - does not modify state."""
+    def _get_obs(self, info: dict) -> np.ndarray:
+        """Extract observation from info. Pure function - does not modify state."""
         obs_lag_history = info.get("obs_lag_history", np.zeros((self._num_envs, 3, 35), dtype=self._np_dtype))
         num_envs = obs_lag_history.shape[0]
         return obs_lag_history.reshape(num_envs, -1)
 
     # ── Reset ────────────────────────────────────────────────────────
 
-    def reset(self, env_indices: np.ndarray) -> tuple[np.ndarray, np.ndarray, dict]:
+    def reset(self, env_indices: np.ndarray) -> tuple:
         num_reset = len(env_indices)
         dr = self._cfg.domain_rand
 
@@ -329,12 +328,8 @@ class AllegroRotationMj(AllegroBaseMjEnv):
             -dr.ball_vel_noise, dr.ball_vel_noise, (num_reset, 3)
         )
 
-        # Build physics state vectors and compute sensors.
-        ps = np.zeros((num_reset, self.physics_state_dim), dtype=np.float64)
-        ps[:, self._idx_qpos : self._idx_qpos + self.nq] = qpos
-        ps[:, self._idx_qvel : self._idx_qvel + self.nv] = qvel
-        sensor_data = self._compute_sensor_batch_from_state(ps)
-        ps_f32 = ps.astype(self._np_dtype)
+        # Set state via backend (sets qpos/qvel and runs mj_forward).
+        self._backend.set_state(env_indices, qpos, qvel)
 
         # PD controller starts at the actual reset hand pose.
         init_ctrl = hand_qpos.astype(self._np_dtype)
@@ -356,10 +351,5 @@ class AllegroRotationMj(AllegroBaseMjEnv):
             "obs_lag_history": obs_lag_history,
         }
 
-        obs_state = MjNpEnvState(
-            physics_state=ps_f32, sensor_data=sensor_data,
-            obs=None, reward=None, terminated=None, truncated=None, ctrl=None,
-            info=info,
-        )
-        obs_batch = self._get_obs(obs_state, info)
-        return ps_f32, obs_batch, info
+        obs_batch = self._get_obs(info)
+        return obs_batch, obs_batch, info
