@@ -297,7 +297,8 @@ def main() -> None:
     resolved_sim_backend = args.sim_backend
 
     if args.env_num is None:
-        args.env_num = locomotion_params.get_default_env_num(args.task)
+        cfg = locomotion_params.ppo_config(args.task)
+        args.env_num = cfg.num_envs
 
     use_fp16 = getattr(args, "fp16", False)
     if use_fp16:
@@ -308,7 +309,7 @@ def main() -> None:
 
     mx.random.seed(args.seed)
 
-    cfg = locomotion_params.rsl_rl_config(args.task)
+    cfg = locomotion_params.ppo_config(args.task)
     algo_cfg = cfg.algorithm
     profile_collection = os.getenv("UNILAB_PROFILE_COLLECTION", "0") == "1"
 
