@@ -10,9 +10,7 @@
   <worldbody>
     <body name="ball" pos="0 0 0.3">
       <freejoint name="ball_joint"/>
-      <geom name="ball" type="sphere" size="0.04" mass="0.05" condim="6"
-            friction="2.0 0.05 0.01"
-            solimp="0.9 0.95 0.001" solref="0.02 1"/>
+      <geom name="ball" type="sphere" size="0.04" mass="0.05" condim="4" friction="1.0 0.005 0.0001"/>
       <geom name="ball_visual" type="mesh" mesh="tennis_ball" material="tennis_mat" contype="0" conaffinity="0" group="1"/>
       <inertial pos="0 0 0" mass="0.05" diaginertia="0.0001 0.0001 0.0001"/>
     </body>

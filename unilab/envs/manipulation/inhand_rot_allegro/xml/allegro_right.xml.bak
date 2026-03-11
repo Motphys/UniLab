@@ -1,7 +1,7 @@
 <mujoco model="allegro_right">
   <compiler angle="radian" meshdir="assets" autolimits="true"/>
 
-  <option cone="elliptic" impratio="40" noslip_iterations="5" noslip_tolerance="1e-6"/>
+  <option cone="elliptic" impratio="10"/>
 
   <default>
     <default class="allegro_right">
@@ -64,13 +64,9 @@
           </default>
         </default>
         <default class="fingertip_collision">
-          <geom type="capsule" size="0.012 0.01" pos="0 0 0.019"
-                condim="6" friction="2.0 0.05 0.01"
-                solimp="0.9 0.95 0.001" solref="0.02 1"/>
+          <geom type="capsule" size="0.012 0.01" pos="0 0 0.019"/>
           <default class="thumbtip_collision">
-            <geom type="capsule" size="0.012 0.008" pos="0 0 0.035"
-                  condim="6" friction="2.0 0.05 0.01"
-                  solimp="0.9 0.95 0.001" solref="0.02 1"/>
+            <geom type="capsule" size="0.012 0.008" pos="0 0 0.035"/>
           </default>
         </default>
       </default>
