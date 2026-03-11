@@ -66,16 +66,20 @@ def rsl_rl_config(env_name: str) -> config_dict.ConfigDict:
     )
 
     if env_name == "AllegroInhandRotation":
-        rl_config.algorithm.learning_rate = 5.0e-3
+        rl_config.max_iterations = 10000
         rl_config.num_steps_per_env = 8
-        rl_config.algorithm.num_mini_batches = 4
 
-        rl_config.algorithm.entropy_coef = 0.0
+        rl_config.algorithm.num_mini_batches = 4
+        rl_config.algorithm.learning_rate = 1.0e-3
+
+        rl_config.algorithm.entropy_coef = 0.01
         rl_config.algorithm.value_loss_coef = 4.0
         rl_config.algorithm.desired_kl = 0.02
 
-        rl_config.algorithm.schedule = "fixed"
+        rl_config.algorithm.schedule = "adaptive"
         rl_config.empirical_normalization = True
+
+        rl_config.max_iterations = 10000
 
 
     return rl_config

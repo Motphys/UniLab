@@ -1,8 +1,12 @@
+import os
 import math
 import numpy as np
 import mujoco
 import imageio
 from multiprocessing import Pool
+
+# Use EGL for off-screen rendering on headless servers (no X11/display required)
+os.environ.setdefault('MUJOCO_GL', 'egl')
 
 def get_grid_offsets(num_envs, spacing=1.0):
     rows = int(math.ceil(math.sqrt(num_envs)))
@@ -20,6 +24,8 @@ _worker_ctx = {}
 
 def init_worker(model_path, shape):
     """Initialize MuJoCo context for worker process."""
+    # Ensure EGL is used in spawned worker processes (headless server support)
+    os.environ.setdefault('MUJOCO_GL', 'egl')
     _worker_ctx['model'] = mujoco.MjModel.from_xml_path(model_path)
     _worker_ctx['model'].vis.global_.offwidth = 3840
     _worker_ctx['model'].vis.global_.offheight = 2160

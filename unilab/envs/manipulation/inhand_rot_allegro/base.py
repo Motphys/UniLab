@@ -23,7 +23,7 @@ class ControlConfig:
     # Mirrors HORA's  targets = prev_targets + (1/24) * actions
     action_scale: float = 1.0 / 24.0
     # PD gains for torque computation (used in reward calculation)
-    kp: float = 3.0
+    kp: float = 1.0
     kd: float = 0.1
 
 
