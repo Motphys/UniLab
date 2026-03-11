@@ -35,8 +35,8 @@ UniLab 采用**统一内存异构运算架构**：
 - [x] @yves 统一仿真后端
 - [x] @yves G1+off-policy调稳定
 - [x] @yves G1 full command space
-- [ ] @yves 增加G1对称性数据增强
-- [ ] @yves 增加非对称观测
+- [x] @yves 增加G1对称性数据增强
+- [ ] @yves 增加AC非对称观测
 - [ ] @ymr  增加灵巧操作案例
 - [ ] @czx  把 FastTD3+Go2 调稳定
 - [ ] @jdx  适配 mimic/amp 算法，支持人形Whole-Body Tracking
