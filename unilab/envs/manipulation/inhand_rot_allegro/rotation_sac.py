@@ -57,15 +57,16 @@ from unilab.envs.manipulation.inhand_rot_allegro.base import AllegroBaseCfg, All
 
 
 @dataclass
-class RewardConfig:
+class RewardConfigSac:
     scales: dict[str, float] = field(
         default_factory=lambda: {
-            "rotate":      1.25,   # angular velocity along target rotation axis
-            "obj_linvel": -0.3,    # penalise object linear motion (keep it stable)
-            "pose_diff":  -0.3,    # penalise drift from initial grasp pose
-            "torque":     -0.1,    # penalise large joint effort
-            "work":       -2.0,    # penalise mechanical work done
-            "drop":       0.0, # one-time drop penalty (effective = -200 * ctrl_dt = -10)
+            "rotate":      0,        # angular velocity along target rotation axis
+            "alive":       10.0,     # constant reward for keeping the ball (not dropping)
+            "obj_linvel": -0.0,      # penalise object linear motion (keep it stable)
+            "pose_diff":  -0.0,      # penalise drift from initial grasp pose
+            "torque":     -0.0,      # penalise large joint effort
+            "work":       -0.0,      # penalise mechanical work done
+            "drop":       -4000.0,   # one-time drop penalty (effective = -4000 * ctrl_dt = -200)
         }
     )
     # Rotation reward clipped to [angvel_clip_min, angvel_clip_max] rad/s
@@ -77,7 +78,7 @@ class RewardConfig:
 
 
 @dataclass
-class DomainRandConfig:
+class DomainRandConfigSac:
     # Small random perturbation added to each joint at reset (rad).
     joint_noise: float = 0.00
     # Random linear velocity injected into ball at reset (m/s).
@@ -86,13 +87,13 @@ class DomainRandConfig:
     ball_z_offset: float = 0.0
 
 
-@registry.envcfg("AllegroInhandRotation")
+@registry.envcfg("AllegroInhandRotationSac")
 @dataclass
-class AllegroRotationCfg(AllegroBaseCfg):
+class AllegroRotationSacCfg(AllegroBaseCfg):
     model_file: str = str(epath.Path(__file__).parent / "xml" / "scene.xml")
     max_episode_seconds: float = 20.0 # same as HORA
-    reward_config: RewardConfig = field(default_factory=RewardConfig)
-    domain_rand: DomainRandConfig = field(default_factory=DomainRandConfig)
+    reward_config: RewardConfigSac = field(default_factory=RewardConfigSac)
+    domain_rand: DomainRandConfigSac = field(default_factory=DomainRandConfigSac)
 
     # World-frame unit vector around which to reward rotation.
     # Default (+z) = counterclockwise when viewed from above.
@@ -109,10 +110,10 @@ class AllegroRotationCfg(AllegroBaseCfg):
 # ─────────────────────────── Environment ──────────────────────────────
 
 
-@registry.env("AllegroInhandRotation", sim_backend="mujoco")
-class AllegroRotationMj(AllegroBaseMjEnv):
+@registry.env("AllegroInhandRotationSac", sim_backend="mujoco")
+class AllegroRotationSacMj(AllegroBaseMjEnv):
 
-    def __init__(self, cfg: AllegroRotationCfg, num_envs: int = 1, backend_type: str = "mujoco"):
+    def __init__(self, cfg: AllegroRotationSacCfg, num_envs: int = 1, backend_type: str = "mujoco"):
         backend = create_backend(backend_type, cfg.model_file, num_envs, cfg.sim_dt)
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True
@@ -149,6 +150,7 @@ class AllegroRotationMj(AllegroBaseMjEnv):
     def _init_reward_functions(self):
         self._reward_fns = {
             "rotate":      self._reward_rotate,
+            "alive":       self._reward_alive,
             "obj_linvel":  self._reward_obj_linvel,
             "pose_diff":   self._reward_pose_diff,
             "torque":      lambda s: self._reward_torque(s.info),
@@ -166,6 +168,10 @@ class AllegroRotationMj(AllegroBaseMjEnv):
         vec_dot = ball_angvel @ self._rot_axis             # (N,)
         r = self._cfg.reward_config
         return np.clip(vec_dot, r.angvel_clip_min, r.angvel_clip_max)
+
+    def _reward_alive(self, state: NpEnvState) -> np.ndarray:
+        """1.0 per step the ball is still held; 0.0 on the drop step."""
+        return (~state.terminated).astype(self._np_dtype)
 
     def _reward_obj_linvel(self, state: NpEnvState) -> np.ndarray:
         """L1 penalty on ball linear velocity (encourages pure spin, no translation)."""
@@ -247,10 +253,12 @@ class AllegroRotationMj(AllegroBaseMjEnv):
         state.info["obs_lag_history"] = obs_lag_history
 
         terminated = self._update_terminated()
+        state = state.replace(terminated=terminated)
         reward, log = self._compute_rewards(state)
+
+        new_state = state.replace(obs=self._get_obs(state.info), reward=reward)
         state.info["log"] = log
-        obs = self._get_obs(state.info)
-        return state.replace(obs=obs, reward=reward, terminated=terminated)
+        return new_state
 
     def _update_terminated(self) -> np.ndarray:
         ball_z = self.get_ball_pos()[:, 2]   # (N,)
@@ -291,14 +299,14 @@ class AllegroRotationMj(AllegroBaseMjEnv):
         if not self._grasp_cache_loaded:
             if self._cfg.gen_grasp:
                 self._grasp_cache = None
-                print("[AllegroRotationMj] gen_grasp=True — using keyframe reset only")
+                print("[AllegroRotationSacMj] gen_grasp=True — using keyframe reset only")
             else:
                 _default = epath.Path(__file__).parent / "grasps" / "grasp_50k.npy"
                 cache_path = self._cfg.grasp_cache_path or str(_default)
                 if not epath.Path(cache_path).exists():
                     raise FileNotFoundError(f"Grasp cache not found: {cache_path}")
                 self._grasp_cache = np.load(cache_path).astype(np.float64)
-                print(f"[AllegroRotationMj] Loaded {len(self._grasp_cache):,} grasps from {cache_path}")
+                print(f"[AllegroRotationSacMj] Loaded {len(self._grasp_cache):,} grasps from {cache_path}")
             self._grasp_cache_loaded = True
 
         if self._grasp_cache is not None:

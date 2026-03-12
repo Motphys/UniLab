@@ -235,16 +235,8 @@ def play_offpolicy(algo_name: str, args, cfg) -> None:
             state_list.append(np.asarray(env._backend.get_physics_state(), dtype=np.float32).copy())
 
     print("Rendering frames...")
-<<<<<<< HEAD
-    frames = render_many.render_states_get_frames(
-        state_list, env.cfg.model_file, width=1280, height=720, camera_id=-1,
-        cam_distance=args.cam_distance, cam_elevation=args.cam_elevation, cam_azimuth=args.cam_azimuth,
-    )
-    print(f"Saving video to {output_video}...")
-=======
     frames = render_many.render_states_get_frames(state_list, env.cfg.model_file, width=1280, height=720, camera_id=-1)
     print(f"Saving video to {output_video} ...")
->>>>>>> ad27abd0ed82fd860a7992cb0b117e745501b04c
     media.write_video(str(output_video), frames, fps=int(1.0 / env.cfg.ctrl_dt))
     print("Done.")
 
@@ -255,7 +247,7 @@ def main() -> None:
     args = parser.parse_args()
 
     from unilab.config import locomotion_params, manipulation_params
-    params = manipulation_params if args.task in manipulation_params.DEFAULT_ENV_NUM_BY_TASK else locomotion_params
+    params = manipulation_params if args.task in manipulation_params.KNOWN_TASKS else locomotion_params
     algo_name = args.algo.lower()
     cfg = params.offpolicy_config(algo_name, args.task)
 
