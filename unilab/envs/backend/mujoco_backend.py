@@ -15,7 +15,7 @@ class MuJoCoBackend(SimBackend):
         self._model.opt.timestep = sim_dt
         self._num_envs = num_envs
         self._np_dtype = np_dtype if np_dtype is not None else get_global_dtype()
-
+        self.backend_type = 'mujoco'
         # 线程配置
         thread_override = os.getenv("UNILAB_MUJOCO_STEP_THREADS")
         if thread_override:

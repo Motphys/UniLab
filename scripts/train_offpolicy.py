@@ -79,7 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--load_run", type=str, default="-1", help="Run ID to load or checkpoint path")
     parser.add_argument("--play_env_num", type=int, default=16, help="Number of play envs")
     parser.add_argument("--logger", type=str, default="tensorboard", choices=["tensorboard", "wandb", "none", "no_print"])
-    parser.add_argument("--sim_backend", type=str, default="mujoco", choices=["mujoco", "motrix"], help="Simulation backend")
+    parser.add_argument("--sim_backend", type=str, default="mujoco", choices=["mujoco", "motrix", "motrix_numba"], help="Simulation backend")
     return parser
 
 def build_runner(algo_name: str, args, cfg):
@@ -181,7 +181,7 @@ def play_offpolicy(algo_name: str, args, cfg) -> None:
     obs_np = np.asarray(obs_out, dtype=np.float32)
 
     # Use Motrix native rendering
-    if args.sim_backend == "motrix":
+    if args.sim_backend == "motrix" or args.sim_backend == "motrix_numba":
         print("Starting interactive visualization (motrix native renderer)...")
         print("Close the render window to exit.")
         env._backend.init_renderer()
@@ -237,6 +237,7 @@ def play_offpolicy(algo_name: str, args, cfg) -> None:
     media.write_video(str(output_video), frames, fps=int(1.0 / env.cfg.ctrl_dt))
     print("Done.")
 
+ 
 
 def main() -> None:
     ensure_registries()

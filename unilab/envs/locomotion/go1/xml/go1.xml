@@ -228,8 +228,15 @@
     <framezaxis objtype="site" objname="imu" name="upvector"/>
     <framelinvel objtype="site" objname="imu" name="global_linvel"/>
     <frameangvel objtype="site" objname="imu" name="global_angvel"/>
-    <framequat objtype="site" objname="imu" name="orientation"/>
+    <framepos objtype="site" objname="FR" name="FR_pos"/>
+    <framepos objtype="site" objname="FL" name="FL_pos"/>
+    <framepos objtype="site" objname="RR" name="RR_pos"/>
+    <framepos objtype="site" objname="RL" name="RL_pos"/>
 
+    <!-- <framepos objtype="site" objname="imu" name="position"/>
+    <framepos objtype="site" objname="imu" name="position"/>
+    <framepos objtype="site" objname="imu" name="position"/>
+    <framepos objtype="site" objname="imu" name="position"/> -->
     <!-- <framelinvel objtype="site" objname="FR" name="FR_global_linvel"/>
     <framelinvel objtype="site" objname="FL" name="FL_global_linvel"/>
     <framelinvel objtype="site" objname="RR" name="RR_global_linvel"/>
