@@ -282,7 +282,7 @@ def main():
         args.env_num = params.get_default_env_num(args.task)
 
     # Load config
-    cfg = params.rsl_rl_config(args.task)
+    cfg = params.ppo_config(args.task)
     
     # Override Max Iterations if timesteps provided
     if args.num_timesteps:

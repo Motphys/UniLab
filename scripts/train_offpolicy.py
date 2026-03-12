@@ -78,8 +78,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no_play", action="store_true", help="Skip play after training")
     parser.add_argument("--load_run", type=str, default="-1", help="Run ID to load or checkpoint path")
     parser.add_argument("--play_env_num", type=int, default=16, help="Number of play envs")
+    parser.add_argument("--play_steps", type=int, default=200, help="Number of steps for play video")
     parser.add_argument("--logger", type=str, default="tensorboard", choices=["tensorboard", "wandb", "none", "no_print"])
     parser.add_argument("--sim_backend", type=str, default="mujoco", choices=["mujoco", "motrix"], help="Simulation backend")
+    parser.add_argument("--cam_distance", type=float, default=6.0, help="Camera distance for play video")
+    parser.add_argument("--cam_elevation", type=float, default=-20.0, help="Camera elevation angle (degrees) for play video")
+    parser.add_argument("--cam_azimuth", type=float, default=90.0, help="Camera azimuth angle (degrees) for play video")
     return parser
 
 def build_runner(algo_name: str, args, cfg):
@@ -220,11 +224,10 @@ def play_offpolicy(algo_name: str, args, cfg) -> None:
     print(f"Rendering video to {output_video}...")
 
     state_list = []
-    num_steps = 150
 
     print("Collecting physics states...")
     with torch.inference_mode():
-        for _ in range(num_steps):
+        for _ in range(args.play_steps):
             obs_torch = torch.from_numpy(obs_np).to(device)
             if normalizer:
                 obs_torch = normalizer(obs_torch, update=False)
@@ -234,7 +237,10 @@ def play_offpolicy(algo_name: str, args, cfg) -> None:
             state_list.append(np.asarray(env._backend.get_physics_state(), dtype=np.float32).copy())
 
     print("Rendering frames...")
-    frames = render_many.render_states_get_frames(state_list, env.cfg.model_file, width=1280, height=720, camera_id=-1)
+    frames = render_many.render_states_get_frames(
+        state_list, env.cfg.model_file, width=1280, height=720, camera_id=-1,
+        cam_distance=args.cam_distance, cam_elevation=args.cam_elevation, cam_azimuth=args.cam_azimuth,
+    )
     print(f"Saving video to {output_video}...")
     media.write_video(str(output_video), frames, fps=int(1.0 / env.cfg.ctrl_dt))
     print("Done.")
@@ -245,9 +251,10 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    from unilab.config.locomotion_params import offpolicy_config
+    from unilab.config import locomotion_params, manipulation_params
+    params = manipulation_params if args.task in manipulation_params.DEFAULT_ENV_NUM_BY_TASK else locomotion_params
     algo_name = args.algo.lower()
-    cfg = offpolicy_config(algo_name, args.task)
+    cfg = params.offpolicy_config(algo_name, args.task)
 
     if args.max_iterations is not None:
         cfg.max_iterations = args.max_iterations

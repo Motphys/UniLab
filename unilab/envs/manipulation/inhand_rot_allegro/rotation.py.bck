@@ -52,7 +52,6 @@ from unilab.envs import registry
 from unilab.envs.np_env import NpEnvState
 from unilab.envs.backend import create_backend
 from unilab.envs.manipulation.inhand_rot_allegro.base import AllegroBaseCfg, AllegroBaseMjEnv
-from unilab.envs.curriculum import EpisodeLengthTracker, PenaltyCurriculum
 
 # ─────────────────────────── Configuration ────────────────────────────
 
@@ -61,13 +60,12 @@ from unilab.envs.curriculum import EpisodeLengthTracker, PenaltyCurriculum
 class RewardConfig:
     scales: dict[str, float] = field(
         default_factory=lambda: {
-            "rotate":      0,    # angular velocity along target rotation axis
-            "alive":       1.0,     # constant reward for keeping the ball (not dropping)
-            "obj_linvel": -0.3,     # penalise object linear motion (keep it stable)
-            "pose_diff":  -0.3,     # penalise drift from initial grasp pose
-            "torque":     -0.1,     # penalise large joint effort
-            "work":       -2.0,     # penalise mechanical work done
-            "drop":       0.0,   # one-time drop penalty (effective = -10 * ctrl_dt = -0.5)
+            "rotate":      1.25,   # angular velocity along target rotation axis
+            "obj_linvel": -0.3,    # penalise object linear motion (keep it stable)
+            "pose_diff":  -0.3,    # penalise drift from initial grasp pose
+            "torque":     -0.1,    # penalise large joint effort
+            "work":       -2.0,    # penalise mechanical work done
+            "drop":       0.0, # one-time drop penalty (effective = -200 * ctrl_dt = -10)
         }
     )
     # Rotation reward clipped to [angvel_clip_min, angvel_clip_max] rad/s
@@ -131,19 +129,6 @@ class AllegroRotationMj(AllegroBaseMjEnv):
         self._grasp_cache = None
         self._grasp_cache_loaded = False
 
-        # Curriculum: start penalties at 10% and ramp up as agent improves.
-        # Thresholds are in steps: max episode = 400 steps (20s / 0.05s ctrl_dt).
-        self._episode_tracker = EpisodeLengthTracker(num_envs)
-        self._penalty_curriculum = PenaltyCurriculum(
-            self, enabled=False,
-            initial_scale=0.1,
-            min_scale=0.1,
-            max_scale=1.0,
-            level_down_threshold=50.0,   # avg < 50 steps → ease penalties
-            level_up_threshold=300.0,    # avg > 300 steps (75% of episode) → tighten penalties
-            degree=0.002,
-        )
-
         self._init_reward_functions()
         self._init_obs_space()
 
@@ -164,7 +149,6 @@ class AllegroRotationMj(AllegroBaseMjEnv):
     def _init_reward_functions(self):
         self._reward_fns = {
             "rotate":      self._reward_rotate,
-            "alive":       self._reward_alive,
             "obj_linvel":  self._reward_obj_linvel,
             "pose_diff":   self._reward_pose_diff,
             "torque":      lambda s: self._reward_torque(s.info),
@@ -182,10 +166,6 @@ class AllegroRotationMj(AllegroBaseMjEnv):
         vec_dot = ball_angvel @ self._rot_axis             # (N,)
         r = self._cfg.reward_config
         return np.clip(vec_dot, r.angvel_clip_min, r.angvel_clip_max)
-
-    def _reward_alive(self, state: NpEnvState) -> np.ndarray:
-        """1.0 per step the ball is still held; 0.0 on the drop step."""
-        return (~state.terminated).astype(self._np_dtype)
 
     def _reward_obj_linvel(self, state: NpEnvState) -> np.ndarray:
         """L1 penalty on ball linear velocity (encourages pure spin, no translation)."""
@@ -267,21 +247,10 @@ class AllegroRotationMj(AllegroBaseMjEnv):
         state.info["obs_lag_history"] = obs_lag_history
 
         terminated = self._update_terminated()
-        state = state.replace(terminated=terminated)
         reward, log = self._compute_rewards(state)
-
-        # Update curriculum whenever episodes end.
-        new_state = state.replace(obs=self._get_obs(state.info), reward=reward)
-        if np.any(new_state.done):
-            done_indices = np.where(new_state.done)[0]
-            episode_lengths = state.info["steps"][done_indices] + 1
-            self._episode_tracker.update(episode_lengths)
-            self._penalty_curriculum.update(self._episode_tracker.average_length)
-            log["curriculum/avg_episode_length"] = float(self._episode_tracker.average_length)
-            log["curriculum/penalty_scale"] = float(self._penalty_curriculum.current_scale)
-
         state.info["log"] = log
-        return new_state
+        obs = self._get_obs(state.info)
+        return state.replace(obs=obs, reward=reward, terminated=terminated)
 
     def _update_terminated(self) -> np.ndarray:
         ball_z = self.get_ball_pos()[:, 2]   # (N,)

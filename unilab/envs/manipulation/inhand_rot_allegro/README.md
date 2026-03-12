@@ -125,7 +125,7 @@ inhand_rot_allegro/
 
 ## Configuration
 
-Key parameters are in `rotation.py` (`RewardConfig`, `DomainRandConfig`) and `unilab/config/manipulation_params.py` (`rsl_rl_config`).
+Key parameters are in `rotation.py` (`RewardConfig`, `DomainRandConfig`) and `unilab/config/manipulation_params.py` (`ppo_config`).
 
 **PPO hyperparameters** (in `manipulation_params.py`):
 

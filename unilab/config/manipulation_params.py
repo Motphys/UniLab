@@ -11,7 +11,7 @@ def get_default_env_num(env_name: str) -> int:
     return int(DEFAULT_ENV_NUM_BY_TASK.get(env_name, 4096))
 
 
-def rsl_rl_config(env_name: str) -> config_dict.ConfigDict:
+def ppo_config(env_name: str) -> config_dict.ConfigDict:
     """Returns tuned RSL-RL PPO config for the given environment."""
 
     rl_config = config_dict.create(
@@ -66,7 +66,7 @@ def rsl_rl_config(env_name: str) -> config_dict.ConfigDict:
     )
 
     if env_name == "AllegroInhandRotation":
-        rl_config.max_iterations = 500
+        rl_config.max_iterations = 501
         rl_config.num_steps_per_env = 8
         rl_config.algorithm.num_mini_batches = 4
         rl_config.algorithm.learning_rate = 1.0e-3
@@ -77,3 +77,101 @@ def rsl_rl_config(env_name: str) -> config_dict.ConfigDict:
         rl_config.algorithm.desired_kl = 0.02
 
     return rl_config
+
+
+def offpolicy_config(algo: str, env_name: str) -> config_dict.ConfigDict:
+    """Return a unified off-policy config schema for SAC/TD3.
+
+    Common keys are aligned across algorithms to make training infra reusable.
+    Algo-specific options are stored under ``algo_params``.
+    """
+    algo_name = algo.lower()
+    if algo_name == "sac":
+        cfg = config_dict.create(
+            algo="sac",
+            algo_log_name="fast_sac",
+            seed=1,
+            num_envs=4096,
+            batch_size=8192,
+            replay_buffer_n=512,
+            updates_per_step=4,
+            warmup_steps=1000,
+            policy_frequency=4,
+            env_steps_per_sync=1,
+            max_iterations=1500,
+            save_interval=500,
+            gamma=0.97,
+            tau=0.125,
+            actor_lr=3e-4,
+            critic_lr=3e-4,
+            actor_hidden_dim=512, # To be check
+            critic_hidden_dim=768, # To be check
+            num_atoms=101,
+            obs_normalization=True,
+            use_layer_norm=True,
+            algo_params=config_dict.create(
+                alpha_lr=3e-4,
+                alpha_init=0.01,
+                target_entropy_ratio=0.0,
+                max_grad_norm=0.0,
+            ),
+        )
+
+        if env_name == "AllegroInhandRotation":
+            cfg.num_envs = 4096
+            cfg.batch_size = 8192
+            cfg.replay_buffer_n = 1024
+            cfg.updates_per_step = 4
+            cfg.gamma = 0.97
+            cfg.tau = 0.125
+            cfg.actor_lr = 3e-4
+            # cfg.warmup_steps = 2000
+
+            cfg.algo_params.alpha_init = 0.01
+            cfg.algo_params.target_entropy_ratio = 1.0
+            cfg.algo_params.max_grad_norm = 1.0
+            
+            cfg.obs_normalization = True
+            cfg.max_iterations = 25000
+
+        return cfg
+
+    if algo_name == "td3":
+        cfg = config_dict.create(
+            algo="td3",
+            algo_log_name="fast_td3",
+            seed=1,
+            num_envs=4096,
+            batch_size=8192,
+            replay_buffer_n=1000,
+            updates_per_step=4,
+            warmup_steps=100,
+            policy_frequency=2,
+            env_steps_per_sync=1,
+            max_iterations=5000,
+            save_interval=500,
+            gamma=0.97,
+            tau=0.1,
+            actor_lr=3e-4,
+            critic_lr=3e-4,
+            actor_hidden_dim=256,
+            critic_hidden_dim=512,
+            num_atoms=101,
+            obs_normalization=True,
+            use_layer_norm=False,
+            algo_params=config_dict.create(
+                weight_decay=0.1,
+                v_min=-10.0,
+                v_max=10.0,
+                init_scale=0.01,
+                log_std_min=-0.9,
+                log_std_max=0.0,
+                policy_noise=0.2,
+                noise_clip=0.5,
+                use_cdq=True,
+            ),
+        )
+
+        return cfg
+
+    raise ValueError(f"Unsupported off-policy algo: {algo}")
