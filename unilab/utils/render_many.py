@@ -22,8 +22,14 @@ def get_grid_offsets(num_envs, spacing=1.0):
 # Worker global context
 _worker_ctx = {}
 
+def _close_worker():
+    """Explicitly close the renderer in the worker context."""
+    if 'renderer' in _worker_ctx:
+        _worker_ctx['renderer'].close()
+
 def init_worker(model_path, shape):
     """Initialize MuJoCo context for worker process."""
+    import atexit
     # Ensure EGL is used in spawned worker processes (headless server support)
     os.environ.setdefault('MUJOCO_GL', 'egl')
     _worker_ctx['model'] = mujoco.MjModel.from_xml_path(model_path)
@@ -32,6 +38,7 @@ def init_worker(model_path, shape):
 
     _worker_ctx['data'] = mujoco.MjData(_worker_ctx['model'])
     _worker_ctx['renderer'] = mujoco.Renderer(_worker_ctx['model'], height=shape[1], width=shape[0])
+    atexit.register(_close_worker)
 
 def render_frame_job(args):
     """
@@ -214,8 +221,7 @@ def render_states_get_frames(state_list, model_path, width=1280, height=720, num
                 res = render_frame_job(task)
                 frames.append(res)
         finally:
-            # Cleanup context if needed? global _worker_ctx
-            pass
+            _close_worker()
     else:
         # Use multiprocessing Pool
         # On macOS, use spawn to avoid forking OpenGL/MuJoCo contexts.

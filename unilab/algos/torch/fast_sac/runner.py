@@ -35,6 +35,7 @@ class FastSACRunner(OffPolicyRunner):
         max_grad_norm: float = 0.0,
         sim_backend: str = "mujoco",
         use_gpu_buffer: bool = True,
+        use_symmetry: bool = False,
     ):
         from unilab.envs import registry
         from unilab.utils.algo_utils import ensure_registries
@@ -44,6 +45,10 @@ class FastSACRunner(OffPolicyRunner):
         env = registry.make(env_name, num_envs=1, sim_backend=sim_backend)
         obs_dim = env.observation_space.shape[0]
         action_dim = env.action_space.shape[0]
+        mujoco_model = getattr(env, '_backend', None)
+        if mujoco_model is not None:
+            mujoco_model = getattr(mujoco_model, 'model', None)
+        obs_structure = getattr(env, 'get_obs_structure', lambda: None)()
         env.close()
 
         if device is None:
@@ -65,7 +70,15 @@ class FastSACRunner(OffPolicyRunner):
             num_atoms=num_atoms,
             use_layer_norm=use_layer_norm,
             max_grad_norm=max_grad_norm,
+            use_symmetry=use_symmetry,
+            mujoco_model=mujoco_model,
+            obs_structure=obs_structure,
         )
+
+        # Auto-adjust batch_size when symmetry is enabled
+        if use_symmetry:
+            batch_size = batch_size // 2
+            print(f"[FastSAC] Symmetry enabled: batch_size adjusted to {batch_size} (effective: {batch_size * 2})")
 
         super().__init__(
             learner=learner,
