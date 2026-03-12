@@ -34,6 +34,7 @@ class NpEnv(ABEnv):
         self._backend = backend
         self._num_envs = num_envs
         self._state = None
+        self.step_counter = 0
 
     @property
     def cfg(self) -> EnvCfg:
@@ -67,6 +68,8 @@ class NpEnv(ABEnv):
             self.init_state()
 
         ctrl = self.apply_action(actions, self._state)
+        
+        self.push_robots()
 
         t0 = time.perf_counter()
         self._backend.step(ctrl, self._cfg.sim_substeps)
@@ -77,7 +80,7 @@ class NpEnv(ABEnv):
         update_state_time = time.perf_counter() - t0
 
         self._state.info["steps"] += 1
-
+        self.step_counter += 1
         if self._cfg.max_episode_steps:
             np.greater_equal(self._state.info["steps"], self._cfg.max_episode_steps, out=self._state.truncated)
 
@@ -129,6 +132,10 @@ class NpEnv(ABEnv):
     @abc.abstractmethod
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
         """子类实现：action → ctrl"""
+
+    @abc.abstractmethod
+    def push_robots(self) -> None:
+        """子类实现"""
 
     @abc.abstractmethod
     def update_state(self, state: NpEnvState) -> NpEnvState:

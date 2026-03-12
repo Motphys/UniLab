@@ -41,6 +41,19 @@ class Sensor:
     local_linvel = "local_linvel"
     gyro = "gyro"
 
+@dataclass
+class Domain_Rand:
+        # randomize_friction = True
+        # friction_range = [0.5, 1.25]
+        randomize_base_mass = False
+        added_mass_range = [-1.5, 1.5]
+
+        random_com = False
+        com_offset_x = [-0.05, 0.05]
+
+        push_robots = False
+        push_interval = 750 #step
+        max_force = [1, 1, 0.5]
 
 @dataclass
 class Go1BaseCfg(EnvCfg):
@@ -65,6 +78,11 @@ class Go1BaseEnv(NpEnv):
         self._init_action_space()
         self._num_action = self._action_space.shape[0]
         self._init_buffers()
+        self.push_robots_flag = False
+        if self._backend.backend_type == 'motrix':
+            self._backend._process_rigid_body_props(cfg)
+            if self._cfg.domain_rand.push_robots == True:
+                self.push_robots_flag = True
 
     def _init_action_space(self):
         model = self._backend.model
@@ -103,6 +121,11 @@ class Go1BaseEnv(NpEnv):
             self._init_qvel = np.zeros((model.num_dof_vel,), dtype=dtype)
         else:
             raise ValueError("No keyframe found in model. Model must have either MuJoCo key_qpos or Motrix keyframes.")
+
+    def push_robots(self):
+        if self.push_robots_flag == True:
+            if self.step_counter % self._cfg.domain_rand.push_interval == 0:
+                self._backend.push_robots(self._cfg.domain_rand.max_force)
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
         state.info["last_actions"] = state.info.get("current_actions", np.zeros_like(actions))

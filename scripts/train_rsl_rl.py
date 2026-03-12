@@ -262,7 +262,7 @@ def main():
     parser.add_argument("--play_only", action="store_true", help="Skip training, only play")
     parser.add_argument("--no_play", action="store_true", help="Skip play after training")
     parser.add_argument("--load_run", type=str, default="-1", help="Run ID to load or path")
-    parser.add_argument("--env_num", type=int, default=None, help="Number of training envs (task default if unset)")
+    parser.add_argument("--env_num", type=int, default=4096, help="Number of training envs (task default if unset)")
     parser.add_argument("--play_env_num", type=int, default=16, help="Number of play envs")
     parser.add_argument("--play_steps", type=int, default=200, help="Number of steps for play video")
     parser.add_argument("--num_timesteps", type=int, default=None, help="Overwritten total timesteps")
