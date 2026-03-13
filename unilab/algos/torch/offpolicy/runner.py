@@ -176,6 +176,7 @@ class OffPolicyRunner(AsyncRunner):
             iter_start = time.time()
 
             # Wait for data
+            wait_start = time.time()
             if self.sync_collection and collection_ready_queue:
                 import queue
                 while True:
@@ -202,10 +203,12 @@ class OffPolicyRunner(AsyncRunner):
                     time.sleep(0.1)
                     self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
 
+            wait_time = time.time() - wait_start
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
             collect_time = time.time() - iter_start
 
             train_start = time.time()
+            sample_start = time.time()
             from collections import defaultdict
             iter_metrics = defaultdict(list)
             ptr_before = int(replay_buffer.ptr[0])
@@ -215,6 +218,9 @@ class OffPolicyRunner(AsyncRunner):
 
             # Sample from torch buffer (zero-copy on CUDA/MPS)
             large_batch = replay_buffer.sample(self.batch_size * self.updates_per_step)
+            sample_time = time.time() - sample_start
+
+            update_start = time.time()
 
             for update_idx in range(self.updates_per_step):
                 s = update_idx * self.batch_size
@@ -232,11 +238,15 @@ class OffPolicyRunner(AsyncRunner):
 
                 learner.soft_update_target()
 
+            update_time = time.time() - update_start
+            sync_start = time.time()
+
             if self.obs_normalization and getattr(self.learner, "obs_normalizer", None) is not None:
                 shared_obs_normalizer_stats.put((self.learner.obs_normalizer.mean.cpu().numpy(), self.learner.obs_normalizer.std.cpu().numpy()))
 
             self.learner.update_count += 1
             weight_sync.write_weights(self.learner.actor.state_dict())
+            sync_time = time.time() - sync_start
             train_time = time.time() - train_start
 
             if self.sync_collection and trainer_done_queue:
@@ -258,6 +268,12 @@ class OffPolicyRunner(AsyncRunner):
                 reward_components=latest_reward_components,
                 collect_time=collect_time,
                 train_time=train_time,
+                timing_breakdown={
+                    "wait_time_ms": wait_time * 1000,
+                    "sample_time_ms": sample_time * 1000,
+                    "update_time_ms": update_time * 1000,
+                    "sync_time_ms": sync_time * 1000,
+                },
             )
 
             if save_interval > 0 and iteration % save_interval == 0:

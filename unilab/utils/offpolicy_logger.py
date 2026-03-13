@@ -285,6 +285,7 @@ class OffPolicyLogger:
         collect_time: float = 0.0,
         train_time: float = 0.0,
         extra_info: dict | None = None,
+        timing_breakdown: dict | None = None,
     ):
         """Log one training iteration."""
         self._iteration = iteration
@@ -303,7 +304,7 @@ class OffPolicyLogger:
         self._refresh()
 
         # ---- Write to backend ----
-        self._backend_log_step(iteration, metrics, reward, reward_components, collect_time, train_time)
+        self._backend_log_step(iteration, metrics, reward, reward_components, collect_time, train_time, timing_breakdown)
 
     def _backend_log_step(
         self,
@@ -313,6 +314,7 @@ class OffPolicyLogger:
         reward_components: dict[str, float] | None,
         collect_time: float,
         train_time: float,
+        timing_breakdown: dict | None = None,
     ):
         """Write metrics to TensorBoard / W&B."""
         global_step = self._total_steps if self._total_steps > 0 else iteration
@@ -332,6 +334,11 @@ class OffPolicyLogger:
                 w.add_scalar("episode/length", self._mean_ep_length, global_step)
             w.add_scalar("perf/collect_time_ms", collect_time * 1000, global_step)
             w.add_scalar("perf/train_time_ms", train_time * 1000, global_step)
+
+            if timing_breakdown:
+                for k, v in timing_breakdown.items():
+                    w.add_scalar(f"perf/{k}", v, global_step)
+
             w.add_scalar("perf/collector_env_step_total_ms", self._collector_env_step_ms, global_step)
             w.add_scalar("perf/collector_step_core_ms", self._collector_step_core_ms, global_step)
             w.add_scalar("perf/collector_update_state_ms", self._collector_update_state_ms, global_step)
