@@ -106,6 +106,7 @@ class RslRlVecEnvWrapper:
         if hasattr(state, "info") and "log" in state.info:
             infos["log"] = state.info["log"]
         
+        
         obs_dict = TensorDict(
             {"policy": obs}, 
             batch_size=self.num_envs, 
@@ -143,7 +144,50 @@ class RslRlVecEnvWrapper:
         obs = to_torch(self.env.state.obs, self.device)
         return obs
 
+def RslRlAacVecEnvWrapper(RslRlVecEnvWrapper): #Asymmetric Actor-Critic
+    def step(self, actions):
+        # Convert actions to numpy (CPU)
+        if isinstance(actions, torch.Tensor):
+            actions_np = actions.detach().cpu().numpy()
+        else:
+            actions_np = actions
+            
+        # Step the environment
+        state = self.env.step(actions_np)
+        
+        # Convert output to torch tensors on target device
+        obs = to_torch(state.obs, self.device)
+        rewards = to_torch(state.reward, self.device)
+        dones = to_torch(state.done, self.device).bool()
+        
+        # Update logging info
+        self.episode_returns += rewards
+        self.episode_lengths += 1
+        
+        infos = {}
+        # Check for dones
+        done_indices = torch.nonzero(dones).flatten()
+        if len(done_indices) > 0:
+            # Handle limits and timeouts (RSL-RL expects 'time_outs' in extras/infos)
+            if hasattr(state, "truncated"):
+                infos["time_outs"] = to_torch(state.truncated, self.device).bool()
+            
+            # Reset buffers for done envs
+            self.episode_returns[done_indices] = 0
+            self.episode_lengths[done_indices] = 0
 
+        # Pass per-step logs if available (gs_playground style)
+        # prioritizing 'log' over 'episode' allows per-step metric logging
+        if hasattr(state, "info") and "log" in state.info:
+            infos["log"] = state.info["log"]
+        
+        obs_dict = TensorDict(
+            {"policy": obs}, 
+            batch_size=self.num_envs, 
+            device=self.device
+        )
+        
+        return obs_dict, rewards, dones, infos
 
 
 def play_rsl_rl(args, cfg, device):

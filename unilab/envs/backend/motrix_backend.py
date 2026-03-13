@@ -49,9 +49,7 @@ class MotrixBackend(SimBackend):
         ex_force[:, 0] *= force_range[0]
         ex_force[:, 1] *= force_range[1]
         ex_force[:, 2] *= force_range[2]
-        self._body_link.add_external_force(self._data, ex_force, local=True)
-        print(ex_force)
-        
+        self._body_link.add_external_force(self._data, ex_force, local=True)  
 
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> None:
         self._data.actuator_ctrls = np.ascontiguousarray(ctrl)
