@@ -343,8 +343,8 @@ class OffPolicyLogger:
             w.add_scalar("perf/collector_step_core_ms", self._collector_step_core_ms, global_step)
             w.add_scalar("perf/collector_update_state_ms", self._collector_update_state_ms, global_step)
             w.add_scalar("perf/collector_reset_done_ms", self._collector_reset_done_ms, global_step)
-            w.add_scalar("perf/timeout_rate", self._timeout_rate, global_step)
-            w.add_scalar("perf/terminated_rate", self._terminated_rate, global_step)
+            w.add_scalar("perf/rate_timeout", self._timeout_rate, global_step)
+            w.add_scalar("perf/rate_terminated", self._terminated_rate, global_step)
             elapsed = time.time() - self._start_time if self._start_time else 0
             if elapsed > 0 and self._total_steps > 0:
                 w.add_scalar("perf/steps_per_sec", self._total_steps / elapsed, global_step)

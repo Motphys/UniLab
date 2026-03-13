@@ -283,11 +283,11 @@ class OffPolicyRunner(AsyncRunner):
                 collect_time=collect_time,
                 train_time=train_time,
                 timing_breakdown={
-                    "wait_time_ms": wait_time * 1000,
-                    "sample_time_ms": sample_time * 1000,
-                    "update_time_ms": update_time * 1000,
-                    "sync_time_ms": sync_time * 1000,
-                    "cuda_compute_ms": cuda_time,
+                    "time_ms_wait": wait_time * 1000,
+                    "time_ms_sample": sample_time * 1000,
+                    "time_ms_update": update_time * 1000,
+                    "time_ms_sync": sync_time * 1000,
+                    "time_ms_cuda": cuda_time,
                 },
             )
 
