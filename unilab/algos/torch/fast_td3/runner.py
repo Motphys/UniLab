@@ -11,7 +11,6 @@ class FastTD3Runner(OffPolicyRunner):
         self,
         env_name: str,
         device: str | None = None,
-        collector_device: str | None = None,
         num_envs: int = 4096,
         replay_buffer_n: int = 1000,
         batch_size: int = 8192,
@@ -40,7 +39,6 @@ class FastTD3Runner(OffPolicyRunner):
         use_cdq: bool = True,
         obs_normalization: bool = True,
         sim_backend: str = "mujoco",
-        use_gpu_buffer: bool = True,
     ):
         obs_dim, action_dim = self._detect_obs_action_dims(env_name, sim_backend)
         learner = FastTD3Learner(
@@ -82,12 +80,10 @@ class FastTD3Runner(OffPolicyRunner):
             sync_collection=sync_collection,
             env_steps_per_sync=env_steps_per_sync,
             device=device,
-            collector_device=collector_device,
             actor_hidden_dim=actor_hidden_dim,
             use_layer_norm=False,
             obs_normalization=obs_normalization,
             sim_backend=sim_backend,
-            use_gpu_buffer=use_gpu_buffer,
         )
 
     @staticmethod

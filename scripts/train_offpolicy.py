@@ -70,7 +70,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max_iterations", type=int, default=None, help="Override max iterations from config")
     parser.add_argument("--num_envs", type=int, default=None, help="Override num_envs from config")
     parser.add_argument("--device", type=str, default=None)
-    parser.add_argument("--collector_device", type=str, default=None)
     parser.add_argument("--log_dir", type=str, default=None)
     parser.add_argument("--no_sync_collection", action="store_true", help="Disable collection sync (async mode)")
     parser.add_argument("--env_steps_per_sync", type=int, default=1, help="Collector env.step calls before learner phase")
@@ -84,15 +83,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def build_runner(algo_name: str, args, cfg):
     """Build algorithm runner from unified config."""
-    collector_device = args.collector_device or "cpu"
-    if collector_device == "gpu":
-        import torch
-        collector_device = "mps" if torch.backends.mps.is_available() else "cuda"
-
     if algo_name == "sac":
         from unilab.algos.torch.fast_sac.runner import FastSACRunner
         return FastSACRunner(
-            env_name=args.task, device=args.device, collector_device=collector_device,
+            env_name=args.task, device=args.device,
             num_envs=cfg.num_envs, replay_buffer_n=cfg.replay_buffer_n, batch_size=cfg.batch_size,
             warmup_steps=cfg.warmup_steps, updates_per_step=cfg.updates_per_step,
             policy_frequency=cfg.policy_frequency, gamma=cfg.gamma, tau=cfg.tau,
@@ -108,7 +102,7 @@ def build_runner(algo_name: str, args, cfg):
     if algo_name == "td3":
         from unilab.algos.torch.fast_td3.runner import FastTD3Runner
         return FastTD3Runner(
-            env_name=args.task, device=args.device, collector_device=collector_device,
+            env_name=args.task, device=args.device,
             num_envs=cfg.num_envs, replay_buffer_n=cfg.replay_buffer_n, batch_size=cfg.batch_size,
             warmup_steps=cfg.warmup_steps, num_updates=cfg.updates_per_step,
             policy_frequency=cfg.policy_frequency, sync_collection=not args.no_sync_collection,

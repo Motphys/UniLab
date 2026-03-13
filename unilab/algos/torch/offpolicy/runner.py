@@ -5,7 +5,8 @@ import time
 import torch
 from collections import deque
 
-from unilab.ipc import SharedReplayBuffer, SharedWeightSync, SharedObsNormStats
+from unilab.ipc import SharedWeightSync, SharedObsNormStats
+from unilab.ipc.replay_buffer import ReplayBuffer
 from unilab.ipc.async_runner import AsyncRunner
 from unilab.algos.torch.offpolicy.worker import off_policy_collector_fn
 from unilab.utils.offpolicy_logger import OffPolicyLogger
@@ -29,19 +30,17 @@ class OffPolicyRunner(AsyncRunner):
         sync_collection: bool = True,
         env_steps_per_sync: int = 1,
         device: str = None,
-        collector_device: str = None,
         actor_hidden_dim: int = 512,
         use_layer_norm: bool = True,
         obs_normalization: bool = False,
         sim_backend: str = "mujoco",
-        use_gpu_buffer: bool = True,
     ):
         super().__init__(
             env_name=env_name,
             env_cfg_overrides={},
             rl_cfg={},
             device=device,
-            collector_device=collector_device or "cpu",
+            collector_device="cpu",
             num_envs=num_envs,
             sim_backend=sim_backend,
         )
@@ -58,7 +57,6 @@ class OffPolicyRunner(AsyncRunner):
         self.actor_hidden_dim = actor_hidden_dim
         self.use_layer_norm = use_layer_norm
         self.obs_normalization = obs_normalization
-        self.use_gpu_buffer = use_gpu_buffer and device != "cpu"
 
         self.obs_dim, self.action_dim = self._detect_dims()
 
@@ -90,27 +88,15 @@ class OffPolicyRunner(AsyncRunner):
         """Unified training loop for off-policy algorithms."""
         os.makedirs(log_dir, exist_ok=True)
 
-        # Setup shared buffer
+        # Setup replay buffer
         buffer_capacity = self.replay_buffer_n * self.num_envs
-        shared_buffer = SharedReplayBuffer(
+        replay_buffer = ReplayBuffer(
             capacity=buffer_capacity,
             obs_dim=self.obs_dim,
             action_dim=self.action_dim,
-            create=True,
+            device=self.device,
         )
-        self._shared_resources.append(shared_buffer)
-
-        # Setup GPU buffer if enabled
-        gpu_buffer = None
-        if self.use_gpu_buffer:
-            from unilab.ipc import GPUReplayBuffer
-            gpu_buffer = GPUReplayBuffer(
-                capacity=buffer_capacity,
-                obs_dim=self.obs_dim,
-                action_dim=self.action_dim,
-                device=self.device,
-            )
-            print(f"[Runner] GPU buffer enabled on {self.device}")
+        self._shared_resources.append(replay_buffer)
 
         # Setup weight sync
         weight_sync = SharedWeightSync.from_state_dict(
@@ -139,20 +125,15 @@ class OffPolicyRunner(AsyncRunner):
         collector_kwargs = {
             "env_name": self.env_name,
             "num_envs": self.num_envs,
-            "shm_buffer_name": shared_buffer.name,
-            "buffer_capacity": buffer_capacity,
-            "obs_dim": self.obs_dim,
-            "action_dim": self.action_dim,
+            "replay_buffer": replay_buffer,
             "weight_sync_name": weight_sync.name,
             "weight_sync_lock": weight_sync._lock,
             "weight_param_shapes": weight_param_shapes,
             "algo_type": self.algo_type,
             "actor_hidden_dim": self.actor_hidden_dim,
             "use_layer_norm": self.use_layer_norm,
-            "collector_device": self.collector_device,
             "warmup_steps": self.warmup_steps,
             "metrics_queue": metrics_queue,
-            "buffer_lock": shared_buffer._lock,
             "sync_collection": self.sync_collection,
             "collection_ready_queue": collection_ready_queue,
             "trainer_done_queue": trainer_done_queue,
@@ -208,13 +189,13 @@ class OffPolicyRunner(AsyncRunner):
                             logger.finish()
                             return
             else:
-                while shared_buffer.size < self.batch_size:
+                while int(replay_buffer.size[0]) < self.batch_size:
                     if not self._check_collector_alive():
                         self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
                         logger.log_status("[red]ERROR: Collector died[/]")
                         logger.finish()
                         return
-                    cur_size = shared_buffer.size
+                    cur_size = int(replay_buffer.size[0])
                     if cur_size - last_buf_log >= self.num_envs * 10:
                         last_buf_log = cur_size
                         logger.log_buffer_fill(cur_size, self.batch_size)
@@ -227,22 +208,13 @@ class OffPolicyRunner(AsyncRunner):
             train_start = time.time()
             from collections import defaultdict
             iter_metrics = defaultdict(list)
-            ptr_before = shared_buffer.ptr
+            ptr_before = int(replay_buffer.ptr[0])
 
             # Local variable for faster access in hot loop
             learner = self.learner
 
-            # Sample from GPU buffer or host buffer
-            if gpu_buffer is not None:
-                # Sync new data before sampling
-                gpu_buffer.sync_new_data(shared_buffer)
-
-                if gpu_buffer.size >= self.batch_size * self.updates_per_step:
-                    large_batch = gpu_buffer.sample(self.batch_size * self.updates_per_step)
-                else:
-                    large_batch = shared_buffer.sample_torch(self.batch_size * self.updates_per_step, self.device)
-            else:
-                large_batch = shared_buffer.sample_torch(self.batch_size * self.updates_per_step, self.device)
+            # Sample from torch buffer (zero-copy on CUDA/MPS)
+            large_batch = replay_buffer.sample(self.batch_size * self.updates_per_step)
 
             for update_idx in range(self.updates_per_step):
                 s = update_idx * self.batch_size
@@ -270,7 +242,7 @@ class OffPolicyRunner(AsyncRunner):
             if self.sync_collection and trainer_done_queue:
                 trainer_done_queue.put(1)
 
-            write_delta = shared_buffer.ptr - ptr_before
+            write_delta = int(replay_buffer.ptr[0]) - ptr_before
             consume = self.batch_size * self.updates_per_step
             write_read_ema = 0.9 * write_read_ema + 0.1 * (write_delta / max(consume, 1))
             logger.update_buffer_utilization(write_read_ema)

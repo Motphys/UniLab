@@ -11,7 +11,6 @@ class FastSACRunner(OffPolicyRunner):
         self,
         env_name: str,
         device: str = None,
-        collector_device: str = None,
         num_envs: int = 4096,
         replay_buffer_n: int = 1024,
         batch_size: int = 8192,
@@ -34,7 +33,6 @@ class FastSACRunner(OffPolicyRunner):
         use_layer_norm: bool = True,
         max_grad_norm: float = 0.0,
         sim_backend: str = "mujoco",
-        use_gpu_buffer: bool = True,
         use_symmetry: bool = False,
     ):
         from unilab.base import registry
@@ -93,10 +91,8 @@ class FastSACRunner(OffPolicyRunner):
             sync_collection=sync_collection,
             env_steps_per_sync=env_steps_per_sync,
             device=device,
-            collector_device=collector_device,
             actor_hidden_dim=actor_hidden_dim,
             use_layer_norm=use_layer_norm,
             obs_normalization=obs_normalization,
             sim_backend=sim_backend,
-            use_gpu_buffer=use_gpu_buffer,
         )
