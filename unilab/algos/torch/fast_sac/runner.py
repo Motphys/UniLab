@@ -32,6 +32,7 @@ class FastSACRunner(OffPolicyRunner):
         num_atoms: int = 101,
         use_layer_norm: bool = True,
         max_grad_norm: float = 0.0,
+        use_amp: bool = False,
         sim_backend: str = "mujoco",
         use_symmetry: bool = False,
     ):
@@ -68,6 +69,7 @@ class FastSACRunner(OffPolicyRunner):
             num_atoms=num_atoms,
             use_layer_norm=use_layer_norm,
             max_grad_norm=max_grad_norm,
+            use_amp=use_amp,
             use_symmetry=use_symmetry,
             mujoco_model=mujoco_model,
             obs_structure=obs_structure,

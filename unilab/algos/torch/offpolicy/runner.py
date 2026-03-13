@@ -176,6 +176,7 @@ class OffPolicyRunner(AsyncRunner):
             iter_start = time.time()
 
             # Wait for data
+            wait_start = time.time()
             if self.sync_collection and collection_ready_queue:
                 import queue
                 while True:
@@ -202,6 +203,7 @@ class OffPolicyRunner(AsyncRunner):
                     time.sleep(0.1)
                     self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
 
+            wait_time = time.time() - wait_start
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
             collect_time = time.time() - iter_start
 
@@ -232,11 +234,14 @@ class OffPolicyRunner(AsyncRunner):
 
                 learner.soft_update_target()
 
+            sync_start = time.time()
+
             if self.obs_normalization and getattr(self.learner, "obs_normalizer", None) is not None:
                 shared_obs_normalizer_stats.put((self.learner.obs_normalizer.mean.cpu().numpy(), self.learner.obs_normalizer.std.cpu().numpy()))
 
             self.learner.update_count += 1
             weight_sync.write_weights(self.learner.actor.state_dict())
+            sync_time = time.time() - sync_start
             train_time = time.time() - train_start
 
             if self.sync_collection and trainer_done_queue:
@@ -258,6 +263,7 @@ class OffPolicyRunner(AsyncRunner):
                 reward_components=latest_reward_components,
                 collect_time=collect_time,
                 train_time=train_time,
+                wait_time=wait_time,
             )
 
             if save_interval > 0 and iteration % save_interval == 0:

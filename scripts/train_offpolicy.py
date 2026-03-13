@@ -79,6 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--play_env_num", type=int, default=16, help="Number of play envs")
     parser.add_argument("--logger", type=str, default="tensorboard", choices=["tensorboard", "wandb", "none", "no_print"])
     parser.add_argument("--sim_backend", type=str, default="mujoco", choices=["mujoco", "motrix", "motrix_numba"], help="Simulation backend")
+    parser.add_argument("--use_amp", action="store_true", help="Enable mixed precision training (FP16)")
     return parser
 
 def build_runner(algo_name: str, args, cfg):
@@ -95,6 +96,7 @@ def build_runner(algo_name: str, args, cfg):
             obs_normalization=cfg.obs_normalization, actor_hidden_dim=cfg.actor_hidden_dim,
             critic_hidden_dim=cfg.critic_hidden_dim, num_atoms=cfg.num_atoms,
             use_layer_norm=cfg.use_layer_norm, max_grad_norm=cfg.algo_params.max_grad_norm,
+            use_amp=args.use_amp,
             sync_collection=not args.no_sync_collection, env_steps_per_sync=cfg.env_steps_per_sync,
             sim_backend=args.sim_backend, use_symmetry=cfg.use_symmetry,
         )
