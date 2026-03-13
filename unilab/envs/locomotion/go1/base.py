@@ -78,11 +78,7 @@ class Go1BaseEnv(NpEnv):
         self._init_action_space()
         self._num_action = self._action_space.shape[0]
         self._init_buffers()
-        self.push_robots_flag = False
-        if self._backend.backend_type == 'motrix':
-            self._backend._process_rigid_body_props(cfg)
-            if self._cfg.domain_rand.push_robots == True:
-                self.push_robots_flag = True
+   
 
     def _init_action_space(self):
         model = self._backend.model

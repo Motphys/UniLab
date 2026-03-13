@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Tuple
 import numpy as np
 import gymnasium as gym
+from typing import Optional
 
 from unilab.envs.base import ABEnv, EnvCfg
 from unilab.envs.backend import SimBackend
@@ -17,6 +18,8 @@ class NpEnvState:
     terminated: np.ndarray
     truncated: np.ndarray
     info: dict
+    critic_obs: Optional[np.ndarray] = None
+    
 
     @property
     def done(self) -> np.ndarray:
@@ -35,6 +38,11 @@ class NpEnv(ABEnv):
         self._num_envs = num_envs
         self._state = None
         self.step_counter = 0
+        self.push_robots_flag = False
+        if self._backend.backend_type == 'motrix':
+            self._backend._process_rigid_body_props(cfg)
+            if self._cfg.domain_rand.push_robots == True:
+                self.push_robots_flag = True
 
     @property
     def cfg(self) -> EnvCfg:
@@ -55,7 +63,7 @@ class NpEnv(ABEnv):
         terminated = np.ones((self._num_envs,), dtype=bool)
         truncated = np.zeros((self._num_envs,), dtype=bool)
         info = {"steps": np.zeros((self._num_envs,), dtype=np.uint32)}
-
+        
         self._state = NpEnvState(obs, reward, terminated, truncated, info)
         self._reset_done_envs()
         return self._state
@@ -128,14 +136,16 @@ class NpEnv(ABEnv):
                         self._state.info[key] = value
                 elif isinstance(value, np.ndarray):
                     self._state.info[key][env_indices] = value
+    
+    def push_robots(self):
+        if self.push_robots_flag == True:
+            if self.step_counter % self._cfg.domain_rand.push_interval == 0:
+                self._backend.push_robots(self._cfg.domain_rand.max_force)
 
     @abc.abstractmethod
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
         """子类实现：action → ctrl"""
 
-    @abc.abstractmethod
-    def push_robots(self) -> None:
-        """子类实现"""
 
     @abc.abstractmethod
     def update_state(self, state: NpEnvState) -> NpEnvState:

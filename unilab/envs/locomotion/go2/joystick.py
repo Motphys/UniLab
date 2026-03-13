@@ -25,6 +25,19 @@ class Commands:
         [0.5, 0.0, 0.0],
     ]
 
+@dataclass
+class Domain_Rand:
+        # randomize_friction = True
+        # friction_range = [0.5, 1.25]
+        randomize_base_mass = True
+        added_mass_range = [-1.5, 1.5]
+
+        random_com = True
+        com_offset_x = [-0.05, 0.05]
+
+        push_robots = True
+        push_interval = 750 #step
+        max_force = [1, 1, 0.5]
 
 @dataclass
 class RewardConfig:
@@ -56,9 +69,11 @@ class Go2JoystickCfg(Go2BaseCfg):
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
     reward_config: RewardConfig = field(default_factory=RewardConfig)
+    domain_rand: Domain_Rand = field(default_factory=Domain_Rand)
 
 
 @registry.env("Go2JoystickFlatTerrain", sim_backend="mujoco")
+@registry.env("Go2JoystickFlatTerrain", sim_backend="motrix")
 class Go2WalkTask(Go2BaseEnv):
     def __init__(self, cfg: Go2JoystickCfg, num_envs=1, backend_type="mujoco"):
         backend = create_backend(backend_type, cfg.model_file, num_envs, cfg.sim_dt, body_name=cfg.asset.body_name)
