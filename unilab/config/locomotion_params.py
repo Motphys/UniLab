@@ -123,6 +123,7 @@ def offpolicy_config(algo: str, env_name: str) -> config_dict.ConfigDict:
         if env_name in ("Go2JoystickFlatTerrain", "Go2LocoFlatTerrain"):
             cfg.num_envs = 1024
         elif env_name in ("Go1JoystickFlatTerrain",):
+            cfg.num_envs = 2048
             cfg.max_iterations = 2000
         elif env_name in ("G1JoystickFlatTerrain",):
             raise NotImplementedError("G1JoystickFlatTerrain config is not implemented for FastSAC, Please use G1WalkTaskMjSAC instead.")

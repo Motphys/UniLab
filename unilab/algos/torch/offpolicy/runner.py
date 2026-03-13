@@ -222,6 +222,13 @@ class OffPolicyRunner(AsyncRunner):
 
             update_start = time.time()
 
+            # CUDA events for accurate GPU timing
+            if self.device == "cuda":
+                torch.cuda.synchronize()
+                cuda_start = torch.cuda.Event(enable_timing=True)
+                cuda_end = torch.cuda.Event(enable_timing=True)
+                cuda_start.record()
+
             for update_idx in range(self.updates_per_step):
                 s = update_idx * self.batch_size
                 e = s + self.batch_size
@@ -237,6 +244,13 @@ class OffPolicyRunner(AsyncRunner):
                         iter_metrics[k].append(v)
 
                 learner.soft_update_target()
+
+            if self.device == "cuda":
+                cuda_end.record()
+                torch.cuda.synchronize()
+                cuda_time = cuda_start.elapsed_time(cuda_end)
+            else:
+                cuda_time = 0.0
 
             update_time = time.time() - update_start
             sync_start = time.time()
@@ -273,6 +287,7 @@ class OffPolicyRunner(AsyncRunner):
                     "sample_time_ms": sample_time * 1000,
                     "update_time_ms": update_time * 1000,
                     "sync_time_ms": sync_time * 1000,
+                    "cuda_compute_ms": cuda_time,
                 },
             )
 
