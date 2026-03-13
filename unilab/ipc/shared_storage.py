@@ -99,7 +99,7 @@ class SharedOnPolicyStorage:
     def read_torch(self, device: str = "cpu"):
         import torch
         views = self.read_buffer
-        return {k: torch.from_numpy(v.copy()).to(device) for k, v in views.items()}
+        return {k: torch.from_numpy(v).to(device) for k, v in views.items()}
 
     def cleanup(self) -> None:
         try:
