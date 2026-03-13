@@ -208,7 +208,6 @@ class OffPolicyRunner(AsyncRunner):
             collect_time = time.time() - iter_start
 
             train_start = time.time()
-            sample_start = time.time()
             from collections import defaultdict
             iter_metrics = defaultdict(list)
             ptr_before = int(replay_buffer.ptr[0])
@@ -218,16 +217,6 @@ class OffPolicyRunner(AsyncRunner):
 
             # Sample from torch buffer (zero-copy on CUDA/MPS)
             large_batch = replay_buffer.sample(self.batch_size * self.updates_per_step)
-            sample_time = time.time() - sample_start
-
-            update_start = time.time()
-
-            # CUDA events for accurate GPU timing
-            if self.device == "cuda":
-                torch.cuda.synchronize()
-                cuda_start = torch.cuda.Event(enable_timing=True)
-                cuda_end = torch.cuda.Event(enable_timing=True)
-                cuda_start.record()
 
             for update_idx in range(self.updates_per_step):
                 s = update_idx * self.batch_size
@@ -245,14 +234,6 @@ class OffPolicyRunner(AsyncRunner):
 
                 learner.soft_update_target()
 
-            if self.device == "cuda":
-                cuda_end.record()
-                torch.cuda.synchronize()
-                cuda_time = cuda_start.elapsed_time(cuda_end)
-            else:
-                cuda_time = 0.0
-
-            update_time = time.time() - update_start
             sync_start = time.time()
 
             if self.obs_normalization and getattr(self.learner, "obs_normalizer", None) is not None:
@@ -282,13 +263,7 @@ class OffPolicyRunner(AsyncRunner):
                 reward_components=latest_reward_components,
                 collect_time=collect_time,
                 train_time=train_time,
-                timing_breakdown={
-                    "time_ms_wait": wait_time * 1000,
-                    "time_ms_sample": sample_time * 1000,
-                    "time_ms_update": update_time * 1000,
-                    "time_ms_sync": sync_time * 1000,
-                    "time_ms_cuda": cuda_time,
-                },
+                wait_time=wait_time,
             )
 
             if save_interval > 0 and iteration % save_interval == 0:
