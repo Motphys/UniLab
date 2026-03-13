@@ -5,12 +5,12 @@ from dataclasses import dataclass, field
 from etils import epath
 import numpy as np
 
-from unilab.envs import registry
-from unilab.envs.backend import create_backend
-from unilab.envs.dtype_config import get_global_dtype
+from unilab.base import registry
+from unilab.base.backend import create_backend
+from unilab.base.dtype_config import get_global_dtype
 from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
 from unilab.envs.locomotion.g1.joystick import G1JoystickPPO, InitState
-from unilab.envs.curriculum import EpisodeLengthTracker, PenaltyCurriculum
+from unilab.base.curriculum import EpisodeLengthTracker, PenaltyCurriculum
 
 
 @dataclass

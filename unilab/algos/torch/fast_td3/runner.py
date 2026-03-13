@@ -101,7 +101,7 @@ class FastTD3Runner(OffPolicyRunner):
 
     @staticmethod
     def _detect_obs_action_dims(env_name: str, sim_backend: str = "mujoco") -> tuple[int, int]:
-        from unilab.envs import registry
+        from unilab.base import registry
         from unilab.utils.algo_utils import ensure_registries
 
         ensure_registries()

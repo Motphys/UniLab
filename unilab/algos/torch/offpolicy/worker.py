@@ -84,7 +84,7 @@ def _run_collector(
     obs_normalization, shared_obs_normalizer_stats, sim_backend
 ):
     from unilab.ipc import SharedReplayBuffer, SharedWeightSync
-    from unilab.envs import registry
+    from unilab.base import registry
 
     ensure_registries()
     

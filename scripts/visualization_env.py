@@ -8,7 +8,7 @@ import time
 import unilab.envs.locomotion.g1
 import unilab.envs.locomotion.go1
 import unilab.envs.locomotion.go2
-from unilab.envs import registry
+from unilab.base import registry
 
 parser = argparse.ArgumentParser(description="Visualize robot tasks")
 parser.add_argument("--task", type=str, default="Go1JoystickFlatTerrain", help="Task name")

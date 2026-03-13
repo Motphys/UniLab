@@ -46,7 +46,7 @@ def ensure_registries():
 
 ensure_registries()
 
-from unilab.envs import registry
+from unilab.base import registry
 from unilab.config import locomotion_params
 from unilab.utils.rsl_rl_compat import is_rsl_rl_v4, convert_config_v3_to_v4
 from unilab.utils.run_utils import get_latest_run

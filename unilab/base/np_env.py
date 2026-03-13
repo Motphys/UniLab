@@ -6,9 +6,9 @@ import numpy as np
 import gymnasium as gym
 from typing import Optional
 
-from unilab.envs.base import ABEnv, EnvCfg
-from unilab.envs.backend import SimBackend
-from unilab.envs.dtype_config import get_global_dtype
+from unilab.base.base import ABEnv, EnvCfg
+from unilab.base.backend import SimBackend
+from unilab.base.dtype_config import get_global_dtype
 
 
 @dataclass

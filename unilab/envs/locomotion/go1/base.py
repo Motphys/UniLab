@@ -5,10 +5,10 @@ import mujoco
 import numpy as np
 from dataclasses import dataclass, field
 
-from unilab.envs.base import EnvCfg
-from unilab.envs.np_env import NpEnv, NpEnvState
-from unilab.envs.backend import SimBackend
-from unilab.envs.dtype_config import get_global_dtype
+from unilab.base.base import EnvCfg
+from unilab.base.np_env import NpEnv, NpEnvState
+from unilab.base.backend import SimBackend
+from unilab.base.dtype_config import get_global_dtype
 
 
 @dataclass

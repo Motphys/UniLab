@@ -48,9 +48,9 @@ def _quat_to_axis_angle(q: np.ndarray) -> np.ndarray:
     )
     return xyz / sin_half_over_angle                           # (N, 3)
 
-from unilab.envs import registry
-from unilab.envs.np_env import NpEnvState
-from unilab.envs.backend import create_backend
+from unilab.base import registry
+from unilab.base.np_env import NpEnvState
+from unilab.base.backend import create_backend
 from unilab.envs.manipulation.inhand_rot_allegro.base import AllegroBaseCfg, AllegroBaseMjEnv
 
 # ─────────────────────────── Configuration ────────────────────────────

@@ -31,7 +31,7 @@ def ensure_registries():
 
 ensure_registries()
 
-from unilab.envs import registry
+from unilab.base import registry
 from unilab.config import locomotion_params, manipulation_params
 from unilab.utils import render_many
 from unilab.utils.torch_utils import to_torch, to_numpy
@@ -193,7 +193,7 @@ def RslRlAacVecEnvWrapper(RslRlVecEnvWrapper): #Asymmetric Actor-Critic
 def play_rsl_rl(args, cfg, device):
     """Play mode for RSL-RL."""
     import torch
-    from unilab.envs import registry
+    from unilab.base import registry
     from unilab.utils.torch_utils import to_numpy
 
     env = registry.make(args.task, num_envs=args.play_env_num, sim_backend=args.sim_backend)

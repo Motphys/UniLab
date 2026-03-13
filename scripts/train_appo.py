@@ -45,7 +45,7 @@ def play_appo(args, rl_cfg):
     import numpy as np
     import mediapy as media
     from tensordict import TensorDict
-    from unilab.envs import registry
+    from unilab.base import registry
     from unilab.utils import render_many
     from rsl_rl.utils import resolve_callable
     from unilab.utils.rsl_rl_compat import is_rsl_rl_v4, convert_config_v3_to_v4
