@@ -12,12 +12,12 @@ UniLab 采用**统一内存异构运算架构**：
 ┌───────────────────┐     统一共享内存     ┌────────────────────┐
 │   CPU 物理仿真    │ ──────────────────▶  │   GPU 策略训练     │
 │  mujoco.rollout   │   SharedReplayBuffer │  PPO / SAC / TD3   │
-│    多线程并行     │     (POSIX shm)      │    CUDA / MPS      │
+│    多线程并行     │  (PyTorch shared)    │    CUDA / MPS      │
 └───────────────────┘                      └────────────────────┘
 ```
 
 - **CPU 仿真**：MuJoCo/Motrix 的 CPU 多线程 step，无需 GPU 仿真内核
-- **统一内存**：Collector 和 Learner 通过共享内存解耦，运行在独立进程
+- **统一内存**：Collector 和 Learner 通过 PyTorch shared tensors 零拷贝通信，运行在独立进程
 - **GPU 训练**：策略网络仍在 GPU 上训练，发挥 GPU 的并行计算优势
 - **硬件无关**：Mac（MPS）、Linux（CUDA）均可运行
 
@@ -25,7 +25,8 @@ UniLab 采用**统一内存异构运算架构**：
 
 ## TODO
 
-- [x] 增加 Bipedal Locomotion 任务
+- [x] @czx 增加 Bipedal Locomotion 任务
+- [x] @czx 增加 APPO
 - [x] @czx 增加 FastTD3 和 FastSAC，torch.mps
 - [x] @czx  写轻量版并行采样，跑满cpu 和 gpu @czx
 - [x] @yves 优化调度器，测试把 rollout 移动到 cpu 的效率提升
@@ -36,15 +37,18 @@ UniLab 采用**统一内存异构运算架构**：
 - [x] @yves G1+off-policy调稳定
 - [x] @yves G1 full command space
 - [x] @yves 增加G1对称性数据增强
-- [ ] @yves 增加AC非对称观测
+- [x] @yves IPC性能优化：PyTorch shared tensors替换POSIX shm
+- [x] @yves GPU利用率分析与优化
+- [x] @yves AMP混合精度训练
+- [ ] @yves 跑通算法迁移: PPO->APPO
+- [ ] @yves 工程化设计 原型级->开发级
 - [ ] @ymr  增加灵巧操作案例
-- [ ] @czx  把 FastTD3+Go2 调稳定
-- [ ] @jdx  适配 mimic/amp 算法，支持人形Whole-Body Tracking
+- [ ] @czx  适配 mimic/amp 算法，支持人形Whole-Body Tracking
 - [ ] @yves mujoco域随机化,需要改 mujoco-uni 源码
+- [ ] @jdx  增加AC非对称观测
 - [ ] @jdx  motrixsim域随机化
 - [ ] @jdx  写onnx导出和sim2sim
 - [ ] @jdx  sim2real
-- [ ] @yves 把稳定的 FastTD3 和 FastSAC 迁移到 mlx
 - [ ] @Motphys 算法适配 motrixsim
 - [ ] @Motphys motrix step 提速
 
@@ -178,7 +182,7 @@ python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain --loa
 | 特性 | 说明 |
 |------|------|
 | **异步多进程** | Collector 进程（CPU 仿真）与 Learner 进程（GPU 训练）独立运行 |
-| **统一共享内存** | 通过 SharedReplayBuffer (POSIX shm) 实现零拷贝数据传输 |
+| **统一共享内存** | 通过 PyTorch shared tensors 实现零拷贝 CPU-GPU 数据传输 |
 | **同步/异步模式** | 支持同步收集（默认）和异步收集两种模式 |
 | **自动 Play** | 训练完成后自动生成回放视频 |
 
