@@ -7,11 +7,11 @@ import gymnasium as gym
 import math
 import numpy as np
 
-from unilab.envs import registry
-from unilab.envs.np_env import NpEnvState
-from unilab.envs.backend import create_backend
+from unilab.base import registry
+from unilab.base.np_env import NpEnvState
+from unilab.base.backend import create_backend
 from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
-from unilab.envs.dtype_config import get_global_dtype
+from unilab.base.dtype_config import get_global_dtype
 from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
 
 

@@ -61,7 +61,7 @@ class APPORunner(AsyncRunner):
 
     def _detect_dims(self):
         """Create a tiny env to read obs/action dims, then close it."""
-        from unilab.envs import registry
+        from unilab.base import registry
         from unilab.utils.algo_utils import ensure_registries
         ensure_registries()
 

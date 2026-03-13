@@ -15,7 +15,7 @@ import numpy as np
 import torch
 import mlx.core as mx
 
-from unilab.envs import registry
+from unilab.base import registry
 
 try:
     from mujoco import mlx_step as mj_mlx_step

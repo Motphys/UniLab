@@ -63,7 +63,7 @@ class OffPolicyRunner(AsyncRunner):
         self.obs_dim, self.action_dim = self._detect_dims()
 
     def _detect_dims(self):
-        from unilab.envs import registry
+        from unilab.base import registry
         from unilab.utils.algo_utils import ensure_registries
         ensure_registries()
         env = registry.make(self.env_name, num_envs=1, sim_backend="mujoco")

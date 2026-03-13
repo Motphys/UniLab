@@ -37,7 +37,7 @@ class FastSACRunner(OffPolicyRunner):
         use_gpu_buffer: bool = True,
         use_symmetry: bool = False,
     ):
-        from unilab.envs import registry
+        from unilab.base import registry
         from unilab.utils.algo_utils import ensure_registries
         import torch
 

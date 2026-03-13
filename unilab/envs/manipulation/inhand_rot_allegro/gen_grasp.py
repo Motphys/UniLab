@@ -52,9 +52,9 @@ def ensure_registries():
 
 ensure_registries()
 
-from unilab.envs import registry  # noqa: E402  (after sys.path setup)
+from unilab.base import registry  # noqa: E402  (after sys.path setup)
 from unilab.utils import render_many  # noqa: E402
-from unilab.envs.dtype_config import get_global_dtype  # noqa: E402
+from unilab.base.dtype_config import get_global_dtype  # noqa: E402
 # Explicit import to guarantee the @registry.env decorator runs,
 # since ensure_registries() silently swallows import errors.
 from unilab.envs.manipulation.inhand_rot_allegro import rotation as _rotation_register
