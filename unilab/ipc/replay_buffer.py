@@ -17,14 +17,20 @@ class ReplayBuffer:
     def __init__(self, capacity: int, obs_dim: int, action_dim: int, device: str):
         self.capacity = capacity
         self.device = device
+        self._obs_dim = obs_dim
+        self._action_dim = action_dim
 
-        # Shared host tensors (IPC)
-        self.obs = torch.zeros(capacity, obs_dim).share_memory_()
-        self.next_obs = torch.zeros(capacity, obs_dim).share_memory_()
-        self.actions = torch.zeros(capacity, action_dim).share_memory_()
-        self.rewards = torch.zeros(capacity).share_memory_()
-        self.dones = torch.zeros(capacity).share_memory_()
-        self.truncated = torch.zeros(capacity).share_memory_()
+        # Single packed host tensor (IPC); layout: [obs | next_obs | actions | rew | done | trunc]
+        total_dim = 2 * obs_dim + action_dim + 3
+        self._storage = torch.zeros(capacity, total_dim).share_memory_()
+
+        c = 0
+        self._obs_sl    = slice(c, c + obs_dim);    c += obs_dim
+        self._nobs_sl   = slice(c, c + obs_dim);    c += obs_dim
+        self._act_sl    = slice(c, c + action_dim); c += action_dim
+        self._rew_col   = c;  c += 1
+        self._done_col  = c;  c += 1
+        self._trunc_col = c
 
         self.ptr = torch.zeros(1, dtype=torch.int64).share_memory_()
         self.size = torch.zeros(1, dtype=torch.int64).share_memory_()
@@ -39,32 +45,50 @@ class ReplayBuffer:
             self.truncated_gpu = torch.empty(capacity, device='cuda')
             self._gpu_synced_ptr = 0
 
+    # ---------------------------------------------------------------------------
+    # Column-view properties — maintain backward-compat for CUDA path and tests
+    # ---------------------------------------------------------------------------
+
+    @property
+    def obs(self):
+        return self._storage[:, self._obs_sl]
+
+    @property
+    def next_obs(self):
+        return self._storage[:, self._nobs_sl]
+
+    @property
+    def actions(self):
+        return self._storage[:, self._act_sl]
+
+    @property
+    def rewards(self):
+        return self._storage[:, self._rew_col]
+
+    @property
+    def dones(self):
+        return self._storage[:, self._done_col]
+
+    @property
+    def truncated(self):
+        return self._storage[:, self._trunc_col]
+
     def add(self, obs, actions, rewards, next_obs, dones, truncated):
         """Add batch (called by collector)."""
         n = obs.shape[0]
         idx = int(self.ptr[0]) % self.capacity
 
+        row = torch.cat([
+            obs, next_obs, actions,
+            rewards.unsqueeze(1), dones.unsqueeze(1), truncated.unsqueeze(1),
+        ], dim=1)
+
         if idx + n <= self.capacity:
-            self.obs[idx:idx+n] = obs
-            self.next_obs[idx:idx+n] = next_obs
-            self.actions[idx:idx+n] = actions
-            self.rewards[idx:idx+n] = rewards
-            self.dones[idx:idx+n] = dones
-            self.truncated[idx:idx+n] = truncated
+            self._storage[idx:idx+n] = row
         else:
             split = self.capacity - idx
-            self.obs[idx:] = obs[:split]
-            self.obs[:n-split] = obs[split:]
-            self.next_obs[idx:] = next_obs[:split]
-            self.next_obs[:n-split] = next_obs[split:]
-            self.actions[idx:] = actions[:split]
-            self.actions[:n-split] = actions[split:]
-            self.rewards[idx:] = rewards[:split]
-            self.rewards[:n-split] = rewards[split:]
-            self.dones[idx:] = dones[:split]
-            self.dones[:n-split] = dones[split:]
-            self.truncated[idx:] = truncated[:split]
-            self.truncated[:n-split] = truncated[split:]
+            self._storage[idx:] = row[:split]
+            self._storage[:n-split] = row[split:]
 
         self.ptr[0] += n
         self.size[0] = min(int(self.size[0]) + n, self.capacity)
@@ -115,11 +139,12 @@ class ReplayBuffer:
                 "truncated": self.truncated_gpu[indices],
             }
         else:
+            chunk = self._storage[indices].to(self.device)
             return {
-                "obs": self.obs[indices].to(self.device),
-                "actions": self.actions[indices].to(self.device),
-                "rewards": self.rewards[indices].to(self.device),
-                "next_obs": self.next_obs[indices].to(self.device),
-                "dones": self.dones[indices].to(self.device),
-                "truncated": self.truncated[indices].to(self.device),
+                "obs":       chunk[:, self._obs_sl],
+                "next_obs":  chunk[:, self._nobs_sl],
+                "actions":   chunk[:, self._act_sl],
+                "rewards":   chunk[:, self._rew_col],
+                "dones":     chunk[:, self._done_col],
+                "truncated": chunk[:, self._trunc_col],
             }
