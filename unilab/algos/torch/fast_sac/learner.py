@@ -11,16 +11,17 @@ Hyperparameters aligned with holosoma FastSACConfig defaults.
 from __future__ import annotations
 
 import math
+from typing import Dict, Tuple
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from typing import Dict, Tuple
-
 
 # ---------------------------------------------------------------------------
 # Actor Network (holosoma-style: SiLU + LayerNorm + Tanh squashing)
 # ---------------------------------------------------------------------------
+
 
 class SACActor(nn.Module):
     """Stochastic actor for SAC with tanh-squashed Gaussian policy.
@@ -103,7 +104,9 @@ class SACActor(nn.Module):
 
         return action, mean, log_std
 
-    def get_actions_and_log_probs(self, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def get_actions_and_log_probs(
+        self, obs: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Sample actions and compute log probabilities. Returns (action, log_prob, log_std)."""
         _, mean, log_std = self(obs)
         std = log_std.exp()
@@ -144,6 +147,7 @@ class SACActor(nn.Module):
 # ---------------------------------------------------------------------------
 # Distributional Q-Network (C51 variant, from holosoma)
 # ---------------------------------------------------------------------------
+
 
 class DistributionalQNetwork(nn.Module):
     """Single distributional Q-network (C51).
@@ -259,19 +263,21 @@ class SACCritic(nn.Module):
         self.v_max = v_max
         self.num_q_networks = num_q_networks
 
-        self.qnets = nn.ModuleList([
-            DistributionalQNetwork(
-                obs_dim=obs_dim,
-                action_dim=action_dim,
-                num_atoms=num_atoms,
-                v_min=v_min,
-                v_max=v_max,
-                hidden_dim=hidden_dim,
-                use_layer_norm=use_layer_norm,
-                device=device,
-            )
-            for _ in range(num_q_networks)
-        ])
+        self.qnets = nn.ModuleList(
+            [
+                DistributionalQNetwork(
+                    obs_dim=obs_dim,
+                    action_dim=action_dim,
+                    num_atoms=num_atoms,
+                    v_min=v_min,
+                    v_max=v_max,
+                    hidden_dim=hidden_dim,
+                    use_layer_norm=use_layer_norm,
+                    device=device,
+                )
+                for _ in range(num_q_networks)
+            ]
+        )
 
         self.register_buffer("q_support", torch.linspace(v_min, v_max, num_atoms, device=device))
 
@@ -290,8 +296,9 @@ class SACCritic(nn.Module):
     ) -> torch.Tensor:
         """Project for all Q-networks: (num_q_nets, batch, num_atoms)."""
         projections = [
-            qnet.projection(obs, actions, rewards, bootstrap, discount,
-                          self.q_support, self.q_support.device)
+            qnet.projection(
+                obs, actions, rewards, bootstrap, discount, self.q_support, self.q_support.device
+            )
             for qnet in self.qnets
         ]
         return torch.stack(projections, dim=0)
@@ -304,6 +311,7 @@ class SACCritic(nn.Module):
 # ---------------------------------------------------------------------------
 # FastSACLearner — the training algorithm
 # ---------------------------------------------------------------------------
+
 
 class FastSACLearner:
     """FastSAC learner with holosoma-aligned hyperparameters.
@@ -342,12 +350,17 @@ class FastSACLearner:
         weight_decay: float = 0.001,
         max_grad_norm: float = 0.0,
         use_autotune: bool = True,
+        use_symmetry: bool = False,
+        use_amp: bool = False,
+        mujoco_model=None,
+        obs_structure: dict = None,
     ):
         self.device = device
         self.gamma = gamma
         self.tau = tau
         self.max_grad_norm = max_grad_norm
         self.use_autotune = use_autotune
+        self.use_amp = use_amp and device == "cuda"
 
         # Build actor
         self.actor = SACActor(
@@ -389,9 +402,7 @@ class FastSACLearner:
         self.qnet_target.load_state_dict(self.qnet.state_dict())
 
         # Entropy coefficient
-        self.log_alpha = torch.tensor(
-            [math.log(alpha_init)], requires_grad=True, device=device
-        )
+        self.log_alpha = torch.tensor([math.log(alpha_init)], requires_grad=True, device=device)
         self.target_entropy = -action_dim * target_entropy_ratio
 
         # fused AdamW requires CUDA; MPS and CPU do not support it
@@ -417,10 +428,26 @@ class FastSACLearner:
             lr=alpha_lr,
             fused=_fused,
             betas=(0.9, 0.95),
+            weight_decay=0.0,
         )
 
         # Step counter
         self.update_count = 0
+
+        # AMP scaler for mixed precision
+        self.scaler = torch.amp.GradScaler("cuda") if self.use_amp else None
+
+        # Symmetry augmentation (G1 only)
+        self.use_symmetry = (
+            use_symmetry
+            and (action_dim == 29)
+            and (mujoco_model is not None)
+            and (obs_structure is not None)
+        )
+        if self.use_symmetry:
+            from unilab.envs.locomotion.g1.symmetry import G1SymmetryAugmentation
+
+            self.symmetry = G1SymmetryAugmentation(mujoco_model, obs_structure, device=device)
 
     def update_critic(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One critic update step."""
@@ -431,6 +458,15 @@ class FastSACLearner:
         dones = batch["dones"]
         truncated = batch.get("truncated")
 
+        # Apply symmetry augmentation
+        if self.use_symmetry:
+            obs, actions = self.symmetry.augment(obs, actions)
+            next_obs = torch.cat([next_obs, self.symmetry.mirror_obs(next_obs)], dim=0)
+            rewards = rewards.repeat(2)
+            dones = dones.repeat(2)
+            if truncated is not None:
+                truncated = truncated.repeat(2)
+
         if truncated is None:
             bootstrap = (1.0 - dones).float()
         else:
@@ -438,32 +474,48 @@ class FastSACLearner:
         discount = torch.full_like(dones, self.gamma)
 
         with torch.no_grad():
-            next_actions, next_log_probs, _ = self.actor.get_actions_and_log_probs(next_obs)
-            adjusted_rewards = rewards - discount * bootstrap * self.log_alpha.exp() * next_log_probs
-
-            target_distributions = self.qnet_target.projection(
-                next_obs, next_actions, adjusted_rewards, bootstrap, discount
+            with torch.amp.autocast("cuda", enabled=self.use_amp):
+                next_actions, next_log_probs, _ = self.actor.get_actions_and_log_probs(next_obs)
+            adjusted_rewards = (
+                rewards - discount * bootstrap * self.log_alpha.exp() * next_log_probs
             )
-            target_values = self.qnet_target.get_value(target_distributions)
+
+            with torch.amp.autocast("cuda", enabled=self.use_amp):
+                target_distributions = self.qnet_target.projection(
+                    next_obs, next_actions, adjusted_rewards, bootstrap, discount
+                )
+                target_values = self.qnet_target.get_value(target_distributions)
 
         # Critic loss: cross-entropy with projected distributions
-        q_outputs = self.qnet(obs, actions)
-        critic_log_probs = F.log_softmax(q_outputs, dim=-1).clamp(min=-30.0)
-        critic_losses = -torch.sum(target_distributions * critic_log_probs, dim=-1)
-        qf_loss = critic_losses.mean(dim=1).sum(dim=0)
-
+        with torch.amp.autocast("cuda", enabled=self.use_amp):
+            q_outputs = self.qnet(obs, actions)
+            critic_log_probs = F.log_softmax(q_outputs, dim=-1).clamp(min=-30.0)
+            critic_losses = -torch.sum(target_distributions * critic_log_probs, dim=-1)
+            qf_loss = critic_losses.mean(dim=1).sum(dim=0)
 
         # Skip if NaN
         if torch.isfinite(qf_loss):
             self.q_optimizer.zero_grad(set_to_none=True)
-            qf_loss.backward()
-            if self.max_grad_norm > 0:
-                critic_grad_norm = torch.nn.utils.clip_grad_norm_(
-                    self.qnet.parameters(), max_norm=self.max_grad_norm
-                )
+            if self.scaler:
+                self.scaler.scale(qf_loss).backward()
+                if self.max_grad_norm > 0:
+                    self.scaler.unscale_(self.q_optimizer)
+                    critic_grad_norm = torch.nn.utils.clip_grad_norm_(
+                        self.qnet.parameters(), max_norm=self.max_grad_norm
+                    )
+                else:
+                    critic_grad_norm = torch.tensor(0.0, device=self.device)
+                self.scaler.step(self.q_optimizer)
+                self.scaler.update()
             else:
-                critic_grad_norm = torch.tensor(0.0, device=self.device)
-            self.q_optimizer.step()
+                qf_loss.backward()
+                if self.max_grad_norm > 0:
+                    critic_grad_norm = torch.nn.utils.clip_grad_norm_(
+                        self.qnet.parameters(), max_norm=self.max_grad_norm
+                    )
+                else:
+                    critic_grad_norm = torch.tensor(0.0, device=self.device)
+                self.q_optimizer.step()
         else:
             critic_grad_norm = torch.tensor(0.0, device=self.device)
 
@@ -473,7 +525,9 @@ class FastSACLearner:
             self.alpha_optimizer.zero_grad(set_to_none=True)
             # using next_log_probs like holosoma
             # holosoma: alpha_loss = (-self.log_alpha.exp() * (next_state_log_probs.detach() + self.target_entropy)).mean()
-            alpha_loss = (-self.log_alpha.exp() * (next_log_probs.detach() + self.target_entropy)).mean()
+            alpha_loss = (
+                -self.log_alpha.exp() * (next_log_probs.detach() + self.target_entropy)
+            ).mean()
             if torch.isfinite(alpha_loss):
                 alpha_loss.backward()
                 self.alpha_optimizer.step()
@@ -491,29 +545,47 @@ class FastSACLearner:
         """One actor update step."""
         obs = batch["obs"]
 
-        actions, log_probs, log_std = self.actor.get_actions_and_log_probs(obs)
+        # Apply symmetry augmentation
+        if self.use_symmetry:
+            obs = torch.cat([obs, self.symmetry.mirror_obs(obs)], dim=0)
+
+        with torch.amp.autocast("cuda", enabled=self.use_amp):
+            actions, log_probs, log_std = self.actor.get_actions_and_log_probs(obs)
 
         with torch.no_grad():
             action_std = log_std.exp().mean()
             policy_entropy = -log_probs.mean()
 
-        q_outputs = self.qnet(obs, actions)
-        q_probs = F.softmax(q_outputs, dim=-1)
-        q_values = self.qnet.get_value(q_probs)
-        qf_value = q_values.mean(dim=0) # Using mean instead of min disables CDQ (per holosoma paper)
-        actor_loss = (self.log_alpha.exp().detach() * log_probs - qf_value).mean()
+        with torch.amp.autocast("cuda", enabled=self.use_amp):
+            q_outputs = self.qnet(obs, actions)
+            q_probs = F.softmax(q_outputs, dim=-1)
+            q_values = self.qnet.get_value(q_probs)
+            qf_value = q_values.mean(dim=0)
+            actor_loss = (self.log_alpha.exp().detach() * log_probs - qf_value).mean()
 
         # Skip if NaN
         if torch.isfinite(actor_loss):
             self.actor_optimizer.zero_grad(set_to_none=True)
-            actor_loss.backward()
-            if self.max_grad_norm > 0:
-                actor_grad_norm = torch.nn.utils.clip_grad_norm_(
-                    self.actor.parameters(), max_norm=self.max_grad_norm
-                )
+            if self.scaler:
+                self.scaler.scale(actor_loss).backward()
+                if self.max_grad_norm > 0:
+                    self.scaler.unscale_(self.actor_optimizer)
+                    actor_grad_norm = torch.nn.utils.clip_grad_norm_(
+                        self.actor.parameters(), max_norm=self.max_grad_norm
+                    )
+                else:
+                    actor_grad_norm = torch.tensor(0.0, device=self.device)
+                self.scaler.step(self.actor_optimizer)
+                self.scaler.update()
             else:
-                actor_grad_norm = torch.tensor(0.0, device=self.device)
-            self.actor_optimizer.step()
+                actor_loss.backward()
+                if self.max_grad_norm > 0:
+                    actor_grad_norm = torch.nn.utils.clip_grad_norm_(
+                        self.actor.parameters(), max_norm=self.max_grad_norm
+                    )
+                else:
+                    actor_grad_norm = torch.tensor(0.0, device=self.device)
+                self.actor_optimizer.step()
         else:
             actor_grad_norm = torch.tensor(0.0, device=self.device)
 
@@ -553,3 +625,6 @@ class FastSACLearner:
         self.q_optimizer.load_state_dict(state_dict["q_optimizer"])
         self.alpha_optimizer.load_state_dict(state_dict["alpha_optimizer"])
         self.update_count = state_dict.get("update_count", 0)
+
+
+# ---------------------------------------------------------------------------

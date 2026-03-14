@@ -13,6 +13,7 @@ import mlx.core as mx
 from mlx.utils import tree_map
 
 from unilab.algos.mlx.common import EmpiricalDiscountedVariationNormalization, RolloutBuffer
+
 from .model import MLPActorCritic
 from .ppo import PPOConfig, PPOTrainer
 
@@ -98,13 +99,17 @@ class MLXPPOAgent:
             max_grad_norm=float(getattr(algo_cfg, "max_grad_norm", 1.0)),
             schedule=str(getattr(algo_cfg, "schedule", "fixed")),
             desired_kl=float(getattr(algo_cfg, "desired_kl", 0.01)),
-            normalize_advantage_per_mini_batch=bool(getattr(algo_cfg, "normalize_advantage_per_mini_batch", False)),
+            normalize_advantage_per_mini_batch=bool(
+                getattr(algo_cfg, "normalize_advantage_per_mini_batch", False)
+            ),
         )
         self.trainer = PPOTrainer(self.model, ppo_cfg)
 
         use_reward_norm = bool(getattr(algo_cfg, "reward_normalization", False))
         self.reward_normalizer = (
-            EmpiricalDiscountedVariationNormalization(gamma=ppo_cfg.gamma) if use_reward_norm else None
+            EmpiricalDiscountedVariationNormalization(gamma=ppo_cfg.gamma)
+            if use_reward_norm
+            else None
         )
 
     @property

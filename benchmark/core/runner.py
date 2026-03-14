@@ -1,7 +1,9 @@
 """Benchmark execution utilities."""
+
 import statistics
 import time
 from typing import Callable, List
+
 
 def bench_callable(
     fn: Callable[[], None],
@@ -19,6 +21,7 @@ def bench_callable(
         sync_fn()
         samples.append(time.perf_counter() - t0)
     return samples
+
 
 def summarize(elapsed: List[float], metric: float, metric_name: str, **kwargs) -> dict:
     return {

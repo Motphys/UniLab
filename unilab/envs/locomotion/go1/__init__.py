@@ -1,1 +1,1 @@
-from .joystick import Go1WalkTaskMj, Go1JoystickCfg
+from .joystick import Go1JoystickCfg, Go1WalkTask

@@ -16,27 +16,38 @@ Fairness (公平性): Same warmup/repeat, model shape, OBS clip [-3,3]; timing i
 device sync (MPS/JAX/MLX). Weights: numpy/numba seed 42, torch* manual_seed(42),
 onnx/coreml/ane from torch 42, jax key 42. Input: rng(43) or equivalent per backend.
 """
+
 from __future__ import annotations
 
 try:
-    from benchmark.core import bench_callable, available_backends, MLPBenchRecord, mlp_param_count, trimmed_mean, print_mlp_table
+    from benchmark.core import (
+        MLPBenchRecord,
+        available_backends,
+        bench_callable,
+        mlp_param_count,
+        print_mlp_table,
+        trimmed_mean,
+    )
     from benchmark.core.device_info import get_device_info_dict, get_device_info_line
 except ModuleNotFoundError:
-    from core import bench_callable, available_backends, MLPBenchRecord, mlp_param_count, trimmed_mean, print_mlp_table
+    from core import (
+        MLPBenchRecord,
+        available_backends,
+        bench_callable,
+        mlp_param_count,
+        print_mlp_table,
+    )
     from core.device_info import get_device_info_dict, get_device_info_line
 
 import argparse
 import json
 import os
 import statistics
-import sys
 import time
-import warnings
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
-
+from typing import Dict, List, Optional, Tuple
 
 try:
     import numpy as np
@@ -49,6 +60,7 @@ _MX = None
 _NN_MLX = None
 _TORCH_NUM_THREADS: Optional[int] = None  # set by main() --threads for CPU matmul
 
+
 def _get_torch():
     global _TORCH
     if _TORCH is None:
@@ -60,6 +72,7 @@ def _get_torch():
             pass
     return _TORCH
 
+
 def _get_mlx():
     global _MX, _NN_MLX
     if _MX is None:
@@ -69,6 +82,7 @@ def _get_mlx():
         except Exception:
             pass
     return _MX, _NN_MLX
+
 
 try:
     import numba
@@ -100,6 +114,7 @@ except Exception:
 
 try:
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 except Exception:
@@ -115,12 +130,15 @@ DEFAULT_ENV_NUM_POW_MAX = 15
 # Safe divisor to avoid divide-by-zero and overflow (e.g. envs_per_sec = env_num / mean_sec)
 _MIN_MEAN_SEC = 1e-12
 
+
 def _safe_envs_per_sec(env_num: int, mean_sec: float) -> float:
     if mean_sec is None or mean_sec <= 0 or env_num <= 0:
         return 0.0
     mean_sec = max(mean_sec, _MIN_MEAN_SEC)
     return env_num / mean_sec
     return samples
+
+
 # Input/activation range to avoid overflow (e.g. float32) in large batches
 _OBS_CLIP_LOW, _OBS_CLIP_HIGH = -3.0, 3.0
 
@@ -128,6 +146,7 @@ _OBS_CLIP_LOW, _OBS_CLIP_HIGH = -3.0, 3.0
 # Weights: numpy/numba seed=42; torch* we set manual_seed(42); onnx/coreml/ane from torch seed 42; jax key 42.
 # Input: numpy/numba/onnx/coreml/ane rng(43); torch* manual_seed(43); mlx/jax fixed seed so reproducible.
 # Same model shape everywhere: obs_dim, hidden_dims, action_dim.
+
 
 def build_numpy_mlp(
     obs_dim: int,
@@ -146,11 +165,15 @@ def build_numpy_mlp(
         biases.append(b)
     return weights, biases
 
-def _numpy_mlp_forward(x: np.ndarray, weights: List[np.ndarray], biases: List[np.ndarray]) -> np.ndarray:
+
+def _numpy_mlp_forward(
+    x: np.ndarray, weights: List[np.ndarray], biases: List[np.ndarray]
+) -> np.ndarray:
     out = x
     for i in range(len(weights) - 1):
         out = np.tanh(out @ weights[i] + biases[i])
     return out @ weights[-1] + biases[-1]
+
 
 def run_numpy(
     env_num: int,
@@ -191,6 +214,7 @@ def run_numpy(
         envs_per_sec=_safe_envs_per_sec(env_num, mean_sec),
     )
 
+
 # ---------- Numba (4-layer MLP, nopython + fastmath) ----------
 if numba is not None and jit is not None:
 
@@ -211,6 +235,7 @@ if numba is not None and jit is not None:
         out = np.tanh(out @ w1 + b1)
         out = np.tanh(out @ w2 + b2)
         return out @ w3 + b3
+
 
 def run_numba(
     env_num: int,
@@ -255,6 +280,7 @@ def run_numba(
         envs_per_sec=_safe_envs_per_sec(env_num, mean_sec),
     )
 
+
 # ---------- JAX (jax.jit) ----------
 def _jax_mlp_forward(x, params):
     out = x
@@ -264,6 +290,7 @@ def _jax_mlp_forward(x, params):
         if i < len(params) - 1:
             out = jnp.tanh(out)
     return out
+
 
 def run_jax(
     env_num: int,
@@ -310,6 +337,7 @@ def run_jax(
         max_sec=max(elapsed),
         envs_per_sec=_safe_envs_per_sec(env_num, mean_sec),
     )
+
 
 # ---------- PyTorch CPU ----------
 def run_torch_cpu(
@@ -359,6 +387,7 @@ def run_torch_cpu(
         envs_per_sec=_safe_envs_per_sec(env_num, mean_sec),
     )
 
+
 def run_torch_cpu_compile(
     env_num: int,
     obs_dim: int,
@@ -379,10 +408,16 @@ def run_torch_cpu_compile(
         if i < len(dims) - 2:
             layers.append(torch.nn.Tanh())
     model = torch.nn.Sequential(*layers).float().to("cpu")
-    print(f"    [torch_cpu_compile] env_num={env_num}: calling torch.compile(model, mode='reduce-overhead') ...", flush=True)
+    print(
+        f"    [torch_cpu_compile] env_num={env_num}: calling torch.compile(model, mode='reduce-overhead') ...",
+        flush=True,
+    )
     t0 = time.perf_counter()
     model = torch.compile(model, mode="reduce-overhead")
-    print(f"    [torch_cpu_compile] env_num={env_num}: torch.compile() returned in {time.perf_counter()-t0:.2f}s", flush=True)
+    print(
+        f"    [torch_cpu_compile] env_num={env_num}: torch.compile() returned in {time.perf_counter() - t0:.2f}s",
+        flush=True,
+    )
     model.eval()
     torch.manual_seed(43)
     x = torch.clamp(
@@ -395,16 +430,27 @@ def run_torch_cpu_compile(
         with torch.no_grad():
             _ = model(x)
 
-    print(f"    [torch_cpu_compile] env_num={env_num}: warmup ({warmup} iters, first forward may trigger JIT compile, can be slow)...", flush=True)
+    print(
+        f"    [torch_cpu_compile] env_num={env_num}: warmup ({warmup} iters, first forward may trigger JIT compile, can be slow)...",
+        flush=True,
+    )
     t0 = time.perf_counter()
     for i in range(warmup):
         fwd()
-    print(f"    [torch_cpu_compile] env_num={env_num}: warmup done in {time.perf_counter()-t0:.2f}s", flush=True)
-    print(f"    [torch_cpu_compile] env_num={env_num}: running {repeat} timed repeats...", flush=True)
+    print(
+        f"    [torch_cpu_compile] env_num={env_num}: warmup done in {time.perf_counter() - t0:.2f}s",
+        flush=True,
+    )
+    print(
+        f"    [torch_cpu_compile] env_num={env_num}: running {repeat} timed repeats...", flush=True
+    )
     elapsed = bench_callable(fwd, lambda: None, 0, repeat)  # warmup already done
     mean_sec = statistics.mean(elapsed)
     std_sec = statistics.pstdev(elapsed) if len(elapsed) > 1 else 0.0
-    print(f"    [torch_cpu_compile] env_num={env_num}: done. mean={mean_sec*1000:.3f} ms", flush=True)
+    print(
+        f"    [torch_cpu_compile] env_num={env_num}: done. mean={mean_sec * 1000:.3f} ms",
+        flush=True,
+    )
     return MLPBenchRecord(
         backend="torch_cpu_compile",
         env_num=env_num,
@@ -417,6 +463,7 @@ def run_torch_cpu_compile(
         max_sec=max(elapsed),
         envs_per_sec=_safe_envs_per_sec(env_num, mean_sec),
     )
+
 
 # ---------- PyTorch MPS ----------
 def run_torch_mps(
@@ -472,6 +519,7 @@ def run_torch_mps(
         envs_per_sec=_safe_envs_per_sec(env_num, mean_sec),
     )
 
+
 def run_torch_mps_compile(
     env_num: int,
     obs_dim: int,
@@ -495,10 +543,16 @@ def run_torch_mps_compile(
         if i < len(dims) - 2:
             layers.append(torch.nn.Tanh())
     model = torch.nn.Sequential(*layers).float().to(device)
-    print(f"    [torch_mps_compile] env_num={env_num}: calling torch.compile(model, mode='reduce-overhead') ...", flush=True)
+    print(
+        f"    [torch_mps_compile] env_num={env_num}: calling torch.compile(model, mode='reduce-overhead') ...",
+        flush=True,
+    )
     t0 = time.perf_counter()
     model = torch.compile(model, mode="reduce-overhead")
-    print(f"    [torch_mps_compile] env_num={env_num}: torch.compile() returned in {time.perf_counter()-t0:.2f}s", flush=True)
+    print(
+        f"    [torch_mps_compile] env_num={env_num}: torch.compile() returned in {time.perf_counter() - t0:.2f}s",
+        flush=True,
+    )
     model.eval()
     torch.manual_seed(43)
     x = torch.clamp(
@@ -514,17 +568,28 @@ def run_torch_mps_compile(
     def sync():
         torch.mps.synchronize()
 
-    print(f"    [torch_mps_compile] env_num={env_num}: warmup ({warmup} iters, first forward may trigger JIT compile, can be slow)...", flush=True)
+    print(
+        f"    [torch_mps_compile] env_num={env_num}: warmup ({warmup} iters, first forward may trigger JIT compile, can be slow)...",
+        flush=True,
+    )
     t0 = time.perf_counter()
     for i in range(warmup):
         fwd()
         sync()
-    print(f"    [torch_mps_compile] env_num={env_num}: warmup done in {time.perf_counter()-t0:.2f}s", flush=True)
-    print(f"    [torch_mps_compile] env_num={env_num}: running {repeat} timed repeats...", flush=True)
+    print(
+        f"    [torch_mps_compile] env_num={env_num}: warmup done in {time.perf_counter() - t0:.2f}s",
+        flush=True,
+    )
+    print(
+        f"    [torch_mps_compile] env_num={env_num}: running {repeat} timed repeats...", flush=True
+    )
     elapsed = bench_callable(fwd, sync, 0, repeat)
     mean_sec = statistics.mean(elapsed)
     std_sec = statistics.pstdev(elapsed) if len(elapsed) > 1 else 0.0
-    print(f"    [torch_mps_compile] env_num={env_num}: done. mean={mean_sec*1000:.3f} ms", flush=True)
+    print(
+        f"    [torch_mps_compile] env_num={env_num}: done. mean={mean_sec * 1000:.3f} ms",
+        flush=True,
+    )
     return MLPBenchRecord(
         backend="torch_mps_compile",
         env_num=env_num,
@@ -537,6 +602,7 @@ def run_torch_mps_compile(
         max_sec=max(elapsed),
         envs_per_sec=_safe_envs_per_sec(env_num, mean_sec),
     )
+
 
 # ---------- MLX ----------
 def run_mlx(
@@ -590,6 +656,7 @@ def run_mlx(
         max_sec=max(elapsed),
         envs_per_sec=_safe_envs_per_sec(env_num, mean_sec),
     )
+
 
 def run_mlx_compile(
     env_num: int,
@@ -646,6 +713,7 @@ def run_mlx_compile(
         envs_per_sec=_safe_envs_per_sec(env_num, mean_sec),
     )
 
+
 # ---------- ONNX Runtime ----------
 def _build_and_export_onnx(
     obs_dim: int,
@@ -683,6 +751,7 @@ def _build_and_export_onnx(
     except Exception:
         return False
 
+
 def run_onnx(
     env_num: int,
     obs_dim: int,
@@ -719,6 +788,7 @@ def run_onnx(
         envs_per_sec=_safe_envs_per_sec(env_num, mean_sec),
     )
 
+
 # ---------- Core ML ----------
 def _build_and_convert_coreml(
     obs_dim: int,
@@ -744,13 +814,16 @@ def _build_and_convert_coreml(
         mlmodel = ct.convert(
             traced,
             convert_to="mlprogram",
-            inputs=[ct.TensorType(name="x", shape=ct.Shape(shape=(ct.RangeDim(1, 32768), obs_dim)))],
+            inputs=[
+                ct.TensorType(name="x", shape=ct.Shape(shape=(ct.RangeDim(1, 32768), obs_dim)))
+            ],
             compute_units=ct.ComputeUnit.ALL,
         )
         mlmodel.save(mlmodel_path)
         return True
     except Exception:
         return False
+
 
 def run_coreml(
     env_num: int,
@@ -787,6 +860,7 @@ def run_coreml(
         max_sec=max(elapsed),
         envs_per_sec=_safe_envs_per_sec(env_num, mean_sec),
     )
+
 
 # ---------- Core ML ANE (Apple Neural Engine, no CPU fallback) ----------
 def _build_and_convert_coreml_ane(
@@ -825,6 +899,7 @@ def _build_and_convert_coreml_ane(
     except Exception:
         return False
 
+
 def _log_ane_phase() -> None:
     """Log that ANE phase uses Core ML with compute_units=CPU_AND_NE.
     Apple provides no Python API to confirm at runtime whether ANE was used; to verify,
@@ -833,6 +908,7 @@ def _log_ane_phase() -> None:
         "  [ANE] Core ML loaded with compute_units=CPU_AND_NE (no runtime ANE-usage check; see doc).",
         flush=True,
     )
+
 
 def run_ane(
     env_num: int,
@@ -870,6 +946,7 @@ def run_ane(
         envs_per_sec=_safe_envs_per_sec(env_num, mean_sec),
     )
 
+
 def available_backends(include_lazy: bool = True) -> Dict[str, bool]:
     out = {
         "numpy": np is not None,
@@ -892,12 +969,16 @@ def available_backends(include_lazy: bool = True) -> Dict[str, bool]:
             and torch.backends.mps.is_available()
         )
         out["mlx"] = mx is not None and nn_mlx is not None
-        out["mlx_compile"] = bool(mx is not None and nn_mlx is not None and getattr(mx, "compile", None) is not None)
+        out["mlx_compile"] = bool(
+            mx is not None and nn_mlx is not None and getattr(mx, "compile", None) is not None
+        )
         out["onnxruntime"] = torch is not None and np is not None and ort is not None
         out["coreml"] = torch is not None and np is not None and ct is not None
         out["ane"] = torch is not None and np is not None and ct is not None
     else:
-        out["torch_cpu"] = out["torch_cpu_compile"] = out["torch_mps"] = out["torch_mps_compile"] = False
+        out["torch_cpu"] = out["torch_cpu_compile"] = out["torch_mps"] = out[
+            "torch_mps_compile"
+        ] = False
         out["mlx"] = out["mlx_compile"] = False
         out["onnxruntime"] = out["coreml"] = out["ane"] = False
     return out
@@ -974,6 +1055,7 @@ def save_plots(
 
     return saved
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Benchmark MLP inference: numpy, numba, jax, torch (cpu/mps), torch.compile, mlx, mlx.compile, onnxruntime, coreml, ane."
@@ -981,7 +1063,9 @@ def main() -> None:
     parser.add_argument(
         "--sizes",
         type=str,
-        default=",".join(str(2**k) for k in range(DEFAULT_ENV_NUM_POW_MIN, DEFAULT_ENV_NUM_POW_MAX + 1)),
+        default=",".join(
+            str(2**k) for k in range(DEFAULT_ENV_NUM_POW_MIN, DEFAULT_ENV_NUM_POW_MAX + 1)
+        ),
         help="Comma-separated env_num sizes (default: 256,512,1024,...)",
     )
     parser.add_argument("--obs-dim", type=int, default=DEFAULT_OBS_DIM)
@@ -1047,7 +1131,10 @@ def main() -> None:
     if skip_backends:
         print(f"Skipping backends: {skip_backends}", flush=True)
     print(f"env_nums: {env_nums}", flush=True)
-    print(f"model: obs_dim={args.obs_dim}, hidden_dims={hidden_dims}, action_dim={args.action_dim}", flush=True)
+    print(
+        f"model: obs_dim={args.obs_dim}, hidden_dims={hidden_dims}, action_dim={args.action_dim}",
+        flush=True,
+    )
     print("Tip: use --threads N to speed up numpy/torch_cpu (e.g. --threads 8)", flush=True)
 
     all_records: List[MLPBenchRecord] = []
@@ -1066,17 +1153,43 @@ def main() -> None:
                     rec = run_fn(env_num)
                     if rec is not None:
                         all_records.append(rec)
-                        print(f"  {backend_name}: mean={rec.mean_sec*1000:.3f} ms, envs/s={rec.envs_per_sec:.1f}", flush=True)
+                        print(
+                            f"  {backend_name}: mean={rec.mean_sec * 1000:.3f} ms, envs/s={rec.envs_per_sec:.1f}",
+                            flush=True,
+                        )
                     else:
-                        skipped.append({"backend": backend_name, "env_num": str(env_num), "reason": "unavailable"})
+                        skipped.append(
+                            {
+                                "backend": backend_name,
+                                "env_num": str(env_num),
+                                "reason": "unavailable",
+                            }
+                        )
                 except Exception as e:
-                    skipped.append({"backend": backend_name, "env_num": str(env_num), "reason": str(e)})
+                    skipped.append(
+                        {"backend": backend_name, "env_num": str(env_num), "reason": str(e)}
+                    )
                     print(f"  {backend_name}: skip - {e}", flush=True)
 
     runners_p1 = [
-        ("numpy", lambda n: run_numpy(n, args.obs_dim, args.action_dim, hidden_dims, args.warmup, args.repeat)),
-        ("numba", lambda n: run_numba(n, args.obs_dim, args.action_dim, hidden_dims, args.warmup, args.repeat)),
-        ("jax_jit", lambda n: run_jax(n, args.obs_dim, args.action_dim, hidden_dims, args.warmup, args.repeat)),
+        (
+            "numpy",
+            lambda n: run_numpy(
+                n, args.obs_dim, args.action_dim, hidden_dims, args.warmup, args.repeat
+            ),
+        ),
+        (
+            "numba",
+            lambda n: run_numba(
+                n, args.obs_dim, args.action_dim, hidden_dims, args.warmup, args.repeat
+            ),
+        ),
+        (
+            "jax_jit",
+            lambda n: run_jax(
+                n, args.obs_dim, args.action_dim, hidden_dims, args.warmup, args.repeat
+            ),
+        ),
     ]
     run_phase(runners_p1, backends_p1)
 
@@ -1087,10 +1200,30 @@ def main() -> None:
     for k in ["torch_cpu", "torch_cpu_compile", "torch_mps", "torch_mps_compile"]:
         print(f"  - {k}: {'yes' if backends_p2.get(k) else 'no'}", flush=True)
     runners_p2 = [
-        ("torch_cpu", lambda n: run_torch_cpu(n, args.obs_dim, args.action_dim, hidden_dims, args.warmup, args.repeat)),
-        ("torch_cpu_compile", lambda n: run_torch_cpu_compile(n, args.obs_dim, args.action_dim, hidden_dims, args.warmup, args.repeat)),
-        ("torch_mps", lambda n: run_torch_mps(n, args.obs_dim, args.action_dim, hidden_dims, args.warmup, args.repeat)),
-        ("torch_mps_compile", lambda n: run_torch_mps_compile(n, args.obs_dim, args.action_dim, hidden_dims, args.warmup, args.repeat)),
+        (
+            "torch_cpu",
+            lambda n: run_torch_cpu(
+                n, args.obs_dim, args.action_dim, hidden_dims, args.warmup, args.repeat
+            ),
+        ),
+        (
+            "torch_cpu_compile",
+            lambda n: run_torch_cpu_compile(
+                n, args.obs_dim, args.action_dim, hidden_dims, args.warmup, args.repeat
+            ),
+        ),
+        (
+            "torch_mps",
+            lambda n: run_torch_mps(
+                n, args.obs_dim, args.action_dim, hidden_dims, args.warmup, args.repeat
+            ),
+        ),
+        (
+            "torch_mps_compile",
+            lambda n: run_torch_mps_compile(
+                n, args.obs_dim, args.action_dim, hidden_dims, args.warmup, args.repeat
+            ),
+        ),
     ]
     run_phase(runners_p2, backends_p2)
 
@@ -1101,8 +1234,18 @@ def main() -> None:
     for k in ["mlx", "mlx_compile"]:
         print(f"  - {k}: {'yes' if backends_p3.get(k) else 'no'}", flush=True)
     runners_p3 = [
-        ("mlx", lambda n: run_mlx(n, args.obs_dim, args.action_dim, hidden_dims, args.warmup, args.repeat)),
-        ("mlx_compile", lambda n: run_mlx_compile(n, args.obs_dim, args.action_dim, hidden_dims, args.warmup, args.repeat)),
+        (
+            "mlx",
+            lambda n: run_mlx(
+                n, args.obs_dim, args.action_dim, hidden_dims, args.warmup, args.repeat
+            ),
+        ),
+        (
+            "mlx_compile",
+            lambda n: run_mlx_compile(
+                n, args.obs_dim, args.action_dim, hidden_dims, args.warmup, args.repeat
+            ),
+        ),
     ]
     run_phase(runners_p3, backends_p3)
 
@@ -1114,15 +1257,20 @@ def main() -> None:
     if available_backends(include_lazy=True).get("onnxruntime"):
         if _build_and_export_onnx(args.obs_dim, args.action_dim, hidden_dims, onnx_path):
             try:
-                onnx_session = ort.InferenceSession(onnx_path, providers=ort.get_available_providers())
+                onnx_session = ort.InferenceSession(
+                    onnx_path, providers=ort.get_available_providers()
+                )
             except Exception:
                 pass
-    backends_p4 = available_backends(include_lazy=True)
+    available_backends(include_lazy=True)
     if onnx_session is not None:
         print("\nDetected backends (phase 4: ONNX Runtime):", flush=True)
         print("  - onnxruntime: yes", flush=True)
         runners_p4 = [
-            ("onnxruntime", lambda n: run_onnx(n, args.obs_dim, onnx_session, args.warmup, args.repeat)),
+            (
+                "onnxruntime",
+                lambda n: run_onnx(n, args.obs_dim, onnx_session, args.warmup, args.repeat),
+            ),
         ]
         run_phase(runners_p4, {"onnxruntime": True})
     if Path(onnx_path).exists():
@@ -1134,6 +1282,7 @@ def main() -> None:
     # Phase 5: Core ML (convert from torch once, then run)
     import shutil
     import tempfile
+
     coreml_path = tempfile.mkdtemp(suffix=".mlpackage")
     coreml_model = None
     if available_backends(include_lazy=True).get("coreml"):
@@ -1146,7 +1295,10 @@ def main() -> None:
         print("\nDetected backends (phase 5: Core ML):", flush=True)
         print("  - coreml: yes", flush=True)
         runners_p5 = [
-            ("coreml", lambda n: run_coreml(n, args.obs_dim, coreml_model, args.warmup, args.repeat)),
+            (
+                "coreml",
+                lambda n: run_coreml(n, args.obs_dim, coreml_model, args.warmup, args.repeat),
+            ),
         ]
         run_phase(runners_p5, {"coreml": True})
     try:
@@ -1212,6 +1364,7 @@ def main() -> None:
         print("\n生成图片路径:")
         for f in plot_files:
             print(f"  {f}")
+
 
 if __name__ == "__main__":
     main()

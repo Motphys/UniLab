@@ -37,12 +37,14 @@ except ModuleNotFoundError:
     from core.device_info import get_device_info_dict, get_device_info_line
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 try:
     import mlx.core as mx
     import mlx.nn as nn
+
     _HAS_MLX = True
 except ImportError:
     mx = None  # type: ignore
@@ -50,11 +52,12 @@ except ImportError:
     _HAS_MLX = False
 
 # ── default sweep ──────────────────────────────────────────────────────────────
-_DEFAULT_BATCH_SIZES = [2**i for i in range(7, 15)]   # 128 .. 16384
+_DEFAULT_BATCH_SIZES = [2**i for i in range(7, 15)]  # 128 .. 16384
 _DEFAULT_HIDDEN = 256
 _DEFAULT_OBS_DIM = 48
 _DEFAULT_ACTION_DIM = 12
 _DEFAULT_NUM_LAYERS = 3
+
 
 # ── data classes ───────────────────────────────────────────────────────────────
 @dataclass
@@ -69,21 +72,23 @@ class CompileRecord:
     plain_std_sec: float
     compiled_mean_sec: float
     compiled_std_sec: float
-    speedup: float          # plain_mean / compiled_mean
+    speedup: float  # plain_mean / compiled_mean
+
 
 # ── timing helper ──────────────────────────────────────────────────────────────
 def _bench(fn: Callable[[], None], warmup: int, repeat: int) -> List[float]:
     """Run *fn* warmup times, then time it repeat times. Returns list of elapsed [sec]."""
     for _ in range(warmup):
         fn()
-    mx.eval(mx.array(0))          # ensure GPU work flushed before timing
+    mx.eval(mx.array(0))  # ensure GPU work flushed before timing
     times: List[float] = []
     for _ in range(repeat):
         t0 = time.perf_counter()
         fn()
-        mx.eval(mx.array(0))      # synchronize
+        mx.eval(mx.array(0))  # synchronize
         times.append(time.perf_counter() - t0)
     return times
+
 
 def _first_call_time(fn: Callable[[], None]) -> float:
     """Measure a single cold-call latency (before any compilation caching)."""
@@ -92,6 +97,7 @@ def _first_call_time(fn: Callable[[], None]) -> float:
     fn()
     mx.eval(mx.array(0))
     return time.perf_counter() - t0
+
 
 # ── kernel definitions for plain and compiled variants ────────────────────────
 def _build_elementwise(batch_size: int, hidden: int):
@@ -112,6 +118,7 @@ def _build_elementwise(batch_size: int, hidden: int):
         mx.eval(y)
 
     return plain, compiled
+
 
 def _build_linear_activation(batch_size: int, obs_dim: int, hidden: int):
     """Single linear layer + tanh — fundamental op in policy networks."""
@@ -134,6 +141,7 @@ def _build_linear_activation(batch_size: int, obs_dim: int, hidden: int):
         mx.eval(y)
 
     return plain, compiled
+
 
 def _build_mlp(batch_size: int, obs_dim: int, action_dim: int, hidden: int, n_layers: int):
     """Multi-layer MLP — typical locomotion policy forward pass."""
@@ -171,6 +179,7 @@ def _build_mlp(batch_size: int, obs_dim: int, action_dim: int, hidden: int, n_la
 
     return plain, compiled
 
+
 def _build_softmax_norm(batch_size: int, hidden: int):
     """Softmax + layer-norm inspired: fused reduction-heavy kernel."""
     x = mx.random.normal((batch_size, hidden), dtype=mx.float32)
@@ -195,13 +204,15 @@ def _build_softmax_norm(batch_size: int, hidden: int):
 
     return plain, compiled
 
+
 # ── per-kernel benchmark runner ───────────────────────────────────────────────
 _KERNEL_BUILDERS: Dict[str, Callable] = {
     "elementwise_tanh": _build_elementwise,
     "linear_activation": _build_linear_activation,
-    "mlp_forward":       _build_mlp,
-    "softmax_norm":      _build_softmax_norm,
+    "mlp_forward": _build_mlp,
+    "softmax_norm": _build_softmax_norm,
 }
+
 
 def _build_kernel(
     kernel: str,
@@ -222,6 +233,7 @@ def _build_kernel(
     else:
         raise ValueError(f"Unknown kernel: {kernel}")
 
+
 def run_compile_benchmark(
     kernel: str,
     batch_size: int,
@@ -239,28 +251,30 @@ def run_compile_benchmark(
         return None
 
     try:
-        plain_fn, compiled_fn = _build_kernel(kernel, batch_size, obs_dim, action_dim, hidden, n_layers)
+        plain_fn, compiled_fn = _build_kernel(
+            kernel, batch_size, obs_dim, action_dim, hidden, n_layers
+        )
     except Exception as e:
         print(f"  [ERROR] build kernel {kernel}: {e}")
         return None
 
     # cold first-call measurements (captures compile latency for compiled path)
-    fc_plain    = _first_call_time(plain_fn)
+    fc_plain = _first_call_time(plain_fn)
     fc_compiled = _first_call_time(compiled_fn)
 
     # steady-state
     try:
-        plain_times    = _bench(plain_fn,    warmup, repeat)
+        plain_times = _bench(plain_fn, warmup, repeat)
         compiled_times = _bench(compiled_fn, warmup, repeat)
     except Exception as e:
         print(f"  [ERROR] timing {kernel}: {e}")
         return None
 
-    plain_mean    = statistics.mean(plain_times)
-    plain_std     = statistics.pstdev(plain_times) if len(plain_times) > 1 else 0.0
+    plain_mean = statistics.mean(plain_times)
+    plain_std = statistics.pstdev(plain_times) if len(plain_times) > 1 else 0.0
     compiled_mean = statistics.mean(compiled_times)
-    compiled_std  = statistics.pstdev(compiled_times) if len(compiled_times) > 1 else 0.0
-    speedup       = plain_mean / (compiled_mean + 1e-12)
+    compiled_std = statistics.pstdev(compiled_times) if len(compiled_times) > 1 else 0.0
+    speedup = plain_mean / (compiled_mean + 1e-12)
 
     return CompileRecord(
         kernel=kernel,
@@ -273,6 +287,7 @@ def run_compile_benchmark(
         compiled_std_sec=compiled_std,
         speedup=speedup,
     )
+
 
 # ── plotting ──────────────────────────────────────────────────────────────────
 def plot_results(
@@ -307,10 +322,14 @@ def plot_results(
         ax_speedup.plot(x, y_speedup, marker="o", label=kname)
 
         # latency comparison: plain vs compiled (mean ms)
-        y_plain    = [r.plain_mean_sec * 1e3 for r in records]
+        y_plain = [r.plain_mean_sec * 1e3 for r in records]
         y_compiled = [r.compiled_mean_sec * 1e3 for r in records]
-        color = ax_latency.plot(x, y_plain, marker="o", linestyle="--", label=f"{kname} plain")[0].get_color()
-        ax_latency.plot(x, y_compiled, marker="s", linestyle="-", color=color, label=f"{kname} compiled")
+        color = ax_latency.plot(x, y_plain, marker="o", linestyle="--", label=f"{kname} plain")[
+            0
+        ].get_color()
+        ax_latency.plot(
+            x, y_compiled, marker="s", linestyle="-", color=color, label=f"{kname} compiled"
+        )
 
     ax_speedup.axhline(1.0, color="grey", linestyle=":", linewidth=0.8, label="speedup=1×")
     ax_speedup.set_xscale("log", base=2)
@@ -366,6 +385,7 @@ def plot_results(
     print(f"Saved overhead plot → {out2}")
     plt.close(fig2)
 
+
 # ── main ──────────────────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(
@@ -377,16 +397,26 @@ def main():
         default=",".join(str(b) for b in _DEFAULT_BATCH_SIZES),
         help="Comma-separated batch sizes to sweep (default: 128..16384).",
     )
-    parser.add_argument("--obs-dim",   type=int, default=_DEFAULT_OBS_DIM,    help="Input (observation) dimension.")
-    parser.add_argument("--action-dim",type=int, default=_DEFAULT_ACTION_DIM, help="Output (action) dimension.")
-    parser.add_argument("--hidden",    type=int, default=_DEFAULT_HIDDEN,      help="Hidden layer width.")
-    parser.add_argument("--n-layers",  type=int, default=_DEFAULT_NUM_LAYERS,  help="Number of hidden layers in MLP.")
-    parser.add_argument("--warmup",    type=int, default=5,                    help="Warmup iterations.")
-    parser.add_argument("--repeat",    type=int, default=30,                   help="Timed iterations.")
-    parser.add_argument("--kernels",   type=str, default=",".join(_KERNEL_BUILDERS.keys()),
-                        help="Comma-separated list of kernels to benchmark.")
-    parser.add_argument("--out",       type=str, default="benchmark/outputs/mlx_compile/results.json")
-    parser.add_argument("--plot-dir",  type=str, default="benchmark/outputs/mlx_compile")
+    parser.add_argument(
+        "--obs-dim", type=int, default=_DEFAULT_OBS_DIM, help="Input (observation) dimension."
+    )
+    parser.add_argument(
+        "--action-dim", type=int, default=_DEFAULT_ACTION_DIM, help="Output (action) dimension."
+    )
+    parser.add_argument("--hidden", type=int, default=_DEFAULT_HIDDEN, help="Hidden layer width.")
+    parser.add_argument(
+        "--n-layers", type=int, default=_DEFAULT_NUM_LAYERS, help="Number of hidden layers in MLP."
+    )
+    parser.add_argument("--warmup", type=int, default=5, help="Warmup iterations.")
+    parser.add_argument("--repeat", type=int, default=30, help="Timed iterations.")
+    parser.add_argument(
+        "--kernels",
+        type=str,
+        default=",".join(_KERNEL_BUILDERS.keys()),
+        help="Comma-separated list of kernels to benchmark.",
+    )
+    parser.add_argument("--out", type=str, default="benchmark/outputs/mlx_compile/results.json")
+    parser.add_argument("--plot-dir", type=str, default="benchmark/outputs/mlx_compile")
     args = parser.parse_args()
 
     if not _HAS_MLX:
@@ -394,7 +424,7 @@ def main():
         return
 
     batch_sizes = [int(b) for b in args.batch_sizes.split(",")]
-    kernels     = [k.strip() for k in args.kernels.split(",")]
+    kernels = [k.strip() for k in args.kernels.split(",")]
 
     print(f"MLX version : {mx.__version__}")
     print(f"Device info : {get_device_info_line()}")
@@ -428,8 +458,8 @@ def main():
             overhead_ms = (rec.first_call_compiled_sec - rec.first_call_plain_sec) * 1e3
             print(
                 f"  {bs:<8} | "
-                f"{rec.plain_mean_sec*1e3:<12.3f} | "
-                f"{rec.compiled_mean_sec*1e3:<14.3f} | "
+                f"{rec.plain_mean_sec * 1e3:<12.3f} | "
+                f"{rec.compiled_mean_sec * 1e3:<14.3f} | "
                 f"{rec.speedup:<8.2f} | "
                 f"{overhead_ms:+.1f} ms"
             )
@@ -460,6 +490,7 @@ def main():
     # ── plot ───────────────────────────────────────────────────────────────────
     if any(all_records.values()):
         plot_results(all_records, batch_sizes, Path(args.plot_dir))
+
 
 if __name__ == "__main__":
     main()

@@ -61,8 +61,12 @@ class RolloutBuffer:
         dones = self.dones
         values = self.values
         gae = mx.zeros((self.num_envs,), dtype=self.dtype)
-        advantages: list[mx.array] = [mx.zeros((self.num_envs,), dtype=self.dtype) for _ in range(self.num_steps)]
-        returns: list[mx.array] = [mx.zeros((self.num_envs,), dtype=self.dtype) for _ in range(self.num_steps)]
+        advantages: list[mx.array] = [
+            mx.zeros((self.num_envs,), dtype=self.dtype) for _ in range(self.num_steps)
+        ]
+        returns: list[mx.array] = [
+            mx.zeros((self.num_envs,), dtype=self.dtype) for _ in range(self.num_steps)
+        ]
         for t in reversed(range(self.num_steps)):
             if t == self.num_steps - 1:
                 next_values = last_values
@@ -85,7 +89,9 @@ class RolloutBuffer:
         adv = mx.reshape(self.advantages, (-1,))
         self.advantages = (self.advantages - mx.mean(adv)) / (mx.std(adv) + 1e-8)
 
-    def mini_batch_generator(self, num_mini_batches: int, num_epochs: int) -> Generator[Dict[str, mx.array], None, None]:
+    def mini_batch_generator(
+        self, num_mini_batches: int, num_epochs: int
+    ) -> Generator[Dict[str, mx.array], None, None]:
         batch_size = self.num_steps * self.num_envs
         mini_batch_size = batch_size // num_mini_batches
 

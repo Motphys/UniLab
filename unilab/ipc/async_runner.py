@@ -1,6 +1,7 @@
 """Base async runner for multi-process RL training."""
 
 from __future__ import annotations
+
 import multiprocessing as mp
 from abc import ABC, abstractmethod
 from typing import Any, Callable
@@ -46,16 +47,15 @@ class AsyncRunner(ABC):
         ...
 
     @abstractmethod
-    def _build_learner(self) -> Any:
-        ...
+    def _build_learner(self) -> Any: ...
 
     @abstractmethod
-    def _collector_fn(self, stop_event: mp.Event, **kwargs) -> None:
-        ...
+    def _collector_fn(self, stop_event: mp.Event, **kwargs) -> None: ...
 
     @abstractmethod
-    def learn(self, max_iterations: int, save_interval: int = 50, log_dir: str = "logs") -> None:
-        ...
+    def learn(
+        self, max_iterations: int, save_interval: int = 50, log_dir: str = "logs"
+    ) -> None: ...
 
     def _start_collector(self, target_fn: Callable, kwargs: dict) -> None:
         self._collector_process = _SPAWN_CTX.Process(target=target_fn, kwargs=kwargs, daemon=True)

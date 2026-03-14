@@ -1,44 +1,69 @@
 from ml_collections import config_dict
 
 
-DEFAULT_ENV_NUM_BY_TASK: dict[str, int] = {
-    "G1JoystickFlatTerrain": 2048,
-    "Go1JoystickFlatTerrain": 4096,
-    "Go2JoystickFlatTerrain": 4096,
-}
+def ppo_config(env_name: str) -> config_dict.ConfigDict:
+    """Return unified PPO config for RSL-RL.
 
-
-def get_default_env_num(env_name: str) -> int:
-    """Returns default number of parallel environments for a task."""
-    return int(DEFAULT_ENV_NUM_BY_TASK.get(env_name, 4096))
-
-
-def rsl_rl_config(env_name: str) -> config_dict.ConfigDict:
-    """Returns tuned RSL-RL PPO config for the given environment."""
-
-    rl_config = config_dict.create(
+    Common keys are aligned across tasks to make training infra reusable.
+    Task-specific options are configured per environment.
+    """
+    cfg = config_dict.create(
         seed=1,
+        num_envs=4096,
+        num_steps_per_env=24,
+        max_iterations=101,
+        save_interval=100,
+        learning_rate=1.0e-3,
+        entropy_coef=0.01,
+        schedule="adaptive",  # "fixed",
+        value_loss_coef=1.0,
+        num_learning_epochs=5,
+        num_mini_batches=4,
+        empirical_normalization=False,
+    )
+
+    if env_name == "Go1JoystickFlatTerrain":
+        cfg.max_iterations = 151
+    elif env_name == "G1JoystickFlatTerrain":
+        cfg.num_envs = 2048
+        cfg.max_iterations = 220
+    elif env_name == "Go2JoystickFlatTerrain":
+        pass
+
+    return config_dict.create(
+        algo="ppo",
+        algo_log_name="rsl_rl_ppo",
+        seed=cfg.seed,
+        num_envs=cfg.num_envs,
+        num_steps_per_env=cfg.num_steps_per_env,
+        max_iterations=cfg.max_iterations,
+        save_interval=cfg.save_interval,
+        empirical_normalization=cfg.empirical_normalization,
         runner_class_name="OnPolicyRunner",
-        obs_groups={"default": ["policy"]}, # Compatibility with new rsl-rl
+        obs_groups={"default": ["policy"]},
+        experiment_name="test",
+        run_name="",
+        resume=False,
+        load_run="-1",
+        checkpoint=-1,
+        resume_path=None,
         policy=config_dict.create(
             init_noise_std=1.0,
             actor_hidden_dims=[512, 256, 128],
             critic_hidden_dims=[512, 256, 128],
-            # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid
             activation="elu",
             class_name="ActorCritic",
         ),
         algorithm=config_dict.create(
             class_name="PPO",
-            value_loss_coef=1.0,
+            value_loss_coef=cfg.value_loss_coef,
             use_clipped_value_loss=True,
             clip_param=0.2,
-            entropy_coef=0.001,
-            num_learning_epochs=5,
-            # mini batch size = num_envs*nsteps / nminibatches
-            num_mini_batches=4,
-            learning_rate=3.0e-4,  # 5.e-4
-            schedule="fixed",  # could be adaptive, fixed
+            entropy_coef=cfg.entropy_coef,
+            num_learning_epochs=cfg.num_learning_epochs,
+            num_mini_batches=cfg.num_mini_batches,
+            learning_rate=cfg.learning_rate,
+            schedule=cfg.schedule,
             gamma=0.99,
             lam=0.95,
             desired_kl=0.01,
@@ -57,153 +82,231 @@ def rsl_rl_config(env_name: str) -> config_dict.ConfigDict:
             warmup_finite_check_interval=2,
             disable_finite_checks=True,
         ),
-        num_steps_per_env=24,  # per iteration
-        max_iterations=101,  # number of policy updates
-        empirical_normalization=True,
-        # logging
-        save_interval=50,  # check for potential saves every this many iterations
-        experiment_name="test",
-        run_name="",
-        # load and resume
-        resume=False,
-        load_run="-1",  # -1 = last run
-        checkpoint=-1,  # -1 = last saved model
-        resume_path=None,  # updated from load_run and chkpt
+    )
+
+
+def offpolicy_config(algo: str, env_name: str) -> config_dict.ConfigDict:
+    """Return a unified off-policy config schema for SAC/TD3.
+
+    Common keys are aligned across algorithms to make training infra reusable.
+    Algo-specific options are stored under ``algo_params``.
+    """
+    algo_name = algo.lower()
+    if algo_name == "sac":
+        cfg = config_dict.create(
+            seed=1,
+            actor_hidden_dim=512,
+            critic_hidden_dim=768,
+            use_layer_norm=True,
+            num_atoms=101,
+            num_envs=4096,
+            batch_size=8192,
+            updates_per_step=4,
+            warmup_steps=1000,
+            replay_buffer_n=512,
+            env_steps_per_sync=1,
+            max_iterations=1500,
+            save_interval=500,
+            actor_lr=3e-4,
+            critic_lr=3e-4,
+            alpha_lr=3e-4,
+            gamma=0.97,
+            tau=0.125,
+            alpha_init=0.01,
+            target_entropy_ratio=0.0,
+            obs_normalization=True,
+            policy_frequency=4,
+            max_grad_norm=0.0,
+            use_symmetry=False,
+        )
+
+        if env_name in ("Go2JoystickFlatTerrain", "Go2LocoFlatTerrain"):
+            cfg.num_envs = 1024
+        elif env_name in ("Go1JoystickFlatTerrain",):
+            cfg.num_envs = 2048
+            cfg.max_iterations = 2000
+        elif env_name in ("G1JoystickFlatTerrain",):
+            raise NotImplementedError(
+                "G1JoystickFlatTerrain config is not implemented for FastSAC, Please use G1WalkTaskMjSAC instead."
+            )
+        elif env_name in ("G1WalkTaskMjSAC",):
+            cfg.updates_per_step = 8
+            cfg.replay_buffer_n = 512
+            cfg.alpha_init = 0.01
+            cfg.target_entropy_ratio = 0.2
+            cfg.max_iterations = 5000
+            cfg.save_interval = 1000
+            cfg.num_envs = 2048
+            cfg.use_symmetry = True
+
+        return config_dict.create(
+            algo="sac",
+            algo_log_name="fast_sac",
+            seed=cfg.seed,
+            num_envs=cfg.num_envs,
+            batch_size=cfg.batch_size,
+            replay_buffer_n=cfg.replay_buffer_n,
+            updates_per_step=cfg.updates_per_step,
+            warmup_steps=cfg.warmup_steps,
+            policy_frequency=cfg.policy_frequency,
+            env_steps_per_sync=cfg.env_steps_per_sync,
+            max_iterations=cfg.max_iterations,
+            save_interval=cfg.save_interval,
+            gamma=cfg.gamma,
+            tau=cfg.tau,
+            actor_lr=cfg.actor_lr,
+            critic_lr=cfg.critic_lr,
+            actor_hidden_dim=cfg.actor_hidden_dim,
+            critic_hidden_dim=cfg.critic_hidden_dim,
+            num_atoms=cfg.num_atoms,
+            obs_normalization=cfg.obs_normalization,
+            use_layer_norm=cfg.use_layer_norm,
+            use_symmetry=cfg.get("use_symmetry", True),
+            algo_params=config_dict.create(
+                alpha_lr=cfg.alpha_lr,
+                alpha_init=cfg.alpha_init,
+                target_entropy_ratio=cfg.target_entropy_ratio,
+                max_grad_norm=cfg.max_grad_norm,
+            ),
+        )
+
+    if algo_name == "td3":
+        cfg = config_dict.create(
+            seed=1,
+            actor_hidden_dim=256,
+            critic_hidden_dim=512,
+            num_atoms=101,
+            init_scale=0.01,
+            num_envs=4096,
+            batch_size=8192,
+            num_updates=4,
+            warmup_steps=100,
+            buffer_size=1000,
+            max_iterations=5000,
+            save_interval=500,
+            actor_lr=3e-4,
+            critic_lr=3e-4,
+            weight_decay=0.1,
+            gamma=0.97,
+            tau=0.1,
+            policy_frequency=2,
+            policy_noise=0.2,
+            noise_clip=0.5,
+            log_std_min=-0.9,
+            log_std_max=0.0,
+            v_min=-10.0,
+            v_max=10.0,
+            use_cdq=True,
+            obs_normalization=True,
+        )
+
+        if env_name in ("Go2JoystickFlatTerrain", "Go2LocoFlatTerrain"):
+            cfg.max_iterations = 2000
+        elif env_name in ("G1JoystickFlatTerrain",):
+            cfg.num_envs = 2048
+
+        return config_dict.create(
+            algo="td3",
+            algo_log_name="fast_td3",
+            seed=cfg.seed,
+            num_envs=cfg.num_envs,
+            batch_size=cfg.batch_size,
+            replay_buffer_n=cfg.buffer_size,
+            updates_per_step=cfg.num_updates,
+            warmup_steps=cfg.warmup_steps,
+            policy_frequency=cfg.policy_frequency,
+            env_steps_per_sync=1,
+            max_iterations=cfg.max_iterations,
+            save_interval=cfg.save_interval,
+            gamma=cfg.gamma,
+            tau=cfg.tau,
+            actor_lr=cfg.actor_lr,
+            critic_lr=cfg.critic_lr,
+            actor_hidden_dim=cfg.actor_hidden_dim,
+            critic_hidden_dim=cfg.critic_hidden_dim,
+            num_atoms=cfg.num_atoms,
+            obs_normalization=cfg.obs_normalization,
+            use_layer_norm=False,
+            algo_params=config_dict.create(
+                weight_decay=cfg.weight_decay,
+                v_min=cfg.v_min,
+                v_max=cfg.v_max,
+                init_scale=cfg.init_scale,
+                log_std_min=cfg.log_std_min,
+                log_std_max=cfg.log_std_max,
+                policy_noise=cfg.policy_noise,
+                noise_clip=cfg.noise_clip,
+                use_cdq=cfg.use_cdq,
+            ),
+        )
+
+    raise ValueError(f"Unsupported off-policy algo: {algo}")
+
+
+def appo_config(env_name: str) -> config_dict.ConfigDict:
+    """Return APPO config.
+
+    Mirrors the structure of ppo_config/offpolicy_config so training
+    infrastructure is reusable.  Algorithm hyperparams live under the
+    ``algorithm`` sub-dict; network architecture under ``actor``/``critic``.
+    """
+    cfg = config_dict.create(
+        seed=1,
+        num_envs=1024,
+        steps_per_env=24,
+        max_iterations=1500,
+        save_interval=50,
     )
 
     if env_name == "Go1JoystickFlatTerrain":
-        # Align Go1 training hyper-parameters with the current Go2 setup.
-        rl_config.algorithm.entropy_coef = 0.01
-        rl_config.algorithm.learning_rate = 1.0e-3
-        rl_config.algorithm.schedule = "adaptive"
-        rl_config.algorithm.value_loss_coef = 1.0
-        rl_config.algorithm.num_learning_epochs = 5
-        rl_config.algorithm.num_mini_batches = 4
-        rl_config.num_steps_per_env = 24
-        rl_config.save_interval = 100
-        rl_config.max_iterations = 151
-        rl_config.empirical_normalization = False
+        cfg.num_envs = 2048
     elif env_name == "G1JoystickFlatTerrain":
-        # Humanoid needs slightly longer horizon but keep aggressive defaults.
-        rl_config.algorithm.entropy_coef = 0.01
-        rl_config.algorithm.learning_rate = 1.0e-3
-        rl_config.algorithm.schedule = "adaptive"
-        rl_config.algorithm.value_loss_coef = 1.0
-        rl_config.algorithm.num_learning_epochs = 5
-        rl_config.algorithm.num_mini_batches = 4
-        rl_config.num_steps_per_env = 24
-        rl_config.save_interval = 50
-        rl_config.max_iterations = 220
-        rl_config.empirical_normalization = False
-    elif env_name == "Go2JoystickFlatTerrain":
-        rl_config.algorithm.entropy_coef = 0.01
-        rl_config.algorithm.learning_rate = 1.0e-3
-        rl_config.algorithm.schedule = "adaptive"
-        rl_config.algorithm.value_loss_coef = 1.0
-        rl_config.algorithm.num_learning_epochs = 5
-        rl_config.algorithm.num_mini_batches = 4
-        rl_config.num_steps_per_env = 24
-        rl_config.save_interval = 100
-        rl_config.max_iterations = 101
-        rl_config.empirical_normalization = False
+        cfg.num_envs = 2048
+    elif env_name in ("Go2JoystickFlatTerrain", "Go2LocoFlatTerrain"):
+        pass  # defaults are fine
 
-    return rl_config
-
-
-def fast_td3_config(env_name: str) -> config_dict.ConfigDict:
-    """Returns tuned FastTD3 config for the given environment.
-
-    Hyperparameters aligned with reference FastTD3 repository
-    (Go1JoystickFlatTerrain / MuJoCoPlayground defaults).
-    """
-
-    rl_config = config_dict.create(
-        seed=1,
-        # Network architecture (reference FastTD3)
-        actor_hidden_dim=256,
-        critic_hidden_dim=512,
-        num_atoms=101,          # distributional C51
-        init_scale=0.01,        # actor output layer init
-        # Training
-        num_envs=4096,
-        batch_size=8192,
-        num_updates=4,
-        warmup_steps=50,
-        buffer_size=1000,      # per-env buffer size
-        total_timesteps=5000,
-        save_interval=500,
-        # Optimizer (AdamW)
-        actor_lr=3e-4,
-        critic_lr=3e-4,
-        weight_decay=0.1,
-        # Algorithm
-        gamma=0.97,
-        tau=0.1,
-        policy_frequency=2,
-        policy_noise=0.2,
-        noise_clip=0.5,
-        # Per-env exploration noise
-        std_min=0.4,
-        std_max=1.0,
-        # Distributional
-        v_min=-10.0,
-        v_max=10.0,
-        use_cdq=True,
-        obs_normalization=True,
+    return config_dict.create(
+        algo="appo",
+        algo_log_name="appo",
+        seed=cfg.seed,
+        num_envs=cfg.num_envs,
+        steps_per_env=cfg.steps_per_env,
+        max_iterations=cfg.max_iterations,
+        save_interval=cfg.save_interval,
+        # obs_groups["actor"]["policy"] is auto-detected at runtime by APPORunner
+        obs_groups=config_dict.create(
+            actor=config_dict.create(policy=0),
+        ),
+        actor=config_dict.create(
+            class_name="rsl_rl.models.MLPModel",
+            hidden_dims=[512, 256, 128],
+            activation="elu",
+            init_noise_std=1.0,
+            noise_std_type="scalar",
+            stochastic=True,
+        ),
+        critic=config_dict.create(
+            class_name="rsl_rl.models.MLPModel",
+            hidden_dims=[512, 256, 128],
+            activation="elu",
+        ),
+        algorithm=config_dict.create(
+            num_learning_epochs=5,
+            num_mini_batches=4,
+            clip_param=0.2,
+            gamma=0.99,
+            lam=0.95,
+            value_loss_coef=1.0,
+            entropy_coef=0.01,
+            learning_rate=1e-3,
+            max_grad_norm=1.0,
+            use_clipped_value_loss=True,
+            schedule="adaptive",
+            desired_kl=0.01,
+            optimizer="adam",
+            tau=1.0,
+            target_update_freq=1,
+            vtrace_clip_rho=1.0,
+            vtrace_clip_c=1.0,
+        ),
     )
-
-    if env_name in ("Go2JoystickFlatTerrain", "Go2LocoFlatTerrain"):
-        pass  # defaults are tuned for Go2
-    elif env_name in ("Go1JoystickFlatTerrain",):
-        pass  # same as default
-    elif env_name in ("G1JoystickFlatTerrain",):
-        rl_config.num_envs = 2048
-
-    return rl_config
-
-
-def fast_sac_config(env_name: str) -> config_dict.ConfigDict:
-    """Returns tuned FastSAC config for the given environment.
-
-    Hyperparameters aligned with holosoma FastSACConfig defaults.
-    """
-
-    rl_config = config_dict.create(
-        seed=1,
-        # Network architecture (holosoma-aligned)
-        actor_hidden_dim=512,
-        critic_hidden_dim=768,
-        use_layer_norm=True,
-        num_atoms=101,         # distributional C51
-        # Training
-        num_envs=4096,
-        batch_size=8192,
-        updates_per_step=4,
-        warmup_steps=10000,
-        replay_buffer_n=512,
-        num_steps_per_env=24,
-        max_iterations=1500,
-        save_interval=50,
-        # Optimizer (AdamW, holosoma-style)
-        actor_lr=3e-4,
-        critic_lr=3e-4,
-        alpha_lr=3e-4,
-        # Algorithm
-        gamma=0.97,
-        tau=0.125,
-        alpha_init=0.01,
-        target_entropy_ratio=0.0,
-        policy_frequency=4,
-        exploration_noise=0.1,
-    )
-
-    if env_name in ("Go2JoystickFlatTerrain", "Go2LocoFlatTerrain"):
-        rl_config.num_envs = 8192
-        rl_config.max_iterations = 3000
-    elif env_name in ("Go1JoystickFlatTerrain",):
-        rl_config.num_envs = 1024
-        rl_config.max_iterations = 2000
-    elif env_name in ("G1JoystickFlatTerrain",):
-        rl_config.max_iterations = 3000
-
-    return rl_config

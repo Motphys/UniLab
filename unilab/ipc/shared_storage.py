@@ -1,9 +1,11 @@
 """Shared on-policy storage for APPO-style algorithms."""
 
 from __future__ import annotations
+
 import multiprocessing as mp
 from multiprocessing import shared_memory
 from typing import Dict
+
 import numpy as np
 
 _SPAWN_CTX = mp.get_context("spawn")
@@ -12,8 +14,16 @@ _SPAWN_CTX = mp.get_context("spawn")
 class SharedOnPolicyStorage:
     """Double-buffered rollout storage for on-policy algorithms."""
 
-    def __init__(self, num_envs: int, num_steps: int, obs_dim: int, action_dim: int,
-                 *, create: bool = True, shm_name_prefix: str | None = None):
+    def __init__(
+        self,
+        num_envs: int,
+        num_steps: int,
+        obs_dim: int,
+        action_dim: int,
+        *,
+        create: bool = True,
+        shm_name_prefix: str | None = None,
+    ):
         self.num_envs = num_envs
         self.num_steps = num_steps
         self.obs_dim = obs_dim
@@ -22,8 +32,7 @@ class SharedOnPolicyStorage:
         _f32 = np.dtype(np.float32).itemsize
         n = num_envs * num_steps
         per_buffer = (
-            n * obs_dim * _f32 + n * action_dim * _f32 + 
-            n * _f32 * 5 + num_envs * obs_dim * _f32
+            n * obs_dim * _f32 + n * action_dim * _f32 + n * _f32 * 4 + num_envs * obs_dim * _f32
         )
         total_bytes = 2 * per_buffer
 
@@ -57,16 +66,24 @@ class SharedOnPolicyStorage:
         offset = base_offset
         views = {}
 
-        views["obs"] = np.ndarray((self.num_envs, self.num_steps, self.obs_dim), dtype=np.float32, buffer=buf[offset:])
+        views["obs"] = np.ndarray(
+            (self.num_envs, self.num_steps, self.obs_dim), dtype=np.float32, buffer=buf[offset:]
+        )
         offset += n * self.obs_dim * _f32
-        views["actions"] = np.ndarray((self.num_envs, self.num_steps, self.action_dim), dtype=np.float32, buffer=buf[offset:])
+        views["actions"] = np.ndarray(
+            (self.num_envs, self.num_steps, self.action_dim), dtype=np.float32, buffer=buf[offset:]
+        )
         offset += n * self.action_dim * _f32
 
-        for name in ["rewards", "dones", "truncated", "log_probs", "values"]:
-            views[name] = np.ndarray((self.num_envs, self.num_steps), dtype=np.float32, buffer=buf[offset:])
+        for name in ["rewards", "dones", "truncated", "log_probs"]:
+            views[name] = np.ndarray(
+                (self.num_envs, self.num_steps), dtype=np.float32, buffer=buf[offset:]
+            )
             offset += n * _f32
 
-        views["last_obs"] = np.ndarray((self.num_envs, self.obs_dim), dtype=np.float32, buffer=buf[offset:])
+        views["last_obs"] = np.ndarray(
+            (self.num_envs, self.obs_dim), dtype=np.float32, buffer=buf[offset:]
+        )
         return views
 
     @property
@@ -98,8 +115,9 @@ class SharedOnPolicyStorage:
 
     def read_torch(self, device: str = "cpu"):
         import torch
+
         views = self.read_buffer
-        return {k: torch.from_numpy(v.copy()).to(device) for k, v in views.items()}
+        return {k: torch.from_numpy(v).to(device) for k, v in views.items()}
 
     def cleanup(self) -> None:
         try:

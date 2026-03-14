@@ -4,6 +4,10 @@ dist/
 .eggs/
 *.egg-info/
 
+# uv
+.venv/
+.python-version
+
 # IDEs
 .cursor/
 .vscode/

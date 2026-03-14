@@ -26,7 +26,9 @@ class MLP(nn.Module):
         dims = [int(input_dim)] + [int(h) for h in hidden_dims] + [int(output_dim)]
         self.layers = [nn.Linear(dims[i], dims[i + 1]) for i in range(len(dims) - 1)]
         self.activation = get_activation(activation)
-        self.last_activation = get_activation(last_activation) if last_activation is not None else None
+        self.last_activation = (
+            get_activation(last_activation) if last_activation is not None else None
+        )
 
     def __call__(self, x: mx.array) -> mx.array:
         for idx, layer in enumerate(self.layers):
@@ -38,7 +40,9 @@ class MLP(nn.Module):
                 x = self.last_activation(x)
         return x
 
-    def init_orthogonal(self, hidden_gain: float = math.sqrt(2.0), output_gain: float = 1.0) -> None:
+    def init_orthogonal(
+        self, hidden_gain: float = math.sqrt(2.0), output_gain: float = 1.0
+    ) -> None:
         """Orthogonally initialize linear layers with separate output gain."""
         num_layers = len(self.layers)
         for idx, layer in enumerate(self.layers):

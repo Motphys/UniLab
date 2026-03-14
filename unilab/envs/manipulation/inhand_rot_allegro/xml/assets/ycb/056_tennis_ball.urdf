@@ -1,0 +1,19 @@
+<robot name="056_tennis_ball">
+	<link name="object">
+		<visual>
+			<origin rpy="0 0 0" xyz="0 0 0" />
+			<geometry>
+				<mesh filename="056_tennis_ball/google_16k/textured.obj" scale="1.1934954497985975 1.1934954497985975 1.1934954497985975" />
+			</geometry>
+		</visual>
+		<collision>
+			<geometry>
+				<mesh filename="056_tennis_ball/google_16k/textured_vhacd.obj" scale="1.1934954497985975 1.1934954497985975 1.1934954497985975" />
+			</geometry>
+		<origin rpy="0 0 0" xyz="0 0 0" /></collision>
+		<inertial>
+			<mass value="0.05" />
+			<inertia ixx="0.0001" ixy="0.0" ixz="0.0" iyy="0.0001" iyz="0.0" izz="0.0001" />
+		</inertial>
+	</link>
+</robot>
