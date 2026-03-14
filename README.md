@@ -71,6 +71,19 @@ UniLab 采用**统一内存异构运算架构**：
    ```bash
    pip install -e ".[motrix]"
    ```
+
+### 国内镜像加速
+
+如遇下载慢，可配置国内镜像源：
+
+```bash
+# 配置清华镜像
+uv pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 或使用阿里云镜像
+uv pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/
+```
+
 ### 跨平台支持 (Cross-Platform)
 
 #### macOS (MPS)
