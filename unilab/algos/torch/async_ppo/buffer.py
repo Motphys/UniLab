@@ -4,7 +4,7 @@ import torch
 
 
 class OnPolicyReplayBuffer:
-    """Stores recent rollouts with device-adaptive layout."""
+    """Stores recent rollouts with device-adaptive layout and zero-copy optimization."""
 
     def __init__(
         self,
@@ -26,16 +26,28 @@ class OnPolicyReplayBuffer:
         self.count = torch.zeros(1, dtype=torch.int64).share_memory_()
 
         if device == "cuda":
-            # Separate tensors for efficient H2D sync
-            self.obs = torch.zeros(capacity_rollouts, num_steps, num_envs, obs_dim).share_memory_()
-            self.actions = torch.zeros(
-                capacity_rollouts, num_steps, num_envs, action_dim
+            # Use pinned memory for faster H2D transfer
+            self.obs = torch.zeros(
+                capacity_rollouts, num_steps, num_envs, obs_dim, pin_memory=True
             ).share_memory_()
-            self.rewards = torch.zeros(capacity_rollouts, num_steps, num_envs).share_memory_()
-            self.dones = torch.zeros(capacity_rollouts, num_steps, num_envs).share_memory_()
-            self.log_probs = torch.zeros(capacity_rollouts, num_steps, num_envs).share_memory_()
-            self.values = torch.zeros(capacity_rollouts, num_steps, num_envs).share_memory_()
-            self.last_obs = torch.zeros(capacity_rollouts, num_envs, obs_dim).share_memory_()
+            self.actions = torch.zeros(
+                capacity_rollouts, num_steps, num_envs, action_dim, pin_memory=True
+            ).share_memory_()
+            self.rewards = torch.zeros(
+                capacity_rollouts, num_steps, num_envs, pin_memory=True
+            ).share_memory_()
+            self.dones = torch.zeros(
+                capacity_rollouts, num_steps, num_envs, pin_memory=True
+            ).share_memory_()
+            self.log_probs = torch.zeros(
+                capacity_rollouts, num_steps, num_envs, pin_memory=True
+            ).share_memory_()
+            self.values = torch.zeros(
+                capacity_rollouts, num_steps, num_envs, pin_memory=True
+            ).share_memory_()
+            self.last_obs = torch.zeros(
+                capacity_rollouts, num_envs, obs_dim, pin_memory=True
+            ).share_memory_()
 
             # GPU cache
             self.obs_gpu = torch.empty_like(self.obs, device="cuda")
@@ -46,6 +58,7 @@ class OnPolicyReplayBuffer:
             self.values_gpu = torch.empty_like(self.values, device="cuda")
             self.last_obs_gpu = torch.empty_like(self.last_obs, device="cuda")
             self._synced_ptr = 0
+            self._cuda_stream = torch.cuda.Stream()
         else:
             # Packed layout for MPS/CPU
             total_dim = num_steps * num_envs * (obs_dim + action_dim + 4) + num_envs * obs_dim
@@ -82,20 +95,24 @@ class OnPolicyReplayBuffer:
         self.count[0] = min(int(self.count[0]) + 1, self.capacity)
 
     def get_latest(self) -> dict:
-        """Get most recent rollout."""
+        """Get most recent rollout with async H2D transfer."""
         idx = (int(self.ptr[0]) - 1) % self.capacity
 
         if self.device == "cuda":
-            # Lazy sync
+            # Async H2D transfer with dedicated stream
             if int(self.ptr[0]) > self._synced_ptr:
-                self.obs_gpu[idx].copy_(self.obs[idx], non_blocking=True)
-                self.actions_gpu[idx].copy_(self.actions[idx], non_blocking=True)
-                self.rewards_gpu[idx].copy_(self.rewards[idx], non_blocking=True)
-                self.dones_gpu[idx].copy_(self.dones[idx], non_blocking=True)
-                self.log_probs_gpu[idx].copy_(self.log_probs[idx], non_blocking=True)
-                self.values_gpu[idx].copy_(self.values[idx], non_blocking=True)
-                self.last_obs_gpu[idx].copy_(self.last_obs[idx], non_blocking=True)
+                with torch.cuda.stream(self._cuda_stream):
+                    self.obs_gpu[idx].copy_(self.obs[idx], non_blocking=True)
+                    self.actions_gpu[idx].copy_(self.actions[idx], non_blocking=True)
+                    self.rewards_gpu[idx].copy_(self.rewards[idx], non_blocking=True)
+                    self.dones_gpu[idx].copy_(self.dones[idx], non_blocking=True)
+                    self.log_probs_gpu[idx].copy_(self.log_probs[idx], non_blocking=True)
+                    self.values_gpu[idx].copy_(self.values[idx], non_blocking=True)
+                    self.last_obs_gpu[idx].copy_(self.last_obs[idx], non_blocking=True)
                 self._synced_ptr = int(self.ptr[0])
+
+            # Sync stream before returning
+            self._cuda_stream.synchronize()
 
             return {
                 "observations": self.obs_gpu[idx],

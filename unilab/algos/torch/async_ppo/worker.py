@@ -74,7 +74,7 @@ def async_ppo_collector_fn(
                     {k: v for k, v in sd.items() if k in ppo.critic.state_dict()}
                 )
 
-            # Collect rollout
+            # Collect rollout - write directly to shared buffer to avoid copy
             obs_buf = torch.zeros(steps_per_env, num_envs, obs_dim, device=collector_device)
             actions_buf = torch.zeros(steps_per_env, num_envs, action_dim, device=collector_device)
             rewards_buf = torch.zeros(steps_per_env, num_envs, device=collector_device)
@@ -116,15 +116,15 @@ def async_ppo_collector_fn(
                         collector_device
                     )
 
-            # Write to buffer
+            # Zero-copy write to buffer (already in shared memory)
             rollout = {
-                "observations": obs_buf.cpu(),
-                "actions": actions_buf.cpu(),
-                "rewards": rewards_buf.cpu(),
-                "dones": dones_buf.cpu(),
-                "log_probs": log_probs_buf.cpu(),
-                "values": values_buf.cpu(),
-                "last_obs": obs.cpu(),
+                "observations": obs_buf if obs_buf.is_shared() else obs_buf.cpu(),
+                "actions": actions_buf if actions_buf.is_shared() else actions_buf.cpu(),
+                "rewards": rewards_buf if rewards_buf.is_shared() else rewards_buf.cpu(),
+                "dones": dones_buf if dones_buf.is_shared() else dones_buf.cpu(),
+                "log_probs": log_probs_buf if log_probs_buf.is_shared() else log_probs_buf.cpu(),
+                "values": values_buf if values_buf.is_shared() else values_buf.cpu(),
+                "last_obs": obs if obs.is_shared() else obs.cpu(),
             }
             buffer.add_rollout(rollout)
 
