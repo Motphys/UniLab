@@ -71,6 +71,26 @@ UniLab 采用**统一内存异构运算架构**：
    ```bash
    pip install -e ".[motrix]"
    ```
+### 跨平台支持 (Cross-Platform)
+
+#### macOS (MPS)
+默认安装即支持 Apple Silicon MPS 加速：
+```bash
+uv sync
+```
+
+#### Linux (CUDA)
+默认安装 CPU 版本 PyTorch。如需 CUDA 支持，安装后执行：
+```bash
+# CUDA 12.1
+uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+
+# CUDA 11.8
+uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+```
+
+---
+
 
 ---
 

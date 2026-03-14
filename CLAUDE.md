@@ -34,3 +34,15 @@ For motrix support:
 ```bash
 uv sync --extra motrix
 ```
+
+## Cross-Platform Support
+
+### macOS (MPS)
+- PyTorch with MPS backend (default from PyPI)
+- MLX framework (Apple Silicon only)
+
+### Linux (CUDA)
+For CUDA support, install PyTorch with CUDA after `uv sync`:
+```bash
+uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+```
