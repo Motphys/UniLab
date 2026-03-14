@@ -50,6 +50,10 @@ def play_appo(args, rl_cfg):
     from rsl_rl.utils import resolve_callable
     from unilab.utils.rsl_rl_compat import is_rsl_rl_v4, convert_config_v3_to_v4
 
+    # Normalize to plain dict so ConfigDict doesn't cause isinstance issues
+    if hasattr(rl_cfg, "to_dict"):
+        rl_cfg = rl_cfg.to_dict()
+
     device = args.device or ("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
     print(f"Using device for play: {device}")
 
@@ -172,18 +176,12 @@ def main():
 
     ensure_registries()
 
+    from unilab.config.locomotion_params import appo_config
+    rl_cfg = appo_config(args.task)
+
     if args.log_dir is None:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         args.log_dir = os.path.join(ROOT_DIR, "logs", "appo", args.task, f"{timestamp}_mujoco")
-
-    rl_cfg = {
-        "obs_groups": {
-            "actor": {"policy": 0},  # will be auto-detected by APPORunner
-        },
-        "actor": {
-            "class_name": "rsl_rl.models.MLPModel",
-        },
-    }
 
     if not args.play_only:
         from unilab.algos.torch.appo.runner import APPORunner

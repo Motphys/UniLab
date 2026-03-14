@@ -229,6 +229,8 @@ class APPOLearner:
         Workers use the behavior policy (which may be stale).
         Includes EmpiricalNormalization buffers.
         """
+        return self.actor.state_dict()
+
     def get_state_dict(self):
         """Return full learner state for checkpointing."""
         return {
