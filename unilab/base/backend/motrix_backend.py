@@ -37,7 +37,7 @@ class MotrixBackend(SimBackend):
         self.backend_type = "motrix"
 
     def _process_rigid_body_props(self, cfg) -> None:
-        if cfg.domain_rand.randomize_base_mass == True:
+        if cfg.domain_rand.randomize_base_mass:
             mass = self._model.get_link(cfg.asset.body_name).get_mass_override(self._data)
             mass_low = cfg.domain_rand.added_mass_range[0]
             mass_high = cfg.domain_rand.added_mass_range[1]
@@ -45,7 +45,7 @@ class MotrixBackend(SimBackend):
             self._model.get_link(cfg.asset.body_name).set_mass_override(self._data, random_mass)
             mass = self._model.get_link(cfg.asset.body_name).get_mass_override(self._data)
 
-        if cfg.domain_rand.random_com == True:
+        if cfg.domain_rand.random_com:
             com_offset = np.zeros(
                 (self._num_envs, 3), dtype=np.float32
             )  # [x_offset, y_offset, z_offset]
@@ -55,7 +55,7 @@ class MotrixBackend(SimBackend):
             self._model.get_link(cfg.asset.body_name).set_center_of_mass_override(
                 self._data, com_offset
             )
-            com_get = self._model.get_link(cfg.asset.body_name).get_center_of_mass_override(
+            self._model.get_link(cfg.asset.body_name).get_center_of_mass_override(
                 self._data
             )
 

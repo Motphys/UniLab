@@ -16,15 +16,14 @@ Usage:
     python benchmark/benchmark_ipc_weight_sync.py
 """
 
-import time
 import sys
 import threading
+import time
 from multiprocessing.shared_memory import SharedMemory
 
 import numpy as np
 import torch
 import torch.nn as nn
-
 
 # ---------------------------------------------------------------------------
 # helpers

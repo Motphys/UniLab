@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 import gymnasium as gym
 import mujoco
 import numpy as np
-from dataclasses import dataclass, field
 
-from unilab.base.base import EnvCfg
-from unilab.base.np_env import NpEnv, NpEnvState
 from unilab.base.backend import SimBackend
+from unilab.base.base import EnvCfg
 from unilab.base.dtype_config import get_global_dtype
+from unilab.base.np_env import NpEnv, NpEnvState
 
 
 @dataclass
@@ -122,7 +123,7 @@ class Go1BaseEnv(NpEnv):
             )
 
     def push_robots(self):
-        if self.push_robots_flag == True:
+        if self.push_robots_flag:
             if self.step_counter % self._cfg.domain_rand.push_interval == 0:
                 self._backend.push_robots(self._cfg.domain_rand.max_force)
 

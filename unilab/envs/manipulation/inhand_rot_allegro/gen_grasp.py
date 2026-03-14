@@ -21,10 +21,10 @@ import sys
 import time
 from pathlib import Path
 
+import mediapy as media
 import mujoco
 import mujoco.viewer
 import numpy as np
-import mediapy as media
 
 # ── Path setup ──────────────────────────────────────────────────────────────
 # gen_grasp.py lives at: UniLab/unilab/envs/manipulation/inhand_rot_allegro/
@@ -52,12 +52,12 @@ def ensure_registries():
 ensure_registries()
 
 from unilab.base import registry  # noqa: E402  (after sys.path setup)
-from unilab.utils import render_many  # noqa: E402
 from unilab.base.dtype_config import get_global_dtype  # noqa: E402
 
 # Explicit import to guarantee the @registry.env decorator runs,
 # since ensure_registries() silently swallows import errors.
 from unilab.envs.manipulation.inhand_rot_allegro import rotation as _rotation_register
+from unilab.utils import render_many  # noqa: E402
 
 _ = _rotation_register  # side-effect import: triggers @registry.env decorator
 

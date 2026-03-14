@@ -1,13 +1,12 @@
 import abc
 import dataclasses
 from dataclasses import dataclass
-from typing import Tuple
-import numpy as np
-import gymnasium as gym
-from typing import Optional
+from typing import Optional, Tuple
 
-from unilab.base.base import ABEnv, EnvCfg
+import numpy as np
+
 from unilab.base.backend import SimBackend
+from unilab.base.base import ABEnv, EnvCfg
 from unilab.base.dtype_config import get_global_dtype
 
 
@@ -40,7 +39,7 @@ class NpEnv(ABEnv):
         self.push_robots_flag = False
         if self._backend.backend_type == "motrix":
             self._backend._process_rigid_body_props(cfg)
-            if self._cfg.domain_rand.push_robots == True:
+            if self._cfg.domain_rand.push_robots:
                 self.push_robots_flag = True
 
     @property
@@ -140,7 +139,7 @@ class NpEnv(ABEnv):
                     self._state.info[key][env_indices] = value
 
     def push_robots(self):
-        if self.push_robots_flag == True:
+        if self.push_robots_flag:
             if self.step_counter % self._cfg.domain_rand.push_interval == 0:
                 self._backend.push_robots(self._cfg.domain_rand.max_force)
 

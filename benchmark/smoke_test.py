@@ -27,7 +27,7 @@ for name in tests:
     print(f"Testing {name}...")
     try:
         mod = __import__(f"benchmark.{name}", fromlist=[name])
-        print(f"  ✓ Import OK")
+        print("  ✓ Import OK")
         passed.append(name)
     except Exception as e:
         print(f"  ✗ Import failed: {e}")

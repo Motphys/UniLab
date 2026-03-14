@@ -4,13 +4,12 @@
 import argparse
 import sys
 from dataclasses import asdict, dataclass
-from pathlib import Path
-from typing import List, Tuple
 from multiprocessing import cpu_count
+from pathlib import Path
 
 import mujoco
-from mujoco import batch_forward
 import numpy as np
+from mujoco import batch_forward
 
 try:
     from benchmark.core.device_info import get_device_info_dict, get_device_info_line

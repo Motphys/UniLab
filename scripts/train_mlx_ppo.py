@@ -5,17 +5,17 @@
 from __future__ import annotations
 
 import argparse
-from collections import deque
 import datetime
 import importlib
 import json
+import math
 import os
 import pickle
 import pkgutil
-import math
 import statistics
 import sys
 import time
+from collections import deque
 from pathlib import Path
 
 import mlx.core as mx
@@ -45,12 +45,12 @@ def ensure_registries() -> None:
 
 ensure_registries()
 
-from unilab.config import locomotion_params
-from unilab.base import registry
-from unilab.utils import render_many
-from unilab.utils.onpolicy_logger import OnPolicyLogger
 from unilab.algos.mlx.common import EmpiricalDiscountedVariationNormalization, RolloutBuffer
 from unilab.algos.mlx.ppo import MLPActorCritic, PPOConfig, PPOTrainer
+from unilab.base import registry
+from unilab.config import locomotion_params
+from unilab.utils import render_many
+from unilab.utils.onpolicy_logger import OnPolicyLogger
 
 TASK_STEP_TUNING = {
     # Tuned for faster collection_time on each task.
@@ -159,8 +159,8 @@ def play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root
     """Play mode for MLX PPO."""
     import mlx.core as mx
     import numpy as np
+
     from unilab.base import registry
-    from unilab.utils import render_many
 
     play_model_dtype = mx.float32 if use_fp16 else dtype
     play_env_num = args.play_env_num

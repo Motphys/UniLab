@@ -1,7 +1,6 @@
 """Numerical stability utilities for RL training."""
 
 import torch
-import torch.nn as nn
 
 
 def check_nan_loss(

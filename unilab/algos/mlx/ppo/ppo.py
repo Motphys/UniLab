@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
+from dataclasses import dataclass
 from typing import Dict
 
 import mlx.core as mx
@@ -12,6 +12,7 @@ import mlx.optimizers as optim
 from mlx.utils import tree_flatten, tree_map
 
 from unilab.algos.mlx.common import RolloutBuffer, diag_gaussian_entropy, diag_gaussian_log_prob
+
 from .model import MLPActorCritic
 
 

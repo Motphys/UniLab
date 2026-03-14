@@ -21,21 +21,20 @@ from __future__ import annotations
 
 try:
     from benchmark.core import (
-        bench_callable,
-        available_backends,
         MLPBenchRecord,
+        available_backends,
+        bench_callable,
         mlp_param_count,
-        trimmed_mean,
         print_mlp_table,
+        trimmed_mean,
     )
     from benchmark.core.device_info import get_device_info_dict, get_device_info_line
 except ModuleNotFoundError:
     from core import (
-        bench_callable,
-        available_backends,
         MLPBenchRecord,
+        available_backends,
+        bench_callable,
         mlp_param_count,
-        trimmed_mean,
         print_mlp_table,
     )
     from core.device_info import get_device_info_dict, get_device_info_line
@@ -44,14 +43,11 @@ import argparse
 import json
 import os
 import statistics
-import sys
 import time
-import warnings
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
-
+from typing import Dict, List, Optional, Tuple
 
 try:
     import numpy as np
@@ -1266,7 +1262,7 @@ def main() -> None:
                 )
             except Exception:
                 pass
-    backends_p4 = available_backends(include_lazy=True)
+    available_backends(include_lazy=True)
     if onnx_session is not None:
         print("\nDetected backends (phase 4: ONNX Runtime):", flush=True)
         print("  - onnxruntime: yes", flush=True)

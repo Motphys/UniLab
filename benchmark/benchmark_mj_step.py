@@ -21,14 +21,14 @@ from multiprocessing import cpu_count
 from pathlib import Path
 from typing import Dict, List
 
+import matplotlib
 import mujoco
 from mujoco import rollout as mj_rollout
-import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.patches import Patch
 import numpy as np
+from matplotlib.patches import Patch
 
 _IS_MACOS = platform.system() == "Darwin"
 
@@ -536,7 +536,7 @@ def main():
     if _IS_MACOS:
         if not _has_native_mujoco_mlx_step():
             raise RuntimeError("Native MLX step backend unavailable. Requires mujoco.mlx_step.")
-        print(f"macOS: native mlx_step available")
+        print("macOS: native mlx_step available")
     else:
         print(f"Non-macOS: using mujoco.rollout (1t vs {args.nthread}t)")
 

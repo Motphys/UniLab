@@ -1,7 +1,7 @@
 """Common utilities for RL algorithms."""
 
-import pkgutil
 import importlib
+import pkgutil
 
 
 def ensure_registries():

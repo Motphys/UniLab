@@ -11,9 +11,9 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import mlx.core as mx
 import numpy as np
 import torch
-import mlx.core as mx
 
 from unilab.base import registry
 

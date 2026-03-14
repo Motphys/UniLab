@@ -10,15 +10,13 @@ Key differences from standard PPO:
 """
 
 import copy
+from itertools import chain
 
 import torch
 import torch.nn as nn
-import torch.optim as optim
-from tensordict import TensorDict
-
 from rsl_rl.models import MLPModel
 from rsl_rl.utils import resolve_optimizer
-from itertools import chain
+from tensordict import TensorDict
 
 
 def vtrace_advantages(
@@ -88,7 +86,6 @@ def vtrace_advantages(
     return vs, advantages
 
 
-import torch.nn as nn
 from torch.distributions import Normal
 
 

@@ -2,15 +2,15 @@
 
 import os
 import time
-import torch
 from collections import deque
 
-from unilab.ipc import SharedWeightSync, SharedObsNormStats
-from unilab.ipc.replay_buffer import ReplayBuffer
-from unilab.ipc.async_runner import AsyncRunner
+import torch
+
 from unilab.algos.torch.offpolicy.worker import off_policy_collector_fn
+from unilab.ipc import SharedObsNormStats, SharedWeightSync
+from unilab.ipc.async_runner import _SPAWN_CTX, AsyncRunner
+from unilab.ipc.replay_buffer import ReplayBuffer
 from unilab.utils.offpolicy_logger import OffPolicyLogger
-from unilab.ipc.async_runner import _SPAWN_CTX
 
 
 class OffPolicyRunner(AsyncRunner):
@@ -258,7 +258,7 @@ class OffPolicyRunner(AsyncRunner):
 
             self.learner.update_count += 1
             weight_sync.write_weights(self.learner.actor.state_dict())
-            sync_time = time.time() - sync_start
+            time.time() - sync_start
             train_time = time.time() - train_start
 
             if self.sync_collection and trainer_done_queue:

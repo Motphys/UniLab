@@ -5,11 +5,12 @@ Cross-platform: CUDA, MPS (macOS), CPU fallback.
 Usage: python scripts/benchmark_gpu_buffer.py
 """
 
+import sys
+import time
+
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
-import time
-import sys
 
 
 def sync_device(device):
@@ -72,7 +73,7 @@ def benchmark_host_buffer(capacity, obs_dim, action_dim, batch_size, num_updates
         indices = np.random.randint(0, capacity, size=batch_size)
         obs = torch.from_numpy(obs_buf[indices].copy()).to(device, non_blocking=True)
         actions = torch.from_numpy(actions_buf[indices].copy()).to(device, non_blocking=True)
-        next_obs = torch.from_numpy(next_obs_buf[indices].copy()).to(device, non_blocking=True)
+        torch.from_numpy(next_obs_buf[indices].copy()).to(device, non_blocking=True)
         sync_device(device)
 
         # Training step
@@ -111,7 +112,7 @@ def benchmark_gpu_buffer(capacity, obs_dim, action_dim, batch_size, num_updates,
         indices = torch.randint(0, capacity, (batch_size,), device=device)
         obs = obs_buf[indices]
         actions = actions_buf[indices]
-        next_obs = next_obs_buf[indices]
+        next_obs_buf[indices]
 
         # Training step
         pred_actions = actor(obs)

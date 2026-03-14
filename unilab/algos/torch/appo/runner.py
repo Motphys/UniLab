@@ -9,16 +9,16 @@ Pipeline:
 import multiprocessing as mp
 import os
 import time
-import statistics
-import torch
-from collections import defaultdict, deque
+from collections import deque
 
-from unilab.ipc import AsyncRunner, SharedOnPolicyStorage, SharedWeightSync
+import torch
+from rsl_rl.utils import resolve_callable
+
+from unilab.algos.torch.appo.learner import APPOActorWrapper, APPOLearner
 from unilab.algos.torch.appo.worker import appo_collector_fn
-from unilab.algos.torch.appo.learner import APPOLearner, APPOActorWrapper
+from unilab.ipc import AsyncRunner, SharedOnPolicyStorage, SharedWeightSync
 from unilab.utils.offpolicy_logger import OffPolicyLogger
 from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4
-from rsl_rl.utils import resolve_callable
 
 
 class APPORunner(AsyncRunner):
@@ -93,8 +93,8 @@ class APPORunner(AsyncRunner):
         if is_rsl_rl_v4():
             cfg = convert_config_v3_to_v4(cfg)
 
-        from tensordict import TensorDict
         import torch
+        from tensordict import TensorDict
 
         obs_example = torch.zeros((self.num_envs, self.obs_dim), device=self.device)
         td_example = TensorDict({"policy": obs_example}, batch_size=self.num_envs)
@@ -207,9 +207,8 @@ class APPORunner(AsyncRunner):
         logger.start()
         logger.log_status("Waiting for first rollout...")
 
-        reward_history = deque(maxlen=100)
-        start_time = time.time()
-        total_steps = 0
+        deque(maxlen=100)
+        time.time()
         last_metrics_msg = {}
 
         for iteration in range(1, max_iterations + 1):

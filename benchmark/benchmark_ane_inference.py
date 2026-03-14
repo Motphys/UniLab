@@ -12,33 +12,30 @@ from __future__ import annotations
 
 try:
     from benchmark.core import (
-        bench_callable,
         MLPBenchRecord,
+        bench_callable,
         mlp_param_count,
-        trimmed_mean,
         print_mlp_table,
+        trimmed_mean,
     )
     from benchmark.core.device_info import get_device_info_dict, get_device_info_line
 except ModuleNotFoundError:
-    from core import bench_callable, MLPBenchRecord, mlp_param_count, trimmed_mean, print_mlp_table
+    from core import MLPBenchRecord, bench_callable, mlp_param_count, print_mlp_table, trimmed_mean
     from core.device_info import get_device_info_dict, get_device_info_line
 
 
 import argparse
 import json
-import os
-import warnings
 import shutil
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
-
+import coremltools as ct
 import numpy as np
 import torch
-import coremltools as ct
 
 try:
     import matplotlib
