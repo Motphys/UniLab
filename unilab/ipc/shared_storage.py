@@ -46,8 +46,8 @@ class SharedOnPolicyStorage:
         self._buffers = [self._make_views(0), self._make_views(per_buffer)]
 
         if create:
-            self._write_idx = _SPAWN_CTX.Value("i", 0)
-            self._read_idx = _SPAWN_CTX.Value("i", 0)
+            self._write_idx = _SPAWN_CTX.Value("l", 0)
+            self._read_idx = _SPAWN_CTX.Value("l", 0)
             self._ready = [_SPAWN_CTX.Event(), _SPAWN_CTX.Event()]
         else:
             self._write_idx = None
