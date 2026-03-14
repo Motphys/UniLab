@@ -182,18 +182,19 @@ def _run_collector(
                 obs_np_input = (obs_np - mean) / (std + 1e-8)
 
         # Select action
-        if total_steps < warmup_steps:
-            actions_np = np.random.uniform(-1, 1, (num_envs, action_dim)).astype(np.float32)
-        else:
-            obs_torch = torch.from_numpy(obs_np_input)
-            if algo_type == "sac":
-                actions_torch = actor.explore(obs_torch)
-            else:  # td3
-                actions_torch = actor(obs_torch)
-                actions_torch = (actions_torch + torch.randn_like(actions_torch) * 0.1).clamp(
-                    -1, 1
-                )
-            actions_np = actions_torch.numpy()
+        with torch.no_grad():
+            if total_steps < warmup_steps:
+                actions_np = np.random.uniform(-1, 1, (num_envs, action_dim)).astype(np.float32)
+            else:
+                obs_torch = torch.from_numpy(obs_np_input)
+                if algo_type == "sac":
+                    actions_torch = actor.explore(obs_torch)
+                else:  # td3
+                    actions_torch = actor(obs_torch)
+                    actions_torch = (actions_torch + torch.randn_like(actions_torch) * 0.1).clamp(
+                        -1, 1
+                    )
+                actions_np = actions_torch.numpy()
 
         # Step environment
         state = env.step(actions_np)
