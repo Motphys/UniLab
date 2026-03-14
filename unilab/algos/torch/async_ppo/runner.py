@@ -8,6 +8,7 @@ from rsl_rl.algorithms import PPO
 from tensordict import TensorDict
 
 from unilab.ipc import AsyncRunner, SharedWeightSync
+from unilab.utils.hardware_monitor import HardwareMonitor
 from unilab.utils.offpolicy_logger import OffPolicyLogger
 
 from .buffer import OnPolicyReplayBuffer
@@ -114,6 +115,9 @@ class AsyncPPORunner(AsyncRunner):
         logger.start()
         logger.log_status("Waiting for first rollout...")
 
+        # Hardware monitor
+        hw_monitor = HardwareMonitor()
+
         # Training loop
         for iteration in range(1, max_iterations + 1):
             iter_start = time.time()
@@ -136,6 +140,11 @@ class AsyncPPORunner(AsyncRunner):
             weight_sync.write_weights(state_dict)
 
             train_time = time.time() - train_start
+
+            # Hardware metrics
+            if iteration % 10 == 0:
+                hw_metrics = hw_monitor.get_metrics()
+                metrics.update({f"hardware/{k}": v for k, v in hw_metrics.items()})
 
             logger.log_step(
                 iteration=iteration,
