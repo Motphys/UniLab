@@ -23,8 +23,14 @@ def async_ppo_collector_fn(
     """Collect rollouts using PPO.act()."""
     from unilab.base import registry
     from unilab.ipc import SharedWeightSync
+    from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4
 
     ensure_registries()
+
+    # Convert config
+    cfg = dict(rl_cfg)
+    if is_rsl_rl_v4():
+        cfg = convert_config_v3_to_v4(cfg)
 
     # Create environment
     env = registry.make(env_name, num_envs=num_envs, sim_backend="mujoco")
@@ -32,13 +38,16 @@ def async_ppo_collector_fn(
     action_dim = env.action_space.shape[0]  # type: ignore[index]
 
     # Build PPO (inference only)
+    if not hasattr(env, 'num_actions'):
+        env.num_actions = action_dim
+
     obs_example = torch.zeros((num_envs, obs_dim), device=collector_device)
     td_example = TensorDict({"policy": obs_example}, batch_size=num_envs)
 
     ppo = PPO.construct_algorithm(
         env=env,
         obs=td_example,
-        cfg=rl_cfg,
+        cfg=cfg,
         device=collector_device,
     )
     ppo.actor.eval()

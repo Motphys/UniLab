@@ -39,16 +39,27 @@ class AsyncPPORunner(AsyncRunner):
 
     def _build_learner(self) -> AsyncPPOLearner:
         from unilab.base import registry
+        from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4
 
+        cfg = dict(self.rl_cfg)
+        if is_rsl_rl_v4():
+            cfg = convert_config_v3_to_v4(cfg)
+
+        # Create temporary env for PPO construction
         env = registry.make(self.env_name, num_envs=self.num_envs, sim_backend="mujoco")
+
+        # Add num_actions attribute for PPO.construct_algorithm
+        if not hasattr(env, 'num_actions'):
+            env.num_actions = self.action_dim
+
         obs_example = torch.zeros((self.num_envs, self.obs_dim), device=self.device)
         td_example = TensorDict({"policy": obs_example}, batch_size=self.num_envs)
 
-        ppo = PPO.construct_algorithm(env=env, obs=td_example, cfg=self.rl_cfg, device=self.device)
+        ppo = PPO.construct_algorithm(env=env, obs=td_example, cfg=cfg, device=self.device)
 
-        steps_per_env = self.rl_cfg.get("num_steps_per_env", 24)
+        steps_per_env = cfg.get("num_steps_per_env", 24)
         buffer = OnPolicyReplayBuffer(
-            capacity_rollouts=self.rl_cfg.get("buffer_capacity_rollouts", 10),
+            capacity_rollouts=cfg.get("buffer_capacity_rollouts", 10),
             num_envs=self.num_envs,
             num_steps=steps_per_env,
             obs_dim=self.obs_dim,
@@ -81,6 +92,7 @@ class AsyncPPORunner(AsyncRunner):
         # Weight sync
         state_dict = {**ppo.actor.state_dict(), **ppo.critic.state_dict()}
         weight_sync = SharedWeightSync.from_state_dict(state_dict, create=True)
+        weight_param_shapes = {name: p.shape for name, p in state_dict.items()}
         self._shared_resources.extend([buffer, weight_sync])
 
         # Start collector
@@ -94,8 +106,8 @@ class AsyncPPORunner(AsyncRunner):
                 "num_envs": self.num_envs,
                 "steps_per_env": steps_per_env,
                 "buffer": buffer,
-                "weight_sync_name": weight_sync.shm_name,
-                "weight_param_shapes": weight_sync.param_shapes,
+                "weight_sync_name": weight_sync.name,
+                "weight_param_shapes": weight_param_shapes,
                 "metrics_queue": None,
                 "collector_device": self.collector_device,
             },
