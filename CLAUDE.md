@@ -35,15 +35,14 @@ For motrix support:
 uv sync --extra motrix
 ```
 
-## PyTorch 加速后端配置
+## Linux CUDA 支持
+
+macOS 默认支持 MPS。Linux 需要手动安装 CUDA 版本 PyTorch：
 
 ```bash
-# macOS - MPS 加速（Apple Silicon）
-uv sync  # 默认已支持 MPS
-
-# Linux - CUDA 12.1
+# CUDA 12.1
 uv pip install torch --index-url https://download.pytorch.org/whl/cu121
 
-# Linux - CUDA 11.8
+# CUDA 11.8
 uv pip install torch --index-url https://download.pytorch.org/whl/cu118
 ```
