@@ -56,22 +56,18 @@ export UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 uv sync --index-url https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
-### PyTorch 版本选择
+### PyTorch 加速后端配置
 
 ```bash
-# CPU-only（默认，适合调试）
-uv sync
+# macOS - MPS 加速（Apple Silicon）
+uv sync  # 默认已支持 MPS
 
-# macOS MPS（默认已支持）
-uv sync
-
-# Linux CUDA 12.1
+# Linux - CUDA 12.1
 uv pip install torch --index-url https://download.pytorch.org/whl/cu121
 
-# Linux CUDA 11.8
+# Linux - CUDA 11.8
 uv pip install torch --index-url https://download.pytorch.org/whl/cu118
 ```
-
 ---
 
 ## 开发规范
