@@ -17,6 +17,9 @@ class AsyncPPOLearner:
         rollout = self.buffer.get_latest()
         self._fill_storage(rollout)
 
+        # Mark rollout as consumed
+        self.buffer.count[0] = 0
+
         last_obs_td = TensorDict({"policy": rollout["last_obs"]}, device=self.ppo.device)
         self.ppo.compute_returns(last_obs_td)
 
