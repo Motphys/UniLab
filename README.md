@@ -23,6 +23,83 @@ UniLab 采用**统一内存异构运算架构**：
 
 ---
 
+## 安装 (Installation)
+
+### 使用 uv（推荐）
+
+1. **安装 uv**:
+   ```bash
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
+
+2. **克隆仓库**:
+   ```bash
+   git clone https://github.com/TATP-233/UniLab.git
+   cd UniLab
+   ```
+
+3. **安装系统依赖**:
+   ```bash
+   # macOS
+   brew install cmake
+
+   # Ubuntu/Debian
+   sudo apt-get install cmake
+   ```
+
+4. **同步依赖**:
+   ```bash
+   uv sync
+   ```
+
+5. **可选：安装 Motrix 后端支持**:
+   ```bash
+   uv sync --extra motrix
+   ```
+
+### 使用 pip（传统方式）
+
+1. **克隆仓库并安装**:
+   ```bash
+   git clone https://github.com/TATP-233/UniLab.git
+   cd UniLab
+   pip install --extra-index-url https://test.pypi.org/simple/ mujoco-uni==3.5.0.post2
+   pip install -e .
+   ```
+
+2. **可选：安装 Motrix 后端支持**:
+   ```bash
+   pip install -e ".[motrix]"
+   ```
+### 跨平台支持 (Cross-Platform)
+
+#### macOS (MPS)
+默认安装即支持 Apple Silicon MPS 加速：
+```bash
+uv sync
+```
+
+#### Linux (CUDA)
+默认安装 CPU 版本 PyTorch。如需 CUDA 支持，安装后执行：
+```bash
+# CUDA 12.1
+uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+
+# CUDA 11.8
+uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+```
+
+---
+
+
+---
+
+## 开发规范
+
+**Always use `uv run`, not python**. 详见 [CLAUDE.md](./CLAUDE.md)。
+
+---
+
 ## TODO
 
 - [x] @czx 增加 Bipedal Locomotion 任务
@@ -84,21 +161,6 @@ Thirdparty:
    3. https://github.com/google-deepmind/mujoco
    4. https://github.com/google-deepmind/mujoco_playground/
 
-## 安装 (Installation)
-
-1. **克隆仓库并安装**:
-   ```bash
-   git clone https://github.com/TATP-233/UniLab.git
-   cd UniLab
-   pip install --extra-index-url https://test.pypi.org/simple/ mujoco-uni==3.5.0.post2
-   pip install -e .
-   ```
-
-2. **可选：安装 Motrix 后端支持**:
-   ```bash
-   pip install -e ".[motrix]"
-   ```
-
 ## 仿真后端 (Simulation Backends)
 
 UniLab 支持两种仿真后端：
@@ -110,10 +172,10 @@ UniLab 支持两种仿真后端：
 
 ```bash
 # 训练
-python scripts/train_rsl_rl.py --task Go1JoystickFlatTerrain --sim_backend motrix
+uv run python scripts/train_rsl_rl.py --task Go1JoystickFlatTerrain --sim_backend motrix
 
 # 回放（交互式可视化）
-python scripts/train_rsl_rl.py --task Go1JoystickFlatTerrain --sim_backend motrix --play_only
+uv run python scripts/train_rsl_rl.py --task Go1JoystickFlatTerrain --sim_backend motrix --play_only
 ```
 
 ## 训练与回放指南
@@ -122,17 +184,17 @@ python scripts/train_rsl_rl.py --task Go1JoystickFlatTerrain --sim_backend motri
 
 ```bash
 # PPO (RSL-RL)
-python scripts/train_rsl_rl.py --task Go2JoystickFlatTerrain
+uv run python scripts/train_rsl_rl.py --task Go2JoystickFlatTerrain
 
 # PPO (MLX - Apple Silicon)
-python scripts/train_mlx_ppo.py --task Go2JoystickFlatTerrain
+uv run python scripts/train_mlx_ppo.py --task Go2JoystickFlatTerrain
 
 # Unified OffPolicy entry (recommended)
-python scripts/train_offpolicy.py --algo sac --task Go1JoystickFlatTerrain
-python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain
+uv run python scripts/train_offpolicy.py --algo sac --task Go1JoystickFlatTerrain
+uv run python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain
 
 # APPO
-python scripts/train_appo.py --task Go2JoystickFlatTerrain
+uv run python scripts/train_appo.py --task Go2JoystickFlatTerrain
 ```
 
 **注意**：训练脚本默认在训练完成后会进入回放阶段。`mujoco` 后端会导出 `play_video.mp4`，`motrix` 后端为交互式窗口渲染（不导出视频）。使用 `--no_play` 跳过自动回放。
@@ -145,21 +207,21 @@ python scripts/train_appo.py --task Go2JoystickFlatTerrain
 
 ```bash
 # 回放最新训练结果
-python scripts/train_rsl_rl.py --task Go2JoystickFlatTerrain --play_only
-python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain --play_only
+uv run python scripts/train_rsl_rl.py --task Go2JoystickFlatTerrain --play_only
+uv run python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain --play_only
 
 # 加载特定 checkpoint 回放
-python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain --play_only --load_run "2024-02-04_12-00-00"
+uv run python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain --play_only --load_run "2024-02-04_12-00-00"
 ```
 
 ### 3. 加载特定 Run 继续训练
 
 ```bash
 # PPO 继续训练
-python scripts/train_rsl_rl.py --task Go2JoystickFlatTerrain --load_run "2024-02-04_12-00-00"
+uv run python scripts/train_rsl_rl.py --task Go2JoystickFlatTerrain --load_run "2024-02-04_12-00-00"
 
 # OffPolicy (SAC) 继续训练
-python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain --load_run "2024-02-04_12-00-00"
+uv run python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain --load_run "2024-02-04_12-00-00"
 ```
 
 ### 通用参数说明
@@ -190,24 +252,24 @@ python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain --loa
 
 ```bash
 # Unified entry
-python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain
-python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain
+uv run python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain
+uv run python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain
 
 # 异步模式（更高吞吐量）
-python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain --no_sync_collection
+uv run python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain --no_sync_collection
 
 # 跳过训练后的自动 play
-python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain --no_play
+uv run python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain --no_play
 ```
 
 ### 回放
 
 ```bash
 # 仅回放模式
-python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain --play_only
+uv run python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain --play_only
 
 # 加载特定 checkpoint
-python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain --play_only --load_run "2024-02-04_12-00-00"
+uv run python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain --play_only --load_run "2024-02-04_12-00-00"
 ```
 
 ### 参数说明
@@ -252,16 +314,16 @@ python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain --pla
 
 ```bash
 # 默认训练 (自动检测 GPU/MPS/CPU)
-python scripts/train_appo.py --task Go2JoystickFlatTerrain
+uv run python scripts/train_appo.py --task Go2JoystickFlatTerrain
 
 # 调整并行环境数和 rollout 长度
-python scripts/train_appo.py --total_envs 1024 --steps_per_env 24
+uv run python scripts/train_appo.py --total_envs 1024 --steps_per_env 24
 ```
 
 ### 回放
 
 ```bash
-python scripts/train_appo.py --task Go2JoystickFlatTerrain --play_only
+uv run python scripts/train_appo.py --task Go2JoystickFlatTerrain --play_only
 ```
 
 ### APPO 参数说明
@@ -285,4 +347,3 @@ python scripts/train_appo.py --task Go2JoystickFlatTerrain --play_only
 | `target_update_freq` | 1 | Target network 更新频率 |
 | `vtrace_clip_rho` | 1.0 | V-trace ρ 截断阈值 |
 | `vtrace_clip_c` | 1.0 | V-trace c 截断阈值 |
-
