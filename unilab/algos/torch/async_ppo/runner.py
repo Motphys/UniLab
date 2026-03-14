@@ -131,17 +131,14 @@ class AsyncPPORunner(AsyncRunner):
         logger.start()
 
         # Wait for collector to start producing data
-        print("[Runner] Waiting for collector to initialize...")
         init_timeout = 300.0
         init_start = time.time()
         while not buffer.is_ready() and (time.time() - init_start) < init_timeout:
             time.sleep(0.5)
 
         if not buffer.is_ready():
-            print("[Runner] Collector failed to initialize within 5 minutes")
+            logger.log_status("[red]Collector failed to initialize[/]")
             return
-
-        print("[Runner] Collector ready, starting training...")
 
         # Hardware monitor
         hw_monitor = HardwareMonitor()

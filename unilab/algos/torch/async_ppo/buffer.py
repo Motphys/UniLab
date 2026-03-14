@@ -93,8 +93,6 @@ class OnPolicyReplayBuffer:
 
         self.ptr[0] += 1
         self.count[0] = min(int(self.count[0]) + 1, self.capacity)
-        if int(self.ptr[0]) % 10 == 0:
-            print(f"[Buffer] Added rollout {int(self.ptr[0])}, count={int(self.count[0])}")
 
     def get_latest(self) -> dict:
         """Get most recent rollout with async H2D transfer."""

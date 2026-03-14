@@ -21,7 +21,6 @@ def async_ppo_collector_fn(
     collector_device: str = "cpu",
 ):
     """Collect rollouts using PPO.act()."""
-    print(f"[Collector] Starting collector process on device: {collector_device}")
     from unilab.base import registry
     from unilab.ipc import SharedWeightSync
     from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4
@@ -75,8 +74,6 @@ def async_ppo_collector_fn(
 
     obs = torch.from_numpy(np.asarray(obs_out, dtype=np.float32)).to(collector_device)
 
-    print(f"[Collector] Starting collection loop")
-    rollout_count = 0
     try:
         while not stop_event.is_set():
             # Sync weights
@@ -143,9 +140,6 @@ def async_ppo_collector_fn(
                 "last_obs": obs if obs.is_shared() else obs.cpu(),
             }
             buffer.add_rollout(rollout)
-            rollout_count += 1
-            if rollout_count % 10 == 0:
-                print(f"[Collector] Completed {rollout_count} rollouts")
 
     except KeyboardInterrupt:
         pass
