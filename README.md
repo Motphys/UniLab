@@ -23,89 +23,54 @@ UniLab 采用**统一内存异构运算架构**：
 
 ---
 
-## 安装 (Installation)
+## 安装
 
 ### 使用 uv（推荐）
 
-1. **安装 uv**:
-   ```bash
-   curl -LsSf https://astral.sh/uv/install.sh | sh
-   ```
+```bash
+# 1. 安装 uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-2. **克隆仓库**:
-   ```bash
-   git clone https://github.com/TATP-233/UniLab.git
-   cd UniLab
-   ```
+# 2. 克隆仓库
+git clone https://github.com/TATP-233/UniLab.git
+cd UniLab
 
-3. **安装系统依赖**:
-   ```bash
-   # macOS
-   brew install cmake
+# 3. 安装系统依赖
+brew install cmake  # macOS
+# sudo apt-get install cmake  # Ubuntu/Debian
 
-   # Ubuntu/Debian
-   sudo apt-get install cmake
-   ```
+# 4. 同步依赖
+uv sync
 
-4. **同步依赖**:
-   ```bash
-   uv sync
-   ```
+# 5. 可选：Motrix 后端
+uv sync --extra motrix
+```
 
-5. **可选：安装 Motrix 后端支持**:
-   ```bash
-   uv sync --extra motrix
-   ```
-
-### 使用 pip（传统方式）
-
-1. **克隆仓库并安装**:
-   ```bash
-   git clone https://github.com/TATP-233/UniLab.git
-   cd UniLab
-   pip install --extra-index-url https://test.pypi.org/simple/ mujoco-uni==3.5.0.post2
-   pip install -e .
-   ```
-
-2. **可选：安装 Motrix 后端支持**:
-   ```bash
-   pip install -e ".[motrix]"
-   ```
 ### 国内镜像加速
 
-如遇下载慢，可配置 uv 使用国内镜像源：
-
 ```bash
-# 方式1：环境变量（临时）
+# 环境变量
 export UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 
-# 方式2：命令行参数
+# 或命令行参数
 uv sync --index-url https://pypi.tuna.tsinghua.edu.cn/simple
-
-# 或使用阿里云镜像
-uv sync --index-url https://mirrors.aliyun.com/pypi/simple/
 ```
 
-### 跨平台支持 (Cross-Platform)
+### PyTorch 版本选择
 
-#### macOS (MPS)
-默认安装即支持 Apple Silicon MPS 加速：
 ```bash
+# CPU-only（默认，适合调试）
 uv sync
-```
 
-#### Linux (CUDA)
-默认安装 CPU 版本 PyTorch。如需 CUDA 支持，安装后执行：
-```bash
-# CUDA 12.1
+# macOS MPS（默认已支持）
+uv sync
+
+# Linux CUDA 12.1
 uv pip install torch --index-url https://download.pytorch.org/whl/cu121
 
-# CUDA 11.8
+# Linux CUDA 11.8
 uv pip install torch --index-url https://download.pytorch.org/whl/cu118
 ```
-
----
-
 
 ---
 
@@ -114,7 +79,6 @@ uv pip install torch --index-url https://download.pytorch.org/whl/cu118
 **Always use `uv run`, not python**. 详见 [CLAUDE.md](./CLAUDE.md)。
 
 ---
-
 ## TODO
 
 - [x] @czx 增加 Bipedal Locomotion 任务
