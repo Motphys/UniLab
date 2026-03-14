@@ -143,6 +143,7 @@ def run_torch_mps(size, warmup, repeat, dtype_name):
     dt = torch_dtype(dtype_name)
     a = torch.randn(size, size, dtype=dt, device="mps")
     b = torch.randn(size, size, dtype=dt, device="mps")
+
     def sync():
         return torch.mps.synchronize()
 

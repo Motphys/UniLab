@@ -55,9 +55,7 @@ class MotrixBackend(SimBackend):
             self._model.get_link(cfg.asset.body_name).set_center_of_mass_override(
                 self._data, com_offset
             )
-            self._model.get_link(cfg.asset.body_name).get_center_of_mass_override(
-                self._data
-            )
+            self._model.get_link(cfg.asset.body_name).get_center_of_mass_override(self._data)
 
     def push_robots(self, force_range):
         ex_force = np.random.rand(self.num_envs, 3) * 2 - 1  # [x_force, y_force, z_force]
