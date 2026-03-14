@@ -310,3 +310,14 @@ def appo_config(env_name: str) -> config_dict.ConfigDict:
             vtrace_clip_c=1.0,
         ),
     )
+
+
+def async_ppo_config(env_name: str) -> config_dict.ConfigDict:
+    """Return async PPO config - reuses ppo_config hyperparameters."""
+    base_cfg = ppo_config(env_name)
+    cfg = base_cfg.to_dict()
+    cfg["algo"] = "async_ppo"
+    cfg["algo_log_name"] = "async_ppo"
+    cfg["buffer_capacity_rollouts"] = 10
+    cfg["collector_device"] = "cpu"
+    return config_dict.create(**cfg)

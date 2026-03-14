@@ -1,10 +1,14 @@
 """Async PPO runner."""
 
+import os
+import time
+
 import torch
 from rsl_rl.algorithms import PPO
 from tensordict import TensorDict
 
 from unilab.ipc import AsyncRunner, SharedWeightSync
+from unilab.utils.offpolicy_logger import OffPolicyLogger
 
 from .buffer import OnPolicyReplayBuffer
 from .learner import AsyncPPOLearner
@@ -13,36 +17,44 @@ from .learner import AsyncPPOLearner
 class AsyncPPORunner(AsyncRunner):
     """Async PPO training orchestrator."""
 
+    def __init__(self, env_name: str, env_cfg_overrides: dict, rl_cfg: dict, **kwargs):
+        super().__init__(env_name, env_cfg_overrides, rl_cfg, **kwargs)
+        if hasattr(self.rl_cfg, "to_dict"):
+            self.rl_cfg = self.rl_cfg.to_dict()
+        self._resolve_dims()
+
     def _get_default_device(self) -> str:
         return "cuda" if torch.cuda.is_available() else "cpu"
+
+    def _resolve_dims(self):
+        from unilab.base import registry
+        from unilab.utils.algo_utils import ensure_registries
+
+        ensure_registries()
+        env = registry.make(self.env_name, num_envs=1, sim_backend="mujoco")
+        self.obs_dim = env.observation_space.shape[0]  # type: ignore[index]
+        self.action_dim = env.action_space.shape[0]  # type: ignore[index]
+        env.close()
 
     def _build_learner(self) -> AsyncPPOLearner:
         from unilab.base import registry
 
         env = registry.make(self.env_name, num_envs=self.num_envs, sim_backend="mujoco")
-        obs_dim = env.observation_space.shape[0]  # type: ignore[index]
-        action_dim = env.action_space.shape[0]  # type: ignore[index]
-
-        obs_example = torch.zeros((self.num_envs, obs_dim), device=self.device)
+        obs_example = torch.zeros((self.num_envs, self.obs_dim), device=self.device)
         td_example = TensorDict({"policy": obs_example}, batch_size=self.num_envs)
 
-        ppo = PPO.construct_algorithm(
-            env=env,
-            obs=td_example,
-            cfg=self.rl_cfg,
-            device=self.device,
-        )
+        ppo = PPO.construct_algorithm(env=env, obs=td_example, cfg=self.rl_cfg, device=self.device)
 
         steps_per_env = self.rl_cfg.get("num_steps_per_env", 24)
         buffer = OnPolicyReplayBuffer(
-            capacity_rollouts=10,
+            capacity_rollouts=self.rl_cfg.get("buffer_capacity_rollouts", 10),
             num_envs=self.num_envs,
             num_steps=steps_per_env,
-            obs_dim=obs_dim,
-            action_dim=action_dim,
+            obs_dim=self.obs_dim,
+            action_dim=self.action_dim,
             device=self.device,
         )
-
+        env.close()
         return AsyncPPOLearner(ppo, buffer)
 
     def _collector_fn(self, stop_event, **kwargs):
@@ -51,6 +63,7 @@ class AsyncPPORunner(AsyncRunner):
         return async_ppo_collector_fn(stop_event, **kwargs)
 
     def learn(self, max_iterations: int, save_interval: int = 50, log_dir: str = "logs"):
+        os.makedirs(log_dir, exist_ok=True)
         learner = self._build_learner()
         buffer = learner.buffer
         ppo = learner.ppo
@@ -66,7 +79,7 @@ class AsyncPPORunner(AsyncRunner):
 
         # Weight sync
         state_dict = {**ppo.actor.state_dict(), **ppo.critic.state_dict()}
-        weight_sync = SharedWeightSync.from_state_dict(state_dict, shm_name="async_ppo_weights")
+        weight_sync = SharedWeightSync.from_state_dict(state_dict, create=True)
         self._shared_resources.extend([buffer, weight_sync])
 
         # Start collector
@@ -87,16 +100,60 @@ class AsyncPPORunner(AsyncRunner):
             },
         )
 
+        # Logger
+        logger = OffPolicyLogger(
+            algo_name="AsyncPPO",
+            max_iterations=max_iterations,
+            num_envs=self.num_envs,
+            env_name=self.env_name,
+            obs_dim=self.obs_dim,
+            action_dim=self.action_dim,
+            log_dir=log_dir,
+            log_backend="tensorboard",
+        )
+        logger.start()
+        logger.log_status("Waiting for first rollout...")
+
         # Training loop
-        for it in range(max_iterations):
+        for iteration in range(1, max_iterations + 1):
+            iter_start = time.time()
+
+            # Wait for data
+            timeout = 60.0
+            wait_start = time.time()
+            while not buffer.is_ready() and (time.time() - wait_start) < timeout:
+                time.sleep(0.01)
+
             if not buffer.is_ready():
+                logger.log_status(f"[yellow]Timeout waiting for data at iter {iteration}[/]")
                 continue
 
-            metrics = learner.update()
+            collect_time = time.time() - iter_start
+            train_start = time.time()
 
-            # Sync weights
+            metrics = learner.update()
             state_dict = {**ppo.actor.state_dict(), **ppo.critic.state_dict()}
             weight_sync.write_weights(state_dict)
 
-            if it % 10 == 0:
-                print(f"Iter {it}: {metrics}")
+            train_time = time.time() - train_start
+
+            logger.log_step(
+                iteration=iteration,
+                metrics=metrics,
+                reward=0.0,
+                reward_components={},
+                collect_time=collect_time,
+                train_time=train_time,
+            )
+
+            if save_interval > 0 and iteration % save_interval == 0:
+                ckpt_path = os.path.join(log_dir, f"model_{iteration}.pt")
+                torch.save(
+                    {"actor": ppo.actor.state_dict(), "critic": ppo.critic.state_dict()}, ckpt_path
+                )
+                logger.log_save(ckpt_path)
+
+        ckpt_path = os.path.join(log_dir, f"model_{max_iterations}.pt")
+        torch.save({"actor": ppo.actor.state_dict(), "critic": ppo.critic.state_dict()}, ckpt_path)
+        logger.log_save(ckpt_path)
+        logger.finish()
