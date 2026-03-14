@@ -1,6 +1,5 @@
 from ml_collections import config_dict
 
-
 DEFAULT_ENV_NUM_BY_TASK: dict[str, int] = {
     "AllegroInhandRotation": 16384,
 }

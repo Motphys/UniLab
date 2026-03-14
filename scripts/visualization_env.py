@@ -4,11 +4,10 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
 import argparse
-import numpy as np
 import time
-import unilab.envs.locomotion.g1
-import unilab.envs.locomotion.go1
-import unilab.envs.locomotion.go2
+
+import numpy as np
+
 from unilab.base import registry
 
 parser = argparse.ArgumentParser(description="Visualize robot tasks")

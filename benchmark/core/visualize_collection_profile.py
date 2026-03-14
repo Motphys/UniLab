@@ -11,7 +11,6 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-
 ITER_RE = re.compile(
     r"\[iter\s+(\d+)/(\d+)\].*?collect=([0-9.]+)s.*?"
     r"prof\(act/step/core/post/reset/buf/fin/ep\)="

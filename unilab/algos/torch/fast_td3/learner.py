@@ -16,14 +16,15 @@ Hyperparameters aligned with reference Go1JoystickFlatTerrain config.
 from __future__ import annotations
 
 import math
+from typing import Dict
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from typing import Dict
 
-from unilab.algos.torch.common.normalization import EmpiricalNormalization
 from unilab.algos.torch.common.networks import Critic
+from unilab.algos.torch.common.normalization import EmpiricalNormalization
 from unilab.algos.torch.common.stability import check_nan_loss, clip_gradients
 
 # ---------------------------------------------------------------------------

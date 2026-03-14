@@ -1,13 +1,14 @@
 """Train APPO agent — native multiprocessing."""
 
 import argparse
-import sys
-import os
 import datetime
-from pathlib import Path
-import torch
-import pkgutil
 import importlib
+import os
+import pkgutil
+import sys
+from pathlib import Path
+
+import torch
 
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
@@ -43,14 +44,14 @@ def ensure_registries():
 
 def play_appo(args, rl_cfg):
     """Play mode for APPO."""
-    import torch
-    import numpy as np
     import mediapy as media
+    import numpy as np
+    from rsl_rl.utils import resolve_callable
     from tensordict import TensorDict
+
     from unilab.base import registry
     from unilab.utils import render_many
-    from rsl_rl.utils import resolve_callable
-    from unilab.utils.rsl_rl_compat import is_rsl_rl_v4, convert_config_v3_to_v4
+    from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4
 
     # Normalize to plain dict so ConfigDict doesn't cause isinstance issues
     if hasattr(rl_cfg, "to_dict"):

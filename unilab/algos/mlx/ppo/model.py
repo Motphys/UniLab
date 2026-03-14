@@ -8,7 +8,7 @@ from typing import Sequence, Tuple
 import mlx.core as mx
 import mlx.nn as nn
 
-from unilab.algos.mlx.common import EmpiricalNormalization, MLP, diag_gaussian_log_prob
+from unilab.algos.mlx.common import MLP, EmpiricalNormalization, diag_gaussian_log_prob
 
 
 class MLPActorCritic(nn.Module):

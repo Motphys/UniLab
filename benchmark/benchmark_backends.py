@@ -8,28 +8,28 @@ from typing import List
 
 try:
     from benchmark.core import (
-        bench_callable,
-        parse_sizes,
-        parse_dtypes,
-        normalize_dtypes,
         available_backends,
-        numpy_dtype,
-        torch_dtype,
+        bench_callable,
         mlx_dtype,
+        normalize_dtypes,
+        numpy_dtype,
+        parse_dtypes,
+        parse_sizes,
         print_table,
+        torch_dtype,
     )
     from benchmark.core.device_info import get_device_info_dict
 except ModuleNotFoundError:
     from core import (
-        bench_callable,
-        parse_sizes,
-        parse_dtypes,
-        normalize_dtypes,
         available_backends,
-        numpy_dtype,
-        torch_dtype,
+        bench_callable,
         mlx_dtype,
+        normalize_dtypes,
+        numpy_dtype,
+        parse_dtypes,
+        parse_sizes,
         print_table,
+        torch_dtype,
     )
     from core.device_info import get_device_info_dict
 
@@ -143,7 +143,8 @@ def run_torch_mps(size, warmup, repeat, dtype_name):
     dt = torch_dtype(dtype_name)
     a = torch.randn(size, size, dtype=dt, device="mps")
     b = torch.randn(size, size, dtype=dt, device="mps")
-    sync = lambda: torch.mps.synchronize()
+    def sync():
+        return torch.mps.synchronize()
 
     mm_t = bench_callable(lambda: a @ b, sync, warmup, repeat)
     ew_t = bench_callable(

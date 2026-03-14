@@ -1,14 +1,14 @@
-import os
-import sys
 import argparse
-import numpy as np
 import datetime
-from pathlib import Path
-import pkgutil
 import importlib
+import os
+import pkgutil
+import sys
+from pathlib import Path
+
+import numpy as np
 import torch
 from tensordict import TensorDict
-import mediapy as media
 
 # Add workspace root to python path dynamically
 ROOT_DIR = Path(__file__).parent.parent
@@ -34,8 +34,7 @@ ensure_registries()
 
 from unilab.base import registry
 from unilab.config import locomotion_params, manipulation_params
-from unilab.utils import render_many
-from unilab.utils.torch_utils import to_torch, to_numpy
+from unilab.utils.torch_utils import to_numpy, to_torch
 
 # Try importing rsl_rl
 try:
@@ -44,7 +43,7 @@ except ImportError:
     print("Could not import rsl_rl. Please ensure it is installed.")
     sys.exit(1)
 
-from unilab.utils.rsl_rl_compat import is_rsl_rl_v4, convert_config_v3_to_v4
+from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4
 from unilab.utils.run_utils import get_latest_run
 
 
@@ -180,8 +179,8 @@ def RslRlAacVecEnvWrapper(RslRlVecEnvWrapper):  # Asymmetric Actor-Critic
 def play_rsl_rl(args, cfg, device):
     """Play mode for RSL-RL."""
     import torch
+
     from unilab.base import registry
-    from unilab.utils.torch_utils import to_numpy
 
     env = registry.make(args.task, num_envs=args.play_env_num, sim_backend=args.sim_backend)
     wrapped_env = RslRlVecEnvWrapper(env, device=device)
@@ -258,6 +257,7 @@ def play_rsl_rl(args, cfg, device):
     else:
         # MuJoCo backend: render to video
         import mediapy as media
+
         from unilab.utils import render_many
 
         output_video = Path(load_path_dir) / "play_video.mp4"

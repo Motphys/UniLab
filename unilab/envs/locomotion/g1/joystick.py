@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from etils import epath
-import gymnasium as gym
 import math
+from dataclasses import dataclass, field
+
+import gymnasium as gym
 import numpy as np
+from etils import epath
 
 from unilab.base import registry
-from unilab.base.np_env import NpEnvState
 from unilab.base.backend import create_backend
-from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
 from unilab.base.dtype_config import get_global_dtype
+from unilab.base.np_env import NpEnvState
 from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
+from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
 
 
 @dataclass
@@ -109,7 +110,7 @@ class G1JoystickPPO(G1BaseEnv):
         )
         self._pose_weights = np.array(cfg.reward_config.pose_weights, dtype=get_global_dtype())
         if self._pose_weights.shape[0] != self._num_action:
-            raise ValueError(f"pose_weights length mismatch")
+            raise ValueError("pose_weights length mismatch")
 
         self._init_obs_space()
         self._init_reward_functions()

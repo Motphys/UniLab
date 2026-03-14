@@ -31,15 +31,15 @@ Usage:
 
 from __future__ import annotations
 
-import os
 import time
 from collections import deque
+
+from rich import box
 from rich.console import Console, Group
 from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-from rich import box
 
 
 def _fmt_time(seconds: float) -> str:
@@ -414,16 +414,16 @@ class OffPolicyLogger:
         eta = self._estimate_eta()
         header_text = Text()
         header_text.append(f" {self.algo_name}", style="bold cyan")
-        header_text.append(f"  │  ", style="dim")
+        header_text.append("  │  ", style="dim")
         header_text.append(f"{self.env_name}", style="bold white")
-        header_text.append(f"  │  ", style="dim")
+        header_text.append("  │  ", style="dim")
         header_text.append(f"iter {self._iteration}/{self.max_iterations}", style="yellow")
-        header_text.append(f"  │  ", style="dim")
+        header_text.append("  │  ", style="dim")
         header_text.append(f"⏱ {_fmt_time(elapsed)}", style="green")
         if eta:
-            header_text.append(f"  │  ETA ", style="dim")
+            header_text.append("  │  ETA ", style="dim")
             header_text.append(eta, style="bold magenta")
-        header_text.append(f"  │  ", style="dim")
+        header_text.append("  │  ", style="dim")
         header_text.append(self._status, style="dim italic")
 
         header_panel = Panel(header_text, style="dim", box=box.SIMPLE)
@@ -442,7 +442,7 @@ class OffPolicyLogger:
 
         return Panel(
             main_group,
-            title=f"[bold] 🚀 UniLab Off-Policy Training [/]",
+            title="[bold] 🚀 UniLab Off-Policy Training [/]",
             border_style="bright_blue",
             padding=(0, 1),
         )

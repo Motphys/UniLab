@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-from etils import epath
-import gymnasium as gym
-import numpy as np
 from dataclasses import dataclass, field
 
-from unilab.base import registry
-from unilab.base.np_env import NpEnvState
-from unilab.base.backend import create_backend
-from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
-from unilab.base.dtype_config import get_global_dtype
+import gymnasium as gym
+import numpy as np
+from etils import epath
 
-from unilab.envs.locomotion.go1.base import Go1BaseEnv, Go1BaseCfg
+from unilab.base import registry
+from unilab.base.backend import create_backend
+from unilab.base.dtype_config import get_global_dtype
+from unilab.base.np_env import NpEnvState
+from unilab.envs.locomotion.go1.base import Go1BaseCfg, Go1BaseEnv
+from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
 
 
 @dataclass
@@ -116,7 +116,6 @@ class Go1WalkTask(Go1BaseEnv):
         return self._observation_space
 
     def update_state(self, state: NpEnvState) -> NpEnvState:
-        period = 0.6
         self.phase = np.fmod(self.phase + self._cfg.ctrl_dt * self.gait_frequency, 1.0)
         self.feet_phase[:, 0] = self.phase
         self.feet_phase[:, 3] = self.phase

@@ -1,7 +1,8 @@
 """Minimal zero-copy replay buffer for off-policy RL."""
 
-import torch
 from typing import Dict
+
+import torch
 
 
 class ReplayBuffer:

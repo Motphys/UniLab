@@ -14,36 +14,35 @@ import json
 import math
 import platform
 import statistics
-import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 try:
     from benchmark.core import (
-        bench_callable,
-        parse_sizes,
-        parse_dtypes,
-        normalize_dtypes,
         available_backends,
-        numpy_dtype,
-        torch_dtype,
+        bench_callable,
         mlx_dtype,
+        normalize_dtypes,
+        numpy_dtype,
+        parse_dtypes,
+        parse_sizes,
         print_table,
+        torch_dtype,
     )
     from benchmark.core.device_info import get_device_info_dict, get_device_info_line
 except ModuleNotFoundError:
     from core import (
-        bench_callable,
-        parse_sizes,
-        parse_dtypes,
-        normalize_dtypes,
         available_backends,
-        numpy_dtype,
-        torch_dtype,
+        bench_callable,
         mlx_dtype,
+        normalize_dtypes,
+        numpy_dtype,
+        parse_dtypes,
+        parse_sizes,
         print_table,
+        torch_dtype,
     )
     from core.device_info import get_device_info_dict, get_device_info_line
 

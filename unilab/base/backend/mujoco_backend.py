@@ -1,10 +1,12 @@
 import os
 from multiprocessing import cpu_count
+
 import mujoco
-from mujoco import rollout, batch_forward
 import numpy as np
-from .base import SimBackend
+from mujoco import batch_forward, rollout
+
 from ..dtype_config import get_global_dtype
+from .base import SimBackend
 
 
 class MuJoCoBackend(SimBackend):

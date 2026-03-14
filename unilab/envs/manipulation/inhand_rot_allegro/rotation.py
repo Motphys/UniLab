@@ -6,7 +6,6 @@ import gymnasium as gym
 import numpy as np
 from etils import epath
 
-
 # ─────────────────────────── Quaternion helpers ───────────────────────────
 # All quaternions are w-first: [w, x, y, z], shape (N, 4)
 
@@ -54,8 +53,8 @@ def _quat_to_axis_angle(q: np.ndarray) -> np.ndarray:
 
 
 from unilab.base import registry
-from unilab.base.np_env import NpEnvState
 from unilab.base.backend import create_backend
+from unilab.base.np_env import NpEnvState
 from unilab.envs.manipulation.inhand_rot_allegro.base import AllegroBaseCfg, AllegroBaseMjEnv
 
 # ─────────────────────────── Configuration ────────────────────────────

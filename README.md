@@ -40,7 +40,11 @@ brew install cmake  # macOS
 # sudo apt-get install cmake  # Ubuntu/Debian
 
 # 4. 同步依赖
+# macOS (MPS)
 uv sync
+
+# Linux (CUDA 12.4)
+uv sync --extra cu124
 
 # 5. 可选：Motrix 后端
 uv sync --extra motrix

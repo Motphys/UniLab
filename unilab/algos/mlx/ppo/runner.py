@@ -13,6 +13,7 @@ import mlx.core as mx
 from mlx.utils import tree_map
 
 from unilab.algos.mlx.common import EmpiricalDiscountedVariationNormalization, RolloutBuffer
+
 from .model import MLPActorCritic
 from .ppo import PPOConfig, PPOTrainer
 

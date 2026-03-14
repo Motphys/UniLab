@@ -4,9 +4,10 @@ Collects (obs, action, reward, next_obs, done) transitions using the current
 actor policy. Runs in a subprocess; writes to ReplayBuffer.
 """
 
-import torch
 import numpy as np
-from unilab.utils.algo_utils import ensure_registries, build_actor
+import torch
+
+from unilab.utils.algo_utils import build_actor, ensure_registries
 
 
 def off_policy_collector_fn(
@@ -32,8 +33,8 @@ def off_policy_collector_fn(
     **kwargs,
 ):
     """Entry point for the off-policy collector subprocess."""
-    import traceback
     import sys
+    import traceback
 
     try:
         print("[Collector] Entry point called", file=sys.stderr, flush=True)
@@ -89,8 +90,8 @@ def _run_collector(
     shared_obs_normalizer_stats,
     sim_backend,
 ):
-    from unilab.ipc import SharedWeightSync
     from unilab.base import registry
+    from unilab.ipc import SharedWeightSync
 
     ensure_registries()
 

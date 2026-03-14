@@ -15,7 +15,8 @@ def print_table(records: List[Dict[str, Any]], headers: List[str]) -> None:
     for row in rows:
         for i, v in enumerate(row):
             col_w[i] = max(col_w[i], len(v))
-    fmt = lambda vals: " | ".join(v.ljust(col_w[i]) for i, v in enumerate(vals))
+    def fmt(vals):
+        return " | ".join(v.ljust(col_w[i]) for i, v in enumerate(vals))
     print(fmt(headers))
     print("-+-".join("-" * w for w in col_w))
     for row in rows:

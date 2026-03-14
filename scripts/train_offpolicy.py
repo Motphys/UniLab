@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import argparse
+import datetime
 import os
 import sys
-import datetime
-import argparse
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).parent.parent
@@ -197,6 +197,7 @@ def play_offpolicy(algo_name: str, args, cfg) -> None:
     import mediapy as media
     import numpy as np
     import torch
+
     from unilab.base import registry
     from unilab.utils import render_many
     from unilab.utils.algo_utils import build_actor
@@ -214,7 +215,7 @@ def play_offpolicy(algo_name: str, args, cfg) -> None:
             "sac", obs_dim, action_dim, cfg.actor_hidden_dim, cfg.use_layer_norm, device
         )
     elif algo_name == "td3":
-        from unilab.algos.torch.fast_td3.learner import TD3Actor, EmpiricalNormalization
+        from unilab.algos.torch.fast_td3.learner import EmpiricalNormalization, TD3Actor
 
         actor = TD3Actor(
             obs_dim,

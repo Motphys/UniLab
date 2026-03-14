@@ -1,9 +1,9 @@
-import os
 import math
-import numpy as np
-import mujoco
+import os
+
 import imageio
-from multiprocessing import Pool
+import mujoco
+import numpy as np
 
 # Use EGL for off-screen rendering on headless servers (no X11/display required)
 os.environ.setdefault("MUJOCO_GL", "egl")

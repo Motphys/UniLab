@@ -10,12 +10,11 @@ Usage:
     python benchmark/benchmark_ipc_index_sort.py
 """
 
-import time
 import sys
+import time
 
 import numpy as np
 import torch
-
 
 # ---------------------------------------------------------------------------
 # helpers

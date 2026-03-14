@@ -6,7 +6,7 @@ Benchmark comparison specifically between MuJoCo Multi-thread Rollout and Motrix
 import argparse
 import os
 import time
-from pathlib import Path
+
 import numpy as np
 
 try:

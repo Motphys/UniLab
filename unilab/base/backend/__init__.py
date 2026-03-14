@@ -1,7 +1,7 @@
 from .base import SimBackend
-from .mujoco_backend import MuJoCoBackend
-from .motrix_backend import MotrixBackend, MOTRIX_AVAILABLE
+from .motrix_backend import MOTRIX_AVAILABLE, MotrixBackend
 from .motrix_numba_backend import MotrixNumbaBackend
+from .mujoco_backend import MuJoCoBackend
 
 
 def create_backend(
