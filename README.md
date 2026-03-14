@@ -83,10 +83,10 @@ uv sync
 默认安装 CPU 版本 PyTorch。如需 CUDA 支持，安装后执行：
 ```bash
 # CUDA 12.1
-uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+uv pip install torch --index-url https://download.pytorch.org/whl/cu121
 
 # CUDA 11.8
-uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+uv pip install torch --index-url https://download.pytorch.org/whl/cu118
 ```
 
 ---

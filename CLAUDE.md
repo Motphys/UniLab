@@ -44,5 +44,5 @@ uv sync --extra motrix
 ### Linux (CUDA)
 For CUDA support, install PyTorch with CUDA after `uv sync`:
 ```bash
-uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+uv pip install torch --index-url https://download.pytorch.org/whl/cu121
 ```
