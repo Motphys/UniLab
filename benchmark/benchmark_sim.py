@@ -260,7 +260,7 @@ def run_mjx(model, batch_size: int, steps: int, warmup: int = 5, device=None) ->
         try:
             default_dev = jax.devices()[0]
             backend_name += f"_{default_dev.platform}"
-        except:
+        except Exception:
             pass
 
     try:
@@ -553,7 +553,7 @@ def main():
             _ = jax.devices("cpu")
             # Revert to default (which might be metal) but we ensured cpu is init
             jax.config.update("jax_platform_name", None)
-        except:
+        except Exception:
             pass
 
     skip_checks_flags = parse_skip_checks_mode(args.rollout_multi_skip_checks)

@@ -60,7 +60,7 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]
-ignore = ["E501"]
+ignore = ["E501", "N806", "E402"]
 
 [tool.mypy]
 python_version = "3.10"

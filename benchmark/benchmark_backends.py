@@ -35,17 +35,17 @@ except ModuleNotFoundError:
 
 try:
     import numpy as np
-except:
+except Exception:
     np = None
 
 try:
     import torch
-except:
+except Exception:
     torch = None
 
 try:
     import mlx.core as mx
-except:
+except Exception:
     mx = None
 
 
