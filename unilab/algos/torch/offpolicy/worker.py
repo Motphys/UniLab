@@ -186,6 +186,7 @@ def _run_collector(
             if total_steps < warmup_steps:
                 actions_np = np.random.uniform(-1, 1, (num_envs, action_dim)).astype(np.float32)
             else:
+                _t_infer = _time.perf_counter()
                 obs_torch = torch.from_numpy(obs_np_input)
                 if algo_type == "sac":
                     actions_torch = actor.explore(obs_torch)
@@ -195,6 +196,7 @@ def _run_collector(
                         -1, 1
                     )
                 actions_np = actions_torch.numpy()
+                timing_accum_ms["mlp_infer_ms"] += (_time.perf_counter() - _t_infer) * 1000
 
         # Step environment
         state = env.step(actions_np)

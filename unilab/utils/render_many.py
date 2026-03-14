@@ -1,12 +1,41 @@
 import math
 import os
+import sys
 
 import imageio
-import mujoco
-import numpy as np
 
-# Use EGL for off-screen rendering on headless servers (no X11/display required)
-os.environ.setdefault("MUJOCO_GL", "egl")
+
+def _resolve_gl_backend() -> str:
+    """Pick a valid MUJOCO_GL backend for the current platform.
+
+    Respects an explicit user setting unless it's provably invalid (e.g. egl
+    on macOS).  Falls back to glfw when EGL is requested but not available.
+    """
+    current = os.environ.get("MUJOCO_GL", "")
+    safe_values = {"glfw", "osmesa", "disabled"}
+
+    if sys.platform == "darwin":
+        # macOS has no EGL support; glfw is the only off-screen option
+        return current if current in safe_values else "glfw"
+
+    # Linux / other: honour explicit non-egl choices
+    if current in safe_values:
+        return current
+
+    # Try to load EGL; fall back to glfw if unavailable
+    try:
+        import ctypes
+        ctypes.CDLL("libEGL.so.1")
+        return "egl"
+    except OSError:
+        return "glfw"
+
+
+# Must be set *before* importing mujoco (it reads the var at import time)
+os.environ["MUJOCO_GL"] = _resolve_gl_backend()
+
+import mujoco  # noqa: E402
+import numpy as np
 
 
 def get_grid_offsets(num_envs, spacing=1.0):
@@ -35,8 +64,6 @@ def init_worker(model_path, shape):
     """Initialize MuJoCo context for worker process."""
     import atexit
 
-    # Ensure EGL is used in spawned worker processes (headless server support)
-    os.environ.setdefault("MUJOCO_GL", "egl")
     _worker_ctx["model"] = mujoco.MjModel.from_xml_path(model_path)
     _worker_ctx["model"].vis.global_.offwidth = 3840
     _worker_ctx["model"].vis.global_.offheight = 2160

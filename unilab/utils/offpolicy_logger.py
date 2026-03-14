@@ -131,6 +131,7 @@ class OffPolicyLogger:
         self._collector_step_core_ms: float = 0.0
         self._collector_update_state_ms: float = 0.0
         self._collector_reset_done_ms: float = 0.0
+        self._collector_mlp_infer_ms: float = 0.0
         self._timeout_rate: float = 0.0
         self._terminated_rate: float = 0.0
         self._buffer_utilization: float = 0.0
@@ -265,6 +266,9 @@ class OffPolicyLogger:
         self._collector_reset_done_ms = float(
             timing_ms.get("reset_done_ms", self._collector_reset_done_ms)
         )
+        self._collector_mlp_infer_ms = float(
+            timing_ms.get("mlp_infer_ms", self._collector_mlp_infer_ms)
+        )
 
     def update_done_rates(self, timeout_rate: float, terminated_rate: float):
         """Update timeout/terminated ratio among completed episodes in collector window."""
@@ -333,66 +337,84 @@ class OffPolicyLogger:
         """Write metrics to TensorBoard / W&B."""
         global_step = self._total_steps if self._total_steps > 0 else iteration
 
+        elapsed = time.time() - self._start_time if self._start_time else 0
+
         # ---- TensorBoard ----
         if self._tb_writer:
             w = self._tb_writer
+
+            # train/ — model outputs (losses, alpha, etc.)
             if metrics:
                 for k, v in metrics.items():
                     w.add_scalar(f"train/{k}", v, global_step)
+
+            # reward/ — reward signals
             if reward is not None:
                 w.add_scalar("reward/mean", reward, global_step)
             if reward_components:
                 for k, v in reward_components.items():
                     w.add_scalar(f"reward/{k}", v, global_step)
+
+            # episode/ — per-episode statistics
             if self._mean_ep_length > 0:
                 w.add_scalar("episode/length", self._mean_ep_length, global_step)
-            w.add_scalar("perf/collect_time_ms", collect_time * 1000, global_step)
-            w.add_scalar("perf/train_time_ms", train_time * 1000, global_step)
+            w.add_scalar("episode/timeout_rate", self._timeout_rate, global_step)
+            w.add_scalar("episode/terminated_rate", self._terminated_rate, global_step)
 
-            w.add_scalar(
-                "perf/collector_env_step_total_ms", self._collector_env_step_ms, global_step
-            )
-            w.add_scalar("perf/collector_step_core_ms", self._collector_step_core_ms, global_step)
-            w.add_scalar(
-                "perf/collector_update_state_ms", self._collector_update_state_ms, global_step
-            )
-            w.add_scalar("perf/collector_reset_done_ms", self._collector_reset_done_ms, global_step)
-            w.add_scalar("perf/rate_timeout", self._timeout_rate, global_step)
-            w.add_scalar("perf/rate_terminated", self._terminated_rate, global_step)
-            elapsed = time.time() - self._start_time if self._start_time else 0
+            # timing/ — learner-side and collector-side timing
+            w.add_scalar("timing/learner_collect_ms", collect_time * 1000, global_step)
+            w.add_scalar("timing/learner_train_ms", train_time * 1000, global_step)
+            w.add_scalar("timing/collector_env_step_ms", self._collector_env_step_ms, global_step)
+            w.add_scalar("timing/collector_step_core_ms", self._collector_step_core_ms, global_step)
+            w.add_scalar("timing/collector_update_state_ms", self._collector_update_state_ms, global_step)
+            w.add_scalar("timing/collector_reset_done_ms", self._collector_reset_done_ms, global_step)
+            w.add_scalar("timing/collector_mlp_infer_ms", self._collector_mlp_infer_ms, global_step)
+
+            # perf/ — throughput and efficiency
             if elapsed > 0 and self._total_steps > 0:
                 w.add_scalar("perf/steps_per_sec", self._total_steps / elapsed, global_step)
-                # Efficiency metrics for backend comparison
-                w.add_scalar("efficiency/total_time_per_iter_ms", (self._collect_time + self._train_time) * 1000, global_step)
-                w.add_scalar("efficiency/collect_train_ratio", self._collect_time / max(self._train_time, 1e-6), global_step)
-                w.add_scalar("efficiency/throughput_steps_per_sec", self._total_steps / elapsed, global_step)
+            w.add_scalar("perf/iter_ms", (self._collect_time + self._train_time) * 1000, global_step)
+            w.add_scalar("perf/collect_train_ratio", self._collect_time / max(self._train_time, 1e-6), global_step)
 
         # ---- W&B ----
         if self._wandb_run:
             import wandb
 
             log_dict = {"iteration": iteration}
+
+            # train/
             if metrics:
                 for k, v in metrics.items():
                     log_dict[f"train/{k}"] = v
+
+            # reward/
             if reward is not None:
                 log_dict["reward/mean"] = reward
             if reward_components:
                 for k, v in reward_components.items():
                     log_dict[f"reward/{k}"] = v
+
+            # episode/
             if self._mean_ep_length > 0:
                 log_dict["episode/length"] = self._mean_ep_length
-            log_dict["perf/collect_time_ms"] = collect_time * 1000
-            log_dict["perf/train_time_ms"] = train_time * 1000
-            log_dict["perf/collector_env_step_total_ms"] = self._collector_env_step_ms
-            log_dict["perf/collector_step_core_ms"] = self._collector_step_core_ms
-            log_dict["perf/collector_update_state_ms"] = self._collector_update_state_ms
-            log_dict["perf/collector_reset_done_ms"] = self._collector_reset_done_ms
-            log_dict["perf/timeout_rate"] = self._timeout_rate
-            log_dict["perf/terminated_rate"] = self._terminated_rate
-            elapsed = time.time() - self._start_time if self._start_time else 0
+            log_dict["episode/timeout_rate"] = self._timeout_rate
+            log_dict["episode/terminated_rate"] = self._terminated_rate
+
+            # timing/
+            log_dict["timing/learner_collect_ms"] = collect_time * 1000
+            log_dict["timing/learner_train_ms"] = train_time * 1000
+            log_dict["timing/collector_env_step_ms"] = self._collector_env_step_ms
+            log_dict["timing/collector_step_core_ms"] = self._collector_step_core_ms
+            log_dict["timing/collector_update_state_ms"] = self._collector_update_state_ms
+            log_dict["timing/collector_reset_done_ms"] = self._collector_reset_done_ms
+            log_dict["timing/collector_mlp_infer_ms"] = self._collector_mlp_infer_ms
+
+            # perf/
             if elapsed > 0 and self._total_steps > 0:
                 log_dict["perf/steps_per_sec"] = self._total_steps / elapsed
+            log_dict["perf/iter_ms"] = (self._collect_time + self._train_time) * 1000
+            log_dict["perf/collect_train_ratio"] = self._collect_time / max(self._train_time, 1e-6)
+
             wandb.log(log_dict, step=global_step)
 
     def log_save(self, path: str):
@@ -562,28 +584,34 @@ class OffPolicyLogger:
         wait_ms = self._wait_time * 1000
         wait_color = "red" if wait_ms > 1.0 else "yellow"
         table.add_row(
-            "Wait",
+            "[dim]learner[/] Wait",
             f"[{wait_color}]{wait_ms:.1f}ms[/]",
-            "Train",
+            "[dim]learner[/] Train",
             f"{self._train_time * 1000:.1f}ms",
         )
         table.add_row(
-            "Collect",
+            "[dim]learner[/] Collect",
             f"{self._collect_time * 1000:.1f}ms",
             "",
             "",
         )
         table.add_row(
-            "Phys Step",
+            "[dim]collector[/] Env Step",
             f"{self._collector_env_step_ms:.1f}ms",
-            "Step Core",
+            "[dim]collector[/] Core",
             f"{self._collector_step_core_ms:.1f}ms",
         )
         table.add_row(
-            "Update",
+            "[dim]collector[/] State Upd",
             f"{self._collector_update_state_ms:.1f}ms",
-            "Reset",
+            "[dim]collector[/] Reset",
             f"{self._collector_reset_done_ms:.1f}ms",
+        )
+        table.add_row(
+            "[dim]collector[/] MLP Infer",
+            f"{self._collector_mlp_infer_ms:.1f}ms",
+            "",
+            "",
         )
         table.add_row(
             "Timeout Rate",
