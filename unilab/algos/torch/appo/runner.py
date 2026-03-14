@@ -43,10 +43,22 @@ class APPORunner(AsyncRunner):
             num_envs=num_envs,
         )
 
+        # Normalize rl_cfg to a plain dict so isinstance(x, dict) checks work
+        # uniformly regardless of whether a ml_collections ConfigDict was passed.
+        if hasattr(self.rl_cfg, "to_dict"):
+            self.rl_cfg = self.rl_cfg.to_dict()
+
         self.steps_per_env = steps_per_env
 
         # Resolve dims
         self._resolve_dims()
+
+    def _get_default_device(self) -> str:
+        if torch.cuda.is_available():
+            return "cuda"
+        if torch.backends.mps.is_available():
+            return "mps"
+        return "cpu"
 
     def _resolve_dims(self):
         self.obs_dim, self.action_dim = self._detect_dims()
@@ -82,7 +94,7 @@ class APPORunner(AsyncRunner):
         obs_example = torch.zeros((self.num_envs, self.obs_dim), device=self.device)
         td_example = TensorDict({"policy": obs_example}, batch_size=self.num_envs)
 
-        # Build actor 
+        # Build actor
         actor_cfg = cfg.get("policy", cfg.get("actor", {})).copy()
         actor_cls = resolve_callable(actor_cfg.pop("class_name"))
         actor_cfg.pop("num_actions", None)
@@ -95,16 +107,29 @@ class APPORunner(AsyncRunner):
         critic_cfg.pop("num_actions", None)
         critic = critic_cls(td_example, cfg["obs_groups"], "actor", 1, **critic_cfg)
 
+        # Extract algorithm hyperparams from rl_cfg["algorithm"] (or top-level)
+        algo_cfg = cfg.get("algorithm", cfg)
         learner = APPOLearner(
             actor=actor,
             critic=critic,
-            td_example=td_example,
-            rl_cfg=cfg,
-            obs_dim=self.obs_dim,
-            action_dim=self.action_dim,
             device=self.device,
-            num_envs=self.num_envs,
-            steps_per_env=self.steps_per_env,
+            num_learning_epochs=algo_cfg.get("num_learning_epochs", 5),
+            num_mini_batches=algo_cfg.get("num_mini_batches", 4),
+            clip_param=algo_cfg.get("clip_param", 0.2),
+            gamma=algo_cfg.get("gamma", 0.99),
+            lam=algo_cfg.get("lam", 0.95),
+            value_loss_coef=algo_cfg.get("value_loss_coef", 1.0),
+            entropy_coef=algo_cfg.get("entropy_coef", 0.01),
+            learning_rate=algo_cfg.get("learning_rate", 1e-3),
+            max_grad_norm=algo_cfg.get("max_grad_norm", 1.0),
+            use_clipped_value_loss=algo_cfg.get("use_clipped_value_loss", True),
+            schedule=algo_cfg.get("schedule", "fixed"),
+            desired_kl=algo_cfg.get("desired_kl", 0.01),
+            optimizer=algo_cfg.get("optimizer", "adam"),
+            tau=algo_cfg.get("tau", 1.0),
+            target_update_freq=algo_cfg.get("target_update_freq", 1),
+            vtrace_clip_rho=algo_cfg.get("vtrace_clip_rho", 1.0),
+            vtrace_clip_c=algo_cfg.get("vtrace_clip_c", 1.0),
         )
         return learner
 

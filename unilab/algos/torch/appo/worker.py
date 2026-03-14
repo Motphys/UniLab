@@ -45,7 +45,7 @@ def appo_collector_fn(
 
     Creates environment + policy, collects rollouts, writes to SharedOnPolicyStorage.
     """
-    from unilab.algos.torch.common.async_runner import SharedOnPolicyStorage, SharedWeightSync
+    from unilab.ipc import SharedOnPolicyStorage, SharedWeightSync
     from unilab.base import registry
     from tensordict import TensorDict
     from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4
