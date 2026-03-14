@@ -18,26 +18,40 @@ pytest
 
 ```bash
 uv sync --extra dev
+# or
+make sync
 ```
 
 ## Development Workflow
 
-### 1. 代码开发
+### Quick Commands (Makefile)
+
 ```bash
-uv run python scripts/train_rsl_rl.py --task Go1JoystickFlatTerrain
+make format     # Format and lint code
+make type       # Type check with mypy
+make check      # make format && make type
+make test       # Run all tests
+make test-fast  # Run tests excluding slow ones
+make test-all   # make check && make test
 ```
 
-### 2. 提交前检查
+### Manual Commands
+
 ```bash
-# 格式化
+# Format
 uv run ruff format .
+uv run ruff check --fix
 
-# 检查
-uv run ruff check .
+# Type check
+uv run mypy unilab
+
+# Test
+uv run pytest
 ```
 
-### 3. Git 提交
-使用 Conventional Commits：
+## Git Commits
+
+Use Conventional Commits:
 - `feat:` 新功能
 - `fix:` 修复 bug
 - `docs:` 文档
@@ -46,6 +60,10 @@ uv run ruff check .
 - `test:` 测试
 - `chore:` 构建/工具
 
-### 4. 自动化
-- **Pre-commit hooks**（可选）：`pre-commit install`
-- **GitHub CI**：push 到 main 或 PR 时自动运行 lint + test
+## Pre-commit
+
+```bash
+pre-commit install  # Optional
+```
+
+**Always run `make check` before committing.**
