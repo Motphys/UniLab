@@ -15,7 +15,7 @@ def ppo_config(env_name: str) -> config_dict.ConfigDict:
         save_interval=100,
         learning_rate=1.0e-3,
         entropy_coef=0.01,
-        schedule="adaptive", #"fixed",
+        schedule="adaptive",  # "fixed",
         value_loss_coef=1.0,
         num_learning_epochs=5,
         num_mini_batches=4,
@@ -126,7 +126,9 @@ def offpolicy_config(algo: str, env_name: str) -> config_dict.ConfigDict:
             cfg.num_envs = 2048
             cfg.max_iterations = 2000
         elif env_name in ("G1JoystickFlatTerrain",):
-            raise NotImplementedError("G1JoystickFlatTerrain config is not implemented for FastSAC, Please use G1WalkTaskMjSAC instead.")
+            raise NotImplementedError(
+                "G1JoystickFlatTerrain config is not implemented for FastSAC, Please use G1WalkTaskMjSAC instead."
+            )
         elif env_name in ("G1WalkTaskMjSAC",):
             cfg.updates_per_step = 8
             cfg.replay_buffer_n = 512

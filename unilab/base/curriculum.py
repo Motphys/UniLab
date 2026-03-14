@@ -66,7 +66,9 @@ class PenaltyCurriculum:
     def _apply_initial_scale(self) -> None:
         """Apply initial penalty scaling."""
         for name in self.penalty_names:
-            self.env.cfg.reward_config.scales[name] = self.original_weights[name] * self.current_scale
+            self.env.cfg.reward_config.scales[name] = (
+                self.original_weights[name] * self.current_scale
+            )
 
     def update(self, average_episode_length: float) -> None:
         """Update penalty scale based on average episode length."""
@@ -75,13 +77,15 @@ class PenaltyCurriculum:
 
         # Adjust scale
         if average_episode_length < self.level_down_threshold:
-            self.current_scale *= (1.0 - self.degree)
+            self.current_scale *= 1.0 - self.degree
         elif average_episode_length > self.level_up_threshold:
-            self.current_scale *= (1.0 + self.degree)
+            self.current_scale *= 1.0 + self.degree
 
         # Clamp
         self.current_scale = float(np.clip(self.current_scale, self.min_scale, self.max_scale))
 
         # Apply to all penalty rewards
         for name in self.penalty_names:
-            self.env.cfg.reward_config.scales[name] = self.original_weights[name] * self.current_scale
+            self.env.cfg.reward_config.scales[name] = (
+                self.original_weights[name] * self.current_scale
+            )

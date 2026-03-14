@@ -34,6 +34,7 @@ def off_policy_collector_fn(
     """Entry point for the off-policy collector subprocess."""
     import traceback
     import sys
+
     try:
         print("[Collector] Entry point called", file=sys.stderr, flush=True)
         _run_collector(
@@ -106,7 +107,9 @@ def _run_collector(
     # Build actor (always on CPU for env interaction)
     obs_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
-    actor = build_actor(algo_type, obs_dim, action_dim, actor_hidden_dim, use_layer_norm, "cpu", num_envs)
+    actor = build_actor(
+        algo_type, obs_dim, action_dim, actor_hidden_dim, use_layer_norm, "cpu", num_envs
+    )
     actor.eval()
 
     # Load initial weights
@@ -121,6 +124,7 @@ def _run_collector(
     current_ep_rewards = np.zeros(num_envs, dtype=np.float32)
     current_ep_lengths = np.zeros(num_envs, dtype=np.int32)
     from collections import defaultdict
+
     ep_reward_components = defaultdict(list)
     timing_accum_ms = defaultdict(float)
     timing_count = 0
@@ -134,18 +138,24 @@ def _run_collector(
     obs_np = np.asarray(state.obs, dtype=np.float32)
     max_episode_steps = getattr(getattr(env, "cfg", None), "max_episode_steps", None)
     if max_episode_steps is not None and int(max_episode_steps) > 0:
-        step_offsets = np.random.randint(0, int(max_episode_steps), size=(num_envs,), dtype=np.uint32)
-        if hasattr(env, "state") and env.state is not None and isinstance(getattr(env.state, "info", None), dict):
+        step_offsets = np.random.randint(
+            0, int(max_episode_steps), size=(num_envs,), dtype=np.uint32
+        )
+        if (
+            hasattr(env, "state")
+            and env.state is not None
+            and isinstance(getattr(env.state, "info", None), dict)
+        ):
             if "steps" in env.state.info:
                 env.state.info["steps"][:] = step_offsets
         if isinstance(getattr(state, "info", None), dict) and "steps" in state.info:
             state.info["steps"][:] = step_offsets
     import time as _time
+
     _last_log_time = _time.time()
 
     # Track env.step calls collected since the last learner phase.
     env_steps_since_sync = 0
-
 
     # Collection loop
     while not stop_event.is_set():
@@ -154,14 +164,14 @@ def _run_collector(
             sd = dict(actor.state_dict())
             local_weight_version = weight_sync.read_weights_into(sd)
             actor.load_state_dict(sd)
-            
+
             # Update normalizer stats
             if obs_normalization and shared_obs_normalizer_stats is not None:
                 stats = shared_obs_normalizer_stats.get()
                 if stats is not None:
                     # Apply stats to a local normalizer if needed, or directly to actor
-                    pass # Handled by EmpiricalNormalization in learner if actor possesses it. We need a local normalizer.
-                    
+                    pass  # Handled by EmpiricalNormalization in learner if actor possesses it. We need a local normalizer.
+
         # Normalize obs_np
         obs_np_input = obs_np
         if obs_normalization and shared_obs_normalizer_stats is not None:
@@ -180,7 +190,9 @@ def _run_collector(
                     actions_torch = actor.explore(obs_torch)
                 else:  # td3
                     actions_torch = actor(obs_torch)
-                    actions_torch = (actions_torch + torch.randn_like(actions_torch) * 0.1).clamp(-1, 1)
+                    actions_torch = (actions_torch + torch.randn_like(actions_torch) * 0.1).clamp(
+                        -1, 1
+                    )
                 actions_np = actions_torch.numpy()
 
         # Step environment
@@ -197,8 +209,16 @@ def _run_collector(
         next_obs_np = np.asarray(state.obs, dtype=np.float32)
         rewards_np = np.asarray(state.reward, dtype=np.float32).ravel()
 
-        terminated_np = np.asarray(state.terminated, dtype=np.float32).ravel() if state.terminated is not None else np.zeros(num_envs, dtype=np.float32)
-        truncated_np = np.asarray(state.truncated, dtype=np.float32).ravel() if state.truncated is not None else np.zeros(num_envs, dtype=np.float32)
+        terminated_np = (
+            np.asarray(state.terminated, dtype=np.float32).ravel()
+            if state.terminated is not None
+            else np.zeros(num_envs, dtype=np.float32)
+        )
+        truncated_np = (
+            np.asarray(state.truncated, dtype=np.float32).ravel()
+            if state.truncated is not None
+            else np.zeros(num_envs, dtype=np.float32)
+        )
         combined_dones = np.clip(terminated_np + truncated_np, 0, 1)
         done_mask_np = combined_dones > 0.5
         timeout_mask_np = truncated_np > 0.5
@@ -242,7 +262,11 @@ def _run_collector(
         env_steps_since_sync += 1
 
         # Signal the learner once this collection chunk is ready.
-        if sync_collection and collection_ready_queue is not None and trainer_done_queue is not None:
+        if (
+            sync_collection
+            and collection_ready_queue is not None
+            and trainer_done_queue is not None
+        ):
             if env_steps_since_sync >= env_steps_per_sync:
                 collection_ready_queue.put(1)
                 trainer_done_queue.get()  # Wait for trainer
@@ -263,6 +287,7 @@ def _run_collector(
         # Send metrics periodically
         if metrics_queue is not None and total_steps % (num_envs * 10) == 0 and ep_rewards:
             import statistics
+
             try:
                 msg = {
                     "total_steps": total_steps,

@@ -16,6 +16,7 @@ sys.path.append(str(ROOT_DIR))
 def ensure_registries():
     try:
         import unilab.envs.locomotion
+
         package = unilab.envs.locomotion
         if hasattr(package, "__path__"):
             for _, name, ispkg in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
@@ -28,6 +29,7 @@ def ensure_registries():
 
     try:
         import unilab.envs.locomotion.walking
+
         package = unilab.envs.locomotion.walking
         if hasattr(package, "__path__"):
             for _, name, ispkg in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
@@ -54,7 +56,13 @@ def play_appo(args, rl_cfg):
     if hasattr(rl_cfg, "to_dict"):
         rl_cfg = rl_cfg.to_dict()
 
-    device = args.device or ("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
+    device = args.device or (
+        "cuda"
+        if torch.cuda.is_available()
+        else "mps"
+        if torch.backends.mps.is_available()
+        else "cpu"
+    )
     print(f"Using device for play: {device}")
 
     env = registry.make(args.task, num_envs=args.play_env_num, sim_backend="mujoco")
@@ -65,7 +73,9 @@ def play_appo(args, rl_cfg):
     if "obs_groups" not in rl_cfg_dict:
         rl_cfg_dict["obs_groups"] = {"actor": {"policy": obs_dim}}
     else:
-        actor_group = rl_cfg_dict["obs_groups"].get("actor", rl_cfg_dict["obs_groups"].get("policy", {}))
+        actor_group = rl_cfg_dict["obs_groups"].get(
+            "actor", rl_cfg_dict["obs_groups"].get("policy", {})
+        )
         if isinstance(actor_group, dict) and "policy" in actor_group:
             actor_group["policy"] = obs_dim
 
@@ -86,10 +96,20 @@ def play_appo(args, rl_cfg):
     load_path_dir = None
     if args.load_run == "-1":
         if os.path.exists(base_log_dir):
-            all_runs = sorted([d for d in os.listdir(base_log_dir) if os.path.isdir(os.path.join(base_log_dir, d))])
+            all_runs = sorted(
+                [
+                    d
+                    for d in os.listdir(base_log_dir)
+                    if os.path.isdir(os.path.join(base_log_dir, d))
+                ]
+            )
             if all_runs:
                 latest_run_dir = os.path.join(base_log_dir, all_runs[-1])
-                model_files = [f for f in os.listdir(latest_run_dir) if f.startswith("model_") and f.endswith(".pt")]
+                model_files = [
+                    f
+                    for f in os.listdir(latest_run_dir)
+                    if f.startswith("model_") and f.endswith(".pt")
+                ]
                 if model_files:
                     model_files.sort(key=lambda x: int(x.split("_")[1].split(".")[0]))
                     load_path = os.path.join(latest_run_dir, model_files[-1])
@@ -101,7 +121,11 @@ def play_appo(args, rl_cfg):
         else:
             potential_dir = os.path.join(base_log_dir, args.load_run)
             if os.path.isdir(potential_dir):
-                model_files = [f for f in os.listdir(potential_dir) if f.startswith("model_") and f.endswith(".pt")]
+                model_files = [
+                    f
+                    for f in os.listdir(potential_dir)
+                    if f.startswith("model_") and f.endswith(".pt")
+                ]
                 if model_files:
                     model_files.sort(key=lambda x: int(x.split("_")[1].split(".")[0]))
                     load_path = os.path.join(potential_dir, model_files[-1])
@@ -144,15 +168,11 @@ def play_appo(args, rl_cfg):
 
     print("Rendering frames...")
     frames = render_many.render_states_get_frames(
-        state_list,
-        env.cfg.model_file,
-        width=1280,
-        height=720,
-        camera_id=-1
+        state_list, env.cfg.model_file, width=1280, height=720, camera_id=-1
     )
 
     print(f"Saving video to {output_video} with mediapy...")
-    media.write_video(str(output_video), frames, fps=int(1.0/env.cfg.ctrl_dt))
+    media.write_video(str(output_video), frames, fps=int(1.0 / env.cfg.ctrl_dt))
     print("Done.")
 
 
@@ -170,13 +190,19 @@ def main():
     parser.add_argument("--no_play", action="store_true", help="Skip play after training")
     parser.add_argument("--load_run", type=str, default="-1", help="Run ID to load or path")
     parser.add_argument("--play_env_num", type=int, default=16, help="Number of play envs")
-    parser.add_argument("--logger", type=str, default="tensorboard", choices=["tensorboard", "wandb", "none", "no_print"])
+    parser.add_argument(
+        "--logger",
+        type=str,
+        default="tensorboard",
+        choices=["tensorboard", "wandb", "none", "no_print"],
+    )
 
     args = parser.parse_args()
 
     ensure_registries()
 
     from unilab.config.locomotion_params import appo_config
+
     rl_cfg = appo_config(args.task)
 
     if args.log_dir is None:
@@ -189,6 +215,7 @@ def main():
         collector_device = args.collector_device
         if collector_device == "gpu":
             import torch
+
             collector_device = "mps" if torch.backends.mps.is_available() else "cuda"
 
         runner = APPORunner(

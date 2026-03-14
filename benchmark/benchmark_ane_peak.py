@@ -64,7 +64,9 @@ class AnePeakResult:
     tflops_peak_est: float
 
 
-def _build_mlp_torch(obs_dim: int, hidden_dim: int, num_hidden_layers: int, action_dim: int, seed: int) -> "torch.nn.Module":
+def _build_mlp_torch(
+    obs_dim: int, hidden_dim: int, num_hidden_layers: int, action_dim: int, seed: int
+) -> "torch.nn.Module":
     torch.manual_seed(seed)
     dims = [obs_dim] + [hidden_dim] * num_hidden_layers + [action_dim]
     layers = []
@@ -191,8 +193,12 @@ def _compute_result(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Dedicated ANE peak-compute stress benchmark (~5s sustained)")
-    parser.add_argument("--duration-sec", type=float, default=5.0, help="Timed run duration in seconds")
+    parser = argparse.ArgumentParser(
+        description="Dedicated ANE peak-compute stress benchmark (~5s sustained)"
+    )
+    parser.add_argument(
+        "--duration-sec", type=float, default=5.0, help="Timed run duration in seconds"
+    )
     parser.add_argument("--warmup-sec", type=float, default=1.0, help="Warmup duration in seconds")
     parser.add_argument("--batch-size", type=int, default=1024, help="Heavy static batch size")
     parser.add_argument("--obs-dim", type=int, default=512)
@@ -220,7 +226,13 @@ def main() -> None:
     if ct is None:
         raise RuntimeError("coremltools is required (failed to import coremltools).")
 
-    if args.batch_size <= 0 or args.obs_dim <= 0 or args.hidden_dim <= 0 or args.num_hidden_layers <= 0 or args.action_dim <= 0:
+    if (
+        args.batch_size <= 0
+        or args.obs_dim <= 0
+        or args.hidden_dim <= 0
+        or args.num_hidden_layers <= 0
+        or args.action_dim <= 0
+    ):
         raise ValueError("All dimension and layer arguments must be positive.")
 
     print("[ANE Peak] Building heavy MLP...", flush=True)
@@ -260,7 +272,10 @@ def main() -> None:
             f"batch={args.batch_size}, hidden={args.hidden_dim}x{args.num_hidden_layers}",
             flush=True,
         )
-        print("[ANE Peak] Note: Python cannot directly confirm ANE per-inference usage; use Instruments if needed.", flush=True)
+        print(
+            "[ANE Peak] Note: Python cannot directly confirm ANE per-inference usage; use Instruments if needed.",
+            flush=True,
+        )
 
         latencies = _run_sustained(
             model=cm_model,
@@ -296,7 +311,9 @@ def main() -> None:
         print(f"  elapsed: {result.elapsed_sec:.3f} s")
         print(f"  infer/s: {result.throughput_infer_per_sec:.2f}")
         print(f"  samples/s: {result.throughput_samples_per_sec:.2f}")
-        print(f"  latency mean/p50/p95: {result.latency_mean_ms:.3f} / {result.latency_p50_ms:.3f} / {result.latency_p95_ms:.3f} ms")
+        print(
+            f"  latency mean/p50/p95: {result.latency_mean_ms:.3f} / {result.latency_p50_ms:.3f} / {result.latency_p95_ms:.3f} ms"
+        )
         print(f"  TFLOPS sustained: {result.tflops_sustained:.3f}")
         print(f"  TFLOPS peak(est): {result.tflops_peak_est:.3f}")
         print(f"  saved: {out_path.resolve()}")

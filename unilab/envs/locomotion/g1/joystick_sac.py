@@ -1,4 +1,5 @@
 """G1 SAC environment - inherits from PPO for code reuse."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -15,32 +16,36 @@ from unilab.base.curriculum import EpisodeLengthTracker, PenaltyCurriculum
 
 @dataclass
 class ControlConfigSAC:
-    action_scale: float = 1.  # holosoma 0.25
+    action_scale: float = 1.0  # holosoma 0.25
     simulate_action_latency: bool = False
+
 
 @dataclass
 class Commands:
     """对齐 holosoma: 多方向命令采样"""
+
     vel_limit = [
         [-0.6, -0.4, -0.8],  # [vx_min, vy_min, vyaw_min]
-        [1.0, 0.4, 0.8]      # [vx_max, vy_max, vyaw_max]
+        [1.0, 0.4, 0.8],  # [vx_max, vy_max, vyaw_max]
     ]
+
 
 @dataclass
 class RewardConfigSAC:
     """对齐 holosoma G1 FastSAC 奖励权重"""
+
     scales: dict[str, float] = field(
         default_factory=lambda: {
-            "tracking_lin_vel": 2.0,      # holosoma: 2.0
-            "tracking_ang_vel": 1.5,      # holosoma: 1.5
+            "tracking_lin_vel": 2.0,  # holosoma: 2.0
+            "tracking_ang_vel": 1.5,  # holosoma: 1.5
             "penalty_ang_vel_xy": -1.0,
             "penalty_orientation": -10.0,
             "penalty_action_rate": -2.0,
-            "pose": -0.5,                 # holosoma: -0.5 (weighted pose penalty)
+            "pose": -0.5,  # holosoma: -0.5 (weighted pose penalty)
             # "penalty_close_feet_xy": -10.0,
-            "penalty_feet_ori": -25.0,    # holosoma: 5.0 (feet ori penalty)
-            "feet_phase": 5.0,            # holosoma: 5.0 (gait phase reward)
-            "alive": 10.0,                # holosoma: 10.0
+            "penalty_feet_ori": -25.0,  # holosoma: 5.0 (feet ori penalty)
+            "feet_phase": 5.0,  # holosoma: 5.0 (gait phase reward)
+            "alive": 10.0,  # holosoma: 10.0
         }
     )
     tracking_sigma: float = 0.25
@@ -57,11 +62,35 @@ class RewardConfigSAC:
     # pose 权重（29 个关节）
     pose_weights: list[float] = field(
         default_factory=lambda: [
-            0.01, 1.0, 5.0, 0.01, 5.0, 5.0,  # 左腿
-            0.01, 1.0, 5.0, 0.01, 5.0, 5.0,  # 右腿
-            50.0, 50.0, 50.0,                # 腰部
-            50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0,  # 左臂
-            50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0,  # 右臂
+            0.01,
+            1.0,
+            5.0,
+            0.01,
+            5.0,
+            5.0,  # 左腿
+            0.01,
+            1.0,
+            5.0,
+            0.01,
+            5.0,
+            5.0,  # 右腿
+            50.0,
+            50.0,
+            50.0,  # 腰部
+            50.0,
+            50.0,
+            50.0,
+            50.0,
+            50.0,
+            50.0,
+            50.0,  # 左臂
+            50.0,
+            50.0,
+            50.0,
+            50.0,
+            50.0,
+            50.0,
+            50.0,  # 右臂
         ]
     )
 
@@ -83,7 +112,9 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
     """G1 SAC environment - inherits from PPO, overrides rewards."""
 
     def __init__(self, cfg: G1JoystickSACCfg, num_envs=1, backend_type="mujoco"):
-        backend = create_backend(backend_type, cfg.model_file, num_envs, cfg.sim_dt, body_name=cfg.asset.body_name)
+        backend = create_backend(
+            backend_type, cfg.model_file, num_envs, cfg.sim_dt, body_name=cfg.asset.body_name
+        )
         G1BaseEnv.__init__(self, cfg, backend, num_envs)
         self._enable_reward_log = True
         self._gait_phase_delta = float(2.0 * np.pi * cfg.reward_config.gait_frequency * cfg.ctrl_dt)
@@ -92,13 +123,14 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
         # Curriculum learning - 更宽松的初始配置
         self._episode_tracker = EpisodeLengthTracker(num_envs)
         self._penalty_curriculum = PenaltyCurriculum(
-            self, enabled=True,
-            initial_scale=0.1,      # 从0.1开始，更容易
-            min_scale=0.1,          # 最小0.1
-            max_scale=1.0,          # 最大1.0
-            level_down_threshold=50.0,   # 低于50步降低难度
-            level_up_threshold=500.0,    # 高于500步增加难度
-            degree=0.002            # 调整速度加快
+            self,
+            enabled=True,
+            initial_scale=0.1,  # 从0.1开始，更容易
+            min_scale=0.1,  # 最小0.1
+            max_scale=1.0,  # 最大1.0
+            level_down_threshold=50.0,  # 低于50步降低难度
+            level_up_threshold=500.0,  # 高于500步增加难度
+            degree=0.002,  # 调整速度加快
         )
 
         self._init_obs_space()
@@ -141,8 +173,12 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
         left_foot_quat = self._backend.get_sensor_data("left_foot_quat")
         right_foot_quat = self._backend.get_sensor_data("right_foot_quat")
         # MuJoCo quat: [w,x,y,z], 惩罚 x,y 分量（roll/pitch）
-        return np.square(left_foot_quat[:, 1]) + np.square(left_foot_quat[:, 2]) + \
-               np.square(right_foot_quat[:, 1]) + np.square(right_foot_quat[:, 2])
+        return (
+            np.square(left_foot_quat[:, 1])
+            + np.square(left_foot_quat[:, 2])
+            + np.square(right_foot_quat[:, 1])
+            + np.square(right_foot_quat[:, 2])
+        )
 
     def _reward_alive(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
         return np.ones((self._num_envs,), dtype=get_global_dtype())
@@ -158,17 +194,23 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
 
     def _reward_torques(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
         """惩罚力矩"""
-        torques = info.get("torques", np.zeros((self._num_envs, self._num_action), dtype=get_global_dtype()))
+        torques = info.get(
+            "torques", np.zeros((self._num_envs, self._num_action), dtype=get_global_dtype())
+        )
         return np.sum(np.abs(torques), axis=1)
 
     def _reward_energy(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
         """惩罚能量消耗"""
-        torques = info.get("torques", np.zeros((self._num_envs, self._num_action), dtype=get_global_dtype()))
+        torques = info.get(
+            "torques", np.zeros((self._num_envs, self._num_action), dtype=get_global_dtype())
+        )
         return np.sum(np.abs(dof_vel) * np.abs(torques), axis=1)
 
     def _reward_dof_acc(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
         """惩罚关节加速度"""
-        qacc = info.get("qacc", np.zeros((self._num_envs, self._num_action), dtype=get_global_dtype()))
+        qacc = info.get(
+            "qacc", np.zeros((self._num_envs, self._num_action), dtype=get_global_dtype())
+        )
         return np.sum(np.square(qacc), axis=1)
 
     def _reward_upright(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
@@ -178,7 +220,9 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
 
     def _reward_feet_air_time(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
         """奖励脚离地时间"""
-        air_time = info.get("feet_air_time", np.zeros((self._num_envs, 2), dtype=get_global_dtype()))
+        air_time = info.get(
+            "feet_air_time", np.zeros((self._num_envs, 2), dtype=get_global_dtype())
+        )
         in_range = (air_time > 0.05) & (air_time < 0.5)
         return np.sum(in_range.astype(float), axis=1)
 
@@ -199,7 +243,11 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
             # Always log curriculum metrics when episode ends
             if "log" not in state.info:
                 state.info["log"] = {}
-            state.info["log"]["curriculum/average_episode_length"] = float(self._episode_tracker.average_length)
-            state.info["log"]["curriculum/penalty_scale"] = float(self._penalty_curriculum.current_scale)
+            state.info["log"]["curriculum/average_episode_length"] = float(
+                self._episode_tracker.average_length
+            )
+            state.info["log"]["curriculum/penalty_scale"] = float(
+                self._penalty_curriculum.current_scale
+            )
 
         return state

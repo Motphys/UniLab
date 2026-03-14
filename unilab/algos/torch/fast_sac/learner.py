@@ -24,6 +24,7 @@ from unilab.algos.torch.common.normalization import EmpiricalNormalization
 # Actor Network (holosoma-style: SiLU + LayerNorm + Tanh squashing)
 # ---------------------------------------------------------------------------
 
+
 class SACActor(nn.Module):
     """Stochastic actor for SAC with tanh-squashed Gaussian policy.
 
@@ -105,7 +106,9 @@ class SACActor(nn.Module):
 
         return action, mean, log_std
 
-    def get_actions_and_log_probs(self, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def get_actions_and_log_probs(
+        self, obs: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Sample actions and compute log probabilities. Returns (action, log_prob, log_std)."""
         _, mean, log_std = self(obs)
         std = log_std.exp()
@@ -146,6 +149,7 @@ class SACActor(nn.Module):
 # ---------------------------------------------------------------------------
 # Distributional Q-Network (C51 variant, from holosoma)
 # ---------------------------------------------------------------------------
+
 
 class DistributionalQNetwork(nn.Module):
     """Single distributional Q-network (C51).
@@ -261,19 +265,21 @@ class SACCritic(nn.Module):
         self.v_max = v_max
         self.num_q_networks = num_q_networks
 
-        self.qnets = nn.ModuleList([
-            DistributionalQNetwork(
-                obs_dim=obs_dim,
-                action_dim=action_dim,
-                num_atoms=num_atoms,
-                v_min=v_min,
-                v_max=v_max,
-                hidden_dim=hidden_dim,
-                use_layer_norm=use_layer_norm,
-                device=device,
-            )
-            for _ in range(num_q_networks)
-        ])
+        self.qnets = nn.ModuleList(
+            [
+                DistributionalQNetwork(
+                    obs_dim=obs_dim,
+                    action_dim=action_dim,
+                    num_atoms=num_atoms,
+                    v_min=v_min,
+                    v_max=v_max,
+                    hidden_dim=hidden_dim,
+                    use_layer_norm=use_layer_norm,
+                    device=device,
+                )
+                for _ in range(num_q_networks)
+            ]
+        )
 
         self.register_buffer("q_support", torch.linspace(v_min, v_max, num_atoms, device=device))
 
@@ -292,8 +298,9 @@ class SACCritic(nn.Module):
     ) -> torch.Tensor:
         """Project for all Q-networks: (num_q_nets, batch, num_atoms)."""
         projections = [
-            qnet.projection(obs, actions, rewards, bootstrap, discount,
-                          self.q_support, self.q_support.device)
+            qnet.projection(
+                obs, actions, rewards, bootstrap, discount, self.q_support, self.q_support.device
+            )
             for qnet in self.qnets
         ]
         return torch.stack(projections, dim=0)
@@ -306,6 +313,7 @@ class SACCritic(nn.Module):
 # ---------------------------------------------------------------------------
 # FastSACLearner — the training algorithm
 # ---------------------------------------------------------------------------
+
 
 class FastSACLearner:
     """FastSAC learner with holosoma-aligned hyperparameters.
@@ -346,7 +354,7 @@ class FastSACLearner:
         use_autotune: bool = True,
         use_symmetry: bool = False,
         use_amp: bool = False,
-        mujoco_model = None,
+        mujoco_model=None,
         obs_structure: dict = None,
     ):
         self.device = device
@@ -396,9 +404,7 @@ class FastSACLearner:
         self.qnet_target.load_state_dict(self.qnet.state_dict())
 
         # Entropy coefficient
-        self.log_alpha = torch.tensor(
-            [math.log(alpha_init)], requires_grad=True, device=device
-        )
+        self.log_alpha = torch.tensor([math.log(alpha_init)], requires_grad=True, device=device)
         self.target_entropy = -action_dim * target_entropy_ratio
 
         # fused AdamW requires CUDA; MPS and CPU do not support it
@@ -431,12 +437,18 @@ class FastSACLearner:
         self.update_count = 0
 
         # AMP scaler for mixed precision
-        self.scaler = torch.amp.GradScaler('cuda') if self.use_amp else None
+        self.scaler = torch.amp.GradScaler("cuda") if self.use_amp else None
 
         # Symmetry augmentation (G1 only)
-        self.use_symmetry = use_symmetry and (action_dim == 29) and (mujoco_model is not None) and (obs_structure is not None)
+        self.use_symmetry = (
+            use_symmetry
+            and (action_dim == 29)
+            and (mujoco_model is not None)
+            and (obs_structure is not None)
+        )
         if self.use_symmetry:
             from unilab.envs.locomotion.g1.symmetry import G1SymmetryAugmentation
+
             self.symmetry = G1SymmetryAugmentation(mujoco_model, obs_structure, device=device)
 
     def update_critic(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
@@ -464,18 +476,20 @@ class FastSACLearner:
         discount = torch.full_like(dones, self.gamma)
 
         with torch.no_grad():
-            with torch.amp.autocast('cuda', enabled=self.use_amp):
+            with torch.amp.autocast("cuda", enabled=self.use_amp):
                 next_actions, next_log_probs, _ = self.actor.get_actions_and_log_probs(next_obs)
-            adjusted_rewards = rewards - discount * bootstrap * self.log_alpha.exp() * next_log_probs
+            adjusted_rewards = (
+                rewards - discount * bootstrap * self.log_alpha.exp() * next_log_probs
+            )
 
-            with torch.amp.autocast('cuda', enabled=self.use_amp):
+            with torch.amp.autocast("cuda", enabled=self.use_amp):
                 target_distributions = self.qnet_target.projection(
                     next_obs, next_actions, adjusted_rewards, bootstrap, discount
                 )
                 target_values = self.qnet_target.get_value(target_distributions)
 
         # Critic loss: cross-entropy with projected distributions
-        with torch.amp.autocast('cuda', enabled=self.use_amp):
+        with torch.amp.autocast("cuda", enabled=self.use_amp):
             q_outputs = self.qnet(obs, actions)
             critic_log_probs = F.log_softmax(q_outputs, dim=-1).clamp(min=-30.0)
             critic_losses = -torch.sum(target_distributions * critic_log_probs, dim=-1)
@@ -513,7 +527,9 @@ class FastSACLearner:
             self.alpha_optimizer.zero_grad(set_to_none=True)
             # using next_log_probs like holosoma
             # holosoma: alpha_loss = (-self.log_alpha.exp() * (next_state_log_probs.detach() + self.target_entropy)).mean()
-            alpha_loss = (-self.log_alpha.exp() * (next_log_probs.detach() + self.target_entropy)).mean()
+            alpha_loss = (
+                -self.log_alpha.exp() * (next_log_probs.detach() + self.target_entropy)
+            ).mean()
             if torch.isfinite(alpha_loss):
                 alpha_loss.backward()
                 self.alpha_optimizer.step()
@@ -535,14 +551,14 @@ class FastSACLearner:
         if self.use_symmetry:
             obs = torch.cat([obs, self.symmetry.mirror_obs(obs)], dim=0)
 
-        with torch.amp.autocast('cuda', enabled=self.use_amp):
+        with torch.amp.autocast("cuda", enabled=self.use_amp):
             actions, log_probs, log_std = self.actor.get_actions_and_log_probs(obs)
 
         with torch.no_grad():
             action_std = log_std.exp().mean()
             policy_entropy = -log_probs.mean()
 
-        with torch.amp.autocast('cuda', enabled=self.use_amp):
+        with torch.amp.autocast("cuda", enabled=self.use_amp):
             q_outputs = self.qnet(obs, actions)
             q_probs = F.softmax(q_outputs, dim=-1)
             q_values = self.qnet.get_value(q_probs)

@@ -30,6 +30,7 @@ import torch.nn as nn
 # helpers
 # ---------------------------------------------------------------------------
 
+
 def sync_device(device: str) -> None:
     if device == "cuda":
         torch.cuda.synchronize()
@@ -41,11 +42,11 @@ def sync_device(device: str) -> None:
 # Actor model (SACActor-equivalent)
 # ---------------------------------------------------------------------------
 
+
 class SACActor(nn.Module):
     """Matches the real SACActor architecture used in training."""
 
-    def __init__(self, obs_dim: int, action_dim: int,
-                 hidden: tuple = (512, 256, 128)):
+    def __init__(self, obs_dim: int, action_dim: int, hidden: tuple = (512, 256, 128)):
         super().__init__()
         layers = []
         in_dim = obs_dim
@@ -67,25 +68,35 @@ def count_params(model: nn.Module) -> int:
 # Weight-sync implementations
 # ---------------------------------------------------------------------------
 
-def write_weights_current(model: nn.Module, cpu_buffer: np.ndarray,
-                           shm_array: np.ndarray, lock: threading.Lock,
-                           version_arr: np.ndarray, device: str) -> None:
+
+def write_weights_current(
+    model: nn.Module,
+    cpu_buffer: np.ndarray,
+    shm_array: np.ndarray,
+    lock: threading.Lock,
+    version_arr: np.ndarray,
+    device: str,
+) -> None:
     """Current implementation: MPS → CPU tensor → shm numpy."""
     sync_device(device)
     with lock:
         offset = 0
-        cpu_t = torch.from_numpy(cpu_buffer)   # zero-copy view of shm buffer
+        cpu_t = torch.from_numpy(cpu_buffer)  # zero-copy view of shm buffer
         for param in model.parameters():
             flat = param.detach().cpu().flatten()  # MPS → CPU tensor
             n = flat.numel()
-            cpu_t[offset: offset + n].copy_(flat) # CPU tensor → shm (via cpu_buffer)
+            cpu_t[offset : offset + n].copy_(flat)  # CPU tensor → shm (via cpu_buffer)
             offset += n
         version_arr[0] += 1
 
 
-def write_weights_direct(model: nn.Module, shm_array: np.ndarray,
-                          lock: threading.Lock, version_arr: np.ndarray,
-                          device: str) -> None:
+def write_weights_direct(
+    model: nn.Module,
+    shm_array: np.ndarray,
+    lock: threading.Lock,
+    version_arr: np.ndarray,
+    device: str,
+) -> None:
     """Direct implementation: MPS → shm numpy (no intermediate CPU tensor)."""
     sync_device(device)
     with lock:
@@ -93,7 +104,7 @@ def write_weights_direct(model: nn.Module, shm_array: np.ndarray,
         for param in model.parameters():
             arr = param.detach().cpu().numpy().ravel()  # MPS → numpy (shm-backed)
             n = arr.size
-            shm_array[offset: offset + n] = arr
+            shm_array[offset : offset + n] = arr
             offset += n
         version_arr[0] += 1
 
@@ -102,19 +113,19 @@ def write_weights_direct(model: nn.Module, shm_array: np.ndarray,
 # benchmark runner
 # ---------------------------------------------------------------------------
 
-def run_benchmark(model: nn.Module, total_params: int, device: str,
-                  warmup: int, measured: int):
+
+def run_benchmark(model: nn.Module, total_params: int, device: str, warmup: int, measured: int):
     """Returns (current_times_ms, direct_times_ms)."""
 
     # Allocate real shared memory (no ordinary numpy array)
-    shm = SharedMemory(create=True, size=total_params * 4)   # float32
-    shm_array  = np.ndarray((total_params,), dtype=np.float32, buffer=shm.buf)
-    cpu_buffer = np.zeros(total_params, dtype=np.float32)    # intermediate buffer
+    shm = SharedMemory(create=True, size=total_params * 4)  # float32
+    shm_array = np.ndarray((total_params,), dtype=np.float32, buffer=shm.buf)
+    cpu_buffer = np.zeros(total_params, dtype=np.float32)  # intermediate buffer
     version_arr = np.zeros(1, dtype=np.int64)
     lock = threading.Lock()
 
-    cur_times  = []
-    dir_times  = []
+    cur_times = []
+    dir_times = []
 
     for i in range(warmup + measured):
         # --- current ---
@@ -143,6 +154,7 @@ def run_benchmark(model: nn.Module, total_params: int, device: str,
 # entry point
 # ---------------------------------------------------------------------------
 
+
 def main():
     if torch.cuda.is_available():
         device = "cuda"
@@ -156,11 +168,11 @@ def main():
     print(f"PyTorch: {torch.__version__}")
     print(f"Platform: {sys.platform}\n")
 
-    obs_dim    = 45
+    obs_dim = 45
     action_dim = 12
-    hidden     = (512, 256, 128)
-    warmup     = 5
-    measured   = 20
+    hidden = (512, 256, 128)
+    warmup = 5
+    measured = 20
 
     model = SACActor(obs_dim, action_dim, hidden).to(device)
     model.eval()
@@ -173,12 +185,10 @@ def main():
     print(f"Total params: {total_params:,}  (~{size_mb:.2f} MB)\n")
 
     print(f"Running {warmup} warmup + {measured} measured iterations …\n")
-    cur_arr, dir_arr = run_benchmark(
-        model, total_params, device, warmup=warmup, measured=measured
-    )
+    cur_arr, dir_arr = run_benchmark(model, total_params, device, warmup=warmup, measured=measured)
 
     speedup = cur_arr.mean() / dir_arr.mean() if dir_arr.mean() > 0 else float("nan")
-    saving  = cur_arr.mean() - dir_arr.mean()
+    saving = cur_arr.mean() - dir_arr.mean()
 
     w = 10
     print(f"{'':14s}{'Mean':>{w}}  {'Std':>{w}}  {'Min':>{w}}  {'Max':>{w}}")
@@ -188,7 +198,7 @@ def main():
         return (
             f"{label:14s}"
             f"{arr.mean():>{w}.3f} ms"
-            f"  ±{arr.std():>{w-2}.3f}"
+            f"  ±{arr.std():>{w - 2}.3f}"
             f"  {arr.min():>{w}.3f}"
             f"  {arr.max():>{w}.3f}"
         )
@@ -197,10 +207,7 @@ def main():
     print(row("Direct: ", dir_arr))
     print("-" * 55)
     sign = "save" if saving >= 0 else "cost"
-    print(
-        f"Speedup:       {speedup:.2f}x  "
-        f"({sign} {abs(saving):.3f} ms per iteration)"
-    )
+    print(f"Speedup:       {speedup:.2f}x  ({sign} {abs(saving):.3f} ms per iteration)")
     print("=" * 55)
 
 

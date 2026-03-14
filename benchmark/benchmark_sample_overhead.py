@@ -8,11 +8,13 @@ import sys
 import multiprocessing as mp
 from multiprocessing import shared_memory
 
+
 def sync_device(device):
     if device == "cuda":
         torch.cuda.synchronize()
     elif device == "mps":
         torch.mps.synchronize()
+
 
 def benchmark_host_sample_realistic(capacity, obs_dim, action_dim, batch_size, num_samples, device):
     """Simulate real SharedReplayBuffer.sample_torch() with lock."""
@@ -56,6 +58,7 @@ def benchmark_host_sample_realistic(capacity, obs_dim, action_dim, batch_size, n
 
     return np.mean(times), np.std(times)
 
+
 def benchmark_gpu_sample(capacity, obs_dim, action_dim, batch_size, num_samples, device):
     """GPU buffer: direct indexing on device."""
     obs = torch.randn(capacity, obs_dim, device=device)
@@ -84,6 +87,7 @@ def benchmark_gpu_sample(capacity, obs_dim, action_dim, batch_size, num_samples,
             times.append(elapsed * 1000)
 
     return np.mean(times), np.std(times)
+
 
 if __name__ == "__main__":
     if torch.cuda.is_available():
@@ -116,13 +120,13 @@ if __name__ == "__main__":
         capacity, obs_dim, action_dim, batch_size, num_samples, device
     )
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("SAMPLING OVERHEAD")
-    print("="*60)
+    print("=" * 60)
     print(f"Host: {host_mean:.3f} ± {host_std:.3f} ms")
     print(f"GPU:  {gpu_mean:.3f} ± {gpu_std:.3f} ms")
-    print(f"Overhead: {host_mean - gpu_mean:.3f} ms ({(host_mean/gpu_mean):.2f}x)")
-    print("="*60)
+    print(f"Overhead: {host_mean - gpu_mean:.3f} ms ({(host_mean / gpu_mean):.2f}x)")
+    print("=" * 60)
 
     updates_per_step = 8
     print(f"\nPer env step ({updates_per_step} updates):")

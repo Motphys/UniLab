@@ -1,7 +1,9 @@
 import numpy as np
+
 try:
     import motrixsim as mtx
     from motrixsim.render import RenderApp, RenderSettings
+
     MOTRIX_AVAILABLE = True
 except ImportError:
     MOTRIX_AVAILABLE = False
@@ -12,7 +14,14 @@ from .base import SimBackend
 class MotrixBackend(SimBackend):
     """MotrixSim 后端实现"""
 
-    def __init__(self, model_file: str, num_envs: int, sim_dt: float, body_name: str = "base", np_dtype=np.float32):
+    def __init__(
+        self,
+        model_file: str,
+        num_envs: int,
+        sim_dt: float,
+        body_name: str = "base",
+        np_dtype=np.float32,
+    ):
         if not MOTRIX_AVAILABLE:
             raise ImportError("motrixsim not available")
 
@@ -25,7 +34,7 @@ class MotrixBackend(SimBackend):
         self._body = self._model.get_body(body_name)
         self._body_link = self._model.get_link(body_name)
         self._render_app = None
-        self.backend_type = 'motrix'
+        self.backend_type = "motrix"
 
     def _process_rigid_body_props(self, cfg) -> None:
         if cfg.domain_rand.randomize_base_mass == True:
@@ -35,21 +44,27 @@ class MotrixBackend(SimBackend):
             random_mass = mass + np.random.uniform(mass_low, mass_high, size=(self._num_envs,))
             self._model.get_link(cfg.asset.body_name).set_mass_override(self._data, random_mass)
             mass = self._model.get_link(cfg.asset.body_name).get_mass_override(self._data)
-     
+
         if cfg.domain_rand.random_com == True:
-            com_offset = np.zeros((self._num_envs, 3), dtype=np.float32) #[x_offset, y_offset, z_offset]
+            com_offset = np.zeros(
+                (self._num_envs, 3), dtype=np.float32
+            )  # [x_offset, y_offset, z_offset]
             x_low = cfg.domain_rand.com_offset_x[0]
             x_high = cfg.domain_rand.com_offset_x[1]
             com_offset[:, 0] = np.random.uniform(x_low, x_high, self._num_envs)
-            self._model.get_link(cfg.asset.body_name).set_center_of_mass_override(self._data, com_offset)
-            com_get = self._model.get_link(cfg.asset.body_name).get_center_of_mass_override(self._data)
+            self._model.get_link(cfg.asset.body_name).set_center_of_mass_override(
+                self._data, com_offset
+            )
+            com_get = self._model.get_link(cfg.asset.body_name).get_center_of_mass_override(
+                self._data
+            )
 
     def push_robots(self, force_range):
-        ex_force = (np.random.rand(self.num_envs, 3) * 2 - 1) #[x_force, y_force, z_force]
+        ex_force = np.random.rand(self.num_envs, 3) * 2 - 1  # [x_force, y_force, z_force]
         ex_force[:, 0] *= force_range[0]
         ex_force[:, 1] *= force_range[1]
         ex_force[:, 2] *= force_range[2]
-        self._body_link.add_external_force(self._data, ex_force, local=True)  
+        self._body_link.add_external_force(self._data, ex_force, local=True)
 
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> None:
         self._data.actuator_ctrls = np.ascontiguousarray(ctrl)

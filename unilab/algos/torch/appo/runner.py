@@ -20,6 +20,7 @@ from unilab.utils.offpolicy_logger import OffPolicyLogger
 from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4
 from rsl_rl.utils import resolve_callable
 
+
 class APPORunner(AsyncRunner):
     """APPO async runner using shared memory."""
 
@@ -67,7 +68,9 @@ class APPORunner(AsyncRunner):
         if "obs_groups" not in self.rl_cfg:
             self.rl_cfg["obs_groups"] = {"actor": {"policy": self.obs_dim}}
         else:
-            actor_group = self.rl_cfg["obs_groups"].get("actor", self.rl_cfg["obs_groups"].get("policy", {}))
+            actor_group = self.rl_cfg["obs_groups"].get(
+                "actor", self.rl_cfg["obs_groups"].get("policy", {})
+            )
             if isinstance(actor_group, dict) and "policy" in actor_group:
                 actor_group["policy"] = self.obs_dim
 
@@ -75,6 +78,7 @@ class APPORunner(AsyncRunner):
         """Create a tiny env to read obs/action dims, then close it."""
         from unilab.base import registry
         from unilab.utils.algo_utils import ensure_registries
+
         ensure_registries()
 
         env = registry.make(self.env_name, num_envs=1, sim_backend="mujoco")
@@ -91,6 +95,7 @@ class APPORunner(AsyncRunner):
 
         from tensordict import TensorDict
         import torch
+
         obs_example = torch.zeros((self.num_envs, self.obs_dim), device=self.device)
         td_example = TensorDict({"policy": obs_example}, batch_size=self.num_envs)
 
@@ -158,14 +163,10 @@ class APPORunner(AsyncRunner):
         self._shared_resources.append(shared_storage)
 
         # Create weight sync
-        weight_sync = SharedWeightSync.from_state_dict(
-            learner.actor.state_dict(), create=True
-        )
+        weight_sync = SharedWeightSync.from_state_dict(learner.actor.state_dict(), create=True)
         self._shared_resources.append(weight_sync)
 
-        weight_param_shapes = {
-            name: p.shape for name, p in learner.actor.state_dict().items()
-        }
+        weight_param_shapes = {name: p.shape for name, p in learner.actor.state_dict().items()}
 
         metrics_queue = mp.Queue(maxsize=100)
 
@@ -176,7 +177,11 @@ class APPORunner(AsyncRunner):
             "num_envs": self.num_envs,
             "steps_per_env": self.steps_per_env,
             "shm_storage_name": shared_storage.name,
-            "sync_primitives": (shared_storage._write_idx, shared_storage._read_idx, shared_storage._ready),
+            "sync_primitives": (
+                shared_storage._write_idx,
+                shared_storage._read_idx,
+                shared_storage._ready,
+            ),
             "obs_dim": self.obs_dim,
             "action_dim": self.action_dim,
             "weight_sync_name": weight_sync.name,
@@ -211,7 +216,9 @@ class APPORunner(AsyncRunner):
             iter_start = time.time()
             # Wait for collector to provide data
             if not shared_storage.wait_for_data(timeout=60.0):
-                logger.log_status(f"[yellow]Warning: Timeout waiting for data at iteration {iteration}[/]")
+                logger.log_status(
+                    f"[yellow]Warning: Timeout waiting for data at iteration {iteration}[/]"
+                )
                 continue
 
             # Read data and update

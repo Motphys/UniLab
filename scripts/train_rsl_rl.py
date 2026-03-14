@@ -1,4 +1,3 @@
-
 import os
 import sys
 import argparse
@@ -15,6 +14,7 @@ import mediapy as media
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
 
+
 # Ensure all environment modules are imported so they are registered
 def ensure_registries():
     for pkg_name in ("unilab.envs.locomotion", "unilab.envs.manipulation"):
@@ -28,6 +28,7 @@ def ensure_registries():
                         pass
         except ImportError:
             pass
+
 
 ensure_registries()
 
@@ -46,9 +47,11 @@ except ImportError:
 from unilab.utils.rsl_rl_compat import is_rsl_rl_v4, convert_config_v3_to_v4
 from unilab.utils.run_utils import get_latest_run
 
+
 class RslRlVecEnvWrapper:
     """Wrapper to adapt NpEnv to RSL-RL OnPolicyRunner interface."""
-    def __init__(self, env, device='cuda'):
+
+    def __init__(self, env, device="cuda"):
         self.env = env
         # Expose cfg to RSL-RL runner if needed (some versions check env.cfg)
         self.cfg = env.cfg
@@ -59,36 +62,36 @@ class RslRlVecEnvWrapper:
         self.num_obs = env.observation_space.shape[0]
         self.num_privileged_obs = self.num_obs
         self.num_actions = env.action_space.shape[0]
-        
+
         self.episode_returns = torch.zeros(self.num_envs, device=self.device)
         self.episode_lengths = torch.zeros(self.num_envs, device=self.device)
-        
+
         # Compatibility attribute names for rsl-rl
-        self.episode_length_buf = self.episode_lengths 
+        self.episode_length_buf = self.episode_lengths
         self.max_episode_length = np.ceil(env.cfg.max_episode_seconds / env.cfg.ctrl_dt)
 
         # RSL-RL runner calls get_observations() in __init__, so we need to ensure env is reset
         self.reset()
-        
+
     def step(self, actions):
         # Convert actions to numpy (CPU)
         if isinstance(actions, torch.Tensor):
             actions_np = actions.detach().cpu().numpy()
         else:
             actions_np = actions
-            
+
         # Step the environment
         state = self.env.step(actions_np)
-        
+
         # Convert output to torch tensors on target device
         obs = to_torch(state.obs, self.device)
         rewards = to_torch(state.reward, self.device)
         dones = to_torch(state.done, self.device).bool()
-        
+
         # Update logging info
         self.episode_returns += rewards
         self.episode_lengths += 1
-        
+
         infos = {}
         # Check for dones
         done_indices = torch.nonzero(dones).flatten()
@@ -96,7 +99,7 @@ class RslRlVecEnvWrapper:
             # Handle limits and timeouts (RSL-RL expects 'time_outs' in extras/infos)
             if hasattr(state, "truncated"):
                 infos["time_outs"] = to_torch(state.truncated, self.device).bool()
-            
+
             # Reset buffers for done envs
             self.episode_returns[done_indices] = 0
             self.episode_lengths[done_indices] = 0
@@ -105,14 +108,9 @@ class RslRlVecEnvWrapper:
         # prioritizing 'log' over 'episode' allows per-step metric logging
         if hasattr(state, "info") and "log" in state.info:
             infos["log"] = state.info["log"]
-        
-        
-        obs_dict = TensorDict(
-            {"policy": obs}, 
-            batch_size=self.num_envs, 
-            device=self.device
-        )
-        
+
+        obs_dict = TensorDict({"policy": obs}, batch_size=self.num_envs, device=self.device)
+
         return obs_dict, rewards, dones, infos
 
     def reset(self):
@@ -126,44 +124,37 @@ class RslRlVecEnvWrapper:
         self.episode_returns[:] = 0
         self.episode_lengths[:] = 0
 
-        return TensorDict(
-            {"policy": obs},
-            batch_size=self.num_envs,
-            device=self.device
-        ), {}
+        return TensorDict({"policy": obs}, batch_size=self.num_envs, device=self.device), {}
 
     def get_observations(self):
         obs = to_torch(self.env.state.obs, self.device)
-        return TensorDict(
-            {"policy": obs},
-            batch_size=self.num_envs,
-            device=self.device
-        )
+        return TensorDict({"policy": obs}, batch_size=self.num_envs, device=self.device)
 
     def get_privileged_observations(self):
         obs = to_torch(self.env.state.obs, self.device)
         return obs
 
-def RslRlAacVecEnvWrapper(RslRlVecEnvWrapper): #Asymmetric Actor-Critic
+
+def RslRlAacVecEnvWrapper(RslRlVecEnvWrapper):  # Asymmetric Actor-Critic
     def step(self, actions):
         # Convert actions to numpy (CPU)
         if isinstance(actions, torch.Tensor):
             actions_np = actions.detach().cpu().numpy()
         else:
             actions_np = actions
-            
+
         # Step the environment
         state = self.env.step(actions_np)
-        
+
         # Convert output to torch tensors on target device
         obs = to_torch(state.obs, self.device)
         rewards = to_torch(state.reward, self.device)
         dones = to_torch(state.done, self.device).bool()
-        
+
         # Update logging info
         self.episode_returns += rewards
         self.episode_lengths += 1
-        
+
         infos = {}
         # Check for dones
         done_indices = torch.nonzero(dones).flatten()
@@ -171,7 +162,7 @@ def RslRlAacVecEnvWrapper(RslRlVecEnvWrapper): #Asymmetric Actor-Critic
             # Handle limits and timeouts (RSL-RL expects 'time_outs' in extras/infos)
             if hasattr(state, "truncated"):
                 infos["time_outs"] = to_torch(state.truncated, self.device).bool()
-            
+
             # Reset buffers for done envs
             self.episode_returns[done_indices] = 0
             self.episode_lengths[done_indices] = 0
@@ -180,13 +171,9 @@ def RslRlAacVecEnvWrapper(RslRlVecEnvWrapper): #Asymmetric Actor-Critic
         # prioritizing 'log' over 'episode' allows per-step metric logging
         if hasattr(state, "info") and "log" in state.info:
             infos["log"] = state.info["log"]
-        
-        obs_dict = TensorDict(
-            {"policy": obs}, 
-            batch_size=self.num_envs, 
-            device=self.device
-        )
-        
+
+        obs_dict = TensorDict({"policy": obs}, batch_size=self.num_envs, device=self.device)
+
         return obs_dict, rewards, dones, infos
 
 
@@ -218,7 +205,9 @@ def play_rsl_rl(args, cfg, device):
         return
 
     if os.path.isdir(load_path):
-        model_files = [f for f in os.listdir(load_path) if f.startswith("model_") and f.endswith(".pt")]
+        model_files = [
+            f for f in os.listdir(load_path) if f.startswith("model_") and f.endswith(".pt")
+        ]
         if len(model_files) > 0:
             model_files.sort(key=lambda x: int(x.split("_")[1].split(".")[0]))
             load_path_dir = load_path
@@ -243,6 +232,7 @@ def play_rsl_rl(args, cfg, device):
         obs, _ = wrapped_env.reset()
 
         import time
+
         last_render_time = time.perf_counter()
         render_dt = 1.0 / 60.0  # 60 FPS
 
@@ -296,7 +286,7 @@ def play_rsl_rl(args, cfg, device):
         )
 
         print(f"Saving video to {output_video} with mediapy...")
-        media.write_video(str(output_video), frames, fps=int(1.0/env.cfg.ctrl_dt))
+        media.write_video(str(output_video), frames, fps=int(1.0 / env.cfg.ctrl_dt))
         print("Done.")
 
 
@@ -306,38 +296,79 @@ def main():
     parser.add_argument("--play_only", action="store_true", help="Skip training, only play")
     parser.add_argument("--no_play", action="store_true", help="Skip play after training")
     parser.add_argument("--load_run", type=str, default="-1", help="Run ID to load or path")
-    parser.add_argument("--env_num", type=int, default=4096, help="Number of training envs (task default if unset)")
+    parser.add_argument(
+        "--env_num", type=int, default=4096, help="Number of training envs (task default if unset)"
+    )
     parser.add_argument("--play_env_num", type=int, default=16, help="Number of play envs")
-    parser.add_argument("--play_steps", type=int, default=200, help="Number of steps for play video")
-    parser.add_argument("--num_timesteps", type=int, default=None, help="Overwritten total timesteps")
-    parser.add_argument("--logger", type=str, default="tensorboard", choices=["tensorboard", "wandb", "none", "no_print"])
-    parser.add_argument("--sim_backend", type=str, default="mujoco", choices=["mujoco", "motrix"], help="Simulation backend")
+    parser.add_argument(
+        "--play_steps", type=int, default=200, help="Number of steps for play video"
+    )
+    parser.add_argument(
+        "--num_timesteps", type=int, default=None, help="Overwritten total timesteps"
+    )
+    parser.add_argument(
+        "--logger",
+        type=str,
+        default="tensorboard",
+        choices=["tensorboard", "wandb", "none", "no_print"],
+    )
+    parser.add_argument(
+        "--sim_backend",
+        type=str,
+        default="mujoco",
+        choices=["mujoco", "motrix"],
+        help="Simulation backend",
+    )
     # Video rendering
-    parser.add_argument("--cam_distance", type=float, default=6.0, help="Camera distance for play video")
-    parser.add_argument("--cam_elevation", type=float, default=-20.0, help="Camera elevation angle (degrees) for play video")
-    parser.add_argument("--cam_azimuth", type=float, default=90.0, help="Camera azimuth angle (degrees) for play video")
+    parser.add_argument(
+        "--cam_distance", type=float, default=6.0, help="Camera distance for play video"
+    )
+    parser.add_argument(
+        "--cam_elevation",
+        type=float,
+        default=-20.0,
+        help="Camera elevation angle (degrees) for play video",
+    )
+    parser.add_argument(
+        "--cam_azimuth",
+        type=float,
+        default=90.0,
+        help="Camera azimuth angle (degrees) for play video",
+    )
 
     args = parser.parse_args()
 
     # Determine which params module to use based on task registration
-    params = manipulation_params if args.task in manipulation_params.DEFAULT_ENV_NUM_BY_TASK else locomotion_params
+    params = (
+        manipulation_params
+        if args.task in manipulation_params.DEFAULT_ENV_NUM_BY_TASK
+        else locomotion_params
+    )
 
     # Load config
-    cfg = params.ppo_config(args.task) if hasattr(params, 'ppo_config') else params.rsl_rl_config(args.task)
+    cfg = (
+        params.ppo_config(args.task)
+        if hasattr(params, "ppo_config")
+        else params.rsl_rl_config(args.task)
+    )
 
     if args.env_num is None:
         args.env_num = cfg.num_envs
-    
+
     # Override Max Iterations if timesteps provided
     if args.num_timesteps:
         n_steps_per_iter = cfg.num_steps_per_env * args.env_num
         max_iters = int(args.num_timesteps / n_steps_per_iter)
         cfg.max_iterations = max(1, max_iters)
-        print(f"Overriding max_iterations to {max_iters} based on num_timesteps {args.num_timesteps}")
+        print(
+            f"Overriding max_iterations to {max_iters} based on num_timesteps {args.num_timesteps}"
+        )
 
     if not args.play_only:
-        timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-        log_dir = str(ROOT_DIR / "logs" / "rsl_rl_train" / args.task / f"{timestamp}_{args.sim_backend}")
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        log_dir = str(
+            ROOT_DIR / "logs" / "rsl_rl_train" / args.task / f"{timestamp}_{args.sim_backend}"
+        )
     else:
         log_dir = None
 
@@ -354,10 +385,10 @@ def main():
         # Create environment
         env = registry.make(args.task, num_envs=args.env_num, sim_backend=args.sim_backend)
         wrapped_env = RslRlVecEnvWrapper(env, device=device)
-        
+
         # Convert ConfigDict to regular dict for RSL-RL
         train_cfg = cfg.to_dict()
-        
+
         if "runner" not in train_cfg:
             train_cfg["runner"] = {}
         if args.logger in ["tensorboard", "wandb"]:
@@ -367,10 +398,10 @@ def main():
 
         if is_rsl_rl_v4():
             train_cfg = convert_config_v3_to_v4(train_cfg)
-        
+
         # Runner
         runner = OnPolicyRunner(wrapped_env, train_cfg, log_dir=log_dir, device=device)
-        
+
         # Load capability for training (resume)
         resume_path = None
         if args.load_run != "-1":
@@ -385,11 +416,11 @@ def main():
                 run_path = base_log_dir / args.load_run
                 if run_path.exists():
                     resume_path = str(run_path)
-        
+
         if resume_path:
             print(f"Resuming from {resume_path}")
             runner.load(resume_path)
-             
+
         runner.learn(num_learning_iterations=cfg.max_iterations, init_at_random_ep_len=True)
 
     if args.play_only or not args.no_play:

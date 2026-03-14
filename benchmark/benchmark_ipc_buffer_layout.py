@@ -21,6 +21,7 @@ import torch
 # helpers
 # ---------------------------------------------------------------------------
 
+
 def sync_device(device: str) -> None:
     if device == "cuda":
         torch.cuda.synchronize()
@@ -32,51 +33,52 @@ def sync_device(device: str) -> None:
 # Split layout  (current architecture)
 # ---------------------------------------------------------------------------
 
+
 class SplitBuffer:
     """6 separate shared tensors – mimics current SharedReplayBuffer."""
 
     def __init__(self, capacity: int, obs_dim: int, action_dim: int):
-        self.capacity   = capacity
-        self.obs_dim    = obs_dim
+        self.capacity = capacity
+        self.obs_dim = obs_dim
         self.action_dim = action_dim
-        self._ptr       = 0
+        self._ptr = 0
 
-        self.obs       = torch.zeros(capacity, obs_dim).share_memory_()
-        self.next_obs  = torch.zeros(capacity, obs_dim).share_memory_()
-        self.actions   = torch.zeros(capacity, action_dim).share_memory_()
-        self.rewards   = torch.zeros(capacity).share_memory_()
-        self.dones     = torch.zeros(capacity).share_memory_()
+        self.obs = torch.zeros(capacity, obs_dim).share_memory_()
+        self.next_obs = torch.zeros(capacity, obs_dim).share_memory_()
+        self.actions = torch.zeros(capacity, action_dim).share_memory_()
+        self.rewards = torch.zeros(capacity).share_memory_()
+        self.dones = torch.zeros(capacity).share_memory_()
         self.truncated = torch.zeros(capacity).share_memory_()
 
     def add(self, obs, next_obs, actions, rewards, dones, truncated):
-        n   = obs.shape[0]
+        n = obs.shape[0]
         idx = self._ptr % self.capacity
         end = min(idx + n, self.capacity)
-        k   = end - idx
+        k = end - idx
 
-        self.obs[idx:end]       = obs[:k]
-        self.next_obs[idx:end]  = next_obs[:k]
-        self.actions[idx:end]   = actions[:k]
-        self.rewards[idx:end]   = rewards[:k]
-        self.dones[idx:end]     = dones[:k]
+        self.obs[idx:end] = obs[:k]
+        self.next_obs[idx:end] = next_obs[:k]
+        self.actions[idx:end] = actions[:k]
+        self.rewards[idx:end] = rewards[:k]
+        self.dones[idx:end] = dones[:k]
         self.truncated[idx:end] = truncated[:k]
         self._ptr += k
 
     def sample(self, batch_size: int, device: str):
-        size    = min(self._ptr, self.capacity)
+        size = min(self._ptr, self.capacity)
         indices = torch.randint(0, size, (batch_size,))
         return {
-            "obs":      self.obs[indices].to(device),
+            "obs": self.obs[indices].to(device),
             "next_obs": self.next_obs[indices].to(device),
-            "actions":  self.actions[indices].to(device),
-            "rewards":  self.rewards[indices].to(device),
-            "dones":    self.dones[indices].to(device),
+            "actions": self.actions[indices].to(device),
+            "rewards": self.rewards[indices].to(device),
+            "dones": self.dones[indices].to(device),
             "truncated": self.truncated[indices].to(device),
         }
 
     def sample_cpu_index(self, batch_size: int):
         """CPU index only – no H2D."""
-        size    = min(self._ptr, self.capacity)
+        size = min(self._ptr, self.capacity)
         indices = torch.randint(0, size, (batch_size,))
         return [
             self.obs[indices],
@@ -96,14 +98,15 @@ class SplitBuffer:
 # Packed layout  (proposed architecture)
 # ---------------------------------------------------------------------------
 
+
 class PackedBuffer:
     """Single packed shared tensor – 1 Metal command per sample()."""
 
     def __init__(self, capacity: int, obs_dim: int, action_dim: int):
-        self.capacity   = capacity
-        self.obs_dim    = obs_dim
+        self.capacity = capacity
+        self.obs_dim = obs_dim
         self.action_dim = action_dim
-        self._ptr       = 0
+        self._ptr = 0
 
         # column layout: [obs | next_obs | actions | rewards | dones | truncated]
         total_dim = obs_dim + obs_dim + action_dim + 3
@@ -111,45 +114,53 @@ class PackedBuffer:
 
         # zero-copy views
         c = 0
-        self._obs_sl       = slice(c, c + obs_dim);    c += obs_dim
-        self._nobs_sl      = slice(c, c + obs_dim);    c += obs_dim
-        self._act_sl       = slice(c, c + action_dim); c += action_dim
-        self._rew_col      = c;  c += 1
-        self._don_col      = c;  c += 1
-        self._trun_col     = c
+        self._obs_sl = slice(c, c + obs_dim)
+        c += obs_dim
+        self._nobs_sl = slice(c, c + obs_dim)
+        c += obs_dim
+        self._act_sl = slice(c, c + action_dim)
+        c += action_dim
+        self._rew_col = c
+        c += 1
+        self._don_col = c
+        c += 1
+        self._trun_col = c
 
     def add(self, obs, next_obs, actions, rewards, dones, truncated):
-        n   = obs.shape[0]
+        n = obs.shape[0]
         idx = self._ptr % self.capacity
         end = min(idx + n, self.capacity)
-        k   = end - idx
+        k = end - idx
 
-        row = torch.cat([
-            obs[:k],
-            next_obs[:k],
-            actions[:k],
-            rewards[:k].unsqueeze(1),
-            dones[:k].unsqueeze(1),
-            truncated[:k].unsqueeze(1),
-        ], dim=1)
+        row = torch.cat(
+            [
+                obs[:k],
+                next_obs[:k],
+                actions[:k],
+                rewards[:k].unsqueeze(1),
+                dones[:k].unsqueeze(1),
+                truncated[:k].unsqueeze(1),
+            ],
+            dim=1,
+        )
         self._storage[idx:end] = row
         self._ptr += k
 
     def sample(self, batch_size: int, device: str):
-        size    = min(self._ptr, self.capacity)
+        size = min(self._ptr, self.capacity)
         indices = torch.randint(0, size, (batch_size,))
-        chunk   = self._storage[indices].to(device)   # single H2D
+        chunk = self._storage[indices].to(device)  # single H2D
         return {
-            "obs":      chunk[:, self._obs_sl],
+            "obs": chunk[:, self._obs_sl],
             "next_obs": chunk[:, self._nobs_sl],
-            "actions":  chunk[:, self._act_sl],
-            "rewards":  chunk[:, self._rew_col],
-            "dones":    chunk[:, self._don_col],
+            "actions": chunk[:, self._act_sl],
+            "rewards": chunk[:, self._rew_col],
+            "dones": chunk[:, self._don_col],
             "truncated": chunk[:, self._trun_col],
         }
 
     def sample_cpu_index(self, batch_size: int):
-        size    = min(self._ptr, self.capacity)
+        size = min(self._ptr, self.capacity)
         indices = torch.randint(0, size, (batch_size,))
         return [self._storage[indices]]
 
@@ -161,8 +172,8 @@ class PackedBuffer:
 # timing helpers
 # ---------------------------------------------------------------------------
 
-def _fill_buffer(buf, capacity: int, obs_dim: int, action_dim: int,
-                 chunk: int = 4096):
+
+def _fill_buffer(buf, capacity: int, obs_dim: int, action_dim: int, chunk: int = 4096):
     """Pre-populate buffer to at least `capacity` entries."""
     filled = 0
     while filled < capacity:
@@ -178,13 +189,12 @@ def _fill_buffer(buf, capacity: int, obs_dim: int, action_dim: int,
         filled += n
 
 
-def bench_add(buf, obs_dim: int, action_dim: int, n: int,
-              warmup: int, measured: int):
-    obs      = torch.randn(n, obs_dim)
+def bench_add(buf, obs_dim: int, action_dim: int, n: int, warmup: int, measured: int):
+    obs = torch.randn(n, obs_dim)
     next_obs = torch.randn(n, obs_dim)
-    actions  = torch.randn(n, action_dim)
-    rewards  = torch.randn(n)
-    dones    = torch.zeros(n)
+    actions = torch.randn(n, action_dim)
+    rewards = torch.randn(n)
+    dones = torch.zeros(n)
     truncated = torch.zeros(n)
 
     times = []
@@ -238,6 +248,7 @@ def bench_sample(buf, batch_size: int, device: str, warmup: int, measured: int):
 # entry point
 # ---------------------------------------------------------------------------
 
+
 def main():
     if torch.cuda.is_available():
         device = "cuda"
@@ -251,13 +262,13 @@ def main():
     print(f"PyTorch: {torch.__version__}")
     print(f"Platform: {sys.platform}\n")
 
-    capacity   = 4096 * 1024   # 4,194,304
-    obs_dim    = 45
+    capacity = 4096 * 1024  # 4,194,304
+    obs_dim = 45
     action_dim = 12
-    add_n      = 4096          # rows written per add() call (collector step)
-    batch_size = 8192 * 8      # 65,536
-    warmup     = 5
-    measured   = 20
+    add_n = 4096  # rows written per add() call (collector step)
+    batch_size = 8192 * 8  # 65,536
+    warmup = 5
+    measured = 20
 
     print("=== Buffer Layout Benchmark (MPS) ===\n")
     print(f"capacity={capacity:,}  obs_dim={obs_dim}  action_dim={action_dim}")
@@ -278,7 +289,7 @@ def main():
 
     # --- add() ---
     print("Benchmarking add() …")
-    add_s_m, add_s_s = bench_add(split,  obs_dim, action_dim, add_n, warmup, measured)
+    add_s_m, add_s_s = bench_add(split, obs_dim, action_dim, add_n, warmup, measured)
     add_p_m, add_p_s = bench_add(packed, obs_dim, action_dim, add_n, warmup, measured)
 
     # --- sample() ---

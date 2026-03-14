@@ -55,16 +55,13 @@ class DistributionalQNetwork(nn.Module):
         delta_z = (self.v_max - self.v_min) / (self.num_atoms - 1)
         batch_size = rewards.shape[0]
 
-        target_z = (
-            rewards.unsqueeze(1)
-            + bootstrap.unsqueeze(1) * discount.unsqueeze(1) * q_support
-        )
+        target_z = rewards.unsqueeze(1) + bootstrap.unsqueeze(1) * discount.unsqueeze(1) * q_support
         target_z = target_z.clamp(self.v_min, self.v_max)
         b = (target_z - self.v_min) / delta_z
         l = torch.floor(b).long()
         u = torch.ceil(b).long()
 
-        is_int = (l == u)
+        is_int = l == u
         l_mask = is_int & (l > 0)
         u_mask = is_int & (l == 0)
 
@@ -74,9 +71,7 @@ class DistributionalQNetwork(nn.Module):
         next_dist = F.softmax(self.forward(obs, actions), dim=1)
         proj_dist = torch.zeros_like(next_dist)
         offset = (
-            torch.linspace(
-                0, (batch_size - 1) * self.num_atoms, batch_size, device=device
-            )
+            torch.linspace(0, (batch_size - 1) * self.num_atoms, batch_size, device=device)
             .unsqueeze(1)
             .expand(batch_size, self.num_atoms)
             .long()
@@ -105,17 +100,25 @@ class Critic(nn.Module):
     ):
         super().__init__()
         self.qnet1 = DistributionalQNetwork(
-            n_obs=n_obs, n_act=n_act, num_atoms=num_atoms,
-            v_min=v_min, v_max=v_max, hidden_dim=hidden_dim, device=device,
+            n_obs=n_obs,
+            n_act=n_act,
+            num_atoms=num_atoms,
+            v_min=v_min,
+            v_max=v_max,
+            hidden_dim=hidden_dim,
+            device=device,
         )
         self.qnet2 = DistributionalQNetwork(
-            n_obs=n_obs, n_act=n_act, num_atoms=num_atoms,
-            v_min=v_min, v_max=v_max, hidden_dim=hidden_dim, device=device,
+            n_obs=n_obs,
+            n_act=n_act,
+            num_atoms=num_atoms,
+            v_min=v_min,
+            v_max=v_max,
+            hidden_dim=hidden_dim,
+            device=device,
         )
 
-        self.register_buffer(
-            "q_support", torch.linspace(v_min, v_max, num_atoms, device=device)
-        )
+        self.register_buffer("q_support", torch.linspace(v_min, v_max, num_atoms, device=device))
         self.device = device
 
     def forward(self, obs: torch.Tensor, actions: torch.Tensor):
@@ -131,12 +134,22 @@ class Critic(nn.Module):
     ):
         """Projection operation using both Q-networks."""
         q1_proj = self.qnet1.projection(
-            obs, actions, rewards, bootstrap, discount,
-            self.q_support, self.q_support.device,
+            obs,
+            actions,
+            rewards,
+            bootstrap,
+            discount,
+            self.q_support,
+            self.q_support.device,
         )
         q2_proj = self.qnet2.projection(
-            obs, actions, rewards, bootstrap, discount,
-            self.q_support, self.q_support.device,
+            obs,
+            actions,
+            rewards,
+            bootstrap,
+            discount,
+            self.q_support,
+            self.q_support.device,
         )
         return q1_proj, q2_proj
 

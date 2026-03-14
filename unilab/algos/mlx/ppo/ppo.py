@@ -105,14 +105,18 @@ class PPOTrainer:
         log_probs = diag_gaussian_log_prob(actions, mean, log_std)
         entropy = mx.mean(diag_gaussian_entropy(log_std))
 
-        log_ratio = mx.clip(log_probs - old_log_probs, -self.cfg.log_ratio_clip, self.cfg.log_ratio_clip)
+        log_ratio = mx.clip(
+            log_probs - old_log_probs, -self.cfg.log_ratio_clip, self.cfg.log_ratio_clip
+        )
         ratio = mx.exp(log_ratio)
         surr1 = ratio * advantages
         surr2 = mx.clip(ratio, 1.0 - self.cfg.clip_param, 1.0 + self.cfg.clip_param) * advantages
         policy_loss = -mx.mean(mx.minimum(surr1, surr2))
 
         if self.cfg.use_clipped_value_loss:
-            value_pred_clipped = old_values + mx.clip(values - old_values, -self.cfg.clip_param, self.cfg.clip_param)
+            value_pred_clipped = old_values + mx.clip(
+                values - old_values, -self.cfg.clip_param, self.cfg.clip_param
+            )
             value_losses = (values - returns) ** 2
             value_losses_clipped = (value_pred_clipped - returns) ** 2
             value_loss = mx.mean(mx.maximum(value_losses, value_losses_clipped))
@@ -140,7 +144,9 @@ class PPOTrainer:
         entropy = mx.mean(diag_gaussian_entropy(log_std))
         sigma = mx.maximum(sigma, 1e-5)
 
-        log_ratio = mx.clip(log_probs - old_log_probs, -self.cfg.log_ratio_clip, self.cfg.log_ratio_clip)
+        log_ratio = mx.clip(
+            log_probs - old_log_probs, -self.cfg.log_ratio_clip, self.cfg.log_ratio_clip
+        )
         ratio = mx.exp(log_ratio)
         surr1 = ratio * advantages
         surr2 = mx.clip(ratio, 1.0 - self.cfg.clip_param, 1.0 + self.cfg.clip_param) * advantages
@@ -148,7 +154,9 @@ class PPOTrainer:
         clip_fraction = mx.mean((mx.abs(ratio - 1.0) > self.cfg.clip_param).astype(self._dtype))
 
         if self.cfg.use_clipped_value_loss:
-            value_pred_clipped = old_values + mx.clip(values - old_values, -self.cfg.clip_param, self.cfg.clip_param)
+            value_pred_clipped = old_values + mx.clip(
+                values - old_values, -self.cfg.clip_param, self.cfg.clip_param
+            )
             value_losses = (values - returns) ** 2
             value_losses_clipped = (value_pred_clipped - returns) ** 2
             value_loss = mx.mean(mx.maximum(value_losses, value_losses_clipped))
@@ -232,13 +240,21 @@ class PPOTrainer:
         ):
             # Mixed precision: cast batch to model dtype (e.g. float32) when buffer is float16.
             batch = tree_map(
-                lambda x: x.astype(target_dtype) if hasattr(x, "astype") and getattr(x, "dtype", None) != target_dtype else x,
+                lambda x: (
+                    x.astype(target_dtype)
+                    if hasattr(x, "astype") and getattr(x, "dtype", None) != target_dtype
+                    else x
+                ),
                 batch,
             )
             do_full_checks = (not self.cfg.fast_mode) or (batch_idx % finite_check_interval == 0)
             if self.cfg.disable_finite_checks:
                 do_full_checks = False
-            do_metrics = (not self.cfg.fast_mode) or (batch_idx % metrics_interval == 0) or (last_metrics is None)
+            do_metrics = (
+                (not self.cfg.fast_mode)
+                or (batch_idx % metrics_interval == 0)
+                or (last_metrics is None)
+            )
 
             # Keep backup only in safe mode.
             if self.cfg.fast_mode:
@@ -267,7 +283,11 @@ class PPOTrainer:
             self.optimizer.update(self.model, grads)
             mx.eval(loss, self.model.parameters(), self.optimizer.state)
             if do_full_checks and (not self._all_finite(self.model.parameters())):
-                if not self.cfg.fast_mode and param_backup is not None and optim_state_backup is not None:
+                if (
+                    not self.cfg.fast_mode
+                    and param_backup is not None
+                    and optim_state_backup is not None
+                ):
                     # Roll back this step if parameters become non-finite.
                     self.model.update(param_backup)
                     self.optimizer.state = optim_state_backup
@@ -284,20 +304,27 @@ class PPOTrainer:
                     continue
                 last_metrics = metrics
             else:
-                metrics = last_metrics if last_metrics is not None else {
-                    "surrogate": 0.0,
-                    "value": 0.0,
-                    "entropy": 0.0,
-                    "approx_kl": 0.0,
-                    "clip_fraction": 0.0,
-                    "ratio_mean": 1.0,
-                    "ratio_max": 1.0,
-                    "std_mean": 0.0,
-                    "adv_std": 0.0,
-                    "value_explained_variance": 0.0,
-                }
+                metrics = (
+                    last_metrics
+                    if last_metrics is not None
+                    else {
+                        "surrogate": 0.0,
+                        "value": 0.0,
+                        "entropy": 0.0,
+                        "approx_kl": 0.0,
+                        "clip_fraction": 0.0,
+                        "ratio_mean": 1.0,
+                        "ratio_max": 1.0,
+                        "std_mean": 0.0,
+                        "adv_std": 0.0,
+                        "value_explained_variance": 0.0,
+                    }
+                )
 
-            if self.cfg.target_kl_stop is not None and metrics["approx_kl"] > self.cfg.target_kl_stop:
+            if (
+                self.cfg.target_kl_stop is not None
+                and metrics["approx_kl"] > self.cfg.target_kl_stop
+            ):
                 early_stopped_kl += 1
                 break
 

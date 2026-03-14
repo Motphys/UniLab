@@ -46,7 +46,7 @@ class G1BaseCfg(EnvCfg):
     control_config: ControlConfig = field(default_factory=ControlConfig)
     asset: Asset = field(default_factory=Asset)
     sensor: Sensor = field(default_factory=Sensor)
-    sim_dt: float = 0.02 / 3.
+    sim_dt: float = 0.02 / 3.0
     ctrl_dt: float = 0.02
 
 
@@ -59,7 +59,7 @@ class G1BaseEnv(NpEnv):
 
     def _init_action_space(self):
         model = self._backend.model
-        if hasattr(model, 'actuator_ctrlrange'):
+        if hasattr(model, "actuator_ctrlrange"):
             low = model.actuator_ctrlrange[:, 0].copy()
             high = model.actuator_ctrlrange[:, 1].copy()
             nu = model.nu
@@ -76,7 +76,7 @@ class G1BaseEnv(NpEnv):
     def _init_buffers(self):
         self.default_angles = np.zeros((self._num_action,), dtype=np.float32)
         model = self._backend.model
-        if hasattr(model, 'key_qpos'):
+        if hasattr(model, "key_qpos"):
             key_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_KEY, "stand")
             if key_id >= 0:
                 self._init_qpos = np.array(model.key_qpos[key_id].copy(), dtype=np.float32)
@@ -86,7 +86,7 @@ class G1BaseEnv(NpEnv):
             self._init_qvel = np.zeros((model.nv,), dtype=np.float32)
         else:
             self._init_qpos = model.compute_init_dof_pos()
-            self.default_angles = self._init_qpos[-self._num_action:]
+            self.default_angles = self._init_qpos[-self._num_action :]
             self._init_qvel = np.zeros((model.num_dof_vel,), dtype=np.float32)
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
@@ -110,4 +110,3 @@ class G1BaseEnv(NpEnv):
 
     def get_dof_vel(self) -> np.ndarray:
         return self._backend.get_dof_vel()
-

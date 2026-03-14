@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Smoke test all benchmark files."""
+
 import sys
 from pathlib import Path
 
@@ -32,7 +33,7 @@ for name in tests:
         print(f"  ✗ Import failed: {e}")
         failed.append((name, str(e)))
 
-print(f"\n{'='*50}")
+print(f"\n{'=' * 50}")
 print(f"Passed: {len(passed)}/{len(tests)}")
 print(f"Failed: {len(failed)}/{len(tests)}")
 

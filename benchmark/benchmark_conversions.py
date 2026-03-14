@@ -6,6 +6,7 @@ Benchmark same-dtype transfer efficiency across backends:
 - torch (mps)
 - mlx
 """
+
 from __future__ import annotations
 
 import argparse
@@ -20,10 +21,30 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Tuple
 
 try:
-    from benchmark.core import bench_callable, parse_sizes, parse_dtypes, normalize_dtypes, available_backends, numpy_dtype, torch_dtype, mlx_dtype, print_table
+    from benchmark.core import (
+        bench_callable,
+        parse_sizes,
+        parse_dtypes,
+        normalize_dtypes,
+        available_backends,
+        numpy_dtype,
+        torch_dtype,
+        mlx_dtype,
+        print_table,
+    )
     from benchmark.core.device_info import get_device_info_dict, get_device_info_line
 except ModuleNotFoundError:
-    from core import bench_callable, parse_sizes, parse_dtypes, normalize_dtypes, available_backends, numpy_dtype, torch_dtype, mlx_dtype, print_table
+    from core import (
+        bench_callable,
+        parse_sizes,
+        parse_dtypes,
+        normalize_dtypes,
+        available_backends,
+        numpy_dtype,
+        torch_dtype,
+        mlx_dtype,
+        print_table,
+    )
     from core.device_info import get_device_info_dict, get_device_info_line
 
 _IS_MACOS = platform.system() == "Darwin"
@@ -45,11 +66,13 @@ except Exception:
 
 try:
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import matplotlib.ticker
 except Exception:
     plt = None
+
 
 @dataclass
 class ConversionRecord:
@@ -76,6 +99,7 @@ class BenchmarkDataset:
     records: List[ConversionRecord]
     payload: Dict[str, Any]
 
+
 def dtype_bytes(dtype_name: str) -> int:
     if dtype_name in ("float16",):
         return 2
@@ -84,6 +108,7 @@ def dtype_bytes(dtype_name: str) -> int:
     if dtype_name in ("float64", "int64"):
         return 8
     raise ValueError(f"Unsupported dtype: {dtype_name}")
+
 
 def create_source(backend: str, size: int, dtype_name: str):
     shape = (size, size)
@@ -98,7 +123,11 @@ def create_source(backend: str, size: int, dtype_name: str):
         return torch.randn(shape, dtype=torch_dtype(dtype_name), device="cpu")
 
     if backend == "torch_mps":
-        if torch is None or not hasattr(torch.backends, "mps") or not torch.backends.mps.is_available():
+        if (
+            torch is None
+            or not hasattr(torch.backends, "mps")
+            or not torch.backends.mps.is_available()
+        ):
             raise RuntimeError("torch mps unavailable")
         return torch.randn(shape, dtype=torch_dtype(dtype_name), device="mps")
 
@@ -116,6 +145,7 @@ def create_source(backend: str, size: int, dtype_name: str):
 
     raise ValueError(f"Unsupported backend: {backend}")
 
+
 def to_numpy(value, source_backend: str):
     if np is None:
         raise RuntimeError("numpy unavailable")
@@ -126,6 +156,7 @@ def to_numpy(value, source_backend: str):
     if source_backend == "mlx":
         return np.array(value)
     raise ValueError(f"Unsupported source backend: {source_backend}")
+
 
 def from_numpy(arr, target_backend: str, target_dtype_name: str):
     if target_backend == "numpy":
@@ -161,6 +192,7 @@ def from_numpy(arr, target_backend: str, target_dtype_name: str):
         return mx.array(arr, dtype=mlx_dtype(target_dtype_name))
 
     raise ValueError(f"Unsupported target backend: {target_backend}")
+
 
 def convert_value(value, source_backend: str, target_backend: str, target_dtype_name: str):
     # Only benchmark same-dtype transfers. Cross-dtype conversion is intentionally excluded.
@@ -205,6 +237,7 @@ def convert_value(value, source_backend: str, target_backend: str, target_dtype_
     arr = to_numpy(value, source_backend)
     return from_numpy(arr, target_backend, target_dtype_name)
 
+
 def sync_if_needed(source_backend: str, target_backend: str, out_value) -> None:
     if target_backend == "mlx":
         mx.eval(out_value)
@@ -214,6 +247,7 @@ def sync_if_needed(source_backend: str, target_backend: str, out_value) -> None:
     if torch is not None and torch.cuda.is_available():
         if source_backend == "torch_cuda" or target_backend == "torch_cuda":
             torch.cuda.synchronize()
+
 
 def summarize(
     source_backend: str,
@@ -251,11 +285,14 @@ def summarize(
         effective_gbps=effective_gbps,
     )
 
+
 def _pair_key(r: ConversionRecord) -> str:
     return f"{r.source_backend}->{r.target_backend}"
 
+
 def _dtype_key(r: ConversionRecord) -> str:
     return f"{r.source_dtype}->{r.target_dtype}"
+
 
 def _positive_ylim(records: List[ConversionRecord], metric_name: str) -> Tuple[float, float]:
     vals = [float(getattr(r, metric_name)) for r in records if float(getattr(r, metric_name)) > 0]
@@ -264,6 +301,7 @@ def _positive_ylim(records: List[ConversionRecord], metric_name: str) -> Tuple[f
     lo = min(vals)
     hi = max(vals)
     return (max(lo * 0.8, 1e-12), hi * 1.25)
+
 
 def load_records_from_json(json_path: Path) -> List[ConversionRecord]:
     payload: Dict[str, Any] = json.loads(json_path.read_text(encoding="utf-8"))
@@ -314,7 +352,9 @@ def load_dataset_from_json(json_path: Path, label: str = "") -> BenchmarkDataset
     return BenchmarkDataset(label=final_label, records=records, payload=payload)
 
 
-def save_merged_device_plot(datasets: List[BenchmarkDataset], plot_dir: Path, file_prefix: str) -> List[str]:
+def save_merged_device_plot(
+    datasets: List[BenchmarkDataset], plot_dir: Path, file_prefix: str
+) -> List[str]:
     if plt is None or not datasets:
         return []
 
@@ -325,9 +365,7 @@ def save_merged_device_plot(datasets: List[BenchmarkDataset], plot_dir: Path, fi
     union_backends = set()
     for dataset in non_empty:
         union_backends.update(
-            b
-            for r in dataset.records
-            for b in (r.source_backend, r.target_backend)
+            b for r in dataset.records for b in (r.source_backend, r.target_backend)
         )
 
     if len(union_backends) < 2:
@@ -448,9 +486,7 @@ def save_merged_device_plot(datasets: List[BenchmarkDataset], plot_dir: Path, fi
     for ax_row in axes:
         for ax in ax_row:
             ax.set_xticks(all_sizes)
-            ax.xaxis.set_major_formatter(
-                matplotlib.ticker.FuncFormatter(lambda v, _: str(int(v)))
-            )
+            ax.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: str(int(v))))
             ax.tick_params(axis="x", labelrotation=45, labelsize=7.5)
 
     plot_dir.mkdir(parents=True, exist_ok=True)
@@ -585,6 +621,7 @@ def save_merged_device_plot(datasets: List[BenchmarkDataset], plot_dir: Path, fi
 
     return saved
 
+
 def save_plots(records: List[ConversionRecord], plot_dir: Path, file_prefix: str) -> List[str]:
     if plt is None or not records:
         return []
@@ -701,9 +738,7 @@ def save_plots(records: List[ConversionRecord], plot_dir: Path, file_prefix: str
     for ax_row in axes:
         for ax in ax_row:
             ax.set_xticks(all_sizes_fig1)
-            ax.xaxis.set_major_formatter(
-                matplotlib.ticker.FuncFormatter(lambda v, _: str(int(v)))
-            )
+            ax.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: str(int(v))))
             ax.tick_params(axis="x", labelrotation=45, labelsize=7.5)
     fig.tight_layout(rect=[0.02, 0.03, 1, 0.95])
     outfile = plot_dir / f"{file_prefix}_conversion_time_4x4.png"
@@ -827,9 +862,7 @@ def save_plots(records: List[ConversionRecord], plot_dir: Path, file_prefix: str
     for ax_row in axes2:
         for ax in ax_row:
             ax.set_xticks(all_sizes_fig2)
-            ax.xaxis.set_major_formatter(
-                matplotlib.ticker.FuncFormatter(lambda v, _: str(int(v)))
-            )
+            ax.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: str(int(v))))
             ax.tick_params(axis="x", labelrotation=45, labelsize=7.5)
     fig2.tight_layout(rect=[0.02, 0.03, 1, 0.92])
     outfile2 = plot_dir / f"{file_prefix}_conversion_time_numpy_mlx_torchmps_2x3.png"
@@ -838,6 +871,7 @@ def save_plots(records: List[ConversionRecord], plot_dir: Path, file_prefix: str
     saved.append(str(outfile2.resolve()))
 
     return saved
+
 
 def print_table(records: List[ConversionRecord]) -> None:
     if not records:
@@ -871,12 +905,23 @@ def print_table(records: List[ConversionRecord]) -> None:
     for row in rows:
         print(fmt(row))
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Benchmark conversion efficiency among numpy/torch(cpu,mps)/mlx."
     )
-    parser.add_argument("--sizes", type=str, default=",".join(str(2**k) for k in range(5, 15)), help="Comma-separated sizes.")
-    parser.add_argument("--dtypes", type=str, default="float16,float32", help="Dtypes to benchmark (same-dtype paths only).")
+    parser.add_argument(
+        "--sizes",
+        type=str,
+        default=",".join(str(2**k) for k in range(5, 15)),
+        help="Comma-separated sizes.",
+    )
+    parser.add_argument(
+        "--dtypes",
+        type=str,
+        default="float16,float32",
+        help="Dtypes to benchmark (same-dtype paths only).",
+    )
     parser.add_argument("--warmup", type=int, default=2, help="Warmup iterations.")
     parser.add_argument("--repeat", type=int, default=5, help="Measured iterations.")
     parser.add_argument(
@@ -925,7 +970,11 @@ def main() -> None:
         if len(merge_paths) < 2:
             raise ValueError("--merge-jsons 需要至少两个 JSON 文件")
 
-        labels = [s.strip() for s in args.merge_labels.split(",") if s.strip()] if args.merge_labels else []
+        labels = (
+            [s.strip() for s in args.merge_labels.split(",") if s.strip()]
+            if args.merge_labels
+            else []
+        )
         if labels and len(labels) != len(merge_paths):
             raise ValueError("--merge-labels 数量必须与 --merge-jsons 一致")
 
@@ -936,9 +985,13 @@ def main() -> None:
             label = labels[idx] if labels else ""
             datasets.append(load_dataset_from_json(path, label=label))
 
-        merged_files = save_merged_device_plot(datasets, plot_dir=plot_dir, file_prefix=out_path.stem)
+        merged_files = save_merged_device_plot(
+            datasets, plot_dir=plot_dir, file_prefix=out_path.stem
+        )
         if not merged_files:
-            print("No merged plot generated (possibly no common backend pairs or matplotlib unavailable).")
+            print(
+                "No merged plot generated (possibly no common backend pairs or matplotlib unavailable)."
+            )
             return
 
         print("Saved merged device plot:")
@@ -1042,6 +1095,7 @@ def main() -> None:
         print(f"Skipped cases: {len(skipped)}")
     print()
     print_table(records)
+
 
 if __name__ == "__main__":
     main()

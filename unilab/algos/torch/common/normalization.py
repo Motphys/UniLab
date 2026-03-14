@@ -25,9 +25,7 @@ class EmpiricalNormalization(nn.Module):
         return self._std.squeeze(0).clone()
 
     @torch.no_grad()
-    def forward(
-        self, x: torch.Tensor, center: bool = True, update: bool = True
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, center: bool = True, update: bool = True) -> torch.Tensor:
         if self.training and update:
             self.update(x)
         if center:

@@ -11,11 +11,13 @@ import numpy as np
 import time
 import sys
 
+
 def sync_device(device):
     if device == "cuda":
         torch.cuda.synchronize()
     elif device == "mps":
         torch.mps.synchronize()
+
 
 class SimpleActor(nn.Module):
     def __init__(self, obs_dim, hidden_dim, action_dim, device):
@@ -33,6 +35,7 @@ class SimpleActor(nn.Module):
     def forward(self, x):
         return self.net(x)
 
+
 class SimpleCritic(nn.Module):
     def __init__(self, obs_dim, action_dim, hidden_dim, device):
         super().__init__()
@@ -49,6 +52,7 @@ class SimpleCritic(nn.Module):
     def forward(self, obs, act):
         return self.net(torch.cat([obs, act], dim=-1))
 
+
 def benchmark_host_buffer(capacity, obs_dim, action_dim, batch_size, num_updates, device):
     """Host buffer: sample from numpy, transfer to device (current architecture)."""
     obs_buf = np.random.randn(capacity, obs_dim).astype(np.float32)
@@ -57,9 +61,7 @@ def benchmark_host_buffer(capacity, obs_dim, action_dim, batch_size, num_updates
 
     actor = SimpleActor(obs_dim, 512, action_dim, device)
     critic = SimpleCritic(obs_dim, action_dim, 768, device)
-    optimizer = torch.optim.Adam(
-        list(actor.parameters()) + list(critic.parameters()), lr=3e-4
-    )
+    optimizer = torch.optim.Adam(list(actor.parameters()) + list(critic.parameters()), lr=3e-4)
 
     times = []
     for i in range(num_updates):
@@ -89,6 +91,7 @@ def benchmark_host_buffer(capacity, obs_dim, action_dim, batch_size, num_updates
 
     return np.mean(times), np.std(times)
 
+
 def benchmark_gpu_buffer(capacity, obs_dim, action_dim, batch_size, num_updates, device):
     """GPU buffer: sample directly on device (proposed architecture)."""
     obs_buf = torch.randn(capacity, obs_dim, device=device)
@@ -97,9 +100,7 @@ def benchmark_gpu_buffer(capacity, obs_dim, action_dim, batch_size, num_updates,
 
     actor = SimpleActor(obs_dim, 512, action_dim, device)
     critic = SimpleCritic(obs_dim, action_dim, 768, device)
-    optimizer = torch.optim.Adam(
-        list(actor.parameters()) + list(critic.parameters()), lr=3e-4
-    )
+    optimizer = torch.optim.Adam(list(actor.parameters()) + list(critic.parameters()), lr=3e-4)
 
     times = []
     for i in range(num_updates):
@@ -127,6 +128,7 @@ def benchmark_gpu_buffer(capacity, obs_dim, action_dim, batch_size, num_updates,
             times.append(elapsed * 1000)
 
     return np.mean(times), np.std(times)
+
 
 if __name__ == "__main__":
     # Device detection
@@ -169,13 +171,13 @@ if __name__ == "__main__":
     )
 
     # Results
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("RESULTS")
-    print("="*60)
+    print("=" * 60)
     print(f"Host Buffer: {host_mean:.2f} ± {host_std:.2f} ms per update")
     print(f"GPU Buffer:  {gpu_mean:.2f} ± {gpu_std:.2f} ms per update")
     print(f"\nSpeedup: {host_mean / gpu_mean:.2f}x")
-    print("="*60)
+    print("=" * 60)
 
     # Extrapolate
     updates_per_step = 8

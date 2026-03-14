@@ -1,5 +1,6 @@
 from typing import Dict, Tuple, Any
 
+
 class TaskRegistry:
     def __init__(self):
         self._tasks: Dict[str, Tuple[Any, Any, Any]] = {}
@@ -9,7 +10,10 @@ class TaskRegistry:
 
     def get_task(self, name: str):
         if name not in self._tasks:
-            raise ValueError(f"Task '{name}' not found. Available tasks: {list(self._tasks.keys())}")
+            raise ValueError(
+                f"Task '{name}' not found. Available tasks: {list(self._tasks.keys())}"
+            )
         return self._tasks[name]
+
 
 task_registry = TaskRegistry()

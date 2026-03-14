@@ -4,7 +4,9 @@ from .motrix_backend import MotrixBackend, MOTRIX_AVAILABLE
 from .motrix_numba_backend import MotrixNumbaBackend
 
 
-def create_backend(backend_type: str, model_file: str, num_envs: int, sim_dt: float, **kwargs) -> SimBackend:
+def create_backend(
+    backend_type: str, model_file: str, num_envs: int, sim_dt: float, **kwargs
+) -> SimBackend:
     """创建仿真后端
 
     Args:

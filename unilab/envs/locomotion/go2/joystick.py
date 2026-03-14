@@ -25,19 +25,21 @@ class Commands:
         [0.5, 0.0, 0.0],
     ]
 
+
 @dataclass
 class Domain_Rand:
-        # randomize_friction = True
-        # friction_range = [0.5, 1.25]
-        randomize_base_mass = True
-        added_mass_range = [-1.5, 1.5]
+    # randomize_friction = True
+    # friction_range = [0.5, 1.25]
+    randomize_base_mass = True
+    added_mass_range = [-1.5, 1.5]
 
-        random_com = True
-        com_offset_x = [-0.05, 0.05]
+    random_com = True
+    com_offset_x = [-0.05, 0.05]
 
-        push_robots = True
-        push_interval = 750 #step
-        max_force = [1, 1, 0.5]
+    push_robots = True
+    push_interval = 750  # step
+    max_force = [1, 1, 0.5]
+
 
 @dataclass
 class RewardConfig:
@@ -76,7 +78,9 @@ class Go2JoystickCfg(Go2BaseCfg):
 @registry.env("Go2JoystickFlatTerrain", sim_backend="motrix")
 class Go2WalkTask(Go2BaseEnv):
     def __init__(self, cfg: Go2JoystickCfg, num_envs=1, backend_type="mujoco"):
-        backend = create_backend(backend_type, cfg.model_file, num_envs, cfg.sim_dt, body_name=cfg.asset.body_name)
+        backend = create_backend(
+            backend_type, cfg.model_file, num_envs, cfg.sim_dt, body_name=cfg.asset.body_name
+        )
         super().__init__(cfg, backend, num_envs)
         self._init_obs_space()
         self._init_reward_functions()
@@ -122,7 +126,9 @@ class Go2WalkTask(Go2BaseEnv):
         command = info["commands"]
         last_actions = info.get("current_actions", np.zeros_like(diff))
 
-        return np.concatenate([linvel, gyro, -gravity, diff, dof_vel, last_actions, command], axis=1)
+        return np.concatenate(
+            [linvel, gyro, -gravity, diff, dof_vel, last_actions, command], axis=1
+        )
 
     def _compute_reward(self, info: dict) -> np.ndarray:
         reward = np.zeros((self._num_envs,), dtype=np.float32)
@@ -178,7 +184,7 @@ class Go2WalkTask(Go2BaseEnv):
         foot_pos = self.get_foot_pos()
         foot_heights = foot_pos[..., 2]
         foot_contact = self.get_foot_contact()
-        is_swing = (foot_contact < 0.5)
+        is_swing = foot_contact < 0.5
         target_height = self._cfg.reward_config.target_foot_height
         sigma = self._cfg.reward_config.foot_clearance_sigma
         error_sq = np.square(foot_heights - target_height)
@@ -189,7 +195,7 @@ class Go2WalkTask(Go2BaseEnv):
         foot_pos = self.get_foot_pos()
         foot_heights = foot_pos[..., 2]
         foot_contact = self.get_foot_contact()
-        is_swing = (foot_contact < 0.5)
+        is_swing = foot_contact < 0.5
         safe_height = self._cfg.reward_config.target_foot_height / 2.0
         height_error = np.clip(safe_height - foot_heights, 0.0, None)
         error = np.square(height_error) * is_swing
@@ -224,4 +230,3 @@ class Go2WalkTask(Go2BaseEnv):
 
         obs = self._compute_obs(info)
         return obs[env_indices], obs[env_indices], {k: v[env_indices] for k, v in info.items()}
-

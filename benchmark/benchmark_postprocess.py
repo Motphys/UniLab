@@ -22,8 +22,11 @@ try:
 except Exception:
     mj_mlx_step = None
 
+
 def ensure_registries() -> None:
     """Import locomotion env modules so they are registered."""
+
+
 try:
     from benchmark.core.device_info import get_device_info_dict, get_device_info_line
 except ModuleNotFoundError:
@@ -49,20 +52,24 @@ OUTPUT_JSON = OUTPUT_DIR / "latest_postprocess_benchmark.json"
 OUTPUT_PNG = OUTPUT_DIR / "latest_postprocess_latency.png"
 TORCH_DEVICE = "mps"
 
+
 def sync_torch_mps():
     if torch.backends.mps.is_available():
         torch.mps.synchronize()
+
 
 def parse_env_list(raw: str) -> list[int]:
     if not raw:
         return DEFAULT_ENV_LIST
     return [int(x.strip()) for x in raw.split(",") if x.strip()]
 
+
 def geomean(values: list[float]) -> float:
     vals = [v for v in values if v > 0.0]
     if not vals:
         return 0.0
     return float(math.exp(sum(math.log(v) for v in vals) / len(vals)))
+
 
 def build_go1_layout() -> dict:
     env = registry.make("Go1JoystickFlatTerrain", num_envs=1, sim_backend="mujoco")
@@ -90,15 +97,16 @@ def build_go1_layout() -> dict:
     env.close()
     return layout
 
+
 def measure_physics_step_ms(num_envs: int, iters: int) -> float:
     env = registry.make("Go1JoystickFlatTerrain", num_envs=num_envs, sim_backend="mujoco")
     try:
         initial_state, _, _ = env.reset(np.arange(env.num_envs))
         action_low = env.action_space.low.astype(np.float32)
         action_high = env.action_space.high.astype(np.float32)
-        actions = np.random.uniform(action_low, action_high, size=(env.num_envs, env.action_space.shape[0])).astype(
-            np.float32
-        )
+        actions = np.random.uniform(
+            action_low, action_high, size=(env.num_envs, env.action_space.shape[0])
+        ).astype(np.float32)
 
         for _ in range(20):
             _ = env.step(actions)
@@ -113,9 +121,11 @@ def measure_physics_step_ms(num_envs: int, iters: int) -> float:
     finally:
         env.close()
 
+
 def _unpack_rollout_out(step_out):
     state_mx, sensor_mx = step_out
     return state_mx[:, -1, :], sensor_mx[:, -1, :]
+
 
 def measure_physics_step_mlx_native_ms(num_envs: int, iters: int) -> float:
     """Measure pure MuJoCo physics stepping via native mujoco.mlx_step."""
@@ -172,6 +182,7 @@ def measure_physics_step_mlx_native_ms(num_envs: int, iters: int) -> float:
     finally:
         env.close()
 
+
 def measure_rollout_bridge_mlx_pipeline_ms(
     num_envs: int,
     iters: int,
@@ -194,11 +205,12 @@ def measure_rollout_bridge_mlx_pipeline_ms(
         commands_mx = mx.array(reset_info["commands"], dtype=mx.float32)
 
         # Zero-order hold across MuJoCo substeps.
-        control_mx = mx.broadcast_to(actions_mx[:, None, :], (env.num_envs, env.cfg.sim_substeps, env.action_space.shape[0]))
+        control_mx = mx.broadcast_to(
+            actions_mx[:, None, :], (env.num_envs, env.cfg.sim_substeps, env.action_space.shape[0])
+        )
         mx.eval(control_mx, commands_mx, last_actions_mx)
         model_batch = [env._model] * env.num_envs
         with mj_mlx_step.MlxStepRunner(nthread=env._n_threads) as runner:
-
             for _ in range(10):
                 rollout_out = runner.step(
                     model=model_batch,
@@ -259,6 +271,7 @@ def measure_rollout_bridge_mlx_pipeline_ms(
             }
     finally:
         env.close()
+
 
 def numpy_postprocess_go1(
     sensor_data: np.ndarray,
@@ -325,6 +338,7 @@ def numpy_postprocess_go1(
     done = (upvector[:, 2] <= 0.5).astype(np.bool_)
     return obs, reward, done
 
+
 def torch_postprocess_go1(
     sensor_t: torch.Tensor,
     physics_t: torch.Tensor,
@@ -347,9 +361,12 @@ def torch_postprocess_go1(
     obs = torch.hstack([linear_vel, gyro, local_gravity, diff, dof_vel, current_t, commands_t])
 
     tracking_lin_vel = torch.exp(
-        -torch.sum((commands_t[:, :2] - linear_vel[:, :2]) ** 2, dim=1) / scalars_t["tracking_sigma"]
+        -torch.sum((commands_t[:, :2] - linear_vel[:, :2]) ** 2, dim=1)
+        / scalars_t["tracking_sigma"]
     )
-    tracking_ang_vel = torch.exp(-((commands_t[:, 2] - gyro[:, 2]) ** 2) / scalars_t["tracking_sigma"])
+    tracking_ang_vel = torch.exp(
+        -((commands_t[:, 2] - gyro[:, 2]) ** 2) / scalars_t["tracking_sigma"]
+    )
     lin_vel_z = global_linvel[:, 2] ** 2
     ang_vel_xy = torch.sum(gyro[:, :2] ** 2, dim=1)
     base_height = (physics_t[:, idx_t["base_height_idx"]] - scalars_t["base_height_target"]) ** 2
@@ -368,6 +385,7 @@ def torch_postprocess_go1(
 
     done = upvector[:, 2] <= 0.5
     return obs, reward, done
+
 
 def mlx_postprocess_go1(
     sensor_mx: mx.array,
@@ -388,7 +406,9 @@ def mlx_postprocess_go1(
     dof_vel = physics_mx[:, idx_mx["qvel_start"] : idx_mx["qvel_end"]]
     diff = dof_pos - idx_mx["default_angles"]
 
-    obs = mx.concatenate([linear_vel, gyro, local_gravity, diff, dof_vel, current_mx, commands_mx], axis=1)
+    obs = mx.concatenate(
+        [linear_vel, gyro, local_gravity, diff, dof_vel, current_mx, commands_mx], axis=1
+    )
 
     tracking_lin_vel = mx.exp(
         -mx.sum((commands_mx[:, :2] - linear_vel[:, :2]) ** 2, axis=1) / scalars["tracking_sigma"]
@@ -412,6 +432,7 @@ def mlx_postprocess_go1(
     done = upvector[:, 2] <= 0.5
     return obs, reward, done
 
+
 def bench_one_envnum(num_envs: int, iters: int, layout: dict):
     try:
         physics_step_env_wrapper_ms = measure_physics_step_ms(num_envs=num_envs, iters=iters)
@@ -421,8 +442,12 @@ def bench_one_envnum(num_envs: int, iters: int, layout: dict):
 
     sensor_np = np.random.randn(num_envs, layout["sensor_dim"]).astype(np.float32)
     physics_np = np.random.randn(num_envs, layout["physics_dim"]).astype(np.float32)
-    current_actions_np = np.random.uniform(-1.0, 1.0, size=(num_envs, layout["num_action"])).astype(np.float32)
-    last_actions_np = np.random.uniform(-1.0, 1.0, size=(num_envs, layout["num_action"])).astype(np.float32)
+    current_actions_np = np.random.uniform(-1.0, 1.0, size=(num_envs, layout["num_action"])).astype(
+        np.float32
+    )
+    last_actions_np = np.random.uniform(-1.0, 1.0, size=(num_envs, layout["num_action"])).astype(
+        np.float32
+    )
     commands_np = np.random.uniform(
         low=layout["command_low"],
         high=layout["command_high"],
@@ -439,18 +464,36 @@ def bench_one_envnum(num_envs: int, iters: int, layout: dict):
         "qvel_start": int(layout["idx_qvel"] + 6),
         "qvel_end": int(layout["idx_qvel"] + layout["nv"]),
         "base_height_idx": int(layout["idx_qpos"] + 2),
-        "default_angles": torch.as_tensor(layout["default_angles"], device=TORCH_DEVICE, dtype=torch.float32),
+        "default_angles": torch.as_tensor(
+            layout["default_angles"], device=TORCH_DEVICE, dtype=torch.float32
+        ),
     }
     scalars_t = {
-        "tracking_sigma": torch.tensor(layout["tracking_sigma"], device=TORCH_DEVICE, dtype=torch.float32),
-        "base_height_target": torch.tensor(layout["base_height_target"], device=TORCH_DEVICE, dtype=torch.float32),
+        "tracking_sigma": torch.tensor(
+            layout["tracking_sigma"], device=TORCH_DEVICE, dtype=torch.float32
+        ),
+        "base_height_target": torch.tensor(
+            layout["base_height_target"], device=TORCH_DEVICE, dtype=torch.float32
+        ),
         "ctrl_dt": torch.tensor(layout["ctrl_dt"], device=TORCH_DEVICE, dtype=torch.float32),
-        "tracking_lin_vel": torch.tensor(layout["reward_scales"].get("tracking_lin_vel", 0.0), device=TORCH_DEVICE),
-        "tracking_ang_vel": torch.tensor(layout["reward_scales"].get("tracking_ang_vel", 0.0), device=TORCH_DEVICE),
-        "lin_vel_z": torch.tensor(layout["reward_scales"].get("lin_vel_z", 0.0), device=TORCH_DEVICE),
-        "ang_vel_xy": torch.tensor(layout["reward_scales"].get("ang_vel_xy", 0.0), device=TORCH_DEVICE),
-        "base_height": torch.tensor(layout["reward_scales"].get("base_height", 0.0), device=TORCH_DEVICE),
-        "action_rate": torch.tensor(layout["reward_scales"].get("action_rate", 0.0), device=TORCH_DEVICE),
+        "tracking_lin_vel": torch.tensor(
+            layout["reward_scales"].get("tracking_lin_vel", 0.0), device=TORCH_DEVICE
+        ),
+        "tracking_ang_vel": torch.tensor(
+            layout["reward_scales"].get("tracking_ang_vel", 0.0), device=TORCH_DEVICE
+        ),
+        "lin_vel_z": torch.tensor(
+            layout["reward_scales"].get("lin_vel_z", 0.0), device=TORCH_DEVICE
+        ),
+        "ang_vel_xy": torch.tensor(
+            layout["reward_scales"].get("ang_vel_xy", 0.0), device=TORCH_DEVICE
+        ),
+        "base_height": torch.tensor(
+            layout["reward_scales"].get("base_height", 0.0), device=TORCH_DEVICE
+        ),
+        "action_rate": torch.tensor(
+            layout["reward_scales"].get("action_rate", 0.0), device=TORCH_DEVICE
+        ),
         "similar_to_default": torch.tensor(
             layout["reward_scales"].get("similar_to_default", 0.0),
             device=TORCH_DEVICE,
@@ -473,13 +516,19 @@ def bench_one_envnum(num_envs: int, iters: int, layout: dict):
         "tracking_sigma": mx.array(layout["tracking_sigma"], dtype=mx.float32),
         "base_height_target": mx.array(layout["base_height_target"], dtype=mx.float32),
         "ctrl_dt": mx.array(layout["ctrl_dt"], dtype=mx.float32),
-        "tracking_lin_vel": mx.array(layout["reward_scales"].get("tracking_lin_vel", 0.0), dtype=mx.float32),
-        "tracking_ang_vel": mx.array(layout["reward_scales"].get("tracking_ang_vel", 0.0), dtype=mx.float32),
+        "tracking_lin_vel": mx.array(
+            layout["reward_scales"].get("tracking_lin_vel", 0.0), dtype=mx.float32
+        ),
+        "tracking_ang_vel": mx.array(
+            layout["reward_scales"].get("tracking_ang_vel", 0.0), dtype=mx.float32
+        ),
         "lin_vel_z": mx.array(layout["reward_scales"].get("lin_vel_z", 0.0), dtype=mx.float32),
         "ang_vel_xy": mx.array(layout["reward_scales"].get("ang_vel_xy", 0.0), dtype=mx.float32),
         "base_height": mx.array(layout["reward_scales"].get("base_height", 0.0), dtype=mx.float32),
         "action_rate": mx.array(layout["reward_scales"].get("action_rate", 0.0), dtype=mx.float32),
-        "similar_to_default": mx.array(layout["reward_scales"].get("similar_to_default", 0.0), dtype=mx.float32),
+        "similar_to_default": mx.array(
+            layout["reward_scales"].get("similar_to_default", 0.0), dtype=mx.float32
+        ),
     }
     try:
         bridge_mlx = measure_rollout_bridge_mlx_pipeline_ms(
@@ -568,7 +617,9 @@ def bench_one_envnum(num_envs: int, iters: int, layout: dict):
         cmd_t = torch.as_tensor(commands_np, device=TORCH_DEVICE, dtype=torch.float32)
         sync_torch_mps()
         t1 = time.perf_counter()
-        obs_t, rew_t, done_t = torch_postprocess_go1(sensor_t, physics_t, cur_t, last_t, cmd_t, idx_t, scalars_t)
+        obs_t, rew_t, done_t = torch_postprocess_go1(
+            sensor_t, physics_t, cur_t, last_t, cmd_t, idx_t, scalars_t
+        )
         _ = obs_t, rew_t, done_t
         sync_torch_mps()
         t2 = time.perf_counter()
@@ -684,13 +735,18 @@ def bench_one_envnum(num_envs: int, iters: int, layout: dict):
         },
         "speedup_cpu_div_torch_mps": cpu_total_ms / torch_total_ms if torch_total_ms > 0 else 0.0,
         "speedup_cpu_div_mlx": cpu_total_ms / mlx_total_ms if mlx_total_ms > 0 else 0.0,
-        "speedup_cpu_to_mlx_div_mlx": cpu_to_mlx_total_ms / mlx_total_ms if mlx_total_ms > 0 else 0.0,
+        "speedup_cpu_to_mlx_div_mlx": cpu_to_mlx_total_ms / mlx_total_ms
+        if mlx_total_ms > 0
+        else 0.0,
         "speedup_torch_mps_div_mlx": torch_total_ms / mlx_total_ms if mlx_total_ms > 0 else 0.0,
-        "speedup_cpu_div_mlx_to_torch_mps": cpu_total_ms / mlx_to_torch_total_ms if mlx_to_torch_total_ms > 0 else 0.0,
+        "speedup_cpu_div_mlx_to_torch_mps": cpu_total_ms / mlx_to_torch_total_ms
+        if mlx_to_torch_total_ms > 0
+        else 0.0,
         "speedup_torch_mps_div_mlx_to_torch_mps": torch_total_ms / mlx_to_torch_total_ms
         if mlx_to_torch_total_ms > 0
         else 0.0,
     }
+
 
 def plot_results(results: list[dict], output_png: Path):
     envs = [r["num_envs"] for r in results]
@@ -698,15 +754,26 @@ def plot_results(results: list[dict], output_png: Path):
     w = 0.15
 
     cpu_compute = np.array([r["cpu_numpy_mode"]["compute_numpy_ms"] for r in results])
-    cpu_transfer = np.array([r["cpu_numpy_mode"]["transfer_obs_rew_done_to_torch_mps_ms"] for r in results])
+    cpu_transfer = np.array(
+        [r["cpu_numpy_mode"]["transfer_obs_rew_done_to_torch_mps_ms"] for r in results]
+    )
     cpu_to_mlx_compute = np.array([r["cpu_numpy_to_mlx_mode"]["compute_numpy_ms"] for r in results])
-    cpu_to_mlx_transfer = np.array([r["cpu_numpy_to_mlx_mode"]["transfer_obs_rew_done_to_mlx_ms"] for r in results])
-    torch_transfer = np.array([r["torch_mps_mode"]["transfer_all_numpy_to_torch_mps_ms"] for r in results])
-    torch_compute = np.array([r["torch_mps_mode"]["compute_postprocess_on_torch_mps_ms"] for r in results])
+    cpu_to_mlx_transfer = np.array(
+        [r["cpu_numpy_to_mlx_mode"]["transfer_obs_rew_done_to_mlx_ms"] for r in results]
+    )
+    torch_transfer = np.array(
+        [r["torch_mps_mode"]["transfer_all_numpy_to_torch_mps_ms"] for r in results]
+    )
+    torch_compute = np.array(
+        [r["torch_mps_mode"]["compute_postprocess_on_torch_mps_ms"] for r in results]
+    )
     mlx_transfer = np.array([r["mlx_mode"]["transfer_all_numpy_to_mlx_ms"] for r in results])
     mlx_compute = np.array([r["mlx_mode"]["compute_postprocess_on_mlx_ms"] for r in results])
     mlx_to_torch_transfer = np.array(
-        [r["mlx_to_torch_mps_mode"]["transfer_postprocess_result_mlx_to_torch_mps_ms"] for r in results]
+        [
+            r["mlx_to_torch_mps_mode"]["transfer_postprocess_result_mlx_to_torch_mps_ms"]
+            for r in results
+        ]
     )
     physics_step = np.array([r["physics_step_mode"]["physics_step_mlx_native_ms"] for r in results])
 
@@ -723,7 +790,14 @@ def plot_results(results: list[dict], output_png: Path):
     ax_top.bar(x_mlx, physics_step, w, label="_nolegend_", color="#9AA0A6")
     ax_top.bar(x_mlx_torch, physics_step, w, label="_nolegend_", color="#9AA0A6")
 
-    ax_top.bar(x_cpu, cpu_compute, w, bottom=physics_step, label="Path A (CPU->Torch): numpy compute", color="#D99A9A")
+    ax_top.bar(
+        x_cpu,
+        cpu_compute,
+        w,
+        bottom=physics_step,
+        label="Path A (CPU->Torch): numpy compute",
+        color="#D99A9A",
+    )
     ax_top.bar(
         x_cpu,
         cpu_transfer,
@@ -764,7 +838,14 @@ def plot_results(results: list[dict], output_png: Path):
         label="Path C (Torch native): torch.mps compute",
         color="#A8CFAE",
     )
-    ax_top.bar(x_mlx, mlx_transfer, w, bottom=physics_step, label="Path D (MLX native): numpy -> mlx", color="#E1B15A")
+    ax_top.bar(
+        x_mlx,
+        mlx_transfer,
+        w,
+        bottom=physics_step,
+        label="Path D (MLX native): numpy -> mlx",
+        color="#E1B15A",
+    )
     ax_top.bar(
         x_mlx,
         mlx_compute,
@@ -798,7 +879,9 @@ def plot_results(results: list[dict], output_png: Path):
         color="#E7D0F4",
     )
 
-    ax_bottom.bar(x_cpu, cpu_compute, w, label="Path A (CPU->Torch): numpy compute", color="#D99A9A")
+    ax_bottom.bar(
+        x_cpu, cpu_compute, w, label="Path A (CPU->Torch): numpy compute", color="#D99A9A"
+    )
     ax_bottom.bar(
         x_cpu,
         cpu_transfer,
@@ -807,7 +890,9 @@ def plot_results(results: list[dict], output_png: Path):
         label="Path A (CPU->Torch): obs/rew/done -> torch.mps",
         color="#EBCED6",
     )
-    ax_bottom.bar(x_cpu_mlx, cpu_to_mlx_compute, w, label="Path B (CPU->MLX): numpy compute", color="#D7B78B")
+    ax_bottom.bar(
+        x_cpu_mlx, cpu_to_mlx_compute, w, label="Path B (CPU->MLX): numpy compute", color="#D7B78B"
+    )
     ax_bottom.bar(
         x_cpu_mlx,
         cpu_to_mlx_transfer,
@@ -816,7 +901,13 @@ def plot_results(results: list[dict], output_png: Path):
         label="Path B (CPU->MLX): obs/rew/done -> mlx",
         color="#EFD9B7",
     )
-    ax_bottom.bar(x_torch, torch_transfer, w, label="Path C (Torch native): numpy -> torch.mps", color="#8FB3CC")
+    ax_bottom.bar(
+        x_torch,
+        torch_transfer,
+        w,
+        label="Path C (Torch native): numpy -> torch.mps",
+        color="#8FB3CC",
+    )
     ax_bottom.bar(
         x_torch,
         torch_compute,
@@ -825,7 +916,9 @@ def plot_results(results: list[dict], output_png: Path):
         label="Path C (Torch native): torch.mps compute",
         color="#A8CFAE",
     )
-    ax_bottom.bar(x_mlx, mlx_transfer, w, label="Path D (MLX native): numpy -> mlx", color="#E1B15A")
+    ax_bottom.bar(
+        x_mlx, mlx_transfer, w, label="Path D (MLX native): numpy -> mlx", color="#E1B15A"
+    )
     ax_bottom.bar(
         x_mlx,
         mlx_compute,
@@ -834,7 +927,9 @@ def plot_results(results: list[dict], output_png: Path):
         label="Path D (MLX native): mlx compute",
         color="#F3D9A5",
     )
-    ax_bottom.bar(x_mlx_torch, mlx_transfer, w, label="Path E (MLX->Torch): numpy -> mlx", color="#B78BD0")
+    ax_bottom.bar(
+        x_mlx_torch, mlx_transfer, w, label="Path E (MLX->Torch): numpy -> mlx", color="#B78BD0"
+    )
     ax_bottom.bar(
         x_mlx_torch,
         mlx_compute,
@@ -864,7 +959,14 @@ def plot_results(results: list[dict], output_png: Path):
     mlx_to_torch_post_total = mlx_transfer + mlx_compute + mlx_to_torch_transfer
 
     for i in range(len(envs)):
-        ax_top.text(x_cpu[i], cpu_total[i] + 0.03, f"{cpu_total[i]:.2f}", ha="center", va="bottom", fontsize=8)
+        ax_top.text(
+            x_cpu[i],
+            cpu_total[i] + 0.03,
+            f"{cpu_total[i]:.2f}",
+            ha="center",
+            va="bottom",
+            fontsize=8,
+        )
         ax_top.text(
             x_cpu_mlx[i],
             cpu_to_mlx_total[i] + 0.03,
@@ -873,8 +975,22 @@ def plot_results(results: list[dict], output_png: Path):
             va="bottom",
             fontsize=8,
         )
-        ax_top.text(x_torch[i], torch_total[i] + 0.03, f"{torch_total[i]:.2f}", ha="center", va="bottom", fontsize=8)
-        ax_top.text(x_mlx[i], mlx_total[i] + 0.03, f"{mlx_total[i]:.2f}", ha="center", va="bottom", fontsize=8)
+        ax_top.text(
+            x_torch[i],
+            torch_total[i] + 0.03,
+            f"{torch_total[i]:.2f}",
+            ha="center",
+            va="bottom",
+            fontsize=8,
+        )
+        ax_top.text(
+            x_mlx[i],
+            mlx_total[i] + 0.03,
+            f"{mlx_total[i]:.2f}",
+            ha="center",
+            va="bottom",
+            fontsize=8,
+        )
         ax_top.text(
             x_mlx_torch[i],
             mlx_to_torch_total[i] + 0.03,
@@ -884,7 +1000,14 @@ def plot_results(results: list[dict], output_png: Path):
             fontsize=8,
         )
 
-        ax_bottom.text(x_cpu[i], cpu_post_total[i] + 0.03, f"{cpu_post_total[i]:.2f}", ha="center", va="bottom", fontsize=8)
+        ax_bottom.text(
+            x_cpu[i],
+            cpu_post_total[i] + 0.03,
+            f"{cpu_post_total[i]:.2f}",
+            ha="center",
+            va="bottom",
+            fontsize=8,
+        )
         ax_bottom.text(
             x_cpu_mlx[i],
             cpu_to_mlx_post_total[i] + 0.03,
@@ -893,8 +1016,22 @@ def plot_results(results: list[dict], output_png: Path):
             va="bottom",
             fontsize=8,
         )
-        ax_bottom.text(x_torch[i], torch_post_total[i] + 0.03, f"{torch_post_total[i]:.2f}", ha="center", va="bottom", fontsize=8)
-        ax_bottom.text(x_mlx[i], mlx_post_total[i] + 0.03, f"{mlx_post_total[i]:.2f}", ha="center", va="bottom", fontsize=8)
+        ax_bottom.text(
+            x_torch[i],
+            torch_post_total[i] + 0.03,
+            f"{torch_post_total[i]:.2f}",
+            ha="center",
+            va="bottom",
+            fontsize=8,
+        )
+        ax_bottom.text(
+            x_mlx[i],
+            mlx_post_total[i] + 0.03,
+            f"{mlx_post_total[i]:.2f}",
+            ha="center",
+            va="bottom",
+            fontsize=8,
+        )
         ax_bottom.text(
             x_mlx_torch[i],
             mlx_to_torch_post_total[i] + 0.03,
@@ -928,6 +1065,7 @@ def plot_results(results: list[dict], output_png: Path):
     output_png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_png, dpi=180)
     plt.close(fig)
+
 
 def main():
     ensure_registries()
@@ -1007,6 +1145,7 @@ def main():
     plot_results(all_results, output_png)
     print(f"Saved JSON: {output_json}")
     print(f"Saved PNG:  {output_png}")
+
 
 if __name__ == "__main__":
     main()

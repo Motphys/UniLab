@@ -30,6 +30,7 @@ from unilab.algos.torch.common.stability import check_nan_loss, clip_gradients
 # Actor (deterministic, ReLU, per-env noise)
 # ---------------------------------------------------------------------------
 
+
 class TD3Actor(nn.Module):
     """Deterministic actor with per-environment exploration noise.
 
@@ -68,9 +69,7 @@ class TD3Actor(nn.Module):
 
         std_min = float(math.exp(log_std_min))
         std_max = float(math.exp(log_std_max))
-        noise_scales = (
-            torch.rand(num_envs, 1, device=device) * (std_max - std_min) + std_min
-        )
+        noise_scales = torch.rand(num_envs, 1, device=device) * (std_max - std_min) + std_min
         self.register_buffer("noise_scales", noise_scales)
         self.register_buffer("log_std_min", torch.as_tensor(log_std_min, device=device))
         self.register_buffer("log_std_max", torch.as_tensor(log_std_max, device=device))
@@ -98,14 +97,10 @@ class TD3Actor(nn.Module):
             std_min = torch.exp(self.log_std_min)
             std_max = torch.exp(self.log_std_max)
             new_scales = (
-                torch.rand(self.n_envs, 1, device=obs.device)
-                * (std_max - std_min)
-                + std_min
+                torch.rand(self.n_envs, 1, device=obs.device) * (std_max - std_min) + std_min
             )
             dones_view = dones.view(-1, 1) > 0
-            self.noise_scales.copy_(
-                torch.where(dones_view, new_scales, self.noise_scales)
-            )
+            self.noise_scales.copy_(torch.where(dones_view, new_scales, self.noise_scales))
 
         act = self(obs)
         if deterministic:
@@ -118,6 +113,7 @@ class TD3Actor(nn.Module):
 # ---------------------------------------------------------------------------
 # FastTD3 Learner
 # ---------------------------------------------------------------------------
+
 
 class FastTD3Learner:
     """FastTD3 learner aligned with reference FastTD3 repository.
@@ -249,7 +245,11 @@ class FastTD3Learner:
 
         with torch.no_grad():
             qf1_next_target_proj, qf2_next_target_proj = self.qnet_target.projection(
-                next_observations, next_state_actions, rewards, bootstrap, discount,
+                next_observations,
+                next_state_actions,
+                rewards,
+                bootstrap,
+                discount,
             )
             qf1_next_target_value = self.qnet_target.get_value(qf1_next_target_proj)
             qf2_next_target_value = self.qnet_target.get_value(qf2_next_target_proj)
@@ -267,19 +267,18 @@ class FastTD3Learner:
                 qf2_next_target_dist = qf2_next_target_proj
 
         qf1, qf2 = self.qnet(observations, actions)
-        qf1_loss = -torch.sum(
-            qf1_next_target_dist * F.log_softmax(qf1, dim=1), dim=1
-        ).mean()
-        qf2_loss = -torch.sum(
-            qf2_next_target_dist * F.log_softmax(qf2, dim=1), dim=1
-        ).mean()
+        qf1_loss = -torch.sum(qf1_next_target_dist * F.log_softmax(qf1, dim=1), dim=1).mean()
+        qf2_loss = -torch.sum(qf2_next_target_dist * F.log_softmax(qf2, dim=1), dim=1).mean()
         qf_loss = qf1_loss + qf2_loss
 
-        loss, nan_metrics = check_nan_loss(qf_loss, {
-            "qf_loss": 0.0,
-            "qf_max": 0.0,
-            "qf_min": 0.0,
-        })
+        loss, nan_metrics = check_nan_loss(
+            qf_loss,
+            {
+                "qf_loss": 0.0,
+                "qf_max": 0.0,
+                "qf_min": 0.0,
+            },
+        )
         if loss is None:
             return nan_metrics
 

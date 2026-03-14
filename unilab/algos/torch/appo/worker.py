@@ -50,9 +50,7 @@ def appo_collector_fn(
         shm_name_prefix=shm_storage_name,
     )
     storage.attach_sync_primitives(*sync_primitives)
-    weight_sync = SharedWeightSync(
-        weight_param_shapes, create=False, shm_name=weight_sync_name
-    )
+    weight_sync = SharedWeightSync(weight_param_shapes, create=False, shm_name=weight_sync_name)
 
     # Create environment
     env = registry.make(env_name, num_envs=num_envs, sim_backend="mujoco")
@@ -76,6 +74,7 @@ def appo_collector_fn(
     )
 
     from unilab.algos.torch.appo.learner import APPOActorWrapper
+
     actor = APPOActorWrapper(actor_core, action_dim)
     actor = actor.to(collector_device)
     actor.eval()
@@ -150,7 +149,9 @@ def appo_collector_fn(
                 if "_final_observation" in state.info:
                     has_final = np.asarray(state.info["_final_observation"], dtype=bool)
                     if np.any(has_final):
-                        obs_np[has_final] = to_float32_np(state.info["final_observation"])[has_final]
+                        obs_np[has_final] = to_float32_np(state.info["final_observation"])[
+                            has_final
+                        ]
 
                 # Episode tracking (vectorized)
                 total_steps += num_envs
@@ -174,7 +175,9 @@ def appo_collector_fn(
                         msg = {
                             "total_steps": total_steps,
                             "mean_ep_reward": statistics.mean(ep_rewards[-100:]),
-                            "mean_ep_length": statistics.mean(ep_lengths[-100:]) if ep_lengths else 0.0,
+                            "mean_ep_length": statistics.mean(ep_lengths[-100:])
+                            if ep_lengths
+                            else 0.0,
                         }
                         if ep_reward_components:
                             msg["reward_components"] = {
@@ -190,6 +193,7 @@ def appo_collector_fn(
 
     except Exception as e:
         import traceback
+
         print(f"\n[APPO WORKER CRASH]: {e}\n", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         if metrics_queue is not None:

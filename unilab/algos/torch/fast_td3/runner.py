@@ -89,6 +89,7 @@ class FastTD3Runner(OffPolicyRunner):
     @staticmethod
     def _default_device() -> str:
         import torch
+
         if torch.cuda.is_available():
             return "cuda"
         if torch.backends.mps.is_available():
@@ -106,4 +107,3 @@ class FastTD3Runner(OffPolicyRunner):
         action_dim = env.action_space.shape[0]
         env.close()
         return obs_dim, action_dim
-

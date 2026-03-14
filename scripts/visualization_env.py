@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+
 sys.path.append(str(Path(__file__).parent.parent))
 
 import argparse
@@ -12,7 +13,9 @@ from unilab.base import registry
 
 parser = argparse.ArgumentParser(description="Visualize robot tasks")
 parser.add_argument("--task", type=str, default="Go1JoystickFlatTerrain", help="Task name")
-parser.add_argument("--backend", type=str, choices=["motrix", "mujoco"], default="mujoco", help="Physics backend")
+parser.add_argument(
+    "--backend", type=str, choices=["motrix", "mujoco"], default="mujoco", help="Physics backend"
+)
 args = parser.parse_args()
 
 np.set_printoptions(precision=3, suppress=True, linewidth=500)
@@ -44,6 +47,7 @@ if args.backend == "motrix":
         print("Press ESC to exit")
 
         first = True
+
         def physics_step():
             global first
             if first:
@@ -69,7 +73,7 @@ elif args.backend == "mujoco":
 
     model = mujoco.MjModel.from_xml_path(cfg.model_file)
     model.opt.timestep = 0.01
-    
+
     data = mujoco.MjData(model)
 
     if model.nkey > 0:

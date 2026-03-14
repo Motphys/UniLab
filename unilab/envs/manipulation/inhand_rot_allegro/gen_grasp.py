@@ -34,14 +34,13 @@ sys.path.insert(0, str(ROOT_DIR))
 
 # ── Registry discovery ───────────────────────────────────────────────────────
 
+
 def ensure_registries():
     for pkg_name in ("unilab.envs.locomotion", "unilab.envs.manipulation"):
         try:
             package = importlib.import_module(pkg_name)
             if hasattr(package, "__path__"):
-                for _, name, _ in pkgutil.walk_packages(
-                    package.__path__, package.__name__ + "."
-                ):
+                for _, name, _ in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
                     try:
                         importlib.import_module(name)
                     except Exception:
@@ -55,9 +54,11 @@ ensure_registries()
 from unilab.base import registry  # noqa: E402  (after sys.path setup)
 from unilab.utils import render_many  # noqa: E402
 from unilab.base.dtype_config import get_global_dtype  # noqa: E402
+
 # Explicit import to guarantee the @registry.env decorator runs,
 # since ensure_registries() silently swallows import errors.
 from unilab.envs.manipulation.inhand_rot_allegro import rotation as _rotation_register
+
 _ = _rotation_register  # side-effect import: triggers @registry.env decorator
 
 
@@ -91,10 +92,9 @@ def check_grasp_quality(
 
 # ── Main collection loop ─────────────────────────────────────────────────────
 
+
 def collect_grasps(args) -> None:
-    env = registry.make(
-        "AllegroInhandRotation", num_envs=args.num_envs, sim_backend="mujoco"
-    )
+    env = registry.make("AllegroInhandRotation", num_envs=args.num_envs, sim_backend="mujoco")
 
     # Override joint noise to the exploration value before init_state().
     # reset() reads this at runtime, so all episode resets will use it.
@@ -110,9 +110,7 @@ def collect_grasps(args) -> None:
 
     # Zero actions → PD holds at whatever prev_ctrl was set to during reset
     # (= canonical pre-grasp keyframe pose).
-    zero_actions = np.zeros(
-        (args.num_envs, env.action_space.shape[0]), dtype=get_global_dtype()
-    )
+    zero_actions = np.zeros((args.num_envs, env.action_space.shape[0]), dtype=get_global_dtype())
 
     # Body IDs for quality filtering no longer needed — check_grasp_quality uses numpy only.
 
@@ -141,7 +139,6 @@ def collect_grasps(args) -> None:
     )
 
     with viewer_ctx as viewer:
-
         while (
             (args.record_video or sum(len(s) for s in cache) < args.target)
             and step_idx < (args.video_steps if args.record_video else int(1e18))
@@ -155,17 +152,19 @@ def collect_grasps(args) -> None:
             env._state = env.update_state(env._state)
             env._state.info["steps"] += 1
             if env._cfg.max_episode_steps:
-                np.greater_equal(env._state.info["steps"], env._cfg.max_episode_steps, out=env._state.truncated)
+                np.greater_equal(
+                    env._state.info["steps"], env._cfg.max_episode_steps, out=env._state.truncated
+                )
 
             # ── Capture states BEFORE reset ────────────────────────────────────
-            truncated  = env._state.truncated   # (N,) bool
+            truncated = env._state.truncated  # (N,) bool
             terminated = env._state.terminated  # (N,) bool
 
             # Success = full-episode survival without ball drop.
             success_mask = truncated & ~terminated
             if success_mask.any():
                 success_idx = np.where(success_mask)[0]
-                ps = env._backend.get_physics_state()[success_idx]   # (k, nstate)
+                ps = env._backend.get_physics_state()[success_idx]  # (k, nstate)
 
                 if args.quality_check:
                     quality = check_grasp_quality(env._backend, success_idx)
@@ -173,12 +172,12 @@ def collect_grasps(args) -> None:
 
                 if len(ps) > 0:
                     iq = env._idx_qpos
-                    hand_qpos = ps[:, iq               : iq + 16           ]   # (k, 16)
-                    ball_pos  = ps[:, env._ps_ball_pos : env._ps_ball_pos+3]   # (k,  3)
-                    ball_quat = ps[:, env._ps_ball_quat: env._ps_ball_quat+4]  # (k,  4)
-                    states = np.concatenate(
-                        [hand_qpos, ball_pos, ball_quat], axis=1
-                    ).astype(np.float32)   # (k, 23)
+                    hand_qpos = ps[:, iq : iq + 16]  # (k, 16)
+                    ball_pos = ps[:, env._ps_ball_pos : env._ps_ball_pos + 3]  # (k,  3)
+                    ball_quat = ps[:, env._ps_ball_quat : env._ps_ball_quat + 4]  # (k,  4)
+                    states = np.concatenate([hand_qpos, ball_pos, ball_quat], axis=1).astype(
+                        np.float32
+                    )  # (k, 23)
                     cache.append(states)
 
                     total = sum(len(s) for s in cache)
@@ -200,7 +199,8 @@ def collect_grasps(args) -> None:
             # ── Viewer refresh (env[0] only) ───────────────────────────────────
             if viewer is not None:
                 mujoco.mj_setState(
-                    env._backend.model, viz_data,
+                    env._backend.model,
+                    viz_data,
                     env._backend.get_physics_state()[0].astype(np.float64),
                     state_spec,
                 )
@@ -238,47 +238,62 @@ def collect_grasps(args) -> None:
 
 # ── Entry point ──────────────────────────────────────────────────────────────
 
+
 def main():
-    default_output = str(
-        Path(__file__).parent / "grasps" / "grasp_50k.npy"
-    )
+    default_output = str(Path(__file__).parent / "grasps" / "grasp_50k.npy")
     parser = argparse.ArgumentParser(
         description="Generate stable AllegroInhandRotation grasp states"
     )
     parser.add_argument(
-        "--num_envs", type=int, default=16384,
+        "--num_envs",
+        type=int,
+        default=16384,
         help="Number of parallel MuJoCo envs (default: 16384)",
     )
     parser.add_argument(
-        "--target", type=int, default=50_000,
+        "--target",
+        type=int,
+        default=50_000,
         help="Target number of grasps to collect (default: 50 000)",
     )
     parser.add_argument(
-        "--output", type=str, default=default_output,
+        "--output",
+        type=str,
+        default=default_output,
         help=f"Output .npy path (default: {default_output})",
     )
     parser.add_argument(
-        "--joint_noise", type=float, default=0.25,
+        "--joint_noise",
+        type=float,
+        default=0.25,
         help="Joint noise range ±rad used at each reset for diverse exploration (default: 0.25, matches HORA)",
     )
     parser.add_argument(
-        "--viewer", action="store_true",
+        "--viewer",
+        action="store_true",
         help="Open a live MuJoCo viewer showing env[0] (useful for debugging with --num_envs 16)",
     )
     parser.add_argument(
-        "--quality_check", action="store_true", default=True,
+        "--quality_check",
+        action="store_true",
+        default=True,
         help="Filter grasps by fingertip-ball distance (default: True)",
     )
     parser.add_argument(
-        "--no_quality_check", dest="quality_check", action="store_false",
+        "--no_quality_check",
+        dest="quality_check",
+        action="store_false",
         help="Disable fingertip-ball distance filtering",
     )
     parser.add_argument(
-        "--record_video", action="store_true",
+        "--record_video",
+        action="store_true",
         help="Record video of the 16 parallel envs",
     )
     parser.add_argument(
-        "--video_steps", type=int, default=400,
+        "--video_steps",
+        type=int,
+        default=400,
         help="Number of steps to record for video (default: 400)",
     )
     args = parser.parse_args()

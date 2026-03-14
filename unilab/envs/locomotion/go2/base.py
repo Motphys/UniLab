@@ -56,7 +56,7 @@ class Go2BaseEnv(NpEnv):
     def __init__(self, cfg: Go2BaseCfg, backend: SimBackend, num_envs=1):
         super().__init__(cfg, backend, num_envs)
 
-        if hasattr(backend.model, 'dof_damping'):
+        if hasattr(backend.model, "dof_damping"):
             backend.model.dof_damping[6:] = cfg.control_config.Kd
             backend.model.actuator_gainprm[:, 0] = cfg.control_config.Kp
             backend.model.actuator_biasprm[:, 1] = -cfg.control_config.Kp
@@ -65,14 +65,14 @@ class Go2BaseEnv(NpEnv):
         self._num_action = self._action_space.shape[0]
         self._init_buffers()
         self.push_robots_flag = False
-        if self._backend.backend_type == 'motrix':
+        if self._backend.backend_type == "motrix":
             self._backend._process_rigid_body_props(cfg)
             if self._cfg.domain_rand.push_robots == True:
                 self.push_robots_flag = True
 
     def _init_action_space(self):
         model = self._backend.model
-        if hasattr(model, 'actuator_ctrlrange'):
+        if hasattr(model, "actuator_ctrlrange"):
             low = model.actuator_ctrlrange[:, 0].copy()
             high = model.actuator_ctrlrange[:, 1].copy()
             nu = model.nu
@@ -91,7 +91,7 @@ class Go2BaseEnv(NpEnv):
         self.default_angles = np.zeros((self._num_action,), dtype=np.float32)
 
         model = self._backend.model
-        if hasattr(model, 'key_qpos'):  # MuJoCo
+        if hasattr(model, "key_qpos"):  # MuJoCo
             key_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_KEY, "home")
             if key_id >= 0:
                 self._init_qpos = np.array(model.key_qpos[key_id].copy(), dtype=np.float32)
@@ -101,7 +101,7 @@ class Go2BaseEnv(NpEnv):
             self._init_qvel = np.zeros((model.nv,), dtype=np.float32)
         else:  # MotrixSim
             self._init_qpos = model.compute_init_dof_pos()
-            self.default_angles = self._init_qpos[-self._num_action:]
+            self.default_angles = self._init_qpos[-self._num_action :]
             self._init_qvel = np.zeros((model.num_dof_vel,), dtype=np.float32)
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:

@@ -1,7 +1,9 @@
 import numpy as np
+
 try:
     import motrixsim as mtx
     from motrixsim.render import RenderApp, RenderSettings
+
     MOTRIX_AVAILABLE = True
 except ImportError:
     MOTRIX_AVAILABLE = False
@@ -10,6 +12,7 @@ from .base import SimBackend
 
 try:
     from numba import njit, prange
+
     NUMBA_AVAILABLE = True
 except ImportError:
     NUMBA_AVAILABLE = False
@@ -17,6 +20,7 @@ except ImportError:
 
 # Numba 加速的内部函数
 if NUMBA_AVAILABLE:
+
     @njit(cache=True)
     def _convert_quaternion_wxyz_to_xyzw(qpos):
         """四元数格式转换: MuJoCo (wxyz) -> Motrix (xyzw)"""
@@ -40,6 +44,7 @@ if NUMBA_AVAILABLE:
                 result[i, j] = ctrl[i, j]
         return result
 else:
+
     def _convert_quaternion_wxyz_to_xyzw(qpos):
         """NumPy fallback"""
         qpos_motrix = qpos.copy()
@@ -54,7 +59,14 @@ else:
 class MotrixNumbaBackend(SimBackend):
     """MotrixSim 后端实现 (Numba 优化版本)"""
 
-    def __init__(self, model_file: str, num_envs: int, sim_dt: float, body_name: str = "base", np_dtype=np.float32):
+    def __init__(
+        self,
+        model_file: str,
+        num_envs: int,
+        sim_dt: float,
+        body_name: str = "base",
+        np_dtype=np.float32,
+    ):
         if not MOTRIX_AVAILABLE:
             raise ImportError("motrixsim not available")
 

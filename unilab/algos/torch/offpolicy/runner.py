@@ -63,6 +63,7 @@ class OffPolicyRunner(AsyncRunner):
     def _detect_dims(self):
         from unilab.base import registry
         from unilab.utils.algo_utils import ensure_registries
+
         ensure_registries()
         env = registry.make(self.env_name, num_envs=1, sim_backend="mujoco")
         obs_dim = env.observation_space.shape[0]
@@ -83,8 +84,13 @@ class OffPolicyRunner(AsyncRunner):
     def _collector_fn(self, stop_event, **kwargs):
         off_policy_collector_fn(stop_event=stop_event, **kwargs)
 
-    def learn(self, max_iterations: int = 1500, save_interval: int = 50,
-              log_dir: str = "logs", logger_type: str = "tensorboard"):
+    def learn(
+        self,
+        max_iterations: int = 1500,
+        save_interval: int = 50,
+        log_dir: str = "logs",
+        logger_type: str = "tensorboard",
+    ):
         """Unified training loop for off-policy algorithms."""
         os.makedirs(log_dir, exist_ok=True)
 
@@ -99,9 +105,7 @@ class OffPolicyRunner(AsyncRunner):
         self._shared_resources.append(replay_buffer)
 
         # Setup weight sync
-        weight_sync = SharedWeightSync.from_state_dict(
-            self.learner.actor.state_dict(), create=True
-        )
+        weight_sync = SharedWeightSync.from_state_dict(self.learner.actor.state_dict(), create=True)
         self._shared_resources.append(weight_sync)
 
         # Setup sync queues
@@ -162,7 +166,7 @@ class OffPolicyRunner(AsyncRunner):
             log_backend=logger_type,
         )
         logger.set_collection_sync(self.sync_collection, self.env_steps_per_sync)
-        if hasattr(self.learner, 'use_symmetry') and self.learner.use_symmetry:
+        if hasattr(self.learner, "use_symmetry") and self.learner.use_symmetry:
             logger.log_status("Symmetry augmentation: enabled")
         logger.start()
 
@@ -179,20 +183,25 @@ class OffPolicyRunner(AsyncRunner):
             wait_start = time.time()
             if self.sync_collection and collection_ready_queue:
                 import queue
+
                 while True:
                     try:
                         collection_ready_queue.get(timeout=1.0)
                         break
                     except queue.Empty:
                         if not self._check_collector_alive():
-                            self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
+                            self._drain_metrics(
+                                metrics_queue, reward_history, latest_reward_components, logger
+                            )
                             logger.log_status("[red]ERROR: Collector died[/]")
                             logger.finish()
                             return
             else:
                 while int(replay_buffer.size[0]) < self.batch_size:
                     if not self._check_collector_alive():
-                        self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
+                        self._drain_metrics(
+                            metrics_queue, reward_history, latest_reward_components, logger
+                        )
                         logger.log_status("[red]ERROR: Collector died[/]")
                         logger.finish()
                         return
@@ -201,7 +210,9 @@ class OffPolicyRunner(AsyncRunner):
                         last_buf_log = cur_size
                         logger.log_buffer_fill(cur_size, self.batch_size)
                     time.sleep(0.1)
-                    self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
+                    self._drain_metrics(
+                        metrics_queue, reward_history, latest_reward_components, logger
+                    )
 
             wait_time = time.time() - wait_start
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
@@ -209,6 +220,7 @@ class OffPolicyRunner(AsyncRunner):
 
             train_start = time.time()
             from collections import defaultdict
+
             iter_metrics = defaultdict(list)
             ptr_before = int(replay_buffer.ptr[0])
 
@@ -237,7 +249,12 @@ class OffPolicyRunner(AsyncRunner):
             sync_start = time.time()
 
             if self.obs_normalization and getattr(self.learner, "obs_normalizer", None) is not None:
-                shared_obs_normalizer_stats.put((self.learner.obs_normalizer.mean.cpu().numpy(), self.learner.obs_normalizer.std.cpu().numpy()))
+                shared_obs_normalizer_stats.put(
+                    (
+                        self.learner.obs_normalizer.mean.cpu().numpy(),
+                        self.learner.obs_normalizer.std.cpu().numpy(),
+                    )
+                )
 
             self.learner.update_count += 1
             weight_sync.write_weights(self.learner.actor.state_dict())
@@ -253,6 +270,7 @@ class OffPolicyRunner(AsyncRunner):
             logger.update_buffer_utilization(write_read_ema)
 
             import statistics
+
             avg_metrics = {k: statistics.mean(v) for k, v in iter_metrics.items() if v}
             mean_reward = statistics.mean(reward_history) if reward_history else 0.0
 
@@ -312,7 +330,11 @@ class OffPolicyRunner(AsyncRunner):
                     )
 
                 if "total_steps" in m and "buffer_size" in m:
-                    logger.log_collector(m["total_steps"], m["buffer_size"], m.get("mean_ep_reward", 0.0) if updated_rew else 0.0)
+                    logger.log_collector(
+                        m["total_steps"],
+                        m["buffer_size"],
+                        m.get("mean_ep_reward", 0.0) if updated_rew else 0.0,
+                    )
 
             except Exception:
                 break

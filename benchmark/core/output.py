@@ -1,8 +1,10 @@
 """Output formatting utilities."""
+
 import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
+
 
 def print_table(records: List[Dict[str, Any]], headers: List[str]) -> None:
     if not records:
@@ -18,6 +20,7 @@ def print_table(records: List[Dict[str, Any]], headers: List[str]) -> None:
     print("-+-".join("-" * w for w in col_w))
     for row in rows:
         print(fmt(row))
+
 
 def save_json(path: Path, results: List[Dict], meta: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)

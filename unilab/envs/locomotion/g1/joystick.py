@@ -1,4 +1,5 @@
 """G1 Joystick environments - PPO and SAC variants."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -49,11 +50,35 @@ class RewardConfigPPO:
     max_tilt_deg: float = 25.0
     pose_weights: list[float] = field(
         default_factory=lambda: [
-            0.01, 1.0, 5.0, 0.01, 5.0, 5.0,
-            0.01, 1.0, 5.0, 0.01, 5.0, 5.0,
-            50.0, 50.0, 50.0,
-            50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0,
-            50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0,
+            0.01,
+            1.0,
+            5.0,
+            0.01,
+            5.0,
+            5.0,
+            0.01,
+            1.0,
+            5.0,
+            0.01,
+            5.0,
+            5.0,
+            50.0,
+            50.0,
+            50.0,
+            50.0,
+            50.0,
+            50.0,
+            50.0,
+            50.0,
+            50.0,
+            50.0,
+            50.0,
+            50.0,
+            50.0,
+            50.0,
+            50.0,
+            50.0,
+            50.0,
         ]
     )
 
@@ -73,11 +98,15 @@ class G1JoystickPPOCfg(G1BaseCfg):
 @registry.env("G1JoystickFlatTerrain", sim_backend="motrix")
 class G1JoystickPPO(G1BaseEnv):
     def __init__(self, cfg: G1JoystickPPOCfg, num_envs=1, backend_type="mujoco"):
-        backend = create_backend(backend_type, cfg.model_file, num_envs, cfg.sim_dt, body_name=cfg.asset.body_name)
+        backend = create_backend(
+            backend_type, cfg.model_file, num_envs, cfg.sim_dt, body_name=cfg.asset.body_name
+        )
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True
 
-        self._gait_phase_delta = float(2.0 * math.pi * cfg.reward_config.gait_frequency * cfg.ctrl_dt)
+        self._gait_phase_delta = float(
+            2.0 * math.pi * cfg.reward_config.gait_frequency * cfg.ctrl_dt
+        )
         self._pose_weights = np.array(cfg.reward_config.pose_weights, dtype=get_global_dtype())
         if self._pose_weights.shape[0] != self._num_action:
             raise ValueError(f"pose_weights length mismatch")
@@ -118,7 +147,9 @@ class G1JoystickPPO(G1BaseEnv):
 
         max_tilt_rad = np.deg2rad(self._cfg.reward_config.max_tilt_deg)
         tilt = np.arccos(np.clip(gravity[:, 2], -1, 1))
-        terminated = np.logical_or(tilt > max_tilt_rad, qpos[:, 2] < self._cfg.reward_config.min_base_height)
+        terminated = np.logical_or(
+            tilt > max_tilt_rad, qpos[:, 2] < self._cfg.reward_config.min_base_height
+        )
 
         reward = self._compute_reward(state.info, linvel, gyro, gravity, dof_pos, dof_vel, qpos)
         obs = self._compute_obs(state.info, linvel, gyro, gravity, dof_pos, dof_vel)
@@ -129,17 +160,28 @@ class G1JoystickPPO(G1BaseEnv):
         command = info["commands"]
         last_actions = info.get("current_actions", np.zeros_like(diff))
         gait_phase = info.get("gait_phase", np.zeros((self._num_envs, 2), dtype=get_global_dtype()))
-        return np.concatenate([linvel, gyro, -gravity, diff, dof_vel, last_actions, command, gait_phase], axis=1, dtype=get_global_dtype())
+        return np.concatenate(
+            [linvel, gyro, -gravity, diff, dof_vel, last_actions, command, gait_phase],
+            axis=1,
+            dtype=get_global_dtype(),
+        )
 
     def get_obs_structure(self) -> dict:
         """Return observation structure for symmetry augmentation."""
         return {
-            'linvel': 3, 'gyro': 3, 'gravity': 3,
-            'dof_pos': self._num_action, 'dof_vel': self._num_action, 'actions': self._num_action,
-            'command': 3, 'gait_phase': 2
+            "linvel": 3,
+            "gyro": 3,
+            "gravity": 3,
+            "dof_pos": self._num_action,
+            "dof_vel": self._num_action,
+            "actions": self._num_action,
+            "command": 3,
+            "gait_phase": 2,
         }
 
-    def _compute_reward(self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel, qpos) -> np.ndarray:
+    def _compute_reward(
+        self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel, qpos
+    ) -> np.ndarray:
         dtype = get_global_dtype()
         reward = np.zeros((self._num_envs,), dtype=dtype)
         cfg = self._cfg.reward_config
@@ -186,8 +228,12 @@ class G1JoystickPPO(G1BaseEnv):
                 bezier = t**3 + 3 * (t**2 * (1 - t))
                 return y_start + y_diff * bezier
 
-            stance = cubic_bezier_interpolation(np.zeros_like(x), np.full_like(x, swing_height), 2 * x)
-            swing = cubic_bezier_interpolation(np.full_like(x, swing_height), np.zeros_like(x), 2 * x - 1)
+            stance = cubic_bezier_interpolation(
+                np.zeros_like(x), np.full_like(x, swing_height), 2 * x
+            )
+            swing = cubic_bezier_interpolation(
+                np.full_like(x, swing_height), np.zeros_like(x), 2 * x - 1
+            )
             return np.where(x <= 0.5, stance, swing)
 
         swing_height = self._cfg.reward_config.feet_phase_swing_height
@@ -195,7 +241,9 @@ class G1JoystickPPO(G1BaseEnv):
         right_target = cubic_bezier_height(gait_phase[:, 1], swing_height)
         left_error = np.square(left_foot[:, 2] - left_target)
         right_error = np.square(right_foot[:, 2] - right_target)
-        return np.exp(-(left_error + right_error) / self._cfg.reward_config.feet_phase_tracking_sigma)
+        return np.exp(
+            -(left_error + right_error) / self._cfg.reward_config.feet_phase_tracking_sigma
+        )
 
     def _reward_lin_vel_z(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
         return np.square(linvel[:, 2])
@@ -242,10 +290,12 @@ class G1JoystickPPO(G1BaseEnv):
             "commands": commands,
             "current_actions": np.zeros((num_reset, self._num_action), dtype=dtype),
             "last_actions": np.zeros((num_reset, self._num_action), dtype=dtype),
-            "gait_phase": np.column_stack([
-                np.random.uniform(0, 2 * np.pi, num_reset),
-                np.random.uniform(0, 2 * np.pi, num_reset) + np.pi
-            ]).astype(dtype),
+            "gait_phase": np.column_stack(
+                [
+                    np.random.uniform(0, 2 * np.pi, num_reset),
+                    np.random.uniform(0, 2 * np.pi, num_reset) + np.pi,
+                ]
+            ).astype(dtype),
         }
 
         linvel = self.get_local_linvel()[env_indices]
@@ -260,10 +310,11 @@ class G1JoystickPPO(G1BaseEnv):
         state.info["last_actions"] = state.info.get("current_actions", np.zeros_like(actions))
         state.info["current_actions"] = actions
 
-        gait_phase = state.info.get("gait_phase", np.zeros((self._num_envs, 2), dtype=get_global_dtype()))
+        gait_phase = state.info.get(
+            "gait_phase", np.zeros((self._num_envs, 2), dtype=get_global_dtype())
+        )
         gait_phase[:, 0] = (gait_phase[:, 0] + self._gait_phase_delta) % (2 * np.pi)
         gait_phase[:, 1] = (gait_phase[:, 1] + self._gait_phase_delta) % (2 * np.pi)
         state.info["gait_phase"] = gait_phase
 
         return actions * self._cfg.control_config.action_scale + self.default_angles
-

@@ -25,9 +25,7 @@ def get_rsl_rl_version() -> str:
         try:
             return importlib.metadata.version("rsl-rl")
         except importlib.metadata.PackageNotFoundError:
-            raise ImportError(
-                "rsl_rl is not installed. Install via: pip install rsl-rl-lib"
-            )
+            raise ImportError("rsl_rl is not installed. Install via: pip install rsl-rl-lib")
 
 
 def is_rsl_rl_v4() -> bool:
@@ -91,11 +89,19 @@ def convert_config_v3_to_v4(cfg: dict) -> dict:
 
         # Strip mlx_ppo-only parameters that rsl_rl PPO does not accept
         _MLX_PPO_ONLY_KEYS = {
-            "adaptive_kl_beta", "adaptive_lr_decay", "adaptive_lr_growth",
-            "adaptive_lr_update_interval", "target_kl_stop", "fast_mode",
-            "metrics_interval", "finite_check_interval", "enable_compile",
-            "warmup_strict_iters", "warmup_metrics_interval",
-            "warmup_finite_check_interval", "disable_finite_checks",
+            "adaptive_kl_beta",
+            "adaptive_lr_decay",
+            "adaptive_lr_growth",
+            "adaptive_lr_update_interval",
+            "target_kl_stop",
+            "fast_mode",
+            "metrics_interval",
+            "finite_check_interval",
+            "enable_compile",
+            "warmup_strict_iters",
+            "warmup_metrics_interval",
+            "warmup_finite_check_interval",
+            "disable_finite_checks",
         }
         for key in _MLX_PPO_ONLY_KEYS:
             cfg["algorithm"].pop(key, None)
@@ -113,7 +119,7 @@ def convert_config_v3_to_v4(cfg: dict) -> dict:
             obs_groups["actor"] = ["policy"]
         if "critic" not in obs_groups:
             obs_groups["critic"] = ["policy"]
-            
+
     cfg["obs_groups"] = obs_groups
 
     return cfg

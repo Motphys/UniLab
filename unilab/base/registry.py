@@ -56,13 +56,19 @@ def envcfg(name: str) -> Callable[[Type[TEnvCfg]], Type[TEnvCfg]]:
 def register_env(name: str, env_cls: Type[ABEnv], sim_backend: str):
     """Register an environment class with a name and simulation backend."""
     if sim_backend not in ["mujoco", "motrix", "motrix_numba"]:
-        raise ValueError(f"Unsupported simulation backend: {sim_backend}. Only 'mujoco', 'motrix', and 'motrix_numba' are supported.")
+        raise ValueError(
+            f"Unsupported simulation backend: {sim_backend}. Only 'mujoco', 'motrix', and 'motrix_numba' are supported."
+        )
 
     if name not in _envs:
-        raise ValueError(f"Environment '{name}' is not registered. Please register the config first.")
+        raise ValueError(
+            f"Environment '{name}' is not registered. Please register the config first."
+        )
 
     if sim_backend in _envs[name].env_cls_dict:
-        raise ValueError(f"Environment '{name}' with sim backend '{sim_backend}' is already registered.")
+        raise ValueError(
+            f"Environment '{name}' with sim backend '{sim_backend}' is already registered."
+        )
 
     _envs[name].env_cls_dict[sim_backend] = env_cls
 
@@ -126,7 +132,9 @@ def make(
             if hasattr(env_cfg, key):
                 setattr(env_cfg, key, value)
             else:
-                raise ValueError(f"Config class '{env_cfg.__class__.__name__}' has no attribute '{key}'")
+                raise ValueError(
+                    f"Config class '{env_cfg.__class__.__name__}' has no attribute '{key}'"
+                )
 
     # Validate config
     env_cfg.validate()
@@ -138,7 +146,9 @@ def make(
             raise ValueError(f"Environment '{name}' does not support any simulation backend.")
 
     if not meta.support_sim_backend(sim_backend):
-        raise ValueError(f"Environment '{name}' does not support simulation backend '{sim_backend}'.")
+        raise ValueError(
+            f"Environment '{name}' does not support simulation backend '{sim_backend}'."
+        )
 
     # Create environment instance
     env_cls = meta.env_cls_dict[sim_backend]

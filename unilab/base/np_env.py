@@ -19,7 +19,6 @@ class NpEnvState:
     truncated: np.ndarray
     info: dict
     critic_obs: Optional[np.ndarray] = None
-    
 
     @property
     def done(self) -> np.ndarray:
@@ -39,7 +38,7 @@ class NpEnv(ABEnv):
         self._state = None
         self.step_counter = 0
         self.push_robots_flag = False
-        if self._backend.backend_type == 'motrix':
+        if self._backend.backend_type == "motrix":
             self._backend._process_rigid_body_props(cfg)
             if self._cfg.domain_rand.push_robots == True:
                 self.push_robots_flag = True
@@ -63,20 +62,21 @@ class NpEnv(ABEnv):
         terminated = np.ones((self._num_envs,), dtype=bool)
         truncated = np.zeros((self._num_envs,), dtype=bool)
         info = {"steps": np.zeros((self._num_envs,), dtype=np.uint32)}
-        
+
         self._state = NpEnvState(obs, reward, terminated, truncated, info)
         self._reset_done_envs()
         return self._state
 
     def step(self, actions: np.ndarray) -> NpEnvState:
         import time
+
         step_t0 = time.perf_counter()
 
         if self._state is None:
             self.init_state()
 
         ctrl = self.apply_action(actions, self._state)
-        
+
         self.push_robots()
 
         t0 = time.perf_counter()
@@ -90,7 +90,9 @@ class NpEnv(ABEnv):
         self._state.info["steps"] += 1
         self.step_counter += 1
         if self._cfg.max_episode_steps:
-            np.greater_equal(self._state.info["steps"], self._cfg.max_episode_steps, out=self._state.truncated)
+            np.greater_equal(
+                self._state.info["steps"], self._cfg.max_episode_steps, out=self._state.truncated
+            )
 
         done = self._state.done
         t0 = time.perf_counter()
@@ -136,7 +138,7 @@ class NpEnv(ABEnv):
                         self._state.info[key] = value
                 elif isinstance(value, np.ndarray):
                     self._state.info[key][env_indices] = value
-    
+
     def push_robots(self):
         if self.push_robots_flag == True:
             if self.step_counter % self._cfg.domain_rand.push_interval == 0:
@@ -145,7 +147,6 @@ class NpEnv(ABEnv):
     @abc.abstractmethod
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
         """子类实现：action → ctrl"""
-
 
     @abc.abstractmethod
     def update_state(self, state: NpEnvState) -> NpEnvState:

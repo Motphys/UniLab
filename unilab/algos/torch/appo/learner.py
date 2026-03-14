@@ -23,11 +23,11 @@ from itertools import chain
 
 def vtrace_advantages(
     behavior_log_probs,  # [T, N]  log π_b(a|s) from worker
-    target_log_probs,    # [T, N]  log π_target(a|s) from target network
-    rewards,             # [T, N]
-    values,              # [T, N]
-    bootstrap_values,    # [N]     V(s_{T})
-    dones,               # [T, N]  float
+    target_log_probs,  # [T, N]  log π_target(a|s) from target network
+    rewards,  # [T, N]
+    values,  # [T, N]
+    bootstrap_values,  # [N]     V(s_{T})
+    dones,  # [T, N]  float
     gamma=0.99,
     clip_rho=1.0,
     clip_c=1.0,
@@ -91,6 +91,7 @@ def vtrace_advantages(
 import torch.nn as nn
 from torch.distributions import Normal
 
+
 class APPOActorWrapper(nn.Module):
     def __init__(self, core_model, action_dim):
         super().__init__()
@@ -100,7 +101,7 @@ class APPOActorWrapper(nn.Module):
 
     def forward(self, obs_dict, stochastic_output=False, **kwargs):
         mean = self.core(obs_dict, **kwargs)
-        self.distribution = Normal(mean, mean * 0. + self.std)
+        self.distribution = Normal(mean, mean * 0.0 + self.std)
         if stochastic_output:
             return self.distribution.sample()
         return mean
@@ -123,6 +124,7 @@ class APPOActorWrapper(nn.Module):
     def update_normalization(self, obs_dict, **kwargs):
         if hasattr(self.core, "update_normalization"):
             self.core.update_normalization(obs_dict, **kwargs)
+
 
 class APPOLearner:
     """Asynchronous PPO Learner.
@@ -211,16 +213,10 @@ class APPOLearner:
 
     def update_target_network(self):
         """Soft update target actor: target = tau * current + (1 - tau) * target."""
-        for target_param, param in zip(
-            self.target_actor.parameters(), self.actor.parameters()
-        ):
-            target_param.data.copy_(
-                self.tau * param.data + (1.0 - self.tau) * target_param.data
-            )
+        for target_param, param in zip(self.target_actor.parameters(), self.actor.parameters()):
+            target_param.data.copy_(self.tau * param.data + (1.0 - self.tau) * target_param.data)
         # Also copy buffers (e.g. normalization stats)
-        for target_buf, buf in zip(
-            self.target_actor.buffers(), self.actor.buffers()
-        ):
+        for target_buf, buf in zip(self.target_actor.buffers(), self.actor.buffers()):
             target_buf.data.copy_(buf.data)
 
     def get_weights(self):
@@ -245,13 +241,13 @@ class APPOLearner:
         Uses target network log-probs and behavior log-probs to compute
         importance-sampling-corrected value targets and advantages.
         """
-        obs = batch_dict["observations"]       # [T, N, D]
-        rewards = batch_dict["rewards"]         # [T, N]
-        dones = batch_dict["dones"].float()     # [T, N]
+        obs = batch_dict["observations"]  # [T, N, D]
+        rewards = batch_dict["rewards"]  # [T, N]
+        dones = batch_dict["dones"].float()  # [T, N]
         truncated = batch_dict["truncated"].float()  # [T, N]
-        last_obs = batch_dict["last_obs"]       # [N, D]
+        last_obs = batch_dict["last_obs"]  # [N, D]
         behavior_log_probs = batch_dict["actions_log_prob"]  # [T, N]
-        actions = batch_dict["actions"]         # [T, N, A]
+        actions = batch_dict["actions"]  # [T, N, A]
 
         T, N = obs.shape[:2]
         obs_flat = obs.flatten(0, 1)  # [T*N, D]
@@ -327,12 +323,16 @@ class APPOLearner:
         target_log_probs_flat = batch_dict["target_log_probs"].flatten(0, 1)
 
         # Normalize advantages globally
-        advantages_flat = (advantages_flat - advantages_flat.mean()) / (advantages_flat.std() + 1e-8)
+        advantages_flat = (advantages_flat - advantages_flat.mean()) / (
+            advantages_flat.std() + 1e-8
+        )
 
         # Reuse cached TensorDict from process_batch if available
         obs_td = batch_dict.get("_obs_td")
         if obs_td is None:
-            obs_td = TensorDict({"policy": obs_flat}, batch_size=obs_flat.shape[0], device=self.device)
+            obs_td = TensorDict(
+                {"policy": obs_flat}, batch_size=obs_flat.shape[0], device=self.device
+            )
 
         # Compute old mu/sigma using target actor for KL divergence
         with torch.inference_mode():
@@ -399,7 +399,8 @@ class APPOLearner:
                     with torch.inference_mode():
                         kl = torch.sum(
                             torch.log(sigma / old_sigma_mini + 1e-5)
-                            + (old_sigma_mini.pow(2) + (old_mu_mini - mu).pow(2)) / (2.0 * sigma.pow(2))
+                            + (old_sigma_mini.pow(2) + (old_mu_mini - mu).pow(2))
+                            / (2.0 * sigma.pow(2))
                             - 0.5,
                             dim=-1,
                         )
@@ -417,7 +418,9 @@ class APPOLearner:
 
                 # Value Loss with clipping
                 if self.use_clipped_value_loss:
-                    value_clipped = old_values_mini + (value - old_values_mini).clamp(-self.clip_param, self.clip_param)
+                    value_clipped = old_values_mini + (value - old_values_mini).clamp(
+                        -self.clip_param, self.clip_param
+                    )
                     value_losses = (value - target_values_mini).pow(2)
                     value_losses_clipped = (value_clipped - target_values_mini).pow(2)
                     value_loss = torch.max(value_losses, value_losses_clipped).mean()
@@ -425,12 +428,16 @@ class APPOLearner:
                     value_loss = (value - target_values_mini).pow(2).mean()
 
                 # Total loss
-                loss = surrogate_loss + self.value_loss_coef * value_loss - self.entropy_coef * entropy
+                loss = (
+                    surrogate_loss + self.value_loss_coef * value_loss - self.entropy_coef * entropy
+                )
 
                 # Gradient step
                 self.optimizer.zero_grad(set_to_none=True)
                 loss.backward()
-                nn.utils.clip_grad_norm_(chain(self.actor.parameters(), self.critic.parameters()), self.max_grad_norm)
+                nn.utils.clip_grad_norm_(
+                    chain(self.actor.parameters(), self.critic.parameters()), self.max_grad_norm
+                )
                 self.optimizer.step()
 
                 mean_value_loss += value_loss.item()

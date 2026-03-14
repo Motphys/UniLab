@@ -16,7 +16,7 @@ from unilab.base.dtype_config import get_global_dtype
 @dataclass
 class NoiseConfig:
     level: float = 1.0
-    scale_joint_angle: float = 0.02   # rad
+    scale_joint_angle: float = 0.02  # rad
 
 
 @dataclass
@@ -32,8 +32,8 @@ class ControlConfig:
 @dataclass
 class AllegroBaseCfg(EnvCfg):
     model_file: str = ""
-    sim_dt: float = 0.005   # 5 ms physics step
-    ctrl_dt: float = 0.05   # 50 ms control step  →  10 substeps
+    sim_dt: float = 0.005  # 5 ms physics step
+    ctrl_dt: float = 0.05  # 50 ms control step  →  10 substeps
     noise_config: NoiseConfig = field(default_factory=NoiseConfig)
     control_config: ControlConfig = field(default_factory=ControlConfig)
 
@@ -64,10 +64,10 @@ class AllegroBaseMjEnv(NpEnv):
         # Set PD gains in MuJoCo model
         self._backend.model.actuator_gainprm[:, 0] = cfg.control_config.kp
         self._backend.model.actuator_biasprm[:, 1] = -cfg.control_config.kp
-        self._backend.model.dof_damping[:self._NUM_HAND_DOF] = cfg.control_config.kd
+        self._backend.model.dof_damping[: self._NUM_HAND_DOF] = cfg.control_config.kd
 
-        self.nq = self._backend.model.nq   # 23
-        self.nv = self._backend.model.nv   # 22
+        self.nq = self._backend.model.nq  # 23
+        self.nv = self._backend.model.nv  # 22
 
         # physics_state offsets
         self._idx_qpos = 1
@@ -79,10 +79,10 @@ class AllegroBaseMjEnv(NpEnv):
         )
 
         # ball positions inside physics_state
-        self._ps_ball_pos  = self._idx_qpos + self._NUM_HAND_DOF       # 17
-        self._ps_ball_quat = self._idx_qpos + self._NUM_HAND_DOF + 3   # 20
-        self._ps_ball_linv = self._idx_qvel + self._NUM_HAND_DOF       # 40
-        self._ps_ball_angv = self._idx_qvel + self._NUM_HAND_DOF + 3   # 43
+        self._ps_ball_pos = self._idx_qpos + self._NUM_HAND_DOF  # 17
+        self._ps_ball_quat = self._idx_qpos + self._NUM_HAND_DOF + 3  # 20
+        self._ps_ball_linv = self._idx_qvel + self._NUM_HAND_DOF  # 40
+        self._ps_ball_angv = self._idx_qvel + self._NUM_HAND_DOF + 3  # 43
 
         # joint limits (shape: (16,))
         self._ctrl_lower = self._backend.model.actuator_ctrlrange[:, 0].astype(self._np_dtype)
@@ -111,11 +111,11 @@ class AllegroBaseMjEnv(NpEnv):
         if key_id < 0:
             raise ValueError("Keyframe 'home' not found in model.")
 
-        self._init_qpos = self._backend.model.key_qpos[key_id].copy()   # (nq,) float64
-        self._init_ctrl = self._backend.model.key_ctrl[key_id].copy()   # (nu,) float64
+        self._init_qpos = self._backend.model.key_qpos[key_id].copy()  # (nq,) float64
+        self._init_ctrl = self._backend.model.key_ctrl[key_id].copy()  # (nu,) float64
 
         # Default hand pose (first 16 entries of qpos)
-        self.default_angles = self._init_qpos[:self._NUM_HAND_DOF].astype(self._np_dtype)
+        self.default_angles = self._init_qpos[: self._NUM_HAND_DOF].astype(self._np_dtype)
 
     # ── Action / control ────────────────────────────────────────────
 

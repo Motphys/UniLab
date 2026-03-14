@@ -21,6 +21,7 @@ import torch
 # helpers
 # ---------------------------------------------------------------------------
 
+
 def sync_device(device: str) -> None:
     if device == "cuda":
         torch.cuda.synchronize()
@@ -30,11 +31,11 @@ def sync_device(device: str) -> None:
 
 def make_shared_buffers(capacity: int, obs_dim: int, action_dim: int):
     """Create 6 shared-memory tensors that mimic a real SharedReplayBuffer."""
-    obs       = torch.zeros(capacity, obs_dim).share_memory_()
-    next_obs  = torch.zeros(capacity, obs_dim).share_memory_()
-    actions   = torch.zeros(capacity, action_dim).share_memory_()
-    rewards   = torch.zeros(capacity).share_memory_()
-    dones     = torch.zeros(capacity).share_memory_()
+    obs = torch.zeros(capacity, obs_dim).share_memory_()
+    next_obs = torch.zeros(capacity, obs_dim).share_memory_()
+    actions = torch.zeros(capacity, action_dim).share_memory_()
+    rewards = torch.zeros(capacity).share_memory_()
+    dones = torch.zeros(capacity).share_memory_()
     truncated = torch.zeros(capacity).share_memory_()
 
     # Fill with realistic random data
@@ -49,6 +50,7 @@ def make_shared_buffers(capacity: int, obs_dim: int, action_dim: int):
 # ---------------------------------------------------------------------------
 # measurement helpers
 # ---------------------------------------------------------------------------
+
 
 def _measure_cpu_index(buffers, indices):
     """CPU scatter read only – no H2D."""
@@ -73,11 +75,11 @@ def _measure_full(buffers, indices, device):
     """Full flow: CPU scatter read + H2D."""
     obs, next_obs, actions, rewards, dones, truncated = buffers
     _ = {
-        "obs":      obs[indices].to(device),
+        "obs": obs[indices].to(device),
         "next_obs": next_obs[indices].to(device),
-        "actions":  actions[indices].to(device),
-        "rewards":  rewards[indices].to(device),
-        "dones":    dones[indices].to(device),
+        "actions": actions[indices].to(device),
+        "rewards": rewards[indices].to(device),
+        "dones": dones[indices].to(device),
         "truncated": truncated[indices].to(device),
     }
 
@@ -86,8 +88,16 @@ def _measure_full(buffers, indices, device):
 # benchmarks
 # ---------------------------------------------------------------------------
 
-def run_benchmark(buffers, capacity: int, batch_size: int, device: str,
-                  warmup: int = 5, measured: int = 20, sorted_idx: bool = False):
+
+def run_benchmark(
+    buffers,
+    capacity: int,
+    batch_size: int,
+    device: str,
+    warmup: int = 5,
+    measured: int = 20,
+    sorted_idx: bool = False,
+):
     """
     Returns (cpu_index_ms, h2d_ms, total_ms) as (mean, std) tuples.
     """
@@ -142,6 +152,7 @@ def run_benchmark(buffers, capacity: int, batch_size: int, device: str,
 # entry point
 # ---------------------------------------------------------------------------
 
+
 def main():
     # Device detection
     if torch.cuda.is_available():
@@ -157,12 +168,12 @@ def main():
     print(f"Platform: {sys.platform}\n")
 
     # --- config (aligned with real training) ---
-    capacity   = 4096 * 1024   # 4,194,304
-    obs_dim    = 45
+    capacity = 4096 * 1024  # 4,194,304
+    obs_dim = 45
     action_dim = 12
-    batch_size = 8192 * 8      # 65,536  (batch_size × updates_per_step)
-    warmup     = 5
-    measured   = 20
+    batch_size = 8192 * 8  # 65,536  (batch_size × updates_per_step)
+    warmup = 5
+    measured = 20
 
     print("=== Index Sort Benchmark (MPS) ===")
     print(f"capacity={capacity:,}  batch={batch_size:,}  fields=6\n")
@@ -209,9 +220,9 @@ def main():
     def row(label, cpu_m, cpu_s, h2d_m, h2d_s, tot_m, tot_s_v):
         return (
             f"{label:20s}"
-            f"{cpu_m:>{w-5}.2f} ms ±{cpu_s:.2f}  "
-            f"{h2d_m:>{w-5}.2f} ms ±{h2d_s:.2f}  "
-            f"{tot_m:>{w-5}.2f} ms ±{tot_s_v:.2f}"
+            f"{cpu_m:>{w - 5}.2f} ms ±{cpu_s:.2f}  "
+            f"{h2d_m:>{w - 5}.2f} ms ±{h2d_s:.2f}  "
+            f"{tot_m:>{w - 5}.2f} ms ±{tot_s_v:.2f}"
         )
 
     print(row("Unsorted:", cpu_u, cpu_u_s, h2d_u, h2d_u_s, tot_u, tot_u_s))
@@ -222,16 +233,18 @@ def main():
     sp_tot = speedup(tot_u, tot_s)
     print(
         f"{'Speedup:':20s}"
-        f"{sp_cpu:>{w-5}.2f}x        "
-        f"{sp_h2d:>{w-5}.2f}x        "
-        f"{sp_tot:>{w-5}.2f}x"
+        f"{sp_cpu:>{w - 5}.2f}x        "
+        f"{sp_h2d:>{w - 5}.2f}x        "
+        f"{sp_tot:>{w - 5}.2f}x"
     )
 
     print("-" * 68)
     print(f"Sort overhead:      {sort_overhead:.2f} ms   (included in Sorted CPU index)")
     sign = "+" if net_gain >= 0 else "-"
-    print(f"Net gain:           {sign}{abs(net_gain):.2f} ms per iteration "
-          f"({'sorted faster' if net_gain >= 0 else 'unsorted faster'})")
+    print(
+        f"Net gain:           {sign}{abs(net_gain):.2f} ms per iteration "
+        f"({'sorted faster' if net_gain >= 0 else 'unsorted faster'})"
+    )
     print("=" * 68)
 
 

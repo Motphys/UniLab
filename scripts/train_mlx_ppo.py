@@ -215,10 +215,16 @@ def play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root
 
         try:
             while True:
-                obs_for_model = obs.astype(play_model_dtype) if getattr(obs, "dtype", None) != play_model_dtype else obs
+                obs_for_model = (
+                    obs.astype(play_model_dtype)
+                    if getattr(obs, "dtype", None) != play_model_dtype
+                    else obs
+                )
                 actions_mx = model.policy(obs_for_model)
                 actions = mx.where(mx.isfinite(actions_mx), actions_mx, mx.zeros_like(actions_mx))
-                actions = actions.astype(dtype) if getattr(actions, "dtype", None) != dtype else actions
+                actions = (
+                    actions.astype(dtype) if getattr(actions, "dtype", None) != dtype else actions
+                )
                 env_actions = np.asarray(actions)
                 state = env.step(env_actions)
                 raw_obs = state.obs
@@ -245,7 +251,9 @@ def play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root
     state_list = []
     print("[MLX PPO] Collecting physics states for play...")
     for _ in range(args.play_steps):
-        obs_for_model = obs.astype(play_model_dtype) if getattr(obs, "dtype", None) != play_model_dtype else obs
+        obs_for_model = (
+            obs.astype(play_model_dtype) if getattr(obs, "dtype", None) != play_model_dtype else obs
+        )
         actions_mx = model.policy(obs_for_model)
         actions = mx.where(mx.isfinite(actions_mx), actions_mx, mx.zeros_like(actions_mx))
         actions = actions.astype(dtype) if getattr(actions, "dtype", None) != dtype else actions
@@ -277,22 +285,47 @@ def play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train or Play PPO with MLX + NumPy only.")
     parser.add_argument("--task", type=str, required=True, help="Task name")
-    parser.add_argument("--sim_backend", type=str, default="mujoco", choices=["mujoco", "motrix"], help="Simulator backend")
+    parser.add_argument(
+        "--sim_backend",
+        type=str,
+        default="mujoco",
+        choices=["mujoco", "motrix"],
+        help="Simulator backend",
+    )
     parser.add_argument("--play_only", action="store_true", help="Skip training, only play")
     parser.add_argument("--no_play", action="store_true", help="Skip play after training")
-    parser.add_argument("--load_run", type=str, default="-1", help="Run ID to load, run path, or model file path")
-    parser.add_argument("--env_num", type=int, default=None, help="Number of parallel envs (task default if unset)")
+    parser.add_argument(
+        "--load_run", type=str, default="-1", help="Run ID to load, run path, or model file path"
+    )
+    parser.add_argument(
+        "--env_num", type=int, default=None, help="Number of parallel envs (task default if unset)"
+    )
     parser.add_argument("--play_env_num", type=int, default=16, help="Number of play envs")
-    parser.add_argument("--play_steps", type=int, default=150, help="Number of steps for play video")
-    parser.add_argument("--steps_per_env", type=int, default=None, help="Rollout horizon per iteration")
+    parser.add_argument(
+        "--play_steps", type=int, default=150, help="Number of steps for play video"
+    )
+    parser.add_argument(
+        "--steps_per_env", type=int, default=None, help="Rollout horizon per iteration"
+    )
     parser.add_argument("--max_iterations", type=int, default=None, help="Training iterations")
     parser.add_argument("--learning_rate", type=float, default=None, help="Override learning rate")
     parser.add_argument("--seed", type=int, default=1, help="Random seed")
     parser.add_argument("--log_interval", type=int, default=10, help="Print every N iterations")
-    parser.add_argument("--log_root", type=str, default="logs/mlx_rl_train", help="Root directory for training logs")
+    parser.add_argument(
+        "--log_root", type=str, default="logs/mlx_rl_train", help="Root directory for training logs"
+    )
     parser.add_argument("--save_interval", type=int, default=50, help="Checkpoint save interval")
-    parser.add_argument("--fp16", action="store_true", help="Mixed precision: env/buffer float16, model/optimizer float32 (sets UNILAB_MLX_DTYPE=float16)")
-    parser.add_argument("--logger", type=str, default="tensorboard", choices=["tensorboard", "wandb", "none", "no_print"])
+    parser.add_argument(
+        "--fp16",
+        action="store_true",
+        help="Mixed precision: env/buffer float16, model/optimizer float32 (sets UNILAB_MLX_DTYPE=float16)",
+    )
+    parser.add_argument(
+        "--logger",
+        type=str,
+        default="tensorboard",
+        choices=["tensorboard", "wandb", "none", "no_print"],
+    )
     args = parser.parse_args()
     resolved_sim_backend = args.sim_backend
 
@@ -376,7 +409,14 @@ def main() -> None:
     if args.logger == "wandb":
         try:
             import wandb
-            wandb_run = wandb.init(project="unilab", name=f"mlx_ppo_{args.task}", config=run_meta, dir=log_dir, reinit=True)
+
+            wandb_run = wandb.init(
+                project="unilab",
+                name=f"mlx_ppo_{args.task}",
+                config=run_meta,
+                dir=log_dir,
+                reinit=True,
+            )
         except ImportError:
             log("[Warning] wandb not installed, skipping W&B logging")
 
@@ -408,7 +448,9 @@ def main() -> None:
         max_grad_norm=float(getattr(algo_cfg, "max_grad_norm", 1.0)),
         schedule=str(getattr(algo_cfg, "schedule", "fixed")),
         desired_kl=float(getattr(algo_cfg, "desired_kl", 0.01)),
-        normalize_advantage_per_mini_batch=bool(getattr(algo_cfg, "normalize_advantage_per_mini_batch", False)),
+        normalize_advantage_per_mini_batch=bool(
+            getattr(algo_cfg, "normalize_advantage_per_mini_batch", False)
+        ),
         adaptive_kl_beta=float(getattr(algo_cfg, "adaptive_kl_beta", 0.9)),
         adaptive_lr_growth=float(getattr(algo_cfg, "adaptive_lr_growth", 1.2)),
         adaptive_lr_decay=float(getattr(algo_cfg, "adaptive_lr_decay", 1.5)),
@@ -430,7 +472,9 @@ def main() -> None:
     trainer = PPOTrainer(model, ppo_cfg)
     use_reward_norm = bool(getattr(algo_cfg, "reward_normalization", False))
     reward_normalizer = (
-        EmpiricalDiscountedVariationNormalization(gamma=ppo_cfg.gamma, dtype=model_dtype) if use_reward_norm else None
+        EmpiricalDiscountedVariationNormalization(gamma=ppo_cfg.gamma, dtype=model_dtype)
+        if use_reward_norm
+        else None
     )
 
     if args.load_run != "-1":
@@ -453,7 +497,9 @@ def main() -> None:
                     resumed_it = load_trainer_state(trainer_state_path, trainer, dtype=model_dtype)
                     log(f"[MLX PPO] resumed_trainer_state={trainer_state_path} iter={resumed_it}")
 
-    log(f"[MLX PPO] task={args.task} backend={resolved_sim_backend} envs={args.env_num} steps={num_steps} iters={max_iterations}")
+    log(
+        f"[MLX PPO] task={args.task} backend={resolved_sim_backend} envs={args.env_num} steps={num_steps} iters={max_iterations}"
+    )
     log(f"[MLX PPO] run={timestamp} lr={learning_rate:.6f} fp16={use_fp16}")
     log(
         "[MLX PPO] perf_mode fast_mode={} metrics_interval={} compile={}".format(
@@ -520,7 +566,9 @@ def main() -> None:
         for _ in range(num_steps):
             obs_for_model = obs.astype(model_dtype) if obs.dtype != model_dtype else obs
             t_act0 = time.perf_counter()
-            actions_mx, log_probs_mx, values_mx, action_mean_mx, action_std_mx = model.act(obs_for_model)
+            actions_mx, log_probs_mx, values_mx, action_mean_mx, action_std_mx = model.act(
+                obs_for_model
+            )
             model_act_time += time.perf_counter() - t_act0
             # Conversion boundary: model action → env; clamp Nan/Inf only here.
             actions = mx.where(mx.isfinite(actions_mx), actions_mx, mx.zeros_like(actions_mx))
@@ -533,19 +581,29 @@ def main() -> None:
                 timing_info = state.info.get("timing", {})
                 if isinstance(timing_info, dict):
                     env_step_core_time += float(timing_info.get("step_core_ms", 0.0)) / 1000.0
-                    env_step_postprocess_time += float(timing_info.get("update_state_ms", 0.0)) / 1000.0
+                    env_step_postprocess_time += (
+                        float(timing_info.get("update_state_ms", 0.0)) / 1000.0
+                    )
                     env_step_reset_time += float(timing_info.get("reset_done_ms", 0.0)) / 1000.0
-                    env_reset_index_time += float(timing_info.get("reset_index_extract_ms", 0.0)) / 1000.0
+                    env_reset_index_time += (
+                        float(timing_info.get("reset_index_extract_ms", 0.0)) / 1000.0
+                    )
                     env_reset_call_time += float(timing_info.get("reset_call_ms", 0.0)) / 1000.0
-                    env_reset_scatter_time += float(timing_info.get("reset_scatter_ms", 0.0)) / 1000.0
-                    env_reset_info_merge_time += float(timing_info.get("reset_info_merge_ms", 0.0)) / 1000.0
+                    env_reset_scatter_time += (
+                        float(timing_info.get("reset_scatter_ms", 0.0)) / 1000.0
+                    )
+                    env_reset_info_merge_time += (
+                        float(timing_info.get("reset_info_merge_ms", 0.0)) / 1000.0
+                    )
 
             # Conversion boundary: env output → rollout; sanitize Nan/Inf only here (no forced reset).
             raw_rewards = mx.array(state.reward)
             raw_dones = mx.array(state.done)
             raw_obs = mx.array(state.obs)
             rewards = mx.nan_to_num(raw_rewards, nan=0.0, posinf=0.0, neginf=0.0)
-            dones = mx.where(mx.isfinite(raw_dones), raw_dones, mx.ones_like(raw_dones)).astype(dtype)
+            dones = mx.where(mx.isfinite(raw_dones), raw_dones, mx.ones_like(raw_dones)).astype(
+                dtype
+            )
             next_obs = mx.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0)
             if hasattr(state, "truncated"):
                 timeouts = mx.array(state.truncated, dtype=dtype)
@@ -553,7 +611,11 @@ def main() -> None:
             if rewards.dtype != dtype:
                 rewards = rewards.astype(dtype)
 
-            if collect_reward_components and hasattr(state, "info") and isinstance(state.info, dict):
+            if (
+                collect_reward_components
+                and hasattr(state, "info")
+                and isinstance(state.info, dict)
+            ):
                 step_log = state.info.get("log", {})
                 if isinstance(step_log, dict):
                     for key, value in step_log.items():
@@ -563,10 +625,16 @@ def main() -> None:
                             continue
                         if not math.isfinite(scalar_value):
                             continue
-                        reward_component_sums[key] = reward_component_sums.get(key, 0.0) + scalar_value
+                        reward_component_sums[key] = (
+                            reward_component_sums.get(key, 0.0) + scalar_value
+                        )
                         reward_component_counts[key] = reward_component_counts.get(key, 0) + 1
 
-            rewards_mx = rewards.astype(model_dtype) if reward_normalizer is not None and rewards.dtype != model_dtype else rewards
+            rewards_mx = (
+                rewards.astype(model_dtype)
+                if reward_normalizer is not None and rewards.dtype != model_dtype
+                else rewards
+            )
             if reward_normalizer is not None:
                 rewards_mx = mx.squeeze(reward_normalizer(rewards_mx), axis=-1)
             if reward_normalizer is not None and dtype != model_dtype:
@@ -576,9 +644,15 @@ def main() -> None:
             buffer.add(
                 obs=obs,
                 actions=actions_mx.astype(dtype) if actions_mx.dtype != dtype else actions_mx,
-                log_probs=log_probs_mx.astype(dtype) if log_probs_mx.dtype != dtype else log_probs_mx,
-                action_mean=action_mean_mx.astype(dtype) if action_mean_mx.dtype != dtype else action_mean_mx,
-                action_std=action_std_mx.astype(dtype) if action_std_mx.dtype != dtype else action_std_mx,
+                log_probs=log_probs_mx.astype(dtype)
+                if log_probs_mx.dtype != dtype
+                else log_probs_mx,
+                action_mean=action_mean_mx.astype(dtype)
+                if action_mean_mx.dtype != dtype
+                else action_mean_mx,
+                action_std=action_std_mx.astype(dtype)
+                if action_std_mx.dtype != dtype
+                else action_std_mx,
                 rewards=rewards_mx,
                 dones=dones,
                 values=values_mx.astype(dtype) if values_mx.dtype != dtype else values_mx,
@@ -680,19 +754,21 @@ def main() -> None:
                 "Train/mean_episode_length": mean_ep_len,
             }
             if profile_collection:
-                log_dict.update({
-                    "Perf/model_act_time": model_act_time,
-                    "Perf/env_step_total_time": env_step_total_time,
-                    "Perf/env_step_core_time": env_step_core_time,
-                    "Perf/env_step_postprocess_time": env_step_postprocess_time,
-                    "Perf/env_step_reset_time": env_step_reset_time,
-                    "Perf/env_reset_index_time": env_reset_index_time,
-                    "Perf/env_reset_call_time": env_reset_call_time,
-                    "Perf/env_reset_scatter_time": env_reset_scatter_time,
-                    "Perf/env_reset_info_merge_time": env_reset_info_merge_time,
-                    "Perf/buffer_add_time": buffer_add_time,
-                    "Perf/episode_stats_time": episode_stats_time,
-                })
+                log_dict.update(
+                    {
+                        "Perf/model_act_time": model_act_time,
+                        "Perf/env_step_total_time": env_step_total_time,
+                        "Perf/env_step_core_time": env_step_core_time,
+                        "Perf/env_step_postprocess_time": env_step_postprocess_time,
+                        "Perf/env_step_reset_time": env_step_reset_time,
+                        "Perf/env_reset_index_time": env_reset_index_time,
+                        "Perf/env_reset_call_time": env_reset_call_time,
+                        "Perf/env_reset_scatter_time": env_reset_scatter_time,
+                        "Perf/env_reset_info_merge_time": env_reset_info_merge_time,
+                        "Perf/buffer_add_time": buffer_add_time,
+                        "Perf/episode_stats_time": episode_stats_time,
+                    }
+                )
             for key, summed in reward_component_sums.items():
                 count = reward_component_counts.get(key, 0)
                 if count > 0:
@@ -703,6 +779,7 @@ def main() -> None:
                 wb_dict["Train/mean_reward/time"] = mean_reward
                 wb_dict["Train/mean_episode_length/time"] = mean_ep_len
                 import wandb
+
                 wandb.log(wb_dict, step=it)
 
         if save_interval > 0 and (it % save_interval == 0 or it == max_iterations - 1):
@@ -718,6 +795,7 @@ def main() -> None:
     rich_logger.finish()
     if wandb_run is not None:
         import wandb
+
         wandb.finish()
     log_fp.close()
 

@@ -102,7 +102,7 @@ class OffPolicyLogger:
         self.obs_dim = obs_dim
         self.action_dim = action_dim
 
-        self._no_print = (log_backend.lower() == "no_print")
+        self._no_print = log_backend.lower() == "no_print"
         self._log_backend = "none" if self._no_print else log_backend.lower()
 
         self._console = Console()
@@ -159,6 +159,7 @@ class OffPolicyLogger:
         """Initialize TensorBoard SummaryWriter."""
         try:
             from torch.utils.tensorboard import SummaryWriter
+
             self._tb_writer = SummaryWriter(log_dir=log_dir)
             if not self._no_print:
                 self._console.print(f"[dim]TensorBoard logging to: {log_dir}[/]")
@@ -170,6 +171,7 @@ class OffPolicyLogger:
         """Initialize Weights & Biases run."""
         try:
             import wandb
+
             self._wandb_run = wandb.init(
                 project=project,
                 name=name,
@@ -232,6 +234,7 @@ class OffPolicyLogger:
             self._tb_writer.close()
         if self._wandb_run:
             import wandb
+
             wandb.finish()
 
     # ---- Logging API ----
@@ -250,10 +253,18 @@ class OffPolicyLogger:
 
     def update_collector_timing(self, timing_ms: dict[str, float]):
         """Update collector-side environment timing (milliseconds)."""
-        self._collector_env_step_ms = float(timing_ms.get("env_step_total_ms", self._collector_env_step_ms))
-        self._collector_step_core_ms = float(timing_ms.get("step_core_ms", self._collector_step_core_ms))
-        self._collector_update_state_ms = float(timing_ms.get("update_state_ms", self._collector_update_state_ms))
-        self._collector_reset_done_ms = float(timing_ms.get("reset_done_ms", self._collector_reset_done_ms))
+        self._collector_env_step_ms = float(
+            timing_ms.get("env_step_total_ms", self._collector_env_step_ms)
+        )
+        self._collector_step_core_ms = float(
+            timing_ms.get("step_core_ms", self._collector_step_core_ms)
+        )
+        self._collector_update_state_ms = float(
+            timing_ms.get("update_state_ms", self._collector_update_state_ms)
+        )
+        self._collector_reset_done_ms = float(
+            timing_ms.get("reset_done_ms", self._collector_reset_done_ms)
+        )
 
     def update_done_rates(self, timeout_rate: float, terminated_rate: float):
         """Update timeout/terminated ratio among completed episodes in collector window."""
@@ -306,7 +317,9 @@ class OffPolicyLogger:
         self._refresh()
 
         # ---- Write to backend ----
-        self._backend_log_step(iteration, metrics, reward, reward_components, collect_time, train_time)
+        self._backend_log_step(
+            iteration, metrics, reward, reward_components, collect_time, train_time
+        )
 
     def _backend_log_step(
         self,
@@ -336,9 +349,13 @@ class OffPolicyLogger:
             w.add_scalar("perf/collect_time_ms", collect_time * 1000, global_step)
             w.add_scalar("perf/train_time_ms", train_time * 1000, global_step)
 
-            w.add_scalar("perf/collector_env_step_total_ms", self._collector_env_step_ms, global_step)
+            w.add_scalar(
+                "perf/collector_env_step_total_ms", self._collector_env_step_ms, global_step
+            )
             w.add_scalar("perf/collector_step_core_ms", self._collector_step_core_ms, global_step)
-            w.add_scalar("perf/collector_update_state_ms", self._collector_update_state_ms, global_step)
+            w.add_scalar(
+                "perf/collector_update_state_ms", self._collector_update_state_ms, global_step
+            )
             w.add_scalar("perf/collector_reset_done_ms", self._collector_reset_done_ms, global_step)
             w.add_scalar("perf/rate_timeout", self._timeout_rate, global_step)
             w.add_scalar("perf/rate_terminated", self._terminated_rate, global_step)
@@ -349,6 +366,7 @@ class OffPolicyLogger:
         # ---- W&B ----
         if self._wandb_run:
             import wandb
+
             log_dict = {"iteration": iteration}
             if metrics:
                 for k, v in metrics.items():
@@ -407,7 +425,7 @@ class OffPolicyLogger:
             header_text.append(eta, style="bold magenta")
         header_text.append(f"  │  ", style="dim")
         header_text.append(self._status, style="dim italic")
-        
+
         header_panel = Panel(header_text, style="dim", box=box.SIMPLE)
 
         # Body: side-by-side tables
@@ -420,11 +438,7 @@ class OffPolicyLogger:
         grid.add_column(ratio=1)
         grid.add_row(left, right)
 
-        main_group = Group(
-            header_panel,
-            grid,
-            bottom
-        )
+        main_group = Group(header_panel, grid, bottom)
 
         return Panel(
             main_group,
@@ -499,10 +513,7 @@ class OffPolicyLogger:
             else:
                 trend = ""
 
-            table.add_row(
-                f"[bold]Mean Reward[/] {trend}",
-                f"[bold green]{mean_rew:.3f}[/]"
-            )
+            table.add_row(f"[bold]Mean Reward[/] {trend}", f"[bold green]{mean_rew:.3f}[/]")
             table.add_row("  Peak", f"[dim]{peak_rew:.3f}[/]")
             if self._mean_ep_length > 0:
                 table.add_row("  Ep Len", f"[dim]{self._mean_ep_length:.1f}[/]")
@@ -537,32 +548,44 @@ class OffPolicyLogger:
         elapsed = time.time() - self._start_time if self._start_time else 0
 
         table.add_row(
-            "Elapsed", _fmt_time(elapsed),
-            "Buffer", f"{self._buffer_size:,}",
+            "Elapsed",
+            _fmt_time(elapsed),
+            "Buffer",
+            f"{self._buffer_size:,}",
         )
 
         # Wait time with color coding
         wait_ms = self._wait_time * 1000
         wait_color = "red" if wait_ms > 1.0 else "yellow"
         table.add_row(
-            "Wait", f"[{wait_color}]{wait_ms:.1f}ms[/]",
-            "Train", f"{self._train_time * 1000:.1f}ms",
+            "Wait",
+            f"[{wait_color}]{wait_ms:.1f}ms[/]",
+            "Train",
+            f"{self._train_time * 1000:.1f}ms",
         )
         table.add_row(
-            "Collect", f"{self._collect_time * 1000:.1f}ms",
-            "", "",
+            "Collect",
+            f"{self._collect_time * 1000:.1f}ms",
+            "",
+            "",
         )
         table.add_row(
-            "Phys Step", f"{self._collector_env_step_ms:.1f}ms",
-            "Step Core", f"{self._collector_step_core_ms:.1f}ms",
+            "Phys Step",
+            f"{self._collector_env_step_ms:.1f}ms",
+            "Step Core",
+            f"{self._collector_step_core_ms:.1f}ms",
         )
         table.add_row(
-            "Update", f"{self._collector_update_state_ms:.1f}ms",
-            "Reset", f"{self._collector_reset_done_ms:.1f}ms",
+            "Update",
+            f"{self._collector_update_state_ms:.1f}ms",
+            "Reset",
+            f"{self._collector_reset_done_ms:.1f}ms",
         )
         table.add_row(
-            "Timeout Rate", f"{self._timeout_rate * 100:.1f}%",
-            "Terminated Rate", f"{self._terminated_rate * 100:.1f}%",
+            "Timeout Rate",
+            f"{self._timeout_rate * 100:.1f}%",
+            "Terminated Rate",
+            f"{self._terminated_rate * 100:.1f}%",
         )
 
         util = self._buffer_utilization
@@ -575,17 +598,18 @@ class OffPolicyLogger:
         table.add_row("Write/Read", util_str, "", "")
 
         table.add_row(
-            "Envs", f"{self.num_envs:,}",
-            "Sync Collect", f"{'✓' if self._sync_collection else '✗'} ({self._env_steps_per_sync})" if self._sync_collection else "✗"
+            "Envs",
+            f"{self.num_envs:,}",
+            "Sync Collect",
+            f"{'✓' if self._sync_collection else '✗'} ({self._env_steps_per_sync})"
+            if self._sync_collection
+            else "✗",
         )
 
         # Steps per second
         if elapsed > 0 and self._total_steps > 0:
             sps = self._total_steps / elapsed
-            table.add_row(
-                "Steps/s", f"{sps:,.0f}",
-                "", ""
-            )
+            table.add_row("Steps/s", f"{sps:,.0f}", "", "")
 
         return table
 

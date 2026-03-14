@@ -12,8 +12,9 @@ _SPAWN_CTX = mp.get_context("spawn")
 class SharedWeightSync:
     """Synchronize actor weights between learner and collector."""
 
-    def __init__(self, param_shapes: Dict, *, create: bool = True, shm_name: str | None = None,
-                 lock=None):
+    def __init__(
+        self, param_shapes: Dict, *, create: bool = True, shm_name: str | None = None, lock=None
+    ):
         self._param_shapes = param_shapes
         self._param_names = list(param_shapes.keys())
 
@@ -61,12 +62,13 @@ class SharedWeightSync:
                 param = state_dict[name]
                 arr = param.detach().cpu().numpy().ravel()
                 n = arr.size
-                self._buffer[offset:offset + n] = arr
+                self._buffer[offset : offset + n] = arr
                 offset += n
             self._version_arr[0] += 1
 
     def read_weights_into(self, state_dict) -> int:
         import torch
+
         with self._lock:
             offset = 0
             for name in self._param_names:

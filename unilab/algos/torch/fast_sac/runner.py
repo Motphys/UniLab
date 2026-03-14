@@ -44,14 +44,18 @@ class FastSACRunner(OffPolicyRunner):
         env = registry.make(env_name, num_envs=1, sim_backend=sim_backend)
         obs_dim = env.observation_space.shape[0]
         action_dim = env.action_space.shape[0]
-        mujoco_model = getattr(env, '_backend', None)
+        mujoco_model = getattr(env, "_backend", None)
         if mujoco_model is not None:
-            mujoco_model = getattr(mujoco_model, 'model', None)
-        obs_structure = getattr(env, 'get_obs_structure', lambda: None)()
+            mujoco_model = getattr(mujoco_model, "model", None)
+        obs_structure = getattr(env, "get_obs_structure", lambda: None)()
         env.close()
 
         if device is None:
-            device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
+            device = (
+                "cuda"
+                if torch.cuda.is_available()
+                else ("mps" if torch.backends.mps.is_available() else "cpu")
+            )
 
         learner = FastSACLearner(
             obs_dim=obs_dim,
@@ -78,7 +82,9 @@ class FastSACRunner(OffPolicyRunner):
         # Auto-adjust batch_size when symmetry is enabled
         if use_symmetry:
             batch_size = batch_size // 2
-            print(f"[FastSAC] Symmetry enabled: batch_size adjusted to {batch_size} (effective: {batch_size * 2})")
+            print(
+                f"[FastSAC] Symmetry enabled: batch_size adjusted to {batch_size} (effective: {batch_size * 2})"
+            )
 
         super().__init__(
             learner=learner,
