@@ -239,3 +239,72 @@ def offpolicy_config(algo: str, env_name: str) -> config_dict.ConfigDict:
         )
 
     raise ValueError(f"Unsupported off-policy algo: {algo}")
+
+
+def appo_config(env_name: str) -> config_dict.ConfigDict:
+    """Return APPO config.
+
+    Mirrors the structure of ppo_config/offpolicy_config so training
+    infrastructure is reusable.  Algorithm hyperparams live under the
+    ``algorithm`` sub-dict; network architecture under ``actor``/``critic``.
+    """
+    cfg = config_dict.create(
+        seed=1,
+        num_envs=1024,
+        steps_per_env=24,
+        max_iterations=1500,
+        save_interval=50,
+    )
+
+    if env_name == "Go1JoystickFlatTerrain":
+        cfg.num_envs = 2048
+    elif env_name == "G1JoystickFlatTerrain":
+        cfg.num_envs = 2048
+    elif env_name in ("Go2JoystickFlatTerrain", "Go2LocoFlatTerrain"):
+        pass  # defaults are fine
+
+    return config_dict.create(
+        algo="appo",
+        algo_log_name="appo",
+        seed=cfg.seed,
+        num_envs=cfg.num_envs,
+        steps_per_env=cfg.steps_per_env,
+        max_iterations=cfg.max_iterations,
+        save_interval=cfg.save_interval,
+        # obs_groups["actor"]["policy"] is auto-detected at runtime by APPORunner
+        obs_groups=config_dict.create(
+            actor=config_dict.create(policy=0),
+        ),
+        actor=config_dict.create(
+            class_name="rsl_rl.models.MLPModel",
+            hidden_dims=[512, 256, 128],
+            activation="elu",
+            init_noise_std=1.0,
+            noise_std_type="scalar",
+            stochastic=True,
+        ),
+        critic=config_dict.create(
+            class_name="rsl_rl.models.MLPModel",
+            hidden_dims=[512, 256, 128],
+            activation="elu",
+        ),
+        algorithm=config_dict.create(
+            num_learning_epochs=5,
+            num_mini_batches=4,
+            clip_param=0.2,
+            gamma=0.99,
+            lam=0.95,
+            value_loss_coef=1.0,
+            entropy_coef=0.01,
+            learning_rate=1e-3,
+            max_grad_norm=1.0,
+            use_clipped_value_loss=True,
+            schedule="adaptive",
+            desired_kl=0.01,
+            optimizer="adam",
+            tau=1.0,
+            target_update_freq=1,
+            vtrace_clip_rho=1.0,
+            vtrace_clip_c=1.0,
+        ),
+    )
