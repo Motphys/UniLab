@@ -144,6 +144,7 @@ class AsyncPPORunner(AsyncRunner):
         hw_monitor = HardwareMonitor()
 
         # Training loop
+        total_env_steps = 0
         for iteration in range(1, max_iterations + 1):
             iter_start = time.time()
 
@@ -169,6 +170,10 @@ class AsyncPPORunner(AsyncRunner):
             weight_sync.write_weights(state_dict)
 
             train_time = time.time() - train_start
+
+            # Accumulate env steps
+            total_env_steps += metrics.get("env_steps", 0)
+            logger.log_collector(total_env_steps, int(buffer.count[0]))
 
             # Hardware metrics
             if iteration % 10 == 0:

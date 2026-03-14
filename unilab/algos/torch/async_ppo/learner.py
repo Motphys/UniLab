@@ -17,6 +17,11 @@ class AsyncPPOLearner:
         rollout = self.buffer.get_latest()
         self._fill_storage(rollout)
 
+        # Calculate env steps from this rollout
+        num_steps = rollout["observations"].shape[0]
+        num_envs = rollout["observations"].shape[1]
+        env_steps = num_steps * num_envs
+
         # Mark rollout as consumed
         self.buffer.count[0] = 0
 
@@ -25,6 +30,9 @@ class AsyncPPOLearner:
 
         metrics = self.ppo.update()
         self.ppo.storage.clear()
+
+        # Add env steps to metrics
+        metrics["env_steps"] = env_steps
 
         return metrics  # type: ignore[no-any-return]
 
