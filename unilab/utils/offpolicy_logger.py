@@ -362,6 +362,10 @@ class OffPolicyLogger:
             elapsed = time.time() - self._start_time if self._start_time else 0
             if elapsed > 0 and self._total_steps > 0:
                 w.add_scalar("perf/steps_per_sec", self._total_steps / elapsed, global_step)
+                # Efficiency metrics for backend comparison
+                w.add_scalar("efficiency/total_time_per_iter_ms", (self._collect_time + self._train_time) * 1000, global_step)
+                w.add_scalar("efficiency/collect_train_ratio", self._collect_time / max(self._train_time, 1e-6), global_step)
+                w.add_scalar("efficiency/throughput_steps_per_sec", self._total_steps / elapsed, global_step)
 
         # ---- W&B ----
         if self._wandb_run:
