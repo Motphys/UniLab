@@ -17,9 +17,11 @@ pytest
 ## Installation
 
 ```bash
+# macOS (MPS)
 uv sync --extra dev
-# or
-make sync
+
+# Linux (CUDA 12.4)
+uv sync --extra dev --extra cu124
 ```
 
 ## Development Workflow

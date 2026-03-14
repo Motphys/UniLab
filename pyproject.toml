@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy",
-    "torch",
+    "torch>=2.6.0",
     "mujoco-uni==3.5.0.post2",
     "gymnasium",
     "imageio",
@@ -35,6 +35,7 @@ dev = [
 motrix = [
     "motrixsim==0.6.0",
 ]
+cu124 = ["torch>=2.6.0"]
 
 [dependency-groups]
 dev = [
@@ -48,8 +49,16 @@ name = "test-pypi"
 url = "https://test.pypi.org/simple/"
 explicit = true
 
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
 [tool.uv.sources]
 mujoco-uni = { index = "test-pypi" }
+torch = [
+  { index = "pytorch-cu124", extra = "cu124", marker = "sys_platform == 'linux'" },
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["unilab"]
