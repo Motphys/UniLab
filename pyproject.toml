@@ -48,14 +48,8 @@ name = "test-pypi"
 url = "https://test.pypi.org/simple/"
 explicit = true
 
-[[tool.uv.index]]
-name = "pytorch-cu121"
-url = "https://download.pytorch.org/whl/cu121"
-explicit = true
-
 [tool.uv.sources]
 mujoco-uni = { index = "test-pypi" }
-torch = { index = "pytorch-cu121", marker = "sys_platform == 'linux'" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["unilab"]
