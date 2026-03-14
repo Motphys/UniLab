@@ -90,7 +90,11 @@ class AsyncPPORunner(AsyncRunner):
         buffer.count.share_memory_()
 
         # Weight sync
-        state_dict = {**ppo.actor.state_dict(), **ppo.critic.state_dict()}
+        state_dict = {
+            f"actor.{k}": v for k, v in ppo.actor.state_dict().items()
+        } | {
+            f"critic.{k}": v for k, v in ppo.critic.state_dict().items()
+        }
         weight_sync = SharedWeightSync.from_state_dict(state_dict, create=True)
         weight_param_shapes = {name: p.shape for name, p in state_dict.items()}
         self._shared_resources.extend([buffer, weight_sync])
@@ -148,7 +152,11 @@ class AsyncPPORunner(AsyncRunner):
             train_start = time.time()
 
             metrics = learner.update()
-            state_dict = {**ppo.actor.state_dict(), **ppo.critic.state_dict()}
+            state_dict = {
+                f"actor.{k}": v for k, v in ppo.actor.state_dict().items()
+            } | {
+                f"critic.{k}": v for k, v in ppo.critic.state_dict().items()
+            }
             weight_sync.write_weights(state_dict)
 
             train_time = time.time() - train_start

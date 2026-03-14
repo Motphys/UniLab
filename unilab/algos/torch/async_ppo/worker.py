@@ -55,10 +55,14 @@ def async_ppo_collector_fn(
 
     # Weight sync
     weight_sync = SharedWeightSync(weight_param_shapes, create=False, shm_name=weight_sync_name)
-    sd = {**ppo.actor.state_dict(), **ppo.critic.state_dict()}
+    sd = {
+        f"actor.{k}": v for k, v in ppo.actor.state_dict().items()
+    } | {
+        f"critic.{k}": v for k, v in ppo.critic.state_dict().items()
+    }
     weight_sync.read_weights_into(sd)
-    ppo.actor.load_state_dict({k: v for k, v in sd.items() if k in ppo.actor.state_dict()})
-    ppo.critic.load_state_dict({k: v for k, v in sd.items() if k in ppo.critic.state_dict()})
+    ppo.actor.load_state_dict({k: sd[f"actor.{k}"] for k in ppo.actor.state_dict().keys()})
+    ppo.critic.load_state_dict({k: sd[f"critic.{k}"] for k in ppo.critic.state_dict().keys()})
     local_version = weight_sync.version
 
     # Reset env
@@ -74,14 +78,14 @@ def async_ppo_collector_fn(
         while not stop_event.is_set():
             # Sync weights
             if weight_sync.version > local_version:
-                sd = {**ppo.actor.state_dict(), **ppo.critic.state_dict()}
+                sd = {
+                    f"actor.{k}": v for k, v in ppo.actor.state_dict().items()
+                } | {
+                    f"critic.{k}": v for k, v in ppo.critic.state_dict().items()
+                }
                 local_version = weight_sync.read_weights_into(sd)
-                ppo.actor.load_state_dict(
-                    {k: v for k, v in sd.items() if k in ppo.actor.state_dict()}
-                )
-                ppo.critic.load_state_dict(
-                    {k: v for k, v in sd.items() if k in ppo.critic.state_dict()}
-                )
+                ppo.actor.load_state_dict({k: sd[f"actor.{k}"] for k in ppo.actor.state_dict().keys()})
+                ppo.critic.load_state_dict({k: sd[f"critic.{k}"] for k in ppo.critic.state_dict().keys()})
 
             # Collect rollout - write directly to shared buffer to avoid copy
             obs_buf = torch.zeros(steps_per_env, num_envs, obs_dim, device=collector_device)
@@ -98,7 +102,7 @@ def async_ppo_collector_fn(
                     )
 
                     # Use PPO.act()
-                    actions = ppo.act(obs_td, stochastic_output=True)
+                    actions = ppo.act(obs_td)
 
                     # Extract from transition
                     log_probs = ppo.transition.actions_log_prob
