@@ -58,7 +58,18 @@ class SharedWeightSync:
         return obj
 
     def write_weights(self, state_dict) -> None:
-        with self._lock:
+        if self._lock is not None:
+            with self._lock:
+                offset = 0
+                for name in self._param_names:
+                    param = state_dict[name]
+                    arr = param.detach().cpu().numpy().ravel()
+                    n = arr.size
+                    self._buffer[offset : offset + n] = arr
+                    offset += n
+                self._version_arr[0] += 1
+        else:
+            # No lock - direct write
             offset = 0
             for name in self._param_names:
                 param = state_dict[name]
@@ -71,7 +82,18 @@ class SharedWeightSync:
     def read_weights_into(self, state_dict) -> int:
         import torch
 
-        with self._lock:
+        if self._lock is not None:
+            with self._lock:
+                offset = 0
+                for name in self._param_names:
+                    param = state_dict[name]
+                    n = param.numel()
+                    data = self._buffer[offset : offset + n].copy()
+                    param.data.copy_(torch.from_numpy(data.reshape(param.shape)))
+                    offset += n
+                return int(self._version_arr[0])
+        else:
+            # No lock - direct read (for subprocess)
             offset = 0
             for name in self._param_names:
                 param = state_dict[name]
