@@ -22,8 +22,8 @@ class SharedOnPolicyStorage:
         _f32 = np.dtype(np.float32).itemsize
         n = num_envs * num_steps
         per_buffer = (
-            n * obs_dim * _f32 + n * action_dim * _f32 + 
-            n * _f32 * 5 + num_envs * obs_dim * _f32
+            n * obs_dim * _f32 + n * action_dim * _f32 +
+            n * _f32 * 4 + num_envs * obs_dim * _f32
         )
         total_bytes = 2 * per_buffer
 
@@ -62,7 +62,7 @@ class SharedOnPolicyStorage:
         views["actions"] = np.ndarray((self.num_envs, self.num_steps, self.action_dim), dtype=np.float32, buffer=buf[offset:])
         offset += n * self.action_dim * _f32
 
-        for name in ["rewards", "dones", "truncated", "log_probs", "values"]:
+        for name in ["rewards", "dones", "truncated", "log_probs"]:
             views[name] = np.ndarray((self.num_envs, self.num_steps), dtype=np.float32, buffer=buf[offset:])
             offset += n * _f32
 

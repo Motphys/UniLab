@@ -172,7 +172,6 @@ class APPORunner(AsyncRunner):
         # Start collector
         collector_kwargs = {
             "env_name": self.env_name,
-            "env_cfg_overrides": self.env_cfg_overrides,
             "rl_cfg": self.rl_cfg,
             "num_envs": self.num_envs,
             "steps_per_env": self.steps_per_env,
