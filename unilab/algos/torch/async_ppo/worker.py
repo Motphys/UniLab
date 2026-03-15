@@ -121,8 +121,10 @@ def async_ppo_collector_fn(
                     # Extract from transition
                     log_probs = ppo.transition.actions_log_prob
                     values = ppo.transition.values
-                    action_mean = ppo.transition.action_mean
-                    action_sigma = ppo.transition.action_sigma
+
+                    # Get distribution params from actor
+                    action_mean = ppo.actor.output_mean
+                    action_sigma = ppo.actor.output_std
 
                     obs_buf[step] = obs
                     actions_buf[step] = actions
