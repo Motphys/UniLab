@@ -6,8 +6,8 @@ import json
 import os
 import sys
 import time
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from dataclasses import dataclass, asdict
 
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
@@ -25,8 +25,9 @@ class BackendResult:
 def run_backend(task, max_iterations, backend, num_envs):
     """Run Fast SAC with specified backend."""
     import datetime
-    from unilab.config.locomotion_params import fast_sac_config
+
     from unilab.algos.torch.fast_sac.runner import FastSACRunner
+    from unilab.config.locomotion_params import fast_sac_config
 
     cfg = fast_sac_config(task)
     cfg.max_iterations = max_iterations
@@ -85,6 +86,7 @@ def run_backend(task, max_iterations, backend, num_envs):
 
     try:
         from tensorboard.backend.event_processing import event_accumulator
+
         tb_dir = os.path.join(log_dir, "tb")
         ea = event_accumulator.EventAccumulator(tb_dir)
         ea.Reload()
@@ -98,7 +100,7 @@ def run_backend(task, max_iterations, backend, num_envs):
             sps = ea.Scalars("perf/steps_per_sec")
             if sps:
                 steps_per_sec = sps[-1].value
-    except:
+    except Exception:
         pass
 
     return BackendResult(
@@ -106,7 +108,7 @@ def run_backend(task, max_iterations, backend, num_envs):
         total_time_sec=total_time,
         final_reward=final_reward,
         steps_per_sec=steps_per_sec,
-        speedup=1.0
+        speedup=1.0,
     )
 
 
@@ -121,11 +123,11 @@ def main():
 
     backends = [b.strip() for b in args.backends.split(",")]
 
-    print(f"\n{'='*70}")
-    print(f"Fast SAC Backend Benchmark")
+    print(f"\n{'=' * 70}")
+    print("Fast SAC Backend Benchmark")
     print(f"Task: {args.task}, Iterations: {args.max_iterations}, Envs: {args.num_envs}")
     print(f"Backends: {backends}")
-    print(f"{'='*70}\n")
+    print(f"{'=' * 70}\n")
 
     results = []
 
@@ -134,7 +136,9 @@ def main():
         try:
             result = run_backend(args.task, args.max_iterations, backend, args.num_envs)
             results.append(result)
-            print(f"✓ {backend}: {result.total_time_sec:.1f}s, reward={result.final_reward:.3f}, {result.steps_per_sec:.0f} steps/s")
+            print(
+                f"✓ {backend}: {result.total_time_sec:.1f}s, reward={result.final_reward:.3f}, {result.steps_per_sec:.0f} steps/s"
+            )
         except Exception as e:
             print(f"✗ {backend} failed: {e}")
 
@@ -147,22 +151,29 @@ def main():
     # Save
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps({
-        "task": args.task,
-        "max_iterations": args.max_iterations,
-        "num_envs": args.num_envs,
-        "results": [asdict(r) for r in results]
-    }, indent=2))
+    output_path.write_text(
+        json.dumps(
+            {
+                "task": args.task,
+                "max_iterations": args.max_iterations,
+                "num_envs": args.num_envs,
+                "results": [asdict(r) for r in results],
+            },
+            indent=2,
+        )
+    )
 
     # Print summary
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print("RESULTS")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
     print(f"{'Backend':<15} {'Time(s)':<10} {'Reward':<10} {'Steps/s':<12} {'Speedup':<10}")
-    print(f"{'-'*70}")
+    print(f"{'-' * 70}")
     for r in results:
-        print(f"{r.backend:<15} {r.total_time_sec:<10.1f} {r.final_reward:<10.3f} {r.steps_per_sec:<12.0f} {r.speedup:<10.2f}x")
-    print(f"{'='*70}")
+        print(
+            f"{r.backend:<15} {r.total_time_sec:<10.1f} {r.final_reward:<10.3f} {r.steps_per_sec:<12.0f} {r.speedup:<10.2f}x"
+        )
+    print(f"{'=' * 70}")
     print(f"\nSaved to: {output_path}\n")
 
 

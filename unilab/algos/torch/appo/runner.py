@@ -176,7 +176,7 @@ class APPORunner(AsyncRunner):
 
         weight_param_shapes = {name: p.shape for name, p in learner.actor.state_dict().items()}
 
-        metrics_queue = mp.Queue(maxsize=100)
+        metrics_queue: mp.Queue = mp.Queue(maxsize=100)
 
         # Start collector
         collector_kwargs = {

@@ -142,7 +142,7 @@ class OffPolicyLogger:
 
         # ---- Backend logging ----
         self._log_dir = log_dir
-        self._tb_writer = None
+        self._tb_writer: "SummaryWriter | None" = None  # type: ignore[name-defined]
         self._wandb_run = None
 
         if self._log_backend == "tensorboard" and log_dir:
@@ -360,8 +360,14 @@ class OffPolicyLogger:
             # perf/ — throughput and efficiency
             if elapsed > 0 and self._total_steps > 0:
                 w.add_scalar("perf/steps_per_sec", self._total_steps / elapsed, global_step)
-            w.add_scalar("perf/iter_ms", (self._collect_time + self._train_time) * 1000, global_step)
-            w.add_scalar("perf/collect_train_ratio", self._collect_time / max(self._train_time, 1e-6), global_step)
+            w.add_scalar(
+                "perf/iter_ms", (self._collect_time + self._train_time) * 1000, global_step
+            )
+            w.add_scalar(
+                "perf/collect_train_ratio",
+                self._collect_time / max(self._train_time, 1e-6),
+                global_step,
+            )
 
         # ---- W&B ----
         if self._wandb_run:

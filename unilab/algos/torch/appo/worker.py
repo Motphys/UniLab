@@ -3,10 +3,13 @@
 Collects on-policy rollouts and writes to SharedOnPolicyStorage.
 """
 
+from __future__ import annotations
+
 import statistics
 import sys
 import time
 from collections import defaultdict
+from typing import Any, Dict
 
 import numpy as np
 import torch
@@ -16,18 +19,18 @@ from unilab.utils.algo_utils import ensure_registries
 
 
 def appo_collector_fn(
-    stop_event,
+    stop_event: Any,
     env_name: str,
     rl_cfg: dict,
     num_envs: int,
     steps_per_env: int,
-    shm_storage_name: str,
+    shm_storage_name: Dict[str, str],
     sync_primitives: tuple,
     obs_dim: int,
     action_dim: int,
     weight_sync_name: str,
     weight_param_shapes: dict,
-    metrics_queue,
+    metrics_queue: Any,
     collector_device: str = "cpu",
 ):
     """Entry point for the APPO collector subprocess.
@@ -57,7 +60,7 @@ def appo_collector_fn(
     weight_sync = SharedWeightSync(weight_param_shapes, create=False, shm_name=weight_sync_name)
 
     # Create environment
-    env = registry.make(env_name, num_envs=num_envs, sim_backend="mujoco")
+    env: Any = registry.make(env_name, num_envs=num_envs, sim_backend="mujoco")
 
     # Build actor (stochastic MLPModel — mirrors runner._build_learner)
     cfg = dict(rl_cfg)
@@ -149,9 +152,7 @@ def appo_collector_fn(
 
                 write_buf["obs"][:, step, :] = obs_np
                 write_buf["actions"][:, step, :] = actions_np
-                write_buf["log_probs"][:, step] = (
-                    log_probs_torch.cpu().numpy().ravel()
-                )
+                write_buf["log_probs"][:, step] = log_probs_torch.cpu().numpy().ravel()
 
                 # --- Env step (timed) ---
                 t_env = time.perf_counter()

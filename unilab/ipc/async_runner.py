@@ -37,7 +37,7 @@ class AsyncRunner(ABC):
         self.num_envs = num_envs
         self.extra_kwargs = kwargs
 
-        self._collector_process: mp.Process | None = None
+        self._collector_process: Any = None
         self._stop_event = _SPAWN_CTX.Event()
         self._shared_resources: list = []
 
@@ -50,7 +50,7 @@ class AsyncRunner(ABC):
     def _build_learner(self) -> Any: ...
 
     @abstractmethod
-    def _collector_fn(self, stop_event: mp.Event, **kwargs) -> None: ...
+    def _collector_fn(self, stop_event: Any, **kwargs) -> None: ...
 
     @abstractmethod
     def learn(

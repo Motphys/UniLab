@@ -36,8 +36,10 @@ class SharedWeightSync:
             # lock must be passed in from the parent process when attaching
             self._lock = lock
 
-        self._buffer = np.ndarray((total_numel,), dtype=np.float32, buffer=self._shm.buf)
-        self._version_arr = np.ndarray((1,), dtype=np.int64, buffer=self._shm.buf[data_bytes:])
+        buf = self._shm.buf
+        assert buf is not None
+        self._buffer: np.ndarray = np.ndarray((total_numel,), dtype=np.float32, buffer=buf)
+        self._version_arr: np.ndarray = np.ndarray((1,), dtype=np.int64, buffer=buf[data_bytes:])
         if create:
             self._version_arr[0] = 0
         self._total_numel = total_numel

@@ -102,7 +102,7 @@ class SharedOnPolicyStorage:
 
     @property
     def write_slot(self) -> int:
-        return self._write_ptr.value % self.num_slots
+        return int(self._write_ptr.value) % self.num_slots
 
     @property
     def write_buffer(self) -> Dict[str, np.ndarray]:
@@ -121,7 +121,7 @@ class SharedOnPolicyStorage:
 
     def available(self) -> int:
         """Number of slots ready to consume."""
-        return self._write_ptr.value - self._read_ptr.value
+        return int(self._write_ptr.value) - int(self._read_ptr.value)
 
     def wait_for_data(self, timeout: float = 60.0) -> bool:
         """Spin-wait (with sleep) until at least one slot is available."""
@@ -136,7 +136,7 @@ class SharedOnPolicyStorage:
 
     @property
     def read_slot(self) -> int:
-        return self._read_ptr.value % self.num_slots
+        return int(self._read_ptr.value) % self.num_slots
 
     def read_torch(self, device: str) -> dict:
         """Copy current read slot into CPU tensors and move to *device*."""
@@ -144,8 +144,7 @@ class SharedOnPolicyStorage:
 
         s = self.read_slot
         return {
-            field: torch.from_numpy(arr[s].copy()).to(device)
-            for field, arr in self._arrays.items()
+            field: torch.from_numpy(arr[s].copy()).to(device) for field, arr in self._arrays.items()
         }
 
     def advance_read(self) -> None:
