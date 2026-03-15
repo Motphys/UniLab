@@ -277,6 +277,7 @@ class APPOLearner:
         advantages_flat = batch_dict["advantages"].flatten(0, 1)
         behavior_log_probs_flat = batch_dict["actions_log_prob"].flatten(0, 1)
         old_values_flat = batch_dict["values"].flatten(0, 1)
+        target_log_probs_flat = batch_dict["target_log_probs"].flatten(0, 1)
         # Normalize advantages globally
         advantages_flat = (advantages_flat - advantages_flat.mean()) / (
             advantages_flat.std() + 1e-8
@@ -317,6 +318,7 @@ class APPOLearner:
                 advantages_mini = advantages_flat[batch_idx]
                 behavior_logp_mini = behavior_log_probs_flat[batch_idx]
                 old_values_mini = old_values_flat[batch_idx]
+                target_logp_mini = target_log_probs_flat[batch_idx]
                 old_mu_mini = old_mu_flat[batch_idx]
                 old_sigma_mini = old_sigma_flat[batch_idx]
 
@@ -330,10 +332,16 @@ class APPOLearner:
                 mu = self.actor.output_mean
                 sigma = self.actor.output_std
 
-                # Standard PPO ratio: π_current / π_behavior
-                # V-trace already handles off-policy correction in the advantages;
-                # adding an extra IS term in the surrogate destabilizes PPO clipping.
-                ratio = torch.exp(current_log_prob - behavior_logp_mini)
+                # V-trace style PPO ratio: min(π_current/π_target, π_current/π_b)
+                # = clamp(π_b/π_target, max=1) * π_current/π_b
+                # Fresh data (π_b≈π_target) → standard PPO ratio.
+                # Stale data → single-sided clip downweights the update without
+                # amplifying it (unlike IMPACT's [0,2] range).
+                with torch.no_grad():
+                    clipped_rho = torch.clamp(
+                        torch.exp(behavior_logp_mini - target_logp_mini), max=1.0
+                    )
+                ratio = clipped_rho * torch.exp(current_log_prob - behavior_logp_mini)
 
                 # PPO Surrogate Loss
                 surrogate = -advantages_mini * ratio
