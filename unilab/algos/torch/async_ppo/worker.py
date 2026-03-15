@@ -170,6 +170,16 @@ def async_ppo_collector_fn(
                     rewards = torch.from_numpy(np.asarray(state.reward, dtype=np.float32)).to(
                         collector_device
                     )
+                    # Timeout bootstrap: r += γ·V(s_T) at truncated episode boundaries.
+                    # The env auto-resets on truncation, so obs_{t+1} is the reset obs, not
+                    # the continuation. Without this, GAE would bootstrap V(reset obs) instead
+                    # of V(s_T), systematically underestimating returns for truncated episodes.
+                    # Mirrors rsl-rl ppo.process_env_step() "bootstrapping on time outs".
+                    truncated_np = np.asarray(state.truncated, dtype=np.float32)
+                    if truncated_np.any():
+                        truncated_t = torch.from_numpy(truncated_np).to(collector_device)
+                        rewards = rewards + ppo.gamma * truncated_t * values.squeeze(-1)
+
                     # GAE uses terminated-only dones (truncated episodes still bootstrap V)
                     terminated_np = np.asarray(state.terminated, dtype=np.float32)
                     dones = torch.from_numpy(terminated_np).to(collector_device)
@@ -179,8 +189,9 @@ def async_ppo_collector_fn(
                     rewards_buf[step] = rewards
                     dones_buf[step] = dones
 
-                    # Track episode stats
-                    current_episode_rewards += rewards.cpu().numpy()
+                    # Track episode stats using raw env reward (not bootstrapped)
+                    raw_rewards_np = np.asarray(state.reward, dtype=np.float32)
+                    current_episode_rewards += raw_rewards_np
                     current_episode_lengths += 1
 
                     for i in range(num_envs):
