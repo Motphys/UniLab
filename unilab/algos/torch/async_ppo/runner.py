@@ -79,7 +79,7 @@ class AsyncPPORunner(AsyncRunner):
 
         return async_ppo_collector_fn(stop_event, **kwargs)
 
-    def learn(self, max_iterations: int, save_interval: int = 50, log_dir: str = "logs"):
+    def learn(self, max_iterations: int, save_interval: int = 50, log_dir: str = "logs", logger_type: str = "tensorboard"):
         os.makedirs(log_dir, exist_ok=True)
         learner = self._build_learner()
         buffer = learner.buffer
@@ -137,7 +137,7 @@ class AsyncPPORunner(AsyncRunner):
             obs_dim=self.obs_dim,
             action_dim=self.action_dim,
             log_dir=log_dir,
-            log_backend="tensorboard",
+            log_backend=logger_type,
         )
         logger.start()
 
@@ -156,6 +156,7 @@ class AsyncPPORunner(AsyncRunner):
 
         # Training loop
         total_env_steps = 0
+        latest_reward_components = {}
         for iteration in range(1, max_iterations + 1):
             iter_start = time.time()
 
@@ -170,7 +171,7 @@ class AsyncPPORunner(AsyncRunner):
                 continue
 
             wait_time = time.time() - wait_start
-            self._drain_metrics(metrics_queue, logger)
+            mean_reward = self._drain_metrics(metrics_queue, logger, latest_reward_components)
             collect_time = time.time() - iter_start
 
             train_start = time.time()
@@ -194,11 +195,23 @@ class AsyncPPORunner(AsyncRunner):
                 hw_metrics = hw_monitor.get_metrics()
                 metrics.update({f"hardware/{k}": v for k, v in hw_metrics.items()})
 
+            # Add perf metrics
+            elapsed = time.time() - iter_start
+            if elapsed > 0:
+                metrics["perf/iter_ms"] = elapsed * 1000
+                metrics["perf/collect_train_ratio"] = collect_time / max(train_time, 1e-6)
+
+            # Add buffer utilization
+            write_count = int(buffer.ptr[0])
+            read_count = write_count - int(buffer.count[0])
+            if read_count > 0:
+                metrics["perf/buffer_write_read_ratio"] = write_count / read_count
+
             logger.log_step(
                 iteration=iteration,
                 metrics=metrics,
-                reward=0.0,
-                reward_components={},
+                reward=mean_reward,
+                reward_components=latest_reward_components,
                 collect_time=collect_time,
                 train_time=train_time,
                 wait_time=wait_time,
@@ -216,8 +229,9 @@ class AsyncPPORunner(AsyncRunner):
         logger.log_save(ckpt_path)
         logger.finish()
 
-    def _drain_metrics(self, queue, logger):
+    def _drain_metrics(self, queue, logger, reward_components):
         """Drain metrics from collector queue."""
+        mean_reward = None
         while not queue.empty():
             try:
                 m = queue.get_nowait()
@@ -225,5 +239,17 @@ class AsyncPPORunner(AsyncRunner):
                     logger.log_status(f"[red]Collector ERROR: {m['error']}[/]")
                 if "collector_timing_ms" in m:
                     logger.update_collector_timing(m["collector_timing_ms"])
+                if "reward_components" in m:
+                    reward_components.clear()
+                    reward_components.update(m["reward_components"])
+                if "episode_stats" in m:
+                    stats = m["episode_stats"]
+                    if "timeout_rate" in stats and "terminated_rate" in stats:
+                        logger.update_done_rates(stats["timeout_rate"], stats["terminated_rate"])
+                    if "mean_reward" in stats:
+                        mean_reward = stats["mean_reward"]
+                    if "mean_length" in stats:
+                        logger.update_ep_length(stats["mean_length"])
             except Exception:
                 break
+        return mean_reward

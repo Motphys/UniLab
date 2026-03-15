@@ -82,6 +82,15 @@ def async_ppo_collector_fn(
     rollout_count = 0
     timing_accum_ms = {}
     timing_count = 0
+    episode_lengths = []
+    episode_rewards = []
+    episode_timeouts = 0
+    episode_terminates = 0
+    episode_count = 0
+    current_episode_rewards = np.zeros(num_envs, dtype=np.float32)
+    current_episode_lengths = np.zeros(num_envs, dtype=np.int32)
+    from collections import defaultdict
+    ep_reward_components = defaultdict(list)
     try:
         while not stop_event.is_set():
             # Sync weights
@@ -136,6 +145,13 @@ def async_ppo_collector_fn(
                                 timing_accum_ms[key] = timing_accum_ms.get(key, 0.0) + float(timing_info[key])
                     timing_count += 1
 
+                    # Collect reward components from each step
+                    if hasattr(state, "info") and isinstance(state.info, dict):
+                        log_info = state.info.get("log", {})
+                        for k, v in log_info.items():
+                            if k.startswith("reward/"):
+                                ep_reward_components[k].append(v)
+
                     rewards = torch.from_numpy(np.asarray(state.reward, dtype=np.float32)).to(
                         collector_device
                     )
@@ -145,6 +161,27 @@ def async_ppo_collector_fn(
 
                     rewards_buf[step] = rewards
                     dones_buf[step] = dones
+
+                    # Track episode stats
+                    current_episode_rewards += rewards.cpu().numpy()
+                    current_episode_lengths += 1
+
+                    for i in range(num_envs):
+                        if dones[i] > 0:
+                            episode_count += 1
+                            episode_rewards.append(float(current_episode_rewards[i]))
+                            episode_lengths.append(int(current_episode_lengths[i]))
+                            current_episode_rewards[i] = 0
+                            current_episode_lengths[i] = 0
+
+                            # Check if timeout or terminated
+                            if hasattr(state, "info") and isinstance(state.info, dict):
+                                if state.info.get("TimeLimit.truncated", False):
+                                    episode_timeouts += 1
+                                else:
+                                    episode_terminates += 1
+                            else:
+                                episode_terminates += 1
 
                     obs = torch.from_numpy(np.asarray(state.obs, dtype=np.float32)).to(
                         collector_device
@@ -169,9 +206,38 @@ def async_ppo_collector_fn(
                     avg_timing = {}
                     if timing_count > 0:
                         avg_timing = {k: v / timing_count for k, v in timing_accum_ms.items()}
-                    metrics_queue.put_nowait({"collector_timing_ms": avg_timing})
+
+                    episode_metrics = {}
+                    if episode_count > 0:
+                        episode_metrics["timeout_rate"] = episode_timeouts / episode_count
+                        episode_metrics["terminated_rate"] = episode_terminates / episode_count
+                    if episode_rewards:
+                        episode_metrics["mean_reward"] = float(np.mean(episode_rewards))
+                    if episode_lengths:
+                        episode_metrics["mean_length"] = float(np.mean(episode_lengths))
+
+                    msg = {
+                        "collector_timing_ms": avg_timing,
+                        "episode_stats": episode_metrics,
+                    }
+
+                    if ep_reward_components:
+                        import statistics
+                        components_mean = {}
+                        for k, vals in ep_reward_components.items():
+                            if vals:
+                                components_mean[k] = statistics.mean(vals)
+                        msg["reward_components"] = components_mean
+                        ep_reward_components.clear()
+
+                    metrics_queue.put_nowait(msg)
                     timing_accum_ms.clear()
                     timing_count = 0
+                    episode_timeouts = 0
+                    episode_terminates = 0
+                    episode_count = 0
+                    episode_rewards.clear()
+                    episode_lengths.clear()
                 except Exception:
                     pass
 

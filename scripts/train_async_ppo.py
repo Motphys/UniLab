@@ -40,7 +40,10 @@ def main():
     parser.add_argument("--collector_device", type=str, default=None)
     parser.add_argument("--log_dir", type=str, default=None)
     parser.add_argument(
-        "--logger", type=str, default="tensorboard", choices=["tensorboard", "wandb", "none"]
+        "--logger",
+        type=str,
+        default="tensorboard",
+        choices=["tensorboard", "wandb", "none", "no_print"],
     )
 
     args = parser.parse_args()
@@ -75,6 +78,7 @@ def main():
             max_iterations=rl_cfg["max_iterations"],
             save_interval=args.save_interval,
             log_dir=args.log_dir,
+            logger_type=args.logger,
         )
     finally:
         runner.close()
