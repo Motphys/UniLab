@@ -170,9 +170,11 @@ def async_ppo_collector_fn(
                     rewards = torch.from_numpy(np.asarray(state.reward, dtype=np.float32)).to(
                         collector_device
                     )
-                    dones = torch.from_numpy(np.asarray(state.terminated, dtype=np.float32)).to(
-                        collector_device
-                    )
+                    # GAE uses terminated-only dones (truncated episodes still bootstrap V)
+                    terminated_np = np.asarray(state.terminated, dtype=np.float32)
+                    dones = torch.from_numpy(terminated_np).to(collector_device)
+                    # Episode boundary = terminated OR truncated (mirrors env auto-reset logic)
+                    episode_done_np = np.asarray(state.done, dtype=bool)
 
                     rewards_buf[step] = rewards
                     dones_buf[step] = dones
@@ -182,19 +184,15 @@ def async_ppo_collector_fn(
                     current_episode_lengths += 1
 
                     for i in range(num_envs):
-                        if dones[i] > 0:
+                        if episode_done_np[i]:
                             episode_count += 1
                             episode_rewards.append(float(current_episode_rewards[i]))
                             episode_lengths.append(int(current_episode_lengths[i]))
                             current_episode_rewards[i] = 0
                             current_episode_lengths[i] = 0
 
-                            # Check if timeout or terminated
-                            if hasattr(state, "info") and isinstance(state.info, dict):
-                                if state.info.get("TimeLimit.truncated", False):
-                                    episode_timeouts += 1
-                                else:
-                                    episode_terminates += 1
+                            if state.truncated[i]:
+                                episode_timeouts += 1
                             else:
                                 episode_terminates += 1
 
