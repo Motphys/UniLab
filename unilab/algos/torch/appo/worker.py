@@ -29,6 +29,9 @@ def appo_collector_fn(
     weight_param_shapes: dict,
     metrics_queue,
     collector_device: str = "cpu",
+    sync_collection: bool = False,
+    collection_ready_queue=None,
+    trainer_done_queue=None,
 ):
     """Entry point for the APPO collector subprocess.
 
@@ -122,6 +125,16 @@ def appo_collector_fn(
 
     try:
         while not stop_event.is_set():
+            # Sync mode: wait for learner to signal training is done before
+            # collecting the next rollout. This prevents unbounded async drift.
+            if sync_collection and trainer_done_queue is not None:
+                try:
+                    trainer_done_queue.get(timeout=60.0)
+                except Exception:
+                    if stop_event.is_set():
+                        break
+                    continue
+
             # Pull latest weights from learner
             if weight_sync.version > local_weight_version:
                 sd = dict(actor.state_dict())
@@ -229,6 +242,13 @@ def appo_collector_fn(
 
             write_buf["last_obs"][:] = obs_np
             storage.signal_write_done()
+
+            # Sync mode: notify learner that this rollout is ready
+            if sync_collection and collection_ready_queue is not None:
+                try:
+                    collection_ready_queue.put_nowait(1)
+                except Exception:
+                    pass
 
     except Exception as e:
         import traceback

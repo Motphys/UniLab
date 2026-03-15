@@ -127,11 +127,7 @@ class OffPolicyLogger:
         self._train_time: float = 0.0
         self._wait_time: float = 0.0
         self._iter_times: deque = deque(maxlen=50)
-        self._collector_env_step_ms: float = 0.0
-        self._collector_step_core_ms: float = 0.0
-        self._collector_update_state_ms: float = 0.0
-        self._collector_reset_done_ms: float = 0.0
-        self._collector_mlp_infer_ms: float = 0.0
+        self._collector_timing: dict[str, float] = {}
         self._timeout_rate: float = 0.0
         self._terminated_rate: float = 0.0
         self._buffer_utilization: float = 0.0
@@ -254,21 +250,7 @@ class OffPolicyLogger:
 
     def update_collector_timing(self, timing_ms: dict[str, float]):
         """Update collector-side environment timing (milliseconds)."""
-        self._collector_env_step_ms = float(
-            timing_ms.get("env_step_total_ms", self._collector_env_step_ms)
-        )
-        self._collector_step_core_ms = float(
-            timing_ms.get("step_core_ms", self._collector_step_core_ms)
-        )
-        self._collector_update_state_ms = float(
-            timing_ms.get("update_state_ms", self._collector_update_state_ms)
-        )
-        self._collector_reset_done_ms = float(
-            timing_ms.get("reset_done_ms", self._collector_reset_done_ms)
-        )
-        self._collector_mlp_infer_ms = float(
-            timing_ms.get("mlp_infer_ms", self._collector_mlp_infer_ms)
-        )
+        self._collector_timing.update(timing_ms)
 
     def update_done_rates(self, timeout_rate: float, terminated_rate: float):
         """Update timeout/terminated ratio among completed episodes in collector window."""
@@ -362,13 +344,11 @@ class OffPolicyLogger:
             w.add_scalar("episode/terminated_rate", self._terminated_rate, global_step)
 
             # timing/ — learner-side and collector-side timing
+            w.add_scalar("timing/learner_wait_ms", self._wait_time * 1000, global_step)
             w.add_scalar("timing/learner_collect_ms", collect_time * 1000, global_step)
             w.add_scalar("timing/learner_train_ms", train_time * 1000, global_step)
-            w.add_scalar("timing/collector_env_step_ms", self._collector_env_step_ms, global_step)
-            w.add_scalar("timing/collector_step_core_ms", self._collector_step_core_ms, global_step)
-            w.add_scalar("timing/collector_update_state_ms", self._collector_update_state_ms, global_step)
-            w.add_scalar("timing/collector_reset_done_ms", self._collector_reset_done_ms, global_step)
-            w.add_scalar("timing/collector_mlp_infer_ms", self._collector_mlp_infer_ms, global_step)
+            for key, val in self._collector_timing.items():
+                w.add_scalar(f"timing/collector_{key}", val, global_step)
 
             # perf/ — throughput and efficiency
             if elapsed > 0 and self._total_steps > 0:
@@ -401,13 +381,11 @@ class OffPolicyLogger:
             log_dict["episode/terminated_rate"] = self._terminated_rate
 
             # timing/
+            log_dict["timing/learner_wait_ms"] = self._wait_time * 1000
             log_dict["timing/learner_collect_ms"] = collect_time * 1000
             log_dict["timing/learner_train_ms"] = train_time * 1000
-            log_dict["timing/collector_env_step_ms"] = self._collector_env_step_ms
-            log_dict["timing/collector_step_core_ms"] = self._collector_step_core_ms
-            log_dict["timing/collector_update_state_ms"] = self._collector_update_state_ms
-            log_dict["timing/collector_reset_done_ms"] = self._collector_reset_done_ms
-            log_dict["timing/collector_mlp_infer_ms"] = self._collector_mlp_infer_ms
+            for key, val in self._collector_timing.items():
+                log_dict[f"timing/collector_{key}"] = val
 
             # perf/
             if elapsed > 0 and self._total_steps > 0:
@@ -595,24 +573,24 @@ class OffPolicyLogger:
             "",
             "",
         )
-        table.add_row(
-            "[dim]collector[/] Env Step",
-            f"{self._collector_env_step_ms:.1f}ms",
-            "[dim]collector[/] Core",
-            f"{self._collector_step_core_ms:.1f}ms",
-        )
-        table.add_row(
-            "[dim]collector[/] State Upd",
-            f"{self._collector_update_state_ms:.1f}ms",
-            "[dim]collector[/] Reset",
-            f"{self._collector_reset_done_ms:.1f}ms",
-        )
-        table.add_row(
-            "[dim]collector[/] MLP Infer",
-            f"{self._collector_mlp_infer_ms:.1f}ms",
-            "",
-            "",
-        )
+        timing_items = list(self._collector_timing.items())
+        for i in range(0, len(timing_items), 2):
+            left_key, left_val = timing_items[i]
+            if i + 1 < len(timing_items):
+                right_key, right_val = timing_items[i + 1]
+                table.add_row(
+                    f"[dim]collector[/] {left_key}",
+                    f"{left_val:.1f}ms",
+                    f"[dim]collector[/] {right_key}",
+                    f"{right_val:.1f}ms",
+                )
+            else:
+                table.add_row(
+                    f"[dim]collector[/] {left_key}",
+                    f"{left_val:.1f}ms",
+                    "",
+                    "",
+                )
         table.add_row(
             "Timeout Rate",
             f"{self._timeout_rate * 100:.1f}%",

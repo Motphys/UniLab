@@ -35,6 +35,7 @@ class APPORunner(AsyncRunner):
         num_envs: int = 1024,
         steps_per_env: int = 24,
         num_workers: int = 1,  # kept for API compat, but only 1 collector used
+        sync_collection: bool = True,
     ):
         super().__init__(
             env_name=env_name,
@@ -51,6 +52,7 @@ class APPORunner(AsyncRunner):
             self.rl_cfg = self.rl_cfg.to_dict()
 
         self.steps_per_env = steps_per_env
+        self.sync_collection = sync_collection
 
         # Resolve dims
         self._resolve_dims()
@@ -175,6 +177,16 @@ class APPORunner(AsyncRunner):
 
         metrics_queue = mp.Queue(maxsize=100)
 
+        # Sync Collect queues — mirror FastSAC handshake pattern.
+        # collector signals "data ready"; learner signals "training done".
+        # Bootstrap trainer_done so the first rollout starts immediately.
+        collection_ready_queue: mp.Queue | None = None
+        trainer_done_queue: mp.Queue | None = None
+        if self.sync_collection:
+            collection_ready_queue = mp.Queue(maxsize=1)
+            trainer_done_queue = mp.Queue(maxsize=1)
+            trainer_done_queue.put(1)  # bootstrap first iteration
+
         # Start collector
         collector_kwargs = {
             "env_name": self.env_name,
@@ -193,11 +205,16 @@ class APPORunner(AsyncRunner):
             "weight_param_shapes": weight_param_shapes,
             "metrics_queue": metrics_queue,
             "collector_device": self.collector_device,
+            "sync_collection": self.sync_collection,
+            "collection_ready_queue": collection_ready_queue,
+            "trainer_done_queue": trainer_done_queue,
         }
         self._start_collector(
             target_fn=appo_collector_fn,
             kwargs={"stop_event": self._stop_event, **collector_kwargs},
         )
+
+        env_steps_per_sync = self.steps_per_env * self.num_envs
 
         logger = OffPolicyLogger(
             algo_name="APPO",
@@ -209,6 +226,7 @@ class APPORunner(AsyncRunner):
             log_dir=log_dir,
             log_backend=logger_type,
         )
+        logger.set_collection_sync(self.sync_collection, env_steps_per_sync)
         logger.start()
         logger.log_status("Waiting for first rollout...")
 
@@ -221,7 +239,18 @@ class APPORunner(AsyncRunner):
             # Drain collector metrics while waiting for data
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
             wait_start = time.time()
-            if not shared_storage.wait_for_data(timeout=60.0):
+
+            if self.sync_collection:
+                # Sync mode: wait for collector to signal "data ready"
+                try:
+                    collection_ready_queue.get(timeout=60.0)
+                    data_ready = True
+                except Exception:
+                    data_ready = False
+            else:
+                data_ready = shared_storage.wait_for_data(timeout=60.0)
+
+            if not data_ready:
                 logger.log_status(
                     f"[yellow]Warning: Timeout waiting for data at iteration {iteration}[/]"
                 )
@@ -252,6 +281,14 @@ class APPORunner(AsyncRunner):
 
             # Sync weights
             weight_sync.write_weights(learner.actor.state_dict())
+
+            # Signal collector to start next rollout (sync mode)
+            if self.sync_collection:
+                try:
+                    trainer_done_queue.put_nowait(1)
+                except Exception:
+                    pass
+
             train_time = time.time() - train_start
 
             mean_reward = sum(list(reward_history)[-50:]) / max(len(list(reward_history)[-50:]), 1) if reward_history else 0.0

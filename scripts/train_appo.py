@@ -186,13 +186,13 @@ def play_appo(args, rl_cfg):
 def main():
     parser = argparse.ArgumentParser(description="Train APPO (native multiprocessing)")
     parser.add_argument("--task", type=str, default="Go2JoystickFlatTerrain")
-    parser.add_argument("--max_iterations", type=int, default=1500)
-    parser.add_argument("--save_interval", type=int, default=50)
-    parser.add_argument("--total_envs", type=int, default=1024)
+    parser.add_argument("--max_iterations", type=int, default=None)
+    parser.add_argument("--save_interval", type=int, default=None)
+    parser.add_argument("--total_envs", type=int, default=None)
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--collector_device", type=str, default=None)
     parser.add_argument("--log_dir", type=str, default=None)
-    parser.add_argument("--steps_per_env", type=int, default=24)
+    parser.add_argument("--steps_per_env", type=int, default=None)
     parser.add_argument("--play_only", action="store_true", help="Skip training, only play")
     parser.add_argument("--no_play", action="store_true", help="Skip play after training")
     parser.add_argument("--load_run", type=str, default="-1", help="Run ID to load or path")
@@ -211,6 +211,16 @@ def main():
     from unilab.config.locomotion_params import appo_config
 
     rl_cfg = appo_config(args.task)
+
+    # Fall back to config values for args not explicitly provided on the CLI.
+    if args.max_iterations is None:
+        args.max_iterations = rl_cfg.max_iterations
+    if args.save_interval is None:
+        args.save_interval = rl_cfg.save_interval
+    if args.total_envs is None:
+        args.total_envs = rl_cfg.num_envs
+    if args.steps_per_env is None:
+        args.steps_per_env = rl_cfg.steps_per_env
 
     if args.log_dir is None:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
