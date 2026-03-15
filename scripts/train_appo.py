@@ -171,7 +171,7 @@ def play_appo(args, rl_cfg):
             else:
                 next_obs_raw = state[0]
             obs_np = np.asarray(next_obs_raw, dtype=np.float32)
-            state_list.append(np.asarray(env.state.physics_state, dtype=np.float32).copy())
+            state_list.append(np.asarray(env._backend.get_physics_state(), dtype=np.float32).copy())
 
     print("Rendering frames...")
     frames = render_many.render_states_get_frames(
