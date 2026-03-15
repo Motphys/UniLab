@@ -36,9 +36,6 @@ class APPORunner(AsyncRunner):
         steps_per_env: int = 24,
         num_workers: int = 1,  # kept for API compat, but only 1 collector used
         replay_queue_size: int = 3,
-        min_epochs: int = 1,
-        max_epochs: int = 21,
-        epoch_adjust_interval: int = 50,
     ):
         super().__init__(
             env_name=env_name,
@@ -56,9 +53,6 @@ class APPORunner(AsyncRunner):
 
         self.steps_per_env = steps_per_env
         self.replay_queue_size = replay_queue_size
-        self.min_epochs = min_epochs
-        self.max_epochs = max_epochs
-        self.epoch_adjust_interval = epoch_adjust_interval
 
         # Resolve dims
         self._resolve_dims()
@@ -224,7 +218,7 @@ class APPORunner(AsyncRunner):
         logger.log_status(
             f"Waiting for first rollout... "
             f"(replay_queue={self.replay_queue_size}, "
-            f"epochs={learner.num_learning_epochs}→max{self.max_epochs})"
+            f"epochs={learner.num_learning_epochs})"
         )
 
         reward_history: deque = deque(maxlen=200)
@@ -234,12 +228,6 @@ class APPORunner(AsyncRunner):
         # learner-process memory.  Each entry is a dict of GPU tensors with shape
         # [T, N, *] (time-major) ready for process_batch / update.
         replay_queue: deque[dict] = deque(maxlen=self.replay_queue_size)
-
-        # EMA for timing-based epoch adjustment (α=0.02 → very slow-moving)
-        _EMA = 0.02
-        ema_wait: float = 1.0       # seconds; start high so first adjust doesn't trigger
-        ema_train: float = 1.0      # seconds
-        ema_available: float = 1.0  # ring-buffer slots ready on arrival
 
         for iteration in range(1, max_iterations + 1):
             iter_start = time.time()
@@ -297,32 +285,8 @@ class APPORunner(AsyncRunner):
             weight_sync.write_weights(learner.actor.state_dict())
             train_time = time.time() - train_start
 
-            # --- Dynamic epoch adjustment (increase-only) ---
-            # Goal: keep GPU busy → ema_wait ≈ 0.
-            # Any measurable wait means collector is the bottleneck → train longer.
-            # Buffer backing up is handled by ring-buffer overwrite semantics — no need
-            # to reduce epochs (that would only make GPU idle again).
-            ema_wait = (1 - _EMA) * ema_wait + _EMA * wait_time
-            ema_train = (1 - _EMA) * ema_train + _EMA * train_time
-            ema_available = (1 - _EMA) * ema_available + _EMA * available_on_arrive
-
-            if iteration % self.epoch_adjust_interval == 0 and iteration > 2 * self.epoch_adjust_interval:
-                old_epochs = learner.num_learning_epochs
-                if ema_wait > ema_train * 0.05:
-                    # Any significant wait → collector is bottleneck → train longer
-                    learner.num_learning_epochs = min(
-                        self.max_epochs, learner.num_learning_epochs + 1
-                    )
-                if learner.num_learning_epochs != old_epochs:
-                    logger.log_status(
-                        f"[cyan]epochs {old_epochs}→{learner.num_learning_epochs} "
-                        f"(wait={ema_wait*1000:.0f}ms "
-                        f"train={ema_train*1000:.0f}ms "
-                        f"avail={ema_available:.2f})[/]"
-                    )
-
-            metrics["num_learning_epochs"] = float(learner.num_learning_epochs)
             metrics["replay_queue_len"] = float(len(replay_queue))
+            metrics["available_on_arrive"] = float(available_on_arrive)
 
             mean_reward = (
                 sum(list(reward_history)[-50:]) / max(len(list(reward_history)[-50:]), 1)
