@@ -1,6 +1,8 @@
 """Async PPO collector worker."""
 
 import time as _time
+import traceback
+from collections import defaultdict
 
 import numpy as np
 import torch
@@ -26,72 +28,76 @@ def async_ppo_collector_fn(
     """Collect rollouts using PPO.act()."""
     from unilab.base import registry
     from unilab.ipc import SharedWeightSync
-    from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4
+    from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, convert_config_v5, is_rsl_rl_v4, is_rsl_rl_v5
 
     ensure_registries()
 
-    # Convert config
-    cfg = dict(rl_cfg)
-    if is_rsl_rl_v4():
-        cfg = convert_config_v3_to_v4(cfg)
-
-    # Create environment
-    env = registry.make(env_name, num_envs=num_envs, sim_backend="mujoco")
-    obs_dim = env.observation_space.shape[0]  # type: ignore[index]
-    action_dim = env.action_space.shape[0]  # type: ignore[index]
-
-    # Build PPO (inference only)
-    if not hasattr(env, 'num_actions'):
-        env.num_actions = action_dim
-
-    obs_example = torch.zeros((num_envs, obs_dim), device=collector_device)
-    td_example = TensorDict({"policy": obs_example}, batch_size=num_envs)
-
-    ppo = PPO.construct_algorithm(
-        env=env,
-        obs=td_example,
-        cfg=cfg,
-        device=collector_device,
-    )
-    ppo.actor.eval()
-    ppo.critic.eval()
-
-    # Weight sync
-    weight_sync = SharedWeightSync(
-        weight_param_shapes, create=False, shm_name=weight_sync_name, lock=weight_sync_lock
-    )
-    sd = {
-        f"actor.{k}": v for k, v in ppo.actor.state_dict().items()
-    } | {
-        f"critic.{k}": v for k, v in ppo.critic.state_dict().items()
-    }
-    weight_sync.read_weights_into(sd)
-    ppo.actor.load_state_dict({k: sd[f"actor.{k}"] for k in ppo.actor.state_dict().keys()})
-    ppo.critic.load_state_dict({k: sd[f"critic.{k}"] for k in ppo.critic.state_dict().keys()})
-    local_version = weight_sync.version
-
-    # Reset env
-    env_indices = np.arange(num_envs, dtype=np.int32)
     try:
-        _, obs_out, _ = env.reset(env_indices)  # type: ignore[attr-defined]
-    except TypeError:
-        obs_out, _ = env.reset()  # type: ignore[attr-defined]
+        # Convert config
+        cfg = dict(rl_cfg)
+        if is_rsl_rl_v5():
+            cfg = convert_config_v5(cfg)
+        elif is_rsl_rl_v4():
+            cfg = convert_config_v3_to_v4(cfg)
+        cfg.setdefault("multi_gpu", None)
 
-    obs = torch.from_numpy(np.asarray(obs_out, dtype=np.float32)).to(collector_device)
+        # Create environment
+        env = registry.make(env_name, num_envs=num_envs, sim_backend="mujoco")
+        obs_dim = env.observation_space.shape[0]  # type: ignore[index]
+        action_dim = env.action_space.shape[0]  # type: ignore[index]
 
-    rollout_count = 0
-    timing_accum_ms = {}
-    timing_count = 0
-    episode_lengths = []
-    episode_rewards = []
-    episode_timeouts = 0
-    episode_terminates = 0
-    episode_count = 0
-    current_episode_rewards = np.zeros(num_envs, dtype=np.float32)
-    current_episode_lengths = np.zeros(num_envs, dtype=np.int32)
-    from collections import defaultdict
-    ep_reward_components = defaultdict(list)
-    try:
+        # Build PPO (inference only)
+        if not hasattr(env, 'num_actions'):
+            env.num_actions = action_dim
+
+        obs_example = torch.zeros((num_envs, obs_dim), device=collector_device)
+        td_example = TensorDict({"policy": obs_example}, batch_size=num_envs)
+
+        ppo = PPO.construct_algorithm(
+            env=env,
+            obs=td_example,
+            cfg=cfg,
+            device=collector_device,
+        )
+        ppo.actor.eval()
+        ppo.critic.eval()
+
+        # Weight sync
+        weight_sync = SharedWeightSync(
+            weight_param_shapes, create=False, shm_name=weight_sync_name, lock=weight_sync_lock
+        )
+        sd = {
+            f"actor.{k}": v for k, v in ppo.actor.state_dict().items()
+        } | {
+            f"critic.{k}": v for k, v in ppo.critic.state_dict().items()
+        }
+        weight_sync.read_weights_into(sd)
+        ppo.actor.load_state_dict({k: sd[f"actor.{k}"] for k in ppo.actor.state_dict().keys()})
+        ppo.critic.load_state_dict({k: sd[f"critic.{k}"] for k in ppo.critic.state_dict().keys()})
+        local_version = weight_sync.version
+
+        # Reset env
+        env_indices = np.arange(num_envs, dtype=np.int32)
+        try:
+            _, obs_out, _ = env.reset(env_indices)  # type: ignore[attr-defined]
+        except TypeError:
+            obs_out, _ = env.reset()  # type: ignore[attr-defined]
+
+        obs = torch.from_numpy(np.asarray(obs_out, dtype=np.float32)).to(collector_device)
+
+        dist_params_dim = buffer._dist_params_dim
+        rollout_count = 0
+        timing_accum_ms = {}
+        timing_count = 0
+        episode_lengths = []
+        episode_rewards = []
+        episode_timeouts = 0
+        episode_terminates = 0
+        episode_count = 0
+        current_episode_rewards = np.zeros(num_envs, dtype=np.float32)
+        current_episode_lengths = np.zeros(num_envs, dtype=np.int32)
+        ep_reward_components = defaultdict(list)
+
         while not stop_event.is_set():
             # Sync weights
             if weight_sync.version > local_version:
@@ -104,13 +110,18 @@ def async_ppo_collector_fn(
                 ppo.actor.load_state_dict({k: sd[f"actor.{k}"] for k in ppo.actor.state_dict().keys()})
                 ppo.critic.load_state_dict({k: sd[f"critic.{k}"] for k in ppo.critic.state_dict().keys()})
 
-            # Collect rollout - write directly to shared buffer to avoid copy
+            # Collect rollout
             obs_buf = torch.zeros(steps_per_env, num_envs, obs_dim, device=collector_device)
             actions_buf = torch.zeros(steps_per_env, num_envs, action_dim, device=collector_device)
             rewards_buf = torch.zeros(steps_per_env, num_envs, device=collector_device)
             dones_buf = torch.zeros(steps_per_env, num_envs, device=collector_device)
             log_probs_buf = torch.zeros(steps_per_env, num_envs, device=collector_device)
             values_buf = torch.zeros(steps_per_env, num_envs, device=collector_device)
+            dist_params_buf = (
+                torch.zeros(steps_per_env, num_envs, dist_params_dim, device=collector_device)
+                if dist_params_dim > 0
+                else None
+            )
 
             with torch.no_grad():
                 for step in range(steps_per_env):
@@ -133,6 +144,10 @@ def async_ppo_collector_fn(
                     actions_buf[step] = actions
                     log_probs_buf[step] = log_probs.squeeze(-1)
                     values_buf[step] = values.squeeze(-1)
+                    if dist_params_buf is not None and ppo.transition.distribution_params is not None:
+                        dist_params_buf[step] = torch.cat(
+                            [p.detach() for p in ppo.transition.distribution_params], dim=-1
+                        )
 
                     # Step env
                     state = env.step(actions.cpu().numpy())  # type: ignore[attr-defined]
@@ -187,7 +202,7 @@ def async_ppo_collector_fn(
                         collector_device
                     )
 
-            # Zero-copy write to buffer (already in shared memory)
+            # Write to shared buffer
             rollout = {
                 "observations": obs_buf if obs_buf.is_shared() else obs_buf.cpu(),
                 "actions": actions_buf if actions_buf.is_shared() else actions_buf.cpu(),
@@ -197,6 +212,10 @@ def async_ppo_collector_fn(
                 "values": values_buf if values_buf.is_shared() else values_buf.cpu(),
                 "last_obs": obs if obs.is_shared() else obs.cpu(),
             }
+            if dist_params_buf is not None:
+                rollout["dist_params"] = (
+                    dist_params_buf if dist_params_buf.is_shared() else dist_params_buf.cpu()
+                )
             buffer.add_rollout(rollout)
             rollout_count += 1
 
@@ -243,3 +262,10 @@ def async_ppo_collector_fn(
 
     except KeyboardInterrupt:
         pass
+    except Exception:
+        err = traceback.format_exc()
+        if metrics_queue is not None:
+            try:
+                metrics_queue.put_nowait({"error": err})
+            except Exception:
+                pass

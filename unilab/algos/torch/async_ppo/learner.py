@@ -60,16 +60,22 @@ class AsyncPPOLearner:
         st.values[:] = rollout["values"].unsqueeze(-1)
         st.step = st.num_transitions_per_env
 
-        # Initialize distribution_params by running actor forward pass
-        # This is required by rsl-rl 5.0.1's mini_batch_generator
-        import torch
-        from tensordict import TensorDict
-        with torch.no_grad():
-            obs_flat = rollout["observations"].flatten(0, 1)
-            obs_td = TensorDict({"policy": obs_flat}, device=self.ppo.device)
-            _ = self.ppo.actor(obs_td, stochastic_output=True)
-            dist_params = self.ppo.actor.distribution.params
-            st.distribution_params = tuple(
-                p.view(st.num_transitions_per_env, st.num_envs, *p.shape[1:]).clone()
-                for p in dist_params
-            )
+        if "dist_params" in rollout:
+            # dist_params: [num_steps, num_envs, 2*action_dim] packed as (mean, std)
+            action_dim = st.actions.shape[-1]
+            mean = rollout["dist_params"][..., :action_dim].clone()
+            std = rollout["dist_params"][..., action_dim:].clone()
+            st.distribution_params = (mean, std)
+        else:
+            # Fallback: recompute distribution_params using current policy
+            import torch
+            from tensordict import TensorDict
+            with torch.no_grad():
+                obs_flat = rollout["observations"].flatten(0, 1)
+                obs_td = TensorDict({"policy": obs_flat}, device=self.ppo.device)
+                _ = self.ppo.actor(obs_td, stochastic_output=True)
+                dist_params = self.ppo.actor.distribution.params
+                st.distribution_params = tuple(
+                    p.view(st.num_transitions_per_env, st.num_envs, *p.shape[1:]).clone()
+                    for p in dist_params
+                )

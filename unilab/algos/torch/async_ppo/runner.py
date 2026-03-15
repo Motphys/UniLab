@@ -11,6 +11,7 @@ from unilab.ipc import AsyncRunner, SharedWeightSync
 from unilab.utils.device_utils import get_default_device, get_env_dims
 from unilab.utils.hardware_monitor import HardwareMonitor
 from unilab.utils.offpolicy_logger import OffPolicyLogger
+from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, convert_config_v5, is_rsl_rl_v4, is_rsl_rl_v5
 
 from .buffer import OnPolicyReplayBuffer
 from .learner import AsyncPPOLearner
@@ -30,11 +31,14 @@ class AsyncPPORunner(AsyncRunner):
 
     def _build_learner(self) -> AsyncPPOLearner:
         from unilab.base import registry
-        from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4
 
         cfg = dict(self.rl_cfg)
-        if is_rsl_rl_v4():
+        if is_rsl_rl_v5():
+            cfg = convert_config_v5(cfg)
+        elif is_rsl_rl_v4():
             cfg = convert_config_v3_to_v4(cfg)
+        # PPO.construct_algorithm requires multi_gpu key (may be absent after v5 conversion)
+        cfg.setdefault("multi_gpu", None)
 
         # Create temporary env for PPO construction
         env = registry.make(self.env_name, num_envs=self.num_envs, sim_backend="mujoco")
@@ -48,6 +52,14 @@ class AsyncPPORunner(AsyncRunner):
 
         ppo = PPO.construct_algorithm(env=env, obs=td_example, cfg=cfg, device=self.device)
 
+        # Probe distribution_params shape by running one forward pass
+        with torch.no_grad():
+            ppo.actor(td_example[:1], stochastic_output=True)
+            if ppo.actor.distribution is not None:
+                dist_params_dim = sum(p.shape[-1] for p in ppo.actor.distribution.params)
+            else:
+                dist_params_dim = 0
+
         steps_per_env = cfg.get("num_steps_per_env", 24)
         buffer = OnPolicyReplayBuffer(
             capacity_rollouts=cfg.get("buffer_capacity_rollouts", 10),
@@ -56,6 +68,7 @@ class AsyncPPORunner(AsyncRunner):
             obs_dim=self.obs_dim,
             action_dim=self.action_dim,
             device=self.device,
+            dist_params_dim=dist_params_dim,
         )
         env.close()
         return AsyncPPOLearner(ppo, buffer)
@@ -75,6 +88,8 @@ class AsyncPPORunner(AsyncRunner):
         if hasattr(buffer, "obs"):
             for attr in ["obs", "actions", "rewards", "dones", "log_probs", "values", "last_obs"]:
                 getattr(buffer, attr).share_memory_()
+            if buffer._dist_params_dim > 0:
+                buffer.dist_params.share_memory_()
         else:
             buffer._storage.share_memory_()
         buffer.ptr.share_memory_()

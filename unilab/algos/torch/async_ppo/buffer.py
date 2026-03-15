@@ -16,12 +16,14 @@ class OnPolicyReplayBuffer(SharedBufferBase):
         obs_dim: int,
         action_dim: int,
         device: str,
+        dist_params_dim: int = 0,
     ):
         super().__init__(capacity_rollouts, device)
         self.num_envs = num_envs
         self.num_steps = num_steps
         self._obs_dim = obs_dim
         self._action_dim = action_dim
+        self._dist_params_dim = dist_params_dim
 
         self.count = torch.zeros(1, dtype=torch.int64).share_memory_()
 
@@ -48,6 +50,10 @@ class OnPolicyReplayBuffer(SharedBufferBase):
             self.last_obs = torch.zeros(
                 capacity_rollouts, num_envs, obs_dim, pin_memory=True
             ).share_memory_()
+            if dist_params_dim > 0:
+                self.dist_params = torch.zeros(
+                    capacity_rollouts, num_steps, num_envs, dist_params_dim, pin_memory=True
+                ).share_memory_()
 
             # GPU cache
             self.obs_gpu = torch.empty_like(self.obs, device="cuda")
@@ -57,10 +63,12 @@ class OnPolicyReplayBuffer(SharedBufferBase):
             self.log_probs_gpu = torch.empty_like(self.log_probs, device="cuda")
             self.values_gpu = torch.empty_like(self.values, device="cuda")
             self.last_obs_gpu = torch.empty_like(self.last_obs, device="cuda")
+            if dist_params_dim > 0:
+                self.dist_params_gpu = torch.empty_like(self.dist_params, device="cuda")
             self._synced_ptr = 0
         else:
             # Packed layout for MPS/CPU
-            total_dim = num_steps * num_envs * (obs_dim + action_dim + 4) + num_envs * obs_dim
+            total_dim = num_steps * num_envs * (obs_dim + action_dim + 4 + dist_params_dim) + num_envs * obs_dim
             self._storage = torch.zeros(capacity_rollouts, total_dim).share_memory_()
 
     def add_rollout(self, rollout: dict) -> None:
@@ -75,20 +83,22 @@ class OnPolicyReplayBuffer(SharedBufferBase):
             self.log_probs[idx] = rollout["log_probs"]
             self.values[idx] = rollout["values"]
             self.last_obs[idx] = rollout["last_obs"]
+            if self._dist_params_dim > 0 and "dist_params" in rollout:
+                self.dist_params[idx] = rollout["dist_params"]
         else:
             # Pack into single tensor
-            flat = torch.cat(
-                [
-                    rollout["observations"].flatten(),
-                    rollout["actions"].flatten(),
-                    rollout["rewards"].flatten(),
-                    rollout["dones"].flatten(),
-                    rollout["log_probs"].flatten(),
-                    rollout["values"].flatten(),
-                    rollout["last_obs"].flatten(),
-                ]
-            )
-            self._storage[idx] = flat
+            parts = [
+                rollout["observations"].flatten(),
+                rollout["actions"].flatten(),
+                rollout["rewards"].flatten(),
+                rollout["dones"].flatten(),
+                rollout["log_probs"].flatten(),
+                rollout["values"].flatten(),
+                rollout["last_obs"].flatten(),
+            ]
+            if self._dist_params_dim > 0 and "dist_params" in rollout:
+                parts.append(rollout["dist_params"].flatten())
+            self._storage[idx] = torch.cat(parts)
 
         self.ptr[0] += 1
         self.count[0] = min(int(self.count[0]) + 1, self.capacity)
@@ -108,12 +118,14 @@ class OnPolicyReplayBuffer(SharedBufferBase):
                     self.log_probs_gpu[idx].copy_(self.log_probs[idx], non_blocking=True)
                     self.values_gpu[idx].copy_(self.values[idx], non_blocking=True)
                     self.last_obs_gpu[idx].copy_(self.last_obs[idx], non_blocking=True)
+                    if self._dist_params_dim > 0:
+                        self.dist_params_gpu[idx].copy_(self.dist_params[idx], non_blocking=True)
                 self._synced_ptr = int(self.ptr[0])
 
             # Sync stream before returning
             self._cuda_stream.synchronize()
 
-            return {
+            result = {
                 "observations": self.obs_gpu[idx],
                 "actions": self.actions_gpu[idx],
                 "rewards": self.rewards_gpu[idx],
@@ -122,6 +134,9 @@ class OnPolicyReplayBuffer(SharedBufferBase):
                 "values": self.values_gpu[idx],
                 "last_obs": self.last_obs_gpu[idx],
             }
+            if self._dist_params_dim > 0:
+                result["dist_params"] = self.dist_params_gpu[idx]
+            return result
         else:
             # Unpack from storage
             flat = self._storage[idx].to(self.device)
@@ -144,8 +159,9 @@ class OnPolicyReplayBuffer(SharedBufferBase):
             values = flat[c : c + scalar_size].view(self.num_steps, self.num_envs)
             c += scalar_size
             last_obs = flat[c : c + last_obs_size].view(self.num_envs, self._obs_dim)
+            c += last_obs_size
 
-            return {
+            result = {
                 "observations": obs,
                 "actions": actions,
                 "rewards": rewards,
@@ -154,6 +170,12 @@ class OnPolicyReplayBuffer(SharedBufferBase):
                 "values": values,
                 "last_obs": last_obs,
             }
+            if self._dist_params_dim > 0:
+                dp_size = self.num_steps * self.num_envs * self._dist_params_dim
+                result["dist_params"] = flat[c : c + dp_size].view(
+                    self.num_steps, self.num_envs, self._dist_params_dim
+                )
+            return result
 
     def is_ready(self) -> bool:
         """Check if data available."""
