@@ -99,6 +99,11 @@ class AsyncPPORunner(AsyncRunner):
         weight_param_shapes = {name: p.shape for name, p in state_dict.items()}
         self._shared_resources.extend([buffer, weight_sync])
 
+        # Create metrics queue for collector
+        import multiprocessing as mp
+        _SPAWN_CTX = mp.get_context("spawn")
+        metrics_queue = _SPAWN_CTX.Queue(maxsize=100)
+
         # Start collector
         steps_per_env = self.rl_cfg.get("num_steps_per_env", 24)
         self._start_collector(
@@ -113,7 +118,7 @@ class AsyncPPORunner(AsyncRunner):
                 "weight_sync_name": weight_sync.name,
                 "weight_param_shapes": weight_param_shapes,
                 "weight_sync_lock": weight_sync._lock,
-                "metrics_queue": None,
+                "metrics_queue": metrics_queue,
                 "collector_device": self.collector_device,
             },
         )
@@ -159,7 +164,11 @@ class AsyncPPORunner(AsyncRunner):
                 logger.log_status(f"[yellow]Timeout waiting for data at iter {iteration}[/]")
                 continue
 
-            collect_time = time.time() - iter_start
+            wait_time = time.time() - wait_start
+
+            # Drain collector metrics
+            self._drain_metrics(metrics_queue, logger)
+
             train_start = time.time()
 
             metrics = learner.update()
@@ -186,8 +195,9 @@ class AsyncPPORunner(AsyncRunner):
                 metrics=metrics,
                 reward=0.0,
                 reward_components={},
-                collect_time=collect_time,
+                collect_time=0.0,
                 train_time=train_time,
+                wait_time=wait_time,
             )
 
             if save_interval > 0 and iteration % save_interval == 0:
@@ -201,3 +211,15 @@ class AsyncPPORunner(AsyncRunner):
         torch.save({"actor": ppo.actor.state_dict(), "critic": ppo.critic.state_dict()}, ckpt_path)
         logger.log_save(ckpt_path)
         logger.finish()
+
+    def _drain_metrics(self, queue, logger):
+        """Drain metrics from collector queue."""
+        while not queue.empty():
+            try:
+                m = queue.get_nowait()
+                if "error" in m:
+                    logger.log_status(f"[red]Collector ERROR: {m['error']}[/]")
+                if "collector_timing_ms" in m:
+                    logger.update_collector_timing(m["collector_timing_ms"])
+            except Exception:
+                break

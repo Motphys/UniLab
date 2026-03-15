@@ -77,6 +77,7 @@ def async_ppo_collector_fn(
 
     obs = torch.from_numpy(np.asarray(obs_out, dtype=np.float32)).to(collector_device)
 
+    rollout_count = 0
     try:
         while not stop_event.is_set():
             # Sync weights
@@ -143,6 +144,14 @@ def async_ppo_collector_fn(
                 "last_obs": obs if obs.is_shared() else obs.cpu(),
             }
             buffer.add_rollout(rollout)
+            rollout_count += 1
+
+            # Send metrics every 10 rollouts
+            if rollout_count % 10 == 0 and metrics_queue is not None:
+                try:
+                    metrics_queue.put_nowait({"collector_timing_ms": {}})
+                except Exception:
+                    pass
 
     except KeyboardInterrupt:
         pass
