@@ -25,7 +25,12 @@ class AsyncPPORunner(AsyncRunner):
         self._resolve_dims()
 
     def _get_default_device(self) -> str:
-        return "cuda" if torch.cuda.is_available() else "cpu"
+        if torch.cuda.is_available():
+            return "cuda"
+        elif torch.backends.mps.is_available():
+            return "mps"
+        else:
+            return "cpu"
 
     def _resolve_dims(self):
         from unilab.base import registry
