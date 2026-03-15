@@ -102,8 +102,6 @@ def async_ppo_collector_fn(
             dones_buf = torch.zeros(steps_per_env, num_envs, device=collector_device)
             log_probs_buf = torch.zeros(steps_per_env, num_envs, device=collector_device)
             values_buf = torch.zeros(steps_per_env, num_envs, device=collector_device)
-            action_mean_buf = torch.zeros(steps_per_env, num_envs, action_dim, device=collector_device)
-            action_sigma_buf = torch.zeros(steps_per_env, num_envs, action_dim, device=collector_device)
 
             with torch.no_grad():
                 for step in range(steps_per_env):
@@ -122,16 +120,10 @@ def async_ppo_collector_fn(
                     log_probs = ppo.transition.actions_log_prob
                     values = ppo.transition.values
 
-                    # Get distribution params from actor
-                    action_mean = ppo.actor.output_mean
-                    action_sigma = ppo.actor.output_std
-
                     obs_buf[step] = obs
                     actions_buf[step] = actions
                     log_probs_buf[step] = log_probs.squeeze(-1)
                     values_buf[step] = values.squeeze(-1)
-                    action_mean_buf[step] = action_mean
-                    action_sigma_buf[step] = action_sigma
 
                     # Step env
                     state = env.step(actions.cpu().numpy())  # type: ignore[attr-defined]
@@ -167,8 +159,6 @@ def async_ppo_collector_fn(
                 "log_probs": log_probs_buf if log_probs_buf.is_shared() else log_probs_buf.cpu(),
                 "values": values_buf if values_buf.is_shared() else values_buf.cpu(),
                 "last_obs": obs if obs.is_shared() else obs.cpu(),
-                "action_mean": action_mean_buf if action_mean_buf.is_shared() else action_mean_buf.cpu(),
-                "action_sigma": action_sigma_buf if action_sigma_buf.is_shared() else action_sigma_buf.cpu(),
             }
             buffer.add_rollout(rollout)
             rollout_count += 1

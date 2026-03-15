@@ -48,12 +48,6 @@ class OnPolicyReplayBuffer:
             self.last_obs = torch.zeros(
                 capacity_rollouts, num_envs, obs_dim, pin_memory=True
             ).share_memory_()
-            self.action_mean = torch.zeros(
-                capacity_rollouts, num_steps, num_envs, action_dim, pin_memory=True
-            ).share_memory_()
-            self.action_sigma = torch.zeros(
-                capacity_rollouts, num_steps, num_envs, action_dim, pin_memory=True
-            ).share_memory_()
 
             # GPU cache
             self.obs_gpu = torch.empty_like(self.obs, device="cuda")
@@ -63,13 +57,11 @@ class OnPolicyReplayBuffer:
             self.log_probs_gpu = torch.empty_like(self.log_probs, device="cuda")
             self.values_gpu = torch.empty_like(self.values, device="cuda")
             self.last_obs_gpu = torch.empty_like(self.last_obs, device="cuda")
-            self.action_mean_gpu = torch.empty_like(self.action_mean, device="cuda")
-            self.action_sigma_gpu = torch.empty_like(self.action_sigma, device="cuda")
             self._synced_ptr = 0
             self._cuda_stream = torch.cuda.Stream()
         else:
             # Packed layout for MPS/CPU
-            total_dim = num_steps * num_envs * (obs_dim + action_dim * 3 + 4) + num_envs * obs_dim
+            total_dim = num_steps * num_envs * (obs_dim + action_dim + 4) + num_envs * obs_dim
             self._storage = torch.zeros(capacity_rollouts, total_dim).share_memory_()
 
     def add_rollout(self, rollout: dict) -> None:
@@ -84,8 +76,6 @@ class OnPolicyReplayBuffer:
             self.log_probs[idx] = rollout["log_probs"]
             self.values[idx] = rollout["values"]
             self.last_obs[idx] = rollout["last_obs"]
-            self.action_mean[idx] = rollout["action_mean"]
-            self.action_sigma[idx] = rollout["action_sigma"]
         else:
             # Pack into single tensor
             flat = torch.cat(
@@ -97,8 +87,6 @@ class OnPolicyReplayBuffer:
                     rollout["log_probs"].flatten(),
                     rollout["values"].flatten(),
                     rollout["last_obs"].flatten(),
-                    rollout["action_mean"].flatten(),
-                    rollout["action_sigma"].flatten(),
                 ]
             )
             self._storage[idx] = flat
@@ -121,8 +109,6 @@ class OnPolicyReplayBuffer:
                     self.log_probs_gpu[idx].copy_(self.log_probs[idx], non_blocking=True)
                     self.values_gpu[idx].copy_(self.values[idx], non_blocking=True)
                     self.last_obs_gpu[idx].copy_(self.last_obs[idx], non_blocking=True)
-                    self.action_mean_gpu[idx].copy_(self.action_mean[idx], non_blocking=True)
-                    self.action_sigma_gpu[idx].copy_(self.action_sigma[idx], non_blocking=True)
                 self._synced_ptr = int(self.ptr[0])
 
             # Sync stream before returning
@@ -136,8 +122,6 @@ class OnPolicyReplayBuffer:
                 "log_probs": self.log_probs_gpu[idx],
                 "values": self.values_gpu[idx],
                 "last_obs": self.last_obs_gpu[idx],
-                "action_mean": self.action_mean_gpu[idx],
-                "action_sigma": self.action_sigma_gpu[idx],
             }
         else:
             # Unpack from storage
@@ -147,8 +131,6 @@ class OnPolicyReplayBuffer:
             act_size = self.num_steps * self.num_envs * self._action_dim
             scalar_size = self.num_steps * self.num_envs
             last_obs_size = self.num_envs * self._obs_dim
-            mean_size = self.num_steps * self.num_envs * self._action_dim
-            sigma_size = self.num_steps * self.num_envs * self._action_dim
 
             obs = flat[c : c + obs_size].view(self.num_steps, self.num_envs, self._obs_dim)
             c += obs_size
@@ -163,10 +145,6 @@ class OnPolicyReplayBuffer:
             values = flat[c : c + scalar_size].view(self.num_steps, self.num_envs)
             c += scalar_size
             last_obs = flat[c : c + last_obs_size].view(self.num_envs, self._obs_dim)
-            c += last_obs_size
-            action_mean = flat[c : c + mean_size].view(self.num_steps, self.num_envs, self._action_dim)
-            c += mean_size
-            action_sigma = flat[c : c + sigma_size].view(self.num_steps, self.num_envs, self._action_dim)
 
             return {
                 "observations": obs,
@@ -176,8 +154,6 @@ class OnPolicyReplayBuffer:
                 "log_probs": log_probs,
                 "values": values,
                 "last_obs": last_obs,
-                "action_mean": action_mean,
-                "action_sigma": action_sigma,
             }
 
     def is_ready(self) -> bool:
