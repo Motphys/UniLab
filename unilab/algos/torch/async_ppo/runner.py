@@ -8,6 +8,7 @@ from rsl_rl.algorithms import PPO
 from tensordict import TensorDict
 
 from unilab.ipc import AsyncRunner, SharedWeightSync
+from unilab.utils.device_utils import get_default_device, get_env_dims
 from unilab.utils.hardware_monitor import HardwareMonitor
 from unilab.utils.offpolicy_logger import OffPolicyLogger
 
@@ -22,25 +23,10 @@ class AsyncPPORunner(AsyncRunner):
         super().__init__(env_name, env_cfg_overrides, rl_cfg, **kwargs)
         if hasattr(self.rl_cfg, "to_dict"):
             self.rl_cfg = self.rl_cfg.to_dict()
-        self._resolve_dims()
+        self.obs_dim, self.action_dim = get_env_dims(self.env_name, "mujoco")
 
     def _get_default_device(self) -> str:
-        if torch.cuda.is_available():
-            return "cuda"
-        elif torch.backends.mps.is_available():
-            return "mps"
-        else:
-            return "cpu"
-
-    def _resolve_dims(self):
-        from unilab.base import registry
-        from unilab.utils.algo_utils import ensure_registries
-
-        ensure_registries()
-        env = registry.make(self.env_name, num_envs=1, sim_backend="mujoco")
-        self.obs_dim = env.observation_space.shape[0]  # type: ignore[index]
-        self.action_dim = env.action_space.shape[0]  # type: ignore[index]
-        env.close()
+        return get_default_device()
 
     def _build_learner(self) -> AsyncPPOLearner:
         from unilab.base import registry

@@ -200,8 +200,8 @@ def async_ppo_collector_fn(
             buffer.add_rollout(rollout)
             rollout_count += 1
 
-            # Send metrics every 10 rollouts
-            if rollout_count % 10 == 0 and metrics_queue is not None:
+            # Send metrics every rollout
+            if metrics_queue is not None:
                 try:
                     avg_timing = {}
                     if timing_count > 0:

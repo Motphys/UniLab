@@ -2,6 +2,7 @@
 
 from unilab.algos.torch.fast_sac.learner import FastSACLearner
 from unilab.algos.torch.offpolicy.runner import OffPolicyRunner
+from unilab.utils.device_utils import get_default_device, get_env_dims
 
 
 class FastSACRunner(OffPolicyRunner):
@@ -36,8 +37,6 @@ class FastSACRunner(OffPolicyRunner):
         sim_backend: str = "mujoco",
         use_symmetry: bool = False,
     ):
-        import torch
-
         from unilab.base import registry
         from unilab.utils.algo_utils import ensure_registries
 
@@ -51,12 +50,7 @@ class FastSACRunner(OffPolicyRunner):
         obs_structure = getattr(env, "get_obs_structure", lambda: None)()
         env.close()
 
-        if device is None:
-            device = (
-                "cuda"
-                if torch.cuda.is_available()
-                else ("mps" if torch.backends.mps.is_available() else "cpu")
-            )
+        device = device or get_default_device()
 
         learner = FastSACLearner(
             obs_dim=obs_dim,

@@ -2,8 +2,10 @@
 
 import torch
 
+from unilab.algos.torch.common.shared_buffer import SharedBufferBase
 
-class OnPolicyReplayBuffer:
+
+class OnPolicyReplayBuffer(SharedBufferBase):
     """Stores recent rollouts with device-adaptive layout and zero-copy optimization."""
 
     def __init__(
@@ -15,14 +17,12 @@ class OnPolicyReplayBuffer:
         action_dim: int,
         device: str,
     ):
-        self.capacity = capacity_rollouts
+        super().__init__(capacity_rollouts, device)
         self.num_envs = num_envs
         self.num_steps = num_steps
-        self.device = device
         self._obs_dim = obs_dim
         self._action_dim = action_dim
 
-        self.ptr = torch.zeros(1, dtype=torch.int64).share_memory_()
         self.count = torch.zeros(1, dtype=torch.int64).share_memory_()
 
         if device == "cuda":
@@ -58,7 +58,6 @@ class OnPolicyReplayBuffer:
             self.values_gpu = torch.empty_like(self.values, device="cuda")
             self.last_obs_gpu = torch.empty_like(self.last_obs, device="cuda")
             self._synced_ptr = 0
-            self._cuda_stream = torch.cuda.Stream()
         else:
             # Packed layout for MPS/CPU
             total_dim = num_steps * num_envs * (obs_dim + action_dim + 4) + num_envs * obs_dim

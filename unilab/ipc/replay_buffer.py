@@ -4,8 +4,10 @@ from typing import Dict
 
 import torch
 
+from unilab.algos.torch.common.shared_buffer import SharedBufferBase
 
-class ReplayBuffer:
+
+class ReplayBuffer(SharedBufferBase):
     """Shared tensor replay buffer with device-adaptive sampling.
 
     Design:
@@ -15,12 +17,10 @@ class ReplayBuffer:
     """
 
     def __init__(self, capacity: int, obs_dim: int, action_dim: int, device: str):
-        self.capacity = capacity
-        self.device = device
+        super().__init__(capacity, device)
         self._obs_dim = obs_dim
         self._action_dim = action_dim
 
-        self.ptr = torch.zeros(1, dtype=torch.int64).share_memory_()
         self.size = torch.zeros(1, dtype=torch.int64).share_memory_()
 
         if device == "cuda":
@@ -39,7 +39,6 @@ class ReplayBuffer:
             self.rewards_gpu = torch.empty(capacity, device="cuda")
             self.dones_gpu = torch.empty(capacity, device="cuda")
             self.truncated_gpu = torch.empty(capacity, device="cuda")
-            self._gpu_synced_ptr = 0
         else:
             # Single packed host tensor; layout: [obs | next_obs | actions | rew | done | trunc]
             total_dim = 2 * obs_dim + action_dim + 3

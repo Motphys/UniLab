@@ -10,6 +10,7 @@ from unilab.algos.torch.offpolicy.worker import off_policy_collector_fn
 from unilab.ipc import SharedObsNormStats, SharedWeightSync
 from unilab.ipc.async_runner import _SPAWN_CTX, AsyncRunner
 from unilab.ipc.replay_buffer import ReplayBuffer
+from unilab.utils.device_utils import get_env_dims
 from unilab.utils.offpolicy_logger import OffPolicyLogger
 
 
@@ -58,25 +59,10 @@ class OffPolicyRunner(AsyncRunner):
         self.use_layer_norm = use_layer_norm
         self.obs_normalization = obs_normalization
 
-        self.obs_dim, self.action_dim = self._detect_dims()
-
-    def _detect_dims(self):
-        from unilab.base import registry
-        from unilab.utils.algo_utils import ensure_registries
-
-        ensure_registries()
-        env = registry.make(self.env_name, num_envs=1, sim_backend="mujoco")
-        obs_dim = env.observation_space.shape[0]
-        action_dim = env.action_space.shape[0]
-        env.close()
-        return obs_dim, action_dim
+        self.obs_dim, self.action_dim = get_env_dims(self.env_name, sim_backend)
 
     def _get_default_device(self) -> str:
-        if torch.cuda.is_available():
-            return "cuda"
-        if torch.backends.mps.is_available():
-            return "mps"
-        return "cpu"
+        return get_default_device()
 
     def _build_learner(self):
         return self.learner
