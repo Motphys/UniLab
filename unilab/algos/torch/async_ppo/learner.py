@@ -47,21 +47,5 @@ class AsyncPPOLearner:
         st.values[:] = rollout["values"].unsqueeze(-1)
         st.step = st.num_transitions_per_env
 
-        # Initialize distribution_params by re-running actor forward pass
-        import torch
-        from tensordict import TensorDict
-        with torch.no_grad():
-            obs_flat = rollout["observations"].flatten(0, 1)
-            obs_td = TensorDict({"policy": obs_flat}, device=self.ppo.device)
-
-            # Get MLP output and update distribution
-            latent = self.ppo.actor.get_latent(obs_td)
-            mlp_output = self.ppo.actor.mlp(latent)
-            self.ppo.actor.distribution.update(mlp_output)
-
-            # Get distribution params and clone to avoid view issues
-            dist_params = self.ppo.actor.distribution.params
-            st.distribution_params = tuple(
-                p.view(st.num_transitions_per_env, st.num_envs, *p.shape[1:]).clone()
-                for p in dist_params
-            )
+        # Use distribution params from collector (avoid recomputation)
+        st.distribution_params = (rollout["action_mean"], rollout["action_sigma"])

@@ -165,9 +165,8 @@ class AsyncPPORunner(AsyncRunner):
                 continue
 
             wait_time = time.time() - wait_start
-
-            # Drain collector metrics
             self._drain_metrics(metrics_queue, logger)
+            collect_time = time.time() - iter_start
 
             train_start = time.time()
 
@@ -195,7 +194,7 @@ class AsyncPPORunner(AsyncRunner):
                 metrics=metrics,
                 reward=0.0,
                 reward_components={},
-                collect_time=0.0,
+                collect_time=collect_time,
                 train_time=train_time,
                 wait_time=wait_time,
             )
