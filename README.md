@@ -157,6 +157,9 @@ uv run python scripts/train_rsl_rl.py --task Go2JoystickFlatTerrain
 # PPO (MLX - Apple Silicon)
 uv run python scripts/train_mlx_ppo.py --task Go2JoystickFlatTerrain
 
+# APPO（异步 PPO，CPU/GPU 并行）
+uv run python scripts/train_appo.py --task Go1JoystickFlatTerrain
+
 # Unified OffPolicy entry (recommended)
 uv run python scripts/train_offpolicy.py --algo sac --task Go1JoystickFlatTerrain
 uv run python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain
@@ -198,6 +201,75 @@ uv run python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrai
 *   `--load_run`: 指定加载的运行 ID，默认 `-1`（最新）
 *   `--play_env_num`: 回放时的环境数量（默认 16）
 *   `--logger`: 日志后端（`tensorboard` / `wandb` / `none`）
+
+---
+
+## APPO（异步 PPO）
+
+基于 V-trace 重要性采样修正的异步 PPO 实现。Collector 子进程（CPU 仿真）通过 4 槽 ring buffer 持续写入 rollout，Learner 进程（GPU）无需等待即可从 ring buffer 中消费并训练，实现真正的 CPU/GPU 并行。
+
+### 核心特性
+
+| 特性 | 说明 |
+|------|------|
+| **异步多进程** | Collector（CPU）与 Learner（GPU）完全解耦，各自满负荷运行 |
+| **V-trace IS 修正** | 使用重要性采样比 ρ = π_target/π_behavior 修正 off-policy 数据的优势估计 |
+| **4 槽 ring buffer** | 支持最多 4 条 rollout 在飞，collector 满时覆盖最旧 slot（无阻塞） |
+| **Replay queue** | Learner 端维护 rollout 重放队列，每次迭代消费所有可用 slot |
+| **日志目录** | `logs/appo/<task>/<timestamp>_mujoco/` |
+
+### 训练
+
+```bash
+# 默认参数训练
+uv run python scripts/train_appo.py --task Go1JoystickFlatTerrain
+
+# 指定环境数量和迭代次数
+uv run python scripts/train_appo.py --task Go2JoystickFlatTerrain --total_envs 2048 --max_iterations 300
+
+# 自定义 replay queue 深度（越大 staleness 越高，但 GPU 利用率更稳定）
+uv run python scripts/train_appo.py --task Go1JoystickFlatTerrain --replay_queue_size 2
+
+# 跳过训练后的自动 play
+uv run python scripts/train_appo.py --task Go1JoystickFlatTerrain --no_play
+```
+
+### 回放
+
+```bash
+# 仅回放（加载最新 checkpoint）
+uv run python scripts/train_appo.py --task Go1JoystickFlatTerrain --play_only
+
+# 加载特定 checkpoint 回放
+uv run python scripts/train_appo.py --task Go1JoystickFlatTerrain --play_only --load_run "2026-03-16_01-35-12_mujoco"
+uv run python scripts/train_appo.py --task Go1JoystickFlatTerrain --play_only --load_run "/abs/path/to/model_150.pt"
+```
+
+### 参数说明
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--task` | `Go2JoystickFlatTerrain` | 任务名称 |
+| `--max_iterations` | 配置文件值 | 最大训练迭代次数 |
+| `--total_envs` | 配置文件值（2048） | 并行环境数量 |
+| `--steps_per_env` | 配置文件值（24） | 每条 rollout 的步数 |
+| `--replay_queue_size` | 3 | Learner 端 rollout 重放队列深度 |
+| `--device` | 自动检测 | Learner 设备（`cuda` / `mps` / `cpu`） |
+| `--collector_device` | `cpu` | Collector 设备（`cpu` 或 `gpu`） |
+| `--logger` | `tensorboard` | 日志后端（`tensorboard` / `wandb` / `none`） |
+| `--play_only` | False | 仅回放，跳过训练 |
+| `--no_play` | False | 训练后跳过自动回放 |
+| `--load_run` | `-1`（最新） | 指定 run 目录名或 checkpoint 路径 |
+| `--save_interval` | 配置文件值 | 每隔多少次迭代保存一次 checkpoint |
+
+### 与 PPO 的对比
+
+| 维度 | rsl-rl PPO | APPO |
+|------|-----------|------|
+| 收集方式 | 同步（训练等收集） | 异步（并行运行） |
+| IS 修正 | 无（严格 on-policy） | V-trace（容忍 staleness） |
+| CPU/GPU 利用率 | 交替满载 | 同时满载 |
+| 适用场景 | 快速收敛、样本效率优先 | 吞吐量优先、大规模并行 |
 
 ---
 
