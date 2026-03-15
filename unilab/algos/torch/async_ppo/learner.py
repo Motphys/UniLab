@@ -31,6 +31,17 @@ class AsyncPPOLearner:
         # Mark rollout as consumed
         self.buffer.count[0] = 0
 
+        # Recompute values with current critic to fix stale-value GAE corruption.
+        # The collector uses an older copy of the critic; mixing stale st.values with
+        # the current last_values in compute_returns inflates advantages and breaks training.
+        import torch
+        st = self.ppo.storage
+        with torch.no_grad():
+            obs_flat = rollout["observations"].flatten(0, 1)  # [T*N, obs_dim]
+            obs_td = TensorDict({"policy": obs_flat}, device=self.ppo.device)
+            fresh_values = self.ppo.critic(obs_td)  # [T*N, 1]
+            st.values[:] = fresh_values.view(st.num_transitions_per_env, st.num_envs, 1)
+
         last_obs_td = TensorDict({"policy": rollout["last_obs"]}, device=self.ppo.device)
         self.ppo.compute_returns(last_obs_td)
         t3 = time.perf_counter()
