@@ -195,9 +195,19 @@ def main():
     parser.add_argument("--steps_per_env", type=int, default=None)
     parser.add_argument("--play_only", action="store_true", help="Skip training, only play")
     parser.add_argument("--no_play", action="store_true", help="Skip play after training")
-    parser.add_argument("--replay_queue_size", type=int, default=None, help="Learner-side rollout replay queue depth (default 3)")
+    parser.add_argument(
+        "--replay_queue_size",
+        type=int,
+        default=None,
+        help="Learner-side rollout replay queue depth (default 3)",
+    )
     parser.add_argument("--play_env_num", type=int, default=16, help="Number of play envs")
-    parser.add_argument("--load_run", type=str, default="-1", help="Run dir or model path to load for play (-1 = latest)")
+    parser.add_argument(
+        "--load_run",
+        type=str,
+        default="-1",
+        help="Run dir or model path to load for play (-1 = latest)",
+    )
     parser.add_argument(
         "--logger",
         type=str,
@@ -244,7 +254,11 @@ def main():
             collector_device=collector_device,
             num_envs=args.total_envs,
             steps_per_env=args.steps_per_env,
-            **({"replay_queue_size": args.replay_queue_size} if args.replay_queue_size is not None else {}),
+            **(
+                {"replay_queue_size": args.replay_queue_size}
+                if args.replay_queue_size is not None
+                else {}
+            ),
         )
 
         try:

@@ -25,6 +25,7 @@ class Commands:
         [1.0, 0.4, 0.8],  # [vx_max, vy_max, vyaw_max]
     ]
 
+
 @dataclass
 class Domain_Rand:
     # randomize_friction = True

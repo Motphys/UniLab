@@ -6,6 +6,7 @@ import torch
 
 try:
     import psutil
+
     HAS_PSUTIL = True
 except ImportError:
     HAS_PSUTIL = False
@@ -23,6 +24,7 @@ class HardwareMonitor:
         if self.has_cuda:
             try:
                 import pynvml
+
                 pynvml.nvmlInit()
                 self.nvml_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
                 self.has_nvml = True
@@ -50,6 +52,7 @@ class HardwareMonitor:
 
             if self.has_nvml:
                 import pynvml
+
                 util = pynvml.nvmlDeviceGetUtilizationRates(self.nvml_handle)
                 metrics["gpu_utilization"] = util.gpu
                 metrics["gpu_memory_utilization"] = util.memory

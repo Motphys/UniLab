@@ -35,11 +35,13 @@ def is_rsl_rl_v4() -> bool:
     print(version_str)
     return Version(version_str) >= Version("4.0.0")
 
+
 def is_rsl_rl_v5() -> bool:
     """Check if the installed rsl_rl version is 4.x or above."""
     version_str = get_rsl_rl_version()
     print(version_str)
     return Version(version_str) >= Version("5.0.0")
+
 
 def convert_config_v3_to_v4(cfg: dict) -> dict:
     """Convert rsl_rl 3.x config format to 4.x format.
@@ -137,6 +139,7 @@ def convert_config_v3_to_v4(cfg: dict) -> dict:
 
     return cfg
 
+
 def convert_config_v5(cfg: dict) -> dict:
     """Convert config format to 5.x format.
 
@@ -172,9 +175,11 @@ def convert_config_v5(cfg: dict) -> dict:
             # "noise_std_type": policy.get("noise_std_type", "scalar"),
             # "stochastic": True,  # Required: MLPModel needs this to create output distribution
             "obs_normalization": empirical_normalization,
-            'distribution_cfg': {'class_name': 'GaussianDistribution',
-                                'init_std':policy.get("init_noise_std", 1.0),
-                                "std_type": policy.get("noise_std_type", "scalar"),}
+            "distribution_cfg": {
+                "class_name": "GaussianDistribution",
+                "init_std": policy.get("init_noise_std", 1.0),
+                "std_type": policy.get("noise_std_type", "scalar"),
+            },
         }
         cfg["critic"] = {
             "class_name": "MLPModel",

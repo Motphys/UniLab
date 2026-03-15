@@ -1,8 +1,10 @@
 """ANE actor for Fast SAC - correct implementation."""
+
+import tempfile
+
+import coremltools as ct
 import numpy as np
 import torch
-import coremltools as ct
-import tempfile
 
 
 class ANEActor:

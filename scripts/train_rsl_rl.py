@@ -43,7 +43,12 @@ except ImportError:
     print("Could not import rsl_rl. Please ensure it is installed.")
     sys.exit(1)
 
-from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4, convert_config_v5, is_rsl_rl_v5
+from unilab.utils.rsl_rl_compat import (
+    convert_config_v3_to_v4,
+    convert_config_v5,
+    is_rsl_rl_v4,
+    is_rsl_rl_v5,
+)
 from unilab.utils.run_utils import get_latest_run
 
 

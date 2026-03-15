@@ -25,6 +25,7 @@ def _resolve_gl_backend() -> str:
     # Try to load EGL; fall back to glfw if unavailable
     try:
         import ctypes
+
         ctypes.CDLL("libEGL.so.1")
         return "egl"
     except OSError:
