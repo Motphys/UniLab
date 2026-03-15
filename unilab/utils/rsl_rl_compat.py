@@ -76,10 +76,12 @@ def convert_config_v3_to_v4(cfg: dict) -> dict:
             "class_name": "MLPModel",
             "hidden_dims": policy.get("actor_hidden_dims", [256, 256, 256]),
             "activation": policy.get("activation", "elu"),
-            "init_noise_std": policy.get("init_noise_std", 1.0),
-            "noise_std_type": policy.get("noise_std_type", "scalar"),
-            "stochastic": True,  # Required: MLPModel needs this to create output distribution
             "obs_normalization": empirical_normalization,
+            "distribution_cfg": {
+                "class_name": "rsl_rl.modules.distribution.GaussianDistribution",
+                "init_std": policy.get("init_noise_std", 1.0),
+                "std_type": policy.get("noise_std_type", "scalar"),
+            },
         }
         cfg["critic"] = {
             "class_name": "MLPModel",
@@ -128,6 +130,10 @@ def convert_config_v3_to_v4(cfg: dict) -> dict:
             obs_groups["critic"] = ["policy"]
 
     cfg["obs_groups"] = obs_groups
+
+    # 4.x requires multi_gpu config
+    if "multi_gpu" not in cfg:
+        cfg["multi_gpu"] = None
 
     return cfg
 

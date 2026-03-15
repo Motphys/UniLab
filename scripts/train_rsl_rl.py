@@ -185,6 +185,10 @@ def play_rsl_rl(args, cfg, device):
     env = registry.make(args.task, num_envs=args.play_env_num, sim_backend=args.sim_backend)
     wrapped_env = RslRlVecEnvWrapper(env, device=device)
     train_cfg = cfg.to_dict()
+    # Suppress logger in play mode — no training state to record.
+    if "runner" not in train_cfg:
+        train_cfg["runner"] = {}
+    train_cfg["runner"]["logger"] = "none"
     if is_rsl_rl_v5():
         train_cfg = convert_config_v5(train_cfg)
 
@@ -218,8 +222,17 @@ def play_rsl_rl(args, cfg, device):
     else:
         load_path_dir = os.path.dirname(load_path)
 
-    log_dir = str(ROOT_DIR / "logs" / "rsl_rl_train" / args.task / "play_temp")
-    runner = OnPolicyRunner(wrapped_env, train_cfg, log_dir=log_dir, device=device)
+    # Validate checkpoint format — non-rsl-rl checkpoints (e.g. APPO) store "actor"
+    # instead of "actor_state_dict" and will cause a KeyError inside runner.load().
+    _ckpt_keys = set(torch.load(load_path, map_location="cpu", weights_only=True).keys())
+    if "actor_state_dict" not in _ckpt_keys:
+        print(
+            f"Checkpoint at {load_path} is not an rsl-rl checkpoint "
+            f"(found keys: {_ckpt_keys}). Aborting play."
+        )
+        return
+
+    runner = OnPolicyRunner(wrapped_env, train_cfg, log_dir=None, device=device)
     runner.load(load_path)
     policy = runner.get_inference_policy(device=device)
 
@@ -420,6 +433,7 @@ def main():
             runner.load(resume_path)
 
         runner.learn(num_learning_iterations=cfg.max_iterations, init_at_random_ep_len=True)
+        env.close()
 
     if args.play_only or not args.no_play:
         play_rsl_rl(args, cfg, device)

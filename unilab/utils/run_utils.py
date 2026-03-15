@@ -13,7 +13,13 @@ def get_latest_run(log_dir: str) -> str | None:
     if not os.path.exists(log_dir):
         return None
     runs = sorted(
-        [d for d in os.listdir(log_dir) if os.path.isdir(os.path.join(log_dir, d)) and d != "git"]
+        [
+            d
+            for d in os.listdir(log_dir)
+            if os.path.isdir(os.path.join(log_dir, d))
+            and d != "git"
+            and d[0].isdigit()  # skip non-timestamp dirs (e.g. "appo-...", "play_temp")
+        ]
     )
 
     # Iterate backwards to find first run with models
