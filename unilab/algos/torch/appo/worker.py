@@ -5,6 +5,7 @@ Collects on-policy rollouts and writes to SharedOnPolicyStorage.
 
 import statistics
 import sys
+import time
 from collections import defaultdict
 
 import numpy as np
@@ -33,6 +34,8 @@ def appo_collector_fn(
 
     Creates environment + policy, collects rollouts, writes to SharedOnPolicyStorage.
     """
+    from copy import deepcopy
+
     from tensordict import TensorDict
 
     from unilab.base import registry
@@ -57,8 +60,6 @@ def appo_collector_fn(
     env = registry.make(env_name, num_envs=num_envs, sim_backend="mujoco")
 
     # Build actor (stochastic MLPModel — mirrors runner._build_learner)
-    from copy import deepcopy
-
     cfg = dict(rl_cfg)
     if is_rsl_rl_v5():
         pass  # appo_config is already v5-compatible (actor/critic format)
@@ -110,6 +111,15 @@ def appo_collector_fn(
     current_ep_lengths = np.zeros(num_envs, dtype=np.int32)
     ep_reward_components = defaultdict(list)
 
+    # Episode completion mode counters (reset after each metrics report)
+    ep_timeouts = 0
+    ep_terminates = 0
+
+    # Collector timing EMA (milliseconds, α=0.1 → slow-moving average)
+    _EMA = 0.1
+    ema_mlp_infer_ms: float = 0.0
+    ema_env_step_ms: float = 0.0
+
     try:
         while not stop_event.is_set():
             # Pull latest weights from learner
@@ -121,6 +131,8 @@ def appo_collector_fn(
             # Collect one rollout of length steps_per_env
             write_buf = storage.write_buffer
             for step in range(steps_per_env):
+                # --- MLP inference (timed) ---
+                t_mlp = time.perf_counter()
                 with torch.no_grad():
                     obs_torch = torch.from_numpy(obs_np).to(collector_device)
                     obs_td = TensorDict(
@@ -129,6 +141,9 @@ def appo_collector_fn(
                     actions_torch = actor(obs_td, stochastic_output=True)
                     log_probs_torch = actor.get_output_log_prob(actions_torch)
                     actions_np = actions_torch.cpu().numpy().astype(np.float32)
+                ema_mlp_infer_ms = (1 - _EMA) * ema_mlp_infer_ms + _EMA * (
+                    (time.perf_counter() - t_mlp) * 1000
+                )
 
                 write_buf["obs"][:, step, :] = obs_np
                 write_buf["actions"][:, step, :] = actions_np
@@ -136,7 +151,12 @@ def appo_collector_fn(
                     log_probs_torch.cpu().numpy().astype(np.float32).ravel()
                 )
 
+                # --- Env step (timed) ---
+                t_env = time.perf_counter()
                 state = env.step(actions_np)
+                ema_env_step_ms = (1 - _EMA) * ema_env_step_ms + _EMA * (
+                    (time.perf_counter() - t_env) * 1000
+                )
 
                 next_obs_raw = state.obs
                 reward_raw = np.asarray(state.reward, dtype=np.float32).ravel()
@@ -168,6 +188,9 @@ def appo_collector_fn(
                     ep_lengths.extend(current_ep_lengths[reset_indices].tolist())
                     current_ep_rewards[reset_indices] = 0.0
                     current_ep_lengths[reset_indices] = 0
+                    # Count episode completion modes for timeout/terminated rates
+                    ep_timeouts += int(np.sum(truncated_raw[reset_indices] > 0.5))
+                    ep_terminates += int(np.sum(truncated_raw[reset_indices] <= 0.5))
 
                 log_info = state.info.get("log", {})
                 for k, v in log_info.items():
@@ -182,6 +205,18 @@ def appo_collector_fn(
                             "mean_ep_length": statistics.mean(ep_lengths[-100:])
                             if ep_lengths
                             else 0.0,
+                        }
+                        # Episode completion mode rates
+                        total_ep = ep_timeouts + ep_terminates
+                        if total_ep > 0:
+                            msg["timeout_rate"] = ep_timeouts / total_ep
+                            msg["terminated_rate"] = ep_terminates / total_ep
+                            ep_timeouts = 0
+                            ep_terminates = 0
+                        # Collector-side timing breakdown
+                        msg["collector_timing_ms"] = {
+                            "mlp_infer_ms": ema_mlp_infer_ms,
+                            "env_step_total_ms": ema_env_step_ms,
                         }
                         if ep_reward_components:
                             msg["reward_components"] = {

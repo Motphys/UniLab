@@ -212,22 +212,26 @@ class APPORunner(AsyncRunner):
         logger.start()
         logger.log_status("Waiting for first rollout...")
 
-        deque(maxlen=100)
-        time.time()
-        last_metrics_msg = {}
+        reward_history: deque = deque(maxlen=200)
+        latest_reward_components: dict = {}
 
         for iteration in range(1, max_iterations + 1):
             iter_start = time.time()
-            # Wait for collector to provide data
+
+            # Drain collector metrics while waiting for data
+            self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
+            wait_start = time.time()
             if not shared_storage.wait_for_data(timeout=60.0):
                 logger.log_status(
                     f"[yellow]Warning: Timeout waiting for data at iteration {iteration}[/]"
                 )
                 continue
+            wait_time = time.time() - wait_start
 
-            # Read data and update
+            # Read data and drain any messages that arrived while we waited
             rollout_data = shared_storage.read_torch(self.device)
             shared_storage.advance_read()
+            self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
             collect_time = time.time() - iter_start
 
             train_start = time.time()
@@ -250,25 +254,16 @@ class APPORunner(AsyncRunner):
             weight_sync.write_weights(learner.actor.state_dict())
             train_time = time.time() - train_start
 
-            # Logging
-            try:
-                while not metrics_queue.empty():
-                    last_metrics_msg = metrics_queue.get_nowait()
-            except Exception:
-                pass
-
-            mean_reward = last_metrics_msg.get("mean_ep_reward", 0.0)
-            mean_length = last_metrics_msg.get("mean_ep_length", 0.0)
-            reward_components = last_metrics_msg.get("reward_components", {})
-            metrics["episode_length"] = mean_length
+            mean_reward = sum(list(reward_history)[-50:]) / max(len(list(reward_history)[-50:]), 1) if reward_history else 0.0
 
             logger.log_step(
                 iteration=iteration,
                 metrics=metrics,
                 reward=mean_reward,
-                reward_components=reward_components,
+                reward_components=latest_reward_components,
                 collect_time=collect_time,
                 train_time=train_time,
+                wait_time=wait_time,
             )
 
             # Save
@@ -286,3 +281,46 @@ class APPORunner(AsyncRunner):
         if self._collector_process is not None and not self._collector_process.is_alive():
             return False
         return True
+
+    @staticmethod
+    def _drain_metrics(queue, reward_history, reward_components, logger):
+        """Drain all pending messages from the collector metrics queue.
+
+        Mirrors OffPolicyRunner._drain_metrics so APPO has the same
+        logger update coverage (ep_length, done rates, collector timing).
+        """
+        while not queue.empty():
+            try:
+                m = queue.get_nowait()
+                if "error" in m:
+                    logger.log_status(f"[red]Collector ERROR: {m['error']}[/]")
+                    raise RuntimeError(f"Collector process failed: {m['error']}")
+
+                if "mean_ep_reward" in m:
+                    reward_history.append(m["mean_ep_reward"])
+
+                if "reward_components" in m:
+                    reward_components.clear()
+                    reward_components.update(m["reward_components"])
+
+                if "mean_ep_length" in m:
+                    logger.update_ep_length(m["mean_ep_length"])
+
+                if "collector_timing_ms" in m:
+                    logger.update_collector_timing(m["collector_timing_ms"])
+
+                if "timeout_rate" in m or "terminated_rate" in m:
+                    logger.update_done_rates(
+                        timeout_rate=float(m.get("timeout_rate", 0.0)),
+                        terminated_rate=float(m.get("terminated_rate", 0.0)),
+                    )
+
+                if "total_steps" in m:
+                    logger.log_collector(
+                        m["total_steps"],
+                        0,  # APPO uses shared memory, not a separate buffer
+                        m.get("mean_ep_reward", 0.0),
+                    )
+
+            except Exception:
+                break

@@ -414,8 +414,8 @@ class APPOLearner:
 
         num_updates = max(num_updates, 1)
         return {
-            "surrogate": mean_surrogate_loss / num_updates,
-            "value_function": mean_value_loss / num_updates,
+            "surrogate_loss": mean_surrogate_loss / num_updates,
+            "value_loss": mean_value_loss / num_updates,
             "entropy": mean_entropy / num_updates,
             "kl": mean_kl / num_updates if self.schedule == "adaptive" else 0.0,
         }
