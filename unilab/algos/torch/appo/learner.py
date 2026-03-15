@@ -12,6 +12,7 @@ Key differences from standard PPO:
 import copy
 from itertools import chain
 
+import numpy as np
 import torch
 import torch.nn as nn
 from rsl_rl.models import MLPModel
@@ -41,6 +42,7 @@ def vtrace_advantages(
         advantages: Policy gradient advantages  [T, N]
     """
     T, N = rewards.shape
+    device = values.device
 
     with torch.no_grad():
         # IS ratios: ρ_t = π_target(a_t|s_t) / π_behavior(a_t|s_t)
@@ -49,39 +51,32 @@ def vtrace_advantages(
         clipped_rhos = torch.clamp(rhos, max=clip_rho)
         cs = torch.clamp(rhos, max=clip_c)
 
-        # V-trace targets (backward pass)
-        # δ_tV = ρ_t * (r_t + γ * V(s_{t+1}) - V(s_t))
-        # v_s = V(s) + Σ_{t=s}^{T-1} γ^{t-s} (Π_{i=s}^{t-1} c_i) * δ_tV
-        vs = torch.zeros_like(values)
-        next_values = torch.zeros_like(values)
+        non_terminal = 1.0 - dones
 
-        for t in range(T):
-            if t == T - 1:
-                next_values[t] = bootstrap_values
-            else:
-                next_values[t] = values[t + 1]
+        # Vectorized next_values: shift values by 1, fill last step with bootstrap
+        next_values = torch.cat([values[1:], bootstrap_values.unsqueeze(0)], dim=0)
 
         # Temporal difference errors
-        non_terminal = 1.0 - dones
         deltas = clipped_rhos * (rewards + gamma * next_values * non_terminal - values)
 
-        # Backward accumulation of V-trace corrections
-        vs_minus_v = torch.zeros(N, device=values.device, dtype=values.dtype)
-        for t in reversed(range(T)):
-            vs_minus_v = deltas[t] + gamma * non_terminal[t] * cs[t] * vs_minus_v
-            vs[t] = values[t] + vs_minus_v
+        # Backward accumulation of V-trace corrections — run on CPU numpy to avoid
+        # T sequential GPU kernel launches (one-time transfer cost is cheaper).
+        deltas_np = deltas.cpu().numpy()
+        non_terminal_np = non_terminal.cpu().numpy()
+        cs_np = cs.cpu().numpy()
+        values_np = values.cpu().numpy()
 
-        # Policy gradient advantages: ρ_t * (r_t + γ * v_{t+1} - V(s_t))
-        # where v_{t+1} is the V-trace target for step t+1
-        advantages = torch.zeros_like(rewards)
-        for t in range(T):
-            if t == T - 1:
-                next_vs = bootstrap_values
-            else:
-                next_vs = vs[t + 1]
-            advantages[t] = clipped_rhos[t] * (
-                rewards[t] + gamma * next_vs * non_terminal[t] - values[t]
-            )
+        vs_np = np.empty_like(values_np)
+        vs_minus_v = np.zeros(N, dtype=np.float32)
+        for t in range(T - 1, -1, -1):
+            vs_minus_v = deltas_np[t] + gamma * non_terminal_np[t] * cs_np[t] * vs_minus_v
+            vs_np[t] = values_np[t] + vs_minus_v
+
+        vs = torch.from_numpy(vs_np).to(device)
+
+        # Vectorized policy gradient advantages
+        next_vs = torch.cat([vs[1:], bootstrap_values.unsqueeze(0)], dim=0)
+        advantages = clipped_rhos * (rewards + gamma * next_vs * non_terminal - values)
 
     return vs, advantages
 
@@ -230,16 +225,18 @@ class APPOLearner:
             last_values = self.critic(last_obs_td).squeeze(-1)  # [N]
         values = values_flat.view(T, N, -1).squeeze(-1)  # [T, N]
 
-        # Compute target policy log-probs for V-trace IS ratios
+        # Compute target policy log-probs for V-trace IS ratios.
+        # Also cache mu/sigma here so update() doesn't need a second forward pass.
         actions_flat = actions.flatten(0, 1)  # [T*N, A]
         with torch.inference_mode():
             self.target_actor(obs_td, stochastic_output=True)
             target_log_probs_flat = self.target_actor.get_output_log_prob(actions_flat)
+            batch_dict["_old_mu"] = self.target_actor.output_mean.clone()
+            batch_dict["_old_sigma"] = self.target_actor.output_std.clone()
         target_log_probs = target_log_probs_flat.view(T, N)
 
         # Time-out bootstrap correction (matching rsl_rl):
         #   rewards += gamma * V(s) * time_outs
-        rewards = rewards.clone()
         rewards += self.gamma * values.detach() * truncated
 
         # V-trace targets and advantages
@@ -280,8 +277,6 @@ class APPOLearner:
         advantages_flat = batch_dict["advantages"].flatten(0, 1)
         behavior_log_probs_flat = batch_dict["actions_log_prob"].flatten(0, 1)
         old_values_flat = batch_dict["values"].flatten(0, 1)
-        target_log_probs_flat = batch_dict["target_log_probs"].flatten(0, 1)
-
         # Normalize advantages globally
         advantages_flat = (advantages_flat - advantages_flat.mean()) / (
             advantages_flat.std() + 1e-8
@@ -294,13 +289,10 @@ class APPOLearner:
                 {"policy": obs_flat}, batch_size=obs_flat.shape[0], device=self.device
             )
 
-        # Compute old mu/sigma using target actor for KL divergence.
-        # stochastic_output=True is required: MLPModel only calls distribution.update()
-        # (which populates output_mean / output_std) on the stochastic forward path.
+        # Use target policy mu/sigma cached by process_batch() — no second forward pass.
         with torch.inference_mode():
-            self.target_actor(obs_td, stochastic_output=True)
-            old_mu_flat = self.target_actor.output_mean
-            old_sigma_flat = self.target_actor.output_std
+            old_mu_flat = batch_dict["_old_mu"]
+            old_sigma_flat = batch_dict["_old_sigma"]
 
         batch_size = obs_flat.shape[0]
         mini_batch_size = batch_size // self.num_mini_batches
@@ -325,7 +317,6 @@ class APPOLearner:
                 advantages_mini = advantages_flat[batch_idx]
                 behavior_logp_mini = behavior_log_probs_flat[batch_idx]
                 old_values_mini = old_values_flat[batch_idx]
-                target_logp_mini = target_log_probs_flat[batch_idx]
                 old_mu_mini = old_mu_flat[batch_idx]
                 old_sigma_mini = old_sigma_flat[batch_idx]
 
@@ -339,20 +330,15 @@ class APPOLearner:
                 mu = self.actor.output_mean
                 sigma = self.actor.output_std
 
-                # APPO IS-corrected ratio (IMPACT paper):
-                # IS = clip(π_b / π_target, 0, target_worker_clipping) * (π_current / π_b)
-                # = clip(exp(logp_b - logp_target), 0, 2) * exp(logp_current - logp_b)
-                is_ratio = torch.clamp(
-                    torch.exp(behavior_logp_mini - target_logp_mini),
-                    0.0,
-                    2.0,
-                )
-                logp_ratio = is_ratio * torch.exp(current_log_prob - behavior_logp_mini)
+                # Standard PPO ratio: π_current / π_behavior
+                # V-trace already handles off-policy correction in the advantages;
+                # adding an extra IS term in the surrogate destabilizes PPO clipping.
+                ratio = torch.exp(current_log_prob - behavior_logp_mini)
 
-                # PPO Surrogate Loss with IS correction
-                surrogate = -advantages_mini * logp_ratio
+                # PPO Surrogate Loss
+                surrogate = -advantages_mini * ratio
                 surrogate_clipped = -advantages_mini * torch.clamp(
-                    logp_ratio, 1.0 - self.clip_param, 1.0 + self.clip_param
+                    ratio, 1.0 - self.clip_param, 1.0 + self.clip_param
                 )
                 surrogate_loss = torch.max(surrogate, surrogate_clipped).mean()
 

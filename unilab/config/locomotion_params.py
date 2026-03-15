@@ -94,18 +94,18 @@ def appo_config(env_name: str) -> config_dict.ConfigDict:
     """
     cfg = config_dict.create(
         seed=1,
-        num_envs=1024,
+        num_envs=2048,
         steps_per_env=24,
-        max_iterations=1500,
-        save_interval=200,
+        max_iterations=500,
+        save_interval=100,
     )
 
     if env_name == "Go1JoystickFlatTerrain":
         cfg.num_envs = 4096
     elif env_name == "G1JoystickFlatTerrain":
-        cfg.num_envs = 2048
-    elif env_name in ("Go2JoystickFlatTerrain", "Go2LocoFlatTerrain"):
-        pass  # defaults are fine
+        pass
+    elif env_name in ("Go2JoystickFlatTerrain",):
+        pass
 
     return config_dict.create(
         algo="appo",
@@ -115,7 +115,6 @@ def appo_config(env_name: str) -> config_dict.ConfigDict:
         steps_per_env=cfg.steps_per_env,
         max_iterations=cfg.max_iterations,
         save_interval=cfg.save_interval,
-        # obs_groups["actor"]["policy"] is auto-detected at runtime by APPORunner
         obs_groups=config_dict.create(
             actor=config_dict.create(policy=0),
         ),
@@ -176,7 +175,7 @@ def offpolicy_config(algo: str, env_name: str) -> config_dict.ConfigDict:
             warmup_steps=1000,
             replay_buffer_n=512,
             env_steps_per_sync=1,
-            max_iterations=1500,
+            max_iterations=500,
             save_interval=500,
             actor_lr=3e-4,
             critic_lr=3e-4,
@@ -191,7 +190,7 @@ def offpolicy_config(algo: str, env_name: str) -> config_dict.ConfigDict:
             use_symmetry=False,
         )
 
-        if env_name in ("Go2JoystickFlatTerrain", "Go2LocoFlatTerrain"):
+        if env_name in ("Go2JoystickFlatTerrain",):
             cfg.num_envs = 1024
         elif env_name in ("Go1JoystickFlatTerrain",):
             cfg.num_envs = 2048
@@ -271,7 +270,7 @@ def offpolicy_config(algo: str, env_name: str) -> config_dict.ConfigDict:
             obs_normalization=True,
         )
 
-        if env_name in ("Go2JoystickFlatTerrain", "Go2LocoFlatTerrain"):
+        if env_name in ("Go2JoystickFlatTerrain",):
             cfg.max_iterations = 2000
         elif env_name in ("G1JoystickFlatTerrain",):
             cfg.num_envs = 2048

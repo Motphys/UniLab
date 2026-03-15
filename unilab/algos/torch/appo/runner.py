@@ -35,7 +35,10 @@ class APPORunner(AsyncRunner):
         num_envs: int = 1024,
         steps_per_env: int = 24,
         num_workers: int = 1,  # kept for API compat, but only 1 collector used
-        sync_collection: bool = True,
+        replay_queue_size: int = 3,
+        min_epochs: int = 1,
+        max_epochs: int = 21,
+        epoch_adjust_interval: int = 50,
     ):
         super().__init__(
             env_name=env_name,
@@ -52,7 +55,10 @@ class APPORunner(AsyncRunner):
             self.rl_cfg = self.rl_cfg.to_dict()
 
         self.steps_per_env = steps_per_env
-        self.sync_collection = sync_collection
+        self.replay_queue_size = replay_queue_size
+        self.min_epochs = min_epochs
+        self.max_epochs = max_epochs
+        self.epoch_adjust_interval = epoch_adjust_interval
 
         # Resolve dims
         self._resolve_dims()
@@ -159,12 +165,13 @@ class APPORunner(AsyncRunner):
 
         learner = self._build_learner()
 
-        # Create shared storage
+        # Create shared storage (4-slot ring buffer for IPC; replay queue lives in learner)
         shared_storage = SharedOnPolicyStorage(
             num_envs=self.num_envs,
             num_steps=self.steps_per_env,
             obs_dim=self.obs_dim,
             action_dim=self.action_dim,
+            num_slots=4,
             create=True,
         )
         self._shared_resources.append(shared_storage)
@@ -177,16 +184,6 @@ class APPORunner(AsyncRunner):
 
         metrics_queue = mp.Queue(maxsize=100)
 
-        # Sync Collect queues — mirror FastSAC handshake pattern.
-        # collector signals "data ready"; learner signals "training done".
-        # Bootstrap trainer_done so the first rollout starts immediately.
-        collection_ready_queue: mp.Queue | None = None
-        trainer_done_queue: mp.Queue | None = None
-        if self.sync_collection:
-            collection_ready_queue = mp.Queue(maxsize=1)
-            trainer_done_queue = mp.Queue(maxsize=1)
-            trainer_done_queue.put(1)  # bootstrap first iteration
-
         # Start collector
         collector_kwargs = {
             "env_name": self.env_name,
@@ -195,9 +192,8 @@ class APPORunner(AsyncRunner):
             "steps_per_env": self.steps_per_env,
             "shm_storage_name": shared_storage.name,
             "sync_primitives": (
-                shared_storage._write_idx,
-                shared_storage._read_idx,
-                shared_storage._ready,
+                shared_storage._write_ptr,
+                shared_storage._read_ptr,
             ),
             "obs_dim": self.obs_dim,
             "action_dim": self.action_dim,
@@ -205,9 +201,6 @@ class APPORunner(AsyncRunner):
             "weight_param_shapes": weight_param_shapes,
             "metrics_queue": metrics_queue,
             "collector_device": self.collector_device,
-            "sync_collection": self.sync_collection,
-            "collection_ready_queue": collection_ready_queue,
-            "trainer_done_queue": trainer_done_queue,
         }
         self._start_collector(
             target_fn=appo_collector_fn,
@@ -226,72 +219,116 @@ class APPORunner(AsyncRunner):
             log_dir=log_dir,
             log_backend=logger_type,
         )
-        logger.set_collection_sync(self.sync_collection, env_steps_per_sync)
+        logger.set_collection_sync(True, env_steps_per_sync)
         logger.start()
-        logger.log_status("Waiting for first rollout...")
+        logger.log_status(
+            f"Waiting for first rollout... "
+            f"(replay_queue={self.replay_queue_size}, "
+            f"epochs={learner.num_learning_epochs}→max{self.max_epochs})"
+        )
 
         reward_history: deque = deque(maxlen=200)
         latest_reward_components: dict = {}
 
+        # Replay queue: stores the last replay_queue_size preprocessed rollouts in
+        # learner-process memory.  Each entry is a dict of GPU tensors with shape
+        # [T, N, *] (time-major) ready for process_batch / update.
+        replay_queue: deque[dict] = deque(maxlen=self.replay_queue_size)
+
+        # EMA for timing-based epoch adjustment (α=0.02 → very slow-moving)
+        _EMA = 0.02
+        ema_wait: float = 1.0       # seconds; start high so first adjust doesn't trigger
+        ema_train: float = 1.0      # seconds
+        ema_available: float = 1.0  # ring-buffer slots ready on arrival
+
         for iteration in range(1, max_iterations + 1):
             iter_start = time.time()
 
-            # Drain collector metrics while waiting for data
+            # Drain collector metrics while waiting for next rollout
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
             wait_start = time.time()
 
-            if self.sync_collection:
-                # Sync mode: wait for collector to signal "data ready"
-                try:
-                    collection_ready_queue.get(timeout=60.0)
-                    data_ready = True
-                except Exception:
-                    data_ready = False
-            else:
-                data_ready = shared_storage.wait_for_data(timeout=60.0)
-
+            data_ready = shared_storage.wait_for_data(timeout=60.0)
             if not data_ready:
                 logger.log_status(
                     f"[yellow]Warning: Timeout waiting for data at iteration {iteration}[/]"
                 )
                 continue
+
+            available_on_arrive = shared_storage.available()
             wait_time = time.time() - wait_start
 
-            # Read data and drain any messages that arrived while we waited
-            rollout_data = shared_storage.read_torch(self.device)
-            shared_storage.advance_read()
+            # Drain ALL available slots into the replay queue in one pass.
+            # This keeps the GPU busy: if the collector produced 3 rollouts while
+            # the learner was training, we consume all 3 immediately rather than
+            # processing them one-per-iteration.
+            num_new = shared_storage.available()
+            for _ in range(num_new):
+                raw = shared_storage.read_torch(self.device)
+                shared_storage.advance_read()
+
+                # Preprocess: storage is [N, T, *] (env-major); learner expects [T, N, *]
+                rollout: dict = {}
+                for k, v in raw.items():
+                    if k != "last_obs" and v.ndim >= 2:
+                        rollout[k] = v.transpose(0, 1)
+                    else:
+                        rollout[k] = v
+                if "obs" in rollout:
+                    rollout["observations"] = rollout.pop("obs")
+                if "log_probs" in rollout:
+                    rollout["actions_log_prob"] = rollout.pop("log_probs")
+                replay_queue.append(rollout)
+
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
             collect_time = time.time() - iter_start
 
+            # Concatenate all rollouts in the replay queue along the env dimension.
+            # Each rollout keeps its own behavior_log_probs so V-trace IS ratios are
+            # computed independently per env-column — correct for any staleness level.
+            combined: dict = {
+                k: torch.cat([r[k] for r in replay_queue], dim=0 if k == "last_obs" else 1)
+                for k in replay_queue[0]
+            }
+
             train_start = time.time()
-            batch_dict = {}
-            for k, v in rollout_data.items():
-                if k != "last_obs" and v.ndim >= 2:
-                    batch_dict[k] = v.transpose(0, 1)
-                else:
-                    batch_dict[k] = v
-
-            if "obs" in batch_dict:
-                batch_dict["observations"] = batch_dict.pop("obs")
-            if "log_probs" in batch_dict:
-                batch_dict["actions_log_prob"] = batch_dict.pop("log_probs")
-
-            learner.process_batch(batch_dict)
-            metrics = learner.update(batch_dict)
-
-            # Sync weights
+            learner.process_batch(combined)
+            metrics = learner.update(combined)
             weight_sync.write_weights(learner.actor.state_dict())
-
-            # Signal collector to start next rollout (sync mode)
-            if self.sync_collection:
-                try:
-                    trainer_done_queue.put_nowait(1)
-                except Exception:
-                    pass
-
             train_time = time.time() - train_start
 
-            mean_reward = sum(list(reward_history)[-50:]) / max(len(list(reward_history)[-50:]), 1) if reward_history else 0.0
+            # --- Dynamic epoch adjustment (increase-only) ---
+            # Goal: keep GPU busy → ema_wait ≈ 0.
+            # Any measurable wait means collector is the bottleneck → train longer.
+            # Buffer backing up is handled by ring-buffer overwrite semantics — no need
+            # to reduce epochs (that would only make GPU idle again).
+            ema_wait = (1 - _EMA) * ema_wait + _EMA * wait_time
+            ema_train = (1 - _EMA) * ema_train + _EMA * train_time
+            ema_available = (1 - _EMA) * ema_available + _EMA * available_on_arrive
+
+            if iteration % self.epoch_adjust_interval == 0 and iteration > 2 * self.epoch_adjust_interval:
+                old_epochs = learner.num_learning_epochs
+                if ema_wait > ema_train * 0.05:
+                    # Any significant wait → collector is bottleneck → train longer
+                    learner.num_learning_epochs = min(
+                        self.max_epochs, learner.num_learning_epochs + 1
+                    )
+                if learner.num_learning_epochs != old_epochs:
+                    logger.log_status(
+                        f"[cyan]epochs {old_epochs}→{learner.num_learning_epochs} "
+                        f"(wait={ema_wait*1000:.0f}ms "
+                        f"train={ema_train*1000:.0f}ms "
+                        f"avail={ema_available:.2f})[/]"
+                    )
+
+            metrics["num_learning_epochs"] = float(learner.num_learning_epochs)
+            metrics["replay_queue_len"] = float(len(replay_queue))
+
+            mean_reward = (
+                sum(list(reward_history)[-50:]) / max(len(list(reward_history)[-50:]), 1)
+                if reward_history
+                else 0.0
+            )
 
             logger.log_step(
                 iteration=iteration,
@@ -303,7 +340,6 @@ class APPORunner(AsyncRunner):
                 wait_time=wait_time,
             )
 
-            # Save
             if save_interval > 0 and iteration % save_interval == 0:
                 ckpt_path = os.path.join(log_dir, f"model_{iteration}.pt")
                 torch.save(learner.get_state_dict(), ckpt_path)

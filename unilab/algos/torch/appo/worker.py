@@ -29,9 +29,6 @@ def appo_collector_fn(
     weight_param_shapes: dict,
     metrics_queue,
     collector_device: str = "cpu",
-    sync_collection: bool = False,
-    collection_ready_queue=None,
-    trainer_done_queue=None,
 ):
     """Entry point for the APPO collector subprocess.
 
@@ -56,7 +53,7 @@ def appo_collector_fn(
         create=False,
         shm_name_prefix=shm_storage_name,
     )
-    storage.attach_sync_primitives(*sync_primitives)
+    storage.attach_sync_primitives(*sync_primitives)  # (write_ptr, read_ptr)
     weight_sync = SharedWeightSync(weight_param_shapes, create=False, shm_name=weight_sync_name)
 
     # Create environment
@@ -107,6 +104,11 @@ def appo_collector_fn(
 
     obs_np = to_float32_np(obs_out)
 
+    # Pre-allocate obs TensorDict once; update in-place each step to avoid
+    # repeated TensorDict construction overhead in the hot loop.
+    obs_torch = torch.zeros((num_envs, obs_dim), dtype=torch.float32, device=collector_device)
+    obs_td = TensorDict({"policy": obs_torch}, batch_size=num_envs, device=collector_device)
+
     total_steps = 0
     ep_rewards = []
     ep_lengths = []
@@ -125,16 +127,6 @@ def appo_collector_fn(
 
     try:
         while not stop_event.is_set():
-            # Sync mode: wait for learner to signal training is done before
-            # collecting the next rollout. This prevents unbounded async drift.
-            if sync_collection and trainer_done_queue is not None:
-                try:
-                    trainer_done_queue.get(timeout=60.0)
-                except Exception:
-                    if stop_event.is_set():
-                        break
-                    continue
-
             # Pull latest weights from learner
             if weight_sync.version > local_weight_version:
                 sd = dict(actor.state_dict())
@@ -147,13 +139,10 @@ def appo_collector_fn(
                 # --- MLP inference (timed) ---
                 t_mlp = time.perf_counter()
                 with torch.no_grad():
-                    obs_torch = torch.from_numpy(obs_np).to(collector_device)
-                    obs_td = TensorDict(
-                        {"policy": obs_torch}, batch_size=num_envs, device=collector_device
-                    )
+                    obs_torch.copy_(torch.from_numpy(obs_np))
                     actions_torch = actor(obs_td, stochastic_output=True)
                     log_probs_torch = actor.get_output_log_prob(actions_torch)
-                    actions_np = actions_torch.cpu().numpy().astype(np.float32)
+                    actions_np = actions_torch.cpu().numpy()
                 ema_mlp_infer_ms = (1 - _EMA) * ema_mlp_infer_ms + _EMA * (
                     (time.perf_counter() - t_mlp) * 1000
                 )
@@ -161,7 +150,7 @@ def appo_collector_fn(
                 write_buf["obs"][:, step, :] = obs_np
                 write_buf["actions"][:, step, :] = actions_np
                 write_buf["log_probs"][:, step] = (
-                    log_probs_torch.cpu().numpy().astype(np.float32).ravel()
+                    log_probs_torch.cpu().numpy().ravel()
                 )
 
                 # --- Env step (timed) ---
@@ -241,14 +230,7 @@ def appo_collector_fn(
                         pass
 
             write_buf["last_obs"][:] = obs_np
-            storage.signal_write_done()
-
-            # Sync mode: notify learner that this rollout is ready
-            if sync_collection and collection_ready_queue is not None:
-                try:
-                    collection_ready_queue.put_nowait(1)
-                except Exception:
-                    pass
+            storage.signal_write_done()  # atomic increment, non-blocking
 
     except Exception as e:
         import traceback
