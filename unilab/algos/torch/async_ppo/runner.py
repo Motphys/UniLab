@@ -112,6 +112,7 @@ class AsyncPPORunner(AsyncRunner):
                 "buffer": buffer,
                 "weight_sync_name": weight_sync.name,
                 "weight_param_shapes": weight_param_shapes,
+                "weight_sync_lock": weight_sync._lock,
                 "metrics_queue": None,
                 "collector_device": self.collector_device,
             },

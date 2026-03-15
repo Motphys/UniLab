@@ -17,6 +17,7 @@ def async_ppo_collector_fn(
     buffer,
     weight_sync_name: str,
     weight_param_shapes: dict,
+    weight_sync_lock,
     metrics_queue,
     collector_device: str = "cpu",
 ):
@@ -54,7 +55,9 @@ def async_ppo_collector_fn(
     ppo.critic.eval()
 
     # Weight sync
-    weight_sync = SharedWeightSync(weight_param_shapes, create=False, shm_name=weight_sync_name)
+    weight_sync = SharedWeightSync(
+        weight_param_shapes, create=False, shm_name=weight_sync_name, lock=weight_sync_lock
+    )
     sd = {
         f"actor.{k}": v for k, v in ppo.actor.state_dict().items()
     } | {
