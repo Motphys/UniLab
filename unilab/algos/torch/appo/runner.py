@@ -288,6 +288,8 @@ class APPORunner(AsyncRunner):
             metrics["replay_queue_len"] = float(len(replay_queue))
             metrics["available_on_arrive"] = float(available_on_arrive)
 
+            logger.update_replay_queue(len(replay_queue), self.replay_queue_size)
+
             mean_reward = (
                 sum(list(reward_history)[-50:]) / max(len(list(reward_history)[-50:]), 1)
                 if reward_history

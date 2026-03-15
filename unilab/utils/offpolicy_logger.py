@@ -133,6 +133,8 @@ class OffPolicyLogger:
         self._buffer_utilization: float = 0.0
         self._sync_collection: bool = False
         self._env_steps_per_sync: int = 0
+        self._replay_queue_len: int = 0
+        self._replay_queue_max: int = 0
 
         # Status message
         self._status: str = "Initializing..."
@@ -260,6 +262,11 @@ class OffPolicyLogger:
     def update_buffer_utilization(self, utilization: float):
         """Update buffer fill ratio (0.0–1.0). Displayed in the timing panel."""
         self._buffer_utilization = float(utilization)
+
+    def update_replay_queue(self, current_len: int, max_size: int):
+        """Update replay queue occupancy (APPO-specific)."""
+        self._replay_queue_len = current_len
+        self._replay_queue_max = max_size
 
     def set_collection_sync(self, enabled: bool, env_steps_per_sync: int = 0):
         """Set collection/training synchronization status for display."""
@@ -615,6 +622,15 @@ class OffPolicyLogger:
             if self._sync_collection
             else "✗",
         )
+
+        if self._replay_queue_max > 0:
+            rq_color = "green" if self._replay_queue_len < self._replay_queue_max else "yellow"
+            table.add_row(
+                "Replay Queue",
+                f"[{rq_color}]{self._replay_queue_len}/{self._replay_queue_max}[/]",
+                "",
+                "",
+            )
 
         # Steps per second
         if elapsed > 0 and self._total_steps > 0:

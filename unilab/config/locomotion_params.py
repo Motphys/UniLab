@@ -24,11 +24,11 @@ def ppo_config(env_name: str) -> config_dict.ConfigDict:
 
     if env_name == "Go1JoystickFlatTerrain":
         cfg.max_iterations = 151
-    elif env_name == "G1JoystickFlatTerrain":
-        cfg.num_envs = 2048
-        cfg.max_iterations = 220
     elif env_name == "Go2JoystickFlatTerrain":
         pass
+    elif env_name in ("G1JoystickFlatTerrain", "G1WalkTaskMjSAC"):
+        cfg.num_envs = 2048
+        cfg.max_iterations = 220
 
     return config_dict.create(
         algo="ppo",
@@ -96,16 +96,17 @@ def appo_config(env_name: str) -> config_dict.ConfigDict:
         seed=1,
         num_envs=2048,
         steps_per_env=24,
-        max_iterations=500,
-        save_interval=100,
+        max_iterations=150,
+        save_interval=50,
     )
 
     if env_name == "Go1JoystickFlatTerrain":
-        cfg.num_envs = 4096
-    elif env_name == "G1JoystickFlatTerrain":
         pass
     elif env_name in ("Go2JoystickFlatTerrain",):
         pass
+    elif env_name in ("G1JoystickFlatTerrain", "G1WalkTaskMjSAC"):
+        cfg.max_iterations = 500
+        cfg.save_interval = 100
 
     return config_dict.create(
         algo="appo",
