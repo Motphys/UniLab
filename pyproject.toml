@@ -21,6 +21,7 @@ dependencies = [
     "packaging",
     "mediapy",
     "tensorboard",
+    "setuptools<70",
     "rich",
     "typing-extensions",
     "mlx ; sys_platform == 'darwin'",

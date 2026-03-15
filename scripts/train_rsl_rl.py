@@ -43,7 +43,7 @@ except ImportError:
     print("Could not import rsl_rl. Please ensure it is installed.")
     sys.exit(1)
 
-from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4
+from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4, convert_config_v5, is_rsl_rl_v5
 from unilab.utils.run_utils import get_latest_run
 
 
@@ -185,8 +185,8 @@ def play_rsl_rl(args, cfg, device):
     env = registry.make(args.task, num_envs=args.play_env_num, sim_backend=args.sim_backend)
     wrapped_env = RslRlVecEnvWrapper(env, device=device)
     train_cfg = cfg.to_dict()
-    if is_rsl_rl_v4():
-        train_cfg = convert_config_v3_to_v4(train_cfg)
+    if is_rsl_rl_v5():
+        train_cfg = convert_config_v5(train_cfg)
 
     base_log_dir = ROOT_DIR / "logs" / "rsl_rl_train" / args.task
     load_path = None
@@ -351,7 +351,6 @@ def main():
         if hasattr(params, "ppo_config")
         else params.rsl_rl_config(args.task)
     )
-
     if args.env_num is None:
         args.env_num = cfg.num_envs
 
@@ -388,7 +387,6 @@ def main():
 
         # Convert ConfigDict to regular dict for RSL-RL
         train_cfg = cfg.to_dict()
-
         if "runner" not in train_cfg:
             train_cfg["runner"] = {}
         if args.logger in ["tensorboard", "wandb"]:
@@ -396,8 +394,8 @@ def main():
         else:
             train_cfg["runner"]["logger"] = "none"
 
-        if is_rsl_rl_v4():
-            train_cfg = convert_config_v3_to_v4(train_cfg)
+        if is_rsl_rl_v5():
+            train_cfg = convert_config_v5(train_cfg)
 
         # Runner
         runner = OnPolicyRunner(wrapped_env, train_cfg, log_dir=log_dir, device=device)

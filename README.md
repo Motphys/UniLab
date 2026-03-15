@@ -161,8 +161,6 @@ uv run python scripts/train_mlx_ppo.py --task Go2JoystickFlatTerrain
 uv run python scripts/train_offpolicy.py --algo sac --task Go1JoystickFlatTerrain
 uv run python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain
 
-# APPO
-uv run python scripts/train_appo.py --task Go2JoystickFlatTerrain
 ```
 
 **注意**：训练脚本默认在训练完成后会进入回放阶段。`mujoco` 后端会导出 `play_video.mp4`，`motrix` 后端为交互式窗口渲染（不导出视频）。使用 `--no_play` 跳过自动回放。
@@ -253,65 +251,3 @@ uv run python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrai
 | `--env_steps_per_sync` | 1 | 同步模式下每次收集的步数 |
 | `--play_only` | False | 仅回放，跳过训练 |
 | `--no_play` | False | 训练后跳过自动回放 |
-
-## APPO (Asynchronous PPO)
-
-基于 [IMPACT (Luo et al., 2020)](https://arxiv.org/abs/1912.00167) 的异步 PPO 实现，使用原生多进程实现 CPU 物理仿真与 GPU 策略训练的流水线并行。
-
-### 核心特性
-
-| 特性 | 说明 |
-|------|------|
-| **V-trace IS 修正** | 使用重要性采样比率修正异步收集导致的 off-policy 偏差 |
-| **Target Network** | Soft update (`τ`) 平滑更新目标网络，稳定 IS 比率计算 |
-| **异步流水线** | CPU 数据收集与 GPU 训练重叠执行，最大化硬件利用率 |
-| **MPS 兼容** | 支持 Apple Silicon (MPS)、CUDA 和纯 CPU 训练 |
-
-### 架构
-
-```
-┌────────────────┐         ┌──────────────────┐
-│ Collector Proc │ CPU     │   APPOLearner    │  GPU/MPS
-│  (rollout)     │────────▶│  V-trace + PPO   │
-│  π_behavior    │  batch  │  π_current       │
-└────────────────┘         │  π_target (EMA)  │
-                           └──────────────────┘
-```
-
-### 训练
-
-```bash
-# 默认训练 (自动检测 GPU/MPS/CPU)
-uv run python scripts/train_appo.py --task Go2JoystickFlatTerrain
-
-# 调整并行环境数和 rollout 长度
-uv run python scripts/train_appo.py --total_envs 1024 --steps_per_env 24
-```
-
-### 回放
-
-```bash
-uv run python scripts/train_appo.py --task Go2JoystickFlatTerrain --play_only
-```
-
-### APPO 参数说明
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `--total_envs` | 1024 | 总环境数（均分到各 worker） |
-| `--steps_per_env` | 24 | 每个环境每次迭代的步数 |
-| `--max_iterations` | 1500 | 最大训练迭代次数 |
-| `--save_interval` | 50 | 每 N 次迭代保存 checkpoint |
-| `--device` | 自动检测 | 训练设备 (`cuda:0` / `mps` / `cpu`) |
-| `--collector_device` | 自动检测 | Collector 设备 |
-| `--play_only` | False | 仅回放 |
-| `--no_play` | False | 训练后跳过自动回放 |
-
-算法超参数（在 `locomotion_params.py` 的 `algorithm` 字段中配置）：
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `tau` | 1.0 | Target network soft update 系数（1.0 = 硬拷贝） |
-| `target_update_freq` | 1 | Target network 更新频率 |
-| `vtrace_clip_rho` | 1.0 | V-trace ρ 截断阈值 |
-| `vtrace_clip_c` | 1.0 | V-trace c 截断阈值 |
