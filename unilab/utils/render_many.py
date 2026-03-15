@@ -1,6 +1,7 @@
 import math
 import os
 import sys
+from typing import Any
 
 import imageio
 
@@ -52,7 +53,7 @@ def get_grid_offsets(num_envs, spacing=1.0):
 
 
 # Worker global context
-_worker_ctx = {}
+_worker_ctx: dict[str, Any] = {}
 
 
 def _close_worker():

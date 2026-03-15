@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Optional, Tuple
 
 import gymnasium as gym
 import numpy as np
@@ -49,7 +50,7 @@ def _quat_to_axis_angle(q: np.ndarray) -> np.ndarray:
         0.5 - angle**2 / 48.0,
         np.sin(half_angle) / safe_angle,
     )
-    return xyz / sin_half_over_angle  # (N, 3)
+    return np.asarray(xyz / sin_half_over_angle)  # (N, 3)
 
 
 from unilab.base import registry
@@ -114,6 +115,8 @@ class AllegroRotationCfg(AllegroBaseCfg):
 
 @registry.env("AllegroInhandRotation", sim_backend="mujoco")
 class AllegroRotationMj(AllegroBaseMjEnv):
+    _cfg: AllegroRotationCfg
+
     def __init__(self, cfg: AllegroRotationCfg, num_envs: int = 1, backend_type: str = "mujoco"):
         backend = create_backend(backend_type, cfg.model_file, num_envs, cfg.sim_dt)
         super().__init__(cfg, backend, num_envs)
@@ -128,7 +131,7 @@ class AllegroRotationMj(AllegroBaseMjEnv):
         self._rot_axis = axis / np.linalg.norm(axis)
 
         # Grasp cache loaded lazily on first reset
-        self._grasp_cache = None
+        self._grasp_cache: Optional[np.ndarray] = None
         self._grasp_cache_loaded = False
 
         self._init_reward_functions()
@@ -144,7 +147,7 @@ class AllegroRotationMj(AllegroBaseMjEnv):
 
     @property
     def observation_space(self) -> gym.spaces.Box:
-        return self._observation_space
+        return self._observation_space  # type: ignore[no-any-return]
 
     # ── Reward functions ─────────────────────────────────────────────
 
@@ -166,26 +169,26 @@ class AllegroRotationMj(AllegroBaseMjEnv):
         )
         vec_dot = ball_angvel @ self._rot_axis  # (N,)
         r = self._cfg.reward_config
-        return np.clip(vec_dot, r.angvel_clip_min, r.angvel_clip_max)
+        return np.asarray(np.clip(vec_dot, r.angvel_clip_min, r.angvel_clip_max))
 
     def _reward_obj_linvel(self, state: NpEnvState) -> np.ndarray:
         """L1 penalty on ball linear velocity (encourages pure spin, no translation)."""
         ball_linvel = state.info.get(
             "ball_linvel", np.zeros((self._num_envs, 3), dtype=self._np_dtype)
         )
-        return np.sum(np.abs(ball_linvel), axis=1)
+        return np.asarray(np.sum(np.abs(ball_linvel), axis=1))
 
     def _reward_pose_diff(self, state: NpEnvState) -> np.ndarray:
         """Penalise hand-joint drift from the initial grasp configuration."""
         diff = self.get_hand_dof_pos() - state.info["init_pose"]  # (N, 16)
-        return np.sum(np.square(diff), axis=1)
+        return np.asarray(np.sum(np.square(diff), axis=1))
 
     def _reward_torque(self, info: dict) -> np.ndarray:
         """Torque penalty: sum of squared torques."""
         torques = info.get(
             "torques", np.zeros((self._num_envs, self._NUM_HAND_DOF), dtype=self._np_dtype)
         )
-        return np.sum(np.square(torques), axis=1)
+        return np.asarray(np.sum(np.square(torques), axis=1))
 
     def _reward_work(self, info: dict) -> np.ndarray:
         """Penalise mechanical work: (torque * velocity)^2."""
@@ -196,7 +199,7 @@ class AllegroRotationMj(AllegroBaseMjEnv):
             "dof_vel", np.zeros((self._num_envs, self._NUM_HAND_DOF), dtype=self._np_dtype)
         )
         work = np.sum(torques * dof_vel, axis=1)
-        return np.square(work)
+        return np.asarray(np.square(work))
 
     # ── Core update pipeline ─────────────────────────────────────────
 
@@ -289,11 +292,11 @@ class AllegroRotationMj(AllegroBaseMjEnv):
             "obs_lag_history", np.zeros((self._num_envs, 3, 35), dtype=self._np_dtype)
         )
         num_envs = obs_lag_history.shape[0]
-        return obs_lag_history.reshape(num_envs, -1)
+        return np.asarray(obs_lag_history.reshape(num_envs, -1))
 
     # ── Reset ────────────────────────────────────────────────────────
 
-    def reset(self, env_indices: np.ndarray) -> tuple:
+    def reset(self, env_indices: np.ndarray) -> Tuple[np.ndarray, np.ndarray, dict]:
         num_reset = len(env_indices)
         dr = self._cfg.domain_rand
 

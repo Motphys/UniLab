@@ -20,6 +20,7 @@ import pkgutil
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import mediapy as media
 import mujoco
@@ -87,14 +88,14 @@ def check_grasp_quality(
         axis=1,
     )  # (k, 4)  — each sensor outputs a scalar (1.0 = contact found, 0.0 = none)
     n_contacts = np.sum(contacts > 0.5, axis=1)  # (k,)
-    return n_contacts >= min_contacts
+    return np.asarray(n_contacts >= min_contacts)
 
 
 # ── Main collection loop ─────────────────────────────────────────────────────
 
 
 def collect_grasps(args) -> None:
-    env = registry.make("AllegroInhandRotation", num_envs=args.num_envs, sim_backend="mujoco")
+    env: Any = registry.make("AllegroInhandRotation", num_envs=args.num_envs, sim_backend="mujoco")
 
     # Override joint noise to the exploration value before init_state().
     # reset() reads this at runtime, so all episode resets will use it.
@@ -126,7 +127,7 @@ def collect_grasps(args) -> None:
         print("[gen_grasp] Viewer ON — displaying env[0]; close window to stop early")
 
     cache: list[np.ndarray] = []
-    video_states: list[np.ndarray] = [] if args.record_video else None
+    video_states: list[np.ndarray] | None = [] if args.record_video else None
     step_idx = 0
     state_spec = mujoco.mjtState.mjSTATE_FULLPHYSICS
 

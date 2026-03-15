@@ -1,5 +1,6 @@
 import os
 from multiprocessing import cpu_count
+from typing import Optional
 
 import mujoco
 import numpy as np
@@ -13,7 +14,12 @@ class MuJoCoBackend(SimBackend):
     """MuJoCo 后端实现"""
 
     def __init__(
-        self, model_file: str, num_envs: int, sim_dt: float, body_name: str = None, np_dtype=None
+        self,
+        model_file: str,
+        num_envs: int,
+        sim_dt: float,
+        body_name: Optional[str] = None,
+        np_dtype=None,
     ):
         self._model = mujoco.MjModel.from_xml_path(model_file)
         self._model.opt.timestep = sim_dt

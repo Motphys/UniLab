@@ -56,6 +56,7 @@ class AllegroBaseCfg(EnvCfg):
 class AllegroBaseMjEnv(NpEnv):
     # Slot constants – filled once in __init__ from the verified model.
     _NUM_HAND_DOF: int = 16
+    _cfg: AllegroBaseCfg
 
     def __init__(self, cfg: AllegroBaseCfg, backend: SimBackend, num_envs: int = 1):
         super().__init__(cfg, backend, num_envs)
@@ -103,7 +104,7 @@ class AllegroBaseMjEnv(NpEnv):
 
     @property
     def action_space(self) -> gym.spaces.Box:
-        return self._action_space
+        return self._action_space  # type: ignore[no-any-return]
 
     # ── Buffers ─────────────────────────────────────────────────────
 
@@ -129,36 +130,36 @@ class AllegroBaseMjEnv(NpEnv):
         new_ctrl = state.info["prev_ctrl"] + scale * actions
         new_ctrl = np.clip(new_ctrl, self._ctrl_lower, self._ctrl_upper)
         state.info["prev_ctrl"] = new_ctrl
-        return new_ctrl
+        return np.asarray(new_ctrl)
 
     # ── State accessors ─────────────────────────────────────────────
 
     def get_hand_dof_pos(self) -> np.ndarray:
         """(num_envs, 16) hand joint angles."""
         ps = self._backend.get_physics_state()
-        return ps[:, self._idx_qpos : self._idx_qpos + self._NUM_HAND_DOF]
+        return np.asarray(ps[:, self._idx_qpos : self._idx_qpos + self._NUM_HAND_DOF])
 
     def get_hand_dof_vel(self) -> np.ndarray:
         """(num_envs, 16) hand joint velocities."""
         ps = self._backend.get_physics_state()
-        return ps[:, self._idx_qvel : self._idx_qvel + self._NUM_HAND_DOF]
+        return np.asarray(ps[:, self._idx_qvel : self._idx_qvel + self._NUM_HAND_DOF])
 
     def get_ball_pos(self) -> np.ndarray:
         """(num_envs, 3) ball position in world frame."""
         ps = self._backend.get_physics_state()
-        return ps[:, self._ps_ball_pos : self._ps_ball_pos + 3]
+        return np.asarray(ps[:, self._ps_ball_pos : self._ps_ball_pos + 3])
 
     def get_ball_quat(self) -> np.ndarray:
         """(num_envs, 4) ball quaternion (w, x, y, z)."""
         ps = self._backend.get_physics_state()
-        return ps[:, self._ps_ball_quat : self._ps_ball_quat + 4]
+        return np.asarray(ps[:, self._ps_ball_quat : self._ps_ball_quat + 4])
 
     def get_ball_linvel(self) -> np.ndarray:
         """(num_envs, 3) ball linear velocity in world frame."""
         ps = self._backend.get_physics_state()
-        return ps[:, self._ps_ball_linv : self._ps_ball_linv + 3]
+        return np.asarray(ps[:, self._ps_ball_linv : self._ps_ball_linv + 3])
 
     def get_ball_angvel(self) -> np.ndarray:
         """(num_envs, 3) ball angular velocity in world frame."""
         ps = self._backend.get_physics_state()
-        return ps[:, self._ps_ball_angv : self._ps_ball_angv + 3]
+        return np.asarray(ps[:, self._ps_ball_angv : self._ps_ball_angv + 3])

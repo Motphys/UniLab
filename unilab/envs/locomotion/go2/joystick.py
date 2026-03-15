@@ -77,6 +77,8 @@ class Go2JoystickCfg(Go2BaseCfg):
 @registry.env("Go2JoystickFlatTerrain", sim_backend="mujoco")
 @registry.env("Go2JoystickFlatTerrain", sim_backend="motrix")
 class Go2WalkTask(Go2BaseEnv):
+    _cfg: Go2JoystickCfg
+
     def __init__(self, cfg: Go2JoystickCfg, num_envs=1, backend_type="mujoco"):
         backend = create_backend(
             backend_type, cfg.model_file, num_envs, cfg.sim_dt, body_name=cfg.asset.body_name
@@ -107,7 +109,7 @@ class Go2WalkTask(Go2BaseEnv):
 
     @property
     def observation_space(self) -> gym.spaces.Box:
-        return self._observation_space
+        return self._observation_space  # type: ignore[no-any-return]
 
     def update_state(self, state: NpEnvState) -> NpEnvState:
         terminated = self._compute_termination()
@@ -150,32 +152,32 @@ class Go2WalkTask(Go2BaseEnv):
         linvel = self.get_local_linvel()
         commands = info["commands"]
         lin_vel_error = np.sum(np.square(commands[:, :2] - linvel[:, :2]), axis=1)
-        return np.exp(-lin_vel_error / self._cfg.reward_config.tracking_sigma)
+        return np.asarray(np.exp(-lin_vel_error / self._cfg.reward_config.tracking_sigma))
 
     def _reward_tracking_ang_vel(self, info: dict) -> np.ndarray:
         gyro = self.get_gyro()
         commands = info["commands"]
         ang_vel_error = np.square(commands[:, 2] - gyro[:, 2])
-        return np.exp(-ang_vel_error / self._cfg.reward_config.tracking_sigma)
+        return np.asarray(np.exp(-ang_vel_error / self._cfg.reward_config.tracking_sigma))
 
     def _reward_lin_vel_z(self, info: dict) -> np.ndarray:
         global_linvel = self._backend.get_sensor_data("global_linvel")
-        return np.square(global_linvel[:, 2])
+        return np.asarray(np.square(global_linvel[:, 2]))
 
     def _reward_ang_vel_xy(self, info: dict) -> np.ndarray:
         gyro = self.get_gyro()
-        return np.sum(np.square(gyro[:, :2]), axis=1)
+        return np.asarray(np.sum(np.square(gyro[:, :2]), axis=1))
 
     def _reward_base_height(self, info: dict) -> np.ndarray:
         base_height = self._backend.get_qpos()[:, 2]
-        return np.square(base_height - self._cfg.reward_config.base_height_target)
+        return np.asarray(np.square(base_height - self._cfg.reward_config.base_height_target))
 
     def _reward_action_rate(self, info: dict) -> np.ndarray:
         action_diff = info["current_actions"] - info["last_actions"]
-        return np.sum(np.square(action_diff), axis=1)
+        return np.asarray(np.sum(np.square(action_diff), axis=1))
 
     def _reward_similar_to_default(self, info: dict) -> np.ndarray:
-        return np.sum(np.abs(self.get_dof_pos() - self.default_angles), axis=1)
+        return np.asarray(np.sum(np.abs(self.get_dof_pos() - self.default_angles), axis=1))
 
     def _reward_alive(self, info: dict) -> np.ndarray:
         return np.ones((self._num_envs,), dtype=np.float32)
@@ -189,7 +191,7 @@ class Go2WalkTask(Go2BaseEnv):
         sigma = self._cfg.reward_config.foot_clearance_sigma
         error_sq = np.square(foot_heights - target_height)
         reward = np.exp(-error_sq / sigma) * is_swing
-        return np.sum(reward, axis=1)
+        return np.asarray(np.sum(reward, axis=1))
 
     def _reward_foot_drag(self, info: dict) -> np.ndarray:
         foot_pos = self.get_foot_pos()
@@ -199,11 +201,11 @@ class Go2WalkTask(Go2BaseEnv):
         safe_height = self._cfg.reward_config.target_foot_height / 2.0
         height_error = np.clip(safe_height - foot_heights, 0.0, None)
         error = np.square(height_error) * is_swing
-        return np.sum(error, axis=1)
+        return np.asarray(np.sum(error, axis=1))
 
     def _compute_termination(self) -> np.ndarray:
         gravity = self._backend.get_sensor_data("upvector")
-        return gravity[:, 2] < 0.5
+        return np.asarray(gravity[:, 2] < 0.5)
 
     def reset(self, env_indices: np.ndarray):
         num_reset = len(env_indices)

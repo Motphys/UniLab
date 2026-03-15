@@ -33,7 +33,7 @@ class MotrixBackend(SimBackend):
         self._data = mtx.SceneData(self._model, batch=[num_envs])
         self._body = self._model.get_body(body_name)
         self._body_link = self._model.get_link(body_name)
-        self._render_app = None
+        self._render_app: "RenderApp | None" = None
         self.backend_type = "motrix"
 
     def _process_rigid_body_props(self, cfg) -> None:
@@ -70,16 +70,16 @@ class MotrixBackend(SimBackend):
             self._model.step(self._data)
 
     def get_dof_pos(self) -> np.ndarray:
-        return self._body.get_joint_dof_pos(self._data)
+        return np.asarray(self._body.get_joint_dof_pos(self._data))
 
     def get_dof_vel(self) -> np.ndarray:
-        return self._body.get_joint_dof_vel(self._data)
+        return np.asarray(self._body.get_joint_dof_vel(self._data))
 
     def get_qpos(self) -> np.ndarray:
-        return self._data.dof_pos
+        return np.asarray(self._data.dof_pos)
 
     def get_sensor_data(self, name: str) -> np.ndarray:
-        return self._model.get_sensor_value(name, self._data)
+        return np.asarray(self._model.get_sensor_value(name, self._data))
 
     def set_state(self, env_indices: np.ndarray, qpos: np.ndarray, qvel: np.ndarray) -> None:
         # Convert quaternion from mujoco (wxyz) to motrix (xyzw)
@@ -140,4 +140,5 @@ class MotrixBackend(SimBackend):
         """Render current state (interactive visualization)"""
         if self._render_app is None:
             self.init_renderer()
+        assert self._render_app is not None
         self._render_app.sync(data=self._data)

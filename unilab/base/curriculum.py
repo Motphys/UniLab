@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any
 
 import numpy as np
-
-if TYPE_CHECKING:
-    from unilab.envs.locomotion.g1.joystick import G1JoystickEnv
 
 
 class EpisodeLengthTracker:
@@ -32,7 +29,7 @@ class PenaltyCurriculum:
 
     def __init__(
         self,
-        env: G1JoystickEnv,
+        env: Any,
         enabled: bool = True,
         initial_scale: float = 0.5,
         min_scale: float = 0.5,
@@ -51,8 +48,8 @@ class PenaltyCurriculum:
         self.degree = degree
 
         # Store original penalty weights
-        self.penalty_names = []
-        self.original_weights = {}
+        self.penalty_names: list[str] = []
+        self.original_weights: dict[str, float] = {}
 
         if enabled:
             self._identify_penalties()

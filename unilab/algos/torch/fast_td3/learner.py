@@ -16,7 +16,7 @@ Hyperparameters aligned with reference Go1JoystickFlatTerrain config.
 from __future__ import annotations
 
 import math
-from typing import Dict
+from typing import Dict, Optional, Union
 
 import torch
 import torch.nn as nn
@@ -40,6 +40,10 @@ class TD3Actor(nn.Module):
     Noise scales are resampled when an episode ends.
     """
 
+    noise_scales: torch.Tensor
+    log_std_min: torch.Tensor
+    log_std_max: torch.Tensor
+
     def __init__(
         self,
         n_obs: int,
@@ -49,7 +53,7 @@ class TD3Actor(nn.Module):
         hidden_dim: int,
         log_std_min: float = -3.0,
         log_std_max: float = 0.0,
-        device: torch.device = None,
+        device: Optional[torch.device] = None,
     ):
         super().__init__()
         self.n_act = n_act
@@ -65,8 +69,10 @@ class TD3Actor(nn.Module):
             nn.Linear(hidden_dim // 4, n_act, device=device),
             nn.Tanh(),
         )
-        nn.init.normal_(self.fc_mu[0].weight, 0.0, init_scale)
-        nn.init.constant_(self.fc_mu[0].bias, 0.0)
+        fc_mu_linear = self.fc_mu[0]
+        assert isinstance(fc_mu_linear, nn.Linear)
+        nn.init.normal_(fc_mu_linear.weight, 0.0, init_scale)
+        nn.init.constant_(fc_mu_linear.bias, 0.0)
 
         std_min = float(math.exp(log_std_min))
         std_max = float(math.exp(log_std_max))
@@ -79,7 +85,7 @@ class TD3Actor(nn.Module):
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
         x = self.net(obs)
-        action = self.fc_mu(x)
+        action: torch.Tensor = self.fc_mu(x)  # type: ignore[assignment]
         return action
 
     @torch.no_grad()
@@ -103,7 +109,7 @@ class TD3Actor(nn.Module):
             dones_view = dones.view(-1, 1) > 0
             self.noise_scales.copy_(torch.where(dones_view, new_scales, self.noise_scales))
 
-        act = self(obs)
+        act = self.forward(obs)
         if deterministic:
             return act
 
@@ -165,6 +171,8 @@ class FastTD3Learner:
         self.policy_frequency = policy_frequency
         self.use_cdq = use_cdq
 
+        torch_device = torch.device(device)
+
         # Build actor
         self.actor = TD3Actor(
             n_obs=obs_dim,
@@ -174,7 +182,7 @@ class FastTD3Learner:
             hidden_dim=actor_hidden_dim,
             log_std_min=log_std_min,
             log_std_max=log_std_max,
-            device=device,
+            device=torch_device,
         )
 
         # Build critic
@@ -185,7 +193,7 @@ class FastTD3Learner:
             v_min=v_min,
             v_max=v_max,
             hidden_dim=critic_hidden_dim,
-            device=device,
+            device=torch_device,
         )
         self.qnet_target = Critic(
             n_obs=obs_dim,
@@ -194,11 +202,12 @@ class FastTD3Learner:
             v_min=v_min,
             v_max=v_max,
             hidden_dim=critic_hidden_dim,
-            device=device,
+            device=torch_device,
         )
         self.qnet_target.load_state_dict(self.qnet.state_dict())
 
         # Observation normalization
+        self.obs_normalizer: Union[EmpiricalNormalization, nn.Identity]
         if obs_normalization:
             self.obs_normalizer = EmpiricalNormalization(shape=obs_dim, device=device)
         else:
@@ -222,7 +231,7 @@ class FastTD3Learner:
     def normalize_obs(self, obs: torch.Tensor, update: bool = False) -> torch.Tensor:
         """Normalize observations using running statistics."""
         if not isinstance(self.obs_normalizer, nn.Identity):
-            return self.obs_normalizer(obs, update=update)
+            return self.obs_normalizer.forward(obs, update=update)
         return obs
 
     def update_critic(self, data: Dict[str, torch.Tensor]) -> Dict[str, float]:
@@ -281,7 +290,7 @@ class FastTD3Learner:
             },
         )
         if loss is None:
-            return nan_metrics
+            return nan_metrics or {}
 
         self.q_optimizer.zero_grad(set_to_none=True)
         loss.backward()
@@ -312,7 +321,7 @@ class FastTD3Learner:
 
         loss, nan_metrics = check_nan_loss(actor_loss, {"actor_loss": 0.0})
         if loss is None:
-            return nan_metrics
+            return nan_metrics or {}
 
         self.actor_optimizer.zero_grad(set_to_none=True)
         loss.backward()

@@ -1,6 +1,9 @@
 """Base collector class for shared functionality."""
 
+from __future__ import annotations
+
 from collections import defaultdict
+from typing import Any
 
 import numpy as np
 
@@ -32,14 +35,14 @@ class BaseCollector:
         self.local_weight_version = 0
 
         # Episode tracking
-        self.episode_rewards = []
-        self.episode_lengths = []
+        self.episode_rewards: list[float] = []
+        self.episode_lengths: list[int] = []
         self.current_episode_rewards = np.zeros(num_envs, dtype=np.float32)
         self.current_episode_lengths = np.zeros(num_envs, dtype=np.int32)
-        self.ep_reward_components = defaultdict(list)
+        self.ep_reward_components: defaultdict[str, list[float]] = defaultdict(list)
 
         # Timing
-        self.timing_accum_ms = defaultdict(float)
+        self.timing_accum_ms: defaultdict[str, float] = defaultdict(float)
         self.timing_count = 0
 
     def sync_weights_if_needed(self):

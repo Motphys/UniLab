@@ -12,9 +12,9 @@ class EnvCfg:
 
     """
 
-    model_file: str = None
+    model_file: Optional[str] = None
     sim_dt: float = 0.01
-    max_episode_seconds: float = None
+    max_episode_seconds: Optional[float] = None
     ctrl_dt: float = 0.01
     render_spacing: float = 1.0
 

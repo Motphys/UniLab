@@ -1,5 +1,9 @@
 """Neural network architectures for RL algorithms."""
 
+from __future__ import annotations
+
+from typing import Optional
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -20,7 +24,7 @@ class DistributionalQNetwork(nn.Module):
         v_min: float,
         v_max: float,
         hidden_dim: int,
-        device: torch.device = None,
+        device: Optional[torch.device] = None,
     ):
         super().__init__()
         self.net = nn.Sequential(
@@ -39,7 +43,7 @@ class DistributionalQNetwork(nn.Module):
     def forward(self, obs: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
         x = torch.cat([obs, actions], 1)
         x = self.net(x)
-        return x
+        return torch.as_tensor(x)
 
     def projection(
         self,
@@ -88,6 +92,8 @@ class DistributionalQNetwork(nn.Module):
 class Critic(nn.Module):
     """Twin distributional Q-networks for off-policy RL (SAC/TD3)."""
 
+    q_support: torch.Tensor
+
     def __init__(
         self,
         n_obs: int,
@@ -96,7 +102,7 @@ class Critic(nn.Module):
         v_min: float,
         v_max: float,
         hidden_dim: int,
-        device: torch.device = None,
+        device: Optional[torch.device] = None,
     ):
         super().__init__()
         self.qnet1 = DistributionalQNetwork(

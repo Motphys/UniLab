@@ -1,11 +1,18 @@
 """Observation normalization for RL training."""
 
+from __future__ import annotations
+
 import torch
 import torch.nn as nn
 
 
 class EmpiricalNormalization(nn.Module):
     """Normalize mean and variance of observations using running statistics."""
+
+    _mean: torch.Tensor
+    _var: torch.Tensor
+    _std: torch.Tensor
+    count: torch.Tensor
 
     def __init__(self, shape, device, eps=1e-2):
         super().__init__()
@@ -29,9 +36,9 @@ class EmpiricalNormalization(nn.Module):
         if self.training and update:
             self.update(x)
         if center:
-            return (x - self._mean) / (self._std + self.eps)
+            return torch.as_tensor((x - self._mean) / (self._std + self.eps))
         else:
-            return x / (self._std + self.eps)
+            return torch.as_tensor(x / (self._std + self.eps))
 
     def update(self, x):
         batch_size = x.shape[0]

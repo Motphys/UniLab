@@ -10,7 +10,7 @@ from unilab.algos.torch.offpolicy.worker import off_policy_collector_fn
 from unilab.ipc import SharedObsNormStats, SharedWeightSync
 from unilab.ipc.async_runner import _SPAWN_CTX, AsyncRunner
 from unilab.ipc.replay_buffer import ReplayBuffer
-from unilab.utils.device_utils import get_env_dims
+from unilab.utils.device_utils import get_default_device, get_env_dims
 from unilab.utils.offpolicy_logger import OffPolicyLogger
 
 
@@ -30,7 +30,7 @@ class OffPolicyRunner(AsyncRunner):
         policy_frequency: int = 4,
         sync_collection: bool = True,
         env_steps_per_sync: int = 1,
-        device: str = None,
+        device: str | None = None,
         actor_hidden_dim: int = 512,
         use_layer_norm: bool = True,
         obs_normalization: bool = False,
@@ -156,8 +156,8 @@ class OffPolicyRunner(AsyncRunner):
             logger.log_status("Symmetry augmentation: enabled")
         logger.start()
 
-        reward_history = deque(maxlen=100)
-        latest_reward_components = {}
+        reward_history: deque = deque(maxlen=100)
+        latest_reward_components: dict[str, float] = {}
         last_buf_log = 0
         write_read_ema = 0.0
 
@@ -235,6 +235,7 @@ class OffPolicyRunner(AsyncRunner):
             sync_start = time.time()
 
             if self.obs_normalization and getattr(self.learner, "obs_normalizer", None) is not None:
+                assert shared_obs_normalizer_stats is not None
                 shared_obs_normalizer_stats.put(
                     (
                         self.learner.obs_normalizer.mean.cpu().numpy(),

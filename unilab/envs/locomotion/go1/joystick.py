@@ -46,7 +46,7 @@ class RewardConfig:
 
 
 @dataclass
-class Sensor:
+class JoystickSensor:
     local_linvel = "local_linvel"
     gyro = "gyro"
     feet_force = ["FL_foot_contact", "FR_foot_contact", "RL_foot_contact", "RR_foot_contact"]
@@ -75,7 +75,7 @@ class Go1JoystickCfg(Go1BaseCfg):
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
     reward_config: RewardConfig = field(default_factory=RewardConfig)
-    sensor: Sensor = field(default_factory=Sensor)
+    sensor: JoystickSensor = field(default_factory=JoystickSensor)  # type: ignore[assignment]
     domain_rand: Domain_Rand = field(default_factory=Domain_Rand)
 
 
@@ -83,6 +83,8 @@ class Go1JoystickCfg(Go1BaseCfg):
 @registry.env("Go1JoystickFlatTerrain", sim_backend="motrix")
 @registry.env("Go1JoystickFlatTerrain", sim_backend="motrix_numba")
 class Go1WalkTask(Go1BaseEnv):
+    _cfg: Go1JoystickCfg
+
     def __init__(self, cfg: Go1JoystickCfg, num_envs=1, backend_type="mujoco"):
         backend = create_backend(
             backend_type, cfg.model_file, num_envs, cfg.sim_dt, body_name=cfg.asset.body_name
@@ -116,7 +118,7 @@ class Go1WalkTask(Go1BaseEnv):
 
     @property
     def observation_space(self) -> gym.spaces.Box:
-        return self._observation_space
+        return self._observation_space  # type: ignore[no-any-return]
 
     def update_state(self, state: NpEnvState) -> NpEnvState:
         self.phase = np.fmod(self.phase + self._cfg.ctrl_dt * self.gait_frequency, 1.0)
@@ -178,29 +180,29 @@ class Go1WalkTask(Go1BaseEnv):
     def _reward_tracking_lin_vel(self, info: dict, linvel, gyro, dof_pos, qpos) -> np.ndarray:
         commands = info["commands"]
         lin_vel_error = np.sum(np.square(commands[:, :2] - linvel[:, :2]), axis=1)
-        return np.exp(-lin_vel_error / self._cfg.reward_config.tracking_sigma)
+        return np.asarray(np.exp(-lin_vel_error / self._cfg.reward_config.tracking_sigma))
 
     def _reward_tracking_ang_vel(self, info: dict, linvel, gyro, dof_pos, qpos) -> np.ndarray:
         commands = info["commands"]
         ang_vel_error = np.square(commands[:, 2] - gyro[:, 2])
-        return np.exp(-ang_vel_error / self._cfg.reward_config.tracking_sigma)
+        return np.asarray(np.exp(-ang_vel_error / self._cfg.reward_config.tracking_sigma))
 
     def _reward_lin_vel_z(self, info: dict, linvel, gyro, dof_pos, qpos) -> np.ndarray:
-        return np.square(linvel[:, 2])
+        return np.asarray(np.square(linvel[:, 2]))
 
     def _reward_ang_vel_xy(self, info: dict, linvel, gyro, dof_pos, qpos) -> np.ndarray:
-        return np.sum(np.square(gyro[:, :2]), axis=1)
+        return np.asarray(np.sum(np.square(gyro[:, :2]), axis=1))
 
     def _reward_base_height(self, info: dict, linvel, gyro, dof_pos, qpos) -> np.ndarray:
         base_height = qpos[:, 2]
-        return np.square(base_height - self._cfg.reward_config.base_height_target)
+        return np.asarray(np.square(base_height - self._cfg.reward_config.base_height_target))
 
     def _reward_action_rate(self, info: dict, linvel, gyro, dof_pos, qpos) -> np.ndarray:
         action_diff = info["current_actions"] - info["last_actions"]
-        return np.sum(np.square(action_diff), axis=1)
+        return np.asarray(np.sum(np.square(action_diff), axis=1))
 
     def _reward_similar_to_default(self, info: dict, linvel, gyro, dof_pos, qpos) -> np.ndarray:
-        return np.sum(np.abs(dof_pos - self.default_angles), axis=1)
+        return np.asarray(np.sum(np.abs(dof_pos - self.default_angles), axis=1))
 
     def _reward_contact(self, info: dict, linvel, gyro, dof_pos, qpos) -> np.ndarray:
         contact = self.feet_force[:, :, 2] > 0.1

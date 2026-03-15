@@ -70,6 +70,8 @@ class Go1BaseCfg(EnvCfg):
 
 
 class Go1BaseEnv(NpEnv):
+    _cfg: Go1BaseCfg
+
     def __init__(self, cfg: Go1BaseCfg, backend: SimBackend, num_envs=1):
         super().__init__(cfg, backend, num_envs)
 
@@ -92,11 +94,11 @@ class Go1BaseEnv(NpEnv):
             low = model.actuator_ctrl_limits[0, :]
             high = model.actuator_ctrl_limits[1, :]
             nu = model.num_actuators
-        self._action_space = gym.spaces.Box(low, high, (nu,), dtype=float)
+        self._action_space = gym.spaces.Box(low, high, (nu,), dtype=float)  # type: ignore[assignment]
 
     @property
     def action_space(self) -> gym.spaces.Box:
-        return self._action_space
+        return self._action_space  # type: ignore[no-any-return]
 
     def _init_buffers(self):
         dtype = get_global_dtype()
@@ -124,8 +126,9 @@ class Go1BaseEnv(NpEnv):
 
     def push_robots(self):
         if self.push_robots_flag:
-            if self.step_counter % self._cfg.domain_rand.push_interval == 0:
-                self._backend.push_robots(self._cfg.domain_rand.max_force)
+            domain_rand = getattr(self._cfg, "domain_rand", None)
+            if domain_rand and self.step_counter % domain_rand.push_interval == 0:
+                self._backend.push_robots(domain_rand.max_force)
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
         state.info["last_actions"] = state.info.get("current_actions", np.zeros_like(actions))
@@ -135,16 +138,18 @@ class Go1BaseEnv(NpEnv):
             if self._cfg.control_config.simulate_action_latency
             else actions
         )
-        return exec_actions * self._cfg.control_config.action_scale + self.default_angles
+        return np.asarray(
+            exec_actions * self._cfg.control_config.action_scale + self.default_angles
+        )
 
     def get_local_linvel(self) -> np.ndarray:
-        return self._backend.get_sensor_data(self._cfg.sensor.local_linvel)
+        return np.asarray(self._backend.get_sensor_data(self._cfg.sensor.local_linvel))
 
     def get_gyro(self) -> np.ndarray:
-        return self._backend.get_sensor_data(self._cfg.sensor.gyro)
+        return np.asarray(self._backend.get_sensor_data(self._cfg.sensor.gyro))
 
     def get_dof_pos(self) -> np.ndarray:
-        return self._backend.get_dof_pos()
+        return np.asarray(self._backend.get_dof_pos())
 
     def get_dof_vel(self) -> np.ndarray:
-        return self._backend.get_dof_vel()
+        return np.asarray(self._backend.get_dof_vel())

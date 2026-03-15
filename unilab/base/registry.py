@@ -151,8 +151,9 @@ def make(
         )
 
     # Create environment instance
-    env_cls = meta.env_cls_dict[sim_backend]
-    return env_cls(env_cfg, num_envs=num_envs, backend_type=sim_backend)
+    env_cls_any: Any = meta.env_cls_dict[sim_backend]
+    env: ABEnv = env_cls_any(env_cfg, num_envs=num_envs, backend_type=sim_backend)
+    return env
 
 
 def list_registered_envs() -> Dict[str, Dict[str, Any]]:

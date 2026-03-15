@@ -104,7 +104,7 @@ class G1JoystickSACCfg(G1BaseCfg):
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
     reward_config: RewardConfigSAC = field(default_factory=RewardConfigSAC)
-    control_config: ControlConfigSAC = field(default_factory=ControlConfigSAC)
+    control_config: ControlConfigSAC = field(default_factory=ControlConfigSAC)  # type: ignore[assignment]
 
 
 @registry.env("G1WalkTaskMjSAC", sim_backend="mujoco")

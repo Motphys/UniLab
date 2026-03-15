@@ -116,7 +116,7 @@ class MLPActorCritic(nn.Module):
         if self.obs_normalizer is not None:
             self.obs_normalizer.update(obs)
 
-    def act(self, obs: mx.array) -> Tuple[mx.array, mx.array, mx.array, mx.array]:
+    def act(self, obs: mx.array) -> Tuple[mx.array, mx.array, mx.array, mx.array, mx.array]:
         """Sample actions and return MLX tensors."""
         mean, std, log_std = self.distribution_params(obs)
         noise = mx.random.normal(mean.shape)

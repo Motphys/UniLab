@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Dict, Generator
+from dataclasses import dataclass, field
+from typing import Dict, Generator, Union
 
 import mlx.core as mx
 
@@ -18,17 +18,17 @@ class RolloutBuffer:
     action_dim: int
     gamma: float
     lam: float
-    dtype: type = mx.float32
+    dtype: mx.Dtype = mx.float32
 
     def __post_init__(self) -> None:
-        self.observations: list[mx.array] = []
-        self.actions: list[mx.array] = []
-        self.log_probs: list[mx.array] = []
-        self.mu: list[mx.array] = []
-        self.sigma: list[mx.array] = []
+        self.observations: Union[list[mx.array], mx.array] = []
+        self.actions: Union[list[mx.array], mx.array] = []
+        self.log_probs: Union[list[mx.array], mx.array] = []
+        self.mu: Union[list[mx.array], mx.array] = []
+        self.sigma: Union[list[mx.array], mx.array] = []
         self.rewards: list[mx.array] = []
         self.dones: list[mx.array] = []
-        self.values: list[mx.array] = []
+        self.values: Union[list[mx.array], mx.array] = []
         self.advantages = mx.zeros((self.num_steps, self.num_envs), dtype=self.dtype)
         self.returns = mx.zeros((self.num_steps, self.num_envs), dtype=self.dtype)
         self.step = 0
@@ -46,14 +46,14 @@ class RolloutBuffer:
     ) -> None:
         if self.step >= self.num_steps:
             raise OverflowError("Rollout buffer overflow.")
-        self.observations.append(obs)
-        self.actions.append(actions)
-        self.log_probs.append(log_probs)
-        self.mu.append(action_mean)
-        self.sigma.append(action_std)
+        self.observations.append(obs)  # type: ignore[union-attr]
+        self.actions.append(actions)  # type: ignore[union-attr]
+        self.log_probs.append(log_probs)  # type: ignore[union-attr]
+        self.mu.append(action_mean)  # type: ignore[union-attr]
+        self.sigma.append(action_std)  # type: ignore[union-attr]
         self.rewards.append(rewards)
         self.dones.append(dones)
-        self.values.append(values)
+        self.values.append(values)  # type: ignore[union-attr]
         self.step += 1
 
     def compute_returns_and_advantages(self, last_values: mx.array) -> None:
@@ -78,12 +78,12 @@ class RolloutBuffer:
             advantages[t] = gae
             returns[t] = gae + values[t]
 
-        self.observations = mx.stack(self.observations, axis=0)
-        self.actions = mx.stack(self.actions, axis=0)
-        self.log_probs = mx.stack(self.log_probs, axis=0)
-        self.mu = mx.stack(self.mu, axis=0)
-        self.sigma = mx.stack(self.sigma, axis=0)
-        self.values = mx.stack(self.values, axis=0)
+        self.observations = mx.stack(self.observations, axis=0)  # type: ignore[arg-type]
+        self.actions = mx.stack(self.actions, axis=0)  # type: ignore[arg-type]
+        self.log_probs = mx.stack(self.log_probs, axis=0)  # type: ignore[arg-type]
+        self.mu = mx.stack(self.mu, axis=0)  # type: ignore[arg-type]
+        self.sigma = mx.stack(self.sigma, axis=0)  # type: ignore[arg-type]
+        self.values = mx.stack(self.values, axis=0)  # type: ignore[arg-type]
         self.advantages = mx.stack(advantages, axis=0)
         self.returns = mx.stack(returns, axis=0)
         adv = mx.reshape(self.advantages, (-1,))
@@ -95,14 +95,14 @@ class RolloutBuffer:
         batch_size = self.num_steps * self.num_envs
         mini_batch_size = batch_size // num_mini_batches
 
-        obs = mx.reshape(self.observations, (batch_size, self.obs_dim))
-        actions = mx.reshape(self.actions, (batch_size, self.action_dim))
-        log_probs = mx.reshape(self.log_probs, (batch_size,))
-        mu = mx.reshape(self.mu, (batch_size, self.action_dim))
-        sigma = mx.reshape(self.sigma, (batch_size, self.action_dim))
+        obs = mx.reshape(self.observations, (batch_size, self.obs_dim))  # type: ignore[arg-type]
+        actions = mx.reshape(self.actions, (batch_size, self.action_dim))  # type: ignore[arg-type]
+        log_probs = mx.reshape(self.log_probs, (batch_size,))  # type: ignore[arg-type]
+        mu = mx.reshape(self.mu, (batch_size, self.action_dim))  # type: ignore[arg-type]
+        sigma = mx.reshape(self.sigma, (batch_size, self.action_dim))  # type: ignore[arg-type]
         returns = mx.reshape(self.returns, (batch_size,))
         advantages = mx.reshape(self.advantages, (batch_size,))
-        values = mx.reshape(self.values, (batch_size,))
+        values = mx.reshape(self.values, (batch_size,))  # type: ignore[arg-type]
 
         for _ in range(num_epochs):
             shuffled = mx.random.permutation(batch_size)

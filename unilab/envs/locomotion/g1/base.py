@@ -52,6 +52,8 @@ class G1BaseCfg(EnvCfg):
 
 
 class G1BaseEnv(NpEnv):
+    _cfg: G1BaseCfg
+
     def __init__(self, cfg: G1BaseCfg, backend: SimBackend, num_envs=1):
         super().__init__(cfg, backend, num_envs)
         self._init_action_space()
@@ -68,11 +70,11 @@ class G1BaseEnv(NpEnv):
             low = model.actuator_ctrl_limits[0, :]
             high = model.actuator_ctrl_limits[1, :]
             nu = model.num_actuators
-        self._action_space = gym.spaces.Box(low, high, (nu,), dtype=float)
+        self._action_space = gym.spaces.Box(low, high, (nu,), dtype=float)  # type: ignore[assignment]
 
     @property
     def action_space(self) -> gym.spaces.Box:
-        return self._action_space
+        return self._action_space  # type: ignore[no-any-return]
 
     def _init_buffers(self):
         self.default_angles = np.zeros((self._num_action,), dtype=np.float32)
@@ -98,16 +100,18 @@ class G1BaseEnv(NpEnv):
             if self._cfg.control_config.simulate_action_latency
             else actions
         )
-        return exec_actions * self._cfg.control_config.action_scale + self.default_angles
+        return np.asarray(
+            exec_actions * self._cfg.control_config.action_scale + self.default_angles
+        )
 
     def get_local_linvel(self) -> np.ndarray:
-        return self._backend.get_sensor_data(self._cfg.sensor.local_linvel)
+        return np.asarray(self._backend.get_sensor_data(self._cfg.sensor.local_linvel))
 
     def get_gyro(self) -> np.ndarray:
-        return self._backend.get_sensor_data(self._cfg.sensor.gyro)
+        return np.asarray(self._backend.get_sensor_data(self._cfg.sensor.gyro))
 
     def get_dof_pos(self) -> np.ndarray:
-        return self._backend.get_dof_pos()
+        return np.asarray(self._backend.get_dof_pos())
 
     def get_dof_vel(self) -> np.ndarray:
-        return self._backend.get_dof_vel()
+        return np.asarray(self._backend.get_dof_vel())

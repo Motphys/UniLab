@@ -11,7 +11,7 @@ Hyperparameters aligned with holosoma FastSACConfig defaults.
 from __future__ import annotations
 
 import math
-from typing import Dict, Tuple
+from typing import Any, Dict, Tuple
 
 import torch
 import torch.nn as nn
@@ -29,6 +29,9 @@ class SACActor(nn.Module):
     Architecture: Linear→LN→SiLU → Linear→LN→SiLU → Linear→LN→SiLU → fc_mu + fc_logstd
     Hidden dims: [hidden_dim, hidden_dim//2, hidden_dim//4]
     """
+
+    action_scale: torch.Tensor
+    action_bias: torch.Tensor
 
     def __init__(
         self,
@@ -129,7 +132,7 @@ class SACActor(nn.Module):
     @torch.no_grad()
     def explore(self, obs: torch.Tensor, deterministic: bool = False) -> torch.Tensor:
         """Get exploration actions."""
-        _, mean, log_std = self(obs)
+        _, mean, log_std = self.forward(obs)
         if deterministic:
             if self.use_tanh:
                 return torch.tanh(mean) * self.action_scale + self.action_bias
@@ -188,7 +191,7 @@ class DistributionalQNetwork(nn.Module):
 
     def forward(self, obs: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
         x = torch.cat([obs, actions], dim=-1)
-        return self.net(x)
+        return self.net(x)  # type: ignore[no-any-return]
 
     def projection(
         self,
@@ -243,6 +246,8 @@ class SACCritic(nn.Module):
     Uses ``num_q_networks`` independent DistributionalQNetwork instances.
     """
 
+    q_support: torch.Tensor
+
     def __init__(
         self,
         obs_dim: int,
@@ -296,7 +301,7 @@ class SACCritic(nn.Module):
     ) -> torch.Tensor:
         """Project for all Q-networks: (num_q_nets, batch, num_atoms)."""
         projections = [
-            qnet.projection(
+            qnet.projection(  # type: ignore[operator]
                 obs, actions, rewards, bootstrap, discount, self.q_support, self.q_support.device
             )
             for qnet in self.qnets
@@ -353,7 +358,7 @@ class FastSACLearner:
         use_symmetry: bool = False,
         use_amp: bool = False,
         mujoco_model=None,
-        obs_structure: dict = None,
+        obs_structure: dict | None = None,
     ):
         self.device = device
         self.gamma = gamma
@@ -447,6 +452,7 @@ class FastSACLearner:
         if self.use_symmetry:
             from unilab.envs.locomotion.g1.symmetry import G1SymmetryAugmentation
 
+            assert obs_structure is not None
             self.symmetry = G1SymmetryAugmentation(mujoco_model, obs_structure, device=device)
 
     def update_critic(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
@@ -602,7 +608,7 @@ class FastSACLearner:
             for tgt, src in zip(self.qnet_target.parameters(), self.qnet.parameters()):
                 tgt.data.mul_(1.0 - self.tau).add_(src.data, alpha=self.tau)
 
-    def get_state_dict(self) -> Dict[str, any]:
+    def get_state_dict(self) -> Dict[str, Any]:
         """Save all components."""
         return {
             "actor": self.actor.state_dict(),

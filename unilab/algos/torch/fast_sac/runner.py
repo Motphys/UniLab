@@ -1,5 +1,7 @@
 """FastSAC runner using unified OffPolicyRunner."""
 
+from typing import Any
+
 from unilab.algos.torch.fast_sac.learner import FastSACLearner
 from unilab.algos.torch.offpolicy.runner import OffPolicyRunner
 from unilab.utils.device_utils import get_default_device, get_env_dims
@@ -11,7 +13,7 @@ class FastSACRunner(OffPolicyRunner):
     def __init__(
         self,
         env_name: str,
-        device: str = None,
+        device: str | None = None,
         num_envs: int = 4096,
         replay_buffer_n: int = 1024,
         batch_size: int = 8192,
@@ -41,9 +43,12 @@ class FastSACRunner(OffPolicyRunner):
         from unilab.utils.algo_utils import ensure_registries
 
         ensure_registries()
-        env = registry.make(env_name, num_envs=1, sim_backend=sim_backend)
-        obs_dim = env.observation_space.shape[0]
-        action_dim = env.action_space.shape[0]
+        env: Any = registry.make(env_name, num_envs=1, sim_backend=sim_backend)
+        obs_space_shape = env.observation_space.shape
+        act_space_shape = env.action_space.shape
+        assert obs_space_shape is not None and act_space_shape is not None
+        obs_dim = obs_space_shape[0]
+        action_dim = act_space_shape[0]
         mujoco_model = getattr(env, "_backend", None)
         if mujoco_model is not None:
             mujoco_model = getattr(mujoco_model, "model", None)

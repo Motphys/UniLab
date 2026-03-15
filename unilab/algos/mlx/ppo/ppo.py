@@ -69,7 +69,7 @@ class PPOTrainer:
 
     @staticmethod
     def _all_finite(tree) -> bool:
-        leaves = [leaf for _, leaf in tree_flatten(tree)]
+        leaves = [leaf for _, leaf in tree_flatten(tree)]  # type: ignore[misc]
         if not leaves:
             return True
         checks = [mx.all(mx.isfinite(leaf)) for leaf in leaves]

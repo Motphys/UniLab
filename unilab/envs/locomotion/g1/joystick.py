@@ -101,6 +101,8 @@ class G1JoystickPPOCfg(G1BaseCfg):
 @registry.env("G1JoystickFlatTerrain", sim_backend="mujoco")
 @registry.env("G1JoystickFlatTerrain", sim_backend="motrix")
 class G1JoystickPPO(G1BaseEnv):
+    _cfg: G1JoystickPPOCfg
+
     def __init__(self, cfg: G1JoystickPPOCfg, num_envs=1, backend_type="mujoco"):
         backend = create_backend(
             backend_type, cfg.model_file, num_envs, cfg.sim_dt, body_name=cfg.asset.body_name
@@ -139,7 +141,7 @@ class G1JoystickPPO(G1BaseEnv):
 
     @property
     def observation_space(self) -> gym.spaces.Box:
-        return self._observation_space
+        return self._observation_space  # type: ignore[no-any-return]
 
     def update_state(self, state: NpEnvState) -> NpEnvState:
         linvel = self.get_local_linvel()
@@ -321,4 +323,4 @@ class G1JoystickPPO(G1BaseEnv):
         gait_phase[:, 1] = (gait_phase[:, 1] + self._gait_phase_delta) % (2 * np.pi)
         state.info["gait_phase"] = gait_phase
 
-        return actions * self._cfg.control_config.action_scale + self.default_angles
+        return np.asarray(actions * self._cfg.control_config.action_scale + self.default_angles)
