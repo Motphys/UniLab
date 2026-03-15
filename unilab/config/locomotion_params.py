@@ -281,9 +281,11 @@ def appo_config(env_name: str) -> config_dict.ConfigDict:
             class_name="rsl_rl.models.MLPModel",
             hidden_dims=[512, 256, 128],
             activation="elu",
-            init_noise_std=1.0,
-            noise_std_type="scalar",
-            stochastic=True,
+            distribution_cfg=config_dict.create(
+                class_name="rsl_rl.modules.distribution.GaussianDistribution",
+                init_std=1.0,
+                std_type="scalar",
+            ),
         ),
         critic=config_dict.create(
             class_name="rsl_rl.models.MLPModel",

@@ -56,7 +56,9 @@ def appo_collector_fn(
     # Create environment
     env = registry.make(env_name, num_envs=num_envs, sim_backend="mujoco")
 
-    # Build actor
+    # Build actor (stochastic MLPModel — mirrors runner._build_learner)
+    from copy import deepcopy
+
     cfg = dict(rl_cfg)
     if is_rsl_rl_v5():
         pass  # appo_config is already v5-compatible (actor/critic format)
@@ -66,19 +68,18 @@ def appo_collector_fn(
     obs_example = torch.zeros((num_envs, obs_dim), device=collector_device)
     td_example = TensorDict({"policy": obs_example}, batch_size=num_envs)
 
-    actor_cfg = cfg["actor"].copy()
+    # deepcopy so MLPModel.__init__'s distribution_cfg.pop("class_name") doesn't
+    # mutate the shared rl_cfg dict.
+    actor_cfg = deepcopy(cfg["actor"])
     actor_cls = resolve_callable(actor_cfg.pop("class_name"))
-    actor_core = actor_cls(
+    actor_cfg.pop("num_actions", None)
+    actor = actor_cls(
         td_example,
         cfg.get("obs_groups", {"actor": {"policy": obs_dim}}),
         "actor",
         action_dim,
         **actor_cfg,
     )
-
-    from unilab.algos.torch.appo.learner import APPOActorWrapper
-
-    actor = APPOActorWrapper(actor_core, action_dim)
     actor = actor.to(collector_device)
     actor.eval()
 

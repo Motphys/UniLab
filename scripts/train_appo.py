@@ -85,11 +85,15 @@ def play_appo(args, rl_cfg):
     elif is_rsl_rl_v4():
         rl_cfg_dict = convert_config_v3_to_v4(rl_cfg_dict)
 
+    from copy import deepcopy
+
     obs_example = torch.zeros((args.play_env_num, obs_dim), device=device)
     td_example = TensorDict({"policy": obs_example}, batch_size=args.play_env_num)
 
-    actor_cfg = rl_cfg_dict["actor"].copy()
+    # deepcopy actor_cfg so MLPModel.__init__'s distribution_cfg.pop doesn't mutate rl_cfg_dict
+    actor_cfg = deepcopy(rl_cfg_dict["actor"])
     actor_cls = resolve_callable(actor_cfg.pop("class_name"))
+    actor_cfg.pop("num_actions", None)
     actor = actor_cls(td_example, rl_cfg_dict["obs_groups"], "actor", action_dim, **actor_cfg)
     actor = actor.to(device)
     actor.eval()

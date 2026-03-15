@@ -86,43 +86,6 @@ def vtrace_advantages(
     return vs, advantages
 
 
-from torch.distributions import Normal
-
-
-class APPOActorWrapper(nn.Module):
-    def __init__(self, core_model, action_dim):
-        super().__init__()
-        self.core = core_model
-        self.std = nn.Parameter(torch.ones(action_dim))
-        self.distribution = None
-
-    def forward(self, obs_dict, stochastic_output=False, **kwargs):
-        mean = self.core(obs_dict, **kwargs)
-        self.distribution = Normal(mean, mean * 0.0 + self.std)
-        if stochastic_output:
-            return self.distribution.sample()
-        return mean
-
-    def get_output_log_prob(self, actions):
-        return self.distribution.log_prob(actions).sum(dim=-1)
-
-    @property
-    def output_mean(self):
-        return self.distribution.mean
-
-    @property
-    def output_std(self):
-        return self.distribution.stddev
-
-    @property
-    def output_entropy(self):
-        return self.distribution.entropy().sum(dim=-1)
-
-    def update_normalization(self, obs_dict, **kwargs):
-        if hasattr(self.core, "update_normalization"):
-            self.core.update_normalization(obs_dict, **kwargs)
-
-
 class APPOLearner:
     """Asynchronous PPO Learner.
 
@@ -331,9 +294,11 @@ class APPOLearner:
                 {"policy": obs_flat}, batch_size=obs_flat.shape[0], device=self.device
             )
 
-        # Compute old mu/sigma using target actor for KL divergence
+        # Compute old mu/sigma using target actor for KL divergence.
+        # stochastic_output=True is required: MLPModel only calls distribution.update()
+        # (which populates output_mean / output_std) on the stochastic forward path.
         with torch.inference_mode():
-            self.target_actor(obs_td, stochastic_output=False)
+            self.target_actor(obs_td, stochastic_output=True)
             old_mu_flat = self.target_actor.output_mean
             old_sigma_flat = self.target_actor.output_std
 

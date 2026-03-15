@@ -10,11 +10,12 @@ import multiprocessing as mp
 import os
 import time
 from collections import deque
+from copy import deepcopy
 
 import torch
 from rsl_rl.utils import resolve_callable
 
-from unilab.algos.torch.appo.learner import APPOActorWrapper, APPOLearner
+from unilab.algos.torch.appo.learner import APPOLearner
 from unilab.algos.torch.appo.worker import appo_collector_fn
 from unilab.ipc import AsyncRunner, SharedOnPolicyStorage, SharedWeightSync
 from unilab.utils.offpolicy_logger import OffPolicyLogger
@@ -101,17 +102,19 @@ class APPORunner(AsyncRunner):
         obs_example = torch.zeros((self.num_envs, self.obs_dim), device=self.device)
         td_example = TensorDict({"policy": obs_example}, batch_size=self.num_envs)
 
-        # Build actor
-        actor_cfg = cfg.get("policy", cfg.get("actor", {})).copy()
+        # Build actor (stochastic MLPModel — distribution_cfg carries GaussianDistribution)
+        # deepcopy so MLPModel.__init__'s distribution_cfg.pop("class_name") doesn't
+        # mutate the shared rl_cfg that gets sent to the collector subprocess.
+        actor_cfg = deepcopy(cfg.get("actor", {}))
         actor_cls = resolve_callable(actor_cfg.pop("class_name"))
         actor_cfg.pop("num_actions", None)
-        actor_core = actor_cls(td_example, cfg["obs_groups"], "actor", self.action_dim, **actor_cfg)
-        actor = APPOActorWrapper(actor_core, self.action_dim)
+        actor = actor_cls(td_example, cfg["obs_groups"], "actor", self.action_dim, **actor_cfg)
 
-        # Build critic
-        critic_cfg = cfg.get("critic", cfg.get("policy", cfg.get("actor", {}))).copy()
+        # Build critic (deterministic MLPModel, no distribution)
+        critic_cfg = deepcopy(cfg.get("critic", cfg.get("actor", {})))
         critic_cls = resolve_callable(critic_cfg.pop("class_name", "rsl_rl.models.MLPModel"))
         critic_cfg.pop("num_actions", None)
+        critic_cfg.pop("distribution_cfg", None)  # critic is deterministic
         critic = critic_cls(td_example, cfg["obs_groups"], "actor", 1, **critic_cfg)
 
         # Extract algorithm hyperparams from rl_cfg["algorithm"] (or top-level)
