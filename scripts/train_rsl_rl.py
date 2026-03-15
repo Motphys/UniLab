@@ -222,6 +222,16 @@ def play_rsl_rl(args, cfg, device):
     else:
         load_path_dir = os.path.dirname(load_path)
 
+    # Validate checkpoint format — non-rsl-rl checkpoints (e.g. APPO) store "actor"
+    # instead of "actor_state_dict" and will cause a KeyError inside runner.load().
+    _ckpt_keys = set(torch.load(load_path, map_location="cpu", weights_only=True).keys())
+    if "actor_state_dict" not in _ckpt_keys:
+        print(
+            f"Checkpoint at {load_path} is not an rsl-rl checkpoint "
+            f"(found keys: {_ckpt_keys}). Aborting play."
+        )
+        return
+
     runner = OnPolicyRunner(wrapped_env, train_cfg, log_dir=None, device=device)
     runner.load(load_path)
     policy = runner.get_inference_policy(device=device)
