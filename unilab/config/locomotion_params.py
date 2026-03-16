@@ -22,13 +22,24 @@ def ppo_config(env_name: str) -> config_dict.ConfigDict:
         empirical_normalization=False,
     )
 
+    # if env_name == "Go1JoystickFlatTerrain":
+    #     cfg.max_iterations = 151
+    # elif env_name == "Go2JoystickFlatTerrain":
+    #     pass
+    # elif env_name in ("G1JoystickFlatTerrain", "G1WalkTaskMjSAC"):
+    #     cfg.num_envs = 2048
+    #     cfg.max_iterations = 220
+    obs_group_set = {"default": ["policy"]}
     if env_name == "Go1JoystickFlatTerrain":
         cfg.max_iterations = 151
-    elif env_name == "Go2JoystickFlatTerrain":
-        pass
-    elif env_name in ("G1JoystickFlatTerrain", "G1WalkTaskMjSAC"):
+        obs_group_set = {"default": ["policy"], "actor": ['actor']}
+    elif env_name == "G1JoystickFlatTerrain":
+        obs_group_set = {"default": ["policy"], "actor": ['actor']}
         cfg.num_envs = 2048
         cfg.max_iterations = 220
+    elif env_name == "Go2JoystickFlatTerrain":
+        obs_group_set = {"default": ["policy"], "actor": ['actor']}
+        pass
 
     return config_dict.create(
         algo="ppo",
@@ -40,7 +51,7 @@ def ppo_config(env_name: str) -> config_dict.ConfigDict:
         save_interval=cfg.save_interval,
         empirical_normalization=cfg.empirical_normalization,
         runner_class_name="OnPolicyRunner",
-        obs_groups={"default": ["policy"]},
+        obs_groups=obs_group_set,
         experiment_name="test",
         run_name="",
         resume=False,

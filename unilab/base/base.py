@@ -42,19 +42,6 @@ class EnvCfg:
             raise ValueError("sim_dt must be less than or equal to ctrl_dt")
 
 
-@dataclass
-class obs_cfg:
-    obs_dict = {
-        "vel": 3,
-        "gyro": 3,
-        "gravity": 3,
-        "diff": 12,
-        "dof_vel": 12,
-        "action": 12,
-        "cmd": 3,
-    }  # 'obs_name': dim
-
-
 class ABEnv(abc.ABC):
     @property
     @abc.abstractmethod
