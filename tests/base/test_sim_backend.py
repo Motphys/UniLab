@@ -406,7 +406,7 @@ class TestMotrixBodySensors:
 
     def test_base_body_pos_b_is_zero(self, bkd):
         """Base body position relative to itself must be [0,0,0]."""
-        pelvis_id = bkd.model.get_body_index(_G1["body_name"])
+        pelvis_id = bkd.model.get_body_index(_G1["base_name"])
         pos_b = bkd.get_body_pos_b(np.array([pelvis_id]))
         np.testing.assert_allclose(pos_b, 0.0, atol=1e-4)
 
