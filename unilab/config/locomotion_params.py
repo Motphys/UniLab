@@ -32,14 +32,20 @@ def ppo_config(env_name: str) -> config_dict.ConfigDict:
     obs_group_set = {"default": ["policy"]}
     if env_name == "Go1JoystickFlatTerrain":
         cfg.max_iterations = 151
-        obs_group_set = {"default": ["policy"], "actor": ['actor']}
+        obs_group_set = {"default": ["policy"], "actor": ["actor"]}
     elif env_name == "G1JoystickFlatTerrain":
-        obs_group_set = {"default": ["policy"], "actor": ['actor']}
+        obs_group_set = {"default": ["policy"], "actor": ["actor"]}
         cfg.num_envs = 2048
         cfg.max_iterations = 220
     elif env_name == "Go2JoystickFlatTerrain":
-        obs_group_set = {"default": ["policy"], "actor": ['actor']}
+        obs_group_set = {"default": ["policy"], "actor": ["actor"]}
         pass
+    elif env_name == "G1MotionTracking":
+        obs_group_set = {"default": ["policy"], "actor": ["actor"]}
+        cfg.num_envs = 4096
+        cfg.max_iterations = 30000
+        cfg.save_interval = 500
+        cfg.entropy_coef = 0.005
 
     return config_dict.create(
         algo="ppo",
