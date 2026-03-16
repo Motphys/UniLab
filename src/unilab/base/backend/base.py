@@ -48,14 +48,6 @@ class SimBackend(abc.ABC):
     # ------------------------------------------------------------------ #
 
     @abc.abstractmethod
-    def get_qpos(self) -> np.ndarray:
-        """获取完整位置状态（含 base）
-
-        Returns:
-            (num_envs, nq)
-        """
-
-    @abc.abstractmethod
     def get_base_pos(self) -> np.ndarray:
         """获取 base 在世界系下的位置
 

@@ -203,7 +203,7 @@ class Go2WalkTask(Go2BaseEnv):
         return np.asarray(np.sum(np.square(gyro[:, :2]), axis=1))
 
     def _reward_base_height(self, info: dict) -> np.ndarray:
-        base_height = self._backend.get_qpos()[:, 2]
+        base_height = self._backend.get_base_pos()[:, 2]
         return np.asarray(np.square(base_height - self._cfg.reward_config.base_height_target))
 
     def _reward_action_rate(self, info: dict) -> np.ndarray:

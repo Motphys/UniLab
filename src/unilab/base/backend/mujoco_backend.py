@@ -173,9 +173,6 @@ class MuJoCoBackend(SimBackend):
         self._physics_state[env_indices] = state_np.astype(self._np_dtype)
         self._sensor_data[env_indices] = sensor_np.astype(self._np_dtype)
 
-    def get_qpos(self) -> np.ndarray:
-        return self._qpos_view
-
     def get_base_pos(self) -> np.ndarray:
         return self._base_pos_view
 

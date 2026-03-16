@@ -214,7 +214,6 @@ class G1MotionTrackingEnv(G1BaseEnv):
         gyro = self.get_gyro()
         dof_pos = self.get_dof_pos()
         dof_vel = self.get_dof_vel()
-        qpos = self._backend.get_qpos()
 
         # Get body states
         robot_body_pos_w = self._backend.get_body_pos_w(self.body_ids)
@@ -226,9 +225,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
         self._update_relative_transforms(motion_data, robot_body_pos_w, robot_body_quat_w)
 
         # Compute terminations
-        terminated = self._compute_terminations(
-            motion_data, robot_body_pos_w, robot_body_quat_w, qpos
-        )
+        terminated = self._compute_terminations(motion_data, robot_body_pos_w, robot_body_quat_w)
 
         # Update failure statistics for adaptive sampling
         self.motion_sampler.update_failure_stats(terminated)
@@ -294,7 +291,6 @@ class G1MotionTrackingEnv(G1BaseEnv):
         motion_data,
         robot_body_pos_w: np.ndarray,
         robot_body_quat_w: np.ndarray,
-        qpos: np.ndarray,
     ) -> np.ndarray:
         """Compute termination conditions."""
         terminated = np.zeros(self._num_envs, dtype=bool)

@@ -104,9 +104,6 @@ class TestMuJoCoBasic:
 
     # base kinematics
 
-    def test_get_qpos_shape(self, bkd):
-        _shape(bkd.get_qpos(), NUM_ENVS, bkd.model.nq)
-
     def test_get_base_pos_shape(self, bkd):
         _shape(bkd.get_base_pos(), NUM_ENVS, 3)
 
@@ -121,14 +118,6 @@ class TestMuJoCoBasic:
 
     def test_get_base_ang_vel_shape(self, bkd):
         _shape(bkd.get_base_ang_vel(), NUM_ENVS, 3)
-
-    def test_qpos_xyz_is_base_pos_view(self, bkd):
-        """qpos[:, :3] should be a zero-copy view of base_pos."""
-        np.testing.assert_array_equal(bkd.get_qpos()[:, :3], bkd.get_base_pos())
-
-    def test_qpos_quat_is_base_quat_view(self, bkd):
-        """qpos[:, 3:7] (wxyz) should equal get_base_quat()."""
-        np.testing.assert_array_equal(bkd.get_qpos()[:, 3:7], bkd.get_base_quat())
 
     # DOF state
 
@@ -300,7 +289,7 @@ class TestMotrixBasic:
 
     def test_set_state_moves_base(self, _ctx):
         bkd, _ = _ctx
-        nq = bkd.get_qpos().shape[-1]
+        nq = bkd.get_dof_pos().shape[-1] + 7  # 7 base DOFs + joint DOFs
         nv = bkd.get_dof_vel().shape[-1] + 6  # joint vels + base (3 lin + 3 ang)
         target = (1.0, 2.0, 0.8)
         qpos = _identity_qpos_mujoco(nq, xyz=target)
@@ -308,10 +297,6 @@ class TestMotrixBasic:
         np.testing.assert_allclose(bkd.get_base_pos()[0], target, atol=1e-4)
 
     # base kinematics
-
-    def test_get_qpos_shape(self, bkd):
-        q = bkd.get_qpos()
-        assert q.ndim == 2 and q.shape[0] == NUM_ENVS
 
     def test_get_base_pos_shape(self, bkd):
         _shape(bkd.get_base_pos(), NUM_ENVS, 3)

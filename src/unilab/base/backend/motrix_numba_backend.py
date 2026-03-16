@@ -90,9 +90,6 @@ class MotrixNumbaBackend(SimBackend):
     def get_dof_vel(self) -> np.ndarray:
         return np.asarray(self._body.get_joint_dof_vel(self._data))
 
-    def get_qpos(self) -> np.ndarray:
-        return np.asarray(self._data.dof_pos)
-
     def get_sensor_data(self, name: str) -> np.ndarray:
         return np.asarray(self._model.get_sensor_value(name, self._data))
 

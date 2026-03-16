@@ -118,9 +118,6 @@ class MotrixBackend(SimBackend):
     # Base kinematics                                                      #
     # ------------------------------------------------------------------ #
 
-    def get_qpos(self) -> np.ndarray:
-        return np.asarray(self._data.dof_pos)
-
     def get_base_pos(self) -> np.ndarray:
         return np.asarray(self._body.floatingbase.get_translation(self._data))
 
