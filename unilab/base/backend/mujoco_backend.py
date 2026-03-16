@@ -129,3 +129,145 @@ class MuJoCoBackend(SimBackend):
 
     def get_physics_state(self) -> np.ndarray:
         return self._physics_state
+
+    def get_body_pos(self, body_ids: np.ndarray) -> np.ndarray:
+        """Get body positions in world frame.
+
+        Args:
+            body_ids: Body indices (num_bodies,)
+
+        Returns:
+            Body positions (num_envs, num_bodies, 3)
+        """
+        # Need to run forward kinematics to get body positions
+        # Use batch_forward to compute xpos for all environments
+        state_out, _ = self._forward_runner.forward(
+            model=self._model,
+            data=self._worker_data,
+            initial_state=self._physics_state.astype(np.float64),
+            chunk_size=max(1, self._num_envs // self._n_threads),
+            skipsensor=True,
+            out_dtype=np.float64,
+            return_state=False,
+        )
+
+        # Extract body positions from MjData
+        # xpos is stored in data, need to extract from worker_data after forward
+        body_pos = np.zeros((self._num_envs, len(body_ids), 3), dtype=self._np_dtype)
+
+        # Run forward kinematics for each environment
+        for i in range(self._num_envs):
+            worker_idx = i % self._n_threads
+            data = self._worker_data[worker_idx]
+
+            # Set state
+            qpos = self._physics_state[i, self._idx_qpos : self._idx_qpos + self.nq]
+            qvel = self._physics_state[i, self._idx_qvel : self._idx_qvel + self.nv]
+            data.qpos[:] = qpos
+            data.qvel[:] = qvel
+
+            # Run forward kinematics
+            mujoco.mj_kinematics(self._model, data)
+
+            # Extract body positions
+            for j, body_id in enumerate(body_ids):
+                body_pos[i, j] = data.xpos[body_id]
+
+        return body_pos
+
+    def get_body_quat(self, body_ids: np.ndarray) -> np.ndarray:
+        """Get body quaternions in world frame (wxyz format).
+
+        Args:
+            body_ids: Body indices (num_bodies,)
+
+        Returns:
+            Body quaternions (num_envs, num_bodies, 4)
+        """
+        body_quat = np.zeros((self._num_envs, len(body_ids), 4), dtype=self._np_dtype)
+
+        # Run forward kinematics for each environment
+        for i in range(self._num_envs):
+            worker_idx = i % self._n_threads
+            data = self._worker_data[worker_idx]
+
+            # Set state
+            qpos = self._physics_state[i, self._idx_qpos : self._idx_qpos + self.nq]
+            qvel = self._physics_state[i, self._idx_qvel : self._idx_qvel + self.nv]
+            data.qpos[:] = qpos
+            data.qvel[:] = qvel
+
+            # Run forward kinematics
+            mujoco.mj_kinematics(self._model, data)
+
+            # Extract body quaternions (MuJoCo uses wxyz format)
+            for j, body_id in enumerate(body_ids):
+                body_quat[i, j] = data.xquat[body_id]
+
+        return body_quat
+
+    def get_body_lin_vel(self, body_ids: np.ndarray) -> np.ndarray:
+        """Get body linear velocities in world frame.
+
+        Args:
+            body_ids: Body indices (num_bodies,)
+
+        Returns:
+            Body linear velocities (num_envs, num_bodies, 3)
+        """
+        body_lin_vel = np.zeros((self._num_envs, len(body_ids), 3), dtype=self._np_dtype)
+
+        # Run forward kinematics and velocity computation
+        for i in range(self._num_envs):
+            worker_idx = i % self._n_threads
+            data = self._worker_data[worker_idx]
+
+            # Set state
+            qpos = self._physics_state[i, self._idx_qpos : self._idx_qpos + self.nq]
+            qvel = self._physics_state[i, self._idx_qvel : self._idx_qvel + self.nv]
+            data.qpos[:] = qpos
+            data.qvel[:] = qvel
+
+            # Run forward kinematics and velocity computation
+            mujoco.mj_kinematics(self._model, data)
+            mujoco.mj_comVel(self._model, data)
+
+            # Extract body linear velocities
+            for j, body_id in enumerate(body_ids):
+                # cvel contains [angular_vel (3), linear_vel (3)] for each body
+                body_lin_vel[i, j] = data.cvel[body_id, 3:6]
+
+        return body_lin_vel
+
+    def get_body_ang_vel(self, body_ids: np.ndarray) -> np.ndarray:
+        """Get body angular velocities in world frame.
+
+        Args:
+            body_ids: Body indices (num_bodies,)
+
+        Returns:
+            Body angular velocities (num_envs, num_bodies, 3)
+        """
+        body_ang_vel = np.zeros((self._num_envs, len(body_ids), 3), dtype=self._np_dtype)
+
+        # Run forward kinematics and velocity computation
+        for i in range(self._num_envs):
+            worker_idx = i % self._n_threads
+            data = self._worker_data[worker_idx]
+
+            # Set state
+            qpos = self._physics_state[i, self._idx_qpos : self._idx_qpos + self.nq]
+            qvel = self._physics_state[i, self._idx_qvel : self._idx_qvel + self.nv]
+            data.qpos[:] = qpos
+            data.qvel[:] = qvel
+
+            # Run forward kinematics and velocity computation
+            mujoco.mj_kinematics(self._model, data)
+            mujoco.mj_comVel(self._model, data)
+
+            # Extract body angular velocities
+            for j, body_id in enumerate(body_ids):
+                # cvel contains [angular_vel (3), linear_vel (3)] for each body
+                body_ang_vel[i, j] = data.cvel[body_id, 0:3]
+
+        return body_ang_vel
