@@ -82,6 +82,17 @@ class RewardConfig:
 
 
 @dataclass
+class obs_cfg:
+    obs_dict = {
+        "dof_pos_norm": 16,
+        "targets": 16,
+        "ball_pos": 3,
+    }  # 'obs_name': dim
+    actor_obs = ["dof_pos_norm", "targets", "ball_pos"]
+    num_lag_steps: int = 3
+
+
+@dataclass
 class DomainRandConfig:
     # Small random perturbation added to each joint at reset (rad).
     joint_noise: float = 0.00
@@ -98,6 +109,7 @@ class AllegroRotationCfg(AllegroBaseCfg):
     max_episode_seconds: float = 20.0  # same as HORA
     reward_config: RewardConfig = field(default_factory=RewardConfig)
     domain_rand: DomainRandConfig = field(default_factory=DomainRandConfig)
+    obs_config: obs_cfg = field(default_factory=obs_cfg)
 
     # World-frame unit vector around which to reward rotation.
     # Default (+z) = counterclockwise when viewed from above.
@@ -141,10 +153,27 @@ class AllegroRotationMj(AllegroBaseMjEnv):
     # ── Spaces ──────────────────────────────────────────────────────
 
     def _init_obs_space(self):
-        # Last 3 timesteps of [dof_pos_norm(16) + targets(16) + ball_pos(3)] = 3 * 35 = 105
+        obs_cfg = self._cfg.obs_config
+        num_obs_per_step = sum(obs_cfg.obs_dict.values())
+        num_obs = obs_cfg.num_lag_steps * num_obs_per_step
         self._observation_space = gym.spaces.Box(
-            low=-np.inf, high=np.inf, shape=(105,), dtype=float
+            low=-np.inf, high=np.inf, shape=(num_obs,), dtype=float
         )
+        self.actor_indices = self._get_actor_indices()
+
+    def _get_actor_indices(self):
+        s = 0
+        indices = []
+        for i in self._cfg.obs_config.actor_obs:
+            s = 0
+            for k, v in self._cfg.obs_config.obs_dict.items():
+                if k == i:
+                    for q in range(s, s + v):
+                        indices.append(q)
+                    s += v
+                    break
+                s += v
+        return indices
 
     @property
     def observation_space(self) -> gym.spaces.Box:
@@ -257,7 +286,11 @@ class AllegroRotationMj(AllegroBaseMjEnv):
         current_obs = np.concatenate([dof_pos_norm, targets, ball_pos], axis=1)  # (N, 35)
 
         obs_lag_history = state.info.get(
-            "obs_lag_history", np.zeros((self._num_envs, 3, 35), dtype=self._np_dtype)
+            "obs_lag_history",
+            np.zeros(
+                (self._num_envs, self._cfg.obs_config.num_lag_steps, sum(self._cfg.obs_config.obs_dict.values())),
+                dtype=self._np_dtype,
+            ),
         )
         obs_lag_history[:, :-1] = obs_lag_history[:, 1:]
         obs_lag_history[:, -1] = current_obs
@@ -294,8 +327,11 @@ class AllegroRotationMj(AllegroBaseMjEnv):
 
     def _get_obs(self, info: dict) -> np.ndarray:
         """Extract observation from info. Pure function - does not modify state."""
+        num_obs_per_step = sum(self._cfg.obs_config.obs_dict.values())
+        num_lag_steps = self._cfg.obs_config.num_lag_steps
         obs_lag_history = info.get(
-            "obs_lag_history", np.zeros((self._num_envs, 3, 35), dtype=self._np_dtype)
+            "obs_lag_history",
+            np.zeros((self._num_envs, num_lag_steps, num_obs_per_step), dtype=self._np_dtype),
         )
         num_envs = obs_lag_history.shape[0]
         return np.asarray(obs_lag_history.reshape(num_envs, -1))
@@ -368,8 +404,8 @@ class AllegroRotationMj(AllegroBaseMjEnv):
             [dof_pos_norm, init_ctrl, ball_pos_f32], axis=1
         )  # (num_reset, 35)
         obs_lag_history = np.broadcast_to(
-            init_obs[:, None, :], (num_reset, 3, 35)
-        ).copy()  # (num_reset, 3, 35)
+            init_obs[:, None, :], (num_reset, self._cfg.obs_config.num_lag_steps, sum(self._cfg.obs_config.obs_dict.values()))
+        ).copy()  # (num_reset, num_lag_steps, num_obs_per_step)
 
         info = {
             "current_actions": np.zeros((num_reset, self._num_action), dtype=self._np_dtype),

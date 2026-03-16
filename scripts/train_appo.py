@@ -15,31 +15,17 @@ sys.path.append(str(ROOT_DIR))
 
 
 def ensure_registries():
-    try:
-        import unilab.envs.locomotion
-
-        package = unilab.envs.locomotion
-        if hasattr(package, "__path__"):
-            for _, name, ispkg in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
-                try:
-                    importlib.import_module(name)
-                except Exception:
-                    pass
-    except ImportError:
-        pass
-
-    try:
-        import unilab.envs.locomotion.walking
-
-        package = unilab.envs.locomotion.walking
-        if hasattr(package, "__path__"):
-            for _, name, ispkg in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
-                try:
-                    importlib.import_module(name)
-                except Exception:
-                    pass
-    except ImportError:
-        pass
+    for pkg_name in ("unilab.envs.locomotion", "unilab.envs.locomotion.walking", "unilab.envs.manipulation"):
+        try:
+            package = importlib.import_module(pkg_name)
+            if hasattr(package, "__path__"):
+                for _, name, _ in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
+                    try:
+                        importlib.import_module(name)
+                    except Exception:
+                        pass
+        except ImportError:
+            pass
 
 
 def play_appo(args, rl_cfg):
@@ -218,9 +204,12 @@ def main():
 
     ensure_registries()
 
-    from unilab.config.locomotion_params import appo_config
+    from unilab.config import locomotion_params, manipulation_params
 
-    rl_cfg = appo_config(args.task)
+    if args.task in manipulation_params.KNOWN_TASKS:
+        rl_cfg = manipulation_params.appo_config(args.task)
+    else:
+        rl_cfg = locomotion_params.appo_config(args.task)
 
     # Fall back to config values for args not explicitly provided on the CLI.
     if args.max_iterations is None:
