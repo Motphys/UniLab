@@ -8,7 +8,7 @@ import mujoco
 def _get_named_bodies(model_file: str) -> tuple[list[int], list[str]]:
     _m = mujoco.MjModel.from_xml_path(model_file)
     ids, names = [], []
-    for i in range(_m.nbody):
+    for i in range(1, _m.nbody):  # skip body 0 (world body)
         name = mujoco.mj_id2name(_m, mujoco.mjtObj.mjOBJ_BODY, i)
         if name:
             ids.append(i)
@@ -18,24 +18,72 @@ def _get_named_bodies(model_file: str) -> tuple[list[int], list[str]]:
 
 def _add_w_sensors(sensor_tag: ET.Element, valid_bnames: list[str]) -> None:
     for bname in valid_bnames:
-        ET.SubElement(sensor_tag, "framepos", name=f"track_pos_w_{bname}", objtype="xbody", objname=bname)
+        ET.SubElement(
+            sensor_tag, "framepos", name=f"track_pos_w_{bname}", objtype="xbody", objname=bname
+        )
     for bname in valid_bnames:
-        ET.SubElement(sensor_tag, "framequat", name=f"track_quat_w_{bname}", objtype="xbody", objname=bname)
+        ET.SubElement(
+            sensor_tag, "framequat", name=f"track_quat_w_{bname}", objtype="xbody", objname=bname
+        )
     for bname in valid_bnames:
-        ET.SubElement(sensor_tag, "framelinvel", name=f"track_linvel_w_{bname}", objtype="xbody", objname=bname)
+        ET.SubElement(
+            sensor_tag,
+            "framelinvel",
+            name=f"track_linvel_w_{bname}",
+            objtype="xbody",
+            objname=bname,
+        )
     for bname in valid_bnames:
-        ET.SubElement(sensor_tag, "frameangvel", name=f"track_angvel_w_{bname}", objtype="xbody", objname=bname)
+        ET.SubElement(
+            sensor_tag,
+            "frameangvel",
+            name=f"track_angvel_w_{bname}",
+            objtype="xbody",
+            objname=bname,
+        )
 
 
 def _add_b_sensors(sensor_tag: ET.Element, valid_bnames: list[str], baselink_name: str) -> None:
     for bname in valid_bnames:
-        ET.SubElement(sensor_tag, "framepos", name=f"track_pos_b_{bname}", objtype="xbody", objname=bname, reftype="xbody", refname=baselink_name)
+        ET.SubElement(
+            sensor_tag,
+            "framepos",
+            name=f"track_pos_b_{bname}",
+            objtype="xbody",
+            objname=bname,
+            reftype="xbody",
+            refname=baselink_name,
+        )
     for bname in valid_bnames:
-        ET.SubElement(sensor_tag, "framequat", name=f"track_quat_b_{bname}", objtype="xbody", objname=bname, reftype="xbody", refname=baselink_name)
+        ET.SubElement(
+            sensor_tag,
+            "framequat",
+            name=f"track_quat_b_{bname}",
+            objtype="xbody",
+            objname=bname,
+            reftype="xbody",
+            refname=baselink_name,
+        )
     for bname in valid_bnames:
-        ET.SubElement(sensor_tag, "framelinvel", name=f"track_linvel_b_{bname}", objtype="xbody", objname=bname, reftype="xbody", refname=baselink_name)
+        ET.SubElement(
+            sensor_tag,
+            "framelinvel",
+            name=f"track_linvel_b_{bname}",
+            objtype="xbody",
+            objname=bname,
+            reftype="xbody",
+            refname=baselink_name,
+        )
     for bname in valid_bnames:
-        ET.SubElement(sensor_tag, "frameangvel", name=f"track_angvel_b_{bname}", objtype="xbody", objname=bname, reftype="xbody", refname=baselink_name)
+        ET.SubElement(
+            sensor_tag,
+            "frameangvel",
+            name=f"track_angvel_b_{bname}",
+            objtype="xbody",
+            objname=bname,
+            reftype="xbody",
+            refname=baselink_name,
+        )
 
 
 def _write_temp_xml(tree: ET.ElementTree, model_file: str) -> str:
@@ -73,9 +121,7 @@ def inject_mujoco_tracking_sensors(
     return _write_temp_xml(tree, model_file), tracked_body_ids, valid_bnames
 
 
-def inject_motrix_tracking_sensors(
-    model_file: str, baselink_name: str
-) -> tuple[str, list, list]:
+def inject_motrix_tracking_sensors(model_file: str, baselink_name: str) -> tuple[str, list, list]:
     """为 MotrixSim 后端注入 tracking sensors。
 
     只注入相对 baselink 坐标系的 (_b) sensors。

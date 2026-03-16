@@ -25,15 +25,15 @@ class MuJoCoBackend(SimBackend):
         self.add_body_sensors = add_body_sensors
 
         if self.add_body_sensors:
-            import os
-
             from unilab.utils.xml_utils import inject_mujoco_tracking_sensors
 
             tmp_path, self._tracked_body_ids, valid_bnames = inject_mujoco_tracking_sensors(
                 model_file, baselink_name=body_name
             )
-            self._model = mujoco.MjModel.from_xml_path(tmp_path)
-            os.remove(tmp_path)
+            try:
+                self._model = mujoco.MjModel.from_xml_path(tmp_path)
+            finally:
+                os.remove(tmp_path)
 
             self._body_id_to_tracked_idx = np.full(self._model.nbody, -1, dtype=int)
             for idx, bid in enumerate(self._tracked_body_ids):
@@ -60,11 +60,6 @@ class MuJoCoBackend(SimBackend):
         self._rollout = rollout.Rollout(nthread=self._n_threads)
         self._forward_runner = batch_forward.BatchForwardRunner(nthread=self._n_threads)
 
-        # 状态存储
-        nstate = mujoco.mj_stateSize(self._model, mujoco.mjtState.mjSTATE_FULLPHYSICS)
-        self._physics_state = np.zeros((num_envs, nstate), dtype=self._np_dtype)
-        self._sensor_data = np.zeros((num_envs, self._model.nsensordata), dtype=self._np_dtype)
-
         # 索引
         self.nq = self._model.nq
         self.nv = self._model.nv
@@ -72,6 +67,13 @@ class MuJoCoBackend(SimBackend):
         self._idx_qvel = 1 + self.nq
         self._num_dof_pos = self.nq - 7
         self._num_dof_vel = self.nv - 6
+
+        # 状态存储
+        nstate = mujoco.mj_stateSize(self._model, mujoco.mjtState.mjSTATE_FULLPHYSICS)
+        self._physics_state = np.zeros((num_envs, nstate), dtype=self._np_dtype)
+        # 用模型默认 qpos（含 identity 四元数）初始化所有环境
+        self._physics_state[:, self._idx_qpos : self._idx_qpos + self._model.nq] = self._model.qpos0
+        self._sensor_data = np.zeros((num_envs, self._model.nsensordata), dtype=self._np_dtype)
 
         # 缓存视图
         self._dof_pos_view = self._physics_state[:, self._idx_qpos + 7 : self._idx_qpos + self.nq]
@@ -118,6 +120,19 @@ class MuJoCoBackend(SimBackend):
             self._tracked_quat_b_all = _get_sensor_view("track_quat_b", 4)
             self._tracked_linvel_b_all = _get_sensor_view("track_linvel_b", 3)
             self._tracked_angvel_b_all = _get_sensor_view("track_angvel_b", 3)
+
+        # 对初始 qpos0 状态运行一次 forward pass，确保传感器数据有效
+        if self._model.nsensordata > 0:
+            _, sensor_init = self._forward_runner.forward(
+                model=self._model,
+                data=self._worker_data,
+                initial_state=self._physics_state.astype(np.float64),
+                chunk_size=max(1, num_envs // self._n_threads),
+                skipsensor=False,
+                out_dtype=np.float64,
+                return_state=True,
+            )
+            self._sensor_data[:] = sensor_init.astype(self._np_dtype)
 
     @property
     def num_envs(self) -> int:
