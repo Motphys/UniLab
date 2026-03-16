@@ -29,7 +29,7 @@ class ControlConfig:
 
 @dataclass
 class Asset:
-    body_name = "pelvis"
+    base_name = "pelvis"
     foot_name = "ankle_roll_link"
     ground = "floor"
 

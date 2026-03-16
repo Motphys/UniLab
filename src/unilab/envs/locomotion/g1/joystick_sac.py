@@ -114,7 +114,7 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
 
     def __init__(self, cfg: G1JoystickSACCfg, num_envs=1, backend_type="mujoco"):
         backend = create_backend(
-            backend_type, cfg.model_file, num_envs, cfg.sim_dt, body_name=cfg.asset.body_name
+            backend_type, cfg.model_file, num_envs, cfg.sim_dt, base_name=cfg.asset.base_name
         )
         G1BaseEnv.__init__(self, cfg, backend, num_envs)
         self._enable_reward_log = True

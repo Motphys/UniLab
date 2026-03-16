@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 
 try:
@@ -19,67 +21,77 @@ class MotrixBackend(SimBackend):
         model_file: str,
         num_envs: int,
         sim_dt: float,
-        body_name: str = "base",
+        base_name: str = "base",
         np_dtype=np.float32,
+        add_body_sensors: bool = False,
     ):
         if not MOTRIX_AVAILABLE:
             raise ImportError("motrixsim not available")
 
-        self._model = mtx.load_model(model_file)  # pyright: ignore[reportPossiblyUnbound]
+        self.add_body_sensors = add_body_sensors
+
+        if self.add_body_sensors:
+            from unilab.utils.xml_utils import inject_motrix_tracking_sensors
+
+            tmp_path, _, valid_bnames = inject_motrix_tracking_sensors(
+                model_file, baselink_name=base_name
+            )
+            try:
+                self._model = mtx.load_model(tmp_path)  # pyright: ignore[reportPossiblyUnbound]
+            finally:
+                os.remove(tmp_path)
+
+            # 用 motrixsim link index 作 key（Link 覆盖所有关节体，Body 只有 freejoint 根体）
+            self._body_id_to_name: dict[int, str] = {
+                idx: name
+                for name in valid_bnames
+                if (idx := self._model.get_link_index(name)) is not None
+            }
+        else:
+            self._model = mtx.load_model(model_file)  # pyright: ignore[reportPossiblyUnbound]
+
+            # 枚举所有具名 link，用 link index 作 key
+            self._body_id_to_name = {  # type: ignore[assignment]
+                link.index: link.name for link in self._model.links if link.name
+            }
+
         self._model.options.timestep = sim_dt
         self._num_envs = num_envs
         self._np_dtype = np_dtype
 
         self._data = mtx.SceneData(self._model, batch=[num_envs])  # pyright: ignore[reportPossiblyUnbound]
-        self._body = self._model.get_body(body_name)
-        self._body_link = self._model.get_link(body_name)
+        self._body = self._model.get_body(base_name)
+        self._body_link = self._model.get_link(base_name)
         self._render_app: "RenderApp | None" = None
         self.backend_type = "motrix"
 
-    def _process_rigid_body_props(self, cfg) -> None:
-        if cfg.domain_rand.randomize_base_mass:
-            mass = self._model.get_link(cfg.asset.body_name).get_mass_override(self._data)
-            mass_low = cfg.domain_rand.added_mass_range[0]
-            mass_high = cfg.domain_rand.added_mass_range[1]
-            random_mass = mass + np.random.uniform(mass_low, mass_high, size=(self._num_envs,))
-            self._model.get_link(cfg.asset.body_name).set_mass_override(self._data, random_mass)
-            mass = self._model.get_link(cfg.asset.body_name).get_mass_override(self._data)
+        # 运行一次正向运动学，确保初始 link 位置和传感器数据有效
+        self._model.forward_kinematic(self._data)
 
-        if cfg.domain_rand.random_com:
-            com_offset = np.zeros(
-                (self._num_envs, 3), dtype=np.float32
-            )  # [x_offset, y_offset, z_offset]
-            x_low = cfg.domain_rand.com_offset_x[0]
-            x_high = cfg.domain_rand.com_offset_x[1]
-            com_offset[:, 0] = np.random.uniform(x_low, x_high, self._num_envs)
-            self._model.get_link(cfg.asset.body_name).set_center_of_mass_override(
-                self._data, com_offset
-            )
-            self._model.get_link(cfg.asset.body_name).get_center_of_mass_override(self._data)
+    # ------------------------------------------------------------------ #
+    # Properties                                                           #
+    # ------------------------------------------------------------------ #
 
-    def push_robots(self, force_range):
-        ex_force = np.random.rand(self.num_envs, 3) * 2 - 1  # [x_force, y_force, z_force]
-        ex_force[:, 0] *= force_range[0]
-        ex_force[:, 1] *= force_range[1]
-        ex_force[:, 2] *= force_range[2]
-        self._body_link.add_external_force(self._data, ex_force, local=True)
+    @property
+    def num_envs(self) -> int:
+        return self._num_envs
+
+    @property
+    def model(self):
+        return self._model
+
+    @property
+    def data(self):
+        return self._data
+
+    # ------------------------------------------------------------------ #
+    # Simulation control                                                   #
+    # ------------------------------------------------------------------ #
 
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> None:
         self._data.actuator_ctrls = np.ascontiguousarray(ctrl)
         for _ in range(nsteps):
             self._model.step(self._data)
-
-    def get_dof_pos(self) -> np.ndarray:
-        return np.asarray(self._body.get_joint_dof_pos(self._data))
-
-    def get_dof_vel(self) -> np.ndarray:
-        return np.asarray(self._body.get_joint_dof_vel(self._data))
-
-    def get_qpos(self) -> np.ndarray:
-        return np.asarray(self._data.dof_pos)
-
-    def get_sensor_data(self, name: str) -> np.ndarray:
-        return np.asarray(self._model.get_sensor_value(name, self._data))
 
     def set_state(self, env_indices: np.ndarray, qpos: np.ndarray, qvel: np.ndarray) -> None:
         # Convert quaternion from mujoco (wxyz) to motrix (xyzw)
@@ -102,17 +114,175 @@ class MotrixBackend(SimBackend):
 
         self._model.forward_kinematic(self._data)
 
-    @property
-    def num_envs(self) -> int:
-        return self._num_envs
+    # ------------------------------------------------------------------ #
+    # Base kinematics                                                      #
+    # ------------------------------------------------------------------ #
 
-    @property
-    def model(self):
-        return self._model
+    def get_base_pos(self) -> np.ndarray:
+        return np.asarray(self._body.floatingbase.get_translation(self._data))
 
-    @property
-    def data(self):
-        return self._data
+    def get_base_quat(self) -> np.ndarray:
+        return self._xyzw_to_wxyz(np.asarray(self._body.floatingbase.get_rotation(self._data)))
+
+    def get_base_lin_vel(self) -> np.ndarray:
+        return np.asarray(self._body.floatingbase.get_global_linear_velocity(self._data))
+
+    def get_base_ang_vel(self) -> np.ndarray:
+        return np.asarray(self._body.floatingbase.get_global_angular_velocity(self._data))
+
+    # ------------------------------------------------------------------ #
+    # DOF state                                                            #
+    # ------------------------------------------------------------------ #
+
+    def get_dof_pos(self) -> np.ndarray:
+        return np.asarray(self._body.get_joint_dof_pos(self._data))
+
+    def get_dof_vel(self) -> np.ndarray:
+        return np.asarray(self._body.get_joint_dof_vel(self._data))
+
+    # ------------------------------------------------------------------ #
+    # Body kinematics — world frame                                        #
+    # ------------------------------------------------------------------ #
+
+    def get_body_pos_w(self, body_ids: np.ndarray) -> np.ndarray:
+        return np.stack(
+            [
+                np.asarray(self._model.get_link(int(bid)).get_position(self._data))
+                for bid in body_ids
+            ],
+            axis=1,
+        )
+
+    def get_body_quat_w(self, body_ids: np.ndarray) -> np.ndarray:
+        return np.stack(
+            [
+                self._xyzw_to_wxyz(
+                    np.asarray(self._model.get_link(int(bid)).get_rotation(self._data))
+                )
+                for bid in body_ids
+            ],
+            axis=1,
+        )
+
+    def get_body_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
+        return np.stack(
+            [
+                np.asarray(self._model.get_link(int(bid)).get_linear_velocity(self._data))
+                for bid in body_ids
+            ],
+            axis=1,
+        )
+
+    def get_body_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
+        return np.stack(
+            [
+                np.asarray(self._model.get_link(int(bid)).get_angular_velocity(self._data))
+                for bid in body_ids
+            ],
+            axis=1,
+        )
+
+    # ------------------------------------------------------------------ #
+    # Body kinematics — baselink frame                                     #
+    # ------------------------------------------------------------------ #
+
+    def get_body_pos_b(self, body_ids: np.ndarray) -> np.ndarray:
+        return np.stack(
+            [
+                np.asarray(
+                    self._model.get_sensor_value(
+                        f"track_pos_b_{self._body_id_to_name[int(bid)]}", self._data
+                    )
+                )
+                for bid in body_ids
+            ],
+            axis=1,
+        )
+
+    def get_body_quat_b(self, body_ids: np.ndarray) -> np.ndarray:
+        # motrixsim framequat sensor 输出 xyzw，转换为接口约定的 wxyz
+        return np.stack(
+            [
+                self._xyzw_to_wxyz(
+                    np.asarray(
+                        self._model.get_sensor_value(
+                            f"track_quat_b_{self._body_id_to_name[int(bid)]}", self._data
+                        )
+                    )
+                )
+                for bid in body_ids
+            ],
+            axis=1,
+        )
+
+    def get_body_lin_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
+        return np.stack(
+            [
+                np.asarray(
+                    self._model.get_sensor_value(
+                        f"track_linvel_b_{self._body_id_to_name[int(bid)]}", self._data
+                    )
+                )
+                for bid in body_ids
+            ],
+            axis=1,
+        )
+
+    def get_body_ang_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
+        return np.stack(
+            [
+                np.asarray(
+                    self._model.get_sensor_value(
+                        f"track_angvel_b_{self._body_id_to_name[int(bid)]}", self._data
+                    )
+                )
+                for bid in body_ids
+            ],
+            axis=1,
+        )
+
+    # ------------------------------------------------------------------ #
+    # Sensors                                                              #
+    # ------------------------------------------------------------------ #
+
+    def get_sensor_data(self, name: str) -> np.ndarray:
+        return np.asarray(self._model.get_sensor_value(name, self._data))
+
+    # ------------------------------------------------------------------ #
+    # MotrixSim-specific                                                   #
+    # ------------------------------------------------------------------ #
+
+    def _xyzw_to_wxyz(self, q: np.ndarray) -> np.ndarray:
+        """motrix xyzw → wxyz"""
+        return q[..., [3, 0, 1, 2]]
+
+    def _process_rigid_body_props(self, cfg) -> None:
+        if cfg.domain_rand.randomize_base_mass:
+            mass = self._model.get_link(cfg.asset.base_name).get_mass_override(self._data)
+            mass_low = cfg.domain_rand.added_mass_range[0]
+            mass_high = cfg.domain_rand.added_mass_range[1]
+            random_mass = mass + np.random.uniform(mass_low, mass_high, size=(self._num_envs,))
+            self._model.get_link(cfg.asset.base_name).set_mass_override(self._data, random_mass)
+            mass = self._model.get_link(cfg.asset.base_name).get_mass_override(self._data)
+
+        if cfg.domain_rand.random_com:
+            com_offset = np.zeros(
+                (self._num_envs, 3), dtype=np.float32
+            )  # [x_offset, y_offset, z_offset]
+            x_low = cfg.domain_rand.com_offset_x[0]
+            x_high = cfg.domain_rand.com_offset_x[1]
+            com_offset[:, 0] = np.random.uniform(x_low, x_high, self._num_envs)
+            self._model.get_link(cfg.asset.base_name).set_center_of_mass_override(
+                self._data, com_offset
+            )
+            self._model.get_link(cfg.asset.base_name).get_center_of_mass_override(self._data)
+
+    def push_robots(self, force_range):
+        ex_force = np.random.rand(self.num_envs, 3) * 2 - 1  # [x_force, y_force, z_force]
+        ex_force[:, 0] *= force_range[0]
+        ex_force[:, 1] *= force_range[1]
+        ex_force[:, 2] *= force_range[2]
+        self._body_link.add_external_force(self._data, ex_force, local=True)
 
     def init_renderer(self, spacing: float = 1.0):
         """Initialize interactive renderer for visualization"""
