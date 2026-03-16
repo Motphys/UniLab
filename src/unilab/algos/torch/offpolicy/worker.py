@@ -4,8 +4,8 @@ Collects (obs, action, reward, next_obs, done) transitions using the current
 actor policy. Runs in a subprocess; writes to ReplayBuffer.
 """
 
-import sys
 import queue
+import sys
 
 import numpy as np
 import torch

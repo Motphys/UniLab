@@ -22,7 +22,9 @@ pytest.importorskip("mujoco", reason="mujoco not installed")
 try:
     from mujoco import batch_forward as _  # noqa: F401
 except Exception:
-    pytest.skip("mujoco.batch_forward not available (platform/libstdc++ issue)", allow_module_level=True)
+    pytest.skip(
+        "mujoco.batch_forward not available (platform/libstdc++ issue)", allow_module_level=True
+    )
 
 from unilab.utils.algo_utils import ensure_registries  # noqa: E402
 

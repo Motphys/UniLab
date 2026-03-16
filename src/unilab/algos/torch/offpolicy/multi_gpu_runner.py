@@ -105,7 +105,9 @@ def _learner_worker(
     os.environ["MASTER_PORT"] = str(master_port)
     device = f"cuda:{rank}"
     torch.cuda.set_device(rank)
-    dist.init_process_group("nccl", rank=rank, world_size=world_size, timeout=timedelta(seconds=120))
+    dist.init_process_group(
+        "nccl", rank=rank, world_size=world_size, timeout=timedelta(seconds=120)
+    )
 
     try:
         # 1. Initialise per-process GPU cache (host tensors already shared)
@@ -377,8 +379,7 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
 
         master_port = _find_free_port()
         print(
-            f"[MultiGPURunner] Spawning {self.num_gpus} Learner workers "
-            f"(NCCL port {master_port})"
+            f"[MultiGPURunner] Spawning {self.num_gpus} Learner workers (NCCL port {master_port})"
         )
 
         runner_kwargs: Dict[str, Any] = {

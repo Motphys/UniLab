@@ -70,7 +70,16 @@ class Domain_Rand:
 
 def _go1_obs_config() -> ObsConfig:
     return ObsConfig(
-        obs_dict={"vel": 3, "gyro": 3, "gravity": 3, "diff": 12, "dof_vel": 12, "action": 12, "cmd": 3, "phase": 4},
+        obs_dict={
+            "vel": 3,
+            "gyro": 3,
+            "gravity": 3,
+            "diff": 12,
+            "dof_vel": 12,
+            "action": 12,
+            "cmd": 3,
+            "phase": 4,
+        },
         actor_obs=["gyro", "gravity", "diff", "dof_vel", "action", "cmd", "phase"],
     )
 

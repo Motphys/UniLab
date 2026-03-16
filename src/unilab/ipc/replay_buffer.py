@@ -76,7 +76,14 @@ class ReplayBuffer(SharedBufferBase):
         """
         state = self.__dict__.copy()
         state["_cuda_stream"] = None
-        for key in ("obs_gpu", "next_obs_gpu", "actions_gpu", "rewards_gpu", "dones_gpu", "truncated_gpu"):
+        for key in (
+            "obs_gpu",
+            "next_obs_gpu",
+            "actions_gpu",
+            "rewards_gpu",
+            "dones_gpu",
+            "truncated_gpu",
+        ):
             state.pop(key, None)
         return state
 
