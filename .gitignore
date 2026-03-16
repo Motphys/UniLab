@@ -19,7 +19,7 @@ logs/
 .DS_Store
 
 benchmark/outputs/
-unilab/algos/torch/rsl_rl
+src/unilab/algos/torch/rsl_rl
 
 third-party
 temp/
