@@ -60,14 +60,6 @@ export UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 uv sync --index-url https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
-```
----
-
-## 开发规范
-
-**Always use `uv run`, not python**. 详见 [CLAUDE.md](./CLAUDE.md)。
-
----
 ## TODO
 
 - [x] @czx 增加 Bipedal Locomotion 任务
@@ -85,12 +77,13 @@ uv sync --index-url https://pypi.tuna.tsinghua.edu.cn/simple
 - [x] @yves IPC性能优化：PyTorch shared tensors替换POSIX shm
 - [x] @yves GPU利用率分析与优化
 - [x] @yves AMP混合精度训练
-- [ ] @yves 跑通算法迁移: PPO->APPO
-- [ ] @yves 工程化设计 原型级->开发级
+- [x] @yves 跑通算法迁移: PPO->APPO，but 目前优化不稳定
+- [x] @yves 工程化设计 原型级->开发级
+- [x] @jdx  增加AC非对称观测
 - [ ] @ymr  增加灵巧操作案例
+- [ ] @all  off-policy 找到性能最好的 off-policy 算法
 - [ ] @czx  适配 mimic/amp 算法，支持人形Whole-Body Tracking
 - [ ] @yves mujoco域随机化,需要改 mujoco-uni 源码
-- [ ] @jdx  增加AC非对称观测
 - [ ] @jdx  motrixsim域随机化
 - [ ] @jdx  写onnx导出和sim2sim
 - [ ] @jdx  sim2real
@@ -107,7 +100,7 @@ uv sync --index-url https://pypi.tuna.tsinghua.edu.cn/simple
 | ppo(mlx)   |  ✅ |     | ✅ |
 | sac(torch) |  ✅ | ⚠️  | ✅ |
 | td3(torch) |  ⚠️ | ⚠️  | ⚠️ |
-| appo(torch)|     |     |    |
+| appo(torch)|  ✅ | ✅  | ✅ |
 
 #### Motrix后端
 

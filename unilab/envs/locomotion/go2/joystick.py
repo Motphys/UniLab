@@ -17,6 +17,7 @@ from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
 class InitState:
     pos = [0.0, 0.0, 0.42]
 
+
 @dataclass
 class obs_cfg:
     obs_dict = {
@@ -28,7 +29,8 @@ class obs_cfg:
         "action": 12,
         "cmd": 3,
     }  # 'obs_name': dim
-    actor_obs = ['gyro', 'gravity', 'diff', 'dof_vel', 'action', 'cmd']
+    actor_obs = ["gyro", "gravity", "diff", "dof_vel", "action", "cmd"]
+
 
 @dataclass
 class Commands:
@@ -122,18 +124,17 @@ class Go2WalkTask(Go2BaseEnv):
             low=-float("inf"), high=float("inf"), shape=(num_obs,), dtype=float
         )
         self.actor_indices = self._get_actor_indices()
-    
+
     def _get_actor_indices(self):
         s = 0
         indices = []
         for i in self._cfg.obs_config.actor_obs:
             s = 0
             for k, v in self._cfg.obs_config.obs_dict.items():
-
                 if k == i:
                     print(k)
-                    for q in range(s, s+v):
-                        indices.append(q) 
+                    for q in range(s, s + v):
+                        indices.append(q)
                     s += v
                     print(indices)
                     break

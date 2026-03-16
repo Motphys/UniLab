@@ -66,6 +66,7 @@ class Domain_Rand:
     push_interval = 750  # step
     max_force = [1, 1, 0.5]
 
+
 @dataclass
 class obs_cfg:
     obs_dict = {
@@ -78,7 +79,8 @@ class obs_cfg:
         "cmd": 3,
         "phase": 4,
     }  # 'obs_name': dim
-    actor_obs = ['gyro', 'gravity', 'diff', 'dof_vel', 'action', 'cmd', 'phase']
+    actor_obs = ["gyro", "gravity", "diff", "dof_vel", "action", "cmd", "phase"]
+
 
 @registry.envcfg("Go1JoystickFlatTerrain")
 @dataclass
@@ -91,6 +93,7 @@ class Go1JoystickCfg(Go1BaseCfg):
     sensor: JoystickSensor = field(default_factory=JoystickSensor)  # type: ignore[assignment]
     domain_rand: Domain_Rand = field(default_factory=Domain_Rand)
     obs_config: obs_cfg = field(default_factory=obs_cfg)
+
 
 @registry.env("Go1JoystickFlatTerrain", sim_backend="mujoco")
 @registry.env("Go1JoystickFlatTerrain", sim_backend="motrix")
@@ -131,18 +134,17 @@ class Go1WalkTask(Go1BaseEnv):
             low=-float("inf"), high=float("inf"), shape=(num_obs,), dtype=float
         )
         self.actor_indices = self._get_actor_indices()
-    
+
     def _get_actor_indices(self):
         s = 0
         indices = []
         for i in self._cfg.obs_config.actor_obs:
             s = 0
             for k, v in self._cfg.obs_config.obs_dict.items():
-
                 if k == i:
                     print(k)
-                    for q in range(s, s+v):
-                        indices.append(q) 
+                    for q in range(s, s + v):
+                        indices.append(q)
                     s += v
                     print(indices)
                     break
