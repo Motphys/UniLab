@@ -1,6 +1,5 @@
 from ml_collections import config_dict
 
-
 KNOWN_TASKS: set = {
     "AllegroInhandRotation",
     "AllegroInhandRotationSac",
@@ -141,7 +140,9 @@ def offpolicy_config(algo: str, env_name: str) -> config_dict.ConfigDict:
             cfg.save_interval = 1000
             cfg.max_iterations = 25000
         elif env_name == "AllegroInhandRotation":
-            raise NotImplementedError("AllegroInhandRotation config is not implemented for FastSAC, Please use AllegroInhandRotationSac instead.")
+            raise NotImplementedError(
+                "AllegroInhandRotation config is not implemented for FastSAC, Please use AllegroInhandRotationSac instead."
+            )
 
         return config_dict.create(
             algo="sac",

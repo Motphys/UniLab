@@ -65,12 +65,12 @@ from unilab.envs.manipulation.inhand_rot_allegro.base import AllegroBaseCfg, All
 class RewardConfig:
     scales: dict[str, float] = field(
         default_factory=lambda: {
-            "rotate":      1.25,   # angular velocity along target rotation axis
-            "obj_linvel": -0.3,    # penalise object linear motion (keep it stable)
-            "pose_diff":  -0.3,    # penalise drift from initial grasp pose
-            "torque":     -0.1,    # penalise large joint effort
-            "work":       -2.0,    # penalise mechanical work done
-            "drop":       0.0, # one-time drop penalty (effective = -200 * ctrl_dt = -10)
+            "rotate": 1.25,  # angular velocity along target rotation axis
+            "obj_linvel": -0.3,  # penalise object linear motion (keep it stable)
+            "pose_diff": -0.3,  # penalise drift from initial grasp pose
+            "torque": -0.1,  # penalise large joint effort
+            "work": -2.0,  # penalise mechanical work done
+            "drop": 0.0,  # one-time drop penalty (effective = -200 * ctrl_dt = -10)
         }
     )
     # Rotation reward clipped to [angvel_clip_min, angvel_clip_max] rad/s
@@ -154,12 +154,12 @@ class AllegroRotationMj(AllegroBaseMjEnv):
 
     def _init_reward_functions(self):
         self._reward_fns = {
-            "rotate":      self._reward_rotate,
-            "obj_linvel":  self._reward_obj_linvel,
-            "pose_diff":   self._reward_pose_diff,
-            "torque":      lambda s: self._reward_torque(s.info),
-            "work":        lambda s: self._reward_work(s.info),
-            "drop":        self._reward_drop,
+            "rotate": self._reward_rotate,
+            "obj_linvel": self._reward_obj_linvel,
+            "pose_diff": self._reward_pose_diff,
+            "torque": lambda s: self._reward_torque(s.info),
+            "work": lambda s: self._reward_work(s.info),
+            "drop": self._reward_drop,
         }
 
     def _reward_rotate(self, state: NpEnvState) -> np.ndarray:

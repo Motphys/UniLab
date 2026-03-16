@@ -102,9 +102,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--load_run", type=str, default="-1", help="Run ID to load or checkpoint path"
     )
     parser.add_argument("--play_env_num", type=int, default=16, help="Number of play envs")
-    parser.add_argument("--play_steps", type=int, default=200, help="Number of steps for play video")
-    parser.add_argument("--cam_elevation", type=float, default=-20.0, help="Camera elevation angle (degrees) for play video")
-    parser.add_argument("--cam_azimuth", type=float, default=90.0, help="Camera azimuth angle (degrees) for play video")
+    parser.add_argument(
+        "--play_steps", type=int, default=200, help="Number of steps for play video"
+    )
+    parser.add_argument(
+        "--cam_elevation",
+        type=float,
+        default=-20.0,
+        help="Camera elevation angle (degrees) for play video",
+    )
+    parser.add_argument(
+        "--cam_azimuth",
+        type=float,
+        default=90.0,
+        help="Camera azimuth angle (degrees) for play video",
+    )
     parser.add_argument(
         "--logger",
         type=str,
@@ -337,7 +349,10 @@ def main() -> None:
     args = parser.parse_args()
 
     from unilab.config import locomotion_params, manipulation_params
-    params = manipulation_params if args.task in manipulation_params.KNOWN_TASKS else locomotion_params
+
+    params = (
+        manipulation_params if args.task in manipulation_params.KNOWN_TASKS else locomotion_params
+    )
     algo_name = args.algo.lower()
     cfg = params.offpolicy_config(algo_name, args.task)
 
