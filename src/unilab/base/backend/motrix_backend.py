@@ -51,7 +51,7 @@ class MotrixBackend(SimBackend):
             self._model = mtx.load_model(model_file)  # pyright: ignore[reportPossiblyUnbound]
 
             # 枚举所有具名 link，用 link index 作 key
-            self._body_id_to_name: dict[int, str] = {
+            self._body_id_to_name = {  # type: ignore[assignment]
                 link.index: link.name for link in self._model.links if link.name
             }
 

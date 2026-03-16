@@ -5,58 +5,12 @@ from dataclasses import dataclass, field
 import gymnasium as gym
 import numpy as np
 from etils import epath
-
-# ─────────────────────────── Quaternion helpers ───────────────────────────
-# All quaternions are w-first: [w, x, y, z], shape (N, 4)
-
-
-def _quat_conjugate(q: np.ndarray) -> np.ndarray:
-    conj = q.copy()
-    conj[:, 1:] *= -1
-    return conj
-
-
-def _quat_mul(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
-    w1, x1, y1, z1 = q1[:, 0], q1[:, 1], q1[:, 2], q1[:, 3]
-    w2, x2, y2, z2 = q2[:, 0], q2[:, 1], q2[:, 2], q2[:, 3]
-    return np.stack(
-        [
-            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
-            w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
-            w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
-            w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
-        ],
-        axis=1,
-    )
-
-
-def _quat_to_axis_angle(q: np.ndarray) -> np.ndarray:
-    """Convert unit quaternion (w-first: [w, x, y, z]) to axis-angle vector (N, 3).
-
-    Adapted from PyTorch3D (real-part-last) to MuJoCo w-first convention.
-    Uses atan2 + Taylor expansion for numerical stability near zero rotation.
-    """
-    xyz = q[:, 1:]  # (N, 3) imaginary part
-    w = q[:, 0:1]  # (N, 1) real part
-    norms = np.linalg.norm(xyz, axis=-1, keepdims=True)  # (N, 1)
-    half_angle = np.arctan2(norms, w)  # (N, 1)
-    angle = 2.0 * half_angle  # (N, 1)
-    small = np.abs(angle) < 1e-6  # (N, 1)
-    # sin(x/2)/x:  for small x use Taylor  0.5 - x²/48
-    safe_angle = np.where(small, 1.0, angle)
-    sin_half_over_angle = np.where(
-        small,
-        0.5 - angle**2 / 48.0,
-        np.sin(half_angle) / safe_angle,
-    )
-    return np.asarray(xyz / sin_half_over_angle)  # (N, 3)
-
-
 from unilab.envs.backend import create_backend
 from unilab.envs.np_env import NpEnvState
 
 from unilab.base import registry
 from unilab.envs.manipulation.inhand_rot_allegro.base import AllegroBaseCfg, AllegroBaseMjEnv
+from unilab.utils.math_utils import np_quat_conjugate, np_quat_mul, np_quat_to_axis_angle
 
 # ─────────────────────────── Configuration ────────────────────────────
 
@@ -226,8 +180,8 @@ class AllegroRotationSacMj(AllegroBaseMjEnv):
         #   angdiff = quat_to_axis_angle(q_curr * conjugate(q_prev))
         #   angvel  = angdiff / dt
         prev_ball_quat = state.info.get("prev_ball_quat", ball_quat)
-        rel_quat = _quat_mul(ball_quat, _quat_conjugate(prev_ball_quat))
-        ball_angvel_from_quat = _quat_to_axis_angle(rel_quat) / self._cfg.ctrl_dt
+        rel_quat = np_quat_mul(ball_quat, np_quat_conjugate(prev_ball_quat))
+        ball_angvel_from_quat = np_quat_to_axis_angle(rel_quat) / self._cfg.ctrl_dt
 
         # Store current positions/orientations for next step
         state.info["prev_dof_pos"] = dof_pos.copy()

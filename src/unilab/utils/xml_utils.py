@@ -86,7 +86,7 @@ def _add_b_sensors(sensor_tag: ET.Element, valid_bnames: list[str], baselink_nam
         )
 
 
-def _write_temp_xml(tree: ET.ElementTree, model_file: str) -> str:
+def _write_temp_xml(tree: ET.ElementTree[ET.Element], model_file: str) -> str:
     fd, output_path = tempfile.mkstemp(
         suffix=".xml", dir=os.path.dirname(os.path.abspath(model_file))
     )

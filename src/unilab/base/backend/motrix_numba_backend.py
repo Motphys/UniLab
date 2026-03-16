@@ -150,6 +150,69 @@ class MotrixNumbaBackend(SimBackend):
             render_settings=settings,
         )
 
+    def get_base_pos(self) -> np.ndarray:
+        return np.asarray(self._body.floatingbase.get_translation(self._data))
+
+    def get_base_quat(self) -> np.ndarray:
+        xyzw = np.asarray(self._body.floatingbase.get_rotation(self._data))
+        return xyzw[..., [3, 0, 1, 2]]
+
+    def get_base_lin_vel(self) -> np.ndarray:
+        return np.asarray(self._body.floatingbase.get_global_linear_velocity(self._data))
+
+    def get_base_ang_vel(self) -> np.ndarray:
+        return np.asarray(self._body.floatingbase.get_global_angular_velocity(self._data))
+
+    def get_body_pos_w(self, body_ids: np.ndarray) -> np.ndarray:
+        return np.stack(
+            [
+                np.asarray(self._model.get_link(int(bid)).get_position(self._data))
+                for bid in body_ids
+            ],
+            axis=1,
+        )
+
+    def get_body_quat_w(self, body_ids: np.ndarray) -> np.ndarray:
+        return np.stack(
+            [
+                np.asarray(self._model.get_link(int(bid)).get_rotation(self._data))[
+                    ..., [3, 0, 1, 2]
+                ]
+                for bid in body_ids
+            ],
+            axis=1,
+        )
+
+    def get_body_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
+        return np.stack(
+            [
+                np.asarray(self._model.get_link(int(bid)).get_linear_velocity(self._data))
+                for bid in body_ids
+            ],
+            axis=1,
+        )
+
+    def get_body_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
+        return np.stack(
+            [
+                np.asarray(self._model.get_link(int(bid)).get_angular_velocity(self._data))
+                for bid in body_ids
+            ],
+            axis=1,
+        )
+
+    def get_body_pos_b(self, body_ids: np.ndarray) -> np.ndarray:
+        raise NotImplementedError("MotrixNumbaBackend does not support baselink-frame body queries")
+
+    def get_body_quat_b(self, body_ids: np.ndarray) -> np.ndarray:
+        raise NotImplementedError("MotrixNumbaBackend does not support baselink-frame body queries")
+
+    def get_body_lin_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
+        raise NotImplementedError("MotrixNumbaBackend does not support baselink-frame body queries")
+
+    def get_body_ang_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
+        raise NotImplementedError("MotrixNumbaBackend does not support baselink-frame body queries")
+
     def render(self):
         """Render current state (interactive visualization)"""
         if self._render_app is None:

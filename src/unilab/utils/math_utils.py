@@ -59,6 +59,34 @@ def np_quat_mul(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
     )
 
 
+def np_quat_conjugate(q: np.ndarray) -> np.ndarray:
+    """Conjugate of a batch of unit quaternions (N, 4), w-first."""
+    conj = q.copy()
+    conj[:, 1:] *= -1
+    return conj  # type: ignore[no-any-return]
+
+
+def np_quat_to_axis_angle(q: np.ndarray) -> np.ndarray:
+    """Convert unit quaternion batch (N, 4), w-first, to axis-angle vectors (N, 3).
+
+    Adapted from PyTorch3D. Uses atan2 + Taylor expansion for numerical
+    stability near zero rotation.
+    """
+    xyz = q[:, 1:]  # (N, 3) imaginary part
+    w = q[:, 0:1]  # (N, 1) real part
+    norms = np.linalg.norm(xyz, axis=-1, keepdims=True)  # (N, 1)
+    half_angle = np.arctan2(norms, w)  # (N, 1)
+    angle = 2.0 * half_angle  # (N, 1)
+    small = np.abs(angle) < 1e-6  # (N, 1)
+    safe_angle = np.where(small, 1.0, angle)
+    sin_half_over_angle = np.where(
+        small,
+        0.5 - angle**2 / 48.0,
+        np.sin(half_angle) / safe_angle,
+    )
+    return np.asarray(xyz / sin_half_over_angle)  # type: ignore[no-any-return]
+
+
 def np_yaw_to_quat(yaw: np.ndarray) -> np.ndarray:
     """Convert yaw batch (N,) to quaternion batch (N, 4) in NumPy."""
     half = 0.5 * yaw
