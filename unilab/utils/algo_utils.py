@@ -6,18 +6,17 @@ import pkgutil
 
 def ensure_registries():
     """Import all env modules so they are registered."""
-    try:
-        import unilab.envs.locomotion
-
-        package = unilab.envs.locomotion
-        if hasattr(package, "__path__"):
-            for _, name, ispkg in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
-                try:
-                    importlib.import_module(name)
-                except Exception:
-                    pass
-    except ImportError:
-        pass
+    for pkg_name in ("unilab.envs.locomotion", "unilab.envs.manipulation"):
+        try:
+            package = importlib.import_module(pkg_name)
+            if hasattr(package, "__path__"):
+                for _, name, _ in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
+                    try:
+                        importlib.import_module(name)
+                    except Exception:
+                        pass
+        except ImportError:
+            pass
 
 
 def build_actor(

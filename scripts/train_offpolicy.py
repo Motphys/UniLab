@@ -102,6 +102,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--load_run", type=str, default="-1", help="Run ID to load or checkpoint path"
     )
     parser.add_argument("--play_env_num", type=int, default=16, help="Number of play envs")
+    parser.add_argument("--play_steps", type=int, default=200, help="Number of steps for play video")
+    parser.add_argument("--cam_elevation", type=float, default=-20.0, help="Camera elevation angle (degrees) for play video")
+    parser.add_argument("--cam_azimuth", type=float, default=90.0, help="Camera azimuth angle (degrees) for play video")
     parser.add_argument(
         "--logger",
         type=str,
@@ -303,11 +306,10 @@ def play_offpolicy(algo_name: str, args, cfg) -> None:
     output_video = os.path.join(load_path_dir, "play_video.mp4")
 
     state_list = []
-    num_steps = 150
 
     print("Collecting physics states...")
     with torch.inference_mode():
-        for _ in range(num_steps):
+        for _ in range(args.play_steps):
             obs_torch = torch.from_numpy(obs_np).to(device)
             if normalizer:
                 obs_torch = normalizer(obs_torch, update=False)
@@ -334,10 +336,10 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    from unilab.config.locomotion_params import offpolicy_config
-
+    from unilab.config import locomotion_params, manipulation_params
+    params = manipulation_params if args.task in manipulation_params.KNOWN_TASKS else locomotion_params
     algo_name = args.algo.lower()
-    cfg = offpolicy_config(algo_name, args.task)
+    cfg = params.offpolicy_config(algo_name, args.task)
 
     if args.max_iterations is not None:
         cfg.max_iterations = args.max_iterations

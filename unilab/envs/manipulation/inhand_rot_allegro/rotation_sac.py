@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional, Tuple
 
 import gymnasium as gym
 import numpy as np
 from etils import epath
 
+
 # ─────────────────────────── Quaternion helpers ───────────────────────────
 # All quaternions are w-first: [w, x, y, z], shape (N, 4)
-
 
 def _quat_conjugate(q: np.ndarray) -> np.ndarray:
     conj = q.copy()
@@ -20,15 +19,12 @@ def _quat_conjugate(q: np.ndarray) -> np.ndarray:
 def _quat_mul(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
     w1, x1, y1, z1 = q1[:, 0], q1[:, 1], q1[:, 2], q1[:, 3]
     w2, x2, y2, z2 = q2[:, 0], q2[:, 1], q2[:, 2], q2[:, 3]
-    return np.stack(
-        [
-            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
-            w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
-            w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
-            w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
-        ],
-        axis=1,
-    )
+    return np.stack([
+        w1*w2 - x1*x2 - y1*y2 - z1*z2,
+        w1*x2 + x1*w2 + y1*z2 - z1*y2,
+        w1*y2 - x1*z2 + y1*w2 + z1*x2,
+        w1*z2 + x1*y2 - y1*x2 + z1*w2,
+    ], axis=1)
 
 
 def _quat_to_axis_angle(q: np.ndarray) -> np.ndarray:
@@ -37,52 +33,52 @@ def _quat_to_axis_angle(q: np.ndarray) -> np.ndarray:
     Adapted from PyTorch3D (real-part-last) to MuJoCo w-first convention.
     Uses atan2 + Taylor expansion for numerical stability near zero rotation.
     """
-    xyz = q[:, 1:]  # (N, 3) imaginary part
-    w = q[:, 0:1]  # (N, 1) real part
-    norms = np.linalg.norm(xyz, axis=-1, keepdims=True)  # (N, 1)
-    half_angle = np.arctan2(norms, w)  # (N, 1)
-    angle = 2.0 * half_angle  # (N, 1)
-    small = np.abs(angle) < 1e-6  # (N, 1)
+    xyz = q[:, 1:]                                             # (N, 3) imaginary part
+    w   = q[:, 0:1]                                            # (N, 1) real part
+    norms      = np.linalg.norm(xyz, axis=-1, keepdims=True)  # (N, 1)
+    half_angle = np.arctan2(norms, w)                          # (N, 1)
+    angle      = 2.0 * half_angle                              # (N, 1)
+    small      = np.abs(angle) < 1e-6                         # (N, 1)
     # sin(x/2)/x:  for small x use Taylor  0.5 - x²/48
     safe_angle = np.where(small, 1.0, angle)
     sin_half_over_angle = np.where(
         small,
-        0.5 - angle**2 / 48.0,
+        0.5 - angle ** 2 / 48.0,
         np.sin(half_angle) / safe_angle,
     )
-    return np.asarray(xyz / sin_half_over_angle)  # (N, 3)
+    return xyz / sin_half_over_angle                           # (N, 3)
 
-
-from unilab.base import registry
-from unilab.base.backend import create_backend
-from unilab.base.np_env import NpEnvState
+from unilab.envs import registry
+from unilab.envs.np_env import NpEnvState
+from unilab.envs.backend import create_backend
 from unilab.envs.manipulation.inhand_rot_allegro.base import AllegroBaseCfg, AllegroBaseMjEnv
 
 # ─────────────────────────── Configuration ────────────────────────────
 
 
 @dataclass
-class RewardConfig:
+class RewardConfigSac:
     scales: dict[str, float] = field(
         default_factory=lambda: {
-            "rotate":      1.25,   # angular velocity along target rotation axis
-            "obj_linvel": -0.3,    # penalise object linear motion (keep it stable)
-            "pose_diff":  -0.3,    # penalise drift from initial grasp pose
-            "torque":     -0.1,    # penalise large joint effort
-            "work":       -2.0,    # penalise mechanical work done
-            "drop":       0.0, # one-time drop penalty (effective = -200 * ctrl_dt = -10)
+            "rotate":      0,        # angular velocity along target rotation axis
+            "alive":       10.0,     # constant reward for keeping the ball (not dropping)
+            "obj_linvel": -0.0,      # penalise object linear motion (keep it stable)
+            "pose_diff":  -0.0,      # penalise drift from initial grasp pose
+            "torque":     -0.0,      # penalise large joint effort
+            "work":       -0.0,      # penalise mechanical work done
+            "drop":       -4000.0,   # one-time drop penalty (effective = -4000 * ctrl_dt = -200)
         }
     )
     # Rotation reward clipped to [angvel_clip_min, angvel_clip_max] rad/s
     angvel_clip_min: float = -0.5
-    angvel_clip_max: float = 0.5
+    angvel_clip_max: float =  0.5
 
     # Object drops below this world-z → episode terminates.
-    reset_z_threshold: float = 0.125  # metres
+    reset_z_threshold: float = 0.125   # metres
 
 
 @dataclass
-class DomainRandConfig:
+class DomainRandConfigSac:
     # Small random perturbation added to each joint at reset (rad).
     joint_noise: float = 0.00
     # Random linear velocity injected into ball at reset (m/s).
@@ -91,13 +87,13 @@ class DomainRandConfig:
     ball_z_offset: float = 0.0
 
 
-@registry.envcfg("AllegroInhandRotation")
+@registry.envcfg("AllegroInhandRotationSac")
 @dataclass
-class AllegroRotationCfg(AllegroBaseCfg):
+class AllegroRotationSacCfg(AllegroBaseCfg):
     model_file: str = str(epath.Path(__file__).parent / "xml" / "scene.xml")
-    max_episode_seconds: float = 20.0  # same as HORA
-    reward_config: RewardConfig = field(default_factory=RewardConfig)
-    domain_rand: DomainRandConfig = field(default_factory=DomainRandConfig)
+    max_episode_seconds: float = 20.0 # same as HORA
+    reward_config: RewardConfigSac = field(default_factory=RewardConfigSac)
+    domain_rand: DomainRandConfigSac = field(default_factory=DomainRandConfigSac)
 
     # World-frame unit vector around which to reward rotation.
     # Default (+z) = counterclockwise when viewed from above.
@@ -114,25 +110,24 @@ class AllegroRotationCfg(AllegroBaseCfg):
 # ─────────────────────────── Environment ──────────────────────────────
 
 
-@registry.env("AllegroInhandRotation", sim_backend="mujoco")
-class AllegroRotationMj(AllegroBaseMjEnv):
-    _cfg: AllegroRotationCfg
+@registry.env("AllegroInhandRotationSac", sim_backend="mujoco")
+class AllegroRotationSacMj(AllegroBaseMjEnv):
 
-    def __init__(self, cfg: AllegroRotationCfg, num_envs: int = 1, backend_type: str = "mujoco"):
+    def __init__(self, cfg: AllegroRotationSacCfg, num_envs: int = 1, backend_type: str = "mujoco"):
         backend = create_backend(backend_type, cfg.model_file, num_envs, cfg.sim_dt)
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True
 
         # Normalisation constants for joint-position observation.
-        self._dof_range = self._ctrl_upper - self._ctrl_lower  # (16,)
-        self._dof_mid = (self._ctrl_upper + self._ctrl_lower) / 2.0  # (16,)
+        self._dof_range = (self._ctrl_upper - self._ctrl_lower)        # (16,)
+        self._dof_mid   = (self._ctrl_upper + self._ctrl_lower) / 2.0  # (16,)
 
         # Rotation axis as a broadcast-ready (3,) unit vector.
         axis = np.array(cfg.rotation_axis, dtype=self._np_dtype)
         self._rot_axis = axis / np.linalg.norm(axis)
 
         # Grasp cache loaded lazily on first reset
-        self._grasp_cache: Optional[np.ndarray] = None
+        self._grasp_cache = None
         self._grasp_cache_loaded = False
 
         self._init_reward_functions()
@@ -148,13 +143,14 @@ class AllegroRotationMj(AllegroBaseMjEnv):
 
     @property
     def observation_space(self) -> gym.spaces.Box:
-        return self._observation_space  # type: ignore[no-any-return]
+        return self._observation_space
 
     # ── Reward functions ─────────────────────────────────────────────
 
     def _init_reward_functions(self):
         self._reward_fns = {
             "rotate":      self._reward_rotate,
+            "alive":       self._reward_alive,
             "obj_linvel":  self._reward_obj_linvel,
             "pose_diff":   self._reward_pose_diff,
             "torque":      lambda s: self._reward_torque(s.info),
@@ -169,39 +165,35 @@ class AllegroRotationMj(AllegroBaseMjEnv):
             "ball_angvel_from_quat",
             np.zeros((self._num_envs, 3), dtype=self._np_dtype),
         )
-        vec_dot = ball_angvel @ self._rot_axis  # (N,)
+        vec_dot = ball_angvel @ self._rot_axis             # (N,)
         r = self._cfg.reward_config
-        return np.asarray(np.clip(vec_dot, r.angvel_clip_min, r.angvel_clip_max))
+        return np.clip(vec_dot, r.angvel_clip_min, r.angvel_clip_max)
+
+    def _reward_alive(self, state: NpEnvState) -> np.ndarray:
+        """1.0 per step the ball is still held; 0.0 on the drop step."""
+        return (~state.terminated).astype(self._np_dtype)
 
     def _reward_obj_linvel(self, state: NpEnvState) -> np.ndarray:
         """L1 penalty on ball linear velocity (encourages pure spin, no translation)."""
-        ball_linvel = state.info.get(
-            "ball_linvel", np.zeros((self._num_envs, 3), dtype=self._np_dtype)
-        )
-        return np.asarray(np.sum(np.abs(ball_linvel), axis=1))
+        ball_linvel = state.info.get("ball_linvel", np.zeros((self._num_envs, 3), dtype=self._np_dtype))
+        return np.sum(np.abs(ball_linvel), axis=1)
 
     def _reward_pose_diff(self, state: NpEnvState) -> np.ndarray:
         """Penalise hand-joint drift from the initial grasp configuration."""
         diff = self.get_hand_dof_pos() - state.info["init_pose"]  # (N, 16)
-        return np.asarray(np.sum(np.square(diff), axis=1))
+        return np.sum(np.square(diff), axis=1)
 
     def _reward_torque(self, info: dict) -> np.ndarray:
         """Torque penalty: sum of squared torques."""
-        torques = info.get(
-            "torques", np.zeros((self._num_envs, self._NUM_HAND_DOF), dtype=self._np_dtype)
-        )
-        return np.asarray(np.sum(np.square(torques), axis=1))
+        torques = info.get("torques", np.zeros((self._num_envs, self._NUM_HAND_DOF), dtype=self._np_dtype))
+        return np.sum(np.square(torques), axis=1)
 
     def _reward_work(self, info: dict) -> np.ndarray:
         """Penalise mechanical work: (torque * velocity)^2."""
-        torques = info.get(
-            "torques", np.zeros((self._num_envs, self._NUM_HAND_DOF), dtype=self._np_dtype)
-        )
-        dof_vel = info.get(
-            "dof_vel", np.zeros((self._num_envs, self._NUM_HAND_DOF), dtype=self._np_dtype)
-        )
+        torques = info.get("torques", np.zeros((self._num_envs, self._NUM_HAND_DOF), dtype=self._np_dtype))
+        dof_vel = info.get("dof_vel", np.zeros((self._num_envs, self._NUM_HAND_DOF), dtype=self._np_dtype))
         work = np.sum(torques * dof_vel, axis=1)
-        return np.asarray(np.square(work))
+        return np.square(work)
 
     def _reward_drop(self, state: NpEnvState) -> np.ndarray:
         """One-time penalty of 1.0 on the step the ball is dropped (terminated)."""
@@ -250,27 +242,26 @@ class AllegroRotationMj(AllegroBaseMjEnv):
         if noise_cfg.level > 0.0:
             dof_pos_norm += (
                 np.random.uniform(-1.0, 1.0, dof_pos_norm.shape).astype(self._np_dtype)
-                * noise_cfg.level
-                * noise_cfg.scale_joint_angle
+                * noise_cfg.level * noise_cfg.scale_joint_angle
             )
 
         current_obs = np.concatenate([dof_pos_norm, targets, ball_pos], axis=1)  # (N, 35)
 
-        obs_lag_history = state.info.get(
-            "obs_lag_history", np.zeros((self._num_envs, 3, 35), dtype=self._np_dtype)
-        )
+        obs_lag_history = state.info.get("obs_lag_history", np.zeros((self._num_envs, 3, 35), dtype=self._np_dtype))
         obs_lag_history[:, :-1] = obs_lag_history[:, 1:]
         obs_lag_history[:, -1] = current_obs
         state.info["obs_lag_history"] = obs_lag_history
 
         terminated = self._update_terminated()
+        state = state.replace(terminated=terminated)
         reward, log = self._compute_rewards(state)
+
+        new_state = state.replace(obs=self._get_obs(state.info), reward=reward)
         state.info["log"] = log
-        obs = self._get_obs(state.info)
-        return state.replace(obs=obs, reward=reward, terminated=terminated)
+        return new_state
 
     def _update_terminated(self) -> np.ndarray:
-        ball_z = self.get_ball_pos()[:, 2]  # (N,)
+        ball_z = self.get_ball_pos()[:, 2]   # (N,)
         return ball_z < self._cfg.reward_config.reset_z_threshold
 
     def _compute_rewards(self, state: NpEnvState) -> tuple:
@@ -294,15 +285,13 @@ class AllegroRotationMj(AllegroBaseMjEnv):
 
     def _get_obs(self, info: dict) -> np.ndarray:
         """Extract observation from info. Pure function - does not modify state."""
-        obs_lag_history = info.get(
-            "obs_lag_history", np.zeros((self._num_envs, 3, 35), dtype=self._np_dtype)
-        )
+        obs_lag_history = info.get("obs_lag_history", np.zeros((self._num_envs, 3, 35), dtype=self._np_dtype))
         num_envs = obs_lag_history.shape[0]
-        return np.asarray(obs_lag_history.reshape(num_envs, -1))
+        return obs_lag_history.reshape(num_envs, -1)
 
     # ── Reset ────────────────────────────────────────────────────────
 
-    def reset(self, env_indices: np.ndarray) -> Tuple[np.ndarray, np.ndarray, dict]:
+    def reset(self, env_indices: np.ndarray) -> tuple:
         num_reset = len(env_indices)
         dr = self._cfg.domain_rand
 
@@ -310,31 +299,29 @@ class AllegroRotationMj(AllegroBaseMjEnv):
         if not self._grasp_cache_loaded:
             if self._cfg.gen_grasp:
                 self._grasp_cache = None
-                print("[AllegroRotationMj] gen_grasp=True — using keyframe reset only")
+                print("[AllegroRotationSacMj] gen_grasp=True — using keyframe reset only")
             else:
                 _default = epath.Path(__file__).parent / "grasps" / "grasp_50k.npy"
                 cache_path = self._cfg.grasp_cache_path or str(_default)
                 if not epath.Path(cache_path).exists():
                     raise FileNotFoundError(f"Grasp cache not found: {cache_path}")
                 self._grasp_cache = np.load(cache_path).astype(np.float64)
-                print(
-                    f"[AllegroRotationMj] Loaded {len(self._grasp_cache):,} grasps from {cache_path}"
-                )
+                print(f"[AllegroRotationSacMj] Loaded {len(self._grasp_cache):,} grasps from {cache_path}")
             self._grasp_cache_loaded = True
 
         if self._grasp_cache is not None:
             # Sample num_reset random states from the pre-collected grasp cache.
             idx = np.random.randint(0, len(self._grasp_cache), size=num_reset)
-            sampled = self._grasp_cache[idx]  # (num_reset, 23) float64
-            hand_qpos = sampled[:, :16]  # (num_reset, 16)
-            ball_pos = sampled[:, 16:19]  # (num_reset,  3)
-            ball_quat = sampled[:, 19:23]  # (num_reset,  4)
+            sampled   = self._grasp_cache[idx]   # (num_reset, 23) float64
+            hand_qpos = sampled[:, :16]           # (num_reset, 16)
+            ball_pos  = sampled[:, 16:19]         # (num_reset,  3)
+            ball_quat = sampled[:, 19:23]         # (num_reset,  4)
         else:
             # Fallback: keyframe pre-grasp pose + small noise.
             hand_qpos = np.broadcast_to(self.default_angles, (num_reset, self._NUM_HAND_DOF)).copy()
-            hand_qpos += np.random.uniform(-dr.joint_noise, dr.joint_noise, hand_qpos.shape).astype(
-                np.float64
-            )
+            hand_qpos += np.random.uniform(
+                -dr.joint_noise, dr.joint_noise, hand_qpos.shape
+            ).astype(np.float64)
             hand_qpos = np.clip(
                 hand_qpos,
                 self._ctrl_lower.astype(np.float64),
@@ -364,21 +351,17 @@ class AllegroRotationMj(AllegroBaseMjEnv):
         # Initialize lag history with current state
         dof_pos_norm = 2.0 * (init_ctrl - self._dof_mid) / (self._dof_range + 1e-8)
         ball_pos_f32 = ball_pos.astype(self._np_dtype)
-        init_obs = np.concatenate(
-            [dof_pos_norm, init_ctrl, ball_pos_f32], axis=1
-        )  # (num_reset, 35)
-        obs_lag_history = np.broadcast_to(
-            init_obs[:, None, :], (num_reset, 3, 35)
-        ).copy()  # (num_reset, 3, 35)
+        init_obs = np.concatenate([dof_pos_norm, init_ctrl, ball_pos_f32], axis=1)  # (num_reset, 35)
+        obs_lag_history = np.broadcast_to(init_obs[:, None, :], (num_reset, 3, 35)).copy()  # (num_reset, 3, 35)
 
         info = {
             "current_actions": np.zeros((num_reset, self._num_action), dtype=self._np_dtype),
-            "last_actions": np.zeros((num_reset, self._num_action), dtype=self._np_dtype),
-            "prev_ctrl": init_ctrl,
-            "init_pose": init_ctrl.copy(),
-            "prev_dof_pos": init_ctrl.copy(),
-            "prev_ball_pos": ball_pos_f32.copy(),
-            "prev_ball_quat": ball_quat.astype(self._np_dtype).copy(),
+            "last_actions":    np.zeros((num_reset, self._num_action), dtype=self._np_dtype),
+            "prev_ctrl":       init_ctrl,
+            "init_pose":       init_ctrl.copy(),
+            "prev_dof_pos":    init_ctrl.copy(),
+            "prev_ball_pos":   ball_pos_f32.copy(),
+            "prev_ball_quat":  ball_quat.astype(self._np_dtype).copy(),
             "obs_lag_history": obs_lag_history,
         }
 

@@ -357,21 +357,14 @@ def main():
     args = parser.parse_args()
 
     # Determine which params module to use based on task registration
-    params = (
-        manipulation_params
-        if args.task in manipulation_params.DEFAULT_ENV_NUM_BY_TASK
-        else locomotion_params
-    )
+    params = manipulation_params if args.task in manipulation_params.KNOWN_TASKS else locomotion_params
 
     # Load config
-    cfg = (
-        params.ppo_config(args.task)
-        if hasattr(params, "ppo_config")
-        else params.rsl_rl_config(args.task)
-    )
+    cfg = params.ppo_config(args.task)
+
     if args.env_num is None:
         args.env_num = cfg.num_envs
-
+    
     # Override Max Iterations if timesteps provided
     if args.num_timesteps:
         n_steps_per_iter = cfg.num_steps_per_env * args.env_num

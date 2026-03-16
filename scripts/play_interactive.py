@@ -172,7 +172,7 @@ def play_interactive(args):
     env = registry.make(args.task, num_envs=1, sim_backend="mujoco")
     wrapped_env = RslRlVecEnvWrapper(env, device=device)
 
-    cfg = locomotion_params.rsl_rl_config(args.task)
+    cfg = locomotion_params.ppo_config(args.task)
     train_cfg = cfg.to_dict()
     if is_rsl_rl_v4():
         train_cfg = convert_config_v3_to_v4(train_cfg)
