@@ -24,12 +24,12 @@ def _xml(robot: str, scene: str = "scene_flat.xml") -> str:
 
 
 BASIC_ROBOTS = [
-    pytest.param(dict(model_file=_xml("g1"), body_name="pelvis"), id="g1"),
-    pytest.param(dict(model_file=_xml("go1"), body_name="trunk"), id="go1"),
-    pytest.param(dict(model_file=_xml("go2"), body_name="base"), id="go2"),
+    pytest.param(dict(model_file=_xml("g1"), base_name="pelvis"), id="g1"),
+    pytest.param(dict(model_file=_xml("go1"), base_name="trunk"), id="go1"),
+    pytest.param(dict(model_file=_xml("go2"), base_name="base"), id="go2"),
 ]
 
-_G1 = dict(model_file=_xml("g1"), body_name="pelvis")
+_G1 = dict(model_file=_xml("g1"), base_name="pelvis")
 
 NUM_ENVS = 2
 SIM_DT = 0.005
@@ -73,7 +73,7 @@ class TestMuJoCoBasic:
         from unilab.base.backend.mujoco_backend import MuJoCoBackend
 
         p = request.param
-        return MuJoCoBackend(p["model_file"], NUM_ENVS, SIM_DT, body_name=p["body_name"])
+        return MuJoCoBackend(p["model_file"], NUM_ENVS, SIM_DT, base_name=p["base_name"])
 
     # properties
 
@@ -147,7 +147,7 @@ class TestMuJoCoBodySensors:
             _G1["model_file"],
             NUM_ENVS,
             SIM_DT,
-            body_name=_G1["body_name"],
+            base_name=_G1["base_name"],
             add_body_sensors=True,
         )
 
@@ -250,15 +250,15 @@ class TestMotrixBasic:
     def _require_motrix(self):
         pytest.importorskip("motrixsim")
 
-    # Single parametrized fixture returning (backend, body_name) so that
+    # Single parametrized fixture returning (backend, base_name) so that
     # dependent fixtures can share the same parameter value.
     @pytest.fixture(params=BASIC_ROBOTS)
     def _ctx(self, request):
         from unilab.base.backend.motrix_backend import MotrixBackend
 
         p = request.param
-        bkd = MotrixBackend(p["model_file"], NUM_ENVS, SIM_DT, body_name=p["body_name"])
-        return bkd, p["body_name"]
+        bkd = MotrixBackend(p["model_file"], NUM_ENVS, SIM_DT, base_name=p["base_name"])
+        return bkd, p["base_name"]
 
     @pytest.fixture
     def bkd(self, _ctx):
@@ -267,8 +267,8 @@ class TestMotrixBasic:
     @pytest.fixture
     def one_body_id(self, _ctx):
         """Array containing just the base link index (motrixsim link index)."""
-        bkd, body_name = _ctx
-        return np.array([bkd.model.get_link_index(body_name)])
+        bkd, base_name = _ctx
+        return np.array([bkd.model.get_link_index(base_name)])
 
     # properties
 
@@ -369,7 +369,7 @@ class TestMotrixBodySensors:
             _G1["model_file"],
             NUM_ENVS,
             SIM_DT,
-            body_name=_G1["body_name"],
+            base_name=_G1["base_name"],
             add_body_sensors=True,
         )
 
@@ -434,21 +434,21 @@ class TestCrossBackend:
 
     @pytest.fixture(params=BASIC_ROBOTS)
     def synced(self, request):
-        """创建并同步两后端初始状态，返回 (mj, mx, body_name)。"""
+        """创建并同步两后端初始状态，返回 (mj, mx, base_name)。"""
         from unilab.base.backend.motrix_backend import MotrixBackend
         from unilab.base.backend.mujoco_backend import MuJoCoBackend
 
         pytest.importorskip("motrixsim")
         p = request.param
-        mj = MuJoCoBackend(p["model_file"], NUM_ENVS, SIM_DT, body_name=p["body_name"])
-        mx = MotrixBackend(p["model_file"], NUM_ENVS, SIM_DT, body_name=p["body_name"])
+        mj = MuJoCoBackend(p["model_file"], NUM_ENVS, SIM_DT, base_name=p["base_name"])
+        mx = MotrixBackend(p["model_file"], NUM_ENVS, SIM_DT, base_name=p["base_name"])
         nq, nv = mj.model.nq, mj.model.nv
         qpos = np.tile(_identity_qpos_mujoco(nq), (NUM_ENVS, 1))
         qvel = np.zeros((NUM_ENVS, nv))
         env_idx = np.arange(NUM_ENVS)
         mj.set_state(env_idx, qpos, qvel)
         mx.set_state(env_idx, qpos, qvel)
-        return mj, mx, p["body_name"]
+        return mj, mx, p["base_name"]
 
     # --- base kinematics ---
 
@@ -511,14 +511,14 @@ class TestCrossBackendBodySensors:
             _G1["model_file"],
             NUM_ENVS,
             SIM_DT,
-            body_name=_G1["body_name"],
+            base_name=_G1["base_name"],
             add_body_sensors=True,
         )
         mx = MotrixBackend(
             _G1["model_file"],
             NUM_ENVS,
             SIM_DT,
-            body_name=_G1["body_name"],
+            base_name=_G1["base_name"],
             add_body_sensors=True,
         )
         nq, nv = mj.model.nq, mj.model.nv

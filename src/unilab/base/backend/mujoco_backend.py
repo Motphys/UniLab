@@ -18,7 +18,7 @@ class MuJoCoBackend(SimBackend):
         model_file: str,
         num_envs: int,
         sim_dt: float,
-        body_name: Optional[str] = None,
+        base_name: Optional[str] = None,
         np_dtype=None,
         add_body_sensors: bool = False,
     ):
@@ -28,7 +28,7 @@ class MuJoCoBackend(SimBackend):
             from unilab.utils.xml_utils import inject_mujoco_tracking_sensors
 
             tmp_path, self._tracked_body_ids, valid_bnames = inject_mujoco_tracking_sensors(
-                model_file, baselink_name=body_name
+                model_file, baselink_name=base_name
             )
             try:
                 self._model = mujoco.MjModel.from_xml_path(tmp_path)

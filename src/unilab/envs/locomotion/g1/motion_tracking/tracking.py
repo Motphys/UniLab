@@ -138,7 +138,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
             raise ValueError("motion_file must be specified in config")
 
         backend = create_backend(
-            backend_type, cfg.model_file, num_envs, cfg.sim_dt, body_name=cfg.asset.body_name
+            backend_type, cfg.model_file, num_envs, cfg.sim_dt, base_name=cfg.asset.base_name
         )
         super().__init__(cfg, backend, num_envs)
 

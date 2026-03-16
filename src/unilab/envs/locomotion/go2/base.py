@@ -31,7 +31,7 @@ class ControlConfig:
 
 @dataclass
 class Asset:
-    body_name = "base"
+    base_name = "base"
     foot_name = "foot"
     ground = "floor"
 

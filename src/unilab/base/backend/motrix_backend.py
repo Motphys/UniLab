@@ -21,7 +21,7 @@ class MotrixBackend(SimBackend):
         model_file: str,
         num_envs: int,
         sim_dt: float,
-        body_name: str = "base",
+        base_name: str = "base",
         np_dtype=np.float32,
         add_body_sensors: bool = False,
     ):
@@ -34,7 +34,7 @@ class MotrixBackend(SimBackend):
             from unilab.utils.xml_utils import inject_motrix_tracking_sensors
 
             tmp_path, _, valid_bnames = inject_motrix_tracking_sensors(
-                model_file, baselink_name=body_name
+                model_file, baselink_name=base_name
             )
             try:
                 self._model = mtx.load_model(tmp_path)  # pyright: ignore[reportPossiblyUnbound]
@@ -60,8 +60,8 @@ class MotrixBackend(SimBackend):
         self._np_dtype = np_dtype
 
         self._data = mtx.SceneData(self._model, batch=[num_envs])  # pyright: ignore[reportPossiblyUnbound]
-        self._body = self._model.get_body(body_name)
-        self._body_link = self._model.get_link(body_name)
+        self._body = self._model.get_body(base_name)
+        self._body_link = self._model.get_link(base_name)
         self._render_app: "RenderApp | None" = None
         self.backend_type = "motrix"
 
@@ -258,12 +258,12 @@ class MotrixBackend(SimBackend):
 
     def _process_rigid_body_props(self, cfg) -> None:
         if cfg.domain_rand.randomize_base_mass:
-            mass = self._model.get_link(cfg.asset.body_name).get_mass_override(self._data)
+            mass = self._model.get_link(cfg.asset.base_name).get_mass_override(self._data)
             mass_low = cfg.domain_rand.added_mass_range[0]
             mass_high = cfg.domain_rand.added_mass_range[1]
             random_mass = mass + np.random.uniform(mass_low, mass_high, size=(self._num_envs,))
-            self._model.get_link(cfg.asset.body_name).set_mass_override(self._data, random_mass)
-            mass = self._model.get_link(cfg.asset.body_name).get_mass_override(self._data)
+            self._model.get_link(cfg.asset.base_name).set_mass_override(self._data, random_mass)
+            mass = self._model.get_link(cfg.asset.base_name).get_mass_override(self._data)
 
         if cfg.domain_rand.random_com:
             com_offset = np.zeros(
@@ -272,10 +272,10 @@ class MotrixBackend(SimBackend):
             x_low = cfg.domain_rand.com_offset_x[0]
             x_high = cfg.domain_rand.com_offset_x[1]
             com_offset[:, 0] = np.random.uniform(x_low, x_high, self._num_envs)
-            self._model.get_link(cfg.asset.body_name).set_center_of_mass_override(
+            self._model.get_link(cfg.asset.base_name).set_center_of_mass_override(
                 self._data, com_offset
             )
-            self._model.get_link(cfg.asset.body_name).get_center_of_mass_override(self._data)
+            self._model.get_link(cfg.asset.base_name).get_center_of_mass_override(self._data)
 
     def push_robots(self, force_range):
         ex_force = np.random.rand(self.num_envs, 3) * 2 - 1  # [x_force, y_force, z_force]

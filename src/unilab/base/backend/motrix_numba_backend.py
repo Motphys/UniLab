@@ -64,7 +64,7 @@ class MotrixNumbaBackend(SimBackend):
         model_file: str,
         num_envs: int,
         sim_dt: float,
-        body_name: str = "base",
+        base_name: str = "base",
         np_dtype=np.float32,
     ):
         if not MOTRIX_AVAILABLE:
@@ -76,7 +76,7 @@ class MotrixNumbaBackend(SimBackend):
         self._np_dtype = np_dtype
 
         self._data = mtx.SceneData(self._model, batch=[num_envs])
-        self._body = self._model.get_body(body_name)
+        self._body = self._model.get_body(base_name)
         self._render_app: "RenderApp | None" = None
 
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> None:

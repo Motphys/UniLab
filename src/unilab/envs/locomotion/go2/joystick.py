@@ -96,7 +96,7 @@ class Go2WalkTask(Go2BaseEnv):
 
     def __init__(self, cfg: Go2JoystickCfg, num_envs=1, backend_type="mujoco"):
         backend = create_backend(
-            backend_type, cfg.model_file, num_envs, cfg.sim_dt, body_name=cfg.asset.body_name
+            backend_type, cfg.model_file, num_envs, cfg.sim_dt, base_name=cfg.asset.base_name
         )
         super().__init__(cfg, backend, num_envs)
         self._init_obs_space()
