@@ -16,6 +16,7 @@ import socket
 import sys
 import time
 from collections import defaultdict, deque
+from datetime import timedelta
 from typing import Any, Dict, Optional
 
 import torch
@@ -104,7 +105,7 @@ def _learner_worker(
     os.environ["MASTER_PORT"] = str(master_port)
     device = f"cuda:{rank}"
     torch.cuda.set_device(rank)
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
+    dist.init_process_group("nccl", rank=rank, world_size=world_size, timeout=timedelta(seconds=120))
 
     try:
         # 1. Initialise per-process GPU cache (host tensors already shared)

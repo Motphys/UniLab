@@ -62,16 +62,16 @@ def test_g1_joystick_sac_cfg_has_obs_config():
 def test_g1_joystick_sac_obs_config_total_dim():
     """obs_config total dim must match what _compute_obs actually concatenates.
 
-    _compute_obs outputs:
-        linvel(3) + gyro(3) + gravity(3) + diff(12) + dof_vel(12)
-        + last_actions(12) + command(3) + gait_phase(2) = 50
+    G1JoystickPPO._compute_obs outputs (G1 has 29 DoF):
+        linvel(3) + gyro(3) + gravity(3) + diff(29) + dof_vel(29)
+        + last_actions(29) + command(3) + gait_phase(2) = 101
     """
     from unilab.envs.locomotion.g1.joystick_sac import G1JoystickSACCfg
 
     cfg = G1JoystickSACCfg()
     total = sum(cfg.obs_config.obs_dict.values())
-    assert total == 50, (
-        f"obs_config total dim is {total}, expected 50. "
+    assert total == 101, (
+        f"obs_config total dim is {total}, expected 101. "
         "obs_config.obs_dict does not match _compute_obs output."
     )
 
