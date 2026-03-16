@@ -8,7 +8,6 @@ from typing import Optional
 import gymnasium as gym
 import numpy as np
 import pytest
-
 import unilab.base.registry as registry_mod
 from unilab.base.base import ABEnv, EnvCfg
 
@@ -49,6 +48,19 @@ class _TestEnvA(ABEnv):
     @property
     def action_space(self):
         return gym.spaces.Box(low=-1.0, high=1.0, shape=(2,), dtype=np.float32)
+
+    @property
+    def state(self):
+        return None
+
+    def init_state(self):
+        return None
+
+    def step(self, actions):
+        return None
+
+    def close(self):
+        pass
 
 
 # Register once at module level (idempotent guard)

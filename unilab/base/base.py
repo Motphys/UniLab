@@ -1,8 +1,9 @@
 import abc
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 import gymnasium as gym
+import numpy as np
 
 
 @dataclass
@@ -66,3 +67,20 @@ class ABEnv(abc.ABC):
     @abc.abstractmethod
     def action_space(self) -> gym.Space:
         """Action space"""
+
+    @property
+    @abc.abstractmethod
+    def state(self) -> Any:
+        """Current environment state (None before first reset)"""
+
+    @abc.abstractmethod
+    def init_state(self) -> Any:
+        """Initialize environment and return initial state"""
+
+    @abc.abstractmethod
+    def step(self, actions: np.ndarray) -> Any:
+        """Step the environment with given actions, return new state"""
+
+    @abc.abstractmethod
+    def close(self) -> None:
+        """Clean up environment resources"""

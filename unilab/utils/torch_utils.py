@@ -17,7 +17,7 @@ def to_torch(x, device: str | torch.device) -> torch.Tensor:
         return torch.from_numpy(x).to(device)
     try:
         if hasattr(x, "__dlpack__"):
-            return torch.from_dlpack(x).to(device)
+            return torch.from_dlpack(x).to(device)  # pyright: ignore[reportPrivateImportUsage]
     except Exception:
         pass
     arr = np.asarray(x, dtype=np.float32)

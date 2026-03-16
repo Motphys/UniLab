@@ -25,12 +25,12 @@ class MotrixBackend(SimBackend):
         if not MOTRIX_AVAILABLE:
             raise ImportError("motrixsim not available")
 
-        self._model = mtx.load_model(model_file)
+        self._model = mtx.load_model(model_file)  # pyright: ignore[reportPossiblyUnbound]
         self._model.options.timestep = sim_dt
         self._num_envs = num_envs
         self._np_dtype = np_dtype
 
-        self._data = mtx.SceneData(self._model, batch=[num_envs])
+        self._data = mtx.SceneData(self._model, batch=[num_envs])  # pyright: ignore[reportPossiblyUnbound]
         self._body = self._model.get_body(body_name)
         self._body_link = self._model.get_link(body_name)
         self._render_app: "RenderApp | None" = None

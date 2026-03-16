@@ -9,13 +9,13 @@
 ## 开发规范
 
 - **Always use `uv run`**，不要直接使用 `python`
-- 提交前必须通过 `make check`（ruff lint + mypy）
+- 提交前必须通过 `make check`（ruff lint + mypy + pyright）
 
 ## 常用命令
 
 ```bash
 make format      # ruff format + ruff check --fix
-make type        # mypy unilab
+make type        # mypy unilab + pyright
 make check       # format + type（提交前必跑）
 make test        # 非 slow 单元测试
 make test-cov    # 非 slow 测试 + 覆盖率报告
@@ -94,12 +94,14 @@ Push / PR 到 `main` 时自动触发三个 job：
 | Job | 内容 | 失败即阻断 |
 |-----|------|-----------|
 | `lint` | `ruff check` + `ruff format --check` | ✅ |
-| `typecheck` | `mypy unilab` | ✅ |
+| `typecheck` | `mypy unilab` + `pyright` | ✅ |
 | `test` | `pytest -m "not slow" --cov` (matrix: ubuntu+macos × py3.10/3.11/3.12) | ✅ |
+
+纯文档改动（`*.md`、`LICENSE`）不触发 CI。
 
 ## Pull Request 流程
 
-1. 本地运行 `make check` 确保 lint/mypy 通过
+1. 本地运行 `make check` 确保 lint/mypy/pyright 通过
 2. 本地运行 `make test` 确保单元测试通过
 3. 若改动了 IPC / Runner / Config，补充或更新对应测试
 4. 提交 PR 到 `main` 分支，等待 CI 全绿

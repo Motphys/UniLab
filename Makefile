@@ -10,6 +10,7 @@ format:
 .PHONY: type
 type:
 	uv run mypy unilab
+	uv run pyright
 
 .PHONY: check
 check: format type
