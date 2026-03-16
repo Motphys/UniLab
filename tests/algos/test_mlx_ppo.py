@@ -1,6 +1,7 @@
 """Unit tests for MLX PPO — MLPActorCritic, RolloutBuffer, PPOTrainer.
 
-All tests are pure MLX (no MuJoCo). Skipped automatically when mlx is absent.
+MLX is macOS-only (Apple Silicon Metal backend). These tests are skipped
+automatically on Linux/Windows or when mlx is not installed.
 
 Run:
     uv run pytest tests/algos/test_mlx_ppo.py -v
@@ -8,7 +9,12 @@ Run:
 
 from __future__ import annotations
 
+import sys
+
 import pytest
+
+if sys.platform != "darwin":
+    pytest.skip("MLX is macOS-only", allow_module_level=True)
 
 mlx = pytest.importorskip("mlx.core", reason="mlx not installed")
 

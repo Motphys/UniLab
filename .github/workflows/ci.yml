@@ -42,9 +42,15 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      - name: Install dependencies
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
         run: |
-          sudo apt-get update && sudo apt-get install -y cmake || brew install cmake
+          sudo apt-get update && sudo apt-get install -y cmake
+          uv sync --extra dev
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install cmake
           uv sync --extra dev
       - name: Test with coverage
         run: uv run pytest -m "not slow" --cov=unilab --cov-report=term-missing --cov-fail-under=10

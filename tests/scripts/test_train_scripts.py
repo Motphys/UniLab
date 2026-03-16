@@ -32,9 +32,11 @@ def _load_script(name: str):
 # ---------------------------------------------------------------------------
 
 try:
+    import sys as _sys
+
     import mlx.core  # noqa: F401
 
-    _HAS_MLX = True
+    _HAS_MLX = _sys.platform == "darwin"
 except ImportError:
     _HAS_MLX = False
 
