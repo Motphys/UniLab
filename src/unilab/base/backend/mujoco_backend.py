@@ -20,25 +20,40 @@ class MuJoCoBackend(SimBackend):
         sim_dt: float,
         body_name: Optional[str] = None,
         np_dtype=None,
+        add_body_sensors: bool = False,
     ):
-        self._model = mujoco.MjModel.from_xml_path(model_file)
+        self.add_body_sensors = add_body_sensors
+
+        if self.add_body_sensors:
+            import os
+
+            from unilab.utils.xml_utils import inject_mujoco_tracking_sensors
+
+            tmp_path, self._tracked_body_ids, valid_bnames = inject_mujoco_tracking_sensors(
+                model_file, baselink_name=body_name
+            )
+            self._model = mujoco.MjModel.from_xml_path(tmp_path)
+            os.remove(tmp_path)
+
+            self._body_id_to_tracked_idx = np.full(self._model.nbody, -1, dtype=int)
+            for idx, bid in enumerate(self._tracked_body_ids):
+                self._body_id_to_tracked_idx[bid] = idx
+        else:
+            self._model = mujoco.MjModel.from_xml_path(model_file)
+            valid_bnames = []
+
         self._model.opt.timestep = sim_dt
         self._num_envs = num_envs
         self._np_dtype = np_dtype if np_dtype is not None else get_global_dtype()
         self.backend_type = "mujoco"
+
         # 线程配置
         thread_override = os.getenv("UNILAB_MUJOCO_STEP_THREADS")
         if thread_override:
             self._n_threads = min(num_envs, max(1, int(thread_override)))
         else:
             host_threads = cpu_count()
-            if num_envs >= 4096:
-                auto_threads = max(host_threads, 56)
-            elif num_envs >= 2048:
-                auto_threads = max(host_threads, 32)
-            else:
-                auto_threads = host_threads
-            self._n_threads = min(num_envs, auto_threads)
+            self._n_threads = min(num_envs, host_threads * 2)
 
         # Worker pool
         self._worker_data = [mujoco.MjData(self._model) for _ in range(self._n_threads)]
@@ -62,6 +77,10 @@ class MuJoCoBackend(SimBackend):
         self._dof_pos_view = self._physics_state[:, self._idx_qpos + 7 : self._idx_qpos + self.nq]
         self._dof_vel_view = self._physics_state[:, self._idx_qvel + 6 : self._idx_qvel + self.nv]
         self._qpos_view = self._physics_state[:, self._idx_qpos : self._idx_qpos + self.nq]
+        self._base_pos_view = self._physics_state[:, self._idx_qpos : self._idx_qpos + 3]
+        self._base_quat_view = self._physics_state[:, self._idx_qpos + 3 : self._idx_qpos + 7]
+        self._base_lin_vel_view = self._physics_state[:, self._idx_qvel : self._idx_qvel + 3]
+        self._base_ang_vel_view = self._physics_state[:, self._idx_qvel + 3 : self._idx_qvel + 6]
 
         # 传感器索引
         self._sensor_indices = {}
@@ -74,6 +93,40 @@ class MuJoCoBackend(SimBackend):
                 self._sensor_indices[name] = list(range(adr, adr + dim))
                 self._sensor_views[name] = self._sensor_data[:, adr : adr + dim]
 
+        # 针对追踪身体传感器的零拷贝视图映射
+        if self.add_body_sensors and valid_bnames:
+
+            def _get_sensor_view(prefix, dim):
+                adrs = [
+                    self._model.sensor_adr[
+                        mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_SENSOR, f"{prefix}_{nb}")
+                    ]
+                    for nb in valid_bnames
+                ]
+                return self._sensor_data[:, adrs[0] : adrs[-1] + dim].reshape(
+                    num_envs, len(valid_bnames), dim
+                )
+
+            # Global (world) sensors
+            self._tracked_pos_w_all = _get_sensor_view("track_pos_w", 3)
+            self._tracked_quat_w_all = _get_sensor_view("track_quat_w", 4)
+            self._tracked_linvel_w_all = _get_sensor_view("track_linvel_w", 3)
+            self._tracked_angvel_w_all = _get_sensor_view("track_angvel_w", 3)
+
+            # Local (baselink) sensors
+            self._tracked_pos_b_all = _get_sensor_view("track_pos_b", 3)
+            self._tracked_quat_b_all = _get_sensor_view("track_quat_b", 4)
+            self._tracked_linvel_b_all = _get_sensor_view("track_linvel_b", 3)
+            self._tracked_angvel_b_all = _get_sensor_view("track_angvel_b", 3)
+
+    @property
+    def num_envs(self) -> int:
+        return self._num_envs
+
+    @property
+    def model(self):
+        return self._model
+
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> None:
         control_traj = np.broadcast_to(ctrl[:, None, :], (self._num_envs, nsteps, ctrl.shape[-1]))
         state_traj, sensor_traj = self._rollout.rollout(
@@ -85,20 +138,6 @@ class MuJoCoBackend(SimBackend):
         )
         self._physics_state[:] = state_traj[:, -1, :].astype(self._np_dtype)
         self._sensor_data[:] = sensor_traj[:, -1, :].astype(self._np_dtype)
-
-    def get_dof_pos(self) -> np.ndarray:
-        return self._dof_pos_view
-
-    def get_dof_vel(self) -> np.ndarray:
-        return self._dof_vel_view
-
-    def get_qpos(self) -> np.ndarray:
-        return self._qpos_view
-
-    def get_sensor_data(self, name: str) -> np.ndarray:
-        if name not in self._sensor_views:
-            raise ValueError(f"Sensor '{name}' not found")
-        return self._sensor_views[name]
 
     def set_state(self, env_indices: np.ndarray, qpos: np.ndarray, qvel: np.ndarray) -> None:
         num_reset = len(env_indices)
@@ -119,155 +158,68 @@ class MuJoCoBackend(SimBackend):
         self._physics_state[env_indices] = state_np.astype(self._np_dtype)
         self._sensor_data[env_indices] = sensor_np.astype(self._np_dtype)
 
-    @property
-    def num_envs(self) -> int:
-        return self._num_envs
+    def get_qpos(self) -> np.ndarray:
+        return self._qpos_view
 
-    @property
-    def model(self):
-        return self._model
+    def get_base_pos(self) -> np.ndarray:
+        return self._base_pos_view
+
+    def get_base_quat(self) -> np.ndarray:
+        return self._base_quat_view
+
+    def get_base_lin_vel(self) -> np.ndarray:
+        return self._base_lin_vel_view
+
+    def get_base_ang_vel(self) -> np.ndarray:
+        return self._base_ang_vel_view
+
+    def get_dof_pos(self) -> np.ndarray:
+        return self._dof_pos_view
+
+    def get_dof_vel(self) -> np.ndarray:
+        return self._dof_vel_view
+
+    def _get_mapped_indices(self, body_ids: np.ndarray) -> np.ndarray:
+        # if not self.add_body_sensors:
+        #     raise NotImplementedError(
+        #         "Slow kinematics computation has been removed for performance reasons. "
+        #         "Please pass add_body_sensors=True during initialization to enable tracking."
+        #     )
+        mapped_indices = self._body_id_to_tracked_idx[body_ids]
+        # if np.any(mapped_indices == -1):
+        #     raise ValueError(
+        #         "Cannot query untracked (unnamed) bodies with fast sensor method. Please ensure bodies are named in XML."
+        #     )
+        return mapped_indices
+
+    def get_body_pos_w(self, body_ids: np.ndarray) -> np.ndarray:
+        return self._tracked_pos_w_all[:, self._get_mapped_indices(body_ids), :]
+
+    def get_body_quat_w(self, body_ids: np.ndarray) -> np.ndarray:
+        return self._tracked_quat_w_all[:, self._get_mapped_indices(body_ids), :]
+
+    def get_body_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
+        return self._tracked_linvel_w_all[:, self._get_mapped_indices(body_ids), :]
+
+    def get_body_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
+        return self._tracked_angvel_w_all[:, self._get_mapped_indices(body_ids), :]
+
+    def get_body_pos_b(self, body_ids: np.ndarray) -> np.ndarray:
+        return self._tracked_pos_b_all[:, self._get_mapped_indices(body_ids), :]
+
+    def get_body_quat_b(self, body_ids: np.ndarray) -> np.ndarray:
+        return self._tracked_quat_b_all[:, self._get_mapped_indices(body_ids), :]
+
+    def get_body_lin_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
+        return self._tracked_linvel_b_all[:, self._get_mapped_indices(body_ids), :]
+
+    def get_body_ang_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
+        return self._tracked_angvel_b_all[:, self._get_mapped_indices(body_ids), :]
+
+    def get_sensor_data(self, name: str) -> np.ndarray:
+        if name not in self._sensor_views:
+            raise ValueError(f"Sensor '{name}' not found")
+        return self._sensor_views[name]
 
     def get_physics_state(self) -> np.ndarray:
         return self._physics_state
-
-    def get_body_pos(self, body_ids: np.ndarray) -> np.ndarray:
-        """Get body positions in world frame.
-
-        Args:
-            body_ids: Body indices (num_bodies,)
-
-        Returns:
-            Body positions (num_envs, num_bodies, 3)
-        """
-        # Need to run forward kinematics to get body positions
-        # Use batch_forward to compute xpos for all environments
-        state_out, _ = self._forward_runner.forward(
-            model=self._model,
-            data=self._worker_data,
-            initial_state=self._physics_state.astype(np.float64),
-            chunk_size=max(1, self._num_envs // self._n_threads),
-            skipsensor=True,
-            out_dtype=np.float64,
-            return_state=False,
-        )
-
-        # Extract body positions from MjData
-        # xpos is stored in data, need to extract from worker_data after forward
-        body_pos = np.zeros((self._num_envs, len(body_ids), 3), dtype=self._np_dtype)
-
-        # Run forward kinematics for each environment
-        for i in range(self._num_envs):
-            worker_idx = i % self._n_threads
-            data = self._worker_data[worker_idx]
-
-            # Set state
-            qpos = self._physics_state[i, self._idx_qpos : self._idx_qpos + self.nq]
-            qvel = self._physics_state[i, self._idx_qvel : self._idx_qvel + self.nv]
-            data.qpos[:] = qpos
-            data.qvel[:] = qvel
-
-            # Run forward kinematics
-            mujoco.mj_kinematics(self._model, data)
-
-            # Extract body positions
-            for j, body_id in enumerate(body_ids):
-                body_pos[i, j] = data.xpos[body_id]
-
-        return body_pos
-
-    def get_body_quat(self, body_ids: np.ndarray) -> np.ndarray:
-        """Get body quaternions in world frame (wxyz format).
-
-        Args:
-            body_ids: Body indices (num_bodies,)
-
-        Returns:
-            Body quaternions (num_envs, num_bodies, 4)
-        """
-        body_quat = np.zeros((self._num_envs, len(body_ids), 4), dtype=self._np_dtype)
-
-        # Run forward kinematics for each environment
-        for i in range(self._num_envs):
-            worker_idx = i % self._n_threads
-            data = self._worker_data[worker_idx]
-
-            # Set state
-            qpos = self._physics_state[i, self._idx_qpos : self._idx_qpos + self.nq]
-            qvel = self._physics_state[i, self._idx_qvel : self._idx_qvel + self.nv]
-            data.qpos[:] = qpos
-            data.qvel[:] = qvel
-
-            # Run forward kinematics
-            mujoco.mj_kinematics(self._model, data)
-
-            # Extract body quaternions (MuJoCo uses wxyz format)
-            for j, body_id in enumerate(body_ids):
-                body_quat[i, j] = data.xquat[body_id]
-
-        return body_quat
-
-    def get_body_lin_vel(self, body_ids: np.ndarray) -> np.ndarray:
-        """Get body linear velocities in world frame.
-
-        Args:
-            body_ids: Body indices (num_bodies,)
-
-        Returns:
-            Body linear velocities (num_envs, num_bodies, 3)
-        """
-        body_lin_vel = np.zeros((self._num_envs, len(body_ids), 3), dtype=self._np_dtype)
-
-        # Run forward kinematics and velocity computation
-        for i in range(self._num_envs):
-            worker_idx = i % self._n_threads
-            data = self._worker_data[worker_idx]
-
-            # Set state
-            qpos = self._physics_state[i, self._idx_qpos : self._idx_qpos + self.nq]
-            qvel = self._physics_state[i, self._idx_qvel : self._idx_qvel + self.nv]
-            data.qpos[:] = qpos
-            data.qvel[:] = qvel
-
-            # Run forward kinematics and velocity computation
-            mujoco.mj_kinematics(self._model, data)
-            mujoco.mj_comVel(self._model, data)
-
-            # Extract body linear velocities
-            for j, body_id in enumerate(body_ids):
-                # cvel contains [angular_vel (3), linear_vel (3)] for each body
-                body_lin_vel[i, j] = data.cvel[body_id, 3:6]
-
-        return body_lin_vel
-
-    def get_body_ang_vel(self, body_ids: np.ndarray) -> np.ndarray:
-        """Get body angular velocities in world frame.
-
-        Args:
-            body_ids: Body indices (num_bodies,)
-
-        Returns:
-            Body angular velocities (num_envs, num_bodies, 3)
-        """
-        body_ang_vel = np.zeros((self._num_envs, len(body_ids), 3), dtype=self._np_dtype)
-
-        # Run forward kinematics and velocity computation
-        for i in range(self._num_envs):
-            worker_idx = i % self._n_threads
-            data = self._worker_data[worker_idx]
-
-            # Set state
-            qpos = self._physics_state[i, self._idx_qpos : self._idx_qpos + self.nq]
-            qvel = self._physics_state[i, self._idx_qvel : self._idx_qvel + self.nv]
-            data.qpos[:] = qpos
-            data.qvel[:] = qvel
-
-            # Run forward kinematics and velocity computation
-            mujoco.mj_kinematics(self._model, data)
-            mujoco.mj_comVel(self._model, data)
-
-            # Extract body angular velocities
-            for j, body_id in enumerate(body_ids):
-                # cvel contains [angular_vel (3), linear_vel (3)] for each body
-                body_ang_vel[i, j] = data.cvel[body_id, 0:3]
-
-        return body_ang_vel
