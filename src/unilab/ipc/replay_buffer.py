@@ -65,6 +65,21 @@ class ReplayBuffer(SharedBufferBase):
             c += 1
             self._trunc_col = c
 
+    def __getstate__(self) -> dict:
+        """Custom pickle support.
+
+        The collector subprocess only calls add(), which writes to the CPU
+        shared-memory tensors (self.obs, self.actions, …).  It never calls
+        sample(), so it doesn't need the GPU cache or the CUDA stream.
+        Neither torch.cuda.Stream nor CUDA tensors are picklable, so we strip
+        them here.  The original object in the learner process is unaffected.
+        """
+        state = self.__dict__.copy()
+        state["_cuda_stream"] = None
+        for key in ("obs_gpu", "next_obs_gpu", "actions_gpu", "rewards_gpu", "dones_gpu", "truncated_gpu"):
+            state.pop(key, None)
+        return state
+
     def init_local_gpu_cache(self, device: str) -> None:
         """Per-process GPU cache initialisation for multi-GPU training.
 
