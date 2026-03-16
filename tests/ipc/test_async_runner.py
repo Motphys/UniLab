@@ -8,6 +8,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+
 from unilab.ipc.async_runner import AsyncRunner
 
 _SPAWN_CTX = mp.get_context("spawn")

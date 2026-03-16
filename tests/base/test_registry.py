@@ -8,6 +8,7 @@ from typing import Optional
 import gymnasium as gym
 import numpy as np
 import pytest
+
 import unilab.base.registry as registry_mod
 from unilab.base.base import ABEnv, EnvCfg
 

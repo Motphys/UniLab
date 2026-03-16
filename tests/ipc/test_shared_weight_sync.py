@@ -8,6 +8,7 @@ from copy import deepcopy
 import numpy as np
 import pytest
 import torch
+
 from unilab.ipc.weight_sync import SharedWeightSync
 
 _SPAWN_CTX = mp.get_context("spawn")
