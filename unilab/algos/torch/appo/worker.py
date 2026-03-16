@@ -227,8 +227,8 @@ def appo_collector_fn(
                             }
                             ep_reward_components.clear()
                         metrics_queue.put_nowait(msg)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        print(f"[APPOWorker] metrics enqueue error: {e}", file=sys.stderr)
 
             write_buf["last_obs"][:] = obs_np
             storage.signal_write_done()  # atomic increment, non-blocking

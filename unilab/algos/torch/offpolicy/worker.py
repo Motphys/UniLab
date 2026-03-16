@@ -4,6 +4,8 @@ Collects (obs, action, reward, next_obs, done) transitions using the current
 actor policy. Runs in a subprocess; writes to ReplayBuffer.
 """
 
+import sys
+
 import numpy as np
 import torch
 
@@ -322,7 +324,7 @@ def _run_collector(
                     terminated_count_window = 0
 
                 metrics_queue.put_nowait(msg)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[OffPolicyWorker] metrics enqueue error: {e}", file=sys.stderr)
 
     weight_sync.close()

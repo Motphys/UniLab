@@ -1,6 +1,7 @@
 """Unified runner for off-policy RL algorithms (SAC, TD3)."""
 
 import os
+import sys
 import time
 from collections import deque
 
@@ -323,5 +324,6 @@ class OffPolicyRunner(AsyncRunner):
                         m.get("mean_ep_reward", 0.0) if updated_rew else 0.0,
                     )
 
-            except Exception:
+            except Exception as e:
+                print(f"[OffPolicyRunner] metrics drain error: {e}", file=sys.stderr)
                 break

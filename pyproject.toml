@@ -28,14 +28,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "ruff", "mypy"]
+dev = ["pytest", "pytest-cov", "ruff", "mypy"]
 cu124 = [
     # Keep compatibility with documented Linux CUDA installation command.
 ]
 motrix = ["motrixsim==0.6.0"]
 
 [dependency-groups]
-dev = ["pytest", "ruff", "mypy"]
+dev = ["pytest", "pytest-cov", "ruff", "mypy"]
 
 [[tool.uv.index]]
 name = "test-pypi"
@@ -75,3 +75,15 @@ ignore_missing_imports = true
 exclude = [
     "unilab/algos/torch/rsl_rl/", # vendored third-party, tracked in .gitignore
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["slow: requires real env or long-running processes"]
+addopts = "--tb=short"
+
+[tool.coverage.run]
+source = ["unilab"]
+omit = ["unilab/algos/torch/rsl_rl/*"]
+
+[tool.coverage.report]
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:"]

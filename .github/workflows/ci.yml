@@ -12,23 +12,39 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
       - name: Lint with ruff
         run: |
-          uv tool run ruff check . || true
-          uv tool run ruff format --check . || true
+          uv tool run ruff check .
+          uv tool run ruff format --check .
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --extra dev
+      - name: Type check
+        run: uv run mypy unilab
 
   test:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
-        python-version: ['3.10', '3.11', '3.12', '3.13']
+        python-version: ['3.10', '3.11', '3.12']
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
       - name: Install dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y cmake || brew install cmake
           uv sync --extra dev
-      - name: Run tests
-        run: uv run pytest || echo "No tests found"
+      - name: Test with coverage
+        run: uv run pytest -m "not slow" --cov=unilab --cov-report=term-missing --cov-fail-under=10

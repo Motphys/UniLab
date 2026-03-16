@@ -8,6 +8,7 @@ Pipeline:
 
 import multiprocessing as mp
 import os
+import sys
 import time
 from collections import deque
 from copy import deepcopy
@@ -361,5 +362,6 @@ class APPORunner(AsyncRunner):
                         m.get("mean_ep_reward", 0.0),
                     )
 
-            except Exception:
+            except Exception as e:
+                print(f"[APPORunner] metrics drain error: {e}", file=sys.stderr)
                 break

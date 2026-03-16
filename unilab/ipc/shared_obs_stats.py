@@ -1,5 +1,7 @@
 """Shared observation normalization statistics for multi-process training."""
 
+import sys
+
 
 class SharedObsNormStats:
     """Synchronize observation normalization statistics between learner and collector.
@@ -16,8 +18,8 @@ class SharedObsNormStats:
         while not self.q.empty():
             try:
                 self.q.get_nowait()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[SharedObsNormStats] queue error: {e}", file=sys.stderr)
         self.q.put(stats)
 
     def get(self):
@@ -25,6 +27,6 @@ class SharedObsNormStats:
         try:
             while not self.q.empty():
                 self.last_stats = self.q.get_nowait()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[SharedObsNormStats] queue error: {e}", file=sys.stderr)
         return self.last_stats
