@@ -5,7 +5,6 @@ from __future__ import annotations
 import queue
 
 import numpy as np
-
 from unilab.ipc.shared_obs_stats import SharedObsNormStats
 
 

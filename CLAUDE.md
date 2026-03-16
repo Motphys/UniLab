@@ -30,7 +30,7 @@ uv sync --extra dev --extra cu124
 
 ```bash
 make format     # Format and lint code (ruff format + ruff check --fix)
-make type       # Type check with mypy
+make type       # Type check with mypy + pyright
 make check      # make format && make type
 make test       # Run all non-slow tests (default)
 make test-cov   # Run non-slow tests with coverage report
@@ -47,6 +47,7 @@ uv run ruff check --fix
 
 # Type check
 uv run mypy unilab
+uv run pyright
 
 # Test (non-slow)
 uv run pytest -m "not slow"

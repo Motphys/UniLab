@@ -108,6 +108,8 @@ def _run_collector(
     )
 
     # Build actor (always on CPU for env interaction)
+    assert env.observation_space.shape is not None
+    assert env.action_space.shape is not None
     obs_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
     actor = build_actor(

@@ -440,7 +440,7 @@ class FastSACLearner:
         self.update_count = 0
 
         # AMP scaler for mixed precision
-        self.scaler = torch.amp.GradScaler("cuda") if self.use_amp else None
+        self.scaler = torch.amp.GradScaler("cuda") if self.use_amp else None  # pyright: ignore[reportPrivateImportUsage]
 
         # Symmetry augmentation (G1 only)
         self.use_symmetry = (
@@ -480,20 +480,20 @@ class FastSACLearner:
         discount = torch.full_like(dones, self.gamma)
 
         with torch.no_grad():
-            with torch.amp.autocast("cuda", enabled=self.use_amp):
+            with torch.amp.autocast("cuda", enabled=self.use_amp):  # pyright: ignore[reportPrivateImportUsage]
                 next_actions, next_log_probs, _ = self.actor.get_actions_and_log_probs(next_obs)
             adjusted_rewards = (
                 rewards - discount * bootstrap * self.log_alpha.exp() * next_log_probs
             )
 
-            with torch.amp.autocast("cuda", enabled=self.use_amp):
+            with torch.amp.autocast("cuda", enabled=self.use_amp):  # pyright: ignore[reportPrivateImportUsage]
                 target_distributions = self.qnet_target.projection(
                     next_obs, next_actions, adjusted_rewards, bootstrap, discount
                 )
                 target_values = self.qnet_target.get_value(target_distributions)
 
         # Critic loss: cross-entropy with projected distributions
-        with torch.amp.autocast("cuda", enabled=self.use_amp):
+        with torch.amp.autocast("cuda", enabled=self.use_amp):  # pyright: ignore[reportPrivateImportUsage]
             q_outputs = self.qnet(obs, actions)
             critic_log_probs = F.log_softmax(q_outputs, dim=-1).clamp(min=-30.0)
             critic_losses = -torch.sum(target_distributions * critic_log_probs, dim=-1)
@@ -555,14 +555,14 @@ class FastSACLearner:
         if self.use_symmetry:
             obs = torch.cat([obs, self.symmetry.mirror_obs(obs)], dim=0)
 
-        with torch.amp.autocast("cuda", enabled=self.use_amp):
+        with torch.amp.autocast("cuda", enabled=self.use_amp):  # pyright: ignore[reportPrivateImportUsage]
             actions, log_probs, log_std = self.actor.get_actions_and_log_probs(obs)
 
         with torch.no_grad():
             action_std = log_std.exp().mean()
             policy_entropy = -log_probs.mean()
 
-        with torch.amp.autocast("cuda", enabled=self.use_amp):
+        with torch.amp.autocast("cuda", enabled=self.use_amp):  # pyright: ignore[reportPrivateImportUsage]
             q_outputs = self.qnet(obs, actions)
             q_probs = F.softmax(q_outputs, dim=-1)
             q_values = self.qnet.get_value(q_probs)

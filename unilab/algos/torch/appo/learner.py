@@ -152,7 +152,7 @@ class APPOLearner:
         self._update_counter = 0
 
         # Optimizer
-        self.optimizer = resolve_optimizer(optimizer)(
+        self.optimizer = resolve_optimizer(optimizer)(  # pyright: ignore[reportCallIssue]
             chain(self.actor.parameters(), self.critic.parameters()), lr=learning_rate
         )
 

@@ -20,7 +20,6 @@ mlx = pytest.importorskip("mlx.core", reason="mlx not installed")
 
 import mlx.core as mx
 import numpy as np
-
 from unilab.algos.mlx.common import RolloutBuffer
 from unilab.algos.mlx.ppo import MLPActorCritic, PPOConfig, PPOTrainer
 

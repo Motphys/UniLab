@@ -9,7 +9,6 @@ import gymnasium as gym
 import numpy as np
 import pytest
 import torch
-
 from unilab.base import registry
 from unilab.base.base import ABEnv, EnvCfg
 from unilab.ipc.replay_buffer import ReplayBuffer
@@ -60,6 +59,16 @@ class _DummyEnv(ABEnv):
 
     def close(self) -> None:
         pass
+
+    @property
+    def state(self):
+        return None
+
+    def init_state(self):
+        return None
+
+    def step(self, actions: np.ndarray):
+        return None
 
 
 def _register_dummy_env() -> None:

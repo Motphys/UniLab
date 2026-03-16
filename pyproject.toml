@@ -7,7 +7,7 @@ name = "unilab"
 version = "0.1.0"
 description = "Universal Lab for Robot Learning"
 readme = "README.md"
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy",
     "torch",
@@ -28,14 +28,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-cov", "ruff", "mypy"]
+dev = ["pytest", "pytest-cov", "ruff", "mypy", "pyright>=1.1.408"]
 cu124 = [
     # Keep compatibility with documented Linux CUDA installation command.
 ]
 motrix = ["motrixsim==0.6.0"]
 
 [dependency-groups]
-dev = ["pytest", "pytest-cov", "ruff", "mypy"]
+dev = ["pytest", "pytest-cov", "ruff", "mypy", "pyright>=1.1.408"]
 
 [[tool.uv.index]]
 name = "test-pypi"
@@ -51,6 +51,7 @@ packages = ["unilab"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+src = ["unilab"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]
@@ -83,7 +84,24 @@ addopts = "--tb=short"
 
 [tool.coverage.run]
 source = ["unilab"]
-omit = ["unilab/algos/torch/rsl_rl/*"]
+omit = ["*/rsl_rl/*"]
 
 [tool.coverage.report]
 exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:"]
+
+[tool.pyright]
+pythonVersion = "3.10"
+venvPath = "."
+venv = ".venv"
+include = ["unilab"]
+exclude = [
+    "unilab/algos/torch/rsl_rl/",        # vendored third-party
+    "unilab/algos/mlx/",                  # MLX stubs incomplete, macOS-only
+    "unilab/algos/torch/common/ane_*",    # Apple Neural Engine, macOS-only
+    "unilab/base/backend/",               # mujoco-uni stubs mismatch; optional backends
+    "unilab/envs/",                       # mujoco-uni internal API, stubs mismatch
+    "unilab/utils/render_many.py",        # direct mujoco C bindings
+    "unilab/utils/hardware_monitor.py",   # optional pynvml/psutil deps
+]
+reportMissingImports = "warning"
+reportMissingModuleSource = "none"

@@ -202,7 +202,7 @@ class OnPolicyLogger:
         if self._wandb_run:
             import wandb
 
-            log_dict = {"iteration": iteration}
+            log_dict: dict[str, Any] = {"iteration": iteration}
             if metrics:
                 for k, v in metrics.items():
                     log_dict[f"train/{k}"] = v

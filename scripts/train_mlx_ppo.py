@@ -159,7 +159,6 @@ def play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root
     """Play mode for MLX PPO."""
     import mlx.core as mx
     import numpy as np
-
     from unilab.base import registry
 
     play_model_dtype = mx.float32 if use_fp16 else dtype

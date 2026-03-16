@@ -5,7 +5,6 @@ from __future__ import annotations
 from copy import deepcopy
 
 import pytest
-
 from unilab.config.locomotion_params import appo_config, offpolicy_config, ppo_config
 
 # ---------------------------------------------------------------------------
