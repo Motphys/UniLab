@@ -1,13 +1,13 @@
 [build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "unilab"
-dynamic = ["version"]
+version = "0.1.0"
 description = "Universal Lab for Robot Learning"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy",
     "torch",
@@ -17,10 +17,12 @@ dependencies = [
     "etils",
     "ml_collections",
     "tensordict",
-    "rsl-rl-lib>=3.3.0,<5.0.0",
+    "rsl-rl-lib>=5.0.0",
     "packaging",
     "mediapy",
     "tensorboard",
+    "setuptools<70",
+    "rich",
     "typing-extensions",
     "mlx ; sys_platform == 'darwin'",
 ]
@@ -28,13 +30,41 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest",
+    "ruff",
+    "mypy",
 ]
 motrix = [
     "motrixsim==0.6.0",
 ]
 
-[tool.setuptools.dynamic]
-version = {attr = "unilab.__version__"}
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+    "mypy",
+]
 
-[tool.setuptools.packages.find]
-include = ["unilab*"]
+[[tool.uv.index]]
+name = "test-pypi"
+url = "https://test.pypi.org/simple/"
+explicit = true
+
+[tool.uv.sources]
+mujoco-uni = { index = "test-pypi" }
+
+[tool.hatch.build.targets.wheel]
+packages = ["unilab"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+ignore = ["E501", "N806", "E402", "F401", "N801", "F821", "E741", "N802", "N803", "N812"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true

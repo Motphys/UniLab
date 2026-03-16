@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 import gymnasium as gym
 import mujoco
 import numpy as np
-from dataclasses import dataclass, field
 
-from unilab.envs.base import EnvCfg
-from unilab.envs.np_env import NpEnv, NpEnvState
-from unilab.envs.backend import SimBackend
-from unilab.envs.dtype_config import get_global_dtype
+from unilab.base.backend import SimBackend
+from unilab.base.base import EnvCfg
+from unilab.base.dtype_config import get_global_dtype
+from unilab.base.np_env import NpEnv, NpEnvState
 
 # ─────────────────────────── Configuration ────────────────────────────
 
@@ -16,7 +17,7 @@ from unilab.envs.dtype_config import get_global_dtype
 @dataclass
 class NoiseConfig:
     level: float = 1.0
-    scale_joint_angle: float = 0.02   # rad
+    scale_joint_angle: float = 0.02  # rad
 
 
 @dataclass
@@ -32,8 +33,8 @@ class ControlConfig:
 @dataclass
 class AllegroBaseCfg(EnvCfg):
     model_file: str = ""
-    sim_dt: float = 0.005   # 5 ms physics step
-    ctrl_dt: float = 0.05   # 50 ms control step  →  10 substeps
+    sim_dt: float = 0.005  # 5 ms physics step
+    ctrl_dt: float = 0.05  # 50 ms control step  →  10 substeps
     noise_config: NoiseConfig = field(default_factory=NoiseConfig)
     control_config: ControlConfig = field(default_factory=ControlConfig)
 
@@ -55,6 +56,7 @@ class AllegroBaseCfg(EnvCfg):
 class AllegroBaseMjEnv(NpEnv):
     # Slot constants – filled once in __init__ from the verified model.
     _NUM_HAND_DOF: int = 16
+    _cfg: AllegroBaseCfg
 
     def __init__(self, cfg: AllegroBaseCfg, backend: SimBackend, num_envs: int = 1):
         super().__init__(cfg, backend, num_envs)
@@ -64,10 +66,10 @@ class AllegroBaseMjEnv(NpEnv):
         # Set PD gains in MuJoCo model
         self._backend.model.actuator_gainprm[:, 0] = cfg.control_config.kp
         self._backend.model.actuator_biasprm[:, 1] = -cfg.control_config.kp
-        self._backend.model.dof_damping[:self._NUM_HAND_DOF] = cfg.control_config.kd
+        self._backend.model.dof_damping[: self._NUM_HAND_DOF] = cfg.control_config.kd
 
-        self.nq = self._backend.model.nq   # 23
-        self.nv = self._backend.model.nv   # 22
+        self.nq = self._backend.model.nq  # 23
+        self.nv = self._backend.model.nv  # 22
 
         # physics_state offsets
         self._idx_qpos = 1
@@ -79,10 +81,10 @@ class AllegroBaseMjEnv(NpEnv):
         )
 
         # ball positions inside physics_state
-        self._ps_ball_pos  = self._idx_qpos + self._NUM_HAND_DOF       # 17
-        self._ps_ball_quat = self._idx_qpos + self._NUM_HAND_DOF + 3   # 20
-        self._ps_ball_linv = self._idx_qvel + self._NUM_HAND_DOF       # 40
-        self._ps_ball_angv = self._idx_qvel + self._NUM_HAND_DOF + 3   # 43
+        self._ps_ball_pos = self._idx_qpos + self._NUM_HAND_DOF  # 17
+        self._ps_ball_quat = self._idx_qpos + self._NUM_HAND_DOF + 3  # 20
+        self._ps_ball_linv = self._idx_qvel + self._NUM_HAND_DOF  # 40
+        self._ps_ball_angv = self._idx_qvel + self._NUM_HAND_DOF + 3  # 43
 
         # joint limits (shape: (16,))
         self._ctrl_lower = self._backend.model.actuator_ctrlrange[:, 0].astype(self._np_dtype)
@@ -102,7 +104,7 @@ class AllegroBaseMjEnv(NpEnv):
 
     @property
     def action_space(self) -> gym.spaces.Box:
-        return self._action_space
+        return self._action_space  # type: ignore[no-any-return]
 
     # ── Buffers ─────────────────────────────────────────────────────
 
@@ -111,11 +113,11 @@ class AllegroBaseMjEnv(NpEnv):
         if key_id < 0:
             raise ValueError("Keyframe 'home' not found in model.")
 
-        self._init_qpos = self._backend.model.key_qpos[key_id].copy()   # (nq,) float64
-        self._init_ctrl = self._backend.model.key_ctrl[key_id].copy()   # (nu,) float64
+        self._init_qpos = self._backend.model.key_qpos[key_id].copy()  # (nq,) float64
+        self._init_ctrl = self._backend.model.key_ctrl[key_id].copy()  # (nu,) float64
 
         # Default hand pose (first 16 entries of qpos)
-        self.default_angles = self._init_qpos[:self._NUM_HAND_DOF].astype(self._np_dtype)
+        self.default_angles = self._init_qpos[: self._NUM_HAND_DOF].astype(self._np_dtype)
 
     # ── Action / control ────────────────────────────────────────────
 
@@ -128,36 +130,36 @@ class AllegroBaseMjEnv(NpEnv):
         new_ctrl = state.info["prev_ctrl"] + scale * actions
         new_ctrl = np.clip(new_ctrl, self._ctrl_lower, self._ctrl_upper)
         state.info["prev_ctrl"] = new_ctrl
-        return new_ctrl
+        return np.asarray(new_ctrl)
 
     # ── State accessors ─────────────────────────────────────────────
 
     def get_hand_dof_pos(self) -> np.ndarray:
         """(num_envs, 16) hand joint angles."""
         ps = self._backend.get_physics_state()
-        return ps[:, self._idx_qpos : self._idx_qpos + self._NUM_HAND_DOF]
+        return np.asarray(ps[:, self._idx_qpos : self._idx_qpos + self._NUM_HAND_DOF])
 
     def get_hand_dof_vel(self) -> np.ndarray:
         """(num_envs, 16) hand joint velocities."""
         ps = self._backend.get_physics_state()
-        return ps[:, self._idx_qvel : self._idx_qvel + self._NUM_HAND_DOF]
+        return np.asarray(ps[:, self._idx_qvel : self._idx_qvel + self._NUM_HAND_DOF])
 
     def get_ball_pos(self) -> np.ndarray:
         """(num_envs, 3) ball position in world frame."""
         ps = self._backend.get_physics_state()
-        return ps[:, self._ps_ball_pos : self._ps_ball_pos + 3]
+        return np.asarray(ps[:, self._ps_ball_pos : self._ps_ball_pos + 3])
 
     def get_ball_quat(self) -> np.ndarray:
         """(num_envs, 4) ball quaternion (w, x, y, z)."""
         ps = self._backend.get_physics_state()
-        return ps[:, self._ps_ball_quat : self._ps_ball_quat + 4]
+        return np.asarray(ps[:, self._ps_ball_quat : self._ps_ball_quat + 4])
 
     def get_ball_linvel(self) -> np.ndarray:
         """(num_envs, 3) ball linear velocity in world frame."""
         ps = self._backend.get_physics_state()
-        return ps[:, self._ps_ball_linv : self._ps_ball_linv + 3]
+        return np.asarray(ps[:, self._ps_ball_linv : self._ps_ball_linv + 3])
 
     def get_ball_angvel(self) -> np.ndarray:
         """(num_envs, 3) ball angular velocity in world frame."""
         ps = self._backend.get_physics_state()
-        return ps[:, self._ps_ball_angv : self._ps_ball_angv + 3]
+        return np.asarray(ps[:, self._ps_ball_angv : self._ps_ball_angv + 3])

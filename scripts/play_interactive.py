@@ -13,18 +13,18 @@ Camera controls (MuJoCo viewer):
     Right-drag     - pan
 """
 
+import argparse
+import importlib
 import os
+import pkgutil
 import sys
 import time
-import argparse
-import pkgutil
-import importlib
 from pathlib import Path
 
-import numpy as np
-import torch
 import mujoco
 import mujoco.viewer
+import numpy as np
+import torch
 
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
@@ -46,9 +46,9 @@ def ensure_registries():
 
 ensure_registries()
 
-from unilab.envs import registry
+from unilab.base import registry
 from unilab.config import locomotion_params
-from unilab.utils.rsl_rl_compat import is_rsl_rl_v4, convert_config_v3_to_v4
+from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4
 from unilab.utils.run_utils import get_latest_run
 from unilab.utils.torch_utils import to_torch
 
@@ -60,10 +60,10 @@ except ImportError:
 
 from tensordict import TensorDict
 
-
 # ---------------------------------------------------------------------------
 # Minimal env wrapper (mirrors RslRlVecEnvWrapper in train_rsl_rl.py)
 # ---------------------------------------------------------------------------
+
 
 class RslRlVecEnvWrapper:
     def __init__(self, env, device="cuda"):
@@ -83,7 +83,9 @@ class RslRlVecEnvWrapper:
         self.reset()
 
     def step(self, actions):
-        actions_np = actions.detach().cpu().numpy() if isinstance(actions, torch.Tensor) else actions
+        actions_np = (
+            actions.detach().cpu().numpy() if isinstance(actions, torch.Tensor) else actions
+        )
         state = self.env.step(actions_np)
         obs = to_torch(state.obs, self.device)
         rewards = to_torch(state.reward, self.device)
@@ -124,6 +126,7 @@ class RslRlVecEnvWrapper:
 # Checkpoint resolution helpers
 # ---------------------------------------------------------------------------
 
+
 def resolve_checkpoint(task: str, load_run: str) -> str | None:
     base = ROOT_DIR / "logs" / "rsl_rl_train" / task
     if load_run == "-1":
@@ -154,6 +157,7 @@ def resolve_checkpoint(task: str, load_run: str) -> str | None:
 # ---------------------------------------------------------------------------
 # Interactive play
 # ---------------------------------------------------------------------------
+
 
 def play_interactive(args):
     if torch.cuda.is_available():
@@ -208,9 +212,15 @@ def play_interactive(args):
                 if args.action_mode == "policy" and policy is not None:
                     actions = policy(obs)
                 elif args.action_mode == "random":
-                    actions = torch.from_numpy(
-                        np.random.uniform(action_low, action_high, size=(1, env.action_space.shape[0]))
-                    ).to(device).float()
+                    actions = (
+                        torch.from_numpy(
+                            np.random.uniform(
+                                action_low, action_high, size=(1, env.action_space.shape[0])
+                            )
+                        )
+                        .to(device)
+                        .float()
+                    )
                 else:  # zero
                     actions = torch.zeros(1, env.action_space.shape[0], device=device)
 
@@ -234,14 +244,24 @@ def play_interactive(args):
 # Entry point
 # ---------------------------------------------------------------------------
 
+
 def main():
-    parser = argparse.ArgumentParser(description="Interactive MuJoCo viewer for a trained RSL-RL policy")
-    parser.add_argument("--task", type=str, required=True,
-                        help="Task name, e.g. Go2JoystickFlatTerrain")
-    parser.add_argument("--load_run", type=str, default="-1",
-                        help="Run timestamp or path to load (-1 = latest)")
-    parser.add_argument("--action_mode", type=str, default="policy", choices=["policy", "zero", "random"],
-                        help="Action mode: policy (load ckpt), zero, or random")
+    parser = argparse.ArgumentParser(
+        description="Interactive MuJoCo viewer for a trained RSL-RL policy"
+    )
+    parser.add_argument(
+        "--task", type=str, required=True, help="Task name, e.g. Go2JoystickFlatTerrain"
+    )
+    parser.add_argument(
+        "--load_run", type=str, default="-1", help="Run timestamp or path to load (-1 = latest)"
+    )
+    parser.add_argument(
+        "--action_mode",
+        type=str,
+        default="policy",
+        choices=["policy", "zero", "random"],
+        help="Action mode: policy (load ckpt), zero, or random",
+    )
     args = parser.parse_args()
     play_interactive(args)
 

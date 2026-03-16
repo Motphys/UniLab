@@ -1,9 +1,11 @@
 """Shared weight synchronization for actor networks."""
 
 from __future__ import annotations
+
 import multiprocessing as mp
 from multiprocessing import shared_memory
 from typing import Dict
+
 import numpy as np
 
 _SPAWN_CTX = mp.get_context("spawn")
@@ -12,16 +14,17 @@ _SPAWN_CTX = mp.get_context("spawn")
 class SharedWeightSync:
     """Synchronize actor weights between learner and collector."""
 
-    def __init__(self, param_shapes: Dict, *, create: bool = True, shm_name: str | None = None,
-                 lock=None):
+    def __init__(
+        self, param_shapes: Dict, *, create: bool = True, shm_name: str | None = None, lock=None
+    ):
         self._param_shapes = param_shapes
         self._param_names = list(param_shapes.keys())
 
         total_numel = sum(s.numel() for s in param_shapes.values())
         _f32 = np.dtype(np.float32).itemsize
-        _i32 = np.dtype(np.int32).itemsize
+        _i64 = np.dtype(np.int64).itemsize
         data_bytes = total_numel * _f32
-        meta_bytes = _i32
+        meta_bytes = _i64
         total_bytes = data_bytes + meta_bytes
 
         if create:
@@ -33,12 +36,13 @@ class SharedWeightSync:
             # lock must be passed in from the parent process when attaching
             self._lock = lock
 
-        self._buffer = np.ndarray((total_numel,), dtype=np.float32, buffer=self._shm.buf)
-        self._version_arr = np.ndarray((1,), dtype=np.int32, buffer=self._shm.buf[data_bytes:])
+        buf = self._shm.buf
+        assert buf is not None
+        self._buffer: np.ndarray = np.ndarray((total_numel,), dtype=np.float32, buffer=buf)
+        self._version_arr: np.ndarray = np.ndarray((1,), dtype=np.int64, buffer=buf[data_bytes:])
         if create:
             self._version_arr[0] = 0
         self._total_numel = total_numel
-        self._cpu_buffer = None
 
     @property
     def name(self) -> str:
@@ -56,23 +60,42 @@ class SharedWeightSync:
         return obj
 
     def write_weights(self, state_dict) -> None:
-        import torch
-        if self._cpu_buffer is None:
-            self._cpu_buffer = torch.empty(self._total_numel, dtype=torch.float32)
-
-        with self._lock:
+        if self._lock is not None:
+            with self._lock:
+                offset = 0
+                for name in self._param_names:
+                    param = state_dict[name]
+                    arr = param.detach().cpu().numpy().ravel()
+                    n = arr.size
+                    self._buffer[offset : offset + n] = arr
+                    offset += n
+                self._version_arr[0] += 1
+        else:
+            # No lock - direct write
             offset = 0
             for name in self._param_names:
                 param = state_dict[name]
-                n = param.numel()
-                self._cpu_buffer[offset:offset+n] = param.detach().cpu().flatten()
+                arr = param.detach().cpu().numpy().ravel()
+                n = arr.size
+                self._buffer[offset : offset + n] = arr
                 offset += n
-            self._buffer[:] = self._cpu_buffer.numpy()
             self._version_arr[0] += 1
 
     def read_weights_into(self, state_dict) -> int:
         import torch
-        with self._lock:
+
+        if self._lock is not None:
+            with self._lock:
+                offset = 0
+                for name in self._param_names:
+                    param = state_dict[name]
+                    n = param.numel()
+                    data = self._buffer[offset : offset + n].copy()
+                    param.data.copy_(torch.from_numpy(data.reshape(param.shape)))
+                    offset += n
+                return int(self._version_arr[0])
+        else:
+            # No lock - direct read (for subprocess)
             offset = 0
             for name in self._param_names:
                 param = state_dict[name]

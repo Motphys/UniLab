@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """Realistic sampling benchmark - measures actual sample overhead."""
 
-import torch
-import numpy as np
-import time
-import sys
 import multiprocessing as mp
-from multiprocessing import shared_memory
+import time
+
+import numpy as np
+import torch
+
 
 def sync_device(device):
     if device == "cuda":
         torch.cuda.synchronize()
     elif device == "mps":
         torch.mps.synchronize()
+
 
 def benchmark_host_sample_realistic(capacity, obs_dim, action_dim, batch_size, num_samples, device):
     """Simulate real SharedReplayBuffer.sample_torch() with lock."""
@@ -42,12 +43,12 @@ def benchmark_host_sample_realistic(capacity, obs_dim, action_dim, batch_size, n
             truncated_copy = truncated[indices].copy()
 
         # Transfer to device (non-blocking)
-        obs_t = torch.from_numpy(obs_copy).to(device, non_blocking=True)
-        actions_t = torch.from_numpy(actions_copy).to(device, non_blocking=True)
-        rewards_t = torch.from_numpy(rewards_copy).to(device, non_blocking=True)
-        next_obs_t = torch.from_numpy(next_obs_copy).to(device, non_blocking=True)
-        dones_t = torch.from_numpy(dones_copy).to(device, non_blocking=True)
-        truncated_t = torch.from_numpy(truncated_copy).to(device, non_blocking=True)
+        torch.from_numpy(obs_copy).to(device, non_blocking=True)
+        torch.from_numpy(actions_copy).to(device, non_blocking=True)
+        torch.from_numpy(rewards_copy).to(device, non_blocking=True)
+        torch.from_numpy(next_obs_copy).to(device, non_blocking=True)
+        torch.from_numpy(dones_copy).to(device, non_blocking=True)
+        torch.from_numpy(truncated_copy).to(device, non_blocking=True)
 
         sync_device(device)
         elapsed = time.perf_counter() - start
@@ -55,6 +56,7 @@ def benchmark_host_sample_realistic(capacity, obs_dim, action_dim, batch_size, n
             times.append(elapsed * 1000)
 
     return np.mean(times), np.std(times)
+
 
 def benchmark_gpu_sample(capacity, obs_dim, action_dim, batch_size, num_samples, device):
     """GPU buffer: direct indexing on device."""
@@ -71,12 +73,12 @@ def benchmark_gpu_sample(capacity, obs_dim, action_dim, batch_size, num_samples,
         start = time.perf_counter()
 
         indices = torch.randint(0, capacity, (batch_size,), device=device)
-        obs_t = obs[indices]
-        actions_t = actions[indices]
-        rewards_t = rewards[indices]
-        next_obs_t = next_obs[indices]
-        dones_t = dones[indices]
-        truncated_t = truncated[indices]
+        obs[indices]
+        actions[indices]
+        rewards[indices]
+        next_obs[indices]
+        dones[indices]
+        truncated[indices]
 
         sync_device(device)
         elapsed = time.perf_counter() - start
@@ -84,6 +86,7 @@ def benchmark_gpu_sample(capacity, obs_dim, action_dim, batch_size, num_samples,
             times.append(elapsed * 1000)
 
     return np.mean(times), np.std(times)
+
 
 if __name__ == "__main__":
     if torch.cuda.is_available():
@@ -116,13 +119,13 @@ if __name__ == "__main__":
         capacity, obs_dim, action_dim, batch_size, num_samples, device
     )
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("SAMPLING OVERHEAD")
-    print("="*60)
+    print("=" * 60)
     print(f"Host: {host_mean:.3f} ± {host_std:.3f} ms")
     print(f"GPU:  {gpu_mean:.3f} ± {gpu_std:.3f} ms")
-    print(f"Overhead: {host_mean - gpu_mean:.3f} ms ({(host_mean/gpu_mean):.2f}x)")
-    print("="*60)
+    print(f"Overhead: {host_mean - gpu_mean:.3f} ms ({(host_mean / gpu_mean):.2f}x)")
+    print("=" * 60)
 
     updates_per_step = 8
     print(f"\nPer env step ({updates_per_step} updates):")

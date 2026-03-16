@@ -1,7 +1,10 @@
 """FastSAC runner using unified OffPolicyRunner."""
 
+from typing import Any
+
 from unilab.algos.torch.fast_sac.learner import FastSACLearner
 from unilab.algos.torch.offpolicy.runner import OffPolicyRunner
+from unilab.utils.device_utils import get_default_device, get_env_dims
 
 
 class FastSACRunner(OffPolicyRunner):
@@ -10,8 +13,7 @@ class FastSACRunner(OffPolicyRunner):
     def __init__(
         self,
         env_name: str,
-        device: str = None,
-        collector_device: str = None,
+        device: str | None = None,
         num_envs: int = 4096,
         replay_buffer_n: int = 1024,
         batch_size: int = 8192,
@@ -33,26 +35,27 @@ class FastSACRunner(OffPolicyRunner):
         num_atoms: int = 101,
         use_layer_norm: bool = True,
         max_grad_norm: float = 0.0,
+        use_amp: bool = False,
         sim_backend: str = "mujoco",
-        use_gpu_buffer: bool = True,
         use_symmetry: bool = False,
     ):
-        from unilab.envs import registry
+        from unilab.base import registry
         from unilab.utils.algo_utils import ensure_registries
-        import torch
 
         ensure_registries()
-        env = registry.make(env_name, num_envs=1, sim_backend=sim_backend)
-        obs_dim = env.observation_space.shape[0]
-        action_dim = env.action_space.shape[0]
-        mujoco_model = getattr(env, '_backend', None)
+        env: Any = registry.make(env_name, num_envs=1, sim_backend=sim_backend)
+        obs_space_shape = env.observation_space.shape
+        act_space_shape = env.action_space.shape
+        assert obs_space_shape is not None and act_space_shape is not None
+        obs_dim = obs_space_shape[0]
+        action_dim = act_space_shape[0]
+        mujoco_model = getattr(env, "_backend", None)
         if mujoco_model is not None:
-            mujoco_model = getattr(mujoco_model, 'model', None)
-        obs_structure = getattr(env, 'get_obs_structure', lambda: None)()
+            mujoco_model = getattr(mujoco_model, "model", None)
+        obs_structure = getattr(env, "get_obs_structure", lambda: None)()
         env.close()
 
-        if device is None:
-            device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
+        device = device or get_default_device()
 
         learner = FastSACLearner(
             obs_dim=obs_dim,
@@ -70,6 +73,7 @@ class FastSACRunner(OffPolicyRunner):
             num_atoms=num_atoms,
             use_layer_norm=use_layer_norm,
             max_grad_norm=max_grad_norm,
+            use_amp=use_amp,
             use_symmetry=use_symmetry,
             mujoco_model=mujoco_model,
             obs_structure=obs_structure,
@@ -78,7 +82,9 @@ class FastSACRunner(OffPolicyRunner):
         # Auto-adjust batch_size when symmetry is enabled
         if use_symmetry:
             batch_size = batch_size // 2
-            print(f"[FastSAC] Symmetry enabled: batch_size adjusted to {batch_size} (effective: {batch_size * 2})")
+            print(
+                f"[FastSAC] Symmetry enabled: batch_size adjusted to {batch_size} (effective: {batch_size * 2})"
+            )
 
         super().__init__(
             learner=learner,
@@ -93,10 +99,8 @@ class FastSACRunner(OffPolicyRunner):
             sync_collection=sync_collection,
             env_steps_per_sync=env_steps_per_sync,
             device=device,
-            collector_device=collector_device,
             actor_hidden_dim=actor_hidden_dim,
             use_layer_norm=use_layer_norm,
             obs_normalization=obs_normalization,
             sim_backend=sim_backend,
-            use_gpu_buffer=use_gpu_buffer,
         )

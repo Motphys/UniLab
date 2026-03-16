@@ -1,1 +1,1 @@
-"""Environment registry and base classes."""
+"""Environment"""

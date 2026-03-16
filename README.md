@@ -12,20 +12,66 @@ UniLab 采用**统一内存异构运算架构**：
 ┌───────────────────┐     统一共享内存     ┌────────────────────┐
 │   CPU 物理仿真    │ ──────────────────▶  │   GPU 策略训练     │
 │  mujoco.rollout   │   SharedReplayBuffer │  PPO / SAC / TD3   │
-│    多线程并行     │     (POSIX shm)      │    CUDA / MPS      │
+│    多线程并行     │  (PyTorch shared)    │    CUDA / MPS      │
 └───────────────────┘                      └────────────────────┘
 ```
 
 - **CPU 仿真**：MuJoCo/Motrix 的 CPU 多线程 step，无需 GPU 仿真内核
-- **统一内存**：Collector 和 Learner 通过共享内存解耦，运行在独立进程
+- **统一内存**：Collector 和 Learner 通过 PyTorch shared tensors 零拷贝通信，运行在独立进程
 - **GPU 训练**：策略网络仍在 GPU 上训练，发挥 GPU 的并行计算优势
 - **硬件无关**：Mac（MPS）、Linux（CUDA）均可运行
 
 ---
 
+## 安装
+
+### 使用 uv（推荐）
+
+```bash
+# 1. 安装 uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 2. 克隆仓库
+git clone https://github.com/TATP-233/UniLab.git
+cd UniLab
+
+# 3. 安装系统依赖
+brew install cmake  # macOS
+# sudo apt-get install cmake  # Ubuntu/Debian
+
+# 4. 同步依赖
+# macOS (MPS)
+uv sync
+
+# Linux (CUDA 12.4)
+uv sync --extra cu124
+
+# 5. 可选：Motrix 后端
+uv sync --extra motrix
+```
+
+### 国内镜像加速
+
+```bash
+# 环境变量
+export UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 或命令行参数
+uv sync --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+```
+---
+
+## 开发规范
+
+**Always use `uv run`, not python**. 详见 [CLAUDE.md](./CLAUDE.md)。
+
+---
 ## TODO
 
-- [x] 增加 Bipedal Locomotion 任务
+- [x] @czx 增加 Bipedal Locomotion 任务
+- [x] @czx 增加 APPO
 - [x] @czx 增加 FastTD3 和 FastSAC，torch.mps
 - [x] @czx  写轻量版并行采样，跑满cpu 和 gpu @czx
 - [x] @yves 优化调度器，测试把 rollout 移动到 cpu 的效率提升
@@ -36,15 +82,18 @@ UniLab 采用**统一内存异构运算架构**：
 - [x] @yves G1+off-policy调稳定
 - [x] @yves G1 full command space
 - [x] @yves 增加G1对称性数据增强
-- [ ] @yves 增加AC非对称观测
+- [x] @yves IPC性能优化：PyTorch shared tensors替换POSIX shm
+- [x] @yves GPU利用率分析与优化
+- [x] @yves AMP混合精度训练
+- [ ] @yves 跑通算法迁移: PPO->APPO
+- [ ] @yves 工程化设计 原型级->开发级
 - [ ] @ymr  增加灵巧操作案例
-- [ ] @czx  把 FastTD3+Go2 调稳定
-- [ ] @jdx  适配 mimic/amp 算法，支持人形Whole-Body Tracking
+- [ ] @czx  适配 mimic/amp 算法，支持人形Whole-Body Tracking
 - [ ] @yves mujoco域随机化,需要改 mujoco-uni 源码
+- [ ] @jdx  增加AC非对称观测
 - [ ] @jdx  motrixsim域随机化
 - [ ] @jdx  写onnx导出和sim2sim
 - [ ] @jdx  sim2real
-- [ ] @yves 把稳定的 FastTD3 和 FastSAC 迁移到 mlx
 - [ ] @Motphys 算法适配 motrixsim
 - [ ] @Motphys motrix step 提速
 
@@ -80,21 +129,6 @@ Thirdparty:
    3. https://github.com/google-deepmind/mujoco
    4. https://github.com/google-deepmind/mujoco_playground/
 
-## 安装 (Installation)
-
-1. **克隆仓库并安装**:
-   ```bash
-   git clone https://github.com/TATP-233/UniLab.git
-   cd UniLab
-   pip install --extra-index-url https://test.pypi.org/simple/ mujoco-uni==3.5.0.post2
-   pip install -e .
-   ```
-
-2. **可选：安装 Motrix 后端支持**:
-   ```bash
-   pip install -e ".[motrix]"
-   ```
-
 ## 仿真后端 (Simulation Backends)
 
 UniLab 支持两种仿真后端：
@@ -106,10 +140,10 @@ UniLab 支持两种仿真后端：
 
 ```bash
 # 训练
-python scripts/train_rsl_rl.py --task Go1JoystickFlatTerrain --sim_backend motrix
+uv run python scripts/train_rsl_rl.py --task Go1JoystickFlatTerrain --sim_backend motrix
 
 # 回放（交互式可视化）
-python scripts/train_rsl_rl.py --task Go1JoystickFlatTerrain --sim_backend motrix --play_only
+uv run python scripts/train_rsl_rl.py --task Go1JoystickFlatTerrain --sim_backend motrix --play_only
 ```
 
 ## 训练与回放指南
@@ -118,17 +152,18 @@ python scripts/train_rsl_rl.py --task Go1JoystickFlatTerrain --sim_backend motri
 
 ```bash
 # PPO (RSL-RL)
-python scripts/train_rsl_rl.py --task Go2JoystickFlatTerrain
+uv run python scripts/train_rsl_rl.py --task Go2JoystickFlatTerrain
 
 # PPO (MLX - Apple Silicon)
-python scripts/train_mlx_ppo.py --task Go2JoystickFlatTerrain
+uv run python scripts/train_mlx_ppo.py --task Go2JoystickFlatTerrain
+
+# APPO（异步 PPO，CPU/GPU 并行）
+uv run python scripts/train_appo.py --task Go1JoystickFlatTerrain
 
 # Unified OffPolicy entry (recommended)
-python scripts/train_offpolicy.py --algo sac --task Go1JoystickFlatTerrain
-python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain
+uv run python scripts/train_offpolicy.py --algo sac --task Go1JoystickFlatTerrain
+uv run python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain
 
-# APPO
-python scripts/train_appo.py --task Go2JoystickFlatTerrain
 ```
 
 **注意**：训练脚本默认在训练完成后会进入回放阶段。`mujoco` 后端会导出 `play_video.mp4`，`motrix` 后端为交互式窗口渲染（不导出视频）。使用 `--no_play` 跳过自动回放。
@@ -141,21 +176,21 @@ python scripts/train_appo.py --task Go2JoystickFlatTerrain
 
 ```bash
 # 回放最新训练结果
-python scripts/train_rsl_rl.py --task Go2JoystickFlatTerrain --play_only
-python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain --play_only
+uv run python scripts/train_rsl_rl.py --task Go2JoystickFlatTerrain --play_only
+uv run python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain --play_only
 
 # 加载特定 checkpoint 回放
-python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain --play_only --load_run "2024-02-04_12-00-00"
+uv run python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain --play_only --load_run "2024-02-04_12-00-00"
 ```
 
 ### 3. 加载特定 Run 继续训练
 
 ```bash
 # PPO 继续训练
-python scripts/train_rsl_rl.py --task Go2JoystickFlatTerrain --load_run "2024-02-04_12-00-00"
+uv run python scripts/train_rsl_rl.py --task Go2JoystickFlatTerrain --load_run "2024-02-04_12-00-00"
 
 # OffPolicy (SAC) 继续训练
-python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain --load_run "2024-02-04_12-00-00"
+uv run python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain --load_run "2024-02-04_12-00-00"
 ```
 
 ### 通用参数说明
@@ -169,6 +204,75 @@ python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain --loa
 
 ---
 
+## APPO（异步 PPO）
+
+基于 V-trace 重要性采样修正的异步 PPO 实现。Collector 子进程（CPU 仿真）通过 4 槽 ring buffer 持续写入 rollout，Learner 进程（GPU）无需等待即可从 ring buffer 中消费并训练，实现真正的 CPU/GPU 并行。
+
+### 核心特性
+
+| 特性 | 说明 |
+|------|------|
+| **异步多进程** | Collector（CPU）与 Learner（GPU）完全解耦，各自满负荷运行 |
+| **V-trace IS 修正** | 使用重要性采样比 ρ = π_target/π_behavior 修正 off-policy 数据的优势估计 |
+| **4 槽 ring buffer** | 支持最多 4 条 rollout 在飞，collector 满时覆盖最旧 slot（无阻塞） |
+| **Replay queue** | Learner 端维护 rollout 重放队列，每次迭代消费所有可用 slot |
+| **日志目录** | `logs/appo/<task>/<timestamp>_mujoco/` |
+
+### 训练
+
+```bash
+# 默认参数训练
+uv run python scripts/train_appo.py --task Go1JoystickFlatTerrain
+
+# 指定环境数量和迭代次数
+uv run python scripts/train_appo.py --task Go2JoystickFlatTerrain --total_envs 2048 --max_iterations 300
+
+# 自定义 replay queue 深度（越大 staleness 越高，但 GPU 利用率更稳定）
+uv run python scripts/train_appo.py --task Go1JoystickFlatTerrain --replay_queue_size 2
+
+# 跳过训练后的自动 play
+uv run python scripts/train_appo.py --task Go1JoystickFlatTerrain --no_play
+```
+
+### 回放
+
+```bash
+# 仅回放（加载最新 checkpoint）
+uv run python scripts/train_appo.py --task Go1JoystickFlatTerrain --play_only
+
+# 加载特定 checkpoint 回放
+uv run python scripts/train_appo.py --task Go1JoystickFlatTerrain --play_only --load_run "2026-03-16_01-35-12_mujoco"
+uv run python scripts/train_appo.py --task Go1JoystickFlatTerrain --play_only --load_run "/abs/path/to/model_150.pt"
+```
+
+### 参数说明
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--task` | `Go2JoystickFlatTerrain` | 任务名称 |
+| `--max_iterations` | 配置文件值 | 最大训练迭代次数 |
+| `--total_envs` | 配置文件值（2048） | 并行环境数量 |
+| `--steps_per_env` | 配置文件值（24） | 每条 rollout 的步数 |
+| `--replay_queue_size` | 3 | Learner 端 rollout 重放队列深度 |
+| `--device` | 自动检测 | Learner 设备（`cuda` / `mps` / `cpu`） |
+| `--collector_device` | `cpu` | Collector 设备（`cpu` 或 `gpu`） |
+| `--logger` | `tensorboard` | 日志后端（`tensorboard` / `wandb` / `none`） |
+| `--play_only` | False | 仅回放，跳过训练 |
+| `--no_play` | False | 训练后跳过自动回放 |
+| `--load_run` | `-1`（最新） | 指定 run 目录名或 checkpoint 路径 |
+| `--save_interval` | 配置文件值 | 每隔多少次迭代保存一次 checkpoint |
+
+### 与 PPO 的对比
+
+| 维度 | rsl-rl PPO | APPO |
+|------|-----------|------|
+| 收集方式 | 同步（训练等收集） | 异步（并行运行） |
+| IS 修正 | 无（严格 on-policy） | V-trace（容忍 staleness） |
+| CPU/GPU 利用率 | 交替满载 | 同时满载 |
+| 适用场景 | 快速收敛、样本效率优先 | 吞吐量优先、大规模并行 |
+
+---
+
 ## FastSAC & FastTD3
 
 基于异步多进程架构的 off-policy 算法实现，使用统一共享内存实现 CPU 仿真与 GPU 训练的解耦。
@@ -178,7 +282,7 @@ python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain --loa
 | 特性 | 说明 |
 |------|------|
 | **异步多进程** | Collector 进程（CPU 仿真）与 Learner 进程（GPU 训练）独立运行 |
-| **统一共享内存** | 通过 SharedReplayBuffer (POSIX shm) 实现零拷贝数据传输 |
+| **统一共享内存** | 通过 PyTorch shared tensors 实现零拷贝 CPU-GPU 数据传输 |
 | **同步/异步模式** | 支持同步收集（默认）和异步收集两种模式 |
 | **自动 Play** | 训练完成后自动生成回放视频 |
 
@@ -186,24 +290,24 @@ python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain --loa
 
 ```bash
 # Unified entry
-python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain
-python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain
+uv run python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain
+uv run python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain
 
 # 异步模式（更高吞吐量）
-python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain --no_sync_collection
+uv run python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain --no_sync_collection
 
 # 跳过训练后的自动 play
-python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain --no_play
+uv run python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain --no_play
 ```
 
 ### 回放
 
 ```bash
 # 仅回放模式
-python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain --play_only
+uv run python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain --play_only
 
 # 加载特定 checkpoint
-python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain --play_only --load_run "2024-02-04_12-00-00"
+uv run python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain --play_only --load_run "2024-02-04_12-00-00"
 ```
 
 ### 参数说明
@@ -219,66 +323,3 @@ python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain --pla
 | `--env_steps_per_sync` | 1 | 同步模式下每次收集的步数 |
 | `--play_only` | False | 仅回放，跳过训练 |
 | `--no_play` | False | 训练后跳过自动回放 |
-
-## APPO (Asynchronous PPO)
-
-基于 [IMPACT (Luo et al., 2020)](https://arxiv.org/abs/1912.00167) 的异步 PPO 实现，使用原生多进程实现 CPU 物理仿真与 GPU 策略训练的流水线并行。
-
-### 核心特性
-
-| 特性 | 说明 |
-|------|------|
-| **V-trace IS 修正** | 使用重要性采样比率修正异步收集导致的 off-policy 偏差 |
-| **Target Network** | Soft update (`τ`) 平滑更新目标网络，稳定 IS 比率计算 |
-| **异步流水线** | CPU 数据收集与 GPU 训练重叠执行，最大化硬件利用率 |
-| **MPS 兼容** | 支持 Apple Silicon (MPS)、CUDA 和纯 CPU 训练 |
-
-### 架构
-
-```
-┌────────────────┐         ┌──────────────────┐
-│ Collector Proc │ CPU     │   APPOLearner    │  GPU/MPS
-│  (rollout)     │────────▶│  V-trace + PPO   │
-│  π_behavior    │  batch  │  π_current       │
-└────────────────┘         │  π_target (EMA)  │
-                           └──────────────────┘
-```
-
-### 训练
-
-```bash
-# 默认训练 (自动检测 GPU/MPS/CPU)
-python scripts/train_appo.py --task Go2JoystickFlatTerrain
-
-# 调整并行环境数和 rollout 长度
-python scripts/train_appo.py --total_envs 1024 --steps_per_env 24
-```
-
-### 回放
-
-```bash
-python scripts/train_appo.py --task Go2JoystickFlatTerrain --play_only
-```
-
-### APPO 参数说明
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `--total_envs` | 1024 | 总环境数（均分到各 worker） |
-| `--steps_per_env` | 24 | 每个环境每次迭代的步数 |
-| `--max_iterations` | 1500 | 最大训练迭代次数 |
-| `--save_interval` | 50 | 每 N 次迭代保存 checkpoint |
-| `--device` | 自动检测 | 训练设备 (`cuda:0` / `mps` / `cpu`) |
-| `--collector_device` | 自动检测 | Collector 设备 |
-| `--play_only` | False | 仅回放 |
-| `--no_play` | False | 训练后跳过自动回放 |
-
-算法超参数（在 `locomotion_params.py` 的 `algorithm` 字段中配置）：
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `tau` | 1.0 | Target network soft update 系数（1.0 = 硬拷贝） |
-| `target_update_freq` | 1 | Target network 更新频率 |
-| `vtrace_clip_rho` | 1.0 | V-trace ρ 截断阈值 |
-| `vtrace_clip_c` | 1.0 | V-trace c 截断阈值 |
-

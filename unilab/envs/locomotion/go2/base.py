@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 import gymnasium as gym
 import mujoco
 import numpy as np
-from dataclasses import dataclass, field
 
-from unilab.envs.base import EnvCfg
-from unilab.envs.np_env import NpEnv, NpEnvState
-from unilab.envs.backend import SimBackend
+from unilab.base.backend import SimBackend
+from unilab.base.base import EnvCfg
+from unilab.base.np_env import NpEnv, NpEnvState
 
 
 @dataclass
@@ -53,10 +54,12 @@ class Go2BaseCfg(EnvCfg):
 
 
 class Go2BaseEnv(NpEnv):
+    _cfg: Go2BaseCfg
+
     def __init__(self, cfg: Go2BaseCfg, backend: SimBackend, num_envs=1):
         super().__init__(cfg, backend, num_envs)
 
-        if hasattr(backend.model, 'dof_damping'):
+        if hasattr(backend.model, "dof_damping"):
             backend.model.dof_damping[6:] = cfg.control_config.Kd
             backend.model.actuator_gainprm[:, 0] = cfg.control_config.Kp
             backend.model.actuator_biasprm[:, 1] = -cfg.control_config.Kp
@@ -64,10 +67,16 @@ class Go2BaseEnv(NpEnv):
         self._init_action_space()
         self._num_action = self._action_space.shape[0]
         self._init_buffers()
+        self.push_robots_flag = False
+        if self._backend.backend_type == "motrix":
+            self._backend._process_rigid_body_props(cfg)
+            domain_rand = getattr(self._cfg, "domain_rand", None)
+            if domain_rand and domain_rand.push_robots:
+                self.push_robots_flag = True
 
     def _init_action_space(self):
         model = self._backend.model
-        if hasattr(model, 'actuator_ctrlrange'):
+        if hasattr(model, "actuator_ctrlrange"):
             low = model.actuator_ctrlrange[:, 0].copy()
             high = model.actuator_ctrlrange[:, 1].copy()
             nu = model.nu
@@ -76,17 +85,17 @@ class Go2BaseEnv(NpEnv):
             high = model.actuator_ctrl_limits[1, :]
             nu = model.num_actuators
 
-        self._action_space = gym.spaces.Box(low, high, (nu,), dtype=float)
+        self._action_space = gym.spaces.Box(low, high, (nu,), dtype=float)  # type: ignore[assignment]
 
     @property
     def action_space(self) -> gym.spaces.Box:
-        return self._action_space
+        return self._action_space  # type: ignore[no-any-return]
 
     def _init_buffers(self):
         self.default_angles = np.zeros((self._num_action,), dtype=np.float32)
 
         model = self._backend.model
-        if hasattr(model, 'key_qpos'):  # MuJoCo
+        if hasattr(model, "key_qpos"):  # MuJoCo
             key_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_KEY, "home")
             if key_id >= 0:
                 self._init_qpos = np.array(model.key_qpos[key_id].copy(), dtype=np.float32)
@@ -96,7 +105,7 @@ class Go2BaseEnv(NpEnv):
             self._init_qvel = np.zeros((model.nv,), dtype=np.float32)
         else:  # MotrixSim
             self._init_qpos = model.compute_init_dof_pos()
-            self.default_angles = self._init_qpos[-self._num_action:]
+            self.default_angles = self._init_qpos[-self._num_action :]
             self._init_qvel = np.zeros((model.num_dof_vel,), dtype=np.float32)
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
@@ -108,19 +117,21 @@ class Go2BaseEnv(NpEnv):
             if self._cfg.control_config.simulate_action_latency
             else actions
         )
-        return exec_actions * self._cfg.control_config.action_scale + self.default_angles
+        return np.asarray(
+            exec_actions * self._cfg.control_config.action_scale + self.default_angles
+        )
 
     def get_local_linvel(self) -> np.ndarray:
-        return self._backend.get_sensor_data(self._cfg.sensor.local_linvel)
+        return np.asarray(self._backend.get_sensor_data(self._cfg.sensor.local_linvel))
 
     def get_gyro(self) -> np.ndarray:
-        return self._backend.get_sensor_data(self._cfg.sensor.gyro)
+        return np.asarray(self._backend.get_sensor_data(self._cfg.sensor.gyro))
 
     def get_dof_pos(self) -> np.ndarray:
-        return self._backend.get_dof_pos()
+        return np.asarray(self._backend.get_dof_pos())
 
     def get_dof_vel(self) -> np.ndarray:
-        return self._backend.get_dof_vel()
+        return np.asarray(self._backend.get_dof_vel())
 
     def get_foot_pos(self) -> np.ndarray:
         """Get foot positions. Returns shape (num_envs, 4, 3)"""

@@ -171,7 +171,7 @@ def _get_device_info_windows() -> Dict[str, str]:
         if lines:
             parts = lines[0].split(",")
             if len(parts) >= 2:
-                mem_gb = int(parts[1].strip()) / 1024 ** 3
+                mem_gb = int(parts[1].strip()) / 1024**3
                 info["memory"] = f"{mem_gb:.1f} GB"
     except Exception:
         pass
@@ -216,8 +216,8 @@ def get_device_info_line() -> str:
             f"Memory: {d.get('memory', 'unknown')}"
         )
     else:
-        gpu_part = d.get('gpu_name', 'unknown')
-        if 'gpu_memory' in d:
+        gpu_part = d.get("gpu_name", "unknown")
+        if "gpu_memory" in d:
             gpu_part += f" ({d['gpu_memory']})"
         return (
             f"CPU: {d.get('chip', 'unknown')} ({d.get('cpu_total_cores', 'unknown')} cores) | "

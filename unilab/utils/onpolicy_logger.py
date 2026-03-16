@@ -1,16 +1,19 @@
-"""Rich-based training logger for on-policy RL algorithms (PPO, etc)."""
-
 from __future__ import annotations
 
 import os
 import time
 from collections import deque
+from typing import TYPE_CHECKING, Any
+
+from rich import box
 from rich.console import Console, Group
 from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-from rich import box
+
+if TYPE_CHECKING:
+    from torch.utils.tensorboard import SummaryWriter
 
 
 def _fmt_time(seconds: float) -> str:
@@ -58,7 +61,7 @@ class OnPolicyLogger:
         self.num_steps = num_steps
         self.env_name = env_name
 
-        self._no_print = (log_backend.lower() == "no_print")
+        self._no_print = log_backend.lower() == "no_print"
         self._log_backend = "none" if self._no_print else log_backend.lower()
 
         self._console = Console()
@@ -75,17 +78,20 @@ class OnPolicyLogger:
         self._last_save: str = ""
 
         self._log_dir = log_dir
-        self._tb_writer = None
+        self._tb_writer: "SummaryWriter | None" = None
         self._wandb_run = None
 
         if self._log_backend == "tensorboard" and log_dir:
             self._init_tensorboard(log_dir)
         elif self._log_backend == "wandb":
-            self._init_wandb(project=wandb_project, name=wandb_name or f"{algo_name}_{env_name}", log_dir=log_dir)
+            self._init_wandb(
+                project=wandb_project, name=wandb_name or f"{algo_name}_{env_name}", log_dir=log_dir
+            )
 
     def _init_tensorboard(self, log_dir: str):
         try:
             from torch.utils.tensorboard import SummaryWriter
+
             tb_dir = os.path.join(log_dir, "tb")
             os.makedirs(tb_dir, exist_ok=True)
             self._tb_writer = SummaryWriter(log_dir=tb_dir)
@@ -98,6 +104,7 @@ class OnPolicyLogger:
     def _init_wandb(self, project: str, name: str, log_dir: str):
         try:
             import wandb
+
             self._wandb_run = wandb.init(
                 project=project,
                 name=name,
@@ -114,7 +121,9 @@ class OnPolicyLogger:
     def start(self):
         self._start_time = time.time()
         if not self._no_print:
-            self._live = Live(self._build_display(), console=self._console, refresh_per_second=4, transient=False)
+            self._live = Live(
+                self._build_display(), console=self._console, refresh_per_second=4, transient=False
+            )
             self._live.start()
 
     def finish(self):
@@ -142,6 +151,7 @@ class OnPolicyLogger:
             self._tb_writer.close()
         if self._wandb_run:
             import wandb
+
             wandb.finish()
 
     def log_step(
@@ -191,6 +201,7 @@ class OnPolicyLogger:
 
         if self._wandb_run:
             import wandb
+
             log_dict = {"iteration": iteration}
             if metrics:
                 for k, v in metrics.items():
@@ -223,14 +234,14 @@ class OnPolicyLogger:
 
         header_text = Text()
         header_text.append(f" {self.algo_name}", style="bold cyan")
-        header_text.append(f"  │  ", style="dim")
+        header_text.append("  │  ", style="dim")
         header_text.append(f"{self.env_name}", style="bold white")
-        header_text.append(f"  │  ", style="dim")
+        header_text.append("  │  ", style="dim")
         header_text.append(f"iter {self._iteration}/{self.max_iterations}", style="yellow")
-        header_text.append(f"  │  ", style="dim")
+        header_text.append("  │  ", style="dim")
         header_text.append(f"⏱ {_fmt_time(elapsed)}", style="green")
         if eta:
-            header_text.append(f"  │  ETA ", style="dim")
+            header_text.append("  │  ETA ", style="dim")
             header_text.append(eta, style="bold magenta")
 
         header_panel = Panel(header_text, style="dim", box=box.SIMPLE)
@@ -248,7 +259,7 @@ class OnPolicyLogger:
 
         return Panel(
             main_group,
-            title=f"[bold] 🚀 UniLab On-Policy Training [/]",
+            title="[bold] 🚀 UniLab On-Policy Training [/]",
             border_style="bright_blue",
             padding=(0, 1),
         )
@@ -295,7 +306,13 @@ class OnPolicyLogger:
             if len(recent) >= 10:
                 old = sum(recent[-20:-10]) / 10
                 new = sum(recent[-10:]) / 10
-                trend = "[green]▲[/]" if new > old * 1.05 else "[red]▼[/]" if new < old * 0.95 else "[yellow]━[/]"
+                trend = (
+                    "[green]▲[/]"
+                    if new > old * 1.05
+                    else "[red]▼[/]"
+                    if new < old * 0.95
+                    else "[yellow]━[/]"
+                )
             else:
                 trend = ""
 
@@ -334,7 +351,12 @@ class OnPolicyLogger:
         fps = int(self.num_envs * self.num_steps / max(iter_time, 1e-8)) if iter_time > 0 else 0
 
         table.add_row("Elapsed", _fmt_time(elapsed), "Envs", f"{self.num_envs:,}")
-        table.add_row("Collect", f"{self._collect_time * 1000:.1f}ms", "Train", f"{self._train_time * 1000:.1f}ms")
+        table.add_row(
+            "Collect",
+            f"{self._collect_time * 1000:.1f}ms",
+            "Train",
+            f"{self._train_time * 1000:.1f}ms",
+        )
         table.add_row("Iter Time", f"{iter_time * 1000:.1f}ms", "Steps/s", f"{fps:,}")
 
         return table

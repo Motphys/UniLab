@@ -1,21 +1,31 @@
 import os
 from multiprocessing import cpu_count
+from typing import Optional
+
 import mujoco
-from mujoco import rollout, batch_forward
 import numpy as np
-from .base import SimBackend
+from mujoco import batch_forward, rollout
+
 from ..dtype_config import get_global_dtype
+from .base import SimBackend
 
 
 class MuJoCoBackend(SimBackend):
     """MuJoCo 后端实现"""
 
-    def __init__(self, model_file: str, num_envs: int, sim_dt: float, body_name: str = None, np_dtype=None):
+    def __init__(
+        self,
+        model_file: str,
+        num_envs: int,
+        sim_dt: float,
+        body_name: Optional[str] = None,
+        np_dtype=None,
+    ):
         self._model = mujoco.MjModel.from_xml_path(model_file)
         self._model.opt.timestep = sim_dt
         self._num_envs = num_envs
         self._np_dtype = np_dtype if np_dtype is not None else get_global_dtype()
-
+        self.backend_type = "mujoco"
         # 线程配置
         thread_override = os.getenv("UNILAB_MUJOCO_STEP_THREADS")
         if thread_override:
@@ -62,14 +72,16 @@ class MuJoCoBackend(SimBackend):
                 adr = self._model.sensor_adr[i]
                 dim = self._model.sensor_dim[i]
                 self._sensor_indices[name] = list(range(adr, adr + dim))
-                self._sensor_views[name] = self._sensor_data[:, adr:adr + dim]
+                self._sensor_views[name] = self._sensor_data[:, adr : adr + dim]
 
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> None:
         control_traj = np.broadcast_to(ctrl[:, None, :], (self._num_envs, nsteps, ctrl.shape[-1]))
         state_traj, sensor_traj = self._rollout.rollout(
-            self._model, self._worker_data,
+            self._model,
+            self._worker_data,
             initial_state=self._physics_state.astype(np.float64),
-            control=control_traj, nstep=nsteps
+            control=control_traj,
+            nstep=nsteps,
         )
         self._physics_state[:] = state_traj[:, -1, :].astype(self._np_dtype)
         self._sensor_data[:] = sensor_traj[:, -1, :].astype(self._np_dtype)

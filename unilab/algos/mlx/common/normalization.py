@@ -43,7 +43,7 @@ class EmpiricalDiscountedVariationNormalization:
         self.dtype = dtype
         self.emp_norm = EmpiricalNormalization(shape=1, eps=eps, dtype=dtype)
         self.gamma = float(gamma)
-        self.avg = None
+        self.avg: mx.array | None = None
 
     def __call__(self, rew: mx.array) -> mx.array:
         """Normalize reward tensor of shape [N] or [N, 1]."""
@@ -54,5 +54,6 @@ class EmpiricalDiscountedVariationNormalization:
             self.avg = rew
         else:
             self.avg = self.avg * self.gamma + rew
-        self.emp_norm.update(self.avg)
+        avg: mx.array = self.avg
+        self.emp_norm.update(avg)
         return rew / (self.emp_norm.std + self.emp_norm.eps)

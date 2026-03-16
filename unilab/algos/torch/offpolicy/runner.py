@@ -2,14 +2,16 @@
 
 import os
 import time
-import torch
 from collections import deque
 
-from unilab.ipc import SharedReplayBuffer, SharedWeightSync, SharedObsNormStats
-from unilab.ipc.async_runner import AsyncRunner
+import torch
+
 from unilab.algos.torch.offpolicy.worker import off_policy_collector_fn
+from unilab.ipc import SharedObsNormStats, SharedWeightSync
+from unilab.ipc.async_runner import _SPAWN_CTX, AsyncRunner
+from unilab.ipc.replay_buffer import ReplayBuffer
+from unilab.utils.device_utils import get_default_device, get_env_dims
 from unilab.utils.offpolicy_logger import OffPolicyLogger
-from unilab.ipc.async_runner import _SPAWN_CTX
 
 
 class OffPolicyRunner(AsyncRunner):
@@ -28,20 +30,18 @@ class OffPolicyRunner(AsyncRunner):
         policy_frequency: int = 4,
         sync_collection: bool = True,
         env_steps_per_sync: int = 1,
-        device: str = None,
-        collector_device: str = None,
+        device: str | None = None,
         actor_hidden_dim: int = 512,
         use_layer_norm: bool = True,
         obs_normalization: bool = False,
         sim_backend: str = "mujoco",
-        use_gpu_buffer: bool = True,
     ):
         super().__init__(
             env_name=env_name,
             env_cfg_overrides={},
             rl_cfg={},
             device=device,
-            collector_device=collector_device or "cpu",
+            collector_device="cpu",
             num_envs=num_envs,
             sim_backend=sim_backend,
         )
@@ -58,26 +58,11 @@ class OffPolicyRunner(AsyncRunner):
         self.actor_hidden_dim = actor_hidden_dim
         self.use_layer_norm = use_layer_norm
         self.obs_normalization = obs_normalization
-        self.use_gpu_buffer = use_gpu_buffer and device != "cpu"
 
-        self.obs_dim, self.action_dim = self._detect_dims()
-
-    def _detect_dims(self):
-        from unilab.envs import registry
-        from unilab.utils.algo_utils import ensure_registries
-        ensure_registries()
-        env = registry.make(self.env_name, num_envs=1, sim_backend="mujoco")
-        obs_dim = env.observation_space.shape[0]
-        action_dim = env.action_space.shape[0]
-        env.close()
-        return obs_dim, action_dim
+        self.obs_dim, self.action_dim = get_env_dims(self.env_name, sim_backend)
 
     def _get_default_device(self) -> str:
-        if torch.cuda.is_available():
-            return "cuda"
-        if torch.backends.mps.is_available():
-            return "mps"
-        return "cpu"
+        return get_default_device()
 
     def _build_learner(self):
         return self.learner
@@ -85,37 +70,28 @@ class OffPolicyRunner(AsyncRunner):
     def _collector_fn(self, stop_event, **kwargs):
         off_policy_collector_fn(stop_event=stop_event, **kwargs)
 
-    def learn(self, max_iterations: int = 1500, save_interval: int = 50,
-              log_dir: str = "logs", logger_type: str = "tensorboard"):
+    def learn(
+        self,
+        max_iterations: int = 1500,
+        save_interval: int = 50,
+        log_dir: str = "logs",
+        logger_type: str = "tensorboard",
+    ):
         """Unified training loop for off-policy algorithms."""
         os.makedirs(log_dir, exist_ok=True)
 
-        # Setup shared buffer
+        # Setup replay buffer
         buffer_capacity = self.replay_buffer_n * self.num_envs
-        shared_buffer = SharedReplayBuffer(
+        replay_buffer = ReplayBuffer(
             capacity=buffer_capacity,
             obs_dim=self.obs_dim,
             action_dim=self.action_dim,
-            create=True,
+            device=self.device,
         )
-        self._shared_resources.append(shared_buffer)
-
-        # Setup GPU buffer if enabled
-        gpu_buffer = None
-        if self.use_gpu_buffer:
-            from unilab.ipc import GPUReplayBuffer
-            gpu_buffer = GPUReplayBuffer(
-                capacity=buffer_capacity,
-                obs_dim=self.obs_dim,
-                action_dim=self.action_dim,
-                device=self.device,
-            )
-            print(f"[Runner] GPU buffer enabled on {self.device}")
+        self._shared_resources.append(replay_buffer)
 
         # Setup weight sync
-        weight_sync = SharedWeightSync.from_state_dict(
-            self.learner.actor.state_dict(), create=True
-        )
+        weight_sync = SharedWeightSync.from_state_dict(self.learner.actor.state_dict(), create=True)
         self._shared_resources.append(weight_sync)
 
         # Setup sync queues
@@ -139,20 +115,15 @@ class OffPolicyRunner(AsyncRunner):
         collector_kwargs = {
             "env_name": self.env_name,
             "num_envs": self.num_envs,
-            "shm_buffer_name": shared_buffer.name,
-            "buffer_capacity": buffer_capacity,
-            "obs_dim": self.obs_dim,
-            "action_dim": self.action_dim,
+            "replay_buffer": replay_buffer,
             "weight_sync_name": weight_sync.name,
             "weight_sync_lock": weight_sync._lock,
             "weight_param_shapes": weight_param_shapes,
             "algo_type": self.algo_type,
             "actor_hidden_dim": self.actor_hidden_dim,
             "use_layer_norm": self.use_layer_norm,
-            "collector_device": self.collector_device,
             "warmup_steps": self.warmup_steps,
             "metrics_queue": metrics_queue,
-            "buffer_lock": shared_buffer._lock,
             "sync_collection": self.sync_collection,
             "collection_ready_queue": collection_ready_queue,
             "trainer_done_queue": trainer_done_queue,
@@ -181,12 +152,12 @@ class OffPolicyRunner(AsyncRunner):
             log_backend=logger_type,
         )
         logger.set_collection_sync(self.sync_collection, self.env_steps_per_sync)
-        if hasattr(self.learner, 'use_symmetry') and self.learner.use_symmetry:
+        if hasattr(self.learner, "use_symmetry") and self.learner.use_symmetry:
             logger.log_status("Symmetry augmentation: enabled")
         logger.start()
 
-        reward_history = deque(maxlen=100)
-        latest_reward_components = {}
+        reward_history: deque = deque(maxlen=100)
+        latest_reward_components: dict[str, float] = {}
         last_buf_log = 0
         write_read_ema = 0.0
 
@@ -195,54 +166,55 @@ class OffPolicyRunner(AsyncRunner):
             iter_start = time.time()
 
             # Wait for data
+            wait_start = time.time()
             if self.sync_collection and collection_ready_queue:
                 import queue
+
                 while True:
                     try:
                         collection_ready_queue.get(timeout=1.0)
                         break
                     except queue.Empty:
                         if not self._check_collector_alive():
-                            self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
+                            self._drain_metrics(
+                                metrics_queue, reward_history, latest_reward_components, logger
+                            )
                             logger.log_status("[red]ERROR: Collector died[/]")
                             logger.finish()
                             return
             else:
-                while shared_buffer.size < self.batch_size:
+                while int(replay_buffer.size[0]) < self.batch_size:
                     if not self._check_collector_alive():
-                        self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
+                        self._drain_metrics(
+                            metrics_queue, reward_history, latest_reward_components, logger
+                        )
                         logger.log_status("[red]ERROR: Collector died[/]")
                         logger.finish()
                         return
-                    cur_size = shared_buffer.size
+                    cur_size = int(replay_buffer.size[0])
                     if cur_size - last_buf_log >= self.num_envs * 10:
                         last_buf_log = cur_size
                         logger.log_buffer_fill(cur_size, self.batch_size)
                     time.sleep(0.1)
-                    self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
+                    self._drain_metrics(
+                        metrics_queue, reward_history, latest_reward_components, logger
+                    )
 
+            wait_time = time.time() - wait_start
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
             collect_time = time.time() - iter_start
 
             train_start = time.time()
             from collections import defaultdict
+
             iter_metrics = defaultdict(list)
-            ptr_before = shared_buffer.ptr
+            ptr_before = int(replay_buffer.ptr[0])
 
             # Local variable for faster access in hot loop
             learner = self.learner
 
-            # Sample from GPU buffer or host buffer
-            if gpu_buffer is not None:
-                # Sync new data before sampling
-                gpu_buffer.sync_new_data(shared_buffer)
-
-                if gpu_buffer.size >= self.batch_size * self.updates_per_step:
-                    large_batch = gpu_buffer.sample(self.batch_size * self.updates_per_step)
-                else:
-                    large_batch = shared_buffer.sample_torch(self.batch_size * self.updates_per_step, self.device)
-            else:
-                large_batch = shared_buffer.sample_torch(self.batch_size * self.updates_per_step, self.device)
+            # Sample from torch buffer (zero-copy on CUDA/MPS)
+            large_batch = replay_buffer.sample(self.batch_size * self.updates_per_step)
 
             for update_idx in range(self.updates_per_step):
                 s = update_idx * self.batch_size
@@ -260,22 +232,32 @@ class OffPolicyRunner(AsyncRunner):
 
                 learner.soft_update_target()
 
+            sync_start = time.time()
+
             if self.obs_normalization and getattr(self.learner, "obs_normalizer", None) is not None:
-                shared_obs_normalizer_stats.put((self.learner.obs_normalizer.mean.cpu().numpy(), self.learner.obs_normalizer.std.cpu().numpy()))
+                assert shared_obs_normalizer_stats is not None
+                shared_obs_normalizer_stats.put(
+                    (
+                        self.learner.obs_normalizer.mean.cpu().numpy(),
+                        self.learner.obs_normalizer.std.cpu().numpy(),
+                    )
+                )
 
             self.learner.update_count += 1
             weight_sync.write_weights(self.learner.actor.state_dict())
+            time.time() - sync_start
             train_time = time.time() - train_start
 
             if self.sync_collection and trainer_done_queue:
                 trainer_done_queue.put(1)
 
-            write_delta = shared_buffer.ptr - ptr_before
+            write_delta = int(replay_buffer.ptr[0]) - ptr_before
             consume = self.batch_size * self.updates_per_step
             write_read_ema = 0.9 * write_read_ema + 0.1 * (write_delta / max(consume, 1))
             logger.update_buffer_utilization(write_read_ema)
 
             import statistics
+
             avg_metrics = {k: statistics.mean(v) for k, v in iter_metrics.items() if v}
             mean_reward = statistics.mean(reward_history) if reward_history else 0.0
 
@@ -286,6 +268,7 @@ class OffPolicyRunner(AsyncRunner):
                 reward_components=latest_reward_components,
                 collect_time=collect_time,
                 train_time=train_time,
+                wait_time=wait_time,
             )
 
             if save_interval > 0 and iteration % save_interval == 0:
@@ -334,7 +317,11 @@ class OffPolicyRunner(AsyncRunner):
                     )
 
                 if "total_steps" in m and "buffer_size" in m:
-                    logger.log_collector(m["total_steps"], m["buffer_size"], m.get("mean_ep_reward", 0.0) if updated_rew else 0.0)
+                    logger.log_collector(
+                        m["total_steps"],
+                        m["buffer_size"],
+                        m.get("mean_ep_reward", 0.0) if updated_rew else 0.0,
+                    )
 
             except Exception:
                 break

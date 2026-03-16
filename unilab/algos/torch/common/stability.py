@@ -1,10 +1,11 @@
 """Numerical stability utilities for RL training."""
 
 import torch
-import torch.nn as nn
 
 
-def check_nan_loss(loss: torch.Tensor, default_metrics: dict) -> tuple[torch.Tensor | None, dict | None]:
+def check_nan_loss(
+    loss: torch.Tensor, default_metrics: dict
+) -> tuple[torch.Tensor | None, dict | None]:
     """Check if loss contains NaN or Inf values.
 
     Args:
@@ -15,7 +16,7 @@ def check_nan_loss(loss: torch.Tensor, default_metrics: dict) -> tuple[torch.Ten
         (loss, None) if valid, (None, nan_metrics) if invalid
     """
     if torch.isnan(loss) or torch.isinf(loss):
-        nan_metrics = {k: float('nan') for k in default_metrics}
+        nan_metrics = {k: float("nan") for k in default_metrics}
         return None, nan_metrics
     return loss, None
 
@@ -30,7 +31,9 @@ def clip_gradients(parameters, max_norm: float = 10.0):
     torch.nn.utils.clip_grad_norm_(parameters, max_norm=max_norm)
 
 
-def safe_tensor(tensor: torch.Tensor, nan_value: float = 0.0, clamp_range: tuple = (-10.0, 10.0)) -> torch.Tensor:
+def safe_tensor(
+    tensor: torch.Tensor, nan_value: float = 0.0, clamp_range: tuple = (-10.0, 10.0)
+) -> torch.Tensor:
     """Make tensor numerically safe by clamping and replacing NaN values.
 
     Args:

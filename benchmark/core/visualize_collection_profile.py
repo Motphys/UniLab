@@ -11,7 +11,6 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-
 ITER_RE = re.compile(
     r"\[iter\s+(\d+)/(\d+)\].*?collect=([0-9.]+)s.*?"
     r"prof\(act/step/core/post/reset/buf/fin/ep\)="
@@ -68,7 +67,10 @@ def plot(rows: list[dict[str, float]], out_dir: Path) -> None:
     reset = [r["reset"] for r in rows]
     act = [r["act"] for r in rows]
     episode = [r["episode"] for r in rows]
-    residual = [max(c - (a + co + po + re + ep), 0.0) for c, a, co, po, re, ep in zip(collect, act, core, post, reset, episode)]
+    residual = [
+        max(c - (a + co + po + re + ep), 0.0)
+        for c, a, co, po, re, ep in zip(collect, act, core, post, reset, episode)
+    ]
 
     plt.figure(figsize=(10, 5))
     plt.plot(iters, collect, marker="o", label="collection")
@@ -192,4 +194,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

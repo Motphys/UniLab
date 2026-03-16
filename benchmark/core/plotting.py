@@ -1,14 +1,16 @@
 """Plotting utilities for benchmark results."""
+
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
 try:
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    import matplotlib.ticker as mticker
 except Exception:
     plt = None
+
 
 def save_line_plot(
     records: List[Dict[str, Any]],

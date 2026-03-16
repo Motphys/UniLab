@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Benchmark C++ batch forward vs Python forward methods."""
+
 import argparse
 import sys
 from dataclasses import asdict, dataclass
-from pathlib import Path
-from typing import List, Tuple
 from multiprocessing import cpu_count
+from pathlib import Path
 
 import mujoco
-from mujoco import batch_forward
 import numpy as np
+from mujoco import batch_forward
 
 try:
     from benchmark.core.device_info import get_device_info_dict, get_device_info_line
@@ -17,6 +17,7 @@ except ModuleNotFoundError:
     from core.device_info import get_device_info_dict, get_device_info_line
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
@@ -36,6 +37,7 @@ TASK_CFG_MAP = {
     "G1JoystickFlatTerrain": G1JoystickCfg,
 }
 
+
 @dataclass
 class ConsistencyRecord:
     task: str
@@ -43,6 +45,7 @@ class ConsistencyRecord:
     max_abs_diff: float
     mean_abs_diff: float
     allclose: bool
+
 
 @dataclass
 class SpeedRecord:
@@ -52,8 +55,10 @@ class SpeedRecord:
     elapsed_sec: float
     us_per_env: float
 
+
 def load_model_for_task(task: str) -> mujoco.MjModel:
     return mujoco.MjModel.from_xml_path(TASK_CFG_MAP[task]().model_file)
+
 
 def _set_state_for_forward(model, data, state):
     mujoco.mj_setState(model, data, state, mujoco.mjtState.mjSTATE_FULLPHYSICS)
@@ -61,6 +66,7 @@ def _set_state_for_forward(model, data, state):
     data.qfrc_applied[:] = 0.0
     data.xfrc_applied[:] = 0.0
     data.qacc_warmstart[:] = 0.0
+
 
 def python_forward_for_loop(model, states):
     out = np.empty((states.shape[0], model.nsensordata), dtype=np.float64)
@@ -70,6 +76,7 @@ def python_forward_for_loop(model, states):
         mujoco.mj_forward(model, data)
         out[i] = data.sensordata
     return out
+
 
 def python_forward_chunk_loop(model, states, chunk_size):
     out = np.empty((states.shape[0], model.nsensordata), dtype=np.float64)
@@ -81,6 +88,7 @@ def python_forward_chunk_loop(model, states, chunk_size):
             mujoco.mj_forward(model, data)
             out[i] = data.sensordata
     return out
+
 
 def cpp_batch_forward(model, states, nthread, chunk_size):
     workers = [mujoco.MjData(model) for _ in range(nthread)]
@@ -95,6 +103,7 @@ def cpp_batch_forward(model, states, nthread, chunk_size):
             return_state=False,
         )
     return np.asarray(sensordata, dtype=np.float64)
+
 
 def collect_random_reset_states(task, batch_size, random_rounds, seed):
     model = load_model_for_task(task)
@@ -137,10 +146,13 @@ def collect_random_reset_states(task, batch_size, random_rounds, seed):
 
     return model, states
 
+
 def run_consistency(tasks, batch_size, random_rounds, seed, atol, rtol, chunk_size):
     records = []
     for task in tasks:
-        model, states = collect_random_reset_states(task, batch_size, random_rounds, seed + abs(hash(task)) % 10000)
+        model, states = collect_random_reset_states(
+            task, batch_size, random_rounds, seed + abs(hash(task)) % 10000
+        )
         nthread = min(batch_size, cpu_count())
         py_sensor = python_forward_for_loop(model, states)
         cpp_sensor = cpp_batch_forward(model, states, nthread, chunk_size)
@@ -149,11 +161,15 @@ def run_consistency(tasks, batch_size, random_rounds, seed, atol, rtol, chunk_si
         mean_abs = float(np.mean(diff))
         ok = bool(np.allclose(py_sensor, cpp_sensor, atol=atol, rtol=rtol))
         records.append(ConsistencyRecord(task, batch_size, max_abs, mean_abs, ok))
-        print(f"[Consistency] {task}: allclose={ok}, max_abs={max_abs:.3e}, mean_abs={mean_abs:.3e}")
+        print(
+            f"[Consistency] {task}: allclose={ok}, max_abs={max_abs:.3e}, mean_abs={mean_abs:.3e}"
+        )
     return records
+
 
 def _bench_method(func, repeats):
     import time
+
     samples = [time.perf_counter() or func() or time.perf_counter() for _ in range(repeats)]
     samples = []
     for _ in range(repeats):
@@ -162,6 +178,7 @@ def _bench_method(func, repeats):
         samples.append(time.perf_counter() - t0)
     return float(np.median(samples))
 
+
 def run_reset_speed(task, env_nums, random_rounds, chunk_size, repeats, seed):
     records = []
     for env_num in env_nums:
@@ -169,14 +186,27 @@ def run_reset_speed(task, env_nums, random_rounds, chunk_size, repeats, seed):
         nthread = min(env_num, cpu_count())
 
         t_for = _bench_method(lambda: python_forward_for_loop(model, states), repeats)
-        t_chunk = _bench_method(lambda: python_forward_chunk_loop(model, states, chunk_size), repeats)
-        t_cpp = _bench_method(lambda: cpp_batch_forward(model, states, nthread, chunk_size), repeats)
+        t_chunk = _bench_method(
+            lambda: python_forward_chunk_loop(model, states, chunk_size), repeats
+        )
+        t_cpp = _bench_method(
+            lambda: cpp_batch_forward(model, states, nthread, chunk_size), repeats
+        )
 
-        for method, elapsed in [("for_loop", t_for), ("chunk_for_loop", t_chunk), ("cpp_batch_forward", t_cpp)]:
-            records.append(SpeedRecord(task, method, env_num, elapsed, elapsed * 1e6 / max(env_num, 1)))
+        for method, elapsed in [
+            ("for_loop", t_for),
+            ("chunk_for_loop", t_chunk),
+            ("cpp_batch_forward", t_cpp),
+        ]:
+            records.append(
+                SpeedRecord(task, method, env_num, elapsed, elapsed * 1e6 / max(env_num, 1))
+            )
 
-        print(f"[Speed] {task} env={env_num}: for={t_for*1e3:.3f}ms, chunk={t_chunk*1e3:.3f}ms, cpp={t_cpp*1e3:.3f}ms")
+        print(
+            f"[Speed] {task} env={env_num}: for={t_for * 1e3:.3f}ms, chunk={t_chunk * 1e3:.3f}ms, cpp={t_cpp * 1e3:.3f}ms"
+        )
     return records
+
 
 def plot_speed(records, out_png):
     out_png.parent.mkdir(parents=True, exist_ok=True)
@@ -189,8 +219,17 @@ def plot_speed(records, out_png):
     width = 0.24
 
     for i, method in enumerate(methods):
-        total_ms = [next(r.elapsed_sec for r in records if r.method == method and r.env_num == n) * 1e3 for n in env_nums]
-        throughput = [n / max(next(r.elapsed_sec for r in records if r.method == method and r.env_num == n), 1e-12) for n in env_nums]
+        total_ms = [
+            next(r.elapsed_sec for r in records if r.method == method and r.env_num == n) * 1e3
+            for n in env_nums
+        ]
+        throughput = [
+            n
+            / max(
+                next(r.elapsed_sec for r in records if r.method == method and r.env_num == n), 1e-12
+            )
+            for n in env_nums
+        ]
         offset = (i - 1) * width
         ax1.bar(x + offset, total_ms, width, label=method, color=colors[method], alpha=0.95)
         ax2.bar(x + offset, throughput, width, label=method, color=colors[method], alpha=0.95)
@@ -213,6 +252,7 @@ def plot_speed(records, out_png):
     fig.savefig(out_png, dpi=180)
     plt.close(fig)
 
+
 def main():
     parser = argparse.ArgumentParser(description="Benchmark C++ batch forward vs Python forward")
     parser.add_argument("--consistency-tasks", type=str, default=",".join(CONSISTENCY_TASKS))
@@ -224,38 +264,58 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--atol", type=float, default=1e-9)
     parser.add_argument("--rtol", type=float, default=1e-8)
-    parser.add_argument("--out-json", type=str, default="benchmark/outputs/reset_forward_batch/results.json")
-    parser.add_argument("--out-png", type=str, default="benchmark/outputs/reset_forward_batch/speed_plot.png")
+    parser.add_argument(
+        "--out-json", type=str, default="benchmark/outputs/reset_forward_batch/results.json"
+    )
+    parser.add_argument(
+        "--out-png", type=str, default="benchmark/outputs/reset_forward_batch/speed_plot.png"
+    )
     args = parser.parse_args()
 
     consistency_tasks = [t.strip() for t in args.consistency_tasks.split(",") if t.strip()]
     env_nums = [int(x.strip()) for x in args.env_nums.split(",") if x.strip()]
 
-    consistency = run_consistency(consistency_tasks, args.consistency_batch, args.random_rounds, args.seed, args.atol, args.rtol, args.chunk_size)
-    speed = run_reset_speed(RESET_TASK, env_nums, args.random_rounds, args.chunk_size, args.repeats, args.seed)
+    consistency = run_consistency(
+        consistency_tasks,
+        args.consistency_batch,
+        args.random_rounds,
+        args.seed,
+        args.atol,
+        args.rtol,
+        args.chunk_size,
+    )
+    speed = run_reset_speed(
+        RESET_TASK, env_nums, args.random_rounds, args.chunk_size, args.repeats, args.seed
+    )
 
     out_json = Path(args.out_json)
     out_json.parent.mkdir(parents=True, exist_ok=True)
 
     import json
     from datetime import datetime, timezone
+
     with out_json.open("w") as f:
-        json.dump({
-            "meta": {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "device_info": get_device_info_dict(),
-                "consistency_tasks": consistency_tasks,
-                "reset_task": RESET_TASK,
-                "env_nums": env_nums,
-                "chunk_size": args.chunk_size,
+        json.dump(
+            {
+                "meta": {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "device_info": get_device_info_dict(),
+                    "consistency_tasks": consistency_tasks,
+                    "reset_task": RESET_TASK,
+                    "env_nums": env_nums,
+                    "chunk_size": args.chunk_size,
+                },
+                "consistency": [asdict(r) for r in consistency],
+                "speed": [asdict(r) for r in speed],
             },
-            "consistency": [asdict(r) for r in consistency],
-            "speed": [asdict(r) for r in speed],
-        }, f, indent=2)
+            f,
+            indent=2,
+        )
 
     plot_speed(speed, Path(args.out_png))
     print(f"Consistency: {all(r.allclose for r in consistency)}")
     print(f"Saved: {out_json}, {args.out_png}")
+
 
 if __name__ == "__main__":
     main()

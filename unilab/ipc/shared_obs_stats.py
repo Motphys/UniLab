@@ -16,7 +16,7 @@ class SharedObsNormStats:
         while not self.q.empty():
             try:
                 self.q.get_nowait()
-            except:
+            except Exception:
                 pass
         self.q.put(stats)
 
@@ -25,6 +25,6 @@ class SharedObsNormStats:
         try:
             while not self.q.empty():
                 self.last_stats = self.q.get_nowait()
-        except:
+        except Exception:
             pass
         return self.last_stats

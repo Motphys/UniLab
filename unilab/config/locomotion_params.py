@@ -15,7 +15,7 @@ def ppo_config(env_name: str) -> config_dict.ConfigDict:
         save_interval=100,
         learning_rate=1.0e-3,
         entropy_coef=0.01,
-        schedule="adaptive", #"fixed",
+        schedule="adaptive",  # "fixed",
         value_loss_coef=1.0,
         num_learning_epochs=5,
         num_mini_batches=4,
@@ -24,11 +24,11 @@ def ppo_config(env_name: str) -> config_dict.ConfigDict:
 
     if env_name == "Go1JoystickFlatTerrain":
         cfg.max_iterations = 151
-    elif env_name == "G1JoystickFlatTerrain":
-        cfg.num_envs = 2048
-        cfg.max_iterations = 220
     elif env_name == "Go2JoystickFlatTerrain":
         pass
+    elif env_name in ("G1JoystickFlatTerrain", "G1WalkTaskMjSAC"):
+        cfg.num_envs = 2048
+        cfg.max_iterations = 220
 
     return config_dict.create(
         algo="ppo",
@@ -85,6 +85,77 @@ def ppo_config(env_name: str) -> config_dict.ConfigDict:
     )
 
 
+def appo_config(env_name: str) -> config_dict.ConfigDict:
+    """Return APPO config.
+
+    Mirrors the structure of ppo_config/offpolicy_config so training
+    infrastructure is reusable.  Algorithm hyperparams live under the
+    ``algorithm`` sub-dict; network architecture under ``actor``/``critic``.
+    """
+    cfg = config_dict.create(
+        seed=1,
+        num_envs=2048,
+        steps_per_env=24,
+        max_iterations=150,
+        save_interval=50,
+    )
+
+    if env_name == "Go1JoystickFlatTerrain":
+        pass
+    elif env_name in ("Go2JoystickFlatTerrain",):
+        pass
+    elif env_name in ("G1JoystickFlatTerrain", "G1WalkTaskMjSAC"):
+        cfg.max_iterations = 500
+        cfg.save_interval = 100
+
+    return config_dict.create(
+        algo="appo",
+        algo_log_name="appo",
+        seed=cfg.seed,
+        num_envs=cfg.num_envs,
+        steps_per_env=cfg.steps_per_env,
+        max_iterations=cfg.max_iterations,
+        save_interval=cfg.save_interval,
+        obs_groups=config_dict.create(
+            actor=config_dict.create(policy=0),
+        ),
+        actor=config_dict.create(
+            class_name="rsl_rl.models.MLPModel",
+            hidden_dims=[512, 256, 128],
+            activation="elu",
+            distribution_cfg=config_dict.create(
+                class_name="rsl_rl.modules.distribution.GaussianDistribution",
+                init_std=1.0,
+                std_type="scalar",
+            ),
+        ),
+        critic=config_dict.create(
+            class_name="rsl_rl.models.MLPModel",
+            hidden_dims=[512, 256, 128],
+            activation="elu",
+        ),
+        algorithm=config_dict.create(
+            num_learning_epochs=5,
+            num_mini_batches=4,
+            clip_param=0.2,
+            gamma=0.99,
+            lam=0.95,
+            value_loss_coef=1.0,
+            entropy_coef=0.01,
+            learning_rate=1e-3,
+            max_grad_norm=1.0,
+            use_clipped_value_loss=True,
+            schedule="adaptive",
+            desired_kl=0.01,
+            optimizer="adam",
+            tau=1.0,
+            target_update_freq=1,
+            vtrace_clip_rho=1.0,
+            vtrace_clip_c=1.0,
+        ),
+    )
+
+
 def offpolicy_config(algo: str, env_name: str) -> config_dict.ConfigDict:
     """Return a unified off-policy config schema for SAC/TD3.
 
@@ -105,7 +176,7 @@ def offpolicy_config(algo: str, env_name: str) -> config_dict.ConfigDict:
             warmup_steps=1000,
             replay_buffer_n=512,
             env_steps_per_sync=1,
-            max_iterations=1500,
+            max_iterations=500,
             save_interval=500,
             actor_lr=3e-4,
             critic_lr=3e-4,
@@ -120,12 +191,15 @@ def offpolicy_config(algo: str, env_name: str) -> config_dict.ConfigDict:
             use_symmetry=False,
         )
 
-        if env_name in ("Go2JoystickFlatTerrain", "Go2LocoFlatTerrain"):
+        if env_name in ("Go2JoystickFlatTerrain",):
             cfg.num_envs = 1024
         elif env_name in ("Go1JoystickFlatTerrain",):
+            cfg.num_envs = 2048
             cfg.max_iterations = 2000
         elif env_name in ("G1JoystickFlatTerrain",):
-            raise NotImplementedError("G1JoystickFlatTerrain config is not implemented for FastSAC, Please use G1WalkTaskMjSAC instead.")
+            raise NotImplementedError(
+                "G1JoystickFlatTerrain config is not implemented for FastSAC, Please use G1WalkTaskMjSAC instead."
+            )
         elif env_name in ("G1WalkTaskMjSAC",):
             cfg.updates_per_step = 8
             cfg.replay_buffer_n = 512
@@ -167,7 +241,7 @@ def offpolicy_config(algo: str, env_name: str) -> config_dict.ConfigDict:
             ),
         )
 
-    if algo_name == "td3":
+    elif algo_name == "td3":
         cfg = config_dict.create(
             seed=1,
             actor_hidden_dim=256,
@@ -197,7 +271,7 @@ def offpolicy_config(algo: str, env_name: str) -> config_dict.ConfigDict:
             obs_normalization=True,
         )
 
-        if env_name in ("Go2JoystickFlatTerrain", "Go2LocoFlatTerrain"):
+        if env_name in ("Go2JoystickFlatTerrain",):
             cfg.max_iterations = 2000
         elif env_name in ("G1JoystickFlatTerrain",):
             cfg.num_envs = 2048

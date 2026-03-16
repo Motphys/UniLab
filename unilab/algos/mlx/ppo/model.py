@@ -8,7 +8,7 @@ from typing import Sequence, Tuple
 import mlx.core as mx
 import mlx.nn as nn
 
-from unilab.algos.mlx.common import EmpiricalNormalization, MLP, diag_gaussian_log_prob
+from unilab.algos.mlx.common import MLP, EmpiricalNormalization, diag_gaussian_log_prob
 
 
 class MLPActorCritic(nn.Module):
@@ -35,7 +35,9 @@ class MLPActorCritic(nn.Module):
         self.noise_std_type = noise_std_type
         self.state_dependent_std = bool(state_dependent_std)
         self.obs_normalization = bool(obs_normalization)
-        self.obs_normalizer = EmpiricalNormalization(obs_dim, dtype=dtype) if self.obs_normalization else None
+        self.obs_normalizer = (
+            EmpiricalNormalization(obs_dim, dtype=dtype) if self.obs_normalization else None
+        )
         actor_output_dim = action_dim * 2 if self.state_dependent_std else action_dim
         self.actor = MLP(obs_dim, actor_output_dim, actor_hidden_dims, activation=activation)
         self.critic = MLP(obs_dim, 1, critic_hidden_dims, activation=activation)
@@ -45,14 +47,18 @@ class MLPActorCritic(nn.Module):
             # Keep std head conservative at init like rsl-rl.
             self.actor.layers[-1].weight[self.action_dim :] = 0.0
             if self.noise_std_type == "scalar":
-                self.actor.layers[-1].bias[self.action_dim :] = float(mx.exp(mx.array(init_log_std)).item())
+                self.actor.layers[-1].bias[self.action_dim :] = float(
+                    mx.exp(mx.array(init_log_std)).item()
+                )
             elif self.noise_std_type == "log":
                 self.actor.layers[-1].bias[self.action_dim :] = float(init_log_std)
             else:
                 raise ValueError(f"Unknown noise_std_type: {self.noise_std_type}")
         else:
             if self.noise_std_type == "scalar":
-                self.std = mx.full((action_dim,), float(mx.exp(mx.array(init_log_std)).item()), dtype=self.dtype)
+                self.std = mx.full(
+                    (action_dim,), float(mx.exp(mx.array(init_log_std)).item()), dtype=self.dtype
+                )
             elif self.noise_std_type == "log":
                 self.log_std = mx.full((action_dim,), float(init_log_std), dtype=self.dtype)
             else:
@@ -110,7 +116,7 @@ class MLPActorCritic(nn.Module):
         if self.obs_normalizer is not None:
             self.obs_normalizer.update(obs)
 
-    def act(self, obs: mx.array) -> Tuple[mx.array, mx.array, mx.array, mx.array]:
+    def act(self, obs: mx.array) -> Tuple[mx.array, mx.array, mx.array, mx.array, mx.array]:
         """Sample actions and return MLX tensors."""
         mean, std, log_std = self.distribution_params(obs)
         noise = mx.random.normal(mean.shape)

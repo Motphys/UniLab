@@ -1,9 +1,11 @@
 """MLP benchmark utilities shared between ANE and MLP inference benchmarks."""
+
 from __future__ import annotations
 
 import statistics
 from dataclasses import dataclass
 from typing import List, Tuple
+
 
 @dataclass
 class MLPBenchRecord:
@@ -18,13 +20,16 @@ class MLPBenchRecord:
     max_sec: float
     envs_per_sec: float
 
+
 def env_nums_pow2(pow_min: int, pow_max: int) -> List[int]:
-    return [2 ** k for k in range(pow_min, pow_max + 1)]
+    return [2**k for k in range(pow_min, pow_max + 1)]
+
 
 def mlp_param_count(obs_dim: int, action_dim: int, hidden_dims: List[int]) -> int:
     """Total number of parameters (weights + biases) for obs->hidden->...->action MLP."""
     dims = [obs_dim] + hidden_dims + [action_dim]
     return sum((dims[i] + 1) * dims[i + 1] for i in range(len(dims) - 1))
+
 
 def trimmed_mean(samples: List[float]) -> Tuple[float, float, List[float]]:
     """Drop one min and one max, return (mean of middle, std of middle, trimmed list)."""
@@ -35,6 +40,7 @@ def trimmed_mean(samples: List[float]) -> Tuple[float, float, List[float]]:
     sorted_s = sorted(samples)
     trimmed = sorted_s[1:-1]
     return statistics.mean(trimmed), statistics.pstdev(trimmed), trimmed
+
 
 def print_mlp_table(records: List[MLPBenchRecord]) -> None:
     if not records:

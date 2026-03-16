@@ -1,13 +1,15 @@
+from __future__ import annotations
+
 import abc
 import dataclasses
 from dataclasses import dataclass
-from typing import Tuple
-import numpy as np
-import gymnasium as gym
+from typing import Any, Optional, Tuple
 
-from unilab.envs.base import ABEnv, EnvCfg
-from unilab.envs.backend import SimBackend
-from unilab.envs.dtype_config import get_global_dtype
+import numpy as np
+
+from unilab.base.backend import SimBackend
+from unilab.base.base import ABEnv, EnvCfg
+from unilab.base.dtype_config import get_global_dtype
 
 
 @dataclass
@@ -17,12 +19,13 @@ class NpEnvState:
     terminated: np.ndarray
     truncated: np.ndarray
     info: dict
+    critic_obs: Optional[np.ndarray] = None
 
     @property
     def done(self) -> np.ndarray:
-        return np.logical_or(self.terminated, self.truncated)
+        return np.asarray(np.logical_or(self.terminated, self.truncated))
 
-    def replace(self, **updates) -> "NpEnvState":
+    def replace(self, **updates: Any) -> "NpEnvState":
         return dataclasses.replace(self, **updates)
 
 
@@ -31,9 +34,16 @@ class NpEnv(ABEnv):
 
     def __init__(self, cfg: EnvCfg, backend: SimBackend, num_envs: int):
         self._cfg = cfg
-        self._backend = backend
+        self._backend: Any = backend
         self._num_envs = num_envs
-        self._state = None
+        self._state: Optional[NpEnvState] = None
+        self.step_counter = 0
+        self.push_robots_flag = False
+        if getattr(self._backend, "backend_type", None) == "motrix":
+            self._backend._process_rigid_body_props(cfg)  # type: ignore[attr-defined]
+            domain_rand = getattr(self._cfg, "domain_rand", None)
+            if domain_rand and domain_rand.push_robots:
+                self.push_robots_flag = True
 
     @property
     def cfg(self) -> EnvCfg:
@@ -44,16 +54,18 @@ class NpEnv(ABEnv):
         return self._num_envs
 
     @property
-    def state(self) -> NpEnvState:
+    def state(self) -> Optional[NpEnvState]:
         return self._state
 
     def init_state(self) -> NpEnvState:
         dtype = get_global_dtype()
-        obs = np.zeros((self._num_envs, self.observation_space.shape[0]), dtype=dtype)
+        obs_shape = self.observation_space.shape
+        assert obs_shape is not None
+        obs = np.zeros((self._num_envs, obs_shape[0]), dtype=dtype)
         reward = np.zeros((self._num_envs,), dtype=dtype)
         terminated = np.ones((self._num_envs,), dtype=bool)
         truncated = np.zeros((self._num_envs,), dtype=bool)
-        info = {"steps": np.zeros((self._num_envs,), dtype=np.uint32)}
+        info: dict = {"steps": np.zeros((self._num_envs,), dtype=np.uint32)}
 
         self._state = NpEnvState(obs, reward, terminated, truncated, info)
         self._reset_done_envs()
@@ -61,12 +73,16 @@ class NpEnv(ABEnv):
 
     def step(self, actions: np.ndarray) -> NpEnvState:
         import time
+
         step_t0 = time.perf_counter()
 
         if self._state is None:
             self.init_state()
 
+        assert self._state is not None
         ctrl = self.apply_action(actions, self._state)
+
+        self.push_robots()
 
         t0 = time.perf_counter()
         self._backend.step(ctrl, self._cfg.sim_substeps)
@@ -77,9 +93,11 @@ class NpEnv(ABEnv):
         update_state_time = time.perf_counter() - t0
 
         self._state.info["steps"] += 1
-
+        self.step_counter += 1
         if self._cfg.max_episode_steps:
-            np.greater_equal(self._state.info["steps"], self._cfg.max_episode_steps, out=self._state.truncated)
+            np.greater_equal(
+                self._state.info["steps"], self._cfg.max_episode_steps, out=self._state.truncated
+            )
 
         done = self._state.done
         t0 = time.perf_counter()
@@ -95,7 +113,8 @@ class NpEnv(ABEnv):
 
         return self._state
 
-    def _reset_done_envs(self):
+    def _reset_done_envs(self) -> None:
+        assert self._state is not None
         done = self._state.done
         if not np.any(done):
             return
@@ -126,6 +145,12 @@ class NpEnv(ABEnv):
                 elif isinstance(value, np.ndarray):
                     self._state.info[key][env_indices] = value
 
+    def push_robots(self) -> None:
+        if self.push_robots_flag:
+            domain_rand = getattr(self._cfg, "domain_rand", None)
+            if domain_rand and self.step_counter % domain_rand.push_interval == 0:
+                self._backend.push_robots(domain_rand.max_force)
+
     @abc.abstractmethod
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
         """子类实现：action → ctrl"""
@@ -135,9 +160,9 @@ class NpEnv(ABEnv):
         """子类实现：计算 obs/reward/terminated"""
 
     @abc.abstractmethod
-    def reset(self, env_indices: np.ndarray) -> Tuple[np.ndarray, dict]:
+    def reset(self, env_indices: np.ndarray) -> Tuple[np.ndarray, np.ndarray, dict]:
         """子类实现：重置指定环境"""
 
-    def close(self):
+    def close(self) -> None:
         """关闭环境"""
         pass

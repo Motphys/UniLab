@@ -1,31 +1,53 @@
 #!/usr/bin/env python3
 """Benchmark compute performance: NumPy/PyTorch/MLX."""
+
 import argparse
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import List
 
 try:
-    from benchmark.core import bench_callable, parse_sizes, parse_dtypes, normalize_dtypes, available_backends, numpy_dtype, torch_dtype, mlx_dtype, print_table
+    from benchmark.core import (
+        available_backends,
+        bench_callable,
+        mlx_dtype,
+        normalize_dtypes,
+        numpy_dtype,
+        parse_dtypes,
+        parse_sizes,
+        print_table,
+        torch_dtype,
+    )
     from benchmark.core.device_info import get_device_info_dict
 except ModuleNotFoundError:
-    from core import bench_callable, parse_sizes, parse_dtypes, normalize_dtypes, available_backends, numpy_dtype, torch_dtype, mlx_dtype, print_table
+    from core import (
+        available_backends,
+        bench_callable,
+        mlx_dtype,
+        normalize_dtypes,
+        numpy_dtype,
+        parse_dtypes,
+        parse_sizes,
+        print_table,
+        torch_dtype,
+    )
     from core.device_info import get_device_info_dict
 
 try:
     import numpy as np
-except:
+except Exception:
     np = None
 
 try:
     import torch
-except:
+except Exception:
     torch = None
 
 try:
     import mlx.core as mx
-except:
+except Exception:
     mx = None
+
 
 @dataclass
 class BenchRecord:
@@ -43,22 +65,35 @@ class BenchRecord:
     approx_gflops: float
     gflops_per_sec: float
 
+
 def matmul_gflops(n: int) -> float:
-    return 2.0 * (n ** 3) / 1e9
+    return 2.0 * (n**3) / 1e9
+
 
 def elemwise_gflops(n: int, ops: int = 6) -> float:
     return ops * n * n / 1e9
 
+
 def summarize(backend, dtype, workload, size, warmup, repeat, elapsed, gflops):
     import statistics
+
     mean = statistics.mean(elapsed)
     return BenchRecord(
-        backend=backend, dtype=dtype, workload=workload, size=size,
-        warmup=warmup, repeat=repeat, elapsed_sec=elapsed,
-        mean_sec=mean, std_sec=statistics.pstdev(elapsed) if len(elapsed) > 1 else 0.0,
-        min_sec=min(elapsed), max_sec=max(elapsed),
-        approx_gflops=gflops, gflops_per_sec=gflops/mean if mean > 0 else 0
+        backend=backend,
+        dtype=dtype,
+        workload=workload,
+        size=size,
+        warmup=warmup,
+        repeat=repeat,
+        elapsed_sec=elapsed,
+        mean_sec=mean,
+        std_sec=statistics.pstdev(elapsed) if len(elapsed) > 1 else 0.0,
+        min_sec=min(elapsed),
+        max_sec=max(elapsed),
+        approx_gflops=gflops,
+        gflops_per_sec=gflops / mean if mean > 0 else 0,
     )
+
 
 def run_numpy(size, warmup, repeat, dtype_name):
     if not np:
@@ -68,12 +103,17 @@ def run_numpy(size, warmup, repeat, dtype_name):
     b = np.random.randn(size, size).astype(dt)
 
     mm_t = bench_callable(lambda: a @ b, lambda: None, warmup, repeat)
-    ew_t = bench_callable(lambda: np.tanh(a * 1.1 + b * 0.9) + np.sin(a - b), lambda: None, warmup, repeat)
+    ew_t = bench_callable(
+        lambda: np.tanh(a * 1.1 + b * 0.9) + np.sin(a - b), lambda: None, warmup, repeat
+    )
 
     return [
         summarize("numpy", dtype_name, "matmul", size, warmup, repeat, mm_t, matmul_gflops(size)),
-        summarize("numpy", dtype_name, "elemwise", size, warmup, repeat, ew_t, elemwise_gflops(size)),
+        summarize(
+            "numpy", dtype_name, "elemwise", size, warmup, repeat, ew_t, elemwise_gflops(size)
+        ),
     ]
+
 
 def run_torch_cpu(size, warmup, repeat, dtype_name):
     if not torch:
@@ -83,12 +123,19 @@ def run_torch_cpu(size, warmup, repeat, dtype_name):
     b = torch.randn(size, size, dtype=dt, device="cpu")
 
     mm_t = bench_callable(lambda: a @ b, lambda: None, warmup, repeat)
-    ew_t = bench_callable(lambda: torch.tanh(a * 1.1 + b * 0.9) + torch.sin(a - b), lambda: None, warmup, repeat)
+    ew_t = bench_callable(
+        lambda: torch.tanh(a * 1.1 + b * 0.9) + torch.sin(a - b), lambda: None, warmup, repeat
+    )
 
     return [
-        summarize("torch_cpu", dtype_name, "matmul", size, warmup, repeat, mm_t, matmul_gflops(size)),
-        summarize("torch_cpu", dtype_name, "elemwise", size, warmup, repeat, ew_t, elemwise_gflops(size)),
+        summarize(
+            "torch_cpu", dtype_name, "matmul", size, warmup, repeat, mm_t, matmul_gflops(size)
+        ),
+        summarize(
+            "torch_cpu", dtype_name, "elemwise", size, warmup, repeat, ew_t, elemwise_gflops(size)
+        ),
     ]
+
 
 def run_torch_mps(size, warmup, repeat, dtype_name):
     if not torch or not hasattr(torch.backends, "mps") or not torch.backends.mps.is_available():
@@ -96,15 +143,24 @@ def run_torch_mps(size, warmup, repeat, dtype_name):
     dt = torch_dtype(dtype_name)
     a = torch.randn(size, size, dtype=dt, device="mps")
     b = torch.randn(size, size, dtype=dt, device="mps")
-    sync = lambda: torch.mps.synchronize()
+
+    def sync():
+        return torch.mps.synchronize()
 
     mm_t = bench_callable(lambda: a @ b, sync, warmup, repeat)
-    ew_t = bench_callable(lambda: torch.tanh(a * 1.1 + b * 0.9) + torch.sin(a - b), sync, warmup, repeat)
+    ew_t = bench_callable(
+        lambda: torch.tanh(a * 1.1 + b * 0.9) + torch.sin(a - b), sync, warmup, repeat
+    )
 
     return [
-        summarize("torch_mps", dtype_name, "matmul", size, warmup, repeat, mm_t, matmul_gflops(size)),
-        summarize("torch_mps", dtype_name, "elemwise", size, warmup, repeat, ew_t, elemwise_gflops(size)),
+        summarize(
+            "torch_mps", dtype_name, "matmul", size, warmup, repeat, mm_t, matmul_gflops(size)
+        ),
+        summarize(
+            "torch_mps", dtype_name, "elemwise", size, warmup, repeat, ew_t, elemwise_gflops(size)
+        ),
     ]
+
 
 def run_mlx(size, warmup, repeat, dtype_name):
     if not mx:
@@ -128,6 +184,7 @@ def run_mlx(size, warmup, repeat, dtype_name):
         summarize("mlx", dtype_name, "matmul", size, warmup, repeat, mm_t, matmul_gflops(size)),
         summarize("mlx", dtype_name, "elemwise", size, warmup, repeat, ew_t, elemwise_gflops(size)),
     ]
+
 
 def main():
     parser = argparse.ArgumentParser(description="Benchmark NumPy/Torch/MLX compute.")
@@ -159,6 +216,7 @@ def main():
 
     import json
     from datetime import datetime, timezone
+
     payload = {
         "meta": {
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),
@@ -172,9 +230,19 @@ def main():
     print(f"\nSaved: {out_path}")
 
     headers = ["backend", "workload", "dtype", "size", "mean_sec", "gflops/s"]
-    rows = [[r.backend, r.workload, r.dtype, str(r.size), f"{r.mean_sec:.6f}", f"{r.gflops_per_sec:.1f}"] for r in all_records]
+    rows = [
+        [
+            r.backend,
+            r.workload,
+            r.dtype,
+            str(r.size),
+            f"{r.mean_sec:.6f}",
+            f"{r.gflops_per_sec:.1f}",
+        ]
+        for r in all_records
+    ]
     print_table([dict(zip(headers, row)) for row in rows], headers)
+
 
 if __name__ == "__main__":
     main()
-

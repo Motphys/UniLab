@@ -7,34 +7,39 @@ hidden=[256,256,256], action_dim=12). ANE uses EnumeratedShapes and Core ML CPU_
 Per config: 5 runs, drop min and max, report mean (and std) of the middle 3.
 Outputs JSON and plots.
 """
+
 from __future__ import annotations
 
 try:
-    from benchmark.core import bench_callable, MLPBenchRecord, mlp_param_count, trimmed_mean, print_mlp_table
+    from benchmark.core import (
+        MLPBenchRecord,
+        bench_callable,
+        mlp_param_count,
+        print_mlp_table,
+        trimmed_mean,
+    )
     from benchmark.core.device_info import get_device_info_dict, get_device_info_line
 except ModuleNotFoundError:
-    from core import bench_callable, MLPBenchRecord, mlp_param_count, trimmed_mean, print_mlp_table
+    from core import MLPBenchRecord, bench_callable, mlp_param_count, print_mlp_table, trimmed_mean
     from core.device_info import get_device_info_dict, get_device_info_line
 
 
 import argparse
 import json
-import os
-import warnings
 import shutil
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
-
+import coremltools as ct
 import numpy as np
 import torch
-import coremltools as ct
 
 try:
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 except Exception:
@@ -56,6 +61,7 @@ def _safe_envs_per_sec(env_num: int, mean_sec: float) -> float:
         return 0.0
     mean_sec = max(mean_sec, _MIN_MEAN_SEC)
     return env_num / mean_sec
+
 
 # 测 5 次，去掉最小、最大各 1 个，对中间 3 个取平均
 REPEAT_COUNT = 5
@@ -86,35 +92,40 @@ def _build_and_convert_coreml_ane(
         shapes = [[n, obs_dim] for n in env_nums]
         default_shape = [env_nums[-1], obs_dim]
         input_shape = ct.EnumeratedShapes(shapes=shapes, default=default_shape)
-        
+
         # For FP8, we need to use an optimization pass after conversion
-        compute_precision = ct.precision.FLOAT16 if precision == ct.precision.FLOAT16 else ct.precision.FLOAT32
-        
+        compute_precision = (
+            ct.precision.FLOAT16 if precision == ct.precision.FLOAT16 else ct.precision.FLOAT32
+        )
+
         mlmodel = ct.convert(
             traced,
             convert_to="mlprogram",
             inputs=[ct.TensorType(name="x", shape=input_shape)],
             compute_precision=compute_precision,
         )
-        
+
         if precision == "FLOAT8":
             import coremltools.optimize.coreml as cto
+
             op_config = cto.OptimizationConfig(
                 global_config=cto.OpLinearQuantizerConfig(mode="linear_symmetric", dtype="int8")
             )
             mlmodel = cto.linear_quantize_weights(mlmodel, config=op_config)
-            
+
         mlmodel.save(mlmodel_path)
         return True
     except Exception as e:
         print(f"Error converting to Core ML: {e}")
         return False
 
+
 def _log_ane_phase() -> None:
     print(
         "  [ANE] Core ML loaded with compute_units=CPU_AND_NE (no runtime ANE-usage check; see doc).",
         flush=True,
     )
+
 
 def run_ane(
     env_num: int,
@@ -222,6 +233,7 @@ def save_plots(
 
     return saved
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Benchmark MLP inference for ANE (Apple Neural Engine)."
@@ -229,7 +241,9 @@ def main() -> None:
     parser.add_argument(
         "--sizes",
         type=str,
-        default=",".join(str(2**k) for k in range(DEFAULT_ENV_NUM_POW_MIN, DEFAULT_ENV_NUM_POW_MAX + 1)),
+        default=",".join(
+            str(2**k) for k in range(DEFAULT_ENV_NUM_POW_MIN, DEFAULT_ENV_NUM_POW_MAX + 1)
+        ),
         help="Comma-separated env_num sizes (default: 256,512,1024,...)",
     )
     parser.add_argument("--obs-dim", type=int, default=DEFAULT_OBS_DIM)
@@ -241,8 +255,12 @@ def main() -> None:
         help="Comma-separated hidden layer sizes",
     )
     parser.add_argument("--warmup", type=int, default=2)
-    parser.add_argument("--repeat", type=int, default=REPEAT_COUNT,
-                        help=f"Number of samples per config; we drop min/max and average the rest (default: {REPEAT_COUNT})")
+    parser.add_argument(
+        "--repeat",
+        type=int,
+        default=REPEAT_COUNT,
+        help=f"Number of samples per config; we drop min/max and average the rest (default: {REPEAT_COUNT})",
+    )
     parser.add_argument(
         "--out",
         type=str,
@@ -263,7 +281,10 @@ def main() -> None:
         hidden_dims = list(DEFAULT_HIDDEN_DIMS)
 
     print(f"env_nums: {env_nums}", flush=True)
-    print(f"model: obs_dim={args.obs_dim}, hidden_dims={hidden_dims}, action_dim={args.action_dim}", flush=True)
+    print(
+        f"model: obs_dim={args.obs_dim}, hidden_dims={hidden_dims}, action_dim={args.action_dim}",
+        flush=True,
+    )
 
     all_records: List[MLPBenchRecord] = []
     skipped: List[Dict[str, str]] = []
@@ -271,14 +292,14 @@ def main() -> None:
     precisions = {
         "fp32": ct.precision.FLOAT32,
         "fp16": ct.precision.FLOAT16,
-        "int8": "FLOAT8" # CoreML uses int8 for weight quantization
+        "int8": "FLOAT8",  # CoreML uses int8 for weight quantization
     }
 
     for prec_name, prec_val in precisions.items():
         ane_path = tempfile.mkdtemp(suffix=f"_{prec_name}.mlpackage")
         ane_model = None
         cpu_model = None
-        
+
         print(f"\nBuilding and converting model for ANE ({prec_name})...", flush=True)
         if _build_and_convert_coreml_ane(
             args.obs_dim, args.action_dim, hidden_dims, env_nums, ane_path, precision=prec_val
@@ -295,7 +316,7 @@ def main() -> None:
             backend_name = f"cpu_only_{prec_name}"
             print(f"\nDetected backends ({backend_name} Baseline):", flush=True)
             print(f"  - {backend_name}: yes", flush=True)
-            
+
             for env_num in env_nums:
                 print(f"\nRunning env_num={env_num} ...", flush=True)
                 print(f"  >> {backend_name} env_num={env_num} starting...", flush=True)
@@ -304,11 +325,22 @@ def main() -> None:
                     if rec is not None:
                         rec.backend = backend_name
                         all_records.append(rec)
-                        print(f"  {backend_name}: mean={rec.mean_sec*1000:.3f} ms, envs/s={rec.envs_per_sec:.1f}", flush=True)
+                        print(
+                            f"  {backend_name}: mean={rec.mean_sec * 1000:.3f} ms, envs/s={rec.envs_per_sec:.1f}",
+                            flush=True,
+                        )
                     else:
-                        skipped.append({"backend": backend_name, "env_num": str(env_num), "reason": "unavailable"})
+                        skipped.append(
+                            {
+                                "backend": backend_name,
+                                "env_num": str(env_num),
+                                "reason": "unavailable",
+                            }
+                        )
                 except Exception as e:
-                    skipped.append({"backend": backend_name, "env_num": str(env_num), "reason": str(e)})
+                    skipped.append(
+                        {"backend": backend_name, "env_num": str(env_num), "reason": str(e)}
+                    )
                     print(f"  {backend_name}: skip - {e}", flush=True)
 
         if ane_model is not None:
@@ -316,7 +348,7 @@ def main() -> None:
             print(f"\nDetected backends ({backend_name}):", flush=True)
             print(f"  - {backend_name}: yes", flush=True)
             _log_ane_phase()
-            
+
             for env_num in env_nums:
                 print(f"\nRunning env_num={env_num} ...", flush=True)
                 print(f"  >> {backend_name} env_num={env_num} starting...", flush=True)
@@ -325,11 +357,22 @@ def main() -> None:
                     if rec is not None:
                         rec.backend = backend_name
                         all_records.append(rec)
-                        print(f"  {backend_name}: mean={rec.mean_sec*1000:.3f} ms, envs/s={rec.envs_per_sec:.1f}", flush=True)
+                        print(
+                            f"  {backend_name}: mean={rec.mean_sec * 1000:.3f} ms, envs/s={rec.envs_per_sec:.1f}",
+                            flush=True,
+                        )
                     else:
-                        skipped.append({"backend": backend_name, "env_num": str(env_num), "reason": "unavailable"})
+                        skipped.append(
+                            {
+                                "backend": backend_name,
+                                "env_num": str(env_num),
+                                "reason": "unavailable",
+                            }
+                        )
                 except Exception as e:
-                    skipped.append({"backend": backend_name, "env_num": str(env_num), "reason": str(e)})
+                    skipped.append(
+                        {"backend": backend_name, "env_num": str(env_num), "reason": str(e)}
+                    )
                     print(f"  {backend_name}: skip - {e}", flush=True)
         else:
             print(f"\nANE model ({prec_name}) could not be loaded. Skipping benchmark.")
@@ -371,6 +414,7 @@ def main() -> None:
         print("\n生成图片路径:")
         for f in plot_files:
             print(f"  {f}")
+
 
 if __name__ == "__main__":
     main()
