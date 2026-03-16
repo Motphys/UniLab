@@ -13,6 +13,29 @@ from unilab.base.curriculum import EpisodeLengthTracker, PenaltyCurriculum
 from unilab.base.dtype_config import get_global_dtype
 from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
 from unilab.envs.locomotion.g1.joystick import G1JoystickPPO, InitState
+from unilab.envs.locomotion.obs_config import ObsConfig
+
+
+def _g1_sac_obs_config() -> ObsConfig:
+    """ObsConfig for G1 (29 DoF) SAC.
+
+    Must stay consistent with G1JoystickPPO._compute_obs() which outputs:
+        vel(3) + gyro(3) + gravity(3) + diff(29) + dof_vel(29)
+        + action(29) + cmd(3) + phase(2) = 101 total
+    """
+    return ObsConfig(
+        obs_dict={
+            "vel": 3,
+            "gyro": 3,
+            "gravity": 3,
+            "diff": 29,
+            "dof_vel": 29,
+            "action": 29,
+            "cmd": 3,
+            "phase": 2,
+        },
+        actor_obs=["gyro", "gravity", "diff", "dof_vel", "action", "cmd", "phase"],
+    )
 
 
 @dataclass
@@ -105,6 +128,7 @@ class G1JoystickSACCfg(G1BaseCfg):
     commands: Commands = field(default_factory=Commands)
     reward_config: RewardConfigSAC = field(default_factory=RewardConfigSAC)
     control_config: ControlConfigSAC = field(default_factory=ControlConfigSAC)  # type: ignore[assignment]
+    obs_config: ObsConfig = field(default_factory=_g1_sac_obs_config)
 
 
 @registry.env("G1WalkTaskMjSAC", sim_backend="mujoco")
@@ -152,16 +176,16 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
             "alive": self._reward_alive,
         }
 
-    def _reward_orientation(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
+    def _reward_orientation(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
         """惩罚姿态偏差（roll/pitch）"""
         return np.square(gravity[:, 0]) + np.square(gravity[:, 1])
 
-    def _reward_pose(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
+    def _reward_pose(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
         """加权惩罚偏离默认姿态"""
         diff = dof_pos - self.default_angles
         return np.sum(self._pose_weights * np.square(diff), axis=1)
 
-    def _reward_close_feet_xy(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
+    def _reward_close_feet_xy(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
         """惩罚双脚过近"""
         left_foot = self._backend.get_sensor_data("left_foot_pos")
         right_foot = self._backend.get_sensor_data("right_foot_pos")
@@ -169,7 +193,7 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
         threshold = self._cfg.reward_config.close_feet_threshold
         return np.where(feet_dist < threshold, np.square(feet_dist - threshold), 0.0)
 
-    def _reward_feet_ori(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
+    def _reward_feet_ori(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
         """惩罚脚部姿态偏差"""
         left_foot_quat = self._backend.get_sensor_data("left_foot_quat")
         right_foot_quat = self._backend.get_sensor_data("right_foot_quat")
@@ -181,45 +205,45 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
             + np.square(right_foot_quat[:, 2])
         )
 
-    def _reward_alive(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
+    def _reward_alive(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
         return np.ones((self._num_envs,), dtype=get_global_dtype())
 
-    def _reward_lin_vel_z(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
+    def _reward_lin_vel_z(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
         """惩罚 z 方向线速度"""
         return np.square(linvel[:, 2])
 
-    def _reward_base_height(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
+    def _reward_base_height(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
         """惩罚基座高度偏差"""
-        base_height = qpos[:, 2]
+        base_height = self._backend.get_base_pos()[:, 2]
         return np.square(base_height - self._cfg.reward_config.base_height_target)
 
-    def _reward_torques(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
+    def _reward_torques(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
         """惩罚力矩"""
         torques = info.get(
             "torques", np.zeros((self._num_envs, self._num_action), dtype=get_global_dtype())
         )
         return np.sum(np.abs(torques), axis=1)
 
-    def _reward_energy(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
+    def _reward_energy(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
         """惩罚能量消耗"""
         torques = info.get(
             "torques", np.zeros((self._num_envs, self._num_action), dtype=get_global_dtype())
         )
         return np.sum(np.abs(dof_vel) * np.abs(torques), axis=1)
 
-    def _reward_dof_acc(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
+    def _reward_dof_acc(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
         """惩罚关节加速度"""
         qacc = info.get(
             "qacc", np.zeros((self._num_envs, self._num_action), dtype=get_global_dtype())
         )
         return np.sum(np.square(qacc), axis=1)
 
-    def _reward_upright(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
+    def _reward_upright(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
         """奖励直立姿态（mjlab flat_orientation）"""
         xy_squared = np.sum(np.square(gravity[:, :2]), axis=1)
         return np.exp(-xy_squared / 0.25)
 
-    def _reward_feet_air_time(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
+    def _reward_feet_air_time(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
         """奖励脚离地时间"""
         air_time = info.get(
             "feet_air_time", np.zeros((self._num_envs, 2), dtype=get_global_dtype())
