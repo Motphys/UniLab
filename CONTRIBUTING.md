@@ -95,7 +95,7 @@ Push / PR 到 `main` 时自动触发三个 job：
 |-----|------|-----------|
 | `lint` | `ruff check` + `ruff format --check` | ✅ |
 | `typecheck` | `mypy unilab` + `pyright` | ✅ |
-| `test` | `pytest -m "not slow" --cov` (matrix: ubuntu+macos × py3.10/3.11/3.12) | ✅ |
+| `test` | `pytest -m "not slow" --cov` (matrix: ubuntu+macos × py3.10/3.11/3.12/3.13) | ✅ |
 
 纯文档改动（`*.md`、`LICENSE`）不触发 CI。
 
