@@ -67,14 +67,18 @@ tests/
 │   ├── test_replay_buffer.py
 │   ├── test_shared_onpolicy_storage.py
 │   ├── test_shared_weight_sync.py
-│   └── test_shared_obs_stats.py
+│   ├── test_shared_obs_stats.py
+│   └── test_async_runner.py
 ├── base/
 │   └── test_registry.py
 ├── config/
 │   └── test_locomotion_params.py
+├── scripts/
+│   └── test_train_scripts.py
 └── algos/
     ├── test_appo_runner.py        # @pytest.mark.slow
-    └── test_offpolicy_runner.py   # @pytest.mark.slow
+    ├── test_offpolicy_runner.py   # @pytest.mark.slow
+    └── test_mlx_ppo.py            # macOS only (MLX backend)
 ```
 
 Tests marked `@pytest.mark.slow` require a real MuJoCo environment and are excluded from CI

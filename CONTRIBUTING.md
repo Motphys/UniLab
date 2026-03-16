@@ -46,27 +46,33 @@ tests/
 │   ├── test_replay_buffer.py
 │   ├── test_shared_onpolicy_storage.py
 │   ├── test_shared_weight_sync.py
-│   └── test_shared_obs_stats.py
+│   ├── test_shared_obs_stats.py
+│   └── test_async_runner.py
 ├── base/
 │   └── test_registry.py
 ├── config/
 │   └── test_locomotion_params.py
+├── scripts/
+│   └── test_train_scripts.py
 └── algos/
     ├── test_appo_runner.py        # @pytest.mark.slow
-    └── test_offpolicy_runner.py   # @pytest.mark.slow
+    ├── test_offpolicy_runner.py   # @pytest.mark.slow
+    └── test_mlx_ppo.py            # macOS only（MLX 后端）
 ```
 
 ### 测试标记
 
 - **普通测试**（无标记）：不依赖 MuJoCo，CI 中自动运行
 - **`@pytest.mark.slow`**：需要 MuJoCo 环境，CI 跳过，本地用 `make test-slow` 运行
+- **macOS only**：`test_mlx_ppo.py` 用 `pytest.importorskip("mlx")` 在非 macOS 平台自动跳过
 
 ### 写测试的原则
 
 1. IPC / 纯计算逻辑 → 放 `tests/ipc/` 或对应子目录，无需 slow 标记
 2. 依赖 Runner / 真实 Env 的测试 → 放 `tests/algos/`，加 `@pytest.mark.slow`
-3. 多进程测试用 `_SPAWN_CTX = mp.get_context("spawn")`
-4. `SharedObsNormStats` 的单进程测试用 `_ThreadingCtx`（`multiprocessing.Queue.empty()` 在同进程内不可靠）
+3. 训练脚本冒烟测试 → 放 `tests/scripts/`，用 `pytest.importorskip` 跳过缺失依赖
+4. 多进程测试用 `_SPAWN_CTX = mp.get_context("spawn")`
+5. `SharedObsNormStats` 的单进程测试用 `_ThreadingCtx`（`multiprocessing.Queue.empty()` 在同进程内不可靠）
 
 ### 运行测试
 
