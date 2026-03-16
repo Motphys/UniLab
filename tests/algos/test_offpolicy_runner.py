@@ -27,7 +27,8 @@ def _make_sac_runner(env_name: str) -> OffPolicyRunner:
         obs_dim=obs_dim,
         action_dim=action_dim,
         device="cpu",
-        hidden_dim=cfg.get("actor_hidden_dim", 64),
+        actor_hidden_dim=cfg.get("actor_hidden_dim", 64),
+        critic_hidden_dim=cfg.get("critic_hidden_dim", 64),
         use_layer_norm=False,
     )
 
