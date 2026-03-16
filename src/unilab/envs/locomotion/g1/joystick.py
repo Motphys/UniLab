@@ -14,22 +14,15 @@ from unilab.base.backend import create_backend
 from unilab.base.dtype_config import get_global_dtype
 from unilab.base.np_env import NpEnvState
 from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
+from unilab.envs.locomotion.obs_config import ObsConfig
 from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
 
 
-@dataclass
-class obs_cfg:
-    obs_dict = {
-        "vel": 3,
-        "gyro": 3,
-        "gravity": 3,
-        "diff": 12,
-        "dof_vel": 12,
-        "action": 12,
-        "cmd": 3,
-        "phase": 2,
-    }  # 'obs_name': dim
-    actor_obs = ["gyro", "gravity", "diff", "dof_vel", "action", "cmd", "phase"]
+def _g1_obs_config() -> ObsConfig:
+    return ObsConfig(
+        obs_dict={"vel": 3, "gyro": 3, "gravity": 3, "diff": 12, "dof_vel": 12, "action": 12, "cmd": 3, "phase": 2},
+        actor_obs=["gyro", "gravity", "diff", "dof_vel", "action", "cmd", "phase"],
+    )
 
 
 @dataclass
@@ -111,7 +104,7 @@ class G1JoystickPPOCfg(G1BaseCfg):
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
     reward_config: RewardConfigPPO = field(default_factory=RewardConfigPPO)
-    obs_config: obs_cfg = field(default_factory=obs_cfg)
+    obs_config: ObsConfig = field(default_factory=_g1_obs_config)
 
 
 @registry.env("G1JoystickFlatTerrain", sim_backend="mujoco")
@@ -150,29 +143,11 @@ class G1JoystickPPO(G1BaseEnv):
         }
 
     def _init_obs_space(self):
-        num_obs = 0
-        for value in self._cfg.obs_config.obs_dict.values():
-            num_obs += value
+        obs_cfg = self._cfg.obs_config
         self._observation_space = gym.spaces.Box(
-            low=-float("inf"), high=float("inf"), shape=(num_obs,), dtype=float
+            low=-float("inf"), high=float("inf"), shape=(obs_cfg.total_dim,), dtype=float
         )
-        self.actor_indices = self._get_actor_indices()
-
-    def _get_actor_indices(self):
-        s = 0
-        indices = []
-        for i in self._cfg.obs_config.actor_obs:
-            s = 0
-            for k, v in self._cfg.obs_config.obs_dict.items():
-                if k == i:
-                    print(k)
-                    for q in range(s, s + v):
-                        indices.append(q)
-                    s += v
-                    print(indices)
-                    break
-                s += v
-        return indices
+        self.actor_indices = obs_cfg.actor_indices
 
     @property
     def observation_space(self) -> gym.spaces.Box:
