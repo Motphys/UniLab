@@ -212,6 +212,7 @@ def play_offpolicy(algo_name: str, args, cfg) -> None:
     import mediapy as media
     import numpy as np
     import torch
+
     from unilab.base import registry
     from unilab.utils import render_many
     from unilab.utils.algo_utils import build_actor

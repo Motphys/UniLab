@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import mlx.core as mx
 import numpy as np
 import torch
+
 from unilab.base import registry
 
 try:

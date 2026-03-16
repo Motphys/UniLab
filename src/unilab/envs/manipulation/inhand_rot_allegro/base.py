@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 import gymnasium as gym
 import mujoco
 import numpy as np
+
 from unilab.base.backend import SimBackend
 from unilab.base.base import EnvCfg
 from unilab.base.dtype_config import get_global_dtype

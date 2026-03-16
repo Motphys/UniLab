@@ -7,6 +7,7 @@ import argparse
 import time
 
 import numpy as np
+
 from unilab.base import registry
 
 parser = argparse.ArgumentParser(description="Visualize robot tasks")

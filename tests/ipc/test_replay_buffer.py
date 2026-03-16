@@ -7,6 +7,7 @@ import multiprocessing as mp
 import numpy as np
 import pytest
 import torch
+
 from unilab.ipc.replay_buffer import ReplayBuffer
 
 _SPAWN_CTX = mp.get_context("spawn")

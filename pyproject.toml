@@ -1,6 +1,6 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["uv_build"]
+build-backend = "uv_build"
 
 [project]
 name = "unilab"
@@ -45,13 +45,10 @@ explicit = true
 [tool.uv.sources]
 mujoco-uni = { index = "test-pypi" }
 
-[tool.hatch.build.targets.wheel]
-packages = ["unilab"]
-
 [tool.ruff]
 line-length = 100
 target-version = "py310"
-src = ["unilab"]
+src = ["src"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]
@@ -74,7 +71,7 @@ warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
 exclude = [
-    "unilab/algos/torch/rsl_rl/", # vendored third-party, tracked in .gitignore
+    "src/unilab/algos/torch/rsl_rl/", # vendored third-party, tracked in .gitignore
 ]
 
 [tool.pytest.ini_options]
@@ -93,15 +90,15 @@ exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:"]
 pythonVersion = "3.10"
 venvPath = "."
 venv = ".venv"
-include = ["unilab"]
+include = ["src/unilab"]
 exclude = [
-    "unilab/algos/torch/rsl_rl/",        # vendored third-party
-    "unilab/algos/mlx/",                  # MLX stubs incomplete, macOS-only
-    "unilab/algos/torch/common/ane_*",    # Apple Neural Engine, macOS-only
-    "unilab/base/backend/",               # mujoco-uni stubs mismatch; optional backends
-    "unilab/envs/",                       # mujoco-uni internal API, stubs mismatch
-    "unilab/utils/render_many.py",        # direct mujoco C bindings
-    "unilab/utils/hardware_monitor.py",   # optional pynvml/psutil deps
+    "src/unilab/algos/torch/rsl_rl/",         # vendored third-party
+    "src/unilab/algos/mlx/",                  # MLX stubs incomplete, macOS-only
+    "src/unilab/algos/torch/common/ane_*",    # Apple Neural Engine, macOS-only
+    "src/unilab/base/backend/",               # mujoco-uni stubs mismatch; optional backends
+    "src/unilab/envs/",                       # mujoco-uni internal API, stubs mismatch
+    "src/unilab/utils/render_many.py",        # direct mujoco C bindings
+    "src/unilab/utils/hardware_monitor.py",   # optional pynvml/psutil deps
 ]
 reportMissingImports = "warning"
 reportMissingModuleSource = "none"

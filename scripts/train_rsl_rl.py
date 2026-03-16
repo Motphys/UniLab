@@ -201,6 +201,7 @@ def RslRlAacVecEnvWrapper(RslRlVecEnvWrapper):  # Asymmetric Actor-Critic
 def play_rsl_rl(args, cfg, device):
     """Play mode for RSL-RL."""
     import torch
+
     from unilab.base import registry
 
     env = registry.make(args.task, num_envs=args.play_env_num, sim_backend=args.sim_backend)
@@ -291,6 +292,7 @@ def play_rsl_rl(args, cfg, device):
     else:
         # MuJoCo backend: render to video
         import mediapy as media
+
         from unilab.utils import render_many
 
         output_video = Path(load_path_dir) / "play_video.mp4"
