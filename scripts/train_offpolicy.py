@@ -133,13 +133,79 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--use_amp", action="store_true", help="Enable mixed precision training (FP16)"
     )
+    parser.add_argument(
+        "--num_gpus",
+        type=int,
+        default=1,
+        help="Number of GPUs for multi-GPU training via NCCL all-reduce (default: 1 = single GPU)",
+    )
     return parser
 
 
 def build_runner(algo_name: str, args, cfg):
     """Build algorithm runner from unified config."""
     if algo_name == "sac":
+        from unilab.algos.torch.fast_sac.learner import FastSACLearner
         from unilab.algos.torch.fast_sac.runner import FastSACRunner
+        from unilab.utils.device_utils import get_default_device, get_env_dims
+
+        # Multi-GPU path
+        if getattr(args, "num_gpus", 1) > 1:
+            from unilab.algos.torch.offpolicy.multi_gpu_runner import MultiGPUOffPolicyRunner
+            from unilab.base import registry
+            from unilab.utils.algo_utils import ensure_registries
+
+            ensure_registries()
+            device = args.device or get_default_device()
+            env = registry.make(args.task, num_envs=1, sim_backend=args.sim_backend)
+            assert env.observation_space.shape and env.action_space.shape
+            obs_dim = env.observation_space.shape[0]
+            action_dim = env.action_space.shape[0]
+            env.close()
+
+            # Learner kwargs needed to reconstruct FastSACLearner in each worker
+            learner_kwargs = {
+                "obs_dim": obs_dim,
+                "action_dim": action_dim,
+                "gamma": cfg.gamma,
+                "tau": cfg.tau,
+                "actor_lr": cfg.actor_lr,
+                "critic_lr": cfg.critic_lr,
+                "alpha_lr": cfg.algo_params.alpha_lr,
+                "alpha_init": cfg.algo_params.alpha_init,
+                "target_entropy_ratio": cfg.algo_params.target_entropy_ratio,
+                "actor_hidden_dim": cfg.actor_hidden_dim,
+                "critic_hidden_dim": cfg.critic_hidden_dim,
+                "num_atoms": cfg.num_atoms,
+                "use_layer_norm": cfg.use_layer_norm,
+                "max_grad_norm": cfg.algo_params.max_grad_norm,
+                "use_amp": args.use_amp,
+                # symmetry not supported in multi-GPU mode (mujoco_model not picklable)
+                "use_symmetry": False,
+            }
+            # Main-process learner (used for WeightSync initialisation and single-GPU fallback)
+            main_learner = FastSACLearner(device=device, **learner_kwargs)
+
+            return MultiGPUOffPolicyRunner(
+                learner=main_learner,
+                env_name=args.task,
+                algo_type="sac",
+                learner_kwargs=learner_kwargs,
+                num_gpus=args.num_gpus,
+                num_envs=cfg.num_envs,
+                replay_buffer_n=cfg.replay_buffer_n,
+                batch_size=cfg.batch_size,
+                warmup_steps=cfg.warmup_steps,
+                updates_per_step=cfg.updates_per_step,
+                policy_frequency=cfg.policy_frequency,
+                sync_collection=not args.no_sync_collection,
+                env_steps_per_sync=cfg.env_steps_per_sync,
+                device=device,
+                actor_hidden_dim=cfg.actor_hidden_dim,
+                use_layer_norm=cfg.use_layer_norm,
+                obs_normalization=False,
+                sim_backend=args.sim_backend,
+            )
 
         return FastSACRunner(
             env_name=args.task,

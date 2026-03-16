@@ -16,8 +16,15 @@ class ReplayBuffer(SharedBufferBase):
     - MPS/CPU: single packed host tensor; 1 H2D Metal command per sample()
     """
 
-    def __init__(self, capacity: int, obs_dim: int, action_dim: int, device: str):
-        super().__init__(capacity, device)
+    def __init__(
+        self,
+        capacity: int,
+        obs_dim: int,
+        action_dim: int,
+        device: str,
+        defer_gpu: bool = False,
+    ):
+        super().__init__(capacity, device, defer_gpu=defer_gpu)
         self._obs_dim = obs_dim
         self._action_dim = action_dim
 
@@ -32,13 +39,14 @@ class ReplayBuffer(SharedBufferBase):
             self.dones = torch.zeros(capacity).share_memory_()
             self.truncated = torch.zeros(capacity).share_memory_()
 
-            # GPU cache for zero-copy sampling
-            self.obs_gpu = torch.empty(capacity, obs_dim, device="cuda")
-            self.next_obs_gpu = torch.empty(capacity, obs_dim, device="cuda")
-            self.actions_gpu = torch.empty(capacity, action_dim, device="cuda")
-            self.rewards_gpu = torch.empty(capacity, device="cuda")
-            self.dones_gpu = torch.empty(capacity, device="cuda")
-            self.truncated_gpu = torch.empty(capacity, device="cuda")
+            if not defer_gpu:
+                # GPU cache for zero-copy sampling
+                self.obs_gpu = torch.empty(capacity, obs_dim, device="cuda")
+                self.next_obs_gpu = torch.empty(capacity, obs_dim, device="cuda")
+                self.actions_gpu = torch.empty(capacity, action_dim, device="cuda")
+                self.rewards_gpu = torch.empty(capacity, device="cuda")
+                self.dones_gpu = torch.empty(capacity, device="cuda")
+                self.truncated_gpu = torch.empty(capacity, device="cuda")
         else:
             # Single packed host tensor; layout: [obs | next_obs | actions | rew | done | trunc]
             total_dim = 2 * obs_dim + action_dim + 3
@@ -56,6 +64,25 @@ class ReplayBuffer(SharedBufferBase):
             self._done_col = c
             c += 1
             self._trunc_col = c
+
+    def init_local_gpu_cache(self, device: str) -> None:
+        """Per-process GPU cache initialisation for multi-GPU training.
+
+        Each Learner process calls this once after being spawned, binding
+        its own GPU cache to ``device``.  The shared host tensors (obs,
+        actions, …) already exist; only the GPU-side copies are created here.
+        """
+        assert self.device == "cuda", "init_local_gpu_cache is only for CUDA buffers"
+        obs_dim = self.obs.shape[1]
+        act_dim = self.actions.shape[1]
+        self.obs_gpu = torch.zeros(self.capacity, obs_dim, device=device)
+        self.next_obs_gpu = torch.zeros(self.capacity, obs_dim, device=device)
+        self.actions_gpu = torch.zeros(self.capacity, act_dim, device=device)
+        self.rewards_gpu = torch.zeros(self.capacity, device=device)
+        self.dones_gpu = torch.zeros(self.capacity, device=device)
+        self.truncated_gpu = torch.zeros(self.capacity, device=device)
+        self._gpu_synced_ptr = 0
+        self._cuda_stream = torch.cuda.Stream(device=device)
 
     def add(self, obs, actions, rewards, next_obs, dones, truncated):
         """Add batch (called by collector)."""
@@ -167,7 +194,7 @@ class ReplayBuffer(SharedBufferBase):
 
                 self._gpu_synced_ptr = ptr
 
-            indices = indices.to("cuda")
+            indices = indices.to(self.obs_gpu.device)
             return {
                 "obs": self.obs_gpu[indices],
                 "actions": self.actions_gpu[indices],

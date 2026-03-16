@@ -38,6 +38,7 @@ class FastSACRunner(OffPolicyRunner):
         use_amp: bool = False,
         sim_backend: str = "mujoco",
         use_symmetry: bool = False,
+        world_size: int = 1,
     ):
         from unilab.base import registry
         from unilab.utils.algo_utils import ensure_registries
@@ -77,6 +78,7 @@ class FastSACRunner(OffPolicyRunner):
             use_symmetry=use_symmetry,
             mujoco_model=mujoco_model,
             obs_structure=obs_structure,
+            world_size=getattr(self, "world_size", world_size),
         )
 
         # Auto-adjust batch_size when symmetry is enabled

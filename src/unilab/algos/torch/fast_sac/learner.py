@@ -14,6 +14,7 @@ import math
 from typing import Any, Dict, Tuple
 
 import torch
+import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
@@ -359,6 +360,7 @@ class FastSACLearner:
         use_amp: bool = False,
         mujoco_model=None,
         obs_structure: dict | None = None,
+        world_size: int = 1,
     ):
         self.device = device
         self.gamma = gamma
@@ -366,6 +368,7 @@ class FastSACLearner:
         self.max_grad_norm = max_grad_norm
         self.use_autotune = use_autotune
         self.use_amp = use_amp and device == "cuda"
+        self.world_size = world_size
 
         # Build actor
         self.actor = SACActor(
@@ -455,6 +458,27 @@ class FastSACLearner:
             assert obs_structure is not None
             self.symmetry = G1SymmetryAugmentation(mujoco_model, obs_structure, device=device)
 
+    def _reduce_gradients(self, model: nn.Module) -> None:
+        """All-reduce gradients across all workers and divide by world_size.
+
+        Must be called after ``backward()`` and, when using AMP, after
+        ``scaler.unscale_(optimizer)`` so that gradients are in full precision.
+        """
+        if self.world_size <= 1:
+            return
+        grads = [p.grad.view(-1) for p in model.parameters() if p.grad is not None]
+        if not grads:
+            return
+        flat = torch.cat(grads)
+        dist.all_reduce(flat, op=dist.ReduceOp.SUM)
+        flat /= self.world_size
+        offset = 0
+        for p in model.parameters():
+            if p.grad is not None:
+                n = p.grad.numel()
+                p.grad.copy_(flat[offset : offset + n].view_as(p.grad))
+                offset += n
+
     def update_critic(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One critic update step."""
         obs = batch["obs"]
@@ -504,8 +528,9 @@ class FastSACLearner:
             self.q_optimizer.zero_grad(set_to_none=True)
             if self.scaler:
                 self.scaler.scale(qf_loss).backward()
+                self.scaler.unscale_(self.q_optimizer)
+                self._reduce_gradients(self.qnet)
                 if self.max_grad_norm > 0:
-                    self.scaler.unscale_(self.q_optimizer)
                     critic_grad_norm = torch.nn.utils.clip_grad_norm_(
                         self.qnet.parameters(), max_norm=self.max_grad_norm
                     )
@@ -515,6 +540,7 @@ class FastSACLearner:
                 self.scaler.update()
             else:
                 qf_loss.backward()
+                self._reduce_gradients(self.qnet)
                 if self.max_grad_norm > 0:
                     critic_grad_norm = torch.nn.utils.clip_grad_norm_(
                         self.qnet.parameters(), max_norm=self.max_grad_norm
@@ -536,6 +562,9 @@ class FastSACLearner:
             ).mean()
             if torch.isfinite(alpha_loss):
                 alpha_loss.backward()
+                if self.world_size > 1 and self.log_alpha.grad is not None:
+                    dist.all_reduce(self.log_alpha.grad, op=dist.ReduceOp.SUM)
+                    self.log_alpha.grad /= self.world_size
                 self.alpha_optimizer.step()
 
         return {
@@ -574,8 +603,9 @@ class FastSACLearner:
             self.actor_optimizer.zero_grad(set_to_none=True)
             if self.scaler:
                 self.scaler.scale(actor_loss).backward()
+                self.scaler.unscale_(self.actor_optimizer)
+                self._reduce_gradients(self.actor)
                 if self.max_grad_norm > 0:
-                    self.scaler.unscale_(self.actor_optimizer)
                     actor_grad_norm = torch.nn.utils.clip_grad_norm_(
                         self.actor.parameters(), max_norm=self.max_grad_norm
                     )
@@ -585,6 +615,7 @@ class FastSACLearner:
                 self.scaler.update()
             else:
                 actor_loss.backward()
+                self._reduce_gradients(self.actor)
                 if self.max_grad_norm > 0:
                     actor_grad_norm = torch.nn.utils.clip_grad_norm_(
                         self.actor.parameters(), max_norm=self.max_grad_norm
