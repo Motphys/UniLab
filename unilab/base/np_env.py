@@ -19,7 +19,7 @@ class NpEnvState:
     terminated: np.ndarray
     truncated: np.ndarray
     info: dict
-    critic_obs: Optional[np.ndarray] = None
+    # critic_obs: Optional[np.ndarray] = None
 
     @property
     def done(self) -> np.ndarray:

@@ -62,6 +62,7 @@ class RslRlVecEnvWrapper:
         self.device = device
         self.num_envs = env.num_envs
         self.observation_space = env.observation_space
+        self.obs_dict = self.cfg.obs_config.obs_dict
         self.action_space = env.action_space
         self.num_obs = env.observation_space.shape[0]
         self.num_privileged_obs = self.num_obs
@@ -113,8 +114,8 @@ class RslRlVecEnvWrapper:
         if hasattr(state, "info") and "log" in state.info:
             infos["log"] = state.info["log"]
 
-        obs_dict = TensorDict({"policy": obs}, batch_size=self.num_envs, device=self.device)
-
+        # obs_dict = TensorDict({"policy": obs}, batch_size=self.num_envs, device=self.device)
+        obs_dict = TensorDict({"policy": obs, "actor": obs[:, self.env.actor_indices]}, batch_size=self.num_envs, device=self.device)
         return obs_dict, rewards, dones, infos
 
     def reset(self):
@@ -128,11 +129,11 @@ class RslRlVecEnvWrapper:
         self.episode_returns[:] = 0
         self.episode_lengths[:] = 0
 
-        return TensorDict({"policy": obs}, batch_size=self.num_envs, device=self.device), {}
+        return TensorDict({"policy": obs, "actor": obs[:, self.env.actor_indices]}, batch_size=self.num_envs, device=self.device), {}
 
     def get_observations(self):
         obs = to_torch(self.env.state.obs, self.device)
-        return TensorDict({"policy": obs}, batch_size=self.num_envs, device=self.device)
+        return TensorDict({"policy": obs, "actor": obs[:, self.env.actor_indices]}, batch_size=self.num_envs, device=self.device)
 
     def get_privileged_observations(self):
         obs = to_torch(self.env.state.obs, self.device)
@@ -176,7 +177,7 @@ def RslRlAacVecEnvWrapper(RslRlVecEnvWrapper):  # Asymmetric Actor-Critic
         if hasattr(state, "info") and "log" in state.info:
             infos["log"] = state.info["log"]
 
-        obs_dict = TensorDict({"policy": obs}, batch_size=self.num_envs, device=self.device)
+        obs_dict = TensorDict({"policy": obs, "actor": obs[:, self.env.actor_indices]}, batch_size=self.num_envs, device=self.device)
 
         return obs_dict, rewards, dones, infos
 

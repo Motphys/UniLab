@@ -66,6 +66,19 @@ class Domain_Rand:
     push_interval = 750  # step
     max_force = [1, 1, 0.5]
 
+@dataclass
+class obs_cfg:
+    obs_dict = {
+        "vel": 3,
+        "gyro": 3,
+        "gravity": 3,
+        "diff": 12,
+        "dof_vel": 12,
+        "action": 12,
+        "cmd": 3,
+        "phase": 4,
+    }  # 'obs_name': dim
+    actor_obs = ['gyro', 'gravity', 'diff', 'dof_vel', 'action', 'cmd', 'phase']
 
 @registry.envcfg("Go1JoystickFlatTerrain")
 @dataclass
@@ -77,7 +90,7 @@ class Go1JoystickCfg(Go1BaseCfg):
     reward_config: RewardConfig = field(default_factory=RewardConfig)
     sensor: JoystickSensor = field(default_factory=JoystickSensor)  # type: ignore[assignment]
     domain_rand: Domain_Rand = field(default_factory=Domain_Rand)
-
+    obs_config: obs_cfg = field(default_factory=obs_cfg)
 
 @registry.env("Go1JoystickFlatTerrain", sim_backend="mujoco")
 @registry.env("Go1JoystickFlatTerrain", sim_backend="motrix")
@@ -111,10 +124,30 @@ class Go1WalkTask(Go1BaseEnv):
         }
 
     def _init_obs_space(self):
-        num_obs = 3 + 3 + 3 + self._num_action + self._num_action + self._num_action + 3 + 4
+        num_obs = 0
+        for value in self._cfg.obs_config.obs_dict.values():
+            num_obs += value
         self._observation_space = gym.spaces.Box(
             low=-float("inf"), high=float("inf"), shape=(num_obs,), dtype=float
         )
+        self.actor_indices = self._get_actor_indices()
+    
+    def _get_actor_indices(self):
+        s = 0
+        indices = []
+        for i in self._cfg.obs_config.actor_obs:
+            s = 0
+            for k, v in self._cfg.obs_config.obs_dict.items():
+
+                if k == i:
+                    print(k)
+                    for q in range(s, s+v):
+                        indices.append(q) 
+                    s += v
+                    print(indices)
+                    break
+                s += v
+        return indices
 
     @property
     def observation_space(self) -> gym.spaces.Box:
