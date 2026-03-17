@@ -83,6 +83,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
     env_cfg_override = None
     if hasattr(cfg, "reward") and cfg.reward:
         from omegaconf import OmegaConf
+
         reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
         env_cfg_override = {"reward_config": reward_dict}
 

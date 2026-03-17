@@ -153,13 +153,15 @@ def _get_physics_state_snapshot(env) -> np.ndarray:
     raise AttributeError("Env backend does not expose physics state for video rendering")
 
 
-def play_mlx_ppo(cfg: DictConfig, dtype, use_fp16: bool, resolved_sim_backend: str,
-                 task_log_root: Path):
+def play_mlx_ppo(
+    cfg: DictConfig, dtype, use_fp16: bool, resolved_sim_backend: str, task_log_root: Path
+):
     """Play mode for MLX PPO."""
     play_model_dtype = mx.float32 if use_fp16 else dtype
     play_env_num = cfg.training.play_env_num
-    env = registry.make(cfg.training.task_name, num_envs=play_env_num,
-                        sim_backend=resolved_sim_backend)
+    env = registry.make(
+        cfg.training.task_name, num_envs=play_env_num, sim_backend=resolved_sim_backend
+    )
     obs_dim = sum(env.obs_groups_spec.values())
     action_dim = env.action_space.shape[0]
     model = build_model(cfg.algo, obs_dim, action_dim, dtype=play_model_dtype)
@@ -478,9 +480,7 @@ def main(cfg: DictConfig) -> None:
     )
     rich_logger.start()
 
-    episode_returns = np.zeros(
-        (cfg.algo.num_envs,), dtype=(np.float16 if use_fp16 else np.float32)
-    )
+    episode_returns = np.zeros((cfg.algo.num_envs,), dtype=(np.float16 if use_fp16 else np.float32))
     episode_lengths = np.zeros((cfg.algo.num_envs,), dtype=np.int32)
     reward_window = deque(maxlen=100)
     length_window = deque(maxlen=100)

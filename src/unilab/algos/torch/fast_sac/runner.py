@@ -45,7 +45,9 @@ class FastSACRunner(OffPolicyRunner):
         from unilab.utils.algo_utils import ensure_registries
 
         ensure_registries()
-        env: Any = registry.make(env_name, num_envs=1, sim_backend=sim_backend, env_cfg_override=env_cfg_override)
+        env: Any = registry.make(
+            env_name, num_envs=1, sim_backend=sim_backend, env_cfg_override=env_cfg_override
+        )
         obs_dim = sum(env.obs_groups_spec.values())
         act_space_shape = env.action_space.shape
         assert act_space_shape is not None

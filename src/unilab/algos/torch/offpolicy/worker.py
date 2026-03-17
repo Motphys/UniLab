@@ -103,7 +103,9 @@ def _run_collector(
     ensure_registries()
 
     # Initialize environment
-    env = registry.make(env_name, num_envs=num_envs, sim_backend=sim_backend, env_cfg_override=env_cfg_override)
+    env = registry.make(
+        env_name, num_envs=num_envs, sim_backend=sim_backend, env_cfg_override=env_cfg_override
+    )
     if env.state is None:
         env.init_state()
 

@@ -1,6 +1,7 @@
 """Test reward config override through registry."""
 
 import pytest
+
 from unilab.base import registry
 from unilab.utils.algo_utils import ensure_registries
 
@@ -21,7 +22,7 @@ def test_reward_override_go1():
         "Go1JoystickFlatTerrain",
         num_envs=1,
         sim_backend="mujoco",
-        env_cfg_override={"reward_config": override_config}
+        env_cfg_override={"reward_config": override_config},
     )
 
     assert env._cfg.reward_config.scales["tracking_lin_vel"] == 999.0
@@ -44,7 +45,7 @@ def test_reward_override_g1():
         "G1WalkTaskMjSAC",
         num_envs=1,
         sim_backend="mujoco",
-        env_cfg_override={"reward_config": override_config}
+        env_cfg_override={"reward_config": override_config},
     )
 
     assert env._cfg.reward_config.scales["tracking_lin_vel"] == 888.0

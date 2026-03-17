@@ -20,7 +20,7 @@ def test_appo_reward_override():
         "Go1JoystickFlatTerrain",
         num_envs=2,
         sim_backend="mujoco",
-        env_cfg_override={"reward_config": reward_dict}
+        env_cfg_override={"reward_config": reward_dict},
     )
 
     assert env._cfg.reward_config.scales["tracking_lin_vel"] == 888.0
@@ -44,7 +44,7 @@ def test_rsl_rl_reward_override():
         "Go1JoystickFlatTerrain",
         num_envs=2,
         sim_backend="mujoco",
-        env_cfg_override={"reward_config": reward_dict}
+        env_cfg_override={"reward_config": reward_dict},
     )
 
     assert env._cfg.reward_config.scales["tracking_lin_vel"] == 777.0

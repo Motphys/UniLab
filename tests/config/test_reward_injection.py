@@ -1,7 +1,7 @@
 """Test reward config injection system."""
 
 import pytest
-from hydra import initialize, compose
+from hydra import compose, initialize
 from omegaconf import OmegaConf
 
 
@@ -44,7 +44,7 @@ def test_reward_config_conversion():
         "G1WalkTaskMjSAC",
         num_envs=1,
         sim_backend="mujoco",
-        env_cfg_override={"reward_config": g1_dict}
+        env_cfg_override={"reward_config": g1_dict},
     )
     assert hasattr(env._cfg.reward_config, "scales")
     assert env._cfg.reward_config.scales["tracking_lin_vel"] == 2.0
@@ -60,7 +60,7 @@ def test_reward_config_conversion():
         "Go1JoystickFlatTerrain",
         num_envs=1,
         sim_backend="mujoco",
-        env_cfg_override={"reward_config": go1_dict}
+        env_cfg_override={"reward_config": go1_dict},
     )
     assert hasattr(env._cfg.reward_config, "scales")
     assert env._cfg.reward_config.scales["tracking_lin_vel"] == 1.0

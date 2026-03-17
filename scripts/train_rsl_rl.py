@@ -264,8 +264,9 @@ def play_rsl_rl(cfg: DictConfig, device: str):
 def main(cfg: DictConfig) -> None:
     ensure_registries()
 
-    from unilab.base import registry
     from omegaconf import OmegaConf
+
+    from unilab.base import registry
 
     # Build env_cfg_override from reward config
     env_cfg_override = {}

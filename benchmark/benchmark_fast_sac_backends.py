@@ -34,13 +34,9 @@ def run_backend(task, max_iterations, backend, num_envs):
     # Set collector device based on backend
     device = "mps"
     if backend == "torch_mps":
-        collector_device = "mps"
-    elif backend == "torch_cpu":
-        collector_device = "cpu"
-    elif backend == "numpy":
-        collector_device = "cpu"
-    else:
-        collector_device = "cpu"
+        pass
+    elif backend in ("torch_cpu", "numpy"):
+        pass
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_dir = os.path.join(ROOT_DIR, "logs", "benchmark", f"{backend}_{timestamp}")

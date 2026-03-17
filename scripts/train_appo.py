@@ -186,8 +186,6 @@ def play_appo(cfg: DictConfig, rl_cfg: dict):
 def main(cfg: DictConfig) -> None:
     ensure_registries()
 
-    from omegaconf import OmegaConf
-
     # Build env_cfg_override from reward config
     env_cfg_override = {}
     if hasattr(cfg, "reward") and cfg.reward:

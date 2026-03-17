@@ -1,13 +1,13 @@
 """Integration test for reward config injection in training."""
 
-import pytest
 import numpy as np
+import pytest
 
 
 @pytest.mark.slow
 def test_reward_injection_in_training():
     """Test reward config is properly injected during training."""
-    from hydra import initialize, compose
+    from hydra import compose, initialize
     from scripts.train_offpolicy import build_runner
 
     with initialize(config_path="../../conf/offpolicy", version_base="1.3"):
@@ -39,8 +39,8 @@ def test_reward_injection_in_training():
 def test_reward_override_propagation():
     """Test reward override propagates through multiprocess collector."""
     from unilab.base import registry
-    from unilab.utils.algo_utils import ensure_registries
     from unilab.envs.locomotion.go1.joystick import RewardConfig
+    from unilab.utils.algo_utils import ensure_registries
 
     ensure_registries()
 
@@ -113,8 +113,8 @@ def test_backward_compatibility_no_reward_config():
 def test_zero_scale_skips_computation():
     """Test that reward functions with scale=0 are skipped."""
     from unilab.base import registry
-    from unilab.utils.algo_utils import ensure_registries
     from unilab.envs.locomotion.go1.joystick import RewardConfig
+    from unilab.utils.algo_utils import ensure_registries
 
     ensure_registries()
 
