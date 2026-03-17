@@ -23,6 +23,7 @@ dependencies = [
     "tensorboard",
     "setuptools<70",
     "rich",
+    "tqdm",
     "typing-extensions",
     "mlx ; sys_platform == 'darwin'",
 ]
@@ -92,13 +93,13 @@ venvPath = "."
 venv = ".venv"
 include = ["src/unilab"]
 exclude = [
-    "src/unilab/algos/torch/rsl_rl/",         # vendored third-party
-    "src/unilab/algos/mlx/",                  # MLX stubs incomplete, macOS-only
-    "src/unilab/algos/torch/common/ane_*",    # Apple Neural Engine, macOS-only
-    "src/unilab/base/backend/",               # mujoco-uni stubs mismatch; optional backends
-    "src/unilab/envs/",                       # mujoco-uni internal API, stubs mismatch
-    "src/unilab/utils/render_many.py",        # direct mujoco C bindings
-    "src/unilab/utils/hardware_monitor.py",   # optional pynvml/psutil deps
+    "src/unilab/algos/torch/rsl_rl/",       # vendored third-party
+    "src/unilab/algos/mlx/",                # MLX stubs incomplete, macOS-only
+    "src/unilab/algos/torch/common/ane_*",  # Apple Neural Engine, macOS-only
+    "src/unilab/base/backend/",             # mujoco-uni stubs mismatch; optional backends
+    "src/unilab/envs/",                     # mujoco-uni internal API, stubs mismatch
+    "src/unilab/utils/render_many.py",      # direct mujoco C bindings
+    "src/unilab/utils/hardware_monitor.py", # optional pynvml/psutil deps
 ]
 reportMissingImports = "warning"
 reportMissingModuleSource = "none"
