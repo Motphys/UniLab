@@ -121,10 +121,9 @@ class Go2WalkTask(Go2BaseEnv):
         return {"actor": actor, "privileged": linvel}
 
     def _compute_reward(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
-        assert self._cfg.reward_config is not None
         dtype = get_global_dtype()
         reward = np.zeros((self._num_envs,), dtype=dtype)
-        cfg = self._cfg.reward_config
+        cfg = self._reward_cfg
 
         step_count = info.get("steps", np.zeros((self._num_envs,), dtype=np.uint32))
         should_log = self._enable_reward_log and (int(step_count[0]) % 4 == 0)
