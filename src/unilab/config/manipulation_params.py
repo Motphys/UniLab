@@ -90,6 +90,86 @@ def ppo_config(env_name: str) -> config_dict.ConfigDict:
     )
 
 
+def appo_config(env_name: str) -> config_dict.ConfigDict:
+    """Return APPO config.
+
+    Mirrors the structure of ppo_config/offpolicy_config so training
+    infrastructure is reusable.  Algorithm hyperparams live under the
+    ``algorithm`` sub-dict; network architecture under ``actor``/``critic``.
+    """
+    cfg = config_dict.create(
+        seed=1,
+        num_envs=2048,
+        steps_per_env=24,
+        max_iterations=150,
+        save_interval=50,
+        value_loss_coef=1.0,
+        desired_kl=0.01,
+        empirical_normalization=False,
+    )
+
+    if env_name == "AllegroInhandRotation":
+        cfg.num_envs = 16384
+        cfg.max_iterations = 501
+        cfg.steps_per_env = 8
+        cfg.value_loss_coef = 4.0
+        cfg.desired_kl = 0.02
+        cfg.save_interval = 100
+        cfg.empirical_normalization = True
+    elif env_name == "AllegroInhandRotationSac":
+        raise NotImplementedError()
+
+    return config_dict.create(
+        algo="appo",
+        algo_log_name="appo",
+        seed=cfg.seed,
+        num_envs=cfg.num_envs,
+        steps_per_env=cfg.steps_per_env,
+        max_iterations=cfg.max_iterations,
+        save_interval=cfg.save_interval,
+        empirical_normalization=cfg.empirical_normalization,
+        obs_groups=config_dict.create(
+            actor=config_dict.create(policy=0),
+        ),
+        actor=config_dict.create(
+            class_name="rsl_rl.models.MLPModel",
+            hidden_dims=[512, 256, 128],
+            activation="elu",
+            obs_normalization=cfg.empirical_normalization,
+            distribution_cfg=config_dict.create(
+                class_name="rsl_rl.modules.distribution.GaussianDistribution",
+                init_std=1.0,
+                std_type="scalar",
+            ),
+        ),
+        critic=config_dict.create(
+            class_name="rsl_rl.models.MLPModel",
+            hidden_dims=[512, 256, 128],
+            activation="elu",
+            obs_normalization=cfg.empirical_normalization,
+        ),
+        algorithm=config_dict.create(
+            num_learning_epochs=5,
+            num_mini_batches=4,
+            clip_param=0.2,
+            gamma=0.99,
+            lam=0.95,
+            value_loss_coef=cfg.value_loss_coef,
+            entropy_coef=0.01,
+            learning_rate=1e-3,
+            max_grad_norm=1.0,
+            use_clipped_value_loss=True,
+            schedule="adaptive",
+            desired_kl=cfg.desired_kl,
+            optimizer="adam",
+            tau=1.0,
+            target_update_freq=1,
+            vtrace_clip_rho=1.0,
+            vtrace_clip_c=1.0,
+        ),
+    )
+
+
 def offpolicy_config(algo: str, env_name: str) -> config_dict.ConfigDict:
     """Return a unified off-policy config schema for SAC/TD3.
 
