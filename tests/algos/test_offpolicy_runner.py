@@ -15,11 +15,11 @@ pytest.importorskip("mujoco")
 from unilab.algos.torch.fast_sac.learner import FastSACLearner
 from unilab.algos.torch.fast_td3.learner import FastTD3Learner
 from unilab.algos.torch.offpolicy.runner import OffPolicyRunner
-from unilab.config.locomotion_params import offpolicy_config
+from unilab.config.structured_configs import SACConfig
 
 
 def _make_sac_runner(env_name: str) -> OffPolicyRunner:
-    cfg = offpolicy_config("sac", env_name).to_dict()
+    cfg = SACConfig().to_dict()
     obs_dim = 8
     action_dim = 3
 

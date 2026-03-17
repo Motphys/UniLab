@@ -15,7 +15,7 @@ dependencies = [
     "gymnasium",
     "imageio",
     "etils",
-    "ml_collections",
+    "hydra-core>=1.3",
     "tensordict",
     "rsl-rl-lib>=5.0.0",
     "packaging",

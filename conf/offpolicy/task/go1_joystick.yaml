@@ -1,0 +1,6 @@
+# @package _global_
+training:
+  task_name: Go1JoystickFlatTerrain
+algo:
+  num_envs: 2048
+  max_iterations: 2000

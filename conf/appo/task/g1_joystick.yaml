@@ -1,0 +1,6 @@
+# @package _global_
+training:
+  task_name: G1JoystickFlatTerrain
+algo:
+  max_iterations: 500
+  save_interval: 100

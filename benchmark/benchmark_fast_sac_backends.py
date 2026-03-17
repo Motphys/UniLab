@@ -27,11 +27,9 @@ def run_backend(task, max_iterations, backend, num_envs):
     import datetime
 
     from unilab.algos.torch.fast_sac.runner import FastSACRunner
-    from unilab.config.locomotion_params import fast_sac_config
+    from unilab.config.structured_configs import SACConfig
 
-    cfg = fast_sac_config(task)
-    cfg.max_iterations = max_iterations
-    cfg.num_envs = num_envs
+    cfg = SACConfig()
 
     # Set collector device based on backend
     device = "mps"
@@ -50,9 +48,7 @@ def run_backend(task, max_iterations, backend, num_envs):
     runner = FastSACRunner(
         env_name=task,
         device=device,
-        collector_device=collector_device,
-        num_envs=cfg.num_envs,
-        steps_per_env=cfg.num_steps_per_env,
+        num_envs=num_envs,
         replay_buffer_n=cfg.replay_buffer_n,
         batch_size=cfg.batch_size,
         warmup_steps=cfg.warmup_steps,
@@ -62,13 +58,12 @@ def run_backend(task, max_iterations, backend, num_envs):
         tau=cfg.tau,
         actor_lr=cfg.actor_lr,
         critic_lr=cfg.critic_lr,
-        alpha_lr=cfg.alpha_lr,
-        alpha_init=cfg.alpha_init,
-        target_entropy_ratio=cfg.target_entropy_ratio,
+        alpha_lr=cfg.algo_params.alpha_lr,
+        alpha_init=cfg.algo_params.alpha_init,
+        target_entropy_ratio=cfg.algo_params.target_entropy_ratio,
         actor_hidden_dim=cfg.actor_hidden_dim,
         critic_hidden_dim=cfg.critic_hidden_dim,
         num_atoms=cfg.num_atoms,
-        exploration_noise=cfg.exploration_noise,
         use_layer_norm=cfg.use_layer_norm,
     )
 

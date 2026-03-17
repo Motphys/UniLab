@@ -1,0 +1,16 @@
+# @package _global_
+training:
+  task_name: AllegroInhandRotationSac
+algo:
+  num_envs: 2048
+  batch_size: 16384
+  replay_buffer_n: 1024
+  gamma: 0.99
+  tau: 0.005
+  actor_lr: 1.0e-4
+  save_interval: 1000
+  max_iterations: 25000
+  algo_params:
+    alpha_init: 0.001
+    target_entropy_ratio: 0.0
+    max_grad_norm: 1.0

@@ -14,12 +14,12 @@ import pytest
 pytest.importorskip("mujoco")
 
 from unilab.algos.torch.appo.runner import APPORunner
-from unilab.config.locomotion_params import appo_config
+from unilab.config.structured_configs import APPOConfig
 
 
 @pytest.mark.slow
 def test_appo_runner_init_no_crash(mock_env_name):
-    cfg = appo_config(mock_env_name).to_dict()
+    cfg = APPOConfig().to_dict()
     cfg["num_envs"] = 4
     cfg["steps_per_env"] = 4
 
@@ -35,7 +35,7 @@ def test_appo_runner_init_no_crash(mock_env_name):
 
 # @pytest.mark.slow
 # def test_appo_runner_learn_two_iterations(mock_env_name):
-#     cfg = appo_config(mock_env_name).to_dict()
+#     cfg = APPOConfig().to_dict()
 #     cfg["num_envs"] = 4
 #     cfg["steps_per_env"] = 4
 
@@ -55,7 +55,7 @@ def test_appo_runner_init_no_crash(mock_env_name):
 
 @pytest.mark.slow
 def test_appo_runner_close_is_idempotent(mock_env_name):
-    cfg = appo_config(mock_env_name).to_dict()
+    cfg = APPOConfig().to_dict()
     cfg["num_envs"] = 4
     cfg["steps_per_env"] = 4
 

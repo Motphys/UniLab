@@ -47,11 +47,6 @@ class APPORunner(AsyncRunner):
             num_envs=num_envs,
         )
 
-        # Normalize rl_cfg to a plain dict so isinstance(x, dict) checks work
-        # uniformly regardless of whether a ml_collections ConfigDict was passed.
-        if hasattr(self.rl_cfg, "to_dict"):
-            self.rl_cfg = self.rl_cfg.to_dict()
-
         self.steps_per_env = steps_per_env
         self.replay_queue_size = replay_queue_size
 

@@ -1,0 +1,9 @@
+# @package _global_
+training:
+  task_name: Go2JoystickFlatTerrain
+algo:
+  obs_groups:
+    default:
+      - policy
+    actor:
+      - actor

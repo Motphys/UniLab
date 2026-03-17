@@ -1,0 +1,12 @@
+# @package _global_
+training:
+  task_name: G1WalkTaskMjSAC
+algo:
+  num_envs: 2048
+  max_iterations: 5000
+  save_interval: 1000
+  updates_per_step: 8
+  use_symmetry: true
+  algo_params:
+    alpha_init: 0.01
+    target_entropy_ratio: 0.2
