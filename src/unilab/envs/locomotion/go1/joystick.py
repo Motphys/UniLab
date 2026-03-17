@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-import gymnasium as gym
 import numpy as np
 from etils import epath
 
@@ -11,7 +10,6 @@ from unilab.base.backend import create_backend
 from unilab.base.dtype_config import get_global_dtype
 from unilab.base.np_env import NpEnvState
 from unilab.envs.locomotion.go1.base import Go1BaseCfg, Go1BaseEnv
-from unilab.envs.locomotion.obs_config import ObsConfig
 from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
 
 
@@ -68,22 +66,6 @@ class Domain_Rand:
     max_force = [1, 1, 0.5]
 
 
-def _go1_obs_config() -> ObsConfig:
-    return ObsConfig(
-        obs_dict={
-            "vel": 3,
-            "gyro": 3,
-            "gravity": 3,
-            "diff": 12,
-            "dof_vel": 12,
-            "action": 12,
-            "cmd": 3,
-            "phase": 4,
-        },
-        actor_obs=["gyro", "gravity", "diff", "dof_vel", "action", "cmd", "phase"],
-    )
-
-
 @registry.envcfg("Go1JoystickFlatTerrain")
 @dataclass
 class Go1JoystickCfg(Go1BaseCfg):
@@ -94,7 +76,6 @@ class Go1JoystickCfg(Go1BaseCfg):
     reward_config: RewardConfig = field(default_factory=RewardConfig)
     sensor: JoystickSensor = field(default_factory=JoystickSensor)  # type: ignore[assignment]
     domain_rand: Domain_Rand = field(default_factory=Domain_Rand)
-    obs_config: ObsConfig = field(default_factory=_go1_obs_config)
 
 
 @registry.env("Go1JoystickFlatTerrain", sim_backend="mujoco")
@@ -108,12 +89,16 @@ class Go1WalkTask(Go1BaseEnv):
         )
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True
-        self._init_obs_space()
         self._init_reward_functions()
         self.phase = np.zeros((num_envs,), dtype=np.float32)
         self.feet_phase = np.zeros((num_envs, len(cfg.sensor.feet_force)), dtype=np.float32)
         self.gait_frequency = 2
         self.feet_force = np.zeros((num_envs, len(cfg.sensor.feet_force), 3), dtype=np.float32)
+
+    @property
+    def obs_groups_spec(self) -> dict[str, int]:
+        # gyro(3) + gravity(3) + diff(12) + dof_vel(12) + action(12) + cmd(3) + phase(4) = 49
+        return {"actor": 49, "privileged": 3}
 
     def _init_reward_functions(self):
         self._reward_fns = {
@@ -126,17 +111,6 @@ class Go1WalkTask(Go1BaseEnv):
             "similar_to_default": self._reward_similar_to_default,
             "contact": self._reward_contact,
         }
-
-    def _init_obs_space(self):
-        obs_cfg = self._cfg.obs_config
-        self._observation_space = gym.spaces.Box(
-            low=-float("inf"), high=float("inf"), shape=(obs_cfg.total_dim,), dtype=float
-        )
-        self.actor_indices = obs_cfg.actor_indices
-
-    @property
-    def observation_space(self) -> gym.spaces.Box:
-        return self._observation_space  # type: ignore[no-any-return]
 
     def update_state(self, state: NpEnvState) -> NpEnvState:
         self.phase = np.fmod(self.phase + self._cfg.ctrl_dt * self.gait_frequency, 1.0)
@@ -163,15 +137,16 @@ class Go1WalkTask(Go1BaseEnv):
 
     def _compute_obs(
         self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel, feet_phase
-    ) -> np.ndarray:
+    ) -> dict[str, np.ndarray]:
         diff = dof_pos - self.default_angles
         command = info["commands"]
         last_actions = info.get("current_actions", np.zeros_like(diff))
-        return np.concatenate(
-            [linvel, gyro, -gravity, diff, dof_vel, last_actions, command, feet_phase],
+        actor = np.concatenate(
+            [gyro, -gravity, diff, dof_vel, last_actions, command, feet_phase],
             axis=1,
             dtype=get_global_dtype(),
         )
+        return {"actor": actor, "privileged": linvel}
 
     def _compute_reward(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         dtype = get_global_dtype()

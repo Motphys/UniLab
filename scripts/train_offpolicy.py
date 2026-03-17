@@ -158,8 +158,8 @@ def build_runner(algo_name: str, args, cfg):
             ensure_registries()
             device = args.device or get_default_device()
             env = registry.make(args.task, num_envs=1, sim_backend=args.sim_backend)
-            assert env.observation_space.shape and env.action_space.shape
-            obs_dim = env.observation_space.shape[0]
+            assert env.action_space.shape
+            obs_dim = sum(env.obs_groups_spec.values())
             action_dim = env.action_space.shape[0]
             env.close()
 
@@ -286,8 +286,10 @@ def play_offpolicy(algo_name: str, args, cfg) -> None:
     device = default_device(torch, args.device)
     print(f"Using device for play: {device}")
 
+    from unilab.utils.obs_utils import flatten_obs_dict
+
     env = registry.make(args.task, num_envs=args.play_env_num, sim_backend=args.sim_backend)
-    obs_dim = env.observation_space.shape[0]
+    obs_dim = sum(env.obs_groups_spec.values())
     action_dim = env.action_space.shape[0]
 
     normalizer = None
@@ -339,7 +341,7 @@ def play_offpolicy(algo_name: str, args, cfg) -> None:
         env.init_state()
     env_indices = np.arange(args.play_env_num, dtype=np.int32)
     _, obs_out, _ = env.reset(env_indices)
-    obs_np = np.asarray(obs_out, dtype=np.float32)
+    obs_np = np.asarray(flatten_obs_dict(obs_out), dtype=np.float32)
 
     # Use Motrix native rendering
     if args.sim_backend == "motrix":
@@ -364,7 +366,7 @@ def play_offpolicy(algo_name: str, args, cfg) -> None:
                         else actor(obs_torch).cpu().numpy()
                     )
                     state = env.step(actions_np)
-                    obs_np = np.asarray(state.obs, dtype=np.float32)
+                    obs_np = np.asarray(flatten_obs_dict(state.obs), dtype=np.float32)
 
                     current_time = time.perf_counter()
                     elapsed = current_time - last_render_time
@@ -397,7 +399,7 @@ def play_offpolicy(algo_name: str, args, cfg) -> None:
                 else actor(obs_torch).cpu().numpy()
             )
             state = env.step(actions_np)
-            obs_np = np.asarray(state.obs, dtype=np.float32)
+            obs_np = np.asarray(flatten_obs_dict(state.obs), dtype=np.float32)
             state_list.append(np.asarray(env._backend.get_physics_state(), dtype=np.float32).copy())
 
     print("Rendering frames...")

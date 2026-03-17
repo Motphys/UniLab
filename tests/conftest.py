@@ -58,6 +58,10 @@ class _DummyEnv(ABEnv):
     def action_space(self) -> gym.Space:
         return self._act_space
 
+    @property
+    def obs_groups_spec(self) -> dict[str, int]:
+        return {"actor": _DUMMY_OBS_DIM}
+
     def close(self) -> None:
         pass
 

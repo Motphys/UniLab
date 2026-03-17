@@ -100,12 +100,12 @@ def test_offpolicy_invalid_algo_raises():
 
 
 def test_ppo_config_go1_has_actor_obs_group():
-    """Go1 branch sets actor obs group in addition to default."""
+    """Go1 branch sets actor and critic obs groups."""
     cfg = ppo_config("Go1JoystickFlatTerrain")
     d = cfg.to_dict()
     obs = d["obs_groups"]
     assert "actor" in obs, "Go1 ppo_config must have actor obs group"
-    assert "default" in obs
+    assert "critic" in obs
 
 
 def test_ppo_config_go1_max_iterations():
@@ -135,9 +135,10 @@ def test_ppo_config_unknown_env_uses_defaults():
     """Unknown env_name falls through all branches → uses default obs_groups."""
     cfg = ppo_config("SomeOtherEnv")
     d = cfg.to_dict()
-    assert "default" in d["obs_groups"]
-    # no actor obs group for unknown env
-    assert "actor" not in d["obs_groups"]
+    assert "actor" in d["obs_groups"]
+    assert "critic" in d["obs_groups"]
+    # no privileged obs for unknown env
+    assert "privileged" not in d["obs_groups"].get("critic", [])
 
 
 # ---------------------------------------------------------------------------

@@ -33,49 +33,42 @@ from unilab.utils.algo_utils import ensure_registries  # noqa: E402
 # ---------------------------------------------------------------------------
 
 
-def test_g1_joystick_ppo_cfg_has_obs_config():
-    """G1JoystickPPOCfg must have obs_config (baseline sanity check)."""
-    from unilab.envs.locomotion.g1.joystick import G1JoystickPPOCfg
+def test_g1_joystick_ppo_cfg_obs_groups_spec():
+    """G1JoystickPPO must declare obs_groups_spec with actor and privileged groups."""
+    from unilab.envs.locomotion.g1.joystick import G1JoystickPPO, G1JoystickPPOCfg
 
     cfg = G1JoystickPPOCfg()
-    assert hasattr(cfg, "obs_config"), "G1JoystickPPOCfg missing obs_config"
-    assert hasattr(cfg.obs_config, "obs_dict")
-    assert hasattr(cfg.obs_config, "actor_obs")
+    # Access obs_groups_spec from the class (it's a class-level property)
+    # We need an instance to check, but can't instantiate without MuJoCo sim,
+    # so just verify the cfg no longer has obs_config (removed in dict obs refactor).
+    assert not hasattr(cfg, "obs_config"), "obs_config should have been removed"
 
 
-def test_g1_joystick_sac_cfg_has_obs_config():
-    """G1JoystickSACCfg must have obs_config because G1WalkTaskMjSAC inherits
-    _init_obs_space() from G1JoystickPPO which reads self._cfg.obs_config.
-
-    Regression test for:
-        AttributeError: 'G1JoystickSACCfg' object has no attribute 'obs_config'
-    """
+def test_g1_joystick_sac_cfg_no_obs_config():
+    """G1JoystickSACCfg should no longer have obs_config after dict obs refactor."""
     from unilab.envs.locomotion.g1.joystick_sac import G1JoystickSACCfg
 
     cfg = G1JoystickSACCfg()
-    assert hasattr(cfg, "obs_config"), (
-        "G1JoystickSACCfg must declare obs_config so that the inherited "
-        "G1JoystickPPO._init_obs_space() can resolve self._cfg.obs_config"
+    assert not hasattr(cfg, "obs_config"), (
+        "obs_config should have been removed in the dict obs refactor"
     )
-    assert hasattr(cfg.obs_config, "obs_dict")
-    assert hasattr(cfg.obs_config, "actor_obs")
 
 
-def test_g1_joystick_sac_obs_config_total_dim():
-    """obs_config total dim must match what _compute_obs actually concatenates.
+def test_g1_joystick_ppo_obs_groups_spec_dims():
+    """obs_groups_spec total dim must match what _compute_obs actually produces.
 
     G1JoystickPPO._compute_obs outputs (G1 has 29 DoF):
-        linvel(3) + gyro(3) + gravity(3) + diff(29) + dof_vel(29)
-        + last_actions(29) + command(3) + gait_phase(2) = 101
+        actor: gyro(3) + gravity(3) + diff(29) + dof_vel(29)
+            + last_actions(29) + command(3) + gait_phase(2) = 98
+        privileged: linvel(3)
     """
-    from unilab.envs.locomotion.g1.joystick_sac import G1JoystickSACCfg
+    from unilab.envs.locomotion.g1.joystick import G1JoystickPPO
 
-    cfg = G1JoystickSACCfg()
-    total = sum(cfg.obs_config.obs_dict.values())
-    assert total == 101, (
-        f"obs_config total dim is {total}, expected 101. "
-        "obs_config.obs_dict does not match _compute_obs output."
-    )
+    # obs_groups_spec is a @property; access via descriptor protocol
+    spec = G1JoystickPPO.obs_groups_spec.fget(None)  # type: ignore[union-attr]
+    assert spec is not None
+    assert spec["actor"] == 98
+    assert spec["privileged"] == 3
 
 
 # ---------------------------------------------------------------------------

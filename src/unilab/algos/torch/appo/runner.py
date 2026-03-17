@@ -86,9 +86,8 @@ class APPORunner(AsyncRunner):
         ensure_registries()
 
         env = registry.make(self.env_name, num_envs=1, sim_backend="mujoco")
-        assert env.observation_space.shape is not None
+        obs_dim = sum(env.obs_groups_spec.values())
         assert env.action_space.shape is not None
-        obs_dim = env.observation_space.shape[0]
         action_dim = env.action_space.shape[0]
         env.close()
 
