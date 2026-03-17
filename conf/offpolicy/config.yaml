@@ -2,6 +2,7 @@ defaults:
   - _self_
   - algo: sac
   - task: go1_joystick
+  - reward: default
 
 training:
   task_name: Go1JoystickFlatTerrain

@@ -11,6 +11,7 @@ class FastTD3Runner(OffPolicyRunner):
     def __init__(
         self,
         env_name: str,
+        env_cfg_override: dict | None = None,
         device: str | None = None,
         num_envs: int = 4096,
         replay_buffer_n: int = 1000,
@@ -85,4 +86,5 @@ class FastTD3Runner(OffPolicyRunner):
             use_layer_norm=False,
             obs_normalization=obs_normalization,
             sim_backend=sim_backend,
+            env_cfg_override=env_cfg_override,
         )

@@ -1,3 +1,6 @@
+defaults:
+  - /reward: default
+
 # @package _global_
 training:
   task_name: AllegroInhandRotationSac

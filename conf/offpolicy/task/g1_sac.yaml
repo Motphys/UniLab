@@ -1,3 +1,6 @@
+defaults:
+  - /reward: g1_sac_mujoco
+
 # @package _global_
 training:
   task_name: G1WalkTaskMjSAC

@@ -13,6 +13,7 @@ class FastSACRunner(OffPolicyRunner):
     def __init__(
         self,
         env_name: str,
+        env_cfg_override: dict[str, Any] | None = None,
         device: str | None = None,
         num_envs: int = 4096,
         replay_buffer_n: int = 1024,
@@ -44,7 +45,7 @@ class FastSACRunner(OffPolicyRunner):
         from unilab.utils.algo_utils import ensure_registries
 
         ensure_registries()
-        env: Any = registry.make(env_name, num_envs=1, sim_backend=sim_backend)
+        env: Any = registry.make(env_name, num_envs=1, sim_backend=sim_backend, env_cfg_override=env_cfg_override)
         obs_space_shape = env.observation_space.shape
         act_space_shape = env.action_space.shape
         assert obs_space_shape is not None and act_space_shape is not None
@@ -105,4 +106,5 @@ class FastSACRunner(OffPolicyRunner):
             use_layer_norm=use_layer_norm,
             obs_normalization=obs_normalization,
             sim_backend=sim_backend,
+            env_cfg_override=env_cfg_override,
         )

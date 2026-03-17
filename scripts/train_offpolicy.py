@@ -80,6 +80,12 @@ def resolve_checkpoint_path(
 
 def build_runner(algo_name: str, cfg: DictConfig):
     """Build algorithm runner from unified Hydra config."""
+    env_cfg_override = None
+    if hasattr(cfg, "reward") and cfg.reward:
+        from omegaconf import OmegaConf
+        reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
+        env_cfg_override = {"reward_config": reward_dict}
+
     if algo_name == "sac":
         from unilab.algos.torch.fast_sac.learner import FastSACLearner
         from unilab.algos.torch.fast_sac.runner import FastSACRunner
@@ -141,10 +147,12 @@ def build_runner(algo_name: str, cfg: DictConfig):
                 use_layer_norm=cfg.algo.use_layer_norm,
                 obs_normalization=False,
                 sim_backend=cfg.training.sim_backend,
+                env_cfg_override=env_cfg_override,
             )
 
         return FastSACRunner(
             env_name=cfg.training.task_name,
+            env_cfg_override=env_cfg_override,
             device=cfg.training.device,
             num_envs=cfg.algo.num_envs,
             replay_buffer_n=cfg.algo.replay_buffer_n,
@@ -177,6 +185,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
 
         return FastTD3Runner(
             env_name=cfg.training.task_name,
+            env_cfg_override=env_cfg_override,
             device=cfg.training.device,
             num_envs=cfg.algo.num_envs,
             replay_buffer_n=cfg.algo.replay_buffer_n,

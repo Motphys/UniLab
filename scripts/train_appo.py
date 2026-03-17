@@ -188,6 +188,14 @@ def play_appo(cfg: DictConfig, rl_cfg: dict):
 def main(cfg: DictConfig) -> None:
     ensure_registries()
 
+    from omegaconf import OmegaConf
+
+    # Build env_cfg_override from reward config
+    env_cfg_override = {}
+    if hasattr(cfg, "reward") and cfg.reward:
+        reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
+        env_cfg_override["reward_config"] = reward_dict
+
     # Convert algo config to plain dict for APPORunner / RSL-RL internals
     rl_cfg = OmegaConf.to_container(cfg.algo, resolve=True)
 
@@ -212,7 +220,7 @@ def main(cfg: DictConfig) -> None:
 
         runner = APPORunner(
             env_name=cfg.training.task_name,
-            env_cfg_overrides={},
+            env_cfg_overrides=env_cfg_override,
             rl_cfg=rl_cfg,
             device=cfg.training.device,
             collector_device=collector_device,

@@ -128,8 +128,19 @@ def make(
     # Create environment config
     env_cfg = meta.env_cfg_cls()
     if env_cfg_override is not None:
+        from typing import get_type_hints
+
+        # Get type hints for the config class
+        type_hints = get_type_hints(env_cfg.__class__)
+
         for key, value in env_cfg_override.items():
             if hasattr(env_cfg, key):
+                # If value is dict and target type is a dataclass, instantiate it
+                if isinstance(value, dict) and key in type_hints:
+                    target_type = type_hints[key]
+                    # Check if it's a dataclass
+                    if hasattr(target_type, "__dataclass_fields__"):
+                        value = target_type(**value)
                 setattr(env_cfg, key, value)
             else:
                 raise ValueError(

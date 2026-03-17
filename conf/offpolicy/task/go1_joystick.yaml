@@ -1,3 +1,6 @@
+defaults:
+  - /reward: go1_sac_mujoco
+
 # @package _global_
 training:
   task_name: Go1JoystickFlatTerrain

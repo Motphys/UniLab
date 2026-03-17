@@ -138,6 +138,7 @@ def play_rsl_rl(cfg: DictConfig, device: str):
         cfg.training.task_name,
         num_envs=cfg.training.play_env_num,
         sim_backend=cfg.training.sim_backend,
+        env_cfg_override=env_cfg_override,
     )
     wrapped_env = RslRlVecEnvWrapper(env, device=device)
     train_cfg = OmegaConf.to_container(cfg.algo, resolve=True)
@@ -259,6 +260,13 @@ def main(cfg: DictConfig) -> None:
     ensure_registries()
 
     from unilab.base import registry
+    from omegaconf import OmegaConf
+
+    # Build env_cfg_override from reward config
+    env_cfg_override = {}
+    if hasattr(cfg, "reward") and cfg.reward:
+        reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
+        env_cfg_override["reward_config"] = reward_dict
 
     if torch.cuda.is_available():
         device = "cuda"
@@ -295,6 +303,7 @@ def main(cfg: DictConfig) -> None:
             cfg.training.task_name,
             num_envs=cfg.algo.num_envs,
             sim_backend=cfg.training.sim_backend,
+            env_cfg_override=env_cfg_override,
         )
         wrapped_env = RslRlVecEnvWrapper(env, device=device)
 
