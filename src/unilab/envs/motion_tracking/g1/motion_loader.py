@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
+
 from unilab.utils.math_utils import np_sample_uniform as sample_uniform
 
 
@@ -129,7 +130,9 @@ class MotionSampler:
         self._current_bin_failed = np.zeros(self.bin_count, dtype=np.float32)
 
         # Precompute adaptive kernel
-        self.kernel = np.array([adaptive_lambda**i for i in range(adaptive_kernel_size)], dtype=np.float32)
+        self.kernel = np.array(
+            [adaptive_lambda**i for i in range(adaptive_kernel_size)], dtype=np.float32
+        )
         self.kernel = self.kernel / self.kernel.sum()
 
         # Metrics
@@ -192,7 +195,9 @@ class MotionSampler:
 
         # Add random offset within bin
         bin_offsets = np.random.uniform(0.0, 1.0, len(env_ids))
-        frames = ((sampled_bins + bin_offsets) / self.bin_count * (self.motion_loader.num_frames - 1)).astype(np.int32)
+        frames = (
+            (sampled_bins + bin_offsets) / self.bin_count * (self.motion_loader.num_frames - 1)
+        ).astype(np.int32)
 
         self.current_frames[env_ids] = frames
 
@@ -208,7 +213,9 @@ class MotionSampler:
 
         return frames
 
-    def update_failure_stats(self, terminated: np.ndarray, current_frames: np.ndarray | None = None):
+    def update_failure_stats(
+        self, terminated: np.ndarray, current_frames: np.ndarray | None = None
+    ):
         """Update failure statistics for adaptive sampling.
 
         Args:
@@ -237,7 +244,8 @@ class MotionSampler:
 
             # Update EMA of failure counts
             self.bin_failed_count = (
-                self.adaptive_alpha * self._current_bin_failed + (1 - self.adaptive_alpha) * self.bin_failed_count
+                self.adaptive_alpha * self._current_bin_failed
+                + (1 - self.adaptive_alpha) * self.bin_failed_count
             )
 
     def step(self):

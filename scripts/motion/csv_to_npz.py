@@ -277,7 +277,9 @@ def run_simulation(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Convert CSV motion to NPZ with forward kinematics")
+    parser = argparse.ArgumentParser(
+        description="Convert CSV motion to NPZ with forward kinematics"
+    )
     parser.add_argument("--input_file", type=str, required=True, help="Input CSV file")
     parser.add_argument("--output_file", type=str, required=True, help="Output NPZ file")
     parser.add_argument("--input_fps", type=float, default=30.0, help="Input frame rate")
@@ -301,7 +303,9 @@ def main():
     # Default model file
     if args.model_file is None:
         repo_root = Path(__file__).resolve().parents[2]
-        args.model_file = str(repo_root / "src" / "unilab" / "envs" / "locomotion" / "g1" / "xml" / "scene_flat.xml")
+        args.model_file = str(
+            repo_root / "src" / "unilab" / "assets" / "robots" / "g1" / "scene_flat.xml"
+        )
 
     model_path = Path(args.model_file).expanduser().resolve()
     if not model_path.exists():

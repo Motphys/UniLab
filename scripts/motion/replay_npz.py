@@ -45,10 +45,9 @@ def default_model_path() -> str:
         Path(__file__).resolve().parent.parent.parent
         / "src"
         / "unilab"
-        / "envs"
-        / "locomotion"
+        / "assets"
+        / "robots"
         / "g1"
-        / "xml"
         / "scene_flat.xml"
     )
 

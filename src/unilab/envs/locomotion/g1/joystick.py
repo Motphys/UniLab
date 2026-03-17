@@ -108,7 +108,9 @@ class RewardConfigPPO:
 @registry.envcfg("G1JoystickFlatTerrain")
 @dataclass
 class G1JoystickPPOCfg(G1BaseCfg):
-    model_file: str = str(epath.Path(__file__).parent / "xml" / "scene_flat.xml")
+    model_file: str = str(
+        epath.Path(__file__).parents[3] / "assets" / "robots" / "g1" / "scene_flat.xml"
+    )
     max_episode_seconds: float = 20.0
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)

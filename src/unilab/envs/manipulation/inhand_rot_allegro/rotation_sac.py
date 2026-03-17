@@ -49,7 +49,9 @@ class DomainRandConfigSac:
 @registry.envcfg("AllegroInhandRotationSac")
 @dataclass
 class AllegroRotationSacCfg(AllegroBaseCfg):
-    model_file: str = str(epath.Path(__file__).parent / "xml" / "scene.xml")
+    model_file: str = str(
+        epath.Path(__file__).parents[3] / "assets" / "robots" / "allegro_hand" / "scene.xml"
+    )
     max_episode_seconds: float = 20.0  # same as HORA
     reward_config: RewardConfigSac = field(default_factory=RewardConfigSac)
     domain_rand: DomainRandConfigSac = field(default_factory=DomainRandConfigSac)

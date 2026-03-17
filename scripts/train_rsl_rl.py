@@ -17,7 +17,11 @@ sys.path.append(str(ROOT_DIR))
 
 # Ensure all environment modules are imported so they are registered
 def ensure_registries():
-    for pkg_name in ("unilab.envs.locomotion", "unilab.envs.manipulation", "unilab.envs.motion_tracking"):
+    for pkg_name in (
+        "unilab.envs.locomotion",
+        "unilab.envs.manipulation",
+        "unilab.envs.motion_tracking",
+    ):
         try:
             package = importlib.import_module(pkg_name)
             if hasattr(package, "__path__"):
@@ -233,7 +237,9 @@ def play_rsl_rl(args, cfg, device):
         return
 
     if os.path.isdir(load_path):
-        model_files = [f for f in os.listdir(load_path) if f.startswith("model_") and f.endswith(".pt")]
+        model_files = [
+            f for f in os.listdir(load_path) if f.startswith("model_") and f.endswith(".pt")
+        ]
         if len(model_files) > 0:
             model_files.sort(key=lambda x: int(x.split("_")[1].split(".")[0]))
             load_path_dir = load_path
@@ -249,7 +255,10 @@ def play_rsl_rl(args, cfg, device):
     # instead of "actor_state_dict" and will cause a KeyError inside runner.load().
     _ckpt_keys = set(torch.load(load_path, map_location="cpu", weights_only=True).keys())
     if "actor_state_dict" not in _ckpt_keys:
-        print(f"Checkpoint at {load_path} is not an rsl-rl checkpoint " f"(found keys: {_ckpt_keys}). Aborting play.")
+        print(
+            f"Checkpoint at {load_path} is not an rsl-rl checkpoint "
+            f"(found keys: {_ckpt_keys}). Aborting play."
+        )
         return
 
     runner = OnPolicyRunner(wrapped_env, train_cfg, log_dir=None, device=device)
@@ -329,10 +338,16 @@ def main():
     parser.add_argument("--play_only", action="store_true", help="Skip training, only play")
     parser.add_argument("--no_play", action="store_true", help="Skip play after training")
     parser.add_argument("--load_run", type=str, default="-1", help="Run ID to load or path")
-    parser.add_argument("--env_num", type=int, default=4096, help="Number of training envs (task default if unset)")
+    parser.add_argument(
+        "--env_num", type=int, default=4096, help="Number of training envs (task default if unset)"
+    )
     parser.add_argument("--play_env_num", type=int, default=16, help="Number of play envs")
-    parser.add_argument("--play_steps", type=int, default=200, help="Number of steps for play video")
-    parser.add_argument("--num_timesteps", type=int, default=None, help="Overwritten total timesteps")
+    parser.add_argument(
+        "--play_steps", type=int, default=200, help="Number of steps for play video"
+    )
+    parser.add_argument(
+        "--num_timesteps", type=int, default=None, help="Overwritten total timesteps"
+    )
     parser.add_argument(
         "--logger",
         type=str,
@@ -347,7 +362,9 @@ def main():
         help="Simulation backend",
     )
     # Video rendering
-    parser.add_argument("--cam_distance", type=float, default=6.0, help="Camera distance for play video")
+    parser.add_argument(
+        "--cam_distance", type=float, default=6.0, help="Camera distance for play video"
+    )
     parser.add_argument(
         "--cam_elevation",
         type=float,
@@ -364,7 +381,9 @@ def main():
     args = parser.parse_args()
 
     # Determine which params module to use based on task registration
-    params = manipulation_params if args.task in manipulation_params.KNOWN_TASKS else locomotion_params
+    params = (
+        manipulation_params if args.task in manipulation_params.KNOWN_TASKS else locomotion_params
+    )
 
     # Load config
     cfg = params.ppo_config(args.task)
@@ -377,11 +396,15 @@ def main():
         n_steps_per_iter = cfg.num_steps_per_env * args.env_num
         max_iters = int(args.num_timesteps / n_steps_per_iter)
         cfg.max_iterations = max(1, max_iters)
-        print(f"Overriding max_iterations to {max_iters} based on num_timesteps {args.num_timesteps}")
+        print(
+            f"Overriding max_iterations to {max_iters} based on num_timesteps {args.num_timesteps}"
+        )
 
     if not args.play_only:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        log_dir = str(ROOT_DIR / "logs" / "rsl_rl_train" / args.task / f"{timestamp}_{args.sim_backend}")
+        log_dir = str(
+            ROOT_DIR / "logs" / "rsl_rl_train" / args.task / f"{timestamp}_{args.sim_backend}"
+        )
     else:
         log_dir = None
 

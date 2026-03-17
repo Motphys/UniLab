@@ -18,15 +18,32 @@ from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
 from unilab.envs.locomotion.obs_config import ObsConfig
 from unilab.utils.math_utils import (
     np_matrix_from_quat as matrix_from_quat,
+)
+from unilab.utils.math_utils import (
     np_quat_apply as quat_apply,
+)
+from unilab.utils.math_utils import (
     np_quat_error_magnitude as quat_error_magnitude,
+)
+from unilab.utils.math_utils import (
     np_quat_from_euler_xyz as quat_from_euler_xyz,
+)
+from unilab.utils.math_utils import (
     np_quat_inv as quat_inv,
+)
+from unilab.utils.math_utils import (
     np_quat_mul as quat_mul,
+)
+from unilab.utils.math_utils import (
     np_sample_uniform as sample_uniform,
+)
+from unilab.utils.math_utils import (
     np_subtract_frame_transforms as subtract_frame_transforms,
+)
+from unilab.utils.math_utils import (
     np_yaw_quat as yaw_quat,
 )
+
 from .motion_loader import MotionLoader, MotionSampler
 
 # 14 tracked bodies, 29 DoF for G1
@@ -122,8 +139,12 @@ class VelocityRandomization:
 class G1MotionTrackingCfg(G1BaseCfg):
     """Configuration for G1 motion tracking environment."""
 
-    model_file: str = str(epath.Path(__file__).parent / "xml" / "scene_flat.xml")
-    motion_file: str = "temp/g1_LAFAN1/gangnam_style.npz"  # Path to NPZ motion file (required)
+    model_file: str = str(
+        epath.Path(__file__).parents[3] / "assets" / "robots" / "g1" / "scene_flat.xml"
+    )
+    motion_file: str = str(
+        epath.Path(__file__).parents[3] / "assets" / "motions" / "g1" / "gangnam_style.npz"
+    )
     anchor_body_name: str = "torso_link"
     body_names: tuple[str, ...] = (
         "pelvis",
@@ -191,21 +212,32 @@ class G1MotionTrackingEnv(G1BaseEnv):
 
         # Get body IDs from MuJoCo model
         self.body_ids = np.array(
-            [mujoco.mj_name2id(self._backend.model, mujoco.mjtObj.mjOBJ_BODY, name) for name in cfg.body_names],
+            [
+                mujoco.mj_name2id(self._backend.model, mujoco.mjtObj.mjOBJ_BODY, name)
+                for name in cfg.body_names
+            ],
             dtype=np.int32,
         )
         self.anchor_body_idx = cfg.body_names.index(cfg.anchor_body_name)
 
         # Get end-effector body indices for termination
-        self.ee_body_indices = np.array([cfg.body_names.index(name) for name in cfg.ee_body_names], dtype=np.int32)
+        self.ee_body_indices = np.array(
+            [cfg.body_names.index(name) for name in cfg.ee_body_names], dtype=np.int32
+        )
 
         # Load motion data
         self.motion_loader = MotionLoader(cfg.motion_file, body_indices=self.body_ids)
-        self.motion_sampler = MotionSampler(self.motion_loader, mode=cfg.sampling_mode, num_envs=num_envs)
+        self.motion_sampler = MotionSampler(
+            self.motion_loader, mode=cfg.sampling_mode, num_envs=num_envs
+        )
 
         # Buffers for relative body transforms
-        self.body_pos_relative_w = np.zeros((num_envs, len(cfg.body_names), 3), dtype=get_global_dtype())
-        self.body_quat_relative_w = np.zeros((num_envs, len(cfg.body_names), 4), dtype=get_global_dtype())
+        self.body_pos_relative_w = np.zeros(
+            (num_envs, len(cfg.body_names), 3), dtype=get_global_dtype()
+        )
+        self.body_quat_relative_w = np.zeros(
+            (num_envs, len(cfg.body_names), 4), dtype=get_global_dtype()
+        )
         self.body_quat_relative_w[:, :, 0] = 1.0  # Initialize to identity quaternion
 
         self._enable_reward_log = True
@@ -318,7 +350,9 @@ class G1MotionTrackingEnv(G1BaseEnv):
 
         return state.replace(obs=obs, reward=reward, terminated=terminated)
 
-    def _update_relative_transforms(self, motion_data, robot_body_pos_w: np.ndarray, robot_body_quat_w: np.ndarray):
+    def _update_relative_transforms(
+        self, motion_data, robot_body_pos_w: np.ndarray, robot_body_quat_w: np.ndarray
+    ):
         """Update relative body transforms for tracking."""
         # Get anchor states
         anchor_pos_w = motion_data.body_pos_w[:, self.anchor_body_idx]
@@ -370,7 +404,9 @@ class G1MotionTrackingEnv(G1BaseEnv):
 
         # End-effector position error (Z-axis only)
         for ee_idx in self.ee_body_indices:
-            ee_pos_error_z = np.abs(self.body_pos_relative_w[:, ee_idx, 2] - robot_body_pos_w[:, ee_idx, 2])
+            ee_pos_error_z = np.abs(
+                self.body_pos_relative_w[:, ee_idx, 2] - robot_body_pos_w[:, ee_idx, 2]
+            )
             terminated |= ee_pos_error_z > self._cfg.ee_body_pos_z_threshold
 
         return terminated
@@ -434,8 +470,12 @@ class G1MotionTrackingEnv(G1BaseEnv):
         )
 
         # Robot body positions in robot anchor frame
-        robot_body_pos_b = np.zeros((batch_size, len(self._cfg.body_names), 3), dtype=get_global_dtype())
-        robot_body_ori_b = np.zeros((batch_size, len(self._cfg.body_names), 6), dtype=get_global_dtype())
+        robot_body_pos_b = np.zeros(
+            (batch_size, len(self._cfg.body_names), 3), dtype=get_global_dtype()
+        )
+        robot_body_ori_b = np.zeros(
+            (batch_size, len(self._cfg.body_names), 6), dtype=get_global_dtype()
+        )
         for i in range(len(self._cfg.body_names)):
             pos_b, ori_b = subtract_frame_transforms(
                 robot_anchor_pos_w,
@@ -643,7 +683,9 @@ class G1MotionTrackingEnv(G1BaseEnv):
         }
 
         # Compute initial observations — slice motion data to match env_indices
-        motion_data = self.motion_loader.get_motion_at_frame(self.motion_sampler.current_frames[env_indices])
+        motion_data = self.motion_loader.get_motion_at_frame(
+            self.motion_sampler.current_frames[env_indices]
+        )
         linvel = self.get_local_linvel()[env_indices]
         gyro = self.get_gyro()[env_indices]
         dof_pos = self.get_dof_pos()[env_indices]
@@ -651,6 +693,8 @@ class G1MotionTrackingEnv(G1BaseEnv):
         robot_body_pos_w = self._backend.get_body_pos_w(self.body_ids)[env_indices]
         robot_body_quat_w = self._backend.get_body_quat_w(self.body_ids)[env_indices]
 
-        obs = self._compute_obs(info, motion_data, linvel, gyro, dof_pos, dof_vel, robot_body_pos_w, robot_body_quat_w)
+        obs = self._compute_obs(
+            info, motion_data, linvel, gyro, dof_pos, dof_vel, robot_body_pos_w, robot_body_quat_w
+        )
 
         return obs, obs, info

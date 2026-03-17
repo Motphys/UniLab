@@ -95,8 +95,14 @@ class G1BaseEnv(NpEnv):
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
         state.info["last_actions"] = state.info.get("current_actions", actions.copy())
         state.info["current_actions"] = actions
-        exec_actions = state.info["last_actions"] if self._cfg.control_config.simulate_action_latency else actions
-        return np.asarray(exec_actions * self._cfg.control_config.action_scale + self.default_angles)
+        exec_actions = (
+            state.info["last_actions"]
+            if self._cfg.control_config.simulate_action_latency
+            else actions
+        )
+        return np.asarray(
+            exec_actions * self._cfg.control_config.action_scale + self.default_angles
+        )
 
     def get_local_linvel(self) -> np.ndarray:
         return np.asarray(self._backend.get_sensor_data(self._cfg.sensor.local_linvel))
