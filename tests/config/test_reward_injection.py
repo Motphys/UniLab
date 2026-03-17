@@ -39,6 +39,9 @@ def test_reward_config_conversion():
         "gait_frequency": 1.5,
         "feet_phase_swing_height": 0.09,
         "feet_phase_tracking_sigma": 0.008,
+        "min_base_height": 0.55,
+        "max_tilt_deg": 25.0,
+        "pose_weights": [0.01] * 29,
     }
     env = registry.make(
         "G1WalkTaskMjSAC",

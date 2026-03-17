@@ -118,6 +118,7 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
         )
         G1BaseEnv.__init__(self, cfg, backend, num_envs)
         self._enable_reward_log = True
+        self._reward_cfg = cfg.reward_config
         self._gait_phase_delta = float(2.0 * np.pi * cfg.reward_config.gait_frequency * cfg.ctrl_dt)
         self._pose_weights = np.array(cfg.reward_config.pose_weights, dtype=get_global_dtype())
 

@@ -372,8 +372,27 @@ def test_reward_injection_changes_values():
 
     ensure_registries()
 
-    # Create env with default reward
-    env_default = registry.make("Go1JoystickFlatTerrain", num_envs=1, sim_backend="mujoco")
+    # Create env with default reward config
+    default_reward = {
+        "scales": {
+            "tracking_lin_vel": 1.0,
+            "tracking_ang_vel": 0.2,
+            "lin_vel_z": -5.0,
+            "ang_vel_xy": -0.1,
+            "base_height": -100.0,
+            "action_rate": -0.005,
+            "similar_to_default": -0.1,
+            "contact": 0.24,
+        },
+        "tracking_sigma": 0.25,
+        "base_height_target": 0.3,
+    }
+    env_default = registry.make(
+        "Go1JoystickFlatTerrain",
+        num_envs=1,
+        sim_backend="mujoco",
+        env_cfg_override={"reward_config": default_reward},
+    )
     default_scales = dict(env_default._cfg.reward_config.scales)
     env_default.close()
 
@@ -401,18 +420,15 @@ def test_reward_injection_changes_values():
 
 
 def test_default_reward_creates_env_with_hardcoded_defaults():
-    """When no reward override is applied, env should use its hardcoded RewardConfig."""
+    """Reward config must be provided - env creation should fail without it."""
     from unilab.base import registry
     from unilab.utils.algo_utils import ensure_registries
 
     ensure_registries()
 
-    # Use Go1 with no override (simulate default reward path)
-    env = registry.make("Go1JoystickFlatTerrain", num_envs=1, sim_backend="mujoco")
-    assert hasattr(env._cfg, "reward_config")
-    # Should have the hardcoded default scales
-    assert env._cfg.reward_config.scales["tracking_lin_vel"] == pytest.approx(1.0)
-    env.close()
+    # Should fail without reward_config
+    with pytest.raises(ValueError, match="reward_config must be provided"):
+        registry.make("Go1JoystickFlatTerrain", num_envs=1, sim_backend="mujoco")
 
 
 # ---------------------------------------------------------------------------
@@ -421,45 +437,18 @@ def test_default_reward_creates_env_with_hardcoded_defaults():
 
 
 def test_go1_ppo_mujoco_matches_env_defaults():
-    """go1_ppo_mujoco.yaml scales must match Go1 RewardConfig defaults."""
-    from unilab.envs.locomotion.go1.joystick import RewardConfig
-
-    cfg = _compose("ppo", overrides=["task=go1_joystick"])
-    yaml_scales = OmegaConf.to_container(cfg.reward.scales, resolve=True)
-    default_scales = RewardConfig().scales
-    assert yaml_scales == default_scales, (
-        f"go1_ppo_mujoco.yaml out of sync with Go1 RewardConfig:\n"
-        f"  YAML:    {yaml_scales}\n"
-        f"  Default: {default_scales}"
-    )
+    """RewardConfig no longer has defaults - this test is obsolete."""
+    pytest.skip("RewardConfig defaults removed - all configs must come from Hydra YAML")
 
 
 def test_go2_ppo_mujoco_matches_env_defaults():
-    """go2_ppo_mujoco.yaml scales must match Go2 RewardConfig defaults."""
-    from unilab.envs.locomotion.go2.joystick import RewardConfig
-
-    cfg = _compose("ppo", overrides=["task=go2_joystick"])
-    yaml_scales = OmegaConf.to_container(cfg.reward.scales, resolve=True)
-    default_scales = RewardConfig().scales
-    assert yaml_scales == default_scales, (
-        f"go2_ppo_mujoco.yaml out of sync with Go2 RewardConfig:\n"
-        f"  YAML:    {yaml_scales}\n"
-        f"  Default: {default_scales}"
-    )
+    """RewardConfig no longer has defaults - this test is obsolete."""
+    pytest.skip("RewardConfig defaults removed - all configs must come from Hydra YAML")
 
 
 def test_g1_ppo_mujoco_matches_env_defaults():
-    """g1_ppo_mujoco.yaml scales must match G1 RewardConfigPPO defaults."""
-    from unilab.envs.locomotion.g1.joystick import RewardConfigPPO
-
-    cfg = _compose("ppo", overrides=["task=g1_joystick"])
-    yaml_scales = OmegaConf.to_container(cfg.reward.scales, resolve=True)
-    default_scales = RewardConfigPPO().scales
-    assert yaml_scales == default_scales, (
-        f"g1_ppo_mujoco.yaml out of sync with G1 RewardConfigPPO:\n"
-        f"  YAML:    {yaml_scales}\n"
-        f"  Default: {default_scales}"
-    )
+    """RewardConfigPPO no longer has defaults - this test is obsolete."""
+    pytest.skip("RewardConfigPPO defaults removed - all configs must come from Hydra YAML")
 
 
 # ---------------------------------------------------------------------------
