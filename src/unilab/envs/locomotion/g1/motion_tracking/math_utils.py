@@ -15,10 +15,16 @@ def quat_mul(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
     Returns:
         Product quaternion(s) (N, 4) or (4,)
     """
-    if q1.ndim == 1:
+    if q1.ndim == 1 and q2.ndim == 1:
         q1 = q1[None, :]
         q2 = q2[None, :]
         squeeze = True
+    elif q1.ndim == 1 and q2.ndim == 2:
+        q1 = np.broadcast_to(q1[None, :], q2.shape)
+        squeeze = False
+    elif q1.ndim == 2 and q2.ndim == 1:
+        q2 = np.broadcast_to(q2[None, :], q1.shape)
+        squeeze = False
     else:
         squeeze = False
 
