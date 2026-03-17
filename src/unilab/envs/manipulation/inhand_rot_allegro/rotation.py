@@ -288,7 +288,11 @@ class AllegroRotationMj(AllegroBaseMjEnv):
         obs_lag_history = state.info.get(
             "obs_lag_history",
             np.zeros(
-                (self._num_envs, self._cfg.obs_config.num_lag_steps, sum(self._cfg.obs_config.obs_dict.values())),
+                (
+                    self._num_envs,
+                    self._cfg.obs_config.num_lag_steps,
+                    sum(self._cfg.obs_config.obs_dict.values()),
+                ),
                 dtype=self._np_dtype,
             ),
         )
@@ -404,7 +408,12 @@ class AllegroRotationMj(AllegroBaseMjEnv):
             [dof_pos_norm, init_ctrl, ball_pos_f32], axis=1
         )  # (num_reset, 35)
         obs_lag_history = np.broadcast_to(
-            init_obs[:, None, :], (num_reset, self._cfg.obs_config.num_lag_steps, sum(self._cfg.obs_config.obs_dict.values()))
+            init_obs[:, None, :],
+            (
+                num_reset,
+                self._cfg.obs_config.num_lag_steps,
+                sum(self._cfg.obs_config.obs_dict.values()),
+            ),
         ).copy()  # (num_reset, num_lag_steps, num_obs_per_step)
 
         info = {

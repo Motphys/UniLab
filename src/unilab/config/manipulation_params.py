@@ -89,6 +89,7 @@ def ppo_config(env_name: str) -> config_dict.ConfigDict:
         ),
     )
 
+
 def appo_config(env_name: str) -> config_dict.ConfigDict:
     """Return APPO config.
 
