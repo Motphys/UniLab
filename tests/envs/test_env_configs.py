@@ -65,7 +65,7 @@ def test_g1_joystick_ppo_obs_groups_spec_dims():
     # obs_groups_spec is a @property; access via descriptor protocol
     spec = G1JoystickPPO.obs_groups_spec.fget(None)  # type: ignore[union-attr]
     assert spec is not None
-    assert spec["actor"] == 98
+    assert spec["obs"] == 98
     assert spec["privileged"] == 3
 
 
