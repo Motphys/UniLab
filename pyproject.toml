@@ -77,8 +77,11 @@ exclude = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["slow: requires real env or long-running processes"]
-addopts = "--tb=short"
+markers = [
+    "slow: requires real env or long-running processes",
+    "veryslow: full training iteration tests (minutes per test)",
+]
+addopts = "--tb=short -m 'not veryslow'"
 
 [tool.coverage.run]
 source = ["unilab"]

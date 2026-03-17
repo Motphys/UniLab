@@ -240,6 +240,16 @@ class APPORunner(AsyncRunner):
 
             data_ready = shared_storage.wait_for_data(timeout=60.0)
             if not data_ready:
+                # Check if the collector subprocess died — fail fast instead of
+                # burning through remaining iterations with 60s timeouts each.
+                if not self._check_collector_alive():
+                    self._drain_metrics(
+                        metrics_queue, reward_history, latest_reward_components, logger
+                    )
+                    raise RuntimeError(
+                        "APPO collector process died before producing data. "
+                        "Check stderr for [APPO WORKER CRASH] messages."
+                    )
                 logger.log_status(
                     f"[yellow]Warning: Timeout waiting for data at iteration {iteration}[/]"
                 )

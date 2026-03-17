@@ -35,6 +35,7 @@ make check      # make format && make type
 make test       # Run all non-slow tests (default)
 make test-cov   # Run non-slow tests with coverage report
 make test-slow  # Run slow integration tests (requires MuJoCo)
+make test-veryslow  # Run full training iteration tests (minutes per test)
 make test-all   # make check && make test-cov
 ```
 
@@ -56,7 +57,10 @@ uv run pytest -m "not slow"
 uv run pytest -m "not slow" --cov=unilab --cov-report=term-missing
 
 # Slow integration tests (need MuJoCo installed)
-uv run pytest -m slow -v
+uv run pytest -m "slow and not veryslow" -v
+
+# Very slow: full training iteration tests (minutes per test)
+uv run pytest -m veryslow -v
 ```
 
 ## Test Structure
@@ -90,6 +94,9 @@ tests/
 
 Tests marked `@pytest.mark.slow` require a real MuJoCo environment and are excluded from CI
 by default. Run them locally when working on runner/learner code.
+
+Tests marked `@pytest.mark.veryslow` run full training iterations (minutes per test). They are
+excluded by default even when running `make test-slow`. Run `make test-veryslow` explicitly.
 
 ## Testing
 
