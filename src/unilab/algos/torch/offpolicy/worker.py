@@ -4,6 +4,7 @@ Collects (obs, action, reward, next_obs, done) transitions using the current
 actor policy. Runs in a subprocess; writes to ReplayBuffer.
 """
 
+import queue
 import sys
 
 import numpy as np
@@ -276,7 +277,12 @@ def _run_collector(
         ):
             if env_steps_since_sync >= env_steps_per_sync:
                 collection_ready_queue.put(1)
-                trainer_done_queue.get()  # Wait for trainer
+                while not stop_event.is_set():
+                    try:
+                        trainer_done_queue.get(timeout=1.0)
+                        break
+                    except queue.Empty:
+                        continue
                 env_steps_since_sync = 0
 
         # Progress log every 2 seconds

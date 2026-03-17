@@ -14,22 +14,24 @@ from unilab.base.backend import create_backend
 from unilab.base.dtype_config import get_global_dtype
 from unilab.base.np_env import NpEnvState
 from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
+from unilab.envs.locomotion.obs_config import ObsConfig
 from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
 
 
-@dataclass
-class obs_cfg:
-    obs_dict = {
-        "vel": 3,
-        "gyro": 3,
-        "gravity": 3,
-        "diff": 12,
-        "dof_vel": 12,
-        "action": 12,
-        "cmd": 3,
-        "phase": 2,
-    }  # 'obs_name': dim
-    actor_obs = ["gyro", "gravity", "diff", "dof_vel", "action", "cmd", "phase"]
+def _g1_obs_config() -> ObsConfig:
+    return ObsConfig(
+        obs_dict={
+            "vel": 3,
+            "gyro": 3,
+            "gravity": 3,
+            "diff": 12,
+            "dof_vel": 12,
+            "action": 12,
+            "cmd": 3,
+            "phase": 2,
+        },
+        actor_obs=["gyro", "gravity", "diff", "dof_vel", "action", "cmd", "phase"],
+    )
 
 
 @dataclass
@@ -111,7 +113,7 @@ class G1JoystickPPOCfg(G1BaseCfg):
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
     reward_config: RewardConfigPPO = field(default_factory=RewardConfigPPO)
-    obs_config: obs_cfg = field(default_factory=obs_cfg)
+    obs_config: ObsConfig = field(default_factory=_g1_obs_config)
 
 
 @registry.env("G1JoystickFlatTerrain", sim_backend="mujoco")
@@ -121,7 +123,7 @@ class G1JoystickPPO(G1BaseEnv):
 
     def __init__(self, cfg: G1JoystickPPOCfg, num_envs=1, backend_type="mujoco"):
         backend = create_backend(
-            backend_type, cfg.model_file, num_envs, cfg.sim_dt, body_name=cfg.asset.body_name
+            backend_type, cfg.model_file, num_envs, cfg.sim_dt, base_name=cfg.asset.base_name
         )
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True
@@ -150,29 +152,11 @@ class G1JoystickPPO(G1BaseEnv):
         }
 
     def _init_obs_space(self):
-        num_obs = 0
-        for value in self._cfg.obs_config.obs_dict.values():
-            num_obs += value
+        obs_cfg = self._cfg.obs_config
         self._observation_space = gym.spaces.Box(
-            low=-float("inf"), high=float("inf"), shape=(num_obs,), dtype=float
+            low=-float("inf"), high=float("inf"), shape=(obs_cfg.total_dim,), dtype=float
         )
-        self.actor_indices = self._get_actor_indices()
-
-    def _get_actor_indices(self):
-        s = 0
-        indices = []
-        for i in self._cfg.obs_config.actor_obs:
-            s = 0
-            for k, v in self._cfg.obs_config.obs_dict.items():
-                if k == i:
-                    print(k)
-                    for q in range(s, s + v):
-                        indices.append(q)
-                    s += v
-                    print(indices)
-                    break
-                s += v
-        return indices
+        self.actor_indices = obs_cfg.actor_indices
 
     @property
     def observation_space(self) -> gym.spaces.Box:
@@ -184,15 +168,15 @@ class G1JoystickPPO(G1BaseEnv):
         gravity = self._backend.get_sensor_data("upvector")
         dof_pos = self.get_dof_pos()
         dof_vel = self.get_dof_vel()
-        qpos = self._backend.get_qpos()
 
         max_tilt_rad = np.deg2rad(self._cfg.reward_config.max_tilt_deg)
         tilt = np.arccos(np.clip(gravity[:, 2], -1, 1))
         terminated = np.logical_or(
-            tilt > max_tilt_rad, qpos[:, 2] < self._cfg.reward_config.min_base_height
+            tilt > max_tilt_rad,
+            self._backend.get_base_pos()[:, 2] < self._cfg.reward_config.min_base_height,
         )
 
-        reward = self._compute_reward(state.info, linvel, gyro, gravity, dof_pos, dof_vel, qpos)
+        reward = self._compute_reward(state.info, linvel, gyro, gravity, dof_pos, dof_vel)
         obs = self._compute_obs(state.info, linvel, gyro, gravity, dof_pos, dof_vel)
         return state.replace(obs=obs, reward=reward, terminated=terminated)
 
@@ -220,9 +204,7 @@ class G1JoystickPPO(G1BaseEnv):
             "gait_phase": 2,
         }
 
-    def _compute_reward(
-        self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel, qpos
-    ) -> np.ndarray:
+    def _compute_reward(self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel) -> np.ndarray:
         dtype = get_global_dtype()
         reward = np.zeros((self._num_envs,), dtype=dtype)
         cfg = self._cfg.reward_config
@@ -234,7 +216,7 @@ class G1JoystickPPO(G1BaseEnv):
         for name, scale in cfg.scales.items():
             if scale == 0 or name not in self._reward_fns:
                 continue
-            rew = self._reward_fns[name](info, linvel, gyro, gravity, dof_pos, dof_vel, qpos)
+            rew = self._reward_fns[name](info, linvel, gyro, gravity, dof_pos, dof_vel)
             weighted_rew = rew * scale
             reward += weighted_rew
             if should_log:
@@ -243,17 +225,17 @@ class G1JoystickPPO(G1BaseEnv):
         info["log"] = log
         return reward * self._cfg.ctrl_dt
 
-    def _reward_tracking_lin_vel(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
+    def _reward_tracking_lin_vel(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
         commands = info["commands"]
         lin_vel_error = np.sum(np.square(commands[:, :2] - linvel[:, :2]), axis=1)
         return np.exp(-lin_vel_error / self._cfg.reward_config.tracking_sigma)
 
-    def _reward_tracking_ang_vel(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
+    def _reward_tracking_ang_vel(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
         commands = info["commands"]
         ang_vel_error = np.square(commands[:, 2] - gyro[:, 2])
         return np.exp(-ang_vel_error / self._cfg.reward_config.tracking_sigma)
 
-    def _reward_feet_phase(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
+    def _reward_feet_phase(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
         """步态相位奖励：鼓励正确的摆动腿高度"""
         left_foot = self._backend.get_sensor_data("left_foot_pos")
         right_foot = self._backend.get_sensor_data("right_foot_pos")
@@ -286,23 +268,25 @@ class G1JoystickPPO(G1BaseEnv):
             -(left_error + right_error) / self._cfg.reward_config.feet_phase_tracking_sigma
         )
 
-    def _reward_lin_vel_z(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
+    def _reward_lin_vel_z(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
         return np.square(linvel[:, 2])
 
-    def _reward_ang_vel_xy(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
+    def _reward_ang_vel_xy(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
         return np.sum(np.square(gyro[:, :2]), axis=1)
 
-    def _reward_orientation(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
+    def _reward_orientation(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
         return np.square(gravity[:, 0]) + np.square(gravity[:, 1])
 
-    def _reward_base_height(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
-        return np.square(qpos[:, 2] - self._cfg.reward_config.base_height_target)
+    def _reward_base_height(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
+        return np.square(
+            self._backend.get_base_pos()[:, 2] - self._cfg.reward_config.base_height_target
+        )
 
-    def _reward_action_rate(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
+    def _reward_action_rate(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
         action_diff = info["current_actions"] - info["last_actions"]
         return np.sum(np.square(action_diff), axis=1)
 
-    def _reward_pose(self, info, linvel, gyro, gravity, dof_pos, dof_vel, qpos):
+    def _reward_pose(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
         diff = dof_pos - self.default_angles
         return np.sum(self._pose_weights * np.square(diff), axis=1)
 

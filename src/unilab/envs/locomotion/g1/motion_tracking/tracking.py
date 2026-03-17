@@ -138,7 +138,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
             raise ValueError("motion_file must be specified in config")
 
         backend = create_backend(
-            backend_type, cfg.model_file, num_envs, cfg.sim_dt, body_name=cfg.asset.body_name
+            backend_type, cfg.model_file, num_envs, cfg.sim_dt, base_name=cfg.asset.base_name
         )
         super().__init__(cfg, backend, num_envs)
 
@@ -214,21 +214,18 @@ class G1MotionTrackingEnv(G1BaseEnv):
         gyro = self.get_gyro()
         dof_pos = self.get_dof_pos()
         dof_vel = self.get_dof_vel()
-        qpos = self._backend.get_qpos()
 
         # Get body states
-        robot_body_pos_w = self._backend.get_body_pos(self.body_ids)
-        robot_body_quat_w = self._backend.get_body_quat(self.body_ids)
-        robot_body_lin_vel_w = self._backend.get_body_lin_vel(self.body_ids)
-        robot_body_ang_vel_w = self._backend.get_body_ang_vel(self.body_ids)
+        robot_body_pos_w = self._backend.get_body_pos_w(self.body_ids)
+        robot_body_quat_w = self._backend.get_body_quat_w(self.body_ids)
+        robot_body_lin_vel_w = self._backend.get_body_lin_vel_w(self.body_ids)
+        robot_body_ang_vel_w = self._backend.get_body_ang_vel_w(self.body_ids)
 
         # Compute relative body transforms (for observations and rewards)
         self._update_relative_transforms(motion_data, robot_body_pos_w, robot_body_quat_w)
 
         # Compute terminations
-        terminated = self._compute_terminations(
-            motion_data, robot_body_pos_w, robot_body_quat_w, qpos
-        )
+        terminated = self._compute_terminations(motion_data, robot_body_pos_w, robot_body_quat_w)
 
         # Update failure statistics for adaptive sampling
         self.motion_sampler.update_failure_stats(terminated)
@@ -294,7 +291,6 @@ class G1MotionTrackingEnv(G1BaseEnv):
         motion_data,
         robot_body_pos_w: np.ndarray,
         robot_body_quat_w: np.ndarray,
-        qpos: np.ndarray,
     ) -> np.ndarray:
         """Compute termination conditions."""
         terminated = np.zeros(self._num_envs, dtype=bool)
@@ -591,8 +587,8 @@ class G1MotionTrackingEnv(G1BaseEnv):
         gyro = self.get_gyro()[env_indices]
         dof_pos = self.get_dof_pos()[env_indices]
         dof_vel = self.get_dof_vel()[env_indices]
-        robot_body_pos_w = self._backend.get_body_pos(self.body_ids)[env_indices]
-        robot_body_quat_w = self._backend.get_body_quat(self.body_ids)[env_indices]
+        robot_body_pos_w = self._backend.get_body_pos_w(self.body_ids)[env_indices]
+        robot_body_quat_w = self._backend.get_body_quat_w(self.body_ids)[env_indices]
 
         obs = self._compute_obs(
             info, motion_data, linvel, gyro, dof_pos, dof_vel, robot_body_pos_w, robot_body_quat_w

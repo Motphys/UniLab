@@ -11,6 +11,7 @@ from unilab.base.backend import create_backend
 from unilab.base.dtype_config import get_global_dtype
 from unilab.base.np_env import NpEnvState
 from unilab.envs.locomotion.go1.base import Go1BaseCfg, Go1BaseEnv
+from unilab.envs.locomotion.obs_config import ObsConfig
 from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
 
 
@@ -67,19 +68,20 @@ class Domain_Rand:
     max_force = [1, 1, 0.5]
 
 
-@dataclass
-class obs_cfg:
-    obs_dict = {
-        "vel": 3,
-        "gyro": 3,
-        "gravity": 3,
-        "diff": 12,
-        "dof_vel": 12,
-        "action": 12,
-        "cmd": 3,
-        "phase": 4,
-    }  # 'obs_name': dim
-    actor_obs = ["gyro", "gravity", "diff", "dof_vel", "action", "cmd", "phase"]
+def _go1_obs_config() -> ObsConfig:
+    return ObsConfig(
+        obs_dict={
+            "vel": 3,
+            "gyro": 3,
+            "gravity": 3,
+            "diff": 12,
+            "dof_vel": 12,
+            "action": 12,
+            "cmd": 3,
+            "phase": 4,
+        },
+        actor_obs=["gyro", "gravity", "diff", "dof_vel", "action", "cmd", "phase"],
+    )
 
 
 @registry.envcfg("Go1JoystickFlatTerrain")
@@ -92,7 +94,7 @@ class Go1JoystickCfg(Go1BaseCfg):
     reward_config: RewardConfig = field(default_factory=RewardConfig)
     sensor: JoystickSensor = field(default_factory=JoystickSensor)  # type: ignore[assignment]
     domain_rand: Domain_Rand = field(default_factory=Domain_Rand)
-    obs_config: obs_cfg = field(default_factory=obs_cfg)
+    obs_config: ObsConfig = field(default_factory=_go1_obs_config)
 
 
 @registry.env("Go1JoystickFlatTerrain", sim_backend="mujoco")
@@ -103,7 +105,7 @@ class Go1WalkTask(Go1BaseEnv):
 
     def __init__(self, cfg: Go1JoystickCfg, num_envs=1, backend_type="mujoco"):
         backend = create_backend(
-            backend_type, cfg.model_file, num_envs, cfg.sim_dt, body_name=cfg.asset.body_name
+            backend_type, cfg.model_file, num_envs, cfg.sim_dt, base_name=cfg.asset.base_name
         )
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True
@@ -127,29 +129,11 @@ class Go1WalkTask(Go1BaseEnv):
         }
 
     def _init_obs_space(self):
-        num_obs = 0
-        for value in self._cfg.obs_config.obs_dict.values():
-            num_obs += value
+        obs_cfg = self._cfg.obs_config
         self._observation_space = gym.spaces.Box(
-            low=-float("inf"), high=float("inf"), shape=(num_obs,), dtype=float
+            low=-float("inf"), high=float("inf"), shape=(obs_cfg.total_dim,), dtype=float
         )
-        self.actor_indices = self._get_actor_indices()
-
-    def _get_actor_indices(self):
-        s = 0
-        indices = []
-        for i in self._cfg.obs_config.actor_obs:
-            s = 0
-            for k, v in self._cfg.obs_config.obs_dict.items():
-                if k == i:
-                    print(k)
-                    for q in range(s, s + v):
-                        indices.append(q)
-                    s += v
-                    print(indices)
-                    break
-                s += v
-        return indices
+        self.actor_indices = obs_cfg.actor_indices
 
     @property
     def observation_space(self) -> gym.spaces.Box:
@@ -168,12 +152,11 @@ class Go1WalkTask(Go1BaseEnv):
         gravity = self._backend.get_sensor_data("upvector")
         dof_pos = self.get_dof_pos()
         dof_vel = self.get_dof_vel()
-        qpos = self._backend.get_qpos()
         self.feet_force[:, :, :] = 0
         for i in range(len(self._cfg.sensor.feet_force)):
             self.feet_force[:, i, :] = self._backend.get_sensor_data(self._cfg.sensor.feet_force[i])
         terminated = gravity[:, 2] <= 0.5
-        reward = self._compute_reward(state.info, linvel, gyro, dof_pos, qpos)
+        reward = self._compute_reward(state.info, linvel, gyro, dof_pos)
         obs = self._compute_obs(
             state.info, linvel, gyro, gravity, dof_pos, dof_vel, self.feet_phase
         )
@@ -191,7 +174,7 @@ class Go1WalkTask(Go1BaseEnv):
             dtype=get_global_dtype(),
         )
 
-    def _compute_reward(self, info: dict, linvel, gyro, dof_pos, qpos) -> np.ndarray:
+    def _compute_reward(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         dtype = get_global_dtype()
         reward = np.zeros((self._num_envs,), dtype=dtype)
         cfg = self._cfg.reward_config
@@ -203,7 +186,7 @@ class Go1WalkTask(Go1BaseEnv):
         for name, scale in cfg.scales.items():
             if scale == 0 or name not in self._reward_fns:
                 continue
-            rew = self._reward_fns[name](info, linvel, gyro, dof_pos, qpos)
+            rew = self._reward_fns[name](info, linvel, gyro, dof_pos)
             weighted_rew = rew * scale
             reward += weighted_rew
             if should_log:
@@ -212,34 +195,34 @@ class Go1WalkTask(Go1BaseEnv):
         info["log"] = log
         return reward * self._cfg.ctrl_dt
 
-    def _reward_tracking_lin_vel(self, info: dict, linvel, gyro, dof_pos, qpos) -> np.ndarray:
+    def _reward_tracking_lin_vel(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         commands = info["commands"]
         lin_vel_error = np.sum(np.square(commands[:, :2] - linvel[:, :2]), axis=1)
         return np.asarray(np.exp(-lin_vel_error / self._cfg.reward_config.tracking_sigma))
 
-    def _reward_tracking_ang_vel(self, info: dict, linvel, gyro, dof_pos, qpos) -> np.ndarray:
+    def _reward_tracking_ang_vel(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         commands = info["commands"]
         ang_vel_error = np.square(commands[:, 2] - gyro[:, 2])
         return np.asarray(np.exp(-ang_vel_error / self._cfg.reward_config.tracking_sigma))
 
-    def _reward_lin_vel_z(self, info: dict, linvel, gyro, dof_pos, qpos) -> np.ndarray:
+    def _reward_lin_vel_z(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         return np.asarray(np.square(linvel[:, 2]))
 
-    def _reward_ang_vel_xy(self, info: dict, linvel, gyro, dof_pos, qpos) -> np.ndarray:
+    def _reward_ang_vel_xy(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         return np.asarray(np.sum(np.square(gyro[:, :2]), axis=1))
 
-    def _reward_base_height(self, info: dict, linvel, gyro, dof_pos, qpos) -> np.ndarray:
-        base_height = qpos[:, 2]
+    def _reward_base_height(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
+        base_height = self._backend.get_base_pos()[:, 2]
         return np.asarray(np.square(base_height - self._cfg.reward_config.base_height_target))
 
-    def _reward_action_rate(self, info: dict, linvel, gyro, dof_pos, qpos) -> np.ndarray:
+    def _reward_action_rate(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         action_diff = info["current_actions"] - info["last_actions"]
         return np.asarray(np.sum(np.square(action_diff), axis=1))
 
-    def _reward_similar_to_default(self, info: dict, linvel, gyro, dof_pos, qpos) -> np.ndarray:
+    def _reward_similar_to_default(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         return np.asarray(np.sum(np.abs(dof_pos - self.default_angles), axis=1))
 
-    def _reward_contact(self, info: dict, linvel, gyro, dof_pos, qpos) -> np.ndarray:
+    def _reward_contact(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         contact = self.feet_force[:, :, 2] > 0.1
         res = np.zeros(self.num_envs, dtype=np.float32)
         for i in range(len(self._cfg.sensor.feet_force)):
