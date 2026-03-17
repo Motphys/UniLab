@@ -50,6 +50,7 @@ training:
   device: null
   collector_device: null
   logger: tensorboard
+  sim_backend: mujoco
   log_dir: null
   play_only: false
   no_play: false

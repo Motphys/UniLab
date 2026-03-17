@@ -1,5 +1,6 @@
 defaults:
   - _self_
+  - reward: default
   - task: go1_joystick
 
 algo:

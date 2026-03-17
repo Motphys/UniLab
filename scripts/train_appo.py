@@ -56,6 +56,12 @@ def play_appo(cfg: DictConfig, rl_cfg: dict):
     from unilab.utils import render_many
     from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4, is_rsl_rl_v5
 
+    # Build env_cfg_override from reward config
+    env_cfg_override: dict | None = None
+    if hasattr(cfg, "reward") and cfg.reward:
+        reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
+        env_cfg_override = {"reward_config": reward_dict}
+
     device = cfg.training.device or (
         "cuda"
         if torch.cuda.is_available()
@@ -66,7 +72,10 @@ def play_appo(cfg: DictConfig, rl_cfg: dict):
     print(f"Using device for play: {device}")
 
     env = registry.make(
-        cfg.training.task_name, num_envs=cfg.training.play_env_num, sim_backend="mujoco"
+        cfg.training.task_name,
+        num_envs=cfg.training.play_env_num,
+        sim_backend=cfg.training.sim_backend,
+        env_cfg_override=env_cfg_override,
     )
     obs_dim = sum(env.obs_groups_spec.values())
     action_dim = env.action_space.shape[0]
@@ -198,7 +207,11 @@ def main(cfg: DictConfig) -> None:
     if cfg.training.log_dir is None:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         log_dir = os.path.join(
-            ROOT_DIR, "logs", "appo", cfg.training.task_name, f"{timestamp}_mujoco"
+            ROOT_DIR,
+            "logs",
+            "appo",
+            cfg.training.task_name,
+            f"{timestamp}_{cfg.training.sim_backend}",
         )
     else:
         log_dir = cfg.training.log_dir
@@ -222,6 +235,7 @@ def main(cfg: DictConfig) -> None:
             collector_device=collector_device,
             num_envs=cfg.algo.num_envs,
             steps_per_env=cfg.algo.steps_per_env,
+            sim_backend=cfg.training.sim_backend,
             **runner_kwargs,
         )
 

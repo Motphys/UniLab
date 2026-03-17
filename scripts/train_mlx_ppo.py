@@ -21,7 +21,7 @@ import hydra
 import mlx.core as mx
 import numpy as np
 from mlx.utils import tree_map
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
@@ -157,10 +157,19 @@ def play_mlx_ppo(
     cfg: DictConfig, dtype, use_fp16: bool, resolved_sim_backend: str, task_log_root: Path
 ):
     """Play mode for MLX PPO."""
+    # Build env_cfg_override from reward config
+    env_cfg_override: dict | None = None
+    if hasattr(cfg, "reward") and cfg.reward:
+        reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
+        env_cfg_override = {"reward_config": reward_dict}
+
     play_model_dtype = mx.float32 if use_fp16 else dtype
     play_env_num = cfg.training.play_env_num
     env = registry.make(
-        cfg.training.task_name, num_envs=play_env_num, sim_backend=resolved_sim_backend
+        cfg.training.task_name,
+        num_envs=play_env_num,
+        sim_backend=resolved_sim_backend,
+        env_cfg_override=env_cfg_override,
     )
     obs_dim = sum(env.obs_groups_spec.values())
     action_dim = env.action_space.shape[0]
@@ -371,10 +380,21 @@ def main(cfg: DictConfig) -> None:
         except ImportError:
             log("[Warning] wandb not installed, skipping W&B logging")
 
+    # Build env_cfg_override from reward config
+    env_cfg_override: dict | None = None
+    if hasattr(cfg, "reward") and cfg.reward:
+        reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
+        env_cfg_override = {"reward_config": reward_dict}
+
     preset = TASK_STEP_TUNING.get(task_name, {"threads": "32", "chunk": "16"})
     os.environ["UNILAB_MUJOCO_STEP_THREADS"] = preset["threads"]
     os.environ["UNILAB_MUJOCO_STEP_CHUNK"] = preset["chunk"]
-    env = registry.make(task_name, num_envs=cfg.algo.num_envs, sim_backend=resolved_sim_backend)
+    env = registry.make(
+        task_name,
+        num_envs=cfg.algo.num_envs,
+        sim_backend=resolved_sim_backend,
+        env_cfg_override=env_cfg_override,
+    )
     if env.state is None:
         env.init_state()
     reset_indices = np.arange(env.num_envs, dtype=np.int32)

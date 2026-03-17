@@ -133,10 +133,13 @@ UniLab 支持两种仿真后端：
 
 ```bash
 # 训练
+uv run python scripts/train_rsl_rl.py task=go1_joystick
+
+# 指定motrix后端
 uv run python scripts/train_rsl_rl.py task=go1_joystick training.sim_backend=motrix
 
 # 回放（交互式可视化）
-uv run python scripts/train_rsl_rl.py task=go1_joystick training.sim_backend=motrix training.play_only=true
+uv run python scripts/train_rsl_rl.py task=go1_joystick training.play_only=true
 ```
 
 ## 训练与回放指南

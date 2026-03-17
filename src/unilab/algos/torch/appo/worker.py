@@ -33,6 +33,8 @@ def appo_collector_fn(
     weight_param_shapes: dict,
     metrics_queue: Any,
     collector_device: str = "cpu",
+    sim_backend: str = "mujoco",
+    env_cfg_override: dict | None = None,
 ):
     """Entry point for the APPO collector subprocess.
 
@@ -61,7 +63,9 @@ def appo_collector_fn(
     weight_sync = SharedWeightSync(weight_param_shapes, create=False, shm_name=weight_sync_name)
 
     # Create environment
-    env: Any = registry.make(env_name, num_envs=num_envs, sim_backend="mujoco")
+    env: Any = registry.make(
+        env_name, num_envs=num_envs, sim_backend=sim_backend, env_cfg_override=env_cfg_override
+    )
 
     # Build actor (stochastic MLPModel — mirrors runner._build_learner)
     cfg = dict(rl_cfg)

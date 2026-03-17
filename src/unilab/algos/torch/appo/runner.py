@@ -80,7 +80,12 @@ class APPORunner(AsyncRunner):
 
         ensure_registries()
 
-        env = registry.make(self.env_name, num_envs=1, sim_backend="mujoco")
+        env = registry.make(
+            self.env_name,
+            num_envs=1,
+            sim_backend=self.extra_kwargs.get("sim_backend", "mujoco"),
+            env_cfg_override=self.env_cfg_overrides if self.env_cfg_overrides else None,
+        )
         obs_dim = sum(env.obs_groups_spec.values())
         assert env.action_space.shape is not None
         action_dim = env.action_space.shape[0]
@@ -192,6 +197,8 @@ class APPORunner(AsyncRunner):
             "weight_param_shapes": weight_param_shapes,
             "metrics_queue": metrics_queue,
             "collector_device": self.collector_device,
+            "sim_backend": self.extra_kwargs.get("sim_backend", "mujoco"),
+            "env_cfg_override": self.env_cfg_overrides if self.env_cfg_overrides else None,
         }
         self._start_collector(
             target_fn=appo_collector_fn,

@@ -229,6 +229,12 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> None:
     from unilab.utils import render_many
     from unilab.utils.algo_utils import build_actor
 
+    # Build env_cfg_override from reward config
+    env_cfg_override: dict | None = None
+    if hasattr(cfg, "reward") and cfg.reward:
+        reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
+        env_cfg_override = {"reward_config": reward_dict}
+
     device = default_device(torch, cfg.training.device)
     print(f"Using device for play: {device}")
 
@@ -238,6 +244,7 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> None:
         cfg.training.task_name,
         num_envs=cfg.training.play_env_num,
         sim_backend=cfg.training.sim_backend,
+        env_cfg_override=env_cfg_override,
     )
     obs_dim = sum(env.obs_groups_spec.values())
     action_dim = env.action_space.shape[0]
