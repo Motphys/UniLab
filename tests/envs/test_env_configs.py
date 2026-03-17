@@ -91,6 +91,7 @@ def test_env_reset_and_step(
     default_go1_reward_config,
     default_go2_reward_config,
     default_g1_reward_config,
+    default_g1_sac_reward_config,
 ):
     """Every registered env must be constructible, resetable, and steppable.
 
@@ -108,6 +109,8 @@ def test_env_reset_and_step(
         env_cfg_override = {"reward_config": default_go1_reward_config}
     elif "Go2" in env_name:
         env_cfg_override = {"reward_config": default_go2_reward_config}
+    elif "G1WalkTaskMjSAC" in env_name:
+        env_cfg_override = {"reward_config": default_g1_sac_reward_config}
     elif "G1" in env_name:
         env_cfg_override = {"reward_config": default_g1_reward_config}
 

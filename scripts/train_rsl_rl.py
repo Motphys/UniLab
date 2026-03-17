@@ -131,13 +131,9 @@ def play_rsl_rl(cfg: DictConfig, device: str):
     """Play mode for RSL-RL."""
 
     from unilab.base import registry
+    from unilab.utils.reward_utils import extract_reward_config
 
-    if not hasattr(cfg, "reward") or not cfg.reward:
-        raise ValueError(
-            "Missing 'reward' config in Hydra. Reward config must be explicitly provided."
-        )
-    reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
-    env_cfg_override = {"reward_config": reward_dict}
+    env_cfg_override = extract_reward_config(cfg)
 
     env = registry.make(
         cfg.training.task_name,
@@ -267,14 +263,9 @@ def main(cfg: DictConfig) -> None:
     from omegaconf import OmegaConf
 
     from unilab.base import registry
+    from unilab.utils.reward_utils import extract_reward_config
 
-    # Build env_cfg_override from reward config
-    if not hasattr(cfg, "reward") or not cfg.reward:
-        raise ValueError(
-            "Missing 'reward' config in Hydra. Reward config must be explicitly provided."
-        )
-    reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
-    env_cfg_override = {"reward_config": reward_dict}
+    env_cfg_override = extract_reward_config(cfg)
 
     if torch.cuda.is_available():
         device = "cuda"

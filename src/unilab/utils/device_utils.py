@@ -12,9 +12,11 @@ def get_default_device() -> str:
     return "cpu"
 
 
-def get_env_dims(env_name: str, sim_backend: str = "mujoco") -> tuple[int, int]:
+def get_env_dims(
+    env_name: str, sim_backend: str = "mujoco", env_cfg_override: dict | None = None
+) -> tuple[int, int]:
     """Get observation and action dimensions from environment."""
-    env = registry.make(env_name, num_envs=1, sim_backend=sim_backend)
+    env = registry.make(env_name, num_envs=1, sim_backend=sim_backend, env_cfg_override=env_cfg_override)
     obs_dim = sum(env.obs_groups_spec.values())
     action_shape = env.action_space.shape
     assert action_shape is not None

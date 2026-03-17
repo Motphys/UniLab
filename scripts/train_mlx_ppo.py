@@ -157,13 +157,9 @@ def play_mlx_ppo(
     cfg: DictConfig, dtype, use_fp16: bool, resolved_sim_backend: str, task_log_root: Path
 ):
     """Play mode for MLX PPO."""
-    # Build env_cfg_override from reward config
-    if not hasattr(cfg, "reward") or not cfg.reward:
-        raise ValueError(
-            "Missing 'reward' config in Hydra. Reward config must be explicitly provided."
-        )
-    reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
-    env_cfg_override = {"reward_config": reward_dict}
+    from unilab.utils.reward_utils import extract_reward_config
+
+    env_cfg_override = extract_reward_config(cfg)
 
     play_model_dtype = mx.float32 if use_fp16 else dtype
     play_env_num = cfg.training.play_env_num
@@ -382,13 +378,9 @@ def main(cfg: DictConfig) -> None:
         except ImportError:
             log("[Warning] wandb not installed, skipping W&B logging")
 
-    # Build env_cfg_override from reward config
-    if not hasattr(cfg, "reward") or not cfg.reward:
-        raise ValueError(
-            "Missing 'reward' config in Hydra. Reward config must be explicitly provided."
-        )
-    reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
-    env_cfg_override = {"reward_config": reward_dict}
+    from unilab.utils.reward_utils import extract_reward_config
+
+    env_cfg_override = extract_reward_config(cfg)
 
     preset = TASK_STEP_TUNING.get(task_name, {"threads": "32", "chunk": "16"})
     os.environ["UNILAB_MUJOCO_STEP_THREADS"] = preset["threads"]

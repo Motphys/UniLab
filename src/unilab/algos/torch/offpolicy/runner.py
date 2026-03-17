@@ -62,7 +62,7 @@ class OffPolicyRunner(AsyncRunner):
         self.use_layer_norm = use_layer_norm
         self.obs_normalization = obs_normalization
 
-        self.obs_dim, self.action_dim = get_env_dims(self.env_name, sim_backend)
+        self.obs_dim, self.action_dim = get_env_dims(self.env_name, sim_backend, env_cfg_override)
 
     def _get_default_device(self) -> str:
         return get_default_device()

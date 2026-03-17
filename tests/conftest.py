@@ -200,3 +200,30 @@ def default_g1_reward_config():
         "pose_weights": [0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0],
     }
 
+
+@pytest.fixture
+def default_g1_sac_reward_config():
+    """Default reward config for G1 SAC testing."""
+    return {
+        "scales": {
+            "tracking_lin_vel": 2.0,
+            "tracking_ang_vel": 1.5,
+            "penalty_ang_vel_xy": -1.0,
+            "penalty_orientation": -10.0,
+            "penalty_action_rate": -2.0,
+            "pose": -0.5,
+            "penalty_feet_ori": -25.0,
+            "feet_phase": 5.0,
+            "alive": 10.0,
+        },
+        "tracking_sigma": 0.25,
+        "base_height_target": 0.754,
+        "min_base_height": 0.3,
+        "max_tilt_deg": 65.0,
+        "gait_frequency": 1.5,
+        "feet_phase_swing_height": 0.09,
+        "feet_phase_tracking_sigma": 0.008,
+        "close_feet_threshold": 0.15,
+        "pose_weights": [0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0],
+    }
+
