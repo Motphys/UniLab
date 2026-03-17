@@ -16,17 +16,16 @@ from unilab.base.dtype_config import get_global_dtype
 from unilab.base.np_env import NpEnvState
 from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
 from unilab.envs.locomotion.obs_config import ObsConfig
-
-from .math_utils import (
-    matrix_from_quat,
-    quat_apply,
-    quat_error_magnitude,
-    quat_from_euler_xyz,
-    quat_inv,
-    quat_mul,
-    sample_uniform,
-    subtract_frame_transforms,
-    yaw_quat,
+from unilab.utils.math_utils import (
+    np_matrix_from_quat as matrix_from_quat,
+    np_quat_apply as quat_apply,
+    np_quat_error_magnitude as quat_error_magnitude,
+    np_quat_from_euler_xyz as quat_from_euler_xyz,
+    np_quat_inv as quat_inv,
+    np_quat_mul as quat_mul,
+    np_sample_uniform as sample_uniform,
+    np_subtract_frame_transforms as subtract_frame_transforms,
+    np_yaw_quat as yaw_quat,
 )
 from .motion_loader import MotionLoader, MotionSampler
 
