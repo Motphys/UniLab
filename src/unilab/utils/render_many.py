@@ -28,6 +28,9 @@ def _resolve_gl_backend() -> str:
         import ctypes
 
         ctypes.CDLL("libEGL.so.1")
+        # NVIDIA EGL requires a device ID to initialize offscreen contexts in
+        # spawned subprocesses; default to GPU 0 if the user hasn't set it.
+        os.environ.setdefault("MUJOCO_EGL_DEVICE_ID", "0")
         return "egl"
     except OSError:
         return "glfw"

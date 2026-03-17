@@ -115,6 +115,7 @@ def appo_config(env_name: str) -> config_dict.ConfigDict:
         steps_per_env=24,
         max_iterations=150,
         save_interval=50,
+        empirical_normalization=False,
     )
 
     if env_name == "Go1JoystickFlatTerrain":
@@ -133,6 +134,7 @@ def appo_config(env_name: str) -> config_dict.ConfigDict:
         steps_per_env=cfg.steps_per_env,
         max_iterations=cfg.max_iterations,
         save_interval=cfg.save_interval,
+        empirical_normalization=cfg.empirical_normalization,
         obs_groups=config_dict.create(
             actor=config_dict.create(policy=0),
         ),
@@ -140,6 +142,7 @@ def appo_config(env_name: str) -> config_dict.ConfigDict:
             class_name="rsl_rl.models.MLPModel",
             hidden_dims=[512, 256, 128],
             activation="elu",
+            obs_normalization=cfg.empirical_normalization,
             distribution_cfg=config_dict.create(
                 class_name="rsl_rl.modules.distribution.GaussianDistribution",
                 init_std=1.0,
@@ -150,6 +153,7 @@ def appo_config(env_name: str) -> config_dict.ConfigDict:
             class_name="rsl_rl.models.MLPModel",
             hidden_dims=[512, 256, 128],
             activation="elu",
+            obs_normalization=cfg.empirical_normalization,
         ),
         algorithm=config_dict.create(
             num_learning_epochs=5,
