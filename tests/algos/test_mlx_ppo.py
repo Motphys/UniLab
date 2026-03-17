@@ -300,3 +300,100 @@ def test_ppo_trainer_update_decreases_loss():
     metrics = trainer.update(buf, iteration=0)
     assert np.isfinite(metrics["surrogate"])
     assert np.isfinite(metrics["value"])
+
+
+# ---------------------------------------------------------------------------
+# Full training iteration on real env (veryslow)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+@pytest.mark.veryslow
+def test_mlx_ppo_one_iteration_real_env():
+    """Run 1 full MLX PPO iteration (collect rollout + update) on a real env."""
+    _mujoco = pytest.importorskip("mujoco")
+
+    from unilab.base import registry
+    from unilab.config import locomotion_params
+    from unilab.utils.algo_utils import ensure_registries
+    from unilab.utils.obs_utils import flatten_obs_dict
+
+    ensure_registries()
+
+    env_name = "Go2JoystickFlatTerrain"
+    num_envs = 4
+    num_steps = 8
+
+    cfg = locomotion_params.ppo_config(env_name)
+    algo_cfg = cfg.algorithm
+
+    env = registry.make(env_name, num_envs=num_envs, sim_backend="mujoco")
+    obs_dim = sum(env.obs_groups_spec.values())
+    action_dim = env.action_space.shape[0]
+
+    model = MLPActorCritic(
+        obs_dim=obs_dim,
+        action_dim=action_dim,
+        actor_hidden_dims=[64, 64],
+        critic_hidden_dims=[64, 64],
+    )
+    ppo_cfg = PPOConfig(
+        num_learning_epochs=1,
+        num_mini_batches=2,
+        clip_param=float(algo_cfg.clip_param),
+        gamma=float(algo_cfg.gamma),
+        lam=float(algo_cfg.lam),
+    )
+    trainer = PPOTrainer(model, ppo_cfg)
+
+    # Init env and get first obs
+    if env.state is None:
+        env.init_state()
+    reset_indices = np.arange(num_envs, dtype=np.int32)
+    _, obs_dict, _ = env.reset(reset_indices)
+    obs = mx.array(flatten_obs_dict(obs_dict))
+
+    # Collect rollout
+    buffer = RolloutBuffer(
+        num_steps=num_steps,
+        num_envs=num_envs,
+        obs_dim=obs_dim,
+        action_dim=action_dim,
+        gamma=ppo_cfg.gamma,
+        lam=ppo_cfg.lam,
+    )
+
+    for _ in range(num_steps):
+        actions, log_probs, values, mean, std = model.act(obs)
+        mx.eval(actions, log_probs, values, mean, std)
+
+        env_actions = np.asarray(actions)
+        state = env.step(env_actions)
+        raw_obs = flatten_obs_dict(state.obs)
+        rewards = mx.array(state.reward)
+        dones = mx.array(state.done.astype(np.float32))
+
+        buffer.add(
+            obs=obs,
+            actions=actions,
+            log_probs=log_probs,
+            action_mean=mean,
+            action_std=std,
+            rewards=rewards,
+            dones=dones,
+            values=values,
+        )
+        obs = mx.array(raw_obs)
+
+    last_values = model.value(obs)
+    buffer.compute_returns_and_advantages(last_values)
+
+    # PPO update
+    metrics = trainer.update(buffer, iteration=0)
+    assert isinstance(metrics, dict)
+    assert np.isfinite(metrics["surrogate"]), (
+        f"surrogate loss is not finite: {metrics['surrogate']}"
+    )
+    assert np.isfinite(metrics["value"]), f"value loss is not finite: {metrics['value']}"
+
+    env.close()

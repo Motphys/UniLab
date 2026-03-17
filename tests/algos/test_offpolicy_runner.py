@@ -1,7 +1,8 @@
 """Slow integration tests for OffPolicyRunner (FastSAC/FastTD3).
 
 Requires MuJoCo to be installed. Run with:
-    uv run pytest -m slow -v
+    uv run pytest -m slow -v           # init + close tests
+    uv run pytest -m veryslow -v       # full training iteration
 """
 
 from __future__ import annotations
@@ -53,6 +54,7 @@ def test_offpolicy_runner_sac_init_no_crash(mock_env_name):
 
 
 @pytest.mark.slow
+@pytest.mark.veryslow
 def test_offpolicy_runner_sac_learn_two_iterations(mock_env_name):
     runner = _make_sac_runner(mock_env_name)
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -109,6 +111,7 @@ def test_offpolicy_runner_td3_init_no_crash(mock_env_name):
 
 
 @pytest.mark.slow
+@pytest.mark.veryslow
 def test_offpolicy_runner_td3_learn_two_iterations(mock_env_name):
     runner = _make_td3_runner(mock_env_name)
     with tempfile.TemporaryDirectory() as tmpdir:
