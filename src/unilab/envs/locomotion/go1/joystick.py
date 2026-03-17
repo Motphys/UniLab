@@ -99,7 +99,6 @@ class Go1JoystickCfg(Go1BaseCfg):
 
 @registry.env("Go1JoystickFlatTerrain", sim_backend="mujoco")
 @registry.env("Go1JoystickFlatTerrain", sim_backend="motrix")
-@registry.env("Go1JoystickFlatTerrain", sim_backend="motrix_numba")
 class Go1WalkTask(Go1BaseEnv):
     _cfg: Go1JoystickCfg
 

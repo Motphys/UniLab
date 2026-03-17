@@ -127,7 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--sim_backend",
         type=str,
         default="mujoco",
-        choices=["mujoco", "motrix", "motrix_numba"],
+        choices=["mujoco", "motrix"],
         help="Simulation backend",
     )
     parser.add_argument(
@@ -342,7 +342,7 @@ def play_offpolicy(algo_name: str, args, cfg) -> None:
     obs_np = np.asarray(obs_out, dtype=np.float32)
 
     # Use Motrix native rendering
-    if args.sim_backend == "motrix" or args.sim_backend == "motrix_numba":
+    if args.sim_backend == "motrix":
         print("Starting interactive visualization (motrix native renderer)...")
         print("Close the render window to exit.")
         env._backend.init_renderer()
