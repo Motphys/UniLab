@@ -103,3 +103,23 @@ pre-commit install  # Optional
 ```
 
 **Always run `make check` before committing.**
+
+## Configuration System
+
+UniLab uses **Hydra + dataclass** for type-safe, composable configs:
+
+- **Structured configs**: `src/unilab/config/structured_configs.py` (typed dataclasses)
+- **YAML configs**: `conf/` directory (offpolicy/appo/ppo)
+- **CLI overrides**: `algo.num_envs=2048 training.device=cuda`
+
+### Adding New Tasks
+
+1. Create YAML file: `conf/{algo}/task/my_task.yaml`
+2. Use `# @package _global_` directive
+3. Override only deltas from base config
+
+### Adding New Algorithms
+
+1. Add dataclass to `structured_configs.py`
+2. Create `conf/{algo}/config.yaml` with defaults
+3. Update training script with `@hydra.main()`
