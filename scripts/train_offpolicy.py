@@ -80,12 +80,14 @@ def resolve_checkpoint_path(
 
 def build_runner(algo_name: str, cfg: DictConfig):
     """Build algorithm runner from unified Hydra config."""
-    env_cfg_override = None
-    if hasattr(cfg, "reward") and cfg.reward:
-        from omegaconf import OmegaConf
+    if not hasattr(cfg, "reward") or not cfg.reward:
+        raise ValueError(
+            "Missing 'reward' config in Hydra. Reward config must be explicitly provided."
+        )
+    from omegaconf import OmegaConf
 
-        reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
-        env_cfg_override = {"reward_config": reward_dict}
+    reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
+    env_cfg_override = {"reward_config": reward_dict}
 
     if algo_name == "sac":
         from unilab.algos.torch.fast_sac.learner import FastSACLearner
@@ -230,10 +232,12 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> None:
     from unilab.utils.algo_utils import build_actor
 
     # Build env_cfg_override from reward config
-    env_cfg_override: dict | None = None
-    if hasattr(cfg, "reward") and cfg.reward:
-        reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
-        env_cfg_override = {"reward_config": reward_dict}
+    if not hasattr(cfg, "reward") or not cfg.reward:
+        raise ValueError(
+            "Missing 'reward' config in Hydra. Reward config must be explicitly provided."
+        )
+    reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
+    env_cfg_override = {"reward_config": reward_dict}
 
     device = default_device(torch, cfg.training.device)
     print(f"Using device for play: {device}")

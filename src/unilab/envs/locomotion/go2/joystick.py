@@ -43,24 +43,11 @@ class Domain_Rand:
 
 @dataclass
 class RewardConfig:
-    scales: dict[str, float] = field(
-        default_factory=lambda: {
-            "tracking_lin_vel": 1.0,
-            "tracking_ang_vel": 0.2,
-            "lin_vel_z": -5.0,
-            "ang_vel_xy": -0.02,
-            "base_height": -100.0,
-            "action_rate": -0.005,
-            "similar_to_default": -0.1,
-            "alive": 0.0,
-            "foot_lift_reward": 0.2,
-            "foot_drag_penalty": -0.0,
-        }
-    )
-    tracking_sigma: float = 0.25
-    base_height_target: float = 0.3
-    target_foot_height: float = 0.08
-    foot_clearance_sigma: float = 0.02
+    scales: dict[str, float]
+    tracking_sigma: float
+    base_height_target: float
+    target_foot_height: float
+    foot_clearance_sigma: float
 
 
 @registry.envcfg("Go2JoystickFlatTerrain")
@@ -70,7 +57,7 @@ class Go2JoystickCfg(Go2BaseCfg):
     max_episode_seconds: float = 20.0
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
-    reward_config: RewardConfig = field(default_factory=RewardConfig)
+    reward_config: RewardConfig | None = None
     domain_rand: Domain_Rand = field(default_factory=Domain_Rand)
 
 
@@ -80,11 +67,14 @@ class Go2WalkTask(Go2BaseEnv):
     _cfg: Go2JoystickCfg
 
     def __init__(self, cfg: Go2JoystickCfg, num_envs=1, backend_type="mujoco"):
+        if cfg.reward_config is None:
+            raise ValueError("reward_config must be provided via Hydra configuration")
         backend = create_backend(
             backend_type, cfg.model_file, num_envs, cfg.sim_dt, base_name=cfg.asset.base_name
         )
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True
+        self._reward_cfg = cfg.reward_config
         self._init_reward_functions()
 
     @property
@@ -131,6 +121,7 @@ class Go2WalkTask(Go2BaseEnv):
         return {"actor": actor, "privileged": linvel}
 
     def _compute_reward(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
+        assert self._cfg.reward_config is not None
         dtype = get_global_dtype()
         reward = np.zeros((self._num_envs,), dtype=dtype)
         cfg = self._cfg.reward_config
@@ -156,12 +147,12 @@ class Go2WalkTask(Go2BaseEnv):
     def _reward_tracking_lin_vel(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         commands = info["commands"]
         lin_vel_error = np.sum(np.square(commands[:, :2] - linvel[:, :2]), axis=1)
-        return np.asarray(np.exp(-lin_vel_error / self._cfg.reward_config.tracking_sigma))
+        return np.asarray(np.exp(-lin_vel_error / self._reward_cfg.tracking_sigma))
 
     def _reward_tracking_ang_vel(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         commands = info["commands"]
         ang_vel_error = np.square(commands[:, 2] - gyro[:, 2])
-        return np.asarray(np.exp(-ang_vel_error / self._cfg.reward_config.tracking_sigma))
+        return np.asarray(np.exp(-ang_vel_error / self._reward_cfg.tracking_sigma))
 
     def _reward_lin_vel_z(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         return np.asarray(np.square(linvel[:, 2]))
@@ -171,7 +162,7 @@ class Go2WalkTask(Go2BaseEnv):
 
     def _reward_base_height(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         base_height = self._backend.get_base_pos()[:, 2]
-        return np.asarray(np.square(base_height - self._cfg.reward_config.base_height_target))
+        return np.asarray(np.square(base_height - self._reward_cfg.base_height_target))
 
     def _reward_action_rate(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         action_diff = info["current_actions"] - info["last_actions"]
@@ -188,8 +179,8 @@ class Go2WalkTask(Go2BaseEnv):
         foot_heights = foot_pos[..., 2]
         foot_contact = self.get_foot_contact()
         is_swing = foot_contact < 0.5
-        target_height = self._cfg.reward_config.target_foot_height
-        sigma = self._cfg.reward_config.foot_clearance_sigma
+        target_height = self._reward_cfg.target_foot_height
+        sigma = self._reward_cfg.foot_clearance_sigma
         error_sq = np.square(foot_heights - target_height)
         reward = np.exp(-error_sq / sigma) * is_swing
         return np.asarray(np.sum(reward, axis=1))
@@ -199,7 +190,7 @@ class Go2WalkTask(Go2BaseEnv):
         foot_heights = foot_pos[..., 2]
         foot_contact = self.get_foot_contact()
         is_swing = foot_contact < 0.5
-        safe_height = self._cfg.reward_config.target_foot_height / 2.0
+        safe_height = self._reward_cfg.target_foot_height / 2.0
         height_error = np.clip(safe_height - foot_heights, 0.0, None)
         error = np.square(height_error) * is_swing
         return np.asarray(np.sum(error, axis=1))

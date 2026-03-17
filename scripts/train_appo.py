@@ -57,10 +57,12 @@ def play_appo(cfg: DictConfig, rl_cfg: dict):
     from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4, is_rsl_rl_v5
 
     # Build env_cfg_override from reward config
-    env_cfg_override: dict | None = None
-    if hasattr(cfg, "reward") and cfg.reward:
-        reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
-        env_cfg_override = {"reward_config": reward_dict}
+    if not hasattr(cfg, "reward") or not cfg.reward:
+        raise ValueError(
+            "Missing 'reward' config in Hydra. Reward config must be explicitly provided."
+        )
+    reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
+    env_cfg_override = {"reward_config": reward_dict}
 
     device = cfg.training.device or (
         "cuda"
@@ -196,10 +198,12 @@ def main(cfg: DictConfig) -> None:
     ensure_registries()
 
     # Build env_cfg_override from reward config
-    env_cfg_override = {}
-    if hasattr(cfg, "reward") and cfg.reward:
-        reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
-        env_cfg_override["reward_config"] = reward_dict
+    if not hasattr(cfg, "reward") or not cfg.reward:
+        raise ValueError(
+            "Missing 'reward' config in Hydra. Reward config must be explicitly provided."
+        )
+    reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
+    env_cfg_override = {"reward_config": reward_dict}
 
     # Convert algo config to plain dict for APPORunner / RSL-RL internals
     rl_cfg = OmegaConf.to_container(cfg.algo, resolve=True)
