@@ -70,13 +70,13 @@ class RslRlVecEnvWrapper:
         self.reset()
 
     def _obs_to_tensordict(self, obs: dict[str, np.ndarray]) -> TensorDict:
-        actor = to_torch(obs["actor"], self.device)
-        td = {"actor": actor}
+        obs_arr = to_torch(obs["obs"], self.device)
+        td = {"obs": obs_arr}
         if "privileged" in obs:
             td["privileged"] = to_torch(obs["privileged"], self.device)
             td["policy"] = to_torch(flatten_obs_dict(obs), self.device)
         else:
-            td["policy"] = actor
+            td["policy"] = obs_arr
         return TensorDict(td, batch_size=self.num_envs, device=self.device)
 
     def step(self, actions):
@@ -112,7 +112,7 @@ class RslRlVecEnvWrapper:
         if self.env.state is None:
             self.env.init_state()
         env_indices = np.arange(self.num_envs, dtype=np.int32)
-        _, obs_out, _ = self.env.reset(env_indices)
+        obs_out, _ = self.env.reset(env_indices)
 
         self.episode_returns[:] = 0
         self.episode_lengths[:] = 0

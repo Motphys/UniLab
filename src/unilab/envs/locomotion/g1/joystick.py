@@ -121,7 +121,7 @@ class G1JoystickPPO(G1BaseEnv):
     @property
     def obs_groups_spec(self) -> dict[str, int]:
         # gyro(3) + gravity(3) + diff(29) + dof_vel(29) + action(29) + cmd(3) + phase(2) = 98
-        return {"actor": 98, "privileged": 3}
+        return {"obs": 98, "privileged": 3}
 
     def _init_reward_functions(self):
         self._reward_fns = {
@@ -166,7 +166,7 @@ class G1JoystickPPO(G1BaseEnv):
             axis=1,
             dtype=get_global_dtype(),
         )
-        return {"actor": actor, "privileged": linvel}
+        return {"obs": actor, "privileged": linvel}
 
     def get_obs_structure(self) -> dict:
         """Return observation structure for symmetry augmentation."""
@@ -306,7 +306,7 @@ class G1JoystickPPO(G1BaseEnv):
         dof_pos = self.get_dof_pos()[env_indices]
         dof_vel = self.get_dof_vel()[env_indices]
         obs = self._compute_obs(info, linvel, gyro, gravity, dof_pos, dof_vel)
-        return obs, obs, info
+        return obs, info
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
         state.info["last_actions"] = state.info.get("current_actions", np.zeros_like(actions))

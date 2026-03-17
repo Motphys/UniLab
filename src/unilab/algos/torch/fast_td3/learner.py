@@ -237,11 +237,21 @@ class FastTD3Learner:
     def update_critic(self, data: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One critic update step."""
         observations = data["obs"]
+        privileged = data.get("privileged", None)
         actions = data["actions"]
         rewards = data["rewards"]
         next_observations = data["next_obs"]
+        next_privileged = data.get("next_privileged", None)
         dones = data["dones"].bool()
         truncations = data["truncated"].bool()
+
+        # Critic input: obs + privileged
+        if privileged is not None:
+            critic_obs = torch.cat([observations, privileged], dim=-1)
+            critic_next_obs = torch.cat([next_observations, next_privileged], dim=-1)
+        else:
+            critic_obs = observations
+            critic_next_obs = next_observations
 
         bootstrap = (truncations | ~dones).float()
         discount = torch.full_like(rewards, self.gamma)
@@ -255,7 +265,7 @@ class FastTD3Learner:
 
         with torch.no_grad():
             qf1_next_target_proj, qf2_next_target_proj = self.qnet_target.projection(
-                next_observations,
+                critic_next_obs,
                 next_state_actions,
                 rewards,
                 bootstrap,
@@ -276,7 +286,7 @@ class FastTD3Learner:
                 qf1_next_target_dist = qf1_next_target_proj
                 qf2_next_target_dist = qf2_next_target_proj
 
-        qf1, qf2 = self.qnet(observations, actions)
+        qf1, qf2 = self.qnet(critic_obs, actions)
         qf1_loss = -torch.sum(qf1_next_target_dist * F.log_softmax(qf1, dim=1), dim=1).mean()
         qf2_loss = -torch.sum(qf2_next_target_dist * F.log_softmax(qf2, dim=1), dim=1).mean()
         qf_loss = qf1_loss + qf2_loss

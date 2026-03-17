@@ -90,7 +90,7 @@ class Go2WalkTask(Go2BaseEnv):
     @property
     def obs_groups_spec(self) -> dict[str, int]:
         # gyro(3) + gravity(3) + diff(12) + dof_vel(12) + action(12) + cmd(3) = 45
-        return {"actor": 45, "privileged": 3}
+        return {"obs": 45, "privileged": 3}
 
     def _init_reward_functions(self):
         self._reward_fns = {
@@ -123,12 +123,12 @@ class Go2WalkTask(Go2BaseEnv):
         diff = dof_pos - self.default_angles
         command = info["commands"]
         last_actions = info.get("current_actions", np.zeros_like(diff))
-        actor = np.concatenate(
+        obs = np.concatenate(
             [gyro, -gravity, diff, dof_vel, last_actions, command],
             axis=1,
             dtype=get_global_dtype(),
         )
-        return {"actor": actor, "privileged": linvel}
+        return {"obs": obs, "privileged": linvel}
 
     def _compute_reward(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         dtype = get_global_dtype()
@@ -237,4 +237,4 @@ class Go2WalkTask(Go2BaseEnv):
         dof_pos = self.get_dof_pos()[env_indices]
         dof_vel = self.get_dof_vel()[env_indices]
         obs = self._compute_obs(info, linvel, gyro, gravity, dof_pos, dof_vel)
-        return obs, obs, info
+        return obs, info

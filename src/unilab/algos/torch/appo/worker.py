@@ -16,7 +16,7 @@ import torch
 from rsl_rl.utils import resolve_callable
 
 from unilab.utils.algo_utils import ensure_registries
-from unilab.utils.obs_utils import flatten_obs_dict
+from unilab.utils.obs_utils import split_obs_dict
 
 
 def appo_collector_fn(
@@ -29,6 +29,7 @@ def appo_collector_fn(
     sync_primitives: tuple,
     obs_dim: int,
     action_dim: int,
+    privileged_dim: int,
     weight_sync_name: str,
     weight_param_shapes: dict,
     metrics_queue: Any,
@@ -56,6 +57,7 @@ def appo_collector_fn(
         num_steps=steps_per_env,
         obs_dim=obs_dim,
         action_dim=action_dim,
+        privileged_dim=privileged_dim,
         create=False,
         shm_name_prefix=shm_storage_name,
     )
@@ -101,7 +103,7 @@ def appo_collector_fn(
     # Reset environment
     env_indices = np.arange(num_envs, dtype=np.int32)
     try:
-        _, obs_out, _ = env.reset(env_indices)
+        obs_out, _ = env.reset(env_indices)
     except TypeError:
         obs_out, _ = env.reset()
 
@@ -110,7 +112,10 @@ def appo_collector_fn(
             x = x.cpu().numpy()
         return np.asarray(x, dtype=np.float32)
 
-    obs_np = to_float32_np(flatten_obs_dict(obs_out))
+    obs_np, priv_np = split_obs_dict(obs_out)
+    obs_np = to_float32_np(obs_np)
+    if priv_np is not None:
+        priv_np = to_float32_np(priv_np)
 
     # Pre-allocate obs TensorDict once; update in-place each step to avoid
     # repeated TensorDict construction overhead in the hot loop.
@@ -156,6 +161,8 @@ def appo_collector_fn(
                 )
 
                 write_buf["obs"][:, step, :] = obs_np
+                if priv_np is not None:
+                    write_buf["privileged"][:, step, :] = priv_np
                 write_buf["actions"][:, step, :] = actions_np
                 write_buf["log_probs"][:, step] = log_probs_torch.cpu().numpy().ravel()
 
@@ -175,7 +182,10 @@ def appo_collector_fn(
                 write_buf["dones"][:, step] = done_raw
                 write_buf["truncated"][:, step] = truncated_raw
 
-                obs_np = to_float32_np(flatten_obs_dict(next_obs_raw))
+                obs_np, priv_np = split_obs_dict(next_obs_raw)
+                obs_np = to_float32_np(obs_np)
+                if priv_np is not None:
+                    priv_np = to_float32_np(priv_np)
 
                 # Bootstrap from true terminal obs so next rollout starts cleanly
                 if "_final_observation" in state.info:
@@ -235,6 +245,8 @@ def appo_collector_fn(
                         print(f"[APPOWorker] metrics enqueue error: {e}", file=sys.stderr)
 
             write_buf["last_obs"][:] = obs_np
+            if priv_np is not None:
+                write_buf["last_privileged"][:] = priv_np
             storage.signal_write_done()  # atomic increment, non-blocking
 
     except Exception as e:

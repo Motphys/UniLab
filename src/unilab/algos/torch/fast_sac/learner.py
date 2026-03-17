@@ -482,16 +482,29 @@ class FastSACLearner:
     def update_critic(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One critic update step."""
         obs = batch["obs"]
+        privileged = batch.get("privileged", None)
         actions = batch["actions"]
         rewards = batch["rewards"]
         next_obs = batch["next_obs"]
+        next_privileged = batch.get("next_privileged", None)
         dones = batch["dones"]
         truncated = batch.get("truncated")
+
+        # Critic input: obs + privileged
+        if privileged is not None:
+            critic_obs = torch.cat([obs, privileged], dim=-1)
+            critic_next_obs = torch.cat([next_obs, next_privileged], dim=-1)
+        else:
+            critic_obs = obs
+            critic_next_obs = next_obs
 
         # Apply symmetry augmentation
         if self.use_symmetry:
             obs, actions = self.symmetry.augment(obs, actions)
-            next_obs = torch.cat([next_obs, self.symmetry.mirror_obs(next_obs)], dim=0)
+            critic_obs = torch.cat([critic_obs, self.symmetry.mirror_obs(critic_obs)], dim=0)
+            critic_next_obs = torch.cat(
+                [critic_next_obs, self.symmetry.mirror_obs(critic_next_obs)], dim=0
+            )
             rewards = rewards.repeat(2)
             dones = dones.repeat(2)
             if truncated is not None:
@@ -512,13 +525,13 @@ class FastSACLearner:
 
             with torch.amp.autocast("cuda", enabled=self.use_amp):  # pyright: ignore[reportPrivateImportUsage]
                 target_distributions = self.qnet_target.projection(
-                    next_obs, next_actions, adjusted_rewards, bootstrap, discount
+                    critic_next_obs, next_actions, adjusted_rewards, bootstrap, discount
                 )
                 target_values = self.qnet_target.get_value(target_distributions)
 
         # Critic loss: cross-entropy with projected distributions
         with torch.amp.autocast("cuda", enabled=self.use_amp):  # pyright: ignore[reportPrivateImportUsage]
-            q_outputs = self.qnet(obs, actions)
+            q_outputs = self.qnet(critic_obs, actions)
             critic_log_probs = F.log_softmax(q_outputs, dim=-1).clamp(min=-30.0)
             critic_losses = -torch.sum(target_distributions * critic_log_probs, dim=-1)
             qf_loss = critic_losses.mean(dim=1).sum(dim=0)

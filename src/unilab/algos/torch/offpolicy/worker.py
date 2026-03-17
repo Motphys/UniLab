@@ -11,7 +11,7 @@ import numpy as np
 import torch
 
 from unilab.utils.algo_utils import build_actor, ensure_registries
-from unilab.utils.obs_utils import flatten_obs_dict
+from unilab.utils.obs_utils import split_obs_dict
 
 
 def off_policy_collector_fn(
@@ -146,7 +146,10 @@ def _run_collector(
     # Initial step to get first observation
     actions_np = np.zeros((num_envs, action_dim), dtype=np.float32)
     state = env.step(actions_np)
-    obs_np = np.asarray(flatten_obs_dict(state.obs), dtype=np.float32)
+    obs_np, priv_np = split_obs_dict(state.obs)
+    obs_np = np.asarray(obs_np, dtype=np.float32)
+    if priv_np is not None:
+        priv_np = np.asarray(priv_np, dtype=np.float32)
     max_episode_steps = getattr(getattr(env, "cfg", None), "max_episode_steps", None)
     if max_episode_steps is not None and int(max_episode_steps) > 0:
         step_offsets = np.random.randint(
@@ -219,7 +222,10 @@ def _run_collector(
             timing_count += 1
 
         # Extract data as numpy
-        next_obs_np = np.asarray(flatten_obs_dict(state.obs), dtype=np.float32)
+        next_obs_np, next_priv_np = split_obs_dict(state.obs)
+        next_obs_np = np.asarray(next_obs_np, dtype=np.float32)
+        if next_priv_np is not None:
+            next_priv_np = np.asarray(next_priv_np, dtype=np.float32)
         rewards_np = np.asarray(state.reward, dtype=np.float32).ravel()
 
         terminated_np = (
@@ -246,10 +252,12 @@ def _run_collector(
             has_final = state.info["_final_observation"]
             has_final_np = np.asarray(has_final, dtype=bool)
             if np.any(has_final_np):
-                final_obs_np = np.asarray(
-                    flatten_obs_dict(state.info["final_observation"]), dtype=np.float32
-                )
+                final_obs_np, final_priv_np = split_obs_dict(state.info["final_observation"])
+                final_obs_np = np.asarray(final_obs_np, dtype=np.float32)
                 next_obs_np[has_final_np] = final_obs_np[has_final_np]
+                if final_priv_np is not None and next_priv_np is not None:
+                    final_priv_np = np.asarray(final_priv_np, dtype=np.float32)
+                    next_priv_np[has_final_np] = final_priv_np[has_final_np]
 
         # Write to replay buffer
         replay_buffer.add(
@@ -259,6 +267,8 @@ def _run_collector(
             torch.from_numpy(next_obs_np),
             torch.from_numpy(terminated_np),
             torch.from_numpy(truncated_np),
+            torch.from_numpy(priv_np) if priv_np is not None else None,
+            torch.from_numpy(next_priv_np) if next_priv_np is not None else None,
         )
 
         # Track episode rewards - vectorized
@@ -273,6 +283,7 @@ def _run_collector(
             current_ep_lengths[reset_indices] = 0
 
         obs_np = next_obs_np
+        priv_np = next_priv_np
         total_steps += num_envs
         env_steps_since_sync += 1
 

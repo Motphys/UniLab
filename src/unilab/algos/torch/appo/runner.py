@@ -77,6 +77,7 @@ class APPORunner(AsyncRunner):
         """Create a tiny env to read obs/action dims, then close it."""
         from unilab.base import registry
         from unilab.utils.algo_utils import ensure_registries
+        from unilab.utils.obs_utils import get_obs_dims
 
         ensure_registries()
 
@@ -86,7 +87,8 @@ class APPORunner(AsyncRunner):
             sim_backend=self.extra_kwargs.get("sim_backend", "mujoco"),
             env_cfg_override=self.env_cfg_overrides if self.env_cfg_overrides else None,
         )
-        obs_dim = sum(env.obs_groups_spec.values())
+        obs_dim, privileged_dim = get_obs_dims(env.obs_groups_spec)
+        self.privileged_dim = privileged_dim
         assert env.action_space.shape is not None
         action_dim = env.action_space.shape[0]
         env.close()
@@ -167,6 +169,7 @@ class APPORunner(AsyncRunner):
             num_steps=self.steps_per_env,
             obs_dim=self.obs_dim,
             action_dim=self.action_dim,
+            privileged_dim=self.privileged_dim,
             num_slots=4,
             create=True,
         )
@@ -193,6 +196,7 @@ class APPORunner(AsyncRunner):
             ),
             "obs_dim": self.obs_dim,
             "action_dim": self.action_dim,
+            "privileged_dim": self.privileged_dim,
             "weight_sync_name": weight_sync.name,
             "weight_param_shapes": weight_param_shapes,
             "metrics_queue": metrics_queue,

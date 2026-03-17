@@ -14,13 +14,15 @@ _SPAWN_CTX = mp.get_context("spawn")
 # Shape: (num_slots, num_envs, num_steps, *trailing) for time-series fields,
 #        (num_slots, num_envs, obs_dim) for last_obs.
 _FIELD_SHAPES = {
-    "obs": lambda ns_slots, ne, ns, od, ad: (ns_slots, ne, ns, od),
-    "actions": lambda ns_slots, ne, ns, od, ad: (ns_slots, ne, ns, ad),
-    "log_probs": lambda ns_slots, ne, ns, od, ad: (ns_slots, ne, ns),
-    "rewards": lambda ns_slots, ne, ns, od, ad: (ns_slots, ne, ns),
-    "dones": lambda ns_slots, ne, ns, od, ad: (ns_slots, ne, ns),
-    "truncated": lambda ns_slots, ne, ns, od, ad: (ns_slots, ne, ns),
-    "last_obs": lambda ns_slots, ne, ns, od, ad: (ns_slots, ne, od),
+    "obs": lambda ns_slots, ne, ns, od, ad, pd: (ns_slots, ne, ns, od),
+    "privileged": lambda ns_slots, ne, ns, od, ad, pd: (ns_slots, ne, ns, pd),
+    "actions": lambda ns_slots, ne, ns, od, ad, pd: (ns_slots, ne, ns, ad),
+    "log_probs": lambda ns_slots, ne, ns, od, ad, pd: (ns_slots, ne, ns),
+    "rewards": lambda ns_slots, ne, ns, od, ad, pd: (ns_slots, ne, ns),
+    "dones": lambda ns_slots, ne, ns, od, ad, pd: (ns_slots, ne, ns),
+    "truncated": lambda ns_slots, ne, ns, od, ad, pd: (ns_slots, ne, ns),
+    "last_obs": lambda ns_slots, ne, ns, od, ad, pd: (ns_slots, ne, od),
+    "last_privileged": lambda ns_slots, ne, ns, od, ad, pd: (ns_slots, ne, pd),
 }
 
 
@@ -46,6 +48,7 @@ class SharedOnPolicyStorage:
         obs_dim: int,
         action_dim: int,
         *,
+        privileged_dim: int = 0,
         num_slots: int = 4,
         create: bool = True,
         shm_name_prefix: Dict[str, str] | None = None,
@@ -54,13 +57,20 @@ class SharedOnPolicyStorage:
         self.num_steps = num_steps
         self.obs_dim = obs_dim
         self.action_dim = action_dim
+        self.privileged_dim = privileged_dim
         self.num_slots = num_slots
 
         self._shm_blocks: Dict[str, shared_memory.SharedMemory] = {}
         self._arrays: Dict[str, np.ndarray] = {}
 
-        for field, shape_fn in _FIELD_SHAPES.items():
-            shape = shape_fn(num_slots, num_envs, num_steps, obs_dim, action_dim)
+        # Only allocate privileged fields if privileged_dim > 0
+        fields_to_allocate = {k: v for k, v in _FIELD_SHAPES.items()}
+        if privileged_dim == 0:
+            fields_to_allocate.pop("privileged", None)
+            fields_to_allocate.pop("last_privileged", None)
+
+        for field, shape_fn in fields_to_allocate.items():
+            shape = shape_fn(num_slots, num_envs, num_steps, obs_dim, action_dim, privileged_dim)
             nbytes = int(np.prod(shape)) * np.dtype(np.float32).itemsize
 
             if create:

@@ -197,32 +197,49 @@ class APPOLearner:
         importance-sampling-corrected value targets and advantages.
         """
         obs = batch_dict["observations"]  # [T, N, D]
+        privileged = batch_dict.get("privileged", None)  # [T, N, P] or None
         rewards = batch_dict["rewards"]  # [T, N]
         dones = batch_dict["dones"].float()  # [T, N]
         truncated = batch_dict["truncated"].float()  # [T, N]
         last_obs = batch_dict["last_obs"]  # [N, D]
+        last_privileged = batch_dict.get("last_privileged", None)  # [N, P] or None
         behavior_log_probs = batch_dict["actions_log_prob"]  # [T, N]
         actions = batch_dict["actions"]  # [T, N, A]
 
         T, N = obs.shape[:2]
         obs_flat = obs.flatten(0, 1)  # [T*N, D]
 
-        # Wrap in TensorDict
+        # Actor: obs only
         obs_td = TensorDict({"policy": obs_flat}, batch_size=obs_flat.shape[0], device=self.device)
         last_obs_td = TensorDict({"policy": last_obs}, batch_size=N, device=self.device)
+
+        # Critic: obs + privileged
+        if privileged is not None:
+            critic_obs = torch.cat([obs, privileged], dim=-1)  # [T, N, D+P]
+            critic_last_obs = torch.cat([last_obs, last_privileged], dim=-1)  # [N, D+P]
+        else:
+            critic_obs = obs
+            critic_last_obs = last_obs
+        critic_obs_flat = critic_obs.flatten(0, 1)  # [T*N, D+P]
+        critic_obs_td = TensorDict(
+            {"policy": critic_obs_flat}, batch_size=critic_obs_flat.shape[0], device=self.device
+        )
+        critic_last_obs_td = TensorDict(
+            {"policy": critic_last_obs}, batch_size=N, device=self.device
+        )
 
         # Update Observation Normalization
         if hasattr(self.actor, "update_normalization"):
             self.actor.update_normalization(obs_td)
             self.actor.update_normalization(last_obs_td)
         if hasattr(self.critic, "update_normalization"):
-            self.critic.update_normalization(obs_td)
-            self.critic.update_normalization(last_obs_td)
+            self.critic.update_normalization(critic_obs_td)
+            self.critic.update_normalization(critic_last_obs_td)
 
         with torch.inference_mode():
             # Compute values with current critic
-            values_flat = self.critic(obs_td)  # [T*N, 1]
-            last_values = self.critic(last_obs_td).squeeze(-1)  # [N]
+            values_flat = self.critic(critic_obs_td)  # [T*N, 1]
+            last_values = self.critic(critic_last_obs_td).squeeze(-1)  # [N]
         values = values_flat.view(T, N, -1).squeeze(-1)  # [T, N]
 
         # Compute target policy log-probs for V-trace IS ratios.

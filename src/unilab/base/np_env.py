@@ -148,7 +148,7 @@ class NpEnv(ABEnv):
                 env_indices
             ]
 
-        new_obs, _, info1 = self.reset(env_indices)
+        new_obs, info1 = self.reset(env_indices)
         for key in self._state.obs:
             self._state.obs[key][env_indices] = new_obs[key]
 
@@ -179,10 +179,8 @@ class NpEnv(ABEnv):
         """子类实现：计算 obs/reward/terminated"""
 
     @abc.abstractmethod
-    def reset(
-        self, env_indices: np.ndarray
-    ) -> Tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict]:
-        """子类实现：重置指定环境"""
+    def reset(self, env_indices: np.ndarray) -> Tuple[dict[str, np.ndarray], dict]:
+        """子类实现：重置指定环境，返回 (obs_dict, info_dict)"""
 
     def close(self) -> None:
         """关闭环境"""

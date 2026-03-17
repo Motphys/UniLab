@@ -22,11 +22,13 @@ class ReplayBuffer(SharedBufferBase):
         obs_dim: int,
         action_dim: int,
         device: str,
+        privileged_dim: int = 0,
         defer_gpu: bool = False,
     ):
         super().__init__(capacity, device, defer_gpu=defer_gpu)
         self._obs_dim = obs_dim
         self._action_dim = action_dim
+        self._privileged_dim = privileged_dim
 
         self.size = torch.zeros(1, dtype=torch.int64).share_memory_()
 
@@ -39,6 +41,10 @@ class ReplayBuffer(SharedBufferBase):
             self.dones = torch.zeros(capacity).share_memory_()
             self.truncated = torch.zeros(capacity).share_memory_()
 
+            if privileged_dim > 0:
+                self.privileged_obs = torch.zeros(capacity, privileged_dim).share_memory_()
+                self.next_privileged_obs = torch.zeros(capacity, privileged_dim).share_memory_()
+
             if not defer_gpu:
                 # GPU cache for zero-copy sampling
                 self.obs_gpu = torch.empty(capacity, obs_dim, device="cuda")
@@ -47,9 +53,15 @@ class ReplayBuffer(SharedBufferBase):
                 self.rewards_gpu = torch.empty(capacity, device="cuda")
                 self.dones_gpu = torch.empty(capacity, device="cuda")
                 self.truncated_gpu = torch.empty(capacity, device="cuda")
+
+                if privileged_dim > 0:
+                    self.privileged_obs_gpu = torch.empty(capacity, privileged_dim, device="cuda")
+                    self.next_privileged_obs_gpu = torch.empty(
+                        capacity, privileged_dim, device="cuda"
+                    )
         else:
-            # Single packed host tensor; layout: [obs | next_obs | actions | rew | done | trunc]
-            total_dim = 2 * obs_dim + action_dim + 3
+            # Single packed host tensor; layout: [obs | next_obs | actions | rew | done | trunc | priv | next_priv]
+            total_dim = 2 * obs_dim + action_dim + 3 + 2 * privileged_dim
             self._storage = torch.zeros(capacity, total_dim).share_memory_()
 
             c = 0
@@ -64,6 +76,12 @@ class ReplayBuffer(SharedBufferBase):
             self._done_col = c
             c += 1
             self._trunc_col = c
+            c += 1
+
+            if privileged_dim > 0:
+                self._priv_sl = slice(c, c + privileged_dim)
+                c += privileged_dim
+                self._npriv_sl = slice(c, c + privileged_dim)
 
     def __getstate__(self) -> dict:
         """Custom pickle support.
@@ -83,6 +101,8 @@ class ReplayBuffer(SharedBufferBase):
             "rewards_gpu",
             "dones_gpu",
             "truncated_gpu",
+            "privileged_obs_gpu",
+            "next_privileged_obs_gpu",
         ):
             state.pop(key, None)
         return state
@@ -103,10 +123,27 @@ class ReplayBuffer(SharedBufferBase):
         self.rewards_gpu = torch.zeros(self.capacity, device=device)
         self.dones_gpu = torch.zeros(self.capacity, device=device)
         self.truncated_gpu = torch.zeros(self.capacity, device=device)
+        if self._privileged_dim > 0:
+            self.privileged_obs_gpu = torch.zeros(
+                self.capacity, self._privileged_dim, device=device
+            )
+            self.next_privileged_obs_gpu = torch.zeros(
+                self.capacity, self._privileged_dim, device=device
+            )
         self._gpu_synced_ptr = 0
         self._cuda_stream = torch.cuda.Stream(device=device)
 
-    def add(self, obs, actions, rewards, next_obs, dones, truncated):
+    def add(
+        self,
+        obs,
+        actions,
+        rewards,
+        next_obs,
+        dones,
+        truncated,
+        privileged=None,
+        next_privileged=None,
+    ):
         """Add batch (called by collector)."""
         n = obs.shape[0]
         idx = int(self.ptr[0]) % self.capacity
@@ -119,6 +156,9 @@ class ReplayBuffer(SharedBufferBase):
                 self.rewards[idx : idx + n] = rewards
                 self.dones[idx : idx + n] = dones
                 self.truncated[idx : idx + n] = truncated
+                if self._privileged_dim > 0 and privileged is not None:
+                    self.privileged_obs[idx : idx + n] = privileged
+                    self.next_privileged_obs[idx : idx + n] = next_privileged
             else:
                 split = self.capacity - idx
                 self.obs[idx:] = obs[:split]
@@ -133,18 +173,23 @@ class ReplayBuffer(SharedBufferBase):
                 self.dones[: n - split] = dones[split:]
                 self.truncated[idx:] = truncated[:split]
                 self.truncated[: n - split] = truncated[split:]
+                if self._privileged_dim > 0 and privileged is not None:
+                    self.privileged_obs[idx:] = privileged[:split]
+                    self.privileged_obs[: n - split] = privileged[split:]
+                    self.next_privileged_obs[idx:] = next_privileged[:split]
+                    self.next_privileged_obs[: n - split] = next_privileged[split:]
         else:
-            row = torch.cat(
-                [
-                    obs,
-                    next_obs,
-                    actions,
-                    rewards.unsqueeze(1),
-                    dones.unsqueeze(1),
-                    truncated.unsqueeze(1),
-                ],
-                dim=1,
-            )
+            parts = [
+                obs,
+                next_obs,
+                actions,
+                rewards.unsqueeze(1),
+                dones.unsqueeze(1),
+                truncated.unsqueeze(1),
+            ]
+            if self._privileged_dim > 0 and privileged is not None:
+                parts.extend([privileged, next_privileged])
+            row = torch.cat(parts, dim=1)
 
             if idx + n <= self.capacity:
                 self._storage[idx : idx + n] = row
@@ -187,6 +232,13 @@ class ReplayBuffer(SharedBufferBase):
                     self.truncated_gpu[idx : idx + delta].copy_(
                         self.truncated[idx : idx + delta], non_blocking=True
                     )
+                    if self._privileged_dim > 0:
+                        self.privileged_obs_gpu[idx : idx + delta].copy_(
+                            self.privileged_obs[idx : idx + delta], non_blocking=True
+                        )
+                        self.next_privileged_obs_gpu[idx : idx + delta].copy_(
+                            self.next_privileged_obs[idx : idx + delta], non_blocking=True
+                        )
                 else:
                     split = self.capacity - idx
                     self.obs_gpu[idx:].copy_(self.obs[idx:], non_blocking=True)
@@ -213,11 +265,24 @@ class ReplayBuffer(SharedBufferBase):
                     self.truncated_gpu[: delta - split].copy_(
                         self.truncated[: delta - split], non_blocking=True
                     )
+                    if self._privileged_dim > 0:
+                        self.privileged_obs_gpu[idx:].copy_(
+                            self.privileged_obs[idx:], non_blocking=True
+                        )
+                        self.privileged_obs_gpu[: delta - split].copy_(
+                            self.privileged_obs[: delta - split], non_blocking=True
+                        )
+                        self.next_privileged_obs_gpu[idx:].copy_(
+                            self.next_privileged_obs[idx:], non_blocking=True
+                        )
+                        self.next_privileged_obs_gpu[: delta - split].copy_(
+                            self.next_privileged_obs[: delta - split], non_blocking=True
+                        )
 
                 self._gpu_synced_ptr = ptr
 
             indices = indices.to(self.obs_gpu.device)
-            return {
+            batch = {
                 "obs": self.obs_gpu[indices],
                 "actions": self.actions_gpu[indices],
                 "rewards": self.rewards_gpu[indices],
@@ -225,9 +290,13 @@ class ReplayBuffer(SharedBufferBase):
                 "dones": self.dones_gpu[indices],
                 "truncated": self.truncated_gpu[indices],
             }
+            if self._privileged_dim > 0:
+                batch["privileged"] = self.privileged_obs_gpu[indices]
+                batch["next_privileged"] = self.next_privileged_obs_gpu[indices]
+            return batch
         else:
             chunk = self._storage[indices].to(self.device)
-            return {
+            batch = {
                 "obs": chunk[:, self._obs_sl],
                 "next_obs": chunk[:, self._nobs_sl],
                 "actions": chunk[:, self._act_sl],
@@ -235,3 +304,7 @@ class ReplayBuffer(SharedBufferBase):
                 "dones": chunk[:, self._done_col],
                 "truncated": chunk[:, self._trunc_col],
             }
+            if self._privileged_dim > 0:
+                batch["privileged"] = chunk[:, self._priv_sl]
+                batch["next_privileged"] = chunk[:, self._npriv_sl]
+            return batch

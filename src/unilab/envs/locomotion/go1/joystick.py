@@ -98,7 +98,7 @@ class Go1WalkTask(Go1BaseEnv):
     @property
     def obs_groups_spec(self) -> dict[str, int]:
         # gyro(3) + gravity(3) + diff(12) + dof_vel(12) + action(12) + cmd(3) + phase(4) = 49
-        return {"actor": 49, "privileged": 3}
+        return {"obs": 49, "privileged": 3}
 
     def _init_reward_functions(self):
         self._reward_fns = {
@@ -141,12 +141,12 @@ class Go1WalkTask(Go1BaseEnv):
         diff = dof_pos - self.default_angles
         command = info["commands"]
         last_actions = info.get("current_actions", np.zeros_like(diff))
-        actor = np.concatenate(
+        obs = np.concatenate(
             [gyro, -gravity, diff, dof_vel, last_actions, command, feet_phase],
             axis=1,
             dtype=get_global_dtype(),
         )
-        return {"actor": actor, "privileged": linvel}
+        return {"obs": obs, "privileged": linvel}
 
     def _compute_reward(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         dtype = get_global_dtype()
@@ -244,4 +244,4 @@ class Go1WalkTask(Go1BaseEnv):
         obs = self._compute_obs(
             info, linvel, gyro, gravity, dof_pos, dof_vel, self.feet_phase[env_indices]
         )
-        return obs, obs, info
+        return obs, info
