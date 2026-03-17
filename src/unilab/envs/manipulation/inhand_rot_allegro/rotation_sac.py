@@ -5,10 +5,11 @@ from dataclasses import dataclass, field
 import gymnasium as gym
 import numpy as np
 from etils import epath
-from unilab.envs.backend import create_backend
-from unilab.envs.np_env import NpEnvState
 
+from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
+from unilab.base.backend import create_backend
+from unilab.base.np_env import NpEnvState
 from unilab.envs.manipulation.inhand_rot_allegro.base import AllegroBaseCfg, AllegroBaseMjEnv
 from unilab.utils.math_utils import np_quat_conjugate, np_quat_mul, np_quat_to_axis_angle
 
@@ -49,9 +50,7 @@ class DomainRandConfigSac:
 @registry.envcfg("AllegroInhandRotationSac")
 @dataclass
 class AllegroRotationSacCfg(AllegroBaseCfg):
-    model_file: str = str(
-        epath.Path(__file__).parents[3] / "assets" / "robots" / "allegro_hand" / "scene.xml"
-    )
+    model_file: str = str(ASSETS_ROOT_PATH / "robots" / "allegro_hand" / "scene.xml")
     max_episode_seconds: float = 20.0  # same as HORA
     reward_config: RewardConfigSac = field(default_factory=RewardConfigSac)
     domain_rand: DomainRandConfigSac = field(default_factory=DomainRandConfigSac)

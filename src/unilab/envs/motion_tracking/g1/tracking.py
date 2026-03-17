@@ -10,6 +10,7 @@ import mujoco
 import numpy as np
 from etils import epath
 
+from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.backend import create_backend
 from unilab.base.dtype_config import get_global_dtype
@@ -139,12 +140,8 @@ class VelocityRandomization:
 class G1MotionTrackingCfg(G1BaseCfg):
     """Configuration for G1 motion tracking environment."""
 
-    model_file: str = str(
-        epath.Path(__file__).parents[3] / "assets" / "robots" / "g1" / "scene_flat.xml"
-    )
-    motion_file: str = str(
-        epath.Path(__file__).parents[3] / "assets" / "motions" / "g1" / "gangnam_style.npz"
-    )
+    model_file: str = str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
+    motion_file: str = str(ASSETS_ROOT_PATH / "motions" / "g1" / "gangnam_style.npz")
     anchor_body_name: str = "torso_link"
     body_names: tuple[str, ...] = (
         "pelvis",

@@ -25,6 +25,8 @@ import mujoco
 import numpy as np
 from tqdm import tqdm
 
+from unilab.assets import ASSETS_ROOT_PATH
+
 
 def quat_slerp(q1: np.ndarray, q2: np.ndarray, t: float) -> np.ndarray:
     """Spherical linear interpolation between two quaternions (wxyz format)."""
@@ -302,10 +304,7 @@ def main():
 
     # Default model file
     if args.model_file is None:
-        repo_root = Path(__file__).resolve().parents[2]
-        args.model_file = str(
-            repo_root / "src" / "unilab" / "assets" / "robots" / "g1" / "scene_flat.xml"
-        )
+        args.model_file = str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
 
     model_path = Path(args.model_file).expanduser().resolve()
     if not model_path.exists():

@@ -24,6 +24,8 @@ import mujoco
 import mujoco.viewer
 import numpy as np
 
+from unilab.assets import ASSETS_ROOT_PATH
+
 
 def load_npz(npz_file: str) -> dict[str, np.ndarray]:
     """Load NPZ motion file and return arrays as a dict."""
@@ -41,15 +43,7 @@ def load_npz(npz_file: str) -> dict[str, np.ndarray]:
 
 def default_model_path() -> str:
     """Return path to the default G1 flat scene XML."""
-    return str(
-        Path(__file__).resolve().parent.parent.parent
-        / "src"
-        / "unilab"
-        / "assets"
-        / "robots"
-        / "g1"
-        / "scene_flat.xml"
-    )
+    return str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
 
 
 # G1 joint names matching csv_to_npz.py order

@@ -6,6 +6,7 @@ import gymnasium as gym
 import numpy as np
 from etils import epath
 
+from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.backend import create_backend
 from unilab.base.dtype_config import get_global_dtype
@@ -87,9 +88,7 @@ def _go1_obs_config() -> ObsConfig:
 @registry.envcfg("Go1JoystickFlatTerrain")
 @dataclass
 class Go1JoystickCfg(Go1BaseCfg):
-    model_file: str = str(
-        epath.Path(__file__).parents[3] / "assets" / "robots" / "go1" / "scene_flat.xml"
-    )
+    model_file: str = str(ASSETS_ROOT_PATH / "robots" / "go1" / "scene_flat.xml")
     max_episode_seconds: float = 20.0
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
