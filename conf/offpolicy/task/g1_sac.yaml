@@ -12,4 +12,4 @@ algo:
   use_symmetry: true
   algo_params:
     alpha_init: 0.01
-    target_entropy_ratio: 0.2
+    target_entropy_ratio: 0.0

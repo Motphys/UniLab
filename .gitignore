@@ -16,6 +16,7 @@ dist/
 
 # Project specific
 logs/
+*.log
 .DS_Store
 
 benchmark/outputs/

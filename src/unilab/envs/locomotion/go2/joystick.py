@@ -7,6 +7,7 @@ from etils import epath
 
 from unilab.base import registry
 from unilab.base.backend import create_backend
+from unilab.base.dtype_config import get_global_dtype
 from unilab.base.np_env import NpEnvState
 from unilab.envs.locomotion.go2.base import Go2BaseCfg, Go2BaseEnv
 from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
@@ -83,6 +84,7 @@ class Go2WalkTask(Go2BaseEnv):
             backend_type, cfg.model_file, num_envs, cfg.sim_dt, base_name=cfg.asset.base_name
         )
         super().__init__(cfg, backend, num_envs)
+        self._enable_reward_log = True
         self._init_reward_functions()
 
     @property
@@ -105,76 +107,83 @@ class Go2WalkTask(Go2BaseEnv):
         }
 
     def update_state(self, state: NpEnvState) -> NpEnvState:
-        terminated = self._compute_termination()
-        reward = self._compute_reward(state.info)
-        obs = self._compute_obs(state.info)
-        return state.replace(obs=obs, reward=reward, terminated=terminated)
-
-    def _compute_obs(self, info: dict) -> dict[str, np.ndarray]:
         linvel = self.get_local_linvel()
         gyro = self.get_gyro()
         gravity = self._backend.get_sensor_data("upvector")
         dof_pos = self.get_dof_pos()
         dof_vel = self.get_dof_vel()
+        terminated = gravity[:, 2] <= 0.5
+        reward = self._compute_reward(state.info, linvel, gyro, dof_pos)
+        obs = self._compute_obs(state.info, linvel, gyro, gravity, dof_pos, dof_vel)
+        return state.replace(obs=obs, reward=reward, terminated=terminated)
 
+    def _compute_obs(
+        self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel
+    ) -> dict[str, np.ndarray]:
         diff = dof_pos - self.default_angles
         command = info["commands"]
         last_actions = info.get("current_actions", np.zeros_like(diff))
-
-        actor = np.concatenate([gyro, -gravity, diff, dof_vel, last_actions, command], axis=1)
+        actor = np.concatenate(
+            [gyro, -gravity, diff, dof_vel, last_actions, command],
+            axis=1,
+            dtype=get_global_dtype(),
+        )
         return {"actor": actor, "privileged": linvel}
 
-    def _compute_reward(self, info: dict) -> np.ndarray:
-        reward = np.zeros((self._num_envs,), dtype=np.float32)
+    def _compute_reward(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
+        dtype = get_global_dtype()
+        reward = np.zeros((self._num_envs,), dtype=dtype)
         cfg = self._cfg.reward_config
+
+        step_count = info.get("steps", np.zeros((self._num_envs,), dtype=np.uint32))
+        should_log = self._enable_reward_log and (int(step_count[0]) % 4 == 0)
+        log = {} if should_log else info.get("log", {})
 
         for name, scale in cfg.scales.items():
             if scale == 0 or name not in self._reward_fns:
                 continue
-            rew = self._reward_fns[name](info)
-            reward += rew * scale
-            if "log" not in info:
-                info["log"] = {}
-            info["log"][f"reward/{name}"] = float(np.mean(rew * scale))
+            rew = self._reward_fns[name](info, linvel, gyro, dof_pos)
+            weighted_rew = rew * scale
+            reward += weighted_rew
+            if should_log:
+                log[f"reward/{name}"] = float(np.mean(weighted_rew))
 
-        reward *= self._cfg.ctrl_dt
-        return reward
+        info["log"] = log
+        return reward * self._cfg.ctrl_dt
 
-    def _reward_tracking_lin_vel(self, info: dict) -> np.ndarray:
-        linvel = self.get_local_linvel()
+    # ── reward functions ──────────────────────────────────────────────
+
+    def _reward_tracking_lin_vel(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         commands = info["commands"]
         lin_vel_error = np.sum(np.square(commands[:, :2] - linvel[:, :2]), axis=1)
         return np.asarray(np.exp(-lin_vel_error / self._cfg.reward_config.tracking_sigma))
 
-    def _reward_tracking_ang_vel(self, info: dict) -> np.ndarray:
-        gyro = self.get_gyro()
+    def _reward_tracking_ang_vel(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         commands = info["commands"]
         ang_vel_error = np.square(commands[:, 2] - gyro[:, 2])
         return np.asarray(np.exp(-ang_vel_error / self._cfg.reward_config.tracking_sigma))
 
-    def _reward_lin_vel_z(self, info: dict) -> np.ndarray:
-        global_linvel = self._backend.get_sensor_data("global_linvel")
-        return np.asarray(np.square(global_linvel[:, 2]))
+    def _reward_lin_vel_z(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
+        return np.asarray(np.square(linvel[:, 2]))
 
-    def _reward_ang_vel_xy(self, info: dict) -> np.ndarray:
-        gyro = self.get_gyro()
+    def _reward_ang_vel_xy(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         return np.asarray(np.sum(np.square(gyro[:, :2]), axis=1))
 
-    def _reward_base_height(self, info: dict) -> np.ndarray:
+    def _reward_base_height(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         base_height = self._backend.get_base_pos()[:, 2]
         return np.asarray(np.square(base_height - self._cfg.reward_config.base_height_target))
 
-    def _reward_action_rate(self, info: dict) -> np.ndarray:
+    def _reward_action_rate(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         action_diff = info["current_actions"] - info["last_actions"]
         return np.asarray(np.sum(np.square(action_diff), axis=1))
 
-    def _reward_similar_to_default(self, info: dict) -> np.ndarray:
-        return np.asarray(np.sum(np.abs(self.get_dof_pos() - self.default_angles), axis=1))
+    def _reward_similar_to_default(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
+        return np.asarray(np.sum(np.abs(dof_pos - self.default_angles), axis=1))
 
-    def _reward_alive(self, info: dict) -> np.ndarray:
-        return np.ones((self._num_envs,), dtype=np.float32)
+    def _reward_alive(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
+        return np.ones((self._num_envs,), dtype=get_global_dtype())
 
-    def _reward_foot_lift(self, info: dict) -> np.ndarray:
+    def _reward_foot_lift(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         foot_pos = self.get_foot_pos()
         foot_heights = foot_pos[..., 2]
         foot_contact = self.get_foot_contact()
@@ -185,7 +194,7 @@ class Go2WalkTask(Go2BaseEnv):
         reward = np.exp(-error_sq / sigma) * is_swing
         return np.asarray(np.sum(reward, axis=1))
 
-    def _reward_foot_drag(self, info: dict) -> np.ndarray:
+    def _reward_foot_drag(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         foot_pos = self.get_foot_pos()
         foot_heights = foot_pos[..., 2]
         foot_contact = self.get_foot_contact()
@@ -195,18 +204,18 @@ class Go2WalkTask(Go2BaseEnv):
         error = np.square(height_error) * is_swing
         return np.asarray(np.sum(error, axis=1))
 
-    def _compute_termination(self) -> np.ndarray:
-        gravity = self._backend.get_sensor_data("upvector")
-        return np.asarray(gravity[:, 2] < 0.5)
-
     def reset(self, env_indices: np.ndarray):
         num_reset = len(env_indices)
         qpos = np.tile(self._init_qpos, (num_reset, 1))
         qvel = np.tile(self._init_qvel, (num_reset, 1))
 
+        # Domain Randomization
+        dxy = np.random.uniform(-0.5, 0.5, (num_reset, 2))
+        qpos[:, 0:2] += dxy
         yaw = np.random.uniform(-np.pi, np.pi, (num_reset,))
         quat_yaw = np_yaw_to_quat(yaw)
-        qpos[:, 3:7] = np_quat_mul(quat_yaw, qpos[:, 3:7])
+        qpos[:, 3:7] = np_quat_mul(qpos[:, 3:7], quat_yaw)
+        qvel[:, 0:6] = np.random.uniform(-0.5, 0.5, (num_reset, 6))
 
         self._backend.set_state(env_indices, qpos, qvel)
 
@@ -217,11 +226,15 @@ class Go2WalkTask(Go2BaseEnv):
         )
 
         info = {
-            "commands": np.zeros((self._num_envs, 3), dtype=np.float32),
-            "current_actions": np.zeros((self._num_envs, self._num_action), dtype=np.float32),
+            "commands": commands,
+            "current_actions": np.zeros((num_reset, self._num_action), dtype=get_global_dtype()),
+            "last_actions": np.zeros((num_reset, self._num_action), dtype=get_global_dtype()),
         }
-        info["commands"][env_indices] = commands
 
-        obs = self._compute_obs(info)
-        obs_subset = {k: v[env_indices] for k, v in obs.items()}
-        return obs_subset, obs_subset, {k: v[env_indices] for k, v in info.items()}
+        linvel = self.get_local_linvel()[env_indices]
+        gyro = self.get_gyro()[env_indices]
+        gravity = self._backend.get_sensor_data("upvector")[env_indices]
+        dof_pos = self.get_dof_pos()[env_indices]
+        dof_vel = self.get_dof_vel()[env_indices]
+        obs = self._compute_obs(info, linvel, gyro, gravity, dof_pos, dof_vel)
+        return obs, obs, info
