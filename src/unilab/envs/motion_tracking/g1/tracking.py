@@ -123,7 +123,7 @@ class VelocityRandomization:
 class G1MotionTrackingCfg(G1BaseCfg):
     """Configuration for G1 motion tracking environment."""
 
-    model_file: str = str(epath.Path(__file__).parent.parent / "xml" / "scene_flat.xml")
+    model_file: str = str(epath.Path(__file__).parent / "xml" / "scene_flat.xml")
     motion_file: str = "temp/g1_LAFAN1/gangnam_style.npz"  # Path to NPZ motion file (required)
     anchor_body_name: str = "torso_link"
     body_names: tuple[str, ...] = (
