@@ -8,7 +8,6 @@ from typing import Literal
 import gymnasium as gym
 import mujoco
 import numpy as np
-from etils import epath
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
@@ -18,31 +17,15 @@ from unilab.base.np_env import NpEnvState
 from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
 from unilab.envs.locomotion.obs_config import ObsConfig
 from unilab.utils.math_utils import (
-    np_matrix_from_quat as matrix_from_quat,
-)
-from unilab.utils.math_utils import (
-    np_quat_apply as quat_apply,
-)
-from unilab.utils.math_utils import (
-    np_quat_error_magnitude as quat_error_magnitude,
-)
-from unilab.utils.math_utils import (
-    np_quat_from_euler_xyz as quat_from_euler_xyz,
-)
-from unilab.utils.math_utils import (
-    np_quat_inv as quat_inv,
-)
-from unilab.utils.math_utils import (
-    np_quat_mul as quat_mul,
-)
-from unilab.utils.math_utils import (
-    np_sample_uniform as sample_uniform,
-)
-from unilab.utils.math_utils import (
-    np_subtract_frame_transforms as subtract_frame_transforms,
-)
-from unilab.utils.math_utils import (
-    np_yaw_quat as yaw_quat,
+    np_matrix_from_quat,
+    np_quat_apply,
+    np_quat_error_magnitude,
+    np_quat_from_euler_xyz,
+    np_quat_inv,
+    np_quat_mul,
+    np_sample_uniform,
+    np_subtract_frame_transforms,
+    np_yaw_quat,
 )
 
 from .motion_loader import MotionLoader, MotionSampler
@@ -363,14 +346,16 @@ class G1MotionTrackingEnv(G1BaseEnv):
         delta_pos_w[:, 2] = anchor_pos_w[:, 2]
 
         # Compute yaw-only rotation difference
-        quat_diff = quat_mul(robot_anchor_quat_w, quat_inv(anchor_quat_w))
-        delta_ori_w = yaw_quat(quat_diff)
+        quat_diff = np_quat_mul(robot_anchor_quat_w, np_quat_inv(anchor_quat_w))
+        delta_ori_w = np_yaw_quat(quat_diff)
 
         # Transform motion body states to robot-relative coordinates
         for i in range(len(self._cfg.body_names)):
-            self.body_quat_relative_w[:, i] = quat_mul(delta_ori_w, motion_data.body_quat_w[:, i])
+            self.body_quat_relative_w[:, i] = np_quat_mul(
+                delta_ori_w, motion_data.body_quat_w[:, i]
+            )
             rel_pos = motion_data.body_pos_w[:, i] - anchor_pos_w
-            self.body_pos_relative_w[:, i] = delta_pos_w + quat_apply(delta_ori_w, rel_pos)
+            self.body_pos_relative_w[:, i] = delta_pos_w + np_quat_apply(delta_ori_w, rel_pos)
 
     def _compute_terminations(
         self,
@@ -394,8 +379,8 @@ class G1MotionTrackingEnv(G1BaseEnv):
             np.array([[0, 0, -1]], dtype=get_global_dtype()),
             (anchor_quat_w.shape[0], 3),
         ).copy()
-        motion_gravity_b = quat_apply(quat_inv(anchor_quat_w), gravity_vec)
-        robot_gravity_b = quat_apply(quat_inv(robot_anchor_quat_w), gravity_vec)
+        motion_gravity_b = np_quat_apply(np_quat_inv(anchor_quat_w), gravity_vec)
+        robot_gravity_b = np_quat_apply(np_quat_inv(robot_anchor_quat_w), gravity_vec)
         gravity_error = np.abs(motion_gravity_b[:, 2] - robot_gravity_b[:, 2])
         terminated |= gravity_error > self._cfg.anchor_ori_threshold
 
@@ -435,15 +420,15 @@ class G1MotionTrackingEnv(G1BaseEnv):
         robot_anchor_quat_w = robot_body_quat_w[:, self.anchor_body_idx]
 
         # Motion anchor position in robot frame
-        motion_anchor_pos_b, _ = subtract_frame_transforms(
+        motion_anchor_pos_b, _ = np_subtract_frame_transforms(
             robot_anchor_pos_w, robot_anchor_quat_w, anchor_pos_w, anchor_quat_w
         )
 
         # Motion anchor orientation in robot frame (as rotation matrix first 2 columns)
-        _, motion_anchor_ori_rel = subtract_frame_transforms(
+        _, motion_anchor_ori_rel = np_subtract_frame_transforms(
             robot_anchor_pos_w, robot_anchor_quat_w, anchor_pos_w, anchor_quat_w
         )
-        motion_anchor_ori_mat = matrix_from_quat(motion_anchor_ori_rel)
+        motion_anchor_ori_mat = np_matrix_from_quat(motion_anchor_ori_rel)
         motion_anchor_ori_b = motion_anchor_ori_mat[:, :, :2].reshape(batch_size, 6)
 
         # Joint positions and velocities
@@ -474,14 +459,14 @@ class G1MotionTrackingEnv(G1BaseEnv):
             (batch_size, len(self._cfg.body_names), 6), dtype=get_global_dtype()
         )
         for i in range(len(self._cfg.body_names)):
-            pos_b, ori_b = subtract_frame_transforms(
+            pos_b, ori_b = np_subtract_frame_transforms(
                 robot_anchor_pos_w,
                 robot_anchor_quat_w,
                 robot_body_pos_w[:, i],
                 robot_body_quat_w[:, i],
             )
             robot_body_pos_b[:, i] = pos_b
-            ori_mat = matrix_from_quat(ori_b)
+            ori_mat = np_matrix_from_quat(ori_b)
             robot_body_ori_b[:, i] = ori_mat[:, :, :2].reshape(batch_size, 6)
 
         # Critic observations (privileged)
@@ -550,7 +535,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
         robot_body_quat_w = info["robot_body_quat_w"]
         anchor_quat_w = motion_data.body_quat_w[:, self.anchor_body_idx]
         robot_anchor_quat_w = robot_body_quat_w[:, self.anchor_body_idx]
-        error = quat_error_magnitude(anchor_quat_w, robot_anchor_quat_w) ** 2
+        error = np_quat_error_magnitude(anchor_quat_w, robot_anchor_quat_w) ** 2
         return np.exp(-error / self._cfg.reward_config.std_root_ori**2)
 
     def _reward_motion_body_pos(self, info: dict) -> np.ndarray:
@@ -560,7 +545,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
 
     def _reward_motion_body_ori(self, info: dict) -> np.ndarray:
         robot_body_quat_w = info["robot_body_quat_w"]
-        error = quat_error_magnitude(self.body_quat_relative_w, robot_body_quat_w) ** 2
+        error = np_quat_error_magnitude(self.body_quat_relative_w, robot_body_quat_w) ** 2
         return np.exp(-error.mean(-1) / self._cfg.reward_config.std_body_ori**2)
 
     def _reward_motion_body_lin_vel(self, info: dict) -> np.ndarray:
@@ -625,8 +610,10 @@ class G1MotionTrackingEnv(G1BaseEnv):
             dtype=dtype,
         )
         root_pos += rand_samples[:, 0:3]
-        ori_delta = quat_from_euler_xyz(rand_samples[:, 3], rand_samples[:, 4], rand_samples[:, 5])
-        root_ori = quat_mul(ori_delta, root_ori)
+        ori_delta = np_quat_from_euler_xyz(
+            rand_samples[:, 3], rand_samples[:, 4], rand_samples[:, 5]
+        )
+        root_ori = np_quat_mul(ori_delta, root_ori)
 
         # Apply velocity randomization
         vel_rand = self._cfg.velocity_randomization
@@ -646,7 +633,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
         root_ang_vel += rand_samples[:, 3:]
 
         # Apply joint position randomization
-        joint_pos += sample_uniform(
+        joint_pos += np_sample_uniform(
             self._cfg.joint_position_range[0],
             self._cfg.joint_position_range[1],
             joint_pos.shape,
