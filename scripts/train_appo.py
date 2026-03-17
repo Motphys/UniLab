@@ -57,7 +57,7 @@ def play_appo(args, rl_cfg):
     print(f"Using device for play: {device}")
 
     env = registry.make(args.task, num_envs=args.play_env_num, sim_backend="mujoco")
-    obs_dim = env.observation_space.shape[0]
+    obs_dim = sum(env.obs_groups_spec.values())
     action_dim = env.action_space.shape[0]
 
     rl_cfg_dict = dict(rl_cfg)
@@ -142,8 +142,10 @@ def play_appo(args, rl_cfg):
     if env.state is None:
         env.init_state()
     env_indices = np.arange(args.play_env_num, dtype=np.int32)
+    from unilab.utils.obs_utils import flatten_obs_dict
+
     _, obs_out, _ = env.reset(env_indices)
-    obs_np = np.asarray(obs_out, dtype=np.float32)
+    obs_np = np.asarray(flatten_obs_dict(obs_out), dtype=np.float32)
 
     state_list = []
     num_steps = 150
@@ -156,11 +158,7 @@ def play_appo(args, rl_cfg):
             actions_torch = actor(td)
             actions_np = actions_torch.cpu().numpy().astype(np.float32)
             state = env.step(actions_np)
-            if hasattr(state, "obs"):
-                next_obs_raw = state.obs
-            else:
-                next_obs_raw = state[0]
-            obs_np = np.asarray(next_obs_raw, dtype=np.float32)
+            obs_np = np.asarray(flatten_obs_dict(state.obs), dtype=np.float32)
             state_list.append(np.asarray(env._backend.get_physics_state(), dtype=np.float32).copy())
 
     print("Rendering frames...")

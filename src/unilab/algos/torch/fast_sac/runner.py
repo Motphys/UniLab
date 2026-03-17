@@ -45,10 +45,9 @@ class FastSACRunner(OffPolicyRunner):
 
         ensure_registries()
         env: Any = registry.make(env_name, num_envs=1, sim_backend=sim_backend)
-        obs_space_shape = env.observation_space.shape
+        obs_dim = sum(env.obs_groups_spec.values())
         act_space_shape = env.action_space.shape
-        assert obs_space_shape is not None and act_space_shape is not None
-        obs_dim = obs_space_shape[0]
+        assert act_space_shape is not None
         action_dim = act_space_shape[0]
         mujoco_model = getattr(env, "_backend", None)
         if mujoco_model is not None:

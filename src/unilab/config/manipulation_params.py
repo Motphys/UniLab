@@ -41,7 +41,7 @@ def ppo_config(env_name: str) -> config_dict.ConfigDict:
         seed=1,
         num_envs=cfg.num_envs,
         runner_class_name="OnPolicyRunner",
-        obs_groups={"default": ["policy"]},
+        obs_groups={"actor": ["actor"], "critic": ["actor"]},
         num_steps_per_env=cfg.num_steps_per_env,
         max_iterations=cfg.max_iterations,
         empirical_normalization=cfg.empirical_normalization,

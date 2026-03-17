@@ -11,6 +11,7 @@ import numpy as np
 import torch
 
 from unilab.utils.algo_utils import build_actor, ensure_registries
+from unilab.utils.obs_utils import flatten_obs_dict
 
 
 def off_policy_collector_fn(
@@ -109,9 +110,8 @@ def _run_collector(
     )
 
     # Build actor (always on CPU for env interaction)
-    assert env.observation_space.shape is not None
+    obs_dim = sum(env.obs_groups_spec.values())
     assert env.action_space.shape is not None
-    obs_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
     actor = build_actor(
         algo_type, obs_dim, action_dim, actor_hidden_dim, use_layer_norm, "cpu", num_envs
@@ -141,7 +141,7 @@ def _run_collector(
     # Initial step to get first observation
     actions_np = np.zeros((num_envs, action_dim), dtype=np.float32)
     state = env.step(actions_np)
-    obs_np = np.asarray(state.obs, dtype=np.float32)
+    obs_np = np.asarray(flatten_obs_dict(state.obs), dtype=np.float32)
     max_episode_steps = getattr(getattr(env, "cfg", None), "max_episode_steps", None)
     if max_episode_steps is not None and int(max_episode_steps) > 0:
         step_offsets = np.random.randint(
@@ -214,7 +214,7 @@ def _run_collector(
             timing_count += 1
 
         # Extract data as numpy
-        next_obs_np = np.asarray(state.obs, dtype=np.float32)
+        next_obs_np = np.asarray(flatten_obs_dict(state.obs), dtype=np.float32)
         rewards_np = np.asarray(state.reward, dtype=np.float32).ravel()
 
         terminated_np = (
@@ -241,7 +241,9 @@ def _run_collector(
             has_final = state.info["_final_observation"]
             has_final_np = np.asarray(has_final, dtype=bool)
             if np.any(has_final_np):
-                final_obs_np = np.asarray(state.info["final_observation"], dtype=np.float32)
+                final_obs_np = np.asarray(
+                    flatten_obs_dict(state.info["final_observation"]), dtype=np.float32
+                )
                 next_obs_np[has_final_np] = final_obs_np[has_final_np]
 
         # Write to replay buffer

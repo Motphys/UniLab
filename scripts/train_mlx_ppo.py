@@ -50,6 +50,7 @@ from unilab.algos.mlx.ppo import MLPActorCritic, PPOConfig, PPOTrainer
 from unilab.base import registry
 from unilab.config import locomotion_params
 from unilab.utils import render_many
+from unilab.utils.obs_utils import flatten_obs_dict
 from unilab.utils.onpolicy_logger import OnPolicyLogger
 
 TASK_STEP_TUNING = {
@@ -165,7 +166,7 @@ def play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root
     play_model_dtype = mx.float32 if use_fp16 else dtype
     play_env_num = args.play_env_num
     env = registry.make(args.task, num_envs=play_env_num, sim_backend=resolved_sim_backend)
-    obs_dim = env.observation_space.shape[0]
+    obs_dim = sum(env.obs_groups_spec.values())
     action_dim = env.action_space.shape[0]
     model = build_model(cfg, obs_dim, action_dim, dtype=play_model_dtype)
 
@@ -202,8 +203,8 @@ def play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root
     if env.state is None:
         env.init_state()
     play_reset_indices = np.arange(env.num_envs, dtype=np.int32)
-    _, obs, _ = env.reset(play_reset_indices)
-    obs = mx.array(obs)
+    _, obs_dict_play, _ = env.reset(play_reset_indices)
+    obs = mx.array(flatten_obs_dict(obs_dict_play))
 
     if resolved_sim_backend == "motrix":
         print("[MLX PPO] Starting interactive visualization (motrix native renderer)...")
@@ -227,7 +228,7 @@ def play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root
                 )
                 env_actions = np.asarray(actions)
                 state = env.step(env_actions)
-                raw_obs = state.obs
+                raw_obs = flatten_obs_dict(state.obs)
                 obs = mx.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0)
 
                 current_time = time.perf_counter()
@@ -259,7 +260,7 @@ def play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root
         actions = actions.astype(dtype) if getattr(actions, "dtype", None) != dtype else actions
         env_actions = np.asarray(actions)
         state = env.step(env_actions)
-        raw_obs = state.obs
+        raw_obs = flatten_obs_dict(state.obs)
         obs = mx.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0)
         state_list.append(_get_physics_state_snapshot(env))
 
@@ -428,10 +429,10 @@ def main() -> None:
     if env.state is None:
         env.init_state()
     reset_indices = np.arange(env.num_envs, dtype=np.int32)
-    _, obs, _ = env.reset(reset_indices)
-    obs = mx.array(obs)
+    _, obs_dict, _ = env.reset(reset_indices)
+    obs = mx.array(flatten_obs_dict(obs_dict))
 
-    obs_dim = env.observation_space.shape[0]
+    obs_dim = sum(env.obs_groups_spec.values())
     action_dim = env.action_space.shape[0]
 
     model = build_model(cfg, obs_dim, action_dim, dtype=model_dtype)
@@ -599,7 +600,7 @@ def main() -> None:
             # Conversion boundary: env output → rollout; sanitize Nan/Inf only here (no forced reset).
             raw_rewards = mx.array(state.reward)
             raw_dones = mx.array(state.done)
-            raw_obs = mx.array(state.obs)
+            raw_obs = mx.array(flatten_obs_dict(state.obs))
             rewards = mx.nan_to_num(raw_rewards, nan=0.0, posinf=0.0, neginf=0.0)
             dones = mx.where(mx.isfinite(raw_dones), raw_dones, mx.ones_like(raw_dones)).astype(
                 dtype

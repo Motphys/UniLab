@@ -29,19 +29,19 @@ def ppo_config(env_name: str) -> config_dict.ConfigDict:
     # elif env_name in ("G1JoystickFlatTerrain", "G1WalkTaskMjSAC"):
     #     cfg.num_envs = 2048
     #     cfg.max_iterations = 220
-    obs_group_set = {"default": ["policy"]}
+    obs_group_set = {"actor": ["actor"], "critic": ["actor"]}
     if env_name == "Go1JoystickFlatTerrain":
         cfg.max_iterations = 151
-        obs_group_set = {"default": ["policy"], "actor": ["actor"]}
+        obs_group_set = {"actor": ["actor"], "critic": ["actor", "privileged"]}
     elif env_name == "G1JoystickFlatTerrain":
-        obs_group_set = {"default": ["policy"], "actor": ["actor"]}
+        obs_group_set = {"actor": ["actor"], "critic": ["actor", "privileged"]}
         cfg.num_envs = 2048
         cfg.max_iterations = 220
     elif env_name == "Go2JoystickFlatTerrain":
-        obs_group_set = {"default": ["policy"], "actor": ["actor"]}
+        obs_group_set = {"actor": ["actor"], "critic": ["actor", "privileged"]}
         pass
     elif env_name == "G1MotionTracking":
-        obs_group_set = {"default": ["policy"], "actor": ["actor"]}
+        obs_group_set = {"actor": ["actor"], "critic": ["actor", "privileged"]}
         cfg.num_envs = 4096
         cfg.max_iterations = 30000
         cfg.save_interval = 500

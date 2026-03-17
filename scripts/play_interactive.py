@@ -48,6 +48,7 @@ ensure_registries()
 
 from unilab.base import registry
 from unilab.config import locomotion_params
+from unilab.utils.obs_utils import flatten_obs_dict
 from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4
 from unilab.utils.run_utils import get_latest_run
 from unilab.utils.torch_utils import to_torch
@@ -73,7 +74,7 @@ class RslRlVecEnvWrapper:
         self.num_envs = env.num_envs
         self.observation_space = env.observation_space
         self.action_space = env.action_space
-        self.num_obs = env.observation_space.shape[0]
+        self.num_obs = sum(env.obs_groups_spec.values())
         self.num_privileged_obs = self.num_obs
         self.num_actions = env.action_space.shape[0]
         self.episode_returns = torch.zeros(self.num_envs, device=device)
@@ -82,12 +83,15 @@ class RslRlVecEnvWrapper:
         self.max_episode_length = int(env.cfg.max_episode_seconds / env.cfg.ctrl_dt)
         self.reset()
 
+    def _obs_to_tensordict(self, obs: dict[str, np.ndarray]) -> TensorDict:
+        flat = to_torch(flatten_obs_dict(obs), self.device)
+        return TensorDict({"policy": flat}, batch_size=self.num_envs, device=self.device)
+
     def step(self, actions):
         actions_np = (
             actions.detach().cpu().numpy() if isinstance(actions, torch.Tensor) else actions
         )
         state = self.env.step(actions_np)
-        obs = to_torch(state.obs, self.device)
         rewards = to_torch(state.reward, self.device)
         dones = to_torch(state.done, self.device).bool()
         self.episode_returns += rewards
@@ -101,25 +105,22 @@ class RslRlVecEnvWrapper:
             self.episode_lengths[done_idx] = 0
         if hasattr(state, "info") and "log" in state.info:
             infos["log"] = state.info["log"]
-        obs_dict = TensorDict({"policy": obs}, batch_size=self.num_envs, device=self.device)
-        return obs_dict, rewards, dones, infos
+        return self._obs_to_tensordict(state.obs), rewards, dones, infos
 
     def reset(self):
         if self.env.state is None:
             self.env.init_state()
         env_indices = np.arange(self.num_envs, dtype=np.int32)
         _, obs_out, _ = self.env.reset(env_indices)
-        obs = to_torch(obs_out, self.device)
         self.episode_returns[:] = 0
         self.episode_lengths[:] = 0
-        return TensorDict({"policy": obs}, batch_size=self.num_envs, device=self.device), {}
+        return self._obs_to_tensordict(obs_out), {}
 
     def get_observations(self):
-        obs = to_torch(self.env.state.obs, self.device)
-        return TensorDict({"policy": obs}, batch_size=self.num_envs, device=self.device)
+        return self._obs_to_tensordict(self.env.state.obs)
 
     def get_privileged_observations(self):
-        return to_torch(self.env.state.obs, self.device)
+        return to_torch(flatten_obs_dict(self.env.state.obs), self.device)
 
 
 # ---------------------------------------------------------------------------

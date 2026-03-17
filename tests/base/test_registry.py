@@ -51,6 +51,10 @@ class _TestEnvA(ABEnv):
         return gym.spaces.Box(low=-1.0, high=1.0, shape=(2,), dtype=np.float32)
 
     @property
+    def obs_groups_spec(self) -> dict[str, int]:
+        return {"actor": 4}
+
+    @property
     def state(self):
         return None
 

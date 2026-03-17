@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-import gymnasium as gym
 import mujoco
 import numpy as np
 from etils import epath
@@ -173,21 +172,17 @@ class G1MotionTrackingEnv(G1BaseEnv):
         self.body_quat_relative_w[:, :, 0] = 1.0  # Initialize to identity quaternion
 
         self._enable_reward_log = True
-        self._init_obs_space()
         self._init_reward_functions()
 
-    def _init_obs_space(self):
-        # Actor observations: motion_anchor_pos_b (3), motion_anchor_ori_b (6),
-        # base_lin_vel (3), base_ang_vel (3), joint_pos (num_joints), joint_vel (num_joints), actions (num_joints)
-        num_actor_obs = 3 + 6 + 3 + 3 + self._num_action * 3
-
-        # Critic observations: actor + body_pos_b (num_bodies * 3) + body_ori_b (num_bodies * 6)
-        num_critic_obs = num_actor_obs + len(self._cfg.body_names) * 9
-
-        self._observation_space = gym.spaces.Box(
-            low=-float("inf"), high=float("inf"), shape=(num_critic_obs,), dtype=float
-        )
-        self.num_actor_obs = num_actor_obs
+    @property
+    def obs_groups_spec(self) -> dict[str, int]:
+        # Actor: motion_anchor_pos_b(3) + motion_anchor_ori_b(6) + linvel(3) + gyro(3)
+        #        + joint_pos(n) + joint_vel(n) + actions(n)
+        n = self._num_action
+        actor_dim = 3 + 6 + 3 + 3 + n * 3
+        # Privileged: body_pos_b(num_bodies*3) + body_ori_b(num_bodies*6)
+        privileged_dim = len(self._cfg.body_names) * 9
+        return {"actor": actor_dim, "privileged": privileged_dim}
 
     def _init_reward_functions(self):
         self._reward_fns = {
@@ -200,10 +195,6 @@ class G1MotionTrackingEnv(G1BaseEnv):
             "action_rate_l2": self._reward_action_rate_l2,
             "joint_limit": self._reward_joint_limit,
         }
-
-    @property
-    def observation_space(self) -> gym.spaces.Box:
-        return self._observation_space  # type: ignore[no-any-return]
 
     def update_state(self, state: NpEnvState) -> NpEnvState:
         # Get current motion data
@@ -329,8 +320,9 @@ class G1MotionTrackingEnv(G1BaseEnv):
         dof_vel: np.ndarray,
         robot_body_pos_w: np.ndarray,
         robot_body_quat_w: np.ndarray,
-    ) -> np.ndarray:
-        """Compute observations (critic observations, actor is subset)."""
+    ) -> dict[str, np.ndarray]:
+        """Compute observations as dict with actor and privileged groups."""
+        num_envs = linvel.shape[0]
         # Get anchor states
         anchor_pos_w = motion_data.body_pos_w[:, self.anchor_body_idx]
         anchor_quat_w = motion_data.body_quat_w[:, self.anchor_body_idx]
@@ -347,7 +339,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
             robot_anchor_pos_w, robot_anchor_quat_w, anchor_pos_w, anchor_quat_w
         )
         motion_anchor_ori_mat = matrix_from_quat(motion_anchor_ori_rel)
-        motion_anchor_ori_b = motion_anchor_ori_mat[:, :, :2].reshape(self._num_envs, 6)
+        motion_anchor_ori_b = motion_anchor_ori_mat[:, :, :2].reshape(num_envs, 6)
 
         # Joint positions and velocities
         joint_pos_rel = dof_pos - self.default_angles
@@ -368,12 +360,12 @@ class G1MotionTrackingEnv(G1BaseEnv):
             dtype=get_global_dtype(),
         )
 
-        # Robot body positions in robot anchor frame
+        # Robot body positions in robot anchor frame (privileged)
         robot_body_pos_b = np.zeros(
-            (self._num_envs, len(self._cfg.body_names), 3), dtype=get_global_dtype()
+            (num_envs, len(self._cfg.body_names), 3), dtype=get_global_dtype()
         )
         robot_body_ori_b = np.zeros(
-            (self._num_envs, len(self._cfg.body_names), 6), dtype=get_global_dtype()
+            (num_envs, len(self._cfg.body_names), 6), dtype=get_global_dtype()
         )
         for i in range(len(self._cfg.body_names)):
             pos_b, ori_b = subtract_frame_transforms(
@@ -384,20 +376,18 @@ class G1MotionTrackingEnv(G1BaseEnv):
             )
             robot_body_pos_b[:, i] = pos_b
             ori_mat = matrix_from_quat(ori_b)
-            robot_body_ori_b[:, i] = ori_mat[:, :, :2].reshape(self._num_envs, 6)
+            robot_body_ori_b[:, i] = ori_mat[:, :, :2].reshape(num_envs, 6)
 
-        # Critic observations (privileged)
-        critic_obs = np.concatenate(
+        privileged_obs = np.concatenate(
             [
-                actor_obs,
-                robot_body_pos_b.reshape(self._num_envs, -1),
-                robot_body_ori_b.reshape(self._num_envs, -1),
+                robot_body_pos_b.reshape(num_envs, -1),
+                robot_body_ori_b.reshape(num_envs, -1),
             ],
             axis=1,
             dtype=get_global_dtype(),
         )
 
-        return critic_obs
+        return {"actor": actor_obs, "privileged": privileged_obs}
 
     def _compute_reward(
         self,
@@ -594,7 +584,4 @@ class G1MotionTrackingEnv(G1BaseEnv):
             info, motion_data, linvel, gyro, dof_pos, dof_vel, robot_body_pos_w, robot_body_quat_w
         )
 
-        # Actor observations are first num_actor_obs elements
-        actor_obs = obs[:, : self.num_actor_obs]
-
-        return actor_obs, obs, info
+        return obs, obs, info
