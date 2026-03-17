@@ -1,7 +1,7 @@
-defaults:
-  - /reward: default
-
 # @package _global_
+defaults:
+  - override /reward: default
+
 training:
   task_name: AllegroInhandRotationSac
 algo:

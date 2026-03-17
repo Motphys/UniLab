@@ -134,6 +134,11 @@ def play_rsl_rl(cfg: DictConfig, device: str):
 
     from unilab.base import registry
 
+    env_cfg_override: dict = {}
+    if hasattr(cfg, "reward") and cfg.reward:
+        reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
+        env_cfg_override["reward_config"] = reward_dict
+
     env = registry.make(
         cfg.training.task_name,
         num_envs=cfg.training.play_env_num,

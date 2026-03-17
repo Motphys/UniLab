@@ -1,7 +1,7 @@
-defaults:
-  - /reward: go1_sac_mujoco
-
 # @package _global_
+defaults:
+  - override /reward: go1_sac_mujoco
+
 training:
   task_name: Go1JoystickFlatTerrain
 algo:

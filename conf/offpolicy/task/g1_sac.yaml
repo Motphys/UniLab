@@ -1,7 +1,7 @@
-defaults:
-  - /reward: g1_sac_mujoco
-
 # @package _global_
+defaults:
+  - override /reward: g1_sac_mujoco
+
 training:
   task_name: G1WalkTaskMjSAC
 algo:
