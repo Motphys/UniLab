@@ -5,7 +5,6 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-import gymnasium as gym
 import numpy as np
 from etils import epath
 
@@ -14,24 +13,7 @@ from unilab.base.backend import create_backend
 from unilab.base.dtype_config import get_global_dtype
 from unilab.base.np_env import NpEnvState
 from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
-from unilab.envs.locomotion.obs_config import ObsConfig
 from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
-
-
-def _g1_obs_config() -> ObsConfig:
-    return ObsConfig(
-        obs_dict={
-            "vel": 3,
-            "gyro": 3,
-            "gravity": 3,
-            "diff": 29,
-            "dof_vel": 29,
-            "action": 29,
-            "cmd": 3,
-            "phase": 2,
-        },
-        actor_obs=["gyro", "gravity", "diff", "dof_vel", "action", "cmd", "phase"],
-    )
 
 
 @dataclass
@@ -113,7 +95,6 @@ class G1JoystickPPOCfg(G1BaseCfg):
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
     reward_config: RewardConfigPPO = field(default_factory=RewardConfigPPO)
-    obs_config: ObsConfig = field(default_factory=_g1_obs_config)
 
 
 @registry.env("G1JoystickFlatTerrain", sim_backend="mujoco")
@@ -135,8 +116,12 @@ class G1JoystickPPO(G1BaseEnv):
         if self._pose_weights.shape[0] != self._num_action:
             raise ValueError("pose_weights length mismatch")
 
-        self._init_obs_space()
         self._init_reward_functions()
+
+    @property
+    def obs_groups_spec(self) -> dict[str, int]:
+        # gyro(3) + gravity(3) + diff(29) + dof_vel(29) + action(29) + cmd(3) + phase(2) = 98
+        return {"actor": 98, "privileged": 3}
 
     def _init_reward_functions(self):
         self._reward_fns = {
@@ -150,17 +135,6 @@ class G1JoystickPPO(G1BaseEnv):
             "base_height": self._reward_base_height,
             "pose": self._reward_pose,
         }
-
-    def _init_obs_space(self):
-        obs_cfg = self._cfg.obs_config
-        self._observation_space = gym.spaces.Box(
-            low=-float("inf"), high=float("inf"), shape=(obs_cfg.total_dim,), dtype=float
-        )
-        self.actor_indices = obs_cfg.actor_indices
-
-    @property
-    def observation_space(self) -> gym.spaces.Box:
-        return self._observation_space  # type: ignore[no-any-return]
 
     def update_state(self, state: NpEnvState) -> NpEnvState:
         linvel = self.get_local_linvel()
@@ -180,16 +154,19 @@ class G1JoystickPPO(G1BaseEnv):
         obs = self._compute_obs(state.info, linvel, gyro, gravity, dof_pos, dof_vel)
         return state.replace(obs=obs, reward=reward, terminated=terminated)
 
-    def _compute_obs(self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel) -> np.ndarray:
+    def _compute_obs(
+        self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel
+    ) -> dict[str, np.ndarray]:
         diff = dof_pos - self.default_angles
         command = info["commands"]
         last_actions = info.get("current_actions", np.zeros_like(diff))
         gait_phase = info.get("gait_phase", np.zeros((self._num_envs, 2), dtype=get_global_dtype()))
-        return np.concatenate(
-            [linvel, gyro, -gravity, diff, dof_vel, last_actions, command, gait_phase],
+        actor = np.concatenate(
+            [gyro, -gravity, diff, dof_vel, last_actions, command, gait_phase],
             axis=1,
             dtype=get_global_dtype(),
         )
+        return {"actor": actor, "privileged": linvel}
 
     def get_obs_structure(self) -> dict:
         """Return observation structure for symmetry augmentation."""

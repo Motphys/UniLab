@@ -13,29 +13,6 @@ from unilab.base.curriculum import EpisodeLengthTracker, PenaltyCurriculum
 from unilab.base.dtype_config import get_global_dtype
 from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
 from unilab.envs.locomotion.g1.joystick import G1JoystickPPO, InitState
-from unilab.envs.locomotion.obs_config import ObsConfig
-
-
-def _g1_sac_obs_config() -> ObsConfig:
-    """ObsConfig for G1 (29 DoF) SAC.
-
-    Must stay consistent with G1JoystickPPO._compute_obs() which outputs:
-        vel(3) + gyro(3) + gravity(3) + diff(29) + dof_vel(29)
-        + action(29) + cmd(3) + phase(2) = 101 total
-    """
-    return ObsConfig(
-        obs_dict={
-            "vel": 3,
-            "gyro": 3,
-            "gravity": 3,
-            "diff": 29,
-            "dof_vel": 29,
-            "action": 29,
-            "cmd": 3,
-            "phase": 2,
-        },
-        actor_obs=["gyro", "gravity", "diff", "dof_vel", "action", "cmd", "phase"],
-    )
 
 
 @dataclass
@@ -128,7 +105,6 @@ class G1JoystickSACCfg(G1BaseCfg):
     commands: Commands = field(default_factory=Commands)
     reward_config: RewardConfigSAC = field(default_factory=RewardConfigSAC)
     control_config: ControlConfigSAC = field(default_factory=ControlConfigSAC)  # type: ignore[assignment]
-    obs_config: ObsConfig = field(default_factory=_g1_sac_obs_config)
 
 
 @registry.env("G1WalkTaskMjSAC", sim_backend="mujoco")
@@ -158,7 +134,6 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
             degree=0.002,  # 调整速度加快
         )
 
-        self._init_obs_space()
         self._init_reward_functions()
 
     def _init_reward_functions(self):

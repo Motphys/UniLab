@@ -71,9 +71,15 @@ tests/
 │   ├── test_shared_obs_stats.py
 │   └── test_async_runner.py
 ├── base/
-│   └── test_registry.py
+│   ├── test_registry.py
+│   └── test_np_env.py             # NpEnvState + NpEnv dict-obs contract
 ├── config/
-│   └── test_locomotion_params.py
+│   ├── test_locomotion_params.py
+│   └── test_manipulation_params.py
+├── envs/
+│   └── test_env_configs.py        # obs_groups_spec dims + env instantiation
+├── utils/
+│   └── test_obs_utils.py          # flatten_obs_dict
 ├── scripts/
 │   └── test_train_scripts.py
 └── algos/
@@ -84,6 +90,15 @@ tests/
 
 Tests marked `@pytest.mark.slow` require a real MuJoCo environment and are excluded from CI
 by default. Run them locally when working on runner/learner code.
+
+## Testing
+
+**New features must ship with tests.** When developing a new feature or refactoring, design and write comprehensive unit tests alongside the feature code — not as an afterthought. Tests should cover:
+
+- Normal behaviour and edge cases
+- Error paths and invalid inputs
+- Contract verification (e.g. interface shapes, types, key presence)
+- Integration with neighbouring modules when relevant (`@pytest.mark.slow` for MuJoCo-dependent tests)
 
 ## Git Commits
 

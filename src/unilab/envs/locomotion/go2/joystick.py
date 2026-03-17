@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-import gymnasium as gym
 import numpy as np
 from etils import epath
 
@@ -10,28 +9,12 @@ from unilab.base import registry
 from unilab.base.backend import create_backend
 from unilab.base.np_env import NpEnvState
 from unilab.envs.locomotion.go2.base import Go2BaseCfg, Go2BaseEnv
-from unilab.envs.locomotion.obs_config import ObsConfig
 from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
 
 
 @dataclass
 class InitState:
     pos = [0.0, 0.0, 0.42]
-
-
-def _go2_obs_config() -> ObsConfig:
-    return ObsConfig(
-        obs_dict={
-            "vel": 3,
-            "gyro": 3,
-            "gravity": 3,
-            "diff": 12,
-            "dof_vel": 12,
-            "action": 12,
-            "cmd": 3,
-        },
-        actor_obs=["gyro", "gravity", "diff", "dof_vel", "action", "cmd"],
-    )
 
 
 @dataclass
@@ -88,7 +71,6 @@ class Go2JoystickCfg(Go2BaseCfg):
     commands: Commands = field(default_factory=Commands)
     reward_config: RewardConfig = field(default_factory=RewardConfig)
     domain_rand: Domain_Rand = field(default_factory=Domain_Rand)
-    obs_config: ObsConfig = field(default_factory=_go2_obs_config)
 
 
 @registry.env("Go2JoystickFlatTerrain", sim_backend="mujoco")
@@ -101,8 +83,12 @@ class Go2WalkTask(Go2BaseEnv):
             backend_type, cfg.model_file, num_envs, cfg.sim_dt, base_name=cfg.asset.base_name
         )
         super().__init__(cfg, backend, num_envs)
-        self._init_obs_space()
         self._init_reward_functions()
+
+    @property
+    def obs_groups_spec(self) -> dict[str, int]:
+        # gyro(3) + gravity(3) + diff(12) + dof_vel(12) + action(12) + cmd(3) = 45
+        return {"actor": 45, "privileged": 3}
 
     def _init_reward_functions(self):
         self._reward_fns = {
@@ -118,24 +104,13 @@ class Go2WalkTask(Go2BaseEnv):
             "foot_drag_penalty": self._reward_foot_drag,
         }
 
-    def _init_obs_space(self):
-        obs_cfg = self._cfg.obs_config
-        self._observation_space = gym.spaces.Box(
-            low=-float("inf"), high=float("inf"), shape=(obs_cfg.total_dim,), dtype=float
-        )
-        self.actor_indices = obs_cfg.actor_indices
-
-    @property
-    def observation_space(self) -> gym.spaces.Box:
-        return self._observation_space  # type: ignore[no-any-return]
-
     def update_state(self, state: NpEnvState) -> NpEnvState:
         terminated = self._compute_termination()
         reward = self._compute_reward(state.info)
         obs = self._compute_obs(state.info)
         return state.replace(obs=obs, reward=reward, terminated=terminated)
 
-    def _compute_obs(self, info: dict) -> np.ndarray:
+    def _compute_obs(self, info: dict) -> dict[str, np.ndarray]:
         linvel = self.get_local_linvel()
         gyro = self.get_gyro()
         gravity = self._backend.get_sensor_data("upvector")
@@ -146,9 +121,8 @@ class Go2WalkTask(Go2BaseEnv):
         command = info["commands"]
         last_actions = info.get("current_actions", np.zeros_like(diff))
 
-        return np.concatenate(
-            [linvel, gyro, -gravity, diff, dof_vel, last_actions, command], axis=1
-        )
+        actor = np.concatenate([gyro, -gravity, diff, dof_vel, last_actions, command], axis=1)
+        return {"actor": actor, "privileged": linvel}
 
     def _compute_reward(self, info: dict) -> np.ndarray:
         reward = np.zeros((self._num_envs,), dtype=np.float32)
@@ -249,4 +223,5 @@ class Go2WalkTask(Go2BaseEnv):
         info["commands"][env_indices] = commands
 
         obs = self._compute_obs(info)
-        return obs[env_indices], obs[env_indices], {k: v[env_indices] for k, v in info.items()}
+        obs_subset = {k: v[env_indices] for k, v in obs.items()}
+        return obs_subset, obs_subset, {k: v[env_indices] for k, v in info.items()}

@@ -16,6 +16,7 @@ import torch
 from rsl_rl.utils import resolve_callable
 
 from unilab.utils.algo_utils import ensure_registries
+from unilab.utils.obs_utils import flatten_obs_dict
 
 
 def appo_collector_fn(
@@ -105,7 +106,7 @@ def appo_collector_fn(
             x = x.cpu().numpy()
         return np.asarray(x, dtype=np.float32)
 
-    obs_np = to_float32_np(obs_out)
+    obs_np = to_float32_np(flatten_obs_dict(obs_out))
 
     # Pre-allocate obs TensorDict once; update in-place each step to avoid
     # repeated TensorDict construction overhead in the hot loop.
@@ -170,15 +171,14 @@ def appo_collector_fn(
                 write_buf["dones"][:, step] = done_raw
                 write_buf["truncated"][:, step] = truncated_raw
 
-                obs_np = to_float32_np(next_obs_raw)
+                obs_np = to_float32_np(flatten_obs_dict(next_obs_raw))
 
                 # Bootstrap from true terminal obs so next rollout starts cleanly
                 if "_final_observation" in state.info:
                     has_final = np.asarray(state.info["_final_observation"], dtype=bool)
                     if np.any(has_final):
-                        obs_np[has_final] = to_float32_np(state.info["final_observation"])[
-                            has_final
-                        ]
+                        final_obs_flat = flatten_obs_dict(state.info["final_observation"])
+                        obs_np[has_final] = to_float32_np(final_obs_flat)[has_final]
 
                 # Episode tracking (vectorized)
                 total_steps += num_envs

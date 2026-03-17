@@ -14,6 +14,8 @@ from tensordict import TensorDict
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
 
+
+from unilab.utils.obs_utils import flatten_obs_dict
 from unilab.utils.torch_utils import to_numpy, to_torch
 
 try:
@@ -54,9 +56,8 @@ class RslRlVecEnvWrapper:
         self.device = device
         self.num_envs = env.num_envs
         self.observation_space = env.observation_space
-        self.obs_dict = self.cfg.obs_config.obs_dict
         self.action_space = env.action_space
-        self.num_obs = env.observation_space.shape[0]
+        self.num_obs = sum(env.obs_groups_spec.values())
         self.num_privileged_obs = self.num_obs
         self.num_actions = env.action_space.shape[0]
 
@@ -68,6 +69,18 @@ class RslRlVecEnvWrapper:
 
         self.reset()
 
+    def _obs_to_tensordict(self, obs: dict[str, np.ndarray]) -> TensorDict:
+        actor = to_torch(obs["actor"], self.device)
+        if "privileged" in obs:
+            policy = to_torch(flatten_obs_dict(obs), self.device)
+        else:
+            policy = actor
+        return TensorDict(
+            {"policy": policy, "actor": actor},
+            batch_size=self.num_envs,
+            device=self.device,
+        )
+
     def step(self, actions):
         if isinstance(actions, torch.Tensor):
             actions_np = actions.detach().cpu().numpy()
@@ -76,7 +89,7 @@ class RslRlVecEnvWrapper:
 
         state = self.env.step(actions_np)
 
-        obs = to_torch(state.obs, self.device)
+        # Convert output to torch tensors on target device
         rewards = to_torch(state.reward, self.device)
         dones = to_torch(state.done, self.device).bool()
 
@@ -94,11 +107,7 @@ class RslRlVecEnvWrapper:
         if hasattr(state, "info") and "log" in state.info:
             infos["log"] = state.info["log"]
 
-        obs_dict = TensorDict(
-            {"policy": obs, "actor": obs[:, self.env.actor_indices]},
-            batch_size=self.num_envs,
-            device=self.device,
-        )
+        obs_dict = self._obs_to_tensordict(state.obs)
         return obs_dict, rewards, dones, infos
 
     def reset(self):
@@ -106,32 +115,23 @@ class RslRlVecEnvWrapper:
             self.env.init_state()
         env_indices = np.arange(self.num_envs, dtype=np.int32)
         _, obs_out, _ = self.env.reset(env_indices)
-        obs = to_torch(obs_out, self.device)
 
         self.episode_returns[:] = 0
         self.episode_lengths[:] = 0
 
-        return TensorDict(
-            {"policy": obs, "actor": obs[:, self.env.actor_indices]},
-            batch_size=self.num_envs,
-            device=self.device,
-        ), {}
+        return self._obs_to_tensordict(obs_out), {}
 
     def get_observations(self):
-        obs = to_torch(self.env.state.obs, self.device)
-        return TensorDict(
-            {"policy": obs, "actor": obs[:, self.env.actor_indices]},
-            batch_size=self.num_envs,
-            device=self.device,
-        )
+        return self._obs_to_tensordict(self.env.state.obs)
 
     def get_privileged_observations(self):
-        obs = to_torch(self.env.state.obs, self.device)
+        obs = to_torch(flatten_obs_dict(self.env.state.obs), self.device)
         return obs
 
 
 def play_rsl_rl(cfg: DictConfig, device: str):
     """Play mode for RSL-RL."""
+
     from unilab.base import registry
 
     env = registry.make(

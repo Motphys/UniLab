@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional, Tuple
 
-import gymnasium as gym
 import numpy as np
 from etils import epath
 
@@ -37,17 +36,6 @@ class RewardConfig:
 
 
 @dataclass
-class obs_cfg:
-    obs_dict = {
-        "dof_pos_norm": 16,
-        "targets": 16,
-        "ball_pos": 3,
-    }  # 'obs_name': dim
-    actor_obs = ["dof_pos_norm", "targets", "ball_pos"]
-    num_lag_steps: int = 3
-
-
-@dataclass
 class DomainRandConfig:
     # Small random perturbation added to each joint at reset (rad).
     joint_noise: float = 0.00
@@ -64,7 +52,6 @@ class AllegroRotationCfg(AllegroBaseCfg):
     max_episode_seconds: float = 20.0  # same as HORA
     reward_config: RewardConfig = field(default_factory=RewardConfig)
     domain_rand: DomainRandConfig = field(default_factory=DomainRandConfig)
-    obs_config: obs_cfg = field(default_factory=obs_cfg)
 
     # World-frame unit vector around which to reward rotation.
     # Default (+z) = counterclockwise when viewed from above.
@@ -103,36 +90,15 @@ class AllegroRotationMj(AllegroBaseMjEnv):
         self._grasp_cache_loaded = False
 
         self._init_reward_functions()
-        self._init_obs_space()
 
     # ── Spaces ──────────────────────────────────────────────────────
 
-    def _init_obs_space(self):
-        obs_cfg = self._cfg.obs_config
-        num_obs_per_step = sum(obs_cfg.obs_dict.values())
-        num_obs = obs_cfg.num_lag_steps * num_obs_per_step
-        self._observation_space = gym.spaces.Box(
-            low=-np.inf, high=np.inf, shape=(num_obs,), dtype=float
-        )
-        self.actor_indices = self._get_actor_indices()
-
-    def _get_actor_indices(self):
-        s = 0
-        indices = []
-        for i in self._cfg.obs_config.actor_obs:
-            s = 0
-            for k, v in self._cfg.obs_config.obs_dict.items():
-                if k == i:
-                    for q in range(s, s + v):
-                        indices.append(q)
-                    s += v
-                    break
-                s += v
-        return indices
+    _NUM_OBS_PER_STEP = 35  # dof_pos_norm(16) + targets(16) + ball_pos(3)
+    _NUM_LAG_STEPS = 3
 
     @property
-    def observation_space(self) -> gym.spaces.Box:
-        return self._observation_space  # type: ignore[no-any-return]
+    def obs_groups_spec(self) -> dict[str, int]:
+        return {"actor": self._NUM_OBS_PER_STEP * self._NUM_LAG_STEPS}
 
     # ── Reward functions ─────────────────────────────────────────────
 
@@ -245,8 +211,8 @@ class AllegroRotationMj(AllegroBaseMjEnv):
             np.zeros(
                 (
                     self._num_envs,
-                    self._cfg.obs_config.num_lag_steps,
-                    sum(self._cfg.obs_config.obs_dict.values()),
+                    self._NUM_LAG_STEPS,
+                    self._NUM_OBS_PER_STEP,
                 ),
                 dtype=self._np_dtype,
             ),
@@ -284,16 +250,16 @@ class AllegroRotationMj(AllegroBaseMjEnv):
 
         return total * self._cfg.ctrl_dt, log
 
-    def _get_obs(self, info: dict) -> np.ndarray:
+    def _get_obs(self, info: dict) -> dict[str, np.ndarray]:
         """Extract observation from info. Pure function - does not modify state."""
-        num_obs_per_step = sum(self._cfg.obs_config.obs_dict.values())
-        num_lag_steps = self._cfg.obs_config.num_lag_steps
         obs_lag_history = info.get(
             "obs_lag_history",
-            np.zeros((self._num_envs, num_lag_steps, num_obs_per_step), dtype=self._np_dtype),
+            np.zeros(
+                (self._num_envs, self._NUM_LAG_STEPS, self._NUM_OBS_PER_STEP), dtype=self._np_dtype
+            ),
         )
         num_envs = obs_lag_history.shape[0]
-        return np.asarray(obs_lag_history.reshape(num_envs, -1))
+        return {"actor": np.asarray(obs_lag_history.reshape(num_envs, -1))}
 
     # ── Reset ────────────────────────────────────────────────────────
 
@@ -366,8 +332,8 @@ class AllegroRotationMj(AllegroBaseMjEnv):
             init_obs[:, None, :],
             (
                 num_reset,
-                self._cfg.obs_config.num_lag_steps,
-                sum(self._cfg.obs_config.obs_dict.values()),
+                self._NUM_LAG_STEPS,
+                self._NUM_OBS_PER_STEP,
             ),
         ).copy()  # (num_reset, num_lag_steps, num_obs_per_step)
 
