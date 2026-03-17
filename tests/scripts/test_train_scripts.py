@@ -1,7 +1,7 @@
-"""Tests for script entry-point utilities (pure functions and argument parsing).
+"""Tests for script entry-point utilities (pure functions and Hydra config defaults).
 
 Coverage targets:
-  - train_offpolicy.py: build_parser(), default_device(), resolve_checkpoint_path()
+  - train_offpolicy.py: Hydra defaults, default_device(), resolve_checkpoint_path()
   - train_mlx_ppo.py:   get_latest_run(), get_latest_checkpoint()  (skipped if mlx absent)
   - play_interactive.py: resolve_checkpoint()                       (skipped if mujoco absent)
 """
@@ -14,8 +14,11 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+from hydra import compose, initialize_config_dir
+from hydra.core.global_hydra import GlobalHydra
 
 _SCRIPTS_DIR = Path(__file__).parent.parent.parent / "scripts"
+_CONF_DIR = Path(__file__).parent.parent.parent / "conf"
 
 
 def _load_script(name: str):
@@ -49,60 +52,55 @@ except ImportError:
 
 
 # ---------------------------------------------------------------------------
-# train_offpolicy.py — build_parser()
+# train_offpolicy.py — Hydra config defaults
 # ---------------------------------------------------------------------------
 
 
-def _offpolicy():
-    return _load_script("train_offpolicy")
+def _offpolicy_cfg(overrides=None):
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(_CONF_DIR / "offpolicy"), version_base="1.3"):
+        return compose("config", overrides=overrides or [])
 
 
-def test_offpolicy_parser_default_algo():
-    args = _offpolicy().build_parser().parse_args([])
-    assert args.algo == "sac"
+def test_offpolicy_hydra_default_algo():
+    cfg = _offpolicy_cfg()
+    assert cfg.algo.algo == "sac"
 
 
-def test_offpolicy_parser_default_task():
-    args = _offpolicy().build_parser().parse_args([])
-    assert args.task == "Go1JoystickFlatTerrain"
+def test_offpolicy_hydra_default_task():
+    cfg = _offpolicy_cfg()
+    assert cfg.training.task_name == "Go1JoystickFlatTerrain"
 
 
-def test_offpolicy_parser_default_logger():
-    args = _offpolicy().build_parser().parse_args([])
-    assert args.logger == "tensorboard"
+def test_offpolicy_hydra_default_logger():
+    cfg = _offpolicy_cfg()
+    assert cfg.training.logger == "tensorboard"
 
 
-def test_offpolicy_parser_default_sim_backend():
-    args = _offpolicy().build_parser().parse_args([])
-    assert args.sim_backend == "mujoco"
+def test_offpolicy_hydra_default_sim_backend():
+    cfg = _offpolicy_cfg()
+    assert cfg.training.sim_backend == "mujoco"
 
 
-def test_offpolicy_parser_default_play_flags():
-    args = _offpolicy().build_parser().parse_args([])
-    assert args.play_only is False
-    assert args.no_play is False
-    assert args.load_run == "-1"
+def test_offpolicy_hydra_default_play_flags():
+    cfg = _offpolicy_cfg()
+    assert cfg.training.play_only is False
+    assert cfg.training.no_play is False
+    assert cfg.training.load_run == "-1"
 
 
-def test_offpolicy_parser_invalid_algo_exits():
-    """Unknown algo must cause argparse to exit."""
-    with pytest.raises(SystemExit):
-        _offpolicy().build_parser().parse_args(["--algo", "dqn"])
-
-
-def test_offpolicy_parser_invalid_logger_exits():
-    with pytest.raises(SystemExit):
-        _offpolicy().build_parser().parse_args(["--logger", "mlflow"])
-
-
-def test_offpolicy_parser_algo_td3():
-    args = _offpolicy().build_parser().parse_args(["--algo", "td3"])
-    assert args.algo == "td3"
+def test_offpolicy_hydra_algo_td3():
+    cfg = _offpolicy_cfg(["algo=td3"])
+    assert cfg.algo.algo == "td3"
 
 
 # ---------------------------------------------------------------------------
 # train_offpolicy.py — default_device()
 # ---------------------------------------------------------------------------
+
+
+def _offpolicy():
+    return _load_script("train_offpolicy")
 
 
 def test_offpolicy_default_device_preferred_cpu():

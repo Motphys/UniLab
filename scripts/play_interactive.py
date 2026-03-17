@@ -47,7 +47,7 @@ def ensure_registries():
 ensure_registries()
 
 from unilab.base import registry
-from unilab.config import locomotion_params
+from unilab.config.structured_configs import PPOConfig
 from unilab.utils.obs_utils import flatten_obs_dict
 from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4
 from unilab.utils.run_utils import get_latest_run
@@ -173,7 +173,7 @@ def play_interactive(args):
     env = registry.make(args.task, num_envs=1, sim_backend="mujoco")
     wrapped_env = RslRlVecEnvWrapper(env, device=device)
 
-    cfg = locomotion_params.ppo_config(args.task)
+    cfg = PPOConfig()
     train_cfg = cfg.to_dict()
     if is_rsl_rl_v4():
         train_cfg = convert_config_v3_to_v4(train_cfg)

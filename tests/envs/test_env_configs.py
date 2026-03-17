@@ -5,11 +5,12 @@ attribute accessed by their paired env class, WITHOUT running a simulation.
 They still require MuJoCo to be importable because the config and env classes
 live in the same module file.
 
-Slow tests actually call registry.make() and run a simulation step.
+Slow tests actually call registry.make() and run reset + step.
 """
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 # The G1 env modules import create_backend → mujoco.batch_forward at the top
@@ -35,12 +36,9 @@ from unilab.utils.algo_utils import ensure_registries  # noqa: E402
 
 def test_g1_joystick_ppo_cfg_obs_groups_spec():
     """G1JoystickPPO must declare obs_groups_spec with actor and privileged groups."""
-    from unilab.envs.locomotion.g1.joystick import G1JoystickPPO, G1JoystickPPOCfg
+    from unilab.envs.locomotion.g1.joystick import G1JoystickPPOCfg
 
     cfg = G1JoystickPPOCfg()
-    # Access obs_groups_spec from the class (it's a class-level property)
-    # We need an instance to check, but can't instantiate without MuJoCo sim,
-    # so just verify the cfg no longer has obs_config (removed in dict obs refactor).
     assert not hasattr(cfg, "obs_config"), "obs_config should have been removed"
 
 
@@ -72,35 +70,115 @@ def test_g1_joystick_ppo_obs_groups_spec_dims():
 
 
 # ---------------------------------------------------------------------------
-# Slow: actual env instantiation (runs MuJoCo physics)
+# Slow: env instantiation + reset + step (runs MuJoCo physics)
 # ---------------------------------------------------------------------------
+
+# Environments that don't need special config overrides
+_STANDARD_ENVS = [
+    "Go1JoystickFlatTerrain",
+    "Go2JoystickFlatTerrain",
+    "G1JoystickFlatTerrain",
+    "G1WalkTaskMjSAC",
+    "AllegroInhandRotation",
+    "AllegroInhandRotationSac",
+]
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize(
-    "env_name",
-    [
-        "Go1JoystickFlatTerrain",
-        "Go2JoystickFlatTerrain",
-        "G1JoystickFlatTerrain",
-        "G1WalkTaskMjSAC",
-    ],
-)
-def test_locomotion_env_instantiates(env_name: str):
-    """Every registered locomotion env must be constructible with num_envs=1
-    and expose valid observation/action spaces."""
+@pytest.mark.parametrize("env_name", _STANDARD_ENVS)
+def test_env_reset_and_step(env_name: str):
+    """Every registered env must be constructible, resetable, and steppable.
+
+    Verifies:
+    - observation/action spaces are valid
+    - init_state + reset produces dict obs with correct keys and shapes
+    - step with zero actions produces dict obs, scalar reward, bool done
+    """
     ensure_registries()
     from unilab.base import registry
 
-    env = registry.make(env_name, num_envs=1, sim_backend="mujoco")
+    env = registry.make(env_name, num_envs=2, sim_backend="mujoco")
     try:
+        # 1. Spaces
         obs_space = env.observation_space
         act_space = env.action_space
-        assert obs_space is not None
-        assert act_space is not None
-        assert obs_space.shape is not None and len(obs_space.shape) == 1
-        assert act_space.shape is not None and len(act_space.shape) == 1
-        assert obs_space.shape[0] > 0
-        assert act_space.shape[0] > 0
+        assert obs_space.shape is not None and obs_space.shape[0] > 0
+        assert act_space.shape is not None and act_space.shape[0] > 0
+
+        # obs_groups_spec must sum to observation_space total dim
+        spec = env.obs_groups_spec
+        assert isinstance(spec, dict)
+        assert sum(spec.values()) == obs_space.shape[0]
+
+        # 2. Reset
+        state = env.init_state()
+        assert isinstance(state.obs, dict)
+        for key, dim in spec.items():
+            assert key in state.obs, f"obs missing group '{key}'"
+            assert state.obs[key].shape == (2, dim), (
+                f"obs['{key}'] shape mismatch: {state.obs[key].shape} != (2, {dim})"
+            )
+
+        # 3. Step with zero actions
+        actions = np.zeros((2, act_space.shape[0]))
+        state = env.step(actions)
+        assert isinstance(state.obs, dict)
+        for key, dim in spec.items():
+            assert state.obs[key].shape == (2, dim)
+        assert state.reward.shape == (2,)
+        assert state.done.shape == (2,)
+    finally:
+        env.close()
+
+
+@pytest.mark.slow
+def test_g1_motion_tracking_reset_and_step():
+    """G1MotionTracking needs a motion_file — skip if not available."""
+    ensure_registries()
+    from pathlib import Path
+
+    from unilab.base import registry
+
+    # Look for any motion file in the expected location
+    motion_dir = (
+        Path(__file__).parents[2]
+        / "src"
+        / "unilab"
+        / "envs"
+        / "locomotion"
+        / "g1"
+        / "motion_tracking"
+        / "motions"
+    )
+    if not motion_dir.exists():
+        pytest.skip(f"Motion data directory not found: {motion_dir}")
+
+    npz_files = list(motion_dir.glob("*.npz"))
+    if not npz_files:
+        pytest.skip(f"No .npz motion files in {motion_dir}")
+
+    motion_file = str(npz_files[0])
+    env = registry.make(
+        "G1MotionTracking",
+        num_envs=2,
+        sim_backend="mujoco",
+        env_cfg_override={"motion_file": motion_file},
+    )
+    try:
+        spec = env.obs_groups_spec
+        assert isinstance(spec, dict)
+        assert "actor" in spec
+        assert sum(spec.values()) == env.observation_space.shape[0]
+
+        state = env.init_state()
+        assert isinstance(state.obs, dict)
+        for key, dim in spec.items():
+            assert state.obs[key].shape == (2, dim)
+
+        actions = np.zeros((2, env.action_space.shape[0]))
+        state = env.step(actions)
+        assert isinstance(state.obs, dict)
+        assert state.reward.shape == (2,)
+        assert state.done.shape == (2,)
     finally:
         env.close()

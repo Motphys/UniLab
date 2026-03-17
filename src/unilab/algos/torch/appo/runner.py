@@ -47,11 +47,6 @@ class APPORunner(AsyncRunner):
             num_envs=num_envs,
         )
 
-        # Normalize rl_cfg to a plain dict so isinstance(x, dict) checks work
-        # uniformly regardless of whether a ml_collections ConfigDict was passed.
-        if hasattr(self.rl_cfg, "to_dict"):
-            self.rl_cfg = self.rl_cfg.to_dict()
-
         self.steps_per_env = steps_per_env
         self.replay_queue_size = replay_queue_size
 
@@ -240,6 +235,16 @@ class APPORunner(AsyncRunner):
 
             data_ready = shared_storage.wait_for_data(timeout=60.0)
             if not data_ready:
+                # Check if the collector subprocess died — fail fast instead of
+                # burning through remaining iterations with 60s timeouts each.
+                if not self._check_collector_alive():
+                    self._drain_metrics(
+                        metrics_queue, reward_history, latest_reward_components, logger
+                    )
+                    raise RuntimeError(
+                        "APPO collector process died before producing data. "
+                        "Check stderr for [APPO WORKER CRASH] messages."
+                    )
                 logger.log_status(
                     f"[yellow]Warning: Timeout waiting for data at iteration {iteration}[/]"
                 )

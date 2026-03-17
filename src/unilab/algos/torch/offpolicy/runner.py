@@ -36,6 +36,7 @@ class OffPolicyRunner(AsyncRunner):
         use_layer_norm: bool = True,
         obs_normalization: bool = False,
         sim_backend: str = "mujoco",
+        env_cfg_override: dict | None = None,
     ):
         super().__init__(
             env_name=env_name,
@@ -48,6 +49,7 @@ class OffPolicyRunner(AsyncRunner):
         )
 
         self.learner = learner
+        self.env_cfg_override = env_cfg_override
         self.algo_type = algo_type
         self.replay_buffer_n = replay_buffer_n
         self.batch_size = batch_size
@@ -131,6 +133,7 @@ class OffPolicyRunner(AsyncRunner):
             "env_steps_per_sync": self.env_steps_per_sync,
             "obs_normalization": self.obs_normalization,
             "shared_obs_normalizer_stats": shared_obs_normalizer_stats,
+            "env_cfg_override": self.env_cfg_override,
         }
         self._start_collector(
             target_fn=off_policy_collector_fn,

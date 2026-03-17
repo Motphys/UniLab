@@ -34,6 +34,7 @@ def off_policy_collector_fn(
     obs_normalization: bool = False,
     shared_obs_normalizer_stats=None,
     sim_backend: str = "mujoco",
+    env_cfg_override: dict | None = None,
     **kwargs,
 ):
     """Entry point for the off-policy collector subprocess."""
@@ -62,6 +63,7 @@ def off_policy_collector_fn(
             obs_normalization=obs_normalization,
             shared_obs_normalizer_stats=shared_obs_normalizer_stats,
             sim_backend=sim_backend,
+            env_cfg_override=env_cfg_override,
         )
     except Exception as e:
         print(f"[Collector] Exception: {e}", file=sys.stderr, flush=True)
@@ -93,6 +95,7 @@ def _run_collector(
     obs_normalization,
     shared_obs_normalizer_stats,
     sim_backend,
+    env_cfg_override,
 ):
     from unilab.base import registry
     from unilab.ipc import SharedWeightSync
@@ -100,7 +103,9 @@ def _run_collector(
     ensure_registries()
 
     # Initialize environment
-    env = registry.make(env_name, num_envs=num_envs, sim_backend=sim_backend)
+    env = registry.make(
+        env_name, num_envs=num_envs, sim_backend=sim_backend, env_cfg_override=env_cfg_override
+    )
     if env.state is None:
         env.init_state()
 

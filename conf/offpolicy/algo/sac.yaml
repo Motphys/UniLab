@@ -1,0 +1,28 @@
+# @package algo
+algo: sac
+algo_log_name: fast_sac
+seed: 1
+num_envs: 4096
+batch_size: 8192
+replay_buffer_n: 512
+updates_per_step: 4
+warmup_steps: 1000
+policy_frequency: 4
+env_steps_per_sync: 1
+max_iterations: 500
+save_interval: 500
+gamma: 0.97
+tau: 0.125
+actor_lr: 3.0e-4
+critic_lr: 3.0e-4
+actor_hidden_dim: 512
+critic_hidden_dim: 768
+num_atoms: 101
+obs_normalization: true
+use_layer_norm: true
+use_symmetry: false
+algo_params:
+  alpha_lr: 3.0e-4
+  alpha_init: 0.01
+  target_entropy_ratio: 0.0
+  max_grad_norm: 0.0

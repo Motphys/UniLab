@@ -133,10 +133,10 @@ UniLab 支持两种仿真后端：
 
 ```bash
 # 训练
-uv run python scripts/train_rsl_rl.py --task Go1JoystickFlatTerrain --sim_backend motrix
+uv run python scripts/train_rsl_rl.py task=go1_joystick training.sim_backend=motrix
 
 # 回放（交互式可视化）
-uv run python scripts/train_rsl_rl.py --task Go1JoystickFlatTerrain --sim_backend motrix --play_only
+uv run python scripts/train_rsl_rl.py task=go1_joystick training.sim_backend=motrix training.play_only=true
 ```
 
 ## 训练与回放指南
@@ -144,56 +144,73 @@ uv run python scripts/train_rsl_rl.py --task Go1JoystickFlatTerrain --sim_backen
 ### 1. 开始训练 (Training)
 
 ```bash
-# PPO (RSL-RL)
-uv run python scripts/train_rsl_rl.py --task Go2JoystickFlatTerrain
+# PPO (RSL-RL) - 使用 Hydra 配置
+uv run python scripts/train_rsl_rl.py task=go2_joystick
 
 # PPO (MLX - Apple Silicon)
-uv run python scripts/train_mlx_ppo.py --task Go2JoystickFlatTerrain
+uv run python scripts/train_mlx_ppo.py task=go2_joystick
 
 # APPO（异步 PPO，CPU/GPU 并行）
-uv run python scripts/train_appo.py --task Go1JoystickFlatTerrain
+uv run python scripts/train_appo.py task=go1_joystick
 
-# Unified OffPolicy entry (recommended)
-uv run python scripts/train_offpolicy.py --algo sac --task Go1JoystickFlatTerrain
-uv run python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain
+# Off-Policy (SAC/TD3) - 推荐使用统一入口
+uv run python scripts/train_offpolicy.py algo=sac task=go1_joystick
+uv run python scripts/train_offpolicy.py algo=td3 task=go1_joystick
 
+# CLI 覆盖配置参数
+uv run python scripts/train_offpolicy.py algo=sac task=g1_sac algo.num_envs=2048 algo.max_iterations=1000
 ```
 
-**注意**：训练脚本默认在训练完成后会进入回放阶段。`mujoco` 后端会导出 `play_video.mp4`，`motrix` 后端为交互式窗口渲染（不导出视频）。使用 `--no_play` 跳过自动回放。
+**注意**：训练脚本默认在训练完成后会进入回放阶段。`mujoco` 后端会导出 `play_video.mp4`，`motrix` 后端为交互式窗口渲染（不导出视频）。使用 `training.no_play=true` 跳过自动回放。
 
 **日志目录命名**：训练 run 目录统一采用 `YYYY-MM-DD_HH-MM-SS_<sim_backend>`，例如 `2026-03-09_18-30-00_mujoco`。
 
 ### 2. 回放与渲染视频 (Play / Evaluation)
 
-使用 `--play_only` 参数跳过训练，直接回放。脚本会加载最新 checkpoint；`mujoco` 回放生成 `play_video.mp4`，`motrix` 回放打开交互窗口。
+使用 `training.play_only=true` 参数跳过训练，直接回放。脚本会加载最新 checkpoint；`mujoco` 回放生成 `play_video.mp4`，`motrix` 回放打开交互窗口。
 
 ```bash
 # 回放最新训练结果
-uv run python scripts/train_rsl_rl.py --task Go2JoystickFlatTerrain --play_only
-uv run python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain --play_only
+uv run python scripts/train_rsl_rl.py task=go2_joystick training.play_only=true
+uv run python scripts/train_offpolicy.py algo=sac task=go2_joystick training.play_only=true
 
 # 加载特定 checkpoint 回放
-uv run python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain --play_only --load_run "2024-02-04_12-00-00"
+uv run python scripts/train_offpolicy.py algo=td3 task=go1_joystick training.play_only=true training.load_run="2024-02-04_12-00-00"
 ```
 
 ### 3. 加载特定 Run 继续训练
 
 ```bash
 # PPO 继续训练
-uv run python scripts/train_rsl_rl.py --task Go2JoystickFlatTerrain --load_run "2024-02-04_12-00-00"
+uv run python scripts/train_rsl_rl.py task=go2_joystick training.load_run="2024-02-04_12-00-00"
 
 # OffPolicy (SAC) 继续训练
-uv run python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain --load_run "2024-02-04_12-00-00"
+uv run python scripts/train_offpolicy.py algo=sac task=go2_joystick training.load_run="2024-02-04_12-00-00"
 ```
 
 ### 通用参数说明
 
-*   `--task`: 任务名称（如 `Go2JoystickFlatTerrain`、`Go1JoystickFlatTerrain`）
-*   `--play_only`: 仅回放模式，跳过训练
-*   `--no_play`: 训练后跳过自动回放
-*   `--load_run`: 指定加载的运行 ID，默认 `-1`（最新）
-*   `--play_env_num`: 回放时的环境数量（默认 16）
-*   `--logger`: 日志后端（`tensorboard` / `wandb` / `none`）
+所有训练脚本使用 Hydra 配置系统，支持 CLI 覆盖：
+
+```bash
+# 基本格式
+uv run python scripts/train_*.py [config_group=value] [key.subkey=value]
+
+# 示例
+task=go1_joystick                    # 选择任务配置
+algo=sac                             # 选择算法配置（offpolicy）
+training.play_only=true              # 仅回放模式
+training.no_play=true                # 训练后跳过回放
+training.load_run="-1"               # 加载运行 ID（-1=最新）
+training.logger=tensorboard          # 日志后端（tensorboard/wandb/none）
+algo.num_envs=2048                   # 覆盖环境数量
+algo.max_iterations=1000             # 覆盖迭代次数
+```
+
+查看完整配置：
+```bash
+uv run python scripts/train_offpolicy.py --cfg job
+```
 
 ---
 
@@ -215,45 +232,44 @@ uv run python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrai
 
 ```bash
 # 默认参数训练
-uv run python scripts/train_appo.py --task Go1JoystickFlatTerrain
+uv run python scripts/train_appo.py task=go1_joystick
 
 # 指定环境数量和迭代次数
-uv run python scripts/train_appo.py --task Go2JoystickFlatTerrain --total_envs 2048 --max_iterations 300
+uv run python scripts/train_appo.py task=go2_joystick algo.num_envs=2048 algo.max_iterations=300
 
 # 自定义 replay queue 深度（越大 staleness 越高，但 GPU 利用率更稳定）
-uv run python scripts/train_appo.py --task Go1JoystickFlatTerrain --replay_queue_size 2
+uv run python scripts/train_appo.py task=go1_joystick training.replay_queue_size=2
 
 # 跳过训练后的自动 play
-uv run python scripts/train_appo.py --task Go1JoystickFlatTerrain --no_play
+uv run python scripts/train_appo.py task=go1_joystick training.no_play=true
 ```
 
 ### 回放
 
 ```bash
 # 仅回放（加载最新 checkpoint）
-uv run python scripts/train_appo.py --task Go1JoystickFlatTerrain --play_only
+uv run python scripts/train_appo.py task=go1_joystick training.play_only=true
 
 # 加载特定 checkpoint 回放
-uv run python scripts/train_appo.py --task Go1JoystickFlatTerrain --play_only --load_run "2026-03-16_01-35-12_mujoco"
-uv run python scripts/train_appo.py --task Go1JoystickFlatTerrain --play_only --load_run "/abs/path/to/model_150.pt"
+uv run python scripts/train_appo.py task=go1_joystick training.play_only=true training.load_run="2026-03-16_01-35-12_mujoco"
 ```
 
 ### 参数说明
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `--task` | `Go2JoystickFlatTerrain` | 任务名称 |
-| `--max_iterations` | 配置文件值 | 最大训练迭代次数 |
-| `--total_envs` | 配置文件值（2048） | 并行环境数量 |
-| `--steps_per_env` | 配置文件值（24） | 每条 rollout 的步数 |
-| `--replay_queue_size` | 3 | Learner 端 rollout 重放队列深度 |
-| `--device` | 自动检测 | Learner 设备（`cuda` / `mps` / `cpu`） |
-| `--collector_device` | `cpu` | Collector 设备（`cpu` 或 `gpu`） |
-| `--logger` | `tensorboard` | 日志后端（`tensorboard` / `wandb` / `none`） |
-| `--play_only` | False | 仅回放，跳过训练 |
-| `--no_play` | False | 训练后跳过自动回放 |
-| `--load_run` | `-1`（最新） | 指定 run 目录名或 checkpoint 路径 |
-| `--save_interval` | 配置文件值 | 每隔多少次迭代保存一次 checkpoint |
+| `task` | `go2_joystick` | 任务配置名称 |
+| `algo.max_iterations` | 150 | 最大训练迭代次数 |
+| `algo.num_envs` | 2048 | 并行环境数量 |
+| `algo.steps_per_env` | 24 | 每条 rollout 的步数 |
+| `training.replay_queue_size` | 3 | Learner 端 rollout 重放队列深度 |
+| `training.device` | 自动检测 | Learner 设备（`cuda` / `mps` / `cpu`） |
+| `training.collector_device` | `cpu` | Collector 设备 |
+| `training.logger` | `tensorboard` | 日志后端（`tensorboard` / `wandb` / `none`） |
+| `training.play_only` | false | 仅回放，跳过训练 |
+| `training.no_play` | false | 训练后跳过自动回放 |
+| `training.load_run` | `-1` | 指定 run 目录名或 checkpoint 路径 |
+| `algo.save_interval` | 50 | 每隔多少次迭代保存一次 checkpoint |
 
 ### 与 PPO 的对比
 
@@ -282,37 +298,38 @@ uv run python scripts/train_appo.py --task Go1JoystickFlatTerrain --play_only --
 ### 训练
 
 ```bash
-# Unified entry
-uv run python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain
-uv run python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain
+# 基本训练
+uv run python scripts/train_offpolicy.py algo=sac task=go2_joystick
+uv run python scripts/train_offpolicy.py algo=td3 task=go1_joystick
 
 # 异步模式（更高吞吐量）
-uv run python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain --no_sync_collection
+uv run python scripts/train_offpolicy.py algo=sac task=go2_joystick training.no_sync_collection=true
 
 # 跳过训练后的自动 play
-uv run python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain --no_play
+uv run python scripts/train_offpolicy.py algo=td3 task=go1_joystick training.no_play=true
 ```
 
 ### 回放
 
 ```bash
 # 仅回放模式
-uv run python scripts/train_offpolicy.py --algo sac --task Go2JoystickFlatTerrain --play_only
+uv run python scripts/train_offpolicy.py algo=sac task=go2_joystick training.play_only=true
 
 # 加载特定 checkpoint
-uv run python scripts/train_offpolicy.py --algo td3 --task Go1JoystickFlatTerrain --play_only --load_run "2024-02-04_12-00-00"
+uv run python scripts/train_offpolicy.py algo=td3 task=go1_joystick training.play_only=true training.load_run="2024-02-04_12-00-00"
 ```
 
 ### 参数说明
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `--max_iterations` | 1500 (SAC) / 5000 (TD3) | 最大训练迭代次数 |
-| `--num_envs` | 4096 | 并行环境数量 |
-| `--device` | 自动检测 | Learner 设备 (`cuda` / `mps` / `cpu`) |
-| `--collector_device` | `cpu` | Collector 设备（默认 `cpu`，可手动设为 `mps`/`cuda`） |
-| `--sim_backend` | `mujoco` | 仿真后端（`mujoco` / `motrix`） |
-| `--no_sync_collection` | False | 启用异步收集模式 |
-| `--env_steps_per_sync` | 1 | 同步模式下每次收集的步数 |
-| `--play_only` | False | 仅回放，跳过训练 |
-| `--no_play` | False | 训练后跳过自动回放 |
+| `algo` | `sac` | 算法选择（`sac` / `td3`） |
+| `task` | `go1_joystick` | 任务配置名称 |
+| `algo.max_iterations` | 500 (SAC) / 5000 (TD3) | 最大训练迭代次数 |
+| `algo.num_envs` | 4096 | 并行环境数量 |
+| `training.device` | 自动检测 | Learner 设备 (`cuda` / `mps` / `cpu`) |
+| `training.sim_backend` | `mujoco` | 仿真后端（`mujoco` / `motrix`） |
+| `training.no_sync_collection` | false | 启用异步收集模式 |
+| `training.env_steps_per_sync` | 1 | 同步模式下每次收集的步数 |
+| `training.play_only` | false | 仅回放，跳过训练 |
+| `training.no_play` | false | 训练后跳过自动回放 |

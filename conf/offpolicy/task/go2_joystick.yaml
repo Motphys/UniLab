@@ -1,0 +1,8 @@
+# @package _global_
+defaults:
+  - override /reward: default
+
+training:
+  task_name: Go2JoystickFlatTerrain
+algo:
+  num_envs: 1024
