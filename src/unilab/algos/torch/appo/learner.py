@@ -236,6 +236,9 @@ class APPOLearner:
             self.critic.update_normalization(critic_obs_td)
             self.critic.update_normalization(critic_last_obs_td)
 
+        # Cache critic_obs_flat for update()
+        batch_dict["_critic_obs_flat"] = critic_obs_flat
+
         with torch.inference_mode():
             # Compute values with current critic
             values_flat = self.critic(critic_obs_td)  # [T*N, 1]
@@ -307,6 +310,20 @@ class APPOLearner:
                 {"policy": obs_flat}, batch_size=obs_flat.shape[0], device=self.device
             )
 
+        # Critic uses obs+privileged
+        critic_obs_flat = batch_dict.get("_critic_obs_flat")
+        if critic_obs_flat is None:
+            # Fallback if not cached (shouldn't happen)
+            privileged_flat = batch_dict.get("privileged")
+            if privileged_flat is not None:
+                privileged_flat = privileged_flat.flatten(0, 1)
+                critic_obs_flat = torch.cat([obs_flat, privileged_flat], dim=-1)
+            else:
+                critic_obs_flat = obs_flat
+        critic_obs_td = TensorDict(
+            {"policy": critic_obs_flat}, batch_size=critic_obs_flat.shape[0], device=self.device
+        )
+
         # Use target policy mu/sigma cached by process_batch() — no second forward pass.
         with torch.inference_mode():
             old_mu_flat = batch_dict["_old_mu"]
@@ -330,6 +347,7 @@ class APPOLearner:
                 batch_idx = indices[start:end]
 
                 obs_mini_td = obs_td[batch_idx]
+                critic_obs_mini_td = critic_obs_td[batch_idx]
                 actions_mini = actions_flat[batch_idx]
                 target_values_mini = returns_flat[batch_idx]
                 advantages_mini = advantages_flat[batch_idx]
@@ -342,7 +360,7 @@ class APPOLearner:
                 # Forward pass
                 _ = self.actor(obs_mini_td, stochastic_output=True)
                 current_log_prob = self.actor.get_output_log_prob(actions_mini)
-                value = self.critic(obs_mini_td).squeeze(-1)
+                value = self.critic(critic_obs_mini_td).squeeze(-1)
                 entropy = self.actor.output_entropy.mean()
 
                 # Current policy mu/sigma for KL

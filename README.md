@@ -148,10 +148,10 @@ uv run python scripts/train_rsl_rl.py task=go1_joystick training.play_only=true
 
 ```bash
 # PPO (RSL-RL) - 使用 Hydra 配置
-uv run python scripts/train_rsl_rl.py task=go2_joystick
+uv run python scripts/train_rsl_rl.py task=go1_joystick
 
 # PPO (MLX - Apple Silicon)
-uv run python scripts/train_mlx_ppo.py task=go2_joystick
+uv run python scripts/train_mlx_ppo.py task=go1_joystick
 
 # APPO（异步 PPO，CPU/GPU 并行）
 uv run python scripts/train_appo.py task=go1_joystick

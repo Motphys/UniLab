@@ -93,7 +93,7 @@ def test_offpolicy_sac_g1_task_overrides():
     assert cfg.algo.num_envs == 2048
     assert cfg.algo.max_iterations == 5000
     assert cfg.algo.use_symmetry is True
-    assert cfg.algo.algo_params.target_entropy_ratio == pytest.approx(0.2)
+    assert cfg.algo.algo_params.target_entropy_ratio == pytest.approx(0.0)
     assert cfg.training.task_name == "G1WalkTaskMjSAC"
 
 

@@ -16,7 +16,7 @@ import torch
 from rsl_rl.utils import resolve_callable
 
 from unilab.utils.algo_utils import ensure_registries
-from unilab.utils.obs_utils import split_obs_dict
+from unilab.utils.obs_utils import flatten_obs_dict, split_obs_dict
 
 
 def appo_collector_fn(
@@ -191,8 +191,10 @@ def appo_collector_fn(
                 if "_final_observation" in state.info:
                     has_final = np.asarray(state.info["_final_observation"], dtype=bool)
                     if np.any(has_final):
-                        final_obs_flat = flatten_obs_dict(state.info["final_observation"])
-                        obs_np[has_final] = to_float32_np(final_obs_flat)[has_final]
+                        final_obs, final_priv = split_obs_dict(state.info["final_observation"])
+                        obs_np[has_final] = to_float32_np(final_obs)[has_final]
+                        if priv_np is not None and final_priv is not None:
+                            priv_np[has_final] = to_float32_np(final_priv)[has_final]
 
                 # Episode tracking (vectorized)
                 total_steps += num_envs

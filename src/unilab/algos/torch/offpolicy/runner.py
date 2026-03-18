@@ -62,16 +62,9 @@ class OffPolicyRunner(AsyncRunner):
         self.use_layer_norm = use_layer_norm
         self.obs_normalization = obs_normalization
 
-        self.obs_dim, self.action_dim = get_env_dims(self.env_name, sim_backend)
-        # Get privileged_dim
-        from unilab.base import registry
-        from unilab.utils.algo_utils import ensure_registries
-        from unilab.utils.obs_utils import get_obs_dims
-
-        ensure_registries()
-        temp_env = registry.make(self.env_name, num_envs=1, sim_backend=sim_backend)
-        _, self.privileged_dim = get_obs_dims(temp_env.obs_groups_spec)
-        temp_env.close()
+        self.obs_dim, self.action_dim, self.privileged_dim = get_env_dims(
+            self.env_name, sim_backend, env_cfg_override
+        )
 
     def _get_default_device(self) -> str:
         return get_default_device()

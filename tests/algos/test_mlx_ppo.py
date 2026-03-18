@@ -309,12 +309,12 @@ def test_ppo_trainer_update_decreases_loss():
 
 @pytest.mark.slow
 @pytest.mark.veryslow
-def test_mlx_ppo_one_iteration_real_env():
+def test_mlx_ppo_one_iteration_real_env(default_go2_reward_config):
     """Run 1 full MLX PPO iteration (collect rollout + update) on a real env."""
     _mujoco = pytest.importorskip("mujoco")
 
     from unilab.base import registry
-    from unilab.config import locomotion_params
+    from unilab.config.structured_configs import PPOConfig as PPOStructuredConfig
     from unilab.utils.algo_utils import ensure_registries
     from unilab.utils.obs_utils import flatten_obs_dict
 
@@ -324,10 +324,10 @@ def test_mlx_ppo_one_iteration_real_env():
     num_envs = 4
     num_steps = 8
 
-    cfg = locomotion_params.ppo_config(env_name)
+    cfg = PPOStructuredConfig()
     algo_cfg = cfg.algorithm
 
-    env = registry.make(env_name, num_envs=num_envs, sim_backend="mujoco")
+    env = registry.make(env_name, num_envs=num_envs, sim_backend="mujoco", env_cfg_override={"reward_config": default_go2_reward_config})
     obs_dim = sum(env.obs_groups_spec.values())
     action_dim = env.action_space.shape[0]
 
@@ -350,7 +350,7 @@ def test_mlx_ppo_one_iteration_real_env():
     if env.state is None:
         env.init_state()
     reset_indices = np.arange(num_envs, dtype=np.int32)
-    _, obs_dict, _ = env.reset(reset_indices)
+    obs_dict, _ = env.reset(reset_indices)
     obs = mx.array(flatten_obs_dict(obs_dict))
 
     # Collect rollout

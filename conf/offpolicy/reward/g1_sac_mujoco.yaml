@@ -17,3 +17,6 @@ reward:
   gait_frequency: 1.5
   feet_phase_swing_height: 0.09
   feet_phase_tracking_sigma: 0.008
+  close_feet_threshold: 0.15
+  pose_weights: [0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0]
+

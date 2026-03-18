@@ -31,59 +31,15 @@ class Commands:
 
 @dataclass
 class RewardConfigPPO:
-    scales: dict[str, float] = field(
-        default_factory=lambda: {
-            "tracking_lin_vel": 2.0,
-            "tracking_ang_vel": 0.2,
-            "feet_phase": 1.0,
-            "lin_vel_z": -1.0,
-            "ang_vel_xy": -0.25,
-            "base_height": -500.0,
-            "orientation": -5.0,
-            "action_rate": -0.01,
-            "pose": -0.1,
-        }
-    )
-    tracking_sigma: float = 0.25
-    gait_frequency: float = 1.5
-    feet_phase_swing_height: float = 0.09
-    feet_phase_tracking_sigma: float = 0.008
-    base_height_target: float = 0.754
-    min_base_height: float = 0.55
-    max_tilt_deg: float = 25.0
-    pose_weights: list[float] = field(
-        default_factory=lambda: [
-            0.01,
-            1.0,
-            5.0,
-            0.01,
-            5.0,
-            5.0,
-            0.01,
-            1.0,
-            5.0,
-            0.01,
-            5.0,
-            5.0,
-            50.0,
-            50.0,
-            50.0,
-            50.0,
-            50.0,
-            50.0,
-            50.0,
-            50.0,
-            50.0,
-            50.0,
-            50.0,
-            50.0,
-            50.0,
-            50.0,
-            50.0,
-            50.0,
-            50.0,
-        ]
-    )
+    scales: dict[str, float]
+    tracking_sigma: float
+    gait_frequency: float
+    feet_phase_swing_height: float
+    feet_phase_tracking_sigma: float
+    base_height_target: float
+    min_base_height: float
+    max_tilt_deg: float
+    pose_weights: list[float]
 
 
 # PPO Environment
@@ -94,7 +50,7 @@ class G1JoystickPPOCfg(G1BaseCfg):
     max_episode_seconds: float = 20.0
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
-    reward_config: RewardConfigPPO = field(default_factory=RewardConfigPPO)
+    reward_config: RewardConfigPPO | None = None
 
 
 @registry.env("G1JoystickFlatTerrain", sim_backend="mujoco")
@@ -103,16 +59,19 @@ class G1JoystickPPO(G1BaseEnv):
     _cfg: G1JoystickPPOCfg
 
     def __init__(self, cfg: G1JoystickPPOCfg, num_envs=1, backend_type="mujoco"):
+        if cfg.reward_config is None:
+            raise ValueError("reward_config must be provided via Hydra configuration")
         backend = create_backend(
             backend_type, cfg.model_file, num_envs, cfg.sim_dt, base_name=cfg.asset.base_name
         )
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True
+        self._reward_cfg = cfg.reward_config
 
         self._gait_phase_delta = float(
-            2.0 * math.pi * cfg.reward_config.gait_frequency * cfg.ctrl_dt
+            2.0 * math.pi * self._reward_cfg.gait_frequency * cfg.ctrl_dt
         )
-        self._pose_weights = np.array(cfg.reward_config.pose_weights, dtype=get_global_dtype())
+        self._pose_weights = np.array(self._reward_cfg.pose_weights, dtype=get_global_dtype())
         if self._pose_weights.shape[0] != self._num_action:
             raise ValueError("pose_weights length mismatch")
 
@@ -143,11 +102,11 @@ class G1JoystickPPO(G1BaseEnv):
         dof_pos = self.get_dof_pos()
         dof_vel = self.get_dof_vel()
 
-        max_tilt_rad = np.deg2rad(self._cfg.reward_config.max_tilt_deg)
+        max_tilt_rad = np.deg2rad(self._reward_cfg.max_tilt_deg)
         tilt = np.arccos(np.clip(gravity[:, 2], -1, 1))
         terminated = np.logical_or(
             tilt > max_tilt_rad,
-            self._backend.get_base_pos()[:, 2] < self._cfg.reward_config.min_base_height,
+            self._backend.get_base_pos()[:, 2] < self._reward_cfg.min_base_height,
         )
 
         reward = self._compute_reward(state.info, linvel, gyro, gravity, dof_pos, dof_vel)
@@ -184,7 +143,7 @@ class G1JoystickPPO(G1BaseEnv):
     def _compute_reward(self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel) -> np.ndarray:
         dtype = get_global_dtype()
         reward = np.zeros((self._num_envs,), dtype=dtype)
-        cfg = self._cfg.reward_config
+        cfg = self._reward_cfg
 
         step_count = info.get("steps", np.zeros((self._num_envs,), dtype=np.uint32))
         should_log = self._enable_reward_log and (int(step_count[0]) % 4 == 0)
@@ -205,12 +164,12 @@ class G1JoystickPPO(G1BaseEnv):
     def _reward_tracking_lin_vel(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
         commands = info["commands"]
         lin_vel_error = np.sum(np.square(commands[:, :2] - linvel[:, :2]), axis=1)
-        return np.exp(-lin_vel_error / self._cfg.reward_config.tracking_sigma)
+        return np.exp(-lin_vel_error / self._reward_cfg.tracking_sigma)
 
     def _reward_tracking_ang_vel(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
         commands = info["commands"]
         ang_vel_error = np.square(commands[:, 2] - gyro[:, 2])
-        return np.exp(-ang_vel_error / self._cfg.reward_config.tracking_sigma)
+        return np.exp(-ang_vel_error / self._reward_cfg.tracking_sigma)
 
     def _reward_feet_phase(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
         """步态相位奖励：鼓励正确的摆动腿高度"""
@@ -236,14 +195,12 @@ class G1JoystickPPO(G1BaseEnv):
             )
             return np.where(x <= 0.5, stance, swing)
 
-        swing_height = self._cfg.reward_config.feet_phase_swing_height
+        swing_height = self._reward_cfg.feet_phase_swing_height
         left_target = cubic_bezier_height(gait_phase[:, 0], swing_height)
         right_target = cubic_bezier_height(gait_phase[:, 1], swing_height)
         left_error = np.square(left_foot[:, 2] - left_target)
         right_error = np.square(right_foot[:, 2] - right_target)
-        return np.exp(
-            -(left_error + right_error) / self._cfg.reward_config.feet_phase_tracking_sigma
-        )
+        return np.exp(-(left_error + right_error) / self._reward_cfg.feet_phase_tracking_sigma)
 
     def _reward_lin_vel_z(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
         return np.square(linvel[:, 2])
@@ -255,9 +212,7 @@ class G1JoystickPPO(G1BaseEnv):
         return np.square(gravity[:, 0]) + np.square(gravity[:, 1])
 
     def _reward_base_height(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
-        return np.square(
-            self._backend.get_base_pos()[:, 2] - self._cfg.reward_config.base_height_target
-        )
+        return np.square(self._backend.get_base_pos()[:, 2] - self._reward_cfg.base_height_target)
 
     def _reward_action_rate(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
         action_diff = info["current_actions"] - info["last_actions"]

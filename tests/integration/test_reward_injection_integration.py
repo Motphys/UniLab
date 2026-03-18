@@ -82,32 +82,19 @@ def test_reward_override_propagation():
 
 
 def test_backward_compatibility_no_reward_config():
-    """Test env works without reward config override."""
+    """Test env requires reward config - should fail without it."""
     from unilab.base import registry
     from unilab.utils.algo_utils import ensure_registries
 
     ensure_registries()
 
-    # Create env without override
-    env = registry.make(
-        "Go1JoystickFlatTerrain",
-        num_envs=2,
-        sim_backend="mujoco",
-    )
-
-    # Should use default reward config from env
-    assert env._cfg.reward_config is not None
-    assert hasattr(env._cfg.reward_config, "scales")
-
-    # Verify env works normally
-    env.init_state()
-    state = env.reset(np.array([0, 1], dtype=np.int32))[0]
-    actions = np.zeros((2, env.action_space.shape[0]), dtype=np.float32)
-    state = env.step(actions)
-
-    assert state.reward is not None
-
-    env.close()
+    # Should fail without reward_config
+    with pytest.raises(ValueError, match="reward_config must be provided"):
+        env = registry.make(
+            "Go1JoystickFlatTerrain",
+            num_envs=2,
+            sim_backend="mujoco",
+        )
 
 
 def test_zero_scale_skips_computation():
