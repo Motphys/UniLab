@@ -327,7 +327,12 @@ def test_mlx_ppo_one_iteration_real_env(default_go2_reward_config):
     cfg = PPOStructuredConfig()
     algo_cfg = cfg.algorithm
 
-    env = registry.make(env_name, num_envs=num_envs, sim_backend="mujoco", env_cfg_override={"reward_config": default_go2_reward_config})
+    env = registry.make(
+        env_name,
+        num_envs=num_envs,
+        sim_backend="mujoco",
+        env_cfg_override={"reward_config": default_go2_reward_config},
+    )
     obs_dim = sum(env.obs_groups_spec.values())
     action_dim = env.action_space.shape[0]
 

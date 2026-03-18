@@ -16,7 +16,9 @@ def extract_reward_config(cfg: DictConfig) -> dict:
         ValueError: If reward config is missing
     """
     if not hasattr(cfg, "reward") or not cfg.reward:
-        raise ValueError("Missing 'reward' config in Hydra. Reward config must be explicitly provided.")
+        raise ValueError(
+            "Missing 'reward' config in Hydra. Reward config must be explicitly provided."
+        )
 
     reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
     return {"reward_config": reward_dict}

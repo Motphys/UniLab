@@ -100,11 +100,14 @@ def build_runner(algo_name: str, cfg: DictConfig):
             device = cfg.training.device or get_default_device()
             env_cfg_override = extract_reward_config(cfg)
             env = registry.make(
-                cfg.training.task_name, num_envs=1, sim_backend=cfg.training.sim_backend,
-                env_cfg_override=env_cfg_override
+                cfg.training.task_name,
+                num_envs=1,
+                sim_backend=cfg.training.sim_backend,
+                env_cfg_override=env_cfg_override,
             )
             assert env.action_space.shape
             from unilab.utils.obs_utils import get_obs_dims
+
             obs_dim, privileged_dim = get_obs_dims(env.obs_groups_spec)
             action_dim = env.action_space.shape[0]
             env.close()
@@ -230,7 +233,6 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> None:
     from unilab.base import registry
     from unilab.utils import render_many
     from unilab.utils.algo_utils import build_actor
-
     from unilab.utils.reward_utils import extract_reward_config
 
     env_cfg_override = extract_reward_config(cfg)

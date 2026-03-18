@@ -317,18 +317,18 @@ def main():
     # Convert time range to line range if specified
     if args.start_time is not None or args.end_time is not None:
         input_fps = int(args.input_fps)
-        
+
         # Calculate start and end frames (0-indexed in calculations, convert to 1-indexed for line_range)
         start_frame = 1  # Default: first line (1-indexed)
         if args.start_time is not None:
             start_frame = max(1, int(args.start_time * input_fps) + 1)
-        
+
         end_frame = int(1e9)  # Default: very large number (read until EOF)
         if args.end_time is not None:
             end_frame = max(start_frame, int(args.end_time * input_fps) + 1)
-        
+
         args.line_range = (start_frame, end_frame)
-        
+
         start_time_display = args.start_time if args.start_time is not None else 0.0
         end_time_display = args.end_time if args.end_time is not None else "end"
         print(f"Time range: {start_time_display:.3f}s - {end_time_display}s")

@@ -114,7 +114,9 @@ def test_env_reset_and_step(
     elif "G1" in env_name:
         env_cfg_override = {"reward_config": default_g1_reward_config}
 
-    env = registry.make(env_name, num_envs=2, sim_backend="mujoco", env_cfg_override=env_cfg_override)
+    env = registry.make(
+        env_name, num_envs=2, sim_backend="mujoco", env_cfg_override=env_cfg_override
+    )
     try:
         # 1. Spaces
         obs_space = env.observation_space

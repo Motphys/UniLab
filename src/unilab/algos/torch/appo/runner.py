@@ -122,7 +122,14 @@ class APPORunner(AsyncRunner):
         actor = actor_cls(td_example, cfg["obs_groups"], "actor", self.action_dim, **actor_cfg)
 
         # Build critic (deterministic MLPModel, no distribution)
-        critic_cfg = deepcopy(cfg.get("critic", cfg.get("actor", )))
+        critic_cfg = deepcopy(
+            cfg.get(
+                "critic",
+                cfg.get(
+                    "actor",
+                ),
+            )
+        )
         critic_cls = resolve_callable(critic_cfg.pop("class_name", "rsl_rl.models.MLPModel"))
         critic_cfg.pop("num_actions", None)
         critic_cfg.pop("distribution_cfg", None)  # critic is deterministic

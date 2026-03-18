@@ -264,9 +264,7 @@ class AllegroRotationMj(AllegroBaseMjEnv):
 
     # ── Reset ────────────────────────────────────────────────────────
 
-    def reset(
-        self, env_indices: np.ndarray
-    ) -> Tuple[dict[str, np.ndarray], dict]:
+    def reset(self, env_indices: np.ndarray) -> Tuple[dict[str, np.ndarray], dict]:
         num_reset = len(env_indices)
         dr = self._cfg.domain_rand
 
