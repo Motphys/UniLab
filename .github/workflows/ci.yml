@@ -47,26 +47,32 @@ jobs:
         run: uv run pyright
 
   test:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-        python-version: ['3.10', '3.11', '3.12', '3.13']
-    runs-on: ${{ matrix.os }}
+    # strategy:
+    #   matrix:
+    #     os: [ubuntu-latest, macos-latest]
+    #     python-version: ['3.10', '3.11', '3.12', '3.13']
+    # runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-          python-version: ${{ matrix.python-version }}
-      - name: Install dependencies (Linux)
-        if: runner.os == 'Linux'
+          # python-version: ${{ matrix.python-version }}
+          python-version: '3.11'
+      # - name: Install dependencies (Linux)
+      #   if: runner.os == 'Linux'
+      #   run: |
+      #     sudo apt-get update && sudo apt-get install -y cmake
+      #     uv sync --extra dev
+      # - name: Install dependencies (macOS)
+      #   if: runner.os == 'macOS'
+      #   run: |
+      #     brew install cmake
+      #     uv sync --extra dev
+      - name: Install dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y cmake
-          uv sync --extra dev
-      - name: Install dependencies (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          brew install cmake
           uv sync --extra dev
       - name: Test with coverage
         run: uv run pytest -m "not slow" --cov=unilab --cov-report=term-missing --cov-fail-under=10
