@@ -480,15 +480,15 @@ def test_ppo_reward_extraction_pattern():
     assert env_cfg_override["reward_config"]["scales"]["feet_phase"] == pytest.approx(1.0)
 
 
-def test_default_reward_extraction_yields_empty():
-    """When reward=default (empty), extraction should yield empty dict."""
+def test_motion_tracking_reward_extraction_pattern():
+    """Verify g1_motion_tracking now extracts explicit motion-tracking reward config."""
     cfg = _compose("ppo", overrides=["task=g1_motion_tracking"])
     env_cfg_override: dict = {}
     if hasattr(cfg, "reward") and cfg.reward:
         reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
         env_cfg_override["reward_config"] = reward_dict
-    # g1_motion_tracking uses default (empty) reward, so no override should be set
-    assert "reward_config" not in env_cfg_override
+    assert "reward_config" in env_cfg_override
+    assert env_cfg_override["reward_config"]["scales"]["motion_body_pos"] == pytest.approx(1.0)
 
 
 def test_appo_reward_extraction_pattern():
