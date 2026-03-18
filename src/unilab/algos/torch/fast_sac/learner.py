@@ -361,6 +361,7 @@ class FastSACLearner:
         mujoco_model=None,
         obs_structure: dict | None = None,
         world_size: int = 1,
+        privileged_dim: int = 0,
     ):
         self.device = device
         self.gamma = gamma
@@ -369,8 +370,9 @@ class FastSACLearner:
         self.use_autotune = use_autotune
         self.use_amp = use_amp and device == "cuda"
         self.world_size = world_size
+        self.privileged_dim = privileged_dim
 
-        # Build actor
+        # Build actor (uses obs only)
         self.actor = SACActor(
             obs_dim=obs_dim,
             action_dim=action_dim,
@@ -382,9 +384,10 @@ class FastSACLearner:
             device=device,
         )
 
-        # Build critic ensemble
+        # Build critic ensemble (uses obs + privileged)
+        critic_obs_dim = obs_dim + privileged_dim
         self.qnet = SACCritic(
-            obs_dim=obs_dim,
+            obs_dim=critic_obs_dim,
             action_dim=action_dim,
             num_atoms=num_atoms,
             v_min=v_min,
@@ -397,7 +400,7 @@ class FastSACLearner:
 
         # Target critic
         self.qnet_target = SACCritic(
-            obs_dim=obs_dim,
+            obs_dim=critic_obs_dim,
             action_dim=action_dim,
             num_atoms=num_atoms,
             v_min=v_min,
@@ -592,10 +595,18 @@ class FastSACLearner:
     def update_actor(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One actor update step."""
         obs = batch["obs"]
+        privileged = batch.get("privileged", None)
+
+        # Critic input: obs + privileged
+        if privileged is not None:
+            critic_obs = torch.cat([obs, privileged], dim=-1)
+        else:
+            critic_obs = obs
 
         # Apply symmetry augmentation
         if self.use_symmetry:
             obs = torch.cat([obs, self.symmetry.mirror_obs(obs)], dim=0)
+            critic_obs = torch.cat([critic_obs, self.symmetry.mirror_obs(critic_obs)], dim=0)
 
         with torch.amp.autocast("cuda", enabled=self.use_amp):  # pyright: ignore[reportPrivateImportUsage]
             actions, log_probs, log_std = self.actor.get_actions_and_log_probs(obs)
@@ -605,7 +616,7 @@ class FastSACLearner:
             policy_entropy = -log_probs.mean()
 
         with torch.amp.autocast("cuda", enabled=self.use_amp):  # pyright: ignore[reportPrivateImportUsage]
-            q_outputs = self.qnet(obs, actions)
+            q_outputs = self.qnet(critic_obs, actions)
             q_probs = F.softmax(q_outputs, dim=-1)
             q_values = self.qnet.get_value(q_probs)
             qf_value = q_values.mean(dim=0)

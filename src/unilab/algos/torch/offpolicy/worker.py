@@ -115,7 +115,8 @@ def _run_collector(
     )
 
     # Build actor (always on CPU for env interaction)
-    obs_dim = sum(env.obs_groups_spec.values())
+    from unilab.utils.obs_utils import get_obs_dims
+    obs_dim, _ = get_obs_dims(env.obs_groups_spec)
     assert env.action_space.shape is not None
     action_dim = env.action_space.shape[0]
     actor = build_actor(

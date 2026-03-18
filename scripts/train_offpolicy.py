@@ -94,11 +94,14 @@ def build_runner(algo_name: str, cfg: DictConfig):
             from unilab.algos.torch.offpolicy.multi_gpu_runner import MultiGPUOffPolicyRunner
             from unilab.base import registry
             from unilab.utils.algo_utils import ensure_registries
+            from unilab.utils.reward_utils import extract_reward_config
 
             ensure_registries()
             device = cfg.training.device or get_default_device()
+            env_cfg_override = extract_reward_config(cfg)
             env = registry.make(
-                cfg.training.task_name, num_envs=1, sim_backend=cfg.training.sim_backend
+                cfg.training.task_name, num_envs=1, sim_backend=cfg.training.sim_backend,
+                env_cfg_override=env_cfg_override
             )
             assert env.action_space.shape
             from unilab.utils.obs_utils import get_obs_dims
