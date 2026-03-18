@@ -16,6 +16,7 @@ dist/
 
 # Project specific
 logs/
+.worktrees/
 *.log
 .DS_Store
 
