@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-import argparse
 import datetime
 import os
 import sys
 from pathlib import Path
+
+import hydra
+from omegaconf import DictConfig, OmegaConf
 
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
@@ -76,204 +78,150 @@ def resolve_checkpoint_path(
     return load_path, load_path_dir
 
 
-def build_parser() -> argparse.ArgumentParser:
-    """Build argument parser."""
-    parser = argparse.ArgumentParser(description="Train off-policy algorithm (SAC/TD3)")
-    parser.add_argument("--algo", type=str, default="sac", choices=["sac", "td3"])
-    parser.add_argument("--task", type=str, default="Go1JoystickFlatTerrain")
-    parser.add_argument(
-        "--max_iterations", type=int, default=None, help="Override max iterations from config"
-    )
-    parser.add_argument("--num_envs", type=int, default=None, help="Override num_envs from config")
-    parser.add_argument("--device", type=str, default=None)
-    parser.add_argument("--log_dir", type=str, default=None)
-    parser.add_argument(
-        "--no_sync_collection", action="store_true", help="Disable collection sync (async mode)"
-    )
-    parser.add_argument(
-        "--env_steps_per_sync",
-        type=int,
-        default=1,
-        help="Collector env.step calls before learner phase",
-    )
-    parser.add_argument("--play_only", action="store_true", help="Skip training, only play")
-    parser.add_argument("--no_play", action="store_true", help="Skip play after training")
-    parser.add_argument(
-        "--load_run", type=str, default="-1", help="Run ID to load or checkpoint path"
-    )
-    parser.add_argument("--play_env_num", type=int, default=16, help="Number of play envs")
-    parser.add_argument(
-        "--play_steps", type=int, default=200, help="Number of steps for play video"
-    )
-    parser.add_argument(
-        "--cam_elevation",
-        type=float,
-        default=-20.0,
-        help="Camera elevation angle (degrees) for play video",
-    )
-    parser.add_argument(
-        "--cam_azimuth",
-        type=float,
-        default=90.0,
-        help="Camera azimuth angle (degrees) for play video",
-    )
-    parser.add_argument(
-        "--logger",
-        type=str,
-        default="tensorboard",
-        choices=["tensorboard", "wandb", "none", "no_print"],
-    )
-    parser.add_argument(
-        "--sim_backend",
-        type=str,
-        default="mujoco",
-        choices=["mujoco", "motrix", "motrix_numba"],
-        help="Simulation backend",
-    )
-    parser.add_argument(
-        "--use_amp", action="store_true", help="Enable mixed precision training (FP16)"
-    )
-    parser.add_argument(
-        "--num_gpus",
-        type=int,
-        default=1,
-        help="Number of GPUs for multi-GPU training via NCCL all-reduce (default: 1 = single GPU)",
-    )
-    return parser
+def build_runner(algo_name: str, cfg: DictConfig):
+    """Build algorithm runner from unified Hydra config."""
+    from unilab.utils.reward_utils import extract_reward_config
 
+    env_cfg_override = extract_reward_config(cfg)
 
-def build_runner(algo_name: str, args, cfg):
-    """Build algorithm runner from unified config."""
     if algo_name == "sac":
         from unilab.algos.torch.fast_sac.learner import FastSACLearner
         from unilab.algos.torch.fast_sac.runner import FastSACRunner
         from unilab.utils.device_utils import get_default_device, get_env_dims
 
         # Multi-GPU path
-        if getattr(args, "num_gpus", 1) > 1:
+        if cfg.training.num_gpus > 1:
             from unilab.algos.torch.offpolicy.multi_gpu_runner import MultiGPUOffPolicyRunner
             from unilab.base import registry
             from unilab.utils.algo_utils import ensure_registries
+            from unilab.utils.reward_utils import extract_reward_config
 
             ensure_registries()
-            device = args.device or get_default_device()
-            env = registry.make(args.task, num_envs=1, sim_backend=args.sim_backend)
-            assert env.observation_space.shape and env.action_space.shape
-            obs_dim = env.observation_space.shape[0]
+            device = cfg.training.device or get_default_device()
+            env_cfg_override = extract_reward_config(cfg)
+            env = registry.make(
+                cfg.training.task_name, num_envs=1, sim_backend=cfg.training.sim_backend,
+                env_cfg_override=env_cfg_override
+            )
+            assert env.action_space.shape
+            from unilab.utils.obs_utils import get_obs_dims
+            obs_dim, privileged_dim = get_obs_dims(env.obs_groups_spec)
             action_dim = env.action_space.shape[0]
             env.close()
 
-            # Learner kwargs needed to reconstruct FastSACLearner in each worker
             learner_kwargs = {
                 "obs_dim": obs_dim,
                 "action_dim": action_dim,
-                "gamma": cfg.gamma,
-                "tau": cfg.tau,
-                "actor_lr": cfg.actor_lr,
-                "critic_lr": cfg.critic_lr,
-                "alpha_lr": cfg.algo_params.alpha_lr,
-                "alpha_init": cfg.algo_params.alpha_init,
-                "target_entropy_ratio": cfg.algo_params.target_entropy_ratio,
-                "actor_hidden_dim": cfg.actor_hidden_dim,
-                "critic_hidden_dim": cfg.critic_hidden_dim,
-                "num_atoms": cfg.num_atoms,
-                "use_layer_norm": cfg.use_layer_norm,
-                "max_grad_norm": cfg.algo_params.max_grad_norm,
-                "use_amp": args.use_amp,
+                "gamma": cfg.algo.gamma,
+                "tau": cfg.algo.tau,
+                "actor_lr": cfg.algo.actor_lr,
+                "critic_lr": cfg.algo.critic_lr,
+                "alpha_lr": cfg.algo.algo_params.alpha_lr,
+                "alpha_init": cfg.algo.algo_params.alpha_init,
+                "target_entropy_ratio": cfg.algo.algo_params.target_entropy_ratio,
+                "actor_hidden_dim": cfg.algo.actor_hidden_dim,
+                "critic_hidden_dim": cfg.algo.critic_hidden_dim,
+                "num_atoms": cfg.algo.num_atoms,
+                "use_layer_norm": cfg.algo.use_layer_norm,
+                "max_grad_norm": cfg.algo.algo_params.max_grad_norm,
+                "use_amp": cfg.training.use_amp,
+                "privileged_dim": privileged_dim,
                 # symmetry not supported in multi-GPU mode (mujoco_model not picklable)
                 "use_symmetry": False,
             }
-            # Main-process learner (used for WeightSync initialisation and single-GPU fallback)
             main_learner = FastSACLearner(device=device, **learner_kwargs)
 
             return MultiGPUOffPolicyRunner(
                 learner=main_learner,
-                env_name=args.task,
+                env_name=cfg.training.task_name,
                 algo_type="sac",
                 learner_kwargs=learner_kwargs,
-                num_gpus=args.num_gpus,
-                num_envs=cfg.num_envs,
-                replay_buffer_n=cfg.replay_buffer_n,
-                batch_size=cfg.batch_size,
-                warmup_steps=cfg.warmup_steps,
-                updates_per_step=cfg.updates_per_step,
-                policy_frequency=cfg.policy_frequency,
-                sync_collection=not args.no_sync_collection,
-                env_steps_per_sync=cfg.env_steps_per_sync,
+                num_gpus=cfg.training.num_gpus,
+                num_envs=cfg.algo.num_envs,
+                replay_buffer_n=cfg.algo.replay_buffer_n,
+                batch_size=cfg.algo.batch_size,
+                warmup_steps=cfg.algo.warmup_steps,
+                updates_per_step=cfg.algo.updates_per_step,
+                policy_frequency=cfg.algo.policy_frequency,
+                sync_collection=not cfg.training.no_sync_collection,
+                env_steps_per_sync=cfg.training.env_steps_per_sync,
                 device=device,
-                actor_hidden_dim=cfg.actor_hidden_dim,
-                use_layer_norm=cfg.use_layer_norm,
+                actor_hidden_dim=cfg.algo.actor_hidden_dim,
+                use_layer_norm=cfg.algo.use_layer_norm,
                 obs_normalization=False,
-                sim_backend=args.sim_backend,
+                sim_backend=cfg.training.sim_backend,
+                env_cfg_override=env_cfg_override,
             )
 
         return FastSACRunner(
-            env_name=args.task,
-            device=args.device,
-            num_envs=cfg.num_envs,
-            replay_buffer_n=cfg.replay_buffer_n,
-            batch_size=cfg.batch_size,
-            warmup_steps=cfg.warmup_steps,
-            updates_per_step=cfg.updates_per_step,
-            policy_frequency=cfg.policy_frequency,
-            gamma=cfg.gamma,
-            tau=cfg.tau,
-            actor_lr=cfg.actor_lr,
-            critic_lr=cfg.critic_lr,
-            alpha_lr=cfg.algo_params.alpha_lr,
-            alpha_init=cfg.algo_params.alpha_init,
-            target_entropy_ratio=cfg.algo_params.target_entropy_ratio,
-            obs_normalization=cfg.obs_normalization,
-            actor_hidden_dim=cfg.actor_hidden_dim,
-            critic_hidden_dim=cfg.critic_hidden_dim,
-            num_atoms=cfg.num_atoms,
-            use_layer_norm=cfg.use_layer_norm,
-            max_grad_norm=cfg.algo_params.max_grad_norm,
-            use_amp=args.use_amp,
-            sync_collection=not args.no_sync_collection,
-            env_steps_per_sync=cfg.env_steps_per_sync,
-            sim_backend=args.sim_backend,
-            use_symmetry=cfg.use_symmetry,
+            env_name=cfg.training.task_name,
+            env_cfg_override=env_cfg_override,
+            device=cfg.training.device,
+            num_envs=cfg.algo.num_envs,
+            replay_buffer_n=cfg.algo.replay_buffer_n,
+            batch_size=cfg.algo.batch_size,
+            warmup_steps=cfg.algo.warmup_steps,
+            updates_per_step=cfg.algo.updates_per_step,
+            policy_frequency=cfg.algo.policy_frequency,
+            gamma=cfg.algo.gamma,
+            tau=cfg.algo.tau,
+            actor_lr=cfg.algo.actor_lr,
+            critic_lr=cfg.algo.critic_lr,
+            alpha_lr=cfg.algo.algo_params.alpha_lr,
+            alpha_init=cfg.algo.algo_params.alpha_init,
+            target_entropy_ratio=cfg.algo.algo_params.target_entropy_ratio,
+            obs_normalization=cfg.algo.obs_normalization,
+            actor_hidden_dim=cfg.algo.actor_hidden_dim,
+            critic_hidden_dim=cfg.algo.critic_hidden_dim,
+            num_atoms=cfg.algo.num_atoms,
+            use_layer_norm=cfg.algo.use_layer_norm,
+            max_grad_norm=cfg.algo.algo_params.max_grad_norm,
+            use_amp=cfg.training.use_amp,
+            sync_collection=not cfg.training.no_sync_collection,
+            env_steps_per_sync=cfg.training.env_steps_per_sync,
+            sim_backend=cfg.training.sim_backend,
+            use_symmetry=cfg.algo.use_symmetry,
         )
 
     if algo_name == "td3":
         from unilab.algos.torch.fast_td3.runner import FastTD3Runner
 
         return FastTD3Runner(
-            env_name=args.task,
-            device=args.device,
-            num_envs=cfg.num_envs,
-            replay_buffer_n=cfg.replay_buffer_n,
-            batch_size=cfg.batch_size,
-            warmup_steps=cfg.warmup_steps,
-            num_updates=cfg.updates_per_step,
-            policy_frequency=cfg.policy_frequency,
-            sync_collection=not args.no_sync_collection,
-            env_steps_per_sync=cfg.env_steps_per_sync,
-            gamma=cfg.gamma,
-            tau=cfg.tau,
-            actor_lr=cfg.actor_lr,
-            critic_lr=cfg.critic_lr,
-            actor_hidden_dim=cfg.actor_hidden_dim,
-            critic_hidden_dim=cfg.critic_hidden_dim,
-            num_atoms=cfg.num_atoms,
-            v_min=cfg.algo_params.v_min,
-            v_max=cfg.algo_params.v_max,
-            init_scale=cfg.algo_params.init_scale,
-            log_std_min=cfg.algo_params.log_std_min,
-            log_std_max=cfg.algo_params.log_std_max,
-            policy_noise=cfg.algo_params.policy_noise,
-            noise_clip=cfg.algo_params.noise_clip,
-            weight_decay=cfg.algo_params.weight_decay,
-            use_cdq=cfg.algo_params.use_cdq,
-            obs_normalization=cfg.obs_normalization,
-            sim_backend=args.sim_backend,
+            env_name=cfg.training.task_name,
+            env_cfg_override=env_cfg_override,
+            device=cfg.training.device,
+            num_envs=cfg.algo.num_envs,
+            replay_buffer_n=cfg.algo.replay_buffer_n,
+            batch_size=cfg.algo.batch_size,
+            warmup_steps=cfg.algo.warmup_steps,
+            num_updates=cfg.algo.updates_per_step,
+            policy_frequency=cfg.algo.policy_frequency,
+            sync_collection=not cfg.training.no_sync_collection,
+            env_steps_per_sync=cfg.training.env_steps_per_sync,
+            gamma=cfg.algo.gamma,
+            tau=cfg.algo.tau,
+            actor_lr=cfg.algo.actor_lr,
+            critic_lr=cfg.algo.critic_lr,
+            actor_hidden_dim=cfg.algo.actor_hidden_dim,
+            critic_hidden_dim=cfg.algo.critic_hidden_dim,
+            num_atoms=cfg.algo.num_atoms,
+            v_min=cfg.algo.algo_params.v_min,
+            v_max=cfg.algo.algo_params.v_max,
+            init_scale=cfg.algo.algo_params.init_scale,
+            log_std_min=cfg.algo.algo_params.log_std_min,
+            log_std_max=cfg.algo.algo_params.log_std_max,
+            policy_noise=cfg.algo.algo_params.policy_noise,
+            noise_clip=cfg.algo.algo_params.noise_clip,
+            weight_decay=cfg.algo.algo_params.weight_decay,
+            use_cdq=cfg.algo.algo_params.use_cdq,
+            obs_normalization=cfg.algo.obs_normalization,
+            sim_backend=cfg.training.sim_backend,
         )
 
     raise ValueError(f"Unsupported algo: {algo_name}")
 
 
-def play_offpolicy(algo_name: str, args, cfg) -> None:
+def play_offpolicy(algo_name: str, cfg: DictConfig) -> None:
     """Play pipeline for off-policy algorithms."""
     import mediapy as media
     import numpy as np
@@ -283,17 +231,33 @@ def play_offpolicy(algo_name: str, args, cfg) -> None:
     from unilab.utils import render_many
     from unilab.utils.algo_utils import build_actor
 
-    device = default_device(torch, args.device)
+    from unilab.utils.reward_utils import extract_reward_config
+
+    env_cfg_override = extract_reward_config(cfg)
+
+    device = default_device(torch, cfg.training.device)
     print(f"Using device for play: {device}")
 
-    env = registry.make(args.task, num_envs=args.play_env_num, sim_backend=args.sim_backend)
-    obs_dim = env.observation_space.shape[0]
+    from unilab.utils.obs_utils import flatten_obs_dict
+
+    env = registry.make(
+        cfg.training.task_name,
+        num_envs=cfg.training.play_env_num,
+        sim_backend=cfg.training.sim_backend,
+        env_cfg_override=env_cfg_override,
+    )
+    obs_dim = sum(env.obs_groups_spec.values())
     action_dim = env.action_space.shape[0]
 
     normalizer = None
     if algo_name == "sac":
         actor = build_actor(
-            "sac", obs_dim, action_dim, cfg.actor_hidden_dim, cfg.use_layer_norm, device
+            "sac",
+            obs_dim,
+            action_dim,
+            cfg.algo.actor_hidden_dim,
+            cfg.algo.use_layer_norm,
+            device,
         )
     elif algo_name == "td3":
         from unilab.algos.torch.fast_td3.learner import EmpiricalNormalization, TD3Actor
@@ -301,14 +265,14 @@ def play_offpolicy(algo_name: str, args, cfg) -> None:
         actor = TD3Actor(
             obs_dim,
             action_dim,
-            args.play_env_num,
-            cfg.algo_params.init_scale,
-            cfg.actor_hidden_dim,
-            cfg.algo_params.log_std_min,
-            cfg.algo_params.log_std_max,
+            cfg.training.play_env_num,
+            cfg.algo.algo_params.init_scale,
+            cfg.algo.actor_hidden_dim,
+            cfg.algo.algo_params.log_std_min,
+            cfg.algo.algo_params.log_std_max,
             device,
         )
-        if cfg.obs_normalization:
+        if cfg.algo.obs_normalization:
             normalizer = EmpiricalNormalization(shape=obs_dim, device=device)
     else:
         raise ValueError(f"Unsupported algo: {algo_name}")
@@ -316,7 +280,10 @@ def play_offpolicy(algo_name: str, args, cfg) -> None:
     actor.eval()
 
     load_path, load_path_dir = resolve_checkpoint_path(
-        ROOT_DIR, cfg.algo_log_name, args.task, args.load_run
+        ROOT_DIR,
+        cfg.algo.algo_log_name,
+        cfg.training.task_name,
+        cfg.training.load_run,
     )
     if not load_path or not os.path.exists(load_path):
         print(f"Could not find checkpoint. load_path={load_path}")
@@ -337,12 +304,12 @@ def play_offpolicy(algo_name: str, args, cfg) -> None:
 
     if env.state is None:
         env.init_state()
-    env_indices = np.arange(args.play_env_num, dtype=np.int32)
+    env_indices = np.arange(cfg.training.play_env_num, dtype=np.int32)
     _, obs_out, _ = env.reset(env_indices)
-    obs_np = np.asarray(obs_out, dtype=np.float32)
+    obs_np = np.asarray(flatten_obs_dict(obs_out), dtype=np.float32)
 
     # Use Motrix native rendering
-    if args.sim_backend == "motrix" or args.sim_backend == "motrix_numba":
+    if cfg.training.sim_backend == "motrix":
         print("Starting interactive visualization (motrix native renderer)...")
         print("Close the render window to exit.")
         env._backend.init_renderer()
@@ -364,7 +331,7 @@ def play_offpolicy(algo_name: str, args, cfg) -> None:
                         else actor(obs_torch).cpu().numpy()
                     )
                     state = env.step(actions_np)
-                    obs_np = np.asarray(state.obs, dtype=np.float32)
+                    obs_np = np.asarray(flatten_obs_dict(state.obs), dtype=np.float32)
 
                     current_time = time.perf_counter()
                     elapsed = current_time - last_render_time
@@ -382,12 +349,11 @@ def play_offpolicy(algo_name: str, args, cfg) -> None:
 
     # MuJoCo backend: render to video
     output_video = os.path.join(load_path_dir, "play_video.mp4")
-
     state_list = []
 
     print("Collecting physics states...")
     with torch.inference_mode():
-        for _ in range(args.play_steps):
+        for _ in range(cfg.training.play_steps):
             obs_torch = torch.from_numpy(obs_np).to(device)
             if normalizer:
                 obs_torch = normalizer(obs_torch, update=False)
@@ -397,7 +363,7 @@ def play_offpolicy(algo_name: str, args, cfg) -> None:
                 else actor(obs_torch).cpu().numpy()
             )
             state = env.step(actions_np)
-            obs_np = np.asarray(state.obs, dtype=np.float32)
+            obs_np = np.asarray(flatten_obs_dict(state.obs), dtype=np.float32)
             state_list.append(np.asarray(env._backend.get_physics_state(), dtype=np.float32).copy())
 
     print("Rendering frames...")
@@ -409,45 +375,39 @@ def play_offpolicy(algo_name: str, args, cfg) -> None:
     print("Done.")
 
 
-def main() -> None:
+@hydra.main(version_base="1.3", config_path="../conf/offpolicy", config_name="config")
+def main(cfg: DictConfig) -> None:
     ensure_registries()
-    parser = build_parser()
-    args = parser.parse_args()
 
-    from unilab.config import locomotion_params, manipulation_params
+    algo_name = cfg.algo.algo
+    task_name = cfg.training.task_name
 
-    params = (
-        manipulation_params if args.task in manipulation_params.KNOWN_TASKS else locomotion_params
-    )
-    algo_name = args.algo.lower()
-    cfg = params.offpolicy_config(algo_name, args.task)
-
-    if args.max_iterations is not None:
-        cfg.max_iterations = args.max_iterations
-    if args.num_envs is not None:
-        cfg.num_envs = args.num_envs
-    cfg.env_steps_per_sync = args.env_steps_per_sync
-
-    if args.log_dir is None:
+    if cfg.training.log_dir is None:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        args.log_dir = os.path.join(
-            ROOT_DIR, "logs", cfg.algo_log_name, args.task, f"{timestamp}_{args.sim_backend}"
+        log_dir = os.path.join(
+            ROOT_DIR,
+            "logs",
+            cfg.algo.algo_log_name,
+            task_name,
+            f"{timestamp}_{cfg.training.sim_backend}",
         )
+    else:
+        log_dir = cfg.training.log_dir
 
-    if not args.play_only:
-        runner = build_runner(algo_name, args, cfg)
+    if not cfg.training.play_only:
+        runner = build_runner(algo_name, cfg)
         try:
             runner.learn(
-                max_iterations=cfg.max_iterations,
-                save_interval=cfg.save_interval,
-                log_dir=args.log_dir,
-                logger_type=args.logger,
+                max_iterations=cfg.algo.max_iterations,
+                save_interval=cfg.algo.save_interval,
+                log_dir=log_dir,
+                logger_type=cfg.training.logger,
             )
         finally:
             runner.close()
 
-    if args.play_only or not args.no_play:
-        play_offpolicy(algo_name, args, cfg)
+    if cfg.training.play_only or not cfg.training.no_play:
+        play_offpolicy(algo_name, cfg)
 
 
 if __name__ == "__main__":

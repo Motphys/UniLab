@@ -55,9 +55,9 @@ def envcfg(name: str) -> Callable[[Type[TEnvCfg]], Type[TEnvCfg]]:
 
 def register_env(name: str, env_cls: Type[ABEnv], sim_backend: str):
     """Register an environment class with a name and simulation backend."""
-    if sim_backend not in ["mujoco", "motrix", "motrix_numba"]:
+    if sim_backend not in ["mujoco", "motrix"]:
         raise ValueError(
-            f"Unsupported simulation backend: {sim_backend}. Only 'mujoco', 'motrix', and 'motrix_numba' are supported."
+            f"Unsupported simulation backend: {sim_backend}. Only 'mujoco' and 'motrix' are supported."
         )
 
     if name not in _envs:
@@ -128,8 +128,25 @@ def make(
     # Create environment config
     env_cfg = meta.env_cfg_cls()
     if env_cfg_override is not None:
+        from typing import get_type_hints, get_args, get_origin
+
+        # Get type hints for the config class
+        type_hints = get_type_hints(env_cfg.__class__)
+
         for key, value in env_cfg_override.items():
             if hasattr(env_cfg, key):
+                # If value is dict and target type is a dataclass, instantiate it
+                if isinstance(value, dict) and key in type_hints:
+                    target_type = type_hints[key]
+                    # Handle Union types (e.g., RewardConfig | None)
+                    origin = get_origin(target_type)
+                    if origin is not None:
+                        # Extract non-None type from Union
+                        args = get_args(target_type)
+                        target_type = next((arg for arg in args if arg is not type(None)), None)
+                    # Check if it's a dataclass
+                    if target_type and hasattr(target_type, "__dataclass_fields__"):
+                        value = target_type(**value)
                 setattr(env_cfg, key, value)
             else:
                 raise ValueError(

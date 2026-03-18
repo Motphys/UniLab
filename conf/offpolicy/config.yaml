@@ -1,0 +1,33 @@
+defaults:
+  - _self_
+  - algo: sac
+  - reward: default
+  - task: go1_joystick
+
+training:
+  task_name: Go1JoystickFlatTerrain
+  device: null
+  logger: tensorboard
+  sim_backend: mujoco
+  num_gpus: 1
+  use_amp: false
+  play_only: false
+  no_play: false
+  load_run: "-1"
+  play_env_num: 16
+  play_steps: 200
+  cam_elevation: -20.0
+  cam_azimuth: 90.0
+  log_dir: null
+  no_sync_collection: false
+  env_steps_per_sync: 1
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  job:
+    chdir: false
+  job_logging:
+    root:
+      handlers: [console]

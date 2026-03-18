@@ -361,6 +361,7 @@ class FastSACLearner:
         mujoco_model=None,
         obs_structure: dict | None = None,
         world_size: int = 1,
+        privileged_dim: int = 0,
     ):
         self.device = device
         self.gamma = gamma
@@ -369,8 +370,9 @@ class FastSACLearner:
         self.use_autotune = use_autotune
         self.use_amp = use_amp and device == "cuda"
         self.world_size = world_size
+        self.privileged_dim = privileged_dim
 
-        # Build actor
+        # Build actor (uses obs only)
         self.actor = SACActor(
             obs_dim=obs_dim,
             action_dim=action_dim,
@@ -382,9 +384,10 @@ class FastSACLearner:
             device=device,
         )
 
-        # Build critic ensemble
+        # Build critic ensemble (uses obs + privileged)
+        critic_obs_dim = obs_dim + privileged_dim
         self.qnet = SACCritic(
-            obs_dim=obs_dim,
+            obs_dim=critic_obs_dim,
             action_dim=action_dim,
             num_atoms=num_atoms,
             v_min=v_min,
@@ -397,7 +400,7 @@ class FastSACLearner:
 
         # Target critic
         self.qnet_target = SACCritic(
-            obs_dim=obs_dim,
+            obs_dim=critic_obs_dim,
             action_dim=action_dim,
             num_atoms=num_atoms,
             v_min=v_min,
@@ -482,16 +485,29 @@ class FastSACLearner:
     def update_critic(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One critic update step."""
         obs = batch["obs"]
+        privileged = batch.get("privileged", None)
         actions = batch["actions"]
         rewards = batch["rewards"]
         next_obs = batch["next_obs"]
+        next_privileged = batch.get("next_privileged", None)
         dones = batch["dones"]
         truncated = batch.get("truncated")
+
+        # Critic input: obs + privileged
+        if privileged is not None:
+            critic_obs = torch.cat([obs, privileged], dim=-1)
+            critic_next_obs = torch.cat([next_obs, next_privileged], dim=-1)
+        else:
+            critic_obs = obs
+            critic_next_obs = next_obs
 
         # Apply symmetry augmentation
         if self.use_symmetry:
             obs, actions = self.symmetry.augment(obs, actions)
-            next_obs = torch.cat([next_obs, self.symmetry.mirror_obs(next_obs)], dim=0)
+            critic_obs = torch.cat([critic_obs, self.symmetry.mirror_obs(critic_obs)], dim=0)
+            critic_next_obs = torch.cat(
+                [critic_next_obs, self.symmetry.mirror_obs(critic_next_obs)], dim=0
+            )
             rewards = rewards.repeat(2)
             dones = dones.repeat(2)
             if truncated is not None:
@@ -512,13 +528,13 @@ class FastSACLearner:
 
             with torch.amp.autocast("cuda", enabled=self.use_amp):  # pyright: ignore[reportPrivateImportUsage]
                 target_distributions = self.qnet_target.projection(
-                    next_obs, next_actions, adjusted_rewards, bootstrap, discount
+                    critic_next_obs, next_actions, adjusted_rewards, bootstrap, discount
                 )
                 target_values = self.qnet_target.get_value(target_distributions)
 
         # Critic loss: cross-entropy with projected distributions
         with torch.amp.autocast("cuda", enabled=self.use_amp):  # pyright: ignore[reportPrivateImportUsage]
-            q_outputs = self.qnet(obs, actions)
+            q_outputs = self.qnet(critic_obs, actions)
             critic_log_probs = F.log_softmax(q_outputs, dim=-1).clamp(min=-30.0)
             critic_losses = -torch.sum(target_distributions * critic_log_probs, dim=-1)
             qf_loss = critic_losses.mean(dim=1).sum(dim=0)
@@ -579,10 +595,18 @@ class FastSACLearner:
     def update_actor(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One actor update step."""
         obs = batch["obs"]
+        privileged = batch.get("privileged", None)
+
+        # Critic input: obs + privileged
+        if privileged is not None:
+            critic_obs = torch.cat([obs, privileged], dim=-1)
+        else:
+            critic_obs = obs
 
         # Apply symmetry augmentation
         if self.use_symmetry:
             obs = torch.cat([obs, self.symmetry.mirror_obs(obs)], dim=0)
+            critic_obs = torch.cat([critic_obs, self.symmetry.mirror_obs(critic_obs)], dim=0)
 
         with torch.amp.autocast("cuda", enabled=self.use_amp):  # pyright: ignore[reportPrivateImportUsage]
             actions, log_probs, log_std = self.actor.get_actions_and_log_probs(obs)
@@ -592,7 +616,7 @@ class FastSACLearner:
             policy_entropy = -log_probs.mean()
 
         with torch.amp.autocast("cuda", enabled=self.use_amp):  # pyright: ignore[reportPrivateImportUsage]
-            q_outputs = self.qnet(obs, actions)
+            q_outputs = self.qnet(critic_obs, actions)
             q_probs = F.softmax(q_outputs, dim=-1)
             q_values = self.qnet.get_value(q_probs)
             qf_value = q_values.mean(dim=0)

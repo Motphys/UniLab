@@ -1,6 +1,7 @@
 """Train APPO agent — native multiprocessing."""
 
-import argparse
+from __future__ import annotations
+
 import datetime
 import importlib
 import os
@@ -8,7 +9,9 @@ import pkgutil
 import sys
 from pathlib import Path
 
+import hydra
 import torch
+from omegaconf import DictConfig, OmegaConf
 
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
@@ -42,7 +45,7 @@ def ensure_registries():
         pass
 
 
-def play_appo(args, rl_cfg):
+def play_appo(cfg: DictConfig, rl_cfg: dict):
     """Play mode for APPO."""
     import mediapy as media
     import numpy as np
@@ -52,12 +55,11 @@ def play_appo(args, rl_cfg):
     from unilab.base import registry
     from unilab.utils import render_many
     from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4, is_rsl_rl_v5
+    from unilab.utils.reward_utils import extract_reward_config
 
-    # Normalize to plain dict so ConfigDict doesn't cause isinstance issues
-    if hasattr(rl_cfg, "to_dict"):
-        rl_cfg = rl_cfg.to_dict()
+    env_cfg_override = extract_reward_config(cfg)
 
-    device = args.device or (
+    device = cfg.training.device or (
         "cuda"
         if torch.cuda.is_available()
         else "mps"
@@ -66,8 +68,14 @@ def play_appo(args, rl_cfg):
     )
     print(f"Using device for play: {device}")
 
-    env = registry.make(args.task, num_envs=args.play_env_num, sim_backend="mujoco")
-    obs_dim = env.observation_space.shape[0]
+    env = registry.make(
+        cfg.training.task_name,
+        num_envs=cfg.training.play_env_num,
+        sim_backend=cfg.training.sim_backend,
+        env_cfg_override=env_cfg_override,
+    )
+    from unilab.utils.obs_utils import get_obs_dims
+    obs_dim, privileged_dim = get_obs_dims(env.obs_groups_spec)
     action_dim = env.action_space.shape[0]
 
     rl_cfg_dict = dict(rl_cfg)
@@ -81,16 +89,15 @@ def play_appo(args, rl_cfg):
             actor_group["policy"] = obs_dim
 
     if is_rsl_rl_v5():
-        pass  # appo_config is already v5-compatible (actor/critic format)
+        pass
     elif is_rsl_rl_v4():
         rl_cfg_dict = convert_config_v3_to_v4(rl_cfg_dict)
 
     from copy import deepcopy
 
-    obs_example = torch.zeros((args.play_env_num, obs_dim), device=device)
-    td_example = TensorDict({"policy": obs_example}, batch_size=args.play_env_num)
+    obs_example = torch.zeros((cfg.training.play_env_num, obs_dim), device=device)
+    td_example = TensorDict({"policy": obs_example}, batch_size=cfg.training.play_env_num)
 
-    # deepcopy actor_cfg so MLPModel.__init__'s distribution_cfg.pop doesn't mutate rl_cfg_dict
     actor_cfg = deepcopy(rl_cfg_dict["actor"])
     actor_cls = resolve_callable(actor_cfg.pop("class_name"))
     actor_cfg.pop("num_actions", None)
@@ -98,10 +105,11 @@ def play_appo(args, rl_cfg):
     actor = actor.to(device)
     actor.eval()
 
-    base_log_dir = os.path.join(ROOT_DIR, "logs", "appo", args.task)
+    base_log_dir = os.path.join(ROOT_DIR, "logs", "appo", cfg.training.task_name)
     load_path = None
     load_path_dir = None
-    if args.load_run == "-1":
+    load_run = cfg.training.load_run
+    if load_run == "-1":
         if os.path.exists(base_log_dir):
             all_runs = sorted(
                 [
@@ -122,11 +130,11 @@ def play_appo(args, rl_cfg):
                     load_path = os.path.join(latest_run_dir, model_files[-1])
                     load_path_dir = latest_run_dir
     else:
-        if os.path.exists(args.load_run):
-            load_path = args.load_run
+        if os.path.exists(load_run):
+            load_path = load_run
             load_path_dir = os.path.dirname(load_path)
         else:
-            potential_dir = os.path.join(base_log_dir, args.load_run)
+            potential_dir = os.path.join(base_log_dir, load_run)
             if os.path.isdir(potential_dir):
                 model_files = [
                     f
@@ -151,9 +159,11 @@ def play_appo(args, rl_cfg):
 
     if env.state is None:
         env.init_state()
-    env_indices = np.arange(args.play_env_num, dtype=np.int32)
-    _, obs_out, _ = env.reset(env_indices)
-    obs_np = np.asarray(obs_out, dtype=np.float32)
+    env_indices = np.arange(cfg.training.play_env_num, dtype=np.int32)
+    from unilab.utils.obs_utils import flatten_obs_dict
+
+    obs_out, _ = env.reset(env_indices)
+    obs_np = np.asarray(obs_out["obs"], dtype=np.float32)
 
     state_list = []
     num_steps = 150
@@ -162,15 +172,11 @@ def play_appo(args, rl_cfg):
     with torch.inference_mode():
         for _ in range(num_steps):
             obs_torch = torch.from_numpy(obs_np).to(device)
-            td = TensorDict({"policy": obs_torch}, batch_size=args.play_env_num)
+            td = TensorDict({"policy": obs_torch}, batch_size=cfg.training.play_env_num)
             actions_torch = actor(td)
             actions_np = actions_torch.cpu().numpy().astype(np.float32)
             state = env.step(actions_np)
-            if hasattr(state, "obs"):
-                next_obs_raw = state.obs
-            else:
-                next_obs_raw = state[0]
-            obs_np = np.asarray(next_obs_raw, dtype=np.float32)
+            obs_np = np.asarray(state.obs["obs"], dtype=np.float32)
             state_list.append(np.asarray(env._backend.get_physics_state(), dtype=np.float32).copy())
 
     print("Rendering frames...")
@@ -183,96 +189,63 @@ def play_appo(args, rl_cfg):
     print("Done.")
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Train APPO (native multiprocessing)")
-    parser.add_argument("--task", type=str, default="Go2JoystickFlatTerrain")
-    parser.add_argument("--max_iterations", type=int, default=None)
-    parser.add_argument("--save_interval", type=int, default=None)
-    parser.add_argument("--total_envs", type=int, default=None)
-    parser.add_argument("--device", type=str, default=None)
-    parser.add_argument("--collector_device", type=str, default=None)
-    parser.add_argument("--log_dir", type=str, default=None)
-    parser.add_argument("--steps_per_env", type=int, default=None)
-    parser.add_argument("--play_only", action="store_true", help="Skip training, only play")
-    parser.add_argument("--no_play", action="store_true", help="Skip play after training")
-    parser.add_argument(
-        "--replay_queue_size",
-        type=int,
-        default=None,
-        help="Learner-side rollout replay queue depth (default 3)",
-    )
-    parser.add_argument("--play_env_num", type=int, default=16, help="Number of play envs")
-    parser.add_argument(
-        "--load_run",
-        type=str,
-        default="-1",
-        help="Run dir or model path to load for play (-1 = latest)",
-    )
-    parser.add_argument(
-        "--logger",
-        type=str,
-        default="tensorboard",
-        choices=["tensorboard", "wandb", "none", "no_print"],
-    )
-
-    args = parser.parse_args()
-
+@hydra.main(version_base="1.3", config_path="../conf/appo", config_name="config")
+def main(cfg: DictConfig) -> None:
     ensure_registries()
 
-    from unilab.config.locomotion_params import appo_config
+    from unilab.utils.reward_utils import extract_reward_config
 
-    rl_cfg = appo_config(args.task)
+    env_cfg_override = extract_reward_config(cfg)
 
-    # Fall back to config values for args not explicitly provided on the CLI.
-    if args.max_iterations is None:
-        args.max_iterations = rl_cfg.max_iterations
-    if args.save_interval is None:
-        args.save_interval = rl_cfg.save_interval
-    if args.total_envs is None:
-        args.total_envs = rl_cfg.num_envs
-    if args.steps_per_env is None:
-        args.steps_per_env = rl_cfg.steps_per_env
+    # Convert algo config to plain dict for APPORunner / RSL-RL internals
+    rl_cfg = OmegaConf.to_container(cfg.algo, resolve=True)
 
-    if args.log_dir is None:
+    if cfg.training.log_dir is None:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        args.log_dir = os.path.join(ROOT_DIR, "logs", "appo", args.task, f"{timestamp}_mujoco")
+        log_dir = os.path.join(
+            ROOT_DIR,
+            "logs",
+            "appo",
+            cfg.training.task_name,
+            f"{timestamp}_{cfg.training.sim_backend}",
+        )
+    else:
+        log_dir = cfg.training.log_dir
 
-    if not args.play_only:
+    if not cfg.training.play_only:
         from unilab.algos.torch.appo.runner import APPORunner
 
-        collector_device = args.collector_device
+        collector_device = cfg.training.collector_device
         if collector_device == "gpu":
-            import torch
-
             collector_device = "mps" if torch.backends.mps.is_available() else "cuda"
 
+        runner_kwargs = {}
+        if cfg.training.replay_queue_size is not None:
+            runner_kwargs["replay_queue_size"] = cfg.training.replay_queue_size
+
         runner = APPORunner(
-            env_name=args.task,
-            env_cfg_overrides={},
+            env_name=cfg.training.task_name,
+            env_cfg_overrides=env_cfg_override,
             rl_cfg=rl_cfg,
-            device=args.device,
+            device=cfg.training.device,
             collector_device=collector_device,
-            num_envs=args.total_envs,
-            steps_per_env=args.steps_per_env,
-            **(
-                {"replay_queue_size": args.replay_queue_size}
-                if args.replay_queue_size is not None
-                else {}
-            ),
+            num_envs=cfg.algo.num_envs,
+            steps_per_env=cfg.algo.steps_per_env,
+            **runner_kwargs,
         )
 
         try:
             runner.learn(
-                max_iterations=args.max_iterations,
-                save_interval=args.save_interval,
-                log_dir=args.log_dir,
-                logger_type=args.logger,
+                max_iterations=cfg.algo.max_iterations,
+                save_interval=cfg.algo.save_interval,
+                log_dir=log_dir,
+                logger_type=cfg.training.logger,
             )
         finally:
             runner.close()
 
-    if args.play_only or not args.no_play:
-        play_appo(args, rl_cfg)
+    if cfg.training.play_only or not cfg.training.no_play:
+        play_appo(cfg, rl_cfg)
 
 
 if __name__ == "__main__":

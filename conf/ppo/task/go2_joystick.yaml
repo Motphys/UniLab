@@ -1,0 +1,12 @@
+# @package _global_
+defaults:
+  - override /reward: go2_ppo_mujoco
+
+training:
+  task_name: Go2JoystickFlatTerrain
+algo:
+  obs_groups:
+    default:
+      - policy
+    actor:
+      - actor

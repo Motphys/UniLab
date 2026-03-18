@@ -368,6 +368,7 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
             "obs_normalization": False,
             "shared_obs_normalizer_stats": None,
             "sim_backend": sim_backend,
+            "env_cfg_override": self.env_cfg_override,
         }
         self._start_collector(
             target_fn=off_policy_collector_fn,

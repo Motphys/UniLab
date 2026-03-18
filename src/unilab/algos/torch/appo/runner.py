@@ -47,11 +47,6 @@ class APPORunner(AsyncRunner):
             num_envs=num_envs,
         )
 
-        # Normalize rl_cfg to a plain dict so isinstance(x, dict) checks work
-        # uniformly regardless of whether a ml_collections ConfigDict was passed.
-        if hasattr(self.rl_cfg, "to_dict"):
-            self.rl_cfg = self.rl_cfg.to_dict()
-
         self.steps_per_env = steps_per_env
         self.replay_queue_size = replay_queue_size
 
@@ -82,13 +77,19 @@ class APPORunner(AsyncRunner):
         """Create a tiny env to read obs/action dims, then close it."""
         from unilab.base import registry
         from unilab.utils.algo_utils import ensure_registries
+        from unilab.utils.obs_utils import get_obs_dims
 
         ensure_registries()
 
-        env = registry.make(self.env_name, num_envs=1, sim_backend="mujoco")
-        assert env.observation_space.shape is not None
+        env = registry.make(
+            self.env_name,
+            num_envs=1,
+            sim_backend=self.extra_kwargs.get("sim_backend", "mujoco"),
+            env_cfg_override=self.env_cfg_overrides if self.env_cfg_overrides else None,
+        )
+        obs_dim, privileged_dim = get_obs_dims(env.obs_groups_spec)
+        self.privileged_dim = privileged_dim
         assert env.action_space.shape is not None
-        obs_dim = env.observation_space.shape[0]
         action_dim = env.action_space.shape[0]
         env.close()
 
@@ -107,6 +108,11 @@ class APPORunner(AsyncRunner):
         obs_example = torch.zeros((self.num_envs, self.obs_dim), device=self.device)
         td_example = TensorDict({"policy": obs_example}, batch_size=self.num_envs)
 
+        # Critic input includes privileged obs
+        critic_obs_dim = self.obs_dim + self.privileged_dim
+        critic_obs_example = torch.zeros((self.num_envs, critic_obs_dim), device=self.device)
+        critic_td_example = TensorDict({"policy": critic_obs_example}, batch_size=self.num_envs)
+
         # Build actor (stochastic MLPModel — distribution_cfg carries GaussianDistribution)
         # deepcopy so MLPModel.__init__'s distribution_cfg.pop("class_name") doesn't
         # mutate the shared rl_cfg that gets sent to the collector subprocess.
@@ -116,11 +122,11 @@ class APPORunner(AsyncRunner):
         actor = actor_cls(td_example, cfg["obs_groups"], "actor", self.action_dim, **actor_cfg)
 
         # Build critic (deterministic MLPModel, no distribution)
-        critic_cfg = deepcopy(cfg.get("critic", cfg.get("actor", {})))
+        critic_cfg = deepcopy(cfg.get("critic", cfg.get("actor", )))
         critic_cls = resolve_callable(critic_cfg.pop("class_name", "rsl_rl.models.MLPModel"))
         critic_cfg.pop("num_actions", None)
         critic_cfg.pop("distribution_cfg", None)  # critic is deterministic
-        critic = critic_cls(td_example, cfg["obs_groups"], "actor", 1, **critic_cfg)
+        critic = critic_cls(critic_td_example, cfg["obs_groups"], "actor", 1, **critic_cfg)
 
         # Extract algorithm hyperparams from rl_cfg["algorithm"] (or top-level)
         algo_cfg = cfg.get("algorithm", cfg)
@@ -168,6 +174,7 @@ class APPORunner(AsyncRunner):
             num_steps=self.steps_per_env,
             obs_dim=self.obs_dim,
             action_dim=self.action_dim,
+            privileged_dim=self.privileged_dim,
             num_slots=4,
             create=True,
         )
@@ -179,7 +186,7 @@ class APPORunner(AsyncRunner):
 
         weight_param_shapes = {name: p.shape for name, p in learner.actor.state_dict().items()}
 
-        metrics_queue: mp.Queue = mp.Queue(maxsize=100)
+        metrics_queue: mp.Queue = mp.get_context("spawn").Queue(maxsize=100)
 
         # Start collector
         collector_kwargs = {
@@ -194,10 +201,13 @@ class APPORunner(AsyncRunner):
             ),
             "obs_dim": self.obs_dim,
             "action_dim": self.action_dim,
+            "privileged_dim": self.privileged_dim,
             "weight_sync_name": weight_sync.name,
             "weight_param_shapes": weight_param_shapes,
             "metrics_queue": metrics_queue,
             "collector_device": self.collector_device,
+            "sim_backend": self.extra_kwargs.get("sim_backend", "mujoco"),
+            "env_cfg_override": self.env_cfg_overrides if self.env_cfg_overrides else None,
         }
         self._start_collector(
             target_fn=appo_collector_fn,
@@ -241,6 +251,16 @@ class APPORunner(AsyncRunner):
 
             data_ready = shared_storage.wait_for_data(timeout=60.0)
             if not data_ready:
+                # Check if the collector subprocess died — fail fast instead of
+                # burning through remaining iterations with 60s timeouts each.
+                if not self._check_collector_alive():
+                    self._drain_metrics(
+                        metrics_queue, reward_history, latest_reward_components, logger
+                    )
+                    raise RuntimeError(
+                        "APPO collector process died before producing data. "
+                        "Check stderr for [APPO WORKER CRASH] messages."
+                    )
                 logger.log_status(
                     f"[yellow]Warning: Timeout waiting for data at iteration {iteration}[/]"
                 )
@@ -261,7 +281,7 @@ class APPORunner(AsyncRunner):
                 # Preprocess: storage is [N, T, *] (env-major); learner expects [T, N, *]
                 rollout: dict = {}
                 for k, v in raw.items():
-                    if k != "last_obs" and v.ndim >= 2:
+                    if k not in ("last_obs", "last_privileged") and v.ndim >= 2:
                         rollout[k] = v.transpose(0, 1)
                     else:
                         rollout[k] = v
@@ -277,10 +297,14 @@ class APPORunner(AsyncRunner):
             # Concatenate all rollouts in the replay queue along the env dimension.
             # Each rollout keeps its own behavior_log_probs so V-trace IS ratios are
             # computed independently per env-column — correct for any staleness level.
-            combined: dict = {
-                k: torch.cat([r[k] for r in replay_queue], dim=0 if k == "last_obs" else 1)
-                for k in replay_queue[0]
-            }
+            combined: dict = {}
+            for k in replay_queue[0]:
+                if k in ("last_obs", "last_privileged"):
+                    # last_obs and last_privileged are [N, D] - concat along dim 0
+                    combined[k] = torch.cat([r[k] for r in replay_queue], dim=0)
+                else:
+                    # All other tensors are [T, N, ...] - concat along dim 1 (env dimension)
+                    combined[k] = torch.cat([r[k] for r in replay_queue], dim=1)
 
             train_start = time.time()
             learner.process_batch(combined)

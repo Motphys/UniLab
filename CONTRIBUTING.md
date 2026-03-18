@@ -110,3 +110,13 @@ Push / PR 到 `main` 时自动触发三个 job：
 ## 问题反馈
 
 使用 GitHub Issues 报告 bug 或提出功能建议。
+
+## 配置系统
+
+UniLab 使用 Hydra + dataclass 配置系统：
+
+- **添加新任务**：在 `conf/{algo}/task/` 创建 YAML，使用 `# @package _global_`
+- **修改超参数**：编辑对应 YAML 或使用 CLI 覆盖（`algo.num_envs=2048`）
+- **添加新算法**：在 `structured_configs.py` 添加 dataclass，创建对应 `conf/` 目录
+
+详见 `CLAUDE.md` 配置系统章节。

@@ -13,6 +13,7 @@ class FastSACRunner(OffPolicyRunner):
     def __init__(
         self,
         env_name: str,
+        env_cfg_override: dict[str, Any] | None = None,
         device: str | None = None,
         num_envs: int = 4096,
         replay_buffer_n: int = 1024,
@@ -44,11 +45,13 @@ class FastSACRunner(OffPolicyRunner):
         from unilab.utils.algo_utils import ensure_registries
 
         ensure_registries()
-        env: Any = registry.make(env_name, num_envs=1, sim_backend=sim_backend)
-        obs_space_shape = env.observation_space.shape
+        env: Any = registry.make(
+            env_name, num_envs=1, sim_backend=sim_backend, env_cfg_override=env_cfg_override
+        )
+        from unilab.utils.obs_utils import get_obs_dims
+        obs_dim, privileged_dim = get_obs_dims(env.obs_groups_spec)
         act_space_shape = env.action_space.shape
-        assert obs_space_shape is not None and act_space_shape is not None
-        obs_dim = obs_space_shape[0]
+        assert act_space_shape is not None
         action_dim = act_space_shape[0]
         mujoco_model = getattr(env, "_backend", None)
         if mujoco_model is not None:
@@ -79,6 +82,7 @@ class FastSACRunner(OffPolicyRunner):
             mujoco_model=mujoco_model,
             obs_structure=obs_structure,
             world_size=getattr(self, "world_size", world_size),
+            privileged_dim=privileged_dim,
         )
 
         # Auto-adjust batch_size when symmetry is enabled
@@ -105,4 +109,5 @@ class FastSACRunner(OffPolicyRunner):
             use_layer_norm=use_layer_norm,
             obs_normalization=obs_normalization,
             sim_backend=sim_backend,
+            env_cfg_override=env_cfg_override,
         )

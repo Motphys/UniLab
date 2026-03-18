@@ -29,7 +29,11 @@ test-fast:
 
 .PHONY: test-slow
 test-slow:
-	uv run pytest -m "slow"
+	uv run pytest -m "slow and not veryslow" -v
+
+.PHONY: test-veryslow
+test-veryslow:
+	uv run pytest -m "veryslow" -v
 
 .PHONY: test-all
 test-all: check test-cov

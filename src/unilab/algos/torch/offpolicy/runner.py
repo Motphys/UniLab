@@ -36,6 +36,7 @@ class OffPolicyRunner(AsyncRunner):
         use_layer_norm: bool = True,
         obs_normalization: bool = False,
         sim_backend: str = "mujoco",
+        env_cfg_override: dict | None = None,
     ):
         super().__init__(
             env_name=env_name,
@@ -48,6 +49,7 @@ class OffPolicyRunner(AsyncRunner):
         )
 
         self.learner = learner
+        self.env_cfg_override = env_cfg_override
         self.algo_type = algo_type
         self.replay_buffer_n = replay_buffer_n
         self.batch_size = batch_size
@@ -60,7 +62,9 @@ class OffPolicyRunner(AsyncRunner):
         self.use_layer_norm = use_layer_norm
         self.obs_normalization = obs_normalization
 
-        self.obs_dim, self.action_dim = get_env_dims(self.env_name, sim_backend)
+        self.obs_dim, self.action_dim, self.privileged_dim = get_env_dims(
+            self.env_name, sim_backend, env_cfg_override
+        )
 
     def _get_default_device(self) -> str:
         return get_default_device()
@@ -88,6 +92,7 @@ class OffPolicyRunner(AsyncRunner):
             obs_dim=self.obs_dim,
             action_dim=self.action_dim,
             device=self.device,
+            privileged_dim=self.privileged_dim,
         )
         self._shared_resources.append(replay_buffer)
 
@@ -131,6 +136,7 @@ class OffPolicyRunner(AsyncRunner):
             "env_steps_per_sync": self.env_steps_per_sync,
             "obs_normalization": self.obs_normalization,
             "shared_obs_normalizer_stats": shared_obs_normalizer_stats,
+            "env_cfg_override": self.env_cfg_override,
         }
         self._start_collector(
             target_fn=off_policy_collector_fn,

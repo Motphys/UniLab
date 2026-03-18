@@ -1,0 +1,83 @@
+defaults:
+  - _self_
+  - reward: default
+  - task: go1_joystick
+
+algo:
+  algo: ppo
+  algo_log_name: rsl_rl_ppo
+  seed: 1
+  num_envs: 4096
+  num_steps_per_env: 24
+  max_iterations: 101
+  save_interval: 100
+  empirical_normalization: false
+  runner_class_name: OnPolicyRunner
+  obs_groups:
+    default:
+      - policy
+  experiment_name: test
+  run_name: ""
+  resume: false
+  load_run: "-1"
+  checkpoint: -1
+  resume_path: null
+  policy:
+    init_noise_std: 1.0
+    actor_hidden_dims: [512, 256, 128]
+    critic_hidden_dims: [512, 256, 128]
+    activation: elu
+    class_name: ActorCritic
+  algorithm:
+    class_name: PPO
+    value_loss_coef: 1.0
+    use_clipped_value_loss: true
+    clip_param: 0.2
+    entropy_coef: 0.01
+    num_learning_epochs: 5
+    num_mini_batches: 4
+    learning_rate: 1.0e-3
+    schedule: adaptive
+    gamma: 0.99
+    lam: 0.95
+    desired_kl: 0.01
+    target_kl_stop: null
+    max_grad_norm: 1.0
+    adaptive_kl_beta: 0.9
+    adaptive_lr_growth: 1.1
+    adaptive_lr_decay: 1.2
+    adaptive_lr_update_interval: 5
+    fast_mode: true
+    metrics_interval: 8
+    finite_check_interval: 8
+    enable_compile: false
+    warmup_strict_iters: 10
+    warmup_metrics_interval: 2
+    warmup_finite_check_interval: 2
+    disable_finite_checks: true
+
+training:
+  task_name: Go1JoystickFlatTerrain
+  device: null
+  logger: tensorboard
+  sim_backend: mujoco
+  play_only: false
+  no_play: false
+  load_run: "-1"
+  play_env_num: 16
+  play_steps: 200
+  cam_distance: 6.0
+  cam_elevation: -20.0
+  cam_azimuth: 90.0
+  num_timesteps: null
+  log_dir: null
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  job:
+    chdir: false
+  job_logging:
+    root:
+      handlers: [console]

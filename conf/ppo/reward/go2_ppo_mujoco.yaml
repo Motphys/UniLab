@@ -1,0 +1,17 @@
+# @package _global_
+reward:
+  scales:
+    tracking_lin_vel: 1.0
+    tracking_ang_vel: 0.2
+    lin_vel_z: -5.0
+    ang_vel_xy: -0.02
+    base_height: -100.0
+    action_rate: -0.005
+    similar_to_default: -0.1
+    alive: 0.0
+    foot_lift_reward: 0.2
+    foot_drag_penalty: -0.0
+  tracking_sigma: 0.25
+  base_height_target: 0.3
+  target_foot_height: 0.08
+  foot_clearance_sigma: 0.02

@@ -16,6 +16,7 @@ import torch
 from rsl_rl.utils import resolve_callable
 
 from unilab.utils.algo_utils import ensure_registries
+from unilab.utils.obs_utils import flatten_obs_dict, split_obs_dict
 
 
 def appo_collector_fn(
@@ -28,10 +29,13 @@ def appo_collector_fn(
     sync_primitives: tuple,
     obs_dim: int,
     action_dim: int,
+    privileged_dim: int,
     weight_sync_name: str,
     weight_param_shapes: dict,
     metrics_queue: Any,
     collector_device: str = "cpu",
+    sim_backend: str = "mujoco",
+    env_cfg_override: dict | None = None,
 ):
     """Entry point for the APPO collector subprocess.
 
@@ -53,6 +57,7 @@ def appo_collector_fn(
         num_steps=steps_per_env,
         obs_dim=obs_dim,
         action_dim=action_dim,
+        privileged_dim=privileged_dim,
         create=False,
         shm_name_prefix=shm_storage_name,
     )
@@ -60,7 +65,9 @@ def appo_collector_fn(
     weight_sync = SharedWeightSync(weight_param_shapes, create=False, shm_name=weight_sync_name)
 
     # Create environment
-    env: Any = registry.make(env_name, num_envs=num_envs, sim_backend="mujoco")
+    env: Any = registry.make(
+        env_name, num_envs=num_envs, sim_backend=sim_backend, env_cfg_override=env_cfg_override
+    )
 
     # Build actor (stochastic MLPModel — mirrors runner._build_learner)
     cfg = dict(rl_cfg)
@@ -96,7 +103,7 @@ def appo_collector_fn(
     # Reset environment
     env_indices = np.arange(num_envs, dtype=np.int32)
     try:
-        _, obs_out, _ = env.reset(env_indices)
+        obs_out, _ = env.reset(env_indices)
     except TypeError:
         obs_out, _ = env.reset()
 
@@ -105,7 +112,10 @@ def appo_collector_fn(
             x = x.cpu().numpy()
         return np.asarray(x, dtype=np.float32)
 
-    obs_np = to_float32_np(obs_out)
+    obs_np, priv_np = split_obs_dict(obs_out)
+    obs_np = to_float32_np(obs_np)
+    if priv_np is not None:
+        priv_np = to_float32_np(priv_np)
 
     # Pre-allocate obs TensorDict once; update in-place each step to avoid
     # repeated TensorDict construction overhead in the hot loop.
@@ -151,6 +161,8 @@ def appo_collector_fn(
                 )
 
                 write_buf["obs"][:, step, :] = obs_np
+                if priv_np is not None:
+                    write_buf["privileged"][:, step, :] = priv_np
                 write_buf["actions"][:, step, :] = actions_np
                 write_buf["log_probs"][:, step] = log_probs_torch.cpu().numpy().ravel()
 
@@ -170,15 +182,19 @@ def appo_collector_fn(
                 write_buf["dones"][:, step] = done_raw
                 write_buf["truncated"][:, step] = truncated_raw
 
-                obs_np = to_float32_np(next_obs_raw)
+                obs_np, priv_np = split_obs_dict(next_obs_raw)
+                obs_np = to_float32_np(obs_np)
+                if priv_np is not None:
+                    priv_np = to_float32_np(priv_np)
 
                 # Bootstrap from true terminal obs so next rollout starts cleanly
                 if "_final_observation" in state.info:
                     has_final = np.asarray(state.info["_final_observation"], dtype=bool)
                     if np.any(has_final):
-                        obs_np[has_final] = to_float32_np(state.info["final_observation"])[
-                            has_final
-                        ]
+                        final_obs, final_priv = split_obs_dict(state.info["final_observation"])
+                        obs_np[has_final] = to_float32_np(final_obs)[has_final]
+                        if priv_np is not None and final_priv is not None:
+                            priv_np[has_final] = to_float32_np(final_priv)[has_final]
 
                 # Episode tracking (vectorized)
                 total_steps += num_envs
@@ -231,6 +247,8 @@ def appo_collector_fn(
                         print(f"[APPOWorker] metrics enqueue error: {e}", file=sys.stderr)
 
             write_buf["last_obs"][:] = obs_np
+            if priv_np is not None:
+                write_buf["last_privileged"][:] = priv_np
             storage.signal_write_done()  # atomic increment, non-blocking
 
     except Exception as e:

@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import argparse
 import datetime
 import importlib
 import json
@@ -18,11 +17,12 @@ import time
 from collections import deque
 from pathlib import Path
 
+import hydra
 import mlx.core as mx
 import numpy as np
 from mlx.utils import tree_map
+from omegaconf import DictConfig, OmegaConf
 
-# Add workspace root to python path dynamically
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
 
@@ -48,12 +48,11 @@ ensure_registries()
 from unilab.algos.mlx.common import EmpiricalDiscountedVariationNormalization, RolloutBuffer
 from unilab.algos.mlx.ppo import MLPActorCritic, PPOConfig, PPOTrainer
 from unilab.base import registry
-from unilab.config import locomotion_params
 from unilab.utils import render_many
+from unilab.utils.obs_utils import flatten_obs_dict
 from unilab.utils.onpolicy_logger import OnPolicyLogger
 
 TASK_STEP_TUNING = {
-    # Tuned for faster collection_time on each task.
     "Go1JoystickFlatTerrain": {"threads": "32", "chunk": "4"},
     "Go2JoystickFlatTerrain": {"threads": "56", "chunk": "16"},
     "G1JoystickFlatTerrain": {"threads": "24", "chunk": "4"},
@@ -120,12 +119,11 @@ def load_trainer_state(path: Path, trainer: PPOTrainer, dtype=mx.float32) -> int
         payload = pickle.load(f)
     trainer.learning_rate = float(payload.get("learning_rate", trainer.learning_rate))
     trainer.optimizer.learning_rate = mx.array(trainer.learning_rate, dtype=dtype)
-    # Skip loading optimizer state to avoid memory issues
     return int(payload.get("iteration", -1))
 
 
 def build_model(cfg, obs_dim: int, action_dim: int, dtype=mx.float32) -> MLPActorCritic:
-    """Build actor-critic model from locomotion config."""
+    """Build actor-critic model from config (expects cfg with .policy and .empirical_normalization)."""
     policy_cfg = cfg.policy
     init_noise_std = float(getattr(policy_cfg, "init_noise_std", 1.0))
     init_log_std = float(math.log(max(init_noise_std, 1e-6)))
@@ -155,22 +153,29 @@ def _get_physics_state_snapshot(env) -> np.ndarray:
     raise AttributeError("Env backend does not expose physics state for video rendering")
 
 
-def play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root):
+def play_mlx_ppo(
+    cfg: DictConfig, dtype, use_fp16: bool, resolved_sim_backend: str, task_log_root: Path
+):
     """Play mode for MLX PPO."""
-    import mlx.core as mx
-    import numpy as np
+    from unilab.utils.reward_utils import extract_reward_config
 
-    from unilab.base import registry
+    env_cfg_override = extract_reward_config(cfg)
 
     play_model_dtype = mx.float32 if use_fp16 else dtype
-    play_env_num = args.play_env_num
-    env = registry.make(args.task, num_envs=play_env_num, sim_backend=resolved_sim_backend)
-    obs_dim = env.observation_space.shape[0]
+    play_env_num = cfg.training.play_env_num
+    env = registry.make(
+        cfg.training.task_name,
+        num_envs=play_env_num,
+        sim_backend=resolved_sim_backend,
+        env_cfg_override=env_cfg_override,
+    )
+    obs_dim = sum(env.obs_groups_spec.values())
     action_dim = env.action_space.shape[0]
-    model = build_model(cfg, obs_dim, action_dim, dtype=play_model_dtype)
+    model = build_model(cfg.algo, obs_dim, action_dim, dtype=play_model_dtype)
 
     load_path: Path | None = None
-    if args.load_run == "-1":
+    load_run = cfg.training.load_run
+    if load_run == "-1":
         latest_run = get_latest_run(task_log_root)
         if latest_run is not None:
             load_path = get_latest_checkpoint(latest_run)
@@ -178,9 +183,9 @@ def play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root
         else:
             run_dir = None
     else:
-        candidate = Path(args.load_run)
+        candidate = Path(load_run)
         if not candidate.exists():
-            candidate = task_log_root / args.load_run
+            candidate = task_log_root / load_run
         if candidate.is_dir():
             load_path = get_latest_checkpoint(candidate)
             run_dir = candidate
@@ -192,7 +197,7 @@ def play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root
             run_dir = None
 
     if load_path is None or not load_path.exists():
-        print(f"Could not find valid model checkpoint from --load_run={args.load_run}")
+        print(f"Could not find valid model checkpoint from load_run={load_run}")
         env.close()
         return
 
@@ -202,8 +207,8 @@ def play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root
     if env.state is None:
         env.init_state()
     play_reset_indices = np.arange(env.num_envs, dtype=np.int32)
-    _, obs, _ = env.reset(play_reset_indices)
-    obs = mx.array(obs)
+    obs_dict_play, _ = env.reset(play_reset_indices)
+    obs = mx.array(flatten_obs_dict(obs_dict_play))
 
     if resolved_sim_backend == "motrix":
         print("[MLX PPO] Starting interactive visualization (motrix native renderer)...")
@@ -227,7 +232,7 @@ def play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root
                 )
                 env_actions = np.asarray(actions)
                 state = env.step(env_actions)
-                raw_obs = state.obs
+                raw_obs = flatten_obs_dict(state.obs)
                 obs = mx.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0)
 
                 current_time = time.perf_counter()
@@ -250,7 +255,7 @@ def play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root
 
     state_list = []
     print("[MLX PPO] Collecting physics states for play...")
-    for _ in range(args.play_steps):
+    for _ in range(cfg.training.play_steps):
         obs_for_model = (
             obs.astype(play_model_dtype) if getattr(obs, "dtype", None) != play_model_dtype else obs
         )
@@ -259,7 +264,7 @@ def play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root
         actions = actions.astype(dtype) if getattr(actions, "dtype", None) != dtype else actions
         env_actions = np.asarray(actions)
         state = env.step(env_actions)
-        raw_obs = state.obs
+        raw_obs = flatten_obs_dict(state.obs)
         obs = mx.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0)
         state_list.append(_get_physics_state_snapshot(env))
 
@@ -282,82 +287,35 @@ def play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root
     env.close()
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Train or Play PPO with MLX + NumPy only.")
-    parser.add_argument("--task", type=str, required=True, help="Task name")
-    parser.add_argument(
-        "--sim_backend",
-        type=str,
-        default="mujoco",
-        choices=["mujoco", "motrix"],
-        help="Simulator backend",
-    )
-    parser.add_argument("--play_only", action="store_true", help="Skip training, only play")
-    parser.add_argument("--no_play", action="store_true", help="Skip play after training")
-    parser.add_argument(
-        "--load_run", type=str, default="-1", help="Run ID to load, run path, or model file path"
-    )
-    parser.add_argument(
-        "--env_num", type=int, default=None, help="Number of parallel envs (task default if unset)"
-    )
-    parser.add_argument("--play_env_num", type=int, default=16, help="Number of play envs")
-    parser.add_argument(
-        "--play_steps", type=int, default=150, help="Number of steps for play video"
-    )
-    parser.add_argument(
-        "--steps_per_env", type=int, default=None, help="Rollout horizon per iteration"
-    )
-    parser.add_argument("--max_iterations", type=int, default=None, help="Training iterations")
-    parser.add_argument("--learning_rate", type=float, default=None, help="Override learning rate")
-    parser.add_argument("--seed", type=int, default=1, help="Random seed")
-    parser.add_argument("--log_interval", type=int, default=10, help="Print every N iterations")
-    parser.add_argument(
-        "--log_root", type=str, default="logs/mlx_rl_train", help="Root directory for training logs"
-    )
-    parser.add_argument("--save_interval", type=int, default=50, help="Checkpoint save interval")
-    parser.add_argument(
-        "--fp16",
-        action="store_true",
-        help="Mixed precision: env/buffer float16, model/optimizer float32 (sets UNILAB_MLX_DTYPE=float16)",
-    )
-    parser.add_argument(
-        "--logger",
-        type=str,
-        default="tensorboard",
-        choices=["tensorboard", "wandb", "none", "no_print"],
-    )
-    args = parser.parse_args()
-    resolved_sim_backend = args.sim_backend
+@hydra.main(version_base="1.3", config_path="../conf/ppo", config_name="config_mlx")
+def main(cfg: DictConfig) -> None:
+    task_name = cfg.training.task_name
+    resolved_sim_backend = cfg.training.sim_backend
 
-    if args.env_num is None:
-        cfg = locomotion_params.ppo_config(args.task)
-        args.env_num = cfg.num_envs
-
-    use_fp16 = getattr(args, "fp16", False)
+    use_fp16 = cfg.training.fp16
     if use_fp16:
         os.environ["UNILAB_MLX_DTYPE"] = "float16"
-    # Mixed precision: env and buffer use float16 to save memory; model and optimizer stay float32 to avoid nan on update.
     dtype = mx.float16 if use_fp16 else mx.float32
     model_dtype = mx.float32 if use_fp16 else dtype
 
-    mx.random.seed(args.seed)
+    mx.random.seed(cfg.training.seed)
 
-    cfg = locomotion_params.ppo_config(args.task)
-    algo_cfg = cfg.algorithm
+    algo_cfg = cfg.algo.algorithm
     profile_collection = os.getenv("UNILAB_PROFILE_COLLECTION", "0") == "1"
 
-    num_steps = int(args.steps_per_env or cfg.num_steps_per_env)
-    max_iterations = int(args.max_iterations or cfg.max_iterations)
-    learning_rate = float(args.learning_rate or algo_cfg.learning_rate)
-    save_interval = int(args.save_interval)
+    num_steps = cfg.algo.num_steps_per_env
+    max_iterations = cfg.algo.max_iterations
+    learning_rate = float(algo_cfg.learning_rate)
+    save_interval = cfg.training.save_interval
+
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    log_root = Path(args.log_root)
+    log_root = Path(cfg.training.log_root)
     if not log_root.is_absolute():
         log_root = ROOT_DIR / log_root
-    task_log_root = log_root / args.task
+    task_log_root = log_root / task_name
 
-    if args.play_only:
-        play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root)
+    if cfg.training.play_only:
+        play_mlx_ppo(cfg, dtype, use_fp16, resolved_sim_backend, task_log_root)
         return
 
     # TRAIN MODE
@@ -367,15 +325,15 @@ def main() -> None:
     log_fp = log_file_path.open("a", encoding="utf-8")
 
     def log(msg: str) -> None:
-        if args.logger != "no_print":
+        if cfg.training.logger != "no_print":
             print(msg)
         log_fp.write(msg + "\n")
         log_fp.flush()
 
     run_meta = {
-        "task": args.task,
+        "task": task_name,
         "sim_backend": resolved_sim_backend,
-        "env_num": args.env_num,
+        "env_num": cfg.algo.num_envs,
         "steps_per_env": num_steps,
         "max_iterations": max_iterations,
         "learning_rate": learning_rate,
@@ -400,19 +358,19 @@ def main() -> None:
         "warmup_metrics_interval": int(getattr(algo_cfg, "warmup_metrics_interval", 1)),
         "warmup_finite_check_interval": int(getattr(algo_cfg, "warmup_finite_check_interval", 1)),
         "disable_finite_checks": bool(getattr(algo_cfg, "disable_finite_checks", False)),
-        "seed": args.seed,
+        "seed": cfg.training.seed,
         "timestamp": timestamp,
     }
     (log_dir / "run_config.json").write_text(json.dumps(run_meta, indent=2), encoding="utf-8")
 
     wandb_run = None
-    if args.logger == "wandb":
+    if cfg.training.logger == "wandb":
         try:
             import wandb
 
             wandb_run = wandb.init(
                 project="unilab",
-                name=f"mlx_ppo_{args.task}",
+                name=f"mlx_ppo_{task_name}",
                 config=run_meta,
                 dir=log_dir,
                 reinit=True,
@@ -420,21 +378,29 @@ def main() -> None:
         except ImportError:
             log("[Warning] wandb not installed, skipping W&B logging")
 
-    preset = TASK_STEP_TUNING.get(args.task, {"threads": "32", "chunk": "16"})
+    from unilab.utils.reward_utils import extract_reward_config
+
+    env_cfg_override = extract_reward_config(cfg)
+
+    preset = TASK_STEP_TUNING.get(task_name, {"threads": "32", "chunk": "16"})
     os.environ["UNILAB_MUJOCO_STEP_THREADS"] = preset["threads"]
     os.environ["UNILAB_MUJOCO_STEP_CHUNK"] = preset["chunk"]
-    env = registry.make(args.task, num_envs=args.env_num, sim_backend=resolved_sim_backend)
-    # Keep reward log enabled for logger display
+    env = registry.make(
+        task_name,
+        num_envs=cfg.algo.num_envs,
+        sim_backend=resolved_sim_backend,
+        env_cfg_override=env_cfg_override,
+    )
     if env.state is None:
         env.init_state()
     reset_indices = np.arange(env.num_envs, dtype=np.int32)
-    _, obs, _ = env.reset(reset_indices)
-    obs = mx.array(obs)
+    obs_dict, _ = env.reset(reset_indices)
+    obs = mx.array(flatten_obs_dict(obs_dict))
 
-    obs_dim = env.observation_space.shape[0]
+    obs_dim = sum(env.obs_groups_spec.values())
     action_dim = env.action_space.shape[0]
 
-    model = build_model(cfg, obs_dim, action_dim, dtype=model_dtype)
+    model = build_model(cfg.algo, obs_dim, action_dim, dtype=model_dtype)
     ppo_cfg = PPOConfig(
         num_learning_epochs=int(algo_cfg.num_learning_epochs),
         num_mini_batches=int(algo_cfg.num_mini_batches),
@@ -477,10 +443,11 @@ def main() -> None:
         else None
     )
 
-    if args.load_run != "-1":
-        resume_candidate = Path(args.load_run)
+    load_run = cfg.training.load_run
+    if load_run != "-1":
+        resume_candidate = Path(load_run)
         if not resume_candidate.exists():
-            resume_candidate = task_log_root / args.load_run
+            resume_candidate = task_log_root / load_run
         if resume_candidate.is_dir():
             ckpt = get_latest_checkpoint(resume_candidate)
         elif resume_candidate.is_file():
@@ -498,7 +465,8 @@ def main() -> None:
                     log(f"[MLX PPO] resumed_trainer_state={trainer_state_path} iter={resumed_it}")
 
     log(
-        f"[MLX PPO] task={args.task} backend={resolved_sim_backend} envs={args.env_num} steps={num_steps} iters={max_iterations}"
+        f"[MLX PPO] task={task_name} backend={resolved_sim_backend} "
+        f"envs={cfg.algo.num_envs} steps={num_steps} iters={max_iterations}"
     )
     log(f"[MLX PPO] run={timestamp} lr={learning_rate:.6f} fp16={use_fp16}")
     log(
@@ -520,26 +488,26 @@ def main() -> None:
     rich_logger = OnPolicyLogger(
         algo_name="MLX_PPO",
         max_iterations=max_iterations,
-        num_envs=args.env_num,
+        num_envs=cfg.algo.num_envs,
         num_steps=num_steps,
-        env_name=args.task,
+        env_name=task_name,
         log_dir=log_dir,
-        log_backend=args.logger,
+        log_backend=cfg.training.logger,
     )
     rich_logger.start()
 
-    episode_returns = np.zeros((args.env_num,), dtype=(np.float16 if use_fp16 else np.float32))
-    episode_lengths = np.zeros((args.env_num,), dtype=np.int32)
+    episode_returns = np.zeros((cfg.algo.num_envs,), dtype=(np.float16 if use_fp16 else np.float32))
+    episode_lengths = np.zeros((cfg.algo.num_envs,), dtype=np.int32)
     reward_window = deque(maxlen=100)
     length_window = deque(maxlen=100)
-    collection_size = num_steps * args.env_num
+    collection_size = num_steps * cfg.algo.num_envs
     total_time = 0.0
 
     for it in range(max_iterations):
         iter_start = time.perf_counter()
         buffer = RolloutBuffer(
             num_steps=num_steps,
-            num_envs=args.env_num,
+            num_envs=cfg.algo.num_envs,
             obs_dim=obs_dim,
             action_dim=action_dim,
             gamma=ppo_cfg.gamma,
@@ -550,7 +518,7 @@ def main() -> None:
         collect_start = time.perf_counter()
         reward_component_sums: dict[str, float] = {}
         reward_component_counts: dict[str, int] = {}
-        collect_reward_components = True  # Always collect for logger display
+        collect_reward_components = True
         track_episode_stats = True
         model_act_time = 0.0
         env_step_total_time = 0.0
@@ -570,7 +538,6 @@ def main() -> None:
                 obs_for_model
             )
             model_act_time += time.perf_counter() - t_act0
-            # Conversion boundary: model action → env; clamp Nan/Inf only here.
             actions = mx.where(mx.isfinite(actions_mx), actions_mx, mx.zeros_like(actions_mx))
             executed_actions = actions.astype(dtype) if actions.dtype != dtype else actions
             t_env0 = time.perf_counter()
@@ -596,10 +563,9 @@ def main() -> None:
                         float(timing_info.get("reset_info_merge_ms", 0.0)) / 1000.0
                     )
 
-            # Conversion boundary: env output → rollout; sanitize Nan/Inf only here (no forced reset).
             raw_rewards = mx.array(state.reward)
             raw_dones = mx.array(state.done)
-            raw_obs = mx.array(state.obs)
+            raw_obs = mx.array(flatten_obs_dict(state.obs))
             rewards = mx.nan_to_num(raw_rewards, nan=0.0, posinf=0.0, neginf=0.0)
             dones = mx.where(mx.isfinite(raw_dones), raw_dones, mx.ones_like(raw_dones)).astype(
                 dtype
@@ -661,7 +627,6 @@ def main() -> None:
 
             if track_episode_stats:
                 t_ep0 = time.perf_counter()
-                # Conversion boundary: MLX → numpy for stats; sanitize only here.
                 rewards_np = np.nan_to_num(np.asarray(rewards), nan=0.0, posinf=0.0, neginf=0.0)
                 dones_np = np.asarray(dones)
                 episode_returns += rewards_np
@@ -799,8 +764,8 @@ def main() -> None:
         wandb.finish()
     log_fp.close()
 
-    if not args.no_play:
-        play_mlx_ppo(args, cfg, dtype, use_fp16, resolved_sim_backend, task_log_root)
+    if not cfg.training.no_play:
+        play_mlx_ppo(cfg, dtype, use_fp16, resolved_sim_backend, task_log_root)
 
 
 if __name__ == "__main__":

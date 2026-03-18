@@ -1,0 +1,69 @@
+defaults:
+  - _self_
+  - reward: default
+  - task: go1_joystick
+
+algo:
+  algo: appo
+  algo_log_name: appo
+  seed: 1
+  num_envs: 2048
+  steps_per_env: 24
+  max_iterations: 150
+  save_interval: 50
+  obs_groups:
+    actor:
+      policy: 0
+  actor:
+    class_name: rsl_rl.models.MLPModel
+    hidden_dims: [512, 256, 128]
+    activation: elu
+    distribution_cfg:
+      class_name: rsl_rl.modules.distribution.GaussianDistribution
+      init_std: 1.0
+      std_type: scalar
+  critic:
+    class_name: rsl_rl.models.MLPModel
+    hidden_dims: [512, 256, 128]
+    activation: elu
+  algorithm:
+    num_learning_epochs: 5
+    num_mini_batches: 4
+    clip_param: 0.2
+    gamma: 0.99
+    lam: 0.95
+    value_loss_coef: 1.0
+    entropy_coef: 0.01
+    learning_rate: 1.0e-3
+    max_grad_norm: 1.0
+    use_clipped_value_loss: true
+    schedule: adaptive
+    desired_kl: 0.01
+    optimizer: adam
+    tau: 1.0
+    target_update_freq: 1
+    vtrace_clip_rho: 1.0
+    vtrace_clip_c: 1.0
+
+training:
+  task_name: Go1JoystickFlatTerrain
+  device: null
+  collector_device: null
+  logger: tensorboard
+  sim_backend: mujoco
+  log_dir: null
+  play_only: false
+  no_play: false
+  load_run: "-1"
+  play_env_num: 16
+  replay_queue_size: null
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  job:
+    chdir: false
+  job_logging:
+    root:
+      handlers: [console]

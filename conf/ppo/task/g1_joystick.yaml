@@ -1,0 +1,14 @@
+# @package _global_
+defaults:
+  - override /reward: g1_ppo_mujoco
+
+training:
+  task_name: G1JoystickFlatTerrain
+algo:
+  num_envs: 2048
+  max_iterations: 220
+  obs_groups:
+    default:
+      - policy
+    actor:
+      - actor

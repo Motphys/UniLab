@@ -11,6 +11,7 @@ import numpy as np
 import torch
 
 from unilab.utils.algo_utils import build_actor, ensure_registries
+from unilab.utils.obs_utils import split_obs_dict
 
 
 def off_policy_collector_fn(
@@ -33,6 +34,7 @@ def off_policy_collector_fn(
     obs_normalization: bool = False,
     shared_obs_normalizer_stats=None,
     sim_backend: str = "mujoco",
+    env_cfg_override: dict | None = None,
     **kwargs,
 ):
     """Entry point for the off-policy collector subprocess."""
@@ -61,6 +63,7 @@ def off_policy_collector_fn(
             obs_normalization=obs_normalization,
             shared_obs_normalizer_stats=shared_obs_normalizer_stats,
             sim_backend=sim_backend,
+            env_cfg_override=env_cfg_override,
         )
     except Exception as e:
         print(f"[Collector] Exception: {e}", file=sys.stderr, flush=True)
@@ -92,6 +95,7 @@ def _run_collector(
     obs_normalization,
     shared_obs_normalizer_stats,
     sim_backend,
+    env_cfg_override,
 ):
     from unilab.base import registry
     from unilab.ipc import SharedWeightSync
@@ -99,7 +103,9 @@ def _run_collector(
     ensure_registries()
 
     # Initialize environment
-    env = registry.make(env_name, num_envs=num_envs, sim_backend=sim_backend)
+    env = registry.make(
+        env_name, num_envs=num_envs, sim_backend=sim_backend, env_cfg_override=env_cfg_override
+    )
     if env.state is None:
         env.init_state()
 
@@ -109,9 +115,9 @@ def _run_collector(
     )
 
     # Build actor (always on CPU for env interaction)
-    assert env.observation_space.shape is not None
+    from unilab.utils.obs_utils import get_obs_dims
+    obs_dim, _ = get_obs_dims(env.obs_groups_spec)
     assert env.action_space.shape is not None
-    obs_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
     actor = build_actor(
         algo_type, obs_dim, action_dim, actor_hidden_dim, use_layer_norm, "cpu", num_envs
@@ -141,7 +147,10 @@ def _run_collector(
     # Initial step to get first observation
     actions_np = np.zeros((num_envs, action_dim), dtype=np.float32)
     state = env.step(actions_np)
-    obs_np = np.asarray(state.obs, dtype=np.float32)
+    obs_np, priv_np = split_obs_dict(state.obs)
+    obs_np = np.asarray(obs_np, dtype=np.float32)
+    if priv_np is not None:
+        priv_np = np.asarray(priv_np, dtype=np.float32)
     max_episode_steps = getattr(getattr(env, "cfg", None), "max_episode_steps", None)
     if max_episode_steps is not None and int(max_episode_steps) > 0:
         step_offsets = np.random.randint(
@@ -214,7 +223,10 @@ def _run_collector(
             timing_count += 1
 
         # Extract data as numpy
-        next_obs_np = np.asarray(state.obs, dtype=np.float32)
+        next_obs_np, next_priv_np = split_obs_dict(state.obs)
+        next_obs_np = np.asarray(next_obs_np, dtype=np.float32)
+        if next_priv_np is not None:
+            next_priv_np = np.asarray(next_priv_np, dtype=np.float32)
         rewards_np = np.asarray(state.reward, dtype=np.float32).ravel()
 
         terminated_np = (
@@ -241,8 +253,12 @@ def _run_collector(
             has_final = state.info["_final_observation"]
             has_final_np = np.asarray(has_final, dtype=bool)
             if np.any(has_final_np):
-                final_obs_np = np.asarray(state.info["final_observation"], dtype=np.float32)
+                final_obs_np, final_priv_np = split_obs_dict(state.info["final_observation"])
+                final_obs_np = np.asarray(final_obs_np, dtype=np.float32)
                 next_obs_np[has_final_np] = final_obs_np[has_final_np]
+                if final_priv_np is not None and next_priv_np is not None:
+                    final_priv_np = np.asarray(final_priv_np, dtype=np.float32)
+                    next_priv_np[has_final_np] = final_priv_np[has_final_np]
 
         # Write to replay buffer
         replay_buffer.add(
@@ -252,6 +268,8 @@ def _run_collector(
             torch.from_numpy(next_obs_np),
             torch.from_numpy(terminated_np),
             torch.from_numpy(truncated_np),
+            torch.from_numpy(priv_np) if priv_np is not None else None,
+            torch.from_numpy(next_priv_np) if next_priv_np is not None else None,
         )
 
         # Track episode rewards - vectorized
@@ -266,6 +284,7 @@ def _run_collector(
             current_ep_lengths[reset_indices] = 0
 
         obs_np = next_obs_np
+        priv_np = next_priv_np
         total_steps += num_envs
         env_steps_since_sync += 1
 

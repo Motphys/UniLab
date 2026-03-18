@@ -58,6 +58,10 @@ class _DummyEnv(ABEnv):
     def action_space(self) -> gym.Space:
         return self._act_space
 
+    @property
+    def obs_groups_spec(self) -> dict[str, int]:
+        return {"actor": _DUMMY_OBS_DIM}
+
     def close(self) -> None:
         pass
 
@@ -127,3 +131,99 @@ def tiny_weight_shapes():
 @pytest.fixture
 def mock_env_name() -> str:
     return _DUMMY_ENV_NAME
+
+
+@pytest.fixture
+def default_go1_reward_config():
+    """Default reward config for Go1 testing."""
+    return {
+        "scales": {
+            "tracking_lin_vel": 1.0,
+            "tracking_ang_vel": 0.2,
+            "lin_vel_z": -5.0,
+            "ang_vel_xy": -0.1,
+            "base_height": -100.0,
+            "action_rate": -0.005,
+            "similar_to_default": -0.1,
+            "contact": 0.24,
+        },
+        "tracking_sigma": 0.25,
+        "base_height_target": 0.3,
+    }
+
+
+@pytest.fixture
+def default_go2_reward_config():
+    """Default reward config for Go2 testing."""
+    return {
+        "scales": {
+            "tracking_lin_vel": 1.0,
+            "tracking_ang_vel": 0.2,
+            "lin_vel_z": -5.0,
+            "ang_vel_xy": -0.02,
+            "base_height": -100.0,
+            "action_rate": -0.005,
+            "similar_to_default": -0.1,
+            "alive": 0.0,
+            "foot_lift_reward": 0.2,
+            "foot_drag_penalty": 0.0,
+        },
+        "tracking_sigma": 0.25,
+        "base_height_target": 0.3,
+        "target_foot_height": 0.08,
+        "foot_clearance_sigma": 0.02,
+    }
+
+
+@pytest.fixture
+def default_g1_reward_config():
+    """Default reward config for G1 testing."""
+    return {
+        "scales": {
+            "tracking_lin_vel": 2.0,
+            "tracking_ang_vel": 0.2,
+            "feet_phase": 1.0,
+            "lin_vel_z": -1.0,
+            "ang_vel_xy": -0.25,
+            "base_height": -500.0,
+            "orientation": -5.0,
+            "action_rate": -0.01,
+            "pose": -0.1,
+        },
+        "tracking_sigma": 0.25,
+        "gait_frequency": 1.5,
+        "feet_phase_swing_height": 0.09,
+        "feet_phase_tracking_sigma": 0.008,
+        "base_height_target": 0.754,
+        "min_base_height": 0.55,
+        "max_tilt_deg": 25.0,
+        "pose_weights": [0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0],
+    }
+
+
+@pytest.fixture
+def default_g1_sac_reward_config():
+    """Default reward config for G1 SAC testing."""
+    return {
+        "scales": {
+            "tracking_lin_vel": 2.0,
+            "tracking_ang_vel": 1.5,
+            "penalty_ang_vel_xy": -1.0,
+            "penalty_orientation": -10.0,
+            "penalty_action_rate": -2.0,
+            "pose": -0.5,
+            "penalty_feet_ori": -25.0,
+            "feet_phase": 5.0,
+            "alive": 10.0,
+        },
+        "tracking_sigma": 0.25,
+        "base_height_target": 0.754,
+        "min_base_height": 0.3,
+        "max_tilt_deg": 65.0,
+        "gait_frequency": 1.5,
+        "feet_phase_swing_height": 0.09,
+        "feet_phase_tracking_sigma": 0.008,
+        "close_feet_threshold": 0.15,
+        "pose_weights": [0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0],
+    }
+

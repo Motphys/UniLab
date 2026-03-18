@@ -1,0 +1,9 @@
+# @package _global_
+defaults:
+  - override /reward: go2_sac_mujoco
+
+training:
+  task_name: Go2JoystickFlatTerrain
+algo:
+  num_envs: 1024
+  max_iterations: 3000

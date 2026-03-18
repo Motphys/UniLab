@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional, Tuple
 
-import gymnasium as gym
 import numpy as np
 from etils import epath
 
@@ -92,19 +91,15 @@ class AllegroRotationMj(AllegroBaseMjEnv):
         self._grasp_cache_loaded = False
 
         self._init_reward_functions()
-        self._init_obs_space()
 
     # ── Spaces ──────────────────────────────────────────────────────
 
-    def _init_obs_space(self):
-        # Last 3 timesteps of [dof_pos_norm(16) + targets(16) + ball_pos(3)] = 3 * 35 = 105
-        self._observation_space = gym.spaces.Box(
-            low=-np.inf, high=np.inf, shape=(105,), dtype=float
-        )
+    _NUM_OBS_PER_STEP = 35  # dof_pos_norm(16) + targets(16) + ball_pos(3)
+    _NUM_LAG_STEPS = 3
 
     @property
-    def observation_space(self) -> gym.spaces.Box:
-        return self._observation_space  # type: ignore[no-any-return]
+    def obs_groups_spec(self) -> dict[str, int]:
+        return {"actor": self._NUM_OBS_PER_STEP * self._NUM_LAG_STEPS}
 
     # ── Reward functions ─────────────────────────────────────────────
 
@@ -213,7 +208,15 @@ class AllegroRotationMj(AllegroBaseMjEnv):
         current_obs = np.concatenate([dof_pos_norm, targets, ball_pos], axis=1)  # (N, 35)
 
         obs_lag_history = state.info.get(
-            "obs_lag_history", np.zeros((self._num_envs, 3, 35), dtype=self._np_dtype)
+            "obs_lag_history",
+            np.zeros(
+                (
+                    self._num_envs,
+                    self._NUM_LAG_STEPS,
+                    self._NUM_OBS_PER_STEP,
+                ),
+                dtype=self._np_dtype,
+            ),
         )
         obs_lag_history[:, :-1] = obs_lag_history[:, 1:]
         obs_lag_history[:, -1] = current_obs
@@ -248,17 +251,22 @@ class AllegroRotationMj(AllegroBaseMjEnv):
 
         return total * self._cfg.ctrl_dt, log
 
-    def _get_obs(self, info: dict) -> np.ndarray:
+    def _get_obs(self, info: dict) -> dict[str, np.ndarray]:
         """Extract observation from info. Pure function - does not modify state."""
         obs_lag_history = info.get(
-            "obs_lag_history", np.zeros((self._num_envs, 3, 35), dtype=self._np_dtype)
+            "obs_lag_history",
+            np.zeros(
+                (self._num_envs, self._NUM_LAG_STEPS, self._NUM_OBS_PER_STEP), dtype=self._np_dtype
+            ),
         )
         num_envs = obs_lag_history.shape[0]
-        return np.asarray(obs_lag_history.reshape(num_envs, -1))
+        return {"actor": np.asarray(obs_lag_history.reshape(num_envs, -1))}
 
     # ── Reset ────────────────────────────────────────────────────────
 
-    def reset(self, env_indices: np.ndarray) -> Tuple[np.ndarray, np.ndarray, dict]:
+    def reset(
+        self, env_indices: np.ndarray
+    ) -> Tuple[dict[str, np.ndarray], dict]:
         num_reset = len(env_indices)
         dr = self._cfg.domain_rand
 
@@ -324,8 +332,13 @@ class AllegroRotationMj(AllegroBaseMjEnv):
             [dof_pos_norm, init_ctrl, ball_pos_f32], axis=1
         )  # (num_reset, 35)
         obs_lag_history = np.broadcast_to(
-            init_obs[:, None, :], (num_reset, 3, 35)
-        ).copy()  # (num_reset, 3, 35)
+            init_obs[:, None, :],
+            (
+                num_reset,
+                self._NUM_LAG_STEPS,
+                self._NUM_OBS_PER_STEP,
+            ),
+        ).copy()  # (num_reset, num_lag_steps, num_obs_per_step)
 
         info = {
             "current_actions": np.zeros((num_reset, self._num_action), dtype=self._np_dtype),
@@ -339,4 +352,4 @@ class AllegroRotationMj(AllegroBaseMjEnv):
         }
 
         obs_batch = self._get_obs(info)
-        return obs_batch, obs_batch, info
+        return obs_batch, info

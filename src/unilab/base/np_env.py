@@ -5,6 +5,7 @@ import dataclasses
 from dataclasses import dataclass
 from typing import Any, Optional, Tuple
 
+import gymnasium as gym
 import numpy as np
 
 from unilab.base.backend import SimBackend
@@ -14,12 +15,11 @@ from unilab.base.dtype_config import get_global_dtype
 
 @dataclass
 class NpEnvState:
-    obs: np.ndarray
+    obs: dict[str, np.ndarray]
     reward: np.ndarray
     terminated: np.ndarray
     truncated: np.ndarray
     info: dict
-    # critic_obs: Optional[np.ndarray] = None
 
     @property
     def done(self) -> np.ndarray:
@@ -57,11 +57,24 @@ class NpEnv(ABEnv):
     def state(self) -> Optional[NpEnvState]:
         return self._state
 
+    @property
+    def obs_groups_spec(self) -> dict[str, int]:
+        """Return observation group dimensions, e.g. {"actor": 98, "privileged": 3}.
+
+        Subclasses MUST override this property.
+        """
+        raise NotImplementedError
+
+    @property
+    def observation_space(self) -> gym.Space:
+        total = sum(self.obs_groups_spec.values())
+        return gym.spaces.Box(-np.inf, np.inf, shape=(total,), dtype=np.float64)
+
     def init_state(self) -> NpEnvState:
         dtype = get_global_dtype()
-        obs_shape = self.observation_space.shape
-        assert obs_shape is not None
-        obs = np.zeros((self._num_envs, obs_shape[0]), dtype=dtype)
+        obs = {
+            k: np.zeros((self._num_envs, d), dtype=dtype) for k, d in self.obs_groups_spec.items()
+        }
         reward = np.zeros((self._num_envs,), dtype=dtype)
         terminated = np.ones((self._num_envs,), dtype=bool)
         truncated = np.zeros((self._num_envs,), dtype=bool)
@@ -123,15 +136,21 @@ class NpEnv(ABEnv):
         self._state.info["steps"][env_indices] = 0
 
         if "final_observation" not in self._state.info:
-            self._state.info["final_observation"] = np.zeros_like(self._state.obs)
+            self._state.info["final_observation"] = {
+                k: np.zeros_like(v) for k, v in self._state.obs.items()
+            }
             self._state.info["_final_observation"] = np.zeros((self._num_envs,), dtype=bool)
 
         self._state.info["_final_observation"][:] = False
         self._state.info["_final_observation"][env_indices] = True
-        self._state.info["final_observation"][env_indices] = self._state.obs[env_indices]
+        for key in self._state.obs:
+            self._state.info["final_observation"][key][env_indices] = self._state.obs[key][
+                env_indices
+            ]
 
-        new_obs, _, info1 = self.reset(env_indices)
-        self._state.obs[env_indices] = new_obs
+        new_obs, info1 = self.reset(env_indices)
+        for key in self._state.obs:
+            self._state.obs[key][env_indices] = new_obs[key]
 
         if info1:
             for key, value in info1.items():
@@ -160,8 +179,8 @@ class NpEnv(ABEnv):
         """子类实现：计算 obs/reward/terminated"""
 
     @abc.abstractmethod
-    def reset(self, env_indices: np.ndarray) -> Tuple[np.ndarray, np.ndarray, dict]:
-        """子类实现：重置指定环境"""
+    def reset(self, env_indices: np.ndarray) -> Tuple[dict[str, np.ndarray], dict]:
+        """子类实现：重置指定环境，返回 (obs_dict, info_dict)"""
 
     def close(self) -> None:
         """关闭环境"""

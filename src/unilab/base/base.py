@@ -70,6 +70,11 @@ class ABEnv(abc.ABC):
 
     @property
     @abc.abstractmethod
+    def obs_groups_spec(self) -> dict[str, int]:
+        """Map from observation group name to its dimension."""
+
+    @property
+    @abc.abstractmethod
     def state(self) -> Any:
         """Current environment state (None before first reset)"""
 

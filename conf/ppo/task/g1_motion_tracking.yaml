@@ -1,0 +1,14 @@
+# @package _global_
+training:
+  task_name: G1MotionTracking
+algo:
+  num_envs: 4096
+  max_iterations: 30000
+  save_interval: 500
+  obs_groups:
+    default:
+      - policy
+    actor:
+      - actor
+  algorithm:
+    entropy_coef: 0.005

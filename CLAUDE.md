@@ -35,6 +35,7 @@ make check      # make format && make type
 make test       # Run all non-slow tests (default)
 make test-cov   # Run non-slow tests with coverage report
 make test-slow  # Run slow integration tests (requires MuJoCo)
+make test-veryslow  # Run full training iteration tests (minutes per test)
 make test-all   # make check && make test-cov
 ```
 
@@ -56,7 +57,10 @@ uv run pytest -m "not slow"
 uv run pytest -m "not slow" --cov=unilab --cov-report=term-missing
 
 # Slow integration tests (need MuJoCo installed)
-uv run pytest -m slow -v
+uv run pytest -m "slow and not veryslow" -v
+
+# Very slow: full training iteration tests (minutes per test)
+uv run pytest -m veryslow -v
 ```
 
 ## Test Structure
@@ -71,9 +75,15 @@ tests/
 │   ├── test_shared_obs_stats.py
 │   └── test_async_runner.py
 ├── base/
-│   └── test_registry.py
+│   ├── test_registry.py
+│   └── test_np_env.py             # NpEnvState + NpEnv dict-obs contract
 ├── config/
-│   └── test_locomotion_params.py
+│   ├── test_locomotion_params.py
+│   └── test_manipulation_params.py
+├── envs/
+│   └── test_env_configs.py        # obs_groups_spec dims + env instantiation
+├── utils/
+│   └── test_obs_utils.py          # flatten_obs_dict
 ├── scripts/
 │   └── test_train_scripts.py
 └── algos/
@@ -84,6 +94,18 @@ tests/
 
 Tests marked `@pytest.mark.slow` require a real MuJoCo environment and are excluded from CI
 by default. Run them locally when working on runner/learner code.
+
+Tests marked `@pytest.mark.veryslow` run full training iterations (minutes per test). They are
+excluded by default even when running `make test-slow`. Run `make test-veryslow` explicitly.
+
+## Testing
+
+**New features must ship with tests.** When developing a new feature or refactoring, design and write comprehensive unit tests alongside the feature code — not as an afterthought. Tests should cover:
+
+- Normal behaviour and edge cases
+- Error paths and invalid inputs
+- Contract verification (e.g. interface shapes, types, key presence)
+- Integration with neighbouring modules when relevant (`@pytest.mark.slow` for MuJoCo-dependent tests)
 
 ## Git Commits
 
@@ -103,3 +125,23 @@ pre-commit install  # Optional
 ```
 
 **Always run `make check` before committing.**
+
+## Configuration System
+
+UniLab uses **Hydra + dataclass** for type-safe, composable configs:
+
+- **Structured configs**: `src/unilab/config/structured_configs.py` (typed dataclasses)
+- **YAML configs**: `conf/` directory (offpolicy/appo/ppo)
+- **CLI overrides**: `algo.num_envs=2048 training.device=cuda`
+
+### Adding New Tasks
+
+1. Create YAML file: `conf/{algo}/task/my_task.yaml`
+2. Use `# @package _global_` directive
+3. Override only deltas from base config
+
+### Adding New Algorithms
+
+1. Add dataclass to `structured_configs.py`
+2. Create `conf/{algo}/config.yaml` with defaults
+3. Update training script with `@hydra.main()`

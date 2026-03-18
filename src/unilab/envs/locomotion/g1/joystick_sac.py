@@ -14,29 +14,6 @@ from unilab.base.curriculum import EpisodeLengthTracker, PenaltyCurriculum
 from unilab.base.dtype_config import get_global_dtype
 from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
 from unilab.envs.locomotion.g1.joystick import G1JoystickPPO, InitState
-from unilab.envs.locomotion.obs_config import ObsConfig
-
-
-def _g1_sac_obs_config() -> ObsConfig:
-    """ObsConfig for G1 (29 DoF) SAC.
-
-    Must stay consistent with G1JoystickPPO._compute_obs() which outputs:
-        vel(3) + gyro(3) + gravity(3) + diff(29) + dof_vel(29)
-        + action(29) + cmd(3) + phase(2) = 101 total
-    """
-    return ObsConfig(
-        obs_dict={
-            "vel": 3,
-            "gyro": 3,
-            "gravity": 3,
-            "diff": 29,
-            "dof_vel": 29,
-            "action": 29,
-            "cmd": 3,
-            "phase": 2,
-        },
-        actor_obs=["gyro", "gravity", "diff", "dof_vel", "action", "cmd", "phase"],
-    )
 
 
 @dataclass
@@ -59,77 +36,27 @@ class Commands:
 class RewardConfigSAC:
     """对齐 holosoma G1 FastSAC 奖励权重"""
 
-    scales: dict[str, float] = field(
-        default_factory=lambda: {
-            "tracking_lin_vel": 2.0,  # holosoma: 2.0
-            "tracking_ang_vel": 1.5,  # holosoma: 1.5
-            "penalty_ang_vel_xy": -1.0,
-            "penalty_orientation": -10.0,
-            "penalty_action_rate": -2.0,
-            "pose": -0.5,  # holosoma: -0.5 (weighted pose penalty)
-            # "penalty_close_feet_xy": -10.0,
-            "penalty_feet_ori": -25.0,  # holosoma: 5.0 (feet ori penalty)
-            "feet_phase": 5.0,  # holosoma: 5.0 (gait phase reward)
-            "alive": 10.0,  # holosoma: 10.0
-        }
-    )
-    tracking_sigma: float = 0.25
-    base_height_target: float = 0.754
-    min_base_height: float = 0.3  # 放宽以允许更多探索
-    max_tilt_deg: float = 65.0  # 放宽以允许更多探索
-    # gait 参数
-    gait_frequency: float = 1.5
-    # feet_phase 参数
-    feet_phase_swing_height: float = 0.09
-    feet_phase_tracking_sigma: float = 0.008
-    # close_feet_xy 参数
-    close_feet_threshold: float = 0.15
-    # pose 权重（29 个关节）
-    pose_weights: list[float] = field(
-        default_factory=lambda: [
-            0.01,
-            1.0,
-            5.0,
-            0.01,
-            5.0,
-            5.0,  # 左腿
-            0.01,
-            1.0,
-            5.0,
-            0.01,
-            5.0,
-            5.0,  # 右腿
-            50.0,
-            50.0,
-            50.0,  # 腰部
-            50.0,
-            50.0,
-            50.0,
-            50.0,
-            50.0,
-            50.0,
-            50.0,  # 左臂
-            50.0,
-            50.0,
-            50.0,
-            50.0,
-            50.0,
-            50.0,
-            50.0,  # 右臂
-        ]
-    )
+    scales: dict[str, float]
+    tracking_sigma: float
+    base_height_target: float
+    min_base_height: float
+    max_tilt_deg: float
+    gait_frequency: float
+    feet_phase_swing_height: float
+    feet_phase_tracking_sigma: float
+    close_feet_threshold: float
+    pose_weights: list[float]
 
 
 @registry.envcfg("G1WalkTaskMjSAC")
 @dataclass
 class G1JoystickSACCfg(G1BaseCfg):
+    reward_config: RewardConfigSAC | None = None
     model_file: str = str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
     max_episode_seconds: float = 20.0
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
-    reward_config: RewardConfigSAC = field(default_factory=RewardConfigSAC)
     control_config: ControlConfigSAC = field(default_factory=ControlConfigSAC)  # type: ignore[assignment]
-    obs_config: ObsConfig = field(default_factory=_g1_sac_obs_config)
 
 
 @registry.env("G1WalkTaskMjSAC", sim_backend="mujoco")
@@ -138,11 +65,14 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
     """G1 SAC environment - inherits from PPO, overrides rewards."""
 
     def __init__(self, cfg: G1JoystickSACCfg, num_envs=1, backend_type="mujoco"):
+        if cfg.reward_config is None:
+            raise ValueError("reward_config must be provided via Hydra configuration")
         backend = create_backend(
             backend_type, cfg.model_file, num_envs, cfg.sim_dt, base_name=cfg.asset.base_name
         )
         G1BaseEnv.__init__(self, cfg, backend, num_envs)
         self._enable_reward_log = True
+        self._reward_cfg = cfg.reward_config
         self._gait_phase_delta = float(2.0 * np.pi * cfg.reward_config.gait_frequency * cfg.ctrl_dt)
         self._pose_weights = np.array(cfg.reward_config.pose_weights, dtype=get_global_dtype())
 
@@ -159,7 +89,6 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
             degree=0.002,  # 调整速度加快
         )
 
-        self._init_obs_space()
         self._init_reward_functions()
 
     def _init_reward_functions(self):
