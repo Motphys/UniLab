@@ -80,12 +80,9 @@ def resolve_checkpoint_path(
 
 def build_runner(algo_name: str, cfg: DictConfig):
     """Build algorithm runner from unified Hydra config."""
-    env_cfg_override = None
-    if hasattr(cfg, "reward") and cfg.reward:
-        from omegaconf import OmegaConf
+    from unilab.utils.reward_utils import extract_reward_config
 
-        reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
-        env_cfg_override = {"reward_config": reward_dict}
+    env_cfg_override = extract_reward_config(cfg)
 
     if algo_name == "sac":
         from unilab.algos.torch.fast_sac.learner import FastSACLearner
@@ -97,14 +94,18 @@ def build_runner(algo_name: str, cfg: DictConfig):
             from unilab.algos.torch.offpolicy.multi_gpu_runner import MultiGPUOffPolicyRunner
             from unilab.base import registry
             from unilab.utils.algo_utils import ensure_registries
+            from unilab.utils.reward_utils import extract_reward_config
 
             ensure_registries()
             device = cfg.training.device or get_default_device()
+            env_cfg_override = extract_reward_config(cfg)
             env = registry.make(
-                cfg.training.task_name, num_envs=1, sim_backend=cfg.training.sim_backend
+                cfg.training.task_name, num_envs=1, sim_backend=cfg.training.sim_backend,
+                env_cfg_override=env_cfg_override
             )
             assert env.action_space.shape
-            obs_dim = sum(env.obs_groups_spec.values())
+            from unilab.utils.obs_utils import get_obs_dims
+            obs_dim, privileged_dim = get_obs_dims(env.obs_groups_spec)
             action_dim = env.action_space.shape[0]
             env.close()
 
@@ -124,6 +125,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
                 "use_layer_norm": cfg.algo.use_layer_norm,
                 "max_grad_norm": cfg.algo.algo_params.max_grad_norm,
                 "use_amp": cfg.training.use_amp,
+                "privileged_dim": privileged_dim,
                 # symmetry not supported in multi-GPU mode (mujoco_model not picklable)
                 "use_symmetry": False,
             }
@@ -229,11 +231,9 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> None:
     from unilab.utils import render_many
     from unilab.utils.algo_utils import build_actor
 
-    # Build env_cfg_override from reward config
-    env_cfg_override: dict | None = None
-    if hasattr(cfg, "reward") and cfg.reward:
-        reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
-        env_cfg_override = {"reward_config": reward_dict}
+    from unilab.utils.reward_utils import extract_reward_config
+
+    env_cfg_override = extract_reward_config(cfg)
 
     device = default_device(torch, cfg.training.device)
     print(f"Using device for play: {device}")

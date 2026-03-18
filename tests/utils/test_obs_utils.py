@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from unilab.utils.obs_utils import flatten_obs_dict
+from unilab.utils.obs_utils import flatten_obs_dict, get_obs_dims, split_obs_dict
 
 # ---------------------------------------------------------------------------
 # flatten_obs_dict — basic behaviour
@@ -90,3 +90,37 @@ class TestFlattenObsDict:
         flat = flatten_obs_dict(obs)
         np.testing.assert_array_equal(flat[:, :45], actor)
         np.testing.assert_array_equal(flat[:, 45:], priv)
+
+
+class TestSplitObsDict:
+    """Unit tests for split_obs_dict."""
+
+    def test_with_privileged(self):
+        obs = {"obs": np.ones((4, 8)), "privileged": np.full((4, 3), 2.0)}
+        obs_arr, priv_arr = split_obs_dict(obs)
+        assert obs_arr.shape == (4, 8)
+        assert priv_arr.shape == (4, 3)
+        np.testing.assert_array_equal(obs_arr, 1.0)
+        np.testing.assert_array_equal(priv_arr, 2.0)
+
+    def test_no_privileged(self):
+        obs = {"obs": np.ones((4, 8))}
+        obs_arr, priv_arr = split_obs_dict(obs)
+        assert obs_arr.shape == (4, 8)
+        assert priv_arr is None
+
+
+class TestGetObsDims:
+    """Unit tests for get_obs_dims."""
+
+    def test_with_privileged(self):
+        spec = {"obs": 49, "privileged": 3}
+        obs_dim, priv_dim = get_obs_dims(spec)
+        assert obs_dim == 49
+        assert priv_dim == 3
+
+    def test_no_privileged(self):
+        spec = {"obs": 49}
+        obs_dim, priv_dim = get_obs_dims(spec)
+        assert obs_dim == 49
+        assert priv_dim == 0

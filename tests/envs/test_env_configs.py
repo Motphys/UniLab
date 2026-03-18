@@ -65,7 +65,7 @@ def test_g1_joystick_ppo_obs_groups_spec_dims():
     # obs_groups_spec is a @property; access via descriptor protocol
     spec = G1JoystickPPO.obs_groups_spec.fget(None)  # type: ignore[union-attr]
     assert spec is not None
-    assert spec["actor"] == 98
+    assert spec["obs"] == 98
     assert spec["privileged"] == 3
 
 
@@ -86,7 +86,13 @@ _STANDARD_ENVS = [
 
 @pytest.mark.slow
 @pytest.mark.parametrize("env_name", _STANDARD_ENVS)
-def test_env_reset_and_step(env_name: str):
+def test_env_reset_and_step(
+    env_name: str,
+    default_go1_reward_config,
+    default_go2_reward_config,
+    default_g1_reward_config,
+    default_g1_sac_reward_config,
+):
     """Every registered env must be constructible, resetable, and steppable.
 
     Verifies:
@@ -97,7 +103,18 @@ def test_env_reset_and_step(env_name: str):
     ensure_registries()
     from unilab.base import registry
 
-    env = registry.make(env_name, num_envs=2, sim_backend="mujoco")
+    # Provide reward_config for locomotion envs
+    env_cfg_override = None
+    if "Go1" in env_name:
+        env_cfg_override = {"reward_config": default_go1_reward_config}
+    elif "Go2" in env_name:
+        env_cfg_override = {"reward_config": default_go2_reward_config}
+    elif "G1WalkTaskMjSAC" in env_name:
+        env_cfg_override = {"reward_config": default_g1_sac_reward_config}
+    elif "G1" in env_name:
+        env_cfg_override = {"reward_config": default_g1_reward_config}
+
+    env = registry.make(env_name, num_envs=2, sim_backend="mujoco", env_cfg_override=env_cfg_override)
     try:
         # 1. Spaces
         obs_space = env.observation_space

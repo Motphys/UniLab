@@ -28,20 +28,9 @@ class Commands:
 
 @dataclass
 class RewardConfig:
-    scales: dict[str, float] = field(
-        default_factory=lambda: {
-            "tracking_lin_vel": 1.0,
-            "tracking_ang_vel": 0.2,
-            "lin_vel_z": -5.0,
-            "ang_vel_xy": -0.1,
-            "base_height": -100.0,
-            "action_rate": -0.005,
-            "similar_to_default": -0.1,
-            "contact": 0.24,
-        }
-    )
-    tracking_sigma: float = 0.25
-    base_height_target: float = 0.3
+    scales: dict[str, float]
+    tracking_sigma: float
+    base_height_target: float
 
 
 @dataclass
@@ -73,7 +62,7 @@ class Go1JoystickCfg(Go1BaseCfg):
     max_episode_seconds: float = 20.0
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
-    reward_config: RewardConfig = field(default_factory=RewardConfig)
+    reward_config: RewardConfig | None = None
     sensor: JoystickSensor = field(default_factory=JoystickSensor)  # type: ignore[assignment]
     domain_rand: Domain_Rand = field(default_factory=Domain_Rand)
 
@@ -84,11 +73,14 @@ class Go1WalkTask(Go1BaseEnv):
     _cfg: Go1JoystickCfg
 
     def __init__(self, cfg: Go1JoystickCfg, num_envs=1, backend_type="mujoco"):
+        if cfg.reward_config is None:
+            raise ValueError("reward_config must be provided via Hydra configuration")
         backend = create_backend(
             backend_type, cfg.model_file, num_envs, cfg.sim_dt, base_name=cfg.asset.base_name
         )
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True
+        self._reward_cfg = cfg.reward_config
         self._init_reward_functions()
         self.phase = np.zeros((num_envs,), dtype=np.float32)
         self.feet_phase = np.zeros((num_envs, len(cfg.sensor.feet_force)), dtype=np.float32)
@@ -98,7 +90,7 @@ class Go1WalkTask(Go1BaseEnv):
     @property
     def obs_groups_spec(self) -> dict[str, int]:
         # gyro(3) + gravity(3) + diff(12) + dof_vel(12) + action(12) + cmd(3) + phase(4) = 49
-        return {"actor": 49, "privileged": 3}
+        return {"obs": 49, "privileged": 3}
 
     def _init_reward_functions(self):
         self._reward_fns = {
@@ -141,17 +133,17 @@ class Go1WalkTask(Go1BaseEnv):
         diff = dof_pos - self.default_angles
         command = info["commands"]
         last_actions = info.get("current_actions", np.zeros_like(diff))
-        actor = np.concatenate(
+        obs = np.concatenate(
             [gyro, -gravity, diff, dof_vel, last_actions, command, feet_phase],
             axis=1,
             dtype=get_global_dtype(),
         )
-        return {"actor": actor, "privileged": linvel}
+        return {"obs": obs, "privileged": linvel}
 
     def _compute_reward(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         dtype = get_global_dtype()
         reward = np.zeros((self._num_envs,), dtype=dtype)
-        cfg = self._cfg.reward_config
+        cfg = self._reward_cfg
 
         step_count = info.get("steps", np.zeros((self._num_envs,), dtype=np.uint32))
         should_log = self._enable_reward_log and (int(step_count[0]) % 4 == 0)
@@ -172,12 +164,12 @@ class Go1WalkTask(Go1BaseEnv):
     def _reward_tracking_lin_vel(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         commands = info["commands"]
         lin_vel_error = np.sum(np.square(commands[:, :2] - linvel[:, :2]), axis=1)
-        return np.asarray(np.exp(-lin_vel_error / self._cfg.reward_config.tracking_sigma))
+        return np.asarray(np.exp(-lin_vel_error / self._reward_cfg.tracking_sigma))
 
     def _reward_tracking_ang_vel(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         commands = info["commands"]
         ang_vel_error = np.square(commands[:, 2] - gyro[:, 2])
-        return np.asarray(np.exp(-ang_vel_error / self._cfg.reward_config.tracking_sigma))
+        return np.asarray(np.exp(-ang_vel_error / self._reward_cfg.tracking_sigma))
 
     def _reward_lin_vel_z(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         return np.asarray(np.square(linvel[:, 2]))
@@ -187,7 +179,7 @@ class Go1WalkTask(Go1BaseEnv):
 
     def _reward_base_height(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         base_height = self._backend.get_base_pos()[:, 2]
-        return np.asarray(np.square(base_height - self._cfg.reward_config.base_height_target))
+        return np.asarray(np.square(base_height - self._reward_cfg.base_height_target))
 
     def _reward_action_rate(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         action_diff = info["current_actions"] - info["last_actions"]
@@ -244,4 +236,4 @@ class Go1WalkTask(Go1BaseEnv):
         obs = self._compute_obs(
             info, linvel, gyro, gravity, dof_pos, dof_vel, self.feet_phase[env_indices]
         )
-        return obs, obs, info
+        return obs, info

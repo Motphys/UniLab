@@ -70,7 +70,7 @@ class RslRlVecEnvWrapper:
         self.reset()
 
     def _obs_to_tensordict(self, obs: dict[str, np.ndarray]) -> TensorDict:
-        actor = to_torch(obs["actor"], self.device)
+        actor = to_torch(obs["obs"], self.device)
         td = {"actor": actor}
         if "privileged" in obs:
             td["privileged"] = to_torch(obs["privileged"], self.device)
@@ -112,7 +112,7 @@ class RslRlVecEnvWrapper:
         if self.env.state is None:
             self.env.init_state()
         env_indices = np.arange(self.num_envs, dtype=np.int32)
-        _, obs_out, _ = self.env.reset(env_indices)
+        obs_out, _ = self.env.reset(env_indices)
 
         self.episode_returns[:] = 0
         self.episode_lengths[:] = 0
@@ -131,11 +131,9 @@ def play_rsl_rl(cfg: DictConfig, device: str):
     """Play mode for RSL-RL."""
 
     from unilab.base import registry
+    from unilab.utils.reward_utils import extract_reward_config
 
-    env_cfg_override: dict = {}
-    if hasattr(cfg, "reward") and cfg.reward:
-        reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
-        env_cfg_override["reward_config"] = reward_dict
+    env_cfg_override = extract_reward_config(cfg)
 
     env = registry.make(
         cfg.training.task_name,
@@ -265,12 +263,9 @@ def main(cfg: DictConfig) -> None:
     from omegaconf import OmegaConf
 
     from unilab.base import registry
+    from unilab.utils.reward_utils import extract_reward_config
 
-    # Build env_cfg_override from reward config
-    env_cfg_override = {}
-    if hasattr(cfg, "reward") and cfg.reward:
-        reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
-        env_cfg_override["reward_config"] = reward_dict
+    env_cfg_override = extract_reward_config(cfg)
 
     if torch.cuda.is_available():
         device = "cuda"

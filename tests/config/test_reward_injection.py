@@ -31,7 +31,7 @@ def test_reward_config_conversion():
 
     ensure_registries()
 
-    # Test G1 config - registry auto-converts dict to RewardConfigSAC
+    # Test G1 SAC config - registry auto-converts dict to RewardConfigSAC
     g1_dict = {
         "scales": {"tracking_lin_vel": 2.0, "alive": 10.0},
         "tracking_sigma": 0.25,
@@ -39,6 +39,10 @@ def test_reward_config_conversion():
         "gait_frequency": 1.5,
         "feet_phase_swing_height": 0.09,
         "feet_phase_tracking_sigma": 0.008,
+        "min_base_height": 0.3,
+        "max_tilt_deg": 65.0,
+        "close_feet_threshold": 0.15,
+        "pose_weights": [0.01] * 29,
     }
     env = registry.make(
         "G1WalkTaskMjSAC",

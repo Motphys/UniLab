@@ -54,7 +54,7 @@ class _RslRlVecEnvWrapper:
         self.reset()
 
     def _obs_to_tensordict(self, obs: dict[str, np.ndarray]) -> TensorDict:
-        actor = to_torch(obs["actor"], self.device)
+        actor = to_torch(obs["obs"], self.device)
         td = {"actor": actor}
         if "privileged" in obs:
             td["privileged"] = to_torch(obs["privileged"], self.device)
@@ -87,7 +87,7 @@ class _RslRlVecEnvWrapper:
         if self.env.state is None:
             self.env.init_state()
         env_indices = np.arange(self.num_envs, dtype=np.int32)
-        _, obs_out, _ = self.env.reset(env_indices)
+        obs_out, _ = self.env.reset(env_indices)
         self.episode_returns[:] = 0
         self.episode_lengths[:] = 0
         return self._obs_to_tensordict(obs_out), {}
@@ -113,11 +113,12 @@ class _RslRlVecEnvWrapper:
         "G1JoystickFlatTerrain",
     ],
 )
-def test_rsl_rl_ppo_one_iteration(env_name: str):
+def test_rsl_rl_ppo_one_iteration(env_name: str, default_go2_reward_config, default_g1_reward_config):
     """RSL-RL PPO can complete 1 training iteration on a real env."""
     from rsl_rl.runners import OnPolicyRunner
 
-    env = registry.make(env_name, num_envs=256, sim_backend="mujoco")
+    reward_cfg = default_go2_reward_config if "Go2" in env_name else default_g1_reward_config
+    env = registry.make(env_name, num_envs=256, sim_backend="mujoco", env_cfg_override={"reward_config": reward_cfg})
     wrapped = _RslRlVecEnvWrapper(env, device="cpu")
 
     cfg = PPOConfig()

@@ -55,12 +55,9 @@ def play_appo(cfg: DictConfig, rl_cfg: dict):
     from unilab.base import registry
     from unilab.utils import render_many
     from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4, is_rsl_rl_v5
+    from unilab.utils.reward_utils import extract_reward_config
 
-    # Build env_cfg_override from reward config
-    env_cfg_override: dict | None = None
-    if hasattr(cfg, "reward") and cfg.reward:
-        reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
-        env_cfg_override = {"reward_config": reward_dict}
+    env_cfg_override = extract_reward_config(cfg)
 
     device = cfg.training.device or (
         "cuda"
@@ -77,7 +74,8 @@ def play_appo(cfg: DictConfig, rl_cfg: dict):
         sim_backend=cfg.training.sim_backend,
         env_cfg_override=env_cfg_override,
     )
-    obs_dim = sum(env.obs_groups_spec.values())
+    from unilab.utils.obs_utils import get_obs_dims
+    obs_dim, privileged_dim = get_obs_dims(env.obs_groups_spec)
     action_dim = env.action_space.shape[0]
 
     rl_cfg_dict = dict(rl_cfg)
@@ -164,8 +162,8 @@ def play_appo(cfg: DictConfig, rl_cfg: dict):
     env_indices = np.arange(cfg.training.play_env_num, dtype=np.int32)
     from unilab.utils.obs_utils import flatten_obs_dict
 
-    _, obs_out, _ = env.reset(env_indices)
-    obs_np = np.asarray(flatten_obs_dict(obs_out), dtype=np.float32)
+    obs_out, _ = env.reset(env_indices)
+    obs_np = np.asarray(obs_out["obs"], dtype=np.float32)
 
     state_list = []
     num_steps = 150
@@ -178,7 +176,7 @@ def play_appo(cfg: DictConfig, rl_cfg: dict):
             actions_torch = actor(td)
             actions_np = actions_torch.cpu().numpy().astype(np.float32)
             state = env.step(actions_np)
-            obs_np = np.asarray(flatten_obs_dict(state.obs), dtype=np.float32)
+            obs_np = np.asarray(state.obs["obs"], dtype=np.float32)
             state_list.append(np.asarray(env._backend.get_physics_state(), dtype=np.float32).copy())
 
     print("Rendering frames...")
@@ -195,11 +193,9 @@ def play_appo(cfg: DictConfig, rl_cfg: dict):
 def main(cfg: DictConfig) -> None:
     ensure_registries()
 
-    # Build env_cfg_override from reward config
-    env_cfg_override = {}
-    if hasattr(cfg, "reward") and cfg.reward:
-        reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
-        env_cfg_override["reward_config"] = reward_dict
+    from unilab.utils.reward_utils import extract_reward_config
+
+    env_cfg_override = extract_reward_config(cfg)
 
     # Convert algo config to plain dict for APPORunner / RSL-RL internals
     rl_cfg = OmegaConf.to_container(cfg.algo, resolve=True)
@@ -235,7 +231,6 @@ def main(cfg: DictConfig) -> None:
             collector_device=collector_device,
             num_envs=cfg.algo.num_envs,
             steps_per_env=cfg.algo.steps_per_env,
-            sim_backend=cfg.training.sim_backend,
             **runner_kwargs,
         )
 

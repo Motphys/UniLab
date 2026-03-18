@@ -31,7 +31,7 @@ class _StubCfg(EnvCfg):
 class _StubNpEnv(NpEnv):
     """Concrete NpEnv for testing — no physics, deterministic outputs."""
 
-    OBS_SPEC = {"actor": 5, "privileged": 2}
+    OBS_SPEC = {"obs": 5, "privileged": 2}
 
     def __init__(self, num_envs: int = 4):
         cfg = _StubCfg()
@@ -54,7 +54,7 @@ class _StubNpEnv(NpEnv):
 
     def update_state(self, state: NpEnvState) -> NpEnvState:
         obs = {
-            "actor": np.ones((self._num_envs, 5), dtype=np.float32),
+            "obs": np.ones((self._num_envs, 5), dtype=np.float32),
             "privileged": np.full((self._num_envs, 2), 0.5, dtype=np.float32),
         }
         return state.replace(
@@ -64,16 +64,14 @@ class _StubNpEnv(NpEnv):
             truncated=np.zeros((self._num_envs,), dtype=bool),
         )
 
-    def reset(
-        self, env_indices: np.ndarray
-    ) -> Tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict]:
+    def reset(self, env_indices: np.ndarray) -> Tuple[dict[str, np.ndarray], dict]:
         self._reset_count += 1
         n = len(env_indices)
         obs = {
-            "actor": np.zeros((n, 5), dtype=np.float32),
+            "obs": np.zeros((n, 5), dtype=np.float32),
             "privileged": np.zeros((n, 2), dtype=np.float32),
         }
-        return obs, obs, {}
+        return obs, {}
 
 
 class _TerminatingStubEnv(_StubNpEnv):
@@ -97,7 +95,7 @@ class _TerminatingStubEnv(_StubNpEnv):
 
 class TestNpEnvState:
     def test_obs_is_dict(self):
-        obs = {"actor": np.zeros((2, 4)), "privileged": np.zeros((2, 1))}
+        obs = {"obs": np.zeros((2, 4)), "privileged": np.zeros((2, 1))}
         state = NpEnvState(
             obs=obs,
             reward=np.zeros(2),
@@ -106,7 +104,7 @@ class TestNpEnvState:
             info={},
         )
         assert isinstance(state.obs, dict)
-        assert "actor" in state.obs
+        assert "obs" in state.obs
         assert "privileged" in state.obs
 
     def test_done_combines_terminated_and_truncated(self):
@@ -131,7 +129,7 @@ class TestNpEnvState:
         assert state.done[0] is np.True_
 
     def test_replace_preserves_type(self):
-        obs = {"actor": np.zeros((2, 3))}
+        obs = {"obs": np.zeros((2, 3))}
         state = NpEnvState(
             obs=obs,
             reward=np.zeros(2),
@@ -139,13 +137,13 @@ class TestNpEnvState:
             truncated=np.zeros(2, dtype=bool),
             info={},
         )
-        new_obs = {"actor": np.ones((2, 3))}
+        new_obs = {"obs": np.ones((2, 3))}
         state2 = state.replace(obs=new_obs)
         assert isinstance(state2, NpEnvState)
         assert isinstance(state2.obs, dict)
-        np.testing.assert_array_equal(state2.obs["actor"], 1.0)
+        np.testing.assert_array_equal(state2.obs["obs"], 1.0)
         # Original unchanged
-        np.testing.assert_array_equal(state.obs["actor"], 0.0)
+        np.testing.assert_array_equal(state.obs["obs"], 0.0)
 
     def test_replace_partial_update(self):
         state = NpEnvState(
@@ -170,7 +168,7 @@ class TestNpEnvObsSpec:
         env = _StubNpEnv(num_envs=2)
         spec = env.obs_groups_spec
         assert isinstance(spec, dict)
-        assert spec == {"actor": 5, "privileged": 2}
+        assert spec == {"obs": 5, "privileged": 2}
 
     def test_observation_space_total_dim(self):
         env = _StubNpEnv(num_envs=2)
@@ -210,12 +208,12 @@ class TestNpEnvInitState:
     def test_init_state_obs_keys_match_spec(self):
         env = _StubNpEnv(num_envs=4)
         env.init_state()
-        assert set(env.state.obs.keys()) == {"actor", "privileged"}
+        assert set(env.state.obs.keys()) == {"obs", "privileged"}
 
     def test_init_state_obs_shapes(self):
         env = _StubNpEnv(num_envs=4)
         env.init_state()
-        assert env.state.obs["actor"].shape == (4, 5)
+        assert env.state.obs["obs"].shape == (4, 5)
         assert env.state.obs["privileged"].shape == (4, 2)
 
     def test_init_state_obs_zeros(self):
@@ -226,7 +224,7 @@ class TestNpEnvInitState:
         env.init_state()
         # After init_state, reset was called (terminated=True initially)
         # Our stub resets to zeros, so should be zeros
-        np.testing.assert_array_equal(env.state.obs["actor"], 0.0)
+        np.testing.assert_array_equal(env.state.obs["obs"], 0.0)
 
     def test_init_state_triggers_reset(self):
         env = _StubNpEnv(num_envs=2)
@@ -258,7 +256,7 @@ class TestNpEnvStep:
         actions = np.zeros((2, 3))
         state = env.step(actions)
         assert isinstance(state.obs, dict)
-        assert "actor" in state.obs
+        assert "obs" in state.obs
         assert "privileged" in state.obs
 
     def test_step_obs_values_from_update_state(self):
@@ -266,7 +264,7 @@ class TestNpEnvStep:
         env.init_state()
         state = env.step(np.zeros((2, 3)))
         # _StubNpEnv.update_state fills actor=1.0, privileged=0.5
-        np.testing.assert_array_equal(state.obs["actor"], 1.0)
+        np.testing.assert_array_equal(state.obs["obs"], 1.0)
         np.testing.assert_array_equal(state.obs["privileged"], 0.5)
 
     def test_step_increments_counter(self):
@@ -301,18 +299,18 @@ class TestResetDoneEnvs:
         env.init_state()
         state = env.step(np.zeros((4, 3)))
         # Envs 0, 2 terminated — their obs should be reset values (zeros from stub)
-        np.testing.assert_array_equal(state.obs["actor"][0], 0.0)
-        np.testing.assert_array_equal(state.obs["actor"][2], 0.0)
+        np.testing.assert_array_equal(state.obs["obs"][0], 0.0)
+        np.testing.assert_array_equal(state.obs["obs"][2], 0.0)
         # Envs 1, 3 not terminated — their obs should be update_state values (ones)
-        np.testing.assert_array_equal(state.obs["actor"][1], 1.0)
-        np.testing.assert_array_equal(state.obs["actor"][3], 1.0)
+        np.testing.assert_array_equal(state.obs["obs"][1], 1.0)
+        np.testing.assert_array_equal(state.obs["obs"][3], 1.0)
 
     def test_final_observation_is_dict(self):
         env = _TerminatingStubEnv(num_envs=2, terminate_indices=[0])
         env.init_state()
         env.step(np.zeros((2, 3)))
         assert isinstance(env.state.info["final_observation"], dict)
-        assert "actor" in env.state.info["final_observation"]
+        assert "obs" in env.state.info["final_observation"]
         assert "privileged" in env.state.info["final_observation"]
 
     def test_final_observation_captures_pre_reset_obs(self):
@@ -321,7 +319,7 @@ class TestResetDoneEnvs:
         env.step(np.zeros((2, 3)))
         # update_state fills actor=1.0 before reset replaces it with 0.0
         # final_observation should capture the pre-reset obs (1.0)
-        np.testing.assert_array_equal(env.state.info["final_observation"]["actor"][0], 1.0)
+        np.testing.assert_array_equal(env.state.info["final_observation"]["obs"][0], 1.0)
 
     def test_final_observation_mask(self):
         env = _TerminatingStubEnv(num_envs=3, terminate_indices=[1])
@@ -368,13 +366,13 @@ class TestResetDoneEnvs:
 
 class TestEdgeCases:
     def test_single_obs_group_symmetric(self):
-        """Env with only "actor" (no privileged) works correctly."""
+        """Env with only "obs" (no privileged) works correctly."""
 
         class _SymmetricEnv(_StubNpEnv):
-            OBS_SPEC = {"actor": 10}
+            OBS_SPEC = {"obs": 10}
 
             def update_state(self, state):
-                obs = {"actor": np.ones((self._num_envs, 10), dtype=np.float32)}
+                obs = {"obs": np.ones((self._num_envs, 10), dtype=np.float32)}
                 return state.replace(
                     obs=obs,
                     reward=np.zeros(self._num_envs, dtype=np.float32),
@@ -384,21 +382,21 @@ class TestEdgeCases:
 
             def reset(self, env_indices):
                 n = len(env_indices)
-                obs = {"actor": np.zeros((n, 10), dtype=np.float32)}
-                return obs, obs, {}
+                obs = {"obs": np.zeros((n, 10), dtype=np.float32)}
+                return obs, {}
 
         env = _SymmetricEnv(num_envs=2)
         env.init_state()
         state = env.step(np.zeros((2, 3)))
-        assert set(state.obs.keys()) == {"actor"}
-        assert state.obs["actor"].shape == (2, 10)
+        assert set(state.obs.keys()) == {"obs"}
+        assert state.obs["obs"].shape == (2, 10)
         assert env.observation_space.shape == (10,)
 
     def test_many_obs_groups(self):
         """Env with 3+ obs groups allocates correctly."""
 
         class _MultiGroupEnv(_StubNpEnv):
-            OBS_SPEC = {"actor": 4, "privileged": 2, "history": 8}
+            OBS_SPEC = {"obs": 4, "privileged": 2, "history": 8}
 
             def update_state(self, state):
                 obs = {
@@ -415,10 +413,10 @@ class TestEdgeCases:
             def reset(self, env_indices):
                 n = len(env_indices)
                 obs = {k: np.zeros((n, d), dtype=np.float32) for k, d in self.OBS_SPEC.items()}
-                return obs, obs, {}
+                return obs, {}
 
         env = _MultiGroupEnv(num_envs=1)
         env.init_state()
         state = env.step(np.zeros((1, 3)))
-        assert set(state.obs.keys()) == {"actor", "privileged", "history"}
+        assert set(state.obs.keys()) == {"obs", "privileged", "history"}
         assert env.observation_space.shape == (14,)  # 4+2+8

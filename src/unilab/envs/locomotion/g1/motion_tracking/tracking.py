@@ -182,7 +182,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
         actor_dim = 3 + 6 + 3 + 3 + n * 3
         # Privileged: body_pos_b(num_bodies*3) + body_ori_b(num_bodies*6)
         privileged_dim = len(self._cfg.body_names) * 9
-        return {"actor": actor_dim, "privileged": privileged_dim}
+        return {"obs": actor_dim, "privileged": privileged_dim}
 
     def _init_reward_functions(self):
         self._reward_fns = {
@@ -387,7 +387,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
             dtype=get_global_dtype(),
         )
 
-        return {"actor": actor_obs, "privileged": privileged_obs}
+        return {"obs": actor_obs, "privileged": privileged_obs}
 
     def _compute_reward(
         self,
@@ -584,4 +584,4 @@ class G1MotionTrackingEnv(G1BaseEnv):
             info, motion_data, linvel, gyro, dof_pos, dof_vel, robot_body_pos_w, robot_body_quat_w
         )
 
-        return obs, obs, info
+        return obs, info

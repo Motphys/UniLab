@@ -260,7 +260,7 @@ class AllegroRotationSacMj(AllegroBaseMjEnv):
 
     # ── Reset ────────────────────────────────────────────────────────
 
-    def reset(self, env_indices: np.ndarray) -> tuple:
+    def reset(self, env_indices: np.ndarray) -> Tuple[dict[str, np.ndarray], dict]:
         num_reset = len(env_indices)
         dr = self._cfg.domain_rand  # type: ignore[attr-defined]
 
@@ -341,4 +341,4 @@ class AllegroRotationSacMj(AllegroBaseMjEnv):
         }
 
         obs_batch = self._get_obs(info)
-        return obs_batch, obs_batch, info
+        return obs_batch, info

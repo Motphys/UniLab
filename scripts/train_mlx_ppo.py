@@ -157,11 +157,9 @@ def play_mlx_ppo(
     cfg: DictConfig, dtype, use_fp16: bool, resolved_sim_backend: str, task_log_root: Path
 ):
     """Play mode for MLX PPO."""
-    # Build env_cfg_override from reward config
-    env_cfg_override: dict | None = None
-    if hasattr(cfg, "reward") and cfg.reward:
-        reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
-        env_cfg_override = {"reward_config": reward_dict}
+    from unilab.utils.reward_utils import extract_reward_config
+
+    env_cfg_override = extract_reward_config(cfg)
 
     play_model_dtype = mx.float32 if use_fp16 else dtype
     play_env_num = cfg.training.play_env_num
@@ -209,7 +207,7 @@ def play_mlx_ppo(
     if env.state is None:
         env.init_state()
     play_reset_indices = np.arange(env.num_envs, dtype=np.int32)
-    _, obs_dict_play, _ = env.reset(play_reset_indices)
+    obs_dict_play, _ = env.reset(play_reset_indices)
     obs = mx.array(flatten_obs_dict(obs_dict_play))
 
     if resolved_sim_backend == "motrix":
@@ -380,11 +378,9 @@ def main(cfg: DictConfig) -> None:
         except ImportError:
             log("[Warning] wandb not installed, skipping W&B logging")
 
-    # Build env_cfg_override from reward config
-    env_cfg_override: dict | None = None
-    if hasattr(cfg, "reward") and cfg.reward:
-        reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
-        env_cfg_override = {"reward_config": reward_dict}
+    from unilab.utils.reward_utils import extract_reward_config
+
+    env_cfg_override = extract_reward_config(cfg)
 
     preset = TASK_STEP_TUNING.get(task_name, {"threads": "32", "chunk": "16"})
     os.environ["UNILAB_MUJOCO_STEP_THREADS"] = preset["threads"]
@@ -398,7 +394,7 @@ def main(cfg: DictConfig) -> None:
     if env.state is None:
         env.init_state()
     reset_indices = np.arange(env.num_envs, dtype=np.int32)
-    _, obs_dict, _ = env.reset(reset_indices)
+    obs_dict, _ = env.reset(reset_indices)
     obs = mx.array(flatten_obs_dict(obs_dict))
 
     obs_dim = sum(env.obs_groups_spec.values())
