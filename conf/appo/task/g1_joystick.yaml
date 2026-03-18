@@ -1,4 +1,7 @@
 # @package _global_
+defaults:
+  - override /reward: g1_appo_mujoco
+
 training:
   task_name: G1JoystickFlatTerrain
 algo:
