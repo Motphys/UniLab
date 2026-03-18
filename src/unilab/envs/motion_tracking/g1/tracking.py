@@ -143,6 +143,7 @@ class G1MotionTrackingCfg(G1BaseCfg):
         "right_wrist_yaw_link",
     )
     sampling_mode: Literal["start", "uniform", "adaptive"] = "adaptive"
+    log_action_scale: bool = False
     max_episode_seconds: float = 20.0
     reward_config: RewardConfig = field(default_factory=RewardConfig)
     pose_randomization: PoseRandomization = field(default_factory=PoseRandomization)
@@ -189,6 +190,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
         )
         super().__init__(cfg, backend, num_envs)
         self._apply_mjlab_g1_action_scale()
+        self._log_action_scale_diagnostics()
 
         # Get body IDs from MuJoCo model
         self.body_ids = np.array(
@@ -234,13 +236,44 @@ class G1MotionTrackingEnv(G1BaseEnv):
         else:
             action_scale = np.full((nu,), float(base_scale), dtype=get_global_dtype())
 
-        if hasattr(model, "actuator_forcerange") and hasattr(model, "actuator_gainprm"):
-            effort_limit = np.max(np.abs(model.actuator_forcerange), axis=1)
+        if hasattr(model, "actuator_gainprm"):
+            effort_limit = np.zeros((nu,), dtype=get_global_dtype())
+            if hasattr(model, "actuator_forcerange"):
+                effort_limit = np.max(np.abs(model.actuator_forcerange), axis=1)
+
+            # Fallback: derive actuator effort limits from joint force ranges when
+            # actuator forcerange is not explicitly defined in XML.
+            if np.all(effort_limit <= 0.0) and hasattr(model, "actuator_trnid") and hasattr(
+                model, "jnt_actfrcrange"
+            ):
+                joint_ids = model.actuator_trnid[:, 0].astype(np.int32)
+                effort_limit = np.max(np.abs(model.jnt_actfrcrange[joint_ids]), axis=1)
+
             stiffness = model.actuator_gainprm[:, 0]
             valid = (effort_limit > 0.0) & (np.abs(stiffness) > 1e-6)
             action_scale[valid] = 0.25 * effort_limit[valid] / stiffness[valid]
 
         self._cfg.control_config.action_scale = action_scale
+
+    def _log_action_scale_diagnostics(self) -> None:
+        """Log action-scale diagnostics to help detect control-mapping issues."""
+        if not self._cfg.log_action_scale:
+            return
+
+        model = self._backend.model
+        action_scale = self._cfg.control_config.action_scale
+        if not isinstance(action_scale, np.ndarray):
+            action_scale = np.full((int(model.nu),), float(action_scale), dtype=get_global_dtype())
+
+        unique_scale = np.unique(np.round(action_scale, 6))
+        print(f"[G1MotionTracking] action_scale unique: {unique_scale.tolist()}")
+
+        preview_count = min(8, int(model.nu))
+        preview = []
+        for i in range(preview_count):
+            name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, i)
+            preview.append(f"{name}:{float(action_scale[i]):.6f}")
+        print("[G1MotionTracking] action_scale preview:", ", ".join(preview))
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:
