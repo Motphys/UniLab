@@ -94,6 +94,18 @@ def test_offpolicy_hydra_algo_td3():
     assert cfg.algo.algo == "td3"
 
 
+def test_offpolicy_resolve_sac_use_symmetry_keeps_mujoco_setting():
+    cfg = _offpolicy_cfg(["task=g1_sac", "training.sim_backend=mujoco"])
+
+    assert _offpolicy().resolve_sac_use_symmetry(cfg) is True
+
+
+def test_offpolicy_resolve_sac_use_symmetry_disables_motrix():
+    cfg = _offpolicy_cfg(["task=g1_sac", "training.sim_backend=motrix"])
+
+    assert _offpolicy().resolve_sac_use_symmetry(cfg) is False
+
+
 # ---------------------------------------------------------------------------
 # train_offpolicy.py — default_device()
 # ---------------------------------------------------------------------------
@@ -197,6 +209,42 @@ def test_resolve_checkpoint_empty_run_dir(tmp_path):
 
     path, path_dir = _offpolicy().resolve_checkpoint_path(tmp_path, "sac", "MyTask", "-1")
     assert path is None
+
+
+def test_offpolicy_extract_reset_obs_handles_two_tuple():
+    obs = {"obs": "value"}
+
+    result = _offpolicy().extract_reset_obs((obs, {"info": 1}))
+
+    assert result is obs
+
+
+def test_offpolicy_extract_reset_obs_handles_three_tuple():
+    obs = {"obs": "value"}
+
+    result = _offpolicy().extract_reset_obs(("ignored", obs, {"info": 1}))
+
+    assert result is obs
+
+
+def test_offpolicy_resolve_play_obs_dim_ignores_privileged():
+    obs_dim = _offpolicy().resolve_play_obs_dim({"obs": 98, "privileged": 3})
+
+    assert obs_dim == 98
+
+
+def test_offpolicy_extract_play_obs_uses_obs_group_only():
+    import numpy as np
+
+    obs = {
+        "obs": np.ones((2, 98), dtype=np.float32),
+        "privileged": np.full((2, 3), 2.0, dtype=np.float32),
+    }
+
+    play_obs = _offpolicy().extract_play_obs(obs)
+
+    assert play_obs.shape == (2, 98)
+    assert np.allclose(play_obs, 1.0)
 
 
 # ---------------------------------------------------------------------------

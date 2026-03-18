@@ -78,11 +78,94 @@ def resolve_checkpoint_path(
     return load_path, load_path_dir
 
 
-def build_runner(algo_name: str, cfg: DictConfig):
-    """Build algorithm runner from unified Hydra config."""
+def extract_reset_obs(reset_result):
+    """Extract obs_dict from env.reset(...) across old/new return conventions."""
+    if isinstance(reset_result, tuple):
+        if len(reset_result) == 2:
+            obs_out, _ = reset_result
+            return obs_out
+        if len(reset_result) == 3:
+            _, obs_out, _ = reset_result
+            return obs_out
+    raise ValueError(f"Unexpected env.reset return format: {type(reset_result)!r}")
+
+
+def resolve_play_obs_dim(obs_groups_spec: dict[str, int]) -> int:
+    from unilab.utils.obs_utils import get_obs_dims
+
+    obs_dim, _ = get_obs_dims(obs_groups_spec)
+    return obs_dim
+
+
+def extract_play_obs(obs_dict):
+    from unilab.utils.obs_utils import split_obs_dict
+
+    obs_out, _ = split_obs_dict(obs_dict)
+    return obs_out
+
+
+_GO1_LEGACY_COMMAND_VEL_LIMIT = [[0.5, 0.0, 0.0], [0.5, 0.0, 0.0]]
+_GO1_LEGACY_REWARD_CONFIG = {
+    "scales": {
+        "tracking_lin_vel": 1.0,
+        "tracking_ang_vel": 0.2,
+        "lin_vel_z": -5.0,
+        "ang_vel_xy": -0.1,
+        "base_height": -100.0,
+        "action_rate": -0.005,
+        "similar_to_default": -0.1,
+    },
+    "tracking_sigma": 0.25,
+    "base_height_target": 0.3,
+}
+
+
+def get_go1_motrix_legacy_offpolicy_profile(
+    algo_name: str, task_name: str, sim_backend: str
+) -> dict | None:
+    if algo_name != "sac" or task_name != "Go1JoystickFlatTerrain" or sim_backend != "motrix":
+        return None
+    return {
+        "algo_overrides": {
+            "num_envs": 4096,
+            "max_iterations": 2000,
+        },
+        "env_cfg_override": {
+            "legacy_motrix_profile": {
+                "enabled": True,
+                "command_vel_limit": _GO1_LEGACY_COMMAND_VEL_LIMIT,
+            },
+            "reward_config": _GO1_LEGACY_REWARD_CONFIG,
+        },
+    }
+
+
+def build_go1_motrix_legacy_offpolicy_env_cfg_override(
+    algo_name: str, cfg: DictConfig
+) -> dict | None:
     from unilab.utils.reward_utils import extract_reward_config
 
     env_cfg_override = extract_reward_config(cfg)
+
+    profile = get_go1_motrix_legacy_offpolicy_profile(
+        algo_name, cfg.training.task_name, cfg.training.sim_backend
+    )
+    if profile is not None:
+        cfg.algo.num_envs = profile["algo_overrides"]["num_envs"]
+        cfg.algo.max_iterations = profile["algo_overrides"]["max_iterations"]
+        env_cfg_override.update(profile["env_cfg_override"])
+
+    return env_cfg_override
+
+
+def resolve_sac_use_symmetry(cfg: DictConfig) -> bool:
+    """Symmetry augmentation currently depends on MuJoCo model APIs."""
+    return bool(cfg.algo.use_symmetry and cfg.training.sim_backend == "mujoco")
+
+
+def build_runner(algo_name: str, cfg: DictConfig):
+    """Build algorithm runner from unified Hydra config."""
+    env_cfg_override = build_go1_motrix_legacy_offpolicy_env_cfg_override(algo_name, cfg)
 
     if algo_name == "sac":
         from unilab.algos.torch.fast_sac.learner import FastSACLearner
@@ -94,17 +177,18 @@ def build_runner(algo_name: str, cfg: DictConfig):
             from unilab.algos.torch.offpolicy.multi_gpu_runner import MultiGPUOffPolicyRunner
             from unilab.base import registry
             from unilab.utils.algo_utils import ensure_registries
-            from unilab.utils.reward_utils import extract_reward_config
 
             ensure_registries()
             device = cfg.training.device or get_default_device()
-            env_cfg_override = extract_reward_config(cfg)
             env = registry.make(
-                cfg.training.task_name, num_envs=1, sim_backend=cfg.training.sim_backend,
-                env_cfg_override=env_cfg_override
+                cfg.training.task_name,
+                num_envs=1,
+                sim_backend=cfg.training.sim_backend,
+                env_cfg_override=env_cfg_override,
             )
             assert env.action_space.shape
             from unilab.utils.obs_utils import get_obs_dims
+
             obs_dim, privileged_dim = get_obs_dims(env.obs_groups_spec)
             action_dim = env.action_space.shape[0]
             env.close()
@@ -180,7 +264,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             sync_collection=not cfg.training.no_sync_collection,
             env_steps_per_sync=cfg.training.env_steps_per_sync,
             sim_backend=cfg.training.sim_backend,
-            use_symmetry=cfg.algo.use_symmetry,
+            use_symmetry=resolve_sac_use_symmetry(cfg),
         )
 
     if algo_name == "td3":
@@ -231,14 +315,10 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> None:
     from unilab.utils import render_many
     from unilab.utils.algo_utils import build_actor
 
-    from unilab.utils.reward_utils import extract_reward_config
-
-    env_cfg_override = extract_reward_config(cfg)
+    env_cfg_override = build_go1_motrix_legacy_offpolicy_env_cfg_override(algo_name, cfg)
 
     device = default_device(torch, cfg.training.device)
     print(f"Using device for play: {device}")
-
-    from unilab.utils.obs_utils import flatten_obs_dict
 
     env = registry.make(
         cfg.training.task_name,
@@ -246,7 +326,7 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> None:
         sim_backend=cfg.training.sim_backend,
         env_cfg_override=env_cfg_override,
     )
-    obs_dim = sum(env.obs_groups_spec.values())
+    obs_dim = resolve_play_obs_dim(env.obs_groups_spec)
     action_dim = env.action_space.shape[0]
 
     normalizer = None
@@ -305,8 +385,8 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> None:
     if env.state is None:
         env.init_state()
     env_indices = np.arange(cfg.training.play_env_num, dtype=np.int32)
-    _, obs_out, _ = env.reset(env_indices)
-    obs_np = np.asarray(flatten_obs_dict(obs_out), dtype=np.float32)
+    obs_out = extract_reset_obs(env.reset(env_indices))
+    obs_np = np.asarray(extract_play_obs(obs_out), dtype=np.float32)
 
     # Use Motrix native rendering
     if cfg.training.sim_backend == "motrix":
@@ -331,7 +411,7 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> None:
                         else actor(obs_torch).cpu().numpy()
                     )
                     state = env.step(actions_np)
-                    obs_np = np.asarray(flatten_obs_dict(state.obs), dtype=np.float32)
+                    obs_np = np.asarray(extract_play_obs(state.obs), dtype=np.float32)
 
                     current_time = time.perf_counter()
                     elapsed = current_time - last_render_time
@@ -363,7 +443,7 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> None:
                 else actor(obs_torch).cpu().numpy()
             )
             state = env.step(actions_np)
-            obs_np = np.asarray(flatten_obs_dict(state.obs), dtype=np.float32)
+            obs_np = np.asarray(extract_play_obs(state.obs), dtype=np.float32)
             state_list.append(np.asarray(env._backend.get_physics_state(), dtype=np.float32).copy())
 
     print("Rendering frames...")

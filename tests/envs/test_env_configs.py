@@ -52,6 +52,18 @@ def test_g1_joystick_sac_cfg_no_obs_config():
     )
 
 
+def test_g1_joystick_sac_cfg_has_domain_rand_for_motrix():
+    from unilab.envs.locomotion.g1.joystick_sac import G1JoystickSACCfg
+
+    cfg = G1JoystickSACCfg()
+    assert hasattr(cfg, "domain_rand")
+    assert hasattr(cfg, "gait_phase_init_mode")
+    assert hasattr(cfg, "reset_base_qvel_limit")
+    assert cfg.domain_rand.randomize_base_mass is False
+    assert cfg.domain_rand.random_com is False
+    assert cfg.domain_rand.push_robots is False
+
+
 def test_g1_joystick_ppo_obs_groups_spec_dims():
     """obs_groups_spec total dim must match what _compute_obs actually produces.
 

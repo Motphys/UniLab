@@ -137,6 +137,8 @@ class OffPolicyRunner(AsyncRunner):
             "obs_normalization": self.obs_normalization,
             "shared_obs_normalizer_stats": shared_obs_normalizer_stats,
             "env_cfg_override": self.env_cfg_override,
+            "obs_dim": self.obs_dim,
+            "action_dim": self.action_dim,
         }
         self._start_collector(
             target_fn=off_policy_collector_fn,
