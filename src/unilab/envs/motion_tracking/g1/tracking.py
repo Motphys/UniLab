@@ -14,7 +14,6 @@ from unilab.base.backend import create_backend
 from unilab.base.dtype_config import get_global_dtype
 from unilab.base.np_env import NpEnvState
 from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
-from unilab.envs.locomotion.obs_config import ObsConfig
 from unilab.utils.math_utils import (
     np_matrix_from_quat,
     np_quat_apply,
@@ -28,45 +27,6 @@ from unilab.utils.math_utils import (
 )
 
 from .motion_loader import MotionLoader, MotionSampler
-
-# 14 tracked bodies, 29 DoF for G1
-_NUM_BODIES = 14
-_NUM_DOF = 29
-
-
-def _motion_tracking_obs_config() -> ObsConfig:
-    """ObsConfig for G1 motion tracking (29 DoF, 14 bodies).
-
-    Actor obs: command(58) + motion_anchor_pos_b(3) + motion_anchor_ori_b(6) +
-               base_lin_vel(3) + base_ang_vel(3) + joint_pos(29) +
-               joint_vel(29) + actions(29) = 160
-    Critic adds: body_pos_b(14*3=42) + body_ori_b(14*6=84) = 126
-    Total critic: 286
-    """
-    return ObsConfig(
-        obs_dict={
-            "command": _NUM_DOF * 2,
-            "motion_anchor_pos_b": 3,
-            "motion_anchor_ori_b": 6,
-            "base_lin_vel": 3,
-            "base_ang_vel": 3,
-            "joint_pos": _NUM_DOF,
-            "joint_vel": _NUM_DOF,
-            "actions": _NUM_DOF,
-            "body_pos_b": _NUM_BODIES * 3,
-            "body_ori_b": _NUM_BODIES * 6,
-        },
-        actor_obs=[
-            "command",
-            "motion_anchor_pos_b",
-            "motion_anchor_ori_b",
-            "base_lin_vel",
-            "base_ang_vel",
-            "joint_pos",
-            "joint_vel",
-            "actions",
-        ],
-    )
 
 
 @dataclass
@@ -159,7 +119,6 @@ class G1MotionTrackingCfg(G1BaseCfg):
         "left_wrist_yaw_link",
         "right_wrist_yaw_link",
     )
-    obs_config: ObsConfig = field(default_factory=_motion_tracking_obs_config)
 
 
 @registry.envcfg("G1MotionTracking")
