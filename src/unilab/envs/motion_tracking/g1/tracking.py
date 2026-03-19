@@ -41,6 +41,8 @@ class RewardConfig:
             "motion_body_ori": 1.0,
             "motion_body_lin_vel": 1.0,
             "motion_body_ang_vel": 1.0,
+            "motion_joint_pos": 0.0,
+            "motion_joint_vel": 0.0,
             "action_rate_l2": -0.1,
             "joint_limit": -10.0,
         }
@@ -52,6 +54,8 @@ class RewardConfig:
     std_body_ori: float = 0.4
     std_body_lin_vel: float = 1.0
     std_body_ang_vel: float = 3.14
+    std_joint_pos: float = 0.2
+    std_joint_vel: float = 1.0
 
 
 @dataclass
@@ -202,8 +206,10 @@ class G1MotionTrackingEnv(G1BaseEnv):
 
             # Fallback: derive actuator effort limits from joint force ranges when
             # actuator forcerange is not explicitly defined in XML.
-            if np.all(effort_limit <= 0.0) and hasattr(model, "actuator_trnid") and hasattr(
-                model, "jnt_actfrcrange"
+            if (
+                np.all(effort_limit <= 0.0)
+                and hasattr(model, "actuator_trnid")
+                and hasattr(model, "jnt_actfrcrange")
             ):
                 joint_ids = model.actuator_trnid[:, 0].astype(np.int32)
                 effort_limit = np.max(np.abs(model.jnt_actfrcrange[joint_ids]), axis=1)
@@ -252,6 +258,8 @@ class G1MotionTrackingEnv(G1BaseEnv):
             "motion_body_ori": self._reward_motion_body_ori,
             "motion_body_lin_vel": self._reward_motion_body_lin_vel,
             "motion_body_ang_vel": self._reward_motion_body_ang_vel,
+            "motion_joint_pos": self._reward_motion_joint_pos,
+            "motion_joint_vel": self._reward_motion_joint_vel,
             "action_rate_l2": self._reward_action_rate_l2,
             "joint_limit": self._reward_joint_limit,
         }
@@ -290,6 +298,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
             robot_body_lin_vel_w,
             robot_body_ang_vel_w,
             dof_pos,
+            dof_vel,
         )
 
         # Compute observations
@@ -470,6 +479,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
         robot_body_lin_vel_w: np.ndarray,
         robot_body_ang_vel_w: np.ndarray,
         dof_pos: np.ndarray,
+        dof_vel: np.ndarray,
     ) -> np.ndarray:
         """Compute reward."""
         dtype = get_global_dtype()
@@ -486,7 +496,11 @@ class G1MotionTrackingEnv(G1BaseEnv):
         info["robot_body_quat_w"] = robot_body_quat_w
         info["robot_body_lin_vel_w"] = robot_body_lin_vel_w
         info["robot_body_ang_vel_w"] = robot_body_ang_vel_w
+        info["reward_ref_body_pos_w"] = self.body_pos_relative_w
+        info["reward_ref_body_quat_w"] = self.body_quat_relative_w
+        info["anchor_body_idx"] = self.anchor_body_idx
         info["dof_pos"] = dof_pos
+        info["dof_vel"] = dof_vel
 
         for name, scale in cfg.scales.items():
             if scale == 0 or name not in self._reward_fns:
@@ -538,6 +552,18 @@ class G1MotionTrackingEnv(G1BaseEnv):
         robot_body_ang_vel_w = info["robot_body_ang_vel_w"]
         error = np.sum(np.square(motion_data.body_ang_vel_w - robot_body_ang_vel_w), axis=-1)
         return np.exp(-error.mean(-1) / self._cfg.reward_config.std_body_ang_vel**2)
+
+    def _reward_motion_joint_pos(self, info: dict) -> np.ndarray:
+        motion_data = info["motion_data"]
+        dof_pos = info["dof_pos"]
+        error = np.mean(np.square(motion_data.joint_pos - dof_pos), axis=-1)
+        return np.exp(-error / self._cfg.reward_config.std_joint_pos**2)
+
+    def _reward_motion_joint_vel(self, info: dict) -> np.ndarray:
+        motion_data = info["motion_data"]
+        dof_vel = info["dof_vel"]
+        error = np.mean(np.square(motion_data.joint_vel - dof_vel), axis=-1)
+        return np.exp(-error / self._cfg.reward_config.std_joint_vel**2)
 
     def _reward_action_rate_l2(self, info: dict) -> np.ndarray:
         action_diff = info["current_actions"] - info["last_actions"]

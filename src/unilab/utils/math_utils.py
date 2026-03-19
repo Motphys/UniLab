@@ -182,9 +182,19 @@ def np_quat_error_magnitude(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
     elif q2.shape[0] == 1 and q1.shape[0] > 1:
         q2 = np.broadcast_to(q2, q1.shape)
 
+    # Relative rotation from q1 to q2.
     q_rel = np_quat_mul(q2, np_quat_inv(q1))
+
+    # Match mjlab shortest-arc convention:
+    # q and -q represent the same orientation, so force w >= 0 to avoid
+    # large-angle artifacts when quaternion signs flip.
+    sign = np.where(q_rel[:, 0:1] < 0.0, -1.0, 1.0)
+    q_rel = q_rel * sign
+
+    # Use atan2-based angle extraction for better numerical behavior.
     xyz_norm = np.linalg.norm(q_rel[:, 1:], axis=1)
-    error = 2 * np.arcsin(np.clip(xyz_norm, -1, 1))
+    w = np.clip(q_rel[:, 0], -1.0, 1.0)
+    error = 2.0 * np.arctan2(xyz_norm, w)
     return error[0] if q1_was_1d and q2_was_1d else error
 
 
