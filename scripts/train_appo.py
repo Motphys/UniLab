@@ -54,8 +54,8 @@ def play_appo(cfg: DictConfig, rl_cfg: dict):
 
     from unilab.base import registry
     from unilab.utils import render_many
-    from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4, is_rsl_rl_v5
     from unilab.utils.reward_utils import extract_reward_config
+    from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4, is_rsl_rl_v5
 
     env_cfg_override = extract_reward_config(cfg)
 
@@ -75,6 +75,7 @@ def play_appo(cfg: DictConfig, rl_cfg: dict):
         env_cfg_override=env_cfg_override,
     )
     from unilab.utils.obs_utils import get_obs_dims
+
     obs_dim, privileged_dim = get_obs_dims(env.obs_groups_spec)
     action_dim = env.action_space.shape[0]
 

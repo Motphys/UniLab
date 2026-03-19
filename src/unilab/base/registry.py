@@ -128,7 +128,7 @@ def make(
     # Create environment config
     env_cfg = meta.env_cfg_cls()
     if env_cfg_override is not None:
-        from typing import get_type_hints, get_args, get_origin
+        from typing import get_args, get_origin, get_type_hints
 
         # Get type hints for the config class
         type_hints = get_type_hints(env_cfg.__class__)

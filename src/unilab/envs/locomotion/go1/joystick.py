@@ -34,6 +34,12 @@ class RewardConfig:
 
 
 @dataclass
+class LegacyMotrixProfile:
+    enabled: bool = False
+    command_vel_limit: list[list[float]] | None = None
+
+
+@dataclass
 class JoystickSensor:
     local_linvel = "local_linvel"
     gyro = "gyro"
@@ -63,8 +69,16 @@ class Go1JoystickCfg(Go1BaseCfg):
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
     reward_config: RewardConfig | None = None
+    legacy_motrix_profile: LegacyMotrixProfile = field(default_factory=LegacyMotrixProfile)
     sensor: JoystickSensor = field(default_factory=JoystickSensor)  # type: ignore[assignment]
     domain_rand: Domain_Rand = field(default_factory=Domain_Rand)
+
+    def apply_legacy_motrix_profile(self) -> None:
+        profile = self.legacy_motrix_profile
+        if not profile.enabled:
+            return
+        if profile.command_vel_limit is not None:
+            self.commands.vel_limit = [list(v) for v in profile.command_vel_limit]
 
 
 @registry.env("Go1JoystickFlatTerrain", sim_backend="mujoco")
@@ -75,6 +89,7 @@ class Go1WalkTask(Go1BaseEnv):
     def __init__(self, cfg: Go1JoystickCfg, num_envs=1, backend_type="mujoco"):
         if cfg.reward_config is None:
             raise ValueError("reward_config must be provided via Hydra configuration")
+        cfg.apply_legacy_motrix_profile()
         backend = create_backend(
             backend_type, cfg.model_file, num_envs, cfg.sim_dt, base_name=cfg.asset.base_name
         )
@@ -89,8 +104,15 @@ class Go1WalkTask(Go1BaseEnv):
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:
+        if self._use_legacy_motrix_profile():
+            return {"obs": 48}
         # gyro(3) + gravity(3) + diff(12) + dof_vel(12) + action(12) + cmd(3) + phase(4) = 49
         return {"obs": 49, "privileged": 3}
+
+    def _use_legacy_motrix_profile(self) -> bool:
+        profile = getattr(self._cfg, "legacy_motrix_profile", None)
+        backend_type = getattr(getattr(self, "_backend", None), "backend_type", None)
+        return bool(profile and profile.enabled and backend_type == "motrix")
 
     def _init_reward_functions(self):
         self._reward_fns = {
@@ -101,8 +123,9 @@ class Go1WalkTask(Go1BaseEnv):
             "base_height": self._reward_base_height,
             "action_rate": self._reward_action_rate,
             "similar_to_default": self._reward_similar_to_default,
-            "contact": self._reward_contact,
         }
+        if not self._use_legacy_motrix_profile():
+            self._reward_fns["contact"] = self._reward_contact
 
     def update_state(self, state: NpEnvState) -> NpEnvState:
         self.phase = np.fmod(self.phase + self._cfg.ctrl_dt * self.gait_frequency, 1.0)
@@ -133,6 +156,13 @@ class Go1WalkTask(Go1BaseEnv):
         diff = dof_pos - self.default_angles
         command = info["commands"]
         last_actions = info.get("current_actions", np.zeros_like(diff))
+        if self._use_legacy_motrix_profile():
+            obs = np.concatenate(
+                [linvel, gyro, -gravity, diff, dof_vel, last_actions, command],
+                axis=1,
+                dtype=get_global_dtype(),
+            )
+            return {"obs": obs}
         obs = np.concatenate(
             [gyro, -gravity, diff, dof_vel, last_actions, command, feet_phase],
             axis=1,

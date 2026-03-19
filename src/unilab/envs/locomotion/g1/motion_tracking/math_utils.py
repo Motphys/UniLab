@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 
 
@@ -35,7 +37,7 @@ def quat_mul(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
         axis=1,
     )
 
-    return result[0] if squeeze else result
+    return cast(np.ndarray, np.asarray(result[0] if squeeze else result))
 
 
 def quat_conjugate(q: np.ndarray) -> np.ndarray:
@@ -48,9 +50,9 @@ def quat_conjugate(q: np.ndarray) -> np.ndarray:
         Conjugate quaternion(s) (N, 4) or (4,)
     """
     if q.ndim == 1:
-        return np.array([q[0], -q[1], -q[2], -q[3]])
+        return np.asarray([q[0], -q[1], -q[2], -q[3]], dtype=q.dtype)
     else:
-        result = q.copy()
+        result = np.asarray(q.copy(), dtype=q.dtype)
         result[:, 1:] *= -1
         return result
 
@@ -112,7 +114,7 @@ def quat_apply(q: np.ndarray, v: np.ndarray) -> np.ndarray:
         axis=1,
     )
 
-    return result[0] if squeeze else result
+    return cast(np.ndarray, np.asarray(result[0] if squeeze else result))
 
 
 def quat_apply_inverse(q: np.ndarray, v: np.ndarray) -> np.ndarray:
@@ -152,7 +154,7 @@ def quat_error_magnitude(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
     xyz_norm = np.linalg.norm(q_rel[:, 1:], axis=1)
     error = 2 * np.arcsin(np.clip(xyz_norm, -1, 1))
 
-    return error[0] if squeeze else error
+    return cast(np.ndarray, np.asarray(error[0] if squeeze else error))
 
 
 def quat_from_euler_xyz(roll: np.ndarray, pitch: np.ndarray, yaw: np.ndarray) -> np.ndarray:
@@ -184,7 +186,7 @@ def quat_from_euler_xyz(roll: np.ndarray, pitch: np.ndarray, yaw: np.ndarray) ->
     z = cr * cp * sy - sr * sp * cy
 
     result = np.stack([w, x, y, z], axis=1)
-    return result[0] if squeeze else result
+    return cast(np.ndarray, np.asarray(result[0] if squeeze else result))
 
 
 def yaw_quat(q: np.ndarray) -> np.ndarray:
@@ -218,7 +220,7 @@ def yaw_quat(q: np.ndarray) -> np.ndarray:
         axis=1,
     )
 
-    return result[0] if squeeze else result
+    return cast(np.ndarray, np.asarray(result[0] if squeeze else result))
 
 
 def matrix_from_quat(q: np.ndarray) -> np.ndarray:
@@ -258,7 +260,7 @@ def matrix_from_quat(q: np.ndarray) -> np.ndarray:
         axis=1,
     )
 
-    return result[0] if squeeze else result
+    return cast(np.ndarray, np.asarray(result[0] if squeeze else result))
 
 
 def subtract_frame_transforms(

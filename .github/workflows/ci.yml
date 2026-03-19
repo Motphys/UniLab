@@ -42,7 +42,7 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
       - name: mypy
-        run: uv run mypy unilab
+        run: uv run mypy src/unilab
       - name: pyright
         run: uv run pyright
 

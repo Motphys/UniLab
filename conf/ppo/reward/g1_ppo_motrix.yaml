@@ -1,19 +1,22 @@
 # @package _global_
 reward:
   scales:
-    tracking_lin_vel: 2.4
-    tracking_ang_vel: 0.3
-    feet_phase: 1.2
-    lin_vel_z: -1.2
-    ang_vel_xy: -0.3
-    base_height: -600.0
-    orientation: -6.0
-    action_rate: -0.012
-    pose: -0.12
+    tracking_lin_vel: 3.0
+    tracking_ang_vel: 0.25
+    forward_progress: 1.5
+    under_speed: -1.0
+    upper_body_pose: -0.05
+    feet_phase: 0.5
+    lin_vel_z: -1.0
+    ang_vel_xy: -0.2
+    base_height: -120.0
+    orientation: -2.5
+    action_rate: -0.005
+    pose: -0.05
   tracking_sigma: 0.25
   gait_frequency: 1.5
   feet_phase_swing_height: 0.09
   feet_phase_tracking_sigma: 0.008
   base_height_target: 0.754
-  min_base_height: 0.55
-  max_tilt_deg: 25.0
+  min_base_height: 0.5
+  max_tilt_deg: 35.0

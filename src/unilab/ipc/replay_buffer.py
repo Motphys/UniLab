@@ -157,6 +157,7 @@ class ReplayBuffer(SharedBufferBase):
                 self.dones[idx : idx + n] = dones
                 self.truncated[idx : idx + n] = truncated
                 if self._privileged_dim > 0 and privileged is not None:
+                    assert next_privileged is not None
                     self.privileged_obs[idx : idx + n] = privileged
                     self.next_privileged_obs[idx : idx + n] = next_privileged
             else:
@@ -174,6 +175,7 @@ class ReplayBuffer(SharedBufferBase):
                 self.truncated[idx:] = truncated[:split]
                 self.truncated[: n - split] = truncated[split:]
                 if self._privileged_dim > 0 and privileged is not None:
+                    assert next_privileged is not None
                     self.privileged_obs[idx:] = privileged[:split]
                     self.privileged_obs[: n - split] = privileged[split:]
                     self.next_privileged_obs[idx:] = next_privileged[:split]
@@ -188,6 +190,7 @@ class ReplayBuffer(SharedBufferBase):
                 truncated.unsqueeze(1),
             ]
             if self._privileged_dim > 0 and privileged is not None:
+                assert next_privileged is not None
                 parts.extend([privileged, next_privileged])
             row = torch.cat(parts, dim=1)
 

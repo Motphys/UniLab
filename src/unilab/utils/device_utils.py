@@ -22,7 +22,9 @@ def get_env_dims(
     """
     from unilab.utils.obs_utils import get_obs_dims as get_obs_dims_from_spec
 
-    env = registry.make(env_name, num_envs=1, sim_backend=sim_backend, env_cfg_override=env_cfg_override)
+    env = registry.make(
+        env_name, num_envs=1, sim_backend=sim_backend, env_cfg_override=env_cfg_override
+    )
     obs_dim, privileged_dim = get_obs_dims_from_spec(env.obs_groups_spec)
     action_shape = env.action_space.shape
     assert action_shape is not None

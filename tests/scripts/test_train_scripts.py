@@ -62,6 +62,24 @@ def _offpolicy_cfg(overrides=None):
         return compose("config", overrides=overrides or [])
 
 
+def _ppo_cfg(overrides=None):
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(_CONF_DIR / "ppo"), version_base="1.3"):
+        return compose("config", overrides=overrides or [])
+
+
+def _train_rsl_rl(monkeypatch: pytest.MonkeyPatch):
+    import types
+
+    runners_mod = types.ModuleType("rsl_rl.runners")
+    runners_mod.OnPolicyRunner = object
+    rsl_pkg = types.ModuleType("rsl_rl")
+    rsl_pkg.runners = runners_mod
+    monkeypatch.setitem(sys.modules, "rsl_rl", rsl_pkg)
+    monkeypatch.setitem(sys.modules, "rsl_rl.runners", runners_mod)
+    return _load_script("train_rsl_rl")
+
+
 def test_offpolicy_hydra_default_algo():
     cfg = _offpolicy_cfg()
     assert cfg.algo.algo == "sac"
@@ -92,6 +110,131 @@ def test_offpolicy_hydra_default_play_flags():
 def test_offpolicy_hydra_algo_td3():
     cfg = _offpolicy_cfg(["algo=td3"])
     assert cfg.algo.algo == "td3"
+
+
+def test_offpolicy_task_go1_exposes_motrix_legacy():
+    cfg = _offpolicy_cfg(["task=go1_joystick"])
+
+    assert cfg.motrix_legacy.enabled is True
+    assert cfg.motrix_legacy.applies_to.algo == "sac"
+    assert cfg.motrix_legacy.algo_overrides.num_envs == 4096
+    assert cfg.motrix_legacy.algo_overrides.max_iterations == 2000
+    assert cfg.motrix_legacy.env_cfg_override.legacy_motrix_profile.enabled is True
+
+
+def test_offpolicy_build_task_motrix_env_cfg_override_applies_go1_legacy():
+    cfg = _offpolicy_cfg(["task=go1_joystick", "training.sim_backend=motrix"])
+
+    env_cfg_override = _offpolicy().build_task_motrix_offpolicy_env_cfg_override("sac", cfg)
+
+    assert cfg.algo.num_envs == 4096
+    assert cfg.algo.max_iterations == 2000
+    assert env_cfg_override["legacy_motrix_profile"]["enabled"] is True
+    assert env_cfg_override["reward_config"]["scales"]["tracking_lin_vel"] == pytest.approx(1.0)
+
+
+def test_offpolicy_build_task_motrix_env_cfg_override_skips_td3():
+    cfg = _offpolicy_cfg(["algo=td3", "task=go1_joystick", "training.sim_backend=motrix"])
+
+    env_cfg_override = _offpolicy().build_task_motrix_offpolicy_env_cfg_override("td3", cfg)
+
+    assert cfg.algo.num_envs == 2048
+    assert cfg.algo.max_iterations == 3000
+    assert "legacy_motrix_profile" not in env_cfg_override
+
+
+def test_offpolicy_build_task_motrix_env_cfg_override_respects_cli_algo_override(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    cfg = _offpolicy_cfg(
+        ["task=go1_joystick", "training.sim_backend=motrix", "algo.max_iterations=1"]
+    )
+    monkeypatch.setattr(sys, "argv", ["train_offpolicy.py", "algo.max_iterations=1"])
+
+    _offpolicy().build_task_motrix_offpolicy_env_cfg_override("sac", cfg)
+
+    assert cfg.algo.num_envs == 4096
+    assert cfg.algo.max_iterations == 1
+
+
+def test_offpolicy_resolve_sac_use_symmetry_keeps_mujoco_setting():
+    cfg = _offpolicy_cfg(["task=g1_sac", "training.sim_backend=mujoco"])
+
+    assert _offpolicy().resolve_sac_use_symmetry(cfg) is True
+
+
+def test_offpolicy_resolve_sac_use_symmetry_disables_motrix():
+    cfg = _offpolicy_cfg(["task=g1_sac", "training.sim_backend=motrix"])
+
+    assert _offpolicy().resolve_sac_use_symmetry(cfg) is False
+
+
+def test_ppo_task_go1_exposes_motrix_legacy():
+    cfg = _ppo_cfg(["task=go1_joystick"])
+
+    assert cfg.motrix_legacy.enabled is True
+    assert cfg.motrix_legacy.algo_overrides.max_iterations == 151
+    assert cfg.motrix_legacy.algo_overrides.policy.init_noise_std == pytest.approx(0.5)
+    assert cfg.motrix_legacy.env_cfg_override.legacy_motrix_profile.enabled is True
+
+
+def test_ppo_task_g1_exposes_motrix_legacy():
+    cfg = _ppo_cfg(["task=g1_joystick"])
+
+    assert cfg.motrix_legacy.enabled is True
+    assert cfg.motrix_legacy.algo_overrides.obs_groups.actor == ["policy"]
+    assert (
+        cfg.motrix_legacy.env_cfg_override.backend_overrides.control_action_scale
+        == pytest.approx(0.5)
+    )
+
+
+def test_build_task_motrix_ppo_env_cfg_override_applies_go1_legacy(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(["task=go1_joystick", "training.sim_backend=motrix"])
+
+    env_cfg_override = mod.build_task_motrix_ppo_env_cfg_override(cfg)
+
+    assert cfg.algo.max_iterations == 151
+    assert cfg.algo.empirical_normalization is True
+    assert cfg.algo.policy.init_noise_std == pytest.approx(0.5)
+    assert cfg.algo.algorithm.learning_rate == pytest.approx(3.0e-4)
+    assert cfg.algo.algorithm.entropy_coef == pytest.approx(1.0e-3)
+    assert env_cfg_override["legacy_motrix_profile"]["enabled"] is True
+    assert env_cfg_override["reward_config"]["scales"]["tracking_lin_vel"] == pytest.approx(1.0)
+
+
+def test_build_task_motrix_ppo_env_cfg_override_applies_g1_legacy(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(["task=g1_joystick", "training.sim_backend=motrix"])
+
+    env_cfg_override = mod.build_task_motrix_ppo_env_cfg_override(cfg)
+
+    assert cfg.algo.max_iterations == 151
+    assert cfg.algo.empirical_normalization is True
+    assert cfg.algo.policy.init_noise_std == pytest.approx(0.5)
+    assert cfg.algo.algorithm.learning_rate == pytest.approx(3.0e-4)
+    assert cfg.algo.algorithm.entropy_coef == pytest.approx(5.0e-3)
+    assert cfg.algo.obs_groups.actor == ["policy"]
+    assert env_cfg_override["backend_overrides"]["enabled"] is True
+    assert env_cfg_override["reward_config"]["scales"]["upper_body_pose"] == pytest.approx(-0.05)
+
+
+def test_build_task_motrix_ppo_env_cfg_override_respects_cli_algo_override(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(["task=g1_joystick", "training.sim_backend=motrix", "algo.max_iterations=1"])
+    monkeypatch.setattr(sys, "argv", ["train_rsl_rl.py", "algo.max_iterations=1"])
+
+    mod.build_task_motrix_ppo_env_cfg_override(cfg)
+
+    assert cfg.algo.empirical_normalization is True
+    assert cfg.algo.max_iterations == 1
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +340,41 @@ def test_resolve_checkpoint_empty_run_dir(tmp_path):
 
     path, path_dir = _offpolicy().resolve_checkpoint_path(tmp_path, "sac", "MyTask", "-1")
     assert path is None
+
+
+def test_offpolicy_extract_reset_obs_handles_two_tuple():
+    obs = {"obs": "value"}
+
+    result = _offpolicy().extract_reset_obs((obs, {"info": 1}))
+
+    assert result is obs
+
+
+def test_offpolicy_extract_reset_obs_rejects_three_tuple():
+    obs = {"obs": "value"}
+
+    with pytest.raises(ValueError, match="Unexpected env.reset return format"):
+        _offpolicy().extract_reset_obs(("ignored", obs, {"info": 1}))
+
+
+def test_offpolicy_resolve_play_obs_dim_ignores_privileged():
+    obs_dim = _offpolicy().resolve_play_obs_dim({"obs": 98, "privileged": 3})
+
+    assert obs_dim == 98
+
+
+def test_offpolicy_extract_play_obs_uses_obs_group_only():
+    import numpy as np
+
+    obs = {
+        "obs": np.ones((2, 98), dtype=np.float32),
+        "privileged": np.full((2, 3), 2.0, dtype=np.float32),
+    }
+
+    play_obs = _offpolicy().extract_play_obs(obs)
+
+    assert play_obs.shape == (2, 98)
+    assert np.allclose(play_obs, 1.0)
 
 
 # ---------------------------------------------------------------------------

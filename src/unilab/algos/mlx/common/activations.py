@@ -18,9 +18,9 @@ def get_activation(name: str | None) -> Callable[[mx.array], mx.array]:
     if name == "elu":
         return lambda x: mx.where(x > 0.0, x, mx.exp(x) - 1.0)
     if name == "tanh":
-        return mx.tanh
+        return lambda x: mx.tanh(x)
     if name == "sigmoid":
-        return mx.sigmoid
+        return lambda x: mx.sigmoid(x)
     if name == "swish":
         return lambda x: x * mx.sigmoid(x)
     if name == "identity":
