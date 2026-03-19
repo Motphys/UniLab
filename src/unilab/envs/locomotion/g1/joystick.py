@@ -77,7 +77,7 @@ def sample_reset_base_qvel(rng, num_samples: int, limit: float) -> np.ndarray:
 def build_upper_body_pose_weights(pose_weights: list[float]) -> np.ndarray:
     weights = np.asarray(pose_weights, dtype=get_global_dtype()).copy()
     weights[:12] = 0.0
-    return weights
+    return np.asarray(weights, dtype=get_global_dtype())
 
 
 def compute_weighted_pose_penalty(diff: np.ndarray, weights: np.ndarray) -> np.ndarray:

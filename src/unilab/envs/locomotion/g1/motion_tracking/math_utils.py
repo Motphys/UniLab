@@ -50,9 +50,9 @@ def quat_conjugate(q: np.ndarray) -> np.ndarray:
         Conjugate quaternion(s) (N, 4) or (4,)
     """
     if q.ndim == 1:
-        return np.array([q[0], -q[1], -q[2], -q[3]])
+        return np.asarray([q[0], -q[1], -q[2], -q[3]], dtype=q.dtype)
     else:
-        result = q.copy()
+        result = np.asarray(q.copy(), dtype=q.dtype)
         result[:, 1:] *= -1
         return result
 
