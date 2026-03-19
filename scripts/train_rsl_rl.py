@@ -47,126 +47,79 @@ def ensure_registries():
             pass
 
 
-_GO1_LEGACY_COMMAND_VEL_LIMIT = [[0.5, 0.0, 0.0], [0.5, 0.0, 0.0]]
-_GO1_LEGACY_REWARD_CONFIG = {
-    "scales": {
-        "tracking_lin_vel": 1.0,
-        "tracking_ang_vel": 0.2,
-        "lin_vel_z": -5.0,
-        "ang_vel_xy": -0.1,
-        "base_height": -100.0,
-        "action_rate": -0.005,
-        "similar_to_default": -0.1,
-    },
-    "tracking_sigma": 0.25,
-    "base_height_target": 0.3,
-}
-
-_G1_MOTRIX_LEGACY_PPO_REWARD_CONFIG = {
-    "scales": {
-        "tracking_lin_vel": 3.0,
-        "tracking_ang_vel": 0.25,
-        "forward_progress": 1.5,
-        "under_speed": -1.0,
-        "upper_body_pose": -0.05,
-        "feet_phase": 0.5,
-        "lin_vel_z": -1.0,
-        "ang_vel_xy": -0.2,
-        "base_height": -120.0,
-        "orientation": -2.5,
-        "action_rate": -0.005,
-        "pose": -0.05,
-    },
-    "tracking_sigma": 0.25,
-    "gait_frequency": 1.5,
-    "feet_phase_swing_height": 0.09,
-    "feet_phase_tracking_sigma": 0.008,
-    "base_height_target": 0.754,
-    "min_base_height": 0.50,
-    "max_tilt_deg": 35.0,
-}
+def _explicit_cli_override_keys() -> set[str]:
+    return {arg.split("=", 1)[0] for arg in sys.argv[1:] if "=" in arg}
 
 
-def get_go1_motrix_legacy_ppo_profile(task_name: str, sim_backend: str) -> dict | None:
-    if task_name != "Go1JoystickFlatTerrain" or sim_backend != "motrix":
-        return None
-    return {
-        "algo_overrides": {
-            "max_iterations": 151,
-            "empirical_normalization": True,
-            "policy": {"init_noise_std": 0.5},
-            "algorithm": {"learning_rate": 3.0e-4, "entropy_coef": 1.0e-3},
-        },
-        "env_cfg_override": {
-            "legacy_motrix_profile": {
-                "enabled": True,
-                "command_vel_limit": _GO1_LEGACY_COMMAND_VEL_LIMIT,
-            },
-            "reward_config": _GO1_LEGACY_REWARD_CONFIG,
-        },
-    }
+def _apply_task_algo_overrides(
+    target, overrides, *, base_path: str, explicit_keys: set[str]
+) -> None:
+    if OmegaConf.is_config(overrides):
+        override_dict = OmegaConf.to_container(overrides, resolve=True)
+    elif isinstance(overrides, dict):
+        override_dict = overrides
+    else:
+        return
+
+    for key, value in override_dict.items():
+        path = f"{base_path}.{key}"
+        if isinstance(value, dict):
+            if path in explicit_keys:
+                continue
+            if key not in target or target[key] is None:
+                target[key] = {}
+            _apply_task_algo_overrides(
+                target[key], value, base_path=path, explicit_keys=explicit_keys
+            )
+            continue
+        if path not in explicit_keys:
+            target[key] = value
 
 
-def get_g1_motrix_legacy_ppo_profile(task_name: str, sim_backend: str) -> dict | None:
-    if task_name != "G1JoystickFlatTerrain" or sim_backend != "motrix":
-        return None
-    return {
-        "algo_overrides": {
-            "max_iterations": 151,
-            "empirical_normalization": True,
-            "policy": {"init_noise_std": 0.5},
-            "algorithm": {"learning_rate": 3.0e-4, "entropy_coef": 5.0e-3},
-        },
-        "env_cfg_override": {
-            "reward_config": _G1_MOTRIX_LEGACY_PPO_REWARD_CONFIG,
-            "backend_overrides": {
-                "enabled": True,
-                "control_action_scale": 0.5,
-                "command_vel_limit": [[0.45, 0.0, 0.0], [0.55, 0.0, 0.0]],
-                "gait_phase_init_mode": "independent",
-                "reset_base_qvel_limit": 0.05,
-                "reward_scale_overrides": {
-                    "under_speed": -1.0,
-                    "upper_body_pose": -0.05,
-                    "tracking_ang_vel": 0.25,
-                },
-            },
-        },
-    }
+def _apply_task_env_profile(
+    env_cfg_override: dict, env_profile, *, explicit_keys: set[str]
+) -> None:
+    if OmegaConf.is_config(env_profile):
+        env_profile_dict = OmegaConf.to_container(env_profile, resolve=True)
+    elif isinstance(env_profile, dict):
+        env_profile_dict = env_profile
+    else:
+        return
+
+    reward_explicit = "reward" in explicit_keys or any(
+        k.startswith("reward.") for k in explicit_keys
+    )
+    for key, value in env_profile_dict.items():
+        if key == "reward_config" and reward_explicit:
+            continue
+        env_cfg_override[key] = value
 
 
-def build_go1_motrix_legacy_ppo_env_cfg_override(cfg: DictConfig) -> dict:
+def build_task_motrix_ppo_env_cfg_override(cfg: DictConfig) -> dict:
     env_cfg_override = {}
+    motrix_legacy = getattr(cfg, "motrix_legacy", None)
+    explicit_keys = _explicit_cli_override_keys()
     if hasattr(cfg, "reward") and cfg.reward:
         env_cfg_override["reward_config"] = OmegaConf.to_container(cfg.reward, resolve=True)
+    if motrix_legacy is None or not motrix_legacy.enabled or cfg.training.sim_backend != "motrix":
+        return env_cfg_override
 
-    profile = get_go1_motrix_legacy_ppo_profile(cfg.training.task_name, cfg.training.sim_backend)
-    if profile is not None:
-        cfg.algo.max_iterations = profile["algo_overrides"]["max_iterations"]
-        cfg.algo.empirical_normalization = profile["algo_overrides"]["empirical_normalization"]
-        cfg.algo.policy.init_noise_std = profile["algo_overrides"]["policy"]["init_noise_std"]
-        cfg.algo.algorithm.learning_rate = profile["algo_overrides"]["algorithm"][
-            "learning_rate"
-        ]
-        cfg.algo.algorithm.entropy_coef = profile["algo_overrides"]["algorithm"]["entropy_coef"]
-        env_cfg_override.update(profile["env_cfg_override"])
+    algo_overrides = getattr(motrix_legacy, "algo_overrides", None)
+    if algo_overrides is not None:
+        _apply_task_algo_overrides(
+            cfg.algo,
+            algo_overrides,
+            base_path="algo",
+            explicit_keys=explicit_keys,
+        )
 
-    return env_cfg_override
-
-
-def build_g1_motrix_legacy_ppo_env_cfg_override(cfg: DictConfig) -> dict:
-    env_cfg_override = {}
-    profile = get_g1_motrix_legacy_ppo_profile(cfg.training.task_name, cfg.training.sim_backend)
-    if profile is not None:
-        cfg.algo.max_iterations = profile["algo_overrides"]["max_iterations"]
-        cfg.algo.empirical_normalization = profile["algo_overrides"]["empirical_normalization"]
-        cfg.algo.policy.init_noise_std = profile["algo_overrides"]["policy"]["init_noise_std"]
-        cfg.algo.algorithm.learning_rate = profile["algo_overrides"]["algorithm"][
-            "learning_rate"
-        ]
-        cfg.algo.algorithm.entropy_coef = profile["algo_overrides"]["algorithm"]["entropy_coef"]
-        cfg.algo.obs_groups["actor"] = ["policy"]
-        env_cfg_override.update(profile["env_cfg_override"])
+    env_profile = getattr(motrix_legacy, "env_cfg_override", None)
+    if env_profile is not None:
+        _apply_task_env_profile(
+            env_cfg_override,
+            env_profile,
+            explicit_keys=explicit_keys,
+        )
     return env_cfg_override
 
 
@@ -259,8 +212,7 @@ def play_rsl_rl(cfg: DictConfig, device: str):
 
     from unilab.base import registry
 
-    env_cfg_override = build_go1_motrix_legacy_ppo_env_cfg_override(cfg)
-    env_cfg_override.update(build_g1_motrix_legacy_ppo_env_cfg_override(cfg))
+    env_cfg_override = build_task_motrix_ppo_env_cfg_override(cfg)
 
     env = registry.make(
         cfg.training.task_name,
@@ -391,8 +343,7 @@ def main(cfg: DictConfig) -> None:
 
     from unilab.base import registry
 
-    env_cfg_override = build_go1_motrix_legacy_ppo_env_cfg_override(cfg)
-    env_cfg_override.update(build_g1_motrix_legacy_ppo_env_cfg_override(cfg))
+    env_cfg_override = build_task_motrix_ppo_env_cfg_override(cfg)
 
     if torch.cuda.is_available():
         device = "cuda"

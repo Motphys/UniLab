@@ -33,6 +33,8 @@ def resolve_collector_actor_dims(
         assert env.action_space.shape is not None
         action_dim = env.action_space.shape[0]
 
+    assert obs_dim is not None
+    assert action_dim is not None
     return obs_dim, action_dim
 
 

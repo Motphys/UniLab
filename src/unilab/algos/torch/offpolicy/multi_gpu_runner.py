@@ -35,7 +35,7 @@ from unilab.utils.offpolicy_logger import OffPolicyLogger
 def _find_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("", 0))
-        return s.getsockname()[1]
+        return int(s.getsockname()[1])
 
 
 def _broadcast_initial_params(learner: FastSACLearner, rank: int) -> None:
@@ -400,7 +400,7 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
         }
 
         try:
-            tmp.spawn(
+            tmp.spawn(  # pyright: ignore[reportPrivateImportUsage]
                 _learner_worker,
                 args=(
                     self.num_gpus,

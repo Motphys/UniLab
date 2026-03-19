@@ -90,7 +90,7 @@ def test_backward_compatibility_no_reward_config():
 
     # Should fail without reward_config
     with pytest.raises(ValueError, match="reward_config must be provided"):
-        env = registry.make(
+        registry.make(
             "Go1JoystickFlatTerrain",
             num_envs=2,
             sim_backend="mujoco",

@@ -492,15 +492,14 @@ def test_default_reward_extraction_yields_empty():
 
 
 def test_appo_reward_extraction_pattern():
-    """Verify APPO with go1 task extracts reward (even though only go1 has a custom reward)."""
+    """Verify APPO go1 task extracts its default reward override."""
     cfg = _compose("appo", overrides=["task=go1_joystick"])
-    # APPO go1 uses default reward (no override), so env_cfg_override should be empty
     env_cfg_override: dict = {}
     if hasattr(cfg, "reward") and cfg.reward:
         reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
         env_cfg_override["reward_config"] = reward_dict
-    # Currently go1_joystick in APPO uses default.yaml (empty)
-    assert "reward_config" not in env_cfg_override
+    assert "reward_config" in env_cfg_override
+    assert env_cfg_override["reward_config"]["scales"]["tracking_lin_vel"] == pytest.approx(1.0)
 
 
 def test_appo_custom_reward_extraction():

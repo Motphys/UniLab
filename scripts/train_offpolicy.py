@@ -79,13 +79,10 @@ def resolve_checkpoint_path(
 
 
 def extract_reset_obs(reset_result):
-    """Extract obs_dict from env.reset(...) across old/new return conventions."""
+    """Extract obs_dict from env.reset(...) using the current (obs_dict, info_dict) contract."""
     if isinstance(reset_result, tuple):
         if len(reset_result) == 2:
             obs_out, _ = reset_result
-            return obs_out
-        if len(reset_result) == 3:
-            _, obs_out, _ = reset_result
             return obs_out
     raise ValueError(f"Unexpected env.reset return format: {type(reset_result)!r}")
 
@@ -104,56 +101,85 @@ def extract_play_obs(obs_dict):
     return obs_out
 
 
-_GO1_LEGACY_COMMAND_VEL_LIMIT = [[0.5, 0.0, 0.0], [0.5, 0.0, 0.0]]
-_GO1_LEGACY_REWARD_CONFIG = {
-    "scales": {
-        "tracking_lin_vel": 1.0,
-        "tracking_ang_vel": 0.2,
-        "lin_vel_z": -5.0,
-        "ang_vel_xy": -0.1,
-        "base_height": -100.0,
-        "action_rate": -0.005,
-        "similar_to_default": -0.1,
-    },
-    "tracking_sigma": 0.25,
-    "base_height_target": 0.3,
-}
+def _explicit_cli_override_keys() -> set[str]:
+    return {arg.split("=", 1)[0] for arg in sys.argv[1:] if "=" in arg}
 
 
-def get_go1_motrix_legacy_offpolicy_profile(
-    algo_name: str, task_name: str, sim_backend: str
-) -> dict | None:
-    if algo_name != "sac" or task_name != "Go1JoystickFlatTerrain" or sim_backend != "motrix":
-        return None
-    return {
-        "algo_overrides": {
-            "num_envs": 4096,
-            "max_iterations": 2000,
-        },
-        "env_cfg_override": {
-            "legacy_motrix_profile": {
-                "enabled": True,
-                "command_vel_limit": _GO1_LEGACY_COMMAND_VEL_LIMIT,
-            },
-            "reward_config": _GO1_LEGACY_REWARD_CONFIG,
-        },
-    }
+def _apply_task_algo_overrides(
+    target, overrides, *, base_path: str, explicit_keys: set[str]
+) -> None:
+    if OmegaConf.is_config(overrides):
+        override_dict = OmegaConf.to_container(overrides, resolve=True)
+    elif isinstance(overrides, dict):
+        override_dict = overrides
+    else:
+        return
+
+    for key, value in override_dict.items():
+        path = f"{base_path}.{key}"
+        if isinstance(value, dict):
+            if path in explicit_keys:
+                continue
+            if key not in target or target[key] is None:
+                target[key] = {}
+            _apply_task_algo_overrides(
+                target[key], value, base_path=path, explicit_keys=explicit_keys
+            )
+            continue
+        if path not in explicit_keys:
+            target[key] = value
 
 
-def build_go1_motrix_legacy_offpolicy_env_cfg_override(
-    algo_name: str, cfg: DictConfig
-) -> dict | None:
+def _apply_task_env_profile(
+    env_cfg_override: dict, env_profile, *, explicit_keys: set[str]
+) -> None:
+    if OmegaConf.is_config(env_profile):
+        env_profile_dict = OmegaConf.to_container(env_profile, resolve=True)
+    elif isinstance(env_profile, dict):
+        env_profile_dict = env_profile
+    else:
+        return
+
+    reward_explicit = "reward" in explicit_keys or any(
+        k.startswith("reward.") for k in explicit_keys
+    )
+    for key, value in env_profile_dict.items():
+        if key == "reward_config" and reward_explicit:
+            continue
+        env_cfg_override[key] = value
+
+
+def build_task_motrix_offpolicy_env_cfg_override(algo_name: str, cfg: DictConfig) -> dict | None:
     from unilab.utils.reward_utils import extract_reward_config
 
     env_cfg_override = extract_reward_config(cfg)
+    explicit_keys = _explicit_cli_override_keys()
+    motrix_legacy = getattr(cfg, "motrix_legacy", None)
+    if motrix_legacy is None or not motrix_legacy.enabled or cfg.training.sim_backend != "motrix":
+        return env_cfg_override
 
-    profile = get_go1_motrix_legacy_offpolicy_profile(
-        algo_name, cfg.training.task_name, cfg.training.sim_backend
-    )
-    if profile is not None:
-        cfg.algo.num_envs = profile["algo_overrides"]["num_envs"]
-        cfg.algo.max_iterations = profile["algo_overrides"]["max_iterations"]
-        env_cfg_override.update(profile["env_cfg_override"])
+    applies_to = getattr(motrix_legacy, "applies_to", None)
+    if applies_to is not None:
+        target_algo = getattr(applies_to, "algo", None)
+        if target_algo is not None and target_algo != algo_name:
+            return env_cfg_override
+
+    algo_overrides = getattr(motrix_legacy, "algo_overrides", None)
+    if algo_overrides is not None:
+        _apply_task_algo_overrides(
+            cfg.algo,
+            algo_overrides,
+            base_path="algo",
+            explicit_keys=explicit_keys,
+        )
+
+    env_profile = getattr(motrix_legacy, "env_cfg_override", None)
+    if env_profile is not None:
+        _apply_task_env_profile(
+            env_cfg_override,
+            env_profile,
+            explicit_keys=explicit_keys,
+        )
 
     return env_cfg_override
 
@@ -165,7 +191,7 @@ def resolve_sac_use_symmetry(cfg: DictConfig) -> bool:
 
 def build_runner(algo_name: str, cfg: DictConfig):
     """Build algorithm runner from unified Hydra config."""
-    env_cfg_override = build_go1_motrix_legacy_offpolicy_env_cfg_override(algo_name, cfg)
+    env_cfg_override = build_task_motrix_offpolicy_env_cfg_override(algo_name, cfg)
 
     if algo_name == "sac":
         from unilab.algos.torch.fast_sac.learner import FastSACLearner
@@ -315,7 +341,7 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> None:
     from unilab.utils import render_many
     from unilab.utils.algo_utils import build_actor
 
-    env_cfg_override = build_go1_motrix_legacy_offpolicy_env_cfg_override(algo_name, cfg)
+    env_cfg_override = build_task_motrix_offpolicy_env_cfg_override(algo_name, cfg)
 
     device = default_device(torch, cfg.training.device)
     print(f"Using device for play: {device}")

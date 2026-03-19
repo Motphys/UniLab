@@ -208,10 +208,10 @@ class MotionSampler:
         pmax = sampling_probs[pmax_idx]
 
         self.sampling_entropy = H_norm
-        self.sampling_top1_prob = pmax
-        self.sampling_top1_bin = pmax_idx / self.bin_count
+        self.sampling_top1_prob = float(pmax)
+        self.sampling_top1_bin = float(pmax_idx) / self.bin_count
 
-        return frames
+        return np.asarray(frames, dtype=np.int32)
 
     def update_failure_stats(
         self, terminated: np.ndarray, current_frames: np.ndarray | None = None

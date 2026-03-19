@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import numpy as np
 from etils import epath
@@ -14,6 +15,9 @@ from unilab.base.dtype_config import get_global_dtype
 from unilab.base.np_env import NpEnvState
 from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
 from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
+
+if TYPE_CHECKING:
+    from .joystick_sac import RewardConfigSAC
 
 
 @dataclass
@@ -45,24 +49,29 @@ class Domain_Rand:
 def sample_velocity_commands(
     rng, num_samples: int, low: np.ndarray, high: np.ndarray
 ) -> np.ndarray:
-    return rng.uniform(low=low, high=high, size=(num_samples, 3)).astype(get_global_dtype())
+    return np.asarray(
+        rng.uniform(low=low, high=high, size=(num_samples, 3)), dtype=get_global_dtype()
+    )
 
 
 def sample_gait_phase_pairs(rng, num_samples: int, mode: str) -> np.ndarray:
     if mode == "independent":
-        return np.column_stack(
-            [
-                rng.uniform(0.0, 2.0 * np.pi, size=(num_samples,)),
-                rng.uniform(0.0, 2.0 * np.pi, size=(num_samples,)),
-            ]
-        ).astype(get_global_dtype())
+        return np.asarray(
+            np.column_stack(
+                [
+                    rng.uniform(0.0, 2.0 * np.pi, size=(num_samples,)),
+                    rng.uniform(0.0, 2.0 * np.pi, size=(num_samples,)),
+                ]
+            ),
+            dtype=get_global_dtype(),
+        )
 
     phase = rng.uniform(0.0, 2.0 * np.pi, size=(num_samples,))
-    return np.column_stack([phase, phase + np.pi]).astype(get_global_dtype())
+    return np.asarray(np.column_stack([phase, phase + np.pi]), dtype=get_global_dtype())
 
 
 def sample_reset_base_qvel(rng, num_samples: int, limit: float) -> np.ndarray:
-    return rng.uniform(-limit, limit, size=(num_samples, 6)).astype(get_global_dtype())
+    return np.asarray(rng.uniform(-limit, limit, size=(num_samples, 6)), dtype=get_global_dtype())
 
 
 def build_upper_body_pose_weights(pose_weights: list[float]) -> np.ndarray:
@@ -72,20 +81,20 @@ def build_upper_body_pose_weights(pose_weights: list[float]) -> np.ndarray:
 
 
 def compute_weighted_pose_penalty(diff: np.ndarray, weights: np.ndarray) -> np.ndarray:
-    return np.sum(weights * np.square(diff), axis=1)
+    return np.asarray(np.sum(weights * np.square(diff), axis=1), dtype=get_global_dtype())
 
 
 def compute_forward_progress_reward(commands: np.ndarray, linvel: np.ndarray) -> np.ndarray:
     commanded_speed = np.maximum(commands[:, 0], 1e-6)
     forward_speed = np.maximum(linvel[:, 0], 0.0)
-    return np.minimum(forward_speed / commanded_speed, 1.0).astype(get_global_dtype())
+    return np.asarray(np.minimum(forward_speed / commanded_speed, 1.0), dtype=get_global_dtype())
 
 
 def compute_under_speed_penalty(commands: np.ndarray, linvel: np.ndarray) -> np.ndarray:
     commanded_speed = np.maximum(commands[:, 0], 1e-6)
     forward_speed = np.maximum(linvel[:, 0], 0.0)
     under_speed = np.maximum(commands[:, 0] - forward_speed, 0.0)
-    return (under_speed / commanded_speed).astype(get_global_dtype())
+    return np.asarray(under_speed / commanded_speed, dtype=get_global_dtype())
 
 
 @dataclass
@@ -180,6 +189,7 @@ class G1JoystickPPOCfg(G1BaseCfg):
 @registry.env("G1JoystickFlatTerrain", sim_backend="motrix")
 class G1JoystickPPO(G1BaseEnv):
     _cfg: G1JoystickPPOCfg
+    _reward_cfg: RewardConfigPPO | RewardConfigSAC
 
     def __init__(self, cfg: G1JoystickPPOCfg, num_envs=1, backend_type="mujoco"):
         if cfg.reward_config is None:
