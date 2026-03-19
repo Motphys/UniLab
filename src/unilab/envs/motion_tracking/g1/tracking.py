@@ -102,7 +102,7 @@ class G1MotionTrackingCfg(G1BaseCfg):
         "right_elbow_link",
         "right_wrist_yaw_link",
     )
-    sampling_mode: Literal["start", "uniform", "adaptive"] = "adaptive"
+    sampling_mode: Literal["start", "uniform", "adaptive"] = "start"
     log_action_scale: bool = False
     max_episode_seconds: float = 20.0
     reward_config: RewardConfig = field(default_factory=RewardConfig)
@@ -633,7 +633,8 @@ class G1MotionTrackingEnv(G1BaseEnv):
         qpos[:, 7:] = joint_pos
 
         qvel[:, 0:3] = root_lin_vel
-        qvel[:, 3:6] = root_ang_vel
+        # MuJoCo freejoint angular velocity in qvel is expressed in the body frame.
+        qvel[:, 3:6] = np_quat_apply(np_quat_inv(root_ori), root_ang_vel)
         qvel[:, 6:] = joint_vel
 
         # Set state
