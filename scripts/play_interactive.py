@@ -409,7 +409,11 @@ def _render_reward_debug_targets(
                 break
 
         if show_axes:
-            for p, q in ((p_ref, ref_quat[idx]), (p_robot, robot_quat[idx]), (p_motion, motion_quat[idx])):
+            for p, q in (
+                (p_ref, ref_quat[idx]),
+                (p_robot, robot_quat[idx]),
+                (p_motion, motion_quat[idx]),
+            ):
                 rot = _quat_to_rotmat_wxyz(q)
                 px = p + rot[:, 0] * axis_length
                 py = p + rot[:, 1] * axis_length
@@ -714,7 +718,10 @@ def main():
         "--load_run", type=str, default="-1", help="Run timestamp or path to load (-1 = latest)"
     )
     parser.add_argument(
-        "--checkpoint", type=str, default=None, help="Specific model checkpoint number or file name to load (e.g., '1000' or 'model_1000.pt')"
+        "--checkpoint",
+        type=str,
+        default=None,
+        help="Specific model checkpoint number or file name to load (e.g., '1000' or 'model_1000.pt')",
     )
     parser.add_argument(
         "--action_mode",
