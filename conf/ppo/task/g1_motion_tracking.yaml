@@ -4,10 +4,11 @@ defaults:
 
 training:
   task_name: G1MotionTracking
+  play_steps: 1000
 algo:
   num_envs: 1024
-  max_iterations: 10000
-  save_interval: 100
+  max_iterations: 5000
+  save_interval: 500
   obs_groups:
     default:
       - policy

@@ -170,7 +170,7 @@ def _infer_checkpoint_actor_input_dim(ckpt_path: str) -> int | None:
 # ---------------------------------------------------------------------------
 
 
-def resolve_checkpoint(task: str, load_run: str) -> str | None:
+def resolve_checkpoint(task: str, load_run: str, checkpoint: str | None = None) -> str | None:
     base = ROOT_DIR / "logs" / "rsl_rl_train" / task
     if load_run == "-1":
         path = get_latest_run(str(base))
@@ -184,14 +184,26 @@ def resolve_checkpoint(task: str, load_run: str) -> str | None:
         return None
 
     if os.path.isdir(path):
-        model_files = sorted(
-            [f for f in os.listdir(path) if f.startswith("model_") and f.endswith(".pt")],
-            key=lambda f: int(f.split("_")[1].split(".")[0]),
-        )
-        if not model_files:
-            print(f"[play_interactive] No model_*.pt files in {path}")
-            return None
-        path = os.path.join(path, model_files[-1])
+        if checkpoint is not None:
+            if str(checkpoint).isdigit():
+                model_name = f"model_{checkpoint}.pt"
+            else:
+                model_name = checkpoint
+            model_path = os.path.join(path, model_name)
+            if os.path.exists(model_path):
+                path = model_path
+            else:
+                print(f"[play_interactive] Checkpoint not found: {model_path}")
+                return None
+        else:
+            model_files = sorted(
+                [f for f in os.listdir(path) if f.startswith("model_") and f.endswith(".pt")],
+                key=lambda f: int(f.split("_")[1].split(".")[0]),
+            )
+            if not model_files:
+                print(f"[play_interactive] No model_*.pt files in {path}")
+                return None
+            path = os.path.join(path, model_files[-1])
 
     print(f"[play_interactive] Loading checkpoint: {path}")
     return path
@@ -497,7 +509,7 @@ def play_interactive(args):
     policy_obs_mode = args.policy_obs_mode
     ckpt = None
     if args.action_mode == "policy":
-        ckpt = resolve_checkpoint(args.task, args.load_run)
+        ckpt = resolve_checkpoint(args.task, args.load_run, getattr(args, "checkpoint", None))
         if policy_obs_mode == "auto" and ckpt is not None:
             ckpt_dim = _infer_checkpoint_actor_input_dim(ckpt)
             if ckpt_dim == actor_obs_dim:
@@ -700,6 +712,9 @@ def main():
     )
     parser.add_argument(
         "--load_run", type=str, default="-1", help="Run timestamp or path to load (-1 = latest)"
+    )
+    parser.add_argument(
+        "--checkpoint", type=str, default=None, help="Specific model checkpoint number or file name to load (e.g., '1000' or 'model_1000.pt')"
     )
     parser.add_argument(
         "--action_mode",
