@@ -1,0 +1,12 @@
+# @package _global_
+reward:
+  scales:
+    rotate: 1.25
+    obj_linvel: -0.3
+    pose_diff: -0.3
+    torque: -0.1
+    work: -2.0
+    drop: 0.0
+  angvel_clip_min: -0.5
+  angvel_clip_max: 0.5
+  reset_z_threshold: 0.125

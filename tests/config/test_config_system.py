@@ -195,8 +195,8 @@ def test_mlx_ppo_task_composes(task: str, expected_env: str):
 
 
 # ---------------------------------------------------------------------------
-# 5. Locomotion tasks with non-default reward must populate cfg.reward.scales
-#    (Allegro and g1_motion_tracking use env defaults, excluded here)
+# 5. Tasks with non-default reward must populate cfg.reward.scales
+#    (g1_motion_tracking uses env defaults, excluded here)
 # ---------------------------------------------------------------------------
 
 

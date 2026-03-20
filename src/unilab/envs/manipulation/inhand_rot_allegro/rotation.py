@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional, Tuple
 
 import numpy as np
 from etils import epath
 
 from unilab.base import registry
 from unilab.base.backend import create_backend
+from unilab.base.dtype_config import get_global_dtype
 from unilab.base.np_env import NpEnvState
 from unilab.envs.manipulation.inhand_rot_allegro.base import AllegroBaseCfg, AllegroBaseMjEnv
 from unilab.utils.math_utils import np_quat_conjugate, np_quat_mul, np_quat_to_axis_angle
@@ -17,22 +17,12 @@ from unilab.utils.math_utils import np_quat_conjugate, np_quat_mul, np_quat_to_a
 
 @dataclass
 class RewardConfig:
-    scales: dict[str, float] = field(
-        default_factory=lambda: {
-            "rotate": 1.25,  # angular velocity along target rotation axis
-            "obj_linvel": -0.3,  # penalise object linear motion (keep it stable)
-            "pose_diff": -0.3,  # penalise drift from initial grasp pose
-            "torque": -0.1,  # penalise large joint effort
-            "work": -2.0,  # penalise mechanical work done
-            "drop": 0.0,  # one-time drop penalty (effective = -200 * ctrl_dt = -10)
-        }
-    )
+    scales: dict[str, float]
     # Rotation reward clipped to [angvel_clip_min, angvel_clip_max] rad/s
-    angvel_clip_min: float = -0.5
-    angvel_clip_max: float = 0.5
-
+    angvel_clip_min: float
+    angvel_clip_max: float
     # Object drops below this world-z → episode terminates.
-    reset_z_threshold: float = 0.125  # metres
+    reset_z_threshold: float  # metres
 
 
 @dataclass
@@ -50,7 +40,7 @@ class DomainRandConfig:
 class AllegroRotationCfg(AllegroBaseCfg):
     model_file: str = str(epath.Path(__file__).parent / "xml" / "scene.xml")
     max_episode_seconds: float = 20.0  # same as HORA
-    reward_config: RewardConfig = field(default_factory=RewardConfig)
+    reward_config: RewardConfig | None = None
     domain_rand: DomainRandConfig = field(default_factory=DomainRandConfig)
 
     # World-frame unit vector around which to reward rotation.
@@ -71,22 +61,26 @@ class AllegroRotationCfg(AllegroBaseCfg):
 @registry.env("AllegroInhandRotation", sim_backend="mujoco")
 class AllegroRotationMj(AllegroBaseMjEnv):
     _cfg: AllegroRotationCfg
+    _reward_cfg: RewardConfig
 
     def __init__(self, cfg: AllegroRotationCfg, num_envs: int = 1, backend_type: str = "mujoco"):
+        if cfg.reward_config is None:
+            raise ValueError("reward_config must be provided via Hydra configuration")
         backend = create_backend(backend_type, cfg.model_file, num_envs, cfg.sim_dt)
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True
+        self._reward_cfg = cfg.reward_config
 
         # Normalisation constants for joint-position observation.
         self._dof_range = self._ctrl_upper - self._ctrl_lower  # (16,)
         self._dof_mid = (self._ctrl_upper + self._ctrl_lower) / 2.0  # (16,)
 
         # Rotation axis as a broadcast-ready (3,) unit vector.
-        axis = np.array(cfg.rotation_axis, dtype=self._np_dtype)
+        axis = np.array(cfg.rotation_axis, dtype=get_global_dtype())
         self._rot_axis = axis / np.linalg.norm(axis)
 
         # Grasp cache loaded lazily on first reset
-        self._grasp_cache: Optional[np.ndarray] = None
+        self._grasp_cache: np.ndarray | None = None
         self._grasp_cache_loaded = False
 
         self._init_reward_functions()
@@ -98,7 +92,7 @@ class AllegroRotationMj(AllegroBaseMjEnv):
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:
-        return {"actor": self._NUM_OBS_PER_STEP * self._NUM_LAG_STEPS}
+        return {"obs": self._NUM_OBS_PER_STEP * self._NUM_LAG_STEPS}
 
     # ── Reward functions ─────────────────────────────────────────────
 
@@ -107,60 +101,49 @@ class AllegroRotationMj(AllegroBaseMjEnv):
             "rotate": self._reward_rotate,
             "obj_linvel": self._reward_obj_linvel,
             "pose_diff": self._reward_pose_diff,
-            "torque": lambda s: self._reward_torque(s.info),
-            "work": lambda s: self._reward_work(s.info),
+            "torque": self._reward_torque,
+            "work": self._reward_work,
             "drop": self._reward_drop,
         }
 
-    def _reward_rotate(self, state: NpEnvState) -> np.ndarray:
-        """Reward the component of ball angular velocity along the target axis.
-        Angular velocity is derived from quaternion finite difference, not physics state."""
-        ball_angvel = state.info.get(
-            "ball_angvel_from_quat",
-            np.zeros((self._num_envs, 3), dtype=self._np_dtype),
-        )
+    def _reward_rotate(
+        self, info, dof_pos, dof_vel, ball_pos, ball_linvel, ball_angvel, torques, terminated
+    ) -> np.ndarray:
         vec_dot = ball_angvel @ self._rot_axis  # (N,)
-        r = self._cfg.reward_config
-        return np.asarray(np.clip(vec_dot, r.angvel_clip_min, r.angvel_clip_max))
-
-    def _reward_obj_linvel(self, state: NpEnvState) -> np.ndarray:
-        """L1 penalty on ball linear velocity (encourages pure spin, no translation)."""
-        ball_linvel = state.info.get(
-            "ball_linvel", np.zeros((self._num_envs, 3), dtype=self._np_dtype)
+        return np.asarray(
+            np.clip(vec_dot, self._reward_cfg.angvel_clip_min, self._reward_cfg.angvel_clip_max)
         )
+
+    def _reward_obj_linvel(
+        self, info, dof_pos, dof_vel, ball_pos, ball_linvel, ball_angvel, torques, terminated
+    ) -> np.ndarray:
         return np.asarray(np.sum(np.abs(ball_linvel), axis=1))
 
-    def _reward_pose_diff(self, state: NpEnvState) -> np.ndarray:
-        """Penalise hand-joint drift from the initial grasp configuration."""
-        diff = self.get_hand_dof_pos() - state.info["init_pose"]  # (N, 16)
+    def _reward_pose_diff(
+        self, info, dof_pos, dof_vel, ball_pos, ball_linvel, ball_angvel, torques, terminated
+    ) -> np.ndarray:
+        diff = dof_pos - info["init_pose"]  # (N, 16)
         return np.asarray(np.sum(np.square(diff), axis=1))
 
-    def _reward_torque(self, info: dict) -> np.ndarray:
-        """Torque penalty: sum of squared torques."""
-        torques = info.get(
-            "torques", np.zeros((self._num_envs, self._NUM_HAND_DOF), dtype=self._np_dtype)
-        )
+    def _reward_torque(
+        self, info, dof_pos, dof_vel, ball_pos, ball_linvel, ball_angvel, torques, terminated
+    ) -> np.ndarray:
         return np.asarray(np.sum(np.square(torques), axis=1))
 
-    def _reward_work(self, info: dict) -> np.ndarray:
-        """Penalise mechanical work: (torque * velocity)^2."""
-        torques = info.get(
-            "torques", np.zeros((self._num_envs, self._NUM_HAND_DOF), dtype=self._np_dtype)
-        )
-        dof_vel = info.get(
-            "dof_vel", np.zeros((self._num_envs, self._NUM_HAND_DOF), dtype=self._np_dtype)
-        )
+    def _reward_work(
+        self, info, dof_pos, dof_vel, ball_pos, ball_linvel, ball_angvel, torques, terminated
+    ) -> np.ndarray:
         work = np.sum(torques * dof_vel, axis=1)
         return np.asarray(np.square(work))
 
-    def _reward_drop(self, state: NpEnvState) -> np.ndarray:
-        """One-time penalty of 1.0 on the step the ball is dropped (terminated)."""
-        return state.terminated.astype(self._np_dtype)
+    def _reward_drop(
+        self, info, dof_pos, dof_vel, ball_pos, ball_linvel, ball_angvel, torques, terminated
+    ) -> np.ndarray:
+        return np.asarray(terminated, dtype=get_global_dtype())
 
     # ── Core update pipeline ─────────────────────────────────────────
 
     def update_state(self, state: NpEnvState) -> NpEnvState:
-        # Compute velocities using finite differences
         dof_pos = self.get_hand_dof_pos()
         ball_pos = self.get_ball_pos()
         ball_quat = self.get_ball_quat()  # (N, 4) w-first
@@ -173,13 +156,11 @@ class AllegroRotationMj(AllegroBaseMjEnv):
         #   angvel  = angdiff / dt
         prev_ball_quat = state.info.get("prev_ball_quat", ball_quat)
         rel_quat = np_quat_mul(ball_quat, np_quat_conjugate(prev_ball_quat))
-        ball_angvel_from_quat = np_quat_to_axis_angle(rel_quat) / self._cfg.ctrl_dt
+        ball_angvel = np_quat_to_axis_angle(rel_quat) / self._cfg.ctrl_dt
 
-        # Store current positions/orientations for next step
         state.info["prev_dof_pos"] = dof_pos.copy()
         state.info["prev_ball_pos"] = ball_pos.copy()
         state.info["prev_ball_quat"] = ball_quat.copy()
-        state.info["ball_angvel_from_quat"] = ball_angvel_from_quat
 
         # Compute PD torques: torque = Kp * (target - pos) - Kd * vel
         targets = state.info["prev_ctrl"]
@@ -188,82 +169,76 @@ class AllegroRotationMj(AllegroBaseMjEnv):
         torques = p_gain * (targets - dof_pos) - d_gain * dof_vel
         torques = np.clip(torques, -0.5, 0.5)
 
-        state.info["torques"] = torques
-        state.info["dof_vel"] = dof_vel
-        state.info["ball_linvel"] = ball_linvel
+        terminated = ball_pos[:, 2] < self._reward_cfg.reset_z_threshold
 
-        # Update observation lag history
+        reward = self._compute_reward(
+            state.info, dof_pos, dof_vel, ball_pos, ball_linvel, ball_angvel, torques, terminated
+        )
+        obs = self._compute_obs(state.info, dof_pos, ball_pos)
+        return state.replace(obs=obs, reward=reward, terminated=terminated)
+
+    def _compute_reward(
+        self, info, dof_pos, dof_vel, ball_pos, ball_linvel, ball_angvel, torques, terminated
+    ) -> np.ndarray:
+        dtype = get_global_dtype()
+        reward = np.zeros(self._num_envs, dtype=dtype)
+        step_count = info.get("steps", np.zeros(self._num_envs, dtype=np.uint32))
+        should_log = self._enable_reward_log and (int(step_count[0]) % 4 == 0)
+        log = {} if should_log else info.get("log", {})
+
+        for name, scale in self._reward_cfg.scales.items():
+            if scale == 0 or name not in self._reward_fns:
+                continue
+            rew = self._reward_fns[name](
+                info, dof_pos, dof_vel, ball_pos, ball_linvel, ball_angvel, torques, terminated
+            )
+            weighted_rew = rew * scale
+            reward += weighted_rew
+            if should_log:
+                log[f"reward/{name}"] = float(np.mean(weighted_rew))
+
+        if should_log:
+            log["reward/total"] = float(np.mean(reward))
+
+        info["log"] = log
+        return reward * self._cfg.ctrl_dt
+
+    def _compute_obs(self, info, dof_pos, ball_pos) -> dict[str, np.ndarray]:
+        dtype = get_global_dtype()
+        targets = info["prev_ctrl"]
         dof_pos_norm = 2.0 * (dof_pos - self._dof_mid) / (self._dof_range + 1e-8)
 
-        # Add observation noise
         noise_cfg = self._cfg.noise_config
         if noise_cfg.level > 0.0:
             dof_pos_norm += (
-                np.random.uniform(-1.0, 1.0, dof_pos_norm.shape).astype(self._np_dtype)
+                np.random.uniform(-1.0, 1.0, dof_pos_norm.shape).astype(dtype)
                 * noise_cfg.level
                 * noise_cfg.scale_joint_angle
             )
 
-        current_obs = np.concatenate([dof_pos_norm, targets, ball_pos], axis=1)  # (N, 35)
+        current_obs = np.concatenate(
+            [dof_pos_norm, targets, ball_pos.astype(dtype)], axis=1, dtype=dtype
+        )  # (N, 35)
 
-        obs_lag_history = state.info.get(
+        num_envs = dof_pos.shape[0]
+        obs_lag_history = info.get(
             "obs_lag_history",
             np.zeros(
-                (
-                    self._num_envs,
-                    self._NUM_LAG_STEPS,
-                    self._NUM_OBS_PER_STEP,
-                ),
-                dtype=self._np_dtype,
+                (num_envs, self._NUM_LAG_STEPS, self._NUM_OBS_PER_STEP),
+                dtype=dtype,
             ),
         )
         obs_lag_history[:, :-1] = obs_lag_history[:, 1:]
         obs_lag_history[:, -1] = current_obs
-        state.info["obs_lag_history"] = obs_lag_history
+        info["obs_lag_history"] = obs_lag_history
 
-        terminated = self._update_terminated()
-        reward, log = self._compute_rewards(state)
-        state.info["log"] = log
-        obs = self._get_obs(state.info)
-        return state.replace(obs=obs, reward=reward, terminated=terminated)
-
-    def _update_terminated(self) -> np.ndarray:
-        ball_z = self.get_ball_pos()[:, 2]  # (N,)
-        return ball_z < self._cfg.reward_config.reset_z_threshold
-
-    def _compute_rewards(self, state: NpEnvState) -> tuple:
-        total = np.zeros(self._num_envs, dtype=self._np_dtype)
-        step_count = state.info.get("steps", np.zeros(self._num_envs, dtype=np.uint32))
-        should_log = self._enable_reward_log and (int(step_count[0]) % 4 == 0)
-        log = {} if should_log else state.info.get("log", {})
-
-        for name, scale in self._cfg.reward_config.scales.items():
-            if scale == 0 or name not in self._reward_fns:
-                continue
-            rew = self._reward_fns[name](state)
-            total += rew * scale
-            if should_log:
-                log[f"reward/{name}"] = float(np.mean(rew * scale))
-
-        if should_log:
-            log["reward/total"] = float(np.mean(total))
-
-        return total * self._cfg.ctrl_dt, log
-
-    def _get_obs(self, info: dict) -> dict[str, np.ndarray]:
-        """Extract observation from info. Pure function - does not modify state."""
-        obs_lag_history = info.get(
-            "obs_lag_history",
-            np.zeros(
-                (self._num_envs, self._NUM_LAG_STEPS, self._NUM_OBS_PER_STEP), dtype=self._np_dtype
-            ),
-        )
-        num_envs = obs_lag_history.shape[0]
-        return {"actor": np.asarray(obs_lag_history.reshape(num_envs, -1))}
+        return {
+            "obs": np.asarray(obs_lag_history.reshape(num_envs, -1), dtype=dtype),
+        }
 
     # ── Reset ────────────────────────────────────────────────────────
 
-    def reset(self, env_indices: np.ndarray) -> Tuple[dict[str, np.ndarray], dict]:
+    def reset(self, env_indices: np.ndarray) -> tuple[dict[str, np.ndarray], dict]:
         num_reset = len(env_indices)
         dr = self._cfg.domain_rand
 
@@ -320,33 +295,30 @@ class AllegroRotationMj(AllegroBaseMjEnv):
         self._backend.set_state(env_indices, qpos, qvel)
 
         # PD controller starts at the actual reset hand pose.
-        init_ctrl = hand_qpos.astype(self._np_dtype)
+        dtype = get_global_dtype()
+        init_ctrl = hand_qpos.astype(dtype)
+        ball_pos_f32 = ball_pos.astype(dtype)
 
-        # Initialize lag history with current state
+        # Pre-fill lag history with noiseless init obs so the policy doesn't see stale zeros.
         dof_pos_norm = 2.0 * (init_ctrl - self._dof_mid) / (self._dof_range + 1e-8)
-        ball_pos_f32 = ball_pos.astype(self._np_dtype)
         init_obs = np.concatenate(
-            [dof_pos_norm, init_ctrl, ball_pos_f32], axis=1
+            [dof_pos_norm, init_ctrl, ball_pos_f32], axis=1, dtype=dtype
         )  # (num_reset, 35)
         obs_lag_history = np.broadcast_to(
             init_obs[:, None, :],
-            (
-                num_reset,
-                self._NUM_LAG_STEPS,
-                self._NUM_OBS_PER_STEP,
-            ),
-        ).copy()  # (num_reset, num_lag_steps, num_obs_per_step)
+            (num_reset, self._NUM_LAG_STEPS, self._NUM_OBS_PER_STEP),
+        ).copy()
 
         info = {
-            "current_actions": np.zeros((num_reset, self._num_action), dtype=self._np_dtype),
-            "last_actions": np.zeros((num_reset, self._num_action), dtype=self._np_dtype),
+            "current_actions": np.zeros((num_reset, self._num_action), dtype=dtype),
+            "last_actions": np.zeros((num_reset, self._num_action), dtype=dtype),
             "prev_ctrl": init_ctrl,
             "init_pose": init_ctrl.copy(),
             "prev_dof_pos": init_ctrl.copy(),
             "prev_ball_pos": ball_pos_f32.copy(),
-            "prev_ball_quat": ball_quat.astype(self._np_dtype).copy(),
+            "prev_ball_quat": ball_quat.astype(dtype).copy(),
             "obs_lag_history": obs_lag_history,
         }
 
-        obs_batch = self._get_obs(info)
+        obs_batch = self._compute_obs(info, init_ctrl, ball_pos_f32)
         return obs_batch, info
