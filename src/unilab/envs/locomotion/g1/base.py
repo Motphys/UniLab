@@ -23,7 +23,7 @@ class NoiseConfig:
 
 @dataclass
 class ControlConfig:
-    action_scale: float = 0.25
+    action_scale: float | np.ndarray = 0.25
     simulate_action_latency: bool = False
 
 

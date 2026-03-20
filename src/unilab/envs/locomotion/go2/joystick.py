@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from etils import epath
 
+from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.backend import create_backend
 from unilab.base.dtype_config import get_global_dtype
@@ -53,7 +54,7 @@ class RewardConfig:
 @registry.envcfg("Go2JoystickFlatTerrain")
 @dataclass
 class Go2JoystickCfg(Go2BaseCfg):
-    model_file: str = str(epath.Path(__file__).parent / "xml" / "scene_flat.xml")
+    model_file: str = str(ASSETS_ROOT_PATH / "robots" / "go2" / "scene_flat.xml")
     max_episode_seconds: float = 20.0
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)

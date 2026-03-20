@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import os
 import time
 from collections import deque
@@ -38,6 +39,14 @@ def _fmt_number(v: float) -> str:
     if abs(v) >= 0.001:
         return f"{v:.4f}"
     return f"{v:.2e}"
+
+
+def _load_wandb() -> Any | None:
+    """Load wandb lazily so it remains an optional dependency."""
+    try:
+        return importlib.import_module("wandb")
+    except ImportError:
+        return None
 
 
 class OnPolicyLogger:
@@ -102,21 +111,21 @@ class OnPolicyLogger:
                 self._console.print("[yellow]tensorboard not installed[/]")
 
     def _init_wandb(self, project: str, name: str, log_dir: str):
-        try:
-            import wandb
-
-            self._wandb_run = wandb.init(
-                project=project,
-                name=name,
-                config={"algo": self.algo_name, "env": self.env_name, "num_envs": self.num_envs},
-                dir=log_dir or None,
-                reinit=True,
-            )
-            if not self._no_print:
-                self._console.print(f"[dim]W&B: {project}/{name}[/]")
-        except ImportError:
+        wandb = _load_wandb()
+        if wandb is None:
             if not self._no_print:
                 self._console.print("[yellow]wandb not installed[/]")
+            return
+
+        self._wandb_run = wandb.init(
+            project=project,
+            name=name,
+            config={"algo": self.algo_name, "env": self.env_name, "num_envs": self.num_envs},
+            dir=log_dir or None,
+            reinit=True,
+        )
+        if not self._no_print:
+            self._console.print(f"[dim]W&B: {project}/{name}[/]")
 
     def start(self):
         self._start_time = time.time()
@@ -150,9 +159,9 @@ class OnPolicyLogger:
         if self._tb_writer:
             self._tb_writer.close()
         if self._wandb_run:
-            import wandb
-
-            wandb.finish()
+            wandb = _load_wandb()
+            if wandb is not None:
+                wandb.finish()
 
     def log_step(
         self,
@@ -200,7 +209,9 @@ class OnPolicyLogger:
             w.add_scalar("perf/train_time_ms", self._train_time * 1000, iteration)
 
         if self._wandb_run:
-            import wandb
+            wandb = _load_wandb()
+            if wandb is None:
+                return
 
             log_dict: dict[str, Any] = {"iteration": iteration}
             if metrics:

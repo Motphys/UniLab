@@ -31,6 +31,7 @@ Usage:
 
 from __future__ import annotations
 
+import importlib
 import time
 from collections import deque
 from typing import Any
@@ -67,6 +68,14 @@ def _fmt_number(v: float, width: int = 8) -> str:
     if abs(v) >= 0.001:
         return f"{v:.4f}"
     return f"{v:.2e}"
+
+
+def _load_wandb() -> Any | None:
+    """Load wandb lazily so it remains an optional dependency."""
+    try:
+        return importlib.import_module("wandb")
+    except ImportError:
+        return None
 
 
 class OffPolicyLogger:
@@ -169,28 +178,28 @@ class OffPolicyLogger:
 
     def _init_wandb(self, project: str, name: str, log_dir: str):
         """Initialize Weights & Biases run."""
-        try:
-            import wandb
-
-            self._wandb_run = wandb.init(
-                project=project,
-                name=name,
-                config={
-                    "algo": self.algo_name,
-                    "env": self.env_name,
-                    "num_envs": self.num_envs,
-                    "obs_dim": self.obs_dim,
-                    "action_dim": self.action_dim,
-                    "max_iterations": self.max_iterations,
-                },
-                dir=log_dir or None,
-                reinit=True,
-            )
-            if not self._no_print:
-                self._console.print(f"[dim]W&B logging to project: {project}, run: {name}[/]")
-        except ImportError:
+        wandb = _load_wandb()
+        if wandb is None:
             if not self._no_print:
                 self._console.print("[yellow]wandb not installed, skipping W&B logging[/]")
+            return
+
+        self._wandb_run = wandb.init(
+            project=project,
+            name=name,
+            config={
+                "algo": self.algo_name,
+                "env": self.env_name,
+                "num_envs": self.num_envs,
+                "obs_dim": self.obs_dim,
+                "action_dim": self.action_dim,
+                "max_iterations": self.max_iterations,
+            },
+            dir=log_dir or None,
+            reinit=True,
+        )
+        if not self._no_print:
+            self._console.print(f"[dim]W&B logging to project: {project}, run: {name}[/]")
 
     # ---- Lifecycle ----
 
@@ -233,9 +242,9 @@ class OffPolicyLogger:
         if self._tb_writer:
             self._tb_writer.close()
         if self._wandb_run:
-            import wandb
-
-            wandb.finish()
+            wandb = _load_wandb()
+            if wandb is not None:
+                wandb.finish()
 
     # ---- Logging API ----
 
@@ -372,7 +381,9 @@ class OffPolicyLogger:
 
         # ---- W&B ----
         if self._wandb_run:
-            import wandb
+            wandb = _load_wandb()
+            if wandb is None:
+                return
 
             log_dict: dict[str, Any] = {"iteration": iteration}
             if metrics:

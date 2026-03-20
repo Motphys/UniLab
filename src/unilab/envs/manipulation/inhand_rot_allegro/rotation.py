@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from etils import epath
 
+from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.backend import create_backend
 from unilab.base.dtype_config import get_global_dtype
@@ -38,7 +39,7 @@ class DomainRandConfig:
 @registry.envcfg("AllegroInhandRotation")
 @dataclass
 class AllegroRotationCfg(AllegroBaseCfg):
-    model_file: str = str(epath.Path(__file__).parent / "xml" / "scene.xml")
+    model_file: str = str(ASSETS_ROOT_PATH / "robots" / "allegro_hand" / "scene.xml")
     max_episode_seconds: float = 20.0  # same as HORA
     reward_config: RewardConfig | None = None
     domain_rand: DomainRandConfig = field(default_factory=DomainRandConfig)

@@ -25,6 +25,9 @@ import mujoco
 import numpy as np
 from tqdm import tqdm
 
+from unilab.assets import ASSETS_ROOT_PATH
+from unilab.utils.xml_utils import inject_mujoco_tracking_sensors
+
 
 def quat_slerp(q1: np.ndarray, q2: np.ndarray, t: float) -> np.ndarray:
     """Spherical linear interpolation between two quaternions (wxyz format)."""
@@ -204,8 +207,13 @@ def run_simulation(
     output_file: str,
 ):
     """Run MuJoCo simulation to compute forward kinematics."""
-    # Load model
-    model = mujoco.MjModel.from_xml_path(model_file)
+    # Inject track_* sensors so exported body_* fields match training-time semantics.
+    tmp_model_path, _, _ = inject_mujoco_tracking_sensors(model_file)
+    try:
+        model = mujoco.MjModel.from_xml_path(tmp_model_path)
+        print(f"Model loaded from {tmp_model_path}")
+    finally:
+        Path(tmp_model_path).unlink(missing_ok=True)
     data = mujoco.MjData(model)
 
     # Get joint indices
@@ -228,6 +236,25 @@ def run_simulation(
     body_lin_vel_w = np.zeros((num_frames, num_bodies, 3), dtype=np.float32)
     body_ang_vel_w = np.zeros((num_frames, num_bodies, 3), dtype=np.float32)
 
+    # Keep NPZ in model body-id layout (nbody), but read from track_* sensors for
+    # named bodies to align with backend.get_body_*_w semantics used in training.
+    sensor_adrs = np.full((num_bodies, 4), -1, dtype=np.int32)
+    sensor_dims = np.array([3, 4, 3, 3], dtype=np.int32)
+    sensor_prefixes = (
+        "track_pos_w_",
+        "track_quat_w_",
+        "track_linvel_w_",
+        "track_angvel_w_",
+    )
+    for body_id in range(num_bodies):
+        body_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, body_id)
+        if not body_name:
+            continue
+        for k, prefix in enumerate(sensor_prefixes):
+            sensor_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SENSOR, f"{prefix}{body_name}")
+            if sensor_id >= 0:
+                sensor_adrs[body_id, k] = model.sensor_adr[sensor_id]
+
     print(f"\nProcessing {num_frames} frames...")
     for i in tqdm(range(num_frames)):
         # Set root state
@@ -243,9 +270,8 @@ def run_simulation(
             data.qpos[qpos_adr] = motion_loader.motion_dof_poss[i, j]
             data.qvel[qvel_adr] = motion_loader.motion_dof_vels[i, j]
 
-        # Run forward kinematics
-        mujoco.mj_kinematics(model, data)
-        mujoco.mj_comVel(model, data)
+        # Run forward pass so kinematics and sensors are up-to-date.
+        mujoco.mj_forward(model, data)
 
         # Extract joint states
         for j, jnt_id in enumerate(joint_indices):
@@ -256,10 +282,23 @@ def run_simulation(
 
         # Extract body states
         for body_id in range(num_bodies):
-            body_pos_w[i, body_id] = data.xpos[body_id]
-            body_quat_w[i, body_id] = data.xquat[body_id]
-            body_lin_vel_w[i, body_id] = data.cvel[body_id, 3:6]
-            body_ang_vel_w[i, body_id] = data.cvel[body_id, 0:3]
+            pos_adr, quat_adr, lin_adr, ang_adr = sensor_adrs[body_id]
+
+            if pos_adr >= 0:
+                body_pos_w[i, body_id] = data.sensordata[pos_adr : pos_adr + sensor_dims[0]]
+            else:
+                body_pos_w[i, body_id] = data.xpos[body_id]
+
+            if quat_adr >= 0:
+                body_quat_w[i, body_id] = data.sensordata[quat_adr : quat_adr + sensor_dims[1]]
+            else:
+                body_quat_w[i, body_id] = data.xquat[body_id]
+
+            if lin_adr >= 0:
+                body_lin_vel_w[i, body_id] = data.sensordata[lin_adr : lin_adr + sensor_dims[2]]
+
+            if ang_adr >= 0:
+                body_ang_vel_w[i, body_id] = data.sensordata[ang_adr : ang_adr + sensor_dims[3]]
 
     # Save to NPZ
     print(f"\nSaving to {output_file}...")
@@ -291,6 +330,18 @@ def main():
         help="MuJoCo model file (default: G1 flat scene)",
     )
     parser.add_argument(
+        "--start_time",
+        type=float,
+        default=None,
+        help="Start time in seconds (overrides line_range)",
+    )
+    parser.add_argument(
+        "--end_time",
+        type=float,
+        default=None,
+        help="End time in seconds (overrides line_range)",
+    )
+    parser.add_argument(
         "--line_range",
         type=int,
         nargs=2,
@@ -300,12 +351,34 @@ def main():
 
     args = parser.parse_args()
 
+    # Convert time range to line range if specified
+    if args.start_time is not None or args.end_time is not None:
+        input_fps = int(args.input_fps)
+
+        # Calculate start and end frames (0-indexed in calculations, convert to 1-indexed for line_range)
+        start_frame = 1  # Default: first line (1-indexed)
+        if args.start_time is not None:
+            start_frame = max(1, int(args.start_time * input_fps) + 1)
+
+        end_frame = int(1e9)  # Default: very large number (read until EOF)
+        if args.end_time is not None:
+            end_frame = max(start_frame, int(args.end_time * input_fps) + 1)
+
+        args.line_range = (start_frame, end_frame)
+
+        start_time_display = args.start_time if args.start_time is not None else 0.0
+        end_time_display = args.end_time if args.end_time is not None else "end"
+        print(f"Time range: {start_time_display:.3f}s - {end_time_display}s")
+        print(f"Converted to line range: {start_frame} - {end_frame}")
+
     # Default model file
     if args.model_file is None:
-        script_dir = Path(__file__).parent.parent
-        args.model_file = str(
-            script_dir / "unilab" / "envs" / "locomotion" / "g1" / "xml" / "scene_flat.xml"
-        )
+        args.model_file = str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
+
+    model_path = Path(args.model_file).expanduser().resolve()
+    if not model_path.exists():
+        raise FileNotFoundError(f"MuJoCo model file not found: {model_path}")
+    args.model_file = str(model_path)
 
     # G1 joint names (in order)
     joint_names = [
@@ -345,7 +418,7 @@ def main():
         args.input_file,
         int(args.input_fps),
         int(args.output_fps),
-        tuple(args.line_range) if args.line_range else None,
+        (args.line_range[0], args.line_range[1]) if args.line_range else None,
     )
 
     # Run simulation
