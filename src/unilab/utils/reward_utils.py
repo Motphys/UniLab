@@ -21,4 +21,9 @@ def extract_reward_config(cfg: DictConfig) -> dict:
         )
 
     reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
+    if not reward_dict:
+        raise ValueError(
+            "Reward config resolved to empty. Please select a non-default reward override."
+        )
+
     return {"reward_config": reward_dict}

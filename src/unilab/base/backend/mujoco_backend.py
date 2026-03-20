@@ -144,15 +144,29 @@ class MuJoCoBackend(SimBackend):
 
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> None:
         control_traj = np.broadcast_to(ctrl[:, None, :], (self._num_envs, nsteps, ctrl.shape[-1]))
-        state_traj, sensor_traj = self._rollout.rollout(
+        state_traj, _ = self._rollout.rollout(
             self._model,
             self._worker_data,
             initial_state=self._physics_state.astype(np.float64),
             control=control_traj,
             nstep=nsteps,
         )
-        self._physics_state[:] = state_traj[:, -1, :].astype(self._np_dtype)
-        self._sensor_data[:] = sensor_traj[:, -1, :].astype(self._np_dtype)
+        state_np = np.asarray(state_traj)[:, -1, :]
+        self._physics_state[:] = state_np.astype(self._np_dtype)
+
+        # Recompute sensors from the final physics state to keep state/sensor
+        # alignment consistent with set_state() and initialization paths.
+        if self._model.nsensordata > 0:
+            _, sensor_np = self._forward_runner.forward(
+                model=self._model,
+                data=self._worker_data,
+                initial_state=state_np,
+                chunk_size=max(1, self._num_envs // self._n_threads),
+                skipsensor=False,
+                out_dtype=np.float64,
+                return_state=True,
+            )
+            self._sensor_data[:] = sensor_np.astype(self._np_dtype)
 
     def set_state(self, env_indices: np.ndarray, qpos: np.ndarray, qvel: np.ndarray) -> None:
         num_reset = len(env_indices)

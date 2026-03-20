@@ -8,7 +8,7 @@ from typing import Literal
 
 import numpy as np
 
-from .math_utils import sample_uniform
+from unilab.utils.math_utils import np_sample_uniform as sample_uniform
 
 
 @dataclass
