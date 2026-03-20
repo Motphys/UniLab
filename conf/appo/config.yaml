@@ -18,6 +18,7 @@ algo:
     class_name: rsl_rl.models.MLPModel
     hidden_dims: [512, 256, 128]
     activation: elu
+    obs_normalization: false
     distribution_cfg:
       class_name: rsl_rl.modules.distribution.GaussianDistribution
       init_std: 1.0
@@ -26,6 +27,7 @@ algo:
     class_name: rsl_rl.models.MLPModel
     hidden_dims: [512, 256, 128]
     activation: elu
+    obs_normalization: false
   algorithm:
     num_learning_epochs: 5
     num_mini_batches: 4

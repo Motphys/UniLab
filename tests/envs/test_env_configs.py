@@ -104,6 +104,7 @@ def test_env_reset_and_step(
     default_go2_reward_config,
     default_g1_reward_config,
     default_g1_sac_reward_config,
+    default_allegro_reward_config,
 ):
     """Every registered env must be constructible, resetable, and steppable.
 
@@ -115,7 +116,7 @@ def test_env_reset_and_step(
     ensure_registries()
     from unilab.base import registry
 
-    # Provide reward_config for locomotion envs
+    # Provide reward_config for envs that require it via Hydra
     env_cfg_override = None
     if "Go1" in env_name:
         env_cfg_override = {"reward_config": default_go1_reward_config}
@@ -125,6 +126,8 @@ def test_env_reset_and_step(
         env_cfg_override = {"reward_config": default_g1_sac_reward_config}
     elif "G1" in env_name:
         env_cfg_override = {"reward_config": default_g1_reward_config}
+    elif "Allegro" in env_name:
+        env_cfg_override = {"reward_config": default_allegro_reward_config}
 
     env = registry.make(
         env_name, num_envs=2, sim_backend="mujoco", env_cfg_override=env_cfg_override

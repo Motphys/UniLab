@@ -232,6 +232,24 @@ def default_g1_reward_config():
 
 
 @pytest.fixture
+def default_allegro_reward_config():
+    """Default reward config for AllegroInhandRotation testing."""
+    return {
+        "scales": {
+            "rotate": 1.25,
+            "obj_linvel": -0.3,
+            "pose_diff": -0.3,
+            "torque": -0.1,
+            "work": -2.0,
+            "drop": 0.0,
+        },
+        "angvel_clip_min": -0.5,
+        "angvel_clip_max": 0.5,
+        "reset_z_threshold": 0.125,
+    }
+
+
+@pytest.fixture
 def default_g1_sac_reward_config():
     """Default reward config for G1 SAC testing."""
     return {
