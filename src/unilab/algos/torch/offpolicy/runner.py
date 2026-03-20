@@ -241,8 +241,6 @@ class OffPolicyRunner(AsyncRunner):
 
                 learner.soft_update_target()
 
-            sync_start = time.time()
-
             if self.obs_normalization and getattr(self.learner, "obs_normalizer", None) is not None:
                 assert shared_obs_normalizer_stats is not None
                 shared_obs_normalizer_stats.put(
@@ -254,7 +252,6 @@ class OffPolicyRunner(AsyncRunner):
 
             self.learner.update_count += 1
             weight_sync.write_weights(self.learner.actor.state_dict())
-            time.time() - sync_start
             train_time = time.time() - train_start
 
             if self.sync_collection and trainer_done_queue:

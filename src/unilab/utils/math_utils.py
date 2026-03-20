@@ -159,7 +159,7 @@ def np_quat_apply(q: np.ndarray, v: np.ndarray) -> np.ndarray:
         axis=1,
     )
 
-    return result[0] if q_was_1d and v_was_1d else result
+    return np.asarray(result[0] if q_was_1d and v_was_1d else result)
 
 
 def np_quat_apply_inverse(q: np.ndarray, v: np.ndarray) -> np.ndarray:
@@ -185,7 +185,6 @@ def np_quat_error_magnitude(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
     # Relative rotation from q1 to q2.
     q_rel = np_quat_mul(q2, np_quat_inv(q1))
 
-    # Match mjlab shortest-arc convention:
     # q and -q represent the same orientation, so force w >= 0 to avoid
     # large-angle artifacts when quaternion signs flip.
     sign = np.where(q_rel[:, 0:1] < 0.0, -1.0, 1.0)
@@ -195,7 +194,7 @@ def np_quat_error_magnitude(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
     xyz_norm = np.linalg.norm(q_rel[:, 1:], axis=1)
     w = np.clip(q_rel[:, 0], -1.0, 1.0)
     error = 2.0 * np.arctan2(xyz_norm, w)
-    return error[0] if q1_was_1d and q2_was_1d else error
+    return np.asarray(error[0] if q1_was_1d and q2_was_1d else error)
 
 
 def np_quat_from_euler_xyz(roll: np.ndarray, pitch: np.ndarray, yaw: np.ndarray) -> np.ndarray:

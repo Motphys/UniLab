@@ -576,13 +576,17 @@ class G1MotionTrackingEnv(G1BaseEnv):
         motion_data = info["motion_data"]
         dof_pos = info["dof_pos"]
         error = np.mean(np.square(motion_data.joint_pos - dof_pos), axis=-1)
-        return np.exp(-error / self._cfg.reward_config.std_joint_pos**2)
+        return np.asarray(
+            np.exp(-error / self._cfg.reward_config.std_joint_pos**2), dtype=get_global_dtype()
+        )
 
     def _reward_motion_joint_vel(self, info: dict) -> np.ndarray:
         motion_data = info["motion_data"]
         dof_vel = info["dof_vel"]
         error = np.mean(np.square(motion_data.joint_vel - dof_vel), axis=-1)
-        return np.exp(-error / self._cfg.reward_config.std_joint_vel**2)
+        return np.asarray(
+            np.exp(-error / self._cfg.reward_config.std_joint_vel**2), dtype=get_global_dtype()
+        )
 
     def _reward_action_rate_l2(self, info: dict) -> np.ndarray:
         action_diff = info["current_actions"] - info["last_actions"]
