@@ -106,9 +106,9 @@ class G1MotionTrackingCfg(G1BaseCfg):
         "right_elbow_link",
         "right_wrist_yaw_link",
     )
-    sampling_mode: Literal["start", "uniform", "adaptive"] = "start"
+    sampling_mode: Literal["start", "uniform", "adaptive"] = "adaptive"
     log_action_scale: bool = False
-    max_episode_seconds: float = 20.0
+    max_episode_seconds: float = 10.0
     reward_config: RewardConfig = field(default_factory=RewardConfig)
     pose_randomization: PoseRandomization = field(default_factory=PoseRandomization)
     velocity_randomization: VelocityRandomization = field(default_factory=VelocityRandomization)
@@ -152,7 +152,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
             add_body_sensors=True,
         )
         super().__init__(cfg, backend, num_envs)
-        self._apply_mjlab_g1_action_scale()
+        self._apply_adaptive_g1_action_scale()
         self._log_action_scale_diagnostics()
 
         # Get body IDs from MuJoCo model
@@ -188,8 +188,8 @@ class G1MotionTrackingEnv(G1BaseEnv):
         self._enable_reward_log = True
         self._init_reward_functions()
 
-    def _apply_mjlab_g1_action_scale(self) -> None:
-        """Set per-joint action scale to match mjlab's normalization."""
+    def _apply_adaptive_g1_action_scale(self) -> None:
+        """Set per-joint action scale to match adaptive's normalization."""
         model = self._backend.model
         nu = int(model.nu)
 
@@ -538,7 +538,12 @@ class G1MotionTrackingEnv(G1BaseEnv):
 
     def _reward_motion_body_ori(self, info: dict) -> np.ndarray:
         robot_body_quat_w = info["robot_body_quat_w"]
-        error = np_quat_error_magnitude(self.body_quat_relative_w, robot_body_quat_w) ** 2
+        # np_quat_error_magnitude only supports (N, 4) — flatten body dim first
+        n_env, n_body = robot_body_quat_w.shape[:2]
+        ref_flat = self.body_quat_relative_w.reshape(n_env * n_body, 4)
+        rob_flat = robot_body_quat_w.reshape(n_env * n_body, 4)
+        error = np_quat_error_magnitude(ref_flat, rob_flat) ** 2
+        error = error.reshape(n_env, n_body)
         return np.exp(-error.mean(-1) / self._cfg.reward_config.std_body_ori**2)
 
     def _reward_motion_body_lin_vel(self, info: dict) -> np.ndarray:
