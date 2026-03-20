@@ -3,15 +3,17 @@ from __future__ import annotations
 import os
 import tempfile
 import xml.etree.ElementTree as ET
+from typing import Any, cast
 
 import mujoco
 
 
 def _get_named_bodies(model_file: str) -> tuple[list[int], list[str]]:
-    _m = mujoco.MjModel.from_xml_path(model_file)
+    mj = cast(Any, mujoco)
+    _m = mj.MjModel.from_xml_path(model_file)
     ids, names = [], []
     for i in range(1, _m.nbody):  # skip body 0 (world body)
-        name = mujoco.mj_id2name(_m, mujoco.mjtObj.mjOBJ_BODY, i)
+        name = mj.mj_id2name(_m, mj.mjtObj.mjOBJ_BODY, i)
         if name:
             ids.append(i)
             names.append(name)

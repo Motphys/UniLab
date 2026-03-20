@@ -51,6 +51,82 @@ def ensure_registries():
             pass
 
 
+def _explicit_cli_override_keys() -> set[str]:
+    return {arg.split("=", 1)[0] for arg in sys.argv[1:] if "=" in arg}
+
+
+def _apply_task_algo_overrides(
+    target, overrides, *, base_path: str, explicit_keys: set[str]
+) -> None:
+    if OmegaConf.is_config(overrides):
+        override_dict = OmegaConf.to_container(overrides, resolve=True)
+    elif isinstance(overrides, dict):
+        override_dict = overrides
+    else:
+        return
+
+    for key, value in override_dict.items():
+        path = f"{base_path}.{key}"
+        if isinstance(value, dict):
+            if path in explicit_keys:
+                continue
+            if key not in target or target[key] is None:
+                target[key] = {}
+            _apply_task_algo_overrides(
+                target[key], value, base_path=path, explicit_keys=explicit_keys
+            )
+            continue
+        if path not in explicit_keys:
+            target[key] = value
+
+
+def _apply_task_env_profile(
+    env_cfg_override: dict, env_profile, *, explicit_keys: set[str]
+) -> None:
+    if OmegaConf.is_config(env_profile):
+        env_profile_dict = OmegaConf.to_container(env_profile, resolve=True)
+    elif isinstance(env_profile, dict):
+        env_profile_dict = env_profile
+    else:
+        return
+
+    reward_explicit = "reward" in explicit_keys or any(
+        k.startswith("reward.") for k in explicit_keys
+    )
+    for key, value in env_profile_dict.items():
+        if key == "reward_config" and reward_explicit:
+            continue
+        env_cfg_override[key] = value
+
+
+def build_task_motrix_ppo_env_cfg_override(cfg: DictConfig) -> dict:
+    env_cfg_override = {}
+    motrix_legacy = getattr(cfg, "motrix_legacy", None)
+    explicit_keys = _explicit_cli_override_keys()
+    if hasattr(cfg, "reward") and cfg.reward:
+        env_cfg_override["reward_config"] = OmegaConf.to_container(cfg.reward, resolve=True)
+    if motrix_legacy is None or not motrix_legacy.enabled or cfg.training.sim_backend != "motrix":
+        return env_cfg_override
+
+    algo_overrides = getattr(motrix_legacy, "algo_overrides", None)
+    if algo_overrides is not None:
+        _apply_task_algo_overrides(
+            cfg.algo,
+            algo_overrides,
+            base_path="algo",
+            explicit_keys=explicit_keys,
+        )
+
+    env_profile = getattr(motrix_legacy, "env_cfg_override", None)
+    if env_profile is not None:
+        _apply_task_env_profile(
+            env_cfg_override,
+            env_profile,
+            explicit_keys=explicit_keys,
+        )
+    return env_cfg_override
+
+
 class RslRlVecEnvWrapper:
     """Wrapper to adapt NpEnv to RSL-RL OnPolicyRunner interface."""
 
@@ -78,7 +154,11 @@ class RslRlVecEnvWrapper:
         td = {"actor": actor}
         if "privileged" in obs:
             td["privileged"] = to_torch(obs["privileged"], self.device)
-            td["policy"] = to_torch(flatten_obs_dict(obs), self.device)
+            if hasattr(self.env, "get_policy_obs"):
+                policy_obs = self.env.get_policy_obs(obs)
+            else:
+                policy_obs = flatten_obs_dict(obs)
+            td["policy"] = to_torch(policy_obs, self.device)
         else:
             td["policy"] = actor
         return TensorDict(td, batch_size=self.num_envs, device=self.device)
@@ -135,9 +215,8 @@ def play_rsl_rl(cfg: DictConfig, device: str):
     """Play mode for RSL-RL."""
 
     from unilab.base import registry
-    from unilab.utils.reward_utils import extract_reward_config
 
-    env_cfg_override = extract_reward_config(cfg)
+    env_cfg_override = build_task_motrix_ppo_env_cfg_override(cfg)
 
     env = registry.make(
         cfg.training.task_name,
@@ -267,9 +346,8 @@ def main(cfg: DictConfig) -> None:
     from omegaconf import OmegaConf
 
     from unilab.base import registry
-    from unilab.utils.reward_utils import extract_reward_config
 
-    env_cfg_override = extract_reward_config(cfg)
+    env_cfg_override = build_task_motrix_ppo_env_cfg_override(cfg)
 
     if torch.cuda.is_available():
         device = "cuda"

@@ -13,3 +13,7 @@ algo:
   algo_params:
     alpha_init: 0.01
     target_entropy_ratio: 0.0
+motrix_legacy:
+  enabled: true
+  algo_overrides:
+    use_symmetry: false

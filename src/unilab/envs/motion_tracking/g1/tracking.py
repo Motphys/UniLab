@@ -521,7 +521,9 @@ class G1MotionTrackingEnv(G1BaseEnv):
         anchor_pos_w = motion_data.body_pos_w[:, self.anchor_body_idx]
         robot_anchor_pos_w = robot_body_pos_w[:, self.anchor_body_idx]
         error = np.sum(np.square(anchor_pos_w - robot_anchor_pos_w), axis=-1)
-        return np.exp(-error / self._cfg.reward_config.std_root_pos**2)
+        return np.asarray(
+            np.exp(-error / self._cfg.reward_config.std_root_pos**2), dtype=get_global_dtype()
+        )
 
     def _reward_motion_global_root_ori(self, info: dict) -> np.ndarray:
         motion_data = info["motion_data"]
@@ -534,7 +536,10 @@ class G1MotionTrackingEnv(G1BaseEnv):
     def _reward_motion_body_pos(self, info: dict) -> np.ndarray:
         robot_body_pos_w = info["robot_body_pos_w"]
         error = np.sum(np.square(self.body_pos_relative_w - robot_body_pos_w), axis=-1)
-        return np.exp(-error.mean(-1) / self._cfg.reward_config.std_body_pos**2)
+        return np.asarray(
+            np.exp(-error.mean(-1) / self._cfg.reward_config.std_body_pos**2),
+            dtype=get_global_dtype(),
+        )
 
     def _reward_motion_body_ori(self, info: dict) -> np.ndarray:
         robot_body_quat_w = info["robot_body_quat_w"]
@@ -544,19 +549,28 @@ class G1MotionTrackingEnv(G1BaseEnv):
         rob_flat = robot_body_quat_w.reshape(n_env * n_body, 4)
         error = np_quat_error_magnitude(ref_flat, rob_flat) ** 2
         error = error.reshape(n_env, n_body)
-        return np.exp(-error.mean(-1) / self._cfg.reward_config.std_body_ori**2)
+        return np.asarray(
+            np.exp(-error.mean(-1) / self._cfg.reward_config.std_body_ori**2),
+            dtype=get_global_dtype(),
+        )
 
     def _reward_motion_body_lin_vel(self, info: dict) -> np.ndarray:
         motion_data = info["motion_data"]
         robot_body_lin_vel_w = info["robot_body_lin_vel_w"]
         error = np.sum(np.square(motion_data.body_lin_vel_w - robot_body_lin_vel_w), axis=-1)
-        return np.exp(-error.mean(-1) / self._cfg.reward_config.std_body_lin_vel**2)
+        return np.asarray(
+            np.exp(-error.mean(-1) / self._cfg.reward_config.std_body_lin_vel**2),
+            dtype=get_global_dtype(),
+        )
 
     def _reward_motion_body_ang_vel(self, info: dict) -> np.ndarray:
         motion_data = info["motion_data"]
         robot_body_ang_vel_w = info["robot_body_ang_vel_w"]
         error = np.sum(np.square(motion_data.body_ang_vel_w - robot_body_ang_vel_w), axis=-1)
-        return np.exp(-error.mean(-1) / self._cfg.reward_config.std_body_ang_vel**2)
+        return np.asarray(
+            np.exp(-error.mean(-1) / self._cfg.reward_config.std_body_ang_vel**2),
+            dtype=get_global_dtype(),
+        )
 
     def _reward_motion_joint_pos(self, info: dict) -> np.ndarray:
         motion_data = info["motion_data"]
@@ -572,7 +586,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
 
     def _reward_action_rate_l2(self, info: dict) -> np.ndarray:
         action_diff = info["current_actions"] - info["last_actions"]
-        return np.sum(np.square(action_diff), axis=1)
+        return np.asarray(np.sum(np.square(action_diff), axis=1), dtype=get_global_dtype())
 
     def _reward_joint_limit(self, info: dict) -> np.ndarray:
         dof_pos = info["dof_pos"]
@@ -586,7 +600,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
         lower_violation = np.maximum(0, lower - dof_pos)
         upper_violation = np.maximum(0, dof_pos - upper)
         violation = lower_violation + upper_violation
-        return np.sum(np.square(violation), axis=1)
+        return np.asarray(np.sum(np.square(violation), axis=1), dtype=get_global_dtype())
 
     def reset(self, env_indices: np.ndarray):
         """Reset specified environments."""

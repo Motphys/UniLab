@@ -247,6 +247,7 @@ class FastTD3Learner:
 
         # Critic input: obs + privileged
         if privileged is not None:
+            assert next_privileged is not None
             critic_obs = torch.cat([observations, privileged], dim=-1)
             critic_next_obs = torch.cat([next_observations, next_privileged], dim=-1)
         else:

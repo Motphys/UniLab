@@ -13,7 +13,7 @@ from unilab.base.backend import create_backend
 from unilab.base.curriculum import EpisodeLengthTracker, PenaltyCurriculum
 from unilab.base.dtype_config import get_global_dtype
 from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
-from unilab.envs.locomotion.g1.joystick import G1JoystickPPO, InitState
+from unilab.envs.locomotion.g1.joystick import Domain_Rand, G1JoystickPPO, InitState
 
 
 @dataclass
@@ -57,6 +57,9 @@ class G1JoystickSACCfg(G1BaseCfg):
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
     control_config: ControlConfigSAC = field(default_factory=ControlConfigSAC)  # type: ignore[assignment]
+    domain_rand: Domain_Rand = field(default_factory=Domain_Rand)
+    gait_phase_init_mode: str = "offset_phase"
+    reset_base_qvel_limit: float = 0.5
 
 
 @registry.env("G1WalkTaskMjSAC", sim_backend="mujoco")

@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional, cast
 
 
 class BaseConfig:
-    def to_dict(self) -> dict:
-        return dataclasses.asdict(self)  # recursive, keeps test compatibility
+    def to_dict(self) -> dict[str, Any]:
+        return cast(dict[str, Any], dataclasses.asdict(cast(Any, self)))
 
 
 # ── Off-policy: SAC ──────────────────────────────────────────────────────────

@@ -78,11 +78,120 @@ def resolve_checkpoint_path(
     return load_path, load_path_dir
 
 
-def build_runner(algo_name: str, cfg: DictConfig):
-    """Build algorithm runner from unified Hydra config."""
+def extract_reset_obs(reset_result):
+    """Extract obs_dict from env.reset(...) using the current (obs_dict, info_dict) contract."""
+    if isinstance(reset_result, tuple):
+        if len(reset_result) == 2:
+            obs_out, _ = reset_result
+            return obs_out
+    raise ValueError(f"Unexpected env.reset return format: {type(reset_result)!r}")
+
+
+def resolve_play_obs_dim(obs_groups_spec: dict[str, int]) -> int:
+    from unilab.utils.obs_utils import get_obs_dims
+
+    obs_dim, _ = get_obs_dims(obs_groups_spec)
+    return obs_dim
+
+
+def extract_play_obs(obs_dict):
+    from unilab.utils.obs_utils import split_obs_dict
+
+    obs_out, _ = split_obs_dict(obs_dict)
+    return obs_out
+
+
+def _explicit_cli_override_keys() -> set[str]:
+    return {arg.split("=", 1)[0] for arg in sys.argv[1:] if "=" in arg}
+
+
+def _apply_task_algo_overrides(
+    target, overrides, *, base_path: str, explicit_keys: set[str]
+) -> None:
+    if OmegaConf.is_config(overrides):
+        override_dict = OmegaConf.to_container(overrides, resolve=True)
+    elif isinstance(overrides, dict):
+        override_dict = overrides
+    else:
+        return
+
+    for key, value in override_dict.items():
+        path = f"{base_path}.{key}"
+        if isinstance(value, dict):
+            if path in explicit_keys:
+                continue
+            if key not in target or target[key] is None:
+                target[key] = {}
+            _apply_task_algo_overrides(
+                target[key], value, base_path=path, explicit_keys=explicit_keys
+            )
+            continue
+        if path not in explicit_keys:
+            target[key] = value
+
+
+def _apply_task_env_profile(
+    env_cfg_override: dict, env_profile, *, explicit_keys: set[str]
+) -> None:
+    if OmegaConf.is_config(env_profile):
+        env_profile_dict = OmegaConf.to_container(env_profile, resolve=True)
+    elif isinstance(env_profile, dict):
+        env_profile_dict = env_profile
+    else:
+        return
+
+    reward_explicit = "reward" in explicit_keys or any(
+        k.startswith("reward.") for k in explicit_keys
+    )
+    for key, value in env_profile_dict.items():
+        if key == "reward_config" and reward_explicit:
+            continue
+        env_cfg_override[key] = value
+
+
+def build_task_motrix_offpolicy_env_cfg_override(algo_name: str, cfg: DictConfig) -> dict | None:
     from unilab.utils.reward_utils import extract_reward_config
 
     env_cfg_override = extract_reward_config(cfg)
+    explicit_keys = _explicit_cli_override_keys()
+    motrix_legacy = getattr(cfg, "motrix_legacy", None)
+    if motrix_legacy is None or not motrix_legacy.enabled or cfg.training.sim_backend != "motrix":
+        return env_cfg_override
+
+    applies_to = getattr(motrix_legacy, "applies_to", None)
+    if applies_to is not None:
+        target_algo = getattr(applies_to, "algo", None)
+        if target_algo is not None and target_algo != algo_name:
+            return env_cfg_override
+
+    algo_overrides = getattr(motrix_legacy, "algo_overrides", None)
+    if algo_overrides is not None:
+        _apply_task_algo_overrides(
+            cfg.algo,
+            algo_overrides,
+            base_path="algo",
+            explicit_keys=explicit_keys,
+        )
+
+    env_profile = getattr(motrix_legacy, "env_cfg_override", None)
+    if env_profile is not None:
+        _apply_task_env_profile(
+            env_cfg_override,
+            env_profile,
+            explicit_keys=explicit_keys,
+        )
+
+    return env_cfg_override
+
+
+def resolve_sac_use_symmetry(cfg: DictConfig) -> bool:
+    """Symmetry augmentation currently depends on MuJoCo model APIs."""
+    return bool(cfg.algo.use_symmetry and cfg.training.sim_backend == "mujoco")
+
+
+def build_runner(algo_name: str, cfg: DictConfig):
+    """Build algorithm runner from unified Hydra config."""
+    env_cfg_override = build_task_motrix_offpolicy_env_cfg_override(algo_name, cfg)
 
     if algo_name == "sac":
         from unilab.algos.torch.fast_sac.learner import FastSACLearner
@@ -94,11 +203,9 @@ def build_runner(algo_name: str, cfg: DictConfig):
             from unilab.algos.torch.offpolicy.multi_gpu_runner import MultiGPUOffPolicyRunner
             from unilab.base import registry
             from unilab.utils.algo_utils import ensure_registries
-            from unilab.utils.reward_utils import extract_reward_config
 
             ensure_registries()
             device = cfg.training.device or get_default_device()
-            env_cfg_override = extract_reward_config(cfg)
             env = registry.make(
                 cfg.training.task_name,
                 num_envs=1,
@@ -183,7 +290,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             sync_collection=not cfg.training.no_sync_collection,
             env_steps_per_sync=cfg.training.env_steps_per_sync,
             sim_backend=cfg.training.sim_backend,
-            use_symmetry=cfg.algo.use_symmetry,
+            use_symmetry=resolve_sac_use_symmetry(cfg),
         )
 
     if algo_name == "td3":
@@ -233,14 +340,11 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> None:
     from unilab.base import registry
     from unilab.utils import render_many
     from unilab.utils.algo_utils import build_actor
-    from unilab.utils.reward_utils import extract_reward_config
 
-    env_cfg_override = extract_reward_config(cfg)
+    env_cfg_override = build_task_motrix_offpolicy_env_cfg_override(algo_name, cfg)
 
     device = default_device(torch, cfg.training.device)
     print(f"Using device for play: {device}")
-
-    from unilab.utils.obs_utils import flatten_obs_dict
 
     env = registry.make(
         cfg.training.task_name,
@@ -248,7 +352,7 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> None:
         sim_backend=cfg.training.sim_backend,
         env_cfg_override=env_cfg_override,
     )
-    obs_dim = sum(env.obs_groups_spec.values())
+    obs_dim = resolve_play_obs_dim(env.obs_groups_spec)
     action_dim = env.action_space.shape[0]
 
     normalizer = None
@@ -307,8 +411,8 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> None:
     if env.state is None:
         env.init_state()
     env_indices = np.arange(cfg.training.play_env_num, dtype=np.int32)
-    _, obs_out, _ = env.reset(env_indices)
-    obs_np = np.asarray(flatten_obs_dict(obs_out), dtype=np.float32)
+    obs_out = extract_reset_obs(env.reset(env_indices))
+    obs_np = np.asarray(extract_play_obs(obs_out), dtype=np.float32)
 
     # Use Motrix native rendering
     if cfg.training.sim_backend == "motrix":
@@ -333,7 +437,7 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> None:
                         else actor(obs_torch).cpu().numpy()
                     )
                     state = env.step(actions_np)
-                    obs_np = np.asarray(flatten_obs_dict(state.obs), dtype=np.float32)
+                    obs_np = np.asarray(extract_play_obs(state.obs), dtype=np.float32)
 
                     current_time = time.perf_counter()
                     elapsed = current_time - last_render_time
@@ -365,7 +469,7 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> None:
                 else actor(obs_torch).cpu().numpy()
             )
             state = env.step(actions_np)
-            obs_np = np.asarray(flatten_obs_dict(state.obs), dtype=np.float32)
+            obs_np = np.asarray(extract_play_obs(state.obs), dtype=np.float32)
             state_list.append(np.asarray(env._backend.get_physics_state(), dtype=np.float32).copy())
 
     print("Rendering frames...")

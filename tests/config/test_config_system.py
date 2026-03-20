@@ -492,9 +492,8 @@ def test_motion_tracking_reward_extraction_pattern():
 
 
 def test_appo_reward_extraction_pattern():
-    """Verify APPO with go1 task extracts reward override from task defaults."""
+    """Verify APPO go1 task extracts its default reward override."""
     cfg = _compose("appo", overrides=["task=go1_joystick"])
-    # APPO go1 task explicitly overrides reward to go1_appo_mujoco.
     env_cfg_override: dict = {}
     if hasattr(cfg, "reward") and cfg.reward:
         reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
