@@ -6,7 +6,11 @@ import pkgutil
 
 def ensure_registries():
     """Import all env modules so they are registered."""
-    for pkg_name in ("unilab.envs.locomotion", "unilab.envs.manipulation"):
+    for pkg_name in (
+        "unilab.envs.locomotion",
+        "unilab.envs.manipulation",
+        "unilab.envs.motion_tracking",
+    ):
         try:
             package = importlib.import_module(pkg_name)
             if hasattr(package, "__path__"):

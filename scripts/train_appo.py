@@ -18,7 +18,11 @@ sys.path.append(str(ROOT_DIR))
 
 
 def ensure_registries():
-    for pkg_name in ("unilab.envs.locomotion", "unilab.envs.manipulation"):
+    for pkg_name in (
+        "unilab.envs.locomotion",
+        "unilab.envs.manipulation",
+        "unilab.envs.motion_tracking",
+    ):
         try:
             package = importlib.import_module(pkg_name)
             if hasattr(package, "__path__"):
@@ -147,13 +151,11 @@ def play_appo(cfg: DictConfig, rl_cfg: dict):
     if env.state is None:
         env.init_state()
     env_indices = np.arange(cfg.training.play_env_num, dtype=np.int32)
-    from unilab.utils.obs_utils import flatten_obs_dict
-
     obs_out, _ = env.reset(env_indices)
     obs_np = np.asarray(obs_out["obs"], dtype=np.float32)
 
     state_list = []
-    num_steps = 150
+    num_steps = int(getattr(cfg.training, "play_steps", 1000))
 
     print("Collecting physics states...")
     with torch.inference_mode():
@@ -168,7 +170,14 @@ def play_appo(cfg: DictConfig, rl_cfg: dict):
 
     print("Rendering frames...")
     frames = render_many.render_states_get_frames(
-        state_list, env.cfg.model_file, width=1280, height=720, camera_id=-1
+        state_list,
+        env.cfg.model_file,
+        width=1280,
+        height=720,
+        camera_id=-1,
+        cam_distance=cfg.training.cam_distance,
+        cam_elevation=cfg.training.cam_elevation,
+        cam_azimuth=cfg.training.cam_azimuth,
     )
 
     print(f"Saving video to {output_video} with mediapy...")

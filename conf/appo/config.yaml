@@ -58,6 +58,10 @@ training:
   no_play: false
   load_run: "-1"
   play_env_num: 16
+  play_steps: 150
+  cam_distance: 6.0
+  cam_elevation: -20.0
+  cam_azimuth: 90.0
   replay_queue_size: null
 
 hydra:

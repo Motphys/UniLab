@@ -1,0 +1,12 @@
+# @package _global_
+defaults:
+  - override /reward: g1_motion_tracking
+
+training:
+  task_name: G1MotionTracking
+  play_steps: 1000
+
+algo:
+  num_envs: 1024
+  max_iterations: 5000
+  save_interval: 500
