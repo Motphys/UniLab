@@ -4,6 +4,7 @@ defaults:
 
 training:
   task_name: G1MotionTracking
+  play_steps: 1000
 
 algo:
   num_envs: 1024
