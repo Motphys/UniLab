@@ -106,7 +106,11 @@ def test_offpolicy_td3_defaults():
         cfg = compose("config", overrides=["algo=td3"])
     assert cfg.algo.algo == "td3"
     assert cfg.algo.use_layer_norm is False
-    assert cfg.algo.algo_params.weight_decay == pytest.approx(0.1)
+    assert cfg.algo.algo_params.weight_decay == pytest.approx(0.001)
+    assert cfg.algo.tau == pytest.approx(0.01)
+    assert cfg.algo.algo_params.policy_noise == pytest.approx(0.1)
+    assert cfg.algo.algo_params.noise_clip == pytest.approx(0.2)
+    assert cfg.algo.algo_params.log_std_min == pytest.approx(-5.0)
 
 
 def test_offpolicy_go2_task_overrides():
