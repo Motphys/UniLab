@@ -234,12 +234,18 @@ class OffPolicyRunner(AsyncRunner):
                 for k, v in critic_metrics.items():
                     iter_metrics[k].append(v)
 
-                if update_idx % self.policy_frequency == 1:
+                actor_updated = False
+                if update_idx % self.policy_frequency == 0:
                     actor_metrics = learner.update_actor(batch)
                     for k, v in actor_metrics.items():
                         iter_metrics[k].append(v)
+                    actor_updated = True
 
-                learner.soft_update_target()
+                if self.algo_type == "td3":
+                    if actor_updated:
+                        learner.soft_update_target()
+                else:
+                    learner.soft_update_target()
 
             if self.obs_normalization and getattr(self.learner, "obs_normalizer", None) is not None:
                 assert shared_obs_normalizer_stats is not None

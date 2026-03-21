@@ -227,6 +227,7 @@ def _run_collector(
         privileged=priv_np,
         expected_obs_dim=obs_dim,
     )
+    prev_dones_np = np.zeros(num_envs, dtype=np.float32)
     max_episode_steps = getattr(getattr(env, "cfg", None), "max_episode_steps", None)
     if max_episode_steps is not None and int(max_episode_steps) > 0:
         step_offsets = np.random.randint(
@@ -278,13 +279,11 @@ def _run_collector(
             else:
                 _t_infer = _time.perf_counter()
                 obs_torch = torch.from_numpy(obs_np_input)
-                if algo_type == "sac":
-                    actions_torch = actor.explore(obs_torch)
-                else:  # td3
-                    actions_torch = actor(obs_torch)
-                    actions_torch = (actions_torch + torch.randn_like(actions_torch) * 0.1).clamp(
-                        -1, 1
-                    )
+                if algo_type in ("sac", "td3"):
+                    dones_torch = torch.from_numpy(prev_dones_np)
+                    actions_torch = actor.explore(obs_torch, dones=dones_torch, deterministic=False)
+                else:
+                    actions_torch = torch.zeros((num_envs, action_dim))
                 actions_np = actions_torch.numpy()
                 timing_accum_ms["mlp_infer_ms"] += (_time.perf_counter() - _t_infer) * 1000
 
@@ -323,6 +322,7 @@ def _run_collector(
             else np.zeros(num_envs, dtype=np.float32)
         )
         combined_dones = np.clip(terminated_np + truncated_np, 0, 1)
+        prev_dones_np = combined_dones.astype(np.float32, copy=False)
         done_mask_np = combined_dones > 0.5
         timeout_mask_np = truncated_np > 0.5
         terminated_mask_np = np.logical_and(terminated_np > 0.5, ~timeout_mask_np)

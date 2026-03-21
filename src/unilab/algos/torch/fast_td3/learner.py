@@ -142,7 +142,7 @@ class FastTD3Learner:
         device: str = "cpu",
         # Hyperparameters from reference
         gamma: float = 0.97,
-        tau: float = 0.1,
+        tau: float = 0.01,
         actor_lr: float = 3e-4,
         critic_lr: float = 3e-4,
         actor_hidden_dim: int = 512,
@@ -153,11 +153,11 @@ class FastTD3Learner:
         init_scale: float = 0.01,
         log_std_min: float = -3.0,
         log_std_max: float = 0.0,
-        weight_decay: float = 0.1,
+        weight_decay: float = 0.001,
         use_cdq: bool = True,
         # TD3-specific
-        policy_noise: float = 0.2,
-        noise_clip: float = 0.5,
+        policy_noise: float = 0.1,
+        noise_clip: float = 0.2,
         policy_frequency: int = 2,
         # Training
         max_iterations: int = 50000,
@@ -184,6 +184,17 @@ class FastTD3Learner:
             log_std_max=log_std_max,
             device=torch_device,
         )
+        self.actor_target = TD3Actor(
+            n_obs=obs_dim,
+            n_act=action_dim,
+            num_envs=num_envs,
+            init_scale=init_scale,
+            hidden_dim=actor_hidden_dim,
+            log_std_min=log_std_min,
+            log_std_max=log_std_max,
+            device=torch_device,
+        )
+        self.actor_target.load_state_dict(self.actor.state_dict())
 
         # Build critic
         self.qnet = Critic(
@@ -236,11 +247,11 @@ class FastTD3Learner:
 
     def update_critic(self, data: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One critic update step."""
-        observations = data["obs"]
+        observations = self.normalize_obs(data["obs"], update=True)
         privileged = data.get("privileged", None)
         actions = data["actions"]
         rewards = data["rewards"]
-        next_observations = data["next_obs"]
+        next_observations = self.normalize_obs(data["next_obs"], update=False)
         next_privileged = data.get("next_privileged", None)
         dones = data["dones"].bool()
         truncations = data["truncated"].bool()
@@ -262,7 +273,7 @@ class FastTD3Learner:
         clipped_noise = clipped_noise.mul(self.policy_noise).clamp(
             -self.noise_clip, self.noise_clip
         )
-        next_state_actions = (self.actor(next_observations) + clipped_noise).clamp(-1.0, 1.0)
+        next_state_actions = (self.actor_target(next_observations) + clipped_noise).clamp(-1.0, 1.0)
 
         with torch.no_grad():
             qf1_next_target_proj, qf2_next_target_proj = self.qnet_target.projection(
@@ -317,7 +328,7 @@ class FastTD3Learner:
 
     def update_actor(self, data: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One actor update step."""
-        observations = data["obs"]
+        observations = self.normalize_obs(data["obs"], update=False)
 
         qf1, qf2 = self.qnet(observations, self.actor(observations))
         qf1_value = self.qnet.get_value(F.softmax(qf1, dim=1))
@@ -344,11 +355,16 @@ class FastTD3Learner:
 
     @torch.no_grad()
     def soft_update_target(self) -> None:
-        """Polyak-average update of target critic network."""
+        """Polyak-average update of target networks."""
         src_ps = [p.data for p in self.qnet.parameters()]
         tgt_ps = [p.data for p in self.qnet_target.parameters()]
         torch._foreach_mul_(tgt_ps, 1.0 - self.tau)
         torch._foreach_add_(tgt_ps, src_ps, alpha=self.tau)
+
+        src_actor_ps = [p.data for p in self.actor.parameters()]
+        tgt_actor_ps = [p.data for p in self.actor_target.parameters()]
+        torch._foreach_mul_(tgt_actor_ps, 1.0 - self.tau)
+        torch._foreach_add_(tgt_actor_ps, src_actor_ps, alpha=self.tau)
 
     @torch.no_grad()
     def soft_update(self) -> None:
@@ -358,6 +374,7 @@ class FastTD3Learner:
     def get_state_dict(self) -> Dict:
         return {
             "actor": self.actor.state_dict(),
+            "actor_target": self.actor_target.state_dict(),
             "qnet": self.qnet.state_dict(),
             "qnet_target": self.qnet_target.state_dict(),
             "obs_normalizer": (
@@ -372,6 +389,10 @@ class FastTD3Learner:
 
     def load_state_dict(self, state_dict: Dict) -> None:
         self.actor.load_state_dict(state_dict["actor"])
+        if "actor_target" in state_dict:
+            self.actor_target.load_state_dict(state_dict["actor_target"])
+        else:
+            self.actor_target.load_state_dict(state_dict["actor"])
         self.qnet.load_state_dict(state_dict["qnet"])
         self.qnet_target.load_state_dict(state_dict["qnet_target"])
         if state_dict.get("obs_normalizer") and hasattr(self.obs_normalizer, "load_state_dict"):

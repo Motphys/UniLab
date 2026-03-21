@@ -131,8 +131,25 @@ class SACActor(nn.Module):
         return action, log_prob, log_std
 
     @torch.no_grad()
-    def explore(self, obs: torch.Tensor, deterministic: bool = False) -> torch.Tensor:
-        """Get exploration actions."""
+    def explore(
+        self,
+        obs: torch.Tensor,
+        dones: torch.Tensor | None = None,
+        deterministic: bool = False,
+    ) -> torch.Tensor:
+        """Get exploration actions.
+
+        Args:
+            obs: Batched observations.
+            dones: Unused for SAC; kept for API alignment with TD3 actor.
+            deterministic: Whether to return deterministic policy actions.
+        """
+        # Backward compatibility: previous signature was explore(obs, deterministic=False).
+        if isinstance(dones, bool):
+            deterministic = dones
+            dones = None
+        _ = dones
+
         _, mean, log_std = self.forward(obs)
         if deterministic:
             if self.use_tanh:
