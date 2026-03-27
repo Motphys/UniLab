@@ -108,7 +108,6 @@ class Go1WalkTask(Go1BaseEnv):
         # gyro(3) + gravity(3) + diff(12) + dof_vel(12) + action(12) + cmd(3) + phase(4) = 49
         return {"obs": 49, "privileged": 3}
 
-
     def _init_reward_functions(self):
         self._reward_fns = {
             "tracking_lin_vel": self._reward_tracking_lin_vel,
