@@ -513,6 +513,7 @@ def main(cfg: DictConfig) -> None:
             runner.close()
 
     if cfg.training.play_only or not cfg.training.no_play:
+        print("@" * 50)
         play_offpolicy(algo_name, cfg)
 
 

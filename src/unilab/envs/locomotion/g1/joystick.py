@@ -280,9 +280,13 @@ class G1JoystickPPO(G1BaseEnv):
         return np.concatenate(list(obs.values()), axis=1)
 
     def get_obs_structure(self) -> dict:
-        """Return observation structure for symmetry augmentation."""
+        """Return observation structure for symmetry augmentation.
+
+        Note: This only returns actor observation structure (without privileged info like linvel).
+        Privileged information (linvel) is handled separately in the learner.
+        """
         return {
-            "linvel": 3,
+            # "linvel": 3,
             "gyro": 3,
             "gravity": 3,
             "dof_pos": self._num_action,
