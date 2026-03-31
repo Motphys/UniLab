@@ -521,11 +521,37 @@ class FastSACLearner:
 
         # Apply symmetry augmentation
         if self.use_symmetry:
-            obs, actions = self.symmetry.augment(obs, actions)
-            critic_obs = torch.cat([critic_obs, self.symmetry.mirror_obs(critic_obs)], dim=0)
-            critic_next_obs = torch.cat(
-                [critic_next_obs, self.symmetry.mirror_obs(critic_next_obs)], dim=0
-            )
+            # Save original actions before augmentation
+            orig_actions = actions
+
+            # Handle privileged info separately
+            if privileged is not None:
+                assert next_privileged is not None
+                # Mirror privileged info: flip y-axis for linvel [vx, vy, vz] -> [vx, -vy, vz]
+                privileged_flip = torch.ones_like(privileged)
+                privileged_flip[..., 1] = -1.0  # Flip y component
+                mirrored_privileged = privileged * privileged_flip
+                mirrored_next_privileged = next_privileged * privileged_flip
+
+                # Concatenate original and mirrored privileged
+                privileged_aug = torch.cat([privileged, mirrored_privileged], dim=0)
+                next_privileged_aug = torch.cat([next_privileged, mirrored_next_privileged], dim=0)
+
+                # Augment actor observations and actions
+                obs, actions = self.symmetry.augment(obs, actions)
+                next_obs, _ = self.symmetry.augment(next_obs, orig_actions)
+
+                # Reconstruct critic observations: aug_obs + aug_privileged
+                critic_obs = torch.cat([obs, privileged_aug], dim=-1)
+                critic_next_obs = torch.cat([next_obs, next_privileged_aug], dim=-1)
+            else:
+                # No privileged info, augment directly
+                obs, actions = self.symmetry.augment(obs, actions)
+                next_obs, _ = self.symmetry.augment(next_obs, orig_actions)
+                critic_obs = obs
+                critic_next_obs = next_obs
+
+            # Double the batch size for other tensors
             rewards = rewards.repeat(2)
             dones = dones.repeat(2)
             if truncated is not None:
@@ -623,8 +649,25 @@ class FastSACLearner:
 
         # Apply symmetry augmentation
         if self.use_symmetry:
-            obs = torch.cat([obs, self.symmetry.mirror_obs(obs)], dim=0)
-            critic_obs = torch.cat([critic_obs, self.symmetry.mirror_obs(critic_obs)], dim=0)
+            # Handle privileged info separately
+            if privileged is not None:
+                # Mirror privileged info: flip y-axis for linvel [vx, vy, vz] -> [vx, -vy, vz]
+                privileged_flip = torch.ones_like(privileged)
+                privileged_flip[..., 1] = -1.0  # Flip y component
+                mirrored_privileged = privileged * privileged_flip
+
+                # Concatenate original and mirrored privileged
+                privileged_aug = torch.cat([privileged, mirrored_privileged], dim=0)
+
+                # Augment actor observations
+                obs = torch.cat([obs, self.symmetry.mirror_obs(obs)], dim=0)
+
+                # Reconstruct critic observations: aug_obs + aug_privileged
+                critic_obs = torch.cat([obs, privileged_aug], dim=-1)
+            else:
+                # No privileged info, augment directly
+                obs = torch.cat([obs, self.symmetry.mirror_obs(obs)], dim=0)
+                critic_obs = obs
 
         with torch.amp.autocast("cuda", enabled=self.use_amp):  # pyright: ignore[reportPrivateImportUsage]
             actions, log_probs, log_std = self.actor.get_actions_and_log_probs(obs)
