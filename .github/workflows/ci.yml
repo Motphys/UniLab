@@ -14,7 +14,6 @@ on:
       - ".github/ISSUE_TEMPLATE/**"
       - ".github/pull_request_template.md"
   workflow_dispatch:
-  workflow_dispatch:
 
 env:
   UV_FROZEN: "1"
