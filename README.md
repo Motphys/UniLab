@@ -215,6 +215,47 @@ algo.max_iterations=1000             # 覆盖迭代次数
 uv run python scripts/train_offpolicy.py --cfg job
 ```
 
+### W&B 实验记录
+
+将 `training.logger=wandb` 打开后，训练脚本会自动把实验记录到 Weights & Biases，并在本地 run 目录中写出：
+
+- `run_config.json`：完整运行配置
+- `run_summary.json`：运行摘要、耗时、最终效果
+
+MuJoCo 路径下如果训练后自动生成了 `play_video.mp4`，也会一并上传到当前 W&B run。
+
+```bash
+# 基本用法
+uv run python scripts/train_rsl_rl.py task=go1_joystick training.logger=wandb
+
+# 指定共享 project / entity
+uv run python scripts/train_appo.py \
+  task=go1_joystick \
+  training.logger=wandb \
+  training.wandb_project=unilab-benchmark \
+  training.wandb_entity=my-team
+
+# 同一个共享 project 下，按 task 分组
+uv run python scripts/train_offpolicy.py \
+  algo=sac \
+  task=go2_joystick \
+  training.logger=wandb \
+  training.wandb_project=unilab-benchmark \
+  training.wandb_group=go2_joystick
+```
+
+常用字段：
+
+- `training.wandb_project`：W&B project 名称，适合多人共享同一个实验空间
+- `training.wandb_entity`：团队或账号名
+- `training.wandb_group`：同一类实验的分组，建议按 task 或 benchmark 批次组织
+- `training.wandb_name`：自定义 run 名称；不填时会自动生成，避免多人共用 project 时重名
+- `training.wandb_tags`：额外标签，便于筛选实验
+- `training.wandb_notes`：备注
+- `training.wandb_mode=offline`：离线记录，后续再 `wandb sync`
+
+默认情况下，自动记录的信息包括任务、算法、backend、设备、硬件信息、git 信息、完整配置、整体运行时间、最终摘要指标，以及最终回放视频。
+
 ---
 
 ## APPO（异步 PPO）
