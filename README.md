@@ -60,35 +60,14 @@ export UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 uv sync --index-url https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
-## TODO
+## Roadmap And Task Tracking
 
-- [x] @czx 增加 Bipedal Locomotion 任务
-- [x] @czx 增加 APPO
-- [x] @czx 增加 FastTD3 和 FastSAC，torch.mps
-- [x] @czx  写轻量版并行采样，跑满cpu 和 gpu @czx
-- [x] @yves 优化调度器，测试把 rollout 移动到 cpu 的效率提升
-- [x] @yves 兼容 linux 平台
-- [x] @yves 优化IPC，做到数值稳定，跨 torch/mlx
-- [x] @yves 发布 mujoco-uni
-- [x] @yves 统一仿真后端
-- [x] @yves G1+off-policy调稳定
-- [x] @yves G1 full command space
-- [x] @yves 增加G1对称性数据增强
-- [x] @yves IPC性能优化：PyTorch shared tensors替换POSIX shm
-- [x] @yves GPU利用率分析与优化
-- [x] @yves AMP混合精度训练
-- [x] @yves 跑通算法迁移: PPO->APPO，but 目前优化不稳定
-- [x] @yves 工程化设计 原型级->开发级
-- [x] @jdx  增加AC非对称观测
-- [ ] @ymr  增加灵巧操作案例
-- [ ] @all  off-policy 找到性能最好的 off-policy 算法
-- [ ] @czx  适配 mimic/amp 算法，支持人形Whole-Body Tracking
-- [ ] @yves mujoco域随机化,需要改 mujoco-uni 源码
-- [ ] @jdx  motrixsim域随机化
-- [ ] @jdx  写onnx导出和sim2sim
-- [ ] @jdx  sim2real
-- [ ] @Motphys 算法适配 motrixsim
-- [ ] @Motphys motrix step 提速
+UniLab no longer keeps milestone task lists in `README.md`.
+
+- Use GitHub Issues for bugs, work items, benchmarks, and docs tasks.
+- Use GitHub Milestones for phase planning such as `M1`.
+- Use the collaboration guide in [docs/collaboration.md](docs/collaboration.md) for the
+  expected workflow and ownership model.
 
 ### 训练状态
 

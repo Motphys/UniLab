@@ -1,0 +1,18 @@
+# Default owner
+* @TATP-233
+
+# Core algorithm and training flows
+/src/unilab/algos/ @TATP-233 @caozx1110
+/src/unilab/ipc/ @TATP-233
+/scripts/train_*.py @TATP-233 @caozx1110
+
+# Task and environment ownership
+/src/unilab/envs/motion_tracking/ @caozx1110
+/src/unilab/envs/manipulation/ @Mingrui-Yu
+/scripts/motion/ @caozx1110
+
+# Project process and docs
+/README.md @TATP-233
+/CONTRIBUTING.md @TATP-233
+/docs/ @TATP-233
+/.github/ @TATP-233

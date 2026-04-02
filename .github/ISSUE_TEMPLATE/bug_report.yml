@@ -1,0 +1,76 @@
+name: Bug Report
+description: Report a bug, regression, or broken workflow.
+title: "Bug: "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What is broken?
+      placeholder: Describe the bug in one or two sentences.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - algos
+        - envs
+        - sim
+        - motrix
+        - mujoco
+        - benchmark
+        - scripts
+        - docs
+        - ci
+        - other
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: Exact command, config, or sequence that reproduces the issue.
+      placeholder: |
+        uv run python scripts/train_offpolicy.py algo=sac task=g1_sac ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include OS, Python version, backend, hardware, and relevant dependency details.
+      placeholder: |
+        OS:
+        Python:
+        Backend:
+        Device:
+        Commit:
+    validations:
+      required: true
+
+  - type: textarea
+    id: artifacts
+    attributes:
+      label: Logs and artifacts
+      description: Paste traceback, CI link, W&B run, screenshot, or benchmark artifact if available.

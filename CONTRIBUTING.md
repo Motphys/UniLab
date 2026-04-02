@@ -10,6 +10,7 @@
 
 - **Always use `uv run`**，不要直接使用 `python`
 - 提交前必须通过 `make check`（ruff lint + mypy + pyright）
+- 动态任务状态不要写进 `README.md` 或临时 markdown，统一用 GitHub Issues / Milestones 跟踪
 
 ## 常用命令
 
@@ -95,21 +96,31 @@ Push / PR 到 `main` 时自动触发三个 job：
 |-----|------|-----------|
 | `lint` | `ruff check` + `ruff format --check` | ✅ |
 | `typecheck` | `mypy unilab` + `pyright` | ✅ |
-| `test` | `pytest -m "not slow" --cov` (matrix: ubuntu+macos × py3.10/3.11/3.12/3.13) | ✅ |
+| `test` | `pytest -m "not slow" --cov --cov-fail-under=10` | ✅ |
 
-纯文档改动（`*.md`、`LICENSE`）不触发 CI。
+纯文档和协作元信息改动（如 `docs/**`、issue templates、`CODEOWNERS`）不触发 CI。
+
+## GitHub 协作方式
+
+- **Issue**：一个可执行工作项一个 Issue，不要把 milestone 任务堆在文档里
+- **Milestone**：阶段目标，例如 `M1`
+- **PR**：必须链接驱动 Issue，写清验证命令和影响范围
+- **CODEOWNERS**：用于 review ownership，不等于执行 owner
+
+更多约定见 [docs/collaboration.md](docs/collaboration.md)。
 
 ## Pull Request 流程
 
 1. 本地运行 `make check` 确保 lint/mypy/pyright 通过
 2. 本地运行 `make test` 确保单元测试通过
 3. 若改动了 IPC / Runner / Config，补充或更新对应测试
-4. 提交 PR 到 `main` 分支，等待 CI 全绿
-5. 等待 code review
+4. 链接对应 GitHub Issue，并按 PR 模板填写验证与影响范围
+5. 提交 PR 到 `main` 分支，等待 CI 全绿
+6. 等待 code review
 
 ## 问题反馈
 
-使用 GitHub Issues 报告 bug 或提出功能建议。
+使用 GitHub Issues 报告 bug 或提出功能建议；阶段计划请使用 GitHub Milestones，不要继续放在 `README` 或临时 markdown 中。
 
 ## 配置系统
 
@@ -119,4 +130,4 @@ UniLab 使用 Hydra + dataclass 配置系统：
 - **修改超参数**：编辑对应 YAML 或使用 CLI 覆盖（`algo.num_envs=2048`）
 - **添加新算法**：在 `structured_configs.py` 添加 dataclass，创建对应 `conf/` 目录
 
-详见 `CLAUDE.md` 配置系统章节。
+详见 `AGENTS.md` 配置系统章节。

@@ -1,0 +1,91 @@
+name: Work Item
+description: Track a feature, benchmark, infra task, simulation task, or docs task.
+title: "Work: "
+labels:
+  - enhancement
+body:
+  - type: dropdown
+    id: work_type
+    attributes:
+      label: Work type
+      options:
+        - feature
+        - benchmark
+        - infra
+        - sim
+        - test
+        - docs
+        - toreal
+        - research
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - G1
+        - Go2
+        - dexterous-hand
+        - WBT
+        - motrix
+        - mujoco
+        - benchmark
+        - CI/tooling
+        - docs
+        - other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What gap or opportunity does this work address?
+    validations:
+      required: true
+
+  - type: textarea
+    id: deliverable
+    attributes:
+      label: Deliverable
+      description: What concrete output is expected?
+      placeholder: |
+        Examples:
+        - merged code
+        - W&B benchmark run
+        - ONNX export validated on target toolchain
+        - demo video
+    validations:
+      required: true
+
+  - type: textarea
+    id: done
+    attributes:
+      label: Definition of done
+      description: List the acceptance criteria.
+      placeholder: |
+        - CI green
+        - benchmark attached
+        - docs updated
+    validations:
+      required: true
+
+  - type: textarea
+    id: dependency
+    attributes:
+      label: Dependencies and blockers
+      description: Link blocking issues or external dependencies if known.
+
+  - type: input
+    id: owner
+    attributes:
+      label: Proposed owner
+      description: GitHub handle or team member name if handle mapping is not yet confirmed.
+
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation plan
+      description: How will this work be verified?
