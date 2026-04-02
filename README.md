@@ -1,12 +1,8 @@
 # UniLab
 
-## 设计哲学
-
 UniLab 的核心目标是验证一个命题：**robot locomotion RL 不需要依赖 GPU 仿真后端**。
 
-主流框架（Isaac Lab、holosoma 等）将物理仿真、replay buffer、策略训练全部放在 GPU 上，形成紧耦合的全 GPU pipeline。这带来极高的吞吐量，但也引入了强硬件依赖（需要高端 CUDA GPU）和架构复杂度（CUDA graph、warp kernel、GPU 内存管理）。
-
-UniLab 采用**统一内存异构运算架构**：
+主流框架常把物理仿真、replay buffer 和策略训练全部耦合在 GPU pipeline 中。UniLab 选择另一条路线：**CPU 仿真 + shared-memory 数据通路 + GPU 训练**，在保持训练吞吐的同时降低对特定仿真后端和硬件平台的绑定。
 
 ```
 ┌───────────────────┐     统一共享内存     ┌────────────────────┐
@@ -16,430 +12,52 @@ UniLab 采用**统一内存异构运算架构**：
 └───────────────────┘                      └────────────────────┘
 ```
 
-- **CPU 仿真**：MuJoCo/Motrix 的 CPU 多线程 step，无需 GPU 仿真内核
-- **统一内存**：Collector 和 Learner 通过 PyTorch shared tensors 零拷贝通信，运行在独立进程
-- **GPU 训练**：策略网络仍在 GPU 上训练，发挥 GPU 的并行计算优势
-- **硬件无关**：Mac（MPS）、Linux（CUDA）均可运行
+- **CPU 仿真**：MuJoCo / Motrix 的 CPU 多线程 step，无需 GPU 仿真内核
+- **统一内存**：Collector 和 Learner 通过 PyTorch shared tensors 零拷贝通信
+- **GPU 训练**：策略网络仍在 GPU 上训练，支持 CUDA 和 MPS
+- **硬件无关**：Mac 和 Linux 都可以作为一等开发环境
 
----
-
-## 安装
-
-### 使用 uv（推荐）
+## Quick Start
 
 ```bash
-# 1. 安装 uv
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# 2. 克隆仓库
-git clone https://github.com/TATP-233/UniLab.git
+# 1. 克隆仓库
+git clone https://github.com/unilabsim/UniLab.git
 cd UniLab
 
-# 3. 安装系统依赖
-brew install cmake  # macOS
-# sudo apt-get install cmake  # Ubuntu/Debian
-
-# 4. 同步依赖
+# 2. 安装依赖
 # macOS (MPS)
-uv sync
+uv sync --extra dev
 
 # Linux (CUDA 12.4)
-uv sync --extra cu124
+uv sync --extra dev --extra cu124
 
-# 5. 可选：Motrix 后端
-uv sync --extra motrix
+# 3. 运行一个训练任务
+uv run python scripts/train_rsl_rl.py task=go1_joystick
 ```
 
-### 国内镜像加速
+更完整的安装、后端和训练说明已经拆到 `docs/`：
 
-```bash
-# 环境变量
-export UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+## Documentation
 
-# 或命令行参数
-uv sync --index-url https://pypi.tuna.tsinghua.edu.cn/simple
-```
+- [Getting Started](docs/getting-started.md): 安装、依赖、国内镜像、第一次运行
+- [Simulation Backends](docs/simulation-backends.md): MuJoCo / Motrix 支持范围与使用方式
+- [Training Guide](docs/training.md): 训练、回放、恢复训练、Hydra 参数、W&B
+- [Algorithms](docs/algorithms.md): APPO、FastSAC、FastTD3 的用法与差异
+- [G1 Motion Tracking](docs/tasks/g1-motion-tracking.md): G1 whole-body motion tracking 任务说明
+- [Collaboration Workflow](docs/collaboration.md): GitHub issue / milestone / PR 协作方式
+- [Contributing](CONTRIBUTING.md): 开发规范、测试、CI、提交流程
 
 ## Roadmap And Task Tracking
 
-UniLab no longer keeps milestone task lists in `README.md`.
+UniLab 不再把阶段任务、owner 和执行状态直接维护在 `README.md`。
 
-- Use GitHub Issues for bugs, work items, benchmarks, and docs tasks.
-- Use GitHub Milestones for phase planning such as `M1`.
-- Use the collaboration guide in [docs/collaboration.md](docs/collaboration.md) for the
-  expected workflow and ownership model.
+- 用 GitHub Issues 跟踪 bug、feature、benchmark、docs 和 infra work
+- 用 GitHub Milestones 跟踪阶段目标，例如 `M1`
+- 用 [docs/collaboration.md](docs/collaboration.md) 统一说明协作规则
 
-### 训练状态
+## Related Projects
 
-#### Mujoco后端
-
-|   算法     | Go1 | Go2 | G1 |
-|------------|-----|-----|----|
-| ppo(torch) |  ✅ |     | ✅ |
-| ppo(mlx)   |  ✅ |     | ✅ |
-| sac(torch) |  ✅ | ⚠️  | ✅ |
-| td3(torch) |  ⚠️ | ⚠️  | ⚠️ |
-| appo(torch)|  ✅ | ✅  | ✅ |
-
-#### Motrix后端
-
-|   算法     | Go1 | Go2 | G1 |
-|------------|-----|-----|----|
-| ppo(torch) |  ⚠️ |     |    |
-| ppo(mlx)   |  ⚠️ |     |    |
-| sac(torch) |  ⚠️ |     |    |
-| td3(torch) |     |     |    |
-| appo(torch)|     |     |    |
-
-**说明**：
-- ✅ 已支持
-- ⚠️ 开发中
-
-Thirdparty:
-   1. https://github.com/mujocolab/mjlab
-   2. https://github.com/amazon-far/holosoma
-   3. https://github.com/google-deepmind/mujoco
-   4. https://github.com/google-deepmind/mujoco_playground/
-
-## 仿真后端 (Simulation Backends)
-
-UniLab 支持两种仿真后端：
-
-- **MuJoCo** (默认)
-- **Motrix** (可选)
-
-### 使用 Motrix 后端
-
-```bash
-# 训练
-uv run python scripts/train_rsl_rl.py task=go1_joystick
-
-# 指定motrix后端
-uv run python scripts/train_rsl_rl.py task=go1_joystick training.sim_backend=motrix
-
-# 回放（交互式可视化）
-uv run python scripts/train_rsl_rl.py task=go1_joystick training.play_only=true
-```
-
-## 训练与回放指南
-
-### 1. 开始训练 (Training)
-
-```bash
-# PPO (RSL-RL) - 使用 Hydra 配置
-uv run python scripts/train_rsl_rl.py task=go1_joystick
-
-# PPO (MLX - Apple Silicon)
-uv run python scripts/train_mlx_ppo.py task=go1_joystick
-
-# APPO（异步 PPO，CPU/GPU 并行）
-uv run python scripts/train_appo.py task=go1_joystick
-
-# Off-Policy (SAC/TD3) - 推荐使用统一入口
-uv run python scripts/train_offpolicy.py algo=sac task=go1_joystick
-uv run python scripts/train_offpolicy.py algo=td3 task=go1_joystick
-
-# CLI 覆盖配置参数
-uv run python scripts/train_offpolicy.py algo=sac task=g1_sac algo.num_envs=2048 algo.max_iterations=1000
-```
-
-**注意**：训练脚本默认在训练完成后会进入回放阶段。`mujoco` 后端会导出 `play_video.mp4`，`motrix` 后端为交互式窗口渲染（不导出视频）。使用 `training.no_play=true` 跳过自动回放。
-
-**日志目录命名**：训练 run 目录统一采用 `YYYY-MM-DD_HH-MM-SS_<sim_backend>`，例如 `2026-03-09_18-30-00_mujoco`。
-
-### 2. 回放与渲染视频 (Play / Evaluation)
-
-使用 `training.play_only=true` 参数跳过训练，直接回放。脚本会加载最新 checkpoint；`mujoco` 回放生成 `play_video.mp4`，`motrix` 回放打开交互窗口。
-
-```bash
-# 回放最新训练结果
-uv run python scripts/train_rsl_rl.py task=go2_joystick training.play_only=true
-uv run python scripts/train_offpolicy.py algo=sac task=go2_joystick training.play_only=true
-
-# 加载特定 checkpoint 回放
-uv run python scripts/train_offpolicy.py algo=td3 task=go1_joystick training.play_only=true training.load_run="2024-02-04_12-00-00"
-```
-
-### 3. 加载特定 Run 继续训练
-
-```bash
-# PPO 继续训练
-uv run python scripts/train_rsl_rl.py task=go2_joystick training.load_run="2024-02-04_12-00-00"
-
-# OffPolicy (SAC) 继续训练
-uv run python scripts/train_offpolicy.py algo=sac task=go2_joystick training.load_run="2024-02-04_12-00-00"
-```
-
-### 通用参数说明
-
-所有训练脚本使用 Hydra 配置系统，支持 CLI 覆盖：
-
-```bash
-# 基本格式
-uv run python scripts/train_*.py [config_group=value] [key.subkey=value]
-
-# 示例
-task=go1_joystick                    # 选择任务配置
-algo=sac                             # 选择算法配置（offpolicy）
-training.play_only=true              # 仅回放模式
-training.no_play=true                # 训练后跳过回放
-training.load_run="-1"               # 加载运行 ID（-1=最新）
-training.logger=tensorboard          # 日志后端（tensorboard/wandb/none）
-algo.num_envs=2048                   # 覆盖环境数量
-algo.max_iterations=1000             # 覆盖迭代次数
-```
-
-查看完整配置：
-```bash
-uv run python scripts/train_offpolicy.py --cfg job
-```
-
-### W&B 实验记录
-
-将 `training.logger=wandb` 打开后，训练脚本会自动把实验记录到 Weights & Biases，并在本地 run 目录中写出：
-
-- `run_config.json`：完整运行配置
-- `run_summary.json`：运行摘要、耗时、最终效果
-
-MuJoCo 路径下如果训练后自动生成了 `play_video.mp4`，也会一并上传到当前 W&B run。
-
-```bash
-# 基本用法
-uv run python scripts/train_rsl_rl.py task=go1_joystick training.logger=wandb
-
-# 指定共享 project / entity
-uv run python scripts/train_appo.py \
-  task=go1_joystick \
-  training.logger=wandb \
-  training.wandb_project=unilab-benchmark \
-  training.wandb_entity=my-team
-
-# 同一个共享 project 下，按 task 分组
-uv run python scripts/train_offpolicy.py \
-  algo=sac \
-  task=go2_joystick \
-  training.logger=wandb \
-  training.wandb_project=unilab-benchmark \
-  training.wandb_group=go2_joystick
-```
-
-常用字段：
-
-- `training.wandb_project`：W&B project 名称，适合多人共享同一个实验空间
-- `training.wandb_entity`：团队或账号名
-- `training.wandb_group`：同一类实验的分组，建议按 task 或 benchmark 批次组织
-- `training.wandb_name`：自定义 run 名称；不填时会自动生成，避免多人共用 project 时重名
-- `training.wandb_tags`：额外标签，便于筛选实验
-- `training.wandb_notes`：备注
-- `training.wandb_mode=offline`：离线记录，后续再 `wandb sync`
-
-默认情况下，自动记录的信息包括任务、算法、backend、设备、硬件信息、git 信息、完整配置、整体运行时间、最终摘要指标，以及最终回放视频。
-## Motion Tracking（G1）
-
-UniLab 当前提供一个 G1 的 whole-body motion tracking 任务。训练时使用 Hydra task `g1_motion_tracking`，交互式可视化脚本使用注册环境名 `G1MotionTracking`。当前仅支持 `mujoco`，默认 motion 文件为 `src/unilab/assets/motions/g1/dance1_subject2_part.npz`。
-
-### 环境入口
-
-```bash
-# PPO (RSL-RL)
-uv run python scripts/train_rsl_rl.py task=g1_motion_tracking
-
-# APPO
-uv run python scripts/train_appo.py task=g1_motion_tracking
-
-# 仅回放最新 checkpoint
-uv run python scripts/train_rsl_rl.py task=g1_motion_tracking training.play_only=true
-uv run python scripts/train_appo.py task=g1_motion_tracking training.play_only=true
-```
-
-### 交互式可视化与调试
-
-用 `scripts/play_interactive.py` 可以直接看 target body，或者查看 reward 使用的参考位姿和速度。
-
-```bash
-# 可视化 motion target
-uv run python scripts/play_interactive.py \
-  --task G1MotionTracking \
-  --show_target_bodies \
-  --target_show_axes
-
-# 只查看部分 body
-uv run python scripts/play_interactive.py \
-  --task G1MotionTracking \
-  --show_target_bodies \
-  --target_body_names torso_link,left_wrist_yaw_link,right_wrist_yaw_link
-
-# 查看 reward debug 信息
-uv run python scripts/play_interactive.py \
-  --task G1MotionTracking \
-  --show_reward_debug \
-  --reward_debug_show_velocity \
-  --reward_debug_show_connectors \
-  --target_max_bodies 4
-```
-
-如果需要加载指定 run 或 checkpoint，可额外传入 `--load_run` 和 `--checkpoint`。
-
-### Motion 文件预处理
-
-训练环境读取的是预处理后的 `.npz` 文件。使用 `scripts/motion/csv_to_npz.py` 可以把 Unitree 格式的 CSV 转成训练可用的 NPZ：
-
-```bash
-# 全量转换
-uv run python scripts/motion/csv_to_npz.py \
-  --input_file src/unilab/assets/motions/g1/dance1_subject2.csv \
-  --output_file src/unilab/assets/motions/g1/dance1_subject2_from_csv.npz \
-  --input_fps 30 \
-  --output_fps 50
-
-# 只导出一个时间片段
-uv run python scripts/motion/csv_to_npz.py \
-  --input_file src/unilab/assets/motions/g1/dance1_subject2.csv \
-  --output_file src/unilab/assets/motions/g1/dance1_subject2_clip.npz \
-  --input_fps 30 \
-  --output_fps 50 \
-  --start_time 4.0 \
-  --end_time 9.0
-```
-
-### 回放 NPZ 检查动作
-
-生成好 NPZ 之后，可以用 `scripts/motion/replay_npz.py` 在 MuJoCo viewer 中直接检查动作：
-
-```bash
-# 循环播放
-uv run python scripts/motion/replay_npz.py \
-  --npz_file src/unilab/assets/motions/g1/dance1_subject2_part.npz \
-  --loop
-
-# 0.5x 慢放
-uv run python scripts/motion/replay_npz.py \
-  --npz_file src/unilab/assets/motions/g1/dance1_subject2_part.npz \
-  --speed 0.5
-```
-
-### 当前配置说明
-
-当前 `task=g1_motion_tracking` 默认读取环境配置里的 `motion_file`。如果要切换到自定义 motion，先生成 `.npz`，再更新环境配置里的默认 `motion_file` 即可。
-
----
-
-## APPO（异步 PPO）
-
-基于 V-trace 重要性采样修正的异步 PPO 实现。Collector 子进程（CPU 仿真）通过 4 槽 ring buffer 持续写入 rollout，Learner 进程（GPU）无需等待即可从 ring buffer 中消费并训练，实现真正的 CPU/GPU 并行。
-
-### 核心特性
-
-| 特性 | 说明 |
-|------|------|
-| **异步多进程** | Collector（CPU）与 Learner（GPU）完全解耦，各自满负荷运行 |
-| **V-trace IS 修正** | 使用重要性采样比 ρ = π_target/π_behavior 修正 off-policy 数据的优势估计 |
-| **4 槽 ring buffer** | 支持最多 4 条 rollout 在飞，collector 满时覆盖最旧 slot（无阻塞） |
-| **Replay queue** | Learner 端维护 rollout 重放队列，每次迭代消费所有可用 slot |
-| **日志目录** | `logs/appo/<task>/<timestamp>_mujoco/` |
-
-### 训练
-
-```bash
-# 默认参数训练
-uv run python scripts/train_appo.py task=go1_joystick
-
-# 指定环境数量和迭代次数
-uv run python scripts/train_appo.py task=go2_joystick algo.num_envs=2048 algo.max_iterations=300
-
-# 自定义 replay queue 深度（越大 staleness 越高，但 GPU 利用率更稳定）
-uv run python scripts/train_appo.py task=go1_joystick training.replay_queue_size=2
-
-# 跳过训练后的自动 play
-uv run python scripts/train_appo.py task=go1_joystick training.no_play=true
-```
-
-### 回放
-
-```bash
-# 仅回放（加载最新 checkpoint）
-uv run python scripts/train_appo.py task=go1_joystick training.play_only=true
-
-# 加载特定 checkpoint 回放
-uv run python scripts/train_appo.py task=go1_joystick training.play_only=true training.load_run="2026-03-16_01-35-12_mujoco"
-```
-
-### 参数说明
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `task` | `go2_joystick` | 任务配置名称 |
-| `algo.max_iterations` | 150 | 最大训练迭代次数 |
-| `algo.num_envs` | 2048 | 并行环境数量 |
-| `algo.steps_per_env` | 24 | 每条 rollout 的步数 |
-| `training.replay_queue_size` | 3 | Learner 端 rollout 重放队列深度 |
-| `training.device` | 自动检测 | Learner 设备（`cuda` / `mps` / `cpu`） |
-| `training.collector_device` | `cpu` | Collector 设备 |
-| `training.logger` | `tensorboard` | 日志后端（`tensorboard` / `wandb` / `none`） |
-| `training.play_only` | false | 仅回放，跳过训练 |
-| `training.no_play` | false | 训练后跳过自动回放 |
-| `training.load_run` | `-1` | 指定 run 目录名或 checkpoint 路径 |
-| `algo.save_interval` | 50 | 每隔多少次迭代保存一次 checkpoint |
-
-### 与 PPO 的对比
-
-| 维度 | rsl-rl PPO | APPO |
-|------|-----------|------|
-| 收集方式 | 同步（训练等收集） | 异步（并行运行） |
-| IS 修正 | 无（严格 on-policy） | V-trace（容忍 staleness） |
-| CPU/GPU 利用率 | 交替满载 | 同时满载 |
-| 适用场景 | 快速收敛、样本效率优先 | 吞吐量优先、大规模并行 |
-
----
-
-## FastSAC & FastTD3
-
-基于异步多进程架构的 off-policy 算法实现，使用统一共享内存实现 CPU 仿真与 GPU 训练的解耦。
-
-### 核心特性
-
-| 特性 | 说明 |
-|------|------|
-| **异步多进程** | Collector 进程（CPU 仿真）与 Learner 进程（GPU 训练）独立运行 |
-| **统一共享内存** | 通过 PyTorch shared tensors 实现零拷贝 CPU-GPU 数据传输 |
-| **同步/异步模式** | 支持同步收集（默认）和异步收集两种模式 |
-| **自动 Play** | 训练完成后自动生成回放视频 |
-
-### 训练
-
-```bash
-# 基本训练
-uv run python scripts/train_offpolicy.py algo=sac task=go2_joystick
-uv run python scripts/train_offpolicy.py algo=td3 task=go1_joystick
-
-# 异步模式（更高吞吐量）
-uv run python scripts/train_offpolicy.py algo=sac task=go2_joystick training.no_sync_collection=true
-
-# 跳过训练后的自动 play
-uv run python scripts/train_offpolicy.py algo=td3 task=go1_joystick training.no_play=true
-```
-
-### 回放
-
-```bash
-# 仅回放模式
-uv run python scripts/train_offpolicy.py algo=sac task=go2_joystick training.play_only=true
-
-# 加载特定 checkpoint
-uv run python scripts/train_offpolicy.py algo=td3 task=go1_joystick training.play_only=true training.load_run="2024-02-04_12-00-00"
-```
-
-### 参数说明
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `algo` | `sac` | 算法选择（`sac` / `td3`） |
-| `task` | `go1_joystick` | 任务配置名称 |
-| `algo.max_iterations` | 500 (SAC) / 5000 (TD3) | 最大训练迭代次数 |
-| `algo.num_envs` | 4096 | 并行环境数量 |
-| `training.device` | 自动检测 | Learner 设备 (`cuda` / `mps` / `cpu`) |
-| `training.sim_backend` | `mujoco` | 仿真后端（`mujoco` / `motrix`） |
-| `training.no_sync_collection` | false | 启用异步收集模式 |
-| `training.env_steps_per_sync` | 1 | 同步模式下每次收集的步数 |
-| `training.play_only` | false | 仅回放，跳过训练 |
-| `training.no_play` | false | 训练后跳过自动回放 |
+1. https://github.com/mujocolab/mjlab
+2. https://github.com/amazon-far/holosoma
+3. https://github.com/google-deepmind/mujoco
+4. https://github.com/google-deepmind/mujoco_playground/
