@@ -64,8 +64,7 @@ make check
 uv run pytest -m "not slow"
 ```
 
-## Next
+## Navigation
 
-- 训练和回放细节见 [training.md](training.md)
-- 后端差异见 [simulation-backends.md](simulation-backends.md)
-- 算法说明见 [algorithms.md](algorithms.md)
+- Previous: [README](../README.md)
+- Next: [Simulation Backends](02-simulation-backends.md)

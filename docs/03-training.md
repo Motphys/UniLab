@@ -113,3 +113,8 @@ uv run python scripts/train_offpolicy.py \
 - `training.wandb_mode=offline`
 
 默认自动记录的信息包括任务、算法、backend、设备、硬件信息、git 信息、完整配置、整体运行时间、最终摘要指标，以及最终回放视频。
+
+## Navigation
+
+- Previous: [Simulation Backends](02-simulation-backends.md)
+- Next: [Algorithms](04-algorithms.md)

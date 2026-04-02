@@ -72,3 +72,8 @@ Every PR should:
 Use GitHub assignees for execution ownership and `CODEOWNERS` for review ownership.
 If the responsible engineer is not yet mapped to a GitHub handle, keep the issue unassigned and
 record the expected owner in the issue body until the handle mapping is confirmed.
+
+## Navigation
+
+- Previous: [G1 Motion Tracking](05-g1-motion-tracking.md)
+- Next: [Contributing](../CONTRIBUTING.md)

@@ -90,3 +90,8 @@ uv run python scripts/motion/replay_npz.py \
 ## Config Note
 
 `task=g1_motion_tracking` 默认读取环境配置里的 `motion_file`。如果要切换到自定义 motion，先生成 `.npz`，再更新环境配置里的默认 `motion_file`。
+
+## Navigation
+
+- Previous: [Algorithms](04-algorithms.md)
+- Next: [Collaboration Workflow](06-collaboration.md)

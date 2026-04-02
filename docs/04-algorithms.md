@@ -1,6 +1,6 @@
 # Algorithms
 
-本页只保留算法级说明，训练入口和通用参数见 [training.md](training.md)。
+本页只保留算法级说明，训练入口和通用参数见 [03-training.md](03-training.md)。
 
 ## APPO
 
@@ -113,3 +113,8 @@ uv run python scripts/train_offpolicy.py algo=td3 task=go1_joystick training.pla
 | `training.env_steps_per_sync` | 1 | 同步模式下每次收集步数 |
 | `training.play_only` | false | 仅回放 |
 | `training.no_play` | false | 跳过自动回放 |
+
+## Navigation
+
+- Previous: [Training Guide](03-training.md)
+- Next: [G1 Motion Tracking](05-g1-motion-tracking.md)

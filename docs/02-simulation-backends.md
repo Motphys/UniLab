@@ -57,3 +57,8 @@ uv run python scripts/train_rsl_rl.py task=go1_joystick training.play_only=true
 
 - 后端支持范围属于阶段性能力，不建议把执行状态写回 `README.md`
 - 具体推进请看 GitHub milestone / issues，而不是仓库内临时列表
+
+## Navigation
+
+- Previous: [Getting Started](01-getting-started.md)
+- Next: [Training Guide](03-training.md)

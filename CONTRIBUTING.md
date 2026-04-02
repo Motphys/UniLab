@@ -107,7 +107,7 @@ Push / PR 到 `main` 时自动触发三个 job：
 - **PR**：必须链接驱动 Issue，写清验证命令和影响范围
 - **CODEOWNERS**：用于 review ownership，不等于执行 owner
 
-更多约定见 [docs/collaboration.md](docs/collaboration.md)。
+更多约定见 [docs/06-collaboration.md](docs/06-collaboration.md)。
 
 ## Pull Request 流程
 
