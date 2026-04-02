@@ -130,3 +130,79 @@ def test_offpolicy_logger_reuses_existing_wandb_run(monkeypatch):
 
     logger.finish()
     assert fake_wandb.finish_calls == 0
+
+
+def test_onpolicy_logger_creates_and_finishes_owned_wandb_run(monkeypatch):
+    fake_wandb = _FakeWandb()
+    monkeypatch.setitem(sys.modules, "wandb", fake_wandb)
+
+    logger = OnPolicyLogger(
+        algo_name="PPO",
+        env_name="Go1JoystickFlatTerrain",
+        log_backend="wandb",
+        wandb_project="unilab",
+        wandb_entity="team",
+        wandb_name="ppo-go1",
+        wandb_group="go1",
+        wandb_job_type="train",
+        wandb_tags=["ppo", "go1"],
+        wandb_notes="notes",
+    )
+
+    assert logger._owns_wandb_run is True
+    assert len(fake_wandb.init_calls) == 1
+    init_call = fake_wandb.init_calls[0]
+    assert init_call["project"] == "unilab"
+    assert init_call["entity"] == "team"
+    assert init_call["name"] == "ppo-go1"
+    assert init_call["group"] == "go1"
+    assert init_call["job_type"] == "train"
+    assert init_call["tags"] == ["ppo", "go1"]
+    assert init_call["notes"] == "notes"
+    assert init_call["config"]["algo"] == "PPO"
+    assert init_call["config"]["env"] == "Go1JoystickFlatTerrain"
+    assert init_call["config"]["num_envs"] == 4096
+
+    logger.finish()
+    assert fake_wandb.finish_calls == 1
+
+
+def test_offpolicy_logger_creates_and_finishes_owned_wandb_run(monkeypatch):
+    fake_wandb = _FakeWandb()
+    monkeypatch.setitem(sys.modules, "wandb", fake_wandb)
+
+    logger = OffPolicyLogger(
+        algo_name="FastSAC",
+        env_name="Go2JoystickFlatTerrain",
+        log_backend="wandb",
+        obs_dim=48,
+        action_dim=12,
+        max_iterations=321,
+        wandb_project="unilab",
+        wandb_entity="team",
+        wandb_name="sac-go2",
+        wandb_group="go2",
+        wandb_job_type="train",
+        wandb_tags=["sac", "go2"],
+        wandb_notes="notes",
+    )
+
+    assert logger._owns_wandb_run is True
+    assert len(fake_wandb.init_calls) == 1
+    init_call = fake_wandb.init_calls[0]
+    assert init_call["project"] == "unilab"
+    assert init_call["entity"] == "team"
+    assert init_call["name"] == "sac-go2"
+    assert init_call["group"] == "go2"
+    assert init_call["job_type"] == "train"
+    assert init_call["tags"] == ["sac", "go2"]
+    assert init_call["notes"] == "notes"
+    assert init_call["config"]["algo"] == "FastSAC"
+    assert init_call["config"]["env"] == "Go2JoystickFlatTerrain"
+    assert init_call["config"]["num_envs"] == 4096
+    assert init_call["config"]["obs_dim"] == 48
+    assert init_call["config"]["action_dim"] == 12
+    assert init_call["config"]["max_iterations"] == 321
+
+    logger.finish()
+    assert fake_wandb.finish_calls == 1
