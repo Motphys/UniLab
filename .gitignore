@@ -8,6 +8,13 @@ dist/
 .venv/
 .python-version
 
+# Test and coverage artifacts
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
 # IDEs
 .cursor/
 .vscode/
