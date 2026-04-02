@@ -95,9 +95,33 @@ def test_offpolicy_hydra_default_logger():
     assert cfg.training.logger == "tensorboard"
 
 
+def test_offpolicy_hydra_default_wandb_fields():
+    cfg = _offpolicy_cfg()
+    assert cfg.training.wandb_project == "unilab"
+    assert cfg.training.wandb_entity is None
+    assert cfg.training.wandb_group is None
+    assert cfg.training.wandb_job_type is None
+    assert cfg.training.wandb_name is None
+    assert cfg.training.wandb_tags == []
+    assert cfg.training.wandb_notes is None
+    assert cfg.training.wandb_mode is None
+
+
 def test_offpolicy_hydra_default_sim_backend():
     cfg = _offpolicy_cfg()
     assert cfg.training.sim_backend == "mujoco"
+
+
+def test_ppo_hydra_default_wandb_fields():
+    cfg = _ppo_cfg()
+    assert cfg.training.wandb_project == "unilab"
+    assert cfg.training.wandb_entity is None
+    assert cfg.training.wandb_group is None
+    assert cfg.training.wandb_job_type is None
+    assert cfg.training.wandb_name is None
+    assert cfg.training.wandb_tags == []
+    assert cfg.training.wandb_notes is None
+    assert cfg.training.wandb_mode is None
 
 
 def test_offpolicy_hydra_default_play_flags():

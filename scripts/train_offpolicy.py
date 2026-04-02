@@ -14,6 +14,7 @@ ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
 
 from unilab.utils.algo_utils import ensure_registries
+from unilab.utils.experiment_tracking import ExperimentTracker
 
 
 def default_device(torch_module, preferred: str | None = None) -> str:
@@ -331,7 +332,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
     raise ValueError(f"Unsupported algo: {algo_name}")
 
 
-def play_offpolicy(algo_name: str, cfg: DictConfig) -> None:
+def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
     """Play pipeline for off-policy algorithms."""
     import mediapy as media
     import numpy as np
@@ -393,7 +394,7 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> None:
     )
     if not load_path or not os.path.exists(load_path):
         print(f"Could not find checkpoint. load_path={load_path}")
-        return
+        return None
 
     print(f"Loading model: {load_path}")
     checkpoint = torch.load(load_path, map_location=device, weights_only=True)
@@ -451,7 +452,7 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> None:
                     print("Render window closed.")
                 else:
                     raise
-        return
+        return None
 
     # MuJoCo backend: render to video
     output_video = os.path.join(load_path_dir, "play_video.mp4")
@@ -479,6 +480,7 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> None:
     print(f"Saving video to {output_video} ...")
     media.write_video(str(output_video), frames, fps=int(1.0 / env.cfg.ctrl_dt))
     print("Done.")
+    return output_video
 
 
 @hydra.main(version_base="1.3", config_path="../conf/offpolicy", config_name="config")
@@ -500,21 +502,45 @@ def main(cfg: DictConfig) -> None:
     else:
         log_dir = cfg.training.log_dir
 
-    if not cfg.training.play_only:
-        runner = build_runner(algo_name, cfg)
-        try:
-            runner.learn(
-                max_iterations=cfg.algo.max_iterations,
-                save_interval=cfg.algo.save_interval,
-                log_dir=log_dir,
-                logger_type=cfg.training.logger,
-            )
-        finally:
-            runner.close()
+    import torch
 
-    if cfg.training.play_only or not cfg.training.no_play:
-        print("@" * 50)
-        play_offpolicy(algo_name, cfg)
+    tracker = None
+    if not cfg.training.play_only:
+        tracker = ExperimentTracker(
+            root_dir=ROOT_DIR,
+            log_dir=log_dir,
+            algo_name=algo_name,
+            task_name=task_name,
+            sim_backend=cfg.training.sim_backend,
+            training_cfg=cfg.training,
+            full_cfg=cfg,
+            device=default_device(torch, cfg.training.device),
+        )
+        tracker.start()
+
+    try:
+        if not cfg.training.play_only:
+            runner = build_runner(algo_name, cfg)
+            try:
+                runner.learn(
+                    max_iterations=cfg.algo.max_iterations,
+                    save_interval=cfg.algo.save_interval,
+                    log_dir=log_dir,
+                    logger_type=cfg.training.logger,
+                )
+                if tracker is not None:
+                    tracker.update_summary(getattr(runner, "last_run_summary", None))
+            finally:
+                runner.close()
+
+        if cfg.training.play_only or not cfg.training.no_play:
+            print("@" * 50)
+            play_video_path = play_offpolicy(algo_name, cfg)
+            if tracker is not None:
+                tracker.log_video(play_video_path)
+    finally:
+        if tracker is not None:
+            tracker.finish()
 
 
 if __name__ == "__main__":

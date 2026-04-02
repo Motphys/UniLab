@@ -1,6 +1,7 @@
 """Unified runner for off-policy RL algorithms (SAC, TD3)."""
 
 import os
+import statistics
 import sys
 import time
 from collections import deque
@@ -81,9 +82,14 @@ class OffPolicyRunner(AsyncRunner):
         save_interval: int = 50,
         log_dir: str = "logs",
         logger_type: str = "tensorboard",
-    ):
+    ) -> None:
         """Unified training loop for off-policy algorithms."""
         os.makedirs(log_dir, exist_ok=True)
+        train_start_wall = time.time()
+        best_mean_reward = float("-inf")
+        last_mean_reward = 0.0
+        ckpt_path: str | None = None
+        iteration = 0
 
         # Setup replay buffer
         buffer_capacity = self.replay_buffer_n * self.num_envs
@@ -190,6 +196,17 @@ class OffPolicyRunner(AsyncRunner):
                             )
                             logger.log_status("[red]ERROR: Collector died[/]")
                             logger.finish()
+                            summary = {
+                                "status": "collector_died",
+                                "completed_iterations": iteration,
+                                "total_env_steps": int(logger._total_steps),
+                                "final_mean_reward": None,
+                                "best_mean_reward": None,
+                                "mean_episode_length": float(logger._mean_ep_length),
+                                "last_checkpoint": ckpt_path,
+                                "training_wall_time_sec": time.time() - train_start_wall,
+                            }
+                            self.last_run_summary = summary
                             return
             else:
                 while int(replay_buffer.size[0]) < self.batch_size:
@@ -199,6 +216,17 @@ class OffPolicyRunner(AsyncRunner):
                         )
                         logger.log_status("[red]ERROR: Collector died[/]")
                         logger.finish()
+                        summary = {
+                            "status": "collector_died",
+                            "completed_iterations": iteration,
+                            "total_env_steps": int(logger._total_steps),
+                            "final_mean_reward": None,
+                            "best_mean_reward": None,
+                            "mean_episode_length": float(logger._mean_ep_length),
+                            "last_checkpoint": ckpt_path,
+                            "training_wall_time_sec": time.time() - train_start_wall,
+                        }
+                        self.last_run_summary = summary
                         return
                     cur_size = int(replay_buffer.size[0])
                     if cur_size - last_buf_log >= self.num_envs * 10:
@@ -268,10 +296,10 @@ class OffPolicyRunner(AsyncRunner):
             write_read_ema = 0.9 * write_read_ema + 0.1 * (write_delta / max(consume, 1))
             logger.update_buffer_utilization(write_read_ema)
 
-            import statistics
-
             avg_metrics = {k: statistics.mean(v) for k, v in iter_metrics.items() if v}
             mean_reward = statistics.mean(reward_history) if reward_history else 0.0
+            last_mean_reward = float(mean_reward)
+            best_mean_reward = max(best_mean_reward, last_mean_reward)
 
             logger.log_step(
                 iteration=iteration,
@@ -292,6 +320,17 @@ class OffPolicyRunner(AsyncRunner):
         torch.save(self.learner.get_state_dict(), ckpt_path)
         logger.log_save(ckpt_path)
         logger.finish()
+        summary = {
+            "status": "completed",
+            "completed_iterations": iteration,
+            "total_env_steps": int(logger._total_steps),
+            "final_mean_reward": last_mean_reward if reward_history else None,
+            "best_mean_reward": best_mean_reward if reward_history else None,
+            "mean_episode_length": float(logger._mean_ep_length),
+            "last_checkpoint": ckpt_path,
+            "training_wall_time_sec": time.time() - train_start_wall,
+        }
+        self.last_run_summary = summary
 
     def _check_collector_alive(self) -> bool:
         if self._collector_process is not None and not self._collector_process.is_alive():

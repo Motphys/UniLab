@@ -58,6 +58,14 @@ training:
   play_env_num: 16
   play_steps: 150
   logger: tensorboard
+  wandb_project: unilab
+  wandb_entity: null
+  wandb_group: null
+  wandb_job_type: null
+  wandb_name: null
+  wandb_tags: []
+  wandb_notes: null
+  wandb_mode: null
   fp16: false
   log_root: logs/mlx_rl_train
   seed: 1

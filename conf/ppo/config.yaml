@@ -60,6 +60,14 @@ training:
   task_name: Go1JoystickFlatTerrain
   device: null
   logger: tensorboard
+  wandb_project: unilab
+  wandb_entity: null
+  wandb_group: null
+  wandb_job_type: null
+  wandb_name: null
+  wandb_tags: []
+  wandb_notes: null
+  wandb_mode: null
   sim_backend: mujoco
   play_only: false
   no_play: false
