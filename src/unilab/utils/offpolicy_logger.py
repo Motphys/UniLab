@@ -31,54 +31,19 @@ Usage:
 
 from __future__ import annotations
 
-import importlib
 import time
 from collections import deque
 from typing import Any
 
 from rich import box
-from rich.console import Console, Group
-from rich.live import Live
+from rich.console import Group
 from rich.panel import Panel
 from rich.table import Table
-from rich.text import Text
+
+from unilab.utils.logging_common import BaseTrainingLogger, _fmt_number, _fmt_time, _load_wandb
 
 
-def _fmt_time(seconds: float) -> str:
-    """Format seconds into human-readable string."""
-    if seconds < 60:
-        return f"{seconds:.0f}s"
-    m, s = divmod(int(seconds), 60)
-    if m < 60:
-        return f"{m}m{s:02d}s"
-    h, m = divmod(m, 60)
-    return f"{h}h{m:02d}m{s:02d}s"
-
-
-def _fmt_number(v: float, width: int = 8) -> str:
-    """Smart number formatting."""
-    if abs(v) == 0:
-        return "0"
-    if abs(v) >= 1e6:
-        return f"{v:.2e}"
-    if abs(v) >= 100:
-        return f"{v:.1f}"
-    if abs(v) >= 1:
-        return f"{v:.3f}"
-    if abs(v) >= 0.001:
-        return f"{v:.4f}"
-    return f"{v:.2e}"
-
-
-def _load_wandb() -> Any | None:
-    """Load wandb lazily so it remains an optional dependency."""
-    try:
-        return importlib.import_module("wandb")
-    except ImportError:
-        return None
-
-
-class OffPolicyLogger:
+class OffPolicyLogger(BaseTrainingLogger):
     """Rich logger for off-policy RL algorithms (SAC, TD3, etc).
 
     Features:
@@ -110,36 +75,34 @@ class OffPolicyLogger:
         wandb_tags: list[str] | None = None,
         wandb_notes: str | None = None,
     ):
-        self.algo_name = algo_name
-        self.max_iterations = max_iterations
-        self.num_envs = num_envs
-        self.env_name = env_name
+        super().__init__(
+            algo_name=algo_name,
+            max_iterations=max_iterations,
+            num_envs=num_envs,
+            env_name=env_name,
+            log_dir=log_dir,
+            log_backend=log_backend,
+            wandb_project=wandb_project,
+            wandb_entity=wandb_entity,
+            wandb_name=wandb_name,
+            wandb_group=wandb_group,
+            wandb_job_type=wandb_job_type,
+            wandb_tags=wandb_tags,
+            wandb_notes=wandb_notes,
+            refresh_per_second=refresh_per_second,
+            tensorboard_subdir=None,
+            wandb_config={
+                "obs_dim": obs_dim,
+                "action_dim": action_dim,
+                "max_iterations": max_iterations,
+            },
+        )
         self.obs_dim = obs_dim
         self.action_dim = action_dim
 
-        self._no_print = log_backend.lower() == "no_print"
-        self._log_backend = "none" if self._no_print else log_backend.lower()
-
-        self._console = Console()
-        self._live: Live | None = None
-        self._refresh_rate = refresh_per_second
-
-        # State
-        self._start_time: float = 0.0
-        self._iteration: int = 0
         self._total_steps: int = 0
         self._buffer_size: int = 0
-        self._mean_ep_length: float = 0.0
         self._buffer_target: int = 0
-
-        # Metrics history (for sparkline / trend)
-        self._reward_history: deque = deque(maxlen=200)
-        self._latest_metrics: dict[str, float] = {}
-        self._latest_reward_components: dict[str, float] = {}
-
-        # Timing
-        self._collect_time: float = 0.0
-        self._train_time: float = 0.0
         self._wait_time: float = 0.0
         self._iter_times: deque = deque(maxlen=50)
         self._collector_timing: dict[str, float] = {}
@@ -150,137 +113,26 @@ class OffPolicyLogger:
         self._env_steps_per_sync: int = 0
         self._replay_queue_len: int = 0
         self._replay_queue_max: int = 0
-
-        # Status message
         self._status: str = "Initializing..."
-        self._last_save: str = ""
-
-        # ---- Backend logging ----
-        self._log_dir = log_dir
-        self._tb_writer: "SummaryWriter | None" = None  # type: ignore[name-defined]
-        self._wandb_run = None
-        self._owns_wandb_run = False
-
-        if self._log_backend == "tensorboard" and log_dir:
-            self._init_tensorboard(log_dir)
-        elif self._log_backend == "wandb":
-            self._init_wandb(
-                project=wandb_project,
-                entity=wandb_entity,
-                name=wandb_name or f"{algo_name}_{env_name}",
-                log_dir=log_dir,
-                group=wandb_group,
-                job_type=wandb_job_type,
-                tags=wandb_tags,
-                notes=wandb_notes,
-            )
-
-    def _init_tensorboard(self, log_dir: str):
-        """Initialize TensorBoard SummaryWriter."""
-        try:
-            from torch.utils.tensorboard import SummaryWriter
-
-            self._tb_writer = SummaryWriter(log_dir=log_dir)
-            if not self._no_print:
-                self._console.print(f"[dim]TensorBoard logging to: {log_dir}[/]")
-        except ImportError:
-            if not self._no_print:
-                self._console.print("[yellow]tensorboard not installed, skipping TB logging[/]")
-
-    def _init_wandb(
-        self,
-        project: str,
-        entity: str | None,
-        name: str,
-        log_dir: str,
-        group: str | None,
-        job_type: str | None,
-        tags: list[str] | None,
-        notes: str | None,
-    ):
-        """Initialize Weights & Biases run."""
-        wandb = _load_wandb()
-        if wandb is None:
-            if not self._no_print:
-                self._console.print("[yellow]wandb not installed, skipping W&B logging[/]")
-            return
-
-        self._wandb_run = wandb.run
-        if self._wandb_run is None:
-            kwargs: dict[str, Any] = {
-                "project": project,
-                "name": name,
-                "config": {
-                    "algo": self.algo_name,
-                    "env": self.env_name,
-                    "num_envs": self.num_envs,
-                    "obs_dim": self.obs_dim,
-                    "action_dim": self.action_dim,
-                    "max_iterations": self.max_iterations,
-                },
-                "dir": log_dir or None,
-                "reinit": True,
-            }
-            if entity:
-                kwargs["entity"] = entity
-            if group:
-                kwargs["group"] = group
-            if job_type:
-                kwargs["job_type"] = job_type
-            if tags:
-                kwargs["tags"] = tags
-            if notes:
-                kwargs["notes"] = notes
-            self._wandb_run = wandb.init(**kwargs)
-            self._owns_wandb_run = True
-
-        if not self._no_print:
-            self._console.print(f"[dim]W&B logging to project: {project}, run: {name}[/]")
 
     # ---- Lifecycle ----
 
+    def _format_tensorboard_message(self, tb_dir: str) -> str:
+        return f"[dim]TensorBoard logging to: {tb_dir}[/]"
+
+    def _format_wandb_message(self, project: str, name: str) -> str:
+        return f"[dim]W&B logging to project: {project}, run: {name}[/]"
+
     def start(self):
         """Begin the Live display."""
-        self._start_time = time.time()
-        self._status = "Warming up..."
-        if not self._no_print:
-            self._live = Live(
-                self._build_display(),
-                console=self._console,
-                refresh_per_second=self._refresh_rate,
-                transient=False,
-            )
-            self._live.start()
+        super().start(status="Warming up...")
 
     def finish(self):
         """Stop the Live display and print a summary."""
-        if self._live is not None:
-            self._live.update(self._build_display())
-            self._live.stop()
-            self._live = None
-
-        elapsed = time.time() - self._start_time
-        if not self._no_print:
-            self._console.print()
-            self._console.print(
-                Panel(
-                    f"[bold green]Training complete[/]\n"
-                    f"  Algo: [cyan]{self.algo_name}[/] | Env: [cyan]{self.env_name}[/]\n"
-                    f"  Iterations: [yellow]{self._iteration}[/]/{self.max_iterations}\n"
-                    f"  Total time: [yellow]{_fmt_time(elapsed)}[/]\n"
-                    f"  Total env steps: [yellow]{self._total_steps:,}[/]\n"
-                    + (f"  Last checkpoint: [dim]{self._last_save}[/]" if self._last_save else ""),
-                    title="[bold]Training Summary[/]",
-                    border_style="green",
-                )
-            )
-
-        if self._tb_writer:
-            self._tb_writer.close()
-        if self._wandb_run and self._owns_wandb_run:
-            wandb = _load_wandb()
-            if wandb is not None:
-                wandb.finish()
+        super().finish(
+            title="Training Summary",
+            extra_summary=f"  Total env steps: [yellow]{self._total_steps:,}[/]\n",
+        )
 
     # ---- Logging API ----
 
@@ -291,10 +143,6 @@ class OffPolicyLogger:
         pct = current / max(target, 1) * 100
         self._status = f"Buffer fill: {current:,}/{target:,} ({pct:.0f}%)"
         self._refresh()
-
-    def update_ep_length(self, length: float):
-        """Update mean episode length from collector."""
-        self._mean_ep_length = length
 
     def update_collector_timing(self, timing_ms: dict[str, float]):
         """Update collector-side environment timing (milliseconds)."""
@@ -454,11 +302,6 @@ class OffPolicyLogger:
 
             wandb.log(log_dict, step=global_step)
 
-    def log_save(self, path: str):
-        """Log a checkpoint save."""
-        self._last_save = path
-        self._refresh()
-
     def log_status(self, status: str):
         """Set a custom status message."""
         self._status = status
@@ -466,30 +309,9 @@ class OffPolicyLogger:
 
     # ---- Display Building ----
 
-    def _refresh(self):
-        if self._live is not None:
-            self._live.update(self._build_display())
-
     def _build_display(self) -> Panel:
         """Build the full rich display panel."""
-        # Header
-        elapsed = time.time() - self._start_time if self._start_time else 0
-        eta = self._estimate_eta()
-        header_text = Text()
-        header_text.append(f" {self.algo_name}", style="bold cyan")
-        header_text.append("  │  ", style="dim")
-        header_text.append(f"{self.env_name}", style="bold white")
-        header_text.append("  │  ", style="dim")
-        header_text.append(f"iter {self._iteration}/{self.max_iterations}", style="yellow")
-        header_text.append("  │  ", style="dim")
-        header_text.append(f"⏱ {_fmt_time(elapsed)}", style="green")
-        if eta:
-            header_text.append("  │  ETA ", style="dim")
-            header_text.append(eta, style="bold magenta")
-        header_text.append("  │  ", style="dim")
-        header_text.append(self._status, style="dim italic")
-
-        header_panel = Panel(header_text, style="dim", box=box.SIMPLE)
+        header_panel = self._build_header(include_status=True)
 
         # Body: side-by-side tables
         left = self._build_metrics_table()
@@ -546,52 +368,7 @@ class OffPolicyLogger:
 
     def _build_reward_table(self) -> Table:
         """Build the reward breakdown table."""
-        table = Table(
-            title="[bold]Rewards[/]",
-            box=box.SIMPLE_HEAVY,
-            show_header=True,
-            header_style="bold green",
-            expand=True,
-            pad_edge=False,
-        )
-        table.add_column("Component", style="white", ratio=2)
-        table.add_column("Value", justify="right", ratio=1)
-
-        # Mean reward
-        if self._reward_history:
-            recent = list(self._reward_history)
-            mean_rew = sum(recent[-50:]) / max(len(recent[-50:]), 1)
-            peak_rew = max(recent) if recent else 0
-
-            # Trend indicator
-            if len(recent) >= 10:
-                old = sum(recent[-20:-10]) / 10
-                new = sum(recent[-10:]) / 10
-                if new > old * 1.05:
-                    trend = "[green]▲[/]"
-                elif new < old * 0.95:
-                    trend = "[red]▼[/]"
-                else:
-                    trend = "[yellow]━[/]"
-            else:
-                trend = ""
-
-            table.add_row(f"[bold]Mean Reward[/] {trend}", f"[bold green]{mean_rew:.3f}[/]")
-            table.add_row("  Peak", f"[dim]{peak_rew:.3f}[/]")
-            if self._mean_ep_length > 0:
-                table.add_row("  Ep Len", f"[dim]{self._mean_ep_length:.1f}[/]")
-            table.add_row("", "")  # spacer
-        else:
-            table.add_row("[dim]Waiting for data...[/]", "")
-
-        # Sub-components
-        if self._latest_reward_components:
-            for name, val in sorted(self._latest_reward_components.items()):
-                display = name.replace("reward/", "").replace("_", " ")
-                color = "green" if val > 0 else "red" if val < 0 else "dim"
-                table.add_row(f"  {display}", f"[{color}]{val:+.4f}[/]")
-
-        return table
+        return self._build_reward_table_common(wait_message="[dim]Waiting for data...[/]")
 
     def _build_timing_table(self) -> Table:
         """Build the timing info table."""
@@ -690,13 +467,3 @@ class OffPolicyLogger:
             table.add_row("Steps/s", f"{sps:,.0f}", "", "")
 
         return table
-
-    def _estimate_eta(self) -> str:
-        """Estimate time remaining."""
-        if self._iteration <= 0 or not self._iter_times:
-            return ""
-        elapsed = time.time() - self._start_time
-        remaining = self.max_iterations - self._iteration
-        avg_iter = elapsed / self._iteration
-        eta_s = remaining * avg_iter
-        return _fmt_time(eta_s)
