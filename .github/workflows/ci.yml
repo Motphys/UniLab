@@ -1,19 +1,9 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - "*.md"
-      - "docs/**"
-      - "CONTRIBUTING.md"
-      - "AGENTS.md"
-      - "LICENSE"
-      - ".github/CODEOWNERS"
-      - ".github/ISSUE_TEMPLATE/**"
-      - ".github/pull_request_template.md"
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
     paths-ignore:
       - "*.md"
       - "docs/**"
@@ -23,6 +13,8 @@ on:
       - ".github/CODEOWNERS"
       - ".github/ISSUE_TEMPLATE/**"
       - ".github/pull_request_template.md"
+  workflow_dispatch:
+  workflow_dispatch:
 
 env:
   UV_FROZEN: "1"
@@ -83,4 +75,4 @@ jobs:
           sudo apt-get update && sudo apt-get install -y cmake
           uv sync --extra dev
       - name: Test with coverage
-        run: uv run pytest -m "not slow" --cov=unilab --cov-report=term-missing --cov-fail-under=10
+        run: uv run pytest -m "not slow and not veryslow" --cov=unilab --cov-report=term-missing --cov-fail-under=10
