@@ -11,7 +11,7 @@ algo:
   updates_per_step: 8
   use_symmetry: true
   algo_params:
-    alpha_init: 0.01
+    alpha_init: 0.001
     target_entropy_ratio: 0.0
 motrix_legacy:
   enabled: true
