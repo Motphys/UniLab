@@ -100,9 +100,7 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
         diff = dof_pos - self.default_angles
         command = info["commands"]
         last_actions = info.get("current_actions", np.zeros_like(diff))
-        gait_phase = info.get(
-            "gait_phase", np.zeros((self._num_envs, 2), dtype=get_global_dtype())
-        )
+        gait_phase = info.get("gait_phase", np.zeros((self._num_envs, 2), dtype=get_global_dtype()))
         actor = np.concatenate(
             [gyro * 0.25, -gravity, diff, dof_vel * 0.05, last_actions, command, gait_phase],
             axis=1,
