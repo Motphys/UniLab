@@ -255,6 +255,93 @@ uv run python scripts/train_offpolicy.py \
 - `training.wandb_mode=offline`：离线记录，后续再 `wandb sync`
 
 默认情况下，自动记录的信息包括任务、算法、backend、设备、硬件信息、git 信息、完整配置、整体运行时间、最终摘要指标，以及最终回放视频。
+## Motion Tracking（G1）
+
+UniLab 当前提供一个 G1 的 whole-body motion tracking 任务。训练时使用 Hydra task `g1_motion_tracking`，交互式可视化脚本使用注册环境名 `G1MotionTracking`。当前仅支持 `mujoco`，默认 motion 文件为 `src/unilab/assets/motions/g1/dance1_subject2_part.npz`。
+
+### 环境入口
+
+```bash
+# PPO (RSL-RL)
+uv run python scripts/train_rsl_rl.py task=g1_motion_tracking
+
+# APPO
+uv run python scripts/train_appo.py task=g1_motion_tracking
+
+# 仅回放最新 checkpoint
+uv run python scripts/train_rsl_rl.py task=g1_motion_tracking training.play_only=true
+uv run python scripts/train_appo.py task=g1_motion_tracking training.play_only=true
+```
+
+### 交互式可视化与调试
+
+用 `scripts/play_interactive.py` 可以直接看 target body，或者查看 reward 使用的参考位姿和速度。
+
+```bash
+# 可视化 motion target
+uv run python scripts/play_interactive.py \
+  --task G1MotionTracking \
+  --show_target_bodies \
+  --target_show_axes
+
+# 只查看部分 body
+uv run python scripts/play_interactive.py \
+  --task G1MotionTracking \
+  --show_target_bodies \
+  --target_body_names torso_link,left_wrist_yaw_link,right_wrist_yaw_link
+
+# 查看 reward debug 信息
+uv run python scripts/play_interactive.py \
+  --task G1MotionTracking \
+  --show_reward_debug \
+  --reward_debug_show_velocity \
+  --reward_debug_show_connectors \
+  --target_max_bodies 4
+```
+
+如果需要加载指定 run 或 checkpoint，可额外传入 `--load_run` 和 `--checkpoint`。
+
+### Motion 文件预处理
+
+训练环境读取的是预处理后的 `.npz` 文件。使用 `scripts/motion/csv_to_npz.py` 可以把 Unitree 格式的 CSV 转成训练可用的 NPZ：
+
+```bash
+# 全量转换
+uv run python scripts/motion/csv_to_npz.py \
+  --input_file src/unilab/assets/motions/g1/dance1_subject2.csv \
+  --output_file src/unilab/assets/motions/g1/dance1_subject2_from_csv.npz \
+  --input_fps 30 \
+  --output_fps 50
+
+# 只导出一个时间片段
+uv run python scripts/motion/csv_to_npz.py \
+  --input_file src/unilab/assets/motions/g1/dance1_subject2.csv \
+  --output_file src/unilab/assets/motions/g1/dance1_subject2_clip.npz \
+  --input_fps 30 \
+  --output_fps 50 \
+  --start_time 4.0 \
+  --end_time 9.0
+```
+
+### 回放 NPZ 检查动作
+
+生成好 NPZ 之后，可以用 `scripts/motion/replay_npz.py` 在 MuJoCo viewer 中直接检查动作：
+
+```bash
+# 循环播放
+uv run python scripts/motion/replay_npz.py \
+  --npz_file src/unilab/assets/motions/g1/dance1_subject2_part.npz \
+  --loop
+
+# 0.5x 慢放
+uv run python scripts/motion/replay_npz.py \
+  --npz_file src/unilab/assets/motions/g1/dance1_subject2_part.npz \
+  --speed 0.5
+```
+
+### 当前配置说明
+
+当前 `task=g1_motion_tracking` 默认读取环境配置里的 `motion_file`。如果要切换到自定义 motion，先生成 `.npz`，再更新环境配置里的默认 `motion_file` 即可。
 
 ---
 
