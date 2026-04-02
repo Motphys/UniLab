@@ -49,11 +49,11 @@ class OnPolicyLogger(BaseTrainingLogger):
         )
         self.num_steps = num_steps
 
-    def start(self):
-        super().start()
+    def start(self, *, status: str = ""):
+        super().start(status=status)
 
-    def finish(self):
-        super().finish(title="Training Summary")
+    def finish(self, *, title: str = "Training Summary", extra_summary: str = ""):
+        super().finish(title=title, extra_summary=extra_summary)
 
     def log_step(
         self,

@@ -123,15 +123,15 @@ class OffPolicyLogger(BaseTrainingLogger):
     def _format_wandb_message(self, project: str, name: str) -> str:
         return f"[dim]W&B logging to project: {project}, run: {name}[/]"
 
-    def start(self):
+    def start(self, *, status: str = "Warming up..."):
         """Begin the Live display."""
-        super().start(status="Warming up...")
+        super().start(status=status)
 
-    def finish(self):
+    def finish(self, *, title: str = "Training Summary", extra_summary: str = ""):
         """Stop the Live display and print a summary."""
         super().finish(
-            title="Training Summary",
-            extra_summary=f"  Total env steps: [yellow]{self._total_steps:,}[/]\n",
+            title=title,
+            extra_summary=f"  Total env steps: [yellow]{self._total_steps:,}[/]\n{extra_summary}",
         )
 
     # ---- Logging API ----
