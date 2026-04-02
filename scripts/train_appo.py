@@ -16,6 +16,8 @@ from omegaconf import DictConfig, OmegaConf
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
 
+from unilab.utils.experiment_tracking import ExperimentTracker
+
 
 def ensure_registries():
     for pkg_name in (
@@ -35,7 +37,7 @@ def ensure_registries():
             pass
 
 
-def play_appo(cfg: DictConfig, rl_cfg: dict):
+def play_appo(cfg: DictConfig, rl_cfg: dict) -> str | None:
     """Play mode for APPO."""
     import mediapy as media
     import numpy as np
@@ -139,7 +141,7 @@ def play_appo(cfg: DictConfig, rl_cfg: dict):
 
     if not load_path or not os.path.exists(load_path):
         print(f"Could not find run to load. load_path={load_path}")
-        return
+        return None
 
     print(f"Loading model: {load_path}")
     checkpoint = torch.load(load_path, map_location=device, weights_only=True)
@@ -183,6 +185,7 @@ def play_appo(cfg: DictConfig, rl_cfg: dict):
     print(f"Saving video to {output_video} with mediapy...")
     media.write_video(str(output_video), frames, fps=int(1.0 / env.cfg.ctrl_dt))
     print("Done.")
+    return output_video
 
 
 @hydra.main(version_base="1.3", config_path="../conf/appo", config_name="config")
@@ -208,40 +211,71 @@ def main(cfg: DictConfig) -> None:
     else:
         log_dir = cfg.training.log_dir
 
+    collector_device = cfg.training.collector_device
+    if collector_device == "gpu":
+        collector_device = "mps" if torch.backends.mps.is_available() else "cuda"
+
+    learner_device = cfg.training.device or (
+        "cuda"
+        if torch.cuda.is_available()
+        else "mps"
+        if torch.backends.mps.is_available()
+        else "cpu"
+    )
+
+    tracker = None
     if not cfg.training.play_only:
-        from unilab.algos.torch.appo.runner import APPORunner
-
-        collector_device = cfg.training.collector_device
-        if collector_device == "gpu":
-            collector_device = "mps" if torch.backends.mps.is_available() else "cuda"
-
-        runner_kwargs = {}
-        if cfg.training.replay_queue_size is not None:
-            runner_kwargs["replay_queue_size"] = cfg.training.replay_queue_size
-
-        runner = APPORunner(
-            env_name=cfg.training.task_name,
-            env_cfg_overrides=env_cfg_override,
-            rl_cfg=rl_cfg,
-            device=cfg.training.device,
+        tracker = ExperimentTracker(
+            root_dir=ROOT_DIR,
+            log_dir=log_dir,
+            algo_name="appo",
+            task_name=cfg.training.task_name,
+            sim_backend=cfg.training.sim_backend,
+            training_cfg=cfg.training,
+            full_cfg=cfg,
+            device=learner_device,
             collector_device=collector_device,
-            num_envs=cfg.algo.num_envs,
-            steps_per_env=cfg.algo.steps_per_env,
-            **runner_kwargs,
         )
+        tracker.start()
 
-        try:
-            runner.learn(
-                max_iterations=cfg.algo.max_iterations,
-                save_interval=cfg.algo.save_interval,
-                log_dir=log_dir,
-                logger_type=cfg.training.logger,
+    try:
+        if not cfg.training.play_only:
+            from unilab.algos.torch.appo.runner import APPORunner
+
+            runner_kwargs = {}
+            if cfg.training.replay_queue_size is not None:
+                runner_kwargs["replay_queue_size"] = cfg.training.replay_queue_size
+
+            runner = APPORunner(
+                env_name=cfg.training.task_name,
+                env_cfg_overrides=env_cfg_override,
+                rl_cfg=rl_cfg,
+                device=cfg.training.device,
+                collector_device=collector_device,
+                num_envs=cfg.algo.num_envs,
+                steps_per_env=cfg.algo.steps_per_env,
+                **runner_kwargs,
             )
-        finally:
-            runner.close()
 
-    if cfg.training.play_only or not cfg.training.no_play:
-        play_appo(cfg, rl_cfg)
+            try:
+                runner.learn(
+                    max_iterations=cfg.algo.max_iterations,
+                    save_interval=cfg.algo.save_interval,
+                    log_dir=log_dir,
+                    logger_type=cfg.training.logger,
+                )
+                if tracker is not None:
+                    tracker.update_summary(getattr(runner, "last_run_summary", None))
+            finally:
+                runner.close()
+
+        if cfg.training.play_only or not cfg.training.no_play:
+            play_video_path = play_appo(cfg, rl_cfg)
+            if tracker is not None:
+                tracker.log_video(play_video_path)
+    finally:
+        if tracker is not None:
+            tracker.finish()
 
 
 if __name__ == "__main__":

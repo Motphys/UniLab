@@ -103,7 +103,12 @@ class OffPolicyLogger:
         log_dir: str = "",
         log_backend: str = "tensorboard",  # "tensorboard", "wandb", "none"
         wandb_project: str = "unilab",
+        wandb_entity: str | None = None,
         wandb_name: str = "",
+        wandb_group: str | None = None,
+        wandb_job_type: str | None = None,
+        wandb_tags: list[str] | None = None,
+        wandb_notes: str | None = None,
     ):
         self.algo_name = algo_name
         self.max_iterations = max_iterations
@@ -154,14 +159,20 @@ class OffPolicyLogger:
         self._log_dir = log_dir
         self._tb_writer: "SummaryWriter | None" = None  # type: ignore[name-defined]
         self._wandb_run = None
+        self._owns_wandb_run = False
 
         if self._log_backend == "tensorboard" and log_dir:
             self._init_tensorboard(log_dir)
         elif self._log_backend == "wandb":
             self._init_wandb(
                 project=wandb_project,
+                entity=wandb_entity,
                 name=wandb_name or f"{algo_name}_{env_name}",
                 log_dir=log_dir,
+                group=wandb_group,
+                job_type=wandb_job_type,
+                tags=wandb_tags,
+                notes=wandb_notes,
             )
 
     def _init_tensorboard(self, log_dir: str):
@@ -176,7 +187,17 @@ class OffPolicyLogger:
             if not self._no_print:
                 self._console.print("[yellow]tensorboard not installed, skipping TB logging[/]")
 
-    def _init_wandb(self, project: str, name: str, log_dir: str):
+    def _init_wandb(
+        self,
+        project: str,
+        entity: str | None,
+        name: str,
+        log_dir: str,
+        group: str | None,
+        job_type: str | None,
+        tags: list[str] | None,
+        notes: str | None,
+    ):
         """Initialize Weights & Biases run."""
         wandb = _load_wandb()
         if wandb is None:
@@ -184,20 +205,35 @@ class OffPolicyLogger:
                 self._console.print("[yellow]wandb not installed, skipping W&B logging[/]")
             return
 
-        self._wandb_run = wandb.init(
-            project=project,
-            name=name,
-            config={
-                "algo": self.algo_name,
-                "env": self.env_name,
-                "num_envs": self.num_envs,
-                "obs_dim": self.obs_dim,
-                "action_dim": self.action_dim,
-                "max_iterations": self.max_iterations,
-            },
-            dir=log_dir or None,
-            reinit=True,
-        )
+        self._wandb_run = wandb.run
+        if self._wandb_run is None:
+            kwargs: dict[str, Any] = {
+                "project": project,
+                "name": name,
+                "config": {
+                    "algo": self.algo_name,
+                    "env": self.env_name,
+                    "num_envs": self.num_envs,
+                    "obs_dim": self.obs_dim,
+                    "action_dim": self.action_dim,
+                    "max_iterations": self.max_iterations,
+                },
+                "dir": log_dir or None,
+                "reinit": True,
+            }
+            if entity:
+                kwargs["entity"] = entity
+            if group:
+                kwargs["group"] = group
+            if job_type:
+                kwargs["job_type"] = job_type
+            if tags:
+                kwargs["tags"] = tags
+            if notes:
+                kwargs["notes"] = notes
+            self._wandb_run = wandb.init(**kwargs)
+            self._owns_wandb_run = True
+
         if not self._no_print:
             self._console.print(f"[dim]W&B logging to project: {project}, run: {name}[/]")
 
@@ -241,7 +277,7 @@ class OffPolicyLogger:
 
         if self._tb_writer:
             self._tb_writer.close()
-        if self._wandb_run:
+        if self._wandb_run and self._owns_wandb_run:
             wandb = _load_wandb()
             if wandb is not None:
                 wandb.finish()

@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import datetime
 import importlib
-import json
 import math
 import os
 import pickle
@@ -49,6 +48,7 @@ from unilab.algos.mlx.common import EmpiricalDiscountedVariationNormalization, R
 from unilab.algos.mlx.ppo import MLPActorCritic, PPOConfig, PPOTrainer
 from unilab.base import registry
 from unilab.utils import render_many
+from unilab.utils.experiment_tracking import ExperimentTracker
 from unilab.utils.obs_utils import flatten_obs_dict
 from unilab.utils.onpolicy_logger import OnPolicyLogger
 
@@ -155,7 +155,7 @@ def _get_physics_state_snapshot(env) -> np.ndarray:
 
 def play_mlx_ppo(
     cfg: DictConfig, dtype, use_fp16: bool, resolved_sim_backend: str, task_log_root: Path
-):
+) -> str | None:
     """Play mode for MLX PPO."""
     from unilab.utils.reward_utils import extract_reward_config
 
@@ -199,7 +199,7 @@ def play_mlx_ppo(
     if load_path is None or not load_path.exists():
         print(f"Could not find valid model checkpoint from load_run={load_run}")
         env.close()
-        return
+        return None
 
     model.load_weights(str(load_path), strict=True)
     print(f"[MLX PPO] Loaded model: {load_path}")
@@ -248,7 +248,7 @@ def play_mlx_ppo(
             else:
                 raise
         env.close()
-        return
+        return None
 
     output_dir = run_dir if run_dir is not None else task_log_root
     output_video = output_dir / "play_video.mp4"
@@ -281,10 +281,11 @@ def play_mlx_ppo(
     except ImportError:
         print("mediapy is required for play video export. Install with `pip install mediapy`.")
         env.close()
-        return
+        return None
     media.write_video(str(output_video), frames, fps=int(1.0 / env.cfg.ctrl_dt))
     print(f"[MLX PPO] Play video saved: {output_video}")
     env.close()
+    return str(output_video)
 
 
 @hydra.main(version_base="1.3", config_path="../conf/ppo", config_name="config_mlx")
@@ -330,53 +331,17 @@ def main(cfg: DictConfig) -> None:
         log_fp.write(msg + "\n")
         log_fp.flush()
 
-    run_meta = {
-        "task": task_name,
-        "sim_backend": resolved_sim_backend,
-        "env_num": cfg.algo.num_envs,
-        "steps_per_env": num_steps,
-        "max_iterations": max_iterations,
-        "learning_rate": learning_rate,
-        "save_interval": save_interval,
-        "schedule": str(getattr(algo_cfg, "schedule", "fixed")),
-        "desired_kl": float(getattr(algo_cfg, "desired_kl", 0.01)),
-        "reward_normalization": bool(getattr(algo_cfg, "reward_normalization", False)),
-        "target_kl_stop": (
-            float(getattr(algo_cfg, "target_kl_stop"))
-            if getattr(algo_cfg, "target_kl_stop", None) is not None
-            else None
-        ),
-        "adaptive_kl_beta": float(getattr(algo_cfg, "adaptive_kl_beta", 0.9)),
-        "adaptive_lr_growth": float(getattr(algo_cfg, "adaptive_lr_growth", 1.2)),
-        "adaptive_lr_decay": float(getattr(algo_cfg, "adaptive_lr_decay", 1.5)),
-        "adaptive_lr_update_interval": int(getattr(algo_cfg, "adaptive_lr_update_interval", 1)),
-        "fast_mode": bool(getattr(algo_cfg, "fast_mode", False)),
-        "metrics_interval": int(getattr(algo_cfg, "metrics_interval", 1)),
-        "finite_check_interval": int(getattr(algo_cfg, "finite_check_interval", 1)),
-        "enable_compile": bool(getattr(algo_cfg, "enable_compile", False)),
-        "warmup_strict_iters": int(getattr(algo_cfg, "warmup_strict_iters", 0)),
-        "warmup_metrics_interval": int(getattr(algo_cfg, "warmup_metrics_interval", 1)),
-        "warmup_finite_check_interval": int(getattr(algo_cfg, "warmup_finite_check_interval", 1)),
-        "disable_finite_checks": bool(getattr(algo_cfg, "disable_finite_checks", False)),
-        "seed": cfg.training.seed,
-        "timestamp": timestamp,
-    }
-    (log_dir / "run_config.json").write_text(json.dumps(run_meta, indent=2), encoding="utf-8")
-
-    wandb_run = None
-    if cfg.training.logger == "wandb":
-        try:
-            import wandb
-
-            wandb_run = wandb.init(
-                project="unilab",
-                name=f"mlx_ppo_{task_name}",
-                config=run_meta,
-                dir=log_dir,
-                reinit=True,
-            )
-        except ImportError:
-            log("[Warning] wandb not installed, skipping W&B logging")
+    tracker = ExperimentTracker(
+        root_dir=ROOT_DIR,
+        log_dir=log_dir,
+        algo_name="mlx_ppo",
+        task_name=task_name,
+        sim_backend=resolved_sim_backend,
+        training_cfg=cfg.training,
+        full_cfg=cfg,
+        device="mps",
+    )
+    tracker.start()
 
     from unilab.utils.reward_utils import extract_reward_config
 
@@ -502,6 +467,9 @@ def main(cfg: DictConfig) -> None:
     length_window = deque(maxlen=100)
     collection_size = num_steps * cfg.algo.num_envs
     total_time = 0.0
+    best_mean_reward = float("-inf")
+    last_mean_reward = 0.0
+    last_ckpt_path: Path | None = None
 
     for it in range(max_iterations):
         iter_start = time.perf_counter()
@@ -652,23 +620,10 @@ def main(cfg: DictConfig) -> None:
         learn_time = time.perf_counter() - learn_start
         iter_time = time.perf_counter() - iter_start
         total_time += iter_time
-        fps = int(collection_size / max(iter_time, 1e-8))
-        mean_noise_std = float(mx.mean(mx.exp(model.clipped_log_std())).item())
-        current_lr = float(metrics.get("learning_rate", trainer.learning_rate))
-        updates_applied = float(metrics.get("updates_applied", 0.0))
-        skipped_nonfinite_loss = float(metrics.get("skipped_nonfinite_loss", 0.0))
-        skipped_nonfinite_grads = float(metrics.get("skipped_nonfinite_grads", 0.0))
-        rolled_back_updates = float(metrics.get("rolled_back_updates", 0.0))
-        skipped_nonfinite_metrics = float(metrics.get("skipped_nonfinite_metrics", 0.0))
-        early_stopped_kl = float(metrics.get("early_stopped_kl", 0.0))
-        clip_fraction = float(metrics.get("clip_fraction", 0.0))
-        ratio_mean = float(metrics.get("ratio_mean", 0.0))
-        ratio_max = float(metrics.get("ratio_max", 0.0))
-        std_mean = float(metrics.get("std_mean", 0.0))
-        adv_std = float(metrics.get("adv_std", 0.0))
-        value_explained_variance = float(metrics.get("value_explained_variance", 0.0))
         mean_reward = float(statistics.mean(reward_window)) if reward_window else 0.0
         mean_ep_len = float(statistics.mean(length_window)) if length_window else 0.0
+        last_mean_reward = mean_reward
+        best_mean_reward = max(best_mean_reward, mean_reward)
 
         reward_components_avg = {}
         for key, summed in reward_component_sums.items():
@@ -691,81 +646,37 @@ def main(cfg: DictConfig) -> None:
         )
         rich_logger.update_ep_length(mean_ep_len)
 
-        if wandb_run is not None:
-            log_dict = {
-                "Loss/surrogate": metrics["surrogate"],
-                "Loss/value_function": metrics["value"],
-                "Loss/entropy": metrics["entropy"],
-                "Loss/approx_kl": metrics["approx_kl"],
-                "Loss/learning_rate": current_lr,
-                "Policy/mean_noise_std": mean_noise_std,
-                "Perf/total_fps": fps,
-                "Perf/collection_time": collect_time,
-                "Perf/learning_time": learn_time,
-                "Perf/iteration_time": iter_time,
-                "Perf/updates_applied": updates_applied,
-                "Perf/skipped_nonfinite_loss": skipped_nonfinite_loss,
-                "Perf/skipped_nonfinite_grads": skipped_nonfinite_grads,
-                "Perf/rolled_back_updates": rolled_back_updates,
-                "Perf/skipped_nonfinite_metrics": skipped_nonfinite_metrics,
-                "Perf/early_stopped_kl": early_stopped_kl,
-                "Policy/clip_fraction": clip_fraction,
-                "Policy/ratio_mean": ratio_mean,
-                "Policy/ratio_max": ratio_max,
-                "Policy/std_mean": std_mean,
-                "Policy/adv_std": adv_std,
-                "Value/explained_variance": value_explained_variance,
-                "Train/mean_reward": mean_reward,
-                "Train/mean_episode_length": mean_ep_len,
-            }
-            if profile_collection:
-                log_dict.update(
-                    {
-                        "Perf/model_act_time": model_act_time,
-                        "Perf/env_step_total_time": env_step_total_time,
-                        "Perf/env_step_core_time": env_step_core_time,
-                        "Perf/env_step_postprocess_time": env_step_postprocess_time,
-                        "Perf/env_step_reset_time": env_step_reset_time,
-                        "Perf/env_reset_index_time": env_reset_index_time,
-                        "Perf/env_reset_call_time": env_reset_call_time,
-                        "Perf/env_reset_scatter_time": env_reset_scatter_time,
-                        "Perf/env_reset_info_merge_time": env_reset_info_merge_time,
-                        "Perf/buffer_add_time": buffer_add_time,
-                        "Perf/episode_stats_time": episode_stats_time,
-                    }
-                )
-            for key, summed in reward_component_sums.items():
-                count = reward_component_counts.get(key, 0)
-                if count > 0:
-                    log_dict[key] = summed / count
-
-            if wandb_run is not None:
-                wb_dict = dict(log_dict)
-                wb_dict["Train/mean_reward/time"] = mean_reward
-                wb_dict["Train/mean_episode_length/time"] = mean_ep_len
-                import wandb
-
-                wandb.log(wb_dict, step=it)
-
         if save_interval > 0 and (it % save_interval == 0 or it == max_iterations - 1):
             ckpt_path = log_dir / f"model_{it}.safetensors"
             model.save_weights(str(ckpt_path))
             trainer_state_path = log_dir / f"trainer_{it}.pkl"
             save_trainer_state(trainer_state_path, trainer, it)
             rich_logger.log_save(str(ckpt_path))
+            last_ckpt_path = ckpt_path
 
     mx.eval(model.parameters())
     env.close()
     log("[MLX PPO] training completed.")
     rich_logger.finish()
-    if wandb_run is not None:
-        import wandb
+    train_summary = {
+        "status": "completed",
+        "completed_iterations": max_iterations,
+        "total_env_steps": collection_size * max_iterations,
+        "final_mean_reward": last_mean_reward if reward_window else None,
+        "best_mean_reward": best_mean_reward if reward_window else None,
+        "mean_episode_length": float(statistics.mean(length_window)) if length_window else None,
+        "last_checkpoint": str(last_ckpt_path) if last_ckpt_path is not None else None,
+        "training_wall_time_sec": total_time,
+    }
+    tracker.update_summary(train_summary)
 
-        wandb.finish()
-    log_fp.close()
-
+    play_video_path = None
     if not cfg.training.no_play:
-        play_mlx_ppo(cfg, dtype, use_fp16, resolved_sim_backend, task_log_root)
+        play_video_path = play_mlx_ppo(cfg, dtype, use_fp16, resolved_sim_backend, task_log_root)
+        tracker.log_video(play_video_path)
+
+    tracker.finish()
+    log_fp.close()
 
 
 if __name__ == "__main__":

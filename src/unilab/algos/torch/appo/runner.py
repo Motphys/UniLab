@@ -164,8 +164,13 @@ class APPORunner(AsyncRunner):
         save_interval: int = 50,
         log_dir: str = "logs",
         logger_type: str = "tensorboard",
-    ):
+    ) -> None:
         os.makedirs(log_dir, exist_ok=True)
+        train_start_wall = time.time()
+        best_mean_reward = float("-inf")
+        last_mean_reward = 0.0
+        ckpt_path: str | None = None
+        iteration = 0
 
         learner = self._build_learner()
 
@@ -323,6 +328,8 @@ class APPORunner(AsyncRunner):
                 if reward_history
                 else 0.0
             )
+            last_mean_reward = float(mean_reward)
+            best_mean_reward = max(best_mean_reward, last_mean_reward)
 
             logger.log_step(
                 iteration=iteration,
@@ -343,6 +350,17 @@ class APPORunner(AsyncRunner):
         torch.save(learner.get_state_dict(), ckpt_path)
         logger.log_save(ckpt_path)
         logger.finish()
+        summary = {
+            "status": "completed",
+            "completed_iterations": iteration,
+            "total_env_steps": int(logger._total_steps),
+            "final_mean_reward": last_mean_reward if reward_history else None,
+            "best_mean_reward": best_mean_reward if reward_history else None,
+            "mean_episode_length": float(logger._mean_ep_length),
+            "last_checkpoint": ckpt_path,
+            "training_wall_time_sec": time.time() - train_start_wall,
+        }
+        self.last_run_summary = summary
 
     def _check_collector_alive(self) -> bool:
         if self._collector_process is not None and not self._collector_process.is_alive():

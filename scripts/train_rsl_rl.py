@@ -2,7 +2,9 @@ import datetime
 import importlib
 import os
 import pkgutil
+import statistics
 import sys
+import time
 from pathlib import Path
 
 import hydra
@@ -15,6 +17,7 @@ ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
 
 
+from unilab.utils.experiment_tracking import ExperimentTracker, patch_rsl_rl_wandb_writer
 from unilab.utils.obs_utils import flatten_obs_dict
 from unilab.utils.torch_utils import to_numpy, to_torch
 
@@ -211,7 +214,7 @@ class RslRlVecEnvWrapper:
         return obs
 
 
-def play_rsl_rl(cfg: DictConfig, device: str):
+def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     """Play mode for RSL-RL."""
 
     from unilab.base import registry
@@ -246,7 +249,7 @@ def play_rsl_rl(cfg: DictConfig, device: str):
 
     if not load_path or not os.path.exists(load_path):
         print(f"Could not find run to load at {load_path}")
-        return
+        return None
 
     if os.path.isdir(load_path):
         model_files = [
@@ -259,7 +262,7 @@ def play_rsl_rl(cfg: DictConfig, device: str):
             print(f"Loading latest model: {load_path}")
         else:
             print(f"No model files found in {load_path}")
-            return
+            return None
     else:
         load_path_dir = os.path.dirname(load_path)
 
@@ -269,7 +272,7 @@ def play_rsl_rl(cfg: DictConfig, device: str):
             f"Checkpoint at {load_path} is not an rsl-rl checkpoint "
             f"(found keys: {_ckpt_keys}). Aborting play."
         )
-        return
+        return None
 
     runner = OnPolicyRunner(wrapped_env, train_cfg, log_dir=None, device=device)
     runner.load(load_path)
@@ -337,6 +340,9 @@ def play_rsl_rl(cfg: DictConfig, device: str):
         print(f"Saving video to {output_video} with mediapy...")
         media.write_video(str(output_video), frames, fps=int(1.0 / env.cfg.ctrl_dt))
         print("Done.")
+        return str(output_video)
+
+    return None
 
 
 @hydra.main(version_base="1.3", config_path="../conf/ppo", config_name="config")
@@ -379,45 +385,105 @@ def main(cfg: DictConfig) -> None:
     else:
         log_dir = None
 
-    if not cfg.training.play_only:
-        env = registry.make(
-            cfg.training.task_name,
-            num_envs=cfg.algo.num_envs,
+    tracker = None
+    if not cfg.training.play_only and log_dir is not None:
+        tracker = ExperimentTracker(
+            root_dir=ROOT_DIR,
+            log_dir=log_dir,
+            algo_name="ppo",
+            task_name=cfg.training.task_name,
             sim_backend=cfg.training.sim_backend,
-            env_cfg_override=env_cfg_override,
+            training_cfg=cfg.training,
+            full_cfg=cfg,
+            device=device,
         )
-        wrapped_env = RslRlVecEnvWrapper(env, device=device)
+        tracker.start()
 
-        train_cfg = OmegaConf.to_container(cfg.algo, resolve=True)
-        if "runner" not in train_cfg:
-            train_cfg["runner"] = {}
-        if cfg.training.logger in ["tensorboard", "wandb"]:
-            train_cfg["runner"]["logger"] = cfg.training.logger
-        else:
-            train_cfg["runner"]["logger"] = "none"
+    try:
+        if not cfg.training.play_only:
+            env = registry.make(
+                cfg.training.task_name,
+                num_envs=cfg.algo.num_envs,
+                sim_backend=cfg.training.sim_backend,
+                env_cfg_override=env_cfg_override,
+            )
+            wrapped_env = RslRlVecEnvWrapper(env, device=device)
 
-        if is_rsl_rl_v5():
-            train_cfg = convert_config_v5(train_cfg)
+            train_cfg = OmegaConf.to_container(cfg.algo, resolve=True)
+            if "runner" not in train_cfg:
+                train_cfg["runner"] = {}
 
-        runner = OnPolicyRunner(wrapped_env, train_cfg, log_dir=log_dir, device=device)
+            logger_type = (
+                cfg.training.logger if cfg.training.logger in ["tensorboard", "wandb"] else "none"
+            )
+            train_cfg["runner"]["logger"] = logger_type
+            train_cfg["logger"] = logger_type
 
-        if cfg.training.load_run != "-1":
-            if os.path.exists(cfg.training.load_run):
-                resume_path = cfg.training.load_run
-            else:
-                base_log_dir = ROOT_DIR / "logs" / "rsl_rl_train" / cfg.training.task_name
-                run_path = base_log_dir / cfg.training.load_run
-                resume_path = str(run_path) if run_path.exists() else None
+            if tracker is not None and logger_type == "wandb":
+                patch_rsl_rl_wandb_writer()
+                wandb_settings = tracker.wandb_settings
+                train_cfg["wandb_project"] = wandb_settings["project"]
+                train_cfg["wandb_entity"] = wandb_settings["entity"]
+                train_cfg["wandb_group"] = wandb_settings["group"]
+                train_cfg["wandb_job_type"] = wandb_settings["job_type"]
+                train_cfg["wandb_tags"] = wandb_settings["tags"]
+                train_cfg["wandb_notes"] = wandb_settings["notes"]
+                train_cfg["wandb_mode"] = wandb_settings["mode"]
 
-            if resume_path:
-                print(f"Resuming from {resume_path}")
-                runner.load(resume_path)
+            if is_rsl_rl_v5():
+                train_cfg = convert_config_v5(train_cfg)
 
-        runner.learn(num_learning_iterations=max_iterations, init_at_random_ep_len=True)
-        env.close()
+            runner = OnPolicyRunner(wrapped_env, train_cfg, log_dir=log_dir, device=device)
 
-    if cfg.training.play_only or not cfg.training.no_play:
-        play_rsl_rl(cfg, device)
+            if cfg.training.load_run != "-1":
+                if os.path.exists(cfg.training.load_run):
+                    resume_path = cfg.training.load_run
+                else:
+                    base_log_dir = ROOT_DIR / "logs" / "rsl_rl_train" / cfg.training.task_name
+                    run_path = base_log_dir / cfg.training.load_run
+                    resume_path = str(run_path) if run_path.exists() else None
+
+                if resume_path:
+                    print(f"Resuming from {resume_path}")
+                    runner.load(resume_path)
+
+            train_start_wall = time.time()
+            runner.learn(num_learning_iterations=max_iterations, init_at_random_ep_len=True)
+            train_summary = {
+                "status": "completed",
+                "completed_iterations": int(runner.current_learning_iteration),
+                "total_env_steps": int(getattr(runner.logger, "tot_timesteps", 0)),
+                "final_mean_reward": (
+                    float(statistics.mean(runner.logger.rewbuffer))
+                    if len(getattr(runner.logger, "rewbuffer", [])) > 0
+                    else None
+                ),
+                "best_mean_reward": (
+                    float(max(runner.logger.rewbuffer))
+                    if len(getattr(runner.logger, "rewbuffer", [])) > 0
+                    else None
+                ),
+                "mean_episode_length": (
+                    float(statistics.mean(runner.logger.lenbuffer))
+                    if len(getattr(runner.logger, "lenbuffer", [])) > 0
+                    else None
+                ),
+                "last_checkpoint": str(
+                    Path(log_dir) / f"model_{int(runner.current_learning_iteration)}.pt"
+                ),
+                "training_wall_time_sec": time.time() - train_start_wall,
+            }
+            if tracker is not None:
+                tracker.update_summary(train_summary)
+            env.close()
+
+        if cfg.training.play_only or not cfg.training.no_play:
+            play_video_path = play_rsl_rl(cfg, device)
+            if tracker is not None:
+                tracker.log_video(play_video_path)
+    finally:
+        if tracker is not None:
+            tracker.finish()
 
 
 if __name__ == "__main__":
