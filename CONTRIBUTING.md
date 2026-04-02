@@ -90,13 +90,13 @@ uv run pytest -m slow -v
 
 ## CI 流程
 
-Push / PR 到 `main` 时自动触发三个 job：
+PR 到 `main` 时自动触发三个 job；合并后不会在 `main` 上重复跑同一套 CI。
 
 | Job | 内容 | 失败即阻断 |
 |-----|------|-----------|
 | `lint` | `ruff check` + `ruff format --check` | ✅ |
 | `typecheck` | `mypy unilab` + `pyright` | ✅ |
-| `test` | `pytest -m "not slow" --cov --cov-fail-under=10` | ✅ |
+| `test` | `pytest -m "not slow and not veryslow" --cov --cov-fail-under=10` | ✅ |
 
 纯文档和协作元信息改动（如 `docs/**`、issue templates、`CODEOWNERS`）不触发 CI。
 
