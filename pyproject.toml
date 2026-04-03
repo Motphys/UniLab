@@ -35,7 +35,7 @@ dev = ["pytest", "pytest-cov", "ruff", "mypy", "pyright>=1.1.408"]
 cu124 = [
     # Keep compatibility with documented Linux CUDA installation command.
 ]
-motrix = ["motrixsim==0.6.0"]
+motrix = ["motrixsim==0.7.0"]
 
 [dependency-groups]
 dev = ["pytest", "pytest-cov", "ruff", "mypy", "pyright>=1.1.408"]
