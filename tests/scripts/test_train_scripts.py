@@ -68,6 +68,12 @@ def _ppo_cfg(overrides=None):
         return compose("config", overrides=overrides or [])
 
 
+def _appo_cfg(overrides=None):
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(_CONF_DIR / "appo"), version_base="1.3"):
+        return compose("config", overrides=overrides or [])
+
+
 def _train_rsl_rl(monkeypatch: pytest.MonkeyPatch):
     import types
 
@@ -78,6 +84,10 @@ def _train_rsl_rl(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setitem(sys.modules, "rsl_rl", rsl_pkg)
     monkeypatch.setitem(sys.modules, "rsl_rl.runners", runners_mod)
     return _load_script("train_rsl_rl")
+
+
+def _train_appo():
+    return _load_script("train_appo")
 
 
 def test_offpolicy_hydra_default_algo():
@@ -259,6 +269,168 @@ def test_build_task_motrix_ppo_env_cfg_override_respects_cli_algo_override(
 
     assert cfg.algo.empirical_normalization is True
     assert cfg.algo.max_iterations == 1
+
+
+def test_g1_motion_tracking_ppo_motrix_prefers_backend_specific_reward(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(["task=g1_motion_tracking", "training.sim_backend=motrix"])
+
+    assert cfg.reward.scales.motion_body_pos == pytest.approx(1.0)
+    assert cfg.reward_motrix.scales.motion_body_pos == pytest.approx(1.0)
+
+    cfg.reward.scales.motion_body_pos = 1.25
+    cfg.reward_motrix.scales.motion_body_pos = 2.5
+
+    env_cfg_override = mod.build_task_motrix_ppo_env_cfg_override(cfg)
+
+    assert env_cfg_override["reward_config"]["scales"]["motion_body_pos"] == pytest.approx(2.5)
+
+
+def test_g1_motion_tracking_appo_reward_extraction_prefers_backend_specific_reward():
+    from unilab.utils.reward_utils import extract_reward_config
+
+    cfg = _appo_cfg(["task=g1_motion_tracking", "training.sim_backend=motrix"])
+
+    assert cfg.reward.scales.motion_body_pos == pytest.approx(1.0)
+    assert cfg.reward_motrix.scales.motion_body_pos == pytest.approx(1.0)
+
+    cfg.reward.scales.motion_body_pos = 1.5
+    cfg.reward_motrix.scales.motion_body_pos = 3.0
+
+    env_cfg_override = extract_reward_config(cfg)
+
+    assert env_cfg_override["reward_config"]["scales"]["motion_body_pos"] == pytest.approx(3.0)
+
+
+def test_g1_motion_tracking_ppo_can_override_backend_reward_from_reward_group():
+    cfg = _ppo_cfg(
+        [
+            "task=g1_motion_tracking",
+            "training.sim_backend=motrix",
+            "reward@reward_motrix=g1_motion_tracking_motrix",
+        ]
+    )
+
+    assert cfg.reward_motrix.scales.motion_body_pos == pytest.approx(1.0)
+
+
+def test_g1_motion_tracking_appo_can_override_backend_reward_from_reward_group():
+    cfg = _appo_cfg(
+        [
+            "task=g1_motion_tracking",
+            "training.sim_backend=motrix",
+            "reward@reward_motrix=g1_motion_tracking_motrix",
+        ]
+    )
+
+    assert cfg.reward_motrix.scales.motion_body_pos == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------------------
+# train_appo.py — motrix runner / play helpers
+# ---------------------------------------------------------------------------
+
+
+def test_build_appo_runner_kwargs_forwards_sim_backend():
+    mod = _train_appo()
+    cfg = _appo_cfg(["task=g1_motion_tracking", "training.sim_backend=motrix"])
+
+    runner_kwargs = mod.build_appo_runner_kwargs(
+        cfg,
+        env_cfg_override={"reward_config": {"scales": {}}},
+        collector_device="cpu",
+    )
+
+    assert runner_kwargs["env_name"] == "G1MotionTracking"
+    assert runner_kwargs["sim_backend"] == "motrix"
+    assert runner_kwargs["collector_device"] == "cpu"
+    assert runner_kwargs["num_envs"] == cfg.algo.num_envs
+    assert runner_kwargs["steps_per_env"] == cfg.algo.steps_per_env
+    assert runner_kwargs["env_cfg_overrides"]["reward_config"]["scales"] == {}
+
+
+def test_run_motrix_play_loop_runs_without_physics_state():
+    import numpy as np
+    import torch
+
+    mod = _train_appo()
+
+    class FakeActor:
+        def __call__(self, td):
+            batch = td.batch_size[0]
+            return torch.zeros((batch, 3), dtype=torch.float32)
+
+    class FakeBackend:
+        def __init__(self):
+            self.init_renderer_calls = 0
+            self.render_calls = 0
+
+        def init_renderer(self):
+            self.init_renderer_calls += 1
+
+        def render(self):
+            self.render_calls += 1
+
+    class FakeState:
+        def __init__(self):
+            self.obs = {"obs": np.ones((2, 5), dtype=np.float32)}
+
+    class FakeEnv:
+        def __init__(self):
+            self.state = None
+            self._backend = FakeBackend()
+            self.init_state_calls = 0
+            self.reset_calls = 0
+            self.step_calls = 0
+
+        def init_state(self):
+            self.init_state_calls += 1
+            self.state = object()
+
+        def reset(self, env_indices):
+            self.reset_calls += 1
+            assert env_indices.shape == (2,)
+            return {"obs": np.ones((2, 5), dtype=np.float32)}, {}
+
+        def step(self, actions):
+            self.step_calls += 1
+            assert actions.shape == (2, 3)
+            return FakeState()
+
+    env = FakeEnv()
+
+    mod.run_motrix_play_loop(
+        env=env,
+        actor=FakeActor(),
+        device="cpu",
+        play_env_num=2,
+        num_steps=3,
+    )
+
+    assert env.init_state_calls == 1
+    assert env.reset_calls == 1
+    assert env.step_calls == 3
+    assert env._backend.init_renderer_calls == 1
+    assert env._backend.render_calls == 3
+
+
+def test_resolve_appo_checkpoint_path_prefers_latest_model_in_explicit_dir(tmp_path):
+    mod = _train_appo()
+    run_dir = tmp_path / "logs" / "appo" / "MyTask" / "run1"
+    run_dir.mkdir(parents=True)
+    (run_dir / "model_1.pt").write_bytes(b"")
+    (run_dir / "model_7.pt").write_bytes(b"")
+
+    checkpoint_path, checkpoint_dir = mod.resolve_appo_checkpoint_path(
+        base_log_dir=tmp_path / "logs" / "appo" / "MyTask",
+        load_run=str(run_dir),
+    )
+
+    assert checkpoint_path is not None
+    assert checkpoint_path.endswith("model_7.pt")
+    assert checkpoint_dir == str(run_dir)
 
 
 # ---------------------------------------------------------------------------

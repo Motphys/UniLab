@@ -37,15 +37,114 @@ def ensure_registries():
             pass
 
 
+def build_appo_runner_kwargs(
+    cfg: DictConfig,
+    env_cfg_override: dict | None,
+    collector_device: str | None,
+    rl_cfg: dict | None = None,
+) -> dict:
+    if rl_cfg is None:
+        rl_cfg = OmegaConf.to_container(cfg.algo, resolve=True)
+
+    runner_kwargs = {
+        "env_name": cfg.training.task_name,
+        "env_cfg_overrides": env_cfg_override,
+        "rl_cfg": rl_cfg,
+        "device": cfg.training.device,
+        "collector_device": collector_device,
+        "num_envs": cfg.algo.num_envs,
+        "steps_per_env": cfg.algo.steps_per_env,
+        "sim_backend": cfg.training.sim_backend,
+    }
+    if cfg.training.replay_queue_size is not None:
+        runner_kwargs["replay_queue_size"] = cfg.training.replay_queue_size
+    return runner_kwargs
+
+
+def run_motrix_play_loop(
+    env,
+    actor,
+    device: str,
+    play_env_num: int,
+    num_steps: int | None = None,
+) -> None:
+    import time
+
+    import numpy as np
+    from tensordict import TensorDict
+
+    if env.state is None:
+        env.init_state()
+    env._backend.init_renderer()
+
+    env_indices = np.arange(play_env_num, dtype=np.int32)
+    obs_out, _ = env.reset(env_indices)
+    obs_np = np.asarray(obs_out["obs"], dtype=np.float32)
+
+    last_render_time = time.perf_counter()
+    render_dt = 1.0 / 60.0
+    steps_run = 0
+
+    with torch.inference_mode():
+        while num_steps is None or steps_run < num_steps:
+            obs_torch = torch.from_numpy(obs_np).to(device)
+            td = TensorDict({"policy": obs_torch}, batch_size=play_env_num)
+            actions_torch = actor(td)
+            actions_np = actions_torch.cpu().numpy().astype(np.float32)
+            state = env.step(actions_np)
+            obs_np = np.asarray(state.obs["obs"], dtype=np.float32)
+
+            current_time = time.perf_counter()
+            elapsed = current_time - last_render_time
+            if elapsed < render_dt:
+                time.sleep(render_dt - elapsed)
+            last_render_time = time.perf_counter()
+
+            env._backend.render()
+            steps_run += 1
+
+
+def resolve_appo_checkpoint_path(
+    base_log_dir: str | Path,
+    load_run: str,
+) -> tuple[str | None, str | None]:
+    base_log_dir = str(base_log_dir)
+
+    if load_run == "-1":
+        if not os.path.exists(base_log_dir):
+            return None, None
+        all_runs = sorted(
+            [d for d in os.listdir(base_log_dir) if os.path.isdir(os.path.join(base_log_dir, d))]
+        )
+        if not all_runs:
+            return None, None
+        candidate_dir = os.path.join(base_log_dir, all_runs[-1])
+    elif os.path.isdir(load_run):
+        candidate_dir = load_run
+    elif os.path.isfile(load_run):
+        return load_run, os.path.dirname(load_run)
+    else:
+        candidate_dir = os.path.join(base_log_dir, load_run)
+        if not os.path.isdir(candidate_dir):
+            return None, None
+
+    model_files = [
+        f for f in os.listdir(candidate_dir) if f.startswith("model_") and f.endswith(".pt")
+    ]
+    if not model_files:
+        return None, None
+
+    model_files.sort(key=lambda x: int(x.split("_")[1].split(".")[0]))
+    return os.path.join(candidate_dir, model_files[-1]), candidate_dir
+
+
 def play_appo(cfg: DictConfig, rl_cfg: dict) -> str | None:
     """Play mode for APPO."""
-    import mediapy as media
     import numpy as np
     from rsl_rl.utils import resolve_callable
     from tensordict import TensorDict
 
     from unilab.base import registry
-    from unilab.utils import render_many
     from unilab.utils.reward_utils import extract_reward_config
     from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4, is_rsl_rl_v5
 
@@ -99,45 +198,7 @@ def play_appo(cfg: DictConfig, rl_cfg: dict) -> str | None:
     actor.eval()
 
     base_log_dir = os.path.join(ROOT_DIR, "logs", "appo", cfg.training.task_name)
-    load_path = None
-    load_path_dir = None
-    load_run = cfg.training.load_run
-    if load_run == "-1":
-        if os.path.exists(base_log_dir):
-            all_runs = sorted(
-                [
-                    d
-                    for d in os.listdir(base_log_dir)
-                    if os.path.isdir(os.path.join(base_log_dir, d))
-                ]
-            )
-            if all_runs:
-                latest_run_dir = os.path.join(base_log_dir, all_runs[-1])
-                model_files = [
-                    f
-                    for f in os.listdir(latest_run_dir)
-                    if f.startswith("model_") and f.endswith(".pt")
-                ]
-                if model_files:
-                    model_files.sort(key=lambda x: int(x.split("_")[1].split(".")[0]))
-                    load_path = os.path.join(latest_run_dir, model_files[-1])
-                    load_path_dir = latest_run_dir
-    else:
-        if os.path.exists(load_run):
-            load_path = load_run
-            load_path_dir = os.path.dirname(load_path)
-        else:
-            potential_dir = os.path.join(base_log_dir, load_run)
-            if os.path.isdir(potential_dir):
-                model_files = [
-                    f
-                    for f in os.listdir(potential_dir)
-                    if f.startswith("model_") and f.endswith(".pt")
-                ]
-                if model_files:
-                    model_files.sort(key=lambda x: int(x.split("_")[1].split(".")[0]))
-                    load_path = os.path.join(potential_dir, model_files[-1])
-                    load_path_dir = potential_dir
+    load_path, load_path_dir = resolve_appo_checkpoint_path(base_log_dir, cfg.training.load_run)
 
     if not load_path or not os.path.exists(load_path):
         print(f"Could not find run to load. load_path={load_path}")
@@ -146,6 +207,27 @@ def play_appo(cfg: DictConfig, rl_cfg: dict) -> str | None:
     print(f"Loading model: {load_path}")
     checkpoint = torch.load(load_path, map_location=device, weights_only=True)
     actor.load_state_dict(checkpoint["actor"])
+
+    if cfg.training.sim_backend == "motrix":
+        print("Starting interactive visualization (motrix native renderer)...")
+        print("Close the render window to exit.")
+        try:
+            run_motrix_play_loop(
+                env=env,
+                actor=actor,
+                device=device,
+                play_env_num=cfg.training.play_env_num,
+            )
+        except Exception as e:
+            if "RenderClosedError" in str(type(e).__name__):
+                print("Render window closed.")
+            else:
+                raise
+        return None
+
+    import mediapy as media
+
+    from unilab.utils import render_many
 
     output_video = os.path.join(load_path_dir, "play_video.mp4")
     print(f"Rendering video to {output_video}...")
@@ -242,19 +324,13 @@ def main(cfg: DictConfig) -> None:
         if not cfg.training.play_only:
             from unilab.algos.torch.appo.runner import APPORunner
 
-            runner_kwargs = {}
-            if cfg.training.replay_queue_size is not None:
-                runner_kwargs["replay_queue_size"] = cfg.training.replay_queue_size
-
             runner = APPORunner(
-                env_name=cfg.training.task_name,
-                env_cfg_overrides=env_cfg_override,
-                rl_cfg=rl_cfg,
-                device=cfg.training.device,
-                collector_device=collector_device,
-                num_envs=cfg.algo.num_envs,
-                steps_per_env=cfg.algo.steps_per_env,
-                **runner_kwargs,
+                **build_appo_runner_kwargs(
+                    cfg,
+                    env_cfg_override=env_cfg_override,
+                    collector_device=collector_device,
+                    rl_cfg=rl_cfg,
+                )
             )
 
             try:

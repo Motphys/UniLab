@@ -21,11 +21,11 @@ UniLab 当前支持两个仿真后端：
 
 | 算法 | Go1 | Go2 | G1 |
 |------|-----|-----|----|
-| PPO (torch) | ⚠️ |  |  |
+| PPO (torch) | ⚠️ |  | ✅ |
 | PPO (mlx) | ⚠️ |  |  |
 | SAC (torch) | ⚠️ |  |  |
 | TD3 (torch) |  |  |  |
-| APPO (torch) |  |  |  |
+| APPO (torch) |  |  | ✅ |
 
 说明：
 
@@ -48,6 +48,9 @@ uv run python scripts/train_rsl_rl.py task=go1_joystick training.sim_backend=mot
 
 - `mujoco`：训练后自动回放时会生成 `play_video.mp4`
 - `motrix`：回放通常打开交互式窗口，不导出视频
+
+G1 Motion Tracking 当前已验证的是 `PPO (torch) + motrix` 和
+`APPO (torch) + motrix` 路径。`scripts/play_interactive.py` 仍按 MuJoCo 路径使用。
 
 ```bash
 uv run python scripts/train_rsl_rl.py task=go1_joystick training.play_only=true

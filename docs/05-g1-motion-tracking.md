@@ -4,26 +4,48 @@ UniLab 当前提供一个 G1 的 whole-body motion tracking 任务。
 
 - Hydra task：`g1_motion_tracking`
 - 注册环境名：`G1MotionTracking`
-- 当前后端：仅 `mujoco`
+- 当前后端：`mujoco`，以及已验证的 `motrix` PPO / APPO 路径
 - 默认 motion 文件：`src/unilab/assets/motions/g1/dance1_subject2_part.npz`
 
 ## Environment Entrypoints
 
 ```bash
-# PPO (RSL-RL)
+# PPO (RSL-RL, MuJoCo)
 uv run python scripts/train_rsl_rl.py task=g1_motion_tracking
 
-# APPO
+# PPO (RSL-RL, Motrix)
+uv run python scripts/train_rsl_rl.py task=g1_motion_tracking training.sim_backend=motrix
+
+# APPO (MuJoCo)
 uv run python scripts/train_appo.py task=g1_motion_tracking
+
+# APPO (Motrix)
+uv run python scripts/train_appo.py task=g1_motion_tracking training.sim_backend=motrix
 
 # 回放最新 checkpoint
 uv run python scripts/train_rsl_rl.py task=g1_motion_tracking training.play_only=true
+
+# Motrix PPO 回放会打开原生 renderer
+uv run python scripts/train_rsl_rl.py task=g1_motion_tracking \
+  training.sim_backend=motrix \
+  training.play_only=true
+
+# APPO MuJoCo play
 uv run python scripts/train_appo.py task=g1_motion_tracking training.play_only=true
+
+# APPO Motrix play 会打开原生 renderer
+uv run python scripts/train_appo.py task=g1_motion_tracking \
+  training.sim_backend=motrix \
+  training.play_only=true
 ```
+
+目前已验证的 Motrix 训练/回放主链路包括 `scripts/train_rsl_rl.py` 和
+`scripts/train_appo.py`。`scripts/play_interactive.py` 仍按 MuJoCo 路径使用。
 
 ## Interactive Debugging
 
 `scripts/play_interactive.py` 可以直接查看 target body，也可以查看 reward 使用的参考位姿和速度。
+当前该脚本按 MuJoCo viewer 实现，不支持 Motrix 原生 renderer。
 
 ```bash
 # 可视化 motion target
@@ -90,6 +112,12 @@ uv run python scripts/motion/replay_npz.py \
 ## Config Note
 
 `task=g1_motion_tracking` 默认读取环境配置里的 `motion_file`。如果要切换到自定义 motion，先生成 `.npz`，再更新环境配置里的默认 `motion_file`。
+
+如果要验证 Motrix 路径，优先使用：
+
+```bash
+uv run python scripts/train_rsl_rl.py task=g1_motion_tracking training.sim_backend=motrix
+```
 
 ## Navigation
 
