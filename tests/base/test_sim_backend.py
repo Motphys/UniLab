@@ -7,20 +7,15 @@ Run with:
     uv run pytest -m slow tests/base/test_sim_backend.py -v
 """
 
-from pathlib import Path
-
 import numpy as np
 import pytest
 
+from unilab.assets import ASSETS_ROOT_PATH
+
+
 # ---------------------------------------------------------------------------
-# Paths
-# ---------------------------------------------------------------------------
-
-_SRC = Path(__file__).parents[2] / "src"
-
-
 def _xml(robot: str, scene: str = "scene_flat.xml") -> str:
-    return str(_SRC / "unilab" / "envs" / "locomotion" / robot / "xml" / scene)
+    return str(ASSETS_ROOT_PATH / "robots" / robot / scene)
 
 
 BASIC_ROBOTS = [
