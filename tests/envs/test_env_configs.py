@@ -81,6 +81,45 @@ def test_g1_joystick_ppo_obs_groups_spec_dims():
     assert spec["privileged"] == 3
 
 
+def test_g1_motion_tracking_uses_split_body_pose_queries():
+    """G1MotionTracking should query pos/quat via the stable split backend API."""
+    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
+
+    class FakeBackend:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, np.ndarray]] = []
+
+        def get_body_pos_w(self, body_ids: np.ndarray) -> np.ndarray:
+            self.calls.append(("pos", body_ids.copy()))
+            return np.ones((2, len(body_ids), 3))
+
+        def get_body_quat_w(self, body_ids: np.ndarray) -> np.ndarray:
+            self.calls.append(("quat", body_ids.copy()))
+            return np.ones((2, len(body_ids), 4))
+
+    env = object.__new__(G1MotionTrackingEnv)
+    env._backend = FakeBackend()
+    env.body_ids = np.array([1, 3], dtype=np.int32)
+
+    pos_w, quat_w = env._get_body_pose_w()
+
+    assert pos_w.shape == (2, 2, 3)
+    assert quat_w.shape == (2, 2, 4)
+    assert [name for name, _ in env._backend.calls] == ["pos", "quat"]
+    np.testing.assert_array_equal(env._backend.calls[0][1], np.array([1, 3], dtype=np.int32))
+    np.testing.assert_array_equal(env._backend.calls[1][1], np.array([1, 3], dtype=np.int32))
+
+
+def test_g1_motion_tracking_cfg_has_domain_rand_for_motrix():
+    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingCfg
+
+    cfg = G1MotionTrackingCfg()
+    assert hasattr(cfg, "domain_rand")
+    assert cfg.domain_rand.randomize_base_mass is False
+    assert cfg.domain_rand.random_com is False
+    assert cfg.domain_rand.push_robots is False
+
+
 # ---------------------------------------------------------------------------
 # Slow: env instantiation + reset + step (runs MuJoCo physics)
 # ---------------------------------------------------------------------------

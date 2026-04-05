@@ -65,11 +65,18 @@ class MotrixBackend(SimBackend):
         self._render_app: "RenderApp | None" = None
         self.backend_type = "motrix"
 
-        # 运行一次正向运动学，确保初始 link 位置和传感器数据有效
+        # Pre-cache link objects to avoid repeated get_link() lookups.
+        self._link_cache: dict[int, "mtx.Link"] = {}
+        for link in self._model.links:
+            if link.name:
+                self._link_cache[link.index] = link
+
+        # 运行一次正向运动学，确保初始 link 位置和传感器数据有效。
         self._model.forward_kinematic(self._data)
+        self._refresh_link_pose_cache()
 
     # ------------------------------------------------------------------ #
-    # Properties                                                           #
+    # Properties                                                         #
     # ------------------------------------------------------------------ #
 
     @property
@@ -85,13 +92,14 @@ class MotrixBackend(SimBackend):
         return self._data
 
     # ------------------------------------------------------------------ #
-    # Simulation control                                                   #
+    # Simulation control                                                 #
     # ------------------------------------------------------------------ #
 
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> None:
         self._data.actuator_ctrls = np.ascontiguousarray(ctrl)
         for _ in range(nsteps):
             self._model.step(self._data)
+        self._refresh_link_pose_cache()
 
     def set_state(self, env_indices: np.ndarray, qpos: np.ndarray, qvel: np.ndarray) -> None:
         # Convert quaternion from mujoco (wxyz) to motrix (xyzw)
@@ -113,9 +121,10 @@ class MotrixBackend(SimBackend):
         data_slice.actuator_ctrls = np.ascontiguousarray(ctrl)
 
         self._model.forward_kinematic(self._data)
+        self._refresh_link_pose_cache()
 
     # ------------------------------------------------------------------ #
-    # Base kinematics                                                      #
+    # Base kinematics                                                    #
     # ------------------------------------------------------------------ #
 
     def get_base_pos(self) -> np.ndarray:
@@ -131,7 +140,7 @@ class MotrixBackend(SimBackend):
         return np.asarray(self._body.floatingbase.get_global_angular_velocity(self._data))
 
     # ------------------------------------------------------------------ #
-    # DOF state                                                            #
+    # DOF state                                                          #
     # ------------------------------------------------------------------ #
 
     def get_dof_pos(self) -> np.ndarray:
@@ -141,120 +150,91 @@ class MotrixBackend(SimBackend):
         return np.asarray(self._body.get_joint_dof_vel(self._data))
 
     # ------------------------------------------------------------------ #
-    # Body kinematics — world frame                                        #
+    # Body kinematics — world frame                                      #
     # ------------------------------------------------------------------ #
+
+    def _as_body_ids(self, body_ids: np.ndarray) -> np.ndarray:
+        return np.asarray(body_ids, dtype=np.int32)
 
     def get_body_pos_w(self, body_ids: np.ndarray) -> np.ndarray:
-        return np.stack(
-            [
-                np.asarray(self._model.get_link(int(bid)).get_position(self._data))
-                for bid in body_ids
-            ],
-            axis=1,
-        )
+        return self._get_link_poses_w(body_ids)[:, :, :3]
 
     def get_body_quat_w(self, body_ids: np.ndarray) -> np.ndarray:
-        return np.stack(
-            [
-                self._xyzw_to_wxyz(
-                    np.asarray(self._model.get_link(int(bid)).get_rotation(self._data))
-                )
-                for bid in body_ids
-            ],
-            axis=1,
-        )
+        return self._xyzw_to_wxyz(self._get_link_poses_w(body_ids)[:, :, 3:])
 
     def get_body_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
-        return np.stack(
-            [
-                np.asarray(self._model.get_link(int(bid)).get_linear_velocity(self._data))
-                for bid in body_ids
-            ],
-            axis=1,
-        )
+        return self._get_link_lin_vel_w(body_ids)
 
     def get_body_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
-        return np.stack(
-            [
-                np.asarray(self._model.get_link(int(bid)).get_angular_velocity(self._data))
-                for bid in body_ids
-            ],
-            axis=1,
-        )
+        return self._get_link_ang_vel_w(body_ids)
 
     # ------------------------------------------------------------------ #
-    # Body kinematics — baselink frame                                     #
+    # Body kinematics — baselink frame                                   #
     # ------------------------------------------------------------------ #
 
     def get_body_pos_b(self, body_ids: np.ndarray) -> np.ndarray:
-        return np.stack(
-            [
-                np.asarray(
-                    self._model.get_sensor_value(
-                        f"track_pos_b_{self._body_id_to_name[int(bid)]}", self._data
-                    )
-                )
-                for bid in body_ids
-            ],
-            axis=1,
-        )
+        return self._get_body_sensor_values(body_ids, "track_pos_b")
 
     def get_body_quat_b(self, body_ids: np.ndarray) -> np.ndarray:
         # motrixsim framequat sensor 输出 xyzw，转换为接口约定的 wxyz
-        return np.stack(
-            [
-                self._xyzw_to_wxyz(
-                    np.asarray(
-                        self._model.get_sensor_value(
-                            f"track_quat_b_{self._body_id_to_name[int(bid)]}", self._data
-                        )
-                    )
-                )
-                for bid in body_ids
-            ],
-            axis=1,
-        )
+        return self._xyzw_to_wxyz(self._get_body_sensor_values(body_ids, "track_quat_b"))
 
     def get_body_lin_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
-        return np.stack(
-            [
-                np.asarray(
-                    self._model.get_sensor_value(
-                        f"track_linvel_b_{self._body_id_to_name[int(bid)]}", self._data
-                    )
-                )
-                for bid in body_ids
-            ],
-            axis=1,
-        )
+        return self._get_body_sensor_values(body_ids, "track_linvel_b")
 
     def get_body_ang_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
-        return np.stack(
-            [
-                np.asarray(
-                    self._model.get_sensor_value(
-                        f"track_angvel_b_{self._body_id_to_name[int(bid)]}", self._data
-                    )
-                )
-                for bid in body_ids
-            ],
-            axis=1,
-        )
+        return self._get_body_sensor_values(body_ids, "track_angvel_b")
 
     # ------------------------------------------------------------------ #
-    # Sensors                                                              #
+    # Sensors                                                            #
     # ------------------------------------------------------------------ #
 
     def get_sensor_data(self, name: str) -> np.ndarray:
         return np.asarray(self._model.get_sensor_value(name, self._data))
 
     # ------------------------------------------------------------------ #
-    # MotrixSim-specific                                                   #
+    # MotrixSim-specific                                                 #
     # ------------------------------------------------------------------ #
+
+    def _get_body_names(self, body_ids: np.ndarray) -> list[str]:
+        return [self._body_id_to_name[int(bid)] for bid in self._as_body_ids(body_ids)]
+
+    def _get_link_poses_w(self, body_ids: np.ndarray) -> np.ndarray:
+        ids = self._as_body_ids(body_ids)
+        return np.ascontiguousarray(self._link_poses[:, ids, :])
+
+    def _get_link_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
+        ids = self._as_body_ids(body_ids)
+        return np.stack(
+            [np.asarray(self._link_cache[int(bid)].get_linear_velocity(self._data)) for bid in ids],
+            axis=1,
+        )
+
+    def _get_link_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
+        ids = self._as_body_ids(body_ids)
+        return np.stack(
+            [
+                np.asarray(self._link_cache[int(bid)].get_angular_velocity(self._data))
+                for bid in ids
+            ],
+            axis=1,
+        )
+
+    def _get_body_sensor_values(self, body_ids: np.ndarray, prefix: str) -> np.ndarray:
+        return np.stack(
+            [
+                np.asarray(self._model.get_sensor_value(f"{prefix}_{name}", self._data))
+                for name in self._get_body_names(body_ids)
+            ],
+            axis=1,
+        )
 
     def _xyzw_to_wxyz(self, q: np.ndarray) -> np.ndarray:
         """motrix xyzw → wxyz"""
         return q[..., [3, 0, 1, 2]]
+
+    def _refresh_link_pose_cache(self) -> None:
+        self._link_poses = np.ascontiguousarray(np.asarray(self._model.get_link_poses(self._data)))
 
     def _process_rigid_body_props(self, cfg) -> None:
         if cfg.domain_rand.randomize_base_mass:

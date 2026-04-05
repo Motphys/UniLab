@@ -134,6 +134,10 @@ class MuJoCoBackend(SimBackend):
             )
             self._sensor_data[:] = sensor_init.astype(self._np_dtype)
 
+    # ------------------------------------------------------------------ #
+    # Properties                                                         #
+    # ------------------------------------------------------------------ #
+
     @property
     def num_envs(self) -> int:
         return self._num_envs
@@ -141,6 +145,10 @@ class MuJoCoBackend(SimBackend):
     @property
     def model(self):
         return self._model
+
+    # ------------------------------------------------------------------ #
+    # Simulation control                                                 #
+    # ------------------------------------------------------------------ #
 
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> None:
         control_traj = np.broadcast_to(ctrl[:, None, :], (self._num_envs, nsteps, ctrl.shape[-1]))
@@ -187,6 +195,10 @@ class MuJoCoBackend(SimBackend):
         self._physics_state[env_indices] = state_np.astype(self._np_dtype)
         self._sensor_data[env_indices] = sensor_np.astype(self._np_dtype)
 
+    # ------------------------------------------------------------------ #
+    # Base kinematics                                                    #
+    # ------------------------------------------------------------------ #
+
     def get_base_pos(self) -> np.ndarray:
         return self._base_pos_view
 
@@ -199,11 +211,19 @@ class MuJoCoBackend(SimBackend):
     def get_base_ang_vel(self) -> np.ndarray:
         return self._base_ang_vel_view
 
+    # ------------------------------------------------------------------ #
+    # DOF state                                                          #
+    # ------------------------------------------------------------------ #
+
     def get_dof_pos(self) -> np.ndarray:
         return self._dof_pos_view
 
     def get_dof_vel(self) -> np.ndarray:
         return self._dof_vel_view
+
+    # ------------------------------------------------------------------ #
+    # Body kinematics — world frame                                      #
+    # ------------------------------------------------------------------ #
 
     def _get_mapped_indices(self, body_ids: np.ndarray) -> np.ndarray:
         # if not self.add_body_sensors:
@@ -230,6 +250,10 @@ class MuJoCoBackend(SimBackend):
     def get_body_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
         return np.asarray(self._tracked_angvel_w_all[:, self._get_mapped_indices(body_ids), :])
 
+    # ------------------------------------------------------------------ #
+    # Body kinematics — baselink frame                                   #
+    # ------------------------------------------------------------------ #
+
     def get_body_pos_b(self, body_ids: np.ndarray) -> np.ndarray:
         return np.asarray(self._tracked_pos_b_all[:, self._get_mapped_indices(body_ids), :])
 
@@ -242,10 +266,18 @@ class MuJoCoBackend(SimBackend):
     def get_body_ang_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
         return np.asarray(self._tracked_angvel_b_all[:, self._get_mapped_indices(body_ids), :])
 
+    # ------------------------------------------------------------------ #
+    # Sensors                                                            #
+    # ------------------------------------------------------------------ #
+
     def get_sensor_data(self, name: str) -> np.ndarray:
-        if name not in self._sensor_views:
-            raise ValueError(f"Sensor '{name}' not found")
+        # if name not in self._sensor_views:
+        #     raise ValueError(f"Sensor '{name}' not found")
         return self._sensor_views[name]
+
+    # ------------------------------------------------------------------ #
+    # Mujoco-specific                                                 #
+    # ------------------------------------------------------------------ #
 
     def get_physics_state(self) -> np.ndarray:
         return self._physics_state
