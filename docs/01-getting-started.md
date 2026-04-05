@@ -33,14 +33,15 @@ uv sync --extra dev
 uv sync --extra dev --extra cu124
 
 # 可选：Motrix 后端
-uv sync --extra motrix
+uv sync --extra dev --extra motrix
+uv sync --extra dev --extra cu124 --extra motrix
 ```
 
 ## 国内镜像
 
 ```bash
 export UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-uv sync --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+uv sync --extra dev --index-url https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
 ## First Run
@@ -51,20 +52,28 @@ uv sync --index-url https://pypi.tuna.tsinghua.edu.cn/simple
 uv run python scripts/train_rsl_rl.py task=go1_joystick
 ```
 
-### 只做回放
+### 常用入口脚本
 
 ```bash
-uv run python scripts/train_rsl_rl.py task=go1_joystick training.play_only=true
+# PPO (RSL-RL)
+uv run python scripts/train_rsl_rl.py task=go1_joystick
+
+# APPO
+uv run python scripts/train_appo.py task=go1_joystick
+
+# SAC / TD3
+uv run python scripts/train_offpolicy.py algo=sac task=go1_joystick
+uv run python scripts/train_offpolicy.py algo=td3 task=go1_joystick
 ```
 
-### 运行检查
+### 验证环境
 
 ```bash
 make check
-uv run pytest -m "not slow"
+uv run pytest -m "not slow and not veryslow"
 ```
 
 ## Navigation
 
-- Previous: [README](../README.md)
+- Previous: [Development Architecture](00-development-architecture.md)
 - Next: [Simulation Backends](02-simulation-backends.md)
