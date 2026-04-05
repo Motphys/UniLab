@@ -158,6 +158,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
     """G1 Motion Tracking Environment."""
 
     _cfg: G1MotionTrackingCfg
+    _backend_type: Literal["mujoco", "motrix"]
 
     def __init__(self, cfg: G1MotionTrackingCfg, num_envs=1, backend_type="mujoco"):
         if not cfg.motion_file:
@@ -172,11 +173,14 @@ class G1MotionTrackingEnv(G1BaseEnv):
             add_body_sensors=True,
         )
         super().__init__(cfg, backend, num_envs)
+        if backend_type not in {"mujoco", "motrix"}:
+            raise ValueError(f"Unsupported backend type: {backend_type}")
+        self._backend_type = backend_type
         self._apply_adaptive_g1_action_scale()
         self._log_action_scale_diagnostics()
 
         # Resolve body IDs for backend querying and motion-file indexing.
-        if backend_type == "mujoco":
+        if self._is_mujoco_backend():
             self.body_ids = np.array(
                 [
                     mujoco.mj_name2id(self._backend.model, mujoco.mjtObj.mjOBJ_BODY, name)
@@ -228,12 +232,24 @@ class G1MotionTrackingEnv(G1BaseEnv):
         self._enable_reward_log = True
         self._init_reward_functions()
 
+    def _is_mujoco_backend(self) -> bool:
+        return self._backend_type == "mujoco"
+
+    def _get_body_pose_w(self) -> tuple[np.ndarray, np.ndarray]:
+        return self._backend.get_body_pos_w(self.body_ids), self._backend.get_body_quat_w(
+            self.body_ids
+        )
+
+    def _get_joint_range(self) -> np.ndarray | None:
+        if not self._is_mujoco_backend():
+            return None
+        return np.asarray(self._backend.model.jnt_range[1:])  # Skip free joint
+
     def _apply_adaptive_g1_action_scale(self) -> None:
         """Set per-joint action scale to match adaptive's normalization."""
-        model = self._backend.model
-        if not hasattr(model, "nu"):
-            # Motrix model doesn't expose MuJoCo actuator metadata.
+        if not self._is_mujoco_backend():
             return
+        model = self._backend.model
         nu = int(model.nu)
 
         base_scale = self._cfg.control_config.action_scale
@@ -242,35 +258,26 @@ class G1MotionTrackingEnv(G1BaseEnv):
         else:
             action_scale = np.full((nu,), float(base_scale), dtype=get_global_dtype())
 
-        if hasattr(model, "actuator_gainprm"):
-            effort_limit = np.zeros((nu,), dtype=get_global_dtype())
-            if hasattr(model, "actuator_forcerange"):
-                effort_limit = np.max(np.abs(model.actuator_forcerange), axis=1)
+        effort_limit = np.max(np.abs(model.actuator_forcerange), axis=1)
 
-            # Fallback: derive actuator effort limits from joint force ranges when
-            # actuator forcerange is not explicitly defined in XML.
-            if (
-                np.all(effort_limit <= 0.0)
-                and hasattr(model, "actuator_trnid")
-                and hasattr(model, "jnt_actfrcrange")
-            ):
-                joint_ids = model.actuator_trnid[:, 0].astype(np.int32)
-                effort_limit = np.max(np.abs(model.jnt_actfrcrange[joint_ids]), axis=1)
+        # Fallback: derive actuator effort limits from joint force ranges when
+        # actuator forcerange is not explicitly defined in XML.
+        if np.all(effort_limit <= 0.0):
+            joint_ids = model.actuator_trnid[:, 0].astype(np.int32)
+            effort_limit = np.max(np.abs(model.jnt_actfrcrange[joint_ids]), axis=1)
 
-            stiffness = model.actuator_gainprm[:, 0]
-            valid = (effort_limit > 0.0) & (np.abs(stiffness) > 1e-6)
-            action_scale[valid] = 0.25 * effort_limit[valid] / stiffness[valid]
+        stiffness = model.actuator_gainprm[:, 0]
+        valid = (effort_limit > 0.0) & (np.abs(stiffness) > 1e-6)
+        action_scale[valid] = 0.25 * effort_limit[valid] / stiffness[valid]
 
         self._cfg.control_config.action_scale = action_scale
 
     def _log_action_scale_diagnostics(self) -> None:
         """Log action-scale diagnostics to help detect control-mapping issues."""
-        if not self._cfg.log_action_scale:
+        if not self._cfg.log_action_scale or not self._is_mujoco_backend():
             return
 
         model = self._backend.model
-        if getattr(self._backend, "backend_type", "mujoco") != "mujoco":
-            return
         action_scale = self._cfg.control_config.action_scale
         if not isinstance(action_scale, np.ndarray):
             action_scale = np.full((int(model.nu),), float(action_scale), dtype=get_global_dtype())
@@ -319,12 +326,8 @@ class G1MotionTrackingEnv(G1BaseEnv):
         dof_pos = self.get_dof_pos()
         dof_vel = self.get_dof_vel()
 
-        # Get body states (combined query avoids duplicate get_link_poses call)
-        if hasattr(self._backend, "get_body_pos_quat_w"):
-            robot_body_pos_w, robot_body_quat_w = self._backend.get_body_pos_quat_w(self.body_ids)
-        else:
-            robot_body_pos_w = self._backend.get_body_pos_w(self.body_ids)
-            robot_body_quat_w = self._backend.get_body_quat_w(self.body_ids)
+        # Get body states
+        robot_body_pos_w, robot_body_quat_w = self._get_body_pose_w()
         robot_body_lin_vel_w = self._backend.get_body_lin_vel_w(self.body_ids)
         robot_body_ang_vel_w = self._backend.get_body_ang_vel_w(self.body_ids)
 
@@ -647,11 +650,9 @@ class G1MotionTrackingEnv(G1BaseEnv):
 
     def _reward_joint_limit(self, info: dict) -> np.ndarray:
         dof_pos = info["dof_pos"]
-        # Get joint limits from model (MuJoCo only)
-        model = self._backend.model
-        if not hasattr(model, "jnt_range"):
+        joint_range = self._get_joint_range()
+        if joint_range is None:
             return np.zeros((self._num_envs,), dtype=get_global_dtype())
-        joint_range = model.jnt_range[1:]  # Skip free joint (1 joint, not 7 qpos)
         lower = joint_range[:, 0]
         upper = joint_range[:, 1]
 
@@ -724,9 +725,8 @@ class G1MotionTrackingEnv(G1BaseEnv):
         )
 
         # Clip joint positions to limits (MuJoCo only)
-        model = self._backend.model
-        if hasattr(model, "jnt_range"):
-            joint_range = model.jnt_range[1:]  # Skip free joint (1 joint, not 7 qpos)
+        joint_range = self._get_joint_range()
+        if joint_range is not None:
             joint_pos = np.clip(joint_pos, joint_range[:, 0], joint_range[:, 1])
 
         # Construct qpos and qvel
@@ -759,13 +759,9 @@ class G1MotionTrackingEnv(G1BaseEnv):
         gyro = self.get_gyro()[env_indices]
         dof_pos = self.get_dof_pos()[env_indices]
         dof_vel = self.get_dof_vel()[env_indices]
-        if hasattr(self._backend, "get_body_pos_quat_w"):
-            _pos_w, _quat_w = self._backend.get_body_pos_quat_w(self.body_ids)
-            robot_body_pos_w = _pos_w[env_indices]
-            robot_body_quat_w = _quat_w[env_indices]
-        else:
-            robot_body_pos_w = self._backend.get_body_pos_w(self.body_ids)[env_indices]
-            robot_body_quat_w = self._backend.get_body_quat_w(self.body_ids)[env_indices]
+        all_pos_w, all_quat_w = self._get_body_pose_w()
+        robot_body_pos_w = all_pos_w[env_indices]
+        robot_body_quat_w = all_quat_w[env_indices]
 
         obs = self._compute_obs(
             info, motion_data, linvel, gyro, dof_pos, dof_vel, robot_body_pos_w, robot_body_quat_w
