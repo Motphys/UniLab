@@ -44,6 +44,13 @@ def _assert_reward_populated(cfg, algo: str, task: str):
     assert len(reward_dict["scales"]) > 0, f"[{algo}/{task}] cfg.reward.scales is empty"
 
 
+def _assert_reward_section_loadable(section, label: str):
+    """Assert that a composed reward-like section has the expected structure."""
+    reward_dict = OmegaConf.to_container(section, resolve=True)
+    assert isinstance(reward_dict, dict), f"{label} must resolve to a mapping"
+    assert "scales" in reward_dict, f"{label} must have 'scales' key"
+
+
 def _assert_sim_backend_configurable(cfg, algo: str):
     """Assert that training.sim_backend exists and defaults to mujoco."""
     assert hasattr(cfg.training, "sim_backend"), (
@@ -248,17 +255,33 @@ def _all_reward_yamls():
 
 @pytest.mark.parametrize("algo_dir,reward_name", _all_reward_yamls())
 def test_reward_yaml_loadable(algo_dir: str, reward_name: str):
-    """Every reward YAML file must compose without errors."""
+    """Every reward YAML file must compose through its supported override path."""
     config_name = "config"
+    label = f"[{algo_dir}/reward/{reward_name}]"
     cfg = _compose(algo_dir, config_name, overrides=[f"reward={reward_name}"])
     if reward_name == "default":
         # default.yaml is intentionally empty — cfg.reward won't exist
         return
-    assert hasattr(cfg, "reward"), (
-        f"[{algo_dir}/reward/{reward_name}] cfg.reward missing after compose"
-    )
-    reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
-    assert "scales" in reward_dict, f"[{algo_dir}/reward/{reward_name}] must have 'scales' key"
+    if hasattr(cfg, "reward"):
+        _assert_reward_section_loadable(cfg.reward, label)
+        return
+
+    # G1 motion-tracking motrix rewards are sidecar backend-specific configs that
+    # are selected via `reward@reward_motrix=...` on the task config.
+    if algo_dir in {"appo", "ppo"} and reward_name == "g1_motion_tracking_motrix":
+        cfg = _compose(
+            algo_dir,
+            config_name,
+            overrides=[
+                "task=g1_motion_tracking",
+                f"reward@reward_motrix={reward_name}",
+            ],
+        )
+        assert hasattr(cfg, "reward_motrix"), f"{label} cfg.reward_motrix missing after compose"
+        _assert_reward_section_loadable(cfg.reward_motrix, label)
+        return
+
+    pytest.fail(f"{label} cfg.reward missing after compose")
 
 
 # ---------------------------------------------------------------------------
