@@ -114,12 +114,12 @@ class MotionLoader:
     def _load_motion(self):
         """Load motion from CSV file."""
         if self.line_range is None:
-            motion = np.loadtxt(self.motion_file, delimiter=",", dtype=np.float32)
+            motion = np.loadtxt(self.motion_file, delimiter=",", dtype=np.float32, skiprows=1)
         else:
             motion = np.loadtxt(
                 self.motion_file,
                 delimiter=",",
-                skiprows=self.line_range[0] - 1,
+                skiprows=max(1, self.line_range[0] - 1),
                 max_rows=self.line_range[1] - self.line_range[0] + 1,
                 dtype=np.float32,
             )
