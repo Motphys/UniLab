@@ -224,6 +224,15 @@ class MuJoCoBackend(SimBackend):
     def get_body_quat_w(self, body_ids: np.ndarray) -> np.ndarray:
         return np.asarray(self._tracked_quat_w_all[:, self._get_mapped_indices(body_ids), :])
 
+    def get_body_pos_quat_w(
+        self, body_ids: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Batch query position and quaternion for multiple bodies in one call."""
+        mapped = self._get_mapped_indices(body_ids)
+        pos = np.asarray(self._tracked_pos_w_all[:, mapped, :])
+        quat = np.asarray(self._tracked_quat_w_all[:, mapped, :])
+        return pos, quat
+
     def get_body_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
         return np.asarray(self._tracked_linvel_w_all[:, self._get_mapped_indices(body_ids), :])
 

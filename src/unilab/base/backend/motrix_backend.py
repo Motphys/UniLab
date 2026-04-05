@@ -65,6 +65,12 @@ class MotrixBackend(SimBackend):
         self._render_app: "RenderApp | None" = None
         self.backend_type = "motrix"
 
+        # Pre-cache link objects to avoid repeated get_link() lookups
+        self._link_cache: dict[int, object] = {}
+        for link in self._model.links:
+            if link.name:
+                self._link_cache[link.index] = link
+
         # 运行一次正向运动学，确保初始 link 位置和传感器数据有效
         self._model.forward_kinematic(self._data)
 
@@ -145,29 +151,27 @@ class MotrixBackend(SimBackend):
     # ------------------------------------------------------------------ #
 
     def get_body_pos_w(self, body_ids: np.ndarray) -> np.ndarray:
-        return np.stack(
-            [
-                np.asarray(self._model.get_link(int(bid)).get_position(self._data))
-                for bid in body_ids
-            ],
-            axis=1,
-        )
+        all_poses = np.asarray(self._model.get_link_poses(self._data))
+        return np.ascontiguousarray(all_poses[:, body_ids, :3])
 
     def get_body_quat_w(self, body_ids: np.ndarray) -> np.ndarray:
-        return np.stack(
-            [
-                self._xyzw_to_wxyz(
-                    np.asarray(self._model.get_link(int(bid)).get_rotation(self._data))
-                )
-                for bid in body_ids
-            ],
-            axis=1,
-        )
+        all_poses = np.asarray(self._model.get_link_poses(self._data))
+        return self._xyzw_to_wxyz(all_poses[:, body_ids, 3:])
+
+    def get_body_pos_quat_w(
+        self, body_ids: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Batch query position and quaternion for multiple bodies in one call."""
+        all_poses = np.asarray(self._model.get_link_poses(self._data))
+        selected = all_poses[:, body_ids]
+        pos = np.ascontiguousarray(selected[:, :, :3])
+        quat = self._xyzw_to_wxyz(selected[:, :, 3:])
+        return pos, quat
 
     def get_body_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
         return np.stack(
             [
-                np.asarray(self._model.get_link(int(bid)).get_linear_velocity(self._data))
+                np.asarray(self._link_cache[int(bid)].get_linear_velocity(self._data))
                 for bid in body_ids
             ],
             axis=1,
@@ -176,7 +180,7 @@ class MotrixBackend(SimBackend):
     def get_body_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
         return np.stack(
             [
-                np.asarray(self._model.get_link(int(bid)).get_angular_velocity(self._data))
+                np.asarray(self._link_cache[int(bid)].get_angular_velocity(self._data))
                 for bid in body_ids
             ],
             axis=1,
@@ -187,57 +191,36 @@ class MotrixBackend(SimBackend):
     # ------------------------------------------------------------------ #
 
     def get_body_pos_b(self, body_ids: np.ndarray) -> np.ndarray:
+        names = [self._body_id_to_name[int(bid)] for bid in body_ids]
         return np.stack(
-            [
-                np.asarray(
-                    self._model.get_sensor_value(
-                        f"track_pos_b_{self._body_id_to_name[int(bid)]}", self._data
-                    )
-                )
-                for bid in body_ids
-            ],
+            [np.asarray(self._model.get_sensor_value(f"track_pos_b_{n}", self._data)) for n in names],
             axis=1,
         )
 
     def get_body_quat_b(self, body_ids: np.ndarray) -> np.ndarray:
         # motrixsim framequat sensor 输出 xyzw，转换为接口约定的 wxyz
+        names = [self._body_id_to_name[int(bid)] for bid in body_ids]
         return np.stack(
             [
                 self._xyzw_to_wxyz(
-                    np.asarray(
-                        self._model.get_sensor_value(
-                            f"track_quat_b_{self._body_id_to_name[int(bid)]}", self._data
-                        )
-                    )
+                    np.asarray(self._model.get_sensor_value(f"track_quat_b_{n}", self._data))
                 )
-                for bid in body_ids
+                for n in names
             ],
             axis=1,
         )
 
     def get_body_lin_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
+        names = [self._body_id_to_name[int(bid)] for bid in body_ids]
         return np.stack(
-            [
-                np.asarray(
-                    self._model.get_sensor_value(
-                        f"track_linvel_b_{self._body_id_to_name[int(bid)]}", self._data
-                    )
-                )
-                for bid in body_ids
-            ],
+            [np.asarray(self._model.get_sensor_value(f"track_linvel_b_{n}", self._data)) for n in names],
             axis=1,
         )
 
     def get_body_ang_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
+        names = [self._body_id_to_name[int(bid)] for bid in body_ids]
         return np.stack(
-            [
-                np.asarray(
-                    self._model.get_sensor_value(
-                        f"track_angvel_b_{self._body_id_to_name[int(bid)]}", self._data
-                    )
-                )
-                for bid in body_ids
-            ],
+            [np.asarray(self._model.get_sensor_value(f"track_angvel_b_{n}", self._data)) for n in names],
             axis=1,
         )
 
