@@ -66,7 +66,7 @@ class MotrixBackend(SimBackend):
         self.backend_type = "motrix"
 
         # Pre-cache link objects to avoid repeated get_link() lookups
-        self._link_cache: dict[int, object] = {}
+        self._link_cache: dict[int, "mtx.Link"] = {}
         for link in self._model.links:
             if link.name:
                 self._link_cache[link.index] = link
