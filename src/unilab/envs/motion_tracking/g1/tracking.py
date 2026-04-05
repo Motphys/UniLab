@@ -103,7 +103,7 @@ class G1MotionTrackingCfg(G1BaseCfg):
 
     model_file: str = str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
     # motion_file: str = str(ASSETS_ROOT_PATH / "motions" / "g1" / "gangnam_style.npz")
-    motion_file: str = str(ASSETS_ROOT_PATH / "motions" / "g1" / "dance1_subject2_part.npz")    
+    motion_file: str = str(ASSETS_ROOT_PATH / "motions" / "g1" / "dance1_subject2_part.npz")
     # motion_file: str = str(ASSETS_ROOT_PATH / "motions" / "g1" / "walk1_subject5_from_csv.npz") #LAFAN
     # motion_file: str = str(ASSETS_ROOT_PATH / "motions" / "g1" / "sprint1_subject4_from_csv.npz") #LAFAN
     # motion_file: str = str(ASSETS_ROOT_PATH / "motions" / "g1" / "playing_violin_R_003__A327_from_csv.npz") #Seed
