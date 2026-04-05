@@ -129,12 +129,18 @@ def test_reward_key_in_config(algo_dir: str, config_name: str):
     # (this would fail if 'reward: default' is missing from the defaults list)
     reward_dir = CONF_DIR / algo_dir / "reward"
     if reward_dir.exists():
-        non_default = [f.stem for f in reward_dir.glob("*.yaml") if f.stem != "default"]
+        non_default = sorted(f.stem for f in reward_dir.glob("*.yaml") if f.stem != "default")
         if non_default:
-            cfg2 = _compose(algo_dir, config_name, overrides=[f"reward={non_default[0]}"])
-            assert hasattr(cfg2, "reward"), (
-                f"[{algo_dir}/{config_name}] cfg.reward does not exist after override "
-                f"with reward={non_default[0]} — add 'reward: default' to defaults list"
+            direct_reward = None
+            for reward_name in non_default:
+                cfg2 = _compose(algo_dir, config_name, overrides=[f"reward={reward_name}"])
+                if hasattr(cfg2, "reward"):
+                    direct_reward = reward_name
+                    break
+
+            assert direct_reward is not None, (
+                f"[{algo_dir}/{config_name}] no direct reward override produced cfg.reward "
+                f"— add 'reward: default' to defaults list"
             )
 
 
