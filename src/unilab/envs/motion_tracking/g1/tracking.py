@@ -83,12 +83,30 @@ class VelocityRandomization:
 
 
 @dataclass
+class Domain_Rand:
+    """Domain randomization config required by motrix backend hooks."""
+
+    randomize_base_mass: bool = False
+    added_mass_range: list[float] = field(default_factory=lambda: [-1.5, 1.5])
+
+    random_com: bool = False
+    com_offset_x: list[float] = field(default_factory=lambda: [-0.05, 0.05])
+
+    push_robots: bool = False
+    push_interval: int = 750
+    max_force: list[float] = field(default_factory=lambda: [1.0, 1.0, 0.5])
+
+
+@dataclass
 class G1MotionTrackingCfg(G1BaseCfg):
     """Configuration for G1 motion tracking environment."""
 
     model_file: str = str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
     # motion_file: str = str(ASSETS_ROOT_PATH / "motions" / "g1" / "gangnam_style.npz")
     motion_file: str = str(ASSETS_ROOT_PATH / "motions" / "g1" / "dance1_subject2_part.npz")
+    # motion_file: str = str(ASSETS_ROOT_PATH / "motions" / "g1" / "walk1_subject5_from_csv.npz") #LAFAN
+    # motion_file: str = str(ASSETS_ROOT_PATH / "motions" / "g1" / "sprint1_subject4_from_csv.npz") #LAFAN
+    # motion_file: str = str(ASSETS_ROOT_PATH / "motions" / "g1" / "playing_violin_R_003__A327_from_csv.npz") #Seed
     anchor_body_name: str = "torso_link"
     body_names: tuple[str, ...] = (
         "pelvis",
@@ -112,6 +130,7 @@ class G1MotionTrackingCfg(G1BaseCfg):
     reward_config: RewardConfig = field(default_factory=RewardConfig)
     pose_randomization: PoseRandomization = field(default_factory=PoseRandomization)
     velocity_randomization: VelocityRandomization = field(default_factory=VelocityRandomization)
+    domain_rand: Domain_Rand = field(default_factory=Domain_Rand)
     joint_position_range: tuple[float, float] = (-0.1, 0.1)
     # Termination thresholds
     anchor_pos_z_threshold: float = 0.25
@@ -134,10 +153,12 @@ class G1MotionTrackingEnvCfg(G1MotionTrackingCfg):
 
 
 @registry.env("G1MotionTracking", sim_backend="mujoco")
+@registry.env("G1MotionTracking", sim_backend="motrix")
 class G1MotionTrackingEnv(G1BaseEnv):
     """G1 Motion Tracking Environment."""
 
     _cfg: G1MotionTrackingCfg
+    _backend_type: Literal["mujoco", "motrix"]
 
     def __init__(self, cfg: G1MotionTrackingCfg, num_envs=1, backend_type="mujoco"):
         if not cfg.motion_file:
@@ -152,17 +173,40 @@ class G1MotionTrackingEnv(G1BaseEnv):
             add_body_sensors=True,
         )
         super().__init__(cfg, backend, num_envs)
+        if backend_type not in {"mujoco", "motrix"}:
+            raise ValueError(f"Unsupported backend type: {backend_type}")
+        self._backend_type = backend_type
         self._apply_adaptive_g1_action_scale()
         self._log_action_scale_diagnostics()
 
-        # Get body IDs from MuJoCo model
-        self.body_ids = np.array(
-            [
-                mujoco.mj_name2id(self._backend.model, mujoco.mjtObj.mjOBJ_BODY, name)
-                for name in cfg.body_names
-            ],
-            dtype=np.int32,
-        )
+        # Resolve body IDs for backend querying and motion-file indexing.
+        if self._is_mujoco_backend():
+            self.body_ids = np.array(
+                [
+                    mujoco.mj_name2id(self._backend.model, mujoco.mjtObj.mjOBJ_BODY, name)
+                    for name in cfg.body_names
+                ],
+                dtype=np.int32,
+            )
+            motion_body_ids = self.body_ids
+        else:
+            backend_body_ids: list[int] = []
+            for name in cfg.body_names:
+                body_id = self._backend.model.get_link_index(name)
+                if body_id is None or body_id < 0:
+                    raise ValueError(f"Body '{name}' not found in motrix model")
+                backend_body_ids.append(int(body_id))
+            self.body_ids = np.array(backend_body_ids, dtype=np.int32)
+
+            mj_model = mujoco.MjModel.from_xml_path(cfg.model_file)
+            motion_body_ids = np.array(
+                [
+                    mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_BODY, name)
+                    for name in cfg.body_names
+                ],
+                dtype=np.int32,
+            )
+
         self.anchor_body_idx = cfg.body_names.index(cfg.anchor_body_name)
 
         # Get end-effector body indices for termination
@@ -171,7 +215,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
         )
 
         # Load motion data
-        self.motion_loader = MotionLoader(cfg.motion_file, body_indices=self.body_ids)
+        self.motion_loader = MotionLoader(cfg.motion_file, body_indices=motion_body_ids)
         self.motion_sampler = MotionSampler(
             self.motion_loader, mode=cfg.sampling_mode, num_envs=num_envs
         )
@@ -188,8 +232,23 @@ class G1MotionTrackingEnv(G1BaseEnv):
         self._enable_reward_log = True
         self._init_reward_functions()
 
+    def _is_mujoco_backend(self) -> bool:
+        return self._backend_type == "mujoco"
+
+    def _get_body_pose_w(self) -> tuple[np.ndarray, np.ndarray]:
+        return self._backend.get_body_pos_w(self.body_ids), self._backend.get_body_quat_w(
+            self.body_ids
+        )
+
+    def _get_joint_range(self) -> np.ndarray | None:
+        if not self._is_mujoco_backend():
+            return None
+        return np.asarray(self._backend.model.jnt_range[1:])  # Skip free joint
+
     def _apply_adaptive_g1_action_scale(self) -> None:
         """Set per-joint action scale to match adaptive's normalization."""
+        if not self._is_mujoco_backend():
+            return
         model = self._backend.model
         nu = int(model.nu)
 
@@ -199,30 +258,23 @@ class G1MotionTrackingEnv(G1BaseEnv):
         else:
             action_scale = np.full((nu,), float(base_scale), dtype=get_global_dtype())
 
-        if hasattr(model, "actuator_gainprm"):
-            effort_limit = np.zeros((nu,), dtype=get_global_dtype())
-            if hasattr(model, "actuator_forcerange"):
-                effort_limit = np.max(np.abs(model.actuator_forcerange), axis=1)
+        effort_limit = np.max(np.abs(model.actuator_forcerange), axis=1)
 
-            # Fallback: derive actuator effort limits from joint force ranges when
-            # actuator forcerange is not explicitly defined in XML.
-            if (
-                np.all(effort_limit <= 0.0)
-                and hasattr(model, "actuator_trnid")
-                and hasattr(model, "jnt_actfrcrange")
-            ):
-                joint_ids = model.actuator_trnid[:, 0].astype(np.int32)
-                effort_limit = np.max(np.abs(model.jnt_actfrcrange[joint_ids]), axis=1)
+        # Fallback: derive actuator effort limits from joint force ranges when
+        # actuator forcerange is not explicitly defined in XML.
+        if np.all(effort_limit <= 0.0):
+            joint_ids = model.actuator_trnid[:, 0].astype(np.int32)
+            effort_limit = np.max(np.abs(model.jnt_actfrcrange[joint_ids]), axis=1)
 
-            stiffness = model.actuator_gainprm[:, 0]
-            valid = (effort_limit > 0.0) & (np.abs(stiffness) > 1e-6)
-            action_scale[valid] = 0.25 * effort_limit[valid] / stiffness[valid]
+        stiffness = model.actuator_gainprm[:, 0]
+        valid = (effort_limit > 0.0) & (np.abs(stiffness) > 1e-6)
+        action_scale[valid] = 0.25 * effort_limit[valid] / stiffness[valid]
 
         self._cfg.control_config.action_scale = action_scale
 
     def _log_action_scale_diagnostics(self) -> None:
         """Log action-scale diagnostics to help detect control-mapping issues."""
-        if not self._cfg.log_action_scale:
+        if not self._cfg.log_action_scale or not self._is_mujoco_backend():
             return
 
         model = self._backend.model
@@ -275,8 +327,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
         dof_vel = self.get_dof_vel()
 
         # Get body states
-        robot_body_pos_w = self._backend.get_body_pos_w(self.body_ids)
-        robot_body_quat_w = self._backend.get_body_quat_w(self.body_ids)
+        robot_body_pos_w, robot_body_quat_w = self._get_body_pose_w()
         robot_body_lin_vel_w = self._backend.get_body_lin_vel_w(self.body_ids)
         robot_body_ang_vel_w = self._backend.get_body_ang_vel_w(self.body_ids)
 
@@ -325,6 +376,9 @@ class G1MotionTrackingEnv(G1BaseEnv):
         self, motion_data, robot_body_pos_w: np.ndarray, robot_body_quat_w: np.ndarray
     ):
         """Update relative body transforms for tracking."""
+        n_env = robot_body_pos_w.shape[0]
+        n_body = len(self._cfg.body_names)
+
         # Get anchor states
         anchor_pos_w = motion_data.body_pos_w[:, self.anchor_body_idx]
         anchor_quat_w = motion_data.body_quat_w[:, self.anchor_body_idx]
@@ -340,13 +394,18 @@ class G1MotionTrackingEnv(G1BaseEnv):
         quat_diff = np_quat_mul(robot_anchor_quat_w, np_quat_inv(anchor_quat_w))
         delta_ori_w = np_yaw_quat(quat_diff)
 
-        # Transform motion body states to robot-relative coordinates
-        for i in range(len(self._cfg.body_names)):
-            self.body_quat_relative_w[:, i] = np_quat_mul(
-                delta_ori_w, motion_data.body_quat_w[:, i]
-            )
-            rel_pos = motion_data.body_pos_w[:, i] - anchor_pos_w
-            self.body_pos_relative_w[:, i] = delta_pos_w + np_quat_apply(delta_ori_w, rel_pos)
+        # Vectorized: transform all bodies at once using reshape trick
+        # Flatten (N, B, 4) -> (N*B, 4) for quat ops, then reshape back
+        delta_ori_tiled = np.tile(delta_ori_w, (1, n_body)).reshape(n_env * n_body, 4)
+        motion_quat_flat = motion_data.body_quat_w.reshape(n_env * n_body, 4)
+        self.body_quat_relative_w[:] = np_quat_mul(delta_ori_tiled, motion_quat_flat).reshape(
+            n_env, n_body, 4
+        )
+
+        rel_pos_all = motion_data.body_pos_w - anchor_pos_w[:, None, :]  # (N, B, 3)
+        rel_pos_flat = rel_pos_all.reshape(n_env * n_body, 3)
+        rotated = np_quat_apply(delta_ori_tiled, rel_pos_flat).reshape(n_env, n_body, 3)
+        self.body_pos_relative_w[:] = delta_pos_w[:, None, :] + rotated
 
     def _compute_terminations(
         self,
@@ -441,23 +500,20 @@ class G1MotionTrackingEnv(G1BaseEnv):
             dtype=get_global_dtype(),
         )
 
-        # Robot body positions in robot anchor frame (privileged)
-        robot_body_pos_b = np.zeros(
-            (num_envs, len(self._cfg.body_names), 3), dtype=get_global_dtype()
+        # Robot body positions in robot anchor frame (privileged) — vectorized
+        n_body = len(self._cfg.body_names)
+        # Flatten (N, B, *) -> (N*B, *) for batched frame transform
+        anchor_pos_tiled = np.tile(robot_anchor_pos_w, (1, n_body)).reshape(num_envs * n_body, 3)
+        anchor_quat_tiled = np.tile(robot_anchor_quat_w, (1, n_body)).reshape(num_envs * n_body, 4)
+        body_pos_flat = robot_body_pos_w.reshape(num_envs * n_body, 3)
+        body_quat_flat = robot_body_quat_w.reshape(num_envs * n_body, 4)
+
+        pos_b_flat, ori_b_flat = np_subtract_frame_transforms(
+            anchor_pos_tiled, anchor_quat_tiled, body_pos_flat, body_quat_flat
         )
-        robot_body_ori_b = np.zeros(
-            (num_envs, len(self._cfg.body_names), 6), dtype=get_global_dtype()
-        )
-        for i in range(len(self._cfg.body_names)):
-            pos_b, ori_b = np_subtract_frame_transforms(
-                robot_anchor_pos_w,
-                robot_anchor_quat_w,
-                robot_body_pos_w[:, i],
-                robot_body_quat_w[:, i],
-            )
-            robot_body_pos_b[:, i] = pos_b
-            ori_mat = np_matrix_from_quat(ori_b)
-            robot_body_ori_b[:, i] = ori_mat[:, :, :2].reshape(num_envs, 6)
+        robot_body_pos_b = pos_b_flat.reshape(num_envs, n_body, 3)
+        ori_mat = np_matrix_from_quat(ori_b_flat)  # (N*B, 3, 3)
+        robot_body_ori_b = ori_mat[:, :, :2].reshape(num_envs, n_body, 6)
 
         privileged_obs = np.concatenate(
             [
@@ -594,9 +650,9 @@ class G1MotionTrackingEnv(G1BaseEnv):
 
     def _reward_joint_limit(self, info: dict) -> np.ndarray:
         dof_pos = info["dof_pos"]
-        # Get joint limits from model
-        model = self._backend.model
-        joint_range = model.jnt_range[1:]  # Skip free joint (1 joint, not 7 qpos)
+        joint_range = self._get_joint_range()
+        if joint_range is None:
+            return np.zeros((self._num_envs,), dtype=get_global_dtype())
         lower = joint_range[:, 0]
         upper = joint_range[:, 1]
 
@@ -668,10 +724,10 @@ class G1MotionTrackingEnv(G1BaseEnv):
             dtype=dtype,
         )
 
-        # Clip joint positions to limits
-        model = self._backend.model
-        joint_range = model.jnt_range[1:]  # Skip free joint (1 joint, not 7 qpos)
-        joint_pos = np.clip(joint_pos, joint_range[:, 0], joint_range[:, 1])
+        # Clip joint positions to limits (MuJoCo only)
+        joint_range = self._get_joint_range()
+        if joint_range is not None:
+            joint_pos = np.clip(joint_pos, joint_range[:, 0], joint_range[:, 1])
 
         # Construct qpos and qvel
         qpos = np.tile(self._init_qpos, (num_reset, 1))
@@ -703,8 +759,9 @@ class G1MotionTrackingEnv(G1BaseEnv):
         gyro = self.get_gyro()[env_indices]
         dof_pos = self.get_dof_pos()[env_indices]
         dof_vel = self.get_dof_vel()[env_indices]
-        robot_body_pos_w = self._backend.get_body_pos_w(self.body_ids)[env_indices]
-        robot_body_quat_w = self._backend.get_body_quat_w(self.body_ids)[env_indices]
+        all_pos_w, all_quat_w = self._get_body_pose_w()
+        robot_body_pos_w = all_pos_w[env_indices]
+        robot_body_quat_w = all_quat_w[env_indices]
 
         obs = self._compute_obs(
             info, motion_data, linvel, gyro, dof_pos, dof_vel, robot_body_pos_w, robot_body_quat_w
