@@ -1,6 +1,7 @@
 # @package _global_
 defaults:
-  - override /reward: g1_motion_tracking
+  - /reward@reward_motrix: g1_motion_tracking_motrix
+  - override /reward: g1_motion_tracking_mujoco
 
 training:
   task_name: G1MotionTracking

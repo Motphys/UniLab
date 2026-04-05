@@ -205,24 +205,19 @@ def test_env_reset_and_step(
 
 
 @pytest.mark.slow
-def test_g1_motion_tracking_reset_and_step():
+@pytest.mark.parametrize("sim_backend", ["mujoco", "motrix"])
+def test_g1_motion_tracking_reset_and_step(sim_backend: str):
     """G1MotionTracking needs a motion_file — skip if not available."""
     ensure_registries()
     from pathlib import Path
 
     from unilab.base import registry
 
+    if sim_backend == "motrix":
+        pytest.importorskip("motrixsim")
+
     # Look for any motion file in the expected location
-    motion_dir = (
-        Path(__file__).parents[2]
-        / "src"
-        / "unilab"
-        / "envs"
-        / "locomotion"
-        / "g1"
-        / "motion_tracking"
-        / "motions"
-    )
+    motion_dir = Path(__file__).parents[2] / "src" / "unilab" / "assets" / "motions" / "g1"
     if not motion_dir.exists():
         pytest.skip(f"Motion data directory not found: {motion_dir}")
 
@@ -234,13 +229,14 @@ def test_g1_motion_tracking_reset_and_step():
     env = registry.make(
         "G1MotionTracking",
         num_envs=2,
-        sim_backend="mujoco",
+        sim_backend=sim_backend,
         env_cfg_override={"motion_file": motion_file},
     )
     try:
         spec = env.obs_groups_spec
         assert isinstance(spec, dict)
-        assert "actor" in spec
+        assert "obs" in spec
+        assert "privileged" in spec
         assert sum(spec.values()) == env.observation_space.shape[0]
 
         state = env.init_state()

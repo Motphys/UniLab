@@ -1,9 +1,52 @@
 """Utility functions for reward config handling."""
 
+from typing import Any, cast
+
 from omegaconf import DictConfig, OmegaConf
 
+RewardDict = dict[str, Any]
 
-def extract_reward_config(cfg: DictConfig) -> dict:
+
+def _to_reward_dict(value: object, *, error_message: str) -> RewardDict:
+    """Convert an OmegaConf container into a plain reward dictionary."""
+    resolved = OmegaConf.to_container(value, resolve=True)
+    if not isinstance(resolved, dict):
+        raise ValueError(error_message)
+    return cast(RewardDict, resolved)
+
+
+def resolve_reward_dict(cfg: DictConfig) -> RewardDict:
+    """Resolve the reward config, preferring backend-specific overrides when present."""
+    sim_backend = OmegaConf.select(cfg, "training.sim_backend")
+    if sim_backend:
+        backend_reward = OmegaConf.select(cfg, f"reward_{sim_backend}")
+        if backend_reward:
+            reward_dict = _to_reward_dict(
+                backend_reward,
+                error_message="Backend-specific reward config must resolve to a mapping.",
+            )
+            if reward_dict:
+                return reward_dict
+
+    reward_cfg = OmegaConf.select(cfg, "reward")
+    if not reward_cfg:
+        raise ValueError(
+            "Missing 'reward' config in Hydra. Reward config must be explicitly provided."
+        )
+
+    reward_dict = _to_reward_dict(
+        reward_cfg,
+        error_message="Reward config must resolve to a mapping.",
+    )
+    if not reward_dict:
+        raise ValueError(
+            "Reward config resolved to empty. Please select a non-default reward override."
+        )
+
+    return reward_dict
+
+
+def extract_reward_config(cfg: DictConfig) -> dict[str, RewardDict]:
     """Extract and validate reward config from Hydra config.
 
     Args:
@@ -15,15 +58,4 @@ def extract_reward_config(cfg: DictConfig) -> dict:
     Raises:
         ValueError: If reward config is missing
     """
-    if not hasattr(cfg, "reward") or not cfg.reward:
-        raise ValueError(
-            "Missing 'reward' config in Hydra. Reward config must be explicitly provided."
-        )
-
-    reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
-    if not reward_dict:
-        raise ValueError(
-            "Reward config resolved to empty. Please select a non-default reward override."
-        )
-
-    return {"reward_config": reward_dict}
+    return {"reward_config": resolve_reward_dict(cfg)}

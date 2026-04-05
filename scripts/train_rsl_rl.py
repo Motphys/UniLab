@@ -19,6 +19,7 @@ sys.path.append(str(ROOT_DIR))
 
 from unilab.utils.experiment_tracking import ExperimentTracker, patch_rsl_rl_wandb_writer
 from unilab.utils.obs_utils import flatten_obs_dict
+from unilab.utils.reward_utils import resolve_reward_dict
 from unilab.utils.torch_utils import to_numpy, to_torch
 
 try:
@@ -106,8 +107,7 @@ def build_task_motrix_ppo_env_cfg_override(cfg: DictConfig) -> dict:
     env_cfg_override = {}
     motrix_legacy = getattr(cfg, "motrix_legacy", None)
     explicit_keys = _explicit_cli_override_keys()
-    if hasattr(cfg, "reward") and cfg.reward:
-        env_cfg_override["reward_config"] = OmegaConf.to_container(cfg.reward, resolve=True)
+    env_cfg_override["reward_config"] = resolve_reward_dict(cfg)
     if motrix_legacy is None or not motrix_legacy.enabled or cfg.training.sim_backend != "motrix":
         return env_cfg_override
 

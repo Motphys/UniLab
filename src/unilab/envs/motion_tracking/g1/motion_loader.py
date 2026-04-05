@@ -31,7 +31,9 @@ class MotionLoader:
 
         Args:
             motion_file: Path to NPZ file containing motion data
-            body_indices: Optional indices to select subset of bodies
+            body_indices: Optional indices into the NPZ body axis. The exported
+                motion files currently keep MuJoCo body-id layout, so these
+                indices are expected to follow that convention.
         """
         data = np.load(motion_file)
 

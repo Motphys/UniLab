@@ -34,6 +34,7 @@ class APPORunner(AsyncRunner):
         rl_cfg: dict,
         device: str | None = None,
         collector_device: str | None = None,
+        sim_backend: str = "mujoco",
         num_envs: int = 1024,
         steps_per_env: int = 24,
         num_workers: int = 1,  # kept for API compat, but only 1 collector used
@@ -46,6 +47,7 @@ class APPORunner(AsyncRunner):
             device=device,
             collector_device=collector_device,
             num_envs=num_envs,
+            sim_backend=sim_backend,
         )
 
         self.steps_per_env = steps_per_env
