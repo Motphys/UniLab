@@ -158,9 +158,7 @@ class MotrixBackend(SimBackend):
         all_poses = np.asarray(self._model.get_link_poses(self._data))
         return self._xyzw_to_wxyz(all_poses[:, body_ids, 3:])
 
-    def get_body_pos_quat_w(
-        self, body_ids: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray]:
+    def get_body_pos_quat_w(self, body_ids: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Batch query position and quaternion for multiple bodies in one call."""
         all_poses = np.asarray(self._model.get_link_poses(self._data))
         selected = all_poses[:, body_ids]
@@ -193,7 +191,10 @@ class MotrixBackend(SimBackend):
     def get_body_pos_b(self, body_ids: np.ndarray) -> np.ndarray:
         names = [self._body_id_to_name[int(bid)] for bid in body_ids]
         return np.stack(
-            [np.asarray(self._model.get_sensor_value(f"track_pos_b_{n}", self._data)) for n in names],
+            [
+                np.asarray(self._model.get_sensor_value(f"track_pos_b_{n}", self._data))
+                for n in names
+            ],
             axis=1,
         )
 
@@ -213,14 +214,20 @@ class MotrixBackend(SimBackend):
     def get_body_lin_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
         names = [self._body_id_to_name[int(bid)] for bid in body_ids]
         return np.stack(
-            [np.asarray(self._model.get_sensor_value(f"track_linvel_b_{n}", self._data)) for n in names],
+            [
+                np.asarray(self._model.get_sensor_value(f"track_linvel_b_{n}", self._data))
+                for n in names
+            ],
             axis=1,
         )
 
     def get_body_ang_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
         names = [self._body_id_to_name[int(bid)] for bid in body_ids]
         return np.stack(
-            [np.asarray(self._model.get_sensor_value(f"track_angvel_b_{n}", self._data)) for n in names],
+            [
+                np.asarray(self._model.get_sensor_value(f"track_angvel_b_{n}", self._data))
+                for n in names
+            ],
             axis=1,
         )
 

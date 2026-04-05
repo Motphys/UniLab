@@ -196,7 +196,10 @@ class G1MotionTrackingEnv(G1BaseEnv):
 
             mj_model = mujoco.MjModel.from_xml_path(cfg.model_file)
             motion_body_ids = np.array(
-                [mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_BODY, name) for name in cfg.body_names],
+                [
+                    mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_BODY, name)
+                    for name in cfg.body_names
+                ],
                 dtype=np.int32,
             )
 
@@ -317,7 +320,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
         dof_vel = self.get_dof_vel()
 
         # Get body states (combined query avoids duplicate get_link_poses call)
-        if hasattr(self._backend, 'get_body_pos_quat_w'):
+        if hasattr(self._backend, "get_body_pos_quat_w"):
             robot_body_pos_w, robot_body_quat_w = self._backend.get_body_pos_quat_w(self.body_ids)
         else:
             robot_body_pos_w = self._backend.get_body_pos_w(self.body_ids)
@@ -392,9 +395,9 @@ class G1MotionTrackingEnv(G1BaseEnv):
         # Flatten (N, B, 4) -> (N*B, 4) for quat ops, then reshape back
         delta_ori_tiled = np.tile(delta_ori_w, (1, n_body)).reshape(n_env * n_body, 4)
         motion_quat_flat = motion_data.body_quat_w.reshape(n_env * n_body, 4)
-        self.body_quat_relative_w[:] = np_quat_mul(
-            delta_ori_tiled, motion_quat_flat
-        ).reshape(n_env, n_body, 4)
+        self.body_quat_relative_w[:] = np_quat_mul(delta_ori_tiled, motion_quat_flat).reshape(
+            n_env, n_body, 4
+        )
 
         rel_pos_all = motion_data.body_pos_w - anchor_pos_w[:, None, :]  # (N, B, 3)
         rel_pos_flat = rel_pos_all.reshape(n_env * n_body, 3)
@@ -497,12 +500,8 @@ class G1MotionTrackingEnv(G1BaseEnv):
         # Robot body positions in robot anchor frame (privileged) — vectorized
         n_body = len(self._cfg.body_names)
         # Flatten (N, B, *) -> (N*B, *) for batched frame transform
-        anchor_pos_tiled = np.tile(robot_anchor_pos_w, (1, n_body)).reshape(
-            num_envs * n_body, 3
-        )
-        anchor_quat_tiled = np.tile(robot_anchor_quat_w, (1, n_body)).reshape(
-            num_envs * n_body, 4
-        )
+        anchor_pos_tiled = np.tile(robot_anchor_pos_w, (1, n_body)).reshape(num_envs * n_body, 3)
+        anchor_quat_tiled = np.tile(robot_anchor_quat_w, (1, n_body)).reshape(num_envs * n_body, 4)
         body_pos_flat = robot_body_pos_w.reshape(num_envs * n_body, 3)
         body_quat_flat = robot_body_quat_w.reshape(num_envs * n_body, 4)
 
@@ -760,7 +759,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
         gyro = self.get_gyro()[env_indices]
         dof_pos = self.get_dof_pos()[env_indices]
         dof_vel = self.get_dof_vel()[env_indices]
-        if hasattr(self._backend, 'get_body_pos_quat_w'):
+        if hasattr(self._backend, "get_body_pos_quat_w"):
             _pos_w, _quat_w = self._backend.get_body_pos_quat_w(self.body_ids)
             robot_body_pos_w = _pos_w[env_indices]
             robot_body_quat_w = _quat_w[env_indices]
