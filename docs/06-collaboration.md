@@ -1,77 +1,53 @@
 # Collaboration Workflow
 
-This document defines where different kinds of information should live in UniLab.
+仓库文档写稳定标准；执行状态、owner 和阶段推进放在 GitHub 协作对象里。
 
-## Source of Truth
+如果你只是想安装或训练 UniLab，请先看 `README.md`、`docs/01-getting-started.md` 和 `docs/03-training.md`。
 
-- `README.md`
-  Use for stable project-facing information: architecture, installation, training entrypoints, and supported workflows.
-- `CONTRIBUTING.md`
-  Use for developer workflow: branching, validation, review expectations, and CI policy.
-- GitHub Issues
-  Use for actionable work items, bugs, benchmarks, docs tasks, and infra work.
-- GitHub Milestones
-  Use for phase-level planning such as `M1`.
-- GitHub Projects
-  Use for status tracking across issues and PRs when project scopes are available.
+## Work Item Granularity
 
-## What Not To Track In Docs
+每个 issue 至少回答以下问题：
 
-Do not keep the following in `README.md` or temporary markdown notes:
+1. 我们在解决什么问题？
+2. 预期交付物是什么？
+3. 完成标准是什么？
+4. 谁负责执行？
+5. 有哪些上游阻塞？
 
-- ownership assignments
-- sprint / milestone task lists
-- execution status like "in progress", "blocked", or "done"
-- review checklists for individual deliverables
-- benchmark rollout plans
-
-These belong in GitHub Issues, Milestones, and Projects.
-
-## Issue Structure
-
-Each issue should answer the following:
-
-1. What problem are we solving?
-2. What is the expected deliverable?
-3. How do we know it is done?
-4. Who owns it?
-5. What other work blocks it?
-
-Recommended issue types:
+推荐 issue 类型：
 
 - `bug`
-- `work item` for feature / infra / benchmark / test / sim work
+- `work item`：feature / infra / benchmark / test / sim / docs work
 
 ## Milestone Structure
 
-For each milestone:
+每个 milestone 应该：
 
-- create one milestone object on GitHub
-- create one tracking issue that links all child issues
-- put execution details in child issues, not in the milestone description
-- define completion by artifacts, not just merged code
+- 在 GitHub 上创建一个 milestone 对象
+- 创建一个 tracking issue 汇总子 issue
+- 把执行细节写在子 issue，不写在 milestone 描述里
+- 以产物定义完成，而不只是“代码已 merge”
 
-Typical required artifacts:
+典型完成产物：
 
 - green CI
-- benchmark result or W&B run link when applicable
-- demo video / ONNX export / checkpoint path when applicable
-- docs update if user-facing behavior changed
+- benchmark 结果或 W&B run link
+- demo video / ONNX export / checkpoint path
+- 若用户可见行为变化，则附带 docs update
 
-## PR Expectations
+## PR Evidence Standard
 
-Every PR should:
+每个 PR 应该：
 
-- link the driving issue
-- describe user-facing and training-impact changes
-- list validation commands actually run
-- state whether behavior changes across `mujoco`, `motrix`, macOS, or Linux
+- link 对应 driving issue
+- 描述 user-facing change 和 training-impact
+- 列出实际执行过的 validation commands
+- 说明行为是否在 `mujoco`、`motrix`、macOS、Linux 间发生变化
 
-## Ownership
+## Ownership Model
 
-Use GitHub assignees for execution ownership and `CODEOWNERS` for review ownership.
-If the responsible engineer is not yet mapped to a GitHub handle, keep the issue unassigned and
-record the expected owner in the issue body until the handle mapping is confirmed.
+使用 GitHub assignees 表达执行 owner，使用 `CODEOWNERS` 表达 review owner。
+如果负责人暂时还没有稳定的 GitHub handle，就先保持 issue unassigned，并在 issue body 中临时记录预期 owner。
 
 ## Navigation
 

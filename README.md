@@ -35,10 +35,30 @@ uv sync --extra dev --extra cu124
 uv run python scripts/train_rsl_rl.py task=go1_joystick
 ```
 
+## Workflow Entrypoints
+
+| 目标 | 入口脚本 | 默认日志根目录 |
+|------|----------|---------------|
+| PPO (torch / RSL-RL) | `scripts/train_rsl_rl.py` | `logs/rsl_rl_train/<task>/` |
+| PPO (MLX, macOS) | `scripts/train_mlx_ppo.py` | `logs/mlx_rl_train/<task>/` |
+| APPO | `scripts/train_appo.py` | `logs/appo/<task>/` |
+| SAC / TD3 | `scripts/train_offpolicy.py` | `logs/fast_sac/<task>/` / `logs/fast_td3/<task>/` |
+
+训练脚本默认会在训练结束后自动回放；用 `training.no_play=true` 可以跳过。
+
+## Repository Map
+
+- `conf/`: Hydra 配置与 task / reward / algo 组合
+- `scripts/`: 训练、回放、motion 预处理等直接入口
+- `src/unilab/`: 环境、后端、算法和通用工具
+- `tests/`: 单元测试、集成测试、脚本配置测试
+- `docs/`: 安装、后端、训练和协作文档
+
 更完整的安装、后端和训练说明已经拆到按顺序组织的 `docs/`：
 
 ## Documentation
 
+- [00 RL Infrastructure Development Standard](docs/00-development-architecture.md): RL infrastructure 开发标准、设计原则、分层责任与验证要求
 - [01 Getting Started](docs/01-getting-started.md): 安装、依赖、国内镜像、第一次运行
 - [02 Simulation Backends](docs/02-simulation-backends.md): MuJoCo / Motrix 支持范围与使用方式
 - [03 Training Guide](docs/03-training.md): 训练、回放、恢复训练、Hydra 参数、W&B
@@ -46,14 +66,7 @@ uv run python scripts/train_rsl_rl.py task=go1_joystick
 - [05 G1 Motion Tracking](docs/05-g1-motion-tracking.md): G1 whole-body motion tracking 任务说明
 - [06 Collaboration Workflow](docs/06-collaboration.md): GitHub issue / milestone / PR 协作方式
 - [Contributing](CONTRIBUTING.md): 开发规范、测试、CI、提交流程
-
-## Roadmap And Task Tracking
-
-UniLab 不再把阶段任务、owner 和执行状态直接维护在 `README.md`。
-
-- 用 GitHub Issues 跟踪 bug、feature、benchmark、docs 和 infra work
-- 用 GitHub Milestones 跟踪阶段目标，例如 `M1`
-- 用 [docs/06-collaboration.md](docs/06-collaboration.md) 统一说明协作规则
+- [AGENTS](AGENTS.md): coding agent / automated editor 的 RL infra 开发指南
 
 ## Related Projects
 

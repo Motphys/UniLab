@@ -2,6 +2,15 @@
 
 本页覆盖训练、回放、恢复训练、Hydra 覆盖参数和 W&B。
 
+## Pick An Entrypoint
+
+| 目标 | 入口脚本 | 默认日志根目录 |
+|------|----------|---------------|
+| PPO (RSL-RL / torch) | `scripts/train_rsl_rl.py` | `logs/rsl_rl_train/<task>/` |
+| PPO (MLX / macOS) | `scripts/train_mlx_ppo.py` | `logs/mlx_rl_train/<task>/` |
+| APPO | `scripts/train_appo.py` | `logs/appo/<task>/` |
+| SAC / TD3 | `scripts/train_offpolicy.py` | `logs/fast_sac/<task>/` / `logs/fast_td3/<task>/` |
+
 ## Start Training
 
 ```bash
