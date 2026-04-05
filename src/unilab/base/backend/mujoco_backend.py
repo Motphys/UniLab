@@ -123,16 +123,16 @@ class MuJoCoBackend(SimBackend):
 
         # 对初始 qpos0 状态运行一次 forward pass，确保传感器数据有效
         if self._model.nsensordata > 0:
-            sensor_init = self._forward_runner.forward(
+            _, sensor_init = self._forward_runner.forward(
                 model=self._model,
                 data=self._worker_data,
                 initial_state=self._physics_state.astype(np.float64),
                 chunk_size=max(1, num_envs // self._n_threads),
                 skipsensor=False,
-                out_dtype=self._np_dtype,
-                return_state=False,
+                out_dtype=np.float64,
+                return_state=True,
             )
-            self._sensor_data[:] = sensor_init
+            self._sensor_data[:] = sensor_init.astype(self._np_dtype)
 
     # ------------------------------------------------------------------ #
     # Properties                                                         #
@@ -159,22 +159,22 @@ class MuJoCoBackend(SimBackend):
             control=control_traj,
             nstep=nsteps,
         )
-        state_np = state_traj[:, -1, :]
+        state_np = np.asarray(state_traj)[:, -1, :]
         self._physics_state[:] = state_np.astype(self._np_dtype)
 
-        # Recompute sensors from the stored backend state. This keeps
-        # sensor_data aligned with the truncated backend dtype/state cache.
+        # Recompute sensors from the final physics state to keep state/sensor
+        # alignment consistent with set_state() and initialization paths.
         if self._model.nsensordata > 0:
-            sensor_np = self._forward_runner.forward(
+            _, sensor_np = self._forward_runner.forward(
                 model=self._model,
                 data=self._worker_data,
-                initial_state=self._physics_state.astype(np.float64),
+                initial_state=state_np,
                 chunk_size=max(1, self._num_envs // self._n_threads),
                 skipsensor=False,
-                out_dtype=self._np_dtype,
-                return_state=False,
+                out_dtype=np.float64,
+                return_state=True,
             )
-            self._sensor_data[:] = sensor_np
+            self._sensor_data[:] = sensor_np.astype(self._np_dtype)
 
     def set_state(self, env_indices: np.ndarray, qpos: np.ndarray, qvel: np.ndarray) -> None:
         num_reset = len(env_indices)
@@ -182,18 +182,18 @@ class MuJoCoBackend(SimBackend):
         state_np[:, self._idx_qpos : self._idx_qpos + self.nq] = qpos
         state_np[:, self._idx_qvel : self._idx_qvel + self.nv] = qvel
 
-        sensor_np = self._forward_runner.forward(
+        _, sensor_np = self._forward_runner.forward(
             model=self._model,
             data=self._worker_data,
             initial_state=state_np,
             chunk_size=max(1, num_reset // self._n_threads),
             skipsensor=False,
-            out_dtype=self._np_dtype,
-            return_state=False,
+            out_dtype=np.float64,
+            return_state=True,
         )
 
         self._physics_state[env_indices] = state_np.astype(self._np_dtype)
-        self._sensor_data[env_indices] = sensor_np
+        self._sensor_data[env_indices] = sensor_np.astype(self._np_dtype)
 
     # ------------------------------------------------------------------ #
     # Base kinematics                                                    #
