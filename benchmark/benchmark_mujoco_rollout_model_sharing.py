@@ -446,7 +446,9 @@ def main() -> None:
 
     print()
     for variant in variants:
-        shared = next(r for r in results if r["variant"] == variant and r["mode"] == "shared_single_model")
+        shared = next(
+            r for r in results if r["variant"] == variant and r["mode"] == "shared_single_model"
+        )
         distinct = next(
             r for r in results if r["variant"] == variant and r["mode"] == "distinct_batch_models"
         )
