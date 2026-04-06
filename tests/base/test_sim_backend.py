@@ -97,6 +97,19 @@ class TestMuJoCoBasic:
         bkd.set_state(np.array([0]), qpos, np.zeros((1, nv)))
         np.testing.assert_allclose(bkd.get_base_pos()[1], pos_before, atol=1e-5)
 
+    def test_set_state_randomization_only_affects_target_envs(self, bkd):
+        original = [bkd._pool.get_field(i, "body_mass").copy() for i in range(NUM_ENVS)]
+        qpos = _identity_qpos_mujoco(bkd.model.nq)
+        qvel = np.zeros((1, bkd.model.nv))
+        randomization = {"body_mass": (original[1] * 1.5).reshape(1, -1)}
+
+        bkd.set_state(np.array([1]), qpos, qvel, randomization=randomization)
+
+        np.testing.assert_array_equal(bkd._pool.get_field(0, "body_mass"), original[0])
+        np.testing.assert_allclose(
+            bkd._pool.get_field(1, "body_mass"), randomization["body_mass"][0]
+        )
+
     # base kinematics
 
     def test_get_base_pos_shape(self, bkd):
@@ -290,6 +303,16 @@ class TestMotrixBasic:
         qpos = _identity_qpos_mujoco(nq, xyz=target)
         bkd.set_state(np.array([0]), qpos, np.zeros((1, nv)))
         np.testing.assert_allclose(bkd.get_base_pos()[0], target, atol=1e-4)
+
+    def test_set_state_randomization_not_supported(self, _ctx):
+        bkd, _ = _ctx
+        nq = bkd.get_dof_pos().shape[-1] + 7
+        nv = bkd.get_dof_vel().shape[-1] + 6
+        qpos = _identity_qpos_mujoco(nq)
+        qvel = np.zeros((1, nv))
+
+        with pytest.raises(NotImplementedError):
+            bkd.set_state(np.array([0]), qpos, qvel, randomization={"body_mass": np.ones((1, 1))})
 
     # base kinematics
 

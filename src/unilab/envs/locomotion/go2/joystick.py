@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import mujoco
 import numpy as np
 from etils import epath
 
@@ -195,6 +196,44 @@ class Go2WalkTask(Go2BaseEnv):
         error = np.square(height_error) * is_swing
         return np.asarray(np.sum(error, axis=1))
 
+    def _build_mujoco_reset_randomization(self, num_reset: int) -> dict[str, np.ndarray] | None:
+        if self._backend.backend_type != "mujoco":
+            return None
+
+        domain_rand = self._cfg.domain_rand
+        payload: dict[str, np.ndarray] = {}
+        base_body_id = mujoco.mj_name2id(
+            self._backend.model,
+            mujoco.mjtObj.mjOBJ_BODY,
+            self._cfg.asset.base_name,
+        )
+        if base_body_id < 0:
+            raise ValueError(f"Body '{self._cfg.asset.base_name}' not found in MuJoCo model")
+
+        if domain_rand.randomize_base_mass:
+            body_mass = np.broadcast_to(
+                self._backend.model.body_mass, (num_reset, self._backend.model.nbody)
+            ).copy()
+            body_mass[:, base_body_id] += np.random.uniform(
+                domain_rand.added_mass_range[0],
+                domain_rand.added_mass_range[1],
+                size=(num_reset,),
+            )
+            payload["body_mass"] = body_mass
+
+        if domain_rand.random_com:
+            body_ipos = np.broadcast_to(
+                self._backend.model.body_ipos, (num_reset, self._backend.model.nbody, 3)
+            ).copy()
+            body_ipos[:, base_body_id, 0] += np.random.uniform(
+                domain_rand.com_offset_x[0],
+                domain_rand.com_offset_x[1],
+                size=(num_reset,),
+            )
+            payload["body_ipos"] = body_ipos.reshape(num_reset, -1)
+
+        return payload or None
+
     def reset(self, env_indices: np.ndarray):
         num_reset = len(env_indices)
         qpos = np.tile(self._init_qpos, (num_reset, 1))
@@ -208,7 +247,12 @@ class Go2WalkTask(Go2BaseEnv):
         qpos[:, 3:7] = np_quat_mul(qpos[:, 3:7], quat_yaw)
         qvel[:, 0:6] = np.random.uniform(-0.5, 0.5, (num_reset, 6))
 
-        self._backend.set_state(env_indices, qpos, qvel)
+        self._backend.set_state(
+            env_indices,
+            qpos,
+            qvel,
+            randomization=self._build_mujoco_reset_randomization(num_reset),
+        )
 
         commands = np.random.uniform(
             low=self._cfg.commands.vel_limit[0],

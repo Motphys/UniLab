@@ -4,7 +4,7 @@ from typing import Optional
 
 import mujoco
 import numpy as np
-from mujoco import batch_forward, rollout
+from mujoco.batch_env import BatchEnvPool
 
 from ..dtype_config import get_global_dtype
 from .base import SimBackend
@@ -55,10 +55,7 @@ class MuJoCoBackend(SimBackend):
             host_threads = cpu_count()
             self._n_threads = min(num_envs, host_threads * 2)
 
-        # Worker pool
-        self._worker_data = [mujoco.MjData(self._model) for _ in range(self._n_threads)]
-        self._rollout = rollout.Rollout(nthread=self._n_threads)
-        self._forward_runner = batch_forward.BatchForwardRunner(nthread=self._n_threads)
+        self._pool = BatchEnvPool(self._model, nbatch=num_envs, nthread=self._n_threads)
 
         # 索引
         self.nq = self._model.nq
@@ -123,15 +120,7 @@ class MuJoCoBackend(SimBackend):
 
         # 对初始 qpos0 状态运行一次 forward pass，确保传感器数据有效
         if self._model.nsensordata > 0:
-            _, sensor_init = self._forward_runner.forward(
-                model=self._model,
-                data=self._worker_data,
-                initial_state=self._physics_state.astype(np.float64),
-                chunk_size=max(1, num_envs // self._n_threads),
-                skipsensor=False,
-                out_dtype=np.float64,
-                return_state=True,
-            )
+            _, sensor_init = self._pool.forward(self._physics_state)
             self._sensor_data[:] = sensor_init.astype(self._np_dtype)
 
     # ------------------------------------------------------------------ #
@@ -152,48 +141,45 @@ class MuJoCoBackend(SimBackend):
 
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> None:
         control_traj = np.broadcast_to(ctrl[:, None, :], (self._num_envs, nsteps, ctrl.shape[-1]))
-        state_traj, _ = self._rollout.rollout(
-            self._model,
-            self._worker_data,
-            initial_state=self._physics_state.astype(np.float64),
-            control=control_traj,
+        state_np = self._pool.step(
+            self._physics_state,
             nstep=nsteps,
+            control=control_traj,
+            control_spec=int(mujoco.mjtState.mjSTATE_CTRL),
         )
-        state_np = np.asarray(state_traj)[:, -1, :]
         self._physics_state[:] = state_np.astype(self._np_dtype)
 
         # Recompute sensors from the final physics state to keep state/sensor
         # alignment consistent with set_state() and initialization paths.
         if self._model.nsensordata > 0:
-            _, sensor_np = self._forward_runner.forward(
-                model=self._model,
-                data=self._worker_data,
-                initial_state=state_np,
-                chunk_size=max(1, self._num_envs // self._n_threads),
-                skipsensor=False,
-                out_dtype=np.float64,
-                return_state=True,
-            )
+            _, sensor_np = self._pool.forward(self._physics_state)
             self._sensor_data[:] = sensor_np.astype(self._np_dtype)
 
-    def set_state(self, env_indices: np.ndarray, qpos: np.ndarray, qvel: np.ndarray) -> None:
+    def set_state(
+        self,
+        env_indices: np.ndarray,
+        qpos: np.ndarray,
+        qvel: np.ndarray,
+        randomization: dict[str, np.ndarray] | None = None,
+    ) -> None:
+        if len(env_indices) == 0:
+            return
+
         num_reset = len(env_indices)
         state_np = np.zeros((num_reset, self._physics_state.shape[1]), dtype=np.float64)
         state_np[:, self._idx_qpos : self._idx_qpos + self.nq] = qpos
         state_np[:, self._idx_qvel : self._idx_qvel + self.nv] = qvel
 
-        _, sensor_np = self._forward_runner.forward(
-            model=self._model,
-            data=self._worker_data,
+        env_ids = np.asarray(env_indices, dtype=np.int32)
+        state_out, sensor_np = self._pool.reset(
+            env_ids=env_ids,
             initial_state=state_np,
-            chunk_size=max(1, num_reset // self._n_threads),
-            skipsensor=False,
-            out_dtype=np.float64,
-            return_state=True,
+            randomization=randomization,
         )
 
-        self._physics_state[env_indices] = state_np.astype(self._np_dtype)
-        self._sensor_data[env_indices] = sensor_np.astype(self._np_dtype)
+        self._physics_state[env_ids] = state_out.astype(self._np_dtype)
+        if self._model.nsensordata > 0:
+            self._sensor_data[env_ids] = sensor_np.astype(self._np_dtype)
 
     # ------------------------------------------------------------------ #
     # Base kinematics                                                    #

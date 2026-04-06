@@ -13,18 +13,18 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-# The G1 env modules import create_backend → mujoco.batch_forward at the top
+# The G1 env modules import create_backend → mujoco.batch_env at the top
 # level, so all tests in this file need a working MuJoCo installation.
 pytest.importorskip("mujoco", reason="mujoco not installed")
 
-# Some environments also use mujoco.batch_forward (G1 backend). Guard against
+# Some environments also use mujoco.batch_env (G1 backend). Guard against
 # partial MuJoCo installations where the base package installs but platform
 # extensions fail (e.g. wrong libstdc++ version).
 try:
-    from mujoco import batch_forward as _  # noqa: F401
+    from mujoco.batch_env import BatchEnvPool as _  # noqa: F401
 except Exception:
     pytest.skip(
-        "mujoco.batch_forward not available (platform/libstdc++ issue)", allow_module_level=True
+        "mujoco.batch_env not available (platform/libstdc++ issue)", allow_module_level=True
     )
 
 from unilab.utils.algo_utils import ensure_registries  # noqa: E402
@@ -249,5 +249,40 @@ def test_g1_motion_tracking_reset_and_step(sim_backend: str):
         assert isinstance(state.obs, dict)
         assert state.reward.shape == (2,)
         assert state.done.shape == (2,)
+    finally:
+        env.close()
+
+
+@pytest.mark.slow
+def test_go2_mujoco_reset_applies_domain_randomization(default_go2_reward_config):
+    ensure_registries()
+    import mujoco
+
+    from unilab.base import registry
+
+    env = registry.make(
+        "Go2JoystickFlatTerrain",
+        num_envs=4,
+        sim_backend="mujoco",
+        env_cfg_override={"reward_config": default_go2_reward_config},
+    )
+    try:
+        env.init_state()
+        backend = env._backend
+        base_body_id = mujoco.mj_name2id(
+            backend.model, mujoco.mjtObj.mjOBJ_BODY, env.cfg.asset.base_name
+        )
+        masses = np.stack([backend._pool.get_field(i, "body_mass") for i in range(env.num_envs)])
+        ipos_x = np.stack(
+            [
+                backend._pool.get_field(i, "body_ipos").reshape(backend.model.nbody, 3)[
+                    base_body_id, 0
+                ]
+                for i in range(env.num_envs)
+            ]
+        )
+
+        assert np.unique(np.round(masses[:, base_body_id], 6)).size > 1
+        assert np.unique(np.round(ipos_x, 6)).size > 1
     finally:
         env.close()

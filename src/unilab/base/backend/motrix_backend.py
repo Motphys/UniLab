@@ -101,7 +101,16 @@ class MotrixBackend(SimBackend):
             self._model.step(self._data)
         self._refresh_link_pose_cache()
 
-    def set_state(self, env_indices: np.ndarray, qpos: np.ndarray, qvel: np.ndarray) -> None:
+    def set_state(
+        self,
+        env_indices: np.ndarray,
+        qpos: np.ndarray,
+        qvel: np.ndarray,
+        randomization: dict[str, np.ndarray] | None = None,
+    ) -> None:
+        if randomization is not None:
+            raise NotImplementedError("MotrixBackend does not support reset randomization payloads")
+
         # Convert quaternion from mujoco (wxyz) to motrix (xyzw)
         qpos_motrix = qpos.copy()
         qpos_motrix[:, 3:7] = qpos[:, [4, 5, 6, 3]]
