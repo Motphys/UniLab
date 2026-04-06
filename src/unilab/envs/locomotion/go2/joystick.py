@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any, cast
 
 import numpy as np
 from etils import epath
@@ -10,6 +11,19 @@ from unilab.base import registry
 from unilab.base.backend import create_backend
 from unilab.base.dtype_config import get_global_dtype
 from unilab.base.np_env import NpEnvState
+from unilab.dr import (
+    DomainRandomizationCapabilities,
+    DomainRandomizationProvider,
+    IntervalRandomizationPlan,
+    ResetPlan,
+)
+from unilab.dr.dr_utils import (
+    build_common_reset_randomization,
+    build_interval_push_plan,
+    validate_common_reset_randomization,
+    validate_interval_push_support,
+    zero_actions,
+)
 from unilab.envs.locomotion.go2.base import Go2BaseCfg, Go2BaseEnv
 from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
 
@@ -62,6 +76,58 @@ class Go2JoystickCfg(Go2BaseCfg):
     domain_rand: Domain_Rand = field(default_factory=Domain_Rand)
 
 
+class Go2JoystickDomainRandomizationProvider(DomainRandomizationProvider):
+    def validate(self, env: Any, capabilities: DomainRandomizationCapabilities) -> None:
+        validate_common_reset_randomization(env, capabilities)
+        validate_interval_push_support(env, capabilities)
+
+    def build_interval_randomization_plan(
+        self, env: Any, step_counter: int
+    ) -> IntervalRandomizationPlan | None:
+        return build_interval_push_plan(env, step_counter)
+
+    def _sample_commands(self, env: Any, num_reset: int) -> np.ndarray:
+        low = np.asarray(env.cfg.commands.vel_limit[0], dtype=get_global_dtype())
+        high = np.asarray(env.cfg.commands.vel_limit[1], dtype=get_global_dtype())
+        return np.asarray(
+            np.random.uniform(low=low, high=high, size=(num_reset, 3)), dtype=get_global_dtype()
+        )
+
+    def build_reset_plan(self, env: Any, env_ids: np.ndarray) -> ResetPlan:
+        num_reset = len(env_ids)
+        qpos = np.tile(env._init_qpos, (num_reset, 1))
+        qvel = np.tile(env._init_qvel, (num_reset, 1))
+        qpos[:, 0:2] += np.random.uniform(-0.5, 0.5, (num_reset, 2))
+        yaw = np.random.uniform(-np.pi, np.pi, (num_reset,))
+        qpos[:, 3:7] = np_quat_mul(qpos[:, 3:7], np_yaw_to_quat(yaw))
+        qvel[:, 0:6] = np.random.uniform(-0.5, 0.5, (num_reset, 6))
+        info_updates = {
+            "commands": self._sample_commands(env, num_reset),
+            "current_actions": zero_actions(num_reset, env._num_action),
+            "last_actions": zero_actions(num_reset, env._num_action),
+        }
+        return ResetPlan(
+            env_ids=env_ids,
+            qpos=qpos,
+            qvel=qvel,
+            info_updates=info_updates,
+            randomization=build_common_reset_randomization(env, num_reset),
+        )
+
+    def build_reset_observation(
+        self, env: Any, env_ids: np.ndarray, info_updates: dict[str, Any]
+    ) -> dict[str, np.ndarray]:
+        linvel = env.get_local_linvel()[env_ids]
+        gyro = env.get_gyro()[env_ids]
+        gravity = env._backend.get_sensor_data("upvector")[env_ids]
+        dof_pos = env.get_dof_pos()[env_ids]
+        dof_vel = env.get_dof_vel()[env_ids]
+        return cast(
+            dict[str, np.ndarray],
+            env._compute_obs(info_updates, linvel, gyro, gravity, dof_pos, dof_vel),
+        )
+
+
 @registry.env("Go2JoystickFlatTerrain", sim_backend="mujoco")
 @registry.env("Go2JoystickFlatTerrain", sim_backend="motrix")
 class Go2WalkTask(Go2BaseEnv):
@@ -77,7 +143,7 @@ class Go2WalkTask(Go2BaseEnv):
         self._enable_reward_log = True
         self._reward_cfg = cfg.reward_config
         self._init_reward_functions()
-        self._init_domain_randomization("go2_joystick")
+        self._init_domain_randomization(Go2JoystickDomainRandomizationProvider())
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:

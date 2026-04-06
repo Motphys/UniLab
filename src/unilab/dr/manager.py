@@ -1,24 +1,21 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any
 
-from .providers import build_provider
+import numpy as np
+
+from .provider import DomainRandomizationProvider
 from .types import DomainRandomizationCapabilities
-
-if TYPE_CHECKING:
-    import numpy as np
-
-    from unilab.base.np_env import NpEnv
 
 
 class DomainRandomizationManager:
-    def __init__(self, env: "NpEnv", provider_key: str):
+    def __init__(self, env: Any, provider: DomainRandomizationProvider):
         self._env = env
-        self._provider = build_provider(provider_key)
+        self._provider = provider
         self._capabilities: DomainRandomizationCapabilities = env._backend.get_dr_capabilities()
         self._provider.validate(env, self._capabilities)
 
-    def reset(self, env_ids: "np.ndarray") -> tuple[dict[str, np.ndarray], dict]:
+    def reset(self, env_ids: np.ndarray) -> tuple[dict[str, np.ndarray], dict]:
         plan = self._provider.build_reset_plan(self._env, env_ids)
         payload = plan.randomization
         if payload is not None:

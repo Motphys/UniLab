@@ -3,7 +3,7 @@ from __future__ import annotations
 import abc
 import dataclasses
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Optional, Tuple
+from typing import Any, Optional, Tuple
 
 import gymnasium as gym
 import numpy as np
@@ -11,9 +11,7 @@ import numpy as np
 from unilab.base.backend import SimBackend
 from unilab.base.base import ABEnv, EnvCfg
 from unilab.base.dtype_config import get_global_dtype
-
-if TYPE_CHECKING:
-    from unilab.dr import DomainRandomizationManager
+from unilab.dr import DomainRandomizationManager, DomainRandomizationProvider
 
 
 @dataclass
@@ -163,10 +161,10 @@ class NpEnv(ABEnv):
                 elif isinstance(value, np.ndarray):
                     self._state.info[key][env_indices] = value
 
-    def _init_domain_randomization(self, provider_key: str) -> None:
+    def _init_domain_randomization(self, provider: "DomainRandomizationProvider") -> None:
         from unilab.dr import DomainRandomizationManager
 
-        self._dr_manager = DomainRandomizationManager(self, provider_key)
+        self._dr_manager = DomainRandomizationManager(self, provider)
 
     def reset(self, env_indices: np.ndarray) -> Tuple[dict[str, np.ndarray], dict]:
         if self._dr_manager is None:  # pragma: no cover - constructor integration error

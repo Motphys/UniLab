@@ -4,7 +4,7 @@ import importlib
 import os
 import time
 from collections import deque
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from rich import box
 from rich.console import Console
@@ -12,9 +12,6 @@ from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-
-if TYPE_CHECKING:
-    from torch.utils.tensorboard import SummaryWriter
 
 
 def _fmt_time(seconds: float) -> str:
@@ -96,7 +93,7 @@ class BaseTrainingLogger:
         self._status: str = ""
 
         self._log_dir = log_dir
-        self._tb_writer: SummaryWriter | None = None
+        self._tb_writer: Any | None = None
         self._wandb_run = None
         self._owns_wandb_run = False
 
