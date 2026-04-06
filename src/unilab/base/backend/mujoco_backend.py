@@ -23,24 +23,27 @@ class MuJoCoBackend(SimBackend):
         add_body_sensors: bool = False,
     ):
         self.add_body_sensors = add_body_sensors
+        from unilab.utils.xml_utils import create_discardvisual_xml
+
+        model_path = create_discardvisual_xml(model_file)
+        tmp_paths = [model_path]
 
         if self.add_body_sensors:
             from unilab.utils.xml_utils import inject_mujoco_tracking_sensors
 
-            tmp_path, self._tracked_body_ids, valid_bnames = inject_mujoco_tracking_sensors(
-                model_file,
+            model_path, self._tracked_body_ids, valid_bnames = inject_mujoco_tracking_sensors(
+                model_path,
                 baselink_name=base_name,
             )
+            tmp_paths.append(model_path)
         else:
-            from unilab.utils.xml_utils import materialize_mujoco_xml
-
-            tmp_path = materialize_mujoco_xml(model_file)
             valid_bnames = []
 
         try:
-            self._model = mujoco.MjModel.from_xml_path(tmp_path)
+            self._model = mujoco.MjModel.from_xml_path(model_path)
         finally:
-            os.remove(tmp_path)
+            for tmp_path in reversed(tmp_paths):
+                os.remove(tmp_path)
 
         if self.add_body_sensors:
             self._body_id_to_tracked_idx = np.full(self._model.nbody, -1, dtype=int)

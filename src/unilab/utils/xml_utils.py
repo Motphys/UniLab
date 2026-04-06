@@ -16,7 +16,7 @@ def _enable_discardvisual(root: ET.Element) -> None:
     compiler_tag.set("discardvisual", "true")
 
 
-def materialize_mujoco_xml(model_file: str) -> str:
+def create_discardvisual_xml(model_file: str) -> str:
     tree = ET.parse(model_file)
     _enable_discardvisual(tree.getroot())
     return _write_temp_xml(tree, model_file)
@@ -24,11 +24,7 @@ def materialize_mujoco_xml(model_file: str) -> str:
 
 def _get_named_bodies(model_file: str) -> tuple[list[int], list[str]]:
     mj = cast(Any, mujoco)
-    model_path = materialize_mujoco_xml(model_file)
-    try:
-        _m = mj.MjModel.from_xml_path(model_path)
-    finally:
-        os.remove(model_path)
+    _m = mj.MjModel.from_xml_path(model_file)
     ids, names = [], []
     for i in range(1, _m.nbody):  # skip body 0 (world body)
         name = mj.mj_id2name(_m, mj.mjtObj.mjOBJ_BODY, i)
@@ -133,7 +129,6 @@ def inject_mujoco_tracking_sensors(
 
     tree = ET.parse(model_file)
     root = tree.getroot()
-    _enable_discardvisual(root)
     sensor_tag = root.find("sensor")
     if sensor_tag is None:
         sensor_tag = ET.SubElement(root, "sensor")
