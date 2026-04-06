@@ -16,7 +16,6 @@ from __future__ import annotations
 import argparse
 import contextlib
 import importlib
-import os
 import pkgutil
 import sys
 import time
@@ -96,9 +95,6 @@ def check_grasp_quality(
 
 
 def collect_grasps(args) -> None:
-    if args.viewer and "UNILAB_MUJOCO_DISCARD_VISUAL" not in os.environ:
-        os.environ["UNILAB_MUJOCO_DISCARD_VISUAL"] = "0"
-
     env: Any = registry.make("AllegroInhandRotation", num_envs=args.num_envs, sim_backend="mujoco")
 
     # Override joint noise to the exploration value before init_state().
@@ -136,9 +132,10 @@ def collect_grasps(args) -> None:
     state_spec = mujoco.mjtState.mjSTATE_FULLPHYSICS
 
     # Separate MjData for the viewer so rollout workers are untouched.
-    viz_data = mujoco.MjData(env._backend.model) if args.viewer else None
+    viz_model = mujoco.MjModel.from_xml_path(env.cfg.model_file) if args.viewer else None
+    viz_data = mujoco.MjData(viz_model) if viz_model is not None else None
     viewer_ctx = (
-        mujoco.viewer.launch_passive(env._backend.model, viz_data)
+        mujoco.viewer.launch_passive(viz_model, viz_data)
         if args.viewer
         else contextlib.nullcontext()
     )
@@ -204,12 +201,12 @@ def collect_grasps(args) -> None:
             # ── Viewer refresh (env[0] only) ───────────────────────────────────
             if viewer is not None:
                 mujoco.mj_setState(
-                    env._backend.model,
+                    viz_model,
                     viz_data,
                     env._backend.get_physics_state()[0].astype(np.float64),
                     state_spec,
                 )
-                mujoco.mj_forward(env._backend.model, viz_data)
+                mujoco.mj_forward(viz_model, viz_data)
                 viewer.sync()
                 # Pace to real-time.
                 elapsed = time.perf_counter() - t0

@@ -141,14 +141,16 @@ class TestMuJoCoBasic:
 
 
 @pytest.mark.slow
-def test_mujoco_backend_discard_visual_removes_visual_assets():
+def test_mujoco_backend_discards_visual_assets():
+    import mujoco
+
     from unilab.base.backend.mujoco_backend import MuJoCoBackend
 
     model_file = _xml("go2")
-    full = MuJoCoBackend(model_file, 1, SIM_DT, base_name="base", discard_visual=False)
-    trimmed = MuJoCoBackend(model_file, 1, SIM_DT, base_name="base", discard_visual=True)
+    full = mujoco.MjModel.from_xml_path(model_file)
+    trimmed = MuJoCoBackend(model_file, 1, SIM_DT, base_name="base")
 
-    assert trimmed.model.ngeom < full.model.ngeom
+    assert trimmed.model.ngeom < full.ngeom
     assert trimmed.model.nmesh == 0
     assert trimmed.model.ntex == 0
     assert trimmed.model.nmat == 0
