@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import importlib
+import os
 import pkgutil
 import sys
 import time
@@ -95,6 +96,9 @@ def check_grasp_quality(
 
 
 def collect_grasps(args) -> None:
+    if args.viewer and "UNILAB_MUJOCO_DISCARD_VISUAL" not in os.environ:
+        os.environ["UNILAB_MUJOCO_DISCARD_VISUAL"] = "0"
+
     env: Any = registry.make("AllegroInhandRotation", num_envs=args.num_envs, sim_backend="mujoco")
 
     # Override joint noise to the exploration value before init_state().

@@ -10,6 +10,13 @@ from ..dtype_config import get_global_dtype
 from .base import SimBackend
 
 
+def _env_flag(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"0", "false", "off", "no"}
+
+
 class MuJoCoBackend(SimBackend):
     """MuJoCo 后端实现"""
 
@@ -21,26 +28,46 @@ class MuJoCoBackend(SimBackend):
         base_name: Optional[str] = None,
         np_dtype=None,
         add_body_sensors: bool = False,
+        discard_visual: bool | None = None,
     ):
         self.add_body_sensors = add_body_sensors
+        self._discard_visual = (
+            _env_flag("UNILAB_MUJOCO_DISCARD_VISUAL", True)
+            if discard_visual is None
+            else bool(discard_visual)
+        )
+        tmp_path: str | None = None
 
         if self.add_body_sensors:
             from unilab.utils.xml_utils import inject_mujoco_tracking_sensors
 
             tmp_path, self._tracked_body_ids, valid_bnames = inject_mujoco_tracking_sensors(
-                model_file, baselink_name=base_name
+                model_file,
+                baselink_name=base_name,
+                discard_visual=self._discard_visual,
             )
-            try:
-                self._model = mujoco.MjModel.from_xml_path(tmp_path)
-            finally:
+            model_path = tmp_path
+        else:
+            from unilab.utils.xml_utils import materialize_mujoco_xml
+
+            model_path, should_cleanup = materialize_mujoco_xml(
+                model_file,
+                discard_visual=self._discard_visual,
+            )
+            if should_cleanup:
+                tmp_path = model_path
+            valid_bnames = []
+
+        try:
+            self._model = mujoco.MjModel.from_xml_path(model_path)
+        finally:
+            if tmp_path is not None:
                 os.remove(tmp_path)
 
+        if self.add_body_sensors:
             self._body_id_to_tracked_idx = np.full(self._model.nbody, -1, dtype=int)
             for idx, bid in enumerate(self._tracked_body_ids):
                 self._body_id_to_tracked_idx[bid] = idx
-        else:
-            self._model = mujoco.MjModel.from_xml_path(model_file)
-            valid_bnames = []
 
         self._model.opt.timestep = sim_dt
         self._num_envs = num_envs

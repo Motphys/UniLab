@@ -8,9 +8,40 @@ from typing import Any, cast
 import mujoco
 
 
-def _get_named_bodies(model_file: str) -> tuple[list[int], list[str]]:
+def _enable_discardvisual(root: ET.Element) -> None:
+    compiler_tag = root.find("compiler")
+    if compiler_tag is None:
+        compiler_tag = ET.Element("compiler")
+        root.insert(0, compiler_tag)
+    compiler_tag.set("discardvisual", "true")
+
+
+def materialize_mujoco_xml(
+    model_file: str,
+    *,
+    discard_visual: bool = False,
+) -> tuple[str, bool]:
+    if not discard_visual:
+        return model_file, False
+
+    tree = ET.parse(model_file)
+    _enable_discardvisual(tree.getroot())
+    return _write_temp_xml(tree, model_file), True
+
+
+def _get_named_bodies(
+    model_file: str, *, discard_visual: bool = False
+) -> tuple[list[int], list[str]]:
     mj = cast(Any, mujoco)
-    _m = mj.MjModel.from_xml_path(model_file)
+    model_path, should_cleanup = materialize_mujoco_xml(
+        model_file,
+        discard_visual=discard_visual,
+    )
+    try:
+        _m = mj.MjModel.from_xml_path(model_path)
+    finally:
+        if should_cleanup:
+            os.remove(model_path)
     ids, names = [], []
     for i in range(1, _m.nbody):  # skip body 0 (world body)
         name = mj.mj_id2name(_m, mj.mjtObj.mjOBJ_BODY, i)
@@ -100,7 +131,10 @@ def _write_temp_xml(tree: ET.ElementTree[ET.Element], model_file: str) -> str:
 
 
 def inject_mujoco_tracking_sensors(
-    model_file: str, baselink_name: str | None = None
+    model_file: str,
+    baselink_name: str | None = None,
+    *,
+    discard_visual: bool = False,
 ) -> tuple[str, list, list]:
     """为 MuJoCo 后端注入 tracking sensors。
 
@@ -110,10 +144,15 @@ def inject_mujoco_tracking_sensors(
     Returns:
         (tmp_xml_path, tracked_body_ids, valid_bnames)
     """
-    tracked_body_ids, valid_bnames = _get_named_bodies(model_file)
+    tracked_body_ids, valid_bnames = _get_named_bodies(
+        model_file,
+        discard_visual=discard_visual,
+    )
 
     tree = ET.parse(model_file)
     root = tree.getroot()
+    if discard_visual:
+        _enable_discardvisual(root)
     sensor_tag = root.find("sensor")
     if sensor_tag is None:
         sensor_tag = ET.SubElement(root, "sensor")
