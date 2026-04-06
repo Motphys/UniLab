@@ -56,12 +56,7 @@ class MuJoCoBackend(SimBackend):
         self.backend_type = "mujoco"
 
         # 线程配置
-        thread_override = os.getenv("UNILAB_MUJOCO_STEP_THREADS")
-        if thread_override:
-            self._n_threads = min(num_envs, max(1, int(thread_override)))
-        else:
-            host_threads = cpu_count()
-            self._n_threads = min(num_envs, host_threads * 2)
+        self._n_threads = min(num_envs, cpu_count() * 2)
 
         self._pool = BatchEnvPool(self._model, nbatch=num_envs, nthread=self._n_threads)
 
@@ -127,9 +122,8 @@ class MuJoCoBackend(SimBackend):
             self._tracked_angvel_b_all = _get_sensor_view("track_angvel_b", 3)
 
         # 对初始 qpos0 状态运行一次 forward pass，确保传感器数据有效
-        if self._model.nsensordata > 0:
-            sensor_init = self._pool.forward(self._physics_state)
-            self._sensor_data[:] = sensor_init.astype(self._np_dtype)
+        sensor_init = self._pool.forward(self._physics_state)
+        self._sensor_data[:] = sensor_init.astype(self._np_dtype)
 
     # ------------------------------------------------------------------ #
     # Properties                                                         #
@@ -157,11 +151,8 @@ class MuJoCoBackend(SimBackend):
         )
         self._physics_state[:] = state_np.astype(self._np_dtype)
 
-        # Recompute sensors from the final physics state to keep state/sensor
-        # alignment consistent with set_state() and initialization paths.
-        if self._model.nsensordata > 0:
-            sensor_np = self._pool.forward(self._physics_state)
-            self._sensor_data[:] = sensor_np.astype(self._np_dtype)
+        sensor_np = self._pool.forward(self._physics_state)
+        self._sensor_data[:] = sensor_np.astype(self._np_dtype)
 
     def set_state(
         self,
@@ -178,16 +169,14 @@ class MuJoCoBackend(SimBackend):
         state_np[:, self._idx_qpos : self._idx_qpos + self.nq] = qpos
         state_np[:, self._idx_qvel : self._idx_qvel + self.nv] = qvel
 
-        env_ids = np.asarray(env_indices, dtype=np.int32)
         state_out, sensor_np = self._pool.reset(
-            env_ids=env_ids,
+            env_ids=np.asarray(env_indices, dtype=np.int32),
             initial_state=state_np,
             randomization=randomization,
         )
 
-        self._physics_state[env_ids] = state_out.astype(self._np_dtype)
-        if self._model.nsensordata > 0:
-            self._sensor_data[env_ids] = sensor_np.astype(self._np_dtype)
+        self._physics_state[env_indices] = state_out.astype(self._np_dtype)
+        self._sensor_data[env_indices] = sensor_np.astype(self._np_dtype)
 
     # ------------------------------------------------------------------ #
     # Base kinematics                                                    #
@@ -220,17 +209,7 @@ class MuJoCoBackend(SimBackend):
     # ------------------------------------------------------------------ #
 
     def _get_mapped_indices(self, body_ids: np.ndarray) -> np.ndarray:
-        # if not self.add_body_sensors:
-        #     raise NotImplementedError(
-        #         "Slow kinematics computation has been removed for performance reasons. "
-        #         "Please pass add_body_sensors=True during initialization to enable tracking."
-        #     )
-        mapped_indices = self._body_id_to_tracked_idx[body_ids]
-        # if np.any(mapped_indices == -1):
-        #     raise ValueError(
-        #         "Cannot query untracked (unnamed) bodies with fast sensor method. Please ensure bodies are named in XML."
-        #     )
-        return mapped_indices  # type: ignore[no-any-return]
+        return np.asarray(self._body_id_to_tracked_idx[body_ids])
 
     def get_body_pos_w(self, body_ids: np.ndarray) -> np.ndarray:
         return np.asarray(self._tracked_pos_w_all[:, self._get_mapped_indices(body_ids), :])
@@ -265,8 +244,6 @@ class MuJoCoBackend(SimBackend):
     # ------------------------------------------------------------------ #
 
     def get_sensor_data(self, name: str) -> np.ndarray:
-        # if name not in self._sensor_views:
-        #     raise ValueError(f"Sensor '{name}' not found")
         return self._sensor_views[name]
 
     # ------------------------------------------------------------------ #
