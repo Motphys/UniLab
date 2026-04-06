@@ -6,6 +6,14 @@ import mujoco
 import numpy as np
 from mujoco.batch_env import BatchEnvPool
 
+from unilab.dr.types import (
+    RESET_TERM_BASE_COM,
+    RESET_TERM_BASE_MASS,
+    DomainRandomizationCapabilities,
+    IntervalRandomizationPlan,
+    ResetRandomizationPayload,
+)
+
 from ..dtype_config import get_global_dtype
 from .base import SimBackend
 
@@ -23,6 +31,7 @@ class MuJoCoBackend(SimBackend):
         add_body_sensors: bool = False,
     ):
         self.add_body_sensors = add_body_sensors
+        self._base_name = base_name
         from unilab.utils.xml_utils import create_discardvisual_xml
 
         model_path = create_discardvisual_xml(model_file)
@@ -51,6 +60,13 @@ class MuJoCoBackend(SimBackend):
                 self._body_id_to_tracked_idx[bid] = idx
 
         self._model.opt.timestep = sim_dt
+        self._base_body_id = (
+            mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, base_name)
+            if base_name is not None
+            else -1
+        )
+        self._base_body_mass = np.asarray(self._model.body_mass).copy()
+        self._base_body_ipos = np.asarray(self._model.body_ipos).copy()
         self._num_envs = num_envs
         self._np_dtype = np_dtype if np_dtype is not None else get_global_dtype()
         self.backend_type = "mujoco"
@@ -159,7 +175,7 @@ class MuJoCoBackend(SimBackend):
         env_indices: np.ndarray,
         qpos: np.ndarray,
         qvel: np.ndarray,
-        randomization: dict[str, np.ndarray] | None = None,
+        randomization: ResetRandomizationPayload | None = None,
     ) -> None:
         if len(env_indices) == 0:
             return
@@ -172,11 +188,24 @@ class MuJoCoBackend(SimBackend):
         state_out, sensor_np = self._pool.reset(
             env_ids=np.asarray(env_indices, dtype=np.int32),
             initial_state=state_np,
-            randomization=randomization,
+            randomization=self._translate_reset_randomization(randomization, num_reset),
         )
 
         self._physics_state[env_indices] = state_out.astype(self._np_dtype)
         self._sensor_data[env_indices] = sensor_np.astype(self._np_dtype)
+
+    def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
+        return DomainRandomizationCapabilities(
+            supported_reset_terms=frozenset({RESET_TERM_BASE_MASS, RESET_TERM_BASE_COM}),
+            supports_interval_push=True,
+        )
+
+    def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
+        if plan.push_perturbation_limit is None:
+            return
+        velocity_delta = np.random.uniform(-1.0, 1.0, size=(self._num_envs, 3))
+        velocity_delta *= np.asarray(plan.push_perturbation_limit, dtype=np.float64)
+        self._base_lin_vel_view[:] += velocity_delta.astype(self._np_dtype)
 
     # ------------------------------------------------------------------ #
     # Base kinematics                                                    #
@@ -252,3 +281,28 @@ class MuJoCoBackend(SimBackend):
 
     def get_physics_state(self) -> np.ndarray:
         return self._physics_state
+
+    def _translate_reset_randomization(
+        self,
+        randomization: ResetRandomizationPayload | None,
+        num_reset: int,
+    ) -> dict[str, np.ndarray] | None:
+        if randomization is None or randomization.is_empty():
+            return None
+        if self._base_body_id < 0:
+            raise ValueError(f"Body '{self._base_name}' not found in MuJoCo model")
+
+        translated: dict[str, np.ndarray] = {}
+        if randomization.base_mass_delta is not None:
+            body_mass = np.broadcast_to(self._base_body_mass, (num_reset, self._model.nbody)).copy()
+            body_mass[:, self._base_body_id] += np.asarray(randomization.base_mass_delta)
+            translated["body_mass"] = body_mass
+
+        if randomization.base_com_offset is not None:
+            body_ipos = np.broadcast_to(
+                self._base_body_ipos, (num_reset, self._model.nbody, 3)
+            ).copy()
+            body_ipos[:, self._base_body_id, :] += np.asarray(randomization.base_com_offset)
+            translated["body_ipos"] = body_ipos.reshape(num_reset, -1)
+
+        return translated or None

@@ -2,6 +2,14 @@ import os
 
 import numpy as np
 
+from unilab.dr.types import (
+    RESET_TERM_BASE_COM,
+    RESET_TERM_BASE_MASS,
+    DomainRandomizationCapabilities,
+    IntervalRandomizationPlan,
+    ResetRandomizationPayload,
+)
+
 try:
     import motrixsim as mtx
     from motrixsim.render import RenderApp, RenderSettings
@@ -29,6 +37,7 @@ class MotrixBackend(SimBackend):
             raise ImportError("motrixsim not available")
 
         self.add_body_sensors = add_body_sensors
+        self._base_name = base_name
 
         if self.add_body_sensors:
             from unilab.utils.xml_utils import inject_motrix_tracking_sensors
@@ -62,6 +71,12 @@ class MotrixBackend(SimBackend):
         self._data = mtx.SceneData(self._model, batch=[num_envs])  # pyright: ignore[reportPossiblyUnbound]
         self._body = self._model.get_body(base_name)
         self._body_link = self._model.get_link(base_name)
+        self._default_base_mass_override = np.asarray(
+            self._body_link.get_mass_override(self._data)
+        ).copy()
+        self._default_base_com_override = np.asarray(
+            self._body_link.get_center_of_mass_override(self._data)
+        ).copy()
         self._render_app: "RenderApp | None" = None
         self.backend_type = "motrix"
 
@@ -106,11 +121,8 @@ class MotrixBackend(SimBackend):
         env_indices: np.ndarray,
         qpos: np.ndarray,
         qvel: np.ndarray,
-        randomization: dict[str, np.ndarray] | None = None,
+        randomization: ResetRandomizationPayload | None = None,
     ) -> None:
-        if randomization is not None:
-            raise NotImplementedError("MotrixBackend does not support reset randomization payloads")
-
         # Convert quaternion from mujoco (wxyz) to motrix (xyzw)
         qpos_motrix = qpos.copy()
         qpos_motrix[:, 3:7] = qpos[:, [4, 5, 6, 3]]
@@ -122,6 +134,7 @@ class MotrixBackend(SimBackend):
 
         # Batch set state
         data_slice.reset(self._model)
+        self._apply_reset_randomization(data_slice, env_indices, randomization)
         data_slice.set_dof_vel(qvel)
         data_slice.set_dof_pos(qpos_motrix, self._model)
 
@@ -131,6 +144,17 @@ class MotrixBackend(SimBackend):
 
         self._model.forward_kinematic(self._data)
         self._refresh_link_pose_cache()
+
+    def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
+        return DomainRandomizationCapabilities(
+            supported_reset_terms=frozenset({RESET_TERM_BASE_MASS, RESET_TERM_BASE_COM}),
+            supports_interval_push=True,
+        )
+
+    def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
+        if plan.push_perturbation_limit is None:
+            return
+        self.push_robots(np.asarray(plan.push_perturbation_limit))
 
     # ------------------------------------------------------------------ #
     # Base kinematics                                                    #
@@ -245,27 +269,6 @@ class MotrixBackend(SimBackend):
     def _refresh_link_pose_cache(self) -> None:
         self._link_poses = np.ascontiguousarray(np.asarray(self._model.get_link_poses(self._data)))
 
-    def _process_rigid_body_props(self, cfg) -> None:
-        if cfg.domain_rand.randomize_base_mass:
-            mass = self._model.get_link(cfg.asset.base_name).get_mass_override(self._data)
-            mass_low = cfg.domain_rand.added_mass_range[0]
-            mass_high = cfg.domain_rand.added_mass_range[1]
-            random_mass = mass + np.random.uniform(mass_low, mass_high, size=(self._num_envs,))
-            self._model.get_link(cfg.asset.base_name).set_mass_override(self._data, random_mass)
-            mass = self._model.get_link(cfg.asset.base_name).get_mass_override(self._data)
-
-        if cfg.domain_rand.random_com:
-            com_offset = np.zeros(
-                (self._num_envs, 3), dtype=np.float32
-            )  # [x_offset, y_offset, z_offset]
-            x_low = cfg.domain_rand.com_offset_x[0]
-            x_high = cfg.domain_rand.com_offset_x[1]
-            com_offset[:, 0] = np.random.uniform(x_low, x_high, self._num_envs)
-            self._model.get_link(cfg.asset.base_name).set_center_of_mass_override(
-                self._data, com_offset
-            )
-            self._model.get_link(cfg.asset.base_name).get_center_of_mass_override(self._data)
-
     def push_robots(self, force_range):
         ex_force = np.random.rand(self.num_envs, 3) * 2 - 1  # [x_force, y_force, z_force]
         ex_force[:, 0] *= force_range[0]
@@ -301,3 +304,23 @@ class MotrixBackend(SimBackend):
             self.init_renderer()
         assert self._render_app is not None
         self._render_app.sync(data=self._data)
+
+    def _apply_reset_randomization(
+        self,
+        data_slice,
+        env_indices: np.ndarray,
+        randomization: ResetRandomizationPayload | None,
+    ) -> None:
+        if randomization is None or randomization.is_empty():
+            return
+
+        env_ids = np.asarray(env_indices, dtype=np.intp)
+        if randomization.base_mass_delta is not None:
+            base_mass = self._default_base_mass_override[env_ids].copy()
+            randomized_mass = base_mass + np.asarray(randomization.base_mass_delta)
+            self._body_link.set_mass_override(data_slice, randomized_mass)
+
+        if randomization.base_com_offset is not None:
+            base_com = self._default_base_com_override[env_ids].copy()
+            randomized_com = base_com + np.asarray(randomization.base_com_offset)
+            self._body_link.set_center_of_mass_override(data_slice, randomized_com)

@@ -124,12 +124,6 @@ class Go1BaseEnv(NpEnv):
                 "No keyframe found in model. Model must have either MuJoCo key_qpos or Motrix keyframes."
             )
 
-    def push_robots(self):
-        if self.push_robots_flag:
-            domain_rand = getattr(self._cfg, "domain_rand", None)
-            if domain_rand and self.step_counter % domain_rand.push_interval == 0:
-                self._backend.push_robots(domain_rand.max_force)
-
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
         state.info["last_actions"] = state.info.get("current_actions", np.zeros_like(actions))
         state.info["current_actions"] = actions

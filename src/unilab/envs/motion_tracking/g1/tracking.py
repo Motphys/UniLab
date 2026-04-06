@@ -219,6 +219,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
         self.motion_sampler = MotionSampler(
             self.motion_loader, mode=cfg.sampling_mode, num_envs=num_envs
         )
+        self._init_domain_randomization("g1_motion_tracking")
 
         # Buffers for relative body transforms
         self.body_pos_relative_w = np.zeros(
@@ -661,110 +662,3 @@ class G1MotionTrackingEnv(G1BaseEnv):
         upper_violation = np.maximum(0, dof_pos - upper)
         violation = lower_violation + upper_violation
         return np.asarray(np.sum(np.square(violation), axis=1), dtype=get_global_dtype())
-
-    def reset(self, env_indices: np.ndarray):
-        """Reset specified environments."""
-        dtype = get_global_dtype()
-        num_reset = len(env_indices)
-
-        # Sample motion frames
-        motion_frames = self.motion_sampler.sample_frames(env_indices)
-        motion_data = self.motion_loader.get_motion_at_frame(motion_frames)
-
-        # Get anchor body state from motion
-        root_pos = motion_data.body_pos_w[:, 0].copy()
-        root_ori = motion_data.body_quat_w[:, 0].copy()
-        root_lin_vel = motion_data.body_lin_vel_w[:, 0].copy()
-        root_ang_vel = motion_data.body_ang_vel_w[:, 0].copy()
-        joint_pos = motion_data.joint_pos.copy()
-        joint_vel = motion_data.joint_vel.copy()
-
-        # Apply pose randomization
-        pose_rand = self._cfg.pose_randomization
-        range_list = [
-            (pose_rand.x[0], pose_rand.x[1]),
-            (pose_rand.y[0], pose_rand.y[1]),
-            (pose_rand.z[0], pose_rand.z[1]),
-            (pose_rand.roll[0], pose_rand.roll[1]),
-            (pose_rand.pitch[0], pose_rand.pitch[1]),
-            (pose_rand.yaw[0], pose_rand.yaw[1]),
-        ]
-        rand_samples = np.array(
-            [[np.random.uniform(r[0], r[1]) for r in range_list] for _ in range(num_reset)],
-            dtype=dtype,
-        )
-        root_pos += rand_samples[:, 0:3]
-        ori_delta = np_quat_from_euler_xyz(
-            rand_samples[:, 3], rand_samples[:, 4], rand_samples[:, 5]
-        )
-        root_ori = np_quat_mul(ori_delta, root_ori)
-
-        # Apply velocity randomization
-        vel_rand = self._cfg.velocity_randomization
-        range_list = [
-            (vel_rand.x[0], vel_rand.x[1]),
-            (vel_rand.y[0], vel_rand.y[1]),
-            (vel_rand.z[0], vel_rand.z[1]),
-            (vel_rand.roll[0], vel_rand.roll[1]),
-            (vel_rand.pitch[0], vel_rand.pitch[1]),
-            (vel_rand.yaw[0], vel_rand.yaw[1]),
-        ]
-        rand_samples = np.array(
-            [[np.random.uniform(r[0], r[1]) for r in range_list] for _ in range(num_reset)],
-            dtype=dtype,
-        )
-        root_lin_vel += rand_samples[:, :3]
-        root_ang_vel += rand_samples[:, 3:]
-
-        # Apply joint position randomization
-        joint_pos += np_sample_uniform(
-            self._cfg.joint_position_range[0],
-            self._cfg.joint_position_range[1],
-            joint_pos.shape,
-            dtype=dtype,
-        )
-
-        # Clip joint positions to limits (MuJoCo only)
-        joint_range = self._get_joint_range()
-        if joint_range is not None:
-            joint_pos = np.clip(joint_pos, joint_range[:, 0], joint_range[:, 1])
-
-        # Construct qpos and qvel
-        qpos = np.tile(self._init_qpos, (num_reset, 1))
-        qvel = np.tile(self._init_qvel, (num_reset, 1))
-
-        qpos[:, 0:3] = root_pos
-        qpos[:, 3:7] = root_ori
-        qpos[:, 7:] = joint_pos
-
-        qvel[:, 0:3] = root_lin_vel
-        # MuJoCo freejoint angular velocity in qvel is expressed in the body frame.
-        qvel[:, 3:6] = np_quat_apply(np_quat_inv(root_ori), root_ang_vel)
-        qvel[:, 6:] = joint_vel
-
-        # Set state
-        self._backend.set_state(env_indices, qpos, qvel)
-
-        # Initialize info
-        info = {
-            "current_actions": np.zeros((num_reset, self._num_action), dtype=dtype),
-            "last_actions": np.zeros((num_reset, self._num_action), dtype=dtype),
-        }
-
-        # Compute initial observations — slice motion data to match env_indices
-        motion_data = self.motion_loader.get_motion_at_frame(
-            self.motion_sampler.current_frames[env_indices]
-        )
-        linvel = self.get_local_linvel()[env_indices]
-        gyro = self.get_gyro()[env_indices]
-        dof_pos = self.get_dof_pos()[env_indices]
-        dof_vel = self.get_dof_vel()[env_indices]
-        all_pos_w, all_quat_w = self._get_body_pose_w()
-        robot_body_pos_w = all_pos_w[env_indices]
-        robot_body_quat_w = all_quat_w[env_indices]
-
-        obs = self._compute_obs(
-            info, motion_data, linvel, gyro, dof_pos, dof_vel, robot_body_pos_w, robot_body_quat_w
-        )
-
-        return obs, info

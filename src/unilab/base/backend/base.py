@@ -2,6 +2,12 @@ import abc
 
 import numpy as np
 
+from unilab.dr.types import (
+    DomainRandomizationCapabilities,
+    IntervalRandomizationPlan,
+    ResetRandomizationPayload,
+)
+
 
 class SimBackend(abc.ABC):
     """仿真后端统一接口"""
@@ -39,7 +45,7 @@ class SimBackend(abc.ABC):
         env_indices: np.ndarray,
         qpos: np.ndarray,
         qvel: np.ndarray,
-        randomization: dict[str, np.ndarray] | None = None,
+        randomization: ResetRandomizationPayload | None = None,
     ) -> None:
         """设置指定环境的物理状态
 
@@ -49,6 +55,14 @@ class SimBackend(abc.ABC):
             qvel: 速度状态
             randomization: 可选的后端随机化 payload
         """
+
+    @abc.abstractmethod
+    def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
+        """Return supported domain-randomization capabilities for this backend."""
+
+    @abc.abstractmethod
+    def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
+        """Apply a scheduled interval randomization plan."""
 
     # ------------------------------------------------------------------ #
     # Base kinematics                                                      #

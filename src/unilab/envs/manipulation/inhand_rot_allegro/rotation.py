@@ -85,6 +85,7 @@ class AllegroRotationMj(AllegroBaseMjEnv):
         self._grasp_cache_loaded = False
 
         self._init_reward_functions()
+        self._init_domain_randomization("allegro_rotation")
 
     # ── Spaces ──────────────────────────────────────────────────────
 
@@ -236,90 +237,3 @@ class AllegroRotationMj(AllegroBaseMjEnv):
         return {
             "obs": np.asarray(obs_lag_history.reshape(num_envs, -1), dtype=dtype),
         }
-
-    # ── Reset ────────────────────────────────────────────────────────
-
-    def reset(self, env_indices: np.ndarray) -> tuple[dict[str, np.ndarray], dict]:
-        num_reset = len(env_indices)
-        dr = self._cfg.domain_rand
-
-        # Lazy load grasp cache on first reset
-        if not self._grasp_cache_loaded:
-            if self._cfg.gen_grasp:
-                self._grasp_cache = None
-                print("[AllegroRotationMj] gen_grasp=True — using keyframe reset only")
-            else:
-                _default = epath.Path(__file__).parent / "grasps" / "grasp_50k.npy"
-                cache_path = self._cfg.grasp_cache_path or str(_default)
-                if not epath.Path(cache_path).exists():
-                    raise FileNotFoundError(f"Grasp cache not found: {cache_path}")
-                self._grasp_cache = np.load(cache_path).astype(np.float64)
-                print(
-                    f"[AllegroRotationMj] Loaded {len(self._grasp_cache):,} grasps from {cache_path}"
-                )
-            self._grasp_cache_loaded = True
-
-        if self._grasp_cache is not None:
-            # Sample num_reset random states from the pre-collected grasp cache.
-            idx = np.random.randint(0, len(self._grasp_cache), size=num_reset)
-            sampled = self._grasp_cache[idx]  # (num_reset, 23) float64
-            hand_qpos = sampled[:, :16]  # (num_reset, 16)
-            ball_pos = sampled[:, 16:19]  # (num_reset,  3)
-            ball_quat = sampled[:, 19:23]  # (num_reset,  4)
-        else:
-            # Fallback: keyframe pre-grasp pose + small noise.
-            hand_qpos = np.broadcast_to(self.default_angles, (num_reset, self._NUM_HAND_DOF)).copy()
-            hand_qpos += np.random.uniform(-dr.joint_noise, dr.joint_noise, hand_qpos.shape).astype(
-                np.float64
-            )
-            hand_qpos = np.clip(
-                hand_qpos,
-                self._ctrl_lower.astype(np.float64),
-                self._ctrl_upper.astype(np.float64),
-            )
-
-            ball_init_pos = self._init_qpos[self._NUM_HAND_DOF : self._NUM_HAND_DOF + 3]
-            ball_pos = np.broadcast_to(ball_init_pos, (num_reset, 3)).copy()
-            ball_pos[:, :2] += np.random.uniform(-0.00, 0.00, (num_reset, 2))
-            ball_pos[:, 2] += dr.ball_z_offset
-            ball_quat = np.tile([1.0, 0.0, 0.0, 0.0], (num_reset, 1))  # w-first, identity
-
-        # Full qpos / qvel arrays.
-        qpos = np.concatenate([hand_qpos, ball_pos, ball_quat], axis=1).astype(np.float64)
-        qvel = np.zeros((num_reset, self.nv), dtype=np.float64)
-        # Tiny random ball velocity to break symmetry.
-        qvel[:, self._NUM_HAND_DOF : self._NUM_HAND_DOF + 3] = np.random.uniform(
-            -dr.ball_vel_noise, dr.ball_vel_noise, (num_reset, 3)
-        )
-
-        # Set state via backend (sets qpos/qvel and runs mj_forward).
-        self._backend.set_state(env_indices, qpos, qvel)
-
-        # PD controller starts at the actual reset hand pose.
-        dtype = get_global_dtype()
-        init_ctrl = hand_qpos.astype(dtype)
-        ball_pos_f32 = ball_pos.astype(dtype)
-
-        # Pre-fill lag history with noiseless init obs so the policy doesn't see stale zeros.
-        dof_pos_norm = 2.0 * (init_ctrl - self._dof_mid) / (self._dof_range + 1e-8)
-        init_obs = np.concatenate(
-            [dof_pos_norm, init_ctrl, ball_pos_f32], axis=1, dtype=dtype
-        )  # (num_reset, 35)
-        obs_lag_history = np.broadcast_to(
-            init_obs[:, None, :],
-            (num_reset, self._NUM_LAG_STEPS, self._NUM_OBS_PER_STEP),
-        ).copy()
-
-        info = {
-            "current_actions": np.zeros((num_reset, self._num_action), dtype=dtype),
-            "last_actions": np.zeros((num_reset, self._num_action), dtype=dtype),
-            "prev_ctrl": init_ctrl,
-            "init_pose": init_ctrl.copy(),
-            "prev_dof_pos": init_ctrl.copy(),
-            "prev_ball_pos": ball_pos_f32.copy(),
-            "prev_ball_quat": ball_quat.astype(dtype).copy(),
-            "obs_lag_history": obs_lag_history,
-        }
-
-        obs_batch = self._compute_obs(info, init_ctrl, ball_pos_f32)
-        return obs_batch, info

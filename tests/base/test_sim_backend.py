@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from unilab.assets import ASSETS_ROOT_PATH
+from unilab.dr import ResetRandomizationPayload
 
 
 # ---------------------------------------------------------------------------
@@ -101,14 +102,17 @@ class TestMuJoCoBasic:
         original = [bkd._pool.get_field(i, "body_mass").copy() for i in range(NUM_ENVS)]
         qpos = _identity_qpos_mujoco(bkd.model.nq)
         qvel = np.zeros((1, bkd.model.nv))
-        randomization = {"body_mass": (original[1] * 1.5).reshape(1, -1)}
+        base_body_id = bkd._base_body_id
+        delta = np.array([original[1][base_body_id] * 0.5])
+        randomization = ResetRandomizationPayload(base_mass_delta=delta)
 
         bkd.set_state(np.array([1]), qpos, qvel, randomization=randomization)
 
         np.testing.assert_array_equal(bkd._pool.get_field(0, "body_mass"), original[0])
-        np.testing.assert_allclose(
-            bkd._pool.get_field(1, "body_mass"), randomization["body_mass"][0]
-        )
+        updated = bkd._pool.get_field(1, "body_mass")
+        np.testing.assert_allclose(updated[:base_body_id], original[1][:base_body_id])
+        np.testing.assert_allclose(updated[base_body_id], original[1][base_body_id] + delta[0])
+        np.testing.assert_allclose(updated[base_body_id + 1 :], original[1][base_body_id + 1 :])
 
     # base kinematics
 
@@ -320,15 +324,25 @@ class TestMotrixBasic:
         bkd.set_state(np.array([0]), qpos, np.zeros((1, nv)))
         np.testing.assert_allclose(bkd.get_base_pos()[0], target, atol=1e-4)
 
-    def test_set_state_randomization_not_supported(self, _ctx):
+    def test_set_state_randomization_only_affects_target_envs(self, _ctx):
         bkd, _ = _ctx
         nq = bkd.get_dof_pos().shape[-1] + 7
         nv = bkd.get_dof_vel().shape[-1] + 6
         qpos = _identity_qpos_mujoco(nq)
         qvel = np.zeros((1, nv))
+        original_mass = np.asarray(bkd._body_link.get_mass_override(bkd.data)).copy()
+        delta = np.array([0.25])
 
-        with pytest.raises(NotImplementedError):
-            bkd.set_state(np.array([0]), qpos, qvel, randomization={"body_mass": np.ones((1, 1))})
+        bkd.set_state(
+            np.array([0]),
+            qpos,
+            qvel,
+            randomization=ResetRandomizationPayload(base_mass_delta=delta),
+        )
+
+        updated_mass = np.asarray(bkd._body_link.get_mass_override(bkd.data))
+        np.testing.assert_allclose(updated_mass[1], original_mass[1], atol=1e-6)
+        np.testing.assert_allclose(updated_mass[0], original_mass[0] + delta[0], atol=1e-6)
 
     # base kinematics
 

@@ -67,12 +67,6 @@ class Go2BaseEnv(NpEnv):
         self._init_action_space()
         self._num_action = self._action_space.shape[0]
         self._init_buffers()
-        self.push_robots_flag = False
-        if self._backend.backend_type == "motrix":
-            self._backend._process_rigid_body_props(cfg)
-            domain_rand = getattr(self._cfg, "domain_rand", None)
-            if domain_rand and domain_rand.push_robots:
-                self.push_robots_flag = True
 
     def _init_action_space(self):
         model = self._backend.model

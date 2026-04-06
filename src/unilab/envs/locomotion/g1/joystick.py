@@ -212,6 +212,7 @@ class G1JoystickPPO(G1BaseEnv):
         self._upper_body_pose_weights = build_upper_body_pose_weights(self._reward_cfg.pose_weights)
 
         self._init_reward_functions()
+        self._init_domain_randomization("g1_joystick")
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:
@@ -387,51 +388,6 @@ class G1JoystickPPO(G1BaseEnv):
     def _reward_upper_body_pose(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
         diff = dof_pos - self.default_angles
         return compute_weighted_pose_penalty(diff, self._upper_body_pose_weights)
-
-    def reset(self, env_indices: np.ndarray):
-        dtype = get_global_dtype()
-        num_reset = len(env_indices)
-        qpos = np.tile(self._init_qpos, (num_reset, 1))
-        qvel = np.tile(self._init_qvel, (num_reset, 1))
-
-        dxy = np.random.uniform(-0.5, 0.5, (num_reset, 2))
-        qpos[:, 0:2] += dxy
-        yaw = np.random.uniform(-np.pi, np.pi, (num_reset,))
-        quat_yaw = np_yaw_to_quat(yaw)
-        qpos[:, 3:7] = np_quat_mul(qpos[:, 3:7], quat_yaw)
-        qvel[:, 0:6] = sample_reset_base_qvel(
-            rng=np.random,
-            num_samples=num_reset,
-            limit=self._cfg.reset_base_qvel_limit,
-        )
-
-        self._backend.set_state(env_indices, qpos, qvel)
-
-        commands = sample_velocity_commands(
-            rng=np.random,
-            num_samples=num_reset,
-            low=np.asarray(self._cfg.commands.vel_limit[0], dtype=get_global_dtype()),
-            high=np.asarray(self._cfg.commands.vel_limit[1], dtype=get_global_dtype()),
-        )
-
-        info = {
-            "commands": commands,
-            "current_actions": np.zeros((num_reset, self._num_action), dtype=dtype),
-            "last_actions": np.zeros((num_reset, self._num_action), dtype=dtype),
-            "gait_phase": sample_gait_phase_pairs(
-                rng=np.random,
-                num_samples=num_reset,
-                mode=self._cfg.gait_phase_init_mode,
-            ),
-        }
-
-        linvel = self.get_local_linvel()[env_indices]
-        gyro = self.get_gyro()[env_indices]
-        gravity = self._backend.get_sensor_data("upvector")[env_indices]
-        dof_pos = self.get_dof_pos()[env_indices]
-        dof_vel = self.get_dof_vel()[env_indices]
-        obs = self._compute_obs(info, linvel, gyro, gravity, dof_pos, dof_vel)
-        return obs, info
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
         state.info["last_actions"] = state.info.get("current_actions", np.zeros_like(actions))

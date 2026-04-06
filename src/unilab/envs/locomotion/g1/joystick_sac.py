@@ -93,6 +93,7 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
         )
 
         self._init_reward_functions()
+        self._init_domain_randomization("g1_joystick")
 
     def _compute_obs(
         self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel
