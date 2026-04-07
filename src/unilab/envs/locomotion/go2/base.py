@@ -8,6 +8,7 @@ import numpy as np
 
 from unilab.base.backend import SimBackend
 from unilab.base.base import EnvCfg
+from unilab.base.dtype_config import get_global_dtype
 from unilab.base.np_env import NpEnv, NpEnvState
 
 
@@ -92,21 +93,37 @@ class Go2BaseEnv(NpEnv):
         return self._action_space  # type: ignore[no-any-return]
 
     def _init_buffers(self):
+        dtype = get_global_dtype()
         self.default_angles = np.zeros((self._num_action,), dtype=np.float32)
 
         model = self._backend.model
-        if hasattr(model, "key_qpos"):  # MuJoCo
+        if hasattr(model, "key_qpos"):
+            # MuJoCo backend
             key_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_KEY, "home")
             if key_id >= 0:
-                self._init_qpos = np.array(model.key_qpos[key_id].copy(), dtype=np.float32)
+                self._init_qpos = np.array(model.key_qpos[key_id].copy(), dtype=dtype)
                 self.default_angles = self._init_qpos[7:]
             else:
-                raise ValueError("Keyframe 'home' not found")
-            self._init_qvel = np.zeros((model.nv,), dtype=np.float32)
-        else:  # MotrixSim
-            self._init_qpos = model.compute_init_dof_pos()
-            self.default_angles = self._init_qpos[-self._num_action :]
-            self._init_qvel = np.zeros((model.num_dof_vel,), dtype=np.float32)
+                raise ValueError("Keyframe 'home' not found in MuJoCo model")
+            self._init_qvel = np.zeros((model.nv,), dtype=dtype)
+        elif hasattr(model, "keyframes") and model.num_keyframes > 0:
+            # Motrix backend
+            kf = model.keyframes[0]  # Use first keyframe (should be "home")
+            self._init_qpos = np.array(kf.dof_pos, dtype=dtype)
+            self.default_angles = self._init_qpos[7:]
+            self._init_qvel = np.zeros((model.num_dof_vel,), dtype=dtype)
+        # if hasattr(model, "key_qpos"):  # MuJoCo
+        #     key_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_KEY, "home")
+        #     if key_id >= 0:
+        #         self._init_qpos = np.array(model.key_qpos[key_id].copy(), dtype=np.float32)
+        #         self.default_angles = self._init_qpos[7:]
+        #     else:
+        #         raise ValueError("Keyframe 'home' not found")
+        #     self._init_qvel = np.zeros((model.nv,), dtype=np.float32)
+        # else:  # MotrixSim
+        #     self._init_qpos = model.compute_init_dof_pos()
+        #     self.default_angles = self._init_qpos[-self._num_action :]
+        #     self._init_qvel = np.zeros((model.num_dof_vel,), dtype=np.float32)
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
         state.info["last_actions"] = state.info.get("current_actions", actions.copy())

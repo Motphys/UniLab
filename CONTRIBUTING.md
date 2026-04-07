@@ -5,7 +5,7 @@
 1. Fork 并克隆仓库
 2. 按平台安装依赖：
    - macOS (MPS): `uv sync --extra dev`
-   - Linux (CUDA 12.4): `uv sync --extra dev --extra cu124`
+   - Linux (CUDA 12.4): `uv sync --extra dev --extra cu126`
    - 需要 Motrix 时，在上面的命令后追加 `--extra motrix`
 3. 创建分支，例如：`git checkout -b docs/improve-readme`、`git checkout -b fix/backend-bug`
 

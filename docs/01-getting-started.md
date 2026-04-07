@@ -29,12 +29,12 @@ brew install cmake  # macOS
 # macOS (MPS)
 uv sync --extra dev
 
-# Linux (CUDA 12.4)
-uv sync --extra dev --extra cu124
+# Linux (CUDA 11.8/12.6/12.8)
+uv sync --extra dev --extra cu118/126/128
 
 # 可选：Motrix 后端
 uv sync --extra dev --extra motrix
-uv sync --extra dev --extra cu124 --extra motrix
+uv sync --extra dev --extra cu118 --extra motrix
 ```
 
 ## 国内镜像
