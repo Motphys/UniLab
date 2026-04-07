@@ -45,6 +45,7 @@ uv run python scripts/train_rsl_rl.py task=go1_joystick
 - [04 Algorithms](docs/04-algorithms.md): APPO、FastSAC、FastTD3 的用法与差异
 - [05 G1 Motion Tracking](docs/05-g1-motion-tracking.md): G1 whole-body motion tracking 任务说明
 - [06 Collaboration Workflow](docs/06-collaboration.md): GitHub issue / milestone / PR 协作方式
+- [07 Domain Randomization](docs/07-domain-randomization.md): DR 设计、支持范围、配置方式和接入方式
 - [Contributing](CONTRIBUTING.md): 开发规范、测试、CI、提交流程
 
 ## Roadmap And Task Tracking

@@ -76,4 +76,4 @@ record the expected owner in the issue body until the handle mapping is confirme
 ## Navigation
 
 - Previous: [G1 Motion Tracking](05-g1-motion-tracking.md)
-- Next: [Contributing](../CONTRIBUTING.md)
+- Next: [Domain Randomization](07-domain-randomization.md)
