@@ -112,7 +112,7 @@ uv run python scripts/motion/replay_npz.py \
 
 ## Config Note
 
-`task=g1_motion_tracking` 默认读取环境配置里的 `motion_file`。如果要切换到自定义 motion，先生成 `.npz`，再更新环境配置里的默认 `motion_file`。
+`task=g1_motion_tracking` 默认会通过 `glob` 读取 `src/unilab/assets/motions/g1/*.npz` 作为环境配置里的 `motion_file`。如果要切换到自定义 motion，先生成 `.npz`，再显式覆盖 `motion_file`。
 
 `motion_file` 现在同时支持单个字符串路径和字符串列表。列表模式下，训练会在多个 motion clip 之间采样，并且每个 episode 都会保持在当前 clip 内，不会跨文件串帧。例如：
 
