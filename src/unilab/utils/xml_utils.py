@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import tempfile
 import xml.etree.ElementTree as ET
+from pathlib import Path
 from typing import Any, cast
 
 import mujoco
@@ -97,6 +98,51 @@ def _write_temp_xml(tree: ET.ElementTree[ET.Element], model_file: str) -> str:
     os.close(fd)
     tree.write(output_path)
     return output_path
+
+
+def _format_values(values: list[float] | tuple[float, ...]) -> str:
+    return " ".join(str(float(value)) for value in values)
+
+
+def materialize_scene_visual_override(
+    source_model_file: str,
+    *,
+    ground_texture_file: str | None = None,
+    ground_texrepeat: list[float] | tuple[float, float] | None = None,
+    skybox_rgb1: list[float] | tuple[float, float, float] | None = None,
+    skybox_rgb2: list[float] | tuple[float, float, float] | None = None,
+) -> str:
+    """Create a temporary scene XML with visual-only overrides applied."""
+    tree = ET.parse(source_model_file)
+    root = tree.getroot()
+    asset_tag = root.find("asset")
+    if asset_tag is None:
+        raise ValueError(f"Scene '{source_model_file}' is missing an <asset> tag.")
+
+    if skybox_rgb1 is not None or skybox_rgb2 is not None:
+        skybox = asset_tag.find("./texture[@type='skybox']")
+        if skybox is None:
+            raise ValueError(f"Scene '{source_model_file}' is missing a skybox texture.")
+        if skybox_rgb1 is not None:
+            skybox.set("rgb1", _format_values(tuple(skybox_rgb1)))
+        if skybox_rgb2 is not None:
+            skybox.set("rgb2", _format_values(tuple(skybox_rgb2)))
+
+    if ground_texture_file is not None:
+        ground_texture = asset_tag.find("./texture[@name='groundplane']")
+        if ground_texture is None:
+            raise ValueError(f"Scene '{source_model_file}' is missing the groundplane texture.")
+        for attr in ("builtin", "mark", "rgb1", "rgb2", "markrgb", "width", "height"):
+            ground_texture.attrib.pop(attr, None)
+        ground_texture.set("file", str(Path(ground_texture_file)))
+
+    if ground_texrepeat is not None:
+        ground_material = asset_tag.find("./material[@name='groundplane']")
+        if ground_material is None:
+            raise ValueError(f"Scene '{source_model_file}' is missing the groundplane material.")
+        ground_material.set("texrepeat", _format_values(tuple(ground_texrepeat)))
+
+    return _write_temp_xml(tree, source_model_file)
 
 
 def inject_mujoco_tracking_sensors(
