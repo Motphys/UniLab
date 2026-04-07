@@ -2,6 +2,76 @@
 
 This directory contains scripts for preprocessing motion data for motion tracking tasks.
 
+## BONES-SEED CSV Replay
+
+The `replay_bones_seed_csv.py` script replays the BONES-SEED G1 CSV clips under
+`src/unilab/assets/motions/g1/flip` directly in the MuJoCo viewer.
+
+### Input Format
+
+The replay script expects a fixed 36-column layout:
+- `Frame`
+- `root_translateX/Y/Z`
+- `root_rotateX/Y/Z`
+- 29 `*_joint_dof` columns that map directly to G1 MuJoCo joint names
+
+The script assumes:
+- `root_translate*` is in centimeters and converts it to meters
+- `root_rotate*` is in degrees
+- `*_joint_dof` is in degrees
+
+### Usage
+
+```bash
+# Replay the whole flip dataset
+uv run python scripts/motion/replay_bones_seed_csv.py
+
+# Replay one clip
+uv run python scripts/motion/replay_bones_seed_csv.py \
+  --input src/unilab/assets/motions/g1/flip/flip_090_001__A304.csv
+
+# Validate parsing without opening the viewer
+uv run python scripts/motion/replay_bones_seed_csv.py --dry-run
+```
+
+### Controls
+
+- `Space`: pause / resume
+- `[`: previous CSV in playlist
+- `]`: next CSV in playlist
+
+## BONES-SEED CSV to NPZ
+
+The `bones_seed_csv_to_npz.py` script converts the G1 flip CSV clips under
+`src/unilab/assets/motions/g1/flip` into NPZ files with precomputed forward
+kinematics.
+
+### Output Format
+
+Generated NPZ files contain:
+- `fps`
+- `joint_pos`
+- `joint_vel`
+- `body_pos_w`
+- `body_quat_w`
+- `body_lin_vel_w`
+- `body_ang_vel_w`
+
+### Usage
+
+```bash
+# Convert the whole flip dataset into src/unilab/assets/motions/g1/flip_npz
+uv run python scripts/motion/bones_seed_csv_to_npz.py
+
+# Convert one clip next to a chosen output file
+uv run python scripts/motion/bones_seed_csv_to_npz.py \
+  --input src/unilab/assets/motions/g1/flip/flip_090_001__A304.csv \
+  --output temp/flip_090_001__A304.npz
+
+# Validate inputs without exporting
+uv run python scripts/motion/bones_seed_csv_to_npz.py --dry-run
+```
+
 ## CSV to NPZ Conversion
 
 The `csv_to_npz.py` script converts motion data from CSV format to NPZ format with precomputed forward kinematics.
