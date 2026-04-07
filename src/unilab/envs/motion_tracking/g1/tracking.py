@@ -135,9 +135,9 @@ class G1MotionTrackingCfg(G1BaseCfg):
     domain_rand: Domain_Rand = field(default_factory=Domain_Rand)
     joint_position_range: tuple[float, float] = (0.0, 0.0)
     # Termination thresholds
-    anchor_pos_z_threshold: float = 0.25
+    anchor_pos_z_threshold: float = 0.5
     anchor_ori_threshold: float = 1e9  # (effectively disabled by default since some motions have large anchor orientation error)
-    ee_body_pos_z_threshold: float = 0.25
+    ee_body_pos_z_threshold: float = 0.5
     ee_body_names: tuple[str, ...] = (
         "left_ankle_roll_link",
         "right_ankle_roll_link",
