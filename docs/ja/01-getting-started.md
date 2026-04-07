@@ -1,43 +1,48 @@
-# Getting Started
+# はじめに
 
-本页只回答三件事：
+言語: [English](../en/01-getting-started.md) | [简体中文](../zh_CN/01-getting-started.md) | 日本語 | [한국어](../ko/01-getting-started.md)
 
-1. 怎么把 UniLab 跑起来
-2. macOS 和 Linux 各自怎么装
-3. 第一次该跑什么命令确认环境正常
+このページは次の 3 点だけに答えます:
+
+1. UniLab をどう起動するか
+2. macOS と Linux でインストール手順がどう違うか
+3. 環境確認のために最初に何を実行すべきか
 
 ## Install
 
-### 使用 uv
+### uv を使う
 
 ```bash
-# 1. 安装 uv
+# 1. uv をインストール
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# 2. 克隆仓库
+# 2. リポジトリを clone
 git clone https://github.com/unilabsim/UniLab.git
 cd UniLab
 
-# 3. 安装系统依赖
+# 3. システム依存を入れる
 brew install cmake  # macOS
 # sudo apt-get install cmake  # Ubuntu / Debian
 ```
 
-### 同步依赖
+### 依存関係を同期
 
 ```bash
 # macOS (MPS)
 uv sync --extra dev
 
-# Linux (CUDA 11.8/12.6/12.8)
-uv sync --extra dev --extra cu118/126/128
+# Linux (CUDA 11.8 / 12.4 / 12.6 / 12.8)
+uv sync --extra dev --extra cu118
+uv sync --extra dev --extra cu124
+uv sync --extra dev --extra cu126
+uv sync --extra dev --extra cu128
 
-# 可选：Motrix 后端
+# オプション: Motrix backend
 uv sync --extra dev --extra motrix
-uv sync --extra dev --extra cu118 --extra motrix
+uv sync --extra dev --extra cu124 --extra motrix
 ```
 
-## 国内镜像
+## 中国本土向けミラー
 
 ```bash
 export UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
@@ -46,13 +51,13 @@ uv sync --extra dev --index-url https://pypi.tuna.tsinghua.edu.cn/simple
 
 ## First Run
 
-### 训练一个最小任务
+### 最小タスクを学習する
 
 ```bash
 uv run python scripts/train_rsl_rl.py task=go1_joystick
 ```
 
-### 常用入口脚本
+### よく使うエントリポイント
 
 ```bash
 # PPO (RSL-RL)
@@ -66,7 +71,7 @@ uv run python scripts/train_offpolicy.py algo=sac task=go1_joystick
 uv run python scripts/train_offpolicy.py algo=td3 task=go1_joystick
 ```
 
-### 验证环境
+### 環境を検証する
 
 ```bash
 make check
