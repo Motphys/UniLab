@@ -1,3 +1,5 @@
+![G1 motion tracking overview](docs/assets/g1_readme.png)
+
 # UniLab
 
 UniLab 的核心目标是验证一个命题：**robot locomotion RL 不需要依赖 GPU 仿真后端**。

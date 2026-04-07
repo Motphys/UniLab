@@ -14,13 +14,18 @@ from omegaconf import DictConfig, OmegaConf
 from tensordict import TensorDict
 
 ROOT_DIR = Path(__file__).parent.parent
-sys.path.append(str(ROOT_DIR))
+SRC_DIR = ROOT_DIR / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 
 from unilab.utils.experiment_tracking import ExperimentTracker, patch_rsl_rl_wandb_writer
 from unilab.utils.obs_utils import flatten_obs_dict
 from unilab.utils.reward_utils import resolve_reward_dict
 from unilab.utils.torch_utils import to_numpy, to_torch
+from unilab.utils.xml_utils import materialize_scene_visual_override
 
 try:
     from rsl_rl.runners import OnPolicyRunner
@@ -130,6 +135,96 @@ def build_task_motrix_ppo_env_cfg_override(cfg: DictConfig) -> dict:
     return env_cfg_override
 
 
+def _resolve_root_relative_path(path_value: str) -> str:
+    candidate = Path(path_value)
+    if candidate.is_absolute():
+        return str(candidate)
+    return str((ROOT_DIR / candidate).resolve())
+
+
+def build_motrix_play_ppo_env_cfg_override(cfg: DictConfig) -> dict:
+    env_cfg_override = build_task_motrix_ppo_env_cfg_override(cfg)
+    explicit_keys = _explicit_cli_override_keys()
+    play_profile = getattr(cfg, "motrix_play_only", None)
+    if (
+        play_profile is None
+        or not getattr(play_profile, "enabled", False)
+        or cfg.training.sim_backend != "motrix"
+        or not cfg.training.play_only
+    ):
+        return env_cfg_override
+
+    training_overrides = getattr(play_profile, "training_overrides", None)
+    if training_overrides is not None:
+        _apply_task_algo_overrides(
+            cfg.training,
+            training_overrides,
+            base_path="training",
+            explicit_keys=explicit_keys,
+        )
+
+    env_profile = getattr(play_profile, "env_cfg_override", None)
+    if env_profile is not None:
+        _apply_task_env_profile(
+            env_cfg_override,
+            env_profile,
+            explicit_keys=explicit_keys,
+        )
+
+    scene_override = getattr(play_profile, "scene_override", None)
+    if scene_override is None or not getattr(scene_override, "enabled", False):
+        return env_cfg_override
+
+    source_model_file = getattr(scene_override, "source_model_file", None)
+    if not source_model_file:
+        raise ValueError("motrix_play_only.scene_override.source_model_file must be configured")
+
+    env_cfg_override["model_file"] = materialize_scene_visual_override(
+        _resolve_root_relative_path(str(source_model_file)),
+        ground_texture_file=(
+            _resolve_root_relative_path(str(scene_override.ground_texture_file))
+            if getattr(scene_override, "ground_texture_file", None)
+            else None
+        ),
+        ground_texrepeat=getattr(scene_override, "ground_texrepeat", None),
+        skybox_rgb1=getattr(scene_override, "skybox_rgb1", None),
+        skybox_rgb2=getattr(scene_override, "skybox_rgb2", None),
+    )
+    return env_cfg_override
+
+
+def run_motrix_rsl_play_loop(
+    wrapped_env,
+    policy,
+    *,
+    render_spacing: float,
+    num_steps: int | None = None,
+) -> None:
+    import time
+
+    env = wrapped_env.env
+    env._backend.init_renderer(spacing=render_spacing)
+    obs, _ = wrapped_env.reset()
+
+    last_render_time = time.perf_counter()
+    render_dt = 1.0 / 60.0
+    steps_run = 0
+
+    with torch.inference_mode():
+        while num_steps is None or steps_run < num_steps:
+            actions = policy(obs)
+            obs, _, _, _ = wrapped_env.step(actions)
+
+            current_time = time.perf_counter()
+            elapsed = current_time - last_render_time
+            if elapsed < render_dt:
+                time.sleep(render_dt - elapsed)
+            last_render_time = time.perf_counter()
+
+            env._backend.render()
+            steps_run += 1
+
+
 class RslRlVecEnvWrapper:
     """Wrapper to adapt NpEnv to RSL-RL OnPolicyRunner interface."""
 
@@ -219,7 +314,7 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
 
     from unilab.base import registry
 
-    env_cfg_override = build_task_motrix_ppo_env_cfg_override(cfg)
+    env_cfg_override = build_motrix_play_ppo_env_cfg_override(cfg)
 
     env = registry.make(
         cfg.training.task_name,
@@ -281,27 +376,13 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     if cfg.training.sim_backend == "motrix":
         print("Starting interactive visualization (motrix native renderer)...")
         print("Close the render window to exit.")
-        env._backend.init_renderer()
-        obs, _ = wrapped_env.reset()
-
-        import time
-
-        last_render_time = time.perf_counter()
-        render_dt = 1.0 / 60.0
-
         with torch.inference_mode():
             try:
-                while True:
-                    actions = policy(obs)
-                    obs, _, _, _ = wrapped_env.step(actions)
-
-                    current_time = time.perf_counter()
-                    elapsed = current_time - last_render_time
-                    if elapsed < render_dt:
-                        time.sleep(render_dt - elapsed)
-                    last_render_time = time.perf_counter()
-
-                    env._backend.render()
+                run_motrix_rsl_play_loop(
+                    wrapped_env=wrapped_env,
+                    policy=policy,
+                    render_spacing=float(getattr(env.cfg, "render_spacing", 1.0)),
+                )
             except Exception as e:
                 if "RenderClosedError" in str(type(e).__name__):
                     print("Render window closed.")

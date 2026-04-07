@@ -77,6 +77,10 @@ def _appo_cfg(overrides=None):
 def _train_rsl_rl(monkeypatch: pytest.MonkeyPatch):
     import types
 
+    for module_name in list(sys.modules):
+        if module_name == "unilab" or module_name.startswith("unilab."):
+            monkeypatch.delitem(sys.modules, module_name, raising=False)
+
     runners_mod = types.ModuleType("rsl_rl.runners")
     runners_mod.OnPolicyRunner = object
     rsl_pkg = types.ModuleType("rsl_rl")
@@ -286,6 +290,142 @@ def test_g1_motion_tracking_ppo_motrix_prefers_backend_specific_reward(
     env_cfg_override = mod.build_task_motrix_ppo_env_cfg_override(cfg)
 
     assert env_cfg_override["reward_config"]["scales"]["motion_body_pos"] == pytest.approx(2.5)
+
+
+def test_build_motrix_play_ppo_env_cfg_override_applies_g1_motion_tracking_play_profile(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(
+        ["task=g1_motion_tracking", "training.sim_backend=motrix", "training.play_only=true"]
+    )
+
+    monkeypatch.setattr(
+        mod,
+        "materialize_scene_visual_override",
+        lambda source_model_file, **kwargs: "/tmp/g1_motion_tracking_play_scene.xml",
+    )
+
+    env_cfg_override = mod.build_motrix_play_ppo_env_cfg_override(cfg)
+
+    assert cfg.training.play_env_num == 128
+    assert env_cfg_override["render_spacing"] == pytest.approx(2.5)
+    assert env_cfg_override["model_file"] == "/tmp/g1_motion_tracking_play_scene.xml"
+    assert env_cfg_override["reward_config"]["scales"]["motion_body_pos"] == pytest.approx(1.0)
+
+
+def test_build_motrix_play_ppo_env_cfg_override_respects_cli_play_env_override(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(
+        [
+            "task=g1_motion_tracking",
+            "training.sim_backend=motrix",
+            "training.play_only=true",
+            "training.play_env_num=32",
+        ]
+    )
+    monkeypatch.setattr(sys, "argv", ["train_rsl_rl.py", "training.play_env_num=32"])
+    monkeypatch.setattr(
+        mod,
+        "materialize_scene_visual_override",
+        lambda source_model_file, **kwargs: "/tmp/g1_motion_tracking_play_scene.xml",
+    )
+
+    env_cfg_override = mod.build_motrix_play_ppo_env_cfg_override(cfg)
+
+    assert cfg.training.play_env_num == 32
+    assert env_cfg_override["render_spacing"] == pytest.approx(2.5)
+
+
+def test_build_motrix_play_ppo_env_cfg_override_resolves_relative_ground_texture(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(
+        ["task=g1_motion_tracking", "training.sim_backend=motrix", "training.play_only=true"]
+    )
+    cfg.motrix_play_only.scene_override.ground_texture_file = (
+        "src/unilab/assets/robots/g1/floor.png"
+    )
+
+    captured = {}
+
+    def _fake_materialize(source_model_file, **kwargs):
+        captured["source_model_file"] = source_model_file
+        captured.update(kwargs)
+        return "/tmp/g1_motion_tracking_play_scene.xml"
+
+    monkeypatch.setattr(mod, "materialize_scene_visual_override", _fake_materialize)
+
+    mod.build_motrix_play_ppo_env_cfg_override(cfg)
+
+    assert captured["ground_texture_file"] == str(
+        mod.ROOT_DIR / "src/unilab/assets/robots/g1/floor.png"
+    )
+
+
+def test_run_motrix_rsl_play_loop_uses_render_spacing():
+    import numpy as np
+    import torch
+    from tensordict import TensorDict
+
+    mod = _train_rsl_rl(pytest.MonkeyPatch())
+
+    class FakePolicy:
+        def __call__(self, obs):
+            batch = obs.batch_size[0]
+            return torch.zeros((batch, 3), dtype=torch.float32)
+
+    class FakeBackend:
+        def __init__(self):
+            self.init_renderer_calls = []
+            self.render_calls = 0
+
+        def init_renderer(self, spacing=1.0):
+            self.init_renderer_calls.append(spacing)
+
+        def render(self):
+            self.render_calls += 1
+
+    class FakeEnv:
+        def __init__(self):
+            self._backend = FakeBackend()
+            self.cfg = type("Cfg", (), {"render_spacing": 2.5})()
+
+    class FakeWrapper:
+        def __init__(self):
+            self.env = FakeEnv()
+            self.reset_calls = 0
+            self.step_calls = 0
+
+        def reset(self):
+            self.reset_calls += 1
+            return TensorDict({"policy": torch.ones((2, 5), dtype=torch.float32)}, batch_size=2), {}
+
+        def step(self, actions):
+            self.step_calls += 1
+            return (
+                TensorDict({"policy": torch.ones((2, 5), dtype=torch.float32)}, batch_size=2),
+                torch.zeros((2,), dtype=torch.float32),
+                torch.zeros((2,), dtype=torch.bool),
+                {},
+            )
+
+    wrapped_env = FakeWrapper()
+
+    mod.run_motrix_rsl_play_loop(
+        wrapped_env=wrapped_env,
+        policy=FakePolicy(),
+        render_spacing=2.5,
+        num_steps=3,
+    )
+
+    assert wrapped_env.reset_calls == 1
+    assert wrapped_env.step_calls == 3
+    assert wrapped_env.env._backend.init_renderer_calls == [2.5]
+    assert wrapped_env.env._backend.render_calls == 3
 
 
 def test_g1_motion_tracking_appo_reward_extraction_prefers_backend_specific_reward():
