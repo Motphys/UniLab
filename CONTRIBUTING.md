@@ -1,145 +1,148 @@
 # Contributing to UniLab
 
-## 开发环境设置
+Languages: English | [简体中文](docs/zh_CN/CONTRIBUTING.md) | [日本語](docs/ja/CONTRIBUTING.md) | [한국어](docs/ko/CONTRIBUTING.md)
 
-1. Fork 并克隆仓库
-2. 按平台安装依赖：
+## Development Environment Setup
+
+1. Fork and clone the repository.
+2. Install dependencies for your platform:
    - macOS (MPS): `uv sync --extra dev`
-   - Linux (CUDA 12.4): `uv sync --extra dev --extra cu126`
-   - 需要 Motrix 时，在上面的命令后追加 `--extra motrix`
-3. 创建分支，例如：`git checkout -b docs/improve-readme`、`git checkout -b fix/backend-bug`
+   - Linux (CUDA 11.8 / 12.4 / 12.6 / 12.8): `uv sync --extra dev --extra cu124`
+   - When you need Motrix, append `--extra motrix`
+3. Create a branch such as `git checkout -b docs/improve-readme` or `git checkout -b fix/backend-bug`.
 
-## 开发规范
+## Development Rules
 
-- **Always use `uv run`**，不要直接使用 `python`
-- 代码相关提交前必须通过 `make check`（ruff lint + mypy + pyright）
-- 用户可见工作流改动时，同步更新 `README.md`、`docs/` 和 `CONTRIBUTING.md`
+- Always use `uv run`; do not invoke `python` outside `uv run`
+- Run `make check` before code-related commits
+- For user-facing workflow changes, keep `README.md`, `CONTRIBUTING.md`, and the matching localized docs under `docs/{en,zh_CN,ja,ko}/` in sync
 
-## 开发前先看
+## Read Before You Start
 
-- 改训练入口、runner、env contract、backend 路径前，先看 [RL Infra Development Standard](docs/00-development-architecture.md)
-- 改协作流程、issue / milestone 规则时，再看 [docs/06-collaboration.md](docs/06-collaboration.md)
+- Before changing training entrypoints, runners, env contracts, or backend paths, read [RL Infrastructure Development Standard](docs/en/00-development-architecture.md)
+- Before changing collaboration flow or issue / milestone rules, read [docs/en/06-collaboration.md](docs/en/06-collaboration.md)
 
-## 常用命令
+## Common Commands
 
 ```bash
-make format      # ruff format + ruff check --fix
-make type        # mypy src/unilab + pyright
-make check       # format + type（提交前必跑）
-make test        # 非 slow 单元测试
-make test-cov    # 非 slow 测试 + 覆盖率报告
-make test-slow   # slow 集成测试（需要 MuJoCo）
-make test-veryslow  # veryslow 训练冒烟测试（分钟级）
-make test-all    # make check && make test-cov
+make format         # ruff format + ruff check --fix
+make type           # mypy src/unilab + pyright
+make check          # format + type (required before code-related commits)
+make test           # non-slow tests
+make test-cov       # non-slow tests + coverage report
+make test-slow      # slow integration tests (requires MuJoCo)
+make test-veryslow  # full training smoke tests (minutes)
+make test-all       # make check && make test-cov
 ```
 
-## 提交规范
+## Commit Conventions
 
-使用 Conventional Commits：
+Use Conventional Commits:
 
-- `feat:` 新功能
-- `fix:` 修复 bug
-- `docs:` 文档更新
-- `style:` 格式化（不影响逻辑）
-- `refactor:` 代码重构
-- `test:` 测试相关
-- `chore:` 构建/工具链
+- `feat:` new feature
+- `fix:` bug fix
+- `docs:` documentation update
+- `style:` formatting only, no logic change
+- `refactor:` code refactor
+- `test:` test-related change
+- `chore:` build or tooling
 
-## 测试
+## Testing
 
-### 测试目录
+### Test Layout
 
-```
+```text
 tests/
-├── base/         # registry、backend 选择、env contract
-├── config/       # Hydra / dataclass / reward 注入
-├── envs/         # 环境配置与实例化
-├── ipc/          # shared-memory / async runner 原语
-├── scripts/      # 训练脚本配置与入口工具
-├── algos/        # runner 集成、RSL-RL PPO、MLX PPO
-├── integration/  # 跨模块 reward / config 集成
-└── utils/        # 工具函数与实验跟踪
+├── base/         # registry, backend selection, env contracts
+├── config/       # Hydra / dataclass / reward injection
+├── envs/         # env configuration and instantiation
+├── ipc/          # shared-memory and async-runner primitives
+├── scripts/      # training script config and entrypoint tools
+├── algos/        # runner integration, RSL-RL PPO, MLX PPO
+├── integration/  # cross-module reward / config integration
+└── utils/        # helper utilities and experiment tracking
 ```
 
-### 测试标记
+### Test Markers
 
-- **普通测试**（无标记）：不依赖 MuJoCo，默认 `make test`
-- **`@pytest.mark.slow`**：需要 MuJoCo 环境，CI 跳过，本地用 `make test-slow` 运行
-- **`@pytest.mark.veryslow`**：完整训练迭代或脚本冒烟测试，显式用 `make test-veryslow`
-- **macOS only**：`test_mlx_ppo.py` 用 `pytest.importorskip("mlx")` 在非 macOS 平台自动跳过
+- Regular tests (no marker): do not require MuJoCo, run with `make test`
+- `@pytest.mark.slow`: requires a MuJoCo environment, skipped in CI, run locally with `make test-slow`
+- `@pytest.mark.veryslow`: full training iteration or script smoke tests, run explicitly with `make test-veryslow`
+- macOS only: `test_mlx_ppo.py` uses `pytest.importorskip("mlx")` and auto-skips on non-macOS platforms
 
-### 写测试的原则
+### Test Writing Principles
 
-1. IPC / 纯计算逻辑 → 放 `tests/ipc/` 或对应子目录，无需 slow 标记
-2. 依赖 Runner / 真实 Env 的测试 → 放 `tests/algos/`，加 `@pytest.mark.slow`
-3. 训练脚本冒烟测试 → 放 `tests/scripts/`，用 `pytest.importorskip` 跳过缺失依赖
-4. 多进程测试用 `_SPAWN_CTX = mp.get_context("spawn")`
-5. `SharedObsNormStats` 的单进程测试用 `_ThreadingCtx`（`multiprocessing.Queue.empty()` 在同进程内不可靠）
+1. IPC or pure compute logic: place under `tests/ipc/` or the matching module test directory, without `slow`
+2. Tests that depend on Runner or a real Env: place under `tests/algos/` and mark with `@pytest.mark.slow`
+3. Training script smoke tests: place under `tests/scripts/` and use `pytest.importorskip` for optional dependencies
+4. For multiprocessing tests, use `_SPAWN_CTX = mp.get_context("spawn")`
+5. For single-process `SharedObsNormStats` tests, use `_ThreadingCtx` because `multiprocessing.Queue.empty()` is unreliable within the same process
 
-### 运行测试
+### Running Tests
 
 ```bash
-# 快速（CI 同款）
+# Fast path (same coverage as CI)
 uv run pytest -m "not slow and not veryslow"
 
-# 带覆盖率
+# With coverage
 uv run pytest -m "not slow and not veryslow" --cov=unilab --cov-report=term-missing
 
-# 集成测试（需 MuJoCo）
+# Integration tests (requires MuJoCo)
 uv run pytest -m "slow and not veryslow" -v
 
-# 完整训练冒烟
+# Full training smoke tests
 uv run pytest -m veryslow -v
 ```
 
-## CI 流程
+## CI Workflow
 
-PR 到 `main` 时自动触发三个 job；当前 workflow 不在 `main` 合并后重复跑同一套 CI。
+PRs targeting `main` trigger three jobs automatically. The current workflow does not rerun the same CI set again after the PR is merged into `main`.
 
-| Job | 内容 | 失败即阻断 |
-|-----|------|-----------|
+| Job | Content | Blocking on failure |
+|-----|---------|---------------------|
 | `lint` | `ruff check` + `ruff format --check` | ✅ |
 | `typecheck` | `mypy src/unilab` + `pyright` | ✅ |
 | `test` | `pytest -m "not slow and not veryslow" --cov --cov-fail-under=10` | ✅ |
 
-纯文档和协作元信息改动（如 `*.md`、`docs/**`、issue templates、`CODEOWNERS`）不触发 CI。
+Docs-only and collaboration-metadata changes such as `*.md`, `docs/**`, issue templates, and `CODEOWNERS` do not trigger CI.
 
-## 文档改动预期
+## Documentation Expectations
 
-- 文档命令必须能在当前仓库结构中找到对应脚本、配置或 Makefile 目标
-- 如果文档描述了 backend 支持，请优先使用 `Registered` / `Configured` / `Benchmarked` / `Recommended` 语义
-- 使用相对链接，确保 GitHub 渲染可直接跳转
-- 如果文档描述了 CI、日志目录或支持矩阵，请对照 `.github/workflows/ci.yml`、`scripts/` 和 `conf/` 检查一次
+- Every documented command must match a real script, config, or Makefile target in the current repo
+- When you describe backend support, prefer `Registered`, `Configured`, `Benchmarked`, or `Recommended`
+- Use relative links so GitHub renders the docs correctly
+- If you change user-facing docs, keep the English, zh_CN, Japanese, and Korean copies structurally aligned
+- If you mention CI, log roots, or support matrices, verify them against `.github/workflows/ci.yml`, `scripts/`, and `conf/`
 
-## GitHub 协作方式
+## GitHub Collaboration Model
 
-- **Issue**：一个可执行工作项一个 Issue
-- **Milestone**：阶段目标，例如 `M1`
-- **PR**：必须链接驱动 Issue，写清验证命令和影响范围
-- **CODEOWNERS**：用于 review ownership，不等于执行 owner
+- **Issue**: one executable work item per issue
+- **Milestone**: a phase target such as `M1`
+- **PR**: must link the driving issue and list validation commands plus impact scope
+- **CODEOWNERS**: review ownership, not execution ownership
 
-更多约定见 [docs/06-collaboration.md](docs/06-collaboration.md)。
+More collaboration rules live in [docs/en/06-collaboration.md](docs/en/06-collaboration.md).
 
-## Pull Request 流程
+## Pull Request Workflow
 
-1. 对代码或配置改动，本地运行 `make check` 确保 lint/mypy/pyright 通过
-2. 对代码改动，本地运行 `make test` 确保非 slow 测试通过
-3. 若改动了 IPC / Runner / Config，补充或更新对应测试
-4. 若为 docs-only 变更，至少重新检查 Markdown 链接、文件路径、脚本名和命令参数
-5. 链接对应 GitHub Issue，并按 PR 模板填写验证与影响范围
-6. 提交 PR 到 `main` 分支，等待 CI 全绿
-7. 等待 code review
+1. For code or config changes, run `make check` locally so lint, mypy, and pyright pass.
+2. For code changes, run `make test` locally so non-slow tests pass.
+3. If you touched IPC, Runner, or Config, add or update the matching tests.
+4. For docs-only changes, at minimum re-check Markdown links, file paths, script names, and command arguments.
+5. Link the relevant GitHub issue and fill in validation plus impact scope in the PR template.
+6. Open the PR against `main` and wait for green CI.
+7. Wait for code review.
 
-## 问题反馈
+## Issue Reports
 
-使用 GitHub Issues 报告 bug 或提出功能建议。
+Use GitHub Issues to report bugs or propose features.
 
-## 配置系统
+## Configuration System
 
-UniLab 使用 Hydra + dataclass 配置系统：
+UniLab uses Hydra + dataclass configuration:
 
-- **添加新任务**：在 `conf/{algo}/task/` 创建 YAML，使用 `# @package _global_`
-- **修改超参数**：编辑对应 YAML 或使用 CLI 覆盖（`algo.num_envs=2048`）
-- **添加新算法**：在 `structured_configs.py` 添加 dataclass，创建对应 `conf/` 目录
+- **Add a new task**: create YAML under `conf/{algo}/task/` and use `# @package _global_`
+- **Change hyperparameters**: edit the matching YAML or use CLI overrides such as `algo.num_envs=2048`
+- **Add a new algorithm**: add the dataclass in `structured_configs.py` and create the matching `conf/` directory
 
-详见 [Training Guide](docs/03-training.md) 的 Hydra 说明，以及 [Development Architecture](docs/00-development-architecture.md)。
+For more detail, see the Hydra section in [Training Guide](docs/en/03-training.md) and [Development Architecture](docs/en/00-development-architecture.md).
