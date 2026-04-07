@@ -114,6 +114,14 @@ uv run python scripts/motion/replay_npz.py \
 
 `task=g1_motion_tracking` 默认读取环境配置里的 `motion_file`。如果要切换到自定义 motion，先生成 `.npz`，再更新环境配置里的默认 `motion_file`。
 
+`motion_file` 现在同时支持单个字符串路径和字符串列表。列表模式下，训练会在多个 motion clip 之间采样，并且每个 episode 都会保持在当前 clip 内，不会跨文件串帧。例如：
+
+```yaml
+motion_file:
+  - src/unilab/assets/motions/g1/dance1_subject2_part.npz
+  - src/unilab/assets/motions/g1/walk1_subject5_from_csv.npz
+```
+
 如果要验证 Motrix 路径，优先使用训练脚本内置 play mode，而不是 MuJoCo-only 的调试脚本：
 
 ```bash

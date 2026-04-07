@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
-
-from unilab.utils.math_utils import np_sample_uniform as sample_uniform
 
 
 @dataclass
@@ -26,42 +25,136 @@ class MotionData:
 class MotionLoader:
     """Loads and provides access to motion data from NPZ files."""
 
-    def __init__(self, motion_file: str, body_indices: np.ndarray | None = None):
+    def __init__(self, motion_file: str | Sequence[str], body_indices: np.ndarray | None = None):
         """Initialize motion loader.
 
         Args:
-            motion_file: Path to NPZ file containing motion data
+            motion_file: Path to one NPZ file, or a sequence of NPZ files
             body_indices: Optional indices into the NPZ body axis. The exported
                 motion files currently keep MuJoCo body-id layout, so these
                 indices are expected to follow that convention.
         """
-        data = np.load(motion_file)
+        self.motion_files = self._normalize_motion_files(motion_file)
 
-        self.fps = int(data["fps"][0])
-        self.joint_pos = data["joint_pos"].astype(np.float32)
-        self.joint_vel = data["joint_vel"].astype(np.float32)
+        joint_pos_list: list[np.ndarray] = []
+        joint_vel_list: list[np.ndarray] = []
+        body_pos_list: list[np.ndarray] = []
+        body_quat_list: list[np.ndarray] = []
+        body_lin_vel_list: list[np.ndarray] = []
+        body_ang_vel_list: list[np.ndarray] = []
+        clip_lengths: list[int] = []
 
-        # Load body data
-        body_pos_w = data["body_pos_w"].astype(np.float32)
-        body_quat_w = data["body_quat_w"].astype(np.float32)
-        body_lin_vel_w = data["body_lin_vel_w"].astype(np.float32)
-        body_ang_vel_w = data["body_ang_vel_w"].astype(np.float32)
+        self.fps = 0
+        self.num_joints = 0
+        self.num_bodies = 0
 
-        # Select subset of bodies if specified
-        if body_indices is not None:
-            self.body_pos_w = body_pos_w[:, body_indices]
-            self.body_quat_w = body_quat_w[:, body_indices]
-            self.body_lin_vel_w = body_lin_vel_w[:, body_indices]
-            self.body_ang_vel_w = body_ang_vel_w[:, body_indices]
+        for clip_idx, motion_path in enumerate(self.motion_files):
+            with np.load(motion_path) as data:
+                fps = int(np.asarray(data["fps"]).reshape(-1)[0])
+                joint_pos = data["joint_pos"].astype(np.float32)
+                joint_vel = data["joint_vel"].astype(np.float32)
+                body_pos_w = data["body_pos_w"].astype(np.float32)
+                body_quat_w = data["body_quat_w"].astype(np.float32)
+                body_lin_vel_w = data["body_lin_vel_w"].astype(np.float32)
+                body_ang_vel_w = data["body_ang_vel_w"].astype(np.float32)
+
+            if body_indices is not None:
+                body_pos_w = body_pos_w[:, body_indices]
+                body_quat_w = body_quat_w[:, body_indices]
+                body_lin_vel_w = body_lin_vel_w[:, body_indices]
+                body_ang_vel_w = body_ang_vel_w[:, body_indices]
+
+            num_frames = joint_pos.shape[0]
+            if num_frames == 0:
+                raise ValueError(f"Motion file '{motion_path}' contains no frames")
+            if joint_vel.shape[0] != num_frames:
+                raise ValueError(
+                    f"Motion file '{motion_path}' has inconsistent frame counts between "
+                    "'joint_pos' and 'joint_vel'"
+                )
+            for name, array in (
+                ("body_pos_w", body_pos_w),
+                ("body_quat_w", body_quat_w),
+                ("body_lin_vel_w", body_lin_vel_w),
+                ("body_ang_vel_w", body_ang_vel_w),
+            ):
+                if array.shape[0] != num_frames:
+                    raise ValueError(
+                        f"Motion file '{motion_path}' has inconsistent frame counts for '{name}'"
+                    )
+
+            if clip_idx == 0:
+                self.fps = fps
+                self.num_joints = joint_pos.shape[1]
+                self.num_bodies = body_pos_w.shape[1]
+            else:
+                if fps != self.fps:
+                    raise ValueError(
+                        f"Motion file '{motion_path}' has fps={fps}, expected {self.fps}"
+                    )
+                if joint_pos.shape[1] != self.num_joints or joint_vel.shape[1] != self.num_joints:
+                    raise ValueError(
+                        f"Motion file '{motion_path}' has incompatible joint dimensions"
+                    )
+                if (
+                    body_pos_w.shape[1] != self.num_bodies
+                    or body_quat_w.shape[1] != self.num_bodies
+                    or body_lin_vel_w.shape[1] != self.num_bodies
+                    or body_ang_vel_w.shape[1] != self.num_bodies
+                ):
+                    raise ValueError(
+                        f"Motion file '{motion_path}' has incompatible body dimensions"
+                    )
+
+            clip_lengths.append(num_frames)
+            joint_pos_list.append(joint_pos)
+            joint_vel_list.append(joint_vel)
+            body_pos_list.append(body_pos_w)
+            body_quat_list.append(body_quat_w)
+            body_lin_vel_list.append(body_lin_vel_w)
+            body_ang_vel_list.append(body_ang_vel_w)
+
+        self.clip_lengths = np.asarray(clip_lengths, dtype=np.int32)
+        self.num_clips = int(self.clip_lengths.shape[0])
+        self.clip_offsets = np.zeros(self.num_clips, dtype=np.int32)
+        if self.num_clips > 1:
+            self.clip_offsets[1:] = np.cumsum(self.clip_lengths[:-1], dtype=np.int32)
+        self.clip_end_frames = self.clip_offsets + self.clip_lengths - 1
+
+        self.joint_pos = np.concatenate(joint_pos_list, axis=0)
+        self.joint_vel = np.concatenate(joint_vel_list, axis=0)
+        self.body_pos_w = np.concatenate(body_pos_list, axis=0)
+        self.body_quat_w = np.concatenate(body_quat_list, axis=0)
+        self.body_lin_vel_w = np.concatenate(body_lin_vel_list, axis=0)
+        self.body_ang_vel_w = np.concatenate(body_ang_vel_list, axis=0)
+
+        self.num_frames = int(self.joint_pos.shape[0])
+
+    @staticmethod
+    def _normalize_motion_files(motion_file: str | Sequence[str]) -> tuple[str, ...]:
+        motion_files: tuple[str, ...]
+        if isinstance(motion_file, str):
+            motion_files = (motion_file,)
+        elif isinstance(motion_file, Sequence):
+            motion_files = tuple(motion_file)
         else:
-            self.body_pos_w = body_pos_w
-            self.body_quat_w = body_quat_w
-            self.body_lin_vel_w = body_lin_vel_w
-            self.body_ang_vel_w = body_ang_vel_w
+            raise TypeError("motion_file must be a string path or a sequence of string paths")
 
-        self.num_frames = self.joint_pos.shape[0]
-        self.num_joints = self.joint_pos.shape[1]
-        self.num_bodies = self.body_pos_w.shape[1]
+        if not motion_files:
+            raise ValueError("motion_file must contain at least one NPZ path")
+        if any((not isinstance(path, str)) or (not path) for path in motion_files):
+            raise ValueError("motion_file entries must be non-empty strings")
+        return motion_files
+
+    def get_clip_indices(self, frame_idx: np.ndarray) -> np.ndarray:
+        """Map global frame indices to clip indices."""
+        clip_indices = np.searchsorted(self.clip_offsets, frame_idx, side="right") - 1
+        return np.asarray(clip_indices, dtype=np.int32)
+
+    def get_clip_end_frames(self, frame_idx: np.ndarray) -> np.ndarray:
+        """Return the inclusive global end frame for each indexed clip."""
+        clip_indices = self.get_clip_indices(frame_idx)
+        return np.asarray(self.clip_end_frames[clip_indices], dtype=np.int32)
 
     def get_motion_at_frame(self, frame_idx: np.ndarray) -> MotionData:
         """Get motion data at specified frame indices.
@@ -114,6 +207,10 @@ class MotionSampler:
 
         # Current frame indices for each environment
         self.current_frames = np.zeros(num_envs, dtype=np.int32)
+        self.current_clip_indices = np.zeros(num_envs, dtype=np.int32)
+        self.current_clip_end_frames = np.full(
+            num_envs, motion_loader.clip_end_frames[0], dtype=np.int32
+        )
 
         # Adaptive sampling parameters
         if bin_count is None:
@@ -162,14 +259,20 @@ class MotionSampler:
 
     def _sample_start(self, env_ids: np.ndarray) -> np.ndarray:
         """Always start from beginning."""
-        frames = np.zeros(len(env_ids), dtype=np.int32)
-        self.current_frames[env_ids] = frames
+        if self.motion_loader.num_clips == 1:
+            frames = np.zeros(len(env_ids), dtype=np.int32)
+        else:
+            clip_indices = np.random.randint(
+                0, self.motion_loader.num_clips, len(env_ids), dtype=np.int32
+            )
+            frames = self.motion_loader.clip_offsets[clip_indices]
+        self._set_sampled_frames(env_ids, frames)
         return frames
 
     def _sample_uniform(self, env_ids: np.ndarray) -> np.ndarray:
         """Sample uniformly across motion."""
         frames = np.random.randint(0, self.motion_loader.num_frames, len(env_ids), dtype=np.int32)
-        self.current_frames[env_ids] = frames
+        self._set_sampled_frames(env_ids, frames)
 
         # Update metrics
         self.sampling_entropy = 1.0  # Maximum entropy for uniform
@@ -201,7 +304,7 @@ class MotionSampler:
             (sampled_bins + bin_offsets) / self.bin_count * (self.motion_loader.num_frames - 1)
         ).astype(np.int32)
 
-        self.current_frames[env_ids] = frames
+        self._set_sampled_frames(env_ids, frames)
 
         # Update metrics
         H = -(sampling_probs * np.log(sampling_probs + 1e-12)).sum()
@@ -250,12 +353,18 @@ class MotionSampler:
                 + (1 - self.adaptive_alpha) * self.bin_failed_count
             )
 
+    def _set_sampled_frames(self, env_ids: np.ndarray, frames: np.ndarray) -> None:
+        self.current_frames[env_ids] = frames
+        clip_indices = self.motion_loader.get_clip_indices(frames)
+        self.current_clip_indices[env_ids] = clip_indices
+        self.current_clip_end_frames[env_ids] = self.motion_loader.clip_end_frames[clip_indices]
+
     def step(self):
         """Advance all frames by one step."""
         self.current_frames += 1
 
-        # Find environments that reached end of motion
-        done_mask = self.current_frames >= self.motion_loader.num_frames
+        # Find environments that reached the end of their current clip.
+        done_mask = self.current_frames > self.current_clip_end_frames
         return np.where(done_mask)[0]
 
     def get_current_motion(self) -> MotionData:
