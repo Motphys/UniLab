@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy",
-    "torch",
+    "torch==2.7.0",
     "mujoco-uni==3.6.0.post2",
     "gymnasium",
     "imageio",
@@ -28,13 +28,15 @@ dependencies = [
     "mlx ; sys_platform == 'darwin'",
     "lark>=1.3.1",
     "wandb",
+    "notebook>=7.5.5",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-cov", "ruff", "mypy", "pyright>=1.1.408"]
-cu124 = [
-    # Keep compatibility with documented Linux CUDA installation command.
-]
+cu118 = []
+cu124 = []
+cu126 = []
+cu128 = []
 motrix = ["motrixsim==0.7.0"]
 
 [dependency-groups]
@@ -43,6 +45,26 @@ dev = ["pytest", "pytest-cov", "ruff", "mypy", "pyright>=1.1.408"]
 [[tool.uv.index]]
 name = "test-pypi"
 url = "https://test.pypi.org/simple/"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu118"
+url = "https://download.pytorch.org/whl/cu118"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.uv.sources]
