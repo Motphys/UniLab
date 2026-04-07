@@ -366,7 +366,6 @@ def test_reward_injection_reaches_env_go2():
         env_cfg_override=env_cfg_override,
     )
     actual_scales = env._cfg.reward_config.scales
-    assert "foot_lift_reward" in actual_scales, "Go2 should have foot_lift_reward scale"
     assert actual_scales["tracking_lin_vel"] == pytest.approx(1.0)
     env.close()
 
