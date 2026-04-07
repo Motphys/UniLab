@@ -234,6 +234,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
 
         self._enable_reward_log = True
         self._init_reward_functions()
+        self._clip_end_truncated = np.zeros((num_envs,), dtype=bool)
 
     def _is_mujoco_backend(self) -> bool:
         return self._backend_type == "mujoco"
@@ -320,6 +321,8 @@ class G1MotionTrackingEnv(G1BaseEnv):
         }
 
     def update_state(self, state: NpEnvState) -> NpEnvState:
+        self._clip_end_truncated.fill(False)
+
         # Get current motion data
         motion_data = self.motion_sampler.get_current_motion()
 
@@ -370,10 +373,15 @@ class G1MotionTrackingEnv(G1BaseEnv):
         # Advance motion frames
         done_env_ids = self.motion_sampler.step()
         if len(done_env_ids) > 0:
-            # Resample motion for environments that reached end
-            self.motion_sampler.sample_frames(done_env_ids)
+            self._clip_end_truncated[done_env_ids] = True
 
         return state.replace(obs=obs, reward=reward, terminated=terminated)
+
+    def _compute_truncated(self, state: NpEnvState) -> np.ndarray:
+        truncated = super()._compute_truncated(state)
+        clip_end_only = np.logical_and(self._clip_end_truncated, ~state.terminated)
+        np.logical_or(truncated, clip_end_only, out=truncated)
+        return truncated
 
     def _update_relative_transforms(
         self, motion_data, robot_body_pos_w: np.ndarray, robot_body_quat_w: np.ndarray

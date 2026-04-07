@@ -88,6 +88,20 @@ class _TerminatingStubEnv(_StubNpEnv):
         return state.replace(terminated=terminated)
 
 
+class _HookTruncatingStubEnv(_StubNpEnv):
+    """Like _StubNpEnv but truncates specified envs via the hook."""
+
+    def __init__(self, num_envs: int = 4, truncate_indices: list[int] | None = None):
+        super().__init__(num_envs)
+        self._truncate_indices = truncate_indices or []
+
+    def _compute_truncated(self, state: NpEnvState) -> np.ndarray:
+        truncated = super()._compute_truncated(state)
+        if self._truncate_indices:
+            truncated[np.asarray(self._truncate_indices, dtype=np.int32)] = True
+        return truncated
+
+
 # ---------------------------------------------------------------------------
 # NpEnvState tests
 # ---------------------------------------------------------------------------
@@ -357,6 +371,15 @@ class TestResetDoneEnvs:
             env.step(np.zeros((1, 3)))
         # After 10 steps, env should have been truncated and reset
         assert env.state.info["steps"][0] == 0
+
+    def test_hook_truncation_triggers_reset(self):
+        env = _HookTruncatingStubEnv(num_envs=3, truncate_indices=[1])
+        env.init_state()
+        state = env.step(np.zeros((3, 3)))
+        np.testing.assert_array_equal(state.obs["obs"][1], 0.0)
+        np.testing.assert_array_equal(state.obs["obs"][0], 1.0)
+        np.testing.assert_array_equal(state.obs["obs"][2], 1.0)
+        np.testing.assert_array_equal(state.info["_final_observation"], [False, True, False])
 
 
 # ---------------------------------------------------------------------------
