@@ -6,8 +6,8 @@
 
 1. 저장소를 fork한 뒤 clone합니다.
 2. 사용하는 플랫폼에 맞게 의존성을 설치합니다:
-   - macOS (MPS): `uv sync --extra dev`
-   - Linux (CUDA 11.8 / 12.4 / 12.6 / 12.8): `uv sync --extra dev --extra cu124`
+   - macOS (MPS): `uv sync`
+   - Linux (CUDA 11.8 / 12.4 / 12.6 / 12.8): `uv sync --extra cu124`
    - Motrix가 필요하면 `--extra motrix`를 추가합니다
 3. `git checkout -b docs/improve-readme` 또는 `git checkout -b fix/backend-bug` 같은 branch를 만듭니다.
 

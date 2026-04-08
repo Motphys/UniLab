@@ -30,13 +30,13 @@ cd UniLab
 
 # 2. Install dependencies
 # macOS (MPS)
-uv sync --extra dev
+uv sync
 
 # Linux (choose one CUDA extra such as cu124)
-uv sync --extra dev --extra cu124
+uv sync --extra cu124
 
 # Optional: Motrix backend
-uv sync --extra dev --extra motrix
+uv sync --extra motrix
 
 # 3. Run a training job
 uv run python scripts/train_rsl_rl.py task=go1_joystick

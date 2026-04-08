@@ -30,13 +30,13 @@ cd UniLab
 
 # 2. 依存関係をインストール
 # macOS (MPS)
-uv sync --extra dev
+uv sync
 
 # Linux (CUDA extra を 1 つ選択。例: cu124)
-uv sync --extra dev --extra cu124
+uv sync --extra cu124
 
 # オプション: Motrix バックエンド
-uv sync --extra dev --extra motrix
+uv sync --extra motrix
 
 # 3. 学習ジョブを実行
 uv run python scripts/train_rsl_rl.py task=go1_joystick

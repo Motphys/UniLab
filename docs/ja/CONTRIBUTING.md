@@ -6,8 +6,8 @@
 
 1. リポジトリを fork して clone します。
 2. 利用するプラットフォームに応じて依存関係を入れます:
-   - macOS (MPS): `uv sync --extra dev`
-   - Linux (CUDA 11.8 / 12.4 / 12.6 / 12.8): `uv sync --extra dev --extra cu124`
+   - macOS (MPS): `uv sync`
+   - Linux (CUDA 11.8 / 12.4 / 12.6 / 12.8): `uv sync --extra cu124`
    - Motrix が必要な場合は `--extra motrix` を追加します
 3. `git checkout -b docs/improve-readme` や `git checkout -b fix/backend-bug` のように branch を切ります。
 

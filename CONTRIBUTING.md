@@ -6,8 +6,8 @@ Languages: English | [简体中文](docs/zh_CN/CONTRIBUTING.md) | [日本語](do
 
 1. Fork and clone the repository.
 2. Install dependencies for your platform:
-   - macOS (MPS): `uv sync --extra dev`
-   - Linux (CUDA 11.8 / 12.4 / 12.6 / 12.8): `uv sync --extra dev --extra cu124`
+   - macOS (MPS): `uv sync`
+   - Linux (CUDA 11.8 / 12.4 / 12.6 / 12.8): `uv sync --extra cu124`
    - When you need Motrix, append `--extra motrix`
 3. Create a branch such as `git checkout -b docs/improve-readme` or `git checkout -b fix/backend-bug`.
 

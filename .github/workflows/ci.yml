@@ -39,7 +39,7 @@ jobs:
         with:
           enable-cache: true
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync
       - name: mypy
         run: uv run mypy src/unilab
       - name: pyright
@@ -63,15 +63,15 @@ jobs:
       #   if: runner.os == 'Linux'
       #   run: |
       #     sudo apt-get update && sudo apt-get install -y cmake
-      #     uv sync --extra dev
+      #     uv sync
       # - name: Install dependencies (macOS)
       #   if: runner.os == 'macOS'
       #   run: |
       #     brew install cmake
-      #     uv sync --extra dev
+      #     uv sync
       - name: Install dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y cmake
-          uv sync --extra dev
+          uv sync
       - name: Test with coverage
         run: uv run pytest -m "not slow and not veryslow" --cov=unilab --cov-report=term-missing --cov-fail-under=10

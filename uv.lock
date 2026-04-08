@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.10, <3.14"
 resolution-markers = [
     "python_full_version >= '3.13' and platform_machine != 's390x' and sys_platform == 'linux'",
@@ -3759,13 +3759,6 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-dev = [
-    { name = "mypy" },
-    { name = "pyright" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
-    { name = "ruff" },
-]
 motrix = [
     { name = "motrixsim" },
 ]
@@ -3790,16 +3783,11 @@ requires-dist = [
     { name = "mlx", marker = "sys_platform == 'darwin'" },
     { name = "motrixsim", marker = "extra == 'motrix'", specifier = "==0.7.0" },
     { name = "mujoco-uni", specifier = "==3.6.0.post2", index = "https://test.pypi.org/simple/" },
-    { name = "mypy", marker = "extra == 'dev'" },
     { name = "notebook", specifier = ">=7.5.5" },
     { name = "numpy" },
     { name = "packaging" },
-    { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1.408" },
-    { name = "pytest", marker = "extra == 'dev'" },
-    { name = "pytest-cov", marker = "extra == 'dev'" },
     { name = "rich" },
     { name = "rsl-rl-lib", specifier = ">=5.0.0" },
-    { name = "ruff", marker = "extra == 'dev'" },
     { name = "setuptools", specifier = "<70" },
     { name = "tensorboard" },
     { name = "tensordict" },
@@ -3808,7 +3796,7 @@ requires-dist = [
     { name = "typing-extensions" },
     { name = "wandb" },
 ]
-provides-extras = ["dev", "cu118", "cu124", "cu126", "cu128", "motrix"]
+provides-extras = ["cu118", "cu124", "cu126", "cu128", "motrix"]
 
 [package.metadata.requires-dev]
 dev = [
