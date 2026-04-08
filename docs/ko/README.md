@@ -30,13 +30,13 @@ cd UniLab
 
 # 2. 의존성 설치
 # macOS (MPS)
-uv sync --extra dev
+uv sync
 
 # Linux (예: cu124 같은 CUDA extra 하나 선택)
-uv sync --extra dev --extra cu124
+uv sync --extra cu124
 
 # 선택 사항: Motrix 백엔드
-uv sync --extra dev --extra motrix
+uv sync --extra motrix
 
 # 3. 학습 실행
 uv run python scripts/train_rsl_rl.py task=go1_joystick

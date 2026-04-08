@@ -29,24 +29,24 @@ brew install cmake  # macOS
 
 ```bash
 # macOS (MPS)
-uv sync --extra dev
+uv sync
 
 # Linux (CUDA 11.8 / 12.4 / 12.6 / 12.8)
-uv sync --extra dev --extra cu118
-uv sync --extra dev --extra cu124
-uv sync --extra dev --extra cu126
-uv sync --extra dev --extra cu128
+uv sync --extra cu118
+uv sync --extra cu124
+uv sync --extra cu126
+uv sync --extra cu128
 
 # Optional: Motrix backend
-uv sync --extra dev --extra motrix
-uv sync --extra dev --extra cu124 --extra motrix
+uv sync --extra motrix
+uv sync --extra cu124 --extra motrix
 ```
 
 ## Mainland China Mirror
 
 ```bash
 export UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-uv sync --extra dev --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+uv sync --index-url https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
 ## First Run
