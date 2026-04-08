@@ -204,6 +204,88 @@ def test_env_reset_and_step(
         env.close()
 
 
+def _assert_mujoco_position_gains(env, *, kp: float, kd: float, actuator_ids=slice(None)) -> None:
+    model = env._backend.model
+    np.testing.assert_allclose(model.actuator_gainprm[actuator_ids, 0], kp)
+    np.testing.assert_allclose(model.actuator_biasprm[actuator_ids, 1], -kp)
+    np.testing.assert_allclose(model.actuator_biasprm[actuator_ids, 2], -kd)
+    np.testing.assert_allclose(env._backend._pool.get_field(0, "kp")[actuator_ids], kp)
+    np.testing.assert_allclose(env._backend._pool.get_field(0, "kd")[actuator_ids], kd)
+
+
+@pytest.mark.slow
+def test_go1_env_initializes_kp_kd_into_pool(default_go1_reward_config):
+    ensure_registries()
+    from unilab.base import registry
+
+    env = registry.make(
+        "Go1JoystickFlatTerrain",
+        num_envs=2,
+        sim_backend="mujoco",
+        env_cfg_override={
+            "reward_config": default_go1_reward_config,
+            "control_config": {"Kp": 12.0, "Kd": 0.7},
+        },
+    )
+    try:
+        _assert_mujoco_position_gains(env, kp=12.0, kd=0.7)
+    finally:
+        env.close()
+
+
+@pytest.mark.slow
+def test_go2_env_initializes_kp_kd_into_pool():
+    ensure_registries()
+    from unilab.base import registry
+    from unilab.envs.locomotion.go2.joystick import RewardConfig
+
+    env = registry.make(
+        "Go2JoystickFlatTerrain",
+        num_envs=2,
+        sim_backend="mujoco",
+        env_cfg_override={
+            "reward_config": RewardConfig(
+                scales={
+                    "tracking_lin_vel": 1.0,
+                    "tracking_ang_vel": 0.2,
+                    "lin_vel_z": -5.0,
+                    "ang_vel_xy": -0.02,
+                    "base_height": -100.0,
+                    "action_rate": -0.005,
+                    "similar_to_default": -0.1,
+                },
+                tracking_sigma=0.25,
+                base_height_target=0.3,
+            ),
+            "control_config": {"Kp": 18.0, "Kd": 0.9},
+        },
+    )
+    try:
+        _assert_mujoco_position_gains(env, kp=18.0, kd=0.9)
+    finally:
+        env.close()
+
+
+@pytest.mark.slow
+def test_allegro_env_initializes_kp_kd_into_pool(default_allegro_reward_config):
+    ensure_registries()
+    from unilab.base import registry
+
+    env = registry.make(
+        "AllegroInhandRotation",
+        num_envs=2,
+        sim_backend="mujoco",
+        env_cfg_override={
+            "reward_config": default_allegro_reward_config,
+            "control_config": {"kp": 2.5, "kd": 0.4},
+        },
+    )
+    try:
+        _assert_mujoco_position_gains(env, kp=2.5, kd=0.4, actuator_ids=slice(0, 16))
+    finally:
+        env.close()
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize("sim_backend", ["mujoco", "motrix"])
 def test_g1_motion_tracking_reset_and_step(sim_backend: str):

@@ -161,7 +161,12 @@ class Go1WalkTask(Go1BaseEnv):
             raise ValueError("reward_config must be provided via Hydra configuration")
         cfg.apply_legacy_motrix_profile()
         backend = create_backend(
-            backend_type, cfg.model_file, num_envs, cfg.sim_dt, base_name=cfg.asset.base_name
+            backend_type,
+            cfg.model_file,
+            num_envs,
+            cfg.sim_dt,
+            base_name=cfg.asset.base_name,
+            position_actuator_gains={"kp": cfg.control_config.Kp, "kd": cfg.control_config.Kd},
         )
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True

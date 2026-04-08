@@ -11,7 +11,7 @@ requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy",
     "torch==2.7.0",
-    "mujoco-uni==3.6.0.post3",
+    "mujoco-uni==3.6.0.post4",
     "gymnasium",
     "imageio",
     "etils",

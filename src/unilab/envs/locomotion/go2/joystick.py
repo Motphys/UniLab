@@ -159,7 +159,12 @@ class Go2WalkTask(Go2BaseEnv):
             raise ValueError("reward_config must be provided via Hydra configuration")
         cfg.apply_legacy_motrix_profile()
         backend = create_backend(
-            backend_type, cfg.model_file, num_envs, cfg.sim_dt, base_name=cfg.asset.base_name
+            backend_type,
+            cfg.model_file,
+            num_envs,
+            cfg.sim_dt,
+            base_name=cfg.asset.base_name,
+            position_actuator_gains={"kp": cfg.control_config.Kp, "kd": cfg.control_config.Kd},
         )
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True
@@ -299,7 +304,7 @@ class Go2WalkTask(Go2BaseEnv):
         height_error = np.clip(safe_height - foot_heights, 0.0, None)
         error = np.square(height_error) * is_swing
         return np.asarray(np.sum(error, axis=1))
-    
+
     def _reward_contact(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         contact = self.feet_force[:, :, 2] > 0.1
         res = np.zeros(self._num_envs, dtype=np.float32)

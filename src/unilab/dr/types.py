@@ -7,6 +7,10 @@ import numpy as np
 
 RESET_TERM_BASE_COM = "base_com_offset"
 RESET_TERM_BASE_MASS = "base_mass_delta"
+RESET_TERM_BODY_IQUAT = "body_iquat"
+RESET_TERM_BODY_INERTIA = "body_inertia"
+RESET_TERM_KP = "kp"
+RESET_TERM_KD = "kd"
 
 
 @dataclass(frozen=True)
@@ -19,6 +23,10 @@ class DomainRandomizationCapabilities:
 class ResetRandomizationPayload:
     base_mass_delta: np.ndarray | None = None
     base_com_offset: np.ndarray | None = None
+    body_iquat: np.ndarray | None = None
+    body_inertia: np.ndarray | None = None
+    kp: np.ndarray | None = None
+    kd: np.ndarray | None = None
 
     def requested_terms(self) -> frozenset[str]:
         terms: set[str] = set()
@@ -26,6 +34,14 @@ class ResetRandomizationPayload:
             terms.add(RESET_TERM_BASE_MASS)
         if self.base_com_offset is not None:
             terms.add(RESET_TERM_BASE_COM)
+        if self.body_iquat is not None:
+            terms.add(RESET_TERM_BODY_IQUAT)
+        if self.body_inertia is not None:
+            terms.add(RESET_TERM_BODY_INERTIA)
+        if self.kp is not None:
+            terms.add(RESET_TERM_KP)
+        if self.kd is not None:
+            terms.add(RESET_TERM_KD)
         return frozenset(terms)
 
     def is_empty(self) -> bool:

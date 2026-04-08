@@ -313,6 +313,14 @@ class MotrixBackend(SimBackend):
     ) -> None:
         if randomization is None or randomization.is_empty():
             return
+        unsupported = randomization.requested_terms() - frozenset(
+            {RESET_TERM_BASE_MASS, RESET_TERM_BASE_COM}
+        )
+        if unsupported:
+            terms = ", ".join(sorted(unsupported))
+            raise NotImplementedError(
+                f"{self.backend_type} backend does not support reset randomization terms: {terms}"
+            )
 
         env_ids = np.asarray(env_indices, dtype=np.intp)
         if randomization.base_mass_delta is not None:

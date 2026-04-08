@@ -163,7 +163,17 @@ class AllegroRotationMj(AllegroBaseMjEnv):
     def __init__(self, cfg: AllegroRotationCfg, num_envs: int = 1, backend_type: str = "mujoco"):
         if cfg.reward_config is None:
             raise ValueError("reward_config must be provided via Hydra configuration")
-        backend = create_backend(backend_type, cfg.model_file, num_envs, cfg.sim_dt)
+        backend = create_backend(
+            backend_type,
+            cfg.model_file,
+            num_envs,
+            cfg.sim_dt,
+            position_actuator_gains={
+                "kp": cfg.control_config.kp,
+                "kd": cfg.control_config.kd,
+                "actuator_ids": slice(0, 16),
+            },
+        )
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True
         self._reward_cfg = cfg.reward_config

@@ -160,7 +160,17 @@ class AllegroRotationSacDomainRandomizationProvider(DomainRandomizationProvider)
 @registry.env("AllegroInhandRotationSac", sim_backend="mujoco")
 class AllegroRotationSacMj(AllegroBaseMjEnv):
     def __init__(self, cfg: AllegroRotationSacCfg, num_envs: int = 1, backend_type: str = "mujoco"):
-        backend = create_backend(backend_type, cfg.model_file, num_envs, cfg.sim_dt)
+        backend = create_backend(
+            backend_type,
+            cfg.model_file,
+            num_envs,
+            cfg.sim_dt,
+            position_actuator_gains={
+                "kp": cfg.control_config.kp,
+                "kd": cfg.control_config.kd,
+                "actuator_ids": slice(0, 16),
+            },
+        )
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True
 

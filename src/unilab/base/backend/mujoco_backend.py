@@ -9,6 +9,10 @@ from mujoco.batch_env import BatchEnvPool
 from unilab.dr.types import (
     RESET_TERM_BASE_COM,
     RESET_TERM_BASE_MASS,
+    RESET_TERM_BODY_INERTIA,
+    RESET_TERM_BODY_IQUAT,
+    RESET_TERM_KD,
+    RESET_TERM_KP,
     DomainRandomizationCapabilities,
     IntervalRandomizationPlan,
     ResetRandomizationPayload,
@@ -21,6 +25,20 @@ from .base import SimBackend
 class MuJoCoBackend(SimBackend):
     """MuJoCo 后端实现"""
 
+    @staticmethod
+    def _apply_position_actuator_gains_to_model(
+        model,
+        *,
+        kp: float | np.ndarray,
+        kd: float | np.ndarray,
+        actuator_ids=slice(None),
+    ) -> None:
+        kp_arr = np.asarray(kp, dtype=np.float64)
+        kd_arr = np.asarray(kd, dtype=np.float64)
+        model.actuator_gainprm[actuator_ids, 0] = kp_arr
+        model.actuator_biasprm[actuator_ids, 1] = -kp_arr
+        model.actuator_biasprm[actuator_ids, 2] = -kd_arr
+
     def __init__(
         self,
         model_file: str,
@@ -29,6 +47,7 @@ class MuJoCoBackend(SimBackend):
         base_name: Optional[str] = None,
         np_dtype=None,
         add_body_sensors: bool = False,
+        position_actuator_gains: dict | None = None,
     ):
         self.add_body_sensors = add_body_sensors
         self._base_name = base_name
@@ -60,6 +79,8 @@ class MuJoCoBackend(SimBackend):
                 self._body_id_to_tracked_idx[bid] = idx
 
         self._model.opt.timestep = sim_dt
+        if position_actuator_gains is not None:
+            self._apply_position_actuator_gains_to_model(self._model, **position_actuator_gains)
         self._base_body_id = (
             mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, base_name)
             if base_name is not None
@@ -196,7 +217,16 @@ class MuJoCoBackend(SimBackend):
 
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
         return DomainRandomizationCapabilities(
-            supported_reset_terms=frozenset({RESET_TERM_BASE_MASS, RESET_TERM_BASE_COM}),
+            supported_reset_terms=frozenset(
+                {
+                    RESET_TERM_BASE_MASS,
+                    RESET_TERM_BASE_COM,
+                    RESET_TERM_BODY_IQUAT,
+                    RESET_TERM_BODY_INERTIA,
+                    RESET_TERM_KP,
+                    RESET_TERM_KD,
+                }
+            ),
             supports_interval_push=True,
         )
 
@@ -282,6 +312,26 @@ class MuJoCoBackend(SimBackend):
     def get_physics_state(self) -> np.ndarray:
         return self._physics_state
 
+    def _coerce_reset_field(
+        self,
+        value: np.ndarray,
+        *,
+        name: str,
+        num_reset: int,
+        shaped_tail: tuple[int, ...],
+    ) -> np.ndarray:
+        arr = np.asarray(value, dtype=np.float64)
+        flat_tail = int(np.prod(shaped_tail))
+        flat_shape = (num_reset, flat_tail)
+        shaped = (num_reset, *shaped_tail)
+        if arr.shape == flat_shape:
+            return arr.copy()
+        if arr.shape == shaped:
+            return arr.reshape(num_reset, flat_tail).copy()
+        raise ValueError(
+            f"{name} must have shape {flat_shape} or {shaped}, got {arr.shape}"
+        )
+
     def _translate_reset_randomization(
         self,
         randomization: ResetRandomizationPayload | None,
@@ -289,7 +339,10 @@ class MuJoCoBackend(SimBackend):
     ) -> dict[str, np.ndarray] | None:
         if randomization is None or randomization.is_empty():
             return None
-        if self._base_body_id < 0:
+        if (
+            (randomization.base_mass_delta is not None or randomization.base_com_offset is not None)
+            and self._base_body_id < 0
+        ):
             raise ValueError(f"Body '{self._base_name}' not found in MuJoCo model")
 
         translated: dict[str, np.ndarray] = {}
@@ -304,5 +357,37 @@ class MuJoCoBackend(SimBackend):
             ).copy()
             body_ipos[:, self._base_body_id, :] += np.asarray(randomization.base_com_offset)
             translated["body_ipos"] = body_ipos.reshape(num_reset, -1)
+
+        if randomization.body_iquat is not None:
+            translated["body_iquat"] = self._coerce_reset_field(
+                randomization.body_iquat,
+                name="body_iquat",
+                num_reset=num_reset,
+                shaped_tail=(self._model.nbody, 4),
+            )
+
+        if randomization.body_inertia is not None:
+            translated["body_inertia"] = self._coerce_reset_field(
+                randomization.body_inertia,
+                name="body_inertia",
+                num_reset=num_reset,
+                shaped_tail=(self._model.nbody, 3),
+            )
+
+        if randomization.kp is not None:
+            translated["kp"] = self._coerce_reset_field(
+                randomization.kp,
+                name="kp",
+                num_reset=num_reset,
+                shaped_tail=(self._model.nu,),
+            )
+
+        if randomization.kd is not None:
+            translated["kd"] = self._coerce_reset_field(
+                randomization.kd,
+                name="kd",
+                num_reset=num_reset,
+                shaped_tail=(self._model.nu,),
+            )
 
         return translated or None

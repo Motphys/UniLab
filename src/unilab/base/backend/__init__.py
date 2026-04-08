@@ -18,7 +18,10 @@ def create_backend(
     Returns:
         SimBackend 实例
     """
+    position_actuator_gains = kwargs.pop("position_actuator_gains", None)
     if backend_type == "mujoco":
+        if position_actuator_gains is not None:
+            kwargs["position_actuator_gains"] = position_actuator_gains
         return MuJoCoBackend(model_file, num_envs, sim_dt, **kwargs)
     elif backend_type == "motrix":
         if not MOTRIX_AVAILABLE:
@@ -28,4 +31,9 @@ def create_backend(
         raise ValueError(f"Unknown backend: {backend_type}")
 
 
-__all__ = ["SimBackend", "MuJoCoBackend", "MotrixBackend", "create_backend"]
+__all__ = [
+    "SimBackend",
+    "MuJoCoBackend",
+    "MotrixBackend",
+    "create_backend",
+]

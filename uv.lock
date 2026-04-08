@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.10, <3.14"
 resolution-markers = [
     "python_full_version >= '3.13' and platform_machine != 's390x' and sys_platform == 'linux'",
@@ -1913,7 +1913,7 @@ wheels = [
 
 [[package]]
 name = "mujoco-uni"
-version = "3.6.0.post3"
+version = "3.6.0.post4"
 source = { registry = "https://test.pypi.org/simple/" }
 dependencies = [
     { name = "absl-py" },
@@ -1924,12 +1924,12 @@ dependencies = [
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "pyopengl" },
 ]
-sdist = { url = "https://test-files.pythonhosted.org/packages/15/59/bed96afe16dc9d8d41a13a868b8c26ad598b04f0cd2acd5386815af6c9ca/mujoco_uni-3.6.0.post3.tar.gz", hash = "sha256:4e71ddd49a08a210bad7e8199140b742a8a0c387b9e274fbd89e541f8db3c7e3", size = 4723231, upload-time = "2026-04-06T19:09:52.049Z" }
+sdist = { url = "https://test-files.pythonhosted.org/packages/a7/b1/9a5fec73e5e0e565b672dd0103380cb6a70be6280bbfb1be39f85745baf7/mujoco_uni-3.6.0.post4.tar.gz", hash = "sha256:1a3b214237d986e41378fd6b5e1d92928d351ebed6256114bcadeaec4a68cbff", size = 4725403, upload-time = "2026-04-08T09:13:00.092Z" }
 wheels = [
-    { url = "https://test-files.pythonhosted.org/packages/98/59/197ee88344b7ebae9001bde01961305fa6b51a70d0aa87576deebf10247a/mujoco_uni-3.6.0.post3-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:e94b0d1a371fc977f6d80825083bc269b5dbce8251bfac92ed500c59d2b821eb", size = 6786306, upload-time = "2026-04-06T19:07:14.774Z" },
-    { url = "https://test-files.pythonhosted.org/packages/89/26/200c5dfe6f58eb2dda95344a5331482e82fc7118e0ef731c4cbf0c797429/mujoco_uni-3.6.0.post3-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:15f31ea178bdfe49dbe4afc0dd633c13b49ef7d2fe007e3eced0918eb6a23516", size = 6800107, upload-time = "2026-04-06T19:07:24.504Z" },
-    { url = "https://test-files.pythonhosted.org/packages/74/3a/3cf0a807e7f103f57c6b48c5bcea179fb808d10590a36c8de7f28c62b6b4/mujoco_uni-3.6.0.post3-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:4fba17f6d66a7339eeaea2f39ec9606d4153749fb8b4ad3ac29d591cddfbd8cf", size = 6821916, upload-time = "2026-04-06T19:07:33.97Z" },
-    { url = "https://test-files.pythonhosted.org/packages/45/9b/82ddeef821fc0a8c1ed42ae7c0c6dbe57ed3353dc9c1153026e87061d923/mujoco_uni-3.6.0.post3-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:b42461584639fa5b3815fbdd0ce694c989043ce3d30430196962a05f744e1fd9", size = 6822122, upload-time = "2026-04-06T19:07:43.884Z" },
+    { url = "https://test-files.pythonhosted.org/packages/53/5b/cec67cd866e51e2e59e81675e658b1d6770f8e29a0e441a2a28c6223aa66/mujoco_uni-3.6.0.post4-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:1edd316810c5095b0c4b36ab02fe23f7c76ea8741ff220ce8f34a50714e4500d", size = 6787764, upload-time = "2026-04-08T09:12:32.086Z" },
+    { url = "https://test-files.pythonhosted.org/packages/50/1c/b8c6725e1c6485e2c00d321955b1fa598b93943ea50d5ab2cc2f1a91a8f2/mujoco_uni-3.6.0.post4-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:0d2cfa0b2179ac5652d05fe9739182fe8b735f94e78d9989d21ad8e3ba53ec45", size = 6801431, upload-time = "2026-04-08T09:12:40.304Z" },
+    { url = "https://test-files.pythonhosted.org/packages/43/4e/47fc3a8ae84f46ad8dfac92b1ba65523e3d16dca86cf5bd2b787ad211f93/mujoco_uni-3.6.0.post4-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:60749e11b0df089489a4d6feac564f06813361b8ec2b3b8e0480aa3c31bd80ee", size = 6823431, upload-time = "2026-04-08T09:12:44.741Z" },
+    { url = "https://test-files.pythonhosted.org/packages/e2/b8/e5a33429c8a686892eaf2ebe8d0f2c59c803e37712a7ccf079949bd2f22e/mujoco_uni-3.6.0.post4-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:1371af813b99f4ddba5f3722ebbc5254d256813df07d6a4b22866b9471d29656", size = 6823538, upload-time = "2026-04-08T09:12:54.108Z" },
 ]
 
 [[package]]
@@ -3785,7 +3785,7 @@ requires-dist = [
     { name = "mediapy" },
     { name = "mlx", marker = "sys_platform == 'darwin'" },
     { name = "motrixsim", marker = "extra == 'motrix'", specifier = "==0.7.0" },
-    { name = "mujoco-uni", specifier = "==3.6.0.post3", index = "https://test.pypi.org/simple/" },
+    { name = "mujoco-uni", specifier = "==3.6.0.post4", index = "https://test.pypi.org/simple/" },
     { name = "mypy", marker = "extra == 'dev'" },
     { name = "notebook", specifier = ">=7.5.5" },
     { name = "numpy" },
