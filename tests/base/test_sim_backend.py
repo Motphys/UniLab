@@ -57,6 +57,14 @@ def _identity_qpos_mujoco(nq: int, xyz=(0.0, 0.0, 0.8)) -> np.ndarray:
     return q
 
 
+def _mujoco_expected_dof_dims(model) -> tuple[int, int]:
+    import mujoco
+
+    if model.njnt > 0 and int(model.jnt_type[0]) == int(mujoco.mjtJoint.mjJNT_FREE):
+        return model.nq - 7, model.nv - 6
+    return model.nq, model.nv
+
+
 # ---------------------------------------------------------------------------
 # MuJoCo — basic, 3 robots, no body sensors
 # ---------------------------------------------------------------------------
@@ -204,10 +212,12 @@ class TestMuJoCoBasic:
     # DOF state
 
     def test_get_dof_pos_shape(self, bkd):
-        _shape(bkd.get_dof_pos(), NUM_ENVS, bkd.model.nq - 7)
+        expected_nq, _ = _mujoco_expected_dof_dims(bkd.model)
+        _shape(bkd.get_dof_pos(), NUM_ENVS, expected_nq)
 
     def test_get_dof_vel_shape(self, bkd):
-        _shape(bkd.get_dof_vel(), NUM_ENVS, bkd.model.nv - 6)
+        _, expected_nv = _mujoco_expected_dof_dims(bkd.model)
+        _shape(bkd.get_dof_vel(), NUM_ENVS, expected_nv)
 
     def test_dof_pos_finite_after_step(self, bkd):
         bkd.step(np.zeros((NUM_ENVS, bkd.model.nu)))
@@ -228,6 +238,24 @@ def test_mujoco_backend_discards_visual_assets():
     assert trimmed.model.nmesh == 0
     assert trimmed.model.ntex == 0
     assert trimmed.model.nmat == 0
+
+
+@pytest.mark.slow
+def test_mujoco_backend_fixed_base_dof_views_do_not_skip_first_joint():
+    import mujoco
+
+    from unilab.base.backend.mujoco_backend import MuJoCoBackend
+
+    model_file = _xml("allegro_hand", "scene.xml")
+    bkd = MuJoCoBackend(model_file, NUM_ENVS, SIM_DT, base_name="palm")
+    assert int(bkd.model.jnt_type[0]) != int(mujoco.mjtJoint.mjJNT_FREE)
+    _shape(bkd.get_dof_pos(), NUM_ENVS, bkd.model.nq)
+    _shape(bkd.get_dof_vel(), NUM_ENVS, bkd.model.nv)
+    _shape(bkd.get_base_pos(), NUM_ENVS, 3)
+    _shape(bkd.get_base_quat(), NUM_ENVS, 4)
+    np.testing.assert_allclose(bkd.get_base_lin_vel(), 0.0, atol=1e-8)
+    np.testing.assert_allclose(bkd.get_base_ang_vel(), 0.0, atol=1e-8)
+    _unit_quat(bkd.get_base_quat(), "MuJoCo fixed-base quat")
 
 
 # ---------------------------------------------------------------------------

@@ -22,22 +22,14 @@ from ..dtype_config import get_global_dtype
 from .base import SimBackend
 
 
+def _root_state_dims(model) -> tuple[int, int]:
+    if model.njnt > 0 and int(model.jnt_type[0]) == int(mujoco.mjtJoint.mjJNT_FREE):
+        return 7, 6
+    return 0, 0
+
+
 class MuJoCoBackend(SimBackend):
     """MuJoCo 后端实现"""
-
-    @staticmethod
-    def _apply_position_actuator_gains_to_model(
-        model,
-        *,
-        kp: float | np.ndarray,
-        kd: float | np.ndarray,
-        actuator_ids=slice(None),
-    ) -> None:
-        kp_arr = np.asarray(kp, dtype=np.float64)
-        kd_arr = np.asarray(kd, dtype=np.float64)
-        model.actuator_gainprm[actuator_ids, 0] = kp_arr
-        model.actuator_biasprm[actuator_ids, 1] = -kp_arr
-        model.actuator_biasprm[actuator_ids, 2] = -kd_arr
 
     def __init__(
         self,
@@ -102,8 +94,9 @@ class MuJoCoBackend(SimBackend):
         self.nv = self._model.nv
         self._idx_qpos = 1
         self._idx_qvel = 1 + self.nq
-        self._num_dof_pos = self.nq - 7
-        self._num_dof_vel = self.nv - 6
+        self._root_qpos_dim, self._root_qvel_dim = _root_state_dims(self._model)
+        self._num_dof_pos = self.nq - self._root_qpos_dim
+        self._num_dof_vel = self.nv - self._root_qvel_dim
 
         # 状态存储
         nstate = mujoco.mj_stateSize(self._model, mujoco.mjtState.mjSTATE_FULLPHYSICS)
@@ -113,13 +106,31 @@ class MuJoCoBackend(SimBackend):
         self._sensor_data = np.zeros((num_envs, self._model.nsensordata), dtype=self._np_dtype)
 
         # 缓存视图
-        self._dof_pos_view = self._physics_state[:, self._idx_qpos + 7 : self._idx_qpos + self.nq]
-        self._dof_vel_view = self._physics_state[:, self._idx_qvel + 6 : self._idx_qvel + self.nv]
+        self._dof_pos_view = self._physics_state[
+            :, self._idx_qpos + self._root_qpos_dim : self._idx_qpos + self.nq
+        ]
+        self._dof_vel_view = self._physics_state[
+            :, self._idx_qvel + self._root_qvel_dim : self._idx_qvel + self.nv
+        ]
         self._qpos_view = self._physics_state[:, self._idx_qpos : self._idx_qpos + self.nq]
-        self._base_pos_view = self._physics_state[:, self._idx_qpos : self._idx_qpos + 3]
-        self._base_quat_view = self._physics_state[:, self._idx_qpos + 3 : self._idx_qpos + 7]
-        self._base_lin_vel_view = self._physics_state[:, self._idx_qvel : self._idx_qvel + 3]
-        self._base_ang_vel_view = self._physics_state[:, self._idx_qvel + 3 : self._idx_qvel + 6]
+        if self._root_qpos_dim == 7:
+            self._base_pos_view = self._physics_state[:, self._idx_qpos : self._idx_qpos + 3]
+            self._base_quat_view = self._physics_state[:, self._idx_qpos + 3 : self._idx_qpos + 7]
+            self._base_lin_vel_view = self._physics_state[:, self._idx_qvel : self._idx_qvel + 3]
+            self._base_ang_vel_view = self._physics_state[:, self._idx_qvel + 3 : self._idx_qvel + 6]
+        else:
+            if self._base_body_id >= 0:
+                data0 = mujoco.MjData(self._model)
+                mujoco.mj_forward(self._model, data0)
+                base_pos = np.asarray(data0.xpos[self._base_body_id], dtype=self._np_dtype).copy()
+                base_quat = np.asarray(data0.xquat[self._base_body_id], dtype=self._np_dtype).copy()
+            else:
+                base_pos = np.zeros((3,), dtype=self._np_dtype)
+                base_quat = np.array([1.0, 0.0, 0.0, 0.0], dtype=self._np_dtype)
+            self._base_pos_view = np.broadcast_to(base_pos, (num_envs, 3)).copy()
+            self._base_quat_view = np.broadcast_to(base_quat, (num_envs, 4)).copy()
+            self._base_lin_vel_view = np.zeros((num_envs, 3), dtype=self._np_dtype)
+            self._base_ang_vel_view = np.zeros((num_envs, 3), dtype=self._np_dtype)
 
         # 传感器索引
         self._sensor_indices = {}
@@ -391,3 +402,17 @@ class MuJoCoBackend(SimBackend):
             )
 
         return translated or None
+
+    def _apply_position_actuator_gains_to_model(
+        self,
+        model,
+        *,
+        kp: float | np.ndarray,
+        kd: float | np.ndarray,
+        actuator_ids=slice(None),
+    ) -> None:
+        kp_arr = np.asarray(kp, dtype=np.float64)
+        kd_arr = np.asarray(kd, dtype=np.float64)
+        model.actuator_gainprm[actuator_ids, 0] = kp_arr
+        model.actuator_biasprm[actuator_ids, 1] = -kp_arr
+        model.actuator_biasprm[actuator_ids, 2] = -kd_arr
