@@ -190,8 +190,7 @@ def print_dataset_summary(
         f"{len(ROOT_COLUMNS) + joint_count} columns = root pose + {joint_count} joint DOFs"
     )
     print(
-        "[replay_bones_seed_csv] Units: "
-        "root_translate*=cm -> m, root_rotate*=deg, *_joint_dof=deg"
+        "[replay_bones_seed_csv] Units: root_translate*=cm -> m, root_rotate*=deg, *_joint_dof=deg"
     )
     print(
         "[replay_bones_seed_csv] Playback: "
@@ -327,7 +326,9 @@ def replay(args: argparse.Namespace) -> None:
                 else:
                     state["frame_index"] = motion.num_frames - 1
                     state["paused"] = True
-                    print("[replay_bones_seed_csv] Reached the end of the playlist, paused on the last frame.")
+                    print(
+                        "[replay_bones_seed_csv] Reached the end of the playlist, paused on the last frame."
+                    )
 
             target_dt = (1.0 / args.fps) / args.speed
             elapsed = time.perf_counter() - tick_start

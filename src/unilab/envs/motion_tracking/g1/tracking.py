@@ -62,24 +62,24 @@ class RewardConfig:
 class PoseRandomization:
     """Pose randomization ranges for reset."""
 
-    x: tuple[float, float] = (0.0, 0.0)
-    y: tuple[float, float] = (0.0, 0.0)
-    z: tuple[float, float] = (0.0, 0.0)
-    roll: tuple[float, float] = (0.0, 0.0)
-    pitch: tuple[float, float] = (0.0, 0.0)
-    yaw: tuple[float, float] = (0.0, 0.0)
+    x: tuple[float, float] = (-0.05, 0.05)
+    y: tuple[float, float] = (-0.05, 0.05)
+    z: tuple[float, float] = (-0.01, 0.01)
+    roll: tuple[float, float] = (-0.1, 0.1)
+    pitch: tuple[float, float] = (-0.1, 0.1)
+    yaw: tuple[float, float] = (-0.2, 0.2)
 
 
 @dataclass
 class VelocityRandomization:
     """Velocity randomization ranges for reset."""
 
-    x: tuple[float, float] = (0.0, 0.0)
-    y: tuple[float, float] = (0.0, 0.0)
-    z: tuple[float, float] = (0.0, 0.0)
-    roll: tuple[float, float] = (0.0, 0.0)
-    pitch: tuple[float, float] = (0.0, 0.0)
-    yaw: tuple[float, float] = (0.0, 0.0)
+    x: tuple[float, float] = (-0.5, 0.5)
+    y: tuple[float, float] = (-0.5, 0.5)
+    z: tuple[float, float] = (-0.2, 0.2)
+    roll: tuple[float, float] = (-0.52, 0.52)
+    pitch: tuple[float, float] = (-0.52, 0.52)
+    yaw: tuple[float, float] = (-0.78, 0.78)
 
 
 @dataclass
@@ -102,15 +102,11 @@ class G1MotionTrackingCfg(G1BaseCfg):
     """Configuration for G1 motion tracking environment."""
 
     model_file: str = str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
-    # By default, load all NPZ files under src/unilab/assets/motions/g1.
-    motion_file: str | list[str] = str(ASSETS_ROOT_PATH / "motions" / "g1" / "flip_360_001__A304.npz")
-    
-    # model_file: str = str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat_with_wall.xml")
-    # # By default, load all NPZ files under src/unilab/assets/motions/g1.
-    # # motion_file: str | list[str] = str(ASSETS_ROOT_PATH / "motions" / "g1" / "flip_360_001__A304.npz")
-    # motion_file: str | list[str] = str(ASSETS_ROOT_PATH / "motions" / "g1" / "flip_from_wall_104__A304.npz")
+    # Kept at the historical single-clip default for backward compatibility.
+    motion_file: str | list[str] = str(
+        ASSETS_ROOT_PATH / "motions" / "g1" / "dance1_subject2_part.npz"
+    )
     # motion_file: str | list[str] = str(ASSETS_ROOT_PATH / "motions" / "g1" / "gangnam_style.npz")
-    # motion_file: str | list[str] = sorted(str(path) for path in (ASSETS_ROOT_PATH / "motions" / "g1").glob("*.npz"))
     # motion_file: str | list[str] = str(ASSETS_ROOT_PATH / "motions" / "g1" / "walk1_subject5_from_csv.npz") #LAFAN
     # motion_file: str | list[str] = str(ASSETS_ROOT_PATH / "motions" / "g1" / "sprint1_subject4_from_csv.npz") #LAFAN
     # motion_file: str | list[str] = str(ASSETS_ROOT_PATH / "motions" / "g1" / "playing_violin_R_003__A327_from_csv.npz") #Seed
@@ -138,10 +134,10 @@ class G1MotionTrackingCfg(G1BaseCfg):
     pose_randomization: PoseRandomization = field(default_factory=PoseRandomization)
     velocity_randomization: VelocityRandomization = field(default_factory=VelocityRandomization)
     domain_rand: Domain_Rand = field(default_factory=Domain_Rand)
-    joint_position_range: tuple[float, float] = (0.0, 0.0)
+    joint_position_range: tuple[float, float] = (-0.1, 0.1)
     # Termination thresholds
     anchor_pos_z_threshold: float = 0.25
-    anchor_ori_threshold: float = 1e9  # (effectively disabled by default since some motions have large anchor orientation error)
+    anchor_ori_threshold: float = 0.8
     ee_body_pos_z_threshold: float = 0.25
     ee_body_names: tuple[str, ...] = (
         "left_ankle_roll_link",

@@ -171,6 +171,7 @@ def test_offpolicy_task_composes(task: str, expected_env: str):
         ("go1_joystick", "Go1JoystickFlatTerrain"),
         ("go2_joystick", "Go2JoystickFlatTerrain"),
         ("g1_joystick", "G1JoystickFlatTerrain"),
+        ("g1_flip_tracking", "G1FlipTracking"),
     ],
 )
 def test_appo_task_composes(task: str, expected_env: str):
@@ -186,6 +187,7 @@ def test_appo_task_composes(task: str, expected_env: str):
         ("go2_joystick", "Go2JoystickFlatTerrain"),
         ("g1_joystick", "G1JoystickFlatTerrain"),
         ("g1_motion_tracking", "G1MotionTracking"),
+        ("g1_flip_tracking", "G1FlipTracking"),
         ("allegro_inhand", "AllegroInhandRotation"),
     ],
 )

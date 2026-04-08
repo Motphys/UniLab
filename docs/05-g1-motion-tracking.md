@@ -1,12 +1,15 @@
 # G1 Motion Tracking
 
-UniLab 当前提供一个 G1 的 whole-body motion tracking 任务。
+UniLab 当前提供两个 G1 whole-body motion tracking task：
 
-- Hydra task：`g1_motion_tracking`
+- Hydra task：`g1_motion_tracking`（兼容历史默认）
 - 注册环境名：`G1MotionTracking`
+- Hydra task：`g1_flip_tracking`（flip 专用 profile）
+- 注册环境名：`G1FlipTracking`
 - 后端注册：`mujoco` 和 `motrix`
 - 已提交的 Motrix 特化配置：PPO 和 APPO 的 motion-tracking reward
-- 默认 motion 文件：`src/unilab/assets/motions/g1/dance1_subject2_part.npz`
+- `g1_motion_tracking` 默认 motion：`src/unilab/assets/motions/g1/dance1_subject2_part.npz`
+- `g1_flip_tracking` 默认 motion：`src/unilab/assets/motions/g1/flip_360_001__A304.npz`
 
 ## Environment Entrypoints
 
@@ -14,8 +17,14 @@ UniLab 当前提供一个 G1 的 whole-body motion tracking 任务。
 # PPO (RSL-RL, MuJoCo)
 uv run python scripts/train_rsl_rl.py task=g1_motion_tracking
 
+# PPO (RSL-RL, MuJoCo, flip profile)
+uv run python scripts/train_rsl_rl.py task=g1_flip_tracking
+
 # PPO (RSL-RL, Motrix)
 uv run python scripts/train_rsl_rl.py task=g1_motion_tracking training.sim_backend=motrix
+
+# PPO (RSL-RL, Motrix, flip profile)
+uv run python scripts/train_rsl_rl.py task=g1_flip_tracking training.sim_backend=motrix
 
 # APPO (MuJoCo)
 uv run python scripts/train_appo.py task=g1_motion_tracking
@@ -112,7 +121,7 @@ uv run python scripts/motion/replay_npz.py \
 
 ## Config Note
 
-`task=g1_motion_tracking` 默认会通过 `glob` 读取 `src/unilab/assets/motions/g1/*.npz` 作为环境配置里的 `motion_file`。如果要切换到自定义 motion，先生成 `.npz`，再显式覆盖 `motion_file`。
+`task=g1_motion_tracking` 默认读取环境配置里的单个 `motion_file`（历史默认是 `dance1_subject2_part.npz`）。`task=g1_flip_tracking` 提供 flip 专用默认 profile（更保守的 reset 随机化与 termination）。
 
 `motion_file` 现在同时支持单个字符串路径和字符串列表。列表模式下，训练会在多个 motion clip 之间采样，并且每个 episode 都会保持在当前 clip 内，不会跨文件串帧。例如：
 

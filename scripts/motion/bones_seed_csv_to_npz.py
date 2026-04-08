@@ -105,7 +105,9 @@ def resolve_input_files(input_path: str) -> list[Path]:
     return csv_files
 
 
-def resolve_output_targets(input_path: str, output_path: str | None, csv_files: list[Path]) -> list[Path]:
+def resolve_output_targets(
+    input_path: str, output_path: str | None, csv_files: list[Path]
+) -> list[Path]:
     input_root = Path(input_path).expanduser().resolve()
     if input_root.is_file():
         if output_path is None:
