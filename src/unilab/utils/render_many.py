@@ -1,9 +1,55 @@
 import math
 import os
+import subprocess
 import sys
+import textwrap
 from typing import Any
 
 import imageio
+
+
+_EGL_PROBE_SCRIPT = textwrap.dedent(
+    '''
+    import mujoco
+
+    xml = """
+    <mujoco>
+      <worldbody>
+        <geom type="box" size="0.1 0.1 0.1" rgba="0 1 0 1"/>
+      </worldbody>
+    </mujoco>
+    """
+
+    model = mujoco.MjModel.from_xml_string(xml)
+    data = mujoco.MjData(model)
+    renderer = mujoco.Renderer(model, height=8, width=8)
+    mujoco.mj_forward(model, data)
+    renderer.update_scene(data)
+    renderer.render()
+    renderer.close()
+    '''
+)
+
+
+def _egl_runtime_usable() -> bool:
+    env = os.environ.copy()
+    env["MUJOCO_GL"] = "egl"
+    env.setdefault("MUJOCO_EGL_DEVICE_ID", "0")
+
+    try:
+        subprocess.run(
+            [sys.executable, "-c", _EGL_PROBE_SCRIPT],
+            env=env,
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+    os.environ.setdefault("MUJOCO_EGL_DEVICE_ID", env["MUJOCO_EGL_DEVICE_ID"])
+    return True
 
 
 def _resolve_gl_backend() -> str:
@@ -23,17 +69,11 @@ def _resolve_gl_backend() -> str:
     if current in safe_values:
         return current
 
-    # Try to load EGL; fall back to glfw if unavailable
-    try:
-        import ctypes
-
-        ctypes.CDLL("libEGL.so.1")
-        # NVIDIA EGL requires a device ID to initialize offscreen contexts in
-        # spawned subprocesses; default to GPU 0 if the user hasn't set it.
-        os.environ.setdefault("MUJOCO_EGL_DEVICE_ID", "0")
+    # Probe EGL by creating a tiny MuJoCo renderer in a clean subprocess.
+    if _egl_runtime_usable():
         return "egl"
-    except OSError:
-        return "glfw"
+
+    return "glfw"
 
 
 # Must be set *before* importing mujoco (it reads the var at import time)
