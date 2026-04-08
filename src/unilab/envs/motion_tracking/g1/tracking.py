@@ -127,7 +127,7 @@ class G1MotionTrackingCfg(G1BaseCfg):
         "right_elbow_link",
         "right_wrist_yaw_link",
     )
-    sampling_mode: Literal["start", "uniform", "adaptive"] = "adaptive"
+    sampling_mode: Literal["start", "clip_start", "uniform", "adaptive"] = "adaptive"
     log_action_scale: bool = False
     max_episode_seconds: float = 10.0
     reward_config: RewardConfig = field(default_factory=RewardConfig)

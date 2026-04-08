@@ -381,6 +381,13 @@ class TestResetDoneEnvs:
         np.testing.assert_array_equal(state.obs["obs"][2], 1.0)
         np.testing.assert_array_equal(state.info["_final_observation"], [False, True, False])
 
+    def test_base_truncation_reuses_internal_buffer(self):
+        env = _StubNpEnv(num_envs=2)
+        env.init_state()
+        first = env._compute_truncated(env.state)
+        second = env._compute_truncated(env.state)
+        assert first is second
+
 
 # ---------------------------------------------------------------------------
 # Edge cases

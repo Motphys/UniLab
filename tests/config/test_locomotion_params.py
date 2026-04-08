@@ -186,6 +186,8 @@ def test_ppo_g1_motion_tracking():
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(CONF_DIR / "ppo"), version_base="1.3"):
         cfg = compose("config", overrides=["task=g1_motion_tracking"])
+    assert cfg.training.task_name == "G1MotionTracking"
+    assert cfg.algo.max_iterations == 15000
     assert cfg.algo.algorithm.entropy_coef == pytest.approx(0.005)
 
 

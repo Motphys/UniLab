@@ -181,7 +181,7 @@ class MotionSampler:
     def __init__(
         self,
         motion_loader: MotionLoader,
-        mode: Literal["start", "uniform", "adaptive"],
+        mode: Literal["start", "clip_start", "uniform", "adaptive"],
         num_envs: int,
         bin_count: int | None = None,
         adaptive_lambda: float = 0.8,
@@ -193,7 +193,7 @@ class MotionSampler:
 
         Args:
             motion_loader: Motion loader instance
-            mode: Sampling mode ("start", "uniform", "adaptive")
+            mode: Sampling mode ("start", "clip_start", "uniform", "adaptive")
             num_envs: Number of parallel environments
             bin_count: Number of bins for adaptive sampling (auto if None)
             adaptive_lambda: Decay factor for adaptive kernel
@@ -250,6 +250,8 @@ class MotionSampler:
         """
         if self.mode == "start":
             return self._sample_start(env_ids)
+        elif self.mode == "clip_start":
+            return self._sample_clip_start(env_ids)
         elif self.mode == "uniform":
             return self._sample_uniform(env_ids)
         elif self.mode == "adaptive":
@@ -258,7 +260,13 @@ class MotionSampler:
             raise ValueError(f"Unknown sampling mode: {self.mode}")
 
     def _sample_start(self, env_ids: np.ndarray) -> np.ndarray:
-        """Always start from beginning."""
+        """Always start from the global first frame (historical behavior)."""
+        frames = np.zeros(len(env_ids), dtype=np.int32)
+        self._set_sampled_frames(env_ids, frames)
+        return frames
+
+    def _sample_clip_start(self, env_ids: np.ndarray) -> np.ndarray:
+        """Start from the first frame of a randomly chosen clip."""
         if self.motion_loader.num_clips == 1:
             frames = np.zeros(len(env_ids), dtype=np.int32)
         else:

@@ -142,6 +142,7 @@ def test_g1_flip_tracking_cfg_uses_flip_profile():
     assert cfg.velocity_randomization.x == (0.0, 0.0)
     assert cfg.joint_position_range == (0.0, 0.0)
     assert cfg.anchor_ori_threshold == pytest.approx(1e9)
+    assert cfg.sampling_mode in {"start", "clip_start", "uniform", "adaptive"}
 
 
 def test_g1_motion_tracking_clip_end_contributes_to_truncated():

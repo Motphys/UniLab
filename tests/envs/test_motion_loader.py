@@ -73,7 +73,7 @@ def test_motion_loader_rejects_mismatched_multi_clip_metadata(tmp_path):
         MotionLoader([str(motion_a), str(motion_b)])
 
 
-def test_motion_sampler_start_mode_uses_clip_starts_for_multi_clip_loader(tmp_path):
+def test_motion_sampler_start_mode_preserves_global_zero_frame(tmp_path):
     motion_a = tmp_path / "motion_a.npz"
     motion_b = tmp_path / "motion_b.npz"
     _write_motion_npz(motion_a, base_value=0.0, num_frames=2)
@@ -82,6 +82,24 @@ def test_motion_sampler_start_mode_uses_clip_starts_for_multi_clip_loader(tmp_pa
     np.random.seed(0)
     loader = MotionLoader([str(motion_a), str(motion_b)])
     sampler = MotionSampler(loader, mode="start", num_envs=16)
+
+    env_ids = np.arange(16, dtype=np.int32)
+    frames = sampler.sample_frames(env_ids)
+
+    np.testing.assert_array_equal(frames, np.zeros(16, dtype=np.int32))
+    np.testing.assert_array_equal(sampler.current_clip_indices, np.zeros(16, dtype=np.int32))
+    np.testing.assert_array_equal(sampler.current_clip_end_frames, np.full(16, 1, dtype=np.int32))
+
+
+def test_motion_sampler_clip_start_mode_uses_clip_starts_for_multi_clip_loader(tmp_path):
+    motion_a = tmp_path / "motion_a.npz"
+    motion_b = tmp_path / "motion_b.npz"
+    _write_motion_npz(motion_a, base_value=0.0, num_frames=2)
+    _write_motion_npz(motion_b, base_value=10.0, num_frames=3)
+
+    np.random.seed(0)
+    loader = MotionLoader([str(motion_a), str(motion_b)])
+    sampler = MotionSampler(loader, mode="clip_start", num_envs=16)
 
     env_ids = np.arange(16, dtype=np.int32)
     frames = sampler.sample_frames(env_ids)

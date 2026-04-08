@@ -123,6 +123,8 @@ uv run python scripts/motion/replay_npz.py \
 
 `task=g1_motion_tracking` 默认读取环境配置里的单个 `motion_file`（历史默认是 `dance1_subject2_part.npz`）。`task=g1_flip_tracking` 提供 flip 专用默认 profile（更保守的 reset 随机化与 termination）。
 
+PPO 默认训练预算也做了分流：`g1_motion_tracking` 保持历史默认 `max_iterations=15000`，`g1_flip_tracking` 使用更长的 `max_iterations=30000`。
+
 `motion_file` 现在同时支持单个字符串路径和字符串列表。列表模式下，训练会在多个 motion clip 之间采样，并且每个 episode 都会保持在当前 clip 内，不会跨文件串帧。例如：
 
 ```yaml
@@ -130,6 +132,12 @@ motion_file:
   - src/unilab/assets/motions/g1/dance1_subject2_part.npz
   - src/unilab/assets/motions/g1/walk1_subject5_from_csv.npz
 ```
+
+`sampling_mode` 的语义现在显式区分：
+
+- `start`：保持历史行为，总是从全局第 0 帧开始
+- `clip_start`：从随机 clip 的首帧开始，适合多 clip 列表
+- `uniform` / `adaptive`：在拼接后的全局帧空间采样，但 episode 会在当前 clip 边界处截断
 
 如果要验证 Motrix 路径，优先使用训练脚本内置 play mode，而不是 MuJoCo-only 的调试脚本：
 

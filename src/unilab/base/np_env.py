@@ -39,6 +39,7 @@ class NpEnv(ABEnv):
         self._state: Optional[NpEnvState] = None
         self.step_counter = 0
         self.push_robots_flag = False
+        self._truncated_scratch = np.zeros((self._num_envs,), dtype=bool)
         if getattr(self._backend, "backend_type", None) == "motrix":
             self._backend._process_rigid_body_props(cfg)  # type: ignore[attr-defined]
             domain_rand = getattr(self._cfg, "domain_rand", None)
@@ -177,7 +178,12 @@ class NpEnv(ABEnv):
         task-specific truncation conditions while remaining compatible with the
         existing done/reset contract.
         """
-        truncated = np.zeros((self._num_envs,), dtype=bool)
+        if not hasattr(self, "_truncated_scratch") or self._truncated_scratch.shape != (
+            self._num_envs,
+        ):
+            self._truncated_scratch = np.zeros((self._num_envs,), dtype=bool)
+        truncated = self._truncated_scratch
+        truncated.fill(False)
         if self._cfg.max_episode_steps:
             np.greater_equal(state.info["steps"], self._cfg.max_episode_steps, out=truncated)
         return truncated
