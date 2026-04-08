@@ -7,7 +7,7 @@ training:
 algo:
   num_envs: 16384
   num_steps_per_env: 8
-  max_iterations: 501
+  max_iterations: 201
   empirical_normalization: true
   algorithm:
     value_loss_coef: 4.0
