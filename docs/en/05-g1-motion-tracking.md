@@ -1,11 +1,14 @@
 # G1 Motion Tracking
 
-UniLab 当前提供一个 G1 的 whole-body motion tracking 任务。
+Languages: English | [简体中文](../zh_CN/05-g1-motion-tracking.md) | [日本語](../ja/05-g1-motion-tracking.md) | [한국어](../ko/05-g1-motion-tracking.md)
 
-- Hydra task：`g1_motion_tracking`
-- 注册环境名：`G1MotionTracking`
-- 当前后端：`mujoco`，以及已验证的 `motrix` PPO / APPO 路径
-- 默认 motion 文件：`src/unilab/assets/motions/g1/dance1_subject2_part.npz`
+UniLab currently provides one whole-body motion-tracking task for G1.
+
+- Hydra task: `g1_motion_tracking`
+- Registered env name: `G1MotionTracking`
+- Registered backends: `mujoco` and `motrix`
+- Landed Motrix-specific configs: motion-tracking rewards for PPO and APPO
+- Default motion file: `src/unilab/assets/motions/g1/dance1_subject2_part.npz`
 
 ## Environment Entrypoints
 
@@ -22,45 +25,43 @@ uv run python scripts/train_appo.py task=g1_motion_tracking
 # APPO (Motrix)
 uv run python scripts/train_appo.py task=g1_motion_tracking training.sim_backend=motrix
 
-# 回放最新 checkpoint
+# Play the latest checkpoint
 uv run python scripts/train_rsl_rl.py task=g1_motion_tracking training.play_only=true
 
-# Motrix PPO 回放会打开原生 renderer
+# Motrix PPO playback opens the native renderer
 uv run python scripts/train_rsl_rl.py task=g1_motion_tracking \
   training.sim_backend=motrix \
   training.play_only=true
 
-# APPO MuJoCo play
+# APPO MuJoCo playback
 uv run python scripts/train_appo.py task=g1_motion_tracking training.play_only=true
 
-# APPO Motrix play 会打开原生 renderer
+# APPO Motrix playback opens the native renderer
 uv run python scripts/train_appo.py task=g1_motion_tracking \
   training.sim_backend=motrix \
   training.play_only=true
 ```
 
-目前已验证的 Motrix 训练/回放主链路包括 `scripts/train_rsl_rl.py` 和
-`scripts/train_appo.py`。`scripts/play_interactive.py` 仍按 MuJoCo 路径使用。
+For G1 motion tracking, Motrix training and playback should primarily go through `scripts/train_rsl_rl.py` and `scripts/train_appo.py`. The debug script `scripts/play_interactive.py` still follows the MuJoCo viewer path.
 
 ## Interactive Debugging
 
-`scripts/play_interactive.py` 可以直接查看 target body，也可以查看 reward 使用的参考位姿和速度。
-当前该脚本按 MuJoCo viewer 实现，不支持 Motrix 原生 renderer。
+`scripts/play_interactive.py` can visualize target bodies directly, and it can also show the reference pose and velocity used by the reward. The script is implemented against the MuJoCo viewer path and does not support the Motrix native renderer.
 
 ```bash
-# 可视化 motion target
+# Visualize motion targets
 uv run python scripts/play_interactive.py \
   --task G1MotionTracking \
   --show_target_bodies \
   --target_show_axes
 
-# 只查看部分 body
+# Inspect only selected bodies
 uv run python scripts/play_interactive.py \
   --task G1MotionTracking \
   --show_target_bodies \
   --target_body_names torso_link,left_wrist_yaw_link,right_wrist_yaw_link
 
-# 查看 reward debug 信息
+# Show reward debug information
 uv run python scripts/play_interactive.py \
   --task G1MotionTracking \
   --show_reward_debug \
@@ -69,21 +70,21 @@ uv run python scripts/play_interactive.py \
   --target_max_bodies 4
 ```
 
-如果需要加载指定 run 或 checkpoint，可额外传入 `--load_run` 和 `--checkpoint`。
+If you need a specific run or checkpoint, also pass `--load_run` and `--checkpoint`.
 
-## Motion Preprocess
+## Motion Preprocessing
 
-训练环境读取的是预处理后的 `.npz` 文件。使用 `scripts/motion/csv_to_npz.py` 可以把 Unitree 格式的 CSV 转成训练可用的 NPZ：
+Training uses preprocessed `.npz` files. Use `scripts/motion/csv_to_npz.py` to convert Unitree-format CSV into an NPZ that the training environment can load:
 
 ```bash
-# 全量转换
+# Full conversion
 uv run python scripts/motion/csv_to_npz.py \
   --input_file src/unilab/assets/motions/g1/dance1_subject2.csv \
   --output_file src/unilab/assets/motions/g1/dance1_subject2_from_csv.npz \
   --input_fps 30 \
   --output_fps 50
 
-# 只导出一个时间片段
+# Export only a time slice
 uv run python scripts/motion/csv_to_npz.py \
   --input_file src/unilab/assets/motions/g1/dance1_subject2.csv \
   --output_file src/unilab/assets/motions/g1/dance1_subject2_clip.npz \
@@ -95,28 +96,29 @@ uv run python scripts/motion/csv_to_npz.py \
 
 ## Replay NPZ
 
-生成好 NPZ 之后，可以用 `scripts/motion/replay_npz.py` 在 MuJoCo viewer 中直接检查动作：
+After generating an NPZ, you can inspect it directly in the MuJoCo viewer with `scripts/motion/replay_npz.py`:
 
 ```bash
-# 循环播放
+# Loop playback
 uv run python scripts/motion/replay_npz.py \
   --npz_file src/unilab/assets/motions/g1/dance1_subject2_part.npz \
   --loop
 
-# 0.5x 慢放
+# Slow down to 0.5x
 uv run python scripts/motion/replay_npz.py \
   --npz_file src/unilab/assets/motions/g1/dance1_subject2_part.npz \
   --speed 0.5
 ```
 
-## Config Note
+## Configuration Note
 
-`task=g1_motion_tracking` 默认读取环境配置里的 `motion_file`。如果要切换到自定义 motion，先生成 `.npz`，再更新环境配置里的默认 `motion_file`。
+`task=g1_motion_tracking` reads the `motion_file` declared in the env config by default. To switch to a custom motion, first generate the `.npz`, then update the env config's default `motion_file`.
 
-如果要验证 Motrix 路径，优先使用：
+To validate a Motrix path, prefer the built-in play mode in the training scripts instead of the MuJoCo-only debug script:
 
 ```bash
 uv run python scripts/train_rsl_rl.py task=g1_motion_tracking training.sim_backend=motrix
+uv run python scripts/train_appo.py task=g1_motion_tracking training.sim_backend=motrix
 ```
 
 ## Navigation

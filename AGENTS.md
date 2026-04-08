@@ -1,147 +1,50 @@
-# Development Standards
-
-## Package Management
+# UniLab Agent Principles
 
 **Always use `uv run`, not python**.
 
-```bash
-# ✅ Correct
-uv run python script.py
-uv run pytest
+UniLab 是一个 **高性能、模块化、contract 驱动** 的 RL infrastructure 仓库。
+先看 [RL Infrastructure Development Standard](docs/en/00-development-architecture.md)。AGENTS 只保留 agent 必须记住的理念。
 
-# ❌ Incorrect
-python script.py
-pytest
-```
+## Core Principles
 
-## Installation
+1. Contract first: 不为了一次通过绕过 env / backend / runner contract。
+2. Fix at owner layer: `scripts/` 只组装流程，不承载长期业务规则。
+3. Config first: task / reward / backend 优先通过 Hydra + registry 表达。
+4. Backend isolation: MuJoCo / Motrix 差异留在 backend 适配层和配置层。
+5. Evidence only: support claim 只写仓库里已有的注册、配置、测试或 benchmark 事实。
+6. Validate near risk: 在最接近风险的边界补验证，不只跑顶层命令。
 
-```bash
-# macOS (MPS)
-uv sync --extra dev
+## Read Order
 
-# Linux (CUDA 12.4)
-uv sync --extra dev --extra cu124
-```
+1. `AGENTS.md`
+2. `docs/en/00-development-architecture.md`
+3. `CONTRIBUTING.md`
+4. 当前任务相关代码与测试
 
-## Development Workflow
+## High-Risk Areas
 
-### Quick Commands (Makefile)
+| 区域 | 不可破坏的不变量 |
+|------|----------------|
+| Env  | `NpEnvState.obs` 必须是 dict；`reset()` 返回 `(obs_dict, info_dict)`；`obs_groups_spec` 影响 wrapper 和 learner 维度。 |
+| Config / Reward | reward 通过 Hydra 注入；`training.sim_backend` 和 `motrix_legacy` 必须尊重显式 override。 |
+| Backend | backend-specific 逻辑留在 backend / env 适配层，不向训练脚本扩散。 |
+| Async | 不绕开 runner lifecycle，也不另起 collector / learner 同步协议。 |
 
-```bash
-make format     # Format and lint code (ruff format + ruff check --fix)
-make type       # Type check with mypy + pyright
-make check      # make format && make type
-make test       # Run all non-slow tests (default)
-make test-cov   # Run non-slow tests with coverage report
-make test-slow  # Run slow integration tests (requires MuJoCo)
-make test-veryslow  # Run full training iteration tests (minutes per test)
-make test-all   # make check && make test-cov
-```
+## Validation
 
-### Manual Commands
+- Hydra / task / reward：`make test`
+- env / obs / reset：`make test`
+- runner / IPC：`make test`，必要时 `make test-slow`
+- training path：相关测试 + 1-iteration smoke run
+- docs-only：核对命令、路径、配置名、CI 和 support claim
 
-```bash
-# Format
-uv run ruff format .
-uv run ruff check --fix
+## Pointers
 
-# Type check
-uv run mypy unilab
-uv run pyright
-
-# Test (non-slow)
-uv run pytest -m "not slow"
-
-# Test with coverage
-uv run pytest -m "not slow" --cov=unilab --cov-report=term-missing
-
-# Slow integration tests (need MuJoCo installed)
-uv run pytest -m "slow and not veryslow" -v
-
-# Very slow: full training iteration tests (minutes per test)
-uv run pytest -m veryslow -v
-```
-
-## Test Structure
-
-```
-tests/
-├── conftest.py                    # shared fixtures + DummyFlatEnv stub
-├── ipc/                           # IPC primitives unit tests
-│   ├── test_replay_buffer.py
-│   ├── test_shared_onpolicy_storage.py
-│   ├── test_shared_weight_sync.py
-│   ├── test_shared_obs_stats.py
-│   └── test_async_runner.py
-├── base/
-│   ├── test_registry.py
-│   └── test_np_env.py             # NpEnvState + NpEnv dict-obs contract
-├── config/
-│   ├── test_locomotion_params.py
-│   └── test_manipulation_params.py
-├── envs/
-│   └── test_env_configs.py        # obs_groups_spec dims + env instantiation
-├── utils/
-│   └── test_obs_utils.py          # flatten_obs_dict
-├── scripts/
-│   └── test_train_scripts.py
-└── algos/
-    ├── test_appo_runner.py        # @pytest.mark.slow
-    ├── test_offpolicy_runner.py   # @pytest.mark.slow
-    └── test_mlx_ppo.py            # macOS only (MLX backend)
-```
-
-Tests marked `@pytest.mark.slow` require a real MuJoCo environment and are excluded from CI
-by default. Run them locally when working on runner/learner code.
-
-Tests marked `@pytest.mark.veryslow` run full training iterations (minutes per test). They are
-excluded by default even when running `make test-slow`. Run `make test-veryslow` explicitly.
-
-## Testing
-
-**New features must ship with tests.** When developing a new feature or refactoring, design and write comprehensive unit tests alongside the feature code — not as an afterthought. Tests should cover:
-
-- Normal behaviour and edge cases
-- Error paths and invalid inputs
-- Contract verification (e.g. interface shapes, types, key presence)
-- Integration with neighbouring modules when relevant (`@pytest.mark.slow` for MuJoCo-dependent tests)
-
-## Git Commits
-
-Use Conventional Commits:
-- `feat:` 新功能
-- `fix:` 修复 bug
-- `docs:` 文档
-- `style:` 格式化
-- `refactor:` 重构
-- `test:` 测试
-- `chore:` 构建/工具
-
-## Pre-commit
-
-```bash
-pre-commit install  # Optional
-```
-
-**Always run `make check` before committing.**
-
-## Configuration System
-
-UniLab uses **Hydra + dataclass** for type-safe, composable configs:
-
-- **Structured configs**: `src/unilab/config/structured_configs.py` (typed dataclasses)
-- **YAML configs**: `conf/` directory (offpolicy/appo/ppo)
-- **CLI overrides**: `algo.num_envs=2048 training.device=cuda`
-
-### Adding New Tasks
-
-1. Create YAML file: `conf/{algo}/task/my_task.yaml`
-2. Use `# @package _global_` directive
-3. Override only deltas from base config
-
-### Adding New Algorithms
-
-1. Add dataclass to `structured_configs.py`
-2. Create `conf/{algo}/config.yaml` with defaults
-3. Update training script with `@hydra.main()`
+- PPO: `scripts/train_rsl_rl.py`
+- MLX PPO: `scripts/train_mlx_ppo.py`
+- APPO: `scripts/train_appo.py`
+- SAC / TD3: `scripts/train_offpolicy.py`
+- env contract: `src/unilab/base/np_env.py`
+- backend contract: `src/unilab/base/backend/base.py`
+- config schema: `src/unilab/config/structured_configs.py`
+- async runner: `src/unilab/ipc/async_runner.py`

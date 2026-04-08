@@ -1,60 +1,77 @@
+![G1 motion tracking overview](docs/assets/g1_readme.png)
+
 # UniLab
 
-UniLab 的核心目标是验证一个命题：**robot locomotion RL 不需要依赖 GPU 仿真后端**。
+Languages: English | [简体中文](docs/zh_CN/README.md) | [日本語](docs/ja/README.md) | [한국어](docs/ko/README.md)
 
-主流框架常把物理仿真、replay buffer 和策略训练全部耦合在 GPU pipeline 中。UniLab 选择另一条路线：**CPU 仿真 + shared-memory 数据通路 + GPU 训练**，在保持训练吞吐的同时降低对特定仿真后端和硬件平台的绑定。
+UniLab is built to test a simple hypothesis: **robot locomotion RL does not need a GPU simulation backend**.
+
+Mainstream stacks often couple physics simulation, replay storage, and policy updates inside one GPU pipeline. UniLab takes a different route: **CPU simulation + shared-memory data path + GPU training**. That keeps training throughput high while reducing coupling to a specific simulator or hardware platform.
 
 ```
-┌───────────────────┐     统一共享内存     ┌────────────────────┐
-│   CPU 物理仿真    │ ──────────────────▶  │   GPU 策略训练     │
-│  mujoco.rollout   │   SharedReplayBuffer │  PPO / SAC / TD3   │
-│    多线程并行     │  (PyTorch shared)    │    CUDA / MPS      │
-└───────────────────┘                      └────────────────────┘
+┌───────────────────┐     Unified Shared Memory     ┌────────────────────┐
+│  CPU Physics Sim  │ ───────────────────────────▶  │ GPU Policy Training│
+│  mujoco.rollout   │      SharedReplayBuffer       │   PPO / SAC / TD3  │
+│ Multithread Step  │    (PyTorch shared tensors)   │     CUDA / MPS     │
+└───────────────────┘                               └────────────────────┘
 ```
 
-- **CPU 仿真**：MuJoCo / Motrix 的 CPU 多线程 step，无需 GPU 仿真内核
-- **统一内存**：Collector 和 Learner 通过 PyTorch shared tensors 零拷贝通信
-- **GPU 训练**：策略网络仍在 GPU 上训练，支持 CUDA 和 MPS
-- **硬件无关**：Mac 和 Linux 都可以作为一等开发环境
+- **CPU simulation**: MuJoCo / Motrix CPU multithreaded stepping, no GPU sim kernel required
+- **Unified memory path**: collectors and learners communicate through zero-copy PyTorch shared tensors
+- **GPU training**: policy networks still train on GPU, with CUDA and MPS support
+- **Hardware agnostic**: macOS and Linux are both first-class development environments
 
 ## Quick Start
 
 ```bash
-# 1. 克隆仓库
+# 1. Clone the repository
 git clone https://github.com/unilabsim/UniLab.git
 cd UniLab
 
-# 2. 安装依赖
+# 2. Install dependencies
 # macOS (MPS)
 uv sync --extra dev
 
-# Linux (CUDA 12.4)
+# Linux (choose one CUDA extra such as cu124)
 uv sync --extra dev --extra cu124
 
-# 3. 运行一个训练任务
+# Optional: Motrix backend
+uv sync --extra dev --extra motrix
+
+# 3. Run a training job
 uv run python scripts/train_rsl_rl.py task=go1_joystick
 ```
 
-更完整的安装、后端和训练说明已经拆到按顺序组织的 `docs/`：
+## Workflow Entrypoints
+
+| Goal | Entrypoint | Default log root |
+|------|------------|------------------|
+| PPO (torch / RSL-RL) | `scripts/train_rsl_rl.py` | `logs/rsl_rl_train/<task>/` |
+| PPO (MLX, macOS) | `scripts/train_mlx_ppo.py` | `logs/mlx_rl_train/<task>/` |
+| APPO | `scripts/train_appo.py` | `logs/appo/<task>/` |
+| SAC / TD3 | `scripts/train_offpolicy.py` | `logs/fast_sac/<task>/` / `logs/fast_td3/<task>/` |
+
+Training scripts automatically enter playback after training unless you set `training.no_play=true`.
+
+## Repository Map
+
+- `conf/`: Hydra configuration, including task / reward / algorithm composition
+- `scripts/`: direct entrypoints for training, playback, motion preprocessing, and tooling
+- `src/unilab/`: environments, backends, algorithms, and shared utilities
+- `tests/`: unit tests, integration tests, and script configuration tests
+- `docs/`: language-specific documentation under `docs/en/`, `docs/zh_CN/`, `docs/ja/`, and `docs/ko/`
 
 ## Documentation
 
-- [01 Getting Started](docs/01-getting-started.md): 安装、依赖、国内镜像、第一次运行
-- [02 Simulation Backends](docs/02-simulation-backends.md): MuJoCo / Motrix 支持范围与使用方式
-- [03 Training Guide](docs/03-training.md): 训练、回放、恢复训练、Hydra 参数、W&B
-- [04 Algorithms](docs/04-algorithms.md): APPO、FastSAC、FastTD3 的用法与差异
-- [05 G1 Motion Tracking](docs/05-g1-motion-tracking.md): G1 whole-body motion tracking 任务说明
-- [06 Collaboration Workflow](docs/06-collaboration.md): GitHub issue / milestone / PR 协作方式
-- [07 Domain Randomization](docs/07-domain-randomization.md): DR 设计、支持范围、配置方式和接入方式
-- [Contributing](CONTRIBUTING.md): 开发规范、测试、CI、提交流程
-
-## Roadmap And Task Tracking
-
-UniLab 不再把阶段任务、owner 和执行状态直接维护在 `README.md`。
-
-- 用 GitHub Issues 跟踪 bug、feature、benchmark、docs 和 infra work
-- 用 GitHub Milestones 跟踪阶段目标，例如 `M1`
-- 用 [docs/06-collaboration.md](docs/06-collaboration.md) 统一说明协作规则
+- [00 RL Infrastructure Development Standard](docs/en/00-development-architecture.md): design principles, layering, contracts, and validation boundaries
+- [01 Getting Started](docs/en/01-getting-started.md): installation, dependency setup, mirrors, and first-run commands
+- [02 Simulation Backends](docs/en/02-simulation-backends.md): MuJoCo / Motrix support scope and backend selection
+- [03 Training Guide](docs/en/03-training.md): training, playback, resume flow, Hydra overrides, and W&B
+- [04 Algorithms](docs/en/04-algorithms.md): APPO, FastSAC, and FastTD3 usage and differences
+- [05 G1 Motion Tracking](docs/en/05-g1-motion-tracking.md): the G1 whole-body motion-tracking task
+- [06 Collaboration Workflow](docs/en/06-collaboration.md): GitHub issue / milestone / PR collaboration rules
+- [Contributing](CONTRIBUTING.md): development workflow, testing, CI, and review expectations
+- [AGENTS](AGENTS.md): guidance for coding agents and automated editors working in this RL infra repo
 
 ## Related Projects
 
