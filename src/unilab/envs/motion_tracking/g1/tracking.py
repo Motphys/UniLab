@@ -104,6 +104,11 @@ class G1MotionTrackingCfg(G1BaseCfg):
     model_file: str = str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
     # By default, load all NPZ files under src/unilab/assets/motions/g1.
     motion_file: str | list[str] = str(ASSETS_ROOT_PATH / "motions" / "g1" / "flip_360_001__A304.npz")
+    
+    # model_file: str = str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat_with_wall.xml")
+    # # By default, load all NPZ files under src/unilab/assets/motions/g1.
+    # # motion_file: str | list[str] = str(ASSETS_ROOT_PATH / "motions" / "g1" / "flip_360_001__A304.npz")
+    # motion_file: str | list[str] = str(ASSETS_ROOT_PATH / "motions" / "g1" / "flip_from_wall_104__A304.npz")
     # motion_file: str | list[str] = str(ASSETS_ROOT_PATH / "motions" / "g1" / "gangnam_style.npz")
     # motion_file: str | list[str] = sorted(str(path) for path in (ASSETS_ROOT_PATH / "motions" / "g1").glob("*.npz"))
     # motion_file: str | list[str] = str(ASSETS_ROOT_PATH / "motions" / "g1" / "walk1_subject5_from_csv.npz") #LAFAN
@@ -135,9 +140,9 @@ class G1MotionTrackingCfg(G1BaseCfg):
     domain_rand: Domain_Rand = field(default_factory=Domain_Rand)
     joint_position_range: tuple[float, float] = (0.0, 0.0)
     # Termination thresholds
-    anchor_pos_z_threshold: float = 0.5
+    anchor_pos_z_threshold: float = 0.25
     anchor_ori_threshold: float = 1e9  # (effectively disabled by default since some motions have large anchor orientation error)
-    ee_body_pos_z_threshold: float = 0.5
+    ee_body_pos_z_threshold: float = 0.25
     ee_body_names: tuple[str, ...] = (
         "left_ankle_roll_link",
         "right_ankle_roll_link",
