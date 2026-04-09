@@ -464,9 +464,8 @@ def test_g1_motion_tracking_reset_and_step(sim_backend: str):
 
 
 @pytest.mark.slow
-def test_go2_mujoco_reset_applies_domain_randomization(default_go2_reward_config):
+def test_go2_mujoco_reset_applies_kp_kd_domain_randomization(default_go2_reward_config):
     ensure_registries()
-    import mujoco
 
     from unilab.base import registry
 
@@ -479,20 +478,18 @@ def test_go2_mujoco_reset_applies_domain_randomization(default_go2_reward_config
     try:
         env.init_state()
         backend = env._backend
-        base_body_id = mujoco.mj_name2id(
-            backend.model, mujoco.mjtObj.mjOBJ_BODY, env.cfg.asset.base_name
-        )
-        masses = np.stack([backend._pool.get_field(i, "body_mass") for i in range(env.num_envs)])
-        ipos_x = np.stack(
-            [
-                backend._pool.get_field(i, "body_ipos").reshape(backend.model.nbody, 3)[
-                    base_body_id, 0
-                ]
-                for i in range(env.num_envs)
-            ]
-        )
+        kp = np.stack([backend._pool.get_field(i, "kp") for i in range(env.num_envs)])
+        kd = np.stack([backend._pool.get_field(i, "kd") for i in range(env.num_envs)])
+        base_kp = float(env.cfg.control_config.Kp)
+        base_kd = float(env.cfg.control_config.Kd)
 
-        assert np.unique(np.round(masses[:, base_body_id], 6)).size > 1
-        assert np.unique(np.round(ipos_x, 6)).size > 1
+        assert np.unique(np.round(kp[:, 0], 6)).size > 1
+        assert np.unique(np.round(kd[:, 0], 6)).size > 1
+        np.testing.assert_allclose(kp / base_kp, np.broadcast_to(kp[:, :1] / base_kp, kp.shape))
+        np.testing.assert_allclose(kd / base_kd, np.broadcast_to(kd[:, :1] / base_kd, kd.shape))
+        assert np.all(kp >= base_kp * 0.9)
+        assert np.all(kp <= base_kp * 1.1)
+        assert np.all(kd >= base_kd * 0.9)
+        assert np.all(kd <= base_kd * 1.1)
     finally:
         env.close()

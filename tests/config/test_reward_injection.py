@@ -24,6 +24,22 @@ def test_reward_config_loading_go1():
         assert cfg.reward.scales.contact == 0.24
 
 
+def test_resolve_reward_dict_unwraps_backend_mounted_reward():
+    """Mounted backend reward groups should resolve to the inner reward mapping."""
+    from unilab.utils.reward_utils import resolve_reward_dict
+
+    with initialize(config_path="../../conf/ppo", version_base="1.3"):
+        cfg = compose(
+            config_name="config",
+            overrides=["task=go2_joystick", "training.sim_backend=motrix"],
+        )
+
+    reward_dict = resolve_reward_dict(cfg)
+
+    assert reward_dict["scales"]["tracking_lin_vel"] == 1.0
+    assert reward_dict["scales"]["tracking_ang_vel"] == 0.2
+
+
 def test_reward_config_conversion():
     """Test reward config converts to dataclasses via registry."""
     from unilab.base import registry

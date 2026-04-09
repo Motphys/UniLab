@@ -45,15 +45,21 @@ class Commands:
 class Domain_Rand:
     # randomize_friction = True
     # friction_range = [0.5, 1.25]
-    randomize_base_mass = False
-    added_mass_range = [-1.5, 1.5]
+    randomize_base_mass: bool = False
+    added_mass_range: list[float] = field(default_factory=lambda: [-1.5, 1.5])
 
-    random_com = False
-    com_offset_x = [-0.05, 0.05]
+    random_com: bool = False
+    com_offset_x: list[float] = field(default_factory=lambda: [-0.05, 0.05])
 
-    push_robots = False
-    push_interval = 750  # step
-    max_force = [1, 1, 0.5]
+    randomize_kp: bool = True
+    kp_multiplier_range: list[float] = field(default_factory=lambda: [0.9, 1.1])
+
+    randomize_kd: bool = True
+    kd_multiplier_range: list[float] = field(default_factory=lambda: [0.9, 1.1])
+
+    push_robots: bool = False
+    push_interval: int = 750  # step
+    max_force: list[float] = field(default_factory=lambda: [1.0, 1.0, 0.5])
 
 
 @dataclass
@@ -145,7 +151,9 @@ class Go2JoystickDomainRandomizationProvider(DomainRandomizationProvider):
         dof_vel = env.get_dof_vel()[env_ids]
         return cast(
             dict[str, np.ndarray],
-            env._compute_obs(info_updates, linvel, gyro, gravity, dof_pos, dof_vel),
+            env._compute_obs(
+                info_updates, linvel, gyro, gravity, dof_pos, dof_vel, env.feet_phase[env_ids]
+            ),
         )
 
 
@@ -313,39 +321,3 @@ class Go2WalkTask(Go2BaseEnv):
             res += (contact[:, i] == is_contact).astype(np.float32)
         return res / len(self._cfg.sensor.feet_force)
 
-    def reset(self, env_indices: np.ndarray):
-        num_reset = len(env_indices)
-        qpos = np.tile(self._init_qpos, (num_reset, 1))
-        qvel = np.tile(self._init_qvel, (num_reset, 1))
-
-        # Domain Randomization
-        dxy = np.random.uniform(-0.5, 0.5, (num_reset, 2))
-        qpos[:, 0:2] += dxy
-        yaw = np.random.uniform(-np.pi, np.pi, (num_reset,))
-        quat_yaw = np_yaw_to_quat(yaw)
-        qpos[:, 3:7] = np_quat_mul(qpos[:, 3:7], quat_yaw)
-        qvel[:, 0:6] = np.random.uniform(-0.5, 0.5, (num_reset, 6))
-
-        self._backend.set_state(env_indices, qpos, qvel)
-
-        commands = np.random.uniform(
-            low=self._cfg.commands.vel_limit[0],
-            high=self._cfg.commands.vel_limit[1],
-            size=(num_reset, 3),
-        )
-
-        info = {
-            "commands": commands,
-            "current_actions": np.zeros((num_reset, self._num_action), dtype=get_global_dtype()),
-            "last_actions": np.zeros((num_reset, self._num_action), dtype=get_global_dtype()),
-        }
-
-        linvel = self.get_local_linvel()[env_indices]
-        gyro = self.get_gyro()[env_indices]
-        gravity = self._backend.get_sensor_data("upvector")[env_indices]
-        dof_pos = self.get_dof_pos()[env_indices]
-        dof_vel = self.get_dof_vel()[env_indices]
-        obs = self._compute_obs(
-            info, linvel, gyro, gravity, dof_pos, dof_vel, self.feet_phase[env_indices]
-        )
-        return obs, info
