@@ -54,40 +54,29 @@ class AllegroBaseMjEnv(NpEnv):
         self._np_dtype = get_global_dtype()
 
         model = self._backend.model
-        body = getattr(self._backend, "_body", None)
-        if body is not None and hasattr(body, "joints"):
-            print("[AllegroBaseMjEnv] body joint order for get_dof_pos():")
-            for i, joint in enumerate(body.joints):
-                print(i, getattr(joint, "name", "<unnamed>"))
-        if body is not None and hasattr(body, "dofs"):
-            print("[AllegroBaseMjEnv] body dof order for get_dof_pos():")
-            for i, dof in enumerate(body.dofs):
-                print(i, getattr(dof, "name", "<unnamed>"))
         if hasattr(model, "dof_damping"):
             model.dof_damping[: self._NUM_HAND_DOF] = cfg.control_config.kd
-            model.actuator_gainprm[:, 0] = cfg.control_config.kp
-            model.actuator_biasprm[:, 1] = -cfg.control_config.kp
-        self.nq = self._backend.model.nq  # 23
-        self.nv = self._backend.model.nv  # 22
+            model.actuator_gainprm[: self._NUM_HAND_DOF, 0] = cfg.control_config.kp
+            model.actuator_biasprm[: self._NUM_HAND_DOF, 1] = -cfg.control_config.kp
+            model.actuator_biasprm[: self._NUM_HAND_DOF, 2] = -cfg.control_config.kd
+
+        self.nq = model.nq
+        self.nv = model.nv
 
         # physics_state offsets
         self._idx_qpos = 1
-        self._idx_qvel = 1 + self.nq  # 24
+        self._idx_qvel = 1 + self.nq
 
         # hand occupies the first 16 DOFs
-        assert self._backend.model.nu == self._NUM_HAND_DOF, (
-            f"Expected {self._NUM_HAND_DOF} actuators, got {self._backend.model.nu}"
+        assert model.nu == self._NUM_HAND_DOF, (
+            f"Expected {self._NUM_HAND_DOF} actuators, got {model.nu}"
         )
 
         # ball positions inside physics_state
-        self._ps_ball_pos = self._idx_qpos + self._NUM_HAND_DOF  # 17
-        self._ps_ball_quat = self._idx_qpos + self._NUM_HAND_DOF + 3  # 20
-        self._ps_ball_linv = self._idx_qvel + self._NUM_HAND_DOF  # 40
-        self._ps_ball_angv = self._idx_qvel + self._NUM_HAND_DOF + 3  # 43
-
-        # joint limits (shape: (16,))
-        self._ctrl_lower = self._backend.model.actuator_ctrlrange[:, 0].astype(self._np_dtype)
-        self._ctrl_upper = self._backend.model.actuator_ctrlrange[:, 1].astype(self._np_dtype)
+        self._ps_ball_pos = self._idx_qpos + self._NUM_HAND_DOF
+        self._ps_ball_quat = self._idx_qpos + self._NUM_HAND_DOF + 3
+        self._ps_ball_linv = self._idx_qvel + self._NUM_HAND_DOF
+        self._ps_ball_angv = self._idx_qvel + self._NUM_HAND_DOF + 3
 
         self._ctrl_lower, self._ctrl_upper = get_model_ctrl_limits(model, self._np_dtype)
         self._init_action_space()
@@ -95,7 +84,7 @@ class AllegroBaseMjEnv(NpEnv):
         if self._num_action != self._NUM_HAND_DOF:
             raise ValueError(f"Expected {self._NUM_HAND_DOF} actuators, got {self._num_action}")
 
-        self._init_buffer()
+        self._init_buffers()
         self.nq = int(self._init_qpos.shape[0])
         self.nv = int(self._init_qvel.shape[0])
         self._idx_qpos = 1
@@ -104,31 +93,31 @@ class AllegroBaseMjEnv(NpEnv):
 
     def _init_action_space(self) -> None:
         self._action_space = gym.spaces.Box(
-            low=-1.0, high=1.0, shape=(self._NUM_HAND_DOF,), dtype=float
+            low=-1.0,
+            high=1.0,
+            shape=(self._NUM_HAND_DOF,),
+            dtype=float,
         )
 
     @property
     def action_space(self) -> gym.spaces.Box:
         return self._action_space  # type: ignore[no-any-return]
 
-    def _init_buffer(self) -> None:
+    def _init_buffers(self) -> None:
         self.default_angles = np.zeros((self._num_action,), dtype=self._np_dtype)
         model = self._backend.model
         if hasattr(model, "key_qpos"):
             key_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_KEY, "home")
-            if key_id >= 0:
-                self._init_qpos = np.asarray(model.key_qpos[key_id].copy(), dtype=self._np_dtype)
-                self._init_ctrl = np.asarray(model.key_ctrl[key_id].copy(), dtype=self._np_dtype)
-                self.default_angles = self._init_qpos[: self._NUM_HAND_DOF]
-            else:
+            if key_id < 0:
                 raise ValueError("Keyframe 'home' not found in MuJoCo model")
+            self._init_qpos = np.asarray(model.key_qpos[key_id].copy(), dtype=self._np_dtype)
+            self._init_ctrl = np.asarray(model.key_ctrl[key_id].copy(), dtype=self._np_dtype)
+            self.default_angles = self._init_qpos[: self._NUM_HAND_DOF]
             self._init_qvel = np.zeros((model.nv,), dtype=self._np_dtype)
         elif hasattr(model, "keyframes") and model.num_keyframes > 0:
             keyframe = model.keyframes[0]
             self._init_qpos = np.asarray(keyframe.dof_pos, dtype=self._np_dtype)
-            self._init_ctrl = np.asarray(
-                self._init_qpos[: self._NUM_HAND_DOF], dtype=self._np_dtype
-            )
+            self._init_ctrl = np.asarray(self._init_qpos[: self._NUM_HAND_DOF], dtype=self._np_dtype)
             self.default_angles = self._init_qpos[: self._NUM_HAND_DOF]
             self._init_qvel = np.zeros((model.num_dof_vel,), dtype=self._np_dtype)
         else:
@@ -150,14 +139,17 @@ class AllegroBaseMjEnv(NpEnv):
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
         clipped_actions = np.clip(actions, -1.0, 1.0)
-        state.info["last_actions"] = np.array(state.info["current_actions"])
+        state.info["last_actions"] = state.info.get("current_actions", clipped_actions.copy())
         state.info["current_actions"] = clipped_actions
 
-        scale = self._cfg.control_config.action_scale
-        new_ctrl = state.info["prev_ctrl"] + scale * clipped_actions
+        prev_ctrl = state.info.get(
+            "prev_ctrl",
+            np.broadcast_to(self.default_angles, (clipped_actions.shape[0], self._NUM_HAND_DOF)).copy(),
+        )
+        new_ctrl = prev_ctrl + self._cfg.control_config.action_scale * clipped_actions
         new_ctrl = np.clip(new_ctrl, self._ctrl_lower, self._ctrl_upper)
-        state.info["prev_ctrl"] = new_ctrl
-        return np.asarray(new_ctrl)
+        state.info["prev_ctrl"] = np.asarray(new_ctrl, dtype=self._np_dtype)
+        return np.asarray(state.info["prev_ctrl"])
 
     def get_hand_dof_pos(self) -> np.ndarray:
         if hasattr(self._backend, "get_physics_state"):  # TODO: wait for backend update
