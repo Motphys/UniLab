@@ -1,6 +1,6 @@
 # Contributing to UniLab
 
-Languages: English | [简体中文](docs/zh_CN/CONTRIBUTING.md) | [日本語](docs/ja/CONTRIBUTING.md) | [한국어](docs/ko/CONTRIBUTING.md)
+Languages: English | [简体中文](docs/zh_CN/CONTRIBUTING.md)
 
 ## Development Environment Setup
 
@@ -15,12 +15,12 @@ Languages: English | [简体中文](docs/zh_CN/CONTRIBUTING.md) | [日本語](do
 
 - Always use `uv run`; do not invoke `python` outside `uv run`
 - Run `make check` before code-related commits
-- For user-facing workflow changes, keep `README.md`, `CONTRIBUTING.md`, and the matching localized docs under `docs/{en,zh_CN,ja,ko}/` in sync
+- For user-facing workflow changes, keep `README.md`, `CONTRIBUTING.md`, and the matching localized docs under `docs/zh_CN/` in sync
 
 ## Read Before You Start
 
-- Before changing training entrypoints, runners, env contracts, or backend paths, read [RL Infrastructure Development Standard](docs/en/00-development-architecture.md)
-- Before changing collaboration flow or issue / milestone rules, read [docs/en/06-collaboration.md](docs/en/06-collaboration.md)
+- Before changing training entrypoints, runners, env contracts, or backend paths, read [RL Infrastructure Development Standard](docs/zh_CN/00-development-architecture.md)
+- Before changing collaboration flow or issue / milestone rules, read [docs/zh_CN/06-collaboration.md](docs/zh_CN/06-collaboration.md)
 
 ## Common Commands
 
@@ -123,7 +123,7 @@ Docs-only and collaboration-metadata changes such as `*.md`, `docs/**`, `CONTRIB
 - **PR**: must link the driving issue and list validation commands plus impact scope
 - **CODEOWNERS**: review ownership, not execution ownership
 
-More collaboration rules live in [docs/en/06-collaboration.md](docs/en/06-collaboration.md).
+More collaboration rules live in [docs/zh_CN/06-collaboration.md](docs/zh_CN/06-collaboration.md).
 
 ## Pull Request Workflow
 
@@ -147,4 +147,4 @@ UniLab uses Hydra + dataclass configuration:
 - **Change hyperparameters**: edit the matching YAML or use CLI overrides such as `algo.num_envs=2048`
 - **Add a new algorithm**: add the dataclass in `structured_configs.py` and create the matching `conf/` directory
 
-For more detail, see the Hydra section in [Training Guide](docs/en/03-training.md) and [Development Architecture](docs/en/00-development-architecture.md).
+For more detail, see the Hydra section in [Training Guide](docs/zh_CN/03-training.md) and [Development Architecture](docs/zh_CN/00-development-architecture.md).
