@@ -96,15 +96,17 @@ uv run pytest -m veryslow -v
 
 ## CI Workflow
 
-`main` 대상 PR은 자동으로 세 개의 job을 실행합니다. 현재 workflow는 PR이 `main`에 merge된 뒤 같은 CI 세트를 다시 돌리지 않습니다.
+`main` 대상 PR은 `ruff-lint`, `ruff-format`, `mypy`, `pyright`, `test` 다섯 개의 job을 자동으로 실행합니다. workflow는 `workflow_dispatch` 수동 실행도 지원하고, docs-only / 협업 메타데이터 변경은 건너뛰며, 같은 PR 브랜치의 오래된 진행 중 실행은 자동으로 취소합니다.
 
 | Job | 내용 | 실패 시 차단 여부 |
 |-----|------|-------------------|
-| `lint` | `ruff check` + `ruff format --check` | ✅ |
-| `typecheck` | `mypy src/unilab` + `pyright` | ✅ |
-| `test` | `pytest -m "not slow and not veryslow" --cov --cov-fail-under=10` | ✅ |
+| `ruff-lint` | `ubuntu-slim`에서 `uv sync --only-group dev` + `uv run --no-sync ruff check --output-format=github .` 실행 | ✅ |
+| `ruff-format` | `ubuntu-slim`에서 `uv sync --only-group dev` + `uv run --no-sync ruff format --check .` 실행 | ✅ |
+| `mypy` | `macos-26`에서 `uv sync` + `uv run mypy src/unilab` 실행 | ✅ |
+| `pyright` | `macos-26`에서 `uv sync` + `uv run pyright` 실행 | ✅ |
+| `test` | `ubuntu-slim`에서 Python 3.11로 `uv sync --extra motrix` + `uv run pytest -m "not slow and not veryslow" --cov=unilab --cov-report markdown-append:$GITHUB_STEP_SUMMARY --cov-fail-under=10` 실행 | ✅ |
 
-`*.md`, `docs/**`, issue templates, `CODEOWNERS` 같은 docs-only / 협업 메타데이터 변경은 CI를 트리거하지 않습니다.
+`*.md`, `docs/**`, `CONTRIBUTING.md`, `AGENTS.md`, `LICENSE`, issue templates, `CODEOWNERS`, `.github/pull_request_template.md` 같은 docs-only / 협업 메타데이터 변경은 CI를 트리거하지 않습니다.
 
 ## Documentation Expectations
 
