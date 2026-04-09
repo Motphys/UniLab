@@ -372,6 +372,29 @@ def test_reward_injection_reaches_env_go2():
     env.close()
 
 
+def test_go2_ppo_reward_keys_match_env_reward_functions():
+    """Go2 PPO reward config must not carry dead/stale reward scale names."""
+    from unilab.base import registry
+    from unilab.utils.algo_utils import ensure_registries
+
+    ensure_registries()
+
+    cfg = _compose("ppo", overrides=["task=go2_joystick"])
+    reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
+    env_cfg_override = {"reward_config": reward_dict}
+
+    env = registry.make(
+        "Go2JoystickFlatTerrain",
+        num_envs=1,
+        sim_backend="mujoco",
+        env_cfg_override=env_cfg_override,
+    )
+    try:
+        assert set(reward_dict["scales"]).issubset(env._reward_fns.keys())
+    finally:
+        env.close()
+
+
 def test_reward_injection_reaches_env_g1():
     """Verify reward config reaches G1 PPO env."""
     from unilab.base import registry

@@ -12,6 +12,10 @@ def _to_reward_dict(value: object, *, error_message: str) -> RewardDict:
     resolved = OmegaConf.to_container(value, resolve=True)
     if not isinstance(resolved, dict):
         raise ValueError(error_message)
+    # Hydra mounts like `/reward@reward_motrix=...` resolve to {"reward": {...}}.
+    # Env config injection expects the inner reward mapping.
+    if set(resolved) == {"reward"} and isinstance(resolved["reward"], dict):
+        return cast(RewardDict, resolved["reward"])
     return cast(RewardDict, resolved)
 
 

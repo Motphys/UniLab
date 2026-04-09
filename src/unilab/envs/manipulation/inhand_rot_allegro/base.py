@@ -63,11 +63,6 @@ class AllegroBaseMjEnv(NpEnv):
 
         self._np_dtype = get_global_dtype()
 
-        # Set PD gains in MuJoCo model
-        self._backend.model.actuator_gainprm[:, 0] = cfg.control_config.kp
-        self._backend.model.actuator_biasprm[:, 1] = -cfg.control_config.kp
-        self._backend.model.dof_damping[: self._NUM_HAND_DOF] = cfg.control_config.kd
-
         self.nq = self._backend.model.nq  # 23
         self.nv = self._backend.model.nv  # 22
 

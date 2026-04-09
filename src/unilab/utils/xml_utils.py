@@ -9,6 +9,20 @@ from typing import Any, cast
 import mujoco
 
 
+def _enable_discardvisual(root: ET.Element) -> None:
+    compiler_tag = root.find("compiler")
+    if compiler_tag is None:
+        compiler_tag = ET.Element("compiler")
+        root.insert(0, compiler_tag)
+    compiler_tag.set("discardvisual", "true")
+
+
+def create_discardvisual_xml(model_file: str) -> str:
+    tree = ET.parse(model_file)
+    _enable_discardvisual(tree.getroot())
+    return _write_temp_xml(tree, model_file)
+
+
 def _get_named_bodies(model_file: str) -> tuple[list[int], list[str]]:
     mj = cast(Any, mujoco)
     _m = mj.MjModel.from_xml_path(model_file)
@@ -146,7 +160,8 @@ def materialize_scene_visual_override(
 
 
 def inject_mujoco_tracking_sensors(
-    model_file: str, baselink_name: str | None = None
+    model_file: str,
+    baselink_name: str | None = None,
 ) -> tuple[str, list, list]:
     """为 MuJoCo 后端注入 tracking sensors。
 

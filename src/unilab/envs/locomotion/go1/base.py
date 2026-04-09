@@ -75,11 +75,6 @@ class Go1BaseEnv(NpEnv):
     def __init__(self, cfg: Go1BaseCfg, backend: SimBackend, num_envs=1):
         super().__init__(cfg, backend, num_envs)
 
-        if hasattr(backend.model, "dof_damping"):
-            backend.model.dof_damping[6:] = cfg.control_config.Kd
-            backend.model.actuator_gainprm[:, 0] = cfg.control_config.Kp
-            backend.model.actuator_biasprm[:, 1] = -cfg.control_config.Kp
-
         self._init_action_space()
         self._num_action = self._action_space.shape[0]
         self._init_buffers()
@@ -123,12 +118,6 @@ class Go1BaseEnv(NpEnv):
             raise ValueError(
                 "No keyframe found in model. Model must have either MuJoCo key_qpos or Motrix keyframes."
             )
-
-    def push_robots(self):
-        if self.push_robots_flag:
-            domain_rand = getattr(self._cfg, "domain_rand", None)
-            if domain_rand and self.step_counter % domain_rand.push_interval == 0:
-                self._backend.push_robots(domain_rand.max_force)
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
         state.info["last_actions"] = state.info.get("current_actions", np.zeros_like(actions))

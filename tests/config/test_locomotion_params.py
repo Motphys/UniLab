@@ -179,6 +179,17 @@ def test_ppo_g1_num_envs():
     assert cfg.algo.max_iterations == 220
 
 
+def test_ppo_go2_num_envs():
+    from hydra import compose, initialize_config_dir
+    from hydra.core.global_hydra import GlobalHydra
+
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(CONF_DIR / "ppo"), version_base="1.3"):
+        cfg = compose("config", overrides=["task=go2_joystick"])
+    assert cfg.algo.num_envs == 1024
+    assert cfg.algo.max_iterations == 151
+
+
 def test_ppo_g1_motion_tracking():
     from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra

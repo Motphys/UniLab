@@ -227,6 +227,20 @@ def test_ppo_task_g1_exposes_motrix_legacy():
     )
 
 
+def test_ppo_task_go2_aligns_mujoco_with_motrix_defaults():
+    cfg = _ppo_cfg(["task=go2_joystick"])
+
+    assert cfg.algo.num_envs == 1024
+    assert cfg.reward.scales.tracking_lin_vel == pytest.approx(1.0)
+    assert cfg.reward.scales.tracking_ang_vel == pytest.approx(0.2)
+    assert cfg.reward.scales.lin_vel_z == pytest.approx(-5.0)
+    assert cfg.reward.scales.ang_vel_xy == pytest.approx(-0.1)
+    assert cfg.algo.empirical_normalization is True
+    assert cfg.algo.policy.init_noise_std == pytest.approx(0.5)
+    assert cfg.algo.algorithm.learning_rate == pytest.approx(3.0e-4)
+    assert cfg.algo.algorithm.entropy_coef == pytest.approx(1.0e-3)
+
+
 def test_build_task_motrix_ppo_env_cfg_override_applies_go1_legacy(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -260,6 +274,23 @@ def test_build_task_motrix_ppo_env_cfg_override_applies_g1_legacy(
     assert cfg.algo.obs_groups.actor == ["policy"]
     assert env_cfg_override["backend_overrides"]["enabled"] is True
     assert env_cfg_override["reward_config"]["scales"]["upper_body_pose"] == pytest.approx(-0.05)
+
+
+def test_build_task_motrix_ppo_env_cfg_override_applies_go2_reward_motrix(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(["task=go2_joystick", "training.sim_backend=motrix"])
+
+    env_cfg_override = mod.build_task_motrix_ppo_env_cfg_override(cfg)
+
+    assert cfg.reward_motrix.reward.scales.tracking_lin_vel == pytest.approx(1.0)
+    assert cfg.algo.num_envs == 1024
+    assert env_cfg_override["legacy_motrix_profile"]["enabled"] is True
+    assert env_cfg_override["domain_rand"]["randomize_kp"] is False
+    assert env_cfg_override["domain_rand"]["randomize_kd"] is False
+    assert env_cfg_override["reward_config"]["scales"]["tracking_lin_vel"] == pytest.approx(1.0)
+    assert env_cfg_override["reward_config"]["scales"]["tracking_ang_vel"] == pytest.approx(0.2)
 
 
 def test_build_task_motrix_ppo_env_cfg_override_respects_cli_algo_override(
