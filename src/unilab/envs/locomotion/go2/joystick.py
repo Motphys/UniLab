@@ -67,6 +67,7 @@ class RewardConfig:
     scales: dict[str, float]
     tracking_sigma: float
     base_height_target: float
+    target_foot_height: float = 0.1
 
 
 @dataclass
@@ -320,4 +321,3 @@ class Go2WalkTask(Go2BaseEnv):
             is_contact = (self.feet_phase[:, i] < 0.6) | (self.gait_frequency < 1.0e-8)
             res += (contact[:, i] == is_contact).astype(np.float32)
         return res / len(self._cfg.sensor.feet_force)
-

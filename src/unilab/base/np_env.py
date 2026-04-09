@@ -3,7 +3,7 @@ from __future__ import annotations
 import abc
 import dataclasses
 from dataclasses import dataclass
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Tuple, cast
 
 import gymnasium as gym
 import numpy as np
@@ -38,6 +38,7 @@ class NpEnv(ABEnv):
         self._backend: Any = backend
         self._num_envs = num_envs
         self._state: Optional[NpEnvState] = None
+        self._truncated_scratch: np.ndarray = np.zeros((self._num_envs,), dtype=bool)
         self.step_counter = 0
         self._dr_manager: DomainRandomizationManager | None = None
 
@@ -178,11 +179,10 @@ class NpEnv(ABEnv):
         task-specific truncation conditions while remaining compatible with the
         existing done/reset contract.
         """
-        if not hasattr(self, "_truncated_scratch") or self._truncated_scratch.shape != (
-            self._num_envs,
-        ):
-            self._truncated_scratch = np.zeros((self._num_envs,), dtype=bool)
-        truncated = self._truncated_scratch
+        truncated = cast(np.ndarray | None, getattr(self, "_truncated_scratch", None))
+        if truncated is None or truncated.shape != (self._num_envs,):
+            truncated = np.zeros((self._num_envs,), dtype=bool)
+            self._truncated_scratch = truncated
         truncated.fill(False)
         if self._cfg.max_episode_steps:
             np.greater_equal(state.info["steps"], self._cfg.max_episode_steps, out=truncated)

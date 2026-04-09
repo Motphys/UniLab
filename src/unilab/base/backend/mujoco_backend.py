@@ -1,6 +1,6 @@
 import os
 from multiprocessing import cpu_count
-from typing import Optional
+from typing import Optional, cast
 
 import mujoco
 import numpy as np
@@ -117,7 +117,9 @@ class MuJoCoBackend(SimBackend):
             self._base_pos_view = self._physics_state[:, self._idx_qpos : self._idx_qpos + 3]
             self._base_quat_view = self._physics_state[:, self._idx_qpos + 3 : self._idx_qpos + 7]
             self._base_lin_vel_view = self._physics_state[:, self._idx_qvel : self._idx_qvel + 3]
-            self._base_ang_vel_view = self._physics_state[:, self._idx_qvel + 3 : self._idx_qvel + 6]
+            self._base_ang_vel_view = self._physics_state[
+                :, self._idx_qvel + 3 : self._idx_qvel + 6
+            ]
         else:
             if self._base_body_id >= 0:
                 data0 = mujoco.MjData(self._model)
@@ -331,17 +333,15 @@ class MuJoCoBackend(SimBackend):
         num_reset: int,
         shaped_tail: tuple[int, ...],
     ) -> np.ndarray:
-        arr = np.asarray(value, dtype=np.float64)
+        arr = cast(np.ndarray, np.asarray(value, dtype=np.float64))
         flat_tail = int(np.prod(shaped_tail))
         flat_shape = (num_reset, flat_tail)
         shaped = (num_reset, *shaped_tail)
         if arr.shape == flat_shape:
-            return arr.copy()
+            return cast(np.ndarray, arr.copy())
         if arr.shape == shaped:
-            return arr.reshape(num_reset, flat_tail).copy()
-        raise ValueError(
-            f"{name} must have shape {flat_shape} or {shaped}, got {arr.shape}"
-        )
+            return cast(np.ndarray, arr.reshape(num_reset, flat_tail).copy())
+        raise ValueError(f"{name} must have shape {flat_shape} or {shaped}, got {arr.shape}")
 
     def _translate_reset_randomization(
         self,
@@ -351,9 +351,8 @@ class MuJoCoBackend(SimBackend):
         if randomization is None or randomization.is_empty():
             return None
         if (
-            (randomization.base_mass_delta is not None or randomization.base_com_offset is not None)
-            and self._base_body_id < 0
-        ):
+            randomization.base_mass_delta is not None or randomization.base_com_offset is not None
+        ) and self._base_body_id < 0:
             raise ValueError(f"Body '{self._base_name}' not found in MuJoCo model")
 
         translated: dict[str, np.ndarray] = {}
