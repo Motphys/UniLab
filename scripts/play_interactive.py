@@ -52,10 +52,9 @@ ensure_registries()
 
 from unilab.base import registry
 from unilab.config.structured_configs import PPOConfig
-from unilab.utils.obs_utils import flatten_obs_dict
 from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4
+from unilab.utils.rsl_rl_vec_env_wrapper import RslRlVecEnvWrapper
 from unilab.utils.run_utils import get_latest_run
-from unilab.utils.torch_utils import to_torch
 
 try:
     from rsl_rl.runners import OnPolicyRunner
@@ -64,87 +63,6 @@ except ImportError:
     sys.exit(1)
 
 from tensordict import TensorDict
-
-# ---------------------------------------------------------------------------
-# Minimal env wrapper (mirrors RslRlVecEnvWrapper in train_rsl_rl.py)
-# ---------------------------------------------------------------------------
-
-
-class RslRlVecEnvWrapper:
-    def __init__(self, env, device="cuda", policy_obs_mode: str = "flat"):
-        self.env = env
-        self.cfg = env.cfg
-        self.device = device
-        self.policy_obs_mode = policy_obs_mode
-        self.num_envs = env.num_envs
-        self.observation_space = env.observation_space
-        self.action_space = env.action_space
-        self._actor_obs_dim = int(env.obs_groups_spec.get("obs", sum(env.obs_groups_spec.values())))
-        self._flat_obs_dim = int(sum(env.obs_groups_spec.values()))
-        self.num_obs = self._flat_obs_dim if policy_obs_mode == "flat" else self._actor_obs_dim
-        self.num_privileged_obs = self.num_obs
-        self.num_actions = env.action_space.shape[0]
-        self.episode_returns = torch.zeros(self.num_envs, device=device)
-        self.episode_lengths = torch.zeros(self.num_envs, device=device)
-        self.episode_length_buf = self.episode_lengths
-        self.max_episode_length = int(env.cfg.max_episode_seconds / env.cfg.ctrl_dt)
-        self.reset()
-
-    def _obs_to_tensordict(self, obs: dict[str, np.ndarray]) -> TensorDict:
-        actor = to_torch(obs["obs"], self.device)
-        if self.policy_obs_mode == "actor":
-            policy = actor
-        else:
-            policy = to_torch(flatten_obs_dict(obs), self.device)
-        td = {"policy": policy, "actor": actor}
-        if "privileged" in obs:
-            td["privileged"] = to_torch(obs["privileged"], self.device)
-        return TensorDict(td, batch_size=self.num_envs, device=self.device)
-
-    def step(self, actions):
-        actions_np = (
-            actions.detach().cpu().numpy() if isinstance(actions, torch.Tensor) else actions
-        )
-        state = self.env.step(actions_np)
-        rewards = to_torch(state.reward, self.device)
-        dones = to_torch(state.done, self.device).bool()
-        self.episode_returns += rewards
-        self.episode_lengths += 1
-        infos = {}
-        done_idx = torch.nonzero(dones).flatten()
-        if len(done_idx) > 0:
-            if hasattr(state, "truncated"):
-                infos["time_outs"] = to_torch(state.truncated, self.device).bool()
-            self.episode_returns[done_idx] = 0
-            self.episode_lengths[done_idx] = 0
-        if hasattr(state, "info") and "log" in state.info:
-            infos["log"] = state.info["log"]
-        return self._obs_to_tensordict(state.obs), rewards, dones, infos
-
-    def reset(self):
-        if self.env.state is None:
-            self.env.init_state()
-        env_indices = np.arange(self.num_envs, dtype=np.int32)
-        reset_out = self.env.reset(env_indices)
-        if isinstance(reset_out, tuple) and len(reset_out) == 2:
-            obs_out, _ = reset_out
-        elif isinstance(reset_out, tuple) and len(reset_out) == 3:
-            _, obs_out, _ = reset_out
-        else:
-            raise ValueError(
-                "Unexpected env.reset return format. Expected (obs, info) or (_, obs, _)."
-            )
-        self.episode_returns[:] = 0
-        self.episode_lengths[:] = 0
-        return self._obs_to_tensordict(obs_out), {}
-
-    def get_observations(self):
-        return self._obs_to_tensordict(self.env.state.obs)
-
-    def get_privileged_observations(self):
-        if self.policy_obs_mode == "actor":
-            return to_torch(self.env.state.obs["obs"], self.device)
-        return to_torch(flatten_obs_dict(self.env.state.obs), self.device)
 
 
 def _infer_checkpoint_actor_input_dim(ckpt_path: str) -> int | None:
