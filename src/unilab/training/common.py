@@ -1,0 +1,225 @@
+"""Shared helpers for training entrypoints."""
+
+from __future__ import annotations
+
+import logging
+import time
+from pathlib import Path
+from typing import Any, Callable, TypeVar
+
+import numpy as np
+from omegaconf import DictConfig, OmegaConf
+
+from unilab.utils.algo_utils import ensure_registries as _ensure_registries
+
+ObsT = TypeVar("ObsT")
+
+
+def ensure_registries() -> None:
+    """Import env modules so registry-based entrypoints can instantiate tasks."""
+    _ensure_registries()
+
+
+def get_log_root(root_dir: str | Path, cfg: DictConfig) -> Path:
+    """Resolve the algorithm log root, honoring optional training.log_root overrides."""
+    configured_root = OmegaConf.select(cfg, "training.log_root")
+    if configured_root:
+        log_root = Path(str(configured_root))
+        return log_root if log_root.is_absolute() else Path(root_dir) / log_root
+    return Path(root_dir) / "logs" / str(OmegaConf.select(cfg, "algo.algo_log_name"))
+
+
+def get_latest_run(log_dir: str | Path) -> Path | None:
+    """Return the lexicographically latest run directory under a task log root."""
+    base_dir = Path(log_dir)
+    if not base_dir.exists():
+        return None
+    runs = sorted(path for path in base_dir.iterdir() if path.is_dir())
+    return runs[-1] if runs else None
+
+
+def get_latest_checkpoint(run_dir: str | Path, *, suffix: str = ".pt") -> Path | None:
+    """Return the latest model checkpoint inside a run directory."""
+    run_path = Path(run_dir)
+    if not run_path.exists():
+        return None
+
+    def _iteration(path: Path) -> int:
+        stem_parts = path.stem.split("_", 1)
+        if len(stem_parts) != 2:
+            return -1
+        try:
+            return int(stem_parts[1])
+        except ValueError:
+            return -1
+
+    model_files = [
+        path
+        for path in run_path.iterdir()
+        if path.is_file() and path.name.startswith("model_") and path.suffix == suffix
+    ]
+    if not model_files:
+        return None
+    return max(model_files, key=_iteration)
+
+
+def resolve_checkpoint_path(
+    base_log_dir: str | Path,
+    load_run: str,
+    *,
+    suffix: str = ".pt",
+) -> tuple[Path | None, Path | None]:
+    """Resolve a latest or explicit checkpoint path from a task log root."""
+    base_dir = Path(base_log_dir)
+    if load_run == "-1":
+        run_dir = get_latest_run(base_dir)
+        if run_dir is None:
+            return None, None
+        checkpoint = get_latest_checkpoint(run_dir, suffix=suffix)
+        return (checkpoint, run_dir) if checkpoint is not None else (None, None)
+
+    candidate = Path(load_run)
+    if not candidate.exists():
+        candidate = base_dir / load_run
+    if candidate.is_file():
+        return candidate, candidate.parent
+    if candidate.is_dir():
+        checkpoint = get_latest_checkpoint(candidate, suffix=suffix)
+        return (checkpoint, candidate) if checkpoint is not None else (None, None)
+    return None, None
+
+
+def parse_checkpoint_path(
+    cfg: DictConfig,
+    *,
+    root_dir: str | Path,
+    load_run: str | None = None,
+    task_name: str | None = None,
+    suffix: str = ".pt",
+) -> tuple[Path | None, Path | None]:
+    """Resolve a checkpoint path from Hydra config and repository root."""
+    selected_task = task_name or str(OmegaConf.select(cfg, "training.task_name"))
+    selected_run = load_run or str(OmegaConf.select(cfg, "algo.load_run", default="-1"))
+    base_log_dir = get_log_root(root_dir, cfg) / selected_task
+    return resolve_checkpoint_path(base_log_dir, selected_run, suffix=suffix)
+
+
+def setup_logger(
+    log_dir: str | Path,
+    algo_name: str,
+    *,
+    echo: bool = True,
+    filename: str = "train.log",
+) -> logging.Logger:
+    """Create a simple file-backed logger for script-local progress messages."""
+    path = Path(log_dir)
+    path.mkdir(parents=True, exist_ok=True)
+
+    logger_name = f"unilab.training.{algo_name}.{path.resolve()}"
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+    for handler in list(logger.handlers):
+        logger.removeHandler(handler)
+        handler.close()
+
+    formatter = logging.Formatter("%(message)s")
+
+    file_handler = logging.FileHandler(path / filename, encoding="utf-8")
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    if echo:
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(formatter)
+        logger.addHandler(stream_handler)
+
+    return logger
+
+
+def create_env(
+    cfg: DictConfig,
+    *,
+    num_envs: int,
+    env_cfg_override: dict[str, Any] | None = None,
+    sim_backend: str | None = None,
+    task_name: str | None = None,
+):
+    """Construct an environment via the registry using the current Hydra config."""
+    from unilab.base import registry
+
+    return registry.make(
+        task_name or str(OmegaConf.select(cfg, "training.task_name")),
+        num_envs=num_envs,
+        sim_backend=sim_backend or str(OmegaConf.select(cfg, "training.sim_backend")),
+        env_cfg_override=env_cfg_override,
+    )
+
+
+def render_play_mode(
+    env,
+    *,
+    sim_backend: str,
+    initialize: Callable[[], ObsT],
+    step: Callable[[ObsT], ObsT],
+    num_steps: int | None,
+    output_video: str | Path | None = None,
+    render_spacing: float | None = None,
+    frame_state_getter: Callable[[], np.ndarray] | None = None,
+    camera_kwargs: dict[str, Any] | None = None,
+) -> str | None:
+    """Render interactive Motrix play or MuJoCo video generation through shared callbacks."""
+    if sim_backend == "motrix":
+        if render_spacing is None:
+            env._backend.init_renderer()
+        else:
+            try:
+                env._backend.init_renderer(spacing=render_spacing)
+            except TypeError:
+                env._backend.init_renderer()
+
+        obs = initialize()
+        last_render_time = time.perf_counter()
+        render_dt = 1.0 / 60.0
+        steps_run = 0
+
+        while num_steps is None or steps_run < num_steps:
+            obs = step(obs)
+            current_time = time.perf_counter()
+            elapsed = current_time - last_render_time
+            if elapsed < render_dt:
+                time.sleep(render_dt - elapsed)
+            last_render_time = time.perf_counter()
+            env._backend.render()
+            steps_run += 1
+        return None
+
+    if num_steps is None:
+        raise ValueError("MuJoCo play rendering requires a finite num_steps value.")
+    if output_video is None:
+        raise ValueError("MuJoCo play rendering requires an output_video path.")
+    if frame_state_getter is None:
+        raise ValueError("MuJoCo play rendering requires a frame_state_getter callback.")
+
+    obs = initialize()
+    state_list = []
+    for _ in range(num_steps):
+        obs = step(obs)
+        state_list.append(np.asarray(frame_state_getter(), dtype=np.float32).copy())
+
+    from unilab.utils import render_many
+
+    frames = render_many.render_states_get_frames(
+        state_list,
+        env.cfg.model_file,
+        width=1280,
+        height=720,
+        camera_id=-1,
+        **(camera_kwargs or {}),
+    )
+
+    import mediapy as media
+
+    media.write_video(str(output_video), frames, fps=int(1.0 / env.cfg.ctrl_dt))
+    return str(output_video)
