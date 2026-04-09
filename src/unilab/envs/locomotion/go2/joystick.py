@@ -24,6 +24,8 @@ from unilab.dr.dr_utils import (
     validate_interval_push_support,
     zero_actions,
 )
+from unilab.envs.locomotion.common.commands import Commands
+from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
 from unilab.envs.locomotion.go2.base import Go2BaseCfg, Go2BaseEnv
 from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
 
@@ -34,32 +36,12 @@ class InitState:
 
 
 @dataclass
-class Commands:
-    vel_limit = [
-        [-0.6, -0.4, -0.8],  # [vx_min, vy_min, vyaw_min]
-        [1.0, 0.4, 0.8],  # [vx_max, vy_max, vyaw_max]
-    ]
-
-
-@dataclass
-class Domain_Rand:
-    # randomize_friction = True
-    # friction_range = [0.5, 1.25]
-    randomize_base_mass: bool = False
-    added_mass_range: list[float] = field(default_factory=lambda: [-1.5, 1.5])
-
-    random_com: bool = False
-    com_offset_x: list[float] = field(default_factory=lambda: [-0.05, 0.05])
-
+class Go2DomainRandConfig(DomainRandConfig):
     randomize_kp: bool = True
     kp_multiplier_range: list[float] = field(default_factory=lambda: [0.9, 1.1])
 
     randomize_kd: bool = True
     kd_multiplier_range: list[float] = field(default_factory=lambda: [0.9, 1.1])
-
-    push_robots: bool = False
-    push_interval: int = 750  # step
-    max_force: list[float] = field(default_factory=lambda: [1.0, 1.0, 0.5])
 
 
 @dataclass
@@ -94,7 +76,7 @@ class Go2JoystickCfg(Go2BaseCfg):
     reward_config: RewardConfig | None = None
     legacy_motrix_profile: LegacyMotrixProfile = field(default_factory=LegacyMotrixProfile)
     sensor: JoystickSensor = field(default_factory=JoystickSensor)  # type: ignore[assignment]
-    domain_rand: Domain_Rand = field(default_factory=Domain_Rand)
+    domain_rand: Go2DomainRandConfig = field(default_factory=Go2DomainRandConfig)
 
     def apply_legacy_motrix_profile(self) -> None:
         profile = self.legacy_motrix_profile

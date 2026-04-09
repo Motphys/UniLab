@@ -27,6 +27,8 @@ from unilab.dr.dr_utils import (
     validate_interval_push_support,
     zero_actions,
 )
+from unilab.envs.locomotion.common.commands import Commands
+from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
 from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
 from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
 
@@ -34,35 +36,6 @@ from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
 @dataclass
 class InitState:
     pos = [0.0, 0.0, 0.754]
-
-
-@dataclass
-class Commands:
-    vel_limit = [
-        [-0.6, -0.4, -0.8],  # [vx_min, vy_min, vyaw_min]
-        [1.0, 0.4, 0.8],  # [vx_max, vy_max, vyaw_max]
-    ]
-
-
-@dataclass
-class Domain_Rand:
-    randomize_base_mass: bool = False
-    added_mass_range: list[float] = field(default_factory=lambda: [-1.5, 1.5])
-
-    random_com: bool = False
-    com_offset_x: list[float] = field(default_factory=lambda: [-0.05, 0.05])
-
-    push_robots: bool = False
-    push_interval: int = 750
-    max_force: list[float] = field(default_factory=lambda: [1.0, 1.0, 0.5])
-
-
-def sample_velocity_commands(
-    rng, num_samples: int, low: np.ndarray, high: np.ndarray
-) -> np.ndarray:
-    return np.asarray(
-        rng.uniform(low=low, high=high, size=(num_samples, 3)), dtype=get_global_dtype()
-    )
 
 
 def sample_gait_phase_pairs(rng, num_samples: int, mode: str) -> np.ndarray:
@@ -162,7 +135,7 @@ class G1JoystickPPOCfg(G1BaseCfg):
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
     reward_config: RewardConfigPPO | None = None
-    domain_rand: Domain_Rand = field(default_factory=Domain_Rand)
+    domain_rand: DomainRandConfig = field(default_factory=DomainRandConfig)
     gait_phase_init_mode: str = "offset_phase"
     reset_base_qvel_limit: float = 0.5
     backend_overrides: dict | None = None
