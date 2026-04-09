@@ -64,6 +64,7 @@ except ImportError:
 
 from tensordict import TensorDict
 
+
 def _infer_checkpoint_actor_input_dim(ckpt_path: str) -> int | None:
     loaded = torch.load(ckpt_path, map_location="cpu", weights_only=True)
     state_dict = loaded.get("actor_state_dict")

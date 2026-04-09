@@ -849,6 +849,7 @@ def test_play_resolve_checkpoint_empty_dir(tmp_path):
     result = mod.resolve_checkpoint("MyTask", str(run_dir))
     assert result is None
 
+
 # ---------------------------------------------------------------------------
 # play_interactive.py — RslRlVecEnvWrapper contract behavior
 # ---------------------------------------------------------------------------
@@ -923,7 +924,10 @@ def test_play_wrapper_policy_obs_mode_actor():
             pass
 
         def reset(self, env_indices):
-            return {"obs": np.ones((1, 3), dtype=np.float32), "privileged": np.zeros((1, 2), dtype=np.float32)}, {}
+            return {
+                "obs": np.ones((1, 3), dtype=np.float32),
+                "privileged": np.zeros((1, 2), dtype=np.float32),
+            }, {}
 
     env = FakeEnv()
 
