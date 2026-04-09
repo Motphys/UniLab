@@ -363,7 +363,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
         )
 
     def _get_joint_range(self) -> np.ndarray | None:
-        return self._backend.get_joint_range()
+        return self._backend.get_joint_range()  # type: ignore[no-any-return]
 
     def _apply_adaptive_g1_action_scale(self) -> None:
         """Set per-joint action scale to match adaptive's normalization."""

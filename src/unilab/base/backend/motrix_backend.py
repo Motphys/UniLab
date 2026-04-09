@@ -122,7 +122,9 @@ class MotrixBackend(SimBackend):
         return int(self._model.num_dof_vel) - 6
 
     def get_actuator_ctrl_range(self) -> np.ndarray:
-        return np.asarray(self._model.actuator_ctrl_limits).T.copy()
+        arr: np.ndarray = np.array(self._model.actuator_ctrl_limits, dtype=self._np_dtype)
+        result: np.ndarray = arr.T.copy()
+        return result
 
     def get_keyframe_qpos(self, name: str) -> np.ndarray:
         if hasattr(self._model, "keyframes") and self._model.num_keyframes > 0:

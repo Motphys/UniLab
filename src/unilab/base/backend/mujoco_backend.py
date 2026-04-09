@@ -198,10 +198,10 @@ class MuJoCoBackend(SimBackend):
 
     @property
     def num_dof_vel(self) -> int:
-        return self._num_dof_vel
+        return int(self._num_dof_vel)
 
     def get_actuator_ctrl_range(self) -> np.ndarray:
-        return np.asarray(self._model.actuator_ctrlrange).copy()
+        return np.array(self._model.actuator_ctrlrange, dtype=self._np_dtype)
 
     def get_keyframe_qpos(self, name: str) -> np.ndarray:
         key_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_KEY, name)
@@ -223,8 +223,8 @@ class MuJoCoBackend(SimBackend):
 
     def get_joint_range(self) -> np.ndarray | None:
         if self._root_qpos_dim > 0:
-            return np.asarray(self._model.jnt_range[1:]).copy()
-        return np.asarray(self._model.jnt_range).copy()
+            return np.array(self._model.jnt_range[1:], dtype=self._np_dtype)
+        return np.array(self._model.jnt_range, dtype=self._np_dtype)
 
     # ------------------------------------------------------------------ #
     # Simulation control                                                 #
