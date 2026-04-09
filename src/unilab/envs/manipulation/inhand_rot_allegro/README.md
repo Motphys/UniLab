@@ -29,7 +29,7 @@ To regenerate it (e.g. after changing the hand model or keyframe):
 
 ```bash
 # From the UniLab root directory
-python unilab/envs/manipulation/inhand_rot_allegro/gen_grasp.py
+uv run python src/unilab/envs/manipulation/inhand_rot_allegro/gen_grasp.py
 ```
 
 **Key options:**
@@ -44,6 +44,8 @@ python unilab/envs/manipulation/inhand_rot_allegro/gen_grasp.py
 | `--viewer` | off | Open live MuJoCo viewer (use with small `--num_envs`) |
 | `--record_video` | off | Save a preview video of the collection |
 
+*Note: `gen_grasp.py` uses argparse; all other training scripts use Hydra.*
+
 The output is a `(N, 23)` float32 array:
 `[hand_qpos(16), ball_pos(3), ball_quat(4)]`
 
@@ -53,21 +55,27 @@ The output is a `(N, 23)` float32 array:
 
 ```bash
 # From the UniLab root directory
-python scripts/train_rsl_rl.py --task AllegroInhandRotation
+uv run python scripts/train_rsl_rl.py task=AllegroInhandRotation
 ```
 
-**Common options:**
+**Common options (Hydra syntax):**
 
 ```bash
 # Override number of environments
-python scripts/train_rsl_rl.py --task AllegroInhandRotation --env_num 8192
+uv run python scripts/train_rsl_rl.py task=AllegroInhandRotation algo.num_envs=8192
 
 # Resume from a previous run
-python scripts/train_rsl_rl.py --task AllegroInhandRotation \
-    --load_run 2026-03-10_22-50-13
+uv run python scripts/train_rsl_rl.py task=AllegroInhandRotation \
+    training.load_run=2026-03-10_22-50-13
 
 # Train without rendering a play video afterwards
-python scripts/train_rsl_rl.py --task AllegroInhandRotation --no_play
+uv run python scripts/train_rsl_rl.py task=AllegroInhandRotation training.no_play=true
+
+# Use MuJoCo backend (default)
+uv run python scripts/train_rsl_rl.py task=AllegroInhandRotation training.sim_backend=mujoco
+
+# Use Motrix backend
+uv run python scripts/train_rsl_rl.py task=AllegroInhandRotation training.sim_backend=motrix
 ```
 
 Training logs are saved to `logs/rsl_rl_train/AllegroInhandRotation/<timestamp>/`.
@@ -77,15 +85,15 @@ Training logs are saved to `logs/rsl_rl_train/AllegroInhandRotation/<timestamp>/
 ### Step 3 — Evaluate / render video
 
 ```bash
-python scripts/train_rsl_rl.py --task AllegroInhandRotation --play_only
+uv run python scripts/train_rsl_rl.py task=AllegroInhandRotation training.play_only=true
 
 # Custom camera
-python scripts/train_rsl_rl.py --task AllegroInhandRotation --play_only \
-    --cam_distance 1.5 --cam_elevation -30 --cam_azimuth 45
+uv run python scripts/train_rsl_rl.py task=AllegroInhandRotation training.play_only=true \
+    training.cam_distance=1.5 training.cam_elevation=-30 training.cam_azimuth=45
 
 # Load a specific run
-python scripts/train_rsl_rl.py --task AllegroInhandRotation --play_only \
-    --load_run 2026-03-10_22-50-13
+uv run python scripts/train_rsl_rl.py task=AllegroInhandRotation training.play_only=true \
+    training.load_run=2026-03-10_22-50-13
 ```
 
 The video is saved as `play_video.mp4` inside the loaded run directory.
@@ -127,7 +135,7 @@ inhand_rot_allegro/
 
 Key parameters are in `rotation.py` (`RewardConfig`, `DomainRandConfig`) and `unilab/config/manipulation_params.py` (`ppo_config`).
 
-**PPO hyperparameters** (in `manipulation_params.py`):
+**PPO hyperparameters** (configured via `conf/ppo/task/allegro_inhand.yaml` and `conf/ppo/reward/allegro_ppo.yaml`):
 
 | Parameter | Value |
 |---|---|

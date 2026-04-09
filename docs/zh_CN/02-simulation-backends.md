@@ -1,6 +1,6 @@
 # 仿真后端
 
-语言: [English](../en/02-simulation-backends.md) | 简体中文 | [日本語](../ja/02-simulation-backends.md) | [한국어](../ko/02-simulation-backends.md)
+语言: 简体中文
 
 UniLab 当前支持两个仿真后端:
 

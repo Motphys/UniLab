@@ -1,6 +1,6 @@
 # 训练指南
 
-语言: [English](../en/03-training.md) | 简体中文 | [日本語](../ja/03-training.md) | [한국어](../ko/03-training.md)
+语言: 简体中文
 
 本页覆盖训练、回放、恢复训练、Hydra override 和 W&B。
 

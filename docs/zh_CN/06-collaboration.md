@@ -1,6 +1,6 @@
 # 协作流程
 
-语言: [English](../en/06-collaboration.md) | 简体中文 | [日本語](../ja/06-collaboration.md) | [한국어](../ko/06-collaboration.md)
+语言: 简体中文
 
 仓库文档只记录稳定标准。执行状态、owner 和阶段推进应放在 GitHub 协作对象中。
 

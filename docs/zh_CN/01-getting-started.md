@@ -1,6 +1,6 @@
 # 快速开始
 
-语言: [English](../en/01-getting-started.md) | 简体中文 | [日本語](../ja/01-getting-started.md) | [한국어](../ko/01-getting-started.md)
+语言: 简体中文
 
 本页只回答三个问题:
 
