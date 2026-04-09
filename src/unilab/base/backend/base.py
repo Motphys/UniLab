@@ -1,4 +1,5 @@
 import abc
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -25,6 +26,69 @@ class SimBackend(abc.ABC):
     @abc.abstractmethod
     def model(self):
         """底层物理模型"""
+
+    # ------------------------------------------------------------------ #
+    # Model properties                                                     #
+    # ------------------------------------------------------------------ #
+
+    @property
+    @abc.abstractmethod
+    def num_actuators(self) -> int:
+        """执行器数量"""
+
+    @property
+    @abc.abstractmethod
+    def num_dof_vel(self) -> int:
+        """关节速度自由度数量（不含浮动基座）"""
+
+    @abc.abstractmethod
+    def get_actuator_ctrl_range(self) -> np.ndarray:
+        """获取执行器控制范围
+
+        Returns:
+            (num_actuators, 2) 数组，列为 [low, high]
+        """
+
+    @abc.abstractmethod
+    def get_keyframe_qpos(self, name: str) -> np.ndarray:
+        """获取指定关键帧的完整 qpos（含浮动基座）
+
+        Args:
+            name: 关键帧名称（如 "stand"、"home"）
+
+        Returns:
+            (nq,) 数组
+        """
+
+    @abc.abstractmethod
+    def get_init_qvel(self) -> np.ndarray:
+        """获取零初始化的 qvel 向量，维度与 set_state 期望一致
+
+        Returns:
+            全零数组
+        """
+
+    @abc.abstractmethod
+    def get_body_ids(self, names: Sequence[str]) -> np.ndarray:
+        """将 body/link 名称解析为后端整数 ID
+
+        Args:
+            names: body/link 名称序列
+
+        Returns:
+            (len(names),) int32 数组
+
+        Raises:
+            ValueError: 若名称未找到
+        """
+
+    @abc.abstractmethod
+    def get_joint_range(self) -> np.ndarray | None:
+        """获取关节位置限制（不含浮动基座）
+
+        Returns:
+            (num_dof, 2) 数组，列为 [low, high]；若后端不支持则返回 None
+        """
 
     # ------------------------------------------------------------------ #
     # Simulation control                                                   #

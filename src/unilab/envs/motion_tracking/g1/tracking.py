@@ -313,24 +313,11 @@ class G1MotionTrackingEnv(G1BaseEnv):
         self._log_action_scale_diagnostics()
 
         # Resolve body IDs for backend querying and motion-file indexing.
+        self.body_ids = self._backend.get_body_ids(cfg.body_names)
         if self._is_mujoco_backend():
-            self.body_ids = np.array(
-                [
-                    mujoco.mj_name2id(self._backend.model, mujoco.mjtObj.mjOBJ_BODY, name)
-                    for name in cfg.body_names
-                ],
-                dtype=np.int32,
-            )
             motion_body_ids = self.body_ids
         else:
-            backend_body_ids: list[int] = []
-            for name in cfg.body_names:
-                body_id = self._backend.model.get_link_index(name)
-                if body_id is None or body_id < 0:
-                    raise ValueError(f"Body '{name}' not found in motrix model")
-                backend_body_ids.append(int(body_id))
-            self.body_ids = np.array(backend_body_ids, dtype=np.int32)
-
+            # Motion data always uses MuJoCo body indexing.
             mj_model = mujoco.MjModel.from_xml_path(cfg.model_file)
             motion_body_ids = np.array(
                 [
@@ -376,9 +363,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
         )
 
     def _get_joint_range(self) -> np.ndarray | None:
-        if not self._is_mujoco_backend():
-            return None
-        return np.asarray(self._backend.model.jnt_range[1:])  # Skip free joint
+        return self._backend.get_joint_range()
 
     def _apply_adaptive_g1_action_scale(self) -> None:
         """Set per-joint action scale to match adaptive's normalization."""

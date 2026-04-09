@@ -1,4 +1,5 @@
 import os
+from collections.abc import Sequence
 from multiprocessing import cpu_count
 from typing import Optional, cast
 
@@ -186,6 +187,44 @@ class MuJoCoBackend(SimBackend):
     @property
     def model(self):
         return self._model
+
+    # ------------------------------------------------------------------ #
+    # Model properties                                                   #
+    # ------------------------------------------------------------------ #
+
+    @property
+    def num_actuators(self) -> int:
+        return int(self._model.nu)
+
+    @property
+    def num_dof_vel(self) -> int:
+        return self._num_dof_vel
+
+    def get_actuator_ctrl_range(self) -> np.ndarray:
+        return np.asarray(self._model.actuator_ctrlrange).copy()
+
+    def get_keyframe_qpos(self, name: str) -> np.ndarray:
+        key_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_KEY, name)
+        if key_id < 0:
+            raise ValueError(f"Keyframe '{name}' not found in MuJoCo model")
+        return np.array(self._model.key_qpos[key_id].copy(), dtype=self._np_dtype)
+
+    def get_init_qvel(self) -> np.ndarray:
+        return np.zeros((self.nv,), dtype=self._np_dtype)
+
+    def get_body_ids(self, names: "Sequence[str]") -> np.ndarray:
+        ids: list[int] = []
+        for name in names:
+            bid = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, name)
+            if bid < 0:
+                raise ValueError(f"Body '{name}' not found in MuJoCo model")
+            ids.append(bid)
+        return np.array(ids, dtype=np.int32)
+
+    def get_joint_range(self) -> np.ndarray | None:
+        if self._root_qpos_dim > 0:
+            return np.asarray(self._model.jnt_range[1:]).copy()
+        return np.asarray(self._model.jnt_range).copy()
 
     # ------------------------------------------------------------------ #
     # Simulation control                                                 #
