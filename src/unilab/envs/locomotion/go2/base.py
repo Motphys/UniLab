@@ -60,20 +60,9 @@ class Go2BaseEnv(NpEnv):
     def __init__(self, cfg: Go2BaseCfg, backend: SimBackend, num_envs=1):
         super().__init__(cfg, backend, num_envs)
 
-        if hasattr(backend.model, "dof_damping"):
-            backend.model.dof_damping[6:] = cfg.control_config.Kd
-            backend.model.actuator_gainprm[:, 0] = cfg.control_config.Kp
-            backend.model.actuator_biasprm[:, 1] = -cfg.control_config.Kp
-
         self._init_action_space()
         self._num_action = self._action_space.shape[0]
         self._init_buffers()
-        self.push_robots_flag = False
-        if self._backend.backend_type == "motrix":
-            self._backend._process_rigid_body_props(cfg)
-            domain_rand = getattr(self._cfg, "domain_rand", None)
-            if domain_rand and domain_rand.push_robots:
-                self.push_robots_flag = True
 
     def _init_action_space(self):
         model = self._backend.model

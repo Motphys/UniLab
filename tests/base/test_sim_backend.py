@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from unilab.assets import ASSETS_ROOT_PATH
+from unilab.dr import ResetRandomizationPayload
 
 
 # ---------------------------------------------------------------------------
@@ -56,6 +57,14 @@ def _identity_qpos_mujoco(nq: int, xyz=(0.0, 0.0, 0.8)) -> np.ndarray:
     return q
 
 
+def _mujoco_expected_dof_dims(model) -> tuple[int, int]:
+    import mujoco
+
+    if model.njnt > 0 and int(model.jnt_type[0]) == int(mujoco.mjtJoint.mjJNT_FREE):
+        return model.nq - 7, model.nv - 6
+    return model.nq, model.nv
+
+
 # ---------------------------------------------------------------------------
 # MuJoCo — basic, 3 robots, no body sensors
 # ---------------------------------------------------------------------------
@@ -97,6 +106,92 @@ class TestMuJoCoBasic:
         bkd.set_state(np.array([0]), qpos, np.zeros((1, nv)))
         np.testing.assert_allclose(bkd.get_base_pos()[1], pos_before, atol=1e-5)
 
+    def test_set_state_randomization_only_affects_target_envs(self, bkd):
+        original = [bkd._pool.get_field(i, "body_mass").copy() for i in range(NUM_ENVS)]
+        qpos = _identity_qpos_mujoco(bkd.model.nq)
+        qvel = np.zeros((1, bkd.model.nv))
+        base_body_id = bkd._base_body_id
+        delta = np.array([original[1][base_body_id] * 0.5])
+        randomization = ResetRandomizationPayload(base_mass_delta=delta)
+
+        bkd.set_state(np.array([1]), qpos, qvel, randomization=randomization)
+
+        np.testing.assert_array_equal(bkd._pool.get_field(0, "body_mass"), original[0])
+        updated = bkd._pool.get_field(1, "body_mass")
+        np.testing.assert_allclose(updated[:base_body_id], original[1][:base_body_id])
+        np.testing.assert_allclose(updated[base_body_id], original[1][base_body_id] + delta[0])
+        np.testing.assert_allclose(updated[base_body_id + 1 :], original[1][base_body_id + 1 :])
+
+    def test_get_dr_capabilities_include_extended_reset_terms(self, bkd):
+        caps = bkd.get_dr_capabilities()
+        assert {
+            "base_mass_delta",
+            "base_com_offset",
+            "body_iquat",
+            "body_inertia",
+            "kp",
+            "kd",
+        }.issubset(caps.supported_reset_terms)
+        assert caps.supports_interval_push
+
+    def test_set_state_body_iquat_randomization_only_affects_target_envs(self, bkd):
+        original = [bkd._pool.get_field(i, "body_iquat").copy() for i in range(NUM_ENVS)]
+        qpos = _identity_qpos_mujoco(bkd.model.nq)
+        qvel = np.zeros((1, bkd.model.nv))
+        updated = original[1].reshape(bkd.model.nbody, 4).copy()
+        updated[bkd._base_body_id] = np.array([0.92387953, 0.0, 0.38268343, 0.0])
+
+        bkd.set_state(
+            np.array([1]),
+            qpos,
+            qvel,
+            randomization=ResetRandomizationPayload(body_iquat=updated[None, :, :]),
+        )
+
+        np.testing.assert_array_equal(bkd._pool.get_field(0, "body_iquat"), original[0])
+        np.testing.assert_allclose(
+            bkd._pool.get_field(1, "body_iquat").reshape(bkd.model.nbody, 4), updated
+        )
+
+    def test_set_state_body_inertia_randomization_only_affects_target_envs(self, bkd):
+        original = [bkd._pool.get_field(i, "body_inertia").copy() for i in range(NUM_ENVS)]
+        qpos = _identity_qpos_mujoco(bkd.model.nq)
+        qvel = np.zeros((1, bkd.model.nv))
+        updated = original[1].reshape(bkd.model.nbody, 3).copy()
+        updated[bkd._base_body_id] *= 1.5
+
+        bkd.set_state(
+            np.array([1]),
+            qpos,
+            qvel,
+            randomization=ResetRandomizationPayload(body_inertia=updated[None, :, :]),
+        )
+
+        np.testing.assert_array_equal(bkd._pool.get_field(0, "body_inertia"), original[0])
+        np.testing.assert_allclose(
+            bkd._pool.get_field(1, "body_inertia").reshape(bkd.model.nbody, 3), updated
+        )
+
+    def test_set_state_kp_kd_randomization_only_affects_target_envs(self, bkd):
+        original_kp = [bkd._pool.get_field(i, "kp").copy() for i in range(NUM_ENVS)]
+        original_kd = [bkd._pool.get_field(i, "kd").copy() for i in range(NUM_ENVS)]
+        qpos = _identity_qpos_mujoco(bkd.model.nq)
+        qvel = np.zeros((1, bkd.model.nv))
+        new_kp = original_kp[1] + 1.25
+        new_kd = np.maximum(original_kd[1] + 0.25, 0.25)
+
+        bkd.set_state(
+            np.array([1]),
+            qpos,
+            qvel,
+            randomization=ResetRandomizationPayload(kp=new_kp[None, :], kd=new_kd[None, :]),
+        )
+
+        np.testing.assert_array_equal(bkd._pool.get_field(0, "kp"), original_kp[0])
+        np.testing.assert_array_equal(bkd._pool.get_field(0, "kd"), original_kd[0])
+        np.testing.assert_allclose(bkd._pool.get_field(1, "kp"), new_kp)
+        np.testing.assert_allclose(bkd._pool.get_field(1, "kd"), new_kd)
+
     # base kinematics
 
     def test_get_base_pos_shape(self, bkd):
@@ -117,14 +212,50 @@ class TestMuJoCoBasic:
     # DOF state
 
     def test_get_dof_pos_shape(self, bkd):
-        _shape(bkd.get_dof_pos(), NUM_ENVS, bkd.model.nq - 7)
+        expected_nq, _ = _mujoco_expected_dof_dims(bkd.model)
+        _shape(bkd.get_dof_pos(), NUM_ENVS, expected_nq)
 
     def test_get_dof_vel_shape(self, bkd):
-        _shape(bkd.get_dof_vel(), NUM_ENVS, bkd.model.nv - 6)
+        _, expected_nv = _mujoco_expected_dof_dims(bkd.model)
+        _shape(bkd.get_dof_vel(), NUM_ENVS, expected_nv)
 
     def test_dof_pos_finite_after_step(self, bkd):
         bkd.step(np.zeros((NUM_ENVS, bkd.model.nu)))
         assert np.all(np.isfinite(bkd.get_dof_pos()))
+
+
+@pytest.mark.slow
+def test_mujoco_backend_discards_visual_assets():
+    import mujoco
+
+    from unilab.base.backend.mujoco_backend import MuJoCoBackend
+
+    model_file = _xml("go2")
+    full = mujoco.MjModel.from_xml_path(model_file)
+    trimmed = MuJoCoBackend(model_file, 1, SIM_DT, base_name="base")
+
+    assert trimmed.model.ngeom < full.ngeom
+    assert trimmed.model.nmesh == 0
+    assert trimmed.model.ntex == 0
+    assert trimmed.model.nmat == 0
+
+
+@pytest.mark.slow
+def test_mujoco_backend_fixed_base_dof_views_do_not_skip_first_joint():
+    import mujoco
+
+    from unilab.base.backend.mujoco_backend import MuJoCoBackend
+
+    model_file = _xml("allegro_hand", "scene.xml")
+    bkd = MuJoCoBackend(model_file, NUM_ENVS, SIM_DT, base_name="palm")
+    assert int(bkd.model.jnt_type[0]) != int(mujoco.mjtJoint.mjJNT_FREE)
+    _shape(bkd.get_dof_pos(), NUM_ENVS, bkd.model.nq)
+    _shape(bkd.get_dof_vel(), NUM_ENVS, bkd.model.nv)
+    _shape(bkd.get_base_pos(), NUM_ENVS, 3)
+    _shape(bkd.get_base_quat(), NUM_ENVS, 4)
+    np.testing.assert_allclose(bkd.get_base_lin_vel(), 0.0, atol=1e-8)
+    np.testing.assert_allclose(bkd.get_base_ang_vel(), 0.0, atol=1e-8)
+    _unit_quat(bkd.get_base_quat(), "MuJoCo fixed-base quat")
 
 
 # ---------------------------------------------------------------------------
@@ -290,6 +421,41 @@ class TestMotrixBasic:
         qpos = _identity_qpos_mujoco(nq, xyz=target)
         bkd.set_state(np.array([0]), qpos, np.zeros((1, nv)))
         np.testing.assert_allclose(bkd.get_base_pos()[0], target, atol=1e-4)
+
+    def test_set_state_randomization_only_affects_target_envs(self, _ctx):
+        bkd, _ = _ctx
+        nq = bkd.get_dof_pos().shape[-1] + 7
+        nv = bkd.get_dof_vel().shape[-1] + 6
+        qpos = _identity_qpos_mujoco(nq)
+        qvel = np.zeros((1, nv))
+        original_mass = np.asarray(bkd._body_link.get_mass_override(bkd.data)).copy()
+        delta = np.array([0.25])
+
+        bkd.set_state(
+            np.array([0]),
+            qpos,
+            qvel,
+            randomization=ResetRandomizationPayload(base_mass_delta=delta),
+        )
+
+        updated_mass = np.asarray(bkd._body_link.get_mass_override(bkd.data))
+        np.testing.assert_allclose(updated_mass[1], original_mass[1], atol=1e-6)
+        np.testing.assert_allclose(updated_mass[0], original_mass[0] + delta[0], atol=1e-6)
+
+    def test_set_state_unsupported_randomization_raises(self, _ctx):
+        bkd, _ = _ctx
+        nq = bkd.get_dof_pos().shape[-1] + 7
+        nv = bkd.get_dof_vel().shape[-1] + 6
+        qpos = _identity_qpos_mujoco(nq)
+        qvel = np.zeros((1, nv))
+
+        with pytest.raises(NotImplementedError, match="kp"):
+            bkd.set_state(
+                np.array([0]),
+                qpos,
+                qvel,
+                randomization=ResetRandomizationPayload(kp=np.zeros((1, 1))),
+            )
 
     # base kinematics
 

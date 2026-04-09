@@ -13,18 +13,18 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-# The G1 env modules import create_backend → mujoco.batch_forward at the top
+# The G1 env modules import create_backend → mujoco.batch_env at the top
 # level, so all tests in this file need a working MuJoCo installation.
 pytest.importorskip("mujoco", reason="mujoco not installed")
 
-# Some environments also use mujoco.batch_forward (G1 backend). Guard against
+# Some environments also use mujoco.batch_env (G1 backend). Guard against
 # partial MuJoCo installations where the base package installs but platform
 # extensions fail (e.g. wrong libstdc++ version).
 try:
-    from mujoco import batch_forward as _  # noqa: F401
+    from mujoco.batch_env import BatchEnvPool as _  # noqa: F401
 except Exception:
     pytest.skip(
-        "mujoco.batch_forward not available (platform/libstdc++ issue)", allow_module_level=True
+        "mujoco.batch_env not available (platform/libstdc++ issue)", allow_module_level=True
     )
 
 from unilab.utils.algo_utils import ensure_registries  # noqa: E402
@@ -204,6 +204,88 @@ def test_env_reset_and_step(
         env.close()
 
 
+def _assert_mujoco_position_gains(env, *, kp: float, kd: float, actuator_ids=slice(None)) -> None:
+    model = env._backend.model
+    np.testing.assert_allclose(model.actuator_gainprm[actuator_ids, 0], kp)
+    np.testing.assert_allclose(model.actuator_biasprm[actuator_ids, 1], -kp)
+    np.testing.assert_allclose(model.actuator_biasprm[actuator_ids, 2], -kd)
+    np.testing.assert_allclose(env._backend._pool.get_field(0, "kp")[actuator_ids], kp)
+    np.testing.assert_allclose(env._backend._pool.get_field(0, "kd")[actuator_ids], kd)
+
+
+@pytest.mark.slow
+def test_go1_env_initializes_kp_kd_into_pool(default_go1_reward_config):
+    ensure_registries()
+    from unilab.base import registry
+
+    env = registry.make(
+        "Go1JoystickFlatTerrain",
+        num_envs=2,
+        sim_backend="mujoco",
+        env_cfg_override={
+            "reward_config": default_go1_reward_config,
+            "control_config": {"Kp": 12.0, "Kd": 0.7},
+        },
+    )
+    try:
+        _assert_mujoco_position_gains(env, kp=12.0, kd=0.7)
+    finally:
+        env.close()
+
+
+@pytest.mark.slow
+def test_go2_env_initializes_kp_kd_into_pool():
+    ensure_registries()
+    from unilab.base import registry
+    from unilab.envs.locomotion.go2.joystick import RewardConfig
+
+    env = registry.make(
+        "Go2JoystickFlatTerrain",
+        num_envs=2,
+        sim_backend="mujoco",
+        env_cfg_override={
+            "reward_config": RewardConfig(
+                scales={
+                    "tracking_lin_vel": 1.0,
+                    "tracking_ang_vel": 0.2,
+                    "lin_vel_z": -5.0,
+                    "ang_vel_xy": -0.02,
+                    "base_height": -100.0,
+                    "action_rate": -0.005,
+                    "similar_to_default": -0.1,
+                },
+                tracking_sigma=0.25,
+                base_height_target=0.3,
+            ),
+            "control_config": {"Kp": 18.0, "Kd": 0.9},
+        },
+    )
+    try:
+        _assert_mujoco_position_gains(env, kp=18.0, kd=0.9)
+    finally:
+        env.close()
+
+
+@pytest.mark.slow
+def test_allegro_env_initializes_kp_kd_into_pool(default_allegro_reward_config):
+    ensure_registries()
+    from unilab.base import registry
+
+    env = registry.make(
+        "AllegroInhandRotation",
+        num_envs=2,
+        sim_backend="mujoco",
+        env_cfg_override={
+            "reward_config": default_allegro_reward_config,
+            "control_config": {"kp": 2.5, "kd": 0.4},
+        },
+    )
+    try:
+        _assert_mujoco_position_gains(env, kp=2.5, kd=0.4, actuator_ids=slice(0, 16))
+    finally:
+        env.close()
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize("sim_backend", ["mujoco", "motrix"])
 def test_g1_motion_tracking_reset_and_step(sim_backend: str):
@@ -249,5 +331,40 @@ def test_g1_motion_tracking_reset_and_step(sim_backend: str):
         assert isinstance(state.obs, dict)
         assert state.reward.shape == (2,)
         assert state.done.shape == (2,)
+    finally:
+        env.close()
+
+
+@pytest.mark.slow
+def test_go2_mujoco_reset_applies_domain_randomization(default_go2_reward_config):
+    ensure_registries()
+    import mujoco
+
+    from unilab.base import registry
+
+    env = registry.make(
+        "Go2JoystickFlatTerrain",
+        num_envs=4,
+        sim_backend="mujoco",
+        env_cfg_override={"reward_config": default_go2_reward_config},
+    )
+    try:
+        env.init_state()
+        backend = env._backend
+        base_body_id = mujoco.mj_name2id(
+            backend.model, mujoco.mjtObj.mjOBJ_BODY, env.cfg.asset.base_name
+        )
+        masses = np.stack([backend._pool.get_field(i, "body_mass") for i in range(env.num_envs)])
+        ipos_x = np.stack(
+            [
+                backend._pool.get_field(i, "body_ipos").reshape(backend.model.nbody, 3)[
+                    base_body_id, 0
+                ]
+                for i in range(env.num_envs)
+            ]
+        )
+
+        assert np.unique(np.round(masses[:, base_body_id], 6)).size > 1
+        assert np.unique(np.round(ipos_x, 6)).size > 1
     finally:
         env.close()

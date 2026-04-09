@@ -13,7 +13,12 @@ from unilab.base.backend import create_backend
 from unilab.base.curriculum import EpisodeLengthTracker, PenaltyCurriculum
 from unilab.base.dtype_config import get_global_dtype
 from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
-from unilab.envs.locomotion.g1.joystick import Domain_Rand, G1JoystickPPO, InitState
+from unilab.envs.locomotion.g1.joystick import (
+    Domain_Rand,
+    G1JoystickDomainRandomizationProvider,
+    G1JoystickPPO,
+    InitState,
+)
 
 
 @dataclass
@@ -93,6 +98,7 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
         )
 
         self._init_reward_functions()
+        self._init_domain_randomization(G1JoystickDomainRandomizationProvider())
 
     def _compute_obs(
         self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel

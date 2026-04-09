@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from etils import epath
@@ -13,6 +13,8 @@ from unilab.base import registry
 from unilab.base.backend import create_backend
 from unilab.base.dtype_config import get_global_dtype
 from unilab.base.np_env import NpEnvState
+from unilab.dr import DomainRandomizationCapabilities, DomainRandomizationProvider, ResetPlan
+from unilab.dr.dr_utils import validate_common_reset_randomization
 from unilab.envs.manipulation.inhand_rot_allegro.base import AllegroBaseCfg, AllegroBaseMjEnv
 from unilab.utils.math_utils import np_quat_conjugate, np_quat_mul, np_quat_to_axis_angle
 
@@ -88,6 +90,102 @@ class AllegroRotationPPOCfg(AllegroBaseCfg):
     gen_grasp: bool = False
 
 
+class AllegroRotationDomainRandomizationProvider(DomainRandomizationProvider):
+    def validate(self, env: Any, capabilities: DomainRandomizationCapabilities) -> None:
+        validate_common_reset_randomization(env, capabilities)
+
+    def _load_grasp_cache(self, env: Any) -> np.ndarray | None:
+        if env._grasp_cache_loaded:
+            return cast(np.ndarray | None, env._grasp_cache)
+        if env.cfg.gen_grasp:
+            env._grasp_cache = None
+            env._grasp_cache_loaded = True
+            return None
+        cache_path = env.cfg.grasp_cache_path or str(
+            epath.Path(__file__).with_name("grasps") / "grasp_50k.npy"
+        )
+        if not epath.Path(cache_path).exists():
+            raise FileNotFoundError(f"Grasp cache not found: {cache_path}")
+        env._grasp_cache = np.load(cache_path).astype(np.float64)
+        env._grasp_cache_loaded = True
+        return cast(np.ndarray | None, env._grasp_cache)
+
+    def build_reset_plan(self, env: Any, env_ids: np.ndarray) -> ResetPlan:
+        num_reset = len(env_ids)
+        grasp_cache = self._load_grasp_cache(env)
+        dr = env.cfg.domain_rand
+        if grasp_cache is not None:
+            idx = np.random.randint(0, len(grasp_cache), size=num_reset)
+            sampled = grasp_cache[idx]
+            hand_qpos = sampled[:, :16]
+            ball_pos = sampled[:, 16:19]
+            ball_quat = sampled[:, 19:23]
+        else:
+            hand_qpos = np.broadcast_to(env.default_angles, (num_reset, env._NUM_HAND_DOF)).copy()
+            hand_qpos += np.random.uniform(-dr.joint_noise, dr.joint_noise, hand_qpos.shape).astype(
+                np.float64
+            )
+            hand_qpos = np.clip(
+                hand_qpos,
+                env._ctrl_lower.astype(np.float64),
+                env._ctrl_upper.astype(np.float64),
+            )
+            ball_init_pos = env._init_qpos[env._NUM_HAND_DOF : env._NUM_HAND_DOF + 3]
+            ball_pos = np.broadcast_to(ball_init_pos, (num_reset, 3)).copy()
+            ball_pos[:, 2] += dr.ball_z_offset
+            ball_quat = np.tile([1.0, 0.0, 0.0, 0.0], (num_reset, 1))
+
+        qpos = np.concatenate([hand_qpos, ball_pos, ball_quat], axis=1).astype(np.float64)
+        qvel = np.zeros((num_reset, env.nv), dtype=np.float64)
+        qvel[:, env._NUM_HAND_DOF : env._NUM_HAND_DOF + 3] = np.random.uniform(
+            -env.cfg.domain_rand.ball_vel_noise,
+            env.cfg.domain_rand.ball_vel_noise,
+            (num_reset, 3),
+        )
+
+        dtype = get_global_dtype()
+        init_ctrl = hand_qpos.astype(dtype)
+        ball_pos_f32 = ball_pos.astype(dtype)
+        dof_pos_norm = 2.0 * (init_ctrl - env._dof_mid) / (env._dof_range + 1e-8)
+        init_obs = np.concatenate([dof_pos_norm, init_ctrl, ball_pos_f32], axis=1, dtype=dtype)
+        obs_lag_history = np.broadcast_to(
+            init_obs[:, None, :],
+            (init_ctrl.shape[0], env._NUM_LAG_STEPS, env._NUM_OBS_PER_STEP),
+        ).copy()
+        info_updates = {
+            "current_actions": np.zeros((init_ctrl.shape[0], env._num_action), dtype=dtype),
+            "last_actions": np.zeros((init_ctrl.shape[0], env._num_action), dtype=dtype),
+            "prev_ctrl": init_ctrl,
+            "init_pose": init_ctrl.copy(),
+            "prev_dof_pos": init_ctrl.copy(),
+            "prev_ball_pos": ball_pos_f32.copy(),
+            "prev_ball_quat": ball_quat.astype(dtype).copy(),
+            "obs_lag_history": obs_lag_history,
+        }
+        return ResetPlan(
+            env_ids=env_ids,
+            qpos=qpos,
+            qvel=qvel,
+            info_updates=info_updates,
+            randomization=None,
+        )
+
+    def build_reset_observation(
+        self, env: Any, env_ids: np.ndarray, info_updates: dict[str, Any]
+    ) -> dict[str, np.ndarray]:
+        return cast(
+            dict[str, np.ndarray],
+            env._compute_obs(
+                info_updates,
+                info_updates["prev_ctrl"],
+                info_updates["prev_ball_pos"],
+            ),
+        )
+
+
+# ─────────────────────────── Environment ──────────────────────────────
+
+
 @registry.env("AllegroInhandRotation", sim_backend="mujoco")
 @registry.env("AllegroInhandRotation", sim_backend="motrix")
 class AllegroRotationMj(AllegroBaseMjEnv):
@@ -109,6 +207,11 @@ class AllegroRotationMj(AllegroBaseMjEnv):
             cfg.sim_dt,
             base_name="palm",
             add_body_sensors=True,
+            position_actuator_gains={
+                "kp": cfg.control_config.kp,
+                "kd": cfg.control_config.kd,
+                "actuator_ids": slice(0, 16),
+            },
         )
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True
@@ -121,6 +224,7 @@ class AllegroRotationMj(AllegroBaseMjEnv):
         self._grasp_cache_loaded = False
 
         self._init_reward_functions()
+        self._init_domain_randomization(AllegroRotationDomainRandomizationProvider())
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:

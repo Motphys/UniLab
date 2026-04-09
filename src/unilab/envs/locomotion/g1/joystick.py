@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import Any, cast
 
 import numpy as np
 from etils import epath
@@ -14,11 +14,21 @@ from unilab.base import registry
 from unilab.base.backend import create_backend
 from unilab.base.dtype_config import get_global_dtype
 from unilab.base.np_env import NpEnvState
+from unilab.dr import (
+    DomainRandomizationCapabilities,
+    DomainRandomizationProvider,
+    IntervalRandomizationPlan,
+    ResetPlan,
+)
+from unilab.dr.dr_utils import (
+    build_common_reset_randomization,
+    build_interval_push_plan,
+    validate_common_reset_randomization,
+    validate_interval_push_support,
+    zero_actions,
+)
 from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
 from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
-
-if TYPE_CHECKING:
-    from .joystick_sac import RewardConfigSAC
 
 
 @dataclass
@@ -186,11 +196,77 @@ class G1JoystickPPOCfg(G1BaseCfg):
             self.reset_base_qvel_limit = float(reset_base_qvel_limit)
 
 
+class G1JoystickDomainRandomizationProvider(DomainRandomizationProvider):
+    def validate(self, env: Any, capabilities: DomainRandomizationCapabilities) -> None:
+        validate_common_reset_randomization(env, capabilities)
+        validate_interval_push_support(env, capabilities)
+
+    def build_interval_randomization_plan(
+        self, env: Any, step_counter: int
+    ) -> IntervalRandomizationPlan | None:
+        return build_interval_push_plan(env, step_counter)
+
+    def _sample_commands(self, env: Any, num_reset: int) -> np.ndarray:
+        low = np.asarray(env.cfg.commands.vel_limit[0], dtype=get_global_dtype())
+        high = np.asarray(env.cfg.commands.vel_limit[1], dtype=get_global_dtype())
+        return np.asarray(
+            np.random.uniform(low=low, high=high, size=(num_reset, 3)), dtype=get_global_dtype()
+        )
+
+    def _sample_gait_phase(self, env: Any, num_reset: int) -> np.ndarray:
+        mode = env.cfg.gait_phase_init_mode
+        if mode == "independent":
+            left = np.random.uniform(0.0, 2.0 * np.pi, size=(num_reset,))
+            right = np.random.uniform(0.0, 2.0 * np.pi, size=(num_reset,))
+            return np.asarray(np.column_stack([left, right]), dtype=get_global_dtype())
+
+        phase = np.random.uniform(0.0, 2.0 * np.pi, size=(num_reset,))
+        return np.asarray(np.column_stack([phase, phase + np.pi]), dtype=get_global_dtype())
+
+    def build_reset_plan(self, env: Any, env_ids: np.ndarray) -> ResetPlan:
+        num_reset = len(env_ids)
+        qpos = np.tile(env._init_qpos, (num_reset, 1))
+        qvel = np.tile(env._init_qvel, (num_reset, 1))
+        qpos[:, 0:2] += np.random.uniform(-0.5, 0.5, (num_reset, 2))
+        yaw = np.random.uniform(-np.pi, np.pi, (num_reset,))
+        qpos[:, 3:7] = np_quat_mul(qpos[:, 3:7], np_yaw_to_quat(yaw))
+        limit = float(env.cfg.reset_base_qvel_limit)
+        qvel[:, 0:6] = np.asarray(
+            np.random.uniform(-limit, limit, size=(num_reset, 6)), dtype=get_global_dtype()
+        )
+        info_updates = {
+            "commands": self._sample_commands(env, num_reset),
+            "current_actions": zero_actions(num_reset, env._num_action),
+            "last_actions": zero_actions(num_reset, env._num_action),
+            "gait_phase": self._sample_gait_phase(env, num_reset),
+        }
+        return ResetPlan(
+            env_ids=env_ids,
+            qpos=qpos,
+            qvel=qvel,
+            info_updates=info_updates,
+            randomization=build_common_reset_randomization(env, num_reset),
+        )
+
+    def build_reset_observation(
+        self, env: Any, env_ids: np.ndarray, info_updates: dict[str, Any]
+    ) -> dict[str, np.ndarray]:
+        linvel = env.get_local_linvel()[env_ids]
+        gyro = env.get_gyro()[env_ids]
+        gravity = env._backend.get_sensor_data("upvector")[env_ids]
+        dof_pos = env.get_dof_pos()[env_ids]
+        dof_vel = env.get_dof_vel()[env_ids]
+        return cast(
+            dict[str, np.ndarray],
+            env._compute_obs(info_updates, linvel, gyro, gravity, dof_pos, dof_vel),
+        )
+
+
 @registry.env("G1JoystickFlatTerrain", sim_backend="mujoco")
 @registry.env("G1JoystickFlatTerrain", sim_backend="motrix")
 class G1JoystickPPO(G1BaseEnv):
     _cfg: G1JoystickPPOCfg
-    _reward_cfg: RewardConfigPPO | RewardConfigSAC
+    _reward_cfg: Any
 
     def __init__(self, cfg: G1JoystickPPOCfg, num_envs=1, backend_type="mujoco"):
         if cfg.reward_config is None:
@@ -212,6 +288,7 @@ class G1JoystickPPO(G1BaseEnv):
         self._upper_body_pose_weights = build_upper_body_pose_weights(self._reward_cfg.pose_weights)
 
         self._init_reward_functions()
+        self._init_domain_randomization(G1JoystickDomainRandomizationProvider())
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:
@@ -387,51 +464,6 @@ class G1JoystickPPO(G1BaseEnv):
     def _reward_upper_body_pose(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
         diff = dof_pos - self.default_angles
         return compute_weighted_pose_penalty(diff, self._upper_body_pose_weights)
-
-    def reset(self, env_indices: np.ndarray):
-        dtype = get_global_dtype()
-        num_reset = len(env_indices)
-        qpos = np.tile(self._init_qpos, (num_reset, 1))
-        qvel = np.tile(self._init_qvel, (num_reset, 1))
-
-        dxy = np.random.uniform(-0.5, 0.5, (num_reset, 2))
-        qpos[:, 0:2] += dxy
-        yaw = np.random.uniform(-np.pi, np.pi, (num_reset,))
-        quat_yaw = np_yaw_to_quat(yaw)
-        qpos[:, 3:7] = np_quat_mul(qpos[:, 3:7], quat_yaw)
-        qvel[:, 0:6] = sample_reset_base_qvel(
-            rng=np.random,
-            num_samples=num_reset,
-            limit=self._cfg.reset_base_qvel_limit,
-        )
-
-        self._backend.set_state(env_indices, qpos, qvel)
-
-        commands = sample_velocity_commands(
-            rng=np.random,
-            num_samples=num_reset,
-            low=np.asarray(self._cfg.commands.vel_limit[0], dtype=get_global_dtype()),
-            high=np.asarray(self._cfg.commands.vel_limit[1], dtype=get_global_dtype()),
-        )
-
-        info = {
-            "commands": commands,
-            "current_actions": np.zeros((num_reset, self._num_action), dtype=dtype),
-            "last_actions": np.zeros((num_reset, self._num_action), dtype=dtype),
-            "gait_phase": sample_gait_phase_pairs(
-                rng=np.random,
-                num_samples=num_reset,
-                mode=self._cfg.gait_phase_init_mode,
-            ),
-        }
-
-        linvel = self.get_local_linvel()[env_indices]
-        gyro = self.get_gyro()[env_indices]
-        gravity = self._backend.get_sensor_data("upvector")[env_indices]
-        dof_pos = self.get_dof_pos()[env_indices]
-        dof_vel = self.get_dof_vel()[env_indices]
-        obs = self._compute_obs(info, linvel, gyro, gravity, dof_pos, dof_vel)
-        return obs, info
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
         state.info["last_actions"] = state.info.get("current_actions", np.zeros_like(actions))

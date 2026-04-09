@@ -11,6 +11,7 @@ import numpy as np
 from unilab.base.backend import SimBackend
 from unilab.base.base import ABEnv, EnvCfg
 from unilab.base.dtype_config import get_global_dtype
+from unilab.dr import DomainRandomizationManager, DomainRandomizationProvider
 
 
 @dataclass
@@ -38,12 +39,7 @@ class NpEnv(ABEnv):
         self._num_envs = num_envs
         self._state: Optional[NpEnvState] = None
         self.step_counter = 0
-        self.push_robots_flag = False
-        if getattr(self._backend, "backend_type", None) == "motrix":
-            self._backend._process_rigid_body_props(cfg)  # type: ignore[attr-defined]
-            domain_rand = getattr(self._cfg, "domain_rand", None)
-            if domain_rand and domain_rand.push_robots:
-                self.push_robots_flag = True
+        self._dr_manager: DomainRandomizationManager | None = None
 
     @property
     def cfg(self) -> EnvCfg:
@@ -95,7 +91,8 @@ class NpEnv(ABEnv):
         assert self._state is not None
         ctrl = self.apply_action(actions, self._state)
 
-        self.push_robots()
+        if self._dr_manager is not None:
+            self._dr_manager.apply_interval_randomization_if_due(self.step_counter)
 
         t0 = time.perf_counter()
         self._backend.step(ctrl, self._cfg.sim_substeps)
@@ -164,11 +161,15 @@ class NpEnv(ABEnv):
                 elif isinstance(value, np.ndarray):
                     self._state.info[key][env_indices] = value
 
-    def push_robots(self) -> None:
-        if self.push_robots_flag:
-            domain_rand = getattr(self._cfg, "domain_rand", None)
-            if domain_rand and self.step_counter % domain_rand.push_interval == 0:
-                self._backend.push_robots(domain_rand.max_force)
+    def _init_domain_randomization(self, provider: "DomainRandomizationProvider") -> None:
+        from unilab.dr import DomainRandomizationManager
+
+        self._dr_manager = DomainRandomizationManager(self, provider)
+
+    def reset(self, env_indices: np.ndarray) -> Tuple[dict[str, np.ndarray], dict]:
+        if self._dr_manager is None:  # pragma: no cover - constructor integration error
+            raise RuntimeError("Domain-randomization manager has not been initialized")
+        return self._dr_manager.reset(env_indices)
 
     @abc.abstractmethod
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
@@ -177,10 +178,6 @@ class NpEnv(ABEnv):
     @abc.abstractmethod
     def update_state(self, state: NpEnvState) -> NpEnvState:
         """子类实现：计算 obs/reward/terminated"""
-
-    @abc.abstractmethod
-    def reset(self, env_indices: np.ndarray) -> Tuple[dict[str, np.ndarray], dict]:
-        """子类实现：重置指定环境，返回 (obs_dict, info_dict)"""
 
     def close(self) -> None:
         """关闭环境"""

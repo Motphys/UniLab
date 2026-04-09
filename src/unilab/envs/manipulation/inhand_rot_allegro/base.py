@@ -67,6 +67,27 @@ class AllegroBaseMjEnv(NpEnv):
             model.dof_damping[: self._NUM_HAND_DOF] = cfg.control_config.kd
             model.actuator_gainprm[:, 0] = cfg.control_config.kp
             model.actuator_biasprm[:, 1] = -cfg.control_config.kp
+        self.nq = self._backend.model.nq  # 23
+        self.nv = self._backend.model.nv  # 22
+
+        # physics_state offsets
+        self._idx_qpos = 1
+        self._idx_qvel = 1 + self.nq  # 24
+
+        # hand occupies the first 16 DOFs
+        assert self._backend.model.nu == self._NUM_HAND_DOF, (
+            f"Expected {self._NUM_HAND_DOF} actuators, got {self._backend.model.nu}"
+        )
+
+        # ball positions inside physics_state
+        self._ps_ball_pos = self._idx_qpos + self._NUM_HAND_DOF  # 17
+        self._ps_ball_quat = self._idx_qpos + self._NUM_HAND_DOF + 3  # 20
+        self._ps_ball_linv = self._idx_qvel + self._NUM_HAND_DOF  # 40
+        self._ps_ball_angv = self._idx_qvel + self._NUM_HAND_DOF + 3  # 43
+
+        # joint limits (shape: (16,))
+        self._ctrl_lower = self._backend.model.actuator_ctrlrange[:, 0].astype(self._np_dtype)
+        self._ctrl_upper = self._backend.model.actuator_ctrlrange[:, 1].astype(self._np_dtype)
 
         self._ctrl_lower, self._ctrl_upper = get_model_ctrl_limits(model, self._np_dtype)
         self._init_action_space()
