@@ -3,7 +3,7 @@
 **Always use `uv run`, not python**.
 
 UniLab 是一个 **高性能、模块化、contract 驱动** 的 RL infrastructure 仓库。
-先看 [RL Infrastructure Development Standard](docs/en/00-development-architecture.md)。AGENTS 只保留 agent 必须记住的理念。
+先看 [RL Infrastructure Development Standard](docs/zh_CN/00-development-architecture.md)。AGENTS 只保留 agent 必须记住的理念。
 
 ## Core Principles
 
@@ -17,7 +17,7 @@ UniLab 是一个 **高性能、模块化、contract 驱动** 的 RL infrastructu
 ## Read Order
 
 1. `AGENTS.md`
-2. `docs/en/00-development-architecture.md`
+2. `docs/zh_CN/00-development-architecture.md`
 3. `CONTRIBUTING.md`
 4. 当前任务相关代码与测试
 
