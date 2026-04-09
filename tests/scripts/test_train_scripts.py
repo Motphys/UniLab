@@ -848,3 +848,92 @@ def test_play_resolve_checkpoint_empty_dir(tmp_path):
     run_dir.mkdir()
     result = mod.resolve_checkpoint("MyTask", str(run_dir))
     assert result is None
+
+# ---------------------------------------------------------------------------
+# play_interactive.py — RslRlVecEnvWrapper contract behavior
+# ---------------------------------------------------------------------------
+
+
+def _play_interactive():
+    """Load play_interactive.py as a module."""
+    return _load_script("play_interactive")
+
+
+def test_play_wrapper_imports_shared_implementation():
+    """Verify play_interactive.py uses shared RslRlVecEnvWrapper."""
+    from unilab.utils.rsl_rl_vec_env_wrapper import RslRlVecEnvWrapper as SharedWrapper
+
+    mod = _play_interactive()
+    # The wrapper class in play_interactive should be the shared one
+    assert mod.RslRlVecEnvWrapper is SharedWrapper
+
+
+def test_play_wrapper_uses_current_reset_contract():
+    """Verify wrapper reset() uses current (obs, info) contract, not old (_, obs, _)."""
+    import numpy as np
+    from tensordict import TensorDict
+
+    from unilab.utils.rsl_rl_vec_env_wrapper import RslRlVecEnvWrapper
+
+    # Create a fake environment that returns (obs, info) tuple
+    class FakeEnv:
+        def __init__(self):
+            self.num_envs = 2
+            self.state = type("State", (), {"obs": {"obs": np.ones((2, 5), dtype=np.float32)}})()
+            self.cfg = type("Cfg", (), {"max_episode_seconds": 10.0, "ctrl_dt": 0.02})()
+            self.observation_space = type("Space", (), {"shape": (5,)})()
+            self.action_space = type("Space", (), {"shape": (3,)})()
+            self.obs_groups_spec = {"obs": 5}
+
+        def init_state(self):
+            pass
+
+        def reset(self, env_indices):
+            # Returns current contract: (obs, info)
+            return {"obs": np.ones((2, 5), dtype=np.float32)}, {}
+
+    env = FakeEnv()
+    wrapper = RslRlVecEnvWrapper(env, device="cpu", policy_obs_mode="flat")
+
+    # Reset should work with current contract
+    obs_td, info = wrapper.reset()
+
+    assert isinstance(obs_td, TensorDict)
+    assert "policy" in obs_td
+    assert "actor" in obs_td
+    assert obs_td.batch_size == (2,)
+
+
+def test_play_wrapper_policy_obs_mode_actor():
+    """Verify wrapper supports policy_obs_mode='actor'."""
+    import numpy as np
+
+    from unilab.utils.rsl_rl_vec_env_wrapper import RslRlVecEnvWrapper
+
+    class FakeEnv:
+        def __init__(self):
+            self.num_envs = 1
+            self.state = type("State", (), {"obs": {"obs": np.ones((1, 3), dtype=np.float32)}})()
+            self.cfg = type("Cfg", (), {"max_episode_seconds": 10.0, "ctrl_dt": 0.02})()
+            self.observation_space = type("Space", (), {"shape": (3,)})()
+            self.action_space = type("Space", (), {"shape": (2,)})()
+            self.obs_groups_spec = {"obs": 3, "privileged": 2}
+
+        def init_state(self):
+            pass
+
+        def reset(self, env_indices):
+            return {"obs": np.ones((1, 3), dtype=np.float32), "privileged": np.zeros((1, 2), dtype=np.float32)}, {}
+
+    env = FakeEnv()
+
+    # Test actor mode - num_obs should match actor obs dim only
+    wrapper_actor = RslRlVecEnvWrapper(env, device="cpu", policy_obs_mode="actor")
+    assert wrapper_actor.num_obs == 3  # Only "obs" group
+    assert wrapper_actor._actor_obs_dim == 3
+    assert wrapper_actor._flat_obs_dim == 5  # obs + privileged
+
+    obs_td, _ = wrapper_actor.reset()
+    # In actor mode, policy obs should equal actor obs
+    assert obs_td["policy"].shape == (1, 3)
+    assert obs_td["actor"].shape == (1, 3)

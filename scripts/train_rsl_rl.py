@@ -24,6 +24,7 @@ if str(ROOT_DIR) not in sys.path:
 from unilab.utils.experiment_tracking import ExperimentTracker, patch_rsl_rl_wandb_writer
 from unilab.utils.obs_utils import flatten_obs_dict
 from unilab.utils.reward_utils import resolve_reward_dict
+from unilab.utils.rsl_rl_vec_env_wrapper import RslRlVecEnvWrapper
 from unilab.utils.torch_utils import to_numpy, to_torch
 from unilab.utils.xml_utils import materialize_scene_visual_override
 
@@ -223,90 +224,6 @@ def run_motrix_rsl_play_loop(
 
             env._backend.render()
             steps_run += 1
-
-
-class RslRlVecEnvWrapper:
-    """Wrapper to adapt NpEnv to RSL-RL OnPolicyRunner interface."""
-
-    def __init__(self, env, device="cuda"):
-        self.env = env
-        self.cfg = env.cfg
-        self.device = device
-        self.num_envs = env.num_envs
-        self.observation_space = env.observation_space
-        self.action_space = env.action_space
-        self.num_obs = sum(env.obs_groups_spec.values())
-        self.num_privileged_obs = self.num_obs
-        self.num_actions = env.action_space.shape[0]
-
-        self.episode_returns = torch.zeros(self.num_envs, device=self.device)
-        self.episode_lengths = torch.zeros(self.num_envs, device=self.device)
-
-        self.episode_length_buf = self.episode_lengths
-        self.max_episode_length = np.ceil(env.cfg.max_episode_seconds / env.cfg.ctrl_dt)
-
-        self.reset()
-
-    def _obs_to_tensordict(self, obs: dict[str, np.ndarray]) -> TensorDict:
-        actor = to_torch(obs["obs"], self.device)
-        td = {"actor": actor}
-        if "privileged" in obs:
-            td["privileged"] = to_torch(obs["privileged"], self.device)
-            if hasattr(self.env, "get_policy_obs"):
-                policy_obs = self.env.get_policy_obs(obs)
-            else:
-                policy_obs = flatten_obs_dict(obs)
-            td["policy"] = to_torch(policy_obs, self.device)
-        else:
-            td["policy"] = actor
-        return TensorDict(td, batch_size=self.num_envs, device=self.device)
-
-    def step(self, actions):
-        if isinstance(actions, torch.Tensor):
-            actions_np = actions.detach().cpu().numpy()
-        else:
-            actions_np = actions
-
-        state = self.env.step(actions_np)
-
-        # Convert output to torch tensors on target device
-        rewards = to_torch(state.reward, self.device)
-        dones = to_torch(state.done, self.device).bool()
-
-        self.episode_returns += rewards
-        self.episode_lengths += 1
-
-        infos = {}
-        done_indices = torch.nonzero(dones).flatten()
-        if len(done_indices) > 0:
-            if hasattr(state, "truncated"):
-                infos["time_outs"] = to_torch(state.truncated, self.device).bool()
-            self.episode_returns[done_indices] = 0
-            self.episode_lengths[done_indices] = 0
-
-        if hasattr(state, "info") and "log" in state.info:
-            infos["log"] = state.info["log"]
-
-        obs_dict = self._obs_to_tensordict(state.obs)
-        return obs_dict, rewards, dones, infos
-
-    def reset(self):
-        if self.env.state is None:
-            self.env.init_state()
-        env_indices = np.arange(self.num_envs, dtype=np.int32)
-        obs_out, _ = self.env.reset(env_indices)
-
-        self.episode_returns[:] = 0
-        self.episode_lengths[:] = 0
-
-        return self._obs_to_tensordict(obs_out), {}
-
-    def get_observations(self):
-        return self._obs_to_tensordict(self.env.state.obs)
-
-    def get_privileged_observations(self):
-        obs = to_torch(flatten_obs_dict(self.env.state.obs), self.device)
-        return obs
 
 
 def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
