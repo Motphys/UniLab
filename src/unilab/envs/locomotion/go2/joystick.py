@@ -24,8 +24,10 @@ from unilab.dr.dr_utils import (
     validate_interval_push_support,
     zero_actions,
 )
+from unilab.envs.locomotion.common import rewards
 from unilab.envs.locomotion.common.commands import Commands
 from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
+from unilab.envs.locomotion.common.rewards import RewardContext
 from unilab.envs.locomotion.go2.base import Go2BaseCfg, Go2BaseEnv
 from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
 
@@ -174,15 +176,15 @@ class Go2WalkTask(Go2BaseEnv):
         return {"obs": 49, "privileged": 3}
 
     def _init_reward_functions(self):
-        self._reward_fns = {
-            "tracking_lin_vel": self._reward_tracking_lin_vel,
-            "tracking_ang_vel": self._reward_tracking_ang_vel,
-            "lin_vel_z": self._reward_lin_vel_z,
-            "ang_vel_xy": self._reward_ang_vel_xy,
-            "base_height": self._reward_base_height,
-            "action_rate": self._reward_action_rate,
-            "similar_to_default": self._reward_similar_to_default,
-            # "alive": self._reward_alive,
+        self._reward_fns: dict[str, Any] = {
+            "tracking_lin_vel": rewards.tracking_lin_vel,
+            "tracking_ang_vel": rewards.tracking_ang_vel,
+            "lin_vel_z": rewards.lin_vel_z,
+            "ang_vel_xy": rewards.ang_vel_xy,
+            "base_height": rewards.base_height,
+            "action_rate": rewards.action_rate,
+            "similar_to_default": rewards.similar_to_default,
+            # "alive": rewards.alive,
             "swing_feet_z": self._reward_swing_feet_z,
             "contact": self._reward_contact,
         }
@@ -230,6 +232,18 @@ class Go2WalkTask(Go2BaseEnv):
         reward = np.zeros((self._num_envs,), dtype=dtype)
         cfg = self._reward_cfg
 
+        ctx = RewardContext(
+            info=info,
+            linvel=linvel,
+            gyro=gyro,
+            dof_pos=dof_pos,
+            num_envs=self._num_envs,
+            default_angles=self.default_angles,
+            tracking_sigma=cfg.tracking_sigma,
+            base_height_target=cfg.base_height_target,
+            base_height=self._backend.get_base_pos()[:, 2],
+        )
+
         step_count = info.get("steps", np.zeros((self._num_envs,), dtype=np.uint32))
         should_log = self._enable_reward_log and (int(step_count[0]) % 4 == 0)
         log = {} if should_log else info.get("log", {})
@@ -237,7 +251,7 @@ class Go2WalkTask(Go2BaseEnv):
         for name, scale in cfg.scales.items():
             if scale == 0 or name not in self._reward_fns:
                 continue
-            rew = self._reward_fns[name](info, linvel, gyro, dof_pos)
+            rew = self._reward_fns[name](ctx)
             weighted_rew = rew * scale
             reward += weighted_rew
             if should_log:
@@ -246,47 +260,16 @@ class Go2WalkTask(Go2BaseEnv):
         info["log"] = log
         return reward * self._cfg.ctrl_dt
 
-    # ── reward functions ──────────────────────────────────────────────
+    # ── reward functions (robot-specific) ────────────────────────────
 
-    def _reward_tracking_lin_vel(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
-        commands = info["commands"]
-        lin_vel_error = np.sum(np.square(commands[:, :2] - linvel[:, :2]), axis=1)
-        return np.asarray(np.exp(-lin_vel_error / self._reward_cfg.tracking_sigma))
-
-    def _reward_tracking_ang_vel(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
-        commands = info["commands"]
-        ang_vel_error = np.square(commands[:, 2] - gyro[:, 2])
-        return np.asarray(np.exp(-ang_vel_error / self._reward_cfg.tracking_sigma))
-
-    def _reward_lin_vel_z(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
-        return np.asarray(np.square(linvel[:, 2]))
-
-    def _reward_ang_vel_xy(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
-        return np.asarray(np.sum(np.square(gyro[:, :2]), axis=1))
-
-    def _reward_base_height(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
-        base_height = self._backend.get_base_pos()[:, 2]
-        return np.asarray(np.square(base_height - self._reward_cfg.base_height_target))
-
-    def _reward_action_rate(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
-        action_diff = info["current_actions"] - info["last_actions"]
-        return np.asarray(np.sum(np.square(action_diff), axis=1))
-
-    def _reward_similar_to_default(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
-        # print(self.default_angles)
-        return np.asarray(np.sum(np.abs(dof_pos - self.default_angles), axis=1))
-
-    def _reward_alive(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
-        return np.ones((self._num_envs,), dtype=get_global_dtype())
-
-    def _reward_swing_feet_z(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
+    def _reward_swing_feet_z(self, ctx: RewardContext) -> np.ndarray:
         is_swing = self.feet_phase >= 0.6
         target_height = 0.1
         height_error = np.square(self.feet_pos[:, :, 2] - target_height)
         swing_rew = np.exp(-height_error / 0.01) * is_swing
         return np.asarray(np.sum(swing_rew, axis=1) / len(self._cfg.sensor.feet_pos))
 
-    def _reward_foot_drag(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
+    def _reward_foot_drag(self, ctx: RewardContext) -> np.ndarray:
         foot_pos = self.get_foot_pos()
         foot_heights = foot_pos[..., 2]
         foot_contact = self.get_foot_contact()
@@ -296,7 +279,7 @@ class Go2WalkTask(Go2BaseEnv):
         error = np.square(height_error) * is_swing
         return np.asarray(np.sum(error, axis=1))
 
-    def _reward_contact(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
+    def _reward_contact(self, ctx: RewardContext) -> np.ndarray:
         contact = self.feet_force[:, :, 2] > 0.1
         res = np.zeros(self._num_envs, dtype=np.float32)
         for i in range(len(self._cfg.sensor.feet_force)):
