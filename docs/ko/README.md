@@ -29,11 +29,12 @@ git clone https://github.com/unilabsim/UniLab.git
 cd UniLab
 
 # 2. 의존성 설치
-# macOS (MPS)
+# macOS (MPS, PyPI torch wheel 기본 설치)
 uv sync
 
-# Linux (예: cu124 같은 CUDA extra 하나 선택)
-uv sync --extra cu124
+# Linux (기본값: PyTorch cu128 wheel 설치)
+# 현재 PyTorch cu128 wheel 이 지원하는 NVIDIA GPU 및 드라이버 스택이 필요함
+uv sync
 
 # 선택 사항: Motrix 백엔드
 uv sync --extra motrix

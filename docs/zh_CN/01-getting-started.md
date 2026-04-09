@@ -28,18 +28,15 @@ brew install cmake  # macOS
 ### 同步依赖
 
 ```bash
-# macOS (MPS)
+# macOS（MPS，默认安装 PyPI 的 torch wheel）
 uv sync
 
-# Linux (CUDA 11.8 / 12.4 / 12.6 / 12.8)
-uv sync --extra cu118
-uv sync --extra cu124
-uv sync --extra cu126
-uv sync --extra cu128
+# Linux 默认（安装 PyTorch 官方 cu128 wheel）
+# 需要当前 PyTorch cu128 wheel 所支持的 NVIDIA 显卡与驱动栈
+uv sync
 
 # 可选: Motrix 后端
 uv sync --extra motrix
-uv sync --extra cu124 --extra motrix
 ```
 
 ## 中国大陆镜像

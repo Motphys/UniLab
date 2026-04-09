@@ -6,8 +6,8 @@
 
 1. Fork 并克隆仓库。
 2. 按平台安装依赖:
-   - macOS (MPS): `uv sync`
-   - Linux (CUDA 11.8 / 12.4 / 12.6 / 12.8): `uv sync --extra cu124`
+   - macOS（MPS，安装 PyPI 的 torch wheel）: `uv sync`
+   - Linux 默认（安装 PyTorch 官方 cu128 wheel；需要当前 PyTorch cu128 wheel 所支持的 NVIDIA 显卡与驱动栈）: `uv sync`
    - 需要 Motrix 时，在命令后追加 `--extra motrix`
 3. 创建分支，例如 `git checkout -b docs/improve-readme` 或 `git checkout -b fix/backend-bug`。
 

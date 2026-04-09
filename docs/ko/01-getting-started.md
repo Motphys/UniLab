@@ -28,18 +28,15 @@ brew install cmake  # macOS
 ### 의존성 동기화
 
 ```bash
-# macOS (MPS)
+# macOS (MPS, PyPI torch wheel 기본 설치)
 uv sync
 
-# Linux (CUDA 11.8 / 12.4 / 12.6 / 12.8)
-uv sync --extra cu118
-uv sync --extra cu124
-uv sync --extra cu126
-uv sync --extra cu128
+# Linux 기본값 (PyTorch cu128 wheel 설치)
+# 현재 PyTorch cu128 wheel 이 지원하는 NVIDIA GPU 및 드라이버 스택이 필요함
+uv sync
 
 # 선택 사항: Motrix 백엔드
 uv sync --extra motrix
-uv sync --extra cu124 --extra motrix
 ```
 
 ## 중국 본토 미러
