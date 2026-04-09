@@ -23,10 +23,6 @@ test:
 test-cov:
 	uv run pytest -m "not slow and not veryslow" --cov=unilab --cov-report=term-missing
 
-.PHONY: test-fast
-test-fast:
-	uv run pytest -m "not slow and not veryslow"
-
 .PHONY: test-slow
 test-slow:
 	uv run pytest -m "slow and not veryslow" -v
