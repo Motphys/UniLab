@@ -24,6 +24,8 @@ from unilab.dr.dr_utils import (
     validate_interval_push_support,
     zero_actions,
 )
+from unilab.envs.locomotion.common.commands import Commands
+from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
 from unilab.envs.locomotion.go1.base import Go1BaseCfg, Go1BaseEnv
 from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
 
@@ -31,14 +33,6 @@ from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
 @dataclass
 class InitState:
     pos = [0.0, 0.0, 0.45]
-
-
-@dataclass
-class Commands:
-    vel_limit = [
-        [-0.6, -0.4, -0.8],  # [vx_min, vy_min, vyaw_min]
-        [1.0, 0.4, 0.8],  # [vx_max, vy_max, vyaw_max]
-    ]
 
 
 @dataclass
@@ -62,21 +56,6 @@ class JoystickSensor:
     feet_pos = ["FL_pos", "FR_pos", "RL_pos", "RR_pos"]
 
 
-@dataclass
-class Domain_Rand:
-    # randomize_friction = True
-    # friction_range = [0.5, 1.25]
-    randomize_base_mass = True
-    added_mass_range = [-1.5, 1.5]
-
-    random_com = True
-    com_offset_x = [-0.05, 0.05]
-
-    push_robots = True
-    push_interval = 750  # step
-    max_force = [1, 1, 0.5]
-
-
 @registry.envcfg("Go1JoystickFlatTerrain")
 @dataclass
 class Go1JoystickCfg(Go1BaseCfg):
@@ -87,7 +66,13 @@ class Go1JoystickCfg(Go1BaseCfg):
     reward_config: RewardConfig | None = None
     legacy_motrix_profile: LegacyMotrixProfile = field(default_factory=LegacyMotrixProfile)
     sensor: JoystickSensor = field(default_factory=JoystickSensor)  # type: ignore[assignment]
-    domain_rand: Domain_Rand = field(default_factory=Domain_Rand)
+    domain_rand: DomainRandConfig = field(
+        default_factory=lambda: DomainRandConfig(
+            randomize_base_mass=True,
+            random_com=True,
+            push_robots=True,
+        )
+    )
 
     def apply_legacy_motrix_profile(self) -> None:
         profile = self.legacy_motrix_profile

@@ -12,9 +12,10 @@ from unilab.base import registry
 from unilab.base.backend import create_backend
 from unilab.base.curriculum import EpisodeLengthTracker, PenaltyCurriculum
 from unilab.base.dtype_config import get_global_dtype
+from unilab.envs.locomotion.common.commands import Commands
+from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
 from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
 from unilab.envs.locomotion.g1.joystick import (
-    Domain_Rand,
     G1JoystickDomainRandomizationProvider,
     G1JoystickPPO,
     InitState,
@@ -25,16 +26,6 @@ from unilab.envs.locomotion.g1.joystick import (
 class ControlConfigSAC:
     action_scale: float = 1.0  # holosoma 0.25
     simulate_action_latency: bool = False
-
-
-@dataclass
-class Commands:
-    """对齐 holosoma: 多方向命令采样"""
-
-    vel_limit = [
-        [-0.6, -0.4, -0.8],  # [vx_min, vy_min, vyaw_min]
-        [1.0, 0.4, 0.8],  # [vx_max, vy_max, vyaw_max]
-    ]
 
 
 @dataclass
@@ -62,7 +53,7 @@ class G1JoystickSACCfg(G1BaseCfg):
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
     control_config: ControlConfigSAC = field(default_factory=ControlConfigSAC)  # type: ignore[assignment]
-    domain_rand: Domain_Rand = field(default_factory=Domain_Rand)
+    domain_rand: DomainRandConfig = field(default_factory=DomainRandConfig)
     gait_phase_init_mode: str = "offset_phase"
     reset_base_qvel_limit: float = 0.5
 
