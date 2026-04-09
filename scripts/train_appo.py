@@ -138,6 +138,11 @@ def resolve_appo_checkpoint_path(
     return os.path.join(candidate_dir, model_files[-1]), candidate_dir
 
 
+def _get_log_root(cfg: DictConfig) -> str:
+    """Get log root directory from algo_log_name config."""
+    return str(Path(ROOT_DIR) / "logs" / cfg.algo.algo_log_name)
+
+
 def play_appo(cfg: DictConfig, rl_cfg: dict) -> str | None:
     """Play mode for APPO."""
     import numpy as np
@@ -197,8 +202,9 @@ def play_appo(cfg: DictConfig, rl_cfg: dict) -> str | None:
     actor = actor.to(device)
     actor.eval()
 
-    base_log_dir = os.path.join(ROOT_DIR, "logs", "appo", cfg.training.task_name)
-    load_path, load_path_dir = resolve_appo_checkpoint_path(base_log_dir, cfg.training.load_run)
+    log_root = _get_log_root(cfg)
+    base_log_dir = os.path.join(log_root, cfg.training.task_name)
+    load_path, load_path_dir = resolve_appo_checkpoint_path(base_log_dir, cfg.algo.load_run)
 
     if not load_path or not os.path.exists(load_path):
         print(f"Could not find run to load. load_path={load_path}")
@@ -283,10 +289,9 @@ def main(cfg: DictConfig) -> None:
 
     if cfg.training.log_dir is None:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        log_root = _get_log_root(cfg)
         log_dir = os.path.join(
-            ROOT_DIR,
-            "logs",
-            "appo",
+            log_root,
             cfg.training.task_name,
             f"{timestamp}_{cfg.training.sim_backend}",
         )

@@ -142,7 +142,7 @@ def test_offpolicy_hydra_default_play_flags():
     cfg = _offpolicy_cfg()
     assert cfg.training.play_only is False
     assert cfg.training.no_play is False
-    assert cfg.training.load_run == "-1"
+    assert cfg.algo.load_run == "-1"
 
 
 def test_offpolicy_hydra_algo_td3():
@@ -941,3 +941,88 @@ def test_play_wrapper_policy_obs_mode_actor():
     # In actor mode, policy obs should equal actor obs
     assert obs_td["policy"].shape == (1, 3)
     assert obs_td["actor"].shape == (1, 3)
+
+
+# ---------------------------------------------------------------------------
+# Issue #168: Unified log directory and load_run resolution
+# ---------------------------------------------------------------------------
+
+
+def test_ppo_hydra_default_algo_log_name():
+    """Verify PPO config has algo_log_name in algo section."""
+    cfg = _ppo_cfg()
+    assert cfg.algo.algo_log_name == "rsl_rl_ppo"
+
+
+def test_ppo_hydra_load_run_in_algo_not_training():
+    """Verify load_run is in algo section, not training section (issue #168)."""
+    from omegaconf import OmegaConf
+
+    cfg = _ppo_cfg()
+    assert cfg.algo.load_run == "-1"
+    # training section should NOT have load_run anymore
+    assert "load_run" not in cfg.training or OmegaConf.is_missing(cfg.training, "load_run")
+
+
+def test_appo_hydra_default_algo_log_name():
+    """Verify APPO config has algo_log_name in algo section."""
+    cfg = _appo_cfg()
+    assert cfg.algo.algo_log_name == "appo"
+    assert cfg.algo.load_run == "-1"
+
+
+def test_offpolicy_sac_hydra_default_algo_log_name():
+    """Verify SAC config has algo_log_name in algo section."""
+    cfg = _offpolicy_cfg(["algo=sac"])
+    assert cfg.algo.algo_log_name == "fast_sac"
+    assert cfg.algo.load_run == "-1"
+
+
+def test_offpolicy_td3_hydra_default_algo_log_name():
+    """Verify TD3 config has algo_log_name in algo section."""
+    cfg = _offpolicy_cfg(["algo=td3"])
+    assert cfg.algo.algo_log_name == "fast_td3"
+    assert cfg.algo.load_run == "-1"
+
+
+def test_train_rsl_rl_get_log_root_uses_algo_log_name(monkeypatch: pytest.MonkeyPatch):
+    """Verify _get_log_root uses algo.algo_log_name (issue #168)."""
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg()
+
+    # Override algo_log_name to test
+    cfg.algo.algo_log_name = "test_rsl_rl_ppo"
+
+    log_root = mod._get_log_root(cfg)
+    assert "logs/test_rsl_rl_ppo" in log_root
+
+
+def test_train_appo_get_log_root_uses_algo_log_name():
+    """Verify APPO _get_log_root uses algo.algo_log_name (issue #168)."""
+    mod = _train_appo()
+    cfg = _appo_cfg()
+
+    cfg.algo.algo_log_name = "test_appo"
+
+    log_root = mod._get_log_root(cfg)
+    assert "logs/test_appo" in log_root
+
+
+def test_play_resolve_checkpoint_uses_algo_log_name(tmp_path):
+    """Verify play_interactive.resolve_checkpoint uses algo_log_name (issue #168)."""
+    mod = _play_interactive()
+
+    # Create test directory structure with custom algo_log_name
+    run_dir = tmp_path / "logs" / "custom_ppo" / "MyTask" / "2024-01-01_mujoco"
+    run_dir.mkdir(parents=True)
+    (run_dir / "model_50.pt").write_bytes(b"")
+
+    # Temporarily override ROOT_DIR to use tmp_path
+    original_root = mod.ROOT_DIR
+    try:
+        mod.ROOT_DIR = tmp_path
+        result = mod.resolve_checkpoint("MyTask", "-1", algo_log_name="custom_ppo")
+        assert result is not None
+        assert "model_50.pt" in result
+    finally:
+        mod.ROOT_DIR = original_root

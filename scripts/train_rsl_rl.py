@@ -226,6 +226,11 @@ def run_motrix_rsl_play_loop(
             steps_run += 1
 
 
+def _get_log_root(cfg: DictConfig) -> str:
+    """Get log root directory from algo_log_name config."""
+    return str(ROOT_DIR / "logs" / cfg.algo.algo_log_name)
+
+
 def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     """Play mode for RSL-RL."""
 
@@ -247,10 +252,11 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     if is_rsl_rl_v5():
         train_cfg = convert_config_v5(train_cfg)
 
-    base_log_dir = ROOT_DIR / "logs" / "rsl_rl_train" / cfg.training.task_name
+    log_root = _get_log_root(cfg)
+    base_log_dir = Path(log_root) / cfg.training.task_name
     load_path = None
 
-    load_run = cfg.training.load_run
+    load_run = cfg.algo.load_run
     if load_run == "-1":
         load_path = get_latest_run(str(base_log_dir))
     else:
@@ -373,12 +379,9 @@ def main(cfg: DictConfig) -> None:
 
     if not cfg.training.play_only:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        log_root = _get_log_root(cfg)
         log_dir = str(
-            ROOT_DIR
-            / "logs"
-            / "rsl_rl_train"
-            / cfg.training.task_name
-            / f"{timestamp}_{cfg.training.sim_backend}"
+            Path(log_root) / cfg.training.task_name / f"{timestamp}_{cfg.training.sim_backend}"
         )
     else:
         log_dir = None
@@ -433,12 +436,13 @@ def main(cfg: DictConfig) -> None:
 
             runner = OnPolicyRunner(wrapped_env, train_cfg, log_dir=log_dir, device=device)
 
-            if cfg.training.load_run != "-1":
-                if os.path.exists(cfg.training.load_run):
-                    resume_path = cfg.training.load_run
+            if cfg.algo.load_run != "-1":
+                if os.path.exists(cfg.algo.load_run):
+                    resume_path = cfg.algo.load_run
                 else:
-                    base_log_dir = ROOT_DIR / "logs" / "rsl_rl_train" / cfg.training.task_name
-                    run_path = base_log_dir / cfg.training.load_run
+                    log_root = _get_log_root(cfg)
+                    base_log_dir = Path(log_root) / cfg.training.task_name
+                    run_path = base_log_dir / cfg.algo.load_run
                     resume_path = str(run_path) if run_path.exists() else None
 
                 if resume_path:

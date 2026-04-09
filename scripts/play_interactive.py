@@ -88,8 +88,10 @@ def _infer_checkpoint_actor_input_dim(ckpt_path: str) -> int | None:
 # ---------------------------------------------------------------------------
 
 
-def resolve_checkpoint(task: str, load_run: str, checkpoint: str | None = None) -> str | None:
-    base = ROOT_DIR / "logs" / "rsl_rl_train" / task
+def resolve_checkpoint(
+    task: str, load_run: str, checkpoint: str | None = None, algo_log_name: str = "rsl_rl_ppo"
+) -> str | None:
+    base = ROOT_DIR / "logs" / algo_log_name / task
     if load_run == "-1":
         path = get_latest_run(str(base))
     elif os.path.exists(load_run):
@@ -431,7 +433,11 @@ def play_interactive(args):
     policy_obs_mode = args.policy_obs_mode
     ckpt = None
     if args.action_mode == "policy":
-        ckpt = resolve_checkpoint(args.task, args.load_run, getattr(args, "checkpoint", None))
+        # Get algo_log_name from config if available, otherwise use default
+        algo_log_name = getattr(args, "algo_log_name", "rsl_rl_ppo")
+        ckpt = resolve_checkpoint(
+            args.task, args.load_run, getattr(args, "checkpoint", None), algo_log_name
+        )
         if policy_obs_mode == "auto" and ckpt is not None:
             ckpt_dim = _infer_checkpoint_actor_input_dim(ckpt)
             if ckpt_dim == actor_obs_dim:

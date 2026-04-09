@@ -11,6 +11,7 @@ algo:
   num_steps_per_env: 24
   max_iterations: 101
   empirical_normalization: false
+  load_run: "-1"
   obs_groups:
     default:
       - policy
@@ -54,7 +55,6 @@ training:
   sim_backend: mujoco
   play_only: false
   no_play: false
-  load_run: "-1"
   play_env_num: 16
   play_steps: 150
   logger: tensorboard
@@ -67,7 +67,6 @@ training:
   wandb_notes: null
   wandb_mode: null
   fp16: false
-  log_root: logs/mlx_rl_train
   seed: 1
   log_interval: 10
   save_interval: 50
