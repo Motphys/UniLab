@@ -8,12 +8,21 @@ import sys
 from pathlib import Path
 
 import hydra
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
 
-from unilab.utils.algo_utils import ensure_registries
+from unilab.training import (
+    BackendAdapter,
+    create_env,
+    ensure_registries,
+    get_log_root,
+    render_play_mode,
+)
+from unilab.training import (
+    resolve_checkpoint_path as resolve_checkpoint_path_common,
+)
 from unilab.utils.experiment_tracking import ExperimentTracker
 
 
@@ -31,52 +40,15 @@ def default_device(torch_module, preferred: str | None = None) -> str:
 def resolve_checkpoint_path(
     root_dir: Path, algo_log_name: str, task: str, load_run: str
 ) -> tuple[str | None, str | None]:
-    """Resolve latest or explicit checkpoint path for play mode."""
-    base_log_dir = os.path.join(root_dir, "logs", algo_log_name, task)
-
-    load_path = None
-    load_path_dir = None
-    if load_run == "-1":
-        if os.path.exists(base_log_dir):
-            all_runs = sorted(
-                [
-                    d
-                    for d in os.listdir(base_log_dir)
-                    if os.path.isdir(os.path.join(base_log_dir, d))
-                ]
-            )
-            if all_runs:
-                latest_run_dir = os.path.join(base_log_dir, all_runs[-1])
-                model_files = sorted(
-                    [
-                        f
-                        for f in os.listdir(latest_run_dir)
-                        if f.startswith("model_") and f.endswith(".pt")
-                    ],
-                    key=lambda x: int(x.split("_")[1].split(".")[0]),
-                )
-                if model_files:
-                    load_path = os.path.join(latest_run_dir, model_files[-1])
-                    load_path_dir = latest_run_dir
-    elif os.path.exists(load_run):
-        load_path = load_run
-        load_path_dir = os.path.dirname(load_path)
-    else:
-        potential_dir = os.path.join(base_log_dir, load_run)
-        if os.path.isdir(potential_dir):
-            model_files = sorted(
-                [
-                    f
-                    for f in os.listdir(potential_dir)
-                    if f.startswith("model_") and f.endswith(".pt")
-                ],
-                key=lambda x: int(x.split("_")[1].split(".")[0]),
-            )
-            if model_files:
-                load_path = os.path.join(potential_dir, model_files[-1])
-                load_path_dir = potential_dir
-
-    return load_path, load_path_dir
+    checkpoint_path, checkpoint_dir = resolve_checkpoint_path_common(
+        Path(root_dir) / "logs" / algo_log_name / task,
+        load_run,
+        suffix=".pt",
+    )
+    return (
+        str(checkpoint_path) if checkpoint_path is not None else None,
+        str(checkpoint_dir) if checkpoint_dir is not None else None,
+    )
 
 
 def extract_reset_obs(reset_result):
@@ -102,87 +74,8 @@ def extract_play_obs(obs_dict):
     return obs_out
 
 
-def _explicit_cli_override_keys() -> set[str]:
-    return {arg.split("=", 1)[0] for arg in sys.argv[1:] if "=" in arg}
-
-
-def _apply_task_algo_overrides(
-    target, overrides, *, base_path: str, explicit_keys: set[str]
-) -> None:
-    if OmegaConf.is_config(overrides):
-        override_dict = OmegaConf.to_container(overrides, resolve=True)
-    elif isinstance(overrides, dict):
-        override_dict = overrides
-    else:
-        return
-
-    for key, value in override_dict.items():
-        path = f"{base_path}.{key}"
-        if isinstance(value, dict):
-            if path in explicit_keys:
-                continue
-            if key not in target or target[key] is None:
-                target[key] = {}
-            _apply_task_algo_overrides(
-                target[key], value, base_path=path, explicit_keys=explicit_keys
-            )
-            continue
-        if path not in explicit_keys:
-            target[key] = value
-
-
-def _apply_task_env_profile(
-    env_cfg_override: dict, env_profile, *, explicit_keys: set[str]
-) -> None:
-    if OmegaConf.is_config(env_profile):
-        env_profile_dict = OmegaConf.to_container(env_profile, resolve=True)
-    elif isinstance(env_profile, dict):
-        env_profile_dict = env_profile
-    else:
-        return
-
-    reward_explicit = "reward" in explicit_keys or any(
-        k.startswith("reward.") for k in explicit_keys
-    )
-    for key, value in env_profile_dict.items():
-        if key == "reward_config" and reward_explicit:
-            continue
-        env_cfg_override[key] = value
-
-
 def build_task_motrix_offpolicy_env_cfg_override(algo_name: str, cfg: DictConfig) -> dict | None:
-    from unilab.utils.reward_utils import extract_reward_config
-
-    env_cfg_override = extract_reward_config(cfg)
-    explicit_keys = _explicit_cli_override_keys()
-    motrix_legacy = getattr(cfg, "motrix_legacy", None)
-    if motrix_legacy is None or not motrix_legacy.enabled or cfg.training.sim_backend != "motrix":
-        return env_cfg_override
-
-    applies_to = getattr(motrix_legacy, "applies_to", None)
-    if applies_to is not None:
-        target_algo = getattr(applies_to, "algo", None)
-        if target_algo is not None and target_algo != algo_name:
-            return env_cfg_override
-
-    algo_overrides = getattr(motrix_legacy, "algo_overrides", None)
-    if algo_overrides is not None:
-        _apply_task_algo_overrides(
-            cfg.algo,
-            algo_overrides,
-            base_path="algo",
-            explicit_keys=explicit_keys,
-        )
-
-    env_profile = getattr(motrix_legacy, "env_cfg_override", None)
-    if env_profile is not None:
-        _apply_task_env_profile(
-            env_cfg_override,
-            env_profile,
-            explicit_keys=explicit_keys,
-        )
-
-    return env_cfg_override
+    return BackendAdapter(cfg, root_dir=ROOT_DIR, algo_name=algo_name).build_task_env_cfg_override()
 
 
 def resolve_sac_use_symmetry(cfg: DictConfig) -> bool:
@@ -202,15 +95,12 @@ def build_runner(algo_name: str, cfg: DictConfig):
         # Multi-GPU path
         if cfg.training.num_gpus > 1:
             from unilab.algos.torch.offpolicy.multi_gpu_runner import MultiGPUOffPolicyRunner
-            from unilab.base import registry
-            from unilab.utils.algo_utils import ensure_registries
 
             ensure_registries()
             device = cfg.training.device or get_default_device()
-            env = registry.make(
-                cfg.training.task_name,
+            env = create_env(
+                cfg,
                 num_envs=1,
-                sim_backend=cfg.training.sim_backend,
                 env_cfg_override=env_cfg_override,
             )
             assert env.action_space.shape
@@ -334,12 +224,9 @@ def build_runner(algo_name: str, cfg: DictConfig):
 
 def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
     """Play pipeline for off-policy algorithms."""
-    import mediapy as media
     import numpy as np
     import torch
 
-    from unilab.base import registry
-    from unilab.utils import render_many
     from unilab.utils.algo_utils import build_actor
 
     env_cfg_override = build_task_motrix_offpolicy_env_cfg_override(algo_name, cfg)
@@ -347,10 +234,9 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
     device = default_device(torch, cfg.training.device)
     print(f"Using device for play: {device}")
 
-    env = registry.make(
-        cfg.training.task_name,
+    env = create_env(
+        cfg,
         num_envs=cfg.training.play_env_num,
-        sim_backend=cfg.training.sim_backend,
         env_cfg_override=env_cfg_override,
     )
     obs_dim = resolve_play_obs_dim(env.obs_groups_spec)
@@ -390,7 +276,7 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
         ROOT_DIR,
         cfg.algo.algo_log_name,
         cfg.training.task_name,
-        cfg.training.load_run,
+        cfg.algo.load_run,
     )
     if not load_path or not os.path.exists(load_path):
         print(f"Could not find checkpoint. load_path={load_path}")
@@ -407,46 +293,42 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
             normalizer.load_state_dict(checkpoint["obs_normalizer"])
             normalizer.eval()
 
-    output_video = os.path.join(load_path_dir, "play_video.mp4")
-
     if env.state is None:
         env.init_state()
-    env_indices = np.arange(cfg.training.play_env_num, dtype=np.int32)
-    obs_out = extract_reset_obs(env.reset(env_indices))
-    obs_np = np.asarray(extract_play_obs(obs_out), dtype=np.float32)
+
+    def _policy_step(obs_np: np.ndarray) -> np.ndarray:
+        obs_torch = torch.from_numpy(obs_np).to(device)
+        if normalizer:
+            obs_torch = normalizer(obs_torch, update=False)
+        actions_np = (
+            actor.explore(obs_torch, deterministic=True).cpu().numpy()
+            if algo_name == "sac"
+            else actor(obs_torch).cpu().numpy()
+        )
+        state = env.step(actions_np)
+        return np.asarray(extract_play_obs(state.obs), dtype=np.float32)
 
     # Use Motrix native rendering
     if cfg.training.sim_backend == "motrix":
         print("Starting interactive visualization (motrix native renderer)...")
         print("Close the render window to exit.")
-        env._backend.init_renderer()
-
-        import time
-
-        last_render_time = time.perf_counter()
-        render_dt = 1.0 / 60.0
 
         with torch.inference_mode():
             try:
-                while True:
-                    obs_torch = torch.from_numpy(obs_np).to(device)
-                    if normalizer:
-                        obs_torch = normalizer(obs_torch, update=False)
-                    actions_np = (
-                        actor.explore(obs_torch, deterministic=True).cpu().numpy()
-                        if algo_name == "sac"
-                        else actor(obs_torch).cpu().numpy()
-                    )
-                    state = env.step(actions_np)
-                    obs_np = np.asarray(extract_play_obs(state.obs), dtype=np.float32)
-
-                    current_time = time.perf_counter()
-                    elapsed = current_time - last_render_time
-                    if elapsed < render_dt:
-                        time.sleep(render_dt - elapsed)
-                    last_render_time = time.perf_counter()
-
-                    env._backend.render()
+                render_play_mode(
+                    env,
+                    sim_backend="motrix",
+                    num_steps=None,
+                    initialize=lambda: np.asarray(
+                        extract_play_obs(
+                            extract_reset_obs(
+                                env.reset(np.arange(cfg.training.play_env_num, dtype=np.int32))
+                            )
+                        ),
+                        dtype=np.float32,
+                    ),
+                    step=_policy_step,
+                )
             except Exception as e:
                 if "RenderClosedError" in str(type(e).__name__):
                     print("Render window closed.")
@@ -454,31 +336,26 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
                     raise
         return None
 
-    # MuJoCo backend: render to video
     output_video = os.path.join(load_path_dir, "play_video.mp4")
-    state_list = []
-
     print("Collecting physics states...")
     with torch.inference_mode():
-        for _ in range(cfg.training.play_steps):
-            obs_torch = torch.from_numpy(obs_np).to(device)
-            if normalizer:
-                obs_torch = normalizer(obs_torch, update=False)
-            actions_np = (
-                actor.explore(obs_torch, deterministic=True).cpu().numpy()
-                if algo_name == "sac"
-                else actor(obs_torch).cpu().numpy()
-            )
-            state = env.step(actions_np)
-            obs_np = np.asarray(extract_play_obs(state.obs), dtype=np.float32)
-            state_list.append(np.asarray(env._backend.get_physics_state(), dtype=np.float32).copy())
-
-    print("Rendering frames...")
-    frames = render_many.render_states_get_frames(
-        state_list, env.cfg.model_file, width=1280, height=720, camera_id=-1
-    )
+        render_play_mode(
+            env,
+            sim_backend=cfg.training.sim_backend,
+            num_steps=cfg.training.play_steps,
+            output_video=output_video,
+            initialize=lambda: np.asarray(
+                extract_play_obs(
+                    extract_reset_obs(
+                        env.reset(np.arange(cfg.training.play_env_num, dtype=np.int32))
+                    )
+                ),
+                dtype=np.float32,
+            ),
+            step=_policy_step,
+            frame_state_getter=lambda: env._backend.get_physics_state(),
+        )
     print(f"Saving video to {output_video} ...")
-    media.write_video(str(output_video), frames, fps=int(1.0 / env.cfg.ctrl_dt))
     print("Done.")
     return output_video
 
@@ -492,12 +369,8 @@ def main(cfg: DictConfig) -> None:
 
     if cfg.training.log_dir is None:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        log_dir = os.path.join(
-            ROOT_DIR,
-            "logs",
-            cfg.algo.algo_log_name,
-            task_name,
-            f"{timestamp}_{cfg.training.sim_backend}",
+        log_dir = str(
+            get_log_root(ROOT_DIR, cfg) / task_name / f"{timestamp}_{cfg.training.sim_backend}"
         )
     else:
         log_dir = cfg.training.log_dir

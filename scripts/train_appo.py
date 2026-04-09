@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import datetime
-import importlib
 import os
-import pkgutil
 import sys
 from pathlib import Path
 
@@ -16,25 +14,8 @@ from omegaconf import DictConfig, OmegaConf
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
 
+from unilab.training import create_env, ensure_registries, get_log_root, render_play_mode
 from unilab.utils.experiment_tracking import ExperimentTracker
-
-
-def ensure_registries():
-    for pkg_name in (
-        "unilab.envs.locomotion",
-        "unilab.envs.manipulation",
-        "unilab.envs.motion_tracking",
-    ):
-        try:
-            package = importlib.import_module(pkg_name)
-            if hasattr(package, "__path__"):
-                for _, name, _ in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
-                    try:
-                        importlib.import_module(name)
-                    except Exception:
-                        pass
-        except ImportError:
-            pass
 
 
 def build_appo_runner_kwargs(
@@ -68,79 +49,52 @@ def run_motrix_play_loop(
     play_env_num: int,
     num_steps: int | None = None,
 ) -> None:
-    import time
-
     import numpy as np
     from tensordict import TensorDict
 
     if env.state is None:
         env.init_state()
-    env._backend.init_renderer()
-
-    env_indices = np.arange(play_env_num, dtype=np.int32)
-    obs_out, _ = env.reset(env_indices)
-    obs_np = np.asarray(obs_out["obs"], dtype=np.float32)
-
-    last_render_time = time.perf_counter()
-    render_dt = 1.0 / 60.0
-    steps_run = 0
 
     with torch.inference_mode():
-        while num_steps is None or steps_run < num_steps:
-            obs_torch = torch.from_numpy(obs_np).to(device)
-            td = TensorDict({"policy": obs_torch}, batch_size=play_env_num)
-            actions_torch = actor(td)
-            actions_np = actions_torch.cpu().numpy().astype(np.float32)
-            state = env.step(actions_np)
-            obs_np = np.asarray(state.obs["obs"], dtype=np.float32)
-
-            current_time = time.perf_counter()
-            elapsed = current_time - last_render_time
-            if elapsed < render_dt:
-                time.sleep(render_dt - elapsed)
-            last_render_time = time.perf_counter()
-
-            env._backend.render()
-            steps_run += 1
+        render_play_mode(
+            env,
+            sim_backend="motrix",
+            num_steps=num_steps,
+            initialize=lambda: np.asarray(
+                env.reset(np.arange(play_env_num, dtype=np.int32))[0]["obs"],
+                dtype=np.float32,
+            ),
+            step=lambda obs_np: np.asarray(
+                env.step(
+                    actor(
+                        TensorDict(
+                            {"policy": torch.from_numpy(obs_np).to(device)}, batch_size=play_env_num
+                        )
+                    )
+                    .cpu()
+                    .numpy()
+                    .astype(np.float32)
+                ).obs["obs"],
+                dtype=np.float32,
+            ),
+        )
 
 
 def resolve_appo_checkpoint_path(
     base_log_dir: str | Path,
     load_run: str,
 ) -> tuple[str | None, str | None]:
-    base_log_dir = str(base_log_dir)
+    from unilab.training import resolve_checkpoint_path
 
-    if load_run == "-1":
-        if not os.path.exists(base_log_dir):
-            return None, None
-        all_runs = sorted(
-            [d for d in os.listdir(base_log_dir) if os.path.isdir(os.path.join(base_log_dir, d))]
-        )
-        if not all_runs:
-            return None, None
-        candidate_dir = os.path.join(base_log_dir, all_runs[-1])
-    elif os.path.isdir(load_run):
-        candidate_dir = load_run
-    elif os.path.isfile(load_run):
-        return load_run, os.path.dirname(load_run)
-    else:
-        candidate_dir = os.path.join(base_log_dir, load_run)
-        if not os.path.isdir(candidate_dir):
-            return None, None
-
-    model_files = [
-        f for f in os.listdir(candidate_dir) if f.startswith("model_") and f.endswith(".pt")
-    ]
-    if not model_files:
-        return None, None
-
-    model_files.sort(key=lambda x: int(x.split("_")[1].split(".")[0]))
-    return os.path.join(candidate_dir, model_files[-1]), candidate_dir
+    checkpoint_path, checkpoint_dir = resolve_checkpoint_path(base_log_dir, load_run, suffix=".pt")
+    return (
+        str(checkpoint_path) if checkpoint_path is not None else None,
+        str(checkpoint_dir) if checkpoint_dir is not None else None,
+    )
 
 
 def _get_log_root(cfg: DictConfig) -> str:
-    """Get log root directory from algo_log_name config."""
-    return str(Path(ROOT_DIR) / "logs" / cfg.algo.algo_log_name)
+    return str(get_log_root(ROOT_DIR, cfg))
 
 
 def play_appo(cfg: DictConfig, rl_cfg: dict) -> str | None:
@@ -149,7 +103,6 @@ def play_appo(cfg: DictConfig, rl_cfg: dict) -> str | None:
     from rsl_rl.utils import resolve_callable
     from tensordict import TensorDict
 
-    from unilab.base import registry
     from unilab.utils.reward_utils import extract_reward_config
     from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4, is_rsl_rl_v5
 
@@ -164,10 +117,9 @@ def play_appo(cfg: DictConfig, rl_cfg: dict) -> str | None:
     )
     print(f"Using device for play: {device}")
 
-    env = registry.make(
-        cfg.training.task_name,
+    env = create_env(
+        cfg,
         num_envs=cfg.training.play_env_num,
-        sim_backend=cfg.training.sim_backend,
         env_cfg_override=env_cfg_override,
     )
     from unilab.utils.obs_utils import get_obs_dims
@@ -231,47 +183,46 @@ def play_appo(cfg: DictConfig, rl_cfg: dict) -> str | None:
                 raise
         return None
 
-    import mediapy as media
-
-    from unilab.utils import render_many
-
     output_video = os.path.join(load_path_dir, "play_video.mp4")
     print(f"Rendering video to {output_video}...")
 
     if env.state is None:
         env.init_state()
-    env_indices = np.arange(cfg.training.play_env_num, dtype=np.int32)
-    obs_out, _ = env.reset(env_indices)
-    obs_np = np.asarray(obs_out["obs"], dtype=np.float32)
-
-    state_list = []
     num_steps = int(getattr(cfg.training, "play_steps", 1000))
 
     print("Collecting physics states...")
     with torch.inference_mode():
-        for _ in range(num_steps):
-            obs_torch = torch.from_numpy(obs_np).to(device)
-            td = TensorDict({"policy": obs_torch}, batch_size=cfg.training.play_env_num)
-            actions_torch = actor(td)
-            actions_np = actions_torch.cpu().numpy().astype(np.float32)
-            state = env.step(actions_np)
-            obs_np = np.asarray(state.obs["obs"], dtype=np.float32)
-            state_list.append(np.asarray(env._backend.get_physics_state(), dtype=np.float32).copy())
-
-    print("Rendering frames...")
-    frames = render_many.render_states_get_frames(
-        state_list,
-        env.cfg.model_file,
-        width=1280,
-        height=720,
-        camera_id=-1,
-        cam_distance=cfg.training.cam_distance,
-        cam_elevation=cfg.training.cam_elevation,
-        cam_azimuth=cfg.training.cam_azimuth,
-    )
-
+        render_play_mode(
+            env,
+            sim_backend=cfg.training.sim_backend,
+            num_steps=num_steps,
+            output_video=output_video,
+            initialize=lambda: np.asarray(
+                env.reset(np.arange(cfg.training.play_env_num, dtype=np.int32))[0]["obs"],
+                dtype=np.float32,
+            ),
+            step=lambda obs_np: np.asarray(
+                env.step(
+                    actor(
+                        TensorDict(
+                            {"policy": torch.from_numpy(obs_np).to(device)},
+                            batch_size=cfg.training.play_env_num,
+                        )
+                    )
+                    .cpu()
+                    .numpy()
+                    .astype(np.float32)
+                ).obs["obs"],
+                dtype=np.float32,
+            ),
+            frame_state_getter=lambda: env._backend.get_physics_state(),
+            camera_kwargs={
+                "cam_distance": cfg.training.cam_distance,
+                "cam_elevation": cfg.training.cam_elevation,
+                "cam_azimuth": cfg.training.cam_azimuth,
+            },
+        )
     print(f"Saving video to {output_video} with mediapy...")
-    media.write_video(str(output_video), frames, fps=int(1.0 / env.cfg.ctrl_dt))
     print("Done.")
     return output_video
 

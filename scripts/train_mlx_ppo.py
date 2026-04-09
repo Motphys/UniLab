@@ -5,11 +5,9 @@
 from __future__ import annotations
 
 import datetime
-import importlib
 import math
 import os
 import pickle
-import pkgutil
 import statistics
 import sys
 import time
@@ -25,32 +23,27 @@ from omegaconf import DictConfig, OmegaConf
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
 
-
-def ensure_registries() -> None:
-    """Import env modules so they are registered in `unilab.envs.registry`."""
-    try:
-        import unilab.envs.locomotion
-
-        package = unilab.envs.locomotion
-        if hasattr(package, "__path__"):
-            for _, name, _ in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
-                try:
-                    importlib.import_module(name)
-                except Exception:
-                    pass
-    except ImportError:
-        pass
-
-
-ensure_registries()
-
 from unilab.algos.mlx.common import EmpiricalDiscountedVariationNormalization, RolloutBuffer
 from unilab.algos.mlx.ppo import MLPActorCritic, PPOConfig, PPOTrainer
-from unilab.base import registry
-from unilab.utils import render_many
+from unilab.training import (
+    create_env,
+    ensure_registries,
+    get_log_root,
+    parse_checkpoint_path,
+    render_play_mode,
+    setup_logger,
+)
+from unilab.training import (
+    get_latest_checkpoint as get_latest_checkpoint_common,
+)
+from unilab.training import (
+    get_latest_run as get_latest_run_common,
+)
 from unilab.utils.experiment_tracking import ExperimentTracker
 from unilab.utils.obs_utils import flatten_obs_dict
 from unilab.utils.onpolicy_logger import OnPolicyLogger
+
+ensure_registries()
 
 TASK_STEP_TUNING = {
     "Go1JoystickFlatTerrain": {"threads": "32", "chunk": "4"},
@@ -84,22 +77,11 @@ class TensorboardScalarWriter:
 
 
 def get_latest_run(log_dir: Path) -> Path | None:
-    """Find latest run directory under a task log root."""
-    if not log_dir.exists():
-        return None
-    runs = sorted([p for p in log_dir.iterdir() if p.is_dir()])
-    return runs[-1] if runs else None
+    return get_latest_run_common(log_dir)
 
 
 def get_latest_checkpoint(run_dir: Path) -> Path | None:
-    """Find the latest model_*.safetensors checkpoint in a run dir."""
-    if not run_dir.exists():
-        return None
-    model_files = [p for p in run_dir.glob("model_*.safetensors") if p.is_file()]
-    if not model_files:
-        return None
-    model_files.sort(key=lambda p: int(p.stem.split("_")[1]))
-    return model_files[-1]
+    return get_latest_checkpoint_common(run_dir, suffix=".safetensors")
 
 
 def save_trainer_state(path: Path, trainer: PPOTrainer, iteration: int) -> None:
@@ -154,13 +136,7 @@ def _get_physics_state_snapshot(env) -> np.ndarray:
 
 
 def _get_log_root(cfg: DictConfig) -> Path:
-    """Get log root directory from algo_log_name config."""
-    log_root = Path(cfg.training.log_root) if cfg.training.log_root else None
-    if log_root is None:
-        log_root = ROOT_DIR / "logs" / cfg.algo.algo_log_name
-    elif not log_root.is_absolute():
-        log_root = ROOT_DIR / log_root
-    return log_root
+    return get_log_root(ROOT_DIR, cfg)
 
 
 def play_mlx_ppo(cfg: DictConfig, dtype, use_fp16: bool, resolved_sim_backend: str) -> str | None:
@@ -171,10 +147,9 @@ def play_mlx_ppo(cfg: DictConfig, dtype, use_fp16: bool, resolved_sim_backend: s
 
     play_model_dtype = mx.float32 if use_fp16 else dtype
     play_env_num = cfg.training.play_env_num
-    env = registry.make(
-        cfg.training.task_name,
+    env = create_env(
+        cfg,
         num_envs=play_env_num,
-        sim_backend=resolved_sim_backend,
         env_cfg_override=env_cfg_override,
     )
     obs_dim = sum(env.obs_groups_spec.values())
@@ -182,31 +157,9 @@ def play_mlx_ppo(cfg: DictConfig, dtype, use_fp16: bool, resolved_sim_backend: s
     model = build_model(cfg.algo, obs_dim, action_dim, dtype=play_model_dtype)
 
     task_log_root = _get_log_root(cfg) / cfg.training.task_name
-    load_path: Path | None = None
-    load_run = cfg.algo.load_run
-    if load_run == "-1":
-        latest_run = get_latest_run(task_log_root)
-        if latest_run is not None:
-            load_path = get_latest_checkpoint(latest_run)
-            run_dir = latest_run
-        else:
-            run_dir = None
-    else:
-        candidate = Path(load_run)
-        if not candidate.exists():
-            candidate = task_log_root / load_run
-        if candidate.is_dir():
-            load_path = get_latest_checkpoint(candidate)
-            run_dir = candidate
-        elif candidate.is_file():
-            load_path = candidate
-            run_dir = candidate.parent
-        else:
-            load_path = None
-            run_dir = None
-
-    if load_path is None or not load_path.exists():
-        print(f"Could not find valid model checkpoint from load_run={load_run}")
+    load_path, run_dir = parse_checkpoint_path(cfg, root_dir=ROOT_DIR, suffix=".safetensors")
+    if load_path is None or run_dir is None or not load_path.exists():
+        print(f"Could not find valid model checkpoint from load_run={cfg.algo.load_run}")
         env.close()
         return None
 
@@ -219,38 +172,31 @@ def play_mlx_ppo(cfg: DictConfig, dtype, use_fp16: bool, resolved_sim_backend: s
     obs_dict_play, _ = env.reset(play_reset_indices)
     obs = mx.array(flatten_obs_dict(obs_dict_play))
 
+    def _play_step(current_obs):
+        obs_for_model = (
+            current_obs.astype(play_model_dtype)
+            if getattr(current_obs, "dtype", None) != play_model_dtype
+            else current_obs
+        )
+        actions_mx = model.policy(obs_for_model)
+        actions = mx.where(mx.isfinite(actions_mx), actions_mx, mx.zeros_like(actions_mx))
+        actions = actions.astype(dtype) if getattr(actions, "dtype", None) != dtype else actions
+        state = env.step(np.asarray(actions))
+        raw_obs = flatten_obs_dict(state.obs)
+        return mx.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0)
+
     if resolved_sim_backend == "motrix":
         print("[MLX PPO] Starting interactive visualization (motrix native renderer)...")
         print("[MLX PPO] Close the render window to exit.")
-        env._backend.init_renderer()
-
-        last_render_time = time.perf_counter()
-        render_dt = 1.0 / 60.0
 
         try:
-            while True:
-                obs_for_model = (
-                    obs.astype(play_model_dtype)
-                    if getattr(obs, "dtype", None) != play_model_dtype
-                    else obs
-                )
-                actions_mx = model.policy(obs_for_model)
-                actions = mx.where(mx.isfinite(actions_mx), actions_mx, mx.zeros_like(actions_mx))
-                actions = (
-                    actions.astype(dtype) if getattr(actions, "dtype", None) != dtype else actions
-                )
-                env_actions = np.asarray(actions)
-                state = env.step(env_actions)
-                raw_obs = flatten_obs_dict(state.obs)
-                obs = mx.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0)
-
-                current_time = time.perf_counter()
-                elapsed = current_time - last_render_time
-                if elapsed < render_dt:
-                    time.sleep(render_dt - elapsed)
-                last_render_time = time.perf_counter()
-
-                env._backend.render()
+            render_play_mode(
+                env,
+                sim_backend="motrix",
+                num_steps=None,
+                initialize=lambda: obs,
+                step=_play_step,
+            )
         except Exception as e:
             if "RenderClosedError" in str(type(e).__name__):
                 print("[MLX PPO] Render window closed.")
@@ -262,36 +208,21 @@ def play_mlx_ppo(cfg: DictConfig, dtype, use_fp16: bool, resolved_sim_backend: s
     output_dir = run_dir if run_dir is not None else task_log_root
     output_video = output_dir / "play_video.mp4"
 
-    state_list = []
     print("[MLX PPO] Collecting physics states for play...")
-    for _ in range(cfg.training.play_steps):
-        obs_for_model = (
-            obs.astype(play_model_dtype) if getattr(obs, "dtype", None) != play_model_dtype else obs
-        )
-        actions_mx = model.policy(obs_for_model)
-        actions = mx.where(mx.isfinite(actions_mx), actions_mx, mx.zeros_like(actions_mx))
-        actions = actions.astype(dtype) if getattr(actions, "dtype", None) != dtype else actions
-        env_actions = np.asarray(actions)
-        state = env.step(env_actions)
-        raw_obs = flatten_obs_dict(state.obs)
-        obs = mx.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0)
-        state_list.append(_get_physics_state_snapshot(env))
-
-    print(f"[MLX PPO] Rendering video to {output_video} ...")
-    frames = render_many.render_states_get_frames(
-        state_list,
-        env.cfg.model_file,
-        width=1280,
-        height=720,
-        camera_id=-1,
-    )
     try:
-        import mediapy as media
+        render_play_mode(
+            env,
+            sim_backend=resolved_sim_backend,
+            num_steps=cfg.training.play_steps,
+            output_video=output_video,
+            initialize=lambda: obs,
+            step=_play_step,
+            frame_state_getter=lambda: _get_physics_state_snapshot(env),
+        )
     except ImportError:
         print("mediapy is required for play video export. Install with `pip install mediapy`.")
         env.close()
         return None
-    media.write_video(str(output_video), frames, fps=int(1.0 / env.cfg.ctrl_dt))
     print(f"[MLX PPO] Play video saved: {output_video}")
     env.close()
     return str(output_video)
@@ -328,15 +259,10 @@ def main(cfg: DictConfig) -> None:
 
     # TRAIN MODE
     log_dir = task_log_root / f"{timestamp}_{resolved_sim_backend}"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_file_path = log_dir / "train.log"
-    log_fp = log_file_path.open("a", encoding="utf-8")
+    script_logger = setup_logger(log_dir, "mlx_ppo", echo=cfg.training.logger != "no_print")
 
     def log(msg: str) -> None:
-        if cfg.training.logger != "no_print":
-            print(msg)
-        log_fp.write(msg + "\n")
-        log_fp.flush()
+        script_logger.info(msg)
 
     tracker = ExperimentTracker(
         root_dir=ROOT_DIR,
@@ -354,10 +280,9 @@ def main(cfg: DictConfig) -> None:
 
     env_cfg_override = extract_reward_config(cfg)
 
-    env = registry.make(
-        task_name,
+    env = create_env(
+        cfg,
         num_envs=cfg.algo.num_envs,
-        sim_backend=resolved_sim_backend,
         env_cfg_override=env_cfg_override,
     )
     if env.state is None:
@@ -414,15 +339,7 @@ def main(cfg: DictConfig) -> None:
 
     load_run = cfg.algo.load_run
     if load_run != "-1":
-        resume_candidate = Path(load_run)
-        if not resume_candidate.exists():
-            resume_candidate = task_log_root / load_run
-        if resume_candidate.is_dir():
-            ckpt = get_latest_checkpoint(resume_candidate)
-        elif resume_candidate.is_file():
-            ckpt = resume_candidate
-        else:
-            ckpt = None
+        ckpt, _ = parse_checkpoint_path(cfg, root_dir=ROOT_DIR, suffix=".safetensors")
         if ckpt is not None and ckpt.exists():
             model.load_weights(str(ckpt), strict=True)
             log(f"[MLX PPO] resumed_from={ckpt}")
@@ -680,7 +597,6 @@ def main(cfg: DictConfig) -> None:
         tracker.log_video(play_video_path)
 
     tracker.finish()
-    log_fp.close()
 
 
 if __name__ == "__main__":

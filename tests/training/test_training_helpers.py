@@ -1,0 +1,102 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+from hydra import compose, initialize_config_dir
+from hydra.core.global_hydra import GlobalHydra
+
+from unilab.training import (
+    BackendAdapter,
+    get_latest_checkpoint,
+    get_latest_run,
+    parse_checkpoint_path,
+)
+
+_ROOT_DIR = Path(__file__).resolve().parents[2]
+_CONF_DIR = _ROOT_DIR / "conf"
+
+
+def _ppo_cfg(overrides: list[str] | None = None):
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(_CONF_DIR / "ppo"), version_base="1.3"):
+        return compose("config", overrides=overrides or [])
+
+
+def _offpolicy_cfg(overrides: list[str] | None = None):
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(_CONF_DIR / "offpolicy"), version_base="1.3"):
+        return compose("config", overrides=overrides or [])
+
+
+def test_get_latest_run_and_checkpoint_support_shared_checkpoint_resolution(tmp_path: Path):
+    task_dir = tmp_path / "logs" / "custom_ppo" / "MyTask"
+    older_run = task_dir / "2024-01-01_00-00-00_mujoco"
+    newer_run = task_dir / "2024-02-01_00-00-00_mujoco"
+    older_run.mkdir(parents=True)
+    newer_run.mkdir(parents=True)
+    (older_run / "model_1.pt").write_bytes(b"")
+    (newer_run / "model_5.pt").write_bytes(b"")
+    (newer_run / "model_9.pt").write_bytes(b"")
+
+    latest_run = get_latest_run(task_dir)
+    latest_checkpoint = get_latest_checkpoint(newer_run)
+
+    assert latest_run == newer_run
+    assert latest_checkpoint == newer_run / "model_9.pt"
+
+
+def test_parse_checkpoint_path_uses_algo_log_name_from_cfg(tmp_path: Path):
+    cfg = _ppo_cfg()
+    cfg.algo.algo_log_name = "custom_ppo"
+
+    run_dir = (
+        tmp_path / "logs" / "custom_ppo" / cfg.training.task_name / "2024-01-01_00-00-00_mujoco"
+    )
+    run_dir.mkdir(parents=True)
+    model_path = run_dir / "model_12.pt"
+    model_path.write_bytes(b"")
+
+    checkpoint_path, checkpoint_dir = parse_checkpoint_path(cfg, root_dir=tmp_path)
+
+    assert checkpoint_path == model_path
+    assert checkpoint_dir == run_dir
+
+
+def test_backend_adapter_applies_motrix_legacy_for_matching_algo():
+    cfg = _offpolicy_cfg(["task=go1_joystick", "training.sim_backend=motrix"])
+
+    env_cfg_override = BackendAdapter(
+        cfg, root_dir=_ROOT_DIR, algo_name="sac"
+    ).build_task_env_cfg_override()
+
+    assert cfg.algo.num_envs == 4096
+    assert cfg.algo.max_iterations == 2000
+    assert env_cfg_override["legacy_motrix_profile"]["enabled"] is True
+    assert env_cfg_override["reward_config"]["scales"]["tracking_lin_vel"] == pytest.approx(1.0)
+
+
+def test_backend_adapter_builds_motrix_play_scene_override():
+    cfg = _ppo_cfg(
+        ["task=g1_motion_tracking", "training.sim_backend=motrix", "training.play_only=true"]
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_materializer(source_model_file: str, **kwargs) -> str:
+        captured["source_model_file"] = source_model_file
+        captured.update(kwargs)
+        return "/tmp/g1_motion_tracking_play_scene.xml"
+
+    env_cfg_override = BackendAdapter(
+        cfg,
+        root_dir=_ROOT_DIR,
+        algo_name="ppo",
+        scene_materializer=_fake_materializer,
+    ).build_play_env_cfg_override()
+
+    assert cfg.training.play_env_num == 128
+    assert env_cfg_override["render_spacing"] == pytest.approx(2.5)
+    assert env_cfg_override["model_file"] == "/tmp/g1_motion_tracking_play_scene.xml"
+    assert captured["ground_texture_file"] == str(
+        _ROOT_DIR / "src/unilab/assets/robots/g1/floor.png"
+    )
