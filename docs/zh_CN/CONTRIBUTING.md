@@ -1,6 +1,6 @@
 # Contributing to UniLab
 
-语言: [English](../../CONTRIBUTING.md) | 简体中文 | [日本語](../ja/CONTRIBUTING.md) | [한국어](../ko/CONTRIBUTING.md)
+语言: 简体中文
 
 ## Development Environment Setup
 

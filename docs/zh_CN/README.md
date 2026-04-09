@@ -2,7 +2,7 @@
 
 # UniLab
 
-语言: [English](../../README.md) | 简体中文 | [日本語](../ja/README.md) | [한국어](../ko/README.md)
+语言: 简体中文
 
 UniLab 的核心目标是验证一个命题: **robot locomotion RL 不需要依赖 GPU 仿真后端**。
 

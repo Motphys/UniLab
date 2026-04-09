@@ -1,6 +1,6 @@
 # 算法
 
-语言: [English](../en/04-algorithms.md) | 简体中文 | [日本語](../ja/04-algorithms.md) | [한국어](../ko/04-algorithms.md)
+语言: 简体中文
 
 本页只保留算法级说明。入口脚本和通用 CLI 参数见 [03-training.md](03-training.md)。
 

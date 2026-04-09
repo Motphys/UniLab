@@ -1,6 +1,6 @@
 # RL Infrastructure 开发标准
 
-语言: [English](../en/00-development-architecture.md) | 简体中文 | [日本語](../ja/00-development-architecture.md) | [한국어](../ko/00-development-architecture.md)
+语言: 简体中文
 
 UniLab 是一个**高性能、模块化、contract 驱动**的 RL infrastructure 仓库。这个标准只回答一个问题: **什么样的改动是对的**。
 

@@ -1,6 +1,6 @@
 # G1 Motion Tracking
 
-语言: [English](../en/05-g1-motion-tracking.md) | 简体中文 | [日本語](../ja/05-g1-motion-tracking.md) | [한국어](../ko/05-g1-motion-tracking.md)
+语言: 简体中文
 
 UniLab 当前提供两个 G1 whole-body motion tracking task：
 
