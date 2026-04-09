@@ -27,8 +27,10 @@ from unilab.dr.dr_utils import (
     validate_interval_push_support,
     zero_actions,
 )
+from unilab.envs.locomotion.common import rewards
 from unilab.envs.locomotion.common.commands import Commands
 from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
+from unilab.envs.locomotion.common.rewards import RewardContext
 from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
 from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
 
@@ -62,23 +64,6 @@ def build_upper_body_pose_weights(pose_weights: list[float]) -> np.ndarray:
     weights = np.asarray(pose_weights, dtype=get_global_dtype()).copy()
     weights[:12] = 0.0
     return np.asarray(weights, dtype=get_global_dtype())
-
-
-def compute_weighted_pose_penalty(diff: np.ndarray, weights: np.ndarray) -> np.ndarray:
-    return np.asarray(np.sum(weights * np.square(diff), axis=1), dtype=get_global_dtype())
-
-
-def compute_forward_progress_reward(commands: np.ndarray, linvel: np.ndarray) -> np.ndarray:
-    commanded_speed = np.maximum(commands[:, 0], 1e-6)
-    forward_speed = np.maximum(linvel[:, 0], 0.0)
-    return np.asarray(np.minimum(forward_speed / commanded_speed, 1.0), dtype=get_global_dtype())
-
-
-def compute_under_speed_penalty(commands: np.ndarray, linvel: np.ndarray) -> np.ndarray:
-    commanded_speed = np.maximum(commands[:, 0], 1e-6)
-    forward_speed = np.maximum(linvel[:, 0], 0.0)
-    under_speed = np.maximum(commands[:, 0] - forward_speed, 0.0)
-    return np.asarray(under_speed / commanded_speed, dtype=get_global_dtype())
 
 
 @dataclass
@@ -269,19 +254,19 @@ class G1JoystickPPO(G1BaseEnv):
         return {"obs": 98, "privileged": 3}
 
     def _init_reward_functions(self):
-        self._reward_fns = {
-            "tracking_lin_vel": self._reward_tracking_lin_vel,
-            "tracking_ang_vel": self._reward_tracking_ang_vel,
-            "forward_progress": self._reward_forward_progress,
-            "under_speed": self._reward_under_speed,
+        self._reward_fns: dict[str, Any] = {
+            "tracking_lin_vel": rewards.tracking_lin_vel,
+            "tracking_ang_vel": rewards.tracking_ang_vel,
+            "forward_progress": rewards.forward_progress,
+            "under_speed": rewards.under_speed,
+            "lin_vel_z": rewards.lin_vel_z,
+            "orientation": rewards.orientation,
+            "ang_vel_xy": rewards.ang_vel_xy,
+            "action_rate": rewards.action_rate,
+            "base_height": rewards.base_height,
+            "pose": rewards.weighted_pose,
             "upper_body_pose": self._reward_upper_body_pose,
             "feet_phase": self._reward_feet_phase,
-            "lin_vel_z": self._reward_lin_vel_z,
-            "orientation": self._reward_orientation,
-            "ang_vel_xy": self._reward_ang_vel_xy,
-            "action_rate": self._reward_action_rate,
-            "base_height": self._reward_base_height,
-            "pose": self._reward_pose,
         }
 
     def _use_legacy_motrix_baseline(self) -> bool:
@@ -346,10 +331,29 @@ class G1JoystickPPO(G1BaseEnv):
             "gait_phase": 2,
         }
 
+    def _build_reward_context(
+        self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel
+    ) -> RewardContext:
+        return RewardContext(
+            info=info,
+            linvel=linvel,
+            gyro=gyro,
+            dof_pos=dof_pos,
+            num_envs=self._num_envs,
+            default_angles=self.default_angles,
+            tracking_sigma=self._reward_cfg.tracking_sigma,
+            base_height_target=self._reward_cfg.base_height_target,
+            base_height=self._backend.get_base_pos()[:, 2],
+            gravity=gravity,
+            dof_vel=dof_vel,
+            pose_weights=self._pose_weights,
+        )
+
     def _compute_reward(self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel) -> np.ndarray:
         dtype = get_global_dtype()
         reward = np.zeros((self._num_envs,), dtype=dtype)
         cfg = self._reward_cfg
+        ctx = self._build_reward_context(info, linvel, gyro, gravity, dof_pos, dof_vel)
 
         step_count = info.get("steps", np.zeros((self._num_envs,), dtype=np.uint32))
         should_log = self._enable_reward_log and (int(step_count[0]) % 4 == 0)
@@ -358,7 +362,7 @@ class G1JoystickPPO(G1BaseEnv):
         for name, scale in cfg.scales.items():
             if scale == 0 or name not in self._reward_fns:
                 continue
-            rew = self._reward_fns[name](info, linvel, gyro, gravity, dof_pos, dof_vel)
+            rew = self._reward_fns[name](ctx)
             weighted_rew = rew * scale
             reward += weighted_rew
             if should_log:
@@ -367,30 +371,15 @@ class G1JoystickPPO(G1BaseEnv):
         info["log"] = log
         return reward * self._cfg.ctrl_dt
 
-    def _reward_tracking_lin_vel(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
-        commands = info["commands"]
-        lin_vel_error = np.sum(np.square(commands[:, :2] - linvel[:, :2]), axis=1)
-        return np.exp(-lin_vel_error / self._reward_cfg.tracking_sigma)
-
-    def _reward_tracking_ang_vel(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
-        commands = info["commands"]
-        ang_vel_error = np.square(commands[:, 2] - gyro[:, 2])
-        return np.exp(-ang_vel_error / self._reward_cfg.tracking_sigma)
-
-    def _reward_forward_progress(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
-        return compute_forward_progress_reward(info["commands"], linvel)
-
-    def _reward_under_speed(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
-        return compute_under_speed_penalty(info["commands"], linvel)
-
-    def _reward_feet_phase(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
+    def _reward_feet_phase(self, ctx: RewardContext):
         """步态相位奖励：鼓励正确的摆动腿高度"""
         left_foot = self._backend.get_sensor_data("left_foot_pos")
         right_foot = self._backend.get_sensor_data("right_foot_pos")
-        gait_phase = info.get("gait_phase", np.zeros((self._num_envs, 2), dtype=get_global_dtype()))
+        gait_phase = ctx.info.get(
+            "gait_phase", np.zeros((self._num_envs, 2), dtype=get_global_dtype())
+        )
 
         def cubic_bezier_height(phi, swing_height):
-            # Convert phi from [0, 2π] to [-π, π]
             phi_normalized = np.fmod(phi + np.pi, 2 * np.pi) - np.pi
             x = (phi_normalized + np.pi) / (2 * np.pi)
 
@@ -414,29 +403,12 @@ class G1JoystickPPO(G1BaseEnv):
         right_error = np.square(right_foot[:, 2] - right_target)
         return np.exp(-(left_error + right_error) / self._reward_cfg.feet_phase_tracking_sigma)
 
-    def _reward_lin_vel_z(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
-        return np.square(linvel[:, 2])
-
-    def _reward_ang_vel_xy(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
-        return np.sum(np.square(gyro[:, :2]), axis=1)
-
-    def _reward_orientation(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
-        return np.square(gravity[:, 0]) + np.square(gravity[:, 1])
-
-    def _reward_base_height(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
-        return np.square(self._backend.get_base_pos()[:, 2] - self._reward_cfg.base_height_target)
-
-    def _reward_action_rate(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
-        action_diff = info["current_actions"] - info["last_actions"]
-        return np.sum(np.square(action_diff), axis=1)
-
-    def _reward_pose(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
-        diff = dof_pos - self.default_angles
-        return compute_weighted_pose_penalty(diff, self._pose_weights)
-
-    def _reward_upper_body_pose(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
-        diff = dof_pos - self.default_angles
-        return compute_weighted_pose_penalty(diff, self._upper_body_pose_weights)
+    def _reward_upper_body_pose(self, ctx: RewardContext):
+        diff = ctx.dof_pos - self.default_angles
+        return np.asarray(
+            np.sum(self._upper_body_pose_weights * np.square(diff), axis=1),
+            dtype=get_global_dtype(),
+        )
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
         state.info["last_actions"] = state.info.get("current_actions", np.zeros_like(actions))
