@@ -95,6 +95,9 @@ class NpEnv(ABEnv):
         if self._dr_manager is not None:
             self._dr_manager.apply_interval_randomization_if_due(self.step_counter)
         self._state.truncated.fill(False)
+        final_obs_mask = self._state.info.get("_final_observation")
+        if isinstance(final_obs_mask, np.ndarray):
+            final_obs_mask.fill(False)
 
         t0 = time.perf_counter()
         self._backend.step(ctrl, self._cfg.sim_substeps)

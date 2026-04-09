@@ -102,6 +102,24 @@ class _HookTruncatingStubEnv(_StubNpEnv):
         return truncated
 
 
+class _ToggleTerminatingStubEnv(_StubNpEnv):
+    """Terminates a configured env set on the next step only."""
+
+    def __init__(self, num_envs: int = 4):
+        super().__init__(num_envs)
+        self._terminate_indices: list[int] = []
+
+    def set_terminate_indices(self, terminate_indices: list[int]) -> None:
+        self._terminate_indices = terminate_indices
+
+    def update_state(self, state: NpEnvState) -> NpEnvState:
+        state = super().update_state(state)
+        terminated = np.zeros((self._num_envs,), dtype=bool)
+        if self._terminate_indices:
+            terminated[np.asarray(self._terminate_indices, dtype=np.int32)] = True
+        return state.replace(terminated=terminated)
+
+
 # ---------------------------------------------------------------------------
 # NpEnvState tests
 # ---------------------------------------------------------------------------
@@ -341,6 +359,34 @@ class TestResetDoneEnvs:
         env.step(np.zeros((3, 3)))
         mask = env.state.info["_final_observation"]
         np.testing.assert_array_equal(mask, [False, True, False])
+
+    def test_final_observation_mask_clears_on_first_non_terminal_step(self):
+        env = _StubNpEnv(num_envs=3)
+        env.init_state()
+        np.testing.assert_array_equal(env.state.info["_final_observation"], [True, True, True])
+
+        state = env.step(np.zeros((3, 3)))
+
+        np.testing.assert_array_equal(state.done, [False, False, False])
+        np.testing.assert_array_equal(state.info["_final_observation"], [False, False, False])
+
+    def test_final_observation_mask_clears_after_terminal_step(self):
+        env = _ToggleTerminatingStubEnv(num_envs=3)
+        env.init_state()
+        env.set_terminate_indices([1])
+
+        terminal_state = env.step(np.zeros((3, 3)))
+        np.testing.assert_array_equal(
+            terminal_state.info["_final_observation"], [False, True, False]
+        )
+
+        env.set_terminate_indices([])
+        non_terminal_state = env.step(np.zeros((3, 3)))
+
+        np.testing.assert_array_equal(non_terminal_state.done, [False, False, False])
+        np.testing.assert_array_equal(
+            non_terminal_state.info["_final_observation"], [False, False, False]
+        )
 
     def test_no_termination_skips_reset(self):
         env = _TerminatingStubEnv(num_envs=2, terminate_indices=[])
