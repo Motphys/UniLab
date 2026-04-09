@@ -153,9 +153,17 @@ def _get_physics_state_snapshot(env) -> np.ndarray:
     raise AttributeError("Env backend does not expose physics state for video rendering")
 
 
-def play_mlx_ppo(
-    cfg: DictConfig, dtype, use_fp16: bool, resolved_sim_backend: str, task_log_root: Path
-) -> str | None:
+def _get_log_root(cfg: DictConfig) -> Path:
+    """Get log root directory from algo_log_name config."""
+    log_root = Path(cfg.training.log_root) if cfg.training.log_root else None
+    if log_root is None:
+        log_root = ROOT_DIR / "logs" / cfg.algo.algo_log_name
+    elif not log_root.is_absolute():
+        log_root = ROOT_DIR / log_root
+    return log_root
+
+
+def play_mlx_ppo(cfg: DictConfig, dtype, use_fp16: bool, resolved_sim_backend: str) -> str | None:
     """Play mode for MLX PPO."""
     from unilab.utils.reward_utils import extract_reward_config
 
@@ -173,8 +181,9 @@ def play_mlx_ppo(
     action_dim = env.action_space.shape[0]
     model = build_model(cfg.algo, obs_dim, action_dim, dtype=play_model_dtype)
 
+    task_log_root = _get_log_root(cfg) / cfg.training.task_name
     load_path: Path | None = None
-    load_run = cfg.training.load_run
+    load_run = cfg.algo.load_run
     if load_run == "-1":
         latest_run = get_latest_run(task_log_root)
         if latest_run is not None:
@@ -310,13 +319,11 @@ def main(cfg: DictConfig) -> None:
     save_interval = cfg.training.save_interval
 
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    log_root = Path(cfg.training.log_root)
-    if not log_root.is_absolute():
-        log_root = ROOT_DIR / log_root
+    log_root = _get_log_root(cfg)
     task_log_root = log_root / task_name
 
     if cfg.training.play_only:
-        play_mlx_ppo(cfg, dtype, use_fp16, resolved_sim_backend, task_log_root)
+        play_mlx_ppo(cfg, dtype, use_fp16, resolved_sim_backend)
         return
 
     # TRAIN MODE
@@ -405,7 +412,7 @@ def main(cfg: DictConfig) -> None:
         else None
     )
 
-    load_run = cfg.training.load_run
+    load_run = cfg.algo.load_run
     if load_run != "-1":
         resume_candidate = Path(load_run)
         if not resume_candidate.exists():
@@ -669,7 +676,7 @@ def main(cfg: DictConfig) -> None:
 
     play_video_path = None
     if not cfg.training.no_play:
-        play_video_path = play_mlx_ppo(cfg, dtype, use_fp16, resolved_sim_backend, task_log_root)
+        play_video_path = play_mlx_ppo(cfg, dtype, use_fp16, resolved_sim_backend)
         tracker.log_video(play_video_path)
 
     tracker.finish()

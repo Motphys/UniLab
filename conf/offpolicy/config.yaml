@@ -21,7 +21,6 @@ training:
   use_amp: false
   play_only: false
   no_play: false
-  load_run: "-1"
   play_env_num: 16
   play_steps: 200
   cam_elevation: -20.0
