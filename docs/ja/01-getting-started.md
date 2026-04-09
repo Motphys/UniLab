@@ -28,25 +28,22 @@ brew install cmake  # macOS
 ### 依存関係を同期
 
 ```bash
-# macOS (MPS)
-uv sync --extra dev
+# macOS (MPS, PyPI の torch wheel をデフォルトで導入)
+uv sync
 
-# Linux (CUDA 11.8 / 12.4 / 12.6 / 12.8)
-uv sync --extra dev --extra cu118
-uv sync --extra dev --extra cu124
-uv sync --extra dev --extra cu126
-uv sync --extra dev --extra cu128
+# Linux デフォルト (PyTorch の cu128 wheel を導入)
+# 現行の PyTorch cu128 wheel がサポートする NVIDIA GPU / driver stack が必要
+uv sync
 
 # オプション: Motrix backend
-uv sync --extra dev --extra motrix
-uv sync --extra dev --extra cu124 --extra motrix
+uv sync --extra motrix
 ```
 
 ## 中国本土向けミラー
 
 ```bash
 export UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-uv sync --extra dev --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+uv sync --index-url https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
 ## First Run

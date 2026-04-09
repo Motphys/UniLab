@@ -29,14 +29,15 @@ git clone https://github.com/unilabsim/UniLab.git
 cd UniLab
 
 # 2. 依存関係をインストール
-# macOS (MPS)
-uv sync --extra dev
+# macOS (MPS, PyPI の torch wheel をデフォルトで導入)
+uv sync
 
-# Linux (CUDA extra を 1 つ選択。例: cu124)
-uv sync --extra dev --extra cu124
+# Linux (デフォルト: PyTorch の cu128 wheel を導入)
+# 現行の PyTorch cu128 wheel がサポートする NVIDIA GPU / driver stack が必要
+uv sync
 
 # オプション: Motrix バックエンド
-uv sync --extra dev --extra motrix
+uv sync --extra motrix
 
 # 3. 学習ジョブを実行
 uv run python scripts/train_rsl_rl.py task=go1_joystick

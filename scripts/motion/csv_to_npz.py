@@ -26,6 +26,7 @@ import numpy as np
 from tqdm import tqdm
 
 from unilab.assets import ASSETS_ROOT_PATH
+from unilab.utils.math_utils import np_quat_angular_velocity, np_quat_ensure_continuity
 from unilab.utils.xml_utils import inject_mujoco_tracking_sensors
 
 
@@ -51,44 +52,6 @@ def quat_slerp(q1: np.ndarray, q2: np.ndarray, t: float) -> np.ndarray:
     w2 = np.sin(t * theta) / sin_theta
 
     return w1 * q1 + w2 * q2
-
-
-def quat_conjugate(q: np.ndarray) -> np.ndarray:
-    """Compute quaternion conjugate (wxyz format)."""
-    return np.array([q[0], -q[1], -q[2], -q[3]])
-
-
-def quat_mul(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
-    """Multiply two quaternions (wxyz format)."""
-    w1, x1, y1, z1 = q1
-    w2, x2, y2, z2 = q2
-    return np.array(
-        [
-            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
-            w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
-            w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
-            w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
-        ]
-    )
-
-
-def axis_angle_from_quat(q: np.ndarray) -> np.ndarray:
-    """Convert quaternion to axis-angle representation (wxyz format)."""
-    # Normalize
-    q = q / np.linalg.norm(q)
-    w, x, y, z = q
-
-    # Compute angle
-    angle = 2 * np.arccos(np.clip(w, -1, 1))
-
-    # Compute axis
-    sin_half = np.sin(angle / 2)
-    if abs(sin_half) < 1e-6:
-        # No rotation
-        return np.zeros(3)
-
-    axis = np.array([x, y, z]) / sin_half
-    return axis * angle
 
 
 class MotionLoader:
@@ -127,6 +90,7 @@ class MotionLoader:
         self.motion_base_poss_input = motion[:, :3]
         # Convert quaternion from xyzw to wxyz
         self.motion_base_rots_input = motion[:, 3:7][:, [3, 0, 1, 2]]
+        self.motion_base_rots_input = np_quat_ensure_continuity(self.motion_base_rots_input)
         self.motion_dof_poss_input = motion[:, 7:]
 
         self.input_frames = motion.shape[0]
@@ -152,6 +116,7 @@ class MotionLoader:
                 self.motion_base_rots_input[index_1[i]],
                 blend[i],
             )
+        self.motion_base_rots = np_quat_ensure_continuity(self.motion_base_rots)
 
         # Linear interpolation for joint positions
         self.motion_dof_poss = (
@@ -179,25 +144,7 @@ class MotionLoader:
         self.motion_dof_vels = np.gradient(self.motion_dof_poss, self.output_dt, axis=0)
 
         # Angular velocities from quaternion derivatives
-        self.motion_base_ang_vels = self._so3_derivative(self.motion_base_rots, self.output_dt)
-
-    def _so3_derivative(self, rotations: np.ndarray, dt: float) -> np.ndarray:
-        """Compute angular velocity from quaternion sequence."""
-        # Use central differences
-        q_prev = rotations[:-2]
-        q_next = rotations[2:]
-
-        # Compute relative quaternion
-        omega = np.zeros((rotations.shape[0], 3), dtype=np.float32)
-        for i in range(len(q_prev)):
-            q_rel = quat_mul(q_next[i], quat_conjugate(q_prev[i]))
-            omega[i + 1] = axis_angle_from_quat(q_rel) / (2.0 * dt)
-
-        # Repeat first and last
-        omega[0] = omega[1]
-        omega[-1] = omega[-2]
-
-        return omega
+        self.motion_base_ang_vels = np_quat_angular_velocity(self.motion_base_rots, self.output_dt)
 
 
 def run_simulation(
