@@ -102,11 +102,14 @@ class G1MotionTrackingCfg(G1BaseCfg):
     """Configuration for G1 motion tracking environment."""
 
     model_file: str = str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
-    # motion_file: str = str(ASSETS_ROOT_PATH / "motions" / "g1" / "gangnam_style.npz")
-    motion_file: str = str(ASSETS_ROOT_PATH / "motions" / "g1" / "dance1_subject2_part.npz")
-    # motion_file: str = str(ASSETS_ROOT_PATH / "motions" / "g1" / "walk1_subject5_from_csv.npz") #LAFAN
-    # motion_file: str = str(ASSETS_ROOT_PATH / "motions" / "g1" / "sprint1_subject4_from_csv.npz") #LAFAN
-    # motion_file: str = str(ASSETS_ROOT_PATH / "motions" / "g1" / "playing_violin_R_003__A327_from_csv.npz") #Seed
+    # Kept at the historical single-clip default for backward compatibility.
+    motion_file: str | list[str] = str(
+        ASSETS_ROOT_PATH / "motions" / "g1" / "dance1_subject2_part.npz"
+    )
+    # motion_file: str | list[str] = str(ASSETS_ROOT_PATH / "motions" / "g1" / "gangnam_style.npz")
+    # motion_file: str | list[str] = str(ASSETS_ROOT_PATH / "motions" / "g1" / "walk1_subject5_from_csv.npz") #LAFAN
+    # motion_file: str | list[str] = str(ASSETS_ROOT_PATH / "motions" / "g1" / "sprint1_subject4_from_csv.npz") #LAFAN
+    # motion_file: str | list[str] = str(ASSETS_ROOT_PATH / "motions" / "g1" / "playing_violin_R_003__A327_from_csv.npz") #Seed
     anchor_body_name: str = "torso_link"
     body_names: tuple[str, ...] = (
         "pelvis",
@@ -124,7 +127,7 @@ class G1MotionTrackingCfg(G1BaseCfg):
         "right_elbow_link",
         "right_wrist_yaw_link",
     )
-    sampling_mode: Literal["start", "uniform", "adaptive"] = "adaptive"
+    sampling_mode: Literal["start", "clip_start", "uniform", "adaptive"] = "adaptive"
     log_action_scale: bool = False
     max_episode_seconds: float = 10.0
     reward_config: RewardConfig = field(default_factory=RewardConfig)
@@ -231,6 +234,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
 
         self._enable_reward_log = True
         self._init_reward_functions()
+        self._clip_end_truncated = np.zeros((num_envs,), dtype=bool)
 
     def _is_mujoco_backend(self) -> bool:
         return self._backend_type == "mujoco"
@@ -317,6 +321,8 @@ class G1MotionTrackingEnv(G1BaseEnv):
         }
 
     def update_state(self, state: NpEnvState) -> NpEnvState:
+        self._clip_end_truncated.fill(False)
+
         # Get current motion data
         motion_data = self.motion_sampler.get_current_motion()
 
@@ -367,10 +373,15 @@ class G1MotionTrackingEnv(G1BaseEnv):
         # Advance motion frames
         done_env_ids = self.motion_sampler.step()
         if len(done_env_ids) > 0:
-            # Resample motion for environments that reached end
-            self.motion_sampler.sample_frames(done_env_ids)
+            self._clip_end_truncated[done_env_ids] = True
 
         return state.replace(obs=obs, reward=reward, terminated=terminated)
+
+    def _compute_truncated(self, state: NpEnvState) -> np.ndarray:
+        truncated = super()._compute_truncated(state)
+        clip_end_only = np.logical_and(self._clip_end_truncated, ~state.terminated)
+        np.logical_or(truncated, clip_end_only, out=truncated)
+        return truncated
 
     def _update_relative_transforms(
         self, motion_data, robot_body_pos_w: np.ndarray, robot_body_quat_w: np.ndarray

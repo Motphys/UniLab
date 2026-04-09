@@ -120,6 +120,130 @@ def test_g1_motion_tracking_cfg_has_domain_rand_for_motrix():
     assert cfg.domain_rand.push_robots is False
 
 
+def test_g1_motion_tracking_cfg_preserves_legacy_defaults():
+    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingCfg
+
+    cfg = G1MotionTrackingCfg()
+
+    assert str(cfg.motion_file).endswith("dance1_subject2_part.npz")
+    assert cfg.pose_randomization.x == (-0.05, 0.05)
+    assert cfg.velocity_randomization.x == (-0.5, 0.5)
+    assert cfg.joint_position_range == (-0.1, 0.1)
+    assert cfg.anchor_ori_threshold == pytest.approx(0.8)
+
+
+def test_g1_flip_tracking_cfg_uses_flip_profile():
+    from unilab.envs.motion_tracking.g1.flip_tracking import G1FlipTrackingCfg
+
+    cfg = G1FlipTrackingCfg()
+
+    assert str(cfg.motion_file).endswith("flip_360_001__A304.npz")
+    assert cfg.pose_randomization.x == (0.0, 0.0)
+    assert cfg.velocity_randomization.x == (0.0, 0.0)
+    assert cfg.joint_position_range == (0.0, 0.0)
+    assert cfg.anchor_ori_threshold == pytest.approx(1e9)
+    assert cfg.sampling_mode in {"start", "clip_start", "uniform", "adaptive"}
+
+
+def test_g1_motion_tracking_clip_end_contributes_to_truncated():
+    from unilab.base.np_env import NpEnvState
+    from unilab.envs.motion_tracking.g1.motion_loader import MotionData
+    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
+
+    class FakeBackend:
+        def get_body_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
+            return np.zeros((2, len(body_ids), 3), dtype=np.float32)
+
+        def get_body_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
+            return np.zeros((2, len(body_ids), 3), dtype=np.float32)
+
+    class FakeSampler:
+        def __init__(self) -> None:
+            self.failure_updates: list[np.ndarray] = []
+
+        def get_current_motion(self) -> MotionData:
+            return MotionData(
+                joint_pos=np.zeros((2, 2), dtype=np.float32),
+                joint_vel=np.zeros((2, 2), dtype=np.float32),
+                body_pos_w=np.zeros((2, 1, 3), dtype=np.float32),
+                body_quat_w=np.tile(
+                    np.array([[[1.0, 0.0, 0.0, 0.0]]], dtype=np.float32), (2, 1, 1)
+                ),
+                body_lin_vel_w=np.zeros((2, 1, 3), dtype=np.float32),
+                body_ang_vel_w=np.zeros((2, 1, 3), dtype=np.float32),
+            )
+
+        def update_failure_stats(self, terminated: np.ndarray) -> None:
+            self.failure_updates.append(terminated.copy())
+
+        def step(self) -> np.ndarray:
+            return np.array([1], dtype=np.int32)
+
+    env = object.__new__(G1MotionTrackingEnv)
+    env._num_envs = 2
+    env._cfg = type("Cfg", (), {"max_episode_steps": None})()
+    env.body_ids = np.array([0], dtype=np.int32)
+    env._backend = FakeBackend()
+    env.motion_sampler = FakeSampler()
+    env._clip_end_truncated = np.zeros((2,), dtype=bool)
+    env.get_local_linvel = lambda: np.zeros((2, 3), dtype=np.float32)
+    env.get_gyro = lambda: np.zeros((2, 3), dtype=np.float32)
+    env.get_dof_pos = lambda: np.zeros((2, 2), dtype=np.float32)
+    env.get_dof_vel = lambda: np.zeros((2, 2), dtype=np.float32)
+    env._get_body_pose_w = lambda: (
+        np.zeros((2, 1, 3), dtype=np.float32),
+        np.tile(np.array([[[1.0, 0.0, 0.0, 0.0]]], dtype=np.float32), (2, 1, 1)),
+    )
+    env._update_relative_transforms = lambda *args: None
+    env._compute_terminations = lambda *args: np.zeros((2,), dtype=bool)
+    env._compute_reward = lambda *args: np.zeros((2,), dtype=np.float32)
+    env._compute_obs = lambda *args: {
+        "obs": np.zeros((2, 1), dtype=np.float32),
+        "privileged": np.zeros((2, 1), dtype=np.float32),
+    }
+
+    state = NpEnvState(
+        obs={
+            "obs": np.zeros((2, 1), dtype=np.float32),
+            "privileged": np.zeros((2, 1), dtype=np.float32),
+        },
+        reward=np.zeros((2,), dtype=np.float32),
+        terminated=np.zeros((2,), dtype=bool),
+        truncated=np.zeros((2,), dtype=bool),
+        info={"steps": np.zeros((2,), dtype=np.uint32)},
+    )
+
+    next_state = env.update_state(state)
+    truncated = env._compute_truncated(next_state)
+
+    np.testing.assert_array_equal(next_state.terminated, np.array([False, False]))
+    np.testing.assert_array_equal(truncated, np.array([False, True]))
+    np.testing.assert_array_equal(
+        env.motion_sampler.failure_updates[0], np.array([False, False], dtype=bool)
+    )
+
+
+def test_g1_motion_tracking_clip_end_does_not_override_true_termination():
+    from unilab.base.np_env import NpEnvState
+    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
+
+    env = object.__new__(G1MotionTrackingEnv)
+    env._num_envs = 2
+    env._cfg = type("Cfg", (), {"max_episode_steps": None})()
+    env._clip_end_truncated = np.array([False, True], dtype=bool)
+
+    state = NpEnvState(
+        obs={},
+        reward=np.zeros((2,), dtype=np.float32),
+        terminated=np.array([False, True], dtype=bool),
+        truncated=np.zeros((2,), dtype=bool),
+        info={"steps": np.zeros((2,), dtype=np.uint32)},
+    )
+
+    truncated = env._compute_truncated(state)
+    np.testing.assert_array_equal(truncated, np.array([False, False]))
+
+
 # ---------------------------------------------------------------------------
 # Slow: env instantiation + reset + step (runs MuJoCo physics)
 # ---------------------------------------------------------------------------
@@ -237,14 +361,18 @@ def test_g1_motion_tracking_reset_and_step(sim_backend: str):
         assert isinstance(spec, dict)
         assert "obs" in spec
         assert "privileged" in spec
-        assert sum(spec.values()) == env.observation_space.shape[0]
+        obs_shape = env.observation_space.shape
+        assert obs_shape is not None
+        assert sum(spec.values()) == obs_shape[0]
 
         state = env.init_state()
         assert isinstance(state.obs, dict)
         for key, dim in spec.items():
             assert state.obs[key].shape == (2, dim)
 
-        actions = np.zeros((2, env.action_space.shape[0]))
+        action_shape = env.action_space.shape
+        assert action_shape is not None
+        actions = np.zeros((2, action_shape[0]))
         state = env.step(actions)
         assert isinstance(state.obs, dict)
         assert state.reward.shape == (2,)

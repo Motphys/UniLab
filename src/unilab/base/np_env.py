@@ -39,6 +39,7 @@ class NpEnv(ABEnv):
         self._state: Optional[NpEnvState] = None
         self.step_counter = 0
         self.push_robots_flag = False
+        self._truncated_scratch = np.zeros((self._num_envs,), dtype=bool)
         if getattr(self._backend, "backend_type", None) == "motrix":
             self._backend._process_rigid_body_props(cfg)  # type: ignore[attr-defined]
             domain_rand = getattr(self._cfg, "domain_rand", None)
@@ -96,6 +97,7 @@ class NpEnv(ABEnv):
         ctrl = self.apply_action(actions, self._state)
 
         self.push_robots()
+        self._state.truncated.fill(False)
 
         t0 = time.perf_counter()
         self._backend.step(ctrl, self._cfg.sim_substeps)
@@ -107,10 +109,8 @@ class NpEnv(ABEnv):
 
         self._state.info["steps"] += 1
         self.step_counter += 1
-        if self._cfg.max_episode_steps:
-            np.greater_equal(
-                self._state.info["steps"], self._cfg.max_episode_steps, out=self._state.truncated
-            )
+        truncated = self._compute_truncated(self._state)
+        np.logical_or(self._state.truncated, truncated, out=self._state.truncated)
 
         done = self._state.done
         t0 = time.perf_counter()
@@ -169,6 +169,24 @@ class NpEnv(ABEnv):
             domain_rand = getattr(self._cfg, "domain_rand", None)
             if domain_rand and self.step_counter % domain_rand.push_interval == 0:
                 self._backend.push_robots(domain_rand.max_force)
+
+    def _compute_truncated(self, state: NpEnvState) -> np.ndarray:
+        """Compute truncation conditions.
+
+        By default, episodes are truncated only when the configured maximum
+        episode length is reached. Subclasses may override this to add
+        task-specific truncation conditions while remaining compatible with the
+        existing done/reset contract.
+        """
+        if not hasattr(self, "_truncated_scratch") or self._truncated_scratch.shape != (
+            self._num_envs,
+        ):
+            self._truncated_scratch = np.zeros((self._num_envs,), dtype=bool)
+        truncated = self._truncated_scratch
+        truncated.fill(False)
+        if self._cfg.max_episode_steps:
+            np.greater_equal(state.info["steps"], self._cfg.max_episode_steps, out=truncated)
+        return truncated
 
     @abc.abstractmethod
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:

@@ -2,13 +2,16 @@
 
 语言: [English](../en/05-g1-motion-tracking.md) | 简体中文 | [日本語](../ja/05-g1-motion-tracking.md) | [한국어](../ko/05-g1-motion-tracking.md)
 
-UniLab 当前提供一个 G1 的全身 motion tracking 任务。
+UniLab 当前提供两个 G1 whole-body motion tracking task：
 
-- Hydra task: `g1_motion_tracking`
-- 注册的 env 名称: `G1MotionTracking`
-- 已注册后端: `mujoco` 和 `motrix`
-- 已落地的 Motrix 专用配置: PPO 和 APPO 的 motion-tracking reward
-- 默认 motion 文件: `src/unilab/assets/motions/g1/dance1_subject2_part.npz`
+- Hydra task：`g1_motion_tracking`（兼容历史默认）
+- 注册环境名：`G1MotionTracking`
+- Hydra task：`g1_flip_tracking`（flip 专用 profile）
+- 注册环境名：`G1FlipTracking`
+- 后端注册：`mujoco` 和 `motrix`
+- 已提交的 Motrix 特化配置：PPO 和 APPO 的 motion-tracking reward
+- `g1_motion_tracking` 默认 motion：`src/unilab/assets/motions/g1/dance1_subject2_part.npz`
+- `g1_flip_tracking` 默认 motion：`src/unilab/assets/motions/g1/flip_360_001__A304.npz`
 
 ## Environment Entrypoints
 
@@ -16,8 +19,14 @@ UniLab 当前提供一个 G1 的全身 motion tracking 任务。
 # PPO (RSL-RL, MuJoCo)
 uv run python scripts/train_rsl_rl.py task=g1_motion_tracking
 
+# PPO (RSL-RL, MuJoCo, flip profile)
+uv run python scripts/train_rsl_rl.py task=g1_flip_tracking
+
 # PPO (RSL-RL, Motrix)
 uv run python scripts/train_rsl_rl.py task=g1_motion_tracking training.sim_backend=motrix
+
+# PPO (RSL-RL, Motrix, flip profile)
+uv run python scripts/train_rsl_rl.py task=g1_flip_tracking training.sim_backend=motrix
 
 # APPO (MuJoCo)
 uv run python scripts/train_appo.py task=g1_motion_tracking
@@ -112,7 +121,23 @@ uv run python scripts/motion/replay_npz.py \
 
 ## Configuration Note
 
-`task=g1_motion_tracking` 默认读取 env config 中声明的 `motion_file`。如果要切换到自定义 motion，先生成 `.npz`，再更新 env config 中默认的 `motion_file`。
+`task=g1_motion_tracking` 默认读取环境配置里的单个 `motion_file`（历史默认是 `dance1_subject2_part.npz`）。`task=g1_flip_tracking` 提供 flip 专用默认 profile（更保守的 reset 随机化与 termination）。
+
+PPO 默认训练预算也做了分流：`g1_motion_tracking` 保持历史默认 `max_iterations=15000`，`g1_flip_tracking` 使用更长的 `max_iterations=30000`。
+
+`motion_file` 现在同时支持单个字符串路径和字符串列表。列表模式下，训练会在多个 motion clip 之间采样，并且每个 episode 都会保持在当前 clip 内，不会跨文件串帧。例如：
+
+```yaml
+motion_file:
+  - src/unilab/assets/motions/g1/dance1_subject2_part.npz
+  - src/unilab/assets/motions/g1/walk1_subject5_from_csv.npz
+```
+
+`sampling_mode` 的语义现在显式区分：
+
+- `start`：保持历史行为，总是从全局第 0 帧开始
+- `clip_start`：从随机 clip 的首帧开始，适合多 clip 列表
+- `uniform` / `adaptive`：在拼接后的全局帧空间采样，但 episode 会在当前 clip 边界处截断
 
 验证 Motrix 路径时，优先使用训练脚本自带的 play mode，而不是只支持 MuJoCo 的调试脚本:
 

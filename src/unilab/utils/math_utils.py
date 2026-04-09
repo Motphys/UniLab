@@ -82,12 +82,36 @@ def np_quat_conjugate(q: np.ndarray) -> np.ndarray:
     return conj  # type: ignore[no-any-return]
 
 
+def np_quat_canonicalize(q: np.ndarray) -> np.ndarray:
+    """Flip quaternion signs so the real part is non-negative."""
+    q_was_1d = q.ndim == 1
+    if q_was_1d:
+        q = q[None, :]
+
+    sign = np.where(q[:, 0:1] < 0.0, -1.0, 1.0)
+    result = q * sign
+    return np.asarray(result[0] if q_was_1d else result)
+
+
+def np_quat_ensure_continuity(q: np.ndarray) -> np.ndarray:
+    """Flip quaternion signs in a time sequence to keep adjacent dots non-negative."""
+    if q.ndim != 2 or q.shape[1] != 4:
+        raise ValueError(f"Expected quaternion sequence with shape (T, 4), got {q.shape}")
+
+    result = np.array(q, copy=True)
+    for i in range(1, result.shape[0]):
+        if float(np.dot(result[i - 1], result[i])) < 0.0:
+            result[i] *= -1.0
+    return result
+
+
 def np_quat_to_axis_angle(q: np.ndarray) -> np.ndarray:
     """Convert unit quaternion batch (N, 4), w-first, to axis-angle vectors (N, 3).
 
     Adapted from PyTorch3D. Uses atan2 + Taylor expansion for numerical
     stability near zero rotation.
     """
+    q = np_quat_canonicalize(q)
     xyz = q[:, 1:]  # (N, 3) imaginary part
     w = q[:, 0:1]  # (N, 1) real part
     norms = np.linalg.norm(xyz, axis=-1, keepdims=True)  # (N, 1)
@@ -101,6 +125,36 @@ def np_quat_to_axis_angle(q: np.ndarray) -> np.ndarray:
         np.sin(half_angle) / safe_angle,
     )
     return np.asarray(xyz / sin_half_over_angle)  # type: ignore[no-any-return]
+
+
+def np_quat_angular_velocity(q: np.ndarray, dt: float) -> np.ndarray:
+    """Estimate angular velocity from a quaternion time sequence using shortest-arc diffs."""
+    if q.ndim != 2 or q.shape[1] != 4:
+        raise ValueError(f"Expected quaternion sequence with shape (T, 4), got {q.shape}")
+    if dt <= 0.0:
+        raise ValueError(f"dt must be positive, got {dt}")
+
+    rotations = np_quat_ensure_continuity(q)
+    num_frames = rotations.shape[0]
+    omega = np.zeros((num_frames, 3), dtype=rotations.dtype)
+    if num_frames <= 1:
+        return omega
+
+    if num_frames == 2:
+        q_rel = np_quat_mul(rotations[1], np_quat_conjugate(rotations[0]))
+        q_rel = np_quat_canonicalize(q_rel)
+        angvel = np_quat_to_axis_angle(q_rel[None, :])[0] / dt
+        omega[:] = angvel
+        return omega
+
+    q_prev = rotations[:-2]
+    q_next = rotations[2:]
+    q_rel = np_quat_mul(q_next, np_quat_conjugate(q_prev))
+    q_rel = np_quat_canonicalize(q_rel)
+    omega[1:-1] = np_quat_to_axis_angle(q_rel) / (2.0 * dt)
+    omega[0] = omega[1]
+    omega[-1] = omega[-2]
+    return omega
 
 
 def np_yaw_to_quat(yaw: np.ndarray) -> np.ndarray:
@@ -184,11 +238,7 @@ def np_quat_error_magnitude(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
 
     # Relative rotation from q1 to q2.
     q_rel = np_quat_mul(q2, np_quat_inv(q1))
-
-    # q and -q represent the same orientation, so force w >= 0 to avoid
-    # large-angle artifacts when quaternion signs flip.
-    sign = np.where(q_rel[:, 0:1] < 0.0, -1.0, 1.0)
-    q_rel = q_rel * sign
+    q_rel = np_quat_canonicalize(q_rel)
 
     # Use atan2-based angle extraction for better numerical behavior.
     xyz_norm = np.linalg.norm(q_rel[:, 1:], axis=1)
