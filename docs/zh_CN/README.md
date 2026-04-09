@@ -29,14 +29,15 @@ git clone https://github.com/unilabsim/UniLab.git
 cd UniLab
 
 # 2. 安装依赖
-# macOS (MPS)
-uv sync --extra dev
+# macOS（MPS，默认安装 PyPI 的 torch wheel）
+uv sync
 
-# Linux (任选一个 CUDA extra，例如 cu124)
-uv sync --extra dev --extra cu124
+# Linux 默认（安装 PyTorch 官方 cu128 wheel）
+# 需要当前 PyTorch cu128 wheel 所支持的 NVIDIA 显卡与驱动栈
+uv sync
 
 # 可选: Motrix 后端
-uv sync --extra dev --extra motrix
+uv sync --extra motrix
 
 # 3. 运行一个训练任务
 uv run python scripts/train_rsl_rl.py task=go1_joystick

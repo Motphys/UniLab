@@ -16,7 +16,7 @@ pytest.importorskip("mujoco")
 @pytest.mark.veryslow
 @pytest.mark.parametrize(
     "task",
-    ["go1_joystick", "go2_joystick", "g1_joystick", "g1_motion_tracking"],
+    ["go1_joystick", "go2_joystick", "g1_joystick", "g1_motion_tracking", "g1_flip_tracking"],
 )
 def test_appo_task_configs_load(task):
     """APPO can start training with all task configs."""

@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import numpy as np
 
-from unilab.utils.math_utils import np_quat_error_magnitude
+from unilab.utils.math_utils import (
+    np_quat_angular_velocity,
+    np_quat_ensure_continuity,
+    np_quat_error_magnitude,
+    np_quat_to_axis_angle,
+)
 
 
 def _quat_from_axis_angle_z(angle_rad: float) -> np.ndarray:
@@ -48,3 +53,40 @@ def test_quat_error_vectorized_batch() -> None:
     err = np_quat_error_magnitude(q_ref, q_target)
 
     np.testing.assert_allclose(err, np.deg2rad([30.0, 45.0]), atol=1e-7)
+
+
+def test_quat_to_axis_angle_invariant_to_sign_flip() -> None:
+    q = _quat_from_axis_angle_z(np.deg2rad(170.0))
+    axis_angle = np_quat_to_axis_angle(q[None, :])[0]
+    axis_angle_neg = np_quat_to_axis_angle((-q)[None, :])[0]
+
+    np.testing.assert_allclose(axis_angle, axis_angle_neg, atol=1e-7)
+
+
+def test_quat_ensure_continuity_flips_sequence_signs() -> None:
+    q = np.stack(
+        [
+            _quat_from_axis_angle_z(0.0),
+            _quat_from_axis_angle_z(np.deg2rad(10.0)),
+            -_quat_from_axis_angle_z(np.deg2rad(20.0)),
+            -_quat_from_axis_angle_z(np.deg2rad(30.0)),
+        ],
+        axis=0,
+    )
+
+    continuous = np_quat_ensure_continuity(q)
+    dots = np.sum(continuous[:-1] * continuous[1:], axis=1)
+
+    assert np.all(dots >= 0.0)
+
+
+def test_quat_angular_velocity_ignores_sign_flip_spikes() -> None:
+    dt = 0.1
+    angles = np.arange(5, dtype=np.float64) * dt
+    q = np.stack([_quat_from_axis_angle_z(angle) for angle in angles], axis=0)
+    q[2:] *= -1.0
+
+    angvel = np_quat_angular_velocity(q, dt)
+    expected = np.tile(np.array([0.0, 0.0, 1.0]), (q.shape[0], 1))
+
+    np.testing.assert_allclose(angvel, expected, atol=1e-6)
