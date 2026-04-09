@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import gymnasium as gym
-import mujoco
 import numpy as np
 
 from unilab.base.backend import SimBackend
@@ -61,16 +60,9 @@ class G1BaseEnv(NpEnv):
         self._init_buffers()
 
     def _init_action_space(self):
-        model = self._backend.model
-        if hasattr(model, "actuator_ctrlrange"):
-            low = model.actuator_ctrlrange[:, 0].copy()
-            high = model.actuator_ctrlrange[:, 1].copy()
-            nu = model.nu
-        else:
-            low = model.actuator_ctrl_limits[0, :]
-            high = model.actuator_ctrl_limits[1, :]
-            nu = model.num_actuators
-        self._action_space = gym.spaces.Box(low, high, (nu,), dtype=float)  # type: ignore[assignment]
+        ctrl_range = self._backend.get_actuator_ctrl_range()
+        nu = self._backend.num_actuators
+        self._action_space = gym.spaces.Box(ctrl_range[:, 0], ctrl_range[:, 1], (nu,), dtype=float)  # type: ignore[assignment]
 
     @property
     def action_space(self) -> gym.spaces.Box:
@@ -78,19 +70,9 @@ class G1BaseEnv(NpEnv):
 
     def _init_buffers(self):
         self.default_angles = np.zeros((self._num_action,), dtype=np.float32)
-        model = self._backend.model
-        if hasattr(model, "key_qpos"):
-            key_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_KEY, "stand")
-            if key_id >= 0:
-                self._init_qpos = np.array(model.key_qpos[key_id].copy(), dtype=np.float32)
-                self.default_angles = self._init_qpos[7:]
-            else:
-                raise ValueError("Keyframe 'stand' not found")
-            self._init_qvel = np.zeros((model.nv,), dtype=np.float32)
-        else:
-            self._init_qpos = model.compute_init_dof_pos()
-            self.default_angles = self._init_qpos[-self._num_action :]
-            self._init_qvel = np.zeros((model.num_dof_vel,), dtype=np.float32)
+        self._init_qpos = self._backend.get_keyframe_qpos("stand")
+        self.default_angles = self._init_qpos[-self._num_action :]
+        self._init_qvel = self._backend.get_init_qvel()
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
         state.info["last_actions"] = state.info.get("current_actions", actions.copy())

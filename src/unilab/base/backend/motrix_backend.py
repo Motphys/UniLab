@@ -1,4 +1,5 @@
 import os
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -105,6 +106,45 @@ class MotrixBackend(SimBackend):
     @property
     def data(self):
         return self._data
+
+    # ------------------------------------------------------------------ #
+    # Model properties                                                   #
+    # ------------------------------------------------------------------ #
+
+    @property
+    def num_actuators(self) -> int:
+        return int(self._model.num_actuators)
+
+    @property
+    def num_dof_vel(self) -> int:
+        # model.num_dof_vel includes 6 floating-base DOFs; exclude them
+        # to match get_dof_vel() which returns joint velocities only.
+        return int(self._model.num_dof_vel) - 6
+
+    def get_actuator_ctrl_range(self) -> np.ndarray:
+        arr: np.ndarray = np.array(self._model.actuator_ctrl_limits, dtype=self._np_dtype)
+        result: np.ndarray = arr.T.copy()
+        return result
+
+    def get_keyframe_qpos(self, name: str) -> np.ndarray:
+        if hasattr(self._model, "keyframes") and self._model.num_keyframes > 0:
+            return np.array(self._model.keyframes[0].dof_pos, dtype=self._np_dtype)
+        return np.array(self._model.compute_init_dof_pos(), dtype=self._np_dtype)
+
+    def get_init_qvel(self) -> np.ndarray:
+        return np.zeros((self._model.num_dof_vel,), dtype=self._np_dtype)
+
+    def get_body_ids(self, names: Sequence[str]) -> np.ndarray:
+        ids: list[int] = []
+        for name in names:
+            bid = self._model.get_link_index(name)
+            if bid is None or bid < 0:
+                raise ValueError(f"Body '{name}' not found in Motrix model")
+            ids.append(int(bid))
+        return np.array(ids, dtype=np.int32)
+
+    def get_joint_range(self) -> np.ndarray | None:
+        return None
 
     # ------------------------------------------------------------------ #
     # Simulation control                                                 #
