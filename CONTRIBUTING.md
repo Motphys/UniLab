@@ -96,15 +96,17 @@ uv run pytest -m veryslow -v
 
 ## CI Workflow
 
-PRs targeting `main` trigger three jobs automatically. The current workflow does not rerun the same CI set again after the PR is merged into `main`.
+PRs targeting `main` trigger five jobs automatically: `ruff-lint`, `ruff-format`, `mypy`, `pyright`, and `test`. The workflow also enables manual runs through `workflow_dispatch`, skips docs-only and collaboration-metadata changes, and cancels older in-progress runs for the same PR branch.
 
 | Job | Content | Blocking on failure |
 |-----|---------|---------------------|
-| `lint` | `ruff check` + `ruff format --check` | ✅ |
-| `typecheck` | `mypy src/unilab` + `pyright` | ✅ |
-| `test` | `pytest -m "not slow and not veryslow" --cov --cov-fail-under=10` | ✅ |
+| `ruff-lint` | `uv sync --only-group dev` + `uv run --no-sync ruff check --output-format=github .` on `ubuntu-slim` | ✅ |
+| `ruff-format` | `uv sync --only-group dev` + `uv run --no-sync ruff format --check .` on `ubuntu-slim` | ✅ |
+| `mypy` | `uv sync` + `uv run mypy src/unilab` on `macos-26` | ✅ |
+| `pyright` | `uv sync` + `uv run pyright` on `macos-26` | ✅ |
+| `test` | `uv sync --extra motrix` + `uv run pytest -m "not slow and not veryslow" --cov=unilab --cov-report markdown-append:$GITHUB_STEP_SUMMARY --cov-fail-under=10` on `ubuntu-slim` with Python 3.11 | ✅ |
 
-Docs-only and collaboration-metadata changes such as `*.md`, `docs/**`, issue templates, and `CODEOWNERS` do not trigger CI.
+Docs-only and collaboration-metadata changes such as `*.md`, `docs/**`, `CONTRIBUTING.md`, `AGENTS.md`, `LICENSE`, issue templates, `CODEOWNERS`, and `.github/pull_request_template.md` do not trigger CI.
 
 ## Documentation Expectations
 

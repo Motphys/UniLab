@@ -96,15 +96,17 @@ uv run pytest -m veryslow -v
 
 ## CI Workflow
 
-指向 `main` 的 PR 会自动触发三个 job。当前 workflow 不会在 PR 合并到 `main` 后再次重复跑同一套 CI。
+指向 `main` 的 PR 会自动触发五个 job: `ruff-lint`、`ruff-format`、`mypy`、`pyright` 和 `test`。workflow 也支持通过 `workflow_dispatch` 手动触发，会跳过纯文档和协作元信息改动，并且会自动取消同一 PR 分支上较早的进行中运行。
 
 | Job | 内容 | 失败是否阻断 |
 |-----|------|--------------|
-| `lint` | `ruff check` + `ruff format --check` | ✅ |
-| `typecheck` | `mypy src/unilab` + `pyright` | ✅ |
-| `test` | `pytest -m "not slow and not veryslow" --cov --cov-fail-under=10` | ✅ |
+| `ruff-lint` | 在 `ubuntu-slim` 上执行 `uv sync --only-group dev` + `uv run --no-sync ruff check --output-format=github .` | ✅ |
+| `ruff-format` | 在 `ubuntu-slim` 上执行 `uv sync --only-group dev` + `uv run --no-sync ruff format --check .` | ✅ |
+| `mypy` | 在 `macos-26` 上执行 `uv sync` + `uv run mypy src/unilab` | ✅ |
+| `pyright` | 在 `macos-26` 上执行 `uv sync` + `uv run pyright` | ✅ |
+| `test` | 在 `ubuntu-slim` 上以 Python 3.11 执行 `uv sync --extra motrix` + `uv run pytest -m "not slow and not veryslow" --cov=unilab --cov-report markdown-append:$GITHUB_STEP_SUMMARY --cov-fail-under=10` | ✅ |
 
-纯文档和协作元信息改动，例如 `*.md`、`docs/**`、issue templates 和 `CODEOWNERS`，不会触发 CI。
+纯文档和协作元信息改动，例如 `*.md`、`docs/**`、`CONTRIBUTING.md`、`AGENTS.md`、`LICENSE`、issue templates、`CODEOWNERS` 和 `.github/pull_request_template.md`，不会触发 CI。
 
 ## Documentation Expectations
 

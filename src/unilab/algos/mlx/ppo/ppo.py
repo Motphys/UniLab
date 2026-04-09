@@ -77,7 +77,7 @@ class PPOTrainer:
         leaves = PPOTrainer._tree_leaves(tree)
         if not leaves:
             return True
-        checks = [mx.all(mx.isfinite(leaf)) for leaf in leaves]
+        checks = [mx.all(mx.isfinite(leaf)) for leaf in leaves]  # type: ignore[arg-type]
         mx.eval(*checks)
         return all(bool(c.item()) for c in checks)
 
