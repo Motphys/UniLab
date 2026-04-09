@@ -45,6 +45,7 @@ class JoystickSensor:
     local_linvel = "local_linvel"
     gyro = "gyro"
     feet_force = ["FL_foot_contact", "FR_foot_contact", "RL_foot_contact", "RR_foot_contact"]
+    feet_pos = ["FL_pos", "FR_pos", "RL_pos", "RR_pos"]
 
 
 @dataclass
@@ -102,6 +103,7 @@ class Go1WalkTask(Go1BaseEnv):
         self.feet_phase = np.zeros((num_envs, len(cfg.sensor.feet_force)), dtype=np.float32)
         self.gait_frequency = 2
         self.feet_force = np.zeros((num_envs, len(cfg.sensor.feet_force), 3), dtype=np.float32)
+        self.feet_pos = np.zeros((num_envs, len(cfg.sensor.feet_pos), 3), dtype=np.float32)
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:
@@ -117,6 +119,7 @@ class Go1WalkTask(Go1BaseEnv):
             "base_height": self._reward_base_height,
             "action_rate": self._reward_action_rate,
             "similar_to_default": self._reward_similar_to_default,
+            "swing_feet_z": self._reward_swing_feet_z,
         }
 
     def update_state(self, state: NpEnvState) -> NpEnvState:
@@ -135,6 +138,8 @@ class Go1WalkTask(Go1BaseEnv):
         self.feet_force[:, :, :] = 0
         for i in range(len(self._cfg.sensor.feet_force)):
             self.feet_force[:, i, :] = self._backend.get_sensor_data(self._cfg.sensor.feet_force[i])
+        for i in range(len(self._cfg.sensor.feet_pos)):
+            self.feet_pos[:, i, :] = self._backend.get_sensor_data(self._cfg.sensor.feet_pos[i])
         terminated = gravity[:, 2] <= 0.5
         reward = self._compute_reward(state.info, linvel, gyro, dof_pos)
         obs = self._compute_obs(
@@ -201,6 +206,7 @@ class Go1WalkTask(Go1BaseEnv):
         return np.asarray(np.sum(np.square(action_diff), axis=1))
 
     def _reward_similar_to_default(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
+        # print(self.default_angles)
         return np.asarray(np.sum(np.abs(dof_pos - self.default_angles), axis=1))
 
     def _reward_contact(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
@@ -211,10 +217,12 @@ class Go1WalkTask(Go1BaseEnv):
             res += ~(contact[:, i] ^ is_contact)
         return res
 
-    def _reward_swing_feet_z(self):
-        is_contact = (self.feet_phase < 0.6) | (self.gait_frequency < 1.0e-8).unsqueeze(1)
-        pos_error = np.square((self.feet_pos[:, :, 2] - 0.1)) * ~is_contact
-        return torch.sum(pos_error, dim=1)
+    def _reward_swing_feet_z(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
+        is_swing = self.feet_phase >= 0.6
+        target_height = 0.1
+        height_error = np.square(self.feet_pos[:, :, 2] - target_height)
+        swing_rew = np.exp(-height_error / 0.01) * is_swing
+        return np.asarray(np.sum(swing_rew, axis=1) / len(self._cfg.sensor.feet_pos))
 
     def reset(self, env_indices: np.ndarray):
         num_reset = len(env_indices)

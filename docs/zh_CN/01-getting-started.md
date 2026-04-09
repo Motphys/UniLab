@@ -1,10 +1,12 @@
-# Getting Started
+# 快速开始
 
-本页只回答三件事：
+语言: [English](../en/01-getting-started.md) | 简体中文 | [日本語](../ja/01-getting-started.md) | [한국어](../ko/01-getting-started.md)
 
-1. 怎么把 UniLab 跑起来
-2. macOS 和 Linux 各自怎么装
-3. 第一次该跑什么命令确认环境正常
+本页只回答三个问题:
+
+1. 怎么把 UniLab 跑起来？
+2. macOS 和 Linux 的安装步骤有什么差别？
+3. 第一次应该跑什么命令来确认环境正常？
 
 ## Install
 
@@ -27,21 +29,24 @@ brew install cmake  # macOS
 
 ```bash
 # macOS (MPS)
-uv sync --extra dev
+uv sync
 
-# Linux (CUDA 12.4)
-uv sync --extra dev --extra cu124
+# Linux (CUDA 11.8 / 12.4 / 12.6 / 12.8)
+uv sync --extra cu118
+uv sync --extra cu124
+uv sync --extra cu126
+uv sync --extra cu128
 
-# 可选：Motrix 后端
-uv sync --extra dev --extra motrix
-uv sync --extra dev --extra cu124 --extra motrix
+# 可选: Motrix 后端
+uv sync --extra motrix
+uv sync --extra cu124 --extra motrix
 ```
 
-## 国内镜像
+## 中国大陆镜像
 
 ```bash
 export UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-uv sync --extra dev --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+uv sync --index-url https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
 ## First Run
