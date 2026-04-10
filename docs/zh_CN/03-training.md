@@ -78,6 +78,8 @@ algo.num_envs=2048
 algo.max_iterations=1000
 ```
 
+`task` 是后端选择入口，例如 `task=go1_joystick/motrix`。`training.sim_backend` 由对应的 task owner YAML 设置，只用于标识最终后端；不要用 `training.sim_backend=motrix` 单独切换后端。
+
 查看完整合成配置:
 
 ```bash

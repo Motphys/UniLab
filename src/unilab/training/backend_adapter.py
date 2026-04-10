@@ -34,21 +34,22 @@ class BackendAdapter:
     def _is_motrix(self) -> bool:
         return bool(self.cfg.training.sim_backend == "motrix")
 
-    def _assert_backend_choice_consistent(self) -> None:
+    def _assert_task_backend_identity(self) -> None:
         selected_backend = getattr(self.cfg, "_selected_sim_backend", None)
         if selected_backend is None:
             return
         resolved_backend = str(self.cfg.training.sim_backend)
         if str(selected_backend) != resolved_backend:
             raise ValueError(
-                "Hydra task selection is inconsistent with training.sim_backend. "
-                "Use `task=...` to switch backends instead of overriding "
-                "`training.sim_backend` directly."
+                "Task owner config is inconsistent with training.sim_backend. "
+                "`task=<task>/<backend>` is the backend selection contract; "
+                "`training.sim_backend` is the selected task owner's identity field, "
+                "not a standalone backend switch."
             )
 
     def build_task_env_cfg_override(self) -> dict[str, Any]:
         """Build env_cfg_override from the resolved reward + env sections."""
-        self._assert_backend_choice_consistent()
+        self._assert_task_backend_identity()
         env_cfg_override = extract_reward_config(self.cfg)
         env_cfg_override.update(self._to_plain_dict(getattr(self.cfg, "env", None)))
 

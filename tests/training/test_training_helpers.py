@@ -126,7 +126,7 @@ def test_backend_adapter_builds_motrix_play_scene_override():
     )
 
 
-def test_backend_adapter_rejects_direct_training_sim_backend_override():
+def test_backend_adapter_rejects_mixed_task_backend_identity():
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(_CONF_DIR / "offpolicy"), version_base="1.3"):
         cfg = compose(
@@ -134,5 +134,5 @@ def test_backend_adapter_rejects_direct_training_sim_backend_override():
             overrides=["task=sac/go1_joystick/mujoco", "training.sim_backend=motrix"],
         )
 
-    with pytest.raises(ValueError, match="Use `task=...`"):
+    with pytest.raises(ValueError, match="backend selection contract"):
         BackendAdapter(cfg, root_dir=_ROOT_DIR, algo_name="sac").build_task_env_cfg_override()
