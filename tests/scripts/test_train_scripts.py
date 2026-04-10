@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, cast
 from unittest.mock import MagicMock
 
+import numpy as np
 import pytest
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
@@ -1049,6 +1050,131 @@ def test_play_resolve_checkpoint_uses_algo_log_name(tmp_path):
         assert "model_50.pt" in result
     finally:
         mod.ROOT_DIR = original_root
+
+
+def test_play_interactive_runner_log_dir_uses_algo_log_name(monkeypatch: pytest.MonkeyPatch):
+    import types
+
+    mod = _play_interactive()
+    captured: dict[str, object] = {}
+
+    class FakeWrapper:
+        def __init__(self, env, device, policy_obs_mode):
+            self.env = env
+            captured["policy_obs_mode"] = policy_obs_mode
+
+        def reset(self):
+            return None, {}
+
+    class FakeRunner:
+        def __init__(self, wrapped_env, train_cfg, log_dir, device):
+            del wrapped_env, train_cfg, device
+            captured["log_dir"] = log_dir
+
+        def load(self, ckpt, load_cfg):
+            captured["ckpt"] = ckpt
+            captured["load_cfg"] = load_cfg
+
+        def get_inference_policy(self, device):
+            del device
+            return object()
+
+    class FakeViewer:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def is_running(self):
+            return False
+
+        def sync(self):
+            pass
+
+        user_scn = type("Scene", (), {"ngeom": 0})()
+
+    fake_env = types.SimpleNamespace(
+        obs_groups_spec={"obs": 5},
+        action_space=types.SimpleNamespace(shape=(3,), low=np.full((3,), -1.0), high=np.ones((3,))),
+        cfg=types.SimpleNamespace(ctrl_dt=0.02),
+        _backend=types.SimpleNamespace(model=object()),
+    )
+
+    monkeypatch.setattr(mod.registry, "make", lambda *args, **kwargs: fake_env)
+    monkeypatch.setattr(mod, "resolve_checkpoint", lambda *args, **kwargs: "/tmp/model_10.pt")
+    monkeypatch.setattr(
+        mod,
+        "get_entrypoint_log_root",
+        lambda root_dir, *, algo_log_name, log_root=None: Path("/tmp") / algo_log_name,
+    )
+    monkeypatch.setattr(mod, "RslRlVecEnvWrapper", FakeWrapper)
+    monkeypatch.setattr(mod, "OnPolicyRunner", FakeRunner)
+    monkeypatch.setattr(mod, "PPOConfig", lambda: types.SimpleNamespace(to_dict=lambda: {}))
+    monkeypatch.setattr(mod, "is_rsl_rl_v4", lambda: False)
+    monkeypatch.setattr(mod, "convert_config_v3_to_v4", lambda cfg: cfg)
+    monkeypatch.setattr(mod.mujoco, "MjData", lambda model: object())
+    monkeypatch.setattr(mod.mujoco, "mj_setState", lambda *args, **kwargs: None)
+    monkeypatch.setattr(mod.mujoco, "mj_forward", lambda *args, **kwargs: None)
+    monkeypatch.setattr(mod.mujoco, "mjtState", types.SimpleNamespace(mjSTATE_FULLPHYSICS=0))
+    monkeypatch.setattr(mod.mujoco.viewer, "launch_passive", lambda *args, **kwargs: FakeViewer())
+
+    args = types.SimpleNamespace(
+        task="MyTask",
+        load_run="-1",
+        checkpoint=None,
+        action_mode="policy",
+        policy_obs_mode="flat",
+        algo_log_name="custom_ppo",
+        show_target_bodies=False,
+        show_reward_debug=False,
+        target_body_names="",
+        target_max_bodies=0,
+        target_marker_radius=0.02,
+        target_axis_length=0.08,
+        target_marker_alpha=0.75,
+        target_show_axes=False,
+        reward_debug_show_velocity=False,
+        reward_debug_lin_vel_scale=0.08,
+        reward_debug_ang_vel_scale=0.05,
+        reward_debug_show_connectors=False,
+        reward_debug_show_global_anchor=False,
+    )
+
+    mod.play_interactive(args)
+
+    assert captured["ckpt"] == "/tmp/model_10.pt"
+    assert captured["log_dir"] == "/tmp/custom_ppo/MyTask/play_temp"
+
+
+def test_play_interactive_import_does_not_swallow_registry_bootstrap_errors(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    import types
+
+    play_interactive_path = _SCRIPTS_DIR / "play_interactive.py"
+    training_mod = cast(Any, types.ModuleType("unilab.training"))
+
+    def _fail_bootstrap() -> None:
+        raise RuntimeError("bootstrap failed")
+
+    training_mod.ensure_registries = _fail_bootstrap
+    training_mod.get_entrypoint_log_root = lambda *args, **kwargs: Path("/tmp")
+    training_mod.resolve_task_checkpoint_path = lambda *args, **kwargs: (None, None)
+    monkeypatch.setitem(sys.modules, "unilab.training", training_mod)
+
+    mujoco_mod = cast(Any, types.ModuleType("mujoco"))
+    mujoco_mod.viewer = cast(Any, types.ModuleType("mujoco.viewer"))
+    monkeypatch.setitem(sys.modules, "mujoco", mujoco_mod)
+    monkeypatch.setitem(sys.modules, "mujoco.viewer", mujoco_mod.viewer)
+
+    spec = importlib.util.spec_from_file_location(
+        "play_interactive_test_module", play_interactive_path
+    )
+    mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+
+    with pytest.raises(RuntimeError, match="bootstrap failed"):
+        spec.loader.exec_module(mod)  # type: ignore[union-attr]
 
 
 def test_gen_grasp_import_does_not_swallow_registry_bootstrap_errors(

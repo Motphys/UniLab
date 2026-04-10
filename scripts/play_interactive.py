@@ -28,7 +28,11 @@ import torch
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
 
-from unilab.training import ensure_registries, resolve_task_checkpoint_path
+from unilab.training import (
+    ensure_registries,
+    get_entrypoint_log_root,
+    resolve_task_checkpoint_path,
+)
 
 ensure_registries()
 
@@ -397,10 +401,9 @@ def play_interactive(args):
     flat_obs_dim = int(sum(env.obs_groups_spec.values()))
 
     policy_obs_mode = args.policy_obs_mode
+    algo_log_name = getattr(args, "algo_log_name", "rsl_rl_ppo")
     ckpt = None
     if args.action_mode == "policy":
-        # Get algo_log_name from config if available, otherwise use default
-        algo_log_name = getattr(args, "algo_log_name", "rsl_rl_ppo")
         ckpt = resolve_checkpoint(
             args.task, args.load_run, getattr(args, "checkpoint", None), algo_log_name
         )
@@ -436,7 +439,11 @@ def play_interactive(args):
         if ckpt is None:
             print("[play_interactive] WARNING: no checkpoint found — falling back to zero actions.")
         else:
-            log_dir = str(ROOT_DIR / "logs" / "rsl_rl_train" / args.task / "play_temp")
+            log_dir = str(
+                get_entrypoint_log_root(ROOT_DIR, algo_log_name=algo_log_name)
+                / args.task
+                / "play_temp"
+            )
             runner = OnPolicyRunner(wrapped_env, train_cfg, log_dir=log_dir, device=device)
             runner.load(
                 ckpt,

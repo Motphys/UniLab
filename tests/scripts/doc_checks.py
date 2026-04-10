@@ -42,13 +42,15 @@ DOC_PATTERNS = [
     "*.md",
     "docs/**/*.md",
     "src/**/*.md",
+    ".github/ISSUE_TEMPLATE/**/*.yml",
+    ".github/ISSUE_TEMPLATE/**/*.yaml",
 ]
 
 SKIP_PATTERNS = [
-    r"\.git",
-    r"\.venv",
-    r"__pycache__",
-    r"\.pytest_cache",
+    r"(^|/)\.git(/|$)",
+    r"(^|/)\.venv(/|$)",
+    r"(^|/)__pycache__(/|$)",
+    r"(^|/)\.pytest_cache(/|$)",
 ]
 
 
@@ -67,6 +69,12 @@ def find_docs(root: Path) -> list[Path]:
         for path in root.glob(pattern):
             if path.is_file() and not should_skip(path):
                 docs.append(path)
+    issue_template_dir = root / ".github" / "ISSUE_TEMPLATE"
+    if issue_template_dir.exists():
+        for pattern in ("*.yml", "*.yaml"):
+            for path in issue_template_dir.rglob(pattern):
+                if path.is_file() and not should_skip(path):
+                    docs.append(path)
     return sorted(set(docs))
 
 

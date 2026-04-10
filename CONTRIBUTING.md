@@ -98,13 +98,15 @@ uv run pytest -m veryslow -v
 
 PRs targeting `main` trigger five jobs automatically: `ruff-lint`, `ruff-format`, `mypy`, `pyright`, and `test`. The workflow also enables manual runs through `workflow_dispatch`, validates docs through the pytest suite on docs changes, and cancels older in-progress runs for the same PR branch.
 
+Coverage policy: the default CI lane enforces a minimum non-slow coverage floor, and that floor should only ratchet upward when the suite meaningfully expands.
+
 | Job | Content | Blocking on failure |
 |-----|---------|---------------------|
 | `ruff-lint` | `uv sync --only-group dev` + `uv run --no-sync ruff check --output-format=github .` on `ubuntu-slim` | ✅ |
 | `ruff-format` | `uv sync --only-group dev` + `uv run --no-sync ruff format --check .` on `ubuntu-slim` | ✅ |
 | `mypy` | `uv sync` + `uv run mypy src/unilab` on `macos-26` | ✅ |
 | `pyright` | `uv sync` + `uv run pyright` on `macos-26` | ✅ |
-| `test` | `uv sync --extra motrix` + `uv run pytest -m "not slow and not veryslow" --cov=unilab --cov-report markdown-append:$GITHUB_STEP_SUMMARY --cov-fail-under=10` on `ubuntu-slim` with Python 3.11 | ✅ |
+| `test` | `uv sync --extra motrix` + `uv run pytest -m "not slow and not veryslow" --cov=unilab --cov-report markdown-append:$GITHUB_STEP_SUMMARY --cov-fail-under=25` on `ubuntu-slim` with Python 3.11 | ✅ |
 
 Collaboration-metadata-only changes such as `LICENSE`, issue templates, `CODEOWNERS`, and `.github/pull_request_template.md` still skip CI. Docs changes do trigger CI and are validated by `tests/scripts/test_check_docs.py`.
 

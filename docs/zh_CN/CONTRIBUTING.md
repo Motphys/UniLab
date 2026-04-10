@@ -98,13 +98,15 @@ uv run pytest -m veryslow -v
 
 指向 `main` 的 PR 会自动触发五个 job: `ruff-lint`、`ruff-format`、`mypy`、`pyright` 和 `test`。workflow 也支持通过 `workflow_dispatch` 手动触发；文档改动会通过 pytest 套件参与校验，并且会自动取消同一 PR 分支上较早的进行中运行。
 
+覆盖率策略: 默认 CI lane 会对非 slow 测试施加最低覆盖率门槛，这个门槛只应随着测试护栏增强而逐步上调，不应回退。
+
 | Job | 内容 | 失败是否阻断 |
 |-----|------|--------------|
 | `ruff-lint` | 在 `ubuntu-slim` 上执行 `uv sync --only-group dev` + `uv run --no-sync ruff check --output-format=github .` | ✅ |
 | `ruff-format` | 在 `ubuntu-slim` 上执行 `uv sync --only-group dev` + `uv run --no-sync ruff format --check .` | ✅ |
 | `mypy` | 在 `macos-26` 上执行 `uv sync` + `uv run mypy src/unilab` | ✅ |
 | `pyright` | 在 `macos-26` 上执行 `uv sync` + `uv run pyright` | ✅ |
-| `test` | 在 `ubuntu-slim` 上以 Python 3.11 执行 `uv sync --extra motrix` + `uv run pytest -m "not slow and not veryslow" --cov=unilab --cov-report markdown-append:$GITHUB_STEP_SUMMARY --cov-fail-under=10` | ✅ |
+| `test` | 在 `ubuntu-slim` 上以 Python 3.11 执行 `uv sync --extra motrix` + `uv run pytest -m "not slow and not veryslow" --cov=unilab --cov-report markdown-append:$GITHUB_STEP_SUMMARY --cov-fail-under=25` | ✅ |
 
 只有协作元信息改动，例如 `LICENSE`、issue templates、`CODEOWNERS` 和 `.github/pull_request_template.md`，才会跳过 CI。文档改动会触发 CI，并由 `tests/scripts/test_check_docs.py` 校验。
 
