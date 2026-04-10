@@ -16,30 +16,63 @@ UniLab 当前支持两个仿真后端:
 
 ## Support Matrix
 
-### MuJoCo
+下面的矩阵由 registry、owner YAML 和测试清单自动汇总；不要手工编辑表格内容。需要刷新时运行：
 
-| 算法 | Go1 | Go2 | G1 |
-|------|-----|-----|----|
-| PPO (torch) | ✅ |  | ✅ |
-| PPO (mlx) | ✅ |  | ✅ |
-| SAC (torch) | ✅ | ⚠️ | ✅ |
-| TD3 (torch) | ⚠️ | ⚠️ | ⚠️ |
-| APPO (torch) | ✅ | ✅ | ✅ |
+```bash
+uv run python scripts/generate_support_matrix.py --write
+```
 
-### Motrix
+<!-- BEGIN GENERATED SUPPORT MATRIX -->
+### Evidence Grades
 
-| 算法 | Go1 | Go2 | G1 |
-|------|-----|-----|----|
-| PPO (torch) | ⚠️ |  | ✅ |
-| PPO (mlx) | ⚠️ |  |  |
-| SAC (torch) | ⚠️ |  |  |
-| TD3 (torch) |  |  |  |
-| APPO (torch) |  |  | ✅ |
+| 等级 | 仓库事实来源 |
+|------|--------------|
+| `Registered` | `ensure_registries()` 导入后的 `registry.list_registered_envs()` 中存在该 env/backend。 |
+| `Configured` | 存在对应的 owner YAML：`conf/{ppo,appo,offpolicy}/task/...`。 |
+| `Tested` | `tests/` 中有自动化覆盖该 entrypoint/task owner/backend 组合。这里的 `Tested` 包含 config compose 与脚本/运行时测试，不等同于默认推荐路径。 |
+| `Benchmarked` | 存在与该组合绑定的已提交 benchmark manifest。 |
+| `Recommended` | 仓库中存在显式 recommendation 元数据。 |
 
-图例:
+未检测到与这些组合绑定的已提交 benchmark manifest，因此当前不会自动提升到 `Benchmarked`。
+仓库中目前也没有单独的 recommendation 元数据，因此当前不会自动提升到 `Recommended`。
 
-- `✅` 已支持
-- `⚠️` 开发中
+### Entrypoint x Task Owner
+
+| Entrypoint | Task owner | MuJoCo | Motrix |
+|------------|------------|--------|--------|
+| PPO (torch) | `go1_joystick` (Go1 joystick) | Tested | Tested |
+| PPO (torch) | `go2_joystick` (Go2 joystick) | Tested | Tested |
+| PPO (torch) | `g1_joystick` (G1 joystick) | Tested | Tested |
+| PPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested |
+| PPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | Tested |
+| PPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | - |
+| PPO (mlx) | `go1_joystick` (Go1 joystick) | Tested | Tested |
+| PPO (mlx) | `go2_joystick` (Go2 joystick) | Tested | Tested |
+| PPO (mlx) | `g1_joystick` (G1 joystick) | Tested | Tested |
+| PPO (mlx) | `g1_motion_tracking` (G1 motion tracking) | Configured | Configured |
+| PPO (mlx) | `g1_flip_tracking` (G1 flip tracking) | Configured | Configured |
+| PPO (mlx) | `allegro_inhand` (Allegro in-hand) | Configured | - |
+| APPO (torch) | `go1_joystick` (Go1 joystick) | Tested | Registered |
+| APPO (torch) | `go2_joystick` (Go2 joystick) | Tested | Registered |
+| APPO (torch) | `g1_joystick` (G1 joystick) | Tested | Registered |
+| APPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested |
+| APPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | Tested |
+| APPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | - |
+| SAC (torch) | `go1_joystick` (Go1 joystick) | Tested | Tested |
+| SAC (torch) | `go2_joystick` (Go2 joystick) | Tested | Tested |
+| SAC (torch) | `g1_sac` (G1 SAC locomotion) | Tested | Tested |
+| SAC (torch) | `allegro_sac` (Allegro SAC in-hand) | Tested | - |
+| TD3 (torch) | `go1_joystick` (Go1 joystick) | Tested | Tested |
+| TD3 (torch) | `go2_joystick` (Go2 joystick) | Tested | Tested |
+
+### Source Index
+
+- Registry bootstrap: `src/unilab/envs/**` decorators via `unilab.utils.algo_utils.ensure_registries()`.
+- Owner YAML scan: `conf/ppo/task/**`, `conf/appo/task/**`, `conf/offpolicy/task/**`.
+- Generic compose coverage: `tests/config/test_config_system.py::test_supported_task_composes`.
+- MLX-specific compose coverage only upgrades task owners listed in `tests/config/test_config_system.py::_PPO_MLX_TASKS`: `go1_joystick`, `go2_joystick`, `g1_joystick`.
+- MLX runtime smoke: `tests/algos/test_mlx_ppo.py::test_mlx_ppo_one_iteration_real_env` currently exercises `go2_joystick/mujoco`.
+<!-- END GENERATED SUPPORT MATRIX -->
 
 ## Select A Backend
 
