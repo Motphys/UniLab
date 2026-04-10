@@ -228,11 +228,6 @@ class G1JoystickPPO(G1BaseEnv):
         )
         return {"obs": actor, "privileged": linvel}
 
-    def get_policy_obs(self, obs: dict[str, np.ndarray]) -> np.ndarray:
-        if getattr(self._backend, "backend_type", None) == "motrix" and "privileged" in obs:
-            return np.concatenate([obs["privileged"], obs["obs"]], axis=1)
-        return np.concatenate(list(obs.values()), axis=1)
-
     def get_obs_structure(self) -> dict:
         """Return observation structure for symmetry augmentation.
 
