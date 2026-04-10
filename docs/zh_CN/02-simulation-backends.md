@@ -110,6 +110,14 @@ uv run python scripts/train_rsl_rl.py task=go1_joystick/mujoco training.play_onl
 - backend 支持范围是阶段性的能力快照，不要把临时执行状态写成顶层 README 结论
 - 具体推进应通过 GitHub milestone 和 issue 跟踪，而不是维护仓库内的临时状态列表
 
+## Architecture Decision References
+
+- 总体架构标准: [RL Infrastructure 开发标准](00-development-architecture.md)
+- 后端能力边界 ADR: [ADR-0002 Backend Capability Boundary For Play And Snapshot](adr/ADR-0002-backend-capability-boundary-for-play-and-snapshot.md)
+- task owner / compose contract ADR: [ADR-0003 Task Owner And Config Compose Contract](adr/ADR-0003-task-owner-and-config-compose-contract.md)
+- registry bootstrap ADR: [ADR-0004 Registry Bootstrap Contract](adr/ADR-0004-registry-bootstrap-contract.md)
+- ADR 索引: [ADR Index](adr/README.md)
+
 ## Navigation
 
 - Previous: [Getting Started](01-getting-started.md)

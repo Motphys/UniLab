@@ -145,6 +145,20 @@ Env **负责** MDP 语义、observation 结构、reward、reset，以及 backend
 
 ---
 
+## 12. Architecture Decision Records (ADR)
+
+以下 ADR 记录了本页涉及的稳定 contract 以及 backend 能力边界:
+
+- [ADR Index](adr/README.md)
+- [ADR-0001 Runtime Model And Layer Boundaries](adr/ADR-0001-runtime-model-and-layer-boundaries.md)
+- [ADR-0002 Backend Capability Boundary For Play And Snapshot](adr/ADR-0002-backend-capability-boundary-for-play-and-snapshot.md)
+- [ADR-0003 Task Owner And Config Compose Contract](adr/ADR-0003-task-owner-and-config-compose-contract.md)
+- [ADR-0004 Registry Bootstrap Contract](adr/ADR-0004-registry-bootstrap-contract.md)
+
+协作与交付流程要求见 [Collaboration](06-collaboration.md)。
+
+---
+
 ## Navigation
 
 - Previous: [README](../../README.md)
