@@ -104,7 +104,9 @@ class TestEnsureRegistries:
             "__unilab_registry_modules__ = ('registry_optional_pkg.broken',)\n",
             encoding="utf-8",
         )
-        (pkg_dir / "broken.py").write_text("raise RuntimeError('optional failure')\n", encoding="utf-8")
+        (pkg_dir / "broken.py").write_text(
+            "raise RuntimeError('optional failure')\n", encoding="utf-8"
+        )
         monkeypatch.syspath_prepend(str(tmp_path))
         importlib.invalidate_caches()
         sys.modules.pop("registry_optional_pkg", None)
