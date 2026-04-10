@@ -29,6 +29,21 @@ def get_log_root(root_dir: str | Path, cfg: DictConfig) -> Path:
     return Path(root_dir) / "logs" / str(OmegaConf.select(cfg, "algo.algo_log_name"))
 
 
+def get_entrypoint_log_root(
+    root_dir: str | Path,
+    *,
+    algo_log_name: str,
+    log_root: str | Path | None = None,
+) -> Path:
+    """Resolve the log root for non-Hydra entrypoints using training helper semantics."""
+    if log_root is not None:
+        configured_root = Path(log_root)
+        return (
+            configured_root if configured_root.is_absolute() else Path(root_dir) / configured_root
+        )
+    return Path(root_dir) / "logs" / algo_log_name
+
+
 def get_latest_run(log_dir: str | Path) -> Path | None:
     """Return the lexicographically latest run directory under a task log root."""
     base_dir = Path(log_dir)
@@ -102,6 +117,52 @@ def parse_checkpoint_path(
     selected_run = load_run or str(OmegaConf.select(cfg, "algo.load_run", default="-1"))
     base_log_dir = get_log_root(root_dir, cfg) / selected_task
     return resolve_checkpoint_path(base_log_dir, selected_run, suffix=suffix)
+
+
+def resolve_task_checkpoint_path(
+    root_dir: str | Path,
+    *,
+    task_name: str,
+    load_run: str,
+    algo_log_name: str,
+    checkpoint: str | None = None,
+    suffix: str = ".pt",
+    log_root: str | Path | None = None,
+) -> tuple[Path | None, Path | None]:
+    """Resolve checkpoint paths for auxiliary entrypoints through shared training semantics."""
+    task_log_root = (
+        get_entrypoint_log_root(
+            root_dir,
+            algo_log_name=algo_log_name,
+            log_root=log_root,
+        )
+        / task_name
+    )
+
+    run_dir: Path | None
+    if load_run == "-1":
+        run_dir = get_latest_run(task_log_root)
+    else:
+        candidate = Path(load_run)
+        if not candidate.exists():
+            candidate = task_log_root / load_run
+        if candidate.is_file():
+            return candidate, candidate.parent
+        run_dir = candidate if candidate.is_dir() else None
+
+    if run_dir is None:
+        return None, None
+
+    checkpoint_path: Path | None
+    if checkpoint is not None:
+        checkpoint_name = (
+            f"model_{checkpoint}{suffix}" if str(checkpoint).isdigit() else str(checkpoint)
+        )
+        checkpoint_path = run_dir / checkpoint_name
+        return (checkpoint_path, run_dir) if checkpoint_path.exists() else (None, run_dir)
+
+    checkpoint_path = get_latest_checkpoint(run_dir, suffix=suffix)
+    return (checkpoint_path, run_dir) if checkpoint_path is not None else (None, run_dir)
 
 
 def setup_logger(

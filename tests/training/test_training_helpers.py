@@ -11,6 +11,7 @@ from unilab.training import (
     get_latest_checkpoint,
     get_latest_run,
     parse_checkpoint_path,
+    resolve_task_checkpoint_path,
 )
 
 _ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -84,6 +85,41 @@ def test_parse_checkpoint_path_uses_algo_log_name_from_cfg(tmp_path: Path):
     checkpoint_path, checkpoint_dir = parse_checkpoint_path(cfg, root_dir=tmp_path)
 
     assert checkpoint_path == model_path
+    assert checkpoint_dir == run_dir
+
+
+def test_resolve_task_checkpoint_path_supports_explicit_checkpoint(tmp_path: Path):
+    run_dir = tmp_path / "logs" / "custom_ppo" / "MyTask" / "2024-01-01_00-00-00_mujoco"
+    run_dir.mkdir(parents=True)
+    (run_dir / "model_9.pt").write_bytes(b"")
+    selected_model = run_dir / "model_12.pt"
+    selected_model.write_bytes(b"")
+
+    checkpoint_path, checkpoint_dir = resolve_task_checkpoint_path(
+        tmp_path,
+        task_name="MyTask",
+        load_run="-1",
+        algo_log_name="custom_ppo",
+        checkpoint="12",
+    )
+
+    assert checkpoint_path == selected_model
+    assert checkpoint_dir == run_dir
+
+
+def test_resolve_task_checkpoint_path_returns_run_dir_when_checkpoint_missing(tmp_path: Path):
+    run_dir = tmp_path / "logs" / "custom_ppo" / "MyTask" / "2024-01-01_00-00-00_mujoco"
+    run_dir.mkdir(parents=True)
+
+    checkpoint_path, checkpoint_dir = resolve_task_checkpoint_path(
+        tmp_path,
+        task_name="MyTask",
+        load_run="-1",
+        algo_log_name="custom_ppo",
+        checkpoint="12",
+    )
+
+    assert checkpoint_path is None
     assert checkpoint_dir == run_dir
 
 
