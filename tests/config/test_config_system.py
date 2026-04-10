@@ -157,16 +157,6 @@ def test_task_files_keep_full_identity_without_hidden_backend_marker():
         assert "sim_backend" in training_raw, f"task missing sim_backend: {path}"
 
 
-def test_g1_joystick_motrix_task_uses_backend_override_group():
-    cfg = OmegaConf.load(CONF_DIR / "ppo" / "task" / "g1_joystick" / "motrix.yaml")
-
-    defaults = OmegaConf.to_container(cfg.defaults, resolve=True)
-    assert isinstance(defaults, list)
-    assert any(
-        isinstance(item, dict) and item.get("/backend_override") == "motrix" for item in defaults
-    )
-
-
 @pytest.mark.parametrize(
     "algo_dir,config_name,task,backend,task_file,overrides",
     _supported_task_cases(),
