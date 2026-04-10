@@ -42,12 +42,6 @@ class RewardConfig:
 
 
 @dataclass
-class LegacyMotrixProfile:
-    enabled: bool = False
-    command_vel_limit: list[list[float]] | None = None
-
-
-@dataclass
 class JoystickSensor:
     local_linvel = "local_linvel"
     gyro = "gyro"
@@ -63,16 +57,8 @@ class Go2JoystickCfg(Go2BaseCfg):
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
     reward_config: RewardConfig | None = None
-    legacy_motrix_profile: LegacyMotrixProfile = field(default_factory=LegacyMotrixProfile)
     sensor: JoystickSensor = field(default_factory=JoystickSensor)  # type: ignore[assignment]
     domain_rand: Go2DomainRandConfig = field(default_factory=Go2DomainRandConfig)
-
-    def apply_legacy_motrix_profile(self) -> None:
-        profile = self.legacy_motrix_profile
-        if not profile.enabled:
-            return
-        if profile.command_vel_limit is not None:
-            self.commands.vel_limit = [list(v) for v in profile.command_vel_limit]
 
 
 class Go2JoystickDomainRandomizationProvider(LocomotionDRProvider):
@@ -100,7 +86,6 @@ class Go2WalkTask(Go2BaseEnv):
     def __init__(self, cfg: Go2JoystickCfg, num_envs=1, backend_type="mujoco"):
         if cfg.reward_config is None:
             raise ValueError("reward_config must be provided via Hydra configuration")
-        cfg.apply_legacy_motrix_profile()
         backend = create_backend(
             backend_type,
             cfg.model_file,

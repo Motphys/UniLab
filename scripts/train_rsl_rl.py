@@ -45,11 +45,11 @@ def _backend_adapter(cfg: DictConfig) -> BackendAdapter:
     )
 
 
-def build_task_motrix_ppo_env_cfg_override(cfg: DictConfig) -> dict:
+def build_ppo_env_cfg_override(cfg: DictConfig) -> dict:
     return _backend_adapter(cfg).build_task_env_cfg_override()
 
 
-def build_motrix_play_ppo_env_cfg_override(cfg: DictConfig) -> dict:
+def build_ppo_play_env_cfg_override(cfg: DictConfig) -> dict:
     return _backend_adapter(cfg).build_play_env_cfg_override()
 
 
@@ -80,7 +80,7 @@ def _get_log_root(cfg: DictConfig) -> str:
 def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     """Play mode for RSL-RL."""
 
-    env_cfg_override = build_motrix_play_ppo_env_cfg_override(cfg)
+    env_cfg_override = build_ppo_play_env_cfg_override(cfg)
 
     env = create_env(
         cfg,
@@ -158,7 +158,7 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
 def main(cfg: DictConfig) -> None:
     ensure_registries()
 
-    env_cfg_override = build_task_motrix_ppo_env_cfg_override(cfg)
+    env_cfg_override = build_ppo_env_cfg_override(cfg)
 
     if torch.cuda.is_available():
         device = "cuda"

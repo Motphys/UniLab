@@ -17,16 +17,40 @@ _ROOT_DIR = Path(__file__).resolve().parents[2]
 _CONF_DIR = _ROOT_DIR / "conf"
 
 
+def _normalize_overrides(overrides: list[str] | None, *, offpolicy: bool = False) -> list[str]:
+    normalized: list[str] = []
+    algo = "sac"
+    task_selected = False
+
+    for override in overrides or []:
+        if override.startswith("algo="):
+            algo = override.split("=", 1)[1]
+            normalized.append(override)
+            continue
+        if override.startswith("task="):
+            task_selected = True
+            normalized.append(override)
+            continue
+        normalized.append(override)
+
+    if not task_selected:
+        if offpolicy:
+            normalized.append(f"task={algo}/go1_joystick/mujoco")
+        else:
+            normalized.append("task=go1_joystick/mujoco")
+    return normalized
+
+
 def _ppo_cfg(overrides: list[str] | None = None):
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(_CONF_DIR / "ppo"), version_base="1.3"):
-        return compose("config", overrides=overrides or [])
+        return compose("config", overrides=_normalize_overrides(overrides))
 
 
 def _offpolicy_cfg(overrides: list[str] | None = None):
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(_CONF_DIR / "offpolicy"), version_base="1.3"):
-        return compose("config", overrides=overrides or [])
+        return compose("config", overrides=_normalize_overrides(overrides, offpolicy=True))
 
 
 def test_get_latest_run_and_checkpoint_support_shared_checkpoint_resolution(tmp_path: Path):
@@ -63,23 +87,24 @@ def test_parse_checkpoint_path_uses_algo_log_name_from_cfg(tmp_path: Path):
     assert checkpoint_dir == run_dir
 
 
-def test_backend_adapter_applies_motrix_legacy_for_matching_algo():
-    cfg = _offpolicy_cfg(["task=go1_joystick", "training.sim_backend=motrix"])
+def test_backend_adapter_env_cfg_override_for_motrix_sac_go1():
+    """Env cfg override carries reward + env preset fields. Algo is NOT touched."""
+    cfg = _offpolicy_cfg(["task=sac/go1_joystick/motrix"])
 
-    env_cfg_override = BackendAdapter(
-        cfg, root_dir=_ROOT_DIR, algo_name="sac"
-    ).build_task_env_cfg_override()
+    adapter = BackendAdapter(cfg, root_dir=_ROOT_DIR, algo_name="sac")
+    env_cfg_override = adapter.build_task_env_cfg_override()
 
+    # env_cfg_override has reward + env preset fields
+    assert env_cfg_override["reward_config"]["scales"]["tracking_lin_vel"] == pytest.approx(1.0)
+    assert env_cfg_override["commands"]["vel_limit"] == [[0.5, 0.0, 0.0], [0.5, 0.0, 0.0]]
+    # algo values come straight from YAML compose — no mutation, matches old motrix behavior
     assert cfg.algo.num_envs == 4096
     assert cfg.algo.max_iterations == 2000
-    assert env_cfg_override["legacy_motrix_profile"]["enabled"] is True
-    assert env_cfg_override["reward_config"]["scales"]["tracking_lin_vel"] == pytest.approx(1.0)
 
 
-def test_backend_adapter_builds_motrix_play_scene_override():
-    cfg = _ppo_cfg(
-        ["task=g1_motion_tracking", "training.sim_backend=motrix", "training.play_only=true"]
-    )
+def test_backend_adapter_builds_play_scene_override():
+    cfg = _ppo_cfg(["task=g1_motion_tracking/motrix", "training.play_only=true"])
+    assert cfg.training.play_env_num == 128
     captured: dict[str, object] = {}
 
     def _fake_materializer(source_model_file: str, **kwargs) -> str:

@@ -110,35 +110,6 @@ class G1JoystickPPOCfg(G1BaseCfg):
     domain_rand: DomainRandConfig = field(default_factory=DomainRandConfig)
     gait_phase_init_mode: str = "offset_phase"
     reset_base_qvel_limit: float = 0.5
-    backend_overrides: dict | None = None
-
-    def apply_backend_overrides(self, backend_type: str) -> None:
-        if not self.backend_overrides or not self.backend_overrides.get("enabled", False):
-            return
-        if backend_type != "motrix":
-            return
-        if self.reward_config is None:
-            raise ValueError("reward_config must be provided before applying backend overrides")
-
-        action_scale = self.backend_overrides.get("control_action_scale")
-        if action_scale is not None:
-            self.control_config.action_scale = float(action_scale)
-
-        command_vel_limit = self.backend_overrides.get("command_vel_limit")
-        if command_vel_limit is not None:
-            self.commands.vel_limit = [list(command_vel_limit[0]), list(command_vel_limit[1])]
-
-        reward_scale_overrides = self.backend_overrides.get("reward_scale_overrides")
-        if reward_scale_overrides:
-            self.reward_config.scales.update(reward_scale_overrides)
-
-        gait_phase_init_mode = self.backend_overrides.get("gait_phase_init_mode")
-        if gait_phase_init_mode is not None:
-            self.gait_phase_init_mode = str(gait_phase_init_mode)
-
-        reset_base_qvel_limit = self.backend_overrides.get("reset_base_qvel_limit")
-        if reset_base_qvel_limit is not None:
-            self.reset_base_qvel_limit = float(reset_base_qvel_limit)
 
 
 class G1JoystickDomainRandomizationProvider(LocomotionDRProvider):
@@ -181,7 +152,6 @@ class G1JoystickPPO(G1BaseEnv):
     def __init__(self, cfg: G1JoystickPPOCfg, num_envs=1, backend_type="mujoco"):
         if cfg.reward_config is None:
             raise ValueError("reward_config must be provided via Hydra configuration")
-        cfg.apply_backend_overrides(backend_type)
         backend = create_backend(
             backend_type,
             cfg.model_file,
@@ -226,14 +196,6 @@ class G1JoystickPPO(G1BaseEnv):
             "feet_phase": self._reward_feet_phase,
         }
 
-    def _use_legacy_motrix_baseline(self) -> bool:
-        backend_type = getattr(getattr(self, "_backend", None), "backend_type", None)
-        return bool(
-            backend_type == "motrix"
-            and self._cfg.backend_overrides
-            and self._cfg.backend_overrides.get("enabled", False)
-        )
-
     def update_state(self, state: NpEnvState) -> NpEnvState:
         linvel = self.get_local_linvel()
         gyro = self.get_gyro()
@@ -267,7 +229,7 @@ class G1JoystickPPO(G1BaseEnv):
         return {"obs": actor, "privileged": linvel}
 
     def get_policy_obs(self, obs: dict[str, np.ndarray]) -> np.ndarray:
-        if self._use_legacy_motrix_baseline() and "privileged" in obs:
+        if getattr(self._backend, "backend_type", None) == "motrix" and "privileged" in obs:
             return np.concatenate([obs["privileged"], obs["obs"]], axis=1)
         return np.concatenate(list(obs.values()), axis=1)
 

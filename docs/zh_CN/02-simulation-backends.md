@@ -36,14 +36,22 @@ UniLab 当前支持两个仿真后端:
 
 ## Select A Backend
 
-默认后端是 `mujoco`。通过 Hydra 参数 `training.sim_backend` 切换到 `motrix`。
+默认后端是 `mujoco`。通过 `task=<task>/<backend>` 切换到 `motrix`，不要用 `training.sim_backend=motrix` 单独切换后端。
+
+实际要改参数时，不再去拆着找 `reward` / `backend preset` / `algo preset`。直接改对应的 `task` 文件：
+
+- PPO / APPO: `conf/{ppo,appo}/task/<task>/<backend>.yaml`
+- offpolicy: `conf/offpolicy/task/<algo>/<task>/<backend>.yaml`
+
+现在没有单独的 `reward/`、`backend preset`、`sim_backend/` 配置组。`task/` 是唯一 owner 入口，不再是旧的拆分式 task 配置。
+`training.sim_backend` 由 owner YAML 设置，只用于标识最终选择的后端；不要把它当作独立 backend switch。
 
 ```bash
 # 默认 MuJoCo
-uv run python scripts/train_rsl_rl.py task=go1_joystick
+uv run python scripts/train_rsl_rl.py task=go1_joystick/mujoco
 
 # 显式指定 Motrix
-uv run python scripts/train_rsl_rl.py task=go1_joystick training.sim_backend=motrix
+uv run python scripts/train_rsl_rl.py task=go1_joystick/motrix
 ```
 
 ## Playback Differences
@@ -54,7 +62,7 @@ uv run python scripts/train_rsl_rl.py task=go1_joystick training.sim_backend=mot
 对 G1 motion tracking 来说，目前已验证的 Motrix 路径是 `PPO (torch) + motrix` 和 `APPO (torch) + motrix`。`scripts/play_interactive.py` 仍然沿用 MuJoCo 路径。
 
 ```bash
-uv run python scripts/train_rsl_rl.py task=go1_joystick training.play_only=true
+uv run python scripts/train_rsl_rl.py task=go1_joystick/mujoco training.play_only=true
 ```
 
 ## Notes

@@ -143,7 +143,7 @@ uv run pytest -m veryslow -v
 
 UniLab 使用 Hydra + dataclass 配置系统:
 
-- **添加新任务**: 在 `conf/{algo}/task/` 下创建 YAML，并使用 `# @package _global_`
+- **添加新的 task 配置入口**: 在 `conf/{algo}/task/...` 下创建单一 owner YAML，并使用 `# @package _global_`
 - **修改超参数**: 编辑对应 YAML，或使用 `algo.num_envs=2048` 这样的 CLI override
 - **添加新算法**: 在 `structured_configs.py` 中添加 dataclass，并创建对应的 `conf/` 目录
 

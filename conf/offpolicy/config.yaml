@@ -1,8 +1,7 @@
 defaults:
   - _self_
   - algo: sac
-  - reward: default
-  - task: go1_joystick
+  - task: ${algo}/go1_joystick/mujoco
 
 training:
   task_name: Go1JoystickFlatTerrain

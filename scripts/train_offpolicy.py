@@ -6,6 +6,7 @@ import datetime
 import os
 import sys
 from pathlib import Path
+from typing import Any, cast
 
 import hydra
 from omegaconf import DictConfig
@@ -64,7 +65,7 @@ def resolve_play_obs_dim(obs_groups_spec: dict[str, int]) -> int:
     from unilab.utils.obs_utils import get_obs_dims
 
     obs_dim, _ = get_obs_dims(obs_groups_spec)
-    return obs_dim
+    return int(obs_dim)
 
 
 def extract_play_obs(obs_dict):
@@ -74,18 +75,16 @@ def extract_play_obs(obs_dict):
     return obs_out
 
 
-def build_task_motrix_offpolicy_env_cfg_override(algo_name: str, cfg: DictConfig) -> dict | None:
-    return BackendAdapter(cfg, root_dir=ROOT_DIR, algo_name=algo_name).build_task_env_cfg_override()
-
-
-def resolve_sac_use_symmetry(cfg: DictConfig) -> bool:
-    """Symmetry augmentation currently depends on MuJoCo model APIs."""
-    return bool(cfg.algo.use_symmetry and cfg.training.sim_backend == "mujoco")
+def build_offpolicy_env_cfg_override(algo_name: str, cfg: DictConfig) -> dict[str, Any] | None:
+    return cast(
+        dict[str, Any] | None,
+        BackendAdapter(cfg, root_dir=ROOT_DIR, algo_name=algo_name).build_task_env_cfg_override(),
+    )
 
 
 def build_runner(algo_name: str, cfg: DictConfig):
     """Build algorithm runner from unified Hydra config."""
-    env_cfg_override = build_task_motrix_offpolicy_env_cfg_override(algo_name, cfg)
+    env_cfg_override = build_offpolicy_env_cfg_override(algo_name, cfg)
 
     if algo_name == "sac":
         from unilab.algos.torch.fast_sac.learner import FastSACLearner
@@ -181,7 +180,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             sync_collection=not cfg.training.no_sync_collection,
             env_steps_per_sync=cfg.training.env_steps_per_sync,
             sim_backend=cfg.training.sim_backend,
-            use_symmetry=resolve_sac_use_symmetry(cfg),
+            use_symmetry=cfg.algo.use_symmetry,
         )
 
     if algo_name == "td3":
@@ -229,18 +228,24 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
 
     from unilab.utils.algo_utils import build_actor
 
-    env_cfg_override = build_task_motrix_offpolicy_env_cfg_override(algo_name, cfg)
+    env_cfg_override = build_offpolicy_env_cfg_override(algo_name, cfg)
 
     device = default_device(torch, cfg.training.device)
     print(f"Using device for play: {device}")
 
-    env = create_env(
-        cfg,
-        num_envs=cfg.training.play_env_num,
-        env_cfg_override=env_cfg_override,
+    env = cast(
+        Any,
+        create_env(
+            cfg,
+            num_envs=cfg.training.play_env_num,
+            env_cfg_override=env_cfg_override,
+        ),
     )
     obs_dim = resolve_play_obs_dim(env.obs_groups_spec)
-    action_dim = env.action_space.shape[0]
+    action_shape = env.action_space.shape
+    if action_shape is None:
+        raise ValueError("env.action_space.shape must be defined")
+    action_dim = int(action_shape[0])
 
     normalizer = None
     if algo_name == "sac":
@@ -253,6 +258,8 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
             device,
         )
     elif algo_name == "td3":
+        import torch
+
         from unilab.algos.torch.fast_td3.learner import EmpiricalNormalization, TD3Actor
 
         actor = TD3Actor(
@@ -263,7 +270,7 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
             cfg.algo.actor_hidden_dim,
             cfg.algo.algo_params.log_std_min,
             cfg.algo.algo_params.log_std_max,
-            device,
+            torch.device(device),
         )
         if cfg.algo.obs_normalization:
             normalizer = EmpiricalNormalization(shape=obs_dim, device=device)
@@ -334,6 +341,10 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
                     print("Render window closed.")
                 else:
                     raise
+        return None
+
+    if load_path_dir is None:
+        print(f"Could not resolve checkpoint directory. load_path_dir={load_path_dir}")
         return None
 
     output_video = os.path.join(load_path_dir, "play_video.mp4")

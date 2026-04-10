@@ -6,6 +6,7 @@ import datetime
 import os
 import sys
 from pathlib import Path
+from typing import Any, cast
 
 import hydra
 import torch
@@ -14,7 +15,13 @@ from omegaconf import DictConfig, OmegaConf
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
 
-from unilab.training import create_env, ensure_registries, get_log_root, render_play_mode
+from unilab.training import (
+    BackendAdapter,
+    create_env,
+    ensure_registries,
+    get_log_root,
+    render_play_mode,
+)
 from unilab.utils.experiment_tracking import ExperimentTracker
 
 
@@ -22,10 +29,13 @@ def build_appo_runner_kwargs(
     cfg: DictConfig,
     env_cfg_override: dict | None,
     collector_device: str | None,
-    rl_cfg: dict | None = None,
+    rl_cfg: dict[str, Any] | None = None,
 ) -> dict:
     if rl_cfg is None:
-        rl_cfg = OmegaConf.to_container(cfg.algo, resolve=True)
+        rl_cfg_raw = OmegaConf.to_container(cfg.algo, resolve=True)
+        if not isinstance(rl_cfg_raw, dict):
+            raise TypeError("cfg.algo must resolve to a dict")
+        rl_cfg = cast(dict[str, Any], rl_cfg_raw)
 
     runner_kwargs = {
         "env_name": cfg.training.task_name,
@@ -97,16 +107,17 @@ def _get_log_root(cfg: DictConfig) -> str:
     return str(get_log_root(ROOT_DIR, cfg))
 
 
-def play_appo(cfg: DictConfig, rl_cfg: dict) -> str | None:
+def play_appo(cfg: DictConfig, rl_cfg: dict[str, Any]) -> str | None:
     """Play mode for APPO."""
     import numpy as np
     from rsl_rl.utils import resolve_callable
     from tensordict import TensorDict
 
-    from unilab.utils.reward_utils import extract_reward_config
     from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4, is_rsl_rl_v5
 
-    env_cfg_override = extract_reward_config(cfg)
+    env_cfg_override = BackendAdapter(
+        cfg, root_dir=ROOT_DIR, algo_name="appo"
+    ).build_task_env_cfg_override()
 
     device = cfg.training.device or (
         "cuda"
@@ -117,15 +128,21 @@ def play_appo(cfg: DictConfig, rl_cfg: dict) -> str | None:
     )
     print(f"Using device for play: {device}")
 
-    env = create_env(
-        cfg,
-        num_envs=cfg.training.play_env_num,
-        env_cfg_override=env_cfg_override,
+    env = cast(
+        Any,
+        create_env(
+            cfg,
+            num_envs=cfg.training.play_env_num,
+            env_cfg_override=env_cfg_override,
+        ),
     )
     from unilab.utils.obs_utils import get_obs_dims
 
     obs_dim, privileged_dim = get_obs_dims(env.obs_groups_spec)
-    action_dim = env.action_space.shape[0]
+    action_shape = env.action_space.shape
+    if action_shape is None:
+        raise ValueError("env.action_space.shape must be defined")
+    action_dim = int(action_shape[0])
 
     rl_cfg_dict = dict(rl_cfg)
     if "obs_groups" not in rl_cfg_dict:
@@ -183,6 +200,10 @@ def play_appo(cfg: DictConfig, rl_cfg: dict) -> str | None:
                 raise
         return None
 
+    if load_path_dir is None:
+        print(f"Could not resolve checkpoint directory. load_path_dir={load_path_dir}")
+        return None
+
     output_video = os.path.join(load_path_dir, "play_video.mp4")
     print(f"Rendering video to {output_video}...")
 
@@ -231,12 +252,15 @@ def play_appo(cfg: DictConfig, rl_cfg: dict) -> str | None:
 def main(cfg: DictConfig) -> None:
     ensure_registries()
 
-    from unilab.utils.reward_utils import extract_reward_config
-
-    env_cfg_override = extract_reward_config(cfg)
+    env_cfg_override = BackendAdapter(
+        cfg, root_dir=ROOT_DIR, algo_name="appo"
+    ).build_task_env_cfg_override()
 
     # Convert algo config to plain dict for APPORunner / RSL-RL internals
-    rl_cfg = OmegaConf.to_container(cfg.algo, resolve=True)
+    rl_cfg_raw = OmegaConf.to_container(cfg.algo, resolve=True)
+    if not isinstance(rl_cfg_raw, dict):
+        raise TypeError("cfg.algo must resolve to a dict")
+    rl_cfg = cast(dict[str, Any], rl_cfg_raw)
 
     if cfg.training.log_dir is None:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")

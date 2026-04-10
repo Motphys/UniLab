@@ -33,14 +33,14 @@ def is_rsl_rl_v4() -> bool:
     """Check if the installed rsl_rl version is 4.x or above."""
     version_str = get_rsl_rl_version()
     print(version_str)
-    return Version(version_str) >= Version("4.0.0")
+    return bool(Version(version_str) >= Version("4.0.0"))
 
 
 def is_rsl_rl_v5() -> bool:
     """Check if the installed rsl_rl version is 4.x or above."""
     version_str = get_rsl_rl_version()
     print(version_str)
-    return Version(version_str) >= Version("5.0.0")
+    return bool(Version(version_str) >= Version("5.0.0"))
 
 
 def convert_config_v3_to_v4(cfg: dict) -> dict:

@@ -1,6 +1,0 @@
-# @package _global_
-defaults:
-  - override /reward: go2_appo_mujoco
-
-training:
-  task_name: Go2JoystickFlatTerrain

@@ -1,0 +1,19 @@
+# @package _global_
+training:
+  task_name: Go1JoystickFlatTerrain
+  sim_backend: mujoco
+algo:
+  num_envs: 2048
+  max_iterations: 3000
+reward:
+  scales:
+    tracking_lin_vel: 1.0
+    tracking_ang_vel: 0.2
+    lin_vel_z: -5.0
+    ang_vel_xy: -0.1
+    base_height: -100.0
+    action_rate: -0.005
+    similar_to_default: -0.1
+    contact: 0.24
+  tracking_sigma: 0.25
+  base_height_target: 0.3

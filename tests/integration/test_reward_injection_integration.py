@@ -1,5 +1,7 @@
 """Integration test for reward config injection in training."""
 
+from typing import Any, cast
+
 import numpy as np
 import pytest
 
@@ -14,7 +16,7 @@ def test_reward_injection_in_training():
         cfg = compose(
             config_name="config",
             overrides=[
-                "task=g1_sac",
+                "task=sac/g1_sac/mujoco",
                 "algo.max_iterations=1",
                 "algo.num_envs=64",
                 "training.no_play=true",
@@ -56,11 +58,14 @@ def test_reward_override_propagation():
     )
 
     # Create env with override
-    env = registry.make(
-        "Go1JoystickFlatTerrain",
-        num_envs=4,
-        sim_backend="mujoco",
-        env_cfg_override={"reward_config": custom_config},
+    env = cast(
+        Any,
+        registry.make(
+            "Go1JoystickFlatTerrain",
+            num_envs=4,
+            sim_backend="mujoco",
+            env_cfg_override={"reward_config": custom_config},
+        ),
     )
 
     # Verify override was applied
@@ -69,7 +74,7 @@ def test_reward_override_propagation():
 
     # Test reward computation uses overridden scales
     env.init_state()
-    state = env.reset(np.array([0, 1, 2, 3], dtype=np.int32))[0]
+    env.reset(np.array([0, 1, 2, 3], dtype=np.int32))
 
     # Take a step and verify reward is computed
     actions = np.zeros((4, env.action_space.shape[0]), dtype=np.float32)
@@ -116,11 +121,14 @@ def test_zero_scale_skips_computation():
         base_height_target=0.3,
     )
 
-    env = registry.make(
-        "Go1JoystickFlatTerrain",
-        num_envs=2,
-        sim_backend="mujoco",
-        env_cfg_override={"reward_config": custom_config},
+    env = cast(
+        Any,
+        registry.make(
+            "Go1JoystickFlatTerrain",
+            num_envs=2,
+            sim_backend="mujoco",
+            env_cfg_override={"reward_config": custom_config},
+        ),
     )
 
     # Verify only non-zero scales are in config

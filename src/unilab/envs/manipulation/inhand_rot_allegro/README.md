@@ -55,27 +55,26 @@ The output is a `(N, 23)` float32 array:
 
 ```bash
 # From the UniLab root directory
-uv run python scripts/train_rsl_rl.py task=AllegroInhandRotation
+uv run python scripts/train_rsl_rl.py task=allegro_inhand/mujoco
 ```
 
 **Common options (Hydra syntax):**
 
 ```bash
 # Override number of environments
-uv run python scripts/train_rsl_rl.py task=AllegroInhandRotation algo.num_envs=8192
+uv run python scripts/train_rsl_rl.py task=allegro_inhand/mujoco algo.num_envs=8192
 
 # Resume from a previous run
-uv run python scripts/train_rsl_rl.py task=AllegroInhandRotation \
+uv run python scripts/train_rsl_rl.py task=allegro_inhand/mujoco \
     training.load_run=2026-03-10_22-50-13
 
 # Train without rendering a play video afterwards
-uv run python scripts/train_rsl_rl.py task=AllegroInhandRotation training.no_play=true
+uv run python scripts/train_rsl_rl.py task=allegro_inhand/mujoco training.no_play=true
 
 # Use MuJoCo backend (default)
-uv run python scripts/train_rsl_rl.py task=AllegroInhandRotation training.sim_backend=mujoco
+uv run python scripts/train_rsl_rl.py task=allegro_inhand/mujoco
 
-# Use Motrix backend
-uv run python scripts/train_rsl_rl.py task=AllegroInhandRotation training.sim_backend=motrix
+# Motrix preset is not configured for AllegroInhandRotation
 ```
 
 Training logs are saved to `logs/rsl_rl_train/AllegroInhandRotation/<timestamp>/`.
@@ -85,14 +84,14 @@ Training logs are saved to `logs/rsl_rl_train/AllegroInhandRotation/<timestamp>/
 ### Step 3 — Evaluate / render video
 
 ```bash
-uv run python scripts/train_rsl_rl.py task=AllegroInhandRotation training.play_only=true
+uv run python scripts/train_rsl_rl.py task=allegro_inhand/mujoco training.play_only=true
 
 # Custom camera
-uv run python scripts/train_rsl_rl.py task=AllegroInhandRotation training.play_only=true \
+uv run python scripts/train_rsl_rl.py task=allegro_inhand/mujoco training.play_only=true \
     training.cam_distance=1.5 training.cam_elevation=-30 training.cam_azimuth=45
 
 # Load a specific run
-uv run python scripts/train_rsl_rl.py task=AllegroInhandRotation training.play_only=true \
+uv run python scripts/train_rsl_rl.py task=allegro_inhand/mujoco training.play_only=true \
     training.load_run=2026-03-10_22-50-13
 ```
 
@@ -135,7 +134,7 @@ inhand_rot_allegro/
 
 Key parameters are in `rotation.py` (`RewardConfig`, `DomainRandConfig`) and `unilab/config/manipulation_params.py` (`ppo_config`).
 
-**PPO hyperparameters** (configured via `conf/ppo/task/allegro_inhand.yaml` and `conf/ppo/reward/allegro_ppo.yaml`):
+**PPO hyperparameters** (configured via `conf/ppo/task/allegro_inhand/mujoco.yaml`):
 
 | Parameter | Value |
 |---|---|
