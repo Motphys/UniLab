@@ -96,4 +96,4 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra motrix
       - name: Test with coverage
-        run: uv run pytest -m "not slow and not veryslow" --cov=unilab --cov-report markdown-append:$GITHUB_STEP_SUMMARY --cov-fail-under=10
+        run: uv run pytest -m "not slow and not veryslow" --cov=unilab --cov-report markdown-append:$GITHUB_STEP_SUMMARY --cov-fail-under=25

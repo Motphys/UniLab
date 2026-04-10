@@ -49,3 +49,32 @@ def test_check_script_references_ignores_tests_paths():
     errors = doc_checks.check_script_references(content, doc_path, root)
 
     assert errors == []
+
+
+def test_collect_doc_errors_scans_issue_templates_for_hydra_semantics(tmp_path):
+    issue_template = tmp_path / ".github" / "ISSUE_TEMPLATE" / "bug_report.yml"
+    issue_template.parent.mkdir(parents=True)
+    issue_template.write_text(
+        "placeholder: |\n  uv run python scripts/train_offpolicy.py algo=sac task=g1_sac ...\n",
+        encoding="utf-8",
+    )
+    script_path = tmp_path / "scripts" / "train_offpolicy.py"
+    script_path.parent.mkdir(parents=True)
+    script_path.write_text("", encoding="utf-8")
+
+    errors = doc_checks.collect_doc_errors(tmp_path)
+
+    assert any("task=g1_sac" in error for error in errors)
+
+
+def test_collect_doc_errors_scans_issue_templates_for_script_paths(tmp_path):
+    issue_template = tmp_path / ".github" / "ISSUE_TEMPLATE" / "bug_report.yml"
+    issue_template.parent.mkdir(parents=True)
+    issue_template.write_text(
+        "placeholder: |\n  uv run python scripts/missing_entrypoint.py task=go1_joystick/mujoco\n",
+        encoding="utf-8",
+    )
+
+    errors = doc_checks.collect_doc_errors(tmp_path)
+
+    assert any("Script not found: scripts/missing_entrypoint.py" in error for error in errors)
