@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from unilab.docs.support_matrix import render_generated_block, replace_generated_block
+
 VALID_HYDRA_KEYS = {
     "task",
     "algo",
@@ -94,6 +96,8 @@ def check_file_paths(content: str, doc_path: Path, root: Path) -> list[str]:
             rel_path = match.group(1)
             if any(token in rel_path for token in ("*", "<", "{", "}", "...")):
                 continue
+            if "::" in rel_path:
+                rel_path = rel_path.split("::", 1)[0]
             if not (root / rel_path).exists():
                 errors.append(f"{doc_path}: Path not found: {rel_path}")
 
@@ -201,6 +205,20 @@ def check_training_entrypoint_semantics(content: str, doc_path: Path, root: Path
     return errors
 
 
+def check_generated_support_matrix(content: str, doc_path: Path, root: Path) -> list[str]:
+    errors: list[str] = []
+    if doc_path != root / "docs" / "zh_CN" / "02-simulation-backends.md":
+        return errors
+
+    expected = replace_generated_block(content, render_generated_block(root))
+    if expected != content:
+        errors.append(
+            f"{doc_path}: Generated support matrix is stale; run "
+            "`uv run python scripts/generate_support_matrix.py --write`"
+        )
+    return errors
+
+
 def check_document(doc_path: Path, root: Path) -> list[str]:
     content = doc_path.read_text(encoding="utf-8")
     errors: list[str] = []
@@ -210,6 +228,7 @@ def check_document(doc_path: Path, root: Path) -> list[str]:
     errors.extend(check_hydra_keys(content, doc_path, root))
     errors.extend(check_argparse_vs_hydra(content, doc_path, root))
     errors.extend(check_training_entrypoint_semantics(content, doc_path, root))
+    errors.extend(check_generated_support_matrix(content, doc_path, root))
     return errors
 
 
