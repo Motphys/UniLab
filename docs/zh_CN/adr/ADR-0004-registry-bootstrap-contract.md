@@ -2,43 +2,40 @@
 
 - Status: Accepted
 - Date: 2026-04-11
-- Owners: Infra / Registry maintainers
+- Owners: Env / Infra maintainers
 
 ## Context
 
-训练入口和工具脚本依赖 registry 中的 env 注册结果。若 bootstrap 规则不清晰，常见问题是:
+UniLab 的 env 注册依赖 `@registry.envcfg(...)` 与 `@registry.env(...)` decorator side effect。若 bootstrap 继续依赖目录扫描和隐式导入，问题会有三个:
 
-- 依赖隐式 import side effect，行为难以推断。
-- 文档只能描述“先跑某脚本再说”，缺少明确 contract。
+1. registry contract 由文件系统布局隐式决定，而不是由 package 明确声明。
+2. 导入失败边界不清晰，review 时很难区分“缺失 optional package”与“bootstrap contract 破坏”。
+3. support claim 与架构文档无法稳定引用 bootstrap 入口。
 
 ## Decision
 
-将 registry bootstrap 作为独立 contract 记录，并要求调用方显式遵守:
+将 env registry bootstrap 定义为显式 package contract:
 
-1. registry 以 `registry.make(...)` 作为实例化入口。
-2. bootstrap 过程由统一入口触发，保障 env decorators 已执行。
-3. support claim 与矩阵生成都以 bootstrap 后的 registry 事实为准。
+1. registry bootstrap 入口仍然是 `ensure_registries()`。
+2. package 若承担 bootstrap 责任，必须显式声明其 registry module 列表。
+3. `ensure_registries()` 只导入声明的 bootstrap modules，不再依赖目录扫描推断注册目标。
+4. optional package 与 required package 的失败策略继续分离: optional 记录 warning，required 直接失败。
 
 ## Stable Contracts
 
-- 构造 contract: `src/unilab/base/registry.py`
-- bootstrap 入口: `unilab.utils.algo_utils.ensure_registries()` 及其 training helper 包装
-- support claim 证据路径: registry 列表、owner YAML、测试清单
+- `ensure_registries()` 是 registry-based entrypoint 的统一 bootstrap 入口。
+- package-level bootstrap 清单必须是显式声明，而不是通过扫描推断。
+- bootstrap contract 破坏必须在导入阶段直接暴露。
 
 ## Consequences
 
-- 新增 env/task 时，需要同时更新注册入口和 owner YAML。
-- 文档和工具不得把“扫描目录是否恰好导入成功”当成 contract 本身。
+- 新增 env package 时，需要同步声明 bootstrap modules。
+- registry 相关回归可以在 `ensure_registries()` 边界直接测试，不必依赖顶层训练脚本间接发现。
+- 文档可以把 registry bootstrap 作为正式架构引用，而不是“当前实现细节”。
 
 ## Evidence In Repo
 
-- Registry 实现: `src/unilab/base/registry.py`
-- Bootstrap 使用面: `src/unilab/training/common.py`, `scripts/train_*.py`
-- 支持矩阵生成说明: `docs/zh_CN/02-simulation-backends.md`
-
-## Related Documents
-
-- [ADR Index](README.md)
-- [RL Infrastructure 开发标准](../00-development-architecture.md)
-- [仿真后端](../02-simulation-backends.md)
-- [协作流程](../06-collaboration.md)
+- Registry 入口: `src/unilab/base/registry.py`
+- Bootstrap helper: `src/unilab/utils/algo_utils.py`
+- Env package 入口: `src/unilab/envs/locomotion/__init__.py`, `src/unilab/envs/motion_tracking/__init__.py`, `src/unilab/envs/manipulation/inhand_rot_allegro/__init__.py`
+- Bootstrap tests: `tests/utils/test_algo_utils.py`, `tests/base/test_registry.py`
