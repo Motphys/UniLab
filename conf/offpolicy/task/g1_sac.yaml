@@ -1,6 +1,5 @@
 # @package _global_
 defaults:
-  - /algo_motrix@algo_motrix: g1_sac
   - override /reward: g1_sac_mujoco
 
 training:

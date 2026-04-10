@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any, Callable, cast
+from typing import Any, Callable
 
 from omegaconf import DictConfig, OmegaConf
 
@@ -34,54 +34,11 @@ class BackendAdapter:
     def _is_motrix(self) -> bool:
         return bool(self.cfg.training.sim_backend == "motrix")
 
-    def resolve_algo_dict(self) -> dict[str, Any]:
-        """Resolve algo config, merging algo_motrix sidecar when on motrix backend.
-
-        Returns a new dict — cfg.algo is never mutated.
-        """
-        raw = OmegaConf.to_container(self.cfg.algo, resolve=True)
-        base: dict[str, Any] = cast(dict[str, Any], raw) if isinstance(raw, dict) else {}
-
-        if not self._is_motrix():
-            return base
-
-        algo_motrix = getattr(self.cfg, "algo_motrix", None)
-        if algo_motrix is None:
-            return base
-
-        if OmegaConf.is_config(algo_motrix):
-            raw_overrides = OmegaConf.to_container(algo_motrix, resolve=True)
-        elif isinstance(algo_motrix, dict):
-            raw_overrides = algo_motrix
-        else:
-            return base
-
-        overrides: dict[str, Any] = (
-            cast(dict[str, Any], raw_overrides) if isinstance(raw_overrides, dict) else {}
-        )
-        if not overrides:
-            return base
-
-        # Check applies_to filter (e.g., algo_motrix only for sac, not td3)
-        applies_to = overrides.pop("applies_to", None)
-        if applies_to and isinstance(applies_to, dict):
-            target_algo = applies_to.get("algo")
-            if (
-                self.algo_name is not None
-                and target_algo is not None
-                and target_algo != self.algo_name
-            ):
-                return base
-
-        # Merge overrides into base, respecting CLI explicit keys
-        self._merge_overrides(base, overrides, base_path="algo")
-        return base
-
     def build_task_env_cfg_override(self) -> dict[str, Any]:
         """Build env_cfg_override for training/play entrypoints.
 
-        Combines reward config (via reward_motrix) with backend_profile env overrides.
-        Does NOT touch algo config — use resolve_algo_dict() for that.
+        Combines reward config (via reward_motrix sidecar) with backend_profile env overrides.
+        Algo config is NOT touched — training scripts read cfg.algo directly.
         """
         env_cfg_override = extract_reward_config(self.cfg)
 
@@ -161,17 +118,6 @@ class BackendAdapter:
             skybox_rgb2=getattr(scene_override, "skybox_rgb2", None),
         )
         return env_cfg_override
-
-    def _merge_overrides(self, target: dict, overrides: dict, *, base_path: str) -> None:
-        """Recursively merge overrides into target dict, skipping CLI-explicit keys."""
-        for key, value in overrides.items():
-            key_str = str(key)
-            path = f"{base_path}.{key_str}"
-            if isinstance(value, dict) and isinstance(target.get(key_str), dict):
-                if path not in self.explicit_keys:
-                    self._merge_overrides(target[key_str], value, base_path=path)
-            elif path not in self.explicit_keys:
-                target[key_str] = value
 
     def _apply_nested_overrides(self, target: Any, overrides: Any, *, base_path: str) -> None:
         if OmegaConf.is_config(overrides):

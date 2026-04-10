@@ -79,8 +79,8 @@ def test_offpolicy_sac_defaults():
     with initialize_config_dir(config_dir=str(CONF_DIR / "offpolicy"), version_base="1.3"):
         cfg = compose("config")
     assert cfg.algo.algo == "sac"
-    # go1_joystick task sets num_envs=2048
-    assert cfg.algo.num_envs == 2048
+    # go1_joystick task sets num_envs=4096 (motrix-aligned hyperparams folded into base)
+    assert cfg.algo.num_envs == 4096
 
 
 def test_offpolicy_sac_g1_task_overrides():
@@ -176,7 +176,8 @@ def test_ppo_g1_num_envs():
     with initialize_config_dir(config_dir=str(CONF_DIR / "ppo"), version_base="1.3"):
         cfg = compose("config", overrides=["task=g1_joystick"])
     assert cfg.algo.num_envs == 2048
-    assert cfg.algo.max_iterations == 220
+    # max_iterations=151 (motrix-aligned hyperparams folded into base)
+    assert cfg.algo.max_iterations == 151
 
 
 def test_ppo_go2_num_envs():

@@ -150,84 +150,68 @@ def test_offpolicy_hydra_algo_td3():
     assert cfg.algo.algo == "td3"
 
 
-def test_offpolicy_task_go1_exposes_algo_motrix():
-    cfg = _offpolicy_cfg(["task=go1_joystick"])
+def test_offpolicy_go1_resolved_algo_matches_old_motrix_behavior():
+    """Equivalence: Motrix SAC Go1 algo hyperparams match pre-refactor values."""
+    cfg = _offpolicy_cfg(["task=go1_joystick", "training.sim_backend=motrix"])
 
-    assert cfg.algo_motrix.applies_to.algo == "sac"
-    assert cfg.algo_motrix.num_envs == 4096
-    assert cfg.algo_motrix.max_iterations == 2000
+    # Old motrix_legacy.algo_overrides for Go1 SAC: num_envs=4096, max_iterations=2000
+    assert cfg.algo.num_envs == 4096
+    assert cfg.algo.max_iterations == 2000
 
 
-def test_offpolicy_build_env_cfg_override_and_resolve_algo_go1():
+def test_offpolicy_go1_env_cfg_override_has_reward_and_commands():
     cfg = _offpolicy_cfg(["task=go1_joystick", "training.sim_backend=motrix"])
 
     env_cfg_override = _offpolicy().build_offpolicy_env_cfg_override("sac", cfg)
-    resolved_algo = _offpolicy().resolve_offpolicy_algo("sac", cfg)
 
-    # resolved algo merges algo_motrix overrides
-    assert resolved_algo["num_envs"] == 4096
-    assert resolved_algo["max_iterations"] == 2000
-    # cfg.algo is NOT mutated
-    assert cfg.algo.num_envs == 2048
-    assert cfg.algo.max_iterations == 3000
-    # env_cfg_override has reward + backend_profile fields
+    # env_cfg_override has reward + backend_profile fields (no bag structure)
     assert env_cfg_override["reward_config"]["scales"]["tracking_lin_vel"] == pytest.approx(1.0)
     assert env_cfg_override["commands"]["vel_limit"] == [[0.5, 0.0, 0.0], [0.5, 0.0, 0.0]]
 
 
-def test_offpolicy_resolve_algo_skips_td3():
-    cfg = _offpolicy_cfg(["algo=td3", "task=go1_joystick", "training.sim_backend=motrix"])
-
-    resolved_algo = _offpolicy().resolve_offpolicy_algo("td3", cfg)
-
-    # algo_motrix go1 has applies_to.algo=sac, so td3 should NOT get those overrides
-    assert resolved_algo["num_envs"] == 2048
-    assert resolved_algo["max_iterations"] == 3000
-
-
-def test_offpolicy_resolve_algo_respects_cli_algo_override(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    cfg = _offpolicy_cfg(
-        ["task=go1_joystick", "training.sim_backend=motrix", "algo.max_iterations=1"]
-    )
-    monkeypatch.setattr(sys, "argv", ["train_offpolicy.py", "algo.max_iterations=1"])
-
-    resolved_algo = _offpolicy().resolve_offpolicy_algo("sac", cfg)
-
-    assert resolved_algo["num_envs"] == 4096
-    assert resolved_algo["max_iterations"] == 1
-
-
 def test_offpolicy_resolve_sac_use_symmetry_keeps_mujoco_setting():
     cfg = _offpolicy_cfg(["task=g1_sac", "training.sim_backend=mujoco"])
-    resolved_algo = _offpolicy().resolve_offpolicy_algo("sac", cfg)
 
-    assert _offpolicy().resolve_sac_use_symmetry(resolved_algo, cfg) is True
+    assert _offpolicy().resolve_sac_use_symmetry(cfg) is True
 
 
 def test_offpolicy_resolve_sac_use_symmetry_disables_motrix():
     cfg = _offpolicy_cfg(["task=g1_sac", "training.sim_backend=motrix"])
-    resolved_algo = _offpolicy().resolve_offpolicy_algo("sac", cfg)
 
-    assert _offpolicy().resolve_sac_use_symmetry(resolved_algo, cfg) is False
+    assert _offpolicy().resolve_sac_use_symmetry(cfg) is False
 
 
-def test_ppo_task_go1_exposes_algo_motrix():
+def test_ppo_go1_resolved_algo_matches_old_motrix_behavior():
+    """Equivalence: PPO Go1 algo hyperparams match pre-refactor motrix values."""
     cfg = _ppo_cfg(["task=go1_joystick"])
 
-    assert cfg.algo_motrix.empirical_normalization is True
-    assert cfg.algo_motrix.policy.init_noise_std == pytest.approx(0.5)
-    assert cfg.algo_motrix.algorithm.learning_rate == pytest.approx(3.0e-4)
-    assert cfg.algo_motrix.algorithm.entropy_coef == pytest.approx(1.0e-3)
+    # Old motrix_legacy.algo_overrides for Go1 PPO merged into base (Go2 pattern)
+    assert cfg.algo.max_iterations == 151
+    assert cfg.algo.empirical_normalization is True
+    assert cfg.algo.policy.init_noise_std == pytest.approx(0.5)
+    assert cfg.algo.algorithm.learning_rate == pytest.approx(3.0e-4)
+    assert cfg.algo.algorithm.entropy_coef == pytest.approx(1.0e-3)
 
 
-def test_ppo_task_g1_exposes_algo_motrix_and_backend_profile():
+def test_ppo_g1_resolved_algo_matches_old_motrix_behavior():
+    """Equivalence: PPO G1 algo hyperparams match pre-refactor motrix values.
+
+    In particular, max_iterations=151 (the motrix value from the old bag),
+    NOT 220 (the old mujoco base value which has been retired).
+    """
     cfg = _ppo_cfg(["task=g1_joystick"])
 
-    assert cfg.algo_motrix.empirical_normalization is True
-    assert cfg.algo_motrix.obs_groups.actor == ["policy"]
-    assert cfg.algo_motrix.algorithm.entropy_coef == pytest.approx(5.0e-3)
+    assert cfg.algo.max_iterations == 151
+    assert cfg.algo.empirical_normalization is True
+    assert cfg.algo.obs_groups.actor == ["policy"]
+    assert cfg.algo.policy.init_noise_std == pytest.approx(0.5)
+    assert cfg.algo.algorithm.learning_rate == pytest.approx(3.0e-4)
+    assert cfg.algo.algorithm.entropy_coef == pytest.approx(5.0e-3)
+
+
+def test_ppo_g1_backend_profile_has_env_overrides():
+    cfg = _ppo_cfg(["task=g1_joystick"])
+
     assert cfg.backend_profile.control_config.action_scale == pytest.approx(0.5)
     assert cfg.backend_profile.gait_phase_init_mode == "independent"
     assert cfg.backend_profile.reset_base_qvel_limit == pytest.approx(0.05)
@@ -247,45 +231,28 @@ def test_ppo_task_go2_aligns_mujoco_with_motrix_defaults():
     assert cfg.algo.algorithm.entropy_coef == pytest.approx(1.0e-3)
 
 
-def test_build_ppo_env_cfg_override_and_resolve_algo_go1(
+def test_build_ppo_env_cfg_override_go1_motrix(
     monkeypatch: pytest.MonkeyPatch,
 ):
     mod = _train_rsl_rl(monkeypatch)
     cfg = _ppo_cfg(["task=go1_joystick", "training.sim_backend=motrix"])
 
     env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
-    resolved_algo = mod.resolve_ppo_algo(cfg)
 
-    # resolved algo merges algo_motrix overrides
-    assert resolved_algo["empirical_normalization"] is True
-    assert resolved_algo["policy"]["init_noise_std"] == pytest.approx(0.5)
-    assert resolved_algo["algorithm"]["learning_rate"] == pytest.approx(3.0e-4)
-    assert resolved_algo["algorithm"]["entropy_coef"] == pytest.approx(1.0e-3)
-    # cfg.algo is NOT mutated
-    assert cfg.algo.empirical_normalization is False
     # env_cfg_override has reward + backend_profile commands
     assert env_cfg_override["reward_config"]["scales"]["tracking_lin_vel"] == pytest.approx(1.0)
     assert env_cfg_override["commands"]["vel_limit"] == [[0.5, 0.0, 0.0], [0.5, 0.0, 0.0]]
 
 
-def test_build_ppo_env_cfg_override_and_resolve_algo_g1(
+def test_build_ppo_env_cfg_override_g1_motrix(
     monkeypatch: pytest.MonkeyPatch,
 ):
     mod = _train_rsl_rl(monkeypatch)
     cfg = _ppo_cfg(["task=g1_joystick", "training.sim_backend=motrix"])
 
     env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
-    resolved_algo = mod.resolve_ppo_algo(cfg)
 
-    # resolved algo merges algo_motrix overrides
-    assert resolved_algo["empirical_normalization"] is True
-    assert resolved_algo["policy"]["init_noise_std"] == pytest.approx(0.5)
-    assert resolved_algo["algorithm"]["learning_rate"] == pytest.approx(3.0e-4)
-    assert resolved_algo["algorithm"]["entropy_coef"] == pytest.approx(5.0e-3)
-    assert resolved_algo["obs_groups"]["actor"] == ["policy"]
-    # cfg.algo is NOT mutated
-    assert cfg.algo.empirical_normalization is False
-    # env_cfg_override has reward + backend_profile fields
+    # env_cfg_override has reward + backend_profile fields (flat, matching env cfg structure)
     assert env_cfg_override["reward_config"]["scales"]["upper_body_pose"] == pytest.approx(-0.05)
     assert env_cfg_override["control_config"]["action_scale"] == pytest.approx(0.5)
     assert env_cfg_override["gait_phase_init_mode"] == "independent"
@@ -308,17 +275,15 @@ def test_build_ppo_env_cfg_override_applies_go2_reward_motrix(
     assert env_cfg_override["reward_config"]["scales"]["tracking_ang_vel"] == pytest.approx(0.2)
 
 
-def test_resolve_ppo_algo_respects_cli_algo_override(
+def test_ppo_cli_algo_override_wins_over_base(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    mod = _train_rsl_rl(monkeypatch)
+    """CLI override takes precedence over base task algo values via Hydra compose."""
     cfg = _ppo_cfg(["task=g1_joystick", "training.sim_backend=motrix", "algo.max_iterations=1"])
-    monkeypatch.setattr(sys, "argv", ["train_rsl_rl.py", "algo.max_iterations=1"])
 
-    resolved_algo = mod.resolve_ppo_algo(cfg)
-
-    assert resolved_algo["empirical_normalization"] is True
-    assert resolved_algo["max_iterations"] == 1
+    assert cfg.algo.max_iterations == 1
+    # Other base values remain intact
+    assert cfg.algo.empirical_normalization is True
 
 
 def test_g1_motion_tracking_ppo_motrix_prefers_backend_specific_reward(

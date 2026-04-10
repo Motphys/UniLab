@@ -53,10 +53,6 @@ def build_ppo_play_env_cfg_override(cfg: DictConfig) -> dict:
     return _backend_adapter(cfg).build_play_env_cfg_override()
 
 
-def resolve_ppo_algo(cfg: DictConfig) -> dict:
-    return _backend_adapter(cfg).resolve_algo_dict()
-
-
 def run_motrix_rsl_play_loop(
     wrapped_env,
     policy,
@@ -162,9 +158,7 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
 def main(cfg: DictConfig) -> None:
     ensure_registries()
 
-    adapter = _backend_adapter(cfg)
-    env_cfg_override = adapter.build_task_env_cfg_override()
-    resolved_algo = adapter.resolve_algo_dict()
+    env_cfg_override = build_ppo_env_cfg_override(cfg)
 
     if torch.cuda.is_available():
         device = "cuda"
@@ -175,9 +169,9 @@ def main(cfg: DictConfig) -> None:
     print(f"Using device: {device}")
 
     # Compute effective max_iterations (supports num_timesteps override)
-    max_iterations = resolved_algo["max_iterations"]
+    max_iterations = cfg.algo.max_iterations
     if cfg.training.num_timesteps:
-        n_steps_per_iter = resolved_algo["num_steps_per_env"] * resolved_algo["num_envs"]
+        n_steps_per_iter = cfg.algo.num_steps_per_env * cfg.algo.num_envs
         max_iterations = max(1, int(cfg.training.num_timesteps / n_steps_per_iter))
         print(
             f"Overriding max_iterations to {max_iterations} based on "
@@ -211,12 +205,12 @@ def main(cfg: DictConfig) -> None:
         if not cfg.training.play_only:
             env = create_env(
                 cfg,
-                num_envs=resolved_algo["num_envs"],
+                num_envs=cfg.algo.num_envs,
                 env_cfg_override=env_cfg_override,
             )
             wrapped_env = RslRlVecEnvWrapper(env, device=device)
 
-            train_cfg = dict(resolved_algo)
+            train_cfg = OmegaConf.to_container(cfg.algo, resolve=True)
             if "runner" not in train_cfg:
                 train_cfg["runner"] = {}
 

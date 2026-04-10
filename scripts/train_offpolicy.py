@@ -74,29 +74,18 @@ def extract_play_obs(obs_dict):
     return obs_out
 
 
-def _backend_adapter(algo_name: str, cfg: DictConfig) -> BackendAdapter:
-    return BackendAdapter(cfg, root_dir=ROOT_DIR, algo_name=algo_name)
-
-
 def build_offpolicy_env_cfg_override(algo_name: str, cfg: DictConfig) -> dict | None:
-    return _backend_adapter(algo_name, cfg).build_task_env_cfg_override()
+    return BackendAdapter(cfg, root_dir=ROOT_DIR, algo_name=algo_name).build_task_env_cfg_override()
 
 
-def resolve_offpolicy_algo(algo_name: str, cfg: DictConfig) -> dict:
-    return _backend_adapter(algo_name, cfg).resolve_algo_dict()
-
-
-def resolve_sac_use_symmetry(resolved_algo: dict, cfg: DictConfig) -> bool:
+def resolve_sac_use_symmetry(cfg: DictConfig) -> bool:
     """Symmetry augmentation currently depends on MuJoCo model APIs."""
-    return bool(resolved_algo.get("use_symmetry", False) and cfg.training.sim_backend == "mujoco")
+    return bool(cfg.algo.use_symmetry and cfg.training.sim_backend == "mujoco")
 
 
 def build_runner(algo_name: str, cfg: DictConfig):
     """Build algorithm runner from unified Hydra config."""
-    adapter = _backend_adapter(algo_name, cfg)
-    env_cfg_override = adapter.build_task_env_cfg_override()
-    algo = adapter.resolve_algo_dict()
-    algo_params = algo.get("algo_params", {})
+    env_cfg_override = build_offpolicy_env_cfg_override(algo_name, cfg)
 
     if algo_name == "sac":
         from unilab.algos.torch.fast_sac.learner import FastSACLearner
@@ -124,18 +113,18 @@ def build_runner(algo_name: str, cfg: DictConfig):
             learner_kwargs = {
                 "obs_dim": obs_dim,
                 "action_dim": action_dim,
-                "gamma": algo["gamma"],
-                "tau": algo["tau"],
-                "actor_lr": algo["actor_lr"],
-                "critic_lr": algo["critic_lr"],
-                "alpha_lr": algo_params["alpha_lr"],
-                "alpha_init": algo_params["alpha_init"],
-                "target_entropy_ratio": algo_params["target_entropy_ratio"],
-                "actor_hidden_dim": algo["actor_hidden_dim"],
-                "critic_hidden_dim": algo["critic_hidden_dim"],
-                "num_atoms": algo["num_atoms"],
-                "use_layer_norm": algo["use_layer_norm"],
-                "max_grad_norm": algo_params["max_grad_norm"],
+                "gamma": cfg.algo.gamma,
+                "tau": cfg.algo.tau,
+                "actor_lr": cfg.algo.actor_lr,
+                "critic_lr": cfg.algo.critic_lr,
+                "alpha_lr": cfg.algo.algo_params.alpha_lr,
+                "alpha_init": cfg.algo.algo_params.alpha_init,
+                "target_entropy_ratio": cfg.algo.algo_params.target_entropy_ratio,
+                "actor_hidden_dim": cfg.algo.actor_hidden_dim,
+                "critic_hidden_dim": cfg.algo.critic_hidden_dim,
+                "num_atoms": cfg.algo.num_atoms,
+                "use_layer_norm": cfg.algo.use_layer_norm,
+                "max_grad_norm": cfg.algo.algo_params.max_grad_norm,
                 "use_amp": cfg.training.use_amp,
                 "privileged_dim": privileged_dim,
                 # symmetry not supported in multi-GPU mode (mujoco_model not picklable)
@@ -149,17 +138,17 @@ def build_runner(algo_name: str, cfg: DictConfig):
                 algo_type="sac",
                 learner_kwargs=learner_kwargs,
                 num_gpus=cfg.training.num_gpus,
-                num_envs=algo["num_envs"],
-                replay_buffer_n=algo["replay_buffer_n"],
-                batch_size=algo["batch_size"],
-                warmup_steps=algo["warmup_steps"],
-                updates_per_step=algo["updates_per_step"],
-                policy_frequency=algo["policy_frequency"],
+                num_envs=cfg.algo.num_envs,
+                replay_buffer_n=cfg.algo.replay_buffer_n,
+                batch_size=cfg.algo.batch_size,
+                warmup_steps=cfg.algo.warmup_steps,
+                updates_per_step=cfg.algo.updates_per_step,
+                policy_frequency=cfg.algo.policy_frequency,
                 sync_collection=not cfg.training.no_sync_collection,
                 env_steps_per_sync=cfg.training.env_steps_per_sync,
                 device=device,
-                actor_hidden_dim=algo["actor_hidden_dim"],
-                use_layer_norm=algo["use_layer_norm"],
+                actor_hidden_dim=cfg.algo.actor_hidden_dim,
+                use_layer_norm=cfg.algo.use_layer_norm,
                 obs_normalization=False,
                 sim_backend=cfg.training.sim_backend,
                 env_cfg_override=env_cfg_override,
@@ -169,30 +158,30 @@ def build_runner(algo_name: str, cfg: DictConfig):
             env_name=cfg.training.task_name,
             env_cfg_override=env_cfg_override,
             device=cfg.training.device,
-            num_envs=algo["num_envs"],
-            replay_buffer_n=algo["replay_buffer_n"],
-            batch_size=algo["batch_size"],
-            warmup_steps=algo["warmup_steps"],
-            updates_per_step=algo["updates_per_step"],
-            policy_frequency=algo["policy_frequency"],
-            gamma=algo["gamma"],
-            tau=algo["tau"],
-            actor_lr=algo["actor_lr"],
-            critic_lr=algo["critic_lr"],
-            alpha_lr=algo_params["alpha_lr"],
-            alpha_init=algo_params["alpha_init"],
-            target_entropy_ratio=algo_params["target_entropy_ratio"],
-            obs_normalization=algo["obs_normalization"],
-            actor_hidden_dim=algo["actor_hidden_dim"],
-            critic_hidden_dim=algo["critic_hidden_dim"],
-            num_atoms=algo["num_atoms"],
-            use_layer_norm=algo["use_layer_norm"],
-            max_grad_norm=algo_params["max_grad_norm"],
+            num_envs=cfg.algo.num_envs,
+            replay_buffer_n=cfg.algo.replay_buffer_n,
+            batch_size=cfg.algo.batch_size,
+            warmup_steps=cfg.algo.warmup_steps,
+            updates_per_step=cfg.algo.updates_per_step,
+            policy_frequency=cfg.algo.policy_frequency,
+            gamma=cfg.algo.gamma,
+            tau=cfg.algo.tau,
+            actor_lr=cfg.algo.actor_lr,
+            critic_lr=cfg.algo.critic_lr,
+            alpha_lr=cfg.algo.algo_params.alpha_lr,
+            alpha_init=cfg.algo.algo_params.alpha_init,
+            target_entropy_ratio=cfg.algo.algo_params.target_entropy_ratio,
+            obs_normalization=cfg.algo.obs_normalization,
+            actor_hidden_dim=cfg.algo.actor_hidden_dim,
+            critic_hidden_dim=cfg.algo.critic_hidden_dim,
+            num_atoms=cfg.algo.num_atoms,
+            use_layer_norm=cfg.algo.use_layer_norm,
+            max_grad_norm=cfg.algo.algo_params.max_grad_norm,
             use_amp=cfg.training.use_amp,
             sync_collection=not cfg.training.no_sync_collection,
             env_steps_per_sync=cfg.training.env_steps_per_sync,
             sim_backend=cfg.training.sim_backend,
-            use_symmetry=resolve_sac_use_symmetry(algo, cfg),
+            use_symmetry=resolve_sac_use_symmetry(cfg),
         )
 
     if algo_name == "td3":
@@ -202,31 +191,31 @@ def build_runner(algo_name: str, cfg: DictConfig):
             env_name=cfg.training.task_name,
             env_cfg_override=env_cfg_override,
             device=cfg.training.device,
-            num_envs=algo["num_envs"],
-            replay_buffer_n=algo["replay_buffer_n"],
-            batch_size=algo["batch_size"],
-            warmup_steps=algo["warmup_steps"],
-            num_updates=algo["updates_per_step"],
-            policy_frequency=algo["policy_frequency"],
+            num_envs=cfg.algo.num_envs,
+            replay_buffer_n=cfg.algo.replay_buffer_n,
+            batch_size=cfg.algo.batch_size,
+            warmup_steps=cfg.algo.warmup_steps,
+            num_updates=cfg.algo.updates_per_step,
+            policy_frequency=cfg.algo.policy_frequency,
             sync_collection=not cfg.training.no_sync_collection,
             env_steps_per_sync=cfg.training.env_steps_per_sync,
-            gamma=algo["gamma"],
-            tau=algo["tau"],
-            actor_lr=algo["actor_lr"],
-            critic_lr=algo["critic_lr"],
-            actor_hidden_dim=algo["actor_hidden_dim"],
-            critic_hidden_dim=algo["critic_hidden_dim"],
-            num_atoms=algo["num_atoms"],
-            v_min=algo_params["v_min"],
-            v_max=algo_params["v_max"],
-            init_scale=algo_params["init_scale"],
-            log_std_min=algo_params["log_std_min"],
-            log_std_max=algo_params["log_std_max"],
-            policy_noise=algo_params["policy_noise"],
-            noise_clip=algo_params["noise_clip"],
-            weight_decay=algo_params["weight_decay"],
-            use_cdq=algo_params["use_cdq"],
-            obs_normalization=algo["obs_normalization"],
+            gamma=cfg.algo.gamma,
+            tau=cfg.algo.tau,
+            actor_lr=cfg.algo.actor_lr,
+            critic_lr=cfg.algo.critic_lr,
+            actor_hidden_dim=cfg.algo.actor_hidden_dim,
+            critic_hidden_dim=cfg.algo.critic_hidden_dim,
+            num_atoms=cfg.algo.num_atoms,
+            v_min=cfg.algo.algo_params.v_min,
+            v_max=cfg.algo.algo_params.v_max,
+            init_scale=cfg.algo.algo_params.init_scale,
+            log_std_min=cfg.algo.algo_params.log_std_min,
+            log_std_max=cfg.algo.algo_params.log_std_max,
+            policy_noise=cfg.algo.algo_params.policy_noise,
+            noise_clip=cfg.algo.algo_params.noise_clip,
+            weight_decay=cfg.algo.algo_params.weight_decay,
+            use_cdq=cfg.algo.algo_params.use_cdq,
+            obs_normalization=cfg.algo.obs_normalization,
             sim_backend=cfg.training.sim_backend,
         )
 
@@ -240,9 +229,7 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
 
     from unilab.utils.algo_utils import build_actor
 
-    adapter = _backend_adapter(algo_name, cfg)
-    env_cfg_override = adapter.build_task_env_cfg_override()
-    algo = adapter.resolve_algo_dict()
+    env_cfg_override = build_offpolicy_env_cfg_override(algo_name, cfg)
 
     device = default_device(torch, cfg.training.device)
     print(f"Using device for play: {device}")
@@ -261,25 +248,24 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
             "sac",
             obs_dim,
             action_dim,
-            algo["actor_hidden_dim"],
-            algo["use_layer_norm"],
+            cfg.algo.actor_hidden_dim,
+            cfg.algo.use_layer_norm,
             device,
         )
     elif algo_name == "td3":
         from unilab.algos.torch.fast_td3.learner import EmpiricalNormalization, TD3Actor
 
-        algo_params = algo.get("algo_params", {})
         actor = TD3Actor(
             obs_dim,
             action_dim,
             cfg.training.play_env_num,
-            algo_params["init_scale"],
-            algo["actor_hidden_dim"],
-            algo_params["log_std_min"],
-            algo_params["log_std_max"],
+            cfg.algo.algo_params.init_scale,
+            cfg.algo.actor_hidden_dim,
+            cfg.algo.algo_params.log_std_min,
+            cfg.algo.algo_params.log_std_max,
             device,
         )
-        if algo["obs_normalization"]:
+        if cfg.algo.obs_normalization:
             normalizer = EmpiricalNormalization(shape=obs_dim, device=device)
     else:
         raise ValueError(f"Unsupported algo: {algo_name}")
@@ -288,9 +274,9 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
 
     load_path, load_path_dir = resolve_checkpoint_path(
         ROOT_DIR,
-        algo["algo_log_name"],
+        cfg.algo.algo_log_name,
         cfg.training.task_name,
-        algo["load_run"],
+        cfg.algo.load_run,
     )
     if not load_path or not os.path.exists(load_path):
         print(f"Could not find checkpoint. load_path={load_path}")

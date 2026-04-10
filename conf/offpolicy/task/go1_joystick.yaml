@@ -1,14 +1,13 @@
 # @package _global_
 defaults:
   - /reward@reward_motrix: go1_sac_motrix
-  - /algo_motrix@algo_motrix: go1
   - override /reward: go1_sac_mujoco
 
 training:
   task_name: Go1JoystickFlatTerrain
 algo:
-  num_envs: 2048
-  max_iterations: 3000
+  num_envs: 4096
+  max_iterations: 2000
 backend_profile:
   commands:
     vel_limit:

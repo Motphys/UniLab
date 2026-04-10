@@ -1,4 +1,0 @@
-applies_to:
-  algo: sac
-num_envs: 4096
-max_iterations: 2000
