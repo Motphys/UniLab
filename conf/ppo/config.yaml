@@ -47,7 +47,6 @@ algo:
     adaptive_lr_growth: 1.1
     adaptive_lr_decay: 1.2
     adaptive_lr_update_interval: 5
-    fast_mode: true
     metrics_interval: 8
     finite_check_interval: 8
     enable_compile: false

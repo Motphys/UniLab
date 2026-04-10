@@ -38,6 +38,65 @@ UniLab 是一个 **高性能、模块化、contract 驱动** 的 RL infrastructu
 - training path：相关测试 + 1-iteration smoke run
 - docs-only：核对命令、路径、配置名、CI 和 support claim
 
+## GitHub CLI (gh) 使用指南
+
+### Issue 查看
+
+```bash
+# 查看特定 issue
+gh issue view <number>
+
+# 示例: 查看 issue #174
+gh issue view 174
+
+# 如果提示缺少 scope，使用 API 方式
+gh api repos/<owner>/<repo>/issues/<number> --jq '.body'
+
+# 示例
+gh api repos/unilabsim/UniLab/issues/174 --jq '.body'
+```
+
+### PR 创建与管理
+
+```bash
+# 创建 PR（当前分支推送到远程后）
+gh pr create --title "标题" --body "内容" --base main
+
+# 查看 PR 列表
+gh pr list
+
+# 查看当前分支的 PR 状态
+gh pr view
+```
+
+### CI 工作流查看
+
+```bash
+# 查看工作流运行状态
+gh run list
+
+# 查看特定工作流的最新运行
+gh run list --workflow=<workflow-name>
+
+# 查看运行日志
+gh run view <run-id>
+
+# 查看失败的运行
+gh run list --status=failure
+```
+
+### 常用组合
+
+```bash
+# 完整的工作流程示例
+# 1. 查看 issue
+gh api repos/unilabsim/UniLab/issues/174 --jq '.title, .body'
+
+# 2. 创建分支并修改代码后，推送并创建 PR
+git push -u origin fix/issue-174-mlx-ppo-config-alignment
+gh pr create --title "fix: xxx" --body "Fixes #174" --base main
+```
+
 ## Pointers
 
 - PPO: `scripts/train_rsl_rl.py`

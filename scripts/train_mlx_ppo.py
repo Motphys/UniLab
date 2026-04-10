@@ -45,12 +45,6 @@ from unilab.utils.onpolicy_logger import OnPolicyLogger
 
 ensure_registries()
 
-TASK_STEP_TUNING = {
-    "Go1JoystickFlatTerrain": {"threads": "32", "chunk": "4"},
-    "Go2JoystickFlatTerrain": {"threads": "56", "chunk": "16"},
-    "G1JoystickFlatTerrain": {"threads": "24", "chunk": "4"},
-}
-
 
 class TensorboardScalarWriter:
     """Minimal scalar writer based on tensorboard event files."""
@@ -315,8 +309,7 @@ def main(cfg: DictConfig) -> None:
         adaptive_lr_growth=float(getattr(algo_cfg, "adaptive_lr_growth", 1.2)),
         adaptive_lr_decay=float(getattr(algo_cfg, "adaptive_lr_decay", 1.5)),
         adaptive_lr_update_interval=int(getattr(algo_cfg, "adaptive_lr_update_interval", 1)),
-        fast_mode=bool(getattr(algo_cfg, "fast_mode", False)),
-        metrics_interval=int(getattr(algo_cfg, "metrics_interval", 1)),
+        metrics_interval=int(getattr(algo_cfg, "metrics_interval", 8)),
         finite_check_interval=int(getattr(algo_cfg, "finite_check_interval", 1)),
         enable_compile=bool(getattr(algo_cfg, "enable_compile", False)),
         warmup_strict_iters=int(getattr(algo_cfg, "warmup_strict_iters", 0)),
@@ -356,8 +349,7 @@ def main(cfg: DictConfig) -> None:
     )
     log(f"[MLX PPO] run={timestamp} lr={learning_rate:.6f} fp16={use_fp16}")
     log(
-        "[MLX PPO] perf_mode fast_mode={} metrics_interval={} compile={}".format(
-            ppo_cfg.fast_mode,
+        "[MLX PPO] perf_mode metrics_interval={} compile={}".format(
             ppo_cfg.metrics_interval,
             ppo_cfg.enable_compile,
         )
