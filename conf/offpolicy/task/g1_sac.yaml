@@ -1,5 +1,6 @@
 # @package _global_
 defaults:
+  - /algo_motrix@algo_motrix: g1_sac
   - override /reward: g1_sac_mujoco
 
 training:
@@ -13,7 +14,3 @@ algo:
   algo_params:
     alpha_init: 0.001
     target_entropy_ratio: 0.0
-motrix_legacy:
-  enabled: true
-  algo_overrides:
-    use_symmetry: false

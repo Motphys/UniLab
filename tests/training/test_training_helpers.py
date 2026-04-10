@@ -63,17 +63,22 @@ def test_parse_checkpoint_path_uses_algo_log_name_from_cfg(tmp_path: Path):
     assert checkpoint_dir == run_dir
 
 
-def test_backend_adapter_applies_motrix_legacy_for_matching_algo():
+def test_backend_adapter_resolve_algo_and_env_override_for_matching_algo():
     cfg = _offpolicy_cfg(["task=go1_joystick", "training.sim_backend=motrix"])
 
-    env_cfg_override = BackendAdapter(
-        cfg, root_dir=_ROOT_DIR, algo_name="sac"
-    ).build_task_env_cfg_override()
+    adapter = BackendAdapter(cfg, root_dir=_ROOT_DIR, algo_name="sac")
+    resolved_algo = adapter.resolve_algo_dict()
+    env_cfg_override = adapter.build_task_env_cfg_override()
 
-    assert cfg.algo.num_envs == 4096
-    assert cfg.algo.max_iterations == 2000
-    assert env_cfg_override["legacy_motrix_profile"]["enabled"] is True
+    # resolved algo merges algo_motrix overrides
+    assert resolved_algo["num_envs"] == 4096
+    assert resolved_algo["max_iterations"] == 2000
+    # cfg.algo is NOT mutated
+    assert cfg.algo.num_envs == 2048
+    assert cfg.algo.max_iterations == 3000
+    # env_cfg_override has reward + backend_profile fields
     assert env_cfg_override["reward_config"]["scales"]["tracking_lin_vel"] == pytest.approx(1.0)
+    assert env_cfg_override["commands"]["vel_limit"] == [[0.5, 0.0, 0.0], [0.5, 0.0, 0.0]]
 
 
 def test_backend_adapter_builds_motrix_play_scene_override():

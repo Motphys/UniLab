@@ -1,5 +1,7 @@
 # @package _global_
 defaults:
+  - /reward@reward_motrix: go1_sac_motrix
+  - /algo_motrix@algo_motrix: go1
   - override /reward: go1_sac_mujoco
 
 training:
@@ -7,27 +9,8 @@ training:
 algo:
   num_envs: 2048
   max_iterations: 3000
-motrix_legacy:
-  enabled: true
-  applies_to:
-    algo: sac
-  algo_overrides:
-    num_envs: 4096
-    max_iterations: 2000
-  env_cfg_override:
-    legacy_motrix_profile:
-      enabled: true
-      command_vel_limit:
-        - [0.5, 0.0, 0.0]
-        - [0.5, 0.0, 0.0]
-    reward_config:
-      scales:
-        tracking_lin_vel: 1.0
-        tracking_ang_vel: 0.2
-        lin_vel_z: -5.0
-        ang_vel_xy: -0.1
-        base_height: -100.0
-        action_rate: -0.005
-        similar_to_default: -0.1
-      tracking_sigma: 0.25
-      base_height_target: 0.3
+backend_profile:
+  commands:
+    vel_limit:
+      - [0.5, 0.0, 0.0]
+      - [0.5, 0.0, 0.0]

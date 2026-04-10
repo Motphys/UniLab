@@ -26,7 +26,7 @@ UniLab 是一个 **高性能、模块化、contract 驱动** 的 RL infrastructu
 | 区域 | 不可破坏的不变量 |
 |------|----------------|
 | Env  | `NpEnvState.obs` 必须是 dict；`reset()` 返回 `(obs_dict, info_dict)`；`obs_groups_spec` 影响 wrapper 和 learner 维度。 |
-| Config / Reward | reward 通过 Hydra 注入；`training.sim_backend` 和 `motrix_legacy` 必须尊重显式 override。 |
+| Config / Reward | reward 通过 Hydra 注入；`training.sim_backend`、`algo_motrix`、`backend_profile` 必须尊重显式 override。 |
 | Backend | backend-specific 逻辑留在 backend / env 适配层，不向训练脚本扩散。 |
 | Async | 不绕开 runner lifecycle，也不另起 collector / learner 同步协议。 |
 

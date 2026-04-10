@@ -68,7 +68,7 @@ CPU Physics Sim ──shm──► Collector / IPC ──shm──► GPU Learne
 
 UniLab 使用 dataclass + Hydra。schema 位于 `src/unilab/config/structured_configs.py`，运行时配置位于 `conf/{ppo,appo,offpolicy}/`。
 
-合成顺序: `{algo}/config*.yaml` -> `task=...` -> `reward[_{backend}]` -> CLI override -> 必要时再叠加 `motrix_legacy`。
+合成顺序: `{algo}/config*.yaml` -> `task=...` -> `reward[_{backend}]` -> `algo_motrix` (backend sidecar) -> CLI override -> `backend_profile` (env overrides)。
 
 - reward 必须显式注入
 - 如果 backend 选择会影响 task 或 reward 行为，就必须通过 config 表达
