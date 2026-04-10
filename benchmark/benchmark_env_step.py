@@ -5,10 +5,10 @@ Usage:
     uv run python benchmark/benchmark_env_step.py
 
     # Single task + backend:
-    uv run python benchmark/benchmark_env_step.py task=g1_joystick training.sim_backend=motrix
+    uv run python benchmark/benchmark_env_step.py task=g1_joystick/motrix
 
     # Override bench params:
-    uv run python benchmark/benchmark_env_step.py bench.num_envs=4096 bench.num_steps=500
+    uv run python benchmark/benchmark_env_step.py task=go1_joystick/mujoco num_envs=4096 num_steps=500
 """
 
 import sys
@@ -24,6 +24,11 @@ TASK_CONFIGS = {
     "g1": "task=g1_joystick",
 }
 
+# Default benchmark parameters
+DEFAULT_NUM_ENVS = 2048
+DEFAULT_NUM_STEPS = 200
+DEFAULT_WARMUP_STEPS = 10
+
 BACKENDS = ["mujoco", "motrix"]
 
 
@@ -33,6 +38,28 @@ def _is_matrix_mode(argv: list[str]) -> bool:
         if arg.startswith("task=") or arg.startswith("training.sim_backend="):
             return False
     return True
+
+
+def _parse_bench_args(args: list[str]) -> tuple[dict[str, str], list[str]]:
+    """Parse benchmark-specific args and return (bench_kwargs, hydra_overrides).
+
+    Benchmark args: num_envs=XXX, num_steps=XXX, warmup_steps=XXX
+    These are not part of Hydra config, so we extract them separately.
+    """
+    bench_kwargs: dict[str, str] = {}
+    hydra_overrides: list[str] = []
+
+    for arg in args:
+        if arg.startswith("num_envs="):
+            bench_kwargs["num_envs"] = arg.split("=", 1)[1]
+        elif arg.startswith("num_steps="):
+            bench_kwargs["num_steps"] = arg.split("=", 1)[1]
+        elif arg.startswith("warmup_steps="):
+            bench_kwargs["warmup_steps"] = arg.split("=", 1)[1]
+        else:
+            hydra_overrides.append(arg)
+
+    return bench_kwargs, hydra_overrides
 
 
 def _compose_cfg(extra_args: list[str]):
@@ -56,18 +83,16 @@ def _compose_cfg(extra_args: list[str]):
 
 def _run_single(extra_args: list[str]) -> dict:
     """Run a single bench in-process via Hydra and return timing records."""
-    from omegaconf import OmegaConf
-
-    cfg = _compose_cfg(extra_args)
-
     from unilab.training import BackendAdapter, create_env, ensure_registries
+
+    bench_kwargs, hydra_overrides = _parse_bench_args(extra_args)
+    cfg = _compose_cfg(hydra_overrides)
 
     ensure_registries()
 
-    bench = OmegaConf.select(cfg, "bench", default={})
-    num_envs = int(bench.get("num_envs", 2048)) if bench else 2048
-    num_steps = int(bench.get("num_steps", 200)) if bench else 200
-    warmup_steps = int(bench.get("warmup_steps", 10)) if bench else 10
+    num_envs = int(bench_kwargs.get("num_envs", DEFAULT_NUM_ENVS))
+    num_steps = int(bench_kwargs.get("num_steps", DEFAULT_NUM_STEPS))
+    warmup_steps = int(bench_kwargs.get("warmup_steps", DEFAULT_WARMUP_STEPS))
 
     task_name = cfg.training.task_name
     sim_backend = cfg.training.sim_backend
@@ -227,7 +252,8 @@ def _run_matrix(extra_args: list[str]) -> None:
             label = f"{task_key}/{backend}"
             print(f"Running {label} ...", flush=True)
             try:
-                args = [task_override, f"training.sim_backend={backend}"] + extra_args
+                # Task config format: task=go1_joystick/mujoco
+                args = [f"{task_override}/{backend}"] + extra_args
                 result = _run_single(args)
                 results.append(result)
                 _print_single_report(result)
