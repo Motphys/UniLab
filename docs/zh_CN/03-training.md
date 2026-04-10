@@ -6,12 +6,14 @@
 
 ## Pick An Entrypoint
 
-| 目标 | 入口脚本 | 默认日志根目录 |
+| 目标 | 入口脚本 | 日志根目录模式 |
 |------|----------|----------------|
-| PPO (RSL-RL / torch) | `scripts/train_rsl_rl.py` | `logs/rsl_rl_train/<task>/` |
-| PPO (MLX / macOS) | `scripts/train_mlx_ppo.py` | `logs/mlx_rl_train/<task>/` |
-| APPO | `scripts/train_appo.py` | `logs/appo/<task>/` |
-| SAC / TD3 | `scripts/train_offpolicy.py` | `logs/fast_sac/<task>/` / `logs/fast_td3/<task>/` |
+| PPO (RSL-RL / torch) | `scripts/train_rsl_rl.py` | `logs/<algo.algo_log_name>/<task>/` |
+| PPO (MLX / macOS) | `scripts/train_mlx_ppo.py` | `logs/<algo.algo_log_name>/<task>/` |
+| APPO | `scripts/train_appo.py` | `logs/<algo.algo_log_name>/<task>/` |
+| SAC / TD3 | `scripts/train_offpolicy.py` | `logs/<algo.algo_log_name>/<task>/` |
+
+实际目录名由 `algo.algo_log_name` 决定；当前默认值分别是 `rsl_rl_ppo`、`appo`、`fast_sac` 和 `fast_td3`。
 
 ## Start Training
 
@@ -49,14 +51,14 @@ uv run python scripts/train_rsl_rl.py task=go2_joystick/mujoco training.play_onl
 uv run python scripts/train_offpolicy.py algo=sac task=sac/go2_joystick/mujoco training.play_only=true
 
 # 回放指定 run
-uv run python scripts/train_offpolicy.py algo=td3 task=td3/go1_joystick/mujoco training.play_only=true training.load_run="2024-02-04_12-00-00"
+uv run python scripts/train_offpolicy.py algo=td3 task=td3/go1_joystick/mujoco training.play_only=true algo.load_run="2024-02-04_12-00-00"
 ```
 
 ## Resume Training
 
 ```bash
-uv run python scripts/train_rsl_rl.py task=go2_joystick/mujoco training.load_run="2024-02-04_12-00-00"
-uv run python scripts/train_offpolicy.py algo=sac task=sac/go2_joystick/mujoco training.load_run="2024-02-04_12-00-00"
+uv run python scripts/train_rsl_rl.py task=go2_joystick/mujoco algo.load_run="2024-02-04_12-00-00"
+uv run python scripts/train_offpolicy.py algo=sac task=sac/go2_joystick/mujoco algo.load_run="2024-02-04_12-00-00"
 ```
 
 ## Hydra Overrides
@@ -72,7 +74,7 @@ task=go1_joystick/mujoco
 algo=sac
 training.play_only=true
 training.no_play=true
-training.load_run="-1"
+algo.load_run="-1"
 training.logger=tensorboard
 algo.num_envs=2048
 algo.max_iterations=1000

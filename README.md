@@ -2,7 +2,7 @@
 
 # UniLab
 
-Languages: English | [简体中文](docs/zh_CN/README.md)
+Languages: English | [简体中文](docs/zh_CN/01-getting-started.md)
 
 UniLab is built to test a simple hypothesis: **robot locomotion RL does not need a GPU simulation backend**.
 
@@ -40,17 +40,19 @@ uv sync
 uv sync --extra motrix
 
 # 3. Run a training job
-uv run python scripts/train_rsl_rl.py task=go1_joystick
+uv run python scripts/train_rsl_rl.py task=go1_joystick/mujoco
 ```
 
 ## Workflow Entrypoints
 
-| Goal | Entrypoint | Default log root |
+| Goal | Entrypoint | Log root pattern |
 |------|------------|------------------|
-| PPO (torch / RSL-RL) | `scripts/train_rsl_rl.py` | `logs/rsl_rl_train/<task>/` |
-| PPO (MLX, macOS) | `scripts/train_mlx_ppo.py` | `logs/mlx_rl_train/<task>/` |
-| APPO | `scripts/train_appo.py` | `logs/appo/<task>/` |
-| SAC / TD3 | `scripts/train_offpolicy.py` | `logs/fast_sac/<task>/` / `logs/fast_td3/<task>/` |
+| PPO (torch / RSL-RL) | `scripts/train_rsl_rl.py` | `logs/<algo.algo_log_name>/<task>/` |
+| PPO (MLX, macOS) | `scripts/train_mlx_ppo.py` | `logs/<algo.algo_log_name>/<task>/` |
+| APPO | `scripts/train_appo.py` | `logs/<algo.algo_log_name>/<task>/` |
+| SAC / TD3 | `scripts/train_offpolicy.py` | `logs/<algo.algo_log_name>/<task>/` |
+
+The concrete log directory comes from `algo.algo_log_name`. Current defaults are `rsl_rl_ppo`, `appo`, `fast_sac`, and `fast_td3`.
 
 Training scripts automatically enter playback after training unless you set `training.no_play=true`.
 

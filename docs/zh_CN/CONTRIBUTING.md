@@ -96,7 +96,7 @@ uv run pytest -m veryslow -v
 
 ## CI Workflow
 
-指向 `main` 的 PR 会自动触发五个 job: `ruff-lint`、`ruff-format`、`mypy`、`pyright` 和 `test`。workflow 也支持通过 `workflow_dispatch` 手动触发，会跳过纯文档和协作元信息改动，并且会自动取消同一 PR 分支上较早的进行中运行。
+指向 `main` 的 PR 会自动触发五个 job: `ruff-lint`、`ruff-format`、`mypy`、`pyright` 和 `test`。workflow 也支持通过 `workflow_dispatch` 手动触发；文档改动会通过 pytest 套件参与校验，并且会自动取消同一 PR 分支上较早的进行中运行。
 
 | Job | 内容 | 失败是否阻断 |
 |-----|------|--------------|
@@ -106,7 +106,7 @@ uv run pytest -m veryslow -v
 | `pyright` | 在 `macos-26` 上执行 `uv sync` + `uv run pyright` | ✅ |
 | `test` | 在 `ubuntu-slim` 上以 Python 3.11 执行 `uv sync --extra motrix` + `uv run pytest -m "not slow and not veryslow" --cov=unilab --cov-report markdown-append:$GITHUB_STEP_SUMMARY --cov-fail-under=10` | ✅ |
 
-纯文档和协作元信息改动，例如 `*.md`、`docs/**`、`CONTRIBUTING.md`、`AGENTS.md`、`LICENSE`、issue templates、`CODEOWNERS` 和 `.github/pull_request_template.md`，不会触发 CI。
+只有协作元信息改动，例如 `LICENSE`、issue templates、`CODEOWNERS` 和 `.github/pull_request_template.md`，才会跳过 CI。文档改动会触发 CI，并由 `tests/scripts/test_check_docs.py` 校验。
 
 ## Documentation Expectations
 
@@ -130,7 +130,7 @@ uv run pytest -m veryslow -v
 1. 对代码或配置改动，先在本地运行 `make check`，确保 lint、mypy 和 pyright 通过。
 2. 对代码改动，再在本地运行 `make test`，确保非 slow 测试通过。
 3. 如果改到了 IPC、Runner 或 Config，补充或更新对应测试。
-4. 对 docs-only 改动，至少重新检查 Markdown 链接、文件路径、脚本名和命令参数。
+4. 对 docs-only 改动，至少运行 `uv run pytest tests/scripts/test_check_docs.py -q`。
 5. 链接对应 GitHub issue，并在 PR 模板中填写验证和影响范围。
 6. 向 `main` 分支发起 PR，并等待 CI 全绿。
 7. 等待 code review。

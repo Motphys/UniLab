@@ -96,7 +96,7 @@ uv run pytest -m veryslow -v
 
 ## CI Workflow
 
-PRs targeting `main` trigger five jobs automatically: `ruff-lint`, `ruff-format`, `mypy`, `pyright`, and `test`. The workflow also enables manual runs through `workflow_dispatch`, skips docs-only and collaboration-metadata changes, and cancels older in-progress runs for the same PR branch.
+PRs targeting `main` trigger five jobs automatically: `ruff-lint`, `ruff-format`, `mypy`, `pyright`, and `test`. The workflow also enables manual runs through `workflow_dispatch`, validates docs through the pytest suite on docs changes, and cancels older in-progress runs for the same PR branch.
 
 | Job | Content | Blocking on failure |
 |-----|---------|---------------------|
@@ -106,7 +106,7 @@ PRs targeting `main` trigger five jobs automatically: `ruff-lint`, `ruff-format`
 | `pyright` | `uv sync` + `uv run pyright` on `macos-26` | ✅ |
 | `test` | `uv sync --extra motrix` + `uv run pytest -m "not slow and not veryslow" --cov=unilab --cov-report markdown-append:$GITHUB_STEP_SUMMARY --cov-fail-under=10` on `ubuntu-slim` with Python 3.11 | ✅ |
 
-Docs-only and collaboration-metadata changes such as `*.md`, `docs/**`, `CONTRIBUTING.md`, `AGENTS.md`, `LICENSE`, issue templates, `CODEOWNERS`, and `.github/pull_request_template.md` do not trigger CI.
+Collaboration-metadata-only changes such as `LICENSE`, issue templates, `CODEOWNERS`, and `.github/pull_request_template.md` still skip CI. Docs changes do trigger CI and are validated by `tests/scripts/test_check_docs.py`.
 
 ## Documentation Expectations
 
@@ -130,7 +130,7 @@ More collaboration rules live in [docs/zh_CN/06-collaboration.md](docs/zh_CN/06-
 1. For code or config changes, run `make check` locally so lint, mypy, and pyright pass.
 2. For code changes, run `make test` locally so non-slow tests pass.
 3. If you touched IPC, Runner, or Config, add or update the matching tests.
-4. For docs-only changes, at minimum re-check Markdown links, file paths, script names, and command arguments.
+4. For docs-only changes, run `uv run pytest tests/scripts/test_check_docs.py -q` at minimum.
 5. Link the relevant GitHub issue and fill in validation plus impact scope in the PR template.
 6. Open the PR against `main` and wait for green CI.
 7. Wait for code review.
