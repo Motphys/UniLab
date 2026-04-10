@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import importlib
 import logging
-import pkgutil
 from typing import Sequence
 
 logger = logging.getLogger(__name__)
 
-# Default packages to scan for env registration
+# Attribute name for package-level registry bootstrap contracts.
+_REGISTRY_MODULES_ATTR = "__unilab_registry_modules__"
+
+# Default packages to import for env registration bootstrap.
 _DEFAULT_REGISTRY_PACKAGES = (
     "unilab.envs.locomotion",
     "unilab.envs.manipulation",
@@ -23,11 +25,13 @@ def ensure_registries(
     optional_packages: Sequence[str] | None = None,
     fail_on_error: bool = True,
 ) -> None:
-    """Import all env modules so they are registered.
+    """Import env registry bootstrap modules.
 
     Args:
-        packages: List of package names to scan for env modules.
-                  Defaults to standard unilab env packages.
+        packages: Package or module names to import for env registration.
+                  Package-level registry modules should declare
+                  ``__unilab_registry_modules__`` as explicit bootstrap targets.
+                  Defaults to standard unilab env registry packages.
         optional_packages: List of optional package names that may not be present.
                           Import failures for these are logged as warnings, not raised.
         fail_on_error: If True (default), raise exceptions for non-optional packages.
@@ -35,7 +39,8 @@ def ensure_registries(
 
     Raises:
         ImportError: If a non-optional package fails to import and fail_on_error is True.
-        Exception: If a module within a package fails to import and fail_on_error is True.
+        RuntimeError: If a declared registry module fails to import and fail_on_error is True.
+        TypeError: If ``__unilab_registry_modules__`` has an invalid format.
     """
     pkgs = list(packages) if packages is not None else list(_DEFAULT_REGISTRY_PACKAGES)
     optional = set(optional_packages) if optional_packages else set()
@@ -56,19 +61,26 @@ def ensure_registries(
                 logger.warning("Registry package not found: %s (%s)", pkg_name, e)
             continue
 
-        if not hasattr(package, "__path__"):
-            continue
+        modules = getattr(package, _REGISTRY_MODULES_ATTR, ())
+        if isinstance(modules, str) or not isinstance(modules, Sequence):
+            raise TypeError(
+                f"'{pkg_name}.{_REGISTRY_MODULES_ATTR}' must be a sequence of module names."
+            )
 
-        for _, name, _ in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
+        for name in modules:
+            if not isinstance(name, str) or not name:
+                raise TypeError(
+                    f"'{pkg_name}.{_REGISTRY_MODULES_ATTR}' entries must be non-empty strings."
+                )
             try:
                 importlib.import_module(name)
             except Exception as e:
                 if fail_on_error and not is_optional:
                     raise RuntimeError(
-                        f"Failed to import env module '{name}'. "
+                        f"Failed to import declared registry module '{name}' from '{pkg_name}'. "
                         f"Fix the import error or add '{pkg_name}' to optional_packages."
                     ) from e
-                logger.warning("Failed to import env module '%s': %s", name, e)
+                logger.warning("Failed to import declared registry module '%s': %s", name, e)
 
 
 def build_actor(
