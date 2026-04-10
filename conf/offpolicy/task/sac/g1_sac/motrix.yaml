@@ -11,6 +11,10 @@ algo:
   algo_params:
     alpha_init: 0.001
     target_entropy_ratio: 0.0
+env:
+  domain_rand:
+    randomize_kp: false
+    randomize_kd: false
 reward:
   scales:
     tracking_lin_vel: 2.2

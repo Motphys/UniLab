@@ -170,6 +170,12 @@ class SimBackend(abc.ABC):
             f"{self.__class__.__name__} does not support physics-state playback"
         )
 
+    def get_actuator_gains(self) -> tuple[np.ndarray, np.ndarray]:
+        """Return per-joint (kp, kd) arrays from the backend model."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support reading actuator gains"
+        )
+
     # ------------------------------------------------------------------ #
     # Base kinematics                                                      #
     # ------------------------------------------------------------------ #

@@ -16,7 +16,13 @@ def zero_actions(num_reset: int, num_action: int) -> np.ndarray:
     return np.zeros((num_reset, num_action), dtype=get_global_dtype())
 
 
-def build_common_reset_randomization(env: Any, num_reset: int) -> ResetRandomizationPayload | None:
+def build_common_reset_randomization(
+    env: Any,
+    num_reset: int,
+    *,
+    base_kp: np.ndarray | None = None,
+    base_kd: np.ndarray | None = None,
+) -> ResetRandomizationPayload | None:
     domain_rand = getattr(env.cfg, "domain_rand", None)
     if domain_rand is None:
         return None
@@ -33,25 +39,41 @@ def build_common_reset_randomization(env: Any, num_reset: int) -> ResetRandomiza
         payload.base_com_offset = base_com_offset
 
     num_actuators = getattr(env, "_num_action", None)
-    if num_actuators is not None and getattr(domain_rand, "randomize_kp", False):
-        low, high = domain_rand.kp_multiplier_range
-        kp_multiplier = np.random.uniform(low, high, size=(num_reset, 1))
-        base_kp = float(env.cfg.control_config.Kp)
-        payload.kp = np.broadcast_to(base_kp * kp_multiplier, (num_reset, num_actuators)).copy()
+    need_kp = num_actuators is not None and getattr(domain_rand, "randomize_kp", False)
+    need_kd = num_actuators is not None and getattr(domain_rand, "randomize_kd", False)
 
-    if num_actuators is not None and getattr(domain_rand, "randomize_kd", False):
-        low, high = domain_rand.kd_multiplier_range
-        kd_multiplier = np.random.uniform(low, high, size=(num_reset, 1))
-        base_kd = float(env.cfg.control_config.Kd)
-        payload.kd = np.broadcast_to(base_kd * kd_multiplier, (num_reset, num_actuators)).copy()
+    if need_kp or need_kd:
+        assert num_actuators is not None
+
+        if need_kp:
+            kp = (
+                base_kp
+                if base_kp is not None
+                else np.full(num_actuators, float(env.cfg.control_config.Kp))
+            )
+            low, high = domain_rand.kp_multiplier_range
+            payload.kp = (kp * np.random.uniform(low, high, (num_reset, 1))).astype(np.float64)
+
+        if need_kd:
+            kd = (
+                base_kd
+                if base_kd is not None
+                else np.full(num_actuators, float(env.cfg.control_config.Kd))
+            )
+            low, high = domain_rand.kd_multiplier_range
+            payload.kd = (kd * np.random.uniform(low, high, (num_reset, 1))).astype(np.float64)
 
     return None if payload.is_empty() else payload
 
 
 def validate_common_reset_randomization(
-    env: Any, capabilities: DomainRandomizationCapabilities
+    env: Any,
+    capabilities: DomainRandomizationCapabilities,
+    *,
+    base_kp: np.ndarray | None = None,
+    base_kd: np.ndarray | None = None,
 ) -> frozenset[str]:
-    payload = build_common_reset_randomization(env, num_reset=1)
+    payload = build_common_reset_randomization(env, num_reset=1, base_kp=base_kp, base_kd=base_kd)
     if payload is None:
         return frozenset()
     return capabilities.get_unsupported_reset_terms(payload.requested_terms())
