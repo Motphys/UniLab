@@ -4,6 +4,7 @@ from typing import Any, Callable, Dict, Optional, Type, TypeVar
 from .base import ABEnv, EnvCfg
 
 TEnvCfg = TypeVar("TEnvCfg", bound=EnvCfg)
+_DEFAULT_SIM_BACKEND_ORDER: tuple[str, ...] = ("mujoco", "motrix")
 
 
 @dataclass
@@ -12,7 +13,10 @@ class EnvMeta:
     env_cls_dict: Dict[str, Type[ABEnv]] = field(default_factory=dict)
 
     def available_sim_backend(self) -> Optional[str]:
-        """Return the first available simulation backend."""
+        """Return the explicit default simulation backend for this environment."""
+        for backend in _DEFAULT_SIM_BACKEND_ORDER:
+            if backend in self.env_cls_dict:
+                return backend
         return next(iter(self.env_cls_dict), None)
 
     def support_sim_backend(self, sim_backend: str) -> bool:
@@ -91,7 +95,7 @@ def env(name: str, sim_backend: str) -> Callable[[Type[ABEnv]], Type[ABEnv]]:
 
 
 def find_available_sim_backend(env_name: str) -> str:
-    """Find the first available simulation backend for an environment."""
+    """Find the explicit default simulation backend for an environment."""
     if env_name not in _envs:
         raise ValueError(f"Environment '{env_name}' is not registered.")
 
@@ -113,7 +117,8 @@ def make(
 
     Args:
         name: Environment name
-        sim_backend: Simulation backend ("mujoco" or "motrix"). If None, uses first available.
+        sim_backend: Simulation backend ("mujoco" or "motrix"). If None, uses the
+            explicit default backend order: "mujoco", then "motrix".
         env_cfg_override: Dictionary of config overrides
         num_envs: Number of environments to create
 
