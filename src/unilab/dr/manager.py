@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import numpy as np
@@ -7,29 +8,29 @@ import numpy as np
 from .provider import DomainRandomizationProvider
 from .types import DomainRandomizationCapabilities
 
+logger = logging.getLogger(__name__)
+
 
 class DomainRandomizationManager:
     def __init__(self, env: Any, provider: DomainRandomizationProvider):
         self._env = env
         self._provider = provider
         self._capabilities: DomainRandomizationCapabilities = env._backend.get_dr_capabilities()
+        self._warned_reset_terms: frozenset[str] = frozenset()
         self._provider.validate(env, self._capabilities)
 
     def reset(self, env_ids: np.ndarray) -> tuple[dict[str, np.ndarray], dict]:
         plan = self._provider.build_reset_plan(self._env, env_ids)
         payload = plan.randomization
         if payload is not None:
-            unsupported = payload.requested_terms() - self._capabilities.supported_reset_terms
+            payload, unsupported = self._capabilities.filter_reset_payload(payload)
             if unsupported:
-                terms = ", ".join(sorted(unsupported))
-                raise NotImplementedError(
-                    f"{self._env._backend.backend_type} backend does not support reset randomization terms: {terms}"
-                )
+                self._log_unsupported_reset_terms(unsupported)
         self._env._backend.set_state(
             plan.env_ids,
             plan.qpos,
             plan.qvel,
-            randomization=plan.randomization,
+            randomization=payload,
         )
         obs = self._provider.build_reset_observation(self._env, plan.env_ids, plan.info_updates)
         return obs, plan.info_updates
@@ -46,3 +47,14 @@ class DomainRandomizationManager:
                 f"{self._env._backend.backend_type} backend does not support interval push"
             )
         self._env._backend.apply_interval_randomization(plan)
+
+    def _log_unsupported_reset_terms(self, unsupported: frozenset[str]) -> None:
+        new_terms = frozenset(term for term in unsupported if term not in self._warned_reset_terms)
+        if not new_terms:
+            return
+        self._warned_reset_terms |= new_terms
+        logger.warning(
+            "%s backend does not support reset randomization terms: %s; skipping them.",
+            self._env._backend.backend_type,
+            ", ".join(sorted(new_terms)),
+        )
