@@ -2,13 +2,13 @@
 
 Usage:
     # Run all combinations (go1/go2/g1 x mujoco/motrix):
-    uv run python scripts/bench_env_step.py
+    uv run python benchmark/benchmark_env_step.py
 
     # Single task + backend:
-    uv run python scripts/bench_env_step.py task=g1_joystick training.sim_backend=motrix
+    uv run python benchmark/benchmark_env_step.py task=g1_joystick training.sim_backend=motrix
 
     # Override bench params:
-    uv run python scripts/bench_env_step.py bench.num_envs=4096 bench.num_steps=500
+    uv run python benchmark/benchmark_env_step.py bench.num_envs=4096 bench.num_steps=500
 """
 
 import sys
@@ -83,7 +83,7 @@ def _run_single(extra_args: list[str]) -> dict:
         task_name=task_name,
     )
 
-    nu = env._backend.num_actuators
+    nu = env._backend.num_actuators  # type: ignore[reportAttributeAccessIssue]
     env.init_state()
 
     for _ in range(warmup_steps):
