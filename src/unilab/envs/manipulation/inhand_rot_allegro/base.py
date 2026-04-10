@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import gymnasium as gym
-import mujoco
 import numpy as np
 
 from unilab.base.backend import SimBackend
@@ -104,6 +103,8 @@ class AllegroBaseMjEnv(NpEnv):
     # ── Buffers ─────────────────────────────────────────────────────
 
     def _init_buffer(self):
+        import mujoco
+
         key_id = mujoco.mj_name2id(self._backend.model, mujoco.mjtObj.mjOBJ_KEY, "home")
         if key_id < 0:
             raise ValueError("Keyframe 'home' not found in model.")

@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal, cast
 
-import mujoco
 import numpy as np
 
 from unilab.assets import ASSETS_ROOT_PATH
@@ -38,6 +37,7 @@ from unilab.utils.math_utils import (
     np_subtract_frame_transforms,
     np_yaw_quat,
 )
+from unilab.utils.xml_utils import get_named_body_ids
 
 from .motion_loader import MotionLoader, MotionSampler
 
@@ -318,14 +318,9 @@ class G1MotionTrackingEnv(G1BaseEnv):
         if self._is_mujoco_backend():
             motion_body_ids = self.body_ids
         else:
-            # Motion data always uses MuJoCo body indexing.
-            mj_model = mujoco.MjModel.from_xml_path(cfg.model_file)
-            motion_body_ids = np.array(
-                [
-                    mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_BODY, name)
-                    for name in cfg.body_names
-                ],
-                dtype=np.int32,
+            # Motion data always uses MuJoCo-style body indexing, even on Motrix.
+            motion_body_ids = np.asarray(
+                get_named_body_ids(cfg.model_file, cfg.body_names), dtype=np.int32
             )
 
         self.anchor_body_idx = cfg.body_names.index(cfg.anchor_body_name)
@@ -397,6 +392,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
         """Log action-scale diagnostics to help detect control-mapping issues."""
         if not self._cfg.log_action_scale or not self._is_mujoco_backend():
             return
+        import mujoco
 
         model = self._backend.model
         action_scale = self._cfg.control_config.action_scale

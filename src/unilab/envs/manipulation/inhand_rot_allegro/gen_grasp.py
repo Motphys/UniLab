@@ -20,24 +20,12 @@ import time
 from pathlib import Path
 from typing import Any
 
-import mediapy as media
-import mujoco
-import mujoco.viewer
 import numpy as np
 
 # ── Path setup ──────────────────────────────────────────────────────────────
 # gen_grasp.py lives at: UniLab/unilab/envs/manipulation/inhand_rot_allegro/
 ROOT_DIR = Path(__file__).parents[4]
 sys.path.insert(0, str(ROOT_DIR))
-
-
-from unilab.training import ensure_registries
-
-ensure_registries()
-
-from unilab.base import registry  # noqa: E402  (after sys.path setup)
-from unilab.base.dtype_config import get_global_dtype  # noqa: E402
-from unilab.utils import render_many  # noqa: E402
 
 # ── Quality-check helpers ────────────────────────────────────────────────────
 
@@ -71,6 +59,13 @@ def check_grasp_quality(
 
 
 def collect_grasps(args) -> None:
+    import mujoco
+
+    from unilab.base import registry
+    from unilab.base.dtype_config import get_global_dtype
+    from unilab.training import ensure_registries
+
+    ensure_registries()
     env: Any = registry.make("AllegroInhandRotation", num_envs=args.num_envs, sim_backend="mujoco")
 
     # Override joint noise to the exploration value before init_state().
@@ -206,6 +201,10 @@ def collect_grasps(args) -> None:
 
     # ── Render video ──────────────────────────────────────────────────────
     if video_states:
+        import mediapy as media
+
+        from unilab.utils import render_many
+
         print(f"Rendering video to {video_path}...")
         frames = render_many.render_states_get_frames(
             video_states, env.cfg.model_file, width=1280, height=720, camera_id=-1
