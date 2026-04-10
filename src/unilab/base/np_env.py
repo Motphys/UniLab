@@ -228,7 +228,11 @@ class NpEnv(ABEnv):
             raise NotImplementedError(
                 f"{self._backend.__class__.__name__} does not support physics-state playback"
             )
-        return np.asarray(self._backend.get_physics_state(), dtype=np.float32).copy()
+        physics_state = cast(
+            np.ndarray, np.asarray(self._backend.get_physics_state(), dtype=np.float32)
+        )
+        snapshot = cast(np.ndarray, physics_state.copy())
+        return snapshot
 
     @abc.abstractmethod
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
