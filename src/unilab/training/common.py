@@ -232,13 +232,7 @@ def render_play_mode(
 ) -> str | None:
     """Render interactive Motrix play or MuJoCo video generation through shared callbacks."""
     if sim_backend == "motrix":
-        if render_spacing is None:
-            env._backend.init_renderer()
-        else:
-            try:
-                env._backend.init_renderer(spacing=render_spacing)
-            except TypeError:
-                env._backend.init_renderer()
+        env.init_play_renderer(render_spacing=render_spacing)
 
         obs = initialize()
         last_render_time = time.perf_counter()
@@ -252,7 +246,7 @@ def render_play_mode(
             if elapsed < render_dt:
                 time.sleep(render_dt - elapsed)
             last_render_time = time.perf_counter()
-            env._backend.render()
+            env.render_play_frame()
             steps_run += 1
         return None
 
@@ -261,7 +255,8 @@ def render_play_mode(
     if output_video is None:
         raise ValueError("MuJoCo play rendering requires an output_video path.")
     if frame_state_getter is None:
-        raise ValueError("MuJoCo play rendering requires a frame_state_getter callback.")
+        frame_state_getter = env.get_physics_state_snapshot
+    assert frame_state_getter is not None
 
     obs = initialize()
     state_list = []

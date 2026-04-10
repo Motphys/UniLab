@@ -236,7 +236,6 @@ def play_appo(cfg: DictConfig, rl_cfg: dict[str, Any]) -> str | None:
                 ).obs["obs"],
                 dtype=np.float32,
             ),
-            frame_state_getter=lambda: env._backend.get_physics_state(),
             camera_kwargs={
                 "cam_distance": cfg.training.cam_distance,
                 "cam_elevation": cfg.training.cam_elevation,

@@ -21,7 +21,7 @@ from unilab.dr.types import (
 )
 
 from ..dtype_config import get_global_dtype
-from .base import SimBackend
+from .base import BackendPlayCapabilities, SimBackend
 
 
 def _root_state_dims(model) -> tuple[int, int]:
@@ -307,6 +307,9 @@ class MuJoCoBackend(SimBackend):
         velocity_delta = np.random.uniform(-1.0, 1.0, size=(self._num_envs, 3))
         velocity_delta *= np.asarray(plan.push_perturbation_limit, dtype=np.float64)
         self._base_lin_vel_view[:] += velocity_delta.astype(self._np_dtype)
+
+    def get_play_capabilities(self) -> BackendPlayCapabilities:
+        return BackendPlayCapabilities(supports_physics_state_playback=True)
 
     # ------------------------------------------------------------------ #
     # Base kinematics                                                    #

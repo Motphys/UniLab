@@ -505,12 +505,10 @@ def play_interactive(args):
         )
 
     # Dedicated MjData for the viewer (never touches the rollout workers)
-    if hasattr(env, "_backend") and hasattr(env._backend, "model"):
-        mj_model = env._backend.model
-    else:
-        raise AttributeError(
-            "Environment backend does not expose a MuJoCo model via env._backend.model"
-        )
+    try:
+        mj_model = env.get_playback_model()
+    except NotImplementedError as exc:
+        raise AttributeError("Environment does not expose a playback model contract") from exc
     viz_data = mujoco.MjData(mj_model)
     state_spec = mujoco.mjtState.mjSTATE_FULLPHYSICS
     ctrl_dt = env.cfg.ctrl_dt
@@ -555,7 +553,7 @@ def play_interactive(args):
                     obs, _, _, _ = wrapped_env.step(actions)
 
                 # Push env state[0] into viz_data and refresh scene
-                phys = env._backend.get_physics_state()[0].astype(np.float64)
+                phys = env.get_physics_state_snapshot()[0].astype(np.float64)
                 mujoco.mj_setState(mj_model, viz_data, phys, state_spec)
                 mujoco.mj_forward(mj_model, viz_data)
 

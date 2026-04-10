@@ -364,7 +364,6 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
                 dtype=np.float32,
             ),
             step=_policy_step,
-            frame_state_getter=lambda: env._backend.get_physics_state(),
         )
     print(f"Saving video to {output_video} ...")
     print("Done.")
