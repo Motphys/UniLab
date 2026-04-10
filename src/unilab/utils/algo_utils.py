@@ -41,7 +41,7 @@ def build_actor(
         from unilab.algos.torch.fast_td3.learner import TD3Actor
 
         return TD3Actor(
-            n_obs=obs_dim,
+            obs_dim=obs_dim,
             n_act=action_dim,
             num_envs=num_envs,
             hidden_dim=actor_hidden_dim,
