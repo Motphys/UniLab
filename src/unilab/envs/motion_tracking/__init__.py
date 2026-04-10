@@ -1,5 +1,7 @@
 """Motion tracking environments."""
 
+__unilab_registry_modules__ = ("unilab.envs.motion_tracking.g1",)
+
 from .g1 import (
     G1FlipTrackingCfg,
     G1FlipTrackingEnv,
