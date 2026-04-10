@@ -43,7 +43,7 @@ UniLab 当前支持两个仿真后端:
 
 ## Select A Backend
 
-默认后端是 `mujoco`。通过 `task=<task>/<backend>` 切换到 `motrix`，不要用 `training.sim_backend=motrix` 单独切换后端。
+训练 owner config 的默认后端通常是 `mujoco`。通过 `task=<task>/<backend>` 切换到 `motrix`，不要用 `training.sim_backend=motrix` 单独切换后端。底层 `registry.make(..., sim_backend=None)` 也会显式按 `mujoco`、`motrix` 的顺序解析默认 backend，而不是依赖 decorator 注册顺序。
 
 实际要改参数时，不再去拆着找 `reward` / `backend preset` / `algo preset`。直接改对应的 `task` 文件：
 

@@ -17,6 +17,7 @@ from unilab.base.base import ABEnv, EnvCfg
 # ---------------------------------------------------------------------------
 _TEST_ENV_A = "_TestRegistryEnvA"
 _TEST_ENV_B = "_TestRegistryEnvB_Dup"
+_TEST_ENV_C = "_TestRegistryEnvC_DefaultOrder"
 
 
 @dataclass
@@ -68,6 +69,10 @@ class _TestEnvA(ABEnv):
         pass
 
 
+class _TestEnvMotrix(_TestEnvA):
+    pass
+
+
 # Register once at module level (idempotent guard)
 if not registry_mod.contains(_TEST_ENV_A):
     registry_mod.register_env_config(_TEST_ENV_A, _TestCfgA)
@@ -75,6 +80,11 @@ if not registry_mod.contains(_TEST_ENV_A):
 
 if not registry_mod.contains(_TEST_ENV_B):
     registry_mod.register_env_config(_TEST_ENV_B, _TestCfgB)
+
+if not registry_mod.contains(_TEST_ENV_C):
+    registry_mod.register_env_config(_TEST_ENV_C, _TestCfgA)
+    registry_mod.register_env(_TEST_ENV_C, _TestEnvMotrix, "motrix")
+    registry_mod.register_env(_TEST_ENV_C, _TestEnvA, "mujoco")
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +133,11 @@ def test_duplicate_env_config_raises():
 
 def test_find_available_sim_backend():
     backend = registry_mod.find_available_sim_backend(_TEST_ENV_A)
+    assert backend == "mujoco"
+
+
+def test_find_available_sim_backend_prefers_explicit_default_order():
+    backend = registry_mod.find_available_sim_backend(_TEST_ENV_C)
     assert backend == "mujoco"
 
 
@@ -187,8 +202,13 @@ def test_find_available_sim_backend_no_env_cls_raises():
 
 
 def test_make_auto_selects_backend():
-    """make() with sim_backend=None selects the first available backend."""
+    """make() with sim_backend=None selects the explicit default backend."""
     env = registry_mod.make(_TEST_ENV_A, sim_backend=None)
+    assert isinstance(env, _TestEnvA)
+
+
+def test_make_auto_selects_default_backend_independent_of_registration_order():
+    env = registry_mod.make(_TEST_ENV_C, sim_backend=None)
     assert isinstance(env, _TestEnvA)
 
 
