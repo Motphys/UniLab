@@ -20,6 +20,7 @@ from hydra.core.global_hydra import GlobalHydra
 
 _SCRIPTS_DIR = Path(__file__).parent.parent.parent / "scripts"
 _CONF_DIR = Path(__file__).parent.parent.parent / "conf"
+_SRC_DIR = Path(__file__).parent.parent.parent / "src"
 
 
 def _normalize_overrides(overrides: list[str] | None, *, offpolicy: bool = False) -> list[str]:
@@ -845,6 +846,33 @@ def test_play_resolve_checkpoint_empty_dir(tmp_path):
     assert result is None
 
 
+@pytest.mark.skipif(not _HAS_MUJOCO, reason="mujoco not installed")
+def test_play_resolve_checkpoint_delegates_to_shared_helper(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    mod = _load_script("play_interactive")
+    model_path = tmp_path / "resolved" / "model_12.pt"
+    model_path.parent.mkdir(parents=True)
+    model_path.write_bytes(b"")
+    captured: dict[str, object] = {}
+
+    def _fake_resolver(root_dir, **kwargs):
+        captured["root_dir"] = root_dir
+        captured.update(kwargs)
+        return model_path, model_path.parent
+
+    monkeypatch.setattr(mod, "resolve_task_checkpoint_path", _fake_resolver)
+
+    result = mod.resolve_checkpoint("MyTask", "-1", checkpoint="12", algo_log_name="custom_ppo")
+
+    assert result == str(model_path)
+    assert captured["root_dir"] == mod.ROOT_DIR
+    assert captured["task_name"] == "MyTask"
+    assert captured["load_run"] == "-1"
+    assert captured["algo_log_name"] == "custom_ppo"
+    assert captured["checkpoint"] == "12"
+
+
 # ---------------------------------------------------------------------------
 # play_interactive.py — RslRlVecEnvWrapper contract behavior
 # ---------------------------------------------------------------------------
@@ -1021,3 +1049,32 @@ def test_play_resolve_checkpoint_uses_algo_log_name(tmp_path):
         assert "model_50.pt" in result
     finally:
         mod.ROOT_DIR = original_root
+
+
+def test_gen_grasp_import_does_not_swallow_registry_bootstrap_errors(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    import types
+
+    gen_grasp_path = (
+        _SRC_DIR / "unilab" / "envs" / "manipulation" / "inhand_rot_allegro" / "gen_grasp.py"
+    )
+    training_mod = cast(Any, types.ModuleType("unilab.training"))
+
+    def _fail_bootstrap() -> None:
+        raise RuntimeError("bootstrap failed")
+
+    training_mod.ensure_registries = _fail_bootstrap
+    monkeypatch.setitem(sys.modules, "unilab.training", training_mod)
+    monkeypatch.setitem(sys.modules, "mediapy", cast(Any, types.ModuleType("mediapy")))
+
+    mujoco_mod = cast(Any, types.ModuleType("mujoco"))
+    mujoco_mod.viewer = cast(Any, types.ModuleType("mujoco.viewer"))
+    monkeypatch.setitem(sys.modules, "mujoco", mujoco_mod)
+    monkeypatch.setitem(sys.modules, "mujoco.viewer", mujoco_mod.viewer)
+
+    spec = importlib.util.spec_from_file_location("gen_grasp_test_module", gen_grasp_path)
+    mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+
+    with pytest.raises(RuntimeError, match="bootstrap failed"):
+        spec.loader.exec_module(mod)  # type: ignore[union-attr]

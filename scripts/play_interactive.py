@@ -2,10 +2,10 @@
 
 Usage:
     # Load the latest checkpoint for a task
-    python scripts/play_interactive.py --task Go2JoystickFlatTerrain
+    uv run python scripts/play_interactive.py --task Go2JoystickFlatTerrain
 
     # Load a specific run
-    python scripts/play_interactive.py --task Go2JoystickFlatTerrain --load_run 2024-02-04_12-00-00
+    uv run python scripts/play_interactive.py --task Go2JoystickFlatTerrain --load_run 2024-02-04_12-00-00
 
 Camera controls (MuJoCo viewer):
     Mouse drag     - rotate
@@ -13,8 +13,9 @@ Camera controls (MuJoCo viewer):
     Right-drag     - pan
 """
 
+# pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportOptionalMemberAccess=false, reportOptionalSubscript=false
+
 import argparse
-import os
 import sys
 import time
 from pathlib import Path
@@ -27,7 +28,7 @@ import torch
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
 
-from unilab.training import ensure_registries
+from unilab.training import ensure_registries, resolve_task_checkpoint_path
 
 ensure_registries()
 
@@ -35,7 +36,6 @@ from unilab.base import registry
 from unilab.config.structured_configs import PPOConfig
 from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4
 from unilab.utils.rsl_rl_vec_env_wrapper import RslRlVecEnvWrapper
-from unilab.utils.run_utils import get_latest_run
 
 try:
     from rsl_rl.runners import OnPolicyRunner
@@ -72,42 +72,27 @@ def _infer_checkpoint_actor_input_dim(ckpt_path: str) -> int | None:
 def resolve_checkpoint(
     task: str, load_run: str, checkpoint: str | None = None, algo_log_name: str = "rsl_rl_ppo"
 ) -> str | None:
-    base = ROOT_DIR / "logs" / algo_log_name / task
-    if load_run == "-1":
-        path = get_latest_run(str(base))
-    elif os.path.exists(load_run):
-        path = load_run
-    else:
-        path = str(base / load_run)
-
-    if not path or not os.path.exists(path):
-        print(f"[play_interactive] Run not found: {path}")
+    checkpoint_path, checkpoint_dir = resolve_task_checkpoint_path(
+        ROOT_DIR,
+        task_name=task,
+        load_run=load_run,
+        algo_log_name=algo_log_name,
+        checkpoint=checkpoint,
+    )
+    if checkpoint_path is None:
+        if checkpoint is not None and checkpoint_dir is not None:
+            checkpoint_name = (
+                f"model_{checkpoint}.pt" if str(checkpoint).isdigit() else str(checkpoint)
+            )
+            print(f"[play_interactive] Checkpoint not found: {checkpoint_dir / checkpoint_name}")
+        elif checkpoint_dir is not None:
+            print(f"[play_interactive] No model_*.pt files in {checkpoint_dir}")
+        else:
+            print(f"[play_interactive] Run not found for load_run={load_run}")
         return None
 
-    if os.path.isdir(path):
-        if checkpoint is not None:
-            if str(checkpoint).isdigit():
-                model_name = f"model_{checkpoint}.pt"
-            else:
-                model_name = checkpoint
-            model_path = os.path.join(path, model_name)
-            if os.path.exists(model_path):
-                path = model_path
-            else:
-                print(f"[play_interactive] Checkpoint not found: {model_path}")
-                return None
-        else:
-            model_files = sorted(
-                [f for f in os.listdir(path) if f.startswith("model_") and f.endswith(".pt")],
-                key=lambda f: int(f.split("_")[1].split(".")[0]),
-            )
-            if not model_files:
-                print(f"[play_interactive] No model_*.pt files in {path}")
-                return None
-            path = os.path.join(path, model_files[-1])
-
-    print(f"[play_interactive] Loading checkpoint: {path}")
-    return path
+    print(f"[play_interactive] Loading checkpoint: {checkpoint_path}")
+    return str(checkpoint_path)
 
 
 # ---------------------------------------------------------------------------
