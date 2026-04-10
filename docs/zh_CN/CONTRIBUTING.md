@@ -15,6 +15,7 @@
 
 - 始终使用 `uv run`；不要在 `uv run` 之外直接调用 `python`
 - 代码相关提交前必须运行 `make check`
+- 备份文件、临时导出物和历史兼容副本不要进入源码树；不要提交 `*.bak`、`*.tmp`、`*.old`、`*.orig` 或以 `~` 结尾的编辑器备份文件
 - 只要改动用户可见工作流，就要同步维护顶层 `README.md`、`CONTRIBUTING.md`，以及 `docs/{en,zh_CN,ja,ko}/` 下对应语言文档
 
 ## Read Before You Start
@@ -131,9 +132,10 @@ uv run pytest -m veryslow -v
 2. 对代码改动，再在本地运行 `make test`，确保非 slow 测试通过。
 3. 如果改到了 IPC、Runner 或 Config，补充或更新对应测试。
 4. 对 docs-only 改动，至少运行 `uv run pytest tests/scripts/test_check_docs.py -q`。
-5. 链接对应 GitHub issue，并在 PR 模板中填写验证和影响范围。
-6. 向 `main` 分支发起 PR，并等待 CI 全绿。
-7. 等待 code review。
+5. 如果改动了仓库 hygiene 规则，运行 `uv run pytest tests/scripts/test_repo_hygiene.py -q`。
+6. 链接对应 GitHub issue，并在 PR 模板中填写验证和影响范围。
+7. 向 `main` 分支发起 PR，并等待 CI 全绿。
+8. 等待 code review。
 
 ## Issue Reports
 

@@ -15,6 +15,7 @@ Languages: English | [简体中文](docs/zh_CN/CONTRIBUTING.md)
 
 - Always use `uv run`; do not invoke `python` outside `uv run`
 - Run `make check` before code-related commits
+- Keep backup files, temporary exports, and legacy compatibility copies out of the source tree; do not commit artifacts such as `*.bak`, `*.tmp`, `*.old`, `*.orig`, or editor backup files ending in `~`
 - For user-facing workflow changes, keep `README.md`, `CONTRIBUTING.md`, and the matching localized docs under `docs/zh_CN/` in sync
 
 ## Read Before You Start
@@ -131,9 +132,10 @@ More collaboration rules live in [docs/zh_CN/06-collaboration.md](docs/zh_CN/06-
 2. For code changes, run `make test` locally so non-slow tests pass.
 3. If you touched IPC, Runner, or Config, add or update the matching tests.
 4. For docs-only changes, run `uv run pytest tests/scripts/test_check_docs.py -q` at minimum.
-5. Link the relevant GitHub issue and fill in validation plus impact scope in the PR template.
-6. Open the PR against `main` and wait for green CI.
-7. Wait for code review.
+5. If you touched repository hygiene rules, run `uv run pytest tests/scripts/test_repo_hygiene.py -q`.
+6. Link the relevant GitHub issue and fill in validation plus impact scope in the PR template.
+7. Open the PR against `main` and wait for green CI.
+8. Wait for code review.
 
 ## Issue Reports
 
