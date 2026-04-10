@@ -43,6 +43,8 @@ uv sync --extra motrix
 uv run python scripts/train_rsl_rl.py task=go1_joystick/mujoco
 ```
 
+Motrix registry bootstrap and Hydra config composition do not require importing MuJoCo anymore, but any MuJoCo task execution, playback, or MuJoCo-only tooling still requires a working MuJoCo runtime.
+
 ## Workflow Entrypoints
 
 | Goal | Entrypoint | Log root pattern |

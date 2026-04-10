@@ -7,6 +7,13 @@ UniLab 当前支持两个仿真后端:
 - **MuJoCo**: 默认后端，能力最完整
 - **Motrix**: 可选后端，任务和算法支持仍在持续补齐
 
+## Runtime Prerequisites
+
+- `uv sync --extra motrix` 会安装 Motrix 依赖。
+- Motrix 路径的 registry bootstrap 和 Hydra 配置 compose 不再要求导入 MuJoCo。
+- 任何 `task=.../mujoco` 的实际运行、MuJoCo playback、以及 MuJoCo-only 调试工具，仍然要求可用的 MuJoCo runtime。
+- 某些任务目前仍然只有 MuJoCo owner 配置；例如 `AllegroInhandRotation` 只提供 `mujoco` task。
+
 ## Support Matrix
 
 ### MuJoCo

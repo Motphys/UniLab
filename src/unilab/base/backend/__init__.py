@@ -1,6 +1,13 @@
+from typing import Any, cast
+
 from .base import SimBackend
 from .motrix_backend import MOTRIX_AVAILABLE, MotrixBackend
-from .mujoco_backend import MuJoCoBackend
+
+
+def _load_mujoco_backend() -> Any:
+    from .mujoco_backend import MuJoCoBackend
+
+    return MuJoCoBackend
 
 
 def create_backend(
@@ -20,15 +27,22 @@ def create_backend(
     """
     position_actuator_gains = kwargs.pop("position_actuator_gains", None)
     if backend_type == "mujoco":
+        MuJoCoBackend = _load_mujoco_backend()
         if position_actuator_gains is not None:
             kwargs["position_actuator_gains"] = position_actuator_gains
-        return MuJoCoBackend(model_file, num_envs, sim_dt, **kwargs)
+        return cast(SimBackend, MuJoCoBackend(model_file, num_envs, sim_dt, **kwargs))
     elif backend_type == "motrix":
         if not MOTRIX_AVAILABLE:
             raise ImportError("MotrixSim not available, install motrixsim package")
         return MotrixBackend(model_file, num_envs, sim_dt, **kwargs)
     else:
         raise ValueError(f"Unknown backend: {backend_type}")
+
+
+def __getattr__(name: str):
+    if name == "MuJoCoBackend":
+        return _load_mujoco_backend()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __all__ = [

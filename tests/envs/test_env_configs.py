@@ -2,36 +2,76 @@
 
 Config-attribute tests (non-slow) verify that config dataclasses expose every
 attribute accessed by their paired env class, WITHOUT running a simulation.
-They still require MuJoCo to be importable because the config and env classes
-live in the same module file.
 
 Slow tests actually call registry.make() and run reset + step.
 """
 
 from __future__ import annotations
 
+import subprocess
+import sys
+import textwrap
+from pathlib import Path
+from typing import Any, cast
+
 import numpy as np
 import pytest
 
-# The G1 env modules import create_backend → mujoco.batch_env at the top
-# level, so all tests in this file need a working MuJoCo installation.
-pytest.importorskip("mujoco", reason="mujoco not installed")
+from unilab.utils.algo_utils import ensure_registries
 
-# Some environments also use mujoco.batch_env (G1 backend). Guard against
-# partial MuJoCo installations where the base package installs but platform
-# extensions fail (e.g. wrong libstdc++ version).
-try:
-    from mujoco.batch_env import BatchEnvPool as _  # noqa: F401
-except Exception:
-    pytest.skip(
-        "mujoco.batch_env not available (platform/libstdc++ issue)", allow_module_level=True
-    )
 
-from unilab.utils.algo_utils import ensure_registries  # noqa: E402
+def _require_mujoco_runtime() -> None:
+    pytest.importorskip("mujoco", reason="mujoco not installed")
+    try:
+        from mujoco.batch_env import BatchEnvPool as _  # noqa: F401
+    except Exception:
+        pytest.skip("mujoco.batch_env not available (platform/libstdc++ issue)")
+
 
 # ---------------------------------------------------------------------------
 # Non-slow: config attribute completeness (no env.step(), no MuJoCo sim)
 # ---------------------------------------------------------------------------
+
+
+def test_registry_bootstrap_and_config_imports_do_not_require_mujoco():
+    repo_root = Path(__file__).parents[2]
+    script = textwrap.dedent(
+        """
+        import builtins
+
+        real_import = builtins.__import__
+
+        def blocked_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "mujoco" or name.startswith("mujoco."):
+                raise ImportError("mujoco blocked by test")
+            return real_import(name, globals, locals, fromlist, level)
+
+        builtins.__import__ = blocked_import
+
+        from unilab.base import registry
+        from unilab.base.backend import create_backend
+        from unilab.envs.manipulation.inhand_rot_allegro.rotation import AllegroRotationCfg
+        from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingCfg
+        from unilab.utils.algo_utils import ensure_registries
+
+        ensure_registries()
+        assert callable(create_backend)
+        assert registry.contains("G1MotionTracking")
+        assert registry.contains("AllegroInhandRotation")
+        G1MotionTrackingCfg()
+        AllegroRotationCfg()
+        """
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stderr or result.stdout
 
 
 def test_g1_joystick_ppo_cfg_obs_groups_spec():
@@ -97,7 +137,7 @@ def test_g1_motion_tracking_uses_split_body_pose_queries():
             self.calls.append(("quat", body_ids.copy()))
             return np.ones((2, len(body_ids), 4))
 
-    env = object.__new__(G1MotionTrackingEnv)
+    env = cast(Any, object.__new__(G1MotionTrackingEnv))
     env._backend = FakeBackend()
     env.body_ids = np.array([1, 3], dtype=np.int32)
 
@@ -179,7 +219,7 @@ def test_g1_motion_tracking_clip_end_contributes_to_truncated():
         def step(self) -> np.ndarray:
             return np.array([1], dtype=np.int32)
 
-    env = object.__new__(G1MotionTrackingEnv)
+    env = cast(Any, object.__new__(G1MotionTrackingEnv))
     env._num_envs = 2
     env._cfg = type("Cfg", (), {"max_episode_steps": None})()
     env.body_ids = np.array([0], dtype=np.int32)
@@ -227,7 +267,7 @@ def test_g1_motion_tracking_clip_end_does_not_override_true_termination():
     from unilab.base.np_env import NpEnvState
     from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
 
-    env = object.__new__(G1MotionTrackingEnv)
+    env = cast(Any, object.__new__(G1MotionTrackingEnv))
     env._num_envs = 2
     env._cfg = type("Cfg", (), {"max_episode_steps": None})()
     env._clip_end_truncated = np.array([False, True], dtype=bool)
@@ -276,6 +316,7 @@ def test_env_reset_and_step(
     - init_state + reset produces dict obs with correct keys and shapes
     - step with zero actions produces dict obs, scalar reward, bool done
     """
+    _require_mujoco_runtime()
     ensure_registries()
     from unilab.base import registry
 
@@ -292,8 +333,11 @@ def test_env_reset_and_step(
     elif "Allegro" in env_name:
         env_cfg_override = {"reward_config": default_allegro_reward_config}
 
-    env = registry.make(
-        env_name, num_envs=2, sim_backend="mujoco", env_cfg_override=env_cfg_override
+    env = cast(
+        Any,
+        registry.make(
+            env_name, num_envs=2, sim_backend="mujoco", env_cfg_override=env_cfg_override
+        ),
     )
     try:
         # 1. Spaces
@@ -328,7 +372,9 @@ def test_env_reset_and_step(
         env.close()
 
 
-def _assert_mujoco_position_gains(env, *, kp: float, kd: float, actuator_ids=slice(None)) -> None:
+def _assert_mujoco_position_gains(
+    env: Any, *, kp: float, kd: float, actuator_ids=slice(None)
+) -> None:
     model = env._backend.model
     np.testing.assert_allclose(model.actuator_gainprm[actuator_ids, 0], kp)
     np.testing.assert_allclose(model.actuator_biasprm[actuator_ids, 1], -kp)
@@ -339,17 +385,21 @@ def _assert_mujoco_position_gains(env, *, kp: float, kd: float, actuator_ids=sli
 
 @pytest.mark.slow
 def test_go1_env_initializes_kp_kd_into_pool(default_go1_reward_config):
+    _require_mujoco_runtime()
     ensure_registries()
     from unilab.base import registry
 
-    env = registry.make(
-        "Go1JoystickFlatTerrain",
-        num_envs=2,
-        sim_backend="mujoco",
-        env_cfg_override={
-            "reward_config": default_go1_reward_config,
-            "control_config": {"Kp": 12.0, "Kd": 0.7},
-        },
+    env = cast(
+        Any,
+        registry.make(
+            "Go1JoystickFlatTerrain",
+            num_envs=2,
+            sim_backend="mujoco",
+            env_cfg_override={
+                "reward_config": default_go1_reward_config,
+                "control_config": {"Kp": 12.0, "Kd": 0.7},
+            },
+        ),
     )
     try:
         _assert_mujoco_position_gains(env, kp=12.0, kd=0.7)
@@ -359,30 +409,34 @@ def test_go1_env_initializes_kp_kd_into_pool(default_go1_reward_config):
 
 @pytest.mark.slow
 def test_go2_env_initializes_kp_kd_into_pool():
+    _require_mujoco_runtime()
     ensure_registries()
     from unilab.base import registry
     from unilab.envs.locomotion.go2.joystick import RewardConfig
 
-    env = registry.make(
-        "Go2JoystickFlatTerrain",
-        num_envs=2,
-        sim_backend="mujoco",
-        env_cfg_override={
-            "reward_config": RewardConfig(
-                scales={
-                    "tracking_lin_vel": 1.0,
-                    "tracking_ang_vel": 0.2,
-                    "lin_vel_z": -5.0,
-                    "ang_vel_xy": -0.02,
-                    "base_height": -100.0,
-                    "action_rate": -0.005,
-                    "similar_to_default": -0.1,
-                },
-                tracking_sigma=0.25,
-                base_height_target=0.3,
-            ),
-            "control_config": {"Kp": 18.0, "Kd": 0.9},
-        },
+    env = cast(
+        Any,
+        registry.make(
+            "Go2JoystickFlatTerrain",
+            num_envs=2,
+            sim_backend="mujoco",
+            env_cfg_override={
+                "reward_config": RewardConfig(
+                    scales={
+                        "tracking_lin_vel": 1.0,
+                        "tracking_ang_vel": 0.2,
+                        "lin_vel_z": -5.0,
+                        "ang_vel_xy": -0.02,
+                        "base_height": -100.0,
+                        "action_rate": -0.005,
+                        "similar_to_default": -0.1,
+                    },
+                    tracking_sigma=0.25,
+                    base_height_target=0.3,
+                ),
+                "control_config": {"Kp": 18.0, "Kd": 0.9},
+            },
+        ),
     )
     try:
         _assert_mujoco_position_gains(env, kp=18.0, kd=0.9)
@@ -392,17 +446,21 @@ def test_go2_env_initializes_kp_kd_into_pool():
 
 @pytest.mark.slow
 def test_allegro_env_initializes_kp_kd_into_pool(default_allegro_reward_config):
+    _require_mujoco_runtime()
     ensure_registries()
     from unilab.base import registry
 
-    env = registry.make(
-        "AllegroInhandRotation",
-        num_envs=2,
-        sim_backend="mujoco",
-        env_cfg_override={
-            "reward_config": default_allegro_reward_config,
-            "control_config": {"kp": 2.5, "kd": 0.4},
-        },
+    env = cast(
+        Any,
+        registry.make(
+            "AllegroInhandRotation",
+            num_envs=2,
+            sim_backend="mujoco",
+            env_cfg_override={
+                "reward_config": default_allegro_reward_config,
+                "control_config": {"kp": 2.5, "kd": 0.4},
+            },
+        ),
     )
     try:
         _assert_mujoco_position_gains(env, kp=2.5, kd=0.4, actuator_ids=slice(0, 16))
@@ -415,11 +473,11 @@ def test_allegro_env_initializes_kp_kd_into_pool(default_allegro_reward_config):
 def test_g1_motion_tracking_reset_and_step(sim_backend: str):
     """G1MotionTracking needs a motion_file — skip if not available."""
     ensure_registries()
-    from pathlib import Path
-
     from unilab.base import registry
 
-    if sim_backend == "motrix":
+    if sim_backend == "mujoco":
+        _require_mujoco_runtime()
+    else:
         pytest.importorskip("motrixsim")
 
     # Look for any motion file in the expected location
@@ -432,11 +490,14 @@ def test_g1_motion_tracking_reset_and_step(sim_backend: str):
         pytest.skip(f"No .npz motion files in {motion_dir}")
 
     motion_file = str(npz_files[0])
-    env = registry.make(
-        "G1MotionTracking",
-        num_envs=2,
-        sim_backend=sim_backend,
-        env_cfg_override={"motion_file": motion_file},
+    env = cast(
+        Any,
+        registry.make(
+            "G1MotionTracking",
+            num_envs=2,
+            sim_backend=sim_backend,
+            env_cfg_override={"motion_file": motion_file},
+        ),
     )
     try:
         spec = env.obs_groups_spec
@@ -465,15 +526,19 @@ def test_g1_motion_tracking_reset_and_step(sim_backend: str):
 
 @pytest.mark.slow
 def test_go2_mujoco_reset_applies_kp_kd_domain_randomization(default_go2_reward_config):
+    _require_mujoco_runtime()
     ensure_registries()
 
     from unilab.base import registry
 
-    env = registry.make(
-        "Go2JoystickFlatTerrain",
-        num_envs=4,
-        sim_backend="mujoco",
-        env_cfg_override={"reward_config": default_go2_reward_config},
+    env = cast(
+        Any,
+        registry.make(
+            "Go2JoystickFlatTerrain",
+            num_envs=4,
+            sim_backend="mujoco",
+            env_cfg_override={"reward_config": default_go2_reward_config},
+        ),
     )
     try:
         env.init_state()
