@@ -50,16 +50,11 @@ def build_common_reset_randomization(env: Any, num_reset: int) -> ResetRandomiza
 
 def validate_common_reset_randomization(
     env: Any, capabilities: DomainRandomizationCapabilities
-) -> None:
+) -> frozenset[str]:
     payload = build_common_reset_randomization(env, num_reset=1)
     if payload is None:
-        return
-    unsupported = payload.requested_terms() - capabilities.supported_reset_terms
-    if unsupported:
-        terms = ", ".join(sorted(unsupported))
-        raise NotImplementedError(
-            f"{env._backend.backend_type} backend does not support reset randomization terms: {terms}"
-        )
+        return frozenset()
+    return capabilities.get_unsupported_reset_terms(payload.requested_terms())
 
 
 def build_interval_push_plan(env: Any, step_counter: int) -> IntervalRandomizationPlan | None:
