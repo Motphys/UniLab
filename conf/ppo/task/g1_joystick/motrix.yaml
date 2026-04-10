@@ -16,6 +16,7 @@ algo:
     learning_rate: 3.0e-4
     entropy_coef: 5.0e-3
 env:
+  iterations: 3
   control_config:
     action_scale: 0.5
   commands:

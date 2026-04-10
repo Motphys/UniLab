@@ -217,6 +217,7 @@ def test_ppo_g1_backend_specific_hyperparams_remain_separate():
     assert motrix_cfg.algo.max_iterations == 151
     assert motrix_cfg.algo.empirical_normalization is True
     assert motrix_cfg.algo.obs_groups.actor == ["policy"]
+    assert motrix_cfg.env.iterations == 3
     assert motrix_cfg.env.control_config.action_scale == pytest.approx(0.5)
 
 
@@ -236,6 +237,17 @@ def test_ppo_go2_motrix_preserves_backend_env_overrides():
 
     assert cfg.algo.num_envs == 1024
     assert cfg.algo.empirical_normalization is True
+    assert cfg.env.domain_rand.randomize_kp is False
+    assert cfg.env.domain_rand.randomize_kd is False
+
+
+@pytest.mark.parametrize("algo", ["sac", "td3"])
+def test_offpolicy_go2_motrix_preserves_backend_env_overrides(algo: str):
+    cfg = _compose("offpolicy", overrides=[f"algo={algo}", f"task={algo}/go2_joystick/motrix"])
+
+    assert cfg.training.sim_backend == "motrix"
+    assert cfg.algo.num_envs == 1024
+    assert cfg.algo.max_iterations == 3000
     assert cfg.env.domain_rand.randomize_kp is False
     assert cfg.env.domain_rand.randomize_kd is False
 

@@ -238,6 +238,7 @@ def test_ppo_g1_mujoco_base_hyperparams_remain_separate():
 def test_ppo_g1_env_preset_has_env_overrides():
     cfg = _ppo_cfg(["task=g1_joystick/motrix"])
 
+    assert cfg.env.iterations == 3
     assert cfg.env.control_config.action_scale == pytest.approx(0.5)
     assert cfg.env.gait_phase_init_mode == "independent"
     assert cfg.env.reset_base_qvel_limit == pytest.approx(0.05)
@@ -280,12 +281,24 @@ def test_build_ppo_env_cfg_override_g1_motrix(
 
     # env_cfg_override has reward + env preset fields (flat, matching env cfg structure)
     assert env_cfg_override["reward_config"]["scales"]["upper_body_pose"] == pytest.approx(-0.05)
+    assert env_cfg_override["iterations"] == 3
     assert env_cfg_override["control_config"]["action_scale"] == pytest.approx(0.5)
     assert env_cfg_override["gait_phase_init_mode"] == "independent"
     assert env_cfg_override["reset_base_qvel_limit"] == pytest.approx(0.05)
 
 
-def test_build_ppo_env_cfg_override_applies_go2_reward_motrix(
+@pytest.mark.parametrize("algo", ["sac", "td3"])
+def test_offpolicy_go2_motrix_env_cfg_override_has_domain_rand(algo: str):
+    cfg = _offpolicy_cfg([f"algo={algo}", f"task={algo}/go2_joystick/motrix"])
+
+    env_cfg_override = _offpolicy().build_offpolicy_env_cfg_override(algo, cfg)
+
+    assert env_cfg_override["domain_rand"]["randomize_kp"] is False
+    assert env_cfg_override["domain_rand"]["randomize_kd"] is False
+    assert env_cfg_override["reward_config"]["scales"]["tracking_lin_vel"] == pytest.approx(1.0)
+
+
+def test_build_ppo_env_cfg_override_applies_go2_motrix_reward(
     monkeypatch: pytest.MonkeyPatch,
 ):
     mod = _train_rsl_rl(monkeypatch)

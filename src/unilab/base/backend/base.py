@@ -95,12 +95,15 @@ class SimBackend(abc.ABC):
     # ------------------------------------------------------------------ #
 
     @abc.abstractmethod
-    def step(self, ctrl: np.ndarray, nsteps: int = 1) -> None:
+    def step(self, ctrl: np.ndarray, nsteps: int = 1) -> dict | None:
         """执行物理步进
 
         Args:
             ctrl: 控制输入 (num_envs, nu)
             nsteps: 步进次数
+
+        Returns:
+            可选的 dict，可包含 "timing" key 记录各阶段耗时（ms）
         """
 
     @abc.abstractmethod

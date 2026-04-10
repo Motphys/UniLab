@@ -46,7 +46,7 @@ class TD3Actor(nn.Module):
 
     def __init__(
         self,
-        n_obs: int,
+        obs_dim: int,
         n_act: int,
         num_envs: int,
         init_scale: float,
@@ -58,7 +58,7 @@ class TD3Actor(nn.Module):
         super().__init__()
         self.n_act = n_act
         self.net = nn.Sequential(
-            nn.Linear(n_obs, hidden_dim, device=device),
+            nn.Linear(obs_dim, hidden_dim, device=device),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim // 2, device=device),
             nn.ReLU(),
@@ -175,7 +175,7 @@ class FastTD3Learner:
 
         # Build actor
         self.actor = TD3Actor(
-            n_obs=obs_dim,
+            obs_dim=obs_dim,
             n_act=action_dim,
             num_envs=num_envs,
             init_scale=init_scale,
@@ -185,7 +185,7 @@ class FastTD3Learner:
             device=torch_device,
         )
         self.actor_target = TD3Actor(
-            n_obs=obs_dim,
+            obs_dim=obs_dim,
             n_act=action_dim,
             num_envs=num_envs,
             init_scale=init_scale,
@@ -198,7 +198,7 @@ class FastTD3Learner:
 
         # Build critic
         self.qnet = Critic(
-            n_obs=obs_dim,
+            obs_dim=obs_dim,
             n_act=action_dim,
             num_atoms=num_atoms,
             v_min=v_min,
@@ -207,7 +207,7 @@ class FastTD3Learner:
             device=torch_device,
         )
         self.qnet_target = Critic(
-            n_obs=obs_dim,
+            obs_dim=obs_dim,
             n_act=action_dim,
             num_atoms=num_atoms,
             v_min=v_min,

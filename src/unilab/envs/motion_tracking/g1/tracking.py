@@ -304,6 +304,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
             cfg.sim_dt,
             base_name=cfg.asset.base_name,
             add_body_sensors=True,
+            iterations=cfg.iterations,
         )
         super().__init__(cfg, backend, num_envs)
         if backend_type not in {"mujoco", "motrix"}:

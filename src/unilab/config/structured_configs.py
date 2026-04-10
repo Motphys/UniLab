@@ -189,7 +189,6 @@ class PPOAlgorithmConfig:
     adaptive_lr_growth: float = 1.1
     adaptive_lr_decay: float = 1.2
     adaptive_lr_update_interval: int = 5
-    fast_mode: bool = True
     metrics_interval: int = 8
     finite_check_interval: int = 8
     enable_compile: bool = False
