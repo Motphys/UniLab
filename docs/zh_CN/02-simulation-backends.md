@@ -44,7 +44,7 @@ UniLab 当前支持两个仿真后端:
 - offpolicy: `conf/offpolicy/task/<algo>/<task>/<backend>.yaml`
 
 现在没有单独的 `reward/`、`backend preset`、`sim_backend/` 配置组。`task/` 是唯一 owner 入口，不再是旧的拆分式 task 配置。
-`training.sim_backend` 由 owner YAML 设置，只用于标识最终选择的后端；如果它和 `task` 路径里的 backend 不一致，训练入口会拒绝这种混合配置。
+`training.sim_backend` 由 owner YAML 设置，只用于标识最终选择的后端；不要把它当作独立 backend switch。
 
 ```bash
 # 默认 MuJoCo

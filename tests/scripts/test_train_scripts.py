@@ -344,6 +344,7 @@ def test_build_ppo_play_env_cfg_override_applies_g1_motion_tracking_play_profile
 ):
     mod = _train_rsl_rl(monkeypatch)
     cfg = _ppo_cfg(["task=g1_motion_tracking/motrix", "training.play_only=true"])
+    assert cfg.training.play_env_num == 128
 
     monkeypatch.setattr(
         mod,
@@ -370,7 +371,7 @@ def test_build_ppo_play_env_cfg_override_respects_cli_play_env_override(
             "training.play_env_num=32",
         ]
     )
-    monkeypatch.setattr(sys, "argv", ["train_rsl_rl.py", "training.play_env_num=32"])
+    assert cfg.training.play_env_num == 32
     monkeypatch.setattr(
         mod,
         "materialize_scene_visual_override",
@@ -388,9 +389,7 @@ def test_build_ppo_play_env_cfg_override_resolves_relative_ground_texture(
 ):
     mod = _train_rsl_rl(monkeypatch)
     cfg = _ppo_cfg(["task=g1_motion_tracking/motrix", "training.play_only=true"])
-    cfg.motrix_play_only.scene_override.ground_texture_file = (
-        "src/unilab/assets/robots/g1/floor.png"
-    )
+    cfg.play_profile.scene.ground_texture_file = "src/unilab/assets/robots/g1/floor.png"
 
     captured = {}
 

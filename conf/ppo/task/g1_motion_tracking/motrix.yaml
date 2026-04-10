@@ -1,8 +1,8 @@
 # @package _global_
-_selected_sim_backend: motrix
 training:
   task_name: G1MotionTracking
   sim_backend: motrix
+  play_env_num: 128
   play_steps: 1000
 algo:
   num_envs: 1024
@@ -13,13 +13,11 @@ algo:
       - actor
   algorithm:
     entropy_coef: 0.005
-motrix_play_only:
+play_profile:
   enabled: true
-  training_overrides:
-    play_env_num: 128
-  env_cfg_override:
+  env:
     render_spacing: 2.5
-  scene_override:
+  scene:
     enabled: true
     source_model_file: src/unilab/assets/robots/g1/scene_flat.xml
     ground_texture_file: src/unilab/assets/robots/g1/floor.png

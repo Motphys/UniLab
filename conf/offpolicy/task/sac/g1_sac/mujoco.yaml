@@ -1,5 +1,4 @@
 # @package _global_
-_selected_sim_backend: mujoco
 training:
   task_name: G1WalkTaskMjSAC
   sim_backend: mujoco

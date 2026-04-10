@@ -102,8 +102,9 @@ def test_backend_adapter_env_cfg_override_for_motrix_sac_go1():
     assert cfg.algo.max_iterations == 2000
 
 
-def test_backend_adapter_builds_motrix_play_scene_override():
+def test_backend_adapter_builds_play_scene_override():
     cfg = _ppo_cfg(["task=g1_motion_tracking/motrix", "training.play_only=true"])
+    assert cfg.training.play_env_num == 128
     captured: dict[str, object] = {}
 
     def _fake_materializer(source_model_file: str, **kwargs) -> str:
@@ -124,15 +125,3 @@ def test_backend_adapter_builds_motrix_play_scene_override():
     assert captured["ground_texture_file"] == str(
         _ROOT_DIR / "src/unilab/assets/robots/g1/floor.png"
     )
-
-
-def test_backend_adapter_rejects_mixed_task_backend_identity():
-    GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(_CONF_DIR / "offpolicy"), version_base="1.3"):
-        cfg = compose(
-            "config",
-            overrides=["task=sac/go1_joystick/mujoco", "training.sim_backend=motrix"],
-        )
-
-    with pytest.raises(ValueError, match="backend selection contract"):
-        BackendAdapter(cfg, root_dir=_ROOT_DIR, algo_name="sac").build_task_env_cfg_override()

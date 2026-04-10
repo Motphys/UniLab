@@ -10,7 +10,6 @@ These tests enforce that:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, cast
 
 import pytest
 from hydra import compose, initialize_config_dir
@@ -144,21 +143,18 @@ def test_legacy_config_groups_removed():
         assert not path.exists(), f"legacy config group should be removed: {path}"
 
 
-def test_task_files_keep_full_identity():
+def test_task_files_keep_full_identity_without_hidden_backend_marker():
     for path in sorted(CONF_DIR.glob("*/task/**/*.yaml")):
         cfg = OmegaConf.load(path)
         cfg_dict_raw = OmegaConf.to_container(cfg, resolve=True) or {}
         assert isinstance(cfg_dict_raw, dict)
-        cfg_dict = cast(dict[str, Any], cfg_dict_raw)
-        assert "_selected_sim_backend" in cfg_dict, f"task missing backend marker: {path}"
-        training_raw = cfg_dict.get("training", {})
-        assert isinstance(training_raw, dict)
-        training = cast(dict[str, Any], training_raw)
-        assert "task_name" in training, f"task missing task_name: {path}"
-        assert "sim_backend" in training, f"task missing sim_backend: {path}"
-        assert training["sim_backend"] == cfg_dict["_selected_sim_backend"], (
-            f"task backend marker mismatch: {path}"
+        assert "_selected_sim_backend" not in cfg_dict_raw, (
+            f"task has hidden backend marker: {path}"
         )
+        training_raw = cfg_dict_raw.get("training", {})
+        assert isinstance(training_raw, dict)
+        assert "task_name" in training_raw, f"task missing task_name: {path}"
+        assert "sim_backend" in training_raw, f"task missing sim_backend: {path}"
 
 
 @pytest.mark.parametrize(

@@ -1,5 +1,4 @@
 # @package _global_
-_selected_sim_backend: motrix
 training:
   task_name: G1MotionTracking
   sim_backend: motrix
