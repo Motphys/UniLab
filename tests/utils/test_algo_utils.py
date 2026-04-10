@@ -119,6 +119,21 @@ class TestEnsureRegistries:
         assert "registry_optional_pkg.broken" in caplog.text
         assert "Failed to import declared registry module" in caplog.text
 
+    def test_invalid_registry_modules_contract_raises(self, tmp_path, monkeypatch) -> None:
+        """Package bootstrap contract must be a sequence of module names."""
+        pkg_dir = tmp_path / "registry_invalid_contract_pkg"
+        pkg_dir.mkdir()
+        (pkg_dir / "__init__.py").write_text(
+            "__unilab_registry_modules__ = 'registry_invalid_contract_pkg.child'\n",
+            encoding="utf-8",
+        )
+        monkeypatch.syspath_prepend(str(tmp_path))
+        importlib.invalidate_caches()
+        sys.modules.pop("registry_invalid_contract_pkg", None)
+
+        with pytest.raises(TypeError, match="__unilab_registry_modules__"):
+            ensure_registries(["registry_invalid_contract_pkg"])
+
 
 class TestBuildActor:
     """Tests for build_actor."""
