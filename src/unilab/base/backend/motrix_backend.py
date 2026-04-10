@@ -223,26 +223,26 @@ class MotrixBackend(SimBackend):
     # ------------------------------------------------------------------ #
 
     def get_base_pos(self) -> np.ndarray:
-        return self._body.floatingbase.get_translation(self._data)
+        return np.asarray(self._body.floatingbase.get_translation(self._data))
 
     def get_base_quat(self) -> np.ndarray:
-        return self._xyzw_to_wxyz(self._body.floatingbase.get_rotation(self._data))
+        return self._xyzw_to_wxyz(np.asarray(self._body.floatingbase.get_rotation(self._data)))
 
     def get_base_lin_vel(self) -> np.ndarray:
-        return self._body.floatingbase.get_global_linear_velocity(self._data)
+        return np.asarray(self._body.floatingbase.get_global_linear_velocity(self._data))
 
     def get_base_ang_vel(self) -> np.ndarray:
-        return self._body.floatingbase.get_global_angular_velocity(self._data)
+        return np.asarray(self._body.floatingbase.get_global_angular_velocity(self._data))
 
     # ------------------------------------------------------------------ #
     # DOF state                                                          #
     # ------------------------------------------------------------------ #
 
     def get_dof_pos(self) -> np.ndarray:
-        return self._body.get_joint_dof_pos(self._data)
+        return np.asarray(self._body.get_joint_dof_pos(self._data))
 
     def get_dof_vel(self) -> np.ndarray:
-        return self._body.get_joint_dof_vel(self._data)
+        return np.asarray(self._body.get_joint_dof_vel(self._data))
 
     # ------------------------------------------------------------------ #
     # Body kinematics — world frame                                      #
@@ -285,7 +285,7 @@ class MotrixBackend(SimBackend):
     # ------------------------------------------------------------------ #
 
     def get_sensor_data(self, name: str) -> np.ndarray:
-        return self._model.get_sensor_value(name, self._data)
+        return np.asarray(self._model.get_sensor_value(name, self._data))
 
     # ------------------------------------------------------------------ #
     # MotrixSim-specific                                                 #
