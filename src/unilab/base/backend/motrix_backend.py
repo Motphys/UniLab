@@ -1,4 +1,5 @@
 import os
+import time
 from collections.abc import Sequence
 
 import numpy as np
@@ -33,6 +34,7 @@ class MotrixBackend(SimBackend):
         base_name: str = "base",
         np_dtype=np.float32,
         add_body_sensors: bool = False,
+        iterations: int | None = None,
     ):
         if not MOTRIX_AVAILABLE:
             raise ImportError("motrixsim not available")
@@ -66,6 +68,8 @@ class MotrixBackend(SimBackend):
             }
 
         self._model.options.timestep = sim_dt
+        if iterations is not None:
+            self._model.options.max_iterations = int(iterations)
         self._num_envs = num_envs
         self._np_dtype = np_dtype
 
@@ -150,11 +154,29 @@ class MotrixBackend(SimBackend):
     # Simulation control                                                 #
     # ------------------------------------------------------------------ #
 
-    def step(self, ctrl: np.ndarray, nsteps: int = 1) -> None:
+    def step(self, ctrl: np.ndarray, nsteps: int = 1) -> dict | None:
+        t0 = time.perf_counter()
         self._data.actuator_ctrls = np.ascontiguousarray(ctrl)
-        for _ in range(nsteps):
+        set_ctrl_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
+        if nsteps == 1:
             self._model.step(self._data)
+        else:
+            self._model.step_n(self._data, nsteps)
+        physics_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         self._refresh_link_pose_cache()
+        refresh_cache_ms = (time.perf_counter() - t0) * 1000.0
+
+        return {
+            "timing": {
+                "set_ctrl_ms": set_ctrl_ms,
+                "physics_ms": physics_ms,
+                "refresh_cache_ms": refresh_cache_ms,
+            }
+        }
 
     def set_state(
         self,
@@ -182,8 +204,8 @@ class MotrixBackend(SimBackend):
         ctrl = qpos_motrix[:, 7:]
         data_slice.actuator_ctrls = np.ascontiguousarray(ctrl)
 
-        self._model.forward_kinematic(self._data)
-        self._refresh_link_pose_cache()
+        self._model.forward_kinematic(data_slice)
+        self._refresh_link_pose_cache(env_indices)
 
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
         return DomainRandomizationCapabilities(
@@ -201,26 +223,26 @@ class MotrixBackend(SimBackend):
     # ------------------------------------------------------------------ #
 
     def get_base_pos(self) -> np.ndarray:
-        return np.asarray(self._body.floatingbase.get_translation(self._data))
+        return self._body.floatingbase.get_translation(self._data)
 
     def get_base_quat(self) -> np.ndarray:
-        return self._xyzw_to_wxyz(np.asarray(self._body.floatingbase.get_rotation(self._data)))
+        return self._xyzw_to_wxyz(self._body.floatingbase.get_rotation(self._data))
 
     def get_base_lin_vel(self) -> np.ndarray:
-        return np.asarray(self._body.floatingbase.get_global_linear_velocity(self._data))
+        return self._body.floatingbase.get_global_linear_velocity(self._data)
 
     def get_base_ang_vel(self) -> np.ndarray:
-        return np.asarray(self._body.floatingbase.get_global_angular_velocity(self._data))
+        return self._body.floatingbase.get_global_angular_velocity(self._data)
 
     # ------------------------------------------------------------------ #
     # DOF state                                                          #
     # ------------------------------------------------------------------ #
 
     def get_dof_pos(self) -> np.ndarray:
-        return np.asarray(self._body.get_joint_dof_pos(self._data))
+        return self._body.get_joint_dof_pos(self._data)
 
     def get_dof_vel(self) -> np.ndarray:
-        return np.asarray(self._body.get_joint_dof_vel(self._data))
+        return self._body.get_joint_dof_vel(self._data)
 
     # ------------------------------------------------------------------ #
     # Body kinematics — world frame                                      #
@@ -263,7 +285,7 @@ class MotrixBackend(SimBackend):
     # ------------------------------------------------------------------ #
 
     def get_sensor_data(self, name: str) -> np.ndarray:
-        return np.asarray(self._model.get_sensor_value(name, self._data))
+        return self._model.get_sensor_value(name, self._data)
 
     # ------------------------------------------------------------------ #
     # MotrixSim-specific                                                 #
@@ -279,24 +301,21 @@ class MotrixBackend(SimBackend):
     def _get_link_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
         ids = self._as_body_ids(body_ids)
         return np.stack(
-            [np.asarray(self._link_cache[int(bid)].get_linear_velocity(self._data)) for bid in ids],
+            [self._link_cache[int(bid)].get_linear_velocity(self._data) for bid in ids],
             axis=1,
         )
 
     def _get_link_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
         ids = self._as_body_ids(body_ids)
         return np.stack(
-            [
-                np.asarray(self._link_cache[int(bid)].get_angular_velocity(self._data))
-                for bid in ids
-            ],
+            [self._link_cache[int(bid)].get_angular_velocity(self._data) for bid in ids],
             axis=1,
         )
 
     def _get_body_sensor_values(self, body_ids: np.ndarray, prefix: str) -> np.ndarray:
         return np.stack(
             [
-                np.asarray(self._model.get_sensor_value(f"{prefix}_{name}", self._data))
+                self._model.get_sensor_value(f"{prefix}_{name}", self._data)
                 for name in self._get_body_names(body_ids)
             ],
             axis=1,
@@ -306,8 +325,13 @@ class MotrixBackend(SimBackend):
         """motrix xyzw → wxyz"""
         return q[..., [3, 0, 1, 2]]
 
-    def _refresh_link_pose_cache(self) -> None:
-        self._link_poses = np.ascontiguousarray(np.asarray(self._model.get_link_poses(self._data)))
+    def _refresh_link_pose_cache(self, env_indices: np.ndarray | None = None) -> None:
+        if env_indices is None:
+            self._link_poses = self._model.get_link_poses(self._data)
+        else:
+            mask = np.zeros(self._num_envs, dtype=bool)
+            mask[env_indices] = True
+            self._link_poses[env_indices] = self._model.get_link_poses(self._data[mask])
 
     def push_robots(self, force_range):
         ex_force = np.random.rand(self.num_envs, 3) * 2 - 1  # [x_force, y_force, z_force]

@@ -26,6 +26,7 @@ motrix_legacy:
       learning_rate: 3.0e-4
       entropy_coef: 5.0e-3
   env_cfg_override:
+    iterations: 3
     reward_config:
       scales:
         tracking_lin_vel: 3.0

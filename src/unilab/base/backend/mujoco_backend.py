@@ -1,4 +1,5 @@
 import os
+import time
 from collections.abc import Sequence
 from multiprocessing import cpu_count
 from typing import Optional, cast
@@ -41,6 +42,7 @@ class MuJoCoBackend(SimBackend):
         np_dtype=None,
         add_body_sensors: bool = False,
         position_actuator_gains: dict | None = None,
+        iterations: int | None = None,
     ):
         self.add_body_sensors = add_body_sensors
         self._base_name = base_name
@@ -72,6 +74,8 @@ class MuJoCoBackend(SimBackend):
                 self._body_id_to_tracked_idx[bid] = idx
 
         self._model.opt.timestep = sim_dt
+        if iterations is not None:
+            self._model.opt.iterations = int(iterations)
         if position_actuator_gains is not None:
             self._apply_position_actuator_gains_to_model(self._model, **position_actuator_gains)
         self._base_body_id = (
@@ -230,8 +234,12 @@ class MuJoCoBackend(SimBackend):
     # Simulation control                                                 #
     # ------------------------------------------------------------------ #
 
-    def step(self, ctrl: np.ndarray, nsteps: int = 1) -> None:
+    def step(self, ctrl: np.ndarray, nsteps: int = 1) -> dict | None:
+        t0 = time.perf_counter()
         control_traj = np.broadcast_to(ctrl[:, None, :], (self._num_envs, nsteps, ctrl.shape[-1]))
+        set_ctrl_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         state_np = self._pool.step(
             self._physics_state,
             nstep=nsteps,
@@ -239,9 +247,20 @@ class MuJoCoBackend(SimBackend):
             control_spec=int(mujoco.mjtState.mjSTATE_CTRL),
         )
         self._physics_state[:] = state_np.astype(self._np_dtype)
+        physics_ms = (time.perf_counter() - t0) * 1000.0
 
+        t0 = time.perf_counter()
         sensor_np = self._pool.forward(self._physics_state)
         self._sensor_data[:] = sensor_np.astype(self._np_dtype)
+        refresh_cache_ms = (time.perf_counter() - t0) * 1000.0
+
+        return {
+            "timing": {
+                "set_ctrl_ms": set_ctrl_ms,
+                "physics_ms": physics_ms,
+                "refresh_cache_ms": refresh_cache_ms,
+            }
+        }
 
     def set_state(
         self,

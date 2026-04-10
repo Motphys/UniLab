@@ -13,7 +13,7 @@ def create_backend(
         model_file: 模型文件路径
         num_envs: 环境数量
         sim_dt: 仿真时间步长
-        **kwargs: 其他参数
+        **kwargs: 其他参数（iterations, position_actuator_gains 等）
 
     Returns:
         SimBackend 实例
