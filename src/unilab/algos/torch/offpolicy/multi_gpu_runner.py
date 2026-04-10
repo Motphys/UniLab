@@ -17,7 +17,7 @@ import sys
 import time
 from collections import defaultdict, deque
 from datetime import timedelta
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, cast
 
 import torch
 import torch.distributed as dist
@@ -40,7 +40,10 @@ def _find_free_port() -> int:
 
 def _broadcast_initial_params(learner: FastSACLearner, rank: int) -> None:
     """Broadcast rank-0 initial parameters to all workers for consistent starting point."""
-    for model in [learner.actor, learner.qnet]:
+    for model in (
+        cast(torch.nn.Module, learner.actor),
+        cast(torch.nn.Module, learner.qnet),
+    ):
         for p in model.parameters():
             dist.broadcast(p.data, src=0)
     dist.broadcast(learner.log_alpha.data, src=0)

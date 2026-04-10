@@ -17,20 +17,20 @@
 
 ```bash
 # PPO (RSL-RL)
-uv run python scripts/train_rsl_rl.py task=go1_joystick
+uv run python scripts/train_rsl_rl.py task=go1_joystick/mujoco
 
 # PPO (MLX, Apple Silicon)
-uv run python scripts/train_mlx_ppo.py task=go1_joystick
+uv run python scripts/train_mlx_ppo.py task=go1_joystick/mujoco
 
 # APPO
-uv run python scripts/train_appo.py task=go1_joystick
+uv run python scripts/train_appo.py task=go1_joystick/mujoco
 
 # Off-policy
-uv run python scripts/train_offpolicy.py algo=sac task=go1_joystick
-uv run python scripts/train_offpolicy.py algo=td3 task=go1_joystick
+uv run python scripts/train_offpolicy.py algo=sac task=sac/go1_joystick/mujoco
+uv run python scripts/train_offpolicy.py algo=td3 task=td3/go1_joystick/mujoco
 
 # CLI override
-uv run python scripts/train_offpolicy.py algo=sac task=g1_sac algo.num_envs=2048 algo.max_iterations=1000
+uv run python scripts/train_offpolicy.py algo=sac task=sac/g1_sac/mujoco algo.num_envs=2048 algo.max_iterations=1000
 ```
 
 训练脚本默认会在训练结束后自动进入回放。
@@ -45,18 +45,18 @@ run 目录命名格式是 `YYYY-MM-DD_HH-MM-SS_<sim_backend>`，例如 `2026-03-
 
 ```bash
 # 回放最新结果
-uv run python scripts/train_rsl_rl.py task=go2_joystick training.play_only=true
-uv run python scripts/train_offpolicy.py algo=sac task=go2_joystick training.play_only=true
+uv run python scripts/train_rsl_rl.py task=go2_joystick/mujoco training.play_only=true
+uv run python scripts/train_offpolicy.py algo=sac task=sac/go2_joystick/mujoco training.play_only=true
 
 # 回放指定 run
-uv run python scripts/train_offpolicy.py algo=td3 task=go1_joystick training.play_only=true training.load_run="2024-02-04_12-00-00"
+uv run python scripts/train_offpolicy.py algo=td3 task=td3/go1_joystick/mujoco training.play_only=true training.load_run="2024-02-04_12-00-00"
 ```
 
 ## Resume Training
 
 ```bash
-uv run python scripts/train_rsl_rl.py task=go2_joystick training.load_run="2024-02-04_12-00-00"
-uv run python scripts/train_offpolicy.py algo=sac task=go2_joystick training.load_run="2024-02-04_12-00-00"
+uv run python scripts/train_rsl_rl.py task=go2_joystick/mujoco training.load_run="2024-02-04_12-00-00"
+uv run python scripts/train_offpolicy.py algo=sac task=sac/go2_joystick/mujoco training.load_run="2024-02-04_12-00-00"
 ```
 
 ## Hydra Overrides
@@ -68,7 +68,7 @@ uv run python scripts/train_offpolicy.py algo=sac task=go2_joystick training.loa
 uv run python scripts/train_*.py [config_group=value] [key.subkey=value]
 
 # 常见参数
-task=go1_joystick
+task=go1_joystick/mujoco
 algo=sac
 training.play_only=true
 training.no_play=true
@@ -95,11 +95,11 @@ uv run python scripts/train_offpolicy.py --cfg job
 
 ```bash
 # 基本用法
-uv run python scripts/train_rsl_rl.py task=go1_joystick training.logger=wandb
+uv run python scripts/train_rsl_rl.py task=go1_joystick/mujoco training.logger=wandb
 
 # 共享 project / entity
 uv run python scripts/train_appo.py \
-  task=go1_joystick \
+  task=go1_joystick/mujoco \
   training.logger=wandb \
   training.wandb_project=unilab-benchmark \
   training.wandb_entity=my-team
@@ -107,7 +107,7 @@ uv run python scripts/train_appo.py \
 # 按 task 分组
 uv run python scripts/train_offpolicy.py \
   algo=sac \
-  task=go2_joystick \
+  task=sac/go2_joystick/mujoco \
   training.logger=wandb \
   training.wandb_project=unilab-benchmark \
   training.wandb_group=go2_joystick

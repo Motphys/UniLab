@@ -13,6 +13,7 @@ import sys
 import time
 from collections import deque
 from pathlib import Path
+from typing import Any, cast
 
 import hydra
 import mlx.core as mx
@@ -26,6 +27,7 @@ sys.path.append(str(ROOT_DIR))
 from unilab.algos.mlx.common import EmpiricalDiscountedVariationNormalization, RolloutBuffer
 from unilab.algos.mlx.ppo import MLPActorCritic, PPOConfig, PPOTrainer
 from unilab.training import (
+    BackendAdapter,
     create_env,
     ensure_registries,
     get_log_root,
@@ -65,8 +67,14 @@ class TensorboardScalarWriter:
         self._writer = EventFileWriter(str(log_dir))
 
     def add_scalar(self, tag: str, value: float, step: int) -> None:
-        summary = self._Summary(value=[self._Summary.Value(tag=tag, simple_value=float(value))])
-        event = self._Event(wall_time=time.time(), step=int(step), summary=summary)
+        summary = cast(Any, self._Summary())
+        summary_value = summary.value.add()
+        summary_value.tag = tag
+        summary_value.simple_value = float(value)
+        event = cast(Any, self._Event())
+        event.wall_time = time.time()
+        event.step = int(step)
+        event.summary.CopyFrom(summary)
         self._writer.add_event(event)
 
     def flush(self) -> None:
@@ -77,11 +85,11 @@ class TensorboardScalarWriter:
 
 
 def get_latest_run(log_dir: Path) -> Path | None:
-    return get_latest_run_common(log_dir)
+    return cast(Path | None, get_latest_run_common(log_dir))
 
 
 def get_latest_checkpoint(run_dir: Path) -> Path | None:
-    return get_latest_checkpoint_common(run_dir, suffix=".safetensors")
+    return cast(Path | None, get_latest_checkpoint_common(run_dir, suffix=".safetensors"))
 
 
 def save_trainer_state(path: Path, trainer: PPOTrainer, iteration: int) -> None:
@@ -136,24 +144,30 @@ def _get_physics_state_snapshot(env) -> np.ndarray:
 
 
 def _get_log_root(cfg: DictConfig) -> Path:
-    return get_log_root(ROOT_DIR, cfg)
+    return cast(Path, get_log_root(ROOT_DIR, cfg))
 
 
 def play_mlx_ppo(cfg: DictConfig, dtype, use_fp16: bool, resolved_sim_backend: str) -> str | None:
     """Play mode for MLX PPO."""
-    from unilab.utils.reward_utils import extract_reward_config
-
-    env_cfg_override = extract_reward_config(cfg)
+    env_cfg_override = BackendAdapter(
+        cfg, root_dir=ROOT_DIR, algo_name="ppo"
+    ).build_task_env_cfg_override()
 
     play_model_dtype = mx.float32 if use_fp16 else dtype
     play_env_num = cfg.training.play_env_num
-    env = create_env(
-        cfg,
-        num_envs=play_env_num,
-        env_cfg_override=env_cfg_override,
+    env = cast(
+        Any,
+        create_env(
+            cfg,
+            num_envs=play_env_num,
+            env_cfg_override=env_cfg_override,
+        ),
     )
     obs_dim = sum(env.obs_groups_spec.values())
-    action_dim = env.action_space.shape[0]
+    action_shape = env.action_space.shape
+    if action_shape is None:
+        raise ValueError("env.action_space.shape must be defined")
+    action_dim = int(action_shape[0])
     model = build_model(cfg.algo, obs_dim, action_dim, dtype=play_model_dtype)
 
     task_log_root = _get_log_root(cfg) / cfg.training.task_name
@@ -182,7 +196,7 @@ def play_mlx_ppo(cfg: DictConfig, dtype, use_fp16: bool, resolved_sim_backend: s
         actions = mx.where(mx.isfinite(actions_mx), actions_mx, mx.zeros_like(actions_mx))
         actions = actions.astype(dtype) if getattr(actions, "dtype", None) != dtype else actions
         state = env.step(np.asarray(actions))
-        raw_obs = flatten_obs_dict(state.obs)
+        raw_obs = mx.array(flatten_obs_dict(state.obs))
         return mx.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0)
 
     if resolved_sim_backend == "motrix":
@@ -276,14 +290,17 @@ def main(cfg: DictConfig) -> None:
     )
     tracker.start()
 
-    from unilab.utils.reward_utils import extract_reward_config
+    env_cfg_override = BackendAdapter(
+        cfg, root_dir=ROOT_DIR, algo_name="ppo"
+    ).build_task_env_cfg_override()
 
-    env_cfg_override = extract_reward_config(cfg)
-
-    env = create_env(
-        cfg,
-        num_envs=cfg.algo.num_envs,
-        env_cfg_override=env_cfg_override,
+    env = cast(
+        Any,
+        create_env(
+            cfg,
+            num_envs=cfg.algo.num_envs,
+            env_cfg_override=env_cfg_override,
+        ),
     )
     if env.state is None:
         env.init_state()
@@ -292,7 +309,10 @@ def main(cfg: DictConfig) -> None:
     obs = mx.array(flatten_obs_dict(obs_dict))
 
     obs_dim = sum(env.obs_groups_spec.values())
-    action_dim = env.action_space.shape[0]
+    action_shape = env.action_space.shape
+    if action_shape is None:
+        raise ValueError("env.action_space.shape must be defined")
+    action_dim = int(action_shape[0])
 
     model = build_model(cfg.algo, obs_dim, action_dim, dtype=model_dtype)
     ppo_cfg = PPOConfig(
@@ -384,8 +404,8 @@ def main(cfg: DictConfig) -> None:
 
     episode_returns = np.zeros((cfg.algo.num_envs,), dtype=(np.float16 if use_fp16 else np.float32))
     episode_lengths = np.zeros((cfg.algo.num_envs,), dtype=np.int32)
-    reward_window = deque(maxlen=100)
-    length_window = deque(maxlen=100)
+    reward_window: deque[float] = deque(maxlen=100)
+    length_window: deque[int] = deque(maxlen=100)
     collection_size = num_steps * cfg.algo.num_envs
     total_time = 0.0
     best_mean_reward = float("-inf")

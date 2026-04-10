@@ -1,5 +1,7 @@
 """Test reward config injection system."""
 
+from typing import Any, cast
+
 import pytest
 from hydra import compose, initialize
 from omegaconf import OmegaConf
@@ -8,7 +10,7 @@ from omegaconf import OmegaConf
 def test_reward_config_loading_g1():
     """Test G1 SAC reward config loads correctly."""
     with initialize(config_path="../../conf/offpolicy", version_base="1.3"):
-        cfg = compose(config_name="config", overrides=["task=g1_sac"])
+        cfg = compose(config_name="config", overrides=["task=sac/g1_sac/mujoco"])
         assert hasattr(cfg, "reward")
         assert cfg.reward.scales.tracking_lin_vel == 2.0
         assert cfg.reward.scales.alive == 10.0
@@ -18,20 +20,20 @@ def test_reward_config_loading_g1():
 def test_reward_config_loading_go1():
     """Test Go1 reward config loads correctly."""
     with initialize(config_path="../../conf/offpolicy", version_base="1.3"):
-        cfg = compose(config_name="config", overrides=["task=go1_joystick"])
+        cfg = compose(config_name="config", overrides=["task=sac/go1_joystick/mujoco"])
         assert hasattr(cfg, "reward")
         assert cfg.reward.scales.tracking_lin_vel == 1.0
         assert cfg.reward.scales.contact == 0.24
 
 
-def test_resolve_reward_dict_unwraps_backend_mounted_reward():
-    """Mounted backend reward groups should resolve to the inner reward mapping."""
+def test_resolve_reward_dict_reads_task_reward():
+    """Task-backend configs should expose the final reward mapping directly."""
     from unilab.utils.reward_utils import resolve_reward_dict
 
     with initialize(config_path="../../conf/ppo", version_base="1.3"):
         cfg = compose(
             config_name="config",
-            overrides=["task=go2_joystick", "training.sim_backend=motrix"],
+            overrides=["task=go2_joystick/motrix"],
         )
 
     reward_dict = resolve_reward_dict(cfg)
@@ -60,11 +62,14 @@ def test_reward_config_conversion():
         "close_feet_threshold": 0.15,
         "pose_weights": [0.01] * 29,
     }
-    env = registry.make(
-        "G1WalkTaskMjSAC",
-        num_envs=1,
-        sim_backend="mujoco",
-        env_cfg_override={"reward_config": g1_dict},
+    env = cast(
+        Any,
+        registry.make(
+            "G1WalkTaskMjSAC",
+            num_envs=1,
+            sim_backend="mujoco",
+            env_cfg_override={"reward_config": g1_dict},
+        ),
     )
     assert hasattr(env._cfg.reward_config, "scales")
     assert env._cfg.reward_config.scales["tracking_lin_vel"] == 2.0
@@ -76,11 +81,14 @@ def test_reward_config_conversion():
         "tracking_sigma": 0.25,
         "base_height_target": 0.3,
     }
-    env = registry.make(
-        "Go1JoystickFlatTerrain",
-        num_envs=1,
-        sim_backend="mujoco",
-        env_cfg_override={"reward_config": go1_dict},
+    env = cast(
+        Any,
+        registry.make(
+            "Go1JoystickFlatTerrain",
+            num_envs=1,
+            sim_backend="mujoco",
+            env_cfg_override={"reward_config": go1_dict},
+        ),
     )
     assert hasattr(env._cfg.reward_config, "scales")
     assert env._cfg.reward_config.scales["tracking_lin_vel"] == 1.0

@@ -68,8 +68,11 @@ CPU Physics Sim ──shm──► Collector / IPC ──shm──► GPU Learne
 
 UniLab 使用 dataclass + Hydra。schema 位于 `src/unilab/config/structured_configs.py`，运行时配置位于 `conf/{ppo,appo,offpolicy}/`。
 
-合成顺序: `{algo}/config*.yaml` -> `task=...` -> `reward[_{backend}]` -> CLI override -> `backend_profile` (env-only overrides，motrix 时由 BackendAdapter 应用)。
+合成顺序: `{algo}/config*.yaml` -> `task=...` -> CLI override。
 
+- `task` 是唯一 owner 配置入口：同一个 task + backend（offpolicy 再加 algo）对应一个 YAML，里面直接放这个组合的 `training.task_name` / `training.sim_backend` / `reward` / `env` / task-specific `algo`
+- PPO / APPO 入口形如 `conf/{ppo,appo}/task/<task>/<backend>.yaml`；offpolicy 入口形如 `conf/offpolicy/task/<algo>/<task>/<backend>.yaml`
+- 这里的 `task` 不是旧设计里“只表达任务、再去别处拼 backend/reward/algo”的 group；它本身就是最终 owner 配置入口
 - reward 必须显式注入
 - 如果 backend 选择会影响 task 或 reward 行为，就必须通过 config 表达
 - 动态 override 必须尊重 CLI

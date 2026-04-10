@@ -143,7 +143,7 @@ Use GitHub Issues to report bugs or propose features.
 
 UniLab uses Hydra + dataclass configuration:
 
-- **Add a new task**: create YAML under `conf/{algo}/task/` and use `# @package _global_`
+- **Add a new task entry**: create a single owner YAML under `conf/{algo}/task/...` and use `# @package _global_`
 - **Change hyperparameters**: edit the matching YAML or use CLI overrides such as `algo.num_envs=2048`
 - **Add a new algorithm**: add the dataclass in `structured_configs.py` and create the matching `conf/` directory
 

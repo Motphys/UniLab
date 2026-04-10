@@ -13,7 +13,7 @@ from unilab.utils.xml_utils import materialize_scene_visual_override
 
 
 class BackendAdapter:
-    """Apply backend-specific config and env overrides while respecting CLI overrides."""
+    """Build env/play overrides from the final composed config."""
 
     def __init__(
         self,
@@ -34,43 +34,23 @@ class BackendAdapter:
     def _is_motrix(self) -> bool:
         return bool(self.cfg.training.sim_backend == "motrix")
 
+    def _assert_backend_choice_consistent(self) -> None:
+        selected_backend = getattr(self.cfg, "_selected_sim_backend", None)
+        if selected_backend is None:
+            return
+        resolved_backend = str(self.cfg.training.sim_backend)
+        if str(selected_backend) != resolved_backend:
+            raise ValueError(
+                "Hydra task selection is inconsistent with training.sim_backend. "
+                "Use `task=...` to switch backends instead of overriding "
+                "`training.sim_backend` directly."
+            )
+
     def build_task_env_cfg_override(self) -> dict[str, Any]:
-        """Build env_cfg_override for training/play entrypoints.
-
-        Combines reward config (via reward_motrix sidecar) with backend_profile env overrides.
-        Algo config is NOT touched — training scripts read cfg.algo directly.
-        """
+        """Build env_cfg_override from the resolved reward + env sections."""
+        self._assert_backend_choice_consistent()
         env_cfg_override = extract_reward_config(self.cfg)
-
-        if not self._is_motrix():
-            return env_cfg_override
-
-        profile = getattr(self.cfg, "backend_profile", None)
-        if profile is None:
-            return env_cfg_override
-
-        if OmegaConf.is_config(profile):
-            profile_dict = OmegaConf.to_container(profile, resolve=True)
-        elif isinstance(profile, dict):
-            profile_dict = profile
-        else:
-            return env_cfg_override
-
-        if not isinstance(profile_dict, dict):
-            return env_cfg_override
-
-        reward_explicit = any(
-            key == "reward"
-            or key.startswith("reward.")
-            or key.startswith("reward@")
-            or key.startswith("reward_")
-            for key in self.explicit_keys
-        )
-        for key, value in profile_dict.items():
-            key_str = str(key)
-            if key_str == "reward_config" and reward_explicit:
-                continue
-            env_cfg_override[key_str] = value
+        env_cfg_override.update(self._to_plain_dict(getattr(self.cfg, "env", None)))
 
         return env_cfg_override
 
@@ -120,13 +100,7 @@ class BackendAdapter:
         return env_cfg_override
 
     def _apply_nested_overrides(self, target: Any, overrides: Any, *, base_path: str) -> None:
-        if OmegaConf.is_config(overrides):
-            override_dict = OmegaConf.to_container(overrides, resolve=True)
-        elif isinstance(overrides, dict):
-            override_dict = overrides
-        else:
-            return
-
+        override_dict = self._to_plain_dict(overrides)
         if not isinstance(override_dict, dict):
             return
 
@@ -144,31 +118,21 @@ class BackendAdapter:
                 target[key_str] = value
 
     def _apply_env_profile(self, env_cfg_override: dict[str, Any], env_profile: Any) -> None:
-        if OmegaConf.is_config(env_profile):
-            env_profile_dict = OmegaConf.to_container(env_profile, resolve=True)
-        elif isinstance(env_profile, dict):
-            env_profile_dict = env_profile
-        else:
-            return
-
-        if not isinstance(env_profile_dict, dict):
-            return
-
-        reward_explicit = any(
-            key == "reward"
-            or key.startswith("reward.")
-            or key.startswith("reward@")
-            or key.startswith("reward_")
-            for key in self.explicit_keys
-        )
-        for key, value in env_profile_dict.items():
-            key_str = str(key)
-            if key_str == "reward_config" and reward_explicit:
-                continue
-            env_cfg_override[key_str] = value
+        env_cfg_override.update(self._to_plain_dict(env_profile))
 
     def _resolve_root_relative_path(self, path_value: str) -> str:
         candidate = Path(path_value)
         if candidate.is_absolute():
             return str(candidate)
         return str((self.root_dir / candidate).resolve())
+
+    def _to_plain_dict(self, value: Any) -> dict[str, Any]:
+        if OmegaConf.is_config(value):
+            resolved = OmegaConf.to_container(value, resolve=True)
+        elif isinstance(value, dict):
+            resolved = value
+        else:
+            return {}
+        if not isinstance(resolved, dict):
+            return {}
+        return {str(key): item for key, item in resolved.items()}
