@@ -27,6 +27,10 @@ import numpy as np
 ROOT_DIR = Path(__file__).parents[4]
 sys.path.insert(0, str(ROOT_DIR))
 
+from unilab.training import ensure_registries
+
+ensure_registries()
+
 # ── Quality-check helpers ────────────────────────────────────────────────────
 
 _CONTACT_SENSORS = ["ff_contact", "mf_contact", "rf_contact", "th_contact"]
@@ -63,9 +67,7 @@ def collect_grasps(args) -> None:
 
     from unilab.base import registry
     from unilab.base.dtype_config import get_global_dtype
-    from unilab.training import ensure_registries
 
-    ensure_registries()
     env: Any = registry.make("AllegroInhandRotation", num_envs=args.num_envs, sim_backend="mujoco")
 
     # Override joint noise to the exploration value before init_state().
