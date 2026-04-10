@@ -20,7 +20,7 @@ try:
 except ImportError:
     MOTRIX_AVAILABLE = False
 
-from .base import SimBackend
+from .base import BackendPlayCapabilities, SimBackend
 
 
 class MotrixBackend(SimBackend):
@@ -217,6 +217,9 @@ class MotrixBackend(SimBackend):
         if plan.push_perturbation_limit is None:
             return
         self.push_robots(np.asarray(plan.push_perturbation_limit))
+
+    def get_play_capabilities(self) -> BackendPlayCapabilities:
+        return BackendPlayCapabilities(supports_native_interactive_renderer=True)
 
     # ------------------------------------------------------------------ #
     # Base kinematics                                                    #

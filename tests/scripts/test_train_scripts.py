@@ -434,8 +434,17 @@ def test_run_motrix_rsl_play_loop_uses_render_spacing():
 
     class FakeEnv:
         def __init__(self):
-            self._backend = FakeBackend()
+            self._renderer = FakeBackend()
             self.cfg = type("Cfg", (), {"render_spacing": 2.5})()
+
+        def init_play_renderer(self, render_spacing=None):
+            if render_spacing is None:
+                self._renderer.init_renderer()
+            else:
+                self._renderer.init_renderer(render_spacing)
+
+        def render_play_frame(self):
+            self._renderer.render()
 
     class FakeWrapper:
         def __init__(self):
@@ -467,8 +476,8 @@ def test_run_motrix_rsl_play_loop_uses_render_spacing():
 
     assert wrapped_env.reset_calls == 1
     assert wrapped_env.step_calls == 3
-    assert wrapped_env.env._backend.init_renderer_calls == [2.5]
-    assert wrapped_env.env._backend.render_calls == 3
+    assert wrapped_env.env._renderer.init_renderer_calls == [2.5]
+    assert wrapped_env.env._renderer.render_calls == 3
 
 
 def test_g1_motion_tracking_appo_reward_extraction_prefers_backend_specific_reward():
@@ -548,7 +557,7 @@ def test_run_motrix_play_loop_runs_without_physics_state():
     class FakeEnv:
         def __init__(self):
             self.state = None
-            self._backend = FakeBackend()
+            self._renderer = FakeBackend()
             self.init_state_calls = 0
             self.reset_calls = 0
             self.step_calls = 0
@@ -567,6 +576,13 @@ def test_run_motrix_play_loop_runs_without_physics_state():
             assert actions.shape == (2, 3)
             return FakeState()
 
+        def init_play_renderer(self, render_spacing=None):
+            del render_spacing
+            self._renderer.init_renderer()
+
+        def render_play_frame(self):
+            self._renderer.render()
+
     env = FakeEnv()
 
     mod.run_motrix_play_loop(
@@ -580,8 +596,8 @@ def test_run_motrix_play_loop_runs_without_physics_state():
     assert env.init_state_calls == 1
     assert env.reset_calls == 1
     assert env.step_calls == 3
-    assert env._backend.init_renderer_calls == 1
-    assert env._backend.render_calls == 3
+    assert env._renderer.init_renderer_calls == 1
+    assert env._renderer.render_calls == 3
 
 
 def test_resolve_appo_checkpoint_path_prefers_latest_model_in_explicit_dir(tmp_path):
@@ -1098,7 +1114,8 @@ def test_play_interactive_runner_log_dir_uses_algo_log_name(monkeypatch: pytest.
         obs_groups_spec={"obs": 5},
         action_space=types.SimpleNamespace(shape=(3,), low=np.full((3,), -1.0), high=np.ones((3,))),
         cfg=types.SimpleNamespace(ctrl_dt=0.02),
-        _backend=types.SimpleNamespace(model=object()),
+        get_playback_model=lambda: object(),
+        get_physics_state_snapshot=lambda: np.zeros((1, 8), dtype=np.float32),
     )
 
     monkeypatch.setattr(mod.registry, "make", lambda *args, **kwargs: fake_env)

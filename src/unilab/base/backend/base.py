@@ -1,5 +1,6 @@
 import abc
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -8,6 +9,14 @@ from unilab.dr.types import (
     IntervalRandomizationPlan,
     ResetRandomizationPayload,
 )
+
+
+@dataclass(frozen=True)
+class BackendPlayCapabilities:
+    """Backend-native play/render capabilities surfaced through env contracts."""
+
+    supports_native_interactive_renderer: bool = False
+    supports_physics_state_playback: bool = False
 
 
 class SimBackend(abc.ABC):
@@ -130,6 +139,28 @@ class SimBackend(abc.ABC):
     @abc.abstractmethod
     def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
         """Apply a scheduled interval randomization plan."""
+
+    def get_play_capabilities(self) -> BackendPlayCapabilities:
+        """Return backend-native play/render capabilities."""
+        return BackendPlayCapabilities()
+
+    def init_renderer(self, spacing: float = 1.0) -> None:
+        """Initialize a backend-native interactive renderer."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support native interactive rendering"
+        )
+
+    def render(self) -> None:
+        """Render one frame through a backend-native interactive renderer."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support native interactive rendering"
+        )
+
+    def get_physics_state(self) -> np.ndarray:
+        """Return a physics snapshot suitable for offline playback/video export."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support physics-state playback"
+        )
 
     # ------------------------------------------------------------------ #
     # Base kinematics                                                      #

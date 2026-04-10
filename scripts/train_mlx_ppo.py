@@ -128,15 +128,6 @@ def build_model(cfg, obs_dim: int, action_dim: int, dtype=mx.float32) -> MLPActo
     )
 
 
-def _get_physics_state_snapshot(env) -> np.ndarray:
-    """Get physics state in a backend-compatible way for MuJoCo video rendering."""
-    if hasattr(env, "_backend") and hasattr(env._backend, "get_physics_state"):
-        return np.asarray(env._backend.get_physics_state(), dtype=np.float32).copy()
-    if hasattr(env, "state") and hasattr(env.state, "physics_state"):
-        return np.asarray(env.state.physics_state, dtype=np.float32).copy()
-    raise AttributeError("Env backend does not expose physics state for video rendering")
-
-
 def _get_log_root(cfg: DictConfig) -> Path:
     return cast(Path, get_log_root(ROOT_DIR, cfg))
 
@@ -225,7 +216,6 @@ def play_mlx_ppo(cfg: DictConfig, dtype, use_fp16: bool, resolved_sim_backend: s
             output_video=output_video,
             initialize=lambda: obs,
             step=_play_step,
-            frame_state_getter=lambda: _get_physics_state_snapshot(env),
         )
     except ImportError:
         print("mediapy is required for play video export. Install with `pip install mediapy`.")

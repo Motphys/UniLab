@@ -9,7 +9,7 @@ import gymnasium as gym
 import numpy as np
 
 from unilab.base.backend import SimBackend
-from unilab.base.base import ABEnv, EnvCfg
+from unilab.base.base import ABEnv, EnvCfg, EnvPlayCapabilities
 from unilab.base.dtype_config import get_global_dtype
 from unilab.dr import DomainRandomizationManager, DomainRandomizationProvider
 
@@ -200,6 +200,36 @@ class NpEnv(ABEnv):
             np.greater_equal(state.info["steps"], self._cfg.max_episode_steps, out=truncated)
         return truncated
 
+    def init_play_renderer(self, render_spacing: float | None = None) -> None:
+        """Initialize backend-native interactive playback when available."""
+        if not self.play_capabilities.supports_native_interactive_renderer:
+            raise NotImplementedError(
+                f"{self._backend.__class__.__name__} does not support native interactive playback"
+            )
+        if render_spacing is None:
+            self._backend.init_renderer()
+            return
+        try:
+            self._backend.init_renderer(spacing=render_spacing)
+        except TypeError:
+            self._backend.init_renderer()
+
+    def render_play_frame(self) -> None:
+        """Render one interactive playback frame through the env contract."""
+        if not self.play_capabilities.supports_native_interactive_renderer:
+            raise NotImplementedError(
+                f"{self._backend.__class__.__name__} does not support native interactive playback"
+            )
+        self._backend.render()
+
+    def get_physics_state_snapshot(self) -> np.ndarray:
+        """Return a detached physics snapshot for offline playback/video export."""
+        if not self.play_capabilities.supports_physics_state_playback:
+            raise NotImplementedError(
+                f"{self._backend.__class__.__name__} does not support physics-state playback"
+            )
+        return np.asarray(self._backend.get_physics_state(), dtype=np.float32).copy()
+
     @abc.abstractmethod
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
         """子类实现：action → ctrl"""
@@ -208,6 +238,22 @@ class NpEnv(ABEnv):
     def update_state(self, state: NpEnvState) -> NpEnvState:
         """子类实现：计算 obs/reward/terminated"""
 
+    @property
+    def play_capabilities(self) -> EnvPlayCapabilities:
+        capabilities = self._backend.get_play_capabilities()
+        return EnvPlayCapabilities(
+            supports_native_interactive_renderer=capabilities.supports_native_interactive_renderer,
+            supports_physics_state_playback=capabilities.supports_physics_state_playback,
+        )
+
+    def get_playback_model(self) -> Any:
+        if not self._supports_backend_property("model"):
+            raise NotImplementedError(f"{self.__class__.__name__} does not expose a playback model")
+        return self._backend.model
+
     def close(self) -> None:
         """关闭环境"""
         pass
+
+    def _supports_backend_property(self, name: str) -> bool:
+        return hasattr(self._backend, name)

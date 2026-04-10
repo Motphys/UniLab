@@ -141,7 +141,6 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
                 output_video=output_video,
                 initialize=lambda: wrapped_env.reset()[0],
                 step=lambda obs: wrapped_env.step(policy(obs))[0],
-                frame_state_getter=lambda: env._backend.get_physics_state(),
                 camera_kwargs={
                     "cam_distance": cfg.training.cam_distance,
                     "cam_elevation": cfg.training.cam_elevation,

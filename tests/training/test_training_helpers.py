@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import sys
+import types
 from pathlib import Path
 
+import numpy as np
 import pytest
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
@@ -11,6 +14,7 @@ from unilab.training import (
     get_latest_checkpoint,
     get_latest_run,
     parse_checkpoint_path,
+    render_play_mode,
     resolve_task_checkpoint_path,
 )
 
@@ -161,3 +165,101 @@ def test_backend_adapter_builds_play_scene_override():
     assert captured["ground_texture_file"] == str(
         _ROOT_DIR / "src/unilab/assets/robots/g1/floor.png"
     )
+
+
+def test_render_play_mode_uses_env_interactive_contract():
+    class FakeEnv:
+        def __init__(self):
+            self.cfg = type("Cfg", (), {"ctrl_dt": 0.02, "model_file": "scene.xml"})()
+            self.init_calls: list[float | None] = []
+            self.render_calls = 0
+
+        def init_play_renderer(self, render_spacing=None):
+            self.init_calls.append(render_spacing)
+
+        def render_play_frame(self):
+            self.render_calls += 1
+
+    env = FakeEnv()
+    seen: list[int] = []
+
+    result = render_play_mode(
+        env,
+        sim_backend="motrix",
+        initialize=lambda: 0,
+        step=lambda obs: seen.append(obs) or obs + 1,
+        num_steps=3,
+        render_spacing=2.5,
+    )
+
+    assert result is None
+    assert env.init_calls == [2.5]
+    assert env.render_calls == 3
+    assert seen == [0, 1, 2]
+
+
+def test_render_play_mode_defaults_to_env_physics_snapshot(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    captured: dict[str, object] = {}
+
+    class FakeEnv:
+        def __init__(self):
+            self.cfg = type("Cfg", (), {"ctrl_dt": 0.05, "model_file": "scene.xml"})()
+            self.snapshot_calls = 0
+
+        def get_physics_state_snapshot(self) -> np.ndarray:
+            self.snapshot_calls += 1
+            return np.full((2, 4), self.snapshot_calls, dtype=np.float32)
+
+    def _render_states_get_frames(state_list, model_file, **kwargs):
+        captured["states"] = state_list
+        captured["model_file"] = model_file
+        captured["camera_kwargs"] = kwargs
+        return [np.zeros((2, 2, 3), dtype=np.uint8)]
+
+    fake_media = types.ModuleType("mediapy")
+    fake_media.write_video = lambda path, frames, fps: captured.update(  # type: ignore[attr-defined]
+        {"video_path": path, "frames": frames, "fps": fps}
+    )
+
+    monkeypatch.setitem(sys.modules, "mediapy", fake_media)
+    monkeypatch.setattr(
+        "unilab.utils.render_many.render_states_get_frames",
+        _render_states_get_frames,
+    )
+
+    env = FakeEnv()
+    output_path = tmp_path / "play.mp4"
+    result = render_play_mode(
+        env,
+        sim_backend="mujoco",
+        initialize=lambda: 0,
+        step=lambda obs: obs + 1,
+        num_steps=2,
+        output_video=output_path,
+    )
+
+    assert result == str(output_path)
+    assert env.snapshot_calls == 2
+    assert captured["model_file"] == "scene.xml"
+    assert captured["fps"] == 20
+
+
+def test_render_play_mode_requires_env_snapshot_contract_for_video_export(tmp_path: Path):
+    class FakeEnv:
+        def __init__(self):
+            self.cfg = type("Cfg", (), {"ctrl_dt": 0.05, "model_file": "scene.xml"})()
+
+        def get_physics_state_snapshot(self) -> np.ndarray:
+            raise NotImplementedError("unsupported")
+
+    with pytest.raises(NotImplementedError, match="unsupported"):
+        render_play_mode(
+            FakeEnv(),
+            sim_backend="mujoco",
+            initialize=lambda: 0,
+            step=lambda obs: obs + 1,
+            num_steps=1,
+            output_video=tmp_path / "play.mp4",
+        )
