@@ -18,7 +18,7 @@ class DistributionalQNetwork(nn.Module):
 
     def __init__(
         self,
-        n_obs: int,
+        obs_dim: int,
         n_act: int,
         num_atoms: int,
         v_min: float,
@@ -28,7 +28,7 @@ class DistributionalQNetwork(nn.Module):
     ):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(n_obs + n_act, hidden_dim, device=device),
+            nn.Linear(obs_dim + n_act, hidden_dim, device=device),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim // 2, device=device),
             nn.ReLU(),
@@ -96,7 +96,7 @@ class Critic(nn.Module):
 
     def __init__(
         self,
-        n_obs: int,
+        obs_dim: int,
         n_act: int,
         num_atoms: int,
         v_min: float,
@@ -106,7 +106,7 @@ class Critic(nn.Module):
     ):
         super().__init__()
         self.qnet1 = DistributionalQNetwork(
-            n_obs=n_obs,
+            obs_dim=obs_dim,
             n_act=n_act,
             num_atoms=num_atoms,
             v_min=v_min,
@@ -115,7 +115,7 @@ class Critic(nn.Module):
             device=device,
         )
         self.qnet2 = DistributionalQNetwork(
-            n_obs=n_obs,
+            obs_dim=obs_dim,
             n_act=n_act,
             num_atoms=num_atoms,
             v_min=v_min,
