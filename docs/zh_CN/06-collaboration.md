@@ -4,7 +4,7 @@
 
 仓库文档只记录稳定标准。执行状态、owner 和阶段推进应放在 GitHub 协作对象中。
 
-如果你只是想安装或训练 UniLab，请先看 `docs/zh_CN/README.md`、`docs/zh_CN/01-getting-started.md` 和 `docs/zh_CN/03-training.md`。
+如果你只是想安装或训练 UniLab，请先看 `README.md`、`docs/zh_CN/01-getting-started.md` 和 `docs/zh_CN/03-training.md`。
 
 ## Work Item Granularity
 

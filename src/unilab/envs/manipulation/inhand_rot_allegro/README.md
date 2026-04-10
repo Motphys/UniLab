@@ -66,7 +66,7 @@ uv run python scripts/train_rsl_rl.py task=allegro_inhand/mujoco algo.num_envs=8
 
 # Resume from a previous run
 uv run python scripts/train_rsl_rl.py task=allegro_inhand/mujoco \
-    training.load_run=2026-03-10_22-50-13
+    algo.load_run=2026-03-10_22-50-13
 
 # Train without rendering a play video afterwards
 uv run python scripts/train_rsl_rl.py task=allegro_inhand/mujoco training.no_play=true
@@ -77,7 +77,7 @@ uv run python scripts/train_rsl_rl.py task=allegro_inhand/mujoco
 # Motrix preset is not configured for AllegroInhandRotation
 ```
 
-Training logs are saved to `logs/rsl_rl_train/AllegroInhandRotation/<timestamp>/`.
+Training logs are saved under `logs/<algo.algo_log_name>/AllegroInhandRotation/<timestamp>_mujoco/`.
 
 ---
 
@@ -92,7 +92,7 @@ uv run python scripts/train_rsl_rl.py task=allegro_inhand/mujoco training.play_o
 
 # Load a specific run
 uv run python scripts/train_rsl_rl.py task=allegro_inhand/mujoco training.play_only=true \
-    training.load_run=2026-03-10_22-50-13
+    algo.load_run=2026-03-10_22-50-13
 ```
 
 The video is saved as `play_video.mp4` inside the loaded run directory.

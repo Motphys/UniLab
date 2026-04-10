@@ -16,7 +16,7 @@ APPO 是 UniLab 的异步 PPO 实现，带有 V-trace importance-sampling 修正
 | V-trace IS 修正 | 用 `pi_target / pi_behavior` 修正 off-policy 数据 |
 | 4 槽 ring buffer | 最多 4 条 rollout 可同时在飞 |
 | Replay queue | learner 侧缓存待消费 rollout 的队列 |
-| 日志目录 | `logs/appo/<task>/<timestamp>_mujoco/` |
+| 日志目录 | `logs/<algo.algo_log_name>/<task>/<timestamp>_<sim_backend>/` |
 
 ### Usage
 
@@ -38,7 +38,7 @@ uv run python scripts/train_appo.py task=go1_joystick/mujoco training.no_play=tr
 
 ```bash
 uv run python scripts/train_appo.py task=go1_joystick/mujoco training.play_only=true
-uv run python scripts/train_appo.py task=go1_joystick/mujoco training.play_only=true training.load_run="2026-03-16_01-35-12_mujoco"
+uv run python scripts/train_appo.py task=go1_joystick/mujoco training.play_only=true algo.load_run="2026-03-16_01-35-12_mujoco"
 ```
 
 ### Key Parameters
@@ -55,7 +55,7 @@ uv run python scripts/train_appo.py task=go1_joystick/mujoco training.play_only=
 | `training.logger` | `tensorboard` | 日志后端 |
 | `training.play_only` | false | 仅回放 |
 | `training.no_play` | false | 跳过自动回放 |
-| `training.load_run` | `-1` | run 目录名或 checkpoint 路径 |
+| `algo.load_run` | `-1` | run 目录名或 checkpoint 路径 |
 | `algo.save_interval` | 50 | checkpoint 保存间隔 |
 
 ### APPO vs PPO
@@ -98,7 +98,7 @@ uv run python scripts/train_offpolicy.py algo=td3 task=td3/go1_joystick/mujoco t
 
 ```bash
 uv run python scripts/train_offpolicy.py algo=sac task=sac/go2_joystick/mujoco training.play_only=true
-uv run python scripts/train_offpolicy.py algo=td3 task=td3/go1_joystick/mujoco training.play_only=true training.load_run="2024-02-04_12-00-00"
+uv run python scripts/train_offpolicy.py algo=td3 task=td3/go1_joystick/mujoco training.play_only=true algo.load_run="2024-02-04_12-00-00"
 ```
 
 ### Key Parameters

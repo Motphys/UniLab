@@ -120,7 +120,7 @@ Env **负责** MDP 语义、observation 结构、reward、reset，以及 backend
 | runner / IPC | `make test`；必要时补 `make test-slow` |
 | 训练主链路 | 相关测试 + 1 iteration smoke run |
 | backend 路径 | 对应 backend smoke run，必要时补 slow test |
-| docs-only | 手动核对命令、路径、配置名、CI 和 support claim |
+| docs-only | `uv run pytest tests/scripts/test_check_docs.py -q` + 手动核对 support claim |
 
 ---
 
@@ -147,5 +147,5 @@ Env **负责** MDP 语义、observation 结构、reward、reset，以及 backend
 
 ## Navigation
 
-- Previous: [README](README.md)
+- Previous: [README](../../README.md)
 - Next: [Getting Started](01-getting-started.md)
