@@ -256,6 +256,7 @@ def render_play_mode(
         raise ValueError("MuJoCo play rendering requires an output_video path.")
     if frame_state_getter is None:
         frame_state_getter = env.get_physics_state_snapshot
+    assert frame_state_getter is not None
 
     obs = initialize()
     state_list = []
