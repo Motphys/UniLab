@@ -14,9 +14,7 @@ Camera controls (MuJoCo viewer):
 """
 
 import argparse
-import importlib
 import os
-import pkgutil
 import sys
 import time
 from pathlib import Path
@@ -29,24 +27,7 @@ import torch
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
 
-
-def ensure_registries():
-    for pkg_name in (
-        "unilab.envs.locomotion",
-        "unilab.envs.manipulation",
-        "unilab.envs.motion_tracking",
-    ):
-        try:
-            package = importlib.import_module(pkg_name)
-            if hasattr(package, "__path__"):
-                for _, name, _ in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
-                    try:
-                        importlib.import_module(name)
-                    except Exception:
-                        pass
-        except ImportError:
-            pass
-
+from unilab.training import ensure_registries
 
 ensure_registries()
 
