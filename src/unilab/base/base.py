@@ -18,6 +18,7 @@ class EnvCfg:
     max_episode_seconds: Optional[float] = None
     ctrl_dt: float = 0.01
     render_spacing: float = 1.0
+    iterations: Optional[int] = None
 
     @property
     def max_episode_steps(self) -> Optional[int]:

@@ -183,7 +183,12 @@ class G1JoystickPPO(G1BaseEnv):
             raise ValueError("reward_config must be provided via Hydra configuration")
         cfg.apply_backend_overrides(backend_type)
         backend = create_backend(
-            backend_type, cfg.model_file, num_envs, cfg.sim_dt, base_name=cfg.asset.base_name
+            backend_type,
+            cfg.model_file,
+            num_envs,
+            cfg.sim_dt,
+            base_name=cfg.asset.base_name,
+            iterations=cfg.iterations,
         )
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True

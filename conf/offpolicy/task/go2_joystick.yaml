@@ -7,3 +7,9 @@ training:
 algo:
   num_envs: 1024
   max_iterations: 3000
+motrix_legacy:
+  enabled: true
+  env_cfg_override:
+    domain_rand:
+      randomize_kp: false
+      randomize_kd: false

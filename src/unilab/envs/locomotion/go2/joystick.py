@@ -108,6 +108,7 @@ class Go2WalkTask(Go2BaseEnv):
             cfg.sim_dt,
             base_name=cfg.asset.base_name,
             position_actuator_gains={"kp": cfg.control_config.Kp, "kd": cfg.control_config.Kd},
+            iterations=cfg.iterations,
         )
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True

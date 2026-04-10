@@ -90,7 +90,10 @@ class NpEnv(ABEnv):
             self.init_state()
 
         assert self._state is not None
+
+        t0 = time.perf_counter()
         ctrl = self.apply_action(actions, self._state)
+        apply_action_time = time.perf_counter() - t0
 
         if self._dr_manager is not None:
             self._dr_manager.apply_interval_randomization_if_due(self.step_counter)
@@ -100,7 +103,7 @@ class NpEnv(ABEnv):
             final_obs_mask.fill(False)
 
         t0 = time.perf_counter()
-        self._backend.step(ctrl, self._cfg.sim_substeps)
+        backend_result = self._backend.step(ctrl, self._cfg.sim_substeps)
         step_core_time = time.perf_counter() - t0
 
         t0 = time.perf_counter()
@@ -120,9 +123,15 @@ class NpEnv(ABEnv):
 
         timing = self._state.info.setdefault("timing", {})
         timing["env_step_total_ms"] = (time.perf_counter() - step_t0) * 1000.0
+        timing["apply_action_ms"] = apply_action_time * 1000.0
         timing["step_core_ms"] = step_core_time * 1000.0
         timing["update_state_ms"] = update_state_time * 1000.0
         timing["reset_done_ms"] = reset_done_time * 1000.0
+        if backend_result is not None:
+            backend_timing = backend_result.get("timing")
+            if backend_timing:
+                for k, v in backend_timing.items():
+                    timing[f"backend_{k}"] = v
 
         return self._state
 
