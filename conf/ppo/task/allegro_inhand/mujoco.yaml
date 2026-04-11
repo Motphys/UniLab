@@ -21,3 +21,8 @@ reward:
   angvel_clip_min: -0.5
   angvel_clip_max: 0.5
   reset_z_threshold: 0.125
+env:
+  gen_grasp: false
+  max_episode_seconds: 20.0
+  grasp_cache_path: cache/allegro_grasp_50k.npy
+

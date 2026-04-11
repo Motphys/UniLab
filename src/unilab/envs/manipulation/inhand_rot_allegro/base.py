@@ -35,6 +35,7 @@ class AllegroBaseCfg(EnvCfg):
 
 class AllegroBaseEnv(NpEnv):
     _NUM_HAND_DOF: int = 16
+    _FINGERTIP_BODY_NAMES: tuple[str, ...] = ("ff_tip", "mf_tip", "rf_tip", "th_tip")
     _cfg: AllegroBaseCfg
 
     def __init__(self, cfg: AllegroBaseCfg, backend: SimBackend, num_envs: int = 1):
@@ -58,15 +59,8 @@ class AllegroBaseEnv(NpEnv):
         self.nq = int(self._init_qpos.shape[0])
         self.nv = int(self._init_qvel.shape[0])
 
-        # MuJoCo physics-state layout offsets used by gen_grasp.py.
-        self._idx_qpos = 1
-        self._idx_qvel = 1 + self.nq
-        self._ps_ball_pos = self._idx_qpos + self._NUM_HAND_DOF
-        self._ps_ball_quat = self._idx_qpos + self._NUM_HAND_DOF + 3
-        self._ps_ball_linv = self._idx_qvel + self._NUM_HAND_DOF
-        self._ps_ball_angv = self._idx_qvel + self._NUM_HAND_DOF + 3
-
         self._ball_body_ids = self._backend.get_body_ids(["ball"])
+        self._fingertip_body_ids = self._backend.get_body_ids(self._FINGERTIP_BODY_NAMES)
 
     def _init_action_space(self) -> None:
         self._action_space = gym.spaces.Box(
@@ -143,6 +137,15 @@ class AllegroBaseEnv(NpEnv):
             self._backend.get_body_ang_vel_w(self._ball_body_ids)[:, 0, :],
             dtype=self._np_dtype,
         )
+
+    def get_fingertip_pos(self) -> np.ndarray:
+        return np.asarray(
+            self._backend.get_body_pos_w(self._fingertip_body_ids),
+            dtype=self._np_dtype,
+        )
+
+    def get_sensor_data(self, name: str) -> np.ndarray:
+        return np.asarray(self._backend.get_sensor_data(name), dtype=self._np_dtype)
 
 
 AllegroBaseMjEnv = AllegroBaseEnv

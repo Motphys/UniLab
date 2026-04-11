@@ -97,7 +97,7 @@ class AllegroRotationPPOCfg(AllegroBaseCfg):
     reward_config: RewardConfigPPO | None = None
     domain_rand: DomainRandConfig = field(default_factory=DomainRandConfig)
     rotation_axis: tuple[float, float, float] = (0.0, 0.0, 1.0)
-    grasp_cache_path: str = ""
+    grasp_cache_path: str = "cache/allegro_grasp_50k.npy"
     gen_grasp: bool = False
 
 
@@ -119,13 +119,15 @@ class AllegroRotationDomainRandomizationProvider(DomainRandomizationProvider):
             env._grasp_cache_loaded = True
             return None
 
-        cache_path = env.cfg.grasp_cache_path or str(
-            epath.Path(__file__).with_name("grasps") / "grasp_50k.npy"
-        )
+        cache_path = env.cfg.grasp_cache_path
         if not epath.Path(cache_path).exists():
             raise FileNotFoundError(f"Grasp cache not found: {cache_path}")
         env._grasp_cache = np.load(cache_path).astype(np.float64)
         env._grasp_cache_loaded = True
+        print(
+            "[allegro_inhand] Loaded grasp cache: "
+            f"{cache_path}, shape={env._grasp_cache.shape}, dtype={env._grasp_cache.dtype}"
+        )
         return cast(np.ndarray | None, env._grasp_cache)
 
     def _sample_reset_state(
@@ -214,6 +216,7 @@ class AllegroRotationDomainRandomizationProvider(DomainRandomizationProvider):
 
 
 # ─────────────────────────── Environment ──────────────────────────────
+
 
 @registry.env("AllegroInhandRotation", sim_backend="mujoco")
 @registry.env("AllegroInhandRotation", sim_backend="motrix")
@@ -369,6 +372,10 @@ class AllegroRotationPPO(AllegroBaseEnv):
 
         prev_ball_quat = state.info.get("prev_ball_quat", ball_quat)
         ball_angvel = compute_ball_angvel(ball_quat, prev_ball_quat, self._cfg.ctrl_dt)
+
+        state.info["curr_dof_pos"] = dof_pos.copy()
+        state.info["curr_ball_pos"] = ball_pos.copy()
+        state.info["curr_ball_quat"] = ball_quat.copy()
 
         state.info["prev_dof_pos"] = dof_pos.copy()
         state.info["prev_ball_pos"] = ball_pos.copy()
