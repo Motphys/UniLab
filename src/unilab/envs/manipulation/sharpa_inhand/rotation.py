@@ -60,10 +60,18 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
 
         cache_file = resolve_grasp_cache_file(env.cfg.grasp_cache_path, env.cfg.scale_range)
         if not cache_file.exists():
-            raise FileNotFoundError(
-                "Sharpa grasp cache not found. Expected file "
-                f"{cache_file} (scale tag: {format_scale_tag(env.cfg.scale_range)})."
+            hand_qpos = np.asarray(env.default_angles, dtype=np.float64)
+            object_pos = np.asarray(env._init_qpos[env._obj_pos_slice], dtype=np.float64)
+            object_quat = np.asarray(env._init_qpos[env._obj_quat_slice], dtype=np.float64)
+            seed_pose = np.concatenate([hand_qpos, object_pos, object_quat], axis=0)
+            env._grasp_cache = np.tile(seed_pose[None, :], (max(1, int(env._num_scales)), 1))
+            print(
+                "[sharpa_inhand] WARNING: grasp cache not found at "
+                f"{cache_file} (scale tag: {format_scale_tag(env.cfg.scale_range)}); "
+                "falling back to deterministic init-pose reset."
             )
+            return cast(np.ndarray, env._grasp_cache)
+
         env._grasp_cache = np.load(cache_file).astype(np.float64)
         return cast(np.ndarray, env._grasp_cache)
 
@@ -249,6 +257,7 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
         )
 
 
+@registry.env("SharpaInhandRotation", sim_backend="mujoco")
 @registry.env("SharpaInhandRotation", sim_backend="motrix")
 class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
     _cfg: SharpaInhandRotationCfg

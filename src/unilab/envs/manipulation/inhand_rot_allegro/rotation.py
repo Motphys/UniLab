@@ -26,7 +26,7 @@ from unilab.dr.dr_utils import (
     validate_interval_push_support,
     zero_actions,
 )
-from unilab.envs.manipulation.inhand_rot_allegro.base import AllegroBaseCfg, AllegroBaseMjEnv
+from unilab.envs.manipulation.inhand_rot_allegro.base import AllegroBaseCfg, AllegroBaseEnv
 from unilab.utils.math_utils import np_quat_conjugate, np_quat_mul, np_quat_to_axis_angle
 
 
@@ -76,7 +76,7 @@ class RewardConfigPPO:
 
 
 @dataclass
-class Domain_Rand:
+class DomainRandConfig:
     randomize_base_mass: bool = False
     added_mass_range: list[float] = field(default_factory=lambda: [0.0, 0.0])
     random_com: bool = False
@@ -95,7 +95,7 @@ class AllegroRotationPPOCfg(AllegroBaseCfg):
     model_file: str = str(ASSETS_ROOT_PATH / "robots" / "allegro_hand" / "scene.xml")
     max_episode_seconds: float = 20.0
     reward_config: RewardConfigPPO | None = None
-    domain_rand: Domain_Rand = field(default_factory=Domain_Rand)
+    domain_rand: DomainRandConfig = field(default_factory=DomainRandConfig)
     rotation_axis: tuple[float, float, float] = (0.0, 0.0, 1.0)
     grasp_cache_path: str = ""
     gen_grasp: bool = False
@@ -217,7 +217,7 @@ class AllegroRotationDomainRandomizationProvider(DomainRandomizationProvider):
 
 @registry.env("AllegroInhandRotation", sim_backend="mujoco")
 @registry.env("AllegroInhandRotation", sim_backend="motrix")
-class AllegroRotationMj(AllegroBaseMjEnv):
+class AllegroRotationPPO(AllegroBaseEnv):
     _cfg: AllegroRotationPPOCfg
     _reward_cfg: RewardConfigPPO
 
@@ -461,5 +461,6 @@ class AllegroRotationMj(AllegroBaseMjEnv):
 
 
 RewardConfig = RewardConfigPPO
-DomainRandConfig = Domain_Rand
+Domain_Rand = DomainRandConfig
 AllegroRotationCfg = AllegroRotationPPOCfg
+AllegroRotationMj = AllegroRotationPPO

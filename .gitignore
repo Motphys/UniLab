@@ -49,3 +49,7 @@ cache/
 # Task-local agent artifacts
 src/unilab/envs/manipulation/sharpa_inhand/agent_instruction.md
 src/unilab/envs/manipulation/sharpa_inhand/transfer_plan.md
+
+# Local tool/runtime artifacts (any subfolder)
+**/.codex/
+**/MUJOCO_LOG.TXT

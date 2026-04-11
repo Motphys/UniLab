@@ -1,11 +1,17 @@
 """Interactive play script: opens a live MuJoCo viewer for a trained RSL-RL policy.
 
 Usage:
-    # Load the latest checkpoint for a task
-    uv run python scripts/play_interactive.py --task Go2JoystickFlatTerrain
+    # Load the latest checkpoint for a task/backend owner config
+    uv run python scripts/play_interactive.py task=go2_joystick/mujoco
 
     # Load a specific run
-    uv run python scripts/play_interactive.py --task Go2JoystickFlatTerrain --load_run 2024-02-04_12-00-00
+    uv run python scripts/play_interactive.py task=go2_joystick/mujoco algo.load_run=2024-02-04_12-00-00
+
+    # Show target bodies / reward debug overlays
+    uv run python scripts/play_interactive.py task=g1_motion_tracking/mujoco \
+      interactive.show_target_bodies=true \
+      interactive.target_show_axes=true \
+      interactive.show_reward_debug=true
 
 Camera controls (MuJoCo viewer):
     Mouse drag     - rotate
@@ -15,18 +21,25 @@ Camera controls (MuJoCo viewer):
 
 # pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportOptionalMemberAccess=false, reportOptionalSubscript=false
 
-import argparse
 import sys
 import time
+import warnings
+from dataclasses import dataclass
 from pathlib import Path
 
+import hydra
 import mujoco
 import mujoco.viewer
 import numpy as np
 import torch
+from omegaconf import DictConfig, OmegaConf
 
 ROOT_DIR = Path(__file__).parent.parent
-sys.path.append(str(ROOT_DIR))
+SRC_DIR = ROOT_DIR / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 from unilab.training import (
     ensure_registries,
@@ -47,7 +60,35 @@ except ImportError:
     print("Could not import rsl_rl. Please ensure it is installed.")
     sys.exit(1)
 
-from tensordict import TensorDict
+@dataclass
+class PlayInteractiveArgs:
+    task: str
+    load_run: str
+    checkpoint: str | None
+    action_mode: str
+    policy_obs_mode: str
+    algo_log_name: str
+    log_root: str | None
+    show_target_bodies: bool
+    show_reward_debug: bool
+    target_show_axes: bool
+    target_body_names: str
+    target_max_bodies: int
+    target_marker_radius: float
+    target_axis_length: float
+    target_marker_alpha: float
+    reward_debug_show_velocity: bool
+    reward_debug_lin_vel_scale: float
+    reward_debug_ang_vel_scale: float
+    reward_debug_show_connectors: bool
+    reward_debug_show_global_anchor: bool
+    camera_follow_body: bool
+    camera_focus_body_name: str
+    camera_height_offset: float
+    camera_distance: float | None
+    camera_elevation: float | None
+    camera_azimuth: float | None
+    use_env_visual_model: bool
 
 
 def _infer_checkpoint_actor_input_dim(ckpt_path: str) -> int | None:
@@ -68,13 +109,29 @@ def _infer_checkpoint_actor_input_dim(ckpt_path: str) -> int | None:
     return None
 
 
+def _backend_adapter(cfg: DictConfig):
+    from unilab.training import BackendAdapter
+    from unilab.utils.xml_utils import materialize_scene_visual_override
+
+    return BackendAdapter(
+        cfg,
+        root_dir=ROOT_DIR,
+        algo_name="ppo",
+        scene_materializer=materialize_scene_visual_override,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Checkpoint resolution helpers
 # ---------------------------------------------------------------------------
 
 
 def resolve_checkpoint(
-    task: str, load_run: str, checkpoint: str | None = None, algo_log_name: str = "rsl_rl_ppo"
+    task: str,
+    load_run: str,
+    checkpoint: str | None = None,
+    algo_log_name: str = "rsl_rl_ppo",
+    log_root: str | None = None,
 ) -> str | None:
     checkpoint_path, checkpoint_dir = resolve_task_checkpoint_path(
         ROOT_DIR,
@@ -82,6 +139,7 @@ def resolve_checkpoint(
         load_run=load_run,
         algo_log_name=algo_log_name,
         checkpoint=checkpoint,
+        log_root=log_root,
     )
     if checkpoint_path is None:
         if checkpoint is not None and checkpoint_dir is not None:
@@ -175,6 +233,61 @@ def _add_vector_arrow(
     p0 = np.asarray(origin, dtype=np.float64)
     p1 = p0 + vec * scale
     return _add_axis_arrow(scene, p0, p1, width, rgba)
+
+
+def _resolve_focus_body_id(mj_model, env, preferred_name: str) -> int:
+    candidate_names: list[str] = []
+    if preferred_name.strip():
+        candidate_names.append(preferred_name.strip())
+
+    cfg = getattr(env, "cfg", None)
+    asset = getattr(cfg, "asset", None) if cfg is not None else None
+    if asset is not None and getattr(asset, "base_name", None):
+        candidate_names.append(str(asset.base_name))
+    if cfg is not None and getattr(cfg, "base_name", None):
+        candidate_names.append(str(cfg.base_name))
+
+    candidate_names.extend(["base", "trunk", "pelvis", "torso", "torso_link"])
+
+    for name in candidate_names:
+        try:
+            body_id = mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_BODY, name)
+        except Exception:
+            body_id = -1
+        if body_id >= 0:
+            return int(body_id)
+
+    nbody = int(getattr(mj_model, "nbody", 1))
+    return 1 if nbody > 1 else 0
+
+
+def _available_backends_for_task(task_name: str) -> tuple[str, ...]:
+    envs = registry.list_registered_envs()
+    task_meta = envs.get(task_name, {})
+    backends = task_meta.get("available_backends", ())
+    if not isinstance(backends, list):
+        return ()
+    return tuple(str(backend) for backend in backends)
+
+
+def _can_launch_glfw_viewer() -> bool:
+    try:
+        import glfw
+    except Exception:
+        return True
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        ok = bool(glfw.init())
+    if ok:
+        glfw.terminate()
+    return ok
+
+
+def _uses_native_mujoco_viewer_launch() -> bool:
+    launch_fn = getattr(mujoco.viewer, "launch_passive", None)
+    module_name = str(getattr(launch_fn, "__module__", ""))
+    return module_name.startswith("mujoco")
 
 
 def _render_motion_targets(
@@ -386,7 +499,7 @@ def _render_reward_debug_targets(
                     _add_axis_arrow(scene, p, pz, marker_radius * 0.45, z_rgba)
 
 
-def play_interactive(args):
+def play_interactive(args, cfg: DictConfig | None = None):
     if torch.cuda.is_available():
         device = "cuda"
     elif torch.backends.mps.is_available():
@@ -396,7 +509,45 @@ def play_interactive(args):
     print(f"[play_interactive] Device: {device}")
 
     # Always use a single env for interactive view
-    env = registry.make(args.task, num_envs=1, sim_backend="mujoco")
+    available_backends = _available_backends_for_task(args.task)
+    if available_backends and "mujoco" not in available_backends:
+        print(
+            "[play_interactive] Task does not support MuJoCo backend: "
+            f"{args.task}. Available backends: {available_backends or ('<none>',)}. "
+            "This script only supports MuJoCo viewer mode."
+        )
+        return
+
+    if cfg is None:
+        env = registry.make(args.task, num_envs=1, sim_backend="mujoco")
+    else:
+        from unilab.training import create_env
+
+        env_cfg_override = _backend_adapter(cfg).build_task_env_cfg_override()
+        try:
+            env = create_env(
+                cfg,
+                num_envs=1,
+                env_cfg_override=env_cfg_override,
+                sim_backend="mujoco",
+                task_name=args.task,
+            )
+        except ValueError as exc:
+            if "does not support simulation backend 'mujoco'" in str(exc):
+                print(
+                    "[play_interactive] Task does not support MuJoCo backend: "
+                    f"{args.task}. Available backends: {available_backends or ('<none>',)}. "
+                    "This script only supports MuJoCo viewer mode."
+                )
+                return
+            raise
+
+    if _uses_native_mujoco_viewer_launch() and not _can_launch_glfw_viewer():
+        print(
+            "[play_interactive] GLFW viewer initialization failed (no usable display). "
+            "Set DISPLAY correctly, or run this command in a desktop session."
+        )
+        return
     actor_obs_dim = int(env.obs_groups_spec.get("obs", sum(env.obs_groups_spec.values())))
     flat_obs_dim = int(sum(env.obs_groups_spec.values()))
 
@@ -405,7 +556,11 @@ def play_interactive(args):
     ckpt = None
     if args.action_mode == "policy":
         ckpt = resolve_checkpoint(
-            args.task, args.load_run, getattr(args, "checkpoint", None), algo_log_name
+            args.task,
+            args.load_run,
+            getattr(args, "checkpoint", None),
+            algo_log_name,
+            getattr(args, "log_root", None),
         )
         if policy_obs_mode == "auto" and ckpt is not None:
             ckpt_dim = _infer_checkpoint_actor_input_dim(ckpt)
@@ -440,7 +595,11 @@ def play_interactive(args):
             print("[play_interactive] WARNING: no checkpoint found — falling back to zero actions.")
         else:
             log_dir = str(
-                get_entrypoint_log_root(ROOT_DIR, algo_log_name=algo_log_name)
+                get_entrypoint_log_root(
+                    ROOT_DIR,
+                    algo_log_name=algo_log_name,
+                    log_root=getattr(args, "log_root", None),
+                )
                 / args.task
                 / "play_temp"
             )
@@ -505,10 +664,26 @@ def play_interactive(args):
         )
 
     # Dedicated MjData for the viewer (never touches the rollout workers)
-    try:
-        mj_model = env.get_playback_model()
-    except NotImplementedError as exc:
-        raise AttributeError("Environment does not expose a playback model contract") from exc
+    use_env_visual_model = bool(getattr(args, "use_env_visual_model", True))
+    mj_model = None
+    if use_env_visual_model:
+        model_file = getattr(getattr(env, "cfg", None), "model_file", None)
+        if model_file:
+            try:
+                mj_model = mujoco.MjModel.from_xml_path(str(model_file))
+                print(f"[play_interactive] Using visual model for viewer: {model_file}")
+            except Exception as exc:
+                print(
+                    "[play_interactive] WARNING: failed to load visual model; "
+                    f"falling back to playback model ({exc})."
+                )
+                mj_model = None
+    if mj_model is None:
+        try:
+            mj_model = env.get_playback_model()
+        except NotImplementedError as exc:
+            raise AttributeError("Environment does not expose a playback model contract") from exc
+
     viz_data = mujoco.MjData(mj_model)
     state_spec = mujoco.mjtState.mjSTATE_FULLPHYSICS
     ctrl_dt = env.cfg.ctrl_dt
@@ -530,6 +705,24 @@ def play_interactive(args):
     action_high = env.action_space.high
 
     with mujoco.viewer.launch_passive(mj_model, viz_data, key_callback=_on_key) as viewer:
+        focus_body_id = _resolve_focus_body_id(
+            mj_model, env, getattr(args, "camera_focus_body_name", "")
+        )
+
+        # Initialize camera to a reasonable default and keep lookat on robot base.
+        has_cam = hasattr(viewer, "cam")
+        if has_cam:
+            model_extent = float(getattr(getattr(mj_model, "stat", None), "extent", 1.0))
+            default_distance = max(2.0, 2.5 * model_extent)
+            if getattr(args, "camera_distance", None) is not None:
+                viewer.cam.distance = float(args.camera_distance)
+            else:
+                viewer.cam.distance = default_distance
+            if getattr(args, "camera_elevation", None) is not None:
+                viewer.cam.elevation = float(args.camera_elevation)
+            if getattr(args, "camera_azimuth", None) is not None:
+                viewer.cam.azimuth = float(args.camera_azimuth)
+
         with torch.inference_mode():
             while viewer.is_running():
                 t0 = time.perf_counter()
@@ -556,6 +749,14 @@ def play_interactive(args):
                 phys = env.get_physics_state_snapshot()[0].astype(np.float64)
                 mujoco.mj_setState(mj_model, viz_data, phys, state_spec)
                 mujoco.mj_forward(mj_model, viz_data)
+
+                if has_cam and bool(getattr(args, "camera_follow_body", True)):
+                    base_pos = viz_data.xpos[focus_body_id]
+                    viewer.cam.lookat[0] = float(base_pos[0])
+                    viewer.cam.lookat[1] = float(base_pos[1])
+                    viewer.cam.lookat[2] = float(
+                        base_pos[2] + float(getattr(args, "camera_height_offset", 0.15))
+                    )
 
                 if target_vis_enabled:
                     if args.show_reward_debug:
@@ -597,115 +798,68 @@ def play_interactive(args):
     print("[play_interactive] Done.")
 
 
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
+def _normalize_checkpoint_value(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    return None if text in {"-1", "None", "null"} else text
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Interactive MuJoCo viewer for a trained RSL-RL policy"
+def _build_play_args(cfg: DictConfig) -> PlayInteractiveArgs:
+    return PlayInteractiveArgs(
+        task=str(cfg.training.task_name),
+        load_run=str(cfg.algo.load_run),
+        checkpoint=_normalize_checkpoint_value(OmegaConf.select(cfg, "algo.checkpoint")),
+        action_mode=str(cfg.interactive.action_mode),
+        policy_obs_mode=str(cfg.interactive.policy_obs_mode),
+        algo_log_name=str(cfg.algo.algo_log_name),
+        log_root=(
+            str(cfg.training.log_root)
+            if OmegaConf.select(cfg, "training.log_root") is not None
+            else None
+        ),
+        show_target_bodies=bool(cfg.interactive.show_target_bodies),
+        show_reward_debug=bool(cfg.interactive.show_reward_debug),
+        target_show_axes=bool(cfg.interactive.target_show_axes),
+        target_body_names=str(cfg.interactive.target_body_names),
+        target_max_bodies=int(cfg.interactive.target_max_bodies),
+        target_marker_radius=float(cfg.interactive.target_marker_radius),
+        target_axis_length=float(cfg.interactive.target_axis_length),
+        target_marker_alpha=float(cfg.interactive.target_marker_alpha),
+        reward_debug_show_velocity=bool(cfg.interactive.reward_debug_show_velocity),
+        reward_debug_lin_vel_scale=float(cfg.interactive.reward_debug_lin_vel_scale),
+        reward_debug_ang_vel_scale=float(cfg.interactive.reward_debug_ang_vel_scale),
+        reward_debug_show_connectors=bool(cfg.interactive.reward_debug_show_connectors),
+        reward_debug_show_global_anchor=bool(cfg.interactive.reward_debug_show_global_anchor),
+        camera_follow_body=bool(cfg.interactive.camera_follow_body),
+        camera_focus_body_name=str(cfg.interactive.camera_focus_body_name),
+        camera_height_offset=float(cfg.interactive.camera_height_offset),
+        camera_distance=(
+            float(cfg.interactive.camera_distance)
+            if OmegaConf.select(cfg, "interactive.camera_distance") is not None
+            else None
+        ),
+        camera_elevation=(
+            float(cfg.interactive.camera_elevation)
+            if OmegaConf.select(cfg, "interactive.camera_elevation") is not None
+            else None
+        ),
+        camera_azimuth=(
+            float(cfg.interactive.camera_azimuth)
+            if OmegaConf.select(cfg, "interactive.camera_azimuth") is not None
+            else None
+        ),
+        use_env_visual_model=bool(cfg.interactive.use_env_visual_model),
     )
-    parser.add_argument(
-        "--task", type=str, required=True, help="Task name, e.g. Go2JoystickFlatTerrain"
-    )
-    parser.add_argument(
-        "--load_run", type=str, default="-1", help="Run timestamp or path to load (-1 = latest)"
-    )
-    parser.add_argument(
-        "--checkpoint",
-        type=str,
-        default=None,
-        help="Specific model checkpoint number or file name to load (e.g., '1000' or 'model_1000.pt')",
-    )
-    parser.add_argument(
-        "--action_mode",
-        type=str,
-        default="policy",
-        choices=["policy", "zero", "random"],
-        help="Action mode: policy (load ckpt), zero, or random",
-    )
-    parser.add_argument(
-        "--policy_obs_mode",
-        type=str,
-        default="auto",
-        choices=["auto", "flat", "actor"],
-        help="Policy observation mode for checkpoint compatibility",
-    )
-    parser.add_argument(
-        "--show_target_bodies",
-        action="store_true",
-        help="Visualize motion target body positions for motion-tracking tasks",
-    )
-    parser.add_argument(
-        "--show_reward_debug",
-        action="store_true",
-        help="Visualize reward-used references: transformed body pose, raw motion pose/vel, robot pose/vel",
-    )
-    parser.add_argument(
-        "--target_show_axes",
-        action="store_true",
-        help="Also draw orientation axes for target bodies",
-    )
-    parser.add_argument(
-        "--target_body_names",
-        type=str,
-        default="",
-        help="Comma-separated body names to visualize (default: all task body_names)",
-    )
-    parser.add_argument(
-        "--target_max_bodies",
-        type=int,
-        default=0,
-        help="Limit number of target bodies to draw (0 means no limit)",
-    )
-    parser.add_argument(
-        "--target_marker_radius",
-        type=float,
-        default=0.02,
-        help="Sphere marker radius in meters",
-    )
-    parser.add_argument(
-        "--target_axis_length",
-        type=float,
-        default=0.08,
-        help="Axis arrow length in meters when --target_show_axes is enabled",
-    )
-    parser.add_argument(
-        "--target_marker_alpha",
-        type=float,
-        default=0.75,
-        help="Target marker alpha in [0, 1]",
-    )
-    parser.add_argument(
-        "--reward_debug_show_velocity",
-        action="store_true",
-        help="When --show_reward_debug is set, draw linear/angular velocity vectors",
-    )
-    parser.add_argument(
-        "--reward_debug_lin_vel_scale",
-        type=float,
-        default=0.08,
-        help="Meters per (m/s) for linear velocity arrows in reward debug mode",
-    )
-    parser.add_argument(
-        "--reward_debug_ang_vel_scale",
-        type=float,
-        default=0.05,
-        help="Meters per (rad/s) for angular velocity arrows in reward debug mode",
-    )
-    parser.add_argument(
-        "--reward_debug_show_connectors",
-        action="store_true",
-        help="When --show_reward_debug is set, draw connector arrows from reward reference pose to robot pose",
-    )
-    parser.add_argument(
-        "--reward_debug_show_global_anchor",
-        action="store_true",
-        help="When --show_reward_debug is set, emphasize global anchor (motion vs robot) used by root rewards",
-    )
-    args = parser.parse_args()
-    play_interactive(args)
+
+
+@hydra.main(version_base="1.3", config_path="../conf/ppo", config_name="config")
+def main(cfg: DictConfig) -> None:
+    if str(cfg.training.sim_backend) != "mujoco":
+        raise ValueError(
+            "play_interactive.py only supports MuJoCo viewer; use task=<task>/mujoco."
+        )
+    play_interactive(_build_play_args(cfg), cfg)
 
 
 if __name__ == "__main__":

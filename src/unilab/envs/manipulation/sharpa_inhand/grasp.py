@@ -191,6 +191,7 @@ class SharpaInhandGraspDRProvider(DomainRandomizationProvider):
         )
 
 
+@registry.env("SharpaInhandRotationGrasp", sim_backend="mujoco")
 @registry.env("SharpaInhandRotationGrasp", sim_backend="motrix")
 class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
     _cfg: SharpaInhandRotationGraspCfg
