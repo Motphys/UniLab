@@ -1,6 +1,8 @@
 import os
+import time
+from collections.abc import Sequence
 from multiprocessing import cpu_count
-from typing import Optional
+from typing import Optional, cast
 
 import mujoco
 import numpy as np
@@ -19,7 +21,7 @@ from unilab.dr.types import (
 )
 
 from ..dtype_config import get_global_dtype
-from .base import SimBackend
+from .base import BackendPlayCapabilities, SimBackend
 
 
 def _root_state_dims(model) -> tuple[int, int]:
@@ -40,6 +42,7 @@ class MuJoCoBackend(SimBackend):
         np_dtype=None,
         add_body_sensors: bool = False,
         position_actuator_gains: dict | None = None,
+        iterations: int | None = None,
     ):
         self.add_body_sensors = add_body_sensors
         self._base_name = base_name
@@ -71,6 +74,8 @@ class MuJoCoBackend(SimBackend):
                 self._body_id_to_tracked_idx[bid] = idx
 
         self._model.opt.timestep = sim_dt
+        if iterations is not None:
+            self._model.opt.iterations = int(iterations)
         if position_actuator_gains is not None:
             self._apply_position_actuator_gains_to_model(self._model, **position_actuator_gains)
         self._base_body_id = (
@@ -117,7 +122,9 @@ class MuJoCoBackend(SimBackend):
             self._base_pos_view = self._physics_state[:, self._idx_qpos : self._idx_qpos + 3]
             self._base_quat_view = self._physics_state[:, self._idx_qpos + 3 : self._idx_qpos + 7]
             self._base_lin_vel_view = self._physics_state[:, self._idx_qvel : self._idx_qvel + 3]
-            self._base_ang_vel_view = self._physics_state[:, self._idx_qvel + 3 : self._idx_qvel + 6]
+            self._base_ang_vel_view = self._physics_state[
+                :, self._idx_qvel + 3 : self._idx_qvel + 6
+            ]
         else:
             if self._base_body_id >= 0:
                 data0 = mujoco.MjData(self._model)
@@ -186,11 +193,53 @@ class MuJoCoBackend(SimBackend):
         return self._model
 
     # ------------------------------------------------------------------ #
+    # Model properties                                                   #
+    # ------------------------------------------------------------------ #
+
+    @property
+    def num_actuators(self) -> int:
+        return int(self._model.nu)
+
+    @property
+    def num_dof_vel(self) -> int:
+        return int(self._num_dof_vel)
+
+    def get_actuator_ctrl_range(self) -> np.ndarray:
+        return np.array(self._model.actuator_ctrlrange, dtype=self._np_dtype)
+
+    def get_keyframe_qpos(self, name: str) -> np.ndarray:
+        key_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_KEY, name)
+        if key_id < 0:
+            raise ValueError(f"Keyframe '{name}' not found in MuJoCo model")
+        return np.array(self._model.key_qpos[key_id].copy(), dtype=self._np_dtype)
+
+    def get_init_qvel(self) -> np.ndarray:
+        return np.zeros((self.nv,), dtype=self._np_dtype)
+
+    def get_body_ids(self, names: "Sequence[str]") -> np.ndarray:
+        ids: list[int] = []
+        for name in names:
+            bid = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, name)
+            if bid < 0:
+                raise ValueError(f"Body '{name}' not found in MuJoCo model")
+            ids.append(bid)
+        return np.array(ids, dtype=np.int32)
+
+    def get_joint_range(self) -> np.ndarray | None:
+        if self._root_qpos_dim > 0:
+            return np.array(self._model.jnt_range[1:], dtype=self._np_dtype)
+        return np.array(self._model.jnt_range, dtype=self._np_dtype)
+
+    # ------------------------------------------------------------------ #
     # Simulation control                                                 #
     # ------------------------------------------------------------------ #
 
-    def step(self, ctrl: np.ndarray, nsteps: int = 1) -> None:
+    def step(self, ctrl: np.ndarray, nsteps: int = 1) -> dict | None:
+        t0 = time.perf_counter()
         control_traj = np.broadcast_to(ctrl[:, None, :], (self._num_envs, nsteps, ctrl.shape[-1]))
+        set_ctrl_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         state_np = self._pool.step(
             self._physics_state,
             nstep=nsteps,
@@ -198,9 +247,20 @@ class MuJoCoBackend(SimBackend):
             control_spec=int(mujoco.mjtState.mjSTATE_CTRL),
         )
         self._physics_state[:] = state_np.astype(self._np_dtype)
+        physics_ms = (time.perf_counter() - t0) * 1000.0
 
+        t0 = time.perf_counter()
         sensor_np = self._pool.forward(self._physics_state)
         self._sensor_data[:] = sensor_np.astype(self._np_dtype)
+        refresh_cache_ms = (time.perf_counter() - t0) * 1000.0
+
+        return {
+            "timing": {
+                "set_ctrl_ms": set_ctrl_ms,
+                "physics_ms": physics_ms,
+                "refresh_cache_ms": refresh_cache_ms,
+            }
+        }
 
     def set_state(
         self,
@@ -247,6 +307,9 @@ class MuJoCoBackend(SimBackend):
         velocity_delta = np.random.uniform(-1.0, 1.0, size=(self._num_envs, 3))
         velocity_delta *= np.asarray(plan.push_perturbation_limit, dtype=np.float64)
         self._base_lin_vel_view[:] += velocity_delta.astype(self._np_dtype)
+
+    def get_play_capabilities(self) -> BackendPlayCapabilities:
+        return BackendPlayCapabilities(supports_physics_state_playback=True)
 
     # ------------------------------------------------------------------ #
     # Base kinematics                                                    #
@@ -331,17 +394,15 @@ class MuJoCoBackend(SimBackend):
         num_reset: int,
         shaped_tail: tuple[int, ...],
     ) -> np.ndarray:
-        arr = np.asarray(value, dtype=np.float64)
+        arr = cast(np.ndarray, np.asarray(value, dtype=np.float64))
         flat_tail = int(np.prod(shaped_tail))
         flat_shape = (num_reset, flat_tail)
         shaped = (num_reset, *shaped_tail)
         if arr.shape == flat_shape:
-            return arr.copy()
+            return cast(np.ndarray, arr.copy())
         if arr.shape == shaped:
-            return arr.reshape(num_reset, flat_tail).copy()
-        raise ValueError(
-            f"{name} must have shape {flat_shape} or {shaped}, got {arr.shape}"
-        )
+            return cast(np.ndarray, arr.reshape(num_reset, flat_tail).copy())
+        raise ValueError(f"{name} must have shape {flat_shape} or {shaped}, got {arr.shape}")
 
     def _translate_reset_randomization(
         self,
@@ -351,9 +412,8 @@ class MuJoCoBackend(SimBackend):
         if randomization is None or randomization.is_empty():
             return None
         if (
-            (randomization.base_mass_delta is not None or randomization.base_com_offset is not None)
-            and self._base_body_id < 0
-        ):
+            randomization.base_mass_delta is not None or randomization.base_com_offset is not None
+        ) and self._base_body_id < 0:
             raise ValueError(f"Body '{self._base_name}' not found in MuJoCo model")
 
         translated: dict[str, np.ndarray] = {}

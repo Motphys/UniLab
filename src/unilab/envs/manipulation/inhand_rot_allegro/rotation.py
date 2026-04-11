@@ -241,6 +241,7 @@ class AllegroRotationMj(AllegroBaseMjEnv):
                 "kd": cfg.control_config.kd,
                 "actuator_ids": slice(0, 16),
             },
+            iterations=cfg.iterations,
         )
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True

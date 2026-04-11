@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 from etils import epath
@@ -14,55 +14,17 @@ from unilab.base import registry
 from unilab.base.backend import create_backend
 from unilab.base.dtype_config import get_global_dtype
 from unilab.base.np_env import NpEnvState
-from unilab.dr import (
-    DomainRandomizationCapabilities,
-    DomainRandomizationProvider,
-    IntervalRandomizationPlan,
-    ResetPlan,
-)
-from unilab.dr.dr_utils import (
-    build_common_reset_randomization,
-    build_interval_push_plan,
-    validate_common_reset_randomization,
-    validate_interval_push_support,
-    zero_actions,
-)
+from unilab.envs.locomotion.common import rewards
+from unilab.envs.locomotion.common.commands import Commands
+from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
+from unilab.envs.locomotion.common.dr_provider import LocomotionDRProvider
+from unilab.envs.locomotion.common.rewards import RewardContext
 from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
-from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
 
 
 @dataclass
 class InitState:
     pos = [0.0, 0.0, 0.754]
-
-
-@dataclass
-class Commands:
-    vel_limit = [
-        [-0.6, -0.4, -0.8],  # [vx_min, vy_min, vyaw_min]
-        [1.0, 0.4, 0.8],  # [vx_max, vy_max, vyaw_max]
-    ]
-
-
-@dataclass
-class Domain_Rand:
-    randomize_base_mass: bool = False
-    added_mass_range: list[float] = field(default_factory=lambda: [-1.5, 1.5])
-
-    random_com: bool = False
-    com_offset_x: list[float] = field(default_factory=lambda: [-0.05, 0.05])
-
-    push_robots: bool = False
-    push_interval: int = 750
-    max_force: list[float] = field(default_factory=lambda: [1.0, 1.0, 0.5])
-
-
-def sample_velocity_commands(
-    rng, num_samples: int, low: np.ndarray, high: np.ndarray
-) -> np.ndarray:
-    return np.asarray(
-        rng.uniform(low=low, high=high, size=(num_samples, 3)), dtype=get_global_dtype()
-    )
 
 
 def sample_gait_phase_pairs(rng, num_samples: int, mode: str) -> np.ndarray:
@@ -89,23 +51,6 @@ def build_upper_body_pose_weights(pose_weights: list[float]) -> np.ndarray:
     weights = np.asarray(pose_weights, dtype=get_global_dtype()).copy()
     weights[:12] = 0.0
     return np.asarray(weights, dtype=get_global_dtype())
-
-
-def compute_weighted_pose_penalty(diff: np.ndarray, weights: np.ndarray) -> np.ndarray:
-    return np.asarray(np.sum(weights * np.square(diff), axis=1), dtype=get_global_dtype())
-
-
-def compute_forward_progress_reward(commands: np.ndarray, linvel: np.ndarray) -> np.ndarray:
-    commanded_speed = np.maximum(commands[:, 0], 1e-6)
-    forward_speed = np.maximum(linvel[:, 0], 0.0)
-    return np.asarray(np.minimum(forward_speed / commanded_speed, 1.0), dtype=get_global_dtype())
-
-
-def compute_under_speed_penalty(commands: np.ndarray, linvel: np.ndarray) -> np.ndarray:
-    commanded_speed = np.maximum(commands[:, 0], 1e-6)
-    forward_speed = np.maximum(linvel[:, 0], 0.0)
-    under_speed = np.maximum(commands[:, 0] - forward_speed, 0.0)
-    return np.asarray(under_speed / commanded_speed, dtype=get_global_dtype())
 
 
 @dataclass
@@ -162,56 +107,17 @@ class G1JoystickPPOCfg(G1BaseCfg):
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
     reward_config: RewardConfigPPO | None = None
-    domain_rand: Domain_Rand = field(default_factory=Domain_Rand)
+    domain_rand: DomainRandConfig = field(default_factory=DomainRandConfig)
     gait_phase_init_mode: str = "offset_phase"
     reset_base_qvel_limit: float = 0.5
-    backend_overrides: dict | None = None
-
-    def apply_backend_overrides(self, backend_type: str) -> None:
-        if not self.backend_overrides or not self.backend_overrides.get("enabled", False):
-            return
-        if backend_type != "motrix":
-            return
-        if self.reward_config is None:
-            raise ValueError("reward_config must be provided before applying backend overrides")
-
-        action_scale = self.backend_overrides.get("control_action_scale")
-        if action_scale is not None:
-            self.control_config.action_scale = float(action_scale)
-
-        command_vel_limit = self.backend_overrides.get("command_vel_limit")
-        if command_vel_limit is not None:
-            self.commands.vel_limit = [list(command_vel_limit[0]), list(command_vel_limit[1])]
-
-        reward_scale_overrides = self.backend_overrides.get("reward_scale_overrides")
-        if reward_scale_overrides:
-            self.reward_config.scales.update(reward_scale_overrides)
-
-        gait_phase_init_mode = self.backend_overrides.get("gait_phase_init_mode")
-        if gait_phase_init_mode is not None:
-            self.gait_phase_init_mode = str(gait_phase_init_mode)
-
-        reset_base_qvel_limit = self.backend_overrides.get("reset_base_qvel_limit")
-        if reset_base_qvel_limit is not None:
-            self.reset_base_qvel_limit = float(reset_base_qvel_limit)
 
 
-class G1JoystickDomainRandomizationProvider(DomainRandomizationProvider):
-    def validate(self, env: Any, capabilities: DomainRandomizationCapabilities) -> None:
-        validate_common_reset_randomization(env, capabilities)
-        validate_interval_push_support(env, capabilities)
+class G1JoystickDomainRandomizationProvider(LocomotionDRProvider):
+    def _get_qvel_limit(self, env: Any) -> float:
+        return float(env.cfg.reset_base_qvel_limit)
 
-    def build_interval_randomization_plan(
-        self, env: Any, step_counter: int
-    ) -> IntervalRandomizationPlan | None:
-        return build_interval_push_plan(env, step_counter)
-
-    def _sample_commands(self, env: Any, num_reset: int) -> np.ndarray:
-        low = np.asarray(env.cfg.commands.vel_limit[0], dtype=get_global_dtype())
-        high = np.asarray(env.cfg.commands.vel_limit[1], dtype=get_global_dtype())
-        return np.asarray(
-            np.random.uniform(low=low, high=high, size=(num_reset, 3)), dtype=get_global_dtype()
-        )
+    def _build_extra_info_updates(self, env: Any, num_reset: int) -> dict[str, np.ndarray]:
+        return {"gait_phase": self._sample_gait_phase(env, num_reset)}
 
     def _sample_gait_phase(self, env: Any, num_reset: int) -> np.ndarray:
         mode = env.cfg.gait_phase_init_mode
@@ -223,43 +129,18 @@ class G1JoystickDomainRandomizationProvider(DomainRandomizationProvider):
         phase = np.random.uniform(0.0, 2.0 * np.pi, size=(num_reset,))
         return np.asarray(np.column_stack([phase, phase + np.pi]), dtype=get_global_dtype())
 
-    def build_reset_plan(self, env: Any, env_ids: np.ndarray) -> ResetPlan:
-        num_reset = len(env_ids)
-        qpos = np.tile(env._init_qpos, (num_reset, 1))
-        qvel = np.tile(env._init_qvel, (num_reset, 1))
-        qpos[:, 0:2] += np.random.uniform(-0.5, 0.5, (num_reset, 2))
-        yaw = np.random.uniform(-np.pi, np.pi, (num_reset,))
-        qpos[:, 3:7] = np_quat_mul(qpos[:, 3:7], np_yaw_to_quat(yaw))
-        limit = float(env.cfg.reset_base_qvel_limit)
-        qvel[:, 0:6] = np.asarray(
-            np.random.uniform(-limit, limit, size=(num_reset, 6)), dtype=get_global_dtype()
-        )
-        info_updates = {
-            "commands": self._sample_commands(env, num_reset),
-            "current_actions": zero_actions(num_reset, env._num_action),
-            "last_actions": zero_actions(num_reset, env._num_action),
-            "gait_phase": self._sample_gait_phase(env, num_reset),
-        }
-        return ResetPlan(
-            env_ids=env_ids,
-            qpos=qpos,
-            qvel=qvel,
-            info_updates=info_updates,
-            randomization=build_common_reset_randomization(env, num_reset),
-        )
-
-    def build_reset_observation(
-        self, env: Any, env_ids: np.ndarray, info_updates: dict[str, Any]
+    def _compute_reset_obs(
+        self,
+        env: Any,
+        env_ids: Any,
+        info_updates: Any,
+        linvel: Any,
+        gyro: Any,
+        gravity: Any,
+        dof_pos: Any,
+        dof_vel: Any,
     ) -> dict[str, np.ndarray]:
-        linvel = env.get_local_linvel()[env_ids]
-        gyro = env.get_gyro()[env_ids]
-        gravity = env._backend.get_sensor_data("upvector")[env_ids]
-        dof_pos = env.get_dof_pos()[env_ids]
-        dof_vel = env.get_dof_vel()[env_ids]
-        return cast(
-            dict[str, np.ndarray],
-            env._compute_obs(info_updates, linvel, gyro, gravity, dof_pos, dof_vel),
-        )
+        return env._compute_obs(info_updates, linvel, gyro, gravity, dof_pos, dof_vel)  # type: ignore[no-any-return]
 
 
 @registry.env("G1JoystickFlatTerrain", sim_backend="mujoco")
@@ -271,9 +152,13 @@ class G1JoystickPPO(G1BaseEnv):
     def __init__(self, cfg: G1JoystickPPOCfg, num_envs=1, backend_type="mujoco"):
         if cfg.reward_config is None:
             raise ValueError("reward_config must be provided via Hydra configuration")
-        cfg.apply_backend_overrides(backend_type)
         backend = create_backend(
-            backend_type, cfg.model_file, num_envs, cfg.sim_dt, base_name=cfg.asset.base_name
+            backend_type,
+            cfg.model_file,
+            num_envs,
+            cfg.sim_dt,
+            base_name=cfg.asset.base_name,
+            iterations=cfg.iterations,
         )
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True
@@ -296,28 +181,20 @@ class G1JoystickPPO(G1BaseEnv):
         return {"obs": 98, "privileged": 3}
 
     def _init_reward_functions(self):
-        self._reward_fns = {
-            "tracking_lin_vel": self._reward_tracking_lin_vel,
-            "tracking_ang_vel": self._reward_tracking_ang_vel,
-            "forward_progress": self._reward_forward_progress,
-            "under_speed": self._reward_under_speed,
+        self._reward_fns: dict[str, Any] = {
+            "tracking_lin_vel": rewards.tracking_lin_vel,
+            "tracking_ang_vel": rewards.tracking_ang_vel,
+            "forward_progress": rewards.forward_progress,
+            "under_speed": rewards.under_speed,
+            "lin_vel_z": rewards.lin_vel_z,
+            "orientation": rewards.orientation,
+            "ang_vel_xy": rewards.ang_vel_xy,
+            "action_rate": rewards.action_rate,
+            "base_height": rewards.base_height,
+            "pose": rewards.weighted_pose,
             "upper_body_pose": self._reward_upper_body_pose,
             "feet_phase": self._reward_feet_phase,
-            "lin_vel_z": self._reward_lin_vel_z,
-            "orientation": self._reward_orientation,
-            "ang_vel_xy": self._reward_ang_vel_xy,
-            "action_rate": self._reward_action_rate,
-            "base_height": self._reward_base_height,
-            "pose": self._reward_pose,
         }
-
-    def _use_legacy_motrix_baseline(self) -> bool:
-        backend_type = getattr(getattr(self, "_backend", None), "backend_type", None)
-        return bool(
-            backend_type == "motrix"
-            and self._cfg.backend_overrides
-            and self._cfg.backend_overrides.get("enabled", False)
-        )
 
     def update_state(self, state: NpEnvState) -> NpEnvState:
         linvel = self.get_local_linvel()
@@ -351,11 +228,6 @@ class G1JoystickPPO(G1BaseEnv):
         )
         return {"obs": actor, "privileged": linvel}
 
-    def get_policy_obs(self, obs: dict[str, np.ndarray]) -> np.ndarray:
-        if self._use_legacy_motrix_baseline() and "privileged" in obs:
-            return np.concatenate([obs["privileged"], obs["obs"]], axis=1)
-        return np.concatenate(list(obs.values()), axis=1)
-
     def get_obs_structure(self) -> dict:
         """Return observation structure for symmetry augmentation.
 
@@ -373,10 +245,29 @@ class G1JoystickPPO(G1BaseEnv):
             "gait_phase": 2,
         }
 
+    def _build_reward_context(
+        self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel
+    ) -> RewardContext:
+        return RewardContext(
+            info=info,
+            linvel=linvel,
+            gyro=gyro,
+            dof_pos=dof_pos,
+            num_envs=self._num_envs,
+            default_angles=self.default_angles,
+            tracking_sigma=self._reward_cfg.tracking_sigma,
+            base_height_target=self._reward_cfg.base_height_target,
+            base_height=self._backend.get_base_pos()[:, 2],
+            gravity=gravity,
+            dof_vel=dof_vel,
+            pose_weights=self._pose_weights,
+        )
+
     def _compute_reward(self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel) -> np.ndarray:
         dtype = get_global_dtype()
         reward = np.zeros((self._num_envs,), dtype=dtype)
         cfg = self._reward_cfg
+        ctx = self._build_reward_context(info, linvel, gyro, gravity, dof_pos, dof_vel)
 
         step_count = info.get("steps", np.zeros((self._num_envs,), dtype=np.uint32))
         should_log = self._enable_reward_log and (int(step_count[0]) % 4 == 0)
@@ -385,7 +276,7 @@ class G1JoystickPPO(G1BaseEnv):
         for name, scale in cfg.scales.items():
             if scale == 0 or name not in self._reward_fns:
                 continue
-            rew = self._reward_fns[name](info, linvel, gyro, gravity, dof_pos, dof_vel)
+            rew = self._reward_fns[name](ctx)
             weighted_rew = rew * scale
             reward += weighted_rew
             if should_log:
@@ -394,30 +285,15 @@ class G1JoystickPPO(G1BaseEnv):
         info["log"] = log
         return reward * self._cfg.ctrl_dt
 
-    def _reward_tracking_lin_vel(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
-        commands = info["commands"]
-        lin_vel_error = np.sum(np.square(commands[:, :2] - linvel[:, :2]), axis=1)
-        return np.exp(-lin_vel_error / self._reward_cfg.tracking_sigma)
-
-    def _reward_tracking_ang_vel(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
-        commands = info["commands"]
-        ang_vel_error = np.square(commands[:, 2] - gyro[:, 2])
-        return np.exp(-ang_vel_error / self._reward_cfg.tracking_sigma)
-
-    def _reward_forward_progress(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
-        return compute_forward_progress_reward(info["commands"], linvel)
-
-    def _reward_under_speed(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
-        return compute_under_speed_penalty(info["commands"], linvel)
-
-    def _reward_feet_phase(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
+    def _reward_feet_phase(self, ctx: RewardContext):
         """步态相位奖励：鼓励正确的摆动腿高度"""
         left_foot = self._backend.get_sensor_data("left_foot_pos")
         right_foot = self._backend.get_sensor_data("right_foot_pos")
-        gait_phase = info.get("gait_phase", np.zeros((self._num_envs, 2), dtype=get_global_dtype()))
+        gait_phase = ctx.info.get(
+            "gait_phase", np.zeros((self._num_envs, 2), dtype=get_global_dtype())
+        )
 
         def cubic_bezier_height(phi, swing_height):
-            # Convert phi from [0, 2π] to [-π, π]
             phi_normalized = np.fmod(phi + np.pi, 2 * np.pi) - np.pi
             x = (phi_normalized + np.pi) / (2 * np.pi)
 
@@ -441,29 +317,12 @@ class G1JoystickPPO(G1BaseEnv):
         right_error = np.square(right_foot[:, 2] - right_target)
         return np.exp(-(left_error + right_error) / self._reward_cfg.feet_phase_tracking_sigma)
 
-    def _reward_lin_vel_z(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
-        return np.square(linvel[:, 2])
-
-    def _reward_ang_vel_xy(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
-        return np.sum(np.square(gyro[:, :2]), axis=1)
-
-    def _reward_orientation(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
-        return np.square(gravity[:, 0]) + np.square(gravity[:, 1])
-
-    def _reward_base_height(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
-        return np.square(self._backend.get_base_pos()[:, 2] - self._reward_cfg.base_height_target)
-
-    def _reward_action_rate(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
-        action_diff = info["current_actions"] - info["last_actions"]
-        return np.sum(np.square(action_diff), axis=1)
-
-    def _reward_pose(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
-        diff = dof_pos - self.default_angles
-        return compute_weighted_pose_penalty(diff, self._pose_weights)
-
-    def _reward_upper_body_pose(self, info, linvel, gyro, gravity, dof_pos, dof_vel):
-        diff = dof_pos - self.default_angles
-        return compute_weighted_pose_penalty(diff, self._upper_body_pose_weights)
+    def _reward_upper_body_pose(self, ctx: RewardContext):
+        diff = ctx.dof_pos - self.default_angles
+        return np.asarray(
+            np.sum(self._upper_body_pose_weights * np.square(diff), axis=1),
+            dtype=get_global_dtype(),
+        )
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
         state.info["last_actions"] = state.info.get("current_actions", np.zeros_like(actions))

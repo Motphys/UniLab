@@ -26,6 +26,14 @@ logs/
 .worktrees/
 *.log
 .DS_Store
+*.bak
+*.backup
+*.old
+*.orig
+*.rej
+*.temp
+*.tmp
+*~
 
 benchmark/outputs/
 src/unilab/algos/torch/rsl_rl

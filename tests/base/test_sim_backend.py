@@ -779,3 +779,161 @@ class TestCrossBackendBodySensors:
             mx.get_body_ang_vel_b(mx_ids),
             atol=self.ATOL,
         )
+
+
+# ---------------------------------------------------------------------------
+# Unified model properties — MuJoCo
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+class TestMuJoCoModelProperties:
+    @pytest.fixture(params=BASIC_ROBOTS)
+    def bkd(self, request):
+        from unilab.base.backend.mujoco_backend import MuJoCoBackend
+
+        p = request.param
+        return MuJoCoBackend(p["model_file"], NUM_ENVS, SIM_DT, base_name=p["base_name"])
+
+    def test_num_actuators(self, bkd):
+        assert bkd.num_actuators == bkd.model.nu
+        assert bkd.num_actuators > 0
+
+    def test_num_dof_vel(self, bkd):
+        assert bkd.num_dof_vel > 0
+        assert bkd.num_dof_vel <= bkd.model.nv
+
+    def test_get_actuator_ctrl_range(self, bkd):
+        ctrl_range = bkd.get_actuator_ctrl_range()
+        _shape(ctrl_range, bkd.num_actuators, 2)
+        assert np.all(ctrl_range[:, 0] <= ctrl_range[:, 1])
+
+    def test_get_keyframe_qpos(self, bkd):
+        for name in ("stand", "home"):
+            try:
+                qpos = bkd.get_keyframe_qpos(name)
+                assert qpos.ndim == 1
+                assert len(qpos) == bkd.model.nq
+                return
+            except ValueError:
+                continue
+        pytest.skip("No 'stand' or 'home' keyframe in model")
+
+    def test_get_keyframe_qpos_missing(self, bkd):
+        with pytest.raises(ValueError, match="not found"):
+            bkd.get_keyframe_qpos("nonexistent_keyframe_xyz")
+
+    def test_get_init_qvel(self, bkd):
+        qvel = bkd.get_init_qvel()
+        assert qvel.ndim == 1
+        assert len(qvel) == bkd.model.nv
+        np.testing.assert_array_equal(qvel, 0.0)
+
+    def test_get_body_ids(self, bkd):
+        import mujoco
+
+        base_name = mujoco.mj_id2name(bkd.model, mujoco.mjtObj.mjOBJ_BODY, 1)
+        ids = bkd.get_body_ids([base_name])
+        assert ids.dtype == np.int32
+        assert ids[0] == 1
+
+    def test_get_body_ids_missing(self, bkd):
+        with pytest.raises(ValueError, match="not found"):
+            bkd.get_body_ids(["nonexistent_body_xyz"])
+
+    def test_get_joint_range(self, bkd):
+        jr = bkd.get_joint_range()
+        assert jr is not None
+        assert jr.ndim == 2
+        assert jr.shape[1] == 2
+
+
+# ---------------------------------------------------------------------------
+# Unified model properties — Motrix
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+class TestMotrixModelProperties:
+    @pytest.fixture(autouse=True)
+    def _require_motrix(self):
+        pytest.importorskip("motrixsim")
+
+    @pytest.fixture(params=BASIC_ROBOTS)
+    def _ctx(self, request):
+        from unilab.base.backend.motrix_backend import MotrixBackend
+
+        p = request.param
+        bkd = MotrixBackend(p["model_file"], NUM_ENVS, SIM_DT, base_name=p["base_name"])
+        return bkd, p["base_name"]
+
+    @pytest.fixture
+    def bkd(self, _ctx):
+        return _ctx[0]
+
+    def test_num_actuators(self, bkd):
+        assert bkd.num_actuators > 0
+
+    def test_num_dof_vel(self, bkd):
+        assert bkd.num_dof_vel > 0
+
+    def test_get_actuator_ctrl_range(self, bkd):
+        ctrl_range = bkd.get_actuator_ctrl_range()
+        _shape(ctrl_range, bkd.num_actuators, 2)
+
+    def test_get_keyframe_qpos(self, bkd):
+        # Motrix ignores the name but should not raise
+        qpos = bkd.get_keyframe_qpos("home")
+        assert qpos.ndim == 1
+        assert len(qpos) > 0
+
+    def test_get_init_qvel(self, bkd):
+        qvel = bkd.get_init_qvel()
+        assert qvel.ndim == 1
+        np.testing.assert_array_equal(qvel, 0.0)
+
+    def test_get_body_ids(self, _ctx):
+        bkd, base_name = _ctx
+        ids = bkd.get_body_ids([base_name])
+        assert ids.dtype == np.int32
+        assert len(ids) == 1
+
+    def test_get_body_ids_missing(self, bkd):
+        with pytest.raises(ValueError, match="not found"):
+            bkd.get_body_ids(["nonexistent_body_xyz"])
+
+    def test_get_joint_range(self, bkd):
+        assert bkd.get_joint_range() is None
+
+
+# ---------------------------------------------------------------------------
+# Cross-backend model properties consistency
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+class TestCrossBackendModelProperties:
+    @pytest.fixture(autouse=True)
+    def _require_motrix(self):
+        pytest.importorskip("motrixsim")
+
+    @pytest.fixture
+    def backends(self):
+        from unilab.base.backend.motrix_backend import MotrixBackend
+        from unilab.base.backend.mujoco_backend import MuJoCoBackend
+
+        mj = MuJoCoBackend(**_G1, num_envs=NUM_ENVS, sim_dt=SIM_DT)
+        mx = MotrixBackend(**_G1, num_envs=NUM_ENVS, sim_dt=SIM_DT)
+        return mj, mx
+
+    def test_num_actuators_match(self, backends):
+        mj, mx = backends
+        assert mj.num_actuators == mx.num_actuators
+
+    def test_num_dof_vel_match(self, backends):
+        mj, mx = backends
+        assert mj.num_dof_vel == mx.num_dof_vel
+
+    def test_actuator_ctrl_range_shape_match(self, backends):
+        mj, mx = backends
+        assert mj.get_actuator_ctrl_range().shape == mx.get_actuator_ctrl_range().shape

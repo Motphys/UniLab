@@ -1,7 +1,6 @@
 defaults:
   - _self_
-  - reward: default
-  - task: go1_joystick
+  - task: go1_joystick/mujoco
 
 algo:
   algo: ppo
@@ -10,7 +9,11 @@ algo:
   num_envs: 4096
   num_steps_per_env: 24
   max_iterations: 101
+  save_interval: 100
   empirical_normalization: false
+  resume: false
+  load_run: "-1"
+  checkpoint: -1
   obs_groups:
     default:
       - policy
@@ -39,22 +42,21 @@ algo:
     adaptive_lr_growth: 1.1
     adaptive_lr_decay: 1.2
     adaptive_lr_update_interval: 5
-    fast_mode: false
-    metrics_interval: 1
-    finite_check_interval: 1
+    metrics_interval: 8
+    finite_check_interval: 8
     enable_compile: false
     warmup_strict_iters: 0
     warmup_metrics_interval: 1
     warmup_finite_check_interval: 1
-    disable_finite_checks: false
+    disable_finite_checks: true
     reward_normalization: false
 
 training:
   task_name: Go1JoystickFlatTerrain
+  device: mlx
   sim_backend: mujoco
   play_only: false
   no_play: false
-  load_run: "-1"
   play_env_num: 16
   play_steps: 150
   logger: tensorboard
@@ -67,7 +69,6 @@ training:
   wandb_notes: null
   wandb_mode: null
   fp16: false
-  log_root: logs/mlx_rl_train
   seed: 1
   log_interval: 10
   save_interval: 50

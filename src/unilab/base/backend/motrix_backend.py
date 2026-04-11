@@ -1,4 +1,6 @@
 import os
+import time
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -18,7 +20,7 @@ try:
 except ImportError:
     MOTRIX_AVAILABLE = False
 
-from .base import SimBackend
+from .base import BackendPlayCapabilities, SimBackend
 
 
 class MotrixBackend(SimBackend):
@@ -32,6 +34,7 @@ class MotrixBackend(SimBackend):
         base_name: str = "base",
         np_dtype=np.float32,
         add_body_sensors: bool = False,
+        iterations: int | None = None,
     ):
         if not MOTRIX_AVAILABLE:
             raise ImportError("motrixsim not available")
@@ -65,6 +68,8 @@ class MotrixBackend(SimBackend):
             }
 
         self._model.options.timestep = sim_dt
+        if iterations is not None:
+            self._model.options.max_iterations = int(iterations)
         self._num_envs = num_envs
         self._np_dtype = np_dtype
 
@@ -107,14 +112,71 @@ class MotrixBackend(SimBackend):
         return self._data
 
     # ------------------------------------------------------------------ #
+    # Model properties                                                   #
+    # ------------------------------------------------------------------ #
+
+    @property
+    def num_actuators(self) -> int:
+        return int(self._model.num_actuators)
+
+    @property
+    def num_dof_vel(self) -> int:
+        # model.num_dof_vel includes 6 floating-base DOFs; exclude them
+        # to match get_dof_vel() which returns joint velocities only.
+        return int(self._model.num_dof_vel) - 6
+
+    def get_actuator_ctrl_range(self) -> np.ndarray:
+        arr: np.ndarray = np.array(self._model.actuator_ctrl_limits, dtype=self._np_dtype)
+        result: np.ndarray = arr.T.copy()
+        return result
+
+    def get_keyframe_qpos(self, name: str) -> np.ndarray:
+        if hasattr(self._model, "keyframes") and self._model.num_keyframes > 0:
+            return np.array(self._model.keyframes[0].dof_pos, dtype=self._np_dtype)
+        return np.array(self._model.compute_init_dof_pos(), dtype=self._np_dtype)
+
+    def get_init_qvel(self) -> np.ndarray:
+        return np.zeros((self._model.num_dof_vel,), dtype=self._np_dtype)
+
+    def get_body_ids(self, names: Sequence[str]) -> np.ndarray:
+        ids: list[int] = []
+        for name in names:
+            bid = self._model.get_link_index(name)
+            if bid is None or bid < 0:
+                raise ValueError(f"Body '{name}' not found in Motrix model")
+            ids.append(int(bid))
+        return np.array(ids, dtype=np.int32)
+
+    def get_joint_range(self) -> np.ndarray | None:
+        return None
+
+    # ------------------------------------------------------------------ #
     # Simulation control                                                 #
     # ------------------------------------------------------------------ #
 
-    def step(self, ctrl: np.ndarray, nsteps: int = 1) -> None:
+    def step(self, ctrl: np.ndarray, nsteps: int = 1) -> dict | None:
+        t0 = time.perf_counter()
         self._data.actuator_ctrls = np.ascontiguousarray(ctrl)
-        for _ in range(nsteps):
+        set_ctrl_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
+        if nsteps == 1:
             self._model.step(self._data)
+        else:
+            self._model.step_n(self._data, nsteps)
+        physics_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         self._refresh_link_pose_cache()
+        refresh_cache_ms = (time.perf_counter() - t0) * 1000.0
+
+        return {
+            "timing": {
+                "set_ctrl_ms": set_ctrl_ms,
+                "physics_ms": physics_ms,
+                "refresh_cache_ms": refresh_cache_ms,
+            }
+        }
 
     def set_state(
         self,
@@ -142,8 +204,8 @@ class MotrixBackend(SimBackend):
         ctrl = qpos_motrix[:, 7:]
         data_slice.actuator_ctrls = np.ascontiguousarray(ctrl)
 
-        self._model.forward_kinematic(self._data)
-        self._refresh_link_pose_cache()
+        self._model.forward_kinematic(data_slice)
+        self._refresh_link_pose_cache(env_indices)
 
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
         return DomainRandomizationCapabilities(
@@ -155,6 +217,9 @@ class MotrixBackend(SimBackend):
         if plan.push_perturbation_limit is None:
             return
         self.push_robots(np.asarray(plan.push_perturbation_limit))
+
+    def get_play_capabilities(self) -> BackendPlayCapabilities:
+        return BackendPlayCapabilities(supports_native_interactive_renderer=True)
 
     # ------------------------------------------------------------------ #
     # Base kinematics                                                    #
@@ -239,24 +304,21 @@ class MotrixBackend(SimBackend):
     def _get_link_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
         ids = self._as_body_ids(body_ids)
         return np.stack(
-            [np.asarray(self._link_cache[int(bid)].get_linear_velocity(self._data)) for bid in ids],
+            [self._link_cache[int(bid)].get_linear_velocity(self._data) for bid in ids],
             axis=1,
         )
 
     def _get_link_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
         ids = self._as_body_ids(body_ids)
         return np.stack(
-            [
-                np.asarray(self._link_cache[int(bid)].get_angular_velocity(self._data))
-                for bid in ids
-            ],
+            [self._link_cache[int(bid)].get_angular_velocity(self._data) for bid in ids],
             axis=1,
         )
 
     def _get_body_sensor_values(self, body_ids: np.ndarray, prefix: str) -> np.ndarray:
         return np.stack(
             [
-                np.asarray(self._model.get_sensor_value(f"{prefix}_{name}", self._data))
+                self._model.get_sensor_value(f"{prefix}_{name}", self._data)
                 for name in self._get_body_names(body_ids)
             ],
             axis=1,
@@ -266,8 +328,13 @@ class MotrixBackend(SimBackend):
         """motrix xyzw → wxyz"""
         return q[..., [3, 0, 1, 2]]
 
-    def _refresh_link_pose_cache(self) -> None:
-        self._link_poses = np.ascontiguousarray(np.asarray(self._model.get_link_poses(self._data)))
+    def _refresh_link_pose_cache(self, env_indices: np.ndarray | None = None) -> None:
+        if env_indices is None:
+            self._link_poses = self._model.get_link_poses(self._data)
+        else:
+            mask = np.zeros(self._num_envs, dtype=bool)
+            mask[env_indices] = True
+            self._link_poses[env_indices] = self._model.get_link_poses(self._data[mask])
 
     def push_robots(self, force_range):
         ex_force = np.random.rand(self.num_envs, 3) * 2 - 1  # [x_force, y_force, z_force]

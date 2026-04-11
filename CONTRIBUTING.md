@@ -1,6 +1,6 @@
 # Contributing to UniLab
 
-Languages: English | [简体中文](docs/zh_CN/CONTRIBUTING.md) | [日本語](docs/ja/CONTRIBUTING.md) | [한국어](docs/ko/CONTRIBUTING.md)
+Languages: English | [简体中文](docs/zh_CN/CONTRIBUTING.md)
 
 ## Development Environment Setup
 
@@ -15,12 +15,13 @@ Languages: English | [简体中文](docs/zh_CN/CONTRIBUTING.md) | [日本語](do
 
 - Always use `uv run`; do not invoke `python` outside `uv run`
 - Run `make check` before code-related commits
-- For user-facing workflow changes, keep `README.md`, `CONTRIBUTING.md`, and the matching localized docs under `docs/{en,zh_CN,ja,ko}/` in sync
+- Keep backup files, temporary exports, and legacy compatibility copies out of the source tree; do not commit artifacts such as `*.bak`, `*.tmp`, `*.old`, `*.orig`, or editor backup files ending in `~`
+- For user-facing workflow changes, keep `README.md`, `CONTRIBUTING.md`, and the matching localized docs under `docs/zh_CN/` in sync
 
 ## Read Before You Start
 
-- Before changing training entrypoints, runners, env contracts, or backend paths, read [RL Infrastructure Development Standard](docs/en/00-development-architecture.md)
-- Before changing collaboration flow or issue / milestone rules, read [docs/en/06-collaboration.md](docs/en/06-collaboration.md)
+- Before changing training entrypoints, runners, env contracts, or backend paths, read [RL Infrastructure Development Standard](docs/zh_CN/00-development-architecture.md)
+- Before changing collaboration flow or issue / milestone rules, read [docs/zh_CN/06-collaboration.md](docs/zh_CN/06-collaboration.md)
 
 ## Common Commands
 
@@ -96,15 +97,19 @@ uv run pytest -m veryslow -v
 
 ## CI Workflow
 
-PRs targeting `main` trigger three jobs automatically. The current workflow does not rerun the same CI set again after the PR is merged into `main`.
+PRs targeting `main` trigger five jobs automatically: `ruff-lint`, `ruff-format`, `mypy`, `pyright`, and `test`. The workflow also enables manual runs through `workflow_dispatch`, validates docs through the pytest suite on docs changes, and cancels older in-progress runs for the same PR branch.
+
+Coverage policy: the default CI lane enforces a minimum non-slow coverage floor, and that floor should only ratchet upward when the suite meaningfully expands.
 
 | Job | Content | Blocking on failure |
 |-----|---------|---------------------|
-| `lint` | `ruff check` + `ruff format --check` | ✅ |
-| `typecheck` | `mypy src/unilab` + `pyright` | ✅ |
-| `test` | `pytest -m "not slow and not veryslow" --cov --cov-fail-under=10` | ✅ |
+| `ruff-lint` | `uv sync --only-group dev` + `uv run --no-sync ruff check --output-format=github .` on `ubuntu-slim` | ✅ |
+| `ruff-format` | `uv sync --only-group dev` + `uv run --no-sync ruff format --check .` on `ubuntu-slim` | ✅ |
+| `mypy` | `uv sync` + `uv run mypy src/unilab` on `macos-26` | ✅ |
+| `pyright` | `uv sync` + `uv run pyright` on `macos-26` | ✅ |
+| `test` | `uv sync --extra motrix` + `uv run pytest -m "not slow and not veryslow" --cov=unilab --cov-report markdown-append:$GITHUB_STEP_SUMMARY --cov-fail-under=25` on `ubuntu-slim` with Python 3.11 | ✅ |
 
-Docs-only and collaboration-metadata changes such as `*.md`, `docs/**`, issue templates, and `CODEOWNERS` do not trigger CI.
+Collaboration-metadata-only changes such as `LICENSE`, issue templates, `CODEOWNERS`, and `.github/pull_request_template.md` still skip CI. Docs changes do trigger CI and are validated by `tests/scripts/test_check_docs.py`.
 
 ## Documentation Expectations
 
@@ -121,17 +126,18 @@ Docs-only and collaboration-metadata changes such as `*.md`, `docs/**`, issue te
 - **PR**: must link the driving issue and list validation commands plus impact scope
 - **CODEOWNERS**: review ownership, not execution ownership
 
-More collaboration rules live in [docs/en/06-collaboration.md](docs/en/06-collaboration.md).
+More collaboration rules live in [docs/zh_CN/06-collaboration.md](docs/zh_CN/06-collaboration.md).
 
 ## Pull Request Workflow
 
 1. For code or config changes, run `make check` locally so lint, mypy, and pyright pass.
 2. For code changes, run `make test` locally so non-slow tests pass.
 3. If you touched IPC, Runner, or Config, add or update the matching tests.
-4. For docs-only changes, at minimum re-check Markdown links, file paths, script names, and command arguments.
-5. Link the relevant GitHub issue and fill in validation plus impact scope in the PR template.
-6. Open the PR against `main` and wait for green CI.
-7. Wait for code review.
+4. For docs-only changes, run `uv run pytest tests/scripts/test_check_docs.py -q` at minimum.
+5. If you touched repository hygiene rules, run `uv run pytest tests/scripts/test_repo_hygiene.py -q`.
+6. Link the relevant GitHub issue and fill in validation plus impact scope in the PR template.
+7. Open the PR against `main` and wait for green CI.
+8. Wait for code review.
 
 ## Issue Reports
 
@@ -141,8 +147,8 @@ Use GitHub Issues to report bugs or propose features.
 
 UniLab uses Hydra + dataclass configuration:
 
-- **Add a new task**: create YAML under `conf/{algo}/task/` and use `# @package _global_`
+- **Add a new task entry**: create a single owner YAML under `conf/{algo}/task/...` and use `# @package _global_`
 - **Change hyperparameters**: edit the matching YAML or use CLI overrides such as `algo.num_envs=2048`
 - **Add a new algorithm**: add the dataclass in `structured_configs.py` and create the matching `conf/` directory
 
-For more detail, see the Hydra section in [Training Guide](docs/en/03-training.md) and [Development Architecture](docs/en/00-development-architecture.md).
+For more detail, see the Hydra section in [Training Guide](docs/zh_CN/03-training.md) and [Development Architecture](docs/zh_CN/00-development-architecture.md).

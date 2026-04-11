@@ -13,13 +13,34 @@ import pytest
 pytest.importorskip("mujoco")
 
 
+def _mlx_runtime_usable() -> bool:
+    """Probe whether importing mlx.core is safe in a subprocess on this host."""
+    if sys.platform != "darwin":
+        return True
+    result = subprocess.run(
+        [sys.executable, "-c", "import mlx.core"], capture_output=True, text=True, timeout=10
+    )
+    return result.returncode == 0
+
+
+_MLX_RUNTIME_USABLE = _mlx_runtime_usable()
+
+
 @pytest.mark.veryslow
 @pytest.mark.parametrize(
     "task",
-    ["go1_joystick", "go2_joystick", "g1_joystick", "g1_motion_tracking", "g1_flip_tracking"],
+    [
+        "go1_joystick/mujoco",
+        "go2_joystick/mujoco",
+        "g1_joystick/mujoco",
+        "g1_motion_tracking/mujoco",
+        "g1_flip_tracking/mujoco",
+    ],
 )
 def test_appo_task_configs_load(task):
-    """APPO can start training with all task configs."""
+    """APPO can start training with all supported task configs."""
+    if not _MLX_RUNTIME_USABLE:
+        pytest.skip("mlx runtime aborts in subprocess on this host")
     result = subprocess.run(
         [
             sys.executable,
@@ -38,10 +59,12 @@ def test_appo_task_configs_load(task):
 @pytest.mark.veryslow
 @pytest.mark.parametrize(
     "task",
-    ["go1_joystick", "go2_joystick"],
+    ["sac/go1_joystick/mujoco", "sac/go2_joystick/mujoco"],
 )
 def test_offpolicy_task_configs_load(task):
-    """Off-policy SAC can start training with all task configs."""
+    """Off-policy SAC can start training with all supported task configs."""
+    if not _MLX_RUNTIME_USABLE:
+        pytest.skip("mlx runtime aborts in subprocess on this host")
     result = subprocess.run(
         [
             sys.executable,

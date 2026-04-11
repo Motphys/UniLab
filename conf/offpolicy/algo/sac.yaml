@@ -1,6 +1,7 @@
 # @package algo
 algo: sac
 algo_log_name: fast_sac
+load_run: "-1"
 seed: 1
 num_envs: 4096
 batch_size: 8192

@@ -2,7 +2,7 @@
 
 # UniLab
 
-Languages: English | [简体中文](docs/zh_CN/README.md) | [日本語](docs/ja/README.md) | [한국어](docs/ko/README.md)
+Languages: English | [简体中文](docs/zh_CN/01-getting-started.md)
 
 UniLab is built to test a simple hypothesis: **robot locomotion RL does not need a GPU simulation backend**.
 
@@ -40,17 +40,21 @@ uv sync
 uv sync --extra motrix
 
 # 3. Run a training job
-uv run python scripts/train_rsl_rl.py task=go1_joystick
+uv run python scripts/train_rsl_rl.py task=go1_joystick/mujoco
 ```
+
+Motrix registry bootstrap and Hydra config composition do not require importing MuJoCo anymore, but any MuJoCo task execution, playback, or MuJoCo-only tooling still requires a working MuJoCo runtime.
 
 ## Workflow Entrypoints
 
-| Goal | Entrypoint | Default log root |
+| Goal | Entrypoint | Log root pattern |
 |------|------------|------------------|
-| PPO (torch / RSL-RL) | `scripts/train_rsl_rl.py` | `logs/rsl_rl_train/<task>/` |
-| PPO (MLX, macOS) | `scripts/train_mlx_ppo.py` | `logs/mlx_rl_train/<task>/` |
-| APPO | `scripts/train_appo.py` | `logs/appo/<task>/` |
-| SAC / TD3 | `scripts/train_offpolicy.py` | `logs/fast_sac/<task>/` / `logs/fast_td3/<task>/` |
+| PPO (torch / RSL-RL) | `scripts/train_rsl_rl.py` | `logs/<algo.algo_log_name>/<task>/` |
+| PPO (MLX, macOS) | `scripts/train_mlx_ppo.py` | `logs/<algo.algo_log_name>/<task>/` |
+| APPO | `scripts/train_appo.py` | `logs/<algo.algo_log_name>/<task>/` |
+| SAC / TD3 | `scripts/train_offpolicy.py` | `logs/<algo.algo_log_name>/<task>/` |
+
+The concrete log directory comes from `algo.algo_log_name`. Current defaults are `rsl_rl_ppo`, `appo`, `fast_sac`, and `fast_td3`.
 
 Training scripts automatically enter playback after training unless you set `training.no_play=true`.
 
@@ -60,17 +64,18 @@ Training scripts automatically enter playback after training unless you set `tra
 - `scripts/`: direct entrypoints for training, playback, motion preprocessing, and tooling
 - `src/unilab/`: environments, backends, algorithms, and shared utilities
 - `tests/`: unit tests, integration tests, and script configuration tests
-- `docs/`: language-specific documentation under `docs/en/`, `docs/zh_CN/`, `docs/ja/`, and `docs/ko/`
+- `docs/`: language-specific documentation under `docs/zh_CN/`
 
 ## Documentation
 
-- [00 RL Infrastructure Development Standard](docs/en/00-development-architecture.md): design principles, layering, contracts, and validation boundaries
-- [01 Getting Started](docs/en/01-getting-started.md): installation, dependency setup, mirrors, and first-run commands
-- [02 Simulation Backends](docs/en/02-simulation-backends.md): MuJoCo / Motrix support scope and backend selection
-- [03 Training Guide](docs/en/03-training.md): training, playback, resume flow, Hydra overrides, and W&B
-- [04 Algorithms](docs/en/04-algorithms.md): APPO, FastSAC, and FastTD3 usage and differences
-- [05 G1 Motion Tracking](docs/en/05-g1-motion-tracking.md): the G1 whole-body motion-tracking task
-- [06 Collaboration Workflow](docs/en/06-collaboration.md): GitHub issue / milestone / PR collaboration rules
+- [00 RL Infrastructure Development Standard](docs/zh_CN/00-development-architecture.md): design principles, layering, contracts, and validation boundaries
+- [01 Getting Started](docs/zh_CN/01-getting-started.md): installation, dependency setup, mirrors, and first-run commands
+- [02 Simulation Backends](docs/zh_CN/02-simulation-backends.md): MuJoCo / Motrix support scope and backend selection
+- [03 Training Guide](docs/zh_CN/03-training.md): training, playback, resume flow, Hydra overrides, and W&B
+- [04 Algorithms](docs/zh_CN/04-algorithms.md): APPO, FastSAC, and FastTD3 usage and differences
+- [05 G1 Motion Tracking](docs/zh_CN/05-g1-motion-tracking.md): the G1 whole-body motion-tracking task
+- [06 Collaboration Workflow](docs/zh_CN/06-collaboration.md): GitHub issue / milestone / PR collaboration rules
+- [07 Domain Randomization](docs/zh_CN/07-domain-randomization.md): domain randomization configuration and best practices
 - [Contributing](CONTRIBUTING.md): development workflow, testing, CI, and review expectations
 - [AGENTS](AGENTS.md): guidance for coding agents and automated editors working in this RL infra repo
 

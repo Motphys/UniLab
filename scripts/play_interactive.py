@@ -2,10 +2,10 @@
 
 Usage:
     # Load the latest checkpoint for a task
-    python scripts/play_interactive.py --task Go2JoystickFlatTerrain
+    uv run python scripts/play_interactive.py --task Go2JoystickFlatTerrain
 
     # Load a specific run
-    python scripts/play_interactive.py --task Go2JoystickFlatTerrain --load_run 2024-02-04_12-00-00
+    uv run python scripts/play_interactive.py --task Go2JoystickFlatTerrain --load_run 2024-02-04_12-00-00
 
 Camera controls (MuJoCo viewer):
     Mouse drag     - rotate
@@ -13,10 +13,9 @@ Camera controls (MuJoCo viewer):
     Right-drag     - pan
 """
 
+# pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportOptionalMemberAccess=false, reportOptionalSubscript=false
+
 import argparse
-import importlib
-import os
-import pkgutil
 import sys
 import time
 from pathlib import Path
@@ -29,33 +28,18 @@ import torch
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
 
-
-def ensure_registries():
-    for pkg_name in (
-        "unilab.envs.locomotion",
-        "unilab.envs.manipulation",
-        "unilab.envs.motion_tracking",
-    ):
-        try:
-            package = importlib.import_module(pkg_name)
-            if hasattr(package, "__path__"):
-                for _, name, _ in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
-                    try:
-                        importlib.import_module(name)
-                    except Exception:
-                        pass
-        except ImportError:
-            pass
-
+from unilab.training import (
+    ensure_registries,
+    get_entrypoint_log_root,
+    resolve_task_checkpoint_path,
+)
 
 ensure_registries()
 
 from unilab.base import registry
 from unilab.config.structured_configs import PPOConfig
-from unilab.utils.obs_utils import flatten_obs_dict
 from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4
-from unilab.utils.run_utils import get_latest_run
-from unilab.utils.torch_utils import to_torch
+from unilab.utils.rsl_rl_vec_env_wrapper import RslRlVecEnvWrapper
 
 try:
     from rsl_rl.runners import OnPolicyRunner
@@ -64,87 +48,6 @@ except ImportError:
     sys.exit(1)
 
 from tensordict import TensorDict
-
-# ---------------------------------------------------------------------------
-# Minimal env wrapper (mirrors RslRlVecEnvWrapper in train_rsl_rl.py)
-# ---------------------------------------------------------------------------
-
-
-class RslRlVecEnvWrapper:
-    def __init__(self, env, device="cuda", policy_obs_mode: str = "flat"):
-        self.env = env
-        self.cfg = env.cfg
-        self.device = device
-        self.policy_obs_mode = policy_obs_mode
-        self.num_envs = env.num_envs
-        self.observation_space = env.observation_space
-        self.action_space = env.action_space
-        self._actor_obs_dim = int(env.obs_groups_spec.get("obs", sum(env.obs_groups_spec.values())))
-        self._flat_obs_dim = int(sum(env.obs_groups_spec.values()))
-        self.num_obs = self._flat_obs_dim if policy_obs_mode == "flat" else self._actor_obs_dim
-        self.num_privileged_obs = self.num_obs
-        self.num_actions = env.action_space.shape[0]
-        self.episode_returns = torch.zeros(self.num_envs, device=device)
-        self.episode_lengths = torch.zeros(self.num_envs, device=device)
-        self.episode_length_buf = self.episode_lengths
-        self.max_episode_length = int(env.cfg.max_episode_seconds / env.cfg.ctrl_dt)
-        self.reset()
-
-    def _obs_to_tensordict(self, obs: dict[str, np.ndarray]) -> TensorDict:
-        actor = to_torch(obs["obs"], self.device)
-        if self.policy_obs_mode == "actor":
-            policy = actor
-        else:
-            policy = to_torch(flatten_obs_dict(obs), self.device)
-        td = {"policy": policy, "actor": actor}
-        if "privileged" in obs:
-            td["privileged"] = to_torch(obs["privileged"], self.device)
-        return TensorDict(td, batch_size=self.num_envs, device=self.device)
-
-    def step(self, actions):
-        actions_np = (
-            actions.detach().cpu().numpy() if isinstance(actions, torch.Tensor) else actions
-        )
-        state = self.env.step(actions_np)
-        rewards = to_torch(state.reward, self.device)
-        dones = to_torch(state.done, self.device).bool()
-        self.episode_returns += rewards
-        self.episode_lengths += 1
-        infos = {}
-        done_idx = torch.nonzero(dones).flatten()
-        if len(done_idx) > 0:
-            if hasattr(state, "truncated"):
-                infos["time_outs"] = to_torch(state.truncated, self.device).bool()
-            self.episode_returns[done_idx] = 0
-            self.episode_lengths[done_idx] = 0
-        if hasattr(state, "info") and "log" in state.info:
-            infos["log"] = state.info["log"]
-        return self._obs_to_tensordict(state.obs), rewards, dones, infos
-
-    def reset(self):
-        if self.env.state is None:
-            self.env.init_state()
-        env_indices = np.arange(self.num_envs, dtype=np.int32)
-        reset_out = self.env.reset(env_indices)
-        if isinstance(reset_out, tuple) and len(reset_out) == 2:
-            obs_out, _ = reset_out
-        elif isinstance(reset_out, tuple) and len(reset_out) == 3:
-            _, obs_out, _ = reset_out
-        else:
-            raise ValueError(
-                "Unexpected env.reset return format. Expected (obs, info) or (_, obs, _)."
-            )
-        self.episode_returns[:] = 0
-        self.episode_lengths[:] = 0
-        return self._obs_to_tensordict(obs_out), {}
-
-    def get_observations(self):
-        return self._obs_to_tensordict(self.env.state.obs)
-
-    def get_privileged_observations(self):
-        if self.policy_obs_mode == "actor":
-            return to_torch(self.env.state.obs["obs"], self.device)
-        return to_torch(flatten_obs_dict(self.env.state.obs), self.device)
 
 
 def _infer_checkpoint_actor_input_dim(ckpt_path: str) -> int | None:
@@ -170,43 +73,30 @@ def _infer_checkpoint_actor_input_dim(ckpt_path: str) -> int | None:
 # ---------------------------------------------------------------------------
 
 
-def resolve_checkpoint(task: str, load_run: str, checkpoint: str | None = None) -> str | None:
-    base = ROOT_DIR / "logs" / "rsl_rl_train" / task
-    if load_run == "-1":
-        path = get_latest_run(str(base))
-    elif os.path.exists(load_run):
-        path = load_run
-    else:
-        path = str(base / load_run)
-
-    if not path or not os.path.exists(path):
-        print(f"[play_interactive] Run not found: {path}")
+def resolve_checkpoint(
+    task: str, load_run: str, checkpoint: str | None = None, algo_log_name: str = "rsl_rl_ppo"
+) -> str | None:
+    checkpoint_path, checkpoint_dir = resolve_task_checkpoint_path(
+        ROOT_DIR,
+        task_name=task,
+        load_run=load_run,
+        algo_log_name=algo_log_name,
+        checkpoint=checkpoint,
+    )
+    if checkpoint_path is None:
+        if checkpoint is not None and checkpoint_dir is not None:
+            checkpoint_name = (
+                f"model_{checkpoint}.pt" if str(checkpoint).isdigit() else str(checkpoint)
+            )
+            print(f"[play_interactive] Checkpoint not found: {checkpoint_dir / checkpoint_name}")
+        elif checkpoint_dir is not None:
+            print(f"[play_interactive] No model_*.pt files in {checkpoint_dir}")
+        else:
+            print(f"[play_interactive] Run not found for load_run={load_run}")
         return None
 
-    if os.path.isdir(path):
-        if checkpoint is not None:
-            if str(checkpoint).isdigit():
-                model_name = f"model_{checkpoint}.pt"
-            else:
-                model_name = checkpoint
-            model_path = os.path.join(path, model_name)
-            if os.path.exists(model_path):
-                path = model_path
-            else:
-                print(f"[play_interactive] Checkpoint not found: {model_path}")
-                return None
-        else:
-            model_files = sorted(
-                [f for f in os.listdir(path) if f.startswith("model_") and f.endswith(".pt")],
-                key=lambda f: int(f.split("_")[1].split(".")[0]),
-            )
-            if not model_files:
-                print(f"[play_interactive] No model_*.pt files in {path}")
-                return None
-            path = os.path.join(path, model_files[-1])
-
-    print(f"[play_interactive] Loading checkpoint: {path}")
-    return path
+    print(f"[play_interactive] Loading checkpoint: {checkpoint_path}")
+    return str(checkpoint_path)
 
 
 # ---------------------------------------------------------------------------
@@ -511,9 +401,12 @@ def play_interactive(args):
     flat_obs_dim = int(sum(env.obs_groups_spec.values()))
 
     policy_obs_mode = args.policy_obs_mode
+    algo_log_name = getattr(args, "algo_log_name", "rsl_rl_ppo")
     ckpt = None
     if args.action_mode == "policy":
-        ckpt = resolve_checkpoint(args.task, args.load_run, getattr(args, "checkpoint", None))
+        ckpt = resolve_checkpoint(
+            args.task, args.load_run, getattr(args, "checkpoint", None), algo_log_name
+        )
         if policy_obs_mode == "auto" and ckpt is not None:
             ckpt_dim = _infer_checkpoint_actor_input_dim(ckpt)
             if ckpt_dim == actor_obs_dim:
@@ -546,7 +439,11 @@ def play_interactive(args):
         if ckpt is None:
             print("[play_interactive] WARNING: no checkpoint found — falling back to zero actions.")
         else:
-            log_dir = str(ROOT_DIR / "logs" / "rsl_rl_train" / args.task / "play_temp")
+            log_dir = str(
+                get_entrypoint_log_root(ROOT_DIR, algo_log_name=algo_log_name)
+                / args.task
+                / "play_temp"
+            )
             runner = OnPolicyRunner(wrapped_env, train_cfg, log_dir=log_dir, device=device)
             runner.load(
                 ckpt,
@@ -608,12 +505,10 @@ def play_interactive(args):
         )
 
     # Dedicated MjData for the viewer (never touches the rollout workers)
-    if hasattr(env, "_backend") and hasattr(env._backend, "model"):
-        mj_model = env._backend.model
-    else:
-        raise AttributeError(
-            "Environment backend does not expose a MuJoCo model via env._backend.model"
-        )
+    try:
+        mj_model = env.get_playback_model()
+    except NotImplementedError as exc:
+        raise AttributeError("Environment does not expose a playback model contract") from exc
     viz_data = mujoco.MjData(mj_model)
     state_spec = mujoco.mjtState.mjSTATE_FULLPHYSICS
     ctrl_dt = env.cfg.ctrl_dt
@@ -658,7 +553,7 @@ def play_interactive(args):
                     obs, _, _, _ = wrapped_env.step(actions)
 
                 # Push env state[0] into viz_data and refresh scene
-                phys = env._backend.get_physics_state()[0].astype(np.float64)
+                phys = env.get_physics_state_snapshot()[0].astype(np.float64)
                 mujoco.mj_setState(mj_model, viz_data, phys, state_spec)
                 mujoco.mj_forward(mj_model, viz_data)
 

@@ -1,6 +1,6 @@
 # Contributing to UniLab
 
-语言: [English](../../CONTRIBUTING.md) | 简体中文 | [日本語](../ja/CONTRIBUTING.md) | [한국어](../ko/CONTRIBUTING.md)
+语言: 简体中文
 
 ## Development Environment Setup
 
@@ -15,6 +15,7 @@
 
 - 始终使用 `uv run`；不要在 `uv run` 之外直接调用 `python`
 - 代码相关提交前必须运行 `make check`
+- 备份文件、临时导出物和历史兼容副本不要进入源码树；不要提交 `*.bak`、`*.tmp`、`*.old`、`*.orig` 或以 `~` 结尾的编辑器备份文件
 - 只要改动用户可见工作流，就要同步维护顶层 `README.md`、`CONTRIBUTING.md`，以及 `docs/{en,zh_CN,ja,ko}/` 下对应语言文档
 
 ## Read Before You Start
@@ -96,15 +97,19 @@ uv run pytest -m veryslow -v
 
 ## CI Workflow
 
-指向 `main` 的 PR 会自动触发三个 job。当前 workflow 不会在 PR 合并到 `main` 后再次重复跑同一套 CI。
+指向 `main` 的 PR 会自动触发五个 job: `ruff-lint`、`ruff-format`、`mypy`、`pyright` 和 `test`。workflow 也支持通过 `workflow_dispatch` 手动触发；文档改动会通过 pytest 套件参与校验，并且会自动取消同一 PR 分支上较早的进行中运行。
+
+覆盖率策略: 默认 CI lane 会对非 slow 测试施加最低覆盖率门槛，这个门槛只应随着测试护栏增强而逐步上调，不应回退。
 
 | Job | 内容 | 失败是否阻断 |
 |-----|------|--------------|
-| `lint` | `ruff check` + `ruff format --check` | ✅ |
-| `typecheck` | `mypy src/unilab` + `pyright` | ✅ |
-| `test` | `pytest -m "not slow and not veryslow" --cov --cov-fail-under=10` | ✅ |
+| `ruff-lint` | 在 `ubuntu-slim` 上执行 `uv sync --only-group dev` + `uv run --no-sync ruff check --output-format=github .` | ✅ |
+| `ruff-format` | 在 `ubuntu-slim` 上执行 `uv sync --only-group dev` + `uv run --no-sync ruff format --check .` | ✅ |
+| `mypy` | 在 `macos-26` 上执行 `uv sync` + `uv run mypy src/unilab` | ✅ |
+| `pyright` | 在 `macos-26` 上执行 `uv sync` + `uv run pyright` | ✅ |
+| `test` | 在 `ubuntu-slim` 上以 Python 3.11 执行 `uv sync --extra motrix` + `uv run pytest -m "not slow and not veryslow" --cov=unilab --cov-report markdown-append:$GITHUB_STEP_SUMMARY --cov-fail-under=25` | ✅ |
 
-纯文档和协作元信息改动，例如 `*.md`、`docs/**`、issue templates 和 `CODEOWNERS`，不会触发 CI。
+只有协作元信息改动，例如 `LICENSE`、issue templates、`CODEOWNERS` 和 `.github/pull_request_template.md`，才会跳过 CI。文档改动会触发 CI，并由 `tests/scripts/test_check_docs.py` 校验。
 
 ## Documentation Expectations
 
@@ -128,10 +133,11 @@ uv run pytest -m veryslow -v
 1. 对代码或配置改动，先在本地运行 `make check`，确保 lint、mypy 和 pyright 通过。
 2. 对代码改动，再在本地运行 `make test`，确保非 slow 测试通过。
 3. 如果改到了 IPC、Runner 或 Config，补充或更新对应测试。
-4. 对 docs-only 改动，至少重新检查 Markdown 链接、文件路径、脚本名和命令参数。
-5. 链接对应 GitHub issue，并在 PR 模板中填写验证和影响范围。
-6. 向 `main` 分支发起 PR，并等待 CI 全绿。
-7. 等待 code review。
+4. 对 docs-only 改动，至少运行 `uv run pytest tests/scripts/test_check_docs.py -q`。
+5. 如果改动了仓库 hygiene 规则，运行 `uv run pytest tests/scripts/test_repo_hygiene.py -q`。
+6. 链接对应 GitHub issue，并在 PR 模板中填写验证和影响范围。
+7. 向 `main` 分支发起 PR，并等待 CI 全绿。
+8. 等待 code review。
 
 ## Issue Reports
 
@@ -141,7 +147,7 @@ uv run pytest -m veryslow -v
 
 UniLab 使用 Hydra + dataclass 配置系统:
 
-- **添加新任务**: 在 `conf/{algo}/task/` 下创建 YAML，并使用 `# @package _global_`
+- **添加新的 task 配置入口**: 在 `conf/{algo}/task/...` 下创建单一 owner YAML，并使用 `# @package _global_`
 - **修改超参数**: 编辑对应 YAML，或使用 `algo.num_envs=2048` 这样的 CLI override
 - **添加新算法**: 在 `structured_configs.py` 中添加 dataclass，并创建对应的 `conf/` 目录
 

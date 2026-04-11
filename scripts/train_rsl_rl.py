@@ -1,17 +1,12 @@
 import datetime
-import importlib
-import os
-import pkgutil
 import statistics
 import sys
 import time
 from pathlib import Path
 
 import hydra
-import numpy as np
 import torch
 from omegaconf import DictConfig, OmegaConf
-from tensordict import TensorDict
 
 ROOT_DIR = Path(__file__).parent.parent
 SRC_DIR = ROOT_DIR / "src"
@@ -20,11 +15,16 @@ if str(SRC_DIR) not in sys.path:
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-
+from unilab.training import (
+    BackendAdapter,
+    create_env,
+    ensure_registries,
+    get_log_root,
+    parse_checkpoint_path,
+    render_play_mode,
+)
 from unilab.utils.experiment_tracking import ExperimentTracker, patch_rsl_rl_wandb_writer
-from unilab.utils.obs_utils import flatten_obs_dict
-from unilab.utils.reward_utils import resolve_reward_dict
-from unilab.utils.torch_utils import to_numpy, to_torch
+from unilab.utils.rsl_rl_vec_env_wrapper import RslRlVecEnvWrapper
 from unilab.utils.xml_utils import materialize_scene_visual_override
 
 try:
@@ -33,164 +33,24 @@ except ImportError:
     print("Could not import rsl_rl. Please ensure it is installed.")
     sys.exit(1)
 
-from unilab.utils.rsl_rl_compat import (
-    convert_config_v3_to_v4,
-    convert_config_v5,
-    is_rsl_rl_v4,
-    is_rsl_rl_v5,
-)
-from unilab.utils.run_utils import get_latest_run
+from unilab.utils.rsl_rl_compat import convert_config_v5, is_rsl_rl_v5
 
 
-def ensure_registries():
-    for pkg_name in (
-        "unilab.envs.locomotion",
-        "unilab.envs.manipulation",
-        "unilab.envs.motion_tracking",
-    ):
-        try:
-            package = importlib.import_module(pkg_name)
-            if hasattr(package, "__path__"):
-                for _, name, _ in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
-                    try:
-                        importlib.import_module(name)
-                    except Exception:
-                        pass
-        except ImportError:
-            pass
-
-
-def _explicit_cli_override_keys() -> set[str]:
-    return {arg.split("=", 1)[0] for arg in sys.argv[1:] if "=" in arg}
-
-
-def _apply_task_algo_overrides(
-    target, overrides, *, base_path: str, explicit_keys: set[str]
-) -> None:
-    if OmegaConf.is_config(overrides):
-        override_dict = OmegaConf.to_container(overrides, resolve=True)
-    elif isinstance(overrides, dict):
-        override_dict = overrides
-    else:
-        return
-
-    for key, value in override_dict.items():
-        path = f"{base_path}.{key}"
-        if isinstance(value, dict):
-            if path in explicit_keys:
-                continue
-            if key not in target or target[key] is None:
-                target[key] = {}
-            _apply_task_algo_overrides(
-                target[key], value, base_path=path, explicit_keys=explicit_keys
-            )
-            continue
-        if path not in explicit_keys:
-            target[key] = value
-
-
-def _apply_task_env_profile(
-    env_cfg_override: dict, env_profile, *, explicit_keys: set[str]
-) -> None:
-    if OmegaConf.is_config(env_profile):
-        env_profile_dict = OmegaConf.to_container(env_profile, resolve=True)
-    elif isinstance(env_profile, dict):
-        env_profile_dict = env_profile
-    else:
-        return
-
-    reward_explicit = "reward" in explicit_keys or any(
-        k.startswith("reward.") for k in explicit_keys
+def _backend_adapter(cfg: DictConfig) -> BackendAdapter:
+    return BackendAdapter(
+        cfg,
+        root_dir=ROOT_DIR,
+        algo_name="ppo",
+        scene_materializer=materialize_scene_visual_override,
     )
-    for key, value in env_profile_dict.items():
-        if key == "reward_config" and reward_explicit:
-            continue
-        env_cfg_override[key] = value
 
 
-def build_task_motrix_ppo_env_cfg_override(cfg: DictConfig) -> dict:
-    env_cfg_override = {}
-    motrix_legacy = getattr(cfg, "motrix_legacy", None)
-    explicit_keys = _explicit_cli_override_keys()
-    env_cfg_override["reward_config"] = resolve_reward_dict(cfg)
-    if motrix_legacy is None or not motrix_legacy.enabled or cfg.training.sim_backend != "motrix":
-        return env_cfg_override
-
-    algo_overrides = getattr(motrix_legacy, "algo_overrides", None)
-    if algo_overrides is not None:
-        _apply_task_algo_overrides(
-            cfg.algo,
-            algo_overrides,
-            base_path="algo",
-            explicit_keys=explicit_keys,
-        )
-
-    env_profile = getattr(motrix_legacy, "env_cfg_override", None)
-    if env_profile is not None:
-        _apply_task_env_profile(
-            env_cfg_override,
-            env_profile,
-            explicit_keys=explicit_keys,
-        )
-    return env_cfg_override
+def build_ppo_env_cfg_override(cfg: DictConfig) -> dict:
+    return _backend_adapter(cfg).build_task_env_cfg_override()
 
 
-def _resolve_root_relative_path(path_value: str) -> str:
-    candidate = Path(path_value)
-    if candidate.is_absolute():
-        return str(candidate)
-    return str((ROOT_DIR / candidate).resolve())
-
-
-def build_motrix_play_ppo_env_cfg_override(cfg: DictConfig) -> dict:
-    env_cfg_override = build_task_motrix_ppo_env_cfg_override(cfg)
-    explicit_keys = _explicit_cli_override_keys()
-    play_profile = getattr(cfg, "motrix_play_only", None)
-    if (
-        play_profile is None
-        or not getattr(play_profile, "enabled", False)
-        or cfg.training.sim_backend != "motrix"
-        or not cfg.training.play_only
-    ):
-        return env_cfg_override
-
-    training_overrides = getattr(play_profile, "training_overrides", None)
-    if training_overrides is not None:
-        _apply_task_algo_overrides(
-            cfg.training,
-            training_overrides,
-            base_path="training",
-            explicit_keys=explicit_keys,
-        )
-
-    env_profile = getattr(play_profile, "env_cfg_override", None)
-    if env_profile is not None:
-        _apply_task_env_profile(
-            env_cfg_override,
-            env_profile,
-            explicit_keys=explicit_keys,
-        )
-
-    scene_override = getattr(play_profile, "scene_override", None)
-    if scene_override is None or not getattr(scene_override, "enabled", False):
-        return env_cfg_override
-
-    source_model_file = getattr(scene_override, "source_model_file", None)
-    if not source_model_file:
-        raise ValueError("motrix_play_only.scene_override.source_model_file must be configured")
-
-    env_cfg_override["model_file"] = materialize_scene_visual_override(
-        _resolve_root_relative_path(str(source_model_file)),
-        ground_texture_file=(
-            _resolve_root_relative_path(str(scene_override.ground_texture_file))
-            if getattr(scene_override, "ground_texture_file", None)
-            else None
-        ),
-        ground_texrepeat=getattr(scene_override, "ground_texrepeat", None),
-        skybox_rgb1=getattr(scene_override, "skybox_rgb1", None),
-        skybox_rgb2=getattr(scene_override, "skybox_rgb2", None),
-    )
-    return env_cfg_override
+def build_ppo_play_env_cfg_override(cfg: DictConfig) -> dict:
+    return _backend_adapter(cfg).build_play_env_cfg_override()
 
 
 def run_motrix_rsl_play_loop(
@@ -200,126 +60,31 @@ def run_motrix_rsl_play_loop(
     render_spacing: float,
     num_steps: int | None = None,
 ) -> None:
-    import time
-
     env = wrapped_env.env
-    env._backend.init_renderer(spacing=render_spacing)
-    obs, _ = wrapped_env.reset()
-
-    last_render_time = time.perf_counter()
-    render_dt = 1.0 / 60.0
-    steps_run = 0
 
     with torch.inference_mode():
-        while num_steps is None or steps_run < num_steps:
-            actions = policy(obs)
-            obs, _, _, _ = wrapped_env.step(actions)
-
-            current_time = time.perf_counter()
-            elapsed = current_time - last_render_time
-            if elapsed < render_dt:
-                time.sleep(render_dt - elapsed)
-            last_render_time = time.perf_counter()
-
-            env._backend.render()
-            steps_run += 1
+        render_play_mode(
+            env,
+            sim_backend="motrix",
+            render_spacing=render_spacing,
+            num_steps=num_steps,
+            initialize=lambda: wrapped_env.reset()[0],
+            step=lambda obs: wrapped_env.step(policy(obs))[0],
+        )
 
 
-class RslRlVecEnvWrapper:
-    """Wrapper to adapt NpEnv to RSL-RL OnPolicyRunner interface."""
-
-    def __init__(self, env, device="cuda"):
-        self.env = env
-        self.cfg = env.cfg
-        self.device = device
-        self.num_envs = env.num_envs
-        self.observation_space = env.observation_space
-        self.action_space = env.action_space
-        self.num_obs = sum(env.obs_groups_spec.values())
-        self.num_privileged_obs = self.num_obs
-        self.num_actions = env.action_space.shape[0]
-
-        self.episode_returns = torch.zeros(self.num_envs, device=self.device)
-        self.episode_lengths = torch.zeros(self.num_envs, device=self.device)
-
-        self.episode_length_buf = self.episode_lengths
-        self.max_episode_length = np.ceil(env.cfg.max_episode_seconds / env.cfg.ctrl_dt)
-
-        self.reset()
-
-    def _obs_to_tensordict(self, obs: dict[str, np.ndarray]) -> TensorDict:
-        actor = to_torch(obs["obs"], self.device)
-        td = {"actor": actor}
-        if "privileged" in obs:
-            td["privileged"] = to_torch(obs["privileged"], self.device)
-            if hasattr(self.env, "get_policy_obs"):
-                policy_obs = self.env.get_policy_obs(obs)
-            else:
-                policy_obs = flatten_obs_dict(obs)
-            td["policy"] = to_torch(policy_obs, self.device)
-        else:
-            td["policy"] = actor
-        return TensorDict(td, batch_size=self.num_envs, device=self.device)
-
-    def step(self, actions):
-        if isinstance(actions, torch.Tensor):
-            actions_np = actions.detach().cpu().numpy()
-        else:
-            actions_np = actions
-
-        state = self.env.step(actions_np)
-
-        # Convert output to torch tensors on target device
-        rewards = to_torch(state.reward, self.device)
-        dones = to_torch(state.done, self.device).bool()
-
-        self.episode_returns += rewards
-        self.episode_lengths += 1
-
-        infos = {}
-        done_indices = torch.nonzero(dones).flatten()
-        if len(done_indices) > 0:
-            if hasattr(state, "truncated"):
-                infos["time_outs"] = to_torch(state.truncated, self.device).bool()
-            self.episode_returns[done_indices] = 0
-            self.episode_lengths[done_indices] = 0
-
-        if hasattr(state, "info") and "log" in state.info:
-            infos["log"] = state.info["log"]
-
-        obs_dict = self._obs_to_tensordict(state.obs)
-        return obs_dict, rewards, dones, infos
-
-    def reset(self):
-        if self.env.state is None:
-            self.env.init_state()
-        env_indices = np.arange(self.num_envs, dtype=np.int32)
-        obs_out, _ = self.env.reset(env_indices)
-
-        self.episode_returns[:] = 0
-        self.episode_lengths[:] = 0
-
-        return self._obs_to_tensordict(obs_out), {}
-
-    def get_observations(self):
-        return self._obs_to_tensordict(self.env.state.obs)
-
-    def get_privileged_observations(self):
-        obs = to_torch(flatten_obs_dict(self.env.state.obs), self.device)
-        return obs
+def _get_log_root(cfg: DictConfig) -> str:
+    return str(get_log_root(ROOT_DIR, cfg))
 
 
 def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     """Play mode for RSL-RL."""
 
-    from unilab.base import registry
+    env_cfg_override = build_ppo_play_env_cfg_override(cfg)
 
-    env_cfg_override = build_motrix_play_ppo_env_cfg_override(cfg)
-
-    env = registry.make(
-        cfg.training.task_name,
+    env = create_env(
+        cfg,
         num_envs=cfg.training.play_env_num,
-        sim_backend=cfg.training.sim_backend,
         env_cfg_override=env_cfg_override,
     )
     wrapped_env = RslRlVecEnvWrapper(env, device=device)
@@ -330,37 +95,12 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     if is_rsl_rl_v5():
         train_cfg = convert_config_v5(train_cfg)
 
-    base_log_dir = ROOT_DIR / "logs" / "rsl_rl_train" / cfg.training.task_name
-    load_path = None
-
-    load_run = cfg.training.load_run
-    if load_run == "-1":
-        load_path = get_latest_run(str(base_log_dir))
-    else:
-        if os.path.exists(load_run):
-            load_path = load_run
-        else:
-            load_path = str(base_log_dir / load_run)
-
-    if not load_path or not os.path.exists(load_path):
+    load_path, load_path_dir = parse_checkpoint_path(cfg, root_dir=ROOT_DIR)
+    if load_path is None or load_path_dir is None or not load_path.exists():
         print(f"Could not find run to load at {load_path}")
         return None
 
-    if os.path.isdir(load_path):
-        model_files = [
-            f for f in os.listdir(load_path) if f.startswith("model_") and f.endswith(".pt")
-        ]
-        if len(model_files) > 0:
-            model_files.sort(key=lambda x: int(x.split("_")[1].split(".")[0]))
-            load_path_dir = load_path
-            load_path = os.path.join(load_path, model_files[-1])
-            print(f"Loading latest model: {load_path}")
-        else:
-            print(f"No model files found in {load_path}")
-            return None
-    else:
-        load_path_dir = os.path.dirname(load_path)
-
+    print(f"Loading latest model: {load_path}")
     _ckpt_keys = set(torch.load(load_path, map_location="cpu", weights_only=True).keys())
     if "actor_state_dict" not in _ckpt_keys:
         print(
@@ -370,7 +110,7 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
         return None
 
     runner = OnPolicyRunner(wrapped_env, train_cfg, log_dir=None, device=device)
-    runner.load(load_path)
+    runner.load(str(load_path))
     policy = runner.get_inference_policy(device=device)
 
     if cfg.training.sim_backend == "motrix":
@@ -389,37 +129,24 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
                 else:
                     raise
     else:
-        import mediapy as media
-
-        from unilab.utils import render_many
-
         output_video = Path(load_path_dir) / "play_video.mp4"
         print(f"Rendering video to {output_video}...")
 
-        obs, _ = wrapped_env.reset()
-        state_list = []
-
         print("Collecting physics states...")
         with torch.inference_mode():
-            for _ in range(cfg.training.play_steps):
-                actions = policy(obs)
-                obs, _, _, _ = wrapped_env.step(actions)
-                state_list.append(to_numpy(env._backend.get_physics_state()).copy())
-
-        print("Rendering frames...")
-        frames = render_many.render_states_get_frames(
-            state_list,
-            env.cfg.model_file,
-            width=1280,
-            height=720,
-            camera_id=-1,
-            cam_distance=cfg.training.cam_distance,
-            cam_elevation=cfg.training.cam_elevation,
-            cam_azimuth=cfg.training.cam_azimuth,
-        )
-
-        print(f"Saving video to {output_video} with mediapy...")
-        media.write_video(str(output_video), frames, fps=int(1.0 / env.cfg.ctrl_dt))
+            render_play_mode(
+                env,
+                sim_backend=cfg.training.sim_backend,
+                num_steps=cfg.training.play_steps,
+                output_video=output_video,
+                initialize=lambda: wrapped_env.reset()[0],
+                step=lambda obs: wrapped_env.step(policy(obs))[0],
+                camera_kwargs={
+                    "cam_distance": cfg.training.cam_distance,
+                    "cam_elevation": cfg.training.cam_elevation,
+                    "cam_azimuth": cfg.training.cam_azimuth,
+                },
+            )
         print("Done.")
         return str(output_video)
 
@@ -430,11 +157,7 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
 def main(cfg: DictConfig) -> None:
     ensure_registries()
 
-    from omegaconf import OmegaConf
-
-    from unilab.base import registry
-
-    env_cfg_override = build_task_motrix_ppo_env_cfg_override(cfg)
+    env_cfg_override = build_ppo_env_cfg_override(cfg)
 
     if torch.cuda.is_available():
         device = "cuda"
@@ -456,12 +179,9 @@ def main(cfg: DictConfig) -> None:
 
     if not cfg.training.play_only:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        log_root = _get_log_root(cfg)
         log_dir = str(
-            ROOT_DIR
-            / "logs"
-            / "rsl_rl_train"
-            / cfg.training.task_name
-            / f"{timestamp}_{cfg.training.sim_backend}"
+            Path(log_root) / cfg.training.task_name / f"{timestamp}_{cfg.training.sim_backend}"
         )
     else:
         log_dir = None
@@ -482,10 +202,9 @@ def main(cfg: DictConfig) -> None:
 
     try:
         if not cfg.training.play_only:
-            env = registry.make(
-                cfg.training.task_name,
+            env = create_env(
+                cfg,
                 num_envs=cfg.algo.num_envs,
-                sim_backend=cfg.training.sim_backend,
                 env_cfg_override=env_cfg_override,
             )
             wrapped_env = RslRlVecEnvWrapper(env, device=device)
@@ -516,17 +235,11 @@ def main(cfg: DictConfig) -> None:
 
             runner = OnPolicyRunner(wrapped_env, train_cfg, log_dir=log_dir, device=device)
 
-            if cfg.training.load_run != "-1":
-                if os.path.exists(cfg.training.load_run):
-                    resume_path = cfg.training.load_run
-                else:
-                    base_log_dir = ROOT_DIR / "logs" / "rsl_rl_train" / cfg.training.task_name
-                    run_path = base_log_dir / cfg.training.load_run
-                    resume_path = str(run_path) if run_path.exists() else None
-
+            if cfg.algo.load_run != "-1":
+                resume_path, _ = parse_checkpoint_path(cfg, root_dir=ROOT_DIR)
                 if resume_path:
                     print(f"Resuming from {resume_path}")
-                    runner.load(resume_path)
+                    runner.load(str(resume_path))
 
             train_start_wall = time.time()
             runner.learn(num_learning_iterations=max_iterations, init_at_random_ep_len=True)

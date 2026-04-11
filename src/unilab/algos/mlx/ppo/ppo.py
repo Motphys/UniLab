@@ -39,9 +39,8 @@ class PPOConfig:
     adaptive_lr_growth: float = 1.2
     adaptive_lr_update_interval: int = 1
     target_kl_stop: float | None = None
-    fast_mode: bool = False
-    metrics_interval: int = 1
-    finite_check_interval: int = 1
+    metrics_interval: int = 8
+    finite_check_interval: int = 8
     enable_compile: bool = False
     warmup_strict_iters: int = 0
     warmup_metrics_interval: int = 1
@@ -77,7 +76,7 @@ class PPOTrainer:
         leaves = PPOTrainer._tree_leaves(tree)
         if not leaves:
             return True
-        checks = [mx.all(mx.isfinite(leaf)) for leaf in leaves]
+        checks = [mx.all(mx.isfinite(leaf)) for leaf in leaves]  # type: ignore[arg-type]
         mx.eval(*checks)
         return all(bool(c.item()) for c in checks)
 
@@ -253,22 +252,10 @@ class PPOTrainer:
                 ),
                 batch,
             )
-            do_full_checks = (not self.cfg.fast_mode) or (batch_idx % finite_check_interval == 0)
+            do_full_checks = batch_idx % finite_check_interval == 0
             if self.cfg.disable_finite_checks:
                 do_full_checks = False
-            do_metrics = (
-                (not self.cfg.fast_mode)
-                or (batch_idx % metrics_interval == 0)
-                or (last_metrics is None)
-            )
-
-            # Keep backup only in safe mode.
-            if self.cfg.fast_mode:
-                param_backup = None
-                optim_state_backup = None
-            else:
-                param_backup = tree_map(lambda x: mx.array(x), self.model.parameters())
-                optim_state_backup = tree_map(lambda x: mx.array(x), self.optimizer.state)
+            do_metrics = (batch_idx % metrics_interval == 0) or (last_metrics is None)
 
             try:
                 loss, grads = self.compiled_loss_and_grad(self.model, batch)
@@ -289,18 +276,7 @@ class PPOTrainer:
             self.optimizer.update(self.model, grads)
             mx.eval(loss, self.model.parameters(), self.optimizer.state)
             if do_full_checks and (not self._all_finite(self.model.parameters())):
-                if (
-                    not self.cfg.fast_mode
-                    and param_backup is not None
-                    and optim_state_backup is not None
-                ):
-                    # Roll back this step if parameters become non-finite.
-                    self.model.update(param_backup)
-                    self.optimizer.state = optim_state_backup
-                    mx.eval(self.model.parameters())
-                    rolled_back_updates += 1
-                else:
-                    skipped_nonfinite_grads += 1
+                skipped_nonfinite_grads += 1
                 continue
 
             if do_metrics:

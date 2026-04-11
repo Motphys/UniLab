@@ -12,22 +12,15 @@ def _to_reward_dict(value: object, *, error_message: str) -> RewardDict:
     resolved = OmegaConf.to_container(value, resolve=True)
     if not isinstance(resolved, dict):
         raise ValueError(error_message)
+    # Some reward configs are mounted as a full `reward:` section.
+    # Env config injection expects the inner reward mapping.
+    if set(resolved) == {"reward"} and isinstance(resolved["reward"], dict):
+        return cast(RewardDict, resolved["reward"])
     return cast(RewardDict, resolved)
 
 
 def resolve_reward_dict(cfg: DictConfig) -> RewardDict:
-    """Resolve the reward config, preferring backend-specific overrides when present."""
-    sim_backend = OmegaConf.select(cfg, "training.sim_backend")
-    if sim_backend:
-        backend_reward = OmegaConf.select(cfg, f"reward_{sim_backend}")
-        if backend_reward:
-            reward_dict = _to_reward_dict(
-                backend_reward,
-                error_message="Backend-specific reward config must resolve to a mapping.",
-            )
-            if reward_dict:
-                return reward_dict
-
+    """Resolve the reward config from the final composed config."""
     reward_cfg = OmegaConf.select(cfg, "reward")
     if not reward_cfg:
         raise ValueError(

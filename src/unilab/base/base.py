@@ -6,6 +6,14 @@ import gymnasium as gym
 import numpy as np
 
 
+@dataclass(frozen=True)
+class EnvPlayCapabilities:
+    """Env-facing play/render capabilities consumed by training entrypoints."""
+
+    supports_native_interactive_renderer: bool = False
+    supports_physics_state_playback: bool = False
+
+
 @dataclass
 class EnvCfg:
     """
@@ -18,6 +26,7 @@ class EnvCfg:
     max_episode_seconds: Optional[float] = None
     ctrl_dt: float = 0.01
     render_spacing: float = 1.0
+    iterations: Optional[int] = None
 
     @property
     def max_episode_steps(self) -> Optional[int]:
@@ -44,6 +53,11 @@ class EnvCfg:
 
 
 class ABEnv(abc.ABC):
+    @property
+    def play_capabilities(self) -> EnvPlayCapabilities:
+        """Return env-facing play/render capabilities."""
+        return EnvPlayCapabilities()
+
     @property
     @abc.abstractmethod
     def num_envs(self) -> int:
@@ -89,3 +103,25 @@ class ABEnv(abc.ABC):
     @abc.abstractmethod
     def close(self) -> None:
         """Clean up environment resources"""
+
+    def init_play_renderer(self, render_spacing: float | None = None) -> None:
+        """Initialize env-facing interactive playback when supported."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support native interactive playback"
+        )
+
+    def render_play_frame(self) -> None:
+        """Render one frame through the env-facing interactive playback contract."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support native interactive playback"
+        )
+
+    def get_physics_state_snapshot(self) -> np.ndarray:
+        """Return a physics snapshot for offline playback/video export."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support physics-state playback"
+        )
+
+    def get_playback_model(self) -> Any:
+        """Return a model object suitable for backend-specific playback tooling."""
+        raise NotImplementedError(f"{self.__class__.__name__} does not expose a playback model")

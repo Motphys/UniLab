@@ -1,7 +1,6 @@
 defaults:
   - _self_
-  - reward: default
-  - task: go1_joystick
+  - task: go1_joystick/mujoco
 
 algo:
   algo: ppo
@@ -47,7 +46,6 @@ algo:
     adaptive_lr_growth: 1.1
     adaptive_lr_decay: 1.2
     adaptive_lr_update_interval: 5
-    fast_mode: true
     metrics_interval: 8
     finite_check_interval: 8
     enable_compile: false
@@ -71,7 +69,6 @@ training:
   sim_backend: mujoco
   play_only: false
   no_play: false
-  load_run: "-1"
   play_env_num: 16
   play_steps: 200
   cam_distance: 6.0

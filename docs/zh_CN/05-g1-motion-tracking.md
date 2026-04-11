@@ -1,53 +1,52 @@
 # G1 Motion Tracking
 
-语言: [English](../en/05-g1-motion-tracking.md) | 简体中文 | [日本語](../ja/05-g1-motion-tracking.md) | [한국어](../ko/05-g1-motion-tracking.md)
+语言: 简体中文
 
-UniLab 当前提供两个 G1 whole-body motion tracking task：
+UniLab 当前提供两个 G1 whole-body motion tracking task family：
 
-- Hydra task：`g1_motion_tracking`（兼容历史默认）
+- task family：`g1_motion_tracking`
 - 注册环境名：`G1MotionTracking`
-- Hydra task：`g1_flip_tracking`（flip 专用 profile）
+- task family：`g1_flip_tracking`（flip 专用 profile）
 - 注册环境名：`G1FlipTracking`
 - 后端注册：`mujoco` 和 `motrix`
 - 已提交的 Motrix 特化配置：PPO 和 APPO 的 motion-tracking reward
 - `g1_motion_tracking` 默认 motion：`src/unilab/assets/motions/g1/dance1_subject2_part.npz`
 - `g1_flip_tracking` 默认 motion：`src/unilab/assets/motions/g1/flip_360_001__A304.npz`
+- 实际训练入口统一写成 `task=<family>/<backend>`
 
 ## Environment Entrypoints
 
 ```bash
 # PPO (RSL-RL, MuJoCo)
-uv run python scripts/train_rsl_rl.py task=g1_motion_tracking
+uv run python scripts/train_rsl_rl.py task=g1_motion_tracking/mujoco
 
 # PPO (RSL-RL, MuJoCo, flip profile)
-uv run python scripts/train_rsl_rl.py task=g1_flip_tracking
+uv run python scripts/train_rsl_rl.py task=g1_flip_tracking/mujoco
 
 # PPO (RSL-RL, Motrix)
-uv run python scripts/train_rsl_rl.py task=g1_motion_tracking training.sim_backend=motrix
+uv run python scripts/train_rsl_rl.py task=g1_motion_tracking/motrix
 
 # PPO (RSL-RL, Motrix, flip profile)
-uv run python scripts/train_rsl_rl.py task=g1_flip_tracking training.sim_backend=motrix
+uv run python scripts/train_rsl_rl.py task=g1_flip_tracking/motrix
 
 # APPO (MuJoCo)
-uv run python scripts/train_appo.py task=g1_motion_tracking
+uv run python scripts/train_appo.py task=g1_motion_tracking/mujoco
 
 # APPO (Motrix)
-uv run python scripts/train_appo.py task=g1_motion_tracking training.sim_backend=motrix
+uv run python scripts/train_appo.py task=g1_motion_tracking/motrix
 
 # 回放最新 checkpoint
-uv run python scripts/train_rsl_rl.py task=g1_motion_tracking training.play_only=true
+uv run python scripts/train_rsl_rl.py task=g1_motion_tracking/mujoco training.play_only=true
 
 # Motrix PPO 回放会打开原生 renderer
-uv run python scripts/train_rsl_rl.py task=g1_motion_tracking \
-  training.sim_backend=motrix \
+uv run python scripts/train_rsl_rl.py task=g1_motion_tracking/motrix \
   training.play_only=true
 
 # APPO MuJoCo 回放
-uv run python scripts/train_appo.py task=g1_motion_tracking training.play_only=true
+uv run python scripts/train_appo.py task=g1_motion_tracking/mujoco training.play_only=true
 
 # APPO Motrix 回放会打开原生 renderer
-uv run python scripts/train_appo.py task=g1_motion_tracking \
-  training.sim_backend=motrix \
+uv run python scripts/train_appo.py task=g1_motion_tracking/motrix \
   training.play_only=true
 ```
 
@@ -121,7 +120,7 @@ uv run python scripts/motion/replay_npz.py \
 
 ## Configuration Note
 
-`task=g1_motion_tracking` 默认读取环境配置里的单个 `motion_file`（历史默认是 `dance1_subject2_part.npz`）。`task=g1_flip_tracking` 提供 flip 专用默认 profile（更保守的 reset 随机化与 termination）。
+`task=g1_motion_tracking/mujoco` 默认读取环境配置里的单个 `motion_file`（历史默认是 `dance1_subject2_part.npz`）。`task=g1_flip_tracking/mujoco` 提供 flip 专用默认 profile（更保守的 reset 随机化与 termination）。
 
 PPO 默认训练预算也做了分流：`g1_motion_tracking` 保持历史默认 `max_iterations=15000`，`g1_flip_tracking` 使用更长的 `max_iterations=30000`。
 
@@ -142,8 +141,8 @@ motion_file:
 验证 Motrix 路径时，优先使用训练脚本自带的 play mode，而不是只支持 MuJoCo 的调试脚本:
 
 ```bash
-uv run python scripts/train_rsl_rl.py task=g1_motion_tracking training.sim_backend=motrix
-uv run python scripts/train_appo.py task=g1_motion_tracking training.sim_backend=motrix
+uv run python scripts/train_rsl_rl.py task=g1_motion_tracking/motrix
+uv run python scripts/train_appo.py task=g1_motion_tracking/motrix
 ```
 
 ## Navigation

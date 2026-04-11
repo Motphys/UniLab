@@ -22,7 +22,7 @@ def resolve_collector_actor_dims(
     """Resolve actor dims for the collector.
 
     Prefer explicit dims from the parent process so learner and collector
-    build identical actor shapes on legacy / override-heavy env paths.
+    build identical actor shapes on override-heavy env paths.
     """
     if obs_dim is None:
         from unilab.utils.obs_utils import get_obs_dims
@@ -36,44 +36,6 @@ def resolve_collector_actor_dims(
     assert obs_dim is not None
     assert action_dim is not None
     return obs_dim, action_dim
-
-
-def adapt_legacy_go1_motrix_obs_if_needed(
-    *,
-    env_name: str,
-    env_cfg_override: dict | None,
-    obs: np.ndarray,
-    privileged: np.ndarray | None,
-    expected_obs_dim: int,
-) -> tuple[np.ndarray, np.ndarray | None]:
-    """Adapt legacy Go1 Motrix collector obs when the env still emits the default layout.
-
-    Default Go1 obs is 49D and privileged linvel is 3D:
-      gyro(3) + gravity(3) + diff(12) + dof_vel(12) + last_actions(12) + command(3) + feet_phase(4)
-
-    Legacy Motrix Go1 obs is 48D:
-      linvel(3) + gyro(3) + gravity(3) + diff(12) + dof_vel(12) + last_actions(12) + command(3)
-
-    If the collector unexpectedly sees the default 49D obs while the runner
-    expects the legacy 48D layout, rebuild the exact legacy obs from
-    privileged linvel plus the first 45 default obs dims.
-    """
-    if obs.shape[1] == expected_obs_dim:
-        return obs, privileged
-
-    legacy_profile = (env_cfg_override or {}).get("legacy_motrix_profile", {})
-    if (
-        env_name == "Go1JoystickFlatTerrain"
-        and legacy_profile.get("enabled", False)
-        and expected_obs_dim == 48
-        and obs.shape[1] == 49
-        and privileged is not None
-        and privileged.shape[1] == 3
-    ):
-        adapted_obs = np.concatenate([privileged, obs[:, :45]], axis=1).astype(np.float32)
-        return adapted_obs, None
-
-    return obs, privileged
 
 
 def off_policy_collector_fn(
@@ -220,13 +182,6 @@ def _run_collector(
     obs_np = np.asarray(obs_np, dtype=np.float32)
     if priv_np is not None:
         priv_np = np.asarray(priv_np, dtype=np.float32)
-    obs_np, priv_np = adapt_legacy_go1_motrix_obs_if_needed(
-        env_name=env_name,
-        env_cfg_override=env_cfg_override,
-        obs=obs_np,
-        privileged=priv_np,
-        expected_obs_dim=obs_dim,
-    )
     prev_dones_np = np.zeros(num_envs, dtype=np.float32)
     max_episode_steps = getattr(getattr(env, "cfg", None), "max_episode_steps", None)
     if max_episode_steps is not None and int(max_episode_steps) > 0:
@@ -302,13 +257,6 @@ def _run_collector(
         next_obs_np = np.asarray(next_obs_np, dtype=np.float32)
         if next_priv_np is not None:
             next_priv_np = np.asarray(next_priv_np, dtype=np.float32)
-        next_obs_np, next_priv_np = adapt_legacy_go1_motrix_obs_if_needed(
-            env_name=env_name,
-            env_cfg_override=env_cfg_override,
-            obs=next_obs_np,
-            privileged=next_priv_np,
-            expected_obs_dim=obs_dim,
-        )
         rewards_np = np.asarray(state.reward, dtype=np.float32).ravel()
 
         terminated_np = (
@@ -340,13 +288,6 @@ def _run_collector(
                 final_obs_np = np.asarray(final_obs_np, dtype=np.float32)
                 if final_priv_np is not None:
                     final_priv_np = np.asarray(final_priv_np, dtype=np.float32)
-                final_obs_np, final_priv_np = adapt_legacy_go1_motrix_obs_if_needed(
-                    env_name=env_name,
-                    env_cfg_override=env_cfg_override,
-                    obs=final_obs_np,
-                    privileged=final_priv_np,
-                    expected_obs_dim=obs_dim,
-                )
                 next_obs_np[has_final_np] = final_obs_np[has_final_np]
                 if final_priv_np is not None and next_priv_np is not None:
                     next_priv_np[has_final_np] = final_priv_np[has_final_np]

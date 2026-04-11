@@ -3,13 +3,13 @@ from __future__ import annotations
 import abc
 import dataclasses
 from dataclasses import dataclass
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Tuple, cast
 
 import gymnasium as gym
 import numpy as np
 
 from unilab.base.backend import SimBackend
-from unilab.base.base import ABEnv, EnvCfg
+from unilab.base.base import ABEnv, EnvCfg, EnvPlayCapabilities
 from unilab.base.dtype_config import get_global_dtype
 from unilab.dr import DomainRandomizationManager, DomainRandomizationProvider
 
@@ -38,6 +38,7 @@ class NpEnv(ABEnv):
         self._backend: Any = backend
         self._num_envs = num_envs
         self._state: Optional[NpEnvState] = None
+        self._truncated_scratch: np.ndarray = np.zeros((self._num_envs,), dtype=bool)
         self.step_counter = 0
         self._dr_manager: DomainRandomizationManager | None = None
 
@@ -89,14 +90,20 @@ class NpEnv(ABEnv):
             self.init_state()
 
         assert self._state is not None
+
+        t0 = time.perf_counter()
         ctrl = self.apply_action(actions, self._state)
+        apply_action_time = time.perf_counter() - t0
 
         if self._dr_manager is not None:
             self._dr_manager.apply_interval_randomization_if_due(self.step_counter)
         self._state.truncated.fill(False)
+        final_obs_mask = self._state.info.get("_final_observation")
+        if isinstance(final_obs_mask, np.ndarray):
+            final_obs_mask.fill(False)
 
         t0 = time.perf_counter()
-        self._backend.step(ctrl, self._cfg.sim_substeps)
+        backend_result = self._backend.step(ctrl, self._cfg.sim_substeps)
         step_core_time = time.perf_counter() - t0
 
         t0 = time.perf_counter()
@@ -116,9 +123,15 @@ class NpEnv(ABEnv):
 
         timing = self._state.info.setdefault("timing", {})
         timing["env_step_total_ms"] = (time.perf_counter() - step_t0) * 1000.0
+        timing["apply_action_ms"] = apply_action_time * 1000.0
         timing["step_core_ms"] = step_core_time * 1000.0
         timing["update_state_ms"] = update_state_time * 1000.0
         timing["reset_done_ms"] = reset_done_time * 1000.0
+        if backend_result is not None:
+            backend_timing = backend_result.get("timing")
+            if backend_timing:
+                for k, v in backend_timing.items():
+                    timing[f"backend_{k}"] = v
 
         return self._state
 
@@ -178,15 +191,48 @@ class NpEnv(ABEnv):
         task-specific truncation conditions while remaining compatible with the
         existing done/reset contract.
         """
-        if not hasattr(self, "_truncated_scratch") or self._truncated_scratch.shape != (
-            self._num_envs,
-        ):
-            self._truncated_scratch = np.zeros((self._num_envs,), dtype=bool)
-        truncated = self._truncated_scratch
+        truncated = cast(np.ndarray | None, getattr(self, "_truncated_scratch", None))
+        if truncated is None or truncated.shape != (self._num_envs,):
+            truncated = np.zeros((self._num_envs,), dtype=bool)
+            self._truncated_scratch = truncated
         truncated.fill(False)
         if self._cfg.max_episode_steps:
             np.greater_equal(state.info["steps"], self._cfg.max_episode_steps, out=truncated)
         return truncated
+
+    def init_play_renderer(self, render_spacing: float | None = None) -> None:
+        """Initialize backend-native interactive playback when available."""
+        if not self.play_capabilities.supports_native_interactive_renderer:
+            raise NotImplementedError(
+                f"{self._backend.__class__.__name__} does not support native interactive playback"
+            )
+        if render_spacing is None:
+            self._backend.init_renderer()
+            return
+        try:
+            self._backend.init_renderer(spacing=render_spacing)
+        except TypeError:
+            self._backend.init_renderer()
+
+    def render_play_frame(self) -> None:
+        """Render one interactive playback frame through the env contract."""
+        if not self.play_capabilities.supports_native_interactive_renderer:
+            raise NotImplementedError(
+                f"{self._backend.__class__.__name__} does not support native interactive playback"
+            )
+        self._backend.render()
+
+    def get_physics_state_snapshot(self) -> np.ndarray:
+        """Return a detached physics snapshot for offline playback/video export."""
+        if not self.play_capabilities.supports_physics_state_playback:
+            raise NotImplementedError(
+                f"{self._backend.__class__.__name__} does not support physics-state playback"
+            )
+        physics_state = cast(
+            np.ndarray, np.asarray(self._backend.get_physics_state(), dtype=np.float32)
+        )
+        snapshot = cast(np.ndarray, physics_state.copy())
+        return snapshot
 
     @abc.abstractmethod
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
@@ -196,6 +242,22 @@ class NpEnv(ABEnv):
     def update_state(self, state: NpEnvState) -> NpEnvState:
         """子类实现：计算 obs/reward/terminated"""
 
+    @property
+    def play_capabilities(self) -> EnvPlayCapabilities:
+        capabilities = self._backend.get_play_capabilities()
+        return EnvPlayCapabilities(
+            supports_native_interactive_renderer=capabilities.supports_native_interactive_renderer,
+            supports_physics_state_playback=capabilities.supports_physics_state_playback,
+        )
+
+    def get_playback_model(self) -> Any:
+        if not self._supports_backend_property("model"):
+            raise NotImplementedError(f"{self.__class__.__name__} does not expose a playback model")
+        return self._backend.model
+
     def close(self) -> None:
         """关闭环境"""
         pass
+
+    def _supports_backend_property(self, name: str) -> bool:
+        return hasattr(self._backend, name)

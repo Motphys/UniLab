@@ -1,7 +1,6 @@
 defaults:
   - _self_
-  - reward: default
-  - task: go1_joystick
+  - task: go1_joystick/mujoco
 
 algo:
   algo: appo
@@ -11,6 +10,7 @@ algo:
   steps_per_env: 24
   max_iterations: 150
   save_interval: 50
+  load_run: "-1"
   obs_groups:
     actor:
       policy: 0
@@ -64,7 +64,6 @@ training:
   log_dir: null
   play_only: false
   no_play: false
-  load_run: "-1"
   play_env_num: 16
   play_steps: 150
   cam_distance: 6.0

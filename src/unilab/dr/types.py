@@ -18,6 +18,37 @@ class DomainRandomizationCapabilities:
     supported_reset_terms: frozenset[str] = field(default_factory=frozenset)
     supports_interval_push: bool = False
 
+    def supports_reset_term(self, term: str) -> bool:
+        return term in self.supported_reset_terms
+
+    def get_unsupported_reset_terms(self, requested_terms: frozenset[str]) -> frozenset[str]:
+        return frozenset(term for term in requested_terms if not self.supports_reset_term(term))
+
+    def filter_reset_payload(
+        self, payload: ResetRandomizationPayload
+    ) -> tuple[ResetRandomizationPayload | None, frozenset[str]]:
+        unsupported = self.get_unsupported_reset_terms(payload.requested_terms())
+        if not unsupported:
+            return payload, frozenset()
+
+        filtered = ResetRandomizationPayload(
+            base_mass_delta=(
+                payload.base_mass_delta if self.supports_reset_term(RESET_TERM_BASE_MASS) else None
+            ),
+            base_com_offset=(
+                payload.base_com_offset if self.supports_reset_term(RESET_TERM_BASE_COM) else None
+            ),
+            body_iquat=(
+                payload.body_iquat if self.supports_reset_term(RESET_TERM_BODY_IQUAT) else None
+            ),
+            body_inertia=(
+                payload.body_inertia if self.supports_reset_term(RESET_TERM_BODY_INERTIA) else None
+            ),
+            kp=payload.kp if self.supports_reset_term(RESET_TERM_KP) else None,
+            kd=payload.kd if self.supports_reset_term(RESET_TERM_KD) else None,
+        )
+        return (None if filtered.is_empty() else filtered), unsupported
+
 
 @dataclass
 class ResetRandomizationPayload:

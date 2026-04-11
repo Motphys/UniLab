@@ -3,10 +3,8 @@ from __future__ import annotations
 import os
 import tempfile
 import xml.etree.ElementTree as ET
+from collections.abc import Iterator, Sequence
 from pathlib import Path
-from typing import Any, cast
-
-import mujoco
 
 
 def _enable_discardvisual(root: ET.Element) -> None:
@@ -23,16 +21,47 @@ def create_discardvisual_xml(model_file: str) -> str:
     return _write_temp_xml(tree, model_file)
 
 
+def _iter_expanded_children(
+    parent: ET.Element, base_dir: Path
+) -> Iterator[tuple[ET.Element, Path]]:
+    for child in parent:
+        if child.tag != "include":
+            yield child, base_dir
+            continue
+
+        include_file = child.get("file")
+        if not include_file:
+            raise ValueError(f"Invalid <include> without file attribute in {base_dir}")
+        include_path = (base_dir / include_file).resolve()
+        include_root = ET.parse(include_path).getroot()
+        yield from _iter_expanded_children(include_root, include_path.parent)
+
+
+def _iter_named_bodies(root: ET.Element, base_dir: Path) -> Iterator[str]:
+    for child, child_base_dir in _iter_expanded_children(root, base_dir):
+        if child.tag == "body":
+            body_name = child.get("name")
+            if body_name:
+                yield body_name
+        yield from _iter_named_bodies(child, child_base_dir)
+
+
 def _get_named_bodies(model_file: str) -> tuple[list[int], list[str]]:
-    mj = cast(Any, mujoco)
-    _m = mj.MjModel.from_xml_path(model_file)
-    ids, names = [], []
-    for i in range(1, _m.nbody):  # skip body 0 (world body)
-        name = mj.mj_id2name(_m, mj.mjtObj.mjOBJ_BODY, i)
-        if name:
-            ids.append(i)
-            names.append(name)
+    model_path = Path(model_file).resolve()
+    names = list(_iter_named_bodies(ET.parse(model_path).getroot(), model_path.parent))
+    ids = list(range(1, len(names) + 1))
     return ids, names
+
+
+def get_named_body_ids(model_file: str, names: Sequence[str]) -> list[int]:
+    """Resolve MuJoCo-style body ids from XML without importing mujoco."""
+    body_ids, body_names = _get_named_bodies(model_file)
+    body_id_by_name = dict(zip(body_names, body_ids, strict=True))
+    missing = [name for name in names if name not in body_id_by_name]
+    if missing:
+        missing_str = ", ".join(missing)
+        raise ValueError(f"Bodies not found in XML '{model_file}': {missing_str}")
+    return [body_id_by_name[name] for name in names]
 
 
 def _add_w_sensors(sensor_tag: ET.Element, valid_bnames: list[str]) -> None:
@@ -105,7 +134,7 @@ def _add_b_sensors(sensor_tag: ET.Element, valid_bnames: list[str], baselink_nam
         )
 
 
-def _write_temp_xml(tree: ET.ElementTree[ET.Element], model_file: str) -> str:
+def _write_temp_xml(tree: ET.ElementTree[ET.Element], model_file: str) -> str:  # type: ignore[type-arg]
     fd, output_path = tempfile.mkstemp(
         suffix=".xml", dir=os.path.dirname(os.path.abspath(model_file))
     )

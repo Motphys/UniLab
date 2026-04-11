@@ -79,7 +79,6 @@ def test_offpolicy_sac_defaults():
     with initialize_config_dir(config_dir=str(CONF_DIR / "offpolicy"), version_base="1.3"):
         cfg = compose("config")
     assert cfg.algo.algo == "sac"
-    # go1_joystick task sets num_envs=2048
     assert cfg.algo.num_envs == 2048
 
 
@@ -89,7 +88,7 @@ def test_offpolicy_sac_g1_task_overrides():
 
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(CONF_DIR / "offpolicy"), version_base="1.3"):
-        cfg = compose("config", overrides=["algo=sac", "task=g1_sac"])
+        cfg = compose("config", overrides=["algo=sac", "task=sac/g1_sac/mujoco"])
     assert cfg.algo.num_envs == 2048
     assert cfg.algo.max_iterations == 5000
     assert cfg.algo.use_symmetry is True
@@ -119,7 +118,7 @@ def test_offpolicy_go2_task_overrides():
 
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(CONF_DIR / "offpolicy"), version_base="1.3"):
-        cfg = compose("config", overrides=["algo=sac", "task=go2_joystick"])
+        cfg = compose("config", overrides=["algo=sac", "task=sac/go2_joystick/mujoco"])
     assert cfg.algo.num_envs == 1024
     assert cfg.training.task_name == "Go2JoystickFlatTerrain"
 
@@ -146,7 +145,7 @@ def test_appo_g1_task_overrides():
 
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(CONF_DIR / "appo"), version_base="1.3"):
-        cfg = compose("config", overrides=["task=g1_joystick"])
+        cfg = compose("config", overrides=["task=g1_joystick/mujoco"])
     assert cfg.algo.max_iterations == 500
     assert cfg.algo.save_interval == 100
     assert cfg.training.task_name == "G1JoystickFlatTerrain"
@@ -163,7 +162,7 @@ def test_ppo_go1_max_iterations():
 
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(CONF_DIR / "ppo"), version_base="1.3"):
-        cfg = compose("config", overrides=["task=go1_joystick"])
+        cfg = compose("config", overrides=["task=go1_joystick/mujoco"])
     assert cfg.algo.max_iterations == 151
     assert "actor" in cfg.algo.obs_groups
 
@@ -174,9 +173,20 @@ def test_ppo_g1_num_envs():
 
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(CONF_DIR / "ppo"), version_base="1.3"):
-        cfg = compose("config", overrides=["task=g1_joystick"])
+        cfg = compose("config", overrides=["task=g1_joystick/mujoco"])
     assert cfg.algo.num_envs == 2048
     assert cfg.algo.max_iterations == 220
+
+
+def test_ppo_go2_num_envs():
+    from hydra import compose, initialize_config_dir
+    from hydra.core.global_hydra import GlobalHydra
+
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(CONF_DIR / "ppo"), version_base="1.3"):
+        cfg = compose("config", overrides=["task=go2_joystick/mujoco"])
+    assert cfg.algo.num_envs == 1024
+    assert cfg.algo.max_iterations == 151
 
 
 def test_ppo_g1_motion_tracking():
@@ -185,7 +195,7 @@ def test_ppo_g1_motion_tracking():
 
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(CONF_DIR / "ppo"), version_base="1.3"):
-        cfg = compose("config", overrides=["task=g1_motion_tracking"])
+        cfg = compose("config", overrides=["task=g1_motion_tracking/mujoco"])
     assert cfg.training.task_name == "G1MotionTracking"
     assert cfg.algo.max_iterations == 15000
     assert cfg.algo.algorithm.entropy_coef == pytest.approx(0.005)
@@ -197,6 +207,6 @@ def test_ppo_g1_flip_tracking():
 
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(CONF_DIR / "ppo"), version_base="1.3"):
-        cfg = compose("config", overrides=["task=g1_flip_tracking"])
+        cfg = compose("config", overrides=["task=g1_flip_tracking/mujoco"])
     assert cfg.training.task_name == "G1FlipTracking"
     assert cfg.algo.max_iterations == 30000

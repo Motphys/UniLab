@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal, cast
 
-import mujoco
 import numpy as np
 
 from unilab.assets import ASSETS_ROOT_PATH
@@ -38,6 +37,7 @@ from unilab.utils.math_utils import (
     np_subtract_frame_transforms,
     np_yaw_quat,
 )
+from unilab.utils.xml_utils import get_named_body_ids
 
 from .motion_loader import MotionLoader, MotionSampler
 
@@ -304,6 +304,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
             cfg.sim_dt,
             base_name=cfg.asset.base_name,
             add_body_sensors=True,
+            iterations=cfg.iterations,
         )
         super().__init__(cfg, backend, num_envs)
         if backend_type not in {"mujoco", "motrix"}:
@@ -313,31 +314,13 @@ class G1MotionTrackingEnv(G1BaseEnv):
         self._log_action_scale_diagnostics()
 
         # Resolve body IDs for backend querying and motion-file indexing.
+        self.body_ids = self._backend.get_body_ids(cfg.body_names)
         if self._is_mujoco_backend():
-            self.body_ids = np.array(
-                [
-                    mujoco.mj_name2id(self._backend.model, mujoco.mjtObj.mjOBJ_BODY, name)
-                    for name in cfg.body_names
-                ],
-                dtype=np.int32,
-            )
             motion_body_ids = self.body_ids
         else:
-            backend_body_ids: list[int] = []
-            for name in cfg.body_names:
-                body_id = self._backend.model.get_link_index(name)
-                if body_id is None or body_id < 0:
-                    raise ValueError(f"Body '{name}' not found in motrix model")
-                backend_body_ids.append(int(body_id))
-            self.body_ids = np.array(backend_body_ids, dtype=np.int32)
-
-            mj_model = mujoco.MjModel.from_xml_path(cfg.model_file)
-            motion_body_ids = np.array(
-                [
-                    mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_BODY, name)
-                    for name in cfg.body_names
-                ],
-                dtype=np.int32,
+            # Motion data always uses MuJoCo-style body indexing, even on Motrix.
+            motion_body_ids = np.asarray(
+                get_named_body_ids(cfg.model_file, cfg.body_names), dtype=np.int32
             )
 
         self.anchor_body_idx = cfg.body_names.index(cfg.anchor_body_name)
@@ -376,9 +359,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
         )
 
     def _get_joint_range(self) -> np.ndarray | None:
-        if not self._is_mujoco_backend():
-            return None
-        return np.asarray(self._backend.model.jnt_range[1:])  # Skip free joint
+        return self._backend.get_joint_range()  # type: ignore[no-any-return]
 
     def _apply_adaptive_g1_action_scale(self) -> None:
         """Set per-joint action scale to match adaptive's normalization."""
@@ -411,6 +392,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
         """Log action-scale diagnostics to help detect control-mapping issues."""
         if not self._cfg.log_action_scale or not self._is_mujoco_backend():
             return
+        import mujoco
 
         model = self._backend.model
         action_scale = self._cfg.control_config.action_scale

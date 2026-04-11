@@ -5,73 +5,95 @@ on:
     branches: [main]
     types: [opened, synchronize, reopened, ready_for_review]
     paths-ignore:
-      - "*.md"
-      - "docs/**"
-      - "CONTRIBUTING.md"
-      - "AGENTS.md"
       - "LICENSE"
       - ".github/CODEOWNERS"
       - ".github/ISSUE_TEMPLATE/**"
       - ".github/pull_request_template.md"
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 env:
   UV_FROZEN: "1"
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
+  ruff-lint:
+    timeout-minutes: 5
+    runs-on: ubuntu-slim
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v6.0.2
         with:
-          enable-cache: true
-      - name: Lint with ruff
-        run: |
-          uv tool run ruff check .
-          uv tool run ruff format --check .
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.0.0
+      - name: Install dependencies(only dev group)
+        run: uv sync --only-group dev
+      - name: Check
+        run: uv run --no-sync ruff check --output-format=github .
 
-  typecheck:
-    runs-on: ubuntu-latest
+  ruff-format:
+    timeout-minutes: 5
+    runs-on: ubuntu-slim
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v6.0.2
         with:
-          enable-cache: true
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.0.0
+      - name: Install dependencies(only dev group)
+        run: uv sync --only-group dev
+      - name: Check
+        run: uv run --no-sync ruff format --check .
+
+  mypy:
+    timeout-minutes: 10
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.0.0
       - name: Install dependencies
         run: uv sync
-      - name: mypy
+      - name: Check
         run: uv run mypy src/unilab
-      - name: pyright
+
+  pyright:
+    timeout-minutes: 10
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.0.0
+      - name: Install dependencies
+        run: uv sync
+      - name: Check
         run: uv run pyright
 
   test:
-    # strategy:
-    #   matrix:
-    #     os: [ubuntu-latest, macos-latest]
+    strategy:
+      matrix:
+        os: [ubuntu-slim]
     #     python-version: ['3.10', '3.11', '3.12', '3.13']
-    # runs-on: ${{ matrix.os }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v6.0.2
         with:
-          enable-cache: true
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.0.0
+        with:
           # python-version: ${{ matrix.python-version }}
           python-version: '3.11'
-      # - name: Install dependencies (Linux)
-      #   if: runner.os == 'Linux'
-      #   run: |
-      #     sudo apt-get update && sudo apt-get install -y cmake
-      #     uv sync
-      # - name: Install dependencies (macOS)
-      #   if: runner.os == 'macOS'
-      #   run: |
-      #     brew install cmake
-      #     uv sync
       - name: Install dependencies
-        run: |
-          sudo apt-get update && sudo apt-get install -y cmake
-          uv sync
+        run: uv sync --extra motrix
       - name: Test with coverage
-        run: uv run pytest -m "not slow and not veryslow" --cov=unilab --cov-report=term-missing --cov-fail-under=10
+        run: uv run pytest -m "not slow and not veryslow" --cov=unilab --cov-report markdown-append:$GITHUB_STEP_SUMMARY --cov-fail-under=25

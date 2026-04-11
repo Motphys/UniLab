@@ -1,6 +1,6 @@
 # 快速开始
 
-语言: [English](../en/01-getting-started.md) | 简体中文 | [日本語](../ja/01-getting-started.md) | [한국어](../ko/01-getting-started.md)
+语言: 简体中文
 
 本页只回答三个问题:
 
@@ -51,21 +51,21 @@ uv sync --index-url https://pypi.tuna.tsinghua.edu.cn/simple
 ### 训练一个最小任务
 
 ```bash
-uv run python scripts/train_rsl_rl.py task=go1_joystick
+uv run python scripts/train_rsl_rl.py task=go1_joystick/mujoco
 ```
 
 ### 常用入口脚本
 
 ```bash
 # PPO (RSL-RL)
-uv run python scripts/train_rsl_rl.py task=go1_joystick
+uv run python scripts/train_rsl_rl.py task=go1_joystick/mujoco
 
 # APPO
-uv run python scripts/train_appo.py task=go1_joystick
+uv run python scripts/train_appo.py task=go1_joystick/mujoco
 
 # SAC / TD3
-uv run python scripts/train_offpolicy.py algo=sac task=go1_joystick
-uv run python scripts/train_offpolicy.py algo=td3 task=go1_joystick
+uv run python scripts/train_offpolicy.py algo=sac task=sac/go1_joystick/mujoco
+uv run python scripts/train_offpolicy.py algo=td3 task=td3/go1_joystick/mujoco
 ```
 
 ### 验证环境

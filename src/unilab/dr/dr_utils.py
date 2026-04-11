@@ -32,21 +32,29 @@ def build_common_reset_randomization(env: Any, num_reset: int) -> ResetRandomiza
         base_com_offset[:, 0] = np.random.uniform(low, high, size=(num_reset,))
         payload.base_com_offset = base_com_offset
 
+    num_actuators = getattr(env, "_num_action", None)
+    if num_actuators is not None and getattr(domain_rand, "randomize_kp", False):
+        low, high = domain_rand.kp_multiplier_range
+        kp_multiplier = np.random.uniform(low, high, size=(num_reset, 1))
+        base_kp = float(env.cfg.control_config.Kp)
+        payload.kp = np.broadcast_to(base_kp * kp_multiplier, (num_reset, num_actuators)).copy()
+
+    if num_actuators is not None and getattr(domain_rand, "randomize_kd", False):
+        low, high = domain_rand.kd_multiplier_range
+        kd_multiplier = np.random.uniform(low, high, size=(num_reset, 1))
+        base_kd = float(env.cfg.control_config.Kd)
+        payload.kd = np.broadcast_to(base_kd * kd_multiplier, (num_reset, num_actuators)).copy()
+
     return None if payload.is_empty() else payload
 
 
 def validate_common_reset_randomization(
     env: Any, capabilities: DomainRandomizationCapabilities
-) -> None:
+) -> frozenset[str]:
     payload = build_common_reset_randomization(env, num_reset=1)
     if payload is None:
-        return
-    unsupported = payload.requested_terms() - capabilities.supported_reset_terms
-    if unsupported:
-        terms = ", ".join(sorted(unsupported))
-        raise NotImplementedError(
-            f"{env._backend.backend_type} backend does not support reset randomization terms: {terms}"
-        )
+        return frozenset()
+    return capabilities.get_unsupported_reset_terms(payload.requested_terms())
 
 
 def build_interval_push_plan(env: Any, step_counter: int) -> IntervalRandomizationPlan | None:

@@ -1,6 +1,6 @@
 # RL Infrastructure 开发标准
 
-语言: [English](../en/00-development-architecture.md) | 简体中文 | [日本語](../ja/00-development-architecture.md) | [한국어](../ko/00-development-architecture.md)
+语言: 简体中文
 
 UniLab 是一个**高性能、模块化、contract 驱动**的 RL infrastructure 仓库。这个标准只回答一个问题: **什么样的改动是对的**。
 
@@ -68,11 +68,15 @@ CPU Physics Sim ──shm──► Collector / IPC ──shm──► GPU Learne
 
 UniLab 使用 dataclass + Hydra。schema 位于 `src/unilab/config/structured_configs.py`，运行时配置位于 `conf/{ppo,appo,offpolicy}/`。
 
-合成顺序: `{algo}/config*.yaml` -> `task=...` -> `reward[_{backend}]` -> CLI override -> 必要时再叠加 `motrix_legacy`。
+合成顺序: `{algo}/config*.yaml` -> `task=...` -> CLI override。
 
+- `task` 是唯一 owner 配置入口：同一个 task + backend（offpolicy 再加 algo）对应一个 YAML，里面直接放这个组合的 `training.task_name` / `training.sim_backend` / `reward` / `env` / task-specific `algo`
+- PPO / APPO 入口形如 `conf/{ppo,appo}/task/<task>/<backend>.yaml`；offpolicy 入口形如 `conf/offpolicy/task/<algo>/<task>/<backend>.yaml`
+- 这里的 `task` 不是旧设计里“只表达任务、再去别处拼 backend/reward/algo”的 group；它本身就是最终 owner 配置入口
+- `training.sim_backend` 是 task owner YAML 的身份字段，不是独立的 backend switch；切换后端必须改 `task=.../<backend>`，不能只 override `training.sim_backend`
 - reward 必须显式注入
 - 如果 backend 选择会影响 task 或 reward 行为，就必须通过 config 表达
-- 动态 override 必须尊重 CLI
+- 动态 override 必须尊重 CLI，但不能破坏 task owner 的 backend identity
 
 ---
 
@@ -116,7 +120,7 @@ Env **负责** MDP 语义、observation 结构、reward、reset，以及 backend
 | runner / IPC | `make test`；必要时补 `make test-slow` |
 | 训练主链路 | 相关测试 + 1 iteration smoke run |
 | backend 路径 | 对应 backend smoke run，必要时补 slow test |
-| docs-only | 手动核对命令、路径、配置名、CI 和 support claim |
+| docs-only | `uv run pytest tests/scripts/test_check_docs.py -q` + 手动核对 support claim |
 
 ---
 
@@ -141,7 +145,21 @@ Env **负责** MDP 语义、observation 结构、reward、reset，以及 backend
 
 ---
 
+## 12. Architecture Decision Records (ADR)
+
+以下 ADR 记录了本页涉及的稳定 contract 以及 backend 能力边界:
+
+- [ADR Index](adr/README.md)
+- [ADR-0001 Runtime Model And Layer Boundaries](adr/ADR-0001-runtime-model-and-layer-boundaries.md)
+- [ADR-0002 Backend Capability Boundary For Play And Snapshot](adr/ADR-0002-backend-capability-boundary-for-play-and-snapshot.md)
+- [ADR-0003 Task Owner And Config Compose Contract](adr/ADR-0003-task-owner-and-config-compose-contract.md)
+- [ADR-0004 Registry Bootstrap Contract](adr/ADR-0004-registry-bootstrap-contract.md)
+
+协作与交付流程要求见 [Collaboration](06-collaboration.md)。
+
+---
+
 ## Navigation
 
-- Previous: [README](README.md)
+- Previous: [README](../../README.md)
 - Next: [Getting Started](01-getting-started.md)

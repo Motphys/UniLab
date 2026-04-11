@@ -1,6 +1,7 @@
 # @package algo
 algo: td3
 algo_log_name: fast_td3
+load_run: "-1"
 seed: 1
 num_envs: 4096
 batch_size: 8192

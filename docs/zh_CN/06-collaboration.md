@@ -1,10 +1,10 @@
 # 协作流程
 
-语言: [English](../en/06-collaboration.md) | 简体中文 | [日本語](../ja/06-collaboration.md) | [한국어](../ko/06-collaboration.md)
+语言: 简体中文
 
 仓库文档只记录稳定标准。执行状态、owner 和阶段推进应放在 GitHub 协作对象中。
 
-如果你只是想安装或训练 UniLab，请先看 `docs/zh_CN/README.md`、`docs/zh_CN/01-getting-started.md` 和 `docs/zh_CN/03-training.md`。
+如果你只是想安装或训练 UniLab，请先看 `README.md`、`docs/zh_CN/01-getting-started.md` 和 `docs/zh_CN/03-training.md`。
 
 ## Work Item Granularity
 
@@ -49,6 +49,18 @@
 ## Ownership Model
 
 执行 owner 用 GitHub assignees 表达，review owner 用 `CODEOWNERS` 表达。如果暂时没有稳定的 GitHub handle，就让 issue 保持 unassigned，并在 issue body 里临时注明预期 owner。
+
+## ADR Governance
+
+当改动涉及 runtime / backend / config / registry contract 时，issue 或 PR 需要显式链接对应 ADR:
+
+- 架构标准入口: [RL Infrastructure 开发标准](00-development-architecture.md)
+- ADR 索引: [ADR Index](adr/README.md)
+- backend 能力边界: [ADR-0002](adr/ADR-0002-backend-capability-boundary-for-play-and-snapshot.md)
+- task owner / compose: [ADR-0003](adr/ADR-0003-task-owner-and-config-compose-contract.md)
+- registry bootstrap: [ADR-0004](adr/ADR-0004-registry-bootstrap-contract.md)
+
+如果现有 ADR 无法覆盖新的结构性决策，在同一 PR 内新增 ADR，并把链接补回上述文档。
 
 ## Navigation
 

@@ -1,8 +1,7 @@
 defaults:
   - _self_
   - algo: sac
-  - reward: default
-  - task: go1_joystick
+  - task: ${algo}/go1_joystick/mujoco
 
 training:
   task_name: Go1JoystickFlatTerrain
@@ -21,7 +20,6 @@ training:
   use_amp: false
   play_only: false
   no_play: false
-  load_run: "-1"
   play_env_num: 16
   play_steps: 200
   cam_elevation: -20.0

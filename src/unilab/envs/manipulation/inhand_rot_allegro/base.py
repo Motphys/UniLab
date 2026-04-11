@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import gymnasium as gym
-import mujoco
 import numpy as np
 
 from unilab.base.backend import SimBackend

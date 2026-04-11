@@ -1,4 +1,6 @@
 import abc
+from collections.abc import Sequence
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -7,6 +9,14 @@ from unilab.dr.types import (
     IntervalRandomizationPlan,
     ResetRandomizationPayload,
 )
+
+
+@dataclass(frozen=True)
+class BackendPlayCapabilities:
+    """Backend-native play/render capabilities surfaced through env contracts."""
+
+    supports_native_interactive_renderer: bool = False
+    supports_physics_state_playback: bool = False
 
 
 class SimBackend(abc.ABC):
@@ -27,16 +37,82 @@ class SimBackend(abc.ABC):
         """底层物理模型"""
 
     # ------------------------------------------------------------------ #
+    # Model properties                                                     #
+    # ------------------------------------------------------------------ #
+
+    @property
+    @abc.abstractmethod
+    def num_actuators(self) -> int:
+        """执行器数量"""
+
+    @property
+    @abc.abstractmethod
+    def num_dof_vel(self) -> int:
+        """关节速度自由度数量（不含浮动基座）"""
+
+    @abc.abstractmethod
+    def get_actuator_ctrl_range(self) -> np.ndarray:
+        """获取执行器控制范围
+
+        Returns:
+            (num_actuators, 2) 数组，列为 [low, high]
+        """
+
+    @abc.abstractmethod
+    def get_keyframe_qpos(self, name: str) -> np.ndarray:
+        """获取指定关键帧的完整 qpos（含浮动基座）
+
+        Args:
+            name: 关键帧名称（如 "stand"、"home"）
+
+        Returns:
+            (nq,) 数组
+        """
+
+    @abc.abstractmethod
+    def get_init_qvel(self) -> np.ndarray:
+        """获取零初始化的 qvel 向量，维度与 set_state 期望一致
+
+        Returns:
+            全零数组
+        """
+
+    @abc.abstractmethod
+    def get_body_ids(self, names: Sequence[str]) -> np.ndarray:
+        """将 body/link 名称解析为后端整数 ID
+
+        Args:
+            names: body/link 名称序列
+
+        Returns:
+            (len(names),) int32 数组
+
+        Raises:
+            ValueError: 若名称未找到
+        """
+
+    @abc.abstractmethod
+    def get_joint_range(self) -> np.ndarray | None:
+        """获取关节位置限制（不含浮动基座）
+
+        Returns:
+            (num_dof, 2) 数组，列为 [low, high]；若后端不支持则返回 None
+        """
+
+    # ------------------------------------------------------------------ #
     # Simulation control                                                   #
     # ------------------------------------------------------------------ #
 
     @abc.abstractmethod
-    def step(self, ctrl: np.ndarray, nsteps: int = 1) -> None:
+    def step(self, ctrl: np.ndarray, nsteps: int = 1) -> dict | None:
         """执行物理步进
 
         Args:
             ctrl: 控制输入 (num_envs, nu)
             nsteps: 步进次数
+
+        Returns:
+            可选的 dict，可包含 "timing" key 记录各阶段耗时（ms）
         """
 
     @abc.abstractmethod
@@ -63,6 +139,28 @@ class SimBackend(abc.ABC):
     @abc.abstractmethod
     def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
         """Apply a scheduled interval randomization plan."""
+
+    def get_play_capabilities(self) -> BackendPlayCapabilities:
+        """Return backend-native play/render capabilities."""
+        return BackendPlayCapabilities()
+
+    def init_renderer(self, spacing: float = 1.0) -> None:
+        """Initialize a backend-native interactive renderer."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support native interactive rendering"
+        )
+
+    def render(self) -> None:
+        """Render one frame through a backend-native interactive renderer."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support native interactive rendering"
+        )
+
+    def get_physics_state(self) -> np.ndarray:
+        """Return a physics snapshot suitable for offline playback/video export."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support physics-state playback"
+        )
 
     # ------------------------------------------------------------------ #
     # Base kinematics                                                      #
