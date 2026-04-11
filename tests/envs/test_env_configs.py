@@ -13,18 +13,18 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-# The G1 env modules import create_backend → mujoco.batch_forward at the top
+# The G1 env modules import create_backend → mujoco.batch_env at the top
 # level, so all tests in this file need a working MuJoCo installation.
 pytest.importorskip("mujoco", reason="mujoco not installed")
 
-# Some environments also use mujoco.batch_forward (G1 backend). Guard against
+# Some environments also use mujoco.batch_env (G1 backend). Guard against
 # partial MuJoCo installations where the base package installs but platform
 # extensions fail (e.g. wrong libstdc++ version).
 try:
-    from mujoco import batch_forward as _  # noqa: F401
+    from mujoco.batch_env import BatchEnvPool as _  # noqa: F401
 except Exception:
     pytest.skip(
-        "mujoco.batch_forward not available (platform/libstdc++ issue)", allow_module_level=True
+        "mujoco.batch_env not available (platform/libstdc++ issue)", allow_module_level=True
     )
 
 from unilab.utils.algo_utils import ensure_registries  # noqa: E402
@@ -120,6 +120,130 @@ def test_g1_motion_tracking_cfg_has_domain_rand_for_motrix():
     assert cfg.domain_rand.push_robots is False
 
 
+def test_g1_motion_tracking_cfg_preserves_legacy_defaults():
+    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingCfg
+
+    cfg = G1MotionTrackingCfg()
+
+    assert str(cfg.motion_file).endswith("dance1_subject2_part.npz")
+    assert cfg.pose_randomization.x == (-0.05, 0.05)
+    assert cfg.velocity_randomization.x == (-0.5, 0.5)
+    assert cfg.joint_position_range == (-0.1, 0.1)
+    assert cfg.anchor_ori_threshold == pytest.approx(0.8)
+
+
+def test_g1_flip_tracking_cfg_uses_flip_profile():
+    from unilab.envs.motion_tracking.g1.flip_tracking import G1FlipTrackingCfg
+
+    cfg = G1FlipTrackingCfg()
+
+    assert str(cfg.motion_file).endswith("flip_360_001__A304.npz")
+    assert cfg.pose_randomization.x == (0.0, 0.0)
+    assert cfg.velocity_randomization.x == (0.0, 0.0)
+    assert cfg.joint_position_range == (0.0, 0.0)
+    assert cfg.anchor_ori_threshold == pytest.approx(1e9)
+    assert cfg.sampling_mode in {"start", "clip_start", "uniform", "adaptive"}
+
+
+def test_g1_motion_tracking_clip_end_contributes_to_truncated():
+    from unilab.base.np_env import NpEnvState
+    from unilab.envs.motion_tracking.g1.motion_loader import MotionData
+    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
+
+    class FakeBackend:
+        def get_body_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
+            return np.zeros((2, len(body_ids), 3), dtype=np.float32)
+
+        def get_body_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
+            return np.zeros((2, len(body_ids), 3), dtype=np.float32)
+
+    class FakeSampler:
+        def __init__(self) -> None:
+            self.failure_updates: list[np.ndarray] = []
+
+        def get_current_motion(self) -> MotionData:
+            return MotionData(
+                joint_pos=np.zeros((2, 2), dtype=np.float32),
+                joint_vel=np.zeros((2, 2), dtype=np.float32),
+                body_pos_w=np.zeros((2, 1, 3), dtype=np.float32),
+                body_quat_w=np.tile(
+                    np.array([[[1.0, 0.0, 0.0, 0.0]]], dtype=np.float32), (2, 1, 1)
+                ),
+                body_lin_vel_w=np.zeros((2, 1, 3), dtype=np.float32),
+                body_ang_vel_w=np.zeros((2, 1, 3), dtype=np.float32),
+            )
+
+        def update_failure_stats(self, terminated: np.ndarray) -> None:
+            self.failure_updates.append(terminated.copy())
+
+        def step(self) -> np.ndarray:
+            return np.array([1], dtype=np.int32)
+
+    env = object.__new__(G1MotionTrackingEnv)
+    env._num_envs = 2
+    env._cfg = type("Cfg", (), {"max_episode_steps": None})()
+    env.body_ids = np.array([0], dtype=np.int32)
+    env._backend = FakeBackend()
+    env.motion_sampler = FakeSampler()
+    env._clip_end_truncated = np.zeros((2,), dtype=bool)
+    env.get_local_linvel = lambda: np.zeros((2, 3), dtype=np.float32)
+    env.get_gyro = lambda: np.zeros((2, 3), dtype=np.float32)
+    env.get_dof_pos = lambda: np.zeros((2, 2), dtype=np.float32)
+    env.get_dof_vel = lambda: np.zeros((2, 2), dtype=np.float32)
+    env._get_body_pose_w = lambda: (
+        np.zeros((2, 1, 3), dtype=np.float32),
+        np.tile(np.array([[[1.0, 0.0, 0.0, 0.0]]], dtype=np.float32), (2, 1, 1)),
+    )
+    env._update_relative_transforms = lambda *args: None
+    env._compute_terminations = lambda *args: np.zeros((2,), dtype=bool)
+    env._compute_reward = lambda *args: np.zeros((2,), dtype=np.float32)
+    env._compute_obs = lambda *args: {
+        "obs": np.zeros((2, 1), dtype=np.float32),
+        "privileged": np.zeros((2, 1), dtype=np.float32),
+    }
+
+    state = NpEnvState(
+        obs={
+            "obs": np.zeros((2, 1), dtype=np.float32),
+            "privileged": np.zeros((2, 1), dtype=np.float32),
+        },
+        reward=np.zeros((2,), dtype=np.float32),
+        terminated=np.zeros((2,), dtype=bool),
+        truncated=np.zeros((2,), dtype=bool),
+        info={"steps": np.zeros((2,), dtype=np.uint32)},
+    )
+
+    next_state = env.update_state(state)
+    truncated = env._compute_truncated(next_state)
+
+    np.testing.assert_array_equal(next_state.terminated, np.array([False, False]))
+    np.testing.assert_array_equal(truncated, np.array([False, True]))
+    np.testing.assert_array_equal(
+        env.motion_sampler.failure_updates[0], np.array([False, False], dtype=bool)
+    )
+
+
+def test_g1_motion_tracking_clip_end_does_not_override_true_termination():
+    from unilab.base.np_env import NpEnvState
+    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
+
+    env = object.__new__(G1MotionTrackingEnv)
+    env._num_envs = 2
+    env._cfg = type("Cfg", (), {"max_episode_steps": None})()
+    env._clip_end_truncated = np.array([False, True], dtype=bool)
+
+    state = NpEnvState(
+        obs={},
+        reward=np.zeros((2,), dtype=np.float32),
+        terminated=np.array([False, True], dtype=bool),
+        truncated=np.zeros((2,), dtype=bool),
+        info={"steps": np.zeros((2,), dtype=np.uint32)},
+    )
+
+    truncated = env._compute_truncated(state)
+    np.testing.assert_array_equal(truncated, np.array([False, False]))
+
+
 # ---------------------------------------------------------------------------
 # Slow: env instantiation + reset + step (runs MuJoCo physics)
 # ---------------------------------------------------------------------------
@@ -204,6 +328,88 @@ def test_env_reset_and_step(
         env.close()
 
 
+def _assert_mujoco_position_gains(env, *, kp: float, kd: float, actuator_ids=slice(None)) -> None:
+    model = env._backend.model
+    np.testing.assert_allclose(model.actuator_gainprm[actuator_ids, 0], kp)
+    np.testing.assert_allclose(model.actuator_biasprm[actuator_ids, 1], -kp)
+    np.testing.assert_allclose(model.actuator_biasprm[actuator_ids, 2], -kd)
+    np.testing.assert_allclose(env._backend._pool.get_field(0, "kp")[actuator_ids], kp)
+    np.testing.assert_allclose(env._backend._pool.get_field(0, "kd")[actuator_ids], kd)
+
+
+@pytest.mark.slow
+def test_go1_env_initializes_kp_kd_into_pool(default_go1_reward_config):
+    ensure_registries()
+    from unilab.base import registry
+
+    env = registry.make(
+        "Go1JoystickFlatTerrain",
+        num_envs=2,
+        sim_backend="mujoco",
+        env_cfg_override={
+            "reward_config": default_go1_reward_config,
+            "control_config": {"Kp": 12.0, "Kd": 0.7},
+        },
+    )
+    try:
+        _assert_mujoco_position_gains(env, kp=12.0, kd=0.7)
+    finally:
+        env.close()
+
+
+@pytest.mark.slow
+def test_go2_env_initializes_kp_kd_into_pool():
+    ensure_registries()
+    from unilab.base import registry
+    from unilab.envs.locomotion.go2.joystick import RewardConfig
+
+    env = registry.make(
+        "Go2JoystickFlatTerrain",
+        num_envs=2,
+        sim_backend="mujoco",
+        env_cfg_override={
+            "reward_config": RewardConfig(
+                scales={
+                    "tracking_lin_vel": 1.0,
+                    "tracking_ang_vel": 0.2,
+                    "lin_vel_z": -5.0,
+                    "ang_vel_xy": -0.02,
+                    "base_height": -100.0,
+                    "action_rate": -0.005,
+                    "similar_to_default": -0.1,
+                },
+                tracking_sigma=0.25,
+                base_height_target=0.3,
+            ),
+            "control_config": {"Kp": 18.0, "Kd": 0.9},
+        },
+    )
+    try:
+        _assert_mujoco_position_gains(env, kp=18.0, kd=0.9)
+    finally:
+        env.close()
+
+
+@pytest.mark.slow
+def test_allegro_env_initializes_kp_kd_into_pool(default_allegro_reward_config):
+    ensure_registries()
+    from unilab.base import registry
+
+    env = registry.make(
+        "AllegroInhandRotation",
+        num_envs=2,
+        sim_backend="mujoco",
+        env_cfg_override={
+            "reward_config": default_allegro_reward_config,
+            "control_config": {"kp": 2.5, "kd": 0.4},
+        },
+    )
+    try:
+        _assert_mujoco_position_gains(env, kp=2.5, kd=0.4, actuator_ids=slice(0, 16))
+    finally:
+        env.close()
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize("sim_backend", ["mujoco", "motrix"])
 def test_g1_motion_tracking_reset_and_step(sim_backend: str):
@@ -237,17 +443,56 @@ def test_g1_motion_tracking_reset_and_step(sim_backend: str):
         assert isinstance(spec, dict)
         assert "obs" in spec
         assert "privileged" in spec
-        assert sum(spec.values()) == env.observation_space.shape[0]
+        obs_shape = env.observation_space.shape
+        assert obs_shape is not None
+        assert sum(spec.values()) == obs_shape[0]
 
         state = env.init_state()
         assert isinstance(state.obs, dict)
         for key, dim in spec.items():
             assert state.obs[key].shape == (2, dim)
 
-        actions = np.zeros((2, env.action_space.shape[0]))
+        action_shape = env.action_space.shape
+        assert action_shape is not None
+        actions = np.zeros((2, action_shape[0]))
         state = env.step(actions)
         assert isinstance(state.obs, dict)
         assert state.reward.shape == (2,)
         assert state.done.shape == (2,)
+    finally:
+        env.close()
+
+
+@pytest.mark.slow
+def test_go2_mujoco_reset_applies_domain_randomization(default_go2_reward_config):
+    ensure_registries()
+    import mujoco
+
+    from unilab.base import registry
+
+    env = registry.make(
+        "Go2JoystickFlatTerrain",
+        num_envs=4,
+        sim_backend="mujoco",
+        env_cfg_override={"reward_config": default_go2_reward_config},
+    )
+    try:
+        env.init_state()
+        backend = env._backend
+        base_body_id = mujoco.mj_name2id(
+            backend.model, mujoco.mjtObj.mjOBJ_BODY, env.cfg.asset.base_name
+        )
+        masses = np.stack([backend._pool.get_field(i, "body_mass") for i in range(env.num_envs)])
+        ipos_x = np.stack(
+            [
+                backend._pool.get_field(i, "body_ipos").reshape(backend.model.nbody, 3)[
+                    base_body_id, 0
+                ]
+                for i in range(env.num_envs)
+            ]
+        )
+
+        assert np.unique(np.round(masses[:, base_body_id], 6)).size > 1
+        assert np.unique(np.round(ipos_x, 6)).size > 1
     finally:
         env.close()

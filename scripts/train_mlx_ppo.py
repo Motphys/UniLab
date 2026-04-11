@@ -347,9 +347,6 @@ def main(cfg: DictConfig) -> None:
 
     env_cfg_override = extract_reward_config(cfg)
 
-    preset = TASK_STEP_TUNING.get(task_name, {"threads": "32", "chunk": "16"})
-    os.environ["UNILAB_MUJOCO_STEP_THREADS"] = preset["threads"]
-    os.environ["UNILAB_MUJOCO_STEP_CHUNK"] = preset["chunk"]
     env = registry.make(
         task_name,
         num_envs=cfg.algo.num_envs,

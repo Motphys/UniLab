@@ -170,8 +170,6 @@ def default_go2_reward_config():
         },
         "tracking_sigma": 0.25,
         "base_height_target": 0.3,
-        "target_foot_height": 0.08,
-        "foot_clearance_sigma": 0.02,
     }
 
 

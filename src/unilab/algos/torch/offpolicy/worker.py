@@ -38,7 +38,7 @@ def resolve_collector_actor_dims(
     return obs_dim, action_dim
 
 
-def maybe_adapt_legacy_go1_motrix_obs(
+def adapt_legacy_go1_motrix_obs_if_needed(
     *,
     env_name: str,
     env_cfg_override: dict | None,
@@ -220,7 +220,7 @@ def _run_collector(
     obs_np = np.asarray(obs_np, dtype=np.float32)
     if priv_np is not None:
         priv_np = np.asarray(priv_np, dtype=np.float32)
-    obs_np, priv_np = maybe_adapt_legacy_go1_motrix_obs(
+    obs_np, priv_np = adapt_legacy_go1_motrix_obs_if_needed(
         env_name=env_name,
         env_cfg_override=env_cfg_override,
         obs=obs_np,
@@ -302,7 +302,7 @@ def _run_collector(
         next_obs_np = np.asarray(next_obs_np, dtype=np.float32)
         if next_priv_np is not None:
             next_priv_np = np.asarray(next_priv_np, dtype=np.float32)
-        next_obs_np, next_priv_np = maybe_adapt_legacy_go1_motrix_obs(
+        next_obs_np, next_priv_np = adapt_legacy_go1_motrix_obs_if_needed(
             env_name=env_name,
             env_cfg_override=env_cfg_override,
             obs=next_obs_np,
@@ -340,7 +340,7 @@ def _run_collector(
                 final_obs_np = np.asarray(final_obs_np, dtype=np.float32)
                 if final_priv_np is not None:
                     final_priv_np = np.asarray(final_priv_np, dtype=np.float32)
-                final_obs_np, final_priv_np = maybe_adapt_legacy_go1_motrix_obs(
+                final_obs_np, final_priv_np = adapt_legacy_go1_motrix_obs_if_needed(
                     env_name=env_name,
                     env_cfg_override=env_cfg_override,
                     obs=final_obs_np,

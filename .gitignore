@@ -33,3 +33,6 @@ src/unilab/algos/torch/rsl_rl
 third-party
 temp/
 agent/
+
+src/unilab/assets/motions/g1/flip
+src/unilab/assets/motions/g1/flip_npz

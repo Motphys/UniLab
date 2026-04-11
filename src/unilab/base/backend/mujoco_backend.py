@@ -4,10 +4,28 @@ from typing import Optional
 
 import mujoco
 import numpy as np
-from mujoco import batch_forward, rollout
+from mujoco.batch_env import BatchEnvPool
+
+from unilab.dr.types import (
+    RESET_TERM_BASE_COM,
+    RESET_TERM_BASE_MASS,
+    RESET_TERM_BODY_INERTIA,
+    RESET_TERM_BODY_IQUAT,
+    RESET_TERM_KD,
+    RESET_TERM_KP,
+    DomainRandomizationCapabilities,
+    IntervalRandomizationPlan,
+    ResetRandomizationPayload,
+)
 
 from ..dtype_config import get_global_dtype
 from .base import SimBackend
+
+
+def _root_state_dims(model) -> tuple[int, int]:
+    if model.njnt > 0 and int(model.jnt_type[0]) == int(mujoco.mjtJoint.mjJNT_FREE):
+        return 7, 6
+    return 0, 0
 
 
 class MuJoCoBackend(SimBackend):
@@ -21,52 +39,64 @@ class MuJoCoBackend(SimBackend):
         base_name: Optional[str] = None,
         np_dtype=None,
         add_body_sensors: bool = False,
+        position_actuator_gains: dict | None = None,
     ):
         self.add_body_sensors = add_body_sensors
+        self._base_name = base_name
+        from unilab.utils.xml_utils import create_discardvisual_xml
+
+        model_path = create_discardvisual_xml(model_file)
+        tmp_paths = [model_path]
 
         if self.add_body_sensors:
             from unilab.utils.xml_utils import inject_mujoco_tracking_sensors
 
-            tmp_path, self._tracked_body_ids, valid_bnames = inject_mujoco_tracking_sensors(
-                model_file, baselink_name=base_name
+            model_path, self._tracked_body_ids, valid_bnames = inject_mujoco_tracking_sensors(
+                model_path,
+                baselink_name=base_name,
             )
-            try:
-                self._model = mujoco.MjModel.from_xml_path(tmp_path)
-            finally:
+            tmp_paths.append(model_path)
+        else:
+            valid_bnames = []
+
+        try:
+            self._model = mujoco.MjModel.from_xml_path(model_path)
+        finally:
+            for tmp_path in reversed(tmp_paths):
                 os.remove(tmp_path)
 
+        if self.add_body_sensors:
             self._body_id_to_tracked_idx = np.full(self._model.nbody, -1, dtype=int)
             for idx, bid in enumerate(self._tracked_body_ids):
                 self._body_id_to_tracked_idx[bid] = idx
-        else:
-            self._model = mujoco.MjModel.from_xml_path(model_file)
-            valid_bnames = []
 
         self._model.opt.timestep = sim_dt
+        if position_actuator_gains is not None:
+            self._apply_position_actuator_gains_to_model(self._model, **position_actuator_gains)
+        self._base_body_id = (
+            mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, base_name)
+            if base_name is not None
+            else -1
+        )
+        self._base_body_mass = np.asarray(self._model.body_mass).copy()
+        self._base_body_ipos = np.asarray(self._model.body_ipos).copy()
         self._num_envs = num_envs
         self._np_dtype = np_dtype if np_dtype is not None else get_global_dtype()
         self.backend_type = "mujoco"
 
         # 线程配置
-        thread_override = os.getenv("UNILAB_MUJOCO_STEP_THREADS")
-        if thread_override:
-            self._n_threads = min(num_envs, max(1, int(thread_override)))
-        else:
-            host_threads = cpu_count()
-            self._n_threads = min(num_envs, host_threads * 2)
+        self._n_threads = min(num_envs, cpu_count() * 2)
 
-        # Worker pool
-        self._worker_data = [mujoco.MjData(self._model) for _ in range(self._n_threads)]
-        self._rollout = rollout.Rollout(nthread=self._n_threads)
-        self._forward_runner = batch_forward.BatchForwardRunner(nthread=self._n_threads)
+        self._pool = BatchEnvPool(self._model, nbatch=num_envs, nthread=self._n_threads)
 
         # 索引
         self.nq = self._model.nq
         self.nv = self._model.nv
         self._idx_qpos = 1
         self._idx_qvel = 1 + self.nq
-        self._num_dof_pos = self.nq - 7
-        self._num_dof_vel = self.nv - 6
+        self._root_qpos_dim, self._root_qvel_dim = _root_state_dims(self._model)
+        self._num_dof_pos = self.nq - self._root_qpos_dim
+        self._num_dof_vel = self.nv - self._root_qvel_dim
 
         # 状态存储
         nstate = mujoco.mj_stateSize(self._model, mujoco.mjtState.mjSTATE_FULLPHYSICS)
@@ -76,13 +106,31 @@ class MuJoCoBackend(SimBackend):
         self._sensor_data = np.zeros((num_envs, self._model.nsensordata), dtype=self._np_dtype)
 
         # 缓存视图
-        self._dof_pos_view = self._physics_state[:, self._idx_qpos + 7 : self._idx_qpos + self.nq]
-        self._dof_vel_view = self._physics_state[:, self._idx_qvel + 6 : self._idx_qvel + self.nv]
+        self._dof_pos_view = self._physics_state[
+            :, self._idx_qpos + self._root_qpos_dim : self._idx_qpos + self.nq
+        ]
+        self._dof_vel_view = self._physics_state[
+            :, self._idx_qvel + self._root_qvel_dim : self._idx_qvel + self.nv
+        ]
         self._qpos_view = self._physics_state[:, self._idx_qpos : self._idx_qpos + self.nq]
-        self._base_pos_view = self._physics_state[:, self._idx_qpos : self._idx_qpos + 3]
-        self._base_quat_view = self._physics_state[:, self._idx_qpos + 3 : self._idx_qpos + 7]
-        self._base_lin_vel_view = self._physics_state[:, self._idx_qvel : self._idx_qvel + 3]
-        self._base_ang_vel_view = self._physics_state[:, self._idx_qvel + 3 : self._idx_qvel + 6]
+        if self._root_qpos_dim == 7:
+            self._base_pos_view = self._physics_state[:, self._idx_qpos : self._idx_qpos + 3]
+            self._base_quat_view = self._physics_state[:, self._idx_qpos + 3 : self._idx_qpos + 7]
+            self._base_lin_vel_view = self._physics_state[:, self._idx_qvel : self._idx_qvel + 3]
+            self._base_ang_vel_view = self._physics_state[:, self._idx_qvel + 3 : self._idx_qvel + 6]
+        else:
+            if self._base_body_id >= 0:
+                data0 = mujoco.MjData(self._model)
+                mujoco.mj_forward(self._model, data0)
+                base_pos = np.asarray(data0.xpos[self._base_body_id], dtype=self._np_dtype).copy()
+                base_quat = np.asarray(data0.xquat[self._base_body_id], dtype=self._np_dtype).copy()
+            else:
+                base_pos = np.zeros((3,), dtype=self._np_dtype)
+                base_quat = np.array([1.0, 0.0, 0.0, 0.0], dtype=self._np_dtype)
+            self._base_pos_view = np.broadcast_to(base_pos, (num_envs, 3)).copy()
+            self._base_quat_view = np.broadcast_to(base_quat, (num_envs, 4)).copy()
+            self._base_lin_vel_view = np.zeros((num_envs, 3), dtype=self._np_dtype)
+            self._base_ang_vel_view = np.zeros((num_envs, 3), dtype=self._np_dtype)
 
         # 传感器索引
         self._sensor_indices = {}
@@ -122,17 +170,8 @@ class MuJoCoBackend(SimBackend):
             self._tracked_angvel_b_all = _get_sensor_view("track_angvel_b", 3)
 
         # 对初始 qpos0 状态运行一次 forward pass，确保传感器数据有效
-        if self._model.nsensordata > 0:
-            _, sensor_init = self._forward_runner.forward(
-                model=self._model,
-                data=self._worker_data,
-                initial_state=self._physics_state.astype(np.float64),
-                chunk_size=max(1, num_envs // self._n_threads),
-                skipsensor=False,
-                out_dtype=np.float64,
-                return_state=True,
-            )
-            self._sensor_data[:] = sensor_init.astype(self._np_dtype)
+        sensor_init = self._pool.forward(self._physics_state)
+        self._sensor_data[:] = sensor_init.astype(self._np_dtype)
 
     # ------------------------------------------------------------------ #
     # Properties                                                         #
@@ -152,48 +191,62 @@ class MuJoCoBackend(SimBackend):
 
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> None:
         control_traj = np.broadcast_to(ctrl[:, None, :], (self._num_envs, nsteps, ctrl.shape[-1]))
-        state_traj, _ = self._rollout.rollout(
-            self._model,
-            self._worker_data,
-            initial_state=self._physics_state.astype(np.float64),
-            control=control_traj,
+        state_np = self._pool.step(
+            self._physics_state,
             nstep=nsteps,
+            control=control_traj,
+            control_spec=int(mujoco.mjtState.mjSTATE_CTRL),
         )
-        state_np = np.asarray(state_traj)[:, -1, :]
         self._physics_state[:] = state_np.astype(self._np_dtype)
 
-        # Recompute sensors from the final physics state to keep state/sensor
-        # alignment consistent with set_state() and initialization paths.
-        if self._model.nsensordata > 0:
-            _, sensor_np = self._forward_runner.forward(
-                model=self._model,
-                data=self._worker_data,
-                initial_state=state_np,
-                chunk_size=max(1, self._num_envs // self._n_threads),
-                skipsensor=False,
-                out_dtype=np.float64,
-                return_state=True,
-            )
-            self._sensor_data[:] = sensor_np.astype(self._np_dtype)
+        sensor_np = self._pool.forward(self._physics_state)
+        self._sensor_data[:] = sensor_np.astype(self._np_dtype)
 
-    def set_state(self, env_indices: np.ndarray, qpos: np.ndarray, qvel: np.ndarray) -> None:
+    def set_state(
+        self,
+        env_indices: np.ndarray,
+        qpos: np.ndarray,
+        qvel: np.ndarray,
+        randomization: ResetRandomizationPayload | None = None,
+    ) -> None:
+        if len(env_indices) == 0:
+            return
+
         num_reset = len(env_indices)
         state_np = np.zeros((num_reset, self._physics_state.shape[1]), dtype=np.float64)
         state_np[:, self._idx_qpos : self._idx_qpos + self.nq] = qpos
         state_np[:, self._idx_qvel : self._idx_qvel + self.nv] = qvel
 
-        _, sensor_np = self._forward_runner.forward(
-            model=self._model,
-            data=self._worker_data,
+        state_out, sensor_np = self._pool.reset(
+            env_ids=np.asarray(env_indices, dtype=np.int32),
             initial_state=state_np,
-            chunk_size=max(1, num_reset // self._n_threads),
-            skipsensor=False,
-            out_dtype=np.float64,
-            return_state=True,
+            randomization=self._translate_reset_randomization(randomization, num_reset),
         )
 
-        self._physics_state[env_indices] = state_np.astype(self._np_dtype)
+        self._physics_state[env_indices] = state_out.astype(self._np_dtype)
         self._sensor_data[env_indices] = sensor_np.astype(self._np_dtype)
+
+    def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
+        return DomainRandomizationCapabilities(
+            supported_reset_terms=frozenset(
+                {
+                    RESET_TERM_BASE_MASS,
+                    RESET_TERM_BASE_COM,
+                    RESET_TERM_BODY_IQUAT,
+                    RESET_TERM_BODY_INERTIA,
+                    RESET_TERM_KP,
+                    RESET_TERM_KD,
+                }
+            ),
+            supports_interval_push=True,
+        )
+
+    def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
+        if plan.push_perturbation_limit is None:
+            return
+        velocity_delta = np.random.uniform(-1.0, 1.0, size=(self._num_envs, 3))
+        velocity_delta *= np.asarray(plan.push_perturbation_limit, dtype=np.float64)
+        self._base_lin_vel_view[:] += velocity_delta.astype(self._np_dtype)
 
     # ------------------------------------------------------------------ #
     # Base kinematics                                                    #
@@ -226,17 +279,7 @@ class MuJoCoBackend(SimBackend):
     # ------------------------------------------------------------------ #
 
     def _get_mapped_indices(self, body_ids: np.ndarray) -> np.ndarray:
-        # if not self.add_body_sensors:
-        #     raise NotImplementedError(
-        #         "Slow kinematics computation has been removed for performance reasons. "
-        #         "Please pass add_body_sensors=True during initialization to enable tracking."
-        #     )
-        mapped_indices = self._body_id_to_tracked_idx[body_ids]
-        # if np.any(mapped_indices == -1):
-        #     raise ValueError(
-        #         "Cannot query untracked (unnamed) bodies with fast sensor method. Please ensure bodies are named in XML."
-        #     )
-        return mapped_indices  # type: ignore[no-any-return]
+        return np.asarray(self._body_id_to_tracked_idx[body_ids])
 
     def get_body_pos_w(self, body_ids: np.ndarray) -> np.ndarray:
         return np.asarray(self._tracked_pos_w_all[:, self._get_mapped_indices(body_ids), :])
@@ -271,8 +314,6 @@ class MuJoCoBackend(SimBackend):
     # ------------------------------------------------------------------ #
 
     def get_sensor_data(self, name: str) -> np.ndarray:
-        # if name not in self._sensor_views:
-        #     raise ValueError(f"Sensor '{name}' not found")
         return self._sensor_views[name]
 
     # ------------------------------------------------------------------ #
@@ -281,3 +322,97 @@ class MuJoCoBackend(SimBackend):
 
     def get_physics_state(self) -> np.ndarray:
         return self._physics_state
+
+    def _coerce_reset_field(
+        self,
+        value: np.ndarray,
+        *,
+        name: str,
+        num_reset: int,
+        shaped_tail: tuple[int, ...],
+    ) -> np.ndarray:
+        arr = np.asarray(value, dtype=np.float64)
+        flat_tail = int(np.prod(shaped_tail))
+        flat_shape = (num_reset, flat_tail)
+        shaped = (num_reset, *shaped_tail)
+        if arr.shape == flat_shape:
+            return arr.copy()
+        if arr.shape == shaped:
+            return arr.reshape(num_reset, flat_tail).copy()
+        raise ValueError(
+            f"{name} must have shape {flat_shape} or {shaped}, got {arr.shape}"
+        )
+
+    def _translate_reset_randomization(
+        self,
+        randomization: ResetRandomizationPayload | None,
+        num_reset: int,
+    ) -> dict[str, np.ndarray] | None:
+        if randomization is None or randomization.is_empty():
+            return None
+        if (
+            (randomization.base_mass_delta is not None or randomization.base_com_offset is not None)
+            and self._base_body_id < 0
+        ):
+            raise ValueError(f"Body '{self._base_name}' not found in MuJoCo model")
+
+        translated: dict[str, np.ndarray] = {}
+        if randomization.base_mass_delta is not None:
+            body_mass = np.broadcast_to(self._base_body_mass, (num_reset, self._model.nbody)).copy()
+            body_mass[:, self._base_body_id] += np.asarray(randomization.base_mass_delta)
+            translated["body_mass"] = body_mass
+
+        if randomization.base_com_offset is not None:
+            body_ipos = np.broadcast_to(
+                self._base_body_ipos, (num_reset, self._model.nbody, 3)
+            ).copy()
+            body_ipos[:, self._base_body_id, :] += np.asarray(randomization.base_com_offset)
+            translated["body_ipos"] = body_ipos.reshape(num_reset, -1)
+
+        if randomization.body_iquat is not None:
+            translated["body_iquat"] = self._coerce_reset_field(
+                randomization.body_iquat,
+                name="body_iquat",
+                num_reset=num_reset,
+                shaped_tail=(self._model.nbody, 4),
+            )
+
+        if randomization.body_inertia is not None:
+            translated["body_inertia"] = self._coerce_reset_field(
+                randomization.body_inertia,
+                name="body_inertia",
+                num_reset=num_reset,
+                shaped_tail=(self._model.nbody, 3),
+            )
+
+        if randomization.kp is not None:
+            translated["kp"] = self._coerce_reset_field(
+                randomization.kp,
+                name="kp",
+                num_reset=num_reset,
+                shaped_tail=(self._model.nu,),
+            )
+
+        if randomization.kd is not None:
+            translated["kd"] = self._coerce_reset_field(
+                randomization.kd,
+                name="kd",
+                num_reset=num_reset,
+                shaped_tail=(self._model.nu,),
+            )
+
+        return translated or None
+
+    def _apply_position_actuator_gains_to_model(
+        self,
+        model,
+        *,
+        kp: float | np.ndarray,
+        kd: float | np.ndarray,
+        actuator_ids=slice(None),
+    ) -> None:
+        kp_arr = np.asarray(kp, dtype=np.float64)
+        kd_arr = np.asarray(kd, dtype=np.float64)
+        model.actuator_gainprm[actuator_ids, 0] = kp_arr
+        model.actuator_biasprm[actuator_ids, 1] = -kp_arr
+        model.actuator_biasprm[actuator_ids, 2] = -kd_arr
