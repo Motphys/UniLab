@@ -1,0 +1,39 @@
+<mujoco model="sharpa_inhand_scene">
+  <include file="right_sharpa_wave.xml"/>
+
+  <statistic center="0 0 0.2" extent="1.0"/>
+
+  <worldbody>
+    <geom name="floor" type="plane" pos="0 0 -0.2" size="0 0 0.05" friction="1.0 0.05 0.01" rgba="0.2 0.25 0.3 1"/>
+
+    <body name="object" pos="0 0 0.62">
+      <freejoint name="object_joint"/>
+      <geom
+        name="object"
+        type="cylinder"
+        size="0.032 0.06"
+        mass="0.05"
+        condim="6"
+        friction="1.0 0.05 0.01"
+        solimp="0.9 0.95 0.001"
+        solref="0.02 1"
+        rgba="0.95 0.65 0.1 1"
+      />
+      <inertial pos="0 0 0" mass="0.05" diaginertia="0.0001 0.0001 0.0001"/>
+    </body>
+  </worldbody>
+
+  <!--
+    qpos layout (nq = 22 hand + 7 object = 29):
+      [0:22]  right_sharpa_wave hand joints
+      [22:25] object position xyz
+      [25:29] object quaternion wxyz
+  -->
+  <keyframe>
+    <key
+      name="home"
+      qpos="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.62 1 0 0 0"
+      ctrl="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"
+    />
+  </keyframe>
+</mujoco>

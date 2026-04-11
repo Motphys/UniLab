@@ -44,3 +44,8 @@ agent/
 
 src/unilab/assets/motions/g1/flip
 src/unilab/assets/motions/g1/flip_npz
+cache/
+
+# Task-local agent artifacts
+src/unilab/envs/manipulation/sharpa_inhand/agent_instruction.md
+src/unilab/envs/manipulation/sharpa_inhand/transfer_plan.md
