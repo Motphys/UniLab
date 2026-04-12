@@ -171,7 +171,7 @@ class PPOPolicyConfig:
 
 @dataclass
 class PPOAlgorithmConfig:
-    class_name: str = "PPO"
+    class_name: str = "unilab.algos.torch.rsl_rl_ppo:FinalObservationAwarePPO"
     value_loss_coef: float = 1.0
     use_clipped_value_loss: bool = True
     clip_param: float = 0.2

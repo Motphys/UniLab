@@ -43,6 +43,7 @@ def test_ppo_config_defaults():
     assert cfg.algo == "ppo"
     assert cfg.max_iterations == 101
     assert cfg.algorithm.clip_param == 0.2
+    assert cfg.algorithm.class_name == "unilab.algos.torch.rsl_rl_ppo:FinalObservationAwarePPO"
     assert cfg.policy.class_name == "ActorCritic"
 
 

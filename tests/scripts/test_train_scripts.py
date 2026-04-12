@@ -816,6 +816,42 @@ def test_mlx_get_latest_checkpoint_ignores_non_safetensors(tmp_path):
     assert mod.get_latest_checkpoint(tmp_path) is None
 
 
+@pytest.mark.skipif(not _HAS_MLX, reason="mlx not installed")
+def test_mlx_time_limit_bootstrap_values_use_final_observation():
+    mod = _load_script("train_mlx_ppo")
+
+    class FakeModel:
+        def __init__(self):
+            self.last_obs = None
+
+        def value(self, obs):
+            self.last_obs = obs
+            return mod.mx.sum(obs, axis=1)
+
+    state = type(
+        "State",
+        (),
+        {
+            "truncated": np.array([True, False]),
+            "info": {
+                "final_observation": {
+                    "obs": np.array([[3.0, 4.0], [9.0, 9.0]], dtype=np.float32),
+                }
+            },
+        },
+    )()
+    model = FakeModel()
+
+    values = mod.get_time_limit_bootstrap_values(state, model, mod.mx.float32)
+
+    assert values is not None
+    np.testing.assert_allclose(np.array(values.tolist()), np.array([7.0, 18.0], dtype=np.float32))
+    np.testing.assert_allclose(
+        np.array(model.last_obs.tolist()),
+        np.array([[3.0, 4.0], [9.0, 9.0]], dtype=np.float32),
+    )
+
+
 # ---------------------------------------------------------------------------
 # play_interactive.py — resolve_checkpoint()
 # ---------------------------------------------------------------------------
@@ -981,6 +1017,52 @@ def test_play_wrapper_policy_obs_mode_actor():
     # In actor mode, policy obs should equal actor obs
     assert obs_td["policy"].shape == (1, 3)
     assert obs_td["actor"].shape == (1, 3)
+
+
+def test_play_wrapper_step_exports_timeout_bootstrap_obs():
+    import torch
+
+    from unilab.utils.rsl_rl_vec_env_wrapper import RslRlVecEnvWrapper
+
+    class FakeEnv:
+        def __init__(self):
+            self.num_envs = 1
+            self.cfg = type("Cfg", (), {"max_episode_seconds": 10.0, "ctrl_dt": 0.02})()
+            self.observation_space = type("Space", (), {"shape": (3,)})()
+            self.action_space = type("Space", (), {"shape": (2,)})()
+            self.obs_groups_spec = {"obs": 3}
+            self.state = type("State", (), {"obs": {"obs": np.zeros((1, 3), dtype=np.float32)}})()
+
+        def init_state(self):
+            pass
+
+        def reset(self, env_indices):
+            return {"obs": np.zeros((1, 3), dtype=np.float32)}, {}
+
+        def step(self, actions):
+            return type(
+                "StepState",
+                (),
+                {
+                    "obs": {"obs": np.array([[1.0, 2.0, 3.0]], dtype=np.float32)},
+                    "reward": np.array([1.0], dtype=np.float32),
+                    "done": np.array([True]),
+                    "truncated": np.array([True]),
+                    "info": {
+                        "final_observation": {"obs": np.array([[7.0, 8.0, 9.0]], dtype=np.float32)}
+                    },
+                },
+            )()
+
+    wrapper = RslRlVecEnvWrapper(FakeEnv(), device="cpu", policy_obs_mode="flat")
+
+    _, _, _, infos = wrapper.step(torch.zeros((1, 2)))
+
+    assert torch.equal(infos["time_outs"], torch.tensor([True]))
+    np.testing.assert_allclose(
+        infos["time_out_bootstrap_obs"]["policy"].cpu().numpy(),
+        np.array([[7.0, 8.0, 9.0]], dtype=np.float32),
+    )
 
 
 # ---------------------------------------------------------------------------

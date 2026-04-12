@@ -128,6 +128,24 @@ def build_model(cfg, obs_dim: int, action_dim: int, dtype=mx.float32) -> MLPActo
     )
 
 
+def get_time_limit_bootstrap_values(
+    state: Any, model: MLPActorCritic, model_dtype=mx.float32
+) -> mx.array | None:
+    """Return V(final_observation) for current timeout envs when available."""
+    if not hasattr(state, "truncated"):
+        return None
+    timeout_mask = np.asarray(state.truncated, dtype=bool)
+    if not np.any(timeout_mask):
+        return None
+    info = getattr(state, "info", None)
+    if not isinstance(info, dict) or "final_observation" not in info:
+        return None
+    final_obs = mx.array(flatten_obs_dict(info["final_observation"]))
+    if getattr(final_obs, "dtype", None) != model_dtype:
+        final_obs = final_obs.astype(model_dtype)
+    return model.value(final_obs)
+
+
 def _get_log_root(cfg: DictConfig) -> Path:
     return cast(Path, get_log_root(ROOT_DIR, cfg))
 
@@ -464,7 +482,15 @@ def main(cfg: DictConfig) -> None:
             next_obs = mx.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0)
             if hasattr(state, "truncated"):
                 timeouts = mx.array(state.truncated, dtype=dtype)
-                rewards = rewards + ppo_cfg.gamma * values_mx.astype(rewards.dtype) * timeouts
+                timeout_bootstrap_values = get_time_limit_bootstrap_values(
+                    state, model, model_dtype
+                )
+                if timeout_bootstrap_values is None:
+                    timeout_bootstrap_values = values_mx
+                rewards = (
+                    rewards
+                    + ppo_cfg.gamma * timeout_bootstrap_values.astype(rewards.dtype) * timeouts
+                )
             if rewards.dtype != dtype:
                 rewards = rewards.astype(dtype)
 
