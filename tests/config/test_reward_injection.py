@@ -7,6 +7,10 @@ from hydra import compose, initialize
 from omegaconf import OmegaConf
 
 
+def _require_mujoco() -> None:
+    pytest.importorskip("mujoco", exc_type=ImportError)
+
+
 def test_reward_config_loading_g1():
     """Test G1 SAC reward config loads correctly."""
     with initialize(config_path="../../conf/offpolicy", version_base="1.3"):
@@ -44,6 +48,7 @@ def test_resolve_reward_dict_reads_task_reward():
 
 def test_reward_config_conversion():
     """Test reward config converts to dataclasses via registry."""
+    _require_mujoco()
     from unilab.base import registry
     from unilab.utils.algo_utils import ensure_registries
 

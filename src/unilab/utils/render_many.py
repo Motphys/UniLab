@@ -39,8 +39,23 @@ def _resolve_gl_backend() -> str:
 # Must be set *before* importing mujoco (it reads the var at import time)
 os.environ["MUJOCO_GL"] = _resolve_gl_backend()
 
-import mujoco  # noqa: E402
 import numpy as np
+
+try:  # noqa: E402
+    import mujoco  # type: ignore[reportMissingImports]
+except ImportError as exc:  # pragma: no cover - environment dependent
+    mujoco = None  # type: ignore[assignment]
+    _MUJOCO_IMPORT_ERROR: ImportError | None = exc
+else:
+    _MUJOCO_IMPORT_ERROR = None
+
+
+def _require_mujoco():
+    if mujoco is None:  # pragma: no cover - environment dependent
+        raise ImportError(
+            "MuJoCo is required for render_many but could not be imported."
+        ) from _MUJOCO_IMPORT_ERROR
+    return mujoco
 
 
 def get_grid_offsets(num_envs, spacing=1.0):
@@ -69,12 +84,13 @@ def init_worker(model_path, shape):
     """Initialize MuJoCo context for worker process."""
     import atexit
 
-    _worker_ctx["model"] = mujoco.MjModel.from_xml_path(model_path)
+    mj = _require_mujoco()
+    _worker_ctx["model"] = mj.MjModel.from_xml_path(model_path)
     _worker_ctx["model"].vis.global_.offwidth = 3840
     _worker_ctx["model"].vis.global_.offheight = 2160
 
-    _worker_ctx["data"] = mujoco.MjData(_worker_ctx["model"])
-    _worker_ctx["renderer"] = mujoco.Renderer(_worker_ctx["model"], height=shape[1], width=shape[0])
+    _worker_ctx["data"] = mj.MjData(_worker_ctx["model"])
+    _worker_ctx["renderer"] = mj.Renderer(_worker_ctx["model"], height=shape[1], width=shape[0])
     atexit.register(_close_worker)
 
 
@@ -83,6 +99,7 @@ def render_frame_job(args):
     Worker function to render a single frame.
     args: (state_batch, offsets, transparent, cam_distance, cam_elevation, cam_azimuth)
     """
+    mj = _require_mujoco()
     state_batch, offsets, transparent, cam_distance, cam_elevation, cam_azimuth = args
 
     model = _worker_ctx["model"]
@@ -90,10 +107,10 @@ def render_frame_job(args):
     renderer = _worker_ctx["renderer"]
 
     # Visual options
-    vopt = mujoco.MjvOption()
-    vopt.flags[mujoco.mjtVisFlag.mjVIS_TRANSPARENT] = transparent
-    pert = mujoco.MjvPerturb()
-    catmask = mujoco.mjtCatBit.mjCAT_DYNAMIC
+    vopt = mj.MjvOption()
+    vopt.flags[mj.mjtVisFlag.mjVIS_TRANSPARENT] = transparent
+    pert = mj.MjvPerturb()
+    catmask = mj.mjtCatBit.mjCAT_DYNAMIC
 
     # Helper to set state
     def set_state(d, s, offset=None):
@@ -127,7 +144,7 @@ def render_frame_job(args):
                 apply_root_offset = True
 
             # 2. Box offset
-            box_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "box")
+            box_id = mj.mj_name2id(model, mj.mjtObj.mjOBJ_BODY, "box")
             if box_id >= 0:
                 jnt_adr = model.body_jntadr[box_id]
                 if jnt_adr >= 0:
@@ -136,15 +153,15 @@ def render_frame_job(args):
                     d.qpos[qpos_adr + 1] += offset[1]
 
             # 3. Target offset (target_x, target_y)
-            target_x = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "target_x")
+            target_x = mj.mj_name2id(model, mj.mjtObj.mjOBJ_JOINT, "target_x")
             if target_x >= 0:
                 d.qpos[model.jnt_qposadr[target_x]] += offset[0]
 
-            target_y = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "target_y")
+            target_y = mj.mj_name2id(model, mj.mjtObj.mjOBJ_JOINT, "target_y")
             if target_y >= 0:
                 d.qpos[model.jnt_qposadr[target_y]] += offset[1]
 
-        mujoco.mj_forward(model, d)
+        mj.mj_forward(model, d)
 
         # Post-process: Shift all geometries if robot root wasn't moved
         if apply_root_offset and offset is not None:
@@ -160,8 +177,8 @@ def render_frame_job(args):
 
             # Let's iterate bodies.
             # Simple heuristic: Shift everything except Box and Target?
-            box_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "box")
-            target_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "mocap_target")
+            box_body_id = mj.mj_name2id(model, mj.mjtObj.mjOBJ_BODY, "box")
+            target_body_id = mj.mj_name2id(model, mj.mjtObj.mjOBJ_BODY, "mocap_target")
 
             # Also target might be just a body named "mocap_target"
 
@@ -174,7 +191,7 @@ def render_frame_job(args):
                 # Everything else (Robot Base, Robot Links, Decoration) should be shifted.
 
                 is_box_or_target = (body_id == box_body_id) or (body_id == target_body_id)
-                is_plane = model.geom_type[i] == mujoco.mjtGeom.mjGEOM_PLANE
+                is_plane = model.geom_type[i] == mj.mjtGeom.mjGEOM_PLANE
 
                 if not is_box_or_target and not is_plane:
                     d.geom_xpos[i, 0] += offset[0]
@@ -196,7 +213,7 @@ def render_frame_job(args):
     set_state(data, state_batch[0], offsets[0] if offsets is not None else None)
 
     # Init Camera
-    cam = mujoco.MjvCamera()
+    cam = mj.MjvCamera()
     if offsets is not None:
         center_x = np.mean(offsets[:, 0])
         center_y = np.mean(offsets[:, 1])
@@ -204,16 +221,16 @@ def render_frame_job(args):
         cam.distance = cam_distance
         cam.elevation = cam_elevation
         cam.azimuth = cam_azimuth
-        cam.type = mujoco.mjtCamera.mjCAMERA_FREE
+        cam.type = mj.mjtCamera.mjCAMERA_FREE
     else:
-        cam.type = mujoco.mjtCamera.mjCAMERA_FREE
+        cam.type = mj.mjtCamera.mjCAMERA_FREE
 
     renderer.update_scene(data, camera=cam, scene_option=vopt)
 
     # 2. Add other robots
     for i in range(1, num_envs):
         set_state(data, state_batch[i], offsets[i] if offsets is not None else None)
-        mujoco.mjv_addGeoms(model, data, vopt, pert, catmask, renderer.scene)
+        mj.mjv_addGeoms(model, data, vopt, pert, catmask, renderer.scene)
 
     return renderer.render()
 

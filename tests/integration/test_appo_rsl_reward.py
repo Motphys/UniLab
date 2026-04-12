@@ -3,8 +3,13 @@
 import pytest
 
 
+def _require_mujoco() -> None:
+    pytest.importorskip("mujoco", exc_type=ImportError)
+
+
 def test_appo_reward_override():
     """Test APPO with reward override."""
+    _require_mujoco()
     from unilab.base import registry
     from unilab.utils.algo_utils import ensure_registries
 
@@ -29,6 +34,7 @@ def test_appo_reward_override():
 
 def test_rsl_rl_reward_override():
     """Test RSL-RL with reward override."""
+    _require_mujoco()
     from unilab.base import registry
     from unilab.utils.algo_utils import ensure_registries
 
