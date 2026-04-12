@@ -144,6 +144,34 @@ def test_sample_values_match_added_data():
     assert batch["rewards"].max() <= 15.0
 
 
+def test_add_patches_terminal_next_obs_without_prebuilding_full_transition_copy():
+    buf = _make_buf(capacity=8)
+    obs = torch.zeros(4, _OBS_DIM)
+    act = torch.zeros(4, _ACTION_DIM)
+    rew = torch.zeros(4)
+    next_obs = torch.arange(4 * _OBS_DIM, dtype=torch.float32).reshape(4, _OBS_DIM)
+    done = torch.tensor([0.0, 1.0, 0.0, 1.0])
+    trunc = torch.tensor([0.0, 1.0, 0.0, 0.0])
+    terminal_mask = torch.tensor([False, True, False, True])
+    terminal_next_obs = torch.full((4, _OBS_DIM), 99.0)
+
+    buf.add(
+        obs,
+        act,
+        rew,
+        next_obs,
+        done,
+        trunc,
+        terminal_mask=terminal_mask,
+        terminal_next_obs=terminal_next_obs,
+    )
+
+    stored_next_obs = buf._storage[:4, buf._nobs_sl]
+    expected = next_obs.clone()
+    expected[terminal_mask] = terminal_next_obs[terminal_mask]
+    assert torch.allclose(stored_next_obs, expected)
+
+
 # ---------------------------------------------------------------------------
 # Multiprocess test
 # ---------------------------------------------------------------------------

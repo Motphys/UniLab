@@ -107,15 +107,15 @@ class RslRlVecEnvWrapper:
         if len(done_indices) > 0:
             if hasattr(state, "truncated"):
                 infos["time_outs"] = to_torch(state.truncated, self.device).bool()
+                final_observation = getattr(state, "final_observation", None)
                 if (
-                    torch.any(infos["time_outs"])
+                    final_observation is None
                     and hasattr(state, "info")
                     and isinstance(state.info, dict)
-                    and "final_observation" in state.info
                 ):
-                    infos["time_out_bootstrap_obs"] = self._obs_to_tensordict(
-                        state.info["final_observation"]
-                    )
+                    final_observation = state.info.get("final_observation")
+                if torch.any(infos["time_outs"]) and isinstance(final_observation, dict):
+                    infos["time_out_bootstrap_obs"] = self._obs_to_tensordict(final_observation)
             self.episode_returns[done_indices] = 0
             self.episode_lengths[done_indices] = 0
 

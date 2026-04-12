@@ -833,6 +833,9 @@ def test_mlx_time_limit_bootstrap_values_use_final_observation():
         (),
         {
             "truncated": np.array([True, False]),
+            "final_observation": {
+                "obs": np.array([[3.0, 4.0], [9.0, 9.0]], dtype=np.float32),
+            },
             "info": {
                 "final_observation": {
                     "obs": np.array([[3.0, 4.0], [9.0, 9.0]], dtype=np.float32),
@@ -1048,6 +1051,9 @@ def test_play_wrapper_step_exports_timeout_bootstrap_obs():
                     "reward": np.array([1.0], dtype=np.float32),
                     "done": np.array([True]),
                     "truncated": np.array([True]),
+                    "final_observation": {
+                        "obs": np.array([[7.0, 8.0, 9.0]], dtype=np.float32),
+                    },
                     "info": {
                         "final_observation": {"obs": np.array([[7.0, 8.0, 9.0]], dtype=np.float32)}
                     },

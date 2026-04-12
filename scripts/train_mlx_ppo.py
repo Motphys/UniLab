@@ -137,10 +137,14 @@ def get_time_limit_bootstrap_values(
     timeout_mask = np.asarray(state.truncated, dtype=bool)
     if not np.any(timeout_mask):
         return None
-    info = getattr(state, "info", None)
-    if not isinstance(info, dict) or "final_observation" not in info:
+    final_observation = getattr(state, "final_observation", None)
+    if final_observation is None:
+        info = getattr(state, "info", None)
+        if isinstance(info, dict):
+            final_observation = info.get("final_observation")
+    if not isinstance(final_observation, dict):
         return None
-    final_obs = mx.array(flatten_obs_dict(info["final_observation"]))
+    final_obs = mx.array(flatten_obs_dict(final_observation))
     if getattr(final_obs, "dtype", None) != model_dtype:
         final_obs = final_obs.astype(model_dtype)
     return model.value(final_obs)

@@ -11,7 +11,7 @@ import numpy as np
 import torch
 
 from unilab.utils.algo_utils import build_actor, ensure_registries
-from unilab.utils.final_observation import resolve_transition_bootstrap_contract
+from unilab.utils.final_observation import resolve_terminal_observation_contract
 from unilab.utils.obs_utils import split_obs_dict
 
 
@@ -280,8 +280,12 @@ def _run_collector(
         timeout_count_window += int(np.count_nonzero(timeout_mask_np))
         terminated_count_window += int(np.count_nonzero(terminated_mask_np))
 
-        transition_contract = resolve_transition_bootstrap_contract(
-            next_obs_np, next_priv_np, state.info, truncated=truncated_np
+        terminal_contract = resolve_terminal_observation_contract(
+            next_obs_batch_size=next_obs_np.shape[0],
+            final_observation=getattr(state, "final_observation", None),
+            done=done_mask_np,
+            info=state.info,
+            truncated=truncated_np,
         )
 
         # Write to replay buffer
@@ -289,13 +293,22 @@ def _run_collector(
             torch.from_numpy(obs_np),
             torch.from_numpy(actions_np),
             torch.from_numpy(rewards_np),
-            torch.from_numpy(transition_contract.storage_next_obs),
+            torch.from_numpy(next_obs_np),
             torch.from_numpy(terminated_np),
             torch.from_numpy(truncated_np),
             torch.from_numpy(priv_np) if priv_np is not None else None,
-            torch.from_numpy(transition_contract.storage_next_privileged)
-            if transition_contract.storage_next_privileged is not None
-            else None,
+            torch.from_numpy(next_priv_np) if next_priv_np is not None else None,
+            terminal_mask=torch.from_numpy(terminal_contract.terminal_mask),
+            terminal_next_obs=(
+                torch.from_numpy(terminal_contract.terminal_obs)
+                if terminal_contract.terminal_obs is not None
+                else None
+            ),
+            terminal_next_privileged=(
+                torch.from_numpy(terminal_contract.terminal_privileged)
+                if terminal_contract.terminal_privileged is not None
+                else None
+            ),
         )
 
         # Track episode rewards - vectorized
@@ -309,8 +322,8 @@ def _run_collector(
             current_ep_rewards[reset_indices] = 0.0
             current_ep_lengths[reset_indices] = 0
 
-        obs_np = transition_contract.actor_next_obs
-        priv_np = transition_contract.actor_next_privileged
+        obs_np = next_obs_np
+        priv_np = next_priv_np
         total_steps += num_envs
         env_steps_since_sync += 1
 

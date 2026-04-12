@@ -16,7 +16,7 @@ import torch
 from rsl_rl.utils import resolve_callable
 
 from unilab.utils.algo_utils import ensure_registries
-from unilab.utils.final_observation import resolve_transition_bootstrap_contract
+from unilab.utils.final_observation import resolve_terminal_observation_contract
 from unilab.utils.obs_utils import split_obs_dict
 
 
@@ -247,10 +247,11 @@ def appo_collector_fn(
                 next_actor_obs_np = to_float32_np(next_actor_obs_np)
                 if next_actor_priv_np is not None:
                     next_actor_priv_np = to_float32_np(next_actor_priv_np)
-                transition_contract = resolve_transition_bootstrap_contract(
-                    next_actor_obs_np,
-                    next_actor_priv_np,
-                    state.info,
+                terminal_contract = resolve_terminal_observation_contract(
+                    next_obs_batch_size=next_actor_obs_np.shape[0],
+                    final_observation=getattr(state, "final_observation", None),
+                    done=combined_done_raw > 0.5,
+                    info=state.info,
                     truncated=truncated_raw,
                 )
 
@@ -258,9 +259,17 @@ def appo_collector_fn(
                     critic=critic,
                     collector_device=collector_device,
                     gamma=float(cfg["algorithm"].get("gamma", 0.99)),
-                    timeout_mask=transition_contract.timeout_final_mask,
-                    final_obs=transition_contract.storage_next_obs,
-                    final_privileged=transition_contract.storage_next_privileged,
+                    timeout_mask=terminal_contract.timeout_terminal_mask,
+                    final_obs=(
+                        terminal_contract.terminal_obs
+                        if terminal_contract.terminal_obs is not None
+                        else next_actor_obs_np
+                    ),
+                    final_privileged=(
+                        terminal_contract.terminal_privileged
+                        if terminal_contract.terminal_privileged is not None
+                        else next_actor_priv_np
+                    ),
                 )
 
                 write_buf["rewards"][:, step] = reward_raw
@@ -316,8 +325,8 @@ def appo_collector_fn(
                     except Exception as e:
                         print(f"[APPOWorker] metrics enqueue error: {e}", file=sys.stderr)
 
-                obs_np = transition_contract.actor_next_obs
-                priv_np = transition_contract.actor_next_privileged
+                obs_np = next_actor_obs_np
+                priv_np = next_actor_priv_np
 
             write_buf["last_obs"][:] = obs_np
             if priv_np is not None:

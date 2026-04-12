@@ -143,6 +143,9 @@ class ReplayBuffer(SharedBufferBase):
         truncated,
         privileged=None,
         next_privileged=None,
+        terminal_mask=None,
+        terminal_next_obs=None,
+        terminal_next_privileged=None,
     ):
         """Add batch (called by collector)."""
         n = obs.shape[0]
@@ -160,6 +163,15 @@ class ReplayBuffer(SharedBufferBase):
                     assert next_privileged is not None
                     self.privileged_obs[idx : idx + n] = privileged
                     self.next_privileged_obs[idx : idx + n] = next_privileged
+                self._patch_terminal_next_observations(
+                    self.next_obs[idx : idx + n],
+                    terminal_mask,
+                    terminal_next_obs,
+                    self.next_privileged_obs[idx : idx + n]
+                    if self._privileged_dim > 0 and privileged is not None
+                    else None,
+                    terminal_next_privileged,
+                )
             else:
                 split = self.capacity - idx
                 self.obs[idx:] = obs[:split]
@@ -180,6 +192,28 @@ class ReplayBuffer(SharedBufferBase):
                     self.privileged_obs[: n - split] = privileged[split:]
                     self.next_privileged_obs[idx:] = next_privileged[:split]
                     self.next_privileged_obs[: n - split] = next_privileged[split:]
+                self._patch_terminal_next_observations(
+                    self.next_obs[idx:],
+                    terminal_mask[:split] if terminal_mask is not None else None,
+                    terminal_next_obs[:split] if terminal_next_obs is not None else None,
+                    self.next_privileged_obs[idx:]
+                    if self._privileged_dim > 0 and privileged is not None
+                    else None,
+                    terminal_next_privileged[:split]
+                    if terminal_next_privileged is not None
+                    else None,
+                )
+                self._patch_terminal_next_observations(
+                    self.next_obs[: n - split],
+                    terminal_mask[split:] if terminal_mask is not None else None,
+                    terminal_next_obs[split:] if terminal_next_obs is not None else None,
+                    self.next_privileged_obs[: n - split]
+                    if self._privileged_dim > 0 and privileged is not None
+                    else None,
+                    terminal_next_privileged[split:]
+                    if terminal_next_privileged is not None
+                    else None,
+                )
         else:
             parts = [
                 obs,
@@ -196,13 +230,65 @@ class ReplayBuffer(SharedBufferBase):
 
             if idx + n <= self.capacity:
                 self._storage[idx : idx + n] = row
+                self._patch_terminal_next_observations(
+                    self._storage[idx : idx + n, self._nobs_sl],
+                    terminal_mask,
+                    terminal_next_obs,
+                    self._storage[idx : idx + n, self._npriv_sl]
+                    if self._privileged_dim > 0 and privileged is not None
+                    else None,
+                    terminal_next_privileged,
+                )
             else:
                 split = self.capacity - idx
                 self._storage[idx:] = row[:split]
                 self._storage[: n - split] = row[split:]
+                self._patch_terminal_next_observations(
+                    self._storage[idx:, self._nobs_sl],
+                    terminal_mask[:split] if terminal_mask is not None else None,
+                    terminal_next_obs[:split] if terminal_next_obs is not None else None,
+                    self._storage[idx:, self._npriv_sl]
+                    if self._privileged_dim > 0 and privileged is not None
+                    else None,
+                    terminal_next_privileged[:split]
+                    if terminal_next_privileged is not None
+                    else None,
+                )
+                self._patch_terminal_next_observations(
+                    self._storage[: n - split, self._nobs_sl],
+                    terminal_mask[split:] if terminal_mask is not None else None,
+                    terminal_next_obs[split:] if terminal_next_obs is not None else None,
+                    self._storage[: n - split, self._npriv_sl]
+                    if self._privileged_dim > 0 and privileged is not None
+                    else None,
+                    terminal_next_privileged[split:]
+                    if terminal_next_privileged is not None
+                    else None,
+                )
 
         self.ptr[0] += n
         self.size[0] = min(int(self.size[0]) + n, self.capacity)
+
+    @staticmethod
+    def _patch_terminal_next_observations(
+        target_next_obs,
+        terminal_mask,
+        terminal_next_obs,
+        target_next_privileged=None,
+        terminal_next_privileged=None,
+    ) -> None:
+        if terminal_mask is None or terminal_next_obs is None:
+            return
+        if terminal_mask.ndim != 1 or terminal_mask.shape[0] != target_next_obs.shape[0]:
+            return
+        if not torch.any(terminal_mask):
+            return
+
+        target_next_obs[terminal_mask] = terminal_next_obs[terminal_mask]
+
+        if target_next_privileged is None or terminal_next_privileged is None:
+            return
+        target_next_privileged[terminal_mask] = terminal_next_privileged[terminal_mask]
 
     def sample(self, batch_size: int) -> Dict[str, torch.Tensor]:
         """Sample batch (called by learner)."""
