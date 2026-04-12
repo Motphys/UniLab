@@ -1,7 +1,9 @@
-"""Replay NPZ motion data in MuJoCo viewer.
+"""MuJoCo-only NPZ motion replay in the MuJoCo viewer.
 
 Loads a preprocessed NPZ motion file and plays it back in the MuJoCo passive
 viewer, setting qpos/qvel each frame so you can visually inspect the motion.
+This replay path depends on the MuJoCo viewer/runtime and is not available for
+Motrix-only workflows.
 
 Usage:
     uv run python scripts/motion/replay_npz.py --npz_file path/to/motion.npz
@@ -15,6 +17,8 @@ Usage:
     # Slow-motion (0.5x speed)
     uv run python scripts/motion/replay_npz.py --npz_file motion.npz --speed 0.5
 """
+
+# pyright: reportAttributeAccessIssue=false, reportReturnType=false
 
 import argparse
 import time
