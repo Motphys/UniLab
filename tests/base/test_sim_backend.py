@@ -14,6 +14,7 @@ import pytest
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.dr import ResetRandomizationPayload
+from unilab.utils.xml_utils import get_named_body_ids
 
 
 # ---------------------------------------------------------------------------
@@ -1016,3 +1017,10 @@ class TestCrossBackendModelProperties:
     def test_actuator_ctrl_range_shape_match(self, backends):
         mj, mx = backends
         assert mj.get_actuator_ctrl_range().shape == mx.get_actuator_ctrl_range().shape
+
+    def test_motion_body_ids_match_motion_xml(self, backends):
+        mj, mx = backends
+        body_names = ["pelvis", "torso_link"]
+        expected = np.asarray(get_named_body_ids(_G1["model_file"], body_names), dtype=np.int32)
+        np.testing.assert_array_equal(mj.get_motion_body_ids(body_names), expected)
+        np.testing.assert_array_equal(mx.get_motion_body_ids(body_names), expected)

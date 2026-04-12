@@ -46,6 +46,7 @@ class MuJoCoBackend(SimBackend):
     ):
         self.add_body_sensors = add_body_sensors
         self._base_name = base_name
+        self._model_file = model_file
         from unilab.utils.xml_utils import create_discardvisual_xml
 
         model_path = create_discardvisual_xml(model_file)
@@ -224,6 +225,52 @@ class MuJoCoBackend(SimBackend):
                 raise ValueError(f"Body '{name}' not found in MuJoCo model")
             ids.append(bid)
         return np.array(ids, dtype=np.int32)
+
+    def get_motion_body_ids(self, names: Sequence[str]) -> np.ndarray:
+        return self.get_body_ids(names)
+
+    def resolve_action_scale(self, action_scale: float | np.ndarray) -> np.ndarray:
+        """Adapt position-control action scale to MuJoCo actuator normalization."""
+        nu = int(self._model.nu)
+        if isinstance(action_scale, np.ndarray):
+            resolved = action_scale.astype(get_global_dtype(), copy=True)
+        else:
+            resolved = np.full((nu,), float(action_scale), dtype=get_global_dtype())
+
+        effort_limit = np.max(np.abs(self._model.actuator_forcerange), axis=1)
+
+        # Fallback: derive actuator effort limits from joint force ranges when
+        # actuator forcerange is not explicitly defined in XML.
+        if np.all(effort_limit <= 0.0):
+            joint_ids = self._model.actuator_trnid[:, 0].astype(np.int32)
+            effort_limit = np.max(np.abs(self._model.jnt_actfrcrange[joint_ids]), axis=1)
+
+        stiffness = self._model.actuator_gainprm[:, 0]
+        valid = (effort_limit > 0.0) & (np.abs(stiffness) > 1e-6)
+        resolved[valid] = 0.25 * effort_limit[valid] / stiffness[valid]
+        return resolved
+
+    def log_action_scale_diagnostics(
+        self, action_scale: float | np.ndarray, *, enabled: bool = False
+    ) -> None:
+        """Log MuJoCo actuator/action-scale alignment for debugging."""
+        if not enabled:
+            return
+
+        if isinstance(action_scale, np.ndarray):
+            scale = action_scale.astype(get_global_dtype(), copy=False)
+        else:
+            scale = np.full((int(self._model.nu),), float(action_scale), dtype=get_global_dtype())
+
+        unique_scale = np.unique(np.round(scale, 6))
+        print(f"[G1MotionTracking] action_scale unique: {unique_scale.tolist()}")
+
+        preview_count = min(8, int(self._model.nu))
+        preview = []
+        for i in range(preview_count):
+            name = mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_ACTUATOR, i)
+            preview.append(f"{name}:{float(scale[i]):.6f}")
+        print("[G1MotionTracking] action_scale preview:", ", ".join(preview))
 
     def get_joint_range(self) -> np.ndarray | None:
         if self._root_qpos_dim > 0:
