@@ -37,7 +37,6 @@ from unilab.utils.math_utils import (
     np_subtract_frame_transforms,
     np_yaw_quat,
 )
-from unilab.utils.xml_utils import get_named_body_ids
 
 from .motion_loader import MotionLoader, MotionSampler
 
@@ -141,7 +140,6 @@ class G1MotionTrackingCfg(G1BaseCfg):
         "right_wrist_yaw_link",
     )
     sampling_mode: Literal["start", "clip_start", "uniform", "adaptive"] = "adaptive"
-    log_action_scale: bool = False
     max_episode_seconds: float = 10.0
     reward_config: RewardConfig = field(default_factory=RewardConfig)
     pose_randomization: PoseRandomization = field(default_factory=PoseRandomization)
@@ -291,7 +289,6 @@ class G1MotionTrackingEnv(G1BaseEnv):
     """G1 Motion Tracking Environment."""
 
     _cfg: G1MotionTrackingCfg
-    _backend_type: Literal["mujoco", "motrix"]
 
     def __init__(self, cfg: G1MotionTrackingCfg, num_envs=1, backend_type="mujoco"):
         if not cfg.motion_file:
@@ -307,21 +304,10 @@ class G1MotionTrackingEnv(G1BaseEnv):
             iterations=cfg.iterations,
         )
         super().__init__(cfg, backend, num_envs)
-        if backend_type not in {"mujoco", "motrix"}:
-            raise ValueError(f"Unsupported backend type: {backend_type}")
-        self._backend_type = backend_type
-        self._apply_adaptive_g1_action_scale()
-        self._log_action_scale_diagnostics()
 
         # Resolve body IDs for backend querying and motion-file indexing.
         self.body_ids = self._backend.get_body_ids(cfg.body_names)
-        if self._is_mujoco_backend():
-            motion_body_ids = self.body_ids
-        else:
-            # Motion data always uses MuJoCo-style body indexing, even on Motrix.
-            motion_body_ids = np.asarray(
-                get_named_body_ids(cfg.model_file, cfg.body_names), dtype=np.int32
-            )
+        motion_body_ids = self._backend.get_motion_body_ids(cfg.body_names)
 
         self.anchor_body_idx = cfg.body_names.index(cfg.anchor_body_name)
 
@@ -350,9 +336,6 @@ class G1MotionTrackingEnv(G1BaseEnv):
         self._init_reward_functions()
         self._clip_end_truncated = np.zeros((num_envs,), dtype=bool)
 
-    def _is_mujoco_backend(self) -> bool:
-        return self._backend_type == "mujoco"
-
     def _get_body_pose_w(self) -> tuple[np.ndarray, np.ndarray]:
         return self._backend.get_body_pos_w(self.body_ids), self._backend.get_body_quat_w(
             self.body_ids
@@ -360,54 +343,6 @@ class G1MotionTrackingEnv(G1BaseEnv):
 
     def _get_joint_range(self) -> np.ndarray | None:
         return self._backend.get_joint_range()  # type: ignore[no-any-return]
-
-    def _apply_adaptive_g1_action_scale(self) -> None:
-        """Set per-joint action scale to match adaptive's normalization."""
-        if not self._is_mujoco_backend():
-            return
-        model = self._backend.model
-        nu = int(model.nu)
-
-        base_scale = self._cfg.control_config.action_scale
-        if isinstance(base_scale, np.ndarray):
-            action_scale = base_scale.astype(get_global_dtype(), copy=True)
-        else:
-            action_scale = np.full((nu,), float(base_scale), dtype=get_global_dtype())
-
-        effort_limit = np.max(np.abs(model.actuator_forcerange), axis=1)
-
-        # Fallback: derive actuator effort limits from joint force ranges when
-        # actuator forcerange is not explicitly defined in XML.
-        if np.all(effort_limit <= 0.0):
-            joint_ids = model.actuator_trnid[:, 0].astype(np.int32)
-            effort_limit = np.max(np.abs(model.jnt_actfrcrange[joint_ids]), axis=1)
-
-        stiffness = model.actuator_gainprm[:, 0]
-        valid = (effort_limit > 0.0) & (np.abs(stiffness) > 1e-6)
-        action_scale[valid] = 0.25 * effort_limit[valid] / stiffness[valid]
-
-        self._cfg.control_config.action_scale = action_scale
-
-    def _log_action_scale_diagnostics(self) -> None:
-        """Log action-scale diagnostics to help detect control-mapping issues."""
-        if not self._cfg.log_action_scale or not self._is_mujoco_backend():
-            return
-        import mujoco
-
-        model = self._backend.model
-        action_scale = self._cfg.control_config.action_scale
-        if not isinstance(action_scale, np.ndarray):
-            action_scale = np.full((int(model.nu),), float(action_scale), dtype=get_global_dtype())
-
-        unique_scale = np.unique(np.round(action_scale, 6))
-        print(f"[G1MotionTracking] action_scale unique: {unique_scale.tolist()}")
-
-        preview_count = min(8, int(model.nu))
-        preview = []
-        for i in range(preview_count):
-            name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, i)
-            preview.append(f"{name}:{float(action_scale[i]):.6f}")
-        print("[G1MotionTracking] action_scale preview:", ", ".join(preview))
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:

@@ -46,6 +46,7 @@ class MuJoCoBackend(SimBackend):
     ):
         self.add_body_sensors = add_body_sensors
         self._base_name = base_name
+        self._model_file = model_file
         from unilab.utils.xml_utils import create_discardvisual_xml
 
         model_path = create_discardvisual_xml(model_file)
@@ -224,6 +225,9 @@ class MuJoCoBackend(SimBackend):
                 raise ValueError(f"Body '{name}' not found in MuJoCo model")
             ids.append(bid)
         return np.array(ids, dtype=np.int32)
+
+    def get_motion_body_ids(self, names: Sequence[str]) -> np.ndarray:
+        return self.get_body_ids(names)
 
     def get_joint_range(self) -> np.ndarray | None:
         if self._root_qpos_dim > 0:

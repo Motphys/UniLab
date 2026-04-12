@@ -22,6 +22,8 @@ class BackendPlayCapabilities:
 class SimBackend(abc.ABC):
     """仿真后端统一接口"""
 
+    _model_file: str
+
     # ------------------------------------------------------------------ #
     # Properties                                                           #
     # ------------------------------------------------------------------ #
@@ -90,6 +92,12 @@ class SimBackend(abc.ABC):
         Raises:
             ValueError: 若名称未找到
         """
+
+    def get_motion_body_ids(self, names: Sequence[str]) -> np.ndarray:
+        """Resolve MuJoCo-style body IDs used by motion datasets."""
+        from unilab.utils.xml_utils import get_named_body_ids
+
+        return np.asarray(get_named_body_ids(self._model_file, names), dtype=np.int32)
 
     @abc.abstractmethod
     def get_joint_range(self) -> np.ndarray | None:
