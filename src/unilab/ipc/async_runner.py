@@ -58,7 +58,10 @@ class AsyncRunner(ABC):
     ) -> None: ...
 
     def _start_collector(self, target_fn: Callable, kwargs: dict) -> None:
-        self._collector_process = _SPAWN_CTX.Process(target=target_fn, kwargs=kwargs, daemon=True)
+        collector_kwargs = {**self.extra_kwargs, **kwargs}
+        self._collector_process = _SPAWN_CTX.Process(
+            target=target_fn, kwargs=collector_kwargs, daemon=True
+        )
         self._collector_process.start()
 
     def close(self) -> None:

@@ -96,6 +96,58 @@ class TD3Config(BaseConfig):
     algo_params: TD3AlgoParams = field(default_factory=TD3AlgoParams)
 
 
+# ── Off-policy: FlashSAC ─────────────────────────────────────────────────────
+
+
+@dataclass
+class FlashSACAlgoParams:
+    normalize_reward: bool = True
+    normalized_g_max: float = 5.0
+    actor_num_blocks: int = 2
+    critic_num_blocks: int = 2
+    actor_bc_alpha: float = 0.0
+    actor_noise_zeta_mu: float = 2.0
+    actor_noise_zeta_max: int = 16
+    critic_min_v: float = -5.0
+    critic_max_v: float = 5.0
+    temp_initial_value: float = 0.01
+    temp_target_sigma: float = 0.15
+    temp_target_entropy: float | None = None
+    learning_rate_init: float = 3e-4
+    learning_rate_peak: float = 3e-4
+    learning_rate_end: float = 1.5e-4
+    learning_rate_warmup_steps: int = 0
+    learning_rate_decay_steps: int = 500000
+    n_step: int = 1
+    use_compile: bool = False
+
+
+@dataclass
+class FlashSACConfig(BaseConfig):
+    algo: str = "flashsac"
+    algo_log_name: str = "flash_sac"
+    seed: int = 1
+    num_envs: int = 2048
+    batch_size: int = 2048
+    replay_buffer_n: int = 512
+    updates_per_step: int = 1
+    warmup_steps: int = 10000
+    policy_frequency: int = 2
+    env_steps_per_sync: int = 1
+    max_iterations: int = 5000
+    save_interval: int = 1000
+    gamma: float = 0.99
+    tau: float = 0.01
+    actor_lr: float = 3e-4
+    critic_lr: float = 3e-4
+    actor_hidden_dim: int = 128
+    critic_hidden_dim: int = 256
+    num_atoms: int = 101
+    obs_normalization: bool = False
+    use_layer_norm: bool = False
+    algo_params: FlashSACAlgoParams = field(default_factory=FlashSACAlgoParams)
+
+
 # ── APPO ─────────────────────────────────────────────────────────────────────
 
 

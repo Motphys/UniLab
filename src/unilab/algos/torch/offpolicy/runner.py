@@ -23,7 +23,7 @@ class OffPolicyRunner(AsyncRunner):
         self,
         learner,
         env_name: str,
-        algo_type: str,  # "sac" or "td3"
+        algo_type: str,  # "sac", "td3", or "flashsac"
         num_envs: int = 4096,
         replay_buffer_n: int = 1024,
         batch_size: int = 8192,
@@ -38,6 +38,7 @@ class OffPolicyRunner(AsyncRunner):
         obs_normalization: bool = False,
         sim_backend: str = "mujoco",
         env_cfg_override: dict | None = None,
+        actor_kwargs: dict | None = None,
     ):
         super().__init__(
             env_name=env_name,
@@ -62,6 +63,7 @@ class OffPolicyRunner(AsyncRunner):
         self.actor_hidden_dim = actor_hidden_dim
         self.use_layer_norm = use_layer_norm
         self.obs_normalization = obs_normalization
+        self.actor_kwargs = actor_kwargs or {}
 
         self.obs_dim, self.action_dim, self.privileged_dim = get_env_dims(
             self.env_name, sim_backend, env_cfg_override
@@ -145,6 +147,7 @@ class OffPolicyRunner(AsyncRunner):
             "env_cfg_override": self.env_cfg_override,
             "obs_dim": self.obs_dim,
             "action_dim": self.action_dim,
+            "actor_kwargs": self.actor_kwargs,
         }
         self._start_collector(
             target_fn=off_policy_collector_fn,
@@ -157,7 +160,9 @@ class OffPolicyRunner(AsyncRunner):
 
         # Setup logger
         logger = OffPolicyLogger(
-            algo_name=f"Fast{self.algo_type.upper()}",
+            algo_name=(
+                "FlashSAC" if self.algo_type == "flashsac" else f"Fast{self.algo_type.upper()}"
+            ),
             max_iterations=max_iterations,
             num_envs=self.num_envs,
             env_name=self.env_name,

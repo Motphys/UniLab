@@ -1113,6 +1113,25 @@ def test_offpolicy_td3_hydra_default_algo_log_name():
     assert cfg.algo.load_run == "-1"
 
 
+def test_offpolicy_flashsac_hydra_algo_log_name():
+    cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_sac/mujoco"])
+    assert cfg.algo.algo_log_name == "flash_sac"
+    assert cfg.algo.load_run == "-1"
+
+
+def test_offpolicy_flashsac_rejects_multi_gpu():
+    cfg = _offpolicy_cfg(
+        [
+            "algo=flashsac",
+            "task=flashsac/g1_sac/mujoco",
+            "training.num_gpus=2",
+        ]
+    )
+
+    with pytest.raises(ValueError, match="FlashSAC does not support training.num_gpus > 1"):
+        _offpolicy().build_runner("flashsac", cfg)
+
+
 def test_train_rsl_rl_get_log_root_uses_algo_log_name(monkeypatch: pytest.MonkeyPatch):
     """Verify _get_log_root uses algo.algo_log_name (issue #168)."""
     mod = _train_rsl_rl(monkeypatch)
