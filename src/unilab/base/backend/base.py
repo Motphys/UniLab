@@ -99,16 +99,6 @@ class SimBackend(abc.ABC):
 
         return np.asarray(get_named_body_ids(self._model_file, names), dtype=np.int32)
 
-    def resolve_action_scale(self, action_scale: float | np.ndarray) -> float | np.ndarray:
-        """Return the action scale after backend-specific control adaptation."""
-        return action_scale
-
-    def log_action_scale_diagnostics(
-        self, action_scale: float | np.ndarray, *, enabled: bool = False
-    ) -> None:
-        """Emit backend-owned diagnostics for action-scale configuration."""
-        return None
-
     @abc.abstractmethod
     def get_joint_range(self) -> np.ndarray | None:
         """获取关节位置限制（不含浮动基座）

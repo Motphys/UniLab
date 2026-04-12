@@ -140,7 +140,6 @@ class G1MotionTrackingCfg(G1BaseCfg):
         "right_wrist_yaw_link",
     )
     sampling_mode: Literal["start", "clip_start", "uniform", "adaptive"] = "adaptive"
-    log_action_scale: bool = False
     max_episode_seconds: float = 10.0
     reward_config: RewardConfig = field(default_factory=RewardConfig)
     pose_randomization: PoseRandomization = field(default_factory=PoseRandomization)
@@ -305,13 +304,6 @@ class G1MotionTrackingEnv(G1BaseEnv):
             iterations=cfg.iterations,
         )
         super().__init__(cfg, backend, num_envs)
-        self._cfg.control_config.action_scale = self._backend.resolve_action_scale(
-            self._cfg.control_config.action_scale
-        )
-        self._backend.log_action_scale_diagnostics(
-            self._cfg.control_config.action_scale,
-            enabled=self._cfg.log_action_scale,
-        )
 
         # Resolve body IDs for backend querying and motion-file indexing.
         self.body_ids = self._backend.get_body_ids(cfg.body_names)

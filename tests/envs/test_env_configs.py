@@ -172,7 +172,7 @@ def test_g1_motion_tracking_cfg_preserves_legacy_defaults():
     assert cfg.anchor_ori_threshold == pytest.approx(0.8)
 
 
-def test_g1_motion_tracking_init_delegates_backend_specific_hooks(monkeypatch):
+def test_g1_motion_tracking_init_delegates_motion_body_ids_to_backend(monkeypatch):
     from unilab.envs.locomotion.g1.base import G1BaseEnv
     from unilab.envs.motion_tracking.g1 import tracking as tracking_module
     from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingCfg, G1MotionTrackingEnv
@@ -187,18 +187,6 @@ def test_g1_motion_tracking_init_delegates_backend_specific_hooks(monkeypatch):
         def get_motion_body_ids(self, names: tuple[str, ...]) -> np.ndarray:
             calls["motion_body_ids_names"] = names
             return np.array([1, 2], dtype=np.int32)
-
-        def resolve_action_scale(self, action_scale: float | np.ndarray) -> np.ndarray:
-            calls["resolved_action_scale_input"] = action_scale
-            return np.array([0.125, 0.25], dtype=np.float32)
-
-        def log_action_scale_diagnostics(
-            self, action_scale: float | np.ndarray, *, enabled: bool = False
-        ) -> None:
-            calls["log_action_scale"] = (
-                enabled,
-                np.array(action_scale, dtype=np.float32, copy=True),
-            )
 
     def fake_base_init(self, cfg, backend, num_envs):
         self._cfg = cfg
@@ -236,15 +224,10 @@ def test_g1_motion_tracking_init_delegates_backend_specific_hooks(monkeypatch):
         motion_file="dummy_motion.npz",
         body_names=("pelvis", "torso_link"),
         ee_body_names=("torso_link",),
-        log_action_scale=True,
     )
     env = cast(Any, G1MotionTrackingEnv)(cfg, num_envs=4, backend_type="motrix")
 
     np.testing.assert_array_equal(env.body_ids, np.array([10, 11], dtype=np.int32))
-    np.testing.assert_array_equal(
-        env._cfg.control_config.action_scale,
-        np.array([0.125, 0.25], dtype=np.float32),
-    )
     assert calls["body_ids_names"] == cfg.body_names
     assert calls["motion_body_ids_names"] == cfg.body_names
     assert calls["motion_loader"][0] == "dummy_motion.npz"
@@ -252,11 +235,6 @@ def test_g1_motion_tracking_init_delegates_backend_specific_hooks(monkeypatch):
     assert calls["motion_sampler"][1:] == ("adaptive", 4)
     assert calls["dr_provider"] == "G1MotionTrackingDomainRandomizationProvider"
     assert calls["reward_init"] is True
-    assert calls["log_action_scale"][0] is True
-    np.testing.assert_array_equal(
-        calls["log_action_scale"][1],
-        np.array([0.125, 0.25], dtype=np.float32),
-    )
 
 
 def test_g1_flip_tracking_cfg_uses_flip_profile():
