@@ -16,7 +16,38 @@ import torch
 from rsl_rl.utils import resolve_callable
 
 from unilab.utils.algo_utils import ensure_registries
-from unilab.utils.obs_utils import flatten_obs_dict, split_obs_dict
+from unilab.utils.final_observation import resolve_terminal_observation_contract
+from unilab.utils.obs_utils import split_obs_dict
+
+
+def compute_timeout_bootstrap_correction(
+    critic: Any,
+    collector_device: str,
+    gamma: float,
+    timeout_mask: np.ndarray,
+    final_obs: np.ndarray,
+    final_privileged: np.ndarray | None,
+) -> np.ndarray:
+    """Compute gamma * V(final_observation) for current timeout envs."""
+    corrections = np.zeros(timeout_mask.shape, dtype=np.float32)
+    if not np.any(timeout_mask):
+        return corrections
+
+    from tensordict import TensorDict
+
+    critic_input_np = final_obs
+    if final_privileged is not None:
+        critic_input_np = np.concatenate([final_obs, final_privileged], axis=-1)
+    critic_input = torch.from_numpy(critic_input_np[timeout_mask]).to(collector_device)
+    critic_td = TensorDict(
+        {"policy": critic_input},
+        batch_size=critic_input.shape[0],
+        device=collector_device,
+    )
+    with torch.no_grad():
+        bootstrap = critic(critic_td).squeeze(-1).cpu().numpy().astype(np.float32, copy=False)
+    corrections[timeout_mask] = float(gamma) * bootstrap
+    return corrections
 
 
 def appo_collector_fn(
@@ -30,8 +61,10 @@ def appo_collector_fn(
     obs_dim: int,
     action_dim: int,
     privileged_dim: int,
-    weight_sync_name: str,
-    weight_param_shapes: dict,
+    actor_weight_sync_name: str,
+    actor_weight_param_shapes: dict,
+    critic_weight_sync_name: str,
+    critic_weight_param_shapes: dict,
     metrics_queue: Any,
     collector_device: str = "cpu",
     sim_backend: str = "mujoco",
@@ -62,7 +95,12 @@ def appo_collector_fn(
         shm_name_prefix=shm_storage_name,
     )
     storage.attach_sync_primitives(*sync_primitives)  # (write_ptr, read_ptr)
-    weight_sync = SharedWeightSync(weight_param_shapes, create=False, shm_name=weight_sync_name)
+    actor_weight_sync = SharedWeightSync(
+        actor_weight_param_shapes, create=False, shm_name=actor_weight_sync_name
+    )
+    critic_weight_sync = SharedWeightSync(
+        critic_weight_param_shapes, create=False, shm_name=critic_weight_sync_name
+    )
 
     # Create environment
     env: Any = registry.make(
@@ -94,11 +132,33 @@ def appo_collector_fn(
     actor = actor.to(collector_device)
     actor.eval()
 
+    critic_obs_dim = obs_dim + privileged_dim
+    critic_obs_example = torch.zeros((num_envs, critic_obs_dim), device=collector_device)
+    critic_td_example = TensorDict({"policy": critic_obs_example}, batch_size=num_envs)
+    critic_cfg = deepcopy(cfg.get("critic") or cfg.get("actor") or {})
+    critic_cls = resolve_callable(critic_cfg.pop("class_name", "rsl_rl.models.MLPModel"))
+    critic_cfg.pop("num_actions", None)
+    critic_cfg.pop("distribution_cfg", None)
+    critic = critic_cls(
+        critic_td_example,
+        cfg.get("obs_groups", {"actor": {"policy": critic_obs_dim}}),
+        "actor",
+        1,
+        **critic_cfg,
+    )
+    critic = critic.to(collector_device)
+    critic.eval()
+
     # Load initial weights
-    sd = dict(actor.state_dict())
-    weight_sync.read_weights_into(sd)
-    actor.load_state_dict(sd)
-    local_weight_version = weight_sync.version
+    actor_sd = dict(actor.state_dict())
+    actor_weight_sync.read_weights_into(actor_sd)
+    actor.load_state_dict(actor_sd)
+    local_actor_weight_version = actor_weight_sync.version
+
+    critic_sd = dict(critic.state_dict())
+    critic_weight_sync.read_weights_into(critic_sd)
+    critic.load_state_dict(critic_sd)
+    local_critic_weight_version = critic_weight_sync.version
 
     # Reset environment
     env_indices = np.arange(num_envs, dtype=np.int32)
@@ -141,10 +201,14 @@ def appo_collector_fn(
     try:
         while not stop_event.is_set():
             # Pull latest weights from learner
-            if weight_sync.version > local_weight_version:
-                sd = dict(actor.state_dict())
-                local_weight_version = weight_sync.read_weights_into(sd)
-                actor.load_state_dict(sd)
+            if actor_weight_sync.version > local_actor_weight_version:
+                actor_sd = dict(actor.state_dict())
+                local_actor_weight_version = actor_weight_sync.read_weights_into(actor_sd)
+                actor.load_state_dict(actor_sd)
+            if critic_weight_sync.version > local_critic_weight_version:
+                critic_sd = dict(critic.state_dict())
+                local_critic_weight_version = critic_weight_sync.read_weights_into(critic_sd)
+                critic.load_state_dict(critic_sd)
 
             # Collect one rollout of length steps_per_env
             write_buf = storage.write_buffer
@@ -175,33 +239,48 @@ def appo_collector_fn(
 
                 next_obs_raw = state.obs
                 reward_raw = np.asarray(state.reward, dtype=np.float32).ravel()
-                done_raw = np.asarray(state.terminated, dtype=np.float32).ravel()
+                terminated_raw = np.asarray(state.terminated, dtype=np.float32).ravel()
                 truncated_raw = np.asarray(state.truncated, dtype=np.float32).ravel()
+                combined_done_raw = np.clip(terminated_raw + truncated_raw, 0, 1)
+
+                next_actor_obs_np, next_actor_priv_np = split_obs_dict(next_obs_raw)
+                next_actor_obs_np = to_float32_np(next_actor_obs_np)
+                if next_actor_priv_np is not None:
+                    next_actor_priv_np = to_float32_np(next_actor_priv_np)
+                terminal_contract = resolve_terminal_observation_contract(
+                    next_obs_batch_size=next_actor_obs_np.shape[0],
+                    final_observation=getattr(state, "final_observation", None),
+                    done=combined_done_raw > 0.5,
+                    info=state.info,
+                    truncated=truncated_raw,
+                )
+
+                reward_raw += compute_timeout_bootstrap_correction(
+                    critic=critic,
+                    collector_device=collector_device,
+                    gamma=float(cfg["algorithm"].get("gamma", 0.99)),
+                    timeout_mask=terminal_contract.timeout_terminal_mask,
+                    final_obs=(
+                        terminal_contract.terminal_obs
+                        if terminal_contract.terminal_obs is not None
+                        else next_actor_obs_np
+                    ),
+                    final_privileged=(
+                        terminal_contract.terminal_privileged
+                        if terminal_contract.terminal_privileged is not None
+                        else next_actor_priv_np
+                    ),
+                )
 
                 write_buf["rewards"][:, step] = reward_raw
-                write_buf["dones"][:, step] = done_raw
+                write_buf["dones"][:, step] = combined_done_raw
                 write_buf["truncated"][:, step] = truncated_raw
-
-                obs_np, priv_np = split_obs_dict(next_obs_raw)
-                obs_np = to_float32_np(obs_np)
-                if priv_np is not None:
-                    priv_np = to_float32_np(priv_np)
-
-                # Bootstrap from true terminal obs so next rollout starts cleanly
-                if "_final_observation" in state.info:
-                    has_final = np.asarray(state.info["_final_observation"], dtype=bool)
-                    if np.any(has_final):
-                        final_obs, final_priv = split_obs_dict(state.info["final_observation"])
-                        obs_np[has_final] = to_float32_np(final_obs)[has_final]
-                        if priv_np is not None and final_priv is not None:
-                            priv_np[has_final] = to_float32_np(final_priv)[has_final]
 
                 # Episode tracking (vectorized)
                 total_steps += num_envs
                 current_ep_rewards += reward_raw
                 current_ep_lengths += 1
-                combined_dones = np.clip(done_raw + truncated_raw, 0, 1)
-                reset_indices = np.where(combined_dones > 0.5)[0]
+                reset_indices = np.where(combined_done_raw > 0.5)[0]
                 if len(reset_indices) > 0:
                     ep_rewards.extend(current_ep_rewards[reset_indices].tolist())
                     ep_lengths.extend(current_ep_lengths[reset_indices].tolist())
@@ -246,6 +325,9 @@ def appo_collector_fn(
                     except Exception as e:
                         print(f"[APPOWorker] metrics enqueue error: {e}", file=sys.stderr)
 
+                obs_np = next_actor_obs_np
+                priv_np = next_actor_priv_np
+
             write_buf["last_obs"][:] = obs_np
             if priv_np is not None:
                 write_buf["last_privileged"][:] = priv_np
@@ -265,5 +347,6 @@ def appo_collector_fn(
         raise
 
     storage.close()
-    weight_sync.close()
+    actor_weight_sync.close()
+    critic_weight_sync.close()
     env.close()

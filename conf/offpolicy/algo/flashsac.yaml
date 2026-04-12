@@ -1,0 +1,43 @@
+# @package algo
+algo: flashsac
+algo_log_name: flash_sac
+load_run: "-1"
+seed: 1
+num_envs: 2048
+batch_size: 2048
+replay_buffer_n: 512
+updates_per_step: 1
+warmup_steps: 10000
+policy_frequency: 2
+env_steps_per_sync: 1
+max_iterations: 5000
+save_interval: 1000
+gamma: 0.99
+tau: 0.01
+actor_lr: 3.0e-4
+critic_lr: 3.0e-4
+actor_hidden_dim: 128
+critic_hidden_dim: 256
+num_atoms: 101
+obs_normalization: false
+use_layer_norm: false
+algo_params:
+  normalize_reward: true
+  normalized_g_max: 5.0
+  actor_num_blocks: 2
+  critic_num_blocks: 2
+  actor_bc_alpha: 0.0
+  actor_noise_zeta_mu: 2.0
+  actor_noise_zeta_max: 16
+  critic_min_v: -5.0
+  critic_max_v: 5.0
+  temp_initial_value: 0.01
+  temp_target_sigma: 0.15
+  temp_target_entropy: null
+  learning_rate_init: 3.0e-4
+  learning_rate_peak: 3.0e-4
+  learning_rate_end: 1.5e-4
+  learning_rate_warmup_steps: 0
+  learning_rate_decay_steps: 500000
+  n_step: 1
+  use_compile: false

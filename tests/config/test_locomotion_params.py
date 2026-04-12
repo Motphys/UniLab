@@ -36,6 +36,17 @@ def test_td3_config_defaults():
     assert cfg.algo_params.weight_decay == 0.1
 
 
+def test_flashsac_config_defaults():
+    from unilab.config.structured_configs import FlashSACAlgoParams, FlashSACConfig
+
+    cfg = FlashSACConfig()
+    assert cfg.algo == "flashsac"
+    assert cfg.batch_size == 2048
+    assert cfg.obs_normalization is False
+    assert isinstance(cfg.algo_params, FlashSACAlgoParams)
+    assert cfg.algo_params.normalize_reward is True
+
+
 def test_ppo_config_defaults():
     from unilab.config.structured_configs import PPOConfig
 
@@ -43,6 +54,7 @@ def test_ppo_config_defaults():
     assert cfg.algo == "ppo"
     assert cfg.max_iterations == 101
     assert cfg.algorithm.clip_param == 0.2
+    assert cfg.algorithm.class_name == "unilab.algos.torch.rsl_rl_ppo:FinalObservationAwarePPO"
     assert cfg.policy.class_name == "ActorCritic"
 
 
@@ -121,6 +133,23 @@ def test_offpolicy_go2_task_overrides():
         cfg = compose("config", overrides=["algo=sac", "task=sac/go2_joystick/mujoco"])
     assert cfg.algo.num_envs == 1024
     assert cfg.training.task_name == "Go2JoystickFlatTerrain"
+
+
+def test_offpolicy_flashsac_g1_task_overrides():
+    from hydra import compose, initialize_config_dir
+    from hydra.core.global_hydra import GlobalHydra
+
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(CONF_DIR / "offpolicy"), version_base="1.3"):
+        cfg = compose(
+            "config",
+            overrides=["algo=flashsac", "task=flashsac/g1_sac/mujoco"],
+        )
+    assert cfg.algo.algo == "flashsac"
+    assert cfg.training.task_name == "G1WalkTaskMjSAC"
+    assert cfg.training.sim_backend == "mujoco"
+    assert cfg.algo.algo_params.actor_num_blocks == 2
+    assert cfg.algo.algo_params.normalize_reward is True
 
 
 # ---------------------------------------------------------------------------

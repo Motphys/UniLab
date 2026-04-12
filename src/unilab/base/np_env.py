@@ -20,7 +20,8 @@ class NpEnvState:
     reward: np.ndarray
     terminated: np.ndarray
     truncated: np.ndarray
-    info: dict
+    info: dict[str, Any]
+    final_observation: dict[str, np.ndarray] | None = None
 
     @property
     def done(self) -> np.ndarray:
@@ -39,6 +40,7 @@ class NpEnv(ABEnv):
         self._num_envs = num_envs
         self._state: Optional[NpEnvState] = None
         self._truncated_scratch: np.ndarray = np.zeros((self._num_envs,), dtype=bool)
+        self._final_observation_scratch: dict[str, np.ndarray] | None = None
         self.step_counter = 0
         self._dr_manager: DomainRandomizationManager | None = None
 
@@ -79,6 +81,7 @@ class NpEnv(ABEnv):
 
         self._state = NpEnvState(obs, reward, terminated, truncated, info)
         self._reset_done_envs()
+        self._clear_step_final_observation()
         return self._state
 
     def step(self, actions: np.ndarray) -> NpEnvState:
@@ -98,9 +101,7 @@ class NpEnv(ABEnv):
         if self._dr_manager is not None:
             self._dr_manager.apply_interval_randomization_if_due(self.step_counter)
         self._state.truncated.fill(False)
-        final_obs_mask = self._state.info.get("_final_observation")
-        if isinstance(final_obs_mask, np.ndarray):
-            final_obs_mask.fill(False)
+        self._clear_step_final_observation()
 
         t0 = time.perf_counter()
         backend_result = self._backend.step(ctrl, self._cfg.sim_substeps)
@@ -144,18 +145,17 @@ class NpEnv(ABEnv):
         env_indices = np.flatnonzero(done).astype(np.int32)
         self._state.info["steps"][env_indices] = 0
 
-        if "final_observation" not in self._state.info:
-            self._state.info["final_observation"] = {
-                k: np.zeros_like(v) for k, v in self._state.obs.items()
-            }
-            self._state.info["_final_observation"] = np.zeros((self._num_envs,), dtype=bool)
-
-        self._state.info["_final_observation"][:] = False
-        self._state.info["_final_observation"][env_indices] = True
+        final_observation = self._ensure_final_observation_scratch()
+        compat_final_observation, compat_terminal_mask = (
+            self._ensure_final_observation_compat_buffers()
+        )
+        compat_terminal_mask[:] = False
+        compat_terminal_mask[env_indices] = True
         for key in self._state.obs:
-            self._state.info["final_observation"][key][env_indices] = self._state.obs[key][
-                env_indices
-            ]
+            final_observation[key][env_indices] = self._state.obs[key][env_indices]
+            compat_final_observation[key][env_indices] = final_observation[key][env_indices]
+
+        self._state.final_observation = final_observation
 
         new_obs, info1 = self.reset(env_indices)
         for key in self._state.obs:
@@ -172,6 +172,61 @@ class NpEnv(ABEnv):
                         self._state.info[key] = value
                 elif isinstance(value, np.ndarray):
                     self._state.info[key][env_indices] = value
+
+    def _ensure_final_observation_scratch(self) -> dict[str, np.ndarray]:
+        assert self._state is not None
+        obs = self._state.obs
+        scratch = self._final_observation_scratch
+        if scratch is None or set(scratch) != set(obs):
+            scratch = {key: np.zeros_like(value) for key, value in obs.items()}
+            self._final_observation_scratch = scratch
+        else:
+            for key, value in obs.items():
+                if scratch[key].shape != value.shape or scratch[key].dtype != value.dtype:
+                    scratch = {
+                        obs_key: np.zeros_like(obs_value) for obs_key, obs_value in obs.items()
+                    }
+                    self._final_observation_scratch = scratch
+                    break
+        assert scratch is not None
+        return scratch
+
+    def _ensure_final_observation_compat_buffers(
+        self,
+    ) -> tuple[dict[str, np.ndarray], np.ndarray]:
+        assert self._state is not None
+        obs = self._state.obs
+        compat_final_observation = self._state.info.get("final_observation")
+        if not isinstance(compat_final_observation, dict) or set(compat_final_observation) != set(
+            obs
+        ):
+            compat_final_observation = {key: np.zeros_like(value) for key, value in obs.items()}
+            self._state.info["final_observation"] = compat_final_observation
+        else:
+            for key, value in obs.items():
+                if (
+                    compat_final_observation[key].shape != value.shape
+                    or compat_final_observation[key].dtype != value.dtype
+                ):
+                    compat_final_observation = {
+                        obs_key: np.zeros_like(obs_value) for obs_key, obs_value in obs.items()
+                    }
+                    self._state.info["final_observation"] = compat_final_observation
+                    break
+        compat_terminal_mask = self._state.info.get("_final_observation")
+        if not isinstance(compat_terminal_mask, np.ndarray) or compat_terminal_mask.shape != (
+            self._num_envs,
+        ):
+            compat_terminal_mask = np.zeros((self._num_envs,), dtype=bool)
+            self._state.info["_final_observation"] = compat_terminal_mask
+        return compat_final_observation, compat_terminal_mask
+
+    def _clear_step_final_observation(self) -> None:
+        assert self._state is not None
+        self._state.final_observation = None
+        compat_terminal_mask = self._state.info.get("_final_observation")
+        if isinstance(compat_terminal_mask, np.ndarray):
+            compat_terminal_mask.fill(False)
 
     def _init_domain_randomization(self, provider: "DomainRandomizationProvider") -> None:
         from unilab.dr import DomainRandomizationManager

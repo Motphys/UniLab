@@ -341,6 +341,9 @@ class TestResetDoneEnvs:
         env = _TerminatingStubEnv(num_envs=2, terminate_indices=[0])
         env.init_state()
         env.step(np.zeros((2, 3)))
+        assert isinstance(env.state.final_observation, dict)
+        assert "obs" in env.state.final_observation
+        assert "privileged" in env.state.final_observation
         assert isinstance(env.state.info["final_observation"], dict)
         assert "obs" in env.state.info["final_observation"]
         assert "privileged" in env.state.info["final_observation"]
@@ -351,6 +354,7 @@ class TestResetDoneEnvs:
         env.step(np.zeros((2, 3)))
         # update_state fills actor=1.0 before reset replaces it with 0.0
         # final_observation should capture the pre-reset obs (1.0)
+        np.testing.assert_array_equal(env.state.final_observation["obs"][0], 1.0)
         np.testing.assert_array_equal(env.state.info["final_observation"]["obs"][0], 1.0)
 
     def test_final_observation_mask(self):
@@ -363,11 +367,13 @@ class TestResetDoneEnvs:
     def test_final_observation_mask_clears_on_first_non_terminal_step(self):
         env = _StubNpEnv(num_envs=3)
         env.init_state()
-        np.testing.assert_array_equal(env.state.info["_final_observation"], [True, True, True])
+        assert env.state.final_observation is None
+        np.testing.assert_array_equal(env.state.info["_final_observation"], [False, False, False])
 
         state = env.step(np.zeros((3, 3)))
 
         np.testing.assert_array_equal(state.done, [False, False, False])
+        assert state.final_observation is None
         np.testing.assert_array_equal(state.info["_final_observation"], [False, False, False])
 
     def test_final_observation_mask_clears_after_terminal_step(self):
@@ -384,6 +390,7 @@ class TestResetDoneEnvs:
         non_terminal_state = env.step(np.zeros((3, 3)))
 
         np.testing.assert_array_equal(non_terminal_state.done, [False, False, False])
+        assert non_terminal_state.final_observation is None
         np.testing.assert_array_equal(
             non_terminal_state.info["_final_observation"], [False, False, False]
         )

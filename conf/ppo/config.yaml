@@ -28,7 +28,7 @@ algo:
     activation: elu
     class_name: ActorCritic
   algorithm:
-    class_name: PPO
+    class_name: unilab.algos.torch.rsl_rl_ppo:FinalObservationAwarePPO
     value_loss_coef: 1.0
     use_clipped_value_loss: true
     clip_param: 0.2
