@@ -18,26 +18,12 @@ Camera controls (MuJoCo viewer):
 import argparse
 import sys
 import time
-import types
 from pathlib import Path
 
+import mujoco
+import mujoco.viewer
 import numpy as np
 import torch
-
-try:
-    import mujoco
-    import mujoco.viewer
-except ImportError as exc:  # pragma: no cover - environment dependent
-    mujoco = types.SimpleNamespace(  # type: ignore[assignment]
-        viewer=types.SimpleNamespace(launch_passive=None),
-        MjData=None,
-        mj_setState=None,
-        mj_forward=None,
-        mjtState=types.SimpleNamespace(mjSTATE_FULLPHYSICS=0),
-    )
-    _MUJOCO_IMPORT_ERROR: ImportError | None = exc
-else:
-    _MUJOCO_IMPORT_ERROR = None
 
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
@@ -62,13 +48,6 @@ except ImportError:
     sys.exit(1)
 
 from tensordict import TensorDict
-
-
-def _require_mujoco() -> None:
-    if mujoco is None:  # pragma: no cover - environment dependent
-        raise ImportError(
-            "MuJoCo is required for interactive play but could not be imported."
-        ) from _MUJOCO_IMPORT_ERROR
 
 
 def _infer_checkpoint_actor_input_dim(ckpt_path: str) -> int | None:
@@ -408,7 +387,6 @@ def _render_reward_debug_targets(
 
 
 def play_interactive(args):
-    _require_mujoco()
     if torch.cuda.is_available():
         device = "cuda"
     elif torch.backends.mps.is_available():

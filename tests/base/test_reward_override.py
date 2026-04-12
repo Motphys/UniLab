@@ -6,13 +6,8 @@ from unilab.base import registry
 from unilab.utils.algo_utils import ensure_registries
 
 
-def _require_mujoco() -> None:
-    pytest.importorskip("mujoco", exc_type=ImportError)
-
-
 def test_reward_override_go1():
     """Test Go1 reward config override."""
-    _require_mujoco()
     ensure_registries()
 
     from unilab.envs.locomotion.go1.joystick import RewardConfig
@@ -36,7 +31,6 @@ def test_reward_override_go1():
 
 def test_reward_override_g1():
     """Test G1 reward config override."""
-    _require_mujoco()
     ensure_registries()
 
     from unilab.envs.locomotion.g1.joystick_sac import RewardConfigSAC

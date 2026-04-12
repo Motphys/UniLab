@@ -6,14 +6,9 @@ import numpy as np
 import pytest
 
 
-def _require_mujoco() -> None:
-    pytest.importorskip("mujoco", exc_type=ImportError)
-
-
 @pytest.mark.slow
 def test_reward_injection_in_training():
     """Test reward config is properly injected during training."""
-    _require_mujoco()
     from hydra import compose, initialize
     from scripts.train_offpolicy import build_runner
 
@@ -45,7 +40,6 @@ def test_reward_injection_in_training():
 
 def test_reward_override_propagation():
     """Test reward override propagates through multiprocess collector."""
-    _require_mujoco()
     from unilab.base import registry
     from unilab.envs.locomotion.go1.joystick import RewardConfig
     from unilab.utils.algo_utils import ensure_registries
@@ -94,7 +88,6 @@ def test_reward_override_propagation():
 
 def test_backward_compatibility_no_reward_config():
     """Test env requires reward config - should fail without it."""
-    _require_mujoco()
     from unilab.base import registry
     from unilab.utils.algo_utils import ensure_registries
 
@@ -111,7 +104,6 @@ def test_backward_compatibility_no_reward_config():
 
 def test_zero_scale_skips_computation():
     """Test that reward functions with scale=0 are skipped."""
-    _require_mujoco()
     from unilab.base import registry
     from unilab.envs.locomotion.go1.joystick import RewardConfig
     from unilab.utils.algo_utils import ensure_registries
