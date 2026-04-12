@@ -1,4 +1,4 @@
-"""Replay BONES-SEED G1 CSV motions in the MuJoCo viewer.
+"""MuJoCo-only replay of BONES-SEED G1 CSV motions in the MuJoCo viewer.
 
 This script targets the CSV files under ``src/unilab/assets/motions/g1/flip``.
 Those files share one 36-column layout:
@@ -14,12 +14,17 @@ Assumptions:
 - joint DOFs are stored in degrees
 - root Euler order defaults to ProtoMotions/Scipy-style extrinsic ``xyz``
 
+This replay path depends on the MuJoCo viewer/runtime and is not available for
+Motrix-only workflows.
+
 Usage:
     uv run python scripts/motion/replay_bones_seed_csv.py
     uv run python scripts/motion/replay_bones_seed_csv.py --input src/unilab/assets/motions/g1/flip
     uv run python scripts/motion/replay_bones_seed_csv.py --input src/unilab/assets/motions/g1/flip/flip_090_001__A304.csv
     uv run python scripts/motion/replay_bones_seed_csv.py --dry-run
 """
+
+# pyright: reportAttributeAccessIssue=false
 
 from __future__ import annotations
 

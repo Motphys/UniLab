@@ -1,4 +1,4 @@
-"""Convert G1 flip CSV motions to NPZ with forward kinematics.
+"""MuJoCo-only BONES-SEED CSV-to-NPZ conversion with forward kinematics.
 
 This script targets the CSV files under ``src/unilab/assets/motions/g1/flip``.
 Those files share one 36-column layout:
@@ -8,7 +8,11 @@ Those files share one 36-column layout:
 - ``root_rotateX/Y/Z``
 - 29 ``*_joint_dof`` columns using G1 MuJoCo joint names
 
-The exported NPZ format matches the motion tracking loader:
+The exported NPZ format matches the motion tracking loader. The export relies on
+MuJoCo model loading and tracking sensors, so it is not available for
+Motrix-only workflows.
+
+The exported NPZ format contains:
 - ``fps``
 - ``joint_pos``
 - ``joint_vel``
@@ -22,6 +26,8 @@ Usage:
     uv run python scripts/motion/bones_seed_csv_to_npz.py --dry-run
     uv run python scripts/motion/bones_seed_csv_to_npz.py --input src/unilab/assets/motions/g1/flip/flip_090_001__A304.csv
 """
+
+# pyright: reportAttributeAccessIssue=false
 
 from __future__ import annotations
 
