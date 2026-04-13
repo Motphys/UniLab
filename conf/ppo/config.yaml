@@ -70,10 +70,12 @@ training:
   play_only: false
   no_play: false
   play_env_num: 16
+  render_spacing: 1.0
   play_steps: 200
   cam_distance: 6.0
   cam_elevation: -20.0
   cam_azimuth: 90.0
+  cam_lookat: null
   num_timesteps: null
   log_dir: null
 

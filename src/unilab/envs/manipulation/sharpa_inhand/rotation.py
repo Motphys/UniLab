@@ -15,7 +15,6 @@ from unilab.envs.manipulation.sharpa_inhand.base import (
     SharpaInhandBaseCfg,
     SharpaInhandBaseEnv,
     apply_random_rotation_to_positions,
-    format_scale_tag,
     repeat_obs_history,
     resolve_grasp_cache_file,
     sample_bucketed_grasp_cache,
@@ -43,6 +42,10 @@ class RewardConfig:
 @dataclass
 class SharpaInhandRotationCfg(SharpaInhandBaseCfg):
     reward_config: RewardConfig | None = None
+    zero_action_test_mode: bool = False
+    # "full": legacy Sharpa observation (proprio+tactile+contact-pos+privileged mode).
+    # "simple": only {joint_pos, target_joint_pos, object_pos} with history.
+    observation_mode: str = "full"
 
 
 class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
@@ -60,17 +63,7 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
 
         cache_file = resolve_grasp_cache_file(env.cfg.grasp_cache_path, env.cfg.scale_range)
         if not cache_file.exists():
-            hand_qpos = np.asarray(env.default_angles, dtype=np.float64)
-            object_pos = np.asarray(env._init_qpos[env._obj_pos_slice], dtype=np.float64)
-            object_quat = np.asarray(env._init_qpos[env._obj_quat_slice], dtype=np.float64)
-            seed_pose = np.concatenate([hand_qpos, object_pos, object_quat], axis=0)
-            env._grasp_cache = np.tile(seed_pose[None, :], (max(1, int(env._num_scales)), 1))
-            print(
-                "[sharpa_inhand] WARNING: grasp cache not found at "
-                f"{cache_file} (scale tag: {format_scale_tag(env.cfg.scale_range)}); "
-                "falling back to deterministic init-pose reset."
-            )
-            return cast(np.ndarray, env._grasp_cache)
+            raise RuntimeError(f"No saved grasping states found at {cache_file}")
 
         env._grasp_cache = np.load(cache_file).astype(np.float64)
         return cast(np.ndarray, env._grasp_cache)
@@ -143,14 +136,21 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
         tactile = np.zeros((num_reset, env._num_tactile), dtype=dtype)
         contact_pos = np.zeros((num_reset, env._num_tactile * 3), dtype=dtype)
         hand_qpos_f = hand_qpos.astype(dtype)
-        dof_norm = env._normalize_joint_pos(hand_qpos_f)
-        init_frame = np.concatenate([dof_norm, hand_qpos_f, tactile, contact_pos], axis=1).astype(
-            dtype
+        targets = hand_qpos_f.copy()
+        object_pos_f = object_pos.astype(dtype)
+        init_frame = env._build_obs_frame(
+            dof_pos=hand_qpos_f,
+            targets=targets,
+            object_pos=object_pos_f,
+            tactile=tactile,
+            contact_pos=contact_pos,
         )
         obs_lag_history = repeat_obs_history(init_frame, env.cfg.obs_history_len).astype(dtype)
 
-        object_default_pose = np.concatenate([object_pos, object_quat], axis=1).astype(dtype)
-        priv_info[:, 0:3] = object_pos.astype(dtype) - object_default_pose[:, 0:3]
+        object_default_pose = np.concatenate(
+            [object_pos_f, object_quat.astype(dtype)], axis=1
+        ).astype(dtype)
+        priv_info[:, 0:3] = object_pos_f - object_default_pose[:, 0:3]
 
         return {
             "current_actions": np.zeros((num_reset, env._num_action), dtype=dtype),
@@ -283,15 +283,39 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         )
         super().__init__(cfg, backend, num_envs)
 
-        expected_frame_dim = (
+        observation_mode = str(cfg.observation_mode).strip().lower()
+        if observation_mode not in ("full", "simple"):
+            raise ValueError(
+                "observation_mode must be one of {'full', 'simple'}, "
+                f"got {cfg.observation_mode!r}"
+            )
+        self._observation_mode = observation_mode
+
+        expected_full_frame_dim = (
             self._num_action + self._num_action + self._num_tactile + self._num_tactile * 3
         )
-        if cfg.frame_obs_dim != expected_frame_dim:
+        if self._observation_mode == "full" and cfg.frame_obs_dim != expected_full_frame_dim:
             raise ValueError(
-                f"frame_obs_dim must be {expected_frame_dim} for current task layout, got {cfg.frame_obs_dim}"
+                "frame_obs_dim must be "
+                f"{expected_full_frame_dim} for current task layout, got {cfg.frame_obs_dim}"
             )
 
+        if cfg.torque_control:
+            raise NotImplementedError(
+                "Sharpa torque_control=True is not implemented with the current position-actuator XML setup. "
+                "Set env.torque_control=false. Virtual torques are still computed explicitly for reward terms."
+            )
+
+        mode = str(cfg.privileged_obs_mode).strip().lower()
+        if mode not in ("separate", "merged"):
+            raise ValueError(
+                "privileged_obs_mode must be one of {'separate', 'merged'}, "
+                f"got {cfg.privileged_obs_mode!r}"
+            )
+        self._privileged_obs_mode = "separate" if self._observation_mode == "simple" else mode
+
         self._reward_cfg = cfg.reward_config
+        self._zero_action_test_mode = bool(cfg.zero_action_test_mode)
         self._enable_reward_log = True
         self._grasp_cache: np.ndarray | None = None
 
@@ -303,12 +327,61 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
 
         self._init_domain_randomization(SharpaInhandRotationDRProvider())
 
+    def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
+        actions_np = np.asarray(actions, dtype=self._np_dtype)
+        if self._zero_action_test_mode:
+            actions_np = np.zeros_like(actions_np, dtype=self._np_dtype)
+        return super().apply_action(actions_np, state)
+
+    @property
+    def _simple_frame_obs_dim(self) -> int:
+        return self._num_action + self._num_action + 3
+
+    def _obs_frame_dim(self) -> int:
+        if self._observation_mode == "simple":
+            return self._simple_frame_obs_dim
+        return int(self._cfg.frame_obs_dim)
+
+    def _build_obs_frame(
+        self,
+        dof_pos: np.ndarray,
+        targets: np.ndarray,
+        object_pos: np.ndarray,
+        tactile: np.ndarray,
+        contact_pos: np.ndarray,
+    ) -> np.ndarray:
+        dof_pos_f = np.asarray(dof_pos, dtype=self._np_dtype)
+        targets_f = np.asarray(targets, dtype=self._np_dtype)
+        object_pos_f = np.asarray(object_pos, dtype=self._np_dtype)
+
+        dof_norm = self._normalize_joint_pos(dof_pos_f)
+        if self._cfg.joint_noise_scale > 0.0:
+            dof_norm += (
+                np.random.uniform(-1.0, 1.0, size=dof_norm.shape).astype(self._np_dtype)
+                * self._cfg.joint_noise_scale
+            )
+
+        if self._observation_mode == "simple":
+            return np.asarray(
+                np.concatenate([dof_norm, targets_f, object_pos_f], axis=1),
+                dtype=self._np_dtype,
+            )
+
+        tactile_f = np.asarray(tactile, dtype=self._np_dtype)
+        contact_pos_f = np.asarray(contact_pos, dtype=self._np_dtype)
+        return np.asarray(
+            np.concatenate([dof_norm, targets_f, tactile_f, contact_pos_f], axis=1),
+            dtype=self._np_dtype,
+        )
+
     @property
     def obs_groups_spec(self) -> dict[str, int]:
-        return {
-            "obs": self._cfg.obs_lag_steps * self._cfg.frame_obs_dim,
-            "privileged": self._cfg.priv_info_dim,
-        }
+        base_obs_dim = self._cfg.obs_lag_steps * self._obs_frame_dim()
+        if self._observation_mode == "simple":
+            return {"obs": base_obs_dim}
+        if self._privileged_obs_mode == "merged":
+            return {"obs": base_obs_dim + self._cfg.priv_info_dim}
+        return {"obs": base_obs_dim, "privileged": self._cfg.priv_info_dim}
 
     def _compute_obs_from_inputs(
         self,
@@ -318,18 +391,15 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         tactile: np.ndarray,
         contact_pos: np.ndarray,
     ) -> dict[str, np.ndarray]:
-        dof_norm = self._normalize_joint_pos(dof_pos)
-
-        if self._cfg.joint_noise_scale > 0.0:
-            dof_norm += (
-                np.random.uniform(-1.0, 1.0, size=dof_norm.shape).astype(self._np_dtype)
-                * self._cfg.joint_noise_scale
-            )
-
         targets = np.asarray(info.get("prev_targets", dof_pos), dtype=self._np_dtype)
-        frame = np.concatenate([dof_norm, targets, tactile, contact_pos], axis=1).astype(
-            self._np_dtype
+        frame = self._build_obs_frame(
+            dof_pos=dof_pos,
+            targets=targets,
+            object_pos=object_pos,
+            tactile=tactile,
+            contact_pos=contact_pos,
         )
+        batch_size = int(frame.shape[0])
 
         history = info.get("obs_lag_history")
         if history is None:
@@ -342,10 +412,17 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         info["obs_lag_history"] = history
         info["proprio_hist"] = self._update_proprio_history(history)
 
+        obs = np.asarray(
+            history[:, -self._cfg.obs_lag_steps :].reshape(batch_size, -1),
+            dtype=self._np_dtype,
+        )
+        if self._observation_mode == "simple":
+            return {"obs": obs}
+
         priv_info = np.asarray(
             info.get(
                 "priv_info",
-                np.zeros((self._num_envs, self._cfg.priv_info_dim), dtype=self._np_dtype),
+                np.zeros((batch_size, self._cfg.priv_info_dim), dtype=self._np_dtype),
             ),
             dtype=self._np_dtype,
         )
@@ -353,7 +430,7 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         object_default_pose = np.asarray(
             info.get(
                 "object_default_pose",
-                np.zeros((self._num_envs, 7), dtype=self._np_dtype),
+                np.zeros((batch_size, 7), dtype=self._np_dtype),
             ),
             dtype=self._np_dtype,
         )
@@ -361,11 +438,9 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
             priv_info[:, 0:3] = object_pos - object_default_pose[:, 0:3]
 
         info["priv_info"] = priv_info
-
-        obs = np.asarray(
-            history[:, -self._cfg.obs_lag_steps :].reshape(self._num_envs, -1),
-            dtype=self._np_dtype,
-        )
+        if self._privileged_obs_mode == "merged":
+            merged_obs = np.concatenate([obs, priv_info], axis=1).astype(self._np_dtype)
+            return {"obs": merged_obs}
         return {"obs": obs, "privileged": priv_info}
 
     def _compute_reward(
@@ -458,8 +533,9 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
             dtype=self._np_dtype,
         )
         p_gain, d_gain = self._resolve_pd_gains(state.info)
-        torques = np.asarray(
-            np.clip(p_gain * (targets - dof_pos) - d_gain * dof_vel, -0.5, 0.5),
+        # Explicit virtual torque used for reward parity with source Sharpa formulation.
+        virtual_torques = np.asarray(
+            p_gain * (targets - dof_pos) - d_gain * dof_vel,
             dtype=self._np_dtype,
         )
 
@@ -473,7 +549,7 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
             object_pos=object_pos,
             object_linvel=object_linvel,
             object_angvel=object_angvel,
-            torques=torques,
+            torques=virtual_torques,
         )
 
         reset_height_lower = np.asarray(
@@ -503,9 +579,11 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         )
 
         state.info["prev_hand_pos"] = dof_pos.copy()
+        state.info["hand_dof_vel"] = dof_vel.copy()
         state.info["prev_object_pos"] = object_pos.copy()
         state.info["prev_object_quat"] = object_quat.copy()
-        state.info["torques"] = torques
+        state.info["torques"] = virtual_torques
+        state.info["virtual_torques"] = virtual_torques.copy()
         state.info["object_linvel"] = object_linvel
         state.info["object_angvel"] = object_angvel
 

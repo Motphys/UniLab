@@ -9,7 +9,10 @@ from unilab.base import registry
 from unilab.base.np_env import NpEnvState
 from unilab.dr import ResetPlan
 from unilab.dr.dr_utils import build_common_reset_randomization
-from unilab.envs.manipulation.sharpa_inhand.base import resolve_grasp_cache_file
+from unilab.envs.manipulation.sharpa_inhand.base import (
+    SOURCE_DEFAULT_HAND_JOINT_POS_DEG,
+    resolve_grasp_cache_file,
+)
 from unilab.envs.manipulation.sharpa_inhand.rotation import (
     RewardConfig,
     SharpaInhandRotationCfg,
@@ -17,32 +20,6 @@ from unilab.envs.manipulation.sharpa_inhand.rotation import (
     SharpaInhandRotationEnv,
 )
 from unilab.utils.math_utils import np_quat_error_magnitude
-
-# Source: sharpa-rl-lab sharpa_wave_grasp_env_cfg.py (joint_pos default grasp pose).
-_SOURCE_DEFAULT_GRASP_ANGLES_DEG: tuple[float, ...] = (
-    95.12771,
-    -3.11244,
-    14.81626,
-    -1.03493,
-    12.23986,
-    65.21091,
-    6.1133,
-    15.58495,
-    5.90325,
-    31.74149,
-    -0.95812,
-    41.88173,
-    12.844,
-    31.72383,
-    9.84458,
-    35.22366,
-    18.02839,
-    10.9712,
-    68.30895,
-    7.99151,
-    5.89626,
-    5.89875,
-)
 
 
 @dataclass
@@ -160,7 +137,7 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
         self._grasp_cache_saved = False
         self._grasp_target_reached_notified = False
         self._grasp_default_angles = np.asarray(
-            np.deg2rad(np.asarray(_SOURCE_DEFAULT_GRASP_ANGLES_DEG, dtype=np.float64)),
+            np.deg2rad(np.asarray(SOURCE_DEFAULT_HAND_JOINT_POS_DEG, dtype=np.float64)),
             dtype=self._np_dtype,
         )
         if self._grasp_default_angles.shape[0] != self._num_action:
@@ -170,6 +147,12 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
             )
 
         self._init_domain_randomization(SharpaInhandGraspDRProvider())
+
+    def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
+        # Grasp-cache collection should not use policy/random actions.
+        # Keep controls fixed at reset targets by forcing zero action input.
+        zero_actions = np.zeros_like(actions, dtype=self._np_dtype)
+        return super().apply_action(zero_actions, state)
 
     def _total_saved_grasps(self) -> int:
         return int(sum(len(bucket) for bucket in self._saved_grasping_states))

@@ -31,8 +31,9 @@ reward:
   angvel_clip_min: -0.5
   angvel_clip_max: 0.5
 env:
-  max_episode_seconds: 12.0
+  max_episode_seconds: 3.0
   torque_control: false
+  zero_action_test_mode: false
   clip_obs: 5.0
   clip_actions: 1.0
   control_config:
@@ -46,6 +47,7 @@ env:
   rot_axis: [0.0, 0.0, 1.0]
   grasp_cache_path: cache/sharpa_grasp_linspace
   joint_noise_scale: 0.02
+  privileged_obs_mode: merged
   sensor:
     tactile_force_sensor_names:
       - contact_right_thumb_elastomer_force

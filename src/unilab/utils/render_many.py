@@ -127,9 +127,9 @@ def init_worker(model_path, shape):
 def render_frame_job(args):
     """
     Worker function to render a single frame.
-    args: (state_batch, offsets, transparent, cam_distance, cam_elevation, cam_azimuth)
+    args: (state_batch, offsets, transparent, cam_distance, cam_elevation, cam_azimuth, cam_lookat)
     """
-    state_batch, offsets, transparent, cam_distance, cam_elevation, cam_azimuth = args
+    state_batch, offsets, transparent, cam_distance, cam_elevation, cam_azimuth, cam_lookat = args
 
     model = _worker_ctx["model"]
     data = _worker_ctx["data"]
@@ -139,7 +139,8 @@ def render_frame_job(args):
     vopt = mujoco.MjvOption()
     vopt.flags[mujoco.mjtVisFlag.mjVIS_TRANSPARENT] = transparent
     pert = mujoco.MjvPerturb()
-    catmask = mujoco.mjtCatBit.mjCAT_DYNAMIC
+    catmask_dynamic = mujoco.mjtCatBit.mjCAT_DYNAMIC
+    catmask_static = mujoco.mjtCatBit.mjCAT_STATIC
 
     # Helper to set state
     def set_state(d, s, offset=None):
@@ -246,7 +247,10 @@ def render_frame_job(args):
     if offsets is not None:
         center_x = np.mean(offsets[:, 0])
         center_y = np.mean(offsets[:, 1])
-        cam.lookat = [center_x, center_y, 0.0]
+        if cam_lookat is None:
+            cam.lookat = [center_x, center_y, 0.0]
+        else:
+            cam.lookat = [float(cam_lookat[0]), float(cam_lookat[1]), float(cam_lookat[2])]
         cam.distance = cam_distance
         cam.elevation = cam_elevation
         cam.azimuth = cam_azimuth
@@ -259,7 +263,14 @@ def render_frame_job(args):
     # 2. Add other robots
     for i in range(1, num_envs):
         set_state(data, state_batch[i], offsets[i] if offsets is not None else None)
-        mujoco.mjv_addGeoms(model, data, vopt, pert, catmask, renderer.scene)
+        mujoco.mjv_addGeoms(model, data, vopt, pert, catmask_dynamic, renderer.scene)
+
+        # Avoid duplicating world floor/static group-0 geoms across envs, while still
+        # adding fixed-base static visuals (e.g., Sharpa base link visual).
+        geomgroup0 = int(vopt.geomgroup[0])
+        vopt.geomgroup[0] = 0
+        mujoco.mjv_addGeoms(model, data, vopt, pert, catmask_static, renderer.scene)
+        vopt.geomgroup[0] = geomgroup0
 
     return renderer.render()
 
@@ -274,6 +285,8 @@ def render_states_get_frames(
     cam_distance=2.0,
     cam_elevation=-20,
     cam_azimuth=90,
+    cam_lookat=None,
+    render_spacing=1.0,
 ):
     """
     Render a list of physics states and return the list of frames.
@@ -288,6 +301,8 @@ def render_states_get_frames(
         cam_distance: Camera distance from lookat point.
         cam_elevation: Camera elevation angle in degrees.
         cam_azimuth: Camera azimuth angle in degrees.
+        cam_lookat: Optional [x, y, z] lookat override for the free camera.
+        render_spacing: Grid spacing used to offset each env in composed video frames.
     Returns:
         List of numpy arrays (H, W, 3) (RGB)
     """
@@ -296,7 +311,7 @@ def render_states_get_frames(
         return []
 
     num_envs = state_list[0].shape[0]
-    offsets = get_grid_offsets(num_envs)
+    offsets = get_grid_offsets(num_envs, spacing=render_spacing)
     shape = (width, height)
 
     print(
@@ -304,7 +319,10 @@ def render_states_get_frames(
     )
 
     # Prepare arguments for each frame
-    tasks = [(s, offsets, False, cam_distance, cam_elevation, cam_azimuth) for s in state_list]
+    tasks = [
+        (s, offsets, False, cam_distance, cam_elevation, cam_azimuth, cam_lookat)
+        for s in state_list
+    ]
 
     frames = []
 
@@ -344,6 +362,8 @@ def render_states_to_video(
     cam_distance=2.0,
     cam_elevation=-20,
     cam_azimuth=90,
+    cam_lookat=None,
+    render_spacing=1.0,
 ):
     """
     Render a list of physics states to a video file using parallel processing.
@@ -357,6 +377,8 @@ def render_states_to_video(
         cam_distance=cam_distance,
         cam_elevation=cam_elevation,
         cam_azimuth=cam_azimuth,
+        cam_lookat=cam_lookat,
+        render_spacing=render_spacing,
     )
 
     print(f"Saving video to {output_path}...")

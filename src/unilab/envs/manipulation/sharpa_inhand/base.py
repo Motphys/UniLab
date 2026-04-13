@@ -47,6 +47,33 @@ DEFAULT_FINGERTIP_BODY_NAMES: list[str] = [
     "right_pinky_DP",
 ]
 
+# Source parity anchor from sharpa-rl-lab:
+# rl_isaaclab/tasks/inhand_rotate/sharpa_wave_env_cfg.py (hand init_state joint_pos).
+SOURCE_DEFAULT_HAND_JOINT_POS_DEG: tuple[float, ...] = (
+    95.12771,
+    -3.11244,
+    14.81626,
+    -1.03493,
+    12.23986,
+    65.21091,
+    6.1133,
+    15.58495,
+    5.90325,
+    31.74149,
+    -0.95812,
+    41.88173,
+    12.844,
+    31.72383,
+    9.84458,
+    35.22366,
+    18.02839,
+    10.9712,
+    68.30895,
+    7.99151,
+    5.89626,
+    5.89875,
+)
+
 
 @dataclass
 class SharpaControlConfig:
@@ -79,10 +106,14 @@ class SharpaInhandBaseCfg(EnvCfg):
     observation_space: int = 192
     prop_hist_len: int = 30
     priv_info_dim: int = 8
+    # "separate": keep privileged info in its own obs group.
+    # "merged": append privileged info into the main "obs" vector.
+    privileged_obs_mode: str = "separate"
 
     clip_obs: float = 5.0
     clip_actions: float = 1.0
-    torque_control: bool = True
+    # NOTE: Sharpa MuJoCo XML uses position actuators; true torque-control mode is not implemented.
+    torque_control: bool = False
 
     num_hand_dofs: int = 22
     frame_obs_dim: int = 64
@@ -243,7 +274,15 @@ class SharpaInhandBaseEnv(NpEnv):
         self._obj_pos_slice = slice(self._num_action, self._num_action + 3)
         self._obj_quat_slice = slice(self._num_action + 3, self._num_action + 7)
 
-        self.default_angles = np.asarray(self._init_qpos[: self._num_action], dtype=self._np_dtype)
+        source_default_angles = np.deg2rad(
+            np.asarray(SOURCE_DEFAULT_HAND_JOINT_POS_DEG, dtype=np.float64)
+        )
+        if source_default_angles.shape[0] != self._num_action:
+            raise ValueError(
+                "Source default hand joint pose size mismatch: "
+                f"{source_default_angles.shape[0]} vs expected {self._num_action}"
+            )
+        self.default_angles = np.asarray(source_default_angles, dtype=self._np_dtype)
 
         self._action_space = gym.spaces.Box(
             low=-float(cfg.clip_actions),

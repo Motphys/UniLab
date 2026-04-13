@@ -121,7 +121,11 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
                 run_motrix_rsl_play_loop(
                     wrapped_env=wrapped_env,
                     policy=policy,
-                    render_spacing=float(getattr(env.cfg, "render_spacing", 1.0)),
+                    render_spacing=float(
+                        getattr(
+                            cfg.training, "render_spacing", getattr(env.cfg, "render_spacing", 1.0)
+                        )
+                    ),
                 )
             except Exception as e:
                 if "RenderClosedError" in str(type(e).__name__):
@@ -137,6 +141,9 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
             render_play_mode(
                 env,
                 sim_backend=cfg.training.sim_backend,
+                render_spacing=float(
+                    getattr(cfg.training, "render_spacing", getattr(env.cfg, "render_spacing", 1.0))
+                ),
                 num_steps=cfg.training.play_steps,
                 output_video=output_video,
                 initialize=lambda: wrapped_env.reset()[0],
@@ -145,6 +152,7 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
                     "cam_distance": cfg.training.cam_distance,
                     "cam_elevation": cfg.training.cam_elevation,
                     "cam_azimuth": cfg.training.cam_azimuth,
+                    "cam_lookat": getattr(cfg.training, "cam_lookat", None),
                 },
             )
         print("Done.")

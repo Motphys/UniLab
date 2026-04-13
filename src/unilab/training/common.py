@@ -272,6 +272,11 @@ def render_play_mode(
         width=1280,
         height=720,
         camera_id=-1,
+        render_spacing=(
+            float(render_spacing)
+            if render_spacing is not None
+            else float(getattr(env.cfg, "render_spacing", 1.0))
+        ),
         **(camera_kwargs or {}),
     )
 
