@@ -1,0 +1,33 @@
+# @package _global_
+defaults:
+  - /task/allegro_inhand/motrix
+  - _self_
+
+training:
+  task_name: AllegroInhandRotationGrasp
+  sim_backend: motrix
+  no_play: true
+algo:
+  max_iterations: 1000 # infinite rollout
+reward:
+  scales:
+    rotate: 0.0
+    obj_linvel: 0.0
+    pose_diff: 0.0
+    torque: 0.0
+    work: 0.0
+    drop: 0.0
+env:
+  gen_grasp: true
+  max_episode_seconds: 3.0
+  grasp_cache_path: cache/allegro_grasp_50k.npy
+  grasp_collection_target: 50000
+  grasp_auto_save: true
+  grasp_quality_check: true
+  grasp_min_contacts: 2
+  domain_rand:
+    randomize_base_mass: false
+    random_com: false
+    push_robots: false
+    ball_vel_noise: 0.0
+    joint_noise: 0.25 # random sampling of the grasp poses
