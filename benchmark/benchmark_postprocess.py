@@ -29,8 +29,10 @@ def ensure_registries() -> None:
 
 try:
     from benchmark.core.device_info import get_device_info_dict, get_device_info_line
+    from benchmark.core.task_names import locomotion_env_name
 except ModuleNotFoundError:
     from core.device_info import get_device_info_dict, get_device_info_line
+    from core.task_names import locomotion_env_name
 
     try:
         import unilab.envs.locomotion
@@ -51,6 +53,8 @@ OUTPUT_DIR = Path("benchmark/outputs/postprocess")
 OUTPUT_JSON = OUTPUT_DIR / "latest_postprocess_benchmark.json"
 OUTPUT_PNG = OUTPUT_DIR / "latest_postprocess_latency.png"
 TORCH_DEVICE = "mps"
+OWNER_TASK_ID = "go1_joystick"
+ENV_TASK_NAME = locomotion_env_name(OWNER_TASK_ID)
 
 
 def sync_torch_mps():
@@ -72,7 +76,7 @@ def geomean(values: list[float]) -> float:
 
 
 def build_go1_layout() -> dict:
-    env = registry.make("Go1JoystickFlatTerrain", num_envs=1, sim_backend="mujoco")
+    env = registry.make(ENV_TASK_NAME, num_envs=1, sim_backend="mujoco")
     layout = {
         "sensor_dim": int(env.model.nsensordata),
         "physics_dim": int(env.physics_state_dim),
@@ -99,7 +103,7 @@ def build_go1_layout() -> dict:
 
 
 def measure_physics_step_ms(num_envs: int, iters: int) -> float:
-    env = registry.make("Go1JoystickFlatTerrain", num_envs=num_envs, sim_backend="mujoco")
+    env = registry.make(ENV_TASK_NAME, num_envs=num_envs, sim_backend="mujoco")
     try:
         initial_state, _, _ = env.reset(np.arange(env.num_envs))
         action_low = env.action_space.low.astype(np.float32)
@@ -131,7 +135,7 @@ def measure_physics_step_mlx_native_ms(num_envs: int, iters: int) -> float:
     """Measure pure MuJoCo physics stepping via native mujoco.mlx_step."""
     if mj_mlx_step is None:
         raise RuntimeError("Native mujoco.mlx_step is unavailable.")
-    env = registry.make("Go1JoystickFlatTerrain", num_envs=num_envs, sim_backend="mujoco")
+    env = registry.make(ENV_TASK_NAME, num_envs=num_envs, sim_backend="mujoco")
     try:
         initial_state, _, _ = env.reset(np.arange(env.num_envs))
         action_low = env.action_space.low.astype(np.float32)
@@ -192,7 +196,7 @@ def measure_rollout_bridge_mlx_pipeline_ms(
     """End-to-end: MLX action -> MuJoCo rollout -> MLX sensordata/reward."""
     if mj_mlx_step is None:
         raise RuntimeError("Native mujoco.mlx_step is unavailable.")
-    env = registry.make("Go1JoystickFlatTerrain", num_envs=num_envs, sim_backend="mujoco")
+    env = registry.make(ENV_TASK_NAME, num_envs=num_envs, sim_backend="mujoco")
     try:
         initial_state, _, reset_info = env.reset(np.arange(env.num_envs))
         action_low = env.action_space.low.astype(np.float32)
@@ -1116,8 +1120,12 @@ def main():
             "mps_available": bool(torch.backends.mps.is_available()),
             "env_list": env_list,
             "iters": args.iters,
-            "task": "Go1JoystickFlatTerrain",
-            "note": "Postprocess logic synchronized with latest Go1JoystickFlatTerrain; physics step uses native mujoco.mlx_step.",
+            "task": OWNER_TASK_ID,
+            "env_task_name": ENV_TASK_NAME,
+            "note": (
+                "Postprocess logic synchronized with latest "
+                f"{OWNER_TASK_ID} (env: {ENV_TASK_NAME}); physics step uses native mujoco.mlx_step."
+            ),
         },
         "summary": {
             "geomean_speedup_cpu_over_mlx_postprocess": geomean(

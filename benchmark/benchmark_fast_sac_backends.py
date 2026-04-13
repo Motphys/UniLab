@@ -12,6 +12,11 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
 
+try:
+    from benchmark.core.task_names import locomotion_env_name, normalize_locomotion_task_id
+except ModuleNotFoundError:
+    from core.task_names import locomotion_env_name, normalize_locomotion_task_id
+
 
 @dataclass
 class BackendResult:
@@ -41,8 +46,11 @@ def run_backend(task, max_iterations, backend, num_envs):
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_dir = os.path.join(ROOT_DIR, "logs", "benchmark", f"{backend}_{timestamp}")
 
+    task_id = normalize_locomotion_task_id(task)
+    env_task_name = locomotion_env_name(task_id)
+
     runner = FastSACRunner(
-        env_name=task,
+        env_name=env_task_name,
         device=device,
         num_envs=num_envs,
         replay_buffer_n=cfg.replay_buffer_n,
@@ -105,18 +113,22 @@ def run_backend(task, max_iterations, backend, num_envs):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--task", type=str, default="Go1JoystickFlatTerrain")
+    parser.add_argument("--task", type=str, default="go1_joystick")
     parser.add_argument("--max_iterations", type=int, default=100)
     parser.add_argument("--num_envs", type=int, default=4096)
     parser.add_argument("--backends", type=str, default="torch_mps,torch_cpu,ane")
     parser.add_argument("--output", type=str, default="benchmark/outputs/fast_sac_backends.json")
     args = parser.parse_args()
+    task_id = normalize_locomotion_task_id(args.task)
+    env_task_name = locomotion_env_name(task_id)
 
     backends = [b.strip() for b in args.backends.split(",")]
 
     print(f"\n{'=' * 70}")
     print("Fast SAC Backend Benchmark")
-    print(f"Task: {args.task}, Iterations: {args.max_iterations}, Envs: {args.num_envs}")
+    print(
+        f"Task: {task_id} (env: {env_task_name}), Iterations: {args.max_iterations}, Envs: {args.num_envs}"
+    )
     print(f"Backends: {backends}")
     print(f"{'=' * 70}\n")
 
@@ -125,7 +137,7 @@ def main():
     for backend in backends:
         print(f"\n>>> Running {backend}...")
         try:
-            result = run_backend(args.task, args.max_iterations, backend, args.num_envs)
+            result = run_backend(task_id, args.max_iterations, backend, args.num_envs)
             results.append(result)
             print(
                 f"✓ {backend}: {result.total_time_sec:.1f}s, reward={result.final_reward:.3f}, {result.steps_per_sec:.0f} steps/s"
@@ -145,7 +157,8 @@ def main():
     output_path.write_text(
         json.dumps(
             {
-                "task": args.task,
+                "task": task_id,
+                "env_task_name": env_task_name,
                 "max_iterations": args.max_iterations,
                 "num_envs": args.num_envs,
                 "results": [asdict(r) for r in results],
