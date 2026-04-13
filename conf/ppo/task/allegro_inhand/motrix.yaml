@@ -1,7 +1,7 @@
 # @package _global_
 training:
   task_name: AllegroInhandRotation
-  sim_backend: mujoco
+  sim_backend: motrix
 algo:
   num_envs: 16384
   num_steps_per_env: 8
@@ -25,4 +25,3 @@ env:
   gen_grasp: false
   max_episode_seconds: 20.0
   grasp_cache_path: cache/allegro_grasp_50k.npy
-

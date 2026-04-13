@@ -121,6 +121,26 @@ def test_g1_joystick_ppo_obs_groups_spec_dims():
     assert spec["privileged"] == 3
 
 
+def test_allegro_rotation_obs_groups_spec_dims():
+    """Allegro rotation obs_groups_spec should expose single actor obs group."""
+    from unilab.envs.manipulation.inhand_rot_allegro.rotation import AllegroRotationPPO
+
+    env = cast(Any, object.__new__(AllegroRotationPPO))
+    spec = env.obs_groups_spec
+
+    assert spec == {"obs": 105}
+
+
+def test_allegro_grasp_obs_groups_spec_dims():
+    """Allegro grasp task inherits the same obs group layout as rotation."""
+    from unilab.envs.manipulation.inhand_rot_allegro.grasp_gen import AllegroRotationGrasp
+
+    env = cast(Any, object.__new__(AllegroRotationGrasp))
+    spec = env.obs_groups_spec
+
+    assert spec == {"obs": 105}
+
+
 def test_g1_motion_tracking_uses_split_body_pose_queries():
     """G1MotionTracking should query pos/quat via the stable split backend API."""
     from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
@@ -360,7 +380,7 @@ _STANDARD_ENVS = [
     "G1JoystickFlatTerrain",
     "G1WalkTaskMjSAC",
     "AllegroInhandRotation",
-    "AllegroInhandRotationSac",
+    "AllegroInhandRotationGrasp",
 ]
 
 

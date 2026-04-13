@@ -10,21 +10,16 @@ from unilab.base.base import EnvCfg
 from unilab.base.dtype_config import get_global_dtype
 from unilab.base.np_env import NpEnv, NpEnvState
 
-# ─────────────────────────── Configuration ────────────────────────────
-
 
 @dataclass
 class NoiseConfig:
     level: float = 1.0
-    scale_joint_angle: float = 0.02  # rad
+    scale_joint_angle: float = 0.02
 
 
 @dataclass
 class ControlConfig:
-    # Incremental position target: ctrl = clip(prev_ctrl + action_scale * action, lo, hi)
-    # Mirrors HORA's  targets = prev_targets + (1/24) * actions
     action_scale: float = 1.0 / 24.0
-    # PD gains for torque computation (used in reward calculation)
     kp: float = 1.0
     kd: float = 0.1
 
@@ -32,130 +27,131 @@ class ControlConfig:
 @dataclass
 class AllegroBaseCfg(EnvCfg):
     model_file: str = ""
-    sim_dt: float = 0.005  # 5 ms physics step
-    ctrl_dt: float = 0.05  # 50 ms control step  →  10 substeps
+    sim_dt: float = 0.005
+    ctrl_dt: float = 0.05
     noise_config: NoiseConfig = field(default_factory=NoiseConfig)
     control_config: ControlConfig = field(default_factory=ControlConfig)
 
 
-# ─────────────────────────── Environment ──────────────────────────────
-
-# Physics-state (FULLPHYSICS) layout for scene.xml
-# (nq=23, nv=22, na=0  →  nstate=46)
-#
-#   ps[0]       time
-#   ps[1:17]    hand qpos  (16 joints: ff×4, mf×4, rf×4, th×4)
-#   ps[17:20]   ball position (x, y, z)
-#   ps[20:24]   ball quaternion (w, x, y, z)
-#   ps[24:40]   hand qvel  (16 velocities)
-#   ps[40:43]   ball linear  velocity
-#   ps[43:46]   ball angular velocity  ← rotation reward is computed here
-
-
-class AllegroBaseMjEnv(NpEnv):
-    # Slot constants – filled once in __init__ from the verified model.
+class AllegroBaseEnv(NpEnv):
     _NUM_HAND_DOF: int = 16
+    _FINGERTIP_BODY_NAMES: tuple[str, ...] = ("ff_tip", "mf_tip", "rf_tip", "th_tip")
     _cfg: AllegroBaseCfg
 
     def __init__(self, cfg: AllegroBaseCfg, backend: SimBackend, num_envs: int = 1):
         super().__init__(cfg, backend, num_envs)
 
         self._np_dtype = get_global_dtype()
-
-        self.nq = self._backend.model.nq  # 23
-        self.nv = self._backend.model.nv  # 22
-
-        # physics_state offsets
-        self._idx_qpos = 1
-        self._idx_qvel = 1 + self.nq  # 24
-
-        # hand occupies the first 16 DOFs
-        assert self._backend.model.nu == self._NUM_HAND_DOF, (
-            f"Expected {self._NUM_HAND_DOF} actuators, got {self._backend.model.nu}"
-        )
-
-        # ball positions inside physics_state
-        self._ps_ball_pos = self._idx_qpos + self._NUM_HAND_DOF  # 17
-        self._ps_ball_quat = self._idx_qpos + self._NUM_HAND_DOF + 3  # 20
-        self._ps_ball_linv = self._idx_qvel + self._NUM_HAND_DOF  # 40
-        self._ps_ball_angv = self._idx_qvel + self._NUM_HAND_DOF + 3  # 43
-
-        # joint limits (shape: (16,))
-        self._ctrl_lower = self._backend.model.actuator_ctrlrange[:, 0].astype(self._np_dtype)
-        self._ctrl_upper = self._backend.model.actuator_ctrlrange[:, 1].astype(self._np_dtype)
+        actuator_range = np.asarray(self._backend.get_actuator_ctrl_range(), dtype=self._np_dtype)
+        if actuator_range.shape[0] < self._NUM_HAND_DOF:
+            raise ValueError(
+                f"Model has {actuator_range.shape[0]} actuators, expected at least {self._NUM_HAND_DOF}"
+            )
+        self._ctrl_lower = np.asarray(actuator_range[: self._NUM_HAND_DOF, 0], dtype=self._np_dtype)
+        self._ctrl_upper = np.asarray(actuator_range[: self._NUM_HAND_DOF, 1], dtype=self._np_dtype)
 
         self._init_action_space()
         self._num_action = self._action_space.shape[0]
-        self._init_buffer()
+        if self._num_action != self._NUM_HAND_DOF:
+            raise ValueError(f"Expected {self._NUM_HAND_DOF} actuators, got {self._num_action}")
 
-    # ── Spaces ──────────────────────────────────────────────────────
+        self._init_buffers()
+        self.nq = int(self._init_qpos.shape[0])
+        self.nv = int(self._init_qvel.shape[0])
 
-    def _init_action_space(self):
-        # Policy outputs are in [-1, 1]; action_scale converts them to rad increments.
+        self._ball_body_ids = self._backend.get_body_ids(["ball"])
+        self._fingertip_body_ids = self._backend.get_body_ids(self._FINGERTIP_BODY_NAMES)
+
+    def _init_action_space(self) -> None:
         self._action_space = gym.spaces.Box(
-            low=-1.0, high=1.0, shape=(self._NUM_HAND_DOF,), dtype=float
+            low=-1.0,
+            high=1.0,
+            shape=(self._NUM_HAND_DOF,),
+            dtype=np.float32,
         )
 
     @property
     def action_space(self) -> gym.spaces.Box:
         return self._action_space  # type: ignore[no-any-return]
 
-    # ── Buffers ─────────────────────────────────────────────────────
+    def _init_buffers(self) -> None:
+        self.default_angles = np.zeros((self._num_action,), dtype=self._np_dtype)
+        self._init_qpos = self._resolve_init_qpos()
+        self.default_angles = np.asarray(
+            self._init_qpos[: self._NUM_HAND_DOF], dtype=self._np_dtype
+        )
+        self._init_qvel = np.asarray(self._backend.get_init_qvel(), dtype=self._np_dtype)
 
-    def _init_buffer(self):
-        import mujoco
-
-        key_id = mujoco.mj_name2id(self._backend.model, mujoco.mjtObj.mjOBJ_KEY, "home")
-        if key_id < 0:
-            raise ValueError("Keyframe 'home' not found in model.")
-
-        self._init_qpos = self._backend.model.key_qpos[key_id].copy()  # (nq,) float64
-        self._init_ctrl = self._backend.model.key_ctrl[key_id].copy()  # (nu,) float64
-
-        # Default hand pose (first 16 entries of qpos)
-        self.default_angles = self._init_qpos[: self._NUM_HAND_DOF].astype(self._np_dtype)
-
-    # ── Action / control ────────────────────────────────────────────
+    def _resolve_init_qpos(self) -> np.ndarray:
+        for key_name in ("home", "stand", "default"):
+            try:
+                return np.asarray(self._backend.get_keyframe_qpos(key_name), dtype=self._np_dtype)
+            except Exception:
+                continue
+        raise ValueError("Could not resolve initial qpos from backend keyframes")
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
-        """Incremental position control:  ctrl = clip(prev_ctrl + scale * action)."""
-        state.info["last_actions"] = np.array(state.info["current_actions"])
-        state.info["current_actions"] = actions
+        clipped_actions = np.asarray(np.clip(actions, -1.0, 1.0), dtype=self._np_dtype)
+        state.info["last_actions"] = state.info.get(
+            "current_actions", np.zeros_like(clipped_actions)
+        )
+        state.info["current_actions"] = clipped_actions
 
-        scale = self._cfg.control_config.action_scale
-        new_ctrl = state.info["prev_ctrl"] + scale * actions
+        prev_ctrl = state.info.get(
+            "prev_ctrl",
+            np.broadcast_to(
+                self.default_angles, (clipped_actions.shape[0], self._num_action)
+            ).copy(),
+        )
+        new_ctrl = prev_ctrl + self._cfg.control_config.action_scale * clipped_actions
         new_ctrl = np.clip(new_ctrl, self._ctrl_lower, self._ctrl_upper)
-        state.info["prev_ctrl"] = new_ctrl
-        return np.asarray(new_ctrl)
-
-    # ── State accessors ─────────────────────────────────────────────
+        state.info["prev_ctrl"] = np.asarray(new_ctrl, dtype=self._np_dtype)
+        return np.asarray(state.info["prev_ctrl"])
 
     def get_hand_dof_pos(self) -> np.ndarray:
-        """(num_envs, 16) hand joint angles."""
-        ps = self._backend.get_physics_state()
-        return np.asarray(ps[:, self._idx_qpos : self._idx_qpos + self._NUM_HAND_DOF])
+        return np.asarray(
+            self._backend.get_dof_pos()[:, : self._NUM_HAND_DOF],
+            dtype=self._np_dtype,
+        )
 
     def get_hand_dof_vel(self) -> np.ndarray:
-        """(num_envs, 16) hand joint velocities."""
-        ps = self._backend.get_physics_state()
-        return np.asarray(ps[:, self._idx_qvel : self._idx_qvel + self._NUM_HAND_DOF])
+        return np.asarray(
+            self._backend.get_dof_vel()[:, : self._NUM_HAND_DOF],
+            dtype=self._np_dtype,
+        )
 
     def get_ball_pos(self) -> np.ndarray:
-        """(num_envs, 3) ball position in world frame."""
-        ps = self._backend.get_physics_state()
-        return np.asarray(ps[:, self._ps_ball_pos : self._ps_ball_pos + 3])
+        return np.asarray(
+            self._backend.get_body_pos_w(self._ball_body_ids)[:, 0, :],
+            dtype=self._np_dtype,
+        )
 
     def get_ball_quat(self) -> np.ndarray:
-        """(num_envs, 4) ball quaternion (w, x, y, z)."""
-        ps = self._backend.get_physics_state()
-        return np.asarray(ps[:, self._ps_ball_quat : self._ps_ball_quat + 4])
+        return np.asarray(
+            self._backend.get_body_quat_w(self._ball_body_ids)[:, 0, :],
+            dtype=self._np_dtype,
+        )
 
     def get_ball_linvel(self) -> np.ndarray:
-        """(num_envs, 3) ball linear velocity in world frame."""
-        ps = self._backend.get_physics_state()
-        return np.asarray(ps[:, self._ps_ball_linv : self._ps_ball_linv + 3])
+        return np.asarray(
+            self._backend.get_body_lin_vel_w(self._ball_body_ids)[:, 0, :],
+            dtype=self._np_dtype,
+        )
 
     def get_ball_angvel(self) -> np.ndarray:
-        """(num_envs, 3) ball angular velocity in world frame."""
-        ps = self._backend.get_physics_state()
-        return np.asarray(ps[:, self._ps_ball_angv : self._ps_ball_angv + 3])
+        return np.asarray(
+            self._backend.get_body_ang_vel_w(self._ball_body_ids)[:, 0, :],
+            dtype=self._np_dtype,
+        )
+
+    def get_fingertip_pos(self) -> np.ndarray:
+        return np.asarray(
+            self._backend.get_body_pos_w(self._fingertip_body_ids),
+            dtype=self._np_dtype,
+        )
+
+    def get_sensor_data(self, name: str) -> np.ndarray:
+        return np.asarray(self._backend.get_sensor_data(name), dtype=self._np_dtype)
+
+
+AllegroBaseMjEnv = AllegroBaseEnv
