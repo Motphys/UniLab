@@ -8,6 +8,13 @@ import subprocess
 import sys
 import types
 
+import pytest
+
+pytestmark = pytest.mark.skipif(
+    os.environ.get("GITHUB_ACTIONS") == "true",
+    reason="GitHub Actions runners do not provide stable EGL/GLFW rendering backends.",
+)
+
 
 def _reload_render_many(monkeypatch):
     monkeypatch.setitem(sys.modules, "mujoco", types.SimpleNamespace())
