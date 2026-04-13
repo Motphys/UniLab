@@ -1,7 +1,7 @@
 """Benchmark env.step performance for a given task and backend.
 
 Usage:
-    # Run all combinations (go1/go2/g1 x mujoco/motrix):
+    # Run all combinations (go1/go2/g1/g1_motion_tracking x mujoco/motrix):
     uv run python benchmark/benchmark_env_step.py
 
     # Single task + backend:
@@ -22,6 +22,7 @@ TASK_CONFIGS = {
     "go1": "task=go1_joystick",
     "go2": "task=go2_joystick",
     "g1": "task=g1_joystick",
+    "g1_mt": "task=g1_motion_tracking",
 }
 
 # Default benchmark parameters
@@ -168,6 +169,8 @@ def _print_single_report(result: dict) -> None:
 def _short_task_label(task_name: str) -> str:
     """Shorten 'Go1JoystickFlatTerrain' → 'go1'."""
     name = task_name.lower()
+    if "motiontracking" in name:
+        return "g1_mt"
     for prefix in ("go1", "go2", "g1"):
         if name.startswith(prefix):
             return prefix
@@ -189,7 +192,10 @@ def _print_comparison_table(results: list[dict]) -> None:
     ]
 
     # Build short column labels
-    col_labels = [f"{_short_task_label(r['task_name'])}/{r['sim_backend']}" for r in results]
+    col_labels = [
+        f"{r.get('task_key', _short_task_label(r['task_name']))}/{r['sim_backend']}"
+        for r in results
+    ]
 
     metric_w = 16
     col_w = max(12, max(len(c) for c in col_labels) + 2)
@@ -255,6 +261,7 @@ def _run_matrix(extra_args: list[str]) -> None:
                 # Task config format: task=go1_joystick/mujoco
                 args = [f"{task_override}/{backend}"] + extra_args
                 result = _run_single(args)
+                result["task_key"] = task_key
                 results.append(result)
                 _print_single_report(result)
             except Exception as e:
