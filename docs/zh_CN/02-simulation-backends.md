@@ -46,12 +46,14 @@ uv run python scripts/generate_support_matrix.py --write
 | PPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested |
 | PPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | Tested |
 | PPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | - |
+| PPO (torch) | `allegro_inhand_grasp` (allegro inhand grasp) | - | - |
 | PPO (mlx) | `go1_joystick` (Go1 joystick) | Tested | Tested |
 | PPO (mlx) | `go2_joystick` (Go2 joystick) | Tested | Tested |
 | PPO (mlx) | `g1_joystick` (G1 joystick) | Tested | Tested |
 | PPO (mlx) | `g1_motion_tracking` (G1 motion tracking) | Configured | Configured |
 | PPO (mlx) | `g1_flip_tracking` (G1 flip tracking) | Configured | Configured |
 | PPO (mlx) | `allegro_inhand` (Allegro in-hand) | Configured | - |
+| PPO (mlx) | `allegro_inhand_grasp` (allegro inhand grasp) | - | - |
 | APPO (torch) | `go1_joystick` (Go1 joystick) | Tested | Registered |
 | APPO (torch) | `go2_joystick` (Go2 joystick) | Tested | Registered |
 | APPO (torch) | `g1_joystick` (G1 joystick) | Tested | Registered |
