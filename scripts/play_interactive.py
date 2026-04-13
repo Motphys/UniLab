@@ -1,4 +1,7 @@
-"""Interactive play script: opens a live MuJoCo viewer for a trained RSL-RL policy.
+"""MuJoCo-only interactive play script for trained RSL-RL policies.
+
+This tool opens a live MuJoCo viewer for a trained RSL-RL policy. It is wired
+directly to MuJoCo viewer/runtime APIs and is not available for Motrix tasks.
 
 Usage:
     # Load the latest checkpoint for a task/backend owner config

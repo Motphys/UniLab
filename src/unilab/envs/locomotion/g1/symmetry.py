@@ -1,9 +1,15 @@
-"""G1 symmetry augmentation - vectorized operations."""
+"""MuJoCo-only G1 symmetry augmentation helpers.
+
+This module builds symmetry mappings from MuJoCo actuator names and therefore
+only applies to MuJoCo-backed G1 tooling.
+"""
 
 import torch
 
 
 class G1SymmetryAugmentation:
+    """MuJoCo-only symmetry helper derived from MuJoCo actuator ordering."""
+
     def __init__(self, model, obs_structure: dict, device: str = "cuda"):
         import mujoco
 

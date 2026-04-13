@@ -1,7 +1,8 @@
-"""Convert CSV motion files to NPZ format with forward kinematics.
+"""MuJoCo-only CSV-to-NPZ conversion with forward kinematics.
 
 This script converts motion data from CSV format (Unitree convention) to NPZ format
-with precomputed forward kinematics for all bodies.
+with precomputed forward kinematics for all bodies. It depends on MuJoCo model
+loading and sensor evaluation, so it is not available for Motrix-only workflows.
 
 Input CSV format:
 - Base position (3): x, y, z
@@ -17,6 +18,8 @@ Output NPZ format:
 - body_lin_vel_w: Body linear velocities (N_frames × N_bodies × 3)
 - body_ang_vel_w: Body angular velocities (N_frames × N_bodies × 3)
 """
+
+# pyright: reportAttributeAccessIssue=false
 
 import argparse
 from pathlib import Path
@@ -153,7 +156,7 @@ def run_simulation(
     joint_names: list[str],
     output_file: str,
 ):
-    """Run MuJoCo simulation to compute forward kinematics."""
+    """Run MuJoCo simulation to compute forward kinematics for the export."""
     # Inject track_* sensors so exported body_* fields match training-time semantics.
     tmp_model_path, _, _ = inject_mujoco_tracking_sensors(model_file)
     try:

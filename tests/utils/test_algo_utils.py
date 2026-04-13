@@ -186,6 +186,21 @@ class TestBuildActor:
         )
         assert hasattr(actor, "forward")
 
+    def test_builds_flashsac_actor(self) -> None:
+        actor = build_actor(
+            algo_type="flashsac",
+            obs_dim=98,
+            action_dim=29,
+            actor_hidden_dim=128,
+            use_layer_norm=False,
+            device="cpu",
+            actor_num_blocks=2,
+            actor_noise_zeta_mu=2.0,
+            actor_noise_zeta_max=16,
+        )
+        assert hasattr(actor, "forward")
+        assert hasattr(actor, "explore")
+
     def test_raises_for_unknown_algo_type(self) -> None:
         with pytest.raises(ValueError, match="Unknown algo_type"):
             build_actor(

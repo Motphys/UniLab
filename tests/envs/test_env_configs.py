@@ -172,6 +172,71 @@ def test_g1_motion_tracking_cfg_preserves_legacy_defaults():
     assert cfg.anchor_ori_threshold == pytest.approx(0.8)
 
 
+def test_g1_motion_tracking_init_delegates_motion_body_ids_to_backend(monkeypatch):
+    from unilab.envs.locomotion.g1.base import G1BaseEnv
+    from unilab.envs.motion_tracking.g1 import tracking as tracking_module
+    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingCfg, G1MotionTrackingEnv
+
+    calls: dict[str, Any] = {}
+
+    class FakeBackend:
+        def get_body_ids(self, names: tuple[str, ...]) -> np.ndarray:
+            calls["body_ids_names"] = names
+            return np.array([10, 11], dtype=np.int32)
+
+        def get_motion_body_ids(self, names: tuple[str, ...]) -> np.ndarray:
+            calls["motion_body_ids_names"] = names
+            return np.array([1, 2], dtype=np.int32)
+
+    def fake_base_init(self, cfg, backend, num_envs):
+        self._cfg = cfg
+        self._backend = backend
+        self._num_envs = num_envs
+        self._num_action = 2
+        self._init_qpos = np.zeros((9,), dtype=np.float32)
+        self._init_qvel = np.zeros((8,), dtype=np.float32)
+
+    class FakeMotionLoader:
+        def __init__(self, motion_file: str, body_indices: np.ndarray):
+            calls["motion_loader"] = (motion_file, body_indices.copy())
+
+    class FakeMotionSampler:
+        def __init__(self, motion_loader: Any, mode: str, num_envs: int):
+            calls["motion_sampler"] = (motion_loader, mode, num_envs)
+
+    fake_backend = FakeBackend()
+    monkeypatch.setattr(tracking_module, "create_backend", lambda *args, **kwargs: fake_backend)
+    monkeypatch.setattr(G1BaseEnv, "__init__", fake_base_init)
+    monkeypatch.setattr(tracking_module, "MotionLoader", FakeMotionLoader)
+    monkeypatch.setattr(tracking_module, "MotionSampler", FakeMotionSampler)
+    monkeypatch.setattr(
+        G1MotionTrackingEnv,
+        "_init_domain_randomization",
+        lambda self, provider: calls.setdefault("dr_provider", provider.__class__.__name__),
+    )
+    monkeypatch.setattr(
+        G1MotionTrackingEnv,
+        "_init_reward_functions",
+        lambda self: calls.setdefault("reward_init", True),
+    )
+
+    cfg = G1MotionTrackingCfg(
+        motion_file="dummy_motion.npz",
+        body_names=("pelvis", "torso_link"),
+        ee_body_names=("torso_link",),
+    )
+    env = cast(Any, G1MotionTrackingEnv)(cfg, num_envs=4, backend_type="motrix")
+
+    np.testing.assert_array_equal(env.body_ids, np.array([10, 11], dtype=np.int32))
+    assert calls["body_ids_names"] == cfg.body_names
+    assert calls["motion_body_ids_names"] == cfg.body_names
+    assert calls["motion_loader"][0] == "dummy_motion.npz"
+    np.testing.assert_array_equal(calls["motion_loader"][1], np.array([1, 2], dtype=np.int32))
+    assert calls["motion_sampler"][1:] == ("adaptive", 4)
+    assert calls["dr_provider"] == "G1MotionTrackingDomainRandomizationProvider"
+    assert calls["reward_init"] is True
+
+
 def test_g1_flip_tracking_cfg_uses_flip_profile():
     from unilab.envs.motion_tracking.g1.flip_tracking import G1FlipTrackingCfg
 

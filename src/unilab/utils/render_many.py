@@ -1,3 +1,10 @@
+"""MuJoCo-only batched rendering helpers.
+
+This module renders many MuJoCo states into image frames by constructing
+MuJoCo model/data/renderer objects inside worker processes. It is not available
+for Motrix-only workflows.
+"""
+
 import math
 import os
 import subprocess
@@ -106,7 +113,7 @@ def _close_worker():
 
 
 def init_worker(model_path, shape):
-    """Initialize MuJoCo context for worker process."""
+    """Initialize MuJoCo-only rendering context for a worker process."""
     import atexit
 
     _worker_ctx["model"] = mujoco.MjModel.from_xml_path(model_path)

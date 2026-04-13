@@ -86,6 +86,9 @@ def build_runner(algo_name: str, cfg: DictConfig):
     """Build algorithm runner from unified Hydra config."""
     env_cfg_override = build_offpolicy_env_cfg_override(algo_name, cfg)
 
+    if algo_name == "flashsac" and cfg.training.num_gpus > 1:
+        raise ValueError("FlashSAC does not support training.num_gpus > 1")
+
     if algo_name == "sac":
         from unilab.algos.torch.fast_sac.learner import FastSACLearner
         from unilab.algos.torch.fast_sac.runner import FastSACRunner
@@ -218,6 +221,52 @@ def build_runner(algo_name: str, cfg: DictConfig):
             sim_backend=cfg.training.sim_backend,
         )
 
+    if algo_name == "flashsac":
+        from unilab.algos.torch.flash_sac.runner import FlashSACRunner
+
+        return FlashSACRunner(
+            env_name=cfg.training.task_name,
+            env_cfg_override=env_cfg_override,
+            device=cfg.training.device,
+            num_envs=cfg.algo.num_envs,
+            replay_buffer_n=cfg.algo.replay_buffer_n,
+            batch_size=cfg.algo.batch_size,
+            warmup_steps=cfg.algo.warmup_steps,
+            updates_per_step=cfg.algo.updates_per_step,
+            policy_frequency=cfg.algo.policy_frequency,
+            gamma=cfg.algo.gamma,
+            tau=cfg.algo.tau,
+            actor_lr=cfg.algo.actor_lr,
+            critic_lr=cfg.algo.critic_lr,
+            obs_normalization=cfg.algo.obs_normalization,
+            actor_hidden_dim=cfg.algo.actor_hidden_dim,
+            critic_hidden_dim=cfg.algo.critic_hidden_dim,
+            num_atoms=cfg.algo.num_atoms,
+            use_amp=cfg.training.use_amp,
+            sync_collection=not cfg.training.no_sync_collection,
+            env_steps_per_sync=cfg.training.env_steps_per_sync,
+            sim_backend=cfg.training.sim_backend,
+            actor_num_blocks=cfg.algo.algo_params.actor_num_blocks,
+            critic_num_blocks=cfg.algo.algo_params.critic_num_blocks,
+            actor_bc_alpha=cfg.algo.algo_params.actor_bc_alpha,
+            actor_noise_zeta_mu=cfg.algo.algo_params.actor_noise_zeta_mu,
+            actor_noise_zeta_max=cfg.algo.algo_params.actor_noise_zeta_max,
+            critic_min_v=cfg.algo.algo_params.critic_min_v,
+            critic_max_v=cfg.algo.algo_params.critic_max_v,
+            target_sigma=cfg.algo.algo_params.temp_target_sigma,
+            target_entropy=cfg.algo.algo_params.temp_target_entropy,
+            temp_initial_value=cfg.algo.algo_params.temp_initial_value,
+            learning_rate_init=cfg.algo.algo_params.learning_rate_init,
+            learning_rate_peak=cfg.algo.algo_params.learning_rate_peak,
+            learning_rate_end=cfg.algo.algo_params.learning_rate_end,
+            learning_rate_warmup_steps=cfg.algo.algo_params.learning_rate_warmup_steps,
+            learning_rate_decay_steps=cfg.algo.algo_params.learning_rate_decay_steps,
+            normalize_reward=cfg.algo.algo_params.normalize_reward,
+            normalized_g_max=cfg.algo.algo_params.normalized_g_max,
+            n_step=cfg.algo.algo_params.n_step,
+            use_compile=cfg.algo.algo_params.use_compile,
+        )
+
     raise ValueError(f"Unsupported algo: {algo_name}")
 
 
@@ -274,6 +323,22 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
         )
         if cfg.algo.obs_normalization:
             normalizer = EmpiricalNormalization(shape=obs_dim, device=device)
+    elif algo_name == "flashsac":
+        actor = build_actor(
+            "flashsac",
+            obs_dim,
+            action_dim,
+            cfg.algo.actor_hidden_dim,
+            cfg.algo.use_layer_norm,
+            device,
+            actor_num_blocks=cfg.algo.algo_params.actor_num_blocks,
+            actor_noise_zeta_mu=cfg.algo.algo_params.actor_noise_zeta_mu,
+            actor_noise_zeta_max=cfg.algo.algo_params.actor_noise_zeta_max,
+        )
+        if cfg.algo.obs_normalization:
+            from unilab.algos.torch.common.normalization import EmpiricalNormalization
+
+            normalizer = EmpiricalNormalization(shape=obs_dim, device=device)
     else:
         raise ValueError(f"Unsupported algo: {algo_name}")
 
@@ -291,8 +356,11 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
 
     print(f"Loading model: {load_path}")
     checkpoint = torch.load(load_path, map_location=device, weights_only=True)
-    if algo_name == "sac":
+    if algo_name in ("sac", "flashsac"):
         actor.load_state_dict(checkpoint["actor"])
+        if normalizer and checkpoint.get("obs_normalizer"):
+            normalizer.load_state_dict(checkpoint["obs_normalizer"])
+            normalizer.eval()
     else:
         actor_state = {k: v for k, v in checkpoint["actor"].items() if k not in ("noise_scales",)}
         actor.load_state_dict(actor_state, strict=False)
@@ -309,7 +377,7 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
             obs_torch = normalizer(obs_torch, update=False)
         actions_np = (
             actor.explore(obs_torch, deterministic=True).cpu().numpy()
-            if algo_name == "sac"
+            if algo_name in ("sac", "flashsac")
             else actor(obs_torch).cpu().numpy()
         )
         state = env.step(actions_np)

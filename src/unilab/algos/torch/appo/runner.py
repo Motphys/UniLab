@@ -188,11 +188,21 @@ class APPORunner(AsyncRunner):
         )
         self._shared_resources.append(shared_storage)
 
-        # Create weight sync
-        weight_sync = SharedWeightSync.from_state_dict(learner.actor.state_dict(), create=True)
-        self._shared_resources.append(weight_sync)
+        # Create weight sync for collector-side actor and critic bootstrap values.
+        actor_weight_sync = SharedWeightSync.from_state_dict(
+            learner.actor.state_dict(), create=True
+        )
+        critic_weight_sync = SharedWeightSync.from_state_dict(
+            learner.critic.state_dict(), create=True
+        )
+        self._shared_resources.extend([actor_weight_sync, critic_weight_sync])
 
-        weight_param_shapes = {name: p.shape for name, p in learner.actor.state_dict().items()}
+        actor_weight_param_shapes = {
+            name: p.shape for name, p in learner.actor.state_dict().items()
+        }
+        critic_weight_param_shapes = {
+            name: p.shape for name, p in learner.critic.state_dict().items()
+        }
 
         metrics_queue: mp.Queue = mp.get_context("spawn").Queue(maxsize=100)
 
@@ -210,8 +220,10 @@ class APPORunner(AsyncRunner):
             "obs_dim": self.obs_dim,
             "action_dim": self.action_dim,
             "privileged_dim": self.privileged_dim,
-            "weight_sync_name": weight_sync.name,
-            "weight_param_shapes": weight_param_shapes,
+            "actor_weight_sync_name": actor_weight_sync.name,
+            "actor_weight_param_shapes": actor_weight_param_shapes,
+            "critic_weight_sync_name": critic_weight_sync.name,
+            "critic_weight_param_shapes": critic_weight_param_shapes,
             "metrics_queue": metrics_queue,
             "collector_device": self.collector_device,
             "sim_backend": self.extra_kwargs.get("sim_backend", "mujoco"),
@@ -317,7 +329,8 @@ class APPORunner(AsyncRunner):
             train_start = time.time()
             learner.process_batch(combined)
             metrics = learner.update(combined)
-            weight_sync.write_weights(learner.actor.state_dict())
+            actor_weight_sync.write_weights(learner.actor.state_dict())
+            critic_weight_sync.write_weights(learner.critic.state_dict())
             train_time = time.time() - train_start
 
             metrics["replay_queue_len"] = float(len(replay_queue))

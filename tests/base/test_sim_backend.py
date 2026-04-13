@@ -7,11 +7,14 @@ Run with:
     uv run pytest -m slow tests/base/test_sim_backend.py -v
 """
 
+from typing import Any, cast
+
 import numpy as np
 import pytest
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.dr import ResetRandomizationPayload
+from unilab.utils.xml_utils import get_named_body_ids
 
 
 # ---------------------------------------------------------------------------
@@ -26,6 +29,7 @@ BASIC_ROBOTS = [
 ]
 
 _G1 = dict(model_file=_xml("g1"), base_name="pelvis")
+_ALLEGRO = dict(model_file=_xml("allegro_hand", "scene.xml"), base_name="palm")
 
 NUM_ENVS = 2
 SIM_DT = 0.005
@@ -38,6 +42,12 @@ SIM_DT = 0.005
 
 def _shape(arr: np.ndarray, *expected: int) -> None:
     assert arr.shape == expected, f"expected shape {expected}, got {arr.shape}"
+
+
+def _mujoco_module() -> Any:
+    import mujoco
+
+    return cast(Any, mujoco)
 
 
 def _unit_quat(q: np.ndarray, tag: str = "") -> None:
@@ -58,11 +68,22 @@ def _identity_qpos_mujoco(nq: int, xyz=(0.0, 0.0, 0.8)) -> np.ndarray:
 
 
 def _mujoco_expected_dof_dims(model) -> tuple[int, int]:
-    import mujoco
+    mujoco = _mujoco_module()
 
     if model.njnt > 0 and int(model.jnt_type[0]) == int(mujoco.mjtJoint.mjJNT_FREE):
         return model.nq - 7, model.nv - 6
     return model.nq, model.nv
+
+
+def _allegro_state() -> tuple[np.ndarray, np.ndarray]:
+    qpos = np.zeros((1, 23), dtype=np.float64)
+    qvel = np.zeros((1, 22), dtype=np.float64)
+    qpos[0, :16] = np.linspace(-0.2, 0.2, 16)
+    qpos[0, 16:19] = np.array([-0.01, 0.02, 0.16])
+    qpos[0, 19:23] = np.array([0.92387953, 0.0, 0.38268343, 0.0])
+    qvel[0, :16] = np.linspace(-0.15, 0.15, 16)
+    qvel[0, 16:22] = np.array([0.1, -0.2, 0.05, 0.3, -0.1, 0.2])
+    return qpos, qvel
 
 
 # ---------------------------------------------------------------------------
@@ -226,7 +247,7 @@ class TestMuJoCoBasic:
 
 @pytest.mark.slow
 def test_mujoco_backend_discards_visual_assets():
-    import mujoco
+    mujoco = _mujoco_module()
 
     from unilab.base.backend.mujoco_backend import MuJoCoBackend
 
@@ -242,7 +263,7 @@ def test_mujoco_backend_discards_visual_assets():
 
 @pytest.mark.slow
 def test_mujoco_backend_fixed_base_dof_views_do_not_skip_first_joint():
-    import mujoco
+    mujoco = _mujoco_module()
 
     from unilab.base.backend.mujoco_backend import MuJoCoBackend
 
@@ -256,6 +277,65 @@ def test_mujoco_backend_fixed_base_dof_views_do_not_skip_first_joint():
     np.testing.assert_allclose(bkd.get_base_lin_vel(), 0.0, atol=1e-8)
     np.testing.assert_allclose(bkd.get_base_ang_vel(), 0.0, atol=1e-8)
     _unit_quat(bkd.get_base_quat(), "MuJoCo fixed-base quat")
+
+
+@pytest.mark.slow
+def test_motrix_backend_fixed_base_base_views_are_available():
+    from unilab.base.backend.motrix_backend import MotrixBackend
+
+    pytest.importorskip("motrixsim")
+    bkd = MotrixBackend(_ALLEGRO["model_file"], NUM_ENVS, SIM_DT, base_name=_ALLEGRO["base_name"])
+    _shape(bkd.get_base_pos(), NUM_ENVS, 3)
+    _shape(bkd.get_base_quat(), NUM_ENVS, 4)
+    np.testing.assert_allclose(bkd.get_base_lin_vel(), 0.0, atol=1e-8)
+    np.testing.assert_allclose(bkd.get_base_ang_vel(), 0.0, atol=1e-8)
+    _unit_quat(bkd.get_base_quat(), "Motrix fixed-base quat")
+
+
+@pytest.mark.slow
+def test_motrix_backend_fixed_base_set_state_matches_mujoco_for_hand_and_ball():
+    from unilab.base.backend.motrix_backend import MotrixBackend
+    from unilab.base.backend.mujoco_backend import MuJoCoBackend
+
+    pytest.importorskip("motrixsim")
+    mj = MuJoCoBackend(
+        _ALLEGRO["model_file"],
+        NUM_ENVS,
+        SIM_DT,
+        base_name=_ALLEGRO["base_name"],
+        add_body_sensors=True,
+    )
+    mx = MotrixBackend(
+        _ALLEGRO["model_file"],
+        NUM_ENVS,
+        SIM_DT,
+        base_name=_ALLEGRO["base_name"],
+        add_body_sensors=True,
+    )
+    qpos, qvel = _allegro_state()
+    env_idx = np.array([0])
+
+    mj.set_state(env_idx, qpos, qvel)
+    mx.set_state(env_idx, qpos, qvel)
+
+    np.testing.assert_allclose(mx.get_dof_pos()[0], qpos[0, :16], atol=1e-6)
+    np.testing.assert_allclose(mx.get_dof_vel()[0], qvel[0, :16], atol=1e-6)
+    np.testing.assert_allclose(np.asarray(mx.data.actuator_ctrls[0]), qpos[0, :16], atol=1e-6)
+    np.testing.assert_allclose(mx.get_base_pos(), mj.get_base_pos(), atol=2e-3)
+    np.testing.assert_allclose(np.abs(mx.get_base_quat()), np.abs(mj.get_base_quat()), atol=2e-3)
+
+    mj_ball_id = _mj_body_id(mj.model, "ball")
+    mx_ball_id = _mx_link_id(mx.model, "ball")
+    np.testing.assert_allclose(
+        mx.get_body_pos_w(np.array([mx_ball_id])),
+        mj.get_body_pos_w(np.array([mj_ball_id])),
+        atol=2e-3,
+    )
+    np.testing.assert_allclose(
+        mx.get_body_quat_w(np.array([mx_ball_id])),
+        mj.get_body_quat_w(np.array([mj_ball_id])),
+        atol=2e-3,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -282,9 +362,9 @@ class TestMuJoCoBodySensors:
         return np.array(bkd._tracked_body_ids[:2])
 
     def _bname(self, bkd, bid: int) -> str:
-        import mujoco
+        mujoco = _mujoco_module()
 
-        return mujoco.mj_id2name(bkd.model, mujoco.mjtObj.mjOBJ_BODY, bid)
+        return cast(str, mujoco.mj_id2name(bkd.model, mujoco.mjtObj.mjOBJ_BODY, bid))
 
     # world frame
 
@@ -338,7 +418,7 @@ class TestMuJoCoBodySensors:
 
     def test_base_body_pos_b_is_zero(self, bkd):
         """Base body position relative to itself must be [0,0,0]."""
-        import mujoco
+        mujoco = _mujoco_module()
 
         pelvis_id = mujoco.mj_name2id(bkd.model, mujoco.mjtObj.mjOBJ_BODY, "pelvis")
         pos_b = bkd.get_body_pos_b(np.array([pelvis_id]))
@@ -346,7 +426,7 @@ class TestMuJoCoBodySensors:
 
     def test_base_body_pos_w_matches_get_base_pos(self, bkd):
         """get_body_pos_w for the base body must equal get_base_pos()."""
-        import mujoco
+        mujoco = _mujoco_module()
 
         pelvis_id = mujoco.mj_name2id(bkd.model, mujoco.mjtObj.mjOBJ_BODY, "pelvis")
         pos_w = bkd.get_body_pos_w(np.array([pelvis_id]))[:, 0, :]
@@ -354,7 +434,7 @@ class TestMuJoCoBodySensors:
 
     def test_base_body_quat_b_is_identity(self, bkd):
         """Base body quaternion relative to itself must be identity [1,0,0,0]."""
-        import mujoco
+        mujoco = _mujoco_module()
 
         pelvis_id = mujoco.mj_name2id(bkd.model, mujoco.mjtObj.mjOBJ_BODY, "pelvis")
         quat_b = bkd.get_body_quat_b(np.array([pelvis_id]))[:, 0, :]  # (N, 4)
@@ -578,13 +658,13 @@ class TestMotrixBodySensors:
 
 
 def _mj_body_id(mj_model, name: str) -> int:
-    import mujoco
+    mujoco = _mujoco_module()
 
-    return mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_BODY, name)
+    return int(mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_BODY, name))
 
 
 def _mx_link_id(mx_model, name: str) -> int:
-    return mx_model.get_link_index(name)
+    return int(mx_model.get_link_index(name))
 
 
 @pytest.mark.slow
@@ -693,7 +773,7 @@ class TestCrossBackendBodySensors:
     @pytest.fixture
     def body_pairs(self, synced):
         """选前 3 个 body（pelvis + 两个髋关节），分别返回 mujoco IDs 和 motrixsim link IDs。"""
-        import mujoco
+        mujoco = _mujoco_module()
 
         mj, mx = synced
         names = [
@@ -830,7 +910,7 @@ class TestMuJoCoModelProperties:
         np.testing.assert_array_equal(qvel, 0.0)
 
     def test_get_body_ids(self, bkd):
-        import mujoco
+        mujoco = _mujoco_module()
 
         base_name = mujoco.mj_id2name(bkd.model, mujoco.mjtObj.mjOBJ_BODY, 1)
         ids = bkd.get_body_ids([base_name])
@@ -922,8 +1002,8 @@ class TestCrossBackendModelProperties:
         from unilab.base.backend.motrix_backend import MotrixBackend
         from unilab.base.backend.mujoco_backend import MuJoCoBackend
 
-        mj = MuJoCoBackend(**_G1, num_envs=NUM_ENVS, sim_dt=SIM_DT)
-        mx = MotrixBackend(**_G1, num_envs=NUM_ENVS, sim_dt=SIM_DT)
+        mj = MuJoCoBackend(_G1["model_file"], NUM_ENVS, SIM_DT, base_name=_G1["base_name"])
+        mx = MotrixBackend(_G1["model_file"], NUM_ENVS, SIM_DT, base_name=_G1["base_name"])
         return mj, mx
 
     def test_num_actuators_match(self, backends):
@@ -937,3 +1017,10 @@ class TestCrossBackendModelProperties:
     def test_actuator_ctrl_range_shape_match(self, backends):
         mj, mx = backends
         assert mj.get_actuator_ctrl_range().shape == mx.get_actuator_ctrl_range().shape
+
+    def test_motion_body_ids_match_motion_xml(self, backends):
+        mj, mx = backends
+        body_names = ["pelvis", "torso_link"]
+        expected = np.asarray(get_named_body_ids(_G1["model_file"], body_names), dtype=np.int32)
+        np.testing.assert_array_equal(mj.get_motion_body_ids(body_names), expected)
+        np.testing.assert_array_equal(mx.get_motion_body_ids(body_names), expected)

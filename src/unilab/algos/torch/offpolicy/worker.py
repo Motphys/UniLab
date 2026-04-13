@@ -11,6 +11,7 @@ import numpy as np
 import torch
 
 from unilab.utils.algo_utils import build_actor, ensure_registries
+from unilab.utils.final_observation import resolve_terminal_observation_contract
 from unilab.utils.obs_utils import split_obs_dict
 
 
@@ -61,6 +62,7 @@ def off_policy_collector_fn(
     env_cfg_override: dict | None = None,
     obs_dim: int | None = None,
     action_dim: int | None = None,
+    actor_kwargs: dict | None = None,
     **kwargs,
 ):
     """Entry point for the off-policy collector subprocess."""
@@ -92,6 +94,7 @@ def off_policy_collector_fn(
             env_cfg_override=env_cfg_override,
             obs_dim=obs_dim,
             action_dim=action_dim,
+            actor_kwargs=actor_kwargs,
         )
     except Exception as e:
         print(f"[Collector] Exception: {e}", file=sys.stderr, flush=True)
@@ -126,6 +129,7 @@ def _run_collector(
     env_cfg_override,
     obs_dim,
     action_dim,
+    actor_kwargs,
 ):
     from unilab.base import registry
     from unilab.ipc import SharedWeightSync
@@ -151,7 +155,14 @@ def _run_collector(
         action_dim=action_dim,
     )
     actor = build_actor(
-        algo_type, obs_dim, action_dim, actor_hidden_dim, use_layer_norm, "cpu", num_envs
+        algo_type,
+        obs_dim,
+        action_dim,
+        actor_hidden_dim,
+        use_layer_norm,
+        "cpu",
+        num_envs,
+        **(actor_kwargs or {}),
     )
     actor.eval()
 
@@ -279,18 +290,13 @@ def _run_collector(
         timeout_count_window += int(np.count_nonzero(timeout_mask_np))
         terminated_count_window += int(np.count_nonzero(terminated_mask_np))
 
-        # Handle true terminal observations
-        if "_final_observation" in state.info:
-            has_final = state.info["_final_observation"]
-            has_final_np = np.asarray(has_final, dtype=bool)
-            if np.any(has_final_np):
-                final_obs_np, final_priv_np = split_obs_dict(state.info["final_observation"])
-                final_obs_np = np.asarray(final_obs_np, dtype=np.float32)
-                if final_priv_np is not None:
-                    final_priv_np = np.asarray(final_priv_np, dtype=np.float32)
-                next_obs_np[has_final_np] = final_obs_np[has_final_np]
-                if final_priv_np is not None and next_priv_np is not None:
-                    next_priv_np[has_final_np] = final_priv_np[has_final_np]
+        terminal_contract = resolve_terminal_observation_contract(
+            next_obs_batch_size=next_obs_np.shape[0],
+            final_observation=getattr(state, "final_observation", None),
+            done=done_mask_np,
+            info=state.info,
+            truncated=truncated_np,
+        )
 
         # Write to replay buffer
         replay_buffer.add(
@@ -302,6 +308,17 @@ def _run_collector(
             torch.from_numpy(truncated_np),
             torch.from_numpy(priv_np) if priv_np is not None else None,
             torch.from_numpy(next_priv_np) if next_priv_np is not None else None,
+            terminal_mask=torch.from_numpy(terminal_contract.terminal_mask),
+            terminal_next_obs=(
+                torch.from_numpy(terminal_contract.terminal_obs)
+                if terminal_contract.terminal_obs is not None
+                else None
+            ),
+            terminal_next_privileged=(
+                torch.from_numpy(terminal_contract.terminal_privileged)
+                if terminal_contract.terminal_privileged is not None
+                else None
+            ),
         )
 
         # Track episode rewards - vectorized

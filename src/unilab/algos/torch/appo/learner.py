@@ -200,7 +200,6 @@ class APPOLearner:
         privileged = batch_dict.get("privileged", None)  # [T, N, P] or None
         rewards = batch_dict["rewards"]  # [T, N]
         dones = batch_dict["dones"].float()  # [T, N]
-        truncated = batch_dict["truncated"].float()  # [T, N]
         last_obs = batch_dict["last_obs"]  # [N, D]
         last_privileged = batch_dict.get("last_privileged", None)  # [N, P] or None
         behavior_log_probs = batch_dict["actions_log_prob"]  # [T, N]
@@ -254,10 +253,6 @@ class APPOLearner:
             batch_dict["_old_mu"] = self.target_actor.output_mean.clone()
             batch_dict["_old_sigma"] = self.target_actor.output_std.clone()
         target_log_probs = target_log_probs_flat.view(T, N)
-
-        # Time-out bootstrap correction (matching rsl_rl):
-        #   rewards += gamma * V(s) * time_outs
-        rewards += self.gamma * values.detach() * truncated
 
         # V-trace targets and advantages
         vs, advantages = vtrace_advantages(

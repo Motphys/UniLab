@@ -41,6 +41,7 @@ class MotrixBackend(SimBackend):
 
         self.add_body_sensors = add_body_sensors
         self._base_name = base_name
+        self._model_file = model_file
 
         if self.add_body_sensors:
             from unilab.utils.xml_utils import inject_motrix_tracking_sensors
@@ -76,6 +77,14 @@ class MotrixBackend(SimBackend):
         self._data = mtx.SceneData(self._model, batch=[num_envs])  # pyright: ignore[reportPossiblyUnbound]
         self._body = self._model.get_body(base_name)
         self._body_link = self._model.get_link(base_name)
+        self._body_floatingbase = self._body.floatingbase
+        self._joint_dof_pos_indices = np.asarray(self._model.joint_dof_pos_indices, dtype=np.intp)
+        self._joint_dof_vel_indices = np.asarray(self._model.joint_dof_vel_indices, dtype=np.intp)
+        self._floating_base_quat_indices: tuple[np.ndarray, ...] = tuple(
+            np.asarray(floating_base.dof_pos_indices[3:7], dtype=np.intp)
+            for floating_base in getattr(self._model, "floating_bases", [])
+            if len(floating_base.dof_pos_indices) >= 7
+        )
         self._default_base_mass_override = np.asarray(
             self._body_link.get_mass_override(self._data)
         ).copy()
@@ -121,9 +130,7 @@ class MotrixBackend(SimBackend):
 
     @property
     def num_dof_vel(self) -> int:
-        # model.num_dof_vel includes 6 floating-base DOFs; exclude them
-        # to match get_dof_vel() which returns joint velocities only.
-        return int(self._model.num_dof_vel) - 6
+        return int(len(self._joint_dof_vel_indices))
 
     def get_actuator_ctrl_range(self) -> np.ndarray:
         arr: np.ndarray = np.array(self._model.actuator_ctrl_limits, dtype=self._np_dtype)
@@ -185,9 +192,7 @@ class MotrixBackend(SimBackend):
         qvel: np.ndarray,
         randomization: ResetRandomizationPayload | None = None,
     ) -> None:
-        # Convert quaternion from mujoco (wxyz) to motrix (xyzw)
-        qpos_motrix = qpos.copy()
-        qpos_motrix[:, 3:7] = qpos[:, [4, 5, 6, 3]]
+        qpos_motrix = self._mujoco_qpos_to_motrix(qpos)
 
         # Create mask for batch operation
         mask = np.zeros(self._num_envs, dtype=bool)
@@ -200,8 +205,8 @@ class MotrixBackend(SimBackend):
         data_slice.set_dof_vel(qvel)
         data_slice.set_dof_pos(qpos_motrix, self._model)
 
-        # Set control to joint positions (actuator target for PD control)
-        ctrl = qpos_motrix[:, 7:]
+        # Actuator targets follow the model's joint-position ordering only.
+        ctrl = qpos_motrix[:, self._joint_dof_pos_indices]
         data_slice.actuator_ctrls = np.ascontiguousarray(ctrl)
 
         self._model.forward_kinematic(data_slice)
@@ -226,16 +231,26 @@ class MotrixBackend(SimBackend):
     # ------------------------------------------------------------------ #
 
     def get_base_pos(self) -> np.ndarray:
-        return np.asarray(self._body.floatingbase.get_translation(self._data))
+        if self._body_floatingbase is not None:
+            return np.asarray(self._body_floatingbase.get_translation(self._data))
+        return np.asarray(self._body_link.get_pose(self._data))[:, :3]
 
     def get_base_quat(self) -> np.ndarray:
-        return self._xyzw_to_wxyz(np.asarray(self._body.floatingbase.get_rotation(self._data)))
+        if self._body_floatingbase is not None:
+            quat = np.asarray(self._body_floatingbase.get_rotation(self._data))
+        else:
+            quat = np.asarray(self._body_link.get_rotation(self._data))
+        return self._xyzw_to_wxyz(quat)
 
     def get_base_lin_vel(self) -> np.ndarray:
-        return np.asarray(self._body.floatingbase.get_global_linear_velocity(self._data))
+        if self._body_floatingbase is not None:
+            return np.asarray(self._body_floatingbase.get_global_linear_velocity(self._data))
+        return np.asarray(self._body_link.get_linear_velocity(self._data))
 
     def get_base_ang_vel(self) -> np.ndarray:
-        return np.asarray(self._body.floatingbase.get_global_angular_velocity(self._data))
+        if self._body_floatingbase is not None:
+            return np.asarray(self._body_floatingbase.get_global_angular_velocity(self._data))
+        return np.asarray(self._body_link.get_angular_velocity(self._data))
 
     # ------------------------------------------------------------------ #
     # DOF state                                                          #
@@ -327,6 +342,13 @@ class MotrixBackend(SimBackend):
     def _xyzw_to_wxyz(self, q: np.ndarray) -> np.ndarray:
         """motrix xyzw → wxyz"""
         return q[..., [3, 0, 1, 2]]
+
+    def _mujoco_qpos_to_motrix(self, qpos: np.ndarray) -> np.ndarray:
+        """Convert every MuJoCo freejoint quaternion slice from wxyz to xyzw."""
+        qpos_motrix = np.array(qpos, copy=True)
+        for quat_indices in self._floating_base_quat_indices:
+            qpos_motrix[:, quat_indices] = qpos[:, quat_indices[[1, 2, 3, 0]]]
+        return qpos_motrix
 
     def _refresh_link_pose_cache(self, env_indices: np.ndarray | None = None) -> None:
         if env_indices is None:
