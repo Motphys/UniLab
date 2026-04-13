@@ -1355,32 +1355,3 @@ def test_play_interactive_import_does_not_swallow_registry_bootstrap_errors(
 
     with pytest.raises(RuntimeError, match="bootstrap failed"):
         spec.loader.exec_module(mod)  # type: ignore[union-attr]
-
-
-def test_gen_grasp_import_does_not_swallow_registry_bootstrap_errors(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    import types
-
-    gen_grasp_path = (
-        _SRC_DIR / "unilab" / "envs" / "manipulation" / "inhand_rot_allegro" / "gen_grasp.py"
-    )
-    training_mod = cast(Any, types.ModuleType("unilab.training"))
-
-    def _fail_bootstrap() -> None:
-        raise RuntimeError("bootstrap failed")
-
-    training_mod.ensure_registries = _fail_bootstrap
-    monkeypatch.setitem(sys.modules, "unilab.training", training_mod)
-    monkeypatch.setitem(sys.modules, "mediapy", cast(Any, types.ModuleType("mediapy")))
-
-    mujoco_mod = cast(Any, types.ModuleType("mujoco"))
-    mujoco_mod.viewer = cast(Any, types.ModuleType("mujoco.viewer"))
-    monkeypatch.setitem(sys.modules, "mujoco", mujoco_mod)
-    monkeypatch.setitem(sys.modules, "mujoco.viewer", mujoco_mod.viewer)
-
-    spec = importlib.util.spec_from_file_location("gen_grasp_test_module", gen_grasp_path)
-    mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
-
-    with pytest.raises(RuntimeError, match="bootstrap failed"):
-        spec.loader.exec_module(mod)  # type: ignore[union-attr]

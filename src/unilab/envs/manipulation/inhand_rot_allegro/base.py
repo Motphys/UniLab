@@ -67,7 +67,7 @@ class AllegroBaseEnv(NpEnv):
             low=-1.0,
             high=1.0,
             shape=(self._NUM_HAND_DOF,),
-            dtype=float,
+            dtype=np.float32,
         )
 
     @property
@@ -77,7 +77,9 @@ class AllegroBaseEnv(NpEnv):
     def _init_buffers(self) -> None:
         self.default_angles = np.zeros((self._num_action,), dtype=self._np_dtype)
         self._init_qpos = self._resolve_init_qpos()
-        self.default_angles = np.asarray(self._init_qpos[: self._NUM_HAND_DOF], dtype=self._np_dtype)
+        self.default_angles = np.asarray(
+            self._init_qpos[: self._NUM_HAND_DOF], dtype=self._np_dtype
+        )
         self._init_qvel = np.asarray(self._backend.get_init_qvel(), dtype=self._np_dtype)
 
     def _resolve_init_qpos(self) -> np.ndarray:
@@ -90,12 +92,16 @@ class AllegroBaseEnv(NpEnv):
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
         clipped_actions = np.asarray(np.clip(actions, -1.0, 1.0), dtype=self._np_dtype)
-        state.info["last_actions"] = state.info.get("current_actions", np.zeros_like(clipped_actions))
+        state.info["last_actions"] = state.info.get(
+            "current_actions", np.zeros_like(clipped_actions)
+        )
         state.info["current_actions"] = clipped_actions
 
         prev_ctrl = state.info.get(
             "prev_ctrl",
-            np.broadcast_to(self.default_angles, (clipped_actions.shape[0], self._num_action)).copy(),
+            np.broadcast_to(
+                self.default_angles, (clipped_actions.shape[0], self._num_action)
+            ).copy(),
         )
         new_ctrl = prev_ctrl + self._cfg.control_config.action_scale * clipped_actions
         new_ctrl = np.clip(new_ctrl, self._ctrl_lower, self._ctrl_upper)

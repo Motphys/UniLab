@@ -14,7 +14,6 @@ from typing import Any
 
 import imageio
 
-
 _EGL_PROBE_SCRIPT = textwrap.dedent(
     '''
     import mujoco

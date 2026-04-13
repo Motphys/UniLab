@@ -63,6 +63,7 @@ except ImportError:
     print("Could not import rsl_rl. Please ensure it is installed.")
     sys.exit(1)
 
+
 @dataclass
 class PlayInteractiveArgs:
     task: str
@@ -859,9 +860,7 @@ def _build_play_args(cfg: DictConfig) -> PlayInteractiveArgs:
 @hydra.main(version_base="1.3", config_path="../conf/ppo", config_name="config")
 def main(cfg: DictConfig) -> None:
     if str(cfg.training.sim_backend) != "mujoco":
-        raise ValueError(
-            "play_interactive.py only supports MuJoCo viewer; use task=<task>/mujoco."
-        )
+        raise ValueError("play_interactive.py only supports MuJoCo viewer; use task=<task>/mujoco.")
     play_interactive(_build_play_args(cfg), cfg)
 
 

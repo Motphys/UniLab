@@ -304,5 +304,3 @@ def test_cli_override_beats_task_defaults():
 
     assert cfg.algo.max_iterations == 1
     assert cfg.algo.empirical_normalization is True
-
-

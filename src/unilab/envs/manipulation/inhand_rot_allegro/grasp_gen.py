@@ -76,7 +76,7 @@ class AllegroRotationGrasp(AllegroRotationPPO):
             [self._sensor_scalar(self.get_sensor_data(name)) for name in self._CONTACT_SENSORS],
             axis=1,
         )
-        return np.sum(contacts > 0.5, axis=1)
+        return np.asarray(np.sum(contacts > 0.5, axis=1), dtype=np.int32)
 
     def _compute_grasp_conditions(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         # Hora-style good grasp criteria from compute_reward:
@@ -87,7 +87,11 @@ class AllegroRotationGrasp(AllegroRotationPPO):
         cond1 = np.all(np.linalg.norm(fingertip_pos - ball_pos[:, None, :], axis=-1) < 0.1, axis=1)
         cond2 = self._contact_count() >= int(self._cfg.grasp_min_contacts)
         cond3 = ball_pos[:, 2] > float(self._reward_cfg.reset_z_threshold)
-        return np.asarray(cond1, dtype=bool), np.asarray(cond2, dtype=bool), np.asarray(cond3, dtype=bool)
+        return (
+            np.asarray(cond1, dtype=bool),
+            np.asarray(cond2, dtype=bool),
+            np.asarray(cond3, dtype=bool),
+        )
 
     def _check_grasp_quality(self, env_ids: np.ndarray) -> np.ndarray:
         cond1, cond2, cond3 = self._compute_grasp_conditions()

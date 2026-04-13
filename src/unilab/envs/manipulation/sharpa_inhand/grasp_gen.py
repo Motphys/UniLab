@@ -9,17 +9,14 @@ from unilab.base import registry
 from unilab.base.np_env import NpEnvState
 from unilab.dr import ResetPlan
 from unilab.dr.dr_utils import build_common_reset_randomization
-from unilab.envs.manipulation.sharpa_inhand.base import (
-    SharpaInhandBaseCfg,
-    resolve_grasp_cache_file,
-)
+from unilab.envs.manipulation.sharpa_inhand.base import resolve_grasp_cache_file
 from unilab.envs.manipulation.sharpa_inhand.rotation import (
     RewardConfig,
+    SharpaInhandRotationCfg,
     SharpaInhandRotationDRProvider,
     SharpaInhandRotationEnv,
 )
 from unilab.utils.math_utils import np_quat_error_magnitude
-
 
 # Source: sharpa-rl-lab sharpa_wave_grasp_env_cfg.py (joint_pos default grasp pose).
 _SOURCE_DEFAULT_GRASP_ANGLES_DEG: tuple[float, ...] = (
@@ -47,9 +44,10 @@ _SOURCE_DEFAULT_GRASP_ANGLES_DEG: tuple[float, ...] = (
     5.89875,
 )
 
+
 @dataclass
-class SharpaInhandRotationGraspCfg(SharpaInhandBaseCfg):
-    max_episode_seconds: float = 3.0 # 12.0
+class SharpaInhandRotationGraspCfg(SharpaInhandRotationCfg):
+    max_episode_seconds: float = 3.0  # 12.0
     torque_control: bool = False
 
     reset_height_lower: float = 0.61406
@@ -177,7 +175,9 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
         return int(sum(len(bucket) for bucket in self._saved_grasping_states))
 
     def _collection_target_reached(self) -> bool:
-        return all(len(bucket) >= self._grasp_target_per_scale for bucket in self._saved_grasping_states)
+        return all(
+            len(bucket) >= self._grasp_target_per_scale for bucket in self._saved_grasping_states
+        )
 
     def _stop_collection(self) -> None:
         if self._grasp_target_reached_notified:

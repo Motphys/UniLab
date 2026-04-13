@@ -53,10 +53,11 @@ def build_obs_lag_history(
     init_obs: np.ndarray, num_lag_steps: int, num_obs_per_step: int
 ) -> np.ndarray:
     num_envs = init_obs.shape[0]
-    return np.broadcast_to(
+    history = np.broadcast_to(
         init_obs[:, None, :],
         (num_envs, num_lag_steps, num_obs_per_step),
     ).copy()
+    return np.asarray(history, dtype=init_obs.dtype)
 
 
 def sample_cached_grasps(

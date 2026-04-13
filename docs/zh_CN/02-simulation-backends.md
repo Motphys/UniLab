@@ -45,23 +45,28 @@ uv run python scripts/generate_support_matrix.py --write
 | PPO (torch) | `g1_joystick` (G1 joystick) | Tested | Tested |
 | PPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested |
 | PPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | Tested |
-| PPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | - |
+| PPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | Tested |
+| PPO (torch) | `allegro_inhand_grasp` (allegro inhand grasp) | Tested | Tested |
+| PPO (torch) | `sharpa_inhand` (sharpa inhand) | Tested | Tested |
+| PPO (torch) | `sharpa_inhand_grasp` (sharpa inhand grasp) | Tested | Tested |
 | PPO (mlx) | `go1_joystick` (Go1 joystick) | Tested | Tested |
 | PPO (mlx) | `go2_joystick` (Go2 joystick) | Tested | Tested |
 | PPO (mlx) | `g1_joystick` (G1 joystick) | Tested | Tested |
 | PPO (mlx) | `g1_motion_tracking` (G1 motion tracking) | Configured | Configured |
 | PPO (mlx) | `g1_flip_tracking` (G1 flip tracking) | Configured | Configured |
-| PPO (mlx) | `allegro_inhand` (Allegro in-hand) | Configured | - |
+| PPO (mlx) | `allegro_inhand` (Allegro in-hand) | Configured | Configured |
+| PPO (mlx) | `allegro_inhand_grasp` (allegro inhand grasp) | Configured | Configured |
+| PPO (mlx) | `sharpa_inhand` (sharpa inhand) | Configured | Configured |
+| PPO (mlx) | `sharpa_inhand_grasp` (sharpa inhand grasp) | Configured | Configured |
 | APPO (torch) | `go1_joystick` (Go1 joystick) | Tested | Registered |
 | APPO (torch) | `go2_joystick` (Go2 joystick) | Tested | Registered |
 | APPO (torch) | `g1_joystick` (G1 joystick) | Tested | Registered |
 | APPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested |
 | APPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | Tested |
-| APPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | - |
+| APPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | Registered |
 | SAC (torch) | `go1_joystick` (Go1 joystick) | Tested | Tested |
 | SAC (torch) | `go2_joystick` (Go2 joystick) | Tested | Tested |
 | SAC (torch) | `g1_sac` (G1 SAC locomotion) | Tested | Tested |
-| SAC (torch) | `allegro_sac` (Allegro SAC in-hand) | Tested | - |
 | TD3 (torch) | `go1_joystick` (Go1 joystick) | Tested | Tested |
 | TD3 (torch) | `go2_joystick` (Go2 joystick) | Tested | Tested |
 

@@ -197,9 +197,10 @@ def sample_bucketed_grasp_cache(
 
 
 def repeat_obs_history(init_frame: np.ndarray, history_len: int) -> np.ndarray:
-    return np.broadcast_to(
+    history = np.broadcast_to(
         init_frame[:, None, :], (init_frame.shape[0], history_len, init_frame.shape[1])
     ).copy()
+    return np.asarray(history, dtype=init_frame.dtype)
 
 
 def apply_random_rotation_to_positions(
@@ -207,7 +208,8 @@ def apply_random_rotation_to_positions(
     center: np.ndarray,
     random_quat: np.ndarray,
 ) -> np.ndarray:
-    return np_quat_apply(random_quat, positions - center) + center
+    rotated = np_quat_apply(random_quat, positions - center)
+    return np.asarray(rotated + center, dtype=positions.dtype)
 
 
 class SharpaInhandBaseEnv(NpEnv):
@@ -348,7 +350,7 @@ class SharpaInhandBaseEnv(NpEnv):
         if data.ndim == 2 and data.shape[1] == 1:
             return data[:, 0]
         if data.ndim == 2 and data.shape[1] >= 3:
-            return np.linalg.norm(data[:, :3], axis=1).astype(self._np_dtype)
+            return np.asarray(np.linalg.norm(data[:, :3], axis=1), dtype=self._np_dtype)
         flat = data.reshape(data.shape[0], -1)
         return np.asarray(flat[:, 0], dtype=self._np_dtype)
 
