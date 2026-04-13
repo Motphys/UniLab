@@ -47,7 +47,7 @@
   </default>
 
   <worldbody>
-    <body name="right_hand_C_MC" pos="0 0 0">
+    <body name="right_hand_C_MC" pos="0 0 0.5" quat="0.819152 0 -0.5735764 0">
       <inertial pos="-0.00216 0.00536 0.04011" quat="0.713832 -0.0659364 0.0757239 0.693082" mass="0.6506" diaginertia="0.000814964 0.000674257 0.00027314"/>
       <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.79216 0.81961 0.93333 1" mesh="right_hand_C_MC_visual" name="right_hand_C_MC_visual"/>
       <geom type="mesh" contype="1" conaffinity="1" group="3"  rgba="0.79216 0.81961 0.93333 1" mesh="right_hand_C_MC" name="right_hand_C_MC"/>

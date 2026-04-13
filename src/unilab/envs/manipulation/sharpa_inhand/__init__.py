@@ -1,8 +1,8 @@
 from . import (
-    grasp,  # registers SharpaInhandRotationGrasp via @registry decorators
+    grasp_gen,  # registers SharpaInhandRotationGrasp via @registry decorators
     rotation,  # registers SharpaInhandRotation via @registry decorators
 )
-from .grasp import (
+from .grasp_gen import (
     SharpaInhandGraspEnvCfg,
     SharpaInhandRotationGraspCfg,
     SharpaInhandRotationGraspEnv,

@@ -6,22 +6,50 @@ from typing import Any, cast
 import numpy as np
 
 from unilab.base import registry
-from unilab.base.dtype_config import get_global_dtype
 from unilab.base.np_env import NpEnvState
-from unilab.dr import DomainRandomizationCapabilities, DomainRandomizationProvider, ResetPlan
-from unilab.dr.dr_utils import build_common_reset_randomization, validate_common_reset_randomization
+from unilab.dr import ResetPlan
+from unilab.dr.dr_utils import build_common_reset_randomization
 from unilab.envs.manipulation.sharpa_inhand.base import (
     SharpaInhandBaseCfg,
-    repeat_obs_history,
     resolve_grasp_cache_file,
 )
-from unilab.envs.manipulation.sharpa_inhand.rotation import RewardConfig, SharpaInhandRotationEnv
+from unilab.envs.manipulation.sharpa_inhand.rotation import (
+    RewardConfig,
+    SharpaInhandRotationDRProvider,
+    SharpaInhandRotationEnv,
+)
 from unilab.utils.math_utils import np_quat_error_magnitude
 
 
+# Source: sharpa-rl-lab sharpa_wave_grasp_env_cfg.py (joint_pos default grasp pose).
+_SOURCE_DEFAULT_GRASP_ANGLES_DEG: tuple[float, ...] = (
+    95.12771,
+    -3.11244,
+    14.81626,
+    -1.03493,
+    12.23986,
+    65.21091,
+    6.1133,
+    15.58495,
+    5.90325,
+    31.74149,
+    -0.95812,
+    41.88173,
+    12.844,
+    31.72383,
+    9.84458,
+    35.22366,
+    18.02839,
+    10.9712,
+    68.30895,
+    7.99151,
+    5.89626,
+    5.89875,
+)
+
 @dataclass
 class SharpaInhandRotationGraspCfg(SharpaInhandBaseCfg):
-    max_episode_seconds: float = 12.0
+    max_episode_seconds: float = 3.0 # 12.0
     torque_control: bool = False
 
     reset_height_lower: float = 0.61406
@@ -65,67 +93,9 @@ class SharpaInhandGraspEnvCfg(SharpaInhandRotationGraspCfg):
     pass
 
 
-class SharpaInhandGraspDRProvider(DomainRandomizationProvider):
-    def validate(self, env: Any, capabilities: DomainRandomizationCapabilities) -> None:
-        unsupported = validate_common_reset_randomization(env, capabilities)
-        if unsupported:
-            names = ", ".join(sorted(unsupported))
-            raise NotImplementedError(
-                f"{env._backend.backend_type} backend does not support reset randomization terms: {names}"
-            )
-
-    def _build_info_updates(
-        self,
-        env: Any,
-        hand_qpos: np.ndarray,
-        object_pos: np.ndarray,
-        object_quat: np.ndarray,
-    ) -> dict[str, np.ndarray]:
-        num_reset = hand_qpos.shape[0]
-        dtype = get_global_dtype()
-
-        tactile = np.zeros((num_reset, env._num_tactile), dtype=dtype)
-        contact_pos = np.zeros((num_reset, env._num_tactile * 3), dtype=dtype)
-        hand_qpos_f = hand_qpos.astype(dtype)
-        dof_norm = env._normalize_joint_pos(hand_qpos_f)
-        init_frame = np.concatenate([dof_norm, hand_qpos_f, tactile, contact_pos], axis=1).astype(
-            dtype
-        )
-        obs_lag_history = repeat_obs_history(init_frame, env.cfg.obs_history_len).astype(dtype)
-
-        p_gain = np.full((num_reset, env._num_action), env.cfg.control_config.p_gain, dtype=dtype)
-        d_gain = np.full((num_reset, env._num_action), env.cfg.control_config.d_gain, dtype=dtype)
-
-        priv_info = np.zeros((num_reset, env.cfg.priv_info_dim), dtype=dtype)
-        if env.cfg.randomize_mass:
-            priv_info[:, 4] = np.random.uniform(
-                env.cfg.randomize_mass_lower,
-                env.cfg.randomize_mass_upper,
-                size=(num_reset,),
-            ).astype(dtype)
-
-        object_default_pose = np.concatenate([object_pos, object_quat], axis=1).astype(dtype)
-
-        return {
-            "current_actions": np.zeros((num_reset, env._num_action), dtype=dtype),
-            "last_actions": np.zeros((num_reset, env._num_action), dtype=dtype),
-            "prev_targets": hand_qpos_f.copy(),
-            "init_pose": hand_qpos_f.copy(),
-            "prev_hand_pos": hand_qpos_f.copy(),
-            "prev_object_pos": object_pos.astype(dtype).copy(),
-            "prev_object_quat": object_quat.astype(dtype).copy(),
-            "object_default_pose": object_default_pose,
-            "reset_height_lower": np.full((num_reset,), env.cfg.reset_height_lower, dtype=dtype),
-            "reset_height_upper": np.full((num_reset,), env.cfg.reset_height_upper, dtype=dtype),
-            "rot_axis": np.broadcast_to(env._rot_axis, (num_reset, 3)).astype(dtype),
-            "p_gain": p_gain,
-            "d_gain": d_gain,
-            "priv_info": priv_info,
-            "obs_lag_history": obs_lag_history,
-            "proprio_hist": env._update_proprio_history(obs_lag_history),
-        }
-
+class SharpaInhandGraspDRProvider(SharpaInhandRotationDRProvider):
     def build_reset_plan(self, env: Any, env_ids: np.ndarray) -> ResetPlan:
+        # Keep original grasp task behavior: collect successful pre-reset states on each reset.
         env._collect_successful_grasps(env_ids)
 
         num_reset = len(env_ids)
@@ -139,7 +109,7 @@ class SharpaInhandGraspDRProvider(DomainRandomizationProvider):
             )
 
         rand = 2.0 * np.random.rand(num_reset, env._num_action) - 1.0
-        hand_qpos = np.broadcast_to(env.default_angles, (num_reset, env._num_action)).copy()
+        hand_qpos = np.broadcast_to(env._grasp_default_angles, (num_reset, env._num_action)).copy()
         hand_qpos += 0.15 * rand
         hand_qpos = np.clip(hand_qpos, env._ctrl_lower, env._ctrl_upper)
 
@@ -158,6 +128,9 @@ class SharpaInhandGraspDRProvider(DomainRandomizationProvider):
             hand_qpos=hand_qpos,
             object_pos=object_pos,
             object_quat=object_quat,
+            reset_height_lower=np.full((num_reset,), env.cfg.reset_height_lower, dtype=np.float64),
+            reset_height_upper=np.full((num_reset,), env.cfg.reset_height_upper, dtype=np.float64),
+            rot_axis=np.broadcast_to(env._rot_axis, (num_reset, 3)).astype(np.float64),
         )
 
         return ResetPlan(
@@ -166,28 +139,6 @@ class SharpaInhandGraspDRProvider(DomainRandomizationProvider):
             qvel=qvel,
             info_updates=info_updates,
             randomization=build_common_reset_randomization(env, num_reset),
-        )
-
-    def build_reset_observation(
-        self,
-        env: Any,
-        env_ids: np.ndarray,
-        info_updates: dict[str, Any],
-    ) -> dict[str, np.ndarray]:
-        del env_ids
-        return cast(
-            dict[str, np.ndarray],
-            env._compute_obs_from_inputs(
-                info_updates,
-                dof_pos=np.asarray(info_updates["prev_targets"]),
-                object_pos=np.asarray(info_updates["prev_object_pos"]),
-                tactile=np.zeros(
-                    (len(info_updates["prev_targets"]), env._num_tactile), dtype=env._np_dtype
-                ),
-                contact_pos=np.zeros(
-                    (len(info_updates["prev_targets"]), env._num_tactile * 3), dtype=env._np_dtype
-                ),
-            ),
         )
 
 
@@ -209,8 +160,45 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
         ]
         self._grasp_target_per_scale = max(1, int(cfg.grasp_collection_target // self._num_scales))
         self._grasp_cache_saved = False
+        self._grasp_target_reached_notified = False
+        self._grasp_default_angles = np.asarray(
+            np.deg2rad(np.asarray(_SOURCE_DEFAULT_GRASP_ANGLES_DEG, dtype=np.float64)),
+            dtype=self._np_dtype,
+        )
+        if self._grasp_default_angles.shape[0] != self._num_action:
+            raise ValueError(
+                "Source grasp default angle count mismatch: "
+                f"{self._grasp_default_angles.shape[0]} vs expected {self._num_action}"
+            )
 
         self._init_domain_randomization(SharpaInhandGraspDRProvider())
+
+    def _total_saved_grasps(self) -> int:
+        return int(sum(len(bucket) for bucket in self._saved_grasping_states))
+
+    def _collection_target_reached(self) -> bool:
+        return all(len(bucket) >= self._grasp_target_per_scale for bucket in self._saved_grasping_states)
+
+    def _stop_collection(self) -> None:
+        if self._grasp_target_reached_notified:
+            return
+        if not self._collection_target_reached():
+            return
+
+        self._grasp_target_reached_notified = True
+        collected = self._total_saved_grasps()
+        target = int(self._cfg.grasp_collection_target)
+        print(
+            "[SharpaInhandRotationGrasp] Grasp collection target reached "
+            f"(saved={collected}, configured_target={target}). Program stopped."
+        )
+
+        if self.state is not None:
+            log = self.state.info.get("log", {})
+            log["grasp/target_reached"] = 1.0
+            self.state.info["log"] = log
+
+        exit(0)
 
     def _collect_successful_grasps(self, env_ids: np.ndarray) -> None:
         if self.state is None or len(env_ids) == 0:
@@ -244,6 +232,7 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
 
         if not self._cfg.grasp_auto_save:
             self._grasp_cache_saved = True
+            self._stop_collection()
             return
 
         output_file = resolve_grasp_cache_file(
@@ -268,6 +257,8 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
             log["grasp_cache/saved"] = 1.0
             log["grasp_cache/num_states"] = float(save_data.shape[0])
             self.state.info["log"] = log
+
+        self._stop_collection()
 
     def _compute_reward(
         self,
