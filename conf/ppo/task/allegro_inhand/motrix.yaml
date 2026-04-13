@@ -1,0 +1,27 @@
+# @package _global_
+training:
+  task_name: AllegroInhandRotation
+  sim_backend: motrix
+algo:
+  num_envs: 16384
+  num_steps_per_env: 8
+  max_iterations: 201
+  empirical_normalization: true
+  algorithm:
+    value_loss_coef: 4.0
+    desired_kl: 0.02
+reward:
+  scales:
+    rotate: 1.25
+    obj_linvel: -0.3
+    pose_diff: -0.3
+    torque: -0.1
+    work: -2.0
+    drop: 0.0
+  angvel_clip_min: -0.5
+  angvel_clip_max: 0.5
+  reset_z_threshold: 0.125
+env:
+  gen_grasp: false
+  max_episode_seconds: 20.0
+  grasp_cache_path: cache/allegro_grasp_50k.npy

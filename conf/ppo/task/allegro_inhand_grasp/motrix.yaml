@@ -1,11 +1,11 @@
 # @package _global_
 defaults:
-  - /task/allegro_inhand/mujoco
+  - /task/allegro_inhand/motrix
   - _self_
 
 training:
   task_name: AllegroInhandRotationGrasp
-  sim_backend: mujoco
+  sim_backend: motrix
   no_play: true
 algo:
   max_iterations: 1000 # infinite rollout

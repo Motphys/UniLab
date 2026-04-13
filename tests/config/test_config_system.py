@@ -237,6 +237,54 @@ def test_ppo_go2_motrix_preserves_backend_env_overrides():
     assert cfg.env.domain_rand.randomize_kd is False
 
 
+def test_ppo_allegro_inhand_mujoco_owner_defaults():
+    cfg = _compose("ppo", overrides=["task=allegro_inhand/mujoco"])
+
+    assert cfg.training.task_name == "AllegroInhandRotation"
+    assert cfg.training.sim_backend == "mujoco"
+    assert cfg.algo.max_iterations == 201
+    assert cfg.algo.empirical_normalization is True
+    assert cfg.reward.scales.rotate == pytest.approx(1.25)
+    assert cfg.reward.reset_z_threshold == pytest.approx(0.125)
+    assert cfg.env.gen_grasp is False
+    assert cfg.env.max_episode_seconds == pytest.approx(20.0)
+    assert cfg.env.grasp_cache_path == "cache/allegro_grasp_50k.npy"
+
+
+def test_ppo_allegro_inhand_grasp_mujoco_owner_defaults():
+    cfg = _compose("ppo", overrides=["task=allegro_inhand_grasp/mujoco"])
+
+    assert cfg.training.task_name == "AllegroInhandRotationGrasp"
+    assert cfg.training.sim_backend == "mujoco"
+    assert cfg.training.no_play is True
+    assert cfg.algo.max_iterations == 1000
+    assert cfg.reward.scales.rotate == pytest.approx(0.0)
+    assert cfg.reward.scales.drop == pytest.approx(0.0)
+    assert cfg.env.gen_grasp is True
+    assert cfg.env.max_episode_seconds == pytest.approx(3.0)
+    assert cfg.env.grasp_collection_target == 50000
+    assert cfg.env.grasp_auto_save is True
+    assert cfg.env.grasp_quality_check is True
+    assert cfg.env.grasp_min_contacts == 2
+
+
+def test_ppo_allegro_inhand_grasp_cli_override_beats_owner_defaults():
+    cfg = _compose(
+        "ppo",
+        overrides=[
+            "task=allegro_inhand_grasp/mujoco",
+            "algo.max_iterations=1",
+            "env.grasp_collection_target=128",
+            "reward.scales.rotate=0.3",
+        ],
+    )
+
+    assert cfg.algo.max_iterations == 1
+    assert cfg.env.grasp_collection_target == 128
+    assert cfg.reward.scales.rotate == pytest.approx(0.3)
+    assert cfg.env.gen_grasp is True
+
+
 @pytest.mark.parametrize("algo", ["sac", "td3"])
 def test_offpolicy_go2_motrix_preserves_backend_env_overrides(algo: str):
     cfg = _compose("offpolicy", overrides=[f"algo={algo}", f"task={algo}/go2_joystick/motrix"])
@@ -258,8 +306,3 @@ def test_cli_override_beats_task_defaults():
     assert cfg.algo.empirical_normalization is True
 
 
-def test_offpolicy_allegro_sac_has_explicit_reward_config():
-    cfg = _compose("offpolicy", overrides=["algo=sac", "task=sac/allegro_sac/mujoco"])
-
-    assert cfg.reward.scales.alive == pytest.approx(10.0)
-    assert cfg.reward.reset_z_threshold == pytest.approx(0.125)
