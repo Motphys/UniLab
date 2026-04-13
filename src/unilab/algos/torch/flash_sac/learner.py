@@ -68,38 +68,72 @@ class RunningMeanStd:
 
 
 class RewardNormalizer:
-    """Adaptive reward scaling with running reward statistics."""
+    """Adaptive reward scaling with running discounted-return statistics."""
 
-    def __init__(self, g_max: float, device: torch.device, eps: float = 1e-8):
+    def __init__(
+        self,
+        gamma: float,
+        g_max: float,
+        device: torch.device,
+        eps: float = 1e-8,
+    ):
+        self.gamma = gamma
         self.g_max = g_max
         self.eps = eps
         self.device = device
         self.rms = RunningMeanStd.create(device)
-        self.reward_abs_max = torch.tensor(0.0, device=device, dtype=torch.float32)
+        self.g_r = torch.zeros(0, device=device, dtype=torch.float32)
+        self.g_r_max = torch.tensor(0.0, device=device, dtype=torch.float32)
 
-    def update(self, rewards: torch.Tensor) -> None:
-        rewards = rewards.reshape(-1).to(device=self.device, dtype=torch.float32)
+    def _ensure_g_r_shape(self, num_envs: int) -> None:
+        if self.g_r.shape == (num_envs,):
+            return
+        self.g_r = torch.zeros(num_envs, device=self.device, dtype=torch.float32)
+
+    def update_from_transitions(
+        self,
+        rewards: torch.Tensor,
+        terminated: torch.Tensor,
+        truncated: torch.Tensor,
+    ) -> None:
+        rewards = rewards.to(device=self.device, dtype=torch.float32)
+        terminated = terminated.to(device=self.device, dtype=torch.float32)
+        truncated = truncated.to(device=self.device, dtype=torch.float32)
+
+        if rewards.ndim == 1:
+            rewards = rewards.unsqueeze(0)
+            terminated = terminated.unsqueeze(0)
+            truncated = truncated.unsqueeze(0)
         if rewards.numel() == 0:
             return
-        self.rms.update(rewards)
-        self.reward_abs_max = torch.maximum(self.reward_abs_max, rewards.abs().max())
+
+        num_envs = int(rewards.shape[-1])
+        self._ensure_g_r_shape(num_envs)
+        done = torch.clamp(terminated + truncated, min=0.0, max=1.0)
+
+        for step in range(rewards.shape[0]):
+            self.g_r = self.gamma * (1.0 - done[step]) * self.g_r + rewards[step]
+            self.g_r_max = torch.maximum(self.g_r_max, self.g_r.abs().max())
+            self.rms.update(self.g_r)
 
     def normalize(self, rewards: torch.Tensor) -> torch.Tensor:
         denominator = torch.maximum(
             torch.sqrt(self.rms.var + self.eps),
-            self.reward_abs_max / max(self.g_max, self.eps),
+            self.g_r_max / max(self.g_max, self.eps),
         )
         return rewards / denominator
 
     def state_dict(self) -> dict[str, Any]:
         return {
             "rms": self.rms.state_dict(),
-            "reward_abs_max": self.reward_abs_max,
+            "g_r": self.g_r,
+            "g_r_max": self.g_r_max,
         }
 
     def load_state_dict(self, state_dict: dict[str, Any]) -> None:
         self.rms.load_state_dict(state_dict["rms"])
-        self.reward_abs_max = state_dict["reward_abs_max"]
+        self.g_r = state_dict["g_r"]
+        self.g_r_max = state_dict["g_r_max"]
 
 
 class FlashSACLearner:
@@ -188,7 +222,7 @@ class FlashSACLearner:
             self.obs_normalizer = nn.Identity()
 
         self.reward_normalizer = (
-            RewardNormalizer(g_max=normalized_g_max, device=self.device)
+            RewardNormalizer(gamma=self.gamma, g_max=normalized_g_max, device=self.device)
             if normalize_reward
             else None
         )
@@ -237,6 +271,16 @@ class FlashSACLearner:
     def _autocast(self):
         return torch.autocast(device_type="cuda", dtype=torch.float16, enabled=self.use_amp)
 
+    def update_reward_stats(
+        self,
+        rewards: torch.Tensor,
+        terminated: torch.Tensor,
+        truncated: torch.Tensor,
+    ) -> None:
+        if self.reward_normalizer is None:
+            return
+        self.reward_normalizer.update_from_transitions(rewards, terminated, truncated)
+
     @staticmethod
     def _set_requires_grad(module: nn.Module, requires_grad: bool) -> None:
         for param in module.parameters():
@@ -260,7 +304,6 @@ class FlashSACLearner:
         critic_next_obs = self._build_critic_obs(next_obs, next_privileged)
 
         if self.reward_normalizer is not None:
-            self.reward_normalizer.update(rewards)
             rewards = self.reward_normalizer.normalize(rewards)
 
         gamma = self.gamma**self.n_step

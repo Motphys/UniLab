@@ -16,6 +16,7 @@ sys.path.append(str(ROOT_DIR))
 
 from unilab.training import (
     BackendAdapter,
+    assert_offpolicy_task_choice_matches_algo,
     create_env,
     ensure_registries,
     get_log_root,
@@ -76,6 +77,7 @@ def extract_play_obs(obs_dict):
 
 
 def build_offpolicy_env_cfg_override(algo_name: str, cfg: DictConfig) -> dict[str, Any] | None:
+    assert_offpolicy_task_choice_matches_algo(cfg, algo_name=algo_name)
     return cast(
         dict[str, Any] | None,
         BackendAdapter(cfg, root_dir=ROOT_DIR, algo_name=algo_name).build_task_env_cfg_override(),
@@ -444,6 +446,7 @@ def main(cfg: DictConfig) -> None:
 
     algo_name = cfg.algo.algo
     task_name = cfg.training.task_name
+    assert_offpolicy_task_choice_matches_algo(cfg, algo_name=algo_name)
 
     if cfg.training.log_dir is None:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")

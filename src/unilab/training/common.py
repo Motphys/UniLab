@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Callable, TypeVar
 
 import numpy as np
+from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
 
 from unilab.utils.algo_utils import ensure_registries as _ensure_registries
@@ -18,6 +19,51 @@ ObsT = TypeVar("ObsT")
 def ensure_registries() -> None:
     """Import env modules so registry-based entrypoints can instantiate tasks."""
     _ensure_registries()
+
+
+def get_hydra_runtime_choice(cfg: DictConfig, group: str) -> str | None:
+    """Return a selected Hydra config-group choice when runtime metadata is available."""
+    cfg_choice = OmegaConf.select(cfg, f"hydra.runtime.choices.{group}")
+    if cfg_choice is not None:
+        return str(cfg_choice)
+
+    if not HydraConfig.initialized():
+        return None
+
+    try:
+        runtime_choice = HydraConfig.get().runtime.choices.get(group)
+    except Exception:
+        return None
+    return str(runtime_choice) if runtime_choice is not None else None
+
+
+def assert_offpolicy_task_choice_matches_algo(
+    cfg: DictConfig,
+    *,
+    algo_name: str | None = None,
+) -> None:
+    """Reject offpolicy configs whose task owner path does not match the selected algo."""
+    cfg_algo_name = str(OmegaConf.select(cfg, "algo.algo"))
+    if algo_name is not None and cfg_algo_name != algo_name:
+        raise ValueError(
+            f"Off-policy algo argument {algo_name!r} is inconsistent with cfg.algo.algo={cfg_algo_name!r}"
+        )
+
+    selected_algo = algo_name or cfg_algo_name
+    task_choice = get_hydra_runtime_choice(cfg, "task")
+    if task_choice is None:
+        return
+
+    task_algo, sep, _ = task_choice.partition("/")
+    if not sep:
+        raise ValueError(
+            f"Off-policy task choice must use task=<algo>/<task>/<backend>; got task={task_choice}"
+        )
+    if task_algo != selected_algo:
+        raise ValueError(
+            f"Off-policy algo/task mismatch: algo={selected_algo} is inconsistent with task={task_choice}. "
+            "Use task=<algo>/<task>/<backend> with the same algo prefix."
+        )
 
 
 def get_log_root(root_dir: str | Path, cfg: DictConfig) -> Path:

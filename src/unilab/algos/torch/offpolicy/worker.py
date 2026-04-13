@@ -6,6 +6,7 @@ actor policy. Runs in a subprocess; writes to ReplayBuffer.
 
 import queue
 import sys
+from typing import cast
 
 import numpy as np
 import torch
@@ -37,6 +38,21 @@ def resolve_collector_actor_dims(
     assert obs_dim is not None
     assert action_dim is not None
     return obs_dim, action_dim
+
+
+def sample_offpolicy_actions(
+    actor,
+    algo_type: str,
+    obs_torch: torch.Tensor,
+    prev_dones_torch: torch.Tensor,
+) -> torch.Tensor:
+    """Sample collector actions using the algorithm's exploration policy."""
+    if algo_type in ("sac", "td3", "flashsac"):
+        return cast(
+            torch.Tensor,
+            actor.explore(obs_torch, dones=prev_dones_torch, deterministic=False),
+        )
+    raise ValueError(f"Unsupported off-policy algo_type for collector action sampling: {algo_type}")
 
 
 def off_policy_collector_fn(
@@ -245,11 +261,13 @@ def _run_collector(
             else:
                 _t_infer = _time.perf_counter()
                 obs_torch = torch.from_numpy(obs_np_input)
-                if algo_type in ("sac", "td3"):
-                    dones_torch = torch.from_numpy(prev_dones_np)
-                    actions_torch = actor.explore(obs_torch, dones=dones_torch, deterministic=False)
-                else:
-                    actions_torch = torch.zeros((num_envs, action_dim))
+                dones_torch = torch.from_numpy(prev_dones_np)
+                actions_torch = sample_offpolicy_actions(
+                    actor=actor,
+                    algo_type=algo_type,
+                    obs_torch=obs_torch,
+                    prev_dones_torch=dones_torch,
+                )
                 actions_np = actions_torch.numpy()
                 timing_accum_ms["mlp_infer_ms"] += (_time.perf_counter() - _t_infer) * 1000
 

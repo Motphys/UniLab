@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import torch
 
-from unilab.algos.torch.flash_sac.learner import FlashSACLearner
+from unilab.algos.torch.flash_sac.learner import FlashSACLearner, RewardNormalizer
 
 
 def _make_batch(batch_size: int = 32) -> dict[str, torch.Tensor]:
@@ -75,3 +75,31 @@ def test_flashsac_state_dict_round_trip():
     restored.load_state_dict(state_dict)
 
     assert restored.get_state_dict()["update_count"] == learner.get_state_dict()["update_count"]
+
+
+def test_reward_normalizer_tracks_discounted_returns() -> None:
+    normalizer = RewardNormalizer(gamma=0.5, g_max=5.0, device=torch.device("cpu"))
+
+    normalizer.update_from_transitions(
+        rewards=torch.tensor([[2.0, 1.0], [4.0, 3.0]]),
+        terminated=torch.tensor([[0.0, 1.0], [0.0, 0.0]]),
+        truncated=torch.zeros(2, 2),
+    )
+
+    torch.testing.assert_close(normalizer.g_r, torch.tensor([5.0, 3.5]))
+    torch.testing.assert_close(normalizer.g_r_max, torch.tensor(5.0))
+
+
+def test_flashsac_critic_update_does_not_advance_reward_stats_from_sampled_batch() -> None:
+    learner = FlashSACLearner(obs_dim=98, action_dim=29, privileged_dim=3, device="cpu")
+    learner.update_reward_stats(
+        rewards=torch.tensor([[1.0, 2.0]]),
+        terminated=torch.zeros(1, 2),
+        truncated=torch.zeros(1, 2),
+    )
+    assert learner.reward_normalizer is not None
+    before = learner.reward_normalizer.g_r.clone()
+
+    learner.update_critic(_make_batch())
+
+    torch.testing.assert_close(learner.reward_normalizer.g_r, before)

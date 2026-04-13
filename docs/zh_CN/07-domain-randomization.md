@@ -25,7 +25,11 @@
 | `G1WalkTaskMjSAC` | 是 | 是：复用 [`G1JoystickDomainRandomizationProvider`](../../src/unilab/envs/locomotion/g1/joystick.py) | 任务状态采样 + common payload | push | [`g1/joystick_sac.py`](../../src/unilab/envs/locomotion/g1/joystick_sac.py) |
 | `G1MotionTracking` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | 大量任务特有 reset 采样 + common payload | push | [`motion_tracking/g1/tracking.py`](../../src/unilab/envs/motion_tracking/g1/tracking.py) |
 | `AllegroInhandRotation` | 是 | 是：`DomainRandConfig + Provider + ResetPlan` | 纯任务特有 reset 采样，`randomization=None` | 无 | [`inhand_rot_allegro/rotation.py`](../../src/unilab/envs/manipulation/inhand_rot_allegro/rotation.py) |
+<<<<<<< HEAD
 | `AllegroInhandRotationSac` | 是 | 是：`DomainRandConfigSac + Provider + ResetPlan` | 纯任务特有 reset 采样，`randomization=None` | 无 | [`inhand_rot_allegro/rotation.py`](../../src/unilab/envs/manipulation/inhand_rot_allegro/rotation.py) |
+=======
+| `AllegroInhandRotationSac` | 是 | 是：`DomainRandConfigSac + Provider + ResetPlan` | 纯任务特有 reset 采样，`randomization=None` | 无 | [`inhand_rot_allegro/README.md`](../../src/unilab/envs/manipulation/inhand_rot_allegro/README.md) |
+>>>>>>> 5dfac1841fabdca01ce624def981db78ead61499
 
 ## 任务域随机化清单
 
@@ -100,7 +104,11 @@ backend capability 当前是：
 - [`go1/joystick.py`](../../src/unilab/envs/locomotion/go1/joystick.py)
 - [`go2/joystick.py`](../../src/unilab/envs/locomotion/go2/joystick.py)
 - [`inhand_rot_allegro/rotation.py`](../../src/unilab/envs/manipulation/inhand_rot_allegro/rotation.py)
+<<<<<<< HEAD
 - [`inhand_rot_allegro/rotation.py`](../../src/unilab/envs/manipulation/inhand_rot_allegro/rotation.py)
+=======
+- [`inhand_rot_allegro/README.md`](../../src/unilab/envs/manipulation/inhand_rot_allegro/README.md)
+>>>>>>> 5dfac1841fabdca01ce624def981db78ead61499
 
 因此从“当前任务 DR 状态”角度，`kp/kd` 还不能算各任务已经统一接入的域随机项。
 
