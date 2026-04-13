@@ -376,7 +376,6 @@ def test_build_ppo_env_cfg_override_allegro_grasp_cli_override_wins(
     assert env_cfg_override["gen_grasp"] is True
 
 
-<<<<<<< HEAD
 def test_build_ppo_env_cfg_override_sharpa_mujoco(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -429,8 +428,6 @@ def test_build_ppo_env_cfg_override_sharpa_grasp_cli_override_wins(
     assert env_cfg_override["reward_config"]["scales"]["rotate"] == pytest.approx(0.3)
 
 
-=======
->>>>>>> 5dfac1841fabdca01ce624def981db78ead61499
 def test_ppo_cli_algo_override_wins_over_base(
     monkeypatch: pytest.MonkeyPatch,
 ):

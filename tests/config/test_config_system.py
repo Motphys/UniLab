@@ -285,7 +285,6 @@ def test_ppo_allegro_inhand_grasp_cli_override_beats_owner_defaults():
     assert cfg.env.gen_grasp is True
 
 
-<<<<<<< HEAD
 def test_ppo_sharpa_inhand_mujoco_owner_defaults():
     cfg = _compose("ppo", overrides=["task=sharpa_inhand/mujoco"])
 
@@ -330,8 +329,6 @@ def test_ppo_sharpa_inhand_grasp_cli_override_beats_owner_defaults():
     assert cfg.reward.scales.rotate == pytest.approx(0.3)
 
 
-=======
->>>>>>> 5dfac1841fabdca01ce624def981db78ead61499
 @pytest.mark.parametrize("algo", ["sac", "td3"])
 def test_offpolicy_go2_motrix_preserves_backend_env_overrides(algo: str):
     cfg = _compose("offpolicy", overrides=[f"algo={algo}", f"task={algo}/go2_joystick/motrix"])
