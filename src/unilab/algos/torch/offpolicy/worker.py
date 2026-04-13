@@ -6,6 +6,7 @@ actor policy. Runs in a subprocess; writes to ReplayBuffer.
 
 import queue
 import sys
+from typing import cast
 
 import numpy as np
 import torch
@@ -47,7 +48,10 @@ def sample_offpolicy_actions(
 ) -> torch.Tensor:
     """Sample collector actions using the algorithm's exploration policy."""
     if algo_type in ("sac", "td3", "flashsac"):
-        return actor.explore(obs_torch, dones=prev_dones_torch, deterministic=False)
+        return cast(
+            torch.Tensor,
+            actor.explore(obs_torch, dones=prev_dones_torch, deterministic=False),
+        )
     raise ValueError(f"Unsupported off-policy algo_type for collector action sampling: {algo_type}")
 
 

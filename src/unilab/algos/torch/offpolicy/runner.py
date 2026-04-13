@@ -5,6 +5,7 @@ import statistics
 import sys
 import time
 from collections import deque
+from typing import cast
 
 import torch
 
@@ -95,10 +96,10 @@ class OffPolicyRunner(AsyncRunner):
             source = replay_buffer._storage[:, getattr(replay_buffer, packed_key)]
 
         if idx + count <= replay_buffer.capacity:
-            return source[idx : idx + count].clone()
+            return cast(torch.Tensor, source[idx : idx + count].clone())
 
         split = replay_buffer.capacity - idx
-        return torch.cat([source[idx:], source[: count - split]], dim=0).clone()
+        return cast(torch.Tensor, torch.cat([source[idx:], source[: count - split]], dim=0).clone())
 
     def _update_reward_stats_from_replay(self, replay_buffer, start_ptr: int, end_ptr: int) -> int:
         if not hasattr(self.learner, "update_reward_stats"):

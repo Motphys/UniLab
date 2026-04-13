@@ -84,7 +84,11 @@ except ImportError:
 def _offpolicy_cfg(overrides=None):
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(_CONF_DIR / "offpolicy"), version_base="1.3"):
-        return compose("config", overrides=_normalize_overrides(overrides, offpolicy=True))
+        return compose(
+            "config",
+            overrides=_normalize_overrides(overrides, offpolicy=True),
+            return_hydra_config=True,
+        )
 
 
 def _ppo_cfg(overrides=None):
@@ -1122,9 +1126,9 @@ def test_offpolicy_flashsac_hydra_algo_log_name():
     assert cfg.algo.load_run == "-1"
 
 
-def test_offpolicy_flashsac_default_task_is_go1() -> None:
-    cfg = _offpolicy_cfg(["algo=flashsac"])
-    assert cfg.training.task_name == "Go1JoystickFlatTerrain"
+def test_offpolicy_flashsac_g1_joystick_task_composes() -> None:
+    cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_joystick/mujoco"])
+    assert cfg.training.task_name == "G1JoystickFlatTerrain"
     assert cfg.training.sim_backend == "mujoco"
 
 
@@ -1139,6 +1143,20 @@ def test_offpolicy_flashsac_rejects_multi_gpu():
 
     with pytest.raises(ValueError, match="FlashSAC does not support training.num_gpus > 1"):
         _offpolicy().build_runner("flashsac", cfg)
+
+
+@pytest.mark.parametrize(
+    ("algo", "task"),
+    [
+        ("flashsac", "sac/g1_sac/mujoco"),
+        ("sac", "flashsac/g1_sac/mujoco"),
+    ],
+)
+def test_offpolicy_rejects_algo_task_owner_mismatch(algo: str, task: str):
+    cfg = _offpolicy_cfg([f"algo={algo}", f"task={task}"])
+
+    with pytest.raises(ValueError, match="Off-policy algo/task mismatch"):
+        _offpolicy().build_runner(algo, cfg)
 
 
 def test_train_rsl_rl_get_log_root_uses_algo_log_name(monkeypatch: pytest.MonkeyPatch):

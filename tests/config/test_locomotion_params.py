@@ -48,7 +48,7 @@ def test_flashsac_config_defaults():
     assert cfg.obs_normalization is False
     assert isinstance(cfg.algo_params, FlashSACAlgoParams)
     assert cfg.algo_params.normalize_reward is True
-    assert cfg.algo_params.use_compile is True
+    assert cfg.algo_params.use_compile is False
 
 
 def test_ppo_config_defaults():
@@ -156,24 +156,6 @@ def test_offpolicy_flashsac_g1_task_overrides():
     assert cfg.algo.algo_params.normalize_reward is True
 
 
-def test_offpolicy_flashsac_go1_task_overrides():
-    from hydra import compose, initialize_config_dir
-    from hydra.core.global_hydra import GlobalHydra
-
-    GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(CONF_DIR / "offpolicy"), version_base="1.3"):
-        cfg = compose(
-            "config",
-            overrides=["algo=flashsac", "task=flashsac/go1_joystick/mujoco"],
-        )
-    assert cfg.algo.algo == "flashsac"
-    assert cfg.training.task_name == "Go1JoystickFlatTerrain"
-    assert cfg.training.sim_backend == "mujoco"
-    assert cfg.training.use_amp is True
-    assert cfg.algo.num_envs == 1024
-    assert cfg.algo.updates_per_step == 2
-
-
 def test_offpolicy_flashsac_g1_joystick_task_overrides():
     from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
@@ -188,6 +170,8 @@ def test_offpolicy_flashsac_g1_joystick_task_overrides():
     assert cfg.training.task_name == "G1JoystickFlatTerrain"
     assert cfg.training.sim_backend == "mujoco"
     assert cfg.training.use_amp is True
+    assert cfg.algo.num_envs == 1024
+    assert cfg.algo.updates_per_step == 2
     assert cfg.algo.num_envs == 1024
     assert cfg.algo.replay_buffer_n == 9766
     assert cfg.algo.warmup_steps == 100000
