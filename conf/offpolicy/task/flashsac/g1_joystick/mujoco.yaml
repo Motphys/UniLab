@@ -1,0 +1,39 @@
+# @package _global_
+training:
+  task_name: G1JoystickFlatTerrain
+  sim_backend: mujoco
+  use_amp: true
+algo:
+  num_envs: 1024
+  replay_buffer_n: 9766
+  warmup_steps: 100000
+  updates_per_step: 2
+  max_iterations: 48829
+  save_interval: 5000
+  gamma: 0.97
+env:
+  control_config:
+    action_scale: 0.5
+  commands:
+    vel_limit:
+      - [-1.0, -0.5, -1.0]
+      - [1.0, 0.5, 1.0]
+reward:
+  scales:
+    tracking_lin_vel: 1.0
+    tracking_ang_vel: 0.75
+    feet_phase: 1.0
+    lin_vel_z: 0.0
+    ang_vel_xy: -0.15
+    base_height: 0.0
+    orientation: -2.0
+    action_rate: 0.0
+    pose: -0.1
+  tracking_sigma: 0.25
+  gait_frequency: 1.5
+  feet_phase_swing_height: 0.15
+  feet_phase_tracking_sigma: 0.01
+  base_height_target: 0.754
+  min_base_height: 0.55
+  max_tilt_deg: 25.0
+  pose_weights: [0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0]

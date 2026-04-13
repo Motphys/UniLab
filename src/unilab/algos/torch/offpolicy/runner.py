@@ -78,6 +78,57 @@ class OffPolicyRunner(AsyncRunner):
     def _collector_fn(self, stop_event, **kwargs):
         off_policy_collector_fn(stop_event=stop_event, **kwargs)
 
+    @staticmethod
+    def _read_recent_replay_field(
+        replay_buffer, field_name: str, start_ptr: int, count: int
+    ) -> torch.Tensor:
+        idx = start_ptr % replay_buffer.capacity
+
+        if hasattr(replay_buffer, field_name):
+            source = getattr(replay_buffer, field_name)
+        else:
+            packed_key = {
+                "rewards": "_rew_col",
+                "dones": "_done_col",
+                "truncated": "_trunc_col",
+            }[field_name]
+            source = replay_buffer._storage[:, getattr(replay_buffer, packed_key)]
+
+        if idx + count <= replay_buffer.capacity:
+            return source[idx : idx + count].clone()
+
+        split = replay_buffer.capacity - idx
+        return torch.cat([source[idx:], source[: count - split]], dim=0).clone()
+
+    def _update_reward_stats_from_replay(self, replay_buffer, start_ptr: int, end_ptr: int) -> int:
+        if not hasattr(self.learner, "update_reward_stats"):
+            return end_ptr
+        if getattr(self.learner, "reward_normalizer", None) is None:
+            return end_ptr
+
+        count = end_ptr - start_ptr
+        if count <= 0:
+            return end_ptr
+        if count > replay_buffer.capacity:
+            count = replay_buffer.capacity
+            start_ptr = end_ptr - count
+        if count % self.num_envs != 0:
+            count -= count % self.num_envs
+            start_ptr = end_ptr - count
+        if count <= 0:
+            return end_ptr
+
+        rewards = self._read_recent_replay_field(replay_buffer, "rewards", start_ptr, count)
+        dones = self._read_recent_replay_field(replay_buffer, "dones", start_ptr, count)
+        truncated = self._read_recent_replay_field(replay_buffer, "truncated", start_ptr, count)
+        num_steps = count // self.num_envs
+        self.learner.update_reward_stats(
+            rewards.view(num_steps, self.num_envs),
+            dones.view(num_steps, self.num_envs),
+            truncated.view(num_steps, self.num_envs),
+        )
+        return end_ptr
+
     def learn(
         self,
         max_iterations: int = 1500,
@@ -180,6 +231,7 @@ class OffPolicyRunner(AsyncRunner):
         latest_reward_components: dict[str, float] = {}
         last_buf_log = 0
         write_read_ema = 0.0
+        reward_stats_ptr = 0
 
         # Training loop
         for iteration in range(1, max_iterations + 1):
@@ -245,6 +297,11 @@ class OffPolicyRunner(AsyncRunner):
             wait_time = time.time() - wait_start
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
             collect_time = time.time() - iter_start
+            reward_stats_ptr = self._update_reward_stats_from_replay(
+                replay_buffer,
+                reward_stats_ptr,
+                int(replay_buffer.ptr[0]),
+            )
 
             train_start = time.time()
             from collections import defaultdict

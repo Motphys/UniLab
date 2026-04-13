@@ -847,7 +847,10 @@ def test_mlx_time_limit_bootstrap_values_use_final_observation():
 
     values = mod.get_time_limit_bootstrap_values(state, model, mod.mx.float32)
 
-    assert values is not None
+    if values is None:
+        raise AssertionError("expected bootstrap values")
+    if model.last_obs is None:
+        raise AssertionError("expected model to receive observations")
     np.testing.assert_allclose(np.array(values.tolist()), np.array([7.0, 18.0], dtype=np.float32))
     np.testing.assert_allclose(
         np.array(model.last_obs.tolist()),
@@ -1114,16 +1117,22 @@ def test_offpolicy_td3_hydra_default_algo_log_name():
 
 
 def test_offpolicy_flashsac_hydra_algo_log_name():
-    cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_sac/mujoco"])
+    cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_joystick/mujoco"])
     assert cfg.algo.algo_log_name == "flash_sac"
     assert cfg.algo.load_run == "-1"
+
+
+def test_offpolicy_flashsac_default_task_is_go1() -> None:
+    cfg = _offpolicy_cfg(["algo=flashsac"])
+    assert cfg.training.task_name == "Go1JoystickFlatTerrain"
+    assert cfg.training.sim_backend == "mujoco"
 
 
 def test_offpolicy_flashsac_rejects_multi_gpu():
     cfg = _offpolicy_cfg(
         [
             "algo=flashsac",
-            "task=flashsac/g1_sac/mujoco",
+            "task=flashsac/g1_joystick/mujoco",
             "training.num_gpus=2",
         ]
     )
