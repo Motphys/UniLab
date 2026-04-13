@@ -285,6 +285,50 @@ def test_ppo_allegro_inhand_grasp_cli_override_beats_owner_defaults():
     assert cfg.env.gen_grasp is True
 
 
+def test_ppo_sharpa_inhand_mujoco_owner_defaults():
+    cfg = _compose("ppo", overrides=["task=sharpa_inhand/mujoco"])
+
+    assert cfg.training.task_name == "SharpaInhandRotation"
+    assert cfg.training.sim_backend == "mujoco"
+    assert cfg.algo.max_iterations == 501
+    assert cfg.algo.empirical_normalization is True
+    assert cfg.reward.scales.rotate == pytest.approx(2.5)
+    assert cfg.reward.scales.pose_diff == pytest.approx(-0.4)
+    assert cfg.env.grasp_cache_path == "cache/sharpa_grasp_linspace"
+    assert cfg.env.observation_mode == "simple"
+
+
+def test_ppo_sharpa_inhand_grasp_mujoco_owner_defaults():
+    cfg = _compose("ppo", overrides=["task=sharpa_inhand_grasp/mujoco"])
+
+    assert cfg.training.task_name == "SharpaInhandRotationGrasp"
+    assert cfg.training.sim_backend == "mujoco"
+    assert cfg.algo.max_iterations == 2290
+    assert cfg.reward.scales.rotate == pytest.approx(0.0)
+    assert cfg.reward.scales.object_pos == pytest.approx(0.0)
+    assert cfg.env.max_episode_seconds == pytest.approx(3.0)
+    assert cfg.env.grasp_collection_target == 50000
+    assert cfg.env.randomize_mass is True
+    assert cfg.env.randomize_mass_lower == pytest.approx(0.05)
+    assert cfg.env.randomize_mass_upper == pytest.approx(0.051)
+
+
+def test_ppo_sharpa_inhand_grasp_cli_override_beats_owner_defaults():
+    cfg = _compose(
+        "ppo",
+        overrides=[
+            "task=sharpa_inhand_grasp/mujoco",
+            "algo.max_iterations=1",
+            "env.grasp_collection_target=128",
+            "reward.scales.rotate=0.3",
+        ],
+    )
+
+    assert cfg.algo.max_iterations == 1
+    assert cfg.env.grasp_collection_target == 128
+    assert cfg.reward.scales.rotate == pytest.approx(0.3)
+
+
 @pytest.mark.parametrize("algo", ["sac", "td3"])
 def test_offpolicy_go2_motrix_preserves_backend_env_overrides(algo: str):
     cfg = _compose("offpolicy", overrides=[f"algo={algo}", f"task={algo}/go2_joystick/motrix"])

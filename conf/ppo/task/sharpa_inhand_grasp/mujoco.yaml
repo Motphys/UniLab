@@ -1,0 +1,90 @@
+# @package _global_
+training:
+  task_name: SharpaInhandRotationGrasp
+  sim_backend: mujoco
+algo:
+  num_envs: 16384
+  num_steps_per_env: 8
+  max_iterations: 2290
+  empirical_normalization: true
+  policy:
+    actor_hidden_dims: [512, 256, 128]
+    critic_hidden_dims: [512, 256, 128]
+  algorithm:
+    value_loss_coef: 4.0
+    entropy_coef: 0.0
+    learning_rate: 5.0e-3
+    desired_kl: 0.02
+    num_learning_epochs: 5
+    num_mini_batches: 4
+    clip_param: 0.2
+    gamma: 0.99
+    lam: 0.95
+reward:
+  scales:
+    rotate: 0.0
+    obj_linvel: 0.0
+    pose_diff: 0.0
+    torque: 0.0
+    work: 0.0
+    object_pos: 0.0
+  angvel_clip_min: -0.5
+  angvel_clip_max: 0.5
+env:
+  max_episode_seconds: 3.0
+  torque_control: false
+  zero_action_test_mode: false
+  clip_obs: 5.0
+  clip_actions: 1.0
+  control_config:
+    action_scale: 0.041666666666666664
+    p_gain: 1.0
+    d_gain: 0.1
+  reset_height_lower: 0.61406
+  reset_height_upper: 0.62406
+  reset_angle_diff: 0.5235987755982988
+  reset_random_quat: false
+  rot_axis: [0.0, 0.0, 1.0]
+  grasp_cache_path: cache/sharpa_grasp_linspace
+  joint_noise_scale: 0.02
+  privileged_obs_mode: merged
+  sensor:
+    tactile_force_sensor_names:
+      - contact_right_thumb_elastomer_force
+      - contact_right_index_elastomer_force
+      - contact_right_middle_elastomer_force
+      - contact_right_ring_elastomer_force
+      - contact_right_pinky_elastomer_force
+  enable_tactile: true
+  binary_contact: false
+  enable_contact_pos: false
+  disable_tactile_ids: []
+  contact_smooth: 0.5
+  contact_threshold: 0.05
+  contact_latency: 0.005
+  contact_sensor_noise: 0.01
+  dof_limits_scale: 0.9
+  scale_range: [0.5, 0.5, 1]
+  randomize_pd_gains: false
+  randomize_p_gain_scale_lower: 0.5
+  randomize_p_gain_scale_upper: 2.0
+  randomize_d_gain_scale_lower: 0.5
+  randomize_d_gain_scale_upper: 2.0
+  randomize_friction: false
+  randomize_friction_scale_lower: 0.5
+  randomize_friction_scale_upper: 2.0
+  elastomer_base_friction: 0.8
+  metal_base_friction: 0.1
+  object_base_friction: 0.5
+  randomize_com: false
+  randomize_com_lower: -0.01
+  randomize_com_upper: 0.01
+  randomize_mass: true
+  randomize_mass_lower: 0.05
+  randomize_mass_upper: 0.051
+  force_scale: 0.0
+  random_force_prob_scalar: 0.0
+  force_decay: 0.9
+  force_decay_interval: 0.08
+  gravity_curriculum: false
+  grasp_collection_target: 50000

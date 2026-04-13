@@ -70,12 +70,38 @@ training:
   play_only: false
   no_play: false
   play_env_num: 16
+  render_spacing: 1.0
   play_steps: 200
   cam_distance: 6.0
   cam_elevation: -20.0
   cam_azimuth: 90.0
+  cam_lookat: null
   num_timesteps: null
   log_dir: null
+
+interactive:
+  action_mode: zero
+  policy_obs_mode: auto
+  show_target_bodies: false
+  show_reward_debug: false
+  target_show_axes: false
+  target_body_names: ""
+  target_max_bodies: 0
+  target_marker_radius: 0.02
+  target_axis_length: 0.08
+  target_marker_alpha: 0.75
+  reward_debug_show_velocity: false
+  reward_debug_lin_vel_scale: 0.08
+  reward_debug_ang_vel_scale: 0.05
+  reward_debug_show_connectors: false
+  reward_debug_show_global_anchor: false
+  camera_follow_body: true
+  camera_focus_body_name: ""
+  camera_height_offset: 0.15
+  camera_distance: null
+  camera_elevation: null
+  camera_azimuth: null
+  use_env_visual_model: true
 
 hydra:
   run:

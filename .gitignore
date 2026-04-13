@@ -44,3 +44,9 @@ agent/
 
 src/unilab/assets/motions/g1/flip
 src/unilab/assets/motions/g1/flip_npz
+cache/
+
+
+# Local tool/runtime artifacts (any subfolder)
+**/.codex/
+**/MUJOCO_LOG.TXT
