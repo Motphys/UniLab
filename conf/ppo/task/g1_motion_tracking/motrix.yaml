@@ -13,6 +13,8 @@ algo:
       - actor
   algorithm:
     entropy_coef: 0.005
+env:
+  iterations: 3
 play_profile:
   enabled: true
   env:
