@@ -320,6 +320,62 @@ def test_build_ppo_env_cfg_override_applies_go2_motrix_reward(
     assert env_cfg_override["reward_config"]["scales"]["tracking_ang_vel"] == pytest.approx(0.2)
 
 
+def test_build_ppo_env_cfg_override_allegro_mujoco(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(["task=allegro_inhand/mujoco"])
+
+    env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
+
+    assert cfg.training.task_name == "AllegroInhandRotation"
+    assert env_cfg_override["reward_config"]["scales"]["rotate"] == pytest.approx(1.25)
+    assert env_cfg_override["reward_config"]["reset_z_threshold"] == pytest.approx(0.125)
+    assert env_cfg_override["gen_grasp"] is False
+    assert env_cfg_override["max_episode_seconds"] == pytest.approx(20.0)
+    assert env_cfg_override["grasp_cache_path"] == "cache/allegro_grasp_50k.npy"
+
+
+def test_build_ppo_env_cfg_override_allegro_grasp_mujoco(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(["task=allegro_inhand_grasp/mujoco"])
+
+    env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
+
+    assert cfg.training.task_name == "AllegroInhandRotationGrasp"
+    assert cfg.training.no_play is True
+    assert env_cfg_override["reward_config"]["scales"]["rotate"] == pytest.approx(0.0)
+    assert env_cfg_override["gen_grasp"] is True
+    assert env_cfg_override["grasp_collection_target"] == 50000
+    assert env_cfg_override["grasp_quality_check"] is True
+    assert env_cfg_override["domain_rand"]["randomize_base_mass"] is False
+    assert env_cfg_override["domain_rand"]["random_com"] is False
+    assert env_cfg_override["domain_rand"]["push_robots"] is False
+
+
+def test_build_ppo_env_cfg_override_allegro_grasp_cli_override_wins(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(
+        [
+            "task=allegro_inhand_grasp/mujoco",
+            "algo.max_iterations=1",
+            "env.grasp_collection_target=128",
+            "reward.scales.rotate=0.3",
+        ]
+    )
+
+    env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
+
+    assert cfg.algo.max_iterations == 1
+    assert env_cfg_override["grasp_collection_target"] == 128
+    assert env_cfg_override["reward_config"]["scales"]["rotate"] == pytest.approx(0.3)
+    assert env_cfg_override["gen_grasp"] is True
+
+
 def test_ppo_cli_algo_override_wins_over_base(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -1322,35 +1378,6 @@ def test_play_interactive_import_does_not_swallow_registry_bootstrap_errors(
     spec = importlib.util.spec_from_file_location(
         "play_interactive_test_module", play_interactive_path
     )
-    mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
-
-    with pytest.raises(RuntimeError, match="bootstrap failed"):
-        spec.loader.exec_module(mod)  # type: ignore[union-attr]
-
-
-def test_gen_grasp_import_does_not_swallow_registry_bootstrap_errors(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    import types
-
-    gen_grasp_path = (
-        _SRC_DIR / "unilab" / "envs" / "manipulation" / "inhand_rot_allegro" / "gen_grasp.py"
-    )
-    training_mod = cast(Any, types.ModuleType("unilab.training"))
-
-    def _fail_bootstrap() -> None:
-        raise RuntimeError("bootstrap failed")
-
-    training_mod.ensure_registries = _fail_bootstrap
-    monkeypatch.setitem(sys.modules, "unilab.training", training_mod)
-    monkeypatch.setitem(sys.modules, "mediapy", cast(Any, types.ModuleType("mediapy")))
-
-    mujoco_mod = cast(Any, types.ModuleType("mujoco"))
-    mujoco_mod.viewer = cast(Any, types.ModuleType("mujoco.viewer"))
-    monkeypatch.setitem(sys.modules, "mujoco", mujoco_mod)
-    monkeypatch.setitem(sys.modules, "mujoco.viewer", mujoco_mod.viewer)
-
-    spec = importlib.util.spec_from_file_location("gen_grasp_test_module", gen_grasp_path)
     mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
 
     with pytest.raises(RuntimeError, match="bootstrap failed"):
