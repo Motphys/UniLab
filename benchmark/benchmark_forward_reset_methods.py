@@ -9,7 +9,7 @@ from pathlib import Path
 
 import mujoco
 import numpy as np
-from mujoco import batch_forward
+from mujoco.batch_env import BatchEnvPool
 
 try:
     from benchmark.core.device_info import get_device_info_dict, get_device_info_line
@@ -25,17 +25,21 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.append(str(ROOT_DIR))
 
-from unilab.envs.locomotion.g1.joystick import G1JoystickCfg
-from unilab.envs.locomotion.go1.joystick import Go1JoystickCfg
-from unilab.envs.locomotion.go2.joystick import Go2JoystickCfg
+try:
+    from benchmark.core.task_names import (
+        canonical_locomotion_task_ids,
+        locomotion_task_spec,
+        normalize_locomotion_task_id,
+    )
+except ModuleNotFoundError:
+    from core.task_names import (
+        canonical_locomotion_task_ids,
+        locomotion_task_spec,
+        normalize_locomotion_task_id,
+    )
 
-CONSISTENCY_TASKS = ["Go1JoystickFlatTerrain", "Go2JoystickFlatTerrain", "G1JoystickFlatTerrain"]
-RESET_TASK = "Go2JoystickFlatTerrain"
-TASK_CFG_MAP = {
-    "Go1JoystickFlatTerrain": Go1JoystickCfg,
-    "Go2JoystickFlatTerrain": Go2JoystickCfg,
-    "G1JoystickFlatTerrain": G1JoystickCfg,
-}
+CONSISTENCY_TASKS = canonical_locomotion_task_ids()
+DEFAULT_RESET_TASK = "go2_joystick"
 
 
 @dataclass
@@ -57,7 +61,8 @@ class SpeedRecord:
 
 
 def load_model_for_task(task: str) -> mujoco.MjModel:
-    return mujoco.MjModel.from_xml_path(TASK_CFG_MAP[task]().model_file)
+    task_key = normalize_locomotion_task_id(task)
+    return mujoco.MjModel.from_xml_path(locomotion_task_spec(task_key).config_cls().model_file)
 
 
 def _set_state_for_forward(model, data, state):
@@ -90,18 +95,8 @@ def python_forward_chunk_loop(model, states, chunk_size):
     return out
 
 
-def cpp_batch_forward(model, states, nthread, chunk_size):
-    workers = [mujoco.MjData(model) for _ in range(nthread)]
-    with batch_forward.BatchForwardRunner(nthread=nthread) as runner:
-        sensordata = runner.forward(
-            model=[model] * states.shape[0],
-            data=workers,
-            initial_state=states,
-            chunk_size=chunk_size,
-            skipsensor=False,
-            out_dtype=np.float64,
-            return_state=False,
-        )
+def batch_env_forward(pool: BatchEnvPool, states: np.ndarray) -> np.ndarray:
+    sensordata = pool.forward(states)
     return np.asarray(sensordata, dtype=np.float64)
 
 
@@ -148,21 +143,24 @@ def collect_random_reset_states(task, batch_size, random_rounds, seed):
 
 
 def run_consistency(tasks, batch_size, random_rounds, seed, atol, rtol, chunk_size):
+    _ = chunk_size  # BatchEnvPool.forward does not expose chunk-size tuning.
     records = []
     for task in tasks:
+        task_key = normalize_locomotion_task_id(task)
         model, states = collect_random_reset_states(
-            task, batch_size, random_rounds, seed + abs(hash(task)) % 10000
+            task_key, batch_size, random_rounds, seed + abs(hash(task_key)) % 10000
         )
         nthread = min(batch_size, cpu_count())
         py_sensor = python_forward_for_loop(model, states)
-        cpp_sensor = cpp_batch_forward(model, states, nthread, chunk_size)
-        diff = np.abs(py_sensor - cpp_sensor)
+        with BatchEnvPool(model, nbatch=states.shape[0], nthread=nthread) as pool:
+            batch_sensor = batch_env_forward(pool, states)
+        diff = np.abs(py_sensor - batch_sensor)
         max_abs = float(np.max(diff))
         mean_abs = float(np.mean(diff))
-        ok = bool(np.allclose(py_sensor, cpp_sensor, atol=atol, rtol=rtol))
-        records.append(ConsistencyRecord(task, batch_size, max_abs, mean_abs, ok))
+        ok = bool(np.allclose(py_sensor, batch_sensor, atol=atol, rtol=rtol))
+        records.append(ConsistencyRecord(task_key, batch_size, max_abs, mean_abs, ok))
         print(
-            f"[Consistency] {task}: allclose={ok}, max_abs={max_abs:.3e}, mean_abs={mean_abs:.3e}"
+            f"[Consistency] {task_key}: allclose={ok}, max_abs={max_abs:.3e}, mean_abs={mean_abs:.3e}"
         )
     return records
 
@@ -180,39 +178,42 @@ def _bench_method(func, repeats):
 
 
 def run_reset_speed(task, env_nums, random_rounds, chunk_size, repeats, seed):
+    _ = chunk_size  # BatchEnvPool.forward does not expose chunk-size tuning.
+    task_key = normalize_locomotion_task_id(task)
     records = []
     for env_num in env_nums:
-        model, states = collect_random_reset_states(task, env_num, random_rounds, seed + env_num)
+        model, states = collect_random_reset_states(
+            task_key, env_num, random_rounds, seed + env_num
+        )
         nthread = min(env_num, cpu_count())
 
         t_for = _bench_method(lambda: python_forward_for_loop(model, states), repeats)
         t_chunk = _bench_method(
             lambda: python_forward_chunk_loop(model, states, chunk_size), repeats
         )
-        t_cpp = _bench_method(
-            lambda: cpp_batch_forward(model, states, nthread, chunk_size), repeats
-        )
+        with BatchEnvPool(model, nbatch=states.shape[0], nthread=nthread) as pool:
+            t_batch = _bench_method(lambda: batch_env_forward(pool, states), repeats)
 
         for method, elapsed in [
             ("for_loop", t_for),
             ("chunk_for_loop", t_chunk),
-            ("cpp_batch_forward", t_cpp),
+            ("batch_env_forward", t_batch),
         ]:
             records.append(
-                SpeedRecord(task, method, env_num, elapsed, elapsed * 1e6 / max(env_num, 1))
+                SpeedRecord(task_key, method, env_num, elapsed, elapsed * 1e6 / max(env_num, 1))
             )
 
         print(
-            f"[Speed] {task} env={env_num}: for={t_for * 1e3:.3f}ms, chunk={t_chunk * 1e3:.3f}ms, cpp={t_cpp * 1e3:.3f}ms"
+            f"[Speed] {task_key} env={env_num}: for={t_for * 1e3:.3f}ms, chunk={t_chunk * 1e3:.3f}ms, batch_env={t_batch * 1e3:.3f}ms"
         )
     return records
 
 
-def plot_speed(records, out_png):
+def plot_speed(records, out_png, reset_task):
     out_png.parent.mkdir(parents=True, exist_ok=True)
     env_nums = sorted({r.env_num for r in records})
-    methods = ["for_loop", "chunk_for_loop", "cpp_batch_forward"]
-    colors = {"for_loop": "#3B82F6", "chunk_for_loop": "#10B981", "cpp_batch_forward": "#F59E0B"}
+    methods = ["for_loop", "chunk_for_loop", "batch_env_forward"]
+    colors = {"for_loop": "#3B82F6", "chunk_for_loop": "#10B981", "batch_env_forward": "#F59E0B"}
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5), sharex=True)
     x = np.arange(len(env_nums))
@@ -246,7 +247,9 @@ def plot_speed(records, out_png):
     ax2.set_yscale("log")
     ax2.set_ylabel("throughput (env/s)")
     ax2.set_title("Throughput")
-    fig.suptitle(f"Reset-forward method speed on {RESET_TASK}\n{get_device_info_line()}")
+    fig.suptitle(
+        f"Reset-forward method speed on {normalize_locomotion_task_id(reset_task)}\n{get_device_info_line()}"
+    )
     ax2.legend()
     fig.tight_layout()
     fig.savefig(out_png, dpi=180)
@@ -256,10 +259,16 @@ def plot_speed(records, out_png):
 def main():
     parser = argparse.ArgumentParser(description="Benchmark C++ batch forward vs Python forward")
     parser.add_argument("--consistency-tasks", type=str, default=",".join(CONSISTENCY_TASKS))
+    parser.add_argument("--reset-task", type=str, default=DEFAULT_RESET_TASK)
     parser.add_argument("--consistency-batch", type=int, default=1024)
     parser.add_argument("--env-nums", type=str, default="256,512,1024,2048,4096,8192,16384")
     parser.add_argument("--random-rounds", type=int, default=8)
-    parser.add_argument("--chunk-size", type=int, default=64)
+    parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=64,
+        help="Legacy no-op retained for CLI compatibility; BatchEnvPool.forward does not use chunk_size.",
+    )
     parser.add_argument("--repeats", type=int, default=8)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--atol", type=float, default=1e-9)
@@ -272,7 +281,10 @@ def main():
     )
     args = parser.parse_args()
 
-    consistency_tasks = [t.strip() for t in args.consistency_tasks.split(",") if t.strip()]
+    consistency_tasks = [
+        normalize_locomotion_task_id(t) for t in args.consistency_tasks.split(",") if t.strip()
+    ]
+    reset_task = normalize_locomotion_task_id(args.reset_task)
     env_nums = [int(x.strip()) for x in args.env_nums.split(",") if x.strip()]
 
     consistency = run_consistency(
@@ -285,7 +297,7 @@ def main():
         args.chunk_size,
     )
     speed = run_reset_speed(
-        RESET_TASK, env_nums, args.random_rounds, args.chunk_size, args.repeats, args.seed
+        reset_task, env_nums, args.random_rounds, args.chunk_size, args.repeats, args.seed
     )
 
     out_json = Path(args.out_json)
@@ -301,7 +313,7 @@ def main():
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "device_info": get_device_info_dict(),
                     "consistency_tasks": consistency_tasks,
-                    "reset_task": RESET_TASK,
+                    "reset_task": reset_task,
                     "env_nums": env_nums,
                     "chunk_size": args.chunk_size,
                 },
@@ -312,7 +324,7 @@ def main():
             indent=2,
         )
 
-    plot_speed(speed, Path(args.out_png))
+    plot_speed(speed, Path(args.out_png), reset_task=reset_task)
     print(f"Consistency: {all(r.allclose for r in consistency)}")
     print(f"Saved: {out_json}, {args.out_png}")
 
