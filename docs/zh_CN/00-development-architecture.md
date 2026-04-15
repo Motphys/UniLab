@@ -45,9 +45,10 @@ CPU Physics Sim ──shm──► Collector / IPC ──shm──► GPU Learne
 2. **Own your layer**: scripts 不修 env bug，env 不修 backend bug。
 3. **Config over branching**: 扩展优先级是 config schema -> registry -> env / backend 适配层 -> 最后才是脚本分支。
 4. **Backend isolation**: MuJoCo / Motrix 差异收敛在 backend 实现、env 适配层和 backend-specific profile 中；能力缺口必须显式写出来。
-5. **Evidence-graded claims**: 使用 `Registered`、`Configured`、`Benchmarked`、`Recommended` 这类表述；没有证据就不要写稳定支持。
-6. **Validate near risk**: 顶层 smoke run 只能补充，不能替代贴近风险边界的验证。
-7. **Reusable primitives**: 通用逻辑上浮到 `base/` 或 `utils/`，不要在多个 workflow 中复制粘贴。
+5. **Cold-path asset access only**: `ASSETS_ROOT_PATH`、`model_file`、XML / asset 元数据只允许出现在 init、materialization、cache build 等低频路径；`step()`、`reset()`、domain randomization 等热路径不得解析 asset、不得读取 XML、不得依据 asset 元数据做运行时分支。若确实需要模型派生的静态信息，应在 owner layer 预计算并缓存，再通过显式 contract 暴露给热路径。
+6. **Evidence-graded claims**: 使用 `Registered`、`Configured`、`Benchmarked`、`Recommended` 这类表述；没有证据就不要写稳定支持。
+7. **Validate near risk**: 顶层 smoke run 只能补充，不能替代贴近风险边界的验证。
+8. **Reusable primitives**: 通用逻辑上浮到 `base/` 或 `utils/`，不要在多个 workflow 中复制粘贴。
 
 ---
 
@@ -94,7 +95,7 @@ Env **负责** MDP 语义、observation 结构、reward、reset，以及 backend
 
 ## 7. Backend
 
-`SimBackend` (`src/unilab/base/backend/base.py`) 必须提供 base pose / velocity、DOF state、body pose / velocity（world 与 baselink 坐标系）以及 named sensor。
+`SimBackend` (`src/unilab/base/backend/base.py`) 必须提供 base pose / velocity、DOF state、body pose / velocity（world 与 baselink 坐标系）以及 named sensor。需要额外 backend 能力时，应先升格为显式 contract / capability，而不是在共享逻辑里通过 `getattr(...)` / `hasattr(...)` 探测私有方法。
 
 已知 backend-specific 分支包括: `backend_type == "motrix"` 会触发 `_process_rigid_body_props`；部分 play / debug / video / symmetry 路径仍然是 MuJoCo-first。
 
