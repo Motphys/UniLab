@@ -26,7 +26,7 @@ from unilab.envs.locomotion.g1.joystick import (
 
 @dataclass
 class ControlConfigSAC:
-    action_scale: float = 1.0  # holosoma 0.25
+    action_scale: float = 1.0
     simulate_action_latency: bool = False
 
 

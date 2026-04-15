@@ -111,6 +111,10 @@ def test_offpolicy_sac_g1_task_overrides():
     assert cfg.algo.algo_params.target_entropy_ratio == pytest.approx(0.0)
     assert cfg.training.task_name == "G1WalkTaskMjSAC"
 
+    assert cfg.env.control_config.action_scale == pytest.approx(1.0)
+    assert cfg.env.gait_phase_init_mode == "offset_phase"
+    assert cfg.env.reset_base_qvel_limit == pytest.approx(0.5)
+
 
 def test_offpolicy_td3_defaults():
     from hydra import compose, initialize_config_dir
