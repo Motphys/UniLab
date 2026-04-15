@@ -57,6 +57,7 @@ class RewardConfig:
             "motion_joint_vel": 0.0,
             "action_rate_l2": -0.1,
             "joint_limit": -10.0,
+            "undesired_contacts": -0.1,
         }
     )
     # Standard deviations for exponential rewards
@@ -119,8 +120,8 @@ class G1MotionTrackingCfg(G1BaseCfg):
         ASSETS_ROOT_PATH / "motions" / "g1" / "dance1_subject2_part.npz"
     )
     # motion_file: str | list[str] = str(ASSETS_ROOT_PATH / "motions" / "g1" / "gangnam_style.npz")
-    # motion_file: str | list[str] = str(ASSETS_ROOT_PATH / "motions" / "g1" / "walk1_subject5_from_csv.npz") #LAFAN
-    # motion_file: str | list[str] = str(ASSETS_ROOT_PATH / "motions" / "g1" / "sprint1_subject4_from_csv.npz") #LAFAN
+    # motion_file: str | list[str] = str(ASSETS_ROOT_PATH / "motions" / "g1" / "fight1_subject5_from_csv.npz") #LAFAN
+    # motion_file: str | list[str] = str(ASSETS_ROOT_PATH / "motions" / "g1" / "dance_basic_slide_180_R_loop_001__A322_M.npz") #LAFAN
     # motion_file: str | list[str] = str(ASSETS_ROOT_PATH / "motions" / "g1" / "playing_violin_R_003__A327_from_csv.npz") #Seed
     anchor_body_name: str = "torso_link"
     body_names: tuple[str, ...] = (
@@ -156,6 +157,7 @@ class G1MotionTrackingCfg(G1BaseCfg):
         "left_wrist_yaw_link",
         "right_wrist_yaw_link",
     )
+    undesired_contact_z_threshold: float = 0.05
 
 
 @registry.envcfg("G1MotionTracking")
@@ -316,6 +318,13 @@ class G1MotionTrackingEnv(G1BaseEnv):
             [cfg.body_names.index(name) for name in cfg.ee_body_names], dtype=np.int32
         )
 
+        # Get non-EE body indices for undesired contact penalty
+        ee_set = set(cfg.ee_body_names)
+        self.undesired_contact_body_indices = np.array(
+            [i for i, name in enumerate(cfg.body_names) if name not in ee_set],
+            dtype=np.int32,
+        )
+
         # Load motion data
         self.motion_loader = MotionLoader(cfg.motion_file, body_indices=motion_body_ids)
         self.motion_sampler = MotionSampler(
@@ -366,6 +375,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
             "motion_joint_vel": self._reward_motion_joint_vel,
             "action_rate_l2": self._reward_action_rate_l2,
             "joint_limit": self._reward_joint_limit,
+            "undesired_contacts": self._reward_undesired_contacts,
         }
 
     def update_state(self, state: NpEnvState) -> NpEnvState:
@@ -543,6 +553,13 @@ class G1MotionTrackingEnv(G1BaseEnv):
         joint_pos_rel = dof_pos - self.default_angles
         last_actions = info.get("current_actions", np.zeros_like(joint_pos_rel))
 
+        # Per-step observation noise on sensor channels
+        noise_cfg = self._cfg.noise_config
+        linvel = self._obs_noise(linvel, noise_cfg.scale_linvel)
+        gyro = self._obs_noise(gyro, noise_cfg.scale_gyro)
+        joint_pos_rel = self._obs_noise(joint_pos_rel, noise_cfg.scale_joint_angle)
+        dof_vel = self._obs_noise(dof_vel, noise_cfg.scale_joint_vel)
+
         # Actor observations
         actor_obs = np.concatenate(
             [
@@ -702,6 +719,12 @@ class G1MotionTrackingEnv(G1BaseEnv):
         return np.asarray(
             np.exp(-error / self._cfg.reward_config.std_joint_vel**2), dtype=get_global_dtype()
         )
+
+    def _reward_undesired_contacts(self, info: dict) -> np.ndarray:
+        robot_body_pos_w = info["robot_body_pos_w"]
+        body_z = robot_body_pos_w[:, self.undesired_contact_body_indices, 2]
+        is_contact = body_z < self._cfg.undesired_contact_z_threshold
+        return np.asarray(is_contact.sum(axis=-1), dtype=get_global_dtype())
 
     def _reward_action_rate_l2(self, info: dict) -> np.ndarray:
         action_diff = info["current_actions"] - info["last_actions"]
