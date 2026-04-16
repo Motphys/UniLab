@@ -6,6 +6,8 @@ import xml.etree.ElementTree as ET
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 
+import mujoco
+
 
 def _enable_discardvisual(root: ET.Element) -> None:
     compiler_tag = root.find("compiler")
@@ -235,3 +237,77 @@ def inject_motrix_tracking_sensors(model_file: str, baselink_name: str) -> tuple
     _add_b_sensors(sensor_tag, valid_bnames, baselink_name)
 
     return _write_temp_xml(tree, model_file), tracked_body_ids, valid_bnames
+
+
+def processed_xml(xml_path):
+    xml_dir = os.path.dirname(os.path.abspath(xml_path))
+
+    # 加载模型 spec
+    spec = mujoco.MjSpec().from_file(xml_path)
+    full_xml = spec.to_xml()
+    root = ET.fromstring(full_xml)
+
+    compiler = root.find("compiler")
+    if compiler is not None:
+        meshdir = compiler.get("meshdir")
+        if meshdir:
+            abs_meshdir = os.path.normpath(os.path.join(xml_dir, meshdir))
+            compiler.set("meshdir", abs_meshdir)
+
+    bodys = root.findall(".//body")
+
+    geom_names = []
+    for body in bodys:
+        body_name = body.get("name", "unnamed_body")
+        geoms = body.findall("geom")
+
+        if geoms:
+            filtered_geoms = []
+            for geom in geoms:
+                geom_class = geom.get("class")
+                if geom_class != "visual":
+                    filtered_geoms.append(geom)
+
+            if filtered_geoms:
+                i = 0
+                for geom in filtered_geoms:
+                    geom_name = geom.get("name", "unnamed_geom")
+                    if geom_name == "unnamed_geom":
+                        new_name = f"{body_name}_geom{i}"
+                        i += 1
+                        geom.set("name", new_name)
+                        geom_name = new_name
+                    geom_names.append(geom_name)
+
+    new_xml_string = ET.tostring(root, encoding="unicode")
+    return new_xml_string, geom_names
+
+
+def add_sensor(root, sensor_type, name, **kwargs):
+    """
+    在 MuJoCo XML 的 sensor 节点下添加传感器的通用函数。
+
+    参数:
+    - root: XML 的根节点
+    - sensor_type: 传感器标签名 (如 'gyro', 'contact', 'framepos')
+    - name: 传感器的 name 属性
+    - **kwargs: 其他任意属性 (如 site='imu', geom1='floor' 等)
+    """
+    # 1. 查找或创建 <sensor> 标签
+    sensor_element = root.find("sensor")
+    if sensor_element is None:
+        sensor_element = ET.SubElement(root, "sensor")
+
+    # 2. 创建具体的传感器子节点
+    sensor = ET.SubElement(sensor_element, sensor_type)
+
+    # 3. 设置必选的 name 属性
+    sensor.set("name", name)
+
+    # 4. 循环设置其他传入的属性
+    for key, value in kwargs.items():
+        # 将 Python 的下划线命名（可选）转换为 XML 习惯（如有必要）
+        # 这里直接设置即可
+        sensor.set(key, str(value))
+
+    return sensor
