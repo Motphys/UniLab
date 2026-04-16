@@ -6,6 +6,7 @@ import numpy as np
 
 from unilab.dr.types import (
     DomainRandomizationCapabilities,
+    InitRandomizationPlan,
     IntervalRandomizationPlan,
     ResetRandomizationPayload,
 )
@@ -143,6 +144,14 @@ class SimBackend(abc.ABC):
     @abc.abstractmethod
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
         """Return supported domain-randomization capabilities for this backend."""
+
+    def apply_init_randomization(self, plan: InitRandomizationPlan) -> None:
+        """Apply cold-path model/materialization randomization."""
+        if plan.is_empty():
+            return
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support init-lifecycle randomization"
+        )
 
     @abc.abstractmethod
     def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:

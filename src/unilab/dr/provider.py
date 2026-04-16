@@ -5,13 +5,21 @@ from typing import Any
 
 import numpy as np
 
-from .types import DomainRandomizationCapabilities, IntervalRandomizationPlan, ResetPlan
+from .types import (
+    DomainRandomizationCapabilities,
+    InitRandomizationPlan,
+    IntervalRandomizationPlan,
+    ResetPlan,
+)
 
 
 class DomainRandomizationProvider(abc.ABC):
     @abc.abstractmethod
     def validate(self, env: Any, capabilities: DomainRandomizationCapabilities) -> None:
         pass
+
+    def build_init_randomization_plan(self, env: Any) -> InitRandomizationPlan | None:
+        return None
 
     @abc.abstractmethod
     def build_reset_plan(self, env: Any, env_ids: np.ndarray) -> ResetPlan:

@@ -9,7 +9,14 @@ from unilab.base import registry
 from unilab.base.backend import create_backend
 from unilab.base.dtype_config import get_global_dtype
 from unilab.base.np_env import NpEnvState
-from unilab.dr import DomainRandomizationCapabilities, DomainRandomizationProvider, ResetPlan
+from unilab.dr import (
+    DomainRandomizationCapabilities,
+    DomainRandomizationProvider,
+    GeomSizeOverride,
+    InitRandomizationPlan,
+    ModelVariantSpec,
+    ResetPlan,
+)
 from unilab.dr.dr_utils import build_common_reset_randomization, validate_common_reset_randomization
 from unilab.envs.manipulation.sharpa_inhand.base import (
     SharpaInhandBaseCfg,
@@ -56,6 +63,29 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
             raise NotImplementedError(
                 f"{env._backend.backend_type} backend does not support reset randomization terms: {names}"
             )
+
+    def build_init_randomization_plan(self, env: Any) -> InitRandomizationPlan | None:
+        if env._backend.backend_type != "mujoco":
+            return None
+        base_size = getattr(env, "_object_geom_base_size", None)
+        if base_size is None:
+            return None
+
+        model_variants = tuple(
+            ModelVariantSpec(
+                geom_size_overrides=(
+                    GeomSizeOverride(
+                        geom_name=env.cfg.object_geom_name,
+                        size=tuple(np.asarray(base_size * scale, dtype=np.float64)),
+                    ),
+                )
+            )
+            for scale in np.asarray(env.scale_values, dtype=np.float64)
+        )
+        return InitRandomizationPlan(
+            model_assignments=np.asarray(env.scale_ids, dtype=np.int32).copy(),
+            model_variants=model_variants,
+        )
 
     def _load_grasp_cache(self, env: Any) -> np.ndarray:
         if getattr(env, "_grasp_cache", None) is not None:
