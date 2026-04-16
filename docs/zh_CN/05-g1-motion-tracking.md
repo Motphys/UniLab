@@ -38,19 +38,19 @@ uv run python scripts/train_appo.py task=g1_motion_tracking/motrix
 # 回放最新 checkpoint
 uv run python scripts/train_rsl_rl.py task=g1_motion_tracking/mujoco training.play_only=true
 
-# Motrix PPO 回放会打开原生 renderer
-uv run python scripts/train_rsl_rl.py task=g1_motion_tracking/motrix \
+# Motrix PPO 回放会打开原生 renderer；macOS / MacBook 用 mxpython
+uv run mxpython scripts/train_rsl_rl.py task=g1_motion_tracking/motrix \
   training.play_only=true
 
 # APPO MuJoCo 回放
 uv run python scripts/train_appo.py task=g1_motion_tracking/mujoco training.play_only=true
 
-# APPO Motrix 回放会打开原生 renderer
-uv run python scripts/train_appo.py task=g1_motion_tracking/motrix \
+# APPO Motrix 回放会打开原生 renderer；macOS / MacBook 用 mxpython
+uv run mxpython scripts/train_appo.py task=g1_motion_tracking/motrix \
   training.play_only=true
 ```
 
-对于 G1 motion tracking，Motrix 的训练和回放主路径应优先走 `scripts/train_rsl_rl.py` 和 `scripts/train_appo.py`。调试脚本 `scripts/play_interactive.py` 仍沿用 MuJoCo viewer 路径。
+对于 G1 motion tracking，Motrix 的训练和回放主路径应优先走 `scripts/train_rsl_rl.py` 和 `scripts/train_appo.py`。macOS / MacBook 上只要会打开 MotrixSim 原生 renderer，就用 `uv run mxpython` 启动；不需要可视化的训练仍可使用 `uv run python ... training.no_play=true`。调试脚本 `scripts/play_interactive.py` 仍沿用 MuJoCo viewer 路径。
 
 ## Interactive Debugging
 

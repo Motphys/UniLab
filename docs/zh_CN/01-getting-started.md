@@ -39,6 +39,8 @@ uv sync
 uv sync --extra motrix
 ```
 
+在 macOS / MacBook 上，只要命令会打开 MotrixSim 原生 renderer，就需要用 `uv run mxpython` 启动；不需要可视化的训练仍可使用 `uv run python ... training.no_play=true`。
+
 ## 中国大陆镜像
 
 ```bash

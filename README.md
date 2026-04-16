@@ -45,6 +45,8 @@ uv run python scripts/train_rsl_rl.py task=go1_joystick/mujoco
 
 Motrix registry bootstrap and Hydra config composition do not require importing MuJoCo anymore, but any MuJoCo task execution, playback, or MuJoCo-only tooling still requires a working MuJoCo runtime.
 
+On macOS / MacBook, commands that open the MotrixSim native renderer must be launched with `uv run mxpython` instead of `uv run python`. Plain non-rendering training can still use `uv run python ... training.no_play=true`.
+
 ## Workflow Entrypoints
 
 | Goal | Entrypoint | Log root pattern |
@@ -57,6 +59,12 @@ Motrix registry bootstrap and Hydra config composition do not require importing 
 The concrete log directory comes from `algo.algo_log_name`. Current defaults are `rsl_rl_ppo`, `appo`, `fast_sac`, and `fast_td3`.
 
 Training scripts automatically enter playback after training unless you set `training.no_play=true`.
+
+For MotrixSim visualization on macOS / MacBook, use `uv run mxpython`:
+
+```bash
+uv run mxpython scripts/train_rsl_rl.py task=go1_joystick/motrix training.play_only=true
+```
 
 ## Repository Map
 

@@ -41,6 +41,8 @@ uv run python scripts/train_offpolicy.py algo=sac task=sac/g1_sac/mujoco algo.nu
 - `motrix` 会打开交互式窗口渲染
 - `training.no_play=true` 可以跳过自动回放
 
+在 macOS / MacBook 上，只要命令会打开 MotrixSim 原生 renderer（训练后自动回放或 `training.play_only=true`），就需要用 `uv run mxpython` 启动；不需要可视化的训练仍可使用 `uv run python ... training.no_play=true`。
+
 run 目录命名格式是 `YYYY-MM-DD_HH-MM-SS_<sim_backend>`，例如 `2026-03-09_18-30-00_mujoco`。
 
 ## Playback
@@ -49,6 +51,9 @@ run 目录命名格式是 `YYYY-MM-DD_HH-MM-SS_<sim_backend>`，例如 `2026-03-
 # 回放最新结果
 uv run python scripts/train_rsl_rl.py task=go2_joystick/mujoco training.play_only=true
 uv run python scripts/train_offpolicy.py algo=sac task=sac/go2_joystick/mujoco training.play_only=true
+
+# macOS / MacBook 上的 MotrixSim 原生 renderer
+uv run mxpython scripts/train_rsl_rl.py task=go2_joystick/motrix training.play_only=true
 
 # 回放指定 run
 uv run python scripts/train_offpolicy.py algo=td3 task=td3/go1_joystick/mujoco training.play_only=true algo.load_run="2024-02-04_12-00-00"
