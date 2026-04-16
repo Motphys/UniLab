@@ -38,6 +38,7 @@ reward:
     motion_joint_vel: 0.0
     action_rate_l2: -0.05
     joint_limit: -10.0
+    undesired_contacts: -0.1
   std_root_pos: 0.3
   std_root_ori: 0.4
   std_body_pos: 0.3
