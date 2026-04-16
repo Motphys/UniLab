@@ -461,11 +461,12 @@ def _assert_mujoco_position_gains(
     env: Any, *, kp: float, kd: float, actuator_ids=slice(None)
 ) -> None:
     model = env._backend.model
+    pool = env._backend._pool
     np.testing.assert_allclose(model.actuator_gainprm[actuator_ids, 0], kp)
     np.testing.assert_allclose(model.actuator_biasprm[actuator_ids, 1], -kp)
     np.testing.assert_allclose(model.actuator_biasprm[actuator_ids, 2], -kd)
-    np.testing.assert_allclose(env._backend._pool.get_field(0, "kp")[actuator_ids], kp)
-    np.testing.assert_allclose(env._backend._pool.get_field(0, "kd")[actuator_ids], kd)
+    np.testing.assert_allclose(pool.get_field(0, "kp")[actuator_ids], kp)
+    np.testing.assert_allclose(pool.get_field(0, "kd")[actuator_ids], kd)
 
 
 @pytest.mark.slow

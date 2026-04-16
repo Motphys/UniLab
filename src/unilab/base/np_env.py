@@ -235,6 +235,7 @@ class NpEnv(ABEnv):
         self._dr_manager = DomainRandomizationManager(self, provider)
         if not self._init_randomization_applied:
             self._init_randomization_applied = self._dr_manager.apply_init_randomization()
+        self._backend.materialize()
 
     def reset(self, env_indices: np.ndarray) -> Tuple[dict[str, np.ndarray], dict]:
         if self._dr_manager is None:  # pragma: no cover - constructor integration error

@@ -37,6 +37,8 @@ class AllegroBaseEnv(NpEnv):
     _NUM_HAND_DOF: int = 16
     _FINGERTIP_BODY_NAMES: tuple[str, ...] = ("ff_tip", "mf_tip", "rf_tip", "th_tip")
     _cfg: AllegroBaseCfg
+    _init_qpos: np.ndarray
+    _init_qvel: np.ndarray
 
     def __init__(self, cfg: AllegroBaseCfg, backend: SimBackend, num_envs: int = 1):
         super().__init__(cfg, backend, num_envs)

@@ -153,6 +153,9 @@ class SimBackend(abc.ABC):
             f"{self.__class__.__name__} does not support init-lifecycle randomization"
         )
 
+    def materialize(self) -> None:
+        """Finalize cold-path backend resources before reset/step."""
+
     @abc.abstractmethod
     def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
         """Apply a scheduled interval randomization plan."""

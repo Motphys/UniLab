@@ -122,7 +122,13 @@ class AllegroRotationDomainRandomizationProvider(DomainRandomizationProvider):
 
         cache_path = env.cfg.grasp_cache_path
         if not epath.Path(cache_path).exists():
-            raise FileNotFoundError(f"Grasp cache not found: {cache_path}")
+            print(
+                "[allegro_inhand] Grasp cache missing, falling back to procedural reset: "
+                f"{cache_path}"
+            )
+            env._grasp_cache = None
+            env._grasp_cache_loaded = True
+            return None
         env._grasp_cache = np.load(cache_path).astype(np.float64)
         env._grasp_cache_loaded = True
         print(
