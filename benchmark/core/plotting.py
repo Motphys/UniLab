@@ -3,11 +3,14 @@
 from pathlib import Path
 from typing import Any, Dict, List
 
+plt: Any | None = None
 try:
-    import matplotlib
+    import matplotlib as _matplotlib
 
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
+    _matplotlib.use("Agg")
+    import matplotlib.pyplot as _plt
+
+    plt = _plt
 except Exception:
     plt = None
 

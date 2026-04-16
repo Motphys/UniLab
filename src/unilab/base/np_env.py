@@ -43,6 +43,7 @@ class NpEnv(ABEnv):
         self._final_observation_scratch: dict[str, np.ndarray] | None = None
         self.step_counter = 0
         self._dr_manager: DomainRandomizationManager | None = None
+        self._init_randomization_applied = False
 
     @property
     def cfg(self) -> EnvCfg:
@@ -232,6 +233,8 @@ class NpEnv(ABEnv):
         from unilab.dr import DomainRandomizationManager
 
         self._dr_manager = DomainRandomizationManager(self, provider)
+        if not self._init_randomization_applied:
+            self._init_randomization_applied = self._dr_manager.apply_init_randomization()
 
     def reset(self, env_indices: np.ndarray) -> Tuple[dict[str, np.ndarray], dict]:
         if self._dr_manager is None:  # pragma: no cover - constructor integration error

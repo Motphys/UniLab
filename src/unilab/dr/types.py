@@ -14,6 +14,20 @@ RESET_TERM_KD = "kd"
 
 
 @dataclass(frozen=True)
+class GeomSizeOverride:
+    geom_name: str
+    size: tuple[float, ...]
+
+
+@dataclass(frozen=True)
+class ModelVariantSpec:
+    geom_size_overrides: tuple[GeomSizeOverride, ...] = field(default_factory=tuple)
+
+    def is_empty(self) -> bool:
+        return not self.geom_size_overrides
+
+
+@dataclass(frozen=True)
 class DomainRandomizationCapabilities:
     supported_reset_terms: frozenset[str] = field(default_factory=frozenset)
     supports_interval_push: bool = False
@@ -85,6 +99,15 @@ class IntervalRandomizationPlan:
 
     def is_empty(self) -> bool:
         return self.push_perturbation_limit is None
+
+
+@dataclass
+class InitRandomizationPlan:
+    model_assignments: np.ndarray
+    model_variants: tuple[ModelVariantSpec, ...]
+
+    def is_empty(self) -> bool:
+        return len(self.model_variants) == 0
 
 
 @dataclass

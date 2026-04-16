@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Sequence, cast
 
 import gymnasium as gym
 import numpy as np
@@ -122,6 +122,7 @@ class SharpaInhandBaseCfg(EnvCfg):
 
     base_name: str = "right_hand_C_MC"
     object_body_name: str = "object"
+    object_geom_name: str = "object"
     actuated_joint_names: list[str] = field(
         default_factory=lambda: list(DEFAULT_ACTUATED_JOINT_NAMES)
     )
@@ -293,6 +294,7 @@ class SharpaInhandBaseEnv(NpEnv):
 
         self._object_body_ids = self._backend.get_body_ids([cfg.object_body_name])
         self._fingertip_body_ids = self._backend.get_body_ids(cfg.fingertip_body_names)
+        self._object_geom_base_size = self._resolve_object_geom_base_size()
 
         self._num_tactile = len(cfg.fingertip_body_names)
         self.last_contacts = np.zeros((num_envs, self._num_tactile), dtype=self._np_dtype)
@@ -310,6 +312,7 @@ class SharpaInhandBaseEnv(NpEnv):
         self.scale_ids, self._num_scales, self._bucket_env = self._build_scale_ids(
             num_envs, cfg.scale_range
         )
+        self.scale_values = self._build_scale_values(cfg.scale_range)
 
     @property
     def action_space(self) -> gym.spaces.Box:
@@ -344,6 +347,31 @@ class SharpaInhandBaseEnv(NpEnv):
         bucket_env = num_envs // num_scales
         scale_ids = np.repeat(np.arange(num_scales, dtype=np.int32), bucket_env)
         return scale_ids, num_scales, bucket_env
+
+    def _build_scale_values(self, scale_range: Sequence[float]) -> np.ndarray:
+        lower = float(scale_range[0])
+        upper = float(scale_range[1])
+        if lower <= 0.0 or upper <= 0.0:
+            raise ValueError(f"scale_range bounds must be positive, got {scale_range[:2]}")
+        return np.asarray(np.linspace(lower, upper, self._num_scales), dtype=np.float64)
+
+    def _resolve_object_geom_base_size(self) -> np.ndarray | None:
+        if getattr(self._backend, "backend_type", None) != "mujoco":
+            return None
+
+        import mujoco
+
+        geom_id = mujoco.mj_name2id(
+            self._backend.model,
+            mujoco.mjtObj.mjOBJ_GEOM,
+            self._cfg.object_geom_name,
+        )
+        if geom_id < 0:
+            raise ValueError(f"Geom '{self._cfg.object_geom_name}' not found in MuJoCo model")
+        return cast(
+            np.ndarray,
+            np.asarray(self._backend.model.geom_size[geom_id], dtype=np.float64).copy(),
+        )
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
         clipped_actions = np.clip(actions, -self._cfg.clip_actions, self._cfg.clip_actions)

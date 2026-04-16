@@ -13,7 +13,12 @@ import numpy as np
 import pytest
 
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.dr import ResetRandomizationPayload
+from unilab.dr import (
+    GeomSizeOverride,
+    InitRandomizationPlan,
+    ModelVariantSpec,
+    ResetRandomizationPayload,
+)
 from unilab.utils.xml_utils import get_named_body_ids
 
 
@@ -30,6 +35,7 @@ BASIC_ROBOTS = [
 
 _G1 = dict(model_file=_xml("g1"), base_name="pelvis")
 _ALLEGRO = dict(model_file=_xml("allegro_hand", "scene.xml"), base_name="palm")
+_SHARPA = dict(model_file=_xml("sharpa_wave", "scene.xml"), base_name="right_hand_C_MC")
 
 NUM_ENVS = 2
 SIM_DT = 0.005
@@ -107,6 +113,37 @@ class TestMuJoCoBasic:
 
     def test_model_not_none(self, bkd):
         assert bkd.model is not None
+
+    def test_apply_init_randomization_rebuilds_model_pool_from_variant_sequence(self):
+        from unilab.base.backend.mujoco_backend import MuJoCoBackend
+
+        bkd = MuJoCoBackend(_SHARPA["model_file"], 4, SIM_DT, base_name=_SHARPA["base_name"])
+        assert bkd._pool is None
+        mujoco = _mujoco_module()
+        geom_id = mujoco.mj_name2id(bkd.model, mujoco.mjtObj.mjOBJ_GEOM, "object")
+        base_size = np.asarray(bkd.model.geom_size[geom_id], dtype=np.float64).copy()
+
+        bkd.apply_init_randomization(
+            InitRandomizationPlan(
+                model_assignments=np.array([0, 1, 0, 1], dtype=np.int32),
+                model_variants=(
+                    ModelVariantSpec(
+                        geom_size_overrides=(GeomSizeOverride("object", tuple(base_size * 0.5)),)
+                    ),
+                    ModelVariantSpec(
+                        geom_size_overrides=(GeomSizeOverride("object", tuple(base_size * 0.75)),)
+                    ),
+                ),
+            )
+        )
+
+        assert bkd._pool is None
+        np.testing.assert_array_equal(
+            bkd._model_assignments,
+            np.array([0, 1, 0, 1], dtype=np.int32),
+        )
+        np.testing.assert_allclose(bkd._model_variants[0].geom_size[geom_id], base_size * 0.5)
+        np.testing.assert_allclose(bkd._model_variants[1].geom_size[geom_id], base_size * 0.75)
 
     # simulation control
 
