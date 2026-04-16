@@ -102,6 +102,90 @@ backend capability 当前是：
 
 因此从“当前任务 DR 状态”角度，`kp/kd` 还不能算各任务已经统一接入的域随机项。
 
+## MuJoCo `BatchEnvPool.reset(..., randomization=...)` 接口现状
+
+这部分只描述 `python/mujoco/batch_env.py` / `python/mujoco/batch_env.cc` 当前已经暴露的接口，不推断未来设计。
+
+### 1. 当前支持的字段
+
+当前 `SUPPORTED_FIELDS` 为：
+
+- `body_mass`
+- `body_ipos`
+- `body_iquat`
+- `body_inertia`
+- `dof_armature`
+- `geom_friction`
+- `kp`
+- `kd`
+
+### 2. 当前替换方式
+
+当前替换入口是：
+
+- `BatchEnvPool.reset(env_ids, initial_state, randomization=...)`
+
+其中：
+
+- `env_ids` 指定这次 reset 要落到哪些 env
+- `randomization` 是 `dict[str, ndarray]`
+- key 必须属于上面的 `SUPPORTED_FIELDS`
+- value 的首维必须等于 `len(env_ids)`
+- value 的其余元素个数必须等于该字段在单个 `mjModel` 里的整块大小
+
+当前字段大小按底层实现是：
+
+- `body_mass`: `nbody`
+- `body_ipos`: `3 * nbody`
+- `body_iquat`: `4 * nbody`
+- `body_inertia`: `3 * nbody`
+- `dof_armature`: `nv`
+- `geom_friction`: `3 * ngeom`
+- `kp`: `nu`
+- `kd`: `nu`
+
+对应到传参形状，可以理解为：
+
+- `body_mass`: `(len(env_ids), nbody)`
+- `body_ipos`: `(len(env_ids), 3 * nbody)`
+- `body_iquat`: `(len(env_ids), 4 * nbody)`
+- `body_inertia`: `(len(env_ids), 3 * nbody)`
+- `dof_armature`: `(len(env_ids), nv)`
+- `geom_friction`: `(len(env_ids), 3 * ngeom)`
+- `kp`: `(len(env_ids), nu)`
+- `kd`: `(len(env_ids), nu)`
+
+当前接口语义是“按字段整块替换”，不是“按名字或索引做稀疏子字段 patch”。这意味着：
+
+- 可以指定只对一部分 env 应用随机化
+- 不能直接在接口层指定“只改某个 body / 某个 geom / 某个 actuator”
+- 如果只想改一个 geom 的 friction，当前做法是先拿到整块 `geom_friction`，改掉目标 geom 对应的 3 个值，再把整个 `geom_friction` payload 回写
+
+另外，当前底层对 refresh 的处理也已经固定：
+
+- `body_mass`、`body_ipos`、`body_iquat`、`body_inertia`、`dof_armature` 会触发 `mj_setConst` refresh
+- `geom_friction`、`kp`、`kd` 不触发 refresh
+
+### 3. 当前读取方式
+
+当前 Python 包装层暴露了：
+
+- `pool.get_field(env_id, name) -> np.ndarray`
+
+它的行为是：
+
+- 读取单个 env 上某个字段的当前值
+- `name` 必须属于 `SUPPORTED_FIELDS`
+- 返回值是 1-D flat array
+- 这个入口当前主要是 introspection / test 用，但也可以作为“读出整块字段 -> 局部修改 -> 再经 `reset(..., randomization=...)` 回写整块字段”的辅助方式
+
+因此，当前 MuJoCo `BatchEnvPool` 的 reset-lifecycle randomization 接口可以概括为：
+
+- 支持字段是固定白名单
+- 写入方式是“按 env 子集、按字段整块替换”
+- 读取方式是 `get_field(env_id, field_name)` 读取单个 env 的整块 flat 值
+- 目前还没有“按 geom 名称 / geom id 直接 patch 单个 friction 条目”的更细粒度接口
+
 ## 新任务接入时的最低标准
 
 如果要保持和当前代码风格一致，新任务至少应满足：
