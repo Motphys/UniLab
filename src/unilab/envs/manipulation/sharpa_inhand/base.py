@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Sequence, cast
 
 import gymnasium as gym
 import numpy as np
@@ -368,7 +368,10 @@ class SharpaInhandBaseEnv(NpEnv):
         )
         if geom_id < 0:
             raise ValueError(f"Geom '{self._cfg.object_geom_name}' not found in MuJoCo model")
-        return np.asarray(self._backend.model.geom_size[geom_id], dtype=np.float64).copy()
+        return cast(
+            np.ndarray,
+            np.asarray(self._backend.model.geom_size[geom_id], dtype=np.float64).copy(),
+        )
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
         clipped_actions = np.clip(actions, -self._cfg.clip_actions, self._cfg.clip_actions)
