@@ -11,6 +11,7 @@ UniLab 当前支持两个仿真后端:
 
 - `uv sync --extra motrix` 会安装 Motrix 依赖。
 - Motrix 路径的 registry bootstrap 和 Hydra 配置 compose 不再要求导入 MuJoCo。
+- 在 macOS / MacBook 上，只要命令会打开 MotrixSim 原生 renderer（训练后自动回放或 `training.play_only=true`），就需要用 `uv run mxpython` 启动；不需要可视化的训练仍可使用 `uv run python ... training.no_play=true`。
 - 任何 `task=.../mujoco` 的实际运行、MuJoCo playback、以及 MuJoCo-only 调试工具，仍然要求可用的 MuJoCo runtime。
 - 某些任务目前仍然只有 MuJoCo owner 配置；例如 `AllegroInhandRotation` 只提供 `mujoco` task。
 
@@ -102,12 +103,15 @@ uv run python scripts/train_rsl_rl.py task=go1_joystick/motrix
 ## Playback Differences
 
 - `mujoco`: 训练后的自动回放会导出 `play_video.mp4`
-- `motrix`: 回放通常打开交互式 renderer 窗口，而不是导出视频
+- `motrix`: 回放通常打开交互式 renderer 窗口，而不是导出视频；macOS / MacBook 上需要用 `uv run mxpython` 启动
 
 对 G1 motion tracking 来说，目前已验证的 Motrix 路径是 `PPO (torch) + motrix` 和 `APPO (torch) + motrix`。`scripts/play_interactive.py` 仍然沿用 MuJoCo 路径。
 
 ```bash
 uv run python scripts/train_rsl_rl.py task=go1_joystick/mujoco training.play_only=true
+
+# macOS / MacBook 上的 MotrixSim 原生 renderer
+uv run mxpython scripts/train_rsl_rl.py task=go1_joystick/motrix training.play_only=true
 ```
 
 ## Notes
