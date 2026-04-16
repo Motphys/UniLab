@@ -43,13 +43,10 @@ def test_allegro_mujoco_reset_applies_base_mass_and_com_domain_randomization(
     try:
         env_obj.init_state()
         backend: Any = env_obj._backend
+        pool = backend._pool
         base_body_id = int(backend._base_body_id)
-        body_mass = np.stack(
-            [backend._pool.get_field(i, "body_mass") for i in range(env_obj.num_envs)]
-        )
-        body_ipos = np.stack(
-            [backend._pool.get_field(i, "body_ipos") for i in range(env_obj.num_envs)]
-        )
+        body_mass = np.stack([pool.get_field(i, "body_mass") for i in range(env_obj.num_envs)])
+        body_ipos = np.stack([pool.get_field(i, "body_ipos") for i in range(env_obj.num_envs)])
         body_ipos = body_ipos.reshape(env_obj.num_envs, -1, 3)
 
         base_mass = float(backend._base_body_mass[base_body_id])

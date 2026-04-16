@@ -339,18 +339,17 @@ class MuJoCoBackend(SimBackend):
             return self._model_variants[0]
         return [self._model_variants[int(idx)] for idx in self._model_assignments]
 
-    def _ensure_pool(self) -> BatchEnvPool:
-        if self._pool is None:
-            self._pool = BatchEnvPool(
-                self._current_model_sequence(),
-                nbatch=self._num_envs,
-                nthread=self._n_threads,
-            )
-            sensor_init = self._pool.forward(self._physics_state)
-            self._sensor_data[:] = sensor_init.astype(self._np_dtype)
-        return self._pool
+    def _build_pool(self) -> BatchEnvPool:
+        pool = BatchEnvPool(
+            self._current_model_sequence(),
+            nbatch=self._num_envs,
+            nthread=self._n_threads,
+        )
+        sensor_init = pool.forward(self._physics_state)
+        self._sensor_data[:] = sensor_init.astype(self._np_dtype)
+        return pool
 
-    def _rebuild_pool_from_assignments(
+    def _apply_model_assignments(
         self,
         model_variants: tuple[mujoco.MjModel, ...],
         model_assignments: np.ndarray,
@@ -377,9 +376,6 @@ class MuJoCoBackend(SimBackend):
         self._base_body_mass = np.asarray(self._model.body_mass).copy()
         self._base_body_ipos = np.asarray(self._model.body_ipos).copy()
         self._physics_state[:, self._idx_qpos : self._idx_qpos + self._model.nq] = self._model.qpos0
-        if self._pool is not None:
-            self._pool.close()
-            self._pool = None
 
     # ------------------------------------------------------------------ #
     # Properties                                                         #
@@ -444,7 +440,7 @@ class MuJoCoBackend(SimBackend):
         set_ctrl_ms = (time.perf_counter() - t0) * 1000.0
 
         t0 = time.perf_counter()
-        state_np = self._ensure_pool().step(
+        state_np = self._pool.step(  # type: ignore[union-attr]
             self._physics_state,
             nstep=nsteps,
             control=control_traj,
@@ -454,7 +450,7 @@ class MuJoCoBackend(SimBackend):
         physics_ms = (time.perf_counter() - t0) * 1000.0
 
         t0 = time.perf_counter()
-        sensor_np = self._ensure_pool().forward(self._physics_state)
+        sensor_np = self._pool.forward(self._physics_state)  # type: ignore[union-attr]
         self._sensor_data[:] = sensor_np.astype(self._np_dtype)
         refresh_cache_ms = (time.perf_counter() - t0) * 1000.0
 
@@ -481,7 +477,7 @@ class MuJoCoBackend(SimBackend):
         state_np[:, self._idx_qpos : self._idx_qpos + self.nq] = qpos
         state_np[:, self._idx_qvel : self._idx_qvel + self.nv] = qvel
 
-        state_out, sensor_np = self._ensure_pool().reset(
+        state_out, sensor_np = self._pool.reset(  # type: ignore[union-attr]
             env_ids=np.asarray(env_indices, dtype=np.int32),
             initial_state=state_np,
             randomization=self._translate_reset_randomization(randomization, num_reset),
@@ -508,9 +504,16 @@ class MuJoCoBackend(SimBackend):
     def apply_init_randomization(self, plan: InitRandomizationPlan) -> None:
         if plan.is_empty():
             return
+        if self._pool is not None:
+            raise RuntimeError("MuJoCo init randomization must run before pool materialization")
         model_assignments = np.asarray(plan.model_assignments, dtype=np.int32)
         model_variants = self._compile_model_variants(plan.model_variants)
-        self._rebuild_pool_from_assignments(model_variants, model_assignments)
+        self._apply_model_assignments(model_variants, model_assignments)
+
+    def materialize(self) -> None:
+        if self._pool is not None:
+            raise RuntimeError("MuJoCo backend pool is already materialized")
+        self._pool = self._build_pool()
 
     def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
         if plan.push_perturbation_limit is None:
