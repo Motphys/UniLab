@@ -102,7 +102,7 @@ backend capability 当前是：
 
 因此从“当前任务 DR 状态”角度，`kp/kd` 还不能算各任务已经统一接入的域随机项。
 
-## MuJoCo `BatchEnvPool.reset(..., randomization=...)` 接口现状
+## MuJoCo `BatchEnvPool` 随机场字段接口现状
 
 这部分只描述 `python/mujoco/batch_env.py` / `python/mujoco/batch_env.cc` 当前已经暴露的接口，不推断未来设计。
 
@@ -119,9 +119,9 @@ backend capability 当前是：
 - `kp`
 - `kd`
 
-### 2. 当前替换方式
+### 2. 当前整块替换方式
 
-当前替换入口是：
+当前整块替换入口仍然是：
 
 - `BatchEnvPool.reset(env_ids, initial_state, randomization=...)`
 
@@ -155,36 +155,75 @@ backend capability 当前是：
 - `kp`: `(len(env_ids), nu)`
 - `kd`: `(len(env_ids), nu)`
 
-当前接口语义是“按字段整块替换”，不是“按名字或索引做稀疏子字段 patch”。这意味着：
+整块接口的语义仍然是“按 env 子集、按字段整块替换”。
 
-- 可以指定只对一部分 env 应用随机化
-- 不能直接在接口层指定“只改某个 body / 某个 geom / 某个 actuator”
-- 如果只想改一个 geom 的 friction，当前做法是先拿到整块 `geom_friction`，改掉目标 geom 对应的 3 个值，再把整个 `geom_friction` payload 回写
+### 3. 当前读取方式
+
+当前读取入口分成两类：
+
+- 整块读取：`pool.get_field(env_id, name) -> np.ndarray`
+- 索引读取：`pool.get_field_indexed(env_id, name, indices)`
+
+其中索引读取当前支持：
+
+- `indices` 为单个 `int`
+- `indices` 为 `Sequence[int]`
+
+返回语义当前是稳定的：
+
+- `body_ipos` / `body_inertia` / `geom_friction`
+  - 单索引返回 `(3,)`
+  - 多索引返回 `(k, 3)`
+- `body_iquat`
+  - 单索引返回 `(4,)`
+  - 多索引返回 `(k, 4)`
+- `body_mass` / `dof_armature` / `kp` / `kd`
+  - 单索引返回标量
+  - 多索引返回 `(k,)`
+
+### 4. 当前局部写入方式
+
+当前局部写入入口是：
+
+- `pool.set_field_indexed(env_id, name, indices, value)`
+
+其中：
+
+- `env_id` 只作用于一个目标 env
+- `name` 必须属于 `SUPPORTED_FIELDS`
+- `indices` 支持单个 `int` 或 `Sequence[int]`
+- `value` 的 shape 必须和字段分量语义匹配
+
+当前 setter 语义是：
+
+- `body_ipos` / `body_inertia` / `geom_friction`
+  - 单索引写入要求 `value.shape == (3,)`
+  - 多索引写入要求 `value.shape == (k, 3)`
+- `body_iquat`
+  - 单索引写入要求 `value.shape == (4,)`
+  - 多索引写入要求 `value.shape == (k, 4)`
+- `body_mass` / `dof_armature` / `kp` / `kd`
+  - 单索引写入要求 `value` 为标量
+  - 多索引写入要求 `value.shape == (k,)`
+
+因此现在有两种使用方式：
+
+- 如果要一次替换一个字段在多个 env 上的整块值，继续用 `reset(..., randomization=...)`
+- 如果只想改单个 env 内的某几个 body / geom / dof / actuator 条目，直接用 `get_field_indexed` / `set_field_indexed`
+
+这意味着像“只改某个 geom 的 friction”这类场景，已经不需要“先整块读出 flat payload、手工切片、再整块回写”的上层样板代码
 
 另外，当前底层对 refresh 的处理也已经固定：
 
 - `body_mass`、`body_ipos`、`body_iquat`、`body_inertia`、`dof_armature` 会触发 `mj_setConst` refresh
 - `geom_friction`、`kp`、`kd` 不触发 refresh
 
-### 3. 当前读取方式
-
-当前 Python 包装层暴露了：
-
-- `pool.get_field(env_id, name) -> np.ndarray`
-
-它的行为是：
-
-- 读取单个 env 上某个字段的当前值
-- `name` 必须属于 `SUPPORTED_FIELDS`
-- 返回值是 1-D flat array
-- 这个入口当前主要是 introspection / test 用，但也可以作为“读出整块字段 -> 局部修改 -> 再经 `reset(..., randomization=...)` 回写整块字段”的辅助方式
-
 因此，当前 MuJoCo `BatchEnvPool` 的 reset-lifecycle randomization 接口可以概括为：
 
 - 支持字段是固定白名单
-- 写入方式是“按 env 子集、按字段整块替换”
-- 读取方式是 `get_field(env_id, field_name)` 读取单个 env 的整块 flat 值
-- 目前还没有“按 geom 名称 / geom id 直接 patch 单个 friction 条目”的更细粒度接口
+- 读取方式同时支持整块读取和索引读取
+- 写入方式同时支持整块替换和单 env 内的索引级局部写入
+- 当前索引级接口按字段分量宽度返回稳定 shape，并且在需要时自动做 `mj_setConst` refresh
 
 ## 新任务接入时的最低标准
 
