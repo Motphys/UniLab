@@ -112,7 +112,9 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     runner = OnPolicyRunner(wrapped_env, train_cfg, log_dir=None, device=device)
     runner.load(str(load_path))
     policy = runner.get_inference_policy(device=device)
-
+    if EXPORT_POLICY:
+        runner.export_policy_to_onnx(path=load_path_dir)
+        runner.export_policy_to_jit(path=load_path_dir)
     if cfg.training.sim_backend == "motrix":
         print("Starting interactive visualization (motrix native renderer)...")
         print("Close the render window to exit.")
@@ -289,4 +291,5 @@ def main(cfg: DictConfig) -> None:
 
 
 if __name__ == "__main__":
+    EXPORT_POLICY = True
     main()
