@@ -6,8 +6,6 @@ import xml.etree.ElementTree as ET
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 
-import mujoco
-
 
 def _enable_discardvisual(root: ET.Element) -> None:
     compiler_tag = root.find("compiler")
@@ -242,10 +240,8 @@ def inject_motrix_tracking_sensors(model_file: str, baselink_name: str) -> tuple
 def processed_xml(xml_path):
     xml_dir = os.path.dirname(os.path.abspath(xml_path))
 
-    # 加载模型 spec
-    spec = mujoco.MjSpec().from_file(xml_path)
-    full_xml = spec.to_xml()
-    root = ET.fromstring(full_xml)
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
 
     compiler = root.find("compiler")
     if compiler is not None:
