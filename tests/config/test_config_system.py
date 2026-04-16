@@ -210,11 +210,28 @@ def test_ppo_g1_backend_specific_hyperparams_remain_separate():
     assert mujoco_cfg.algo.empirical_normalization is False
     assert mujoco_cfg.algo.obs_groups.actor == ["actor"]
 
-    assert motrix_cfg.algo.max_iterations == 151
+    assert motrix_cfg.algo.max_iterations == 220
     assert motrix_cfg.algo.empirical_normalization is True
     assert motrix_cfg.algo.obs_groups.actor == ["policy"]
     assert motrix_cfg.env.iterations == 3
     assert motrix_cfg.env.control_config.action_scale == pytest.approx(0.5)
+    assert motrix_cfg.env.commands.vel_limit == [[0.4, 0.0, 0.0], [0.7, 0.0, 0.0]]
+    assert motrix_cfg.env.gait_phase_init_mode == "offset_phase"
+    assert motrix_cfg.reward.scales.tracking_lin_vel == pytest.approx(2.0)
+    assert motrix_cfg.reward.scales.tracking_ang_vel == pytest.approx(0.25)
+    assert motrix_cfg.reward.scales.forward_progress == pytest.approx(0.0)
+    assert motrix_cfg.reward.scales.under_speed == pytest.approx(-0.2)
+    assert motrix_cfg.reward.scales.penalty_feet_ori == pytest.approx(0.0)
+    assert motrix_cfg.reward.scales.feet_phase == pytest.approx(1.2)
+    assert motrix_cfg.reward.scales.feet_phase_contrast == pytest.approx(1.5)
+    assert motrix_cfg.reward.scales.feet_phase_contact == pytest.approx(1.0)
+    assert motrix_cfg.reward.scales.feet_double_stance == pytest.approx(-1.0)
+    assert motrix_cfg.reward.scales.base_height == pytest.approx(-120.0)
+    assert motrix_cfg.reward.scales.pose == pytest.approx(-0.05)
+    assert motrix_cfg.reward.base_height_target == pytest.approx(0.765)
+    assert motrix_cfg.reward.min_forward_speed_for_gait_reward == pytest.approx(0.05)
+    assert motrix_cfg.reward.min_base_height == pytest.approx(0.5)
+    assert motrix_cfg.reward.max_tilt_deg == pytest.approx(35.0)
 
 
 def test_ppo_go1_motrix_preserves_reward_and_algo_values():

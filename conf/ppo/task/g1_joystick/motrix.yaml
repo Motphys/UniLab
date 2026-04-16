@@ -4,7 +4,7 @@ training:
   sim_backend: motrix
 algo:
   num_envs: 2048
-  max_iterations: 151
+  max_iterations: 220
   empirical_normalization: true
   obs_groups:
     actor:
@@ -23,18 +23,22 @@ env:
     action_scale: 0.5
   commands:
     vel_limit:
-      - [0.45, 0.0, 0.0]
-      - [0.55, 0.0, 0.0]
-  gait_phase_init_mode: independent
+      - [0.4, 0.0, 0.0]
+      - [0.7, 0.0, 0.0]
+  gait_phase_init_mode: offset_phase
   reset_base_qvel_limit: 0.05
 reward:
   scales:
-    tracking_lin_vel: 3.0
+    tracking_lin_vel: 2.0
     tracking_ang_vel: 0.25
-    forward_progress: 1.5
-    under_speed: -1.0
+    forward_progress: 0.0
+    under_speed: -0.2
     upper_body_pose: -0.05
-    feet_phase: 0.5
+    penalty_feet_ori: 0.0
+    feet_phase: 1.2
+    feet_phase_contrast: 1.5
+    feet_phase_contact: 1.0
+    feet_double_stance: -1.0
     lin_vel_z: -1.0
     ang_vel_xy: -0.2
     base_height: -120.0
@@ -45,6 +49,7 @@ reward:
   gait_frequency: 1.5
   feet_phase_swing_height: 0.09
   feet_phase_tracking_sigma: 0.008
-  base_height_target: 0.754
+  base_height_target: 0.765
+  min_forward_speed_for_gait_reward: 0.05
   min_base_height: 0.5
   max_tilt_deg: 35.0

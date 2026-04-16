@@ -76,10 +76,23 @@ def test_registry_bootstrap_and_config_imports_do_not_require_mujoco():
 
 def test_g1_joystick_ppo_cfg_obs_groups_spec():
     """G1JoystickPPO must declare obs_groups_spec with actor and privileged groups."""
-    from unilab.envs.locomotion.g1.joystick import G1JoystickPPOCfg
+    from unilab.envs.locomotion.g1.joystick import G1JoystickPPOCfg, RewardConfigPPO
 
     cfg = G1JoystickPPOCfg()
     assert not hasattr(cfg, "obs_config"), "obs_config should have been removed"
+
+    reward_cfg = RewardConfigPPO(
+        scales={"feet_phase": 1.0},
+        tracking_sigma=0.25,
+        gait_frequency=1.5,
+        feet_phase_swing_height=0.09,
+        feet_phase_tracking_sigma=0.008,
+        base_height_target=0.765,
+        min_forward_speed_for_gait_reward=0.05,
+        min_base_height=0.5,
+        max_tilt_deg=35.0,
+    )
+    assert reward_cfg.min_forward_speed_for_gait_reward == pytest.approx(0.05)
 
 
 def test_g1_joystick_sac_cfg_no_obs_config():
@@ -119,6 +132,91 @@ def test_g1_joystick_ppo_obs_groups_spec_dims():
     assert spec is not None
     assert spec["obs"] == 98
     assert spec["privileged"] == 3
+
+
+def test_g1_joystick_ppo_reward_dispatch_restores_motrix_terms():
+    from unilab.envs.locomotion.g1.joystick import G1JoystickPPO
+
+    env = cast(Any, object.__new__(G1JoystickPPO))
+    env._reward_fns = {}
+
+    env._init_reward_functions()
+
+    assert "penalty_feet_ori" in env._reward_fns
+    assert "feet_phase_contrast" in env._reward_fns
+    assert "feet_phase_contact" in env._reward_fns
+    assert "feet_double_stance" in env._reward_fns
+
+
+def test_g1_joystick_ppo_feet_phase_reward_is_gated_by_forward_speed():
+    from unilab.envs.locomotion.common.rewards import RewardContext
+    from unilab.envs.locomotion.g1.joystick import G1JoystickPPO
+
+    class FakeBackend:
+        def get_sensor_data(self, name: str) -> np.ndarray:
+            if name == "left_foot_pos":
+                return np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]], dtype=np.float32)
+            if name == "right_foot_pos":
+                return np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]], dtype=np.float32)
+            raise KeyError(name)
+
+    env = cast(Any, object.__new__(G1JoystickPPO))
+    env._backend = FakeBackend()
+    env._num_envs = 2
+    env._reward_cfg = type(
+        "RewardCfg",
+        (),
+        {
+            "feet_phase_swing_height": 0.09,
+            "feet_phase_tracking_sigma": 0.008,
+            "min_forward_speed_for_gait_reward": 0.05,
+        },
+    )()
+
+    ctx = RewardContext(
+        info={"gait_phase": np.zeros((2, 2), dtype=np.float32), "commands": np.zeros((2, 3))},
+        linvel=np.array([[0.01, 0.0, 0.0], [0.10, 0.0, 0.0]], dtype=np.float32),
+        gyro=np.zeros((2, 3), dtype=np.float32),
+        dof_pos=np.zeros((2, 29), dtype=np.float32),
+        num_envs=2,
+    )
+
+    reward = env._reward_feet_phase(ctx)
+
+    assert reward[0] == pytest.approx(0.0)
+    assert reward[1] > 0.0
+
+
+def test_g1_joystick_assets_define_contact_sensors_for_gait_rewards():
+    repo_root = Path(__file__).parents[2]
+    scene_text = (
+        repo_root / "src" / "unilab" / "assets" / "robots" / "g1" / "scene_flat.xml"
+    ).read_text()
+    model_text = (repo_root / "src" / "unilab" / "assets" / "robots" / "g1" / "g1.xml").read_text()
+
+    for name in (
+        "left_foot_contact_0",
+        "left_foot_contact_1",
+        "left_foot_contact_2",
+        "left_foot_contact_3",
+        "right_foot_contact_0",
+        "right_foot_contact_1",
+        "right_foot_contact_2",
+        "right_foot_contact_3",
+    ):
+        assert name in scene_text
+
+    for name in (
+        "left_foot_contact_0_geom",
+        "left_foot_contact_1_geom",
+        "left_foot_contact_2_geom",
+        "left_foot_contact_3_geom",
+        "right_foot_contact_0_geom",
+        "right_foot_contact_1_geom",
+        "right_foot_contact_2_geom",
+        "right_foot_contact_3_geom",
+    ):
+        assert name in model_text
 
 
 def test_allegro_rotation_obs_groups_spec_dims():

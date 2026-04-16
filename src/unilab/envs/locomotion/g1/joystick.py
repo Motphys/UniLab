@@ -62,6 +62,66 @@ def build_upper_body_pose_weights(pose_weights: list[float]) -> np.ndarray:
     return np.asarray(weights, dtype=get_global_dtype())
 
 
+def compute_feet_phase_height_targets(
+    gait_phase: np.ndarray, swing_height: float
+) -> tuple[np.ndarray, np.ndarray]:
+    def cubic_bezier_height(phi: np.ndarray, swing_height: float) -> np.ndarray:
+        phi_normalized = np.fmod(phi + np.pi, 2 * np.pi) - np.pi
+        x = (phi_normalized + np.pi) / (2 * np.pi)
+
+        def cubic_bezier_interpolation(
+            y_start: np.ndarray, y_end: np.ndarray, t: np.ndarray
+        ) -> np.ndarray:
+            y_diff = y_end - y_start
+            bezier = t**3 + 3 * (t**2 * (1 - t))
+            return np.asarray(y_start + y_diff * bezier, dtype=get_global_dtype())
+
+        stance = cubic_bezier_interpolation(np.zeros_like(x), np.full_like(x, swing_height), 2 * x)
+        swing = cubic_bezier_interpolation(
+            np.full_like(x, swing_height), np.zeros_like(x), 2 * x - 1
+        )
+        return np.where(x <= 0.5, stance, swing)
+
+    left_target = cubic_bezier_height(gait_phase[:, 0], swing_height)
+    right_target = cubic_bezier_height(gait_phase[:, 1], swing_height)
+    return left_target, right_target
+
+
+LEFT_FOOT_CONTACT_SENSORS = [f"left_foot_contact_{i}" for i in range(4)]
+RIGHT_FOOT_CONTACT_SENSORS = [f"right_foot_contact_{i}" for i in range(4)]
+
+
+def _scalarize_sensor_values(sensor_values: np.ndarray) -> np.ndarray:
+    sensor_array = np.asarray(sensor_values, dtype=get_global_dtype())
+    if sensor_array.ndim == 1:
+        return sensor_array
+    if sensor_array.ndim == 2 and sensor_array.shape[1] == 1:
+        return sensor_array[:, 0]
+    raise ValueError(f"Expected scalar sensor values, got shape {sensor_array.shape}")
+
+
+def compute_aggregated_foot_contact(backend: Any, sensor_names: list[str]) -> np.ndarray:
+    contacts = [_scalarize_sensor_values(backend.get_sensor_data(name)) for name in sensor_names]
+    return np.asarray(np.any(np.stack(contacts, axis=1) > 0.5, axis=1), dtype=np.bool_)
+
+
+def compute_feet_phase_contact_targets(
+    gait_phase: np.ndarray, swing_height: float
+) -> tuple[np.ndarray, np.ndarray]:
+    left_target, right_target = compute_feet_phase_height_targets(gait_phase, swing_height)
+    contact_height_threshold = swing_height * 0.5
+    return left_target <= contact_height_threshold, right_target <= contact_height_threshold
+
+
+def compute_forward_speed_gate(linvel: np.ndarray, min_forward_speed: float) -> np.ndarray:
+    forward_speed = np.maximum(linvel[:, 0], 0.0)
+    return np.asarray(forward_speed >= min_forward_speed, dtype=get_global_dtype())
+
+
+def compute_forward_command_mask(commands: np.ndarray) -> np.ndarray:
+    return np.asarray(np.maximum(commands[:, 0], 0.0) > 1.0e-6, dtype=get_global_dtype())
+
+
 @dataclass
 class RewardConfigPPO:
     scales: dict[str, float]
@@ -72,6 +132,7 @@ class RewardConfigPPO:
     base_height_target: float
     min_base_height: float
     max_tilt_deg: float
+    min_forward_speed_for_gait_reward: float = 0.0
     pose_weights: list[float] = field(
         default_factory=lambda: [
             0.01,
@@ -214,7 +275,11 @@ class G1JoystickPPO(G1BaseEnv):
             "base_height": rewards.base_height,
             "pose": rewards.weighted_pose,
             "upper_body_pose": self._reward_upper_body_pose,
+            "penalty_feet_ori": self._reward_feet_ori,
             "feet_phase": self._reward_feet_phase,
+            "feet_phase_contrast": self._reward_feet_phase_contrast,
+            "feet_phase_contact": self._reward_feet_phase_contact,
+            "feet_double_stance": self._reward_feet_double_stance,
         }
 
     def update_state(self, state: NpEnvState) -> NpEnvState:
@@ -319,30 +384,66 @@ class G1JoystickPPO(G1BaseEnv):
         gait_phase = ctx.info.get(
             "gait_phase", np.zeros((self._num_envs, 2), dtype=get_global_dtype())
         )
-
-        def cubic_bezier_height(phi, swing_height):
-            phi_normalized = np.fmod(phi + np.pi, 2 * np.pi) - np.pi
-            x = (phi_normalized + np.pi) / (2 * np.pi)
-
-            def cubic_bezier_interpolation(y_start, y_end, t):
-                y_diff = y_end - y_start
-                bezier = t**3 + 3 * (t**2 * (1 - t))
-                return y_start + y_diff * bezier
-
-            stance = cubic_bezier_interpolation(
-                np.zeros_like(x), np.full_like(x, swing_height), 2 * x
-            )
-            swing = cubic_bezier_interpolation(
-                np.full_like(x, swing_height), np.zeros_like(x), 2 * x - 1
-            )
-            return np.where(x <= 0.5, stance, swing)
-
         swing_height = self._reward_cfg.feet_phase_swing_height
-        left_target = cubic_bezier_height(gait_phase[:, 0], swing_height)
-        right_target = cubic_bezier_height(gait_phase[:, 1], swing_height)
+        left_target, right_target = compute_feet_phase_height_targets(gait_phase, swing_height)
         left_error = np.square(left_foot[:, 2] - left_target)
         right_error = np.square(right_foot[:, 2] - right_target)
-        return np.exp(-(left_error + right_error) / self._reward_cfg.feet_phase_tracking_sigma)
+        reward = np.exp(-(left_error + right_error) / self._reward_cfg.feet_phase_tracking_sigma)
+        return np.asarray(reward * self._gait_reward_gate(ctx.linvel), dtype=get_global_dtype())
+
+    def _gait_reward_gate(self, linvel: np.ndarray) -> np.ndarray:
+        min_forward_speed = getattr(self._reward_cfg, "min_forward_speed_for_gait_reward", 0.0)
+        return compute_forward_speed_gate(linvel, min_forward_speed)
+
+    def _reward_feet_phase_contrast(self, ctx: RewardContext):
+        left_foot = self._backend.get_sensor_data("left_foot_pos")
+        right_foot = self._backend.get_sensor_data("right_foot_pos")
+        gait_phase = ctx.info.get(
+            "gait_phase", np.zeros((self._num_envs, 2), dtype=get_global_dtype())
+        )
+        swing_height = self._reward_cfg.feet_phase_swing_height
+        left_target, right_target = compute_feet_phase_height_targets(gait_phase, swing_height)
+        actual_delta = left_foot[:, 2] - right_foot[:, 2]
+        target_delta = left_target - right_target
+        error = np.square(actual_delta - target_delta)
+        reward = np.exp(-error / self._reward_cfg.feet_phase_tracking_sigma)
+        return np.asarray(reward * self._gait_reward_gate(ctx.linvel), dtype=get_global_dtype())
+
+    def _reward_feet_phase_contact(self, ctx: RewardContext):
+        gait_phase = ctx.info.get(
+            "gait_phase", np.zeros((self._num_envs, 2), dtype=get_global_dtype())
+        )
+        swing_height = self._reward_cfg.feet_phase_swing_height
+        left_target_contact, right_target_contact = compute_feet_phase_contact_targets(
+            gait_phase, swing_height
+        )
+        left_contact = compute_aggregated_foot_contact(self._backend, LEFT_FOOT_CONTACT_SENSORS)
+        right_contact = compute_aggregated_foot_contact(self._backend, RIGHT_FOOT_CONTACT_SENSORS)
+        left_match = np.asarray(left_contact == left_target_contact, dtype=get_global_dtype())
+        right_match = np.asarray(right_contact == right_target_contact, dtype=get_global_dtype())
+        reward = np.asarray(0.5 * (left_match + right_match), dtype=get_global_dtype())
+        return np.asarray(reward * self._gait_reward_gate(ctx.linvel), dtype=get_global_dtype())
+
+    def _reward_feet_double_stance(self, ctx: RewardContext):
+        commands = ctx.info.get("commands", np.zeros((self._num_envs, 3), dtype=get_global_dtype()))
+        left_contact = compute_aggregated_foot_contact(self._backend, LEFT_FOOT_CONTACT_SENSORS)
+        right_contact = compute_aggregated_foot_contact(self._backend, RIGHT_FOOT_CONTACT_SENSORS)
+        double_stance = np.asarray(
+            np.logical_and(left_contact, right_contact), dtype=get_global_dtype()
+        )
+        return np.asarray(
+            double_stance * compute_forward_command_mask(commands), dtype=get_global_dtype()
+        )
+
+    def _reward_feet_ori(self, ctx: RewardContext):
+        left_foot_quat = self._backend.get_sensor_data("left_foot_quat")
+        right_foot_quat = self._backend.get_sensor_data("right_foot_quat")
+        return (
+            np.square(left_foot_quat[:, 1])
+            + np.square(left_foot_quat[:, 2])
+            + np.square(right_foot_quat[:, 1])
+            + np.square(right_foot_quat[:, 2])
+        )
 
     def _reward_upper_body_pose(self, ctx: RewardContext):
         diff = ctx.dof_pos - self.default_angles

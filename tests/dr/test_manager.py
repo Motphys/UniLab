@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
@@ -86,7 +87,8 @@ def test_manager_skips_unsupported_reset_terms_with_warning(caplog):
     env = SimpleNamespace(_backend=backend)
     manager = DomainRandomizationManager(env, _FakeProvider())
 
-    obs, info = manager.reset(np.array([0, 1], dtype=np.int32))
+    with caplog.at_level(logging.WARNING):
+        obs, info = manager.reset(np.array([0, 1], dtype=np.int32))
 
     assert obs["obs"].shape == (2, 1)
     assert info["commands"].shape == (2, 3)

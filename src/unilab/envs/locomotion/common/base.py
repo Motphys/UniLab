@@ -58,12 +58,15 @@ class LocomotionBaseEnv(NpEnv):
 
     def _init_buffers(self) -> None:
         dtype = get_global_dtype() if self._use_global_dtype else np.float32
-        self.default_angles = np.zeros((self._num_action,), dtype=dtype)
         raw_qpos = self._backend.get_keyframe_qpos(self._keyframe_name)
-        self._init_qpos = np.array(raw_qpos, dtype=dtype) if self._use_global_dtype else raw_qpos
-        self.default_angles = self._init_qpos[-self._num_action :]
+        self._init_qpos = (
+            np.asarray(raw_qpos, dtype=dtype) if self._use_global_dtype else np.asarray(raw_qpos)
+        )
+        self.default_angles = np.asarray(self._init_qpos[-self._num_action :], dtype=dtype)
         raw_qvel = self._backend.get_init_qvel()
-        self._init_qvel = raw_qvel.astype(dtype) if self._use_global_dtype else raw_qvel
+        self._init_qvel = (
+            np.asarray(raw_qvel, dtype=dtype) if self._use_global_dtype else np.asarray(raw_qvel)
+        )
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
         state.info["last_actions"] = state.info.get("current_actions", np.zeros_like(actions))
