@@ -14,6 +14,8 @@ from typing import Any
 
 import imageio
 
+_USER_MUJOCO_GL = os.environ.get("MUJOCO_GL")
+
 _EGL_PROBE_SCRIPT = textwrap.dedent(
     '''
     import mujoco
@@ -71,8 +73,8 @@ def _resolve_gl_backend() -> str:
         # macOS has no EGL support; glfw is the only off-screen option
         return current if current in safe_values else "glfw"
 
-    # Linux / other: honour explicit non-egl choices
-    if current in safe_values:
+    # Linux / other: honour explicit non-egl choices supplied before import.
+    if current in safe_values and current == _USER_MUJOCO_GL:
         return current
 
     # Probe EGL by creating a tiny MuJoCo renderer in a clean subprocess.
