@@ -97,7 +97,7 @@ uv run pytest -m veryslow -v
 
 ## CI Workflow
 
-PRs targeting `main` trigger five jobs automatically: `ruff-lint`, `ruff-format`, `mypy`, `pyright`, and `test`. The workflow also enables manual runs through `workflow_dispatch`, validates docs through the pytest suite on docs changes, and cancels older in-progress runs for the same PR branch.
+PRs targeting `main` trigger five jobs automatically: `ruff-lint`, `ruff-format`, `mypy`, `pyright`, and `test`. Fork PRs whose head branch is also named `main` are routed through a restricted `pull_request_target` lane so CI still starts automatically instead of remaining silent. The workflow also enables manual runs through `workflow_dispatch`, validates docs through the pytest suite on docs changes, and cancels older in-progress runs for the same PR branch.
 
 Coverage policy: the default CI lane enforces a minimum non-slow coverage floor, and that floor should only ratchet upward when the suite meaningfully expands.
 
