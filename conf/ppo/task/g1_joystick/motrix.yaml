@@ -16,6 +16,9 @@ algo:
     entropy_coef: 5.0e-3
 env:
   iterations: 3
+  domain_rand:
+    randomize_kp: false
+    randomize_kd: false
   control_config:
     action_scale: 0.5
   commands:

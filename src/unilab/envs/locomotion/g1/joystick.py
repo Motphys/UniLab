@@ -23,6 +23,15 @@ from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
 
 
 @dataclass
+class G1DomainRandConfig(DomainRandConfig):
+    randomize_kp: bool = True
+    kp_multiplier_range: list[float] = field(default_factory=lambda: [0.9, 1.1])
+
+    randomize_kd: bool = True
+    kd_multiplier_range: list[float] = field(default_factory=lambda: [0.9, 1.1])
+
+
+@dataclass
 class InitState:
     pos = [0.0, 0.0, 0.754]
 
@@ -107,12 +116,19 @@ class G1JoystickPPOCfg(G1BaseCfg):
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
     reward_config: RewardConfigPPO | None = None
-    domain_rand: DomainRandConfig = field(default_factory=DomainRandConfig)
+    domain_rand: G1DomainRandConfig = field(default_factory=G1DomainRandConfig)
     gait_phase_init_mode: str = "offset_phase"
     reset_base_qvel_limit: float = 0.5
 
 
 class G1JoystickDomainRandomizationProvider(LocomotionDRProvider):
+    def __init__(self, *, base_kp: np.ndarray | None = None, base_kd: np.ndarray | None = None):
+        self._base_kp = base_kp
+        self._base_kd = base_kd
+
+    def _get_base_actuator_gains(self, env: Any) -> tuple[np.ndarray | None, np.ndarray | None]:
+        return self._base_kp, self._base_kd
+
     def _get_qvel_limit(self, env: Any) -> float:
         return float(env.cfg.reset_base_qvel_limit)
 
@@ -173,7 +189,12 @@ class G1JoystickPPO(G1BaseEnv):
         self._upper_body_pose_weights = build_upper_body_pose_weights(self._reward_cfg.pose_weights)
 
         self._init_reward_functions()
-        self._init_domain_randomization(G1JoystickDomainRandomizationProvider())
+        if cfg.domain_rand.randomize_kp or cfg.domain_rand.randomize_kd:
+            base_kp, base_kd = backend.get_actuator_gains()
+            dr_provider = G1JoystickDomainRandomizationProvider(base_kp=base_kp, base_kd=base_kd)
+        else:
+            dr_provider = G1JoystickDomainRandomizationProvider()
+        self._init_domain_randomization(dr_provider)
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:

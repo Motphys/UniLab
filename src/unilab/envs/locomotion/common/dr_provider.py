@@ -44,8 +44,18 @@ class LocomotionDRProvider(DomainRandomizationProvider):
 
     # ── shared methods ───────────────────────────────────────────────
 
+    def _get_base_actuator_gains(self, env: Any) -> tuple[np.ndarray | None, np.ndarray | None]:
+        """Return (base_kp, base_kd) for per-joint kp/kd domain randomization.
+
+        Override to provide per-joint gains cached at init time.
+        Returns ``(None, None)`` by default, which falls back to scalar
+        ``ControlConfig.Kp`` / ``ControlConfig.Kd``.
+        """
+        return None, None
+
     def validate(self, env: Any, capabilities: DomainRandomizationCapabilities) -> None:
-        validate_common_reset_randomization(env, capabilities)
+        base_kp, base_kd = self._get_base_actuator_gains(env)
+        validate_common_reset_randomization(env, capabilities, base_kp=base_kp, base_kd=base_kd)
         validate_interval_push_support(env, capabilities)
 
     def build_interval_randomization_plan(
@@ -87,12 +97,15 @@ class LocomotionDRProvider(DomainRandomizationProvider):
             "last_actions": zero_actions(num_reset, env._num_action),
         }
         info_updates.update(self._build_extra_info_updates(env, num_reset))
+        base_kp, base_kd = self._get_base_actuator_gains(env)
         return ResetPlan(
             env_ids=env_ids,
             qpos=qpos,
             qvel=qvel,
             info_updates=info_updates,
-            randomization=build_common_reset_randomization(env, num_reset),
+            randomization=build_common_reset_randomization(
+                env, num_reset, base_kp=base_kp, base_kd=base_kd
+            ),
         )
 
     # ── template: build_reset_observation ────────────────────────────

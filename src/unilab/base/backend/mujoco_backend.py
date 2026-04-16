@@ -467,6 +467,12 @@ class MuJoCoBackend(SimBackend):
 
         return translated or None
 
+    def get_actuator_gains(self) -> tuple[np.ndarray, np.ndarray]:
+        """Return per-joint (kp, kd) arrays read from the current model state."""
+        kp = np.asarray(self._model.actuator_gainprm[:, 0], dtype=np.float64).copy()
+        kd = np.asarray(-self._model.actuator_biasprm[:, 2], dtype=np.float64).copy()
+        return kp, kd
+
     def _apply_position_actuator_gains_to_model(
         self,
         model,
