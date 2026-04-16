@@ -97,7 +97,7 @@ uv run pytest -m veryslow -v
 
 ## CI Workflow
 
-指向 `main` 的 PR 会自动触发五个 job: `ruff-lint`、`ruff-format`、`mypy`、`pyright` 和 `test`。workflow 也支持通过 `workflow_dispatch` 手动触发；文档改动会通过 pytest 套件参与校验，并且会自动取消同一 PR 分支上较早的进行中运行。
+指向 `main` 的 PR 会自动触发五个 job: `ruff-lint`、`ruff-format`、`mypy`、`pyright` 和 `test`。如果 PR 来自 fork，且 head branch 也叫 `main`，仓库会通过受限的 `pull_request_target` 通道来启动 CI，避免 GitHub Actions 继续静默不跑。workflow 也支持通过 `workflow_dispatch` 手动触发；文档改动会通过 pytest 套件参与校验，并且会自动取消同一 PR 分支上较早的进行中运行。
 
 覆盖率策略: 默认 CI lane 会对非 slow 测试施加最低覆盖率门槛，这个门槛只应随着测试护栏增强而逐步上调，不应回退。
 
