@@ -1,22 +1,31 @@
 """Backend detection and dtype mapping utilities."""
 
 import platform
-from typing import Dict
+from typing import Any, Dict
 
 _IS_MACOS = platform.system() == "Darwin"
 
+np: Any | None = None
 try:
-    import numpy as np
+    import numpy as _np
+
+    np = _np
 except Exception:
     np = None
 
+torch: Any | None = None
 try:
-    import torch
+    import torch as _torch
+
+    torch = _torch
 except Exception:
     torch = None
 
+mx: Any | None = None
 try:
-    import mlx.core as mx
+    import mlx.core as _mx
+
+    mx = _mx
 except Exception:
     mx = None
 
