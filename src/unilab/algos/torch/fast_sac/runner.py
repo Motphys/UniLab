@@ -48,9 +48,9 @@ class FastSACRunner(OffPolicyRunner):
         env: Any = registry.make(
             env_name, num_envs=1, sim_backend=sim_backend, env_cfg_override=env_cfg_override
         )
-        from unilab.utils.obs_utils import get_obs_dims_with_critic
+        from unilab.utils.obs_utils import get_obs_dims
 
-        obs_dim, privileged_dim, critic_obs_dim = get_obs_dims_with_critic(env.obs_groups_spec)
+        obs_dim, critic_obs_dim = get_obs_dims(env.obs_groups_spec)
         act_space_shape = env.action_space.shape
         assert act_space_shape is not None
         action_dim = act_space_shape[0]
@@ -83,7 +83,6 @@ class FastSACRunner(OffPolicyRunner):
             mujoco_model=mujoco_model,
             obs_structure=obs_structure,
             world_size=getattr(self, "world_size", world_size),
-            privileged_dim=privileged_dim,
             critic_obs_dim=critic_obs_dim,
         )
 

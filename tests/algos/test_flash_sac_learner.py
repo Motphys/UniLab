@@ -9,27 +9,27 @@ from unilab.algos.torch.flash_sac.learner import FlashSACLearner, RewardNormaliz
 
 def _make_batch(batch_size: int = 32) -> dict[str, torch.Tensor]:
     obs = torch.randn(batch_size, 98)
-    privileged = torch.randn(batch_size, 3)
+    critic = torch.randn(batch_size, 101)
     actions = torch.tanh(torch.randn(batch_size, 29))
     rewards = torch.randn(batch_size)
     next_obs = torch.randn(batch_size, 98)
-    next_privileged = torch.randn(batch_size, 3)
+    next_critic = torch.randn(batch_size, 101)
     dones = torch.zeros(batch_size)
     truncated = torch.zeros(batch_size)
     return {
         "obs": obs,
-        "privileged": privileged,
+        "critic": critic,
         "actions": actions,
         "rewards": rewards,
         "next_obs": next_obs,
-        "next_privileged": next_privileged,
+        "next_critic": next_critic,
         "dones": dones,
         "truncated": truncated,
     }
 
 
 def test_flashsac_learner_exposes_expected_dims():
-    learner = FlashSACLearner(obs_dim=98, action_dim=29, privileged_dim=3, device="cpu")
+    learner = FlashSACLearner(obs_dim=98, action_dim=29, critic_obs_dim=101, device="cpu")
 
     assert learner.obs_dim == 98
     assert learner.critic_obs_dim == 101
@@ -37,7 +37,7 @@ def test_flashsac_learner_exposes_expected_dims():
 
 
 def test_flashsac_actor_explore_and_forward_shapes():
-    learner = FlashSACLearner(obs_dim=98, action_dim=29, privileged_dim=3, device="cpu")
+    learner = FlashSACLearner(obs_dim=98, action_dim=29, critic_obs_dim=101, device="cpu")
     obs = torch.randn(4, 98)
 
     actions = learner.actor.explore(obs, deterministic=False)
@@ -51,7 +51,7 @@ def test_flashsac_actor_explore_and_forward_shapes():
 
 
 def test_flashsac_update_steps_run_on_cpu():
-    learner = FlashSACLearner(obs_dim=98, action_dim=29, privileged_dim=3, device="cpu")
+    learner = FlashSACLearner(obs_dim=98, action_dim=29, critic_obs_dim=101, device="cpu")
     batch = _make_batch()
 
     critic_metrics = learner.update_critic(batch)
@@ -65,13 +65,13 @@ def test_flashsac_update_steps_run_on_cpu():
 
 
 def test_flashsac_state_dict_round_trip():
-    learner = FlashSACLearner(obs_dim=98, action_dim=29, privileged_dim=3, device="cpu")
+    learner = FlashSACLearner(obs_dim=98, action_dim=29, critic_obs_dim=101, device="cpu")
     batch = _make_batch()
     learner.update_critic(batch)
     learner.update_actor(batch)
     state_dict = learner.get_state_dict()
 
-    restored = FlashSACLearner(obs_dim=98, action_dim=29, privileged_dim=3, device="cpu")
+    restored = FlashSACLearner(obs_dim=98, action_dim=29, critic_obs_dim=101, device="cpu")
     restored.load_state_dict(state_dict)
 
     assert restored.get_state_dict()["update_count"] == learner.get_state_dict()["update_count"]
@@ -91,7 +91,7 @@ def test_reward_normalizer_tracks_discounted_returns() -> None:
 
 
 def test_flashsac_critic_update_does_not_advance_reward_stats_from_sampled_batch() -> None:
-    learner = FlashSACLearner(obs_dim=98, action_dim=29, privileged_dim=3, device="cpu")
+    learner = FlashSACLearner(obs_dim=98, action_dim=29, critic_obs_dim=101, device="cpu")
     learner.update_reward_stats(
         rewards=torch.tensor([[1.0, 2.0]]),
         terminated=torch.zeros(1, 2),

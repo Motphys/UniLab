@@ -105,10 +105,10 @@ class SharpaInhandBaseCfg(EnvCfg):
     action_space: int = 22
     observation_space: int = 192
     prop_hist_len: int = 30
-    priv_info_dim: int = 8
-    # "separate": keep privileged info in its own obs group.
-    # "merged": append privileged info into the main "obs" vector.
-    privileged_obs_mode: str = "separate"
+    critic_info_dim: int = 8
+    # "separate": keep critic-only info in its own obs group.
+    # "merged": append critic info into the main "obs" vector.
+    critic_obs_mode: str = "separate"
 
     clip_obs: float = 5.0
     clip_actions: float = 1.0
@@ -307,7 +307,7 @@ class SharpaInhandBaseEnv(NpEnv):
         self.proprio_hist_buf = np.zeros(
             (num_envs, cfg.prop_hist_len, cfg.frame_obs_dim), dtype=self._np_dtype
         )
-        self.priv_info_buf = np.zeros((num_envs, cfg.priv_info_dim), dtype=self._np_dtype)
+        self.critic_info_buf = np.zeros((num_envs, cfg.critic_info_dim), dtype=self._np_dtype)
 
         self.scale_ids, self._num_scales, self._bucket_env = self._build_scale_ids(
             num_envs, cfg.scale_range

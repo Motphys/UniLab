@@ -47,7 +47,7 @@ env:
   rot_axis: [0.0, 0.0, 1.0]
   grasp_cache_path: cache/sharpa_grasp_linspace
   joint_noise_scale: 0.02
-  privileged_obs_mode: merged
+  critic_obs_mode: merged
   sensor:
     tactile_force_sensor_names:
       - contact_right_thumb_elastomer_force

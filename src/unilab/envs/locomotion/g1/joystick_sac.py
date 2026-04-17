@@ -105,8 +105,8 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:
-        # obs / critic share the same 98-dim actor-trunk layout; privileged = linvel (3).
-        return {"obs": 98, "privileged": 3, "critic": 98}
+        # actor trunk = 98, critic path = clean 98-dim trunk + linvel (3).
+        return {"obs": 98, "critic": 101}
 
     def _compute_obs(
         self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel
@@ -118,7 +118,7 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
         gait_phase = info.get("gait_phase", np.zeros((self._num_envs, 2), dtype=get_global_dtype()))
 
         # Clean critic trunk: same layout as actor but noise-free
-        critic = np.concatenate(
+        clean_critic = np.concatenate(
             [gyro * 0.25, -gravity, diff, dof_vel * 0.05, last_actions, command, gait_phase],
             axis=1,
             dtype=get_global_dtype(),
@@ -128,7 +128,6 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
         noisy_gravity = self._obs_noise(gravity, noise_cfg.scale_gravity)
         noisy_diff = self._obs_noise(diff, noise_cfg.scale_joint_angle)
         noisy_dof_vel = self._obs_noise(dof_vel, noise_cfg.scale_joint_vel)
-        noisy_linvel = self._obs_noise(linvel, noise_cfg.scale_linvel)
         actor = np.concatenate(
             [
                 noisy_gyro * 0.25,
@@ -145,8 +144,11 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
 
         return {
             "obs": actor,
-            "privileged": np.asarray(linvel * 2.0, dtype=get_global_dtype()),
-            "critic": critic,
+            "critic": np.concatenate(
+                [clean_critic, np.asarray(linvel * 2.0, dtype=get_global_dtype())],
+                axis=1,
+                dtype=get_global_dtype(),
+            ),
         }
 
     def _init_reward_functions(self):

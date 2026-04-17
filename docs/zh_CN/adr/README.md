@@ -10,6 +10,7 @@
 - [ADR-0002 Backend Capability Boundary For Play And Snapshot](ADR-0002-backend-capability-boundary-for-play-and-snapshot.md)
 - [ADR-0003 Task Owner And Config Compose Contract](ADR-0003-task-owner-and-config-compose-contract.md)
 - [ADR-0004 Registry Bootstrap Contract](ADR-0004-registry-bootstrap-contract.md)
+- [ADR-0005 Unified Obs Critic Env And IPC Contract](ADR-0005-unified-obs-critic-env-and-ipc-contract.md)
 
 ## 与主文档的关系
 

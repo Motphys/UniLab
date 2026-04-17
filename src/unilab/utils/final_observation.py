@@ -5,15 +5,13 @@ from typing import Any
 
 import numpy as np
 
-from unilab.utils.obs_utils import split_obs_dict_with_critic
+from unilab.utils.obs_utils import split_obs_dict
 
 
 @dataclass(frozen=True)
 class TransitionBootstrapContract:
     actor_next_obs: np.ndarray
-    actor_next_privileged: np.ndarray | None
     transition_next_obs: np.ndarray
-    transition_next_privileged: np.ndarray | None
     terminal_mask: np.ndarray
     timeout_terminal_mask: np.ndarray
     actor_next_critic: np.ndarray | None = None
@@ -23,7 +21,6 @@ class TransitionBootstrapContract:
 @dataclass(frozen=True)
 class TerminalObservationContract:
     terminal_obs: np.ndarray | None
-    terminal_privileged: np.ndarray | None
     terminal_mask: np.ndarray
     timeout_terminal_mask: np.ndarray
     terminal_critic: np.ndarray | None = None
@@ -31,12 +28,11 @@ class TerminalObservationContract:
 
 def patch_transition_next_obs(
     next_obs: np.ndarray,
-    next_privileged: np.ndarray | None,
     final_observation: dict[str, Any] | None = None,
     done: np.ndarray | None = None,
     info: dict[str, Any] | None = None,
     next_critic: np.ndarray | None = None,
-) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray | None, np.ndarray]:
     """Patch transition next obs with final_observation without mutating actor inputs."""
     terminal_contract = resolve_terminal_observation_contract(
         next_obs_batch_size=next_obs.shape[0],
@@ -47,7 +43,6 @@ def patch_transition_next_obs(
     if not np.any(terminal_contract.terminal_mask) or terminal_contract.terminal_obs is None:
         return (
             next_obs,
-            next_privileged,
             next_critic,
             np.zeros((next_obs.shape[0],), dtype=bool),
         )
@@ -56,13 +51,6 @@ def patch_transition_next_obs(
     transition_next_obs[terminal_contract.terminal_mask] = np.asarray(
         terminal_contract.terminal_obs, dtype=next_obs.dtype
     )[terminal_contract.terminal_mask]
-
-    transition_next_privileged = next_privileged
-    if next_privileged is not None and terminal_contract.terminal_privileged is not None:
-        transition_next_privileged = next_privileged.copy()
-        transition_next_privileged[terminal_contract.terminal_mask] = np.asarray(
-            terminal_contract.terminal_privileged, dtype=next_privileged.dtype
-        )[terminal_contract.terminal_mask]
 
     transition_next_critic = next_critic
     if next_critic is not None and terminal_contract.terminal_critic is not None:
@@ -73,7 +61,6 @@ def patch_transition_next_obs(
 
     return (
         transition_next_obs,
-        transition_next_privileged,
         transition_next_critic,
         terminal_contract.terminal_mask,
     )
@@ -81,7 +68,6 @@ def patch_transition_next_obs(
 
 def resolve_transition_bootstrap_contract(
     next_obs: np.ndarray,
-    next_privileged: np.ndarray | None,
     info: dict[str, Any] | None = None,
     final_observation: dict[str, Any] | None = None,
     done: np.ndarray | None = None,
@@ -91,12 +77,10 @@ def resolve_transition_bootstrap_contract(
     """Resolve actor/storage observations and timeout bootstrap masks for a step."""
     (
         transition_next_obs,
-        transition_next_privileged,
         transition_next_critic,
         terminal_mask,
     ) = patch_transition_next_obs(
         next_obs,
-        next_privileged,
         final_observation=final_observation,
         done=done,
         info=info,
@@ -109,9 +93,7 @@ def resolve_transition_bootstrap_contract(
         )
     return TransitionBootstrapContract(
         actor_next_obs=next_obs,
-        actor_next_privileged=next_privileged,
         transition_next_obs=transition_next_obs,
-        transition_next_privileged=transition_next_privileged,
         terminal_mask=terminal_mask,
         timeout_terminal_mask=timeout_terminal_mask,
         actor_next_critic=next_critic,
@@ -131,12 +113,9 @@ def resolve_terminal_observation_contract(
     resolved_final_observation = _resolve_final_observation(final_observation, info)
 
     terminal_obs: np.ndarray | None = None
-    terminal_privileged: np.ndarray | None = None
     terminal_critic: np.ndarray | None = None
     if np.any(terminal_mask) and isinstance(resolved_final_observation, dict):
-        terminal_obs, terminal_privileged, terminal_critic = split_obs_dict_with_critic(
-            resolved_final_observation
-        )
+        terminal_obs, terminal_critic = split_obs_dict(resolved_final_observation)
 
     timeout_terminal_mask = terminal_mask
     if truncated is not None:
@@ -146,7 +125,6 @@ def resolve_terminal_observation_contract(
 
     return TerminalObservationContract(
         terminal_obs=terminal_obs,
-        terminal_privileged=terminal_privileged,
         terminal_mask=terminal_mask,
         timeout_terminal_mask=timeout_terminal_mask,
         terminal_critic=terminal_critic,

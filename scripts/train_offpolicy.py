@@ -110,7 +110,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             assert env.action_space.shape
             from unilab.utils.obs_utils import get_obs_dims
 
-            obs_dim, privileged_dim = get_obs_dims(env.obs_groups_spec)
+            obs_dim, critic_dim = get_obs_dims(env.obs_groups_spec)
             action_dim = env.action_space.shape[0]
             env.close()
 
@@ -130,7 +130,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
                 "use_layer_norm": cfg.algo.use_layer_norm,
                 "max_grad_norm": cfg.algo.algo_params.max_grad_norm,
                 "use_amp": cfg.training.use_amp,
-                "privileged_dim": privileged_dim,
+                "critic_obs_dim": critic_dim,
                 # symmetry not supported in multi-GPU mode (mujoco_model not picklable)
                 "use_symmetry": False,
             }

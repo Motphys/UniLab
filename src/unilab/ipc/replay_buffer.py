@@ -22,14 +22,12 @@ class ReplayBuffer(SharedBufferBase):
         obs_dim: int,
         action_dim: int,
         device: str,
-        privileged_dim: int = 0,
         defer_gpu: bool = False,
         critic_dim: int = 0,
     ):
         super().__init__(capacity, device, defer_gpu=defer_gpu)
         self._obs_dim = obs_dim
         self._action_dim = action_dim
-        self._privileged_dim = privileged_dim
         self._critic_dim = critic_dim
 
         self.size = torch.zeros(1, dtype=torch.int64).share_memory_()
@@ -42,10 +40,6 @@ class ReplayBuffer(SharedBufferBase):
             self.rewards = torch.zeros(capacity).share_memory_()
             self.dones = torch.zeros(capacity).share_memory_()
             self.truncated = torch.zeros(capacity).share_memory_()
-
-            if privileged_dim > 0:
-                self.privileged_obs = torch.zeros(capacity, privileged_dim).share_memory_()
-                self.next_privileged_obs = torch.zeros(capacity, privileged_dim).share_memory_()
 
             if critic_dim > 0:
                 self.critic_obs = torch.zeros(capacity, critic_dim).share_memory_()
@@ -60,19 +54,13 @@ class ReplayBuffer(SharedBufferBase):
                 self.dones_gpu = torch.empty(capacity, device="cuda")
                 self.truncated_gpu = torch.empty(capacity, device="cuda")
 
-                if privileged_dim > 0:
-                    self.privileged_obs_gpu = torch.empty(capacity, privileged_dim, device="cuda")
-                    self.next_privileged_obs_gpu = torch.empty(
-                        capacity, privileged_dim, device="cuda"
-                    )
-
                 if critic_dim > 0:
                     self.critic_obs_gpu = torch.empty(capacity, critic_dim, device="cuda")
                     self.next_critic_obs_gpu = torch.empty(capacity, critic_dim, device="cuda")
         else:
             # Single packed host tensor;
-            # layout: [obs | next_obs | actions | rew | done | trunc | priv | next_priv | critic | next_critic]
-            total_dim = 2 * obs_dim + action_dim + 3 + 2 * privileged_dim + 2 * critic_dim
+            # layout: [obs | next_obs | actions | rew | done | trunc | critic | next_critic]
+            total_dim = 2 * obs_dim + action_dim + 3 + 2 * critic_dim
             self._storage = torch.zeros(capacity, total_dim).share_memory_()
 
             c = 0
@@ -88,12 +76,6 @@ class ReplayBuffer(SharedBufferBase):
             c += 1
             self._trunc_col = c
             c += 1
-
-            if privileged_dim > 0:
-                self._priv_sl = slice(c, c + privileged_dim)
-                c += privileged_dim
-                self._npriv_sl = slice(c, c + privileged_dim)
-                c += privileged_dim
 
             if critic_dim > 0:
                 self._critic_sl = slice(c, c + critic_dim)
@@ -119,8 +101,6 @@ class ReplayBuffer(SharedBufferBase):
             "rewards_gpu",
             "dones_gpu",
             "truncated_gpu",
-            "privileged_obs_gpu",
-            "next_privileged_obs_gpu",
             "critic_obs_gpu",
             "next_critic_obs_gpu",
         ):
@@ -143,13 +123,6 @@ class ReplayBuffer(SharedBufferBase):
         self.rewards_gpu = torch.zeros(self.capacity, device=device)
         self.dones_gpu = torch.zeros(self.capacity, device=device)
         self.truncated_gpu = torch.zeros(self.capacity, device=device)
-        if self._privileged_dim > 0:
-            self.privileged_obs_gpu = torch.zeros(
-                self.capacity, self._privileged_dim, device=device
-            )
-            self.next_privileged_obs_gpu = torch.zeros(
-                self.capacity, self._privileged_dim, device=device
-            )
         if self._critic_dim > 0:
             self.critic_obs_gpu = torch.zeros(self.capacity, self._critic_dim, device=device)
             self.next_critic_obs_gpu = torch.zeros(self.capacity, self._critic_dim, device=device)
@@ -164,11 +137,8 @@ class ReplayBuffer(SharedBufferBase):
         next_obs,
         dones,
         truncated,
-        privileged=None,
-        next_privileged=None,
         terminal_mask=None,
         terminal_next_obs=None,
-        terminal_next_privileged=None,
         critic=None,
         next_critic=None,
         terminal_next_critic=None,
@@ -176,7 +146,6 @@ class ReplayBuffer(SharedBufferBase):
         """Add batch (called by collector)."""
         n = obs.shape[0]
         idx = int(self.ptr[0]) % self.capacity
-        has_priv = self._privileged_dim > 0 and privileged is not None
         has_critic = self._critic_dim > 0 and critic is not None
 
         if self.device == "cuda":
@@ -187,10 +156,6 @@ class ReplayBuffer(SharedBufferBase):
                 self.rewards[idx : idx + n] = rewards
                 self.dones[idx : idx + n] = dones
                 self.truncated[idx : idx + n] = truncated
-                if has_priv:
-                    assert privileged is not None and next_privileged is not None
-                    self.privileged_obs[idx : idx + n] = privileged
-                    self.next_privileged_obs[idx : idx + n] = next_privileged
                 if has_critic:
                     assert critic is not None and next_critic is not None
                     self.critic_obs[idx : idx + n] = critic
@@ -199,8 +164,6 @@ class ReplayBuffer(SharedBufferBase):
                     self.next_obs[idx : idx + n],
                     terminal_mask,
                     terminal_next_obs,
-                    self.next_privileged_obs[idx : idx + n] if has_priv else None,
-                    terminal_next_privileged,
                     self.next_critic_obs[idx : idx + n] if has_critic else None,
                     terminal_next_critic,
                 )
@@ -218,12 +181,6 @@ class ReplayBuffer(SharedBufferBase):
                 self.dones[: n - split] = dones[split:]
                 self.truncated[idx:] = truncated[:split]
                 self.truncated[: n - split] = truncated[split:]
-                if has_priv:
-                    assert privileged is not None and next_privileged is not None
-                    self.privileged_obs[idx:] = privileged[:split]
-                    self.privileged_obs[: n - split] = privileged[split:]
-                    self.next_privileged_obs[idx:] = next_privileged[:split]
-                    self.next_privileged_obs[: n - split] = next_privileged[split:]
                 if has_critic:
                     assert critic is not None and next_critic is not None
                     self.critic_obs[idx:] = critic[:split]
@@ -234,10 +191,6 @@ class ReplayBuffer(SharedBufferBase):
                     self.next_obs[idx:],
                     terminal_mask[:split] if terminal_mask is not None else None,
                     terminal_next_obs[:split] if terminal_next_obs is not None else None,
-                    self.next_privileged_obs[idx:] if has_priv else None,
-                    terminal_next_privileged[:split]
-                    if terminal_next_privileged is not None
-                    else None,
                     self.next_critic_obs[idx:] if has_critic else None,
                     terminal_next_critic[:split] if terminal_next_critic is not None else None,
                 )
@@ -245,10 +198,6 @@ class ReplayBuffer(SharedBufferBase):
                     self.next_obs[: n - split],
                     terminal_mask[split:] if terminal_mask is not None else None,
                     terminal_next_obs[split:] if terminal_next_obs is not None else None,
-                    self.next_privileged_obs[: n - split] if has_priv else None,
-                    terminal_next_privileged[split:]
-                    if terminal_next_privileged is not None
-                    else None,
                     self.next_critic_obs[: n - split] if has_critic else None,
                     terminal_next_critic[split:] if terminal_next_critic is not None else None,
                 )
@@ -261,9 +210,6 @@ class ReplayBuffer(SharedBufferBase):
                 dones.unsqueeze(1),
                 truncated.unsqueeze(1),
             ]
-            if has_priv:
-                assert next_privileged is not None
-                parts.extend([privileged, next_privileged])
             if has_critic:
                 assert next_critic is not None
                 parts.extend([critic, next_critic])
@@ -275,8 +221,6 @@ class ReplayBuffer(SharedBufferBase):
                     self._storage[idx : idx + n, self._nobs_sl],
                     terminal_mask,
                     terminal_next_obs,
-                    self._storage[idx : idx + n, self._npriv_sl] if has_priv else None,
-                    terminal_next_privileged,
                     self._storage[idx : idx + n, self._ncritic_sl] if has_critic else None,
                     terminal_next_critic,
                 )
@@ -288,10 +232,6 @@ class ReplayBuffer(SharedBufferBase):
                     self._storage[idx:, self._nobs_sl],
                     terminal_mask[:split] if terminal_mask is not None else None,
                     terminal_next_obs[:split] if terminal_next_obs is not None else None,
-                    self._storage[idx:, self._npriv_sl] if has_priv else None,
-                    terminal_next_privileged[:split]
-                    if terminal_next_privileged is not None
-                    else None,
                     self._storage[idx:, self._ncritic_sl] if has_critic else None,
                     terminal_next_critic[:split] if terminal_next_critic is not None else None,
                 )
@@ -299,10 +239,6 @@ class ReplayBuffer(SharedBufferBase):
                     self._storage[: n - split, self._nobs_sl],
                     terminal_mask[split:] if terminal_mask is not None else None,
                     terminal_next_obs[split:] if terminal_next_obs is not None else None,
-                    self._storage[: n - split, self._npriv_sl] if has_priv else None,
-                    terminal_next_privileged[split:]
-                    if terminal_next_privileged is not None
-                    else None,
                     self._storage[: n - split, self._ncritic_sl] if has_critic else None,
                     terminal_next_critic[split:] if terminal_next_critic is not None else None,
                 )
@@ -315,8 +251,6 @@ class ReplayBuffer(SharedBufferBase):
         target_next_obs,
         terminal_mask,
         terminal_next_obs,
-        target_next_privileged=None,
-        terminal_next_privileged=None,
         target_next_critic=None,
         terminal_next_critic=None,
     ) -> None:
@@ -328,9 +262,6 @@ class ReplayBuffer(SharedBufferBase):
             return
 
         target_next_obs[terminal_mask] = terminal_next_obs[terminal_mask]
-
-        if target_next_privileged is not None and terminal_next_privileged is not None:
-            target_next_privileged[terminal_mask] = terminal_next_privileged[terminal_mask]
 
         if target_next_critic is not None and terminal_next_critic is not None:
             target_next_critic[terminal_mask] = terminal_next_critic[terminal_mask]
@@ -366,13 +297,6 @@ class ReplayBuffer(SharedBufferBase):
                     self.truncated_gpu[idx : idx + delta].copy_(
                         self.truncated[idx : idx + delta], non_blocking=True
                     )
-                    if self._privileged_dim > 0:
-                        self.privileged_obs_gpu[idx : idx + delta].copy_(
-                            self.privileged_obs[idx : idx + delta], non_blocking=True
-                        )
-                        self.next_privileged_obs_gpu[idx : idx + delta].copy_(
-                            self.next_privileged_obs[idx : idx + delta], non_blocking=True
-                        )
                     if self._critic_dim > 0:
                         self.critic_obs_gpu[idx : idx + delta].copy_(
                             self.critic_obs[idx : idx + delta], non_blocking=True
@@ -406,19 +330,6 @@ class ReplayBuffer(SharedBufferBase):
                     self.truncated_gpu[: delta - split].copy_(
                         self.truncated[: delta - split], non_blocking=True
                     )
-                    if self._privileged_dim > 0:
-                        self.privileged_obs_gpu[idx:].copy_(
-                            self.privileged_obs[idx:], non_blocking=True
-                        )
-                        self.privileged_obs_gpu[: delta - split].copy_(
-                            self.privileged_obs[: delta - split], non_blocking=True
-                        )
-                        self.next_privileged_obs_gpu[idx:].copy_(
-                            self.next_privileged_obs[idx:], non_blocking=True
-                        )
-                        self.next_privileged_obs_gpu[: delta - split].copy_(
-                            self.next_privileged_obs[: delta - split], non_blocking=True
-                        )
                     if self._critic_dim > 0:
                         self.critic_obs_gpu[idx:].copy_(self.critic_obs[idx:], non_blocking=True)
                         self.critic_obs_gpu[: delta - split].copy_(
@@ -442,9 +353,6 @@ class ReplayBuffer(SharedBufferBase):
                 "dones": self.dones_gpu[indices],
                 "truncated": self.truncated_gpu[indices],
             }
-            if self._privileged_dim > 0:
-                batch["privileged"] = self.privileged_obs_gpu[indices]
-                batch["next_privileged"] = self.next_privileged_obs_gpu[indices]
             if self._critic_dim > 0:
                 batch["critic"] = self.critic_obs_gpu[indices]
                 batch["next_critic"] = self.next_critic_obs_gpu[indices]
@@ -459,9 +367,6 @@ class ReplayBuffer(SharedBufferBase):
                 "dones": chunk[:, self._done_col],
                 "truncated": chunk[:, self._trunc_col],
             }
-            if self._privileged_dim > 0:
-                batch["privileged"] = chunk[:, self._priv_sl]
-                batch["next_privileged"] = chunk[:, self._npriv_sl]
             if self._critic_dim > 0:
                 batch["critic"] = chunk[:, self._critic_sl]
                 batch["next_critic"] = chunk[:, self._ncritic_sl]

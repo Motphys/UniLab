@@ -199,7 +199,7 @@ class G1JoystickPPO(G1BaseEnv):
     @property
     def obs_groups_spec(self) -> dict[str, int]:
         # gyro(3) + gravity(3) + diff(29) + dof_vel(29) + action(29) + cmd(3) + phase(2) = 98
-        return {"obs": 98, "privileged": 3}
+        return {"obs": 98, "critic": 101}
 
     def _init_reward_functions(self):
         self._reward_fns: dict[str, Any] = {
@@ -253,13 +253,14 @@ class G1JoystickPPO(G1BaseEnv):
             axis=1,
             dtype=get_global_dtype(),
         )
-        return {"obs": actor, "privileged": linvel}
+        critic = np.concatenate([actor, linvel], axis=1, dtype=get_global_dtype())
+        return {"obs": actor, "critic": critic}
 
     def get_obs_structure(self) -> dict:
         """Return observation structure for symmetry augmentation.
 
-        Note: This only returns actor observation structure (without privileged info like linvel).
-        Privileged information (linvel) is handled separately in the learner.
+        Note: This only returns actor observation structure.
+        Critic-only channels are handled via the explicit "critic" obs group.
         """
         return {
             # "linvel": 3,

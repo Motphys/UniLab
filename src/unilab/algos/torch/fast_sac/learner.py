@@ -378,7 +378,6 @@ class FastSACLearner:
         mujoco_model=None,
         obs_structure: dict | None = None,
         world_size: int = 1,
-        privileged_dim: int = 0,
         critic_obs_dim: int = 0,
     ):
         self.device = device
@@ -388,7 +387,6 @@ class FastSACLearner:
         self.use_autotune = use_autotune
         self.use_amp = use_amp and device == "cuda"
         self.world_size = world_size
-        self.privileged_dim = privileged_dim
         self.critic_obs_dim = critic_obs_dim
 
         # Build actor (uses obs only)
@@ -403,9 +401,7 @@ class FastSACLearner:
             device=device,
         )
 
-        # Build critic ensemble: use dedicated critic trunk if provided, else fall back to actor obs
-        critic_trunk_dim = critic_obs_dim if critic_obs_dim > 0 else obs_dim
-        critic_net_obs_dim = critic_trunk_dim + privileged_dim
+        critic_net_obs_dim = critic_obs_dim if critic_obs_dim > 0 else obs_dim
         self.qnet = SACCritic(
             obs_dim=critic_net_obs_dim,
             action_dim=action_dim,
@@ -481,13 +477,6 @@ class FastSACLearner:
             assert obs_structure is not None
             self.symmetry = G1SymmetryAugmentation(mujoco_model, obs_structure, device=device)
 
-    @staticmethod
-    def _build_critic_input(base: torch.Tensor, privileged: torch.Tensor | None) -> torch.Tensor:
-        """Concat critic trunk with privileged info (if any)."""
-        if privileged is None:
-            return base
-        return torch.cat([base, privileged], dim=-1)
-
     def _reduce_gradients(self, model: nn.Module) -> None:
         """All-reduce gradients across all workers and divide by world_size.
 
@@ -512,38 +501,20 @@ class FastSACLearner:
     def update_critic(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One critic update step."""
         obs = batch["obs"]
-        privileged = batch.get("privileged", None)
         critic = batch.get("critic", None)
         actions = batch["actions"]
         rewards = batch["rewards"]
         next_obs = batch["next_obs"]
-        next_privileged = batch.get("next_privileged", None)
         next_critic = batch.get("next_critic", None)
         dones = batch["dones"]
         truncated = batch.get("truncated")
 
-        # Critic trunk: use dedicated clean "critic" key if provided, else fall back to actor obs
-        critic_base = critic if critic is not None else obs
-        critic_next_base = next_critic if next_critic is not None else next_obs
-        critic_obs = self._build_critic_input(critic_base, privileged)
-        critic_next_obs = self._build_critic_input(critic_next_base, next_privileged)
+        critic_obs = critic if critic is not None else obs
+        critic_next_obs = next_critic if next_critic is not None else next_obs
 
         # Apply symmetry augmentation
         if self.use_symmetry:
             orig_actions = actions
-
-            # Privileged mirror: flip y-axis for linvel [vx, vy, vz] -> [vx, -vy, vz]
-            if privileged is not None:
-                assert next_privileged is not None
-                privileged_flip = torch.ones_like(privileged)
-                privileged_flip[..., 1] = -1.0
-                privileged_aug = torch.cat([privileged, privileged * privileged_flip], dim=0)
-                next_privileged_aug = torch.cat(
-                    [next_privileged, next_privileged * privileged_flip], dim=0
-                )
-            else:
-                privileged_aug = None
-                next_privileged_aug = None
 
             # Augment actor observations and actions via proper symmetry
             obs, actions = self.symmetry.augment(obs, actions)
@@ -558,8 +529,8 @@ class FastSACLearner:
                 critic_base_aug = obs
                 critic_next_base_aug = next_obs
 
-            critic_obs = self._build_critic_input(critic_base_aug, privileged_aug)
-            critic_next_obs = self._build_critic_input(critic_next_base_aug, next_privileged_aug)
+            critic_obs = critic_base_aug
+            critic_next_obs = critic_next_base_aug
 
             # Double the batch size for other tensors
             rewards = rewards.repeat(2)
@@ -649,21 +620,12 @@ class FastSACLearner:
     def update_actor(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One actor update step."""
         obs = batch["obs"]
-        privileged = batch.get("privileged", None)
         critic = batch.get("critic", None)
 
-        critic_base = critic if critic is not None else obs
-        critic_obs = self._build_critic_input(critic_base, privileged)
+        critic_obs = critic if critic is not None else obs
 
         # Apply symmetry augmentation
         if self.use_symmetry:
-            if privileged is not None:
-                privileged_flip = torch.ones_like(privileged)
-                privileged_flip[..., 1] = -1.0
-                privileged_aug = torch.cat([privileged, privileged * privileged_flip], dim=0)
-            else:
-                privileged_aug = None
-
             # Augment actor observations
             obs = torch.cat([obs, self.symmetry.mirror_obs(obs)], dim=0)
 
@@ -673,7 +635,7 @@ class FastSACLearner:
             else:
                 critic_base_aug = obs
 
-            critic_obs = self._build_critic_input(critic_base_aug, privileged_aug)
+            critic_obs = critic_base_aug
 
         with torch.amp.autocast("cuda", enabled=self.use_amp):  # pyright: ignore[reportPrivateImportUsage]
             actions, log_probs, log_std = self.actor.get_actions_and_log_probs(obs)

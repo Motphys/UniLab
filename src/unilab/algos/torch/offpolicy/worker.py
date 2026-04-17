@@ -13,7 +13,7 @@ import torch
 
 from unilab.utils.algo_utils import build_actor, ensure_registries
 from unilab.utils.final_observation import resolve_terminal_observation_contract
-from unilab.utils.obs_utils import split_obs_dict_with_critic
+from unilab.utils.obs_utils import get_obs_dims, split_obs_dict
 
 
 def resolve_collector_actor_dims(
@@ -27,8 +27,6 @@ def resolve_collector_actor_dims(
     build identical actor shapes on override-heavy env paths.
     """
     if obs_dim is None:
-        from unilab.utils.obs_utils import get_obs_dims
-
         obs_dim, _ = get_obs_dims(env.obs_groups_spec)
 
     if action_dim is None:
@@ -205,10 +203,8 @@ def _run_collector(
     # Initial step to get first observation
     actions_np = np.zeros((num_envs, action_dim), dtype=np.float32)
     state = env.step(actions_np)
-    obs_np, priv_np, critic_np = split_obs_dict_with_critic(state.obs)
+    obs_np, critic_np = split_obs_dict(state.obs)
     obs_np = np.asarray(obs_np, dtype=np.float32)
-    if priv_np is not None:
-        priv_np = np.asarray(priv_np, dtype=np.float32)
     if critic_np is not None:
         critic_np = np.asarray(critic_np, dtype=np.float32)
     prev_dones_np = np.zeros(num_envs, dtype=np.float32)
@@ -284,10 +280,8 @@ def _run_collector(
             timing_count += 1
 
         # Extract data as numpy
-        next_obs_np, next_priv_np, next_critic_np = split_obs_dict_with_critic(state.obs)
+        next_obs_np, next_critic_np = split_obs_dict(state.obs)
         next_obs_np = np.asarray(next_obs_np, dtype=np.float32)
-        if next_priv_np is not None:
-            next_priv_np = np.asarray(next_priv_np, dtype=np.float32)
         if next_critic_np is not None:
             next_critic_np = np.asarray(next_critic_np, dtype=np.float32)
         rewards_np = np.asarray(state.reward, dtype=np.float32).ravel()
@@ -328,17 +322,10 @@ def _run_collector(
             torch.from_numpy(next_obs_np),
             torch.from_numpy(terminated_np),
             torch.from_numpy(truncated_np),
-            torch.from_numpy(priv_np) if priv_np is not None else None,
-            torch.from_numpy(next_priv_np) if next_priv_np is not None else None,
             terminal_mask=torch.from_numpy(terminal_contract.terminal_mask),
             terminal_next_obs=(
                 torch.from_numpy(terminal_contract.terminal_obs)
                 if terminal_contract.terminal_obs is not None
-                else None
-            ),
-            terminal_next_privileged=(
-                torch.from_numpy(terminal_contract.terminal_privileged)
-                if terminal_contract.terminal_privileged is not None
                 else None
             ),
             critic=torch.from_numpy(critic_np) if critic_np is not None else None,
@@ -362,7 +349,6 @@ def _run_collector(
             current_ep_lengths[reset_indices] = 0
 
         obs_np = next_obs_np
-        priv_np = next_priv_np
         critic_np = next_critic_np
         total_steps += num_envs
         env_steps_since_sync += 1

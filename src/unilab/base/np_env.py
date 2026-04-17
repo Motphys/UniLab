@@ -59,7 +59,7 @@ class NpEnv(ABEnv):
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:
-        """Return observation group dimensions, e.g. {"actor": 98, "privileged": 3}.
+        """Return observation group dimensions, e.g. {"obs": 98, "critic": 101}.
 
         Subclasses MUST override this property.
         """

@@ -138,6 +138,7 @@ class FastTD3Learner:
         self,
         obs_dim: int,
         action_dim: int,
+        critic_obs_dim: int = 0,
         num_envs: int = 1024,
         device: str = "cpu",
         # Hyperparameters from reference
@@ -170,6 +171,7 @@ class FastTD3Learner:
         self.noise_clip = noise_clip
         self.policy_frequency = policy_frequency
         self.use_cdq = use_cdq
+        self.critic_obs_dim = critic_obs_dim if critic_obs_dim > 0 else obs_dim
 
         torch_device = torch.device(device)
 
@@ -198,7 +200,7 @@ class FastTD3Learner:
 
         # Build critic
         self.qnet = Critic(
-            obs_dim=obs_dim,
+            obs_dim=self.critic_obs_dim,
             n_act=action_dim,
             num_atoms=num_atoms,
             v_min=v_min,
@@ -207,7 +209,7 @@ class FastTD3Learner:
             device=torch_device,
         )
         self.qnet_target = Critic(
-            obs_dim=obs_dim,
+            obs_dim=self.critic_obs_dim,
             n_act=action_dim,
             num_atoms=num_atoms,
             v_min=v_min,
@@ -248,22 +250,16 @@ class FastTD3Learner:
     def update_critic(self, data: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One critic update step."""
         observations = self.normalize_obs(data["obs"], update=True)
-        privileged = data.get("privileged", None)
+        critic_obs = data.get("critic", None)
         actions = data["actions"]
         rewards = data["rewards"]
         next_observations = self.normalize_obs(data["next_obs"], update=False)
-        next_privileged = data.get("next_privileged", None)
+        next_critic_obs = data.get("next_critic", None)
         dones = data["dones"].bool()
         truncations = data["truncated"].bool()
 
-        # Critic input: obs + privileged
-        if privileged is not None:
-            assert next_privileged is not None
-            critic_obs = torch.cat([observations, privileged], dim=-1)
-            critic_next_obs = torch.cat([next_observations, next_privileged], dim=-1)
-        else:
-            critic_obs = observations
-            critic_next_obs = next_observations
+        critic_obs = critic_obs if critic_obs is not None else observations
+        critic_next_obs = next_critic_obs if next_critic_obs is not None else next_observations
 
         bootstrap = (truncations | ~dones).float()
         discount = torch.full_like(rewards, self.gamma)
