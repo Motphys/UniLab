@@ -3,7 +3,7 @@ from __future__ import annotations
 import abc
 import dataclasses
 from dataclasses import dataclass
-from typing import Any, Optional, Tuple, cast
+from typing import TYPE_CHECKING, Any, Optional, Tuple, cast
 
 import gymnasium as gym
 import numpy as np
@@ -12,6 +12,9 @@ from unilab.base.backend import SimBackend
 from unilab.base.base import ABEnv, EnvCfg, EnvPlayCapabilities
 from unilab.base.dtype_config import get_global_dtype
 from unilab.dr import DomainRandomizationManager, DomainRandomizationProvider
+
+if TYPE_CHECKING:
+    from unilab.base.augmentation import SymmetryAugmentation
 
 
 @dataclass
@@ -69,6 +72,10 @@ class NpEnv(ABEnv):
     def observation_space(self) -> gym.Space:
         total = sum(self.obs_groups_spec.values())
         return gym.spaces.Box(-np.inf, np.inf, shape=(total,), dtype=np.float64)
+
+    def build_symmetry_augmentation(self, *, device: str) -> "SymmetryAugmentation | None":
+        """Return an env-owned runtime symmetry adapter when the task/backend supports it."""
+        return None
 
     def init_state(self) -> NpEnvState:
         dtype = get_global_dtype()

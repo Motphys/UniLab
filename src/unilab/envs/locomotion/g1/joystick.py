@@ -11,6 +11,7 @@ from etils import epath
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
+from unilab.base.augmentation import SymmetryObsLayout
 from unilab.base.backend import create_backend
 from unilab.base.dtype_config import get_global_dtype
 from unilab.base.np_env import NpEnvState
@@ -256,22 +257,30 @@ class G1JoystickPPO(G1BaseEnv):
         critic = np.concatenate([actor, linvel], axis=1, dtype=get_global_dtype())
         return {"obs": actor, "critic": critic}
 
-    def get_obs_structure(self) -> dict:
-        """Return observation structure for symmetry augmentation.
+    def _actor_symmetry_obs_layout(self) -> SymmetryObsLayout:
+        return (
+            ("gyro", 3),
+            ("gravity", 3),
+            ("dof_pos", self._num_action),
+            ("dof_vel", self._num_action),
+            ("actions", self._num_action),
+            ("command", 3),
+            ("gait_phase", 2),
+        )
 
-        Note: This only returns actor observation structure.
-        Critic-only channels are handled via the explicit "critic" obs group.
-        """
-        return {
-            # "linvel": 3,
-            "gyro": 3,
-            "gravity": 3,
-            "dof_pos": self._num_action,
-            "dof_vel": self._num_action,
-            "actions": self._num_action,
-            "command": 3,
-            "gait_phase": 2,
-        }
+    def get_symmetry_obs_layouts(self) -> dict[str, SymmetryObsLayout]:
+        return {"obs": self._actor_symmetry_obs_layout()}
+
+    def build_symmetry_augmentation(self, *, device: str):
+        if self._backend.backend_type != "mujoco":
+            return None
+        from unilab.envs.locomotion.g1.symmetry import G1SymmetryAugmentation
+
+        return G1SymmetryAugmentation(
+            self._backend.model,
+            self.get_symmetry_obs_layouts(),
+            device=device,
+        )
 
     def _build_reward_context(
         self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel

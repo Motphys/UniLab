@@ -19,6 +19,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
+from unilab.base.augmentation import SymmetryAugmentation
+
 # ---------------------------------------------------------------------------
 # Actor Network (holosoma-style: SiLU + LayerNorm + Tanh squashing)
 # ---------------------------------------------------------------------------
@@ -375,8 +377,7 @@ class FastSACLearner:
         use_autotune: bool = True,
         use_symmetry: bool = False,
         use_amp: bool = False,
-        mujoco_model=None,
-        obs_structure: dict | None = None,
+        symmetry_augmentation: SymmetryAugmentation | None = None,
         world_size: int = 1,
         critic_obs_dim: int = 0,
     ):
@@ -464,18 +465,8 @@ class FastSACLearner:
         # AMP scaler for mixed precision
         self.scaler = torch.amp.GradScaler("cuda") if self.use_amp else None  # pyright: ignore[reportPrivateImportUsage]
 
-        # Symmetry augmentation (G1 only)
-        self.use_symmetry = (
-            use_symmetry
-            and (action_dim == 29)
-            and (mujoco_model is not None)
-            and (obs_structure is not None)
-        )
-        if self.use_symmetry:
-            from unilab.envs.locomotion.g1.symmetry import G1SymmetryAugmentation
-
-            assert obs_structure is not None
-            self.symmetry = G1SymmetryAugmentation(mujoco_model, obs_structure, device=device)
+        self.symmetry = symmetry_augmentation
+        self.use_symmetry = use_symmetry and symmetry_augmentation is not None
 
     def _reduce_gradients(self, model: nn.Module) -> None:
         """All-reduce gradients across all workers and divide by world_size.
@@ -516,15 +507,24 @@ class FastSACLearner:
         if self.use_symmetry:
             orig_actions = actions
 
-            # Augment actor observations and actions via proper symmetry
-            obs, actions = self.symmetry.augment(obs, actions)
-            next_obs, _ = self.symmetry.augment(next_obs, orig_actions)
+            assert self.symmetry is not None
+            obs, actions = self.symmetry.augment_obs_and_actions(obs, actions, obs_group="obs")
+            next_obs, _ = self.symmetry.augment_obs_and_actions(
+                next_obs, orig_actions, obs_group="obs"
+            )
 
-            # Augment critic trunk: use dedicated path when provided, else reuse actor-aug
             if critic is not None:
                 assert next_critic is not None
-                critic_base_aug, _ = self.symmetry.augment(critic, orig_actions)
-                critic_next_base_aug, _ = self.symmetry.augment(next_critic, orig_actions)
+                critic_base_aug, _ = self.symmetry.augment_obs_and_actions(
+                    critic,
+                    orig_actions,
+                    obs_group="critic",
+                )
+                critic_next_base_aug, _ = self.symmetry.augment_obs_and_actions(
+                    next_critic,
+                    orig_actions,
+                    obs_group="critic",
+                )
             else:
                 critic_base_aug = obs
                 critic_next_base_aug = next_obs
@@ -626,12 +626,14 @@ class FastSACLearner:
 
         # Apply symmetry augmentation
         if self.use_symmetry:
-            # Augment actor observations
-            obs = torch.cat([obs, self.symmetry.mirror_obs(obs)], dim=0)
+            assert self.symmetry is not None
+            obs = torch.cat([obs, self.symmetry.mirror_obs(obs, obs_group="obs")], dim=0)
 
-            # Augment critic trunk: dedicated path when critic key is provided
             if critic is not None:
-                critic_base_aug = torch.cat([critic, self.symmetry.mirror_obs(critic)], dim=0)
+                critic_base_aug = torch.cat(
+                    [critic, self.symmetry.mirror_obs(critic, obs_group="critic")],
+                    dim=0,
+                )
             else:
                 critic_base_aug = obs
 

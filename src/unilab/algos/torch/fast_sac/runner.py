@@ -54,13 +54,16 @@ class FastSACRunner(OffPolicyRunner):
         act_space_shape = env.action_space.shape
         assert act_space_shape is not None
         action_dim = act_space_shape[0]
-        mujoco_model = getattr(env, "_backend", None)
-        if mujoco_model is not None:
-            mujoco_model = getattr(mujoco_model, "model", None)
-        obs_structure = getattr(env, "get_obs_structure", lambda: None)()
-        env.close()
-
         device = device or get_default_device()
+        symmetry_augmentation = None
+        if use_symmetry:
+            symmetry_augmentation = env.build_symmetry_augmentation(device=device)
+            if symmetry_augmentation is None:
+                env.close()
+                raise ValueError(
+                    f"{env_name} with backend={sim_backend} does not provide symmetry augmentation"
+                )
+        env.close()
 
         learner = FastSACLearner(
             obs_dim=obs_dim,
@@ -80,17 +83,22 @@ class FastSACRunner(OffPolicyRunner):
             max_grad_norm=max_grad_norm,
             use_amp=use_amp,
             use_symmetry=use_symmetry,
-            mujoco_model=mujoco_model,
-            obs_structure=obs_structure,
+            symmetry_augmentation=symmetry_augmentation,
             world_size=getattr(self, "world_size", world_size),
             critic_obs_dim=critic_obs_dim,
         )
 
-        # Auto-adjust batch_size when symmetry is enabled
-        if use_symmetry:
-            batch_size = batch_size // 2
+        if symmetry_augmentation is not None:
+            if batch_size % symmetry_augmentation.batch_multiplier != 0:
+                raise ValueError(
+                    "Symmetry augmentation requires algo.batch_size to be divisible by "
+                    f"{symmetry_augmentation.batch_multiplier}, got {batch_size}"
+                )
+            batch_size = batch_size // symmetry_augmentation.batch_multiplier
             print(
-                f"[FastSAC] Symmetry enabled: batch_size adjusted to {batch_size} (effective: {batch_size * 2})"
+                "[FastSAC] Symmetry enabled: "
+                f"batch_size adjusted to {batch_size} "
+                f"(effective: {batch_size * symmetry_augmentation.batch_multiplier})"
             )
 
         super().__init__(

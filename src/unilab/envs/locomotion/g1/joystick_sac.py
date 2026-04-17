@@ -9,6 +9,7 @@ from etils import epath
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
+from unilab.base.augmentation import SymmetryObsLayout
 from unilab.base.backend import create_backend
 from unilab.base.curriculum import EpisodeLengthTracker, PenaltyCurriculum
 from unilab.base.dtype_config import get_global_dtype
@@ -107,6 +108,13 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
     def obs_groups_spec(self) -> dict[str, int]:
         # actor trunk = 98, critic path = clean 98-dim trunk + linvel (3).
         return {"obs": 98, "critic": 101}
+
+    def get_symmetry_obs_layouts(self) -> dict[str, SymmetryObsLayout]:
+        actor_layout = self._actor_symmetry_obs_layout()
+        return {
+            "obs": actor_layout,
+            "critic": (*actor_layout, ("linvel", 3)),
+        }
 
     def _compute_obs(
         self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel
