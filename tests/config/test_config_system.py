@@ -295,6 +295,7 @@ def test_ppo_sharpa_inhand_mujoco_owner_defaults():
     assert cfg.reward.scales.rotate == pytest.approx(2.5)
     assert cfg.reward.scales.pose_diff == pytest.approx(-0.4)
     assert cfg.env.grasp_cache_path == "cache/sharpa_grasp_linspace"
+    assert cfg.env.scale_range == [1.0, 1.0, 1]
     assert cfg.env.observation_mode == "simple"
 
 
@@ -308,6 +309,7 @@ def test_ppo_sharpa_inhand_grasp_mujoco_owner_defaults():
     assert cfg.reward.scales.object_pos == pytest.approx(0.0)
     assert cfg.env.max_episode_seconds == pytest.approx(3.0)
     assert cfg.env.grasp_collection_target == 50000
+    assert cfg.env.scale_range == [1.0, 1.0, 1]
     assert cfg.env.randomize_mass is True
     assert cfg.env.randomize_mass_lower == pytest.approx(0.05)
     assert cfg.env.randomize_mass_upper == pytest.approx(0.051)

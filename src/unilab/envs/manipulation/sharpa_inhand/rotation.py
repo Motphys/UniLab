@@ -68,6 +68,7 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
         if env._backend.backend_type != "mujoco":
             return None
         base_size = getattr(env, "_object_geom_base_size", None)
+
         if base_size is None:
             return None
 

@@ -69,7 +69,8 @@ env:
   contact_latency: 0.005
   contact_sensor_noise: 0.01
   dof_limits_scale: 0.9
-  scale_range: [0.5, 0.5, 1]
+  # scale_range: [0.5, 0.5, 1]
+  scale_range: [1.0, 1.0, 1]
   randomize_pd_gains: false
   randomize_p_gain_scale_lower: 0.5
   randomize_p_gain_scale_upper: 2.0
