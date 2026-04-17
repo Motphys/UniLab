@@ -92,6 +92,42 @@ def test_parse_checkpoint_path_uses_algo_log_name_from_cfg(tmp_path: Path):
     assert checkpoint_dir == run_dir
 
 
+def test_parse_checkpoint_path_supports_explicit_checkpoint_from_cfg(tmp_path: Path):
+    cfg = _ppo_cfg()
+    cfg.algo.algo_log_name = "custom_ppo"
+    cfg.algo.checkpoint = 12
+
+    run_dir = (
+        tmp_path / "logs" / "custom_ppo" / cfg.training.task_name / "2024-01-01_00-00-00_mujoco"
+    )
+    run_dir.mkdir(parents=True)
+    (run_dir / "model_9.pt").write_bytes(b"")
+    selected_model = run_dir / "model_12.pt"
+    selected_model.write_bytes(b"")
+
+    checkpoint_path, checkpoint_dir = parse_checkpoint_path(cfg, root_dir=tmp_path)
+
+    assert checkpoint_path == selected_model
+    assert checkpoint_dir == run_dir
+
+
+def test_parse_checkpoint_path_returns_run_dir_when_requested_checkpoint_is_missing(tmp_path: Path):
+    cfg = _ppo_cfg()
+    cfg.algo.algo_log_name = "custom_ppo"
+    cfg.algo.checkpoint = 12
+
+    run_dir = (
+        tmp_path / "logs" / "custom_ppo" / cfg.training.task_name / "2024-01-01_00-00-00_mujoco"
+    )
+    run_dir.mkdir(parents=True)
+    (run_dir / "model_9.pt").write_bytes(b"")
+
+    checkpoint_path, checkpoint_dir = parse_checkpoint_path(cfg, root_dir=tmp_path)
+
+    assert checkpoint_path is None
+    assert checkpoint_dir == run_dir
+
+
 def test_resolve_task_checkpoint_path_supports_explicit_checkpoint(tmp_path: Path):
     run_dir = tmp_path / "logs" / "custom_ppo" / "MyTask" / "2024-01-01_00-00-00_mujoco"
     run_dir.mkdir(parents=True)
