@@ -556,35 +556,35 @@ class MuJoCoBackend(SimBackend):
     # ------------------------------------------------------------------ #
 
     def _get_mapped_indices(self, body_ids: np.ndarray) -> np.ndarray:
-        return np.asarray(self._body_id_to_tracked_idx[body_ids])
+        return self._body_id_to_tracked_idx[body_ids]  # type: ignore[no-any-return]
 
     def get_body_pos_w(self, body_ids: np.ndarray) -> np.ndarray:
-        return np.asarray(self._tracked_pos_w_all[:, self._get_mapped_indices(body_ids), :])
+        return self._tracked_pos_w_all[:, self._get_mapped_indices(body_ids), :]  # type: ignore[no-any-return]
 
     def get_body_quat_w(self, body_ids: np.ndarray) -> np.ndarray:
-        return np.asarray(self._tracked_quat_w_all[:, self._get_mapped_indices(body_ids), :])
+        return self._tracked_quat_w_all[:, self._get_mapped_indices(body_ids), :]  # type: ignore[no-any-return]
 
     def get_body_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
-        return np.asarray(self._tracked_linvel_w_all[:, self._get_mapped_indices(body_ids), :])
+        return self._tracked_linvel_w_all[:, self._get_mapped_indices(body_ids), :]  # type: ignore[no-any-return]
 
     def get_body_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
-        return np.asarray(self._tracked_angvel_w_all[:, self._get_mapped_indices(body_ids), :])
+        return self._tracked_angvel_w_all[:, self._get_mapped_indices(body_ids), :]  # type: ignore[no-any-return]
 
     # ------------------------------------------------------------------ #
     # Body kinematics — baselink frame                                   #
     # ------------------------------------------------------------------ #
 
     def get_body_pos_b(self, body_ids: np.ndarray) -> np.ndarray:
-        return np.asarray(self._tracked_pos_b_all[:, self._get_mapped_indices(body_ids), :])
+        return self._tracked_pos_b_all[:, self._get_mapped_indices(body_ids), :]  # type: ignore[no-any-return]
 
     def get_body_quat_b(self, body_ids: np.ndarray) -> np.ndarray:
-        return np.asarray(self._tracked_quat_b_all[:, self._get_mapped_indices(body_ids), :])
+        return self._tracked_quat_b_all[:, self._get_mapped_indices(body_ids), :]  # type: ignore[no-any-return]
 
     def get_body_lin_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
-        return np.asarray(self._tracked_linvel_b_all[:, self._get_mapped_indices(body_ids), :])
+        return self._tracked_linvel_b_all[:, self._get_mapped_indices(body_ids), :]  # type: ignore[no-any-return]
 
     def get_body_ang_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
-        return np.asarray(self._tracked_angvel_b_all[:, self._get_mapped_indices(body_ids), :])
+        return self._tracked_angvel_b_all[:, self._get_mapped_indices(body_ids), :]  # type: ignore[no-any-return]
 
     # ------------------------------------------------------------------ #
     # Sensors                                                            #

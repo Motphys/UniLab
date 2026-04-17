@@ -85,9 +85,7 @@ class MotrixBackend(SimBackend):
             for floating_base in getattr(self._model, "floating_bases", [])
             if len(floating_base.dof_pos_indices) >= 7
         )
-        self._default_base_mass_override = np.array(
-            self._body_link.get_mass_override(self._data)
-        )
+        self._default_base_mass_override = np.array(self._body_link.get_mass_override(self._data))
         self._default_base_com_override = np.array(
             self._body_link.get_center_of_mass_override(self._data)
         )
@@ -232,8 +230,8 @@ class MotrixBackend(SimBackend):
 
     def get_base_pos(self) -> np.ndarray:
         if self._body_floatingbase is not None:
-            return self._body_floatingbase.get_translation(self._data)
-        return self._body_link.get_pose(self._data)[:, :3]
+            return self._body_floatingbase.get_translation(self._data)  # type: ignore[no-any-return]
+        return self._body_link.get_pose(self._data)[:, :3]  # type: ignore[no-any-return]
 
     def get_base_quat(self) -> np.ndarray:
         if self._body_floatingbase is not None:
@@ -244,23 +242,23 @@ class MotrixBackend(SimBackend):
 
     def get_base_lin_vel(self) -> np.ndarray:
         if self._body_floatingbase is not None:
-            return self._body_floatingbase.get_global_linear_velocity(self._data)
-        return self._body_link.get_linear_velocity(self._data)
+            return self._body_floatingbase.get_global_linear_velocity(self._data)  # type: ignore[no-any-return]
+        return self._body_link.get_linear_velocity(self._data)  # type: ignore[no-any-return]
 
     def get_base_ang_vel(self) -> np.ndarray:
         if self._body_floatingbase is not None:
-            return self._body_floatingbase.get_global_angular_velocity(self._data)
-        return self._body_link.get_angular_velocity(self._data)
+            return self._body_floatingbase.get_global_angular_velocity(self._data)  # type: ignore[no-any-return]
+        return self._body_link.get_angular_velocity(self._data)  # type: ignore[no-any-return]
 
     # ------------------------------------------------------------------ #
     # DOF state                                                          #
     # ------------------------------------------------------------------ #
 
     def get_dof_pos(self) -> np.ndarray:
-        return self._body.get_joint_dof_pos(self._data)
+        return self._body.get_joint_dof_pos(self._data)  # type: ignore[no-any-return]
 
     def get_dof_vel(self) -> np.ndarray:
-        return self._body.get_joint_dof_vel(self._data)
+        return self._body.get_joint_dof_vel(self._data)  # type: ignore[no-any-return]
 
     # ------------------------------------------------------------------ #
     # Body kinematics — world frame                                      #
@@ -303,7 +301,7 @@ class MotrixBackend(SimBackend):
     # ------------------------------------------------------------------ #
 
     def get_sensor_data(self, name: str) -> np.ndarray:
-        return self._model.get_sensor_value(name, self._data)
+        return self._model.get_sensor_value(name, self._data)  # type: ignore[no-any-return]
 
     # ------------------------------------------------------------------ #
     # MotrixSim-specific                                                 #
