@@ -76,6 +76,9 @@ training:
   cam_elevation: -20.0
   cam_azimuth: 90.0
   cam_lookat: null
+  cam_tracking: false
+  cam_tracking_env_idx: 0
+  cam_tracking_extra_envs: 2
   num_timesteps: null
   log_dir: null
 
@@ -102,6 +105,10 @@ interactive:
   camera_elevation: null
   camera_azimuth: null
   use_env_visual_model: true
+
+viser:
+  port: 8080
+  env_idx: 0
 
 hydra:
   run:

@@ -4,9 +4,53 @@
 
 Languages: English | [简体中文](docs/zh_CN/01-getting-started.md)
 
-UniLab is built to test a simple hypothesis: **robot locomotion RL does not need a GPU simulation backend**.
+Train robot RL without a GPU simulation backend.
 
-Mainstream stacks often couple physics simulation, replay storage, and policy updates inside one GPU pipeline. UniLab takes a different route: **CPU simulation + shared-memory data path + GPU training**. That keeps training throughput high while reducing coupling to a specific simulator or hardware platform.
+UniLab uses **CPU simulation + shared-memory runtime + GPU learning** instead of coupling simulation and learning inside one GPU-resident pipeline.
+
+Start with the `Quick Demo` below to run the first documented training command from this repository.
+
+## Quick Demo
+
+```bash
+# 0. If uv is not installed
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 1. Clone the repository
+git clone https://github.com/unilabsim/UniLab.git
+cd UniLab
+
+# 2. Install dependencies
+uv sync --extra motrix
+
+# 3. Run a first PPO training job on macOS / MacBook
+# macOS: (73s on M5Max-128GB, 1min43s on M3Max-48GB, 2.5min on MacBookNeo-8GB)
+uv run mxpython scripts/train_rsl_rl.py task=go2_joystick/motrix
+
+# 4. Run the same training job on Linux
+# Linux: PPO (31s on RTX 4090 and R9-9950x3d)
+uv run scripts/train_rsl_rl.py task=go2_joystick/motrix
+```
+
+This is the shortest repository entrypoint today. It uses the PPO training script on the registered `go2_joystick/motrix` task and gives a direct first-success path before you learn the full workflow.
+
+On macOS / MacBook, commands that open the MotrixSim native renderer must be launched with `uv run mxpython` instead of `uv run python`. Plain non-rendering training can still use `uv run python ... training.no_play=true`.
+
+## Example Runs
+
+These are example repository runs for documented commands and hardware setups. They are useful as concrete entrypoints and reported timings, but they are **not** yet a formal benchmark manifest.
+
+```bash
+# Linux SAC (5.5min on RTX 4090 and R9-9950x3d)
+uv run scripts/train_offpolicy.py algo=sac task=sac/g1_sac/motrix
+```
+
+```bash
+# Linux G1 motion tracking (1h35min on RTX 4090 and R9-9950x3d)
+uv run scripts/train_rsl_rl.py task=g1_motion_tracking/mujoco
+```
+
+## System Layout
 
 ```
 ┌───────────────────┐     Unified Shared Memory     ┌────────────────────┐
@@ -16,55 +60,19 @@ Mainstream stacks often couple physics simulation, replay storage, and policy up
 └───────────────────┘                               └────────────────────┘
 ```
 
-- **CPU simulation**: MuJoCo / Motrix CPU multithreaded stepping, no GPU sim kernel required
-- **Unified memory path**: collectors and learners communicate through zero-copy PyTorch shared tensors
-- **GPU training**: policy networks still train on GPU, with CUDA and MPS support
-- **Hardware agnostic**: macOS and Linux are both first-class development environments
-
-## Quick Start
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/unilabsim/UniLab.git
-cd UniLab
-
-# 2. Install dependencies
-# macOS (MPS, installs PyPI torch wheels)
-uv sync
-
-# Linux (default: installs PyTorch cu128 wheels)
-# Requires an NVIDIA GPU and driver stack supported by current PyTorch cu128 wheels
-uv sync
-
-# Optional: Motrix backend
-uv sync --extra motrix
-
-# 3. Run a training job
-uv run python scripts/train_rsl_rl.py task=go1_joystick/mujoco
-```
-
-Motrix registry bootstrap and Hydra config composition do not require importing MuJoCo anymore, but any MuJoCo task execution, playback, or MuJoCo-only tooling still requires a working MuJoCo runtime.
-
-On macOS / MacBook, commands that open the MotrixSim native renderer must be launched with `uv run mxpython` instead of `uv run python`. Plain non-rendering training can still use `uv run python ... training.no_play=true`.
-
 ## Workflow Entrypoints
 
 | Goal | Entrypoint | Log root pattern |
 |------|------------|------------------|
-| PPO (torch / RSL-RL) | `scripts/train_rsl_rl.py` | `logs/<algo.algo_log_name>/<task>/` |
-| PPO (MLX, macOS) | `scripts/train_mlx_ppo.py` | `logs/<algo.algo_log_name>/<task>/` |
-| APPO | `scripts/train_appo.py` | `logs/<algo.algo_log_name>/<task>/` |
-| SAC / TD3 | `scripts/train_offpolicy.py` | `logs/<algo.algo_log_name>/<task>/` |
-
-The concrete log directory comes from `algo.algo_log_name`. Current defaults are `rsl_rl_ppo`, `appo`, `fast_sac`, and `fast_td3`.
+| PPO (torch / RSL-RL) | `scripts/train_rsl_rl.py` | `logs/rsl_rl_ppo/<task>/` |
+| PPO (MLX, macOS) | `scripts/train_mlx_ppo.py` | `logs/rsl_rl_ppo/<task>/` |
+| APPO | `scripts/train_appo.py` | `logs/appo/<task>/` |
+| SAC | `scripts/train_offpolicy.py` | `logs/fast_sac/<task>/` |
+| TD3 | `scripts/train_offpolicy.py` | `logs/fast_td3/<task>/` |
 
 Training scripts automatically enter playback after training unless you set `training.no_play=true`.
 
-For MotrixSim visualization on macOS / MacBook, use `uv run mxpython`:
-
-```bash
-uv run mxpython scripts/train_rsl_rl.py task=go1_joystick/motrix training.play_only=true
-```
+For MotrixSim visualization or `training.play_only=true` on macOS / MacBook, reuse the macOS renderer rule from `Quick Demo` and see `docs/zh_CN/03-training.md`.
 
 ## Repository Map
 

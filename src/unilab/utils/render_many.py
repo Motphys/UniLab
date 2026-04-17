@@ -353,6 +353,193 @@ def render_states_get_frames(
     return frames
 
 
+def _get_nearest_env_indices(offsets, primary_idx, max_extra):
+    """Return indices of the *max_extra* environments closest to *primary_idx*."""
+    if len(offsets) <= 1 + max_extra:
+        return [i for i in range(len(offsets)) if i != primary_idx]
+    primary = offsets[primary_idx]
+    dists = np.linalg.norm(offsets - primary, axis=1)
+    dists[primary_idx] = np.inf  # exclude self
+    return list(np.argsort(dists)[:max_extra])
+
+
+def render_frame_tracking_job(args):
+    """Render a single frame with camera tracking on the primary env's root body.
+
+    The camera uses ``mjCAMERA_TRACKING`` so it follows the robot each frame.
+    Only the primary env + nearest neighbours are rendered.
+    """
+    (
+        state_batch,
+        offsets,
+        env_indices,
+        primary_local_idx,
+        cam_distance,
+        cam_elevation,
+        cam_azimuth,
+    ) = args
+
+    model = _worker_ctx["model"]
+    data = _worker_ctx["data"]
+    renderer = _worker_ctx["renderer"]
+
+    vopt = mujoco.MjvOption()
+    pert = mujoco.MjvPerturb()
+    catmask_dynamic = mujoco.mjtCatBit.mjCAT_DYNAMIC
+    catmask_static = mujoco.mjtCatBit.mjCAT_STATIC
+
+    def set_state(d, s, offset=None):
+        d.time = s[0]
+        d.qpos[:] = s[1 : 1 + model.nq]
+        d.qvel[:] = s[1 + model.nq : 1 + model.nq + model.nv]
+
+        apply_root_offset = False
+
+        if offset is not None:
+            robot_moved = False
+            first_body_jnt = model.body_jntadr[1] if model.nbody > 1 else -1
+            if first_body_jnt >= 0:
+                jnt_type = model.jnt_type[first_body_jnt]
+                if jnt_type == 0:  # mjJNT_FREE
+                    d.qpos[0] += offset[0]
+                    d.qpos[1] += offset[1]
+                    robot_moved = True
+
+            if not robot_moved:
+                apply_root_offset = True
+
+            box_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "box")
+            if box_id >= 0:
+                jnt_adr = model.body_jntadr[box_id]
+                if jnt_adr >= 0:
+                    qpos_adr = model.jnt_qposadr[jnt_adr]
+                    d.qpos[qpos_adr] += offset[0]
+                    d.qpos[qpos_adr + 1] += offset[1]
+
+            target_x = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "target_x")
+            if target_x >= 0:
+                d.qpos[model.jnt_qposadr[target_x]] += offset[0]
+
+            target_y = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "target_y")
+            if target_y >= 0:
+                d.qpos[model.jnt_qposadr[target_y]] += offset[1]
+
+        mujoco.mj_forward(model, d)
+
+        if apply_root_offset and offset is not None:
+            box_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "box")
+            target_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "mocap_target")
+
+            for i in range(model.ngeom):
+                body_id = model.geom_bodyid[i]
+                is_box_or_target = (body_id == box_body_id) or (body_id == target_body_id)
+                is_plane = model.geom_type[i] == mujoco.mjtGeom.mjGEOM_PLANE
+
+                if not is_box_or_target and not is_plane:
+                    d.geom_xpos[i, 0] += offset[0]
+                    d.geom_xpos[i, 1] += offset[1]
+
+            for i in range(model.nsite):
+                body_id = model.site_bodyid[i]
+                is_box_or_target = (body_id == box_body_id) or (body_id == target_body_id)
+                if not is_box_or_target:
+                    d.site_xpos[i, 0] += offset[0]
+                    d.site_xpos[i, 1] += offset[1]
+
+    # Primary env first — camera tracks body 1 of this env
+    primary_global = env_indices[primary_local_idx]
+    set_state(
+        data, state_batch[primary_global], offsets[primary_global] if offsets is not None else None
+    )
+
+    cam = mujoco.MjvCamera()
+    cam.type = mujoco.mjtCamera.mjCAMERA_TRACKING
+    cam.trackbodyid = 1  # robot root body
+    cam.distance = cam_distance
+    cam.elevation = cam_elevation
+    cam.azimuth = cam_azimuth
+
+    renderer.update_scene(data, camera=cam, scene_option=vopt)
+
+    # Add neighbour envs as background context
+    for local_i, global_i in enumerate(env_indices):
+        if local_i == primary_local_idx:
+            continue
+        set_state(data, state_batch[global_i], offsets[global_i] if offsets is not None else None)
+        mujoco.mjv_addGeoms(model, data, vopt, pert, catmask_dynamic, renderer.scene)
+
+        geomgroup0 = int(vopt.geomgroup[0])
+        vopt.geomgroup[0] = 0
+        mujoco.mjv_addGeoms(model, data, vopt, pert, catmask_static, renderer.scene)
+        vopt.geomgroup[0] = geomgroup0
+
+    return renderer.render()
+
+
+def render_states_get_frames_tracking(
+    state_list,
+    model_path,
+    width=1280,
+    height=720,
+    tracking_env_idx=0,
+    max_extra_envs=2,
+    cam_distance=2.0,
+    cam_elevation=-20,
+    cam_azimuth=90,
+    render_spacing=1.0,
+):
+    """Render with camera tracking on a single primary environment.
+
+    Only the primary env and its nearest neighbours are shown. The camera
+    follows the root body of the primary env each frame (``mjCAMERA_TRACKING``).
+
+    Args:
+        state_list: List of numpy arrays, each shape (num_envs, state_dim).
+        model_path: Path to the mujoco XML model file.
+        tracking_env_idx: Index of the primary environment to track.
+        max_extra_envs: Number of nearest-neighbour envs to render alongside.
+        cam_distance: Camera distance from the tracked body.
+        cam_elevation: Camera elevation angle in degrees.
+        cam_azimuth: Camera azimuth angle in degrees.
+        render_spacing: Grid spacing for env layout.
+    """
+    if not state_list:
+        print("No states to render.")
+        return []
+
+    num_envs = state_list[0].shape[0]
+    offsets = get_grid_offsets(num_envs, spacing=render_spacing)
+    shape = (width, height)
+
+    tracking_env_idx = min(tracking_env_idx, num_envs - 1)
+    neighbour_indices = _get_nearest_env_indices(offsets, tracking_env_idx, max_extra_envs)
+    env_indices = [tracking_env_idx] + neighbour_indices
+    primary_local_idx = 0  # primary is always first in env_indices
+
+    total_shown = len(env_indices)
+    print(
+        f"Rendering {len(state_list)} frames (tracking env {tracking_env_idx} "
+        f"+ {total_shown - 1} neighbours) ..."
+    )
+
+    tasks = [
+        (s, offsets, env_indices, primary_local_idx, cam_distance, cam_elevation, cam_azimuth)
+        for s in state_list
+    ]
+
+    # Camera tracking changes each frame so multiprocessing gives inconsistent
+    # results when workers don't share state. Default to serial.
+    frames = []
+    init_worker(model_path, shape)
+    try:
+        for task in tasks:
+            frames.append(render_frame_tracking_job(task))
+    finally:
+        _close_worker()
+
+    return frames
+
+
 def render_states_to_video(
     state_list,
     model_path,
