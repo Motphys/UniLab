@@ -849,8 +849,8 @@ def test_offpolicy_extract_reset_obs_rejects_three_tuple():
         _offpolicy().extract_reset_obs(("ignored", obs, {"info": 1}))
 
 
-def test_offpolicy_resolve_play_obs_dim_ignores_privileged():
-    obs_dim = _offpolicy().resolve_play_obs_dim({"obs": 98, "privileged": 3})
+def test_offpolicy_resolve_play_obs_dim_ignores_critic():
+    obs_dim = _offpolicy().resolve_play_obs_dim({"obs": 98, "critic": 101})
 
     assert obs_dim == 98
 
@@ -860,7 +860,7 @@ def test_offpolicy_extract_play_obs_uses_obs_group_only():
 
     obs = {
         "obs": np.ones((2, 98), dtype=np.float32),
-        "privileged": np.full((2, 3), 2.0, dtype=np.float32),
+        "critic": np.full((2, 101), 2.0, dtype=np.float32),
     }
 
     play_obs = _offpolicy().extract_play_obs(obs)
@@ -1112,7 +1112,7 @@ def test_play_wrapper_policy_obs_mode_actor():
             self.cfg = type("Cfg", (), {"max_episode_seconds": 10.0, "ctrl_dt": 0.02})()
             self.observation_space = type("Space", (), {"shape": (3,)})()
             self.action_space = type("Space", (), {"shape": (2,)})()
-            self.obs_groups_spec = {"obs": 3, "privileged": 2}
+            self.obs_groups_spec = {"obs": 3, "critic": 5}
 
         def init_state(self):
             pass
@@ -1120,7 +1120,7 @@ def test_play_wrapper_policy_obs_mode_actor():
         def reset(self, env_indices):
             return {
                 "obs": np.ones((1, 3), dtype=np.float32),
-                "privileged": np.zeros((1, 2), dtype=np.float32),
+                "critic": np.zeros((1, 5), dtype=np.float32),
             }, {}
 
     env = FakeEnv()
@@ -1129,12 +1129,57 @@ def test_play_wrapper_policy_obs_mode_actor():
     wrapper_actor = RslRlVecEnvWrapper(env, device="cpu", policy_obs_mode="actor")
     assert wrapper_actor.num_obs == 3  # Only "obs" group
     assert wrapper_actor._actor_obs_dim == 3
-    assert wrapper_actor._flat_obs_dim == 5  # obs + privileged
+    assert wrapper_actor._flat_obs_dim == 3
 
     obs_td, _ = wrapper_actor.reset()
     # In actor mode, policy obs should equal actor obs
     assert obs_td["policy"].shape == (1, 3)
     assert obs_td["actor"].shape == (1, 3)
+    assert obs_td["critic"].shape == (1, 5)
+
+
+def test_play_wrapper_flat_policy_excludes_critic_only_group():
+    import numpy as np
+
+    from unilab.utils.rsl_rl_vec_env_wrapper import RslRlVecEnvWrapper
+
+    class FakeEnv:
+        def __init__(self):
+            self.num_envs = 1
+            self.state = type(
+                "State",
+                (),
+                {
+                    "obs": {
+                        "obs": np.array([[1.0, 2.0, 3.0]], dtype=np.float32),
+                        "critic": np.array([[9.0, 9.0, 9.0, 9.0]], dtype=np.float32),
+                    }
+                },
+            )()
+            self.cfg = type("Cfg", (), {"max_episode_seconds": 10.0, "ctrl_dt": 0.02})()
+            self.observation_space = type("Space", (), {"shape": (7,)})()
+            self.action_space = type("Space", (), {"shape": (2,)})()
+            self.obs_groups_spec = {"obs": 3, "critic": 4}
+
+        def init_state(self):
+            pass
+
+        def reset(self, env_indices):
+            return cast(dict[str, np.ndarray], getattr(self.state, "obs")), {}
+
+    wrapper = RslRlVecEnvWrapper(FakeEnv(), device="cpu", policy_obs_mode="flat")
+    obs_td, _ = wrapper.reset()
+
+    np.testing.assert_allclose(
+        obs_td["policy"].cpu().numpy(),
+        np.array([[1.0, 2.0, 3.0]], dtype=np.float32),
+    )
+    np.testing.assert_allclose(
+        obs_td["critic"].cpu().numpy(),
+        np.array([[9.0, 9.0, 9.0, 9.0]], dtype=np.float32),
+    )
+    assert wrapper.num_obs == 3
+    assert wrapper.num_privileged_obs == 4
 
 
 def test_play_wrapper_step_exports_timeout_bootstrap_obs():
@@ -1148,7 +1193,7 @@ def test_play_wrapper_step_exports_timeout_bootstrap_obs():
             self.cfg = type("Cfg", (), {"max_episode_seconds": 10.0, "ctrl_dt": 0.02})()
             self.observation_space = type("Space", (), {"shape": (3,)})()
             self.action_space = type("Space", (), {"shape": (2,)})()
-            self.obs_groups_spec = {"obs": 3}
+            self.obs_groups_spec = {"obs": 3, "critic": 2}
             self.state = type("State", (), {"obs": {"obs": np.zeros((1, 3), dtype=np.float32)}})()
 
         def init_state(self):
@@ -1168,9 +1213,13 @@ def test_play_wrapper_step_exports_timeout_bootstrap_obs():
                     "truncated": np.array([True]),
                     "final_observation": {
                         "obs": np.array([[7.0, 8.0, 9.0]], dtype=np.float32),
+                        "critic": np.array([[4.0, 5.0]], dtype=np.float32),
                     },
                     "info": {
-                        "final_observation": {"obs": np.array([[7.0, 8.0, 9.0]], dtype=np.float32)}
+                        "final_observation": {
+                            "obs": np.array([[7.0, 8.0, 9.0]], dtype=np.float32),
+                            "critic": np.array([[4.0, 5.0]], dtype=np.float32),
+                        }
                     },
                 },
             )()
@@ -1183,6 +1232,10 @@ def test_play_wrapper_step_exports_timeout_bootstrap_obs():
     np.testing.assert_allclose(
         infos["time_out_bootstrap_obs"]["policy"].cpu().numpy(),
         np.array([[7.0, 8.0, 9.0]], dtype=np.float32),
+    )
+    np.testing.assert_allclose(
+        infos["time_out_bootstrap_obs"]["critic"].cpu().numpy(),
+        np.array([[4.0, 5.0]], dtype=np.float32),
     )
 
 

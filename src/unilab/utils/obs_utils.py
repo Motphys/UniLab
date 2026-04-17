@@ -8,31 +8,22 @@ def flatten_obs_dict(obs: dict[str, np.ndarray]) -> np.ndarray:
     return np.concatenate(list(obs.values()), axis=1)
 
 
+def flatten_policy_obs_dict(obs: dict[str, np.ndarray]) -> np.ndarray:
+    """Build actor-policy inputs from the single actor observation group."""
+    return obs["obs"]
+
+
 def split_obs_dict(obs: dict[str, np.ndarray]) -> tuple[np.ndarray, np.ndarray | None]:
-    """Split obs dict into (obs, privileged).
-
-    Args:
-        obs: Dict with "obs" key (required) and optional "privileged" key
-
-    Returns:
-        obs_arr: (N, obs_dim) array from "obs" key
-        privileged_arr: (N, priv_dim) array from "privileged" key, or None if missing
-    """
-    obs_arr = obs["obs"]
-    privileged_arr = obs.get("privileged", None)
-    return obs_arr, privileged_arr
+    """Split observation dict into (actor_obs, critic_obs)."""
+    return obs["obs"], obs.get("critic")
 
 
 def get_obs_dims(obs_groups_spec: dict[str, int]) -> tuple[int, int]:
-    """Extract obs_dim and privileged_dim from obs_groups_spec.
+    """Extract (actor_obs_dim, critic_obs_dim) from obs_groups_spec."""
+    return obs_groups_spec.get("obs", 0), obs_groups_spec.get("critic", 0)
 
-    Args:
-        obs_groups_spec: Dict mapping group names to dimensions
 
-    Returns:
-        obs_dim: Dimension of "obs" group
-        privileged_dim: Dimension of "privileged" group (0 if missing)
-    """
-    obs_dim = obs_groups_spec.get("obs", 0)
-    privileged_dim = obs_groups_spec.get("privileged", 0)
-    return obs_dim, privileged_dim
+def get_critic_base_dim(obs_groups_spec: dict[str, int]) -> int:
+    """Get critic observation dim, falling back to actor obs when absent."""
+    critic_dim = obs_groups_spec.get("critic", 0)
+    return critic_dim if critic_dim > 0 else obs_groups_spec.get("obs", 0)

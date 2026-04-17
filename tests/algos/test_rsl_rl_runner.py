@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sys
 import tempfile
+from typing import Any, cast
 
 import pytest
 
@@ -21,7 +22,6 @@ from tensordict import TensorDict
 from unilab.base import registry
 from unilab.config.structured_configs import PPOConfig
 from unilab.utils.algo_utils import ensure_registries
-from unilab.utils.obs_utils import flatten_obs_dict
 from unilab.utils.rsl_rl_compat import convert_config_v5, is_rsl_rl_v5
 from unilab.utils.torch_utils import to_torch
 
@@ -43,8 +43,8 @@ class _RslRlVecEnvWrapper:
         self.num_envs = env.num_envs
         self.observation_space = env.observation_space
         self.action_space = env.action_space
-        self.num_obs = sum(env.obs_groups_spec.values())
-        self.num_privileged_obs = self.num_obs
+        self.num_obs = int(env.obs_groups_spec["obs"])
+        self.num_privileged_obs = int(env.obs_groups_spec.get("critic", self.num_obs))
         self.num_actions = env.action_space.shape[0]
 
         self.episode_returns = torch.zeros(self.num_envs, device=device)
@@ -55,12 +55,9 @@ class _RslRlVecEnvWrapper:
 
     def _obs_to_tensordict(self, obs: dict[str, np.ndarray]) -> TensorDict:
         actor = to_torch(obs["obs"], self.device)
-        td = {"actor": actor}
-        if "privileged" in obs:
-            td["privileged"] = to_torch(obs["privileged"], self.device)
-            td["policy"] = to_torch(flatten_obs_dict(obs), self.device)
-        else:
-            td["policy"] = actor
+        td = {"actor": actor, "policy": actor}
+        if "critic" in obs:
+            td["critic"] = to_torch(obs["critic"], self.device)
         return TensorDict(td, batch_size=self.num_envs, device=self.device)
 
     def step(self, actions):
@@ -93,10 +90,13 @@ class _RslRlVecEnvWrapper:
         return self._obs_to_tensordict(obs_out), {}
 
     def get_observations(self):
+        assert self.env.state is not None
         return self._obs_to_tensordict(self.env.state.obs)
 
     def get_privileged_observations(self):
-        return to_torch(flatten_obs_dict(self.env.state.obs), self.device)
+        assert self.env.state is not None
+        obs = self.env.state.obs
+        return to_torch(obs.get("critic", obs["obs"]), self.device)
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +159,7 @@ def test_rsl_rl_ppo_one_iteration(
         train_cfg = convert_config_v5(train_cfg)
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        runner = OnPolicyRunner(wrapped, train_cfg, log_dir=tmpdir, device="cpu")
+        runner = OnPolicyRunner(cast(Any, wrapped), train_cfg, log_dir=tmpdir, device="cpu")
         runner.learn(num_learning_iterations=1, init_at_random_ep_len=True)
 
     env.close()

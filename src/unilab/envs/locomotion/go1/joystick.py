@@ -106,7 +106,7 @@ class Go1WalkTask(Go1BaseEnv):
     @property
     def obs_groups_spec(self) -> dict[str, int]:
         # gyro(3) + gravity(3) + diff(12) + dof_vel(12) + action(12) + cmd(3) + phase(4) = 49
-        return {"obs": 49, "privileged": 3}
+        return {"obs": 49, "critic": 52}
 
     def _init_reward_functions(self):
         self._reward_fns: dict[str, Any] = {
@@ -156,7 +156,8 @@ class Go1WalkTask(Go1BaseEnv):
             axis=1,
             dtype=get_global_dtype(),
         )
-        return {"obs": obs, "privileged": linvel}
+        critic = np.concatenate([obs, linvel], axis=1, dtype=get_global_dtype())
+        return {"obs": obs, "critic": critic}
 
     def _compute_reward(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         dtype = get_global_dtype()

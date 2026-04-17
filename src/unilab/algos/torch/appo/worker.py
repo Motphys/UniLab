@@ -26,7 +26,7 @@ def compute_timeout_bootstrap_correction(
     gamma: float,
     timeout_mask: np.ndarray,
     final_obs: np.ndarray,
-    final_privileged: np.ndarray | None,
+    final_critic: np.ndarray | None = None,
 ) -> np.ndarray:
     """Compute gamma * V(final_observation) for current timeout envs."""
     corrections = np.zeros(timeout_mask.shape, dtype=np.float32)
@@ -35,9 +35,7 @@ def compute_timeout_bootstrap_correction(
 
     from tensordict import TensorDict
 
-    critic_input_np = final_obs
-    if final_privileged is not None:
-        critic_input_np = np.concatenate([final_obs, final_privileged], axis=-1)
+    critic_input_np = final_critic if final_critic is not None else final_obs
     critic_input = torch.from_numpy(critic_input_np[timeout_mask]).to(collector_device)
     critic_td = TensorDict(
         {"policy": critic_input},
@@ -60,7 +58,7 @@ def appo_collector_fn(
     sync_primitives: tuple,
     obs_dim: int,
     action_dim: int,
-    privileged_dim: int,
+    critic_dim: int,
     actor_weight_sync_name: str,
     actor_weight_param_shapes: dict,
     critic_weight_sync_name: str,
@@ -90,7 +88,7 @@ def appo_collector_fn(
         num_steps=steps_per_env,
         obs_dim=obs_dim,
         action_dim=action_dim,
-        privileged_dim=privileged_dim,
+        critic_dim=critic_dim,
         create=False,
         shm_name_prefix=shm_storage_name,
     )
@@ -132,7 +130,7 @@ def appo_collector_fn(
     actor = actor.to(collector_device)
     actor.eval()
 
-    critic_obs_dim = obs_dim + privileged_dim
+    critic_obs_dim = critic_dim if critic_dim > 0 else obs_dim
     critic_obs_example = torch.zeros((num_envs, critic_obs_dim), device=collector_device)
     critic_td_example = TensorDict({"policy": critic_obs_example}, batch_size=num_envs)
     critic_cfg = deepcopy(cfg.get("critic") or cfg.get("actor") or {})
@@ -141,8 +139,8 @@ def appo_collector_fn(
     critic_cfg.pop("distribution_cfg", None)
     critic = critic_cls(
         critic_td_example,
-        cfg.get("obs_groups", {"actor": {"policy": critic_obs_dim}}),
-        "actor",
+        cfg.get("obs_groups", {"critic": {"policy": critic_obs_dim}}),
+        "critic",
         1,
         **critic_cfg,
     )
@@ -172,10 +170,10 @@ def appo_collector_fn(
             x = x.cpu().numpy()
         return np.asarray(x, dtype=np.float32)
 
-    obs_np, priv_np = split_obs_dict(obs_out)
+    obs_np, critic_np = split_obs_dict(obs_out)
     obs_np = to_float32_np(obs_np)
-    if priv_np is not None:
-        priv_np = to_float32_np(priv_np)
+    if critic_np is not None:
+        critic_np = to_float32_np(critic_np)
 
     # Pre-allocate obs TensorDict once; update in-place each step to avoid
     # repeated TensorDict construction overhead in the hot loop.
@@ -225,8 +223,8 @@ def appo_collector_fn(
                 )
 
                 write_buf["obs"][:, step, :] = obs_np
-                if priv_np is not None:
-                    write_buf["privileged"][:, step, :] = priv_np
+                if critic_np is not None:
+                    write_buf["critic"][:, step, :] = critic_np
                 write_buf["actions"][:, step, :] = actions_np
                 write_buf["log_probs"][:, step] = log_probs_torch.cpu().numpy().ravel()
 
@@ -243,10 +241,10 @@ def appo_collector_fn(
                 truncated_raw = np.asarray(state.truncated, dtype=np.float32).ravel()
                 combined_done_raw = np.clip(terminated_raw + truncated_raw, 0, 1)
 
-                next_actor_obs_np, next_actor_priv_np = split_obs_dict(next_obs_raw)
+                next_actor_obs_np, next_critic_np = split_obs_dict(next_obs_raw)
                 next_actor_obs_np = to_float32_np(next_actor_obs_np)
-                if next_actor_priv_np is not None:
-                    next_actor_priv_np = to_float32_np(next_actor_priv_np)
+                if next_critic_np is not None:
+                    next_critic_np = to_float32_np(next_critic_np)
                 terminal_contract = resolve_terminal_observation_contract(
                     next_obs_batch_size=next_actor_obs_np.shape[0],
                     final_observation=getattr(state, "final_observation", None),
@@ -265,10 +263,10 @@ def appo_collector_fn(
                         if terminal_contract.terminal_obs is not None
                         else next_actor_obs_np
                     ),
-                    final_privileged=(
-                        terminal_contract.terminal_privileged
-                        if terminal_contract.terminal_privileged is not None
-                        else next_actor_priv_np
+                    final_critic=(
+                        terminal_contract.terminal_critic
+                        if terminal_contract.terminal_critic is not None
+                        else next_critic_np
                     ),
                 )
 
@@ -326,11 +324,11 @@ def appo_collector_fn(
                         print(f"[APPOWorker] metrics enqueue error: {e}", file=sys.stderr)
 
                 obs_np = next_actor_obs_np
-                priv_np = next_actor_priv_np
+                critic_np = next_critic_np
 
             write_buf["last_obs"][:] = obs_np
-            if priv_np is not None:
-                write_buf["last_privileged"][:] = priv_np
+            if critic_np is not None:
+                write_buf["last_critic"][:] = critic_np
             storage.signal_write_done()  # atomic increment, non-blocking
 
     except Exception as e:

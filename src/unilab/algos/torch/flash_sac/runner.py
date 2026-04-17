@@ -61,7 +61,7 @@ class FlashSACRunner(OffPolicyRunner):
         env: Any = registry.make(
             env_name, num_envs=1, sim_backend=sim_backend, env_cfg_override=env_cfg_override
         )
-        obs_dim, privileged_dim = get_obs_dims(env.obs_groups_spec)
+        obs_dim, critic_obs_dim = get_obs_dims(env.obs_groups_spec)
         action_shape = env.action_space.shape
         assert action_shape is not None
         action_dim = int(action_shape[0])
@@ -71,7 +71,7 @@ class FlashSACRunner(OffPolicyRunner):
         learner = FlashSACLearner(
             obs_dim=obs_dim,
             action_dim=action_dim,
-            privileged_dim=privileged_dim,
+            critic_obs_dim=critic_obs_dim,
             device=runtime_device,
             gamma=gamma,
             tau=tau,

@@ -12,6 +12,7 @@ _NUM_ENVS = 4
 _NUM_STEPS = 10
 _OBS_DIM = 8
 _ACTION_DIM = 3
+_CRITIC_DIM = 5
 _NUM_SLOTS = 2
 
 _EXPECTED_FIELDS = {"obs", "actions", "log_probs", "rewards", "dones", "truncated", "last_obs"}
@@ -24,6 +25,18 @@ def _make_storage(num_slots: int = _NUM_SLOTS) -> SharedOnPolicyStorage:
         obs_dim=_OBS_DIM,
         action_dim=_ACTION_DIM,
         num_slots=num_slots,
+        create=True,
+    )
+
+
+def _make_storage_with_critic() -> SharedOnPolicyStorage:
+    return SharedOnPolicyStorage(
+        num_envs=_NUM_ENVS,
+        num_steps=_NUM_STEPS,
+        obs_dim=_OBS_DIM,
+        action_dim=_ACTION_DIM,
+        critic_dim=_CRITIC_DIM,
+        num_slots=_NUM_SLOTS,
         create=True,
     )
 
@@ -165,3 +178,12 @@ def test_attach_sync_primitives():
 
     attached.close()
     owner.cleanup()
+
+
+def test_storage_allocates_optional_critic_fields():
+    storage = _make_storage_with_critic()
+
+    expected = _EXPECTED_FIELDS | {"critic", "last_critic"}
+    assert set(storage.write_buffer.keys()) == expected
+
+    storage.cleanup()

@@ -16,6 +16,12 @@ env:
     action_scale: 1.0
   gait_phase_init_mode: "offset_phase"
   reset_base_qvel_limit: 0.5
+  noise_config:
+    scale_gyro: 0.0
+    scale_gravity: 0.0
+    scale_joint_angle: 0.01
+    scale_joint_vel: 0.1
+    scale_linvel: 0.0
 reward:
   scales:
     tracking_lin_vel: 2.0
