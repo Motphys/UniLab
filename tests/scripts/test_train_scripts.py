@@ -1279,6 +1279,75 @@ def test_train_rsl_rl_get_log_root_uses_algo_log_name(monkeypatch: pytest.Monkey
     assert "logs/test_rsl_rl_ppo" in log_root
 
 
+def test_train_rsl_rl_play_missing_checkpoint_skips_env_creation_and_prints_context(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+):
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(["task=go1_joystick/mujoco", "training.play_only=true"])
+    cfg.algo.algo_log_name = "custom_ppo"
+
+    original_root = mod.ROOT_DIR
+    mod.ROOT_DIR = tmp_path
+    try:
+        monkeypatch.setattr(
+            mod,
+            "create_env",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("play_rsl_rl should not create an env before checkpoint resolution")
+            ),
+        )
+
+        result = mod.play_rsl_rl(cfg, device="cpu")
+    finally:
+        mod.ROOT_DIR = original_root
+
+    captured = capsys.readouterr().out
+    expected_task_log_root = tmp_path / "logs" / "custom_ppo" / cfg.training.task_name
+
+    assert result is None
+    assert "Could not resolve a checkpoint for play mode." in captured
+    assert "Task log root does not exist." in captured
+    assert f"task_log_root={expected_task_log_root}" in captured
+    assert "algo.load_run='-1'" in captured
+
+
+def test_train_rsl_rl_play_reports_missing_requested_checkpoint_in_resolved_run(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+):
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(["task=go1_joystick/mujoco", "training.play_only=true"])
+    cfg.algo.algo_log_name = "custom_ppo"
+    cfg.algo.checkpoint = 12
+
+    run_dir = (
+        tmp_path / "logs" / "custom_ppo" / cfg.training.task_name / "2024-01-01_00-00-00_mujoco"
+    )
+    run_dir.mkdir(parents=True)
+    (run_dir / "model_9.pt").write_bytes(b"")
+
+    original_root = mod.ROOT_DIR
+    mod.ROOT_DIR = tmp_path
+    try:
+        monkeypatch.setattr(
+            mod,
+            "create_env",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("play_rsl_rl should not create an env before checkpoint resolution")
+            ),
+        )
+
+        result = mod.play_rsl_rl(cfg, device="cpu")
+    finally:
+        mod.ROOT_DIR = original_root
+
+    captured = capsys.readouterr().out
+
+    assert result is None
+    assert "Could not resolve a checkpoint for play mode." in captured
+    assert f"resolved_run={run_dir}" in captured
+    assert "algo.checkpoint=12" in captured
+
+
 def test_train_appo_get_log_root_uses_algo_log_name():
     """Verify APPO _get_log_root uses algo.algo_log_name (issue #168)."""
     mod = _train_appo()
