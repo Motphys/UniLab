@@ -103,27 +103,50 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
             dr_provider = G1JoystickDomainRandomizationProvider()
         self._init_domain_randomization(dr_provider)
 
+    @property
+    def obs_groups_spec(self) -> dict[str, int]:
+        # obs / critic share the same 98-dim actor-trunk layout; privileged = linvel (3).
+        return {"obs": 98, "privileged": 3, "critic": 98}
+
     def _compute_obs(
         self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel
     ) -> dict[str, np.ndarray]:
         noise_cfg = self._cfg.noise_config
         diff = dof_pos - self.default_angles
-        gyro = self._obs_noise(gyro, noise_cfg.scale_gyro)
-        gravity = self._obs_noise(gravity, noise_cfg.scale_gravity)
-        diff = self._obs_noise(diff, noise_cfg.scale_joint_angle)
-        dof_vel = self._obs_noise(dof_vel, noise_cfg.scale_joint_vel)
-        linvel = self._obs_noise(linvel, noise_cfg.scale_linvel)
         command = info["commands"]
         last_actions = info.get("current_actions", np.zeros_like(diff))
         gait_phase = info.get("gait_phase", np.zeros((self._num_envs, 2), dtype=get_global_dtype()))
-        actor = np.concatenate(
+
+        # Clean critic trunk: same layout as actor but noise-free
+        critic = np.concatenate(
             [gyro * 0.25, -gravity, diff, dof_vel * 0.05, last_actions, command, gait_phase],
             axis=1,
             dtype=get_global_dtype(),
         )
+
+        noisy_gyro = self._obs_noise(gyro, noise_cfg.scale_gyro)
+        noisy_gravity = self._obs_noise(gravity, noise_cfg.scale_gravity)
+        noisy_diff = self._obs_noise(diff, noise_cfg.scale_joint_angle)
+        noisy_dof_vel = self._obs_noise(dof_vel, noise_cfg.scale_joint_vel)
+        noisy_linvel = self._obs_noise(linvel, noise_cfg.scale_linvel)
+        actor = np.concatenate(
+            [
+                noisy_gyro * 0.25,
+                -noisy_gravity,
+                noisy_diff,
+                noisy_dof_vel * 0.05,
+                last_actions,
+                command,
+                gait_phase,
+            ],
+            axis=1,
+            dtype=get_global_dtype(),
+        )
+
         return {
             "obs": actor,
             "privileged": np.asarray(linvel * 2.0, dtype=get_global_dtype()),
+            "critic": critic,
         }
 
     def _init_reward_functions(self):

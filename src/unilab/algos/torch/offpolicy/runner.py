@@ -13,7 +13,7 @@ from unilab.algos.torch.offpolicy.worker import off_policy_collector_fn
 from unilab.ipc import SharedObsNormStats, SharedWeightSync
 from unilab.ipc.async_runner import _SPAWN_CTX, AsyncRunner
 from unilab.ipc.replay_buffer import ReplayBuffer
-from unilab.utils.device_utils import get_default_device, get_env_dims
+from unilab.utils.device_utils import get_default_device, get_env_dims_with_critic
 from unilab.utils.offpolicy_logger import OffPolicyLogger
 
 
@@ -66,9 +66,12 @@ class OffPolicyRunner(AsyncRunner):
         self.obs_normalization = obs_normalization
         self.actor_kwargs = actor_kwargs or {}
 
-        self.obs_dim, self.action_dim, self.privileged_dim = get_env_dims(
-            self.env_name, sim_backend, env_cfg_override
-        )
+        (
+            self.obs_dim,
+            self.action_dim,
+            self.privileged_dim,
+            self.critic_dim,
+        ) = get_env_dims_with_critic(self.env_name, sim_backend, env_cfg_override)
 
     def _get_default_device(self) -> str:
         return get_default_device()
@@ -153,6 +156,7 @@ class OffPolicyRunner(AsyncRunner):
             action_dim=self.action_dim,
             device=self.device,
             privileged_dim=self.privileged_dim,
+            critic_dim=self.critic_dim,
         )
         self._shared_resources.append(replay_buffer)
 

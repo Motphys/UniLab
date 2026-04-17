@@ -17,7 +17,12 @@ def test_patch_transition_next_obs_uses_final_observation_without_mutating_actor
         "privileged": np.array([[70.0], [90.0]], dtype=np.float32),
     }
 
-    transition_next_obs, transition_next_privileged, terminal_mask = patch_transition_next_obs(
+    (
+        transition_next_obs,
+        transition_next_privileged,
+        transition_next_critic,
+        terminal_mask,
+    ) = patch_transition_next_obs(
         next_obs,
         next_privileged,
         final_observation=final_observation,
@@ -27,6 +32,7 @@ def test_patch_transition_next_obs_uses_final_observation_without_mutating_actor
     np.testing.assert_array_equal(terminal_mask, np.array([True, False]))
     np.testing.assert_array_equal(transition_next_obs, np.array([[7.0, 8.0], [2.0, 2.0]]))
     np.testing.assert_array_equal(transition_next_privileged, np.array([[70.0], [20.0]]))
+    assert transition_next_critic is None
     np.testing.assert_array_equal(next_obs, np.array([[1.0, 1.0], [2.0, 2.0]]))
     np.testing.assert_array_equal(next_privileged, np.array([[10.0], [20.0]]))
 

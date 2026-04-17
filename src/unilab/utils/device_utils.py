@@ -31,3 +31,24 @@ def get_env_dims(
     action_dim = action_shape[0]
     env.close()  # type: ignore[attr-defined]
     return obs_dim, action_dim, privileged_dim
+
+
+def get_env_dims_with_critic(
+    env_name: str, sim_backend: str = "mujoco", env_cfg_override: dict | None = None
+) -> tuple[int, int, int, int]:
+    """Get (obs_dim, action_dim, privileged_dim, critic_dim) from environment.
+
+    Returns:
+        (obs_dim, action_dim, privileged_dim, critic_dim)
+    """
+    from unilab.utils.obs_utils import get_obs_dims_with_critic as get_obs_dims_from_spec
+
+    env = registry.make(
+        env_name, num_envs=1, sim_backend=sim_backend, env_cfg_override=env_cfg_override
+    )
+    obs_dim, privileged_dim, critic_dim = get_obs_dims_from_spec(env.obs_groups_spec)
+    action_shape = env.action_space.shape
+    assert action_shape is not None
+    action_dim = action_shape[0]
+    env.close()  # type: ignore[attr-defined]
+    return obs_dim, action_dim, privileged_dim, critic_dim
