@@ -24,15 +24,18 @@ Mainstream stacks often couple physics simulation, replay storage, and policy up
 ## Quick Start
 
 ```bash
+# 0. If uv not installed:
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
 # 1. Clone the repository
 git clone https://github.com/unilabsim/UniLab.git
 cd UniLab
 
 # 2. Install dependencies
-uv sync --extra motrix
 # macOS (MPS, installs PyPI torch wheels)
 # Linux (default: installs PyTorch cu128 wheels)
 # Requires an NVIDIA GPU and driver stack supported by current PyTorch cu128 wheels
+uv sync --extra motrix
 
 # 3. Run a training job
 # macOS (73s on M5Max-128GB, 1min43s on M3Max-48GB, 2.5min on MacBookNeo-8GB)
