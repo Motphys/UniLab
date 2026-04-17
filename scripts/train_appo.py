@@ -240,6 +240,9 @@ def play_appo(cfg: DictConfig, rl_cfg: dict[str, Any]) -> str | None:
                 "cam_distance": cfg.training.cam_distance,
                 "cam_elevation": cfg.training.cam_elevation,
                 "cam_azimuth": cfg.training.cam_azimuth,
+                "cam_tracking": getattr(cfg.training, "cam_tracking", False),
+                "cam_tracking_env_idx": getattr(cfg.training, "cam_tracking_env_idx", 0),
+                "cam_tracking_extra_envs": getattr(cfg.training, "cam_tracking_extra_envs", 2),
             },
         )
     print(f"Saving video to {output_video} with mediapy...")
