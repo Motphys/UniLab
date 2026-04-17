@@ -107,8 +107,9 @@ class AllegroBaseEnv(NpEnv):
         )
         new_ctrl = prev_ctrl + self._cfg.control_config.action_scale * clipped_actions
         new_ctrl = np.clip(new_ctrl, self._ctrl_lower, self._ctrl_upper)
-        state.info["prev_ctrl"] = np.asarray(new_ctrl, dtype=self._np_dtype)
-        return np.asarray(state.info["prev_ctrl"])
+        prev_ctrl = np.asarray(new_ctrl, dtype=self._np_dtype)
+        state.info["prev_ctrl"] = prev_ctrl
+        return prev_ctrl
 
     def get_hand_dof_pos(self) -> np.ndarray:
         return np.asarray(

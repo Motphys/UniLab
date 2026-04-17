@@ -25,7 +25,8 @@ class NpEnvState:
 
     @property
     def done(self) -> np.ndarray:
-        return np.asarray(np.logical_or(self.terminated, self.truncated))
+        done: np.ndarray = np.logical_or(self.terminated, self.truncated)
+        return done
 
     def replace(self, **updates: Any) -> "NpEnvState":
         return dataclasses.replace(self, **updates)

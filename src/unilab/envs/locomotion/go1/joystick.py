@@ -204,4 +204,5 @@ class Go1WalkTask(Go1BaseEnv):
         target_height = 0.1
         height_error = np.square(self.feet_pos[:, :, 2] - target_height)
         swing_rew = np.exp(-height_error / 0.01) * is_swing
-        return np.asarray(np.sum(swing_rew, axis=1) / len(self._cfg.sensor.feet_pos))
+        reward: np.ndarray = np.sum(swing_rew, axis=1) / len(self._cfg.sensor.feet_pos)
+        return reward
