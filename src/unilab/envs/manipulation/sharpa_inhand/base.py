@@ -386,8 +386,9 @@ class SharpaInhandBaseEnv(NpEnv):
         )
         targets = prev_targets + self._cfg.control_config.action_scale * clipped_actions
         targets = np.clip(targets, self._ctrl_lower, self._ctrl_upper)
-        state.info["prev_targets"] = np.asarray(targets, dtype=self._np_dtype)
-        return np.asarray(state.info["prev_targets"])
+        prev_targets = np.asarray(targets, dtype=self._np_dtype)
+        state.info["prev_targets"] = prev_targets
+        return prev_targets
 
     def get_hand_dof_pos(self) -> np.ndarray:
         return np.asarray(self._backend.get_dof_pos()[:, : self._num_action], dtype=self._np_dtype)
@@ -460,7 +461,7 @@ class SharpaInhandBaseEnv(NpEnv):
         else:
             self.last_contacts.fill(0.0)
 
-        return np.asarray(tactile, dtype=self._np_dtype)
+        return tactile
 
     def _compute_contact_positions(self, tactile: np.ndarray) -> np.ndarray:
         del tactile

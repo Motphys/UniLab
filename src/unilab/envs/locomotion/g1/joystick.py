@@ -362,4 +362,5 @@ class G1JoystickPPO(G1BaseEnv):
         gait_phase[:, 1] = (gait_phase[:, 1] + self._gait_phase_delta) % (2 * np.pi)
         state.info["gait_phase"] = gait_phase
 
-        return np.asarray(actions * self._cfg.control_config.action_scale + self.default_angles)
+        ctrl: np.ndarray = actions * self._cfg.control_config.action_scale + self.default_angles
+        return ctrl
