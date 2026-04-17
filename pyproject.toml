@@ -33,6 +33,7 @@ dependencies = [
 
 [project.optional-dependencies]
 motrix = ["motrixsim==0.7.0"]
+viser = ["viser>=1.0.26", "trimesh>=3.21.7"]
 
 [dependency-groups]
 dev = ["pytest", "pytest-cov", "ruff", "mypy", "pyright>=1.1.408"]
@@ -119,6 +120,7 @@ exclude = [
     "src/unilab/base/backend/",             # mujoco-uni stubs mismatch; optional backends
     "src/unilab/envs/",                     # mujoco-uni internal API, stubs mismatch
     "src/unilab/utils/render_many.py",      # direct mujoco C bindings
+    "src/unilab/utils/viser_scene.py",     # optional viser dependency
     "src/unilab/utils/hardware_monitor.py", # optional pynvml/psutil deps
 ]
 reportMissingImports = "warning"

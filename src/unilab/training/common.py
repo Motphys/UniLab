@@ -312,19 +312,39 @@ def render_play_mode(
 
     from unilab.utils import render_many
 
-    frames = render_many.render_states_get_frames(
-        state_list,
-        env.cfg.model_file,
-        width=1280,
-        height=720,
-        camera_id=-1,
-        render_spacing=(
-            float(render_spacing)
-            if render_spacing is not None
-            else float(getattr(env.cfg, "render_spacing", 1.0))
-        ),
-        **(camera_kwargs or {}),
+    cam_kw = dict(camera_kwargs or {})
+    use_tracking = bool(cam_kw.pop("cam_tracking", False))
+    tracking_env_idx = int(cam_kw.pop("cam_tracking_env_idx", 0))
+    tracking_extra_envs = int(cam_kw.pop("cam_tracking_extra_envs", 2))
+    effective_spacing = (
+        float(render_spacing)
+        if render_spacing is not None
+        else float(getattr(env.cfg, "render_spacing", 1.0))
     )
+
+    if use_tracking:
+        frames = render_many.render_states_get_frames_tracking(
+            state_list,
+            env.cfg.model_file,
+            width=1280,
+            height=720,
+            tracking_env_idx=tracking_env_idx,
+            max_extra_envs=tracking_extra_envs,
+            cam_distance=cam_kw.get("cam_distance", 2.0),
+            cam_elevation=cam_kw.get("cam_elevation", -20),
+            cam_azimuth=cam_kw.get("cam_azimuth", 90),
+            render_spacing=effective_spacing,
+        )
+    else:
+        frames = render_many.render_states_get_frames(
+            state_list,
+            env.cfg.model_file,
+            width=1280,
+            height=720,
+            camera_id=-1,
+            render_spacing=effective_spacing,
+            **cam_kw,
+        )
 
     import mediapy as media
 

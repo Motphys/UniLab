@@ -145,7 +145,39 @@ uv run python scripts/train_rsl_rl.py task=g1_motion_tracking/motrix
 uv run python scripts/train_appo.py task=g1_motion_tracking/motrix
 ```
 
-## Navigation
+## PPO Motion Tracking：Play Tracking + Viser
 
-- Previous: [Algorithms](04-algorithms.md)
-- Next: [Collaboration Workflow](06-collaboration.md)
+本次在 `task=g1_motion_tracking/mujoco` 的 PPO 路径新增两项能力：
+
+- Play 回放支持跟随镜头：`training.cam_tracking=true`
+- 浏览器可视化脚本：`scripts/play_viser.py`（仅 MuJoCo）
+
+新增配置（`training`）：
+
+- `cam_tracking`（默认 `false`）
+- `cam_tracking_env_idx`（默认 `0`）
+- `cam_tracking_extra_envs`（默认 `2`）
+
+仅 Viser 功能需要额外依赖：
+
+```bash
+uv sync --extra viser
+```
+
+必要命令运行示例：
+
+```bash
+# 1) PPO Play 回放（启用 tracking，亦可选择默认配置，即非跟随镜头）
+uv run python scripts/train_rsl_rl.py task=g1_motion_tracking/mujoco training.play_only=true training.cam_tracking=true algo.load_run=xxx algo.checkpoint=xxx
+```
+
+```bash
+# 2) Viser 可视化（零动作）
+uv run python scripts/play_viser.py task=g1_motion_tracking/mujoco interactive.action_mode=zero algo.num_envs=8 viser.port=8080
+```
+
+```bash
+# 3) Viser 可视化（策略）
+uv run python scripts/play_viser.py task=g1_motion_tracking/mujoco interactive.action_mode=policy algo.load_run=xxx algo.checkpoint=xxx algo.num_envs=4 viser.port=8080
+```
+

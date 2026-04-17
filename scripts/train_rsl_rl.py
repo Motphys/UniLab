@@ -155,6 +155,9 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
                     "cam_elevation": cfg.training.cam_elevation,
                     "cam_azimuth": cfg.training.cam_azimuth,
                     "cam_lookat": getattr(cfg.training, "cam_lookat", None),
+                    "cam_tracking": getattr(cfg.training, "cam_tracking", False),
+                    "cam_tracking_env_idx": getattr(cfg.training, "cam_tracking_env_idx", 0),
+                    "cam_tracking_extra_envs": getattr(cfg.training, "cam_tracking_extra_envs", 2),
                 },
             )
         print("Done.")
