@@ -29,21 +29,24 @@ git clone https://github.com/unilabsim/UniLab.git
 cd UniLab
 
 # 2. Install dependencies
+uv sync --extra motrix
 # macOS (MPS, installs PyPI torch wheels)
-uv sync
-
 # Linux (default: installs PyTorch cu128 wheels)
 # Requires an NVIDIA GPU and driver stack supported by current PyTorch cu128 wheels
-uv sync
-
-# Optional: Motrix backend
-uv sync --extra motrix
 
 # 3. Run a training job
-uv run python scripts/train_rsl_rl.py task=go1_joystick/mujoco
-```
+# macOS (73s on M5Max-128GB, 1min43s on M3Max-48GB, 2.5min on MacBookNeo-8GB)
+uv run mxpython scripts/train_rsl_rl.py task=go2_joystick/motrix
 
-Motrix registry bootstrap and Hydra config composition do not require importing MuJoCo anymore, but any MuJoCo task execution, playback, or MuJoCo-only tooling still requires a working MuJoCo runtime.
+# Linux (31s on RTX 4090 and R9-9950x3d)
+uv run scripts/train_rsl_rl.py task=go2_joystick/motrix
+
+# Linux (5.5min on RTX 4090 and R9-9950x3d)
+uv run scripts/train_offpolicy.py algo=sac task=sac/g1_sac/motrix
+
+# Linux (1h35min on RTX 4090 and R9-9950x3d)
+uv run scripts/train_rsl_rl.py task=g1_motion_tracking/mujoco
+```
 
 On macOS / MacBook, commands that open the MotrixSim native renderer must be launched with `uv run mxpython` instead of `uv run python`. Plain non-rendering training can still use `uv run python ... training.no_play=true`.
 
