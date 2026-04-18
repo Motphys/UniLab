@@ -2,7 +2,7 @@
 
 这页只描述当前仓库里已经注册、且已经接入 DR provider 的任务现状。结论全部来自代码，不按设计意图推断。
 
-当前统一入口在 [`NpEnv._init_domain_randomization()`](../../src/unilab/base/np_env.py) 和 [`DomainRandomizationManager`](../../src/unilab/dr/manager.py)：
+当前统一入口在 [`NpEnv._init_domain_randomization()`](../../../src/unilab/base/np_env.py) 和 [`DomainRandomizationManager`](../../../src/unilab/dr/manager.py)：
 
 - init 路径：task provider 产出 `InitRandomizationPlan`，manager 在 env 初始化阶段调用 backend `apply_init_randomization(...)`
 - reset 路径：task provider 产出 `ResetPlan`，manager 校验 capability 后调用 backend `set_state(..., randomization=...)`
@@ -18,23 +18,23 @@
 
 1. 当前已接入 DR provider 的任务全部使用统一 DR 入口，没有任务绕开 `DomainRandomizationManager` 直接在 `reset()` 里做另一套 DR 流程。
 2. 形式上基本都是结构化的：任务文件内定义 `domain_rand` 配置 dataclass、`DomainRandomizationProvider`、`ResetPlan`，`G1WalkFlat` 复用 `G1Joystick` 的 provider。
-3. 现在“统一”的主要是入口和执行流程，不是所有随机项本身。公共 helper [`build_common_reset_randomization()`](../../src/unilab/dr/dr_utils.py) 目前生成 `base_mass_delta`、`base_com_offset`、`kp`、`kd`；公共 interval helper 目前只生成 push。
-4. [`ResetRandomizationPayload`](../../src/unilab/dr/types.py) 已经能表达 `body_iquat`、`body_inertia`、`kp`、`kd`，且 [`MuJoCoBackend`](../../src/unilab/base/backend/mujoco_backend.py) 已声明支持。是否真正使用这些项，仍取决于任务 provider 是否采样并下发。
-5. [`MotrixBackend`](../../src/unilab/base/backend/motrix_backend.py) 当前只支持 `base_mass_delta`、`base_com_offset` 和 interval push。
+3. 现在“统一”的主要是入口和执行流程，不是所有随机项本身。公共 helper [`build_common_reset_randomization()`](../../../src/unilab/dr/dr_utils.py) 目前生成 `base_mass_delta`、`base_com_offset`、`kp`、`kd`；公共 interval helper 目前只生成 push。
+4. [`ResetRandomizationPayload`](../../../src/unilab/dr/types.py) 已经能表达 `body_iquat`、`body_inertia`、`kp`、`kd`，且 [`MuJoCoBackend`](../../../src/unilab/base/backend/mujoco_backend.py) 已声明支持。是否真正使用这些项，仍取决于任务 provider 是否采样并下发。
+5. [`MotrixBackend`](../../../src/unilab/base/backend/motrix_backend.py) 当前只支持 `base_mass_delta`、`base_com_offset` 和 interval push。
 6. `geom_size` 不属于 reset-lifecycle 字段；Sharpa-hand object geom scale 通过 init-lifecycle 的 model materialization 完成。
 
 ## 统一性评估表
 
 | 任务 | 是否使用统一 DR 入口 | 是否为结构化形式 | reset 形式 | interval 形式 | 代码 |
 | --- | --- | --- | --- | --- | --- |
-| `Go1JoystickFlat` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | 任务状态采样 + common payload | push | [`go1/joystick.py`](../../src/unilab/envs/locomotion/go1/joystick.py) |
-| `Go2JoystickFlat` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | 任务状态采样 + common payload | push | [`go2/joystick.py`](../../src/unilab/envs/locomotion/go2/joystick.py) |
-| `G1JoystickFlat` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | 任务状态采样 + common payload | push | [`g1/joystick.py`](../../src/unilab/envs/locomotion/g1/joystick.py) |
-| `G1WalkFlat` | 是 | 是：复用 [`G1JoystickDomainRandomizationProvider`](../../src/unilab/envs/locomotion/g1/joystick.py) | 任务状态采样 + common payload | push | [`g1/joystick_sac.py`](../../src/unilab/envs/locomotion/g1/joystick_sac.py) |
-| `G1MotionTracking` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | 大量任务特有 reset 采样 + common payload | push | [`motion_tracking/g1/tracking.py`](../../src/unilab/envs/motion_tracking/g1/tracking.py) |
-| `AllegroInhandRotation` | 是 | 是：`DomainRandConfig + Provider + ResetPlan` | 纯任务特有 reset 采样，`randomization=None` | 无 | [`inhand_rot_allegro/rotation.py`](../../src/unilab/envs/manipulation/inhand_rot_allegro/rotation.py) |
-| `SharpaInhandRotation` | 是 | 是：`InitRandomizationPlan + ResetPlan` | grasp cache 采样 + common payload | 无 | [`sharpa_inhand/rotation.py`](../../src/unilab/envs/manipulation/sharpa_inhand/rotation.py) |
-| `SharpaInhandRotationGrasp` | 是 | 是：复用 Sharpa rotation provider 并覆盖 reset 采样 | grasp collection reset + common payload | 无 | [`sharpa_inhand/grasp_gen.py`](../../src/unilab/envs/manipulation/sharpa_inhand/grasp_gen.py) |
+| `Go1JoystickFlat` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | 任务状态采样 + common payload | push | [`go1/joystick.py`](../../../src/unilab/envs/locomotion/go1/joystick.py) |
+| `Go2JoystickFlat` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | 任务状态采样 + common payload | push | [`go2/joystick.py`](../../../src/unilab/envs/locomotion/go2/joystick.py) |
+| `G1JoystickFlat` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | 任务状态采样 + common payload | push | [`g1/joystick.py`](../../../src/unilab/envs/locomotion/g1/joystick.py) |
+| `G1WalkFlat` | 是 | 是：复用 [`G1JoystickDomainRandomizationProvider`](../../../src/unilab/envs/locomotion/g1/joystick.py) | 任务状态采样 + common payload | push | [`g1/joystick_sac.py`](../../../src/unilab/envs/locomotion/g1/joystick_sac.py) |
+| `G1MotionTracking` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | 大量任务特有 reset 采样 + common payload | push | [`motion_tracking/g1/tracking.py`](../../../src/unilab/envs/motion_tracking/g1/tracking.py) |
+| `AllegroInhandRotation` | 是 | 是：`DomainRandConfig + Provider + ResetPlan` | 纯任务特有 reset 采样，`randomization=None` | 无 | [`inhand_rot_allegro/rotation.py`](../../../src/unilab/envs/manipulation/inhand_rot_allegro/rotation.py) |
+| `SharpaInhandRotation` | 是 | 是：`InitRandomizationPlan + ResetPlan` | grasp cache 采样 + common payload | 无 | [`sharpa_inhand/rotation.py`](../../../src/unilab/envs/manipulation/sharpa_inhand/rotation.py) |
+| `SharpaInhandRotationGrasp` | 是 | 是：复用 Sharpa rotation provider 并覆盖 reset 采样 | grasp collection reset + common payload | 无 | [`sharpa_inhand/grasp_gen.py`](../../../src/unilab/envs/manipulation/sharpa_inhand/grasp_gen.py) |
 
 ## 任务域随机化清单
 
@@ -54,7 +54,7 @@
 
 ### 1. 统一入口已经完成
 
-统一入口由 [`NpEnv`](../../src/unilab/base/np_env.py) 和 [`DomainRandomizationManager`](../../src/unilab/dr/manager.py) 保证：
+统一入口由 [`NpEnv`](../../../src/unilab/base/np_env.py) 和 [`DomainRandomizationManager`](../../../src/unilab/dr/manager.py) 保证：
 
 - 任务只需要注册 provider
 - manager 统一做 capability 校验
@@ -64,7 +64,7 @@
 
 ### 2. 公共 helper 还比较窄
 
-[`dr_utils.py`](../../src/unilab/dr/dr_utils.py) 当前只有两类公共 helper：
+[`dr_utils.py`](../../../src/unilab/dr/dr_utils.py) 当前只有两类公共 helper：
 
 - reset common payload：`base_mass_delta`、`base_com_offset`、`kp`、`kd`
 - interval common payload：push
@@ -80,7 +80,7 @@
 
 ### 3. backend 能力已经超过当前任务使用范围
 
-[`ResetRandomizationPayload`](../../src/unilab/dr/types.py) 现在包含：
+[`ResetRandomizationPayload`](../../../src/unilab/dr/types.py) 现在包含：
 
 - `base_mass_delta`
 - `base_com_offset`
@@ -91,14 +91,14 @@
 
 backend capability 当前是：
 
-- [`MuJoCoBackend`](../../src/unilab/base/backend/mujoco_backend.py)：支持上面 6 个 reset term，且支持 interval push
-- [`MotrixBackend`](../../src/unilab/base/backend/motrix_backend.py)：只支持 `base_mass_delta`、`base_com_offset`，且支持 interval push
+- [`MuJoCoBackend`](../../../src/unilab/base/backend/mujoco_backend.py)：支持上面 6 个 reset term，且支持 interval push
+- [`MotrixBackend`](../../../src/unilab/base/backend/motrix_backend.py)：只支持 `base_mass_delta`、`base_com_offset`，且支持 interval push
 
 但任务侧当前实际情况是：并不是所有 provider 都构造这些字段。backend contract 是能力边界，任务配置和 provider 是否下发 payload 才决定该任务是否实际启用对应 DR 项。
 
 ### 4. `geom_size` 的生命周期边界
 
-`geom_size` 明确不属于 [`ResetRandomizationPayload`](../../src/unilab/dr/types.py)，也不应通过 `BatchEnvPool.reset(..., randomization=...)` 在热路径中修改。
+`geom_size` 明确不属于 [`ResetRandomizationPayload`](../../../src/unilab/dr/types.py)，也不应通过 `BatchEnvPool.reset(..., randomization=...)` 在热路径中修改。
 
 原因是 `geom_size` 会改变模型几何和模型身份，正确生命周期是：
 
@@ -343,7 +343,7 @@ uv run python scripts/train_rsl_rl.py task=sharpa_inhand/mujoco 'env.scale_range
 
 如果某个随机项要做成“统一 DR 项”，还需要同时满足三层一致：
 
-1. [`ResetRandomizationPayload`](../../src/unilab/dr/types.py) 里有明确字段
+1. [`ResetRandomizationPayload`](../../../src/unilab/dr/types.py) 里有明确字段
 2. backend capability 明确声明支持，并在 backend 内真正落地
 3. 任务 config / provider 真正采样并下发该字段
 

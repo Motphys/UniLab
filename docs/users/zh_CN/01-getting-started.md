@@ -29,17 +29,12 @@ brew install cmake  # macOS
 
 ```bash
 # macOS（MPS，默认安装 PyPI 的 torch wheel）
-uv sync
+uv sync --extra motrix
 
 # Linux 默认（安装 PyTorch 官方 cu128 wheel）
 # 需要当前 PyTorch cu128 wheel 所支持的 NVIDIA 显卡与驱动栈
-uv sync
-
-# 可选: Motrix 后端
 uv sync --extra motrix
 ```
-
-在 macOS / MacBook 上，只要命令会打开 MotrixSim 原生 renderer，就需要用 `uv run mxpython` 启动；不需要可视化的训练仍可使用 `uv run python ... training.no_play=true`。
 
 ## 中国大陆镜像
 
@@ -52,32 +47,36 @@ uv sync --index-url https://pypi.tuna.tsinghua.edu.cn/simple
 
 ### 训练一个最小任务
 
+在 macOS / MacBook 上，只要命令会打开 MotrixSim 原生 renderer，就需要用 `uv run mxpython` 启动；不需要可视化的训练仍可使用 `uv run ... training.no_play=true`。
+
 ```bash
-uv run python scripts/train_rsl_rl.py task=go1_joystick_flat/mujoco
+# Linux
+uv run scripts/train_rsl_rl.py task=go2_joystick_flat/motrix
+
+# MacOS(其他后端为Motrix的训练同理，需要用 uv run mxpython)
+uv run mxpython scripts/train_rsl_rl.py task=go2_joystick_flat/motrix
 ```
 
 ### 常用入口脚本
 
 ```bash
 # PPO (RSL-RL)
-uv run python scripts/train_rsl_rl.py task=go1_joystick_flat/mujoco
+uv run scripts/train_rsl_rl.py task=go1_joystick_flat/motrix
 
 # APPO
-uv run python scripts/train_appo.py task=go1_joystick_flat/mujoco
+uv run scripts/train_appo.py task=go1_joystick_flat/mujoco
 
 # SAC / TD3
-uv run python scripts/train_offpolicy.py algo=sac task=sac/go1_joystick_flat/mujoco
-uv run python scripts/train_offpolicy.py algo=td3 task=td3/go1_joystick_flat/mujoco
+uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco
+uv run scripts/train_offpolicy.py algo=td3 task=td3/g1_walk_flat/mujoco
 ```
 
 ### 验证环境
 
 ```bash
-make check
-uv run pytest -m "not slow and not veryslow"
+make test-all
 ```
 
 ## Navigation
 
-- Previous: [Development Architecture](00-development-architecture.md)
 - Next: [Simulation Backends](02-simulation-backends.md)

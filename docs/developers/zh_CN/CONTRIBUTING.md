@@ -20,8 +20,8 @@
 
 ## Read Before You Start
 
-- 改训练入口、runner、env contract 或 backend 路径前，先看 [RL Infrastructure Development Standard](00-development-architecture.md)
-- 改协作流程或 issue / milestone 规则前，先看 [06-collaboration.md](06-collaboration.md)
+- 改训练入口、runner、env contract 或 backend 路径前，先看 [RL Infrastructure Development Standard](development-standard.md)
+- 改协作流程或 issue / milestone 规则前，先看 [协作流程](collaboration.md)
 
 ## Common Commands
 
@@ -126,7 +126,7 @@ uv run pytest -m veryslow -v
 - **PR**: 必须链接 driving issue，并列出验证命令和影响范围
 - **CODEOWNERS**: 表达 review ownership，不表示执行 ownership
 
-更多协作约定见 [06-collaboration.md](06-collaboration.md)。
+更多协作约定见 [协作流程](collaboration.md)。
 
 ## Pull Request Workflow
 
@@ -151,4 +151,4 @@ UniLab 使用 Hydra + dataclass 配置系统:
 - **修改超参数**: 编辑对应 YAML，或使用 `algo.num_envs=2048` 这样的 CLI override
 - **添加新算法**: 在 `structured_configs.py` 中添加 dataclass，并创建对应的 `conf/` 目录
 
-更多细节见 [Training Guide](03-training.md) 的 Hydra 部分，以及 [Development Architecture](00-development-architecture.md)。
+更多细节见 [Training Guide](../../users/zh_CN/03-training.md) 的 Hydra 部分，以及 [Development Standard](development-standard.md)。

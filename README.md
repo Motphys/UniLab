@@ -2,7 +2,7 @@
 
 # UniLab
 
-Languages: English | [简体中文](docs/zh_CN/01-getting-started.md)
+Languages: English | [简体中文](docs/users/zh_CN/01-getting-started.md)
 
 Train robot RL without a GPU simulation backend.
 
@@ -72,7 +72,7 @@ uv run scripts/train_rsl_rl.py task=g1_motion_tracking/mujoco
 
 Training scripts automatically enter playback after training unless you set `training.no_play=true`.
 
-For MotrixSim visualization or `training.play_only=true` on macOS / MacBook, reuse the macOS renderer rule from `Quick Demo` and see `docs/zh_CN/03-training.md`.
+For MotrixSim visualization or `training.play_only=true` on macOS / MacBook, reuse the macOS renderer rule from `Quick Demo` and see `docs/users/zh_CN/03-training.md`.
 
 ## Repository Map
 
@@ -80,20 +80,26 @@ For MotrixSim visualization or `training.play_only=true` on macOS / MacBook, reu
 - `scripts/`: direct entrypoints for training, playback, motion preprocessing, and tooling
 - `src/unilab/`: environments, backends, algorithms, and shared utilities
 - `tests/`: unit tests, integration tests, and script configuration tests
-- `docs/`: language-specific documentation under `docs/zh_CN/`
+- `docs/`: user documentation under `docs/users/` and developer documentation under `docs/developers/`
 
 ## Documentation
 
-- [00 RL Infrastructure Development Standard](docs/zh_CN/00-development-architecture.md): design principles, layering, contracts, and validation boundaries
-- [01 Getting Started](docs/zh_CN/01-getting-started.md): installation, dependency setup, mirrors, and first-run commands
-- [02 Simulation Backends](docs/zh_CN/02-simulation-backends.md): MuJoCo / Motrix support scope and backend selection
-- [03 Training Guide](docs/zh_CN/03-training.md): training, playback, resume flow, Hydra overrides, and W&B
-- [04 Algorithms](docs/zh_CN/04-algorithms.md): APPO, FastSAC, and FastTD3 usage and differences
-- [05 G1 Motion Tracking](docs/zh_CN/05-g1-motion-tracking.md): the G1 whole-body motion-tracking task
-- [06 Collaboration Workflow](docs/zh_CN/06-collaboration.md): GitHub issue / milestone / PR collaboration rules
-- [07 Domain Randomization](docs/zh_CN/07-domain-randomization.md): domain randomization configuration and best practices
-- [Contributing](CONTRIBUTING.md): development workflow, testing, CI, and review expectations
-- [AGENTS](AGENTS.md): guidance for coding agents and automated editors working in this RL infra repo
+### For Users
+- [01 Getting Started](docs/users/zh_CN/01-getting-started.md): installation, dependency setup, mirrors, and first-run commands
+- [02 Simulation Backends](docs/users/zh_CN/02-simulation-backends.md): MuJoCo / Motrix support scope and backend selection
+- [03 Training Guide](docs/users/zh_CN/03-training.md): training, playback, resume flow, Hydra overrides, and W&B
+- [04 Algorithms](docs/users/zh_CN/04-algorithms.md): APPO, FastSAC, and FastTD3 usage and differences
+- [05 G1 Motion Tracking](docs/users/zh_CN/05-motion-tracking.md): the G1 whole-body motion-tracking task
+- [07 Domain Randomization](docs/users/zh_CN/07-domain-randomization.md): domain randomization configuration and best practices
+
+### For Developers
+- [CONTRIBUTING.md](CONTRIBUTING.md): development environment, commands, commit conventions, and PR workflow
+- [RL Infrastructure Development Standard](docs/developers/zh_CN/development-standard.md): design principles, layering, contracts, and validation boundaries
+- [Collaboration Workflow](docs/developers/zh_CN/collaboration.md): GitHub issue / milestone / PR collaboration rules and ADR governance
+- [ADR Index](docs/developers/adr/README.md): architecture decision records
+
+### For Agents
+- [AGENTS.md](AGENTS.md): core principles, high-risk areas, and key file pointers
 
 ## Related Projects
 

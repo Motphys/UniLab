@@ -14,6 +14,6 @@
 
 ## 与主文档的关系
 
-- 架构总览: [RL Infrastructure 开发标准](../00-development-architecture.md)
-- 后端能力和支持矩阵: [仿真后端](../02-simulation-backends.md)
-- 协作流程与证据标准: [协作流程](../06-collaboration.md)
+- 架构总览: [RL Infrastructure 开发标准](../zh_CN/development-standard.md)
+- 后端能力和支持矩阵: [仿真后端](../../users/zh_CN/02-simulation-backends.md)
+- 协作流程与证据标准: [协作流程](../zh_CN/collaboration.md)

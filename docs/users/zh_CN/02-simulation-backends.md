@@ -95,10 +95,10 @@ uv run python scripts/generate_support_matrix.py --write
 
 ```bash
 # 默认 MuJoCo
-uv run python scripts/train_rsl_rl.py task=go1_joystick_flat/mujoco
+uv run scripts/train_rsl_rl.py task=go1_joystick_flat/mujoco
 
 # 显式指定 Motrix
-uv run python scripts/train_rsl_rl.py task=go1_joystick_flat/motrix
+uv run scripts/train_rsl_rl.py task=go1_joystick_flat/motrix
 ```
 
 ## Playback Differences
@@ -109,7 +109,7 @@ uv run python scripts/train_rsl_rl.py task=go1_joystick_flat/motrix
 对 G1 motion tracking 来说，目前已验证的 Motrix 路径是 `PPO (torch) + motrix` 和 `APPO (torch) + motrix`。`scripts/play_interactive.py` 仍然沿用 MuJoCo 路径。
 
 ```bash
-uv run python scripts/train_rsl_rl.py task=go1_joystick_flat/mujoco training.play_only=true
+uv run scripts/train_rsl_rl.py task=go1_joystick_flat/mujoco training.play_only=true
 
 # macOS / MacBook 上的 MotrixSim 原生 renderer
 uv run mxpython scripts/train_rsl_rl.py task=go1_joystick_flat/motrix training.play_only=true
@@ -122,11 +122,11 @@ uv run mxpython scripts/train_rsl_rl.py task=go1_joystick_flat/motrix training.p
 
 ## Architecture Decision References
 
-- 总体架构标准: [RL Infrastructure 开发标准](00-development-architecture.md)
-- 后端能力边界 ADR: [ADR-0002 Backend Capability Boundary For Play And Snapshot](adr/ADR-0002-backend-capability-boundary-for-play-and-snapshot.md)
-- task owner / compose contract ADR: [ADR-0003 Task Owner And Config Compose Contract](adr/ADR-0003-task-owner-and-config-compose-contract.md)
-- registry bootstrap ADR: [ADR-0004 Registry Bootstrap Contract](adr/ADR-0004-registry-bootstrap-contract.md)
-- ADR 索引: [ADR Index](adr/README.md)
+- 总体架构标准: [RL Infrastructure 开发标准](../../developers/zh_CN/development-standard.md)
+- 后端能力边界 ADR: [ADR-0002 Backend Capability Boundary For Play And Snapshot](../../developers/adr/ADR-0002-backend-capability-boundary-for-play-and-snapshot.md)
+- task owner / compose contract ADR: [ADR-0003 Task Owner And Config Compose Contract](../../developers/adr/ADR-0003-task-owner-and-config-compose-contract.md)
+- registry bootstrap ADR: [ADR-0004 Registry Bootstrap Contract](../../developers/adr/ADR-0004-registry-bootstrap-contract.md)
+- ADR 索引: [ADR Index](../../developers/adr/README.md)
 
 ## Navigation
 

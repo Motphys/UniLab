@@ -2,7 +2,7 @@
 
 语言: 简体中文
 
-本页只保留算法级说明。入口脚本和通用 CLI 参数见 [03-training.md](03-training.md)。
+本页只保留算法级说明。入口脚本和通用 CLI 参数见 [Training Guide](03-training.md)。
 
 ## APPO
 
@@ -119,4 +119,4 @@ uv run python scripts/train_offpolicy.py algo=td3 task=td3/go1_joystick_flat/muj
 ## Navigation
 
 - Previous: [Training Guide](03-training.md)
-- Next: [G1 Motion Tracking](05-g1-motion-tracking.md)
+- Next: [G1 Motion Tracking](05-motion-tracking.md)

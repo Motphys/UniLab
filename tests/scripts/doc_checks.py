@@ -215,7 +215,7 @@ def check_training_entrypoint_semantics(content: str, doc_path: Path, root: Path
 
 def check_generated_support_matrix(content: str, doc_path: Path, root: Path) -> list[str]:
     errors: list[str] = []
-    if doc_path != root / "docs" / "zh_CN" / "02-simulation-backends.md":
+    if doc_path != root / "docs" / "users" / "zh_CN" / "02-simulation-backends.md":
         return errors
 
     expected = replace_generated_block(content, render_generated_block(root))
