@@ -68,6 +68,7 @@ uv run python scripts/generate_support_matrix.py --write
 | SAC (torch) | `go1_joystick` (Go1 joystick) | Tested | Tested |
 | SAC (torch) | `go2_joystick` (Go2 joystick) | Tested | Tested |
 | SAC (torch) | `g1_sac` (G1 SAC locomotion) | Tested | Tested |
+| SAC (torch) | `g1_sac_rough_terrain` (g1 sac rough terrain) | Tested | Registered |
 | TD3 (torch) | `go1_joystick` (Go1 joystick) | Tested | Tested |
 | TD3 (torch) | `go2_joystick` (Go2 joystick) | Tested | Tested |
 
