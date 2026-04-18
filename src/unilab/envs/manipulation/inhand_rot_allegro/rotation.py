@@ -293,9 +293,10 @@ class AllegroRotationPPO(AllegroBaseEnv):
     ) -> np.ndarray:
         del info, dof_pos, dof_vel, ball_pos, ball_linvel, torques, terminated
         vec_dot = ball_angvel @ self._rot_axis
-        return np.asarray(
-            np.clip(vec_dot, self._reward_cfg.angvel_clip_min, self._reward_cfg.angvel_clip_max)
+        reward: np.ndarray = np.clip(
+            vec_dot, self._reward_cfg.angvel_clip_min, self._reward_cfg.angvel_clip_max
         )
+        return reward
 
     def _reward_obj_linvel(
         self,
@@ -309,7 +310,8 @@ class AllegroRotationPPO(AllegroBaseEnv):
         terminated: np.ndarray,
     ) -> np.ndarray:
         del info, dof_pos, dof_vel, ball_pos, ball_angvel, torques, terminated
-        return np.asarray(np.sum(np.abs(ball_linvel), axis=1))
+        penalty: np.ndarray = np.sum(np.abs(ball_linvel), axis=1)
+        return penalty
 
     def _reward_pose_diff(
         self,
@@ -324,7 +326,8 @@ class AllegroRotationPPO(AllegroBaseEnv):
     ) -> np.ndarray:
         del dof_vel, ball_pos, ball_linvel, ball_angvel, torques, terminated
         diff = dof_pos - info["init_pose"]
-        return np.asarray(np.sum(np.square(diff), axis=1))
+        penalty: np.ndarray = np.sum(np.square(diff), axis=1)
+        return penalty
 
     def _reward_torque(
         self,
@@ -338,7 +341,8 @@ class AllegroRotationPPO(AllegroBaseEnv):
         terminated: np.ndarray,
     ) -> np.ndarray:
         del info, dof_pos, dof_vel, ball_pos, ball_linvel, ball_angvel, terminated
-        return np.asarray(np.sum(np.square(torques), axis=1))
+        penalty: np.ndarray = np.sum(np.square(torques), axis=1)
+        return penalty
 
     def _reward_work(
         self,
@@ -353,7 +357,8 @@ class AllegroRotationPPO(AllegroBaseEnv):
     ) -> np.ndarray:
         del info, dof_pos, ball_pos, ball_linvel, ball_angvel, terminated
         work = np.sum(torques * dof_vel, axis=1)
-        return np.asarray(np.square(work))
+        penalty: np.ndarray = np.square(work)
+        return penalty
 
     def _reward_drop(
         self,

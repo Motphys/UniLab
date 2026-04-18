@@ -100,6 +100,11 @@ def build_runner(algo_name: str, cfg: DictConfig):
         if cfg.training.num_gpus > 1:
             from unilab.algos.torch.offpolicy.multi_gpu_runner import MultiGPUOffPolicyRunner
 
+            if cfg.algo.use_symmetry:
+                raise ValueError(
+                    "Off-policy symmetry augmentation does not support training.num_gpus > 1"
+                )
+
             ensure_registries()
             device = cfg.training.device or get_default_device()
             env = create_env(
@@ -110,7 +115,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             assert env.action_space.shape
             from unilab.utils.obs_utils import get_obs_dims
 
-            obs_dim, privileged_dim = get_obs_dims(env.obs_groups_spec)
+            obs_dim, critic_dim = get_obs_dims(env.obs_groups_spec)
             action_dim = env.action_space.shape[0]
             env.close()
 
@@ -130,8 +135,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
                 "use_layer_norm": cfg.algo.use_layer_norm,
                 "max_grad_norm": cfg.algo.algo_params.max_grad_norm,
                 "use_amp": cfg.training.use_amp,
-                "privileged_dim": privileged_dim,
-                # symmetry not supported in multi-GPU mode (mujoco_model not picklable)
+                "critic_obs_dim": critic_dim,
                 "use_symmetry": False,
             }
             main_learner = FastSACLearner(device=device, **learner_kwargs)

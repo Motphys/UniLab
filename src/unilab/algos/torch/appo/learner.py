@@ -197,11 +197,11 @@ class APPOLearner:
         importance-sampling-corrected value targets and advantages.
         """
         obs = batch_dict["observations"]  # [T, N, D]
-        privileged = batch_dict.get("privileged", None)  # [T, N, P] or None
+        critic_base = batch_dict.get("critic", None)  # [T, N, C] or None
         rewards = batch_dict["rewards"]  # [T, N]
         dones = batch_dict["dones"].float()  # [T, N]
         last_obs = batch_dict["last_obs"]  # [N, D]
-        last_privileged = batch_dict.get("last_privileged", None)  # [N, P] or None
+        last_critic = batch_dict.get("last_critic", None)  # [N, C] or None
         behavior_log_probs = batch_dict["actions_log_prob"]  # [T, N]
         actions = batch_dict["actions"]  # [T, N, A]
 
@@ -212,13 +212,13 @@ class APPOLearner:
         obs_td = TensorDict({"policy": obs_flat}, batch_size=obs_flat.shape[0], device=self.device)
         last_obs_td = TensorDict({"policy": last_obs}, batch_size=N, device=self.device)
 
-        # Critic: obs + privileged
-        if privileged is not None:
-            critic_obs = torch.cat([obs, privileged], dim=-1)  # [T, N, D+P]
-            critic_last_obs = torch.cat([last_obs, last_privileged], dim=-1)  # [N, D+P]
-        else:
-            critic_obs = obs
-            critic_last_obs = last_obs
+        # Critic: explicit critic obs when available, else actor obs
+        if critic_base is None:
+            critic_base = obs
+        if last_critic is None:
+            last_critic = last_obs
+        critic_obs = critic_base
+        critic_last_obs = last_critic
         critic_obs_flat = critic_obs.flatten(0, 1)  # [T*N, D+P]
         critic_obs_td = TensorDict(
             {"policy": critic_obs_flat}, batch_size=critic_obs_flat.shape[0], device=self.device
@@ -305,16 +305,14 @@ class APPOLearner:
                 {"policy": obs_flat}, batch_size=obs_flat.shape[0], device=self.device
             )
 
-        # Critic uses obs+privileged
+        # Critic uses explicit critic obs when available
         critic_obs_flat = batch_dict.get("_critic_obs_flat")
         if critic_obs_flat is None:
-            # Fallback if not cached (shouldn't happen)
-            privileged_flat = batch_dict.get("privileged")
-            if privileged_flat is not None:
-                privileged_flat = privileged_flat.flatten(0, 1)
-                critic_obs_flat = torch.cat([obs_flat, privileged_flat], dim=-1)
-            else:
+            critic_base_flat = batch_dict.get("critic")
+            if critic_base_flat is None:
                 critic_obs_flat = obs_flat
+            else:
+                critic_obs_flat = critic_base_flat.flatten(0, 1)
         critic_obs_td = TensorDict(
             {"policy": critic_obs_flat}, batch_size=critic_obs_flat.shape[0], device=self.device
         )

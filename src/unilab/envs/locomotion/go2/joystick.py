@@ -109,7 +109,7 @@ class Go2WalkTask(Go2BaseEnv):
     @property
     def obs_groups_spec(self) -> dict[str, int]:
         # gyro(3) + gravity(3) + diff(12) + dof_vel(12) + action(12) + cmd(3) + phase(4) = 49
-        return {"obs": 49, "privileged": 3}
+        return {"obs": 49, "critic": 52}
 
     def _init_reward_functions(self):
         self._reward_fns: dict[str, Any] = {
@@ -161,7 +161,8 @@ class Go2WalkTask(Go2BaseEnv):
             axis=1,
             dtype=get_global_dtype(),
         )
-        return {"obs": obs, "privileged": linvel}
+        critic = np.concatenate([obs, linvel], axis=1, dtype=get_global_dtype())
+        return {"obs": obs, "critic": critic}
 
     def _compute_reward(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         dtype = get_global_dtype()
@@ -203,7 +204,8 @@ class Go2WalkTask(Go2BaseEnv):
         target_height = 0.1
         height_error = np.square(self.feet_pos[:, :, 2] - target_height)
         swing_rew = np.exp(-height_error / 0.01) * is_swing
-        return np.asarray(np.sum(swing_rew, axis=1) / len(self._cfg.sensor.feet_pos))
+        reward: np.ndarray = np.sum(swing_rew, axis=1) / len(self._cfg.sensor.feet_pos)
+        return reward
 
     def _reward_foot_drag(self, ctx: RewardContext) -> np.ndarray:
         foot_pos = self.get_foot_pos()
@@ -213,7 +215,8 @@ class Go2WalkTask(Go2BaseEnv):
         safe_height = self._reward_cfg.target_foot_height / 2.0
         height_error = np.clip(safe_height - foot_heights, 0.0, None)
         error = np.square(height_error) * is_swing
-        return np.asarray(np.sum(error, axis=1))
+        drag_penalty: np.ndarray = np.sum(error, axis=1)
+        return drag_penalty
 
     def _reward_contact(self, ctx: RewardContext) -> np.ndarray:
         contact = self.feet_force[:, :, 2] > 0.1

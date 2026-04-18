@@ -359,9 +359,8 @@ class G1MotionTrackingEnv(G1BaseEnv):
         #        + linvel(3) + gyro(3) + joint_pos(n) + joint_vel(n) + actions(n)
         n = self._num_action
         actor_dim = 3 + 6 + 3 + 3 + n * 5
-        # Privileged: body_pos_b(num_bodies*3) + body_ori_b(num_bodies*6)
-        privileged_dim = len(self._cfg.body_names) * 9
-        return {"obs": actor_dim, "privileged": privileged_dim}
+        critic_extra_dim = len(self._cfg.body_names) * 9
+        return {"obs": actor_dim, "critic": actor_dim + critic_extra_dim}
 
     def _init_reward_functions(self):
         self._reward_fns = {
@@ -523,7 +522,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
         robot_body_pos_w: np.ndarray,
         robot_body_quat_w: np.ndarray,
     ) -> dict[str, np.ndarray]:
-        """Compute observations as dict with actor and privileged groups."""
+        """Compute observations as dict with actor and critic groups."""
         num_envs = linvel.shape[0]
         command = np.concatenate(
             [motion_data.joint_pos, motion_data.joint_vel],
@@ -576,7 +575,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
             dtype=get_global_dtype(),
         )
 
-        # Robot body positions in robot anchor frame (privileged) — vectorized
+        # Robot body positions in robot anchor frame (critic-only) — vectorized
         n_body = len(self._cfg.body_names)
         # Flatten (N, B, *) -> (N*B, *) for batched frame transform
         anchor_pos_tiled = np.tile(robot_anchor_pos_w, (1, n_body)).reshape(num_envs * n_body, 3)
@@ -591,7 +590,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
         ori_mat = np_matrix_from_quat(ori_b_flat)  # (N*B, 3, 3)
         robot_body_ori_b = ori_mat[:, :, :2].reshape(num_envs, n_body, 6)
 
-        privileged_obs = np.concatenate(
+        critic_extra = np.concatenate(
             [
                 robot_body_pos_b.reshape(num_envs, -1),
                 robot_body_ori_b.reshape(num_envs, -1),
@@ -600,7 +599,8 @@ class G1MotionTrackingEnv(G1BaseEnv):
             dtype=get_global_dtype(),
         )
 
-        return {"obs": actor_obs, "privileged": privileged_obs}
+        critic_obs = np.concatenate([actor_obs, critic_extra], axis=1, dtype=get_global_dtype())
+        return {"obs": actor_obs, "critic": critic_obs}
 
     def _compute_reward(
         self,

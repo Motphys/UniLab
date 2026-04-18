@@ -73,18 +73,23 @@ class LocomotionBaseEnv(NpEnv):
             if self._cfg.control_config.simulate_action_latency
             else actions
         )
-        return np.asarray(
+        ctrl: np.ndarray = (
             exec_actions * self._cfg.control_config.action_scale + self.default_angles
         )
+        return ctrl
 
     def get_local_linvel(self) -> np.ndarray:
-        return np.asarray(self._backend.get_sensor_data(self._cfg.sensor.local_linvel))
+        local_linvel: np.ndarray = self._backend.get_sensor_data(self._cfg.sensor.local_linvel)
+        return local_linvel
 
     def get_gyro(self) -> np.ndarray:
-        return np.asarray(self._backend.get_sensor_data(self._cfg.sensor.gyro))
+        gyro: np.ndarray = self._backend.get_sensor_data(self._cfg.sensor.gyro)
+        return gyro
 
     def get_dof_pos(self) -> np.ndarray:
-        return np.asarray(self._backend.get_dof_pos())
+        dof_pos: np.ndarray = self._backend.get_dof_pos()
+        return dof_pos
 
     def get_dof_vel(self) -> np.ndarray:
-        return np.asarray(self._backend.get_dof_vel())
+        dof_vel: np.ndarray = self._backend.get_dof_vel()
+        return dof_vel

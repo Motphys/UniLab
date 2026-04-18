@@ -3,6 +3,7 @@ import statistics
 import sys
 import time
 from pathlib import Path
+from typing import Any, cast
 
 import hydra
 import torch
@@ -19,6 +20,8 @@ from unilab.training import (
     BackendAdapter,
     create_env,
     ensure_registries,
+    get_latest_checkpoint,
+    get_latest_run,
     get_log_root,
     parse_checkpoint_path,
     render_play_mode,
@@ -45,12 +48,12 @@ def _backend_adapter(cfg: DictConfig) -> BackendAdapter:
     )
 
 
-def build_ppo_env_cfg_override(cfg: DictConfig) -> dict:
-    return _backend_adapter(cfg).build_task_env_cfg_override()
+def build_ppo_env_cfg_override(cfg: DictConfig) -> dict[str, Any]:
+    return cast(dict[str, Any], _backend_adapter(cfg).build_task_env_cfg_override())
 
 
-def build_ppo_play_env_cfg_override(cfg: DictConfig) -> dict:
-    return _backend_adapter(cfg).build_play_env_cfg_override()
+def build_ppo_play_env_cfg_override(cfg: DictConfig) -> dict[str, Any]:
+    return cast(dict[str, Any], _backend_adapter(cfg).build_play_env_cfg_override())
 
 
 def run_motrix_rsl_play_loop(
@@ -77,27 +80,63 @@ def _get_log_root(cfg: DictConfig) -> str:
     return str(get_log_root(ROOT_DIR, cfg))
 
 
+def _algo_config_dict(cfg: DictConfig) -> dict[str, Any]:
+    train_cfg_raw = OmegaConf.to_container(cfg.algo, resolve=True)
+    if not isinstance(train_cfg_raw, dict):
+        raise TypeError("cfg.algo must resolve to a dict")
+    return cast(dict[str, Any], train_cfg_raw)
+
+
+def _format_play_checkpoint_error(
+    cfg: DictConfig,
+    *,
+    task_log_root: Path,
+    load_path: Path | None,
+    load_path_dir: Path | None,
+) -> str:
+    selected_checkpoint = OmegaConf.select(cfg, "algo.checkpoint", default=-1)
+    checkpoint_hint = (
+        f" algo.checkpoint={selected_checkpoint!r}"
+        if selected_checkpoint not in (None, "", -1, "-1")
+        else ""
+    )
+
+    if load_path_dir is not None and load_path is None and checkpoint_hint:
+        reason = f"Requested checkpoint was not found under resolved_run={load_path_dir}."
+    elif not task_log_root.exists():
+        reason = "Task log root does not exist."
+    else:
+        latest_run = get_latest_run(task_log_root)
+        if latest_run is None:
+            reason = "No run directories were found under the task log root."
+        elif get_latest_checkpoint(latest_run) is None:
+            reason = f"Resolved latest run has no model_*.pt checkpoint files: {latest_run}."
+        else:
+            reason = "Requested run or checkpoint could not be resolved."
+
+    return (
+        "Could not resolve a checkpoint for play mode. "
+        f"{reason} task={cfg.training.task_name} task_log_root={task_log_root} "
+        f"algo.load_run={cfg.algo.load_run!r}{checkpoint_hint}."
+        " Use algo.load_run=<run-dir-or-checkpoint-path> "
+        "and optionally algo.checkpoint=<iteration-or-filename>."
+    )
+
+
 def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     """Play mode for RSL-RL."""
 
-    env_cfg_override = build_ppo_play_env_cfg_override(cfg)
-
-    env = create_env(
-        cfg,
-        num_envs=cfg.training.play_env_num,
-        env_cfg_override=env_cfg_override,
-    )
-    wrapped_env = RslRlVecEnvWrapper(env, device=device)
-    train_cfg = OmegaConf.to_container(cfg.algo, resolve=True)
-    if "runner" not in train_cfg:
-        train_cfg["runner"] = {}
-    train_cfg["runner"]["logger"] = "none"
-    if is_rsl_rl_v5():
-        train_cfg = convert_config_v5(train_cfg)
-
+    task_log_root = get_log_root(ROOT_DIR, cfg) / str(cfg.training.task_name)
     load_path, load_path_dir = parse_checkpoint_path(cfg, root_dir=ROOT_DIR)
     if load_path is None or load_path_dir is None or not load_path.exists():
-        print(f"Could not find run to load at {load_path}")
+        print(
+            _format_play_checkpoint_error(
+                cfg,
+                task_log_root=task_log_root,
+                load_path=load_path,
+                load_path_dir=load_path_dir,
+            )
+        )
         return None
 
     print(f"Loading latest model: {load_path}")
@@ -109,12 +148,30 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
         )
         return None
 
-    runner = OnPolicyRunner(wrapped_env, train_cfg, log_dir=None, device=device)
+    env_cfg_override = build_ppo_play_env_cfg_override(cfg)
+
+    env = create_env(
+        cfg,
+        num_envs=cfg.training.play_env_num,
+        env_cfg_override=env_cfg_override,
+    )
+    wrapped_env = RslRlVecEnvWrapper(env, device=device)
+    train_cfg = _algo_config_dict(cfg)
+    if "runner" not in train_cfg:
+        train_cfg["runner"] = {}
+    train_cfg["runner"]["logger"] = "none"
+    if is_rsl_rl_v5():
+        train_cfg = cast(dict[str, Any], convert_config_v5(train_cfg))
+
+    runner = cast(
+        Any,
+        OnPolicyRunner(cast(Any, wrapped_env), train_cfg, log_dir=None, device=device),
+    )
     runner.load(str(load_path))
     policy = runner.get_inference_policy(device=device)
     if EXPORT_POLICY:
-        runner.export_policy_to_onnx(path=load_path_dir)
-        runner.export_policy_to_jit(path=load_path_dir)
+        runner.export_policy_to_onnx(path=str(load_path_dir))
+        runner.export_policy_to_jit(path=str(load_path_dir))
     if cfg.training.sim_backend == "motrix":
         print("Starting interactive visualization (motrix native renderer)...")
         print("Close the render window to exit.")
@@ -155,6 +212,9 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
                     "cam_elevation": cfg.training.cam_elevation,
                     "cam_azimuth": cfg.training.cam_azimuth,
                     "cam_lookat": getattr(cfg.training, "cam_lookat", None),
+                    "cam_tracking": getattr(cfg.training, "cam_tracking", False),
+                    "cam_tracking_env_idx": getattr(cfg.training, "cam_tracking_env_idx", 0),
+                    "cam_tracking_extra_envs": getattr(cfg.training, "cam_tracking_extra_envs", 2),
                 },
             )
         print("Done.")
@@ -219,7 +279,7 @@ def main(cfg: DictConfig) -> None:
             )
             wrapped_env = RslRlVecEnvWrapper(env, device=device)
 
-            train_cfg = OmegaConf.to_container(cfg.algo, resolve=True)
+            train_cfg = _algo_config_dict(cfg)
             if "runner" not in train_cfg:
                 train_cfg["runner"] = {}
 
@@ -241,9 +301,12 @@ def main(cfg: DictConfig) -> None:
                 train_cfg["wandb_mode"] = wandb_settings["mode"]
 
             if is_rsl_rl_v5():
-                train_cfg = convert_config_v5(train_cfg)
+                train_cfg = cast(dict[str, Any], convert_config_v5(train_cfg))
 
-            runner = OnPolicyRunner(wrapped_env, train_cfg, log_dir=log_dir, device=device)
+            runner = cast(
+                Any,
+                OnPolicyRunner(cast(Any, wrapped_env), train_cfg, log_dir=log_dir, device=device),
+            )
 
             if cfg.algo.load_run != "-1":
                 resume_path, _ = parse_checkpoint_path(cfg, root_dir=ROOT_DIR)
@@ -253,6 +316,7 @@ def main(cfg: DictConfig) -> None:
 
             train_start_wall = time.time()
             runner.learn(num_learning_iterations=max_iterations, init_at_random_ep_len=True)
+            assert log_dir is not None
             train_summary = {
                 "status": "completed",
                 "completed_iterations": int(runner.current_learning_iteration),

@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from tensordict import TensorDict
 
-from unilab.utils.obs_utils import flatten_obs_dict
+from unilab.utils.obs_utils import flatten_policy_obs_dict
 from unilab.utils.torch_utils import to_torch
 
 
@@ -38,9 +38,11 @@ class RslRlVecEnvWrapper:
 
         # Compute observation dimensions
         self._actor_obs_dim = int(env.obs_groups_spec.get("obs", sum(env.obs_groups_spec.values())))
-        self._flat_obs_dim = int(sum(env.obs_groups_spec.values()))
+        self._critic_obs_dim = int(env.obs_groups_spec.get("critic", self._actor_obs_dim))
+        self._flat_obs_dim = self._actor_obs_dim
         self.num_obs = self._flat_obs_dim if policy_obs_mode == "flat" else self._actor_obs_dim
-        self.num_privileged_obs = self.num_obs
+        # Legacy RSL-RL field name; semantically this is the critic-path observation dim.
+        self.num_privileged_obs = self._critic_obs_dim
         self.num_actions = env.action_space.shape[0]
 
         # Episode tracking
@@ -56,22 +58,22 @@ class RslRlVecEnvWrapper:
         """Convert observation dict to TensorDict for RSL-RL.
 
         Args:
-            obs: Observation dictionary with "obs" key and optional "privileged" key.
+            obs: Observation dictionary with mandatory "obs" and optional "critic".
 
         Returns:
-            TensorDict with "policy" and "actor" keys (and optional "privileged").
+            TensorDict with "policy" and "actor" keys, plus optional "critic".
         """
         actor = to_torch(obs["obs"], self.device)
 
         if self.policy_obs_mode == "actor":
             policy = actor
         else:
-            policy = to_torch(flatten_obs_dict(obs), self.device)
+            policy = to_torch(flatten_policy_obs_dict(obs), self.device)
 
         td: dict[str, torch.Tensor] = {"policy": policy, "actor": actor}
 
-        if "privileged" in obs:
-            td["privileged"] = to_torch(obs["privileged"], self.device)
+        if "critic" in obs:
+            td["critic"] = to_torch(obs["critic"], self.device)
 
         return TensorDict(td, batch_size=self.num_envs, device=self.device)
 
@@ -154,11 +156,11 @@ class RslRlVecEnvWrapper:
         return self._obs_to_tensordict(self.env.state.obs)
 
     def get_privileged_observations(self):
-        """Get current privileged observations.
+        """Get current critic observations via the legacy RSL-RL hook name.
 
         Returns:
-            Torch tensor with privileged observations (or policy obs if unavailable).
+            Torch tensor with critic-path observations (or actor obs if unavailable).
         """
-        if self.policy_obs_mode == "actor":
-            return to_torch(self.env.state.obs["obs"], self.device)
-        return to_torch(flatten_obs_dict(self.env.state.obs), self.device)
+        obs = self.env.state.obs
+        critic_base = obs.get("critic", obs["obs"])
+        return to_torch(critic_base, self.device)

@@ -156,13 +156,27 @@ def parse_checkpoint_path(
     root_dir: str | Path,
     load_run: str | None = None,
     task_name: str | None = None,
+    checkpoint: str | int | None = None,
     suffix: str = ".pt",
 ) -> tuple[Path | None, Path | None]:
     """Resolve a checkpoint path from Hydra config and repository root."""
     selected_task = task_name or str(OmegaConf.select(cfg, "training.task_name"))
     selected_run = load_run or str(OmegaConf.select(cfg, "algo.load_run", default="-1"))
-    base_log_dir = get_log_root(root_dir, cfg) / selected_task
-    return resolve_checkpoint_path(base_log_dir, selected_run, suffix=suffix)
+    selected_checkpoint = checkpoint
+    if selected_checkpoint is None:
+        selected_checkpoint = OmegaConf.select(cfg, "algo.checkpoint", default=-1)
+    if selected_checkpoint in (None, "", -1, "-1"):
+        selected_checkpoint = None
+
+    return resolve_task_checkpoint_path(
+        root_dir,
+        task_name=selected_task,
+        load_run=selected_run,
+        algo_log_name=str(OmegaConf.select(cfg, "algo.algo_log_name")),
+        checkpoint=str(selected_checkpoint) if selected_checkpoint is not None else None,
+        suffix=suffix,
+        log_root=OmegaConf.select(cfg, "training.log_root"),
+    )
 
 
 def resolve_task_checkpoint_path(
@@ -312,19 +326,39 @@ def render_play_mode(
 
     from unilab.utils import render_many
 
-    frames = render_many.render_states_get_frames(
-        state_list,
-        env.cfg.model_file,
-        width=1280,
-        height=720,
-        camera_id=-1,
-        render_spacing=(
-            float(render_spacing)
-            if render_spacing is not None
-            else float(getattr(env.cfg, "render_spacing", 1.0))
-        ),
-        **(camera_kwargs or {}),
+    cam_kw = dict(camera_kwargs or {})
+    use_tracking = bool(cam_kw.pop("cam_tracking", False))
+    tracking_env_idx = int(cam_kw.pop("cam_tracking_env_idx", 0))
+    tracking_extra_envs = int(cam_kw.pop("cam_tracking_extra_envs", 2))
+    effective_spacing = (
+        float(render_spacing)
+        if render_spacing is not None
+        else float(getattr(env.cfg, "render_spacing", 1.0))
     )
+
+    if use_tracking:
+        frames = render_many.render_states_get_frames_tracking(
+            state_list,
+            env.cfg.model_file,
+            width=1280,
+            height=720,
+            tracking_env_idx=tracking_env_idx,
+            max_extra_envs=tracking_extra_envs,
+            cam_distance=cam_kw.get("cam_distance", 2.0),
+            cam_elevation=cam_kw.get("cam_elevation", -20),
+            cam_azimuth=cam_kw.get("cam_azimuth", 90),
+            render_spacing=effective_spacing,
+        )
+    else:
+        frames = render_many.render_states_get_frames(
+            state_list,
+            env.cfg.model_file,
+            width=1280,
+            height=720,
+            camera_id=-1,
+            render_spacing=effective_spacing,
+            **cam_kw,
+        )
 
     import mediapy as media
 

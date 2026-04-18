@@ -75,7 +75,7 @@ def test_registry_bootstrap_and_config_imports_do_not_require_mujoco():
 
 
 def test_g1_joystick_ppo_cfg_obs_groups_spec():
-    """G1JoystickPPO must declare obs_groups_spec with actor and privileged groups."""
+    """G1JoystickPPO must declare obs_groups_spec with actor and critic groups."""
     from unilab.envs.locomotion.g1.joystick import G1JoystickPPOCfg
 
     cfg = G1JoystickPPOCfg()
@@ -110,7 +110,7 @@ def test_g1_joystick_ppo_obs_groups_spec_dims():
     G1JoystickPPO._compute_obs outputs (G1 has 29 DoF):
         actor: gyro(3) + gravity(3) + diff(29) + dof_vel(29)
             + last_actions(29) + command(3) + gait_phase(2) = 98
-        privileged: linvel(3)
+        critic: actor(98) + linvel(3) = 101
     """
     from unilab.envs.locomotion.g1.joystick import G1JoystickPPO
 
@@ -118,7 +118,7 @@ def test_g1_joystick_ppo_obs_groups_spec_dims():
     spec = G1JoystickPPO.obs_groups_spec.fget(None)  # type: ignore[union-attr]
     assert spec is not None
     assert spec["obs"] == 98
-    assert spec["privileged"] == 3
+    assert spec["critic"] == 101
 
 
 def test_allegro_rotation_obs_groups_spec_dims():
@@ -359,13 +359,13 @@ def test_g1_motion_tracking_clip_end_contributes_to_truncated():
     env._compute_reward = lambda *args: np.zeros((2,), dtype=np.float32)
     env._compute_obs = lambda *args: {
         "obs": np.zeros((2, 1), dtype=np.float32),
-        "privileged": np.zeros((2, 1), dtype=np.float32),
+        "critic": np.zeros((2, 2), dtype=np.float32),
     }
 
     state = NpEnvState(
         obs={
             "obs": np.zeros((2, 1), dtype=np.float32),
-            "privileged": np.zeros((2, 1), dtype=np.float32),
+            "critic": np.zeros((2, 2), dtype=np.float32),
         },
         reward=np.zeros((2,), dtype=np.float32),
         terminated=np.zeros((2,), dtype=bool),
@@ -624,7 +624,7 @@ def test_g1_motion_tracking_reset_and_step(sim_backend: str):
         spec = env.obs_groups_spec
         assert isinstance(spec, dict)
         assert "obs" in spec
-        assert "privileged" in spec
+        assert "critic" in spec
         obs_shape = env.observation_space.shape
         assert obs_shape is not None
         assert sum(spec.values()) == obs_shape[0]

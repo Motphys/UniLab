@@ -90,7 +90,8 @@ def np_quat_canonicalize(q: np.ndarray) -> np.ndarray:
 
     sign = np.where(q[:, 0:1] < 0.0, -1.0, 1.0)
     result = q * sign
-    return np.asarray(result[0] if q_was_1d else result)
+    canonical: np.ndarray = result[0] if q_was_1d else result
+    return canonical
 
 
 def np_quat_ensure_continuity(q: np.ndarray) -> np.ndarray:
@@ -124,7 +125,8 @@ def np_quat_to_axis_angle(q: np.ndarray) -> np.ndarray:
         0.5 - angle**2 / 48.0,
         np.sin(half_angle) / safe_angle,
     )
-    return np.asarray(xyz / sin_half_over_angle)  # type: ignore[no-any-return]
+    axis_angle: np.ndarray = xyz / sin_half_over_angle
+    return axis_angle
 
 
 def np_quat_angular_velocity(q: np.ndarray, dt: float) -> np.ndarray:
@@ -213,7 +215,8 @@ def np_quat_apply(q: np.ndarray, v: np.ndarray) -> np.ndarray:
         axis=1,
     )
 
-    return np.asarray(result[0] if q_was_1d and v_was_1d else result)
+    rotated: np.ndarray = result[0] if q_was_1d and v_was_1d else result
+    return rotated
 
 
 def np_quat_apply_inverse(q: np.ndarray, v: np.ndarray) -> np.ndarray:
@@ -244,7 +247,8 @@ def np_quat_error_magnitude(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
     xyz_norm = np.linalg.norm(q_rel[:, 1:], axis=1)
     w = np.clip(q_rel[:, 0], -1.0, 1.0)
     error = 2.0 * np.arctan2(xyz_norm, w)
-    return np.asarray(error[0] if q1_was_1d and q2_was_1d else error)
+    magnitude: np.ndarray = error[0] if q1_was_1d and q2_was_1d else error
+    return magnitude
 
 
 def np_quat_from_euler_xyz(roll: np.ndarray, pitch: np.ndarray, yaw: np.ndarray) -> np.ndarray:

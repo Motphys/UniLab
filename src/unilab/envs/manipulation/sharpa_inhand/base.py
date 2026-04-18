@@ -105,10 +105,10 @@ class SharpaInhandBaseCfg(EnvCfg):
     action_space: int = 22
     observation_space: int = 192
     prop_hist_len: int = 30
-    priv_info_dim: int = 8
-    # "separate": keep privileged info in its own obs group.
-    # "merged": append privileged info into the main "obs" vector.
-    privileged_obs_mode: str = "separate"
+    critic_info_dim: int = 8
+    # "separate": keep critic-only info in its own obs group.
+    # "merged": append critic info into the main "obs" vector.
+    critic_obs_mode: str = "separate"
 
     clip_obs: float = 5.0
     clip_actions: float = 1.0
@@ -307,7 +307,7 @@ class SharpaInhandBaseEnv(NpEnv):
         self.proprio_hist_buf = np.zeros(
             (num_envs, cfg.prop_hist_len, cfg.frame_obs_dim), dtype=self._np_dtype
         )
-        self.priv_info_buf = np.zeros((num_envs, cfg.priv_info_dim), dtype=self._np_dtype)
+        self.critic_info_buf = np.zeros((num_envs, cfg.critic_info_dim), dtype=self._np_dtype)
 
         self.scale_ids, self._num_scales, self._bucket_env = self._build_scale_ids(
             num_envs, cfg.scale_range
@@ -386,8 +386,9 @@ class SharpaInhandBaseEnv(NpEnv):
         )
         targets = prev_targets + self._cfg.control_config.action_scale * clipped_actions
         targets = np.clip(targets, self._ctrl_lower, self._ctrl_upper)
-        state.info["prev_targets"] = np.asarray(targets, dtype=self._np_dtype)
-        return np.asarray(state.info["prev_targets"])
+        prev_targets = np.asarray(targets, dtype=self._np_dtype)
+        state.info["prev_targets"] = prev_targets
+        return prev_targets
 
     def get_hand_dof_pos(self) -> np.ndarray:
         return np.asarray(self._backend.get_dof_pos()[:, : self._num_action], dtype=self._np_dtype)
@@ -460,7 +461,7 @@ class SharpaInhandBaseEnv(NpEnv):
         else:
             self.last_contacts.fill(0.0)
 
-        return np.asarray(tactile, dtype=self._np_dtype)
+        return tactile
 
     def _compute_contact_positions(self, tactile: np.ndarray) -> np.ndarray:
         del tactile
