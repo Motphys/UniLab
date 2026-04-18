@@ -103,3 +103,54 @@ def test_fast_sac_runner_skips_symmetry_builder_when_disabled(monkeypatch: pytes
     assert fake_env.closed is True
     assert runner.batch_size == 8
     assert runner.learner.symmetry is None
+
+
+def test_fast_sac_learner_rejects_symmetry_without_augmentation():
+    from unilab.algos.torch.fast_sac.learner import FastSACLearner
+
+    with pytest.raises(
+        ValueError,
+        match="FastSACLearner use_symmetry=True requires a symmetry_augmentation contract",
+    ):
+        FastSACLearner(
+            obs_dim=4,
+            action_dim=2,
+            device="cpu",
+            use_symmetry=True,
+        )
+
+
+def test_multi_gpu_offpolicy_runner_rejects_sac_symmetry_capability():
+    from unilab.algos.torch.offpolicy.multi_gpu_runner import MultiGPUOffPolicyRunner
+
+    with pytest.raises(
+        ValueError,
+        match="Off-policy symmetry augmentation does not support training.num_gpus > 1",
+    ):
+        MultiGPUOffPolicyRunner.validate_capabilities(
+            algo_type="sac",
+            learner_kwargs={"use_symmetry": True},
+            num_gpus=2,
+        )
+
+
+@pytest.mark.parametrize(
+    ("algo_type", "learner_kwargs", "num_gpus"),
+    [
+        ("sac", {"use_symmetry": False}, 2),
+        ("sac", {"use_symmetry": True}, 1),
+        ("td3", {"use_symmetry": True}, 2),
+    ],
+)
+def test_multi_gpu_offpolicy_runner_allows_supported_capabilities(
+    algo_type: str,
+    learner_kwargs: dict[str, bool],
+    num_gpus: int,
+):
+    from unilab.algos.torch.offpolicy.multi_gpu_runner import MultiGPUOffPolicyRunner
+
+    MultiGPUOffPolicyRunner.validate_capabilities(
+        algo_type=algo_type,
+        learner_kwargs=learner_kwargs,
+        num_gpus=num_gpus,
+    )
