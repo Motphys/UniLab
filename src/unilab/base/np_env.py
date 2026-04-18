@@ -86,7 +86,13 @@ class NpEnv(ABEnv):
         reward = np.zeros((self._num_envs,), dtype=dtype)
         terminated = np.ones((self._num_envs,), dtype=bool)
         truncated = np.zeros((self._num_envs,), dtype=bool)
-        info: dict = {"steps": np.zeros((self._num_envs,), dtype=np.uint32)}
+        if self._cfg.max_episode_steps:
+            steps = np.random.randint(
+                0, self._cfg.max_episode_steps, size=(self._num_envs,), dtype=np.uint32
+            )
+        else:
+            steps = np.zeros((self._num_envs,), dtype=np.uint32)
+        info: dict = {"steps": steps}
 
         self._state = NpEnvState(obs, reward, terminated, truncated, info)
         self._reset_done_envs()

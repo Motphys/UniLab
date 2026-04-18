@@ -209,20 +209,6 @@ def _run_collector(
     if critic_np is not None:
         critic_np = np.asarray(critic_np, dtype=np.float32)
     prev_dones_np = np.zeros(num_envs, dtype=np.float32)
-    max_episode_steps = getattr(getattr(env, "cfg", None), "max_episode_steps", None)
-    if max_episode_steps is not None and int(max_episode_steps) > 0:
-        step_offsets = np.random.randint(
-            0, int(max_episode_steps), size=(num_envs,), dtype=np.uint32
-        )
-        if (
-            hasattr(env, "state")
-            and env.state is not None
-            and isinstance(getattr(env.state, "info", None), dict)
-        ):
-            if "steps" in env.state.info:
-                env.state.info["steps"][:] = step_offsets
-        if isinstance(getattr(state, "info", None), dict) and "steps" in state.info:
-            state.info["steps"][:] = step_offsets
     import time as _time
 
     _last_log_time = _time.time()
