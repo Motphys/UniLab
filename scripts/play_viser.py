@@ -327,8 +327,7 @@ def play_viser(args: PlayInteractiveArgs, cfg: DictConfig) -> None:
     state_spec = mujoco.mjtState.mjSTATE_FULLPHYSICS
     ctrl_dt = env.cfg.ctrl_dt
     render_spacing = float(
-        OmegaConf.select(cfg, "training.render_spacing")
-        or getattr(env.cfg, "render_spacing", 1.0)
+        OmegaConf.select(cfg, "training.render_spacing") or getattr(env.cfg, "render_spacing", 1.0)
     )
 
     # --- Setup viser server --------------------------------------------------

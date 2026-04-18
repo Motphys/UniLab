@@ -193,7 +193,7 @@ class MujocoViserScene:
             opacity = _rgba_to_opacity(rgba)
             name = f"{self._name_prefix}/geom/{i}"
 
-            handle = None
+            handle: Any | None = None
 
             if geom_type == mujoco.mjtGeom.mjGEOM_PLANE:
                 if not self._render_plane:

@@ -258,8 +258,8 @@ def test_g1_motion_tracking_init_delegates_motion_body_ids_to_backend(monkeypatc
 
 
 def test_sharpa_grasp_env_initializes_dr_once_with_grasp_provider(monkeypatch):
-    from unilab.envs.manipulation.sharpa_inhand.base import SharpaInhandBaseEnv
     from unilab.envs.manipulation.sharpa_inhand import rotation as sharpa_rotation_module
+    from unilab.envs.manipulation.sharpa_inhand.base import SharpaInhandBaseEnv
     from unilab.envs.manipulation.sharpa_inhand.grasp_gen import (
         SharpaInhandRotationGraspCfg,
         SharpaInhandRotationGraspEnv,

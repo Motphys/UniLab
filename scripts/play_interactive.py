@@ -54,8 +54,16 @@ from unilab.training import (
 ensure_registries()
 
 from unilab.base import registry
-from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, convert_config_v5, is_rsl_rl_v4, is_rsl_rl_v5
+from unilab.config.structured_configs import PPOConfig as _StructuredPPOConfig
+from unilab.utils.rsl_rl_compat import (
+    convert_config_v3_to_v4,
+    convert_config_v5,
+    is_rsl_rl_v4,
+    is_rsl_rl_v5,
+)
 from unilab.utils.rsl_rl_vec_env_wrapper import RslRlVecEnvWrapper
+
+PPOConfig = _StructuredPPOConfig
 
 try:
     from rsl_rl.runners import OnPolicyRunner
@@ -125,15 +133,18 @@ def _backend_adapter(cfg: DictConfig):
     )
 
 
-def _algo_config_dict(cfg: DictConfig) -> dict[str, Any]:
+def _algo_config_dict(cfg: DictConfig | None) -> dict[str, Any]:
     """Return the composed PPO algo config as a plain dict.
 
     Args:
-        cfg: Hydra config for the current playback run.
+        cfg: Hydra config for the current playback run, or ``None`` when the
+            script is driven through its legacy non-Hydra path.
 
     Returns:
         The resolved ``cfg.algo`` subtree as a mutable dict for rsl_rl.
     """
+    if cfg is None:
+        return cast(dict[str, Any], PPOConfig().to_dict())
     train_cfg_raw = OmegaConf.to_container(cfg.algo, resolve=True)
     if not isinstance(train_cfg_raw, dict):
         raise TypeError("cfg.algo must resolve to a dict")
