@@ -1260,6 +1260,13 @@ def test_offpolicy_flashsac_g1_joystick_task_composes() -> None:
     assert cfg.training.sim_backend == "mujoco"
 
 
+def test_offpolicy_g1_rough_terrain_task_composes() -> None:
+    cfg = _offpolicy_cfg(["algo=sac", "task=sac/g1_sac_rough_terrain/mujoco"])
+
+    assert cfg.training.task_name == "G1WalkTaskMjSACRoughTerrain"
+    assert cfg.training.sim_backend == "mujoco"
+
+
 def test_offpolicy_flashsac_rejects_multi_gpu():
     cfg = _offpolicy_cfg(
         [

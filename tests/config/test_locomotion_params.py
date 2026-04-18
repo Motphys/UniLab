@@ -160,6 +160,24 @@ def test_offpolicy_flashsac_g1_task_overrides():
     assert cfg.algo.algo_params.normalize_reward is True
 
 
+def test_offpolicy_g1_rough_terrain_task_overrides():
+    from hydra import compose, initialize_config_dir
+    from hydra.core.global_hydra import GlobalHydra
+
+    from unilab.envs.locomotion.g1.joystick_sac import G1JoystickSACRoughTerrainCfg
+
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(CONF_DIR / "offpolicy"), version_base="1.3"):
+        cfg = compose(
+            "config",
+            overrides=["algo=sac", "task=sac/g1_sac_rough_terrain/mujoco"],
+        )
+    assert cfg.algo.algo == "sac"
+    assert cfg.training.task_name == "G1WalkTaskMjSACRoughTerrain"
+    assert cfg.training.sim_backend == "mujoco"
+    assert G1JoystickSACRoughTerrainCfg().model_file.endswith("scene_rough.xml")
+
+
 def test_offpolicy_flashsac_g1_joystick_task_overrides():
     from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
