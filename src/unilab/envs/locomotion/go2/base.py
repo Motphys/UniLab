@@ -46,6 +46,17 @@ class Go2BaseCfg(LocomotionBaseCfg):
 class Go2BaseEnv(LocomotionBaseEnv):
     _cfg: Go2BaseCfg
 
+    def _obs_noise(self, data: np.ndarray, scale: float) -> np.ndarray:
+        """Apply per-step uniform observation noise scaled by ``noise_config.level``."""
+        noise_cfg = self._cfg.noise_config
+        if noise_cfg.level > 0.0:
+            return data + (
+                np.random.uniform(-1.0, 1.0, data.shape).astype(data.dtype)
+                * noise_cfg.level
+                * scale
+            )
+        return data
+
     def get_foot_pos(self) -> np.ndarray:
         """Get foot positions. Returns shape (num_envs, 4, 3)"""
         foot_names = ["FL_pos", "FR_pos", "RL_pos", "RR_pos"]

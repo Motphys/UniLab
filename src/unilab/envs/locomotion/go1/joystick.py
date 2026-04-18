@@ -148,7 +148,13 @@ class Go1WalkTask(Go1BaseEnv):
     def _compute_obs(
         self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel, feet_phase
     ) -> dict[str, np.ndarray]:
+        noise_cfg = self._cfg.noise_config
         diff = dof_pos - self.default_angles
+        gyro = self._obs_noise(gyro, noise_cfg.scale_gyro)
+        gravity = self._obs_noise(gravity, noise_cfg.scale_gravity)
+        diff = self._obs_noise(diff, noise_cfg.scale_joint_angle)
+        dof_vel = self._obs_noise(dof_vel, noise_cfg.scale_joint_vel)
+        linvel = self._obs_noise(linvel, noise_cfg.scale_linvel)
         command = info["commands"]
         last_actions = info.get("current_actions", np.zeros_like(diff))
         obs = np.concatenate(
