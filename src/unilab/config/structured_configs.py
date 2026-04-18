@@ -36,7 +36,7 @@ class SACConfig(BaseConfig):
     batch_size: int = 8192
     replay_buffer_n: int = 512
     updates_per_step: int = 4
-    warmup_steps: int = 1000
+    learning_starts: int = 1
     policy_frequency: int = 4
     env_steps_per_sync: int = 1
     max_iterations: int = 500
@@ -79,7 +79,7 @@ class TD3Config(BaseConfig):
     batch_size: int = 8192
     replay_buffer_n: int = 1000
     updates_per_step: int = 4
-    warmup_steps: int = 100
+    learning_starts: int = 1
     policy_frequency: int = 2
     env_steps_per_sync: int = 1
     max_iterations: int = 5000
@@ -131,7 +131,7 @@ class FlashSACConfig(BaseConfig):
     batch_size: int = 2048
     replay_buffer_n: int = 512
     updates_per_step: int = 2
-    warmup_steps: int = 100000
+    learning_starts: int = 98
     policy_frequency: int = 2
     env_steps_per_sync: int = 1
     max_iterations: int = 5000

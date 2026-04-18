@@ -7,7 +7,7 @@ num_envs: 1024
 batch_size: 2048
 replay_buffer_n: 512
 updates_per_step: 2
-warmup_steps: 100000
+learning_starts: 98
 policy_frequency: 2
 env_steps_per_sync: 1
 max_iterations: 5000

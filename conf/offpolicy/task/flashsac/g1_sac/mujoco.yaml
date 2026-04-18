@@ -4,6 +4,7 @@ training:
   sim_backend: mujoco
 algo:
   num_envs: 2048
+  learning_starts: 49
   max_iterations: 5000
   save_interval: 1000
 reward:

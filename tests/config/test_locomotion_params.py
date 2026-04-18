@@ -43,7 +43,7 @@ def test_flashsac_config_defaults():
     assert cfg.algo == "flashsac"
     assert cfg.num_envs == 1024
     assert cfg.batch_size == 2048
-    assert cfg.warmup_steps == 100000
+    assert cfg.learning_starts == 98
     assert cfg.gamma == pytest.approx(0.97)
     assert cfg.obs_normalization is False
     assert isinstance(cfg.algo_params, FlashSACAlgoParams)
@@ -178,7 +178,7 @@ def test_offpolicy_flashsac_g1_joystick_task_overrides():
     assert cfg.algo.updates_per_step == 2
     assert cfg.algo.num_envs == 1024
     assert cfg.algo.replay_buffer_n == 9766
-    assert cfg.algo.warmup_steps == 100000
+    assert cfg.algo.learning_starts == 98
     assert cfg.algo.updates_per_step == 2
     assert cfg.algo.gamma == pytest.approx(0.97)
     assert cfg.env.control_config.action_scale == pytest.approx(0.5)

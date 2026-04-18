@@ -17,6 +17,26 @@ from unilab.utils.device_utils import get_default_device, get_env_dims
 from unilab.utils.offpolicy_logger import OffPolicyLogger
 
 
+def compute_train_start_threshold(batch_size: int, learning_starts: int, num_envs: int) -> int:
+    """Return the minimum replay size required before learner updates may start."""
+    return max(int(batch_size), max(int(learning_starts), 0) * max(int(num_envs), 1), 0)
+
+
+def replay_buffer_ready_for_learning(
+    replay_buffer_size: int,
+    *,
+    batch_size: int,
+    learning_starts: int,
+    num_envs: int,
+) -> bool:
+    """Whether the replay buffer has enough samples for the first learner step."""
+    return int(replay_buffer_size) >= compute_train_start_threshold(
+        batch_size,
+        learning_starts,
+        num_envs,
+    )
+
+
 class OffPolicyRunner(AsyncRunner):
     """Unified runner for SAC and TD3."""
 
@@ -28,7 +48,7 @@ class OffPolicyRunner(AsyncRunner):
         num_envs: int = 4096,
         replay_buffer_n: int = 1024,
         batch_size: int = 8192,
-        warmup_steps: int = 0,
+        learning_starts: int = 0,
         updates_per_step: int = 8,
         policy_frequency: int = 4,
         sync_collection: bool = True,
@@ -56,7 +76,12 @@ class OffPolicyRunner(AsyncRunner):
         self.algo_type = algo_type
         self.replay_buffer_n = replay_buffer_n
         self.batch_size = batch_size
-        self.warmup_steps = warmup_steps
+        self.learning_starts = max(int(learning_starts), 0)
+        self.train_start_threshold = compute_train_start_threshold(
+            batch_size,
+            self.learning_starts,
+            num_envs,
+        )
         self.updates_per_step = updates_per_step
         self.policy_frequency = policy_frequency
         self.sync_collection = sync_collection
@@ -188,7 +213,7 @@ class OffPolicyRunner(AsyncRunner):
             "algo_type": self.algo_type,
             "actor_hidden_dim": self.actor_hidden_dim,
             "use_layer_norm": self.use_layer_norm,
-            "warmup_steps": self.warmup_steps,
+            "learning_starts": self.learning_starts,
             "metrics_queue": metrics_queue,
             "sync_collection": self.sync_collection,
             "collection_ready_queue": collection_ready_queue,
@@ -233,6 +258,7 @@ class OffPolicyRunner(AsyncRunner):
         last_buf_log = 0
         write_read_ema = 0.0
         reward_stats_ptr = 0
+        train_start_threshold = self.train_start_threshold
 
         # Training loop
         for iteration in range(1, max_iterations + 1):
@@ -246,7 +272,6 @@ class OffPolicyRunner(AsyncRunner):
                 while True:
                     try:
                         collection_ready_queue.get(timeout=1.0)
-                        break
                     except queue.Empty:
                         if not self._check_collector_alive():
                             self._drain_metrics(
@@ -266,8 +291,31 @@ class OffPolicyRunner(AsyncRunner):
                             }
                             self.last_run_summary = summary
                             return
+                        continue
+
+                    self._drain_metrics(
+                        metrics_queue, reward_history, latest_reward_components, logger
+                    )
+                    cur_size = int(replay_buffer.size[0])
+                    if replay_buffer_ready_for_learning(
+                        cur_size,
+                        batch_size=self.batch_size,
+                        learning_starts=self.learning_starts,
+                        num_envs=self.num_envs,
+                    ):
+                        break
+                    if cur_size - last_buf_log >= self.num_envs * 10:
+                        last_buf_log = cur_size
+                        logger.log_buffer_fill(cur_size, train_start_threshold)
+                    if trainer_done_queue:
+                        trainer_done_queue.put(1)
             else:
-                while int(replay_buffer.size[0]) < self.batch_size:
+                while not replay_buffer_ready_for_learning(
+                    int(replay_buffer.size[0]),
+                    batch_size=self.batch_size,
+                    learning_starts=self.learning_starts,
+                    num_envs=self.num_envs,
+                ):
                     if not self._check_collector_alive():
                         self._drain_metrics(
                             metrics_queue, reward_history, latest_reward_components, logger
@@ -289,7 +337,7 @@ class OffPolicyRunner(AsyncRunner):
                     cur_size = int(replay_buffer.size[0])
                     if cur_size - last_buf_log >= self.num_envs * 10:
                         last_buf_log = cur_size
-                        logger.log_buffer_fill(cur_size, self.batch_size)
+                        logger.log_buffer_fill(cur_size, train_start_threshold)
                     time.sleep(0.1)
                     self._drain_metrics(
                         metrics_queue, reward_history, latest_reward_components, logger
