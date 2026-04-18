@@ -380,7 +380,6 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
 
         # --- Start Collector (CPU, single process, unchanged) ---
         weight_param_shapes = {k: v.shape for k, v in self.learner.actor.state_dict().items()}
-        sim_backend: str = self.extra_kwargs.get("sim_backend", "mujoco")
         collector_kwargs = {
             "env_name": self.env_name,
             "num_envs": self.num_envs,
@@ -399,7 +398,7 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
             "env_steps_per_sync": self.env_steps_per_sync,
             "obs_normalization": False,
             "shared_obs_normalizer_stats": None,
-            "sim_backend": sim_backend,
+            "sim_backend": self.sim_backend,
             "env_cfg_override": self.env_cfg_override,
         }
         self._start_collector(

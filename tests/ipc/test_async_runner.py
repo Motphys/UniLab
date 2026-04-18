@@ -82,6 +82,11 @@ def test_init_collector_device_explicit():
     assert r.collector_device == "cpu"
 
 
+def test_init_sim_backend_explicit():
+    r = _make_runner(sim_backend="motrix")
+    assert r.sim_backend == "motrix"
+
+
 def test_init_num_envs():
     r = _make_runner(num_envs=64)
     assert r.num_envs == 64
@@ -187,12 +192,38 @@ def _noop_collector(stop_event) -> None:
     stop_event.wait(timeout=30)
 
 
+def _collector_report_kwargs(
+    stop_event,
+    report_queue,
+    token: str,
+    sim_backend: str = "missing",
+) -> None:
+    report_queue.put({"sim_backend": sim_backend, "token": token})
+    stop_event.wait(timeout=30)
+
+
 def test_start_collector_spawns_process():
     """_start_collector() must create and start a subprocess."""
     r = _make_runner()
     r._start_collector(target_fn=_noop_collector, kwargs={"stop_event": r._stop_event})
     assert r._collector_process is not None
     assert r._collector_process.is_alive()
+    r.close()
+
+
+def test_start_collector_does_not_merge_runner_runtime_fields():
+    r = _make_runner(sim_backend="motrix")
+    report_queue = _SPAWN_CTX.Queue()
+    r._start_collector(
+        target_fn=_collector_report_kwargs,
+        kwargs={
+            "stop_event": r._stop_event,
+            "report_queue": report_queue,
+            "token": "ok",
+        },
+    )
+    payload = report_queue.get(timeout=5)
+    assert payload == {"sim_backend": "missing", "token": "ok"}
     r.close()
 
 

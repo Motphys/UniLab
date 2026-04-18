@@ -26,16 +26,16 @@ class AsyncRunner(ABC):
         *,
         device: str | None = None,
         collector_device: str | None = None,
+        sim_backend: str = "mujoco",
         num_envs: int = 4096,
-        **kwargs,
     ):
         self.env_name = env_name
         self.env_cfg_overrides = env_cfg_overrides
         self.rl_cfg = rl_cfg
         self.device = device or self._get_default_device()
         self.collector_device = collector_device or self.device
+        self.sim_backend = sim_backend
         self.num_envs = num_envs
-        self.extra_kwargs = kwargs
 
         self._collector_process: Any = None
         self._stop_event = _SPAWN_CTX.Event()
@@ -58,10 +58,7 @@ class AsyncRunner(ABC):
     ) -> None: ...
 
     def _start_collector(self, target_fn: Callable, kwargs: dict) -> None:
-        collector_kwargs = {**self.extra_kwargs, **kwargs}
-        self._collector_process = _SPAWN_CTX.Process(
-            target=target_fn, kwargs=collector_kwargs, daemon=True
-        )
+        self._collector_process = _SPAWN_CTX.Process(target=target_fn, kwargs=kwargs, daemon=True)
         self._collector_process.start()
 
     def close(self) -> None:

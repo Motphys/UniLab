@@ -5,6 +5,7 @@ import queue
 import pytest
 import torch
 
+import unilab.algos.torch.offpolicy.multi_gpu_runner as multi_gpu_runner_module
 import unilab.algos.torch.offpolicy.runner as runner_module
 from unilab.algos.torch.offpolicy.runner import (
     OffPolicyRunner,
@@ -48,8 +49,16 @@ class _FakeLearner:
 class _FakeReplayBuffer:
     last_instance: "_FakeReplayBuffer | None" = None
 
-    def __init__(self, capacity: int, obs_dim: int, action_dim: int, device: str, critic_dim: int):
-        del capacity, obs_dim, action_dim, device, critic_dim
+    def __init__(
+        self,
+        capacity: int,
+        obs_dim: int,
+        action_dim: int,
+        device: str,
+        critic_dim: int = 0,
+        defer_gpu: bool = False,
+    ):
+        del capacity, obs_dim, action_dim, device, critic_dim, defer_gpu
         self.size = torch.zeros(1, dtype=torch.int64)
         self.ptr = torch.zeros(1, dtype=torch.int64)
         self.sample_calls = 0
@@ -311,3 +320,70 @@ def test_offpolicy_runner_async_waits_for_train_start_threshold(
     assert replay_buffer.sample_calls == 1
     assert replay_buffer.sample_sizes_at_call == [threshold]
     assert logger.step_calls and logger.step_calls[0]["iteration"] == 1
+
+
+def test_offpolicy_runner_passes_explicit_runtime_context_to_collector(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    runner = _make_runner(monkeypatch, sync_collection=False)
+    runner.sim_backend = "motrix"
+    runner.env_cfg_override = {"reward_config": {"scales": {"alive": 1.0}}}
+    captured: dict[str, object] = {}
+
+    def capture_start_collector(*, target_fn, kwargs):
+        del target_fn
+        captured.update(kwargs)
+
+    monkeypatch.setattr(runner, "_start_collector", capture_start_collector)
+    monkeypatch.setattr(runner_module._SPAWN_CTX, "Queue", lambda maxsize=0: queue.Queue())
+    monkeypatch.setattr(runner_module.time, "sleep", lambda seconds: None)
+
+    runner.learn(max_iterations=0, save_interval=0, log_dir=str(tmp_path))
+
+    assert captured["sim_backend"] == "motrix"
+    assert captured["env_cfg_override"] == {"reward_config": {"scales": {"alive": 1.0}}}
+
+
+def test_multi_gpu_runner_passes_explicit_runtime_context_to_collector(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setattr(multi_gpu_runner_module, "ReplayBuffer", _FakeReplayBuffer)
+    monkeypatch.setattr(multi_gpu_runner_module, "SharedWeightSync", _FakeWeightSync)
+    monkeypatch.setattr(multi_gpu_runner_module.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(runner_module, "get_env_dims", lambda *args, **kwargs: (4, 2, 0))
+    monkeypatch.setattr(
+        multi_gpu_runner_module.tmp,
+        "spawn",
+        lambda *args, **kwargs: None,
+    )
+
+    learner = _FakeLearner()
+    runner = multi_gpu_runner_module.MultiGPUOffPolicyRunner(
+        learner=learner,
+        env_name="DummyEnv",
+        algo_type="sac",
+        learner_kwargs={},
+        num_gpus=2,
+        num_envs=2,
+        replay_buffer_n=8,
+        batch_size=8,
+        learning_starts=6,
+        updates_per_step=1,
+        policy_frequency=1,
+        sync_collection=False,
+        env_steps_per_sync=1,
+        device="cpu",
+        sim_backend="motrix",
+        env_cfg_override={"reward_config": {"scales": {"alive": 1.0}}},
+    )
+    captured: dict[str, object] = {}
+
+    def capture_start_collector(*, target_fn, kwargs):
+        del target_fn
+        captured.update(kwargs)
+
+    monkeypatch.setattr(runner, "_start_collector", capture_start_collector)
+    runner.learn(max_iterations=0, save_interval=0, log_dir=str(tmp_path))
+
+    assert captured["sim_backend"] == "motrix"
+    assert captured["env_cfg_override"] == {"reward_config": {"scales": {"alive": 1.0}}}
