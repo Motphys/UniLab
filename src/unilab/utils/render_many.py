@@ -449,7 +449,9 @@ def render_frame_tracking_job(args):
     # Primary env first — camera tracks body 1 of this env
     primary_global = env_indices[primary_local_idx]
     set_state(
-        data, state_batch[primary_global], offsets[primary_global] if offsets is not None else None
+        data,
+        state_batch[primary_global],
+        offsets[primary_global] if offsets is not None else None,
     )
 
     cam = mujoco.MjvCamera()

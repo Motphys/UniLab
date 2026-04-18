@@ -317,10 +317,16 @@ class NpEnv(ABEnv):
             supports_physics_state_playback=capabilities.supports_physics_state_playback,
         )
 
-    def get_playback_model(self) -> Any:
-        if not self._supports_backend_property("model"):
-            raise NotImplementedError(f"{self.__class__.__name__} does not expose a playback model")
-        return self._backend.model
+    def get_playback_model(self, env_index: int | None = None) -> Any:
+        """Return the backend playback model for one env in a vectorized batch.
+
+        Args:
+            env_index: Optional vectorized environment index.
+
+        Returns:
+            The backend-specific playback model.
+        """
+        return self._backend.get_playback_model(env_index)
 
     def close(self) -> None:
         """关闭环境"""

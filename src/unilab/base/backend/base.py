@@ -1,6 +1,7 @@
 import abc
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -181,6 +182,17 @@ class SimBackend(abc.ABC):
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support physics-state playback"
         )
+
+    def get_playback_model(self, env_index: int | None = None) -> Any:
+        """Return the playback model for a specific env when variants exist.
+
+        Args:
+            env_index: Optional vectorized environment index.
+
+        Returns:
+            The backend model object used by playback tooling.
+        """
+        return self.model
 
     def get_actuator_gains(self) -> tuple[np.ndarray, np.ndarray]:
         """Return per-joint (kp, kd) arrays from the backend model."""

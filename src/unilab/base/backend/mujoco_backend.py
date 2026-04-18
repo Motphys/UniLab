@@ -600,6 +600,23 @@ class MuJoCoBackend(SimBackend):
     def get_physics_state(self) -> np.ndarray:
         return self._physics_state
 
+    def get_playback_model(self, env_index: int | None = None):
+        """Return the MuJoCo model used by playback for one vectorized env.
+
+        Args:
+            env_index: Optional vectorized environment index.
+
+        Returns:
+            The MuJoCo model assigned to that env, or the current backend model
+            when no explicit index is requested.
+        """
+        if env_index is None:
+            return self._model
+        idx = int(env_index)
+        if idx < 0 or idx >= self._num_envs:
+            raise IndexError(f"env_index must be in [0, {self._num_envs - 1}], got {idx}")
+        return self._model_variants[int(self._model_assignments[idx])]
+
     def _coerce_reset_field(
         self,
         value: np.ndarray,

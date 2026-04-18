@@ -122,6 +122,14 @@ class ABEnv(abc.ABC):
             f"{self.__class__.__name__} does not support physics-state playback"
         )
 
-    def get_playback_model(self) -> Any:
-        """Return a model object suitable for backend-specific playback tooling."""
+    def get_playback_model(self, env_index: int | None = None) -> Any:
+        """Return a model object suitable for backend-specific playback tooling.
+
+        Args:
+            env_index: Optional vectorized environment index whose playback model
+                should be returned when backend model variants differ across envs.
+
+        Returns:
+            A backend-specific playback model object.
+        """
         raise NotImplementedError(f"{self.__class__.__name__} does not expose a playback model")

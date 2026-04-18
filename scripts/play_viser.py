@@ -32,7 +32,7 @@ Camera controls (browser):
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import hydra
 import mujoco
@@ -51,14 +51,19 @@ from unilab.training import (
     ensure_registries,
     get_entrypoint_log_root,
 )
+from unilab.utils.render_many import get_grid_offsets
+from unilab.utils.rsl_rl_compat import (
+    convert_config_v3_to_v4,
+    convert_config_v5,
+    is_rsl_rl_v4,
+    is_rsl_rl_v5,
+)
+from unilab.utils.rsl_rl_vec_env_wrapper import RslRlVecEnvWrapper
+from unilab.utils.viser_scene import VISER_AVAILABLE, MujocoViserScene, build_visible_env_indices
 
 ensure_registries()
 
 from unilab.base import registry
-from unilab.config.structured_configs import PPOConfig
-from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4
-from unilab.utils.rsl_rl_vec_env_wrapper import RslRlVecEnvWrapper
-from unilab.utils.viser_scene import VISER_AVAILABLE, MujocoViserScene
 
 try:
     from rsl_rl.runners import OnPolicyRunner
@@ -84,6 +89,122 @@ from play_interactive import (  # noqa: E402
 # --------------------------------------------------------------------------- #
 
 
+def _algo_config_dict(cfg: DictConfig) -> dict[str, Any]:
+    """Return the composed PPO algo config as a plain dict.
+
+    Args:
+        cfg: Hydra config for the current playback run.
+
+    Returns:
+        The resolved ``cfg.algo`` subtree as a mutable dict for rsl_rl.
+    """
+    train_cfg_raw = OmegaConf.to_container(cfg.algo, resolve=True)
+    if not isinstance(train_cfg_raw, dict):
+        raise TypeError("cfg.algo must resolve to a dict")
+    return cast(dict[str, Any], train_cfg_raw)
+
+
+def _load_env_playback_model(env: Any, env_index: int) -> mujoco.MjModel:
+    """Resolve the exact MuJoCo model for one playback env.
+
+    Args:
+        env: UniLab env exposing the playback-model contract.
+        env_index: Selected vectorized environment index.
+
+    Returns:
+        The MuJoCo model assigned to the selected env.
+    """
+    model = env.get_playback_model(env_index)
+    if not isinstance(model, mujoco.MjModel):
+        raise TypeError(f"Expected mujoco.MjModel for playback, got {type(model)!r}")
+    return model
+
+
+def _scene_offset(offset_xy: np.ndarray) -> tuple[float, float, float]:
+    """Convert a 2D grid offset into a 3D scene offset.
+
+    Args:
+        offset_xy: XY grid offset.
+
+    Returns:
+        XYZ offset tuple with zero Z displacement.
+    """
+    return (float(offset_xy[0]), float(offset_xy[1]), 0.0)
+
+
+def _build_scene_entries(
+    server: Any,
+    env: Any,
+    *,
+    mode: str,
+    selected_visible_idx: int,
+    visible_env_indices: np.ndarray,
+    spacing: float,
+) -> list[dict[str, Any]]:
+    """Construct viser scenes and MuJoCo data objects for active env views.
+
+    Args:
+        server: Active viser server.
+        env: UniLab env exposing the playback-model contract.
+        mode: Display mode, either ``single`` or ``all``.
+        selected_visible_idx: Selected viewer slot in single-env mode.
+        visible_env_indices: Runtime env indices exposed in the viewer.
+        spacing: Grid spacing for all-env layout.
+
+    Returns:
+        Scene-entry dictionaries consumed by the playback loop.
+    """
+    entries: list[dict[str, Any]] = []
+    visible_envs = int(len(visible_env_indices))
+    if mode == "single":
+        env_idx = int(visible_env_indices[selected_visible_idx])
+        mj_model = _load_env_playback_model(env, env_idx)
+        entries.append(
+            {
+                "slot_idx": selected_visible_idx,
+                "runtime_env_idx": env_idx,
+                "model": mj_model,
+                "data": mujoco.MjData(mj_model),
+                "scene": MujocoViserScene(server, mj_model, name_prefix="/mujoco/single"),
+            }
+        )
+        return entries
+
+    offsets = get_grid_offsets(visible_envs, spacing=spacing)
+    for local_idx, env_idx in enumerate(visible_env_indices):
+        env_idx = int(env_idx)
+        mj_model = _load_env_playback_model(env, env_idx)
+        entries.append(
+            {
+                "slot_idx": local_idx,
+                "runtime_env_idx": env_idx,
+                "model": mj_model,
+                "data": mujoco.MjData(mj_model),
+                "scene": MujocoViserScene(
+                    server,
+                    mj_model,
+                    name_prefix=f"/mujoco/env_{local_idx}",
+                    position_offset=_scene_offset(offsets[local_idx]),
+                    render_plane=(local_idx == 0),
+                ),
+            }
+        )
+    return entries
+
+
+def _close_scene_entries(entries: list[dict[str, Any]]) -> None:
+    """Remove all active viser scenes owned by the playback loop.
+
+    Args:
+        entries: Scene-entry dictionaries created by ``_build_scene_entries``.
+
+    Returns:
+        None.
+    """
+    for entry in entries:
+        entry["scene"].close()
+
+
 def play_viser(args: PlayInteractiveArgs, cfg: DictConfig) -> None:
     device = (
         "cuda"
@@ -102,9 +223,7 @@ def play_viser(args: PlayInteractiveArgs, cfg: DictConfig) -> None:
         return
 
     # --- Create environment --------------------------------------------------
-    num_envs = int(cfg.algo.num_envs) if OmegaConf.select(cfg, "algo.num_envs") else 1
-    # Clamp to a reasonable number for interactive viewing
-    num_envs = min(num_envs, 64)
+    num_envs = int(OmegaConf.select(cfg, "viser.max_envs") or 1)
 
     if cfg is None:
         env = registry.make(args.task, num_envs=num_envs, sim_backend="mujoco")
@@ -151,9 +270,13 @@ def play_viser(args: PlayInteractiveArgs, cfg: DictConfig) -> None:
 
     wrapped_env = RslRlVecEnvWrapper(env, device=device, policy_obs_mode=policy_obs_mode)
 
-    ppo_cfg = PPOConfig()
-    train_cfg = ppo_cfg.to_dict()
-    if is_rsl_rl_v4():
+    train_cfg = _algo_config_dict(cfg)
+    if "runner" not in train_cfg:
+        train_cfg["runner"] = {}
+    train_cfg["runner"]["logger"] = "none"
+    if is_rsl_rl_v5():
+        train_cfg = cast(dict[str, Any], convert_config_v5(train_cfg))
+    elif is_rsl_rl_v4():
         train_cfg = convert_config_v3_to_v4(train_cfg)
 
     policy = None
@@ -185,36 +308,39 @@ def play_viser(args: PlayInteractiveArgs, cfg: DictConfig) -> None:
 
     print(f"[play_viser] Action mode: {args.action_mode}")
 
-    # --- Load MuJoCo model for visualization ---------------------------------
-    use_env_visual_model = bool(getattr(args, "use_env_visual_model", True))
-    mj_model = None
-    if use_env_visual_model:
-        model_file = getattr(getattr(env, "cfg", None), "model_file", None)
-        if model_file:
-            try:
-                mj_model = mujoco.MjModel.from_xml_path(str(model_file))
-                print(f"[play_viser] Using visual model: {model_file}")
-            except Exception as exc:
-                print(f"[play_viser] WARNING: failed to load visual model ({exc}).")
-                mj_model = None
-    if mj_model is None:
-        mj_model = env.get_playback_model()
+    # --- GUI controls --------------------------------------------------------
+    max_visible_envs = min(int(OmegaConf.select(cfg, "viser.max_envs") or num_envs), num_envs)
+    env_options = tuple(f"env_{i}" for i in range(max_visible_envs))
+    initial_env_idx = int(OmegaConf.select(cfg, "viser.env_idx") or 0)
+    initial_env_idx = min(initial_env_idx, max_visible_envs - 1)
+    initial_mode = str(OmegaConf.select(cfg, "viser.display_mode") or "all")
+    if initial_mode not in {"single", "all"}:
+        initial_mode = "all"
+    visible_env_indices = build_visible_env_indices(num_envs, max_visible_envs)
 
-    viz_data = mujoco.MjData(mj_model)
+    # --- Load MuJoCo model for visualization ---------------------------------
+    if bool(getattr(args, "use_env_visual_model", True)):
+        print(
+            "[play_viser] Using backend playback models for visualization so per-env "
+            "MuJoCo model variants (for example object scale) stay correct."
+        )
     state_spec = mujoco.mjtState.mjSTATE_FULLPHYSICS
     ctrl_dt = env.cfg.ctrl_dt
+    render_spacing = float(
+        OmegaConf.select(cfg, "training.render_spacing")
+        or getattr(env.cfg, "render_spacing", 1.0)
+    )
 
     # --- Setup viser server --------------------------------------------------
     port = int(OmegaConf.select(cfg, "viser.port") or 8080)
     server = viser.ViserServer(port=port)
-    scene = MujocoViserScene(server, mj_model)
-
-    # --- GUI controls --------------------------------------------------------
-    env_options = tuple(f"env_{i}" for i in range(num_envs))
-    initial_env_idx = int(OmegaConf.select(cfg, "viser.env_idx") or 0)
-    initial_env_idx = min(initial_env_idx, num_envs - 1)
 
     with server.gui.add_folder("Controls"):
+        display_dropdown = server.gui.add_dropdown(
+            "Display",
+            options=("all", "single"),
+            initial_value=initial_mode,
+        )
         env_dropdown = server.gui.add_dropdown(
             "Environment",
             options=env_options,
@@ -231,19 +357,65 @@ def play_viser(args: PlayInteractiveArgs, cfg: DictConfig) -> None:
 
     paused = {"value": False}
     env_idx = {"value": initial_env_idx}
+    display_mode = {"value": initial_mode}
+    visible_envs = {"value": max_visible_envs}
+    scene_entries = {
+        "value": _build_scene_entries(
+            server,
+            env,
+            mode=display_mode["value"],
+            selected_visible_idx=env_idx["value"],
+            visible_env_indices=visible_env_indices,
+            spacing=render_spacing,
+        )
+    }
+
+    def _rebuild_scenes() -> None:
+        _close_scene_entries(scene_entries["value"])
+        scene_entries["value"] = _build_scene_entries(
+            server,
+            env,
+            mode=display_mode["value"],
+            selected_visible_idx=env_idx["value"],
+            visible_env_indices=visible_env_indices,
+            spacing=render_spacing,
+        )
+        if display_mode["value"] == "single":
+            runtime_idx = int(visible_env_indices[env_idx["value"]])
+            print(f"[play_viser] Showing env_{env_idx['value']} (runtime env {runtime_idx})")
+        else:
+            print(
+                "[play_viser] Showing "
+                f"{visible_envs['value']} env slots mapped to runtime envs "
+                f"{visible_env_indices.tolist()}"
+            )
 
     @pause_button.on_click
     def _on_pause_click(event: Any) -> None:
+        del event
         paused["value"] = not paused["value"]
         status = "paused" if paused["value"] else "resumed"
         print(f"[play_viser] {status}")
 
+    @display_dropdown.on_update
+    def _on_display_mode_update(event: Any) -> None:
+        del event
+        display_mode["value"] = str(display_dropdown.value)
+        env_dropdown.disabled = display_mode["value"] == "all"
+        _rebuild_scenes()
+
     @env_dropdown.on_update
     def _on_env_switch(event: Any) -> None:
+        del event
         selected = env_dropdown.value
         idx = int(selected.split("_")[1])
         env_idx["value"] = idx
-        print(f"[play_viser] Switched to env {idx}")
+        if display_mode["value"] == "single":
+            _rebuild_scenes()
+        else:
+            print(f"[play_viser] Selected env_{idx} (runtime env {int(visible_env_indices[idx])})")
+
+    env_dropdown.disabled = display_mode["value"] == "all"
 
     obs, _info = wrapped_env.reset()
     action_low = env.action_space.low
@@ -251,6 +423,12 @@ def play_viser(args: PlayInteractiveArgs, cfg: DictConfig) -> None:
 
     print(f"[play_viser] Server running at http://localhost:{port}")
     print(f"[play_viser] {num_envs} environment(s) loaded. Open browser to view.")
+    if display_mode["value"] == "all":
+        print(
+            "[play_viser] Rendering "
+            f"{visible_envs['value']} env slots simultaneously from runtime envs "
+            f"{visible_env_indices.tolist()}."
+        )
     print("[play_viser] Press Ctrl+C to quit.")
 
     # --- Main loop -----------------------------------------------------------
@@ -279,13 +457,12 @@ def play_viser(args: PlayInteractiveArgs, cfg: DictConfig) -> None:
 
                     obs, _, _, _ = wrapped_env.step(actions)
 
-                # Push selected env state into viz_data
-                idx = env_idx["value"]
-                phys = env.get_physics_state_snapshot()[idx].astype(np.float64)
-                mujoco.mj_setState(mj_model, viz_data, phys, state_spec)
-                mujoco.mj_forward(mj_model, viz_data)
-
-                scene.update(viz_data)
+                physics_batch = env.get_physics_state_snapshot()
+                for entry in scene_entries["value"]:
+                    phys = physics_batch[int(entry["runtime_env_idx"])].astype(np.float64)
+                    mujoco.mj_setState(entry["model"], entry["data"], phys, state_spec)
+                    mujoco.mj_forward(entry["model"], entry["data"])
+                    entry["scene"].update(entry["data"])
 
                 # Real-time pacing
                 speed = speed_slider.value
@@ -296,6 +473,8 @@ def play_viser(args: PlayInteractiveArgs, cfg: DictConfig) -> None:
 
     except KeyboardInterrupt:
         print("\n[play_viser] Shutting down.")
+    finally:
+        _close_scene_entries(scene_entries["value"])
 
 
 # --------------------------------------------------------------------------- #

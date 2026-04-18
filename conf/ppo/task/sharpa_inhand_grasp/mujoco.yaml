@@ -2,7 +2,10 @@
 training:
   task_name: SharpaInhandRotationGrasp
   sim_backend: mujoco
-  no_play: true
+  render_spacing: 0.5
+  cam_distance: 1.5
+  cam_lookat: [0.75, 0.75, 0.4]
+  cam_elevation: -20.0
 algo:
   num_envs: 16384
   num_steps_per_env: 8
