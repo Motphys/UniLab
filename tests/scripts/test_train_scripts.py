@@ -470,7 +470,7 @@ def test_build_ppo_play_env_cfg_override_resolves_relative_ground_texture(
 ):
     mod = _train_rsl_rl(monkeypatch)
     cfg = _ppo_cfg(["task=g1_motion_tracking/motrix", "training.play_only=true"])
-    cfg.play_profile.scene.ground_texture_file = "src/unilab/assets/robots/g1/floor.png"
+    cfg.play_profile.scene.ground_texture_file = "src/unilab/assets/robots/g1/textures/floor.png"
 
     captured = {}
 
@@ -484,7 +484,7 @@ def test_build_ppo_play_env_cfg_override_resolves_relative_ground_texture(
     mod.build_ppo_play_env_cfg_override(cfg)
 
     assert captured["ground_texture_file"] == str(
-        mod.ROOT_DIR / "src/unilab/assets/robots/g1/floor.png"
+        mod.ROOT_DIR / "src/unilab/assets/robots/g1/textures/floor.png"
     )
 
 
@@ -1257,6 +1257,13 @@ def test_offpolicy_flashsac_hydra_algo_log_name():
 def test_offpolicy_flashsac_g1_joystick_task_composes() -> None:
     cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_joystick/mujoco"])
     assert cfg.training.task_name == "G1JoystickFlatTerrain"
+    assert cfg.training.sim_backend == "mujoco"
+
+
+def test_offpolicy_g1_rough_terrain_task_composes() -> None:
+    cfg = _offpolicy_cfg(["algo=sac", "task=sac/g1_sac_rough_terrain/mujoco"])
+
+    assert cfg.training.task_name == "G1WalkTaskMjSACRoughTerrain"
     assert cfg.training.sim_backend == "mujoco"
 
 

@@ -199,7 +199,7 @@ def test_backend_adapter_builds_play_scene_override():
     assert env_cfg_override["render_spacing"] == pytest.approx(2.5)
     assert env_cfg_override["model_file"] == "/tmp/g1_motion_tracking_play_scene.xml"
     assert captured["ground_texture_file"] == str(
-        _ROOT_DIR / "src/unilab/assets/robots/g1/floor.png"
+        _ROOT_DIR / "src/unilab/assets/robots/g1/textures/floor.png"
     )
 
 

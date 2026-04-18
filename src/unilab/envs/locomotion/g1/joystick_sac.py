@@ -61,6 +61,12 @@ class G1JoystickSACCfg(G1BaseCfg):
     reset_base_qvel_limit: float = 0.5
 
 
+@registry.envcfg("G1WalkTaskMjSACRoughTerrain")
+@dataclass
+class G1JoystickSACRoughTerrainCfg(G1JoystickSACCfg):
+    model_file: str = str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_rough.xml")
+
+
 @registry.env("G1WalkTaskMjSAC", sim_backend="mujoco")
 @registry.env("G1WalkTaskMjSAC", sim_backend="motrix")
 class G1WalkTaskMjSAC(G1JoystickPPO):
@@ -228,3 +234,9 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
             )
 
         return state
+
+
+@registry.env("G1WalkTaskMjSACRoughTerrain", sim_backend="mujoco")
+@registry.env("G1WalkTaskMjSACRoughTerrain", sim_backend="motrix")
+class G1WalkTaskMjSACRoughTerrain(G1WalkTaskMjSAC):
+    pass

@@ -414,6 +414,7 @@ _STANDARD_ENVS = [
     "Go2JoystickFlatTerrain",
     "G1JoystickFlatTerrain",
     "G1WalkTaskMjSAC",
+    "G1WalkTaskMjSACRoughTerrain",
     "AllegroInhandRotation",
     "AllegroInhandRotationGrasp",
 ]
