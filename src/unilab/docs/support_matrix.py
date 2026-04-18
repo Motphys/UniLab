@@ -18,22 +18,24 @@ END_MARKER = "<!-- END GENERATED SUPPORT MATRIX -->"
 BACKENDS: tuple[str, str] = ("mujoco", "motrix")
 
 _TASK_ORDER = {
-    "go1_joystick": 0,
-    "go2_joystick": 1,
-    "g1_joystick": 2,
+    "go1_joystick_flat": 0,
+    "go2_joystick_flat": 1,
+    "g1_joystick_flat": 2,
     "g1_motion_tracking": 3,
     "g1_flip_tracking": 4,
-    "g1_sac": 5,
-    "allegro_inhand": 6,
-    "allegro_sac": 7,
+    "g1_walk_flat": 5,
+    "g1_walk_rough": 6,
+    "allegro_inhand": 7,
+    "allegro_sac": 8,
 }
 _TASK_LABELS = {
-    "go1_joystick": "Go1 joystick",
-    "go2_joystick": "Go2 joystick",
-    "g1_joystick": "G1 joystick",
+    "go1_joystick_flat": "Go1 joystick",
+    "go2_joystick_flat": "Go2 joystick",
+    "g1_joystick_flat": "G1 joystick",
     "g1_motion_tracking": "G1 motion tracking",
     "g1_flip_tracking": "G1 flip tracking",
-    "g1_sac": "G1 SAC locomotion",
+    "g1_walk_flat": "G1 walk flat",
+    "g1_walk_rough": "G1 walk rough",
     "allegro_inhand": "Allegro in-hand",
     "allegro_sac": "Allegro SAC in-hand",
 }
@@ -308,7 +310,7 @@ def render_support_matrix(root: Path | None = None) -> str:
             "- MLX-specific compose coverage only upgrades task owners listed in `tests/config/test_config_system.py::_PPO_MLX_TASKS`: "
             + ", ".join(f"`{task}`" for task in mlx_tested_tasks)
             + ".",
-            "- MLX runtime smoke: `tests/algos/test_mlx_ppo.py::test_mlx_ppo_one_iteration_real_env` currently exercises `go2_joystick/mujoco`.",
+            "- MLX runtime smoke: `tests/algos/test_mlx_ppo.py::test_mlx_ppo_one_iteration_real_env` currently exercises `go2_joystick_flat/mujoco`.",
         ]
     )
     return "\n".join(lines)

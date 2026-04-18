@@ -109,8 +109,8 @@ class _RslRlVecEnvWrapper:
 @pytest.mark.parametrize(
     "env_name",
     [
-        "Go2JoystickFlatTerrain",
-        "G1JoystickFlatTerrain",
+        "Go2JoystickFlat",
+        "G1JoystickFlat",
         "AllegroInhandRotation",
     ],
 )

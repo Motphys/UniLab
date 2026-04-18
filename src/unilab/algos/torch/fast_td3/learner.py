@@ -10,7 +10,7 @@ Architecture (from reference fast_td3.py):
 - AdamW optimizer with weight_decay=0.1
 - Cosine LR scheduler
 
-Hyperparameters aligned with reference Go1JoystickFlatTerrain config.
+Hyperparameters aligned with reference Go1JoystickFlat config.
 """
 
 from __future__ import annotations
@@ -125,7 +125,7 @@ class TD3Actor(nn.Module):
 class FastTD3Learner:
     """FastTD3 learner aligned with reference FastTD3 repository.
 
-    Key hyperparameters (from Go1JoystickFlatTerrain):
+    Key hyperparameters (from Go1JoystickFlat):
     - gamma=0.97, tau=0.1
     - AdamW with weight_decay=0.1
     - Cosine LR schedule

@@ -109,7 +109,7 @@ class RewardConfigPPO:
 
 
 # PPO Environment
-@registry.envcfg("G1JoystickFlatTerrain")
+@registry.envcfg("G1JoystickFlat")
 @dataclass
 class G1JoystickPPOCfg(G1BaseCfg):
     model_file: str = str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
@@ -160,8 +160,8 @@ class G1JoystickDomainRandomizationProvider(LocomotionDRProvider):
         return env._compute_obs(info_updates, linvel, gyro, gravity, dof_pos, dof_vel)  # type: ignore[no-any-return]
 
 
-@registry.env("G1JoystickFlatTerrain", sim_backend="mujoco")
-@registry.env("G1JoystickFlatTerrain", sim_backend="motrix")
+@registry.env("G1JoystickFlat", sim_backend="mujoco")
+@registry.env("G1JoystickFlat", sim_backend="motrix")
 class G1JoystickPPO(G1BaseEnv):
     _cfg: G1JoystickPPOCfg
     _reward_cfg: Any

@@ -113,7 +113,7 @@ def run_backend(task, max_iterations, backend, num_envs):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--task", type=str, default="go1_joystick")
+    parser.add_argument("--task", type=str, default="go1_joystick_flat")
     parser.add_argument("--max_iterations", type=int, default=100)
     parser.add_argument("--num_envs", type=int, default=4096)
     parser.add_argument("--backends", type=str, default="torch_mps,torch_cpu,ane")

@@ -320,7 +320,7 @@ def test_mlx_ppo_one_iteration_real_env(default_go2_reward_config):
 
     ensure_registries()
 
-    env_name = "Go2JoystickFlatTerrain"
+    env_name = "Go2JoystickFlat"
     num_envs = 4
     num_steps = 8
 

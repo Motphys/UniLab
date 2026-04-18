@@ -6,7 +6,7 @@ macOS:     compares numpy rollout vs native mlx_step.
 Other:     benchmarks mujoco.rollout with the configured thread count only.
 
 Sweeps batch sizes across current locomotion owner task ids
-(go1_joystick/go2_joystick/g1_joystick).
+(go1_joystick_flat/go2_joystick_flat/g1_joystick_flat).
 Legacy env names remain accepted as aliases.
 """
 
@@ -73,8 +73,8 @@ class BenchRecord:
 
 DEFAULT_TASK_IDS = canonical_locomotion_task_ids()
 DEFAULT_BATCH_SIZES = [2**k for k in range(8, 15)]  # 256 .. 16384
-TASK_ALPHA = {"go1_joystick": 0.75, "go2_joystick": 0.9, "g1_joystick": 1.0}
-TASK_HATCH = {"go1_joystick": "//", "go2_joystick": "\\\\", "g1_joystick": "xx"}
+TASK_ALPHA = {"go1_joystick_flat": 0.75, "go2_joystick_flat": 0.9, "g1_joystick_flat": 1.0}
+TASK_HATCH = {"go1_joystick_flat": "//", "go2_joystick_flat": "\\\\", "g1_joystick_flat": "xx"}
 
 
 def _keyframe0_state_and_ctrl(model: mujoco.MjModel) -> tuple[np.ndarray, np.ndarray]:

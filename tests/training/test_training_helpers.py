@@ -40,9 +40,9 @@ def _normalize_overrides(overrides: list[str] | None, *, offpolicy: bool = False
 
     if not task_selected:
         if offpolicy:
-            normalized.append(f"task={algo}/go1_joystick/mujoco")
+            normalized.append(f"task={algo}/go1_joystick_flat/mujoco")
         else:
-            normalized.append("task=go1_joystick/mujoco")
+            normalized.append("task=go1_joystick_flat/mujoco")
     return normalized
 
 
@@ -165,7 +165,7 @@ def test_resolve_task_checkpoint_path_returns_run_dir_when_checkpoint_missing(tm
 
 def test_backend_adapter_env_cfg_override_for_motrix_sac_go1():
     """Env cfg override carries reward + env preset fields. Algo is NOT touched."""
-    cfg = _offpolicy_cfg(["task=sac/go1_joystick/motrix"])
+    cfg = _offpolicy_cfg(["task=sac/go1_joystick_flat/motrix"])
 
     adapter = BackendAdapter(cfg, root_dir=_ROOT_DIR, algo_name="sac")
     env_cfg_override = adapter.build_task_env_cfg_override()

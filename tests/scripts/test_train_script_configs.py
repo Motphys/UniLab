@@ -30,9 +30,9 @@ _MLX_RUNTIME_USABLE = _mlx_runtime_usable()
 @pytest.mark.parametrize(
     "task",
     [
-        "go1_joystick/mujoco",
-        "go2_joystick/mujoco",
-        "g1_joystick/mujoco",
+        "go1_joystick_flat/mujoco",
+        "go2_joystick_flat/mujoco",
+        "g1_joystick_flat/mujoco",
         "g1_motion_tracking/mujoco",
         "g1_flip_tracking/mujoco",
     ],
@@ -59,7 +59,7 @@ def test_appo_task_configs_load(task):
 @pytest.mark.veryslow
 @pytest.mark.parametrize(
     "task",
-    ["sac/go1_joystick/mujoco", "sac/go2_joystick/mujoco"],
+    ["sac/go1_joystick_flat/mujoco", "sac/go2_joystick_flat/mujoco"],
 )
 def test_offpolicy_task_configs_load(task):
     """Off-policy SAC can start training with all supported task configs."""

@@ -104,12 +104,12 @@ def test_offpolicy_sac_g1_task_overrides():
 
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(CONF_DIR / "offpolicy"), version_base="1.3"):
-        cfg = compose("config", overrides=["algo=sac", "task=sac/g1_sac/mujoco"])
+        cfg = compose("config", overrides=["algo=sac", "task=sac/g1_walk_flat/mujoco"])
     assert cfg.algo.num_envs == 2048
     assert cfg.algo.max_iterations == 5000
     assert cfg.algo.use_symmetry is True
     assert cfg.algo.algo_params.target_entropy_ratio == pytest.approx(0.0)
-    assert cfg.training.task_name == "G1WalkTaskMjSAC"
+    assert cfg.training.task_name == "G1WalkFlat"
 
     assert cfg.env.control_config.action_scale == pytest.approx(1.0)
     assert cfg.env.gait_phase_init_mode == "offset_phase"
@@ -138,9 +138,9 @@ def test_offpolicy_go2_task_overrides():
 
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(CONF_DIR / "offpolicy"), version_base="1.3"):
-        cfg = compose("config", overrides=["algo=sac", "task=sac/go2_joystick/mujoco"])
+        cfg = compose("config", overrides=["algo=sac", "task=sac/go2_joystick_flat/mujoco"])
     assert cfg.algo.num_envs == 1024
-    assert cfg.training.task_name == "Go2JoystickFlatTerrain"
+    assert cfg.training.task_name == "Go2JoystickFlat"
 
 
 def test_offpolicy_flashsac_g1_task_overrides():
@@ -151,10 +151,10 @@ def test_offpolicy_flashsac_g1_task_overrides():
     with initialize_config_dir(config_dir=str(CONF_DIR / "offpolicy"), version_base="1.3"):
         cfg = compose(
             "config",
-            overrides=["algo=flashsac", "task=flashsac/g1_sac/mujoco"],
+            overrides=["algo=flashsac", "task=flashsac/g1_walk_flat/mujoco"],
         )
     assert cfg.algo.algo == "flashsac"
-    assert cfg.training.task_name == "G1WalkTaskMjSAC"
+    assert cfg.training.task_name == "G1WalkFlat"
     assert cfg.training.sim_backend == "mujoco"
     assert cfg.algo.algo_params.actor_num_blocks == 2
     assert cfg.algo.algo_params.normalize_reward is True
@@ -164,21 +164,21 @@ def test_offpolicy_g1_rough_terrain_task_overrides():
     from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
 
-    from unilab.envs.locomotion.g1.joystick_sac import G1JoystickSACRoughTerrainCfg
+    from unilab.envs.locomotion.g1.joystick_sac import G1WalkRoughCfg
 
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(CONF_DIR / "offpolicy"), version_base="1.3"):
         cfg = compose(
             "config",
-            overrides=["algo=sac", "task=sac/g1_sac_rough_terrain/mujoco"],
+            overrides=["algo=sac", "task=sac/g1_walk_rough/mujoco"],
         )
     assert cfg.algo.algo == "sac"
-    assert cfg.training.task_name == "G1WalkTaskMjSACRoughTerrain"
+    assert cfg.training.task_name == "G1WalkRough"
     assert cfg.training.sim_backend == "mujoco"
-    assert G1JoystickSACRoughTerrainCfg().model_file.endswith("scene_rough.xml")
+    assert G1WalkRoughCfg().model_file.endswith("scene_rough.xml")
 
 
-def test_offpolicy_flashsac_g1_joystick_task_overrides():
+def test_offpolicy_flashsac_g1_joystick_flat_task_overrides():
     from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
 
@@ -186,10 +186,10 @@ def test_offpolicy_flashsac_g1_joystick_task_overrides():
     with initialize_config_dir(config_dir=str(CONF_DIR / "offpolicy"), version_base="1.3"):
         cfg = compose(
             "config",
-            overrides=["algo=flashsac", "task=flashsac/g1_joystick/mujoco"],
+            overrides=["algo=flashsac", "task=flashsac/g1_joystick_flat/mujoco"],
         )
     assert cfg.algo.algo == "flashsac"
-    assert cfg.training.task_name == "G1JoystickFlatTerrain"
+    assert cfg.training.task_name == "G1JoystickFlat"
     assert cfg.training.sim_backend == "mujoco"
     assert cfg.training.use_amp is True
     assert cfg.algo.num_envs == 1024
@@ -227,10 +227,10 @@ def test_appo_g1_task_overrides():
 
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(CONF_DIR / "appo"), version_base="1.3"):
-        cfg = compose("config", overrides=["task=g1_joystick/mujoco"])
+        cfg = compose("config", overrides=["task=g1_joystick_flat/mujoco"])
     assert cfg.algo.max_iterations == 500
     assert cfg.algo.save_interval == 100
-    assert cfg.training.task_name == "G1JoystickFlatTerrain"
+    assert cfg.training.task_name == "G1JoystickFlat"
 
 
 # ---------------------------------------------------------------------------
@@ -244,7 +244,7 @@ def test_ppo_go1_max_iterations():
 
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(CONF_DIR / "ppo"), version_base="1.3"):
-        cfg = compose("config", overrides=["task=go1_joystick/mujoco"])
+        cfg = compose("config", overrides=["task=go1_joystick_flat/mujoco"])
     assert cfg.algo.max_iterations == 151
     assert "actor" in cfg.algo.obs_groups
 
@@ -255,7 +255,7 @@ def test_ppo_g1_num_envs():
 
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(CONF_DIR / "ppo"), version_base="1.3"):
-        cfg = compose("config", overrides=["task=g1_joystick/mujoco"])
+        cfg = compose("config", overrides=["task=g1_joystick_flat/mujoco"])
     assert cfg.algo.num_envs == 2048
     assert cfg.algo.max_iterations == 220
 
@@ -266,7 +266,7 @@ def test_ppo_go2_num_envs():
 
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(CONF_DIR / "ppo"), version_base="1.3"):
-        cfg = compose("config", overrides=["task=go2_joystick/mujoco"])
+        cfg = compose("config", overrides=["task=go2_joystick_flat/mujoco"])
     assert cfg.algo.num_envs == 1024
     assert cfg.algo.max_iterations == 151
 

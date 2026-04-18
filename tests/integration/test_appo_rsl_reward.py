@@ -17,7 +17,7 @@ def test_appo_reward_override():
     }
 
     env = registry.make(
-        "Go1JoystickFlatTerrain",
+        "Go1JoystickFlat",
         num_envs=2,
         sim_backend="mujoco",
         env_cfg_override={"reward_config": reward_dict},
@@ -41,7 +41,7 @@ def test_rsl_rl_reward_override():
     }
 
     env = registry.make(
-        "Go1JoystickFlatTerrain",
+        "Go1JoystickFlat",
         num_envs=2,
         sim_backend="mujoco",
         env_cfg_override={"reward_config": reward_dict},

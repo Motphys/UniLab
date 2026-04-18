@@ -26,7 +26,7 @@ def test_go1_mujoco_reset_applies_base_mass_and_com_domain_randomization(
     from unilab.base import registry
 
     env = registry.make(
-        "Go1JoystickFlatTerrain",
+        "Go1JoystickFlat",
         num_envs=4,
         sim_backend="mujoco",
         env_cfg_override={"reward_config": default_go1_reward_config},

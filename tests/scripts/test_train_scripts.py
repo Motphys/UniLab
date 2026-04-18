@@ -42,9 +42,9 @@ def _normalize_overrides(overrides: list[str] | None, *, offpolicy: bool = False
 
     if not task_selected:
         if offpolicy:
-            normalized.append(f"task={algo}/go1_joystick/mujoco")
+            normalized.append(f"task={algo}/go1_joystick_flat/mujoco")
         else:
-            normalized.append("task=go1_joystick/mujoco")
+            normalized.append("task=go1_joystick_flat/mujoco")
     return normalized
 
 
@@ -130,7 +130,7 @@ def test_offpolicy_hydra_default_algo():
 
 def test_offpolicy_hydra_default_task():
     cfg = _offpolicy_cfg()
-    assert cfg.training.task_name == "Go1JoystickFlatTerrain"
+    assert cfg.training.task_name == "Go1JoystickFlat"
 
 
 def test_offpolicy_hydra_default_logger():
@@ -181,7 +181,7 @@ def test_offpolicy_hydra_algo_td3():
 
 def test_offpolicy_go1_resolved_algo_matches_old_motrix_behavior():
     """Equivalence: Motrix SAC Go1 algo hyperparams match legacy values."""
-    cfg = _offpolicy_cfg(["task=sac/go1_joystick/motrix"])
+    cfg = _offpolicy_cfg(["task=sac/go1_joystick_flat/motrix"])
 
     # Legacy Motrix SAC Go1 values: num_envs=4096, max_iterations=2000
     assert cfg.algo.num_envs == 4096
@@ -189,7 +189,7 @@ def test_offpolicy_go1_resolved_algo_matches_old_motrix_behavior():
 
 
 def test_offpolicy_go1_env_cfg_override_has_reward_and_commands():
-    cfg = _offpolicy_cfg(["task=sac/go1_joystick/motrix"])
+    cfg = _offpolicy_cfg(["task=sac/go1_joystick_flat/motrix"])
 
     env_cfg_override = _offpolicy().build_offpolicy_env_cfg_override("sac", cfg)
 
@@ -198,9 +198,9 @@ def test_offpolicy_go1_env_cfg_override_has_reward_and_commands():
     assert env_cfg_override["commands"]["vel_limit"] == [[0.5, 0.0, 0.0], [0.5, 0.0, 0.0]]
 
 
-def test_offpolicy_g1_sac_backend_scoped_use_symmetry():
-    mujoco_cfg = _offpolicy_cfg(["task=sac/g1_sac/mujoco"])
-    motrix_cfg = _offpolicy_cfg(["task=sac/g1_sac/motrix"])
+def test_offpolicy_g1_walk_flat_backend_scoped_use_symmetry():
+    mujoco_cfg = _offpolicy_cfg(["task=sac/g1_walk_flat/mujoco"])
+    motrix_cfg = _offpolicy_cfg(["task=sac/g1_walk_flat/motrix"])
 
     assert mujoco_cfg.algo.use_symmetry is True
     assert motrix_cfg.algo.use_symmetry is False
@@ -208,7 +208,7 @@ def test_offpolicy_g1_sac_backend_scoped_use_symmetry():
 
 def test_ppo_go1_resolved_algo_matches_old_motrix_behavior():
     """Equivalence: PPO Go1 algo hyperparams match pre-refactor motrix values."""
-    cfg = _ppo_cfg(["task=go1_joystick/motrix"])
+    cfg = _ppo_cfg(["task=go1_joystick_flat/motrix"])
 
     assert cfg.algo.max_iterations == 151
     assert cfg.algo.empirical_normalization is True
@@ -223,7 +223,7 @@ def test_ppo_g1_resolved_algo_matches_old_motrix_behavior():
     In particular, max_iterations=151 (the motrix value from the old bag),
     NOT 220 (the old mujoco base value which has been retired).
     """
-    cfg = _ppo_cfg(["task=g1_joystick/motrix"])
+    cfg = _ppo_cfg(["task=g1_joystick_flat/motrix"])
 
     assert cfg.algo.max_iterations == 151
     assert cfg.algo.empirical_normalization is True
@@ -234,7 +234,7 @@ def test_ppo_g1_resolved_algo_matches_old_motrix_behavior():
 
 
 def test_ppo_g1_mujoco_base_hyperparams_remain_separate():
-    cfg = _ppo_cfg(["task=g1_joystick/mujoco"])
+    cfg = _ppo_cfg(["task=g1_joystick_flat/mujoco"])
 
     assert cfg.algo.max_iterations == 220
     assert cfg.algo.empirical_normalization is False
@@ -242,7 +242,7 @@ def test_ppo_g1_mujoco_base_hyperparams_remain_separate():
 
 
 def test_ppo_g1_env_preset_has_env_overrides():
-    cfg = _ppo_cfg(["task=g1_joystick/motrix"])
+    cfg = _ppo_cfg(["task=g1_joystick_flat/motrix"])
 
     assert cfg.env.iterations == 3
     assert cfg.env.control_config.action_scale == pytest.approx(0.5)
@@ -251,7 +251,7 @@ def test_ppo_g1_env_preset_has_env_overrides():
 
 
 def test_ppo_task_go2_aligns_mujoco_with_motrix_defaults():
-    cfg = _ppo_cfg(["task=go2_joystick/mujoco"])
+    cfg = _ppo_cfg(["task=go2_joystick_flat/mujoco"])
 
     assert cfg.algo.num_envs == 1024
     assert cfg.reward.scales.tracking_lin_vel == pytest.approx(1.0)
@@ -268,7 +268,7 @@ def test_build_ppo_env_cfg_override_go1_motrix(
     monkeypatch: pytest.MonkeyPatch,
 ):
     mod = _train_rsl_rl(monkeypatch)
-    cfg = _ppo_cfg(["task=go1_joystick/motrix"])
+    cfg = _ppo_cfg(["task=go1_joystick_flat/motrix"])
 
     env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
 
@@ -281,7 +281,7 @@ def test_build_ppo_env_cfg_override_g1_motrix(
     monkeypatch: pytest.MonkeyPatch,
 ):
     mod = _train_rsl_rl(monkeypatch)
-    cfg = _ppo_cfg(["task=g1_joystick/motrix"])
+    cfg = _ppo_cfg(["task=g1_joystick_flat/motrix"])
 
     env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
 
@@ -295,7 +295,7 @@ def test_build_ppo_env_cfg_override_g1_motrix(
 
 @pytest.mark.parametrize("algo", ["sac", "td3"])
 def test_offpolicy_go2_motrix_env_cfg_override_has_domain_rand(algo: str):
-    cfg = _offpolicy_cfg([f"algo={algo}", f"task={algo}/go2_joystick/motrix"])
+    cfg = _offpolicy_cfg([f"algo={algo}", f"task={algo}/go2_joystick_flat/motrix"])
 
     env_cfg_override = _offpolicy().build_offpolicy_env_cfg_override(algo, cfg)
 
@@ -308,7 +308,7 @@ def test_build_ppo_env_cfg_override_applies_go2_motrix_reward(
     monkeypatch: pytest.MonkeyPatch,
 ):
     mod = _train_rsl_rl(monkeypatch)
-    cfg = _ppo_cfg(["task=go2_joystick/motrix"])
+    cfg = _ppo_cfg(["task=go2_joystick_flat/motrix"])
 
     env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
 
@@ -399,7 +399,7 @@ def test_ppo_cli_algo_override_wins_over_base(
     monkeypatch: pytest.MonkeyPatch,
 ):
     """CLI override takes precedence over base task algo values via Hydra compose."""
-    cfg = _ppo_cfg(["task=g1_joystick/motrix", "algo.max_iterations=1"])
+    cfg = _ppo_cfg(["task=g1_joystick_flat/motrix", "algo.max_iterations=1"])
 
     assert cfg.algo.max_iterations == 1
     # Other base values remain intact
@@ -1249,21 +1249,21 @@ def test_offpolicy_td3_hydra_default_algo_log_name():
 
 
 def test_offpolicy_flashsac_hydra_algo_log_name():
-    cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_joystick/mujoco"])
+    cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_joystick_flat/mujoco"])
     assert cfg.algo.algo_log_name == "flash_sac"
     assert cfg.algo.load_run == "-1"
 
 
-def test_offpolicy_flashsac_g1_joystick_task_composes() -> None:
-    cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_joystick/mujoco"])
-    assert cfg.training.task_name == "G1JoystickFlatTerrain"
+def test_offpolicy_flashsac_g1_joystick_flat_task_composes() -> None:
+    cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_joystick_flat/mujoco"])
+    assert cfg.training.task_name == "G1JoystickFlat"
     assert cfg.training.sim_backend == "mujoco"
 
 
 def test_offpolicy_g1_rough_terrain_task_composes() -> None:
-    cfg = _offpolicy_cfg(["algo=sac", "task=sac/g1_sac_rough_terrain/mujoco"])
+    cfg = _offpolicy_cfg(["algo=sac", "task=sac/g1_walk_rough/mujoco"])
 
-    assert cfg.training.task_name == "G1WalkTaskMjSACRoughTerrain"
+    assert cfg.training.task_name == "G1WalkRough"
     assert cfg.training.sim_backend == "mujoco"
 
 
@@ -1271,7 +1271,7 @@ def test_offpolicy_flashsac_rejects_multi_gpu():
     cfg = _offpolicy_cfg(
         [
             "algo=flashsac",
-            "task=flashsac/g1_joystick/mujoco",
+            "task=flashsac/g1_joystick_flat/mujoco",
             "training.num_gpus=2",
         ]
     )
@@ -1284,7 +1284,7 @@ def test_offpolicy_sac_multi_gpu_rejects_symmetry():
     cfg = _offpolicy_cfg(
         [
             "algo=sac",
-            "task=sac/g1_sac/mujoco",
+            "task=sac/g1_walk_flat/mujoco",
             "training.num_gpus=2",
             "training.device=cpu",
         ]
@@ -1306,7 +1306,7 @@ def test_offpolicy_sac_multi_gpu_allows_explicit_symmetry_disable(
     cfg = _offpolicy_cfg(
         [
             "algo=sac",
-            "task=sac/g1_sac/mujoco",
+            "task=sac/g1_walk_flat/mujoco",
             "training.num_gpus=2",
             "training.device=cpu",
             "algo.use_symmetry=false",
@@ -1353,8 +1353,8 @@ def test_offpolicy_sac_multi_gpu_allows_explicit_symmetry_disable(
 @pytest.mark.parametrize(
     ("algo", "task"),
     [
-        ("flashsac", "sac/g1_sac/mujoco"),
-        ("sac", "flashsac/g1_sac/mujoco"),
+        ("flashsac", "sac/g1_walk_flat/mujoco"),
+        ("sac", "flashsac/g1_walk_flat/mujoco"),
     ],
 )
 def test_offpolicy_rejects_algo_task_owner_mismatch(algo: str, task: str):
@@ -1380,7 +1380,7 @@ def test_train_rsl_rl_play_missing_checkpoint_skips_env_creation_and_prints_cont
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ):
     mod = _train_rsl_rl(monkeypatch)
-    cfg = _ppo_cfg(["task=go1_joystick/mujoco", "training.play_only=true"])
+    cfg = _ppo_cfg(["task=go1_joystick_flat/mujoco", "training.play_only=true"])
     cfg.algo.algo_log_name = "custom_ppo"
 
     original_root = mod.ROOT_DIR
@@ -1412,7 +1412,7 @@ def test_train_rsl_rl_play_reports_missing_requested_checkpoint_in_resolved_run(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ):
     mod = _train_rsl_rl(monkeypatch)
-    cfg = _ppo_cfg(["task=go1_joystick/mujoco", "training.play_only=true"])
+    cfg = _ppo_cfg(["task=go1_joystick_flat/mujoco", "training.play_only=true"])
     cfg.algo.algo_log_name = "custom_ppo"
     cfg.algo.checkpoint = 12
 

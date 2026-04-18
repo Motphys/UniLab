@@ -40,7 +40,7 @@ class JoystickSensor:
     feet_pos = ["FL_pos", "FR_pos", "RL_pos", "RR_pos"]
 
 
-@registry.envcfg("Go1JoystickFlatTerrain")
+@registry.envcfg("Go1JoystickFlat")
 @dataclass
 class Go1JoystickCfg(Go1BaseCfg):
     model_file: str = str(ASSETS_ROOT_PATH / "robots" / "go1" / "scene_flat.xml")
@@ -75,8 +75,8 @@ class Go1JoystickDomainRandomizationProvider(LocomotionDRProvider):
         )
 
 
-@registry.env("Go1JoystickFlatTerrain", sim_backend="mujoco")
-@registry.env("Go1JoystickFlatTerrain", sim_backend="motrix")
+@registry.env("Go1JoystickFlat", sim_backend="mujoco")
+@registry.env("Go1JoystickFlat", sim_backend="motrix")
 class Go1WalkTask(Go1BaseEnv):
     _cfg: Go1JoystickCfg
 

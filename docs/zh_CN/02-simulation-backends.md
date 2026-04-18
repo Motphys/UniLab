@@ -41,44 +41,44 @@ uv run python scripts/generate_support_matrix.py --write
 
 | Entrypoint | Task owner | MuJoCo | Motrix |
 |------------|------------|--------|--------|
-| PPO (torch) | `go1_joystick` (Go1 joystick) | Tested | Tested |
-| PPO (torch) | `go2_joystick` (Go2 joystick) | Tested | Tested |
-| PPO (torch) | `g1_joystick` (G1 joystick) | Tested | Tested |
+| PPO (torch) | `go1_joystick_flat` (Go1 joystick) | Tested | Tested |
+| PPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | Tested |
+| PPO (torch) | `g1_joystick_flat` (G1 joystick) | Tested | Tested |
 | PPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested |
 | PPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | Tested |
 | PPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | Tested |
 | PPO (torch) | `allegro_inhand_grasp` (allegro inhand grasp) | Tested | Tested |
 | PPO (torch) | `sharpa_inhand` (sharpa inhand) | Tested | Tested |
 | PPO (torch) | `sharpa_inhand_grasp` (sharpa inhand grasp) | Tested | Tested |
-| PPO (mlx) | `go1_joystick` (Go1 joystick) | Tested | Tested |
-| PPO (mlx) | `go2_joystick` (Go2 joystick) | Tested | Tested |
-| PPO (mlx) | `g1_joystick` (G1 joystick) | Tested | Tested |
+| PPO (mlx) | `go1_joystick_flat` (Go1 joystick) | Tested | Tested |
+| PPO (mlx) | `go2_joystick_flat` (Go2 joystick) | Tested | Tested |
+| PPO (mlx) | `g1_joystick_flat` (G1 joystick) | Tested | Tested |
 | PPO (mlx) | `g1_motion_tracking` (G1 motion tracking) | Configured | Configured |
 | PPO (mlx) | `g1_flip_tracking` (G1 flip tracking) | Configured | Configured |
 | PPO (mlx) | `allegro_inhand` (Allegro in-hand) | Configured | Configured |
 | PPO (mlx) | `allegro_inhand_grasp` (allegro inhand grasp) | Configured | Configured |
 | PPO (mlx) | `sharpa_inhand` (sharpa inhand) | Configured | Configured |
 | PPO (mlx) | `sharpa_inhand_grasp` (sharpa inhand grasp) | Configured | Configured |
-| APPO (torch) | `go1_joystick` (Go1 joystick) | Tested | Registered |
-| APPO (torch) | `go2_joystick` (Go2 joystick) | Tested | Registered |
-| APPO (torch) | `g1_joystick` (G1 joystick) | Tested | Registered |
+| APPO (torch) | `go1_joystick_flat` (Go1 joystick) | Tested | Registered |
+| APPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | Registered |
+| APPO (torch) | `g1_joystick_flat` (G1 joystick) | Tested | Registered |
 | APPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested |
 | APPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | Tested |
 | APPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | Registered |
-| SAC (torch) | `go1_joystick` (Go1 joystick) | Tested | Tested |
-| SAC (torch) | `go2_joystick` (Go2 joystick) | Tested | Tested |
-| SAC (torch) | `g1_sac` (G1 SAC locomotion) | Tested | Tested |
-| SAC (torch) | `g1_sac_rough_terrain` (g1 sac rough terrain) | Tested | Registered |
-| TD3 (torch) | `go1_joystick` (Go1 joystick) | Tested | Tested |
-| TD3 (torch) | `go2_joystick` (Go2 joystick) | Tested | Tested |
+| SAC (torch) | `go1_joystick_flat` (Go1 joystick) | Tested | Tested |
+| SAC (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | Tested |
+| SAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested |
+| SAC (torch) | `g1_walk_rough` (G1 walk rough) | Tested | Registered |
+| TD3 (torch) | `go1_joystick_flat` (Go1 joystick) | Tested | Tested |
+| TD3 (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | Tested |
 
 ### Source Index
 
 - Registry bootstrap: `src/unilab/envs/**` decorators via `unilab.utils.algo_utils.ensure_registries()`.
 - Owner YAML scan: `conf/ppo/task/**`, `conf/appo/task/**`, `conf/offpolicy/task/**`.
 - Generic compose coverage: `tests/config/test_config_system.py::test_supported_task_composes`.
-- MLX-specific compose coverage only upgrades task owners listed in `tests/config/test_config_system.py::_PPO_MLX_TASKS`: `go1_joystick`, `go2_joystick`, `g1_joystick`.
-- MLX runtime smoke: `tests/algos/test_mlx_ppo.py::test_mlx_ppo_one_iteration_real_env` currently exercises `go2_joystick/mujoco`.
+- MLX-specific compose coverage only upgrades task owners listed in `tests/config/test_config_system.py::_PPO_MLX_TASKS`: `go1_joystick_flat`, `go2_joystick_flat`, `g1_joystick_flat`.
+- MLX runtime smoke: `tests/algos/test_mlx_ppo.py::test_mlx_ppo_one_iteration_real_env` currently exercises `go2_joystick_flat/mujoco`.
 <!-- END GENERATED SUPPORT MATRIX -->
 
 ## Select A Backend
@@ -95,10 +95,10 @@ uv run python scripts/generate_support_matrix.py --write
 
 ```bash
 # 默认 MuJoCo
-uv run python scripts/train_rsl_rl.py task=go1_joystick/mujoco
+uv run python scripts/train_rsl_rl.py task=go1_joystick_flat/mujoco
 
 # 显式指定 Motrix
-uv run python scripts/train_rsl_rl.py task=go1_joystick/motrix
+uv run python scripts/train_rsl_rl.py task=go1_joystick_flat/motrix
 ```
 
 ## Playback Differences
@@ -109,10 +109,10 @@ uv run python scripts/train_rsl_rl.py task=go1_joystick/motrix
 对 G1 motion tracking 来说，目前已验证的 Motrix 路径是 `PPO (torch) + motrix` 和 `APPO (torch) + motrix`。`scripts/play_interactive.py` 仍然沿用 MuJoCo 路径。
 
 ```bash
-uv run python scripts/train_rsl_rl.py task=go1_joystick/mujoco training.play_only=true
+uv run python scripts/train_rsl_rl.py task=go1_joystick_flat/mujoco training.play_only=true
 
 # macOS / MacBook 上的 MotrixSim 原生 renderer
-uv run mxpython scripts/train_rsl_rl.py task=go1_joystick/motrix training.play_only=true
+uv run mxpython scripts/train_rsl_rl.py task=go1_joystick_flat/motrix training.play_only=true
 ```
 
 ## Notes

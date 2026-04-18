@@ -3,7 +3,7 @@
 Benchmark MuJoCo Warp physics execution.
 
 Benchmarks mujoco_warp across current locomotion owner task ids
-(go1_joystick/go2_joystick/g1_joystick) and outputs JSON + plots
+(go1_joystick_flat/go2_joystick_flat/g1_joystick_flat) and outputs JSON + plots
 aligned with benchmark/benchmark_physics_step_mj_step.py.
 Legacy env names remain accepted as aliases.
 
@@ -73,9 +73,9 @@ class BenchRecord:
 DEFAULT_TASK_IDS = canonical_locomotion_task_ids()
 DEFAULT_BATCH_SIZES = [2**k for k in range(8, 15)]  # 256 .. 16384
 DEFAULT_NJMAX_BY_TASK = {
-    "go1_joystick": 100,
-    "go2_joystick": 100,
-    "g1_joystick": 150,
+    "go1_joystick_flat": 100,
+    "go2_joystick_flat": 100,
+    "g1_joystick_flat": 150,
 }
 
 

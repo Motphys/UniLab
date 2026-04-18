@@ -5,10 +5,10 @@ Usage:
     uv run benchmark/benchmark_env_step.py
 
     # Single task + backend:
-    uv run benchmark/benchmark_env_step.py task=g1_joystick/motrix
+    uv run benchmark/benchmark_env_step.py task=g1_joystick_flat/motrix
 
     # Override bench params:
-    uv run benchmark/benchmark_env_step.py task=go1_joystick/mujoco num_envs=4096 num_steps=500
+    uv run benchmark/benchmark_env_step.py task=go1_joystick_flat/mujoco num_envs=4096 num_steps=500
 
     # Save to custom locations:
     uv run benchmark/benchmark_env_step.py --out-json tmp/env_step.json --plot-dir tmp/env_step_plots
@@ -59,9 +59,9 @@ get_device_info_line = _DEVICE_INFO.get_device_info_line
 save_json = _OUTPUT.save_json
 
 TASK_CONFIGS = {
-    "go1": "task=go1_joystick",
-    "go2": "task=go2_joystick",
-    "g1": "task=g1_joystick",
+    "go1": "task=go1_joystick_flat",
+    "go2": "task=go2_joystick_flat",
+    "g1": "task=g1_joystick_flat",
     "g1_mt": "task=g1_motion_tracking",
 }
 
@@ -320,7 +320,7 @@ def _print_single_report(result: dict[str, Any]) -> None:
 
 
 def _short_task_label(task_name: str) -> str:
-    """Shorten 'Go1JoystickFlatTerrain' → 'go1'."""
+    """Shorten 'Go1JoystickFlat' → 'go1'."""
     name = task_name.lower()
     if "motiontracking" in name:
         return "g1_mt"
@@ -796,7 +796,7 @@ def _run_matrix(
             label = f"{task_key}/{backend}"
             print(f"Running {label} ...", flush=True)
             try:
-                # Task config format: task=go1_joystick/mujoco
+                # Task config format: task=go1_joystick_flat/mujoco
                 args = [f"{task_override}/{backend}"] + extra_args
                 result = _run_single(args)
                 result["task_key"] = task_key

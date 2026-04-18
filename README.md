@@ -25,14 +25,14 @@ uv sync --extra motrix
 
 # 3. Run a first PPO training job on macOS / MacBook
 # macOS: (73s on M5Max-128GB, 1min43s on M3Max-48GB, 2.5min on MacBookNeo-8GB)
-uv run mxpython scripts/train_rsl_rl.py task=go2_joystick/motrix
+uv run mxpython scripts/train_rsl_rl.py task=go2_joystick_flat/motrix
 
 # 4. Run the same training job on Linux
 # Linux: PPO (31s on RTX 4090 and R9-9950x3d)
-uv run scripts/train_rsl_rl.py task=go2_joystick/motrix
+uv run scripts/train_rsl_rl.py task=go2_joystick_flat/motrix
 ```
 
-This is the shortest repository entrypoint today. It uses the PPO training script on the registered `go2_joystick/motrix` task and gives a direct first-success path before you learn the full workflow.
+This is the shortest repository entrypoint today. It uses the PPO training script on the registered `go2_joystick_flat/motrix` task and gives a direct first-success path before you learn the full workflow.
 
 On macOS / MacBook, commands that open the MotrixSim native renderer must be launched with `uv run mxpython` instead of `uv run python`. Plain non-rendering training can still use `uv run python ... training.no_play=true`.
 
@@ -42,7 +42,7 @@ These are example repository runs for documented commands and hardware setups. T
 
 ```bash
 # Linux SAC (5.5min on RTX 4090 and R9-9950x3d)
-uv run scripts/train_offpolicy.py algo=sac task=sac/g1_sac/motrix
+uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/motrix
 ```
 
 ```bash

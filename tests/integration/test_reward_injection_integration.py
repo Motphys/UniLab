@@ -16,11 +16,11 @@ def test_reward_injection_in_training():
         cfg = compose(
             config_name="config",
             overrides=[
-                "task=sac/g1_sac/mujoco",
+                "task=sac/g1_walk_flat/mujoco",
                 "algo.max_iterations=1",
                 "algo.num_envs=64",
                 "training.no_play=true",
-                "training.task_name=G1WalkTaskMjSAC",  # Ensure correct task
+                "training.task_name=G1WalkFlat",  # Ensure correct task
             ],
         )
 
@@ -61,7 +61,7 @@ def test_reward_override_propagation():
     env = cast(
         Any,
         registry.make(
-            "Go1JoystickFlatTerrain",
+            "Go1JoystickFlat",
             num_envs=4,
             sim_backend="mujoco",
             env_cfg_override={"reward_config": custom_config},
@@ -96,7 +96,7 @@ def test_backward_compatibility_no_reward_config():
     # Should fail without reward_config
     with pytest.raises(ValueError, match="reward_config must be provided"):
         registry.make(
-            "Go1JoystickFlatTerrain",
+            "Go1JoystickFlat",
             num_envs=2,
             sim_backend="mujoco",
         )
@@ -124,7 +124,7 @@ def test_zero_scale_skips_computation():
     env = cast(
         Any,
         registry.make(
-            "Go1JoystickFlatTerrain",
+            "Go1JoystickFlat",
             num_envs=2,
             sim_backend="mujoco",
             env_cfg_override={"reward_config": custom_config},

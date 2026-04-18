@@ -7,10 +7,11 @@ KNOWN_TASKS is kept for legacy routing utilities.
 
 KNOWN_TASKS: frozenset[str] = frozenset(
     {
-        "Go1JoystickFlatTerrain",
-        "Go2JoystickFlatTerrain",
-        "G1JoystickFlatTerrain",
-        "G1WalkTaskMjSAC",
+        "Go1JoystickFlat",
+        "Go2JoystickFlat",
+        "G1JoystickFlat",
+        "G1WalkFlat",
+        "G1WalkRough",
         "G1MotionTracking",
     }
 )

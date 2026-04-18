@@ -5,10 +5,10 @@ directly to MuJoCo viewer/runtime APIs and is not available for Motrix tasks.
 
 Usage:
     # Load the latest checkpoint for a task/backend owner config
-    uv run python scripts/play_interactive.py task=go2_joystick/mujoco
+    uv run python scripts/play_interactive.py task=go2_joystick_flat/mujoco
 
     # Load a specific run
-    uv run python scripts/play_interactive.py task=go2_joystick/mujoco algo.load_run=2024-02-04_12-00-00
+    uv run python scripts/play_interactive.py task=go2_joystick_flat/mujoco algo.load_run=2024-02-04_12-00-00
 
     # Show target bodies / reward debug overlays
     uv run python scripts/play_interactive.py task=g1_motion_tracking/mujoco \
