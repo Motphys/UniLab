@@ -4,8 +4,9 @@ from contextlib import nullcontext
 
 import mujoco
 import numpy as np
+import pytest
 
-from unilab.utils.viser_scene import MujocoViserScene, build_visible_env_indices
+from unilab.utils.viser_scene import VISER_AVAILABLE, MujocoViserScene, build_visible_env_indices
 
 
 class _FakeHandle:
@@ -21,7 +22,7 @@ class _FakeHandle:
 class _FakeScene:
     def __init__(self) -> None:
         self.handles: list[_FakeHandle] = []
-        self.up = None
+        self.up: str | None = None
 
     def set_up_direction(self, value: str) -> None:
         self.up = value
@@ -64,6 +65,7 @@ class _FakeServer:
         return nullcontext()
 
 
+@pytest.mark.skipif(not VISER_AVAILABLE, reason="viser optional dependency is not installed")
 def test_mujoco_viser_scene_applies_position_offset_and_close() -> None:
     xml = """
     <mujoco>
@@ -75,9 +77,9 @@ def test_mujoco_viser_scene_applies_position_offset_and_close() -> None:
       </worldbody>
     </mujoco>
     """
-    model = mujoco.MjModel.from_xml_string(xml)
-    data = mujoco.MjData(model)
-    mujoco.mj_forward(model, data)
+    model = mujoco.MjModel.from_xml_string(xml)  # pyright: ignore[reportAttributeAccessIssue]
+    data = mujoco.MjData(model)  # pyright: ignore[reportAttributeAccessIssue]
+    mujoco.mj_forward(model, data)  # pyright: ignore[reportAttributeAccessIssue]
 
     server = _FakeServer()
     scene = MujocoViserScene(
