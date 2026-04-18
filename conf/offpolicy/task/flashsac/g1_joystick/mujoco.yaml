@@ -6,7 +6,7 @@ training:
 algo:
   num_envs: 1024
   replay_buffer_n: 9766
-  warmup_steps: 100000
+  learning_starts: 98
   updates_per_step: 2
   max_iterations: 48829
   save_interval: 5000

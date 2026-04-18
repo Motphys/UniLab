@@ -63,7 +63,7 @@ def off_policy_collector_fn(
     algo_type: str = "sac",
     actor_hidden_dim: int = 512,
     use_layer_norm: bool = True,
-    warmup_steps: int = 5000,
+    learning_starts: int = 0,
     metrics_queue=None,
     weight_sync_lock=None,
     sync_collection: bool = False,
@@ -95,7 +95,7 @@ def off_policy_collector_fn(
             algo_type=algo_type,
             actor_hidden_dim=actor_hidden_dim,
             use_layer_norm=use_layer_norm,
-            warmup_steps=warmup_steps,
+            learning_starts=learning_starts,
             metrics_queue=metrics_queue,
             weight_sync_lock=weight_sync_lock,
             sync_collection=sync_collection,
@@ -130,7 +130,7 @@ def _run_collector(
     algo_type,
     actor_hidden_dim,
     use_layer_norm,
-    warmup_steps,
+    learning_starts,
     metrics_queue,
     weight_sync_lock,
     sync_collection,
@@ -145,6 +145,7 @@ def _run_collector(
     action_dim,
     actor_kwargs,
 ):
+    del learning_starts
     from unilab.base import registry
     from unilab.ipc import SharedWeightSync
 
@@ -254,20 +255,17 @@ def _run_collector(
 
         # Select action
         with torch.no_grad():
-            if total_steps < warmup_steps:
-                actions_np = np.random.uniform(-1, 1, (num_envs, action_dim)).astype(np.float32)
-            else:
-                _t_infer = _time.perf_counter()
-                obs_torch = torch.from_numpy(obs_np_input)
-                dones_torch = torch.from_numpy(prev_dones_np)
-                actions_torch = sample_offpolicy_actions(
-                    actor=actor,
-                    algo_type=algo_type,
-                    obs_torch=obs_torch,
-                    prev_dones_torch=dones_torch,
-                )
-                actions_np = actions_torch.numpy()
-                timing_accum_ms["mlp_infer_ms"] += (_time.perf_counter() - _t_infer) * 1000
+            _t_infer = _time.perf_counter()
+            obs_torch = torch.from_numpy(obs_np_input)
+            dones_torch = torch.from_numpy(prev_dones_np)
+            actions_torch = sample_offpolicy_actions(
+                actor=actor,
+                algo_type=algo_type,
+                obs_torch=obs_torch,
+                prev_dones_torch=dones_torch,
+            )
+            actions_np = actions_torch.numpy()
+            timing_accum_ms["mlp_infer_ms"] += (_time.perf_counter() - _t_infer) * 1000
 
         # Step environment
         state = env.step(actions_np)
