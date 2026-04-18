@@ -128,7 +128,12 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
         num_envs: int = 1,
         backend_type: str = "motrix",
     ) -> None:
-        super().__init__(cfg, num_envs=num_envs, backend_type=backend_type)
+        super().__init__(
+            cfg,
+            num_envs=num_envs,
+            backend_type=backend_type,
+            dr_provider=SharpaInhandGraspDRProvider(),
+        )
 
         self._saved_grasping_states: list[list[np.ndarray]] = [
             list() for _ in range(self._num_scales)
@@ -136,6 +141,8 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
         self._grasp_target_per_scale = max(1, int(cfg.grasp_collection_target // self._num_scales))
         self._grasp_cache_saved = False
         self._grasp_target_reached_notified = False
+        self._last_grasp_progress_step = -1
+        self._last_grasp_progress_counts: tuple[int, ...] | None = None
         self._grasp_default_angles = np.asarray(
             np.deg2rad(np.asarray(SOURCE_DEFAULT_HAND_JOINT_POS_DEG, dtype=np.float64)),
             dtype=self._np_dtype,
@@ -145,8 +152,6 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
                 "Source grasp default angle count mismatch: "
                 f"{self._grasp_default_angles.shape[0]} vs expected {self._num_action}"
             )
-
-        self._init_domain_randomization(SharpaInhandGraspDRProvider())
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
         # Grasp-cache collection should not use policy/random actions.
@@ -162,12 +167,49 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
             len(bucket) >= self._grasp_target_per_scale for bucket in self._saved_grasping_states
         )
 
+    def _get_per_scale_grasp_counts(self) -> tuple[int, ...]:
+        """Return collected grasp counts for each scale bucket.
+
+        Returns:
+            Tuple where index is scale id and value is collected grasp count.
+        """
+        return tuple(len(bucket) for bucket in self._saved_grasping_states)
+
+    def _maybe_print_grasp_progress(self, force: bool = False) -> None:
+        """Print runtime grasp-collection progress grouped by scale.
+
+        Args:
+            force: When True, print even if throttling would normally skip.
+        """
+        if self.state is None:
+            return
+
+        counts = self._get_per_scale_grasp_counts()
+        step_info = self.state.info.get("steps")
+        step = int(step_info[0]) if isinstance(step_info, np.ndarray) and step_info.size > 0 else 0
+        if not force:
+            if counts == self._last_grasp_progress_counts:
+                return
+            if self._last_grasp_progress_step >= 0 and step - self._last_grasp_progress_step < 32:
+                return
+
+        total = int(sum(counts))
+        per_scale = ", ".join(f"s{i}:{count}" for i, count in enumerate(counts))
+        print(
+            "[SharpaInhandRotationGrasp] "
+            f"grasp progress total={total}/{int(self._cfg.grasp_collection_target)}, "
+            f"per_scale=[{per_scale}]"
+        )
+        self._last_grasp_progress_step = step
+        self._last_grasp_progress_counts = counts
+
     def _stop_collection(self) -> None:
         if self._grasp_target_reached_notified:
             return
         if not self._collection_target_reached():
             return
 
+        self._maybe_print_grasp_progress(force=True)
         self._grasp_target_reached_notified = True
         collected = self._total_saved_grasps()
         target = int(self._cfg.grasp_collection_target)
@@ -203,6 +245,7 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
             if len(bucket) < self._grasp_target_per_scale:
                 bucket.append(all_states[i : i + 1])
 
+        self._maybe_print_grasp_progress()
         if self._grasp_cache_saved:
             return
 
@@ -290,8 +333,12 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
             log["grasp/cond2"] = float(np.mean(cond2.astype(np.float32)))
             log["grasp/cond3"] = float(np.mean(cond3.astype(np.float32)))
             log["grasp/valid"] = float(np.mean(grasp_valid.astype(np.float32)))
-            collected = float(sum(len(bucket) for bucket in self._saved_grasping_states))
+            per_scale_counts = self._get_per_scale_grasp_counts()
+            collected = float(sum(per_scale_counts))
             log["grasp/cache_size"] = collected
+            for scale_idx, count in enumerate(per_scale_counts):
+                scale_value = float(self.scale_values[scale_idx])
+                log[f"grasp/cache_size_scale_{scale_value:g}"] = float(count)
             next_state.info["log"] = log
 
         return next_state.replace(reward=reward, terminated=terminated)

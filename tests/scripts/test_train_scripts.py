@@ -388,7 +388,7 @@ def test_build_ppo_env_cfg_override_sharpa_mujoco(
     assert env_cfg_override["reward_config"]["scales"]["rotate"] == pytest.approx(2.5)
     assert env_cfg_override["reward_config"]["scales"]["pose_diff"] == pytest.approx(-0.4)
     assert env_cfg_override["grasp_cache_path"] == "cache/sharpa_grasp_linspace"
-    assert env_cfg_override["scale_range"] == [1.0, 1.0, 1]
+    assert env_cfg_override["scale_range"] == [0.8, 1.1, 4]
     assert env_cfg_override["observation_mode"] == "simple"
 
 
@@ -401,6 +401,7 @@ def test_build_ppo_env_cfg_override_sharpa_grasp_mujoco(
     env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
 
     assert cfg.training.task_name == "SharpaInhandRotationGrasp"
+    assert cfg.training.no_play is True
     assert env_cfg_override["reward_config"]["scales"]["rotate"] == pytest.approx(0.0)
     assert env_cfg_override["max_episode_seconds"] == pytest.approx(3.0)
     assert env_cfg_override["grasp_collection_target"] == 50000
