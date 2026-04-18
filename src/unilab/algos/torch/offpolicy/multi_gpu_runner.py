@@ -306,6 +306,21 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
     Falls back transparently to single-GPU when ``num_gpus <= 1``.
     """
 
+    @staticmethod
+    def validate_capabilities(
+        *,
+        algo_type: str,
+        learner_kwargs: Dict[str, Any],
+        num_gpus: int,
+    ) -> None:
+        if num_gpus <= 1:
+            return
+        if algo_type == "sac" and bool(learner_kwargs.get("use_symmetry", False)):
+            raise ValueError(
+                "Off-policy symmetry augmentation does not support training.num_gpus > 1; "
+                "set training.num_gpus=1 or algo.use_symmetry=false"
+            )
+
     def __init__(
         self,
         learner: Any,
@@ -315,6 +330,11 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
         num_gpus: int = 1,
         **kwargs: Any,
     ) -> None:
+        self.validate_capabilities(
+            algo_type=algo_type,
+            learner_kwargs=learner_kwargs,
+            num_gpus=num_gpus,
+        )
         super().__init__(learner=learner, env_name=env_name, algo_type=algo_type, **kwargs)
         self.num_gpus = num_gpus
         self.world_size = num_gpus

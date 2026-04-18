@@ -466,7 +466,11 @@ class FastSACLearner:
         self.scaler = torch.amp.GradScaler("cuda") if self.use_amp else None  # pyright: ignore[reportPrivateImportUsage]
 
         self.symmetry = symmetry_augmentation
-        self.use_symmetry = use_symmetry and symmetry_augmentation is not None
+        if use_symmetry and symmetry_augmentation is None:
+            raise ValueError(
+                "FastSACLearner use_symmetry=True requires a symmetry_augmentation contract"
+            )
+        self.use_symmetry = use_symmetry
 
     def _reduce_gradients(self, model: nn.Module) -> None:
         """All-reduce gradients across all workers and divide by world_size.

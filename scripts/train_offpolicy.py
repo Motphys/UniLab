@@ -100,11 +100,6 @@ def build_runner(algo_name: str, cfg: DictConfig):
         if cfg.training.num_gpus > 1:
             from unilab.algos.torch.offpolicy.multi_gpu_runner import MultiGPUOffPolicyRunner
 
-            if cfg.algo.use_symmetry:
-                raise ValueError(
-                    "Off-policy symmetry augmentation does not support training.num_gpus > 1"
-                )
-
             ensure_registries()
             device = cfg.training.device or get_default_device()
             env = create_env(
@@ -136,8 +131,13 @@ def build_runner(algo_name: str, cfg: DictConfig):
                 "max_grad_norm": cfg.algo.algo_params.max_grad_norm,
                 "use_amp": cfg.training.use_amp,
                 "critic_obs_dim": critic_dim,
-                "use_symmetry": False,
+                "use_symmetry": cfg.algo.use_symmetry,
             }
+            MultiGPUOffPolicyRunner.validate_capabilities(
+                algo_type="sac",
+                learner_kwargs=learner_kwargs,
+                num_gpus=cfg.training.num_gpus,
+            )
             main_learner = FastSACLearner(device=device, **learner_kwargs)
 
             return MultiGPUOffPolicyRunner(
