@@ -221,6 +221,7 @@ class OffPolicyRunner(AsyncRunner):
             "env_steps_per_sync": self.env_steps_per_sync,
             "obs_normalization": self.obs_normalization,
             "shared_obs_normalizer_stats": shared_obs_normalizer_stats,
+            "sim_backend": self.sim_backend,
             "env_cfg_override": self.env_cfg_override,
             "obs_dim": self.obs_dim,
             "action_dim": self.action_dim,

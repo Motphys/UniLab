@@ -46,8 +46,8 @@ class APPORunner(AsyncRunner):
             rl_cfg=rl_cfg,
             device=device,
             collector_device=collector_device,
-            num_envs=num_envs,
             sim_backend=sim_backend,
+            num_envs=num_envs,
         )
 
         self.steps_per_env = steps_per_env
@@ -95,7 +95,7 @@ class APPORunner(AsyncRunner):
         env = registry.make(
             self.env_name,
             num_envs=1,
-            sim_backend=self.extra_kwargs.get("sim_backend", "mujoco"),
+            sim_backend=self.sim_backend,
             env_cfg_override=self.env_cfg_overrides if self.env_cfg_overrides else None,
         )
         obs_dim, critic_dim = get_obs_dims(env.obs_groups_spec)
@@ -234,7 +234,7 @@ class APPORunner(AsyncRunner):
             "critic_weight_param_shapes": critic_weight_param_shapes,
             "metrics_queue": metrics_queue,
             "collector_device": self.collector_device,
-            "sim_backend": self.extra_kwargs.get("sim_backend", "mujoco"),
+            "sim_backend": self.sim_backend,
             "env_cfg_override": self.env_cfg_overrides if self.env_cfg_overrides else None,
         }
         self._start_collector(
