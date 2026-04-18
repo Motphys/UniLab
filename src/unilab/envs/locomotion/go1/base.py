@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import numpy as np
+
 from unilab.envs.locomotion.common.base import (
     ControlConfigBase,
     LocomotionBaseCfg,
@@ -43,3 +45,14 @@ class Go1BaseCfg(LocomotionBaseCfg):
 
 class Go1BaseEnv(LocomotionBaseEnv):
     _cfg: Go1BaseCfg
+
+    def _obs_noise(self, data: np.ndarray, scale: float) -> np.ndarray:
+        """Apply per-step uniform observation noise scaled by ``noise_config.level``."""
+        noise_cfg = self._cfg.noise_config
+        if noise_cfg.level > 0.0:
+            return data + (
+                np.random.uniform(-1.0, 1.0, data.shape).astype(data.dtype)
+                * noise_cfg.level
+                * scale
+            )
+        return data
