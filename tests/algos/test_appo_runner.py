@@ -35,7 +35,7 @@ def test_appo_runner_init_no_crash(mock_env_name):
 
 @pytest.mark.slow
 @pytest.mark.veryslow
-@pytest.mark.parametrize("env_name", ["Go2JoystickFlatTerrain"])
+@pytest.mark.parametrize("env_name", ["Go2JoystickFlat"])
 def test_appo_runner_learn_two_iterations(env_name, default_go2_reward_config):
     """APPO learn test must use a real env — DummyFlatTest is not registered in
     the collector subprocess (mp.spawn) so registry.make() would fail there."""

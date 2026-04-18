@@ -17,7 +17,7 @@
 ## 现状结论
 
 1. 当前已接入 DR provider 的任务全部使用统一 DR 入口，没有任务绕开 `DomainRandomizationManager` 直接在 `reset()` 里做另一套 DR 流程。
-2. 形式上基本都是结构化的：任务文件内定义 `domain_rand` 配置 dataclass、`DomainRandomizationProvider`、`ResetPlan`，`G1WalkTaskMjSAC` 复用 `G1Joystick` 的 provider。
+2. 形式上基本都是结构化的：任务文件内定义 `domain_rand` 配置 dataclass、`DomainRandomizationProvider`、`ResetPlan`，`G1WalkFlat` 复用 `G1Joystick` 的 provider。
 3. 现在“统一”的主要是入口和执行流程，不是所有随机项本身。公共 helper [`build_common_reset_randomization()`](../../src/unilab/dr/dr_utils.py) 目前生成 `base_mass_delta`、`base_com_offset`、`kp`、`kd`；公共 interval helper 目前只生成 push。
 4. [`ResetRandomizationPayload`](../../src/unilab/dr/types.py) 已经能表达 `body_iquat`、`body_inertia`、`kp`、`kd`，且 [`MuJoCoBackend`](../../src/unilab/base/backend/mujoco_backend.py) 已声明支持。是否真正使用这些项，仍取决于任务 provider 是否采样并下发。
 5. [`MotrixBackend`](../../src/unilab/base/backend/motrix_backend.py) 当前只支持 `base_mass_delta`、`base_com_offset` 和 interval push。
@@ -27,10 +27,10 @@
 
 | 任务 | 是否使用统一 DR 入口 | 是否为结构化形式 | reset 形式 | interval 形式 | 代码 |
 | --- | --- | --- | --- | --- | --- |
-| `Go1JoystickFlatTerrain` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | 任务状态采样 + common payload | push | [`go1/joystick.py`](../../src/unilab/envs/locomotion/go1/joystick.py) |
-| `Go2JoystickFlatTerrain` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | 任务状态采样 + common payload | push | [`go2/joystick.py`](../../src/unilab/envs/locomotion/go2/joystick.py) |
-| `G1JoystickFlatTerrain` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | 任务状态采样 + common payload | push | [`g1/joystick.py`](../../src/unilab/envs/locomotion/g1/joystick.py) |
-| `G1WalkTaskMjSAC` | 是 | 是：复用 [`G1JoystickDomainRandomizationProvider`](../../src/unilab/envs/locomotion/g1/joystick.py) | 任务状态采样 + common payload | push | [`g1/joystick_sac.py`](../../src/unilab/envs/locomotion/g1/joystick_sac.py) |
+| `Go1JoystickFlat` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | 任务状态采样 + common payload | push | [`go1/joystick.py`](../../src/unilab/envs/locomotion/go1/joystick.py) |
+| `Go2JoystickFlat` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | 任务状态采样 + common payload | push | [`go2/joystick.py`](../../src/unilab/envs/locomotion/go2/joystick.py) |
+| `G1JoystickFlat` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | 任务状态采样 + common payload | push | [`g1/joystick.py`](../../src/unilab/envs/locomotion/g1/joystick.py) |
+| `G1WalkFlat` | 是 | 是：复用 [`G1JoystickDomainRandomizationProvider`](../../src/unilab/envs/locomotion/g1/joystick.py) | 任务状态采样 + common payload | push | [`g1/joystick_sac.py`](../../src/unilab/envs/locomotion/g1/joystick_sac.py) |
 | `G1MotionTracking` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | 大量任务特有 reset 采样 + common payload | push | [`motion_tracking/g1/tracking.py`](../../src/unilab/envs/motion_tracking/g1/tracking.py) |
 | `AllegroInhandRotation` | 是 | 是：`DomainRandConfig + Provider + ResetPlan` | 纯任务特有 reset 采样，`randomization=None` | 无 | [`inhand_rot_allegro/rotation.py`](../../src/unilab/envs/manipulation/inhand_rot_allegro/rotation.py) |
 | `SharpaInhandRotation` | 是 | 是：`InitRandomizationPlan + ResetPlan` | grasp cache 采样 + common payload | 无 | [`sharpa_inhand/rotation.py`](../../src/unilab/envs/manipulation/sharpa_inhand/rotation.py) |
@@ -40,10 +40,10 @@
 
 | 任务 | 当前实现的 reset 域随机 | 当前实现的 interval 域随机 | 默认状态 |
 | --- | --- | --- | --- |
-| `Go1JoystickFlatTerrain` | base xy；base yaw；base qvel；command 采样；`current_actions/last_actions` 清零；可选 `base_mass_delta`；可选 `base_com_offset` | `push_robots` | 默认开启 `base_mass_delta`、`base_com_offset`、push |
-| `Go2JoystickFlatTerrain` | base xy；base yaw；base qvel；command 采样；`current_actions/last_actions` 清零；可选 `base_mass_delta`；可选 `base_com_offset` | `push_robots` | 默认全部关闭 |
-| `G1JoystickFlatTerrain` | base xy；base yaw；按 `reset_base_qvel_limit` 采样 base qvel；command 采样；`gait_phase` 采样；`current_actions/last_actions` 清零；可选 `base_mass_delta`；可选 `base_com_offset` | `push_robots` | 默认 common payload 和 push 关闭 |
-| `G1WalkTaskMjSAC` | 与 `G1JoystickFlatTerrain` 相同，直接复用同一个 provider | `push_robots` | 默认 common payload 和 push 关闭 |
+| `Go1JoystickFlat` | base xy；base yaw；base qvel；command 采样；`current_actions/last_actions` 清零；可选 `base_mass_delta`；可选 `base_com_offset` | `push_robots` | 默认开启 `base_mass_delta`、`base_com_offset`、push |
+| `Go2JoystickFlat` | base xy；base yaw；base qvel；command 采样；`current_actions/last_actions` 清零；可选 `base_mass_delta`；可选 `base_com_offset` | `push_robots` | 默认全部关闭 |
+| `G1JoystickFlat` | base xy；base yaw；按 `reset_base_qvel_limit` 采样 base qvel；command 采样；`gait_phase` 采样；`current_actions/last_actions` 清零；可选 `base_mass_delta`；可选 `base_com_offset` | `push_robots` | 默认 common payload 和 push 关闭 |
+| `G1WalkFlat` | 与 `G1JoystickFlat` 相同，直接复用同一个 provider | `push_robots` | 默认 common payload 和 push 关闭 |
 | `G1MotionTracking` | motion frame 采样；root pose 扰动 `x/y/z/roll/pitch/yaw`；root velocity 扰动 `x/y/z/roll/pitch/yaw`；joint position noise；MuJoCo 下按 joint range clip；`current_actions/last_actions` 清零；可选 `base_mass_delta`；可选 `base_com_offset` | `push_robots` | `pose_randomization`、`velocity_randomization`、`joint_position_range` 默认有非零扰动；common payload 和 push 默认关闭 |
 | `AllegroInhandRotation` | 若有 grasp cache 则随机采样 grasp；否则对 hand joints 加 `joint_noise`、对球加 `ball_z_offset`；始终对球线速度加 `ball_vel_noise`；不下发 backend randomization payload | 无 | grasp cache 路径可用时默认会采样；`joint_noise`、`ball_vel_noise`、`ball_z_offset` 默认 0 |
 | `AllegroInhandRotationSac` | 与 `AllegroInhandRotation` 相同：grasp cache 采样或 hand joint noise、ball z offset、ball velocity noise；不下发 backend randomization payload | 无 | grasp cache 路径可用时默认会采样；`joint_noise`、`ball_vel_noise`、`ball_z_offset` 默认 0 |

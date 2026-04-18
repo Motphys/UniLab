@@ -1,6 +1,6 @@
 defaults:
   - _self_
-  - task: go1_joystick/mujoco
+  - task: go1_joystick_flat/mujoco
 
 algo:
   algo: ppo
@@ -52,7 +52,7 @@ algo:
     reward_normalization: false
 
 training:
-  task_name: Go1JoystickFlatTerrain
+  task_name: Go1JoystickFlat
   device: mlx
   sim_backend: mujoco
   play_only: false

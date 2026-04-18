@@ -74,7 +74,7 @@ def test_registry_bootstrap_and_config_imports_do_not_require_mujoco():
     assert result.returncode == 0, result.stderr or result.stdout
 
 
-def test_g1_joystick_ppo_cfg_obs_groups_spec():
+def test_g1_joystick_flat_ppo_cfg_obs_groups_spec():
     """G1JoystickPPO must declare obs_groups_spec with actor and critic groups."""
     from unilab.envs.locomotion.g1.joystick import G1JoystickPPOCfg
 
@@ -82,20 +82,20 @@ def test_g1_joystick_ppo_cfg_obs_groups_spec():
     assert not hasattr(cfg, "obs_config"), "obs_config should have been removed"
 
 
-def test_g1_joystick_sac_cfg_no_obs_config():
-    """G1JoystickSACCfg should no longer have obs_config after dict obs refactor."""
-    from unilab.envs.locomotion.g1.joystick_sac import G1JoystickSACCfg
+def test_g1_walk_flat_cfg_no_obs_config():
+    """G1WalkFlatCfg should no longer have obs_config after dict obs refactor."""
+    from unilab.envs.locomotion.g1.joystick_sac import G1WalkFlatCfg
 
-    cfg = G1JoystickSACCfg()
+    cfg = G1WalkFlatCfg()
     assert not hasattr(cfg, "obs_config"), (
         "obs_config should have been removed in the dict obs refactor"
     )
 
 
-def test_g1_joystick_sac_cfg_has_domain_rand_for_motrix():
-    from unilab.envs.locomotion.g1.joystick_sac import G1JoystickSACCfg
+def test_g1_walk_flat_cfg_has_domain_rand_for_motrix():
+    from unilab.envs.locomotion.g1.joystick_sac import G1WalkFlatCfg
 
-    cfg = G1JoystickSACCfg()
+    cfg = G1WalkFlatCfg()
     assert hasattr(cfg, "domain_rand")
     assert hasattr(cfg, "gait_phase_init_mode")
     assert hasattr(cfg, "reset_base_qvel_limit")
@@ -104,7 +104,7 @@ def test_g1_joystick_sac_cfg_has_domain_rand_for_motrix():
     assert cfg.domain_rand.push_robots is False
 
 
-def test_g1_joystick_ppo_obs_groups_spec_dims():
+def test_g1_joystick_flat_ppo_obs_groups_spec_dims():
     """obs_groups_spec total dim must match what _compute_obs actually produces.
 
     G1JoystickPPO._compute_obs outputs (G1 has 29 DoF):
@@ -410,11 +410,11 @@ def test_g1_motion_tracking_clip_end_does_not_override_true_termination():
 
 # Environments that don't need special config overrides
 _STANDARD_ENVS = [
-    "Go1JoystickFlatTerrain",
-    "Go2JoystickFlatTerrain",
-    "G1JoystickFlatTerrain",
-    "G1WalkTaskMjSAC",
-    "G1WalkTaskMjSACRoughTerrain",
+    "Go1JoystickFlat",
+    "Go2JoystickFlat",
+    "G1JoystickFlat",
+    "G1WalkFlat",
+    "G1WalkRough",
     "AllegroInhandRotation",
     "AllegroInhandRotationGrasp",
 ]
@@ -427,7 +427,7 @@ def test_env_reset_and_step(
     default_go1_reward_config,
     default_go2_reward_config,
     default_g1_reward_config,
-    default_g1_sac_reward_config,
+    default_g1_walk_flat_reward_config,
     default_allegro_reward_config,
 ):
     """Every registered env must be constructible, resetable, and steppable.
@@ -447,8 +447,8 @@ def test_env_reset_and_step(
         env_cfg_override = {"reward_config": default_go1_reward_config}
     elif "Go2" in env_name:
         env_cfg_override = {"reward_config": default_go2_reward_config}
-    elif "G1WalkTaskMjSAC" in env_name:
-        env_cfg_override = {"reward_config": default_g1_sac_reward_config}
+    elif "G1Walk" in env_name:
+        env_cfg_override = {"reward_config": default_g1_walk_flat_reward_config}
     elif "G1" in env_name:
         env_cfg_override = {"reward_config": default_g1_reward_config}
     elif "Allegro" in env_name:
@@ -514,7 +514,7 @@ def test_go1_env_initializes_kp_kd_into_pool(default_go1_reward_config):
     env = cast(
         Any,
         registry.make(
-            "Go1JoystickFlatTerrain",
+            "Go1JoystickFlat",
             num_envs=2,
             sim_backend="mujoco",
             env_cfg_override={
@@ -539,7 +539,7 @@ def test_go2_env_initializes_kp_kd_into_pool():
     env = cast(
         Any,
         registry.make(
-            "Go2JoystickFlatTerrain",
+            "Go2JoystickFlat",
             num_envs=2,
             sim_backend="mujoco",
             env_cfg_override={
@@ -656,7 +656,7 @@ def test_go2_mujoco_reset_applies_kp_kd_domain_randomization(default_go2_reward_
     env = cast(
         Any,
         registry.make(
-            "Go2JoystickFlatTerrain",
+            "Go2JoystickFlat",
             num_envs=4,
             sim_backend="mujoco",
             env_cfg_override={"reward_config": default_go2_reward_config},

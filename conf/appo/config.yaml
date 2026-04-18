@@ -1,6 +1,6 @@
 defaults:
   - _self_
-  - task: go1_joystick/mujoco
+  - task: go1_joystick_flat/mujoco
 
 algo:
   algo: appo
@@ -48,7 +48,7 @@ algo:
     vtrace_clip_c: 1.0
 
 training:
-  task_name: Go1JoystickFlatTerrain
+  task_name: Go1JoystickFlat
   device: null
   collector_device: null
   logger: tensorboard

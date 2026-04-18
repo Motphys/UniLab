@@ -247,7 +247,7 @@ def default_allegro_reward_config():
 
 
 @pytest.fixture
-def default_g1_sac_reward_config():
+def default_g1_walk_flat_reward_config():
     """Default reward config for G1 SAC testing."""
     return {
         "scales": {

@@ -47,9 +47,9 @@ class RewardConfigSAC:
     pose_weights: list[float]
 
 
-@registry.envcfg("G1WalkTaskMjSAC")
+@registry.envcfg("G1WalkFlat")
 @dataclass
-class G1JoystickSACCfg(G1BaseCfg):
+class G1WalkFlatCfg(G1BaseCfg):
     reward_config: RewardConfigSAC | None = None
     model_file: str = str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
     max_episode_seconds: float = 20.0
@@ -61,18 +61,18 @@ class G1JoystickSACCfg(G1BaseCfg):
     reset_base_qvel_limit: float = 0.5
 
 
-@registry.envcfg("G1WalkTaskMjSACRoughTerrain")
+@registry.envcfg("G1WalkRough")
 @dataclass
-class G1JoystickSACRoughTerrainCfg(G1JoystickSACCfg):
+class G1WalkRoughCfg(G1WalkFlatCfg):
     model_file: str = str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_rough.xml")
 
 
-@registry.env("G1WalkTaskMjSAC", sim_backend="mujoco")
-@registry.env("G1WalkTaskMjSAC", sim_backend="motrix")
-class G1WalkTaskMjSAC(G1JoystickPPO):
+@registry.env("G1WalkFlat", sim_backend="mujoco")
+@registry.env("G1WalkFlat", sim_backend="motrix")
+class G1WalkFlat(G1JoystickPPO):
     """G1 SAC environment - inherits from PPO, overrides rewards."""
 
-    def __init__(self, cfg: G1JoystickSACCfg, num_envs=1, backend_type="mujoco"):
+    def __init__(self, cfg: G1WalkFlatCfg, num_envs=1, backend_type="mujoco"):
         if cfg.reward_config is None:
             raise ValueError("reward_config must be provided via Hydra configuration")
         backend = create_backend(
@@ -236,7 +236,7 @@ class G1WalkTaskMjSAC(G1JoystickPPO):
         return state
 
 
-@registry.env("G1WalkTaskMjSACRoughTerrain", sim_backend="mujoco")
-@registry.env("G1WalkTaskMjSACRoughTerrain", sim_backend="motrix")
-class G1WalkTaskMjSACRoughTerrain(G1WalkTaskMjSAC):
+@registry.env("G1WalkRough", sim_backend="mujoco")
+@registry.env("G1WalkRough", sim_backend="motrix")
+class G1WalkRough(G1WalkFlat):
     pass

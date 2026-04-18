@@ -1,6 +1,6 @@
 defaults:
   - _self_
-  - task: go1_joystick/mujoco
+  - task: go1_joystick_flat/mujoco
 
 algo:
   algo: ppo
@@ -55,7 +55,7 @@ algo:
     disable_finite_checks: true
 
 training:
-  task_name: Go1JoystickFlatTerrain
+  task_name: Go1JoystickFlat
   device: null
   logger: tensorboard
   wandb_project: unilab

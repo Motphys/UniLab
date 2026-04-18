@@ -11,7 +11,7 @@ import numpy as np
 from unilab.base import registry
 
 parser = argparse.ArgumentParser(description="Visualize robot tasks")
-parser.add_argument("--task", type=str, default="Go1JoystickFlatTerrain", help="Task name")
+parser.add_argument("--task", type=str, default="Go1JoystickFlat", help="Task name")
 parser.add_argument(
     "--backend", type=str, choices=["motrix", "mujoco"], default="mujoco", help="Physics backend"
 )

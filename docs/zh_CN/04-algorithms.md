@@ -22,30 +22,30 @@ APPO 是 UniLab 的异步 PPO 实现，带有 V-trace importance-sampling 修正
 
 ```bash
 # 默认训练
-uv run python scripts/train_appo.py task=go1_joystick/mujoco
+uv run python scripts/train_appo.py task=go1_joystick_flat/mujoco
 
 # 指定环境数和迭代数
-uv run python scripts/train_appo.py task=go2_joystick/mujoco algo.num_envs=2048 algo.max_iterations=300
+uv run python scripts/train_appo.py task=go2_joystick_flat/mujoco algo.num_envs=2048 algo.max_iterations=300
 
 # 调整 replay queue 深度
-uv run python scripts/train_appo.py task=go1_joystick/mujoco training.replay_queue_size=2
+uv run python scripts/train_appo.py task=go1_joystick_flat/mujoco training.replay_queue_size=2
 
 # 跳过自动回放
-uv run python scripts/train_appo.py task=go1_joystick/mujoco training.no_play=true
+uv run python scripts/train_appo.py task=go1_joystick_flat/mujoco training.no_play=true
 ```
 
 ### Playback
 
 ```bash
-uv run python scripts/train_appo.py task=go1_joystick/mujoco training.play_only=true
-uv run python scripts/train_appo.py task=go1_joystick/mujoco training.play_only=true algo.load_run="2026-03-16_01-35-12_mujoco"
+uv run python scripts/train_appo.py task=go1_joystick_flat/mujoco training.play_only=true
+uv run python scripts/train_appo.py task=go1_joystick_flat/mujoco training.play_only=true algo.load_run="2026-03-16_01-35-12_mujoco"
 ```
 
 ### Key Parameters
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `task` | `go1_joystick/mujoco` | 单个 task 配置入口，内部同时定义 task + backend |
+| `task` | `go1_joystick_flat/mujoco` | 单个 task 配置入口，内部同时定义 task + backend |
 | `algo.max_iterations` | 150 | 最大训练迭代数 |
 | `algo.num_envs` | 2048 | 并行环境数量 |
 | `algo.steps_per_env` | 24 | 每个 env 的 rollout 长度 |
@@ -84,21 +84,21 @@ FastSAC 和 FastTD3 使用同一套异步多进程架构，通过 shared memory 
 
 ```bash
 # 基本训练
-uv run python scripts/train_offpolicy.py algo=sac task=sac/go2_joystick/mujoco
-uv run python scripts/train_offpolicy.py algo=td3 task=td3/go1_joystick/mujoco
+uv run python scripts/train_offpolicy.py algo=sac task=sac/go2_joystick_flat/mujoco
+uv run python scripts/train_offpolicy.py algo=td3 task=td3/go1_joystick_flat/mujoco
 
 # 异步采集模式
-uv run python scripts/train_offpolicy.py algo=sac task=sac/go2_joystick/mujoco training.no_sync_collection=true
+uv run python scripts/train_offpolicy.py algo=sac task=sac/go2_joystick_flat/mujoco training.no_sync_collection=true
 
 # 跳过自动回放
-uv run python scripts/train_offpolicy.py algo=td3 task=td3/go1_joystick/mujoco training.no_play=true
+uv run python scripts/train_offpolicy.py algo=td3 task=td3/go1_joystick_flat/mujoco training.no_play=true
 ```
 
 ### Playback
 
 ```bash
-uv run python scripts/train_offpolicy.py algo=sac task=sac/go2_joystick/mujoco training.play_only=true
-uv run python scripts/train_offpolicy.py algo=td3 task=td3/go1_joystick/mujoco training.play_only=true algo.load_run="2024-02-04_12-00-00"
+uv run python scripts/train_offpolicy.py algo=sac task=sac/go2_joystick_flat/mujoco training.play_only=true
+uv run python scripts/train_offpolicy.py algo=td3 task=td3/go1_joystick_flat/mujoco training.play_only=true algo.load_run="2024-02-04_12-00-00"
 ```
 
 ### Key Parameters
@@ -106,7 +106,7 @@ uv run python scripts/train_offpolicy.py algo=td3 task=td3/go1_joystick/mujoco t
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | `algo` | `sac` | 算法选择 |
-| `task` | `sac/go1_joystick/mujoco` | 单个 task 配置入口，内部同时定义 algo + task + backend |
+| `task` | `sac/go1_joystick_flat/mujoco` | 单个 task 配置入口，内部同时定义 algo + task + backend |
 | `algo.max_iterations` | 500 (SAC) / 5000 (TD3) | 最大训练迭代数 |
 | `algo.num_envs` | 4096 | 并行环境数量 |
 | `training.device` | 自动检测 | learner 设备 |

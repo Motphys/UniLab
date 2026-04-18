@@ -27,12 +27,12 @@ def _reward_config() -> RewardConfigSAC:
     )
 
 
-def test_g1_sac_symmetry_contract_matches_obs_groups():
+def test_g1_walk_flat_symmetry_contract_matches_obs_groups():
     ensure_registries()
     env = cast(
         Any,
         registry.make(
-            "G1WalkTaskMjSAC",
+            "G1WalkFlat",
             num_envs=1,
             sim_backend="mujoco",
             env_cfg_override={"reward_config": _reward_config()},
@@ -48,12 +48,12 @@ def test_g1_sac_symmetry_contract_matches_obs_groups():
         env.close()
 
 
-def test_g1_sac_symmetry_can_augment_critic_group():
+def test_g1_walk_flat_symmetry_can_augment_critic_group():
     ensure_registries()
     env = cast(
         Any,
         registry.make(
-            "G1WalkTaskMjSAC",
+            "G1WalkFlat",
             num_envs=1,
             sim_backend="mujoco",
             env_cfg_override={"reward_config": _reward_config()},

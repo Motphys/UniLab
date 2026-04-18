@@ -17,22 +17,22 @@ class LocomotionTaskSpec:
 
 
 _TASK_SPECS = {
-    "go1_joystick": LocomotionTaskSpec(
-        owner_task_id="go1_joystick",
-        env_task_name="Go1JoystickFlatTerrain",
-        display_name="go1_joystick",
+    "go1_joystick_flat": LocomotionTaskSpec(
+        owner_task_id="go1_joystick_flat",
+        env_task_name="Go1JoystickFlat",
+        display_name="go1_joystick_flat",
         config_cls=Go1JoystickCfg,
     ),
-    "go2_joystick": LocomotionTaskSpec(
-        owner_task_id="go2_joystick",
-        env_task_name="Go2JoystickFlatTerrain",
-        display_name="go2_joystick",
+    "go2_joystick_flat": LocomotionTaskSpec(
+        owner_task_id="go2_joystick_flat",
+        env_task_name="Go2JoystickFlat",
+        display_name="go2_joystick_flat",
         config_cls=Go2JoystickCfg,
     ),
-    "g1_joystick": LocomotionTaskSpec(
-        owner_task_id="g1_joystick",
-        env_task_name="G1JoystickFlatTerrain",
-        display_name="g1_joystick",
+    "g1_joystick_flat": LocomotionTaskSpec(
+        owner_task_id="g1_joystick_flat",
+        env_task_name="G1JoystickFlat",
+        display_name="g1_joystick_flat",
         config_cls=G1JoystickPPOCfg,
     ),
     "sharpa_inhand": LocomotionTaskSpec(

@@ -19,7 +19,7 @@ def test_reward_override_go1():
     )
 
     env = registry.make(
-        "Go1JoystickFlatTerrain",
+        "Go1JoystickFlat",
         num_envs=1,
         sim_backend="mujoco",
         env_cfg_override={"reward_config": override_config},
@@ -49,7 +49,7 @@ def test_reward_override_g1():
     )
 
     env = registry.make(
-        "G1WalkTaskMjSAC",
+        "G1WalkFlat",
         num_envs=1,
         sim_backend="mujoco",
         env_cfg_override={"reward_config": override_config},
