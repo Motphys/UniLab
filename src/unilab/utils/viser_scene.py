@@ -95,6 +95,23 @@ def _extract_mesh(model: mujoco.MjModel, geom_dataid: int) -> tuple[np.ndarray, 
     return vertices, faces
 
 
+def build_visible_env_indices(num_envs: int, visible_envs: int) -> np.ndarray:
+    """Select a stable subset of env indices spread across the full batch.
+
+    Args:
+        num_envs: Total number of runtime environments.
+        visible_envs: Number of env slots exposed in the viewer.
+
+    Returns:
+        A monotonically increasing array of runtime env indices.
+    """
+    if visible_envs <= 0:
+        raise ValueError(f"visible_envs must be positive, got {visible_envs}")
+    if visible_envs >= num_envs:
+        return np.arange(num_envs, dtype=np.int32)
+    return np.floor(np.linspace(0, num_envs, visible_envs, endpoint=False)).astype(np.int32)
+
+
 # --------------------------------------------------------------------------- #
 # MujocoViserScene                                                           #
 # --------------------------------------------------------------------------- #
@@ -107,13 +124,55 @@ class MujocoViserScene:
     call :meth:`update` each frame to sync body transforms from ``MjData``.
     """
 
-    def __init__(self, server: Any, model: mujoco.MjModel) -> None:
+    def __init__(
+        self,
+        server: Any,
+        model: mujoco.MjModel,
+        *,
+        name_prefix: str = "/mujoco",
+        position_offset: tuple[float, float, float] = (0.0, 0.0, 0.0),
+        render_plane: bool = True,
+    ) -> None:
         if not VISER_AVAILABLE:
             raise ImportError("viser is not installed. Install with: uv sync --extra viser")
         self._server: viser.ViserServer = server
         self._model = model
+        self._name_prefix = name_prefix.rstrip("/") or "/mujoco"
+        self._position_offset = np.asarray(position_offset, dtype=np.float64)
+        self._render_plane = bool(render_plane)
         self._handles: dict[int, Any] = {}
         self._build()
+
+    def reset(
+        self,
+        model: mujoco.MjModel,
+        *,
+        position_offset: tuple[float, float, float] | None = None,
+        render_plane: bool | None = None,
+    ) -> None:
+        """Rebuild the viser scene for a new MuJoCo model.
+
+        Args:
+            model: MuJoCo model whose geoms should populate the scene.
+            position_offset: Optional XYZ offset applied to all geoms.
+            render_plane: Optional override for whether plane geoms should be built.
+
+        Returns:
+            None.
+        """
+        self.close()
+        self._model = model
+        if position_offset is not None:
+            self._position_offset = np.asarray(position_offset, dtype=np.float64)
+        if render_plane is not None:
+            self._render_plane = bool(render_plane)
+        self._build()
+
+    def close(self) -> None:
+        """Remove all scene handles owned by this adapter."""
+        for handle in self._handles.values():
+            handle.remove()
+        self._handles.clear()
 
     # ------------------------------------------------------------------ #
     # Scene construction                                                  #
@@ -132,11 +191,13 @@ class MujocoViserScene:
             rgba = model.geom_rgba[i]
             color = _rgba_to_color(rgba)
             opacity = _rgba_to_opacity(rgba)
-            name = f"/mujoco/geom/{i}"
+            name = f"{self._name_prefix}/geom/{i}"
 
-            handle = None
+            handle: Any | None = None
 
             if geom_type == mujoco.mjtGeom.mjGEOM_PLANE:
+                if not self._render_plane:
+                    continue
                 # Render ground plane as a grid
                 plane_size = float(size[0]) if size[0] > 0 else 10.0
                 handle = server.scene.add_grid(
@@ -213,7 +274,7 @@ class MujocoViserScene:
         """Sync all geom transforms from *data* into the viser scene."""
         with self._server.atomic():
             for i, handle in self._handles.items():
-                xpos = data.geom_xpos[i]
+                xpos = data.geom_xpos[i] + self._position_offset
                 xmat = data.geom_xmat[i]
 
                 handle.position = (float(xpos[0]), float(xpos[1]), float(xpos[2]))

@@ -2,6 +2,7 @@
 training:
   task_name: SharpaInhandRotationGrasp
   sim_backend: motrix
+  no_play: true
 algo:
   num_envs: 16384
   num_steps_per_env: 8

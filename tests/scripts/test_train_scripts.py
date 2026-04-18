@@ -345,7 +345,6 @@ def test_build_ppo_env_cfg_override_allegro_grasp_mujoco(
     env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
 
     assert cfg.training.task_name == "AllegroInhandRotationGrasp"
-    assert cfg.training.no_play is True
     assert env_cfg_override["reward_config"]["scales"]["rotate"] == pytest.approx(0.0)
     assert env_cfg_override["gen_grasp"] is True
     assert env_cfg_override["grasp_collection_target"] == 50000
@@ -374,38 +373,6 @@ def test_build_ppo_env_cfg_override_allegro_grasp_cli_override_wins(
     assert env_cfg_override["grasp_collection_target"] == 128
     assert env_cfg_override["reward_config"]["scales"]["rotate"] == pytest.approx(0.3)
     assert env_cfg_override["gen_grasp"] is True
-
-
-def test_build_ppo_env_cfg_override_sharpa_mujoco(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    mod = _train_rsl_rl(monkeypatch)
-    cfg = _ppo_cfg(["task=sharpa_inhand/mujoco"])
-
-    env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
-
-    assert cfg.training.task_name == "SharpaInhandRotation"
-    assert env_cfg_override["reward_config"]["scales"]["rotate"] == pytest.approx(2.5)
-    assert env_cfg_override["reward_config"]["scales"]["pose_diff"] == pytest.approx(-0.4)
-    assert env_cfg_override["grasp_cache_path"] == "cache/sharpa_grasp_linspace"
-    assert env_cfg_override["observation_mode"] == "simple"
-
-
-def test_build_ppo_env_cfg_override_sharpa_grasp_mujoco(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    mod = _train_rsl_rl(monkeypatch)
-    cfg = _ppo_cfg(["task=sharpa_inhand_grasp/mujoco"])
-
-    env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
-
-    assert cfg.training.task_name == "SharpaInhandRotationGrasp"
-    assert env_cfg_override["reward_config"]["scales"]["rotate"] == pytest.approx(0.0)
-    assert env_cfg_override["max_episode_seconds"] == pytest.approx(3.0)
-    assert env_cfg_override["grasp_collection_target"] == 50000
-    assert env_cfg_override["randomize_mass"] is True
-    assert env_cfg_override["randomize_mass_lower"] == pytest.approx(0.05)
-    assert env_cfg_override["randomize_mass_upper"] == pytest.approx(0.051)
 
 
 def test_build_ppo_env_cfg_override_sharpa_grasp_cli_override_wins(

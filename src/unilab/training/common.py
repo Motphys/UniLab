@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Callable, TypeVar
@@ -335,32 +336,135 @@ def render_play_mode(
         if render_spacing is not None
         else float(getattr(env.cfg, "render_spacing", 1.0))
     )
+    with tempfile.TemporaryDirectory(prefix="unilab-playback-models-") as tmp_dir:
+        model_files = _resolve_render_play_model_files(
+            env,
+            num_envs=state_list[0].shape[0],
+            tmp_dir=tmp_dir,
+        )
 
-    if use_tracking:
-        frames = render_many.render_states_get_frames_tracking(
-            state_list,
-            env.cfg.model_file,
-            width=1280,
-            height=720,
-            tracking_env_idx=tracking_env_idx,
-            max_extra_envs=tracking_extra_envs,
-            cam_distance=cam_kw.get("cam_distance", 2.0),
-            cam_elevation=cam_kw.get("cam_elevation", -20),
-            cam_azimuth=cam_kw.get("cam_azimuth", 90),
-            render_spacing=effective_spacing,
-        )
-    else:
-        frames = render_many.render_states_get_frames(
-            state_list,
-            env.cfg.model_file,
-            width=1280,
-            height=720,
-            camera_id=-1,
-            render_spacing=effective_spacing,
-            **cam_kw,
-        )
+        if use_tracking:
+            frames = render_many.render_states_get_frames_tracking(
+                state_list,
+                model_files,
+                width=1280,
+                height=720,
+                tracking_env_idx=tracking_env_idx,
+                max_extra_envs=tracking_extra_envs,
+                cam_distance=cam_kw.get("cam_distance", 2.0),
+                cam_elevation=cam_kw.get("cam_elevation", -20),
+                cam_azimuth=cam_kw.get("cam_azimuth", 90),
+                render_spacing=effective_spacing,
+            )
+        else:
+            frames = render_many.render_states_get_frames(
+                state_list,
+                model_files,
+                width=1280,
+                height=720,
+                camera_id=-1,
+                render_spacing=effective_spacing,
+                **cam_kw,
+            )
 
     import mediapy as media
 
     media.write_video(str(output_video), frames, fps=int(1.0 / env.cfg.ctrl_dt))
     return str(output_video)
+
+
+def _resolve_render_play_model_files(
+    env: Any,
+    *,
+    num_envs: int,
+    tmp_dir: str | Path,
+) -> str | list[str]:
+    """Resolve visual MuJoCo model files for offline play/video export.
+
+    Args:
+        env: Environment exposing the playback-model contract.
+        num_envs: Number of envs present in the playback batch.
+        tmp_dir: Temporary directory used for serialized visual playback models.
+
+    Returns:
+        A single visual model path when all envs share one model, otherwise a
+        per-env list of visual model file paths aligned with the env dimension.
+    """
+    visual_model_file = str(env.cfg.model_file)
+    if not hasattr(env, "get_playback_model"):
+        return visual_model_file
+
+    first_model = env.get_playback_model(0)
+    if isinstance(first_model, (str, Path)):
+        return str(first_model)
+
+    import mujoco as _mujoco
+
+    mujoco: Any = _mujoco
+
+    visual_base = mujoco.MjModel.from_xml_path(visual_model_file)
+    tmp_root = Path(tmp_dir)
+    path_by_model_id: dict[int, str] = {}
+    model_files: list[str] = []
+    for env_idx in range(num_envs):
+        playback_model = env.get_playback_model(env_idx)
+        if isinstance(playback_model, (str, Path)):
+            model_files.append(str(playback_model))
+            continue
+        key = id(playback_model)
+        saved = path_by_model_id.get(key)
+        if saved is None:
+            saved = _materialize_visual_playback_model(
+                visual_model_file=visual_model_file,
+                visual_base_model=visual_base,
+                playback_model=playback_model,
+                output_path=tmp_root / f"model_{len(path_by_model_id)}.mjb",
+            )
+            path_by_model_id[key] = saved
+        model_files.append(saved)
+
+    if len(set(model_files)) == 1:
+        return model_files[0]
+    return model_files
+
+
+def _materialize_visual_playback_model(
+    *,
+    visual_model_file: str,
+    visual_base_model: Any,
+    playback_model: Any,
+    output_path: str | Path,
+) -> str:
+    """Compile a visual MuJoCo model using geom sizes from a playback model.
+
+    Args:
+        visual_model_file: Source visual scene XML used for offline rendering.
+        visual_base_model: Compiled MuJoCo model from ``visual_model_file``.
+        playback_model: Backend playback model whose geom sizes should drive the
+            rendered geometry.
+        output_path: Destination ``.mjb`` path.
+
+    Returns:
+        The saved ``.mjb`` path as a string.
+    """
+    import mujoco as _mujoco
+
+    mujoco: Any = _mujoco
+
+    spec = mujoco.MjSpec.from_file(visual_model_file)
+    for geom_id in range(visual_base_model.ngeom):
+        geom_name = mujoco.mj_id2name(visual_base_model, mujoco.mjtObj.mjOBJ_GEOM, geom_id)
+        if not geom_name:
+            continue
+        playback_geom_id = mujoco.mj_name2id(playback_model, mujoco.mjtObj.mjOBJ_GEOM, geom_name)
+        if playback_geom_id < 0:
+            continue
+        geom = spec.geom(geom_name)
+        if geom is None:
+            continue
+        geom.size = list(np.asarray(playback_model.geom_size[playback_geom_id], dtype=np.float64))
+
+    visual_model = spec.compile()
+    output = Path(output_path)
+    mujoco.mj_saveModel(visual_model, str(output))
+    return str(output)

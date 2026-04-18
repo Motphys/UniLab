@@ -257,6 +257,41 @@ def test_g1_motion_tracking_init_delegates_motion_body_ids_to_backend(monkeypatc
     assert calls["reward_init"] is True
 
 
+def test_sharpa_grasp_env_initializes_dr_once_with_grasp_provider(monkeypatch):
+    from unilab.envs.manipulation.sharpa_inhand import rotation as sharpa_rotation_module
+    from unilab.envs.manipulation.sharpa_inhand.base import SharpaInhandBaseEnv
+    from unilab.envs.manipulation.sharpa_inhand.grasp_gen import (
+        SharpaInhandRotationGraspCfg,
+        SharpaInhandRotationGraspEnv,
+    )
+
+    calls: list[str] = []
+
+    def fake_base_init(self, cfg, backend, num_envs):
+        self._cfg = cfg
+        self._backend = backend
+        self._num_envs = num_envs
+        self._np_dtype = np.float64
+        self._num_action = 22
+        self._num_tactile = 5
+        self._num_scales = int(cfg.scale_range[2])
+        self.scale_ids = np.zeros((num_envs,), dtype=np.int32)
+
+    monkeypatch.setattr(sharpa_rotation_module, "create_backend", lambda *args, **kwargs: object())
+    monkeypatch.setattr(SharpaInhandBaseEnv, "__init__", fake_base_init)
+    monkeypatch.setattr(
+        SharpaInhandRotationGraspEnv,
+        "_init_domain_randomization",
+        lambda self, provider: calls.append(provider.__class__.__name__),
+    )
+
+    cfg = SharpaInhandRotationGraspCfg()
+    env = cast(Any, SharpaInhandRotationGraspEnv)(cfg, num_envs=4, backend_type="mujoco")
+
+    assert calls == ["SharpaInhandGraspDRProvider"]
+    assert len(env._saved_grasping_states) == env._num_scales
+
+
 def test_g1_flip_tracking_cfg_uses_flip_profile():
     from unilab.envs.motion_tracking.g1.flip_tracking import G1FlipTrackingCfg
 

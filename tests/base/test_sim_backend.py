@@ -153,6 +153,34 @@ class TestMuJoCoBasic:
         bkd.materialize()
         assert bkd._pool is not None
 
+    def test_get_playback_model_returns_env_specific_variant(self):
+        from unilab.base.backend.mujoco_backend import MuJoCoBackend
+
+        bkd = MuJoCoBackend(_SHARPA["model_file"], 4, SIM_DT, base_name=_SHARPA["base_name"])
+        mujoco = _mujoco_module()
+        geom_id = mujoco.mj_name2id(bkd.model, mujoco.mjtObj.mjOBJ_GEOM, "object")
+        base_size = np.asarray(bkd.model.geom_size[geom_id], dtype=np.float64).copy()
+
+        bkd.apply_init_randomization(
+            InitRandomizationPlan(
+                model_assignments=np.array([0, 1, 0, 1], dtype=np.int32),
+                model_variants=(
+                    ModelVariantSpec(
+                        geom_size_overrides=(GeomSizeOverride("object", tuple(base_size * 0.5)),)
+                    ),
+                    ModelVariantSpec(
+                        geom_size_overrides=(GeomSizeOverride("object", tuple(base_size * 0.75)),)
+                    ),
+                ),
+            )
+        )
+
+        model0 = bkd.get_playback_model(0)
+        model1 = bkd.get_playback_model(1)
+
+        np.testing.assert_allclose(model0.geom_size[geom_id], base_size * 0.5)
+        np.testing.assert_allclose(model1.geom_size[geom_id], base_size * 0.75)
+
     # simulation control
 
     def test_step(self, bkd):

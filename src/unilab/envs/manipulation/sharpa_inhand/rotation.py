@@ -68,6 +68,7 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
         if env._backend.backend_type != "mujoco":
             return None
         base_size = getattr(env, "_object_geom_base_size", None)
+
         if base_size is None:
             return None
 
@@ -298,6 +299,7 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         cfg: SharpaInhandRotationCfg,
         num_envs: int = 1,
         backend_type: str = "motrix",
+        dr_provider: DomainRandomizationProvider | None = None,
     ) -> None:
         if cfg.reward_config is None:
             raise ValueError("reward_config must be provided via Hydra configuration")
@@ -355,7 +357,8 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
             raise ValueError("rot_axis must be non-zero")
         self._rot_axis = np.asarray(axis / axis_norm, dtype=self._np_dtype)
 
-        self._init_domain_randomization(SharpaInhandRotationDRProvider())
+        provider = dr_provider if dr_provider is not None else SharpaInhandRotationDRProvider()
+        self._init_domain_randomization(provider)
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
         actions_np = np.asarray(actions, dtype=self._np_dtype)

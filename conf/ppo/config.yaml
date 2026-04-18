@@ -109,6 +109,8 @@ interactive:
 viser:
   port: 8080
   env_idx: 0
+  display_mode: all
+  max_envs: 16
 
 hydra:
   run:

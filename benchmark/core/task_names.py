@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from unilab.envs.locomotion.g1.joystick import G1JoystickPPOCfg
 from unilab.envs.locomotion.go1.joystick import Go1JoystickCfg
 from unilab.envs.locomotion.go2.joystick import Go2JoystickCfg
+from unilab.envs.manipulation.sharpa_inhand.rotation import SharpaInhandRotationCfg
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,12 @@ _TASK_SPECS = {
         env_task_name="G1JoystickFlatTerrain",
         display_name="g1_joystick",
         config_cls=G1JoystickPPOCfg,
+    ),
+    "sharpa_inhand": LocomotionTaskSpec(
+        owner_task_id="sharpa_inhand",
+        env_task_name="SharpaInhandRotation",
+        display_name="sharpa_inhand",
+        config_cls=SharpaInhandRotationCfg,
     ),
 }
 _TASK_ALIASES = {spec.env_task_name: spec.owner_task_id for spec in _TASK_SPECS.values()}

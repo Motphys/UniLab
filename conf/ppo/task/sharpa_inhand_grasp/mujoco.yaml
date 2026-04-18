@@ -2,6 +2,10 @@
 training:
   task_name: SharpaInhandRotationGrasp
   sim_backend: mujoco
+  render_spacing: 0.5
+  cam_distance: 1.5
+  cam_lookat: [0.75, 0.75, 0.4]
+  cam_elevation: -20.0
 algo:
   num_envs: 16384
   num_steps_per_env: 8
@@ -64,7 +68,7 @@ env:
   contact_latency: 0.005
   contact_sensor_noise: 0.01
   dof_limits_scale: 0.9
-  scale_range: [0.5, 0.5, 1]
+  scale_range: [0.8, 1.1, 4]
   randomize_pd_gains: false
   randomize_p_gain_scale_lower: 0.5
   randomize_p_gain_scale_upper: 2.0

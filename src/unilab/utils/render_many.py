@@ -10,6 +10,7 @@ import os
 import subprocess
 import sys
 import textwrap
+from collections.abc import Sequence
 from typing import Any
 
 import imageio
@@ -117,12 +118,27 @@ def init_worker(model_path, shape):
     """Initialize MuJoCo-only rendering context for a worker process."""
     import atexit
 
-    _worker_ctx["model"] = mujoco.MjModel.from_xml_path(model_path)
-    _worker_ctx["model"].vis.global_.offwidth = 3840
-    _worker_ctx["model"].vis.global_.offheight = 2160
+    def _load_model(path_like):
+        path = str(path_like)
+        loader = (
+            mujoco.MjModel.from_binary_path
+            if path.endswith(".mjb")
+            else mujoco.MjModel.from_xml_path
+        )
+        return loader(path)
 
-    _worker_ctx["data"] = mujoco.MjData(_worker_ctx["model"])
-    _worker_ctx["renderer"] = mujoco.Renderer(_worker_ctx["model"], height=shape[1], width=shape[0])
+    if isinstance(model_path, Sequence) and not isinstance(model_path, (str, bytes, os.PathLike)):
+        models = [_load_model(path) for path in model_path]
+    else:
+        models = [_load_model(model_path)]
+
+    for model in models:
+        model.vis.global_.offwidth = 3840
+        model.vis.global_.offheight = 2160
+
+    _worker_ctx["models"] = models
+    _worker_ctx["data_list"] = [mujoco.MjData(model) for model in models]
+    _worker_ctx["renderer"] = mujoco.Renderer(models[0], height=shape[1], width=shape[0])
     atexit.register(_close_worker)
 
 
@@ -133,8 +149,8 @@ def render_frame_job(args):
     """
     state_batch, offsets, transparent, cam_distance, cam_elevation, cam_azimuth, cam_lookat = args
 
-    model = _worker_ctx["model"]
-    data = _worker_ctx["data"]
+    models = _worker_ctx["models"]
+    data_list = _worker_ctx["data_list"]
     renderer = _worker_ctx["renderer"]
 
     # Visual options
@@ -145,7 +161,7 @@ def render_frame_job(args):
     catmask_static = mujoco.mjtCatBit.mjCAT_STATIC
 
     # Helper to set state
-    def set_state(d, s, offset=None):
+    def set_state(model, d, s, offset=None):
         d.time = s[0]
         d.qpos[:] = s[1 : 1 + model.nq]
         d.qvel[:] = s[1 + model.nq : 1 + model.nq + model.nv]
@@ -242,7 +258,11 @@ def render_frame_job(args):
     num_envs = state_batch.shape[0]
 
     # 1. Clear/Init Scene
-    set_state(data, state_batch[0], offsets[0] if offsets is not None else None)
+    primary_model = models[0]
+    primary_data = data_list[0]
+    set_state(
+        primary_model, primary_data, state_batch[0], offsets[0] if offsets is not None else None
+    )
 
     # Init Camera
     cam = mujoco.MjvCamera()
@@ -260,11 +280,13 @@ def render_frame_job(args):
     else:
         cam.type = mujoco.mjtCamera.mjCAMERA_FREE
 
-    renderer.update_scene(data, camera=cam, scene_option=vopt)
+    renderer.update_scene(primary_data, camera=cam, scene_option=vopt)
 
     # 2. Add other robots
     for i in range(1, num_envs):
-        set_state(data, state_batch[i], offsets[i] if offsets is not None else None)
+        model = models[min(i, len(models) - 1)]
+        data = data_list[min(i, len(data_list) - 1)]
+        set_state(model, data, state_batch[i], offsets[i] if offsets is not None else None)
         mujoco.mjv_addGeoms(model, data, vopt, pert, catmask_dynamic, renderer.scene)
 
         # Avoid duplicating world floor/static group-0 geoms across envs, while still
@@ -379,8 +401,8 @@ def render_frame_tracking_job(args):
         cam_azimuth,
     ) = args
 
-    model = _worker_ctx["model"]
-    data = _worker_ctx["data"]
+    models = _worker_ctx["models"]
+    data_list = _worker_ctx["data_list"]
     renderer = _worker_ctx["renderer"]
 
     vopt = mujoco.MjvOption()
@@ -388,7 +410,7 @@ def render_frame_tracking_job(args):
     catmask_dynamic = mujoco.mjtCatBit.mjCAT_DYNAMIC
     catmask_static = mujoco.mjtCatBit.mjCAT_STATIC
 
-    def set_state(d, s, offset=None):
+    def set_state(model, d, s, offset=None):
         d.time = s[0]
         d.qpos[:] = s[1 : 1 + model.nq]
         d.qvel[:] = s[1 + model.nq : 1 + model.nq + model.nv]
@@ -448,8 +470,13 @@ def render_frame_tracking_job(args):
 
     # Primary env first — camera tracks body 1 of this env
     primary_global = env_indices[primary_local_idx]
+    primary_model = models[min(primary_global, len(models) - 1)]
+    primary_data = data_list[min(primary_global, len(data_list) - 1)]
     set_state(
-        data, state_batch[primary_global], offsets[primary_global] if offsets is not None else None
+        primary_model,
+        primary_data,
+        state_batch[primary_global],
+        offsets[primary_global] if offsets is not None else None,
     )
 
     cam = mujoco.MjvCamera()
@@ -459,13 +486,17 @@ def render_frame_tracking_job(args):
     cam.elevation = cam_elevation
     cam.azimuth = cam_azimuth
 
-    renderer.update_scene(data, camera=cam, scene_option=vopt)
+    renderer.update_scene(primary_data, camera=cam, scene_option=vopt)
 
     # Add neighbour envs as background context
     for local_i, global_i in enumerate(env_indices):
         if local_i == primary_local_idx:
             continue
-        set_state(data, state_batch[global_i], offsets[global_i] if offsets is not None else None)
+        model = models[min(global_i, len(models) - 1)]
+        data = data_list[min(global_i, len(data_list) - 1)]
+        set_state(
+            model, data, state_batch[global_i], offsets[global_i] if offsets is not None else None
+        )
         mujoco.mjv_addGeoms(model, data, vopt, pert, catmask_dynamic, renderer.scene)
 
         geomgroup0 = int(vopt.geomgroup[0])
