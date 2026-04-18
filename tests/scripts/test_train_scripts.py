@@ -470,7 +470,7 @@ def test_build_ppo_play_env_cfg_override_resolves_relative_ground_texture(
 ):
     mod = _train_rsl_rl(monkeypatch)
     cfg = _ppo_cfg(["task=g1_motion_tracking/motrix", "training.play_only=true"])
-    cfg.play_profile.scene.ground_texture_file = "src/unilab/assets/robots/g1/floor.png"
+    cfg.play_profile.scene.ground_texture_file = "src/unilab/assets/robots/g1/textures/floor.png"
 
     captured = {}
 
@@ -484,7 +484,7 @@ def test_build_ppo_play_env_cfg_override_resolves_relative_ground_texture(
     mod.build_ppo_play_env_cfg_override(cfg)
 
     assert captured["ground_texture_file"] == str(
-        mod.ROOT_DIR / "src/unilab/assets/robots/g1/floor.png"
+        mod.ROOT_DIR / "src/unilab/assets/robots/g1/textures/floor.png"
     )
 
 
