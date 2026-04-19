@@ -16,7 +16,7 @@ class FastTD3Runner(OffPolicyRunner):
         num_envs: int = 4096,
         replay_buffer_n: int = 1000,
         batch_size: int = 8192,
-        warmup_steps: int = 50,
+        learning_starts: int = 0,
         num_updates: int = 4,
         policy_frequency: int = 2,
         # Collection/training synchronization
@@ -76,7 +76,7 @@ class FastTD3Runner(OffPolicyRunner):
             num_envs=num_envs,
             replay_buffer_n=replay_buffer_n,
             batch_size=batch_size,
-            warmup_steps=warmup_steps,
+            learning_starts=learning_starts,
             updates_per_step=num_updates,
             policy_frequency=policy_frequency,
             sync_collection=sync_collection,

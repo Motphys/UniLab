@@ -141,7 +141,7 @@ class FlashSACLearner:
         self,
         obs_dim: int,
         action_dim: int,
-        privileged_dim: int = 0,
+        critic_obs_dim: int = 0,
         device: str = "cpu",
         gamma: float = 0.99,
         tau: float = 0.01,
@@ -178,9 +178,8 @@ class FlashSACLearner:
         self.n_step = n_step
         self.actor_bc_alpha = actor_bc_alpha
         self.obs_dim = obs_dim
-        self.critic_obs_dim = obs_dim + privileged_dim
+        self.critic_obs_dim = critic_obs_dim if critic_obs_dim > 0 else obs_dim
         self.action_dim = action_dim
-        self.privileged_dim = privileged_dim
         self.update_count = 0
         self.use_amp = bool(use_amp and self.device.type == "cuda")
         self.use_compile = bool(
@@ -259,15 +258,6 @@ class FlashSACLearner:
             return obs
         return cast(torch.Tensor, self.obs_normalizer(obs, update=update))
 
-    def _build_critic_obs(
-        self,
-        obs: torch.Tensor,
-        privileged: torch.Tensor | None,
-    ) -> torch.Tensor:
-        if privileged is None:
-            return obs
-        return torch.cat([obs, privileged], dim=-1)
-
     def _autocast(self):
         return torch.autocast(device_type="cuda", dtype=torch.float16, enabled=self.use_amp)
 
@@ -293,15 +283,15 @@ class FlashSACLearner:
         next_obs = batch["next_obs"].to(self.device)
         terminated = batch["dones"].to(self.device)
         truncated = batch.get("truncated", torch.zeros_like(terminated)).to(self.device)
-        privileged = batch.get("privileged")
-        next_privileged = batch.get("next_privileged")
-        privileged = privileged.to(self.device) if privileged is not None else None
-        next_privileged = next_privileged.to(self.device) if next_privileged is not None else None
+        critic_obs = batch.get("critic")
+        next_critic_obs = batch.get("next_critic")
+        critic_obs = critic_obs.to(self.device) if critic_obs is not None else None
+        next_critic_obs = next_critic_obs.to(self.device) if next_critic_obs is not None else None
 
         obs = self._maybe_normalize_obs(obs, update=True)
         next_obs = self._maybe_normalize_obs(next_obs, update=False)
-        critic_obs = self._build_critic_obs(obs, privileged)
-        critic_next_obs = self._build_critic_obs(next_obs, next_privileged)
+        critic_obs = critic_obs if critic_obs is not None else obs
+        critic_next_obs = next_critic_obs if next_critic_obs is not None else next_obs
 
         if self.reward_normalizer is not None:
             rewards = self.reward_normalizer.normalize(rewards)
@@ -354,11 +344,11 @@ class FlashSACLearner:
     def update_actor(self, batch: dict[str, torch.Tensor]) -> dict[str, float]:
         obs = batch["obs"].to(self.device)
         expert_actions = batch["actions"].to(self.device)
-        privileged = batch.get("privileged")
-        privileged = privileged.to(self.device) if privileged is not None else None
+        critic_obs = batch.get("critic")
+        critic_obs = critic_obs.to(self.device) if critic_obs is not None else None
 
         obs = self._maybe_normalize_obs(obs, update=False)
-        critic_obs = self._build_critic_obs(obs, privileged)
+        critic_obs = critic_obs if critic_obs is not None else obs
 
         with self._autocast():
             actions, actor_info = self.actor(obs, training=True)

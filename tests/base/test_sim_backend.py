@@ -13,7 +13,12 @@ import numpy as np
 import pytest
 
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.dr import ResetRandomizationPayload
+from unilab.dr import (
+    GeomSizeOverride,
+    InitRandomizationPlan,
+    ModelVariantSpec,
+    ResetRandomizationPayload,
+)
 from unilab.utils.xml_utils import get_named_body_ids
 
 
@@ -30,6 +35,7 @@ BASIC_ROBOTS = [
 
 _G1 = dict(model_file=_xml("g1"), base_name="pelvis")
 _ALLEGRO = dict(model_file=_xml("allegro_hand", "scene.xml"), base_name="palm")
+_SHARPA = dict(model_file=_xml("sharpa_wave", "scene.xml"), base_name="right_hand_C_MC")
 
 NUM_ENVS = 2
 SIM_DT = 0.005
@@ -98,7 +104,9 @@ class TestMuJoCoBasic:
         from unilab.base.backend.mujoco_backend import MuJoCoBackend
 
         p = request.param
-        return MuJoCoBackend(p["model_file"], NUM_ENVS, SIM_DT, base_name=p["base_name"])
+        backend = MuJoCoBackend(p["model_file"], NUM_ENVS, SIM_DT, base_name=p["base_name"])
+        backend.materialize()
+        return backend
 
     # properties
 
@@ -107,6 +115,71 @@ class TestMuJoCoBasic:
 
     def test_model_not_none(self, bkd):
         assert bkd.model is not None
+
+    def test_pool_materialized_by_lifecycle(self, bkd):
+        assert bkd._pool is not None
+
+    def test_apply_init_randomization_sets_variants_before_materialization(self):
+        from unilab.base.backend.mujoco_backend import MuJoCoBackend
+
+        bkd = MuJoCoBackend(_SHARPA["model_file"], 4, SIM_DT, base_name=_SHARPA["base_name"])
+        assert bkd._pool is None
+        mujoco = _mujoco_module()
+        geom_id = mujoco.mj_name2id(bkd.model, mujoco.mjtObj.mjOBJ_GEOM, "object")
+        base_size = np.asarray(bkd.model.geom_size[geom_id], dtype=np.float64).copy()
+
+        bkd.apply_init_randomization(
+            InitRandomizationPlan(
+                model_assignments=np.array([0, 1, 0, 1], dtype=np.int32),
+                model_variants=(
+                    ModelVariantSpec(
+                        geom_size_overrides=(GeomSizeOverride("object", tuple(base_size * 0.5)),)
+                    ),
+                    ModelVariantSpec(
+                        geom_size_overrides=(GeomSizeOverride("object", tuple(base_size * 0.75)),)
+                    ),
+                ),
+            )
+        )
+
+        assert bkd._pool is None
+        np.testing.assert_array_equal(
+            bkd._model_assignments,
+            np.array([0, 1, 0, 1], dtype=np.int32),
+        )
+        np.testing.assert_allclose(bkd._model_variants[0].geom_size[geom_id], base_size * 0.5)
+        np.testing.assert_allclose(bkd._model_variants[1].geom_size[geom_id], base_size * 0.75)
+
+        bkd.materialize()
+        assert bkd._pool is not None
+
+    def test_get_playback_model_returns_env_specific_variant(self):
+        from unilab.base.backend.mujoco_backend import MuJoCoBackend
+
+        bkd = MuJoCoBackend(_SHARPA["model_file"], 4, SIM_DT, base_name=_SHARPA["base_name"])
+        mujoco = _mujoco_module()
+        geom_id = mujoco.mj_name2id(bkd.model, mujoco.mjtObj.mjOBJ_GEOM, "object")
+        base_size = np.asarray(bkd.model.geom_size[geom_id], dtype=np.float64).copy()
+
+        bkd.apply_init_randomization(
+            InitRandomizationPlan(
+                model_assignments=np.array([0, 1, 0, 1], dtype=np.int32),
+                model_variants=(
+                    ModelVariantSpec(
+                        geom_size_overrides=(GeomSizeOverride("object", tuple(base_size * 0.5)),)
+                    ),
+                    ModelVariantSpec(
+                        geom_size_overrides=(GeomSizeOverride("object", tuple(base_size * 0.75)),)
+                    ),
+                ),
+            )
+        )
+
+        model0 = bkd.get_playback_model(0)
+        model1 = bkd.get_playback_model(1)
+
+        np.testing.assert_allclose(model0.geom_size[geom_id], base_size * 0.5)
+        np.testing.assert_allclose(model1.geom_size[geom_id], base_size * 0.75)
 
     # simulation control
 
@@ -128,7 +201,8 @@ class TestMuJoCoBasic:
         np.testing.assert_allclose(bkd.get_base_pos()[1], pos_before, atol=1e-5)
 
     def test_set_state_randomization_only_affects_target_envs(self, bkd):
-        original = [bkd._pool.get_field(i, "body_mass").copy() for i in range(NUM_ENVS)]
+        pool = bkd._pool
+        original = [pool.get_field(i, "body_mass").copy() for i in range(NUM_ENVS)]
         qpos = _identity_qpos_mujoco(bkd.model.nq)
         qvel = np.zeros((1, bkd.model.nv))
         base_body_id = bkd._base_body_id
@@ -137,8 +211,8 @@ class TestMuJoCoBasic:
 
         bkd.set_state(np.array([1]), qpos, qvel, randomization=randomization)
 
-        np.testing.assert_array_equal(bkd._pool.get_field(0, "body_mass"), original[0])
-        updated = bkd._pool.get_field(1, "body_mass")
+        np.testing.assert_array_equal(pool.get_field(0, "body_mass"), original[0])
+        updated = pool.get_field(1, "body_mass")
         np.testing.assert_allclose(updated[:base_body_id], original[1][:base_body_id])
         np.testing.assert_allclose(updated[base_body_id], original[1][base_body_id] + delta[0])
         np.testing.assert_allclose(updated[base_body_id + 1 :], original[1][base_body_id + 1 :])
@@ -156,7 +230,8 @@ class TestMuJoCoBasic:
         assert caps.supports_interval_push
 
     def test_set_state_body_iquat_randomization_only_affects_target_envs(self, bkd):
-        original = [bkd._pool.get_field(i, "body_iquat").copy() for i in range(NUM_ENVS)]
+        pool = bkd._pool
+        original = [pool.get_field(i, "body_iquat").copy() for i in range(NUM_ENVS)]
         qpos = _identity_qpos_mujoco(bkd.model.nq)
         qvel = np.zeros((1, bkd.model.nv))
         updated = original[1].reshape(bkd.model.nbody, 4).copy()
@@ -169,13 +244,14 @@ class TestMuJoCoBasic:
             randomization=ResetRandomizationPayload(body_iquat=updated[None, :, :]),
         )
 
-        np.testing.assert_array_equal(bkd._pool.get_field(0, "body_iquat"), original[0])
+        np.testing.assert_array_equal(pool.get_field(0, "body_iquat"), original[0])
         np.testing.assert_allclose(
-            bkd._pool.get_field(1, "body_iquat").reshape(bkd.model.nbody, 4), updated
+            pool.get_field(1, "body_iquat").reshape(bkd.model.nbody, 4), updated
         )
 
     def test_set_state_body_inertia_randomization_only_affects_target_envs(self, bkd):
-        original = [bkd._pool.get_field(i, "body_inertia").copy() for i in range(NUM_ENVS)]
+        pool = bkd._pool
+        original = [pool.get_field(i, "body_inertia").copy() for i in range(NUM_ENVS)]
         qpos = _identity_qpos_mujoco(bkd.model.nq)
         qvel = np.zeros((1, bkd.model.nv))
         updated = original[1].reshape(bkd.model.nbody, 3).copy()
@@ -188,14 +264,15 @@ class TestMuJoCoBasic:
             randomization=ResetRandomizationPayload(body_inertia=updated[None, :, :]),
         )
 
-        np.testing.assert_array_equal(bkd._pool.get_field(0, "body_inertia"), original[0])
+        np.testing.assert_array_equal(pool.get_field(0, "body_inertia"), original[0])
         np.testing.assert_allclose(
-            bkd._pool.get_field(1, "body_inertia").reshape(bkd.model.nbody, 3), updated
+            pool.get_field(1, "body_inertia").reshape(bkd.model.nbody, 3), updated
         )
 
     def test_set_state_kp_kd_randomization_only_affects_target_envs(self, bkd):
-        original_kp = [bkd._pool.get_field(i, "kp").copy() for i in range(NUM_ENVS)]
-        original_kd = [bkd._pool.get_field(i, "kd").copy() for i in range(NUM_ENVS)]
+        pool = bkd._pool
+        original_kp = [pool.get_field(i, "kp").copy() for i in range(NUM_ENVS)]
+        original_kd = [pool.get_field(i, "kd").copy() for i in range(NUM_ENVS)]
         qpos = _identity_qpos_mujoco(bkd.model.nq)
         qvel = np.zeros((1, bkd.model.nv))
         new_kp = original_kp[1] + 1.25
@@ -208,10 +285,10 @@ class TestMuJoCoBasic:
             randomization=ResetRandomizationPayload(kp=new_kp[None, :], kd=new_kd[None, :]),
         )
 
-        np.testing.assert_array_equal(bkd._pool.get_field(0, "kp"), original_kp[0])
-        np.testing.assert_array_equal(bkd._pool.get_field(0, "kd"), original_kd[0])
-        np.testing.assert_allclose(bkd._pool.get_field(1, "kp"), new_kp)
-        np.testing.assert_allclose(bkd._pool.get_field(1, "kd"), new_kd)
+        np.testing.assert_array_equal(pool.get_field(0, "kp"), original_kp[0])
+        np.testing.assert_array_equal(pool.get_field(0, "kd"), original_kd[0])
+        np.testing.assert_allclose(pool.get_field(1, "kp"), new_kp)
+        np.testing.assert_allclose(pool.get_field(1, "kd"), new_kd)
 
     # base kinematics
 
@@ -305,6 +382,7 @@ def test_motrix_backend_fixed_base_set_state_matches_mujoco_for_hand_and_ball():
         base_name=_ALLEGRO["base_name"],
         add_body_sensors=True,
     )
+    mj.materialize()
     mx = MotrixBackend(
         _ALLEGRO["model_file"],
         NUM_ENVS,
@@ -349,13 +427,15 @@ class TestMuJoCoBodySensors:
     def bkd(self):
         from unilab.base.backend.mujoco_backend import MuJoCoBackend
 
-        return MuJoCoBackend(
+        backend = MuJoCoBackend(
             _G1["model_file"],
             NUM_ENVS,
             SIM_DT,
             base_name=_G1["base_name"],
             add_body_sensors=True,
         )
+        backend.materialize()
+        return backend
 
     @pytest.fixture
     def body_ids(self, bkd):
@@ -682,6 +762,7 @@ class TestCrossBackend:
         pytest.importorskip("motrixsim")
         p = request.param
         mj = MuJoCoBackend(p["model_file"], NUM_ENVS, SIM_DT, base_name=p["base_name"])
+        mj.materialize()
         mx = MotrixBackend(p["model_file"], NUM_ENVS, SIM_DT, base_name=p["base_name"])
         nq, nv = mj.model.nq, mj.model.nv
         qpos = np.tile(_identity_qpos_mujoco(nq), (NUM_ENVS, 1))
@@ -755,6 +836,7 @@ class TestCrossBackendBodySensors:
             base_name=_G1["base_name"],
             add_body_sensors=True,
         )
+        mj.materialize()
         mx = MotrixBackend(
             _G1["model_file"],
             NUM_ENVS,

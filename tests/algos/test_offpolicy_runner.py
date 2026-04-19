@@ -40,7 +40,7 @@ def _make_sac_runner(env_name: str) -> OffPolicyRunner:
         num_envs=4,
         replay_buffer_n=8,
         batch_size=16,
-        warmup_steps=0,
+        learning_starts=0,
         updates_per_step=1,
         device="cpu",
     )
@@ -96,7 +96,7 @@ def _make_td3_runner(env_name: str) -> OffPolicyRunner:
         num_envs=4,
         replay_buffer_n=8,
         batch_size=16,
-        warmup_steps=0,
+        learning_starts=0,
         updates_per_step=1,
         policy_frequency=1,
         device="cpu",

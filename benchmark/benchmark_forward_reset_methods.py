@@ -39,7 +39,7 @@ except ModuleNotFoundError:
     )
 
 CONSISTENCY_TASKS = canonical_locomotion_task_ids()
-DEFAULT_RESET_TASK = "go2_joystick"
+DEFAULT_RESET_TASK = "go2_joystick_flat"
 
 
 @dataclass

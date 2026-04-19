@@ -19,6 +19,13 @@ class DomainRandomizationManager:
         self._warned_reset_terms: frozenset[str] = frozenset()
         self._provider.validate(env, self._capabilities)
 
+    def apply_init_randomization(self) -> bool:
+        plan = self._provider.build_init_randomization_plan(self._env)
+        if plan is None or plan.is_empty():
+            return False
+        self._env._backend.apply_init_randomization(plan)
+        return True
+
     def reset(self, env_ids: np.ndarray) -> tuple[dict[str, np.ndarray], dict]:
         plan = self._provider.build_reset_plan(self._env, env_ids)
         payload = plan.randomization

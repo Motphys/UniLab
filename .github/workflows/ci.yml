@@ -9,10 +9,18 @@ on:
       - ".github/CODEOWNERS"
       - ".github/ISSUE_TEMPLATE/**"
       - ".github/pull_request_template.md"
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths-ignore:
+      - "LICENSE"
+      - ".github/CODEOWNERS"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/pull_request_template.md"
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.pull_request.number }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref_name }}
   cancel-in-progress: true
 
 permissions:
@@ -23,11 +31,26 @@ env:
 
 jobs:
   ruff-lint:
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'pull_request' &&
+        (
+          github.event.pull_request.head.repo.full_name == github.repository ||
+          github.event.pull_request.head.ref != 'main'
+        )
+      ) ||
+      (
+        github.event_name == 'pull_request_target' &&
+        github.event.pull_request.head.repo.full_name != github.repository &&
+        github.event.pull_request.head.ref == 'main'
+      )
     timeout-minutes: 5
     runs-on: ubuntu-slim
     steps:
       - uses: actions/checkout@v6.0.2
         with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || format('refs/pull/{0}/merge', github.event.pull_request.number) }}
           persist-credentials: false
       - name: Install uv
         uses: astral-sh/setup-uv@v8.0.0
@@ -37,11 +60,26 @@ jobs:
         run: uv run --no-sync ruff check --output-format=github .
 
   ruff-format:
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'pull_request' &&
+        (
+          github.event.pull_request.head.repo.full_name == github.repository ||
+          github.event.pull_request.head.ref != 'main'
+        )
+      ) ||
+      (
+        github.event_name == 'pull_request_target' &&
+        github.event.pull_request.head.repo.full_name != github.repository &&
+        github.event.pull_request.head.ref == 'main'
+      )
     timeout-minutes: 5
     runs-on: ubuntu-slim
     steps:
       - uses: actions/checkout@v6.0.2
         with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || format('refs/pull/{0}/merge', github.event.pull_request.number) }}
           persist-credentials: false
       - name: Install uv
         uses: astral-sh/setup-uv@v8.0.0
@@ -51,11 +89,26 @@ jobs:
         run: uv run --no-sync ruff format --check .
 
   mypy:
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'pull_request' &&
+        (
+          github.event.pull_request.head.repo.full_name == github.repository ||
+          github.event.pull_request.head.ref != 'main'
+        )
+      ) ||
+      (
+        github.event_name == 'pull_request_target' &&
+        github.event.pull_request.head.repo.full_name != github.repository &&
+        github.event.pull_request.head.ref == 'main'
+      )
     timeout-minutes: 10
     runs-on: ubuntu-slim
     steps:
       - uses: actions/checkout@v6.0.2
         with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || format('refs/pull/{0}/merge', github.event.pull_request.number) }}
           persist-credentials: false
       - name: Install uv
         uses: astral-sh/setup-uv@v8.0.0
@@ -65,11 +118,26 @@ jobs:
         run: uv run mypy src/unilab
 
   pyright:
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'pull_request' &&
+        (
+          github.event.pull_request.head.repo.full_name == github.repository ||
+          github.event.pull_request.head.ref != 'main'
+        )
+      ) ||
+      (
+        github.event_name == 'pull_request_target' &&
+        github.event.pull_request.head.repo.full_name != github.repository &&
+        github.event.pull_request.head.ref == 'main'
+      )
     timeout-minutes: 10
     runs-on: ubuntu-slim
     steps:
       - uses: actions/checkout@v6.0.2
         with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || format('refs/pull/{0}/merge', github.event.pull_request.number) }}
           persist-credentials: false
       - name: Install uv
         uses: astral-sh/setup-uv@v8.0.0
@@ -79,6 +147,20 @@ jobs:
         run: uv run pyright
 
   test:
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'pull_request' &&
+        (
+          github.event.pull_request.head.repo.full_name == github.repository ||
+          github.event.pull_request.head.ref != 'main'
+        )
+      ) ||
+      (
+        github.event_name == 'pull_request_target' &&
+        github.event.pull_request.head.repo.full_name != github.repository &&
+        github.event.pull_request.head.ref == 'main'
+      )
     strategy:
       matrix:
         os: [ubuntu-slim]
@@ -87,6 +169,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.2
         with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || format('refs/pull/{0}/merge', github.event.pull_request.number) }}
           persist-credentials: false
       - name: Install uv
         uses: astral-sh/setup-uv@v8.0.0

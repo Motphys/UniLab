@@ -18,7 +18,7 @@ class FlashSACRunner(OffPolicyRunner):
         num_envs: int = 2048,
         replay_buffer_n: int = 512,
         batch_size: int = 2048,
-        warmup_steps: int = 10000,
+        learning_starts: int = 0,
         updates_per_step: int = 1,
         policy_frequency: int = 2,
         sync_collection: bool = True,
@@ -61,7 +61,7 @@ class FlashSACRunner(OffPolicyRunner):
         env: Any = registry.make(
             env_name, num_envs=1, sim_backend=sim_backend, env_cfg_override=env_cfg_override
         )
-        obs_dim, privileged_dim = get_obs_dims(env.obs_groups_spec)
+        obs_dim, critic_obs_dim = get_obs_dims(env.obs_groups_spec)
         action_shape = env.action_space.shape
         assert action_shape is not None
         action_dim = int(action_shape[0])
@@ -71,7 +71,7 @@ class FlashSACRunner(OffPolicyRunner):
         learner = FlashSACLearner(
             obs_dim=obs_dim,
             action_dim=action_dim,
-            privileged_dim=privileged_dim,
+            critic_obs_dim=critic_obs_dim,
             device=runtime_device,
             gamma=gamma,
             tau=tau,
@@ -110,7 +110,7 @@ class FlashSACRunner(OffPolicyRunner):
             num_envs=num_envs,
             replay_buffer_n=replay_buffer_n,
             batch_size=batch_size,
-            warmup_steps=warmup_steps,
+            learning_starts=learning_starts,
             updates_per_step=updates_per_step,
             policy_frequency=policy_frequency,
             sync_collection=sync_collection,

@@ -24,7 +24,11 @@ import torch.distributed as dist
 import torch.multiprocessing as tmp  # torch.multiprocessing for spawn
 
 from unilab.algos.torch.fast_sac.learner import FastSACLearner
-from unilab.algos.torch.offpolicy.runner import OffPolicyRunner
+from unilab.algos.torch.offpolicy.runner import (
+    OffPolicyRunner,
+    compute_train_start_threshold,
+    replay_buffer_ready_for_learning,
+)
 from unilab.algos.torch.offpolicy.worker import off_policy_collector_fn
 from unilab.ipc import SharedWeightSync
 from unilab.ipc.async_runner import _SPAWN_CTX
@@ -141,6 +145,8 @@ def _learner_worker(
         obs_dim: int = runner_kwargs["obs_dim"]
         action_dim: int = runner_kwargs["action_dim"]
         logger_type: str = runner_kwargs.get("logger_type", "tensorboard")
+        learning_starts = max(int(runner_kwargs.get("learning_starts", 0)), 0)
+        train_start_threshold = compute_train_start_threshold(batch_size, learning_starts, num_envs)
 
         # 6. Logger (rank 0 only)
         logger: Optional[OffPolicyLogger] = None
@@ -162,6 +168,7 @@ def _learner_worker(
         reward_history: deque = deque(maxlen=100)
         latest_reward_components: dict = {}
         write_read_ema = 0.0
+        last_buf_log = 0
 
         # 7. Training loop
         for it in range(1, max_iterations + 1):
@@ -174,14 +181,36 @@ def _learner_worker(
                     while True:
                         try:
                             collection_ready_queue.get(timeout=1.0)
-                            break
                         except queue.Empty:
                             if stop_event.is_set():
                                 return
+                            continue
+                        cur_size = int(replay_buffer.size[0])
+                        if replay_buffer_ready_for_learning(
+                            cur_size,
+                            batch_size=batch_size,
+                            learning_starts=learning_starts,
+                            num_envs=num_envs,
+                        ):
+                            break
+                        if logger and cur_size - last_buf_log >= num_envs * 10:
+                            last_buf_log = cur_size
+                            logger.log_buffer_fill(cur_size, train_start_threshold)
+                        if trainer_done_queue is not None:
+                            trainer_done_queue.put(1)
                 else:
-                    while int(replay_buffer.size[0]) < batch_size:
+                    while not replay_buffer_ready_for_learning(
+                        int(replay_buffer.size[0]),
+                        batch_size=batch_size,
+                        learning_starts=learning_starts,
+                        num_envs=num_envs,
+                    ):
                         if stop_event.is_set():
                             return
+                        cur_size = int(replay_buffer.size[0])
+                        if logger and cur_size - last_buf_log >= num_envs * 10:
+                            last_buf_log = cur_size
+                            logger.log_buffer_fill(cur_size, train_start_threshold)
                         time.sleep(0.1)
                 _drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
 
@@ -277,6 +306,21 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
     Falls back transparently to single-GPU when ``num_gpus <= 1``.
     """
 
+    @staticmethod
+    def validate_capabilities(
+        *,
+        algo_type: str,
+        learner_kwargs: Dict[str, Any],
+        num_gpus: int,
+    ) -> None:
+        if num_gpus <= 1:
+            return
+        if algo_type == "sac" and bool(learner_kwargs.get("use_symmetry", False)):
+            raise ValueError(
+                "Off-policy symmetry augmentation does not support training.num_gpus > 1; "
+                "set training.num_gpus=1 or algo.use_symmetry=false"
+            )
+
     def __init__(
         self,
         learner: Any,
@@ -286,6 +330,11 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
         num_gpus: int = 1,
         **kwargs: Any,
     ) -> None:
+        self.validate_capabilities(
+            algo_type=algo_type,
+            learner_kwargs=learner_kwargs,
+            num_gpus=num_gpus,
+        )
         super().__init__(learner=learner, env_name=env_name, algo_type=algo_type, **kwargs)
         self.num_gpus = num_gpus
         self.world_size = num_gpus
@@ -351,7 +400,6 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
 
         # --- Start Collector (CPU, single process, unchanged) ---
         weight_param_shapes = {k: v.shape for k, v in self.learner.actor.state_dict().items()}
-        sim_backend: str = self.extra_kwargs.get("sim_backend", "mujoco")
         collector_kwargs = {
             "env_name": self.env_name,
             "num_envs": self.num_envs,
@@ -362,7 +410,7 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
             "algo_type": self.algo_type,
             "actor_hidden_dim": self.actor_hidden_dim,
             "use_layer_norm": self.use_layer_norm,
-            "warmup_steps": self.warmup_steps,
+            "learning_starts": self.learning_starts,
             "metrics_queue": metrics_queue,
             "sync_collection": self.sync_collection,
             "collection_ready_queue": collection_ready_queue,
@@ -370,7 +418,7 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
             "env_steps_per_sync": self.env_steps_per_sync,
             "obs_normalization": False,
             "shared_obs_normalizer_stats": None,
-            "sim_backend": sim_backend,
+            "sim_backend": self.sim_backend,
             "env_cfg_override": self.env_cfg_override,
         }
         self._start_collector(
@@ -391,6 +439,7 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
             "save_interval": save_interval,
             "log_dir": log_dir,
             "batch_size": self.batch_size,
+            "learning_starts": self.learning_starts,
             "updates_per_step": self.updates_per_step,
             "policy_frequency": self.policy_frequency,
             "sync_collection": self.sync_collection,

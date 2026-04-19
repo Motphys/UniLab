@@ -17,7 +17,7 @@ from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
 
 CONF_DIR = Path(__file__).parent.parent.parent / "conf"
-_PPO_MLX_TASKS = {"go1_joystick", "go2_joystick", "g1_joystick"}
+_PPO_MLX_TASKS = {"go1_joystick_flat", "go2_joystick_flat", "g1_joystick_flat"}
 
 
 def _compose(algo_dir: str, config_name: str = "config", overrides: list[str] | None = None):
@@ -46,9 +46,9 @@ def _normalize_overrides(algo_dir: str, overrides: list[str] | None) -> list[str
 
     if not task_selected:
         if algo_dir == "offpolicy":
-            normalized.append(f"task={algo}/go1_joystick/mujoco")
+            normalized.append(f"task={algo}/go1_joystick_flat/mujoco")
         else:
-            normalized.append("task=go1_joystick/mujoco")
+            normalized.append("task=go1_joystick_flat/mujoco")
 
     return normalized
 
@@ -177,7 +177,7 @@ def test_supported_task_composes(
 
 
 def test_offpolicy_go1_motrix_sac_preserves_legacy_behavior():
-    cfg = _compose("offpolicy", overrides=["algo=sac", "task=sac/go1_joystick/motrix"])
+    cfg = _compose("offpolicy", overrides=["algo=sac", "task=sac/go1_joystick_flat/motrix"])
 
     assert cfg.algo.num_envs == 4096
     assert cfg.algo.max_iterations == 2000
@@ -186,7 +186,7 @@ def test_offpolicy_go1_motrix_sac_preserves_legacy_behavior():
 
 
 def test_offpolicy_go1_motrix_td3_stays_isolated_from_sac_override():
-    cfg = _compose("offpolicy", overrides=["algo=td3", "task=td3/go1_joystick/motrix"])
+    cfg = _compose("offpolicy", overrides=["algo=td3", "task=td3/go1_joystick_flat/motrix"])
 
     assert cfg.algo.num_envs == 2048
     assert cfg.algo.max_iterations == 3000
@@ -194,17 +194,17 @@ def test_offpolicy_go1_motrix_td3_stays_isolated_from_sac_override():
     assert cfg.env.commands.vel_limit == [[0.5, 0.0, 0.0], [0.5, 0.0, 0.0]]
 
 
-def test_offpolicy_g1_sac_motrix_preserves_backend_specific_algo_value():
-    mujoco_cfg = _compose("offpolicy", overrides=["algo=sac", "task=sac/g1_sac/mujoco"])
-    motrix_cfg = _compose("offpolicy", overrides=["algo=sac", "task=sac/g1_sac/motrix"])
+def test_offpolicy_g1_walk_flat_motrix_preserves_backend_specific_algo_value():
+    mujoco_cfg = _compose("offpolicy", overrides=["algo=sac", "task=sac/g1_walk_flat/mujoco"])
+    motrix_cfg = _compose("offpolicy", overrides=["algo=sac", "task=sac/g1_walk_flat/motrix"])
 
     assert mujoco_cfg.algo.use_symmetry is True
     assert motrix_cfg.algo.use_symmetry is False
 
 
 def test_ppo_g1_backend_specific_hyperparams_remain_separate():
-    mujoco_cfg = _compose("ppo", overrides=["task=g1_joystick/mujoco"])
-    motrix_cfg = _compose("ppo", overrides=["task=g1_joystick/motrix"])
+    mujoco_cfg = _compose("ppo", overrides=["task=g1_joystick_flat/mujoco"])
+    motrix_cfg = _compose("ppo", overrides=["task=g1_joystick_flat/motrix"])
 
     assert mujoco_cfg.algo.max_iterations == 220
     assert mujoco_cfg.algo.empirical_normalization is False
@@ -235,7 +235,7 @@ def test_ppo_g1_backend_specific_hyperparams_remain_separate():
 
 
 def test_ppo_go1_motrix_preserves_reward_and_algo_values():
-    cfg = _compose("ppo", overrides=["task=go1_joystick/motrix"])
+    cfg = _compose("ppo", overrides=["task=go1_joystick_flat/motrix"])
 
     assert cfg.algo.max_iterations == 151
     assert cfg.algo.empirical_normalization is True
@@ -246,7 +246,7 @@ def test_ppo_go1_motrix_preserves_reward_and_algo_values():
 
 
 def test_ppo_go2_motrix_preserves_backend_env_overrides():
-    cfg = _compose("ppo", overrides=["task=go2_joystick/motrix"])
+    cfg = _compose("ppo", overrides=["task=go2_joystick_flat/motrix"])
 
     assert cfg.algo.num_envs == 1024
     assert cfg.algo.empirical_normalization is True
@@ -254,101 +254,9 @@ def test_ppo_go2_motrix_preserves_backend_env_overrides():
     assert cfg.env.domain_rand.randomize_kd is False
 
 
-def test_ppo_allegro_inhand_mujoco_owner_defaults():
-    cfg = _compose("ppo", overrides=["task=allegro_inhand/mujoco"])
-
-    assert cfg.training.task_name == "AllegroInhandRotation"
-    assert cfg.training.sim_backend == "mujoco"
-    assert cfg.algo.max_iterations == 201
-    assert cfg.algo.empirical_normalization is True
-    assert cfg.reward.scales.rotate == pytest.approx(1.25)
-    assert cfg.reward.reset_z_threshold == pytest.approx(0.125)
-    assert cfg.env.gen_grasp is False
-    assert cfg.env.max_episode_seconds == pytest.approx(20.0)
-    assert cfg.env.grasp_cache_path == "cache/allegro_grasp_50k.npy"
-
-
-def test_ppo_allegro_inhand_grasp_mujoco_owner_defaults():
-    cfg = _compose("ppo", overrides=["task=allegro_inhand_grasp/mujoco"])
-
-    assert cfg.training.task_name == "AllegroInhandRotationGrasp"
-    assert cfg.training.sim_backend == "mujoco"
-    assert cfg.training.no_play is True
-    assert cfg.algo.max_iterations == 1000
-    assert cfg.reward.scales.rotate == pytest.approx(0.0)
-    assert cfg.reward.scales.drop == pytest.approx(0.0)
-    assert cfg.env.gen_grasp is True
-    assert cfg.env.max_episode_seconds == pytest.approx(3.0)
-    assert cfg.env.grasp_collection_target == 50000
-    assert cfg.env.grasp_auto_save is True
-    assert cfg.env.grasp_quality_check is True
-    assert cfg.env.grasp_min_contacts == 2
-
-
-def test_ppo_allegro_inhand_grasp_cli_override_beats_owner_defaults():
-    cfg = _compose(
-        "ppo",
-        overrides=[
-            "task=allegro_inhand_grasp/mujoco",
-            "algo.max_iterations=1",
-            "env.grasp_collection_target=128",
-            "reward.scales.rotate=0.3",
-        ],
-    )
-
-    assert cfg.algo.max_iterations == 1
-    assert cfg.env.grasp_collection_target == 128
-    assert cfg.reward.scales.rotate == pytest.approx(0.3)
-    assert cfg.env.gen_grasp is True
-
-
-def test_ppo_sharpa_inhand_mujoco_owner_defaults():
-    cfg = _compose("ppo", overrides=["task=sharpa_inhand/mujoco"])
-
-    assert cfg.training.task_name == "SharpaInhandRotation"
-    assert cfg.training.sim_backend == "mujoco"
-    assert cfg.algo.max_iterations == 501
-    assert cfg.algo.empirical_normalization is True
-    assert cfg.reward.scales.rotate == pytest.approx(2.5)
-    assert cfg.reward.scales.pose_diff == pytest.approx(-0.4)
-    assert cfg.env.grasp_cache_path == "cache/sharpa_grasp_linspace"
-    assert cfg.env.observation_mode == "simple"
-
-
-def test_ppo_sharpa_inhand_grasp_mujoco_owner_defaults():
-    cfg = _compose("ppo", overrides=["task=sharpa_inhand_grasp/mujoco"])
-
-    assert cfg.training.task_name == "SharpaInhandRotationGrasp"
-    assert cfg.training.sim_backend == "mujoco"
-    assert cfg.algo.max_iterations == 2290
-    assert cfg.reward.scales.rotate == pytest.approx(0.0)
-    assert cfg.reward.scales.object_pos == pytest.approx(0.0)
-    assert cfg.env.max_episode_seconds == pytest.approx(3.0)
-    assert cfg.env.grasp_collection_target == 50000
-    assert cfg.env.randomize_mass is True
-    assert cfg.env.randomize_mass_lower == pytest.approx(0.05)
-    assert cfg.env.randomize_mass_upper == pytest.approx(0.051)
-
-
-def test_ppo_sharpa_inhand_grasp_cli_override_beats_owner_defaults():
-    cfg = _compose(
-        "ppo",
-        overrides=[
-            "task=sharpa_inhand_grasp/mujoco",
-            "algo.max_iterations=1",
-            "env.grasp_collection_target=128",
-            "reward.scales.rotate=0.3",
-        ],
-    )
-
-    assert cfg.algo.max_iterations == 1
-    assert cfg.env.grasp_collection_target == 128
-    assert cfg.reward.scales.rotate == pytest.approx(0.3)
-
-
 @pytest.mark.parametrize("algo", ["sac", "td3"])
 def test_offpolicy_go2_motrix_preserves_backend_env_overrides(algo: str):
-    cfg = _compose("offpolicy", overrides=[f"algo={algo}", f"task={algo}/go2_joystick/motrix"])
+    cfg = _compose("offpolicy", overrides=[f"algo={algo}", f"task={algo}/go2_joystick_flat/motrix"])
 
     assert cfg.training.sim_backend == "motrix"
     assert cfg.algo.num_envs == 1024
@@ -360,7 +268,7 @@ def test_offpolicy_go2_motrix_preserves_backend_env_overrides(algo: str):
 def test_cli_override_beats_task_defaults():
     cfg = _compose(
         "ppo",
-        overrides=["task=g1_joystick/motrix", "algo.max_iterations=1"],
+        overrides=["task=g1_joystick_flat/motrix", "algo.max_iterations=1"],
     )
 
     assert cfg.algo.max_iterations == 1

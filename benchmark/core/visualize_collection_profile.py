@@ -159,7 +159,7 @@ def main() -> None:
     parser.add_argument(
         "--run-root",
         type=Path,
-        default=Path("logs/mlx_rl_train/Go2JoystickFlatTerrain"),
+        default=Path("logs/mlx_rl_train/Go2JoystickFlat"),
     )
     parser.add_argument("--output-dir", type=Path, default=None)
     args = parser.parse_args()

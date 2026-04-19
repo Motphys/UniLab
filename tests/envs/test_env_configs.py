@@ -74,8 +74,8 @@ def test_registry_bootstrap_and_config_imports_do_not_require_mujoco():
     assert result.returncode == 0, result.stderr or result.stdout
 
 
-def test_g1_joystick_ppo_cfg_obs_groups_spec():
-    """G1JoystickPPO must declare obs_groups_spec with actor and privileged groups."""
+def test_g1_joystick_flat_ppo_cfg_obs_groups_spec():
+    """G1JoystickPPO must declare obs_groups_spec with actor and critic groups."""
     from unilab.envs.locomotion.g1.joystick import G1JoystickPPOCfg, RewardConfigPPO
 
     cfg = G1JoystickPPOCfg()
@@ -95,20 +95,20 @@ def test_g1_joystick_ppo_cfg_obs_groups_spec():
     assert reward_cfg.min_forward_speed_for_gait_reward == pytest.approx(0.05)
 
 
-def test_g1_joystick_sac_cfg_no_obs_config():
-    """G1JoystickSACCfg should no longer have obs_config after dict obs refactor."""
-    from unilab.envs.locomotion.g1.joystick_sac import G1JoystickSACCfg
+def test_g1_walk_flat_cfg_no_obs_config():
+    """G1WalkFlatCfg should no longer have obs_config after dict obs refactor."""
+    from unilab.envs.locomotion.g1.joystick_sac import G1WalkFlatCfg
 
-    cfg = G1JoystickSACCfg()
+    cfg = G1WalkFlatCfg()
     assert not hasattr(cfg, "obs_config"), (
         "obs_config should have been removed in the dict obs refactor"
     )
 
 
-def test_g1_joystick_sac_cfg_has_domain_rand_for_motrix():
-    from unilab.envs.locomotion.g1.joystick_sac import G1JoystickSACCfg
+def test_g1_walk_flat_cfg_has_domain_rand_for_motrix():
+    from unilab.envs.locomotion.g1.joystick_sac import G1WalkFlatCfg
 
-    cfg = G1JoystickSACCfg()
+    cfg = G1WalkFlatCfg()
     assert hasattr(cfg, "domain_rand")
     assert hasattr(cfg, "gait_phase_init_mode")
     assert hasattr(cfg, "reset_base_qvel_limit")
@@ -117,13 +117,13 @@ def test_g1_joystick_sac_cfg_has_domain_rand_for_motrix():
     assert cfg.domain_rand.push_robots is False
 
 
-def test_g1_joystick_ppo_obs_groups_spec_dims():
+def test_g1_joystick_flat_ppo_obs_groups_spec_dims():
     """obs_groups_spec total dim must match what _compute_obs actually produces.
 
     G1JoystickPPO._compute_obs outputs (G1 has 29 DoF):
         actor: gyro(3) + gravity(3) + diff(29) + dof_vel(29)
             + last_actions(29) + command(3) + gait_phase(2) = 98
-        privileged: linvel(3)
+        critic: actor(98) + linvel(3) = 101
     """
     from unilab.envs.locomotion.g1.joystick import G1JoystickPPO
 
@@ -131,10 +131,10 @@ def test_g1_joystick_ppo_obs_groups_spec_dims():
     spec = G1JoystickPPO.obs_groups_spec.fget(None)  # type: ignore[union-attr]
     assert spec is not None
     assert spec["obs"] == 98
-    assert spec["privileged"] == 3
+    assert spec["critic"] == 101
 
 
-def test_g1_joystick_ppo_reward_dispatch_restores_motrix_terms():
+def test_g1_joystick_flat_ppo_reward_dispatch_restores_motrix_terms():
     from unilab.envs.locomotion.g1.joystick import G1JoystickPPO
 
     env = cast(Any, object.__new__(G1JoystickPPO))
@@ -148,7 +148,7 @@ def test_g1_joystick_ppo_reward_dispatch_restores_motrix_terms():
     assert "feet_double_stance" in env._reward_fns
 
 
-def test_g1_joystick_ppo_feet_phase_reward_is_gated_by_forward_speed():
+def test_g1_joystick_flat_ppo_feet_phase_reward_is_gated_by_forward_speed():
     from unilab.envs.locomotion.common.rewards import RewardContext
     from unilab.envs.locomotion.g1.joystick import G1JoystickPPO
 
@@ -187,7 +187,7 @@ def test_g1_joystick_ppo_feet_phase_reward_is_gated_by_forward_speed():
     assert reward[1] > 0.0
 
 
-def test_g1_joystick_assets_define_contact_sensors_for_gait_rewards():
+def test_g1_joystick_flat_assets_define_contact_sensors_for_gait_rewards():
     repo_root = Path(__file__).parents[2]
     scene_text = (
         repo_root / "src" / "unilab" / "assets" / "robots" / "g1" / "scene_flat.xml"
@@ -355,6 +355,41 @@ def test_g1_motion_tracking_init_delegates_motion_body_ids_to_backend(monkeypatc
     assert calls["reward_init"] is True
 
 
+def test_sharpa_grasp_env_initializes_dr_once_with_grasp_provider(monkeypatch):
+    from unilab.envs.manipulation.sharpa_inhand import rotation as sharpa_rotation_module
+    from unilab.envs.manipulation.sharpa_inhand.base import SharpaInhandBaseEnv
+    from unilab.envs.manipulation.sharpa_inhand.grasp_gen import (
+        SharpaInhandRotationGraspCfg,
+        SharpaInhandRotationGraspEnv,
+    )
+
+    calls: list[str] = []
+
+    def fake_base_init(self, cfg, backend, num_envs):
+        self._cfg = cfg
+        self._backend = backend
+        self._num_envs = num_envs
+        self._np_dtype = np.float64
+        self._num_action = 22
+        self._num_tactile = 5
+        self._num_scales = int(cfg.scale_range[2])
+        self.scale_ids = np.zeros((num_envs,), dtype=np.int32)
+
+    monkeypatch.setattr(sharpa_rotation_module, "create_backend", lambda *args, **kwargs: object())
+    monkeypatch.setattr(SharpaInhandBaseEnv, "__init__", fake_base_init)
+    monkeypatch.setattr(
+        SharpaInhandRotationGraspEnv,
+        "_init_domain_randomization",
+        lambda self, provider: calls.append(provider.__class__.__name__),
+    )
+
+    cfg = SharpaInhandRotationGraspCfg()
+    env = cast(Any, SharpaInhandRotationGraspEnv)(cfg, num_envs=4, backend_type="mujoco")
+
+    assert calls == ["SharpaInhandGraspDRProvider"]
+    assert len(env._saved_grasping_states) == env._num_scales
+
+
 def test_g1_flip_tracking_cfg_uses_flip_profile():
     from unilab.envs.motion_tracking.g1.flip_tracking import G1FlipTrackingCfg
 
@@ -422,13 +457,13 @@ def test_g1_motion_tracking_clip_end_contributes_to_truncated():
     env._compute_reward = lambda *args: np.zeros((2,), dtype=np.float32)
     env._compute_obs = lambda *args: {
         "obs": np.zeros((2, 1), dtype=np.float32),
-        "privileged": np.zeros((2, 1), dtype=np.float32),
+        "critic": np.zeros((2, 2), dtype=np.float32),
     }
 
     state = NpEnvState(
         obs={
             "obs": np.zeros((2, 1), dtype=np.float32),
-            "privileged": np.zeros((2, 1), dtype=np.float32),
+            "critic": np.zeros((2, 2), dtype=np.float32),
         },
         reward=np.zeros((2,), dtype=np.float32),
         terminated=np.zeros((2,), dtype=bool),
@@ -473,10 +508,11 @@ def test_g1_motion_tracking_clip_end_does_not_override_true_termination():
 
 # Environments that don't need special config overrides
 _STANDARD_ENVS = [
-    "Go1JoystickFlatTerrain",
-    "Go2JoystickFlatTerrain",
-    "G1JoystickFlatTerrain",
-    "G1WalkTaskMjSAC",
+    "Go1JoystickFlat",
+    "Go2JoystickFlat",
+    "G1JoystickFlat",
+    "G1WalkFlat",
+    "G1WalkRough",
     "AllegroInhandRotation",
     "AllegroInhandRotationGrasp",
 ]
@@ -489,7 +525,7 @@ def test_env_reset_and_step(
     default_go1_reward_config,
     default_go2_reward_config,
     default_g1_reward_config,
-    default_g1_sac_reward_config,
+    default_g1_walk_flat_reward_config,
     default_allegro_reward_config,
 ):
     """Every registered env must be constructible, resetable, and steppable.
@@ -509,8 +545,8 @@ def test_env_reset_and_step(
         env_cfg_override = {"reward_config": default_go1_reward_config}
     elif "Go2" in env_name:
         env_cfg_override = {"reward_config": default_go2_reward_config}
-    elif "G1WalkTaskMjSAC" in env_name:
-        env_cfg_override = {"reward_config": default_g1_sac_reward_config}
+    elif "G1Walk" in env_name:
+        env_cfg_override = {"reward_config": default_g1_walk_flat_reward_config}
     elif "G1" in env_name:
         env_cfg_override = {"reward_config": default_g1_reward_config}
     elif "Allegro" in env_name:
@@ -559,11 +595,12 @@ def _assert_mujoco_position_gains(
     env: Any, *, kp: float, kd: float, actuator_ids=slice(None)
 ) -> None:
     model = env._backend.model
+    pool = env._backend._pool
     np.testing.assert_allclose(model.actuator_gainprm[actuator_ids, 0], kp)
     np.testing.assert_allclose(model.actuator_biasprm[actuator_ids, 1], -kp)
     np.testing.assert_allclose(model.actuator_biasprm[actuator_ids, 2], -kd)
-    np.testing.assert_allclose(env._backend._pool.get_field(0, "kp")[actuator_ids], kp)
-    np.testing.assert_allclose(env._backend._pool.get_field(0, "kd")[actuator_ids], kd)
+    np.testing.assert_allclose(pool.get_field(0, "kp")[actuator_ids], kp)
+    np.testing.assert_allclose(pool.get_field(0, "kd")[actuator_ids], kd)
 
 
 @pytest.mark.slow
@@ -575,7 +612,7 @@ def test_go1_env_initializes_kp_kd_into_pool(default_go1_reward_config):
     env = cast(
         Any,
         registry.make(
-            "Go1JoystickFlatTerrain",
+            "Go1JoystickFlat",
             num_envs=2,
             sim_backend="mujoco",
             env_cfg_override={
@@ -600,7 +637,7 @@ def test_go2_env_initializes_kp_kd_into_pool():
     env = cast(
         Any,
         registry.make(
-            "Go2JoystickFlatTerrain",
+            "Go2JoystickFlat",
             num_envs=2,
             sim_backend="mujoco",
             env_cfg_override={
@@ -686,7 +723,7 @@ def test_g1_motion_tracking_reset_and_step(sim_backend: str):
         spec = env.obs_groups_spec
         assert isinstance(spec, dict)
         assert "obs" in spec
-        assert "privileged" in spec
+        assert "critic" in spec
         obs_shape = env.observation_space.shape
         assert obs_shape is not None
         assert sum(spec.values()) == obs_shape[0]
@@ -717,7 +754,7 @@ def test_go2_mujoco_reset_applies_kp_kd_domain_randomization(default_go2_reward_
     env = cast(
         Any,
         registry.make(
-            "Go2JoystickFlatTerrain",
+            "Go2JoystickFlat",
             num_envs=4,
             sim_backend="mujoco",
             env_cfg_override={"reward_config": default_go2_reward_config},

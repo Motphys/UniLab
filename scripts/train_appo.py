@@ -138,7 +138,7 @@ def play_appo(cfg: DictConfig, rl_cfg: dict[str, Any]) -> str | None:
     )
     from unilab.utils.obs_utils import get_obs_dims
 
-    obs_dim, privileged_dim = get_obs_dims(env.obs_groups_spec)
+    obs_dim, critic_dim = get_obs_dims(env.obs_groups_spec)
     action_shape = env.action_space.shape
     if action_shape is None:
         raise ValueError("env.action_space.shape must be defined")
@@ -146,13 +146,23 @@ def play_appo(cfg: DictConfig, rl_cfg: dict[str, Any]) -> str | None:
 
     rl_cfg_dict = dict(rl_cfg)
     if "obs_groups" not in rl_cfg_dict:
-        rl_cfg_dict["obs_groups"] = {"actor": {"policy": obs_dim}}
+        rl_cfg_dict["obs_groups"] = {
+            "actor": {"policy": obs_dim},
+            "critic": {"policy": critic_dim if critic_dim > 0 else obs_dim},
+        }
     else:
         actor_group = rl_cfg_dict["obs_groups"].get(
             "actor", rl_cfg_dict["obs_groups"].get("policy", {})
         )
         if isinstance(actor_group, dict) and "policy" in actor_group:
             actor_group["policy"] = obs_dim
+        critic_group = rl_cfg_dict["obs_groups"].get("critic")
+        if critic_group is None:
+            rl_cfg_dict["obs_groups"]["critic"] = {
+                "policy": critic_dim if critic_dim > 0 else obs_dim
+            }
+        elif isinstance(critic_group, dict) and "policy" in critic_group:
+            critic_group["policy"] = critic_dim if critic_dim > 0 else obs_dim
 
     if is_rsl_rl_v5():
         pass
@@ -240,6 +250,9 @@ def play_appo(cfg: DictConfig, rl_cfg: dict[str, Any]) -> str | None:
                 "cam_distance": cfg.training.cam_distance,
                 "cam_elevation": cfg.training.cam_elevation,
                 "cam_azimuth": cfg.training.cam_azimuth,
+                "cam_tracking": getattr(cfg.training, "cam_tracking", False),
+                "cam_tracking_env_idx": getattr(cfg.training, "cam_tracking_env_idx", 0),
+                "cam_tracking_extra_envs": getattr(cfg.training, "cam_tracking_extra_envs", 2),
             },
         )
     print(f"Saving video to {output_video} with mediapy...")

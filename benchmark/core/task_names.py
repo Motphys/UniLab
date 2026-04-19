@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from unilab.envs.locomotion.g1.joystick import G1JoystickPPOCfg
 from unilab.envs.locomotion.go1.joystick import Go1JoystickCfg
 from unilab.envs.locomotion.go2.joystick import Go2JoystickCfg
+from unilab.envs.manipulation.sharpa_inhand.rotation import SharpaInhandRotationCfg
 
 
 @dataclass(frozen=True)
@@ -16,23 +17,29 @@ class LocomotionTaskSpec:
 
 
 _TASK_SPECS = {
-    "go1_joystick": LocomotionTaskSpec(
-        owner_task_id="go1_joystick",
-        env_task_name="Go1JoystickFlatTerrain",
-        display_name="go1_joystick",
+    "go1_joystick_flat": LocomotionTaskSpec(
+        owner_task_id="go1_joystick_flat",
+        env_task_name="Go1JoystickFlat",
+        display_name="go1_joystick_flat",
         config_cls=Go1JoystickCfg,
     ),
-    "go2_joystick": LocomotionTaskSpec(
-        owner_task_id="go2_joystick",
-        env_task_name="Go2JoystickFlatTerrain",
-        display_name="go2_joystick",
+    "go2_joystick_flat": LocomotionTaskSpec(
+        owner_task_id="go2_joystick_flat",
+        env_task_name="Go2JoystickFlat",
+        display_name="go2_joystick_flat",
         config_cls=Go2JoystickCfg,
     ),
-    "g1_joystick": LocomotionTaskSpec(
-        owner_task_id="g1_joystick",
-        env_task_name="G1JoystickFlatTerrain",
-        display_name="g1_joystick",
+    "g1_joystick_flat": LocomotionTaskSpec(
+        owner_task_id="g1_joystick_flat",
+        env_task_name="G1JoystickFlat",
+        display_name="g1_joystick_flat",
         config_cls=G1JoystickPPOCfg,
+    ),
+    "sharpa_inhand": LocomotionTaskSpec(
+        owner_task_id="sharpa_inhand",
+        env_task_name="SharpaInhandRotation",
+        display_name="sharpa_inhand",
+        config_cls=SharpaInhandRotationCfg,
     ),
 }
 _TASK_ALIASES = {spec.env_task_name: spec.owner_task_id for spec in _TASK_SPECS.values()}

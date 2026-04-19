@@ -22,7 +22,7 @@ play_profile:
   scene:
     enabled: true
     source_model_file: src/unilab/assets/robots/g1/scene_flat.xml
-    ground_texture_file: src/unilab/assets/robots/g1/floor.png
+    ground_texture_file: src/unilab/assets/robots/g1/textures/floor.png
     skybox_rgb1: [0.90, 0.90, 0.91]
     skybox_rgb2: [0.68, 0.68, 0.70]
     ground_texrepeat: [0.25, 0.25]

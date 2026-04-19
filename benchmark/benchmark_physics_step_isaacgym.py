@@ -73,41 +73,41 @@ class BenchRecord:
 
 
 TASK_SPECS = {
-    "go1_joystick": TaskSpec(
-        owner_task_id="go1_joystick",
-        display_name="go1_joystick",
+    "go1_joystick_flat": TaskSpec(
+        owner_task_id="go1_joystick_flat",
+        display_name="go1_joystick_flat",
         asset_root=DEFAULT_MODELS_ROOT,
         asset_file="go1_description/urdf/go1.urdf",
         initial_height=0.40,
     ),
-    "go2_joystick": TaskSpec(
-        owner_task_id="go2_joystick",
-        display_name="go2_joystick",
+    "go2_joystick_flat": TaskSpec(
+        owner_task_id="go2_joystick_flat",
+        display_name="go2_joystick_flat",
         asset_root=DEFAULT_MODELS_ROOT,
         asset_file="go2_description/urdf/go2_description.urdf",
         initial_height=0.40,
     ),
-    "g1_joystick": TaskSpec(
-        owner_task_id="g1_joystick",
-        display_name="g1_joystick",
+    "g1_joystick_flat": TaskSpec(
+        owner_task_id="g1_joystick_flat",
+        display_name="g1_joystick_flat",
         asset_root=DEFAULT_MODELS_ROOT,
         asset_file="g1_description/g1_29dof_rev_1_0.urdf",
         initial_height=0.78,
     ),
 }
 TASK_ALIASES = {
-    "Go1JoystickFlatTerrain": "go1_joystick",
-    "Go2JoystickFlatTerrain": "go2_joystick",
-    "G1JoystickFlatTerrain": "g1_joystick",
-    "task=go1_joystick/isaacgym": "go1_joystick",
-    "task=go2_joystick/isaacgym": "go2_joystick",
-    "task=g1_joystick/isaacgym": "g1_joystick",
-    "go1_joystick/isaacgym": "go1_joystick",
-    "go2_joystick/isaacgym": "go2_joystick",
-    "g1_joystick/isaacgym": "g1_joystick",
-    "go1": "go1_joystick",
-    "go2": "go2_joystick",
-    "g1": "g1_joystick",
+    "Go1JoystickFlat": "go1_joystick_flat",
+    "Go2JoystickFlat": "go2_joystick_flat",
+    "G1JoystickFlat": "g1_joystick_flat",
+    "task=go1_joystick_flat/isaacgym": "go1_joystick_flat",
+    "task=go2_joystick_flat/isaacgym": "go2_joystick_flat",
+    "task=g1_joystick_flat/isaacgym": "g1_joystick_flat",
+    "go1_joystick_flat/isaacgym": "go1_joystick_flat",
+    "go2_joystick_flat/isaacgym": "go2_joystick_flat",
+    "g1_joystick_flat/isaacgym": "g1_joystick_flat",
+    "go1": "go1_joystick_flat",
+    "go2": "go2_joystick_flat",
+    "g1": "g1_joystick_flat",
 }
 DEFAULT_TASK_IDS = list(TASK_SPECS.keys())
 DEFAULT_BATCH_SIZES = [2**k for k in range(8, 15)]  # 256 .. 16384

@@ -10,7 +10,7 @@ from omegaconf import OmegaConf
 def test_reward_config_loading_g1():
     """Test G1 SAC reward config loads correctly."""
     with initialize(config_path="../../conf/offpolicy", version_base="1.3"):
-        cfg = compose(config_name="config", overrides=["task=sac/g1_sac/mujoco"])
+        cfg = compose(config_name="config", overrides=["task=sac/g1_walk_flat/mujoco"])
         assert hasattr(cfg, "reward")
         assert cfg.reward.scales.tracking_lin_vel == 2.0
         assert cfg.reward.scales.alive == 10.0
@@ -20,7 +20,7 @@ def test_reward_config_loading_g1():
 def test_reward_config_loading_go1():
     """Test Go1 reward config loads correctly."""
     with initialize(config_path="../../conf/offpolicy", version_base="1.3"):
-        cfg = compose(config_name="config", overrides=["task=sac/go1_joystick/mujoco"])
+        cfg = compose(config_name="config", overrides=["task=sac/go1_joystick_flat/mujoco"])
         assert hasattr(cfg, "reward")
         assert cfg.reward.scales.tracking_lin_vel == 1.0
         assert cfg.reward.scales.contact == 0.24
@@ -33,7 +33,7 @@ def test_resolve_reward_dict_reads_task_reward():
     with initialize(config_path="../../conf/ppo", version_base="1.3"):
         cfg = compose(
             config_name="config",
-            overrides=["task=go2_joystick/motrix"],
+            overrides=["task=go2_joystick_flat/motrix"],
         )
 
     reward_dict = resolve_reward_dict(cfg)
@@ -65,7 +65,7 @@ def test_reward_config_conversion():
     env = cast(
         Any,
         registry.make(
-            "G1WalkTaskMjSAC",
+            "G1WalkFlat",
             num_envs=1,
             sim_backend="mujoco",
             env_cfg_override={"reward_config": g1_dict},
@@ -84,7 +84,7 @@ def test_reward_config_conversion():
     env = cast(
         Any,
         registry.make(
-            "Go1JoystickFlatTerrain",
+            "Go1JoystickFlat",
             num_envs=1,
             sim_backend="mujoco",
             env_cfg_override={"reward_config": go1_dict},

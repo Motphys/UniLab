@@ -9,7 +9,14 @@ from unilab.base import registry
 from unilab.base.backend import create_backend
 from unilab.base.dtype_config import get_global_dtype
 from unilab.base.np_env import NpEnvState
-from unilab.dr import DomainRandomizationCapabilities, DomainRandomizationProvider, ResetPlan
+from unilab.dr import (
+    DomainRandomizationCapabilities,
+    DomainRandomizationProvider,
+    GeomSizeOverride,
+    InitRandomizationPlan,
+    ModelVariantSpec,
+    ResetPlan,
+)
 from unilab.dr.dr_utils import build_common_reset_randomization, validate_common_reset_randomization
 from unilab.envs.manipulation.sharpa_inhand.base import (
     SharpaInhandBaseCfg,
@@ -43,7 +50,7 @@ class RewardConfig:
 class SharpaInhandRotationCfg(SharpaInhandBaseCfg):
     reward_config: RewardConfig | None = None
     zero_action_test_mode: bool = False
-    # "full": legacy Sharpa observation (proprio+tactile+contact-pos+privileged mode).
+    # "full": proprio+tactile+contact-pos plus critic-info channels.
     # "simple": only {joint_pos, target_joint_pos, object_pos} with history.
     observation_mode: str = "full"
 
@@ -56,6 +63,30 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
             raise NotImplementedError(
                 f"{env._backend.backend_type} backend does not support reset randomization terms: {names}"
             )
+
+    def build_init_randomization_plan(self, env: Any) -> InitRandomizationPlan | None:
+        if env._backend.backend_type != "mujoco":
+            return None
+        base_size = getattr(env, "_object_geom_base_size", None)
+
+        if base_size is None:
+            return None
+
+        model_variants = tuple(
+            ModelVariantSpec(
+                geom_size_overrides=(
+                    GeomSizeOverride(
+                        geom_name=env.cfg.object_geom_name,
+                        size=tuple(np.asarray(base_size * scale, dtype=np.float64)),
+                    ),
+                )
+            )
+            for scale in np.asarray(env.scale_values, dtype=np.float64)
+        )
+        return InitRandomizationPlan(
+            model_assignments=np.asarray(env.scale_ids, dtype=np.int32).copy(),
+            model_variants=model_variants,
+        )
 
     def _load_grasp_cache(self, env: Any) -> np.ndarray:
         if getattr(env, "_grasp_cache", None) is not None:
@@ -109,21 +140,21 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
             p_gain *= p_scale
             d_gain *= d_scale
 
-        priv_info = np.zeros((num_reset, env.cfg.priv_info_dim), dtype=dtype)
+        critic_info = np.zeros((num_reset, env.cfg.critic_info_dim), dtype=dtype)
         if env.cfg.randomize_friction:
-            priv_info[:, 3] = np.random.uniform(
+            critic_info[:, 3] = np.random.uniform(
                 env.cfg.randomize_friction_scale_lower,
                 env.cfg.randomize_friction_scale_upper,
                 size=(num_reset,),
             ).astype(dtype)
         if env.cfg.randomize_mass:
-            priv_info[:, 4] = np.random.uniform(
+            critic_info[:, 4] = np.random.uniform(
                 env.cfg.randomize_mass_lower,
                 env.cfg.randomize_mass_upper,
                 size=(num_reset,),
             ).astype(dtype)
         if env.cfg.randomize_com:
-            priv_info[:, 5:8] = np.random.uniform(
+            critic_info[:, 5:8] = np.random.uniform(
                 env.cfg.randomize_com_lower,
                 env.cfg.randomize_com_upper,
                 size=(num_reset, 3),
@@ -131,7 +162,7 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
 
         # NOTE: source task randomizes friction/mass/com in physics directly.
         # UniLab backend contract currently does not expose those object-level mutation hooks,
-        # so we preserve privileged channels but keep runtime physics mutation as TODO.
+        # so we preserve critic-info channels but keep runtime physics mutation as TODO.
 
         tactile = np.zeros((num_reset, env._num_tactile), dtype=dtype)
         contact_pos = np.zeros((num_reset, env._num_tactile * 3), dtype=dtype)
@@ -150,7 +181,7 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
         object_default_pose = np.concatenate(
             [object_pos_f, object_quat.astype(dtype)], axis=1
         ).astype(dtype)
-        priv_info[:, 0:3] = object_pos_f - object_default_pose[:, 0:3]
+        critic_info[:, 0:3] = object_pos_f - object_default_pose[:, 0:3]
 
         return {
             "current_actions": np.zeros((num_reset, env._num_action), dtype=dtype),
@@ -166,7 +197,7 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
             "rot_axis": rot_axis.astype(dtype),
             "p_gain": p_gain,
             "d_gain": d_gain,
-            "priv_info": priv_info,
+            "critic_info": critic_info,
             "obs_lag_history": obs_lag_history,
             "proprio_hist": env._update_proprio_history(obs_lag_history),
         }
@@ -268,6 +299,7 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         cfg: SharpaInhandRotationCfg,
         num_envs: int = 1,
         backend_type: str = "motrix",
+        dr_provider: DomainRandomizationProvider | None = None,
     ) -> None:
         if cfg.reward_config is None:
             raise ValueError("reward_config must be provided via Hydra configuration")
@@ -306,13 +338,13 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
                 "Set env.torque_control=false. Virtual torques are still computed explicitly for reward terms."
             )
 
-        mode = str(cfg.privileged_obs_mode).strip().lower()
+        mode = str(cfg.critic_obs_mode).strip().lower()
         if mode not in ("separate", "merged"):
             raise ValueError(
-                "privileged_obs_mode must be one of {'separate', 'merged'}, "
-                f"got {cfg.privileged_obs_mode!r}"
+                "critic_obs_mode must be one of {'separate', 'merged'}, "
+                f"got {cfg.critic_obs_mode!r}"
             )
-        self._privileged_obs_mode = "separate" if self._observation_mode == "simple" else mode
+        self._critic_obs_mode = "separate" if self._observation_mode == "simple" else mode
 
         self._reward_cfg = cfg.reward_config
         self._zero_action_test_mode = bool(cfg.zero_action_test_mode)
@@ -325,7 +357,8 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
             raise ValueError("rot_axis must be non-zero")
         self._rot_axis = np.asarray(axis / axis_norm, dtype=self._np_dtype)
 
-        self._init_domain_randomization(SharpaInhandRotationDRProvider())
+        provider = dr_provider if dr_provider is not None else SharpaInhandRotationDRProvider()
+        self._init_domain_randomization(provider)
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
         actions_np = np.asarray(actions, dtype=self._np_dtype)
@@ -379,9 +412,9 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         base_obs_dim = self._cfg.obs_lag_steps * self._obs_frame_dim()
         if self._observation_mode == "simple":
             return {"obs": base_obs_dim}
-        if self._privileged_obs_mode == "merged":
-            return {"obs": base_obs_dim + self._cfg.priv_info_dim}
-        return {"obs": base_obs_dim, "privileged": self._cfg.priv_info_dim}
+        if self._critic_obs_mode == "merged":
+            return {"obs": base_obs_dim + self._cfg.critic_info_dim}
+        return {"obs": base_obs_dim, "critic": base_obs_dim + self._cfg.critic_info_dim}
 
     def _compute_obs_from_inputs(
         self,
@@ -419,10 +452,10 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         if self._observation_mode == "simple":
             return {"obs": obs}
 
-        priv_info = np.asarray(
+        critic_info = np.asarray(
             info.get(
-                "priv_info",
-                np.zeros((batch_size, self._cfg.priv_info_dim), dtype=self._np_dtype),
+                "critic_info",
+                np.zeros((batch_size, self._cfg.critic_info_dim), dtype=self._np_dtype),
             ),
             dtype=self._np_dtype,
         )
@@ -434,14 +467,15 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
             ),
             dtype=self._np_dtype,
         )
-        if priv_info.shape[1] >= 3:
-            priv_info[:, 0:3] = object_pos - object_default_pose[:, 0:3]
+        if critic_info.shape[1] >= 3:
+            critic_info[:, 0:3] = object_pos - object_default_pose[:, 0:3]
 
-        info["priv_info"] = priv_info
-        if self._privileged_obs_mode == "merged":
-            merged_obs = np.concatenate([obs, priv_info], axis=1).astype(self._np_dtype)
+        info["critic_info"] = critic_info
+        if self._critic_obs_mode == "merged":
+            merged_obs = np.concatenate([obs, critic_info], axis=1).astype(self._np_dtype)
             return {"obs": merged_obs}
-        return {"obs": obs, "privileged": priv_info}
+        critic_obs = np.concatenate([obs, critic_info], axis=1).astype(self._np_dtype)
+        return {"obs": obs, "critic": critic_obs}
 
     def _compute_reward(
         self,

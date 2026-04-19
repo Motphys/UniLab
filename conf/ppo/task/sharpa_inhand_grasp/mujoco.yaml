@@ -2,6 +2,10 @@
 training:
   task_name: SharpaInhandRotationGrasp
   sim_backend: mujoco
+  render_spacing: 0.5
+  cam_distance: 1.5
+  cam_lookat: [0.75, 0.75, 0.4]
+  cam_elevation: -20.0
 algo:
   num_envs: 16384
   num_steps_per_env: 8
@@ -47,7 +51,7 @@ env:
   rot_axis: [0.0, 0.0, 1.0]
   grasp_cache_path: cache/sharpa_grasp_linspace
   joint_noise_scale: 0.02
-  privileged_obs_mode: merged
+  critic_obs_mode: merged
   sensor:
     tactile_force_sensor_names:
       - contact_right_thumb_elastomer_force
@@ -64,7 +68,7 @@ env:
   contact_latency: 0.005
   contact_sensor_noise: 0.01
   dof_limits_scale: 0.9
-  scale_range: [0.5, 0.5, 1]
+  scale_range: [0.8, 1.1, 4]
   randomize_pd_gains: false
   randomize_p_gain_scale_lower: 0.5
   randomize_p_gain_scale_upper: 2.0

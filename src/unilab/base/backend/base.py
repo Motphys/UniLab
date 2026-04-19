@@ -1,11 +1,13 @@
 import abc
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
 from unilab.dr.types import (
     DomainRandomizationCapabilities,
+    InitRandomizationPlan,
     IntervalRandomizationPlan,
     ResetRandomizationPayload,
 )
@@ -144,6 +146,17 @@ class SimBackend(abc.ABC):
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
         """Return supported domain-randomization capabilities for this backend."""
 
+    def apply_init_randomization(self, plan: InitRandomizationPlan) -> None:
+        """Apply cold-path model/materialization randomization."""
+        if plan.is_empty():
+            return
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support init-lifecycle randomization"
+        )
+
+    def materialize(self) -> None:
+        """Finalize cold-path backend resources before reset/step."""
+
     @abc.abstractmethod
     def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
         """Apply a scheduled interval randomization plan."""
@@ -169,6 +182,17 @@ class SimBackend(abc.ABC):
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support physics-state playback"
         )
+
+    def get_playback_model(self, env_index: int | None = None) -> Any:
+        """Return the playback model for a specific env when variants exist.
+
+        Args:
+            env_index: Optional vectorized environment index.
+
+        Returns:
+            The backend model object used by playback tooling.
+        """
+        return self.model
 
     def get_actuator_gains(self) -> tuple[np.ndarray, np.ndarray]:
         """Return per-joint (kp, kd) arrays from the backend model."""

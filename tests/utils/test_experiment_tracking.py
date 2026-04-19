@@ -54,17 +54,17 @@ def test_build_wandb_settings_defaults_for_shared_workspace():
     settings = build_wandb_settings(
         {"wandb_project": "unilab"},
         algo_name="ppo",
-        task_name="Go1JoystickFlatTerrain",
+        task_name="Go1JoystickFlat",
         sim_backend="mujoco",
-        log_dir="logs/rsl_rl_train/Go1JoystickFlatTerrain/2026-04-02_00-00-00_mujoco",
+        log_dir="logs/rsl_rl_train/Go1JoystickFlat/2026-04-02_00-00-00_mujoco",
     )
 
     assert settings["project"] == "unilab"
-    assert settings["group"] == "Go1JoystickFlatTerrain"
+    assert settings["group"] == "Go1JoystickFlat"
     assert settings["job_type"] == "ppo"
-    assert settings["name"].startswith("ppo__Go1JoystickFlatTerrain__")
+    assert settings["name"].startswith("ppo__Go1JoystickFlat__")
     assert "ppo" in settings["tags"]
-    assert "Go1JoystickFlatTerrain" in settings["tags"]
+    assert "Go1JoystickFlat" in settings["tags"]
     assert "mujoco" in settings["tags"]
 
 
@@ -103,7 +103,7 @@ def test_onpolicy_logger_reuses_existing_wandb_run(monkeypatch):
 
     logger = OnPolicyLogger(
         algo_name="PPO",
-        env_name="Go1JoystickFlatTerrain",
+        env_name="Go1JoystickFlat",
         log_backend="wandb",
     )
 
@@ -121,7 +121,7 @@ def test_offpolicy_logger_reuses_existing_wandb_run(monkeypatch):
 
     logger = OffPolicyLogger(
         algo_name="FastSAC",
-        env_name="Go2JoystickFlatTerrain",
+        env_name="Go2JoystickFlat",
         log_backend="wandb",
     )
 
@@ -138,7 +138,7 @@ def test_onpolicy_logger_creates_and_finishes_owned_wandb_run(monkeypatch):
 
     logger = OnPolicyLogger(
         algo_name="PPO",
-        env_name="Go1JoystickFlatTerrain",
+        env_name="Go1JoystickFlat",
         log_backend="wandb",
         wandb_project="unilab",
         wandb_entity="team",
@@ -160,7 +160,7 @@ def test_onpolicy_logger_creates_and_finishes_owned_wandb_run(monkeypatch):
     assert init_call["tags"] == ["ppo", "go1"]
     assert init_call["notes"] == "notes"
     assert init_call["config"]["algo"] == "PPO"
-    assert init_call["config"]["env"] == "Go1JoystickFlatTerrain"
+    assert init_call["config"]["env"] == "Go1JoystickFlat"
     assert init_call["config"]["num_envs"] == 4096
 
     logger.finish()
@@ -173,7 +173,7 @@ def test_offpolicy_logger_creates_and_finishes_owned_wandb_run(monkeypatch):
 
     logger = OffPolicyLogger(
         algo_name="FastSAC",
-        env_name="Go2JoystickFlatTerrain",
+        env_name="Go2JoystickFlat",
         log_backend="wandb",
         obs_dim=48,
         action_dim=12,
@@ -198,7 +198,7 @@ def test_offpolicy_logger_creates_and_finishes_owned_wandb_run(monkeypatch):
     assert init_call["tags"] == ["sac", "go2"]
     assert init_call["notes"] == "notes"
     assert init_call["config"]["algo"] == "FastSAC"
-    assert init_call["config"]["env"] == "Go2JoystickFlatTerrain"
+    assert init_call["config"]["env"] == "Go2JoystickFlat"
     assert init_call["config"]["num_envs"] == 4096
     assert init_call["config"]["obs_dim"] == 48
     assert init_call["config"]["action_dim"] == 12

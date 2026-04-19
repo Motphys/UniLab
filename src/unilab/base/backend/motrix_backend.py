@@ -85,12 +85,10 @@ class MotrixBackend(SimBackend):
             for floating_base in getattr(self._model, "floating_bases", [])
             if len(floating_base.dof_pos_indices) >= 7
         )
-        self._default_base_mass_override = np.asarray(
-            self._body_link.get_mass_override(self._data)
-        ).copy()
-        self._default_base_com_override = np.asarray(
+        self._default_base_mass_override = np.array(self._body_link.get_mass_override(self._data))
+        self._default_base_com_override = np.array(
             self._body_link.get_center_of_mass_override(self._data)
-        ).copy()
+        )
         self._render_app: "RenderApp | None" = None
         self.backend_type = "motrix"
 
@@ -221,7 +219,7 @@ class MotrixBackend(SimBackend):
     def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
         if plan.push_perturbation_limit is None:
             return
-        self.push_robots(np.asarray(plan.push_perturbation_limit))
+        self.push_robots(plan.push_perturbation_limit)
 
     def get_play_capabilities(self) -> BackendPlayCapabilities:
         return BackendPlayCapabilities(supports_native_interactive_renderer=True)
@@ -232,35 +230,35 @@ class MotrixBackend(SimBackend):
 
     def get_base_pos(self) -> np.ndarray:
         if self._body_floatingbase is not None:
-            return np.asarray(self._body_floatingbase.get_translation(self._data))
-        return np.asarray(self._body_link.get_pose(self._data))[:, :3]
+            return self._body_floatingbase.get_translation(self._data)  # type: ignore[no-any-return]
+        return self._body_link.get_pose(self._data)[:, :3]  # type: ignore[no-any-return]
 
     def get_base_quat(self) -> np.ndarray:
         if self._body_floatingbase is not None:
-            quat = np.asarray(self._body_floatingbase.get_rotation(self._data))
+            quat = self._body_floatingbase.get_rotation(self._data)
         else:
-            quat = np.asarray(self._body_link.get_rotation(self._data))
+            quat = self._body_link.get_rotation(self._data)
         return self._xyzw_to_wxyz(quat)
 
     def get_base_lin_vel(self) -> np.ndarray:
         if self._body_floatingbase is not None:
-            return np.asarray(self._body_floatingbase.get_global_linear_velocity(self._data))
-        return np.asarray(self._body_link.get_linear_velocity(self._data))
+            return self._body_floatingbase.get_global_linear_velocity(self._data)  # type: ignore[no-any-return]
+        return self._body_link.get_linear_velocity(self._data)  # type: ignore[no-any-return]
 
     def get_base_ang_vel(self) -> np.ndarray:
         if self._body_floatingbase is not None:
-            return np.asarray(self._body_floatingbase.get_global_angular_velocity(self._data))
-        return np.asarray(self._body_link.get_angular_velocity(self._data))
+            return self._body_floatingbase.get_global_angular_velocity(self._data)  # type: ignore[no-any-return]
+        return self._body_link.get_angular_velocity(self._data)  # type: ignore[no-any-return]
 
     # ------------------------------------------------------------------ #
     # DOF state                                                          #
     # ------------------------------------------------------------------ #
 
     def get_dof_pos(self) -> np.ndarray:
-        return np.asarray(self._body.get_joint_dof_pos(self._data))
+        return self._body.get_joint_dof_pos(self._data)  # type: ignore[no-any-return]
 
     def get_dof_vel(self) -> np.ndarray:
-        return np.asarray(self._body.get_joint_dof_vel(self._data))
+        return self._body.get_joint_dof_vel(self._data)  # type: ignore[no-any-return]
 
     # ------------------------------------------------------------------ #
     # Body kinematics — world frame                                      #
@@ -303,7 +301,7 @@ class MotrixBackend(SimBackend):
     # ------------------------------------------------------------------ #
 
     def get_sensor_data(self, name: str) -> np.ndarray:
-        return np.asarray(self._model.get_sensor_value(name, self._data))
+        return self._model.get_sensor_value(name, self._data)  # type: ignore[no-any-return]
 
     # ------------------------------------------------------------------ #
     # MotrixSim-specific                                                 #
@@ -414,10 +412,10 @@ class MotrixBackend(SimBackend):
         env_ids = np.asarray(env_indices, dtype=np.intp)
         if randomization.base_mass_delta is not None:
             base_mass = self._default_base_mass_override[env_ids].copy()
-            randomized_mass = base_mass + np.asarray(randomization.base_mass_delta)
+            randomized_mass = base_mass + randomization.base_mass_delta
             self._body_link.set_mass_override(data_slice, randomized_mass)
 
         if randomization.base_com_offset is not None:
             base_com = self._default_base_com_override[env_ids].copy()
-            randomized_com = base_com + np.asarray(randomization.base_com_offset)
+            randomized_com = base_com + randomization.base_com_offset
             self._body_link.set_center_of_mass_override(data_slice, randomized_com)

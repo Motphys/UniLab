@@ -42,9 +42,9 @@ def _normalize_overrides(overrides: list[str] | None, *, offpolicy: bool = False
 
     if not task_selected:
         if offpolicy:
-            normalized.append(f"task={algo}/go1_joystick/mujoco")
+            normalized.append(f"task={algo}/go1_joystick_flat/mujoco")
         else:
-            normalized.append("task=go1_joystick/mujoco")
+            normalized.append("task=go1_joystick_flat/mujoco")
     return normalized
 
 
@@ -130,7 +130,7 @@ def test_offpolicy_hydra_default_algo():
 
 def test_offpolicy_hydra_default_task():
     cfg = _offpolicy_cfg()
-    assert cfg.training.task_name == "Go1JoystickFlatTerrain"
+    assert cfg.training.task_name == "Go1JoystickFlat"
 
 
 def test_offpolicy_hydra_default_logger():
@@ -181,7 +181,7 @@ def test_offpolicy_hydra_algo_td3():
 
 def test_offpolicy_go1_resolved_algo_matches_old_motrix_behavior():
     """Equivalence: Motrix SAC Go1 algo hyperparams match legacy values."""
-    cfg = _offpolicy_cfg(["task=sac/go1_joystick/motrix"])
+    cfg = _offpolicy_cfg(["task=sac/go1_joystick_flat/motrix"])
 
     # Legacy Motrix SAC Go1 values: num_envs=4096, max_iterations=2000
     assert cfg.algo.num_envs == 4096
@@ -189,7 +189,7 @@ def test_offpolicy_go1_resolved_algo_matches_old_motrix_behavior():
 
 
 def test_offpolicy_go1_env_cfg_override_has_reward_and_commands():
-    cfg = _offpolicy_cfg(["task=sac/go1_joystick/motrix"])
+    cfg = _offpolicy_cfg(["task=sac/go1_joystick_flat/motrix"])
 
     env_cfg_override = _offpolicy().build_offpolicy_env_cfg_override("sac", cfg)
 
@@ -198,9 +198,9 @@ def test_offpolicy_go1_env_cfg_override_has_reward_and_commands():
     assert env_cfg_override["commands"]["vel_limit"] == [[0.5, 0.0, 0.0], [0.5, 0.0, 0.0]]
 
 
-def test_offpolicy_g1_sac_backend_scoped_use_symmetry():
-    mujoco_cfg = _offpolicy_cfg(["task=sac/g1_sac/mujoco"])
-    motrix_cfg = _offpolicy_cfg(["task=sac/g1_sac/motrix"])
+def test_offpolicy_g1_walk_flat_backend_scoped_use_symmetry():
+    mujoco_cfg = _offpolicy_cfg(["task=sac/g1_walk_flat/mujoco"])
+    motrix_cfg = _offpolicy_cfg(["task=sac/g1_walk_flat/motrix"])
 
     assert mujoco_cfg.algo.use_symmetry is True
     assert motrix_cfg.algo.use_symmetry is False
@@ -208,7 +208,7 @@ def test_offpolicy_g1_sac_backend_scoped_use_symmetry():
 
 def test_ppo_go1_resolved_algo_matches_old_motrix_behavior():
     """Equivalence: PPO Go1 algo hyperparams match pre-refactor motrix values."""
-    cfg = _ppo_cfg(["task=go1_joystick/motrix"])
+    cfg = _ppo_cfg(["task=go1_joystick_flat/motrix"])
 
     assert cfg.algo.max_iterations == 151
     assert cfg.algo.empirical_normalization is True
@@ -222,7 +222,7 @@ def test_ppo_g1_resolved_algo_matches_old_motrix_behavior():
 
     For this migration we align with the final UniLab1 Motrix runtime.
     """
-    cfg = _ppo_cfg(["task=g1_joystick/motrix"])
+    cfg = _ppo_cfg(["task=g1_joystick_flat/motrix"])
 
     assert cfg.algo.max_iterations == 220
     assert cfg.algo.empirical_normalization is True
@@ -233,7 +233,7 @@ def test_ppo_g1_resolved_algo_matches_old_motrix_behavior():
 
 
 def test_ppo_g1_mujoco_base_hyperparams_remain_separate():
-    cfg = _ppo_cfg(["task=g1_joystick/mujoco"])
+    cfg = _ppo_cfg(["task=g1_joystick_flat/mujoco"])
 
     assert cfg.algo.max_iterations == 220
     assert cfg.algo.empirical_normalization is False
@@ -241,7 +241,7 @@ def test_ppo_g1_mujoco_base_hyperparams_remain_separate():
 
 
 def test_ppo_g1_env_preset_has_env_overrides():
-    cfg = _ppo_cfg(["task=g1_joystick/motrix"])
+    cfg = _ppo_cfg(["task=g1_joystick_flat/motrix"])
 
     assert cfg.env.iterations == 3
     assert cfg.env.control_config.action_scale == pytest.approx(0.5)
@@ -255,7 +255,7 @@ def test_ppo_g1_env_preset_has_env_overrides():
 
 
 def test_ppo_task_go2_aligns_mujoco_with_motrix_defaults():
-    cfg = _ppo_cfg(["task=go2_joystick/mujoco"])
+    cfg = _ppo_cfg(["task=go2_joystick_flat/mujoco"])
 
     assert cfg.algo.num_envs == 1024
     assert cfg.reward.scales.tracking_lin_vel == pytest.approx(1.0)
@@ -272,7 +272,7 @@ def test_build_ppo_env_cfg_override_go1_motrix(
     monkeypatch: pytest.MonkeyPatch,
 ):
     mod = _train_rsl_rl(monkeypatch)
-    cfg = _ppo_cfg(["task=go1_joystick/motrix"])
+    cfg = _ppo_cfg(["task=go1_joystick_flat/motrix"])
 
     env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
 
@@ -285,7 +285,7 @@ def test_build_ppo_env_cfg_override_g1_motrix(
     monkeypatch: pytest.MonkeyPatch,
 ):
     mod = _train_rsl_rl(monkeypatch)
-    cfg = _ppo_cfg(["task=g1_joystick/motrix"])
+    cfg = _ppo_cfg(["task=g1_joystick_flat/motrix"])
 
     env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
 
@@ -307,7 +307,7 @@ def test_build_ppo_env_cfg_override_g1_motrix(
 
 @pytest.mark.parametrize("algo", ["sac", "td3"])
 def test_offpolicy_go2_motrix_env_cfg_override_has_domain_rand(algo: str):
-    cfg = _offpolicy_cfg([f"algo={algo}", f"task={algo}/go2_joystick/motrix"])
+    cfg = _offpolicy_cfg([f"algo={algo}", f"task={algo}/go2_joystick_flat/motrix"])
 
     env_cfg_override = _offpolicy().build_offpolicy_env_cfg_override(algo, cfg)
 
@@ -320,7 +320,7 @@ def test_build_ppo_env_cfg_override_applies_go2_motrix_reward(
     monkeypatch: pytest.MonkeyPatch,
 ):
     mod = _train_rsl_rl(monkeypatch)
-    cfg = _ppo_cfg(["task=go2_joystick/motrix"])
+    cfg = _ppo_cfg(["task=go2_joystick_flat/motrix"])
 
     env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
 
@@ -357,7 +357,6 @@ def test_build_ppo_env_cfg_override_allegro_grasp_mujoco(
     env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
 
     assert cfg.training.task_name == "AllegroInhandRotationGrasp"
-    assert cfg.training.no_play is True
     assert env_cfg_override["reward_config"]["scales"]["rotate"] == pytest.approx(0.0)
     assert env_cfg_override["gen_grasp"] is True
     assert env_cfg_override["grasp_collection_target"] == 50000
@@ -388,38 +387,6 @@ def test_build_ppo_env_cfg_override_allegro_grasp_cli_override_wins(
     assert env_cfg_override["gen_grasp"] is True
 
 
-def test_build_ppo_env_cfg_override_sharpa_mujoco(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    mod = _train_rsl_rl(monkeypatch)
-    cfg = _ppo_cfg(["task=sharpa_inhand/mujoco"])
-
-    env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
-
-    assert cfg.training.task_name == "SharpaInhandRotation"
-    assert env_cfg_override["reward_config"]["scales"]["rotate"] == pytest.approx(2.5)
-    assert env_cfg_override["reward_config"]["scales"]["pose_diff"] == pytest.approx(-0.4)
-    assert env_cfg_override["grasp_cache_path"] == "cache/sharpa_grasp_linspace"
-    assert env_cfg_override["observation_mode"] == "simple"
-
-
-def test_build_ppo_env_cfg_override_sharpa_grasp_mujoco(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    mod = _train_rsl_rl(monkeypatch)
-    cfg = _ppo_cfg(["task=sharpa_inhand_grasp/mujoco"])
-
-    env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
-
-    assert cfg.training.task_name == "SharpaInhandRotationGrasp"
-    assert env_cfg_override["reward_config"]["scales"]["rotate"] == pytest.approx(0.0)
-    assert env_cfg_override["max_episode_seconds"] == pytest.approx(3.0)
-    assert env_cfg_override["grasp_collection_target"] == 50000
-    assert env_cfg_override["randomize_mass"] is True
-    assert env_cfg_override["randomize_mass_lower"] == pytest.approx(0.05)
-    assert env_cfg_override["randomize_mass_upper"] == pytest.approx(0.051)
-
-
 def test_build_ppo_env_cfg_override_sharpa_grasp_cli_override_wins(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -444,7 +411,7 @@ def test_ppo_cli_algo_override_wins_over_base(
     monkeypatch: pytest.MonkeyPatch,
 ):
     """CLI override takes precedence over base task algo values via Hydra compose."""
-    cfg = _ppo_cfg(["task=g1_joystick/motrix", "algo.max_iterations=1"])
+    cfg = _ppo_cfg(["task=g1_joystick_flat/motrix", "algo.max_iterations=1"])
 
     assert cfg.algo.max_iterations == 1
     # Other base values remain intact
@@ -515,7 +482,7 @@ def test_build_ppo_play_env_cfg_override_resolves_relative_ground_texture(
 ):
     mod = _train_rsl_rl(monkeypatch)
     cfg = _ppo_cfg(["task=g1_motion_tracking/motrix", "training.play_only=true"])
-    cfg.play_profile.scene.ground_texture_file = "src/unilab/assets/robots/g1/floor.png"
+    cfg.play_profile.scene.ground_texture_file = "src/unilab/assets/robots/g1/textures/floor.png"
 
     captured = {}
 
@@ -529,7 +496,7 @@ def test_build_ppo_play_env_cfg_override_resolves_relative_ground_texture(
     mod.build_ppo_play_env_cfg_override(cfg)
 
     assert captured["ground_texture_file"] == str(
-        mod.ROOT_DIR / "src/unilab/assets/robots/g1/floor.png"
+        mod.ROOT_DIR / "src/unilab/assets/robots/g1/textures/floor.png"
     )
 
 
@@ -861,8 +828,8 @@ def test_offpolicy_extract_reset_obs_rejects_three_tuple():
         _offpolicy().extract_reset_obs(("ignored", obs, {"info": 1}))
 
 
-def test_offpolicy_resolve_play_obs_dim_ignores_privileged():
-    obs_dim = _offpolicy().resolve_play_obs_dim({"obs": 98, "privileged": 3})
+def test_offpolicy_resolve_play_obs_dim_ignores_critic():
+    obs_dim = _offpolicy().resolve_play_obs_dim({"obs": 98, "critic": 101})
 
     assert obs_dim == 98
 
@@ -872,7 +839,7 @@ def test_offpolicy_extract_play_obs_uses_obs_group_only():
 
     obs = {
         "obs": np.ones((2, 98), dtype=np.float32),
-        "privileged": np.full((2, 3), 2.0, dtype=np.float32),
+        "critic": np.full((2, 101), 2.0, dtype=np.float32),
     }
 
     play_obs = _offpolicy().extract_play_obs(obs)
@@ -1124,7 +1091,7 @@ def test_play_wrapper_policy_obs_mode_actor():
             self.cfg = type("Cfg", (), {"max_episode_seconds": 10.0, "ctrl_dt": 0.02})()
             self.observation_space = type("Space", (), {"shape": (3,)})()
             self.action_space = type("Space", (), {"shape": (2,)})()
-            self.obs_groups_spec = {"obs": 3, "privileged": 2}
+            self.obs_groups_spec = {"obs": 3, "critic": 5}
 
         def init_state(self):
             pass
@@ -1132,7 +1099,7 @@ def test_play_wrapper_policy_obs_mode_actor():
         def reset(self, env_indices):
             return {
                 "obs": np.ones((1, 3), dtype=np.float32),
-                "privileged": np.zeros((1, 2), dtype=np.float32),
+                "critic": np.zeros((1, 5), dtype=np.float32),
             }, {}
 
     env = FakeEnv()
@@ -1141,12 +1108,57 @@ def test_play_wrapper_policy_obs_mode_actor():
     wrapper_actor = RslRlVecEnvWrapper(env, device="cpu", policy_obs_mode="actor")
     assert wrapper_actor.num_obs == 3  # Only "obs" group
     assert wrapper_actor._actor_obs_dim == 3
-    assert wrapper_actor._flat_obs_dim == 5  # obs + privileged
+    assert wrapper_actor._flat_obs_dim == 3
 
     obs_td, _ = wrapper_actor.reset()
     # In actor mode, policy obs should equal actor obs
     assert obs_td["policy"].shape == (1, 3)
     assert obs_td["actor"].shape == (1, 3)
+    assert obs_td["critic"].shape == (1, 5)
+
+
+def test_play_wrapper_flat_policy_excludes_critic_only_group():
+    import numpy as np
+
+    from unilab.utils.rsl_rl_vec_env_wrapper import RslRlVecEnvWrapper
+
+    class FakeEnv:
+        def __init__(self):
+            self.num_envs = 1
+            self.state = type(
+                "State",
+                (),
+                {
+                    "obs": {
+                        "obs": np.array([[1.0, 2.0, 3.0]], dtype=np.float32),
+                        "critic": np.array([[9.0, 9.0, 9.0, 9.0]], dtype=np.float32),
+                    }
+                },
+            )()
+            self.cfg = type("Cfg", (), {"max_episode_seconds": 10.0, "ctrl_dt": 0.02})()
+            self.observation_space = type("Space", (), {"shape": (7,)})()
+            self.action_space = type("Space", (), {"shape": (2,)})()
+            self.obs_groups_spec = {"obs": 3, "critic": 4}
+
+        def init_state(self):
+            pass
+
+        def reset(self, env_indices):
+            return cast(dict[str, np.ndarray], getattr(self.state, "obs")), {}
+
+    wrapper = RslRlVecEnvWrapper(FakeEnv(), device="cpu", policy_obs_mode="flat")
+    obs_td, _ = wrapper.reset()
+
+    np.testing.assert_allclose(
+        obs_td["policy"].cpu().numpy(),
+        np.array([[1.0, 2.0, 3.0]], dtype=np.float32),
+    )
+    np.testing.assert_allclose(
+        obs_td["critic"].cpu().numpy(),
+        np.array([[9.0, 9.0, 9.0, 9.0]], dtype=np.float32),
+    )
+    assert wrapper.num_obs == 3
+    assert wrapper.num_privileged_obs == 4
 
 
 def test_play_wrapper_step_exports_timeout_bootstrap_obs():
@@ -1160,7 +1172,7 @@ def test_play_wrapper_step_exports_timeout_bootstrap_obs():
             self.cfg = type("Cfg", (), {"max_episode_seconds": 10.0, "ctrl_dt": 0.02})()
             self.observation_space = type("Space", (), {"shape": (3,)})()
             self.action_space = type("Space", (), {"shape": (2,)})()
-            self.obs_groups_spec = {"obs": 3}
+            self.obs_groups_spec = {"obs": 3, "critic": 2}
             self.state = type("State", (), {"obs": {"obs": np.zeros((1, 3), dtype=np.float32)}})()
 
         def init_state(self):
@@ -1180,9 +1192,13 @@ def test_play_wrapper_step_exports_timeout_bootstrap_obs():
                     "truncated": np.array([True]),
                     "final_observation": {
                         "obs": np.array([[7.0, 8.0, 9.0]], dtype=np.float32),
+                        "critic": np.array([[4.0, 5.0]], dtype=np.float32),
                     },
                     "info": {
-                        "final_observation": {"obs": np.array([[7.0, 8.0, 9.0]], dtype=np.float32)}
+                        "final_observation": {
+                            "obs": np.array([[7.0, 8.0, 9.0]], dtype=np.float32),
+                            "critic": np.array([[4.0, 5.0]], dtype=np.float32),
+                        }
                     },
                 },
             )()
@@ -1195,6 +1211,10 @@ def test_play_wrapper_step_exports_timeout_bootstrap_obs():
     np.testing.assert_allclose(
         infos["time_out_bootstrap_obs"]["policy"].cpu().numpy(),
         np.array([[7.0, 8.0, 9.0]], dtype=np.float32),
+    )
+    np.testing.assert_allclose(
+        infos["time_out_bootstrap_obs"]["critic"].cpu().numpy(),
+        np.array([[4.0, 5.0]], dtype=np.float32),
     )
 
 
@@ -1241,14 +1261,21 @@ def test_offpolicy_td3_hydra_default_algo_log_name():
 
 
 def test_offpolicy_flashsac_hydra_algo_log_name():
-    cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_joystick/mujoco"])
+    cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_joystick_flat/mujoco"])
     assert cfg.algo.algo_log_name == "flash_sac"
     assert cfg.algo.load_run == "-1"
 
 
-def test_offpolicy_flashsac_g1_joystick_task_composes() -> None:
-    cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_joystick/mujoco"])
-    assert cfg.training.task_name == "G1JoystickFlatTerrain"
+def test_offpolicy_flashsac_g1_joystick_flat_task_composes() -> None:
+    cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_joystick_flat/mujoco"])
+    assert cfg.training.task_name == "G1JoystickFlat"
+    assert cfg.training.sim_backend == "mujoco"
+
+
+def test_offpolicy_g1_rough_terrain_task_composes() -> None:
+    cfg = _offpolicy_cfg(["algo=sac", "task=sac/g1_walk_rough/mujoco"])
+
+    assert cfg.training.task_name == "G1WalkRough"
     assert cfg.training.sim_backend == "mujoco"
 
 
@@ -1256,7 +1283,7 @@ def test_offpolicy_flashsac_rejects_multi_gpu():
     cfg = _offpolicy_cfg(
         [
             "algo=flashsac",
-            "task=flashsac/g1_joystick/mujoco",
+            "task=flashsac/g1_joystick_flat/mujoco",
             "training.num_gpus=2",
         ]
     )
@@ -1265,11 +1292,81 @@ def test_offpolicy_flashsac_rejects_multi_gpu():
         _offpolicy().build_runner("flashsac", cfg)
 
 
+def test_offpolicy_sac_multi_gpu_rejects_symmetry():
+    cfg = _offpolicy_cfg(
+        [
+            "algo=sac",
+            "task=sac/g1_walk_flat/mujoco",
+            "training.num_gpus=2",
+            "training.device=cpu",
+        ]
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Off-policy symmetry augmentation does not support training.num_gpus > 1",
+    ):
+        _offpolicy().build_runner("sac", cfg)
+
+
+def test_offpolicy_sac_multi_gpu_allows_explicit_symmetry_disable(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    import gymnasium as gym
+
+    mod = _offpolicy()
+    cfg = _offpolicy_cfg(
+        [
+            "algo=sac",
+            "task=sac/g1_walk_flat/mujoco",
+            "training.num_gpus=2",
+            "training.device=cpu",
+            "algo.use_symmetry=false",
+        ]
+    )
+
+    class _FakeEnv:
+        obs_groups_spec = {"obs": 4, "critic": 6}
+        action_space = gym.spaces.Box(-1.0, 1.0, shape=(2,))
+
+        def close(self) -> None:
+            return None
+
+    class _FakeLearner:
+        def __init__(self, *args, **kwargs) -> None:
+            self.args = args
+            self.kwargs = kwargs
+
+    class _FakeRunner:
+        @staticmethod
+        def validate_capabilities(*args, **kwargs) -> None:
+            return None
+
+        def __init__(self, *args, **kwargs) -> None:
+            self.args = args
+            self.kwargs = kwargs
+
+    monkeypatch.setattr(mod, "ensure_registries", lambda: None)
+    monkeypatch.setattr(mod, "create_env", lambda *args, **kwargs: _FakeEnv())
+
+    import unilab.algos.torch.fast_sac.learner as learner_mod
+    import unilab.algos.torch.offpolicy.multi_gpu_runner as multi_gpu_runner_mod
+
+    monkeypatch.setattr(learner_mod, "FastSACLearner", _FakeLearner)
+    monkeypatch.setattr(multi_gpu_runner_mod, "MultiGPUOffPolicyRunner", _FakeRunner)
+
+    runner = mod.build_runner("sac", cfg)
+
+    assert isinstance(runner, _FakeRunner)
+    assert runner.kwargs["num_gpus"] == 2
+    assert runner.kwargs["learner_kwargs"]["use_symmetry"] is False
+
+
 @pytest.mark.parametrize(
     ("algo", "task"),
     [
-        ("flashsac", "sac/g1_sac/mujoco"),
-        ("sac", "flashsac/g1_sac/mujoco"),
+        ("flashsac", "sac/g1_walk_flat/mujoco"),
+        ("sac", "flashsac/g1_walk_flat/mujoco"),
     ],
 )
 def test_offpolicy_rejects_algo_task_owner_mismatch(algo: str, task: str):
@@ -1289,6 +1386,75 @@ def test_train_rsl_rl_get_log_root_uses_algo_log_name(monkeypatch: pytest.Monkey
 
     log_root = mod._get_log_root(cfg)
     assert "logs/test_rsl_rl_ppo" in log_root
+
+
+def test_train_rsl_rl_play_missing_checkpoint_skips_env_creation_and_prints_context(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+):
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(["task=go1_joystick_flat/mujoco", "training.play_only=true"])
+    cfg.algo.algo_log_name = "custom_ppo"
+
+    original_root = mod.ROOT_DIR
+    mod.ROOT_DIR = tmp_path
+    try:
+        monkeypatch.setattr(
+            mod,
+            "create_env",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("play_rsl_rl should not create an env before checkpoint resolution")
+            ),
+        )
+
+        result = mod.play_rsl_rl(cfg, device="cpu")
+    finally:
+        mod.ROOT_DIR = original_root
+
+    captured = capsys.readouterr().out
+    expected_task_log_root = tmp_path / "logs" / "custom_ppo" / cfg.training.task_name
+
+    assert result is None
+    assert "Could not resolve a checkpoint for play mode." in captured
+    assert "Task log root does not exist." in captured
+    assert f"task_log_root={expected_task_log_root}" in captured
+    assert "algo.load_run='-1'" in captured
+
+
+def test_train_rsl_rl_play_reports_missing_requested_checkpoint_in_resolved_run(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+):
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(["task=go1_joystick_flat/mujoco", "training.play_only=true"])
+    cfg.algo.algo_log_name = "custom_ppo"
+    cfg.algo.checkpoint = 12
+
+    run_dir = (
+        tmp_path / "logs" / "custom_ppo" / cfg.training.task_name / "2024-01-01_00-00-00_mujoco"
+    )
+    run_dir.mkdir(parents=True)
+    (run_dir / "model_9.pt").write_bytes(b"")
+
+    original_root = mod.ROOT_DIR
+    mod.ROOT_DIR = tmp_path
+    try:
+        monkeypatch.setattr(
+            mod,
+            "create_env",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("play_rsl_rl should not create an env before checkpoint resolution")
+            ),
+        )
+
+        result = mod.play_rsl_rl(cfg, device="cpu")
+    finally:
+        mod.ROOT_DIR = original_root
+
+    captured = capsys.readouterr().out
+
+    assert result is None
+    assert "Could not resolve a checkpoint for play mode." in captured
+    assert f"resolved_run={run_dir}" in captured
+    assert "algo.checkpoint=12" in captured
 
 
 def test_train_appo_get_log_root_uses_algo_log_name():

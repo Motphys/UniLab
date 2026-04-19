@@ -110,7 +110,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             assert env.action_space.shape
             from unilab.utils.obs_utils import get_obs_dims
 
-            obs_dim, privileged_dim = get_obs_dims(env.obs_groups_spec)
+            obs_dim, critic_dim = get_obs_dims(env.obs_groups_spec)
             action_dim = env.action_space.shape[0]
             env.close()
 
@@ -130,10 +130,14 @@ def build_runner(algo_name: str, cfg: DictConfig):
                 "use_layer_norm": cfg.algo.use_layer_norm,
                 "max_grad_norm": cfg.algo.algo_params.max_grad_norm,
                 "use_amp": cfg.training.use_amp,
-                "privileged_dim": privileged_dim,
-                # symmetry not supported in multi-GPU mode (mujoco_model not picklable)
-                "use_symmetry": False,
+                "critic_obs_dim": critic_dim,
+                "use_symmetry": cfg.algo.use_symmetry,
             }
+            MultiGPUOffPolicyRunner.validate_capabilities(
+                algo_type="sac",
+                learner_kwargs=learner_kwargs,
+                num_gpus=cfg.training.num_gpus,
+            )
             main_learner = FastSACLearner(device=device, **learner_kwargs)
 
             return MultiGPUOffPolicyRunner(
@@ -145,7 +149,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
                 num_envs=cfg.algo.num_envs,
                 replay_buffer_n=cfg.algo.replay_buffer_n,
                 batch_size=cfg.algo.batch_size,
-                warmup_steps=cfg.algo.warmup_steps,
+                learning_starts=cfg.algo.learning_starts,
                 updates_per_step=cfg.algo.updates_per_step,
                 policy_frequency=cfg.algo.policy_frequency,
                 sync_collection=not cfg.training.no_sync_collection,
@@ -165,7 +169,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             num_envs=cfg.algo.num_envs,
             replay_buffer_n=cfg.algo.replay_buffer_n,
             batch_size=cfg.algo.batch_size,
-            warmup_steps=cfg.algo.warmup_steps,
+            learning_starts=cfg.algo.learning_starts,
             updates_per_step=cfg.algo.updates_per_step,
             policy_frequency=cfg.algo.policy_frequency,
             gamma=cfg.algo.gamma,
@@ -198,7 +202,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             num_envs=cfg.algo.num_envs,
             replay_buffer_n=cfg.algo.replay_buffer_n,
             batch_size=cfg.algo.batch_size,
-            warmup_steps=cfg.algo.warmup_steps,
+            learning_starts=cfg.algo.learning_starts,
             num_updates=cfg.algo.updates_per_step,
             policy_frequency=cfg.algo.policy_frequency,
             sync_collection=not cfg.training.no_sync_collection,
@@ -233,7 +237,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             num_envs=cfg.algo.num_envs,
             replay_buffer_n=cfg.algo.replay_buffer_n,
             batch_size=cfg.algo.batch_size,
-            warmup_steps=cfg.algo.warmup_steps,
+            learning_starts=cfg.algo.learning_starts,
             updates_per_step=cfg.algo.updates_per_step,
             policy_frequency=cfg.algo.policy_frequency,
             gamma=cfg.algo.gamma,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import abc
 import dataclasses
 from dataclasses import dataclass
-from typing import Any, Optional, Tuple, cast
+from typing import TYPE_CHECKING, Any, Optional, Tuple, cast
 
 import gymnasium as gym
 import numpy as np
@@ -12,6 +12,9 @@ from unilab.base.backend import SimBackend
 from unilab.base.base import ABEnv, EnvCfg, EnvPlayCapabilities
 from unilab.base.dtype_config import get_global_dtype
 from unilab.dr import DomainRandomizationManager, DomainRandomizationProvider
+
+if TYPE_CHECKING:
+    from unilab.base.augmentation import SymmetryAugmentation
 
 
 @dataclass
@@ -25,7 +28,8 @@ class NpEnvState:
 
     @property
     def done(self) -> np.ndarray:
-        return np.asarray(np.logical_or(self.terminated, self.truncated))
+        done: np.ndarray = np.logical_or(self.terminated, self.truncated)
+        return done
 
     def replace(self, **updates: Any) -> "NpEnvState":
         return dataclasses.replace(self, **updates)
@@ -43,6 +47,7 @@ class NpEnv(ABEnv):
         self._final_observation_scratch: dict[str, np.ndarray] | None = None
         self.step_counter = 0
         self._dr_manager: DomainRandomizationManager | None = None
+        self._init_randomization_applied = False
 
     @property
     def cfg(self) -> EnvCfg:
@@ -58,7 +63,7 @@ class NpEnv(ABEnv):
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:
-        """Return observation group dimensions, e.g. {"actor": 98, "privileged": 3}.
+        """Return observation group dimensions, e.g. {"obs": 98, "critic": 101}.
 
         Subclasses MUST override this property.
         """
@@ -69,6 +74,10 @@ class NpEnv(ABEnv):
         total = sum(self.obs_groups_spec.values())
         return gym.spaces.Box(-np.inf, np.inf, shape=(total,), dtype=np.float64)
 
+    def build_symmetry_augmentation(self, *, device: str) -> "SymmetryAugmentation | None":
+        """Return an env-owned runtime symmetry adapter when the task/backend supports it."""
+        return None
+
     def init_state(self) -> NpEnvState:
         dtype = get_global_dtype()
         obs = {
@@ -77,7 +86,13 @@ class NpEnv(ABEnv):
         reward = np.zeros((self._num_envs,), dtype=dtype)
         terminated = np.ones((self._num_envs,), dtype=bool)
         truncated = np.zeros((self._num_envs,), dtype=bool)
-        info: dict = {"steps": np.zeros((self._num_envs,), dtype=np.uint32)}
+        if self._cfg.max_episode_steps:
+            steps = np.random.randint(
+                0, self._cfg.max_episode_steps, size=(self._num_envs,), dtype=np.uint32
+            )
+        else:
+            steps = np.zeros((self._num_envs,), dtype=np.uint32)
+        info: dict = {"steps": steps}
 
         self._state = NpEnvState(obs, reward, terminated, truncated, info)
         self._reset_done_envs()
@@ -232,6 +247,9 @@ class NpEnv(ABEnv):
         from unilab.dr import DomainRandomizationManager
 
         self._dr_manager = DomainRandomizationManager(self, provider)
+        if not self._init_randomization_applied:
+            self._init_randomization_applied = self._dr_manager.apply_init_randomization()
+        self._backend.materialize()
 
     def reset(self, env_indices: np.ndarray) -> Tuple[dict[str, np.ndarray], dict]:
         if self._dr_manager is None:  # pragma: no cover - constructor integration error
@@ -305,10 +323,16 @@ class NpEnv(ABEnv):
             supports_physics_state_playback=capabilities.supports_physics_state_playback,
         )
 
-    def get_playback_model(self) -> Any:
-        if not self._supports_backend_property("model"):
-            raise NotImplementedError(f"{self.__class__.__name__} does not expose a playback model")
-        return self._backend.model
+    def get_playback_model(self, env_index: int | None = None) -> Any:
+        """Return the backend playback model for one env in a vectorized batch.
+
+        Args:
+            env_index: Optional vectorized environment index.
+
+        Returns:
+            The backend-specific playback model.
+        """
+        return self._backend.get_playback_model(env_index)
 
     def close(self) -> None:
         """关闭环境"""

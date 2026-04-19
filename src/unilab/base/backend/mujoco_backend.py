@@ -1,7 +1,9 @@
 import os
+import tempfile
 import time
 from collections.abc import Sequence
-from multiprocessing import cpu_count
+from concurrent.futures import ProcessPoolExecutor
+from multiprocessing import cpu_count, get_context
 from typing import Optional, cast
 
 import mujoco
@@ -16,7 +18,9 @@ from unilab.dr.types import (
     RESET_TERM_KD,
     RESET_TERM_KP,
     DomainRandomizationCapabilities,
+    InitRandomizationPlan,
     IntervalRandomizationPlan,
+    ModelVariantSpec,
     ResetRandomizationPayload,
 )
 
@@ -28,6 +32,72 @@ def _root_state_dims(model) -> tuple[int, int]:
     if model.njnt > 0 and int(model.jnt_type[0]) == int(mujoco.mjtJoint.mjJNT_FREE):
         return 7, 6
     return 0, 0
+
+
+def _prepare_variant_model_xml(
+    model_file: str,
+    *,
+    add_body_sensors: bool,
+    base_name: str | None,
+) -> tuple[str, list[str]]:
+    from unilab.utils.xml_utils import create_discardvisual_xml, inject_mujoco_tracking_sensors
+
+    model_path = create_discardvisual_xml(model_file)
+    tmp_paths = [model_path]
+    if add_body_sensors:
+        model_path, _, _ = inject_mujoco_tracking_sensors(
+            model_path,
+            baselink_name=base_name,
+        )
+        tmp_paths.append(model_path)
+    return model_path, tmp_paths
+
+
+def _compile_model_variant_chunk_to_mjb(
+    *,
+    model_file: str,
+    add_body_sensors: bool,
+    base_name: str | None,
+    sim_dt: float,
+    iterations: int | None,
+    position_actuator_gains: dict | None,
+    variants: tuple[ModelVariantSpec, ...],
+) -> tuple[str, ...]:
+    model_path, tmp_paths = _prepare_variant_model_xml(
+        model_file,
+        add_body_sensors=add_body_sensors,
+        base_name=base_name,
+    )
+    output_dir = tempfile.mkdtemp(prefix="unilab-mj-variant-")
+    try:
+        base_spec = mujoco.MjSpec.from_file(model_path)
+        output_paths: list[str] = []
+        for idx, variant in enumerate(variants):
+            spec = base_spec.copy()
+            for override in variant.geom_size_overrides:
+                geom = spec.geom(override.geom_name)
+                if geom is None:
+                    raise ValueError(
+                        f"Geom '{override.geom_name}' not found in MuJoCo model '{model_file}'"
+                    )
+                geom.size = list(override.size)
+            model = spec.compile()
+            model.opt.timestep = sim_dt
+            if iterations is not None:
+                model.opt.iterations = int(iterations)
+            if position_actuator_gains is not None:
+                kp_arr = np.asarray(position_actuator_gains["kp"], dtype=np.float64)
+                kd_arr = np.asarray(position_actuator_gains["kd"], dtype=np.float64)
+                model.actuator_gainprm[:, 0] = kp_arr
+                model.actuator_biasprm[:, 1] = -kp_arr
+                model.actuator_biasprm[:, 2] = -kd_arr
+            output_path = os.path.join(output_dir, f"variant_{idx}.mjb")
+            mujoco.mj_saveModel(model, output_path)
+            output_paths.append(output_path)
+        return tuple(output_paths)
+    finally:
+        for tmp_path in reversed(tmp_paths):
+            os.remove(tmp_path)
 
 
 class MuJoCoBackend(SimBackend):
@@ -47,38 +117,12 @@ class MuJoCoBackend(SimBackend):
         self.add_body_sensors = add_body_sensors
         self._base_name = base_name
         self._model_file = model_file
-        from unilab.utils.xml_utils import create_discardvisual_xml
-
-        model_path = create_discardvisual_xml(model_file)
-        tmp_paths = [model_path]
-
-        if self.add_body_sensors:
-            from unilab.utils.xml_utils import inject_mujoco_tracking_sensors
-
-            model_path, self._tracked_body_ids, valid_bnames = inject_mujoco_tracking_sensors(
-                model_path,
-                baselink_name=base_name,
-            )
-            tmp_paths.append(model_path)
-        else:
-            valid_bnames = []
-
-        try:
-            self._model = mujoco.MjModel.from_xml_path(model_path)
-        finally:
-            for tmp_path in reversed(tmp_paths):
-                os.remove(tmp_path)
-
-        if self.add_body_sensors:
-            self._body_id_to_tracked_idx = np.full(self._model.nbody, -1, dtype=int)
-            for idx, bid in enumerate(self._tracked_body_ids):
-                self._body_id_to_tracked_idx[bid] = idx
-
-        self._model.opt.timestep = sim_dt
-        if iterations is not None:
-            self._model.opt.iterations = int(iterations)
-        if position_actuator_gains is not None:
-            self._apply_position_actuator_gains_to_model(self._model, **position_actuator_gains)
+        self._sim_dt = float(sim_dt)
+        self._iterations = None if iterations is None else int(iterations)
+        self._position_actuator_gains = (
+            None if position_actuator_gains is None else dict(position_actuator_gains)
+        )
+        self._model = self._load_base_model()
         self._base_body_id = (
             mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, base_name)
             if base_name is not None
@@ -93,7 +137,9 @@ class MuJoCoBackend(SimBackend):
         # 线程配置
         self._n_threads = min(num_envs, cpu_count() * 2)
 
-        self._pool = BatchEnvPool(self._model, nbatch=num_envs, nthread=self._n_threads)
+        self._model_variants: tuple[mujoco.MjModel, ...] = (self._model,)
+        self._model_assignments = np.zeros((num_envs,), dtype=np.int32)
+        self._pool: BatchEnvPool | None = None
 
         # 索引
         self.nq = self._model.nq
@@ -152,17 +198,17 @@ class MuJoCoBackend(SimBackend):
                 self._sensor_views[name] = self._sensor_data[:, adr : adr + dim]
 
         # 针对追踪身体传感器的零拷贝视图映射
-        if self.add_body_sensors and valid_bnames:
+        if self.add_body_sensors and self._valid_bnames:
 
             def _get_sensor_view(prefix, dim):
                 adrs = [
                     self._model.sensor_adr[
                         mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_SENSOR, f"{prefix}_{nb}")
                     ]
-                    for nb in valid_bnames
+                    for nb in self._valid_bnames
                 ]
                 return self._sensor_data[:, adrs[0] : adrs[-1] + dim].reshape(
-                    num_envs, len(valid_bnames), dim
+                    num_envs, len(self._valid_bnames), dim
                 )
 
             # Global (world) sensors
@@ -177,9 +223,159 @@ class MuJoCoBackend(SimBackend):
             self._tracked_linvel_b_all = _get_sensor_view("track_linvel_b", 3)
             self._tracked_angvel_b_all = _get_sensor_view("track_angvel_b", 3)
 
-        # 对初始 qpos0 状态运行一次 forward pass，确保传感器数据有效
-        sensor_init = self._pool.forward(self._physics_state)
+    def _load_base_model(self) -> mujoco.MjModel:
+        model_path, tmp_paths, tracked_body_ids, valid_bnames = self._prepare_model_xml()
+        try:
+            model = mujoco.MjModel.from_xml_path(model_path)
+        finally:
+            for tmp_path in reversed(tmp_paths):
+                os.remove(tmp_path)
+
+        self._tracked_body_ids = tracked_body_ids
+        if self.add_body_sensors:
+            self._body_id_to_tracked_idx = np.full(model.nbody, -1, dtype=int)
+            for idx, bid in enumerate(self._tracked_body_ids):
+                self._body_id_to_tracked_idx[bid] = idx
+        self._valid_bnames = valid_bnames
+        self._configure_model(model)
+        return model
+
+    def _prepare_model_xml(self) -> tuple[str, list[str], list[int], list[str]]:
+        from unilab.utils.xml_utils import create_discardvisual_xml, inject_mujoco_tracking_sensors
+
+        model_path = create_discardvisual_xml(self._model_file)
+        tmp_paths = [model_path]
+        if self.add_body_sensors:
+            model_path, tracked_body_ids, valid_bnames = inject_mujoco_tracking_sensors(
+                model_path,
+                baselink_name=self._base_name,
+            )
+            tmp_paths.append(model_path)
+        else:
+            tracked_body_ids = []
+            valid_bnames = []
+        return model_path, tmp_paths, tracked_body_ids, valid_bnames
+
+    def _configure_model(self, model: mujoco.MjModel) -> None:
+        model.opt.timestep = self._sim_dt
+        if self._iterations is not None:
+            model.opt.iterations = self._iterations
+        if self._position_actuator_gains is not None:
+            self._apply_position_actuator_gains_to_model(model, **self._position_actuator_gains)
+
+    def _compile_model_variants(
+        self,
+        variant_specs: Sequence[ModelVariantSpec],
+    ) -> tuple[mujoco.MjModel, ...]:
+        variants = tuple(variant_specs)
+        if not variants:
+            return tuple()
+        if len(variants) == 1:
+            mjb_paths = _compile_model_variant_chunk_to_mjb(
+                model_file=self._model_file,
+                add_body_sensors=self.add_body_sensors,
+                base_name=self._base_name,
+                sim_dt=self._sim_dt,
+                iterations=self._iterations,
+                position_actuator_gains=self._position_actuator_gains,
+                variants=variants,
+            )
+            try:
+                models = tuple(mujoco.MjModel.from_binary_path(path) for path in mjb_paths)
+            finally:
+                for path in mjb_paths:
+                    if os.path.exists(path):
+                        os.remove(path)
+                for path in mjb_paths:
+                    parent = os.path.dirname(path)
+                    if parent and os.path.isdir(parent):
+                        try:
+                            os.rmdir(parent)
+                        except OSError:
+                            pass
+            return models
+
+        max_workers = min(len(variants), max(1, cpu_count()))
+        chunk_size = max(1, (len(variants) + max_workers - 1) // max_workers)
+        chunks = tuple(
+            tuple(variants[idx : idx + chunk_size]) for idx in range(0, len(variants), chunk_size)
+        )
+        with ProcessPoolExecutor(
+            max_workers=max_workers,
+            mp_context=get_context("spawn"),
+        ) as executor:
+            futures = [
+                executor.submit(
+                    _compile_model_variant_chunk_to_mjb,
+                    model_file=self._model_file,
+                    add_body_sensors=self.add_body_sensors,
+                    base_name=self._base_name,
+                    sim_dt=self._sim_dt,
+                    iterations=self._iterations,
+                    position_actuator_gains=self._position_actuator_gains,
+                    variants=chunk,
+                )
+                for chunk in chunks
+            ]
+        mjb_paths_nested = [future.result() for future in futures]
+        flat_paths = [path for paths in mjb_paths_nested for path in paths]
+        try:
+            models = tuple(mujoco.MjModel.from_binary_path(path) for path in flat_paths)
+        finally:
+            for path in flat_paths:
+                if os.path.exists(path):
+                    os.remove(path)
+            for path in flat_paths:
+                parent = os.path.dirname(path)
+                if parent and os.path.isdir(parent):
+                    try:
+                        os.rmdir(parent)
+                    except OSError:
+                        pass
+        return models
+
+    def _current_model_sequence(self) -> mujoco.MjModel | list[mujoco.MjModel]:
+        if len(self._model_variants) == 1 and np.all(self._model_assignments == 0):
+            return self._model_variants[0]
+        return [self._model_variants[int(idx)] for idx in self._model_assignments]
+
+    def _build_pool(self) -> BatchEnvPool:
+        pool = BatchEnvPool(
+            self._current_model_sequence(),
+            nbatch=self._num_envs,
+            nthread=self._n_threads,
+        )
+        sensor_init = pool.forward(self._physics_state)
         self._sensor_data[:] = sensor_init.astype(self._np_dtype)
+        return pool
+
+    def _apply_model_assignments(
+        self,
+        model_variants: tuple[mujoco.MjModel, ...],
+        model_assignments: np.ndarray,
+    ) -> None:
+        if len(model_assignments) != self._num_envs:
+            raise ValueError(
+                f"model_assignments must have length {self._num_envs}, got {len(model_assignments)}"
+            )
+        if len(model_variants) == 0:
+            raise ValueError("model_variants must be non-empty")
+        if np.any(model_assignments < 0) or np.any(model_assignments >= len(model_variants)):
+            raise ValueError(
+                f"model_assignments must be in [0, {len(model_variants) - 1}], got {model_assignments}"
+            )
+
+        self._model_variants = model_variants
+        self._model_assignments = np.asarray(model_assignments, dtype=np.int32).copy()
+        self._model = model_variants[int(self._model_assignments[0])]
+        self._base_body_id = (
+            mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, self._base_name)
+            if self._base_name is not None
+            else -1
+        )
+        self._base_body_mass = np.asarray(self._model.body_mass).copy()
+        self._base_body_ipos = np.asarray(self._model.body_ipos).copy()
+        self._physics_state[:, self._idx_qpos : self._idx_qpos + self._model.nq] = self._model.qpos0
 
     # ------------------------------------------------------------------ #
     # Properties                                                         #
@@ -244,7 +440,7 @@ class MuJoCoBackend(SimBackend):
         set_ctrl_ms = (time.perf_counter() - t0) * 1000.0
 
         t0 = time.perf_counter()
-        state_np = self._pool.step(
+        state_np = self._pool.step(  # type: ignore[union-attr]
             self._physics_state,
             nstep=nsteps,
             control=control_traj,
@@ -254,7 +450,7 @@ class MuJoCoBackend(SimBackend):
         physics_ms = (time.perf_counter() - t0) * 1000.0
 
         t0 = time.perf_counter()
-        sensor_np = self._pool.forward(self._physics_state)
+        sensor_np = self._pool.forward(self._physics_state)  # type: ignore[union-attr]
         self._sensor_data[:] = sensor_np.astype(self._np_dtype)
         refresh_cache_ms = (time.perf_counter() - t0) * 1000.0
 
@@ -281,7 +477,7 @@ class MuJoCoBackend(SimBackend):
         state_np[:, self._idx_qpos : self._idx_qpos + self.nq] = qpos
         state_np[:, self._idx_qvel : self._idx_qvel + self.nv] = qvel
 
-        state_out, sensor_np = self._pool.reset(
+        state_out, sensor_np = self._pool.reset(  # type: ignore[union-attr]
             env_ids=np.asarray(env_indices, dtype=np.int32),
             initial_state=state_np,
             randomization=self._translate_reset_randomization(randomization, num_reset),
@@ -304,6 +500,20 @@ class MuJoCoBackend(SimBackend):
             ),
             supports_interval_push=True,
         )
+
+    def apply_init_randomization(self, plan: InitRandomizationPlan) -> None:
+        if plan.is_empty():
+            return
+        if self._pool is not None:
+            raise RuntimeError("MuJoCo init randomization must run before pool materialization")
+        model_assignments = np.asarray(plan.model_assignments, dtype=np.int32)
+        model_variants = self._compile_model_variants(plan.model_variants)
+        self._apply_model_assignments(model_variants, model_assignments)
+
+    def materialize(self) -> None:
+        if self._pool is not None:
+            raise RuntimeError("MuJoCo backend pool is already materialized")
+        self._pool = self._build_pool()
 
     def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
         if plan.push_perturbation_limit is None:
@@ -346,35 +556,35 @@ class MuJoCoBackend(SimBackend):
     # ------------------------------------------------------------------ #
 
     def _get_mapped_indices(self, body_ids: np.ndarray) -> np.ndarray:
-        return np.asarray(self._body_id_to_tracked_idx[body_ids])
+        return self._body_id_to_tracked_idx[body_ids]  # type: ignore[no-any-return]
 
     def get_body_pos_w(self, body_ids: np.ndarray) -> np.ndarray:
-        return np.asarray(self._tracked_pos_w_all[:, self._get_mapped_indices(body_ids), :])
+        return self._tracked_pos_w_all[:, self._get_mapped_indices(body_ids), :]  # type: ignore[no-any-return]
 
     def get_body_quat_w(self, body_ids: np.ndarray) -> np.ndarray:
-        return np.asarray(self._tracked_quat_w_all[:, self._get_mapped_indices(body_ids), :])
+        return self._tracked_quat_w_all[:, self._get_mapped_indices(body_ids), :]  # type: ignore[no-any-return]
 
     def get_body_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
-        return np.asarray(self._tracked_linvel_w_all[:, self._get_mapped_indices(body_ids), :])
+        return self._tracked_linvel_w_all[:, self._get_mapped_indices(body_ids), :]  # type: ignore[no-any-return]
 
     def get_body_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
-        return np.asarray(self._tracked_angvel_w_all[:, self._get_mapped_indices(body_ids), :])
+        return self._tracked_angvel_w_all[:, self._get_mapped_indices(body_ids), :]  # type: ignore[no-any-return]
 
     # ------------------------------------------------------------------ #
     # Body kinematics — baselink frame                                   #
     # ------------------------------------------------------------------ #
 
     def get_body_pos_b(self, body_ids: np.ndarray) -> np.ndarray:
-        return np.asarray(self._tracked_pos_b_all[:, self._get_mapped_indices(body_ids), :])
+        return self._tracked_pos_b_all[:, self._get_mapped_indices(body_ids), :]  # type: ignore[no-any-return]
 
     def get_body_quat_b(self, body_ids: np.ndarray) -> np.ndarray:
-        return np.asarray(self._tracked_quat_b_all[:, self._get_mapped_indices(body_ids), :])
+        return self._tracked_quat_b_all[:, self._get_mapped_indices(body_ids), :]  # type: ignore[no-any-return]
 
     def get_body_lin_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
-        return np.asarray(self._tracked_linvel_b_all[:, self._get_mapped_indices(body_ids), :])
+        return self._tracked_linvel_b_all[:, self._get_mapped_indices(body_ids), :]  # type: ignore[no-any-return]
 
     def get_body_ang_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
-        return np.asarray(self._tracked_angvel_b_all[:, self._get_mapped_indices(body_ids), :])
+        return self._tracked_angvel_b_all[:, self._get_mapped_indices(body_ids), :]  # type: ignore[no-any-return]
 
     # ------------------------------------------------------------------ #
     # Sensors                                                            #
@@ -389,6 +599,23 @@ class MuJoCoBackend(SimBackend):
 
     def get_physics_state(self) -> np.ndarray:
         return self._physics_state
+
+    def get_playback_model(self, env_index: int | None = None):
+        """Return the MuJoCo model used by playback for one vectorized env.
+
+        Args:
+            env_index: Optional vectorized environment index.
+
+        Returns:
+            The MuJoCo model assigned to that env, or the current backend model
+            when no explicit index is requested.
+        """
+        if env_index is None:
+            return self._model
+        idx = int(env_index)
+        if idx < 0 or idx >= self._num_envs:
+            raise IndexError(f"env_index must be in [0, {self._num_envs - 1}], got {idx}")
+        return self._model_variants[int(self._model_assignments[idx])]
 
     def _coerce_reset_field(
         self,

@@ -46,8 +46,8 @@ class APPORunner(AsyncRunner):
             rl_cfg=rl_cfg,
             device=device,
             collector_device=collector_device,
-            num_envs=num_envs,
             sim_backend=sim_backend,
+            num_envs=num_envs,
         )
 
         self.steps_per_env = steps_per_env
@@ -68,30 +68,39 @@ class APPORunner(AsyncRunner):
 
         # Update rl_cfg so internal RSL-RL networks get correct observation dimension
         if "obs_groups" not in self.rl_cfg:
-            self.rl_cfg["obs_groups"] = {"actor": {"policy": self.obs_dim}}
+            self.rl_cfg["obs_groups"] = {
+                "actor": {"policy": self.obs_dim},
+                "critic": {"policy": self.critic_input_dim},
+            }
         else:
             actor_group = self.rl_cfg["obs_groups"].get(
                 "actor", self.rl_cfg["obs_groups"].get("policy", {})
             )
             if isinstance(actor_group, dict) and "policy" in actor_group:
                 actor_group["policy"] = self.obs_dim
+            critic_group = self.rl_cfg["obs_groups"].get("critic")
+            if critic_group is None:
+                self.rl_cfg["obs_groups"]["critic"] = {"policy": self.critic_input_dim}
+            elif isinstance(critic_group, dict) and "policy" in critic_group:
+                critic_group["policy"] = self.critic_input_dim
 
     def _detect_dims(self):
         """Create a tiny env to read obs/action dims, then close it."""
         from unilab.base import registry
         from unilab.utils.algo_utils import ensure_registries
-        from unilab.utils.obs_utils import get_obs_dims
+        from unilab.utils.obs_utils import get_critic_base_dim, get_obs_dims
 
         ensure_registries()
 
         env = registry.make(
             self.env_name,
             num_envs=1,
-            sim_backend=self.extra_kwargs.get("sim_backend", "mujoco"),
+            sim_backend=self.sim_backend,
             env_cfg_override=self.env_cfg_overrides if self.env_cfg_overrides else None,
         )
-        obs_dim, privileged_dim = get_obs_dims(env.obs_groups_spec)
-        self.privileged_dim = privileged_dim
+        obs_dim, critic_dim = get_obs_dims(env.obs_groups_spec)
+        self.critic_dim = critic_dim
+        self.critic_input_dim = get_critic_base_dim(env.obs_groups_spec)
         assert env.action_space.shape is not None
         action_dim = env.action_space.shape[0]
         env.close()
@@ -111,8 +120,7 @@ class APPORunner(AsyncRunner):
         obs_example = torch.zeros((self.num_envs, self.obs_dim), device=self.device)
         td_example = TensorDict({"policy": obs_example}, batch_size=self.num_envs)
 
-        # Critic input includes privileged obs
-        critic_obs_dim = self.obs_dim + self.privileged_dim
+        critic_obs_dim = self.critic_input_dim
         critic_obs_example = torch.zeros((self.num_envs, critic_obs_dim), device=self.device)
         critic_td_example = TensorDict({"policy": critic_obs_example}, batch_size=self.num_envs)
 
@@ -129,7 +137,7 @@ class APPORunner(AsyncRunner):
         critic_cls = resolve_callable(critic_cfg.pop("class_name", "rsl_rl.models.MLPModel"))
         critic_cfg.pop("num_actions", None)
         critic_cfg.pop("distribution_cfg", None)  # critic is deterministic
-        critic = critic_cls(critic_td_example, cfg["obs_groups"], "actor", 1, **critic_cfg)
+        critic = critic_cls(critic_td_example, cfg["obs_groups"], "critic", 1, **critic_cfg)
 
         # Extract algorithm hyperparams from rl_cfg["algorithm"] (or top-level)
         algo_cfg = cfg.get("algorithm", cfg)
@@ -182,7 +190,7 @@ class APPORunner(AsyncRunner):
             num_steps=self.steps_per_env,
             obs_dim=self.obs_dim,
             action_dim=self.action_dim,
-            privileged_dim=self.privileged_dim,
+            critic_dim=self.critic_dim,
             num_slots=4,
             create=True,
         )
@@ -219,14 +227,14 @@ class APPORunner(AsyncRunner):
             ),
             "obs_dim": self.obs_dim,
             "action_dim": self.action_dim,
-            "privileged_dim": self.privileged_dim,
+            "critic_dim": self.critic_dim,
             "actor_weight_sync_name": actor_weight_sync.name,
             "actor_weight_param_shapes": actor_weight_param_shapes,
             "critic_weight_sync_name": critic_weight_sync.name,
             "critic_weight_param_shapes": critic_weight_param_shapes,
             "metrics_queue": metrics_queue,
             "collector_device": self.collector_device,
-            "sim_backend": self.extra_kwargs.get("sim_backend", "mujoco"),
+            "sim_backend": self.sim_backend,
             "env_cfg_override": self.env_cfg_overrides if self.env_cfg_overrides else None,
         }
         self._start_collector(
@@ -301,7 +309,7 @@ class APPORunner(AsyncRunner):
                 # Preprocess: storage is [N, T, *] (env-major); learner expects [T, N, *]
                 rollout: dict = {}
                 for k, v in raw.items():
-                    if k not in ("last_obs", "last_privileged") and v.ndim >= 2:
+                    if k not in ("last_obs", "last_critic") and v.ndim >= 2:
                         rollout[k] = v.transpose(0, 1)
                     else:
                         rollout[k] = v
@@ -319,8 +327,8 @@ class APPORunner(AsyncRunner):
             # computed independently per env-column — correct for any staleness level.
             combined: dict = {}
             for k in replay_queue[0]:
-                if k in ("last_obs", "last_privileged"):
-                    # last_obs and last_privileged are [N, D] - concat along dim 0
+                if k in ("last_obs", "last_critic"):
+                    # last_obs and last_critic are [N, D] - concat along dim 0
                     combined[k] = torch.cat([r[k] for r in replay_queue], dim=0)
                 else:
                     # All other tensors are [T, N, ...] - concat along dim 1 (env dimension)

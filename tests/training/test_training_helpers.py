@@ -40,9 +40,9 @@ def _normalize_overrides(overrides: list[str] | None, *, offpolicy: bool = False
 
     if not task_selected:
         if offpolicy:
-            normalized.append(f"task={algo}/go1_joystick/mujoco")
+            normalized.append(f"task={algo}/go1_joystick_flat/mujoco")
         else:
-            normalized.append("task=go1_joystick/mujoco")
+            normalized.append("task=go1_joystick_flat/mujoco")
     return normalized
 
 
@@ -92,6 +92,42 @@ def test_parse_checkpoint_path_uses_algo_log_name_from_cfg(tmp_path: Path):
     assert checkpoint_dir == run_dir
 
 
+def test_parse_checkpoint_path_supports_explicit_checkpoint_from_cfg(tmp_path: Path):
+    cfg = _ppo_cfg()
+    cfg.algo.algo_log_name = "custom_ppo"
+    cfg.algo.checkpoint = 12
+
+    run_dir = (
+        tmp_path / "logs" / "custom_ppo" / cfg.training.task_name / "2024-01-01_00-00-00_mujoco"
+    )
+    run_dir.mkdir(parents=True)
+    (run_dir / "model_9.pt").write_bytes(b"")
+    selected_model = run_dir / "model_12.pt"
+    selected_model.write_bytes(b"")
+
+    checkpoint_path, checkpoint_dir = parse_checkpoint_path(cfg, root_dir=tmp_path)
+
+    assert checkpoint_path == selected_model
+    assert checkpoint_dir == run_dir
+
+
+def test_parse_checkpoint_path_returns_run_dir_when_requested_checkpoint_is_missing(tmp_path: Path):
+    cfg = _ppo_cfg()
+    cfg.algo.algo_log_name = "custom_ppo"
+    cfg.algo.checkpoint = 12
+
+    run_dir = (
+        tmp_path / "logs" / "custom_ppo" / cfg.training.task_name / "2024-01-01_00-00-00_mujoco"
+    )
+    run_dir.mkdir(parents=True)
+    (run_dir / "model_9.pt").write_bytes(b"")
+
+    checkpoint_path, checkpoint_dir = parse_checkpoint_path(cfg, root_dir=tmp_path)
+
+    assert checkpoint_path is None
+    assert checkpoint_dir == run_dir
+
+
 def test_resolve_task_checkpoint_path_supports_explicit_checkpoint(tmp_path: Path):
     run_dir = tmp_path / "logs" / "custom_ppo" / "MyTask" / "2024-01-01_00-00-00_mujoco"
     run_dir.mkdir(parents=True)
@@ -129,7 +165,7 @@ def test_resolve_task_checkpoint_path_returns_run_dir_when_checkpoint_missing(tm
 
 def test_backend_adapter_env_cfg_override_for_motrix_sac_go1():
     """Env cfg override carries reward + env preset fields. Algo is NOT touched."""
-    cfg = _offpolicy_cfg(["task=sac/go1_joystick/motrix"])
+    cfg = _offpolicy_cfg(["task=sac/go1_joystick_flat/motrix"])
 
     adapter = BackendAdapter(cfg, root_dir=_ROOT_DIR, algo_name="sac")
     env_cfg_override = adapter.build_task_env_cfg_override()
@@ -163,7 +199,7 @@ def test_backend_adapter_builds_play_scene_override():
     assert env_cfg_override["render_spacing"] == pytest.approx(2.5)
     assert env_cfg_override["model_file"] == "/tmp/g1_motion_tracking_play_scene.xml"
     assert captured["ground_texture_file"] == str(
-        _ROOT_DIR / "src/unilab/assets/robots/g1/floor.png"
+        _ROOT_DIR / "src/unilab/assets/robots/g1/textures/floor.png"
     )
 
 
@@ -244,6 +280,103 @@ def test_render_play_mode_defaults_to_env_physics_snapshot(
     assert env.snapshot_calls == 2
     assert captured["model_file"] == "scene.xml"
     assert captured["fps"] == 20
+
+
+def test_render_play_mode_uses_visualized_per_env_playback_models_for_video_export(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    import mujoco
+
+    captured: dict[str, object] = {}
+    visual_xml = """
+    <mujoco>
+      <worldbody>
+        <geom name="ground" type="plane" size="2 2 0.1"/>
+        <body name="hand" pos="0 0 0.3">
+          <geom name="hand_geom" type="box" size="0.05 0.05 0.05"/>
+        </body>
+        <body name="object_body" pos="0 0 0.6">
+          <geom name="object" type="box" size="0.1 0.1 0.1"/>
+        </body>
+      </worldbody>
+    </mujoco>
+    """
+    visual_model_path = tmp_path / "scene.xml"
+    visual_model_path.write_text(visual_xml)
+
+    class FakeEnv:
+        def __init__(self):
+            self.cfg = type("Cfg", (), {"ctrl_dt": 0.05, "model_file": str(visual_model_path)})()
+            self.snapshot_calls = 0
+            self._models = [
+                mujoco.MjModel.from_xml_string(
+                    "<mujoco><worldbody><body><geom name='object' type='box' size='0.1 0.1 0.1'/></body></worldbody></mujoco>"
+                ),
+                mujoco.MjModel.from_xml_string(
+                    "<mujoco><worldbody><body><geom name='object' type='box' size='0.2 0.2 0.2'/></body></worldbody></mujoco>"
+                ),
+            ]
+
+        def get_physics_state_snapshot(self) -> np.ndarray:
+            self.snapshot_calls += 1
+            return np.full((2, 2), self.snapshot_calls, dtype=np.float32)
+
+        def get_playback_model(self, env_index: int | None = None):
+            idx = 0 if env_index is None else int(env_index)
+            return self._models[idx]
+
+    def _render_states_get_frames(state_list, model_file, **kwargs):
+        del kwargs
+        captured["states"] = state_list
+        captured["model_file"] = model_file
+        assert isinstance(model_file, list)
+        model0 = mujoco.MjModel.from_binary_path(model_file[0])
+        model1 = mujoco.MjModel.from_binary_path(model_file[1])
+        object0 = mujoco.mj_name2id(model0, mujoco.mjtObj.mjOBJ_GEOM, "object")
+        object1 = mujoco.mj_name2id(model1, mujoco.mjtObj.mjOBJ_GEOM, "object")
+        hand0 = mujoco.mj_name2id(model0, mujoco.mjtObj.mjOBJ_GEOM, "hand_geom")
+        hand1 = mujoco.mj_name2id(model1, mujoco.mjtObj.mjOBJ_GEOM, "hand_geom")
+        ground0 = mujoco.mj_name2id(model0, mujoco.mjtObj.mjOBJ_GEOM, "ground")
+        ground1 = mujoco.mj_name2id(model1, mujoco.mjtObj.mjOBJ_GEOM, "ground")
+        captured["object0_size"] = model0.geom_size[object0].copy()
+        captured["object1_size"] = model1.geom_size[object1].copy()
+        captured["hand0_size"] = model0.geom_size[hand0].copy()
+        captured["hand1_size"] = model1.geom_size[hand1].copy()
+        captured["ground0_size"] = model0.geom_size[ground0].copy()
+        captured["ground1_size"] = model1.geom_size[ground1].copy()
+        return [np.zeros((2, 2, 3), dtype=np.uint8)]
+
+    fake_media = types.ModuleType("mediapy")
+    fake_media.write_video = lambda path, frames, fps: captured.update(  # type: ignore[attr-defined]
+        {"video_path": path, "frames": frames, "fps": fps}
+    )
+
+    monkeypatch.setitem(sys.modules, "mediapy", fake_media)
+    monkeypatch.setattr(
+        "unilab.utils.render_many.render_states_get_frames",
+        _render_states_get_frames,
+    )
+
+    env = FakeEnv()
+    output_path = tmp_path / "play.mp4"
+    result = render_play_mode(
+        env,
+        sim_backend="mujoco",
+        initialize=lambda: 0,
+        step=lambda obs: obs + 1,
+        num_steps=2,
+        output_video=output_path,
+    )
+
+    assert result == str(output_path)
+    assert env.snapshot_calls == 2
+    assert isinstance(captured["model_file"], list)
+    model_files = captured["model_file"]
+    assert len(model_files) == 2
+    np.testing.assert_allclose(captured["object0_size"], [0.1, 0.1, 0.1])
+    np.testing.assert_allclose(captured["object1_size"], [0.2, 0.2, 0.2])
+    np.testing.assert_allclose(captured["hand0_size"], captured["hand1_size"])
+    np.testing.assert_allclose(captured["ground0_size"], captured["ground1_size"])
 
 
 def test_render_play_mode_requires_env_snapshot_contract_for_video_export(tmp_path: Path):

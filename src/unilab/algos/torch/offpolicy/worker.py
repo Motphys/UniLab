@@ -13,7 +13,7 @@ import torch
 
 from unilab.utils.algo_utils import build_actor, ensure_registries
 from unilab.utils.final_observation import resolve_terminal_observation_contract
-from unilab.utils.obs_utils import split_obs_dict
+from unilab.utils.obs_utils import get_obs_dims, split_obs_dict
 
 
 def resolve_collector_actor_dims(
@@ -27,8 +27,6 @@ def resolve_collector_actor_dims(
     build identical actor shapes on override-heavy env paths.
     """
     if obs_dim is None:
-        from unilab.utils.obs_utils import get_obs_dims
-
         obs_dim, _ = get_obs_dims(env.obs_groups_spec)
 
     if action_dim is None:
@@ -65,7 +63,7 @@ def off_policy_collector_fn(
     algo_type: str = "sac",
     actor_hidden_dim: int = 512,
     use_layer_norm: bool = True,
-    warmup_steps: int = 5000,
+    learning_starts: int = 0,
     metrics_queue=None,
     weight_sync_lock=None,
     sync_collection: bool = False,
@@ -97,7 +95,7 @@ def off_policy_collector_fn(
             algo_type=algo_type,
             actor_hidden_dim=actor_hidden_dim,
             use_layer_norm=use_layer_norm,
-            warmup_steps=warmup_steps,
+            learning_starts=learning_starts,
             metrics_queue=metrics_queue,
             weight_sync_lock=weight_sync_lock,
             sync_collection=sync_collection,
@@ -132,7 +130,7 @@ def _run_collector(
     algo_type,
     actor_hidden_dim,
     use_layer_norm,
-    warmup_steps,
+    learning_starts,
     metrics_queue,
     weight_sync_lock,
     sync_collection,
@@ -147,6 +145,7 @@ def _run_collector(
     action_dim,
     actor_kwargs,
 ):
+    del learning_starts
     from unilab.base import registry
     from unilab.ipc import SharedWeightSync
 
@@ -205,25 +204,11 @@ def _run_collector(
     # Initial step to get first observation
     actions_np = np.zeros((num_envs, action_dim), dtype=np.float32)
     state = env.step(actions_np)
-    obs_np, priv_np = split_obs_dict(state.obs)
+    obs_np, critic_np = split_obs_dict(state.obs)
     obs_np = np.asarray(obs_np, dtype=np.float32)
-    if priv_np is not None:
-        priv_np = np.asarray(priv_np, dtype=np.float32)
+    if critic_np is not None:
+        critic_np = np.asarray(critic_np, dtype=np.float32)
     prev_dones_np = np.zeros(num_envs, dtype=np.float32)
-    max_episode_steps = getattr(getattr(env, "cfg", None), "max_episode_steps", None)
-    if max_episode_steps is not None and int(max_episode_steps) > 0:
-        step_offsets = np.random.randint(
-            0, int(max_episode_steps), size=(num_envs,), dtype=np.uint32
-        )
-        if (
-            hasattr(env, "state")
-            and env.state is not None
-            and isinstance(getattr(env.state, "info", None), dict)
-        ):
-            if "steps" in env.state.info:
-                env.state.info["steps"][:] = step_offsets
-        if isinstance(getattr(state, "info", None), dict) and "steps" in state.info:
-            state.info["steps"][:] = step_offsets
     import time as _time
 
     _last_log_time = _time.time()
@@ -256,20 +241,17 @@ def _run_collector(
 
         # Select action
         with torch.no_grad():
-            if total_steps < warmup_steps:
-                actions_np = np.random.uniform(-1, 1, (num_envs, action_dim)).astype(np.float32)
-            else:
-                _t_infer = _time.perf_counter()
-                obs_torch = torch.from_numpy(obs_np_input)
-                dones_torch = torch.from_numpy(prev_dones_np)
-                actions_torch = sample_offpolicy_actions(
-                    actor=actor,
-                    algo_type=algo_type,
-                    obs_torch=obs_torch,
-                    prev_dones_torch=dones_torch,
-                )
-                actions_np = actions_torch.numpy()
-                timing_accum_ms["mlp_infer_ms"] += (_time.perf_counter() - _t_infer) * 1000
+            _t_infer = _time.perf_counter()
+            obs_torch = torch.from_numpy(obs_np_input)
+            dones_torch = torch.from_numpy(prev_dones_np)
+            actions_torch = sample_offpolicy_actions(
+                actor=actor,
+                algo_type=algo_type,
+                obs_torch=obs_torch,
+                prev_dones_torch=dones_torch,
+            )
+            actions_np = actions_torch.numpy()
+            timing_accum_ms["mlp_infer_ms"] += (_time.perf_counter() - _t_infer) * 1000
 
         # Step environment
         state = env.step(actions_np)
@@ -282,10 +264,10 @@ def _run_collector(
             timing_count += 1
 
         # Extract data as numpy
-        next_obs_np, next_priv_np = split_obs_dict(state.obs)
+        next_obs_np, next_critic_np = split_obs_dict(state.obs)
         next_obs_np = np.asarray(next_obs_np, dtype=np.float32)
-        if next_priv_np is not None:
-            next_priv_np = np.asarray(next_priv_np, dtype=np.float32)
+        if next_critic_np is not None:
+            next_critic_np = np.asarray(next_critic_np, dtype=np.float32)
         rewards_np = np.asarray(state.reward, dtype=np.float32).ravel()
 
         terminated_np = (
@@ -324,17 +306,17 @@ def _run_collector(
             torch.from_numpy(next_obs_np),
             torch.from_numpy(terminated_np),
             torch.from_numpy(truncated_np),
-            torch.from_numpy(priv_np) if priv_np is not None else None,
-            torch.from_numpy(next_priv_np) if next_priv_np is not None else None,
             terminal_mask=torch.from_numpy(terminal_contract.terminal_mask),
             terminal_next_obs=(
                 torch.from_numpy(terminal_contract.terminal_obs)
                 if terminal_contract.terminal_obs is not None
                 else None
             ),
-            terminal_next_privileged=(
-                torch.from_numpy(terminal_contract.terminal_privileged)
-                if terminal_contract.terminal_privileged is not None
+            critic=torch.from_numpy(critic_np) if critic_np is not None else None,
+            next_critic=torch.from_numpy(next_critic_np) if next_critic_np is not None else None,
+            terminal_next_critic=(
+                torch.from_numpy(terminal_contract.terminal_critic)
+                if terminal_contract.terminal_critic is not None
                 else None
             ),
         )
@@ -351,7 +333,7 @@ def _run_collector(
             current_ep_lengths[reset_indices] = 0
 
         obs_np = next_obs_np
-        priv_np = next_priv_np
+        critic_np = next_critic_np
         total_steps += num_envs
         env_steps_since_sync += 1
 
