@@ -58,27 +58,27 @@ uv run mxpython scripts/train_appo.py task=g1_motion_tracking/motrix \
 
 ```bash
 # 可视化 motion target
-uv run python scripts/play_interactive.py \
-  --task G1MotionTracking \
-  --show_target_bodies \
-  --target_show_axes
+uv run scripts/play_interactive.py \
+  task=g1_motion_tracking/mujoco \
+  interactive.show_target_bodies=true \
+  interactive.target_show_axes=true
 
 # 只看部分 body
-uv run python scripts/play_interactive.py \
-  --task G1MotionTracking \
-  --show_target_bodies \
-  --target_body_names torso_link,left_wrist_yaw_link,right_wrist_yaw_link
+uv run scripts/play_interactive.py \
+  task=g1_motion_tracking/mujoco \
+  interactive.show_target_bodies=true \
+  interactive.target_body_names=torso_link,left_wrist_yaw_link,right_wrist_yaw_link
 
 # 查看 reward debug 信息
-uv run python scripts/play_interactive.py \
-  --task G1MotionTracking \
-  --show_reward_debug \
-  --reward_debug_show_velocity \
-  --reward_debug_show_connectors \
-  --target_max_bodies 4
+uv run scripts/play_interactive.py \
+  task=g1_motion_tracking/mujoco \
+  interactive.show_reward_debug=true \
+  interactive.reward_debug_show_velocity=true \
+  interactive.reward_debug_show_connectors=true \
+  interactive.target_max_bodies=4
 ```
 
-如果需要指定 run 或 checkpoint，还可以额外传入 `--load_run` 和 `--checkpoint`。
+如果需要指定 run 或 checkpoint，可以传入 `algo.load_run` 和 `algo.checkpoint`。
 
 ## Motion Preprocessing
 
@@ -173,11 +173,11 @@ uv run python scripts/train_rsl_rl.py task=g1_motion_tracking/mujoco training.pl
 
 ```bash
 # 2) Viser 可视化（零动作）
-uv run python scripts/play_viser.py task=g1_motion_tracking/mujoco interactive.action_mode=zero algo.num_envs=8 viser.port=8080
+uv run scripts/play_viser.py task=g1_motion_tracking/mujoco interactive.action_mode=zero viser.max_envs=8 viser.port=8080
 ```
 
 ```bash
 # 3) Viser 可视化（策略）
-uv run python scripts/play_viser.py task=g1_motion_tracking/mujoco interactive.action_mode=policy algo.load_run=xxx algo.checkpoint=xxx algo.num_envs=4 viser.port=8080
+uv run scripts/play_viser.py task=g1_motion_tracking/mujoco interactive.action_mode=policy algo.load_run=xxx algo.checkpoint=xxx viser.max_envs=4 viser.port=8080
 ```
 

@@ -13,14 +13,14 @@ UniLab 当前支持两个仿真后端:
 - Motrix 路径的 registry bootstrap 和 Hydra 配置 compose 不再要求导入 MuJoCo。
 - 在 macOS / MacBook 上，只要命令会打开 MotrixSim 原生 renderer（训练后自动回放或 `training.play_only=true`），就需要用 `uv run mxpython` 启动；不需要可视化的训练仍可使用 `uv run python ... training.no_play=true`。
 - 任何 `task=.../mujoco` 的实际运行、MuJoCo playback、以及 MuJoCo-only 调试工具，仍然要求可用的 MuJoCo runtime。
-- 某些任务目前仍然只有 MuJoCo owner 配置；例如 `AllegroInhandRotation` 只提供 `mujoco` task。
+- 某些任务目前仍然只有 MuJoCo owner 配置；例如 APPO 路径下 `go1_joystick_flat` 对 Motrix 仅为 `Registered`。
 
 ## Support Matrix
 
 下面的矩阵由 registry、owner YAML 和测试清单自动汇总；不要手工编辑表格内容。需要刷新时运行：
 
 ```bash
-uv run python scripts/generate_support_matrix.py --write
+uv run scripts/generate_support_matrix.py --write
 ```
 
 <!-- BEGIN GENERATED SUPPORT MATRIX -->

@@ -68,7 +68,7 @@ uv run scripts/train_appo.py task=go1_joystick_flat/mujoco
 
 # SAC / TD3
 uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco
-uv run scripts/train_offpolicy.py algo=td3 task=td3/g1_walk_flat/mujoco
+uv run scripts/train_offpolicy.py algo=td3 task=td3/go1_joystick_flat/mujoco
 ```
 
 ### 验证环境

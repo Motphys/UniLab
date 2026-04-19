@@ -16,7 +16,7 @@
 - 始终使用 `uv run`；不要在 `uv run` 之外直接调用 `python`
 - 代码相关提交前必须运行 `make check`
 - 备份文件、临时导出物和历史兼容副本不要进入源码树；不要提交 `*.bak`、`*.tmp`、`*.old`、`*.orig` 或以 `~` 结尾的编辑器备份文件
-- 只要改动用户可见工作流，就要同步维护顶层 `README.md`、`CONTRIBUTING.md`，以及 `docs/{en,zh_CN,ja,ko}/` 下对应语言文档
+- 只要改动用户可见工作流，就要同步维护顶层 `README.md`、`CONTRIBUTING.md`，以及 `docs/users/zh_CN/` 和 `docs/developers/zh_CN/` 下对应语言文档
 
 ## Read Before You Start
 
@@ -105,8 +105,8 @@ uv run pytest -m veryslow -v
 |-----|------|--------------|
 | `ruff-lint` | 在 `ubuntu-slim` 上执行 `uv sync --only-group dev` + `uv run --no-sync ruff check --output-format=github .` | ✅ |
 | `ruff-format` | 在 `ubuntu-slim` 上执行 `uv sync --only-group dev` + `uv run --no-sync ruff format --check .` | ✅ |
-| `mypy` | 在 `macos-26` 上执行 `uv sync` + `uv run mypy src/unilab` | ✅ |
-| `pyright` | 在 `macos-26` 上执行 `uv sync` + `uv run pyright` | ✅ |
+| `mypy` | 在 `ubuntu-slim` 上执行 `uv sync` + `uv run mypy src/unilab` | ✅ |
+| `pyright` | 在 `ubuntu-slim` 上执行 `uv sync` + `uv run pyright` | ✅ |
 | `test` | 在 `ubuntu-slim` 上以 Python 3.11 执行 `uv sync --extra motrix` + `uv run pytest -m "not slow and not veryslow" --cov=unilab --cov-report markdown-append:$GITHUB_STEP_SUMMARY --cov-fail-under=25` | ✅ |
 
 只有协作元信息改动，例如 `LICENSE`、issue templates、`CODEOWNERS` 和 `.github/pull_request_template.md`，才会跳过 CI。文档改动会触发 CI，并由 `tests/scripts/test_check_docs.py` 校验。
@@ -116,7 +116,7 @@ uv run pytest -m veryslow -v
 - 文档里的每条命令都必须能在当前仓库里对应到真实脚本、配置或 Makefile 目标
 - 描述 backend 支持时，优先使用 `Registered`、`Configured`、`Benchmarked`、`Recommended`
 - 使用相对链接，保证 GitHub 渲染正确
-- 修改用户可见文档时，保持 English、zh_CN、Japanese 和 Korean 四套内容在结构上严格对齐
+- 修改用户可见文档时，保持 `README.md`、`CONTRIBUTING.md` 和 `docs/users/zh_CN/`、`docs/developers/zh_CN/` 下对应文档在结构上严格对齐
 - 如果提到 CI、日志目录或支持矩阵，请对照 `.github/workflows/ci.yml`、`scripts/` 和 `conf/` 再核对一次
 
 ## GitHub Collaboration Model

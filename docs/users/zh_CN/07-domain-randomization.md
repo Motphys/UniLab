@@ -41,13 +41,13 @@
 | 任务 | 当前实现的 reset 域随机 | 当前实现的 interval 域随机 | 默认状态 |
 | --- | --- | --- | --- |
 | `Go1JoystickFlat` | base xy；base yaw；base qvel；command 采样；`current_actions/last_actions` 清零；可选 `base_mass_delta`；可选 `base_com_offset` | `push_robots` | 默认开启 `base_mass_delta`、`base_com_offset`、push |
-| `Go2JoystickFlat` | base xy；base yaw；base qvel；command 采样；`current_actions/last_actions` 清零；可选 `base_mass_delta`；可选 `base_com_offset` | `push_robots` | 默认全部关闭 |
-| `G1JoystickFlat` | base xy；base yaw；按 `reset_base_qvel_limit` 采样 base qvel；command 采样；`gait_phase` 采样；`current_actions/last_actions` 清零；可选 `base_mass_delta`；可选 `base_com_offset` | `push_robots` | 默认 common payload 和 push 关闭 |
-| `G1WalkFlat` | 与 `G1JoystickFlat` 相同，直接复用同一个 provider | `push_robots` | 默认 common payload 和 push 关闭 |
+| `Go2JoystickFlat` | base xy；base yaw；base qvel；command 采样；`current_actions/last_actions` 清零；kp/kd 随机化（默认开启）；可选 `base_mass_delta`；可选 `base_com_offset` | `push_robots` | kp/kd 默认开启；common payload 和 push 默认关闭 |
+| `G1JoystickFlat` | base xy；base yaw；按 `reset_base_qvel_limit` 采样 base qvel；command 采样；`gait_phase` 采样；`current_actions/last_actions` 清零；kp/kd 随机化（默认开启）；可选 `base_mass_delta`；可选 `base_com_offset` | `push_robots` | kp/kd 默认开启；common payload 和 push 默认关闭 |
+| `G1WalkFlat` | 与 `G1JoystickFlat` 相同，直接复用同一个 provider | `push_robots` | kp/kd 默认开启；common payload 和 push 默认关闭 |
 | `G1MotionTracking` | motion frame 采样；root pose 扰动 `x/y/z/roll/pitch/yaw`；root velocity 扰动 `x/y/z/roll/pitch/yaw`；joint position noise；MuJoCo 下按 joint range clip；`current_actions/last_actions` 清零；可选 `base_mass_delta`；可选 `base_com_offset` | `push_robots` | `pose_randomization`、`velocity_randomization`、`joint_position_range` 默认有非零扰动；common payload 和 push 默认关闭 |
-| `AllegroInhandRotation` | 若有 grasp cache 则随机采样 grasp；否则对 hand joints 加 `joint_noise`、对球加 `ball_z_offset`；始终对球线速度加 `ball_vel_noise`；不下发 backend randomization payload | 无 | grasp cache 路径可用时默认会采样；`joint_noise`、`ball_vel_noise`、`ball_z_offset` 默认 0 |
-| `AllegroInhandRotationSac` | 与 `AllegroInhandRotation` 相同：grasp cache 采样或 hand joint noise、ball z offset、ball velocity noise；不下发 backend randomization payload | 无 | grasp cache 路径可用时默认会采样；`joint_noise`、`ball_vel_noise`、`ball_z_offset` 默认 0 |
-| `SharpaInhandRotation` | grasp cache 按 `scale_ids` 分桶采样；object pose / quat reset；可选 `base_mass_delta`；可选 `base_com_offset` | 无 | `scale_range` 默认 `[0.5, 0.5, 1]`，MuJoCo 下会在 init 阶段 materialize object geom scale |
+| `AllegroInhandRotation` | 若有 grasp cache 则随机采样 grasp；否则对 hand joints 加 `joint_noise`、对球加 `ball_z_offset`；始终对球线速度加 `ball_vel_noise`；下发 common reset randomization payload | 无 | grasp cache 路径可用时默认会采样；`joint_noise`、`ball_vel_noise`、`ball_z_offset` 默认 0 |
+
+| `SharpaInhandRotation` | grasp cache 按 `scale_ids` 分桶采样；object pose / quat reset | 无 | `scale_range` 默认 `[0.5, 0.5, 1]`，MuJoCo 下会在 init 阶段 materialize object geom scale |
 | `SharpaInhandRotationGrasp` | hand pose reset；object pose / quat reset；采集成功 grasp 并按 `scale_ids` 分桶保存；可选 `base_mass_delta`；可选 `base_com_offset` | 无 | 默认用于生成 Sharpa grasp cache，cache 文件名包含 `scale_range` tag |
 
 ## 当前统一 DR 能力与边界

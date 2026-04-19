@@ -22,6 +22,7 @@ CPU Physics Sim ──shm──► Collector / IPC ──shm──► GPU Learne
 - 后端切换通过 **contract + registry + config** 完成，而不是脚本分支
 - Env 层保持 numpy / vectorized；GPU 由 learner 独占
 - Collector 和 learner 通过 IPC + shared memory 解耦，并共享统一 lifecycle
+- **注**：该管线主要适用于 APPO / Off-policy 异步路径；PPO (torch / RSL-RL) 和 MLX PPO 为同步单进程，不走 IPC/SharedMemory
 
 ---
 
@@ -97,7 +98,7 @@ Env **负责** MDP 语义、observation 结构、reward、reset，以及 backend
 
 `SimBackend` (`src/unilab/base/backend/base.py`) 必须提供 base pose / velocity、DOF state、body pose / velocity（world 与 baselink 坐标系）以及 named sensor。需要额外 backend 能力时，应先升格为显式 contract / capability，而不是在共享逻辑里通过 `getattr(...)` / `hasattr(...)` 探测私有方法。
 
-已知 backend-specific 分支包括: `backend_type == "motrix"` 会触发 `_process_rigid_body_props`；部分 play / debug / video / symmetry 路径仍然是 MuJoCo-first。
+已知 backend-specific 分支包括: `backend_type == "motrix"` 会触发 motrix-specific 物理属性处理；部分 play / debug / video / symmetry 路径仍然是 MuJoCo-first。
 
 ---
 

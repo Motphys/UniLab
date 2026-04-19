@@ -65,7 +65,7 @@ uv run scripts/train_rsl_rl.py task=g1_motion_tracking/mujoco
 | Goal | Entrypoint | Log root pattern |
 |------|------------|------------------|
 | PPO (torch / RSL-RL) | `scripts/train_rsl_rl.py` | `logs/rsl_rl_ppo/<task>/` |
-| PPO (MLX, macOS) | `scripts/train_mlx_ppo.py` | `logs/rsl_rl_ppo/<task>/` |
+| PPO (MLX, macOS) | `scripts/train_mlx_ppo.py` | `logs/mlx_rl_train/<task>/` |
 | APPO | `scripts/train_appo.py` | `logs/appo/<task>/` |
 | SAC | `scripts/train_offpolicy.py` | `logs/fast_sac/<task>/` |
 | TD3 | `scripts/train_offpolicy.py` | `logs/fast_td3/<task>/` |
@@ -91,6 +91,8 @@ For MotrixSim visualization or `training.play_only=true` on macOS / MacBook, reu
 - [04 Algorithms](docs/users/zh_CN/04-algorithms.md): APPO, FastSAC, and FastTD3 usage and differences
 - [05 G1 Motion Tracking](docs/users/zh_CN/05-motion-tracking.md): the G1 whole-body motion-tracking task
 - [07 Domain Randomization](docs/users/zh_CN/07-domain-randomization.md): domain randomization configuration and best practices
+
+> Note: `06` (collaboration workflow) was moved to [Developer docs](docs/developers/zh_CN/collaboration.md).
 
 ### For Developers
 - [CONTRIBUTING.md](CONTRIBUTING.md): development environment, commands, commit conventions, and PR workflow
