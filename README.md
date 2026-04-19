@@ -90,9 +90,8 @@ For MotrixSim visualization or `training.play_only=true` on macOS / MacBook, reu
 - [03 Training Guide](docs/users/zh_CN/03-training.md): training, playback, resume flow, Hydra overrides, and W&B
 - [04 Algorithms](docs/users/zh_CN/04-algorithms.md): APPO, FastSAC, and FastTD3 usage and differences
 - [05 G1 Motion Tracking](docs/users/zh_CN/05-motion-tracking.md): the G1 whole-body motion-tracking task
-- [07 Domain Randomization](docs/users/zh_CN/07-domain-randomization.md): domain randomization configuration and best practices
+- [06 Domain Randomization](docs/users/zh_CN/06-domain-randomization.md): domain randomization configuration and best practices
 
-> Note: `06` (collaboration workflow) was moved to [Developer docs](docs/developers/zh_CN/collaboration.md).
 
 ### For Developers
 - [CONTRIBUTING.md](CONTRIBUTING.md): development environment, commands, commit conventions, and PR workflow

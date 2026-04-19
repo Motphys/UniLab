@@ -13,9 +13,7 @@
 - [03 训练指南](users/zh_CN/03-training.md) — 训练、回放、续训、Hydra 覆盖、W&B
 - [04 算法说明](users/zh_CN/04-algorithms.md) — APPO、FastSAC、FastTD3 用法与区别
 - [05 G1 全身运动跟踪](users/zh_CN/05-motion-tracking.md) — G1 运动跟踪任务
-- [07 域随机化](users/zh_CN/07-domain-randomization.md) — 域随机化配置与最佳实践
-
-> 注：`06`（协作流程）已合并至开发者文档 [协作流程](developers/zh_CN/collaboration.md)。
+- [06 域随机化](users/zh_CN/06-domain-randomization.md) — 域随机化配置与最佳实践
 
 ---
 
