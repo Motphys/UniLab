@@ -1,10 +1,10 @@
 defaults:
   - _self_
   - algo: sac
-  - task: ${algo}/go1_joystick_flat/mujoco
+  - task: ${algo}/g1_walk_flat/mujoco
 
 training:
-  task_name: Go1JoystickFlat
+  task_name: G1WalkFlat
   device: null
   logger: tensorboard
   wandb_project: unilab

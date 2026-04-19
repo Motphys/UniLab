@@ -28,8 +28,8 @@ uv run scripts/train_mlx_ppo.py task=go1_joystick_flat/mujoco
 uv run scripts/train_appo.py task=go1_joystick_flat/mujoco
 
 # Off-policy
-uv run scripts/train_offpolicy.py algo=sac task=sac/go1_joystick_flat/mujoco
-uv run scripts/train_offpolicy.py algo=td3 task=td3/go1_joystick_flat/mujoco
+uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco
+uv run scripts/train_offpolicy.py algo=td3 task=td3/g1_walk_flat/mujoco
 
 # CLI override
 uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco algo.num_envs=2048 algo.max_iterations=1000
@@ -50,20 +50,20 @@ run 目录命名格式是 `YYYY-MM-DD_HH-MM-SS_<sim_backend>`，例如 `2026-03-
 ```bash
 # 回放最新结果
 uv run scripts/train_rsl_rl.py task=go2_joystick_flat/mujoco training.play_only=true
-uv run scripts/train_offpolicy.py algo=sac task=sac/go2_joystick_flat/mujoco training.play_only=true
+uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco training.play_only=true
 
 # macOS / MacBook 上的 MotrixSim 原生 renderer
 uv run mxpython scripts/train_rsl_rl.py task=go2_joystick_flat/motrix training.play_only=true
 
 # 回放指定 run
-uv run scripts/train_offpolicy.py algo=td3 task=td3/go1_joystick_flat/mujoco training.play_only=true algo.load_run="2024-02-04_12-00-00"
+uv run scripts/train_offpolicy.py algo=td3 task=td3/g1_walk_flat/mujoco training.play_only=true algo.load_run="2024-02-04_12-00-00"
 ```
 
 ## Resume Training
 
 ```bash
 uv run scripts/train_rsl_rl.py task=go2_joystick_flat/mujoco algo.load_run="2024-02-04_12-00-00"
-uv run scripts/train_offpolicy.py algo=sac task=sac/go2_joystick_flat/mujoco algo.load_run="2024-02-04_12-00-00"
+uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco algo.load_run="2024-02-04_12-00-00"
 ```
 
 ## Hydra Overrides
@@ -116,10 +116,10 @@ uv run scripts/train_appo.py \
 # 按 task 分组
 uv run scripts/train_offpolicy.py \
   algo=sac \
-  task=sac/go2_joystick_flat/mujoco \
+  task=sac/g1_walk_flat/mujoco \
   training.logger=wandb \
   training.wandb_project=unilab-benchmark \
-  training.wandb_group=go2_joystick_flat
+  training.wandb_group=g1_walk_flat
 ```
 
 常用字段:

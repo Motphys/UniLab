@@ -32,7 +32,7 @@ def test_check_training_entrypoint_semantics_accepts_current_patterns():
     doc_path = root / "README.md"
     content = """
 uv run python scripts/train_rsl_rl.py task=go1_joystick_flat/mujoco algo.load_run=2026-01-01
-uv run python scripts/train_offpolicy.py algo=sac task=sac/go1_joystick_flat/mujoco
+uv run python scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco
 Logs live under logs/<algo.algo_log_name>/<task>/.
 """
 
