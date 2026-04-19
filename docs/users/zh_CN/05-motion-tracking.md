@@ -181,3 +181,8 @@ uv run scripts/play_viser.py task=g1_motion_tracking/mujoco interactive.action_m
 uv run scripts/play_viser.py task=g1_motion_tracking/mujoco interactive.action_mode=policy algo.load_run=xxx algo.checkpoint=xxx viser.max_envs=4 viser.port=8080
 ```
 
+
+## Navigation
+
+- Previous: [Algorithms](04-algorithms.md)
+- Next: [Domain Randomization](06-domain-randomization.md)

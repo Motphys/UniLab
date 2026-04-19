@@ -348,3 +348,7 @@ uv run python scripts/train_rsl_rl.py task=sharpa_inhand/mujoco 'env.scale_range
 3. 任务 config / provider 真正采样并下发该字段
 
 缺任何一层，都只能算“底层有能力”或“任务里自己做了随机”，还不能算仓库层面的统一 DR 项。
+
+## Navigation
+
+- Previous: [G1 Motion Tracking](05-motion-tracking.md)
