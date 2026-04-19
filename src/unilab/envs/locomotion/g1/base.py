@@ -51,9 +51,13 @@ class G1BaseEnv(LocomotionBaseEnv):
         """Apply per-step uniform observation noise scaled by ``noise_config.level``."""
         noise_cfg = self._cfg.noise_config
         if noise_cfg.level > 0.0:
-            return data + (
-                np.random.uniform(-1.0, 1.0, data.shape).astype(data.dtype)
-                * noise_cfg.level
-                * scale
+            return np.asarray(
+                data
+                + (
+                    np.random.uniform(-1.0, 1.0, data.shape).astype(data.dtype)
+                    * noise_cfg.level
+                    * scale
+                ),
+                dtype=data.dtype,
             )
-        return data
+        return np.asarray(data)

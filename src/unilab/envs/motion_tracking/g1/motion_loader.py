@@ -267,13 +267,14 @@ class MotionSampler:
 
     def _sample_clip_start(self, env_ids: np.ndarray) -> np.ndarray:
         """Start from the first frame of a randomly chosen clip."""
+        frames: np.ndarray
         if self.motion_loader.num_clips == 1:
             frames = np.zeros(len(env_ids), dtype=np.int32)
         else:
             clip_indices = np.random.randint(
                 0, self.motion_loader.num_clips, len(env_ids), dtype=np.int32
             )
-            frames = self.motion_loader.clip_offsets[clip_indices]
+            frames = np.asarray(self.motion_loader.clip_offsets[clip_indices], dtype=np.int32)
         self._set_sampled_frames(env_ids, frames)
         return frames
 

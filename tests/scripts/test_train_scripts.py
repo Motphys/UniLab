@@ -220,12 +220,11 @@ def test_ppo_go1_resolved_algo_matches_old_motrix_behavior():
 def test_ppo_g1_resolved_algo_matches_old_motrix_behavior():
     """Equivalence: PPO G1 algo hyperparams match pre-refactor motrix values.
 
-    In particular, max_iterations=151 (the motrix value from the old bag),
-    NOT 220 (the old mujoco base value which has been retired).
+    For this migration we align with the final UniLab1 Motrix runtime.
     """
     cfg = _ppo_cfg(["task=g1_joystick_flat/motrix"])
 
-    assert cfg.algo.max_iterations == 151
+    assert cfg.algo.max_iterations == 220
     assert cfg.algo.empirical_normalization is True
     assert cfg.algo.obs_groups.actor == ["policy"]
     assert cfg.algo.policy.init_noise_std == pytest.approx(0.5)
@@ -246,8 +245,13 @@ def test_ppo_g1_env_preset_has_env_overrides():
 
     assert cfg.env.iterations == 3
     assert cfg.env.control_config.action_scale == pytest.approx(0.5)
-    assert cfg.env.gait_phase_init_mode == "independent"
+    assert cfg.env.commands.vel_limit == [[0.4, 0.0, 0.0], [0.7, 0.0, 0.0]]
+    assert cfg.env.gait_phase_init_mode == "offset_phase"
     assert cfg.env.reset_base_qvel_limit == pytest.approx(0.05)
+    assert cfg.reward.scales.feet_phase_contrast == pytest.approx(1.5)
+    assert cfg.reward.scales.feet_phase_contact == pytest.approx(1.0)
+    assert cfg.reward.scales.feet_double_stance == pytest.approx(-1.0)
+    assert cfg.reward.min_forward_speed_for_gait_reward == pytest.approx(0.05)
 
 
 def test_ppo_task_go2_aligns_mujoco_with_motrix_defaults():
@@ -287,9 +291,17 @@ def test_build_ppo_env_cfg_override_g1_motrix(
 
     # env_cfg_override has reward + env preset fields (flat, matching env cfg structure)
     assert env_cfg_override["reward_config"]["scales"]["upper_body_pose"] == pytest.approx(-0.05)
+    assert env_cfg_override["reward_config"]["scales"]["penalty_feet_ori"] == pytest.approx(0.0)
+    assert env_cfg_override["reward_config"]["scales"]["feet_phase_contrast"] == pytest.approx(1.5)
+    assert env_cfg_override["reward_config"]["scales"]["feet_phase_contact"] == pytest.approx(1.0)
+    assert env_cfg_override["reward_config"]["scales"]["feet_double_stance"] == pytest.approx(-1.0)
+    assert env_cfg_override["reward_config"]["min_forward_speed_for_gait_reward"] == pytest.approx(
+        0.05
+    )
     assert env_cfg_override["iterations"] == 3
     assert env_cfg_override["control_config"]["action_scale"] == pytest.approx(0.5)
-    assert env_cfg_override["gait_phase_init_mode"] == "independent"
+    assert env_cfg_override["commands"]["vel_limit"] == [[0.4, 0.0, 0.0], [0.7, 0.0, 0.0]]
+    assert env_cfg_override["gait_phase_init_mode"] == "offset_phase"
     assert env_cfg_override["reset_base_qvel_limit"] == pytest.approx(0.05)
 
 
