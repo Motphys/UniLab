@@ -42,7 +42,7 @@ def _normalize_overrides(overrides: list[str] | None, *, offpolicy: bool = False
 
     if not task_selected:
         if offpolicy:
-            normalized.append(f"task={algo}/go1_joystick_flat/mujoco")
+            normalized.append(f"task={algo}/g1_walk_flat/mujoco")
         else:
             normalized.append("task=go1_joystick_flat/mujoco")
     return normalized
@@ -130,7 +130,7 @@ def test_offpolicy_hydra_default_algo():
 
 def test_offpolicy_hydra_default_task():
     cfg = _offpolicy_cfg()
-    assert cfg.training.task_name == "Go1JoystickFlat"
+    assert cfg.training.task_name == "G1WalkFlat"
 
 
 def test_offpolicy_hydra_default_logger():
@@ -179,23 +179,23 @@ def test_offpolicy_hydra_algo_td3():
     assert cfg.algo.algo == "td3"
 
 
-def test_offpolicy_go1_resolved_algo_matches_old_motrix_behavior():
-    """Equivalence: Motrix SAC Go1 algo hyperparams match legacy values."""
-    cfg = _offpolicy_cfg(["task=sac/go1_joystick_flat/motrix"])
+def test_offpolicy_g1_walk_flat_motrix_resolved_algo_matches_task_owner():
+    """Motrix SAC G1 walk flat composes backend-owned algo hyperparameters."""
+    cfg = _offpolicy_cfg(["task=sac/g1_walk_flat/motrix"])
 
-    # Legacy Motrix SAC Go1 values: num_envs=4096, max_iterations=2000
-    assert cfg.algo.num_envs == 4096
-    assert cfg.algo.max_iterations == 2000
+    assert cfg.algo.num_envs == 2048
+    assert cfg.algo.max_iterations == 5000
+    assert cfg.algo.use_symmetry is False
 
 
-def test_offpolicy_go1_env_cfg_override_has_reward_and_commands():
-    cfg = _offpolicy_cfg(["task=sac/go1_joystick_flat/motrix"])
+def test_offpolicy_g1_walk_flat_env_cfg_override_has_reward_and_domain_rand():
+    cfg = _offpolicy_cfg(["task=sac/g1_walk_flat/motrix"])
 
     env_cfg_override = _offpolicy().build_offpolicy_env_cfg_override("sac", cfg)
 
-    # env_cfg_override has reward + env preset fields (no bag structure)
-    assert env_cfg_override["reward_config"]["scales"]["tracking_lin_vel"] == pytest.approx(1.0)
-    assert env_cfg_override["commands"]["vel_limit"] == [[0.5, 0.0, 0.0], [0.5, 0.0, 0.0]]
+    assert env_cfg_override["reward_config"]["scales"]["tracking_lin_vel"] == pytest.approx(2.2)
+    assert env_cfg_override["domain_rand"]["randomize_kp"] is False
+    assert env_cfg_override["domain_rand"]["randomize_kd"] is False
 
 
 def test_offpolicy_g1_walk_flat_backend_scoped_use_symmetry():
@@ -293,15 +293,14 @@ def test_build_ppo_env_cfg_override_g1_motrix(
     assert env_cfg_override["reset_base_qvel_limit"] == pytest.approx(0.05)
 
 
-@pytest.mark.parametrize("algo", ["sac", "td3"])
-def test_offpolicy_go2_motrix_env_cfg_override_has_domain_rand(algo: str):
-    cfg = _offpolicy_cfg([f"algo={algo}", f"task={algo}/go2_joystick_flat/motrix"])
+def test_offpolicy_g1_walk_flat_motrix_env_cfg_override_has_domain_rand():
+    cfg = _offpolicy_cfg(["algo=sac", "task=sac/g1_walk_flat/motrix"])
 
-    env_cfg_override = _offpolicy().build_offpolicy_env_cfg_override(algo, cfg)
+    env_cfg_override = _offpolicy().build_offpolicy_env_cfg_override("sac", cfg)
 
     assert env_cfg_override["domain_rand"]["randomize_kp"] is False
     assert env_cfg_override["domain_rand"]["randomize_kd"] is False
-    assert env_cfg_override["reward_config"]["scales"]["tracking_lin_vel"] == pytest.approx(1.0)
+    assert env_cfg_override["reward_config"]["scales"]["tracking_lin_vel"] == pytest.approx(2.2)
 
 
 def test_build_ppo_env_cfg_override_applies_go2_motrix_reward(

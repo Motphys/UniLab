@@ -59,17 +59,17 @@ def test_appo_task_configs_load(task):
 @pytest.mark.veryslow
 @pytest.mark.parametrize(
     "task",
-    ["sac/go1_joystick_flat/mujoco", "sac/go2_joystick_flat/mujoco"],
+    ["sac/g1_walk_flat/mujoco", "sac/g1_walk_rough/mujoco", "td3/g1_walk_flat/mujoco"],
 )
 def test_offpolicy_task_configs_load(task):
-    """Off-policy SAC can start training with all supported task configs."""
+    """Off-policy task configs can start training with supported MuJoCo owners."""
     if not _MLX_RUNTIME_USABLE:
         pytest.skip("mlx runtime aborts in subprocess on this host")
     result = subprocess.run(
         [
             sys.executable,
             "scripts/train_offpolicy.py",
-            "algo=sac",
+            f"algo={task.split('/', 1)[0]}",
             f"task={task}",
             "algo.max_iterations=1",
             "training.no_play=true",
@@ -78,4 +78,4 @@ def test_offpolicy_task_configs_load(task):
         text=True,
         timeout=120,
     )
-    assert result.returncode == 0, f"SAC {task} failed:\n{result.stderr}"
+    assert result.returncode == 0, f"Off-policy {task} failed:\n{result.stderr}"

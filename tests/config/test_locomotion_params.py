@@ -132,15 +132,16 @@ def test_offpolicy_td3_defaults():
     assert cfg.algo.algo_params.log_std_min == pytest.approx(-5.0)
 
 
-def test_offpolicy_go2_task_overrides():
+def test_offpolicy_td3_g1_task_overrides():
     from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
 
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(CONF_DIR / "offpolicy"), version_base="1.3"):
-        cfg = compose("config", overrides=["algo=sac", "task=sac/go2_joystick_flat/mujoco"])
-    assert cfg.algo.num_envs == 1024
-    assert cfg.training.task_name == "Go2JoystickFlat"
+        cfg = compose("config", overrides=["algo=td3", "task=td3/g1_walk_flat/mujoco"])
+    assert cfg.training.task_name == "G1WalkFlat"
+    assert cfg.algo.max_iterations == 100000
+    assert cfg.env.control_config.action_scale == pytest.approx(1.0)
 
 
 def test_offpolicy_flashsac_g1_task_overrides():

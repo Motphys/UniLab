@@ -84,21 +84,21 @@ FastSAC 和 FastTD3 使用同一套异步多进程架构，通过 shared memory 
 
 ```bash
 # 基本训练
-uv run scripts/train_offpolicy.py algo=sac task=sac/go2_joystick_flat/mujoco
-uv run scripts/train_offpolicy.py algo=td3 task=td3/go1_joystick_flat/mujoco
+uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco
+uv run scripts/train_offpolicy.py algo=td3 task=td3/g1_walk_flat/mujoco
 
 # 异步采集模式
-uv run scripts/train_offpolicy.py algo=sac task=sac/go2_joystick_flat/mujoco training.no_sync_collection=true
+uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco training.no_sync_collection=true
 
 # 跳过自动回放
-uv run scripts/train_offpolicy.py algo=td3 task=td3/go1_joystick_flat/mujoco training.no_play=true
+uv run scripts/train_offpolicy.py algo=td3 task=td3/g1_walk_flat/mujoco training.no_play=true
 ```
 
 ### Playback
 
 ```bash
-uv run scripts/train_offpolicy.py algo=sac task=sac/go2_joystick_flat/mujoco training.play_only=true
-uv run scripts/train_offpolicy.py algo=td3 task=td3/go1_joystick_flat/mujoco training.play_only=true algo.load_run="2024-02-04_12-00-00"
+uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco training.play_only=true
+uv run scripts/train_offpolicy.py algo=td3 task=td3/g1_walk_flat/mujoco training.play_only=true algo.load_run="2024-02-04_12-00-00"
 ```
 
 ### Key Parameters
@@ -106,7 +106,7 @@ uv run scripts/train_offpolicy.py algo=td3 task=td3/go1_joystick_flat/mujoco tra
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | `algo` | `sac` | 算法选择 |
-| `task` | `sac/go1_joystick_flat/mujoco` | 单个 task 配置入口，内部同时定义 algo + task + backend |
+| `task` | `sac/g1_walk_flat/mujoco` | 单个 task 配置入口，内部同时定义 algo + task + backend |
 | `algo.max_iterations` | 500 (SAC) / 5000 (TD3) | 最大训练迭代数 |
 | `algo.num_envs` | 4096 | 并行环境数量 |
 | `training.device` | 自动检测 | learner 设备 |
