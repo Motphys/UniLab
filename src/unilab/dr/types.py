@@ -9,6 +9,9 @@ RESET_TERM_BASE_COM = "base_com_offset"
 RESET_TERM_BASE_MASS = "base_mass_delta"
 RESET_TERM_BODY_IQUAT = "body_iquat"
 RESET_TERM_BODY_INERTIA = "body_inertia"
+RESET_TERM_BODY_IPOS = "body_ipos"
+RESET_TERM_BODY_MASS = "body_mass"
+RESET_TERM_GEOM_FRICTION = "geom_friction"
 RESET_TERM_KP = "kp"
 RESET_TERM_KD = "kd"
 
@@ -58,6 +61,17 @@ class DomainRandomizationCapabilities:
             body_inertia=(
                 payload.body_inertia if self.supports_reset_term(RESET_TERM_BODY_INERTIA) else None
             ),
+            body_ipos=(
+                payload.body_ipos if self.supports_reset_term(RESET_TERM_BODY_IPOS) else None
+            ),
+            body_mass=(
+                payload.body_mass if self.supports_reset_term(RESET_TERM_BODY_MASS) else None
+            ),
+            geom_friction=(
+                payload.geom_friction
+                if self.supports_reset_term(RESET_TERM_GEOM_FRICTION)
+                else None
+            ),
             kp=payload.kp if self.supports_reset_term(RESET_TERM_KP) else None,
             kd=payload.kd if self.supports_reset_term(RESET_TERM_KD) else None,
         )
@@ -70,6 +84,9 @@ class ResetRandomizationPayload:
     base_com_offset: np.ndarray | None = None
     body_iquat: np.ndarray | None = None
     body_inertia: np.ndarray | None = None
+    body_ipos: np.ndarray | None = None
+    body_mass: np.ndarray | None = None
+    geom_friction: np.ndarray | None = None
     kp: np.ndarray | None = None
     kd: np.ndarray | None = None
 
@@ -83,6 +100,12 @@ class ResetRandomizationPayload:
             terms.add(RESET_TERM_BODY_IQUAT)
         if self.body_inertia is not None:
             terms.add(RESET_TERM_BODY_INERTIA)
+        if self.body_ipos is not None:
+            terms.add(RESET_TERM_BODY_IPOS)
+        if self.body_mass is not None:
+            terms.add(RESET_TERM_BODY_MASS)
+        if self.geom_friction is not None:
+            terms.add(RESET_TERM_GEOM_FRICTION)
         if self.kp is not None:
             terms.add(RESET_TERM_KP)
         if self.kd is not None:

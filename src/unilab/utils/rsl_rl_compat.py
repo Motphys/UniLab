@@ -71,8 +71,8 @@ def convert_config_v3_to_v4(cfg: dict) -> dict:
     empirical_normalization = cfg.pop("empirical_normalization", False)
     cfg.pop("runner_class_name", None)
 
-    # Convert policy → actor + critic
-    if "policy" in cfg:
+    # Convert policy → actor + critic unless explicit custom actor/critic configs are already present.
+    if "policy" in cfg and ("actor" not in cfg or "critic" not in cfg):
         policy = cfg.pop("policy")
         cfg["actor"] = {
             "class_name": "MLPModel",
@@ -163,8 +163,8 @@ def convert_config_v5(cfg: dict) -> dict:
     empirical_normalization = cfg.pop("empirical_normalization", False)
     cfg.pop("runner_class_name", None)
 
-    # Convert policy → actor + critic
-    if "policy" in cfg:
+    # Convert policy → actor + critic unless explicit custom actor/critic configs are already present.
+    if "policy" in cfg and ("actor" not in cfg or "critic" not in cfg):
         policy = cfg.pop("policy")
         cfg["actor"] = {
             "class_name": "MLPModel",

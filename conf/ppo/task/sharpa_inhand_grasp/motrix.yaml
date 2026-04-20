@@ -33,6 +33,7 @@ reward:
   angvel_clip_max: 0.5
 env:
   max_episode_seconds: 12.0
+  critic_info_dim: 9
   torque_control: false
   zero_action_test_mode: false
   clip_obs: 5.0

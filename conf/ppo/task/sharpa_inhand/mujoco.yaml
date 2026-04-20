@@ -69,24 +69,25 @@ env:
   contact_latency: 0.005
   contact_sensor_noise: 0.01
   dof_limits_scale: 0.9
+  # scale_range: [1, 1, 1]
   scale_range: [0.8, 1.1, 4]
   randomize_pd_gains: false
   randomize_p_gain_scale_lower: 0.5
   randomize_p_gain_scale_upper: 2.0
   randomize_d_gain_scale_lower: 0.5
   randomize_d_gain_scale_upper: 2.0
-  randomize_friction: false
-  randomize_friction_scale_lower: 0.5
-  randomize_friction_scale_upper: 2.0
-  elastomer_base_friction: 0.8
-  metal_base_friction: 0.1
-  object_base_friction: 0.5
-  randomize_com: false
+  randomize_friction: true
+  randomize_friction_scale_lower: 0.75
+  randomize_friction_scale_upper: 1.25
+  elastomer_base_friction: 2.0
+  metal_base_friction: 1.0
+  object_base_friction: 2.0
+  randomize_com: true
   randomize_com_lower: -0.01
   randomize_com_upper: 0.01
-  randomize_mass: false
+  randomize_mass: true
   randomize_mass_lower: 0.01
-  randomize_mass_upper: 0.25
+  randomize_mass_upper: 0.10 # 0.25
   force_scale: 0.0
   random_force_prob_scalar: 0.0
   force_decay: 0.9

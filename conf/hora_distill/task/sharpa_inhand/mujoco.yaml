@@ -1,0 +1,15 @@
+# @package _global_
+teacher_defaults:
+  ppo_task: sharpa_inhand/mujoco_hora
+
+training:
+  task_name: SharpaInhandRotation
+  sim_backend: mujoco
+
+algo:
+  algo_log_name: hora_distill
+  num_envs: 16384
+  max_agent_steps: 1000000000
+  save_interval_steps: 10000000
+
+

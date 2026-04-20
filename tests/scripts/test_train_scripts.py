@@ -18,6 +18,7 @@ import numpy as np
 import pytest
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
+from omegaconf import OmegaConf
 
 _SCRIPTS_DIR = Path(__file__).parent.parent.parent / "scripts"
 _CONF_DIR = Path(__file__).parent.parent.parent / "conf"
@@ -103,6 +104,20 @@ def _appo_cfg(overrides=None):
         return compose("config", overrides=_normalize_overrides(overrides))
 
 
+def _hora_distill_cfg(overrides=None):
+    """Compose the HORA distillation Hydra config.
+
+    Args:
+        overrides: Optional Hydra override strings to apply during composition.
+
+    Returns:
+        The composed HORA distillation config.
+    """
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(_CONF_DIR / "hora_distill"), version_base="1.3"):
+        return compose("config", overrides=overrides or [])
+
+
 def _train_rsl_rl(monkeypatch: pytest.MonkeyPatch):
     import types
 
@@ -121,6 +136,18 @@ def _train_rsl_rl(monkeypatch: pytest.MonkeyPatch):
 
 def _train_appo():
     return _load_script("train_appo")
+
+
+def _train_hora_distill():
+    """Load the HORA distillation entrypoint module.
+
+    Args:
+        None.
+
+    Returns:
+        The loaded ``scripts/train_hora_distill.py`` module.
+    """
+    return _load_script("train_hora_distill")
 
 
 def test_offpolicy_hydra_default_algo():
@@ -177,6 +204,17 @@ def test_offpolicy_hydra_default_play_flags():
 def test_offpolicy_hydra_algo_td3():
     cfg = _offpolicy_cfg(["algo=td3"])
     assert cfg.algo.algo == "td3"
+
+
+def test_hora_distill_task_owner_overrides_root_config_defaults():
+    mod = _train_hora_distill()
+    root_cfg = OmegaConf.load(_CONF_DIR / "hora_distill" / "config.yaml")
+    cfg = mod._apply_teacher_defaults(_hora_distill_cfg(["task=sharpa_inhand/mujoco"]))
+
+    assert root_cfg.algo.num_envs == 4096
+    assert root_cfg.algo.save_interval_steps == 100000000
+    assert cfg.algo.num_envs == 16384
+    assert cfg.algo.save_interval_steps == 10000000
 
 
 def test_offpolicy_go1_resolved_algo_matches_old_motrix_behavior():

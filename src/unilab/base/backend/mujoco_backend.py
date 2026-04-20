@@ -14,7 +14,10 @@ from unilab.dr.types import (
     RESET_TERM_BASE_COM,
     RESET_TERM_BASE_MASS,
     RESET_TERM_BODY_INERTIA,
+    RESET_TERM_BODY_IPOS,
     RESET_TERM_BODY_IQUAT,
+    RESET_TERM_BODY_MASS,
+    RESET_TERM_GEOM_FRICTION,
     RESET_TERM_KD,
     RESET_TERM_KP,
     DomainRandomizationCapabilities,
@@ -494,6 +497,9 @@ class MuJoCoBackend(SimBackend):
                     RESET_TERM_BASE_COM,
                     RESET_TERM_BODY_IQUAT,
                     RESET_TERM_BODY_INERTIA,
+                    RESET_TERM_BODY_IPOS,
+                    RESET_TERM_BODY_MASS,
+                    RESET_TERM_GEOM_FRICTION,
                     RESET_TERM_KP,
                     RESET_TERM_KD,
                 }
@@ -648,16 +654,36 @@ class MuJoCoBackend(SimBackend):
             raise ValueError(f"Body '{self._base_name}' not found in MuJoCo model")
 
         translated: dict[str, np.ndarray] = {}
+        body_mass = None
+        if randomization.body_mass is not None:
+            body_mass = self._coerce_reset_field(
+                randomization.body_mass,
+                name="body_mass",
+                num_reset=num_reset,
+                shaped_tail=(self._model.nbody,),
+            )
         if randomization.base_mass_delta is not None:
-            body_mass = np.broadcast_to(self._base_body_mass, (num_reset, self._model.nbody)).copy()
+            if body_mass is None:
+                body_mass = np.broadcast_to(self._base_body_mass, (num_reset, self._model.nbody)).copy()
             body_mass[:, self._base_body_id] += np.asarray(randomization.base_mass_delta)
+        if body_mass is not None:
             translated["body_mass"] = body_mass
 
+        body_ipos = None
+        if randomization.body_ipos is not None:
+            body_ipos = self._coerce_reset_field(
+                randomization.body_ipos,
+                name="body_ipos",
+                num_reset=num_reset,
+                shaped_tail=(self._model.nbody, 3),
+            )
         if randomization.base_com_offset is not None:
-            body_ipos = np.broadcast_to(
-                self._base_body_ipos, (num_reset, self._model.nbody, 3)
-            ).copy()
+            if body_ipos is None:
+                body_ipos = np.broadcast_to(
+                    self._base_body_ipos, (num_reset, self._model.nbody, 3)
+                ).copy()
             body_ipos[:, self._base_body_id, :] += np.asarray(randomization.base_com_offset)
+        if body_ipos is not None:
             translated["body_ipos"] = body_ipos.reshape(num_reset, -1)
 
         if randomization.body_iquat is not None:
@@ -674,6 +700,14 @@ class MuJoCoBackend(SimBackend):
                 name="body_inertia",
                 num_reset=num_reset,
                 shaped_tail=(self._model.nbody, 3),
+            )
+
+        if randomization.geom_friction is not None:
+            translated["geom_friction"] = self._coerce_reset_field(
+                randomization.geom_friction,
+                name="geom_friction",
+                num_reset=num_reset,
+                shaped_tail=(self._model.ngeom, 3),
             )
 
         if randomization.kp is not None:

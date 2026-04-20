@@ -1,0 +1,38 @@
+defaults:
+  - _self_
+  - task: sharpa_inhand/mujoco
+
+algo:
+  algo_log_name: hora_distill
+  seed: 1
+  num_envs: 4096
+  max_agent_steps: 1000000000
+  save_interval_steps: 100000000
+  log_interval_steps: 32768
+  learning_rate: 3.0e-4
+  load_run: "-1"
+  checkpoint: -1
+  model: {}
+
+training:
+  task_name: SharpaInhandRotation
+  device: null
+  logger: tensorboard
+  sim_backend: mujoco
+  play_only: false
+  play_env_num: 16
+  play_steps: 200
+  cam_tracking: false
+  cam_tracking_env_idx: 0
+  cam_tracking_extra_envs: 2
+  log_dir: null
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  job:
+    chdir: false
+  job_logging:
+    root:
+      handlers: [console]

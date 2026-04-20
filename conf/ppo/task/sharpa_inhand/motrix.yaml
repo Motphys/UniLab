@@ -31,6 +31,7 @@ reward:
   angvel_clip_min: -0.5
   angvel_clip_max: 0.5
 env:
+  critic_info_dim: 9
   torque_control: false
   zero_action_test_mode: false
   clip_obs: 5.0
@@ -54,7 +55,7 @@ env:
       - contact_right_middle_elastomer_force
       - contact_right_ring_elastomer_force
       - contact_right_pinky_elastomer_force
-  enable_tactile: true
+  enable_tactile: false
   binary_contact: false
   enable_contact_pos: false
   disable_tactile_ids: []

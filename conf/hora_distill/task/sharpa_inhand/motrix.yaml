@@ -1,0 +1,3 @@
+# @package _global_
+teacher_defaults:
+  ppo_task: sharpa_inhand/motrix_hora

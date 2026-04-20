@@ -54,7 +54,11 @@ class RslRlVecEnvWrapper:
         # Initialize
         self.reset()
 
-    def _obs_to_tensordict(self, obs: dict[str, np.ndarray]) -> TensorDict:
+    def _obs_to_tensordict(
+        self,
+        obs: dict[str, np.ndarray],
+        info: dict | None = None,
+    ) -> TensorDict:
         """Convert observation dict to TensorDict for RSL-RL.
 
         Args:
@@ -63,7 +67,15 @@ class RslRlVecEnvWrapper:
         Returns:
             TensorDict with "policy" and "actor" keys, plus optional "critic".
         """
-        actor = to_torch(obs["obs"], self.device)
+        actor_np = obs["obs"]
+        critic_np = obs.get("critic")
+        if critic_np is None and info is not None:
+            priv_info = info.get("critic_info")
+            if isinstance(priv_info, np.ndarray) and priv_info.shape[0] == self.num_envs:
+                critic_dim = int(priv_info.shape[1])
+                if critic_dim > 0 and actor_np.shape[1] >= critic_dim:
+                    actor_np = actor_np[:, :-critic_dim]
+        actor = to_torch(actor_np, self.device)
 
         if self.policy_obs_mode == "actor":
             policy = actor
@@ -72,8 +84,15 @@ class RslRlVecEnvWrapper:
 
         td: dict[str, torch.Tensor] = {"policy": policy, "actor": actor}
 
-        if "critic" in obs:
-            td["critic"] = to_torch(obs["critic"], self.device)
+        if critic_np is not None:
+            td["critic"] = to_torch(critic_np, self.device)
+        if info is not None:
+            priv_info = info.get("critic_info")
+            if isinstance(priv_info, np.ndarray) and priv_info.shape[0] == self.num_envs:
+                td["priv_info"] = to_torch(priv_info, self.device)
+            proprio_hist = info.get("proprio_hist")
+            if isinstance(proprio_hist, np.ndarray) and proprio_hist.shape[0] == self.num_envs:
+                td["proprio_hist"] = to_torch(proprio_hist, self.device)
 
         return TensorDict(td, batch_size=self.num_envs, device=self.device)
 
@@ -117,14 +136,17 @@ class RslRlVecEnvWrapper:
                 ):
                     final_observation = state.info.get("final_observation")
                 if torch.any(infos["time_outs"]) and isinstance(final_observation, dict):
-                    infos["time_out_bootstrap_obs"] = self._obs_to_tensordict(final_observation)
+                    infos["time_out_bootstrap_obs"] = self._obs_to_tensordict(
+                        final_observation,
+                        state.info,
+                    )
             self.episode_returns[done_indices] = 0
             self.episode_lengths[done_indices] = 0
 
         if hasattr(state, "info") and "log" in state.info:
             infos["log"] = state.info["log"]
 
-        obs_dict = self._obs_to_tensordict(state.obs)
+        obs_dict = self._obs_to_tensordict(state.obs, state.info)
         return obs_dict, rewards, dones, infos
 
     def reset(self):
@@ -145,7 +167,8 @@ class RslRlVecEnvWrapper:
         self.episode_returns[:] = 0
         self.episode_lengths[:] = 0
 
-        return self._obs_to_tensordict(obs_out), {}
+        env_info = self.env.state.info if self.env.state is not None else {}
+        return self._obs_to_tensordict(obs_out, env_info), {}
 
     def get_observations(self):
         """Get current observations without stepping.
@@ -153,7 +176,8 @@ class RslRlVecEnvWrapper:
         Returns:
             TensorDict with current observations.
         """
-        return self._obs_to_tensordict(self.env.state.obs)
+        assert self.env.state is not None
+        return self._obs_to_tensordict(self.env.state.obs, self.env.state.info)
 
     def get_privileged_observations(self):
         """Get current critic observations via the legacy RSL-RL hook name.
