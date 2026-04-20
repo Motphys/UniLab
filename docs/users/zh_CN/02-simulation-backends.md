@@ -67,6 +67,7 @@ uv run scripts/generate_support_matrix.py --write
 | APPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | Registered |
 | SAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested |
 | SAC (torch) | `g1_walk_rough` (G1 walk rough) | Tested | Registered |
+| SAC (torch) | `g1_sac_wbt` (g1 sac wbt) | Tested | - |
 | TD3 (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered |
 
 ### Source Index
