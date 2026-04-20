@@ -2,17 +2,20 @@
 
 语言: 简体中文
 
-UniLab 当前提供两个 G1 whole-body motion tracking task family：
+UniLab 当前提供两个 G1 whole-body motion tracking task family 和一个 FastSAC off-policy 入口：
 
 - task family：`g1_motion_tracking`
 - 注册环境名：`G1MotionTracking`
 - task family：`g1_flip_tracking`（flip 专用 profile）
 - 注册环境名：`G1FlipTracking`
-- 后端注册：`mujoco` 和 `motrix`
+- task family：`g1_sac_wbt`（FastSAC off-policy，从 holosoma 迁移）
+- 注册环境名：`G1MotionTrackingSAC`
+- 后端注册：`mujoco` 和 `motrix`（`g1_sac_wbt` 目前仅 `mujoco`）
 - 已提交的 Motrix 特化配置：PPO 和 APPO 的 motion-tracking reward
 - `g1_motion_tracking` 默认 motion：`src/unilab/assets/motions/g1/dance1_subject2_part.npz`
 - `g1_flip_tracking` 默认 motion：`src/unilab/assets/motions/g1/flip_360_001__A304.npz`
-- 实际训练入口统一写成 `task=<family>/<backend>`
+- `g1_sac_wbt` 默认 motion：与 `g1_motion_tracking` 相同
+- 实际训练入口统一写成 `task=<family>/<backend>`（off-policy 需加 `algo` 前缀）
 
 ## Environment Entrypoints
 
@@ -34,6 +37,12 @@ uv run python scripts/train_appo.py task=g1_motion_tracking/mujoco
 
 # APPO (Motrix)
 uv run python scripts/train_appo.py task=g1_motion_tracking/motrix
+
+# FastSAC (MuJoCo, holosoma-aligned WBT)
+uv run scripts/train_offpolicy.py algo=sac task=sac/g1_sac_wbt/mujoco
+
+# FastSAC with AMP (recommended for CUDA)
+uv run scripts/train_offpolicy.py algo=sac task=sac/g1_sac_wbt/mujoco training.use_amp=true
 
 # 回放最新 checkpoint
 uv run python scripts/train_rsl_rl.py task=g1_motion_tracking/mujoco training.play_only=true
@@ -116,6 +125,30 @@ uv run python scripts/motion/replay_npz.py \
 uv run python scripts/motion/replay_npz.py \
   --npz_file src/unilab/assets/motions/g1/dance1_subject2_part.npz \
   --speed 0.5
+```
+
+## FastSAC WBT (holosoma Migration)
+
+`task=sac/g1_sac_wbt/mujoco` 提供从 holosoma 迁移的 G1 whole-body tracking FastSAC 训练。超参数对齐 holosoma `exp:g1-29dof-wbt-fast-sac`（`gamma=0.99, tau=0.05, num_atoms=501, target_entropy_ratio=0.5`）。环境 `G1MotionTrackingSAC` 在 PPO 版 `G1MotionTracking` 基础上为 critic 增加了 `base_lin_vel`（asymmetric actor-critic）。
+
+```bash
+# 默认训练
+uv run scripts/train_offpolicy.py algo=sac task=sac/g1_sac_wbt/mujoco
+
+# 推荐：开启 AMP 加速
+uv run scripts/train_offpolicy.py algo=sac task=sac/g1_sac_wbt/mujoco training.use_amp=true
+
+# 自定义并行环境数和迭代次数
+uv run scripts/train_offpolicy.py algo=sac task=sac/g1_sac_wbt/mujoco \
+    algo.num_envs=4096 algo.max_iterations=10000 training.use_amp=true
+
+# 使用 wandb 记录
+uv run scripts/train_offpolicy.py algo=sac task=sac/g1_sac_wbt/mujoco \
+    training.use_amp=true training.logger=wandb
+
+# 指定 motion 文件
+uv run scripts/train_offpolicy.py algo=sac task=sac/g1_sac_wbt/mujoco \
+    env.motion_file=src/unilab/assets/motions/g1/dance1_subject2_part.npz
 ```
 
 ## Configuration Note
