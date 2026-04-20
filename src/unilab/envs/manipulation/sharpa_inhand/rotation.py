@@ -50,9 +50,9 @@ class RewardConfig:
 class SharpaInhandRotationCfg(SharpaInhandBaseCfg):
     reward_config: RewardConfig | None = None
     zero_action_test_mode: bool = False
-    # "full": proprio+tactile+contact-pos plus critic-info channels.
-    # "simple": only {joint_pos, target_joint_pos, object_pos} with history.
-    observation_mode: str = "full"
+    # "separated": source-style actor obs and privileged info carried separately.
+    # "flattened": simple actor obs with privileged info appended into "obs".
+    observation_mode: str = "separated"
 
 
 class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
@@ -114,6 +114,7 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
     def _build_info_updates(
         self,
         env: Any,
+        env_ids: np.ndarray,
         hand_qpos: np.ndarray,
         object_pos: np.ndarray,
         object_quat: np.ndarray,
@@ -140,39 +141,16 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
             p_gain *= p_scale
             d_gain *= d_scale
 
-        critic_info = np.zeros((num_reset, env.cfg.critic_info_dim), dtype=dtype)
-        if env.cfg.randomize_friction:
-            critic_info[:, 3] = np.random.uniform(
-                env.cfg.randomize_friction_scale_lower,
-                env.cfg.randomize_friction_scale_upper,
-                size=(num_reset,),
-            ).astype(dtype)
-        if env.cfg.randomize_mass:
-            critic_info[:, 4] = np.random.uniform(
-                env.cfg.randomize_mass_lower,
-                env.cfg.randomize_mass_upper,
-                size=(num_reset,),
-            ).astype(dtype)
-        if env.cfg.randomize_com:
-            critic_info[:, 5:8] = np.random.uniform(
-                env.cfg.randomize_com_lower,
-                env.cfg.randomize_com_upper,
-                size=(num_reset, 3),
-            ).astype(dtype)
-
-        # NOTE: source task randomizes friction/mass/com in physics directly.
-        # UniLab backend contract currently does not expose those object-level mutation hooks,
-        # so we preserve critic-info channels but keep runtime physics mutation as TODO.
+        critic_info = env._build_reset_critic_info(num_reset, env_ids).astype(dtype)
 
         tactile = np.zeros((num_reset, env._num_tactile), dtype=dtype)
         contact_pos = np.zeros((num_reset, env._num_tactile * 3), dtype=dtype)
         hand_qpos_f = hand_qpos.astype(dtype)
         targets = hand_qpos_f.copy()
         object_pos_f = object_pos.astype(dtype)
-        init_frame = env._build_obs_frame(
+        init_frame = env._build_policy_frame(
             dof_pos=hand_qpos_f,
             targets=targets,
-            object_pos=object_pos_f,
             tactile=tactile,
             contact_pos=contact_pos,
         )
@@ -181,9 +159,13 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
         object_default_pose = np.concatenate(
             [object_pos_f, object_quat.astype(dtype)], axis=1
         ).astype(dtype)
-        critic_info[:, 0:3] = object_pos_f - object_default_pose[:, 0:3]
+        critic_info = env._fill_critic_info(
+            critic_info=critic_info,
+            object_pos=object_pos_f,
+            object_default_pose=object_default_pose,
+        )
 
-        return {
+        info_updates = {
             "current_actions": np.zeros((num_reset, env._num_action), dtype=dtype),
             "last_actions": np.zeros((num_reset, env._num_action), dtype=dtype),
             "prev_targets": hand_qpos_f.copy(),
@@ -201,6 +183,7 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
             "obs_lag_history": obs_lag_history,
             "proprio_hist": env._update_proprio_history(obs_lag_history),
         }
+        return info_updates
 
     def build_reset_plan(self, env: Any, env_ids: np.ndarray) -> ResetPlan:
         num_reset = len(env_ids)
@@ -249,6 +232,7 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
 
         info_updates = self._build_info_updates(
             env,
+            env_ids=env_ids,
             hand_qpos=hand_qpos,
             object_pos=object_pos,
             object_quat=object_quat,
@@ -272,18 +256,15 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
         info_updates: dict[str, Any],
     ) -> dict[str, np.ndarray]:
         del env_ids
+        tactile, contact_pos = env._policy_frame_zeros(len(info_updates["prev_targets"]))
         return cast(
             dict[str, np.ndarray],
             env._compute_obs_from_inputs(
                 info_updates,
                 dof_pos=np.asarray(info_updates["prev_targets"]),
                 object_pos=np.asarray(info_updates["prev_object_pos"]),
-                tactile=np.zeros(
-                    (len(info_updates["prev_targets"]), env._num_tactile), dtype=env._np_dtype
-                ),
-                contact_pos=np.zeros(
-                    (len(info_updates["prev_targets"]), env._num_tactile * 3), dtype=env._np_dtype
-                ),
+                tactile=tactile,
+                contact_pos=contact_pos,
             ),
         )
 
@@ -293,6 +274,11 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
 class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
     _cfg: SharpaInhandRotationCfg
     _reward_cfg: RewardConfig
+    _OBS_MODE_ALIASES: dict[str, str] = {
+        "separated": "separated",
+        "flattened": "flattened",
+    }
+    _CRITIC_BASE_DIM = 8
 
     def __init__(
         self,
@@ -315,36 +301,27 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         )
         super().__init__(cfg, backend, num_envs)
 
-        observation_mode = str(cfg.observation_mode).strip().lower()
-        if observation_mode not in ("full", "simple"):
+        self._observation_mode = self._resolve_observation_mode(cfg.observation_mode)
+        expected_critic_info_dim = self._expected_critic_info_dim()
+        if cfg.critic_info_dim != expected_critic_info_dim:
             raise ValueError(
-                "observation_mode must be one of {'full', 'simple'}, "
-                f"got {cfg.observation_mode!r}"
+                "critic_info_dim must be "
+                f"{expected_critic_info_dim} for current task layout, got {cfg.critic_info_dim}"
             )
-        self._observation_mode = observation_mode
-
-        expected_full_frame_dim = (
-            self._num_action + self._num_action + self._num_tactile + self._num_tactile * 3
+        policy_frame_dim = self._policy_frame_dim()
+        self.obs_buf_lag_history = np.zeros(
+            (num_envs, cfg.obs_history_len, policy_frame_dim), dtype=self._np_dtype
         )
-        if self._observation_mode == "full" and cfg.frame_obs_dim != expected_full_frame_dim:
-            raise ValueError(
-                "frame_obs_dim must be "
-                f"{expected_full_frame_dim} for current task layout, got {cfg.frame_obs_dim}"
-            )
+        self.proprio_hist_buf = np.zeros(
+            (num_envs, cfg.prop_hist_len, policy_frame_dim), dtype=self._np_dtype
+        )
+        self.critic_info_buf = np.zeros((num_envs, expected_critic_info_dim), dtype=self._np_dtype)
 
         if cfg.torque_control:
             raise NotImplementedError(
                 "Sharpa torque_control=True is not implemented with the current position-actuator XML setup. "
                 "Set env.torque_control=false. Virtual torques are still computed explicitly for reward terms."
             )
-
-        mode = str(cfg.critic_obs_mode).strip().lower()
-        if mode not in ("separate", "merged"):
-            raise ValueError(
-                "critic_obs_mode must be one of {'separate', 'merged'}, "
-                f"got {cfg.critic_obs_mode!r}"
-            )
-        self._critic_obs_mode = "separate" if self._observation_mode == "simple" else mode
 
         self._reward_cfg = cfg.reward_config
         self._zero_action_test_mode = bool(cfg.zero_action_test_mode)
@@ -366,26 +343,198 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
             actions_np = np.zeros_like(actions_np, dtype=self._np_dtype)
         return super().apply_action(actions_np, state)
 
-    @property
-    def _simple_frame_obs_dim(self) -> int:
-        return self._num_action + self._num_action + 3
+    def _scale_randomization_enabled(self) -> bool:
+        lower = float(self._cfg.scale_range[0])
+        upper = float(self._cfg.scale_range[1])
+        num_scales = int(self._cfg.scale_range[2])
+        return num_scales > 1 or not np.isclose(lower, upper)
 
-    def _obs_frame_dim(self) -> int:
-        if self._observation_mode == "simple":
-            return self._simple_frame_obs_dim
-        return int(self._cfg.frame_obs_dim)
+    def _expected_critic_info_dim(self) -> int:
+        return self._CRITIC_BASE_DIM + int(self._scale_randomization_enabled())
 
-    def _build_obs_frame(
+    def _critic_info_layout(self) -> dict[str, slice]:
+        """Describe the flat critic_info channel layout.
+
+        Args:
+            None.
+
+        Returns:
+            Mapping from logical field names to channel slices.
+        """
+        layout = {
+            "object_pos_delta": slice(0, 3),
+            "friction": slice(3, 4),
+            "mass": slice(4, 5),
+            "com": slice(5, 8),
+        }
+        if self._scale_randomization_enabled():
+            layout["scale"] = slice(self._CRITIC_BASE_DIM, self._CRITIC_BASE_DIM + 1)
+        return layout
+
+    def _assign_critic_info_field(
+        self,
+        critic_info: np.ndarray,
+        field_name: str,
+        values: np.ndarray,
+    ) -> None:
+        """Assign one critic_info field according to the declared layout.
+
+        Args:
+            critic_info: Critic-info buffer to update in place.
+            field_name: Logical field name from the layout.
+            values: Batch-major values for the field.
+
+        Returns:
+            None. The critic_info array is updated in place.
+        """
+        field_slice = self._critic_info_layout().get(field_name)
+        if field_slice is None:
+            return
+        field_values = np.asarray(values, dtype=self._np_dtype).reshape(critic_info.shape[0], -1)
+        critic_info[:, field_slice] = field_values
+
+    def _build_reset_critic_info(self, batch_size: int, env_ids: np.ndarray) -> np.ndarray:
+        """Build reset-time critic_info for all randomized object properties.
+
+        Args:
+            batch_size: Number of reset environments.
+            env_ids: Global environment ids for this reset batch.
+
+        Returns:
+            Critic-info tensor with shape (batch_size, critic_info_dim).
+        """
+        critic_info = np.zeros((batch_size, self._cfg.critic_info_dim), dtype=self._np_dtype)
+
+        if self._cfg.randomize_friction:
+            self._assign_critic_info_field(
+                critic_info,
+                "friction",
+                np.random.uniform(
+                    self._cfg.randomize_friction_scale_lower,
+                    self._cfg.randomize_friction_scale_upper,
+                    size=(batch_size, 1),
+                ),
+            )
+        if self._cfg.randomize_mass:
+            self._assign_critic_info_field(
+                critic_info,
+                "mass",
+                np.random.uniform(
+                    self._cfg.randomize_mass_lower,
+                    self._cfg.randomize_mass_upper,
+                    size=(batch_size, 1),
+                ),
+            )
+        if self._cfg.randomize_com:
+            self._assign_critic_info_field(
+                critic_info,
+                "com",
+                np.random.uniform(
+                    self._cfg.randomize_com_lower,
+                    self._cfg.randomize_com_upper,
+                    size=(batch_size, 3),
+                ),
+            )
+        if self._scale_randomization_enabled():
+            self._assign_critic_info_field(
+                critic_info,
+                "scale",
+                self.scale_values[self.scale_ids[env_ids]].reshape(batch_size, 1),
+            )
+        return critic_info
+
+    def _policy_frame_dim(self) -> int:
+        dim = self._num_action + self._num_action
+        if self._cfg.enable_tactile:
+            dim += self._num_tactile
+        if self._cfg.enable_contact_pos:
+            dim += self._num_tactile * 3
+        return dim
+
+    def _policy_frame_zeros(self, batch_size: int) -> tuple[np.ndarray, np.ndarray]:
+        """Build zero-filled optional policy inputs for reset observations.
+
+        Args:
+            batch_size: Number of environments in the batch.
+
+        Returns:
+            Tuple of tactile and contact-position arrays sized for the current config.
+        """
+        tactile_dim = self._num_tactile if self._cfg.enable_tactile else 0
+        contact_pos_dim = self._num_tactile * 3 if self._cfg.enable_contact_pos else 0
+        return (
+            np.zeros((batch_size, tactile_dim), dtype=self._np_dtype),
+            np.zeros((batch_size, contact_pos_dim), dtype=self._np_dtype),
+        )
+
+    def _policy_frame_parts(
+        self,
+        dof_norm: np.ndarray,
+        targets: np.ndarray,
+        tactile: np.ndarray,
+        contact_pos: np.ndarray,
+    ) -> list[np.ndarray]:
+        """Collect policy-frame components according to the configured observation layout.
+
+        Args:
+            dof_norm: Normalized hand joint positions.
+            targets: Hand joint targets.
+            tactile: Tactile features.
+            contact_pos: Contact-position features.
+
+        Returns:
+            Ordered list of arrays that should be concatenated into the policy frame.
+        """
+        parts = [dof_norm, targets]
+        if self._cfg.enable_tactile:
+            parts.append(np.asarray(tactile, dtype=self._np_dtype))
+        if self._cfg.enable_contact_pos:
+            parts.append(np.asarray(contact_pos, dtype=self._np_dtype))
+        return parts
+
+    def _fill_critic_info(
+        self,
+        critic_info: np.ndarray,
+        object_pos: np.ndarray,
+        object_default_pose: np.ndarray,
+    ) -> np.ndarray:
+        """Populate privileged channels that are derived from runtime state.
+
+        Args:
+            critic_info: Critic info buffer to update in place.
+            object_pos: Current object positions with shape (batch, 3).
+            object_default_pose: Reset-time object pose cache with shape (batch, 7).
+
+        Returns:
+            Updated critic info array with shape (batch, critic_info_dim).
+        """
+        self._assign_critic_info_field(
+            critic_info,
+            "object_pos_delta",
+            object_pos - object_default_pose[:, 0:3],
+        )
+        return critic_info
+
+    @classmethod
+    def _resolve_observation_mode(cls, observation_mode: str) -> str:
+        normalized_mode = str(observation_mode).strip().lower()
+        resolved_mode = cls._OBS_MODE_ALIASES.get(normalized_mode)
+        if resolved_mode is None:
+            supported_modes = "', '".join(sorted(cls._OBS_MODE_ALIASES))
+            raise ValueError(
+                f"observation_mode must be one of '{supported_modes}', got {observation_mode!r}"
+            )
+        return resolved_mode
+
+    def _build_policy_frame(
         self,
         dof_pos: np.ndarray,
         targets: np.ndarray,
-        object_pos: np.ndarray,
         tactile: np.ndarray,
         contact_pos: np.ndarray,
     ) -> np.ndarray:
         dof_pos_f = np.asarray(dof_pos, dtype=self._np_dtype)
         targets_f = np.asarray(targets, dtype=self._np_dtype)
-        object_pos_f = np.asarray(object_pos, dtype=self._np_dtype)
 
         dof_norm = self._normalize_joint_pos(dof_pos_f)
         if self._cfg.joint_noise_scale > 0.0:
@@ -394,27 +543,86 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
                 * self._cfg.joint_noise_scale
             )
 
-        if self._observation_mode == "simple":
-            return np.asarray(
-                np.concatenate([dof_norm, targets_f, object_pos_f], axis=1),
-                dtype=self._np_dtype,
-            )
-
-        tactile_f = np.asarray(tactile, dtype=self._np_dtype)
-        contact_pos_f = np.asarray(contact_pos, dtype=self._np_dtype)
         return np.asarray(
-            np.concatenate([dof_norm, targets_f, tactile_f, contact_pos_f], axis=1),
+            np.concatenate(
+                self._policy_frame_parts(
+                    dof_norm=dof_norm,
+                    targets=targets_f,
+                    tactile=tactile,
+                    contact_pos=contact_pos,
+                ),
+                axis=1,
+            ),
             dtype=self._np_dtype,
         )
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:
-        base_obs_dim = self._cfg.obs_lag_steps * self._obs_frame_dim()
-        if self._observation_mode == "simple":
-            return {"obs": base_obs_dim}
-        if self._critic_obs_mode == "merged":
-            return {"obs": base_obs_dim + self._cfg.critic_info_dim}
-        return {"obs": base_obs_dim, "critic": base_obs_dim + self._cfg.critic_info_dim}
+        policy_obs_dim = self._cfg.obs_lag_steps * self._policy_frame_dim()
+        if self._observation_mode == "flattened":
+            return {"obs": policy_obs_dim + self._cfg.critic_info_dim}
+        return {"obs": policy_obs_dim, "critic": policy_obs_dim + self._cfg.critic_info_dim}
+
+    def _build_critic_info(
+        self,
+        info: dict[str, Any],
+        batch_size: int,
+        object_pos: np.ndarray,
+    ) -> np.ndarray:
+        """Build privileged critic info for the current batch.
+
+        Args:
+            info: Mutable state info dictionary carrying reset-time caches.
+            batch_size: Number of environments in the current batch.
+            object_pos: Current object positions with shape (batch, 3).
+
+        Returns:
+            Privileged info array with shape (batch, critic_info_dim).
+        """
+        critic_info = np.asarray(
+            info.get(
+                "critic_info",
+                np.zeros((batch_size, self._cfg.critic_info_dim), dtype=self._np_dtype),
+            ),
+            dtype=self._np_dtype,
+        )
+
+        object_default_pose = np.asarray(
+            info.get(
+                "object_default_pose",
+                np.zeros((batch_size, 7), dtype=self._np_dtype),
+            ),
+            dtype=self._np_dtype,
+        )
+        critic_info = self._fill_critic_info(
+            critic_info=critic_info,
+            object_pos=object_pos,
+            object_default_pose=object_default_pose,
+        )
+
+        info["critic_info"] = critic_info
+        return critic_info
+
+    def _pack_observations(
+        self,
+        policy_obs: np.ndarray,
+        critic_info: np.ndarray,
+    ) -> dict[str, np.ndarray]:
+        """Pack actor and privileged info into the env observation groups.
+
+        Args:
+            policy_obs: Actor observation tensor with shape (batch, actor_dim).
+            critic_info: Privileged tensor with shape (batch, critic_info_dim).
+
+        Returns:
+            Observation groups that satisfy the UniLab env contract.
+        """
+        if self._observation_mode == "flattened":
+            flattened_obs = np.concatenate([policy_obs, critic_info], axis=1).astype(self._np_dtype)
+            return {"obs": flattened_obs}
+
+        critic_obs = np.concatenate([policy_obs, critic_info], axis=1).astype(self._np_dtype)
+        return {"obs": policy_obs, "critic": critic_obs}
 
     def _compute_obs_from_inputs(
         self,
@@ -425,10 +633,9 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         contact_pos: np.ndarray,
     ) -> dict[str, np.ndarray]:
         targets = np.asarray(info.get("prev_targets", dof_pos), dtype=self._np_dtype)
-        frame = self._build_obs_frame(
+        frame = self._build_policy_frame(
             dof_pos=dof_pos,
             targets=targets,
-            object_pos=object_pos,
             tactile=tactile,
             contact_pos=contact_pos,
         )
@@ -449,33 +656,8 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
             history[:, -self._cfg.obs_lag_steps :].reshape(batch_size, -1),
             dtype=self._np_dtype,
         )
-        if self._observation_mode == "simple":
-            return {"obs": obs}
-
-        critic_info = np.asarray(
-            info.get(
-                "critic_info",
-                np.zeros((batch_size, self._cfg.critic_info_dim), dtype=self._np_dtype),
-            ),
-            dtype=self._np_dtype,
-        )
-
-        object_default_pose = np.asarray(
-            info.get(
-                "object_default_pose",
-                np.zeros((batch_size, 7), dtype=self._np_dtype),
-            ),
-            dtype=self._np_dtype,
-        )
-        if critic_info.shape[1] >= 3:
-            critic_info[:, 0:3] = object_pos - object_default_pose[:, 0:3]
-
-        info["critic_info"] = critic_info
-        if self._critic_obs_mode == "merged":
-            merged_obs = np.concatenate([obs, critic_info], axis=1).astype(self._np_dtype)
-            return {"obs": merged_obs}
-        critic_obs = np.concatenate([obs, critic_info], axis=1).astype(self._np_dtype)
-        return {"obs": obs, "critic": critic_obs}
+        critic_info = self._build_critic_info(info, batch_size=batch_size, object_pos=object_pos)
+        return self._pack_observations(obs, critic_info)
 
     def _compute_reward(
         self,

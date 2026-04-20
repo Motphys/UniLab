@@ -106,9 +106,6 @@ class SharpaInhandBaseCfg(EnvCfg):
     observation_space: int = 192
     prop_hist_len: int = 30
     critic_info_dim: int = 8
-    # "separate": keep critic-only info in its own obs group.
-    # "merged": append critic info into the main "obs" vector.
-    critic_obs_mode: str = "separate"
 
     clip_obs: float = 5.0
     clip_actions: float = 1.0

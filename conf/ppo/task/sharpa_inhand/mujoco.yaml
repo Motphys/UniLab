@@ -36,6 +36,7 @@ reward:
   angvel_clip_min: -0.5
   angvel_clip_max: 0.5
 env:
+  critic_info_dim: 9
   torque_control: false
   zero_action_test_mode: false
   clip_obs: 5.0
@@ -51,8 +52,7 @@ env:
   rot_axis: [0.0, 0.0, 1.0]
   grasp_cache_path: cache/sharpa_grasp_linspace
   joint_noise_scale: 0.0
-  critic_obs_mode: merged
-  observation_mode: simple
+  observation_mode: flattened
   sensor:
     tactile_force_sensor_names:
       - contact_right_thumb_elastomer_force
@@ -60,7 +60,7 @@ env:
       - contact_right_middle_elastomer_force
       - contact_right_ring_elastomer_force
       - contact_right_pinky_elastomer_force
-  enable_tactile: true
+  enable_tactile: false
   binary_contact: false
   enable_contact_pos: false
   disable_tactile_ids: []
