@@ -32,7 +32,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-motrix = ["motrixsim==0.7.1.dev95684"]
+motrix = ["motrixsim==0.7.1.dev96425"]
 viser = ["viser>=1.0.26", "trimesh>=3.21.7"]
 
 [dependency-groups]
