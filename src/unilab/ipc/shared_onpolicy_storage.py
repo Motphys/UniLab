@@ -11,15 +11,17 @@ import numpy as np
 _SPAWN_CTX = mp.get_context("spawn")
 
 _FIELD_SHAPES = {
-    "obs": lambda ns_slots, ne, ns, od, ad, cd: (ns_slots, ne, ns, od),
-    "critic": lambda ns_slots, ne, ns, od, ad, cd: (ns_slots, ne, ns, cd),
-    "actions": lambda ns_slots, ne, ns, od, ad, cd: (ns_slots, ne, ns, ad),
-    "log_probs": lambda ns_slots, ne, ns, od, ad, cd: (ns_slots, ne, ns),
-    "rewards": lambda ns_slots, ne, ns, od, ad, cd: (ns_slots, ne, ns),
-    "dones": lambda ns_slots, ne, ns, od, ad, cd: (ns_slots, ne, ns),
-    "truncated": lambda ns_slots, ne, ns, od, ad, cd: (ns_slots, ne, ns),
-    "last_obs": lambda ns_slots, ne, ns, od, ad, cd: (ns_slots, ne, od),
-    "last_critic": lambda ns_slots, ne, ns, od, ad, cd: (ns_slots, ne, cd),
+    "obs": lambda ns_slots, ne, ns, od, ad, cd, pd: (ns_slots, ne, ns, od),
+    "critic": lambda ns_slots, ne, ns, od, ad, cd, pd: (ns_slots, ne, ns, cd),
+    "priv_info": lambda ns_slots, ne, ns, od, ad, cd, pd: (ns_slots, ne, ns, pd),
+    "actions": lambda ns_slots, ne, ns, od, ad, cd, pd: (ns_slots, ne, ns, ad),
+    "log_probs": lambda ns_slots, ne, ns, od, ad, cd, pd: (ns_slots, ne, ns),
+    "rewards": lambda ns_slots, ne, ns, od, ad, cd, pd: (ns_slots, ne, ns),
+    "dones": lambda ns_slots, ne, ns, od, ad, cd, pd: (ns_slots, ne, ns),
+    "truncated": lambda ns_slots, ne, ns, od, ad, cd, pd: (ns_slots, ne, ns),
+    "last_obs": lambda ns_slots, ne, ns, od, ad, cd, pd: (ns_slots, ne, od),
+    "last_critic": lambda ns_slots, ne, ns, od, ad, cd, pd: (ns_slots, ne, cd),
+    "last_priv_info": lambda ns_slots, ne, ns, od, ad, cd, pd: (ns_slots, ne, pd),
 }
 
 
@@ -34,6 +36,7 @@ class SharedOnPolicyStorage:
         action_dim: int,
         *,
         critic_dim: int = 0,
+        priv_info_dim: int = 0,
         num_slots: int = 4,
         create: bool = True,
         shm_name_prefix: Dict[str, str] | None = None,
@@ -43,6 +46,7 @@ class SharedOnPolicyStorage:
         self.obs_dim = obs_dim
         self.action_dim = action_dim
         self.critic_dim = critic_dim
+        self.priv_info_dim = priv_info_dim
         self.num_slots = num_slots
 
         self._shm_blocks: Dict[str, shared_memory.SharedMemory] = {}
@@ -52,9 +56,20 @@ class SharedOnPolicyStorage:
         if critic_dim == 0:
             fields_to_allocate.pop("critic", None)
             fields_to_allocate.pop("last_critic", None)
+        if priv_info_dim == 0:
+            fields_to_allocate.pop("priv_info", None)
+            fields_to_allocate.pop("last_priv_info", None)
 
         for field, shape_fn in fields_to_allocate.items():
-            shape = shape_fn(num_slots, num_envs, num_steps, obs_dim, action_dim, critic_dim)
+            shape = shape_fn(
+                num_slots,
+                num_envs,
+                num_steps,
+                obs_dim,
+                action_dim,
+                critic_dim,
+                priv_info_dim,
+            )
             nbytes = int(np.prod(shape)) * np.dtype(np.float32).itemsize
 
             if create:

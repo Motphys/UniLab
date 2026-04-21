@@ -1,0 +1,126 @@
+# @package _global_
+# Intended owner config for a Sharpa HORA teacher on the APPO entrypoint.
+# This defines the config contract first; APPO runtime support for grouped HORA
+# observations and HORA checkpoint consumption is added in later steps.
+
+training:
+  task_name: SharpaInhandRotation
+  sim_backend: mujoco
+  render_spacing: 0.5
+  play_steps: 200
+  cam_distance: 1.5
+  cam_lookat: [0.75, 0.75, 0.4]
+  cam_elevation: -20.0
+
+algo:
+  algo_log_name: hora_appo
+  num_envs: 16384
+  steps_per_env: 8
+  max_iterations: 501
+  save_interval: 50
+  obs_groups:
+    # Keep grouped keys explicit in the owner YAML; runtime support for these
+    # grouped observations lands in the next implementation step.
+    actor:
+      actor: 0
+      priv_info: 0
+    critic:
+      actor: 0
+      priv_info: 0
+  actor:
+    class_name: unilab.algos.torch.hora:HoraActorModel
+    hidden_dims: [512, 256, 128]
+    activation: elu
+    obs_normalization: true
+    priv_info_embed_dim: 8
+    priv_mlp_hidden_dims: [256, 128, 8]
+    distribution_cfg:
+      class_name: rsl_rl.modules.distribution.GaussianDistribution
+      init_std: 1.0
+      std_type: scalar
+  critic:
+    class_name: unilab.algos.torch.hora:HoraCriticModel
+    hidden_dims: [512, 256, 128]
+    activation: elu
+    obs_normalization: true
+    priv_info_embed_dim: 8
+    priv_mlp_hidden_dims: [256, 128, 8]
+  algorithm:
+    value_loss_coef: 4.0
+    entropy_coef: 0.01
+    learning_rate: 0.001
+    desired_kl: 0.02
+    num_learning_epochs: 5
+    num_mini_batches: 4
+    clip_param: 0.2
+    gamma: 0.99
+    lam: 0.95
+
+reward:
+  scales:
+    rotate: 2.5
+    obj_linvel: -0.3
+    pose_diff: -0.4
+    torque: -0.1
+    work: -0.5
+    object_pos: 0.003
+  angvel_clip_min: -0.5
+  angvel_clip_max: 0.5
+
+env:
+  critic_info_dim: 9
+  torque_control: false
+  zero_action_test_mode: false
+  clip_obs: 5.0
+  clip_actions: 1.0
+  control_config:
+    action_scale: 0.041666666666666664
+    p_gain: 1.0
+    d_gain: 0.1
+  reset_height_lower: 0.59906
+  reset_height_upper: 0.63906
+  reset_angle_diff: 0.7853981633974483
+  reset_random_quat: false
+  rot_axis: [0.0, 0.0, 1.0]
+  grasp_cache_path: cache/sharpa_grasp_linspace
+  joint_noise_scale: 0.0
+  observation_mode: separated
+  sensor:
+    tactile_force_sensor_names:
+      - contact_right_thumb_elastomer_force
+      - contact_right_index_elastomer_force
+      - contact_right_middle_elastomer_force
+      - contact_right_ring_elastomer_force
+      - contact_right_pinky_elastomer_force
+  enable_tactile: false
+  binary_contact: false
+  enable_contact_pos: false
+  disable_tactile_ids: []
+  contact_smooth: 0.5
+  contact_threshold: 0.05
+  contact_latency: 0.005
+  contact_sensor_noise: 0.01
+  dof_limits_scale: 0.9
+  scale_range: [0.8, 1.1, 4]
+  randomize_pd_gains: false
+  randomize_p_gain_scale_lower: 0.5
+  randomize_p_gain_scale_upper: 2.0
+  randomize_d_gain_scale_lower: 0.5
+  randomize_d_gain_scale_upper: 2.0
+  randomize_friction: true
+  randomize_friction_scale_lower: 0.75
+  randomize_friction_scale_upper: 1.25
+  elastomer_base_friction: 2.0
+  metal_base_friction: 1.0
+  object_base_friction: 2.0
+  randomize_com: true
+  randomize_com_lower: -0.01
+  randomize_com_upper: 0.01
+  randomize_mass: true
+  randomize_mass_lower: 0.01
+  randomize_mass_upper: 0.10
+  force_scale: 0.0
+  random_force_prob_scalar: 0.0
+  force_decay: 0.9
+  force_decay_interval: 0.08
+  gravity_curriculum: false

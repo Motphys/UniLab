@@ -92,11 +92,15 @@ def run_motrix_play_loop(
 
 def resolve_appo_checkpoint_path(
     base_log_dir: str | Path,
-    load_run: str,
+    load_run: str | int,
 ) -> tuple[str | None, str | None]:
     from unilab.training import resolve_checkpoint_path
 
-    checkpoint_path, checkpoint_dir = resolve_checkpoint_path(base_log_dir, load_run, suffix=".pt")
+    checkpoint_path, checkpoint_dir = resolve_checkpoint_path(
+        base_log_dir,
+        str(load_run),
+        suffix=".pt",
+    )
     return (
         str(checkpoint_path) if checkpoint_path is not None else None,
         str(checkpoint_dir) if checkpoint_dir is not None else None,
@@ -105,6 +109,13 @@ def resolve_appo_checkpoint_path(
 
 def _get_log_root(cfg: DictConfig) -> str:
     return str(get_log_root(ROOT_DIR, cfg))
+
+
+def _is_hora_appo_config(rl_cfg: dict[str, Any]) -> bool:
+    actor_cfg = rl_cfg.get("actor", {})
+    if not isinstance(actor_cfg, dict):
+        return False
+    return "HoraActorModel" in str(actor_cfg.get("class_name", ""))
 
 
 def play_appo(cfg: DictConfig, rl_cfg: dict[str, Any]) -> str | None:
@@ -226,6 +237,9 @@ def play_appo(cfg: DictConfig, rl_cfg: dict[str, Any]) -> str | None:
         render_play_mode(
             env,
             sim_backend=cfg.training.sim_backend,
+            render_spacing=float(
+                getattr(cfg.training, "render_spacing", getattr(env.cfg, "render_spacing", 1.0))
+            ),
             num_steps=num_steps,
             output_video=output_video,
             initialize=lambda: np.asarray(
@@ -250,6 +264,7 @@ def play_appo(cfg: DictConfig, rl_cfg: dict[str, Any]) -> str | None:
                 "cam_distance": cfg.training.cam_distance,
                 "cam_elevation": cfg.training.cam_elevation,
                 "cam_azimuth": cfg.training.cam_azimuth,
+                "cam_lookat": getattr(cfg.training, "cam_lookat", None),
                 "cam_tracking": getattr(cfg.training, "cam_tracking", False),
                 "cam_tracking_env_idx": getattr(cfg.training, "cam_tracking_env_idx", 0),
                 "cam_tracking_extra_envs": getattr(cfg.training, "cam_tracking_extra_envs", 2),
@@ -314,9 +329,16 @@ def main(cfg: DictConfig) -> None:
 
     try:
         if not cfg.training.play_only:
-            from unilab.algos.torch.appo.runner import APPORunner
+            if _is_hora_appo_config(rl_cfg):
+                from unilab.algos.torch.hora import HoraAPPORunner
 
-            runner = APPORunner(
+                runner_cls = HoraAPPORunner
+            else:
+                from unilab.algos.torch.appo.runner import APPORunner
+
+                runner_cls = APPORunner
+
+            runner = runner_cls(
                 **build_appo_runner_kwargs(
                     cfg,
                     env_cfg_override=env_cfg_override,
@@ -338,7 +360,20 @@ def main(cfg: DictConfig) -> None:
                 runner.close()
 
         if cfg.training.play_only or not cfg.training.no_play:
-            play_video_path = play_appo(cfg, rl_cfg)
+            if _is_hora_appo_config(rl_cfg):
+                from unilab.algos.torch.hora import play_hora_appo
+
+                play_video_path = play_hora_appo(
+                    cfg,
+                    rl_cfg,
+                    root_dir=ROOT_DIR,
+                    resolve_checkpoint_path=lambda current_cfg: resolve_appo_checkpoint_path(
+                        os.path.join(_get_log_root(current_cfg), current_cfg.training.task_name),
+                        current_cfg.algo.load_run,
+                    ),
+                )
+            else:
+                play_video_path = play_appo(cfg, rl_cfg)
             if tracker is not None:
                 tracker.log_video(play_video_path)
     finally:

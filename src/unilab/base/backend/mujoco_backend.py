@@ -3,7 +3,7 @@ import tempfile
 import time
 from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor
-from multiprocessing import cpu_count, get_context
+from multiprocessing import cpu_count, current_process, get_context
 from typing import Optional, cast
 
 import mujoco
@@ -273,7 +273,23 @@ class MuJoCoBackend(SimBackend):
         variants = tuple(variant_specs)
         if not variants:
             return tuple()
-        if len(variants) == 1:
+
+        def _load_compiled_models_and_cleanup(paths: Sequence[str]) -> tuple[mujoco.MjModel, ...]:
+            try:
+                return tuple(mujoco.MjModel.from_binary_path(path) for path in paths)
+            finally:
+                for path in paths:
+                    if os.path.exists(path):
+                        os.remove(path)
+                for path in paths:
+                    parent = os.path.dirname(path)
+                    if parent and os.path.isdir(parent):
+                        try:
+                            os.rmdir(parent)
+                        except OSError:
+                            pass
+
+        if len(variants) == 1 or current_process().daemon:
             mjb_paths = _compile_model_variant_chunk_to_mjb(
                 model_file=self._model_file,
                 add_body_sensors=self.add_body_sensors,
@@ -283,20 +299,7 @@ class MuJoCoBackend(SimBackend):
                 position_actuator_gains=self._position_actuator_gains,
                 variants=variants,
             )
-            try:
-                models = tuple(mujoco.MjModel.from_binary_path(path) for path in mjb_paths)
-            finally:
-                for path in mjb_paths:
-                    if os.path.exists(path):
-                        os.remove(path)
-                for path in mjb_paths:
-                    parent = os.path.dirname(path)
-                    if parent and os.path.isdir(parent):
-                        try:
-                            os.rmdir(parent)
-                        except OSError:
-                            pass
-            return models
+            return _load_compiled_models_and_cleanup(mjb_paths)
 
         max_workers = min(len(variants), max(1, cpu_count()))
         chunk_size = max(1, (len(variants) + max_workers - 1) // max_workers)
@@ -322,20 +325,7 @@ class MuJoCoBackend(SimBackend):
             ]
         mjb_paths_nested = [future.result() for future in futures]
         flat_paths = [path for paths in mjb_paths_nested for path in paths]
-        try:
-            models = tuple(mujoco.MjModel.from_binary_path(path) for path in flat_paths)
-        finally:
-            for path in flat_paths:
-                if os.path.exists(path):
-                    os.remove(path)
-            for path in flat_paths:
-                parent = os.path.dirname(path)
-                if parent and os.path.isdir(parent):
-                    try:
-                        os.rmdir(parent)
-                    except OSError:
-                        pass
-        return models
+        return _load_compiled_models_and_cleanup(flat_paths)
 
     def _current_model_sequence(self) -> mujoco.MjModel | list[mujoco.MjModel]:
         if len(self._model_variants) == 1 and np.all(self._model_assignments == 0):
