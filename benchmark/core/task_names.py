@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from unilab.envs.locomotion.g1.joystick import G1JoystickPPOCfg
+from unilab.envs.locomotion.g1.joystick import G1WalkFlatCfg
 from unilab.envs.locomotion.go1.joystick import Go1JoystickCfg
 from unilab.envs.locomotion.go2.joystick import Go2JoystickCfg
 from unilab.envs.manipulation.sharpa_inhand.rotation import SharpaInhandRotationCfg
@@ -29,11 +29,11 @@ _TASK_SPECS = {
         display_name="go2_joystick_flat",
         config_cls=Go2JoystickCfg,
     ),
-    "g1_joystick_flat": LocomotionTaskSpec(
-        owner_task_id="g1_joystick_flat",
-        env_task_name="G1JoystickFlat",
-        display_name="g1_joystick_flat",
-        config_cls=G1JoystickPPOCfg,
+    "g1_walk_flat": LocomotionTaskSpec(
+        owner_task_id="g1_walk_flat",
+        env_task_name="G1WalkFlat",
+        display_name="g1_walk_flat",
+        config_cls=G1WalkFlatCfg,
     ),
     "sharpa_inhand": LocomotionTaskSpec(
         owner_task_id="sharpa_inhand",

@@ -6,6 +6,15 @@ algo:
   num_envs: 2048
   max_iterations: 5000
   save_interval: 1000
+env:
+  curriculum:
+    enabled: true
+    initial_scale: 0.5
+    min_scale: 0.5
+    max_scale: 1.0
+    level_down_threshold: 150.0
+    level_up_threshold: 750.0
+    degree: 0.001
 reward:
   scales:
     tracking_lin_vel: 2.2

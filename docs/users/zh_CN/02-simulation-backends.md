@@ -43,7 +43,7 @@ uv run scripts/generate_support_matrix.py --write
 |------------|------------|--------|--------|
 | PPO (torch) | `go1_joystick_flat` (Go1 joystick) | Tested | Tested |
 | PPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | Tested |
-| PPO (torch) | `g1_joystick_flat` (G1 joystick) | Tested | Tested |
+| PPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested |
 | PPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested |
 | PPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | Tested |
 | PPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | Tested |
@@ -52,7 +52,7 @@ uv run scripts/generate_support_matrix.py --write
 | PPO (torch) | `sharpa_inhand_grasp` (sharpa inhand grasp) | Tested | Tested |
 | PPO (mlx) | `go1_joystick_flat` (Go1 joystick) | Tested | Tested |
 | PPO (mlx) | `go2_joystick_flat` (Go2 joystick) | Tested | Tested |
-| PPO (mlx) | `g1_joystick_flat` (G1 joystick) | Tested | Tested |
+| PPO (mlx) | `g1_walk_flat` (G1 walk flat) | Tested | Tested |
 | PPO (mlx) | `g1_motion_tracking` (G1 motion tracking) | Configured | Configured |
 | PPO (mlx) | `g1_flip_tracking` (G1 flip tracking) | Configured | Configured |
 | PPO (mlx) | `allegro_inhand` (Allegro in-hand) | Configured | Configured |
@@ -61,7 +61,7 @@ uv run scripts/generate_support_matrix.py --write
 | PPO (mlx) | `sharpa_inhand_grasp` (sharpa inhand grasp) | Configured | Configured |
 | APPO (torch) | `go1_joystick_flat` (Go1 joystick) | Tested | Registered |
 | APPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | Registered |
-| APPO (torch) | `g1_joystick_flat` (G1 joystick) | Tested | Registered |
+| APPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered |
 | APPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested |
 | APPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | Tested |
 | APPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | Registered |
@@ -74,7 +74,7 @@ uv run scripts/generate_support_matrix.py --write
 - Registry bootstrap: `src/unilab/envs/**` decorators via `unilab.utils.algo_utils.ensure_registries()`.
 - Owner YAML scan: `conf/ppo/task/**`, `conf/appo/task/**`, `conf/offpolicy/task/**`.
 - Generic compose coverage: `tests/config/test_config_system.py::test_supported_task_composes`.
-- MLX-specific compose coverage only upgrades task owners listed in `tests/config/test_config_system.py::_PPO_MLX_TASKS`: `go1_joystick_flat`, `go2_joystick_flat`, `g1_joystick_flat`.
+- MLX-specific compose coverage only upgrades task owners listed in `tests/config/test_config_system.py::_PPO_MLX_TASKS`: `go1_joystick_flat`, `go2_joystick_flat`, `g1_walk_flat`.
 - MLX runtime smoke: `tests/algos/test_mlx_ppo.py::test_mlx_ppo_one_iteration_real_env` currently exercises `go2_joystick_flat/mujoco`.
 <!-- END GENERATED SUPPORT MATRIX -->
 

@@ -3,7 +3,7 @@
 Benchmark MuJoCo Warp physics execution.
 
 Benchmarks mujoco_warp across current locomotion owner task ids
-(go1_joystick_flat/go2_joystick_flat/g1_joystick_flat) and outputs JSON + plots
+(go1_joystick_flat/go2_joystick_flat/g1_walk_flat) and outputs JSON + plots
 aligned with benchmark/benchmark_physics_step_mj_step.py.
 Legacy env names remain accepted as aliases.
 
@@ -20,7 +20,7 @@ import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List, cast
 
 import matplotlib
 
@@ -44,19 +44,23 @@ except ImportError:
     warp = None
 
 try:
-    from benchmark.core.device_info import get_device_info_dict, get_device_info_line
-    from benchmark.core.task_names import (
-        canonical_locomotion_task_ids,
-        locomotion_task_spec,
-        normalize_locomotion_task_id,
-    )
+    from benchmark.core import device_info as _benchmark_device_info
+    from benchmark.core import task_names as _benchmark_task_names
+
+    _device_info = _benchmark_device_info
+    _task_names = _benchmark_task_names
 except ModuleNotFoundError:
-    from core.device_info import get_device_info_dict, get_device_info_line
-    from core.task_names import (
-        canonical_locomotion_task_ids,
-        locomotion_task_spec,
-        normalize_locomotion_task_id,
-    )
+    from core import device_info as _core_device_info
+    from core import task_names as _core_task_names
+
+    _device_info = _core_device_info
+    _task_names = _core_task_names
+
+get_device_info_dict = _device_info.get_device_info_dict
+get_device_info_line = _device_info.get_device_info_line
+canonical_locomotion_task_ids = _task_names.canonical_locomotion_task_ids
+locomotion_task_spec = _task_names.locomotion_task_spec
+normalize_locomotion_task_id = _task_names.normalize_locomotion_task_id
 
 
 @dataclass
@@ -75,7 +79,7 @@ DEFAULT_BATCH_SIZES = [2**k for k in range(8, 15)]  # 256 .. 16384
 DEFAULT_NJMAX_BY_TASK = {
     "go1_joystick_flat": 100,
     "go2_joystick_flat": 100,
-    "g1_joystick_flat": 150,
+    "g1_walk_flat": 150,
 }
 
 
@@ -108,30 +112,33 @@ def _require_mujoco_warp() -> None:
         )
 
 
-def _load_task_model(task_name: str) -> "mujoco.MjModel":
+def _load_task_model(task_name: str) -> Any:
     cfg = locomotion_task_spec(task_name).config_cls()
-    return mujoco.MjModel.from_xml_path(cfg.model_file)
+    return cast(Any, mujoco).MjModel.from_xml_path(cfg.model_file)
 
 
 def _task_njmax(task_name: str) -> int:
     return DEFAULT_NJMAX_BY_TASK.get(task_name, -1)
 
 
-def _make_warp_data(model: "mujoco.MjModel", batch_size: int, njmax: int):
+def _make_warp_data(model: Any, batch_size: int, njmax: int):
+    mj_warp_mod = cast(Any, mj_warp)
     try:
         if njmax > 0:
-            return mj_warp.make_data(model, nworld=batch_size, njmax=njmax, nconmax=njmax)
-        return mj_warp.make_data(model, nworld=batch_size)
+            return mj_warp_mod.make_data(model, nworld=batch_size, njmax=njmax, nconmax=njmax)
+        return mj_warp_mod.make_data(model, nworld=batch_size)
     except TypeError:
-        return mj_warp.make_data(model, nworld=batch_size)
+        return mj_warp_mod.make_data(model, nworld=batch_size)
 
 
 def _run_warp(warp_model, warp_data, nstep: int, niter: int) -> float:
+    mj_warp_mod = cast(Any, mj_warp)
+    warp_mod = cast(Any, warp)
     t0 = time.perf_counter()
     for _ in range(niter):
         for _ in range(nstep):
-            mj_warp.step(warp_model, warp_data)
-            warp.synchronize()
+            mj_warp_mod.step(warp_model, warp_data)
+            warp_mod.synchronize()
     return (time.perf_counter() - t0) / niter
 
 
@@ -144,7 +151,7 @@ def _bench_one_task(
 ) -> List[BenchRecord]:
     task_key = normalize_locomotion_task_id(task_name)
     model = _load_task_model(task_key)
-    warp_model = mj_warp.put_model(model)
+    warp_model = cast(Any, mj_warp).put_model(model)
     njmax = _task_njmax(task_key)
 
     records: List[BenchRecord] = []

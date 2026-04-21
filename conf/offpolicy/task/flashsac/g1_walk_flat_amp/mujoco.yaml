@@ -1,6 +1,6 @@
 # @package _global_
 training:
-  task_name: G1JoystickFlat
+  task_name: G1WalkFlat
   sim_backend: mujoco
   use_amp: true
 algo:
@@ -18,6 +18,8 @@ env:
     vel_limit:
       - [-1.0, -0.5, -1.0]
       - [1.0, 0.5, 1.0]
+  curriculum:
+    enabled: false
 reward:
   scales:
     tracking_lin_vel: 1.0

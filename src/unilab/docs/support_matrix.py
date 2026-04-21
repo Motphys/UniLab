@@ -20,22 +20,20 @@ BACKENDS: tuple[str, str] = ("mujoco", "motrix")
 _TASK_ORDER = {
     "go1_joystick_flat": 0,
     "go2_joystick_flat": 1,
-    "g1_joystick_flat": 2,
-    "g1_motion_tracking": 3,
-    "g1_flip_tracking": 4,
-    "g1_walk_flat": 5,
-    "g1_walk_rough": 6,
+    "g1_walk_flat": 2,
+    "g1_walk_rough": 3,
+    "g1_motion_tracking": 4,
+    "g1_flip_tracking": 5,
     "allegro_inhand": 7,
     "allegro_sac": 8,
 }
 _TASK_LABELS = {
     "go1_joystick_flat": "Go1 joystick",
     "go2_joystick_flat": "Go2 joystick",
-    "g1_joystick_flat": "G1 joystick",
-    "g1_motion_tracking": "G1 motion tracking",
-    "g1_flip_tracking": "G1 flip tracking",
     "g1_walk_flat": "G1 walk flat",
     "g1_walk_rough": "G1 walk rough",
+    "g1_motion_tracking": "G1 motion tracking",
+    "g1_flip_tracking": "G1 flip tracking",
     "allegro_inhand": "Allegro in-hand",
     "allegro_sac": "Allegro SAC in-hand",
 }

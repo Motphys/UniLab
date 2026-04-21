@@ -222,7 +222,7 @@ def test_ppo_g1_resolved_algo_matches_old_motrix_behavior():
 
     For this migration we align with the final UniLab1 Motrix runtime.
     """
-    cfg = _ppo_cfg(["task=g1_joystick_flat/motrix"])
+    cfg = _ppo_cfg(["task=g1_walk_flat/motrix"])
 
     assert cfg.algo.max_iterations == 220
     assert cfg.algo.empirical_normalization is True
@@ -233,7 +233,7 @@ def test_ppo_g1_resolved_algo_matches_old_motrix_behavior():
 
 
 def test_ppo_g1_mujoco_base_hyperparams_remain_separate():
-    cfg = _ppo_cfg(["task=g1_joystick_flat/mujoco"])
+    cfg = _ppo_cfg(["task=g1_walk_flat/mujoco"])
 
     assert cfg.algo.max_iterations == 220
     assert cfg.algo.empirical_normalization is False
@@ -241,7 +241,7 @@ def test_ppo_g1_mujoco_base_hyperparams_remain_separate():
 
 
 def test_ppo_g1_env_preset_has_env_overrides():
-    cfg = _ppo_cfg(["task=g1_joystick_flat/motrix"])
+    cfg = _ppo_cfg(["task=g1_walk_flat/motrix"])
 
     assert cfg.env.iterations == 3
     assert cfg.env.control_config.action_scale == pytest.approx(0.5)
@@ -285,7 +285,7 @@ def test_build_ppo_env_cfg_override_g1_motrix(
     monkeypatch: pytest.MonkeyPatch,
 ):
     mod = _train_rsl_rl(monkeypatch)
-    cfg = _ppo_cfg(["task=g1_joystick_flat/motrix"])
+    cfg = _ppo_cfg(["task=g1_walk_flat/motrix"])
 
     env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
 
@@ -410,7 +410,7 @@ def test_ppo_cli_algo_override_wins_over_base(
     monkeypatch: pytest.MonkeyPatch,
 ):
     """CLI override takes precedence over base task algo values via Hydra compose."""
-    cfg = _ppo_cfg(["task=g1_joystick_flat/motrix", "algo.max_iterations=1"])
+    cfg = _ppo_cfg(["task=g1_walk_flat/motrix", "algo.max_iterations=1"])
 
     assert cfg.algo.max_iterations == 1
     # Other base values remain intact
@@ -1260,14 +1260,14 @@ def test_offpolicy_td3_hydra_default_algo_log_name():
 
 
 def test_offpolicy_flashsac_hydra_algo_log_name():
-    cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_joystick_flat/mujoco"])
+    cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_walk_flat_amp/mujoco"])
     assert cfg.algo.algo_log_name == "flash_sac"
     assert cfg.algo.load_run == "-1"
 
 
-def test_offpolicy_flashsac_g1_joystick_flat_task_composes() -> None:
-    cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_joystick_flat/mujoco"])
-    assert cfg.training.task_name == "G1JoystickFlat"
+def test_offpolicy_flashsac_g1_walk_flat_amp_task_composes() -> None:
+    cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_walk_flat_amp/mujoco"])
+    assert cfg.training.task_name == "G1WalkFlat"
     assert cfg.training.sim_backend == "mujoco"
 
 
@@ -1282,7 +1282,7 @@ def test_offpolicy_flashsac_rejects_multi_gpu():
     cfg = _offpolicy_cfg(
         [
             "algo=flashsac",
-            "task=flashsac/g1_joystick_flat/mujoco",
+            "task=flashsac/g1_walk_flat_amp/mujoco",
             "training.num_gpus=2",
         ]
     )

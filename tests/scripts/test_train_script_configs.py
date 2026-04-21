@@ -32,7 +32,7 @@ _MLX_RUNTIME_USABLE = _mlx_runtime_usable()
     [
         "go1_joystick_flat/mujoco",
         "go2_joystick_flat/mujoco",
-        "g1_joystick_flat/mujoco",
+        "g1_walk_flat/mujoco",
         "g1_motion_tracking/mujoco",
         "g1_flip_tracking/mujoco",
     ],
