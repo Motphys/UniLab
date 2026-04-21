@@ -1,0 +1,21 @@
+# @package _global_
+training:
+  task_name: Go2HandStand
+  sim_backend: motrix
+algo:
+  max_iterations: 151
+  obs_groups:
+    actor:
+      - actor
+    critic:
+      - critic
+reward:
+  scales:
+    contact: -0.1
+    height: 1.0
+    oritentation: 1.0
+    pose: -0.1
+    penalty_contact: -0.2
+  tracking_sigma: 0.25
+  base_height_target: 0.3
+

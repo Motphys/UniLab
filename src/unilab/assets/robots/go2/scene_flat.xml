@@ -26,6 +26,30 @@
     <contact name="FR_foot_contact" geom1="floor" geom2="FR" data="found" num="1" reduce="mindist"/>
     <contact name="RL_foot_contact" geom1="floor" geom2="RL" data="found" num="1" reduce="mindist"/>
     <contact name="RR_foot_contact" geom1="floor" geom2="RR" data="found" num="1" reduce="mindist"/>
+    <!-- base -->
+    <contact name="base1_contact" geom1="floor" geom2="base1" data="found" num="1" reduce="mindist"/>
+    <contact name="base2_contact" geom1="floor" geom2="base2" data="found" num="1" reduce="mindist"/>
+    <contact name="base3_contact" geom1="floor" geom2="base3" data="found" num="1" reduce="mindist"/>
+    <!-- hip -->
+    <contact name="FL_hip_contact" geom1="floor" geom2="FL_hip_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="FR_hip_contact" geom1="floor" geom2="FR_hip_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="RL_hip_contact" geom1="floor" geom2="RL_hip_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="RR_hip_contact" geom1="floor" geom2="RR_hip_geom" data="found" num="1" reduce="mindist"/>
+    <!-- thigh -->
+    <contact name="FL_thigh_contact" geom1="floor" geom2="FL_thigh_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="FR_thigh_contact" geom1="floor" geom2="FR_thigh_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="RL_thigh_contact" geom1="floor" geom2="RL_thigh_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="RR_thigh_contact" geom1="floor" geom2="RR_thigh_geom" data="found" num="1" reduce="mindist"/>
+    <!-- calf -->
+    <contact name="FL_calf_contact1" geom1="floor" geom2="FL_calf_geom1" data="found" num="1" reduce="mindist"/>
+    <contact name="FR_calf_contact1" geom1="floor" geom2="FR_calf_geom1" data="found" num="1" reduce="mindist"/>
+    <contact name="RL_calf_contact1" geom1="floor" geom2="RL_calf_geom1" data="found" num="1" reduce="mindist"/>
+    <contact name="RR_calf_contact1" geom1="floor" geom2="RR_calf_geom1" data="found" num="1" reduce="mindist"/>
+
+    <contact name="FL_calf_contact2" geom1="floor" geom2="FL_calf_geom2" data="found" num="1" reduce="mindist"/>
+    <contact name="FR_calf_contact2" geom1="floor" geom2="FR_calf_geom2" data="found" num="1" reduce="mindist"/>
+    <contact name="RL_calf_contact2" geom1="floor" geom2="RL_calf_geom2" data="found" num="1" reduce="mindist"/>
+    <contact name="RR_calf_contact2" geom1="floor" geom2="RR_calf_geom2" data="found" num="1" reduce="mindist"/>
   </sensor>
 
   <keyframe>
