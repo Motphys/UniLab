@@ -47,11 +47,35 @@ class JoystickSensor:
     gyro = "gyro"
     feet_force = ["FL_foot_contact", "FR_foot_contact", "RL_foot_contact", "RR_foot_contact"]
     feet_pos = ["FL_pos", "FR_pos", "RL_pos", "RR_pos"]
+    global_pos = "global_position"
+    ternamate_contact = [
+        "base1_contact",
+        "base2_contact",
+        "base3_contact",
+        "FL_hip_contact",
+        "FR_hip_contact",
+        "FL_thigh_contact",
+        "FR_thigh_contact",
+        "FL_calf_contact1",
+        "FL_calf_contact2",
+        "FR_calf_contact1",
+        "FR_calf_contact2",
+    ]
+    penalty_contact = [
+        "RL_hip_contact",
+        "RR_hip_contact",
+        "RL_thigh_contact",
+        "RR_thigh_contact",
+        "RL_calf_contact1",
+        "RL_calf_contact2",
+        "RR_calf_contact1",
+        "RR_calf_contact2",
+    ]
 
 
-@registry.envcfg("Go2JoystickFlat")
+@registry.envcfg("Go2HandStand")
 @dataclass
-class Go2JoystickCfg(Go2BaseCfg):
+class Go2HandStandCfg(Go2BaseCfg):
     model_file: str = str(ASSETS_ROOT_PATH / "robots" / "go2" / "scene_flat.xml")
     max_episode_seconds: float = 20.0
     init_state: InitState = field(default_factory=InitState)
@@ -61,7 +85,7 @@ class Go2JoystickCfg(Go2BaseCfg):
     domain_rand: Go2DomainRandConfig = field(default_factory=Go2DomainRandConfig)
 
 
-class Go2JoystickDomainRandomizationProvider(LocomotionDRProvider):
+class Go2HandStandDomainRandomizationProvider(LocomotionDRProvider):
     def _compute_reset_obs(
         self,
         env: Any,
@@ -73,17 +97,18 @@ class Go2JoystickDomainRandomizationProvider(LocomotionDRProvider):
         dof_pos: Any,
         dof_vel: Any,
     ) -> dict[str, np.ndarray]:
+        height = env.torso_height[env_ids].reshape(-1, 1)
         return env._compute_obs(  # type: ignore[no-any-return]
-            info_updates, linvel, gyro, gravity, dof_pos, dof_vel, env.feet_phase[env_ids]
+            info_updates, linvel, gyro, gravity, dof_pos, dof_vel, height
         )
 
 
-@registry.env("Go2JoystickFlat", sim_backend="mujoco")
-@registry.env("Go2JoystickFlat", sim_backend="motrix")
-class Go2WalkTask(Go2BaseEnv):
-    _cfg: Go2JoystickCfg
+@registry.env("Go2HandStand", sim_backend="mujoco")
+@registry.env("Go2HandStand", sim_backend="motrix")
+class Go2HandStandTask(Go2BaseEnv):
+    _cfg: Go2HandStandCfg
 
-    def __init__(self, cfg: Go2JoystickCfg, num_envs=1, backend_type="mujoco"):
+    def __init__(self, cfg: Go2HandStandCfg, num_envs=1, backend_type="mujoco"):
         if cfg.reward_config is None:
             raise ValueError("reward_config must be provided via Hydra configuration")
         backend = create_backend(
@@ -99,39 +124,33 @@ class Go2WalkTask(Go2BaseEnv):
         self._enable_reward_log = True
         self._reward_cfg = cfg.reward_config
         self._init_reward_functions()
-        self._init_domain_randomization(Go2JoystickDomainRandomizationProvider())
+        self._init_domain_randomization(Go2HandStandDomainRandomizationProvider())
         self.phase = np.zeros((num_envs,), dtype=np.float32)
         self.feet_phase = np.zeros((num_envs, len(cfg.sensor.feet_force)), dtype=np.float32)
         self.gait_frequency = 2
-        self.feet_force = np.zeros((num_envs, len(cfg.sensor.feet_force), 3), dtype=np.float32)
+        self.feet_force = np.zeros((num_envs, len(cfg.sensor.feet_force), 1), dtype=np.float32)
         self.feet_pos = np.zeros((num_envs, len(cfg.sensor.feet_pos), 3), dtype=np.float32)
+        self.torso_height = np.zeros((num_envs,), dtype=np.float32)
+        self._z_des = 0.55
+        self._desired_gravity = np.array([-1, 0, 0])
+        self.feet_geom_names = [0, 1]
+        self._joint_ids = [0, 1, 2, 3, 4, 5]
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:
-        # gyro(3) + gravity(3) + diff(12) + dof_vel(12) + action(12) + cmd(3) + phase(4) = 49
-        return {"obs": 49, "critic": 52}
+        # gyro(3) + gravity(3) + diff(12) + dof_vel(12) + action(12)  = 42
+        return {"obs": 42, "critic": 46}
 
     def _init_reward_functions(self):
         self._reward_fns: dict[str, Any] = {
-            "tracking_lin_vel": rewards.tracking_lin_vel,
-            "tracking_ang_vel": rewards.tracking_ang_vel,
-            "lin_vel_z": rewards.lin_vel_z,
-            "ang_vel_xy": rewards.ang_vel_xy,
-            "base_height": rewards.base_height,
-            "action_rate": rewards.action_rate,
-            "similar_to_default": rewards.similar_to_default,
-            # "alive": rewards.alive,
-            "swing_feet_z": self._reward_swing_feet_z,
-            "contact": self._reward_contact,
+            "height": self._reward_height,
+            "contact": self._cost_contact,
+            "oritentation": self._reward_orientation,
+            "pose": self._cost_pose,
+            "penalty_contact": self._reward_penalty_contact,
         }
 
     def update_state(self, state: NpEnvState) -> NpEnvState:
-        self.phase = np.fmod(self.phase + self._cfg.ctrl_dt * self.gait_frequency, 1.0)
-        self.feet_phase[:, 0] = self.phase
-        self.feet_phase[:, 3] = self.phase
-
-        self.feet_phase[:, 1] = (self.phase + 0.5) % 1
-        self.feet_phase[:, 2] = (self.phase + 0.5) % 1
 
         linvel = self.get_local_linvel()
         gyro = self.get_gyro()
@@ -143,15 +162,24 @@ class Go2WalkTask(Go2BaseEnv):
             self.feet_force[:, i, :] = self._backend.get_sensor_data(self._cfg.sensor.feet_force[i])
         for i in range(len(self._cfg.sensor.feet_pos)):
             self.feet_pos[:, i, :] = self._backend.get_sensor_data(self._cfg.sensor.feet_pos[i])
-        terminated = gravity[:, 2] <= 0.5
+        self.torso_height = self._backend.get_sensor_data(self._cfg.sensor.global_pos)[:, -1]
+        contact_arrays = []
+        for i in self._cfg.sensor.ternamate_contact:
+            arr = self._backend.get_sensor_data(i)
+            contact_arrays.append(arr)
+        result = np.concatenate(contact_arrays, axis=1)
+
+        terminated_z = gravity[:, 2] <= -0.25
+        terminated_contact = np.any(result, axis=1)
+        terminated = np.logical_or(terminated_contact, terminated_z)
         reward = self._compute_reward(state.info, linvel, gyro, dof_pos)
         obs = self._compute_obs(
-            state.info, linvel, gyro, gravity, dof_pos, dof_vel, self.feet_phase
+            state.info, linvel, gyro, gravity, dof_pos, dof_vel, self.torso_height.reshape(-1, 1)
         )
         return state.replace(obs=obs, reward=reward, terminated=terminated)
 
     def _compute_obs(
-        self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel, feet_phase
+        self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel, height
     ) -> dict[str, np.ndarray]:
         noise_cfg = self._cfg.noise_config
         diff = dof_pos - self.default_angles
@@ -160,15 +188,35 @@ class Go2WalkTask(Go2BaseEnv):
         diff = self._obs_noise(diff, noise_cfg.scale_joint_angle)
         dof_vel = self._obs_noise(dof_vel, noise_cfg.scale_joint_vel)
         linvel = self._obs_noise(linvel, noise_cfg.scale_linvel)
-        command = info["commands"]
+        # command = info["commands"]
         last_actions = info.get("current_actions", np.zeros_like(diff))
         obs = np.concatenate(
-            [gyro, -gravity, diff, dof_vel, last_actions, command, feet_phase],
+            [gyro, -gravity, diff, dof_vel, last_actions],
             axis=1,
             dtype=get_global_dtype(),
         )
-        critic = np.concatenate([obs, linvel], axis=1, dtype=get_global_dtype())
+        critic = np.concatenate([obs, linvel, height], axis=1, dtype=get_global_dtype())
         return {"obs": obs, "critic": critic}
+
+    # state = jp.hstack([
+    #     noisy_linvel,
+    #     noisy_gyro,
+    #     noisy_gravity,
+    #     noisy_joint_angles - self._default_pose,
+    #     noisy_joint_vel,
+    #     info["last_act"],
+    # ])
+    # privileged_state = jp.hstack([ TODO
+    #     state,
+    #     gyro,
+    #     accelerometer,
+    #     linvel,
+    #     angvel,
+    #     joint_angles,
+    #     joint_vel,
+    #     data.actuator_force,
+    #     torso_height,
+    # ])
 
     def _compute_reward(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
         dtype = get_global_dtype()
@@ -196,6 +244,10 @@ class Go2WalkTask(Go2BaseEnv):
                 continue
             rew = self._reward_fns[name](ctx)
             weighted_rew = rew * scale
+            # print("#"*30)
+            # print(name)
+            # print(reward.shape)
+            # print(weighted_rew.shape)
             reward += weighted_rew
             if should_log:
                 log[f"reward/{name}"] = float(np.mean(weighted_rew))
@@ -224,13 +276,41 @@ class Go2WalkTask(Go2BaseEnv):
         drag_penalty: np.ndarray = np.sum(error, axis=1)
         return drag_penalty
 
+    def _reward_penalty_contact(self, ctx: RewardContext) -> np.ndarray:
+        contact_arrays = []
+        for i in self._cfg.sensor.penalty_contact:
+            arr = self._backend.get_sensor_data(i)
+            contact_arrays.append(arr)
+        result = np.concatenate(contact_arrays, axis=1)
+        return np.any(result, axis=1)
+
     def _reward_contact(self, ctx: RewardContext) -> np.ndarray:
         contact = self.feet_force[:, :, 2] > 0.1
-        # print(self._backend.get_sensor_data(self._cfg.sensor.feet_force[0]))
-        print(self.feet_force)
-        print("#" * 30)
         res = np.zeros(self._num_envs, dtype=np.float32)
         for i in range(len(self._cfg.sensor.feet_force)):
             is_contact = (self.feet_phase[:, i] < 0.6) | (self.gait_frequency < 1.0e-8)
             res += (contact[:, i] == is_contact).astype(np.float32)
         return res / len(self._cfg.sensor.feet_force)
+
+    def _reward_height(self, ctx: RewardContext) -> np.ndarray:
+        height = np.minimum(self.torso_height, self._z_des)
+        error = self._z_des - height
+        return np.exp(-error / 0.25)
+
+    def _reward_orientation(self, ctx: RewardContext) -> np.ndarray:
+        gravity = -1 * self._backend.get_sensor_data("upvector")
+        cos_dist = gravity @ self._desired_gravity
+        normalized = 0.5 * cos_dist + 0.5
+        return np.square(normalized)
+
+    def _cost_contact(self, ctx: RewardContext) -> np.ndarray:
+        feet_contact = self.feet_force[:, self.feet_geom_names, :]
+        return np.any(feet_contact, axis=1).squeeze()
+
+    def _cost_pose(self, ctx: RewardContext) -> np.ndarray:
+        dof_pos = self.get_dof_pos()
+        error = dof_pos[:, self._joint_ids] - self.default_angles[self._joint_ids]
+        return np.sum(np.square(error), axis=1)
+
+    # def _cost_pose(self, qpos: jax.Array) -> jax.Array:
+    # return jp.sum(jp.square(qpos[self._joint_ids] - self._joint_pose))
