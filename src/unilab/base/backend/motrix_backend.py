@@ -1,13 +1,15 @@
 import os
 import time
 from collections.abc import Sequence
-from typing import TypeVar
+from typing import TypeVar, cast
 
 import numpy as np
 
 from unilab.dr.types import (
     RESET_TERM_BASE_COM,
     RESET_TERM_BASE_MASS,
+    RESET_TERM_KD,
+    RESET_TERM_KP,
     DomainRandomizationCapabilities,
     IntervalRandomizationPlan,
     ResetRandomizationPayload,
@@ -93,6 +95,27 @@ class MotrixBackend(SimBackend):
         self._body_floatingbase = self._body.floatingbase
         self._joint_dof_pos_indices = np.asarray(self._model.joint_dof_pos_indices, dtype=np.intp)
         self._joint_dof_vel_indices = np.asarray(self._model.joint_dof_vel_indices, dtype=np.intp)
+        position_actuators: list["mtx.PositionActuator"] = []
+        for actuator in self._model.actuators:
+            if actuator.typ == "position":
+                position_actuators.append(cast("mtx.PositionActuator", actuator))
+        self._position_actuators = position_actuators
+        if len(self._position_actuators) != int(self._model.num_actuators):
+            raise ValueError(
+                "Motrix backend requires all actuators to be position actuators when "
+                "domain-randomization kp/kd support is enabled."
+            )
+        self._default_actuator_kp = np.zeros((self.num_actuators,), dtype=np.float64)
+        self._default_actuator_kd = np.zeros((self.num_actuators,), dtype=np.float64)
+        for actuator in self._position_actuators:
+            idx = int(actuator.index)
+            # TODO: switch to motrixsim model-level actuator gain API once available.
+            self._default_actuator_kp[idx] = float(
+                np.asarray(actuator.get_kp_override(self._data), dtype=np.float64)[0]
+            )
+            self._default_actuator_kd[idx] = float(
+                np.asarray(actuator.get_kd_override(self._data), dtype=np.float64)[0]
+            )
         self._floating_base_quat_indices: tuple[np.ndarray, ...] = tuple(
             np.asarray(floating_base.dof_pos_indices[3:7], dtype=np.intp)
             for floating_base in getattr(self._model, "floating_bases", [])
@@ -225,7 +248,9 @@ class MotrixBackend(SimBackend):
 
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
         return DomainRandomizationCapabilities(
-            supported_reset_terms=frozenset({RESET_TERM_BASE_MASS, RESET_TERM_BASE_COM}),
+            supported_reset_terms=frozenset(
+                {RESET_TERM_BASE_MASS, RESET_TERM_BASE_COM, RESET_TERM_KP, RESET_TERM_KD}
+            ),
             supports_interval_push=True,
         )
 
@@ -413,8 +438,8 @@ class MotrixBackend(SimBackend):
     ) -> None:
         if randomization is None or randomization.is_empty():
             return
-        unsupported = randomization.requested_terms() - frozenset(
-            {RESET_TERM_BASE_MASS, RESET_TERM_BASE_COM}
+        unsupported = (
+            randomization.requested_terms() - self.get_dr_capabilities().supported_reset_terms
         )
         if unsupported:
             terms = ", ".join(sorted(unsupported))
@@ -432,3 +457,29 @@ class MotrixBackend(SimBackend):
             base_com = self._default_base_com_override[env_ids].copy()
             randomized_com = base_com + randomization.base_com_offset
             self._body_link.set_center_of_mass_override(data_slice, randomized_com)
+
+        num_reset = len(env_ids)
+        if randomization.kp is not None:
+            kp = np.asarray(randomization.kp, dtype=np.float32)
+            expected_shape = (num_reset, self.num_actuators)
+            if kp.shape != expected_shape:
+                raise ValueError(f"kp must have shape {expected_shape}, got {kp.shape}")
+            self._set_position_actuator_kp_override(data_slice, kp)
+
+        if randomization.kd is not None:
+            kd = np.asarray(randomization.kd, dtype=np.float32)
+            expected_shape = (num_reset, self.num_actuators)
+            if kd.shape != expected_shape:
+                raise ValueError(f"kd must have shape {expected_shape}, got {kd.shape}")
+            self._set_position_actuator_kd_override(data_slice, kd)
+
+    def _set_position_actuator_kp_override(self, data_slice, kp: np.ndarray) -> None:
+        for actuator in self._position_actuators:
+            actuator.set_kp_override(data_slice, kp[:, int(actuator.index)])
+
+    def _set_position_actuator_kd_override(self, data_slice, kd: np.ndarray) -> None:
+        for actuator in self._position_actuators:
+            actuator.set_kd_override(data_slice, kd[:, int(actuator.index)])
+
+    def get_actuator_gains(self) -> tuple[np.ndarray, np.ndarray]:
+        return self._default_actuator_kp.copy(), self._default_actuator_kd.copy()

@@ -100,3 +100,23 @@ def test_manager_skips_unsupported_reset_terms_with_warning(caplog):
         "motrix backend does not support reset randomization terms: kp; skipping them."
         in caplog.text
     )
+
+
+def test_manager_keeps_supported_reset_terms_without_warning(caplog):
+    backend = _FakeBackend(
+        capabilities=DomainRandomizationCapabilities(
+            supported_reset_terms=frozenset({RESET_TERM_BASE_MASS, RESET_TERM_KP})
+        )
+    )
+    env = SimpleNamespace(_backend=backend)
+    manager = DomainRandomizationManager(env, _FakeProvider())
+
+    with caplog.at_level(logging.WARNING):
+        obs, info = manager.reset(np.array([0, 1], dtype=np.int32))
+
+    assert obs["obs"].shape == (2, 1)
+    assert info["commands"].shape == (2, 3)
+    assert backend.last_randomization is not None
+    assert backend.last_randomization.base_mass_delta is not None
+    assert backend.last_randomization.kp is not None
+    assert "skipping them" not in caplog.text
