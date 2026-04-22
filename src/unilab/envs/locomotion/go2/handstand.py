@@ -120,8 +120,6 @@ class Go2HandStandTask(Go2BaseEnv):
             position_actuator_gains={"kp": cfg.control_config.Kp, "kd": cfg.control_config.Kd},
             iterations=cfg.iterations,
         )
-        print("#" * 30)
-        print(cfg.sim_dt)
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True
         self._reward_cfg = cfg.reward_config
@@ -250,10 +248,6 @@ class Go2HandStandTask(Go2BaseEnv):
                 continue
             rew = self._reward_fns[name](ctx)
             weighted_rew = rew * scale
-            # print("#"*30)
-            # print(name)
-            # print(reward.shape)
-            # print(weighted_rew.shape)
             reward += weighted_rew
             if should_log:
                 log[f"reward/{name}"] = float(np.mean(weighted_rew))
@@ -322,7 +316,6 @@ class Go2HandStandTask(Go2BaseEnv):
         dof_pos = self.get_dof_pos()
         error = dof_pos[:, self._tar_ids] - self.target_angle
         error = np.sum(np.square(error), axis=1)
-        # print(error)
         mask = (self.torso_height >= self._z_des * 0.8).astype(np.float32)
         return np.exp(-error / 1) * mask
 
