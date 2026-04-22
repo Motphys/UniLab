@@ -1,5 +1,7 @@
 """Test reward config override through registry."""
 
+from typing import Any, cast
+
 import pytest
 
 from unilab.base import registry
@@ -18,11 +20,14 @@ def test_reward_override_go1():
         base_height_target=0.5,
     )
 
-    env = registry.make(
-        "Go1JoystickFlat",
-        num_envs=1,
-        sim_backend="mujoco",
-        env_cfg_override={"reward_config": override_config},
+    env = cast(
+        Any,
+        registry.make(
+            "Go1JoystickFlat",
+            num_envs=1,
+            sim_backend="mujoco",
+            env_cfg_override={"reward_config": override_config},
+        ),
     )
 
     assert env._cfg.reward_config.scales["tracking_lin_vel"] == 999.0
@@ -33,9 +38,9 @@ def test_reward_override_g1():
     """Test G1 reward config override."""
     ensure_registries()
 
-    from unilab.envs.locomotion.g1.joystick_sac import RewardConfigSAC
+    from unilab.envs.locomotion.g1.joystick import G1WalkRewardConfig
 
-    override_config = RewardConfigSAC(
+    override_config = G1WalkRewardConfig(
         scales={"tracking_lin_vel": 888.0, "alive": 20.0},
         tracking_sigma=0.3,
         base_height_target=0.8,
@@ -48,11 +53,14 @@ def test_reward_override_g1():
         pose_weights=[0.01] * 29,
     )
 
-    env = registry.make(
-        "G1WalkFlat",
-        num_envs=1,
-        sim_backend="mujoco",
-        env_cfg_override={"reward_config": override_config},
+    env = cast(
+        Any,
+        registry.make(
+            "G1WalkFlat",
+            num_envs=1,
+            sim_backend="mujoco",
+            env_cfg_override={"reward_config": override_config},
+        ),
     )
 
     assert env._cfg.reward_config.scales["tracking_lin_vel"] == 888.0

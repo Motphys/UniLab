@@ -5,7 +5,7 @@ Usage:
     uv run benchmark/benchmark_env_step.py
 
     # Single task + backend:
-    uv run benchmark/benchmark_env_step.py task=g1_joystick_flat/motrix
+    uv run benchmark/benchmark_env_step.py task=g1_walk_flat/motrix
 
     # Override bench params:
     uv run benchmark/benchmark_env_step.py task=go1_joystick_flat/mujoco num_envs=4096 num_steps=500
@@ -61,7 +61,7 @@ save_json = _OUTPUT.save_json
 TASK_CONFIGS = {
     "go1": "task=go1_joystick_flat",
     "go2": "task=go2_joystick_flat",
-    "g1": "task=g1_joystick_flat",
+    "g1": "task=g1_walk_flat",
     "g1_mt": "task=g1_motion_tracking",
 }
 

@@ -108,7 +108,8 @@ class TestSplitObsDict:
         obs = {"obs": np.ones((4, 8))}
         obs_arr, critic_arr = split_obs_dict(obs)
         assert obs_arr.shape == (4, 8)
-        assert critic_arr is None
+        assert critic_arr.shape == (4, 8)
+        np.testing.assert_array_equal(critic_arr, obs_arr)
 
 
 class TestGetObsDims:
@@ -124,4 +125,4 @@ class TestGetObsDims:
         spec = {"obs": 49}
         obs_dim, critic_dim = get_obs_dims(spec)
         assert obs_dim == 49
-        assert critic_dim == 0
+        assert critic_dim == 49

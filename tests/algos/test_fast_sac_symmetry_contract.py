@@ -115,6 +115,7 @@ def test_fast_sac_learner_rejects_symmetry_without_augmentation():
         FastSACLearner(
             obs_dim=4,
             action_dim=2,
+            critic_obs_dim=4,
             device="cpu",
             use_symmetry=True,
         )

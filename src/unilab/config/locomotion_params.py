@@ -9,7 +9,6 @@ KNOWN_TASKS: frozenset[str] = frozenset(
     {
         "Go1JoystickFlat",
         "Go2JoystickFlat",
-        "G1JoystickFlat",
         "G1WalkFlat",
         "G1WalkRough",
         "G1MotionTracking",

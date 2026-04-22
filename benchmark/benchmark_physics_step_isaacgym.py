@@ -25,7 +25,7 @@ import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List, cast
 
 import matplotlib
 
@@ -43,13 +43,13 @@ DEFAULT_MODELS_ROOT = Path("/home/admin1/ws/models")
 if str(DEFAULT_ISAACGYM_PYTHON) not in sys.path:
     sys.path.insert(0, str(DEFAULT_ISAACGYM_PYTHON))
 
+_ISAACGYM_IMPORT_ERROR: Exception | None = None
+
 try:
     from isaacgym import gymapi
 except Exception as _isaacgym_error:
     gymapi = None
     _ISAACGYM_IMPORT_ERROR = _isaacgym_error
-else:
-    _ISAACGYM_IMPORT_ERROR = None
 
 
 @dataclass(frozen=True)
@@ -87,9 +87,9 @@ TASK_SPECS = {
         asset_file="go2_description/urdf/go2_description.urdf",
         initial_height=0.40,
     ),
-    "g1_joystick_flat": TaskSpec(
-        owner_task_id="g1_joystick_flat",
-        display_name="g1_joystick_flat",
+    "g1_walk_flat": TaskSpec(
+        owner_task_id="g1_walk_flat",
+        display_name="g1_walk_flat",
         asset_root=DEFAULT_MODELS_ROOT,
         asset_file="g1_description/g1_29dof_rev_1_0.urdf",
         initial_height=0.78,
@@ -98,16 +98,16 @@ TASK_SPECS = {
 TASK_ALIASES = {
     "Go1JoystickFlat": "go1_joystick_flat",
     "Go2JoystickFlat": "go2_joystick_flat",
-    "G1JoystickFlat": "g1_joystick_flat",
+    "G1WalkFlat": "g1_walk_flat",
     "task=go1_joystick_flat/isaacgym": "go1_joystick_flat",
     "task=go2_joystick_flat/isaacgym": "go2_joystick_flat",
-    "task=g1_joystick_flat/isaacgym": "g1_joystick_flat",
+    "task=g1_walk_flat/isaacgym": "g1_walk_flat",
     "go1_joystick_flat/isaacgym": "go1_joystick_flat",
     "go2_joystick_flat/isaacgym": "go2_joystick_flat",
-    "g1_joystick_flat/isaacgym": "g1_joystick_flat",
+    "g1_walk_flat/isaacgym": "g1_walk_flat",
     "go1": "go1_joystick_flat",
     "go2": "go2_joystick_flat",
-    "g1": "g1_joystick_flat",
+    "g1": "g1_walk_flat",
 }
 DEFAULT_TASK_IDS = list(TASK_SPECS.keys())
 DEFAULT_BATCH_SIZES = [2**k for k in range(8, 15)]  # 256 .. 16384
@@ -196,19 +196,20 @@ def _default_dof_targets(dof_props) -> np.ndarray:
 
 
 def _create_sim(compute_device_id: int, graphics_device_id: int, nthread: int):
-    gym = gymapi.acquire_gym()
-    sim_params = gymapi.SimParams()
+    gymapi_mod = cast(Any, gymapi)
+    gym = gymapi_mod.acquire_gym()
+    sim_params = gymapi_mod.SimParams()
     sim_params.dt = 0.01
     sim_params.substeps = 1
-    sim_params.up_axis = gymapi.UpAxis.UP_AXIS_Z
-    sim_params.gravity = gymapi.Vec3(0.0, 0.0, -9.81)
+    sim_params.up_axis = gymapi_mod.UpAxis.UP_AXIS_Z
+    sim_params.gravity = gymapi_mod.Vec3(0.0, 0.0, -9.81)
     sim_params.physx.solver_type = 1
     sim_params.physx.num_position_iterations = 4
     sim_params.physx.num_velocity_iterations = 1
     sim_params.physx.num_threads = nthread
     sim_params.physx.use_gpu = True
     sim_params.use_gpu_pipeline = True
-    sim = gym.create_sim(compute_device_id, graphics_device_id, gymapi.SIM_PHYSX, sim_params)
+    sim = gym.create_sim(compute_device_id, graphics_device_id, gymapi_mod.SIM_PHYSX, sim_params)
     if sim is None:
         raise RuntimeError("Failed to create Isaac Gym simulation.")
     return gym, sim
@@ -223,31 +224,32 @@ def _build_task_sim(
 ):
     spec = _task_spec(task_name)
     gym, sim = _create_sim(compute_device_id, graphics_device_id, nthread)
+    gymapi_mod = cast(Any, gymapi)
 
-    plane_params = gymapi.PlaneParams()
-    plane_params.normal = gymapi.Vec3(0.0, 0.0, 1.0)
+    plane_params = gymapi_mod.PlaneParams()
+    plane_params.normal = gymapi_mod.Vec3(0.0, 0.0, 1.0)
     gym.add_ground(sim, plane_params)
 
-    asset_options = gymapi.AssetOptions()
+    asset_options = gymapi_mod.AssetOptions()
     asset_options.flip_visual_attachments = True
     asset_options.armature = 0.01
-    asset_options.default_dof_drive_mode = int(gymapi.DOF_MODE_POS)
+    asset_options.default_dof_drive_mode = int(gymapi_mod.DOF_MODE_POS)
 
     asset = gym.load_asset(sim, str(spec.asset_root), spec.asset_file, asset_options)
     dof_props = gym.get_asset_dof_properties(asset)
-    dof_props["driveMode"][:].fill(gymapi.DOF_MODE_POS)
+    dof_props["driveMode"][:].fill(gymapi_mod.DOF_MODE_POS)
     dof_props["stiffness"][:].fill(1000.0)
     dof_props["damping"][:].fill(10.0)
     dof_targets = _default_dof_targets(dof_props)
 
     spacing = 1.0
-    env_lower = gymapi.Vec3(-spacing, 0.0, -spacing)
-    env_upper = gymapi.Vec3(spacing, spacing, spacing)
+    env_lower = gymapi_mod.Vec3(-spacing, 0.0, -spacing)
+    env_upper = gymapi_mod.Vec3(spacing, spacing, spacing)
     num_per_row = max(1, int(math.sqrt(batch_size)))
 
-    pose = gymapi.Transform()
-    pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
-    pose.p = gymapi.Vec3(0.0, 0.0, spec.initial_height)
+    pose = gymapi_mod.Transform()
+    pose.r = gymapi_mod.Quat(0.0, 0.0, 0.0, 1.0)
+    pose.p = gymapi_mod.Vec3(0.0, 0.0, spec.initial_height)
 
     for env_idx in range(batch_size):
         env = gym.create_env(sim, env_lower, env_upper, num_per_row)

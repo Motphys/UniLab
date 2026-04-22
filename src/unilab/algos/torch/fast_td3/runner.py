@@ -42,10 +42,13 @@ class FastTD3Runner(OffPolicyRunner):
         obs_normalization: bool = True,
         sim_backend: str = "mujoco",
     ):
-        obs_dim, action_dim, _ = get_env_dims(env_name, sim_backend)
+        obs_dim, action_dim, critic_obs_dim = get_env_dims(
+            env_name, sim_backend, env_cfg_override=env_cfg_override
+        )
         learner = FastTD3Learner(
             obs_dim=obs_dim,
             action_dim=action_dim,
+            critic_obs_dim=critic_obs_dim,
             num_envs=num_envs,
             device=device or get_default_device(),
             gamma=gamma,

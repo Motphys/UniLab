@@ -19,6 +19,7 @@ def test_compute_timeout_bootstrap_correction_uses_final_observation_value():
         gamma=0.5,
         timeout_mask=np.array([True, False]),
         final_obs=np.array([[2.0, 3.0], [9.0, 9.0]], dtype=np.float32),
+        final_critic=np.array([[2.0, 3.0], [9.0, 9.0]], dtype=np.float32),
     )
 
     np.testing.assert_allclose(correction, np.array([2.5, 0.0], dtype=np.float32))

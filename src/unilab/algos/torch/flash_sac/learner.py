@@ -141,7 +141,7 @@ class FlashSACLearner:
         self,
         obs_dim: int,
         action_dim: int,
-        critic_obs_dim: int = 0,
+        critic_obs_dim: int,
         device: str = "cpu",
         gamma: float = 0.99,
         tau: float = 0.01,
@@ -178,7 +178,7 @@ class FlashSACLearner:
         self.n_step = n_step
         self.actor_bc_alpha = actor_bc_alpha
         self.obs_dim = obs_dim
-        self.critic_obs_dim = critic_obs_dim if critic_obs_dim > 0 else obs_dim
+        self.critic_obs_dim = critic_obs_dim
         self.action_dim = action_dim
         self.update_count = 0
         self.use_amp = bool(use_amp and self.device.type == "cuda")
@@ -283,15 +283,11 @@ class FlashSACLearner:
         next_obs = batch["next_obs"].to(self.device)
         terminated = batch["dones"].to(self.device)
         truncated = batch.get("truncated", torch.zeros_like(terminated)).to(self.device)
-        critic_obs = batch.get("critic")
-        next_critic_obs = batch.get("next_critic")
-        critic_obs = critic_obs.to(self.device) if critic_obs is not None else None
-        next_critic_obs = next_critic_obs.to(self.device) if next_critic_obs is not None else None
+        critic_obs = batch["critic"].to(self.device)
+        critic_next_obs = batch["next_critic"].to(self.device)
 
         obs = self._maybe_normalize_obs(obs, update=True)
         next_obs = self._maybe_normalize_obs(next_obs, update=False)
-        critic_obs = critic_obs if critic_obs is not None else obs
-        critic_next_obs = next_critic_obs if next_critic_obs is not None else next_obs
 
         if self.reward_normalizer is not None:
             rewards = self.reward_normalizer.normalize(rewards)
@@ -349,12 +345,10 @@ class FlashSACLearner:
         obs = batch["obs"].to(self.device)
         next_obs = batch["next_obs"].to(self.device)
         expert_actions = batch["actions"].to(self.device)
-        critic_obs = batch.get("critic")
-        critic_obs = critic_obs.to(self.device) if critic_obs is not None else None
+        critic_obs = batch["critic"].to(self.device)
 
         obs = self._maybe_normalize_obs(obs, update=False)
         next_obs = self._maybe_normalize_obs(next_obs, update=False)
-        critic_obs = critic_obs if critic_obs is not None else obs
 
         obs_all = torch.cat([obs, next_obs], dim=0)
 

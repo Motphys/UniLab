@@ -19,12 +19,12 @@ Usage:
     uv run benchmark/benchmark_mujoco_backend_step_detail.py
 
     uv run benchmark/benchmark_mujoco_backend_step_detail.py \
-        --tasks go1_joystick_flat,go2_joystick_flat,g1_joystick_flat \
+        --tasks go1_joystick_flat,go2_joystick_flat,g1_walk_flat \
         --env-nums 256,512,1024,2048,4096,8192 \
         --nsteps 1,2,3,4
 
     uv run benchmark/benchmark_mujoco_backend_step_detail.py \
-        --tasks g1_joystick_flat --env-nums 2048 --nsteps 1,2,3 --iters 20
+        --tasks g1_walk_flat --env-nums 2048 --nsteps 1,2,3 --iters 20
 """
 
 from __future__ import annotations
@@ -89,7 +89,7 @@ DEFAULT_OUTPUT_JSON = (
 TASK_COLORS = {
     "go1_joystick_flat": "#4C78A8",
     "go2_joystick_flat": "#54A24B",
-    "g1_joystick_flat": "#F58518",
+    "g1_walk_flat": "#F58518",
 }
 COMPONENT_COLORS = {
     "set_ctrl_ms": "#9AA0A6",

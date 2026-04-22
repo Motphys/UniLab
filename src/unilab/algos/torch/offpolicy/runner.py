@@ -91,7 +91,7 @@ class OffPolicyRunner(AsyncRunner):
         self.obs_normalization = obs_normalization
         self.actor_kwargs = actor_kwargs or {}
 
-        self.obs_dim, self.action_dim, self.critic_dim = get_env_dims(
+        self.obs_dim, self.action_dim, self.critic_obs_dim = get_env_dims(
             self.env_name, sim_backend, env_cfg_override
         )
 
@@ -177,7 +177,7 @@ class OffPolicyRunner(AsyncRunner):
             obs_dim=self.obs_dim,
             action_dim=self.action_dim,
             device=self.device,
-            critic_dim=self.critic_dim,
+            critic_dim=self.critic_obs_dim,
         )
         self._shared_resources.append(replay_buffer)
 
