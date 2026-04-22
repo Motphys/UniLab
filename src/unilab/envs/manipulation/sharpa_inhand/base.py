@@ -333,16 +333,26 @@ class SharpaInhandBaseEnv(NpEnv):
     def _build_scale_ids(
         self, num_envs: int, scale_range: Sequence[float]
     ) -> tuple[np.ndarray, int, int]:
+        """Build deterministic near-even environment assignments for each scale.
+
+        Args:
+            num_envs: Number of vectorized environments to assign.
+            scale_range: Scale range config in [lower, upper, num_scales] form.
+
+        Returns:
+            Tuple of scale id per environment, total scale count, and the minimum
+            number of environments assigned to any scale.
+        """
         num_scales = int(scale_range[2])
         if num_scales <= 0:
             raise ValueError(f"scale_range[2] must be >= 1, got {scale_range[2]}")
-        if num_envs % num_scales != 0:
-            raise ValueError(
-                f"num_envs ({num_envs}) must be divisible by scale count ({num_scales})"
-            )
 
         bucket_env = num_envs // num_scales
-        scale_ids = np.repeat(np.arange(num_scales, dtype=np.int32), bucket_env)
+        remainder = num_envs % num_scales
+        # Assign the remainder to the lowest scale ids to keep bucket sizes within one env.
+        counts = np.full((num_scales,), bucket_env, dtype=np.int32)
+        counts[:remainder] += 1
+        scale_ids = np.repeat(np.arange(num_scales, dtype=np.int32), counts)
         return scale_ids, num_scales, bucket_env
 
     def _build_scale_values(self, scale_range: Sequence[float]) -> np.ndarray:

@@ -65,12 +65,26 @@ def load_teacher_actor_weights(
     actor: HoraActorModel,
     teacher_checkpoint: str | Path,
     *,
+    teacher_algo_family: str,
     device: torch.device,
 ) -> None:
     checkpoint = torch.load(teacher_checkpoint, map_location=device, weights_only=False)
-    actor_state = checkpoint.get("actor_state_dict")
+    actor_state_key = {
+        "ppo": "actor_state_dict",
+        "appo": "actor",
+    }.get(str(teacher_algo_family))
+    if actor_state_key is None:
+        raise ValueError(
+            "Unsupported HORA teacher algorithm family for distillation: "
+            f"{teacher_algo_family!r}. Expected one of ['ppo', 'appo']."
+        )
+    actor_state = checkpoint.get(actor_state_key)
     if actor_state is None:
-        raise ValueError(f"Checkpoint does not contain actor_state_dict: {teacher_checkpoint}")
+        raise ValueError(
+            "Checkpoint does not contain the expected teacher actor weights. "
+            f"algo_family={teacher_algo_family!r} expected_key={actor_state_key!r} "
+            f"checkpoint={teacher_checkpoint}"
+        )
     actor.load_state_dict(actor_state, strict=False)
 
 
@@ -104,6 +118,8 @@ class HoraDistillationTrainer:
         device: str,
         log_dir: str | Path,
         teacher_checkpoint: str | Path,
+        teacher_algo_family: str,
+        distill_runtime_cfg: DictConfig,
         logger,
     ) -> None:
         self.env = env
@@ -112,6 +128,8 @@ class HoraDistillationTrainer:
         self.log_dir = Path(log_dir)
         self.logger = logger
         self.teacher_checkpoint = Path(teacher_checkpoint)
+        self.teacher_algo_family = str(teacher_algo_family)
+        self.distill_runtime_cfg = OmegaConf.to_container(distill_runtime_cfg, resolve=True)
         self.actor, self.hist_normalizer = build_student_actor_and_normalizer(
             env,
             cfg,
@@ -134,7 +152,12 @@ class HoraDistillationTrainer:
         return params
 
     def _load_teacher_checkpoint(self) -> None:
-        load_teacher_actor_weights(self.actor, self.teacher_checkpoint, device=self.device)
+        load_teacher_actor_weights(
+            self.actor,
+            self.teacher_checkpoint,
+            teacher_algo_family=self.teacher_algo_family,
+            device=self.device,
+        )
         self.actor.train()
         self.actor.shared.obs_normalizer.eval()
 
@@ -229,6 +252,7 @@ class HoraDistillationTrainer:
                 "history_normalizer": self.hist_normalizer.state_dict(),
                 "agent_steps": self.stats.agent_steps,
                 "teacher_checkpoint": str(self.teacher_checkpoint),
+                "distill_runtime_cfg": self.distill_runtime_cfg,
             },
             Path(path),
         )

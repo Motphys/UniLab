@@ -22,6 +22,11 @@ training:
   play_only: false
   play_env_num: 16
   play_steps: 200
+  render_spacing: 1.0
+  cam_distance: 6.0
+  cam_elevation: -20.0
+  cam_azimuth: 90.0
+  cam_lookat: null
   cam_tracking: false
   cam_tracking_env_idx: 0
   cam_tracking_extra_envs: 2

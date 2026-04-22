@@ -152,6 +152,12 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
                 "Source grasp default angle count mismatch: "
                 f"{self._grasp_default_angles.shape[0]} vs expected {self._num_action}"
             )
+        if np.any(np.bincount(self.scale_ids, minlength=self._num_scales) == 0):
+            raise ValueError(
+                "Sharpa grasp generation requires at least one environment per scale so every "
+                f"grasp-cache bucket can be collected; got num_envs={num_envs}, "
+                f"num_scales={self._num_scales}"
+            )
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
         # Grasp-cache collection should not use policy/random actions.

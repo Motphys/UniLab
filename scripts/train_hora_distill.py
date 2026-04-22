@@ -16,15 +16,18 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from unilab.algos.torch.hora import HoraDistillationTrainer
-from unilab.algos.torch.hora.distill import build_student_actor_and_normalizer, load_distilled_checkpoint
+from unilab.algos.torch.hora.distill import (
+    build_student_actor_and_normalizer,
+    load_distilled_checkpoint,
+)
 from unilab.training import (
     BackendAdapter,
     create_env,
     ensure_registries,
     get_latest_run,
     get_log_root,
-    parse_checkpoint_path,
     render_play_mode,
+    resolve_task_checkpoint_path,
     setup_logger,
 )
 from unilab.utils.rsl_rl_vec_env_wrapper import RslRlVecEnvWrapper
@@ -38,28 +41,42 @@ def _load_yaml_config(path: Path) -> DictConfig:
     return loaded
 
 
-def _load_teacher_owner_config(ppo_task: str) -> DictConfig:
-    owner_path = ROOT_DIR / "conf" / "ppo" / "task" / f"{ppo_task}.yaml"
+def _load_teacher_owner_config(algo_family: str, task: str) -> DictConfig:
+    owner_path = ROOT_DIR / "conf" / str(algo_family) / "task" / f"{task}.yaml"
     owner_cfg = _load_yaml_config(owner_path)
     merged_cfg = OmegaConf.create()
     for default_entry in owner_cfg.get("defaults", []):
         if not isinstance(default_entry, str) or default_entry == "_self_":
             continue
-        include_path = ROOT_DIR / "conf" / "ppo" / f"{default_entry.lstrip('/')}.yaml"
+        include_path = ROOT_DIR / "conf" / str(algo_family) / f"{default_entry.lstrip('/')}.yaml"
         merged_cfg = OmegaConf.merge(merged_cfg, _load_yaml_config(include_path))
     return cast(DictConfig, OmegaConf.merge(merged_cfg, owner_cfg))
 
 
+def _get_teacher_owner_spec(cfg: DictConfig) -> tuple[str | None, str | None]:
+    algo_family = OmegaConf.select(cfg, "teacher.algo_family")
+    task = OmegaConf.select(cfg, "teacher.task")
+    if algo_family in (None, "") or task in (None, ""):
+        return None, None
+    return str(algo_family), str(task)
+
+
 def _teacher_default_cfg(cfg: DictConfig) -> DictConfig:
-    ppo_task = OmegaConf.select(cfg, "teacher_defaults.ppo_task")
-    if not ppo_task:
+    teacher_algo_family, teacher_task = _get_teacher_owner_spec(cfg)
+    if teacher_algo_family is None or teacher_task is None:
         return OmegaConf.create()
 
-    teacher_cfg = _load_teacher_owner_config(str(ppo_task))
+    teacher_cfg = _load_teacher_owner_config(teacher_algo_family, teacher_task)
     actor_cfg = OmegaConf.to_container(OmegaConf.select(teacher_cfg, "algo.actor"), resolve=True)
     if not isinstance(actor_cfg, dict):
         actor_cfg = {}
     actor_cfg = dict(actor_cfg)
+    actor_class_name = str(actor_cfg.get("class_name", ""))
+    if "HoraActorModel" not in actor_class_name:
+        raise ValueError(
+            "HORA distillation teacher owner must resolve to HoraActorModel. "
+            f"Got algo_family={teacher_algo_family} task={teacher_task} actor.class_name={actor_class_name!r}."
+        )
     actor_cfg.pop("class_name", None)
     distribution_cfg = actor_cfg.get("distribution_cfg")
     if isinstance(distribution_cfg, dict):
@@ -88,6 +105,68 @@ def _teacher_default_cfg(cfg: DictConfig) -> DictConfig:
 
 def _apply_teacher_defaults(cfg: DictConfig) -> DictConfig:
     return cast(DictConfig, OmegaConf.merge(_teacher_default_cfg(cfg), cfg))
+
+
+def _resolved_distill_runtime_cfg(cfg: DictConfig) -> DictConfig:
+    """Return stage-2 playback fields that do not depend on teacher algorithm."""
+    model_cfg = OmegaConf.select(cfg, "algo.model")
+    return OmegaConf.create(
+        {
+            "training": {
+                "task_name": OmegaConf.select(cfg, "training.task_name"),
+                "sim_backend": OmegaConf.select(cfg, "training.sim_backend"),
+                "render_spacing": OmegaConf.select(cfg, "training.render_spacing"),
+                "cam_distance": OmegaConf.select(cfg, "training.cam_distance"),
+                "cam_elevation": OmegaConf.select(cfg, "training.cam_elevation"),
+                "cam_azimuth": OmegaConf.select(cfg, "training.cam_azimuth"),
+                "cam_lookat": OmegaConf.select(cfg, "training.cam_lookat"),
+                "cam_tracking": OmegaConf.select(cfg, "training.cam_tracking"),
+                "cam_tracking_env_idx": OmegaConf.select(cfg, "training.cam_tracking_env_idx"),
+                "cam_tracking_extra_envs": OmegaConf.select(
+                    cfg, "training.cam_tracking_extra_envs"
+                ),
+            },
+            "reward": OmegaConf.select(cfg, "reward"),
+            "env": OmegaConf.select(cfg, "env"),
+            "algo": {
+                "model": (
+                    OmegaConf.to_container(model_cfg, resolve=True)
+                    if model_cfg is not None
+                    else {}
+                )
+            },
+        }
+    )
+
+
+def _resolve_teacher_checkpoint_path(cfg: DictConfig) -> tuple[Path | None, Path | None]:
+    teacher_algo_family, teacher_task = _get_teacher_owner_spec(cfg)
+    if teacher_algo_family is None or teacher_task is None:
+        return None, None
+
+    teacher_cfg = _load_teacher_owner_config(teacher_algo_family, teacher_task)
+    teacher_task_name = OmegaConf.select(teacher_cfg, "training.task_name")
+    teacher_algo_log_name = OmegaConf.select(teacher_cfg, "algo.algo_log_name")
+    if teacher_task_name in (None, "") or teacher_algo_log_name in (None, ""):
+        raise ValueError(
+            "Teacher owner config must define training.task_name and algo.algo_log_name. "
+            f"Got algo_family={teacher_algo_family} task={teacher_task}."
+        )
+
+    return resolve_task_checkpoint_path(
+        ROOT_DIR,
+        task_name=str(teacher_task_name),
+        load_run=str(OmegaConf.select(cfg, "algo.load_run", default="-1")),
+        algo_log_name=str(teacher_algo_log_name),
+        checkpoint=(
+            str(selected_checkpoint)
+            if (selected_checkpoint := OmegaConf.select(cfg, "algo.checkpoint", default=-1))
+            not in (None, "", -1, "-1")
+            else None
+        ),
+        suffix=".pt",
+        log_root=OmegaConf.select(cfg, "training.log_root"),
+    )
 
 
 def _build_env_cfg_override(cfg: DictConfig) -> dict[str, Any]:
@@ -210,6 +289,28 @@ def _play_camera_kwargs(cfg: DictConfig) -> dict[str, Any]:
     return camera_kwargs
 
 
+def _cfg_with_checkpoint_runtime(cfg: DictConfig, checkpoint: dict[str, Any]) -> DictConfig:
+    """Merge teacher-independent runtime config stored in a stage-2 checkpoint.
+
+    Args:
+        cfg: Hydra-composed distillation config supplied to play mode.
+        checkpoint: Loaded stage-2 checkpoint dictionary.
+
+    Returns:
+        Config with checkpoint runtime fields restored for environment and model construction.
+    """
+    runtime_cfg = checkpoint.get("distill_runtime_cfg")
+    if runtime_cfg is None:
+        # Backward compatibility for older stage-2 checkpoints that did not
+        # persist teacher-independent playback config.
+        return _apply_teacher_defaults(cfg)
+    # Hydra keeps the distillation root config structured, but runtime playback
+    # metadata legitimately restores owner fields such as reward/env that are
+    # absent from the bare distillation config.
+    cfg_clone = OmegaConf.create(OmegaConf.to_container(cfg, resolve=False))
+    return cast(DictConfig, OmegaConf.merge(cfg_clone, OmegaConf.create(runtime_cfg)))
+
+
 def play_hora_distill(cfg: DictConfig, device: str) -> str | None:
     task_log_root = get_log_root(ROOT_DIR, cfg) / str(cfg.training.task_name)
     load_path, load_path_dir = _resolve_stage2_checkpoint_path(cfg)
@@ -233,6 +334,7 @@ def play_hora_distill(cfg: DictConfig, device: str) -> str | None:
         )
         return None
 
+    cfg = _cfg_with_checkpoint_runtime(cfg, checkpoint)
     env = create_env(
         cfg,
         num_envs=int(cfg.training.play_env_num),
@@ -279,7 +381,6 @@ def play_hora_distill(cfg: DictConfig, device: str) -> str | None:
 @hydra.main(version_base="1.3", config_path="../conf/hora_distill", config_name="config")
 def main(cfg: DictConfig) -> None:
     ensure_registries()
-    cfg = _apply_teacher_defaults(cfg)
 
     if cfg.training.device:
         device = str(cfg.training.device)
@@ -294,10 +395,18 @@ def main(cfg: DictConfig) -> None:
         play_hora_distill(cfg, device)
         return
 
-    teacher_checkpoint, _ = parse_checkpoint_path(cfg, root_dir=ROOT_DIR)
+    cfg = _apply_teacher_defaults(cfg)
+    teacher_algo_family, teacher_task = _get_teacher_owner_spec(cfg)
+    if teacher_algo_family is None or teacher_task is None:
+        raise ValueError("HORA distillation requires teacher.algo_family and teacher.task.")
+
+    teacher_checkpoint, _ = _resolve_teacher_checkpoint_path(cfg)
     if teacher_checkpoint is None:
         raise FileNotFoundError(
-            "Could not resolve HORA teacher checkpoint. Set algo.load_run and optionally algo.checkpoint."
+            "Could not resolve HORA teacher checkpoint. "
+            f"teacher.algo_family={teacher_algo_family!r} "
+            f"teacher.task={teacher_task!r}. "
+            "Set algo.load_run and optionally algo.checkpoint."
         )
 
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -317,6 +426,8 @@ def main(cfg: DictConfig) -> None:
         device=device,
         log_dir=log_dir,
         teacher_checkpoint=teacher_checkpoint,
+        teacher_algo_family=teacher_algo_family,
+        distill_runtime_cfg=_resolved_distill_runtime_cfg(cfg),
         logger=logger,
     )
     trainer.train()
