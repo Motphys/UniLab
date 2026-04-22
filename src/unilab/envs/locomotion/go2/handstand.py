@@ -120,6 +120,8 @@ class Go2HandStandTask(Go2BaseEnv):
             position_actuator_gains={"kp": cfg.control_config.Kp, "kd": cfg.control_config.Kd},
             iterations=cfg.iterations,
         )
+        print("#" * 30)
+        print(cfg.sim_dt)
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True
         self._reward_cfg = cfg.reward_config
@@ -134,7 +136,9 @@ class Go2HandStandTask(Go2BaseEnv):
         self._z_des = 0.55
         self._desired_gravity = np.array([-1, 0, 0])
         self.feet_geom_names = [0, 1]
-        self._joint_ids = [0, 1, 2, 3, 4, 5]
+        self._joint_ids = [0, 1, 2, 3, 4, 5, 6, 9]
+        self._tar_ids = [6, 7, 8, 9, 10, 11]
+        self.target_angle = np.array([0, 1.82, -1.16, 0.0, 1.82, -1.16])
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:
@@ -148,6 +152,8 @@ class Go2HandStandTask(Go2BaseEnv):
             "oritentation": self._reward_orientation,
             "pose": self._cost_pose,
             "penalty_contact": self._reward_penalty_contact,
+            "action_rate": rewards.action_rate,
+            "tar": self._reward_tar,
         }
 
     def update_state(self, state: NpEnvState) -> NpEnvState:
@@ -310,7 +316,15 @@ class Go2HandStandTask(Go2BaseEnv):
     def _cost_pose(self, ctx: RewardContext) -> np.ndarray:
         dof_pos = self.get_dof_pos()
         error = dof_pos[:, self._joint_ids] - self.default_angles[self._joint_ids]
-        return np.asarray(np.sum(np.square(error), axis=1))
+        return np.sum(np.square(error), axis=1)
+
+    def _reward_tar(self, ctx: RewardContext) -> np.ndarray:
+        dof_pos = self.get_dof_pos()
+        error = dof_pos[:, self._tar_ids] - self.target_angle
+        error = np.sum(np.square(error), axis=1)
+        # print(error)
+        mask = (self.torso_height >= self._z_des * 0.8).astype(np.float32)
+        return np.exp(-error / 1) * mask
 
     # def _cost_pose(self, qpos: jax.Array) -> jax.Array:
     # return jp.sum(jp.square(qpos[self._joint_ids] - self._joint_pose))

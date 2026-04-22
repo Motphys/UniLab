@@ -5,7 +5,7 @@ training:
 algo:
   num_envs: 2048
   max_iterations: 5000
-  save_interval: 1000
+  save_interval: 100
   updates_per_step: 8
   use_symmetry: false
   algo_params:

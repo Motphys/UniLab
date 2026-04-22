@@ -4,6 +4,7 @@ training:
   sim_backend: mujoco
 algo:
   max_iterations: 100000
+  save_interval: 10
 env:
   control_config:
     action_scale: 1.0
