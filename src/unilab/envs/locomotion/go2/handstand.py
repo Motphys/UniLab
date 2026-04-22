@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from etils import epath
@@ -307,17 +307,21 @@ class Go2HandStandTask(Go2BaseEnv):
         feet_contact = self.feet_force[:, self.feet_geom_names, :]
         return np.asarray(np.any(feet_contact, axis=1).squeeze())
 
+    # def _cost_pose(self, ctx: RewardContext) -> np.ndarray:
+    #     dof_pos = self.get_dof_pos()
+    #     error = dof_pos[:, self._joint_ids] - self.default_angles[self._joint_ids]
+    #     return np.sum(np.square(error), axis=1)
     def _cost_pose(self, ctx: RewardContext) -> np.ndarray:
         dof_pos = self.get_dof_pos()
         error = dof_pos[:, self._joint_ids] - self.default_angles[self._joint_ids]
-        return np.sum(np.square(error), axis=1)
-
+        # 告诉 Mypy：把它当成 np.ndarray 看待
+        return cast(np.ndarray, np.sum(np.square(error), axis=1))
     def _reward_tar(self, ctx: RewardContext) -> np.ndarray:
         dof_pos = self.get_dof_pos()
         error = dof_pos[:, self._tar_ids] - self.target_angle
         error = np.sum(np.square(error), axis=1)
         mask = (self.torso_height >= self._z_des * 0.8).astype(np.float32)
-        return np.exp(-error / 1) * mask
+        return cast(np.ndarray, np.exp(-error / 1) * mask)
 
     # def _cost_pose(self, qpos: jax.Array) -> jax.Array:
     # return jp.sum(jp.square(qpos[self._joint_ids] - self._joint_pose))
