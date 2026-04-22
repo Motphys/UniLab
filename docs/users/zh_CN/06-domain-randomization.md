@@ -11,15 +11,15 @@
 三条路径对应三类生命周期：
 
 - **init-lifecycle DR**：改变模型身份或模型几何的项，只能在 env/backend 初始化与 materialization 阶段生效，例如 Sharpa-hand 的 object `geom_size` 缩放。
-- **reset-lifecycle DR**：不改变模型身份、只改变同一个模型内参数或 reset 状态的项，例如 `base_mass_delta`、`base_com_offset`、`kp`、`kd`。
+- **reset-lifecycle DR**：不改变模型身份、只改变同一个模型内参数或 reset 状态的项，例如 `base_mass_delta`、`base_com_offset`、`gravity`、`kp`、`kd`。
 - **interval-lifecycle DR**：step 间的外部扰动，例如 push。
 
 ## 现状结论
 
 1. 当前已接入 DR provider 的任务全部使用统一 DR 入口，没有任务绕开 `DomainRandomizationManager` 直接在 `reset()` 里做另一套 DR 流程。
 2. 形式上基本都是结构化的：任务文件内定义 `domain_rand` 配置 dataclass、`DomainRandomizationProvider`、`ResetPlan`，`G1WalkFlat` 复用 `G1Walk` 的 provider。
-3. 现在“统一”的主要是入口和执行流程，不是所有随机项本身。公共 helper [`build_common_reset_randomization()`](../../../src/unilab/dr/dr_utils.py) 目前生成 `base_mass_delta`、`base_com_offset`、`kp`、`kd`；公共 interval helper 目前只生成 push。
-4. [`ResetRandomizationPayload`](../../../src/unilab/dr/types.py) 已经能表达 `body_iquat`、`body_inertia`、`kp`、`kd`，且 [`MuJoCoBackend`](../../../src/unilab/base/backend/mujoco_backend.py) 已声明支持。是否真正使用这些项，仍取决于任务 provider 是否采样并下发。
+3. 现在“统一”的主要是入口和执行流程，不是所有随机项本身。公共 helper [`build_common_reset_randomization()`](../../../src/unilab/dr/dr_utils.py) 目前生成 `base_mass_delta`、`base_com_offset`、`gravity`、`kp`、`kd`；公共 interval helper 目前只生成 push。
+4. [`ResetRandomizationPayload`](../../../src/unilab/dr/types.py) 已经能表达 `gravity`、`body_iquat`、`body_inertia`、`kp`、`kd`，且 [`MuJoCoBackend`](../../../src/unilab/base/backend/mujoco_backend.py) 已声明支持。是否真正使用这些项，仍取决于任务 provider 是否采样并下发。
 5. [`MotrixBackend`](../../../src/unilab/base/backend/motrix_backend.py) 当前支持 `base_mass_delta`、`base_com_offset`、`kp`、`kd` 和 interval push；并在初始化阶段要求模型 actuator 全部为 position actuator。
 6. `geom_size` 不属于 reset-lifecycle 字段；Sharpa-hand object geom scale 通过 init-lifecycle 的 model materialization 完成。
 
@@ -30,9 +30,9 @@
 | `Go1JoystickFlat` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | 任务状态采样 + common payload | push | [`go1/joystick.py`](../../../src/unilab/envs/locomotion/go1/joystick.py) |
 | `Go2JoystickFlat` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | 任务状态采样 + common payload | push | [`go2/joystick.py`](../../../src/unilab/envs/locomotion/go2/joystick.py) |
 | `G1WalkFlat` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | 任务状态采样 + common payload | push | [`g1/joystick.py`](../../../src/unilab/envs/locomotion/g1/joystick.py) |
-| `G1WalkFlat` | 是 | 是：复用 [`G1WalkDomainRandomizationProvider`](../../../src/unilab/envs/locomotion/g1/joystick.py) | 任务状态采样 + common payload | push | [`g1/joystick.py`](../../../src/unilab/envs/locomotion/g1/joystick.py) |
+| `G1WalkRough` | 是 | 是：复用 [`G1WalkDomainRandomizationProvider`](../../../src/unilab/envs/locomotion/g1/joystick.py) | 任务状态采样 + common payload | push | [`g1/joystick.py`](../../../src/unilab/envs/locomotion/g1/joystick.py) |
 | `G1MotionTracking` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | 大量任务特有 reset 采样 + common payload | push | [`motion_tracking/g1/tracking.py`](../../../src/unilab/envs/motion_tracking/g1/tracking.py) |
-| `AllegroInhandRotation` | 是 | 是：`DomainRandConfig + Provider + ResetPlan` | 纯任务特有 reset 采样，`randomization=None` | 无 | [`inhand_rot_allegro/rotation.py`](../../../src/unilab/envs/manipulation/inhand_rot_allegro/rotation.py) |
+| `AllegroInhandRotation` | 是 | 是：`DomainRandConfig + Provider + ResetPlan` | 任务特有 reset 采样 + common payload | 无 | [`inhand_rot_allegro/rotation.py`](../../../src/unilab/envs/manipulation/inhand_rot_allegro/rotation.py) |
 | `SharpaInhandRotation` | 是 | 是：`InitRandomizationPlan + ResetPlan` | grasp cache 采样 + common payload | 无 | [`sharpa_inhand/rotation.py`](../../../src/unilab/envs/manipulation/sharpa_inhand/rotation.py) |
 | `SharpaInhandRotationGrasp` | 是 | 是：复用 Sharpa rotation provider 并覆盖 reset 采样 | grasp collection reset + common payload | 无 | [`sharpa_inhand/grasp_gen.py`](../../../src/unilab/envs/manipulation/sharpa_inhand/grasp_gen.py) |
 
@@ -40,15 +40,14 @@
 
 | 任务 | 当前实现的 reset 域随机 | 当前实现的 interval 域随机 | 默认状态 |
 | --- | --- | --- | --- |
-| `Go1JoystickFlat` | base xy；base yaw；base qvel；command 采样；`current_actions/last_actions` 清零；可选 `base_mass_delta`；可选 `base_com_offset` | `push_robots` | 默认开启 `base_mass_delta`、`base_com_offset`、push |
-| `Go2JoystickFlat` | base xy；base yaw；base qvel；command 采样；`current_actions/last_actions` 清零；kp/kd 随机化（默认开启）；可选 `base_mass_delta`；可选 `base_com_offset` | `push_robots` | kp/kd 默认开启；common payload 和 push 默认关闭 |
-| `G1WalkFlat` | base xy；base yaw；按 `reset_base_qvel_limit` 采样 base qvel；command 采样；`gait_phase` 采样；`current_actions/last_actions` 清零；kp/kd 随机化（默认开启）；可选 `base_mass_delta`；可选 `base_com_offset` | `push_robots` | kp/kd 默认开启；common payload 和 push 默认关闭 |
+| `Go1JoystickFlat` | base xy；base yaw；base qvel；command 采样；`current_actions/last_actions` 清零；可选 `base_mass_delta`；可选 `base_com_offset`；可选 `gravity` | `push_robots` | 默认开启 `base_mass_delta`、`base_com_offset`、push；`gravity` 默认关闭 |
+| `Go2JoystickFlat` | base xy；base yaw；base qvel；command 采样；`current_actions/last_actions` 清零；kp/kd 随机化（默认开启）；可选 `base_mass_delta`；可选 `base_com_offset`；可选 `gravity` | `push_robots` | kp/kd 默认开启；common payload 和 push 默认关闭 |
+| `G1WalkFlat` | base xy；base yaw；按 `reset_base_qvel_limit` 采样 base qvel；command 采样；`gait_phase` 采样；`current_actions/last_actions` 清零；kp/kd 随机化（默认开启）；可选 `base_mass_delta`；可选 `base_com_offset`；可选 `gravity` | `push_robots` | kp/kd 默认开启；common payload 和 push 默认关闭 |
 | `G1WalkRough` | 与 `G1WalkFlat` 相同，直接复用同一个 provider | `push_robots` | kp/kd 默认开启；common payload 和 push 默认关闭 |
-| `G1MotionTracking` | motion frame 采样；root pose 扰动 `x/y/z/roll/pitch/yaw`；root velocity 扰动 `x/y/z/roll/pitch/yaw`；joint position noise；MuJoCo 下按 joint range clip；`current_actions/last_actions` 清零；可选 `base_mass_delta`；可选 `base_com_offset` | `push_robots` | `pose_randomization`、`velocity_randomization`、`joint_position_range` 默认有非零扰动；common payload 和 push 默认关闭 |
-| `AllegroInhandRotation` | 若有 grasp cache 则随机采样 grasp；否则对 hand joints 加 `joint_noise`、对球加 `ball_z_offset`；始终对球线速度加 `ball_vel_noise`；下发 common reset randomization payload | 无 | grasp cache 路径可用时默认会采样；`joint_noise`、`ball_vel_noise`、`ball_z_offset` 默认 0 |
-
-| `SharpaInhandRotation` | grasp cache 按 `scale_ids` 分桶采样；object pose / quat reset | 无 | `scale_range` 默认 `[0.5, 0.5, 1]`，MuJoCo 下会在 init 阶段 materialize object geom scale |
-| `SharpaInhandRotationGrasp` | hand pose reset；object pose / quat reset；采集成功 grasp 并按 `scale_ids` 分桶保存；可选 `base_mass_delta`；可选 `base_com_offset` | 无 | 默认用于生成 Sharpa grasp cache，cache 文件名包含 `scale_range` tag |
+| `G1MotionTracking` | motion frame 采样；root pose 扰动 `x/y/z/roll/pitch/yaw`；root velocity 扰动 `x/y/z/roll/pitch/yaw`；joint position noise；MuJoCo 下按 joint range clip；`current_actions/last_actions` 清零；可选 `base_mass_delta`；可选 `base_com_offset`；可选 `gravity` | `push_robots` | `pose_randomization`、`velocity_randomization`、`joint_position_range` 默认有非零扰动；common payload 和 push 默认关闭 |
+| `AllegroInhandRotation` | 若有 grasp cache 则随机采样 grasp；否则对 hand joints 加 `joint_noise`、对球加 `ball_z_offset`；始终对球线速度加 `ball_vel_noise`；可选 common reset randomization payload（含 `gravity`） | 无 | grasp cache 路径可用时默认会采样；`joint_noise`、`ball_vel_noise`、`ball_z_offset` 默认 0；common payload 默认关闭 |
+| `SharpaInhandRotation` | grasp cache 按 `scale_ids` 分桶采样；object pose / quat reset；可选 common reset randomization payload（含 `gravity`） | 无 | `scale_range` 默认 `[0.5, 0.5, 1]`，MuJoCo 下会在 init 阶段 materialize object geom scale；common payload 默认关闭 |
+| `SharpaInhandRotationGrasp` | hand pose reset；object pose / quat reset；采集成功 grasp 并按 `scale_ids` 分桶保存；可选 `base_mass_delta`；可选 `base_com_offset`；可选 `gravity` | 无 | 默认用于生成 Sharpa grasp cache，cache 文件名包含 `scale_range` tag；common payload 默认关闭 |
 
 ## 当前统一 DR 能力与边界
 
@@ -66,7 +65,7 @@
 
 [`dr_utils.py`](../../../src/unilab/dr/dr_utils.py) 当前只有两类公共 helper：
 
-- reset common payload：`base_mass_delta`、`base_com_offset`、`kp`、`kd`
+- reset common payload：`base_mass_delta`、`base_com_offset`、`gravity`、`kp`、`kd`
 - interval common payload：push
 
 这意味着：
@@ -84,6 +83,7 @@
 
 - `base_mass_delta`
 - `base_com_offset`
+- `gravity`
 - `body_iquat`
 - `body_inertia`
 - `kp`
@@ -91,10 +91,62 @@
 
 backend capability 当前是：
 
-- [`MuJoCoBackend`](../../../src/unilab/base/backend/mujoco_backend.py)：支持上面 6 个 reset term，且支持 interval push
+- [`MuJoCoBackend`](../../../src/unilab/base/backend/mujoco_backend.py)：支持上面 7 个 reset term，且支持 interval push
 - [`MotrixBackend`](../../../src/unilab/base/backend/motrix_backend.py)：支持 `base_mass_delta`、`base_com_offset`、`kp`、`kd`，且支持 interval push；初始化阶段要求 actuator 全为 position
 
 但任务侧当前实际情况是：并不是所有 provider 都构造这些字段。backend contract 是能力边界，任务配置和 provider 是否下发 payload 才决定该任务是否实际启用对应 DR 项。
+
+## Reset gravity 用法
+
+`gravity` 是 reset-lifecycle DR：每次 reset 时按 env 子集采样一个完整的 MuJoCo gravity 向量 `(gx, gy, gz)`，并通过 `ResetRandomizationPayload.gravity` 下发给 backend。该向量同时表达方向和大小：
+
+- 方向：由 `(gx, gy, gz)` 的方向决定。
+- 大小：由向量范数 `sqrt(gx^2 + gy^2 + gz^2)` 决定。
+- 生命周期：只在 reset 时采样和写入；同一个 env 会保持该 gravity，直到下一次 reset 重新采样。
+- backend：当前 UniLab 只声明 MuJoCo backend 支持该 reset term；Motrix backend 不支持，部分任务会按 capability 过滤跳过，部分任务会在 validate 阶段报错。
+
+配置入口在各任务的 `env.domain_rand`：
+
+```yaml
+env:
+  domain_rand:
+    randomize_gravity: true
+    gravity_range:
+      - [-0.2, -0.2, -10.5]
+      - [0.2, 0.2, -8.5]
+```
+
+字段语义：
+
+- `randomize_gravity`：是否启用 gravity reset DR，默认 `false`。
+- `gravity_range`：形状为 `(2, 3)` 的逐维采样区间；第一行和第二行分别给出每个分量的上下界。
+- 每次 reset 时会在 `[min(row0, row1), max(row0, row1)]` 内逐维均匀采样，不会自动归一化方向，也不会固定 gravity 模长。
+
+如果只想随机化大小、保持竖直向下方向，可以只放开 `z` 分量：
+
+```bash
+uv run python scripts/train_rsl_rl.py \
+  task=g1_walk_flat/mujoco \
+  env.domain_rand.randomize_gravity=true \
+  'env.domain_rand.gravity_range=[[0.0,0.0,-10.5],[0.0,0.0,-8.5]]'
+```
+
+如果想同时随机化方向和大小，可以放开 `x/y/z` 分量：
+
+```bash
+uv run python scripts/train_rsl_rl.py \
+  task=g1_walk_flat/mujoco \
+  env.domain_rand.randomize_gravity=true \
+  'env.domain_rand.gravity_range=[[-0.3,-0.3,-10.5],[0.3,0.3,-8.5]]'
+```
+
+注意：
+
+- `gravity_range` 必须能转成 `(2, 3)` 数组；否则 reset 构造 payload 时会报错。
+- 该项不调用 `mj_setConst`；MuJoCo step / forward 会直接读取 `mjModel.opt.gravity`。
+- 不要在 Motrix backend 下开启该项；当前 Motrix capability 不包含 `gravity`。
+- 如果当前环境仍安装不包含 `gravity` 字段的 `mujoco-uni` 包，MuJoCo reset 会报 unsupported field；需要使用包含该字段的 `mujoco-uni` 构建/发布版本。
+- 训练时建议从小范围倾斜开始，避免一开始采到过大水平重力导致任务退化为不可学习。
 
 ## Interval push 用法
 
@@ -253,11 +305,15 @@ uv run python scripts/train_rsl_rl.py task=sharpa_inhand/mujoco 'env.scale_range
 - `body_iquat`
 - `body_inertia`
 - `dof_armature`
+- `gravity`
 - `geom_friction`
 - `kp`
 - `kd`
 
-注意：即使使用 `mujoco-uni==3.6.0.post6`，`geom_size` 仍然不在 reset randomization 的 `SUPPORTED_FIELDS` 里；它在 UniLab 中通过 init-lifecycle model materialization 表达。
+注意：
+
+- `geom_size` 不在 reset randomization 的 `SUPPORTED_FIELDS` 里；它在 UniLab 中通过 init-lifecycle model materialization 表达。
+- 如果当前环境仍安装 `mujoco-uni==3.6.0.post6`，则 `gravity` 也不在发布包的 `SUPPORTED_FIELDS` 里；需要使用包含 gravity reset randomization 的本地构建或后续发布版本。
 
 ### 2. 当前整块替换方式
 
@@ -280,6 +336,7 @@ uv run python scripts/train_rsl_rl.py task=sharpa_inhand/mujoco 'env.scale_range
 - `body_iquat`: `4 * nbody`
 - `body_inertia`: `3 * nbody`
 - `dof_armature`: `nv`
+- `gravity`: `3`
 - `geom_friction`: `3 * ngeom`
 - `kp`: `nu`
 - `kd`: `nu`
@@ -291,6 +348,7 @@ uv run python scripts/train_rsl_rl.py task=sharpa_inhand/mujoco 'env.scale_range
 - `body_iquat`: `(len(env_ids), 4 * nbody)`
 - `body_inertia`: `(len(env_ids), 3 * nbody)`
 - `dof_armature`: `(len(env_ids), nv)`
+- `gravity`: `(len(env_ids), 3)`
 - `geom_friction`: `(len(env_ids), 3 * ngeom)`
 - `kp`: `(len(env_ids), nu)`
 - `kd`: `(len(env_ids), nu)`
@@ -311,7 +369,7 @@ uv run python scripts/train_rsl_rl.py task=sharpa_inhand/mujoco 'env.scale_range
 
 返回语义当前是稳定的：
 
-- `body_ipos` / `body_inertia` / `geom_friction`
+- `body_ipos` / `body_inertia` / `gravity` / `geom_friction`
   - 单索引返回 `(3,)`
   - 多索引返回 `(k, 3)`
 - `body_iquat`
@@ -320,6 +378,8 @@ uv run python scripts/train_rsl_rl.py task=sharpa_inhand/mujoco 'env.scale_range
 - `body_mass` / `dof_armature` / `kp` / `kd`
   - 单索引返回标量
   - 多索引返回 `(k,)`
+
+`gravity` 只有一个逻辑索引 `0`，因此索引读取通常只用于读取整条 gravity 向量。
 
 ### 4. 当前局部写入方式
 
@@ -336,7 +396,7 @@ uv run python scripts/train_rsl_rl.py task=sharpa_inhand/mujoco 'env.scale_range
 
 当前 setter 语义是：
 
-- `body_ipos` / `body_inertia` / `geom_friction`
+- `body_ipos` / `body_inertia` / `gravity` / `geom_friction`
   - 单索引写入要求 `value.shape == (3,)`
   - 多索引写入要求 `value.shape == (k, 3)`
 - `body_iquat`
@@ -345,6 +405,8 @@ uv run python scripts/train_rsl_rl.py task=sharpa_inhand/mujoco 'env.scale_range
 - `body_mass` / `dof_armature` / `kp` / `kd`
   - 单索引写入要求 `value` 为标量
   - 多索引写入要求 `value.shape == (k,)`
+
+`gravity` 的索引写入同样只应使用逻辑索引 `0`；常规 reset DR 更推荐通过整块 payload `gravity: (len(env_ids), 3)` 下发。
 
 因此现在有两种使用方式：
 
@@ -356,7 +418,7 @@ uv run python scripts/train_rsl_rl.py task=sharpa_inhand/mujoco 'env.scale_range
 另外，当前底层对 refresh 的处理也已经固定：
 
 - `body_mass`、`body_ipos`、`body_iquat`、`body_inertia`、`dof_armature` 会触发 `mj_setConst` refresh
-- `geom_friction`、`kp`、`kd` 不触发 refresh
+- `gravity`、`geom_friction`、`kp`、`kd` 不触发 refresh
 
 因此，当前 MuJoCo `BatchEnvPool` 的 reset-lifecycle randomization 接口可以概括为：
 

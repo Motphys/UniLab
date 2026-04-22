@@ -14,7 +14,8 @@ from unilab.dr import (
     ResetPlan,
     ResetRandomizationPayload,
 )
-from unilab.dr.types import RESET_TERM_BASE_MASS, RESET_TERM_KP
+from unilab.dr.dr_utils import build_common_reset_randomization
+from unilab.dr.types import RESET_TERM_BASE_MASS, RESET_TERM_GRAVITY, RESET_TERM_KP
 
 
 def test_capabilities_filter_reset_payload_drops_unsupported_terms():
@@ -23,16 +24,42 @@ def test_capabilities_filter_reset_payload_drops_unsupported_terms():
     )
     payload = ResetRandomizationPayload(
         base_mass_delta=np.array([0.25]),
+        gravity=np.array([[0.0, 0.0, -3.71]]),
         kp=np.array([[12.0, 12.0]]),
     )
 
     filtered, unsupported = capabilities.filter_reset_payload(payload)
 
-    assert unsupported == frozenset({RESET_TERM_KP})
+    assert unsupported == frozenset({RESET_TERM_GRAVITY, RESET_TERM_KP})
     assert filtered is not None
     assert filtered.base_mass_delta is not None
     np.testing.assert_allclose(filtered.base_mass_delta, np.array([0.25]))
+    assert filtered.gravity is None
     assert filtered.kp is None
+
+
+def test_build_common_reset_randomization_samples_gravity_vector():
+    env = SimpleNamespace(
+        cfg=SimpleNamespace(
+            domain_rand=SimpleNamespace(
+                randomize_gravity=True,
+                gravity_range=[[-1.0, -2.0, -10.5], [1.0, 2.0, -8.5]],
+            )
+        )
+    )
+
+    payload = build_common_reset_randomization(env, num_reset=8)
+
+    assert payload is not None
+    assert payload.gravity is not None
+    assert payload.gravity.shape == (8, 3)
+    assert payload.requested_terms() == frozenset({RESET_TERM_GRAVITY})
+    assert np.all(payload.gravity[:, 0] >= -1.0)
+    assert np.all(payload.gravity[:, 0] <= 1.0)
+    assert np.all(payload.gravity[:, 1] >= -2.0)
+    assert np.all(payload.gravity[:, 1] <= 2.0)
+    assert np.all(payload.gravity[:, 2] >= -10.5)
+    assert np.all(payload.gravity[:, 2] <= -8.5)
 
 
 @dataclass

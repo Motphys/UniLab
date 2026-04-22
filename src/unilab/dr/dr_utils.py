@@ -38,6 +38,16 @@ def build_common_reset_randomization(
         base_com_offset[:, 0] = np.random.uniform(low, high, size=(num_reset,))
         payload.base_com_offset = base_com_offset
 
+    if getattr(domain_rand, "randomize_gravity", False):
+        gravity_range = np.asarray(domain_rand.gravity_range, dtype=np.float64)
+        if gravity_range.shape != (2, 3):
+            raise ValueError(
+                f"domain_rand.gravity_range must have shape (2, 3), got {gravity_range.shape}"
+            )
+        low = np.minimum(gravity_range[0], gravity_range[1])
+        high = np.maximum(gravity_range[0], gravity_range[1])
+        payload.gravity = np.random.uniform(low=low, high=high, size=(num_reset, 3))
+
     num_actuators = getattr(env, "_num_action", None)
     need_kp = num_actuators is not None and getattr(domain_rand, "randomize_kp", False)
     need_kd = num_actuators is not None and getattr(domain_rand, "randomize_kd", False)

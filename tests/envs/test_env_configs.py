@@ -114,6 +114,7 @@ def test_g1_walk_flat_cfg_has_domain_rand_for_motrix():
     assert hasattr(cfg, "reset_base_qvel_limit")
     assert cfg.domain_rand.randomize_base_mass is False
     assert cfg.domain_rand.random_com is False
+    assert cfg.domain_rand.randomize_gravity is False
     assert cfg.domain_rand.push_robots is False
 
 
@@ -371,6 +372,7 @@ def test_g1_motion_tracking_cfg_has_domain_rand_for_motrix():
     assert hasattr(cfg, "domain_rand")
     assert cfg.domain_rand.randomize_base_mass is False
     assert cfg.domain_rand.random_com is False
+    assert cfg.domain_rand.randomize_gravity is False
     assert cfg.domain_rand.push_robots is False
 
 
