@@ -26,4 +26,4 @@ algo_params:
   alpha_lr: 3.0e-4
   alpha_init: 0.01
   target_entropy_ratio: 0.0
-  max_grad_norm: 10.0
+  max_grad_norm: 0.0

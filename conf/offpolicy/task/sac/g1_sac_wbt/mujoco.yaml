@@ -18,6 +18,7 @@ algo:
   algo_params:
     alpha_init: 0.02
     target_entropy_ratio: 0.5
+    max_grad_norm: 10.0
 env:
   control_config:
     action_scale: 2.0
