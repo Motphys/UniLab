@@ -302,8 +302,6 @@ def add_sensor(root, sensor_type, name, **kwargs):
 
     # 4. 循环设置其他传入的属性
     for key, value in kwargs.items():
-        # 将 Python 的下划线命名（可选）转换为 XML 习惯（如有必要）
-        # 这里直接设置即可
         sensor.set(key, str(value))
 
     return sensor

@@ -48,6 +48,7 @@ uv run scripts/generate_support_matrix.py --write
 | PPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | Tested |
 | PPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | Tested |
 | PPO (torch) | `allegro_inhand_grasp` (allegro inhand grasp) | Tested | Tested |
+| PPO (torch) | `go2_handstand` (go2 handstand) | Tested | Tested |
 | PPO (torch) | `sharpa_inhand` (sharpa inhand) | Tested | Tested |
 | PPO (torch) | `sharpa_inhand_grasp` (sharpa inhand grasp) | Tested | Tested |
 | PPO (mlx) | `go1_joystick_flat` (Go1 joystick) | Tested | Tested |
@@ -57,6 +58,7 @@ uv run scripts/generate_support_matrix.py --write
 | PPO (mlx) | `g1_flip_tracking` (G1 flip tracking) | Configured | Configured |
 | PPO (mlx) | `allegro_inhand` (Allegro in-hand) | Configured | Configured |
 | PPO (mlx) | `allegro_inhand_grasp` (allegro inhand grasp) | Configured | Configured |
+| PPO (mlx) | `go2_handstand` (go2 handstand) | Configured | Configured |
 | PPO (mlx) | `sharpa_inhand` (sharpa inhand) | Configured | Configured |
 | PPO (mlx) | `sharpa_inhand_grasp` (sharpa inhand grasp) | Configured | Configured |
 | APPO (torch) | `go1_joystick_flat` (Go1 joystick) | Tested | Registered |
