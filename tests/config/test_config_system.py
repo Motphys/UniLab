@@ -17,7 +17,7 @@ from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
 
 CONF_DIR = Path(__file__).parent.parent.parent / "conf"
-_PPO_MLX_TASKS = {"go1_joystick_flat", "go2_joystick_flat", "g1_joystick_flat"}
+_PPO_MLX_TASKS = {"go1_joystick_flat", "go2_joystick_flat", "g1_walk_flat"}
 
 
 def _compose(algo_dir: str, config_name: str = "config", overrides: list[str] | None = None):
@@ -205,8 +205,8 @@ def test_offpolicy_g1_walk_flat_motrix_preserves_backend_specific_algo_value():
 
 
 def test_ppo_g1_backend_specific_hyperparams_remain_separate():
-    mujoco_cfg = _compose("ppo", overrides=["task=g1_joystick_flat/mujoco"])
-    motrix_cfg = _compose("ppo", overrides=["task=g1_joystick_flat/motrix"])
+    mujoco_cfg = _compose("ppo", overrides=["task=g1_walk_flat/mujoco"])
+    motrix_cfg = _compose("ppo", overrides=["task=g1_walk_flat/motrix"])
 
     assert mujoco_cfg.algo.max_iterations == 220
     assert mujoco_cfg.algo.empirical_normalization is False
@@ -269,7 +269,7 @@ def test_offpolicy_g1_walk_flat_motrix_preserves_backend_env_overrides():
 def test_cli_override_beats_task_defaults():
     cfg = _compose(
         "ppo",
-        overrides=["task=g1_joystick_flat/motrix", "algo.max_iterations=1"],
+        overrides=["task=g1_walk_flat/motrix", "algo.max_iterations=1"],
     )
 
     assert cfg.algo.max_iterations == 1

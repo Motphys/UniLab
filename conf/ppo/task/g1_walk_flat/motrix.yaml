@@ -1,6 +1,6 @@
 # @package _global_
 training:
-  task_name: G1JoystickFlat
+  task_name: G1WalkFlat
   sim_backend: motrix
 algo:
   num_envs: 2048
@@ -27,6 +27,8 @@ env:
       - [0.7, 0.0, 0.0]
   gait_phase_init_mode: offset_phase
   reset_base_qvel_limit: 0.05
+  curriculum:
+    enabled: false
 reward:
   scales:
     tracking_lin_vel: 2.0

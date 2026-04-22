@@ -10,6 +10,14 @@ env:
     action_scale: 1.0
   gait_phase_init_mode: "offset_phase"
   reset_base_qvel_limit: 0.5
+  curriculum:
+    enabled: true
+    initial_scale: 0.5
+    min_scale: 0.5
+    max_scale: 1.0
+    level_down_threshold: 150.0
+    level_up_threshold: 750.0
+    degree: 0.001
   noise_config:
     scale_gyro: 0.0
     scale_gravity: 0.0

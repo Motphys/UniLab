@@ -138,7 +138,7 @@ class FastTD3Learner:
         self,
         obs_dim: int,
         action_dim: int,
-        critic_obs_dim: int = 0,
+        critic_obs_dim: int,
         num_envs: int = 1024,
         device: str = "cpu",
         # Hyperparameters from reference
@@ -171,7 +171,7 @@ class FastTD3Learner:
         self.noise_clip = noise_clip
         self.policy_frequency = policy_frequency
         self.use_cdq = use_cdq
-        self.critic_obs_dim = critic_obs_dim if critic_obs_dim > 0 else obs_dim
+        self.critic_obs_dim = critic_obs_dim
 
         torch_device = torch.device(device)
 
@@ -249,17 +249,14 @@ class FastTD3Learner:
 
     def update_critic(self, data: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One critic update step."""
-        observations = self.normalize_obs(data["obs"], update=True)
-        critic_obs = data.get("critic", None)
+        self.normalize_obs(data["obs"], update=True)
+        critic_obs = data["critic"]
         actions = data["actions"]
         rewards = data["rewards"]
         next_observations = self.normalize_obs(data["next_obs"], update=False)
-        next_critic_obs = data.get("next_critic", None)
+        critic_next_obs = data["next_critic"]
         dones = data["dones"].bool()
         truncations = data["truncated"].bool()
-
-        critic_obs = critic_obs if critic_obs is not None else observations
-        critic_next_obs = next_critic_obs if next_critic_obs is not None else next_observations
 
         bootstrap = (truncations | ~dones).float()
         discount = torch.full_like(rewards, self.gamma)
@@ -325,8 +322,9 @@ class FastTD3Learner:
     def update_actor(self, data: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One actor update step."""
         observations = self.normalize_obs(data["obs"], update=False)
+        critic_obs = data["critic"]
 
-        qf1, qf2 = self.qnet(observations, self.actor(observations))
+        qf1, qf2 = self.qnet(critic_obs, self.actor(observations))
         qf1_value = self.qnet.get_value(F.softmax(qf1, dim=1))
         qf2_value = self.qnet.get_value(F.softmax(qf2, dim=1))
 

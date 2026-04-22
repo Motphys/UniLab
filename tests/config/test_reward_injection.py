@@ -49,7 +49,7 @@ def test_reward_config_conversion():
 
     ensure_registries()
 
-    # Test G1 SAC config - registry auto-converts dict to RewardConfigSAC
+    # Test G1 walk config - registry auto-converts dict to G1WalkRewardConfig
     g1_dict = {
         "scales": {"tracking_lin_vel": 2.0, "alive": 10.0},
         "tracking_sigma": 0.25,

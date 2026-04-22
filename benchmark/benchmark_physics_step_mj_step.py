@@ -6,13 +6,14 @@ macOS:     compares numpy rollout vs native mlx_step.
 Other:     benchmarks mujoco.rollout with the configured thread count only.
 
 Sweeps batch sizes across current locomotion owner task ids
-(go1_joystick_flat/go2_joystick_flat/g1_joystick_flat).
+(go1_joystick_flat/go2_joystick_flat/g1_walk_flat).
 Legacy env names remain accepted as aliases.
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import platform
 import time
@@ -20,7 +21,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from multiprocessing import cpu_count
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List, cast
 
 import matplotlib
 import mujoco
@@ -32,32 +33,37 @@ import numpy as np
 from matplotlib.patches import Patch
 
 _IS_MACOS = platform.system() == "Darwin"
+mx: Any = None
+mj_mlx_step: Any = None
 
 if _IS_MACOS:
-    import mlx.core as mx
+    import mlx.core as _mx
+
+    mx = _mx
 
     try:
-        from mujoco import mlx_step as mj_mlx_step
+        mj_mlx_step = importlib.import_module("mujoco.mlx_step")
     except Exception:
         mj_mlx_step = None
-else:
-    mx = None
-    mj_mlx_step = None
 
 try:
-    from benchmark.core.device_info import get_device_info_dict, get_device_info_line
-    from benchmark.core.task_names import (
-        canonical_locomotion_task_ids,
-        locomotion_task_spec,
-        normalize_locomotion_task_id,
-    )
+    from benchmark.core import device_info as _benchmark_device_info
+    from benchmark.core import task_names as _benchmark_task_names
+
+    _device_info = _benchmark_device_info
+    _task_names = _benchmark_task_names
 except ModuleNotFoundError:
-    from core.device_info import get_device_info_dict, get_device_info_line
-    from core.task_names import (
-        canonical_locomotion_task_ids,
-        locomotion_task_spec,
-        normalize_locomotion_task_id,
-    )
+    from core import device_info as _core_device_info
+    from core import task_names as _core_task_names
+
+    _device_info = _core_device_info
+    _task_names = _core_task_names
+
+get_device_info_dict = _device_info.get_device_info_dict
+get_device_info_line = _device_info.get_device_info_line
+canonical_locomotion_task_ids = _task_names.canonical_locomotion_task_ids
+locomotion_task_spec = _task_names.locomotion_task_spec
+normalize_locomotion_task_id = _task_names.normalize_locomotion_task_id
 
 
 @dataclass
@@ -73,19 +79,20 @@ class BenchRecord:
 
 DEFAULT_TASK_IDS = canonical_locomotion_task_ids()
 DEFAULT_BATCH_SIZES = [2**k for k in range(8, 15)]  # 256 .. 16384
-TASK_ALPHA = {"go1_joystick_flat": 0.75, "go2_joystick_flat": 0.9, "g1_joystick_flat": 1.0}
-TASK_HATCH = {"go1_joystick_flat": "//", "go2_joystick_flat": "\\\\", "g1_joystick_flat": "xx"}
+TASK_ALPHA = {"go1_joystick_flat": 0.75, "go2_joystick_flat": 0.9, "g1_walk_flat": 1.0}
+TASK_HATCH = {"go1_joystick_flat": "//", "go2_joystick_flat": "\\\\", "g1_walk_flat": "xx"}
 
 
-def _keyframe0_state_and_ctrl(model: mujoco.MjModel) -> tuple[np.ndarray, np.ndarray]:
-    data = mujoco.MjData(model)
+def _keyframe0_state_and_ctrl(model: Any) -> tuple[np.ndarray, np.ndarray]:
+    mujoco_mod = cast(Any, mujoco)
+    data = mujoco_mod.MjData(model)
     if model.nkey > 0:
-        mujoco.mj_resetDataKeyframe(model, data, 0)
+        mujoco_mod.mj_resetDataKeyframe(model, data, 0)
     else:
-        mujoco.mj_resetData(model, data)
-    nstate = mujoco.mj_stateSize(model, mujoco.mjtState.mjSTATE_FULLPHYSICS)
+        mujoco_mod.mj_resetData(model, data)
+    nstate = mujoco_mod.mj_stateSize(model, mujoco_mod.mjtState.mjSTATE_FULLPHYSICS)
     state0 = np.empty((nstate,), dtype=np.float64)
-    mujoco.mj_getState(model, data, state0, mujoco.mjtState.mjSTATE_FULLPHYSICS)
+    mujoco_mod.mj_getState(model, data, state0, mujoco_mod.mjtState.mjSTATE_FULLPHYSICS)
     if model.nu == 0:
         ctrl0 = np.empty((0,), dtype=np.float64)
     elif model.nkey > 0:
@@ -139,10 +146,10 @@ def _run_mlx(
             control=control_mx,
             nstep=nstep,
             chunk_size=chunk_size,
-            out_dtype=mx.float32,
+            out_dtype=cast(Any, mx).float32,
         )
         state_mx, sensor_mx = out if isinstance(out, tuple) else (out.state_mx, out.sensordata_mx)
-        mx.eval(state_mx, sensor_mx)
+        cast(Any, mx).eval(state_mx, sensor_mx)
     return (time.perf_counter() - t0) / niter
 
 
@@ -150,9 +157,9 @@ def _has_native_mujoco_mlx_step() -> bool:
     return mj_mlx_step is not None and hasattr(mj_mlx_step, "MlxStepRunner")
 
 
-def _load_task_model(task_name: str) -> mujoco.MjModel:
+def _load_task_model(task_name: str) -> Any:
     cfg = locomotion_task_spec(task_name).config_cls()
-    return mujoco.MjModel.from_xml_path(cfg.model_file)
+    return cast(Any, mujoco).MjModel.from_xml_path(cfg.model_file)
 
 
 def _display_backend(backend: str) -> str:
@@ -173,7 +180,7 @@ def _bench_one_task(
     task_key = normalize_locomotion_task_id(task_name)
     np.random.seed(42)
     model = _load_task_model(task_key)
-    nstate = mujoco.mj_stateSize(model, mujoco.mjtState.mjSTATE_FULLPHYSICS)
+    nstate = cast(Any, mujoco).mj_stateSize(model, cast(Any, mujoco).mjtState.mjSTATE_FULLPHYSICS)
     state0, ctrl0 = _keyframe0_state_and_ctrl(model)
 
     records: List[BenchRecord] = []
@@ -188,13 +195,13 @@ def _bench_one_task(
 
         if _IS_MACOS:
             actual_nthread = min(batch_size, nthread, cpu_count())
-            data_list = [mujoco.MjData(model) for _ in range(actual_nthread)]
+            data_list = [cast(Any, mujoco).MjData(model) for _ in range(actual_nthread)]
             with (
                 mj_rollout.Rollout(nthread=actual_nthread) as numpy_runner,
-                mj_mlx_step.MlxStepRunner(nthread=actual_nthread) as mlx_runner,
+                cast(Any, mj_mlx_step).MlxStepRunner(nthread=actual_nthread) as mlx_runner,
             ):
-                initial_state_mx = mx.array(initial_state, dtype=mx.float32)
-                control_mx = mx.array(control, dtype=mx.float32)
+                initial_state_mx = cast(Any, mx).array(initial_state, dtype=cast(Any, mx).float32)
+                control_mx = cast(Any, mx).array(control, dtype=cast(Any, mx).float32)
 
                 _run_numpy(
                     numpy_runner,
@@ -268,7 +275,7 @@ def _bench_one_task(
                 f"mlx={mlx_t * 1000:.3f}ms ({batch_size * nstep / mlx_t / 1e4:.2f}万fps)"
             )
         else:
-            data_list_n = [mujoco.MjData(model) for _ in range(nthread)]
+            data_list_n = [cast(Any, mujoco).MjData(model) for _ in range(nthread)]
             with mj_rollout.Rollout(nthread=nthread) as runner_n:
                 _run_numpy(
                     runner_n,

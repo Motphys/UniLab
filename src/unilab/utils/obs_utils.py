@@ -13,14 +13,22 @@ def flatten_policy_obs_dict(obs: dict[str, np.ndarray]) -> np.ndarray:
     return obs["obs"]
 
 
-def split_obs_dict(obs: dict[str, np.ndarray]) -> tuple[np.ndarray, np.ndarray | None]:
-    """Split observation dict into (actor_obs, critic_obs)."""
-    return obs["obs"], obs.get("critic")
+def split_obs_dict(obs: dict[str, np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
+    """Split observation dict into (actor_obs, critic_obs).
+
+    When no separate critic group exists, critic_obs == actor_obs.
+    """
+    actor = obs["obs"]
+    return actor, obs.get("critic", actor)
 
 
 def get_obs_dims(obs_groups_spec: dict[str, int]) -> tuple[int, int]:
-    """Extract (actor_obs_dim, critic_obs_dim) from obs_groups_spec."""
-    return obs_groups_spec.get("obs", 0), obs_groups_spec.get("critic", 0)
+    """Extract (actor_obs_dim, critic_obs_dim) from obs_groups_spec.
+
+    When no separate critic group exists, critic_obs_dim == actor_obs_dim.
+    """
+    obs_dim = obs_groups_spec.get("obs", 0)
+    return obs_dim, obs_groups_spec.get("critic", obs_dim)
 
 
 def get_critic_base_dim(obs_groups_spec: dict[str, int]) -> int:

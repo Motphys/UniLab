@@ -1,7 +1,9 @@
-from .joystick import G1JoystickPPO, G1JoystickPPOCfg
-from .joystick_sac import (
-    G1WalkFlat,
+from .joystick import (
+    G1WalkControlConfig,
+    G1WalkEnv,
+    G1WalkEnvCfg,
     G1WalkFlatCfg,
-    G1WalkRough,
+    G1WalkLegacyRewardConfig,
+    G1WalkRewardConfig,
     G1WalkRoughCfg,
 )

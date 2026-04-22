@@ -353,6 +353,7 @@ class FastSACLearner:
         self,
         obs_dim: int,
         action_dim: int,
+        critic_obs_dim: int,
         device: str = "cpu",
         # Hyperparameters aligned with holosoma
         gamma: float = 0.97,
@@ -379,7 +380,6 @@ class FastSACLearner:
         use_amp: bool = False,
         symmetry_augmentation: SymmetryAugmentation | None = None,
         world_size: int = 1,
-        critic_obs_dim: int = 0,
     ):
         self.device = device
         self.gamma = gamma
@@ -402,9 +402,8 @@ class FastSACLearner:
             device=device,
         )
 
-        critic_net_obs_dim = critic_obs_dim if critic_obs_dim > 0 else obs_dim
         self.qnet = SACCritic(
-            obs_dim=critic_net_obs_dim,
+            obs_dim=critic_obs_dim,
             action_dim=action_dim,
             num_atoms=num_atoms,
             v_min=v_min,
@@ -417,7 +416,7 @@ class FastSACLearner:
 
         # Target critic
         self.qnet_target = SACCritic(
-            obs_dim=critic_net_obs_dim,
+            obs_dim=critic_obs_dim,
             action_dim=action_dim,
             num_atoms=num_atoms,
             v_min=v_min,
@@ -496,16 +495,13 @@ class FastSACLearner:
     def update_critic(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One critic update step."""
         obs = batch["obs"]
-        critic = batch.get("critic", None)
+        critic_obs = batch["critic"]
         actions = batch["actions"]
         rewards = batch["rewards"]
         next_obs = batch["next_obs"]
-        next_critic = batch.get("next_critic", None)
+        critic_next_obs = batch["next_critic"]
         dones = batch["dones"]
         truncated = batch.get("truncated")
-
-        critic_obs = critic if critic is not None else obs
-        critic_next_obs = next_critic if next_critic is not None else next_obs
 
         # Apply symmetry augmentation
         if self.use_symmetry:
@@ -517,24 +513,16 @@ class FastSACLearner:
                 next_obs, orig_actions, obs_group="obs"
             )
 
-            if critic is not None:
-                assert next_critic is not None
-                critic_base_aug, _ = self.symmetry.augment_obs_and_actions(
-                    critic,
-                    orig_actions,
-                    obs_group="critic",
-                )
-                critic_next_base_aug, _ = self.symmetry.augment_obs_and_actions(
-                    next_critic,
-                    orig_actions,
-                    obs_group="critic",
-                )
-            else:
-                critic_base_aug = obs
-                critic_next_base_aug = next_obs
-
-            critic_obs = critic_base_aug
-            critic_next_obs = critic_next_base_aug
+            critic_obs, _ = self.symmetry.augment_obs_and_actions(
+                critic_obs,
+                orig_actions,
+                obs_group="critic",
+            )
+            critic_next_obs, _ = self.symmetry.augment_obs_and_actions(
+                critic_next_obs,
+                orig_actions,
+                obs_group="critic",
+            )
 
             # Double the batch size for other tensors
             rewards = rewards.repeat(2)
@@ -624,24 +612,16 @@ class FastSACLearner:
     def update_actor(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One actor update step."""
         obs = batch["obs"]
-        critic = batch.get("critic", None)
-
-        critic_obs = critic if critic is not None else obs
+        critic_obs = batch["critic"]
 
         # Apply symmetry augmentation
         if self.use_symmetry:
             assert self.symmetry is not None
             obs = torch.cat([obs, self.symmetry.mirror_obs(obs, obs_group="obs")], dim=0)
-
-            if critic is not None:
-                critic_base_aug = torch.cat(
-                    [critic, self.symmetry.mirror_obs(critic, obs_group="critic")],
-                    dim=0,
-                )
-            else:
-                critic_base_aug = obs
-
-            critic_obs = critic_base_aug
+            critic_obs = torch.cat(
+                [critic_obs, self.symmetry.mirror_obs(critic_obs, obs_group="critic")],
+                dim=0,
+            )
 
         with torch.amp.autocast("cuda", enabled=self.use_amp):  # pyright: ignore[reportPrivateImportUsage]
             actions, log_probs, log_std = self.actor.get_actions_and_log_probs(obs)

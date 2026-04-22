@@ -1,10 +1,15 @@
 # @package _global_
 training:
-  task_name: G1JoystickFlat
+  task_name: G1WalkFlat
   sim_backend: mujoco
 algo:
   max_iterations: 500
   save_interval: 100
+env:
+  control_config:
+    action_scale: 0.25
+  curriculum:
+    enabled: false
 reward:
   scales:
     tracking_lin_vel: 2.0

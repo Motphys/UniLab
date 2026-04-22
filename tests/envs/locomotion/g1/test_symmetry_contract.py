@@ -6,14 +6,14 @@ import pytest
 import torch
 
 from unilab.base import registry
-from unilab.envs.locomotion.g1.joystick_sac import RewardConfigSAC
+from unilab.envs.locomotion.g1.joystick import G1WalkRewardConfig
 from unilab.utils.algo_utils import ensure_registries
 
 pytest.importorskip("mujoco", reason="mujoco is required for G1 symmetry contract tests")
 
 
-def _reward_config() -> RewardConfigSAC:
-    return RewardConfigSAC(
+def _reward_config() -> G1WalkRewardConfig:
+    return G1WalkRewardConfig(
         scales={"tracking_lin_vel": 2.0, "alive": 10.0},
         tracking_sigma=0.25,
         base_height_target=0.754,
