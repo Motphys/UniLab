@@ -5,6 +5,7 @@ from typing import Any
 
 import numpy as np
 
+
 @dataclass(frozen=True)
 class TransitionBootstrapContract:
     actor_next_obs: np.ndarray
