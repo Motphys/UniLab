@@ -21,7 +21,8 @@ training:
   play_only: false
   no_play: false
   play_env_num: 16
-  play_steps: 200
+  play_steps: 800
+  cam_distance: 6.0
   cam_elevation: -20.0
   cam_azimuth: 90.0
   log_dir: null

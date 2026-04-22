@@ -6,7 +6,7 @@ training:
   sim_backend: mujoco
 algo:
   num_envs: 2048
-  max_iterations: 10000
+  max_iterations: 100000
   save_interval: 1000
   # --- holosoma WBT-specific overrides (vs sac.yaml defaults) ---
   gamma: 0.99
@@ -16,8 +16,11 @@ algo:
   policy_frequency: 2
   use_symmetry: false
   algo_params:
-    alpha_init: 0.001
+    alpha_init: 0.02
     target_entropy_ratio: 0.5
+env:
+  control_config:
+    action_scale: 2.0
 reward:
   scales:
     motion_global_root_pos: 1.0
