@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from etils import epath
@@ -134,7 +134,9 @@ class Go2HandStandTask(Go2BaseEnv):
         self._z_des = 0.55
         self._desired_gravity = np.array([-1, 0, 0])
         self.feet_geom_names = [0, 1]
-        self._joint_ids = [0, 1, 2, 3, 4, 5]
+        self._joint_ids = [0, 1, 2, 3, 4, 5, 6, 9]
+        self._tar_ids = [6, 7, 8, 9, 10, 11]
+        self.target_angle = np.array([0, 1.82, -1.16, 0.0, 1.82, -1.16])
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:
@@ -148,6 +150,8 @@ class Go2HandStandTask(Go2BaseEnv):
             "oritentation": self._reward_orientation,
             "pose": self._cost_pose,
             "penalty_contact": self._reward_penalty_contact,
+            "action_rate": rewards.action_rate,
+            "tar": self._reward_tar,
         }
 
     def update_state(self, state: NpEnvState) -> NpEnvState:
@@ -244,10 +248,6 @@ class Go2HandStandTask(Go2BaseEnv):
                 continue
             rew = self._reward_fns[name](ctx)
             weighted_rew = rew * scale
-            # print("#"*30)
-            # print(name)
-            # print(reward.shape)
-            # print(weighted_rew.shape)
             reward += weighted_rew
             if should_log:
                 log[f"reward/{name}"] = float(np.mean(weighted_rew))
@@ -307,10 +307,23 @@ class Go2HandStandTask(Go2BaseEnv):
         feet_contact = self.feet_force[:, self.feet_geom_names, :]
         return np.asarray(np.any(feet_contact, axis=1).squeeze())
 
+    # def _cost_pose(self, ctx: RewardContext) -> np.ndarray:
+    #     dof_pos = self.get_dof_pos()
+    #     error = dof_pos[:, self._joint_ids] - self.default_angles[self._joint_ids]
+    #     return np.sum(np.square(error), axis=1)
     def _cost_pose(self, ctx: RewardContext) -> np.ndarray:
         dof_pos = self.get_dof_pos()
         error = dof_pos[:, self._joint_ids] - self.default_angles[self._joint_ids]
-        return np.asarray(np.sum(np.square(error), axis=1))
+        return cast(np.ndarray, np.sum(np.square(error), axis=1))
+
+    def _reward_tar(self, ctx: RewardContext) -> np.ndarray:
+        dof_pos = self.get_dof_pos()
+        error = dof_pos[:, self._tar_ids] - self.target_angle
+        error = np.sum(np.square(error), axis=1)
+
+        mask = (self.torso_height >= self._z_des * 0.8).astype(np.float32)
+
+        return cast(np.ndarray, np.exp(-error / 1) * mask)
 
     # def _cost_pose(self, qpos: jax.Array) -> jax.Array:
     # return jp.sum(jp.square(qpos[self._joint_ids] - self._joint_pose))
