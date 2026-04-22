@@ -187,6 +187,72 @@ def play_mlx_ppo(cfg: DictConfig, dtype, use_fp16: bool, resolved_sim_backend: s
     model.load_weights(str(load_path), strict=True)
     print(f"[MLX PPO] Loaded model: {load_path}")
 
+    # Export actor to ONNX (convert MLX weights → PyTorch)
+    if run_dir is not None:
+        import onnxruntime as ort
+        import torch
+        import torch.nn as nn
+        import torch.nn.functional as F
+
+        activation_fn = nn.ELU if cfg.algo.policy.activation == "elu" else nn.Tanh
+
+        class _TorchActor(nn.Module):
+            def __init__(self, obs_dim: int, action_dim: int, hidden_dims: list[int], act_cls):
+                super().__init__()
+                layers: list[nn.Module] = []
+                in_dim = obs_dim
+                for h in hidden_dims:
+                    layers.append(nn.Linear(in_dim, h))
+                    layers.append(act_cls())
+                    in_dim = h
+                layers.append(nn.Linear(in_dim, action_dim))
+                self.net = nn.Sequential(*layers)
+
+            def forward(self, obs: torch.Tensor) -> torch.Tensor:
+                return self.net(obs)
+
+        hidden_dims = list(cfg.algo.policy.actor_hidden_dims)
+        torch_actor = _TorchActor(obs_dim, action_dim, hidden_dims, activation_fn)
+
+        # Copy MLX weights → PyTorch
+        mlx_layers = model.actor.layers
+        torch_idx = 0
+        for mlx_layer in mlx_layers:
+            w = np.array(mlx_layer.weight, copy=True)
+            b = np.array(mlx_layer.bias, copy=True)
+            torch_actor.net[torch_idx].weight.data = torch.from_numpy(w.copy())
+            torch_actor.net[torch_idx].bias.data = torch.from_numpy(b.copy())
+            torch_idx += 2  # skip activation
+
+        torch_actor.eval()
+        onnx_path = str(run_dir / "policy.onnx")
+        dummy_input = torch.randn(1, obs_dim)
+        with torch.inference_mode():
+            torch.onnx.export(
+                torch_actor,
+                (dummy_input,),
+                onnx_path,
+                input_names=["obs"],
+                output_names=["action"],
+                opset_version=17,
+            )
+        print(f"Exported actor ONNX to {onnx_path}")
+
+        # Verify
+        verify_input = torch.randn(1, obs_dim)
+        with torch.inference_mode():
+            pt_out = torch_actor(verify_input).numpy()
+        ort_out = ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"]).run(
+            None, {"obs": verify_input.numpy().astype(np.float32)}
+        )[0]
+        max_diff = np.max(np.abs(pt_out - ort_out))
+        mean_diff = np.mean(np.abs(pt_out - ort_out))
+        print(f"ONNX vs PyTorch — max_diff: {max_diff:.2e}, mean_diff: {mean_diff:.2e}")
+        if max_diff > 1e-4:
+            print("WARNING: ONNX output diverges from PyTorch!")
+        else:
+            print("ONNX export verified OK.")
+
     if env.state is None:
         env.init_state()
     play_reset_indices = np.arange(env.num_envs, dtype=np.int32)
@@ -267,7 +333,7 @@ def main(cfg: DictConfig) -> None:
     num_steps = cfg.algo.num_steps_per_env
     max_iterations = cfg.algo.max_iterations
     learning_rate = float(algo_cfg.learning_rate)
-    save_interval = cfg.training.save_interval
+    save_interval = cfg.algo.save_interval
 
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     log_root = _get_log_root(cfg)
