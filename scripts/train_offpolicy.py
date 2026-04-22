@@ -438,6 +438,11 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
                 dtype=np.float32,
             ),
             step=_policy_step,
+            camera_kwargs={
+                "cam_distance": cfg.training.cam_distance,
+                "cam_elevation": cfg.training.cam_elevation,
+                "cam_azimuth": cfg.training.cam_azimuth,
+            },
         )
     print(f"Saving video to {output_video} ...")
     print("Done.")
