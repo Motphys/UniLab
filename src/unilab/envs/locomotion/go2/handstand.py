@@ -314,13 +314,15 @@ class Go2HandStandTask(Go2BaseEnv):
     def _cost_pose(self, ctx: RewardContext) -> np.ndarray:
         dof_pos = self.get_dof_pos()
         error = dof_pos[:, self._joint_ids] - self.default_angles[self._joint_ids]
-        # 告诉 Mypy：把它当成 np.ndarray 看待
         return cast(np.ndarray, np.sum(np.square(error), axis=1))
+
     def _reward_tar(self, ctx: RewardContext) -> np.ndarray:
         dof_pos = self.get_dof_pos()
         error = dof_pos[:, self._tar_ids] - self.target_angle
         error = np.sum(np.square(error), axis=1)
+
         mask = (self.torso_height >= self._z_des * 0.8).astype(np.float32)
+
         return cast(np.ndarray, np.exp(-error / 1) * mask)
 
     # def _cost_pose(self, qpos: jax.Array) -> jax.Array:
