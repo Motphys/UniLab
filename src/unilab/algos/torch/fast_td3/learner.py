@@ -249,7 +249,7 @@ class FastTD3Learner:
 
     def update_critic(self, data: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One critic update step."""
-        observations = self.normalize_obs(data["obs"], update=True)
+        self.normalize_obs(data["obs"], update=True)
         critic_obs = data["critic"]
         actions = data["actions"]
         rewards = data["rewards"]
