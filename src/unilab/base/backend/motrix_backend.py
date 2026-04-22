@@ -46,6 +46,7 @@ class MotrixBackend(SimBackend):
         np_dtype=np.float32,
         add_body_sensors: bool = False,
         iterations: int | None = None,
+        push_body_name: str | None = None,
     ):
         if not MOTRIX_AVAILABLE:
             raise ImportError("motrixsim not available")
@@ -91,6 +92,10 @@ class MotrixBackend(SimBackend):
         )
         self._body_link: "mtx.Link" = _require_not_none(
             self._model.get_link(base_name), f"Link '{base_name}' not found in Motrix model"
+        )
+        push_body = push_body_name if push_body_name is not None else base_name
+        self._push_body_link: "mtx.Link" = _require_not_none(
+            self._model.get_link(push_body), f"Push link '{push_body}' not found in Motrix model"
         )
         self._body_floatingbase = self._body.floatingbase
         self._joint_dof_pos_indices = np.asarray(self._model.joint_dof_pos_indices, dtype=np.intp)
@@ -399,7 +404,7 @@ class MotrixBackend(SimBackend):
         ex_force[:, 0] *= force_range[0]
         ex_force[:, 1] *= force_range[1]
         ex_force[:, 2] *= force_range[2]
-        self._body_link.add_external_force(self._data, ex_force, local=True)
+        self._push_body_link.add_external_force(self._data, ex_force, local=True)
 
     def init_renderer(self, spacing: float = 1.0):
         """Initialize interactive renderer for visualization"""

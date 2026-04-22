@@ -108,6 +108,7 @@ class Domain_Rand:
     push_robots: bool = False
     push_interval: int = 750
     max_force: list[float] = field(default_factory=lambda: [1.0, 1.0, 0.5])
+    push_body_name: str | None = None
 
 
 @dataclass
@@ -302,6 +303,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
             num_envs,
             cfg.sim_dt,
             base_name=cfg.asset.base_name,
+            push_body_name=cfg.domain_rand.push_body_name,
             add_body_sensors=True,
             iterations=cfg.iterations,
         )

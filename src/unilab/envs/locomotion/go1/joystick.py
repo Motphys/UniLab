@@ -89,6 +89,7 @@ class Go1WalkTask(Go1BaseEnv):
             num_envs,
             cfg.sim_dt,
             base_name=cfg.asset.base_name,
+            push_body_name=cfg.domain_rand.push_body_name,
             position_actuator_gains={"kp": cfg.control_config.Kp, "kd": cfg.control_config.Kd},
             iterations=cfg.iterations,
         )

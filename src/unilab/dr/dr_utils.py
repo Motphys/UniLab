@@ -85,9 +85,7 @@ def build_interval_push_plan(env: Any, step_counter: int) -> IntervalRandomizati
         return None
     if step_counter % domain_rand.push_interval != 0:
         return None
-    return IntervalRandomizationPlan(
-        push_perturbation_limit=np.asarray(domain_rand.max_force, dtype=np.float64)
-    )
+    return IntervalRandomizationPlan(push_perturbation_limit=domain_rand.max_force)
 
 
 def validate_interval_push_support(env: Any, capabilities: DomainRandomizationCapabilities) -> None:
@@ -98,3 +96,6 @@ def validate_interval_push_support(env: Any, capabilities: DomainRandomizationCa
         raise NotImplementedError(
             f"{env._backend.backend_type} backend does not support interval push"
         )
+    force_limit = np.asarray(domain_rand.max_force, dtype=np.float64)
+    if force_limit.shape != (3,):
+        raise ValueError(f"domain_rand.max_force must have shape (3,), got {force_limit.shape}")

@@ -93,6 +93,7 @@ class SharpaDomainRandConfig:
     added_mass_range: list[float] = field(default_factory=lambda: [0.0, 0.0])
     random_com: bool = False
     com_offset_x: list[float] = field(default_factory=lambda: [0.0, 0.0])
+    push_body_name: str | None = None
 
 
 @dataclass
