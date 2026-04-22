@@ -226,9 +226,6 @@ class Go2WalkTask(Go2BaseEnv):
 
     def _reward_contact(self, ctx: RewardContext) -> np.ndarray:
         contact = self.feet_force[:, :, 2] > 0.1
-        # print(self._backend.get_sensor_data(self._cfg.sensor.feet_force[0]))
-        print(self.feet_force)
-        print("#" * 30)
         res = np.zeros(self._num_envs, dtype=np.float32)
         for i in range(len(self._cfg.sensor.feet_force)):
             is_contact = (self.feet_phase[:, i] < 0.6) | (self.gait_frequency < 1.0e-8)
