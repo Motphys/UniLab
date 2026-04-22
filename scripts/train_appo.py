@@ -193,6 +193,48 @@ def play_appo(cfg: DictConfig, rl_cfg: dict[str, Any]) -> str | None:
     checkpoint = torch.load(load_path, map_location=device, weights_only=True)
     actor.load_state_dict(checkpoint["actor"])
 
+    # Export actor to ONNX
+    if load_path_dir is not None:
+        import numpy as np
+        import torch.nn as nn
+
+        class _DeterministicAPPOActor(nn.Module):
+            def __init__(self, mlp: nn.Module):
+                super().__init__()
+                self.mlp = mlp
+
+            def forward(self, obs: torch.Tensor) -> torch.Tensor:
+                return self.mlp(obs)
+
+        export_module = _DeterministicAPPOActor(actor.mlp)
+        onnx_path = os.path.join(load_path_dir, "policy.onnx")
+        dummy_input = torch.randn(1, obs_dim, device=device)
+        with torch.inference_mode():
+            torch.onnx.export(
+                export_module,
+                (dummy_input,),
+                onnx_path,
+                input_names=["obs"],
+                output_names=["action"],
+                opset_version=17,
+            )
+        print(f"Exported actor ONNX to {onnx_path}")
+
+        import onnxruntime as ort
+
+        sess = ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
+        verify_input = torch.randn(1, obs_dim, device=device)
+        with torch.inference_mode():
+            pt_output = export_module(verify_input).cpu().numpy()
+        onnx_output = sess.run(None, {"obs": verify_input.cpu().numpy().astype(np.float32)})[0]
+        max_diff = np.max(np.abs(pt_output - onnx_output))
+        mean_diff = np.mean(np.abs(pt_output - onnx_output))
+        print(f"ONNX vs PyTorch — max_diff: {max_diff:.2e}, mean_diff: {mean_diff:.2e}")
+        if max_diff > 1e-4:
+            print("WARNING: ONNX output diverges from PyTorch!")
+        else:
+            print("ONNX export verified OK.")
+
     if cfg.training.sim_backend == "motrix":
         print("Starting interactive visualization (motrix native renderer)...")
         print("Close the render window to exit.")
