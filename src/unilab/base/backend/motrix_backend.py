@@ -1,6 +1,7 @@
 import os
 import time
 from collections.abc import Sequence
+from typing import TypeVar
 
 import numpy as np
 
@@ -21,6 +22,14 @@ except ImportError:
     MOTRIX_AVAILABLE = False
 
 from .base import BackendPlayCapabilities, SimBackend
+
+T = TypeVar("T")
+
+
+def _require_not_none(value: T | None, error_message: str) -> T:
+    if value is None:
+        raise ValueError(error_message)
+    return value
 
 
 class MotrixBackend(SimBackend):
@@ -75,8 +84,12 @@ class MotrixBackend(SimBackend):
         self._np_dtype = np_dtype
 
         self._data = mtx.SceneData(self._model, batch=[num_envs])  # pyright: ignore[reportPossiblyUnbound]
-        self._body = self._model.get_body(base_name)
-        self._body_link = self._model.get_link(base_name)
+        self._body: "mtx.Body" = _require_not_none(
+            self._model.get_body(base_name), f"Body '{base_name}' not found in Motrix model"
+        )
+        self._body_link: "mtx.Link" = _require_not_none(
+            self._model.get_link(base_name), f"Link '{base_name}' not found in Motrix model"
+        )
         self._body_floatingbase = self._body.floatingbase
         self._joint_dof_pos_indices = np.asarray(self._model.joint_dof_pos_indices, dtype=np.intp)
         self._joint_dof_vel_indices = np.asarray(self._model.joint_dof_vel_indices, dtype=np.intp)
