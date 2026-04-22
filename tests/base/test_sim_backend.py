@@ -223,6 +223,7 @@ class TestMuJoCoBasic:
         assert {
             "base_mass_delta",
             "base_com_offset",
+            "gravity",
             "body_iquat",
             "body_inertia",
             "kp",
@@ -356,6 +357,24 @@ class TestMuJoCoBasic:
         np.testing.assert_allclose(
             pool.get_field(1, "body_iquat").reshape(bkd.model.nbody, 4), updated
         )
+
+    def test_set_state_gravity_randomization_only_affects_target_envs(self, bkd):
+        pool = bkd._pool
+        original = [pool.get_field(i, "gravity").copy() for i in range(NUM_ENVS)]
+        qpos = _identity_qpos_mujoco(bkd.model.nq)
+        qvel = np.zeros((1, bkd.model.nv))
+        updated = original[1].copy()
+        updated += np.array([0.2, -0.1, 0.4], dtype=np.float64)
+
+        bkd.set_state(
+            np.array([1]),
+            qpos,
+            qvel,
+            randomization=ResetRandomizationPayload(gravity=updated[None, :]),
+        )
+
+        np.testing.assert_array_equal(pool.get_field(0, "gravity"), original[0])
+        np.testing.assert_allclose(pool.get_field(1, "gravity"), updated)
 
     def test_set_state_body_inertia_randomization_only_affects_target_envs(self, bkd):
         pool = bkd._pool

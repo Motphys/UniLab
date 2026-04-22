@@ -15,6 +15,7 @@ from unilab.dr.types import (
     RESET_TERM_BASE_MASS,
     RESET_TERM_BODY_INERTIA,
     RESET_TERM_BODY_IQUAT,
+    RESET_TERM_GRAVITY,
     RESET_TERM_KD,
     RESET_TERM_KP,
     DomainRandomizationCapabilities,
@@ -527,6 +528,7 @@ class MuJoCoBackend(SimBackend):
                 {
                     RESET_TERM_BASE_MASS,
                     RESET_TERM_BASE_COM,
+                    RESET_TERM_GRAVITY,
                     RESET_TERM_BODY_IQUAT,
                     RESET_TERM_BODY_INERTIA,
                     RESET_TERM_KP,
@@ -698,6 +700,14 @@ class MuJoCoBackend(SimBackend):
             ).copy()
             body_ipos[:, self._base_body_id, :] += np.asarray(randomization.base_com_offset)
             translated["body_ipos"] = body_ipos.reshape(num_reset, -1)
+
+        if randomization.gravity is not None:
+            translated["gravity"] = self._coerce_reset_field(
+                randomization.gravity,
+                name="gravity",
+                num_reset=num_reset,
+                shaped_tail=(3,),
+            )
 
         if randomization.body_iquat is not None:
             translated["body_iquat"] = self._coerce_reset_field(

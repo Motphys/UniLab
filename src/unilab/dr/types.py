@@ -8,6 +8,7 @@ import numpy as np
 
 RESET_TERM_BASE_COM = "base_com_offset"
 RESET_TERM_BASE_MASS = "base_mass_delta"
+RESET_TERM_GRAVITY = "gravity"
 RESET_TERM_BODY_IQUAT = "body_iquat"
 RESET_TERM_BODY_INERTIA = "body_inertia"
 RESET_TERM_KP = "kp"
@@ -53,6 +54,7 @@ class DomainRandomizationCapabilities:
             base_com_offset=(
                 payload.base_com_offset if self.supports_reset_term(RESET_TERM_BASE_COM) else None
             ),
+            gravity=payload.gravity if self.supports_reset_term(RESET_TERM_GRAVITY) else None,
             body_iquat=(
                 payload.body_iquat if self.supports_reset_term(RESET_TERM_BODY_IQUAT) else None
             ),
@@ -69,6 +71,7 @@ class DomainRandomizationCapabilities:
 class ResetRandomizationPayload:
     base_mass_delta: np.ndarray | None = None
     base_com_offset: np.ndarray | None = None
+    gravity: np.ndarray | None = None
     body_iquat: np.ndarray | None = None
     body_inertia: np.ndarray | None = None
     kp: np.ndarray | None = None
@@ -80,6 +83,8 @@ class ResetRandomizationPayload:
             terms.add(RESET_TERM_BASE_MASS)
         if self.base_com_offset is not None:
             terms.add(RESET_TERM_BASE_COM)
+        if self.gravity is not None:
+            terms.add(RESET_TERM_GRAVITY)
         if self.body_iquat is not None:
             terms.add(RESET_TERM_BODY_IQUAT)
         if self.body_inertia is not None:

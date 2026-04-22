@@ -82,6 +82,10 @@ class DomainRandConfig:
     added_mass_range: list[float] = field(default_factory=lambda: [0.0, 0.0])
     random_com: bool = False
     com_offset_x: list[float] = field(default_factory=lambda: [0.0, 0.0])
+    randomize_gravity: bool = False
+    gravity_range: list[list[float]] = field(
+        default_factory=lambda: [[0.0, 0.0, -9.81], [0.0, 0.0, -9.81]]
+    )
     push_robots: bool = False
     push_interval: int = 750
     max_force: list[float] = field(default_factory=lambda: [1.0, 1.0, 0.5])
