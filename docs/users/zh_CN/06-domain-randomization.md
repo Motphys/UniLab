@@ -96,7 +96,41 @@ backend capability 当前是：
 
 但任务侧当前实际情况是：并不是所有 provider 都构造这些字段。backend contract 是能力边界，任务配置和 provider 是否下发 payload 才决定该任务是否实际启用对应 DR 项。
 
-### 4. `geom_size` 的生命周期边界
+## Interval push 用法
+
+支持 interval push 的任务在 `env.domain_rand` 下配置：
+
+```yaml
+env:
+  domain_rand:
+    push_robots: true
+    push_interval: 750
+    max_force: [1.0, 1.0, 0.5]
+    push_body_name: null
+```
+
+- `push_robots`：是否启用 push。
+- `push_interval`：每隔多少个 env step 触发一次。
+- `max_force`：长度为 3 的外力上限；每次在 `[-max_force, max_force]` 内逐维采样。
+- `push_body_name`：外力施加目标 body / link。默认 `null`，表示使用 backend 的 `base_name`。
+
+```bash
+uv run python scripts/train_rsl_rl.py \
+  task=g1_walk_flat/mujoco \
+  env.domain_rand.push_robots=true \
+  env.domain_rand.push_interval=500 \
+  'env.domain_rand.max_force=[20.0,20.0,5.0]' \
+  env.domain_rand.push_body_name=torso_link
+```
+
+注意：
+
+- MuJoCo 按 body 名解析，Motrix 按 link 名解析；名称不存在会在 env/backend 初始化阶段报错。
+- `push_body_name` 是 init 配置，env 创建后再改不会改变已解析的目标。
+- 热路径只采样并施加外力，不解析 XML / asset，不做 backend 私有能力探测。
+- MuJoCo push 通过 `xfrc_applied` 外力实现，不直接改写 base velocity。
+
+## `geom_size` 的生命周期边界
 
 `geom_size` 明确不属于 [`ResetRandomizationPayload`](../../../src/unilab/dr/types.py)，也不应通过 `BatchEnvPool.reset(..., randomization=...)` 在热路径中修改。
 

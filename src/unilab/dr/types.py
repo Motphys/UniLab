@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -95,7 +96,7 @@ class ResetRandomizationPayload:
 
 @dataclass
 class IntervalRandomizationPlan:
-    push_perturbation_limit: np.ndarray | None = None
+    push_perturbation_limit: Sequence[float] | np.ndarray | None = None
 
     def is_empty(self) -> bool:
         return self.push_perturbation_limit is None

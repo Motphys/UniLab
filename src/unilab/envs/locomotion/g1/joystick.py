@@ -251,6 +251,7 @@ class G1WalkEnv(G1BaseEnv):
             num_envs,
             cfg.sim_dt,
             base_name=cfg.asset.base_name,
+            push_body_name=cfg.domain_rand.push_body_name,
             iterations=cfg.iterations,
         )
         super().__init__(cfg, backend, num_envs)

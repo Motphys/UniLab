@@ -14,3 +14,4 @@ class DomainRandConfig:
     push_robots: bool = False
     push_interval: int = 750  # step
     max_force: list[float] = field(default_factory=lambda: [1.0, 1.0, 0.5])
+    push_body_name: str | None = None

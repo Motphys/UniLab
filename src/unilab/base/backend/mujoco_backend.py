@@ -113,9 +113,11 @@ class MuJoCoBackend(SimBackend):
         add_body_sensors: bool = False,
         position_actuator_gains: dict | None = None,
         iterations: int | None = None,
+        push_body_name: Optional[str] = None,
     ):
         self.add_body_sensors = add_body_sensors
         self._base_name = base_name
+        self._push_body_name = push_body_name
         self._model_file = model_file
         self._sim_dt = float(sim_dt)
         self._iterations = None if iterations is None else int(iterations)
@@ -128,11 +130,14 @@ class MuJoCoBackend(SimBackend):
             if base_name is not None
             else -1
         )
+        self._push_body_id = self._resolve_push_body_id(self._model)
+        self._push_body_force_slice = self._resolve_push_body_force_slice(self._push_body_id)
         self._base_body_mass = np.asarray(self._model.body_mass).copy()
         self._base_body_ipos = np.asarray(self._model.body_ipos).copy()
         self._num_envs = num_envs
         self._np_dtype = np_dtype if np_dtype is not None else get_global_dtype()
         self.backend_type = "mujoco"
+        self._pending_xfrc_applied = np.zeros((num_envs, 6 * self._model.nbody), dtype=np.float64)
 
         # 线程配置
         self._n_threads = min(num_envs, cpu_count() * 2)
@@ -263,6 +268,21 @@ class MuJoCoBackend(SimBackend):
         if self._position_actuator_gains is not None:
             self._apply_position_actuator_gains_to_model(model, **self._position_actuator_gains)
 
+    def _resolve_push_body_id(self, model: mujoco.MjModel) -> int:
+        body_name = self._push_body_name if self._push_body_name is not None else self._base_name
+        if body_name is None:
+            return -1
+        body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, body_name)
+        if body_id < 0:
+            raise ValueError(f"Push body '{body_name}' not found in MuJoCo model")
+        return int(body_id)
+
+    def _resolve_push_body_force_slice(self, body_id: int) -> slice:
+        if body_id < 0:
+            return slice(0, 0)
+        start = 6 * body_id
+        return slice(start, start + 3)
+
     def _compile_model_variants(
         self,
         variant_specs: Sequence[ModelVariantSpec],
@@ -373,8 +393,13 @@ class MuJoCoBackend(SimBackend):
             if self._base_name is not None
             else -1
         )
+        self._push_body_id = self._resolve_push_body_id(self._model)
+        self._push_body_force_slice = self._resolve_push_body_force_slice(self._push_body_id)
         self._base_body_mass = np.asarray(self._model.body_mass).copy()
         self._base_body_ipos = np.asarray(self._model.body_ipos).copy()
+        self._pending_xfrc_applied = np.zeros(
+            (self._num_envs, 6 * self._model.nbody), dtype=np.float64
+        )
         self._physics_state[:, self._idx_qpos : self._idx_qpos + self._model.nq] = self._model.qpos0
 
     # ------------------------------------------------------------------ #
@@ -437,6 +462,14 @@ class MuJoCoBackend(SimBackend):
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> dict | None:
         t0 = time.perf_counter()
         control_traj = np.broadcast_to(ctrl[:, None, :], (self._num_envs, nsteps, ctrl.shape[-1]))
+        control_spec = int(mujoco.mjtState.mjSTATE_CTRL)
+        if np.any(self._pending_xfrc_applied):
+            control_spec |= int(mujoco.mjtState.mjSTATE_XFRC_APPLIED)
+            xfrc_traj = np.broadcast_to(
+                self._pending_xfrc_applied[:, None, :],
+                (self._num_envs, nsteps, self._pending_xfrc_applied.shape[-1]),
+            )
+            control_traj = np.concatenate((control_traj, xfrc_traj), axis=-1)
         set_ctrl_ms = (time.perf_counter() - t0) * 1000.0
 
         t0 = time.perf_counter()
@@ -444,8 +477,10 @@ class MuJoCoBackend(SimBackend):
             self._physics_state,
             nstep=nsteps,
             control=control_traj,
-            control_spec=int(mujoco.mjtState.mjSTATE_CTRL),
+            control_spec=control_spec,
         )
+        if control_spec & int(mujoco.mjtState.mjSTATE_XFRC_APPLIED):
+            self._pending_xfrc_applied.fill(0.0)
         self._physics_state[:] = state_np.astype(self._np_dtype)
         physics_ms = (time.perf_counter() - t0) * 1000.0
 
@@ -498,7 +533,7 @@ class MuJoCoBackend(SimBackend):
                     RESET_TERM_KD,
                 }
             ),
-            supports_interval_push=True,
+            supports_interval_push=self._push_body_id >= 0,
         )
 
     def apply_init_randomization(self, plan: InitRandomizationPlan) -> None:
@@ -518,9 +553,13 @@ class MuJoCoBackend(SimBackend):
     def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
         if plan.push_perturbation_limit is None:
             return
-        velocity_delta = np.random.uniform(-1.0, 1.0, size=(self._num_envs, 3))
-        velocity_delta *= np.asarray(plan.push_perturbation_limit, dtype=np.float64)
-        self._base_lin_vel_view[:] += velocity_delta.astype(self._np_dtype)
+        self.push_robots(plan.push_perturbation_limit)
+
+    def push_robots(self, force_range: Sequence[float] | np.ndarray) -> None:
+        ex_force = np.random.uniform(-1.0, 1.0, size=(self._num_envs, 3))
+        ex_force *= force_range
+        self._pending_xfrc_applied.fill(0.0)
+        self._pending_xfrc_applied[:, self._push_body_force_slice] = ex_force
 
     def get_play_capabilities(self) -> BackendPlayCapabilities:
         return BackendPlayCapabilities(supports_physics_state_playback=True)
