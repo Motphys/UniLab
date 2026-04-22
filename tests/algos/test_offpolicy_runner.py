@@ -27,6 +27,7 @@ def _make_sac_runner(env_name: str) -> OffPolicyRunner:
     learner = FastSACLearner(
         obs_dim=obs_dim,
         action_dim=action_dim,
+        critic_obs_dim=obs_dim,
         device="cpu",
         actor_hidden_dim=cfg.get("actor_hidden_dim", 64),
         critic_hidden_dim=cfg.get("critic_hidden_dim", 64),
@@ -81,6 +82,7 @@ def _make_td3_runner(env_name: str) -> OffPolicyRunner:
     learner = FastTD3Learner(
         obs_dim=obs_dim,
         action_dim=action_dim,
+        critic_obs_dim=obs_dim,
         num_envs=4,
         device="cpu",
         actor_hidden_dim=64,

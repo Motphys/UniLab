@@ -206,8 +206,7 @@ def _run_collector(
     state = env.step(actions_np)
     obs_np, critic_np = split_obs_dict(state.obs)
     obs_np = np.asarray(obs_np, dtype=np.float32)
-    if critic_np is not None:
-        critic_np = np.asarray(critic_np, dtype=np.float32)
+    critic_np = np.asarray(critic_np, dtype=np.float32)
     prev_dones_np = np.zeros(num_envs, dtype=np.float32)
     import time as _time
 
@@ -266,8 +265,7 @@ def _run_collector(
         # Extract data as numpy
         next_obs_np, next_critic_np = split_obs_dict(state.obs)
         next_obs_np = np.asarray(next_obs_np, dtype=np.float32)
-        if next_critic_np is not None:
-            next_critic_np = np.asarray(next_critic_np, dtype=np.float32)
+        next_critic_np = np.asarray(next_critic_np, dtype=np.float32)
         rewards_np = np.asarray(state.reward, dtype=np.float32).ravel()
 
         terminated_np = (
@@ -312,8 +310,8 @@ def _run_collector(
                 if terminal_contract.terminal_obs is not None
                 else None
             ),
-            critic=torch.from_numpy(critic_np) if critic_np is not None else None,
-            next_critic=torch.from_numpy(next_critic_np) if next_critic_np is not None else None,
+            critic=torch.from_numpy(critic_np),
+            next_critic=torch.from_numpy(next_critic_np),
             terminal_next_critic=(
                 torch.from_numpy(terminal_contract.terminal_critic)
                 if terminal_contract.terminal_critic is not None
