@@ -164,8 +164,8 @@ class Go2HandStandTask(Go2BaseEnv):
             self.feet_pos[:, i, :] = self._backend.get_sensor_data(self._cfg.sensor.feet_pos[i])
         self.torso_height = self._backend.get_sensor_data(self._cfg.sensor.global_pos)[:, -1]
         contact_arrays = []
-        for i in self._cfg.sensor.ternamate_contact:
-            arr = self._backend.get_sensor_data(i)
+        for name in self._cfg.sensor.ternamate_contact:
+            arr = self._backend.get_sensor_data(name)
             contact_arrays.append(arr)
         result = np.concatenate(contact_arrays, axis=1)
 
@@ -278,11 +278,11 @@ class Go2HandStandTask(Go2BaseEnv):
 
     def _reward_penalty_contact(self, ctx: RewardContext) -> np.ndarray:
         contact_arrays = []
-        for i in self._cfg.sensor.penalty_contact:
-            arr = self._backend.get_sensor_data(i)
+        for name in self._cfg.sensor.penalty_contact:
+            arr = self._backend.get_sensor_data(name)
             contact_arrays.append(arr)
         result = np.concatenate(contact_arrays, axis=1)
-        return np.any(result, axis=1)
+        return np.asarray(np.any(result, axis=1))
 
     def _reward_contact(self, ctx: RewardContext) -> np.ndarray:
         contact = self.feet_force[:, :, 2] > 0.1
@@ -301,16 +301,16 @@ class Go2HandStandTask(Go2BaseEnv):
         gravity = -1 * self._backend.get_sensor_data("upvector")
         cos_dist = gravity @ self._desired_gravity
         normalized = 0.5 * cos_dist + 0.5
-        return np.square(normalized)
+        return np.asarray(np.square(normalized))
 
     def _cost_contact(self, ctx: RewardContext) -> np.ndarray:
         feet_contact = self.feet_force[:, self.feet_geom_names, :]
-        return np.any(feet_contact, axis=1).squeeze()
+        return np.asarray(np.any(feet_contact, axis=1).squeeze())
 
     def _cost_pose(self, ctx: RewardContext) -> np.ndarray:
         dof_pos = self.get_dof_pos()
         error = dof_pos[:, self._joint_ids] - self.default_angles[self._joint_ids]
-        return np.sum(np.square(error), axis=1)
+        return np.asarray(np.sum(np.square(error), axis=1))
 
     # def _cost_pose(self, qpos: jax.Array) -> jax.Array:
     # return jp.sum(jp.square(qpos[self._joint_ids] - self._joint_pose))
