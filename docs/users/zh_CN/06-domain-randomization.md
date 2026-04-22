@@ -20,7 +20,7 @@
 2. 形式上基本都是结构化的：任务文件内定义 `domain_rand` 配置 dataclass、`DomainRandomizationProvider`、`ResetPlan`，`G1WalkFlat` 复用 `G1Joystick` 的 provider。
 3. 现在“统一”的主要是入口和执行流程，不是所有随机项本身。公共 helper [`build_common_reset_randomization()`](../../../src/unilab/dr/dr_utils.py) 目前生成 `base_mass_delta`、`base_com_offset`、`kp`、`kd`；公共 interval helper 目前只生成 push。
 4. [`ResetRandomizationPayload`](../../../src/unilab/dr/types.py) 已经能表达 `body_iquat`、`body_inertia`、`kp`、`kd`，且 [`MuJoCoBackend`](../../../src/unilab/base/backend/mujoco_backend.py) 已声明支持。是否真正使用这些项，仍取决于任务 provider 是否采样并下发。
-5. [`MotrixBackend`](../../../src/unilab/base/backend/motrix_backend.py) 当前只支持 `base_mass_delta`、`base_com_offset` 和 interval push。
+5. [`MotrixBackend`](../../../src/unilab/base/backend/motrix_backend.py) 当前支持 `base_mass_delta`、`base_com_offset`、`kp`、`kd` 和 interval push；并在初始化阶段要求模型 actuator 全部为 position actuator。
 6. `geom_size` 不属于 reset-lifecycle 字段；Sharpa-hand object geom scale 通过 init-lifecycle 的 model materialization 完成。
 
 ## 统一性评估表
@@ -92,7 +92,7 @@
 backend capability 当前是：
 
 - [`MuJoCoBackend`](../../../src/unilab/base/backend/mujoco_backend.py)：支持上面 6 个 reset term，且支持 interval push
-- [`MotrixBackend`](../../../src/unilab/base/backend/motrix_backend.py)：只支持 `base_mass_delta`、`base_com_offset`，且支持 interval push
+- [`MotrixBackend`](../../../src/unilab/base/backend/motrix_backend.py)：支持 `base_mass_delta`、`base_com_offset`、`kp`、`kd`，且支持 interval push；初始化阶段要求 actuator 全为 position
 
 但任务侧当前实际情况是：并不是所有 provider 都构造这些字段。backend contract 是能力边界，任务配置和 provider 是否下发 payload 才决定该任务是否实际启用对应 DR 项。
 

@@ -16,6 +16,7 @@ from unilab.assets import ASSETS_ROOT_PATH
 from unilab.dr import (
     GeomSizeOverride,
     InitRandomizationPlan,
+    IntervalRandomizationPlan,
     ModelVariantSpec,
     ResetRandomizationPayload,
 )
@@ -602,6 +603,81 @@ class TestMotrixBasic:
         np.testing.assert_allclose(updated_mass[1], original_mass[1], atol=1e-6)
         np.testing.assert_allclose(updated_mass[0], original_mass[0] + delta[0], atol=1e-6)
 
+    def test_set_state_base_com_randomization_only_affects_target_envs(self, _ctx):
+        bkd, _ = _ctx
+        nq = bkd.get_dof_pos().shape[-1] + 7
+        nv = bkd.get_dof_vel().shape[-1] + 6
+        qpos = _identity_qpos_mujoco(nq)
+        qvel = np.zeros((1, nv))
+        original_com = np.asarray(bkd._body_link.get_center_of_mass_override(bkd.data)).copy()
+        delta = np.array([[0.01, 0.0, 0.0]], dtype=np.float64)
+
+        bkd.set_state(
+            np.array([0]),
+            qpos,
+            qvel,
+            randomization=ResetRandomizationPayload(base_com_offset=delta),
+        )
+
+        updated_com = np.asarray(bkd._body_link.get_center_of_mass_override(bkd.data))
+        np.testing.assert_allclose(updated_com[1], original_com[1], atol=1e-6)
+        np.testing.assert_allclose(updated_com[0], original_com[0] + delta[0], atol=1e-6)
+
+    def test_set_state_kp_kd_randomization_only_affects_target_envs(self, _ctx):
+        bkd, _ = _ctx
+        nq = bkd.get_dof_pos().shape[-1] + 7
+        nv = bkd.get_dof_vel().shape[-1] + 6
+        qpos = _identity_qpos_mujoco(nq)
+        qvel = np.zeros((1, nv))
+
+        base_kp, base_kd = bkd.get_actuator_gains()
+        randomized_kp = (base_kp + 0.5)[None, :]
+        randomized_kd = (base_kd + 0.1)[None, :]
+
+        check_indices = [0]
+        if bkd.num_actuators > 1:
+            check_indices.append(bkd.num_actuators - 1)
+        position_actuators = {int(actuator.index): actuator for actuator in bkd._position_actuators}
+        original_kp = {
+            idx: np.asarray(position_actuators[idx].get_kp_override(bkd.data)).copy()
+            for idx in check_indices
+        }
+        original_kd = {
+            idx: np.asarray(position_actuators[idx].get_kd_override(bkd.data)).copy()
+            for idx in check_indices
+        }
+
+        bkd.set_state(
+            np.array([0]),
+            qpos,
+            qvel,
+            randomization=ResetRandomizationPayload(kp=randomized_kp, kd=randomized_kd),
+        )
+
+        for idx in check_indices:
+            updated_kp = np.asarray(position_actuators[idx].get_kp_override(bkd.data))
+            updated_kd = np.asarray(position_actuators[idx].get_kd_override(bkd.data))
+            np.testing.assert_allclose(updated_kp[1], original_kp[idx][1], atol=1e-6)
+            np.testing.assert_allclose(updated_kd[1], original_kd[idx][1], atol=1e-6)
+            np.testing.assert_allclose(updated_kp[0], randomized_kp[0, idx], atol=1e-6)
+            np.testing.assert_allclose(updated_kd[0], randomized_kd[0, idx], atol=1e-6)
+
+    def test_set_state_kp_randomization_shape_validation(self, _ctx):
+        bkd, _ = _ctx
+        nq = bkd.get_dof_pos().shape[-1] + 7
+        nv = bkd.get_dof_vel().shape[-1] + 6
+        qpos = _identity_qpos_mujoco(nq)
+        qvel = np.zeros((1, nv))
+        invalid_cols = bkd.num_actuators + 1
+
+        with pytest.raises(ValueError, match="kp must have shape"):
+            bkd.set_state(
+                np.array([0]),
+                qpos,
+                qvel,
+                randomization=ResetRandomizationPayload(kp=np.zeros((1, invalid_cols))),
+            )
+
     def test_set_state_unsupported_randomization_raises(self, _ctx):
         bkd, _ = _ctx
         nq = bkd.get_dof_pos().shape[-1] + 7
@@ -609,13 +685,33 @@ class TestMotrixBasic:
         qpos = _identity_qpos_mujoco(nq)
         qvel = np.zeros((1, nv))
 
-        with pytest.raises(NotImplementedError, match="kp"):
+        with pytest.raises(NotImplementedError, match="body_inertia"):
             bkd.set_state(
                 np.array([0]),
                 qpos,
                 qvel,
-                randomization=ResetRandomizationPayload(kp=np.zeros((1, 1))),
+                randomization=ResetRandomizationPayload(body_inertia=np.zeros((1, 1, 3))),
             )
+
+    def test_get_dr_capabilities_include_expected_terms(self, bkd):
+        caps = bkd.get_dr_capabilities()
+        assert {"base_mass_delta", "base_com_offset", "kp", "kd"}.issubset(
+            caps.supported_reset_terms
+        )
+        assert caps.supports_interval_push
+
+    def test_apply_interval_randomization_calls_push_robots(self, bkd):
+        called: dict[str, np.ndarray] = {}
+
+        def _fake_push_robots(force_range):
+            called["force_range"] = np.asarray(force_range, dtype=np.float64)
+
+        bkd.push_robots = _fake_push_robots  # type: ignore[method-assign]
+        limit = np.array([0.7, 0.3, 0.2], dtype=np.float64)
+
+        bkd.apply_interval_randomization(IntervalRandomizationPlan(push_perturbation_limit=limit))
+
+        np.testing.assert_allclose(called["force_range"], limit)
 
     # base kinematics
 
