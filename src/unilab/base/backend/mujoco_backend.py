@@ -495,6 +495,7 @@ class MuJoCoBackend(SimBackend):
                 }
             ),
             supports_interval_push=True,
+            supports_interval_body_velocity_delta=True,
         )
 
     def apply_init_randomization(self, plan: InitRandomizationPlan) -> None:
@@ -513,10 +514,46 @@ class MuJoCoBackend(SimBackend):
 
     def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
         if plan.push_perturbation_limit is None:
-            return
-        velocity_delta = np.random.uniform(-1.0, 1.0, size=(self._num_envs, 3))
-        velocity_delta *= np.asarray(plan.push_perturbation_limit, dtype=np.float64)
-        self._base_lin_vel_view[:] += velocity_delta.astype(self._np_dtype)
+            pass
+        else:
+            velocity_delta = np.random.uniform(-1.0, 1.0, size=(self._num_envs, 3))
+            velocity_delta *= np.asarray(plan.push_perturbation_limit, dtype=np.float64)
+            self._base_lin_vel_view[:] += velocity_delta.astype(self._np_dtype)
+        if plan.body_linear_velocity_delta is not None:
+            if plan.body_ids is None:
+                raise ValueError("body_ids must be provided with body_linear_velocity_delta")
+            self.apply_body_linear_velocity_delta(plan.body_ids, plan.body_linear_velocity_delta)
+
+    def apply_body_linear_velocity_delta(
+        self,
+        body_ids: np.ndarray,
+        velocity_delta: np.ndarray,
+    ) -> None:
+        """Apply world-frame linear-velocity deltas to free-joint bodies.
+
+        Args:
+            body_ids: Body ids to perturb.
+            velocity_delta: Velocity delta with shape ``(num_envs, len(body_ids), 3)``.
+
+        Returns:
+            None. The pending physics-state velocity slice is updated in place.
+        """
+        body_ids_arr = np.asarray(body_ids, dtype=np.int32).reshape(-1)
+        velocity_delta_arr = np.asarray(velocity_delta, dtype=np.float64)
+        if velocity_delta_arr.shape != (self._num_envs, body_ids_arr.shape[0], 3):
+            raise ValueError(
+                "body_linear_velocity_delta must have shape "
+                f"({self._num_envs}, {body_ids_arr.shape[0]}, 3), got {velocity_delta_arr.shape}"
+            )
+        for body_col, body_id in enumerate(body_ids_arr):
+            joint_adr = int(self._model.body_jntadr[int(body_id)])
+            if joint_adr < 0 or int(self._model.body_jntnum[int(body_id)]) <= 0:
+                raise ValueError(f"Body id {int(body_id)} is not attached to a joint")
+            if int(self._model.jnt_type[joint_adr]) != int(mujoco.mjtJoint.mjJNT_FREE):
+                raise ValueError(f"Body id {int(body_id)} does not use a MuJoCo free joint")
+            dof_adr = int(self._model.jnt_dofadr[joint_adr])
+            qvel_slice = slice(self._idx_qvel + dof_adr, self._idx_qvel + dof_adr + 3)
+            self._physics_state[:, qvel_slice] += velocity_delta_arr[:, body_col, :]
 
     def get_play_capabilities(self) -> BackendPlayCapabilities:
         return BackendPlayCapabilities(supports_physics_state_playback=True)
@@ -654,7 +691,9 @@ class MuJoCoBackend(SimBackend):
             )
         if randomization.base_mass_delta is not None:
             if body_mass is None:
-                body_mass = np.broadcast_to(self._base_body_mass, (num_reset, self._model.nbody)).copy()
+                body_mass = np.broadcast_to(
+                    self._base_body_mass, (num_reset, self._model.nbody)
+                ).copy()
             body_mass[:, self._base_body_id] += np.asarray(randomization.base_mass_delta)
         if body_mass is not None:
             translated["body_mass"] = body_mass

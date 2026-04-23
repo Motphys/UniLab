@@ -97,15 +97,22 @@ class SharpaInhandGraspDRProvider(SharpaInhandRotationDRProvider):
         qpos[:, env._obj_quat_slice] = object_quat
 
         qvel = np.zeros((num_reset, env.nv), dtype=np.float64)
+        p_gain, d_gain = self._sample_reset_pd_gains(env, num_reset, dtype=env._np_dtype)
 
         info_updates = self._build_info_updates(
             env,
+            env_ids=env_ids,
             hand_qpos=hand_qpos,
             object_pos=object_pos,
             object_quat=object_quat,
             reset_height_lower=np.full((num_reset,), env.cfg.reset_height_lower, dtype=np.float64),
             reset_height_upper=np.full((num_reset,), env.cfg.reset_height_upper, dtype=np.float64),
             rot_axis=np.broadcast_to(env._rot_axis, (num_reset, 3)).astype(np.float64),
+            p_gain=p_gain,
+            d_gain=d_gain,
+            friction_scale=None,
+            randomized_mass=None,
+            randomized_com_offset=None,
         )
 
         return ResetPlan(
@@ -138,7 +145,12 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
         self._saved_grasping_states: list[list[np.ndarray]] = [
             list() for _ in range(self._num_scales)
         ]
-        self._grasp_target_per_scale = max(1, int(cfg.grasp_collection_target // self._num_scales))
+        if self._num_scales != 1:
+            raise ValueError(
+                "Sharpa grasp generation now collects exactly one object scale per run; "
+                f"got scale_list={list(self.scale_values)}"
+            )
+        self._grasp_target_per_scale = max(1, int(cfg.grasp_collection_target))
         self._grasp_cache_saved = False
         self._grasp_target_reached_notified = False
         self._last_grasp_progress_step = -1
@@ -154,9 +166,8 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
             )
         if np.any(np.bincount(self.scale_ids, minlength=self._num_scales) == 0):
             raise ValueError(
-                "Sharpa grasp generation requires at least one environment per scale so every "
-                f"grasp-cache bucket can be collected; got num_envs={num_envs}, "
-                f"num_scales={self._num_scales}"
+                "Sharpa grasp generation requires at least one environment for the configured scale; "
+                f"got num_envs={num_envs}, num_scales={self._num_scales}"
             )
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
@@ -200,7 +211,9 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
                 return
 
         total = int(sum(counts))
-        per_scale = ", ".join(f"s{i}:{count}" for i, count in enumerate(counts))
+        per_scale = ", ".join(
+            f"scale={float(self.scale_values[i]):g}:{count}" for i, count in enumerate(counts)
+        )
         print(
             "[SharpaInhandRotationGrasp] "
             f"grasp progress total={total}/{int(self._cfg.grasp_collection_target)}, "
@@ -269,18 +282,12 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
 
         output_file = resolve_grasp_cache_file(
             self._cfg.grasp_cache_path or "cache/sharpa_grasp_linspace",
-            self._cfg.scale_range,
+            float(self.scale_values[0]),
         )
         output_file.parent.mkdir(parents=True, exist_ok=True)
-
-        by_scale = []
-        for bucket in self._saved_grasping_states:
-            if bucket:
-                by_scale.append(np.concatenate(bucket, axis=0)[: self._grasp_target_per_scale])
-            else:
-                by_scale.append(np.zeros((0, 29), dtype=np.float32))
-
-        save_data = np.concatenate(by_scale, axis=0)
+        save_data = np.concatenate(self._saved_grasping_states[0], axis=0)[
+            : self._grasp_target_per_scale
+        ]
         np.save(output_file, save_data)
 
         self._grasp_cache_saved = True
@@ -340,8 +347,7 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
             log["grasp/cond3"] = float(np.mean(cond3.astype(np.float32)))
             log["grasp/valid"] = float(np.mean(grasp_valid.astype(np.float32)))
             per_scale_counts = self._get_per_scale_grasp_counts()
-            collected = float(sum(per_scale_counts))
-            log["grasp/cache_size"] = collected
+            log["grasp/target_cache_size"] = float(self._cfg.grasp_collection_target)
             for scale_idx, count in enumerate(per_scale_counts):
                 scale_value = float(self.scale_values[scale_idx])
                 log[f"grasp/cache_size_scale_{scale_value:g}"] = float(count)

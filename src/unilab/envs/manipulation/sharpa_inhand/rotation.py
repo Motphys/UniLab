@@ -14,6 +14,7 @@ from unilab.dr import (
     DomainRandomizationProvider,
     GeomSizeOverride,
     InitRandomizationPlan,
+    IntervalRandomizationPlan,
     ModelVariantSpec,
     ResetPlan,
 )
@@ -22,6 +23,8 @@ from unilab.dr.types import (
     RESET_TERM_BODY_IPOS,
     RESET_TERM_BODY_MASS,
     RESET_TERM_GEOM_FRICTION,
+    RESET_TERM_KD,
+    RESET_TERM_KP,
     ResetRandomizationPayload,
 )
 from unilab.envs.manipulation.sharpa_inhand.base import (
@@ -30,7 +33,7 @@ from unilab.envs.manipulation.sharpa_inhand.base import (
     apply_random_rotation_to_positions,
     repeat_obs_history,
     resolve_grasp_cache_file,
-    sample_bucketed_grasp_cache,
+    sample_scale_grasp_caches,
 )
 from unilab.utils.math_utils import np_quat_conjugate, np_quat_mul, np_quat_to_axis_angle
 
@@ -54,6 +57,7 @@ class RewardConfig:
 @registry.envcfg("SharpaInhandRotation")
 @dataclass
 class SharpaInhandRotationCfg(SharpaInhandBaseCfg):
+    critic_info_dim: int = 9
     reward_config: RewardConfig | None = None
     zero_action_test_mode: bool = False
     # "separated": source-style actor obs and privileged info carried separately.
@@ -64,6 +68,15 @@ class SharpaInhandRotationCfg(SharpaInhandBaseCfg):
 class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
     def validate(self, env: Any, capabilities: DomainRandomizationCapabilities) -> None:
         unsupported = validate_common_reset_randomization(env, capabilities)
+        if env.cfg.force_scale > 0.0 and not capabilities.supports_interval_body_velocity_delta:
+            raise NotImplementedError(
+                f"{env._backend.backend_type} backend does not support interval body velocity perturbation"
+            )
+        if env.cfg.randomize_pd_gains:
+            if not capabilities.supports_reset_term(RESET_TERM_KP):
+                unsupported = unsupported | frozenset({RESET_TERM_KP})
+            if not capabilities.supports_reset_term(RESET_TERM_KD):
+                unsupported = unsupported | frozenset({RESET_TERM_KD})
         if env.cfg.randomize_com and not capabilities.supports_reset_term(RESET_TERM_BODY_IPOS):
             unsupported = unsupported | frozenset({RESET_TERM_BODY_IPOS})
         if env.cfg.randomize_mass and not capabilities.supports_reset_term(RESET_TERM_BODY_MASS):
@@ -102,16 +115,33 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
             model_variants=model_variants,
         )
 
-    def _load_grasp_cache(self, env: Any) -> np.ndarray:
+    def _load_grasp_cache(self, env: Any) -> tuple[np.ndarray, ...]:
+        """Load one grasp cache file for each configured object scale.
+
+        Args:
+            env: Sharpa rotation env instance.
+
+        Returns:
+            Tuple of cache arrays ordered the same as ``env.scale_values``.
+        """
         if getattr(env, "_grasp_cache", None) is not None:
-            return cast(np.ndarray, env._grasp_cache)
+            return cast(tuple[np.ndarray, ...], env._grasp_cache)
 
-        cache_file = resolve_grasp_cache_file(env.cfg.grasp_cache_path, env.cfg.scale_range)
-        if not cache_file.exists():
-            raise RuntimeError(f"No saved grasping states found at {cache_file}")
+        grasp_caches: list[np.ndarray] = []
+        missing_files: list[str] = []
+        for scale_value in np.asarray(env.scale_values, dtype=np.float64):
+            cache_file = resolve_grasp_cache_file(env.cfg.grasp_cache_path, float(scale_value))
+            if not cache_file.exists():
+                missing_files.append(str(cache_file))
+                continue
+            grasp_caches.append(np.load(cache_file).astype(np.float64))
 
-        env._grasp_cache = np.load(cache_file).astype(np.float64)
-        return cast(np.ndarray, env._grasp_cache)
+        if missing_files:
+            missing = ", ".join(missing_files)
+            raise RuntimeError(f"Missing Sharpa grasp cache file(s): {missing}")
+
+        env._grasp_cache = tuple(grasp_caches)
+        return cast(tuple[np.ndarray, ...], env._grasp_cache)
 
     def _sample_random_quaternion(self, num_envs: int) -> np.ndarray:
         u1 = np.random.rand(num_envs)
@@ -125,25 +155,30 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
 
         return np.stack([q4, q1, q2, q3], axis=1).astype(np.float64)
 
-    def _build_info_updates(
+    def _sample_reset_pd_gains(
         self,
         env: Any,
-        env_ids: np.ndarray,
-        hand_qpos: np.ndarray,
-        object_pos: np.ndarray,
-        object_quat: np.ndarray,
-        reset_height_lower: np.ndarray,
-        reset_height_upper: np.ndarray,
-        rot_axis: np.ndarray,
-        friction_scale: np.ndarray | None,
-        randomized_mass: np.ndarray | None,
-        randomized_com_offset: np.ndarray | None,
-    ) -> dict[str, np.ndarray]:
-        num_reset = hand_qpos.shape[0]
-        dtype = get_global_dtype()
+        num_reset: int,
+        *,
+        dtype: np.dtype[Any],
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Sample absolute reset-time PD gains from split-around-1 scale ranges.
 
-        p_gain = np.full((num_reset, env._num_action), env.cfg.control_config.p_gain, dtype=dtype)
-        d_gain = np.full((num_reset, env._num_action), env.cfg.control_config.d_gain, dtype=dtype)
+        Args:
+            env: Sharpa rotation env instance.
+            num_reset: Number of environments being reset.
+            dtype: Output dtype for the returned gain arrays.
+
+        Returns:
+            Tuple of absolute ``(p_gain, d_gain)`` arrays with shape
+            ``(num_reset, env._num_action)``.
+        """
+        p_gain = np.broadcast_to(env._default_p_gain, (num_reset, env._num_action)).astype(
+            dtype, copy=True
+        )
+        d_gain = np.broadcast_to(env._default_d_gain, (num_reset, env._num_action)).astype(
+            dtype, copy=True
+        )
         if env.cfg.randomize_pd_gains:
             p_scale = env._sample_pd_scales(
                 env.cfg.randomize_p_gain_scale_lower,
@@ -157,6 +192,26 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
             )
             p_gain *= p_scale
             d_gain *= d_scale
+        return p_gain, d_gain
+
+    def _build_info_updates(
+        self,
+        env: Any,
+        env_ids: np.ndarray,
+        hand_qpos: np.ndarray,
+        object_pos: np.ndarray,
+        object_quat: np.ndarray,
+        reset_height_lower: np.ndarray,
+        reset_height_upper: np.ndarray,
+        rot_axis: np.ndarray,
+        p_gain: np.ndarray,
+        d_gain: np.ndarray,
+        friction_scale: np.ndarray | None,
+        randomized_mass: np.ndarray | None,
+        randomized_com_offset: np.ndarray | None,
+    ) -> dict[str, np.ndarray]:
+        num_reset = hand_qpos.shape[0]
+        dtype = get_global_dtype()
 
         critic_info = env._build_reset_critic_info(
             num_reset,
@@ -222,12 +277,9 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
         friction_scale = env._sample_friction_scale(num_reset)
         randomized_mass = env._sample_object_mass(num_reset)
         randomized_com_offset = env._sample_object_com_offset(num_reset)
+        p_gain, d_gain = self._sample_reset_pd_gains(env, num_reset, dtype=get_global_dtype())
         grasp_cache = self._load_grasp_cache(env)
-        sampled_pose = sample_bucketed_grasp_cache(
-            grasp_cache,
-            env.scale_ids[env_ids],
-            env._num_scales,
-        )
+        sampled_pose = sample_scale_grasp_caches(grasp_cache, env.scale_ids[env_ids])
 
         hand_qpos = sampled_pose[:, : env._num_action]
         object_pos = sampled_pose[:, env._num_action : env._num_action + 3]
@@ -265,6 +317,8 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
             reset_height_lower=reset_height_lower,
             reset_height_upper=reset_height_upper,
             rot_axis=rot_axis,
+            p_gain=p_gain,
+            d_gain=d_gain,
             friction_scale=friction_scale,
             randomized_mass=randomized_mass,
             randomized_com_offset=randomized_com_offset,
@@ -277,6 +331,8 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
             info_updates=info_updates,
             randomization=env._build_reset_randomization(
                 num_reset,
+                p_gain=p_gain,
+                d_gain=d_gain,
                 friction_scale=friction_scale,
                 randomized_mass=randomized_mass,
                 randomized_com_offset=randomized_com_offset,
@@ -300,6 +356,49 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
                 tactile=tactile,
                 contact_pos=contact_pos,
             ),
+        )
+
+    def build_interval_randomization_plan(
+        self,
+        env: Any,
+        step_counter: int,
+    ) -> IntervalRandomizationPlan | None:
+        """Build Sharpa object-force perturbations for the upcoming control step.
+
+        Args:
+            env: Sharpa rotation env instance.
+            step_counter: Global environment step counter.
+
+        Returns:
+            Interval randomization plan carrying object velocity perturbations, or
+            ``None`` when object-force injection is disabled.
+        """
+        del step_counter
+        if env.cfg.force_scale <= 0.0:
+            return None
+
+        decay = float(
+            np.power(
+                env.cfg.force_decay,
+                env.cfg.ctrl_dt / max(env.cfg.force_decay_interval, 1.0e-8),
+            )
+        )
+        env._random_object_force *= decay
+
+        random_mask = np.random.rand(env._num_envs) < float(env.cfg.random_force_prob_scalar)
+        if np.any(random_mask):
+            object_mass = env._resolve_current_object_mass()
+            env._random_object_force[random_mask] = (
+                np.random.randn(int(np.sum(random_mask)), 3).astype(np.float64)
+                * object_mass[random_mask, None]
+                * float(env.cfg.force_scale)
+            )
+
+        velocity_delta = env._random_object_force / env._resolve_current_object_mass()[:, None]
+        velocity_delta *= float(env.cfg.ctrl_dt)
+        return IntervalRandomizationPlan(
+            body_ids=np.asarray([env._object_body_id], dtype=np.int32),
+            body_linear_velocity_delta=velocity_delta[:, None, :],
         )
 
 
@@ -355,6 +454,8 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         self._object_body_id = self._resolve_object_body_id()
         self._base_body_mass = self._resolve_base_body_mass()
         self._base_body_ipos = self._resolve_base_body_ipos()
+        self._default_p_gain, self._default_d_gain = self._load_default_pd_gains()
+        self._random_object_force = np.zeros((num_envs, 3), dtype=np.float64)
 
         if cfg.torque_control:
             raise NotImplementedError(
@@ -383,10 +484,7 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         return super().apply_action(actions_np, state)
 
     def _scale_randomization_enabled(self) -> bool:
-        lower = float(self._cfg.scale_range[0])
-        upper = float(self._cfg.scale_range[1])
-        num_scales = int(self._cfg.scale_range[2])
-        return num_scales > 1 or not np.isclose(lower, upper)
+        return self._num_scales > 1 or not np.allclose(self.scale_values, self.scale_values[0])
 
     def _expected_critic_info_dim(self) -> int:
         return self._CRITIC_BASE_DIM
@@ -460,6 +558,34 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         if self._backend.backend_type != "mujoco":
             return -1
         return int(self._object_body_ids[0])
+
+    def _resolve_current_object_mass(self) -> np.ndarray:
+        """Resolve the current object mass used by force perturbation sampling.
+
+        Args:
+            None.
+
+        Returns:
+            Array of shape ``(num_envs,)`` with current object masses.
+        """
+        if self.state is not None:
+            critic_info = np.asarray(
+                self.state.info.get(
+                    "critic_info",
+                    np.zeros((self._num_envs, self._cfg.critic_info_dim), dtype=self._np_dtype),
+                ),
+                dtype=np.float64,
+            )
+            mass = critic_info[:, self._critic_info_layout()["mass"]].reshape(self._num_envs)
+            if np.all(mass > 0.0):
+                return mass
+        if self._base_body_mass is None or self._object_body_id < 0:
+            raise ValueError("MuJoCo object body-mass cache is unavailable")
+        return np.full(
+            (self._num_envs,),
+            float(self._base_body_mass[self._object_body_id]),
+            dtype=np.float64,
+        )
 
     def _collect_body_subtree_ids(self, model: Any, root_body_id: int) -> set[int]:
         """Collect body ids below a MuJoCo body root.
@@ -645,7 +771,9 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
             return None
         if self._base_body_mass is None or self._object_body_id < 0:
             raise ValueError("MuJoCo base body-mass cache is unavailable")
-        body_mass = np.broadcast_to(self._base_body_mass, (batch_size, self._base_body_mass.size)).copy()
+        body_mass = np.broadcast_to(
+            self._base_body_mass, (batch_size, self._base_body_mass.size)
+        ).copy()
         body_mass[:, self._object_body_id] = np.asarray(randomized_mass, dtype=np.float64).reshape(
             batch_size
         )
@@ -680,6 +808,8 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         self,
         batch_size: int,
         *,
+        p_gain: np.ndarray | None,
+        d_gain: np.ndarray | None,
         friction_scale: np.ndarray | None,
         randomized_mass: np.ndarray | None,
         randomized_com_offset: np.ndarray | None,
@@ -694,6 +824,11 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
             Reset-randomization payload, or None when no backend randomization is requested.
         """
         payload = build_common_reset_randomization(self, batch_size)
+        if self._cfg.randomize_pd_gains:
+            if payload is None:
+                payload = ResetRandomizationPayload()
+            payload.kp = np.asarray(p_gain, dtype=np.float64)
+            payload.kd = np.asarray(d_gain, dtype=np.float64)
         body_mass = self._build_object_mass_randomization(batch_size, randomized_mass)
         body_ipos = self._build_object_com_randomization(batch_size, randomized_com_offset)
         geom_friction = self._build_friction_randomization(batch_size, friction_scale)

@@ -214,6 +214,7 @@ class MotrixBackend(SimBackend):
         return DomainRandomizationCapabilities(
             supported_reset_terms=frozenset({RESET_TERM_BASE_MASS, RESET_TERM_BASE_COM}),
             supports_interval_push=True,
+            supports_interval_body_velocity_delta=False,
         )
 
     def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:

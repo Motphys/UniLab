@@ -13,8 +13,8 @@ algo:
     hidden_dims: [512, 256, 128]
     activation: elu
     obs_normalization: true
-    priv_info_embed_dim: 8
-    priv_mlp_hidden_dims: [256, 128, 8]
+    priv_info_embed_dim: 9
+    priv_mlp_hidden_dims: [256, 128, 9]
     distribution_cfg:
       class_name: GaussianDistribution
       init_std: 1.0
@@ -24,8 +24,8 @@ algo:
     hidden_dims: [512, 256, 128]
     activation: elu
     obs_normalization: true
-    priv_info_embed_dim: 8
-    priv_mlp_hidden_dims: [256, 128, 8]
+    priv_info_embed_dim: 9
+    priv_mlp_hidden_dims: [256, 128, 9]
   algorithm:
     class_name: unilab.algos.torch.hora:HoraPPO
 

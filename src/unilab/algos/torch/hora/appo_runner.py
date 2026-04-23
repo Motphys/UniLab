@@ -74,16 +74,13 @@ class HoraAPPORunner(APPORunner):
         return obs_dim, action_dim
 
     def _detect_dim_probe_num_envs(self) -> int:
-        scale_range = (
-            self.env_cfg_overrides.get("scale_range")
+        scale_list = (
+            self.env_cfg_overrides.get("scale_list")
             if isinstance(self.env_cfg_overrides, dict)
             else None
         )
-        if isinstance(scale_range, (list, tuple)) and len(scale_range) >= 3:
-            try:
-                return max(1, int(scale_range[2]))
-            except (TypeError, ValueError):
-                return 1
+        if isinstance(scale_list, (list, tuple)):
+            return max(1, len(scale_list))
         return 1
 
     def _build_learner(self):
@@ -169,7 +166,9 @@ class HoraAPPORunner(APPORunner):
         )
         self._shared_resources.append(shared_storage)
 
-        actor_weight_sync = SharedWeightSync.from_state_dict(learner.actor.state_dict(), create=True)
+        actor_weight_sync = SharedWeightSync.from_state_dict(
+            learner.actor.state_dict(), create=True
+        )
         critic_weight_sync = SharedWeightSync.from_state_dict(
             learner.critic.state_dict(),
             create=True,

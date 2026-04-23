@@ -78,6 +78,8 @@ SOURCE_DEFAULT_HAND_JOINT_POS_DEG: tuple[float, ...] = (
 @dataclass
 class SharpaControlConfig:
     action_scale: float = 1.0 / 24.0
+    # MuJoCo Sharpa loads PD defaults from XML actuator gains. These fields remain
+    # fallback defaults for backends that cannot expose actuator gains yet.
     p_gain: float = 1.0
     d_gain: float = 0.1
 
@@ -153,7 +155,7 @@ class SharpaInhandBaseCfg(EnvCfg):
 
     dof_limits_scale: float = 0.9
 
-    scale_range: list[float] = field(default_factory=lambda: [0.5, 0.5, 1.0])
+    scale_list: list[float] = field(default_factory=lambda: [0.5])
 
     randomize_pd_gains: bool = True
     randomize_p_gain_scale_lower: float = 0.5
@@ -186,41 +188,69 @@ class SharpaInhandBaseCfg(EnvCfg):
     debug_show_axes: bool = False
 
 
-def format_scale_tag(scale_range: Sequence[float]) -> str:
-    if len(scale_range) != 3:
-        raise ValueError(f"scale_range must have 3 values [lower, upper, num], got {scale_range}")
-    return f"{float(scale_range[0]):g}-{float(scale_range[1]):g}-{int(scale_range[2])}"
+def format_scale_tag(scale_value: float) -> str:
+    """Convert one object scale into a stable cache filename tag.
+
+    Args:
+        scale_value: Single object scale value.
+
+    Returns:
+        Scale tag used in cache filenames.
+    """
+    scale_value = float(scale_value)
+    if scale_value <= 0.0:
+        raise ValueError(f"scale values must be positive, got {scale_value}")
+    return f"{scale_value:g}"
 
 
-def resolve_grasp_cache_file(grasp_cache_path: str, scale_range: Sequence[float]) -> Path:
+def resolve_grasp_cache_file(grasp_cache_path: str, scale_value: float) -> Path:
+    """Resolve the grasp cache path for a single object scale.
+
+    Args:
+        grasp_cache_path: Configured cache prefix or template path.
+        scale_value: Single object scale value for this cache file.
+
+    Returns:
+        Cache path for that exact scale.
+    """
+    scale_tag = format_scale_tag(scale_value)
+    if "{scale}" in grasp_cache_path:
+        return Path(grasp_cache_path.format(scale=scale_tag))
+
     base = Path(grasp_cache_path)
     if base.suffix == ".npy":
-        return base
-    return Path(f"{grasp_cache_path}_{format_scale_tag(scale_range)}.npy")
+        return base.with_name(f"{base.stem}_{scale_tag}{base.suffix}")
+    return Path(f"{grasp_cache_path}_{scale_tag}.npy")
 
 
-def sample_bucketed_grasp_cache(
-    grasp_cache: np.ndarray,
+def sample_scale_grasp_caches(
+    grasp_caches: Sequence[np.ndarray],
     scale_ids: np.ndarray,
-    num_scales: int,
 ) -> np.ndarray:
-    num_envs = scale_ids.shape[0]
-    if num_scales <= 0:
-        raise ValueError(f"num_scales must be positive, got {num_scales}")
-    if grasp_cache.shape[1] < 29:
-        raise ValueError(f"Expected cached grasp shape (?, 29), got {grasp_cache.shape}")
-    if grasp_cache.shape[0] % num_scales != 0:
-        raise ValueError(
-            f"grasp_cache rows {grasp_cache.shape[0]} not divisible by num_scales={num_scales}"
-        )
+    """Sample one cached grasp per reset environment from per-scale cache files.
 
-    bucket = grasp_cache.shape[0] // num_scales
+    Args:
+        grasp_caches: Cache arrays ordered the same way as env scale ids.
+        scale_ids: Scale-bucket assignment for each reset environment.
+
+    Returns:
+        Cached grasp states with shape ``(num_envs, 29)``.
+    """
+    num_envs = scale_ids.shape[0]
+    num_scales = len(grasp_caches)
+    if num_scales <= 0:
+        raise ValueError("grasp_caches must contain at least one scale bucket")
+
     sampled = np.zeros((num_envs, 29), dtype=np.float64)
-    for scale_idx in range(num_scales):
+    for scale_idx, grasp_cache in enumerate(grasp_caches):
+        if grasp_cache.ndim != 2 or grasp_cache.shape[1] < 29:
+            raise ValueError(f"Expected cached grasp shape (?, 29), got {grasp_cache.shape}")
+        if grasp_cache.shape[0] == 0:
+            raise ValueError(f"grasp cache for scale id {scale_idx} is empty")
         env_ids = np.flatnonzero(scale_ids == scale_idx)
         if len(env_ids) == 0:
             continue
-        sample_ids = np.random.randint(0, bucket, size=len(env_ids)) + scale_idx * bucket
+        sample_ids = np.random.randint(0, grasp_cache.shape[0], size=len(env_ids))
         sampled[env_ids] = grasp_cache[sample_ids]
     return sampled
 
@@ -307,9 +337,9 @@ class SharpaInhandBaseEnv(NpEnv):
         self.critic_info_buf = np.zeros((num_envs, cfg.critic_info_dim), dtype=self._np_dtype)
 
         self.scale_ids, self._num_scales, self._bucket_env = self._build_scale_ids(
-            num_envs, cfg.scale_range
+            num_envs, cfg.scale_list
         )
-        self.scale_values = self._build_scale_values(cfg.scale_range)
+        self.scale_values = self._build_scale_values(cfg.scale_list)
 
     @property
     def action_space(self) -> gym.spaces.Box:
@@ -331,21 +361,26 @@ class SharpaInhandBaseEnv(NpEnv):
         raise ValueError("Could not resolve initial qpos from backend keyframes/model")
 
     def _build_scale_ids(
-        self, num_envs: int, scale_range: Sequence[float]
+        self, num_envs: int, scale_list: Sequence[float]
     ) -> tuple[np.ndarray, int, int]:
         """Build deterministic near-even environment assignments for each scale.
 
         Args:
             num_envs: Number of vectorized environments to assign.
-            scale_range: Scale range config in [lower, upper, num_scales] form.
+            scale_list: Explicit object scale values used by this env instance.
 
         Returns:
             Tuple of scale id per environment, total scale count, and the minimum
             number of environments assigned to any scale.
         """
-        num_scales = int(scale_range[2])
+        if len(scale_list) == 0:
+            raise ValueError("scale_list must contain at least one scale")
+        scale_values = np.asarray(scale_list, dtype=np.float64)
+        if np.any(scale_values <= 0.0):
+            raise ValueError(f"scale_list values must be positive, got {list(scale_list)}")
+        num_scales = int(scale_values.shape[0])
         if num_scales <= 0:
-            raise ValueError(f"scale_range[2] must be >= 1, got {scale_range[2]}")
+            raise ValueError(f"scale_list must contain at least one value, got {list(scale_list)}")
 
         bucket_env = num_envs // num_scales
         remainder = num_envs % num_scales
@@ -355,12 +390,21 @@ class SharpaInhandBaseEnv(NpEnv):
         scale_ids = np.repeat(np.arange(num_scales, dtype=np.int32), counts)
         return scale_ids, num_scales, bucket_env
 
-    def _build_scale_values(self, scale_range: Sequence[float]) -> np.ndarray:
-        lower = float(scale_range[0])
-        upper = float(scale_range[1])
-        if lower <= 0.0 or upper <= 0.0:
-            raise ValueError(f"scale_range bounds must be positive, got {scale_range[:2]}")
-        return np.asarray(np.linspace(lower, upper, self._num_scales), dtype=np.float64)
+    def _build_scale_values(self, scale_list: Sequence[float]) -> np.ndarray:
+        """Normalize configured scale values into a stable numpy array.
+
+        Args:
+            scale_list: Explicit list of object scales.
+
+        Returns:
+            Array of configured scale values in config order.
+        """
+        scale_values = np.asarray(scale_list, dtype=np.float64)
+        if scale_values.ndim != 1 or scale_values.size == 0:
+            raise ValueError(f"scale_list must be a non-empty flat list, got {list(scale_list)}")
+        if np.any(scale_values <= 0.0):
+            raise ValueError(f"scale_list values must be positive, got {list(scale_list)}")
+        return scale_values
 
     def _resolve_object_geom_base_size(self) -> np.ndarray | None:
         if getattr(self._backend, "backend_type", None) != "mujoco":
@@ -492,22 +536,35 @@ class SharpaInhandBaseEnv(NpEnv):
         use_small = np.random.rand(*shape) > 0.5
         return np.where(use_small, small, large).astype(self._np_dtype)
 
+    def _load_default_pd_gains(self) -> tuple[np.ndarray, np.ndarray]:
+        """Resolve the default per-DOF PD gains used as the randomization baseline.
+
+        Args:
+            None.
+
+        Returns:
+            Tuple of ``(p_gain, d_gain)`` arrays with shape ``(num_action,)``.
+        """
+        try:
+            p_gain, d_gain = self._backend.get_actuator_gains()
+            return (
+                np.asarray(p_gain[: self._num_action], dtype=self._np_dtype).copy(),
+                np.asarray(d_gain[: self._num_action], dtype=self._np_dtype).copy(),
+            )
+        except NotImplementedError:
+            return (
+                np.full((self._num_action,), self._cfg.control_config.p_gain, dtype=self._np_dtype),
+                np.full((self._num_action,), self._cfg.control_config.d_gain, dtype=self._np_dtype),
+            )
+
     def _resolve_pd_gains(self, info: dict[str, Any]) -> tuple[np.ndarray, np.ndarray]:
         p_gain = info.get(
             "p_gain",
-            np.full(
-                (self._num_envs, self._num_action),
-                self._cfg.control_config.p_gain,
-                dtype=self._np_dtype,
-            ),
+            np.broadcast_to(self._default_p_gain, (self._num_envs, self._num_action)).copy(),
         )
         d_gain = info.get(
             "d_gain",
-            np.full(
-                (self._num_envs, self._num_action),
-                self._cfg.control_config.d_gain,
-                dtype=self._np_dtype,
-            ),
+            np.broadcast_to(self._default_d_gain, (self._num_envs, self._num_action)).copy(),
         )
         return np.asarray(p_gain, dtype=self._np_dtype), np.asarray(d_gain, dtype=self._np_dtype)
 

@@ -32,8 +32,8 @@ algo:
     hidden_dims: [512, 256, 128]
     activation: elu
     obs_normalization: true
-    priv_info_embed_dim: 8
-    priv_mlp_hidden_dims: [256, 128, 8]
+    priv_info_embed_dim: 9
+    priv_mlp_hidden_dims: [256, 128, 9]
     distribution_cfg:
       class_name: rsl_rl.modules.distribution.GaussianDistribution
       init_std: 1.0
@@ -43,8 +43,8 @@ algo:
     hidden_dims: [512, 256, 128]
     activation: elu
     obs_normalization: true
-    priv_info_embed_dim: 8
-    priv_mlp_hidden_dims: [256, 128, 8]
+    priv_info_embed_dim: 9
+    priv_mlp_hidden_dims: [256, 128, 9]
   algorithm:
     value_loss_coef: 4.0
     entropy_coef: 0.01
@@ -83,7 +83,7 @@ env:
   reset_random_quat: false
   rot_axis: [0.0, 0.0, 1.0]
   grasp_cache_path: cache/sharpa_grasp_linspace
-  joint_noise_scale: 0.0
+  joint_noise_scale: 0.02
   observation_mode: separated
   sensor:
     tactile_force_sensor_names:
@@ -101,8 +101,8 @@ env:
   contact_latency: 0.005
   contact_sensor_noise: 0.01
   dof_limits_scale: 0.9
-  scale_range: [0.8, 1.1, 4]
-  randomize_pd_gains: false
+  scale_list: [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
+  randomize_pd_gains: true
   randomize_p_gain_scale_lower: 0.5
   randomize_p_gain_scale_upper: 2.0
   randomize_d_gain_scale_lower: 0.5

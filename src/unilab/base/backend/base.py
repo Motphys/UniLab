@@ -161,6 +161,24 @@ class SimBackend(abc.ABC):
     def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
         """Apply a scheduled interval randomization plan."""
 
+    def apply_body_linear_velocity_delta(
+        self,
+        body_ids: np.ndarray,
+        velocity_delta: np.ndarray,
+    ) -> None:
+        """Apply a world-frame linear-velocity delta to specific bodies.
+
+        Args:
+            body_ids: Body ids whose linear velocities should be perturbed.
+            velocity_delta: Velocity delta with shape ``(num_envs, len(body_ids), 3)``.
+
+        Returns:
+            None. Backends that support this mutate their pending simulation state.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support interval body velocity perturbation"
+        )
+
     def get_play_capabilities(self) -> BackendPlayCapabilities:
         """Return backend-native play/render capabilities."""
         return BackendPlayCapabilities()

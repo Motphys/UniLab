@@ -119,6 +119,7 @@ class HoraDistillationTrainer:
         log_dir: str | Path,
         teacher_checkpoint: str | Path,
         teacher_algo_family: str,
+        teacher_metadata: dict[str, Any] | None = None,
         distill_runtime_cfg: DictConfig,
         logger,
     ) -> None:
@@ -129,6 +130,7 @@ class HoraDistillationTrainer:
         self.logger = logger
         self.teacher_checkpoint = Path(teacher_checkpoint)
         self.teacher_algo_family = str(teacher_algo_family)
+        self.teacher_metadata = dict(teacher_metadata or {})
         self.distill_runtime_cfg = OmegaConf.to_container(distill_runtime_cfg, resolve=True)
         self.actor, self.hist_normalizer = build_student_actor_and_normalizer(
             env,
@@ -252,6 +254,8 @@ class HoraDistillationTrainer:
                 "history_normalizer": self.hist_normalizer.state_dict(),
                 "agent_steps": self.stats.agent_steps,
                 "teacher_checkpoint": str(self.teacher_checkpoint),
+                "teacher_algo_family": self.teacher_algo_family,
+                "teacher_metadata": self.teacher_metadata,
                 "distill_runtime_cfg": self.distill_runtime_cfg,
             },
             Path(path),

@@ -46,7 +46,7 @@ env:
   reset_random_quat: false
   rot_axis: [0.0, 0.0, 1.0]
   grasp_cache_path: cache/sharpa_grasp_linspace
-  joint_noise_scale: 0.0
+  joint_noise_scale: 0.02
   observation_mode: flattened
   sensor:
     tactile_force_sensor_names:
@@ -64,7 +64,7 @@ env:
   contact_latency: 0.005
   contact_sensor_noise: 0.01
   dof_limits_scale: 0.9
-  scale_range: [0.5, 0.5, 1]
+  scale_list: [0.5]
   randomize_pd_gains: false
   randomize_p_gain_scale_lower: 0.5
   randomize_p_gain_scale_upper: 2.0

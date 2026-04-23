@@ -12,6 +12,7 @@ import subprocess
 import sys
 import textwrap
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import numpy as np
@@ -274,10 +275,17 @@ def test_sharpa_grasp_env_initializes_dr_once_with_grasp_provider(monkeypatch):
         self._np_dtype = np.float64
         self._num_action = 22
         self._num_tactile = 5
-        self._num_scales = int(cfg.scale_range[2])
+        self._num_scales = len(cfg.scale_list)
         self.scale_ids = np.zeros((num_envs,), dtype=np.int32)
 
-    monkeypatch.setattr(sharpa_rotation_module, "create_backend", lambda *args, **kwargs: object())
+    monkeypatch.setattr(
+        sharpa_rotation_module,
+        "create_backend",
+        lambda *args, **kwargs: SimpleNamespace(
+            backend_type="motrix",
+            get_actuator_gains=lambda: (np.ones(22, dtype=np.float64), np.ones(22, dtype=np.float64)),
+        ),
+    )
     monkeypatch.setattr(SharpaInhandBaseEnv, "__init__", fake_base_init)
     monkeypatch.setattr(
         SharpaInhandRotationGraspEnv,

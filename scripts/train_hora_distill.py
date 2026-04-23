@@ -1,4 +1,6 @@
 import datetime
+import json
+import re
 import sys
 from pathlib import Path
 from typing import Any, cast
@@ -39,6 +41,20 @@ def _load_yaml_config(path: Path) -> DictConfig:
     if not isinstance(loaded, DictConfig):
         raise TypeError(f"Expected DictConfig from {path}, got {type(loaded)!r}")
     return loaded
+
+
+def _sanitize_path_token(value: str, *, fallback: str) -> str:
+    """Convert an arbitrary identifier into a filesystem-safe path token.
+
+    Args:
+        value: Raw identifier to sanitize.
+        fallback: Token to use when the sanitized value becomes empty.
+
+    Returns:
+        ASCII-safe token suitable for a log-directory name.
+    """
+    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "-", str(value)).strip("-._")
+    return sanitized or fallback
 
 
 def _load_teacher_owner_config(algo_family: str, task: str) -> DictConfig:
@@ -137,6 +153,76 @@ def _resolved_distill_runtime_cfg(cfg: DictConfig) -> DictConfig:
             },
         }
     )
+
+
+def _teacher_run_metadata(
+    cfg: DictConfig,
+    *,
+    teacher_algo_family: str,
+    teacher_checkpoint: Path,
+) -> dict[str, Any]:
+    """Build explicit teacher provenance metadata for distillation outputs.
+
+    Args:
+        cfg: Resolved distillation config.
+        teacher_algo_family: Teacher algorithm family selected by the owner config.
+        teacher_checkpoint: Resolved checkpoint path used to initialize the teacher actor.
+
+    Returns:
+        Dict containing teacher owner and checkpoint fields for log naming and metadata files.
+    """
+    teacher_task = OmegaConf.select(cfg, "teacher.task")
+    checkpoint_path = teacher_checkpoint.resolve()
+    try:
+        checkpoint_display = str(checkpoint_path.relative_to(ROOT_DIR))
+    except ValueError:
+        checkpoint_display = str(checkpoint_path)
+
+    run_name = checkpoint_path.parent.name
+    checkpoint_name = checkpoint_path.name
+    algo_token = _sanitize_path_token(teacher_algo_family, fallback="teacher")
+    run_slug = f"teacher-{algo_token}"
+
+    return {
+        "algo_family": str(teacher_algo_family),
+        "task": None if teacher_task in (None, "") else str(teacher_task),
+        "checkpoint_path": checkpoint_display,
+        "checkpoint_name": checkpoint_name,
+        "checkpoint_stem": checkpoint_path.stem,
+        "run_name": run_name,
+        "run_slug": run_slug,
+    }
+
+
+def _write_distill_run_config(
+    log_dir: Path,
+    *,
+    cfg: DictConfig,
+    teacher_metadata: dict[str, Any],
+) -> None:
+    """Persist distillation run config plus teacher provenance near the checkpoints.
+
+    Args:
+        log_dir: Run directory where the metadata file should be written.
+        cfg: Resolved distillation config for this run.
+        teacher_metadata: Explicit teacher provenance dictionary for this run.
+
+    Returns:
+        None. Writes `distill_run_config.json` into `log_dir`.
+    """
+    payload = {
+        "run": {
+            "algo": "hora_distill",
+            "task": str(OmegaConf.select(cfg, "training.task_name")),
+            "sim_backend": str(OmegaConf.select(cfg, "training.sim_backend")),
+            "log_dir": str(log_dir),
+            "teacher": teacher_metadata,
+        },
+        "config": OmegaConf.to_container(cfg, resolve=True),
+    }
+    with (log_dir / "distill_run_config.json").open("w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, ensure_ascii=True)
+        f.write("\n")
 
 
 def _resolve_teacher_checkpoint_path(cfg: DictConfig) -> tuple[Path | None, Path | None]:
@@ -409,10 +495,23 @@ def main(cfg: DictConfig) -> None:
             "Set algo.load_run and optionally algo.checkpoint."
         )
 
+    teacher_metadata = _teacher_run_metadata(
+        cfg,
+        teacher_algo_family=teacher_algo_family,
+        teacher_checkpoint=teacher_checkpoint,
+    )
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     log_root = Path(cfg.training.log_dir) if cfg.training.log_dir else get_log_root(ROOT_DIR, cfg)
-    log_dir = log_root / str(cfg.training.task_name) / f"{timestamp}_{cfg.training.sim_backend}"
+    run_name = f"{timestamp}_{cfg.training.sim_backend}_{teacher_metadata['run_slug']}"
+    log_dir = log_root / str(cfg.training.task_name) / run_name
     logger = setup_logger(log_dir, "hora_distill", echo=str(cfg.training.logger) != "no_print")
+    _write_distill_run_config(log_dir, cfg=cfg, teacher_metadata=teacher_metadata)
+    logger.info(
+        "teacher_algo=%s teacher_task=%s teacher_checkpoint=%s",
+        teacher_metadata["algo_family"],
+        teacher_metadata["task"],
+        teacher_metadata["checkpoint_path"],
+    )
 
     env = create_env(
         cfg,
@@ -427,6 +526,7 @@ def main(cfg: DictConfig) -> None:
         log_dir=log_dir,
         teacher_checkpoint=teacher_checkpoint,
         teacher_algo_family=teacher_algo_family,
+        teacher_metadata=teacher_metadata,
         distill_runtime_cfg=_resolved_distill_runtime_cfg(cfg),
         logger=logger,
     )

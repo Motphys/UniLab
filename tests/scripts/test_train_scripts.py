@@ -217,6 +217,26 @@ def test_hora_distill_task_owner_overrides_root_config_defaults():
     assert cfg.algo.save_interval_steps == 10000000
 
 
+@pytest.mark.parametrize("teacher_algo_family", ["ppo", "appo"])
+def test_hora_distill_teacher_run_slug_omits_teacher_run_name(teacher_algo_family: str):
+    mod = _train_hora_distill()
+    cfg = OmegaConf.create({"teacher": {"task": "sharpa_inhand/mujoco"}})
+    teacher_checkpoint = (
+        Path("/tmp")
+        / "2026-04-22_13-26-45_mujoco"
+        / "model_10000.pt"
+    )
+
+    metadata = mod._teacher_run_metadata(
+        cfg,
+        teacher_algo_family=teacher_algo_family,
+        teacher_checkpoint=teacher_checkpoint,
+    )
+
+    assert metadata["run_name"] == "2026-04-22_13-26-45_mujoco"
+    assert metadata["run_slug"] == f"teacher-{teacher_algo_family}"
+
+
 def test_offpolicy_go1_resolved_algo_matches_old_motrix_behavior():
     """Equivalence: Motrix SAC Go1 algo hyperparams match legacy values."""
     cfg = _offpolicy_cfg(["task=sac/go1_joystick_flat/motrix"])
