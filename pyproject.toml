@@ -96,6 +96,7 @@ python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
+no_site_packages = true
 exclude = [
     "src/unilab/algos/torch/rsl_rl/", # vendored third-party, tracked in .gitignore
 ]
@@ -125,9 +126,8 @@ exclude = [
     "src/unilab/algos/torch/common/ane_*",  # Apple Neural Engine, macOS-only
     "src/unilab/base/backend/",             # mujoco-uni stubs mismatch; optional backends
     "src/unilab/envs/",                     # mujoco-uni internal API, stubs mismatch
-    "src/unilab/utils/render_many.py",      # direct mujoco C bindings
-    "src/unilab/utils/viser_scene.py",     # optional viser dependency
-    "src/unilab/utils/hardware_monitor.py", # optional pynvml/psutil deps
+    "src/unilab/training/monitoring.py",    # optional pynvml/psutil deps
+    "src/unilab/visualization/",            # direct mujoco C bindings + optional viser deps
 ]
 reportMissingImports = "warning"
 reportMissingModuleSource = "none"

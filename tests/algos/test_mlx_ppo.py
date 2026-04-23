@@ -328,9 +328,9 @@ def test_mlx_ppo_one_iteration_real_env(default_go2_reward_config):
     _mujoco = pytest.importorskip("mujoco")
 
     from unilab.base import registry
+    from unilab.base.observations import flatten_obs_dict
+    from unilab.base.registry import ensure_registries
     from unilab.config.structured_configs import PPOConfig as PPOStructuredConfig
-    from unilab.utils.algo_utils import ensure_registries
-    from unilab.utils.obs_utils import flatten_obs_dict
 
     ensure_registries()
 

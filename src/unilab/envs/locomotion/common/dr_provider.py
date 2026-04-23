@@ -25,7 +25,7 @@ from unilab.dr.dr_utils import (
     validate_interval_push_support,
     zero_actions,
 )
-from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
+from unilab.envs.common.rotation import np_quat_mul, np_yaw_to_quat
 
 
 class LocomotionDRProvider(DomainRandomizationProvider):

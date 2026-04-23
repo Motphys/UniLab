@@ -6,7 +6,7 @@ import pytest
 def test_appo_reward_override():
     """Test APPO with reward override."""
     from unilab.base import registry
-    from unilab.utils.algo_utils import ensure_registries
+    from unilab.base.registry import ensure_registries
 
     ensure_registries()
 
@@ -30,7 +30,7 @@ def test_appo_reward_override():
 def test_rsl_rl_reward_override():
     """Test RSL-RL with reward override."""
     from unilab.base import registry
-    from unilab.utils.algo_utils import ensure_registries
+    from unilab.base.registry import ensure_registries
 
     ensure_registries()
 

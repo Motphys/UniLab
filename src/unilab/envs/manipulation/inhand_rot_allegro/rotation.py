@@ -26,8 +26,8 @@ from unilab.dr.dr_utils import (
     validate_interval_push_support,
     zero_actions,
 )
+from unilab.envs.common.rotation import np_quat_conjugate, np_quat_mul, np_quat_to_axis_angle
 from unilab.envs.manipulation.inhand_rot_allegro.base import AllegroBaseCfg, AllegroBaseEnv
-from unilab.utils.math_utils import np_quat_conjugate, np_quat_mul, np_quat_to_axis_angle
 
 
 def normalize_rotation_axis(rotation_axis: tuple[float, float, float]) -> np.ndarray:

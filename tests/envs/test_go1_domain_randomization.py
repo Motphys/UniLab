@@ -14,7 +14,7 @@ except Exception:
         "mujoco.batch_env not available (platform/libstdc++ issue)", allow_module_level=True
     )
 
-from unilab.utils.algo_utils import ensure_registries
+from unilab.base.registry import ensure_registries
 
 
 @pytest.mark.slow

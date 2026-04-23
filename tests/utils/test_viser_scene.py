@@ -6,7 +6,11 @@ import mujoco
 import numpy as np
 import pytest
 
-from unilab.utils.viser_scene import VISER_AVAILABLE, MujocoViserScene, build_visible_env_indices
+from unilab.visualization.viser_scene import (
+    VISER_AVAILABLE,
+    MujocoViserScene,
+    build_visible_env_indices,
+)
 
 
 class _FakeHandle:

@@ -41,7 +41,7 @@ def _prepare_variant_model_xml(
     add_body_sensors: bool,
     base_name: str | None,
 ) -> tuple[str, list[str]]:
-    from unilab.utils.xml_utils import create_discardvisual_xml, inject_mujoco_tracking_sensors
+    from unilab.base.backend.xml import create_discardvisual_xml, inject_mujoco_tracking_sensors
 
     model_path = create_discardvisual_xml(model_file)
     tmp_paths = [model_path]
@@ -247,7 +247,7 @@ class MuJoCoBackend(SimBackend):
         return model
 
     def _prepare_model_xml(self) -> tuple[str, list[str], list[int], list[str]]:
-        from unilab.utils.xml_utils import create_discardvisual_xml, inject_mujoco_tracking_sensors
+        from unilab.base.backend.xml import create_discardvisual_xml, inject_mujoco_tracking_sensors
 
         model_path = create_discardvisual_xml(self._model_file)
         tmp_paths = [model_path]
@@ -321,13 +321,28 @@ class MuJoCoBackend(SimBackend):
         chunks = tuple(
             tuple(variants[idx : idx + chunk_size]) for idx in range(0, len(variants), chunk_size)
         )
-        with ProcessPoolExecutor(
-            max_workers=max_workers,
-            mp_context=get_context("spawn"),
-        ) as executor:
-            futures = [
-                executor.submit(
-                    _compile_model_variant_chunk_to_mjb,
+        try:
+            with ProcessPoolExecutor(
+                max_workers=max_workers,
+                mp_context=get_context("spawn"),
+            ) as executor:
+                futures = [
+                    executor.submit(
+                        _compile_model_variant_chunk_to_mjb,
+                        model_file=self._model_file,
+                        add_body_sensors=self.add_body_sensors,
+                        base_name=self._base_name,
+                        sim_dt=self._sim_dt,
+                        iterations=self._iterations,
+                        position_actuator_gains=self._position_actuator_gains,
+                        variants=chunk,
+                    )
+                    for chunk in chunks
+                ]
+            mjb_paths_nested = [future.result() for future in futures]
+        except PermissionError:
+            mjb_paths_nested = [
+                _compile_model_variant_chunk_to_mjb(
                     model_file=self._model_file,
                     add_body_sensors=self.add_body_sensors,
                     base_name=self._base_name,
@@ -338,7 +353,6 @@ class MuJoCoBackend(SimBackend):
                 )
                 for chunk in chunks
             ]
-        mjb_paths_nested = [future.result() for future in futures]
         flat_paths = [path for paths in mjb_paths_nested for path in paths]
         try:
             models = tuple(mujoco.MjModel.from_binary_path(path) for path in flat_paths)

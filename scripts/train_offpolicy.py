@@ -25,7 +25,7 @@ from unilab.training import (
 from unilab.training import (
     resolve_checkpoint_path as resolve_checkpoint_path_common,
 )
-from unilab.utils.experiment_tracking import ExperimentTracker
+from unilab.training.logging.experiment import ExperimentTracker
 
 
 def default_device(torch_module, preferred: str | None = None) -> str:
@@ -63,14 +63,14 @@ def extract_reset_obs(reset_result):
 
 
 def resolve_play_obs_dim(obs_groups_spec: dict[str, int]) -> int:
-    from unilab.utils.obs_utils import get_obs_dims
+    from unilab.base.observations import get_obs_dims
 
     obs_dim, _ = get_obs_dims(obs_groups_spec)
     return int(obs_dim)
 
 
 def extract_play_obs(obs_dict):
-    from unilab.utils.obs_utils import split_obs_dict
+    from unilab.base.observations import split_obs_dict
 
     obs_out, _ = split_obs_dict(obs_dict)
     return obs_out
@@ -92,9 +92,10 @@ def build_runner(algo_name: str, cfg: DictConfig):
         raise ValueError("FlashSAC does not support training.num_gpus > 1")
 
     if algo_name == "sac":
+        from unilab.algos.torch.common.device import get_env_dims
         from unilab.algos.torch.fast_sac.learner import FastSACLearner
         from unilab.algos.torch.fast_sac.runner import FastSACRunner
-        from unilab.utils.device_utils import get_default_device, get_env_dims
+        from unilab.utils.device import get_default_device
 
         # Multi-GPU path
         if cfg.training.num_gpus > 1:
@@ -108,7 +109,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
                 env_cfg_override=env_cfg_override,
             )
             assert env.action_space.shape
-            from unilab.utils.obs_utils import get_obs_dims
+            from unilab.base.observations import get_obs_dims
 
             obs_dim, critic_dim = get_obs_dims(env.obs_groups_spec)
             action_dim = env.action_space.shape[0]
@@ -281,7 +282,7 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
     import numpy as np
     import torch
 
-    from unilab.utils.algo_utils import build_actor
+    from unilab.algos.torch.common.actor_factory import build_actor
 
     env_cfg_override = build_offpolicy_env_cfg_override(algo_name, cfg)
 

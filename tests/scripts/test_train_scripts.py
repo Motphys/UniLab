@@ -580,7 +580,7 @@ def test_run_motrix_rsl_play_loop_uses_render_spacing():
 
 
 def test_g1_motion_tracking_appo_reward_extraction_prefers_backend_specific_reward():
-    from unilab.utils.reward_utils import extract_reward_config
+    from unilab.config.reward import extract_reward_config
 
     cfg = _appo_cfg(["task=g1_motion_tracking/motrix"])
 
@@ -1043,7 +1043,7 @@ def _play_interactive():
 
 def test_play_wrapper_imports_shared_implementation():
     """Verify play_interactive.py uses shared RslRlVecEnvWrapper."""
-    from unilab.utils.rsl_rl_vec_env_wrapper import RslRlVecEnvWrapper as SharedWrapper
+    from unilab.algos.torch.rsl_rl.vec_env_wrapper import RslRlVecEnvWrapper as SharedWrapper
 
     mod = _play_interactive()
     # The wrapper class in play_interactive should be the shared one
@@ -1055,7 +1055,7 @@ def test_play_wrapper_uses_current_reset_contract():
     import numpy as np
     from tensordict import TensorDict
 
-    from unilab.utils.rsl_rl_vec_env_wrapper import RslRlVecEnvWrapper
+    from unilab.algos.torch.rsl_rl.vec_env_wrapper import RslRlVecEnvWrapper
 
     # Create a fake environment that returns (obs, info) tuple
     class FakeEnv:
@@ -1090,7 +1090,7 @@ def test_play_wrapper_policy_obs_mode_actor():
     """Verify wrapper supports policy_obs_mode='actor'."""
     import numpy as np
 
-    from unilab.utils.rsl_rl_vec_env_wrapper import RslRlVecEnvWrapper
+    from unilab.algos.torch.rsl_rl.vec_env_wrapper import RslRlVecEnvWrapper
 
     class FakeEnv:
         def __init__(self):
@@ -1128,7 +1128,7 @@ def test_play_wrapper_policy_obs_mode_actor():
 def test_play_wrapper_flat_policy_excludes_critic_only_group():
     import numpy as np
 
-    from unilab.utils.rsl_rl_vec_env_wrapper import RslRlVecEnvWrapper
+    from unilab.algos.torch.rsl_rl.vec_env_wrapper import RslRlVecEnvWrapper
 
     class FakeEnv:
         def __init__(self):
@@ -1172,7 +1172,7 @@ def test_play_wrapper_flat_policy_excludes_critic_only_group():
 def test_play_wrapper_step_exports_timeout_bootstrap_obs():
     import torch
 
-    from unilab.utils.rsl_rl_vec_env_wrapper import RslRlVecEnvWrapper
+    from unilab.algos.torch.rsl_rl.vec_env_wrapper import RslRlVecEnvWrapper
 
     class FakeEnv:
         def __init__(self):

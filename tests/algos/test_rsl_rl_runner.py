@@ -19,11 +19,11 @@ import numpy as np
 import torch
 from tensordict import TensorDict
 
+from unilab.algos.torch.rsl_rl.compat import convert_config_v5, is_rsl_rl_v5
 from unilab.base import registry
+from unilab.base.registry import ensure_registries
 from unilab.config.structured_configs import PPOConfig
-from unilab.utils.algo_utils import ensure_registries
-from unilab.utils.rsl_rl_compat import convert_config_v5, is_rsl_rl_v5
-from unilab.utils.torch_utils import to_torch
+from unilab.utils.tensor import to_torch
 
 ensure_registries()
 

@@ -1,11 +1,11 @@
-"""Tests for unilab.utils.obs_utils."""
+"""Tests for unilab.base.observations."""
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from unilab.utils.obs_utils import flatten_obs_dict, get_obs_dims, split_obs_dict
+from unilab.base.observations import flatten_obs_dict, get_obs_dims, split_obs_dict
 
 # ---------------------------------------------------------------------------
 # flatten_obs_dict — basic behaviour

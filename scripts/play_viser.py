@@ -47,19 +47,23 @@ if str(SRC_DIR) not in sys.path:
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from unilab.training import (
-    ensure_registries,
-    get_entrypoint_log_root,
-)
-from unilab.utils.render_many import get_grid_offsets
-from unilab.utils.rsl_rl_compat import (
+from unilab.algos.torch.rsl_rl.compat import (
     convert_config_v3_to_v4,
     convert_config_v5,
     is_rsl_rl_v4,
     is_rsl_rl_v5,
 )
-from unilab.utils.rsl_rl_vec_env_wrapper import RslRlVecEnvWrapper
-from unilab.utils.viser_scene import VISER_AVAILABLE, MujocoViserScene, build_visible_env_indices
+from unilab.algos.torch.rsl_rl.vec_env_wrapper import RslRlVecEnvWrapper
+from unilab.training import (
+    ensure_registries,
+    get_entrypoint_log_root,
+)
+from unilab.visualization.render_many import get_grid_offsets
+from unilab.visualization.viser_scene import (
+    VISER_AVAILABLE,
+    MujocoViserScene,
+    build_visible_env_indices,
+)
 
 ensure_registries()
 

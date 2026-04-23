@@ -1,3 +1,6 @@
+import importlib
+import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Optional, Type, TypeVar
 
@@ -5,6 +8,14 @@ from .base import ABEnv, EnvCfg
 
 TEnvCfg = TypeVar("TEnvCfg", bound=EnvCfg)
 _DEFAULT_SIM_BACKEND_ORDER: tuple[str, ...] = ("mujoco", "motrix")
+_REGISTRY_MODULES_ATTR = "__unilab_registry_modules__"
+_DEFAULT_REGISTRY_PACKAGES = (
+    "unilab.envs.locomotion",
+    "unilab.envs.manipulation",
+    "unilab.envs.motion_tracking",
+)
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -187,3 +198,54 @@ def list_registered_envs() -> Dict[str, Dict[str, Any]]:
             "available_backends": list(meta.env_cls_dict.keys()),
         }
     return result
+
+
+def ensure_registries(
+    packages: Sequence[str] | None = None,
+    *,
+    optional_packages: Sequence[str] | None = None,
+    fail_on_error: bool = True,
+) -> None:
+    """Import env registry bootstrap modules."""
+    package_names = list(packages) if packages is not None else list(_DEFAULT_REGISTRY_PACKAGES)
+    optional = set(optional_packages) if optional_packages else set()
+
+    for package_name in package_names:
+        is_optional = package_name in optional
+        try:
+            package = importlib.import_module(package_name)
+        except ImportError as exc:
+            if is_optional:
+                logger.warning("Optional registry package not found: %s (%s)", package_name, exc)
+            elif fail_on_error:
+                raise ImportError(
+                    f"Failed to import registry package '{package_name}'. "
+                    f"Add to optional_packages if this is expected to be absent."
+                ) from exc
+            else:
+                logger.warning("Registry package not found: %s (%s)", package_name, exc)
+            continue
+
+        modules = getattr(package, _REGISTRY_MODULES_ATTR, ())
+        if isinstance(modules, str) or not isinstance(modules, Sequence):
+            raise TypeError(
+                f"'{package_name}.{_REGISTRY_MODULES_ATTR}' must be a sequence of module names."
+            )
+
+        for module_name in modules:
+            if not isinstance(module_name, str) or not module_name:
+                raise TypeError(
+                    f"'{package_name}.{_REGISTRY_MODULES_ATTR}' entries must be non-empty strings."
+                )
+            try:
+                importlib.import_module(module_name)
+            except Exception as exc:
+                if fail_on_error and not is_optional:
+                    raise RuntimeError(
+                        f"Failed to import declared registry module '{module_name}' "
+                        f"from '{package_name}'. "
+                        f"Fix the import error or add '{package_name}' to optional_packages."
+                    ) from exc
+                logger.warning(
+                    "Failed to import declared registry module '%s': %s", module_name, exc
+                )

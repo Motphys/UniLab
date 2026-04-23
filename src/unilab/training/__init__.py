@@ -5,20 +5,28 @@ from unilab.training.common import (
     assert_offpolicy_task_choice_matches_algo,
     create_env,
     ensure_registries,
-    get_entrypoint_log_root,
     get_hydra_runtime_choice,
+    setup_logger,
+)
+from unilab.training.logging import ExperimentTracker, OffPolicyLogger, OnPolicyLogger
+from unilab.training.monitoring import HardwareMonitor
+from unilab.training.run import (
+    get_entrypoint_log_root,
     get_latest_checkpoint,
     get_latest_run,
     get_log_root,
     parse_checkpoint_path,
-    render_play_mode,
     resolve_checkpoint_path,
     resolve_task_checkpoint_path,
-    setup_logger,
 )
+from unilab.visualization.playback import render_play_mode
 
 __all__ = [
     "BackendAdapter",
+    "ExperimentTracker",
+    "HardwareMonitor",
+    "OffPolicyLogger",
+    "OnPolicyLogger",
     "assert_offpolicy_task_choice_matches_algo",
     "create_env",
     "ensure_registries",

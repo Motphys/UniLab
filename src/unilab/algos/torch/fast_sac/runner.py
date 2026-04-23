@@ -2,9 +2,10 @@
 
 from typing import Any
 
+from unilab.algos.torch.common.device import get_env_dims
 from unilab.algos.torch.fast_sac.learner import FastSACLearner
 from unilab.algos.torch.offpolicy.runner import OffPolicyRunner
-from unilab.utils.device_utils import get_default_device, get_env_dims
+from unilab.utils.device import get_default_device
 
 
 class FastSACRunner(OffPolicyRunner):
@@ -42,13 +43,13 @@ class FastSACRunner(OffPolicyRunner):
         world_size: int = 1,
     ):
         from unilab.base import registry
-        from unilab.utils.algo_utils import ensure_registries
+        from unilab.base.registry import ensure_registries
 
         ensure_registries()
         env: Any = registry.make(
             env_name, num_envs=1, sim_backend=sim_backend, env_cfg_override=env_cfg_override
         )
-        from unilab.utils.obs_utils import get_obs_dims
+        from unilab.base.observations import get_obs_dims
 
         obs_dim, critic_obs_dim = get_obs_dims(env.obs_groups_spec)
         act_space_shape = env.action_space.shape

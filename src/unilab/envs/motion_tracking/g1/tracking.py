@@ -25,18 +25,18 @@ from unilab.dr.dr_utils import (
     validate_interval_push_support,
     zero_actions,
 )
-from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
-from unilab.utils.math_utils import (
+from unilab.envs.common.math import np_sample_uniform
+from unilab.envs.common.rotation import (
     np_matrix_from_quat,
     np_quat_apply,
     np_quat_error_magnitude,
     np_quat_from_euler_xyz,
     np_quat_inv,
     np_quat_mul,
-    np_sample_uniform,
     np_subtract_frame_transforms,
     np_yaw_quat,
 )
+from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
 
 from .motion_loader import MotionLoader, MotionSampler
 

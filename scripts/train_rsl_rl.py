@@ -16,6 +16,8 @@ if str(SRC_DIR) not in sys.path:
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from unilab.algos.torch.rsl_rl.vec_env_wrapper import RslRlVecEnvWrapper
+from unilab.base.backend.xml import materialize_scene_visual_override
 from unilab.training import (
     BackendAdapter,
     create_env,
@@ -26,9 +28,7 @@ from unilab.training import (
     parse_checkpoint_path,
     render_play_mode,
 )
-from unilab.utils.experiment_tracking import ExperimentTracker, patch_rsl_rl_wandb_writer
-from unilab.utils.rsl_rl_vec_env_wrapper import RslRlVecEnvWrapper
-from unilab.utils.xml_utils import materialize_scene_visual_override
+from unilab.training.logging.experiment import ExperimentTracker, patch_rsl_rl_wandb_writer
 
 try:
     from rsl_rl.runners import OnPolicyRunner
@@ -36,7 +36,7 @@ except ImportError:
     print("Could not import rsl_rl. Please ensure it is installed.")
     sys.exit(1)
 
-from unilab.utils.rsl_rl_compat import convert_config_v5, is_rsl_rl_v5
+from unilab.algos.torch.rsl_rl.compat import convert_config_v5, is_rsl_rl_v5
 
 
 def _backend_adapter(cfg: DictConfig) -> BackendAdapter:

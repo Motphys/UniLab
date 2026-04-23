@@ -1,29 +1,16 @@
-import torch
+from __future__ import annotations
 
-from unilab.base import registry
+import warnings
 
+from unilab.algos.torch.common.device import get_env_dims
+from unilab.utils.device import get_default_device
 
-def get_default_device() -> str:
-    """Detect the best available device."""
-    if torch.cuda.is_available():
-        return "cuda"
-    if torch.backends.mps.is_available():
-        return "mps"
-    return "cpu"
+warnings.warn(
+    "`unilab.utils.device_utils` is deprecated and will be removed in 0.2.0; "
+    "use `unilab.utils.device` for `get_default_device` "
+    "and `unilab.algos.torch.common.device` for `get_env_dims` instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
-
-def get_env_dims(
-    env_name: str, sim_backend: str = "mujoco", env_cfg_override: dict | None = None
-) -> tuple[int, int, int]:
-    """Get (actor_obs_dim, action_dim, critic_obs_dim) from environment."""
-    from unilab.utils.obs_utils import get_obs_dims as get_obs_dims_from_spec
-
-    env = registry.make(
-        env_name, num_envs=1, sim_backend=sim_backend, env_cfg_override=env_cfg_override
-    )
-    obs_dim, critic_dim = get_obs_dims_from_spec(env.obs_groups_spec)
-    action_shape = env.action_space.shape
-    assert action_shape is not None
-    action_dim = action_shape[0]
-    env.close()  # type: ignore[attr-defined]
-    return obs_dim, action_dim, critic_dim
+__all__ = ["get_default_device", "get_env_dims"]

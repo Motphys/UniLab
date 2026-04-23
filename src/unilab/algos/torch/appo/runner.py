@@ -19,9 +19,9 @@ from rsl_rl.utils import resolve_callable
 
 from unilab.algos.torch.appo.learner import APPOLearner
 from unilab.algos.torch.appo.worker import appo_collector_fn
+from unilab.algos.torch.rsl_rl.compat import convert_config_v3_to_v4, is_rsl_rl_v4, is_rsl_rl_v5
 from unilab.ipc import AsyncRunner, SharedOnPolicyStorage, SharedWeightSync
-from unilab.utils.offpolicy_logger import OffPolicyLogger
-from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4, is_rsl_rl_v5
+from unilab.training.logging.offpolicy import OffPolicyLogger
 
 
 class APPORunner(AsyncRunner):
@@ -87,8 +87,8 @@ class APPORunner(AsyncRunner):
     def _detect_dims(self):
         """Create a tiny env to read obs/action dims, then close it."""
         from unilab.base import registry
-        from unilab.utils.algo_utils import ensure_registries
-        from unilab.utils.obs_utils import get_critic_base_dim, get_obs_dims
+        from unilab.base.observations import get_critic_base_dim, get_obs_dims
+        from unilab.base.registry import ensure_registries
 
         ensure_registries()
 

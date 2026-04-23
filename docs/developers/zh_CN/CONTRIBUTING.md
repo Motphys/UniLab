@@ -17,6 +17,8 @@
 - 代码相关提交前必须运行 `make check`
 - 备份文件、临时导出物和历史兼容副本不要进入源码树；不要提交 `*.bak`、`*.tmp`、`*.old`、`*.orig` 或以 `~` 结尾的编辑器备份文件
 - 只要改动用户可见工作流，就要同步维护顶层 `README.md`、`CONTRIBUTING.md`，以及 `docs/users/zh_CN/` 和 `docs/developers/zh_CN/` 下对应语言文档
+- 不要再往 `src/unilab/utils/` 塞新的 owner 逻辑；当前 `src/unilab/utils/*.py` 仅是过渡期 shim，计划在 `0.2.0` 删除
+- 新模块/包名应直接表达 owner 职责：默认使用单数名词；只有在语义本身就是集合契约时才使用复数；工厂模块使用 `_factory` 后缀
 
 ## Read Before You Start
 

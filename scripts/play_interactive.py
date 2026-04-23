@@ -53,15 +53,15 @@ from unilab.training import (
 
 ensure_registries()
 
-from unilab.base import registry
-from unilab.config.structured_configs import PPOConfig as _StructuredPPOConfig
-from unilab.utils.rsl_rl_compat import (
+from unilab.algos.torch.rsl_rl.compat import (
     convert_config_v3_to_v4,
     convert_config_v5,
     is_rsl_rl_v4,
     is_rsl_rl_v5,
 )
-from unilab.utils.rsl_rl_vec_env_wrapper import RslRlVecEnvWrapper
+from unilab.algos.torch.rsl_rl.vec_env_wrapper import RslRlVecEnvWrapper
+from unilab.base import registry
+from unilab.config.structured_configs import PPOConfig as _StructuredPPOConfig
 
 PPOConfig = _StructuredPPOConfig
 
@@ -122,8 +122,8 @@ def _infer_checkpoint_actor_input_dim(ckpt_path: str) -> int | None:
 
 
 def _backend_adapter(cfg: DictConfig):
+    from unilab.base.backend.xml import materialize_scene_visual_override
     from unilab.training import BackendAdapter
-    from unilab.utils.xml_utils import materialize_scene_visual_override
 
     return BackendAdapter(
         cfg,

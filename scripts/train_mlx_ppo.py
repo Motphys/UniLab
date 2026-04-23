@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import datetime
+import importlib
 import math
 import os
 import pickle
@@ -13,19 +14,20 @@ import sys
 import time
 from collections import deque
 from pathlib import Path
-from typing import Any, cast
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, cast
 
 import hydra
-import mlx.core as mx
 import numpy as np
-from mlx.utils import tree_map
 from omegaconf import DictConfig, OmegaConf
+
+if TYPE_CHECKING:
+    from unilab.algos.mlx.ppo import MLPActorCritic, PPOTrainer
 
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
 
-from unilab.algos.mlx.common import EmpiricalDiscountedVariationNormalization, RolloutBuffer
-from unilab.algos.mlx.ppo import MLPActorCritic, PPOConfig, PPOTrainer
+from unilab.base.observations import flatten_obs_dict
 from unilab.training import (
     BackendAdapter,
     create_env,
@@ -41,11 +43,41 @@ from unilab.training import (
 from unilab.training import (
     get_latest_run as get_latest_run_common,
 )
-from unilab.utils.experiment_tracking import ExperimentTracker
-from unilab.utils.obs_utils import flatten_obs_dict
-from unilab.utils.onpolicy_logger import OnPolicyLogger
+from unilab.training.logging.experiment import ExperimentTracker
+from unilab.training.logging.onpolicy import OnPolicyLogger
 
 ensure_registries()
+
+_MLX_RUNTIME: SimpleNamespace | None = None
+
+
+def _require_mlx_runtime() -> SimpleNamespace:
+    global _MLX_RUNTIME
+    if _MLX_RUNTIME is None:
+        mx = importlib.import_module("mlx.core")
+        tree_map = importlib.import_module("mlx.utils").tree_map
+        mlx_common = importlib.import_module("unilab.algos.mlx.common")
+        mlx_ppo = importlib.import_module("unilab.algos.mlx.ppo")
+        _MLX_RUNTIME = SimpleNamespace(
+            mx=mx,
+            tree_map=tree_map,
+            EmpiricalDiscountedVariationNormalization=(
+                mlx_common.EmpiricalDiscountedVariationNormalization
+            ),
+            RolloutBuffer=mlx_common.RolloutBuffer,
+            MLPActorCritic=mlx_ppo.MLPActorCritic,
+            PPOConfig=mlx_ppo.PPOConfig,
+            PPOTrainer=mlx_ppo.PPOTrainer,
+        )
+    return _MLX_RUNTIME
+
+
+mx = SimpleNamespace(
+    array=np.array,
+    float16=np.float16,
+    float32=np.float32,
+    sum=np.sum,
+)
 
 
 class TensorboardScalarWriter:
@@ -86,8 +118,9 @@ def get_latest_checkpoint(run_dir: Path) -> Path | None:
     return cast(Path | None, get_latest_checkpoint_common(run_dir, suffix=".safetensors"))
 
 
-def save_trainer_state(path: Path, trainer: PPOTrainer, iteration: int) -> None:
+def save_trainer_state(path: Path, trainer: Any, iteration: int) -> None:
     """Save optimizer state and trainer metadata for resume."""
+    tree_map = _require_mlx_runtime().tree_map
     payload = {
         "iteration": int(iteration),
         "learning_rate": float(trainer.learning_rate),
@@ -97,8 +130,11 @@ def save_trainer_state(path: Path, trainer: PPOTrainer, iteration: int) -> None:
         pickle.dump(payload, f)
 
 
-def load_trainer_state(path: Path, trainer: PPOTrainer, dtype=mx.float32) -> int:
+def load_trainer_state(path: Path, trainer: Any, dtype: Any = None) -> int:
     """Load optimizer state and trainer metadata."""
+    mx = _require_mlx_runtime().mx
+    if dtype is None:
+        dtype = mx.float32
     with path.open("rb") as f:
         payload = pickle.load(f)
     trainer.learning_rate = float(payload.get("learning_rate", trainer.learning_rate))
@@ -106,15 +142,18 @@ def load_trainer_state(path: Path, trainer: PPOTrainer, dtype=mx.float32) -> int
     return int(payload.get("iteration", -1))
 
 
-def build_model(cfg, obs_dim: int, action_dim: int, dtype=mx.float32) -> MLPActorCritic:
+def build_model(cfg, obs_dim: int, action_dim: int, dtype: Any = None) -> Any:
     """Build actor-critic model from config (expects cfg with .policy and .empirical_normalization)."""
+    runtime = _require_mlx_runtime()
+    if dtype is None:
+        dtype = runtime.mx.float32
     policy_cfg = cfg.policy
     init_noise_std = float(getattr(policy_cfg, "init_noise_std", 1.0))
     init_log_std = float(math.log(max(init_noise_std, 1e-6)))
     obs_norm = bool(getattr(cfg, "empirical_normalization", False))
     noise_std_type = str(getattr(policy_cfg, "noise_std_type", "scalar"))
     state_dependent_std = bool(getattr(policy_cfg, "state_dependent_std", False))
-    return MLPActorCritic(
+    return runtime.MLPActorCritic(
         obs_dim=obs_dim,
         action_dim=action_dim,
         actor_hidden_dims=policy_cfg.actor_hidden_dims,
@@ -128,23 +167,25 @@ def build_model(cfg, obs_dim: int, action_dim: int, dtype=mx.float32) -> MLPActo
     )
 
 
-def get_time_limit_bootstrap_values(
-    state: Any, model: MLPActorCritic, model_dtype=mx.float32
-) -> mx.array | None:
+def get_time_limit_bootstrap_values(state: Any, model: Any, model_dtype: Any = None) -> Any | None:
     """Return V(final_observation) for current timeout envs when available."""
+    use_mlx_runtime = type(model).__module__.startswith("unilab.algos.mlx")
+    mx_mod = _require_mlx_runtime().mx if use_mlx_runtime else mx
+    if model_dtype is None:
+        model_dtype = mx_mod.float32
     if not hasattr(state, "truncated"):
         return None
     timeout_mask = np.asarray(state.truncated, dtype=bool)
     if not np.any(timeout_mask):
         return None
     final_observation = getattr(state, "final_observation", None)
+    info = getattr(state, "info", None)
     if final_observation is None:
-        info = getattr(state, "info", None)
         if isinstance(info, dict):
             final_observation = info.get("final_observation")
     if not isinstance(final_observation, dict):
         return None
-    final_obs = mx.array(flatten_obs_dict(final_observation))
+    final_obs = mx_mod.array(flatten_obs_dict(final_observation))
     if getattr(final_obs, "dtype", None) != model_dtype:
         final_obs = final_obs.astype(model_dtype)
     return model.value(final_obs)
@@ -156,6 +197,7 @@ def _get_log_root(cfg: DictConfig) -> Path:
 
 def play_mlx_ppo(cfg: DictConfig, dtype, use_fp16: bool, resolved_sim_backend: str) -> str | None:
     """Play mode for MLX PPO."""
+    mx = _require_mlx_runtime().mx
     env_cfg_override = BackendAdapter(
         cfg, root_dir=ROOT_DIR, algo_name="ppo"
     ).build_task_env_cfg_override()
@@ -316,6 +358,12 @@ def play_mlx_ppo(cfg: DictConfig, dtype, use_fp16: bool, resolved_sim_backend: s
 
 @hydra.main(version_base="1.3", config_path="../conf/ppo", config_name="config_mlx")
 def main(cfg: DictConfig) -> None:
+    runtime = _require_mlx_runtime()
+    mx = runtime.mx
+    PPOConfig = runtime.PPOConfig
+    PPOTrainer = runtime.PPOTrainer
+    RolloutBuffer = runtime.RolloutBuffer
+    EmpiricalDiscountedVariationNormalization = runtime.EmpiricalDiscountedVariationNormalization
     task_name = cfg.training.task_name
     resolved_sim_backend = cfg.training.sim_backend
 

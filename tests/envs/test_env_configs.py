@@ -17,7 +17,7 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
-from unilab.utils.algo_utils import ensure_registries
+from unilab.base.registry import ensure_registries
 
 
 def _require_mujoco_runtime() -> None:
@@ -52,7 +52,7 @@ def test_registry_bootstrap_and_config_imports_do_not_require_mujoco():
         from unilab.base.backend import create_backend
         from unilab.envs.manipulation.inhand_rot_allegro.rotation import AllegroRotationCfg
         from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingCfg
-        from unilab.utils.algo_utils import ensure_registries
+        from unilab.base.registry import ensure_registries
 
         ensure_registries()
         assert callable(create_backend)

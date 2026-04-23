@@ -12,7 +12,7 @@ from unilab.base.backend import SimBackend
 from unilab.base.base import EnvCfg
 from unilab.base.dtype_config import get_global_dtype
 from unilab.base.np_env import NpEnv, NpEnvState
-from unilab.utils.math_utils import np_quat_apply, np_quat_mul
+from unilab.envs.common.rotation import np_quat_apply, np_quat_mul
 
 DEFAULT_ACTUATED_JOINT_NAMES: list[str] = [
     "right_thumb_CMC_FE",

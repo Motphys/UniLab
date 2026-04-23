@@ -4,9 +4,9 @@ import json
 import sys
 from pathlib import Path
 
-from unilab.utils.experiment_tracking import ExperimentTracker, build_wandb_settings
-from unilab.utils.offpolicy_logger import OffPolicyLogger
-from unilab.utils.onpolicy_logger import OnPolicyLogger
+from unilab.training.logging.experiment import ExperimentTracker, build_wandb_settings
+from unilab.training.logging.offpolicy import OffPolicyLogger
+from unilab.training.logging.onpolicy import OnPolicyLogger
 
 
 class _FakeConfig(dict):

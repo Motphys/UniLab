@@ -262,7 +262,7 @@ def test_render_play_mode_defaults_to_env_physics_snapshot(
 
     monkeypatch.setitem(sys.modules, "mediapy", fake_media)
     monkeypatch.setattr(
-        "unilab.utils.render_many.render_states_get_frames",
+        "unilab.visualization.render_many.render_states_get_frames",
         _render_states_get_frames,
     )
 
@@ -354,7 +354,7 @@ def test_render_play_mode_uses_visualized_per_env_playback_models_for_video_expo
 
     monkeypatch.setitem(sys.modules, "mediapy", fake_media)
     monkeypatch.setattr(
-        "unilab.utils.render_many.render_states_get_frames",
+        "unilab.visualization.render_many.render_states_get_frames",
         _render_states_get_frames,
     )
 

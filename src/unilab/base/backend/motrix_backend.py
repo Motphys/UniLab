@@ -56,7 +56,7 @@ class MotrixBackend(SimBackend):
         self._model_file = model_file
 
         if self.add_body_sensors:
-            from unilab.utils.xml_utils import inject_motrix_tracking_sensors
+            from unilab.base.backend.xml import inject_motrix_tracking_sensors
 
             tmp_path, _, valid_bnames = inject_motrix_tracking_sensors(
                 model_file, baselink_name=base_name

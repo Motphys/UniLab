@@ -18,6 +18,7 @@ from unilab.dr import (
     ResetPlan,
 )
 from unilab.dr.dr_utils import build_common_reset_randomization, validate_common_reset_randomization
+from unilab.envs.common.rotation import np_quat_conjugate, np_quat_mul, np_quat_to_axis_angle
 from unilab.envs.manipulation.sharpa_inhand.base import (
     SharpaInhandBaseCfg,
     SharpaInhandBaseEnv,
@@ -26,7 +27,6 @@ from unilab.envs.manipulation.sharpa_inhand.base import (
     resolve_grasp_cache_file,
     sample_bucketed_grasp_cache,
 )
-from unilab.utils.math_utils import np_quat_conjugate, np_quat_mul, np_quat_to_axis_angle
 
 
 @dataclass

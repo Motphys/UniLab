@@ -15,9 +15,9 @@ import numpy as np
 import torch
 from rsl_rl.utils import resolve_callable
 
-from unilab.utils.algo_utils import ensure_registries
-from unilab.utils.final_observation import resolve_terminal_observation_contract
-from unilab.utils.obs_utils import split_obs_dict
+from unilab.base.final_observation import resolve_terminal_observation_contract
+from unilab.base.observations import split_obs_dict
+from unilab.base.registry import ensure_registries
 
 
 def compute_timeout_bootstrap_correction(
@@ -76,9 +76,9 @@ def appo_collector_fn(
 
     from tensordict import TensorDict
 
+    from unilab.algos.torch.rsl_rl.compat import convert_config_v3_to_v4, is_rsl_rl_v4, is_rsl_rl_v5
     from unilab.base import registry
     from unilab.ipc import SharedOnPolicyStorage, SharedWeightSync
-    from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4, is_rsl_rl_v5
 
     ensure_registries()
 

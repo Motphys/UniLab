@@ -10,8 +10,8 @@ from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
 
 from unilab.base import registry
+from unilab.base.registry import ensure_registries
 from unilab.training.backend_adapter import BackendAdapter
-from unilab.utils.algo_utils import ensure_registries
 
 ROOT_DIR = Path(__file__).parents[4]
 CONF_DIR = ROOT_DIR / "conf"

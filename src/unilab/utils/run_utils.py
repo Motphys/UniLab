@@ -1,35 +1,30 @@
-import os
+from __future__ import annotations
 
+import warnings
 
-def get_latest_run(log_dir: str) -> str | None:
-    """Find the latest run in the log directory that contains a model.
+from unilab.training.run import (
+    get_entrypoint_log_root,
+    get_latest_checkpoint,
+    get_latest_run,
+    get_log_root,
+    parse_checkpoint_path,
+    resolve_checkpoint_path,
+    resolve_task_checkpoint_path,
+)
 
-    Args:
-        log_dir: Path to the base log directory (e.g., logs/fast_sac_Go2LocoFlatTerrain)
+warnings.warn(
+    "`unilab.utils.run_utils` is deprecated and will be removed in 0.2.0; "
+    "use `unilab.training.run` instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
-    Returns:
-        Path to the latest run directory containing a model, or None if none found.
-    """
-    if not os.path.exists(log_dir):
-        return None
-    runs = sorted(
-        [
-            d
-            for d in os.listdir(log_dir)
-            if os.path.isdir(os.path.join(log_dir, d))
-            and d != "git"
-            and d[0].isdigit()  # skip non-timestamp dirs (e.g. "appo-...", "play_temp")
-        ]
-    )
-
-    # Iterate backwards to find first run with models
-    for run_id in reversed(runs):
-        run_path = os.path.join(log_dir, run_id)
-        # Check if any .pt file exists
-        if any(f.endswith(".pt") for f in os.listdir(run_path)):
-            return run_path
-
-    # Fallback to just the latest directory if no models found
-    if len(runs) > 0:
-        return os.path.join(log_dir, runs[-1])
-    return None
+__all__ = [
+    "get_entrypoint_log_root",
+    "get_latest_checkpoint",
+    "get_latest_run",
+    "get_log_root",
+    "parse_checkpoint_path",
+    "resolve_checkpoint_path",
+    "resolve_task_checkpoint_path",
+]
