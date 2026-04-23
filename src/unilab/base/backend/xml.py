@@ -5,6 +5,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 from collections.abc import Iterator, Sequence
 from pathlib import Path
+from typing import Any, cast
 
 
 def _enable_discardvisual(root: ET.Element) -> None:
@@ -64,72 +65,93 @@ def get_named_body_ids(model_file: str, names: Sequence[str]) -> list[int]:
     return [body_id_by_name[name] for name in names]
 
 
-def _add_w_sensors(sensor_tag: ET.Element, valid_bnames: list[str]) -> None:
+def _mujoco_module() -> Any:
+    import mujoco
+
+    return cast(Any, mujoco)
+
+
+def _materialize_spec_xml(spec, model_file: str) -> str:
+    fd, output_path = tempfile.mkstemp(
+        suffix=".xml", dir=os.path.dirname(os.path.abspath(model_file))
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(spec.to_xml())
+    except Exception:
+        os.close(fd)
+        raise
+    return output_path
+
+
+def _add_w_sensors(spec, valid_bnames: list[str]) -> None:
+    mujoco = _mujoco_module()
     for bname in valid_bnames:
-        ET.SubElement(
-            sensor_tag, "framepos", name=f"track_pos_w_{bname}", objtype="xbody", objname=bname
+        spec.add_sensor(
+            name=f"track_pos_w_{bname}",
+            type=mujoco.mjtSensor.mjSENS_FRAMEPOS,
+            objtype=mujoco.mjtObj.mjOBJ_XBODY,
+            objname=bname,
         )
     for bname in valid_bnames:
-        ET.SubElement(
-            sensor_tag, "framequat", name=f"track_quat_w_{bname}", objtype="xbody", objname=bname
+        spec.add_sensor(
+            name=f"track_quat_w_{bname}",
+            type=mujoco.mjtSensor.mjSENS_FRAMEQUAT,
+            objtype=mujoco.mjtObj.mjOBJ_XBODY,
+            objname=bname,
         )
     for bname in valid_bnames:
-        ET.SubElement(
-            sensor_tag,
-            "framelinvel",
+        spec.add_sensor(
             name=f"track_linvel_w_{bname}",
-            objtype="xbody",
+            type=mujoco.mjtSensor.mjSENS_FRAMELINVEL,
+            objtype=mujoco.mjtObj.mjOBJ_XBODY,
             objname=bname,
         )
     for bname in valid_bnames:
-        ET.SubElement(
-            sensor_tag,
-            "frameangvel",
+        spec.add_sensor(
             name=f"track_angvel_w_{bname}",
-            objtype="xbody",
+            type=mujoco.mjtSensor.mjSENS_FRAMEANGVEL,
+            objtype=mujoco.mjtObj.mjOBJ_XBODY,
             objname=bname,
         )
 
 
-def _add_b_sensors(sensor_tag: ET.Element, valid_bnames: list[str], baselink_name: str) -> None:
+def _add_b_sensors(spec, valid_bnames: list[str], baselink_name: str) -> None:
+    mujoco = _mujoco_module()
     for bname in valid_bnames:
-        ET.SubElement(
-            sensor_tag,
-            "framepos",
+        spec.add_sensor(
             name=f"track_pos_b_{bname}",
-            objtype="xbody",
+            type=mujoco.mjtSensor.mjSENS_FRAMEPOS,
+            objtype=mujoco.mjtObj.mjOBJ_XBODY,
             objname=bname,
-            reftype="xbody",
+            reftype=mujoco.mjtObj.mjOBJ_XBODY,
             refname=baselink_name,
         )
     for bname in valid_bnames:
-        ET.SubElement(
-            sensor_tag,
-            "framequat",
+        spec.add_sensor(
             name=f"track_quat_b_{bname}",
-            objtype="xbody",
+            type=mujoco.mjtSensor.mjSENS_FRAMEQUAT,
+            objtype=mujoco.mjtObj.mjOBJ_XBODY,
             objname=bname,
-            reftype="xbody",
+            reftype=mujoco.mjtObj.mjOBJ_XBODY,
             refname=baselink_name,
         )
     for bname in valid_bnames:
-        ET.SubElement(
-            sensor_tag,
-            "framelinvel",
+        spec.add_sensor(
             name=f"track_linvel_b_{bname}",
-            objtype="xbody",
+            type=mujoco.mjtSensor.mjSENS_FRAMELINVEL,
+            objtype=mujoco.mjtObj.mjOBJ_XBODY,
             objname=bname,
-            reftype="xbody",
+            reftype=mujoco.mjtObj.mjOBJ_XBODY,
             refname=baselink_name,
         )
     for bname in valid_bnames:
-        ET.SubElement(
-            sensor_tag,
-            "frameangvel",
+        spec.add_sensor(
             name=f"track_angvel_b_{bname}",
-            objtype="xbody",
+            type=mujoco.mjtSensor.mjSENS_FRAMEANGVEL,
+            objtype=mujoco.mjtObj.mjOBJ_XBODY,
             objname=bname,
-            reftype="xbody",
+            reftype=mujoco.mjtObj.mjOBJ_XBODY,
             refname=baselink_name,
         )
 
@@ -200,19 +222,15 @@ def inject_mujoco_tracking_sensors(
     Returns:
         (tmp_xml_path, tracked_body_ids, valid_bnames)
     """
+    mujoco = _mujoco_module()
     tracked_body_ids, valid_bnames = _get_named_bodies(model_file)
 
-    tree = ET.parse(model_file)
-    root = tree.getroot()
-    sensor_tag = root.find("sensor")
-    if sensor_tag is None:
-        sensor_tag = ET.SubElement(root, "sensor")
-
-    _add_w_sensors(sensor_tag, valid_bnames)
+    spec = mujoco.MjSpec.from_file(model_file)
+    _add_w_sensors(spec, valid_bnames)
     if baselink_name and baselink_name in valid_bnames:
-        _add_b_sensors(sensor_tag, valid_bnames, baselink_name)
+        _add_b_sensors(spec, valid_bnames, baselink_name)
 
-    return _write_temp_xml(tree, model_file), tracked_body_ids, valid_bnames
+    return _materialize_spec_xml(spec, model_file), tracked_body_ids, valid_bnames
 
 
 def inject_motrix_tracking_sensors(model_file: str, baselink_name: str) -> tuple[str, list, list]:
@@ -224,17 +242,13 @@ def inject_motrix_tracking_sensors(model_file: str, baselink_name: str) -> tuple
     Returns:
         (tmp_xml_path, tracked_body_ids, valid_bnames)
     """
+    mujoco = _mujoco_module()
     tracked_body_ids, valid_bnames = _get_named_bodies(model_file)
 
-    tree = ET.parse(model_file)
-    root = tree.getroot()
-    sensor_tag = root.find("sensor")
-    if sensor_tag is None:
-        sensor_tag = ET.SubElement(root, "sensor")
+    spec = mujoco.MjSpec.from_file(model_file)
+    _add_b_sensors(spec, valid_bnames, baselink_name)
 
-    _add_b_sensors(sensor_tag, valid_bnames, baselink_name)
-
-    return _write_temp_xml(tree, model_file), tracked_body_ids, valid_bnames
+    return _materialize_spec_xml(spec, model_file), tracked_body_ids, valid_bnames
 
 
 def processed_xml(xml_path):
