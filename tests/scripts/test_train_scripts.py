@@ -43,7 +43,7 @@ def _normalize_overrides(overrides: list[str] | None, *, offpolicy: bool = False
 
     if not task_selected:
         if offpolicy:
-            normalized.append(f"task={algo}/go1_joystick_flat/mujoco")
+            normalized.append(f"task={algo}/g1_walk_flat/mujoco")
         else:
             normalized.append("task=go1_joystick_flat/mujoco")
     return normalized
@@ -157,7 +157,7 @@ def test_offpolicy_hydra_default_algo():
 
 def test_offpolicy_hydra_default_task():
     cfg = _offpolicy_cfg()
-    assert cfg.training.task_name == "Go1JoystickFlat"
+    assert cfg.training.task_name == "G1WalkFlat"
 
 
 def test_offpolicy_hydra_default_logger():
@@ -240,20 +240,23 @@ def test_hora_distill_teacher_run_slug_omits_teacher_run_name(teacher_algo_famil
 def test_offpolicy_go1_resolved_algo_matches_old_motrix_behavior():
     """Equivalence: Motrix SAC Go1 algo hyperparams match legacy values."""
     cfg = _offpolicy_cfg(["task=sac/go1_joystick_flat/motrix"])
+def test_offpolicy_g1_walk_flat_motrix_resolved_algo_matches_task_owner():
+    """Motrix SAC G1 walk flat composes backend-owned algo hyperparameters."""
+    cfg = _offpolicy_cfg(["task=sac/g1_walk_flat/motrix"])
 
-    # Legacy Motrix SAC Go1 values: num_envs=4096, max_iterations=2000
-    assert cfg.algo.num_envs == 4096
-    assert cfg.algo.max_iterations == 2000
+    assert cfg.algo.num_envs == 2048
+    assert cfg.algo.max_iterations == 5000
+    assert cfg.algo.use_symmetry is False
 
 
-def test_offpolicy_go1_env_cfg_override_has_reward_and_commands():
-    cfg = _offpolicy_cfg(["task=sac/go1_joystick_flat/motrix"])
+def test_offpolicy_g1_walk_flat_env_cfg_override_has_reward_and_domain_rand():
+    cfg = _offpolicy_cfg(["task=sac/g1_walk_flat/motrix"])
 
     env_cfg_override = _offpolicy().build_offpolicy_env_cfg_override("sac", cfg)
 
-    # env_cfg_override has reward + env preset fields (no bag structure)
-    assert env_cfg_override["reward_config"]["scales"]["tracking_lin_vel"] == pytest.approx(1.0)
-    assert env_cfg_override["commands"]["vel_limit"] == [[0.5, 0.0, 0.0], [0.5, 0.0, 0.0]]
+    assert env_cfg_override["reward_config"]["scales"]["tracking_lin_vel"] == pytest.approx(2.2)
+    assert env_cfg_override["domain_rand"]["randomize_kp"] is False
+    assert env_cfg_override["domain_rand"]["randomize_kd"] is False
 
 
 def test_offpolicy_g1_walk_flat_backend_scoped_use_symmetry():
@@ -278,12 +281,11 @@ def test_ppo_go1_resolved_algo_matches_old_motrix_behavior():
 def test_ppo_g1_resolved_algo_matches_old_motrix_behavior():
     """Equivalence: PPO G1 algo hyperparams match pre-refactor motrix values.
 
-    In particular, max_iterations=151 (the motrix value from the old bag),
-    NOT 220 (the old mujoco base value which has been retired).
+    For this migration we align with the final UniLab1 Motrix runtime.
     """
-    cfg = _ppo_cfg(["task=g1_joystick_flat/motrix"])
+    cfg = _ppo_cfg(["task=g1_walk_flat/motrix"])
 
-    assert cfg.algo.max_iterations == 151
+    assert cfg.algo.max_iterations == 220
     assert cfg.algo.empirical_normalization is True
     assert cfg.algo.obs_groups.actor == ["policy"]
     assert cfg.algo.policy.init_noise_std == pytest.approx(0.5)
@@ -292,7 +294,7 @@ def test_ppo_g1_resolved_algo_matches_old_motrix_behavior():
 
 
 def test_ppo_g1_mujoco_base_hyperparams_remain_separate():
-    cfg = _ppo_cfg(["task=g1_joystick_flat/mujoco"])
+    cfg = _ppo_cfg(["task=g1_walk_flat/mujoco"])
 
     assert cfg.algo.max_iterations == 220
     assert cfg.algo.empirical_normalization is False
@@ -300,12 +302,17 @@ def test_ppo_g1_mujoco_base_hyperparams_remain_separate():
 
 
 def test_ppo_g1_env_preset_has_env_overrides():
-    cfg = _ppo_cfg(["task=g1_joystick_flat/motrix"])
+    cfg = _ppo_cfg(["task=g1_walk_flat/motrix"])
 
     assert cfg.env.iterations == 3
     assert cfg.env.control_config.action_scale == pytest.approx(0.5)
-    assert cfg.env.gait_phase_init_mode == "independent"
+    assert cfg.env.commands.vel_limit == [[0.4, 0.0, 0.0], [0.7, 0.0, 0.0]]
+    assert cfg.env.gait_phase_init_mode == "offset_phase"
     assert cfg.env.reset_base_qvel_limit == pytest.approx(0.05)
+    assert cfg.reward.scales.feet_phase_contrast == pytest.approx(1.5)
+    assert cfg.reward.scales.feet_phase_contact == pytest.approx(1.0)
+    assert cfg.reward.scales.feet_double_stance == pytest.approx(-1.0)
+    assert cfg.reward.min_forward_speed_for_gait_reward == pytest.approx(0.05)
 
 
 def test_ppo_task_go2_aligns_mujoco_with_motrix_defaults():
@@ -339,27 +346,34 @@ def test_build_ppo_env_cfg_override_g1_motrix(
     monkeypatch: pytest.MonkeyPatch,
 ):
     mod = _train_rsl_rl(monkeypatch)
-    cfg = _ppo_cfg(["task=g1_joystick_flat/motrix"])
+    cfg = _ppo_cfg(["task=g1_walk_flat/motrix"])
 
     env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
 
     # env_cfg_override has reward + env preset fields (flat, matching env cfg structure)
     assert env_cfg_override["reward_config"]["scales"]["upper_body_pose"] == pytest.approx(-0.05)
+    assert env_cfg_override["reward_config"]["scales"]["penalty_feet_ori"] == pytest.approx(0.0)
+    assert env_cfg_override["reward_config"]["scales"]["feet_phase_contrast"] == pytest.approx(1.5)
+    assert env_cfg_override["reward_config"]["scales"]["feet_phase_contact"] == pytest.approx(1.0)
+    assert env_cfg_override["reward_config"]["scales"]["feet_double_stance"] == pytest.approx(-1.0)
+    assert env_cfg_override["reward_config"]["min_forward_speed_for_gait_reward"] == pytest.approx(
+        0.05
+    )
     assert env_cfg_override["iterations"] == 3
     assert env_cfg_override["control_config"]["action_scale"] == pytest.approx(0.5)
-    assert env_cfg_override["gait_phase_init_mode"] == "independent"
+    assert env_cfg_override["commands"]["vel_limit"] == [[0.4, 0.0, 0.0], [0.7, 0.0, 0.0]]
+    assert env_cfg_override["gait_phase_init_mode"] == "offset_phase"
     assert env_cfg_override["reset_base_qvel_limit"] == pytest.approx(0.05)
 
 
-@pytest.mark.parametrize("algo", ["sac", "td3"])
-def test_offpolicy_go2_motrix_env_cfg_override_has_domain_rand(algo: str):
-    cfg = _offpolicy_cfg([f"algo={algo}", f"task={algo}/go2_joystick_flat/motrix"])
+def test_offpolicy_g1_walk_flat_motrix_env_cfg_override_has_domain_rand():
+    cfg = _offpolicy_cfg(["algo=sac", "task=sac/g1_walk_flat/motrix"])
 
-    env_cfg_override = _offpolicy().build_offpolicy_env_cfg_override(algo, cfg)
+    env_cfg_override = _offpolicy().build_offpolicy_env_cfg_override("sac", cfg)
 
     assert env_cfg_override["domain_rand"]["randomize_kp"] is False
     assert env_cfg_override["domain_rand"]["randomize_kd"] is False
-    assert env_cfg_override["reward_config"]["scales"]["tracking_lin_vel"] == pytest.approx(1.0)
+    assert env_cfg_override["reward_config"]["scales"]["tracking_lin_vel"] == pytest.approx(2.2)
 
 
 def test_build_ppo_env_cfg_override_applies_go2_motrix_reward(
@@ -457,7 +471,7 @@ def test_ppo_cli_algo_override_wins_over_base(
     monkeypatch: pytest.MonkeyPatch,
 ):
     """CLI override takes precedence over base task algo values via Hydra compose."""
-    cfg = _ppo_cfg(["task=g1_joystick_flat/motrix", "algo.max_iterations=1"])
+    cfg = _ppo_cfg(["task=g1_walk_flat/motrix", "algo.max_iterations=1"])
 
     assert cfg.algo.max_iterations == 1
     # Other base values remain intact
@@ -1307,14 +1321,14 @@ def test_offpolicy_td3_hydra_default_algo_log_name():
 
 
 def test_offpolicy_flashsac_hydra_algo_log_name():
-    cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_joystick_flat/mujoco"])
+    cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_walk_flat_amp/mujoco"])
     assert cfg.algo.algo_log_name == "flash_sac"
     assert cfg.algo.load_run == "-1"
 
 
-def test_offpolicy_flashsac_g1_joystick_flat_task_composes() -> None:
-    cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_joystick_flat/mujoco"])
-    assert cfg.training.task_name == "G1JoystickFlat"
+def test_offpolicy_flashsac_g1_walk_flat_amp_task_composes() -> None:
+    cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_walk_flat_amp/mujoco"])
+    assert cfg.training.task_name == "G1WalkFlat"
     assert cfg.training.sim_backend == "mujoco"
 
 
@@ -1329,7 +1343,7 @@ def test_offpolicy_flashsac_rejects_multi_gpu():
     cfg = _offpolicy_cfg(
         [
             "algo=flashsac",
-            "task=flashsac/g1_joystick_flat/mujoco",
+            "task=flashsac/g1_walk_flat_amp/mujoco",
             "training.num_gpus=2",
         ]
     )

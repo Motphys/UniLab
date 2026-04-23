@@ -3,7 +3,7 @@
 Benchmark Genesis physics execution.
 
 Benchmarks Genesis across current locomotion owner task ids
-(go1_joystick_flat/go2_joystick_flat/g1_joystick_flat) and outputs JSON + plots
+(go1_joystick_flat/go2_joystick_flat/g1_walk_flat) and outputs JSON + plots
 aligned with benchmark/benchmark_physics_step_mj_step.py.
 Legacy env names remain accepted as aliases.
 
@@ -20,7 +20,7 @@ import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List, cast
 
 import matplotlib
 
@@ -28,24 +28,30 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 try:
-    import genesis as gs
+    import genesis as _gs
 except ImportError:
     gs = None
+else:
+    gs = _gs
 
 try:
-    from benchmark.core.device_info import get_device_info_dict, get_device_info_line
-    from benchmark.core.task_names import (
-        canonical_locomotion_task_ids,
-        locomotion_task_spec,
-        normalize_locomotion_task_id,
-    )
+    from benchmark.core import device_info as _benchmark_device_info
+    from benchmark.core import task_names as _benchmark_task_names
+
+    _device_info = _benchmark_device_info
+    _task_names = _benchmark_task_names
 except ModuleNotFoundError:
-    from core.device_info import get_device_info_dict, get_device_info_line
-    from core.task_names import (
-        canonical_locomotion_task_ids,
-        locomotion_task_spec,
-        normalize_locomotion_task_id,
-    )
+    from core import device_info as _core_device_info
+    from core import task_names as _core_task_names
+
+    _device_info = _core_device_info
+    _task_names = _core_task_names
+
+get_device_info_dict = _device_info.get_device_info_dict
+get_device_info_line = _device_info.get_device_info_line
+canonical_locomotion_task_ids = _task_names.canonical_locomotion_task_ids
+locomotion_task_spec = _task_names.locomotion_task_spec
+normalize_locomotion_task_id = _task_names.normalize_locomotion_task_id
 
 
 @dataclass
@@ -84,7 +90,8 @@ def _init_genesis() -> None:
     global _GENESIS_INITIALIZED
     if _GENESIS_INITIALIZED:
         return
-    gs.init(backend=gs.gpu)
+    gs_mod = cast(Any, gs)
+    gs_mod.init(backend=gs_mod.gpu)
     _GENESIS_INITIALIZED = True
 
 
@@ -94,14 +101,15 @@ def _load_task_xml(task_name: str) -> str:
 
 
 def _build_scene(xml_path: str, batch_size: int):
-    scene = gs.Scene(
+    gs_mod = cast(Any, gs)
+    scene = gs_mod.Scene(
         show_viewer=False,
-        rigid_options=gs.options.RigidOptions(
+        rigid_options=gs_mod.options.RigidOptions(
             dt=0.01,
-            constraint_solver=gs.constraint_solver.Newton,
+            constraint_solver=gs_mod.constraint_solver.Newton,
         ),
     )
-    scene.add_entity(gs.morphs.MJCF(file=xml_path))
+    scene.add_entity(gs_mod.morphs.MJCF(file=xml_path))
     scene.build(n_envs=batch_size)
     return scene
 

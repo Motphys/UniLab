@@ -270,7 +270,7 @@ def render_frame_job(args):
         center_x = np.mean(offsets[:, 0])
         center_y = np.mean(offsets[:, 1])
         if cam_lookat is None:
-            cam.lookat = [center_x, center_y, 0.0]
+            cam.lookat = [center_x, center_y, 0.75]
         else:
             cam.lookat = [float(cam_lookat[0]), float(cam_lookat[1]), float(cam_lookat[2])]
         cam.distance = cam_distance

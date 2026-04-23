@@ -82,9 +82,14 @@ class DomainRandConfig:
     added_mass_range: list[float] = field(default_factory=lambda: [0.0, 0.0])
     random_com: bool = False
     com_offset_x: list[float] = field(default_factory=lambda: [0.0, 0.0])
+    randomize_gravity: bool = False
+    gravity_range: list[list[float]] = field(
+        default_factory=lambda: [[0.0, 0.0, -9.81], [0.0, 0.0, -9.81]]
+    )
     push_robots: bool = False
     push_interval: int = 750
     max_force: list[float] = field(default_factory=lambda: [1.0, 1.0, 0.5])
+    push_body_name: str | None = None
     joint_noise: float = 0.0
     ball_vel_noise: float = 0.0
     ball_z_offset: float = 0.0
@@ -245,6 +250,7 @@ class AllegroRotationPPO(AllegroBaseEnv):
             num_envs,
             cfg.sim_dt,
             base_name="palm",
+            push_body_name=cfg.domain_rand.push_body_name,
             add_body_sensors=True,
             position_actuator_gains={
                 "kp": cfg.control_config.kp,

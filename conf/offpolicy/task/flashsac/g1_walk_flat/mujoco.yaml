@@ -5,17 +5,39 @@ training:
 algo:
   num_envs: 2048
   learning_starts: 49
-  max_iterations: 5000
+  max_iterations: 6000
   save_interval: 1000
+  updates_per_step: 8
+  #use_symmetry: true
+  replay_buffer_n: 1024
+env:
+  control_config:
+    action_scale: 1.0
+  gait_phase_init_mode: "offset_phase"
+  reset_base_qvel_limit: 0.5
+  curriculum:
+    enabled: true
+    initial_scale: 0.5
+    min_scale: 0.5
+    max_scale: 1.0
+    level_down_threshold: 150.0
+    level_up_threshold: 750.0
+    degree: 0.001
+  noise_config:
+    scale_gyro: 0.0
+    scale_gravity: 0.0
+    scale_joint_angle: 0.01
+    scale_joint_vel: 0.1
+    scale_linvel: 0.0
 reward:
   scales:
     tracking_lin_vel: 2.0
     tracking_ang_vel: 1.5
-    penalty_ang_vel_xy: -1.0
+    penalty_ang_vel_xy: -1.5
     penalty_orientation: -10.0
-    penalty_action_rate: -2.0
-    pose: -0.5
-    penalty_feet_ori: -25.0
+    penalty_action_rate: -4.0
+    pose: -0.8
+    penalty_feet_ori: -20.0
     feet_phase: 5.0
     alive: 10.0
   tracking_sigma: 0.25
@@ -24,6 +46,6 @@ reward:
   max_tilt_deg: 65.0
   gait_frequency: 1.5
   feet_phase_swing_height: 0.09
-  feet_phase_tracking_sigma: 0.008
+  feet_phase_tracking_sigma: 0.025
   close_feet_threshold: 0.15
   pose_weights: [0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0]

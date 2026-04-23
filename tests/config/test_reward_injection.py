@@ -17,13 +17,13 @@ def test_reward_config_loading_g1():
         assert cfg.reward.base_height_target == 0.754
 
 
-def test_reward_config_loading_go1():
-    """Test Go1 reward config loads correctly."""
+def test_reward_config_loading_g1_motrix():
+    """Test G1 Motrix reward config loads correctly."""
     with initialize(config_path="../../conf/offpolicy", version_base="1.3"):
-        cfg = compose(config_name="config", overrides=["task=sac/go1_joystick_flat/mujoco"])
+        cfg = compose(config_name="config", overrides=["task=sac/g1_walk_flat/motrix"])
         assert hasattr(cfg, "reward")
-        assert cfg.reward.scales.tracking_lin_vel == 1.0
-        assert cfg.reward.scales.contact == 0.24
+        assert cfg.reward.scales.tracking_lin_vel == 2.2
+        assert cfg.reward.scales.alive == 12.0
 
 
 def test_resolve_reward_dict_reads_task_reward():
@@ -49,7 +49,7 @@ def test_reward_config_conversion():
 
     ensure_registries()
 
-    # Test G1 SAC config - registry auto-converts dict to RewardConfigSAC
+    # Test G1 walk config - registry auto-converts dict to G1WalkRewardConfig
     g1_dict = {
         "scales": {"tracking_lin_vel": 2.0, "alive": 10.0},
         "tracking_sigma": 0.25,

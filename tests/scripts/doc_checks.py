@@ -10,6 +10,9 @@ VALID_HYDRA_KEYS = {
     "algo",
     "training",
     "reward",
+    "env",
+    "interactive",
+    "viser",
     "num_envs",
     "max_iterations",
     "num_steps_per_env",
@@ -140,7 +143,11 @@ def check_hydra_keys(content: str, doc_path: Path, root: Path) -> list[str]:
     hydra_pattern = r"(?:^|\s)([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)="
     for line in content.splitlines():
         stripped = line.strip()
-        is_cli_line = "scripts/train_" in stripped or "scripts/play_interactive.py" in stripped
+        is_cli_line = (
+            "scripts/train_" in stripped
+            or "scripts/play_interactive.py" in stripped
+            or "scripts/play_viser.py" in stripped
+        )
         is_override_line = bool(re.match(r"^[a-zA-Z_][a-zA-Z0-9_.-]*=", stripped))
         if not (is_cli_line or is_override_line):
             continue
@@ -197,7 +204,7 @@ def check_training_entrypoint_semantics(content: str, doc_path: Path, root: Path
             f"{doc_path}: Deprecated Hydra key 'training.load_run': use algo.load_run=<value>"
         )
 
-    for match in re.finditer(r"logs/(rsl_rl_train|mlx_rl_train)/", content):
+    for match in re.finditer(r"logs/rsl_rl_train/", content):
         errors.append(
             f"{doc_path}: Stale log root '{match.group(0)}': describe logs via "
             "logs/<algo.algo_log_name>/<task>/ or the current default algo.algo_log_name"
@@ -215,7 +222,7 @@ def check_training_entrypoint_semantics(content: str, doc_path: Path, root: Path
 
 def check_generated_support_matrix(content: str, doc_path: Path, root: Path) -> list[str]:
     errors: list[str] = []
-    if doc_path != root / "docs" / "zh_CN" / "02-simulation-backends.md":
+    if doc_path != root / "docs" / "users" / "zh_CN" / "02-simulation-backends.md":
         return errors
 
     expected = replace_generated_block(content, render_generated_block(root))

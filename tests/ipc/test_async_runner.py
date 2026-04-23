@@ -211,6 +211,7 @@ def test_start_collector_spawns_process():
     r.close()
 
 
+@pytest.mark.slow
 def test_start_collector_does_not_merge_runner_runtime_fields():
     r = _make_runner(sim_backend="motrix")
     report_queue = _SPAWN_CTX.Queue()

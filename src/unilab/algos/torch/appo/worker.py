@@ -26,7 +26,7 @@ def compute_timeout_bootstrap_correction(
     gamma: float,
     timeout_mask: np.ndarray,
     final_obs: np.ndarray,
-    final_critic: np.ndarray | None = None,
+    final_critic: np.ndarray,
 ) -> np.ndarray:
     """Compute gamma * V(final_observation) for current timeout envs."""
     corrections = np.zeros(timeout_mask.shape, dtype=np.float32)
@@ -35,7 +35,7 @@ def compute_timeout_bootstrap_correction(
 
     from tensordict import TensorDict
 
-    critic_input_np = final_critic if final_critic is not None else final_obs
+    critic_input_np = final_critic
     critic_input = torch.from_numpy(critic_input_np[timeout_mask]).to(collector_device)
     critic_td = TensorDict(
         {"policy": critic_input},
@@ -172,8 +172,7 @@ def appo_collector_fn(
 
     obs_np, critic_np = split_obs_dict(obs_out)
     obs_np = to_float32_np(obs_np)
-    if critic_np is not None:
-        critic_np = to_float32_np(critic_np)
+    critic_np = to_float32_np(critic_np)
 
     # Pre-allocate obs TensorDict once; update in-place each step to avoid
     # repeated TensorDict construction overhead in the hot loop.
@@ -243,8 +242,7 @@ def appo_collector_fn(
 
                 next_actor_obs_np, next_critic_np = split_obs_dict(next_obs_raw)
                 next_actor_obs_np = to_float32_np(next_actor_obs_np)
-                if next_critic_np is not None:
-                    next_critic_np = to_float32_np(next_critic_np)
+                next_critic_np = to_float32_np(next_critic_np)
                 terminal_contract = resolve_terminal_observation_contract(
                     next_obs_batch_size=next_actor_obs_np.shape[0],
                     final_observation=getattr(state, "final_observation", None),

@@ -110,7 +110,7 @@ class _RslRlVecEnvWrapper:
     "env_name",
     [
         "Go2JoystickFlat",
-        "G1JoystickFlat",
+        "G1WalkFlat",
         "AllegroInhandRotation",
     ],
 )

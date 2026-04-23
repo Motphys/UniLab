@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import logging
 import sys
 
 import pytest
@@ -30,8 +31,6 @@ class TestEnsureRegistries:
 
     def test_fail_on_error_false_logs_warning(self, caplog) -> None:
         """With fail_on_error=False, invalid packages log warning."""
-        import logging
-
         with caplog.at_level(logging.WARNING):
             ensure_registries(["nonexistent_package_12345"], fail_on_error=False)
 
@@ -39,8 +38,6 @@ class TestEnsureRegistries:
 
     def test_optional_package_logs_warning(self, caplog) -> None:
         """Optional packages that fail to import log warning instead of raising."""
-        import logging
-
         with caplog.at_level(logging.WARNING):
             ensure_registries(
                 ["nonexistent_package_12345"],
@@ -52,8 +49,6 @@ class TestEnsureRegistries:
 
     def test_mixed_optional_and_required(self, caplog) -> None:
         """Mix of optional (fails gracefully) and required (works)."""
-        import logging
-
         # Use real package + fake optional package
         with caplog.at_level(logging.WARNING):
             ensure_registries(
@@ -96,8 +91,6 @@ class TestEnsureRegistries:
         self, tmp_path, monkeypatch, caplog
     ) -> None:
         """Optional package declared-module failures should log warnings and continue."""
-        import logging
-
         pkg_dir = tmp_path / "registry_optional_pkg"
         pkg_dir.mkdir()
         (pkg_dir / "__init__.py").write_text(

@@ -5,8 +5,6 @@ from typing import Any
 
 import numpy as np
 
-from unilab.utils.obs_utils import split_obs_dict
-
 
 @dataclass(frozen=True)
 class TransitionBootstrapContract:
@@ -115,7 +113,8 @@ def resolve_terminal_observation_contract(
     terminal_obs: np.ndarray | None = None
     terminal_critic: np.ndarray | None = None
     if np.any(terminal_mask) and isinstance(resolved_final_observation, dict):
-        terminal_obs, terminal_critic = split_obs_dict(resolved_final_observation)
+        terminal_obs = resolved_final_observation.get("obs")
+        terminal_critic = resolved_final_observation.get("critic")
 
     timeout_terminal_mask = terminal_mask
     if truncated is not None:

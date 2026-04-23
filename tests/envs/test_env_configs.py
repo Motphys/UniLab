@@ -75,17 +75,30 @@ def test_registry_bootstrap_and_config_imports_do_not_require_mujoco():
     assert result.returncode == 0, result.stderr or result.stdout
 
 
-def test_g1_joystick_flat_ppo_cfg_obs_groups_spec():
-    """G1JoystickPPO must declare obs_groups_spec with actor and critic groups."""
-    from unilab.envs.locomotion.g1.joystick import G1JoystickPPOCfg
+def test_g1_walk_env_cfg_obs_groups_spec():
+    """G1WalkEnv must declare obs_groups_spec with actor and critic groups."""
+    from unilab.envs.locomotion.g1.joystick import G1WalkEnvCfg, G1WalkLegacyRewardConfig
 
-    cfg = G1JoystickPPOCfg()
+    cfg = G1WalkEnvCfg()
     assert not hasattr(cfg, "obs_config"), "obs_config should have been removed"
+
+    reward_cfg = G1WalkLegacyRewardConfig(
+        scales={"feet_phase": 1.0},
+        tracking_sigma=0.25,
+        gait_frequency=1.5,
+        feet_phase_swing_height=0.09,
+        feet_phase_tracking_sigma=0.008,
+        base_height_target=0.765,
+        min_forward_speed_for_gait_reward=0.05,
+        min_base_height=0.5,
+        max_tilt_deg=35.0,
+    )
+    assert reward_cfg.min_forward_speed_for_gait_reward == pytest.approx(0.05)
 
 
 def test_g1_walk_flat_cfg_no_obs_config():
     """G1WalkFlatCfg should no longer have obs_config after dict obs refactor."""
-    from unilab.envs.locomotion.g1.joystick_sac import G1WalkFlatCfg
+    from unilab.envs.locomotion.g1.joystick import G1WalkFlatCfg
 
     cfg = G1WalkFlatCfg()
     assert not hasattr(cfg, "obs_config"), (
@@ -94,7 +107,7 @@ def test_g1_walk_flat_cfg_no_obs_config():
 
 
 def test_g1_walk_flat_cfg_has_domain_rand_for_motrix():
-    from unilab.envs.locomotion.g1.joystick_sac import G1WalkFlatCfg
+    from unilab.envs.locomotion.g1.joystick import G1WalkFlatCfg
 
     cfg = G1WalkFlatCfg()
     assert hasattr(cfg, "domain_rand")
@@ -102,24 +115,206 @@ def test_g1_walk_flat_cfg_has_domain_rand_for_motrix():
     assert hasattr(cfg, "reset_base_qvel_limit")
     assert cfg.domain_rand.randomize_base_mass is False
     assert cfg.domain_rand.random_com is False
+    assert cfg.domain_rand.randomize_gravity is False
     assert cfg.domain_rand.push_robots is False
 
 
-def test_g1_joystick_flat_ppo_obs_groups_spec_dims():
+def test_g1_walk_flat_cfg_defaults_match_walk_profile():
+    from unilab.envs.locomotion.g1.joystick import G1WalkFlatCfg
+
+    cfg = G1WalkFlatCfg()
+    assert not hasattr(cfg, "obs_profile")
+    assert cfg.curriculum.enabled is True
+
+
+def test_g1_walk_tasks_register_to_algorithm_agnostic_env_base():
+    from unilab.base import registry
+    from unilab.envs.locomotion.g1.joystick import G1WalkEnv, G1WalkRewardConfig
+
+    env = cast(
+        Any,
+        registry.make(
+            "G1WalkFlat",
+            num_envs=1,
+            sim_backend="mujoco",
+            env_cfg_override={
+                "reward_config": G1WalkRewardConfig(
+                    scales={"tracking_lin_vel": 2.0, "alive": 10.0},
+                    tracking_sigma=0.25,
+                    base_height_target=0.754,
+                    min_base_height=0.3,
+                    max_tilt_deg=65.0,
+                    gait_frequency=1.5,
+                    feet_phase_swing_height=0.09,
+                    feet_phase_tracking_sigma=0.04,
+                    close_feet_threshold=0.15,
+                    pose_weights=[0.01] * 29,
+                )
+            },
+        ),
+    )
+    try:
+        assert env.__class__ is G1WalkEnv
+    finally:
+        env.close()
+
+
+def test_g1_walk_flat_observation_construction_is_hardcoded_for_legacy_and_walk_modes():
+    from unilab.envs.locomotion.g1.joystick import G1WalkEnv
+
+    class NoiseCfg:
+        level = 0.0
+        scale_gyro = 0.0
+        scale_gravity = 0.0
+        scale_joint_angle = 0.0
+        scale_joint_vel = 0.0
+        scale_linvel = 0.0
+
+    def compute_obs(curriculum_enabled: bool) -> dict[str, np.ndarray]:
+        env = cast(Any, object.__new__(G1WalkEnv))
+        env._num_envs = 1
+        env.default_angles = np.array([[0.5, -0.5]], dtype=np.float32)
+        env._cfg = type(
+            "Cfg",
+            (),
+            {
+                "noise_config": NoiseCfg(),
+                "curriculum": type("Curriculum", (), {"enabled": curriculum_enabled})(),
+            },
+        )()
+        env._obs_noise = lambda data, scale: data + 100.0
+        info = {
+            "commands": np.array([[0.7, 0.0, 0.2]], dtype=np.float32),
+            "current_actions": np.array([[0.1, -0.2]], dtype=np.float32),
+            "gait_phase": np.array([[0.3, 3.4]], dtype=np.float32),
+        }
+        return cast(
+            dict[str, np.ndarray],
+            env._compute_obs(
+                info,
+                linvel=np.array([[1.0, 2.0, 3.0]], dtype=np.float32),
+                gyro=np.array([[4.0, 5.0, 6.0]], dtype=np.float32),
+                gravity=np.array([[0.1, 0.2, 0.9]], dtype=np.float32),
+                dof_pos=np.array([[0.6, -0.3]], dtype=np.float32),
+                dof_vel=np.array([[7.0, 8.0]], dtype=np.float32),
+            ),
+        )
+
+    legacy = compute_obs(curriculum_enabled=False)
+    walk = compute_obs(curriculum_enabled=True)
+
+    np.testing.assert_allclose(legacy["obs"][:, :3], [[104.0, 105.0, 106.0]])
+    np.testing.assert_allclose(legacy["obs"][:, 8:10], [[107.0, 108.0]])
+    np.testing.assert_allclose(legacy["critic"][:, :3], [[4.0, 5.0, 6.0]])
+    np.testing.assert_allclose(legacy["critic"][:, 17:20], [[1.0, 2.0, 3.0]])
+
+    np.testing.assert_allclose(walk["obs"][:, :3], [[26.0, 26.25, 26.5]])
+    np.testing.assert_allclose(walk["obs"][:, 8:10], [[5.35, 5.4]])
+    np.testing.assert_allclose(walk["critic"][:, :3], [[1.0, 1.25, 1.5]])
+    np.testing.assert_allclose(walk["critic"][:, 8:10], [[0.35, 0.4]])
+    np.testing.assert_allclose(walk["critic"][:, 17:20], [[2.0, 4.0, 6.0]])
+
+
+def test_g1_walk_env_obs_groups_spec_dims():
     """obs_groups_spec total dim must match what _compute_obs actually produces.
 
-    G1JoystickPPO._compute_obs outputs (G1 has 29 DoF):
+    G1WalkEnv._compute_obs outputs (G1 has 29 DoF):
         actor: gyro(3) + gravity(3) + diff(29) + dof_vel(29)
             + last_actions(29) + command(3) + gait_phase(2) = 98
         critic: actor(98) + linvel(3) = 101
     """
-    from unilab.envs.locomotion.g1.joystick import G1JoystickPPO
+    from unilab.envs.locomotion.g1.joystick import G1WalkEnv
 
     # obs_groups_spec is a @property; access via descriptor protocol
-    spec = G1JoystickPPO.obs_groups_spec.fget(None)  # type: ignore[union-attr]
+    spec = G1WalkEnv.obs_groups_spec.fget(None)  # type: ignore[union-attr]
     assert spec is not None
     assert spec["obs"] == 98
     assert spec["critic"] == 101
+
+
+def test_g1_walk_env_reward_dispatch_restores_motrix_terms():
+    from unilab.envs.locomotion.g1.joystick import G1WalkEnv
+
+    env = cast(Any, object.__new__(G1WalkEnv))
+    env._reward_fns = {}
+
+    env._init_reward_functions()
+
+    assert "penalty_feet_ori" in env._reward_fns
+    assert "feet_phase_contrast" in env._reward_fns
+    assert "feet_phase_contact" in env._reward_fns
+    assert "feet_double_stance" in env._reward_fns
+
+
+def test_g1_walk_env_feet_phase_reward_is_gated_by_forward_speed():
+    from unilab.envs.locomotion.common.rewards import RewardContext
+    from unilab.envs.locomotion.g1.joystick import G1WalkEnv
+
+    class FakeBackend:
+        def get_sensor_data(self, name: str) -> np.ndarray:
+            if name == "left_foot_pos":
+                return np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]], dtype=np.float32)
+            if name == "right_foot_pos":
+                return np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]], dtype=np.float32)
+            raise KeyError(name)
+
+    env = cast(Any, object.__new__(G1WalkEnv))
+    env._backend = FakeBackend()
+    env._num_envs = 2
+    env._reward_cfg = type(
+        "RewardCfg",
+        (),
+        {
+            "feet_phase_swing_height": 0.09,
+            "feet_phase_tracking_sigma": 0.008,
+            "min_forward_speed_for_gait_reward": 0.05,
+        },
+    )()
+
+    ctx = RewardContext(
+        info={"gait_phase": np.zeros((2, 2), dtype=np.float32), "commands": np.zeros((2, 3))},
+        linvel=np.array([[0.01, 0.0, 0.0], [0.10, 0.0, 0.0]], dtype=np.float32),
+        gyro=np.zeros((2, 3), dtype=np.float32),
+        dof_pos=np.zeros((2, 29), dtype=np.float32),
+        num_envs=2,
+    )
+
+    reward = env._reward_feet_phase(ctx)
+
+    assert reward[0] == pytest.approx(0.0)
+    assert reward[1] > 0.0
+
+
+def test_g1_walk_flat_assets_define_contact_sensors_for_gait_rewards():
+    repo_root = Path(__file__).parents[2]
+    scene_text = (
+        repo_root / "src" / "unilab" / "assets" / "robots" / "g1" / "scene_flat.xml"
+    ).read_text()
+    model_text = (repo_root / "src" / "unilab" / "assets" / "robots" / "g1" / "g1.xml").read_text()
+
+    for name in (
+        "left_foot_contact_0",
+        "left_foot_contact_1",
+        "left_foot_contact_2",
+        "left_foot_contact_3",
+        "right_foot_contact_0",
+        "right_foot_contact_1",
+        "right_foot_contact_2",
+        "right_foot_contact_3",
+    ):
+        assert name in scene_text
+
+    for name in (
+        "left_foot_contact_0_geom",
+        "left_foot_contact_1_geom",
+        "left_foot_contact_2_geom",
+        "left_foot_contact_3_geom",
+        "right_foot_contact_0_geom",
+        "right_foot_contact_1_geom",
+        "right_foot_contact_2_geom",
+        "right_foot_contact_3_geom",
+    ):
+        assert name in model_text
 
 
 def test_allegro_rotation_obs_groups_spec_dims():
@@ -178,6 +373,7 @@ def test_g1_motion_tracking_cfg_has_domain_rand_for_motrix():
     assert hasattr(cfg, "domain_rand")
     assert cfg.domain_rand.randomize_base_mass is False
     assert cfg.domain_rand.random_com is False
+    assert cfg.domain_rand.randomize_gravity is False
     assert cfg.domain_rand.push_robots is False
 
 
@@ -420,7 +616,6 @@ def test_g1_motion_tracking_clip_end_does_not_override_true_termination():
 _STANDARD_ENVS = [
     "Go1JoystickFlat",
     "Go2JoystickFlat",
-    "G1JoystickFlat",
     "G1WalkFlat",
     "G1WalkRough",
     "AllegroInhandRotation",

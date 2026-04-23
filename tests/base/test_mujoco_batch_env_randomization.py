@@ -23,6 +23,7 @@ mj: Any = mujoco
 EXPECTED_SUPPORTED_FIELDS = {
     "body_mass",
     "body_ipos",
+    "gravity",
     "body_iquat",
     "body_inertia",
     "dof_armature",
@@ -96,6 +97,13 @@ def test_batch_env_reset_applies_body_ipos_randomization(pool_ctx: _PoolCtx) -> 
     updated = pool_ctx.pool.get_field(1, "body_ipos").reshape(pool_ctx.model.nbody, 3).copy()
     updated[1] += np.array([0.01, -0.02, 0.03], dtype=np.float64)
     _reset_and_assert_field_applied(pool_ctx, "body_ipos", updated.reshape(-1))
+
+
+@pytest.mark.slow
+def test_batch_env_reset_applies_gravity_randomization(pool_ctx: _PoolCtx) -> None:
+    updated = pool_ctx.pool.get_field(1, "gravity").copy()
+    updated += np.array([0.2, -0.1, 0.4], dtype=np.float64)
+    _reset_and_assert_field_applied(pool_ctx, "gravity", updated)
 
 
 @pytest.mark.slow

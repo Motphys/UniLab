@@ -16,6 +16,7 @@ from unilab.assets import ASSETS_ROOT_PATH
 from unilab.dr import (
     GeomSizeOverride,
     InitRandomizationPlan,
+    IntervalRandomizationPlan,
     ModelVariantSpec,
     ResetRandomizationPayload,
 )
@@ -222,12 +223,120 @@ class TestMuJoCoBasic:
         assert {
             "base_mass_delta",
             "base_com_offset",
+            "gravity",
             "body_iquat",
             "body_inertia",
             "kp",
             "kd",
         }.issubset(caps.supported_reset_terms)
         assert caps.supports_interval_push
+
+    def test_apply_interval_randomization_calls_push_robots(self, bkd):
+        called: dict[str, np.ndarray] = {}
+
+        def _fake_push_robots(force_range):
+            called["force_range"] = np.asarray(force_range, dtype=np.float64)
+
+        bkd.push_robots = _fake_push_robots  # type: ignore[method-assign]
+        limit = np.array([0.7, 0.3, 0.2], dtype=np.float64)
+
+        bkd.apply_interval_randomization(IntervalRandomizationPlan(push_perturbation_limit=limit))
+
+        np.testing.assert_allclose(called["force_range"], limit)
+
+    def test_step_uses_xfrc_applied_for_interval_push(self, bkd, monkeypatch: pytest.MonkeyPatch):
+        mujoco = _mujoco_module()
+        sampled = np.array([[0.5, -0.25, 0.1], [-0.1, 0.8, -0.4]], dtype=np.float64)
+        limit = np.array([0.7, 0.3, 0.2], dtype=np.float64)
+        calls: list[dict[str, Any]] = []
+
+        monkeypatch.setattr(np.random, "uniform", lambda low, high, size: sampled.copy())
+
+        def _fake_step(initial_state, *, nstep, control_spec=0, control=None, **kwargs):
+            calls.append(
+                {
+                    "nstep": nstep,
+                    "control_spec": control_spec,
+                    "control": None if control is None else np.array(control, copy=True),
+                }
+            )
+            return np.array(initial_state, copy=True)
+
+        monkeypatch.setattr(bkd._pool, "step", _fake_step)
+        monkeypatch.setattr(
+            bkd._pool,
+            "forward",
+            lambda state: np.array(bkd._sensor_data, copy=True),
+        )
+
+        bkd.apply_interval_randomization(IntervalRandomizationPlan(push_perturbation_limit=limit))
+
+        ctrl = np.zeros((NUM_ENVS, bkd.model.nu), dtype=np.float64)
+        bkd.step(ctrl, nsteps=2)
+        bkd.step(ctrl, nsteps=1)
+
+        expected_xfrc = np.zeros((NUM_ENVS, 6 * bkd.model.nbody), dtype=np.float64)
+        start = 6 * bkd._base_body_id
+        expected_xfrc[:, start : start + 3] = sampled * limit[None, :]
+        expected_xfrc_traj = np.broadcast_to(
+            expected_xfrc[:, None, :],
+            (NUM_ENVS, 2, 6 * bkd.model.nbody),
+        )
+        expected_ctrl_traj = np.broadcast_to(ctrl[:, None, :], (NUM_ENVS, 2, bkd.model.nu))
+
+        assert len(calls) == 2
+        assert calls[0]["nstep"] == 2
+        assert calls[0]["control_spec"] & int(mujoco.mjtState.mjSTATE_CTRL)
+        assert calls[0]["control_spec"] & int(mujoco.mjtState.mjSTATE_XFRC_APPLIED)
+        np.testing.assert_allclose(calls[0]["control"][:, :, : bkd.model.nu], expected_ctrl_traj)
+        np.testing.assert_allclose(calls[0]["control"][:, :, bkd.model.nu :], expected_xfrc_traj)
+
+        assert calls[1]["nstep"] == 1
+        assert calls[1]["control_spec"] == int(mujoco.mjtState.mjSTATE_CTRL)
+        assert calls[1]["control"].shape == (NUM_ENVS, 1, bkd.model.nu)
+
+    def test_interval_push_uses_configured_body(self, monkeypatch: pytest.MonkeyPatch):
+        from unilab.base.backend.mujoco_backend import MuJoCoBackend
+
+        mujoco = _mujoco_module()
+        bkd = MuJoCoBackend(
+            _G1["model_file"],
+            NUM_ENVS,
+            SIM_DT,
+            base_name=_G1["base_name"],
+            push_body_name="torso_link",
+        )
+        bkd.materialize()
+        sampled = np.array([[0.5, -0.25, 0.1], [-0.1, 0.8, -0.4]], dtype=np.float64)
+        limit = np.array([0.7, 0.3, 0.2], dtype=np.float64)
+        calls: list[dict[str, Any]] = []
+
+        monkeypatch.setattr(np.random, "uniform", lambda low, high, size: sampled.copy())
+
+        def _fake_step(initial_state, *, nstep, control_spec=0, control=None, **kwargs):
+            calls.append(
+                {
+                    "control_spec": control_spec,
+                    "control": None if control is None else np.array(control, copy=True),
+                }
+            )
+            return np.array(initial_state, copy=True)
+
+        monkeypatch.setattr(bkd._pool, "step", _fake_step)
+        monkeypatch.setattr(
+            bkd._pool,
+            "forward",
+            lambda state: np.array(bkd._sensor_data, copy=True),
+        )
+
+        bkd.apply_interval_randomization(IntervalRandomizationPlan(push_perturbation_limit=limit))
+        bkd.step(np.zeros((NUM_ENVS, bkd.model.nu), dtype=np.float64))
+
+        base_start = 6 * bkd._base_body_id
+        push_start = 6 * mujoco.mj_name2id(bkd.model, mujoco.mjtObj.mjOBJ_BODY, "torso_link")
+        xfrc = calls[0]["control"][:, 0, bkd.model.nu :]
+        np.testing.assert_allclose(xfrc[:, push_start : push_start + 3], sampled * limit[None, :])
+        np.testing.assert_allclose(xfrc[:, base_start : base_start + 3], 0.0)
 
     def test_set_state_body_iquat_randomization_only_affects_target_envs(self, bkd):
         pool = bkd._pool
@@ -248,6 +357,24 @@ class TestMuJoCoBasic:
         np.testing.assert_allclose(
             pool.get_field(1, "body_iquat").reshape(bkd.model.nbody, 4), updated
         )
+
+    def test_set_state_gravity_randomization_only_affects_target_envs(self, bkd):
+        pool = bkd._pool
+        original = [pool.get_field(i, "gravity").copy() for i in range(NUM_ENVS)]
+        qpos = _identity_qpos_mujoco(bkd.model.nq)
+        qvel = np.zeros((1, bkd.model.nv))
+        updated = original[1].copy()
+        updated += np.array([0.2, -0.1, 0.4], dtype=np.float64)
+
+        bkd.set_state(
+            np.array([1]),
+            qpos,
+            qvel,
+            randomization=ResetRandomizationPayload(gravity=updated[None, :]),
+        )
+
+        np.testing.assert_array_equal(pool.get_field(0, "gravity"), original[0])
+        np.testing.assert_allclose(pool.get_field(1, "gravity"), updated)
 
     def test_set_state_body_inertia_randomization_only_affects_target_envs(self, bkd):
         pool = bkd._pool
@@ -602,6 +729,81 @@ class TestMotrixBasic:
         np.testing.assert_allclose(updated_mass[1], original_mass[1], atol=1e-6)
         np.testing.assert_allclose(updated_mass[0], original_mass[0] + delta[0], atol=1e-6)
 
+    def test_set_state_base_com_randomization_only_affects_target_envs(self, _ctx):
+        bkd, _ = _ctx
+        nq = bkd.get_dof_pos().shape[-1] + 7
+        nv = bkd.get_dof_vel().shape[-1] + 6
+        qpos = _identity_qpos_mujoco(nq)
+        qvel = np.zeros((1, nv))
+        original_com = np.asarray(bkd._body_link.get_center_of_mass_override(bkd.data)).copy()
+        delta = np.array([[0.01, 0.0, 0.0]], dtype=np.float64)
+
+        bkd.set_state(
+            np.array([0]),
+            qpos,
+            qvel,
+            randomization=ResetRandomizationPayload(base_com_offset=delta),
+        )
+
+        updated_com = np.asarray(bkd._body_link.get_center_of_mass_override(bkd.data))
+        np.testing.assert_allclose(updated_com[1], original_com[1], atol=1e-6)
+        np.testing.assert_allclose(updated_com[0], original_com[0] + delta[0], atol=1e-6)
+
+    def test_set_state_kp_kd_randomization_only_affects_target_envs(self, _ctx):
+        bkd, _ = _ctx
+        nq = bkd.get_dof_pos().shape[-1] + 7
+        nv = bkd.get_dof_vel().shape[-1] + 6
+        qpos = _identity_qpos_mujoco(nq)
+        qvel = np.zeros((1, nv))
+
+        base_kp, base_kd = bkd.get_actuator_gains()
+        randomized_kp = (base_kp + 0.5)[None, :]
+        randomized_kd = (base_kd + 0.1)[None, :]
+
+        check_indices = [0]
+        if bkd.num_actuators > 1:
+            check_indices.append(bkd.num_actuators - 1)
+        position_actuators = {int(actuator.index): actuator for actuator in bkd._position_actuators}
+        original_kp = {
+            idx: np.asarray(position_actuators[idx].get_kp_override(bkd.data)).copy()
+            for idx in check_indices
+        }
+        original_kd = {
+            idx: np.asarray(position_actuators[idx].get_kd_override(bkd.data)).copy()
+            for idx in check_indices
+        }
+
+        bkd.set_state(
+            np.array([0]),
+            qpos,
+            qvel,
+            randomization=ResetRandomizationPayload(kp=randomized_kp, kd=randomized_kd),
+        )
+
+        for idx in check_indices:
+            updated_kp = np.asarray(position_actuators[idx].get_kp_override(bkd.data))
+            updated_kd = np.asarray(position_actuators[idx].get_kd_override(bkd.data))
+            np.testing.assert_allclose(updated_kp[1], original_kp[idx][1], atol=1e-6)
+            np.testing.assert_allclose(updated_kd[1], original_kd[idx][1], atol=1e-6)
+            np.testing.assert_allclose(updated_kp[0], randomized_kp[0, idx], atol=1e-6)
+            np.testing.assert_allclose(updated_kd[0], randomized_kd[0, idx], atol=1e-6)
+
+    def test_set_state_kp_randomization_shape_validation(self, _ctx):
+        bkd, _ = _ctx
+        nq = bkd.get_dof_pos().shape[-1] + 7
+        nv = bkd.get_dof_vel().shape[-1] + 6
+        qpos = _identity_qpos_mujoco(nq)
+        qvel = np.zeros((1, nv))
+        invalid_cols = bkd.num_actuators + 1
+
+        with pytest.raises(ValueError, match="kp must have shape"):
+            bkd.set_state(
+                np.array([0]),
+                qpos,
+                qvel,
+                randomization=ResetRandomizationPayload(kp=np.zeros((1, invalid_cols))),
+            )
+
     def test_set_state_unsupported_randomization_raises(self, _ctx):
         bkd, _ = _ctx
         nq = bkd.get_dof_pos().shape[-1] + 7
@@ -609,13 +811,33 @@ class TestMotrixBasic:
         qpos = _identity_qpos_mujoco(nq)
         qvel = np.zeros((1, nv))
 
-        with pytest.raises(NotImplementedError, match="kp"):
+        with pytest.raises(NotImplementedError, match="body_inertia"):
             bkd.set_state(
                 np.array([0]),
                 qpos,
                 qvel,
-                randomization=ResetRandomizationPayload(kp=np.zeros((1, 1))),
+                randomization=ResetRandomizationPayload(body_inertia=np.zeros((1, 1, 3))),
             )
+
+    def test_get_dr_capabilities_include_expected_terms(self, bkd):
+        caps = bkd.get_dr_capabilities()
+        assert {"base_mass_delta", "base_com_offset", "kp", "kd"}.issubset(
+            caps.supported_reset_terms
+        )
+        assert caps.supports_interval_push
+
+    def test_apply_interval_randomization_calls_push_robots(self, bkd):
+        called: dict[str, np.ndarray] = {}
+
+        def _fake_push_robots(force_range):
+            called["force_range"] = np.asarray(force_range, dtype=np.float64)
+
+        bkd.push_robots = _fake_push_robots  # type: ignore[method-assign]
+        limit = np.array([0.7, 0.3, 0.2], dtype=np.float64)
+
+        bkd.apply_interval_randomization(IntervalRandomizationPlan(push_perturbation_limit=limit))
+
+        np.testing.assert_allclose(called["force_range"], limit)
 
     # base kinematics
 

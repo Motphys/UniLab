@@ -1,0 +1,30 @@
+# @package _global_
+training:
+  task_name: Go2HandStand
+  sim_backend: mujoco
+env:
+  sim_dt: 0.005
+algo:
+  num_envs: 1024
+  max_iterations: 1510
+  obs_groups:
+    actor:
+      - actor
+    critic:
+      - critic
+  policy:
+    init_noise_std: 0.5
+  algorithm:
+    entropy_coef: 0.005
+reward:
+  scales:
+    contact: -1
+    height: 1.0
+    oritentation: 1.0
+    pose: -0.3
+    penalty_contact: -0.2
+    action_rate: -0.01
+    tar: 0.3
+  tracking_sigma: 0.25
+  base_height_target: 0.3
+

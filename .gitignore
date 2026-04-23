@@ -50,3 +50,5 @@ cache/
 # Local tool/runtime artifacts (any subfolder)
 **/.codex/
 **/MUJOCO_LOG.TXT
+
+CLAUDE.md

@@ -17,7 +17,7 @@ from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
 
 CONF_DIR = Path(__file__).parent.parent.parent / "conf"
-_PPO_MLX_TASKS = {"go1_joystick_flat", "go2_joystick_flat", "g1_joystick_flat"}
+_PPO_MLX_TASKS = {"go1_joystick_flat", "go2_joystick_flat", "g1_walk_flat"}
 
 
 def _compose(algo_dir: str, config_name: str = "config", overrides: list[str] | None = None):
@@ -46,7 +46,7 @@ def _normalize_overrides(algo_dir: str, overrides: list[str] | None) -> list[str
 
     if not task_selected:
         if algo_dir == "offpolicy":
-            normalized.append(f"task={algo}/go1_joystick_flat/mujoco")
+            normalized.append(f"task={algo}/g1_walk_flat/mujoco")
         else:
             normalized.append("task=go1_joystick_flat/mujoco")
 
@@ -176,22 +176,24 @@ def test_supported_task_composes(
     _assert_reward_populated(cfg, task_file)
 
 
-def test_offpolicy_go1_motrix_sac_preserves_legacy_behavior():
-    cfg = _compose("offpolicy", overrides=["algo=sac", "task=sac/go1_joystick_flat/motrix"])
-
-    assert cfg.algo.num_envs == 4096
-    assert cfg.algo.max_iterations == 2000
-    assert cfg.reward.scales.tracking_lin_vel == pytest.approx(1.0)
-    assert cfg.env.commands.vel_limit == [[0.5, 0.0, 0.0], [0.5, 0.0, 0.0]]
-
-
-def test_offpolicy_go1_motrix_td3_stays_isolated_from_sac_override():
-    cfg = _compose("offpolicy", overrides=["algo=td3", "task=td3/go1_joystick_flat/motrix"])
+def test_offpolicy_g1_walk_flat_motrix_sac_preserves_backend_overrides():
+    cfg = _compose("offpolicy", overrides=["algo=sac", "task=sac/g1_walk_flat/motrix"])
 
     assert cfg.algo.num_envs == 2048
-    assert cfg.algo.max_iterations == 3000
-    assert cfg.reward.scales.tracking_lin_vel == pytest.approx(1.0)
-    assert cfg.env.commands.vel_limit == [[0.5, 0.0, 0.0], [0.5, 0.0, 0.0]]
+    assert cfg.algo.max_iterations == 5000
+    assert cfg.reward.scales.tracking_lin_vel == pytest.approx(2.2)
+    assert cfg.env.domain_rand.randomize_kp is False
+    assert cfg.env.domain_rand.randomize_kd is False
+
+
+def test_offpolicy_g1_walk_flat_mujoco_td3_uses_td3_task_owner():
+    cfg = _compose("offpolicy", overrides=["algo=td3", "task=td3/g1_walk_flat/mujoco"])
+
+    assert cfg.training.task_name == "G1WalkFlat"
+    assert cfg.training.sim_backend == "mujoco"
+    assert cfg.algo.max_iterations == 100000
+    assert cfg.reward.scales.tracking_lin_vel == pytest.approx(2.0)
+    assert cfg.env.control_config.action_scale == pytest.approx(1.0)
 
 
 def test_offpolicy_g1_walk_flat_motrix_preserves_backend_specific_algo_value():
@@ -203,18 +205,35 @@ def test_offpolicy_g1_walk_flat_motrix_preserves_backend_specific_algo_value():
 
 
 def test_ppo_g1_backend_specific_hyperparams_remain_separate():
-    mujoco_cfg = _compose("ppo", overrides=["task=g1_joystick_flat/mujoco"])
-    motrix_cfg = _compose("ppo", overrides=["task=g1_joystick_flat/motrix"])
+    mujoco_cfg = _compose("ppo", overrides=["task=g1_walk_flat/mujoco"])
+    motrix_cfg = _compose("ppo", overrides=["task=g1_walk_flat/motrix"])
 
     assert mujoco_cfg.algo.max_iterations == 220
     assert mujoco_cfg.algo.empirical_normalization is False
     assert mujoco_cfg.algo.obs_groups.actor == ["actor"]
 
-    assert motrix_cfg.algo.max_iterations == 151
+    assert motrix_cfg.algo.max_iterations == 220
     assert motrix_cfg.algo.empirical_normalization is True
     assert motrix_cfg.algo.obs_groups.actor == ["policy"]
     assert motrix_cfg.env.iterations == 3
     assert motrix_cfg.env.control_config.action_scale == pytest.approx(0.5)
+    assert motrix_cfg.env.commands.vel_limit == [[0.4, 0.0, 0.0], [0.7, 0.0, 0.0]]
+    assert motrix_cfg.env.gait_phase_init_mode == "offset_phase"
+    assert motrix_cfg.reward.scales.tracking_lin_vel == pytest.approx(2.0)
+    assert motrix_cfg.reward.scales.tracking_ang_vel == pytest.approx(0.25)
+    assert motrix_cfg.reward.scales.forward_progress == pytest.approx(0.0)
+    assert motrix_cfg.reward.scales.under_speed == pytest.approx(-0.2)
+    assert motrix_cfg.reward.scales.penalty_feet_ori == pytest.approx(0.0)
+    assert motrix_cfg.reward.scales.feet_phase == pytest.approx(1.2)
+    assert motrix_cfg.reward.scales.feet_phase_contrast == pytest.approx(1.5)
+    assert motrix_cfg.reward.scales.feet_phase_contact == pytest.approx(1.0)
+    assert motrix_cfg.reward.scales.feet_double_stance == pytest.approx(-1.0)
+    assert motrix_cfg.reward.scales.base_height == pytest.approx(-120.0)
+    assert motrix_cfg.reward.scales.pose == pytest.approx(-0.05)
+    assert motrix_cfg.reward.base_height_target == pytest.approx(0.765)
+    assert motrix_cfg.reward.min_forward_speed_for_gait_reward == pytest.approx(0.05)
+    assert motrix_cfg.reward.min_base_height == pytest.approx(0.5)
+    assert motrix_cfg.reward.max_tilt_deg == pytest.approx(35.0)
 
 
 def test_ppo_go1_motrix_preserves_reward_and_algo_values():
@@ -237,13 +256,12 @@ def test_ppo_go2_motrix_preserves_backend_env_overrides():
     assert cfg.env.domain_rand.randomize_kd is False
 
 
-@pytest.mark.parametrize("algo", ["sac", "td3"])
-def test_offpolicy_go2_motrix_preserves_backend_env_overrides(algo: str):
-    cfg = _compose("offpolicy", overrides=[f"algo={algo}", f"task={algo}/go2_joystick_flat/motrix"])
+def test_offpolicy_g1_walk_flat_motrix_preserves_backend_env_overrides():
+    cfg = _compose("offpolicy", overrides=["algo=sac", "task=sac/g1_walk_flat/motrix"])
 
     assert cfg.training.sim_backend == "motrix"
-    assert cfg.algo.num_envs == 1024
-    assert cfg.algo.max_iterations == 3000
+    assert cfg.algo.num_envs == 2048
+    assert cfg.algo.max_iterations == 5000
     assert cfg.env.domain_rand.randomize_kp is False
     assert cfg.env.domain_rand.randomize_kd is False
 
@@ -251,7 +269,7 @@ def test_offpolicy_go2_motrix_preserves_backend_env_overrides(algo: str):
 def test_cli_override_beats_task_defaults():
     cfg = _compose(
         "ppo",
-        overrides=["task=g1_joystick_flat/motrix", "algo.max_iterations=1"],
+        overrides=["task=g1_walk_flat/motrix", "algo.max_iterations=1"],
     )
 
     assert cfg.algo.max_iterations == 1

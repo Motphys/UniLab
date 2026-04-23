@@ -141,7 +141,7 @@ class FlashSACLearner:
         self,
         obs_dim: int,
         action_dim: int,
-        critic_obs_dim: int = 0,
+        critic_obs_dim: int,
         device: str = "cpu",
         gamma: float = 0.99,
         tau: float = 0.01,
@@ -178,7 +178,7 @@ class FlashSACLearner:
         self.n_step = n_step
         self.actor_bc_alpha = actor_bc_alpha
         self.obs_dim = obs_dim
-        self.critic_obs_dim = critic_obs_dim if critic_obs_dim > 0 else obs_dim
+        self.critic_obs_dim = critic_obs_dim
         self.action_dim = action_dim
         self.update_count = 0
         self.use_amp = bool(use_amp and self.device.type == "cuda")
@@ -283,29 +283,28 @@ class FlashSACLearner:
         next_obs = batch["next_obs"].to(self.device)
         terminated = batch["dones"].to(self.device)
         truncated = batch.get("truncated", torch.zeros_like(terminated)).to(self.device)
-        critic_obs = batch.get("critic")
-        next_critic_obs = batch.get("next_critic")
-        critic_obs = critic_obs.to(self.device) if critic_obs is not None else None
-        next_critic_obs = next_critic_obs.to(self.device) if next_critic_obs is not None else None
+        critic_obs = batch["critic"].to(self.device)
+        critic_next_obs = batch["next_critic"].to(self.device)
 
         obs = self._maybe_normalize_obs(obs, update=True)
         next_obs = self._maybe_normalize_obs(next_obs, update=False)
-        critic_obs = critic_obs if critic_obs is not None else obs
-        critic_next_obs = next_critic_obs if next_critic_obs is not None else next_obs
 
         if self.reward_normalizer is not None:
             rewards = self.reward_normalizer.normalize(rewards)
 
         gamma = self.gamma**self.n_step
 
+        obs_all = torch.cat([critic_obs, critic_next_obs], dim=0)
+
         with torch.no_grad():
             with self._autocast():
                 next_actions, actor_info = self.actor(next_obs, training=False)
-                entropy_bonus = -self.temperature().detach() * actor_info["log_prob"]
-                next_q_values, next_q_info = self.target_critic(
-                    critic_next_obs, next_actions, training=False
-                )
-                next_q_log_probs = select_min_q_log_probs(next_q_values, next_q_info["log_prob"])
+                actor_entropy = self.temperature().detach() * actor_info["log_prob"]
+                act_all = torch.cat([actions, next_actions], dim=0)
+                qs_all, q_info_all = self.target_critic(obs_all, act_all, training=True)
+                next_q_values = qs_all.chunk(2, dim=1)[1]
+                next_q_log_probs_full = q_info_all["log_prob"].chunk(2, dim=1)[1]
+                next_q_log_probs = select_min_q_log_probs(next_q_values, next_q_log_probs_full)
                 support = cast(torch.Tensor, self.target_critic.predictor.support)
                 target_probs = compute_categorical_td_target(
                     support=support,
@@ -313,13 +312,14 @@ class FlashSACLearner:
                     reward=rewards,
                     terminated=terminated,
                     truncated=truncated,
-                    actor_entropy=entropy_bonus,
+                    actor_entropy=actor_entropy,
                     gamma=gamma,
                 )
 
         with self._autocast():
-            _, pred_info = self.critic(critic_obs, actions, training=True)
-            critic_loss = -(target_probs.unsqueeze(0) * pred_info["log_prob"]).sum(dim=-1).mean()
+            _, pred_info_all = self.critic(obs_all, act_all, training=True)
+            pred_log_probs = pred_info_all["log_prob"].chunk(2, dim=1)[0]
+            critic_loss = -(target_probs.unsqueeze(0) * pred_log_probs).sum(dim=-1).mean()
 
         self.critic_optimizer.zero_grad(set_to_none=True)
         if self.scaler is not None:
@@ -343,16 +343,19 @@ class FlashSACLearner:
 
     def update_actor(self, batch: dict[str, torch.Tensor]) -> dict[str, float]:
         obs = batch["obs"].to(self.device)
+        next_obs = batch["next_obs"].to(self.device)
         expert_actions = batch["actions"].to(self.device)
-        critic_obs = batch.get("critic")
-        critic_obs = critic_obs.to(self.device) if critic_obs is not None else None
+        critic_obs = batch["critic"].to(self.device)
 
         obs = self._maybe_normalize_obs(obs, update=False)
-        critic_obs = critic_obs if critic_obs is not None else obs
+        next_obs = self._maybe_normalize_obs(next_obs, update=False)
+
+        obs_all = torch.cat([obs, next_obs], dim=0)
 
         with self._autocast():
-            actions, actor_info = self.actor(obs, training=True)
-            log_probs = actor_info["log_prob"]
+            actions_all, actor_info_all = self.actor(obs_all, training=True)
+            actions = actions_all.chunk(2, dim=0)[0]
+            log_probs = actor_info_all["log_prob"].chunk(2, dim=0)[0]
 
             self._set_requires_grad(self.critic, False)
             q_values, _ = self.critic(critic_obs, actions, training=False)

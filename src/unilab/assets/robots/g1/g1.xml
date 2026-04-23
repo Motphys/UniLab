@@ -11,6 +11,9 @@
       </default>
       <default class="collision">
         <geom group="3" rgba=".2 .6 .2 .3" type="capsule" contype="1" conaffinity="1"/>
+        <default class="foot">
+          <geom type="sphere" size="0.005" priority="1" friction="0.6" condim="3"/>
+        </default>
         <default class="foot_capsule">
           <geom type="capsule" size="0.01" friction="0.6" condim="3"/>
         </default>
@@ -106,6 +109,10 @@
                     diaginertia="0.00167218 0.0016161 0.000217621"/>
                   <joint name="left_ankle_roll_joint" axis="1 0 0" range="-0.2618 0.2618"/>
                   <geom class="visual" material="black" mesh="left_ankle_roll_link"/>
+                  <geom name="left_foot_contact_0_geom" class="foot" pos="-0.05 0.025 -0.03"/>
+                  <geom name="left_foot_contact_1_geom" class="foot" pos="-0.05 -0.025 -0.03"/>
+                  <geom name="left_foot_contact_2_geom" class="foot" pos="0.12 0.03 -0.03"/>
+                  <geom name="left_foot_contact_3_geom" class="foot" pos="0.12 -0.03 -0.03"/>
                   <!-- <geom name="left_foot1_collision" class="foot_capsule" fromto="0.1 -0.026 -0.025 0.05 -0.027
                   -0.025"/>
                   <geom name="left_foot2_collision" class="foot_capsule" fromto="-0.045 0 -0.015 0.12 0 -0.015"
@@ -160,6 +167,10 @@
                     diaginertia="0.00167218 0.0016161 0.000217621"/>
                   <joint name="right_ankle_roll_joint" axis="1 0 0" range="-0.2618 0.2618"/>
                   <geom class="visual" material="black" mesh="right_ankle_roll_link"/>
+                  <geom name="right_foot_contact_0_geom" class="foot" pos="-0.05 0.025 -0.03"/>
+                  <geom name="right_foot_contact_1_geom" class="foot" pos="-0.05 -0.025 -0.03"/>
+                  <geom name="right_foot_contact_2_geom" class="foot" pos="0.12 0.03 -0.03"/>
+                  <geom name="right_foot_contact_3_geom" class="foot" pos="0.12 -0.03 -0.03"/>
                   <!-- <geom name="right_foot1_collision" class="foot_capsule" fromto="0.1 -0.026 -0.025 0.05 -0.026
                   -0.025"/>
                   <geom name="right_foot2_collision" class="foot_capsule" fromto="-0.045 0 -0.015 0.12 0 -0.015"

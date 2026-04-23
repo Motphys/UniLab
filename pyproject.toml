@@ -11,7 +11,7 @@ requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy",
     "torch==2.7.0",
-    "mujoco-uni==3.6.0.post6",
+    "mujoco-uni==3.6.0.post8",
     "gymnasium",
     "imageio",
     "etils",
@@ -29,10 +29,11 @@ dependencies = [
     "lark>=1.3.1",
     "wandb",
     "notebook>=7.5.5",
+    "onnxruntime>=1.24.3",
 ]
 
 [project.optional-dependencies]
-motrix = ["motrixsim==0.7.1.dev95684"]
+motrix = ["motrixsim==0.7.1.dev96425"]
 viser = ["viser>=1.0.26", "trimesh>=3.21.7"]
 
 [dependency-groups]

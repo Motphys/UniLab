@@ -429,6 +429,7 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
             num_envs,
             cfg.sim_dt,
             base_name=cfg.base_name,
+            push_body_name=cfg.domain_rand.push_body_name,
             add_body_sensors=True,
             iterations=cfg.iterations,
         )
