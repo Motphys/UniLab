@@ -31,4 +31,4 @@ algo:
 
 env:
   observation_mode: separated
-  critic_info_dim: 9
+  critic_info_dim: 12

@@ -227,6 +227,7 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
         friction_scale: np.ndarray | None,
         randomized_mass: np.ndarray | None,
         randomized_com_offset: np.ndarray | None,
+        gravity: np.ndarray | None,
     ) -> dict[str, np.ndarray]:
         num_reset = hand_qpos.shape[0]
         dtype = get_global_dtype()
@@ -237,6 +238,7 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
             friction_scale=friction_scale,
             randomized_mass=randomized_mass,
             randomized_com_offset=randomized_com_offset,
+            gravity=gravity,
         ).astype(dtype)
 
         tactile = np.zeros((num_reset, env._num_tactile), dtype=dtype)
@@ -295,6 +297,7 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
         friction_scale = env._sample_friction_scale(num_reset)
         randomized_mass = env._sample_object_mass(num_reset)
         randomized_com_offset = env._sample_object_com_offset(num_reset)
+        gravity = env._sample_reset_gravity(num_reset)
         p_gain, d_gain = self._sample_reset_pd_gains(env, num_reset, dtype=get_global_dtype())
         grasp_cache = self._load_grasp_cache(env)
         sampled_pose = sample_scale_grasp_caches(grasp_cache, env.scale_ids[env_ids])
@@ -330,6 +333,7 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
             friction_scale=friction_scale,
             randomized_mass=randomized_mass,
             randomized_com_offset=randomized_com_offset,
+            gravity=gravity,
         )
         # Match the source task by clearing any cached external object force on reset.
         env._random_object_force[env_ids] = 0.0
@@ -347,6 +351,7 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
                 friction_scale=friction_scale,
                 randomized_mass=randomized_mass,
                 randomized_com_offset=randomized_com_offset,
+                gravity=gravity,
             ),
         )
 
@@ -420,7 +425,7 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         "separated": "separated",
         "flattened": "flattened",
     }
-    _CRITIC_BASE_DIM = 9
+    _CRITIC_BASE_DIM_WITHOUT_OPTIONALS = 8
 
     def __init__(
         self,
@@ -447,10 +452,7 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         self._observation_mode = self._resolve_observation_mode(cfg.observation_mode)
         expected_critic_info_dim = self._expected_critic_info_dim()
         if cfg.critic_info_dim != expected_critic_info_dim:
-            raise ValueError(
-                "critic_info_dim must be "
-                f"{expected_critic_info_dim} for current task layout, got {cfg.critic_info_dim}"
-            )
+            cfg.critic_info_dim = expected_critic_info_dim
         policy_frame_dim = self._policy_frame_dim()
         self.obs_buf_lag_history = np.zeros(
             (num_envs, cfg.obs_history_len, policy_frame_dim), dtype=self._np_dtype
@@ -461,6 +463,7 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         self.critic_info_buf = np.zeros((num_envs, expected_critic_info_dim), dtype=self._np_dtype)
         self._friction_geom_ids = self._resolve_friction_geom_ids()
         self._base_geom_friction = self._resolve_base_geom_friction()
+        self._base_gravity = self._resolve_base_gravity()
         self._object_body_id = self._resolve_object_body_id()
         self._base_body_mass = self._resolve_base_body_mass()
         self._base_body_ipos = self._resolve_base_body_ipos()
@@ -497,7 +500,12 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         return self._num_scales > 1 or not np.allclose(self.scale_values, self.scale_values[0])
 
     def _expected_critic_info_dim(self) -> int:
-        return self._CRITIC_BASE_DIM
+        dim = self._CRITIC_BASE_DIM_WITHOUT_OPTIONALS
+        if self._cfg.include_privileged_friction_scale:
+            dim += 1
+        if self._cfg.include_privileged_gravity_direction:
+            dim += 3
+        return dim
 
     def _resolve_friction_geom_ids(self) -> dict[str, np.ndarray]:
         """Resolve MuJoCo geom ids touched by Sharpa friction randomization.
@@ -631,6 +639,19 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
             return None
         return np.asarray(self._backend.model.geom_friction, dtype=np.float64).copy()
 
+    def _resolve_base_gravity(self) -> np.ndarray:
+        """Cache the default gravity vector for privileged-info fallbacks.
+
+        Args:
+            None.
+
+        Returns:
+            Gravity vector with shape ``(3,)``.
+        """
+        if self._backend.backend_type == "mujoco":
+            return np.asarray(self._backend.model.opt.gravity, dtype=np.float64).copy()
+        return np.asarray([0.0, 0.0, -9.81], dtype=np.float64)
+
     def _resolve_base_body_mass(self) -> np.ndarray | None:
         """Cache the MuJoCo body-mass table used as reset randomization baseline.
 
@@ -727,6 +748,49 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         if sliding <= 0.0:
             raise ValueError(f"{material} base sliding friction must be positive, got {sliding}")
         return np.asarray(template / sliding * base_sliding_friction, dtype=np.float64)
+
+    def _sample_reset_gravity(self, batch_size: int) -> np.ndarray | None:
+        """Sample the exact reset-time gravity vector applied by Sharpa.
+
+        Args:
+            batch_size: Number of reset environments.
+
+        Returns:
+            Gravity array with shape ``(batch_size, 3)``, or ``None`` when reset-time
+            gravity randomization is disabled.
+        """
+        gravity = self._build_gravity_direction_randomization(batch_size)
+        if gravity is not None:
+            return gravity
+        domain_rand = self._cfg.domain_rand
+        if not getattr(domain_rand, "randomize_gravity", False):
+            return None
+        gravity_range = np.asarray(domain_rand.gravity_range, dtype=np.float64)
+        if gravity_range.shape != (2, 3):
+            raise ValueError(
+                f"domain_rand.gravity_range must have shape (2, 3), got {gravity_range.shape}"
+            )
+        low = np.minimum(gravity_range[0], gravity_range[1])
+        high = np.maximum(gravity_range[0], gravity_range[1])
+        return np.random.uniform(low=low, high=high, size=(batch_size, 3)).astype(np.float64)
+
+    def _resolved_privileged_gravity(
+        self,
+        batch_size: int,
+        gravity: np.ndarray | None,
+    ) -> np.ndarray:
+        """Resolve the gravity vector written into privileged info for one reset batch.
+
+        Args:
+            batch_size: Number of reset environments.
+            gravity: Sampled reset gravity, if reset-time randomization is active.
+
+        Returns:
+            Gravity array with shape ``(batch_size, 3)``.
+        """
+        if gravity is not None:
+            return np.asarray(gravity, dtype=self._np_dtype)
+        return np.broadcast_to(self._base_gravity, (batch_size, 3)).astype(self._np_dtype, copy=True)
 
     def _build_friction_randomization(
         self,
@@ -846,6 +910,7 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         friction_scale: np.ndarray | None,
         randomized_mass: np.ndarray | None,
         randomized_com_offset: np.ndarray | None,
+        gravity: np.ndarray | None,
     ) -> ResetRandomizationPayload | None:
         """Build reset-randomization payloads owned by the Sharpa rotation env.
 
@@ -865,7 +930,6 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         body_mass = self._build_object_mass_randomization(batch_size, randomized_mass)
         body_ipos = self._build_object_com_randomization(batch_size, randomized_com_offset)
         geom_friction = self._build_friction_randomization(batch_size, friction_scale)
-        gravity = self._build_gravity_direction_randomization(batch_size)
         if body_mass is not None:
             if payload is None:
                 payload = ResetRandomizationPayload()
@@ -893,13 +957,20 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         Returns:
             Mapping from logical field names to channel slices.
         """
-        layout = {
-            "object_pos_delta": slice(0, 3),
-            "friction": slice(3, 4),
-            "mass": slice(4, 5),
-            "com": slice(5, 8),
-            "scale": slice(8, 9),
-        }
+        offset = 0
+        layout = {"object_pos_delta": slice(offset, offset + 3)}
+        offset += 3
+        if self._cfg.include_privileged_friction_scale:
+            layout["friction"] = slice(offset, offset + 1)
+            offset += 1
+        layout["mass"] = slice(offset, offset + 1)
+        offset += 1
+        layout["com"] = slice(offset, offset + 3)
+        offset += 3
+        layout["scale"] = slice(offset, offset + 1)
+        offset += 1
+        if self._cfg.include_privileged_gravity_direction:
+            layout["gravity"] = slice(offset, offset + 3)
         return layout
 
     def _assign_critic_info_field(
@@ -932,6 +1003,7 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         friction_scale: np.ndarray | None,
         randomized_mass: np.ndarray | None,
         randomized_com_offset: np.ndarray | None,
+        gravity: np.ndarray | None,
     ) -> np.ndarray:
         """Build reset-time critic_info for all randomized object properties.
 
@@ -944,11 +1016,15 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         """
         critic_info = np.zeros((batch_size, self._cfg.critic_info_dim), dtype=self._np_dtype)
 
-        if friction_scale is not None:
+        if self._cfg.include_privileged_friction_scale:
             self._assign_critic_info_field(
                 critic_info,
                 "friction",
-                friction_scale,
+                (
+                    friction_scale
+                    if friction_scale is not None
+                    else np.ones((batch_size, 1), dtype=np.float64)
+                ),
             )
         if randomized_mass is not None:
             self._assign_critic_info_field(
@@ -967,6 +1043,12 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
                 critic_info,
                 "scale",
                 self.scale_values[self.scale_ids[env_ids]].reshape(batch_size, 1),
+            )
+        if self._cfg.include_privileged_gravity_direction:
+            self._assign_critic_info_field(
+                critic_info,
+                "gravity",
+                self._resolved_privileged_gravity(batch_size, gravity),
             )
         return critic_info
 
@@ -1070,7 +1152,7 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
                 * self._cfg.joint_noise_scale
             )
 
-        return np.asarray(
+        frame = np.asarray(
             np.concatenate(
                 self._policy_frame_parts(
                     dof_norm=dof_norm,
@@ -1082,6 +1164,23 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
             ),
             dtype=self._np_dtype,
         )
+        return self._clip_observation_values(frame)
+
+    def _clip_observation_values(self, values: np.ndarray) -> np.ndarray:
+        """Clamp observation tensors to a configurable absolute value bound.
+
+        Args:
+            values: Observation-like array to clip.
+
+        Returns:
+            Clipped array with the same shape. Non-positive ``clip_obs`` disables the
+            clamp so callers can opt out when needed.
+        """
+        clip_max = float(getattr(self._cfg, "clip_obs", 5.0))
+        values = np.asarray(values, dtype=self._np_dtype)
+        if clip_max <= 0.0:
+            return values
+        return np.asarray(np.clip(values, -clip_max, clip_max), dtype=self._np_dtype)
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:
@@ -1145,11 +1244,17 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
             Observation groups that satisfy the UniLab env contract.
         """
         if self._observation_mode == "flattened":
-            flattened_obs = np.concatenate([policy_obs, critic_info], axis=1).astype(self._np_dtype)
+            flattened_obs = self._clip_observation_values(
+                np.concatenate([policy_obs, critic_info], axis=1).astype(self._np_dtype)
+            )
             return {"obs": flattened_obs}
 
-        critic_obs = np.concatenate([policy_obs, critic_info], axis=1).astype(self._np_dtype)
-        return {"obs": policy_obs, "critic": critic_obs}
+        return {
+            "obs": self._clip_observation_values(policy_obs),
+            "critic": self._clip_observation_values(
+                np.concatenate([policy_obs, critic_info], axis=1).astype(self._np_dtype)
+            ),
+        }
 
     def _compute_obs_from_inputs(
         self,

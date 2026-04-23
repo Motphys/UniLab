@@ -155,8 +155,11 @@ class SharpaInhandBaseCfg(EnvCfg):
     disable_tactile_ids: list[int] = field(default_factory=list)
     contact_smooth: float = 0.5
     contact_threshold: float = 0.05
+    tactile_force_clip_max: float = 4.0
     contact_latency: float = 0.005
     contact_sensor_noise: float = 0.01
+    include_privileged_friction_scale: bool = True
+    include_privileged_gravity_direction: bool = False
 
     dof_limits_scale: float = 0.9
 
@@ -171,9 +174,9 @@ class SharpaInhandBaseCfg(EnvCfg):
     randomize_friction: bool = True
     randomize_friction_scale_lower: float = 0.5
     randomize_friction_scale_upper: float = 2.0
-    elastomer_base_friction: float = 0.8
-    metal_base_friction: float = 0.1
-    object_base_friction: float = 0.5
+    elastomer_base_friction: float = 1.6
+    metal_base_friction: float = 0.2
+    object_base_friction: float = 1.0
 
     randomize_com: bool = True
     randomize_com_lower: float = -0.01
@@ -531,6 +534,23 @@ class SharpaInhandBaseEnv(NpEnv):
                 tactile_force[:, sensor_id] = 0.0
         return tactile_force
 
+    def _clip_tactile_force(self, tactile_force: np.ndarray) -> np.ndarray:
+        """Clip raw tactile-force magnitudes before they enter observation smoothing.
+
+        Args:
+            tactile_force: Raw per-finger tactile magnitudes with shape
+                ``(num_envs, num_tactile)``.
+
+        Returns:
+            Clipped tactile-force array with the same shape. Non-positive clip values
+            disable this clamp so the caller can opt out explicitly.
+        """
+        clip_max = float(getattr(self._cfg, "tactile_force_clip_max", 5.0))
+        tactile_force = np.asarray(tactile_force, dtype=self._np_dtype)
+        if clip_max <= 0.0:
+            return tactile_force
+        return np.asarray(np.clip(tactile_force, 0.0, clip_max), dtype=self._np_dtype)
+
     def _clear_tactile_history(self, env_ids: np.ndarray | None = None) -> None:
         """Clear tactile-output and raw-force history buffers.
 
@@ -561,7 +581,7 @@ class SharpaInhandBaseEnv(NpEnv):
             self._clear_tactile_history()
             return np.zeros((self._num_envs, self._num_tactile), dtype=self._np_dtype)
 
-        current_force = self._read_tactile_force()
+        current_force = SharpaInhandBaseEnv._clip_tactile_force(self, self._read_tactile_force())
         smooth_contact = (
             current_force * self._cfg.contact_smooth
             + self._prev_tactile_force * (1.0 - self._cfg.contact_smooth)

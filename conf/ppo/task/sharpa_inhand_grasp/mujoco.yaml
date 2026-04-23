@@ -72,6 +72,7 @@ env:
   disable_tactile_ids: []
   contact_smooth: 0.5
   contact_threshold: 0.05
+  tactile_force_clip_max: 5.0
   contact_latency: 0.005
   contact_sensor_noise: 0.01
   dof_limits_scale: 0.9

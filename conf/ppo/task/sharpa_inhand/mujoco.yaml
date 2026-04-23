@@ -9,7 +9,7 @@ training:
 algo:
   num_envs: 16384
   num_steps_per_env: 8
-  max_iterations: 501
+  max_iterations: 301
   empirical_normalization: true
   policy:
     actor_hidden_dims: [512, 256, 128]
@@ -17,7 +17,7 @@ algo:
   algorithm:
     value_loss_coef: 4.0
     entropy_coef: 0.01
-    learning_rate: 0.001
+    learning_rate: 0.005
     desired_kl: 0.02
     num_learning_epochs: 5
     num_mini_batches: 4
@@ -36,7 +36,7 @@ reward:
   angvel_clip_min: -0.5
   angvel_clip_max: 0.5
 env:
-  critic_info_dim: 9
+  critic_info_dim: 12
   domain_rand:
     randomize_gravity_direction: true
     gravity_direction_magnitude: 9.81
@@ -62,33 +62,36 @@ env:
       - contact_right_middle_elastomer_force
       - contact_right_ring_elastomer_force
       - contact_right_pinky_elastomer_force
-  enable_tactile: false
+  enable_tactile: true
   binary_contact: false
   enable_contact_pos: false
   disable_tactile_ids: []
   contact_smooth: 0.5
   contact_threshold: 0.05
+  tactile_force_clip_max: 4.0
   contact_latency: 0.005
   contact_sensor_noise: 0.01
+  include_privileged_friction_scale: true
+  include_privileged_gravity_direction: true
   dof_limits_scale: 0.9
-  scale_list: [1.4, 1.45, 1.5, 1.55, 1.6]
+  scale_list: [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6]
   randomize_pd_gains: true
   randomize_p_gain_scale_lower: 0.5
   randomize_p_gain_scale_upper: 2.0
   randomize_d_gain_scale_lower: 0.5
   randomize_d_gain_scale_upper: 2.0
   randomize_friction: true
-  randomize_friction_scale_lower: 0.75
-  randomize_friction_scale_upper: 1.25
-  elastomer_base_friction: 2.0
-  metal_base_friction: 1.0
-  object_base_friction: 2.0
+  randomize_friction_scale_lower: 0.5
+  randomize_friction_scale_upper: 2.0
+  elastomer_base_friction: 1.6
+  metal_base_friction: 0.2
+  object_base_friction: 1.0
   randomize_com: true
   randomize_com_lower: -0.01
   randomize_com_upper: 0.01
   randomize_mass: true
   randomize_mass_lower: 0.01
-  randomize_mass_upper: 0.10 # 0.25
+  randomize_mass_upper: 0.25
   force_scale: 2.0
   random_force_prob_scalar: 0.25
   force_decay: 0.9
