@@ -1,5 +1,4 @@
 from unilab.base import registry
-from unilab.utils.device import get_default_device
 
 
 def get_env_dims(
@@ -19,4 +18,4 @@ def get_env_dims(
     return obs_dim, action_dim, critic_dim
 
 
-__all__ = ["get_default_device", "get_env_dims"]
+__all__ = ["get_env_dims"]
