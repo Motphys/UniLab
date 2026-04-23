@@ -46,16 +46,15 @@ env:
   clip_actions: 1.0
   control_config:
     action_scale: 0.041666666666666664
-    p_gain: 1.0
+    p_gain: 1.0 # use the XML value instead of this value by default
     d_gain: 0.1
-  reset_height_lower: 0.59906
+  reset_height_lower: 0.59906 # assume the hand base height is 0.5
   reset_height_upper: 0.63906
   reset_angle_diff: 0.7853981633974483
-  reset_random_quat: false
   rot_axis: [0.0, 0.0, 1.0]
   grasp_cache_path: cache/sharpa_grasp_linspace
   joint_noise_scale: 0.02
-  observation_mode: flattened
+  observation_mode: flattened # non-hora setting
   sensor:
     tactile_force_sensor_names:
       - contact_right_thumb_elastomer_force

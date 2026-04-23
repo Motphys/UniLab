@@ -12,7 +12,6 @@ from unilab.base.backend import SimBackend
 from unilab.base.base import EnvCfg
 from unilab.base.dtype_config import get_global_dtype
 from unilab.base.np_env import NpEnv, NpEnvState
-from unilab.utils.math_utils import np_quat_apply, np_quat_mul
 
 DEFAULT_ACTUATED_JOINT_NAMES: list[str] = [
     "right_thumb_CMC_FE",
@@ -143,7 +142,6 @@ class SharpaInhandBaseCfg(EnvCfg):
     reset_height_lower: float = 0.59906
     reset_height_upper: float = 0.63906
     reset_angle_diff: float = 45.0 / 180.0 * np.pi
-    reset_random_quat: bool = False
 
     rot_axis: tuple[float, float, float] = (0.0, 0.0, 1.0)
 
@@ -267,15 +265,6 @@ def repeat_obs_history(init_frame: np.ndarray, history_len: int) -> np.ndarray:
         init_frame[:, None, :], (init_frame.shape[0], history_len, init_frame.shape[1])
     ).copy()
     return np.asarray(history, dtype=init_frame.dtype)
-
-
-def apply_random_rotation_to_positions(
-    positions: np.ndarray,
-    center: np.ndarray,
-    random_quat: np.ndarray,
-) -> np.ndarray:
-    rotated = np_quat_apply(random_quat, positions - center)
-    return np.asarray(rotated + center, dtype=positions.dtype)
 
 
 class SharpaInhandBaseEnv(NpEnv):
@@ -660,9 +649,3 @@ class SharpaInhandBaseEnv(NpEnv):
 
     def _update_proprio_history(self, obs_history: np.ndarray) -> np.ndarray:
         return np.asarray(obs_history[:, -self._cfg.prop_hist_len :], dtype=self._np_dtype)
-
-    def _rotate_axis(self, axis: np.ndarray, quat: np.ndarray) -> np.ndarray:
-        return np.asarray(np_quat_apply(quat, axis), dtype=self._np_dtype)
-
-    def _rotate_quat(self, quat: np.ndarray, random_quat: np.ndarray) -> np.ndarray:
-        return np.asarray(np_quat_mul(random_quat, quat), dtype=self._np_dtype)

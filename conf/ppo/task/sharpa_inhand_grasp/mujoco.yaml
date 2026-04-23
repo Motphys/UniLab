@@ -55,7 +55,6 @@ env:
   reset_height_lower: 0.61406
   reset_height_upper: 0.62406
   reset_angle_diff: 0.5235987755982988
-  reset_random_quat: false
   rot_axis: [0.0, 0.0, 1.0]
   grasp_cache_path: cache/sharpa_grasp_linspace
   joint_noise_scale: 0.02

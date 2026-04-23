@@ -31,7 +31,6 @@ from unilab.dr.types import (
 from unilab.envs.manipulation.sharpa_inhand.base import (
     SharpaInhandBaseCfg,
     SharpaInhandBaseEnv,
-    apply_random_rotation_to_positions,
     repeat_obs_history,
     resolve_grasp_cache_file,
     sample_scale_grasp_caches,
@@ -174,9 +173,6 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
         env._grasp_cache = tuple(grasp_caches)
         return cast(tuple[np.ndarray, ...], env._grasp_cache)
 
-    def _sample_random_quaternion(self, num_envs: int) -> np.ndarray:
-        return sample_random_quaternion(num_envs)
-
     def _sample_reset_pd_gains(
         self,
         env: Any,
@@ -308,16 +304,6 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
         object_quat = sampled_pose[:, env._num_action + 3 : env._num_action + 7]
 
         rot_axis = np.broadcast_to(env._rot_axis, (num_reset, 3)).copy().astype(np.float64)
-
-        if env.cfg.reset_random_quat:
-            random_quat = self._sample_random_quaternion(num_reset)
-            object_pos = apply_random_rotation_to_positions(
-                object_pos,
-                center=np.zeros((num_reset, 3), dtype=np.float64),
-                random_quat=random_quat,
-            )
-            object_quat = env._rotate_quat(object_quat, random_quat)
-            rot_axis = env._rotate_axis(rot_axis, random_quat)
 
         qpos = np.zeros((num_reset, env.nq), dtype=np.float64)
         qpos[:, : env._num_action] = hand_qpos

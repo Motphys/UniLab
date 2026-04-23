@@ -20,6 +20,7 @@ class HoraDistillStats:
     agent_steps: int = 0
     best_reward: float = float("-inf")
     mean_reward: float = float("nan")
+    mean_episode_length: float = float("nan")
 
 
 def build_student_actor_and_normalizer(
@@ -140,6 +141,7 @@ class HoraDistillationTrainer:
         self.optimizer = torch.optim.Adam(self._trainable_parameters(), lr=float(cfg.algo.learning_rate))
         self.stats = HoraDistillStats()
         self._reward_buffer: deque[float] = deque(maxlen=100)
+        self._episode_length_buffer: deque[float] = deque(maxlen=100)
         self._step_reward = torch.zeros((env.num_envs,), dtype=torch.float32, device=self.device)
         self._step_length = torch.zeros((env.num_envs,), dtype=torch.float32, device=self.device)
         self._load_teacher_checkpoint()
@@ -222,9 +224,16 @@ class HoraDistillationTrainer:
             done_idx = torch.nonzero(dones, as_tuple=False).flatten()
             if len(done_idx) > 0:
                 completed_rewards = self._step_reward[done_idx]
+                completed_lengths = self._step_length[done_idx]
                 done_mean_reward = float(torch.mean(completed_rewards).item())
                 self._reward_buffer.extend(completed_rewards.detach().cpu().numpy().tolist())
+                self._episode_length_buffer.extend(
+                    completed_lengths.detach().cpu().numpy().tolist()
+                )
                 self.stats.mean_reward = float(statistics.mean(self._reward_buffer))
+                self.stats.mean_episode_length = float(
+                    statistics.mean(self._episode_length_buffer)
+                )
                 self.stats.best_reward = max(self.stats.best_reward, done_mean_reward)
                 self._step_reward[done_idx] = 0.0
                 self._step_length[done_idx] = 0.0
@@ -232,11 +241,14 @@ class HoraDistillationTrainer:
             if next_log_steps is not None and self.stats.agent_steps >= next_log_steps:
                 elapsed = max(time.time() - start_time, 1e-6)
                 self.logger.info(
-                    "agent_steps=%d loss=%.6f mean_reward=%.4f best_reward=%.4f fps=%.1f",
+                    "agent_steps=%d loss=%.6f mean_reward=%.4f best_reward=%.4f "
+                    "mean_episode_length=%.2f training_time=%.2fs fps=%.1f",
                     self.stats.agent_steps,
                     float(loss.item()),
                     self.stats.mean_reward,
                     self.stats.best_reward,
+                    self.stats.mean_episode_length,
+                    elapsed,
                     self.stats.agent_steps / elapsed,
                 )
                 next_log_steps = self._next_interval_boundary(self.stats.agent_steps, log_interval)
@@ -246,6 +258,16 @@ class HoraDistillationTrainer:
                 next_save_steps = self._next_interval_boundary(self.stats.agent_steps, save_interval)
 
         self.save(self.log_dir / "hora_stage2_last.pt")
+        total_elapsed = max(time.time() - start_time, 1e-6)
+        self.logger.info(
+            "training_complete agent_steps=%d mean_reward=%.4f best_reward=%.4f "
+            "mean_episode_length=%.2f training_time=%.2fs",
+            self.stats.agent_steps,
+            self.stats.mean_reward,
+            self.stats.best_reward,
+            self.stats.mean_episode_length,
+            total_elapsed,
+        )
 
     def save(self, path: str | Path) -> None:
         torch.save(

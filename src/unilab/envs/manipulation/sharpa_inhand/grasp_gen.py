@@ -31,7 +31,6 @@ class SharpaInhandRotationGraspCfg(SharpaInhandRotationCfg):
     reset_height_lower: float = 0.61406
     reset_height_upper: float = 0.62406
     reset_angle_diff: float = 30.0 / 180.0 * np.pi
-    reset_random_quat: bool = False
 
     grasp_cache_path: str = ""
     domain_rand: SharpaDomainRandConfig = field(default_factory=SharpaDomainRandConfig)
