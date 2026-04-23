@@ -91,14 +91,14 @@
 
 backend capability 当前是：
 
-- [`MuJoCoBackend`](../../../src/unilab/base/backend/mujoco_backend.py)：支持上面 7 个 reset term，且支持 interval push
+- [`MuJoCoBackend`](../../../src/unilab/base/backend/mujoco_backend.py)：支持上面 7 个 reset term，且支持 interval push 与 interval body force
 - [`MotrixBackend`](../../../src/unilab/base/backend/motrix_backend.py)：支持 `base_mass_delta`、`base_com_offset`、`kp`、`kd`，且支持 interval push；初始化阶段要求 actuator 全为 position
 
 注意：
 
-- 当前 `IntervalRandomizationPlan` 只有 `push_perturbation_limit` 和 `body_linear_velocity_delta`，没有 `body_force` / `body_torque` / `xfrc_applied` 一类字段。
-- 当前 MuJoCo backend 的 interval push 实现也是直接写 base 线速度；Sharpa-hand 的 object disturbance 也是通过 free-joint body 的线速度增量近似“随机外力”。
-- 因此，仓库当前支持的是 velocity disturbance，不是 direct force disturbance。
+- 当前 `IntervalRandomizationPlan` 支持 `push_perturbation_limit`、`body_linear_velocity_delta` 与 `body_force`；其中 `body_force` 表达热路径直接外力扰动，不暴露 backend 私有 `xfrc_applied` 细节。
+- 当前 MuJoCo backend 的 interval push 和 interval body force 都通过 `xfrc_applied` 下发外力；Sharpa-hand 的 object disturbance 已切换为 direct force disturbance。
+- Motrix backend 当前仍不支持 direct body-force disturbance，因此此类 owner config 需要继续显式关闭。
 
 但任务侧当前实际情况是：并不是所有 provider 都构造这些字段。backend contract 是能力边界，任务配置和 provider 是否下发 payload 才决定该任务是否实际启用对应 DR 项。
 

@@ -11,6 +11,7 @@ from unilab.dr import ResetPlan
 from unilab.dr.dr_utils import build_common_reset_randomization
 from unilab.envs.manipulation.sharpa_inhand.base import (
     SOURCE_DEFAULT_HAND_JOINT_POS_DEG,
+    SharpaDomainRandConfig,
     resolve_grasp_cache_file,
 )
 from unilab.envs.manipulation.sharpa_inhand.rotation import (
@@ -33,6 +34,7 @@ class SharpaInhandRotationGraspCfg(SharpaInhandRotationCfg):
     reset_random_quat: bool = False
 
     grasp_cache_path: str = ""
+    domain_rand: SharpaDomainRandConfig = field(default_factory=SharpaDomainRandConfig)
 
     randomize_pd_gains: bool = False
     randomize_friction: bool = False
@@ -114,6 +116,7 @@ class SharpaInhandGraspDRProvider(SharpaInhandRotationDRProvider):
             randomized_mass=None,
             randomized_com_offset=None,
         )
+        env._clear_tactile_history(env_ids)
 
         return ResetPlan(
             env_ids=env_ids,
@@ -135,6 +138,12 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
         num_envs: int = 1,
         backend_type: str = "motrix",
     ) -> None:
+        if cfg.domain_rand.randomize_gravity or cfg.domain_rand.randomize_gravity_direction:
+            raise ValueError(
+                "SharpaInhandRotationGrasp does not support gravity randomization; "
+                "disable env.domain_rand.randomize_gravity and "
+                "env.domain_rand.randomize_gravity_direction."
+            )
         super().__init__(
             cfg,
             num_envs=num_envs,

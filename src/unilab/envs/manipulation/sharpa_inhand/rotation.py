@@ -23,6 +23,7 @@ from unilab.dr.types import (
     RESET_TERM_BODY_IPOS,
     RESET_TERM_BODY_MASS,
     RESET_TERM_GEOM_FRICTION,
+    RESET_TERM_GRAVITY,
     RESET_TERM_KD,
     RESET_TERM_KP,
     ResetRandomizationPayload,
@@ -35,7 +36,7 @@ from unilab.envs.manipulation.sharpa_inhand.base import (
     resolve_grasp_cache_file,
     sample_scale_grasp_caches,
 )
-from unilab.utils.math_utils import np_quat_conjugate, np_quat_mul, np_quat_to_axis_angle
+from unilab.utils.math_utils import np_quat_apply, np_quat_conjugate, np_quat_mul, np_quat_to_axis_angle
 
 
 @dataclass
@@ -65,12 +66,42 @@ class SharpaInhandRotationCfg(SharpaInhandBaseCfg):
     observation_mode: str = "separated"
 
 
+def sample_random_quaternion(num_envs: int) -> np.ndarray:
+    """Sample uniformly distributed random quaternions in wxyz convention.
+
+    Args:
+        num_envs: Number of quaternions to sample.
+
+    Returns:
+        Quaternion array with shape ``(num_envs, 4)``.
+    """
+    u1 = np.random.rand(num_envs)
+    u2 = np.random.rand(num_envs) * 2.0 * np.pi
+    u3 = np.random.rand(num_envs) * 2.0 * np.pi
+
+    q1 = np.sqrt(1.0 - u1) * np.sin(u2)
+    q2 = np.sqrt(1.0 - u1) * np.cos(u2)
+    q3 = np.sqrt(u1) * np.sin(u3)
+    q4 = np.sqrt(u1) * np.cos(u3)
+
+    return np.stack([q4, q1, q2, q3], axis=1).astype(np.float64)
+
+
 class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
     def validate(self, env: Any, capabilities: DomainRandomizationCapabilities) -> None:
         unsupported = validate_common_reset_randomization(env, capabilities)
-        if env.cfg.force_scale > 0.0 and not capabilities.supports_interval_body_velocity_delta:
+        domain_rand = getattr(env.cfg, "domain_rand", None)
+        if domain_rand is not None and getattr(domain_rand, "randomize_gravity_direction", False):
+            if getattr(domain_rand, "randomize_gravity", False):
+                raise ValueError(
+                    "Use only one Sharpa gravity randomization mode: "
+                    "domain_rand.randomize_gravity_direction or domain_rand.randomize_gravity"
+                )
+            if not capabilities.supports_reset_term(RESET_TERM_GRAVITY):
+                unsupported = unsupported | frozenset({RESET_TERM_GRAVITY})
+        if env.cfg.force_scale > 0.0 and not capabilities.supports_interval_body_force:
             raise NotImplementedError(
-                f"{env._backend.backend_type} backend does not support interval body velocity perturbation"
+                f"{env._backend.backend_type} backend does not support interval body force perturbation"
             )
         if env.cfg.randomize_pd_gains:
             if not capabilities.supports_reset_term(RESET_TERM_KP):
@@ -144,16 +175,7 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
         return cast(tuple[np.ndarray, ...], env._grasp_cache)
 
     def _sample_random_quaternion(self, num_envs: int) -> np.ndarray:
-        u1 = np.random.rand(num_envs)
-        u2 = np.random.rand(num_envs) * 2.0 * np.pi
-        u3 = np.random.rand(num_envs) * 2.0 * np.pi
-
-        q1 = np.sqrt(1.0 - u1) * np.sin(u2)
-        q2 = np.sqrt(1.0 - u1) * np.cos(u2)
-        q3 = np.sqrt(u1) * np.sin(u3)
-        q4 = np.sqrt(u1) * np.cos(u3)
-
-        return np.stack([q4, q1, q2, q3], axis=1).astype(np.float64)
+        return sample_random_quaternion(num_envs)
 
     def _sample_reset_pd_gains(
         self,
@@ -323,6 +345,9 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
             randomized_mass=randomized_mass,
             randomized_com_offset=randomized_com_offset,
         )
+        # Match the source task by clearing any cached external object force on reset.
+        env._random_object_force[env_ids] = 0.0
+        env._clear_tactile_history(env_ids)
 
         return ResetPlan(
             env_ids=env_ids,
@@ -370,8 +395,8 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
             step_counter: Global environment step counter.
 
         Returns:
-            Interval randomization plan carrying object velocity perturbations, or
-            ``None`` when object-force injection is disabled.
+            Interval randomization plan carrying direct object-force perturbations,
+            or ``None`` when object-force injection is disabled.
         """
         del step_counter
         if env.cfg.force_scale <= 0.0:
@@ -394,11 +419,9 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
                 * float(env.cfg.force_scale)
             )
 
-        velocity_delta = env._random_object_force / env._resolve_current_object_mass()[:, None]
-        velocity_delta *= float(env.cfg.ctrl_dt)
         return IntervalRandomizationPlan(
             body_ids=np.asarray([env._object_body_id], dtype=np.int32),
-            body_linear_velocity_delta=velocity_delta[:, None, :],
+            body_force=env._random_object_force[:, None, :].copy(),
         )
 
 
@@ -805,6 +828,29 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         body_ipos[:, self._object_body_id, :] += np.asarray(randomized_com_offset, dtype=np.float64)
         return body_ipos
 
+    def _build_gravity_direction_randomization(self, batch_size: int) -> np.ndarray | None:
+        """Sample fixed-magnitude gravity vectors with randomized directions.
+
+        Args:
+            batch_size: Number of reset environments.
+
+        Returns:
+            Gravity vectors with shape ``(batch_size, 3)``, or None when disabled.
+        """
+        domain_rand = self._cfg.domain_rand
+        if not getattr(domain_rand, "randomize_gravity_direction", False):
+            return None
+        magnitude = float(getattr(domain_rand, "gravity_direction_magnitude", 9.81))
+        if magnitude <= 0.0:
+            raise ValueError(f"gravity_direction_magnitude must be positive, got {magnitude}")
+        gravity = np.zeros((batch_size, 3), dtype=np.float64)
+        gravity[:, 2] = -magnitude
+        random_quat = sample_random_quaternion(batch_size)
+        # A uniform quaternion and its inverse have the same distribution, so
+        # rotating gravity samples the same relative gravity directions induced
+        # by uniformly rotating the global hand/object/task frame.
+        return np.asarray(np_quat_apply(random_quat, gravity), dtype=np.float64)
+
     def _build_reset_randomization(
         self,
         batch_size: int,
@@ -833,6 +879,7 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         body_mass = self._build_object_mass_randomization(batch_size, randomized_mass)
         body_ipos = self._build_object_com_randomization(batch_size, randomized_com_offset)
         geom_friction = self._build_friction_randomization(batch_size, friction_scale)
+        gravity = self._build_gravity_direction_randomization(batch_size)
         if body_mass is not None:
             if payload is None:
                 payload = ResetRandomizationPayload()
@@ -845,6 +892,10 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
             if payload is None:
                 payload = ResetRandomizationPayload()
             payload.geom_friction = geom_friction
+        if gravity is not None:
+            if payload is None:
+                payload = ResetRandomizationPayload()
+            payload.gravity = gravity
         return payload
 
     def _critic_info_layout(self) -> dict[str, slice]:

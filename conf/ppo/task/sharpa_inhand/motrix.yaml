@@ -32,6 +32,9 @@ reward:
   angvel_clip_max: 0.5
 env:
   critic_info_dim: 9
+  domain_rand:
+    randomize_gravity_direction: false
+    gravity_direction_magnitude: 9.81
   torque_control: false
   zero_action_test_mode: false
   clip_obs: 5.0

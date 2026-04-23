@@ -179,6 +179,24 @@ class SimBackend(abc.ABC):
             f"{self.__class__.__name__} does not support interval body velocity perturbation"
         )
 
+    def apply_body_force(
+        self,
+        body_ids: np.ndarray,
+        force: np.ndarray,
+    ) -> None:
+        """Apply a world-frame force to specific bodies for the upcoming step.
+
+        Args:
+            body_ids: Body ids whose external forces should be perturbed.
+            force: Force values with shape ``(num_envs, len(body_ids), 3)``.
+
+        Returns:
+            None. Backends that support this mutate their pending simulation state.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support interval body force perturbation"
+        )
+
     def get_play_capabilities(self) -> BackendPlayCapabilities:
         """Return backend-native play/render capabilities."""
         return BackendPlayCapabilities()

@@ -37,6 +37,13 @@ reward:
 env:
   max_episode_seconds: 3.0
   critic_info_dim: 9
+  domain_rand:
+    randomize_gravity: false
+    gravity_range:
+      - [0.0, 0.0, -9.81]
+      - [0.0, 0.0, -9.81]
+    randomize_gravity_direction: false
+    gravity_direction_magnitude: 9.81
   torque_control: false
   zero_action_test_mode: false
   clip_obs: 5.0

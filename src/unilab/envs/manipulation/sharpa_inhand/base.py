@@ -99,6 +99,8 @@ class SharpaDomainRandConfig:
     gravity_range: list[list[float]] = field(
         default_factory=lambda: [[0.0, 0.0, -9.81], [0.0, 0.0, -9.81]]
     )
+    randomize_gravity_direction: bool = False
+    gravity_direction_magnitude: float = 9.81
     push_body_name: str | None = None
 
 
@@ -291,8 +293,16 @@ class SharpaInhandBaseEnv(NpEnv):
                 f"Model has {actuator_range.shape[0]} actuators, but Sharpa task needs {self._num_action}"
             )
 
+        # Keep the raw XML actuator limits for observation normalization and any
+        # logic that needs the original backend contract. Target-position clipping
+        # uses a separate scaled limit pair to match Sharpa source behavior.
         self._ctrl_lower = np.asarray(actuator_range[: self._num_action, 0], dtype=self._np_dtype)
         self._ctrl_upper = np.asarray(actuator_range[: self._num_action, 1], dtype=self._np_dtype)
+        self._target_lower, self._target_upper = self._resolve_target_joint_limits(
+            self._ctrl_lower,
+            self._ctrl_upper,
+            cfg.dof_limits_scale,
+        )
 
         self._init_qpos = self._resolve_init_qpos()
         self._init_qvel = np.asarray(self._backend.get_init_qvel(), dtype=np.float64)
@@ -330,6 +340,7 @@ class SharpaInhandBaseEnv(NpEnv):
 
         self._num_tactile = len(cfg.fingertip_body_names)
         self.last_contacts = np.zeros((num_envs, self._num_tactile), dtype=self._np_dtype)
+        self._prev_tactile_force = np.zeros((num_envs, self._num_tactile), dtype=self._np_dtype)
 
         self.object_default_pose = np.zeros((num_envs, 7), dtype=self._np_dtype)
 
@@ -349,6 +360,34 @@ class SharpaInhandBaseEnv(NpEnv):
     @property
     def action_space(self) -> gym.spaces.Box:
         return self._action_space  # type: ignore[no-any-return]
+
+    def _resolve_target_joint_limits(
+        self,
+        raw_lower: np.ndarray,
+        raw_upper: np.ndarray,
+        scale: float,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Build scaled target-position clipping limits from raw XML actuator bounds.
+
+        Args:
+            raw_lower: Original lower control limits loaded from the backend XML.
+            raw_upper: Original upper control limits loaded from the backend XML.
+            scale: Multiplicative scale applied to both bound arrays.
+
+        Returns:
+            Tuple of scaled ``(lower, upper)`` target-position limits.
+        """
+        scale_value = float(scale)
+        if scale_value <= 0.0:
+            raise ValueError(f"dof_limits_scale must be positive, got {scale_value}")
+        target_lower = np.asarray(raw_lower, dtype=self._np_dtype) * scale_value
+        target_upper = np.asarray(raw_upper, dtype=self._np_dtype) * scale_value
+        if np.any(target_lower > target_upper):
+            raise ValueError("Scaled Sharpa target joint limits are invalid")
+        return target_lower.astype(self._np_dtype, copy=False), target_upper.astype(
+            self._np_dtype,
+            copy=False,
+        )
 
     def _resolve_init_qpos(self) -> np.ndarray:
         for key_name in ("home", "stand", "default"):
@@ -441,7 +480,9 @@ class SharpaInhandBaseEnv(NpEnv):
             np.broadcast_to(self.default_angles, (self._num_envs, self._num_action)).copy(),
         )
         targets = prev_targets + self._cfg.control_config.action_scale * clipped_actions
-        targets = np.clip(targets, self._ctrl_lower, self._ctrl_upper)
+        # Clip action targets by the scaled control range only. Observation
+        # normalization continues to use the raw XML actuator limits.
+        targets = np.clip(targets, self._target_lower, self._target_upper)
         prev_targets = np.asarray(targets, dtype=self._np_dtype)
         state.info["prev_targets"] = prev_targets
         return prev_targets
@@ -478,46 +519,90 @@ class SharpaInhandBaseEnv(NpEnv):
         flat = data.reshape(data.shape[0], -1)
         return np.asarray(flat[:, 0], dtype=self._np_dtype)
 
-    def _compute_tactile_observation(self) -> np.ndarray:
-        tactile = np.zeros((self._num_envs, self._num_tactile), dtype=self._np_dtype)
+    def _read_tactile_force(self) -> np.ndarray:
+        """Read per-finger tactile force magnitudes in configured sensor order.
 
-        if self._cfg.enable_tactile and self._cfg.sensor.tactile_force_sensor_names:
-            for i, sensor_name in enumerate(
-                self._cfg.sensor.tactile_force_sensor_names[: self._num_tactile]
-            ):
-                try:
-                    tactile[:, i] = self._extract_sensor_scalar(sensor_name)
-                except Exception:
-                    tactile[:, i] = 0.0
+        Args:
+            None.
 
-            for disabled_id in self._cfg.disable_tactile_ids:
-                if 0 <= disabled_id < self._num_tactile:
-                    tactile[:, disabled_id] = 0.0
+        Returns:
+            Array of shape ``(num_envs, num_tactile)`` ordered exactly as
+            ``sensor.tactile_force_sensor_names``.
+        """
+        tactile_force = np.zeros((self._num_envs, self._num_tactile), dtype=self._np_dtype)
+        if not self._cfg.sensor.tactile_force_sensor_names:
+            return tactile_force
 
-            latency = np.where(
-                np.random.rand(self._num_envs, self._num_tactile) < self._cfg.contact_latency,
-                1.0,
-                0.0,
-            ).astype(self._np_dtype)
+        for sensor_id, sensor_name in enumerate(
+            self._cfg.sensor.tactile_force_sensor_names[: self._num_tactile]
+        ):
+            try:
+                tactile_force[:, sensor_id] = self._extract_sensor_scalar(sensor_name)
+            except Exception:
+                tactile_force[:, sensor_id] = 0.0
+        return tactile_force
 
-            if self._cfg.binary_contact:
-                tactile = (tactile > self._cfg.contact_threshold).astype(self._np_dtype)
-                self.last_contacts = self.last_contacts * latency + tactile * (1.0 - latency)
-                noise_mask = (
-                    np.random.rand(self._num_envs, self._num_tactile)
-                    >= self._cfg.contact_sensor_noise
-                ).astype(self._np_dtype)
-                tactile = np.where(self.last_contacts > 0.1, self.last_contacts * noise_mask, 0.0)
-            else:
-                smooth_contact = tactile * self._cfg.contact_smooth + self.last_contacts * (
-                    1.0 - self._cfg.contact_smooth
-                )
-                self.last_contacts = self.last_contacts * latency + smooth_contact * (1.0 - latency)
-                tactile = self.last_contacts.copy()
-        else:
+    def _clear_tactile_history(self, env_ids: np.ndarray | None = None) -> None:
+        """Clear tactile-output and raw-force history buffers.
+
+        Args:
+            env_ids: Optional environment ids to clear. When ``None``, clear all envs.
+
+        Returns:
+            None. Buffers are updated in place.
+        """
+        if env_ids is None:
             self.last_contacts.fill(0.0)
+            self._prev_tactile_force.fill(0.0)
+            return
 
-        return tactile
+        self.last_contacts[env_ids] = 0.0
+        self._prev_tactile_force[env_ids] = 0.0
+
+    def _compute_tactile_observation(self) -> np.ndarray:
+        """Build tactile observations with source-equivalent smoothing and latency.
+
+        Args:
+            None.
+
+        Returns:
+            Tactile-force observation array with shape ``(num_envs, num_tactile)``.
+        """
+        if not self._cfg.enable_tactile:
+            self._clear_tactile_history()
+            return np.zeros((self._num_envs, self._num_tactile), dtype=self._np_dtype)
+
+        current_force = self._read_tactile_force()
+        smooth_contact = (
+            current_force * self._cfg.contact_smooth
+            + self._prev_tactile_force * (1.0 - self._cfg.contact_smooth)
+        ).astype(self._np_dtype)
+        self._prev_tactile_force[:] = current_force
+
+        for disabled_id in self._cfg.disable_tactile_ids:
+            if 0 <= disabled_id < self._num_tactile:
+                smooth_contact[:, disabled_id] = 0.0
+
+        latency = np.where(
+            np.random.rand(self._num_envs, self._num_tactile) < self._cfg.contact_latency,
+            1.0,
+            0.0,
+        ).astype(self._np_dtype)
+
+        if self._cfg.binary_contact:
+            binary_contact = (smooth_contact > self._cfg.contact_threshold).astype(self._np_dtype)
+            self.last_contacts = self.last_contacts * latency + binary_contact * (1.0 - latency)
+            noise_mask = (
+                np.random.rand(self._num_envs, self._num_tactile) >= self._cfg.contact_sensor_noise
+            ).astype(self._np_dtype)
+            return np.where(
+                self.last_contacts > 0.1,
+                noise_mask * self.last_contacts,
+                self.last_contacts,
+            )
+
+        self.last_contacts = self.last_contacts * latency + smooth_contact * (1.0 - latency)
+        return self.last_contacts.copy()
 
     def _compute_contact_positions(self, tactile: np.ndarray) -> np.ndarray:
         del tactile

@@ -37,6 +37,7 @@ class DomainRandomizationCapabilities:
     supported_reset_terms: frozenset[str] = field(default_factory=frozenset)
     supports_interval_push: bool = False
     supports_interval_body_velocity_delta: bool = False
+    supports_interval_body_force: bool = False
 
     def supports_reset_term(self, term: str) -> bool:
         return term in self.supported_reset_terms
@@ -126,9 +127,16 @@ class ResetRandomizationPayload:
 @dataclass
 class IntervalRandomizationPlan:
     push_perturbation_limit: Sequence[float] | np.ndarray | None = None
+    body_ids: np.ndarray | None = None
+    body_linear_velocity_delta: np.ndarray | None = None
+    body_force: np.ndarray | None = None
 
     def is_empty(self) -> bool:
-        return self.push_perturbation_limit is None and self.body_linear_velocity_delta is None
+        return (
+            self.push_perturbation_limit is None
+            and self.body_linear_velocity_delta is None
+            and self.body_force is None
+        )
 
 
 @dataclass

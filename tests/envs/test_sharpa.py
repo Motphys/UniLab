@@ -11,6 +11,7 @@ from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
 
+from unilab.envs.manipulation.sharpa_inhand.base import SharpaInhandBaseEnv
 from unilab.envs.manipulation.sharpa_inhand.rotation import SharpaInhandRotationDRProvider
 from unilab.utils.algo_utils import ensure_registries
 
@@ -61,6 +62,76 @@ def _compose_sharpa_mujoco_owner_cfg(num_envs: int) -> tuple[Any, dict[str, Any]
     return cfg, env_cfg_override
 
 
+def _build_fake_tactile_env(
+    sensor_data: dict[str, np.ndarray],
+    *,
+    enable_tactile: bool = True,
+    binary_contact: bool = False,
+    disable_tactile_ids: list[int] | None = None,
+    contact_smooth: float = 0.5,
+    contact_threshold: float = 0.05,
+    contact_latency: float = 0.0,
+    contact_sensor_noise: float = 0.01,
+    last_contacts: np.ndarray | None = None,
+    prev_tactile_force: np.ndarray | None = None,
+) -> Any:
+    """Build a minimal fake Sharpa env for tactile-observation unit tests.
+
+    Args:
+        sensor_data: Mapping from tactile sensor name to backend sensor array.
+        enable_tactile: Whether tactile observation is enabled.
+        binary_contact: Whether binary-contact mode is enabled.
+        disable_tactile_ids: Optional tactile ids to zero out.
+        contact_smooth: Smoothing weight applied to the latest raw force.
+        contact_threshold: Threshold used by binary-contact mode.
+        contact_latency: Bernoulli probability of keeping the previous tactile output.
+        contact_sensor_noise: Binary-contact sensor dropout probability.
+        last_contacts: Optional previous tactile output buffer.
+        prev_tactile_force: Optional previous raw tactile-force buffer.
+
+    Returns:
+        Simple fake env exposing the fields used by ``_compute_tactile_observation``.
+    """
+    tactile_names = [
+        "contact_right_thumb_elastomer_force",
+        "contact_right_index_elastomer_force",
+        "contact_right_middle_elastomer_force",
+        "contact_right_ring_elastomer_force",
+        "contact_right_pinky_elastomer_force",
+    ]
+    num_envs = next(iter(sensor_data.values())).shape[0]
+    env = SimpleNamespace(
+        _num_envs=num_envs,
+        _num_tactile=len(tactile_names),
+        _np_dtype=np.float64,
+        _backend=SimpleNamespace(get_sensor_data=lambda name: sensor_data[name]),
+        _cfg=SimpleNamespace(
+            enable_tactile=enable_tactile,
+            binary_contact=binary_contact,
+            disable_tactile_ids=list(disable_tactile_ids or []),
+            contact_smooth=contact_smooth,
+            contact_threshold=contact_threshold,
+            contact_latency=contact_latency,
+            contact_sensor_noise=contact_sensor_noise,
+            sensor=SimpleNamespace(tactile_force_sensor_names=tactile_names),
+        ),
+        last_contacts=np.zeros((num_envs, len(tactile_names)), dtype=np.float64)
+        if last_contacts is None
+        else np.asarray(last_contacts, dtype=np.float64).copy(),
+        _prev_tactile_force=np.zeros((num_envs, len(tactile_names)), dtype=np.float64)
+        if prev_tactile_force is None
+        else np.asarray(prev_tactile_force, dtype=np.float64).copy(),
+    )
+    env._extract_sensor_scalar = lambda sensor_name: SharpaInhandBaseEnv._extract_sensor_scalar(
+        env, sensor_name
+    )
+    env._read_tactile_force = lambda: SharpaInhandBaseEnv._read_tactile_force(env)
+    env._clear_tactile_history = lambda env_ids=None: SharpaInhandBaseEnv._clear_tactile_history(
+        env, env_ids
+    )
+    return env
+
+
 def test_sharpa_provider_builds_mujoco_init_geom_scale_plan() -> None:
     env = SimpleNamespace(
         _backend=SimpleNamespace(backend_type="mujoco"),
@@ -101,6 +172,119 @@ def test_sharpa_provider_skips_non_mujoco_init_geom_scale_plan() -> None:
     plan = SharpaInhandRotationDRProvider().build_init_randomization_plan(env)
 
     assert plan is None
+
+
+def test_sharpa_tactile_force_matches_reference_smoothing_and_order() -> None:
+    """Verify tactile force uses reference sensor order and raw-force smoothing.
+
+    Args:
+        None.
+
+    Returns:
+        None. The assertions validate thumb→pinky ordering and 2-step smoothing.
+    """
+    sensor_data = {
+        "contact_right_thumb_elastomer_force": np.array([[1.0, 0.0, 0.0]], dtype=np.float64),
+        "contact_right_index_elastomer_force": np.array([[2.0, 0.0, 0.0]], dtype=np.float64),
+        "contact_right_middle_elastomer_force": np.array([[3.0, 0.0, 0.0]], dtype=np.float64),
+        "contact_right_ring_elastomer_force": np.array([[4.0, 0.0, 0.0]], dtype=np.float64),
+        "contact_right_pinky_elastomer_force": np.array([[5.0, 0.0, 0.0]], dtype=np.float64),
+    }
+    env = _build_fake_tactile_env(
+        sensor_data,
+        contact_smooth=0.25,
+        prev_tactile_force=np.array([[10.0, 20.0, 30.0, 40.0, 50.0]], dtype=np.float64),
+    )
+
+    tactile = SharpaInhandBaseEnv._compute_tactile_observation(env)
+
+    expected = np.array([[7.75, 15.5, 23.25, 31.0, 38.75]], dtype=np.float64)
+    np.testing.assert_allclose(tactile, expected)
+    np.testing.assert_allclose(env.last_contacts, expected)
+    np.testing.assert_allclose(
+        env._prev_tactile_force,
+        np.array([[1.0, 2.0, 3.0, 4.0, 5.0]], dtype=np.float64),
+    )
+
+
+def test_sharpa_tactile_binary_mode_matches_reference_latency_noise_and_disable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify binary tactile mode matches reference latency/noise semantics.
+
+    Args:
+        monkeypatch: Pytest helper used to make the random masks deterministic.
+
+    Returns:
+        None. The assertions validate binary thresholding, latency, and dropout.
+    """
+    sensor_data = {
+        "contact_right_thumb_elastomer_force": np.array([[0.2, 0.0, 0.0]], dtype=np.float64),
+        "contact_right_index_elastomer_force": np.array([[0.01, 0.0, 0.0]], dtype=np.float64),
+        "contact_right_middle_elastomer_force": np.array([[0.5, 0.0, 0.0]], dtype=np.float64),
+        "contact_right_ring_elastomer_force": np.array([[0.3, 0.0, 0.0]], dtype=np.float64),
+        "contact_right_pinky_elastomer_force": np.array([[0.9, 0.0, 0.0]], dtype=np.float64),
+    }
+    env = _build_fake_tactile_env(
+        sensor_data,
+        binary_contact=True,
+        disable_tactile_ids=[4],
+        contact_smooth=1.0,
+        contact_threshold=0.05,
+        contact_latency=0.5,
+        contact_sensor_noise=0.01,
+        last_contacts=np.array([[0.4, 0.7, 0.0, 1.0, 0.2]], dtype=np.float64),
+    )
+
+    sampled_masks = iter(
+        [
+            np.array([[0.9, 0.1, 0.9, 0.9, 0.1]], dtype=np.float64),
+            np.array([[0.2, 0.2, 0.005, 0.9, 0.2]], dtype=np.float64),
+        ]
+    )
+
+    monkeypatch.setattr(np.random, "rand", lambda *shape: next(sampled_masks).copy())
+
+    tactile = SharpaInhandBaseEnv._compute_tactile_observation(env)
+
+    expected_last = np.array([[1.0, 0.7, 1.0, 1.0, 0.2]], dtype=np.float64)
+    expected_tactile = np.array([[1.0, 0.7, 0.0, 1.0, 0.2]], dtype=np.float64)
+    np.testing.assert_allclose(env.last_contacts, expected_last)
+    np.testing.assert_allclose(tactile, expected_tactile)
+    np.testing.assert_allclose(
+        env._prev_tactile_force,
+        np.array([[0.2, 0.01, 0.5, 0.3, 0.9]], dtype=np.float64),
+    )
+
+
+def test_sharpa_tactile_disabled_clears_history() -> None:
+    """Verify disabled tactile observation clears cached tactile history.
+
+    Args:
+        None.
+
+    Returns:
+        None. The assertions validate the disabled-tactile contract.
+    """
+    sensor_data = {
+        "contact_right_thumb_elastomer_force": np.array([[1.0, 0.0, 0.0]], dtype=np.float64),
+        "contact_right_index_elastomer_force": np.array([[2.0, 0.0, 0.0]], dtype=np.float64),
+        "contact_right_middle_elastomer_force": np.array([[3.0, 0.0, 0.0]], dtype=np.float64),
+        "contact_right_ring_elastomer_force": np.array([[4.0, 0.0, 0.0]], dtype=np.float64),
+        "contact_right_pinky_elastomer_force": np.array([[5.0, 0.0, 0.0]], dtype=np.float64),
+    }
+    env = _build_fake_tactile_env(
+        sensor_data,
+        enable_tactile=False,
+        last_contacts=np.full((1, 5), 3.0, dtype=np.float64),
+        prev_tactile_force=np.full((1, 5), 4.0, dtype=np.float64),
+    )
+
+    tactile = SharpaInhandBaseEnv._compute_tactile_observation(env)
+
+    np.testing.assert_allclose(tactile, np.zeros((1, 5), dtype=np.float64))
+    np.testing.assert_allclose(env.last_contacts, np.zeros((1, 5), dtype=np.float64))
+    np.testing.assert_allclose(env._prev_tactile_force, np.zeros((1, 5), dtype=np.float64))
 
 
 @pytest.mark.slow
@@ -261,28 +445,139 @@ def test_sharpa_mujoco_interval_force_disturbs_object_velocity() -> None:
         env_obj: Any = env
         try:
             env.init_state()
-            assert env_obj._backend.get_dr_capabilities().supports_interval_body_velocity_delta
+            assert env_obj._backend.get_dr_capabilities().supports_interval_body_force
             before = env_obj._backend._physics_state.copy()
             env_obj._dr_manager.apply_interval_randomization_if_due(env_obj.step_counter)
-            after = env_obj._backend._physics_state
 
             body_id = int(env_obj._object_body_id)
+            force_slice = slice(6 * body_id, 6 * body_id + 3)
             joint_adr = int(env_obj._backend.model.body_jntadr[body_id])
             dof_adr = int(env_obj._backend.model.jnt_dofadr[joint_adr])
             qvel_slice = slice(
                 env_obj._backend._idx_qvel + dof_adr,
                 env_obj._backend._idx_qvel + dof_adr + 3,
             )
-            velocity_delta = after[:, qvel_slice] - before[:, qvel_slice]
 
             assert np.any(np.linalg.norm(env_obj._random_object_force, axis=1) > 0.0)
-            assert np.any(np.linalg.norm(velocity_delta, axis=1) > 0.0)
             np.testing.assert_allclose(
-                velocity_delta,
-                env_obj._random_object_force
-                / env_obj._resolve_current_object_mass()[:, None]
-                * env_obj.cfg.ctrl_dt,
+                env_obj._backend._pending_xfrc_applied[:, force_slice],
+                env_obj._random_object_force,
             )
+            env_obj._backend.step(
+                np.zeros((num_envs, env_obj._num_action), dtype=env_obj._np_dtype),
+                nsteps=1,
+            )
+            after = env_obj._backend._physics_state
+            velocity_delta = after[:, qvel_slice] - before[:, qvel_slice]
+            assert np.any(np.linalg.norm(velocity_delta, axis=1) > 0.0)
+        finally:
+            pool = getattr(getattr(env_obj, "_backend", None), "_pool", None)
+            if pool is not None:
+                pool.close()
+            env_obj.close()
+
+
+@pytest.mark.slow
+def test_sharpa_mujoco_interval_force_plan_matches_decay_and_mass_scaled_resample(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify Sharpa force DR matches decay plus mass-scaled Gaussian resampling.
+
+    Args:
+        monkeypatch: Pytest helper used to make numpy random sampling deterministic.
+
+    Returns:
+        None. The assertions validate the exact interval body-force payload.
+    """
+    _require_mujoco_runtime()
+    ensure_registries()
+
+    from unilab.base import registry
+
+    num_envs = 4
+    _, env_cfg_override = _compose_sharpa_mujoco_owner_cfg(num_envs)
+    env_cfg_override["force_scale"] = 2.0
+    env_cfg_override["random_force_prob_scalar"] = 0.5
+    env_cfg_override["randomize_mass"] = False
+    with TemporaryDirectory() as tmp_dir:
+        cache_prefix = Path(tmp_dir) / "sharpa_grasp"
+        env_cfg_override["grasp_cache_path"] = str(cache_prefix)
+        for scale_value in env_cfg_override["scale_list"]:
+            cache_file = cache_prefix.parent / f"{cache_prefix.name}_{float(scale_value):g}.npy"
+            np.save(cache_file, np.zeros((8, 29), dtype=np.float32))
+
+        env = registry.make(
+            "SharpaInhandRotation",
+            num_envs=num_envs,
+            sim_backend="mujoco",
+            env_cfg_override=env_cfg_override,
+        )
+        env_obj: Any = env
+        try:
+            env.init_state()
+            env_obj._random_object_force[:] = np.array(
+                [
+                    [0.4, -0.2, 0.1],
+                    [-0.3, 0.5, -0.7],
+                    [0.8, -0.6, 0.2],
+                    [0.1, 0.3, -0.4],
+                ],
+                dtype=np.float64,
+            )
+            previous_force = env_obj._random_object_force.copy()
+            sampled_uniform = np.array([0.1, 0.9, 0.2, 0.8], dtype=np.float64)
+            sampled_gaussian = np.array(
+                [
+                    [1.0, -2.0, 0.5],
+                    [-1.5, 0.25, 2.0],
+                ],
+                dtype=np.float64,
+            )
+
+            def _fake_rand(*shape: int) -> np.ndarray:
+                assert shape == (num_envs,)
+                return sampled_uniform.copy()
+
+            def _fake_randn(*shape: int) -> np.ndarray:
+                assert shape == (2, 3)
+                return sampled_gaussian.copy()
+
+            monkeypatch.setattr(np.random, "rand", _fake_rand)
+            monkeypatch.setattr(np.random, "randn", _fake_randn)
+
+            decay = float(
+                np.power(
+                    env_obj.cfg.force_decay,
+                    env_obj.cfg.ctrl_dt / max(env_obj.cfg.force_decay_interval, 1.0e-8),
+                )
+            )
+            object_mass = env_obj._resolve_current_object_mass()
+            resample_mask = sampled_uniform < float(env_obj.cfg.random_force_prob_scalar)
+
+            plan = SharpaInhandRotationDRProvider().build_interval_randomization_plan(
+                env_obj,
+                step_counter=0,
+            )
+
+            assert plan is not None
+            assert plan.body_ids is not None
+            assert plan.body_force is not None
+            np.testing.assert_array_equal(
+                plan.body_ids,
+                np.asarray([env_obj._object_body_id], dtype=np.int32),
+            )
+
+            # Envs below the Bernoulli threshold get a fresh Gaussian force sample;
+            # the remaining envs keep the decayed previous force.
+            expected_force = previous_force * decay
+            expected_force[resample_mask] = (
+                sampled_gaussian
+                * object_mass[resample_mask, None]
+                * float(env_obj.cfg.force_scale)
+            )
+            np.testing.assert_allclose(env_obj._random_object_force, expected_force)
+            np.testing.assert_allclose(plan.body_force, expected_force[:, None, :])
+            assert plan.body_linear_velocity_delta is None
         finally:
             pool = getattr(getattr(env_obj, "_backend", None), "_pool", None)
             if pool is not None:

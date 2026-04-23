@@ -16,6 +16,8 @@ from unilab.dr.types import (
     RESET_TERM_BODY_INERTIA,
     RESET_TERM_BODY_IPOS,
     RESET_TERM_BODY_IQUAT,
+    RESET_TERM_BODY_MASS,
+    RESET_TERM_GEOM_FRICTION,
     RESET_TERM_GRAVITY,
     RESET_TERM_KD,
     RESET_TERM_KP,
@@ -285,6 +287,19 @@ class MuJoCoBackend(SimBackend):
         start = 6 * body_id
         return slice(start, start + 3)
 
+    def _sample_push_force(self, force_range: Sequence[float] | np.ndarray) -> np.ndarray:
+        """Sample one world-frame push force vector per environment.
+
+        Args:
+            force_range: Per-axis push-force magnitude range.
+
+        Returns:
+            Array with shape ``(num_envs, 3)`` containing sampled forces.
+        """
+        ex_force = np.random.uniform(-1.0, 1.0, size=(self._num_envs, 3))
+        ex_force *= np.asarray(force_range, dtype=np.float64)
+        return ex_force.astype(np.float64, copy=False)
+
     def _compile_model_variants(
         self,
         variant_specs: Sequence[ModelVariantSpec],
@@ -530,6 +545,7 @@ class MuJoCoBackend(SimBackend):
                 }
             ),
             supports_interval_push=self._push_body_id >= 0,
+            supports_interval_body_force=True,
         )
 
     def apply_init_randomization(self, plan: InitRandomizationPlan) -> None:
@@ -547,15 +563,53 @@ class MuJoCoBackend(SimBackend):
         self._pool = self._build_pool()
 
     def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
-        if plan.push_perturbation_limit is None:
+        if plan.is_empty():
             return
-        self.push_robots(plan.push_perturbation_limit)
+        self._pending_xfrc_applied.fill(0.0)
+        if plan.push_perturbation_limit is not None:
+            self._pending_xfrc_applied[:, self._push_body_force_slice] = self._sample_push_force(
+                plan.push_perturbation_limit
+            )
+        if plan.body_force is not None:
+            if plan.body_ids is None:
+                raise ValueError("Interval body-force perturbation requires body_ids")
+            self.apply_body_force(plan.body_ids, plan.body_force)
+        if plan.body_linear_velocity_delta is not None:
+            if plan.body_ids is None:
+                raise ValueError("Interval body-velocity perturbation requires body_ids")
+            self.apply_body_linear_velocity_delta(plan.body_ids, plan.body_linear_velocity_delta)
 
     def push_robots(self, force_range: Sequence[float] | np.ndarray) -> None:
-        ex_force = np.random.uniform(-1.0, 1.0, size=(self._num_envs, 3))
-        ex_force *= force_range
         self._pending_xfrc_applied.fill(0.0)
-        self._pending_xfrc_applied[:, self._push_body_force_slice] = ex_force
+        self._pending_xfrc_applied[:, self._push_body_force_slice] = self._sample_push_force(
+            force_range
+        )
+
+    def apply_body_force(
+        self,
+        body_ids: np.ndarray,
+        force: np.ndarray,
+    ) -> None:
+        """Accumulate one external world-frame force vector per target body.
+
+        Args:
+            body_ids: Body ids to perturb.
+            force: Force tensor with shape ``(num_envs, len(body_ids), 3)``.
+
+        Returns:
+            None. The force is staged in ``xfrc_applied`` for the next step.
+        """
+        body_ids_np = np.asarray(body_ids, dtype=np.int32).reshape(-1)
+        force_np = np.asarray(force, dtype=np.float64)
+        expected_shape = (self._num_envs, body_ids_np.size, 3)
+        if force_np.shape != expected_shape:
+            raise ValueError(
+                f"body force must have shape {expected_shape}, got {force_np.shape}"
+            )
+        for body_offset, body_id in enumerate(body_ids_np):
+            self._pending_xfrc_applied[:, self._resolve_push_body_force_slice(int(body_id))] += (
+                force_np[:, body_offset, :]
+            )
 
     def get_play_capabilities(self) -> BackendPlayCapabilities:
         return BackendPlayCapabilities(supports_physics_state_playback=True)
