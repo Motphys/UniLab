@@ -17,19 +17,15 @@ check: format type
 
 .PHONY: test
 test:
-	uv run pytest -m "not slow and not veryslow"
+	uv run pytest -m "not slow"
 
 .PHONY: test-cov
 test-cov:
-	uv run pytest -m "not slow and not veryslow" --cov=unilab --cov-report=term-missing
+	uv run pytest -m "not slow" --cov=unilab --cov-report=term-missing
 
 .PHONY: test-slow
 test-slow:
-	uv run pytest -m "slow and not veryslow" -v
-
-.PHONY: test-veryslow
-test-veryslow:
-	uv run pytest -m "veryslow" -v
+	uv run pytest -m "slow" -v
 
 .PHONY: test-all
 test-all: check test-cov

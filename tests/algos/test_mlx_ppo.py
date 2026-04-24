@@ -318,12 +318,11 @@ def test_ppo_trainer_update_decreases_loss():
 
 
 # ---------------------------------------------------------------------------
-# Full training iteration on real env (veryslow)
+# Full training iteration on real env (slow)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.slow
-@pytest.mark.veryslow
 def test_mlx_ppo_one_iteration_real_env(default_go2_reward_config):
     """Run 1 full MLX PPO iteration (collect rollout + update) on a real env."""
     _mujoco = pytest.importorskip("mujoco")

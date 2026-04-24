@@ -32,7 +32,7 @@ make check          # format + type (required before code-related commits)
 make test           # non-slow tests
 make test-cov       # non-slow tests + coverage report
 make test-slow      # slow integration tests (requires MuJoCo)
-make test-veryslow  # full training smoke tests (minutes)
+make test-slow  # full training smoke tests (minutes)
 make test-all       # make check && make test-cov
 ```
 

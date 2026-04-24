@@ -32,7 +32,7 @@ make check          # format + type（代码相关提交前必跑）
 make test           # 非 slow 测试
 make test-cov       # 非 slow 测试 + 覆盖率报告
 make test-slow      # slow 集成测试（需要 MuJoCo）
-make test-veryslow  # 完整训练冒烟测试（分钟级）
+make test-slow  # 完整训练冒烟测试（分钟级）
 make test-all       # make check && make test-cov
 ```
 
@@ -67,8 +67,7 @@ tests/
 ### Test Markers
 
 - 普通测试（无标记）: 不依赖 MuJoCo，使用 `make test`
-- `@pytest.mark.slow`: 需要 MuJoCo 环境，CI 会跳过，本地用 `make test-slow`
-- `@pytest.mark.veryslow`: 完整训练迭代或脚本冒烟测试，显式用 `make test-veryslow`
+- `@pytest.mark.slow`: 需要 MuJoCo 环境或完整训练迭代的测试，CI 会跳过，本地用 `make test-slow`
 - macOS only: `test_mlx_ppo.py` 使用 `pytest.importorskip("mlx")`，在非 macOS 平台自动跳过
 
 ### Test Writing Principles
@@ -83,16 +82,16 @@ tests/
 
 ```bash
 # 快速路径（与 CI 覆盖范围一致）
-uv run pytest -m "not slow and not veryslow"
+uv run pytest -m "not slow"
 
 # 带覆盖率
-uv run pytest -m "not slow and not veryslow" --cov=unilab --cov-report=term-missing
+uv run pytest -m "not slow" --cov=unilab --cov-report=term-missing
 
 # 集成测试（需要 MuJoCo）
-uv run pytest -m "slow and not veryslow" -v
+uv run pytest -m "slow" -v
 
 # 完整训练冒烟测试
-uv run pytest -m veryslow -v
+uv run pytest -m "slow" -v
 ```
 
 ## CI Workflow
@@ -107,7 +106,7 @@ uv run pytest -m veryslow -v
 | `ruff-format` | 在 `ubuntu-slim` 上执行 `uv sync --only-group dev` + `uv run --no-sync ruff format --check .` | ✅ |
 | `mypy` | 在 `ubuntu-slim` 上执行 `uv sync` + `uv run mypy src/unilab` | ✅ |
 | `pyright` | 在 `ubuntu-slim` 上执行 `uv sync` + `uv run pyright` | ✅ |
-| `test` | 在 `ubuntu-slim` 上以 Python 3.11 执行 `uv sync --extra motrix` + `uv run pytest -m "not slow and not veryslow" --cov=unilab --cov-report markdown-append:$GITHUB_STEP_SUMMARY --cov-fail-under=25` | ✅ |
+| `test` | 在 `ubuntu-slim` 上以 Python 3.11 执行 `uv sync --extra motrix` + `uv run pytest -m "not slow" --cov=unilab --cov-report markdown-append:$GITHUB_STEP_SUMMARY --cov-fail-under=25` | ✅ |
 
 只有协作元信息改动，例如 `LICENSE`、issue templates、`CODEOWNERS` 和 `.github/pull_request_template.md`，才会跳过 CI。文档改动会触发 CI，并由 `tests/scripts/test_check_docs.py` 校验。
 
