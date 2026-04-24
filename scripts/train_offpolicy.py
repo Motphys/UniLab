@@ -25,7 +25,7 @@ from unilab.training import (
 from unilab.training import (
     resolve_checkpoint_path as resolve_checkpoint_path_common,
 )
-from unilab.training.logging.experiment import ExperimentTracker
+from unilab.training.experiment import ExperimentTracker
 
 
 def default_device(torch_module, preferred: str | None = None) -> str:

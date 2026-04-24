@@ -28,6 +28,7 @@ ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
 
 from unilab.base.observations import flatten_obs_dict
+from unilab.logging import OnPolicyLogger
 from unilab.training import (
     BackendAdapter,
     create_env,
@@ -43,8 +44,7 @@ from unilab.training import (
 from unilab.training import (
     get_latest_run as get_latest_run_common,
 )
-from unilab.training.logging.experiment import ExperimentTracker
-from unilab.training.logging.onpolicy import OnPolicyLogger
+from unilab.training.experiment import ExperimentTracker
 
 ensure_registries()
 

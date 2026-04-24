@@ -22,7 +22,7 @@ from unilab.training import (
     get_log_root,
     render_play_mode,
 )
-from unilab.training.logging.experiment import ExperimentTracker
+from unilab.training.experiment import ExperimentTracker
 
 
 def build_appo_runner_kwargs(

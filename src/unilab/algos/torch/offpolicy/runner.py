@@ -14,7 +14,7 @@ from unilab.algos.torch.offpolicy.worker import off_policy_collector_fn
 from unilab.ipc import SharedObsNormStats, SharedWeightSync
 from unilab.ipc.async_runner import _SPAWN_CTX, AsyncRunner
 from unilab.ipc.replay_buffer import ReplayBuffer
-from unilab.training.logging.offpolicy import OffPolicyLogger
+from unilab.logging import OffPolicyLogger
 from unilab.utils.device import get_default_device
 
 

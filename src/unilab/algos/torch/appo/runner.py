@@ -20,7 +20,7 @@ from rsl_rl.utils import resolve_callable
 from unilab.algos.torch.appo.learner import APPOLearner
 from unilab.algos.torch.appo.worker import appo_collector_fn
 from unilab.ipc import AsyncRunner, SharedOnPolicyStorage, SharedWeightSync
-from unilab.training.logging.offpolicy import OffPolicyLogger
+from unilab.logging import OffPolicyLogger
 
 
 class APPORunner(AsyncRunner):

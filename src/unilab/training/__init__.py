@@ -8,7 +8,7 @@ from unilab.training.common import (
     get_hydra_runtime_choice,
     setup_logger,
 )
-from unilab.training.logging import ExperimentTracker, OffPolicyLogger, OnPolicyLogger
+from unilab.training.experiment import ExperimentTracker
 from unilab.training.monitoring import HardwareMonitor
 from unilab.training.run import (
     get_entrypoint_log_root,
@@ -25,8 +25,6 @@ __all__ = [
     "BackendAdapter",
     "ExperimentTracker",
     "HardwareMonitor",
-    "OffPolicyLogger",
-    "OnPolicyLogger",
     "assert_offpolicy_task_choice_matches_algo",
     "create_env",
     "ensure_registries",

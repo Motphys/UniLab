@@ -27,7 +27,7 @@ from unilab.training import (
     parse_checkpoint_path,
     render_play_mode,
 )
-from unilab.training.logging.experiment import ExperimentTracker, patch_rsl_rl_wandb_writer
+from unilab.training.experiment import ExperimentTracker, patch_rsl_rl_wandb_writer
 from unilab.training.rsl_rl import RslRlVecEnvWrapper, normalize_ppo_train_cfg
 
 try:
