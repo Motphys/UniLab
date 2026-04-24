@@ -113,8 +113,6 @@ def play_appo(cfg: DictConfig, rl_cfg: dict[str, Any]) -> str | None:
     from rsl_rl.utils import resolve_callable
     from tensordict import TensorDict
 
-    from unilab.algos.torch.rsl_rl.compat import convert_config_v3_to_v4, is_rsl_rl_v4, is_rsl_rl_v5
-
     env_cfg_override = BackendAdapter(
         cfg, root_dir=ROOT_DIR, algo_name="appo"
     ).build_task_env_cfg_override()
@@ -163,11 +161,6 @@ def play_appo(cfg: DictConfig, rl_cfg: dict[str, Any]) -> str | None:
             }
         elif isinstance(critic_group, dict) and "policy" in critic_group:
             critic_group["policy"] = critic_dim if critic_dim > 0 else obs_dim
-
-    if is_rsl_rl_v5():
-        pass
-    elif is_rsl_rl_v4():
-        rl_cfg_dict = convert_config_v3_to_v4(rl_cfg_dict)
 
     from copy import deepcopy
 

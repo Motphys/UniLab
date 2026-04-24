@@ -76,7 +76,6 @@ def appo_collector_fn(
 
     from tensordict import TensorDict
 
-    from unilab.algos.torch.rsl_rl.compat import convert_config_v3_to_v4, is_rsl_rl_v4, is_rsl_rl_v5
     from unilab.base import registry
     from unilab.ipc import SharedOnPolicyStorage, SharedWeightSync
 
@@ -107,10 +106,6 @@ def appo_collector_fn(
 
     # Build actor (stochastic MLPModel — mirrors runner._build_learner)
     cfg = dict(rl_cfg)
-    if is_rsl_rl_v5():
-        pass  # appo_config is already v5-compatible (actor/critic format)
-    elif is_rsl_rl_v4():
-        cfg = convert_config_v3_to_v4(cfg)
 
     obs_example = torch.zeros((num_envs, obs_dim), device=collector_device)
     td_example = TensorDict({"policy": obs_example}, batch_size=num_envs)

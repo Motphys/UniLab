@@ -19,7 +19,6 @@ from rsl_rl.utils import resolve_callable
 
 from unilab.algos.torch.appo.learner import APPOLearner
 from unilab.algos.torch.appo.worker import appo_collector_fn
-from unilab.algos.torch.rsl_rl.compat import convert_config_v3_to_v4, is_rsl_rl_v4, is_rsl_rl_v5
 from unilab.ipc import AsyncRunner, SharedOnPolicyStorage, SharedWeightSync
 from unilab.training.logging.offpolicy import OffPolicyLogger
 
@@ -109,10 +108,6 @@ class APPORunner(AsyncRunner):
 
     def _build_learner(self):
         cfg = dict(self.rl_cfg)
-        if is_rsl_rl_v5():
-            pass  # appo_config is already v5-compatible (actor/critic format)
-        elif is_rsl_rl_v4():
-            cfg = convert_config_v3_to_v4(cfg)
 
         import torch
         from tensordict import TensorDict

@@ -16,7 +16,6 @@ if str(SRC_DIR) not in sys.path:
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from unilab.algos.torch.rsl_rl.vec_env_wrapper import RslRlVecEnvWrapper
 from unilab.base.backend.xml import materialize_scene_visual_override
 from unilab.training import (
     BackendAdapter,
@@ -29,14 +28,13 @@ from unilab.training import (
     render_play_mode,
 )
 from unilab.training.logging.experiment import ExperimentTracker, patch_rsl_rl_wandb_writer
+from unilab.training.rsl_rl import RslRlVecEnvWrapper, normalize_ppo_train_cfg
 
 try:
     from rsl_rl.runners import OnPolicyRunner
 except ImportError:
     print("Could not import rsl_rl. Please ensure it is installed.")
     sys.exit(1)
-
-from unilab.algos.torch.rsl_rl.compat import convert_config_v5, is_rsl_rl_v5
 
 
 def _backend_adapter(cfg: DictConfig) -> BackendAdapter:
@@ -156,12 +154,10 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
         env_cfg_override=env_cfg_override,
     )
     wrapped_env = RslRlVecEnvWrapper(env, device=device)
-    train_cfg = _algo_config_dict(cfg)
+    train_cfg = normalize_ppo_train_cfg(_algo_config_dict(cfg))
     if "runner" not in train_cfg:
         train_cfg["runner"] = {}
     train_cfg["runner"]["logger"] = "none"
-    if is_rsl_rl_v5():
-        train_cfg = cast(dict[str, Any], convert_config_v5(train_cfg))
 
     runner = cast(
         Any,
@@ -279,7 +275,7 @@ def main(cfg: DictConfig) -> None:
             )
             wrapped_env = RslRlVecEnvWrapper(env, device=device)
 
-            train_cfg = _algo_config_dict(cfg)
+            train_cfg = normalize_ppo_train_cfg(_algo_config_dict(cfg))
             if "runner" not in train_cfg:
                 train_cfg["runner"] = {}
 
@@ -299,9 +295,6 @@ def main(cfg: DictConfig) -> None:
                 train_cfg["wandb_tags"] = wandb_settings["tags"]
                 train_cfg["wandb_notes"] = wandb_settings["notes"]
                 train_cfg["wandb_mode"] = wandb_settings["mode"]
-
-            if is_rsl_rl_v5():
-                train_cfg = cast(dict[str, Any], convert_config_v5(train_cfg))
 
             runner = cast(
                 Any,
