@@ -74,7 +74,7 @@ required-environments = [
 line-length = 100
 target-version = "py310"
 src = ["src"]
-exclude = [".history"]
+extend-exclude = [".history"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]

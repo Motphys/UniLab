@@ -9,12 +9,27 @@ Run:
 
 from __future__ import annotations
 
+import subprocess
 import sys
 
 import pytest
 
+
+def _mlx_runtime_usable() -> bool:
+    """Probe whether importing mlx.core is safe in a subprocess on this host."""
+    if sys.platform != "darwin":
+        return False
+    result = subprocess.run(
+        [sys.executable, "-c", "import mlx.core"], capture_output=True, text=True, timeout=10
+    )
+    return result.returncode == 0
+
+
 if sys.platform != "darwin":
     pytest.skip("MLX is macOS-only", allow_module_level=True)
+
+if not _mlx_runtime_usable():
+    pytest.skip("mlx runtime aborts in subprocess on this host", allow_module_level=True)
 
 mlx = pytest.importorskip("mlx.core", reason="mlx not installed")
 

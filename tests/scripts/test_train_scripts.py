@@ -9,6 +9,7 @@ Coverage targets:
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, cast
@@ -61,12 +62,20 @@ def _load_script(name: str) -> Any:
 # Helpers
 # ---------------------------------------------------------------------------
 
-try:
-    import sys as _sys
 
-    _HAS_MLX = _sys.platform == "darwin" and importlib.util.find_spec("mlx.core") is not None
-except Exception:
-    _HAS_MLX = False
+def _mlx_runtime_usable() -> bool:
+    """Probe whether importing mlx.core is safe in a subprocess on this host."""
+    if sys.platform != "darwin":
+        return False
+    if importlib.util.find_spec("mlx.core") is None:
+        return False
+    result = subprocess.run(
+        [sys.executable, "-c", "import mlx.core"], capture_output=True, text=True, timeout=10
+    )
+    return result.returncode == 0
+
+
+_HAS_MLX = _mlx_runtime_usable()
 
 try:
     import mujoco  # noqa: F401
