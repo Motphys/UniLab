@@ -158,6 +158,9 @@ class SharpaInhandBaseCfg(EnvCfg):
     tactile_force_clip_max: float = 4.0
     contact_latency: float = 0.005
     contact_sensor_noise: float = 0.01
+    # Match the reference Sharpa object-position reward/privileged-info anchor
+    # by using the fixed XML/default object pose instead of the sampled grasp reset.
+    use_default_object_pose_for_object_pos_anchor: bool = False
     include_privileged_friction_scale: bool = True
     include_privileged_gravity_direction: bool = False
 

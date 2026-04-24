@@ -257,10 +257,11 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
         object_default_pose = np.concatenate(
             [object_pos_f, object_quat.astype(dtype)], axis=1
         ).astype(dtype)
+        object_pos_anchor = env._build_object_pos_anchor(object_pos_f).astype(dtype)
         critic_info = env._fill_critic_info(
             critic_info=critic_info,
             object_pos=object_pos_f,
-            object_default_pose=object_default_pose,
+            object_pos_anchor=object_pos_anchor,
         )
 
         info_updates = {
@@ -272,6 +273,7 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
             "prev_object_pos": object_pos.astype(dtype).copy(),
             "prev_object_quat": object_quat.astype(dtype).copy(),
             "object_default_pose": object_default_pose,
+            "object_pos_anchor": object_pos_anchor,
             "reset_height_lower": reset_height_lower.astype(dtype),
             "reset_height_upper": reset_height_upper.astype(dtype),
             "rot_axis": rot_axis.astype(dtype),
@@ -1076,6 +1078,72 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
             np.zeros((batch_size, contact_pos_dim), dtype=self._np_dtype),
         )
 
+    def _fixed_default_object_pose(self, batch_size: int) -> np.ndarray:
+        """Build the fixed default object pose from the backend init state.
+
+        Args:
+            batch_size: Number of environments in the batch.
+
+        Returns:
+            Array with shape ``(batch_size, 7)`` containing the default object
+            position and quaternion loaded from the backend/model init qpos.
+        """
+        object_pos = np.broadcast_to(
+            np.asarray(self._init_qpos[self._obj_pos_slice], dtype=self._np_dtype),
+            (batch_size, 3),
+        ).copy()
+        object_quat = np.broadcast_to(
+            np.asarray(self._init_qpos[self._obj_quat_slice], dtype=self._np_dtype),
+            (batch_size, 4),
+        ).copy()
+        return np.concatenate([object_pos, object_quat], axis=1).astype(self._np_dtype)
+
+    def _build_object_pos_anchor(
+        self,
+        object_pos: np.ndarray,
+    ) -> np.ndarray:
+        """Choose the reward/privileged-info object-position anchor.
+
+        Args:
+            object_pos: Reset-time object positions with shape ``(batch_size, 3)``.
+
+        Returns:
+            Array with shape ``(batch_size, 3)``. When the config flag is set,
+            the fixed XML/default object position is used; otherwise the sampled
+            reset position is returned to preserve the legacy UniLab behavior.
+        """
+        object_pos = np.asarray(object_pos, dtype=self._np_dtype)
+        if self._cfg.use_default_object_pose_for_object_pos_anchor:
+            return self._fixed_default_object_pose(object_pos.shape[0])[:, 0:3]
+        return object_pos.copy()
+
+    def _resolve_object_pos_anchor(
+        self,
+        info: dict[str, Any],
+        batch_size: int,
+    ) -> np.ndarray:
+        """Resolve the cached object-position anchor for one runtime batch.
+
+        Args:
+            info: Mutable env-state info dictionary.
+            batch_size: Number of environments in the current batch.
+
+        Returns:
+            Array with shape ``(batch_size, 3)`` used by the object-position
+            reward and privileged-info delta channels.
+        """
+        cached_anchor = info.get("object_pos_anchor")
+        if cached_anchor is not None:
+            return np.asarray(cached_anchor, dtype=self._np_dtype)
+
+        object_default_pose = info.get("object_default_pose")
+        if object_default_pose is not None:
+            return np.asarray(object_default_pose, dtype=self._np_dtype)[:, 0:3]
+
+        if self._cfg.use_default_object_pose_for_object_pos_anchor:
+            return self._fixed_default_object_pose(batch_size)[:, 0:3]
+        return np.zeros((batch_size, 3), dtype=self._np_dtype)
+
     def _policy_frame_parts(
         self,
         dof_norm: np.ndarray,
@@ -1105,14 +1173,14 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         self,
         critic_info: np.ndarray,
         object_pos: np.ndarray,
-        object_default_pose: np.ndarray,
+        object_pos_anchor: np.ndarray,
     ) -> np.ndarray:
         """Populate privileged channels that are derived from runtime state.
 
         Args:
             critic_info: Critic info buffer to update in place.
             object_pos: Current object positions with shape (batch, 3).
-            object_default_pose: Reset-time object pose cache with shape (batch, 7).
+            object_pos_anchor: Object-position anchor with shape (batch, 3).
 
         Returns:
             Updated critic info array with shape (batch, critic_info_dim).
@@ -1120,7 +1188,7 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         self._assign_critic_info_field(
             critic_info,
             "object_pos_delta",
-            object_pos - object_default_pose[:, 0:3],
+            object_pos - object_pos_anchor,
         )
         return critic_info
 
@@ -1213,17 +1281,11 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
             dtype=self._np_dtype,
         )
 
-        object_default_pose = np.asarray(
-            info.get(
-                "object_default_pose",
-                np.zeros((batch_size, 7), dtype=self._np_dtype),
-            ),
-            dtype=self._np_dtype,
-        )
+        object_pos_anchor = self._resolve_object_pos_anchor(info, batch_size)
         critic_info = self._fill_critic_info(
             critic_info=critic_info,
             object_pos=object_pos,
-            object_default_pose=object_default_pose,
+            object_pos_anchor=object_pos_anchor,
         )
 
         info["critic_info"] = critic_info
@@ -1315,15 +1377,9 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         torque_penalty = np.sum(np.square(torques), axis=1)
         work_penalty = np.square(np.sum(torques * dof_vel, axis=1))
 
-        object_default_pose = np.asarray(
-            info.get(
-                "object_default_pose",
-                np.zeros((self._num_envs, 7), dtype=self._np_dtype),
-            ),
-            dtype=self._np_dtype,
-        )
+        object_pos_anchor = self._resolve_object_pos_anchor(info, object_pos.shape[0])
         object_pos_reward = 1.0 / (
-            np.linalg.norm(object_pos - object_default_pose[:, 0:3], axis=1) + 0.001
+            np.linalg.norm(object_pos - object_pos_anchor, axis=1) + 0.001
         )
 
         reward_terms: dict[str, np.ndarray] = {

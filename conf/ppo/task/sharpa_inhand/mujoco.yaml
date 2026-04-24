@@ -71,6 +71,7 @@ env:
   tactile_force_clip_max: 4.0
   contact_latency: 0.005
   contact_sensor_noise: 0.01
+  use_default_object_pose_for_object_pos_anchor: true
   include_privileged_friction_scale: true
   include_privileged_gravity_direction: false
   dof_limits_scale: 0.9
