@@ -28,7 +28,7 @@ def test_reward_config_loading_g1_motrix():
 
 def test_resolve_reward_dict_reads_task_reward():
     """Task-backend configs should expose the final reward mapping directly."""
-    from unilab.config.reward import resolve_reward_dict
+    from unilab.training.reward import resolve_reward_dict
 
     with initialize(config_path="../../conf/ppo", version_base="1.3"):
         cfg = compose(

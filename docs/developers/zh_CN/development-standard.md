@@ -34,7 +34,7 @@ CPU Physics Sim ──shm──► Collector / IPC ──shm──► GPU Learne
 |-------|------|------|----------|
 | L0 Backend | `base/backend/` | `SimBackend` 物理后端抽象 | 训练逻辑、reward |
 | L1 Env | `envs/`, `base/np_env.py` | MDP 语义、observation、reward、reset | 调度、日志策略 |
-| L2 Config & Registry | `config/`, `base/registry.py`, `conf/` | schema、task / reward 组合、注册 | 零散业务默认值 |
+| L2 Config & Registry | `structured_configs.py`, `training/reward.py`, `base/registry.py`, `conf/` | schema、task / reward 组合、注册 | 零散业务默认值 |
 | L3 Algo & IPC | `algos/`, `ipc/` | learner、runner、collector、shared-memory 通路 | env / backend 细节 |
 | L4 Scripts | `scripts/` | 只做装配 | 核心业务规则 |
 
@@ -68,7 +68,7 @@ CPU Physics Sim ──shm──► Collector / IPC ──shm──► GPU Learne
 
 ## 5. Configuration
 
-UniLab 使用 dataclass + Hydra。schema 位于 `src/unilab/config/structured_configs.py`，运行时配置位于 `conf/{ppo,appo,offpolicy}/`。
+UniLab 使用 dataclass + Hydra。schema 位于 `src/unilab/structured_configs.py`，运行时配置位于 `conf/{ppo,appo,offpolicy}/`。
 
 合成顺序: `{algo}/config*.yaml` -> `task=...` -> CLI override。
 
@@ -141,7 +141,7 @@ Env **负责** MDP 语义、observation 结构、reward、reset，以及 backend
 - `scripts/train_{rsl_rl,mlx_ppo,appo,offpolicy}.py`
 - `src/unilab/base/{registry,np_env}.py`
 - `src/unilab/base/backend/base.py`
-- `src/unilab/config/structured_configs.py`
+- `src/unilab/structured_configs.py`
 - `src/unilab/utils/{reward_utils,obs_utils}.py`
 - `src/unilab/ipc/async_runner.py`
 

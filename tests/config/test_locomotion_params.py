@@ -16,7 +16,7 @@ CONF_DIR = Path(__file__).parent.parent.parent / "conf"
 
 
 def test_sac_config_defaults():
-    from unilab.config.structured_configs import SACAlgoParams, SACConfig
+    from unilab.structured_configs import SACAlgoParams, SACConfig
 
     cfg = SACConfig()
     assert cfg.algo == "sac"
@@ -28,7 +28,7 @@ def test_sac_config_defaults():
 
 
 def test_td3_config_defaults():
-    from unilab.config.structured_configs import TD3Config
+    from unilab.structured_configs import TD3Config
 
     cfg = TD3Config()
     assert cfg.algo == "td3"
@@ -38,7 +38,7 @@ def test_td3_config_defaults():
 
 
 def test_flashsac_config_defaults():
-    from unilab.config.structured_configs import FlashSACAlgoParams, FlashSACConfig
+    from unilab.structured_configs import FlashSACAlgoParams, FlashSACConfig
 
     cfg = FlashSACConfig()
     assert cfg.algo == "flashsac"
@@ -53,7 +53,7 @@ def test_flashsac_config_defaults():
 
 
 def test_ppo_config_defaults():
-    from unilab.config.structured_configs import PPOConfig
+    from unilab.structured_configs import PPOConfig
 
     cfg = PPOConfig()
     assert cfg.algo == "ppo"
@@ -64,7 +64,7 @@ def test_ppo_config_defaults():
 
 
 def test_appo_config_defaults():
-    from unilab.config.structured_configs import APPOConfig
+    from unilab.structured_configs import APPOConfig
 
     cfg = APPOConfig()
     assert cfg.algo == "appo"
@@ -73,7 +73,7 @@ def test_appo_config_defaults():
 
 
 def test_base_config_to_dict():
-    from unilab.config.structured_configs import SACConfig
+    from unilab.structured_configs import SACConfig
 
     cfg = SACConfig()
     d = cfg.to_dict()

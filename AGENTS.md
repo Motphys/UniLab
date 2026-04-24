@@ -36,7 +36,7 @@ UniLab 是一个 **高性能、模块化、contract 驱动** 的 RL infrastructu
 - visualization helpers: `src/unilab/visualization/`
 - env shared numeric helpers: `src/unilab/envs/common/rotation.py`, `src/unilab/envs/common/math.py`
 - MLX rotation helpers: `src/unilab/algos/mlx/common/rotation.py`
-- config schema: `src/unilab/config/structured_configs.py`
+- config schema: `src/unilab/structured_configs.py`
 - async runner: `src/unilab/ipc/async_runner.py`
 
 ## GitHub CLI (gh) 速查

@@ -59,7 +59,7 @@ from unilab.training.rsl_rl import (
 ensure_registries()
 
 from unilab.base import registry
-from unilab.config.structured_configs import PPOConfig as _StructuredPPOConfig
+from unilab.structured_configs import PPOConfig as _StructuredPPOConfig
 
 PPOConfig = _StructuredPPOConfig
 

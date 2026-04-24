@@ -330,7 +330,7 @@ def test_mlx_ppo_one_iteration_real_env(default_go2_reward_config):
     from unilab.base import registry
     from unilab.base.observations import flatten_obs_dict
     from unilab.base.registry import ensure_registries
-    from unilab.config.structured_configs import PPOConfig as PPOStructuredConfig
+    from unilab.structured_configs import PPOConfig as PPOStructuredConfig
 
     ensure_registries()
 

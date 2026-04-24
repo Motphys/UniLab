@@ -8,7 +8,7 @@ from typing import Any, Callable
 from omegaconf import DictConfig, OmegaConf
 
 from unilab.base.backend.xml import materialize_scene_visual_override
-from unilab.config.reward import extract_reward_config
+from unilab.training.reward import extract_reward_config
 
 
 class BackendAdapter:

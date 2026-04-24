@@ -21,7 +21,7 @@ from tensordict import TensorDict
 
 from unilab.base import registry
 from unilab.base.registry import ensure_registries
-from unilab.config.structured_configs import PPOConfig
+from unilab.structured_configs import PPOConfig
 from unilab.training.rsl_rl import normalize_ppo_train_cfg
 from unilab.utils.tensor import to_torch
 

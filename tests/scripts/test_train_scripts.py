@@ -580,7 +580,7 @@ def test_run_motrix_rsl_play_loop_uses_render_spacing():
 
 
 def test_g1_motion_tracking_appo_reward_extraction_prefers_backend_specific_reward():
-    from unilab.config.reward import extract_reward_config
+    from unilab.training.reward import extract_reward_config
 
     cfg = _appo_cfg(["task=g1_motion_tracking/motrix"])
 
