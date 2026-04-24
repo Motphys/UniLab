@@ -230,9 +230,7 @@ def get_device_info_line() -> str:
             d.get("cpu_performance_cores") != "unknown"
             and d.get("cpu_efficiency_cores") != "unknown"
         ):
-            core_summary = (
-                f"{d['cpu_performance_cores']}P+{d['cpu_efficiency_cores']}E"
-            )
+            core_summary = f"{d['cpu_performance_cores']}P+{d['cpu_efficiency_cores']}E"
         else:
             core_summary = "unknown"
         return (
