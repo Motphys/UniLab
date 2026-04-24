@@ -47,14 +47,27 @@ def _get_device_info_macos() -> Dict[str, str]:
     if mem_match:
         info["memory"] = mem_match.group(1).strip()
 
+    # Apple Silicon core descriptions vary by generation:
+    #   M3/M4: "10 performance and 4 efficiency"
+    #   M5 Pro/Max: "6 super and 12 performance"
     cpu_match = re.search(
-        r"Total Number of Cores:\s*(\d+)\s*\((\d+)\s*performance and (\d+)\s*efficiency\)",
+        r"Total Number of Cores:\s*(\d+)\s*\(\s*(\d+)\s*(\w+)\s+and\s+(\d+)\s*(\w+)\s*\)",
         hw_text,
     )
     if cpu_match:
-        info["cpu_total_cores"], info["cpu_performance_cores"], info["cpu_efficiency_cores"] = (
-            cpu_match.groups()
-        )
+        total, count1, type1, count2, type2 = cpu_match.groups()
+        info["cpu_total_cores"] = total
+        info["cpu_core_type_1"] = type1
+        info["cpu_core_count_1"] = count1
+        info["cpu_core_type_2"] = type2
+        info["cpu_core_count_2"] = count2
+        # Backward-compat keys for legacy P+E format
+        if type1 == "performance" and type2 == "efficiency":
+            info["cpu_performance_cores"] = count1
+            info["cpu_efficiency_cores"] = count2
+        elif type1 == "super" and type2 == "performance":
+            info["cpu_super_cores"] = count1
+            info["cpu_performance_cores"] = count2
     else:
         cpu_total_match = re.search(r"Total Number of Cores:\s*(\d+)", hw_text)
         if cpu_total_match:
@@ -208,10 +221,24 @@ def get_device_info_dict() -> Dict[str, str]:
 def get_device_info_line() -> str:
     d = get_device_info_dict()
     if _is_macos():
+        # Build core-type summary dynamically so M5 (super+performance) is shown correctly
+        if d.get("cpu_core_type_1") and d.get("cpu_core_type_2"):
+            t1 = d["cpu_core_type_1"][0].upper()
+            t2 = d["cpu_core_type_2"][0].upper()
+            core_summary = f"{d['cpu_core_count_1']}{t1}+{d['cpu_core_count_2']}{t2}"
+        elif (
+            d.get("cpu_performance_cores") != "unknown"
+            and d.get("cpu_efficiency_cores") != "unknown"
+        ):
+            core_summary = (
+                f"{d['cpu_performance_cores']}P+{d['cpu_efficiency_cores']}E"
+            )
+        else:
+            core_summary = "unknown"
         return (
             f"Device: {d.get('chip', 'unknown')} | "
             f"CPU: {d.get('cpu_total_cores', 'unknown')} cores "
-            f"({d.get('cpu_performance_cores', 'unknown')}P+{d.get('cpu_efficiency_cores', 'unknown')}E) | "
+            f"({core_summary}) | "
             f"GPU: {d.get('gpu_cores', 'unknown')} cores | "
             f"Memory: {d.get('memory', 'unknown')}"
         )
