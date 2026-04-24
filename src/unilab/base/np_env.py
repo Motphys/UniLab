@@ -10,8 +10,8 @@ import numpy as np
 
 from unilab.base.backend import SimBackend
 from unilab.base.base import ABEnv, EnvCfg, EnvPlayCapabilities
-from unilab.base.dtype_config import get_global_dtype
 from unilab.dr import DomainRandomizationManager, DomainRandomizationProvider
+from unilab.dtype_config import get_global_dtype
 
 if TYPE_CHECKING:
     from unilab.base.augmentation import SymmetryAugmentation

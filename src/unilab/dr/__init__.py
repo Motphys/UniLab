@@ -1,3 +1,8 @@
+"""Domain randomization package.
+
+Invariant: this package must not depend on unilab.base.*
+"""
+
 from .manager import DomainRandomizationManager
 from .provider import DomainRandomizationProvider
 from .types import (

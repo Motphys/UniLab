@@ -24,8 +24,8 @@ from unilab.dr.types import (
     ModelVariantSpec,
     ResetRandomizationPayload,
 )
+from unilab.dtype_config import get_global_dtype
 
-from ..dtype_config import get_global_dtype
 from .base import BackendPlayCapabilities, SimBackend
 
 

@@ -10,7 +10,6 @@ import numpy as np
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.backend import create_backend
-from unilab.base.dtype_config import get_global_dtype
 from unilab.base.np_env import NpEnvState
 from unilab.dr import (
     DomainRandomizationCapabilities,
@@ -25,6 +24,7 @@ from unilab.dr.dr_utils import (
     validate_interval_push_support,
     zero_actions,
 )
+from unilab.dtype_config import get_global_dtype
 from unilab.envs.common.math import np_sample_uniform
 from unilab.envs.common.rotation import (
     np_matrix_from_quat,

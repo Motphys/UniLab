@@ -11,7 +11,6 @@ from etils import epath
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.backend import create_backend
-from unilab.base.dtype_config import get_global_dtype
 from unilab.base.np_env import NpEnvState
 from unilab.dr import (
     DomainRandomizationCapabilities,
@@ -26,6 +25,7 @@ from unilab.dr.dr_utils import (
     validate_interval_push_support,
     zero_actions,
 )
+from unilab.dtype_config import get_global_dtype
 from unilab.envs.common.rotation import np_quat_conjugate, np_quat_mul, np_quat_to_axis_angle
 from unilab.envs.manipulation.inhand_rot_allegro.base import AllegroBaseCfg, AllegroBaseEnv
 

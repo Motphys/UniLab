@@ -4,12 +4,12 @@ from typing import Any
 
 import numpy as np
 
-from unilab.base.dtype_config import get_global_dtype
 from unilab.dr.types import (
     DomainRandomizationCapabilities,
     IntervalRandomizationPlan,
     ResetRandomizationPayload,
 )
+from unilab.dtype_config import get_global_dtype
 
 
 def zero_actions(num_reset: int, num_action: int) -> np.ndarray:
