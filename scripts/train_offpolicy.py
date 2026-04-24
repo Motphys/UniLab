@@ -376,27 +376,13 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
 
     # Export actor to ONNX
     if load_path_dir is not None:
-        import torch.nn as nn
-
         onnx_path = os.path.join(load_path_dir, "policy.onnx")
         dummy_input = torch.randn(1, obs_dim, device=device)
         with torch.inference_mode():
             if normalizer:
                 dummy_input = normalizer(dummy_input, update=False)
             if algo_name in ("sac", "flashsac"):
-                # SACActor.forward returns (action, mean, log_std); wrap to output deterministic action only
-                _sac_actor = actor
-
-                class _DeterministicWrapper(nn.Module):
-                    def __init__(self, base: nn.Module):
-                        super().__init__()
-                        self.base = base
-
-                    def forward(self, obs: torch.Tensor) -> torch.Tensor:
-                        action, _, _ = self.base(obs)
-                        return action
-
-                export_module = _DeterministicWrapper(_sac_actor)
+                export_module = actor.as_export_module()
                 output_names = ["action"]
             else:
                 export_module = actor

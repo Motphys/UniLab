@@ -83,6 +83,21 @@ class FlashSACActor(nn.Module):
         encoded = self._encode(observations, training=training)
         return cast(tuple[torch.Tensor, dict[str, torch.Tensor]], self.predictor(encoded))
 
+    def as_export_module(self) -> "nn.Module":
+        """Return a single-input/single-output wrapper suitable for torch.onnx.export."""
+        actor = self
+
+        class _Wrapper(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.base = actor
+
+            def forward(self, obs: torch.Tensor) -> torch.Tensor:
+                action, _ = self.base(obs, training=False)
+                return cast(torch.Tensor, action)
+
+        return _Wrapper()
+
     def _ensure_exploration_state(
         self, batch_size: int, action_dim: int, device: torch.device, dtype: torch.dtype
     ) -> None:
