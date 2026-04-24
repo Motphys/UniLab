@@ -46,7 +46,7 @@ from matplotlib.patches import Rectangle
 from mujoco.batch_env import BatchEnvPool
 
 from unilab.base.backend.xml import create_discardvisual_xml
-from unilab.base.dtype_config import get_global_dtype
+from unilab.dtype_config import get_global_dtype
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
