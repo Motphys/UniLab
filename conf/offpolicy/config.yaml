@@ -25,6 +25,7 @@ training:
   cam_distance: 6.0
   cam_elevation: -20.0
   cam_azimuth: 90.0
+  log_root: null
   log_dir: null
   no_sync_collection: false
   env_steps_per_sync: 1

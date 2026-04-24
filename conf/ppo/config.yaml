@@ -79,6 +79,7 @@ training:
   cam_tracking: false
   cam_tracking_env_idx: 0
   cam_tracking_extra_envs: 2
+  log_root: null
   num_timesteps: null
   log_dir: null
 
