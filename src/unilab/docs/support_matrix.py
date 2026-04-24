@@ -118,6 +118,13 @@ ENTRYPOINT_SPECS: tuple[EntrypointSpec, ...] = (
         task_glob="*/*.yaml",
         generic_tested=True,
     ),
+    EntrypointSpec(
+        entrypoint_id="flashsac_torch",
+        label="FlashSAC (torch)",
+        config_dir="conf/offpolicy/task/flashsac",
+        task_glob="*/*.yaml",
+        generic_tested=True,
+    ),
 )
 
 

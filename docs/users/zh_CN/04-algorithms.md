@@ -116,6 +116,41 @@ uv run scripts/train_offpolicy.py algo=td3 task=td3/g1_walk_flat/mujoco training
 | `training.play_only` | false | 仅回放 |
 | `training.no_play` | false | 跳过自动回放 |
 
+## FlashSAC
+
+FlashSAC 是基于 FlashAttention 风格 Block 的 off-policy 算法，actor 使用 BatchNorm embedder + 结构化噪声探索，critic 使用 distributional Q（C51 变体）。与 FastSAC 共用同一个训练入口 `train_offpolicy.py`，但网络结构和前向接口不同。
+
+### Usage
+
+```bash
+# 基本训练
+uv run scripts/train_offpolicy.py algo=flashsac task=flashsac/g1_walk_flat/mujoco
+
+# 跳过自动回放
+uv run scripts/train_offpolicy.py algo=flashsac task=flashsac/g1_walk_flat/mujoco training.no_play=true
+```
+
+### Playback
+
+```bash
+uv run scripts/train_offpolicy.py algo=flashsac task=flashsac/g1_walk_flat/mujoco training.play_only=true
+uv run scripts/train_offpolicy.py algo=flashsac task=flashsac/g1_walk_flat/mujoco training.play_only=true algo.load_run="2026-04-23_14-06-57_mujoco"
+```
+
+### Key Parameters
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `algo` | `flashsac` | 算法选择 |
+| `task` | `flashsac/g1_walk_flat/mujoco` | 唯一 owner 配置入口；reward/env/algo 都在这里改 |
+| `algo.max_iterations` | 5000 | 最大训练迭代数 |
+| `algo.num_envs` | 1024 | 并行环境数量 |
+| `algo.tau` | 0.01 | target network 软更新系数 |
+| `algo.algo_params.actor_num_blocks` | 2 | actor FlashSAC block 层数 |
+| `algo.algo_params.critic_num_blocks` | 2 | critic FlashSAC block 层数 |
+| `training.play_only` | false | 仅回放 |
+| `training.no_play` | false | 跳过自动回放 |
+
 ## Navigation
 
 - Previous: [Training Guide](03-training.md)

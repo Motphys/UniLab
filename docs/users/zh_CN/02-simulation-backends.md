@@ -71,6 +71,8 @@ uv run scripts/generate_support_matrix.py --write
 | SAC (torch) | `g1_walk_rough` (G1 walk rough) | Tested | Registered |
 | SAC (torch) | `g1_sac_wbt` (g1 sac wbt) | Tested | - |
 | TD3 (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered |
+| FlashSAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested |
+| FlashSAC (torch) | `g1_walk_flat_amp` (g1 walk flat amp) | Tested | Registered |
 
 ### Source Index
 
