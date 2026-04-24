@@ -19,7 +19,6 @@ from unilab.training.run import (
     resolve_checkpoint_path,
     resolve_task_checkpoint_path,
 )
-from unilab.visualization.playback import render_play_mode
 
 __all__ = [
     "BackendAdapter",
@@ -34,7 +33,6 @@ __all__ = [
     "get_latest_run",
     "get_log_root",
     "parse_checkpoint_path",
-    "render_play_mode",
     "resolve_checkpoint_path",
     "resolve_task_checkpoint_path",
     "setup_logger",

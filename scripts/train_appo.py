@@ -20,9 +20,9 @@ from unilab.training import (
     create_env,
     ensure_registries,
     get_log_root,
-    render_play_mode,
 )
 from unilab.training.experiment import ExperimentTracker
+from unilab.visualization import render_play_mode
 
 
 def build_appo_runner_kwargs(

@@ -14,9 +14,9 @@ from unilab.training import (
     get_latest_checkpoint,
     get_latest_run,
     parse_checkpoint_path,
-    render_play_mode,
     resolve_task_checkpoint_path,
 )
+from unilab.visualization.playback import render_play_mode
 
 _ROOT_DIR = Path(__file__).resolve().parents[2]
 _CONF_DIR = _ROOT_DIR / "conf"

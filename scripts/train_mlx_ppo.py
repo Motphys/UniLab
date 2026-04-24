@@ -35,7 +35,6 @@ from unilab.training import (
     ensure_registries,
     get_log_root,
     parse_checkpoint_path,
-    render_play_mode,
     setup_logger,
 )
 from unilab.training import (
@@ -45,6 +44,7 @@ from unilab.training import (
     get_latest_run as get_latest_run_common,
 )
 from unilab.training.experiment import ExperimentTracker
+from unilab.visualization import render_play_mode
 
 ensure_registries()
 

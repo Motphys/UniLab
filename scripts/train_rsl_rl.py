@@ -25,10 +25,10 @@ from unilab.training import (
     get_latest_run,
     get_log_root,
     parse_checkpoint_path,
-    render_play_mode,
 )
 from unilab.training.experiment import ExperimentTracker, patch_rsl_rl_wandb_writer
 from unilab.training.rsl_rl import RslRlVecEnvWrapper, normalize_ppo_train_cfg
+from unilab.visualization import render_play_mode
 
 try:
     from rsl_rl.runners import OnPolicyRunner
