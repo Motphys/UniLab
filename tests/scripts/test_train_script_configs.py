@@ -26,7 +26,7 @@ def _mlx_runtime_usable() -> bool:
 _MLX_RUNTIME_USABLE = _mlx_runtime_usable()
 
 
-@pytest.mark.veryslow
+@pytest.mark.slow
 @pytest.mark.parametrize(
     "task",
     [
@@ -56,7 +56,7 @@ def test_appo_task_configs_load(task):
     assert result.returncode == 0, f"APPO {task} failed:\n{result.stderr}"
 
 
-@pytest.mark.veryslow
+@pytest.mark.slow
 @pytest.mark.parametrize(
     "task",
     ["sac/g1_walk_flat/mujoco", "sac/g1_walk_rough/mujoco", "td3/g1_walk_flat/mujoco"],

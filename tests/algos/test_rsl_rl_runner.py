@@ -1,7 +1,7 @@
 """Integration tests for RSL-RL PPO training.
 
 Requires MuJoCo and rsl_rl to be installed. Run with:
-    uv run pytest -m veryslow -v -k rsl_rl
+    uv run pytest -m slow -v -k rsl_rl
 """
 
 from __future__ import annotations
@@ -105,7 +105,6 @@ class _RslRlVecEnvWrapper:
 
 
 @pytest.mark.slow
-@pytest.mark.veryslow
 @pytest.mark.parametrize(
     "env_name",
     [
