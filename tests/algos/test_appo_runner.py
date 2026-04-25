@@ -13,7 +13,7 @@ import pytest
 pytest.importorskip("mujoco")
 
 from unilab.algos.torch.appo.runner import APPORunner
-from unilab.config.structured_configs import APPOConfig
+from unilab.structured_configs import APPOConfig
 
 
 @pytest.mark.slow

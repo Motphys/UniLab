@@ -9,12 +9,13 @@ from typing import cast
 
 import torch
 
+from unilab.algos.torch.common.device import get_env_dims
 from unilab.algos.torch.offpolicy.worker import off_policy_collector_fn
 from unilab.ipc import SharedObsNormStats, SharedWeightSync
 from unilab.ipc.async_runner import _SPAWN_CTX, AsyncRunner
 from unilab.ipc.replay_buffer import ReplayBuffer
-from unilab.utils.device_utils import get_default_device, get_env_dims
-from unilab.utils.offpolicy_logger import OffPolicyLogger
+from unilab.logging import OffPolicyLogger
+from unilab.utils.device import get_default_device
 
 
 def compute_train_start_threshold(batch_size: int, learning_starts: int, num_envs: int) -> int:

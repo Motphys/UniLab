@@ -6,7 +6,7 @@ from typing import Any
 
 from unilab.algos.torch.flash_sac.learner import FlashSACLearner
 from unilab.algos.torch.offpolicy.runner import OffPolicyRunner
-from unilab.utils.device_utils import get_default_device
+from unilab.utils.device import get_default_device
 
 
 class FlashSACRunner(OffPolicyRunner):
@@ -54,8 +54,8 @@ class FlashSACRunner(OffPolicyRunner):
         use_compile: bool = False,
     ):
         from unilab.base import registry
-        from unilab.utils.algo_utils import ensure_registries
-        from unilab.utils.obs_utils import get_obs_dims
+        from unilab.base.observations import get_obs_dims
+        from unilab.base.registry import ensure_registries
 
         ensure_registries()
         env: Any = registry.make(

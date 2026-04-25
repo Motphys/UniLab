@@ -14,7 +14,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from unilab.base import registry
-from unilab.base.dtype_config import get_global_dtype
+from unilab.dtype_config import get_global_dtype
 
 from .tracking import G1MotionTrackingCfg, G1MotionTrackingEnv
 

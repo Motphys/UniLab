@@ -6,8 +6,8 @@ import pytest
 import torch
 
 from unilab.base import registry
+from unilab.base.registry import ensure_registries
 from unilab.envs.locomotion.g1.joystick import G1WalkRewardConfig
-from unilab.utils.algo_utils import ensure_registries
 
 pytest.importorskip("mujoco", reason="mujoco is required for G1 symmetry contract tests")
 

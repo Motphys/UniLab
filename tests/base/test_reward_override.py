@@ -5,7 +5,7 @@ from typing import Any, cast
 import pytest
 
 from unilab.base import registry
-from unilab.utils.algo_utils import ensure_registries
+from unilab.base.registry import ensure_registries
 
 
 def test_reward_override_go1():

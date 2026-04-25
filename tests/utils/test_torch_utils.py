@@ -1,4 +1,4 @@
-"""Tests for unilab.utils.torch_utils."""
+"""Tests for unilab.utils.tensor."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import torch
 
-from unilab.utils.torch_utils import to_numpy, to_torch
+from unilab.utils.tensor import to_numpy, to_torch
 
 
 class TestToTorch:

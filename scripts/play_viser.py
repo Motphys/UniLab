@@ -51,15 +51,17 @@ from unilab.training import (
     ensure_registries,
     get_entrypoint_log_root,
 )
-from unilab.utils.render_many import get_grid_offsets
-from unilab.utils.rsl_rl_compat import (
-    convert_config_v3_to_v4,
-    convert_config_v5,
-    is_rsl_rl_v4,
-    is_rsl_rl_v5,
+from unilab.training.rsl_rl import (
+    RslRlVecEnvWrapper,
+    get_policy_obs_dims,
+    normalize_ppo_train_cfg,
 )
-from unilab.utils.rsl_rl_vec_env_wrapper import RslRlVecEnvWrapper
-from unilab.utils.viser_scene import VISER_AVAILABLE, MujocoViserScene, build_visible_env_indices
+from unilab.visualization.render_many import get_grid_offsets
+from unilab.visualization.viser_scene import (
+    VISER_AVAILABLE,
+    MujocoViserScene,
+    build_visible_env_indices,
+)
 
 ensure_registries()
 
@@ -240,8 +242,7 @@ def play_viser(args: PlayInteractiveArgs, cfg: DictConfig) -> None:
         )
 
     # --- Load policy ---------------------------------------------------------
-    actor_obs_dim = int(env.obs_groups_spec.get("obs", sum(env.obs_groups_spec.values())))
-    flat_obs_dim = int(sum(env.obs_groups_spec.values()))
+    actor_obs_dim, flat_obs_dim = get_policy_obs_dims(env.obs_groups_spec)
 
     policy_obs_mode = args.policy_obs_mode
     algo_log_name = getattr(args, "algo_log_name", "rsl_rl_ppo")
@@ -270,14 +271,10 @@ def play_viser(args: PlayInteractiveArgs, cfg: DictConfig) -> None:
 
     wrapped_env = RslRlVecEnvWrapper(env, device=device, policy_obs_mode=policy_obs_mode)
 
-    train_cfg = _algo_config_dict(cfg)
+    train_cfg = normalize_ppo_train_cfg(_algo_config_dict(cfg))
     if "runner" not in train_cfg:
         train_cfg["runner"] = {}
     train_cfg["runner"]["logger"] = "none"
-    if is_rsl_rl_v5():
-        train_cfg = cast(dict[str, Any], convert_config_v5(train_cfg))
-    elif is_rsl_rl_v4():
-        train_cfg = convert_config_v3_to_v4(train_cfg)
 
     policy = None
     if args.action_mode == "policy":

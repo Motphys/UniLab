@@ -1,10 +1,10 @@
-"""Tests for quaternion helpers in unilab.utils.math_utils."""
+"""Tests for quaternion helpers in unilab.envs.common.rotation."""
 
 from __future__ import annotations
 
 import numpy as np
 
-from unilab.utils.math_utils import (
+from unilab.envs.common.rotation import (
     np_quat_angular_velocity,
     np_quat_ensure_continuity,
     np_quat_error_magnitude,

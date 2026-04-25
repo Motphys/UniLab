@@ -11,9 +11,10 @@ from typing import cast
 import numpy as np
 import torch
 
-from unilab.utils.algo_utils import build_actor, ensure_registries
-from unilab.utils.final_observation import resolve_terminal_observation_contract
-from unilab.utils.obs_utils import get_obs_dims, split_obs_dict
+from unilab.algos.torch.common.actor_factory import build_actor
+from unilab.base.final_observation import resolve_terminal_observation_contract
+from unilab.base.observations import get_obs_dims, split_obs_dict
+from unilab.base.registry import ensure_registries
 
 
 def resolve_collector_actor_dims(

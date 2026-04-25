@@ -4,7 +4,7 @@ from typing import Dict
 
 import torch
 
-from unilab.algos.torch.common.shared_buffer import SharedBufferBase
+from unilab.ipc.shared_buffer import SharedBufferBase
 
 
 class ReplayBuffer(SharedBufferBase):

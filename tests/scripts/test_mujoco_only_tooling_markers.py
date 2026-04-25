@@ -11,7 +11,7 @@ def test_mujoco_only_tooling_is_marked_explicitly():
         root / "scripts" / "motion" / "replay_npz.py",
         root / "scripts" / "motion" / "bones_seed_csv_to_npz.py",
         root / "scripts" / "motion" / "replay_bones_seed_csv.py",
-        root / "src" / "unilab" / "utils" / "render_many.py",
+        root / "src" / "unilab" / "visualization" / "render_many.py",
         root / "src" / "unilab" / "envs" / "locomotion" / "g1" / "symmetry.py",
     ]
 

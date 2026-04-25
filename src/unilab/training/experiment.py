@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import getpass
 import importlib
+import importlib.util
 import json
 import os
 import socket
@@ -58,7 +59,15 @@ def _json_safe(value: Any) -> Any:
 
 def get_device_info_dict() -> dict[str, str]:
     try:
-        module = importlib.import_module("benchmark.core.device_info")
+        module_path = Path(__file__).resolve().parents[4] / "benchmark" / "core" / "device_info.py"
+        spec = importlib.util.spec_from_file_location(
+            "unilab_benchmark_device_info",
+            module_path,
+        )
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Unable to load device info module from {module_path}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
         getter = getattr(module, "get_device_info_dict")
         return dict(getter())
     except Exception:

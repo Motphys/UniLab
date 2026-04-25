@@ -10,6 +10,7 @@ repos:
     rev: v1.1.408
     hooks:
       - id: pyright
+        pass_filenames: false
 
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.15.0

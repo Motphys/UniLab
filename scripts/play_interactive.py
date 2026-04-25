@@ -50,18 +50,16 @@ from unilab.training import (
     get_entrypoint_log_root,
     resolve_task_checkpoint_path,
 )
+from unilab.training.rsl_rl import (
+    RslRlVecEnvWrapper,
+    get_policy_obs_dims,
+    normalize_ppo_train_cfg,
+)
 
 ensure_registries()
 
 from unilab.base import registry
-from unilab.config.structured_configs import PPOConfig as _StructuredPPOConfig
-from unilab.utils.rsl_rl_compat import (
-    convert_config_v3_to_v4,
-    convert_config_v5,
-    is_rsl_rl_v4,
-    is_rsl_rl_v5,
-)
-from unilab.utils.rsl_rl_vec_env_wrapper import RslRlVecEnvWrapper
+from unilab.structured_configs import PPOConfig as _StructuredPPOConfig
 
 PPOConfig = _StructuredPPOConfig
 
@@ -122,8 +120,8 @@ def _infer_checkpoint_actor_input_dim(ckpt_path: str) -> int | None:
 
 
 def _backend_adapter(cfg: DictConfig):
+    from unilab.base.backend.xml import materialize_scene_visual_override
     from unilab.training import BackendAdapter
-    from unilab.utils.xml_utils import materialize_scene_visual_override
 
     return BackendAdapter(
         cfg,
@@ -578,8 +576,7 @@ def play_interactive(args, cfg: DictConfig | None = None):
             "Set DISPLAY correctly, or run this command in a desktop session."
         )
         return
-    actor_obs_dim = int(env.obs_groups_spec.get("obs", sum(env.obs_groups_spec.values())))
-    flat_obs_dim = int(sum(env.obs_groups_spec.values()))
+    actor_obs_dim, flat_obs_dim = get_policy_obs_dims(env.obs_groups_spec)
 
     policy_obs_mode = args.policy_obs_mode
     algo_log_name = getattr(args, "algo_log_name", "rsl_rl_ppo")
@@ -614,14 +611,10 @@ def play_interactive(args, cfg: DictConfig | None = None):
         f"{policy_obs_mode} (actor_obs={actor_obs_dim}, flat_obs={flat_obs_dim})"
     )
 
-    train_cfg = _algo_config_dict(cfg)
+    train_cfg = normalize_ppo_train_cfg(_algo_config_dict(cfg))
     if "runner" not in train_cfg:
         train_cfg["runner"] = {}
     train_cfg["runner"]["logger"] = "none"
-    if is_rsl_rl_v5():
-        train_cfg = cast(dict[str, Any], convert_config_v5(train_cfg))
-    elif is_rsl_rl_v4():
-        train_cfg = convert_config_v3_to_v4(train_cfg)
 
     policy = None
     if args.action_mode == "policy":

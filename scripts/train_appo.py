@@ -20,9 +20,9 @@ from unilab.training import (
     create_env,
     ensure_registries,
     get_log_root,
-    render_play_mode,
 )
-from unilab.utils.experiment_tracking import ExperimentTracker
+from unilab.training.experiment import ExperimentTracker
+from unilab.visualization import render_play_mode
 
 
 def build_appo_runner_kwargs(
@@ -113,8 +113,6 @@ def play_appo(cfg: DictConfig, rl_cfg: dict[str, Any]) -> str | None:
     from rsl_rl.utils import resolve_callable
     from tensordict import TensorDict
 
-    from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4, is_rsl_rl_v5
-
     env_cfg_override = BackendAdapter(
         cfg, root_dir=ROOT_DIR, algo_name="appo"
     ).build_task_env_cfg_override()
@@ -136,7 +134,7 @@ def play_appo(cfg: DictConfig, rl_cfg: dict[str, Any]) -> str | None:
             env_cfg_override=env_cfg_override,
         ),
     )
-    from unilab.utils.obs_utils import get_obs_dims
+    from unilab.base.observations import get_obs_dims
 
     obs_dim, critic_dim = get_obs_dims(env.obs_groups_spec)
     action_shape = env.action_space.shape
@@ -163,11 +161,6 @@ def play_appo(cfg: DictConfig, rl_cfg: dict[str, Any]) -> str | None:
             }
         elif isinstance(critic_group, dict) and "policy" in critic_group:
             critic_group["policy"] = critic_dim if critic_dim > 0 else obs_dim
-
-    if is_rsl_rl_v5():
-        pass
-    elif is_rsl_rl_v4():
-        rl_cfg_dict = convert_config_v3_to_v4(rl_cfg_dict)
 
     from copy import deepcopy
 

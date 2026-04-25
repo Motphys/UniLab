@@ -28,7 +28,7 @@ def test_reward_config_loading_g1_motrix():
 
 def test_resolve_reward_dict_reads_task_reward():
     """Task-backend configs should expose the final reward mapping directly."""
-    from unilab.utils.reward_utils import resolve_reward_dict
+    from unilab.training.reward import resolve_reward_dict
 
     with initialize(config_path="../../conf/ppo", version_base="1.3"):
         cfg = compose(
@@ -45,7 +45,7 @@ def test_resolve_reward_dict_reads_task_reward():
 def test_reward_config_conversion():
     """Test reward config converts to dataclasses via registry."""
     from unilab.base import registry
-    from unilab.utils.algo_utils import ensure_registries
+    from unilab.base.registry import ensure_registries
 
     ensure_registries()
 

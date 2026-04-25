@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from unilab.assets import ASSETS_ROOT_PATH
+from unilab.base.backend.xml import get_named_body_ids
 from unilab.dr import (
     GeomSizeOverride,
     InitRandomizationPlan,
@@ -20,7 +21,6 @@ from unilab.dr import (
     ModelVariantSpec,
     ResetRandomizationPayload,
 )
-from unilab.utils.xml_utils import get_named_body_ids
 
 
 # ---------------------------------------------------------------------------

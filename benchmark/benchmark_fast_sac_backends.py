@@ -15,7 +15,10 @@ sys.path.append(str(ROOT_DIR))
 try:
     from benchmark.core.task_names import locomotion_env_name, normalize_locomotion_task_id
 except ModuleNotFoundError:
-    from core.task_names import locomotion_env_name, normalize_locomotion_task_id
+    from core.task_names import (  # type: ignore[no-redef]
+        locomotion_env_name,
+        normalize_locomotion_task_id,
+    )
 
 
 @dataclass
@@ -32,7 +35,7 @@ def run_backend(task, max_iterations, backend, num_envs):
     import datetime
 
     from unilab.algos.torch.fast_sac.runner import FastSACRunner
-    from unilab.config.structured_configs import SACConfig
+    from unilab.structured_configs import SACConfig
 
     cfg = SACConfig()
 

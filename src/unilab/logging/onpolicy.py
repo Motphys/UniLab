@@ -8,7 +8,7 @@ from rich.console import Group
 from rich.panel import Panel
 from rich.table import Table
 
-from unilab.utils.logging_common import BaseTrainingLogger, _fmt_number, _fmt_time, _load_wandb
+from unilab.logging.common import BaseTrainingLogger, _fmt_number, _fmt_time, _load_wandb
 
 
 class OnPolicyLogger(BaseTrainingLogger):

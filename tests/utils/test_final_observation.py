@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from unilab.utils.final_observation import (
+from unilab.base.final_observation import (
     patch_transition_next_obs,
     resolve_terminal_observation_contract,
     resolve_transition_bootstrap_contract,
