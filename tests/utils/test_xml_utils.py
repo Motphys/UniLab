@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 
 import pytest
-from unilab.utils.xml_utils import inject_motrix_tracking_sensors, inject_mujoco_tracking_sensors
+from unilab.base.backend import inject_motrix_tracking_sensors, inject_mujoco_tracking_sensors
 
 from unilab.assets import ASSETS_ROOT_PATH
 
