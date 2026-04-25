@@ -12,9 +12,10 @@ def test_mjspec_sensor_compile() -> None:
     """Adding a frame sensor via MjSpec should not crash to_xml/compile."""
     mujoco = pytest.importorskip("mujoco")
 
-    spec = mujoco.MjSpec.from_string(
-        '<mujoco><worldbody><body name="pelvis"/></worldbody></mujoco>'
-    )
+    from unilab.assets import ASSETS_ROOT_PATH
+
+    model_file = str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
+    spec = mujoco.MjSpec.from_file(model_file)
     spec.add_sensor(
         name="track_pos_w_pelvis",
         type=mujoco.mjtSensor.mjSENS_FRAMEPOS,
