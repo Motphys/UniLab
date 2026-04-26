@@ -80,33 +80,28 @@ def _reset_and_assert_field_applied(
     np.testing.assert_allclose(pool_ctx.pool.get_field(1, field_name), updated)
 
 
-@pytest.mark.slow
 def test_batch_env_supported_fields_match_documented_reset_randomization_fields() -> None:
     assert set(SUPPORTED_FIELDS) == EXPECTED_SUPPORTED_FIELDS
 
 
-@pytest.mark.slow
 def test_batch_env_reset_applies_body_mass_randomization(pool_ctx: _PoolCtx) -> None:
     updated = pool_ctx.pool.get_field(1, "body_mass").copy()
     updated[1] += 0.25
     _reset_and_assert_field_applied(pool_ctx, "body_mass", updated)
 
 
-@pytest.mark.slow
 def test_batch_env_reset_applies_body_ipos_randomization(pool_ctx: _PoolCtx) -> None:
     updated = pool_ctx.pool.get_field(1, "body_ipos").reshape(pool_ctx.model.nbody, 3).copy()
     updated[1] += np.array([0.01, -0.02, 0.03], dtype=np.float64)
     _reset_and_assert_field_applied(pool_ctx, "body_ipos", updated.reshape(-1))
 
 
-@pytest.mark.slow
 def test_batch_env_reset_applies_gravity_randomization(pool_ctx: _PoolCtx) -> None:
     updated = pool_ctx.pool.get_field(1, "gravity").copy()
     updated += np.array([0.2, -0.1, 0.4], dtype=np.float64)
     _reset_and_assert_field_applied(pool_ctx, "gravity", updated)
 
 
-@pytest.mark.slow
 def test_batch_env_reset_applies_body_iquat_randomization(pool_ctx: _PoolCtx) -> None:
     updated = pool_ctx.pool.get_field(1, "body_iquat").reshape(pool_ctx.model.nbody, 4).copy()
     quat = np.array([0.92387953, 0.0, 0.38268343, 0.0], dtype=np.float64)
@@ -114,35 +109,30 @@ def test_batch_env_reset_applies_body_iquat_randomization(pool_ctx: _PoolCtx) ->
     _reset_and_assert_field_applied(pool_ctx, "body_iquat", updated.reshape(-1))
 
 
-@pytest.mark.slow
 def test_batch_env_reset_applies_body_inertia_randomization(pool_ctx: _PoolCtx) -> None:
     updated = pool_ctx.pool.get_field(1, "body_inertia").reshape(pool_ctx.model.nbody, 3).copy()
     updated[1] *= 1.25
     _reset_and_assert_field_applied(pool_ctx, "body_inertia", updated.reshape(-1))
 
 
-@pytest.mark.slow
 def test_batch_env_reset_applies_dof_armature_randomization(pool_ctx: _PoolCtx) -> None:
     updated = pool_ctx.pool.get_field(1, "dof_armature").copy()
     updated += np.linspace(0.01, 0.03, updated.size, dtype=np.float64)
     _reset_and_assert_field_applied(pool_ctx, "dof_armature", updated)
 
 
-@pytest.mark.slow
 def test_batch_env_reset_applies_geom_friction_randomization(pool_ctx: _PoolCtx) -> None:
     updated = pool_ctx.pool.get_field(1, "geom_friction").reshape(pool_ctx.model.ngeom, 3).copy()
     updated[0] += np.array([0.1, 0.002, 0.0002], dtype=np.float64)
     _reset_and_assert_field_applied(pool_ctx, "geom_friction", updated.reshape(-1))
 
 
-@pytest.mark.slow
 def test_batch_env_reset_applies_kp_randomization(pool_ctx: _PoolCtx) -> None:
     updated = pool_ctx.pool.get_field(1, "kp").copy()
     updated += 1.25
     _reset_and_assert_field_applied(pool_ctx, "kp", updated)
 
 
-@pytest.mark.slow
 def test_batch_env_reset_applies_kd_randomization(pool_ctx: _PoolCtx) -> None:
     updated = pool_ctx.pool.get_field(1, "kd").copy()
     updated += 0.25

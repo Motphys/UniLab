@@ -11,7 +11,7 @@ requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy",
     "torch==2.7.0",
-    "mujoco-uni==3.6.0.post8",
+    "mujoco-uni==3.7.0rc0",
     "gymnasium",
     "imageio",
     "etils",
@@ -104,7 +104,7 @@ exclude = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "slow: requires real env or long-running processes",
+    "slow: long-running training or script smoke tests, or cumulatively expensive backend matrices",
 ]
 addopts = "--tb=short -m 'not slow'"
 

@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 
 
-@pytest.mark.slow
 def test_reward_injection_in_training():
     """Test reward config is properly injected during training."""
     from hydra import compose, initialize
