@@ -68,14 +68,14 @@ tests/
 
 ### Test Markers
 
-- 普通测试（无标记）: 不依赖 MuJoCo，使用 `make test`
-- `@pytest.mark.slow`: 需要 MuJoCo 环境或完整训练迭代的测试，CI 会跳过，本地用 `make test-slow`
+- 普通测试（无标记）: 快速 unit / contract / env smoke，使用 `make test`
+- `@pytest.mark.slow`: 完整训练/脚本冒烟，或累计耗时明显更高的 backend matrix，CI 会跳过，本地用 `make test-slow`
 - macOS only: `test_mlx_ppo.py` 使用 `pytest.importorskip("mlx")`，在非 macOS 平台自动跳过
 
 ### Test Writing Principles
 
-1. IPC 或纯计算逻辑: 放在 `tests/ipc/` 或对应模块测试目录，不加 `slow`
-2. 依赖 Runner 或真实 Env 的测试: 放在 `tests/algos/`，并加 `@pytest.mark.slow`
+1. IPC、纯计算逻辑、快速 env/backend contract: 放在对应目录，不加 `slow`
+2. 完整训练迭代、训练脚本启动、或累计成本高的 backend matrix: 加 `@pytest.mark.slow`
 3. 训练脚本冒烟测试: 放在 `tests/scripts/`，对可选依赖使用 `pytest.importorskip`
 4. 多进程测试使用 `_SPAWN_CTX = mp.get_context("spawn")`
 5. 单进程 `SharedObsNormStats` 测试使用 `_ThreadingCtx`，因为 `multiprocessing.Queue.empty()` 在同进程内不可靠

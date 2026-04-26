@@ -104,7 +104,7 @@ exclude = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "slow: requires real env or long-running processes",
+    "slow: long-running training or script smoke tests, or cumulatively expensive backend matrices",
 ]
 addopts = "--tb=short -m 'not slow'"
 
