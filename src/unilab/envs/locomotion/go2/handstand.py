@@ -98,8 +98,21 @@ class Go2HandStandDomainRandomizationProvider(LocomotionDRProvider):
         dof_vel: Any,
     ) -> dict[str, np.ndarray]:
         height = env.torso_height[env_ids].reshape(-1, 1)
+        env.feet_phase[env_ids, :] = 0
+        env.feet_phase[:, 2] = 0.0  # RL starts at 0
+        env.feet_phase[:, 3] = 0.5
+        # Reset air time tracking
+        env._feet_air_time[env_ids, :] = 0.0
+        env._last_contacts[env_ids, :] = False
+
         return env._compute_obs(  # type: ignore[no-any-return]
-            info_updates, linvel, gyro, gravity, dof_pos, dof_vel, height
+            info_updates,
+            linvel,
+            gyro,
+            gravity,
+            dof_pos,
+            dof_vel,
+            height,  # , env.feet_phase[env_ids, 2:]
         )
 
 
@@ -128,8 +141,14 @@ class Go2HandStandTask(Go2BaseEnv):
         self._init_domain_randomization(Go2HandStandDomainRandomizationProvider())
         self.phase = np.zeros((num_envs,), dtype=np.float32)
         self.feet_phase = np.zeros((num_envs, len(cfg.sensor.feet_force)), dtype=np.float32)
-        self.gait_frequency = 2
+        # Initialize rear leg (RL, RR) phases with alternating values for gait
+        self.feet_phase[:, 2] = 0.0  # RL starts at 0
+        self.feet_phase[:, 3] = 0.5  # RR starts at 0.5 (alternating)
+        self.gait_frequency = 2  # Slower stepping: 2 seconds per cycle
         self.feet_force = np.zeros((num_envs, len(cfg.sensor.feet_force), 1), dtype=np.float32)
+        # Track air time for stepping reward
+        self._feet_air_time = np.zeros((num_envs, len(cfg.sensor.feet_force)), dtype=np.float32)
+        self._last_contacts = np.zeros((num_envs, 2), dtype=bool)
         self.feet_pos = np.zeros((num_envs, len(cfg.sensor.feet_pos), 3), dtype=np.float32)
         self.torso_height = np.zeros((num_envs,), dtype=np.float32)
         self._z_des = 0.55
@@ -153,6 +172,8 @@ class Go2HandStandTask(Go2BaseEnv):
             "penalty_contact": self._reward_penalty_contact,
             "action_rate": rewards.action_rate,
             "tar": self._reward_tar,
+            "feet_air_time": self._reward_feet_air_time,
+            "world_z_vel_penalty": self._reward_world_z_vel_penalty,
         }
 
     def update_state(self, state: NpEnvState) -> NpEnvState:
@@ -172,18 +193,58 @@ class Go2HandStandTask(Go2BaseEnv):
             arr = self._backend.get_sensor_data(name)
             contact_arrays.append(arr)
         result = np.concatenate(contact_arrays, axis=1)
+        # print(linvel)
+        # Update phase for stepping pattern (only when high enough)
+        height_mask = self.torso_height >= self._z_des * 0.8
+        dt = self._cfg.ctrl_dt
+        phase_increment = self.gait_frequency * dt
+        self.feet_phase = (self.feet_phase + phase_increment) % 1.0
+        # Only allow stepping for rear legs (2=RL, 3=RR) when height is sufficient
+        self.feet_phase[:, :2] = 0.0  # Front legs phase locked at 0 (should be in stance)
+        # Reset rear leg phase when height is too low
+        for i in [2, 3]:
+            self.feet_phase[~height_mask, i] = 0.0
+
+        # Update feet air time for stepping reward (only rear legs)
+        contact = self.feet_force[:, [2, 3], 0] > 1.0
+        contact_filt = np.logical_or(contact, self._last_contacts)
+        self._last_contacts = contact
+        # Increment air time
+        self._feet_air_time[:, [2, 3]] += self._cfg.ctrl_dt
+        # Reset air time for feet in contact
+        self._feet_air_time[:, [2, 3]] *= ~contact_filt
 
         terminated_z = gravity[:, 2] <= -0.25
         terminated_contact = np.any(result, axis=1)
+        # After 100 steps, terminate if height is too low (failed to maintain target)
+        # step_count = state.info.get("steps", np.zeros((self._num_envs,), dtype=np.uint32))
+        # terminated_height = (step_count >= 100) & (self.torso_height < self._z_des * 0.8)
+        # terminated = np.logical_or(
+        #     np.logical_or(terminated_contact, terminated_z),
+        #     terminated_height
+        # )
         terminated = np.logical_or(terminated_contact, terminated_z)
         reward = self._compute_reward(state.info, linvel, gyro, dof_pos)
         obs = self._compute_obs(
-            state.info, linvel, gyro, gravity, dof_pos, dof_vel, self.torso_height.reshape(-1, 1)
+            state.info,
+            linvel,
+            gyro,
+            gravity,
+            dof_pos,
+            dof_vel,
+            self.torso_height.reshape(-1, 1),  # , self.feet_phase[:,[2,3]]
         )
         return state.replace(obs=obs, reward=reward, terminated=terminated)
 
     def _compute_obs(
-        self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel, height
+        self,
+        info: dict,
+        linvel,
+        gyro,
+        gravity,
+        dof_pos,
+        dof_vel,
+        height,  # , feet_phase
     ) -> dict[str, np.ndarray]:
         noise_cfg = self._cfg.noise_config
         diff = dof_pos - self.default_angles
@@ -284,18 +345,45 @@ class Go2HandStandTask(Go2BaseEnv):
         result = np.concatenate(contact_arrays, axis=1)
         return np.asarray(np.any(result, axis=1))
 
-    def _reward_contact(self, ctx: RewardContext) -> np.ndarray:
-        contact = self.feet_force[:, :, 2] > 0.1
+    def _reward_stand_contact(self, ctx: RewardContext) -> np.ndarray:
+        # res = np.zeros(self._num_envs, dtype=np.float32)
+        # # When height is above 0.8 * target, encourage rear leg (RL, RR) stepping
+        # height_mask = self.torso_height >= self._z_des * 0.8
+        # for i in [2, 3]:  # Rear legs only
+        #     is_stance = self.feet_phase[:, i] < 0.6
+        #     target_height = np.where(is_stance, 0.0, 0.1)
+        #     foot_height = self.feet_pos[:, i, 2]
+        #     height_error = np.abs(foot_height - target_height)
+        #     # Exponential reward for matching target height
+        #     foot_rew = np.exp(-height_error / 0.02)
+        #     res += foot_rew * height_mask.astype(np.float32)
+        # return res / 2  # Average over 2 rear legs
+        contact = self.feet_force[:, :, 0] > 0.1
+        height_mask = self.torso_height >= self._z_des * 0.8
         res = np.zeros(self._num_envs, dtype=np.float32)
-        for i in range(len(self._cfg.sensor.feet_force)):
+        for i in [2, 3]:
             is_contact = (self.feet_phase[:, i] < 0.6) | (self.gait_frequency < 1.0e-8)
-            res += (contact[:, i] == is_contact).astype(np.float32)
+            res += (contact[:, i] == is_contact).astype(np.float32) * height_mask.astype(np.float32)
         return res / len(self._cfg.sensor.feet_force)
 
+    def _reward_swing_feet_z(self, ctx: RewardContext) -> np.ndarray:
+        is_swing = self.feet_phase >= 0.6
+        height_mask = self.torso_height >= self._z_des * 0.8
+        target_height = 0.1
+        height_error = np.square(self.feet_pos[:, [2, 3], 2] - target_height)
+        swing_rew = np.exp(-height_error / 0.01) * is_swing[:, 2:]
+        reward: np.ndarray = (
+            np.sum(swing_rew, axis=1)
+            / len(self._cfg.sensor.feet_pos)
+            * height_mask.astype(np.float32)
+        )
+        return reward
+
     def _reward_height(self, ctx: RewardContext) -> np.ndarray:
-        height = np.minimum(self.torso_height, self._z_des)
-        error = self._z_des - height
-        return np.exp(-error / 0.25)
+        # height = np.minimum(self.torso_height, self._z_des)
+        height = self.torso_height
+        error = np.abs(self._z_des - height)
+        return np.exp(-error / 0.1)
 
     def _reward_orientation(self, ctx: RewardContext) -> np.ndarray:
         gravity = -1 * self._backend.get_sensor_data("upvector")
@@ -324,6 +412,29 @@ class Go2HandStandTask(Go2BaseEnv):
         mask = (self.torso_height >= self._z_des * 0.8).astype(np.float32)
 
         return cast(np.ndarray, np.exp(-error / 1) * mask)
+
+    def _reward_feet_air_time(self, ctx: RewardContext) -> np.ndarray:
+        """Reward rear legs (RL, RR) for long steps - reward on first contact."""
+        # Only apply when robot is high enough
+        height_mask = self.torso_height >= self._z_des * 0.8
+        # Target air time - reward for staying in air longer than this
+        target_air_time = 0.2
+        # First contact detection: air_time > 0 and currently in contact
+        contact = self.feet_force[:, [2, 3], 0] > 1.0
+        first_contact = (self._feet_air_time[:, [2, 3]] > 0.0) & contact
+        # Reward: (actual_air_time - target) for feet making first contact
+        rew = (self._feet_air_time[:, [2, 3]] - target_air_time) * first_contact
+        # Sum over rear legs and apply height mask
+        return np.sum(rew, axis=1) * height_mask
+
+    def _reward_world_z_vel_penalty(self, ctx: RewardContext) -> np.ndarray:
+        """Penalize vertical velocity after standing up to prevent bouncing."""
+        # Only apply when robot is high enough
+        height_mask = self.torso_height >= self._z_des * 0.8
+        # Get world frame z velocity
+        world_z_vel = self._backend.get_base_lin_vel()[:, 2]
+        # Penalize absolute z velocity (both up and down)
+        return np.abs(world_z_vel) * height_mask
 
     # def _cost_pose(self, qpos: jax.Array) -> jax.Array:
     # return jp.sum(jp.square(qpos[self._joint_ids] - self._joint_pose))
