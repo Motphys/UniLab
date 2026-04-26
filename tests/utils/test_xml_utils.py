@@ -7,7 +7,11 @@ import os
 import pytest
 
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.base.backend import inject_motrix_tracking_sensors, inject_mujoco_tracking_sensors
+from unilab.base.backend import (
+    create_motrix_compatible_xml,
+    inject_motrix_tracking_sensors,
+    inject_mujoco_tracking_sensors,
+)
 
 
 def _g1_scene() -> str:
@@ -52,5 +56,16 @@ def test_inject_motrix_tracking_sensors_only_adds_baselink_relative_sensors() ->
         assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SENSOR, "track_linvel_b_pelvis") >= 0
         assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SENSOR, "track_angvel_b_pelvis") >= 0
         assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SENSOR, "track_pos_w_pelvis") == -1
+    finally:
+        os.remove(tmp_xml)
+
+
+def test_motrix_xml_materialization_rewrites_auto_texture_colorspace() -> None:
+    tmp_xml = create_motrix_compatible_xml(_g1_scene())
+    try:
+        with open(tmp_xml, encoding="utf-8") as f:
+            xml_text = f.read()
+        assert 'colorspace="auto"' not in xml_text
+        assert 'colorspace="sRGB"' in xml_text
     finally:
         os.remove(tmp_xml)

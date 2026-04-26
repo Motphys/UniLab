@@ -165,6 +165,25 @@ def _write_temp_xml(tree: ET.ElementTree[ET.Element], model_file: str) -> str:  
     return output_path
 
 
+def _normalize_motrix_texture_colorspaces(tree: ET.ElementTree[ET.Element]) -> None:  # type: ignore[type-arg]
+    """Rewrite MuJoCo's implicit/auto texture colorspaces to Motrix-supported values."""
+    root = tree.getroot()
+    for texture in root.findall(".//texture"):
+        colorspace = texture.get("colorspace")
+        if colorspace is None:
+            texture.set("colorspace", "sRGB")
+            continue
+        if colorspace != "auto":
+            continue
+        texture.set("colorspace", "sRGB")
+
+
+def create_motrix_compatible_xml(model_file: str) -> str:
+    tree = ET.parse(model_file)
+    _normalize_motrix_texture_colorspaces(tree)
+    return _write_temp_xml(tree, model_file)
+
+
 def _format_values(values: list[float] | tuple[float, ...]) -> str:
     return " ".join(str(float(value)) for value in values)
 
@@ -242,13 +261,52 @@ def inject_motrix_tracking_sensors(model_file: str, baselink_name: str) -> tuple
     Returns:
         (tmp_xml_path, tracked_body_ids, valid_bnames)
     """
-    mujoco = _mujoco_module()
     tracked_body_ids, valid_bnames = _get_named_bodies(model_file)
+    tree = ET.parse(model_file)
+    _normalize_motrix_texture_colorspaces(tree)
+    root = tree.getroot()
+    for bname in valid_bnames:
+        add_sensor(
+            root,
+            "framepos",
+            f"track_pos_b_{bname}",
+            objtype="xbody",
+            objname=bname,
+            reftype="xbody",
+            refname=baselink_name,
+        )
+    for bname in valid_bnames:
+        add_sensor(
+            root,
+            "framequat",
+            f"track_quat_b_{bname}",
+            objtype="xbody",
+            objname=bname,
+            reftype="xbody",
+            refname=baselink_name,
+        )
+    for bname in valid_bnames:
+        add_sensor(
+            root,
+            "framelinvel",
+            f"track_linvel_b_{bname}",
+            objtype="xbody",
+            objname=bname,
+            reftype="xbody",
+            refname=baselink_name,
+        )
+    for bname in valid_bnames:
+        add_sensor(
+            root,
+            "frameangvel",
+            f"track_angvel_b_{bname}",
+            objtype="xbody",
+            objname=bname,
+            reftype="xbody",
+            refname=baselink_name,
+        )
 
-    spec = mujoco.MjSpec.from_file(model_file)
-    _add_b_sensors(spec, valid_bnames, baselink_name)
-
-    return _materialize_spec_xml(spec, model_file), tracked_body_ids, valid_bnames
+    return _write_temp_xml(tree, model_file), tracked_body_ids, valid_bnames
 
 
 def processed_xml(xml_path):
