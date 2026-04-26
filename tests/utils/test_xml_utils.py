@@ -5,9 +5,9 @@ from __future__ import annotations
 import os
 
 import pytest
-from unilab.base.backend import inject_motrix_tracking_sensors, inject_mujoco_tracking_sensors
 
 from unilab.assets import ASSETS_ROOT_PATH
+from unilab.base.backend import inject_motrix_tracking_sensors, inject_mujoco_tracking_sensors
 
 
 def _g1_scene() -> str:
