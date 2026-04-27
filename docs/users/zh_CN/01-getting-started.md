@@ -77,6 +77,29 @@ uv run scripts/train_offpolicy.py algo=td3 task=td3/g1_walk_flat/mujoco
 make test-all
 ```
 
+## 统一 CLI (`unilab`)
+
+UniLab 提供了统一的 `unilab` 命令行入口，无需记忆各训练脚本路径：
+
+```bash
+# 激活虚拟环境后即可使用
+source .venv/bin/activate
+
+# 训练
+unilab train --algo ppo --task go2_joystick_flat --sim mujoco
+
+# 评估（回放最新 checkpoint）
+unilab eval --algo ppo --task go2_joystick_flat --sim mujoco --load-run -1
+
+# 一键 demo（预置 checkpoint 回放）
+unilab demo
+```
+
+支持的算法：`ppo`、`mlx_ppo`、`appo`、`sac`、`td3`、`flashsac`
+支持的模拟器：`mujoco`、`motrix`
+
+详细用法见 [训练指南](03-training.md)。
+
 ## Navigation
 
 - Next: [Simulation Backends](02-simulation-backends.md)

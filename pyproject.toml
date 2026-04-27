@@ -32,6 +32,9 @@ dependencies = [
     "onnxruntime>=1.24.3",
 ]
 
+[project.scripts]
+unilab = "unilab.cli:main"
+
 [project.optional-dependencies]
 motrix = ["motrixsim==0.7.1.dev96425"]
 viser = ["viser>=1.0.26", "trimesh>=3.21.7"]
