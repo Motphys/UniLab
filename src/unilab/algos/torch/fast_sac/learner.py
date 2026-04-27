@@ -11,7 +11,7 @@ Hyperparameters aligned with holosoma FastSACConfig defaults.
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, cast
 
 import torch
 import torch.distributed as dist
@@ -109,6 +109,21 @@ class SACActor(nn.Module):
             action = mean
 
         return action, mean, log_std
+
+    def as_export_module(self) -> "nn.Module":
+        """Return a single-input/single-output wrapper suitable for torch.onnx.export."""
+        actor = self
+
+        class _Wrapper(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.base = actor
+
+            def forward(self, obs: torch.Tensor) -> torch.Tensor:
+                action, _, _ = self.base(obs)
+                return cast(torch.Tensor, action)
+
+        return _Wrapper()
 
     def get_actions_and_log_probs(
         self, obs: torch.Tensor

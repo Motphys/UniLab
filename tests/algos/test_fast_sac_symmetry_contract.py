@@ -45,12 +45,11 @@ class _FakeEnv:
 def test_fast_sac_runner_uses_env_owned_symmetry_contract(monkeypatch: pytest.MonkeyPatch):
     from unilab.algos.torch.fast_sac.runner import FastSACRunner
     from unilab.base import registry
-    from unilab.utils import algo_utils
 
     augmentation = _FakeSymmetryAugmentation()
     fake_env = _FakeEnv(augmentation)
 
-    monkeypatch.setattr(algo_utils, "ensure_registries", lambda: None)
+    monkeypatch.setattr(registry, "ensure_registries", lambda: None)
     monkeypatch.setattr(registry, "make", lambda *args, **kwargs: fake_env)
 
     runner = FastSACRunner(
@@ -75,7 +74,6 @@ def test_fast_sac_runner_uses_env_owned_symmetry_contract(monkeypatch: pytest.Mo
 def test_fast_sac_runner_skips_symmetry_builder_when_disabled(monkeypatch: pytest.MonkeyPatch):
     from unilab.algos.torch.fast_sac.runner import FastSACRunner
     from unilab.base import registry
-    from unilab.utils import algo_utils
 
     fake_env = _FakeEnv(_FakeSymmetryAugmentation())
 
@@ -84,7 +82,7 @@ def test_fast_sac_runner_skips_symmetry_builder_when_disabled(monkeypatch: pytes
 
     fake_env.build_symmetry_augmentation = _unexpected_builder  # type: ignore[method-assign]
 
-    monkeypatch.setattr(algo_utils, "ensure_registries", lambda: None)
+    monkeypatch.setattr(registry, "ensure_registries", lambda: None)
     monkeypatch.setattr(registry, "make", lambda *args, **kwargs: fake_env)
 
     runner = FastSACRunner(

@@ -11,7 +11,6 @@ from typing import Any, cast
 
 import numpy as np
 
-from unilab.base.dtype_config import get_global_dtype
 from unilab.dr import (
     DomainRandomizationCapabilities,
     DomainRandomizationProvider,
@@ -25,7 +24,8 @@ from unilab.dr.dr_utils import (
     validate_interval_push_support,
     zero_actions,
 )
-from unilab.utils.math_utils import np_quat_mul, np_yaw_to_quat
+from unilab.dtype_config import get_global_dtype
+from unilab.envs.common.rotation import np_quat_mul, np_yaw_to_quat
 
 
 class LocomotionDRProvider(DomainRandomizationProvider):

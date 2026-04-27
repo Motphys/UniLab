@@ -2,6 +2,16 @@ from typing import Any, cast
 
 from .base import SimBackend
 from .motrix_backend import MOTRIX_AVAILABLE, MotrixBackend
+from .xml import (
+    add_sensor,
+    create_discardvisual_xml,
+    create_motrix_compatible_xml,
+    get_named_body_ids,
+    inject_motrix_tracking_sensors,
+    inject_mujoco_tracking_sensors,
+    materialize_scene_visual_override,
+    processed_xml,
+)
 
 
 def _load_mujoco_backend() -> Any:
@@ -49,5 +59,13 @@ __all__ = [
     "SimBackend",
     "MuJoCoBackend",
     "MotrixBackend",
+    "add_sensor",
+    "create_discardvisual_xml",
+    "create_motrix_compatible_xml",
     "create_backend",
+    "get_named_body_ids",
+    "inject_motrix_tracking_sensors",
+    "inject_mujoco_tracking_sensors",
+    "materialize_scene_visual_override",
+    "processed_xml",
 ]

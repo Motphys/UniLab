@@ -33,7 +33,7 @@ from unilab.algos.torch.offpolicy.worker import off_policy_collector_fn
 from unilab.ipc import SharedWeightSync
 from unilab.ipc.async_runner import _SPAWN_CTX
 from unilab.ipc.replay_buffer import ReplayBuffer
-from unilab.utils.offpolicy_logger import OffPolicyLogger
+from unilab.logging import OffPolicyLogger
 
 
 def _find_free_port() -> int:

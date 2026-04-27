@@ -71,10 +71,12 @@ uv run scripts/generate_support_matrix.py --write
 | SAC (torch) | `g1_walk_rough` (G1 walk rough) | Tested | Registered |
 | SAC (torch) | `g1_sac_wbt` (g1 sac wbt) | Tested | - |
 | TD3 (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered |
+| FlashSAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested |
+| FlashSAC (torch) | `g1_walk_flat_amp` (g1 walk flat amp) | Tested | Registered |
 
 ### Source Index
 
-- Registry bootstrap: `src/unilab/envs/**` decorators via `unilab.utils.algo_utils.ensure_registries()`.
+- Registry bootstrap: `src/unilab/envs/**` decorators via `unilab.base.registry.ensure_registries()`.
 - Owner YAML scan: `conf/ppo/task/**`, `conf/appo/task/**`, `conf/offpolicy/task/**`.
 - Generic compose coverage: `tests/config/test_config_system.py::test_supported_task_composes`.
 - MLX-specific compose coverage only upgrades task owners listed in `tests/config/test_config_system.py::_PPO_MLX_TASKS`: `go1_joystick_flat`, `go2_joystick_flat`, `g1_walk_flat`.

@@ -17,6 +17,8 @@
 - 代码相关提交前必须运行 `make check`
 - 备份文件、临时导出物和历史兼容副本不要进入源码树；不要提交 `*.bak`、`*.tmp`、`*.old`、`*.orig` 或以 `~` 结尾的编辑器备份文件
 - 只要改动用户可见工作流，就要同步维护顶层 `README.md`、`CONTRIBUTING.md`，以及 `docs/users/zh_CN/` 和 `docs/developers/zh_CN/` 下对应语言文档
+- 不要再往 `src/unilab/utils/` 塞新的 owner 逻辑；当前 `src/unilab/utils/*.py` 仅是过渡期 shim，计划在 `0.2.0` 删除
+- 新模块/包名应直接表达 owner 职责：默认使用单数名词；只有在语义本身就是集合契约时才使用复数；工厂模块使用 `_factory` 后缀
 
 ## Read Before You Start
 
@@ -32,7 +34,7 @@ make check          # format + type（代码相关提交前必跑）
 make test           # 非 slow 测试
 make test-cov       # 非 slow 测试 + 覆盖率报告
 make test-slow      # slow 集成测试（需要 MuJoCo）
-make test-veryslow  # 完整训练冒烟测试（分钟级）
+make test-slow  # 完整训练冒烟测试（分钟级）
 make test-all       # make check && make test-cov
 ```
 
@@ -66,15 +68,14 @@ tests/
 
 ### Test Markers
 
-- 普通测试（无标记）: 不依赖 MuJoCo，使用 `make test`
-- `@pytest.mark.slow`: 需要 MuJoCo 环境，CI 会跳过，本地用 `make test-slow`
-- `@pytest.mark.veryslow`: 完整训练迭代或脚本冒烟测试，显式用 `make test-veryslow`
+- 普通测试（无标记）: 快速 unit / contract / env smoke，使用 `make test`
+- `@pytest.mark.slow`: 完整训练/脚本冒烟，或累计耗时明显更高的 backend matrix，CI 会跳过，本地用 `make test-slow`
 - macOS only: `test_mlx_ppo.py` 使用 `pytest.importorskip("mlx")`，在非 macOS 平台自动跳过
 
 ### Test Writing Principles
 
-1. IPC 或纯计算逻辑: 放在 `tests/ipc/` 或对应模块测试目录，不加 `slow`
-2. 依赖 Runner 或真实 Env 的测试: 放在 `tests/algos/`，并加 `@pytest.mark.slow`
+1. IPC、纯计算逻辑、快速 env/backend contract: 放在对应目录，不加 `slow`
+2. 完整训练迭代、训练脚本启动、或累计成本高的 backend matrix: 加 `@pytest.mark.slow`
 3. 训练脚本冒烟测试: 放在 `tests/scripts/`，对可选依赖使用 `pytest.importorskip`
 4. 多进程测试使用 `_SPAWN_CTX = mp.get_context("spawn")`
 5. 单进程 `SharedObsNormStats` 测试使用 `_ThreadingCtx`，因为 `multiprocessing.Queue.empty()` 在同进程内不可靠
@@ -83,16 +84,16 @@ tests/
 
 ```bash
 # 快速路径（与 CI 覆盖范围一致）
-uv run pytest -m "not slow and not veryslow"
+uv run pytest -m "not slow"
 
 # 带覆盖率
-uv run pytest -m "not slow and not veryslow" --cov=unilab --cov-report=term-missing
+uv run pytest -m "not slow" --cov=unilab --cov-report=term-missing
 
 # 集成测试（需要 MuJoCo）
-uv run pytest -m "slow and not veryslow" -v
+uv run pytest -m "slow" -v
 
 # 完整训练冒烟测试
-uv run pytest -m veryslow -v
+uv run pytest -m "slow" -v
 ```
 
 ## CI Workflow
@@ -107,7 +108,7 @@ uv run pytest -m veryslow -v
 | `ruff-format` | 在 `ubuntu-slim` 上执行 `uv sync --only-group dev` + `uv run --no-sync ruff format --check .` | ✅ |
 | `mypy` | 在 `ubuntu-slim` 上执行 `uv sync` + `uv run mypy src/unilab` | ✅ |
 | `pyright` | 在 `ubuntu-slim` 上执行 `uv sync` + `uv run pyright` | ✅ |
-| `test` | 在 `ubuntu-slim` 上以 Python 3.11 执行 `uv sync --extra motrix` + `uv run pytest -m "not slow and not veryslow" --cov=unilab --cov-report markdown-append:$GITHUB_STEP_SUMMARY --cov-fail-under=25` | ✅ |
+| `test` | 在 `ubuntu-slim` 上以 Python 3.11 执行 `uv sync --extra motrix` + `uv run pytest -m "not slow" --cov=unilab --cov-report markdown-append:$GITHUB_STEP_SUMMARY --cov-fail-under=25` | ✅ |
 
 只有协作元信息改动，例如 `LICENSE`、issue templates、`CODEOWNERS` 和 `.github/pull_request_template.md`，才会跳过 CI。文档改动会触发 CI，并由 `tests/scripts/test_check_docs.py` 校验。
 

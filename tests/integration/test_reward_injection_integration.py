@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 
 
-@pytest.mark.slow
 def test_reward_injection_in_training():
     """Test reward config is properly injected during training."""
     from hydra import compose, initialize
@@ -41,8 +40,8 @@ def test_reward_injection_in_training():
 def test_reward_override_propagation():
     """Test reward override propagates through multiprocess collector."""
     from unilab.base import registry
+    from unilab.base.registry import ensure_registries
     from unilab.envs.locomotion.go1.joystick import RewardConfig
-    from unilab.utils.algo_utils import ensure_registries
 
     ensure_registries()
 
@@ -89,7 +88,7 @@ def test_reward_override_propagation():
 def test_backward_compatibility_no_reward_config():
     """Test env requires reward config - should fail without it."""
     from unilab.base import registry
-    from unilab.utils.algo_utils import ensure_registries
+    from unilab.base.registry import ensure_registries
 
     ensure_registries()
 
@@ -105,8 +104,8 @@ def test_backward_compatibility_no_reward_config():
 def test_zero_scale_skips_computation():
     """Test that reward functions with scale=0 are skipped."""
     from unilab.base import registry
+    from unilab.base.registry import ensure_registries
     from unilab.envs.locomotion.go1.joystick import RewardConfig
-    from unilab.utils.algo_utils import ensure_registries
 
     ensure_registries()
 

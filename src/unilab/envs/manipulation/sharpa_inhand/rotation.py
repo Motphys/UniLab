@@ -7,7 +7,6 @@ import numpy as np
 
 from unilab.base import registry
 from unilab.base.backend import create_backend
-from unilab.base.dtype_config import get_global_dtype
 from unilab.base.np_env import NpEnvState
 from unilab.dr import (
     DomainRandomizationCapabilities,
@@ -28,6 +27,8 @@ from unilab.dr.types import (
     RESET_TERM_KP,
     ResetRandomizationPayload,
 )
+from unilab.dtype_config import get_global_dtype
+from unilab.envs.common.rotation import np_quat_conjugate, np_quat_mul, np_quat_to_axis_angle
 from unilab.envs.manipulation.sharpa_inhand.base import (
     SharpaInhandBaseCfg,
     SharpaInhandBaseEnv,
@@ -35,7 +36,6 @@ from unilab.envs.manipulation.sharpa_inhand.base import (
     resolve_grasp_cache_file,
     sample_scale_grasp_caches,
 )
-from unilab.utils.math_utils import np_quat_apply, np_quat_conjugate, np_quat_mul, np_quat_to_axis_angle
 
 
 @dataclass

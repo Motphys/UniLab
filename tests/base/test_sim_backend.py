@@ -1,7 +1,7 @@
-"""Tests for SimBackend implementations (MuJoCo and MotrixSim).
+"""Slow full-matrix tests for SimBackend implementations.
 
-All tests are @pytest.mark.slow — they require MuJoCo (and optionally
-motrixsim) to be installed, and are excluded from the default CI run.
+Fast representative backend smoke coverage lives in `test_sim_backend_smoke.py`.
+This file keeps the broader backend matrix outside the default CI lane.
 
 Run with:
     uv run pytest -m slow tests/base/test_sim_backend.py -v
@@ -20,7 +20,6 @@ from unilab.dr import (
     ModelVariantSpec,
     ResetRandomizationPayload,
 )
-from unilab.utils.xml_utils import get_named_body_ids
 
 
 # ---------------------------------------------------------------------------
@@ -114,12 +113,6 @@ class TestMuJoCoBasic:
     def test_num_envs(self, bkd):
         assert bkd.num_envs == NUM_ENVS
 
-    def test_model_not_none(self, bkd):
-        assert bkd.model is not None
-
-    def test_pool_materialized_by_lifecycle(self, bkd):
-        assert bkd._pool is not None
-
     def test_apply_init_randomization_sets_variants_before_materialization(self):
         from unilab.base.backend.mujoco_backend import MuJoCoBackend
 
@@ -184,16 +177,6 @@ class TestMuJoCoBasic:
 
     # simulation control
 
-    def test_step(self, bkd):
-        bkd.step(np.zeros((NUM_ENVS, bkd.model.nu)), nsteps=2)
-
-    def test_set_state_moves_base(self, bkd):
-        nq, nv = bkd.model.nq, bkd.model.nv
-        target = (1.0, 2.0, 0.8)
-        qpos = _identity_qpos_mujoco(nq, xyz=target)
-        bkd.set_state(np.array([0]), qpos, np.zeros((1, nv)))
-        np.testing.assert_allclose(bkd.get_base_pos()[0], target, atol=1e-5)
-
     def test_set_state_only_affects_target_envs(self, bkd):
         nq, nv = bkd.model.nq, bkd.model.nv
         pos_before = bkd.get_base_pos()[1].copy()
@@ -217,19 +200,6 @@ class TestMuJoCoBasic:
         np.testing.assert_allclose(updated[:base_body_id], original[1][:base_body_id])
         np.testing.assert_allclose(updated[base_body_id], original[1][base_body_id] + delta[0])
         np.testing.assert_allclose(updated[base_body_id + 1 :], original[1][base_body_id + 1 :])
-
-    def test_get_dr_capabilities_include_extended_reset_terms(self, bkd):
-        caps = bkd.get_dr_capabilities()
-        assert {
-            "base_mass_delta",
-            "base_com_offset",
-            "gravity",
-            "body_iquat",
-            "body_inertia",
-            "kp",
-            "kd",
-        }.issubset(caps.supported_reset_terms)
-        assert caps.supports_interval_push
 
     def test_apply_interval_randomization_calls_push_robots(self, bkd):
         called: dict[str, np.ndarray] = {}
@@ -466,37 +436,6 @@ def test_mujoco_backend_discards_visual_assets():
 
 
 @pytest.mark.slow
-def test_mujoco_backend_fixed_base_dof_views_do_not_skip_first_joint():
-    mujoco = _mujoco_module()
-
-    from unilab.base.backend.mujoco_backend import MuJoCoBackend
-
-    model_file = _xml("allegro_hand", "scene.xml")
-    bkd = MuJoCoBackend(model_file, NUM_ENVS, SIM_DT, base_name="palm")
-    assert int(bkd.model.jnt_type[0]) != int(mujoco.mjtJoint.mjJNT_FREE)
-    _shape(bkd.get_dof_pos(), NUM_ENVS, bkd.model.nq)
-    _shape(bkd.get_dof_vel(), NUM_ENVS, bkd.model.nv)
-    _shape(bkd.get_base_pos(), NUM_ENVS, 3)
-    _shape(bkd.get_base_quat(), NUM_ENVS, 4)
-    np.testing.assert_allclose(bkd.get_base_lin_vel(), 0.0, atol=1e-8)
-    np.testing.assert_allclose(bkd.get_base_ang_vel(), 0.0, atol=1e-8)
-    _unit_quat(bkd.get_base_quat(), "MuJoCo fixed-base quat")
-
-
-@pytest.mark.slow
-def test_motrix_backend_fixed_base_base_views_are_available():
-    from unilab.base.backend.motrix_backend import MotrixBackend
-
-    pytest.importorskip("motrixsim")
-    bkd = MotrixBackend(_ALLEGRO["model_file"], NUM_ENVS, SIM_DT, base_name=_ALLEGRO["base_name"])
-    _shape(bkd.get_base_pos(), NUM_ENVS, 3)
-    _shape(bkd.get_base_quat(), NUM_ENVS, 4)
-    np.testing.assert_allclose(bkd.get_base_lin_vel(), 0.0, atol=1e-8)
-    np.testing.assert_allclose(bkd.get_base_ang_vel(), 0.0, atol=1e-8)
-    _unit_quat(bkd.get_base_quat(), "Motrix fixed-base quat")
-
-
-@pytest.mark.slow
 def test_motrix_backend_fixed_base_set_state_matches_mujoco_for_hand_and_ball():
     from unilab.base.backend.motrix_backend import MotrixBackend
     from unilab.base.backend.mujoco_backend import MuJoCoBackend
@@ -688,27 +627,6 @@ class TestMotrixBasic:
     def test_num_envs(self, bkd):
         assert bkd.num_envs == NUM_ENVS
 
-    def test_model_not_none(self, bkd):
-        assert bkd.model is not None
-
-    def test_data_not_none(self, bkd):
-        assert bkd.data is not None
-
-    # simulation control
-
-    def test_step(self, bkd):
-        ctrl = np.zeros_like(bkd.data.actuator_ctrls)
-        bkd.step(ctrl, nsteps=2)
-
-    def test_set_state_moves_base(self, _ctx):
-        bkd, _ = _ctx
-        nq = bkd.get_dof_pos().shape[-1] + 7  # 7 base DOFs + joint DOFs
-        nv = bkd.get_dof_vel().shape[-1] + 6  # joint vels + base (3 lin + 3 ang)
-        target = (1.0, 2.0, 0.8)
-        qpos = _identity_qpos_mujoco(nq, xyz=target)
-        bkd.set_state(np.array([0]), qpos, np.zeros((1, nv)))
-        np.testing.assert_allclose(bkd.get_base_pos()[0], target, atol=1e-4)
-
     def test_set_state_randomization_only_affects_target_envs(self, _ctx):
         bkd, _ = _ctx
         nq = bkd.get_dof_pos().shape[-1] + 7
@@ -818,13 +736,6 @@ class TestMotrixBasic:
                 qvel,
                 randomization=ResetRandomizationPayload(body_inertia=np.zeros((1, 1, 3))),
             )
-
-    def test_get_dr_capabilities_include_expected_terms(self, bkd):
-        caps = bkd.get_dr_capabilities()
-        assert {"base_mass_delta", "base_com_offset", "kp", "kd"}.issubset(
-            caps.supported_reset_terms
-        )
-        assert caps.supports_interval_push
 
     def test_apply_interval_randomization_calls_push_robots(self, bkd):
         called: dict[str, np.ndarray] = {}
@@ -995,14 +906,6 @@ class TestCrossBackend:
         return mj, mx, p["base_name"]
 
     # --- base kinematics ---
-
-    def test_base_pos(self, synced):
-        mj, mx, _ = synced
-        np.testing.assert_allclose(mj.get_base_pos(), mx.get_base_pos(), atol=self.ATOL)
-
-    def test_base_quat(self, synced):
-        mj, mx, _ = synced
-        np.testing.assert_allclose(mj.get_base_quat(), mx.get_base_quat(), atol=self.ATOL)
 
     def test_base_lin_vel(self, synced):
         mj, mx, _ = synced
@@ -1310,10 +1213,6 @@ class TestCrossBackendModelProperties:
         mx = MotrixBackend(_G1["model_file"], NUM_ENVS, SIM_DT, base_name=_G1["base_name"])
         return mj, mx
 
-    def test_num_actuators_match(self, backends):
-        mj, mx = backends
-        assert mj.num_actuators == mx.num_actuators
-
     def test_num_dof_vel_match(self, backends):
         mj, mx = backends
         assert mj.num_dof_vel == mx.num_dof_vel
@@ -1321,10 +1220,3 @@ class TestCrossBackendModelProperties:
     def test_actuator_ctrl_range_shape_match(self, backends):
         mj, mx = backends
         assert mj.get_actuator_ctrl_range().shape == mx.get_actuator_ctrl_range().shape
-
-    def test_motion_body_ids_match_motion_xml(self, backends):
-        mj, mx = backends
-        body_names = ["pelvis", "torso_link"]
-        expected = np.asarray(get_named_body_ids(_G1["model_file"], body_names), dtype=np.int32)
-        np.testing.assert_array_equal(mj.get_motion_body_ids(body_names), expected)
-        np.testing.assert_array_equal(mx.get_motion_body_ids(body_names), expected)

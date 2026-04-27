@@ -7,7 +7,7 @@ behind the ``viser`` optional-dependency group and is **not** imported by defaul
 
 Usage (from ``scripts/play_viser.py``)::
 
-    from unilab.utils.viser_scene import MujocoViserScene, VISER_AVAILABLE
+    from unilab.visualization.viser_scene import MujocoViserScene, VISER_AVAILABLE
 """
 
 from __future__ import annotations

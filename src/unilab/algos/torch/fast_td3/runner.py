@@ -1,8 +1,9 @@
 """FastTD3 runner built on top of the unified off-policy infra."""
 
+from unilab.algos.torch.common.device import get_env_dims
 from unilab.algos.torch.fast_td3.learner import FastTD3Learner
 from unilab.algos.torch.offpolicy.runner import OffPolicyRunner
-from unilab.utils.device_utils import get_default_device, get_env_dims
+from unilab.utils.device import get_default_device
 
 
 class FastTD3Runner(OffPolicyRunner):

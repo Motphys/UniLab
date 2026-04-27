@@ -277,6 +277,7 @@ def _compute_result_summary(result: dict[str, Any]) -> dict[str, Any]:
 
 
 def _serialize_result(result: dict[str, Any]) -> dict[str, Any]:
+    summary = _compute_result_summary(result)
     return {
         "task_name": result["task_name"],
         "task_key": result.get("task_key"),
@@ -284,9 +285,13 @@ def _serialize_result(result: dict[str, Any]) -> dict[str, Any]:
         "num_envs": result["num_envs"],
         "num_steps": result["num_steps"],
         "warmup_steps": result["warmup_steps"],
-        "summary": _compute_result_summary(result),
-        "timing_records": {
-            key: [float(v) for v in values] for key, values in result["timing_records"].items()
+        "plot_data": {
+            "label": summary["label"],
+            "median_step_ms": summary["median_step_ms"],
+            "throughput_env_steps_per_s": summary["throughput_env_steps_per_s"],
+            "breakdown_median_ms": {
+                key: _median_timing_ms(result, key) for key, _, _ in BREAKDOWN_SEGMENTS
+            },
         },
     }
 
@@ -396,22 +401,6 @@ def _print_comparison_table(results: list[dict[str, Any]]) -> None:
     if results:
         r0 = results[0]
         print(f"  ({r0['num_envs']} envs, {r0['num_steps']} steps, throughput = env-steps/s)")
-
-
-def _flatten_step_series(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    records: list[dict[str, Any]] = []
-    for result in results:
-        label = _result_label(result)
-        total_steps = result["timing_records"].get("env_step_total_ms", [])
-        for step_idx, step_ms in enumerate(total_steps, start=1):
-            records.append(
-                {
-                    "label": label,
-                    "step_idx": step_idx,
-                    "step_time_ms": float(step_ms),
-                }
-            )
-    return records
 
 
 def _task_key(result: dict[str, Any]) -> str:
@@ -591,45 +580,6 @@ def _breakdown_segments_for_results(results: list[dict[str, Any]]) -> list[tuple
     return visible_segments
 
 
-def _save_total_series_plot(results: list[dict[str, Any]], output_path: Path) -> bool:
-    if plt is None or not results:
-        return False
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    ordered = _ordered_results(results)
-    fig, ax = plt.subplots(figsize=(10.5, 6.0))
-
-    for result in ordered:
-        step_times = _timing_array(result, "env_step_total_ms")
-        if step_times.size == 0:
-            continue
-        step_idx = np.arange(1, step_times.size + 1)
-        style = _backend_style(result["sim_backend"])
-        ax.plot(
-            step_idx,
-            step_times,
-            color=_task_color(_task_key(result)),
-            linestyle=style["linestyle"],
-            marker=style["marker"],
-            linewidth=1.5,
-            markersize=3.4,
-            markevery=max(1, step_times.size // 12),
-            alpha=0.92,
-            label=_result_label(result),
-        )
-
-    ax.set_title(f"Env step total time per iteration\n{get_device_info_line()}")
-    ax.set_xlabel("step iteration")
-    ax.set_ylabel("env.step total time (ms)")
-    ax.grid(True, alpha=0.3)
-    ax.legend(ncol=2, fontsize=8)
-    fig.tight_layout()
-    fig.savefig(output_path, dpi=160, bbox_inches="tight")
-    plt.close(fig)
-    print(f"Saved: {output_path.resolve()}")
-    return True
-
-
 def _save_summary_plot(results: list[dict[str, Any]], output_path: Path) -> bool:
     if plt is None or not results:
         return False
@@ -748,14 +698,8 @@ def _persist_outputs(
     effective_plot_dir = plot_dir or out_json.parent
 
     if not skip_plots:
-        series_path = effective_plot_dir / "env_step_total_series.png"
         summary_path = effective_plot_dir / "env_step_summary.png"
         breakdown_path = effective_plot_dir / "env_step_breakdown.png"
-
-        if _save_total_series_plot(results, series_path):
-            plot_files.append(str(series_path.resolve()))
-        elif results:
-            print("matplotlib unavailable; skipped env step series plot.")
 
         if _save_summary_plot(results, summary_path):
             plot_files.append(str(summary_path.resolve()))

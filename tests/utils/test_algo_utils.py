@@ -1,4 +1,4 @@
-"""Tests for unilab.utils.algo_utils."""
+"""Tests for registry bootstrap and torch actor factory helpers."""
 
 from __future__ import annotations
 
@@ -8,7 +8,8 @@ import sys
 
 import pytest
 
-from unilab.utils.algo_utils import build_actor, ensure_registries
+from unilab.algos.torch.common.actor_factory import build_actor
+from unilab.base.registry import ensure_registries
 
 
 class TestEnsureRegistries:
@@ -65,7 +66,7 @@ class TestEnsureRegistries:
 
     def test_non_package_module_import_is_supported(self) -> None:
         """A plain module path should be accepted without package scanning."""
-        ensure_registries(["unilab.utils.algo_utils"])
+        ensure_registries(["unilab.base.registry"])
 
     def test_declared_registry_module_failure_raises(self, tmp_path, monkeypatch) -> None:
         """Required packages should fail fast when declared registry modules fail to import."""

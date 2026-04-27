@@ -42,7 +42,7 @@ These are example repository runs for documented commands and hardware setups. T
 
 ```bash
 # Linux SAC (5.5min on RTX 4090 and R9-9950x3d)
-uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/motrix
+uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco
 ```
 
 ```bash

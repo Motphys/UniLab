@@ -9,12 +9,27 @@ Run:
 
 from __future__ import annotations
 
+import subprocess
 import sys
 
 import pytest
 
+
+def _mlx_runtime_usable() -> bool:
+    """Probe whether importing mlx.core is safe in a subprocess on this host."""
+    if sys.platform != "darwin":
+        return False
+    result = subprocess.run(
+        [sys.executable, "-c", "import mlx.core"], capture_output=True, text=True, timeout=10
+    )
+    return result.returncode == 0
+
+
 if sys.platform != "darwin":
     pytest.skip("MLX is macOS-only", allow_module_level=True)
+
+if not _mlx_runtime_usable():
+    pytest.skip("mlx runtime aborts in subprocess on this host", allow_module_level=True)
 
 mlx = pytest.importorskip("mlx.core", reason="mlx not installed")
 
@@ -303,20 +318,19 @@ def test_ppo_trainer_update_decreases_loss():
 
 
 # ---------------------------------------------------------------------------
-# Full training iteration on real env (veryslow)
+# Full training iteration on real env (slow)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.slow
-@pytest.mark.veryslow
 def test_mlx_ppo_one_iteration_real_env(default_go2_reward_config):
     """Run 1 full MLX PPO iteration (collect rollout + update) on a real env."""
     _mujoco = pytest.importorskip("mujoco")
 
     from unilab.base import registry
-    from unilab.config.structured_configs import PPOConfig as PPOStructuredConfig
-    from unilab.utils.algo_utils import ensure_registries
-    from unilab.utils.obs_utils import flatten_obs_dict
+    from unilab.base.observations import flatten_obs_dict
+    from unilab.base.registry import ensure_registries
+    from unilab.structured_configs import PPOConfig as PPOStructuredConfig
 
     ensure_registries()
 

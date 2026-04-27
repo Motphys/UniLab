@@ -1,8 +1,7 @@
 """Slow integration tests for APPORunner.
 
 Requires MuJoCo to be installed. Run with:
-    uv run pytest -m slow -v           # init + close tests
-    uv run pytest -m veryslow -v       # full training iteration
+    uv run pytest -m slow -v           # init + close + full training iteration
 """
 
 from __future__ import annotations
@@ -14,7 +13,7 @@ import pytest
 pytest.importorskip("mujoco")
 
 from unilab.algos.torch.appo.runner import APPORunner
-from unilab.config.structured_configs import APPOConfig
+from unilab.structured_configs import APPOConfig
 
 
 @pytest.mark.slow
@@ -34,7 +33,6 @@ def test_appo_runner_init_no_crash(mock_env_name):
 
 
 @pytest.mark.slow
-@pytest.mark.veryslow
 @pytest.mark.parametrize("env_name", ["Go2JoystickFlat"])
 def test_appo_runner_learn_two_iterations(env_name, default_go2_reward_config):
     """APPO learn test must use a real env — DummyFlatTest is not registered in

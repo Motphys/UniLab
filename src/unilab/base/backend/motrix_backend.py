@@ -56,7 +56,7 @@ class MotrixBackend(SimBackend):
         self._model_file = model_file
 
         if self.add_body_sensors:
-            from unilab.utils.xml_utils import inject_motrix_tracking_sensors
+            from unilab.base.backend.xml import inject_motrix_tracking_sensors
 
             tmp_path, _, valid_bnames = inject_motrix_tracking_sensors(
                 model_file, baselink_name=base_name
@@ -73,7 +73,13 @@ class MotrixBackend(SimBackend):
                 if (idx := self._model.get_link_index(name)) is not None
             }
         else:
-            self._model = mtx.load_model(model_file)  # pyright: ignore[reportPossiblyUnbound]
+            from unilab.base.backend.xml import create_motrix_compatible_xml
+
+            tmp_path = create_motrix_compatible_xml(model_file)
+            try:
+                self._model = mtx.load_model(tmp_path)  # pyright: ignore[reportPossiblyUnbound]
+            finally:
+                os.remove(tmp_path)
 
             # 枚举所有具名 link，用 link index 作 key
             self._body_id_to_name = {  # type: ignore[assignment]

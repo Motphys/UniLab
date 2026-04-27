@@ -9,8 +9,8 @@ from etils import epath
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.backend import create_backend
-from unilab.base.dtype_config import get_global_dtype
 from unilab.base.np_env import NpEnvState
+from unilab.dtype_config import get_global_dtype
 from unilab.envs.locomotion.common import rewards
 from unilab.envs.locomotion.common.commands import Commands
 from unilab.envs.locomotion.common.domain_rand import DomainRandConfig

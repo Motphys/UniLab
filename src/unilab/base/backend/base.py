@@ -97,7 +97,7 @@ class SimBackend(abc.ABC):
 
     def get_motion_body_ids(self, names: Sequence[str]) -> np.ndarray:
         """Resolve MuJoCo-style body IDs used by motion datasets."""
-        from unilab.utils.xml_utils import get_named_body_ids
+        from unilab.base.backend.xml import get_named_body_ids
 
         return np.asarray(get_named_body_ids(self._model_file, names), dtype=np.int32)
 

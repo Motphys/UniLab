@@ -1,7 +1,7 @@
 """Integration tests for RSL-RL PPO training.
 
 Requires MuJoCo and rsl_rl to be installed. Run with:
-    uv run pytest -m veryslow -v -k rsl_rl
+    uv run pytest -m slow -v -k rsl_rl
 """
 
 from __future__ import annotations
@@ -20,10 +20,10 @@ import torch
 from tensordict import TensorDict
 
 from unilab.base import registry
-from unilab.config.structured_configs import PPOConfig
-from unilab.utils.algo_utils import ensure_registries
-from unilab.utils.rsl_rl_compat import convert_config_v5, is_rsl_rl_v5
-from unilab.utils.torch_utils import to_torch
+from unilab.base.registry import ensure_registries
+from unilab.structured_configs import PPOConfig
+from unilab.training.rsl_rl import normalize_ppo_train_cfg
+from unilab.utils.tensor import to_torch
 
 ensure_registries()
 
@@ -105,7 +105,6 @@ class _RslRlVecEnvWrapper:
 
 
 @pytest.mark.slow
-@pytest.mark.veryslow
 @pytest.mark.parametrize(
     "env_name",
     [
@@ -155,8 +154,7 @@ def test_rsl_rl_ppo_one_iteration(
     }
     train_cfg["algorithm"]["num_learning_epochs"] = 1
     train_cfg["algorithm"]["num_mini_batches"] = 2
-    if is_rsl_rl_v5():
-        train_cfg = convert_config_v5(train_cfg)
+    train_cfg = normalize_ppo_train_cfg(train_cfg)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         runner = OnPolicyRunner(cast(Any, wrapped), train_cfg, log_dir=tmpdir, device="cpu")

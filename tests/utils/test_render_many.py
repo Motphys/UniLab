@@ -1,4 +1,4 @@
-"""Tests for MuJoCo GL backend resolution in unilab.utils.render_many."""
+"""Tests for MuJoCo GL backend resolution in unilab.visualization.render_many."""
 
 from __future__ import annotations
 
@@ -18,8 +18,8 @@ pytestmark = pytest.mark.skipif(
 
 def _reload_render_many(monkeypatch):
     monkeypatch.setitem(sys.modules, "mujoco", types.SimpleNamespace())
-    sys.modules.pop("unilab.utils.render_many", None)
-    return importlib.import_module("unilab.utils.render_many")
+    sys.modules.pop("unilab.visualization.render_many", None)
+    return importlib.import_module("unilab.visualization.render_many")
 
 
 def test_resolve_gl_backend_uses_egl_when_probe_succeeds(monkeypatch) -> None:
