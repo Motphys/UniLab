@@ -67,10 +67,7 @@ def materialize_demo_run(*, root: Path, preset: DemoPreset, refresh: bool) -> Pa
     source_run_dir = _source_run_dir(root, preset)
     source_checkpoint = source_run_dir / preset.checkpoint_filename
     if not source_checkpoint.is_file():
-        raise SystemExit(
-            "Demo checkpoint not found. Expected local asset at "
-            f"{source_checkpoint}."
-        )
+        raise SystemExit(f"Demo checkpoint not found. Expected local asset at {source_checkpoint}.")
 
     demo_run_dir = _demo_run_dir(root, preset)
     if refresh and demo_run_dir.exists():

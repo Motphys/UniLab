@@ -57,9 +57,7 @@ def _check_private_checkout(root: Path) -> None:
 
 def _check_reserved_overrides(overrides: Sequence[str]) -> None:
     reserved = [
-        override
-        for override in overrides
-        if _override_key(override) in RESERVED_OVERRIDE_KEYS
+        override for override in overrides if _override_key(override) in RESERVED_OVERRIDE_KEYS
     ]
     if reserved:
         joined = ", ".join(reserved)
@@ -199,8 +197,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.mode == "demo":
         if overrides:
             raise SystemExit(
-                f"unilab demo does not accept passthrough Hydra overrides: "
-                f"{', '.join(overrides)}"
+                f"unilab demo does not accept passthrough Hydra overrides: {', '.join(overrides)}"
             )
         return run_demo(
             preset_name=args.preset,
