@@ -34,6 +34,19 @@ uv run scripts/train_rsl_rl.py task=go2_joystick_flat/motrix
 
 This is the shortest repository entrypoint today. It uses the PPO training script on the registered `go2_joystick_flat/motrix` task and gives a direct first-success path before you learn the full workflow.
 
+You can also use the unified `unilab` CLI:
+
+```bash
+# Activate the virtual environment
+source .venv/bin/activate
+
+# Train with the unified CLI
+unilab train --algo ppo --task go2_joystick_flat --sim mujoco
+
+# One-click demo (plays back a pre-trained checkpoint)
+unilab demo
+```
+
 On macOS / MacBook, commands that open the MotrixSim native renderer must be launched with `uv run mxpython` instead of `uv run python`. Plain non-rendering training can still use `uv run python ... training.no_play=true`.
 
 ## Example Runs
@@ -73,6 +86,42 @@ uv run scripts/train_rsl_rl.py task=g1_motion_tracking/mujoco
 Training scripts automatically enter playback after training unless you set `training.no_play=true`.
 
 For MotrixSim visualization or `training.play_only=true` on macOS / MacBook, reuse the macOS renderer rule from `Quick Demo` and see `docs/users/zh_CN/03-training.md`.
+
+## Unified CLI (`unilab`)
+
+The `unilab` command wraps the training scripts above with a simpler interface:
+
+```bash
+# Train
+unilab train --algo ppo --task go2_joystick_flat --sim mujoco
+
+# Evaluate (play back the latest checkpoint)
+unilab eval --algo ppo --task go2_joystick_flat --sim mujoco --load-run -1
+
+# Demo (pre-trained checkpoint playback)
+unilab demo
+```
+
+Supported algorithms: `ppo`, `mlx_ppo`, `appo`, `sac`, `td3`, `flashsac`
+Supported simulators: `mujoco`, `motrix`
+
+Hydra overrides can be appended directly:
+
+```bash
+unilab train --algo ppo --task go2_joystick_flat --sim mujoco training.max_iterations=10
+```
+
+### Demo
+
+`unilab demo` runs a pre-configured playback with a trained checkpoint.
+
+| Flag | Description |
+|------|-------------|
+| `--preset` | Demo preset name (default: `go2_joystick_mujoco_ppo`) |
+| `--refresh` | Remove and regenerate the demo directory |
+| `--device` | Inference device (`cpu`, `cuda`, `mps`) |
+
+> **For Developers**: Demo checkpoints currently require local training output. A checkpoint hosting solution (CDN / model registry) with automatic download is not yet in place.
 
 ## Repository Map
 
