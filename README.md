@@ -49,6 +49,15 @@ unilab demo
 
 On macOS / MacBook, commands that open the MotrixSim native renderer must be launched with `uv run mxpython` instead of `uv run python`. Plain non-rendering training can still use `uv run python ... training.no_play=true`.
 
+### Interactive Notebooks
+
+Prefer a guided, step-by-step experience? Open the notebooks in Jupyter:
+
+- [Demo Notebook](notebook/demo.ipynb): one-click checkpoint playback — run `unilab demo` and view the result video
+- [PPO Training Walkthrough](notebook/unilab_walkthrough_ppo_go1_joystick_mujoco.ipynb): end-to-end guide from config preview to training to playback, with explanations for beginners
+
+> Notebooks require a local environment (no Colab support) — MuJoCo needs local compute.
+
 ## Example Runs
 
 These are example repository runs for documented commands and hardware setups. They are useful as concrete entrypoints and reported timings, but they are **not** yet a formal benchmark manifest.
@@ -140,6 +149,8 @@ unilab train --algo ppo --task go2_joystick_flat --sim mujoco training.max_itera
 - [04 Algorithms](docs/users/zh_CN/04-algorithms.md): APPO, FastSAC, and FastTD3 usage and differences
 - [05 G1 Motion Tracking](docs/users/zh_CN/05-motion-tracking.md): the G1 whole-body motion-tracking task
 - [06 Domain Randomization](docs/users/zh_CN/06-domain-randomization.md): domain randomization configuration and best practices
+- [Demo Notebook](notebook/demo.ipynb): one-click demo playback
+- [PPO Training Walkthrough](notebook/unilab_walkthrough_ppo_go1_joystick_mujoco.ipynb): beginner-friendly end-to-end training guide
 
 
 ### For Developers
