@@ -121,7 +121,7 @@ class Go2WalkTask(Go2BaseEnv):
             "base_height": rewards.base_height,
             "action_rate": rewards.action_rate,
             "similar_to_default": rewards.similar_to_default,
-            # "alive": rewards.alive,
+            "alive": rewards.alive,
             "swing_feet_z": self._reward_swing_feet_z,
             "contact": self._reward_contact,
         }
