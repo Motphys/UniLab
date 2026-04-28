@@ -207,6 +207,57 @@ uv run scripts/train_offpolicy.py \
 
 自动记录的元数据包括 task、algorithm、backend、device、硬件信息、git 信息、完整配置、总运行时，以及可用时的最终回放视频。
 
+## Docker 中运行训练
+
+当你希望在隔离的 Linux 环境中运行训练时，可以直接在容器里执行统一 CLI 或脚本入口。推荐先在仓库根目录构建 image：
+
+```bash
+# 基础 image：MuJoCo + UniLab 运行时
+docker build -f Dockerfile.base -t unilab:base .
+
+# 开发 image：基础 image + Motrix + 开发工具
+docker build -f Dockerfile -t unilab:dev .
+```
+
+最简单的容器训练方式是挂载当前仓库，然后在容器内运行命令：
+
+```bash
+docker run --rm -it \
+  -v "$(pwd):/workspace/UniLab" \
+  -v unilab-venv:/workspace/UniLab/.venv \
+  -w /workspace/UniLab \
+  unilab:dev bash
+```
+
+这里延续 [快速开始](01-getting-started.md) 中的做法：将 `.venv` 单独放到 named volume，避免容器内创建的虚拟环境污染宿主机仓库目录。
+
+进入容器后，可以直接执行：
+
+```bash
+# 统一 CLI
+uv run unilab train --algo ppo --task go2_joystick_flat --sim mujoco
+
+# 直接脚本入口
+uv run scripts/train_rsl_rl.py task=go2_joystick_flat/mujoco
+uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco
+```
+
+如果宿主机已经配置好 NVIDIA Container Toolkit，可以使用 GPU 容器：
+
+```bash
+docker run --rm --gpus all -it \
+  -v "$(pwd):/workspace/UniLab" \
+  -w /workspace/UniLab \
+  unilab:dev bash
+```
+
+训练日志和产物仍会写入挂载后的仓库目录，例如 `logs/rsl_rl_ppo/<task>/`、`logs/fast_sac/<task>/`。如果只想快速验证 image 是否可用，可以直接运行：
+
+```bash
+docker run --rm unilab:base
+docker run --rm unilab:dev
+```
+
 ## Navigation
 
 - Previous: [Simulation Backends](02-simulation-backends.md)

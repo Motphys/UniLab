@@ -1,0 +1,13 @@
+.git
+.gitignore
+.history
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.venv
+__pycache__
+**/__pycache__
+logs
+benchmark/outputs
+dist
+build
