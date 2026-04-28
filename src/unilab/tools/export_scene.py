@@ -51,9 +51,7 @@ def main(argv: list[str] | None = None) -> int:
         description="Export a MuJoCo model to XML + mesh assets directory.",
     )
     parser.add_argument("model_file", help="Path to the MuJoCo XML or MJB model file")
-    parser.add_argument(
-        "-o", "--output-dir", default="exported_scene", help="Output directory"
-    )
+    parser.add_argument("-o", "--output-dir", default="exported_scene", help="Output directory")
     parser.add_argument("--zip", action="store_true", help="Also create a zip archive")
     args = parser.parse_args(argv)
 

@@ -46,9 +46,7 @@ class NanGuard:
             self._buffer[self._buffer_idx] = physics_state
         self._buffer_idx = (self._buffer_idx + 1) % self._cfg.buffer_size
 
-    def check(
-        self, obs: dict[str, np.ndarray], reward: np.ndarray
-    ) -> np.ndarray | None:
+    def check(self, obs: dict[str, np.ndarray], reward: np.ndarray) -> np.ndarray | None:
         if not self._cfg.enabled or self._dumped:
             return None
         bad_mask = np.zeros(self._num_envs, dtype=bool)
@@ -75,10 +73,7 @@ class NanGuard:
         dump_env_ids = nan_env_ids[: self._cfg.max_envs_to_dump]
 
         if self._buffer_full:
-            ordered = (
-                self._buffer[self._buffer_idx :]
-                + self._buffer[: self._buffer_idx]
-            )
+            ordered = self._buffer[self._buffer_idx :] + self._buffer[: self._buffer_idx]
         else:
             ordered = list(self._buffer)
 

@@ -50,9 +50,11 @@ def replay_dump(dump_path: str, env_index: int = 0) -> None:
         print(f"Cannot find model file. model_file in metadata: {model_file}")
         return
 
-    model = mujoco.MjModel.from_xml_path(model_path) if model_path.endswith(
-        ".xml"
-    ) else mujoco.MjModel.from_binary_path(model_path)
+    model = (
+        mujoco.MjModel.from_xml_path(model_path)
+        if model_path.endswith(".xml")
+        else mujoco.MjModel.from_binary_path(model_path)
+    )
     d = mujoco.MjData(model)
 
     num_steps = states.shape[0]
@@ -85,6 +87,7 @@ def replay_dump(dump_path: str, env_index: int = 0) -> None:
             viewer.sync()
 
             import time
+
             time.sleep(1.0 / 30.0)
             step_idx = (step_idx + 1) % num_steps
 
@@ -95,9 +98,7 @@ def main(argv: list[str] | None = None) -> int:
         description="Replay a NaN guard state dump in MuJoCo viewer.",
     )
     parser.add_argument("dump_path", help="Path to the .npz dump file")
-    parser.add_argument(
-        "--env-index", type=int, default=0, help="Environment index to visualize"
-    )
+    parser.add_argument("--env-index", type=int, default=0, help="Environment index to visualize")
     args = parser.parse_args(argv)
 
     replay_dump(args.dump_path, env_index=args.env_index)
