@@ -67,6 +67,11 @@ training:
   wandb_notes: null
   wandb_mode: null
   sim_backend: mujoco
+  nan_guard:
+    enabled: false
+    buffer_size: 100
+    max_envs_to_dump: 5
+    output_dir: null
   play_only: false
   no_play: false
   play_env_num: 16
