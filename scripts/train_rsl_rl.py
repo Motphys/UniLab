@@ -85,6 +85,29 @@ def _algo_config_dict(cfg: DictConfig) -> dict[str, Any]:
     return cast(dict[str, Any], train_cfg_raw)
 
 
+def _resolve_ppo_wrapper_cls(rl_cfg: dict[str, Any]) -> type[RslRlVecEnvWrapper]:
+    """Resolve the VecEnv wrapper class from the owner-selected PPO runtime.
+
+    Args:
+        rl_cfg: Resolved algorithm config dictionary from Hydra composition.
+
+    Returns:
+        Wrapper class used to adapt the UniLab env contract to the active
+        RSL-RL PPO runtime.
+    """
+    if rl_cfg.get("runtime_impl") != "hora_ppo":
+        return RslRlVecEnvWrapper
+
+    from unilab.algos.torch.hora.rsl_rl import resolve_hora_ppo_wrapper_cls
+
+    wrapper_cls = resolve_hora_ppo_wrapper_cls(rl_cfg)
+    if wrapper_cls is None:
+        raise ValueError(
+            "PPO owner config selected runtime_impl=hora_ppo but no HORA wrapper could be resolved."
+        )
+    return wrapper_cls
+
+
 def _format_play_checkpoint_error(
     cfg: DictConfig,
     *,
@@ -123,6 +146,8 @@ def _format_play_checkpoint_error(
 
 def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     """Play mode for RSL-RL."""
+    rl_cfg = _algo_config_dict(cfg)
+    wrapper_cls = _resolve_ppo_wrapper_cls(rl_cfg)
 
     task_log_root = get_log_root(ROOT_DIR, cfg) / str(cfg.training.task_name)
     load_path, load_path_dir = parse_checkpoint_path(cfg, root_dir=ROOT_DIR)
@@ -153,8 +178,8 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
         num_envs=cfg.training.play_env_num,
         env_cfg_override=env_cfg_override,
     )
-    wrapped_env = RslRlVecEnvWrapper(env, device=device)
-    train_cfg = normalize_ppo_train_cfg(_algo_config_dict(cfg))
+    wrapped_env = wrapper_cls(env, device=device)
+    train_cfg = normalize_ppo_train_cfg(rl_cfg)
     if "runner" not in train_cfg:
         train_cfg["runner"] = {}
     train_cfg["runner"]["logger"] = "none"
@@ -273,9 +298,11 @@ def main(cfg: DictConfig) -> None:
                 num_envs=cfg.algo.num_envs,
                 env_cfg_override=env_cfg_override,
             )
-            wrapped_env = RslRlVecEnvWrapper(env, device=device)
+            rl_cfg = _algo_config_dict(cfg)
+            wrapper_cls = _resolve_ppo_wrapper_cls(rl_cfg)
+            wrapped_env = wrapper_cls(env, device=device)
 
-            train_cfg = normalize_ppo_train_cfg(_algo_config_dict(cfg))
+            train_cfg = normalize_ppo_train_cfg(rl_cfg)
             if "runner" not in train_cfg:
                 train_cfg["runner"] = {}
 

@@ -1,4 +1,0 @@
-# @package _global_
-teacher:
-  algo_family: ppo
-  task: sharpa_inhand/motrix_hora

@@ -3,16 +3,57 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from copy import deepcopy
+from dataclasses import dataclass
 from typing import Any, cast
 
 import torch
 from omegaconf import DictConfig
 
 from unilab.algos.torch.hora.appo_runner import HoraAPPORunner
-from unilab.training import BackendAdapter, create_env, render_play_mode
-from unilab.utils.obs_utils import get_obs_dims, split_obs_with_priv_info
-from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4, is_rsl_rl_v5
+from unilab.algos.torch.hora.rsl_rl_compat import (
+    convert_config_v3_to_v4,
+    is_rsl_rl_v4,
+    is_rsl_rl_v5,
+)
+from unilab.base.observations import get_obs_dims
+from unilab.training import BackendAdapter, create_env
+from unilab.visualization import render_play_mode
+
+from .observations import build_hora_actor_tensordict, split_hora_obs_with_priv_info
+from .runtime import is_hora_appo_runtime
+
+
+@dataclass(frozen=True)
+class HoraAPPORuntime:
+    """Resolved HORA APPO entrypoints used by the generic APPO script.
+
+    Args:
+        runner_cls: Runner class used for HORA APPO training mode.
+        play_fn: Play-mode callable used for HORA APPO checkpoint playback.
+
+    Returns:
+        Immutable entrypoint bundle consumed by generic APPO script assembly.
+    """
+
+    runner_cls: type[HoraAPPORunner]
+    play_fn: Callable[..., str | None]
+
+
+def resolve_hora_appo_runtime(rl_cfg: dict[str, Any]) -> HoraAPPORuntime | None:
+    """Resolve HORA APPO entrypoints from an explicit runtime marker.
+
+    Args:
+        rl_cfg: Resolved algorithm config dictionary from Hydra composition.
+
+    Returns:
+        ``HoraAPPORuntime`` when the owner config selects HORA APPO, otherwise
+        ``None``.
+    """
+    if not is_hora_appo_runtime(rl_cfg):
+        return None
+    return HoraAPPORuntime(runner_cls=HoraAPPORunner, play_fn=play_hora_appo)
 
 
 def _update_hora_obs_groups(
@@ -21,6 +62,16 @@ def _update_hora_obs_groups(
     obs_dim: int,
     priv_info_dim: int,
 ) -> None:
+    """Update grouped actor/critic dims for the HORA APPO runtime.
+
+    Args:
+        rl_cfg: Mutable algorithm config dictionary to update in place.
+        obs_dim: Actor observation dimension reported by the env contract.
+        priv_info_dim: Privileged-info dimension reported by the env contract.
+
+    Returns:
+        None. Mutates ``rl_cfg["obs_groups"]`` directly.
+    """
     obs_groups = rl_cfg.setdefault("obs_groups", {})
     actor_group = obs_groups.setdefault("actor", {})
     critic_group = obs_groups.setdefault("critic", {})
@@ -30,24 +81,6 @@ def _update_hora_obs_groups(
     if isinstance(critic_group, dict):
         critic_group["actor"] = obs_dim
         critic_group["priv_info"] = priv_info_dim
-
-
-def _build_hora_play_actor_td(
-    obs_np,
-    *,
-    device: str,
-    play_env_num: int,
-    priv_info_np,
-):
-    from tensordict import TensorDict
-
-    return TensorDict(
-        {
-            "actor": torch.from_numpy(obs_np).to(device),
-            "priv_info": torch.from_numpy(priv_info_np).to(device),
-        },
-        batch_size=play_env_num,
-    )
 
 
 def play_hora_appo(
@@ -88,7 +121,7 @@ def play_hora_appo(
     obs_dim, _ = get_obs_dims(env.obs_groups_spec)
     if env.state is None:
         env.init_state()
-    _, _, state_priv_info = split_obs_with_priv_info(
+    _, _, state_priv_info = split_hora_obs_with_priv_info(
         env.state.obs,
         env.state.info if env.state is not None else None,
     )
@@ -146,7 +179,7 @@ def play_hora_appo(
     def initialize_play_obs() -> np.ndarray:
         nonlocal current_priv_info
         obs_out, info_out = env.reset(np.arange(cfg.training.play_env_num, dtype=np.int32))
-        actor_obs, _, priv_info = split_obs_with_priv_info(obs_out, info_out)
+        actor_obs, _, priv_info = split_hora_obs_with_priv_info(obs_out, info_out)
         current_priv_info = priv_info.astype(np.float32) if priv_info is not None else None
         return np.asarray(actor_obs, dtype=np.float32)
 
@@ -154,15 +187,15 @@ def play_hora_appo(
         nonlocal current_priv_info
         if current_priv_info is None:
             raise ValueError("HORA APPO play step is missing privileged info.")
-        td = _build_hora_play_actor_td(
+        td = build_hora_actor_tensordict(
             obs_np,
+            priv_info=current_priv_info,
             device=device,
-            play_env_num=cfg.training.play_env_num,
-            priv_info_np=current_priv_info,
+            batch_size=cfg.training.play_env_num,
         )
         actions = actor(td).cpu().numpy().astype(np.float32)
         state = env.step(actions)
-        actor_obs, _, priv_info = split_obs_with_priv_info(state.obs, state.info)
+        actor_obs, _, priv_info = split_hora_obs_with_priv_info(state.obs, state.info)
         current_priv_info = priv_info.astype(np.float32) if priv_info is not None else None
         return np.asarray(actor_obs, dtype=np.float32)
 
@@ -193,4 +226,4 @@ def play_hora_appo(
     return output_video
 
 
-__all__ = ["HoraAPPORunner", "play_hora_appo"]
+__all__ = ["HoraAPPORunner", "HoraAPPORuntime", "play_hora_appo", "resolve_hora_appo_runtime"]

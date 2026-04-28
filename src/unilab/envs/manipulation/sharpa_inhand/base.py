@@ -82,6 +82,10 @@ class SharpaControlConfig:
     # fallback defaults for backends that cannot expose actuator gains yet.
     p_gain: float = 1.0
     d_gain: float = 0.1
+    # MuJoCo Sharpa currently uses position actuators, so torque-control mode
+    # stays declared here for owner-config structure but is rejected at runtime.
+    torque_control: bool = False
+    dof_limits_scale: float = 0.9
 
 
 @dataclass
@@ -90,7 +94,25 @@ class SharpaSensorConfig:
 
 
 @dataclass
+class SharpaObservationConfig:
+    observation_mode: str = "separated"
+    enable_tactile: bool = True
+    binary_contact: bool = False
+    enable_contact_pos: bool = False
+    contact_smooth: float = 0.5
+    contact_threshold: float = 0.05
+    tactile_force_clip_max: float = 4.0
+
+
+@dataclass
+class SharpaPrivilegedInfoConfig:
+    include_friction_scale: bool = True
+    include_gravity_direction: bool = False
+
+
+@dataclass
 class SharpaDomainRandConfig:
+    scale_list: list[float] = field(default_factory=lambda: [0.5])
     randomize_base_mass: bool = False
     added_mass_range: list[float] = field(default_factory=lambda: [0.0, 0.0])
     random_com: bool = False
@@ -101,6 +123,30 @@ class SharpaDomainRandConfig:
     )
     randomize_gravity_direction: bool = False
     gravity_direction_magnitude: float = 9.81
+    randomize_pd_gains: bool = True
+    randomize_p_gain_scale_lower: float = 0.5
+    randomize_p_gain_scale_upper: float = 2.0
+    randomize_d_gain_scale_lower: float = 0.5
+    randomize_d_gain_scale_upper: float = 2.0
+    randomize_friction: bool = True
+    randomize_friction_scale_lower: float = 0.5
+    randomize_friction_scale_upper: float = 2.0
+    elastomer_base_friction: float = 1.6
+    metal_base_friction: float = 0.2
+    object_base_friction: float = 1.0
+    randomize_com: bool = True
+    randomize_com_lower: float = -0.01
+    randomize_com_upper: float = 0.01
+    randomize_mass: bool = True
+    randomize_mass_lower: float = 0.01
+    randomize_mass_upper: float = 0.25
+    force_scale: float = 2.0
+    random_force_prob_scalar: float = 0.25
+    force_decay: float = 0.9
+    force_decay_interval: float = 0.08
+    joint_noise_scale: float = 0.02
+    contact_latency: float = 0.005
+    contact_sensor_noise: float = 0.01
     push_body_name: str | None = None
 
 
@@ -118,8 +164,6 @@ class SharpaInhandBaseCfg(EnvCfg):
 
     clip_obs: float = 5.0
     clip_actions: float = 1.0
-    # NOTE: Sharpa MuJoCo XML uses position actuators; true torque-control mode is not implemented.
-    torque_control: bool = False
 
     num_hand_dofs: int = 22
     frame_obs_dim: int = 64
@@ -138,6 +182,8 @@ class SharpaInhandBaseCfg(EnvCfg):
 
     control_config: SharpaControlConfig = field(default_factory=SharpaControlConfig)
     sensor: SharpaSensorConfig = field(default_factory=SharpaSensorConfig)  # type: ignore[assignment]
+    obs: SharpaObservationConfig = field(default_factory=SharpaObservationConfig)
+    priv_info: SharpaPrivilegedInfoConfig = field(default_factory=SharpaPrivilegedInfoConfig)
     domain_rand: SharpaDomainRandConfig = field(default_factory=SharpaDomainRandConfig)
 
     reset_height_lower: float = 0.59906
@@ -147,55 +193,10 @@ class SharpaInhandBaseCfg(EnvCfg):
     rot_axis: tuple[float, float, float] = (0.0, 0.0, 1.0)
 
     grasp_cache_path: str = "cache/sharpa_grasp_linspace"
-
-    joint_noise_scale: float = 0.02
-
-    enable_tactile: bool = True
-    binary_contact: bool = False
-    enable_contact_pos: bool = False
     disable_tactile_ids: list[int] = field(default_factory=list)
-    contact_smooth: float = 0.5
-    contact_threshold: float = 0.05
-    tactile_force_clip_max: float = 4.0
-    contact_latency: float = 0.005
-    contact_sensor_noise: float = 0.01
     # Match the reference Sharpa object-position reward/privileged-info anchor
     # by using the fixed XML/default object pose instead of the sampled grasp reset.
     use_default_object_pose_for_object_pos_anchor: bool = False
-    include_privileged_friction_scale: bool = True
-    include_privileged_gravity_direction: bool = False
-
-    dof_limits_scale: float = 0.9
-
-    scale_list: list[float] = field(default_factory=lambda: [0.5])
-
-    randomize_pd_gains: bool = True
-    randomize_p_gain_scale_lower: float = 0.5
-    randomize_p_gain_scale_upper: float = 2.0
-    randomize_d_gain_scale_lower: float = 0.5
-    randomize_d_gain_scale_upper: float = 2.0
-
-    randomize_friction: bool = True
-    randomize_friction_scale_lower: float = 0.5
-    randomize_friction_scale_upper: float = 2.0
-    elastomer_base_friction: float = 1.6
-    metal_base_friction: float = 0.2
-    object_base_friction: float = 1.0
-
-    randomize_com: bool = True
-    randomize_com_lower: float = -0.01
-    randomize_com_upper: float = 0.01
-
-    randomize_mass: bool = True
-    randomize_mass_lower: float = 0.01
-    randomize_mass_upper: float = 0.25
-
-    force_scale: float = 2.0
-    random_force_prob_scalar: float = 0.25
-    force_decay: float = 0.9
-    force_decay_interval: float = 0.08
-
-    gravity_curriculum: bool = True
 
     debug_show_axes: bool = False
 
@@ -276,6 +277,8 @@ def repeat_obs_history(init_frame: np.ndarray, history_len: int) -> np.ndarray:
 
 class SharpaInhandBaseEnv(NpEnv):
     _cfg: SharpaInhandBaseCfg
+    _default_p_gain: np.ndarray
+    _default_d_gain: np.ndarray
 
     def __init__(self, cfg: SharpaInhandBaseCfg, backend: SimBackend, num_envs: int = 1) -> None:
         super().__init__(cfg, backend, num_envs)
@@ -297,7 +300,7 @@ class SharpaInhandBaseEnv(NpEnv):
         self._target_lower, self._target_upper = self._resolve_target_joint_limits(
             self._ctrl_lower,
             self._ctrl_upper,
-            cfg.dof_limits_scale,
+            cfg.control_config.dof_limits_scale,
         )
 
         self._init_qpos = self._resolve_init_qpos()
@@ -349,9 +352,9 @@ class SharpaInhandBaseEnv(NpEnv):
         self.critic_info_buf = np.zeros((num_envs, cfg.critic_info_dim), dtype=self._np_dtype)
 
         self.scale_ids, self._num_scales, self._bucket_env = self._build_scale_ids(
-            num_envs, cfg.scale_list
+            num_envs, cfg.domain_rand.scale_list
         )
-        self.scale_values = self._build_scale_values(cfg.scale_list)
+        self.scale_values = self._build_scale_values(cfg.domain_rand.scale_list)
 
     @property
     def action_space(self) -> gym.spaces.Box:
@@ -549,7 +552,7 @@ class SharpaInhandBaseEnv(NpEnv):
             Clipped tactile-force array with the same shape. Non-positive clip values
             disable this clamp so the caller can opt out explicitly.
         """
-        clip_max = float(getattr(self._cfg, "tactile_force_clip_max", 5.0))
+        clip_max = float(self._cfg.obs.tactile_force_clip_max)
         tactile_force = np.asarray(tactile_force, dtype=self._np_dtype)
         if clip_max <= 0.0:
             return tactile_force
@@ -581,14 +584,16 @@ class SharpaInhandBaseEnv(NpEnv):
         Returns:
             Tactile-force observation array with shape ``(num_envs, num_tactile)``.
         """
-        if not self._cfg.enable_tactile:
+        obs_cfg = self._cfg.obs
+        domain_rand = self._cfg.domain_rand
+        if not obs_cfg.enable_tactile:
             self._clear_tactile_history()
             return np.zeros((self._num_envs, self._num_tactile), dtype=self._np_dtype)
 
         current_force = SharpaInhandBaseEnv._clip_tactile_force(self, self._read_tactile_force())
         smooth_contact = (
-            current_force * self._cfg.contact_smooth
-            + self._prev_tactile_force * (1.0 - self._cfg.contact_smooth)
+            current_force * obs_cfg.contact_smooth
+            + self._prev_tactile_force * (1.0 - obs_cfg.contact_smooth)
         ).astype(self._np_dtype)
         self._prev_tactile_force[:] = current_force
 
@@ -597,16 +602,17 @@ class SharpaInhandBaseEnv(NpEnv):
                 smooth_contact[:, disabled_id] = 0.0
 
         latency = np.where(
-            np.random.rand(self._num_envs, self._num_tactile) < self._cfg.contact_latency,
+            np.random.rand(self._num_envs, self._num_tactile) < domain_rand.contact_latency,
             1.0,
             0.0,
         ).astype(self._np_dtype)
 
-        if self._cfg.binary_contact:
-            binary_contact = (smooth_contact > self._cfg.contact_threshold).astype(self._np_dtype)
+        if obs_cfg.binary_contact:
+            binary_contact = (smooth_contact > obs_cfg.contact_threshold).astype(self._np_dtype)
             self.last_contacts = self.last_contacts * latency + binary_contact * (1.0 - latency)
             noise_mask = (
-                np.random.rand(self._num_envs, self._num_tactile) >= self._cfg.contact_sensor_noise
+                np.random.rand(self._num_envs, self._num_tactile)
+                >= domain_rand.contact_sensor_noise
             ).astype(self._np_dtype)
             return np.where(
                 self.last_contacts > 0.1,

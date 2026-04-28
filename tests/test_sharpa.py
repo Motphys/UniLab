@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from unilab.envs.common.rotation import np_quat_apply
 from unilab.envs.manipulation.sharpa_inhand.base import SharpaDomainRandConfig
 from unilab.envs.manipulation.sharpa_inhand.grasp_gen import (
     SharpaInhandRotationGraspCfg,
@@ -14,7 +15,6 @@ from unilab.envs.manipulation.sharpa_inhand.rotation import (
     SharpaInhandRotationEnv,
     sample_random_quaternion,
 )
-from unilab.utils.math_utils import np_quat_apply
 
 
 def test_sharpa_gravity_direction_randomization_matches_rotated_gravity(
@@ -40,8 +40,9 @@ def test_sharpa_gravity_direction_randomization_matches_rotated_gravity(
         assert num_envs == 2
         return fixed_quat.copy()
 
-    monkeypatch.setattr(
-        "unilab.envs.manipulation.sharpa_inhand.rotation.sample_random_quaternion",
+    monkeypatch.setitem(
+        SharpaInhandRotationEnv._build_gravity_direction_randomization.__globals__,
+        "sample_random_quaternion",
         _fake_sample_random_quaternion,
     )
 
@@ -95,4 +96,3 @@ def test_sharpa_grasp_env_rejects_gravity_randomization() -> None:
 
     with pytest.raises(ValueError, match="does not support gravity randomization"):
         SharpaInhandRotationGraspEnv(cfg, num_envs=1, backend_type="mujoco")
-

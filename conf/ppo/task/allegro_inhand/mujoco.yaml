@@ -2,11 +2,31 @@
 training:
   task_name: AllegroInhandRotation
   sim_backend: mujoco
+  render_spacing: 0.5
+  cam_distance: 1.5
+  cam_lookat: [0.75, 0.75, 0]
+  cam_elevation: -20.0
 algo:
   num_envs: 16384
   num_steps_per_env: 8
   max_iterations: 201
-  empirical_normalization: true
+  obs_groups:
+    actor: [policy]
+    critic: [policy]
+  actor:
+    class_name: rsl_rl.models.MLPModel
+    hidden_dims: [512, 256, 128]
+    activation: elu
+    obs_normalization: true
+    distribution_cfg:
+      class_name: rsl_rl.modules.distribution.GaussianDistribution
+      init_std: 1.0
+      std_type: scalar
+  critic:
+    class_name: rsl_rl.models.MLPModel
+    hidden_dims: [512, 256, 128]
+    activation: elu
+    obs_normalization: true
   algorithm:
     value_loss_coef: 4.0
     desired_kl: 0.02
@@ -25,4 +45,12 @@ env:
   gen_grasp: false
   max_episode_seconds: 20.0
   grasp_cache_path: cache/allegro_grasp_50k.npy
-
+  # Keep only grasp/pose reset variation. All online DR terms stay disabled.
+  domain_rand:
+    randomize_base_mass: false
+    random_com: false
+    randomize_gravity: false
+    push_robots: false
+    joint_noise: 0.0
+    ball_vel_noise: 0.0
+    ball_z_offset: 0.0

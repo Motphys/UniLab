@@ -28,7 +28,12 @@ from unilab.dr.types import (
     ResetRandomizationPayload,
 )
 from unilab.dtype_config import get_global_dtype
-from unilab.envs.common.rotation import np_quat_conjugate, np_quat_mul, np_quat_to_axis_angle
+from unilab.envs.common.rotation import (
+    np_quat_apply,
+    np_quat_conjugate,
+    np_quat_mul,
+    np_quat_to_axis_angle,
+)
 from unilab.envs.manipulation.sharpa_inhand.base import (
     SharpaInhandBaseCfg,
     SharpaInhandBaseEnv,
@@ -60,9 +65,6 @@ class SharpaInhandRotationCfg(SharpaInhandBaseCfg):
     critic_info_dim: int = 9
     reward_config: RewardConfig | None = None
     zero_action_test_mode: bool = False
-    # "separated": source-style actor obs and privileged info carried separately.
-    # "flattened": simple actor obs with privileged info appended into "obs".
-    observation_mode: str = "separated"
 
 
 def sample_random_quaternion(num_envs: int) -> np.ndarray:
@@ -98,21 +100,35 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
                 )
             if not capabilities.supports_reset_term(RESET_TERM_GRAVITY):
                 unsupported = unsupported | frozenset({RESET_TERM_GRAVITY})
-        if env.cfg.force_scale > 0.0 and not capabilities.supports_interval_body_force:
+        if (
+            domain_rand is not None
+            and domain_rand.force_scale > 0.0
+            and not capabilities.supports_interval_body_force
+        ):
             raise NotImplementedError(
                 f"{env._backend.backend_type} backend does not support interval body force perturbation"
             )
-        if env.cfg.randomize_pd_gains:
+        if domain_rand is not None and domain_rand.randomize_pd_gains:
             if not capabilities.supports_reset_term(RESET_TERM_KP):
                 unsupported = unsupported | frozenset({RESET_TERM_KP})
             if not capabilities.supports_reset_term(RESET_TERM_KD):
                 unsupported = unsupported | frozenset({RESET_TERM_KD})
-        if env.cfg.randomize_com and not capabilities.supports_reset_term(RESET_TERM_BODY_IPOS):
+        if (
+            domain_rand is not None
+            and domain_rand.randomize_com
+            and not capabilities.supports_reset_term(RESET_TERM_BODY_IPOS)
+        ):
             unsupported = unsupported | frozenset({RESET_TERM_BODY_IPOS})
-        if env.cfg.randomize_mass and not capabilities.supports_reset_term(RESET_TERM_BODY_MASS):
+        if (
+            domain_rand is not None
+            and domain_rand.randomize_mass
+            and not capabilities.supports_reset_term(RESET_TERM_BODY_MASS)
+        ):
             unsupported = unsupported | frozenset({RESET_TERM_BODY_MASS})
-        if env.cfg.randomize_friction and not capabilities.supports_reset_term(
-            RESET_TERM_GEOM_FRICTION
+        if (
+            domain_rand is not None
+            and domain_rand.randomize_friction
+            and not capabilities.supports_reset_term(RESET_TERM_GEOM_FRICTION)
         ):
             unsupported = unsupported | frozenset({RESET_TERM_GEOM_FRICTION})
         if unsupported:
@@ -197,15 +213,16 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
         d_gain = np.broadcast_to(env._default_d_gain, (num_reset, env._num_action)).astype(
             dtype, copy=True
         )
-        if env.cfg.randomize_pd_gains:
+        domain_rand = env.cfg.domain_rand
+        if domain_rand.randomize_pd_gains:
             p_scale = env._sample_pd_scales(
-                env.cfg.randomize_p_gain_scale_lower,
-                env.cfg.randomize_p_gain_scale_upper,
+                domain_rand.randomize_p_gain_scale_lower,
+                domain_rand.randomize_p_gain_scale_upper,
                 shape=(num_reset, env._num_action),
             )
             d_scale = env._sample_pd_scales(
-                env.cfg.randomize_d_gain_scale_lower,
-                env.cfg.randomize_d_gain_scale_upper,
+                domain_rand.randomize_d_gain_scale_lower,
+                domain_rand.randomize_d_gain_scale_upper,
                 shape=(num_reset, env._num_action),
             )
             p_gain *= p_scale
@@ -392,24 +409,25 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
             or ``None`` when object-force injection is disabled.
         """
         del step_counter
-        if env.cfg.force_scale <= 0.0:
+        domain_rand = env.cfg.domain_rand
+        if domain_rand.force_scale <= 0.0:
             return None
 
         decay = float(
             np.power(
-                env.cfg.force_decay,
-                env.cfg.ctrl_dt / max(env.cfg.force_decay_interval, 1.0e-8),
+                domain_rand.force_decay,
+                env.cfg.ctrl_dt / max(domain_rand.force_decay_interval, 1.0e-8),
             )
         )
         env._random_object_force *= decay
 
-        random_mask = np.random.rand(env._num_envs) < float(env.cfg.random_force_prob_scalar)
+        random_mask = np.random.rand(env._num_envs) < float(domain_rand.random_force_prob_scalar)
         if np.any(random_mask):
             object_mass = env._resolve_current_object_mass()
             env._random_object_force[random_mask] = (
                 np.random.randn(int(np.sum(random_mask)), 3).astype(np.float64)
                 * object_mass[random_mask, None]
-                * float(env.cfg.force_scale)
+                * float(domain_rand.force_scale)
             )
 
         return IntervalRandomizationPlan(
@@ -419,7 +437,6 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
 
 
 @registry.env("SharpaInhandRotation", sim_backend="mujoco")
-@registry.env("SharpaInhandRotation", sim_backend="motrix")
 class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
     _cfg: SharpaInhandRotationCfg
     _reward_cfg: RewardConfig
@@ -451,7 +468,7 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         )
         super().__init__(cfg, backend, num_envs)
 
-        self._observation_mode = self._resolve_observation_mode(cfg.observation_mode)
+        self._observation_mode = self._resolve_observation_mode(cfg.obs.observation_mode)
         expected_critic_info_dim = self._expected_critic_info_dim()
         if cfg.critic_info_dim != expected_critic_info_dim:
             cfg.critic_info_dim = expected_critic_info_dim
@@ -472,10 +489,10 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         self._default_p_gain, self._default_d_gain = self._load_default_pd_gains()
         self._random_object_force = np.zeros((num_envs, 3), dtype=np.float64)
 
-        if cfg.torque_control:
+        if cfg.control_config.torque_control:
             raise NotImplementedError(
                 "Sharpa torque_control=True is not implemented with the current position-actuator XML setup. "
-                "Set env.torque_control=false. Virtual torques are still computed explicitly for reward terms."
+                "Set env.control_config.torque_control=false. Virtual torques are still computed explicitly for reward terms."
             )
 
         self._reward_cfg = cfg.reward_config
@@ -502,10 +519,11 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         return self._num_scales > 1 or not np.allclose(self.scale_values, self.scale_values[0])
 
     def _expected_critic_info_dim(self) -> int:
+        priv_info_cfg = self._cfg.priv_info
         dim = self._CRITIC_BASE_DIM_WITHOUT_OPTIONALS
-        if self._cfg.include_privileged_friction_scale:
+        if priv_info_cfg.include_friction_scale:
             dim += 1
-        if self._cfg.include_privileged_gravity_direction:
+        if priv_info_cfg.include_gravity_direction:
             dim += 3
         return dim
 
@@ -689,11 +707,12 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         Returns:
             Shape (batch_size, 1) multipliers, or None when disabled.
         """
-        if not self._cfg.randomize_friction:
+        domain_rand = self._cfg.domain_rand
+        if not domain_rand.randomize_friction:
             return None
         return np.random.uniform(
-            self._cfg.randomize_friction_scale_lower,
-            self._cfg.randomize_friction_scale_upper,
+            domain_rand.randomize_friction_scale_lower,
+            domain_rand.randomize_friction_scale_upper,
             size=(batch_size, 1),
         ).astype(np.float64)
 
@@ -706,11 +725,12 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         Returns:
             Shape (batch_size, 1) absolute object masses, or None when disabled.
         """
-        if not self._cfg.randomize_mass:
+        domain_rand = self._cfg.domain_rand
+        if not domain_rand.randomize_mass:
             return None
         return np.random.uniform(
-            self._cfg.randomize_mass_lower,
-            self._cfg.randomize_mass_upper,
+            domain_rand.randomize_mass_lower,
+            domain_rand.randomize_mass_upper,
             size=(batch_size, 1),
         ).astype(np.float64)
 
@@ -723,11 +743,12 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         Returns:
             Shape (batch_size, 3) COM offsets, or None when disabled.
         """
-        if not self._cfg.randomize_com:
+        domain_rand = self._cfg.domain_rand
+        if not domain_rand.randomize_com:
             return None
         return np.random.uniform(
-            self._cfg.randomize_com_lower,
-            self._cfg.randomize_com_upper,
+            domain_rand.randomize_com_lower,
+            domain_rand.randomize_com_upper,
             size=(batch_size, 3),
         ).astype(np.float64)
 
@@ -792,7 +813,9 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         """
         if gravity is not None:
             return np.asarray(gravity, dtype=self._np_dtype)
-        return np.broadcast_to(self._base_gravity, (batch_size, 3)).astype(self._np_dtype, copy=True)
+        return np.broadcast_to(self._base_gravity, (batch_size, 3)).astype(
+            self._np_dtype, copy=True
+        )
 
     def _build_friction_randomization(
         self,
@@ -818,10 +841,11 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
             (batch_size, *self._base_geom_friction.shape),
         ).copy()
         scale = np.asarray(friction_scale, dtype=np.float64).reshape(batch_size, 1, 1)
+        domain_rand = self._cfg.domain_rand
         material_profiles = {
-            "object": self._friction_profile("object", self._cfg.object_base_friction),
-            "elastomer": self._friction_profile("elastomer", self._cfg.elastomer_base_friction),
-            "metal": self._friction_profile("metal", self._cfg.metal_base_friction),
+            "object": self._friction_profile("object", domain_rand.object_base_friction),
+            "elastomer": self._friction_profile("elastomer", domain_rand.elastomer_base_friction),
+            "metal": self._friction_profile("metal", domain_rand.metal_base_friction),
         }
         for material, profile in material_profiles.items():
             geom_friction[:, self._friction_geom_ids[material], :] = scale * profile.reshape(
@@ -924,7 +948,7 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
             Reset-randomization payload, or None when no backend randomization is requested.
         """
         payload = build_common_reset_randomization(self, batch_size)
-        if self._cfg.randomize_pd_gains:
+        if self._cfg.domain_rand.randomize_pd_gains:
             if payload is None:
                 payload = ResetRandomizationPayload()
             payload.kp = np.asarray(p_gain, dtype=np.float64)
@@ -962,7 +986,8 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         offset = 0
         layout = {"object_pos_delta": slice(offset, offset + 3)}
         offset += 3
-        if self._cfg.include_privileged_friction_scale:
+        priv_info_cfg = self._cfg.priv_info
+        if priv_info_cfg.include_friction_scale:
             layout["friction"] = slice(offset, offset + 1)
             offset += 1
         layout["mass"] = slice(offset, offset + 1)
@@ -971,7 +996,7 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         offset += 3
         layout["scale"] = slice(offset, offset + 1)
         offset += 1
-        if self._cfg.include_privileged_gravity_direction:
+        if priv_info_cfg.include_gravity_direction:
             layout["gravity"] = slice(offset, offset + 3)
         return layout
 
@@ -1018,7 +1043,8 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         """
         critic_info = np.zeros((batch_size, self._cfg.critic_info_dim), dtype=self._np_dtype)
 
-        if self._cfg.include_privileged_friction_scale:
+        priv_info_cfg = self._cfg.priv_info
+        if priv_info_cfg.include_friction_scale:
             self._assign_critic_info_field(
                 critic_info,
                 "friction",
@@ -1046,7 +1072,7 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
                 "scale",
                 self.scale_values[self.scale_ids[env_ids]].reshape(batch_size, 1),
             )
-        if self._cfg.include_privileged_gravity_direction:
+        if priv_info_cfg.include_gravity_direction:
             self._assign_critic_info_field(
                 critic_info,
                 "gravity",
@@ -1055,10 +1081,11 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         return critic_info
 
     def _policy_frame_dim(self) -> int:
+        obs_cfg = self._cfg.obs
         dim = self._num_action + self._num_action
-        if self._cfg.enable_tactile:
+        if obs_cfg.enable_tactile:
             dim += self._num_tactile
-        if self._cfg.enable_contact_pos:
+        if obs_cfg.enable_contact_pos:
             dim += self._num_tactile * 3
         return dim
 
@@ -1071,8 +1098,9 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         Returns:
             Tuple of tactile and contact-position arrays sized for the current config.
         """
-        tactile_dim = self._num_tactile if self._cfg.enable_tactile else 0
-        contact_pos_dim = self._num_tactile * 3 if self._cfg.enable_contact_pos else 0
+        obs_cfg = self._cfg.obs
+        tactile_dim = self._num_tactile if obs_cfg.enable_tactile else 0
+        contact_pos_dim = self._num_tactile * 3 if obs_cfg.enable_contact_pos else 0
         return (
             np.zeros((batch_size, tactile_dim), dtype=self._np_dtype),
             np.zeros((batch_size, contact_pos_dim), dtype=self._np_dtype),
@@ -1163,9 +1191,10 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
             Ordered list of arrays that should be concatenated into the policy frame.
         """
         parts = [dof_norm, targets]
-        if self._cfg.enable_tactile:
+        obs_cfg = self._cfg.obs
+        if obs_cfg.enable_tactile:
             parts.append(np.asarray(tactile, dtype=self._np_dtype))
-        if self._cfg.enable_contact_pos:
+        if obs_cfg.enable_contact_pos:
             parts.append(np.asarray(contact_pos, dtype=self._np_dtype))
         return parts
 
@@ -1214,10 +1243,11 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         targets_f = np.asarray(targets, dtype=self._np_dtype)
 
         dof_norm = self._normalize_joint_pos(dof_pos_f)
-        if self._cfg.joint_noise_scale > 0.0:
+        joint_noise_scale = float(self._cfg.domain_rand.joint_noise_scale)
+        if joint_noise_scale > 0.0:
             dof_norm += (
                 np.random.uniform(-1.0, 1.0, size=dof_norm.shape).astype(self._np_dtype)
-                * self._cfg.joint_noise_scale
+                * joint_noise_scale
             )
 
         frame = np.asarray(
@@ -1378,9 +1408,7 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         work_penalty = np.square(np.sum(torques * dof_vel, axis=1))
 
         object_pos_anchor = self._resolve_object_pos_anchor(info, object_pos.shape[0])
-        object_pos_reward = 1.0 / (
-            np.linalg.norm(object_pos - object_pos_anchor, axis=1) + 0.001
-        )
+        object_pos_reward = 1.0 / (np.linalg.norm(object_pos - object_pos_anchor, axis=1) + 0.001)
 
         reward_terms: dict[str, np.ndarray] = {
             "rotate": np.asarray(rotate_reward, dtype=self._np_dtype),

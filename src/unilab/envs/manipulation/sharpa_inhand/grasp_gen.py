@@ -23,28 +23,34 @@ from unilab.envs.manipulation.sharpa_inhand.rotation import (
 )
 
 
+def _default_sharpa_grasp_domain_rand() -> SharpaDomainRandConfig:
+    """Build the nested DR defaults used by Sharpa grasp collection.
+
+    Returns:
+        Domain-randomization config matching the grasp-task owner defaults.
+    """
+    return SharpaDomainRandConfig(
+        randomize_pd_gains=False,
+        randomize_friction=False,
+        randomize_com=False,
+        randomize_mass=True,
+        randomize_mass_lower=0.05,
+        randomize_mass_upper=0.051,
+        force_scale=0.0,
+        random_force_prob_scalar=0.0,
+    )
+
+
 @dataclass
 class SharpaInhandRotationGraspCfg(SharpaInhandRotationCfg):
     max_episode_seconds: float = 3.0  # 12.0
-    torque_control: bool = False
 
     reset_height_lower: float = 0.61406
     reset_height_upper: float = 0.62406
     reset_angle_diff: float = 30.0 / 180.0 * np.pi
 
     grasp_cache_path: str = ""
-    domain_rand: SharpaDomainRandConfig = field(default_factory=SharpaDomainRandConfig)
-
-    randomize_pd_gains: bool = False
-    randomize_friction: bool = False
-    randomize_com: bool = False
-    randomize_mass: bool = True
-    randomize_mass_lower: float = 0.05
-    randomize_mass_upper: float = 0.051
-
-    force_scale: float = 0.0
-    random_force_prob_scalar: float = 0.0
-    gravity_curriculum: bool = False
+    domain_rand: SharpaDomainRandConfig = field(default_factory=_default_sharpa_grasp_domain_rand)
 
     reward_config: RewardConfig = field(
         default_factory=lambda: RewardConfig(
@@ -114,6 +120,7 @@ class SharpaInhandGraspDRProvider(SharpaInhandRotationDRProvider):
             friction_scale=None,
             randomized_mass=None,
             randomized_com_offset=None,
+            gravity=None,
         )
         env._clear_tactile_history(env_ids)
 
@@ -127,7 +134,6 @@ class SharpaInhandGraspDRProvider(SharpaInhandRotationDRProvider):
 
 
 @registry.env("SharpaInhandRotationGrasp", sim_backend="mujoco")
-@registry.env("SharpaInhandRotationGrasp", sim_backend="motrix")
 class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
     _cfg: SharpaInhandRotationGraspCfg
 

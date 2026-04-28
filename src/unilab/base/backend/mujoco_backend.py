@@ -617,9 +617,7 @@ class MuJoCoBackend(SimBackend):
         force_np = np.asarray(force, dtype=np.float64)
         expected_shape = (self._num_envs, body_ids_np.size, 3)
         if force_np.shape != expected_shape:
-            raise ValueError(
-                f"body force must have shape {expected_shape}, got {force_np.shape}"
-            )
+            raise ValueError(f"body force must have shape {expected_shape}, got {force_np.shape}")
         for body_offset, body_id in enumerate(body_ids_np):
             self._pending_xfrc_applied[:, self._resolve_push_body_force_slice(int(body_id))] += (
                 force_np[:, body_offset, :]

@@ -1,17 +1,17 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from itertools import chain
+from typing import Any, cast
+
 import torch
 import torch.optim as optim
-from itertools import chain
-from typing import Any
-
-from tensordict import TensorDict
-
 from rsl_rl.algorithms.ppo import PPO
 from rsl_rl.env import VecEnv
 from rsl_rl.extensions import resolve_rnd_config, resolve_symmetry_config
 from rsl_rl.storage import RolloutStorage
 from rsl_rl.utils import resolve_obs_groups, resolve_optimizer
+from tensordict import TensorDict
 
 from unilab.algos.torch.hora.models import HoraActorModel, HoraCriticModel, HoraSharedActorCritic
 from unilab.algos.torch.rsl_rl_ppo import FinalObservationAwarePPO
@@ -63,6 +63,7 @@ class HoraPPO(FinalObservationAwarePPO):
             self.rnd = None
             self.rnd_optimizer = None
 
+        self.symmetry: dict[str, Any] | None
         if symmetry_cfg is not None:
             use_symmetry = symmetry_cfg["use_data_augmentation"] or symmetry_cfg["use_mirror_loss"]
             if not use_symmetry:
@@ -83,9 +84,11 @@ class HoraPPO(FinalObservationAwarePPO):
         else:
             self.symmetry = None
 
-        self.actor = actor.to(self.device)
-        self.critic = critic.to(self.device)
-        self.optimizer = resolve_optimizer(optimizer)(
+        self_ref = cast(Any, self)
+        self_ref.actor = actor.to(self.device)
+        self_ref.critic = critic.to(self.device)
+        optimizer_cls = cast(Callable[..., optim.Optimizer], resolve_optimizer(optimizer))
+        self.optimizer = optimizer_cls(
             self._unique_trainable_parameters(),
             lr=learning_rate,
         )
@@ -139,7 +142,9 @@ class HoraPPO(FinalObservationAwarePPO):
             activation=actor_cfg.pop("activation", "elu"),
             obs_normalization=bool(actor_cfg.pop("obs_normalization", False)),
             distribution_cfg=actor_cfg.pop("distribution_cfg", None),
-            priv_info_embed_dim=int(actor_cfg.pop("priv_info_embed_dim", obs["priv_info"].shape[-1])),
+            priv_info_embed_dim=int(
+                actor_cfg.pop("priv_info_embed_dim", obs["priv_info"].shape[-1])
+            ),
             priv_mlp_hidden_dims=actor_cfg.pop("priv_mlp_hidden_dims", (256, 128, 8)),
             use_student_encoder=bool(actor_cfg.pop("use_student_encoder", False)),
             proprio_hist_len=proprio_hist_len,
@@ -163,10 +168,14 @@ class HoraPPO(FinalObservationAwarePPO):
             **critic_cfg,
         ).to(device)
 
-        storage = RolloutStorage("rl", env.num_envs, cfg["num_steps_per_env"], obs, [env.num_actions], device)
+        storage = RolloutStorage(
+            "rl", env.num_envs, cfg["num_steps_per_env"], obs, [env.num_actions], device
+        )
         algorithm_cfg = dict(cfg["algorithm"])
         algorithm_cfg.pop("class_name", None)
-        return HoraPPO(actor, critic, storage, device=device, **algorithm_cfg, multi_gpu_cfg=cfg["multi_gpu"])
+        return HoraPPO(
+            actor, critic, storage, device=device, **algorithm_cfg, multi_gpu_cfg=cfg["multi_gpu"]
+        )
 
     def process_env_step(
         self,
@@ -197,6 +206,7 @@ class HoraPPO(FinalObservationAwarePPO):
                 and torch.count_nonzero(timeout_mask) > 0
             )
             if can_bootstrap:
+                assert isinstance(timeout_bootstrap_obs, TensorDict)
                 bootstrap_obs = timeout_bootstrap_obs.to(self.device)
                 bootstrap_values = self.critic(bootstrap_obs).detach()
                 self.transition.rewards += self.gamma * torch.squeeze(

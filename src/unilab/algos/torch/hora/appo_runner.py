@@ -16,9 +16,15 @@ from rsl_rl.utils import resolve_callable
 from unilab.algos.torch.appo.runner import APPORunner
 from unilab.algos.torch.hora.appo_learner import HoraAPPOLearner
 from unilab.algos.torch.hora.appo_worker import hora_appo_collector_fn
+from unilab.algos.torch.hora.rsl_rl_compat import (
+    convert_config_v3_to_v4,
+    is_rsl_rl_v4,
+    is_rsl_rl_v5,
+)
+from unilab.base.observations import get_critic_base_dim, get_obs_dims
+from unilab.base.registry import ensure_registries
 from unilab.ipc import SharedOnPolicyStorage, SharedWeightSync
-from unilab.utils.offpolicy_logger import OffPolicyLogger
-from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4, is_rsl_rl_v5
+from unilab.logging import OffPolicyLogger
 
 
 class HoraAPPORunner(APPORunner):
@@ -43,8 +49,6 @@ class HoraAPPORunner(APPORunner):
 
     def _detect_dims(self):
         from unilab.base import registry
-        from unilab.utils.algo_utils import ensure_registries
-        from unilab.utils.obs_utils import get_critic_base_dim, get_obs_dims
 
         ensure_registries()
 
@@ -74,11 +78,13 @@ class HoraAPPORunner(APPORunner):
         return obs_dim, action_dim
 
     def _detect_dim_probe_num_envs(self) -> int:
-        scale_list = (
-            self.env_cfg_overrides.get("scale_list")
-            if isinstance(self.env_cfg_overrides, dict)
-            else None
-        )
+        scale_list = None
+        if isinstance(self.env_cfg_overrides, dict):
+            domain_rand = self.env_cfg_overrides.get("domain_rand")
+            if isinstance(domain_rand, dict):
+                scale_list = domain_rand.get("scale_list")
+            if scale_list is None:
+                scale_list = self.env_cfg_overrides.get("scale_list")
         if isinstance(scale_list, (list, tuple)):
             return max(1, len(scale_list))
         return 1

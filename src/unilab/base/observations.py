@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 import numpy as np
 
 
@@ -22,45 +20,6 @@ def split_obs_dict(obs: dict[str, np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
     """
     actor = obs["obs"]
     return actor, obs.get("critic", actor)
-
-
-def split_obs_with_priv_info(
-    obs: dict[str, np.ndarray],
-    info: dict[str, Any] | None = None,
-) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None]:
-    """Split env outputs into actor obs, critic obs, and privileged info.
-
-    Args:
-        obs: Environment observation dict that follows the UniLab env contract.
-        info: Optional env info dict. When present, ``info["critic_info"]`` is
-            the preferred source of privileged info for separated-observation
-            tasks such as HORA.
-
-    Returns:
-        Tuple of ``(actor_obs, critic_obs, priv_info)``. ``priv_info`` is
-        derived from ``info["critic_info"]`` when available, otherwise from the
-        extra tail of ``critic_obs`` when that observation is wider than
-        ``actor_obs``.
-    """
-    actor_obs, critic_obs = split_obs_dict(obs)
-
-    priv_info: np.ndarray | None = None
-    if isinstance(info, dict):
-        candidate = info.get("critic_info")
-        if isinstance(candidate, np.ndarray) and candidate.shape[0] == actor_obs.shape[0]:
-            priv_info = candidate
-
-    if (
-        priv_info is None
-        and critic_obs is not None
-        and critic_obs.ndim == 2
-        and actor_obs.ndim == 2
-        and critic_obs.shape[0] == actor_obs.shape[0]
-        and critic_obs.shape[1] > actor_obs.shape[1]
-    ):
-        priv_info = critic_obs[:, actor_obs.shape[1] :]
-
-    return actor_obs, critic_obs, priv_info
 
 
 def get_obs_dims(obs_groups_spec: dict[str, int]) -> tuple[int, int]:

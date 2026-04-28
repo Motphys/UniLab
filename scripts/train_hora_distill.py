@@ -22,18 +22,18 @@ from unilab.algos.torch.hora.distill import (
     build_student_actor_and_normalizer,
     load_distilled_checkpoint,
 )
+from unilab.algos.torch.hora.rsl_rl import HoraRslRlVecEnvWrapper as RslRlVecEnvWrapper
+from unilab.base.backend.xml import materialize_scene_visual_override
 from unilab.training import (
     BackendAdapter,
     create_env,
     ensure_registries,
     get_latest_run,
     get_log_root,
-    render_play_mode,
     resolve_task_checkpoint_path,
     setup_logger,
 )
-from unilab.utils.rsl_rl_vec_env_wrapper import RslRlVecEnvWrapper
-from unilab.utils.xml_utils import materialize_scene_visual_override
+from unilab.visualization import render_play_mode
 
 
 def _load_yaml_config(path: Path) -> DictConfig:
@@ -146,9 +146,7 @@ def _resolved_distill_runtime_cfg(cfg: DictConfig) -> DictConfig:
             "env": OmegaConf.select(cfg, "env"),
             "algo": {
                 "model": (
-                    OmegaConf.to_container(model_cfg, resolve=True)
-                    if model_cfg is not None
-                    else {}
+                    OmegaConf.to_container(model_cfg, resolve=True) if model_cfg is not None else {}
                 )
             },
         }
@@ -308,9 +306,7 @@ def _resolve_stage2_checkpoint_path(cfg: DictConfig) -> tuple[Path | None, Path 
         return last_path, run_dir
 
     numbered = [
-        path
-        for path in run_dir.glob("hora_stage2_*.pt")
-        if path.stem.split("_")[-1].isdigit()
+        path for path in run_dir.glob("hora_stage2_*.pt") if path.stem.split("_")[-1].isdigit()
     ]
     if not numbered:
         return None, run_dir
@@ -349,7 +345,9 @@ def _format_stage2_play_checkpoint_error(
     )
 
 
-def _student_policy(actor, hist_normalizer, obs: TensorDict, *, device: torch.device) -> torch.Tensor:
+def _student_policy(
+    actor, hist_normalizer, obs: TensorDict, *, device: torch.device
+) -> torch.Tensor:
     proprio_hist = hist_normalizer(obs["proprio_hist"].to(device), update=False)
     policy_obs = TensorDict(
         {

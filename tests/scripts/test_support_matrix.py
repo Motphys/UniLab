@@ -32,3 +32,19 @@ def test_support_matrix_keeps_uncovered_mlx_tasks_at_configured():
 
     assert row.cells["mujoco"].level == EvidenceLevel.CONFIGURED
     assert row.cells["motrix"].level == EvidenceLevel.CONFIGURED
+
+
+def test_support_matrix_marks_sharpa_motrix_as_missing():
+    row = _row("PPO (torch)", "sharpa_inhand")
+
+    assert row.cells["mujoco"].level == EvidenceLevel.TESTED
+    assert row.cells["motrix"].level == EvidenceLevel.MISSING
+
+    appo_row = _row("APPO (torch)", "sharpa_inhand")
+
+    assert appo_row.cells["mujoco"].level == EvidenceLevel.TESTED
+    assert appo_row.cells["motrix"].level == EvidenceLevel.MISSING
+    allegro_appo_row = _row("APPO (torch)", "allegro_inhand")
+
+    assert allegro_appo_row.cells["mujoco"].level == EvidenceLevel.TESTED
+    assert allegro_appo_row.cells["motrix"].level == EvidenceLevel.TESTED

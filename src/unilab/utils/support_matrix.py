@@ -191,6 +191,8 @@ def _configured_entries(root: Path, spec: EntrypointSpec) -> dict[str, dict[str,
     for task_path in sorted(task_root.glob(spec.task_glob)):
         task_slug = task_path.parent.name
         backend = task_path.stem
+        if backend not in BACKENDS:
+            continue
         entries.setdefault(task_slug, {})[backend] = _load_task_name(task_path)
     return entries
 

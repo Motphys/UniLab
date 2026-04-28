@@ -133,7 +133,12 @@ class RslRlVecEnvWrapper:
             return to_torch(policy_groups[0], self.device)
         return to_torch(np.concatenate(policy_groups, axis=1), self.device)
 
-    def _obs_to_tensordict(self, obs: dict[str, Any]) -> TensorDict:
+    def _obs_to_tensordict(
+        self,
+        obs: dict[str, Any],
+        info: dict[str, Any] | None = None,
+    ) -> TensorDict:
+        del info
         actor_obs = to_torch(obs["obs"], self.device)
         td_dict: dict[str, torch.Tensor] = {
             "actor": actor_obs,
@@ -196,7 +201,12 @@ class RslRlVecEnvWrapper:
         if hasattr(state, "info") and "log" in state.info:
             infos["log"] = state.info["log"]
 
-        return self._obs_to_tensordict(state.obs), rewards, dones, infos
+        return (
+            self._obs_to_tensordict(state.obs, getattr(state, "info", None)),
+            rewards,
+            dones,
+            infos,
+        )
 
     def reset(self) -> tuple[TensorDict, dict[str, Any]]:
         if self.env.state is None:
@@ -206,11 +216,11 @@ class RslRlVecEnvWrapper:
         obs_out, info = self.env.reset(env_indices)
         self.episode_returns[:] = 0
         self.episode_lengths[:] = 0
-        return self._obs_to_tensordict(obs_out), info
+        return self._obs_to_tensordict(obs_out, info), info
 
     def get_observations(self) -> TensorDict:
         assert self.env.state is not None
-        return self._obs_to_tensordict(self.env.state.obs)
+        return self._obs_to_tensordict(self.env.state.obs, self.env.state.info)
 
     def get_privileged_observations(self) -> torch.Tensor:
         assert self.env.state is not None

@@ -12,9 +12,10 @@ import numpy as np
 import torch
 from rsl_rl.utils import resolve_callable
 
-from unilab.utils.algo_utils import ensure_registries
-from unilab.utils.final_observation import resolve_terminal_observation_contract
-from unilab.utils.obs_utils import split_obs_with_priv_info
+from unilab.base.final_observation import resolve_terminal_observation_contract
+from unilab.base.registry import ensure_registries
+
+from .observations import split_hora_obs_with_priv_info
 
 
 def compute_hora_timeout_bootstrap_correction(
@@ -81,9 +82,13 @@ def hora_appo_collector_fn(
 
     from tensordict import TensorDict
 
+    from unilab.algos.torch.hora.rsl_rl_compat import (
+        convert_config_v3_to_v4,
+        is_rsl_rl_v4,
+        is_rsl_rl_v5,
+    )
     from unilab.base import registry
     from unilab.ipc import SharedOnPolicyStorage, SharedWeightSync
-    from unilab.utils.rsl_rl_compat import convert_config_v3_to_v4, is_rsl_rl_v4, is_rsl_rl_v5
 
     ensure_registries()
 
@@ -169,7 +174,7 @@ def hora_appo_collector_fn(
             x = x.cpu().numpy()
         return np.asarray(x, dtype=np.float32)
 
-    obs_np, critic_np, priv_info_np = split_obs_with_priv_info(obs_out, info_out)
+    obs_np, critic_np, priv_info_np = split_hora_obs_with_priv_info(obs_out, info_out)
     obs_np = to_float32_np(obs_np)
     if critic_np is not None:
         critic_np = to_float32_np(critic_np)
@@ -245,9 +250,11 @@ def hora_appo_collector_fn(
                 truncated_raw = np.asarray(state.truncated, dtype=np.float32).ravel()
                 combined_done_raw = np.clip(terminated_raw + truncated_raw, 0, 1)
 
-                next_actor_obs_np, next_critic_np, next_priv_info_np = split_obs_with_priv_info(
-                    state.obs,
-                    state.info,
+                next_actor_obs_np, next_critic_np, next_priv_info_np = (
+                    split_hora_obs_with_priv_info(
+                        state.obs,
+                        state.info,
+                    )
                 )
                 next_actor_obs_np = to_float32_np(next_actor_obs_np)
                 if next_critic_np is not None:
@@ -255,7 +262,9 @@ def hora_appo_collector_fn(
                 if next_priv_info_np is not None:
                     next_priv_info_np = to_float32_np(next_priv_info_np)
                 if next_priv_info_np is None:
-                    raise ValueError("HORA APPO collector did not receive privileged info after step.")
+                    raise ValueError(
+                        "HORA APPO collector did not receive privileged info after step."
+                    )
 
                 terminal_contract = resolve_terminal_observation_contract(
                     next_obs_batch_size=next_actor_obs_np.shape[0],
@@ -269,7 +278,7 @@ def hora_appo_collector_fn(
                     terminal_contract.terminal_obs is not None
                     and terminal_contract.terminal_critic is not None
                 ):
-                    _, _, terminal_priv_info = split_obs_with_priv_info(
+                    _, _, terminal_priv_info = split_hora_obs_with_priv_info(
                         {
                             "obs": terminal_contract.terminal_obs,
                             "critic": terminal_contract.terminal_critic,
@@ -294,9 +303,7 @@ def hora_appo_collector_fn(
                         else next_critic_np
                     ),
                     final_priv_info=(
-                        terminal_priv_info
-                        if terminal_priv_info is not None
-                        else next_priv_info_np
+                        terminal_priv_info if terminal_priv_info is not None else next_priv_info_np
                     ),
                 )
 

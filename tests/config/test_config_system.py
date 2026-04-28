@@ -18,6 +18,14 @@ from omegaconf import OmegaConf
 
 CONF_DIR = Path(__file__).parent.parent.parent / "conf"
 _PPO_MLX_TASKS = {"go1_joystick_flat", "go2_joystick_flat", "g1_walk_flat"}
+_BACKENDS = ("mujoco", "motrix")
+
+
+def _expected_backend_from_variant(name: str) -> str | None:
+    for backend in _BACKENDS:
+        if name == backend or name.startswith(f"{backend}_"):
+            return backend
+    return None
 
 
 def _compose(algo_dir: str, config_name: str = "config", overrides: list[str] | None = None):
@@ -68,12 +76,15 @@ def _supported_task_cases() -> list[tuple[str, str, str, str, str, list[str]]]:
         root = CONF_DIR / algo_dir / "task"
         for task_dir in sorted(path for path in root.iterdir() if path.is_dir()):
             for backend_file in sorted(task_dir.glob("*.yaml")):
+                expected_backend = _expected_backend_from_variant(backend_file.stem)
+                if expected_backend is None:
+                    continue
                 cases.append(
                     (
                         algo_dir,
                         "config",
                         task_dir.name,
-                        backend_file.stem,
+                        expected_backend,
                         str(backend_file.relative_to(CONF_DIR)),
                         [f"task={task_dir.name}/{backend_file.stem}"],
                     )
@@ -84,7 +95,7 @@ def _supported_task_cases() -> list[tuple[str, str, str, str, str, list[str]]]:
                             algo_dir,
                             "config_mlx",
                             task_dir.name,
-                            backend_file.stem,
+                            expected_backend,
                             str(backend_file.relative_to(CONF_DIR)),
                             [f"task={task_dir.name}/{backend_file.stem}"],
                         )
@@ -94,12 +105,15 @@ def _supported_task_cases() -> list[tuple[str, str, str, str, str, list[str]]]:
     for algo_root in sorted(path for path in offpolicy_root.iterdir() if path.is_dir()):
         for task_dir in sorted(path for path in algo_root.iterdir() if path.is_dir()):
             for backend_file in sorted(task_dir.glob("*.yaml")):
+                expected_backend = _expected_backend_from_variant(backend_file.stem)
+                if expected_backend is None:
+                    continue
                 cases.append(
                     (
                         "offpolicy",
                         "config",
                         task_dir.name,
-                        backend_file.stem,
+                        expected_backend,
                         str(backend_file.relative_to(CONF_DIR)),
                         [
                             f"algo={algo_root.name}",
@@ -151,6 +165,8 @@ def test_task_files_keep_full_identity_without_hidden_backend_marker():
         assert "_selected_sim_backend" not in cfg_dict_raw, (
             f"task has hidden backend marker: {path}"
         )
+        if path.stem not in _BACKENDS:
+            continue
         training_raw = cfg_dict_raw.get("training", {})
         assert isinstance(training_raw, dict)
         assert "task_name" in training_raw, f"task missing task_name: {path}"

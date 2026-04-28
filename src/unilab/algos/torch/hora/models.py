@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import torch
 import torch.nn as nn
-from tensordict import TensorDict
-
 from rsl_rl.modules import EmpiricalNormalization, GaussianDistribution
+from tensordict import TensorDict
 
 
 def _build_activation(name: str) -> nn.Module:
@@ -23,7 +22,9 @@ def _build_activation(name: str) -> nn.Module:
 
 
 class _MLP(nn.Module):
-    def __init__(self, input_dim: int, hidden_dims: list[int] | tuple[int, ...], activation: str) -> None:
+    def __init__(
+        self, input_dim: int, hidden_dims: list[int] | tuple[int, ...], activation: str
+    ) -> None:
         super().__init__()
         layers: list[nn.Module] = []
         current_dim = input_dim
@@ -119,7 +120,9 @@ class HoraSharedActorCritic(nn.Module):
             EmpiricalNormalization(self.obs_dim) if obs_normalization else nn.Identity()
         )
         self.priv_encoder = _MLP(self.priv_info_dim, list(priv_mlp_hidden_dims), activation)
-        self.trunk = _MLP(self.obs_dim + self.priv_info_embed_dim, list(actor_hidden_dims), activation)
+        self.trunk = _MLP(
+            self.obs_dim + self.priv_info_embed_dim, list(actor_hidden_dims), activation
+        )
         self.value_head = nn.Linear(self.trunk.output_dim, 1)
         self.mu_head = nn.Linear(self.trunk.output_dim, self.action_dim)
         self.distribution = GaussianDistribution(
@@ -155,7 +158,9 @@ class HoraSharedActorCritic(nn.Module):
         if isinstance(self.obs_normalizer, EmpiricalNormalization):
             self.obs_normalizer.update(obs["actor"])
 
-    def _zero_privileged_latent(self, batch_size: int, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
+    def _zero_privileged_latent(
+        self, batch_size: int, device: torch.device, dtype: torch.dtype
+    ) -> torch.Tensor:
         return torch.zeros((batch_size, self.priv_info_embed_dim), device=device, dtype=dtype)
 
     def encode_privileged_info(self, priv_info: torch.Tensor | None) -> torch.Tensor:
@@ -198,11 +203,15 @@ class HoraSharedActorCritic(nn.Module):
             privileged_target=privileged_target,
         )
 
-    def policy_mean(self, obs: TensorDict, *, prefer_student: bool) -> tuple[torch.Tensor, HoraCoreOutput]:
+    def policy_mean(
+        self, obs: TensorDict, *, prefer_student: bool
+    ) -> tuple[torch.Tensor, HoraCoreOutput]:
         core_output = self.build_core_output(obs, prefer_student=prefer_student)
         return self.mu_head(core_output.trunk_latent), core_output
 
-    def value(self, obs: TensorDict, *, prefer_student: bool) -> tuple[torch.Tensor, HoraCoreOutput]:
+    def value(
+        self, obs: TensorDict, *, prefer_student: bool
+    ) -> tuple[torch.Tensor, HoraCoreOutput]:
         core_output = self.build_core_output(obs, prefer_student=prefer_student)
         return self.value_head(core_output.trunk_latent), core_output
 
@@ -239,7 +248,9 @@ class _HoraInferenceModule(nn.Module):
         self.proprio_frame_dim = int(proprio_frame_dim)
         self.verbose = bool(verbose)
 
-    def forward(self, actor: torch.Tensor, priv_info: torch.Tensor, proprio_hist: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, actor: torch.Tensor, priv_info: torch.Tensor, proprio_hist: torch.Tensor
+    ) -> torch.Tensor:
         policy_obs = self.obs_normalizer(actor)
         if self.prefer_student:
             if self.adapt_tconv is None:
@@ -341,7 +352,7 @@ class HoraActorModel(nn.Module):
 
     @property
     def output_distribution_params(self) -> tuple[torch.Tensor, ...]:
-        return self.shared.distribution.params
+        return cast(tuple[torch.Tensor, ...], self.shared.distribution.params)
 
     def get_output_log_prob(self, outputs: torch.Tensor) -> torch.Tensor:
         return self.shared.distribution.log_prob(outputs)

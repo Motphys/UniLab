@@ -11,9 +11,9 @@ from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
 
+from unilab.base.registry import ensure_registries
 from unilab.envs.manipulation.sharpa_inhand.base import SharpaInhandBaseEnv
 from unilab.envs.manipulation.sharpa_inhand.rotation import SharpaInhandRotationDRProvider
-from unilab.utils.algo_utils import ensure_registries
 
 _CONF_DIR = Path(__file__).resolve().parents[2] / "conf"
 
@@ -106,13 +106,18 @@ def _build_fake_tactile_env(
         _np_dtype=np.float64,
         _backend=SimpleNamespace(get_sensor_data=lambda name: sensor_data[name]),
         _cfg=SimpleNamespace(
-            enable_tactile=enable_tactile,
-            binary_contact=binary_contact,
+            obs=SimpleNamespace(
+                enable_tactile=enable_tactile,
+                binary_contact=binary_contact,
+                contact_smooth=contact_smooth,
+                contact_threshold=contact_threshold,
+                tactile_force_clip_max=5.0,
+            ),
+            domain_rand=SimpleNamespace(
+                contact_latency=contact_latency,
+                contact_sensor_noise=contact_sensor_noise,
+            ),
             disable_tactile_ids=list(disable_tactile_ids or []),
-            contact_smooth=contact_smooth,
-            contact_threshold=contact_threshold,
-            contact_latency=contact_latency,
-            contact_sensor_noise=contact_sensor_noise,
             sensor=SimpleNamespace(tactile_force_sensor_names=tactile_names),
         ),
         last_contacts=np.zeros((num_envs, len(tactile_names)), dtype=np.float64)
@@ -299,7 +304,7 @@ def test_sharpa_mujoco_reset_applies_friction_randomization() -> None:
     with TemporaryDirectory() as tmp_dir:
         cache_prefix = Path(tmp_dir) / "sharpa_grasp"
         env_cfg_override["grasp_cache_path"] = str(cache_prefix)
-        for scale_value in env_cfg_override["scale_list"]:
+        for scale_value in env_cfg_override["domain_rand"]["scale_list"]:
             cache_file = cache_prefix.parent / f"{cache_prefix.name}_{float(scale_value):g}.npy"
             np.save(cache_file, np.zeros((8, 29), dtype=np.float32))
 
@@ -323,15 +328,15 @@ def test_sharpa_mujoco_reset_applies_friction_randomization() -> None:
             friction_scale = np.asarray(info["critic_info"][:, 3], dtype=np.float64)
 
             assert np.unique(np.round(friction_scale, 6)).size > 1
-            assert np.all(friction_scale >= cfg.env.randomize_friction_scale_lower)
-            assert np.all(friction_scale <= cfg.env.randomize_friction_scale_upper)
+            assert np.all(friction_scale >= cfg.env.domain_rand.randomize_friction_scale_lower)
+            assert np.all(friction_scale <= cfg.env.domain_rand.randomize_friction_scale_upper)
 
             for env_idx in range(num_envs):
                 scale = friction_scale[env_idx]
                 for material, base_friction in (
-                    ("object", cfg.env.object_base_friction),
-                    ("metal", cfg.env.metal_base_friction),
-                    ("elastomer", cfg.env.elastomer_base_friction),
+                    ("object", cfg.env.domain_rand.object_base_friction),
+                    ("metal", cfg.env.domain_rand.metal_base_friction),
+                    ("elastomer", cfg.env.domain_rand.elastomer_base_friction),
                 ):
                     actual = geom_friction[env_idx, env_obj._friction_geom_ids[material]]
                     expected = env_obj._friction_profile(material, base_friction) * scale
@@ -363,7 +368,7 @@ def test_sharpa_mujoco_reset_randomizes_pd_gains_from_xml_defaults() -> None:
     with TemporaryDirectory() as tmp_dir:
         cache_prefix = Path(tmp_dir) / "sharpa_grasp"
         env_cfg_override["grasp_cache_path"] = str(cache_prefix)
-        for scale_value in env_cfg_override["scale_list"]:
+        for scale_value in env_cfg_override["domain_rand"]["scale_list"]:
             cache_file = cache_prefix.parent / f"{cache_prefix.name}_{float(scale_value):g}.npy"
             np.save(cache_file, np.zeros((8, 29), dtype=np.float32))
 
@@ -399,10 +404,10 @@ def test_sharpa_mujoco_reset_randomizes_pd_gains_from_xml_defaults() -> None:
             kd_scale = info_kd / default_kd[None, :]
             assert np.unique(np.round(kp_scale.reshape(-1), 6)).size > 1
             assert np.unique(np.round(kd_scale.reshape(-1), 6)).size > 1
-            assert np.all(kp_scale >= cfg.env.randomize_p_gain_scale_lower)
-            assert np.all(kp_scale <= cfg.env.randomize_p_gain_scale_upper)
-            assert np.all(kd_scale >= cfg.env.randomize_d_gain_scale_lower)
-            assert np.all(kd_scale <= cfg.env.randomize_d_gain_scale_upper)
+            assert np.all(kp_scale >= cfg.env.domain_rand.randomize_p_gain_scale_lower)
+            assert np.all(kp_scale <= cfg.env.domain_rand.randomize_p_gain_scale_upper)
+            assert np.all(kd_scale >= cfg.env.domain_rand.randomize_d_gain_scale_lower)
+            assert np.all(kd_scale <= cfg.env.domain_rand.randomize_d_gain_scale_upper)
         finally:
             pool = getattr(getattr(env_obj, "_backend", None), "_pool", None)
             if pool is not None:
@@ -427,12 +432,12 @@ def test_sharpa_mujoco_interval_force_disturbs_object_velocity() -> None:
 
     num_envs = 4
     _, env_cfg_override = _compose_sharpa_mujoco_owner_cfg(num_envs)
-    env_cfg_override["force_scale"] = 2.0
-    env_cfg_override["random_force_prob_scalar"] = 1.0
+    env_cfg_override["domain_rand"]["force_scale"] = 2.0
+    env_cfg_override["domain_rand"]["random_force_prob_scalar"] = 1.0
     with TemporaryDirectory() as tmp_dir:
         cache_prefix = Path(tmp_dir) / "sharpa_grasp"
         env_cfg_override["grasp_cache_path"] = str(cache_prefix)
-        for scale_value in env_cfg_override["scale_list"]:
+        for scale_value in env_cfg_override["domain_rand"]["scale_list"]:
             cache_file = cache_prefix.parent / f"{cache_prefix.name}_{float(scale_value):g}.npy"
             np.save(cache_file, np.zeros((8, 29), dtype=np.float32))
 
@@ -496,13 +501,13 @@ def test_sharpa_mujoco_interval_force_plan_matches_decay_and_mass_scaled_resampl
 
     num_envs = 4
     _, env_cfg_override = _compose_sharpa_mujoco_owner_cfg(num_envs)
-    env_cfg_override["force_scale"] = 2.0
-    env_cfg_override["random_force_prob_scalar"] = 0.5
-    env_cfg_override["randomize_mass"] = False
+    env_cfg_override["domain_rand"]["force_scale"] = 2.0
+    env_cfg_override["domain_rand"]["random_force_prob_scalar"] = 0.5
+    env_cfg_override["domain_rand"]["randomize_mass"] = False
     with TemporaryDirectory() as tmp_dir:
         cache_prefix = Path(tmp_dir) / "sharpa_grasp"
         env_cfg_override["grasp_cache_path"] = str(cache_prefix)
-        for scale_value in env_cfg_override["scale_list"]:
+        for scale_value in env_cfg_override["domain_rand"]["scale_list"]:
             cache_file = cache_prefix.parent / f"{cache_prefix.name}_{float(scale_value):g}.npy"
             np.save(cache_file, np.zeros((8, 29), dtype=np.float32))
 
@@ -547,12 +552,14 @@ def test_sharpa_mujoco_interval_force_plan_matches_decay_and_mass_scaled_resampl
 
             decay = float(
                 np.power(
-                    env_obj.cfg.force_decay,
-                    env_obj.cfg.ctrl_dt / max(env_obj.cfg.force_decay_interval, 1.0e-8),
+                    env_obj.cfg.domain_rand.force_decay,
+                    env_obj.cfg.ctrl_dt / max(env_obj.cfg.domain_rand.force_decay_interval, 1.0e-8),
                 )
             )
             object_mass = env_obj._resolve_current_object_mass()
-            resample_mask = sampled_uniform < float(env_obj.cfg.random_force_prob_scalar)
+            resample_mask = sampled_uniform < float(
+                env_obj.cfg.domain_rand.random_force_prob_scalar
+            )
 
             plan = SharpaInhandRotationDRProvider().build_interval_randomization_plan(
                 env_obj,
@@ -573,7 +580,7 @@ def test_sharpa_mujoco_interval_force_plan_matches_decay_and_mass_scaled_resampl
             expected_force[resample_mask] = (
                 sampled_gaussian
                 * object_mass[resample_mask, None]
-                * float(env_obj.cfg.force_scale)
+                * float(env_obj.cfg.domain_rand.force_scale)
             )
             np.testing.assert_allclose(env_obj._random_object_force, expected_force)
             np.testing.assert_allclose(plan.body_force, expected_force[:, None, :])
@@ -597,7 +604,7 @@ def test_sharpa_mujoco_reset_applies_object_mass_and_com_randomization() -> None
     with TemporaryDirectory() as tmp_dir:
         cache_prefix = Path(tmp_dir) / "sharpa_grasp"
         env_cfg_override["grasp_cache_path"] = str(cache_prefix)
-        for scale_value in env_cfg_override["scale_list"]:
+        for scale_value in env_cfg_override["domain_rand"]["scale_list"]:
             cache_file = cache_prefix.parent / f"{cache_prefix.name}_{float(scale_value):g}.npy"
             np.save(cache_file, np.zeros((8, 29), dtype=np.float32))
 
@@ -624,10 +631,10 @@ def test_sharpa_mujoco_reset_applies_object_mass_and_com_randomization() -> None
 
             assert np.unique(np.round(randomized_mass, 6)).size > 1
             assert np.unique(np.round(randomized_com.reshape(-1), 6)).size > 1
-            assert np.all(randomized_mass >= cfg.env.randomize_mass_lower)
-            assert np.all(randomized_mass <= cfg.env.randomize_mass_upper)
-            assert np.all(randomized_com >= cfg.env.randomize_com_lower)
-            assert np.all(randomized_com <= cfg.env.randomize_com_upper)
+            assert np.all(randomized_mass >= cfg.env.domain_rand.randomize_mass_lower)
+            assert np.all(randomized_mass <= cfg.env.domain_rand.randomize_mass_upper)
+            assert np.all(randomized_com >= cfg.env.domain_rand.randomize_com_lower)
+            assert np.all(randomized_com <= cfg.env.domain_rand.randomize_com_upper)
 
             np.testing.assert_allclose(body_mass[:, object_body_id], randomized_mass)
             np.testing.assert_allclose(

@@ -5,6 +5,7 @@ defaults:
 
 algo:
   algo_log_name: hora_ppo
+  runtime_impl: hora_ppo
   obs_groups:
     actor: [actor]
     critic: [actor]
@@ -30,5 +31,5 @@ algo:
     class_name: unilab.algos.torch.hora:HoraPPO
 
 env:
-  observation_mode: separated
-  critic_info_dim: 9
+  obs:
+    observation_mode: separated

@@ -11,6 +11,7 @@ VALID_HYDRA_KEYS = {
     "training",
     "reward",
     "env",
+    "teacher",
     "interactive",
     "viser",
     "num_envs",

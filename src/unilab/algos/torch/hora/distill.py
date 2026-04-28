@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import math
 import statistics
 import time
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import torch
 from omegaconf import DictConfig, OmegaConf
@@ -105,7 +106,7 @@ def load_distilled_checkpoint(
     history_normalizer = checkpoint.get("history_normalizer")
     if history_normalizer is not None:
         hist_normalizer.load_state_dict(history_normalizer)
-    return checkpoint
+    return cast(dict[str, Any], checkpoint)
 
 
 class HoraDistillationTrainer:
@@ -138,12 +139,15 @@ class HoraDistillationTrainer:
             cfg,
             device=self.device,
         )
-        self.optimizer = torch.optim.Adam(self._trainable_parameters(), lr=float(cfg.algo.learning_rate))
+        self.optimizer = torch.optim.Adam(
+            self._trainable_parameters(), lr=float(cfg.algo.learning_rate)
+        )
         self.stats = HoraDistillStats()
         self._reward_buffer: deque[float] = deque(maxlen=100)
         self._episode_length_buffer: deque[float] = deque(maxlen=100)
         self._step_reward = torch.zeros((env.num_envs,), dtype=torch.float32, device=self.device)
         self._step_length = torch.zeros((env.num_envs,), dtype=torch.float32, device=self.device)
+        self._tb_writer = self._build_tensorboard_writer()
         self._load_teacher_checkpoint()
 
     def _trainable_parameters(self) -> list[torch.nn.Parameter]:
@@ -164,6 +168,75 @@ class HoraDistillationTrainer:
         )
         self.actor.train()
         self.actor.shared.obs_normalizer.eval()
+
+    def _build_tensorboard_writer(self) -> Any | None:
+        """Create the stage-2 TensorBoard writer when the config requests it.
+
+        Args:
+            None.
+
+        Returns:
+            Summary writer rooted at ``<log_dir>/tb``, or ``None`` when scalar
+            backend logging is disabled or TensorBoard is unavailable.
+        """
+        logger_type = str(OmegaConf.select(self.cfg, "training.logger", default="tensorboard"))
+        if logger_type.lower() != "tensorboard":
+            return None
+
+        try:
+            from torch.utils.tensorboard import SummaryWriter
+        except ImportError:
+            self.logger.warning(
+                "tensorboard is not installed; disabling HORA distillation TensorBoard logging."
+            )
+            return None
+
+        tb_dir = self.log_dir / "tb"
+        tb_dir.mkdir(parents=True, exist_ok=True)
+        self.logger.info("TensorBoard: %s", tb_dir)
+        return SummaryWriter(log_dir=str(tb_dir))
+
+    def _add_scalar_if_finite(self, tag: str, value: float, *, step: int) -> None:
+        """Write a scalar only when a TensorBoard writer exists and the value is finite.
+
+        Args:
+            tag: TensorBoard metric name.
+            value: Scalar value to record.
+            step: Global step associated with the scalar.
+
+        Returns:
+            None. Invalid or disabled values are skipped silently so early NaNs
+            from unfinished episodes do not pollute the event stream.
+        """
+        if self._tb_writer is None or not math.isfinite(value):
+            return
+        self._tb_writer.add_scalar(tag, value, step)
+
+    def _log_tensorboard_step(self, *, loss: float, elapsed: float) -> None:
+        """Record the latest distillation scalars to TensorBoard.
+
+        Args:
+            loss: Latest latent-distillation loss.
+            elapsed: Wall-clock training time since the run started.
+
+        Returns:
+            None. Metrics are written at the current agent-step count.
+        """
+        if self._tb_writer is None:
+            return
+
+        step = self.stats.agent_steps
+        self._add_scalar_if_finite("train/loss", loss, step=step)
+        self._add_scalar_if_finite("reward/mean", self.stats.mean_reward, step=step)
+        self._add_scalar_if_finite("reward/best", self.stats.best_reward, step=step)
+        self._add_scalar_if_finite(
+            "episode/length",
+            self.stats.mean_episode_length,
+            step=step,
+        )
+        self._add_scalar_if_finite("perf/fps", step / max(elapsed, 1e-6), step=step)
+        self._add_scalar_if_finite("perf/training_time_sec", elapsed, step=step)
+        self._tb_writer.flush()
 
     def _normalize_student_obs(self, obs_td) -> dict[str, torch.Tensor]:
         actor_obs = obs_td["actor"].to(self.device)
@@ -197,77 +270,92 @@ class HoraDistillationTrainer:
         next_log_steps = self._next_interval_boundary(self.stats.agent_steps, log_interval)
         next_save_steps = self._next_interval_boundary(self.stats.agent_steps, save_interval)
         start_time = time.time()
+        last_loss = float("nan")
 
-        while self.stats.agent_steps < max_agent_steps:
-            norm_obs = self._normalize_student_obs(obs_td)
-            obs_batch = {
-                key: value.detach() if key == "actor" else value
-                for key, value in norm_obs.items()
-            }
-            td = TensorDict(obs_batch, batch_size=obs_td.batch_size, device=self.device)
-            _, core_output = self.actor.shared.policy_mean(td, prefer_student=True)
-            loss = torch.mean((core_output.privileged_latent - core_output.privileged_target.detach()) ** 2)
-
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
-
-            with torch.no_grad():
-                actions = self.actor(td, stochastic_output=False).clamp_(-1.0, 1.0)
-            obs_td, rewards, dones, infos = self.env.step(actions)
-            rewards = rewards.to(self.device)
-            dones = dones.to(self.device)
-            self.stats.agent_steps += int(self.env.num_envs)
-
-            self._step_reward += rewards
-            self._step_length += 1
-            done_idx = torch.nonzero(dones, as_tuple=False).flatten()
-            if len(done_idx) > 0:
-                completed_rewards = self._step_reward[done_idx]
-                completed_lengths = self._step_length[done_idx]
-                done_mean_reward = float(torch.mean(completed_rewards).item())
-                self._reward_buffer.extend(completed_rewards.detach().cpu().numpy().tolist())
-                self._episode_length_buffer.extend(
-                    completed_lengths.detach().cpu().numpy().tolist()
+        try:
+            while self.stats.agent_steps < max_agent_steps:
+                norm_obs = self._normalize_student_obs(obs_td)
+                obs_batch = {
+                    key: value.detach() if key == "actor" else value
+                    for key, value in norm_obs.items()
+                }
+                td = TensorDict(obs_batch, batch_size=obs_td.batch_size, device=self.device)
+                _, core_output = self.actor.shared.policy_mean(td, prefer_student=True)
+                loss = torch.mean(
+                    (core_output.privileged_latent - core_output.privileged_target.detach()) ** 2
                 )
-                self.stats.mean_reward = float(statistics.mean(self._reward_buffer))
-                self.stats.mean_episode_length = float(
-                    statistics.mean(self._episode_length_buffer)
-                )
-                self.stats.best_reward = max(self.stats.best_reward, done_mean_reward)
-                self._step_reward[done_idx] = 0.0
-                self._step_length[done_idx] = 0.0
+                last_loss = float(loss.item())
 
-            if next_log_steps is not None and self.stats.agent_steps >= next_log_steps:
-                elapsed = max(time.time() - start_time, 1e-6)
-                self.logger.info(
-                    "agent_steps=%d loss=%.6f mean_reward=%.4f best_reward=%.4f "
-                    "mean_episode_length=%.2f training_time=%.2fs fps=%.1f",
-                    self.stats.agent_steps,
-                    float(loss.item()),
-                    self.stats.mean_reward,
-                    self.stats.best_reward,
-                    self.stats.mean_episode_length,
-                    elapsed,
-                    self.stats.agent_steps / elapsed,
-                )
-                next_log_steps = self._next_interval_boundary(self.stats.agent_steps, log_interval)
+                self.optimizer.zero_grad()
+                loss.backward()
+                self.optimizer.step()
 
-            if next_save_steps is not None and self.stats.agent_steps >= next_save_steps:
-                self.save(self.log_dir / f"hora_stage2_{self.stats.agent_steps}.pt")
-                next_save_steps = self._next_interval_boundary(self.stats.agent_steps, save_interval)
+                with torch.no_grad():
+                    actions = self.actor(td, stochastic_output=False).clamp_(-1.0, 1.0)
+                obs_td, rewards, dones, infos = self.env.step(actions)
+                rewards = rewards.to(self.device)
+                dones = dones.to(self.device)
+                self.stats.agent_steps += int(self.env.num_envs)
 
-        self.save(self.log_dir / "hora_stage2_last.pt")
-        total_elapsed = max(time.time() - start_time, 1e-6)
-        self.logger.info(
-            "training_complete agent_steps=%d mean_reward=%.4f best_reward=%.4f "
-            "mean_episode_length=%.2f training_time=%.2fs",
-            self.stats.agent_steps,
-            self.stats.mean_reward,
-            self.stats.best_reward,
-            self.stats.mean_episode_length,
-            total_elapsed,
-        )
+                self._step_reward += rewards
+                self._step_length += 1
+                done_idx = torch.nonzero(dones, as_tuple=False).flatten()
+                if len(done_idx) > 0:
+                    completed_rewards = self._step_reward[done_idx]
+                    completed_lengths = self._step_length[done_idx]
+                    done_mean_reward = float(torch.mean(completed_rewards).item())
+                    self._reward_buffer.extend(completed_rewards.detach().cpu().numpy().tolist())
+                    self._episode_length_buffer.extend(
+                        completed_lengths.detach().cpu().numpy().tolist()
+                    )
+                    self.stats.mean_reward = float(statistics.mean(self._reward_buffer))
+                    self.stats.mean_episode_length = float(
+                        statistics.mean(self._episode_length_buffer)
+                    )
+                    self.stats.best_reward = max(self.stats.best_reward, done_mean_reward)
+                    self._step_reward[done_idx] = 0.0
+                    self._step_length[done_idx] = 0.0
+
+                if next_log_steps is not None and self.stats.agent_steps >= next_log_steps:
+                    elapsed = max(time.time() - start_time, 1e-6)
+                    self.logger.info(
+                        "agent_steps=%d loss=%.6f mean_reward=%.4f best_reward=%.4f "
+                        "mean_episode_length=%.2f training_time=%.2fs fps=%.1f",
+                        self.stats.agent_steps,
+                        last_loss,
+                        self.stats.mean_reward,
+                        self.stats.best_reward,
+                        self.stats.mean_episode_length,
+                        elapsed,
+                        self.stats.agent_steps / elapsed,
+                    )
+                    self._log_tensorboard_step(loss=last_loss, elapsed=elapsed)
+                    next_log_steps = self._next_interval_boundary(
+                        self.stats.agent_steps, log_interval
+                    )
+
+                if next_save_steps is not None and self.stats.agent_steps >= next_save_steps:
+                    self.save(self.log_dir / f"hora_stage2_{self.stats.agent_steps}.pt")
+                    next_save_steps = self._next_interval_boundary(
+                        self.stats.agent_steps, save_interval
+                    )
+
+            self.save(self.log_dir / "hora_stage2_last.pt")
+            total_elapsed = max(time.time() - start_time, 1e-6)
+            self.logger.info(
+                "training_complete agent_steps=%d mean_reward=%.4f best_reward=%.4f "
+                "mean_episode_length=%.2f training_time=%.2fs",
+                self.stats.agent_steps,
+                self.stats.mean_reward,
+                self.stats.best_reward,
+                self.stats.mean_episode_length,
+                total_elapsed,
+            )
+            self._log_tensorboard_step(loss=last_loss, elapsed=total_elapsed)
+        finally:
+            if self._tb_writer is not None:
+                self._tb_writer.close()
+                self._tb_writer = None
 
     def save(self, path: str | Path) -> None:
         torch.save(

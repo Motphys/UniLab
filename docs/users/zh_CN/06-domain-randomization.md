@@ -32,7 +32,7 @@
 | `G1WalkFlat` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | 任务状态采样 + common payload | push | [`g1/joystick.py`](../../../src/unilab/envs/locomotion/g1/joystick.py) |
 | `G1WalkRough` | 是 | 是：复用 [`G1WalkDomainRandomizationProvider`](../../../src/unilab/envs/locomotion/g1/joystick.py) | 任务状态采样 + common payload | push | [`g1/joystick.py`](../../../src/unilab/envs/locomotion/g1/joystick.py) |
 | `G1MotionTracking` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | 大量任务特有 reset 采样 + common payload | push | [`motion_tracking/g1/tracking.py`](../../../src/unilab/envs/motion_tracking/g1/tracking.py) |
-| `AllegroInhandRotation` | 是 | 是：`DomainRandConfig + Provider + ResetPlan` | 任务特有 reset 采样 + common payload | 无 | [`inhand_rot_allegro/rotation.py`](../../../src/unilab/envs/manipulation/inhand_rot_allegro/rotation.py) |
+| `AllegroInhandRotation` | 是 | 是：`DomainRandConfig + Provider + ResetPlan` | 任务特有 reset 采样 + common payload | 无 | [`allegro_inhand/rotation.py`](../../../src/unilab/envs/manipulation/allegro_inhand/rotation.py) |
 | `SharpaInhandRotation` | 是 | 是：`InitRandomizationPlan + ResetPlan` | grasp cache 采样 + common payload | 无 | [`sharpa_inhand/rotation.py`](../../../src/unilab/envs/manipulation/sharpa_inhand/rotation.py) |
 | `SharpaInhandRotationGrasp` | 是 | 是：复用 Sharpa rotation provider 并覆盖 reset 采样 | grasp collection reset + common payload | 无 | [`sharpa_inhand/grasp_gen.py`](../../../src/unilab/envs/manipulation/sharpa_inhand/grasp_gen.py) |
 
