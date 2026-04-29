@@ -90,6 +90,7 @@ uv run scripts/train_rsl_rl.py task=g1_motion_tracking/mujoco
 | PPO (MLX, macOS) | `scripts/train_mlx_ppo.py` | `logs/mlx_rl_train/<task>/` |
 | APPO | `scripts/train_appo.py` | `logs/appo/<task>/` |
 | SAC | `scripts/train_offpolicy.py` | `logs/fast_sac/<task>/` |
+| FlashSAC | `scripts/train_offpolicy.py` | `logs/flash_sac/<task>/` |
 | TD3 | `scripts/train_offpolicy.py` | `logs/fast_td3/<task>/` |
 
 Training scripts automatically enter playback after training unless you set `training.no_play=true`.
