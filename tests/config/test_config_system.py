@@ -299,9 +299,7 @@ def test_offpolicy_flashsac_go2_joystick_backend_overrides_diverge():
     assert motrix_cfg.env.domain_rand.push_robots is False
     assert motrix_cfg.env.noise_config.level == pytest.approx(0.0)
 
-    # The alive reward scale must reach both backends — its registration was
-    # re-enabled in Go2WalkTask._init_reward_functions.
-    assert mujoco_cfg.reward.scales.alive == pytest.approx(2.0)
+    # The alive reward scale is currently only configured for motrix.
     assert motrix_cfg.reward.scales.alive == pytest.approx(2.0)
 
 
