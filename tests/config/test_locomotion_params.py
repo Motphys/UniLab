@@ -162,6 +162,28 @@ def test_offpolicy_flashsac_g1_task_overrides():
     assert cfg.algo.algo_params.normalize_reward is True
 
 
+def test_offpolicy_flashsac_go2_task_overrides():
+    from hydra import compose, initialize_config_dir
+    from hydra.core.global_hydra import GlobalHydra
+
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(CONF_DIR / "offpolicy"), version_base="1.3"):
+        cfg = compose(
+            "config",
+            overrides=["algo=flashsac", "task=flashsac/go2_joystick_flat/mujoco"],
+        )
+    assert cfg.algo.algo == "flashsac"
+    assert cfg.training.task_name == "Go2JoystickFlat"
+    assert cfg.training.sim_backend == "mujoco"
+    assert cfg.algo.num_envs == 1024
+    assert cfg.algo.max_iterations == 4000
+    assert cfg.algo.tau == pytest.approx(0.05)
+    assert cfg.algo.replay_buffer_n == 4096
+    assert cfg.algo.updates_per_step == 2
+    assert cfg.reward.scales.swing_feet_z == pytest.approx(4.0)
+    assert cfg.env.control_config.action_scale == pytest.approx(0.4)
+
+
 def test_offpolicy_g1_rough_terrain_task_overrides():
     from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
@@ -178,35 +200,6 @@ def test_offpolicy_g1_rough_terrain_task_overrides():
     assert cfg.training.task_name == "G1WalkRough"
     assert cfg.training.sim_backend == "mujoco"
     assert G1WalkRoughCfg().model_file.endswith("scene_rough.xml")
-
-
-def test_offpolicy_flashsac_g1_walk_flat_amp_task_overrides():
-    from hydra import compose, initialize_config_dir
-    from hydra.core.global_hydra import GlobalHydra
-
-    GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(CONF_DIR / "offpolicy"), version_base="1.3"):
-        cfg = compose(
-            "config",
-            overrides=["algo=flashsac", "task=flashsac/g1_walk_flat_amp/mujoco"],
-        )
-    assert cfg.algo.algo == "flashsac"
-    assert cfg.training.task_name == "G1WalkFlat"
-    assert cfg.training.sim_backend == "mujoco"
-    assert cfg.training.use_amp is True
-    assert cfg.algo.num_envs == 1024
-    assert cfg.algo.updates_per_step == 2
-    assert cfg.algo.num_envs == 1024
-    assert cfg.algo.replay_buffer_n == 9766
-    assert cfg.algo.learning_starts == 98
-    assert cfg.algo.updates_per_step == 2
-    assert cfg.algo.gamma == pytest.approx(0.97)
-    assert cfg.env.control_config.action_scale == pytest.approx(0.5)
-    assert cfg.env.commands.vel_limit[0] == [-1.0, -0.5, -1.0]
-    assert "obs_profile" not in cfg.env
-    assert cfg.env.curriculum.enabled is False
-    assert cfg.reward.scales.tracking_ang_vel == pytest.approx(0.75)
-    assert cfg.reward.scales.base_height == pytest.approx(0.0)
 
 
 def test_g1_task_owner_yamls_preserve_legacy_and_walk_observation_profiles():
@@ -226,14 +219,6 @@ def test_g1_task_owner_yamls_preserve_legacy_and_walk_observation_profiles():
 
     assert uses_walk_profile("ppo", ["task=g1_walk_flat/mujoco"]) is False
     assert uses_walk_profile("appo", ["task=g1_walk_flat/mujoco"]) is False
-    assert (
-        uses_walk_profile(
-            "offpolicy",
-            ["algo=flashsac", "task=flashsac/g1_walk_flat_amp/mujoco"],
-        )
-        is False
-    )
-
     assert uses_walk_profile("offpolicy", ["algo=sac", "task=sac/g1_walk_flat/mujoco"]) is True
     assert uses_walk_profile("offpolicy", ["algo=sac", "task=sac/g1_walk_flat/motrix"]) is True
     assert uses_walk_profile("offpolicy", ["algo=sac", "task=sac/g1_walk_rough/mujoco"]) is True

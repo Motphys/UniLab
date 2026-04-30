@@ -7,6 +7,9 @@ algo:
   max_iterations: 5000
   save_interval: 1000
 env:
+  domain_rand:
+    randomize_kp: false
+    randomize_kd: false
   curriculum:
     enabled: true
     initial_scale: 0.5

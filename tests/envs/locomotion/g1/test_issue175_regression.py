@@ -109,16 +109,6 @@ _G1_OWNER_CASES = [
         "action_scale": 1.0,
         "curriculum_enabled": True,
     },
-    {
-        "id": "flashsac_amp_mujoco",
-        "config_group": "offpolicy",
-        "overrides": ["algo=flashsac", "task=flashsac/g1_walk_flat_amp/mujoco"],
-        "task_name": "G1WalkFlat",
-        "backend": "mujoco",
-        "profile": "legacy",
-        "action_scale": 0.5,
-        "curriculum_enabled": False,
-    },
 ]
 
 

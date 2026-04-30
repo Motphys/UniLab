@@ -266,6 +266,43 @@ def test_offpolicy_g1_walk_flat_motrix_preserves_backend_env_overrides():
     assert cfg.env.domain_rand.randomize_kd is False
 
 
+def test_offpolicy_flashsac_go2_joystick_backend_overrides_diverge():
+    mujoco_cfg = _compose(
+        "offpolicy",
+        overrides=["algo=flashsac", "task=flashsac/go2_joystick_flat/mujoco"],
+    )
+    motrix_cfg = _compose(
+        "offpolicy",
+        overrides=["algo=flashsac", "task=flashsac/go2_joystick_flat/motrix"],
+    )
+
+    assert mujoco_cfg.training.task_name == "Go2JoystickFlat"
+    assert motrix_cfg.training.task_name == "Go2JoystickFlat"
+    assert mujoco_cfg.training.sim_backend == "mujoco"
+    assert motrix_cfg.training.sim_backend == "motrix"
+
+    # MuJoCo enables the full DR stack; Motrix disables what its backend cannot
+    # honor (e.g. gravity, kp/kd, push) — see ADR-0002 backend capability boundary.
+    assert mujoco_cfg.env.domain_rand.randomize_kp is True
+    assert mujoco_cfg.env.domain_rand.randomize_kd is True
+    assert mujoco_cfg.env.domain_rand.randomize_base_mass is True
+    assert mujoco_cfg.env.domain_rand.random_com is True
+    assert mujoco_cfg.env.domain_rand.randomize_gravity is True
+    assert mujoco_cfg.env.domain_rand.push_robots is True
+    assert mujoco_cfg.env.noise_config.level == pytest.approx(1.0)
+
+    assert motrix_cfg.env.domain_rand.randomize_kp is False
+    assert motrix_cfg.env.domain_rand.randomize_kd is False
+    assert motrix_cfg.env.domain_rand.randomize_base_mass is False
+    assert motrix_cfg.env.domain_rand.random_com is False
+    assert motrix_cfg.env.domain_rand.randomize_gravity is False
+    assert motrix_cfg.env.domain_rand.push_robots is False
+    assert motrix_cfg.env.noise_config.level == pytest.approx(0.0)
+
+    # The alive reward scale is currently only configured for motrix.
+    assert motrix_cfg.reward.scales.alive == pytest.approx(2.0)
+
+
 def test_cli_override_beats_task_defaults():
     cfg = _compose(
         "ppo",

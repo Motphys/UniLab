@@ -17,7 +17,6 @@ except Exception:
 from unilab.base.registry import ensure_registries
 
 
-@pytest.mark.slow
 def test_go1_mujoco_reset_applies_base_mass_and_com_domain_randomization(
     default_go1_reward_config: dict[str, Any],
 ) -> None:

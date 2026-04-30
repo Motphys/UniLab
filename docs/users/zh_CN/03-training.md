@@ -15,6 +15,79 @@
 
 实际目录名由 `algo.algo_log_name` 决定；当前默认值分别是 `rsl_rl_ppo`、`mlx_rl_train`、`appo`、`fast_sac` 和 `fast_td3`。
 
+## 统一 CLI (`unilab`)
+
+除了直接调用脚本，UniLab 还提供了统一的 `unilab` 命令行入口，通过 `--algo`、`--task`、`--sim` 三个参数自动路由到对应的训练脚本。
+
+### unilab train
+
+```bash
+# PPO
+unilab train --algo ppo --task go2_joystick_flat --sim mujoco
+
+# APPO
+unilab train --algo appo --task go2_joystick_flat --sim mujoco
+
+# SAC
+unilab train --algo sac --task g1_walk_flat --sim mujoco
+
+# TD3
+unilab train --algo td3 --task g1_walk_flat --sim mujoco
+
+# FlashSAC
+unilab train --algo flashsac --task g1_walk_flat --sim mujoco
+
+# MLX PPO (macOS only)
+unilab train --algo mlx_ppo --task go2_joystick_flat --sim mujoco
+```
+
+支持的算法：`ppo`、`mlx_ppo`、`appo`、`sac`、`td3`、`flashsac`
+支持的模拟器：`mujoco`、`motrix`
+
+Hydra override 可以直接追加在命令末尾：
+
+```bash
+unilab train --algo ppo --task go2_joystick_flat --sim mujoco training.max_iterations=10
+```
+
+### unilab eval
+
+评估模式自动设置 `training.play_only=true`，并通过 `--load-run` 指定 checkpoint：
+
+```bash
+# 回放最新 run
+unilab eval --algo ppo --task go2_joystick_flat --sim mujoco --load-run -1
+
+# 回放指定 run
+unilab eval --algo ppo --task go2_joystick_flat --sim mujoco --load-run 2026-04-24_01-36-01_mujoco
+```
+
+### unilab demo
+
+一键运行预置的 demo，无需手动指定 task 和 checkpoint：
+
+```bash
+# 默认 preset（go2_joystick_mujoco_ppo）
+unilab demo
+
+# 指定 preset
+unilab demo --preset go2_joystick_mujoco_ppo
+
+# 重新生成 demo 目录
+unilab demo --refresh
+
+# 指定推理设备
+unilab demo --device cpu
+```
+
+| 参数 | 说明 |
+|------|------|
+| `--preset` | demo 预设名称（默认 `go2_joystick_mujoco_ppo`） |
+| `--refresh` | 删除已有 demo 目录并重新生成 |
+| `--device` | 推理设备（`cpu`、`cuda`、`mps`） |
+
+> **For Developers**: 当前 demo checkpoint 需要本地训练产出后手动放置。尚缺少 checkpoint 网络托管方案（如 CDN / model registry），后续需要补充自动下载机制。
+
 ## Start Training
 
 ```bash

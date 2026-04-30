@@ -4,7 +4,7 @@ from pathlib import Path
 import unilab.utils
 
 ALLOWED_UTILS_API = {"get_default_device", "to_numpy", "to_torch"}
-ALLOWED_UTILS_MODULES = {"__init__", "device", "tensor"}
+ALLOWED_UTILS_MODULES = {"__init__", "device", "support_matrix", "tensor"}
 REMOVED_UTILS_SHIMS = {
     "algo_utils",
     "device_utils",

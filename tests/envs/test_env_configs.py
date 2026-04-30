@@ -601,7 +601,7 @@ def test_g1_motion_tracking_clip_end_does_not_override_true_termination():
 
 
 # ---------------------------------------------------------------------------
-# Slow: env instantiation + reset + step (runs MuJoCo physics)
+# Fast env/backend smoke tests
 # ---------------------------------------------------------------------------
 
 # Environments that don't need special config overrides
@@ -615,7 +615,6 @@ _STANDARD_ENVS = [
 ]
 
 
-@pytest.mark.slow
 @pytest.mark.parametrize("env_name", _STANDARD_ENVS)
 def test_env_reset_and_step(
     env_name: str,
@@ -700,7 +699,6 @@ def _assert_mujoco_position_gains(
     np.testing.assert_allclose(pool.get_field(0, "kd")[actuator_ids], kd)
 
 
-@pytest.mark.slow
 def test_go1_env_initializes_kp_kd_into_pool(default_go1_reward_config):
     _require_mujoco_runtime()
     ensure_registries()
@@ -724,7 +722,6 @@ def test_go1_env_initializes_kp_kd_into_pool(default_go1_reward_config):
         env.close()
 
 
-@pytest.mark.slow
 def test_go2_env_initializes_kp_kd_into_pool():
     _require_mujoco_runtime()
     ensure_registries()
@@ -761,7 +758,6 @@ def test_go2_env_initializes_kp_kd_into_pool():
         env.close()
 
 
-@pytest.mark.slow
 def test_allegro_env_initializes_kp_kd_into_pool(default_allegro_reward_config):
     _require_mujoco_runtime()
     ensure_registries()
@@ -785,7 +781,6 @@ def test_allegro_env_initializes_kp_kd_into_pool(default_allegro_reward_config):
         env.close()
 
 
-@pytest.mark.slow
 @pytest.mark.parametrize("sim_backend", ["mujoco", "motrix"])
 def test_g1_motion_tracking_reset_and_step(sim_backend: str):
     """G1MotionTracking needs a motion_file — skip if not available."""
@@ -841,7 +836,6 @@ def test_g1_motion_tracking_reset_and_step(sim_backend: str):
         env.close()
 
 
-@pytest.mark.slow
 def test_go2_mujoco_reset_applies_kp_kd_domain_randomization(default_go2_reward_config):
     _require_mujoco_runtime()
     ensure_registries()

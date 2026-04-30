@@ -34,7 +34,29 @@ uv run scripts/train_rsl_rl.py task=go2_joystick_flat/motrix
 
 This is the shortest repository entrypoint today. It uses the PPO training script on the registered `go2_joystick_flat/motrix` task and gives a direct first-success path before you learn the full workflow.
 
+You can also use the unified `unilab` CLI:
+
+```bash
+# Activate the virtual environment
+source .venv/bin/activate
+
+# Train with the unified CLI
+unilab train --algo ppo --task go2_joystick_flat --sim mujoco
+
+# One-click demo (plays back a pre-trained checkpoint)
+unilab demo
+```
+
 On macOS / MacBook, commands that open the MotrixSim native renderer must be launched with `uv run mxpython` instead of `uv run python`. Plain non-rendering training can still use `uv run python ... training.no_play=true`.
+
+### Interactive Notebooks
+
+Prefer a guided, step-by-step experience? Open the notebooks in Jupyter:
+
+- [Demo Notebook](notebook/demo.ipynb): one-click checkpoint playback — run `unilab demo` and view the result video
+- [PPO Training Walkthrough](notebook/unilab_walkthrough_ppo_go1_joystick_mujoco.ipynb): end-to-end guide from config preview to training to playback, with explanations for beginners
+
+> Notebooks require a local environment (no Colab support) — MuJoCo needs local compute.
 
 ## Example Runs
 
@@ -42,7 +64,7 @@ These are example repository runs for documented commands and hardware setups. T
 
 ```bash
 # Linux SAC (5.5min on RTX 4090 and R9-9950x3d)
-uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/motrix
+uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco
 ```
 
 ```bash
@@ -68,11 +90,48 @@ uv run scripts/train_rsl_rl.py task=g1_motion_tracking/mujoco
 | PPO (MLX, macOS) | `scripts/train_mlx_ppo.py` | `logs/mlx_rl_train/<task>/` |
 | APPO | `scripts/train_appo.py` | `logs/appo/<task>/` |
 | SAC | `scripts/train_offpolicy.py` | `logs/fast_sac/<task>/` |
+| FlashSAC | `scripts/train_offpolicy.py` | `logs/flash_sac/<task>/` |
 | TD3 | `scripts/train_offpolicy.py` | `logs/fast_td3/<task>/` |
 
 Training scripts automatically enter playback after training unless you set `training.no_play=true`.
 
 For MotrixSim visualization or `training.play_only=true` on macOS / MacBook, reuse the macOS renderer rule from `Quick Demo` and see `docs/users/zh_CN/03-training.md`.
+
+## Unified CLI (`unilab`)
+
+The `unilab` command wraps the training scripts above with a simpler interface:
+
+```bash
+# Train
+unilab train --algo ppo --task go2_joystick_flat --sim mujoco
+
+# Evaluate (play back the latest checkpoint)
+unilab eval --algo ppo --task go2_joystick_flat --sim mujoco --load-run -1
+
+# Demo (pre-trained checkpoint playback)
+unilab demo
+```
+
+Supported algorithms: `ppo`, `mlx_ppo`, `appo`, `sac`, `td3`, `flashsac`
+Supported simulators: `mujoco`, `motrix`
+
+Hydra overrides can be appended directly:
+
+```bash
+unilab train --algo ppo --task go2_joystick_flat --sim mujoco training.max_iterations=10
+```
+
+### Demo
+
+`unilab demo` runs a pre-configured playback with a trained checkpoint.
+
+| Flag | Description |
+|------|-------------|
+| `--preset` | Demo preset name (default: `go2_joystick_mujoco_ppo`) |
+| `--refresh` | Remove and regenerate the demo directory |
+| `--device` | Inference device (`cpu`, `cuda`, `mps`) |
+
+> **For Developers**: Demo checkpoints currently require local training output. A checkpoint hosting solution (CDN / model registry) with automatic download is not yet in place.
 
 ## Repository Map
 
@@ -91,6 +150,8 @@ For MotrixSim visualization or `training.play_only=true` on macOS / MacBook, reu
 - [04 Algorithms](docs/users/zh_CN/04-algorithms.md): APPO, FastSAC, and FastTD3 usage and differences
 - [05 G1 Motion Tracking](docs/users/zh_CN/05-motion-tracking.md): the G1 whole-body motion-tracking task
 - [06 Domain Randomization](docs/users/zh_CN/06-domain-randomization.md): domain randomization configuration and best practices
+- [Demo Notebook](notebook/demo.ipynb): one-click demo playback
+- [PPO Training Walkthrough](notebook/unilab_walkthrough_ppo_go1_joystick_mujoco.ipynb): beginner-friendly end-to-end training guide
 
 
 ### For Developers
