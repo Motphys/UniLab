@@ -318,14 +318,6 @@ class Go2HandStandTask(Go2BaseEnv):
 
     # ── reward functions (robot-specific) ────────────────────────────
 
-    def _reward_swing_feet_z(self, ctx: RewardContext) -> np.ndarray:
-        is_swing = self.feet_phase >= 0.6
-        target_height = 0.1
-        height_error = np.square(self.feet_pos[:, :, 2] - target_height)
-        swing_rew = np.exp(-height_error / 0.01) * is_swing
-        reward: np.ndarray = np.sum(swing_rew, axis=1) / len(self._cfg.sensor.feet_pos)
-        return reward
-
     def _reward_foot_drag(self, ctx: RewardContext) -> np.ndarray:
         foot_pos = self.get_foot_pos()
         foot_heights = foot_pos[..., 2]
