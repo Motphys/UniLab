@@ -111,6 +111,20 @@ uv run python scripts/motion/csv_to_npz.py \
   --end_time 9.0
 ```
 
+## Remap Full-body NPZ (Holosoma → UniLab)
+
+部分动捕管线（如 holosoma）导出的 NPZ 基于更详细的 MuJoCo 模型（例如包含碰撞球体、手指关节等 51 bodies），并且在 `joint_pos` / `joint_vel` 中包含了 root free-joint。UniLab 训练环境期望 NPZ 与训练模型布局（如 `scene_flat.xml` 的 31 bodies）对齐，且只包含被驱动关节的自由度。
+
+`scripts/motion/remap_fullbody_npz.py` 负责完成这一转换：
+
+```bash
+# 基本用法：将 holosoma 导出的 NPZ 转换为 UniLab 训练格式
+uv run python scripts/motion/remap_fullbody_npz.py \
+  --input src/unilab/assets/motions/g1/holosoma_dance.npz \
+  --output src/unilab/assets/motions/g1/dance_remapped.npz
+
+转换完成后，可以使用 `scripts/motion/replay_npz.py` 在 MuJoCo viewer 中回放验证，或直接用于 motion tracking 训练。
+
 ## Replay NPZ
 
 生成好 NPZ 后，可以用 `scripts/motion/replay_npz.py` 在 MuJoCo viewer 中直接检查动作:

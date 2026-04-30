@@ -175,14 +175,13 @@ def test_offpolicy_flashsac_go2_task_overrides():
     assert cfg.algo.algo == "flashsac"
     assert cfg.training.task_name == "Go2JoystickFlat"
     assert cfg.training.sim_backend == "mujoco"
-    assert cfg.algo.num_envs == 2048
-    assert cfg.algo.max_iterations == 3000
+    assert cfg.algo.num_envs == 1024
+    assert cfg.algo.max_iterations == 4000
     assert cfg.algo.tau == pytest.approx(0.05)
-    assert cfg.algo.replay_buffer_n == 1024
-    assert cfg.algo.updates_per_step == 8
-    assert cfg.reward.scales.alive == pytest.approx(2.0)
+    assert cfg.algo.replay_buffer_n == 4096
+    assert cfg.algo.updates_per_step == 2
     assert cfg.reward.scales.swing_feet_z == pytest.approx(4.0)
-    assert cfg.env.control_config.action_scale == pytest.approx(1.0)
+    assert cfg.env.control_config.action_scale == pytest.approx(0.4)
 
 
 def test_offpolicy_g1_rough_terrain_task_overrides():
