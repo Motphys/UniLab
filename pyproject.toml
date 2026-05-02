@@ -34,6 +34,8 @@ dependencies = [
 
 [project.scripts]
 unilab = "unilab.cli:main"
+unilab-viz-nan = "unilab.tools.viz_nan:main"
+unilab-export-scene = "unilab.tools.export_scene:main"
 
 [project.optional-dependencies]
 motrix = ["motrixsim==0.7.1.dev96425"]
