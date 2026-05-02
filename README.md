@@ -133,6 +133,47 @@ unilab train --algo ppo --task go2_joystick_flat --sim mujoco training.max_itera
 
 > **For Developers**: Demo checkpoints currently require local training output. A checkpoint hosting solution (CDN / model registry) with automatic download is not yet in place.
 
+## Docker
+
+Use Docker when you want an isolated Linux runtime without changing your local Python environment. Local development still works best with `uv sync`; Docker is mainly for clean environment setup, image validation, and containerized runs.
+
+### Build images
+
+```bash
+# Base image: MuJoCo + UniLab runtime
+docker build -f Dockerfile.base -t unilab:base .
+
+# Dev image: base + Motrix + dev tools
+docker build -f Dockerfile -t unilab:dev .
+```
+
+### Run images
+
+```bash
+# Check the unified CLI entrypoint
+docker run --rm unilab:base
+docker run --rm unilab:dev
+
+# Interactive development with the repo mounted
+# Keep .venv in a named volume so the container does not overwrite the host venv
+docker run --rm -it \
+  -v "$(pwd):/workspace/UniLab" \
+  -v unilab-venv:/workspace/UniLab/.venv \
+  -w /workspace/UniLab \
+  unilab:dev bash
+```
+
+Using a named volume for `/workspace/UniLab/.venv` avoids mixing a container-created virtual environment with the host checkout. This prevents path mismatches such as `/workspace/UniLab/.venv` vs `.venv` and avoids permission problems when returning to local `uv` or `make test-all` workflows.
+
+### GPU containers
+
+On Linux hosts with the NVIDIA Container Toolkit configured, you can pass `--gpus all` to expose CUDA inside the container:
+
+```bash
+docker run --rm --gpus all unilab:base uv run python -c "import torch; print(torch.cuda.is_available())"
+docker run --rm --gpus all unilab:dev uv run python -c "import torch; print(torch.cuda.is_available())"
+```
+
 ## Repository Map
 
 - `conf/`: Hydra configuration, including task / reward / algorithm composition
