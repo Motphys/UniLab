@@ -8,7 +8,7 @@ Train robot RL without a GPU simulation backend.
 
 UniLab uses **CPU simulation + shared-memory runtime + GPU learning** instead of coupling simulation and learning inside one GPU-resident pipeline.
 
-Start with the `Quick Demo` below to run the first documented training command from this repository.
+Start with the `Quick Demo` below to run the primary training command from this repository.
 
 ## Quick Demo
 
@@ -23,37 +23,30 @@ cd UniLab
 # 2. Install dependencies
 uv sync --extra motrix
 
-# 3. Run a first PPO training job on macOS / MacBook
-# macOS: (73s on M5Max-128GB, 1min43s on M3Max-48GB, 2.5min on MacBookNeo-8GB)
-uv run mxpython scripts/train_rsl_rl.py task=go2_joystick_flat/motrix
-
-# 4. Run the same training job on Linux
-# Linux: PPO (31s on RTX 4090 and R9-9950x3d)
-uv run scripts/train_rsl_rl.py task=go2_joystick_flat/motrix
+# 3. Run a first PPO training job
+# macOS: 73s on M5Max-128GB, 1min43s on M3Max-48GB, 2.5min on MacBookNeo-8GB
+# Linux: 31s on RTX 4090 and R9-9950x3d
+uv run train --algo ppo --task go2_joystick_flat --sim motrix
 ```
 
-This is the shortest repository entrypoint today. It uses the PPO training script on the registered `go2_joystick_flat/motrix` task and gives a direct first-success path before you learn the full workflow.
+This is the first-level training entrypoint. It routes to the registered `go2_joystick_flat/motrix` task owner config and keeps backend selection in the CLI flags.
 
-You can also use the unified `unilab` CLI:
+For evaluation and demo playback:
 
 ```bash
-# Activate the virtual environment
-source .venv/bin/activate
+uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1
 
-# Train with the unified CLI
-unilab train --algo ppo --task go2_joystick_flat --sim mujoco
-
-# One-click demo (plays back a pre-trained checkpoint)
-unilab demo
+# Demo playback from a local trained checkpoint
+uv run demo
 ```
 
-On macOS / MacBook, commands that open the MotrixSim native renderer must be launched with `uv run mxpython` instead of `uv run python`. Plain non-rendering training can still use `uv run python ... training.no_play=true`.
+On macOS / MacBook, the UniLab CLI routes Motrix renderer playback through `mxpython` when needed. Detailed script-level commands are documented under `docs/users/zh_CN/`.
 
 ### Interactive Notebooks
 
 Prefer a guided, step-by-step experience? Open the notebooks in Jupyter:
 
-- [Demo Notebook](notebook/demo.ipynb): one-click checkpoint playback — run `unilab demo` and view the result video
+- [Demo Notebook](notebook/demo.ipynb): local checkpoint playback via `uv run demo`
 - [PPO Training Walkthrough](notebook/unilab_walkthrough_ppo_go1_joystick_mujoco.ipynb): end-to-end guide from config preview to training to playback, with explanations for beginners
 
 > Notebooks require a local environment (no Colab support) — MuJoCo needs local compute.
@@ -64,12 +57,12 @@ These are example repository runs for documented commands and hardware setups. T
 
 ```bash
 # Linux SAC (5.5min on RTX 4090 and R9-9950x3d)
-uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco
+uv run train --algo sac --task g1_walk_flat --sim mujoco
 ```
 
 ```bash
 # Linux G1 motion tracking (1h35min on RTX 4090 and R9-9950x3d)
-uv run scripts/train_rsl_rl.py task=g1_motion_tracking/mujoco
+uv run train --algo ppo --task g1_motion_tracking --sim mujoco
 ```
 
 ## System Layout
@@ -82,35 +75,22 @@ uv run scripts/train_rsl_rl.py task=g1_motion_tracking/mujoco
 └───────────────────┘                               └────────────────────┘
 ```
 
-## Workflow Entrypoints
+## Training Entrypoints
 
-| Goal | Entrypoint | Log root pattern |
+Use `uv run train` for training, `uv run eval` for checkpoint playback, and `uv run demo` for the local demo preset. These commands wrap the lower-level training scripts while keeping task and backend selection explicit.
+
+| Goal | Primary command | Log root pattern |
 |------|------------|------------------|
-| PPO (torch / RSL-RL) | `scripts/train_rsl_rl.py` | `logs/rsl_rl_ppo/<task>/` |
-| PPO (MLX, macOS) | `scripts/train_mlx_ppo.py` | `logs/mlx_rl_train/<task>/` |
-| APPO | `scripts/train_appo.py` | `logs/appo/<task>/` |
-| SAC | `scripts/train_offpolicy.py` | `logs/fast_sac/<task>/` |
-| FlashSAC | `scripts/train_offpolicy.py` | `logs/flash_sac/<task>/` |
-| TD3 | `scripts/train_offpolicy.py` | `logs/fast_td3/<task>/` |
+| PPO (torch / RSL-RL) | `uv run train --algo ppo --task <task> --sim <backend>` | `logs/rsl_rl_ppo/<task>/` |
+| PPO (MLX, macOS) | `uv run train --algo mlx_ppo --task <task> --sim <backend>` | `logs/mlx_rl_train/<task>/` |
+| APPO | `uv run train --algo appo --task <task> --sim <backend>` | `logs/appo/<task>/` |
+| SAC | `uv run train --algo sac --task <task> --sim <backend>` | `logs/fast_sac/<task>/` |
+| FlashSAC | `uv run train --algo flashsac --task <task> --sim <backend>` | `logs/flash_sac/<task>/` |
+| TD3 | `uv run train --algo td3 --task <task> --sim <backend>` | `logs/fast_td3/<task>/` |
 
-Training scripts automatically enter playback after training unless you set `training.no_play=true`.
+Training commands automatically enter playback after training unless you set `training.no_play=true`.
 
-For MotrixSim visualization or `training.play_only=true` on macOS / MacBook, reuse the macOS renderer rule from `Quick Demo` and see `docs/users/zh_CN/03-training.md`.
-
-## Unified CLI (`unilab`)
-
-The `unilab` command wraps the training scripts above with a simpler interface:
-
-```bash
-# Train
-unilab train --algo ppo --task go2_joystick_flat --sim mujoco
-
-# Evaluate (play back the latest checkpoint)
-unilab eval --algo ppo --task go2_joystick_flat --sim mujoco --load-run -1
-
-# Demo (pre-trained checkpoint playback)
-unilab demo
-```
+Direct script entrypoints are kept in the user documentation under `docs/users/zh_CN/`.
 
 Supported algorithms: `ppo`, `mlx_ppo`, `appo`, `sac`, `td3`, `flashsac`
 Supported simulators: `mujoco`, `motrix`
@@ -118,12 +98,12 @@ Supported simulators: `mujoco`, `motrix`
 Hydra overrides can be appended directly:
 
 ```bash
-unilab train --algo ppo --task go2_joystick_flat --sim mujoco training.max_iterations=10
+uv run train --algo ppo --task go2_joystick_flat --sim mujoco training.max_iterations=10
 ```
 
 ### Demo
 
-`unilab demo` runs a pre-configured playback with a trained checkpoint.
+`uv run demo` runs a pre-configured playback using a checkpoint already present in the local training output.
 
 | Flag | Description |
 |------|-------------|
@@ -167,12 +147,7 @@ Using a named volume for `/workspace/UniLab/.venv` avoids mixing a container-cre
 
 ### GPU containers
 
-On Linux hosts with the NVIDIA Container Toolkit configured, you can pass `--gpus all` to expose CUDA inside the container:
-
-```bash
-docker run --rm --gpus all unilab:base uv run python -c "import torch; print(torch.cuda.is_available())"
-docker run --rm --gpus all unilab:dev uv run python -c "import torch; print(torch.cuda.is_available())"
-```
+On Linux hosts with the NVIDIA Container Toolkit configured, you can pass `--gpus all` to expose CUDA inside the container. See [01 Getting Started](docs/users/zh_CN/01-getting-started.md) for detailed container verification commands.
 
 ## Repository Map
 
@@ -191,7 +166,7 @@ docker run --rm --gpus all unilab:dev uv run python -c "import torch; print(torc
 - [04 Algorithms](docs/users/zh_CN/04-algorithms.md): APPO, FastSAC, and FastTD3 usage and differences
 - [05 G1 Motion Tracking](docs/users/zh_CN/05-motion-tracking.md): the G1 whole-body motion-tracking task
 - [06 Domain Randomization](docs/users/zh_CN/06-domain-randomization.md): domain randomization configuration and best practices
-- [Demo Notebook](notebook/demo.ipynb): one-click demo playback
+- [Demo Notebook](notebook/demo.ipynb): local checkpoint playback via `uv run demo`
 - [PPO Training Walkthrough](notebook/unilab_walkthrough_ppo_go1_joystick_mujoco.ipynb): beginner-friendly end-to-end training guide
 
 
@@ -200,13 +175,3 @@ docker run --rm --gpus all unilab:dev uv run python -c "import torch; print(torc
 - [RL Infrastructure Development Standard](docs/developers/zh_CN/development-standard.md): design principles, layering, contracts, and validation boundaries
 - [Collaboration Workflow](docs/developers/zh_CN/collaboration.md): GitHub issue / milestone / PR collaboration rules and ADR governance
 - [ADR Index](docs/developers/adr/README.md): architecture decision records
-
-### For Agents
-- [AGENTS.md](AGENTS.md): core principles, high-risk areas, and key file pointers
-
-## Related Projects
-
-1. https://github.com/mujocolab/mjlab
-2. https://github.com/amazon-far/holosoma
-3. https://github.com/google-deepmind/mujoco
-4. https://github.com/google-deepmind/mujoco_playground/

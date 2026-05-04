@@ -125,7 +125,7 @@ env:
 如果只想随机化大小、保持竖直向下方向，可以只放开 `z` 分量：
 
 ```bash
-uv run python scripts/train_rsl_rl.py \
+uv run scripts/train_rsl_rl.py \
   task=g1_walk_flat/mujoco \
   env.domain_rand.randomize_gravity=true \
   'env.domain_rand.gravity_range=[[0.0,0.0,-10.5],[0.0,0.0,-8.5]]'
@@ -134,7 +134,7 @@ uv run python scripts/train_rsl_rl.py \
 如果想同时随机化方向和大小，可以放开 `x/y/z` 分量：
 
 ```bash
-uv run python scripts/train_rsl_rl.py \
+uv run scripts/train_rsl_rl.py \
   task=g1_walk_flat/mujoco \
   env.domain_rand.randomize_gravity=true \
   'env.domain_rand.gravity_range=[[-0.3,-0.3,-10.5],[0.3,0.3,-8.5]]'
@@ -167,7 +167,7 @@ env:
 - `push_body_name`：外力施加目标 body / link。默认 `null`，表示使用 backend 的 `base_name`。
 
 ```bash
-uv run python scripts/train_rsl_rl.py \
+uv run scripts/train_rsl_rl.py \
   task=g1_walk_flat/mujoco \
   env.domain_rand.push_robots=true \
   env.domain_rand.push_interval=500 \
@@ -238,7 +238,7 @@ env:
 每个 env 会被静态分配一个 `scale_id`。当前分配规则是按 bucket 连续分配，因此 `algo.num_envs` 必须能被 `num_scales` 整除：
 
 ```bash
-uv run python scripts/train_rsl_rl.py task=sharpa_inhand/mujoco 'env.scale_range=[0.5,0.8,4]' algo.num_envs=4096
+uv run scripts/train_rsl_rl.py task=sharpa_inhand/mujoco 'env.scale_range=[0.5,0.8,4]' algo.num_envs=4096
 ```
 
 如果 `algo.num_envs=4096`、`num_scales=4`，则每 1024 个 env 使用同一个 scale bucket。
@@ -272,13 +272,13 @@ Sharpa rotation 任务按 `scale_ids` 从 grasp cache 里分桶采样：
 生成多 scale cache 时，应使用同一套 `scale_range` 跑 grasp 采集任务：
 
 ```bash
-uv run python scripts/train_rsl_rl.py task=sharpa_inhand_grasp/mujoco 'env.scale_range=[0.5,0.8,4]' algo.num_envs=4096
+uv run scripts/train_rsl_rl.py task=sharpa_inhand_grasp/mujoco 'env.scale_range=[0.5,0.8,4]' algo.num_envs=4096
 ```
 
 随后训练 rotation 时使用相同的 `scale_range`：
 
 ```bash
-uv run python scripts/train_rsl_rl.py task=sharpa_inhand/mujoco 'env.scale_range=[0.5,0.8,4]' algo.num_envs=4096
+uv run scripts/train_rsl_rl.py task=sharpa_inhand/mujoco 'env.scale_range=[0.5,0.8,4]' algo.num_envs=4096
 ```
 
 ### 4. 边界和注意事项

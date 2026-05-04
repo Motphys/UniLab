@@ -83,7 +83,7 @@ def find_docs(root: Path) -> list[Path]:
 
 def check_script_references(content: str, doc_path: Path, root: Path) -> list[str]:
     errors: list[str] = []
-    script_pattern = r"(?<![\w/.-])(scripts/[A-Za-z0-9_]+\.py)\b"
+    script_pattern = r"(?<![\w/.-])(scripts/(?:[A-Za-z0-9_/-]+/)?[A-Za-z0-9_]+\.py)\b"
     for match in re.finditer(script_pattern, content):
         script_path = match.group(1)
         if not (root / script_path).exists():
@@ -133,6 +133,61 @@ def check_markdown_links(content: str, doc_path: Path, root: Path) -> list[str]:
         full_path = Path(str(full_path).split("#")[0])
         if not full_path.exists():
             errors.append(f"{doc_path}: Link not found: {link_target} (text: '{link_text}')")
+
+    return errors
+
+
+def check_raw_github_repo_urls(content: str, doc_path: Path, root: Path) -> list[str]:
+    errors: list[str] = []
+    url_pattern = r"https://github\.com/unilabsim/UniLab/blob/main/([^\s\"'<>]+)"
+
+    for match in re.finditer(url_pattern, content):
+        rel_path = match.group(1).rstrip(").,")
+        if not (root / rel_path).exists():
+            errors.append(f"{doc_path}: GitHub URL target not found: {rel_path}")
+
+    return errors
+
+
+def check_markdown_fences(content: str, doc_path: Path, root: Path) -> list[str]:
+    del root
+    errors: list[str] = []
+    fence_start: int | None = None
+
+    for line_no, line in enumerate(content.splitlines(), start=1):
+        if not re.match(r"^\s*```", line):
+            continue
+        if fence_start is None:
+            fence_start = line_no
+        else:
+            fence_start = None
+
+    if fence_start is not None:
+        errors.append(f"{doc_path}: Unclosed fenced code block starting at line {fence_start}")
+
+    return errors
+
+
+def check_canonical_commands(content: str, doc_path: Path, root: Path) -> list[str]:
+    del root
+    errors: list[str] = []
+
+    for line_no, line in enumerate(content.splitlines(), start=1):
+        stripped = line.strip()
+        if "uv run python scripts/" in stripped:
+            errors.append(
+                f"{doc_path}:{line_no}: Use `uv run scripts/...` instead of "
+                "`uv run python scripts/...`"
+            )
+        if stripped.startswith(("unilab train", "unilab eval", "unilab demo")):
+            errors.append(
+                f"{doc_path}:{line_no}: Use `uv run train`, `uv run eval`, "
+                "or `uv run demo` instead of the removed `unilab` subcommand interface"
+            )
+        if stripped == "source .venv/bin/activate":
+            errors.append(
+                f"{doc_path}:{line_no}: Use `uv run <command>` instead of activating .venv"
+            )
 
     return errors
 
@@ -229,7 +284,7 @@ def check_generated_support_matrix(content: str, doc_path: Path, root: Path) -> 
     if expected != content:
         errors.append(
             f"{doc_path}: Generated support matrix is stale; run "
-            "`uv run python scripts/generate_support_matrix.py --write`"
+            "`uv run scripts/generate_support_matrix.py --write`"
         )
     return errors
 
@@ -240,6 +295,9 @@ def check_document(doc_path: Path, root: Path) -> list[str]:
     errors.extend(check_script_references(content, doc_path, root))
     errors.extend(check_file_paths(content, doc_path, root))
     errors.extend(check_markdown_links(content, doc_path, root))
+    errors.extend(check_raw_github_repo_urls(content, doc_path, root))
+    errors.extend(check_markdown_fences(content, doc_path, root))
+    errors.extend(check_canonical_commands(content, doc_path, root))
     errors.extend(check_hydra_keys(content, doc_path, root))
     errors.extend(check_argparse_vs_hydra(content, doc_path, root))
     errors.extend(check_training_entrypoint_semantics(content, doc_path, root))

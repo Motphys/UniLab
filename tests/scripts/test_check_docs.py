@@ -15,8 +15,8 @@ def test_check_training_entrypoint_semantics_flags_issue_204_patterns():
     root = Path(__file__).resolve().parents[2]
     doc_path = root / "README.md"
     content = """
-uv run python scripts/train_rsl_rl.py task=go1_joystick_flat
-uv run python scripts/train_rsl_rl.py task=go1_joystick_flat/mujoco training.load_run=2026-01-01
+uv run scripts/train_rsl_rl.py task=go1_joystick_flat
+uv run scripts/train_rsl_rl.py task=go1_joystick_flat/mujoco training.load_run=2026-01-01
 Training logs are saved to logs/rsl_rl_train/MyTask/.
 """
 
@@ -31,8 +31,8 @@ def test_check_training_entrypoint_semantics_accepts_current_patterns():
     root = Path(__file__).resolve().parents[2]
     doc_path = root / "README.md"
     content = """
-uv run python scripts/train_rsl_rl.py task=go1_joystick_flat/mujoco algo.load_run=2026-01-01
-uv run python scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco
+uv run scripts/train_rsl_rl.py task=go1_joystick_flat/mujoco algo.load_run=2026-01-01
+uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco
 Logs live under logs/<algo.algo_log_name>/<task>/.
 """
 
@@ -55,7 +55,7 @@ def test_collect_doc_errors_scans_issue_templates_for_hydra_semantics(tmp_path):
     issue_template = tmp_path / ".github" / "ISSUE_TEMPLATE" / "bug_report.yml"
     issue_template.parent.mkdir(parents=True)
     issue_template.write_text(
-        "placeholder: |\n  uv run python scripts/train_offpolicy.py algo=sac task=g1_walk_flat ...\n",
+        "placeholder: |\n  uv run scripts/train_offpolicy.py algo=sac task=g1_walk_flat ...\n",
         encoding="utf-8",
     )
     script_path = tmp_path / "scripts" / "train_offpolicy.py"
@@ -71,10 +71,62 @@ def test_collect_doc_errors_scans_issue_templates_for_script_paths(tmp_path):
     issue_template = tmp_path / ".github" / "ISSUE_TEMPLATE" / "bug_report.yml"
     issue_template.parent.mkdir(parents=True)
     issue_template.write_text(
-        "placeholder: |\n  uv run python scripts/missing_entrypoint.py task=go1_joystick_flat/mujoco\n",
+        "placeholder: |\n  uv run scripts/missing_entrypoint.py task=go1_joystick_flat/mujoco\n",
         encoding="utf-8",
     )
 
     errors = doc_checks.collect_doc_errors(tmp_path)
 
     assert any("Script not found: scripts/missing_entrypoint.py" in error for error in errors)
+
+
+def test_collect_doc_errors_flags_unclosed_markdown_fence(tmp_path):
+    readme = tmp_path / "README.md"
+    readme.write_text(
+        "```bash\nuv run scripts/train_rsl_rl.py task=go1_joystick_flat/mujoco\n", encoding="utf-8"
+    )
+
+    errors = doc_checks.collect_doc_errors(tmp_path)
+
+    assert any("Unclosed fenced code block" in error for error in errors)
+
+
+def test_collect_doc_errors_flags_python_script_invocation(tmp_path):
+    readme = tmp_path / "README.md"
+    readme.write_text(
+        "```bash\nuv run python scripts/train_rsl_rl.py task=go1_joystick_flat/mujoco\n```\n",
+        encoding="utf-8",
+    )
+    script_path = tmp_path / "scripts" / "train_rsl_rl.py"
+    script_path.parent.mkdir(parents=True)
+    script_path.write_text("", encoding="utf-8")
+
+    errors = doc_checks.collect_doc_errors(tmp_path)
+
+    assert any("Use `uv run scripts/...`" in error for error in errors)
+
+
+def test_collect_doc_errors_flags_removed_unilab_subcommands(tmp_path):
+    readme = tmp_path / "README.md"
+    readme.write_text(
+        "```bash\nsource .venv/bin/activate\nunilab train --algo ppo --task go2 --sim mujoco\n```\n",
+        encoding="utf-8",
+    )
+
+    errors = doc_checks.collect_doc_errors(tmp_path)
+
+    assert any("removed `unilab` subcommand interface" in error for error in errors)
+    assert any("instead of activating .venv" in error for error in errors)
+
+
+def test_collect_doc_errors_flags_broken_raw_github_repo_url(tmp_path):
+    issue_template = tmp_path / ".github" / "ISSUE_TEMPLATE" / "config.yml"
+    issue_template.parent.mkdir(parents=True)
+    issue_template.write_text(
+        "url: https://github.com/unilabsim/UniLab/blob/main/docs/missing.md\n",
+        encoding="utf-8",
+    )
+
+    errors = doc_checks.collect_doc_errors(tmp_path)
+
+    assert any("GitHub URL target not found: docs/missing.md" in error for error in errors)

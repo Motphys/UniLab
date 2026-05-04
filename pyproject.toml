@@ -33,7 +33,9 @@ dependencies = [
 ]
 
 [project.scripts]
-unilab = "unilab.cli:main"
+train = "unilab.cli:train_main"
+eval = "unilab.cli:eval_main"
+demo = "unilab.cli:demo_main"
 unilab-viz-nan = "unilab.tools.viz_nan:main"
 unilab-export-scene = "unilab.tools.export_scene:main"
 

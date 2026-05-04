@@ -33,8 +33,7 @@ make type           # mypy src/unilab + pyright
 make check          # format + type（代码相关提交前必跑）
 make test           # 非 slow 测试
 make test-cov       # 非 slow 测试 + 覆盖率报告
-make test-slow      # slow 集成测试（需要 MuJoCo）
-make test-slow  # 完整训练冒烟测试（分钟级）
+make test-slow      # slow 集成测试和训练冒烟测试
 make test-all       # make check && make test-cov
 ```
 

@@ -15,30 +15,30 @@
 
 实际目录名由 `algo.algo_log_name` 决定；当前默认值分别是 `rsl_rl_ppo`、`mlx_rl_train`、`appo`、`fast_sac` 和 `fast_td3`。
 
-## 统一 CLI (`unilab`)
+## 统一 CLI
 
-除了直接调用脚本，UniLab 还提供了统一的 `unilab` 命令行入口，通过 `--algo`、`--task`、`--sim` 三个参数自动路由到对应的训练脚本。
+除了直接调用脚本，UniLab 还提供了 `train`、`eval` 和 `demo` 命令行入口，通过 `--algo`、`--task`、`--sim` 三个参数自动路由到对应的训练脚本。
 
-### unilab train
+### uv run train
 
 ```bash
 # PPO
-unilab train --algo ppo --task go2_joystick_flat --sim mujoco
+uv run train --algo ppo --task go2_joystick_flat --sim mujoco
 
 # APPO
-unilab train --algo appo --task go2_joystick_flat --sim mujoco
+uv run train --algo appo --task go2_joystick_flat --sim mujoco
 
 # SAC
-unilab train --algo sac --task g1_walk_flat --sim mujoco
+uv run train --algo sac --task g1_walk_flat --sim mujoco
 
 # TD3
-unilab train --algo td3 --task g1_walk_flat --sim mujoco
+uv run train --algo td3 --task g1_walk_flat --sim mujoco
 
 # FlashSAC
-unilab train --algo flashsac --task g1_walk_flat --sim mujoco
+uv run train --algo flashsac --task g1_walk_flat --sim mujoco
 
 # MLX PPO (macOS only)
-unilab train --algo mlx_ppo --task go2_joystick_flat --sim mujoco
+uv run train --algo mlx_ppo --task go2_joystick_flat --sim mujoco
 ```
 
 支持的算法：`ppo`、`mlx_ppo`、`appo`、`sac`、`td3`、`flashsac`
@@ -47,37 +47,37 @@ unilab train --algo mlx_ppo --task go2_joystick_flat --sim mujoco
 Hydra override 可以直接追加在命令末尾：
 
 ```bash
-unilab train --algo ppo --task go2_joystick_flat --sim mujoco training.max_iterations=10
+uv run train --algo ppo --task go2_joystick_flat --sim mujoco training.max_iterations=10
 ```
 
-### unilab eval
+### uv run eval
 
 评估模式自动设置 `training.play_only=true`，并通过 `--load-run` 指定 checkpoint：
 
 ```bash
 # 回放最新 run
-unilab eval --algo ppo --task go2_joystick_flat --sim mujoco --load-run -1
+uv run eval --algo ppo --task go2_joystick_flat --sim mujoco --load-run -1
 
 # 回放指定 run
-unilab eval --algo ppo --task go2_joystick_flat --sim mujoco --load-run 2026-04-24_01-36-01_mujoco
+uv run eval --algo ppo --task go2_joystick_flat --sim mujoco --load-run 2026-04-24_01-36-01_mujoco
 ```
 
-### unilab demo
+### uv run demo
 
-一键运行预置的 demo，无需手动指定 task 和 checkpoint：
+运行本地训练产出的 checkpoint demo，无需手动指定 task 和 checkpoint：
 
 ```bash
 # 默认 preset（go2_joystick_mujoco_ppo）
-unilab demo
+uv run demo
 
 # 指定 preset
-unilab demo --preset go2_joystick_mujoco_ppo
+uv run demo --preset go2_joystick_mujoco_ppo
 
 # 重新生成 demo 目录
-unilab demo --refresh
+uv run demo --refresh
 
 # 指定推理设备
-unilab demo --device cpu
+uv run demo --device cpu
 ```
 
 | 参数 | 说明 |
@@ -114,7 +114,7 @@ uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco algo.num
 - `motrix` 会打开交互式窗口渲染
 - `training.no_play=true` 可以跳过自动回放
 
-在 macOS / MacBook 上，只要命令会打开 MotrixSim 原生 renderer（训练后自动回放或 `training.play_only=true`），就需要用 `uv run mxpython` 启动；不需要可视化的训练仍可使用 `uv run python ... training.no_play=true`。
+在 macOS / MacBook 上，只要命令会打开 MotrixSim 原生 renderer（训练后自动回放或 `training.play_only=true`），就需要用 `uv run mxpython` 启动；不需要可视化的训练仍可使用 `uv run scripts/... training.no_play=true`。
 
 run 目录命名格式是 `YYYY-MM-DD_HH-MM-SS_<sim_backend>`，例如 `2026-03-09_18-30-00_mujoco`。
 
@@ -235,7 +235,7 @@ docker run --rm -it \
 
 ```bash
 # 统一 CLI
-uv run unilab train --algo ppo --task go2_joystick_flat --sim mujoco
+uv run train --algo ppo --task go2_joystick_flat --sim mujoco
 
 # 直接脚本入口
 uv run scripts/train_rsl_rl.py task=go2_joystick_flat/mujoco
