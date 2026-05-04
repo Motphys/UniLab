@@ -169,6 +169,8 @@ def _learner_worker(
         latest_reward_components: dict = {}
         write_read_ema = 0.0
         last_buf_log = 0
+        startup_wait_time = 0.0
+        have_startup_wait_time = False
 
         # 7. Training loop
         for it in range(1, max_iterations + 1):
@@ -216,7 +218,16 @@ def _learner_worker(
 
             dist.barrier()
             wait_time = time.time() - wait_start if rank == 0 else 0.0
-            collect_time = time.time() - iter_start if rank == 0 else 0.0
+            collect_time = (
+                float(getattr(replay_buffer, "collect_time_s", torch.zeros(1))[0])
+                if rank == 0
+                else 0.0
+            )
+            if rank == 0 and collect_time <= 0:
+                collect_time = time.time() - iter_start
+            if rank == 0 and not have_startup_wait_time and wait_time > collect_time:
+                startup_wait_time = max(wait_time - collect_time, 0.0)
+                have_startup_wait_time = True
 
             # --- Training: each rank independently samples a different mini-batch ---
             train_start = time.time()
@@ -272,6 +283,10 @@ def _learner_worker(
                         collect_time=collect_time,
                         train_time=train_time,
                         wait_time=wait_time,
+                        extra_info={
+                            "startup_wait_time": startup_wait_time if it == 1 else 0.0,
+                            "throughput_steps": num_envs * env_steps_per_sync,
+                        },
                     )
 
                 if save_interval > 0 and it % save_interval == 0:

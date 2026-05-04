@@ -212,6 +212,7 @@ def _run_collector(
     import time as _time
 
     _last_log_time = _time.time()
+    chunk_start = _time.perf_counter()
 
     # Track env.step calls collected since the last learner phase.
     env_steps_since_sync = 0
@@ -337,6 +338,8 @@ def _run_collector(
             and trainer_done_queue is not None
         ):
             if env_steps_since_sync >= env_steps_per_sync:
+                collect_time_s = _time.perf_counter() - chunk_start
+                replay_buffer.collect_time_s[0] = float(collect_time_s)
                 collection_ready_queue.put(1)
                 while not stop_event.is_set():
                     try:
@@ -345,6 +348,12 @@ def _run_collector(
                     except queue.Empty:
                         continue
                 env_steps_since_sync = 0
+                chunk_start = _time.perf_counter()
+        elif env_steps_since_sync >= env_steps_per_sync:
+            collect_time_s = _time.perf_counter() - chunk_start
+            replay_buffer.collect_time_s[0] = float(collect_time_s)
+            env_steps_since_sync = 0
+            chunk_start = _time.perf_counter()
 
         # Progress log every 2 seconds
         now = _time.time()
