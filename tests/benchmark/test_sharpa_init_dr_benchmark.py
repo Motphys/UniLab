@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import numpy as np
-
 from benchmark import benchmark_sharpa_init_dr_construct as sharpa_benchmark
 
 

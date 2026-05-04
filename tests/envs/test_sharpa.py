@@ -22,9 +22,9 @@ _SRC_DIR = Path(__file__).resolve().parents[2] / "src"
 def test_sharpa_env_uses_backend_contract_for_mujoco_metadata() -> None:
     """Sharpa env code should not read MuJoCo model internals directly."""
     source = "\n".join(
-        (
-            _SRC_DIR / "unilab" / "envs" / "manipulation" / "sharpa_inhand" / path
-        ).read_text(encoding="utf-8")
+        (_SRC_DIR / "unilab" / "envs" / "manipulation" / "sharpa_inhand" / path).read_text(
+            encoding="utf-8"
+        )
         for path in ("base.py", "rotation.py")
     )
 

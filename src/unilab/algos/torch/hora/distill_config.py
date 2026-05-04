@@ -207,9 +207,7 @@ def resolve_teacher_checkpoint_path(
         load_run=str(OmegaConf.select(cfg, "algo.load_run", default="-1")),
         algo_log_name=str(teacher_algo_log_name),
         checkpoint=(
-            str(selected_checkpoint)
-            if selected_checkpoint not in (None, "", -1, "-1")
-            else None
+            str(selected_checkpoint) if selected_checkpoint not in (None, "", -1, "-1") else None
         ),
         suffix=".pt",
         log_root=OmegaConf.select(cfg, "training.log_root"),
