@@ -231,16 +231,17 @@ def appo_collector_fn(
 
                 next_obs_raw = state.obs
                 reward_raw = np.asarray(state.reward, dtype=np.float32).ravel()
-                terminated_raw = np.asarray(state.terminated, dtype=np.float32).ravel()
-                truncated_raw = np.asarray(state.truncated, dtype=np.float32).ravel()
-                combined_done_raw = np.clip(terminated_raw + truncated_raw, 0, 1)
+                truncated_raw = state.truncated.astype(np.float32, copy=False).ravel()
+                combined_done_raw = (
+                    (state.terminated | state.truncated).astype(np.float32, copy=False).ravel()
+                )
 
                 next_actor_obs_np, next_critic_np = split_obs_dict(next_obs_raw)
                 next_actor_obs_np = to_float32_np(next_actor_obs_np)
                 next_critic_np = to_float32_np(next_critic_np)
                 terminal_contract = resolve_terminal_observation_contract(
                     next_obs_batch_size=next_actor_obs_np.shape[0],
-                    final_observation=getattr(state, "final_observation", None),
+                    final_observation=state.final_observation,
                     done=combined_done_raw > 0.5,
                     info=state.info,
                     truncated=truncated_raw,

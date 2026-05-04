@@ -217,7 +217,7 @@ class AllegroRotationGrasp(AllegroRotationPPO):
 
     def _reset_done_envs(self) -> None:
         if self.state is not None:
-            done = self.state.done
+            done = self.state.terminated | self.state.truncated
             if np.any(done):
                 env_ids = np.flatnonzero(done).astype(np.int32)
                 self._collect_successful_grasps(env_ids)

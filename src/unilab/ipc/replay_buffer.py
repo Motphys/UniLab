@@ -143,7 +143,12 @@ class ReplayBuffer(SharedBufferBase):
         next_critic=None,
         terminal_next_critic=None,
     ):
-        """Add batch (called by collector)."""
+        """Add batch (called by collector).
+
+        `dones` follows the UniLab env lifecycle contract:
+        done = terminated | truncated. Learners must pair it with
+        `truncated` when computing bootstrap masks.
+        """
         n = obs.shape[0]
         idx = int(self.ptr[0]) % self.capacity
         has_critic = self._critic_dim > 0 and critic is not None

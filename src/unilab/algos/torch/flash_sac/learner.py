@@ -93,23 +93,20 @@ class RewardNormalizer:
     def update_from_transitions(
         self,
         rewards: torch.Tensor,
-        terminated: torch.Tensor,
-        truncated: torch.Tensor,
+        dones: torch.Tensor,
     ) -> None:
         rewards = rewards.to(device=self.device, dtype=torch.float32)
-        terminated = terminated.to(device=self.device, dtype=torch.float32)
-        truncated = truncated.to(device=self.device, dtype=torch.float32)
+        dones = dones.to(device=self.device, dtype=torch.float32)
 
         if rewards.ndim == 1:
             rewards = rewards.unsqueeze(0)
-            terminated = terminated.unsqueeze(0)
-            truncated = truncated.unsqueeze(0)
+            dones = dones.unsqueeze(0)
         if rewards.numel() == 0:
             return
 
         num_envs = int(rewards.shape[-1])
         self._ensure_g_r_shape(num_envs)
-        done = torch.clamp(terminated + truncated, min=0.0, max=1.0)
+        done = torch.clamp(dones, min=0.0, max=1.0)
 
         for step in range(rewards.shape[0]):
             self.g_r = self.gamma * (1.0 - done[step]) * self.g_r + rewards[step]
@@ -264,12 +261,11 @@ class FlashSACLearner:
     def update_reward_stats(
         self,
         rewards: torch.Tensor,
-        terminated: torch.Tensor,
-        truncated: torch.Tensor,
+        dones: torch.Tensor,
     ) -> None:
         if self.reward_normalizer is None:
             return
-        self.reward_normalizer.update_from_transitions(rewards, terminated, truncated)
+        self.reward_normalizer.update_from_transitions(rewards, dones)
 
     @staticmethod
     def _set_requires_grad(module: nn.Module, requires_grad: bool) -> None:
@@ -281,8 +277,8 @@ class FlashSACLearner:
         actions = batch["actions"].to(self.device)
         rewards = batch["rewards"].to(self.device)
         next_obs = batch["next_obs"].to(self.device)
-        terminated = batch["dones"].to(self.device)
-        truncated = batch.get("truncated", torch.zeros_like(terminated)).to(self.device)
+        dones = batch["dones"].to(self.device)
+        truncated = batch["truncated"].to(self.device)
         critic_obs = batch["critic"].to(self.device)
         critic_next_obs = batch["next_critic"].to(self.device)
 
@@ -310,7 +306,7 @@ class FlashSACLearner:
                     support=support,
                     target_log_probs=next_q_log_probs,
                     reward=rewards,
-                    terminated=terminated,
+                    dones=dones,
                     truncated=truncated,
                     actor_entropy=actor_entropy,
                     gamma=gamma,

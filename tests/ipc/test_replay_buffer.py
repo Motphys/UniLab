@@ -172,6 +172,25 @@ def test_add_patches_terminal_next_obs_without_prebuilding_full_transition_copy(
     assert torch.allclose(stored_next_obs, expected)
 
 
+def test_add_stores_combined_dones_and_truncated_contract():
+    buf = _make_buf(capacity=8)
+    terminated = torch.tensor([1.0, 0.0, 0.0])
+    truncated = torch.tensor([0.0, 1.0, 0.0])
+    dones = (terminated.bool() | truncated.bool()).float()
+
+    buf.add(
+        torch.zeros(3, _OBS_DIM),
+        torch.zeros(3, _ACTION_DIM),
+        torch.zeros(3),
+        torch.zeros(3, _OBS_DIM),
+        dones,
+        truncated,
+    )
+
+    torch.testing.assert_close(buf._storage[:3, buf._done_col], torch.tensor([1.0, 1.0, 0.0]))
+    torch.testing.assert_close(buf._storage[:3, buf._trunc_col], torch.tensor([0.0, 1.0, 0.0]))
+
+
 # ---------------------------------------------------------------------------
 # Multiprocess test
 # ---------------------------------------------------------------------------

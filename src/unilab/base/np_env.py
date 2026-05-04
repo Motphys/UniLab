@@ -27,11 +27,6 @@ class NpEnvState:
     info: dict[str, Any]
     final_observation: dict[str, np.ndarray] | None = None
 
-    @property
-    def done(self) -> np.ndarray:
-        done: np.ndarray = np.logical_or(self.terminated, self.truncated)
-        return done
-
     def replace(self, **updates: Any) -> "NpEnvState":
         return dataclasses.replace(self, **updates)
 
@@ -133,7 +128,7 @@ class NpEnv(ABEnv):
         truncated = self._compute_truncated(self._state)
         np.logical_or(self._state.truncated, truncated, out=self._state.truncated)
 
-        done = self._state.done
+        done = self._state.terminated | self._state.truncated
         t0 = time.perf_counter()
         if np.any(done):
             self._reset_done_envs()
@@ -168,7 +163,7 @@ class NpEnv(ABEnv):
 
     def _reset_done_envs(self) -> None:
         assert self._state is not None
-        done = self._state.done
+        done = self._state.terminated | self._state.truncated
         if not np.any(done):
             return
 

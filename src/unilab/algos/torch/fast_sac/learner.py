@@ -516,7 +516,7 @@ class FastSACLearner:
         next_obs = batch["next_obs"]
         critic_next_obs = batch["next_critic"]
         dones = batch["dones"]
-        truncated = batch.get("truncated")
+        truncated = batch["truncated"]
 
         # Apply symmetry augmentation
         if self.use_symmetry:
@@ -542,13 +542,9 @@ class FastSACLearner:
             # Double the batch size for other tensors
             rewards = rewards.repeat(2)
             dones = dones.repeat(2)
-            if truncated is not None:
-                truncated = truncated.repeat(2)
+            truncated = truncated.repeat(2)
 
-        if truncated is None:
-            bootstrap = (1.0 - dones).float()
-        else:
-            bootstrap = torch.clamp(1.0 - dones.float() + truncated.float(), 0.0, 1.0)
+        bootstrap = torch.clamp(1.0 - dones.float() + truncated.float(), 0.0, 1.0)
         discount = torch.full_like(dones, self.gamma)
 
         with torch.no_grad():
