@@ -20,6 +20,7 @@ _FIELD_SHAPES = {
     "truncated": lambda ns_slots, ne, ns, od, ad, cd: (ns_slots, ne, ns),
     "last_obs": lambda ns_slots, ne, ns, od, ad, cd: (ns_slots, ne, od),
     "last_critic": lambda ns_slots, ne, ns, od, ad, cd: (ns_slots, ne, cd),
+    "rollout_collect_time_s": lambda ns_slots, ne, ns, od, ad, cd: (ns_slots, 1),
 }
 
 

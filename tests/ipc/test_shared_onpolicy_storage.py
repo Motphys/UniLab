@@ -15,7 +15,16 @@ _ACTION_DIM = 3
 _CRITIC_DIM = 5
 _NUM_SLOTS = 2
 
-_EXPECTED_FIELDS = {"obs", "actions", "log_probs", "rewards", "dones", "truncated", "last_obs"}
+_EXPECTED_FIELDS = {
+    "obs",
+    "actions",
+    "log_probs",
+    "rewards",
+    "dones",
+    "truncated",
+    "last_obs",
+    "rollout_collect_time_s",
+}
 
 
 def _make_storage(num_slots: int = _NUM_SLOTS) -> SharedOnPolicyStorage:

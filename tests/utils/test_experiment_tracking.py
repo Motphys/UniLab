@@ -205,3 +205,32 @@ def test_offpolicy_logger_creates_and_finishes_owned_wandb_run(monkeypatch):
 
     logger.finish()
     assert fake_wandb.finish_calls == 1
+
+
+def test_offpolicy_logger_logs_separate_startup_wait_and_iter_throughput(monkeypatch):
+    fake_wandb = _FakeWandb()
+    monkeypatch.setitem(sys.modules, "wandb", fake_wandb)
+
+    logger = OffPolicyLogger(
+        algo_name="APPO",
+        env_name="Go2JoystickFlat",
+        num_envs=2,
+        log_backend="wandb",
+    )
+    logger.log_step(
+        iteration=1,
+        metrics={},
+        collect_time=0.25,
+        train_time=0.75,
+        wait_time=10.0,
+        extra_info={"startup_wait_time": 9.75, "throughput_steps": 8},
+    )
+
+    payload, step = fake_wandb.log_calls[-1]
+    assert step == 1
+    assert payload["timing/learner_wait_ms"] == 10_000.0
+    assert payload["timing/startup_wait_ms"] == 9_750.0
+    assert payload["timing/learner_collect_ms"] == 250.0
+    assert payload["perf/steps_per_sec_iter"] == 8.0
+
+    logger.finish()
