@@ -39,12 +39,15 @@ def run_backend(task, max_iterations, backend, num_envs):
 
     cfg = SACConfig()
 
-    # Set collector device based on backend
-    device = "mps"
-    if backend == "torch_mps":
-        pass
-    elif backend in ("torch_cpu", "numpy"):
-        pass
+    device_map = {
+        "torch_mps": "mps",
+        "torch_cpu": "cpu",
+    }
+    if backend not in device_map:
+        raise ValueError(
+            f"Unsupported backend '{backend}'. Expected one of {sorted(device_map)}."
+        )
+    device = device_map[backend]
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_dir = os.path.join(ROOT_DIR, "logs", "benchmark", f"{backend}_{timestamp}")
@@ -119,7 +122,7 @@ def main():
     parser.add_argument("--task", type=str, default="go1_joystick_flat")
     parser.add_argument("--max_iterations", type=int, default=100)
     parser.add_argument("--num_envs", type=int, default=4096)
-    parser.add_argument("--backends", type=str, default="torch_mps,torch_cpu,ane")
+    parser.add_argument("--backends", type=str, default="torch_mps,torch_cpu")
     parser.add_argument("--output", type=str, default="benchmark/outputs/fast_sac_backends.json")
     args = parser.parse_args()
     task_id = normalize_locomotion_task_id(args.task)

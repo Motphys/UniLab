@@ -31,9 +31,15 @@ import tempfile
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
-import coremltools as ct
+try:
+    import coremltools as ct
+except Exception as exc:
+    ct = None
+    _COREMLTOOLS_IMPORT_ERROR = exc
+else:
+    _COREMLTOOLS_IMPORT_ERROR = None
 import numpy as np
 import torch
 
@@ -75,9 +81,11 @@ def _build_and_convert_coreml_ane(
     env_nums: List[int],
     mlmodel_path: str,
     seed: int = 42,
-    precision: ct.precision = ct.precision.FLOAT32,
+    precision: Any = None,
 ) -> bool:
     """Convert to Core ML with EnumeratedShapes so model can run on ANE (no flexible batch)."""
+    if ct is None:
+        raise RuntimeError("coremltools is unavailable")
     dims = [obs_dim] + hidden_dims + [action_dim]
     layers = []
     torch.manual_seed(seed)
@@ -274,6 +282,12 @@ def main() -> None:
         help="Plot directory (default: same as --out parent)",
     )
     args = parser.parse_args()
+
+    if ct is None:
+        raise RuntimeError(
+            "coremltools is required (failed to import coremltools: "
+            f"{_COREMLTOOLS_IMPORT_ERROR})"
+        )
 
     env_nums = [int(x.strip()) for x in args.sizes.split(",") if x.strip()]
     hidden_dims = [int(x.strip()) for x in args.hidden_dims.split(",") if x.strip()]
