@@ -1,6 +1,6 @@
 ![G1 motion tracking overview](docs/assets/g1_readme.png)
 
-# UniLab
+# 🧪 UniLab
 
 Languages: English | [简体中文](docs/users/zh_CN/01-getting-started.md)
 
@@ -10,7 +10,7 @@ UniLab uses **CPU simulation + shared-memory runtime + GPU learning** instead of
 
 Start with the `Quick Demo` below to run the primary training command from this repository.
 
-## Quick Demo
+## 🚀 Quick Demo
 
 ```bash
 # 0. If uv is not installed
@@ -42,7 +42,7 @@ uv run demo
 
 On macOS / MacBook, the UniLab CLI routes Motrix renderer playback through `mxpython` when needed. Detailed script-level commands are documented under `docs/users/zh_CN/`.
 
-### Interactive Notebooks
+### 📓 Interactive Notebooks
 
 Prefer a guided, step-by-step experience? Open the notebooks in Jupyter:
 
@@ -51,7 +51,7 @@ Prefer a guided, step-by-step experience? Open the notebooks in Jupyter:
 
 > Notebooks require a local environment (no Colab support) — MuJoCo needs local compute.
 
-## Example Runs
+## 🏃 Example Runs
 
 These are example repository runs for documented commands and hardware setups. They are useful as concrete entrypoints and reported timings, but they are **not** yet a formal benchmark manifest.
 
@@ -65,7 +65,7 @@ uv run train --algo sac --task g1_walk_flat --sim mujoco
 uv run train --algo ppo --task g1_motion_tracking --sim mujoco
 ```
 
-## System Layout
+## 🧱 System Layout
 
 ```
 ┌───────────────────┐     Unified Shared Memory     ┌────────────────────┐
@@ -75,7 +75,7 @@ uv run train --algo ppo --task g1_motion_tracking --sim mujoco
 └───────────────────┘                               └────────────────────┘
 ```
 
-## Training Entrypoints
+## 🎯 Training Entrypoints
 
 Use `uv run train` for training, `uv run eval` for checkpoint playback, and `uv run demo` for the local demo preset. These commands wrap the lower-level training scripts while keeping task and backend selection explicit.
 
@@ -101,7 +101,7 @@ Hydra overrides can be appended directly:
 uv run train --algo ppo --task go2_joystick_flat --sim mujoco training.max_iterations=10
 ```
 
-### Demo
+### 🎬 Demo
 
 `uv run demo` runs a pre-configured playback using a checkpoint already present in the local training output.
 
@@ -113,11 +113,11 @@ uv run train --algo ppo --task go2_joystick_flat --sim mujoco training.max_itera
 
 > **For Developers**: Demo checkpoints currently require local training output. A checkpoint hosting solution (CDN / model registry) with automatic download is not yet in place.
 
-## Docker
+## 🐳 Docker
 
 Use Docker when you want an isolated Linux runtime without changing your local Python environment. Local development still works best with `uv sync`; Docker is mainly for clean environment setup, image validation, and containerized runs.
 
-### Build Image
+### 🛠️ Build Image
 
 ```bash
 docker build -t unilab:latest .
@@ -125,7 +125,7 @@ docker build -t unilab:latest .
 
 The image installs the default UniLab runtime, `mujoco-uni`, the `motrix` extra, and the dev/test tools.
 
-### Run Image
+### ▶️ Run Image
 
 ```bash
 # Check the unified CLI entrypoint
@@ -142,11 +142,11 @@ docker run --rm -it \
 
 Using a named volume for `/workspace/UniLab/.venv` avoids mixing a container-created virtual environment with the host checkout. This prevents path mismatches such as `/workspace/UniLab/.venv` vs `.venv` and avoids permission problems when returning to local `uv` or `make test-all` workflows.
 
-### GPU containers
+### 🖥️ GPU Containers
 
 On Linux hosts with the NVIDIA Container Toolkit configured, you can pass `--gpus all` to expose CUDA inside the container. See [01 Getting Started](docs/users/zh_CN/01-getting-started.md) for detailed container verification commands.
 
-## Repository Map
+## 🗺️ Repository Map
 
 - `conf/`: Hydra configuration, including task / reward / algorithm composition
 - `scripts/`: direct entrypoints for training, playback, motion preprocessing, and tooling
@@ -154,9 +154,9 @@ On Linux hosts with the NVIDIA Container Toolkit configured, you can pass `--gpu
 - `tests/`: unit tests, integration tests, and script configuration tests
 - `docs/`: user documentation under `docs/users/` and developer documentation under `docs/developers/`
 
-## Documentation
+## 📚 Documentation
 
-### For Users
+### 👤 For Users
 - [01 Getting Started](docs/users/zh_CN/01-getting-started.md): installation, dependency setup, mirrors, and first-run commands
 - [02 Simulation Backends](docs/users/zh_CN/02-simulation-backends.md): MuJoCo / Motrix support scope and backend selection
 - [03 Training Guide](docs/users/zh_CN/03-training.md): training, playback, resume flow, Hydra overrides, and W&B
@@ -167,7 +167,7 @@ On Linux hosts with the NVIDIA Container Toolkit configured, you can pass `--gpu
 - [PPO Training Walkthrough](notebook/unilab_walkthrough_ppo_go1_joystick_mujoco.ipynb): beginner-friendly end-to-end training guide
 
 
-### For Developers
+### 🧑‍💻 For Developers
 - [CONTRIBUTING.md](CONTRIBUTING.md): development environment, commands, commit conventions, and PR workflow
 - [RL Infrastructure Development Standard](docs/developers/zh_CN/development-standard.md): design principles, layering, contracts, and validation boundaries
 - [Collaboration Workflow](docs/developers/zh_CN/collaboration.md): GitHub issue / milestone / PR collaboration rules and ADR governance
