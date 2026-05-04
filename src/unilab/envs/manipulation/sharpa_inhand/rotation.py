@@ -536,38 +536,25 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         Returns:
             Mapping with object, elastomer, and metal collision geom id arrays.
         """
-        if self._backend.backend_type != "mujoco":
+        try:
+            object_geom_id = self._backend.get_geom_id(self._cfg.object_geom_name)
+            base_body_id = self._backend.get_body_id(self._cfg.base_name)
+            hand_body_ids = set(
+                int(body_id) for body_id in self._backend.get_body_subtree_ids(base_body_id)
+            )
+            geom_body_ids = self._backend.get_geom_body_ids()
+            geom_contype, geom_conaffinity = self._backend.get_geom_contact_masks()
+            geom_names = self._backend.get_geom_names()
+        except NotImplementedError:
             empty = np.zeros((0,), dtype=np.int32)
             return {"object": empty, "elastomer": empty, "metal": empty}
-
-        import mujoco
-
-        model = self._backend.model
-        object_geom_id = mujoco.mj_name2id(
-            model,
-            mujoco.mjtObj.mjOBJ_GEOM,
-            self._cfg.object_geom_name,
-        )
-        if object_geom_id < 0:
-            raise ValueError(f"Geom '{self._cfg.object_geom_name}' not found in MuJoCo model")
-
-        base_body_id = mujoco.mj_name2id(
-            model,
-            mujoco.mjtObj.mjOBJ_BODY,
-            self._cfg.base_name,
-        )
-        if base_body_id < 0:
-            raise ValueError(f"Body '{self._cfg.base_name}' not found in MuJoCo model")
-
-        hand_body_ids = self._collect_body_subtree_ids(model, base_body_id)
         elastomer_ids: list[int] = []
         metal_ids: list[int] = []
-        for geom_id in range(model.ngeom):
-            if int(model.geom_bodyid[geom_id]) not in hand_body_ids:
+        for geom_id, geom_name in enumerate(geom_names):
+            if int(geom_body_ids[geom_id]) not in hand_body_ids:
                 continue
-            if int(model.geom_contype[geom_id]) == 0 and int(model.geom_conaffinity[geom_id]) == 0:
+            if int(geom_contype[geom_id]) == 0 and int(geom_conaffinity[geom_id]) == 0:
                 continue
-            geom_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, geom_id) or ""
             if "elastomer" in geom_name:
                 elastomer_ids.append(geom_id)
             else:
@@ -593,7 +580,7 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         Returns:
             The MuJoCo object body id, or -1 when the backend is not MuJoCo.
         """
-        if self._backend.backend_type != "mujoco":
+        if self._object_body_ids.size == 0:
             return -1
         return int(self._object_body_ids[0])
 
@@ -625,27 +612,6 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
             dtype=np.float64,
         )
 
-    def _collect_body_subtree_ids(self, model: Any, root_body_id: int) -> set[int]:
-        """Collect body ids below a MuJoCo body root.
-
-        Args:
-            model: MuJoCo model containing body_parentid.
-            root_body_id: Root body id for the subtree.
-
-        Returns:
-            Set of body ids including the root and all descendants.
-        """
-        subtree_ids = {int(root_body_id)}
-        changed = True
-        while changed:
-            changed = False
-            for body_id in range(model.nbody):
-                parent_id = int(model.body_parentid[body_id])
-                if body_id not in subtree_ids and parent_id in subtree_ids:
-                    subtree_ids.add(body_id)
-                    changed = True
-        return subtree_ids
-
     def _resolve_base_geom_friction(self) -> np.ndarray | None:
         """Cache MuJoCo model friction vectors used as torsional/rolling templates.
 
@@ -655,9 +621,10 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         Returns:
             Full geom friction table, or None when the backend has no geom-friction hook.
         """
-        if self._backend.backend_type != "mujoco":
+        try:
+            return np.asarray(self._backend.get_geom_friction(), dtype=np.float64).copy()
+        except NotImplementedError:
             return None
-        return np.asarray(self._backend.model.geom_friction, dtype=np.float64).copy()
 
     def _resolve_base_gravity(self) -> np.ndarray:
         """Cache the default gravity vector for privileged-info fallbacks.
@@ -668,8 +635,10 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         Returns:
             Gravity vector with shape ``(3,)``.
         """
-        if self._backend.backend_type == "mujoco":
-            return np.asarray(self._backend.model.opt.gravity, dtype=np.float64).copy()
+        try:
+            return np.asarray(self._backend.get_gravity(), dtype=np.float64).copy()
+        except NotImplementedError:
+            pass
         return np.asarray([0.0, 0.0, -9.81], dtype=np.float64)
 
     def _resolve_base_body_mass(self) -> np.ndarray | None:
@@ -681,9 +650,10 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         Returns:
             Full body-mass table, or None when the backend is not MuJoCo.
         """
-        if self._backend.backend_type != "mujoco":
+        try:
+            return np.asarray(self._backend.get_body_mass(), dtype=np.float64).copy()
+        except NotImplementedError:
             return None
-        return np.asarray(self._backend.model.body_mass, dtype=np.float64).copy()
 
     def _resolve_base_body_ipos(self) -> np.ndarray | None:
         """Cache the MuJoCo inertial-position table used for object COM randomization.
@@ -694,9 +664,10 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         Returns:
             Full body inertial-position table, or None when the backend is not MuJoCo.
         """
-        if self._backend.backend_type != "mujoco":
+        try:
+            return np.asarray(self._backend.get_body_ipos(), dtype=np.float64).copy()
+        except NotImplementedError:
             return None
-        return np.asarray(self._backend.model.body_ipos, dtype=np.float64).copy()
 
     def _sample_friction_scale(self, batch_size: int) -> np.ndarray | None:
         """Sample one friction multiplier per reset environment.

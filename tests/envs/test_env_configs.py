@@ -473,6 +473,10 @@ def test_sharpa_grasp_env_initializes_dr_once_with_grasp_provider(monkeypatch):
         self._num_tactile = 5
         self._num_scales = len(cfg.domain_rand.scale_list)
         self.scale_ids = np.zeros((num_envs,), dtype=np.int32)
+        self._object_body_ids = np.zeros((0,), dtype=np.int32)
+
+    def unsupported_backend_metadata(*args, **kwargs):
+        raise NotImplementedError("fake backend does not expose Sharpa MuJoCo metadata")
 
     monkeypatch.setattr(
         sharpa_rotation_module,
@@ -483,6 +487,16 @@ def test_sharpa_grasp_env_initializes_dr_once_with_grasp_provider(monkeypatch):
                 np.ones(22, dtype=np.float64),
                 np.ones(22, dtype=np.float64),
             ),
+            get_geom_id=unsupported_backend_metadata,
+            get_body_id=unsupported_backend_metadata,
+            get_body_subtree_ids=unsupported_backend_metadata,
+            get_geom_body_ids=unsupported_backend_metadata,
+            get_geom_contact_masks=unsupported_backend_metadata,
+            get_geom_names=unsupported_backend_metadata,
+            get_geom_friction=unsupported_backend_metadata,
+            get_gravity=unsupported_backend_metadata,
+            get_body_mass=unsupported_backend_metadata,
+            get_body_ipos=unsupported_backend_metadata,
         ),
     )
     monkeypatch.setattr(SharpaInhandBaseEnv, "__init__", fake_base_init)

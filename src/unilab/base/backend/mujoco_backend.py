@@ -456,6 +456,9 @@ class MuJoCoBackend(SimBackend):
             raise ValueError(f"Keyframe '{name}' not found in MuJoCo model")
         return np.array(self._model.key_qpos[key_id].copy(), dtype=self._np_dtype)
 
+    def get_default_qpos(self) -> np.ndarray:
+        return np.asarray(self._model.qpos0, dtype=np.float64).copy()
+
     def get_init_qvel(self) -> np.ndarray:
         return np.zeros((self.nv,), dtype=self._np_dtype)
 
@@ -467,6 +470,54 @@ class MuJoCoBackend(SimBackend):
                 raise ValueError(f"Body '{name}' not found in MuJoCo model")
             ids.append(bid)
         return np.array(ids, dtype=np.int32)
+
+    def get_geom_id(self, name: str) -> int:
+        geom_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_GEOM, name)
+        if geom_id < 0:
+            raise ValueError(f"Geom '{name}' not found in MuJoCo model")
+        return int(geom_id)
+
+    def get_geom_size(self, name: str) -> np.ndarray:
+        return np.asarray(self._model.geom_size[self.get_geom_id(name)], dtype=np.float64).copy()
+
+    def get_body_subtree_ids(self, root_body_id: int) -> np.ndarray:
+        subtree_ids = {int(root_body_id)}
+        changed = True
+        while changed:
+            changed = False
+            for body_id in range(self._model.nbody):
+                parent_id = int(self._model.body_parentid[body_id])
+                if body_id not in subtree_ids and parent_id in subtree_ids:
+                    subtree_ids.add(body_id)
+                    changed = True
+        return np.asarray(sorted(subtree_ids), dtype=np.int32)
+
+    def get_geom_names(self) -> tuple[str, ...]:
+        return tuple(
+            mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_GEOM, geom_id) or ""
+            for geom_id in range(self._model.ngeom)
+        )
+
+    def get_geom_body_ids(self) -> np.ndarray:
+        return np.asarray(self._model.geom_bodyid, dtype=np.int32).copy()
+
+    def get_geom_contact_masks(self) -> tuple[np.ndarray, np.ndarray]:
+        return (
+            np.asarray(self._model.geom_contype, dtype=np.int32).copy(),
+            np.asarray(self._model.geom_conaffinity, dtype=np.int32).copy(),
+        )
+
+    def get_geom_friction(self) -> np.ndarray:
+        return np.asarray(self._model.geom_friction, dtype=np.float64).copy()
+
+    def get_gravity(self) -> np.ndarray:
+        return np.asarray(self._model.opt.gravity, dtype=np.float64).copy()
+
+    def get_body_mass(self) -> np.ndarray:
+        return np.asarray(self._model.body_mass, dtype=np.float64).copy()
+
+    def get_body_ipos(self) -> np.ndarray:
+        return np.asarray(self._model.body_ipos, dtype=np.float64).copy()
 
     def get_motion_body_ids(self, names: Sequence[str]) -> np.ndarray:
         return self.get_body_ids(names)

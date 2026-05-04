@@ -16,6 +16,21 @@ from unilab.envs.manipulation.sharpa_inhand.base import SharpaInhandBaseEnv
 from unilab.envs.manipulation.sharpa_inhand.rotation import SharpaInhandRotationDRProvider
 
 _CONF_DIR = Path(__file__).resolve().parents[2] / "conf"
+_SRC_DIR = Path(__file__).resolve().parents[2] / "src"
+
+
+def test_sharpa_env_uses_backend_contract_for_mujoco_metadata() -> None:
+    """Sharpa env code should not read MuJoCo model internals directly."""
+    source = "\n".join(
+        (
+            _SRC_DIR / "unilab" / "envs" / "manipulation" / "sharpa_inhand" / path
+        ).read_text(encoding="utf-8")
+        for path in ("base.py", "rotation.py")
+    )
+
+    assert "import mujoco" not in source
+    assert "self._backend.model" not in source
+    assert "_backend.model" not in source
 
 
 def _require_mujoco_runtime() -> None:

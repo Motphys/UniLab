@@ -16,6 +16,7 @@ if str(SRC_DIR) not in sys.path:
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from unilab.algos.torch.rsl_rl_runtime import resolve_rsl_rl_ppo_runtime
 from unilab.base.backend.xml import materialize_scene_visual_override
 from unilab.training import (
     BackendAdapter,
@@ -95,17 +96,10 @@ def _resolve_ppo_wrapper_cls(rl_cfg: dict[str, Any]) -> type[RslRlVecEnvWrapper]
         Wrapper class used to adapt the UniLab env contract to the active
         RSL-RL PPO runtime.
     """
-    if rl_cfg.get("runtime_impl") != "hora_ppo":
-        return RslRlVecEnvWrapper
-
-    from unilab.algos.torch.hora.rsl_rl import resolve_hora_ppo_wrapper_cls
-
-    wrapper_cls = resolve_hora_ppo_wrapper_cls(rl_cfg)
-    if wrapper_cls is None:
-        raise ValueError(
-            "PPO owner config selected runtime_impl=hora_ppo but no HORA wrapper could be resolved."
-        )
-    return wrapper_cls
+    return resolve_rsl_rl_ppo_runtime(
+        rl_cfg,
+        default_wrapper_cls=RslRlVecEnvWrapper,
+    ).wrapper_cls
 
 
 def _format_play_checkpoint_error(

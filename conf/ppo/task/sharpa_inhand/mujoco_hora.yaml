@@ -6,6 +6,7 @@ defaults:
 algo:
   algo_log_name: hora_ppo
   runtime_impl: hora_ppo
+  runtime_resolver: unilab.algos.torch.hora.rsl_rl:resolve_hora_ppo_runtime
   obs_groups:
     actor: [actor]
     critic: [actor]

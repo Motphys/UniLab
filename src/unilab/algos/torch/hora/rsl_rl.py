@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -16,6 +17,22 @@ from .observations import build_hora_obs_tensordict
 from .runtime import is_hora_ppo_runtime
 
 
+@dataclass(frozen=True)
+class HoraRslRlPPORuntime:
+    """Resolved HORA PPO runtime consumed by the generic RSL-RL script."""
+
+    wrapper_cls: type[RslRlVecEnvWrapper]
+
+
+def resolve_hora_ppo_runtime(
+    rl_cfg: dict[str, Any],
+) -> HoraRslRlPPORuntime | None:
+    """Resolve HORA PPO entrypoints from an explicit runtime marker."""
+    if not is_hora_ppo_runtime(rl_cfg):
+        return None
+    return HoraRslRlPPORuntime(wrapper_cls=HoraRslRlVecEnvWrapper)
+
+
 def resolve_hora_ppo_wrapper_cls(
     rl_cfg: dict[str, Any],
 ) -> type[RslRlVecEnvWrapper] | None:
@@ -28,9 +45,10 @@ def resolve_hora_ppo_wrapper_cls(
         ``HoraRslRlVecEnvWrapper`` when the owner config selects HORA PPO, otherwise
         ``None``.
     """
-    if not is_hora_ppo_runtime(rl_cfg):
+    runtime = resolve_hora_ppo_runtime(rl_cfg)
+    if runtime is None:
         return None
-    return HoraRslRlVecEnvWrapper
+    return runtime.wrapper_cls
 
 
 class HoraRslRlVecEnvWrapper(RslRlVecEnvWrapper):

@@ -395,13 +395,10 @@ class SharpaInhandBaseEnv(NpEnv):
             except Exception:
                 continue
 
-        model = self._backend.model
-        if hasattr(model, "qpos0"):
-            return np.asarray(model.qpos0, dtype=np.float64)
-        if hasattr(model, "compute_init_dof_pos"):
-            return np.asarray(model.compute_init_dof_pos(), dtype=np.float64)
-
-        raise ValueError("Could not resolve initial qpos from backend keyframes/model")
+        try:
+            return np.asarray(self._backend.get_default_qpos(), dtype=np.float64)
+        except NotImplementedError as exc:
+            raise ValueError("Could not resolve initial qpos from backend contract") from exc
 
     def _build_scale_ids(
         self, num_envs: int, scale_list: Sequence[float]
@@ -450,22 +447,10 @@ class SharpaInhandBaseEnv(NpEnv):
         return scale_values
 
     def _resolve_object_geom_base_size(self) -> np.ndarray | None:
-        if getattr(self._backend, "backend_type", None) != "mujoco":
+        try:
+            return cast(np.ndarray, self._backend.get_geom_size(self._cfg.object_geom_name))
+        except NotImplementedError:
             return None
-
-        import mujoco
-
-        geom_id = mujoco.mj_name2id(
-            self._backend.model,
-            mujoco.mjtObj.mjOBJ_GEOM,
-            self._cfg.object_geom_name,
-        )
-        if geom_id < 0:
-            raise ValueError(f"Geom '{self._cfg.object_geom_name}' not found in MuJoCo model")
-        return cast(
-            np.ndarray,
-            np.asarray(self._backend.model.geom_size[geom_id], dtype=np.float64).copy(),
-        )
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
         clipped_actions = np.clip(actions, -self._cfg.clip_actions, self._cfg.clip_actions)

@@ -1,6 +1,5 @@
 import datetime
 import json
-import re
 import sys
 from pathlib import Path
 from typing import Any, cast
@@ -22,6 +21,13 @@ from unilab.algos.torch.hora.distill import (
     build_student_actor_and_normalizer,
     load_distilled_checkpoint,
 )
+from unilab.algos.torch.hora.distill_config import (
+    apply_teacher_defaults as _apply_teacher_defaults,
+    get_teacher_owner_spec as _get_teacher_owner_spec,
+    resolved_distill_runtime_cfg as _resolved_distill_runtime_cfg,
+    resolve_teacher_checkpoint_path as _resolve_teacher_checkpoint_path,
+    teacher_run_metadata as _teacher_run_metadata,
+)
 from unilab.algos.torch.hora.rsl_rl import HoraRslRlVecEnvWrapper as RslRlVecEnvWrapper
 from unilab.base.backend.xml import materialize_scene_visual_override
 from unilab.training import (
@@ -30,166 +36,9 @@ from unilab.training import (
     ensure_registries,
     get_latest_run,
     get_log_root,
-    resolve_task_checkpoint_path,
     setup_logger,
 )
 from unilab.visualization import render_play_mode
-
-
-def _load_yaml_config(path: Path) -> DictConfig:
-    loaded = OmegaConf.load(path)
-    if not isinstance(loaded, DictConfig):
-        raise TypeError(f"Expected DictConfig from {path}, got {type(loaded)!r}")
-    return loaded
-
-
-def _sanitize_path_token(value: str, *, fallback: str) -> str:
-    """Convert an arbitrary identifier into a filesystem-safe path token.
-
-    Args:
-        value: Raw identifier to sanitize.
-        fallback: Token to use when the sanitized value becomes empty.
-
-    Returns:
-        ASCII-safe token suitable for a log-directory name.
-    """
-    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "-", str(value)).strip("-._")
-    return sanitized or fallback
-
-
-def _load_teacher_owner_config(algo_family: str, task: str) -> DictConfig:
-    owner_path = ROOT_DIR / "conf" / str(algo_family) / "task" / f"{task}.yaml"
-    owner_cfg = _load_yaml_config(owner_path)
-    merged_cfg = OmegaConf.create()
-    for default_entry in owner_cfg.get("defaults", []):
-        if not isinstance(default_entry, str) or default_entry == "_self_":
-            continue
-        include_path = ROOT_DIR / "conf" / str(algo_family) / f"{default_entry.lstrip('/')}.yaml"
-        merged_cfg = OmegaConf.merge(merged_cfg, _load_yaml_config(include_path))
-    return cast(DictConfig, OmegaConf.merge(merged_cfg, owner_cfg))
-
-
-def _get_teacher_owner_spec(cfg: DictConfig) -> tuple[str | None, str | None]:
-    algo_family = OmegaConf.select(cfg, "teacher.algo_family")
-    task = OmegaConf.select(cfg, "teacher.task")
-    if algo_family in (None, "") or task in (None, ""):
-        return None, None
-    return str(algo_family), str(task)
-
-
-def _teacher_default_cfg(cfg: DictConfig) -> DictConfig:
-    teacher_algo_family, teacher_task = _get_teacher_owner_spec(cfg)
-    if teacher_algo_family is None or teacher_task is None:
-        return OmegaConf.create()
-
-    teacher_cfg = _load_teacher_owner_config(teacher_algo_family, teacher_task)
-    actor_cfg = OmegaConf.to_container(OmegaConf.select(teacher_cfg, "algo.actor"), resolve=True)
-    if not isinstance(actor_cfg, dict):
-        actor_cfg = {}
-    actor_cfg = dict(actor_cfg)
-    actor_class_name = str(actor_cfg.get("class_name", ""))
-    if "HoraActorModel" not in actor_class_name:
-        raise ValueError(
-            "HORA distillation teacher owner must resolve to HoraActorModel. "
-            f"Got algo_family={teacher_algo_family} task={teacher_task} actor.class_name={actor_class_name!r}."
-        )
-    actor_cfg.pop("class_name", None)
-    distribution_cfg = actor_cfg.get("distribution_cfg")
-    if isinstance(distribution_cfg, dict):
-        distribution_cfg = {
-            key: value for key, value in distribution_cfg.items() if key != "class_name"
-        }
-
-    return OmegaConf.create(
-        {
-            "training": OmegaConf.select(teacher_cfg, "training"),
-            "reward": OmegaConf.select(teacher_cfg, "reward"),
-            "env": OmegaConf.select(teacher_cfg, "env"),
-            "algo": {
-                "model": {
-                    "hidden_dims": actor_cfg.get("hidden_dims"),
-                    "activation": actor_cfg.get("activation"),
-                    "obs_normalization": actor_cfg.get("obs_normalization"),
-                    "priv_info_embed_dim": actor_cfg.get("priv_info_embed_dim"),
-                    "priv_mlp_hidden_dims": actor_cfg.get("priv_mlp_hidden_dims"),
-                    "distribution_cfg": distribution_cfg,
-                }
-            },
-        }
-    )
-
-
-def _apply_teacher_defaults(cfg: DictConfig) -> DictConfig:
-    return cast(DictConfig, OmegaConf.merge(_teacher_default_cfg(cfg), cfg))
-
-
-def _resolved_distill_runtime_cfg(cfg: DictConfig) -> DictConfig:
-    """Return stage-2 playback fields that do not depend on teacher algorithm."""
-    model_cfg = OmegaConf.select(cfg, "algo.model")
-    return OmegaConf.create(
-        {
-            "training": {
-                "task_name": OmegaConf.select(cfg, "training.task_name"),
-                "sim_backend": OmegaConf.select(cfg, "training.sim_backend"),
-                "render_spacing": OmegaConf.select(cfg, "training.render_spacing"),
-                "cam_distance": OmegaConf.select(cfg, "training.cam_distance"),
-                "cam_elevation": OmegaConf.select(cfg, "training.cam_elevation"),
-                "cam_azimuth": OmegaConf.select(cfg, "training.cam_azimuth"),
-                "cam_lookat": OmegaConf.select(cfg, "training.cam_lookat"),
-                "cam_tracking": OmegaConf.select(cfg, "training.cam_tracking"),
-                "cam_tracking_env_idx": OmegaConf.select(cfg, "training.cam_tracking_env_idx"),
-                "cam_tracking_extra_envs": OmegaConf.select(
-                    cfg, "training.cam_tracking_extra_envs"
-                ),
-            },
-            "reward": OmegaConf.select(cfg, "reward"),
-            "env": OmegaConf.select(cfg, "env"),
-            "algo": {
-                "model": (
-                    OmegaConf.to_container(model_cfg, resolve=True) if model_cfg is not None else {}
-                )
-            },
-        }
-    )
-
-
-def _teacher_run_metadata(
-    cfg: DictConfig,
-    *,
-    teacher_algo_family: str,
-    teacher_checkpoint: Path,
-) -> dict[str, Any]:
-    """Build explicit teacher provenance metadata for distillation outputs.
-
-    Args:
-        cfg: Resolved distillation config.
-        teacher_algo_family: Teacher algorithm family selected by the owner config.
-        teacher_checkpoint: Resolved checkpoint path used to initialize the teacher actor.
-
-    Returns:
-        Dict containing teacher owner and checkpoint fields for log naming and metadata files.
-    """
-    teacher_task = OmegaConf.select(cfg, "teacher.task")
-    checkpoint_path = teacher_checkpoint.resolve()
-    try:
-        checkpoint_display = str(checkpoint_path.relative_to(ROOT_DIR))
-    except ValueError:
-        checkpoint_display = str(checkpoint_path)
-
-    run_name = checkpoint_path.parent.name
-    checkpoint_name = checkpoint_path.name
-    algo_token = _sanitize_path_token(teacher_algo_family, fallback="teacher")
-    run_slug = f"teacher-{algo_token}"
-
-    return {
-        "algo_family": str(teacher_algo_family),
-        "task": None if teacher_task in (None, "") else str(teacher_task),
-        "checkpoint_path": checkpoint_display,
-        "checkpoint_name": checkpoint_name,
-        "checkpoint_stem": checkpoint_path.stem,
-        "run_name": run_name,
-        "run_slug": run_slug,
-    }
 
 
 def _write_distill_run_config(
@@ -221,36 +70,6 @@ def _write_distill_run_config(
     with (log_dir / "distill_run_config.json").open("w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, ensure_ascii=True)
         f.write("\n")
-
-
-def _resolve_teacher_checkpoint_path(cfg: DictConfig) -> tuple[Path | None, Path | None]:
-    teacher_algo_family, teacher_task = _get_teacher_owner_spec(cfg)
-    if teacher_algo_family is None or teacher_task is None:
-        return None, None
-
-    teacher_cfg = _load_teacher_owner_config(teacher_algo_family, teacher_task)
-    teacher_task_name = OmegaConf.select(teacher_cfg, "training.task_name")
-    teacher_algo_log_name = OmegaConf.select(teacher_cfg, "algo.algo_log_name")
-    if teacher_task_name in (None, "") or teacher_algo_log_name in (None, ""):
-        raise ValueError(
-            "Teacher owner config must define training.task_name and algo.algo_log_name. "
-            f"Got algo_family={teacher_algo_family} task={teacher_task}."
-        )
-
-    return resolve_task_checkpoint_path(
-        ROOT_DIR,
-        task_name=str(teacher_task_name),
-        load_run=str(OmegaConf.select(cfg, "algo.load_run", default="-1")),
-        algo_log_name=str(teacher_algo_log_name),
-        checkpoint=(
-            str(selected_checkpoint)
-            if (selected_checkpoint := OmegaConf.select(cfg, "algo.checkpoint", default=-1))
-            not in (None, "", -1, "-1")
-            else None
-        ),
-        suffix=".pt",
-        log_root=OmegaConf.select(cfg, "training.log_root"),
-    )
 
 
 def _build_env_cfg_override(cfg: DictConfig) -> dict[str, Any]:

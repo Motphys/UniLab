@@ -226,6 +226,14 @@ def test_hora_distill_task_owner_overrides_root_config_defaults():
     assert cfg.algo.save_interval_steps == 10000000
 
 
+def test_hora_distill_script_delegates_teacher_owner_resolution():
+    source = (_SCRIPTS_DIR / "train_hora_distill.py").read_text(encoding="utf-8")
+
+    assert "OmegaConf.load" not in source
+    assert "HoraActorModel" not in source
+    assert 'conf" / str(algo_family)' not in source
+
+
 @pytest.mark.parametrize("teacher_algo_family", ["ppo", "appo"])
 def test_hora_distill_teacher_owner_defaults_support_ppo_and_appo(
     teacher_algo_family: str,
