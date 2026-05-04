@@ -1446,7 +1446,7 @@ def test_play_wrapper_timeout_bootstrap_preserves_hora_priv_info():
                 {
                     "obs": {"obs": np.array([[1.0, 2.0, 3.0]], dtype=np.float32)},
                     "reward": np.array([1.0], dtype=np.float32),
-                    "done": np.array([True]),
+                    "terminated": np.array([True]),
                     "truncated": np.array([True]),
                     "final_observation": {
                         "obs": np.array([[7.0, 8.0, 9.0]], dtype=np.float32),

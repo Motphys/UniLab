@@ -213,5 +213,6 @@ uv run scripts/train_hora_distill.py task=sharpa_inhand/mujoco training.play_onl
 
 ## Navigation
 
+- Index: [Documentation](../../README.md)
 - Previous: [Domain Randomization](06-domain-randomization.md)
 - Next: [Simulation Backends](02-simulation-backends.md)
