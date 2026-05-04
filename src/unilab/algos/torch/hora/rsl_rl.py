@@ -82,16 +82,14 @@ class HoraRslRlVecEnvWrapper(RslRlVecEnvWrapper):
         infos: dict[str, torch.Tensor | TensorDict | dict[str, Any]] = {}
         done_idx = torch.nonzero(dones).flatten()
         if len(done_idx) > 0:
-            truncated = getattr(state, "truncated", None)
-            if truncated is not None:
-                infos["time_outs"] = to_torch(truncated, self.device).bool()
+            infos["time_outs"] = to_torch(state.truncated, self.device).bool()
 
             final_observation = self._resolve_final_observation(state)
             terminal_contract = resolve_terminal_observation_contract(
                 next_obs_batch_size=self.num_envs,
                 final_observation=final_observation,
                 done=to_numpy(dones),
-                info=getattr(state, "info", None),
+                info=state.info,
                 truncated=to_numpy(infos["time_outs"]) if "time_outs" in infos else None,
             )
             if np.any(terminal_contract.timeout_terminal_mask) and final_observation is not None:
@@ -100,11 +98,11 @@ class HoraRslRlVecEnvWrapper(RslRlVecEnvWrapper):
             self.episode_returns[done_idx] = 0
             self.episode_lengths[done_idx] = 0
 
-        if hasattr(state, "info") and "log" in state.info:
+        if "log" in state.info:
             infos["log"] = state.info["log"]
 
         return (
-            self._obs_to_tensordict(state.obs, getattr(state, "info", None)),
+            self._obs_to_tensordict(state.obs, state.info),
             rewards,
             dones,
             infos,

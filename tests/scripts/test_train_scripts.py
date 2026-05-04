@@ -227,6 +227,27 @@ def test_hora_distill_task_owner_overrides_root_config_defaults():
 
 
 @pytest.mark.parametrize("teacher_algo_family", ["ppo", "appo"])
+def test_hora_distill_teacher_owner_defaults_support_ppo_and_appo(
+    teacher_algo_family: str,
+):
+    mod = _train_hora_distill()
+    cfg = mod._apply_teacher_defaults(
+        _hora_distill_cfg(
+            [
+                "task=sharpa_inhand/mujoco",
+                f"teacher.algo_family={teacher_algo_family}",
+                "teacher.task=sharpa_inhand/mujoco_hora",
+            ]
+        )
+    )
+
+    assert cfg.training.task_name == "SharpaInhandRotation"
+    assert cfg.training.sim_backend == "mujoco"
+    assert cfg.algo.model.priv_info_embed_dim == 9
+    assert cfg.algo.model.priv_mlp_hidden_dims == [256, 128, 9]
+
+
+@pytest.mark.parametrize("teacher_algo_family", ["ppo", "appo"])
 def test_hora_distill_teacher_run_slug_omits_teacher_run_name(teacher_algo_family: str):
     mod = _train_hora_distill()
     cfg = OmegaConf.create({"teacher": {"task": "sharpa_inhand/mujoco"}})

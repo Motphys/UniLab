@@ -21,10 +21,10 @@ See:
 - `/home/admin1/ws/unilabsim/mujoco_uni/python/mujoco/batch_env.cc`
 
 Usage:
-    uv run python benchmark/benchmark_sharpa_init_dr_construct.py
-    uv run python benchmark/benchmark_sharpa_init_dr_construct.py --env-nums 256,512,1024
-    uv run python benchmark/benchmark_sharpa_init_dr_construct.py --variant-counts 1,2,4,8
-    uv run python benchmark/benchmark_sharpa_init_dr_construct.py --measure construct_plus_pool
+    uv run benchmark/benchmark_sharpa_init_dr_construct.py
+    uv run benchmark/benchmark_sharpa_init_dr_construct.py --env-nums 256,512,1024
+    uv run benchmark/benchmark_sharpa_init_dr_construct.py --variant-counts 1,2,4,8
+    uv run benchmark/benchmark_sharpa_init_dr_construct.py --measure construct_plus_pool
 """
 
 from __future__ import annotations
@@ -126,7 +126,7 @@ def _compose_cfg(task: str, *, lower: float, upper: float, variant_count: int):
     scale_override = ",".join(f"{float(scale):g}" for scale in scale_list)
     overrides = [
         f"task={task}",
-        f"env.scale_list=[{scale_override}]",
+        f"env.domain_rand.scale_list=[{scale_override}]",
         "hydra.run.dir=.",
         "hydra.output_subdir=null",
         "hydra/job_logging=disabled",
