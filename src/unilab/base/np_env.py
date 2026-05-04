@@ -15,6 +15,7 @@ from unilab.dtype_config import get_global_dtype
 
 if TYPE_CHECKING:
     from unilab.base.augmentation import SymmetryAugmentation
+    from unilab.utils.nan_guard import NanGuard
 
 
 @dataclass
@@ -48,6 +49,7 @@ class NpEnv(ABEnv):
         self.step_counter = 0
         self._dr_manager: DomainRandomizationManager | None = None
         self._init_randomization_applied = False
+        self._nan_guard: NanGuard | None = None
 
     @property
     def cfg(self) -> EnvCfg:
@@ -148,6 +150,19 @@ class NpEnv(ABEnv):
             if backend_timing:
                 for k, v in backend_timing.items():
                     timing[f"backend_{k}"] = v
+
+        if self._nan_guard is not None:
+            self._nan_guard.capture(
+                self.get_physics_state_snapshot()
+                if self.play_capabilities.supports_physics_state_playback
+                else None
+            )
+            nan_ids = self._nan_guard.check(self._state.obs, self._state.reward)
+            if nan_ids is not None:
+                model_file = getattr(self._cfg, "model_file", "")
+                self._nan_guard.dump(nan_ids, str(model_file), self.step_counter)
+
+        np.nan_to_num(self._state.reward, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
         return self._state
 
@@ -333,6 +348,9 @@ class NpEnv(ABEnv):
             The backend-specific playback model.
         """
         return self._backend.get_playback_model(env_index)
+
+    def set_nan_guard(self, guard: "NanGuard") -> None:
+        self._nan_guard = guard
 
     def close(self) -> None:
         """关闭环境"""

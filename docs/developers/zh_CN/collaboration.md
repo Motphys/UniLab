@@ -61,8 +61,10 @@
 - registry bootstrap: [ADR-0004](../adr/ADR-0004-registry-bootstrap-contract.md)
 
 如果现有 ADR 无法覆盖新的结构性决策，在同一 PR 内新增 ADR，并把链接补回上述文档。
+新增 ADR 使用 [ADR Template](../adr/ADR-TEMPLATE.md)，并明确 `Supersedes`、`Superseded by`、`Alternatives Considered` 和 `Evidence In Repo`。
 
 ## Navigation
 
-- Previous: [Development Standard](development-standard.md)
+- Index: [Documentation](../../README.md)
+- Previous: [Domain Randomization Contract](domain-randomization-contract.md)
 - Next: [Contributing](CONTRIBUTING.md)

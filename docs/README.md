@@ -14,6 +14,7 @@
 - [04 算法说明](users/zh_CN/04-algorithms.md) — APPO、FastSAC、FastTD3 用法与区别
 - [05 G1 全身运动跟踪](users/zh_CN/05-motion-tracking.md) — G1 运动跟踪任务
 - [06 域随机化](users/zh_CN/06-domain-randomization.md) — 域随机化配置与最佳实践
+- [术语表](glossary.md) — owner YAML、cold path、Evidence Grades 等核心术语
 
 ---
 
@@ -23,8 +24,9 @@
 
 1. [CONTRIBUTING.md](../CONTRIBUTING.md) — 环境设置、常用命令、提交规范、PR 流程
 2. [RL Infrastructure 开发标准](developers/zh_CN/development-standard.md) — Runtime Model、分层架构、Design Principles、Contract、验证边界
-3. [协作流程](developers/zh_CN/collaboration.md) — Issue / Milestone / PR 协作规则、ADR 治理
-4. [ADR 索引](developers/adr/README.md) — 已落地的架构决策记录
+3. [Domain Randomization Contract](developers/zh_CN/domain-randomization-contract.md) — DR 生命周期、MuJoCo 随机场接口、新任务接入标准
+4. [协作流程](developers/zh_CN/collaboration.md) — Issue / Milestone / PR 协作规则、ADR 治理
+5. [ADR 索引](developers/adr/README.md) — 已落地的架构决策记录
 
 ---
 

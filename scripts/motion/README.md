@@ -4,8 +4,8 @@ This directory contains scripts for preprocessing motion data for motion trackin
 
 ## BONES-SEED CSV Replay
 
-The `replay_bones_seed_csv.py` script replays the BONES-SEED G1 CSV clips under
-`src/unilab/assets/motions/g1/flip` directly in the MuJoCo viewer.
+The `replay_bones_seed_csv.py` script replays local BONES-SEED G1 CSV clips
+directly in the MuJoCo viewer.
 
 ### Input Format
 
@@ -24,14 +24,14 @@ The script assumes:
 
 ```bash
 # Replay the whole flip dataset
-uv run python scripts/motion/replay_bones_seed_csv.py
+uv run scripts/motion/replay_bones_seed_csv.py
 
 # Replay one clip
-uv run python scripts/motion/replay_bones_seed_csv.py \
+uv run scripts/motion/replay_bones_seed_csv.py \
   --input src/unilab/assets/motions/g1/flip/flip_090_001__A304.csv
 
 # Validate parsing without opening the viewer
-uv run python scripts/motion/replay_bones_seed_csv.py --dry-run
+uv run scripts/motion/replay_bones_seed_csv.py --dry-run
 ```
 
 ### Controls
@@ -42,9 +42,8 @@ uv run python scripts/motion/replay_bones_seed_csv.py --dry-run
 
 ## BONES-SEED CSV to NPZ
 
-The `bones_seed_csv_to_npz.py` script converts the G1 flip CSV clips under
-`src/unilab/assets/motions/g1/flip` into NPZ files with precomputed forward
-kinematics.
+The `bones_seed_csv_to_npz.py` script converts local G1 flip CSV clips into NPZ
+files with precomputed forward kinematics.
 
 ### Output Format
 
@@ -61,15 +60,15 @@ Generated NPZ files contain:
 
 ```bash
 # Convert the whole flip dataset into src/unilab/assets/motions/g1/flip_npz
-uv run python scripts/motion/bones_seed_csv_to_npz.py
+uv run scripts/motion/bones_seed_csv_to_npz.py
 
 # Convert one clip next to a chosen output file
-uv run python scripts/motion/bones_seed_csv_to_npz.py \
+uv run scripts/motion/bones_seed_csv_to_npz.py \
   --input src/unilab/assets/motions/g1/flip/flip_090_001__A304.csv \
   --output temp/flip_090_001__A304.npz
 
 # Validate inputs without exporting
-uv run python scripts/motion/bones_seed_csv_to_npz.py --dry-run
+uv run scripts/motion/bones_seed_csv_to_npz.py --dry-run
 ```
 
 ## CSV to NPZ Conversion
@@ -98,14 +97,14 @@ NPZ files contain:
 
 ```bash
 # Basic usage
-uv run python scripts/motion/csv_to_npz.py \
+uv run scripts/motion/csv_to_npz.py \
   --input_file path/to/motion.csv \
   --output_file path/to/motion.npz \
   --input_fps 30 \
   --output_fps 50
 
 # With custom model file
-uv run python scripts/motion/csv_to_npz.py \
+uv run scripts/motion/csv_to_npz.py \
   --input_file path/to/motion.csv \
   --output_file path/to/motion.npz \
   --input_fps 30 \
@@ -113,7 +112,7 @@ uv run python scripts/motion/csv_to_npz.py \
   --model_file path/to/model.xml
 
 # Process specific line range
-uv run python scripts/motion/csv_to_npz.py \
+uv run scripts/motion/csv_to_npz.py \
   --input_file path/to/motion.csv \
   --output_file path/to/motion.npz \
   --input_fps 30 \

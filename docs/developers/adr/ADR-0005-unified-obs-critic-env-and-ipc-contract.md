@@ -2,9 +2,11 @@
 
 语言: 简体中文
 
-## Status
-
-Accepted
+- Status: Accepted
+- Date: 2026-04-17
+- Owners: Env / IPC maintainers
+- Supersedes: None
+- Superseded by: None
 
 ## Context
 
@@ -60,8 +62,27 @@ UniLab 运行时 observation contract 统一为且仅为两层：
 - APPO、off-policy replay、terminal bootstrap、RSL wrapper 使用同一套 `obs` + optional `critic` 语义。
 - 新 env 若需要 critic-only 信息，必须在 `obs_groups_spec` 和 `_compute_obs()` 中直接声明 `critic`，而不是新增第三种历史键名。
 
+## Alternatives Considered
+
+- 继续保留 `privileged`、`critic`、拼接 flat obs 等多套 observation 语义。拒绝原因：runner / learner / IPC 会继续猜测 critic 输入来源，actor 路径也可能误吃 critic-only 特征。
+- 在每个算法 adapter 内单独兼容 critic 输入。拒绝原因：会把 env owner layer 的职责扩散到 learner 和 script。
+
 ## Non-Goals
 
 - 不要求所有 env 都必须提供 `critic`。
 - 不要求第三方库同步改名；外部接口名兼容可以留在 adapter boundary。
 - 不把 `training.sim_backend`、脚本参数或 checkpoint 兼容逻辑混入 observation contract。
+
+## Evidence In Repo
+
+- Env contract: `src/unilab/base/np_env.py`
+- Final observation helper: `src/unilab/base/final_observation.py`
+- RSL-RL adapter: `src/unilab/training/rsl_rl.py`
+- IPC tests: `tests/ipc/`
+- Observation tests: `tests/base/test_np_env.py`, `tests/utils/test_final_observation.py`
+
+## Related Documents
+
+- [ADR Index](README.md)
+- [RL Infrastructure 开发标准](../zh_CN/development-standard.md)
+- [协作流程](../zh_CN/collaboration.md)

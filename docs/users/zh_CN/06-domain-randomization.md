@@ -1,5 +1,7 @@
 # 域随机化现状
 
+语言: 简体中文
+
 这页只描述当前仓库里已经注册、且已经接入 DR provider 的任务现状。结论全部来自代码，不按设计意图推断。
 
 当前统一入口在 [`NpEnv._init_domain_randomization()`](../../../src/unilab/base/np_env.py) 和 [`DomainRandomizationManager`](../../../src/unilab/dr/manager.py)：
@@ -46,8 +48,8 @@
 | `G1WalkRough` | 与 `G1WalkFlat` 相同，直接复用同一个 provider | `push_robots` | kp/kd 默认开启；common payload 和 push 默认关闭 |
 | `G1MotionTracking` | motion frame 采样；root pose 扰动 `x/y/z/roll/pitch/yaw`；root velocity 扰动 `x/y/z/roll/pitch/yaw`；joint position noise；MuJoCo 下按 joint range clip；`current_actions/last_actions` 清零；可选 `base_mass_delta`；可选 `base_com_offset`；可选 `gravity` | `push_robots` | `pose_randomization`、`velocity_randomization`、`joint_position_range` 默认有非零扰动；common payload 和 push 默认关闭 |
 | `AllegroInhandRotation` | 若有 grasp cache 则随机采样 grasp；否则对 hand joints 加 `joint_noise`、对球加 `ball_z_offset`；始终对球线速度加 `ball_vel_noise`；可选 common reset randomization payload（含 `gravity`） | 无 | grasp cache 路径可用时默认会采样；`joint_noise`、`ball_vel_noise`、`ball_z_offset` 默认 0；common payload 默认关闭 |
-| `SharpaInhandRotation` | grasp cache 按 `scale_ids` 分桶采样；object pose / quat reset；可选 common reset randomization payload（含 `gravity`） | 无 | `scale_range` 默认 `[0.5, 0.5, 1]`，MuJoCo 下会在 init 阶段 materialize object geom scale；common payload 默认关闭 |
-| `SharpaInhandRotationGrasp` | hand pose reset；object pose / quat reset；采集成功 grasp 并按 `scale_ids` 分桶保存；可选 `base_mass_delta`；可选 `base_com_offset`；可选 `gravity` | 无 | 默认用于生成 Sharpa grasp cache，cache 文件名包含 `scale_range` tag；common payload 默认关闭 |
+| `SharpaInhandRotation` | grasp cache 按 `scale_ids` 分桶采样；object pose / quat reset；可选 common reset randomization payload（含 `gravity`） | 无 | `scale_list` 默认来自 owner YAML，MuJoCo 下会在 init 阶段 materialize object geom scale；common payload 默认关闭 |
+| `SharpaInhandRotationGrasp` | hand pose reset；object pose / quat reset；采集成功 grasp 并按 `scale_ids` 分桶保存；可选 `base_mass_delta`；可选 `base_com_offset`；可选 `gravity` | 无 | 默认用于生成 Sharpa grasp cache，cache 文件名包含单个 scale 值；common payload 默认关闭 |
 
 ## 当前统一 DR 能力与边界
 
@@ -131,7 +133,7 @@ env:
 如果只想随机化大小、保持竖直向下方向，可以只放开 `z` 分量：
 
 ```bash
-uv run python scripts/train_rsl_rl.py \
+uv run scripts/train_rsl_rl.py \
   task=g1_walk_flat/mujoco \
   env.domain_rand.randomize_gravity=true \
   'env.domain_rand.gravity_range=[[0.0,0.0,-10.5],[0.0,0.0,-8.5]]'
@@ -140,7 +142,7 @@ uv run python scripts/train_rsl_rl.py \
 如果想同时随机化方向和大小，可以放开 `x/y/z` 分量：
 
 ```bash
-uv run python scripts/train_rsl_rl.py \
+uv run scripts/train_rsl_rl.py \
   task=g1_walk_flat/mujoco \
   env.domain_rand.randomize_gravity=true \
   'env.domain_rand.gravity_range=[[-0.3,-0.3,-10.5],[0.3,0.3,-8.5]]'
@@ -173,7 +175,7 @@ env:
 - `push_body_name`：外力施加目标 body / link。默认 `null`，表示使用 backend 的 `base_name`。
 
 ```bash
-uv run python scripts/train_rsl_rl.py \
+uv run scripts/train_rsl_rl.py \
   task=g1_walk_flat/mujoco \
   env.domain_rand.push_robots=true \
   env.domain_rand.push_interval=500 \
@@ -227,17 +229,10 @@ env:
 - `scale_list` 的顺序就是 `scale_id` 顺序。
 - `scale_list` 的长度就是 model variant 数量。
 
-实际 scale 值由 `np.linspace(lower, upper, num_scales)` 生成。例如：
-
-```yaml
-env:
-  scale_list: [0.5, 0.6, 0.7, 0.8]
-```
-
 每个 env 会被静态分配一个 `scale_id`。当前分配规则是按 bucket 连续分配，因此 `algo.num_envs` 必须能被 `num_scales` 整除：
 
 ```bash
-uv run scripts/train_rsl_rl.py task=sharpa_inhand/mujoco 'env.scale_list=[0.5,0.6,0.7,0.8]' algo.num_envs=4096
+uv run scripts/train_rsl_rl.py task=sharpa_inhand/mujoco 'env.domain_rand.scale_list=[0.5,0.6,0.7,0.8]' algo.num_envs=4096
 ```
 
 如果 `algo.num_envs=4096`、`num_scales=4`，则每 1024 个 env 使用同一个 scale bucket。
@@ -271,10 +266,10 @@ Sharpa rotation 任务按 `scale_ids` 从多份单-scale grasp cache 采样：
 生成多 scale cache 时，应分别跑多次 grasp 采集任务：
 
 ```bash
-uv run scripts/train_rsl_rl.py task=sharpa_inhand_grasp/mujoco 'env.scale_list=[0.5]' algo.num_envs=4096
-uv run scripts/train_rsl_rl.py task=sharpa_inhand_grasp/mujoco 'env.scale_list=[0.6]' algo.num_envs=4096
-uv run scripts/train_rsl_rl.py task=sharpa_inhand_grasp/mujoco 'env.scale_list=[0.7]' algo.num_envs=4096
-uv run scripts/train_rsl_rl.py task=sharpa_inhand_grasp/mujoco 'env.scale_list=[0.8]' algo.num_envs=4096
+uv run scripts/train_rsl_rl.py task=sharpa_inhand_grasp/mujoco 'env.domain_rand.scale_list=[0.5]' algo.num_envs=4096
+uv run scripts/train_rsl_rl.py task=sharpa_inhand_grasp/mujoco 'env.domain_rand.scale_list=[0.6]' algo.num_envs=4096
+uv run scripts/train_rsl_rl.py task=sharpa_inhand_grasp/mujoco 'env.domain_rand.scale_list=[0.7]' algo.num_envs=4096
+uv run scripts/train_rsl_rl.py task=sharpa_inhand_grasp/mujoco 'env.domain_rand.scale_list=[0.8]' algo.num_envs=4096
 ```
 
 也可以顺序执行仓库里的 helper：
@@ -286,7 +281,7 @@ uv run scripts/train_rsl_rl.py task=sharpa_inhand_grasp/mujoco 'env.scale_list=[
 随后训练 rotation 时使用相同的 `scale_list`：
 
 ```bash
-uv run scripts/train_rsl_rl.py task=sharpa_inhand/mujoco 'env.scale_list=[0.5,0.6,0.7,0.8]' algo.num_envs=4096
+uv run scripts/train_rsl_rl.py task=sharpa_inhand/mujoco 'env.domain_rand.scale_list=[0.5,0.6,0.7,0.8]' algo.num_envs=4096
 ```
 
 ### 4. 边界和注意事项
@@ -300,159 +295,9 @@ uv run scripts/train_rsl_rl.py task=sharpa_inhand/mujoco 'env.scale_list=[0.5,0.
 - 热路径不得读取 XML、解析 asset 或用 `getattr` / `hasattr` 探测 backend 私有能力来决定 scale 行为。
 - 如需扩展到其他 shape DR，应优先复用 init-lifecycle contract，而不是把 shape 字段塞进 reset payload。
 
-## MuJoCo `BatchEnvPool` 随机场字段接口现状
-
-这部分只描述 `python/mujoco/batch_env.py` / `python/mujoco/batch_env.cc` 当前已经暴露的接口，不推断未来设计。
-
-### 1. 当前支持的字段
-
-当前 `SUPPORTED_FIELDS` 为：
-
-- `body_mass`
-- `body_ipos`
-- `body_iquat`
-- `body_inertia`
-- `dof_armature`
-- `gravity`
-- `geom_friction`
-- `kp`
-- `kd`
-
-注意：
-
-- `geom_size` 不在 reset randomization 的 `SUPPORTED_FIELDS` 里；它在 UniLab 中通过 init-lifecycle model materialization 表达。
-- 如果当前环境仍安装 `mujoco-uni==3.6.0.post6`，则 `gravity` 也不在发布包的 `SUPPORTED_FIELDS` 里；需要使用包含 gravity reset randomization 的本地构建或后续发布版本。
-
-### 2. 当前整块替换方式
-
-当前整块替换入口仍然是：
-
-- `BatchEnvPool.reset(env_ids, initial_state, randomization=...)`
-
-其中：
-
-- `env_ids` 指定这次 reset 要落到哪些 env
-- `randomization` 是 `dict[str, ndarray]`
-- key 必须属于上面的 `SUPPORTED_FIELDS`
-- value 的首维必须等于 `len(env_ids)`
-- value 的其余元素个数必须等于该字段在单个 `mjModel` 里的整块大小
-
-当前字段大小按底层实现是：
-
-- `body_mass`: `nbody`
-- `body_ipos`: `3 * nbody`
-- `body_iquat`: `4 * nbody`
-- `body_inertia`: `3 * nbody`
-- `dof_armature`: `nv`
-- `gravity`: `3`
-- `geom_friction`: `3 * ngeom`
-- `kp`: `nu`
-- `kd`: `nu`
-
-对应到传参形状，可以理解为：
-
-- `body_mass`: `(len(env_ids), nbody)`
-- `body_ipos`: `(len(env_ids), 3 * nbody)`
-- `body_iquat`: `(len(env_ids), 4 * nbody)`
-- `body_inertia`: `(len(env_ids), 3 * nbody)`
-- `dof_armature`: `(len(env_ids), nv)`
-- `gravity`: `(len(env_ids), 3)`
-- `geom_friction`: `(len(env_ids), 3 * ngeom)`
-- `kp`: `(len(env_ids), nu)`
-- `kd`: `(len(env_ids), nu)`
-
-整块接口的语义仍然是“按 env 子集、按字段整块替换”。
-
-### 3. 当前读取方式
-
-当前读取入口分成两类：
-
-- 整块读取：`pool.get_field(env_id, name) -> np.ndarray`
-- 索引读取：`pool.get_field_indexed(env_id, name, indices)`
-
-其中索引读取当前支持：
-
-- `indices` 为单个 `int`
-- `indices` 为 `Sequence[int]`
-
-返回语义当前是稳定的：
-
-- `body_ipos` / `body_inertia` / `gravity` / `geom_friction`
-  - 单索引返回 `(3,)`
-  - 多索引返回 `(k, 3)`
-- `body_iquat`
-  - 单索引返回 `(4,)`
-  - 多索引返回 `(k, 4)`
-- `body_mass` / `dof_armature` / `kp` / `kd`
-  - 单索引返回标量
-  - 多索引返回 `(k,)`
-
-`gravity` 只有一个逻辑索引 `0`，因此索引读取通常只用于读取整条 gravity 向量。
-
-### 4. 当前局部写入方式
-
-当前局部写入入口是：
-
-- `pool.set_field_indexed(env_id, name, indices, value)`
-
-其中：
-
-- `env_id` 只作用于一个目标 env
-- `name` 必须属于 `SUPPORTED_FIELDS`
-- `indices` 支持单个 `int` 或 `Sequence[int]`
-- `value` 的 shape 必须和字段分量语义匹配
-
-当前 setter 语义是：
-
-- `body_ipos` / `body_inertia` / `gravity` / `geom_friction`
-  - 单索引写入要求 `value.shape == (3,)`
-  - 多索引写入要求 `value.shape == (k, 3)`
-- `body_iquat`
-  - 单索引写入要求 `value.shape == (4,)`
-  - 多索引写入要求 `value.shape == (k, 4)`
-- `body_mass` / `dof_armature` / `kp` / `kd`
-  - 单索引写入要求 `value` 为标量
-  - 多索引写入要求 `value.shape == (k,)`
-
-`gravity` 的索引写入同样只应使用逻辑索引 `0`；常规 reset DR 更推荐通过整块 payload `gravity: (len(env_ids), 3)` 下发。
-
-因此现在有两种使用方式：
-
-- 如果要一次替换一个字段在多个 env 上的整块值，继续用 `reset(..., randomization=...)`
-- 如果只想改单个 env 内的某几个 body / geom / dof / actuator 条目，直接用 `get_field_indexed` / `set_field_indexed`
-
-这意味着像“只改某个 geom 的 friction”这类场景，已经不需要“先整块读出 flat payload、手工切片、再整块回写”的上层样板代码
-
-另外，当前底层对 refresh 的处理也已经固定：
-
-- `body_mass`、`body_ipos`、`body_iquat`、`body_inertia`、`dof_armature` 会触发 `mj_setConst` refresh
-- `gravity`、`geom_friction`、`kp`、`kd` 不触发 refresh
-
-因此，当前 MuJoCo `BatchEnvPool` 的 reset-lifecycle randomization 接口可以概括为：
-
-- 支持字段是固定白名单
-- 读取方式同时支持整块读取和索引读取
-- 写入方式同时支持整块替换和单 env 内的索引级局部写入
-- 当前索引级接口按字段分量宽度返回稳定 shape，并且在需要时自动做 `mj_setConst` refresh
-
-## 新任务接入时的最低标准
-
-如果要保持和当前代码风格一致，新任务至少应满足：
-
-1. 在任务文件里定义自己的 DR config dataclass
-2. 在任务文件里定义 `DomainRandomizationProvider`
-3. reset 通过 `ResetPlan` 返回 `qpos`、`qvel`、`info_updates`、`randomization`
-4. 如需 interval 扰动，通过 `IntervalRandomizationPlan`
-5. 在 env 构造函数里调用 `self._init_domain_randomization(...)`
-
-如果某个随机项要做成“统一 DR 项”，还需要同时满足三层一致：
-
-1. [`ResetRandomizationPayload`](../../../src/unilab/dr/types.py) 里有明确字段
-2. backend capability 明确声明支持，并在 backend 内真正落地
-3. 任务 config / provider 真正采样并下发该字段
-
-缺任何一层，都只能算“底层有能力”或“任务里自己做了随机”，还不能算仓库层面的统一 DR 项。
+底层 `BatchEnvPool` 随机场接口快照和新任务接入标准见 [Domain Randomization Contract](../../developers/zh_CN/domain-randomization-contract.md)。
 
 ## Navigation
 
+- Index: [Documentation](../../README.md)
 - Previous: [G1 Motion Tracking](05-motion-tracking.md)

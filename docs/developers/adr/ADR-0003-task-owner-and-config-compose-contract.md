@@ -3,6 +3,8 @@
 - Status: Accepted
 - Date: 2026-04-11
 - Owners: Config / Env maintainers
+- Supersedes: None
+- Superseded by: None
 
 ## Context
 
@@ -30,6 +32,11 @@
 
 - 文档示例和 issue 模板必须使用完整 `task=.../<backend>` 形式。
 - 配置行为变更应先改 owner YAML，再评估是否需要代码改动。
+
+## Alternatives Considered
+
+- 保留 task、backend、reward、algo 的拆分式配置组。拒绝原因：用户可以通过局部 override 组合出没有 owner 的状态，破坏 backend identity。
+- 允许 `training.sim_backend=...` 单独切换后端。拒绝原因：它会绕过 owner YAML 中的 reward/env/backend-specific algo 配置。
 
 ## Evidence In Repo
 

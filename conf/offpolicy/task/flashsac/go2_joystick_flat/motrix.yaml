@@ -1,0 +1,43 @@
+# @package _global_
+training:
+  task_name: Go2JoystickFlat
+  sim_backend: motrix
+algo:
+  num_envs: 2048
+  learning_starts: 49
+  max_iterations: 3000
+  save_interval: 1000
+  updates_per_step: 8
+  replay_buffer_n: 1024
+  tau: 0.05
+env:
+  control_config:
+    action_scale: 1.0
+  domain_rand:
+    randomize_kp: false
+    randomize_kd: false
+    randomize_base_mass: false
+    random_com: false
+    randomize_gravity: false
+    push_robots: false
+  noise_config:
+    level: 0.0
+    scale_joint_angle: 0.01
+    scale_joint_vel: 0.1
+    scale_gyro: 0.0
+    scale_gravity: 0.0
+    scale_linvel: 0.0
+reward:
+  scales:
+    tracking_lin_vel: 3.0
+    tracking_ang_vel: 0.4
+    lin_vel_z: -5.0
+    ang_vel_xy: -0.1
+    base_height: -15.0
+    action_rate: -0.005
+    similar_to_default: -0.3
+    contact: 0.24
+    swing_feet_z: 4.0
+    alive: 2.0
+  tracking_sigma: 0.25
+  base_height_target: 0.3

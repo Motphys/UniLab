@@ -37,7 +37,7 @@ body:
       label: Reproduction
       description: Exact command, config, or sequence that reproduces the issue.
       placeholder: |
-        uv run python scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco ...
+        uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco ...
     validations:
       required: true
 

@@ -300,6 +300,23 @@ def main(cfg: DictConfig) -> None:
             )
             rl_cfg = _algo_config_dict(cfg)
             wrapper_cls = _resolve_ppo_wrapper_cls(rl_cfg)
+
+            nan_guard_cfg = getattr(cfg.training, "nan_guard", None)
+            if nan_guard_cfg is not None and getattr(nan_guard_cfg, "enabled", False):
+                from unilab.utils.nan_guard import NanGuard, NanGuardCfg
+
+                guard = NanGuard(
+                    NanGuardCfg(
+                        enabled=True,
+                        buffer_size=int(getattr(nan_guard_cfg, "buffer_size", 100)),
+                        max_envs_to_dump=int(getattr(nan_guard_cfg, "max_envs_to_dump", 5)),
+                        output_dir=getattr(nan_guard_cfg, "output_dir", None),
+                    ),
+                    num_envs=env.num_envs,
+                    supports_state_playback=env.play_capabilities.supports_physics_state_playback,
+                )
+                env.set_nan_guard(guard)
+
             wrapped_env = wrapper_cls(env, device=device)
 
             train_cfg = normalize_ppo_train_cfg(rl_cfg)

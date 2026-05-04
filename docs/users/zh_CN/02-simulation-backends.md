@@ -11,7 +11,7 @@ UniLab 当前支持两个仿真后端:
 
 - `uv sync --extra motrix` 会安装 Motrix 依赖。
 - Motrix 路径的 registry bootstrap 和 Hydra 配置 compose 不再要求导入 MuJoCo。
-- 在 macOS / MacBook 上，只要命令会打开 MotrixSim 原生 renderer（训练后自动回放或 `training.play_only=true`），就需要用 `uv run mxpython` 启动；不需要可视化的训练仍可使用 `uv run python ... training.no_play=true`。
+- 在 macOS / MacBook 上，只要命令会打开 MotrixSim 原生 renderer（训练后自动回放或 `training.play_only=true`），就需要用 `uv run mxpython` 启动；不需要可视化的训练仍可使用 `uv run scripts/... training.no_play=true`。
 - 任何 `task=.../mujoco` 的实际运行、MuJoCo playback、以及 MuJoCo-only 调试工具，仍然要求可用的 MuJoCo runtime。
 - 某些任务目前仍然只有 MuJoCo owner 配置；例如 APPO 路径下 `go1_joystick_flat` 对 Motrix 仅为 `Registered`。
 
@@ -72,8 +72,8 @@ uv run scripts/generate_support_matrix.py --write
 | SAC (torch) | `g1_walk_rough` (G1 walk rough) | Tested | Registered |
 | SAC (torch) | `g1_sac_wbt` (g1 sac wbt) | Tested | - |
 | TD3 (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered |
+| FlashSAC (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | Tested |
 | FlashSAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested |
-| FlashSAC (torch) | `g1_walk_flat_amp` (g1 walk flat amp) | Tested | Registered |
 
 ### Source Index
 
@@ -133,5 +133,6 @@ uv run mxpython scripts/train_rsl_rl.py task=go1_joystick_flat/motrix training.p
 
 ## Navigation
 
+- Index: [Documentation](../../README.md)
 - Previous: [Getting Started](01-getting-started.md)
 - Next: [Training Guide](03-training.md)

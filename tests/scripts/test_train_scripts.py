@@ -1516,13 +1516,13 @@ def test_offpolicy_td3_hydra_default_algo_log_name():
 
 
 def test_offpolicy_flashsac_hydra_algo_log_name():
-    cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_walk_flat_amp/mujoco"])
+    cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_walk_flat/mujoco"])
     assert cfg.algo.algo_log_name == "flash_sac"
     assert cfg.algo.load_run == "-1"
 
 
-def test_offpolicy_flashsac_g1_walk_flat_amp_task_composes() -> None:
-    cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_walk_flat_amp/mujoco"])
+def test_offpolicy_flashsac_g1_walk_flat_task_composes() -> None:
+    cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_walk_flat/mujoco"])
     assert cfg.training.task_name == "G1WalkFlat"
     assert cfg.training.sim_backend == "mujoco"
 
@@ -1538,7 +1538,7 @@ def test_offpolicy_flashsac_rejects_multi_gpu():
     cfg = _offpolicy_cfg(
         [
             "algo=flashsac",
-            "task=flashsac/g1_walk_flat_amp/mujoco",
+            "task=flashsac/g1_walk_flat/mujoco",
             "training.num_gpus=2",
         ]
     )

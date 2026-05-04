@@ -1,7 +1,7 @@
 """MuJoCo-only BONES-SEED CSV-to-NPZ conversion with forward kinematics.
 
-This script targets the CSV files under ``src/unilab/assets/motions/g1/flip``.
-Those files share one 36-column layout:
+This script targets local BONES-SEED G1 CSV clips. Those files share one
+36-column layout:
 
 - ``Frame``
 - ``root_translateX/Y/Z``
@@ -22,9 +22,9 @@ The exported NPZ format contains:
 - ``body_ang_vel_w``
 
 Usage:
-    uv run python scripts/motion/bones_seed_csv_to_npz.py
-    uv run python scripts/motion/bones_seed_csv_to_npz.py --dry-run
-    uv run python scripts/motion/bones_seed_csv_to_npz.py --input src/unilab/assets/motions/g1/flip/flip_090_001__A304.csv
+    uv run scripts/motion/bones_seed_csv_to_npz.py
+    uv run scripts/motion/bones_seed_csv_to_npz.py --dry-run
+    uv run scripts/motion/bones_seed_csv_to_npz.py --input path/to/flip_090_001__A304.csv
 """
 
 # pyright: reportAttributeAccessIssue=false

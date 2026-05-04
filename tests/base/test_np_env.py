@@ -516,3 +516,55 @@ class TestEdgeCases:
         state = env.step(np.zeros((1, 3)))
         assert set(state.obs.keys()) == {"obs", "critic", "history"}
         assert env.observation_space.shape == (18,)  # 4+6+8
+
+
+# ---------------------------------------------------------------------------
+# Reward sanitization (unconditional nan_to_num at end of step)
+# ---------------------------------------------------------------------------
+
+
+class _NanRewardStubEnv(_StubNpEnv):
+    """Produces NaN/Inf rewards for sanitization testing."""
+
+    def __init__(self, num_envs: int = 4, bad_rewards: np.ndarray | None = None):
+        super().__init__(num_envs)
+        self._bad_rewards = bad_rewards
+
+    def update_state(self, state: NpEnvState) -> NpEnvState:
+        state = super().update_state(state)
+        if self._bad_rewards is not None:
+            return state.replace(reward=self._bad_rewards.copy())
+        return state
+
+
+class TestRewardSanitization:
+    def test_step_sanitizes_nan_reward(self):
+        rewards = np.array([1.0, np.nan, 0.5, np.nan], dtype=np.float32)
+        env = _NanRewardStubEnv(num_envs=4, bad_rewards=rewards)
+        env.init_state()
+        state = env.step(np.zeros((4, 3)))
+        assert np.all(np.isfinite(state.reward))
+        np.testing.assert_array_equal(state.reward, [1.0, 0.0, 0.5, 0.0])
+
+    def test_step_sanitizes_inf_reward(self):
+        rewards = np.array([np.inf, -np.inf, 0.0, 1.0], dtype=np.float32)
+        env = _NanRewardStubEnv(num_envs=4, bad_rewards=rewards)
+        env.init_state()
+        state = env.step(np.zeros((4, 3)))
+        assert np.all(np.isfinite(state.reward))
+        np.testing.assert_array_equal(state.reward, [0.0, 0.0, 0.0, 1.0])
+
+    def test_guard_detects_nan_reward_before_sanitization(self):
+        from unilab.utils.nan_guard import NanGuard, NanGuardCfg
+
+        rewards = np.array([0.0, np.nan, 0.0, 0.0], dtype=np.float32)
+        env = _NanRewardStubEnv(num_envs=4, bad_rewards=rewards)
+        env.init_state()
+
+        cfg = NanGuardCfg(enabled=True, output_dir="/tmp/unilab_test_sanitize")
+        guard = NanGuard(cfg, num_envs=4, supports_state_playback=False)
+        env.set_nan_guard(guard)
+
+        state = env.step(np.zeros((4, 3)))
+        assert guard._dumped, "guard should have detected NaN before sanitization"
+        assert np.all(np.isfinite(state.reward)), "reward should be clean after step"
