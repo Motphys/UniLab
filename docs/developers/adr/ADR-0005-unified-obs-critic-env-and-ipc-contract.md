@@ -77,7 +77,7 @@ UniLab 运行时 observation contract 统一为且仅为两层：
 
 - Env contract: `src/unilab/base/np_env.py`
 - Final observation helper: `src/unilab/base/final_observation.py`
-- RSL-RL adapter: `src/unilab/algos/torch/rsl_rl/vec_env_wrapper.py`
+- RSL-RL adapter: `src/unilab/training/rsl_rl.py`
 - IPC tests: `tests/ipc/`
 - Observation tests: `tests/base/test_np_env.py`, `tests/utils/test_final_observation.py`
 
