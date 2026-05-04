@@ -448,10 +448,14 @@ def test_multi_gpu_worker_rank0_propagates_collect_time_and_extra_info(
     monkeypatch.setattr(multi_gpu_runner_module, "OffPolicyLogger", _FakeLogger)
     monkeypatch.setattr(multi_gpu_runner_module, "FastSACLearner", _FakeLearner)
     monkeypatch.setattr(multi_gpu_runner_module.torch.cuda, "set_device", lambda rank: None)
-    monkeypatch.setattr(multi_gpu_runner_module.dist, "init_process_group", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        multi_gpu_runner_module.dist, "init_process_group", lambda *args, **kwargs: None
+    )
     monkeypatch.setattr(multi_gpu_runner_module.dist, "broadcast", lambda *args, **kwargs: None)
     monkeypatch.setattr(multi_gpu_runner_module.dist, "barrier", lambda *args, **kwargs: None)
-    monkeypatch.setattr(multi_gpu_runner_module.dist, "destroy_process_group", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        multi_gpu_runner_module.dist, "destroy_process_group", lambda *args, **kwargs: None
+    )
     monkeypatch.setattr(multi_gpu_runner_module.torch, "save", lambda *args, **kwargs: None)
 
     fake_clock = _FakeClock([300.0, 300.1, 310.1, 310.2, 310.7])
