@@ -632,9 +632,7 @@ class MuJoCoBackend(SimBackend):
             return
         self._pending_xfrc_applied.fill(0.0)
         if plan.push_perturbation_limit is not None:
-            self._pending_xfrc_applied[:, self._push_body_force_slice] = self._sample_push_force(
-                plan.push_perturbation_limit
-            )
+            self.push_robots(plan.push_perturbation_limit)
         if plan.body_force is not None:
             if plan.body_ids is None:
                 raise ValueError("Interval body-force perturbation requires body_ids")
