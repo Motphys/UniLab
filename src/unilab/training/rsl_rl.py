@@ -158,13 +158,16 @@ class RslRlVecEnvWrapper:
                 return final_observation
         return None
 
+    def _resolve_done(self, state: NpEnvState) -> torch.Tensor:
+        return to_torch(state.terminated | state.truncated, self.device).bool()
+
     def step(
         self, actions: torch.Tensor | np.ndarray
     ) -> tuple[TensorDict, torch.Tensor, torch.Tensor, dict]:
         actions_np = to_numpy(actions)
         state = self.env.step(actions_np)
         rewards = to_torch(state.reward, self.device)
-        dones = to_torch(state.terminated | state.truncated, self.device).bool()
+        dones = self._resolve_done(state)
 
         self.episode_returns += rewards
         self.episode_lengths += 1
