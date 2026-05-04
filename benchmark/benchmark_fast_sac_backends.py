@@ -44,9 +44,7 @@ def run_backend(task, max_iterations, backend, num_envs):
         "torch_cpu": "cpu",
     }
     if backend not in device_map:
-        raise ValueError(
-            f"Unsupported backend '{backend}'. Expected one of {sorted(device_map)}."
-        )
+        raise ValueError(f"Unsupported backend '{backend}'. Expected one of {sorted(device_map)}.")
     device = device_map[backend]
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")

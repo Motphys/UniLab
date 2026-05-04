@@ -285,8 +285,7 @@ def main() -> None:
 
     if ct is None:
         raise RuntimeError(
-            "coremltools is required (failed to import coremltools: "
-            f"{_COREMLTOOLS_IMPORT_ERROR})"
+            f"coremltools is required (failed to import coremltools: {_COREMLTOOLS_IMPORT_ERROR})"
         )
 
     env_nums = [int(x.strip()) for x in args.sizes.split(",") if x.strip()]
