@@ -147,12 +147,10 @@ class OffPolicyRunner(AsyncRunner):
 
         rewards = self._read_recent_replay_field(replay_buffer, "rewards", start_ptr, count)
         dones = self._read_recent_replay_field(replay_buffer, "dones", start_ptr, count)
-        truncated = self._read_recent_replay_field(replay_buffer, "truncated", start_ptr, count)
         num_steps = count // self.num_envs
         self.learner.update_reward_stats(
             rewards.view(num_steps, self.num_envs),
             dones.view(num_steps, self.num_envs),
-            truncated.view(num_steps, self.num_envs),
         )
         return end_ptr
 
@@ -261,6 +259,8 @@ class OffPolicyRunner(AsyncRunner):
         write_read_ema = 0.0
         reward_stats_ptr = 0
         train_start_threshold = self.train_start_threshold
+        startup_wait_time = 0.0
+        have_startup_wait_time = False
 
         # Training loop
         for iteration in range(1, max_iterations + 1):
@@ -347,7 +347,13 @@ class OffPolicyRunner(AsyncRunner):
 
             wait_time = time.time() - wait_start
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
-            collect_time = time.time() - iter_start
+            collect_time = float(getattr(replay_buffer, "collect_time_s", torch.zeros(1))[0])
+            if collect_time <= 0:
+                collect_time = time.time() - iter_start - wait_time
+            collect_time = max(float(collect_time), 0.0)
+            if not have_startup_wait_time and wait_time > collect_time:
+                startup_wait_time = max(wait_time - collect_time, 0.0)
+                have_startup_wait_time = True
             reward_stats_ptr = self._update_reward_stats_from_replay(
                 replay_buffer,
                 reward_stats_ptr,
@@ -422,6 +428,10 @@ class OffPolicyRunner(AsyncRunner):
                 collect_time=collect_time,
                 train_time=train_time,
                 wait_time=wait_time,
+                extra_info={
+                    "startup_wait_time": startup_wait_time if iteration == 1 else 0.0,
+                    "throughput_steps": self.num_envs * self.env_steps_per_sync,
+                },
             )
 
             if save_interval > 0 and iteration % save_interval == 0:

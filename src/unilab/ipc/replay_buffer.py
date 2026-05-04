@@ -29,6 +29,7 @@ class ReplayBuffer(SharedBufferBase):
         self._obs_dim = obs_dim
         self._action_dim = action_dim
         self._critic_dim = critic_dim
+        self.collect_time_s = torch.zeros(1, dtype=torch.float32).share_memory_()
 
         self.size = torch.zeros(1, dtype=torch.int64).share_memory_()
 
@@ -143,7 +144,12 @@ class ReplayBuffer(SharedBufferBase):
         next_critic=None,
         terminal_next_critic=None,
     ):
-        """Add batch (called by collector)."""
+        """Add batch (called by collector).
+
+        `dones` follows the UniLab env lifecycle contract:
+        done = terminated | truncated. Learners must pair it with
+        `truncated` when computing bootstrap masks.
+        """
         n = obs.shape[0]
         idx = int(self.ptr[0]) % self.capacity
         has_critic = self._critic_dim > 0 and critic is not None

@@ -144,7 +144,7 @@ class TestNpEnvState:
         assert "obs" in state.obs
         assert "critic" in state.obs
 
-    def test_done_combines_terminated_and_truncated(self):
+    def test_terminated_and_truncated_are_separate_signals(self):
         state = NpEnvState(
             obs={"a": np.zeros((3, 1))},
             reward=np.zeros(3),
@@ -152,10 +152,11 @@ class TestNpEnvState:
             truncated=np.array([False, False, True]),
             info={},
         )
-        done = state.done
-        np.testing.assert_array_equal(done, [True, False, True])
+        np.testing.assert_array_equal(state.terminated, [True, False, False])
+        np.testing.assert_array_equal(state.truncated, [False, False, True])
+        np.testing.assert_array_equal(state.terminated | state.truncated, [True, False, True])
 
-    def test_done_both_true(self):
+    def test_terminated_and_truncated_can_both_be_true(self):
         state = NpEnvState(
             obs={"a": np.zeros((1, 1))},
             reward=np.zeros(1),
@@ -163,7 +164,7 @@ class TestNpEnvState:
             truncated=np.array([True]),
             info={},
         )
-        assert state.done[0] is np.True_
+        assert (state.terminated | state.truncated)[0] is np.True_
 
     def test_replace_preserves_type(self):
         obs = {"obs": np.zeros((2, 3))}
@@ -383,7 +384,7 @@ class TestResetDoneEnvs:
 
         state = env.step(np.zeros((3, 3)))
 
-        np.testing.assert_array_equal(state.done, [False, False, False])
+        np.testing.assert_array_equal(state.terminated | state.truncated, [False, False, False])
         assert state.final_observation is None
         np.testing.assert_array_equal(state.info["_final_observation"], [False, False, False])
 
@@ -400,7 +401,9 @@ class TestResetDoneEnvs:
         env.set_terminate_indices([])
         non_terminal_state = env.step(np.zeros((3, 3)))
 
-        np.testing.assert_array_equal(non_terminal_state.done, [False, False, False])
+        np.testing.assert_array_equal(
+            non_terminal_state.terminated | non_terminal_state.truncated, [False, False, False]
+        )
         assert non_terminal_state.final_observation is None
         np.testing.assert_array_equal(
             non_terminal_state.info["_final_observation"], [False, False, False]

@@ -266,8 +266,6 @@ class APPORunner(AsyncRunner):
         replay_queue: deque[dict] = deque(maxlen=self.replay_queue_size)
 
         for iteration in range(1, max_iterations + 1):
-            iter_start = time.time()
-
             # Drain collector metrics while waiting for next rollout
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
             wait_start = time.time()
@@ -297,9 +295,14 @@ class APPORunner(AsyncRunner):
             # the learner was training, we consume all 3 immediately rather than
             # processing them one-per-iteration.
             num_new = shared_storage.available()
+            rollout_collect_time = 0.0
             for _ in range(num_new):
                 raw = shared_storage.read_torch(self.device)
                 shared_storage.advance_read()
+
+                raw_collect_time = raw.pop("rollout_collect_time_s", None)
+                if raw_collect_time is not None:
+                    rollout_collect_time += float(raw_collect_time.reshape(-1)[0].item())
 
                 # Preprocess: storage is [N, T, *] (env-major); learner expects [T, N, *]
                 rollout: dict = {}
@@ -315,7 +318,8 @@ class APPORunner(AsyncRunner):
                 replay_queue.append(rollout)
 
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
-            collect_time = time.time() - iter_start
+            collect_time = rollout_collect_time
+            startup_wait_time = max(wait_time - collect_time, 0.0) if iteration == 1 else 0.0
 
             # Concatenate all rollouts in the replay queue along the env dimension.
             # Each rollout keeps its own behavior_log_probs so V-trace IS ratios are
@@ -338,6 +342,7 @@ class APPORunner(AsyncRunner):
 
             metrics["replay_queue_len"] = float(len(replay_queue))
             metrics["available_on_arrive"] = float(available_on_arrive)
+            metrics["rollouts_read"] = float(num_new)
 
             logger.update_replay_queue(len(replay_queue), self.replay_queue_size)
 
@@ -357,6 +362,10 @@ class APPORunner(AsyncRunner):
                 collect_time=collect_time,
                 train_time=train_time,
                 wait_time=wait_time,
+                extra_info={
+                    "startup_wait_time": startup_wait_time,
+                    "throughput_steps": num_new * env_steps_per_sync,
+                },
             )
 
             if save_interval > 0 and iteration % save_interval == 0:

@@ -48,6 +48,11 @@ def compute_timeout_bootstrap_correction(
     return corrections
 
 
+def record_rollout_collect_time(write_buf: dict[str, np.ndarray], collect_time_s: float) -> None:
+    """Write collector-measured rollout wall time into shared rollout metadata."""
+    write_buf["rollout_collect_time_s"][:] = float(collect_time_s)
+
+
 def appo_collector_fn(
     stop_event: Any,
     env_name: str,
@@ -204,6 +209,7 @@ def appo_collector_fn(
 
             # Collect one rollout of length steps_per_env
             write_buf = storage.write_buffer
+            rollout_start = time.perf_counter()
             for step in range(steps_per_env):
                 # --- MLP inference (timed) ---
                 t_mlp = time.perf_counter()
@@ -231,16 +237,17 @@ def appo_collector_fn(
 
                 next_obs_raw = state.obs
                 reward_raw = np.asarray(state.reward, dtype=np.float32).ravel()
-                terminated_raw = np.asarray(state.terminated, dtype=np.float32).ravel()
-                truncated_raw = np.asarray(state.truncated, dtype=np.float32).ravel()
-                combined_done_raw = np.clip(terminated_raw + truncated_raw, 0, 1)
+                truncated_raw = state.truncated.astype(np.float32, copy=False).ravel()
+                combined_done_raw = (
+                    (state.terminated | state.truncated).astype(np.float32, copy=False).ravel()
+                )
 
                 next_actor_obs_np, next_critic_np = split_obs_dict(next_obs_raw)
                 next_actor_obs_np = to_float32_np(next_actor_obs_np)
                 next_critic_np = to_float32_np(next_critic_np)
                 terminal_contract = resolve_terminal_observation_contract(
                     next_obs_batch_size=next_actor_obs_np.shape[0],
-                    final_observation=getattr(state, "final_observation", None),
+                    final_observation=state.final_observation,
                     done=combined_done_raw > 0.5,
                     info=state.info,
                     truncated=truncated_raw,
@@ -322,6 +329,7 @@ def appo_collector_fn(
             write_buf["last_obs"][:] = obs_np
             if critic_np is not None:
                 write_buf["last_critic"][:] = critic_np
+            record_rollout_collect_time(write_buf, time.perf_counter() - rollout_start)
             storage.signal_write_done()  # atomic increment, non-blocking
 
     except Exception as e:

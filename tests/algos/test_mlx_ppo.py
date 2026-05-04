@@ -390,7 +390,7 @@ def test_mlx_ppo_one_iteration_real_env(default_go2_reward_config):
         state = env.step(env_actions)
         raw_obs = flatten_obs_dict(state.obs)
         rewards = mx.array(state.reward)
-        dones = mx.array(state.done.astype(np.float32))
+        dones = mx.array((state.terminated | state.truncated).astype(np.float32))
 
         buffer.add(
             obs=obs,

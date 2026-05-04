@@ -714,7 +714,8 @@ def test_env_reset_and_step(
         for key, dim in spec.items():
             assert state.obs[key].shape == (2, dim)
         assert state.reward.shape == (2,)
-        assert state.done.shape == (2,)
+        assert state.terminated.shape == (2,)
+        assert state.truncated.shape == (2,)
     finally:
         env.close()
 
@@ -863,7 +864,8 @@ def test_g1_motion_tracking_reset_and_step(sim_backend: str):
         state = env.step(actions)
         assert isinstance(state.obs, dict)
         assert state.reward.shape == (2,)
-        assert state.done.shape == (2,)
+        assert state.terminated.shape == (2,)
+        assert state.truncated.shape == (2,)
     finally:
         env.close()
 

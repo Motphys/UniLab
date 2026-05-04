@@ -22,6 +22,7 @@ _FIELD_SHAPES = {
     "last_obs": lambda ns_slots, ne, ns, od, ad, cd, pd: (ns_slots, ne, od),
     "last_critic": lambda ns_slots, ne, ns, od, ad, cd, pd: (ns_slots, ne, cd),
     "last_priv_info": lambda ns_slots, ne, ns, od, ad, cd, pd: (ns_slots, ne, pd),
+    "rollout_collect_time_s": lambda ns_slots, ne, ns, od, ad, cd, pd: (ns_slots, 1),
 }
 
 

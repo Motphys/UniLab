@@ -10,6 +10,7 @@ import torch
 from tensordict import TensorDict
 
 from unilab.base.final_observation import resolve_terminal_observation_contract
+from unilab.base.np_env import NpEnvState
 from unilab.utils.tensor import to_numpy, to_torch
 
 
@@ -148,20 +149,11 @@ class RslRlVecEnvWrapper:
             td_dict["critic"] = to_torch(obs["critic"], self.device)
         return TensorDict(td_dict, batch_size=self.num_envs, device=self.device)
 
-    def _resolve_done(self, state: Any) -> torch.Tensor:
-        if hasattr(state, "done"):
-            return to_torch(state.done, self.device).bool()
-        terminated = np.asarray(getattr(state, "terminated"), dtype=bool).ravel()
-        truncated = np.asarray(getattr(state, "truncated"), dtype=bool).ravel()
-        return to_torch(np.logical_or(terminated, truncated), self.device).bool()
-
-    def _resolve_final_observation(self, state: Any) -> dict[str, Any] | None:
-        final_observation = getattr(state, "final_observation", None)
-        if isinstance(final_observation, dict):
-            return final_observation
-        info = getattr(state, "info", None)
-        if isinstance(info, dict):
-            final_observation = info.get("final_observation")
+    def _resolve_final_observation(self, state: NpEnvState) -> dict[str, Any] | None:
+        if isinstance(state.final_observation, dict):
+            return state.final_observation
+        if isinstance(state.info, dict):
+            final_observation = state.info.get("final_observation")
             if isinstance(final_observation, dict):
                 return final_observation
         return None
@@ -172,7 +164,7 @@ class RslRlVecEnvWrapper:
         actions_np = to_numpy(actions)
         state = self.env.step(actions_np)
         rewards = to_torch(state.reward, self.device)
-        dones = self._resolve_done(state)
+        dones = to_torch(state.terminated | state.truncated, self.device).bool()
 
         self.episode_returns += rewards
         self.episode_lengths += 1
@@ -180,17 +172,15 @@ class RslRlVecEnvWrapper:
         infos: dict[str, torch.Tensor | TensorDict | dict[str, Any]] = {}
         done_idx = torch.nonzero(dones).flatten()
         if len(done_idx) > 0:
-            truncated = getattr(state, "truncated", None)
-            if truncated is not None:
-                infos["time_outs"] = to_torch(truncated, self.device).bool()
+            infos["time_outs"] = to_torch(state.truncated, self.device).bool()
 
             final_observation = self._resolve_final_observation(state)
             terminal_contract = resolve_terminal_observation_contract(
                 next_obs_batch_size=self.num_envs,
                 final_observation=final_observation,
                 done=to_numpy(dones),
-                info=getattr(state, "info", None),
-                truncated=to_numpy(infos["time_outs"]) if "time_outs" in infos else None,
+                info=state.info,
+                truncated=to_numpy(infos["time_outs"]),
             )
             if np.any(terminal_contract.timeout_terminal_mask) and final_observation is not None:
                 infos["time_out_bootstrap_obs"] = self._obs_to_tensordict(final_observation)
@@ -198,7 +188,7 @@ class RslRlVecEnvWrapper:
             self.episode_returns[done_idx] = 0
             self.episode_lengths[done_idx] = 0
 
-        if hasattr(state, "info") and "log" in state.info:
+        if "log" in state.info:
             infos["log"] = state.info["log"]
 
         return (

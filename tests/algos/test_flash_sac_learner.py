@@ -5,6 +5,7 @@ from __future__ import annotations
 import torch
 
 from unilab.algos.torch.flash_sac.learner import FlashSACLearner, RewardNormalizer
+from unilab.algos.torch.flash_sac.update import compute_categorical_td_target
 
 
 def _make_batch(batch_size: int = 32) -> dict[str, torch.Tensor]:
@@ -82,8 +83,7 @@ def test_reward_normalizer_tracks_discounted_returns() -> None:
 
     normalizer.update_from_transitions(
         rewards=torch.tensor([[2.0, 1.0], [4.0, 3.0]]),
-        terminated=torch.tensor([[0.0, 1.0], [0.0, 0.0]]),
-        truncated=torch.zeros(2, 2),
+        dones=torch.tensor([[0.0, 1.0], [0.0, 0.0]]),
     )
 
     torch.testing.assert_close(normalizer.g_r, torch.tensor([5.0, 3.5]))
@@ -94,8 +94,7 @@ def test_flashsac_critic_update_does_not_advance_reward_stats_from_sampled_batch
     learner = FlashSACLearner(obs_dim=98, action_dim=29, critic_obs_dim=101, device="cpu")
     learner.update_reward_stats(
         rewards=torch.tensor([[1.0, 2.0]]),
-        terminated=torch.zeros(1, 2),
-        truncated=torch.zeros(1, 2),
+        dones=torch.zeros(1, 2),
     )
     assert learner.reward_normalizer is not None
     before = learner.reward_normalizer.g_r.clone()
@@ -103,3 +102,45 @@ def test_flashsac_critic_update_does_not_advance_reward_stats_from_sampled_batch
     learner.update_critic(_make_batch())
 
     torch.testing.assert_close(learner.reward_normalizer.g_r, before)
+
+
+def test_flashsac_critic_requires_truncated_field() -> None:
+    learner = FlashSACLearner(obs_dim=98, action_dim=29, critic_obs_dim=101, device="cpu")
+    batch = _make_batch()
+    batch.pop("truncated")
+
+    try:
+        learner.update_critic(batch)
+    except KeyError as exc:
+        assert exc.args == ("truncated",)
+    else:  # pragma: no cover - explicit failure path
+        raise AssertionError("FlashSAC learner must require replay 'truncated'")
+
+
+def test_flashsac_td_target_treats_dones_as_combined_done_with_truncation_bootstrap() -> None:
+    support = torch.tensor([0.0, 1.0, 2.0])
+    target_log_probs = torch.log(
+        torch.tensor(
+            [
+                [0.0, 0.0, 1.0],
+                [0.0, 0.0, 1.0],
+                [0.0, 0.0, 1.0],
+            ]
+        ).clamp_min(1e-8)
+    )
+
+    targets = compute_categorical_td_target(
+        support=support,
+        target_log_probs=target_log_probs,
+        reward=torch.zeros(3),
+        dones=torch.tensor([0.0, 1.0, 1.0]),
+        truncated=torch.tensor([0.0, 1.0, 0.0]),
+        actor_entropy=torch.zeros(3),
+        gamma=1.0,
+    )
+
+    # Continuing rows and truncated rows bootstrap to support value 2.0.
+    torch.testing.assert_close(targets[0], torch.tensor([0.0, 0.0, 1.0]))
+    torch.testing.assert_close(targets[1], torch.tensor([0.0, 0.0, 1.0]))
+    # True terminal rows do not bootstrap and project to reward-only value 0.0.
+    torch.testing.assert_close(targets[2], torch.tensor([1.0, 0.0, 0.0]))

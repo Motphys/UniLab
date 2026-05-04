@@ -66,17 +66,16 @@ class _RslRlVecEnvWrapper:
         )
         state = self.env.step(actions_np)
         rewards = to_torch(state.reward, self.device)
-        dones = to_torch(state.done, self.device).bool()
+        dones = to_torch(state.terminated | state.truncated, self.device).bool()
         self.episode_returns += rewards
         self.episode_lengths += 1
         infos = {}
         done_idx = torch.nonzero(dones).flatten()
         if len(done_idx) > 0:
-            if hasattr(state, "truncated"):
-                infos["time_outs"] = to_torch(state.truncated, self.device).bool()
+            infos["time_outs"] = to_torch(state.truncated, self.device).bool()
             self.episode_returns[done_idx] = 0
             self.episode_lengths[done_idx] = 0
-        if hasattr(state, "info") and "log" in state.info:
+        if "log" in state.info:
             infos["log"] = state.info["log"]
         return self._obs_to_tensordict(state.obs), rewards, dones, infos
 

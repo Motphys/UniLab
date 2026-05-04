@@ -44,7 +44,7 @@ def compute_categorical_td_target(
     support: torch.Tensor,
     target_log_probs: torch.Tensor,
     reward: torch.Tensor,
-    terminated: torch.Tensor,
+    dones: torch.Tensor,
     truncated: torch.Tensor,
     actor_entropy: torch.Tensor,
     gamma: float,
@@ -52,11 +52,11 @@ def compute_categorical_td_target(
     batch_size, num_bins = target_log_probs.shape
     support = support.view(1, -1)
     reward = reward.view(-1, 1)
-    terminated = terminated.view(-1, 1)
+    dones = dones.view(-1, 1)
     truncated = truncated.view(-1, 1)
     actor_entropy = actor_entropy.view(-1, 1)
 
-    bootstrap = torch.clamp(1.0 - terminated + truncated, 0.0, 1.0)
+    bootstrap = torch.clamp(1.0 - dones + truncated, 0.0, 1.0)
     target_bin_values = reward + bootstrap * gamma * (support - actor_entropy)
     target_bin_values = torch.clamp(target_bin_values, float(support.min()), float(support.max()))
 
