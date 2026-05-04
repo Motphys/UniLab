@@ -77,41 +77,9 @@ uv run train --algo ppo --task g1_motion_tracking --sim mujoco
 
 ## 🎯 Training Entrypoints
 
-Use `uv run train` for training, `uv run eval` for checkpoint playback, and `uv run demo` for the local demo preset. These commands wrap the lower-level training scripts while keeping task and backend selection explicit.
+Use `uv run train` for training, `uv run eval` for checkpoint playback, and `uv run demo` for the local demo preset. These commands are the first-level training interface and keep algorithm, task, and backend selection explicit.
 
-| Goal | Primary command | Log root pattern |
-|------|------------|------------------|
-| PPO (torch / RSL-RL) | `uv run train --algo ppo --task <task> --sim <backend>` | `logs/rsl_rl_ppo/<task>/` |
-| PPO (MLX, macOS) | `uv run train --algo mlx_ppo --task <task> --sim <backend>` | `logs/mlx_rl_train/<task>/` |
-| APPO | `uv run train --algo appo --task <task> --sim <backend>` | `logs/appo/<task>/` |
-| SAC | `uv run train --algo sac --task <task> --sim <backend>` | `logs/fast_sac/<task>/` |
-| FlashSAC | `uv run train --algo flashsac --task <task> --sim <backend>` | `logs/flash_sac/<task>/` |
-| TD3 | `uv run train --algo td3 --task <task> --sim <backend>` | `logs/fast_td3/<task>/` |
-
-Training commands automatically enter playback after training unless you set `training.no_play=true`.
-
-Direct script entrypoints are kept in the user documentation under `docs/users/zh_CN/`.
-
-Supported algorithms: `ppo`, `mlx_ppo`, `appo`, `sac`, `td3`, `flashsac`
-Supported simulators: `mujoco`, `motrix`
-
-Hydra overrides can be appended directly:
-
-```bash
-uv run train --algo ppo --task go2_joystick_flat --sim mujoco training.max_iterations=10
-```
-
-### Demo
-
-`uv run demo` runs a pre-configured playback using a checkpoint already present in the local training output.
-
-| Flag | Description |
-|------|-------------|
-| `--preset` | Demo preset name (default: `go2_joystick_mujoco_ppo`) |
-| `--refresh` | Remove and regenerate the demo directory |
-| `--device` | Inference device (`cpu`, `cuda`, `mps`) |
-
-> **For Developers**: Demo checkpoints currently require local training output. A checkpoint hosting solution (CDN / model registry) with automatic download is not yet in place.
+See [03 Training Guide](docs/users/zh_CN/03-training.md) for the algorithm matrix, log directory layout, Hydra overrides, script-level entrypoints, and demo flags.
 
 ## 🐳 Docker
 
@@ -145,14 +113,6 @@ Using a named volume for `/workspace/UniLab/.venv` avoids mixing a container-cre
 ### GPU Containers
 
 On Linux hosts with the NVIDIA Container Toolkit configured, you can pass `--gpus all` to expose CUDA inside the container. See [01 Getting Started](docs/users/zh_CN/01-getting-started.md) for detailed container verification commands.
-
-## 🗺️ Repository Map
-
-- `conf/`: Hydra configuration, including task / reward / algorithm composition
-- `scripts/`: direct entrypoints for training, playback, motion preprocessing, and tooling
-- `src/unilab/`: environments, backends, algorithms, and shared utilities
-- `tests/`: unit tests, integration tests, and script configuration tests
-- `docs/`: user documentation under `docs/users/` and developer documentation under `docs/developers/`
 
 ## 📚 Documentation
 

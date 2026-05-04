@@ -4,22 +4,22 @@
 
 本页覆盖训练、回放、恢复训练、Hydra override 和 W&B。
 
-## Pick An Entrypoint
+## 统一 CLI 入口
 
-| 目标 | 入口脚本 | 日志根目录模式 |
-|------|----------|----------------|
-| PPO (RSL-RL / torch) | `scripts/train_rsl_rl.py` | `logs/<algo.algo_log_name>/<task>/` |
-| PPO (MLX / macOS) | `scripts/train_mlx_ppo.py` | `logs/<algo.algo_log_name>/<task>/` |
-| APPO | `scripts/train_appo.py` | `logs/<algo.algo_log_name>/<task>/` |
-| SAC / TD3 | `scripts/train_offpolicy.py` | `logs/<algo.algo_log_name>/<task>/` |
-
-实际目录名由 `algo.algo_log_name` 决定；当前默认值分别是 `rsl_rl_ppo`、`mlx_rl_train`、`appo`、`fast_sac` 和 `fast_td3`。
-
-## 统一 CLI
-
-除了直接调用脚本，UniLab 还提供了 `train`、`eval` 和 `demo` 命令行入口，通过 `--algo`、`--task`、`--sim` 三个参数自动路由到对应的训练脚本。
+`uv run train`、`uv run eval` 和 `uv run demo` 是 UniLab 的第一等级训练入口。CLI 通过 `--algo`、`--task`、`--sim` 三个参数自动路由到对应训练脚本，同时保持算法、任务和后端选择显式可见。
 
 ### uv run train
+
+| 目标 | 主命令 | 日志根目录模式 |
+|------|--------|----------------|
+| PPO (RSL-RL / torch) | `uv run train --algo ppo --task <task> --sim <backend>` | `logs/rsl_rl_ppo/<task>/` |
+| PPO (MLX / macOS) | `uv run train --algo mlx_ppo --task <task> --sim <backend>` | `logs/mlx_rl_train/<task>/` |
+| APPO | `uv run train --algo appo --task <task> --sim <backend>` | `logs/appo/<task>/` |
+| SAC | `uv run train --algo sac --task <task> --sim <backend>` | `logs/fast_sac/<task>/` |
+| FlashSAC | `uv run train --algo flashsac --task <task> --sim <backend>` | `logs/flash_sac/<task>/` |
+| TD3 | `uv run train --algo td3 --task <task> --sim <backend>` | `logs/fast_td3/<task>/` |
+
+常用命令：
 
 ```bash
 # PPO
@@ -44,11 +44,19 @@ uv run train --algo mlx_ppo --task go2_joystick_flat --sim mujoco
 支持的算法：`ppo`、`mlx_ppo`、`appo`、`sac`、`td3`、`flashsac`
 支持的模拟器：`mujoco`、`motrix`
 
+训练命令默认会在训练结束后自动进入回放。
+
+- `mujoco` 会导出 `play_video.mp4`
+- `motrix` 会打开交互式窗口渲染
+- `training.no_play=true` 可以跳过自动回放
+
 Hydra override 可以直接追加在命令末尾：
 
 ```bash
 uv run train --algo ppo --task go2_joystick_flat --sim mujoco training.max_iterations=10
 ```
+
+run 目录命名格式是 `YYYY-MM-DD_HH-MM-SS_<sim_backend>`，例如 `2026-03-09_18-30-00_mujoco`。
 
 ### uv run eval
 
@@ -88,7 +96,18 @@ uv run demo --device cpu
 
 > **For Developers**: 当前 demo checkpoint 需要本地训练产出后手动放置。尚缺少 checkpoint 网络托管方案（如 CDN / model registry），后续需要补充自动下载机制。
 
-## Start Training
+## 低层脚本入口
+
+直接脚本入口主要用于调试、验证单个训练栈，或需要访问底层 Hydra compose 细节的场景。常规训练优先使用上面的统一 CLI。
+
+| 目标 | 入口脚本 | 日志根目录模式 |
+|------|----------|----------------|
+| PPO (RSL-RL / torch) | `scripts/train_rsl_rl.py` | `logs/<algo.algo_log_name>/<task>/` |
+| PPO (MLX / macOS) | `scripts/train_mlx_ppo.py` | `logs/<algo.algo_log_name>/<task>/` |
+| APPO | `scripts/train_appo.py` | `logs/<algo.algo_log_name>/<task>/` |
+| SAC / TD3 / FlashSAC | `scripts/train_offpolicy.py` | `logs/<algo.algo_log_name>/<task>/` |
+
+实际目录名由 `algo.algo_log_name` 决定；当前默认值分别是 `rsl_rl_ppo`、`mlx_rl_train`、`appo`、`fast_sac`、`flash_sac` 和 `fast_td3`。
 
 ```bash
 # PPO (RSL-RL)
@@ -104,21 +123,15 @@ uv run scripts/train_appo.py task=go1_joystick_flat/mujoco
 uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco
 uv run scripts/train_offpolicy.py algo=td3 task=td3/g1_walk_flat/mujoco
 
-# CLI override
+# Hydra override
 uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco algo.num_envs=2048 algo.max_iterations=1000
 ```
 
-训练脚本默认会在训练结束后自动进入回放。
+在 macOS / MacBook 上，统一 CLI 会在需要打开 MotrixSim 原生 renderer 时自动路由到 `mxpython`。如果直接调用脚本，只要命令会打开 MotrixSim 原生 renderer（训练后自动回放或 `training.play_only=true`），就需要用 `uv run mxpython` 启动；不需要可视化的训练仍可使用 `uv run scripts/... training.no_play=true`。
 
-- `mujoco` 会导出 `play_video.mp4`
-- `motrix` 会打开交互式窗口渲染
-- `training.no_play=true` 可以跳过自动回放
+## 脚本回放
 
-在 macOS / MacBook 上，只要命令会打开 MotrixSim 原生 renderer（训练后自动回放或 `training.play_only=true`），就需要用 `uv run mxpython` 启动；不需要可视化的训练仍可使用 `uv run scripts/... training.no_play=true`。
-
-run 目录命名格式是 `YYYY-MM-DD_HH-MM-SS_<sim_backend>`，例如 `2026-03-09_18-30-00_mujoco`。
-
-## Playback
+常规 checkpoint 回放优先使用 `uv run eval`。下面是直接脚本形式，主要用于调试底层训练入口。
 
 ```bash
 # 回放最新结果
@@ -132,7 +145,7 @@ uv run mxpython scripts/train_rsl_rl.py task=go2_joystick_flat/motrix training.p
 uv run scripts/train_offpolicy.py algo=td3 task=td3/g1_walk_flat/mujoco training.play_only=true algo.load_run="2024-02-04_12-00-00"
 ```
 
-## Resume Training
+## 恢复训练
 
 ```bash
 uv run scripts/train_rsl_rl.py task=go2_joystick_flat/mujoco algo.load_run="2024-02-04_12-00-00"
@@ -141,15 +154,26 @@ uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco algo.loa
 
 ## Hydra Overrides
 
-所有训练脚本都由 Hydra 配置驱动。
+统一 CLI 和低层训练脚本都由 Hydra 配置驱动。统一 CLI 可以直接在命令末尾追加 Hydra override：
 
 ```bash
-# 通用形式
-uv run scripts/train_*.py [config_group=value] [key.subkey=value]
+# 统一 CLI
+uv run train --algo ppo --task go2_joystick_flat --sim mujoco training.max_iterations=10 training.no_play=true
 
-# 常见参数
+# 低层脚本通用形式
+uv run scripts/train_*.py [config_group=value] [key.subkey=value]
+```
+
+低层脚本常见 config group：
+
+```bash
 task=go1_joystick_flat/mujoco
 algo=sac
+```
+
+常见 Hydra override：
+
+```bash
 training.play_only=true
 training.no_play=true
 algo.load_run="-1"
