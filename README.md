@@ -65,6 +65,8 @@ uv run train --algo sac --task g1_walk_flat --sim mujoco
 uv run train --algo ppo --task g1_motion_tracking --sim mujoco
 ```
 
+More training commands, script-level entrypoints, resume flow, and W&B details are in [03 Training Guide](docs/users/zh_CN/03-training.md).
+
 ## 🧱 System Layout
 
 ```
@@ -81,40 +83,11 @@ Use `uv run train` for training, `uv run eval` for checkpoint playback, and `uv 
 
 See [03 Training Guide](docs/users/zh_CN/03-training.md) for the algorithm matrix, log directory layout, Hydra overrides, script-level entrypoints, and demo flags.
 
-## 🐳 Docker
-
-Use Docker when you want an isolated **Linux NVIDIA/CUDA** runtime without changing your local Python environment. The Dockerfile is based on an NVIDIA CUDA Ubuntu image, so Linux training containers require an NVIDIA GPU, a compatible host driver, and NVIDIA Container Toolkit. macOS Docker is not currently supported.
-
-### Build Image
-
-```bash
-docker build -t unilab:latest .
-```
-
-The image installs the default UniLab runtime, `mujoco-uni`, the `motrix` extra, and the dev/test tools.
-
-### Run Image
-
-```bash
-# Check the unified CLI entrypoint
-docker run --rm unilab:latest
-
-# Linux NVIDIA training shell with the repo mounted
-# Keep .venv in a named volume so the container does not overwrite the host venv
-docker run --rm --gpus all -it \
-  -v "$(pwd):/workspace/UniLab" \
-  -v unilab-venv:/workspace/UniLab/.venv \
-  -w /workspace/UniLab \
-  unilab:latest bash
-```
-
-Using a named volume for `/workspace/UniLab/.venv` avoids mixing a container-created virtual environment with the host checkout. This prevents path mismatches such as `/workspace/UniLab/.venv` vs `.venv` and avoids permission problems when returning to local `uv` or `make test-all` workflows.
-
 ## 📚 Documentation
 
 Use [docs/README.md](docs/README.md) as the documentation index. High-signal entrypoints:
 
-- [Getting Started](docs/users/zh_CN/01-getting-started.md): installation, dependency setup, and first-run commands
+- [Getting Started](docs/users/zh_CN/01-getting-started.md): installation, Docker runtime, dependency setup, and first-run commands
 - [Training Guide](docs/users/zh_CN/03-training.md): training, playback, resume flow, Hydra overrides, and W&B
 - [Simulation Backends](docs/users/zh_CN/02-simulation-backends.md): generated MuJoCo / Motrix support matrix
 - [Development Standard](docs/developers/zh_CN/development-standard.md): contracts, layering, and validation boundaries
