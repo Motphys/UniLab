@@ -4,6 +4,7 @@ import torch
 from tensordict import TensorDict
 
 from unilab.algos.torch.rsl_rl_ppo import FinalObservationAwarePPO
+from unilab.training.rsl_rl import RslRlVecEnvWrapper
 
 
 class _FakeActor:
@@ -75,3 +76,43 @@ def test_final_observation_aware_ppo_bootstraps_from_final_observation():
 
     assert torch.allclose(algo.storage.saved_rewards, torch.tensor([1.0 + 0.99 * 3.0, 2.0]))
     assert torch.equal(algo.critic.last_obs["policy"], final_obs["policy"])
+
+
+def test_rsl_rl_adapter_outputs_combined_dones_and_time_outs_alias():
+    class FakeEnv:
+        def __init__(self):
+            self.num_envs = 3
+            self.cfg = type("Cfg", (), {"max_episode_seconds": 10.0, "ctrl_dt": 0.02})()
+            self.observation_space = type("Space", (), {"shape": (2,)})()
+            self.action_space = type("Space", (), {"shape": (1,)})()
+            self.obs_groups_spec = {"obs": 2}
+            self.state = type("State", (), {"obs": {"obs": torch.zeros(3, 2).numpy()}})()
+
+        def init_state(self):
+            pass
+
+        def reset(self, env_indices):
+            del env_indices
+            return {"obs": torch.zeros(3, 2).numpy()}, {}
+
+        def step(self, actions):
+            del actions
+            return type(
+                "StepState",
+                (),
+                {
+                    "obs": {"obs": torch.zeros(3, 2).numpy()},
+                    "reward": torch.zeros(3).numpy(),
+                    "terminated": torch.tensor([True, False, False]).numpy(),
+                    "truncated": torch.tensor([False, True, False]).numpy(),
+                    "info": {},
+                    "final_observation": None,
+                },
+            )()
+
+    wrapper = RslRlVecEnvWrapper(FakeEnv(), device="cpu", policy_obs_mode="actor")
+
+    _, _, dones, infos = wrapper.step(torch.zeros(3, 1))
+
+    assert torch.equal(dones, torch.tensor([True, True, False]))
+    assert torch.equal(infos["time_outs"], torch.tensor([False, True, False]))

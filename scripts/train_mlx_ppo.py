@@ -173,16 +173,12 @@ def get_time_limit_bootstrap_values(state: Any, model: Any, model_dtype: Any = N
     mx_mod = _require_mlx_runtime().mx if use_mlx_runtime else mx
     if model_dtype is None:
         model_dtype = mx_mod.float32
-    if not hasattr(state, "truncated"):
-        return None
     timeout_mask = np.asarray(state.truncated, dtype=bool)
     if not np.any(timeout_mask):
         return None
-    final_observation = getattr(state, "final_observation", None)
-    info = getattr(state, "info", None)
-    if final_observation is None:
-        if isinstance(info, dict):
-            final_observation = info.get("final_observation")
+    final_observation = state.final_observation
+    if final_observation is None and isinstance(state.info, dict):
+        final_observation = state.info.get("final_observation")
     if not isinstance(final_observation, dict):
         return None
     final_obs = mx_mod.array(flatten_obs_dict(final_observation))
@@ -591,32 +587,24 @@ def main(cfg: DictConfig) -> None:
                     )
 
             raw_rewards = mx.array(state.reward)
-            raw_dones = mx.array(state.done)
+            raw_dones = mx.array(state.terminated | state.truncated)
             raw_obs = mx.array(flatten_obs_dict(state.obs))
             rewards = mx.nan_to_num(raw_rewards, nan=0.0, posinf=0.0, neginf=0.0)
             dones = mx.where(mx.isfinite(raw_dones), raw_dones, mx.ones_like(raw_dones)).astype(
                 dtype
             )
             next_obs = mx.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0)
-            if hasattr(state, "truncated"):
-                timeouts = mx.array(state.truncated, dtype=dtype)
-                timeout_bootstrap_values = get_time_limit_bootstrap_values(
-                    state, model, model_dtype
-                )
-                if timeout_bootstrap_values is None:
-                    timeout_bootstrap_values = values_mx
-                rewards = (
-                    rewards
-                    + ppo_cfg.gamma * timeout_bootstrap_values.astype(rewards.dtype) * timeouts
-                )
+            timeouts = mx.array(state.truncated, dtype=dtype)
+            timeout_bootstrap_values = get_time_limit_bootstrap_values(state, model, model_dtype)
+            if timeout_bootstrap_values is None:
+                timeout_bootstrap_values = values_mx
+            rewards = (
+                rewards + ppo_cfg.gamma * timeout_bootstrap_values.astype(rewards.dtype) * timeouts
+            )
             if rewards.dtype != dtype:
                 rewards = rewards.astype(dtype)
 
-            if (
-                collect_reward_components
-                and hasattr(state, "info")
-                and isinstance(state.info, dict)
-            ):
+            if collect_reward_components and isinstance(state.info, dict):
                 step_log = state.info.get("log", {})
                 if isinstance(step_log, dict):
                     for key, value in step_log.items():

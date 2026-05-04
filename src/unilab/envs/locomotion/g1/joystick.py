@@ -337,14 +337,11 @@ class G1WalkEnv(G1BaseEnv):
         obs = self._compute_obs(state.info, linvel, gyro, gravity, dof_pos, dof_vel)
         state = state.replace(obs=obs, reward=reward, terminated=terminated)
 
-        if (
-            self._episode_tracker is None
-            or self._penalty_curriculum is None
-            or not np.any(state.done)
-        ):
+        done = state.terminated | state.truncated
+        if self._episode_tracker is None or self._penalty_curriculum is None or not np.any(done):
             return state
 
-        done_indices = np.where(state.done)[0]
+        done_indices = np.where(done)[0]
         episode_lengths = state.info["steps"][done_indices] + 1
         self._episode_tracker.update(episode_lengths)
         self._penalty_curriculum.update(self._episode_tracker.average_length)

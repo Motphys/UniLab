@@ -256,7 +256,7 @@ def _run_collector(
         # Step environment
         state = env.step(actions_np)
 
-        timing_info = state.info.get("timing", {}) if hasattr(state, "info") else {}
+        timing_info = state.info.get("timing", {})
         if timing_info:
             for key in ("env_step_total_ms", "step_core_ms", "update_state_ms", "reset_done_ms"):
                 if key in timing_info:
@@ -269,18 +269,10 @@ def _run_collector(
         next_critic_np = np.asarray(next_critic_np, dtype=np.float32)
         rewards_np = np.asarray(state.reward, dtype=np.float32).ravel()
 
-        terminated_np = (
-            np.asarray(state.terminated, dtype=np.float32).ravel()
-            if state.terminated is not None
-            else np.zeros(num_envs, dtype=np.float32)
-        )
-        truncated_np = (
-            np.asarray(state.truncated, dtype=np.float32).ravel()
-            if state.truncated is not None
-            else np.zeros(num_envs, dtype=np.float32)
-        )
-        combined_dones = np.clip(terminated_np + truncated_np, 0, 1)
-        prev_dones_np = combined_dones.astype(np.float32, copy=False)
+        terminated_np = state.terminated.astype(np.float32, copy=False).ravel()
+        truncated_np = state.truncated.astype(np.float32, copy=False).ravel()
+        combined_dones = (state.terminated | state.truncated).astype(np.float32, copy=False).ravel()
+        prev_dones_np = combined_dones
         done_mask_np = combined_dones > 0.5
         timeout_mask_np = truncated_np > 0.5
         terminated_mask_np = np.logical_and(terminated_np > 0.5, ~timeout_mask_np)
@@ -291,19 +283,21 @@ def _run_collector(
 
         terminal_contract = resolve_terminal_observation_contract(
             next_obs_batch_size=next_obs_np.shape[0],
-            final_observation=getattr(state, "final_observation", None),
+            final_observation=state.final_observation,
             done=done_mask_np,
             info=state.info,
             truncated=truncated_np,
         )
 
-        # Write to replay buffer
+        # ReplayBuffer `dones` follows the UniLab env lifecycle contract:
+        # done = terminated | truncated. Learners use `truncated` to keep
+        # bootstrap enabled for timeout/truncation rows.
         replay_buffer.add(
             torch.from_numpy(obs_np),
             torch.from_numpy(actions_np),
             torch.from_numpy(rewards_np),
             torch.from_numpy(next_obs_np),
-            torch.from_numpy(terminated_np),
+            torch.from_numpy(combined_dones),
             torch.from_numpy(truncated_np),
             terminal_mask=torch.from_numpy(terminal_contract.terminal_mask),
             terminal_next_obs=(

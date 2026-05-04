@@ -147,12 +147,10 @@ class OffPolicyRunner(AsyncRunner):
 
         rewards = self._read_recent_replay_field(replay_buffer, "rewards", start_ptr, count)
         dones = self._read_recent_replay_field(replay_buffer, "dones", start_ptr, count)
-        truncated = self._read_recent_replay_field(replay_buffer, "truncated", start_ptr, count)
         num_steps = count // self.num_envs
         self.learner.update_reward_stats(
             rewards.view(num_steps, self.num_envs),
             dones.view(num_steps, self.num_envs),
-            truncated.view(num_steps, self.num_envs),
         )
         return end_ptr
 
