@@ -233,7 +233,7 @@ uv run scripts/train_offpolicy.py \
 
 ## Docker 中运行训练
 
-当你希望在隔离的 Linux 环境中运行训练时，可以直接在容器里执行统一 CLI 或脚本入口。推荐先在仓库根目录构建 image：
+当你希望在隔离的 Linux NVIDIA/CUDA 环境中运行训练时，可以直接在容器里执行统一 CLI 或脚本入口。Linux 训练容器需要 NVIDIA 显卡、兼容的宿主机驱动，以及 NVIDIA Container Toolkit。推荐先在仓库根目录构建 image：
 
 ```bash
 docker build -t unilab:latest .
@@ -241,10 +241,10 @@ docker build -t unilab:latest .
 
 该 image 默认安装 UniLab 运行依赖、`mujoco-uni`、`motrix` extra，以及 dev/test 工具。
 
-最简单的容器训练方式是挂载当前仓库，然后在容器内运行命令：
+最简单的容器训练方式是挂载当前仓库，并通过 `--gpus all` 将宿主机 NVIDIA GPU 暴露给容器：
 
 ```bash
-docker run --rm -it \
+docker run --rm --gpus all -it \
   -v "$(pwd):/workspace/UniLab" \
   -v unilab-venv:/workspace/UniLab/.venv \
   -w /workspace/UniLab \
@@ -264,14 +264,7 @@ uv run scripts/train_rsl_rl.py task=go2_joystick_flat/mujoco
 uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco
 ```
 
-如果宿主机已经配置好 NVIDIA Container Toolkit，可以使用 GPU 容器：
-
-```bash
-docker run --rm --gpus all -it \
-  -v "$(pwd):/workspace/UniLab" \
-  -w /workspace/UniLab \
-  unilab:latest bash
-```
+macOS Docker 目前不支持。
 
 训练日志和产物仍会写入挂载后的仓库目录，例如 `logs/rsl_rl_ppo/<task>/`、`logs/fast_sac/<task>/`。如果只想快速验证 image 是否可用，可以直接运行：
 

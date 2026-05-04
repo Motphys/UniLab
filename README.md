@@ -83,7 +83,7 @@ See [03 Training Guide](docs/users/zh_CN/03-training.md) for the algorithm matri
 
 ## 🐳 Docker
 
-Use Docker when you want an isolated Linux runtime without changing your local Python environment. Local development still works best with `uv sync`; Docker is mainly for clean environment setup, image validation, and containerized runs.
+Use Docker when you want an isolated **Linux NVIDIA/CUDA** runtime without changing your local Python environment. The Dockerfile is based on an NVIDIA CUDA Ubuntu image, so Linux training containers require an NVIDIA GPU, a compatible host driver, and NVIDIA Container Toolkit. macOS Docker is not currently supported.
 
 ### Build Image
 
@@ -99,9 +99,9 @@ The image installs the default UniLab runtime, `mujoco-uni`, the `motrix` extra,
 # Check the unified CLI entrypoint
 docker run --rm unilab:latest
 
-# Interactive development with the repo mounted
+# Linux NVIDIA training shell with the repo mounted
 # Keep .venv in a named volume so the container does not overwrite the host venv
-docker run --rm -it \
+docker run --rm --gpus all -it \
   -v "$(pwd):/workspace/UniLab" \
   -v unilab-venv:/workspace/UniLab/.venv \
   -w /workspace/UniLab \
@@ -109,10 +109,6 @@ docker run --rm -it \
 ```
 
 Using a named volume for `/workspace/UniLab/.venv` avoids mixing a container-created virtual environment with the host checkout. This prevents path mismatches such as `/workspace/UniLab/.venv` vs `.venv` and avoids permission problems when returning to local `uv` or `make test-all` workflows.
-
-### GPU Containers
-
-On Linux hosts with the NVIDIA Container Toolkit configured, you can pass `--gpus all` to expose CUDA inside the container. See [01 Getting Started](docs/users/zh_CN/01-getting-started.md) for detailed container verification commands.
 
 ## 📚 Documentation
 

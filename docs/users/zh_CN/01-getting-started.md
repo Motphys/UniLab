@@ -99,7 +99,7 @@ uv run demo
 
 ## Docker
 
-当你希望在不改动本地 Python 环境的前提下获得隔离的 Linux 运行环境时，可以使用 Docker。本地开发仍然优先使用 `uv sync`；Docker 更适合做干净环境搭建、image 验证和容器化运行。
+当你希望在不改动本地 Python 环境的前提下获得隔离的 Linux NVIDIA/CUDA 运行环境时，可以使用 Docker。Linux 训练容器需要 NVIDIA 显卡、兼容的宿主机驱动，以及 NVIDIA Container Toolkit。macOS Docker 目前不支持。
 
 ### 构建 image
 
@@ -115,9 +115,9 @@ docker build -t unilab:latest .
 # 检查统一 CLI 入口
 docker run --rm unilab:latest
 
-# 挂载仓库进入交互式开发
+# Linux NVIDIA 训练 shell，挂载当前仓库
 # 将 .venv 放在 named volume 中，避免容器覆盖宿主机虚拟环境
-docker run --rm -it \
+docker run --rm --gpus all -it \
   -v "$(pwd):/workspace/UniLab" \
   -v unilab-venv:/workspace/UniLab/.venv \
   -w /workspace/UniLab \
@@ -126,9 +126,7 @@ docker run --rm -it \
 
 将 `/workspace/UniLab/.venv` 放到 named volume 中，可以避免把容器内创建的虚拟环境混入宿主机仓库目录，进而避免 `/workspace/UniLab/.venv` 与本地 `.venv` 的路径不一致，以及回到本地 `uv` 或 `make test-all` 工作流时出现权限问题。
 
-### GPU 容器
-
-在已经配置好 NVIDIA Container Toolkit 的 Linux 宿主机上，可以通过 `--gpus all` 将 CUDA 暴露给容器：
+验证容器内 CUDA 是否可用：
 
 ```bash
 docker run --rm --gpus all unilab:latest uv run python -c "import torch; print(torch.cuda.is_available())"
