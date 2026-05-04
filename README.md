@@ -61,8 +61,9 @@ uv run train --algo sac --task g1_walk_flat --sim mujoco
 ```
 
 ```bash
-# Linux G1 motion tracking
-uv run train --algo ppo --task g1_motion_tracking --sim mujoco
+# Linux CUDA G1 motion tracking (1h40min on RTX 4090 and R9-9950x3d)
+# macOS users: omit training.use_amp=true
+uv run train --algo sac --task g1_sac_wbt --sim mujoco training.use_amp=true
 ```
 
 More training commands, script-level entrypoints, resume flow, and W&B details are in [03 Training Guide](docs/users/zh_CN/03-training.md).
