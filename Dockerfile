@@ -32,14 +32,8 @@ WORKDIR /workspace/UniLab
 
 COPY . /workspace/UniLab
 
-# Use BuildKit cache mount so uv cache accelerates build but is not baked into image.
-# RUN --mount=type=cache,target=/root/.cache/uv \
-#     uv sync --dev --extra motrix
-
 RUN uv sync --dev --extra motrix \
     && uv cache clean \
     && rm -rf /root/.cache/uv
 
-RUN uv cache clean && rm -rf /root/.cache/uv
-
-CMD ["uv", "run", "unilab", "--help"]
+CMD ["uv", "run", "train", "--help"]

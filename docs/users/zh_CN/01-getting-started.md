@@ -104,19 +104,16 @@ uv run demo
 ### 构建 image
 
 ```bash
-# 基础 image：MuJoCo + UniLab 运行时
-docker build -f Dockerfile.base -t unilab:base .
-
-# 开发 image：基础 image + Motrix + 开发工具
-docker build -f Dockerfile -t unilab:dev .
+docker build -t unilab:latest .
 ```
+
+该 image 默认安装 UniLab 运行依赖、`mujoco-uni`、`motrix` extra，以及 dev/test 工具。
 
 ### 运行 image
 
 ```bash
 # 检查统一 CLI 入口
-docker run --rm unilab:base
-docker run --rm unilab:dev
+docker run --rm unilab:latest
 
 # 挂载仓库进入交互式开发
 # 将 .venv 放在 named volume 中，避免容器覆盖宿主机虚拟环境
@@ -124,7 +121,7 @@ docker run --rm -it \
   -v "$(pwd):/workspace/UniLab" \
   -v unilab-venv:/workspace/UniLab/.venv \
   -w /workspace/UniLab \
-  unilab:dev bash
+  unilab:latest bash
 ```
 
 将 `/workspace/UniLab/.venv` 放到 named volume 中，可以避免把容器内创建的虚拟环境混入宿主机仓库目录，进而避免 `/workspace/UniLab/.venv` 与本地 `.venv` 的路径不一致，以及回到本地 `uv` 或 `make test-all` 工作流时出现权限问题。
@@ -134,8 +131,7 @@ docker run --rm -it \
 在已经配置好 NVIDIA Container Toolkit 的 Linux 宿主机上，可以通过 `--gpus all` 将 CUDA 暴露给容器：
 
 ```bash
-docker run --rm --gpus all unilab:base uv run python -c "import torch; print(torch.cuda.is_available())"
-docker run --rm --gpus all unilab:dev uv run python -c "import torch; print(torch.cuda.is_available())"
+docker run --rm --gpus all unilab:latest uv run python -c "import torch; print(torch.cuda.is_available())"
 ```
 
 ## Navigation

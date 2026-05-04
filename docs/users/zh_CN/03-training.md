@@ -212,12 +212,10 @@ uv run scripts/train_offpolicy.py \
 当你希望在隔离的 Linux 环境中运行训练时，可以直接在容器里执行统一 CLI 或脚本入口。推荐先在仓库根目录构建 image：
 
 ```bash
-# 基础 image：MuJoCo + UniLab 运行时
-docker build -f Dockerfile.base -t unilab:base .
-
-# 开发 image：基础 image + Motrix + 开发工具
-docker build -f Dockerfile -t unilab:dev .
+docker build -t unilab:latest .
 ```
+
+该 image 默认安装 UniLab 运行依赖、`mujoco-uni`、`motrix` extra，以及 dev/test 工具。
 
 最简单的容器训练方式是挂载当前仓库，然后在容器内运行命令：
 
@@ -226,7 +224,7 @@ docker run --rm -it \
   -v "$(pwd):/workspace/UniLab" \
   -v unilab-venv:/workspace/UniLab/.venv \
   -w /workspace/UniLab \
-  unilab:dev bash
+  unilab:latest bash
 ```
 
 这里延续 [快速开始](01-getting-started.md) 中的做法：将 `.venv` 单独放到 named volume，避免容器内创建的虚拟环境污染宿主机仓库目录。
@@ -248,14 +246,13 @@ uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco
 docker run --rm --gpus all -it \
   -v "$(pwd):/workspace/UniLab" \
   -w /workspace/UniLab \
-  unilab:dev bash
+  unilab:latest bash
 ```
 
 训练日志和产物仍会写入挂载后的仓库目录，例如 `logs/rsl_rl_ppo/<task>/`、`logs/fast_sac/<task>/`。如果只想快速验证 image 是否可用，可以直接运行：
 
 ```bash
-docker run --rm unilab:base
-docker run --rm unilab:dev
+docker run --rm unilab:latest
 ```
 
 ## Navigation

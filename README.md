@@ -117,22 +117,19 @@ uv run train --algo ppo --task go2_joystick_flat --sim mujoco training.max_itera
 
 Use Docker when you want an isolated Linux runtime without changing your local Python environment. Local development still works best with `uv sync`; Docker is mainly for clean environment setup, image validation, and containerized runs.
 
-### Build images
+### Build Image
 
 ```bash
-# Base image: MuJoCo + UniLab runtime
-docker build -f Dockerfile.base -t unilab:base .
-
-# Dev image: base + Motrix + dev tools
-docker build -f Dockerfile -t unilab:dev .
+docker build -t unilab:latest .
 ```
 
-### Run images
+The image installs the default UniLab runtime, `mujoco-uni`, the `motrix` extra, and the dev/test tools.
+
+### Run Image
 
 ```bash
 # Check the unified CLI entrypoint
-docker run --rm unilab:base
-docker run --rm unilab:dev
+docker run --rm unilab:latest
 
 # Interactive development with the repo mounted
 # Keep .venv in a named volume so the container does not overwrite the host venv
@@ -140,7 +137,7 @@ docker run --rm -it \
   -v "$(pwd):/workspace/UniLab" \
   -v unilab-venv:/workspace/UniLab/.venv \
   -w /workspace/UniLab \
-  unilab:dev bash
+  unilab:latest bash
 ```
 
 Using a named volume for `/workspace/UniLab/.venv` avoids mixing a container-created virtual environment with the host checkout. This prevents path mismatches such as `/workspace/UniLab/.venv` vs `.venv` and avoids permission problems when returning to local `uv` or `make test-all` workflows.
