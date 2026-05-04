@@ -16,15 +16,22 @@ from unilab.algos.torch.offpolicy.runner import (
 
 class _FakeActor:
     def __init__(self) -> None:
+        self._param = torch.nn.Parameter(torch.zeros(1))
         self._state = {"weight": torch.zeros(1)}
 
     def state_dict(self) -> dict[str, torch.Tensor]:
         return {key: value.clone() for key, value in self._state.items()}
 
+    def parameters(self):
+        return [self._param]
+
 
 class _FakeLearner:
-    def __init__(self) -> None:
+    def __init__(self, *args, **kwargs) -> None:
+        del args, kwargs
         self.actor = _FakeActor()
+        self.qnet = _FakeActor()
+        self.log_alpha = torch.zeros(1)
         self.reward_normalizer = None
         self.update_count = 0
         self.critic_updates = 0
@@ -61,10 +68,14 @@ class _FakeReplayBuffer:
         del capacity, obs_dim, action_dim, device, critic_dim, defer_gpu
         self.size = torch.zeros(1, dtype=torch.int64)
         self.ptr = torch.zeros(1, dtype=torch.int64)
+        self.collect_time_s = torch.zeros(1, dtype=torch.float32)
         self.sample_calls = 0
         self.sample_request_sizes: list[int] = []
         self.sample_sizes_at_call: list[int] = []
         _FakeReplayBuffer.last_instance = self
+
+    def init_local_gpu_cache(self, device: str) -> None:
+        del device
 
     def sample(self, batch_size: int) -> dict[str, torch.Tensor]:
         self.sample_calls += 1
@@ -86,11 +97,13 @@ class _FakeReplayBuffer:
 class _FakeWeightSync:
     last_instance: "_FakeWeightSync | None" = None
 
-    def __init__(self) -> None:
+    def __init__(self, *args, **kwargs) -> None:
+        del args, kwargs
         self.name = "fake-weight-sync"
         self._lock = None
         self.version = 0
         self.write_calls = 0
+        self.read_calls = 0
 
     @classmethod
     def from_state_dict(
@@ -104,6 +117,12 @@ class _FakeWeightSync:
     def write_weights(self, state_dict: dict[str, torch.Tensor]) -> None:
         del state_dict
         self.write_calls += 1
+        self.version += 1
+
+    def read_weights_into(self, state_dict: dict[str, torch.Tensor]) -> int:
+        del state_dict
+        self.read_calls += 1
+        return self.version
 
     def close(self) -> None:
         pass
@@ -159,17 +178,25 @@ class _FakeLogger:
 
 
 class _SyncReadyQueue:
-    def __init__(self, replay_buffer: _FakeReplayBuffer, sizes: list[int]) -> None:
+    def __init__(
+        self,
+        replay_buffer: _FakeReplayBuffer,
+        sizes: list[int],
+        collect_times: list[float] | None = None,
+    ) -> None:
         self._replay_buffer = replay_buffer
         self._sizes = list(sizes)
+        self._collect_times = list(collect_times or [0.25] * len(sizes))
         self.get_calls = 0
 
     def get(self, timeout: float | None = None) -> int:
         del timeout
         assert self._sizes, "collection_ready_queue exhausted before learner started"
         size = self._sizes.pop(0)
+        collect_time = self._collect_times.pop(0) if self._collect_times else 0.0
         self._replay_buffer.size[0] = size
         self._replay_buffer.ptr[0] = size
+        self._replay_buffer.collect_time_s[0] = collect_time
         self.get_calls += 1
         return 1
 
@@ -185,6 +212,19 @@ class _RecordingQueue:
 class _FakeProcess:
     def is_alive(self) -> bool:
         return True
+
+
+class _FakeClock:
+    def __init__(self, values: list[float]) -> None:
+        self._values = list(values)
+        self._index = 0
+
+    def time(self) -> float:
+        if self._index < len(self._values):
+            value = self._values[self._index]
+            self._index += 1
+            return value
+        return self._values[-1]
 
 
 @pytest.fixture(autouse=True)
@@ -255,6 +295,7 @@ def test_offpolicy_runner_sync_waits_for_train_start_threshold(
     runner = _make_runner(monkeypatch, sync_collection=True)
     threshold = runner.train_start_threshold
     created_queues: list[object] = []
+    fake_clock = _FakeClock([100.0, 100.1, 100.2, 110.2, 110.3, 110.8, 111.0, 111.1])
 
     def queue_factory(maxsize: int = 0):
         del maxsize
@@ -263,7 +304,7 @@ def test_offpolicy_runner_sync_waits_for_train_start_threshold(
         if idx == 0:
             replay_buffer = _FakeReplayBuffer.last_instance
             assert replay_buffer is not None
-            queue_obj = _SyncReadyQueue(replay_buffer, [4, 8, threshold])
+            queue_obj = _SyncReadyQueue(replay_buffer, [4, 8, threshold], [0.1, 0.2, 0.25])
         elif idx == 1:
             queue_obj = _RecordingQueue()
         else:
@@ -273,6 +314,7 @@ def test_offpolicy_runner_sync_waits_for_train_start_threshold(
 
     monkeypatch.setattr(runner_module._SPAWN_CTX, "Queue", queue_factory)
     monkeypatch.setattr(runner_module.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(runner_module.time, "time", fake_clock.time)
 
     runner.learn(max_iterations=1, save_interval=0, log_dir=str(tmp_path))
 
@@ -289,6 +331,9 @@ def test_offpolicy_runner_sync_waits_for_train_start_threshold(
     assert replay_buffer.sample_sizes_at_call == [threshold]
     assert trainer_done_queue.put_calls == [1, 1, 1, 1]
     assert logger.step_calls and logger.step_calls[0]["iteration"] == 1
+    assert logger.step_calls[0]["collect_time"] == pytest.approx(0.25)
+    assert logger.step_calls[0]["extra_info"]["startup_wait_time"] == pytest.approx(9.75)
+    assert logger.step_calls[0]["extra_info"]["throughput_steps"] == 2
     assert _FakeWeightSync.last_instance is not None
     assert _FakeWeightSync.last_instance.write_calls == 1
 
@@ -299,6 +344,7 @@ def test_offpolicy_runner_async_waits_for_train_start_threshold(
     runner = _make_runner(monkeypatch, sync_collection=False)
     threshold = runner.train_start_threshold
     sleep_sizes = iter([4, 8, threshold])
+    fake_clock = _FakeClock([200.0, 200.1, 200.2, 210.2, 210.3, 210.8, 211.0, 211.1])
 
     def fake_sleep(seconds: float) -> None:
         if seconds < 0.5:
@@ -307,9 +353,11 @@ def test_offpolicy_runner_async_waits_for_train_start_threshold(
             assert replay_buffer is not None
             replay_buffer.size[0] = next_size
             replay_buffer.ptr[0] = next_size
+            replay_buffer.collect_time_s[0] = 0.25
 
     monkeypatch.setattr(runner_module._SPAWN_CTX, "Queue", lambda maxsize=0: queue.Queue())
     monkeypatch.setattr(runner_module.time, "sleep", fake_sleep)
+    monkeypatch.setattr(runner_module.time, "time", fake_clock.time)
 
     runner.learn(max_iterations=1, save_interval=0, log_dir=str(tmp_path))
 
@@ -320,6 +368,9 @@ def test_offpolicy_runner_async_waits_for_train_start_threshold(
     assert replay_buffer.sample_calls == 1
     assert replay_buffer.sample_sizes_at_call == [threshold]
     assert logger.step_calls and logger.step_calls[0]["iteration"] == 1
+    assert logger.step_calls[0]["collect_time"] == pytest.approx(0.25)
+    assert logger.step_calls[0]["extra_info"]["startup_wait_time"] == pytest.approx(9.75)
+    assert logger.step_calls[0]["extra_info"]["throughput_steps"] == 2
 
 
 def test_offpolicy_runner_passes_explicit_runtime_context_to_collector(
@@ -387,3 +438,80 @@ def test_multi_gpu_runner_passes_explicit_runtime_context_to_collector(
 
     assert captured["sim_backend"] == "motrix"
     assert captured["env_cfg_override"] == {"reward_config": {"scales": {"alive": 1.0}}}
+
+
+def test_multi_gpu_worker_rank0_propagates_collect_time_and_extra_info(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setattr(multi_gpu_runner_module, "ReplayBuffer", _FakeReplayBuffer)
+    monkeypatch.setattr(multi_gpu_runner_module, "SharedWeightSync", _FakeWeightSync)
+    monkeypatch.setattr(multi_gpu_runner_module, "OffPolicyLogger", _FakeLogger)
+    monkeypatch.setattr(multi_gpu_runner_module, "FastSACLearner", _FakeLearner)
+    monkeypatch.setattr(multi_gpu_runner_module.torch.cuda, "set_device", lambda rank: None)
+    monkeypatch.setattr(multi_gpu_runner_module.dist, "init_process_group", lambda *args, **kwargs: None)
+    monkeypatch.setattr(multi_gpu_runner_module.dist, "broadcast", lambda *args, **kwargs: None)
+    monkeypatch.setattr(multi_gpu_runner_module.dist, "barrier", lambda *args, **kwargs: None)
+    monkeypatch.setattr(multi_gpu_runner_module.dist, "destroy_process_group", lambda *args, **kwargs: None)
+    monkeypatch.setattr(multi_gpu_runner_module.torch, "save", lambda *args, **kwargs: None)
+
+    fake_clock = _FakeClock([300.0, 300.1, 310.1, 310.2, 310.7])
+    monkeypatch.setattr(multi_gpu_runner_module.time, "time", fake_clock.time)
+
+    sleep_sizes = iter([4, 8, 12])
+
+    def fake_sleep(seconds: float) -> None:
+        if seconds < 0.5:
+            next_size = next(sleep_sizes, 12)
+            replay_buffer = _FakeReplayBuffer.last_instance
+            assert replay_buffer is not None
+            replay_buffer.size[0] = next_size
+            replay_buffer.ptr[0] = next_size
+            replay_buffer.collect_time_s[0] = 0.25
+
+    monkeypatch.setattr(multi_gpu_runner_module.time, "sleep", fake_sleep)
+
+    replay_buffer = _FakeReplayBuffer(capacity=64, obs_dim=4, action_dim=2, device="cpu")
+    weight_sync = _FakeWeightSync()
+    metrics_queue = queue.Queue()
+    stop_event = type("_Stop", (), {"is_set": staticmethod(lambda: False)})()
+
+    runner_kwargs = {
+        "max_iterations": 1,
+        "save_interval": 0,
+        "log_dir": str(tmp_path),
+        "batch_size": 8,
+        "learning_starts": 6,
+        "updates_per_step": 1,
+        "policy_frequency": 1,
+        "sync_collection": False,
+        "env_steps_per_sync": 1,
+        "env_name": "DummyEnv",
+        "num_envs": 2,
+        "obs_dim": 4,
+        "action_dim": 2,
+        "logger_type": "wandb",
+    }
+
+    multi_gpu_runner_module._learner_worker(
+        rank=0,
+        world_size=2,
+        learner_kwargs={},
+        runner_kwargs=runner_kwargs,
+        replay_buffer=replay_buffer,
+        weight_sync_name=weight_sync.name,
+        weight_sync_lock=weight_sync._lock,
+        weight_param_shapes={"weight": torch.Size([1])},
+        stop_event=stop_event,
+        collection_ready_queue=None,
+        trainer_done_queue=None,
+        metrics_queue=metrics_queue,
+        master_port=12345,
+    )
+
+    logger = _FakeLogger.last_instance
+    assert logger is not None
+    assert logger.step_calls
+    step = logger.step_calls[0]
+    assert step["collect_time"] == pytest.approx(0.25)
+    assert step["extra_info"]["startup_wait_time"] == pytest.approx(9.75)
+    assert step["extra_info"]["throughput_steps"] == 2

@@ -4,6 +4,7 @@ import json
 import sys
 from pathlib import Path
 
+import unilab.logging.offpolicy as offpolicy_module
 from unilab.logging import OffPolicyLogger, OnPolicyLogger
 from unilab.training.experiment import ExperimentTracker, build_wandb_settings
 
@@ -232,5 +233,33 @@ def test_offpolicy_logger_logs_separate_startup_wait_and_iter_throughput(monkeyp
     assert payload["timing/startup_wait_ms"] == 9_750.0
     assert payload["timing/learner_collect_ms"] == 250.0
     assert payload["perf/steps_per_sec_iter"] == 8.0
+
+    logger.finish()
+
+
+def test_offpolicy_logger_omits_iteration_extra_fields_when_not_supplied(monkeypatch):
+    fake_wandb = _FakeWandb()
+    monkeypatch.setitem(sys.modules, "wandb", fake_wandb)
+
+    logger = OffPolicyLogger(
+        algo_name="FastSAC",
+        env_name="Go2JoystickFlat",
+        log_backend="wandb",
+    )
+    logger._start_time = 1.0
+    monkeypatch.setattr(offpolicy_module.time, "time", lambda: 2.0)
+    logger.log_collector(total_steps=8, buffer_size=8)
+    logger.log_step(
+        iteration=1,
+        metrics={},
+        collect_time=0.25,
+        train_time=0.75,
+        wait_time=1.0,
+    )
+
+    payload, _ = fake_wandb.log_calls[-1]
+    assert "timing/startup_wait_ms" not in payload
+    assert "perf/steps_per_sec_iter" not in payload
+    assert payload["perf/steps_per_sec_wall"] > 0
 
     logger.finish()

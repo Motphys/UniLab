@@ -48,6 +48,13 @@ def test_add_single_batch_increases_size():
     assert int(buf.size[0]) == 16
 
 
+def test_collect_time_metadata_is_shared():
+    buf = _make_buf()
+    assert hasattr(buf, "collect_time_s")
+    buf.collect_time_s[0] = 1.25
+    assert float(buf.collect_time_s[0]) == pytest.approx(1.25)
+
+
 def test_add_beyond_capacity_wraps_ptr():
     """Adding more than capacity should wrap ptr but cap size at capacity."""
     buf = _make_buf(capacity=32)

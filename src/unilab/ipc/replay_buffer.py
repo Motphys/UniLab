@@ -29,6 +29,7 @@ class ReplayBuffer(SharedBufferBase):
         self._obs_dim = obs_dim
         self._action_dim = action_dim
         self._critic_dim = critic_dim
+        self.collect_time_s = torch.zeros(1, dtype=torch.float32).share_memory_()
 
         self.size = torch.zeros(1, dtype=torch.int64).share_memory_()
 

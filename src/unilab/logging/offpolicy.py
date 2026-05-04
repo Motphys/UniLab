@@ -66,6 +66,7 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._wait_time: float = 0.0
         self._startup_wait_time: float = 0.0
         self._throughput_steps: int = 0
+        self._has_iteration_extra_info: bool = False
         self._iter_times: deque = deque(maxlen=50)
         self._collector_timing: dict[str, float] = {}
         self._timeout_rate: float = 0.0
@@ -100,7 +101,7 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._refresh()
 
     def _get_iter_steps_per_sec(self) -> float | None:
-        if self._throughput_steps <= 0:
+        if not self._has_iteration_extra_info or self._throughput_steps <= 0:
             return None
         iter_time = self._collect_time + self._train_time
         if iter_time <= 0:
@@ -152,10 +153,13 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._collect_time = collect_time
         self._train_time = train_time
         self._wait_time = wait_time
-        self._startup_wait_time = (
-            float(extra_info.get("startup_wait_time", 0.0)) if extra_info else 0.0
-        )
-        self._throughput_steps = int(extra_info.get("throughput_steps", 0)) if extra_info else 0
+        self._has_iteration_extra_info = extra_info is not None
+        if extra_info:
+            self._startup_wait_time = float(extra_info.get("startup_wait_time", 0.0))
+            self._throughput_steps = int(extra_info.get("throughput_steps", 0))
+        else:
+            self._startup_wait_time = 0.0
+            self._throughput_steps = 0
         self._iter_times.append(collect_time + train_time)
         if metrics:
             self._latest_metrics.update(metrics)
@@ -198,7 +202,10 @@ class OffPolicyLogger(BaseTrainingLogger):
             writer.add_scalar("episode/timeout_rate", self._timeout_rate, global_step)
             writer.add_scalar("episode/terminated_rate", self._terminated_rate, global_step)
             writer.add_scalar("timing/learner_wait_ms", self._wait_time * 1000, global_step)
-            writer.add_scalar("timing/startup_wait_ms", self._startup_wait_time * 1000, global_step)
+            if self._has_iteration_extra_info:
+                writer.add_scalar(
+                    "timing/startup_wait_ms", self._startup_wait_time * 1000, global_step
+                )
             writer.add_scalar("timing/learner_collect_ms", collect_time * 1000, global_step)
             writer.add_scalar("timing/learner_train_ms", train_time * 1000, global_step)
             for key, value in self._collector_timing.items():
@@ -206,10 +213,10 @@ class OffPolicyLogger(BaseTrainingLogger):
             if iter_steps_per_sec is not None:
                 writer.add_scalar("perf/steps_per_sec", iter_steps_per_sec, global_step)
                 writer.add_scalar("perf/steps_per_sec_iter", iter_steps_per_sec, global_step)
-                if wall_steps_per_sec is not None:
-                    writer.add_scalar("perf/steps_per_sec_wall", wall_steps_per_sec, global_step)
             elif wall_steps_per_sec is not None:
                 writer.add_scalar("perf/steps_per_sec", wall_steps_per_sec, global_step)
+            if wall_steps_per_sec is not None:
+                writer.add_scalar("perf/steps_per_sec_wall", wall_steps_per_sec, global_step)
             writer.add_scalar(
                 "perf/iter_ms", (self._collect_time + self._train_time) * 1000, global_step
             )
@@ -237,7 +244,8 @@ class OffPolicyLogger(BaseTrainingLogger):
             log_dict["episode/timeout_rate"] = self._timeout_rate
             log_dict["episode/terminated_rate"] = self._terminated_rate
             log_dict["timing/learner_wait_ms"] = self._wait_time * 1000
-            log_dict["timing/startup_wait_ms"] = self._startup_wait_time * 1000
+            if self._has_iteration_extra_info:
+                log_dict["timing/startup_wait_ms"] = self._startup_wait_time * 1000
             log_dict["timing/learner_collect_ms"] = collect_time * 1000
             log_dict["timing/learner_train_ms"] = train_time * 1000
             for key, value in self._collector_timing.items():
@@ -245,10 +253,10 @@ class OffPolicyLogger(BaseTrainingLogger):
             if iter_steps_per_sec is not None:
                 log_dict["perf/steps_per_sec"] = iter_steps_per_sec
                 log_dict["perf/steps_per_sec_iter"] = iter_steps_per_sec
-                if wall_steps_per_sec is not None:
-                    log_dict["perf/steps_per_sec_wall"] = wall_steps_per_sec
             elif wall_steps_per_sec is not None:
                 log_dict["perf/steps_per_sec"] = wall_steps_per_sec
+            if wall_steps_per_sec is not None:
+                log_dict["perf/steps_per_sec_wall"] = wall_steps_per_sec
             log_dict["perf/iter_ms"] = (self._collect_time + self._train_time) * 1000
             log_dict["perf/collect_train_ratio"] = self._collect_time / max(self._train_time, 1e-6)
             wandb.log(log_dict, step=global_step)
