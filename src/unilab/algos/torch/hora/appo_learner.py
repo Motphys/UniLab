@@ -26,6 +26,24 @@ def _build_hora_obs_td(
     return TensorDict({"policy": actor_obs}, batch_size=actor_obs.shape[0], device=device)
 
 
+def _derive_priv_info_from_critic(
+    actor_obs: torch.Tensor,
+    critic_obs: torch.Tensor | None,
+    *,
+    context: str,
+) -> torch.Tensor:
+    if critic_obs is None:
+        raise ValueError(f"HORA APPO {context} requires critic observations.")
+    actor_dim = int(actor_obs.shape[-1])
+    critic_dim = int(critic_obs.shape[-1])
+    if critic_dim <= actor_dim:
+        raise ValueError(
+            f"HORA APPO {context} requires critic observations to include privileged tail "
+            f"features; got actor_dim={actor_dim}, critic_dim={critic_dim}."
+        )
+    return critic_obs[..., actor_dim:]
+
+
 class HoraAPPOLearner(APPOLearner):
     """APPO learner variant for HORA grouped observations."""
 
@@ -33,23 +51,30 @@ class HoraAPPOLearner(APPOLearner):
         """Compute V-trace targets for grouped HORA rollouts."""
         obs = batch_dict["observations"]
         critic_base = batch_dict.get("critic", None)
-        priv_info = batch_dict.get("priv_info", None)
         rewards = batch_dict["rewards"]
         dones = batch_dict["dones"].float()
         last_obs = batch_dict["last_obs"]
-        last_priv_info = batch_dict.get("last_priv_info", None)
+        last_critic = batch_dict.get("last_critic", None)
         behavior_log_probs = batch_dict["actions_log_prob"]
         actions = batch_dict["actions"]
 
         T, N = obs.shape[:2]
+        priv_info = _derive_priv_info_from_critic(
+            obs,
+            critic_base,
+            context="rollout batch",
+        )
+        last_priv_info = _derive_priv_info_from_critic(
+            last_obs,
+            last_critic,
+            context="bootstrap batch",
+        )
         obs_flat = obs.flatten(0, 1)
-        priv_info_flat = priv_info.flatten(0, 1) if priv_info is not None else None
+        priv_info_flat = priv_info.flatten(0, 1)
 
         obs_td = _build_hora_obs_td(obs_flat, device=self.device, priv_info=priv_info_flat)
         last_obs_td = _build_hora_obs_td(last_obs, device=self.device, priv_info=last_priv_info)
 
-        if critic_base is None:
-            critic_base = obs
         critic_obs = critic_base
         critic_obs_flat = critic_obs.flatten(0, 1)
         critic_obs_td = _build_hora_obs_td(obs_flat, device=self.device, priv_info=priv_info_flat)
@@ -105,8 +130,12 @@ class HoraAPPOLearner(APPOLearner):
     def update(self, batch_dict):
         """Perform APPO update for grouped HORA observations."""
         obs_flat = batch_dict["observations"].flatten(0, 1)
-        priv_info = batch_dict.get("priv_info")
-        priv_info_flat = priv_info.flatten(0, 1) if priv_info is not None else None
+        priv_info = _derive_priv_info_from_critic(
+            batch_dict["observations"],
+            batch_dict.get("critic"),
+            context="update batch",
+        )
+        priv_info_flat = priv_info.flatten(0, 1)
         actions_flat = batch_dict["actions"].flatten(0, 1)
         returns_flat = batch_dict["returns"].flatten(0, 1)
         advantages_flat = batch_dict["advantages"].flatten(0, 1)

@@ -166,7 +166,6 @@ class HoraAPPORunner(APPORunner):
             obs_dim=self.obs_dim,
             action_dim=self.action_dim,
             critic_dim=self.critic_dim,
-            priv_info_dim=self.priv_info_dim,
             num_slots=4,
             create=True,
         )
@@ -273,7 +272,7 @@ class HoraAPPORunner(APPORunner):
 
                 rollout: dict = {}
                 for k, v in raw.items():
-                    if k not in ("last_obs", "last_critic", "last_priv_info") and v.ndim >= 2:
+                    if k not in ("last_obs", "last_critic") and v.ndim >= 2:
                         rollout[k] = v.transpose(0, 1)
                     else:
                         rollout[k] = v
@@ -288,7 +287,7 @@ class HoraAPPORunner(APPORunner):
 
             combined: dict = {}
             for k in replay_queue[0]:
-                if k in ("last_obs", "last_critic", "last_priv_info"):
+                if k in ("last_obs", "last_critic"):
                     combined[k] = torch.cat([r[k] for r in replay_queue], dim=0)
                 else:
                     combined[k] = torch.cat([r[k] for r in replay_queue], dim=1)

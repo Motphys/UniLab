@@ -196,3 +196,10 @@ def test_storage_allocates_optional_critic_fields():
     assert set(storage.write_buffer.keys()) == expected
 
     storage.cleanup()
+
+
+def test_storage_ipc_contract_has_no_privileged_fields():
+    from unilab.ipc.shared_onpolicy_storage import _FIELD_SHAPES
+
+    assert "priv_info" not in _FIELD_SHAPES
+    assert "last_priv_info" not in _FIELD_SHAPES

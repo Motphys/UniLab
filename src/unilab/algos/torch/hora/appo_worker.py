@@ -98,7 +98,6 @@ def hora_appo_collector_fn(
         obs_dim=obs_dim,
         action_dim=action_dim,
         critic_dim=critic_dim,
-        priv_info_dim=priv_info_dim,
         create=False,
         shm_name_prefix=shm_storage_name,
     )
@@ -235,7 +234,6 @@ def hora_appo_collector_fn(
                 write_buf["obs"][:, step, :] = obs_np
                 if critic_np is not None:
                     write_buf["critic"][:, step, :] = critic_np
-                write_buf["priv_info"][:, step, :] = priv_info_np
                 write_buf["actions"][:, step, :] = actions_np
                 write_buf["log_probs"][:, step] = log_probs_torch.cpu().numpy().ravel()
 
@@ -363,7 +361,6 @@ def hora_appo_collector_fn(
             write_buf["last_obs"][:] = obs_np
             if critic_np is not None:
                 write_buf["last_critic"][:] = critic_np
-            write_buf["last_priv_info"][:] = priv_info_np
             storage.signal_write_done()
 
     except Exception as e:
