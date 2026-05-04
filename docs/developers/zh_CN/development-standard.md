@@ -6,6 +6,8 @@ UniLab 是一个**高性能、模块化、contract 驱动**的 RL infrastructure
 
 工程属性: 高性能、结构化、系统性、模块化、可复用、可观测。
 
+核心术语定义见 [UniLab Glossary](../../glossary.md)。
+
 ---
 
 ## 1. Runtime Model
@@ -157,6 +159,7 @@ Env **负责** MDP 语义、observation 结构、reward、reset，以及 backend
 - [ADR-0003 Task Owner And Config Compose Contract](../adr/ADR-0003-task-owner-and-config-compose-contract.md)
 - [ADR-0004 Registry Bootstrap Contract](../adr/ADR-0004-registry-bootstrap-contract.md)
 - [ADR-0005 Unified Obs Critic Env And IPC Contract](../adr/ADR-0005-unified-obs-critic-env-and-ipc-contract.md)
+- [Domain Randomization Contract](domain-randomization-contract.md)
 
 协作与交付流程要求见 [Collaboration](collaboration.md)。
 
@@ -164,5 +167,5 @@ Env **负责** MDP 语义、observation 结构、reward、reset，以及 backend
 
 ## Navigation
 
-- Previous: [README](../../../README.md)
-- Next: [Collaboration](collaboration.md)
+- Index: [Documentation](../../README.md)
+- Next: [Domain Randomization Contract](domain-randomization-contract.md)

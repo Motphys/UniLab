@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import platform
 import re
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -50,7 +51,7 @@ def _owner_yaml_path(route: Route, root: Path) -> Path:
 def _check_private_checkout(root: Path) -> None:
     if not (root / "conf").is_dir() or not (root / "scripts").is_dir():
         raise SystemExit(
-            "The current `unilab` CLI expects a UniLab source checkout. "
+            "The current UniLab CLI expects a UniLab source checkout. "
             "Run it from the uv-managed editable environment created by this repo."
         )
 
@@ -94,6 +95,46 @@ def _check_runtime_requirements(algo: str, sim: str) -> None:
         raise SystemExit(
             "sim=motrix requires the Motrix extra. Install it with `uv sync --extra motrix`."
         )
+
+
+def _override_bool(overrides: Sequence[str], key: str) -> bool | None:
+    selected: bool | None = None
+    for override in overrides:
+        if _override_key(override) != key or "=" not in override:
+            continue
+        value = override.split("=", 1)[1].strip().lower()
+        if value in {"true", "1", "yes", "on"}:
+            selected = True
+        elif value in {"false", "0", "no", "off"}:
+            selected = False
+    return selected
+
+
+def _needs_motrix_renderer(mode: str, sim: str, overrides: Sequence[str]) -> bool:
+    if sim != "motrix":
+        return False
+    if mode == "eval":
+        return True
+    if mode == "train":
+        return _override_bool(overrides, "training.no_play") is not True
+    return False
+
+
+def _python_executable_for_route(mode: str, sim: str, overrides: Sequence[str]) -> str:
+    if platform.system() != "Darwin" or not _needs_motrix_renderer(mode, sim, overrides):
+        return sys.executable
+
+    if Path(sys.executable).name == "mxpython":
+        return sys.executable
+
+    mxpython = shutil.which("mxpython")
+    if mxpython is None:
+        raise SystemExit(
+            "macOS Motrix playback uses the native renderer and must be launched with "
+            "`mxpython`. Install the Motrix extra so `mxpython` is on PATH, or use "
+            "`training.no_play=true` for non-rendering training."
+        )
+    return mxpython
 
 
 def build_route(algo: str, task: str, sim: str) -> Route:
@@ -167,46 +208,34 @@ def build_command(
                 raise SystemExit("Use either --load-run or algo.load_run=..., not both.")
             generated.append(f"algo.load_run={load_run}")
 
-    return [sys.executable, str(script), *generated, *overrides]
+    executable = _python_executable_for_route(mode, sim, overrides)
+    return [executable, str(script), *generated, *overrides]
 
 
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="unilab")
-    subparsers = parser.add_subparsers(dest="mode", required=True)
-
-    for mode in ("train", "eval"):
-        sub = subparsers.add_parser(mode)
-        sub.add_argument("--algo", required=True, choices=SUPPORTED_ALGOS)
-        sub.add_argument("--task", required=True)
-        sub.add_argument("--sim", required=True, choices=SUPPORTED_SIMS)
-        if mode == "eval":
-            sub.add_argument("--load-run", default=None)
-
-    demo_parser = subparsers.add_parser("demo")
-    demo_parser.add_argument("--preset", default="go2_joystick_mujoco_ppo")
-    demo_parser.add_argument("--refresh", action="store_true")
-    demo_parser.add_argument("--device", default=None)
-
+def _train_eval_parser(*, mode: str) -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog=mode)
+    parser.add_argument("--algo", required=True, choices=SUPPORTED_ALGOS)
+    parser.add_argument("--task", required=True)
+    parser.add_argument("--sim", required=True, choices=SUPPORTED_SIMS)
+    if mode == "eval":
+        parser.add_argument("--load-run", default=None)
     return parser
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    parser = _parser()
+def _demo_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="demo")
+    parser.add_argument("--preset", default="go2_joystick_mujoco_ppo")
+    parser.add_argument("--refresh", action="store_true")
+    parser.add_argument("--device", default=None)
+    return parser
+
+
+def _run_train_eval(mode: str, argv: Sequence[str] | None = None) -> int:
+    parser = _train_eval_parser(mode=mode)
     args, overrides = parser.parse_known_args(argv)
 
-    if args.mode == "demo":
-        if overrides:
-            raise SystemExit(
-                f"unilab demo does not accept passthrough Hydra overrides: {', '.join(overrides)}"
-            )
-        return run_demo(
-            preset_name=args.preset,
-            refresh=args.refresh,
-            device=args.device,
-        )
-
     command = build_command(
-        mode=args.mode,
+        mode=mode,
         algo=args.algo,
         task=args.task,
         sim=args.sim,
@@ -216,5 +245,27 @@ def main(argv: Sequence[str] | None = None) -> int:
     return subprocess.run(command, check=False).returncode
 
 
+def train_main(argv: Sequence[str] | None = None) -> int:
+    return _run_train_eval("train", argv)
+
+
+def eval_main(argv: Sequence[str] | None = None) -> int:
+    return _run_train_eval("eval", argv)
+
+
+def demo_main(argv: Sequence[str] | None = None) -> int:
+    parser = _demo_parser()
+    args, overrides = parser.parse_known_args(argv)
+    if overrides:
+        raise SystemExit(
+            f"demo does not accept passthrough Hydra overrides: {', '.join(overrides)}"
+        )
+    return run_demo(
+        preset_name=args.preset,
+        refresh=args.refresh,
+        device=args.device,
+    )
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(train_main())

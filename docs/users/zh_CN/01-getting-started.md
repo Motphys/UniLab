@@ -77,22 +77,19 @@ uv run scripts/train_offpolicy.py algo=td3 task=td3/g1_walk_flat/mujoco
 make test-all
 ```
 
-## 统一 CLI (`unilab`)
+## 统一 CLI
 
-UniLab 提供了统一的 `unilab` 命令行入口，无需记忆各训练脚本路径：
+UniLab 提供了 `train`、`eval` 和 `demo` 命令行入口，无需记忆各训练脚本路径：
 
 ```bash
-# 激活虚拟环境后即可使用
-source .venv/bin/activate
-
 # 训练
-unilab train --algo ppo --task go2_joystick_flat --sim mujoco
+uv run train --algo ppo --task go2_joystick_flat --sim mujoco
 
 # 评估（回放最新 checkpoint）
-unilab eval --algo ppo --task go2_joystick_flat --sim mujoco --load-run -1
+uv run eval --algo ppo --task go2_joystick_flat --sim mujoco --load-run -1
 
-# 一键 demo（预置 checkpoint 回放）
-unilab demo
+# demo（使用本地训练产出的 checkpoint 回放）
+uv run demo
 ```
 
 支持的算法：`ppo`、`mlx_ppo`、`appo`、`sac`、`td3`、`flashsac`
@@ -102,45 +99,40 @@ unilab demo
 
 ## Docker
 
-当你希望在不改动本地 Python 环境的前提下获得隔离的 Linux 运行环境时，可以使用 Docker。本地开发仍然优先使用 `uv sync`；Docker 更适合做干净环境搭建、image 验证和容器化运行。
+当你希望在不改动本地 Python 环境的前提下获得隔离的 Linux NVIDIA/CUDA 运行环境时，可以使用 Docker。Linux 训练容器需要 NVIDIA 显卡、兼容的宿主机驱动，以及 NVIDIA Container Toolkit。macOS Docker 目前不支持。
 
 ### 构建 image
 
 ```bash
-# 基础 image：MuJoCo + UniLab 运行时
-docker build -f Dockerfile.base -t unilab:base .
-
-# 开发 image：基础 image + Motrix + 开发工具
-docker build -f Dockerfile -t unilab:dev .
+docker build -t unilab:latest .
 ```
+
+该 image 默认安装 UniLab 运行依赖、`mujoco-uni`、`motrix` extra，以及 dev/test 工具。
 
 ### 运行 image
 
 ```bash
 # 检查统一 CLI 入口
-docker run --rm unilab:base
-docker run --rm unilab:dev
+docker run --rm unilab:latest
 
-# 挂载仓库进入交互式开发
+# Linux NVIDIA 训练 shell，挂载当前仓库
 # 将 .venv 放在 named volume 中，避免容器覆盖宿主机虚拟环境
-docker run --rm -it \
+docker run --rm --gpus all -it \
   -v "$(pwd):/workspace/UniLab" \
   -v unilab-venv:/workspace/UniLab/.venv \
   -w /workspace/UniLab \
-  unilab:dev bash
+  unilab:latest bash
 ```
 
 将 `/workspace/UniLab/.venv` 放到 named volume 中，可以避免把容器内创建的虚拟环境混入宿主机仓库目录，进而避免 `/workspace/UniLab/.venv` 与本地 `.venv` 的路径不一致，以及回到本地 `uv` 或 `make test-all` 工作流时出现权限问题。
 
-### GPU 容器
-
-在已经配置好 NVIDIA Container Toolkit 的 Linux 宿主机上，可以通过 `--gpus all` 将 CUDA 暴露给容器：
+验证容器内 CUDA 是否可用：
 
 ```bash
-docker run --rm --gpus all unilab:base uv run python -c "import torch; print(torch.cuda.is_available())"
-docker run --rm --gpus all unilab:dev uv run python -c "import torch; print(torch.cuda.is_available())"
+docker run --rm --gpus all unilab:latest uv run python -c "import torch; print(torch.cuda.is_available())"
 ```
 
 ## Navigation
 
+- Index: [Documentation](../../README.md)
 - Next: [Simulation Backends](02-simulation-backends.md)

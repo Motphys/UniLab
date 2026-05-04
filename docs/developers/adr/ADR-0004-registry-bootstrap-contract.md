@@ -3,6 +3,8 @@
 - Status: Accepted
 - Date: 2026-04-11
 - Owners: Env / Infra maintainers
+- Supersedes: None
+- Superseded by: None
 
 ## Context
 
@@ -33,9 +35,20 @@ UniLab 的 env 注册依赖 `@registry.envcfg(...)` 与 `@registry.env(...)` dec
 - registry 相关回归可以在 `ensure_registries()` 边界直接测试，不必依赖顶层训练脚本间接发现。
 - 文档可以把 registry bootstrap 作为正式架构引用，而不是“当前实现细节”。
 
+## Alternatives Considered
+
+- 继续通过目录扫描推断 registry modules。拒绝原因：注册 contract 会被文件系统布局隐式决定，导入失败边界不清晰。
+- 只在训练脚本里按需导入 env package。拒绝原因：support claim 和 config compose 无法稳定复用同一个 bootstrap contract。
+
 ## Evidence In Repo
 
 - Registry 入口: `src/unilab/base/registry.py`
 - Bootstrap helper: `src/unilab/base/registry.py`
 - Env package 入口: `src/unilab/envs/locomotion/__init__.py`, `src/unilab/envs/motion_tracking/__init__.py`, `src/unilab/envs/manipulation/__init__.py`
 - Bootstrap tests: `tests/utils/test_algo_utils.py`, `tests/base/test_registry.py`
+
+## Related Documents
+
+- [ADR Index](README.md)
+- [RL Infrastructure 开发标准](../zh_CN/development-standard.md)
+- [协作流程](../zh_CN/collaboration.md)

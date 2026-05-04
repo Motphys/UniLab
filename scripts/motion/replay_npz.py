@@ -6,16 +6,16 @@ This replay path depends on the MuJoCo viewer/runtime and is not available for
 Motrix-only workflows.
 
 Usage:
-    uv run python scripts/motion/replay_npz.py --npz_file path/to/motion.npz
+    uv run scripts/motion/replay_npz.py --npz_file path/to/motion.npz
 
     # Custom model file
-    uv run python scripts/motion/replay_npz.py --npz_file motion.npz --model_file path/to/scene.xml
+    uv run scripts/motion/replay_npz.py --npz_file motion.npz --model_file path/to/scene.xml
 
     # Loop playback
-    uv run python scripts/motion/replay_npz.py --npz_file motion.npz --loop
+    uv run scripts/motion/replay_npz.py --npz_file motion.npz --loop
 
     # Slow-motion (0.5x speed)
-    uv run python scripts/motion/replay_npz.py --npz_file motion.npz --speed 0.5
+    uv run scripts/motion/replay_npz.py --npz_file motion.npz --speed 0.5
 """
 
 # pyright: reportAttributeAccessIssue=false, reportReturnType=false
