@@ -106,6 +106,106 @@ def test_collect_doc_errors_flags_python_script_invocation(tmp_path):
     assert any("Use `uv run scripts/...`" in error for error in errors)
 
 
+def test_collect_doc_errors_scans_scripts_markdown(tmp_path):
+    doc_path = tmp_path / "scripts" / "motion" / "README.md"
+    doc_path.parent.mkdir(parents=True)
+    doc_path.write_text(
+        "```bash\nuv run python scripts/motion/replay_npz.py\n```\n",
+        encoding="utf-8",
+    )
+    script_path = tmp_path / "scripts" / "motion" / "replay_npz.py"
+    script_path.write_text("", encoding="utf-8")
+
+    errors = doc_checks.collect_doc_errors(tmp_path)
+
+    assert any("Use `uv run scripts/...`" in error for error in errors)
+
+
+def test_check_zh_cn_doc_shape_requires_language_navigation_and_index(tmp_path):
+    root = tmp_path
+    doc_path = root / "docs" / "users" / "zh_CN" / "06-domain-randomization.md"
+    doc_path.parent.mkdir(parents=True)
+    content = "# 域随机化\n\n缺少语言头。\n"
+
+    errors = doc_checks.check_zh_cn_doc_shape(content, doc_path, root)
+
+    assert any("语言: 简体中文" in error for error in errors)
+    assert any("## Navigation" in error for error in errors)
+    assert any("docs/README.md" in error for error in errors)
+
+
+def test_check_zh_cn_doc_shape_accepts_user_contract(tmp_path):
+    root = tmp_path
+    doc_path = root / "docs" / "users" / "zh_CN" / "06-domain-randomization.md"
+    doc_path.parent.mkdir(parents=True)
+    content = (
+        "# 域随机化\n\n语言: 简体中文\n\n正文。\n\n"
+        "## Navigation\n\n- Index: [Documentation](../../README.md)\n"
+    )
+
+    errors = doc_checks.check_zh_cn_doc_shape(content, doc_path, root)
+
+    assert errors == []
+
+
+def test_check_zh_cn_doc_shape_accepts_developer_contract(tmp_path):
+    root = tmp_path
+    doc_path = root / "docs" / "developers" / "zh_CN" / "development-standard.md"
+    doc_path.parent.mkdir(parents=True)
+    content = (
+        "# RL Infrastructure 开发标准\n\n语言: 简体中文\n\n正文。\n\n"
+        "## Navigation\n\n- Index: [Documentation](../../README.md)\n"
+    )
+
+    errors = doc_checks.check_zh_cn_doc_shape(content, doc_path, root)
+
+    assert errors == []
+
+
+def test_check_adr_shape_requires_governance_fields(tmp_path):
+    root = tmp_path
+    doc_path = root / "docs" / "developers" / "adr" / "ADR-9999-example.md"
+    doc_path.parent.mkdir(parents=True)
+    content = "# ADR-9999 Example\n\n- Status: Accepted\n"
+
+    errors = doc_checks.check_adr_shape(content, doc_path, root)
+
+    assert any("Supersedes" in error for error in errors)
+    assert any("Alternatives Considered" in error for error in errors)
+    assert any("Evidence In Repo" in error for error in errors)
+
+
+def test_check_adr_shape_accepts_template_contract(tmp_path):
+    root = tmp_path
+    doc_path = root / "docs" / "developers" / "adr" / "ADR-9999-example.md"
+    doc_path.parent.mkdir(parents=True)
+    content = """
+# ADR-9999 Example
+
+- Status: Accepted
+- Date: 2026-05-04
+- Owners: Maintainers
+- Supersedes: None
+- Superseded by: None
+
+## Alternatives Considered
+
+None.
+
+## Evidence In Repo
+
+- tests/example.py
+
+## Related Documents
+
+- [ADR Index](README.md)
+"""
+
+    errors = doc_checks.check_adr_shape(content, doc_path, root)
+
+    assert errors == []
+
+
 def test_collect_doc_errors_flags_removed_unilab_subcommands(tmp_path):
     readme = tmp_path / "README.md"
     readme.write_text(

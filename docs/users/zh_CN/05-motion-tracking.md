@@ -232,5 +232,6 @@ uv run scripts/play_viser.py task=g1_motion_tracking/mujoco interactive.action_m
 
 ## Navigation
 
+- Index: [Documentation](../../README.md)
 - Previous: [Algorithms](04-algorithms.md)
 - Next: [Domain Randomization](06-domain-randomization.md)

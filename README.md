@@ -112,19 +112,10 @@ Using a named volume for `/workspace/UniLab/.venv` avoids mixing a container-cre
 
 ## 📚 Documentation
 
-### For Users
-- [01 Getting Started](docs/users/zh_CN/01-getting-started.md): installation, dependency setup, mirrors, and first-run commands
-- [02 Simulation Backends](docs/users/zh_CN/02-simulation-backends.md): MuJoCo / Motrix support scope and backend selection
-- [03 Training Guide](docs/users/zh_CN/03-training.md): training, playback, resume flow, Hydra overrides, and W&B
-- [04 Algorithms](docs/users/zh_CN/04-algorithms.md): APPO, FastSAC, and FastTD3 usage and differences
-- [05 G1 Motion Tracking](docs/users/zh_CN/05-motion-tracking.md): the G1 whole-body motion-tracking task
-- [06 Domain Randomization](docs/users/zh_CN/06-domain-randomization.md): domain randomization configuration and best practices
-- [Demo Notebook](notebook/demo.ipynb): local checkpoint playback via `uv run demo`
-- [PPO Training Walkthrough](notebook/unilab_walkthrough_ppo_go1_joystick_mujoco.ipynb): beginner-friendly end-to-end training guide
+Use [docs/README.md](docs/README.md) as the documentation index. High-signal entrypoints:
 
-
-### For Developers
-- [CONTRIBUTING.md](CONTRIBUTING.md): development environment, commands, commit conventions, and PR workflow
-- [RL Infrastructure Development Standard](docs/developers/zh_CN/development-standard.md): design principles, layering, contracts, and validation boundaries
-- [Collaboration Workflow](docs/developers/zh_CN/collaboration.md): GitHub issue / milestone / PR collaboration rules and ADR governance
-- [ADR Index](docs/developers/adr/README.md): architecture decision records
+- [Getting Started](docs/users/zh_CN/01-getting-started.md): installation, dependency setup, and first-run commands
+- [Training Guide](docs/users/zh_CN/03-training.md): training, playback, resume flow, Hydra overrides, and W&B
+- [Simulation Backends](docs/users/zh_CN/02-simulation-backends.md): generated MuJoCo / Motrix support matrix
+- [Development Standard](docs/developers/zh_CN/development-standard.md): contracts, layering, and validation boundaries
+- [ADR Index](docs/developers/adr/README.md): accepted architecture decisions

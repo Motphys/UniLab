@@ -153,5 +153,6 @@ uv run scripts/train_offpolicy.py algo=flashsac task=flashsac/g1_walk_flat/mujoc
 
 ## Navigation
 
+- Index: [Documentation](../../README.md)
 - Previous: [Training Guide](03-training.md)
 - Next: [G1 Motion Tracking](05-motion-tracking.md)

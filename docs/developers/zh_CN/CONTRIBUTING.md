@@ -152,3 +152,8 @@ UniLab 使用 Hydra + dataclass 配置系统:
 - **添加新算法**: 在 `structured_configs.py` 中添加 dataclass，并创建对应的 `conf/` 目录
 
 更多细节见 [Training Guide](../../users/zh_CN/03-training.md) 的 Hydra 部分，以及 [Development Standard](development-standard.md)。
+
+## Navigation
+
+- Index: [Documentation](../../README.md)
+- Previous: [Collaboration](collaboration.md)

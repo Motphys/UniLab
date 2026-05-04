@@ -3,6 +3,8 @@
 - Status: Accepted
 - Date: 2026-04-11
 - Owners: Infra / Training maintainers
+- Supersedes: None
+- Superseded by: None
 
 ## Context
 
@@ -29,6 +31,11 @@ UniLab 同时支持多种算法入口和两种仿真后端。没有统一 runtim
 - 跨层问题必须在 owner layer 修复。
 - 新功能必须先确定 contract 归属，再决定具体落点。
 - 文档和评审用语应区分“稳定 contract”与“阶段性能力”。
+
+## Alternatives Considered
+
+- 保持脚本层按训练入口各自处理 backend/env/algo 差异。拒绝原因：会把 contract 漏洞扩散到 `scripts/`，并让 smoke run 掩盖 owner layer 问题。
+- 只用顶层训练脚本定义 runtime contract。拒绝原因：无法约束 env、backend、runner 和 IPC 的长期边界。
 
 ## Evidence In Repo
 

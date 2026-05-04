@@ -12,16 +12,16 @@ Prerequisites::
 Usage::
 
     # Zero-action mode (no checkpoint needed)
-    uv run python scripts/play_viser.py task=go2_joystick_flat/mujoco interactive.action_mode=zero
+    uv run scripts/play_viser.py task=go2_joystick_flat/mujoco interactive.action_mode=zero
 
     # With a trained policy
-    uv run python scripts/play_viser.py task=go2_joystick_flat/mujoco interactive.action_mode=policy
+    uv run scripts/play_viser.py task=go2_joystick_flat/mujoco interactive.action_mode=policy
 
     # Multiple environments with env switching
-    uv run python scripts/play_viser.py task=go2_joystick_flat/mujoco algo.num_envs=4 viser.port=8080
+    uv run scripts/play_viser.py task=go2_joystick_flat/mujoco algo.num_envs=4 viser.port=8080
 
     # Motion tracking task
-    uv run python scripts/play_viser.py task=g1_motion_tracking/mujoco interactive.action_mode=policy
+    uv run scripts/play_viser.py task=g1_motion_tracking/mujoco interactive.action_mode=policy
 
 Camera controls (browser):
     Left-drag    - rotate

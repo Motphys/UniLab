@@ -134,4 +134,5 @@ docker run --rm --gpus all unilab:latest uv run python -c "import torch; print(t
 
 ## Navigation
 
+- Index: [Documentation](../../README.md)
 - Next: [Simulation Backends](02-simulation-backends.md)

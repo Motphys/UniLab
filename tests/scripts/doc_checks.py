@@ -45,6 +45,7 @@ DOC_PATTERNS = [
     "*.md",
     "docs/**/*.md",
     "src/**/*.md",
+    "scripts/**/*.md",
     ".github/ISSUE_TEMPLATE/**/*.yml",
     ".github/ISSUE_TEMPLATE/**/*.yaml",
 ]
@@ -289,6 +290,53 @@ def check_generated_support_matrix(content: str, doc_path: Path, root: Path) -> 
     return errors
 
 
+def check_zh_cn_doc_shape(content: str, doc_path: Path, root: Path) -> list[str]:
+    errors: list[str] = []
+    checked_dirs = {
+        root / "docs" / "users" / "zh_CN",
+        root / "docs" / "developers" / "zh_CN",
+    }
+    if doc_path.parent not in checked_dirs or doc_path.suffix != ".md":
+        return errors
+
+    lines = content.splitlines()
+    if len(lines) < 3 or lines[2].strip() != "语言: 简体中文":
+        errors.append(f"{doc_path}: zh_CN docs must declare `语言: 简体中文` after title")
+
+    if "\n## Navigation\n" not in content:
+        errors.append(f"{doc_path}: zh_CN docs must include a `## Navigation` section")
+
+    if "- Index: [Documentation](../../README.md)" not in content:
+        errors.append(f"{doc_path}: zh_CN docs must link back to docs/README.md in Navigation")
+
+    return errors
+
+
+def check_adr_shape(content: str, doc_path: Path, root: Path) -> list[str]:
+    errors: list[str] = []
+    adr_dir = root / "docs" / "developers" / "adr"
+    if doc_path.parent != adr_dir or doc_path.suffix != ".md":
+        return errors
+    if doc_path.name == "README.md":
+        return errors
+
+    required_tokens = [
+        "- Status:",
+        "- Date:",
+        "- Owners:",
+        "- Supersedes:",
+        "- Superseded by:",
+        "## Alternatives Considered",
+        "## Evidence In Repo",
+        "## Related Documents",
+    ]
+    for token in required_tokens:
+        if token not in content:
+            errors.append(f"{doc_path}: ADR must include `{token}`")
+
+    return errors
+
+
 def check_document(doc_path: Path, root: Path) -> list[str]:
     content = doc_path.read_text(encoding="utf-8")
     errors: list[str] = []
@@ -302,6 +350,8 @@ def check_document(doc_path: Path, root: Path) -> list[str]:
     errors.extend(check_argparse_vs_hydra(content, doc_path, root))
     errors.extend(check_training_entrypoint_semantics(content, doc_path, root))
     errors.extend(check_generated_support_matrix(content, doc_path, root))
+    errors.extend(check_zh_cn_doc_shape(content, doc_path, root))
+    errors.extend(check_adr_shape(content, doc_path, root))
     return errors
 
 

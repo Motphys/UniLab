@@ -132,5 +132,6 @@ uv run mxpython scripts/train_rsl_rl.py task=go1_joystick_flat/motrix training.p
 
 ## Navigation
 
+- Index: [Documentation](../../README.md)
 - Previous: [Getting Started](01-getting-started.md)
 - Next: [Training Guide](03-training.md)
