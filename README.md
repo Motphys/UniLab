@@ -61,7 +61,7 @@ uv run train --algo sac --task g1_walk_flat --sim mujoco
 ```
 
 ```bash
-# Linux G1 motion tracking (1h35min on RTX 4090 and R9-9950x3d)
+# Linux G1 motion tracking
 uv run train --algo ppo --task g1_motion_tracking --sim mujoco
 ```
 
