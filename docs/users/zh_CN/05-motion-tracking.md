@@ -15,51 +15,49 @@ UniLab 当前提供两个 G1 whole-body motion tracking task family 和一个 Fa
 - `g1_motion_tracking` 默认 motion：`src/unilab/assets/motions/g1/dance1_subject2_part.npz`
 - `g1_flip_tracking` 默认 motion：`src/unilab/assets/motions/g1/flip_360_001__A304.npz`
 - `g1_sac_wbt` 默认 motion：与 `g1_motion_tracking` 相同
-- 实际训练入口统一写成 `task=<family>/<backend>`（off-policy 需加 `algo` 前缀）
+- 常规训练入口统一使用 `uv run train --algo <algo> --task <family> --sim <backend>`
 
 ## Environment Entrypoints
 
 ```bash
 # PPO (RSL-RL, MuJoCo)
-uv run scripts/train_rsl_rl.py task=g1_motion_tracking/mujoco
+uv run train --algo ppo --task g1_motion_tracking --sim mujoco
 
 # PPO (RSL-RL, MuJoCo, flip profile)
-uv run scripts/train_rsl_rl.py task=g1_flip_tracking/mujoco
+uv run train --algo ppo --task g1_flip_tracking --sim mujoco
 
 # PPO (RSL-RL, Motrix)
-uv run scripts/train_rsl_rl.py task=g1_motion_tracking/motrix
+uv run train --algo ppo --task g1_motion_tracking --sim motrix
 
 # PPO (RSL-RL, Motrix, flip profile)
-uv run scripts/train_rsl_rl.py task=g1_flip_tracking/motrix
+uv run train --algo ppo --task g1_flip_tracking --sim motrix
 
 # APPO (MuJoCo)
-uv run scripts/train_appo.py task=g1_motion_tracking/mujoco
+uv run train --algo appo --task g1_motion_tracking --sim mujoco
 
 # APPO (Motrix)
-uv run scripts/train_appo.py task=g1_motion_tracking/motrix
+uv run train --algo appo --task g1_motion_tracking --sim motrix
 
 # FastSAC (MuJoCo, holosoma-aligned WBT)
-uv run scripts/train_offpolicy.py algo=sac task=sac/g1_sac_wbt/mujoco
+uv run train --algo sac --task g1_sac_wbt --sim mujoco
 
 # FastSAC with AMP (recommended for CUDA)
-uv run scripts/train_offpolicy.py algo=sac task=sac/g1_sac_wbt/mujoco training.use_amp=true
+uv run train --algo sac --task g1_sac_wbt --sim mujoco training.use_amp=true
 
 # 回放最新 checkpoint
-uv run scripts/train_rsl_rl.py task=g1_motion_tracking/mujoco training.play_only=true
+uv run eval --algo ppo --task g1_motion_tracking --sim mujoco --load-run -1
 
-# Motrix PPO 回放会打开原生 renderer；macOS / MacBook 用 mxpython
-uv run mxpython scripts/train_rsl_rl.py task=g1_motion_tracking/motrix \
-  training.play_only=true
+# Motrix PPO 回放会打开原生 renderer；统一 CLI 会在 macOS / MacBook 自动路由到 mxpython
+uv run eval --algo ppo --task g1_motion_tracking --sim motrix --load-run -1
 
 # APPO MuJoCo 回放
-uv run scripts/train_appo.py task=g1_motion_tracking/mujoco training.play_only=true
+uv run eval --algo appo --task g1_motion_tracking --sim mujoco --load-run -1
 
-# APPO Motrix 回放会打开原生 renderer；macOS / MacBook 用 mxpython
-uv run mxpython scripts/train_appo.py task=g1_motion_tracking/motrix \
-  training.play_only=true
+# APPO Motrix 回放会打开原生 renderer；统一 CLI 会在 macOS / MacBook 自动路由到 mxpython
+uv run eval --algo appo --task g1_motion_tracking --sim motrix --load-run -1
 ```
 
-对于 G1 motion tracking，Motrix 的训练和回放主路径应优先走 `scripts/train_rsl_rl.py` 和 `scripts/train_appo.py`。macOS / MacBook 上只要会打开 MotrixSim 原生 renderer，就用 `uv run mxpython` 启动；不需要可视化的训练仍可使用 `uv run scripts/... training.no_play=true`。调试脚本 `scripts/play_interactive.py` 仍沿用 MuJoCo viewer 路径。
+对于 G1 motion tracking，Motrix 的训练和回放主路径应优先走 `uv run train` 和 `uv run eval`。macOS / MacBook 上只要会打开 MotrixSim 原生 renderer，统一 CLI 会自动路由到 `mxpython`；不需要可视化的训练可追加 `training.no_play=true`。调试脚本 `scripts/play_interactive.py` 仍沿用 MuJoCo viewer 路径。
 
 ## Interactive Debugging
 
@@ -148,21 +146,21 @@ uv run scripts/motion/replay_npz.py \
 
 ```bash
 # 默认训练
-uv run scripts/train_offpolicy.py algo=sac task=sac/g1_sac_wbt/mujoco
+uv run train --algo sac --task g1_sac_wbt --sim mujoco
 
 # 推荐：开启 AMP 加速
-uv run scripts/train_offpolicy.py algo=sac task=sac/g1_sac_wbt/mujoco training.use_amp=true
+uv run train --algo sac --task g1_sac_wbt --sim mujoco training.use_amp=true
 
 # 自定义并行环境数和迭代次数
-uv run scripts/train_offpolicy.py algo=sac task=sac/g1_sac_wbt/mujoco \
+uv run train --algo sac --task g1_sac_wbt --sim mujoco \
     algo.num_envs=4096 algo.max_iterations=10000 training.use_amp=true
 
 # 使用 wandb 记录
-uv run scripts/train_offpolicy.py algo=sac task=sac/g1_sac_wbt/mujoco \
+uv run train --algo sac --task g1_sac_wbt --sim mujoco \
     training.use_amp=true training.logger=wandb
 
 # 指定 motion 文件
-uv run scripts/train_offpolicy.py algo=sac task=sac/g1_sac_wbt/mujoco \
+uv run train --algo sac --task g1_sac_wbt --sim mujoco \
     env.motion_file=src/unilab/assets/motions/g1/dance1_subject2_part.npz
 ```
 
@@ -186,11 +184,11 @@ motion_file:
 - `clip_start`：从随机 clip 的首帧开始，适合多 clip 列表
 - `uniform` / `adaptive`：在拼接后的全局帧空间采样，但 episode 会在当前 clip 边界处截断
 
-验证 Motrix 路径时，优先使用训练脚本自带的 play mode，而不是只支持 MuJoCo 的调试脚本:
+验证 Motrix 路径时，优先使用统一训练入口的 play mode，而不是只支持 MuJoCo 的调试脚本:
 
 ```bash
-uv run scripts/train_rsl_rl.py task=g1_motion_tracking/motrix
-uv run scripts/train_appo.py task=g1_motion_tracking/motrix
+uv run train --algo ppo --task g1_motion_tracking --sim motrix
+uv run train --algo appo --task g1_motion_tracking --sim motrix
 ```
 
 ## PPO Motion Tracking：Play Tracking + Viser
@@ -216,7 +214,7 @@ uv sync --extra viser
 
 ```bash
 # 1) PPO Play 回放（启用 tracking，亦可选择默认配置，即非跟随镜头）
-uv run scripts/train_rsl_rl.py task=g1_motion_tracking/mujoco training.play_only=true training.cam_tracking=true algo.load_run=xxx algo.checkpoint=xxx
+uv run eval --algo ppo --task g1_motion_tracking --sim mujoco --load-run xxx training.cam_tracking=true algo.checkpoint=xxx
 ```
 
 ```bash
