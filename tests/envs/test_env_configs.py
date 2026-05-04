@@ -12,6 +12,7 @@ import subprocess
 import sys
 import textwrap
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import numpy as np
@@ -50,7 +51,7 @@ def test_registry_bootstrap_and_config_imports_do_not_require_mujoco():
 
         from unilab.base import registry
         from unilab.base.backend import create_backend
-        from unilab.envs.manipulation.inhand_rot_allegro.rotation import AllegroRotationCfg
+        from unilab.envs.manipulation.allegro_inhand.rotation import AllegroRotationCfg
         from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingCfg
         from unilab.base.registry import ensure_registries
 
@@ -318,7 +319,7 @@ def test_g1_walk_flat_assets_define_contact_sensors_for_gait_rewards():
 
 def test_allegro_rotation_obs_groups_spec_dims():
     """Allegro rotation obs_groups_spec should expose single actor obs group."""
-    from unilab.envs.manipulation.inhand_rot_allegro.rotation import AllegroRotationPPO
+    from unilab.envs.manipulation.allegro_inhand.rotation import AllegroRotationPPO
 
     env = cast(Any, object.__new__(AllegroRotationPPO))
     spec = env.obs_groups_spec
@@ -328,7 +329,7 @@ def test_allegro_rotation_obs_groups_spec_dims():
 
 def test_allegro_grasp_obs_groups_spec_dims():
     """Allegro grasp task inherits the same obs group layout as rotation."""
-    from unilab.envs.manipulation.inhand_rot_allegro.grasp_gen import AllegroRotationGrasp
+    from unilab.envs.manipulation.allegro_inhand.grasp_gen import AllegroRotationGrasp
 
     env = cast(Any, object.__new__(AllegroRotationGrasp))
     spec = env.obs_groups_spec
@@ -470,10 +471,34 @@ def test_sharpa_grasp_env_initializes_dr_once_with_grasp_provider(monkeypatch):
         self._np_dtype = np.float64
         self._num_action = 22
         self._num_tactile = 5
-        self._num_scales = int(cfg.scale_range[2])
+        self._num_scales = len(cfg.domain_rand.scale_list)
         self.scale_ids = np.zeros((num_envs,), dtype=np.int32)
+        self._object_body_ids = np.zeros((0,), dtype=np.int32)
 
-    monkeypatch.setattr(sharpa_rotation_module, "create_backend", lambda *args, **kwargs: object())
+    def unsupported_backend_metadata(*args, **kwargs):
+        raise NotImplementedError("fake backend does not expose Sharpa MuJoCo metadata")
+
+    monkeypatch.setattr(
+        sharpa_rotation_module,
+        "create_backend",
+        lambda *args, **kwargs: SimpleNamespace(
+            backend_type="motrix",
+            get_actuator_gains=lambda: (
+                np.ones(22, dtype=np.float64),
+                np.ones(22, dtype=np.float64),
+            ),
+            get_geom_id=unsupported_backend_metadata,
+            get_body_id=unsupported_backend_metadata,
+            get_body_subtree_ids=unsupported_backend_metadata,
+            get_geom_body_ids=unsupported_backend_metadata,
+            get_geom_contact_masks=unsupported_backend_metadata,
+            get_geom_names=unsupported_backend_metadata,
+            get_geom_friction=unsupported_backend_metadata,
+            get_gravity=unsupported_backend_metadata,
+            get_body_mass=unsupported_backend_metadata,
+            get_body_ipos=unsupported_backend_metadata,
+        ),
+    )
     monkeypatch.setattr(SharpaInhandBaseEnv, "__init__", fake_base_init)
     monkeypatch.setattr(
         SharpaInhandRotationGraspEnv,
@@ -482,6 +507,27 @@ def test_sharpa_grasp_env_initializes_dr_once_with_grasp_provider(monkeypatch):
     )
 
     cfg = SharpaInhandRotationGraspCfg()
+    assert cfg.domain_rand.randomize_pd_gains is False
+    assert cfg.domain_rand.randomize_friction is False
+    assert cfg.domain_rand.randomize_com is False
+    assert cfg.domain_rand.randomize_mass is True
+    assert cfg.domain_rand.randomize_mass_lower == pytest.approx(0.05)
+    assert cfg.domain_rand.randomize_mass_upper == pytest.approx(0.051)
+    assert cfg.domain_rand.force_scale == pytest.approx(0.0)
+    assert cfg.domain_rand.random_force_prob_scalar == pytest.approx(0.0)
+    assert cfg.domain_rand.joint_noise_scale == pytest.approx(0.02)
+    assert cfg.domain_rand.contact_latency == pytest.approx(0.005)
+    assert cfg.domain_rand.contact_sensor_noise == pytest.approx(0.01)
+    assert cfg.control_config.torque_control is False
+    assert cfg.control_config.dof_limits_scale == pytest.approx(0.9)
+    assert cfg.obs.enable_tactile is True
+    assert cfg.obs.binary_contact is False
+    assert cfg.obs.enable_contact_pos is False
+    assert cfg.obs.contact_smooth == pytest.approx(0.5)
+    assert cfg.obs.contact_threshold == pytest.approx(0.05)
+    assert cfg.obs.tactile_force_clip_max == pytest.approx(4.0)
+    assert cfg.priv_info.include_friction_scale is True
+    assert cfg.priv_info.include_gravity_direction is False
     env = cast(Any, SharpaInhandRotationGraspEnv)(cfg, num_envs=4, backend_type="mujoco")
 
     assert calls == ["SharpaInhandGraspDRProvider"]

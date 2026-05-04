@@ -1,0 +1,63 @@
+# @package _global_
+training:
+  task_name: AllegroInhandRotation
+  sim_backend: motrix
+  play_steps: 200
+  render_spacing: 0.5
+  cam_distance: 1.5
+  cam_lookat: [0.75, 0.75, 0]
+  cam_elevation: -20.0
+algo:
+  num_envs: 16384
+  steps_per_env: 8
+  max_iterations: 201
+  save_interval: 100
+  algorithm:
+    value_loss_coef: 4.0
+    entropy_coef: 0.01
+    learning_rate: 0.001
+    desired_kl: 0.02
+    num_learning_epochs: 5
+    num_mini_batches: 4
+    clip_param: 0.2
+    gamma: 0.99
+    lam: 0.95
+    max_grad_norm: 1.0
+    use_clipped_value_loss: true
+    schedule: adaptive
+  actor:
+    hidden_dims: [512, 256, 128]
+    activation: elu
+    obs_normalization: true
+    distribution_cfg:
+      class_name: rsl_rl.modules.distribution.GaussianDistribution
+      init_std: 1.0
+      std_type: scalar
+  critic:
+    hidden_dims: [512, 256, 128]
+    activation: elu
+    obs_normalization: true
+reward:
+  scales:
+    rotate: 1.25
+    obj_linvel: -0.3
+    pose_diff: -0.3
+    torque: -0.1
+    work: -2.0
+    drop: 0.0
+  angvel_clip_min: -0.5
+  angvel_clip_max: 0.5
+  reset_z_threshold: 0.125
+env:
+  gen_grasp: false
+  max_episode_seconds: 20.0
+  grasp_cache_path: cache/allegro_grasp_50k.npy
+  # Keep only grasp/pose reset variation. All online DR terms stay disabled.
+  domain_rand:
+    randomize_base_mass: false
+    random_com: false
+    randomize_gravity: false
+    push_robots: false
+    joint_noise: 0.0
+    ball_vel_noise: 0.0
+    ball_z_offset: 0.0

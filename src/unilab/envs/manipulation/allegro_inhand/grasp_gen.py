@@ -9,11 +9,8 @@ import numpy as np
 
 from unilab.base import registry
 from unilab.base.np_env import NpEnvState
-from unilab.envs.manipulation.inhand_rot_allegro.rotation import (
-    AllegroRotationPPO,
-    AllegroRotationPPOCfg,
-    RewardConfigPPO,
-)
+
+from .rotation import AllegroRotationPPO, AllegroRotationPPOCfg, RewardConfigPPO
 
 
 @registry.envcfg("AllegroInhandRotationGrasp")

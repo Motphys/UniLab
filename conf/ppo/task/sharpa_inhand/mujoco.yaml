@@ -9,7 +9,7 @@ training:
 algo:
   num_envs: 16384
   num_steps_per_env: 8
-  max_iterations: 501
+  max_iterations: 301
   empirical_normalization: true
   policy:
     actor_hidden_dims: [512, 256, 128]
@@ -36,23 +36,14 @@ reward:
   angvel_clip_min: -0.5
   angvel_clip_max: 0.5
 env:
-  torque_control: false
   zero_action_test_mode: false
   clip_obs: 5.0
   clip_actions: 1.0
-  control_config:
-    action_scale: 0.041666666666666664
-    p_gain: 1.0
-    d_gain: 0.1
-  reset_height_lower: 0.59906
+  reset_height_lower: 0.59906 # assume the hand base height is 0.5
   reset_height_upper: 0.63906
   reset_angle_diff: 0.7853981633974483
-  reset_random_quat: false
   rot_axis: [0.0, 0.0, 1.0]
   grasp_cache_path: cache/sharpa_grasp_linspace
-  joint_noise_scale: 0.0
-  critic_obs_mode: merged
-  observation_mode: simple
   sensor:
     tactile_force_sensor_names:
       - contact_right_thumb_elastomer_force
@@ -60,35 +51,50 @@ env:
       - contact_right_middle_elastomer_force
       - contact_right_ring_elastomer_force
       - contact_right_pinky_elastomer_force
-  enable_tactile: true
-  binary_contact: false
-  enable_contact_pos: false
   disable_tactile_ids: []
-  contact_smooth: 0.5
-  contact_threshold: 0.05
-  contact_latency: 0.005
-  contact_sensor_noise: 0.01
-  dof_limits_scale: 0.9
-  scale_range: [0.8, 1.1, 4]
-  randomize_pd_gains: false
-  randomize_p_gain_scale_lower: 0.5
-  randomize_p_gain_scale_upper: 2.0
-  randomize_d_gain_scale_lower: 0.5
-  randomize_d_gain_scale_upper: 2.0
-  randomize_friction: false
-  randomize_friction_scale_lower: 0.5
-  randomize_friction_scale_upper: 2.0
-  elastomer_base_friction: 0.8
-  metal_base_friction: 0.1
-  object_base_friction: 0.5
-  randomize_com: false
-  randomize_com_lower: -0.01
-  randomize_com_upper: 0.01
-  randomize_mass: false
-  randomize_mass_lower: 0.01
-  randomize_mass_upper: 0.25
-  force_scale: 0.0
-  random_force_prob_scalar: 0.0
-  force_decay: 0.9
-  force_decay_interval: 0.08
-  gravity_curriculum: false
+  use_default_object_pose_for_object_pos_anchor: false
+  obs:
+    observation_mode: flattened # non-hora setting
+    enable_tactile: true
+    binary_contact: false
+    enable_contact_pos: false
+    contact_smooth: 0.5
+    contact_threshold: 0.05
+    tactile_force_clip_max: 4.0
+  priv_info:
+    include_friction_scale: true
+    include_gravity_direction: false
+  control_config:
+    action_scale: 0.041666666666666664
+    p_gain: 1.0 # use the XML value instead of this value by default
+    d_gain: 0.1
+    torque_control: false # can only be false
+    dof_limits_scale: 0.9 # tighten the XML dof limits
+  domain_rand:
+    scale_list: [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6] # cylinder object scales
+    randomize_gravity_direction: true
+    gravity_direction_magnitude: 9.81
+    randomize_pd_gains: true
+    randomize_p_gain_scale_lower: 0.5
+    randomize_p_gain_scale_upper: 2.0
+    randomize_d_gain_scale_lower: 0.5
+    randomize_d_gain_scale_upper: 2.0
+    randomize_friction: true
+    randomize_friction_scale_lower: 0.75
+    randomize_friction_scale_upper: 1.25
+    elastomer_base_friction: 2.0
+    metal_base_friction: 1.0
+    object_base_friction: 2.0
+    randomize_com: true
+    randomize_com_lower: -0.01
+    randomize_com_upper: 0.01
+    randomize_mass: true
+    randomize_mass_lower: 0.01
+    randomize_mass_upper: 0.25
+    force_scale: 2.0
+    random_force_prob_scalar: 0.25
+    force_decay: 0.9
+    force_decay_interval: 0.08
+    joint_noise_scale: 0.02
+    contact_latency: 0.005
+    contact_sensor_noise: 0.01

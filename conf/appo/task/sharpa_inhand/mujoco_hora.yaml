@@ -1,0 +1,32 @@
+# @package _global_
+# HORA Sharpa APPO variant. Inherit the shared MuJoCo owner so backend support
+# and shared hyperparameters stay aligned with the non-HORA Sharpa APPO config.
+defaults:
+  - /task/sharpa_inhand/mujoco
+  - _self_
+
+algo:
+  algo_log_name: hora_appo
+  runtime_impl: hora_appo
+  runtime_resolver: unilab.algos.torch.hora.appo:resolve_hora_appo_runtime
+  obs_groups:
+    # Keep grouped keys explicit in the owner YAML; runtime support for these
+    # grouped observations lands in the next implementation step.
+    actor:
+      actor: 0
+      priv_info: 0
+    critic:
+      actor: 0
+      priv_info: 0
+  actor:
+    class_name: unilab.algos.torch.hora:HoraActorModel
+    priv_info_embed_dim: 9
+    priv_mlp_hidden_dims: [256, 128, 9]
+  critic:
+    class_name: unilab.algos.torch.hora:HoraCriticModel
+    priv_info_embed_dim: 9
+    priv_mlp_hidden_dims: [256, 128, 9]
+
+env:
+  obs:
+    observation_mode: separated

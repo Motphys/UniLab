@@ -187,6 +187,9 @@ class MotrixBackend(SimBackend):
             return np.array(self._model.keyframes[0].dof_pos, dtype=self._np_dtype)
         return np.array(self._model.compute_init_dof_pos(), dtype=self._np_dtype)
 
+    def get_default_qpos(self) -> np.ndarray:
+        return np.array(self._model.compute_init_dof_pos(), dtype=self._np_dtype)
+
     def get_init_qvel(self) -> np.ndarray:
         return np.zeros((self._model.num_dof_vel,), dtype=self._np_dtype)
 
@@ -263,6 +266,7 @@ class MotrixBackend(SimBackend):
                 {RESET_TERM_BASE_MASS, RESET_TERM_BASE_COM, RESET_TERM_KP, RESET_TERM_KD}
             ),
             supports_interval_push=True,
+            supports_interval_body_velocity_delta=False,
         )
 
     def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:

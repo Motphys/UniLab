@@ -78,8 +78,14 @@ SOURCE_DEFAULT_HAND_JOINT_POS_DEG: tuple[float, ...] = (
 @dataclass
 class SharpaControlConfig:
     action_scale: float = 1.0 / 24.0
+    # MuJoCo Sharpa loads PD defaults from XML actuator gains. These fields remain
+    # fallback defaults for backends that cannot expose actuator gains yet.
     p_gain: float = 1.0
     d_gain: float = 0.1
+    # MuJoCo Sharpa currently uses position actuators, so torque-control mode
+    # stays declared here for owner-config structure but is rejected at runtime.
+    torque_control: bool = False
+    dof_limits_scale: float = 0.9
 
 
 @dataclass
@@ -88,7 +94,25 @@ class SharpaSensorConfig:
 
 
 @dataclass
+class SharpaObservationConfig:
+    observation_mode: str = "separated"
+    enable_tactile: bool = True
+    binary_contact: bool = False
+    enable_contact_pos: bool = False
+    contact_smooth: float = 0.5
+    contact_threshold: float = 0.05
+    tactile_force_clip_max: float = 4.0
+
+
+@dataclass
+class SharpaPrivilegedInfoConfig:
+    include_friction_scale: bool = True
+    include_gravity_direction: bool = False
+
+
+@dataclass
 class SharpaDomainRandConfig:
+    scale_list: list[float] = field(default_factory=lambda: [0.5])
     randomize_base_mass: bool = False
     added_mass_range: list[float] = field(default_factory=lambda: [0.0, 0.0])
     random_com: bool = False
@@ -97,6 +121,32 @@ class SharpaDomainRandConfig:
     gravity_range: list[list[float]] = field(
         default_factory=lambda: [[0.0, 0.0, -9.81], [0.0, 0.0, -9.81]]
     )
+    randomize_gravity_direction: bool = False
+    gravity_direction_magnitude: float = 9.81
+    randomize_pd_gains: bool = True
+    randomize_p_gain_scale_lower: float = 0.5
+    randomize_p_gain_scale_upper: float = 2.0
+    randomize_d_gain_scale_lower: float = 0.5
+    randomize_d_gain_scale_upper: float = 2.0
+    randomize_friction: bool = True
+    randomize_friction_scale_lower: float = 0.5
+    randomize_friction_scale_upper: float = 2.0
+    elastomer_base_friction: float = 1.6
+    metal_base_friction: float = 0.2
+    object_base_friction: float = 1.0
+    randomize_com: bool = True
+    randomize_com_lower: float = -0.01
+    randomize_com_upper: float = 0.01
+    randomize_mass: bool = True
+    randomize_mass_lower: float = 0.01
+    randomize_mass_upper: float = 0.25
+    force_scale: float = 2.0
+    random_force_prob_scalar: float = 0.25
+    force_decay: float = 0.9
+    force_decay_interval: float = 0.08
+    joint_noise_scale: float = 0.02
+    contact_latency: float = 0.005
+    contact_sensor_noise: float = 0.01
     push_body_name: str | None = None
 
 
@@ -111,14 +161,9 @@ class SharpaInhandBaseCfg(EnvCfg):
     observation_space: int = 192
     prop_hist_len: int = 30
     critic_info_dim: int = 8
-    # "separate": keep critic-only info in its own obs group.
-    # "merged": append critic info into the main "obs" vector.
-    critic_obs_mode: str = "separate"
 
     clip_obs: float = 5.0
     clip_actions: float = 1.0
-    # NOTE: Sharpa MuJoCo XML uses position actuators; true torque-control mode is not implemented.
-    torque_control: bool = False
 
     num_hand_dofs: int = 22
     frame_obs_dim: int = 64
@@ -137,98 +182,88 @@ class SharpaInhandBaseCfg(EnvCfg):
 
     control_config: SharpaControlConfig = field(default_factory=SharpaControlConfig)
     sensor: SharpaSensorConfig = field(default_factory=SharpaSensorConfig)  # type: ignore[assignment]
+    obs: SharpaObservationConfig = field(default_factory=SharpaObservationConfig)
+    priv_info: SharpaPrivilegedInfoConfig = field(default_factory=SharpaPrivilegedInfoConfig)
     domain_rand: SharpaDomainRandConfig = field(default_factory=SharpaDomainRandConfig)
 
     reset_height_lower: float = 0.59906
     reset_height_upper: float = 0.63906
     reset_angle_diff: float = 45.0 / 180.0 * np.pi
-    reset_random_quat: bool = False
 
     rot_axis: tuple[float, float, float] = (0.0, 0.0, 1.0)
 
     grasp_cache_path: str = "cache/sharpa_grasp_linspace"
-
-    joint_noise_scale: float = 0.02
-
-    enable_tactile: bool = True
-    binary_contact: bool = False
-    enable_contact_pos: bool = False
     disable_tactile_ids: list[int] = field(default_factory=list)
-    contact_smooth: float = 0.5
-    contact_threshold: float = 0.05
-    contact_latency: float = 0.005
-    contact_sensor_noise: float = 0.01
-
-    dof_limits_scale: float = 0.9
-
-    scale_range: list[float] = field(default_factory=lambda: [0.5, 0.5, 1.0])
-
-    randomize_pd_gains: bool = True
-    randomize_p_gain_scale_lower: float = 0.5
-    randomize_p_gain_scale_upper: float = 2.0
-    randomize_d_gain_scale_lower: float = 0.5
-    randomize_d_gain_scale_upper: float = 2.0
-
-    randomize_friction: bool = True
-    randomize_friction_scale_lower: float = 0.5
-    randomize_friction_scale_upper: float = 2.0
-    elastomer_base_friction: float = 0.8
-    metal_base_friction: float = 0.1
-    object_base_friction: float = 0.5
-
-    randomize_com: bool = True
-    randomize_com_lower: float = -0.01
-    randomize_com_upper: float = 0.01
-
-    randomize_mass: bool = True
-    randomize_mass_lower: float = 0.01
-    randomize_mass_upper: float = 0.25
-
-    force_scale: float = 2.0
-    random_force_prob_scalar: float = 0.25
-    force_decay: float = 0.9
-    force_decay_interval: float = 0.08
-
-    gravity_curriculum: bool = True
+    # Match the reference Sharpa object-position reward/privileged-info anchor
+    # by using the fixed XML/default object pose instead of the sampled grasp reset.
+    use_default_object_pose_for_object_pos_anchor: bool = False
 
     debug_show_axes: bool = False
 
 
-def format_scale_tag(scale_range: Sequence[float]) -> str:
-    if len(scale_range) != 3:
-        raise ValueError(f"scale_range must have 3 values [lower, upper, num], got {scale_range}")
-    return f"{float(scale_range[0]):g}-{float(scale_range[1]):g}-{int(scale_range[2])}"
+def format_scale_tag(scale_value: float) -> str:
+    """Convert one object scale into a stable cache filename tag.
+
+    Args:
+        scale_value: Single object scale value.
+
+    Returns:
+        Scale tag used in cache filenames.
+    """
+    scale_value = float(scale_value)
+    if scale_value <= 0.0:
+        raise ValueError(f"scale values must be positive, got {scale_value}")
+    return f"{scale_value:g}"
 
 
-def resolve_grasp_cache_file(grasp_cache_path: str, scale_range: Sequence[float]) -> Path:
+def resolve_grasp_cache_file(grasp_cache_path: str, scale_value: float) -> Path:
+    """Resolve the grasp cache path for a single object scale.
+
+    Args:
+        grasp_cache_path: Configured cache prefix or template path.
+        scale_value: Single object scale value for this cache file.
+
+    Returns:
+        Cache path for that exact scale.
+    """
+    scale_tag = format_scale_tag(scale_value)
+    if "{scale}" in grasp_cache_path:
+        return Path(grasp_cache_path.format(scale=scale_tag))
+
     base = Path(grasp_cache_path)
     if base.suffix == ".npy":
-        return base
-    return Path(f"{grasp_cache_path}_{format_scale_tag(scale_range)}.npy")
+        return base.with_name(f"{base.stem}_{scale_tag}{base.suffix}")
+    return Path(f"{grasp_cache_path}_{scale_tag}.npy")
 
 
-def sample_bucketed_grasp_cache(
-    grasp_cache: np.ndarray,
+def sample_scale_grasp_caches(
+    grasp_caches: Sequence[np.ndarray],
     scale_ids: np.ndarray,
-    num_scales: int,
 ) -> np.ndarray:
-    num_envs = scale_ids.shape[0]
-    if num_scales <= 0:
-        raise ValueError(f"num_scales must be positive, got {num_scales}")
-    if grasp_cache.shape[1] < 29:
-        raise ValueError(f"Expected cached grasp shape (?, 29), got {grasp_cache.shape}")
-    if grasp_cache.shape[0] % num_scales != 0:
-        raise ValueError(
-            f"grasp_cache rows {grasp_cache.shape[0]} not divisible by num_scales={num_scales}"
-        )
+    """Sample one cached grasp per reset environment from per-scale cache files.
 
-    bucket = grasp_cache.shape[0] // num_scales
+    Args:
+        grasp_caches: Cache arrays ordered the same way as env scale ids.
+        scale_ids: Scale-bucket assignment for each reset environment.
+
+    Returns:
+        Cached grasp states with shape ``(num_envs, 29)``.
+    """
+    num_envs = scale_ids.shape[0]
+    num_scales = len(grasp_caches)
+    if num_scales <= 0:
+        raise ValueError("grasp_caches must contain at least one scale bucket")
+
     sampled = np.zeros((num_envs, 29), dtype=np.float64)
-    for scale_idx in range(num_scales):
+    for scale_idx, grasp_cache in enumerate(grasp_caches):
+        if grasp_cache.ndim != 2 or grasp_cache.shape[1] < 29:
+            raise ValueError(f"Expected cached grasp shape (?, 29), got {grasp_cache.shape}")
+        if grasp_cache.shape[0] == 0:
+            raise ValueError(f"grasp cache for scale id {scale_idx} is empty")
         env_ids = np.flatnonzero(scale_ids == scale_idx)
         if len(env_ids) == 0:
             continue
-        sample_ids = np.random.randint(0, bucket, size=len(env_ids)) + scale_idx * bucket
+        sample_ids = np.random.randint(0, grasp_cache.shape[0], size=len(env_ids))
         sampled[env_ids] = grasp_cache[sample_ids]
     return sampled
 
@@ -240,17 +275,10 @@ def repeat_obs_history(init_frame: np.ndarray, history_len: int) -> np.ndarray:
     return np.asarray(history, dtype=init_frame.dtype)
 
 
-def apply_random_rotation_to_positions(
-    positions: np.ndarray,
-    center: np.ndarray,
-    random_quat: np.ndarray,
-) -> np.ndarray:
-    rotated = np_quat_apply(random_quat, positions - center)
-    return np.asarray(rotated + center, dtype=positions.dtype)
-
-
 class SharpaInhandBaseEnv(NpEnv):
     _cfg: SharpaInhandBaseCfg
+    _default_p_gain: np.ndarray
+    _default_d_gain: np.ndarray
 
     def __init__(self, cfg: SharpaInhandBaseCfg, backend: SimBackend, num_envs: int = 1) -> None:
         super().__init__(cfg, backend, num_envs)
@@ -264,8 +292,16 @@ class SharpaInhandBaseEnv(NpEnv):
                 f"Model has {actuator_range.shape[0]} actuators, but Sharpa task needs {self._num_action}"
             )
 
+        # Keep the raw XML actuator limits for observation normalization and any
+        # logic that needs the original backend contract. Target-position clipping
+        # uses a separate scaled limit pair to match Sharpa source behavior.
         self._ctrl_lower = np.asarray(actuator_range[: self._num_action, 0], dtype=self._np_dtype)
         self._ctrl_upper = np.asarray(actuator_range[: self._num_action, 1], dtype=self._np_dtype)
+        self._target_lower, self._target_upper = self._resolve_target_joint_limits(
+            self._ctrl_lower,
+            self._ctrl_upper,
+            cfg.control_config.dof_limits_scale,
+        )
 
         self._init_qpos = self._resolve_init_qpos()
         self._init_qvel = np.asarray(self._backend.get_init_qvel(), dtype=np.float64)
@@ -303,6 +339,7 @@ class SharpaInhandBaseEnv(NpEnv):
 
         self._num_tactile = len(cfg.fingertip_body_names)
         self.last_contacts = np.zeros((num_envs, self._num_tactile), dtype=self._np_dtype)
+        self._prev_tactile_force = np.zeros((num_envs, self._num_tactile), dtype=self._np_dtype)
 
         self.object_default_pose = np.zeros((num_envs, 7), dtype=self._np_dtype)
 
@@ -315,13 +352,41 @@ class SharpaInhandBaseEnv(NpEnv):
         self.critic_info_buf = np.zeros((num_envs, cfg.critic_info_dim), dtype=self._np_dtype)
 
         self.scale_ids, self._num_scales, self._bucket_env = self._build_scale_ids(
-            num_envs, cfg.scale_range
+            num_envs, cfg.domain_rand.scale_list
         )
-        self.scale_values = self._build_scale_values(cfg.scale_range)
+        self.scale_values = self._build_scale_values(cfg.domain_rand.scale_list)
 
     @property
     def action_space(self) -> gym.spaces.Box:
         return self._action_space  # type: ignore[no-any-return]
+
+    def _resolve_target_joint_limits(
+        self,
+        raw_lower: np.ndarray,
+        raw_upper: np.ndarray,
+        scale: float,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Build scaled target-position clipping limits from raw XML actuator bounds.
+
+        Args:
+            raw_lower: Original lower control limits loaded from the backend XML.
+            raw_upper: Original upper control limits loaded from the backend XML.
+            scale: Multiplicative scale applied to both bound arrays.
+
+        Returns:
+            Tuple of scaled ``(lower, upper)`` target-position limits.
+        """
+        scale_value = float(scale)
+        if scale_value <= 0.0:
+            raise ValueError(f"dof_limits_scale must be positive, got {scale_value}")
+        target_lower = np.asarray(raw_lower, dtype=self._np_dtype) * scale_value
+        target_upper = np.asarray(raw_upper, dtype=self._np_dtype) * scale_value
+        if np.any(target_lower > target_upper):
+            raise ValueError("Scaled Sharpa target joint limits are invalid")
+        return target_lower.astype(self._np_dtype, copy=False), target_upper.astype(
+            self._np_dtype,
+            copy=False,
+        )
 
     def _resolve_init_qpos(self) -> np.ndarray:
         for key_name in ("home", "stand", "default"):
@@ -330,53 +395,62 @@ class SharpaInhandBaseEnv(NpEnv):
             except Exception:
                 continue
 
-        model = self._backend.model
-        if hasattr(model, "qpos0"):
-            return np.asarray(model.qpos0, dtype=np.float64)
-        if hasattr(model, "compute_init_dof_pos"):
-            return np.asarray(model.compute_init_dof_pos(), dtype=np.float64)
-
-        raise ValueError("Could not resolve initial qpos from backend keyframes/model")
+        try:
+            return np.asarray(self._backend.get_default_qpos(), dtype=np.float64)
+        except NotImplementedError as exc:
+            raise ValueError("Could not resolve initial qpos from backend contract") from exc
 
     def _build_scale_ids(
-        self, num_envs: int, scale_range: Sequence[float]
+        self, num_envs: int, scale_list: Sequence[float]
     ) -> tuple[np.ndarray, int, int]:
-        num_scales = int(scale_range[2])
+        """Build deterministic near-even environment assignments for each scale.
+
+        Args:
+            num_envs: Number of vectorized environments to assign.
+            scale_list: Explicit object scale values used by this env instance.
+
+        Returns:
+            Tuple of scale id per environment, total scale count, and the minimum
+            number of environments assigned to any scale.
+        """
+        if len(scale_list) == 0:
+            raise ValueError("scale_list must contain at least one scale")
+        scale_values = np.asarray(scale_list, dtype=np.float64)
+        if np.any(scale_values <= 0.0):
+            raise ValueError(f"scale_list values must be positive, got {list(scale_list)}")
+        num_scales = int(scale_values.shape[0])
         if num_scales <= 0:
-            raise ValueError(f"scale_range[2] must be >= 1, got {scale_range[2]}")
-        if num_envs % num_scales != 0:
-            raise ValueError(
-                f"num_envs ({num_envs}) must be divisible by scale count ({num_scales})"
-            )
+            raise ValueError(f"scale_list must contain at least one value, got {list(scale_list)}")
 
         bucket_env = num_envs // num_scales
-        scale_ids = np.repeat(np.arange(num_scales, dtype=np.int32), bucket_env)
+        remainder = num_envs % num_scales
+        # Assign the remainder to the lowest scale ids to keep bucket sizes within one env.
+        counts = np.full((num_scales,), bucket_env, dtype=np.int32)
+        counts[:remainder] += 1
+        scale_ids = np.repeat(np.arange(num_scales, dtype=np.int32), counts)
         return scale_ids, num_scales, bucket_env
 
-    def _build_scale_values(self, scale_range: Sequence[float]) -> np.ndarray:
-        lower = float(scale_range[0])
-        upper = float(scale_range[1])
-        if lower <= 0.0 or upper <= 0.0:
-            raise ValueError(f"scale_range bounds must be positive, got {scale_range[:2]}")
-        return np.asarray(np.linspace(lower, upper, self._num_scales), dtype=np.float64)
+    def _build_scale_values(self, scale_list: Sequence[float]) -> np.ndarray:
+        """Normalize configured scale values into a stable numpy array.
+
+        Args:
+            scale_list: Explicit list of object scales.
+
+        Returns:
+            Array of configured scale values in config order.
+        """
+        scale_values = np.asarray(scale_list, dtype=np.float64)
+        if scale_values.ndim != 1 or scale_values.size == 0:
+            raise ValueError(f"scale_list must be a non-empty flat list, got {list(scale_list)}")
+        if np.any(scale_values <= 0.0):
+            raise ValueError(f"scale_list values must be positive, got {list(scale_list)}")
+        return scale_values
 
     def _resolve_object_geom_base_size(self) -> np.ndarray | None:
-        if getattr(self._backend, "backend_type", None) != "mujoco":
+        try:
+            return cast(np.ndarray, self._backend.get_geom_size(self._cfg.object_geom_name))
+        except NotImplementedError:
             return None
-
-        import mujoco
-
-        geom_id = mujoco.mj_name2id(
-            self._backend.model,
-            mujoco.mjtObj.mjOBJ_GEOM,
-            self._cfg.object_geom_name,
-        )
-        if geom_id < 0:
-            raise ValueError(f"Geom '{self._cfg.object_geom_name}' not found in MuJoCo model")
-        return cast(
-            np.ndarray,
-            np.asarray(self._backend.model.geom_size[geom_id], dtype=np.float64).copy(),
-        )
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
         clipped_actions = np.clip(actions, -self._cfg.clip_actions, self._cfg.clip_actions)
@@ -390,7 +464,9 @@ class SharpaInhandBaseEnv(NpEnv):
             np.broadcast_to(self.default_angles, (self._num_envs, self._num_action)).copy(),
         )
         targets = prev_targets + self._cfg.control_config.action_scale * clipped_actions
-        targets = np.clip(targets, self._ctrl_lower, self._ctrl_upper)
+        # Clip action targets by the scaled control range only. Observation
+        # normalization continues to use the raw XML actuator limits.
+        targets = np.clip(targets, self._target_lower, self._target_upper)
         prev_targets = np.asarray(targets, dtype=self._np_dtype)
         state.info["prev_targets"] = prev_targets
         return prev_targets
@@ -427,46 +503,110 @@ class SharpaInhandBaseEnv(NpEnv):
         flat = data.reshape(data.shape[0], -1)
         return np.asarray(flat[:, 0], dtype=self._np_dtype)
 
-    def _compute_tactile_observation(self) -> np.ndarray:
-        tactile = np.zeros((self._num_envs, self._num_tactile), dtype=self._np_dtype)
+    def _read_tactile_force(self) -> np.ndarray:
+        """Read per-finger tactile force magnitudes in configured sensor order.
 
-        if self._cfg.enable_tactile and self._cfg.sensor.tactile_force_sensor_names:
-            for i, sensor_name in enumerate(
-                self._cfg.sensor.tactile_force_sensor_names[: self._num_tactile]
-            ):
-                try:
-                    tactile[:, i] = self._extract_sensor_scalar(sensor_name)
-                except Exception:
-                    tactile[:, i] = 0.0
+        Args:
+            None.
 
-            for disabled_id in self._cfg.disable_tactile_ids:
-                if 0 <= disabled_id < self._num_tactile:
-                    tactile[:, disabled_id] = 0.0
+        Returns:
+            Array of shape ``(num_envs, num_tactile)`` ordered exactly as
+            ``sensor.tactile_force_sensor_names``.
+        """
+        tactile_force = np.zeros((self._num_envs, self._num_tactile), dtype=self._np_dtype)
+        if not self._cfg.sensor.tactile_force_sensor_names:
+            return tactile_force
 
-            latency = np.where(
-                np.random.rand(self._num_envs, self._num_tactile) < self._cfg.contact_latency,
-                1.0,
-                0.0,
-            ).astype(self._np_dtype)
+        for sensor_id, sensor_name in enumerate(
+            self._cfg.sensor.tactile_force_sensor_names[: self._num_tactile]
+        ):
+            try:
+                tactile_force[:, sensor_id] = self._extract_sensor_scalar(sensor_name)
+            except Exception:
+                tactile_force[:, sensor_id] = 0.0
+        return tactile_force
 
-            if self._cfg.binary_contact:
-                tactile = (tactile > self._cfg.contact_threshold).astype(self._np_dtype)
-                self.last_contacts = self.last_contacts * latency + tactile * (1.0 - latency)
-                noise_mask = (
-                    np.random.rand(self._num_envs, self._num_tactile)
-                    >= self._cfg.contact_sensor_noise
-                ).astype(self._np_dtype)
-                tactile = np.where(self.last_contacts > 0.1, self.last_contacts * noise_mask, 0.0)
-            else:
-                smooth_contact = tactile * self._cfg.contact_smooth + self.last_contacts * (
-                    1.0 - self._cfg.contact_smooth
-                )
-                self.last_contacts = self.last_contacts * latency + smooth_contact * (1.0 - latency)
-                tactile = self.last_contacts.copy()
-        else:
+    def _clip_tactile_force(self, tactile_force: np.ndarray) -> np.ndarray:
+        """Clip raw tactile-force magnitudes before they enter observation smoothing.
+
+        Args:
+            tactile_force: Raw per-finger tactile magnitudes with shape
+                ``(num_envs, num_tactile)``.
+
+        Returns:
+            Clipped tactile-force array with the same shape. Non-positive clip values
+            disable this clamp so the caller can opt out explicitly.
+        """
+        clip_max = float(self._cfg.obs.tactile_force_clip_max)
+        tactile_force = np.asarray(tactile_force, dtype=self._np_dtype)
+        if clip_max <= 0.0:
+            return tactile_force
+        return np.asarray(np.clip(tactile_force, 0.0, clip_max), dtype=self._np_dtype)
+
+    def _clear_tactile_history(self, env_ids: np.ndarray | None = None) -> None:
+        """Clear tactile-output and raw-force history buffers.
+
+        Args:
+            env_ids: Optional environment ids to clear. When ``None``, clear all envs.
+
+        Returns:
+            None. Buffers are updated in place.
+        """
+        if env_ids is None:
             self.last_contacts.fill(0.0)
+            self._prev_tactile_force.fill(0.0)
+            return
 
-        return tactile
+        self.last_contacts[env_ids] = 0.0
+        self._prev_tactile_force[env_ids] = 0.0
+
+    def _compute_tactile_observation(self) -> np.ndarray:
+        """Build tactile observations with source-equivalent smoothing and latency.
+
+        Args:
+            None.
+
+        Returns:
+            Tactile-force observation array with shape ``(num_envs, num_tactile)``.
+        """
+        obs_cfg = self._cfg.obs
+        domain_rand = self._cfg.domain_rand
+        if not obs_cfg.enable_tactile:
+            self._clear_tactile_history()
+            return np.zeros((self._num_envs, self._num_tactile), dtype=self._np_dtype)
+
+        current_force = SharpaInhandBaseEnv._clip_tactile_force(self, self._read_tactile_force())
+        smooth_contact = (
+            current_force * obs_cfg.contact_smooth
+            + self._prev_tactile_force * (1.0 - obs_cfg.contact_smooth)
+        ).astype(self._np_dtype)
+        self._prev_tactile_force[:] = current_force
+
+        for disabled_id in self._cfg.disable_tactile_ids:
+            if 0 <= disabled_id < self._num_tactile:
+                smooth_contact[:, disabled_id] = 0.0
+
+        latency = np.where(
+            np.random.rand(self._num_envs, self._num_tactile) < domain_rand.contact_latency,
+            1.0,
+            0.0,
+        ).astype(self._np_dtype)
+
+        if obs_cfg.binary_contact:
+            binary_contact = (smooth_contact > obs_cfg.contact_threshold).astype(self._np_dtype)
+            self.last_contacts = self.last_contacts * latency + binary_contact * (1.0 - latency)
+            noise_mask = (
+                np.random.rand(self._num_envs, self._num_tactile)
+                >= domain_rand.contact_sensor_noise
+            ).astype(self._np_dtype)
+            return np.where(
+                self.last_contacts > 0.1,
+                noise_mask * self.last_contacts,
+                self.last_contacts,
+            )
+
+        self.last_contacts = self.last_contacts * latency + smooth_contact * (1.0 - latency)
+        return self.last_contacts.copy()
 
     def _compute_contact_positions(self, tactile: np.ndarray) -> np.ndarray:
         del tactile
@@ -490,30 +630,37 @@ class SharpaInhandBaseEnv(NpEnv):
         use_small = np.random.rand(*shape) > 0.5
         return np.where(use_small, small, large).astype(self._np_dtype)
 
+    def _load_default_pd_gains(self) -> tuple[np.ndarray, np.ndarray]:
+        """Resolve the default per-DOF PD gains used as the randomization baseline.
+
+        Args:
+            None.
+
+        Returns:
+            Tuple of ``(p_gain, d_gain)`` arrays with shape ``(num_action,)``.
+        """
+        try:
+            p_gain, d_gain = self._backend.get_actuator_gains()
+            return (
+                np.asarray(p_gain[: self._num_action], dtype=self._np_dtype).copy(),
+                np.asarray(d_gain[: self._num_action], dtype=self._np_dtype).copy(),
+            )
+        except NotImplementedError:
+            return (
+                np.full((self._num_action,), self._cfg.control_config.p_gain, dtype=self._np_dtype),
+                np.full((self._num_action,), self._cfg.control_config.d_gain, dtype=self._np_dtype),
+            )
+
     def _resolve_pd_gains(self, info: dict[str, Any]) -> tuple[np.ndarray, np.ndarray]:
         p_gain = info.get(
             "p_gain",
-            np.full(
-                (self._num_envs, self._num_action),
-                self._cfg.control_config.p_gain,
-                dtype=self._np_dtype,
-            ),
+            np.broadcast_to(self._default_p_gain, (self._num_envs, self._num_action)).copy(),
         )
         d_gain = info.get(
             "d_gain",
-            np.full(
-                (self._num_envs, self._num_action),
-                self._cfg.control_config.d_gain,
-                dtype=self._np_dtype,
-            ),
+            np.broadcast_to(self._default_d_gain, (self._num_envs, self._num_action)).copy(),
         )
         return np.asarray(p_gain, dtype=self._np_dtype), np.asarray(d_gain, dtype=self._np_dtype)
 
     def _update_proprio_history(self, obs_history: np.ndarray) -> np.ndarray:
         return np.asarray(obs_history[:, -self._cfg.prop_hist_len :], dtype=self._np_dtype)
-
-    def _rotate_axis(self, axis: np.ndarray, quat: np.ndarray) -> np.ndarray:
-        return np.asarray(np_quat_apply(quat, axis), dtype=self._np_dtype)
-
-    def _rotate_quat(self, quat: np.ndarray, random_quat: np.ndarray) -> np.ndarray:
-        return np.asarray(np_quat_mul(random_quat, quat), dtype=self._np_dtype)

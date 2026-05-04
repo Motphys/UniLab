@@ -73,6 +73,10 @@ class SimBackend(abc.ABC):
             (nq,) 数组
         """
 
+    def get_default_qpos(self) -> np.ndarray:
+        """Return the backend/model default qpos through a stable contract."""
+        raise NotImplementedError(f"{self.__class__.__name__} does not expose default qpos")
+
     @abc.abstractmethod
     def get_init_qvel(self) -> np.ndarray:
         """获取零初始化的 qvel 向量，维度与 set_state 期望一致
@@ -94,6 +98,50 @@ class SimBackend(abc.ABC):
         Raises:
             ValueError: 若名称未找到
         """
+
+    def get_body_id(self, name: str) -> int:
+        """Resolve one body/link name through the backend contract."""
+        return int(self.get_body_ids([name])[0])
+
+    def get_geom_id(self, name: str) -> int:
+        """Resolve one geom name through the backend contract."""
+        raise NotImplementedError(f"{self.__class__.__name__} does not expose geom ids")
+
+    def get_geom_size(self, name: str) -> np.ndarray:
+        """Return one geom size vector through the backend contract."""
+        raise NotImplementedError(f"{self.__class__.__name__} does not expose geom sizes")
+
+    def get_body_subtree_ids(self, root_body_id: int) -> np.ndarray:
+        """Return body ids in the subtree rooted at ``root_body_id``."""
+        raise NotImplementedError(f"{self.__class__.__name__} does not expose body subtree ids")
+
+    def get_geom_names(self) -> tuple[str, ...]:
+        """Return backend geom names in backend id order."""
+        raise NotImplementedError(f"{self.__class__.__name__} does not expose geom names")
+
+    def get_geom_body_ids(self) -> np.ndarray:
+        """Return the owning body id for each geom."""
+        raise NotImplementedError(f"{self.__class__.__name__} does not expose geom body ids")
+
+    def get_geom_contact_masks(self) -> tuple[np.ndarray, np.ndarray]:
+        """Return per-geom contact type and affinity masks."""
+        raise NotImplementedError(f"{self.__class__.__name__} does not expose geom contact masks")
+
+    def get_geom_friction(self) -> np.ndarray:
+        """Return the backend geom-friction table."""
+        raise NotImplementedError(f"{self.__class__.__name__} does not expose geom friction")
+
+    def get_gravity(self) -> np.ndarray:
+        """Return the backend gravity vector."""
+        raise NotImplementedError(f"{self.__class__.__name__} does not expose gravity")
+
+    def get_body_mass(self) -> np.ndarray:
+        """Return the backend body-mass table."""
+        raise NotImplementedError(f"{self.__class__.__name__} does not expose body mass")
+
+    def get_body_ipos(self) -> np.ndarray:
+        """Return the backend body inertial-position table."""
+        raise NotImplementedError(f"{self.__class__.__name__} does not expose body ipos")
 
     def get_motion_body_ids(self, names: Sequence[str]) -> np.ndarray:
         """Resolve MuJoCo-style body IDs used by motion datasets."""
@@ -160,6 +208,42 @@ class SimBackend(abc.ABC):
     @abc.abstractmethod
     def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
         """Apply a scheduled interval randomization plan."""
+
+    def apply_body_linear_velocity_delta(
+        self,
+        body_ids: np.ndarray,
+        velocity_delta: np.ndarray,
+    ) -> None:
+        """Apply a world-frame linear-velocity delta to specific bodies.
+
+        Args:
+            body_ids: Body ids whose linear velocities should be perturbed.
+            velocity_delta: Velocity delta with shape ``(num_envs, len(body_ids), 3)``.
+
+        Returns:
+            None. Backends that support this mutate their pending simulation state.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support interval body velocity perturbation"
+        )
+
+    def apply_body_force(
+        self,
+        body_ids: np.ndarray,
+        force: np.ndarray,
+    ) -> None:
+        """Apply a world-frame force to specific bodies for the upcoming step.
+
+        Args:
+            body_ids: Body ids whose external forces should be perturbed.
+            force: Force values with shape ``(num_envs, len(body_ids), 3)``.
+
+        Returns:
+            None. Backends that support this mutate their pending simulation state.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support interval body force perturbation"
+        )
 
     def get_play_capabilities(self) -> BackendPlayCapabilities:
         """Return backend-native play/render capabilities."""

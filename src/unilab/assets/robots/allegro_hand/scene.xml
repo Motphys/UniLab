@@ -1,4 +1,4 @@
-<mujoco model="inhand rotation allegro scene">
+<mujoco model="allegro inhand rotation scene">
   <include file="allegro_right.xml"/>
   <include file="ball.xml"/>
 

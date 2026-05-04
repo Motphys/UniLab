@@ -29,6 +29,7 @@ BASIC_ROBOTS = [
 
 _G1 = dict(model_file=_xml("g1"), base_name="pelvis")
 _ALLEGRO = dict(model_file=_xml("allegro_hand", "scene.xml"), base_name="palm")
+_SHARPA = dict(model_file=_xml("sharpa_wave", "scene.xml"), base_name="right_hand_C_MC")
 
 NUM_ENVS = 2
 SIM_DT = 0.005
@@ -221,6 +222,77 @@ def test_mujoco_model_properties_smoke():
     assert expected_nv >= bkd.num_dof_vel
 
 
+def test_mujoco_metadata_getters_return_stable_copies():
+    mujoco = _mujoco_module()
+
+    from unilab.base.backend.mujoco_backend import MuJoCoBackend
+
+    bkd = MuJoCoBackend(_SHARPA["model_file"], NUM_ENVS, SIM_DT, base_name=_SHARPA["base_name"])
+    model = bkd.model
+    object_geom_id = int(mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "object"))
+    base_body_id = int(mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, _SHARPA["base_name"]))
+
+    assert bkd.get_geom_id("object") == object_geom_id
+    assert bkd.get_body_id(_SHARPA["base_name"]) == base_body_id
+    with pytest.raises(ValueError, match="Geom 'missing'"):
+        bkd.get_geom_id("missing")
+    with pytest.raises(ValueError, match="Body 'missing'"):
+        bkd.get_body_id("missing")
+
+    default_qpos = bkd.get_default_qpos()
+    _shape(default_qpos, model.nq)
+    np.testing.assert_allclose(default_qpos, model.qpos0)
+    default_qpos[0] += 1.0
+    assert not np.isclose(default_qpos[0], model.qpos0[0])
+
+    geom_size = bkd.get_geom_size("object")
+    _shape(geom_size, 3)
+    np.testing.assert_allclose(geom_size, model.geom_size[object_geom_id])
+    geom_size[0] += 1.0
+    assert not np.isclose(geom_size[0], model.geom_size[object_geom_id, 0])
+
+    geom_body_ids = bkd.get_geom_body_ids()
+    _shape(geom_body_ids, model.ngeom)
+    np.testing.assert_array_equal(geom_body_ids, model.geom_bodyid)
+    geom_body_ids[object_geom_id] = -1
+    assert int(model.geom_bodyid[object_geom_id]) != -1
+
+    geom_contype, geom_conaffinity = bkd.get_geom_contact_masks()
+    _shape(geom_contype, model.ngeom)
+    _shape(geom_conaffinity, model.ngeom)
+    np.testing.assert_array_equal(geom_contype, model.geom_contype)
+    np.testing.assert_array_equal(geom_conaffinity, model.geom_conaffinity)
+
+    geom_names = bkd.get_geom_names()
+    assert len(geom_names) == model.ngeom
+    assert geom_names[object_geom_id] == "object"
+    assert base_body_id in set(int(body_id) for body_id in bkd.get_body_subtree_ids(base_body_id))
+
+    geom_friction = bkd.get_geom_friction()
+    _shape(geom_friction, model.ngeom, 3)
+    np.testing.assert_allclose(geom_friction, model.geom_friction)
+    geom_friction[object_geom_id, 0] += 1.0
+    assert not np.isclose(geom_friction[object_geom_id, 0], model.geom_friction[object_geom_id, 0])
+
+    gravity = bkd.get_gravity()
+    _shape(gravity, 3)
+    np.testing.assert_allclose(gravity, model.opt.gravity)
+    gravity[2] += 1.0
+    assert not np.isclose(gravity[2], model.opt.gravity[2])
+
+    body_mass = bkd.get_body_mass()
+    _shape(body_mass, model.nbody)
+    np.testing.assert_allclose(body_mass, model.body_mass)
+    body_mass[base_body_id] += 1.0
+    assert not np.isclose(body_mass[base_body_id], model.body_mass[base_body_id])
+
+    body_ipos = bkd.get_body_ipos()
+    _shape(body_ipos, model.nbody, 3)
+    np.testing.assert_allclose(body_ipos, model.body_ipos)
+    body_ipos[base_body_id, 0] += 1.0
+    assert not np.isclose(body_ipos[base_body_id, 0], model.body_ipos[base_body_id, 0])
+
+
 def test_motrix_model_properties_smoke():
     pytest.importorskip("motrixsim")
 
@@ -231,4 +303,5 @@ def test_motrix_model_properties_smoke():
     assert bkd.num_dof_vel > 0
     ctrl_range = bkd.get_actuator_ctrl_range()
     _shape(ctrl_range, bkd.num_actuators, 2)
+    assert bkd.get_default_qpos().ndim == 1
     assert bkd.get_joint_range() is None

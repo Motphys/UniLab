@@ -1,0 +1,19 @@
+# @package _global_
+teacher:
+  algo_family: ppo
+  task: sharpa_inhand/mujoco_hora
+
+training:
+  task_name: SharpaInhandRotation
+  sim_backend: mujoco
+  render_spacing: 0.5
+  cam_distance: 1.5
+  cam_lookat: [0.75, 0.75, 0.4]
+  cam_elevation: -20.0
+  cam_azimuth: 90.0
+
+algo:
+  algo_log_name: hora_distill
+  num_envs: 16384
+  max_agent_steps: 100000000
+  save_interval_steps: 10000000

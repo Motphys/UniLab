@@ -55,7 +55,14 @@ class SharedOnPolicyStorage:
             fields_to_allocate.pop("last_critic", None)
 
         for field, shape_fn in fields_to_allocate.items():
-            shape = shape_fn(num_slots, num_envs, num_steps, obs_dim, action_dim, critic_dim)
+            shape = shape_fn(
+                num_slots,
+                num_envs,
+                num_steps,
+                obs_dim,
+                action_dim,
+                critic_dim,
+            )
             nbytes = int(np.prod(shape)) * np.dtype(np.float32).itemsize
 
             if create:

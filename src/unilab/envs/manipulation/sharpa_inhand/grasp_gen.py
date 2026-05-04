@@ -12,6 +12,7 @@ from unilab.dr.dr_utils import build_common_reset_randomization
 from unilab.envs.common.rotation import np_quat_error_magnitude
 from unilab.envs.manipulation.sharpa_inhand.base import (
     SOURCE_DEFAULT_HAND_JOINT_POS_DEG,
+    SharpaDomainRandConfig,
     resolve_grasp_cache_file,
 )
 from unilab.envs.manipulation.sharpa_inhand.rotation import (
@@ -22,28 +23,34 @@ from unilab.envs.manipulation.sharpa_inhand.rotation import (
 )
 
 
+def _default_sharpa_grasp_domain_rand() -> SharpaDomainRandConfig:
+    """Build the nested DR defaults used by Sharpa grasp collection.
+
+    Returns:
+        Domain-randomization config matching the grasp-task owner defaults.
+    """
+    return SharpaDomainRandConfig(
+        randomize_pd_gains=False,
+        randomize_friction=False,
+        randomize_com=False,
+        randomize_mass=True,
+        randomize_mass_lower=0.05,
+        randomize_mass_upper=0.051,
+        force_scale=0.0,
+        random_force_prob_scalar=0.0,
+    )
+
+
 @dataclass
 class SharpaInhandRotationGraspCfg(SharpaInhandRotationCfg):
     max_episode_seconds: float = 3.0  # 12.0
-    torque_control: bool = False
 
     reset_height_lower: float = 0.61406
     reset_height_upper: float = 0.62406
     reset_angle_diff: float = 30.0 / 180.0 * np.pi
-    reset_random_quat: bool = False
 
     grasp_cache_path: str = ""
-
-    randomize_pd_gains: bool = False
-    randomize_friction: bool = False
-    randomize_com: bool = False
-    randomize_mass: bool = True
-    randomize_mass_lower: float = 0.05
-    randomize_mass_upper: float = 0.051
-
-    force_scale: float = 0.0
-    random_force_prob_scalar: float = 0.0
-    gravity_curriculum: bool = False
+    domain_rand: SharpaDomainRandConfig = field(default_factory=_default_sharpa_grasp_domain_rand)
 
     reward_config: RewardConfig = field(
         default_factory=lambda: RewardConfig(
@@ -97,16 +104,25 @@ class SharpaInhandGraspDRProvider(SharpaInhandRotationDRProvider):
         qpos[:, env._obj_quat_slice] = object_quat
 
         qvel = np.zeros((num_reset, env.nv), dtype=np.float64)
+        p_gain, d_gain = self._sample_reset_pd_gains(env, num_reset, dtype=env._np_dtype)
 
         info_updates = self._build_info_updates(
             env,
+            env_ids=env_ids,
             hand_qpos=hand_qpos,
             object_pos=object_pos,
             object_quat=object_quat,
             reset_height_lower=np.full((num_reset,), env.cfg.reset_height_lower, dtype=np.float64),
             reset_height_upper=np.full((num_reset,), env.cfg.reset_height_upper, dtype=np.float64),
             rot_axis=np.broadcast_to(env._rot_axis, (num_reset, 3)).astype(np.float64),
+            p_gain=p_gain,
+            d_gain=d_gain,
+            friction_scale=None,
+            randomized_mass=None,
+            randomized_com_offset=None,
+            gravity=None,
         )
+        env._clear_tactile_history(env_ids)
 
         return ResetPlan(
             env_ids=env_ids,
@@ -118,7 +134,6 @@ class SharpaInhandGraspDRProvider(SharpaInhandRotationDRProvider):
 
 
 @registry.env("SharpaInhandRotationGrasp", sim_backend="mujoco")
-@registry.env("SharpaInhandRotationGrasp", sim_backend="motrix")
 class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
     _cfg: SharpaInhandRotationGraspCfg
 
@@ -128,6 +143,12 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
         num_envs: int = 1,
         backend_type: str = "motrix",
     ) -> None:
+        if cfg.domain_rand.randomize_gravity or cfg.domain_rand.randomize_gravity_direction:
+            raise ValueError(
+                "SharpaInhandRotationGrasp does not support gravity randomization; "
+                "disable env.domain_rand.randomize_gravity and "
+                "env.domain_rand.randomize_gravity_direction."
+            )
         super().__init__(
             cfg,
             num_envs=num_envs,
@@ -138,7 +159,12 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
         self._saved_grasping_states: list[list[np.ndarray]] = [
             list() for _ in range(self._num_scales)
         ]
-        self._grasp_target_per_scale = max(1, int(cfg.grasp_collection_target // self._num_scales))
+        if self._num_scales != 1:
+            raise ValueError(
+                "Sharpa grasp generation now collects exactly one object scale per run; "
+                f"got scale_list={list(self.scale_values)}"
+            )
+        self._grasp_target_per_scale = max(1, int(cfg.grasp_collection_target))
         self._grasp_cache_saved = False
         self._grasp_target_reached_notified = False
         self._last_grasp_progress_step = -1
@@ -151,6 +177,11 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
             raise ValueError(
                 "Source grasp default angle count mismatch: "
                 f"{self._grasp_default_angles.shape[0]} vs expected {self._num_action}"
+            )
+        if np.any(np.bincount(self.scale_ids, minlength=self._num_scales) == 0):
+            raise ValueError(
+                "Sharpa grasp generation requires at least one environment for the configured scale; "
+                f"got num_envs={num_envs}, num_scales={self._num_scales}"
             )
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
@@ -194,7 +225,9 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
                 return
 
         total = int(sum(counts))
-        per_scale = ", ".join(f"s{i}:{count}" for i, count in enumerate(counts))
+        per_scale = ", ".join(
+            f"scale={float(self.scale_values[i]):g}:{count}" for i, count in enumerate(counts)
+        )
         print(
             "[SharpaInhandRotationGrasp] "
             f"grasp progress total={total}/{int(self._cfg.grasp_collection_target)}, "
@@ -263,18 +296,12 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
 
         output_file = resolve_grasp_cache_file(
             self._cfg.grasp_cache_path or "cache/sharpa_grasp_linspace",
-            self._cfg.scale_range,
+            float(self.scale_values[0]),
         )
         output_file.parent.mkdir(parents=True, exist_ok=True)
-
-        by_scale = []
-        for bucket in self._saved_grasping_states:
-            if bucket:
-                by_scale.append(np.concatenate(bucket, axis=0)[: self._grasp_target_per_scale])
-            else:
-                by_scale.append(np.zeros((0, 29), dtype=np.float32))
-
-        save_data = np.concatenate(by_scale, axis=0)
+        save_data = np.concatenate(self._saved_grasping_states[0], axis=0)[
+            : self._grasp_target_per_scale
+        ]
         np.save(output_file, save_data)
 
         self._grasp_cache_saved = True
@@ -334,8 +361,7 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
             log["grasp/cond3"] = float(np.mean(cond3.astype(np.float32)))
             log["grasp/valid"] = float(np.mean(grasp_valid.astype(np.float32)))
             per_scale_counts = self._get_per_scale_grasp_counts()
-            collected = float(sum(per_scale_counts))
-            log["grasp/cache_size"] = collected
+            log["grasp/target_cache_size"] = float(self._cfg.grasp_collection_target)
             for scale_idx, count in enumerate(per_scale_counts):
                 scale_value = float(self.scale_values[scale_idx])
                 log[f"grasp/cache_size_scale_{scale_value:g}"] = float(count)

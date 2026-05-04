@@ -3,7 +3,7 @@ import tempfile
 import time
 from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor
-from multiprocessing import cpu_count, get_context
+from multiprocessing import cpu_count, current_process, get_context
 from typing import Optional, cast
 
 import mujoco
@@ -14,7 +14,10 @@ from unilab.dr.types import (
     RESET_TERM_BASE_COM,
     RESET_TERM_BASE_MASS,
     RESET_TERM_BODY_INERTIA,
+    RESET_TERM_BODY_IPOS,
     RESET_TERM_BODY_IQUAT,
+    RESET_TERM_BODY_MASS,
+    RESET_TERM_GEOM_FRICTION,
     RESET_TERM_GRAVITY,
     RESET_TERM_KD,
     RESET_TERM_KP,
@@ -284,6 +287,19 @@ class MuJoCoBackend(SimBackend):
         start = 6 * body_id
         return slice(start, start + 3)
 
+    def _sample_push_force(self, force_range: Sequence[float] | np.ndarray) -> np.ndarray:
+        """Sample one world-frame push force vector per environment.
+
+        Args:
+            force_range: Per-axis push-force magnitude range.
+
+        Returns:
+            Array with shape ``(num_envs, 3)`` containing sampled forces.
+        """
+        ex_force = np.random.uniform(-1.0, 1.0, size=(self._num_envs, 3))
+        ex_force *= np.asarray(force_range, dtype=np.float64)
+        return ex_force.astype(np.float64, copy=False)
+
     def _compile_model_variants(
         self,
         variant_specs: Sequence[ModelVariantSpec],
@@ -291,7 +307,23 @@ class MuJoCoBackend(SimBackend):
         variants = tuple(variant_specs)
         if not variants:
             return tuple()
-        if len(variants) == 1:
+
+        def _load_compiled_models_and_cleanup(paths: Sequence[str]) -> tuple[mujoco.MjModel, ...]:
+            try:
+                return tuple(mujoco.MjModel.from_binary_path(path) for path in paths)
+            finally:
+                for path in paths:
+                    if os.path.exists(path):
+                        os.remove(path)
+                for path in paths:
+                    parent = os.path.dirname(path)
+                    if parent and os.path.isdir(parent):
+                        try:
+                            os.rmdir(parent)
+                        except OSError:
+                            pass
+
+        if len(variants) == 1 or current_process().daemon:
             mjb_paths = _compile_model_variant_chunk_to_mjb(
                 model_file=self._model_file,
                 add_body_sensors=self.add_body_sensors,
@@ -301,20 +333,7 @@ class MuJoCoBackend(SimBackend):
                 position_actuator_gains=self._position_actuator_gains,
                 variants=variants,
             )
-            try:
-                models = tuple(mujoco.MjModel.from_binary_path(path) for path in mjb_paths)
-            finally:
-                for path in mjb_paths:
-                    if os.path.exists(path):
-                        os.remove(path)
-                for path in mjb_paths:
-                    parent = os.path.dirname(path)
-                    if parent and os.path.isdir(parent):
-                        try:
-                            os.rmdir(parent)
-                        except OSError:
-                            pass
-            return models
+            return _load_compiled_models_and_cleanup(mjb_paths)
 
         max_workers = min(len(variants), max(1, cpu_count()))
         chunk_size = max(1, (len(variants) + max_workers - 1) // max_workers)
@@ -354,20 +373,7 @@ class MuJoCoBackend(SimBackend):
                 for chunk in chunks
             ]
         flat_paths = [path for paths in mjb_paths_nested for path in paths]
-        try:
-            models = tuple(mujoco.MjModel.from_binary_path(path) for path in flat_paths)
-        finally:
-            for path in flat_paths:
-                if os.path.exists(path):
-                    os.remove(path)
-            for path in flat_paths:
-                parent = os.path.dirname(path)
-                if parent and os.path.isdir(parent):
-                    try:
-                        os.rmdir(parent)
-                    except OSError:
-                        pass
-        return models
+        return _load_compiled_models_and_cleanup(flat_paths)
 
     def _current_model_sequence(self) -> mujoco.MjModel | list[mujoco.MjModel]:
         if len(self._model_variants) == 1 and np.all(self._model_assignments == 0):
@@ -450,6 +456,9 @@ class MuJoCoBackend(SimBackend):
             raise ValueError(f"Keyframe '{name}' not found in MuJoCo model")
         return np.array(self._model.key_qpos[key_id].copy(), dtype=self._np_dtype)
 
+    def get_default_qpos(self) -> np.ndarray:
+        return np.asarray(self._model.qpos0, dtype=np.float64).copy()
+
     def get_init_qvel(self) -> np.ndarray:
         return np.zeros((self.nv,), dtype=self._np_dtype)
 
@@ -461,6 +470,54 @@ class MuJoCoBackend(SimBackend):
                 raise ValueError(f"Body '{name}' not found in MuJoCo model")
             ids.append(bid)
         return np.array(ids, dtype=np.int32)
+
+    def get_geom_id(self, name: str) -> int:
+        geom_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_GEOM, name)
+        if geom_id < 0:
+            raise ValueError(f"Geom '{name}' not found in MuJoCo model")
+        return int(geom_id)
+
+    def get_geom_size(self, name: str) -> np.ndarray:
+        return np.asarray(self._model.geom_size[self.get_geom_id(name)], dtype=np.float64).copy()
+
+    def get_body_subtree_ids(self, root_body_id: int) -> np.ndarray:
+        subtree_ids = {int(root_body_id)}
+        changed = True
+        while changed:
+            changed = False
+            for body_id in range(self._model.nbody):
+                parent_id = int(self._model.body_parentid[body_id])
+                if body_id not in subtree_ids and parent_id in subtree_ids:
+                    subtree_ids.add(body_id)
+                    changed = True
+        return np.asarray(sorted(subtree_ids), dtype=np.int32)
+
+    def get_geom_names(self) -> tuple[str, ...]:
+        return tuple(
+            mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_GEOM, geom_id) or ""
+            for geom_id in range(self._model.ngeom)
+        )
+
+    def get_geom_body_ids(self) -> np.ndarray:
+        return np.asarray(self._model.geom_bodyid, dtype=np.int32).copy()
+
+    def get_geom_contact_masks(self) -> tuple[np.ndarray, np.ndarray]:
+        return (
+            np.asarray(self._model.geom_contype, dtype=np.int32).copy(),
+            np.asarray(self._model.geom_conaffinity, dtype=np.int32).copy(),
+        )
+
+    def get_geom_friction(self) -> np.ndarray:
+        return np.asarray(self._model.geom_friction, dtype=np.float64).copy()
+
+    def get_gravity(self) -> np.ndarray:
+        return np.asarray(self._model.opt.gravity, dtype=np.float64).copy()
+
+    def get_body_mass(self) -> np.ndarray:
+        return np.asarray(self._model.body_mass, dtype=np.float64).copy()
+
+    def get_body_ipos(self) -> np.ndarray:
+        return np.asarray(self._model.body_ipos, dtype=np.float64).copy()
 
     def get_motion_body_ids(self, names: Sequence[str]) -> np.ndarray:
         return self.get_body_ids(names)
@@ -545,11 +602,15 @@ class MuJoCoBackend(SimBackend):
                     RESET_TERM_GRAVITY,
                     RESET_TERM_BODY_IQUAT,
                     RESET_TERM_BODY_INERTIA,
+                    RESET_TERM_BODY_IPOS,
+                    RESET_TERM_BODY_MASS,
+                    RESET_TERM_GEOM_FRICTION,
                     RESET_TERM_KP,
                     RESET_TERM_KD,
                 }
             ),
             supports_interval_push=self._push_body_id >= 0,
+            supports_interval_body_force=True,
         )
 
     def apply_init_randomization(self, plan: InitRandomizationPlan) -> None:
@@ -567,15 +628,49 @@ class MuJoCoBackend(SimBackend):
         self._pool = self._build_pool()
 
     def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
-        if plan.push_perturbation_limit is None:
+        if plan.is_empty():
             return
-        self.push_robots(plan.push_perturbation_limit)
+        self._pending_xfrc_applied.fill(0.0)
+        if plan.push_perturbation_limit is not None:
+            self.push_robots(plan.push_perturbation_limit)
+        if plan.body_force is not None:
+            if plan.body_ids is None:
+                raise ValueError("Interval body-force perturbation requires body_ids")
+            self.apply_body_force(plan.body_ids, plan.body_force)
+        if plan.body_linear_velocity_delta is not None:
+            if plan.body_ids is None:
+                raise ValueError("Interval body-velocity perturbation requires body_ids")
+            self.apply_body_linear_velocity_delta(plan.body_ids, plan.body_linear_velocity_delta)
 
     def push_robots(self, force_range: Sequence[float] | np.ndarray) -> None:
-        ex_force = np.random.uniform(-1.0, 1.0, size=(self._num_envs, 3))
-        ex_force *= force_range
         self._pending_xfrc_applied.fill(0.0)
-        self._pending_xfrc_applied[:, self._push_body_force_slice] = ex_force
+        self._pending_xfrc_applied[:, self._push_body_force_slice] = self._sample_push_force(
+            force_range
+        )
+
+    def apply_body_force(
+        self,
+        body_ids: np.ndarray,
+        force: np.ndarray,
+    ) -> None:
+        """Accumulate one external world-frame force vector per target body.
+
+        Args:
+            body_ids: Body ids to perturb.
+            force: Force tensor with shape ``(num_envs, len(body_ids), 3)``.
+
+        Returns:
+            None. The force is staged in ``xfrc_applied`` for the next step.
+        """
+        body_ids_np = np.asarray(body_ids, dtype=np.int32).reshape(-1)
+        force_np = np.asarray(force, dtype=np.float64)
+        expected_shape = (self._num_envs, body_ids_np.size, 3)
+        if force_np.shape != expected_shape:
+            raise ValueError(f"body force must have shape {expected_shape}, got {force_np.shape}")
+        for body_offset, body_id in enumerate(body_ids_np):
+            self._pending_xfrc_applied[:, self._resolve_push_body_force_slice(int(body_id))] += (
+                force_np[:, body_offset, :]
+            )
 
     def get_play_capabilities(self) -> BackendPlayCapabilities:
         return BackendPlayCapabilities(supports_physics_state_playback=True)
@@ -703,16 +798,38 @@ class MuJoCoBackend(SimBackend):
             raise ValueError(f"Body '{self._base_name}' not found in MuJoCo model")
 
         translated: dict[str, np.ndarray] = {}
+        body_mass = None
+        if randomization.body_mass is not None:
+            body_mass = self._coerce_reset_field(
+                randomization.body_mass,
+                name="body_mass",
+                num_reset=num_reset,
+                shaped_tail=(self._model.nbody,),
+            )
         if randomization.base_mass_delta is not None:
-            body_mass = np.broadcast_to(self._base_body_mass, (num_reset, self._model.nbody)).copy()
+            if body_mass is None:
+                body_mass = np.broadcast_to(
+                    self._base_body_mass, (num_reset, self._model.nbody)
+                ).copy()
             body_mass[:, self._base_body_id] += np.asarray(randomization.base_mass_delta)
+        if body_mass is not None:
             translated["body_mass"] = body_mass
 
+        body_ipos = None
+        if randomization.body_ipos is not None:
+            body_ipos = self._coerce_reset_field(
+                randomization.body_ipos,
+                name="body_ipos",
+                num_reset=num_reset,
+                shaped_tail=(self._model.nbody, 3),
+            )
         if randomization.base_com_offset is not None:
-            body_ipos = np.broadcast_to(
-                self._base_body_ipos, (num_reset, self._model.nbody, 3)
-            ).copy()
+            if body_ipos is None:
+                body_ipos = np.broadcast_to(
+                    self._base_body_ipos, (num_reset, self._model.nbody, 3)
+                ).copy()
             body_ipos[:, self._base_body_id, :] += np.asarray(randomization.base_com_offset)
+        if body_ipos is not None:
             translated["body_ipos"] = body_ipos.reshape(num_reset, -1)
 
         if randomization.gravity is not None:
@@ -737,6 +854,14 @@ class MuJoCoBackend(SimBackend):
                 name="body_inertia",
                 num_reset=num_reset,
                 shaped_tail=(self._model.nbody, 3),
+            )
+
+        if randomization.geom_friction is not None:
+            translated["geom_friction"] = self._coerce_reset_field(
+                randomization.geom_friction,
+                name="geom_friction",
+                num_reset=num_reset,
+                shaped_tail=(self._model.ngeom, 3),
             )
 
         if randomization.kp is not None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
@@ -15,6 +16,7 @@ from omegaconf import DictConfig, OmegaConf
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
 
+from unilab.algos.torch.appo.runtime import resolve_appo_runtime
 from unilab.training import (
     BackendAdapter,
     create_env,
@@ -92,11 +94,15 @@ def run_motrix_play_loop(
 
 def resolve_appo_checkpoint_path(
     base_log_dir: str | Path,
-    load_run: str,
+    load_run: str | int,
 ) -> tuple[str | None, str | None]:
     from unilab.training import resolve_checkpoint_path
 
-    checkpoint_path, checkpoint_dir = resolve_checkpoint_path(base_log_dir, load_run, suffix=".pt")
+    checkpoint_path, checkpoint_dir = resolve_checkpoint_path(
+        base_log_dir,
+        str(load_run),
+        suffix=".pt",
+    )
     return (
         str(checkpoint_path) if checkpoint_path is not None else None,
         str(checkpoint_dir) if checkpoint_dir is not None else None,
@@ -107,8 +113,29 @@ def _get_log_root(cfg: DictConfig) -> str:
     return str(get_log_root(ROOT_DIR, cfg))
 
 
-def play_appo(cfg: DictConfig, rl_cfg: dict[str, Any]) -> str | None:
-    """Play mode for APPO."""
+def play_appo(
+    cfg: DictConfig,
+    rl_cfg: dict[str, Any],
+    *,
+    root_dir: Path | None = None,
+    resolve_checkpoint_path: Callable[[DictConfig], tuple[str | None, str | None]] | None = None,
+) -> str | None:
+    """Play mode for the default APPO runtime.
+
+    Args:
+        cfg: Resolved Hydra config for the current run.
+        rl_cfg: Resolved algorithm config dictionary from Hydra composition.
+        root_dir: Optional project root forwarded by generic runtime callers.
+            The default APPO runtime does not need it and ignores the value.
+        resolve_checkpoint_path: Optional checkpoint resolver injected by the
+            generic script. When omitted, this function falls back to the
+            default log-root based APPO checkpoint resolution.
+
+    Returns:
+        Output video path for offscreen rendering, or ``None`` when running the
+        native Motrix viewer or when no checkpoint could be resolved.
+    """
+    del root_dir
     import numpy as np
     from rsl_rl.utils import resolve_callable
     from tensordict import TensorDict
@@ -174,9 +201,12 @@ def play_appo(cfg: DictConfig, rl_cfg: dict[str, Any]) -> str | None:
     actor = actor.to(device)
     actor.eval()
 
-    log_root = _get_log_root(cfg)
-    base_log_dir = os.path.join(log_root, cfg.training.task_name)
-    load_path, load_path_dir = resolve_appo_checkpoint_path(base_log_dir, cfg.algo.load_run)
+    if resolve_checkpoint_path is not None:
+        load_path, load_path_dir = resolve_checkpoint_path(cfg)
+    else:
+        log_root = _get_log_root(cfg)
+        base_log_dir = os.path.join(log_root, cfg.training.task_name)
+        load_path, load_path_dir = resolve_appo_checkpoint_path(base_log_dir, cfg.algo.load_run)
 
     if not load_path or not os.path.exists(load_path):
         print(f"Could not find run to load. load_path={load_path}")
@@ -261,6 +291,9 @@ def play_appo(cfg: DictConfig, rl_cfg: dict[str, Any]) -> str | None:
         render_play_mode(
             env,
             sim_backend=cfg.training.sim_backend,
+            render_spacing=float(
+                getattr(cfg.training, "render_spacing", getattr(env.cfg, "render_spacing", 1.0))
+            ),
             num_steps=num_steps,
             output_video=output_video,
             initialize=lambda: np.asarray(
@@ -285,6 +318,7 @@ def play_appo(cfg: DictConfig, rl_cfg: dict[str, Any]) -> str | None:
                 "cam_distance": cfg.training.cam_distance,
                 "cam_elevation": cfg.training.cam_elevation,
                 "cam_azimuth": cfg.training.cam_azimuth,
+                "cam_lookat": getattr(cfg.training, "cam_lookat", None),
                 "cam_tracking": getattr(cfg.training, "cam_tracking", False),
                 "cam_tracking_env_idx": getattr(cfg.training, "cam_tracking_env_idx", 0),
                 "cam_tracking_extra_envs": getattr(cfg.training, "cam_tracking_extra_envs", 2),
@@ -308,6 +342,7 @@ def main(cfg: DictConfig) -> None:
     if not isinstance(rl_cfg_raw, dict):
         raise TypeError("cfg.algo must resolve to a dict")
     rl_cfg = cast(dict[str, Any], rl_cfg_raw)
+    appo_runtime = resolve_appo_runtime(rl_cfg, default_play_fn=play_appo)
 
     if cfg.training.log_dir is None:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -349,9 +384,7 @@ def main(cfg: DictConfig) -> None:
 
     try:
         if not cfg.training.play_only:
-            from unilab.algos.torch.appo.runner import APPORunner
-
-            runner = APPORunner(
+            runner = appo_runtime.runner_cls(
                 **build_appo_runner_kwargs(
                     cfg,
                     env_cfg_override=env_cfg_override,
@@ -373,7 +406,15 @@ def main(cfg: DictConfig) -> None:
                 runner.close()
 
         if cfg.training.play_only or not cfg.training.no_play:
-            play_video_path = play_appo(cfg, rl_cfg)
+            play_video_path = appo_runtime.play_fn(
+                cfg,
+                rl_cfg,
+                root_dir=ROOT_DIR,
+                resolve_checkpoint_path=lambda current_cfg: resolve_appo_checkpoint_path(
+                    os.path.join(_get_log_root(current_cfg), current_cfg.training.task_name),
+                    current_cfg.algo.load_run,
+                ),
+            )
             if tracker is not None:
                 tracker.log_video(play_video_path)
     finally:

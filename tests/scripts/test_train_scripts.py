@@ -19,6 +19,7 @@ import numpy as np
 import pytest
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
+from omegaconf import OmegaConf
 
 _SCRIPTS_DIR = Path(__file__).parent.parent.parent / "scripts"
 _CONF_DIR = Path(__file__).parent.parent.parent / "conf"
@@ -112,6 +113,20 @@ def _appo_cfg(overrides=None):
         return compose("config", overrides=_normalize_overrides(overrides))
 
 
+def _hora_distill_cfg(overrides=None):
+    """Compose the HORA distillation Hydra config.
+
+    Args:
+        overrides: Optional Hydra override strings to apply during composition.
+
+    Returns:
+        The composed HORA distillation config.
+    """
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(_CONF_DIR / "hora_distill"), version_base="1.3"):
+        return compose("config", overrides=overrides or [])
+
+
 def _train_rsl_rl(monkeypatch: pytest.MonkeyPatch):
     import types
 
@@ -130,6 +145,18 @@ def _train_rsl_rl(monkeypatch: pytest.MonkeyPatch):
 
 def _train_appo():
     return _load_script("train_appo")
+
+
+def _train_hora_distill():
+    """Load the HORA distillation entrypoint module.
+
+    Args:
+        None.
+
+    Returns:
+        The loaded ``scripts/train_hora_distill.py`` module.
+    """
+    return _load_script("train_hora_distill")
 
 
 def test_offpolicy_hydra_default_algo():
@@ -186,6 +213,70 @@ def test_offpolicy_hydra_default_play_flags():
 def test_offpolicy_hydra_algo_td3():
     cfg = _offpolicy_cfg(["algo=td3"])
     assert cfg.algo.algo == "td3"
+
+
+def test_hora_distill_task_owner_overrides_root_config_defaults():
+    mod = _train_hora_distill()
+    root_cfg = OmegaConf.load(_CONF_DIR / "hora_distill" / "config.yaml")
+    cfg = mod._apply_teacher_defaults(_hora_distill_cfg(["task=sharpa_inhand/mujoco"]))
+
+    assert root_cfg.algo.num_envs == 4096
+    assert root_cfg.algo.save_interval_steps == 100000000
+    assert cfg.algo.num_envs == 16384
+    assert cfg.algo.save_interval_steps == 10000000
+
+
+def test_hora_distill_script_delegates_teacher_owner_resolution():
+    source = (_SCRIPTS_DIR / "train_hora_distill.py").read_text(encoding="utf-8")
+
+    assert "OmegaConf.load" not in source
+    assert "HoraActorModel" not in source
+    assert 'conf" / str(algo_family)' not in source
+
+
+@pytest.mark.parametrize("teacher_algo_family", ["ppo", "appo"])
+def test_hora_distill_teacher_owner_defaults_support_ppo_and_appo(
+    teacher_algo_family: str,
+):
+    mod = _train_hora_distill()
+    cfg = mod._apply_teacher_defaults(
+        _hora_distill_cfg(
+            [
+                "task=sharpa_inhand/mujoco",
+                f"teacher.algo_family={teacher_algo_family}",
+                "teacher.task=sharpa_inhand/mujoco_hora",
+            ]
+        )
+    )
+
+    assert cfg.training.task_name == "SharpaInhandRotation"
+    assert cfg.training.sim_backend == "mujoco"
+    assert cfg.algo.model.priv_info_embed_dim == 9
+    assert cfg.algo.model.priv_mlp_hidden_dims == [256, 128, 9]
+
+
+@pytest.mark.parametrize("teacher_algo_family", ["ppo", "appo"])
+def test_hora_distill_teacher_run_slug_omits_teacher_run_name(teacher_algo_family: str):
+    mod = _train_hora_distill()
+    cfg = OmegaConf.create({"teacher": {"task": "sharpa_inhand/mujoco"}})
+    teacher_checkpoint = Path("/tmp") / "2026-04-22_13-26-45_mujoco" / "model_10000.pt"
+
+    metadata = mod._teacher_run_metadata(
+        cfg,
+        teacher_algo_family=teacher_algo_family,
+        teacher_checkpoint=teacher_checkpoint,
+    )
+
+    assert metadata["run_name"] == "2026-04-22_13-26-45_mujoco"
+    assert metadata["run_slug"] == f"teacher-{teacher_algo_family}"
+
+
+def test_offpolicy_go1_motrix_task_is_not_configured():
+    """SAC has no Go1 Motrix owner config; use PPO for Go1 joystick tasks."""
+    from hydra.errors import MissingConfigException
+
+    with pytest.raises(MissingConfigException, match="task/sac/go1_joystick_flat/motrix"):
+        _offpolicy_cfg(["task=sac/go1_joystick_flat/motrix"])
 
 
 def test_offpolicy_g1_walk_flat_motrix_resolved_algo_matches_task_owner():
@@ -345,15 +436,70 @@ def test_build_ppo_env_cfg_override_allegro_mujoco(
 ):
     mod = _train_rsl_rl(monkeypatch)
     cfg = _ppo_cfg(["task=allegro_inhand/mujoco"])
+    ppo_motrix_cfg = _ppo_cfg(["task=allegro_inhand/motrix"])
+    appo_cfg = _appo_cfg(["task=allegro_inhand/mujoco"])
+    appo_motrix_cfg = _appo_cfg(["task=allegro_inhand/motrix"])
 
     env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
 
     assert cfg.training.task_name == "AllegroInhandRotation"
+    assert cfg.algo.empirical_normalization is False
+    assert cfg.algo.actor.obs_normalization is True
+    assert cfg.algo.critic.obs_normalization is True
     assert env_cfg_override["reward_config"]["scales"]["rotate"] == pytest.approx(1.25)
     assert env_cfg_override["reward_config"]["reset_z_threshold"] == pytest.approx(0.125)
     assert env_cfg_override["gen_grasp"] is False
     assert env_cfg_override["max_episode_seconds"] == pytest.approx(20.0)
     assert env_cfg_override["grasp_cache_path"] == "cache/allegro_grasp_50k.npy"
+    assert env_cfg_override["domain_rand"]["randomize_base_mass"] is False
+    assert env_cfg_override["domain_rand"]["random_com"] is False
+    assert env_cfg_override["domain_rand"]["randomize_gravity"] is False
+    assert env_cfg_override["domain_rand"]["push_robots"] is False
+    assert env_cfg_override["domain_rand"]["joint_noise"] == pytest.approx(0.0)
+    assert env_cfg_override["domain_rand"]["ball_vel_noise"] == pytest.approx(0.0)
+    assert env_cfg_override["domain_rand"]["ball_z_offset"] == pytest.approx(0.0)
+    assert appo_cfg.algo.num_envs == cfg.algo.num_envs
+    assert appo_cfg.algo.steps_per_env == cfg.algo.num_steps_per_env
+    assert appo_cfg.algo.max_iterations == cfg.algo.max_iterations
+    assert appo_cfg.algo.save_interval == cfg.algo.save_interval
+    assert list(appo_cfg.algo.actor.hidden_dims) == list(cfg.algo.actor.hidden_dims)
+    assert appo_cfg.algo.actor.activation == cfg.algo.actor.activation
+    assert appo_cfg.algo.actor.obs_normalization is True
+    assert list(appo_cfg.algo.critic.hidden_dims) == list(cfg.algo.critic.hidden_dims)
+    assert appo_cfg.algo.critic.activation == cfg.algo.critic.activation
+    assert appo_cfg.algo.critic.obs_normalization is True
+    assert appo_cfg.algo.algorithm.value_loss_coef == pytest.approx(
+        cfg.algo.algorithm.value_loss_coef
+    )
+    assert appo_cfg.algo.algorithm.entropy_coef == pytest.approx(cfg.algo.algorithm.entropy_coef)
+    assert appo_cfg.algo.algorithm.learning_rate == pytest.approx(cfg.algo.algorithm.learning_rate)
+    assert appo_cfg.algo.algorithm.desired_kl == pytest.approx(cfg.algo.algorithm.desired_kl)
+    assert appo_cfg.algo.algorithm.num_learning_epochs == cfg.algo.algorithm.num_learning_epochs
+    assert appo_cfg.algo.algorithm.num_mini_batches == cfg.algo.algorithm.num_mini_batches
+    assert appo_cfg.algo.algorithm.clip_param == pytest.approx(cfg.algo.algorithm.clip_param)
+    assert appo_cfg.algo.algorithm.gamma == pytest.approx(cfg.algo.algorithm.gamma)
+    assert appo_cfg.algo.algorithm.lam == pytest.approx(cfg.algo.algorithm.lam)
+    assert appo_cfg.algo.algorithm.max_grad_norm == pytest.approx(cfg.algo.algorithm.max_grad_norm)
+    assert (
+        appo_cfg.algo.algorithm.use_clipped_value_loss is cfg.algo.algorithm.use_clipped_value_loss
+    )
+    assert appo_cfg.algo.algorithm.schedule == cfg.algo.algorithm.schedule
+    assert appo_motrix_cfg.training.task_name == appo_cfg.training.task_name
+    assert appo_motrix_cfg.training.sim_backend == ppo_motrix_cfg.training.sim_backend
+    assert appo_motrix_cfg.algo.num_envs == appo_cfg.algo.num_envs
+    assert appo_motrix_cfg.algo.steps_per_env == appo_cfg.algo.steps_per_env
+    assert appo_motrix_cfg.algo.max_iterations == appo_cfg.algo.max_iterations
+    assert appo_motrix_cfg.algo.save_interval == appo_cfg.algo.save_interval
+    assert appo_motrix_cfg.algo.actor.obs_normalization is True
+    assert appo_motrix_cfg.algo.critic.obs_normalization is True
+    assert appo_motrix_cfg.reward.scales.rotate == pytest.approx(
+        ppo_motrix_cfg.reward.scales.rotate
+    )
+    assert appo_motrix_cfg.env.gen_grasp is ppo_motrix_cfg.env.gen_grasp
+    assert appo_motrix_cfg.env.domain_rand.randomize_base_mass is False
+    assert appo_motrix_cfg.env.domain_rand.random_com is False
+    assert appo_motrix_cfg.env.domain_rand.randomize_gravity is False
+    assert appo_motrix_cfg.env.domain_rand.push_robots is False
 
 
 def test_build_ppo_env_cfg_override_allegro_grasp_mujoco(
@@ -365,13 +511,19 @@ def test_build_ppo_env_cfg_override_allegro_grasp_mujoco(
     env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
 
     assert cfg.training.task_name == "AllegroInhandRotationGrasp"
+    assert cfg.algo.empirical_normalization is False
+    assert cfg.algo.actor.obs_normalization is True
+    assert cfg.algo.critic.obs_normalization is True
     assert env_cfg_override["reward_config"]["scales"]["rotate"] == pytest.approx(0.0)
     assert env_cfg_override["gen_grasp"] is True
     assert env_cfg_override["grasp_collection_target"] == 50000
     assert env_cfg_override["grasp_quality_check"] is True
     assert env_cfg_override["domain_rand"]["randomize_base_mass"] is False
     assert env_cfg_override["domain_rand"]["random_com"] is False
+    assert env_cfg_override["domain_rand"]["randomize_gravity"] is False
     assert env_cfg_override["domain_rand"]["push_robots"] is False
+    assert env_cfg_override["domain_rand"]["ball_vel_noise"] == pytest.approx(0.0)
+    assert env_cfg_override["domain_rand"]["joint_noise"] == pytest.approx(0.25)
 
 
 def test_build_ppo_env_cfg_override_allegro_grasp_cli_override_wins(
@@ -1169,6 +1321,59 @@ def test_play_wrapper_flat_policy_excludes_critic_only_group():
     assert wrapper.num_privileged_obs == 4
 
 
+def test_play_wrapper_preserves_hora_priv_info_and_proprio_history():
+    import numpy as np
+
+    from unilab.algos.torch.hora.rsl_rl import HoraRslRlVecEnvWrapper
+
+    class FakeEnv:
+        def __init__(self):
+            self.num_envs = 1
+            self.state = type(
+                "State",
+                (),
+                {
+                    "obs": {
+                        "obs": np.array([[1.0, 2.0, 3.0]], dtype=np.float32),
+                        "critic": np.array([[1.0, 2.0, 3.0, 4.0, 5.0]], dtype=np.float32),
+                    },
+                    "info": {
+                        "critic_info": np.array([[4.0, 5.0]], dtype=np.float32),
+                        "proprio_hist": np.array(
+                            [[[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]],
+                            dtype=np.float32,
+                        ),
+                    },
+                },
+            )()
+            self.cfg = type("Cfg", (), {"max_episode_seconds": 10.0, "ctrl_dt": 0.02})()
+            self.observation_space = type("Space", (), {"shape": (5,)})()
+            self.action_space = type("Space", (), {"shape": (2,)})()
+            self.obs_groups_spec = {"obs": 3, "critic": 5}
+
+        def init_state(self):
+            pass
+
+        def reset(self, env_indices):
+            del env_indices
+            return (
+                cast(dict[str, np.ndarray], getattr(self.state, "obs")),
+                cast(dict[str, np.ndarray], getattr(self.state, "info")),
+            )
+
+    wrapper = HoraRslRlVecEnvWrapper(FakeEnv(), device="cpu", policy_obs_mode="flat")
+    obs_td, _ = wrapper.reset()
+
+    np.testing.assert_allclose(
+        obs_td["priv_info"].cpu().numpy(),
+        np.array([[4.0, 5.0]], dtype=np.float32),
+    )
+    np.testing.assert_allclose(
+        obs_td["proprio_hist"].cpu().numpy(),
+        np.array([[[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]], dtype=np.float32),
+    )
+
+
 def test_play_wrapper_step_exports_timeout_bootstrap_obs():
     import torch
 
@@ -1222,6 +1427,77 @@ def test_play_wrapper_step_exports_timeout_bootstrap_obs():
     )
     np.testing.assert_allclose(
         infos["time_out_bootstrap_obs"]["critic"].cpu().numpy(),
+        np.array([[4.0, 5.0]], dtype=np.float32),
+    )
+
+
+def test_play_wrapper_timeout_bootstrap_preserves_hora_priv_info():
+    import torch
+
+    from unilab.algos.torch.hora.rsl_rl import HoraRslRlVecEnvWrapper
+
+    class FakeEnv:
+        def __init__(self):
+            self.num_envs = 1
+            self.cfg = type("Cfg", (), {"max_episode_seconds": 10.0, "ctrl_dt": 0.02})()
+            self.observation_space = type("Space", (), {"shape": (5,)})()
+            self.action_space = type("Space", (), {"shape": (2,)})()
+            self.obs_groups_spec = {"obs": 3, "critic": 5}
+            self.state = type(
+                "State",
+                (),
+                {
+                    "obs": {
+                        "obs": np.zeros((1, 3), dtype=np.float32),
+                        "critic": np.zeros((1, 5), dtype=np.float32),
+                    },
+                    "info": {
+                        "critic_info": np.zeros((1, 2), dtype=np.float32),
+                        "proprio_hist": np.zeros((1, 2, 3), dtype=np.float32),
+                    },
+                },
+            )()
+
+        def init_state(self):
+            pass
+
+        def reset(self, env_indices):
+            del env_indices
+            return cast(dict[str, np.ndarray], getattr(self.state, "obs")), cast(
+                dict[str, np.ndarray], getattr(self.state, "info")
+            )
+
+        def step(self, actions):
+            del actions
+            return type(
+                "StepState",
+                (),
+                {
+                    "obs": {"obs": np.array([[1.0, 2.0, 3.0]], dtype=np.float32)},
+                    "reward": np.array([1.0], dtype=np.float32),
+                    "terminated": np.array([True]),
+                    "truncated": np.array([True]),
+                    "final_observation": {
+                        "obs": np.array([[7.0, 8.0, 9.0]], dtype=np.float32),
+                        "critic": np.array([[7.0, 8.0, 9.0, 4.0, 5.0]], dtype=np.float32),
+                    },
+                    "info": {
+                        "final_observation": {
+                            "obs": np.array([[7.0, 8.0, 9.0]], dtype=np.float32),
+                            "critic": np.array([[7.0, 8.0, 9.0, 4.0, 5.0]], dtype=np.float32),
+                        },
+                        "critic_info": np.array([[0.0, 0.0]], dtype=np.float32),
+                        "proprio_hist": np.zeros((1, 2, 3), dtype=np.float32),
+                    },
+                },
+            )()
+
+    wrapper = HoraRslRlVecEnvWrapper(FakeEnv(), device="cpu", policy_obs_mode="flat")
+
+    _, _, _, infos = wrapper.step(torch.zeros((1, 2)))
+
+    np.testing.assert_allclose(
+        infos["time_out_bootstrap_obs"]["priv_info"].cpu().numpy(),
         np.array([[4.0, 5.0]], dtype=np.float32),
     )
 

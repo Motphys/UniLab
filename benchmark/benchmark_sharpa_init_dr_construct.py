@@ -21,10 +21,10 @@ See:
 - `/home/admin1/ws/unilabsim/mujoco_uni/python/mujoco/batch_env.cc`
 
 Usage:
-    uv run python benchmark/benchmark_sharpa_init_dr_construct.py
-    uv run python benchmark/benchmark_sharpa_init_dr_construct.py --env-nums 256,512,1024
-    uv run python benchmark/benchmark_sharpa_init_dr_construct.py --variant-counts 1,2,4,8
-    uv run python benchmark/benchmark_sharpa_init_dr_construct.py --measure construct_plus_pool
+    uv run benchmark/benchmark_sharpa_init_dr_construct.py
+    uv run benchmark/benchmark_sharpa_init_dr_construct.py --env-nums 256,512,1024
+    uv run benchmark/benchmark_sharpa_init_dr_construct.py --variant-counts 1,2,4,8
+    uv run benchmark/benchmark_sharpa_init_dr_construct.py --measure construct_plus_pool
 """
 
 from __future__ import annotations
@@ -79,7 +79,7 @@ class ConstructRecord:
     mode: str
     variant_count: int
     num_envs: int
-    scale_range: list[float]
+    scale_list: list[float]
     repeats: int
     samples_sec: list[float]
     mean_sec: float
@@ -122,9 +122,11 @@ def _parse_variant_counts(value: str | None) -> list[int]:
 
 def _compose_cfg(task: str, *, lower: float, upper: float, variant_count: int):
     config_dir = str(ROOT_DIR / "conf" / "ppo")
+    scale_list = np.linspace(lower, upper, variant_count, dtype=np.float64)
+    scale_override = ",".join(f"{float(scale):g}" for scale in scale_list)
     overrides = [
         f"task={task}",
-        f"env.scale_range=[{lower:g},{upper:g},{variant_count}]",
+        f"env.domain_rand.scale_list=[{scale_override}]",
         "hydra.run.dir=.",
         "hydra.output_subdir=null",
         "hydra/job_logging=disabled",
@@ -254,7 +256,7 @@ def _summarize_record(
         mode=mode,
         variant_count=variant_count,
         num_envs=num_envs,
-        scale_range=[lower, upper, float(variant_count)],
+        scale_list=np.linspace(lower, upper, variant_count, dtype=np.float64).tolist(),
         repeats=len(samples),
         samples_sec=[float(sample) for sample in samples],
         mean_sec=float(mean(samples)),

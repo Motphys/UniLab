@@ -16,6 +16,7 @@ if str(SRC_DIR) not in sys.path:
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from unilab.algos.torch.rsl_rl_runtime import resolve_rsl_rl_ppo_runtime
 from unilab.base.backend.xml import materialize_scene_visual_override
 from unilab.training import (
     BackendAdapter,
@@ -85,6 +86,22 @@ def _algo_config_dict(cfg: DictConfig) -> dict[str, Any]:
     return cast(dict[str, Any], train_cfg_raw)
 
 
+def _resolve_ppo_wrapper_cls(rl_cfg: dict[str, Any]) -> type[RslRlVecEnvWrapper]:
+    """Resolve the VecEnv wrapper class from the owner-selected PPO runtime.
+
+    Args:
+        rl_cfg: Resolved algorithm config dictionary from Hydra composition.
+
+    Returns:
+        Wrapper class used to adapt the UniLab env contract to the active
+        RSL-RL PPO runtime.
+    """
+    return resolve_rsl_rl_ppo_runtime(
+        rl_cfg,
+        default_wrapper_cls=RslRlVecEnvWrapper,
+    ).wrapper_cls
+
+
 def _format_play_checkpoint_error(
     cfg: DictConfig,
     *,
@@ -123,6 +140,8 @@ def _format_play_checkpoint_error(
 
 def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     """Play mode for RSL-RL."""
+    rl_cfg = _algo_config_dict(cfg)
+    wrapper_cls = _resolve_ppo_wrapper_cls(rl_cfg)
 
     task_log_root = get_log_root(ROOT_DIR, cfg) / str(cfg.training.task_name)
     load_path, load_path_dir = parse_checkpoint_path(cfg, root_dir=ROOT_DIR)
@@ -153,8 +172,8 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
         num_envs=cfg.training.play_env_num,
         env_cfg_override=env_cfg_override,
     )
-    wrapped_env = RslRlVecEnvWrapper(env, device=device)
-    train_cfg = normalize_ppo_train_cfg(_algo_config_dict(cfg))
+    wrapped_env = wrapper_cls(env, device=device)
+    train_cfg = normalize_ppo_train_cfg(rl_cfg)
     if "runner" not in train_cfg:
         train_cfg["runner"] = {}
     train_cfg["runner"]["logger"] = "none"
@@ -273,6 +292,8 @@ def main(cfg: DictConfig) -> None:
                 num_envs=cfg.algo.num_envs,
                 env_cfg_override=env_cfg_override,
             )
+            rl_cfg = _algo_config_dict(cfg)
+            wrapper_cls = _resolve_ppo_wrapper_cls(rl_cfg)
 
             nan_guard_cfg = getattr(cfg.training, "nan_guard", None)
             if nan_guard_cfg is not None and getattr(nan_guard_cfg, "enabled", False):
@@ -290,9 +311,9 @@ def main(cfg: DictConfig) -> None:
                 )
                 env.set_nan_guard(guard)
 
-            wrapped_env = RslRlVecEnvWrapper(env, device=device)
+            wrapped_env = wrapper_cls(env, device=device)
 
-            train_cfg = normalize_ppo_train_cfg(_algo_config_dict(cfg))
+            train_cfg = normalize_ppo_train_cfg(rl_cfg)
             if "runner" not in train_cfg:
                 train_cfg["runner"] = {}
 

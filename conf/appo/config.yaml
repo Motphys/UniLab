@@ -61,6 +61,7 @@ training:
   wandb_notes: null
   wandb_mode: null
   sim_backend: mujoco
+  log_root: null
   log_dir: null
   play_only: false
   no_play: false

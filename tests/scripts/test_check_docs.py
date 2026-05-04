@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from omegaconf import OmegaConf
+
 from tests.scripts import doc_checks
 
 
@@ -9,6 +11,25 @@ def test_documentation_files_match_current_repo_contracts():
     root = Path(__file__).resolve().parents[2]
     errors = doc_checks.collect_doc_errors(root)
     assert errors == []
+
+
+def test_sharpa_domain_randomization_doc_matches_owner_config():
+    root = Path(__file__).resolve().parents[2]
+    doc_path = root / "docs" / "users" / "zh_CN" / "06-domain-randomization.md"
+    content = doc_path.read_text(encoding="utf-8")
+    owner_cfg = OmegaConf.load(root / "conf" / "ppo" / "task" / "sharpa_inhand" / "mujoco.yaml")
+
+    sharpa_rows = [
+        line for line in content.splitlines() if line.startswith("| `SharpaInhandRotation` |")
+    ]
+    assert sharpa_rows
+    if float(owner_cfg.env.domain_rand.force_scale) > 0.0:
+        assert all("| 无 |" not in row for row in sharpa_rows)
+        assert any("body_force" in row for row in sharpa_rows)
+
+    assert "`env.domain_rand.scale_list`" in content
+    assert "`env.scale_list`" not in content
+    assert "必须能被 `num_scales` 整除" not in content
 
 
 def test_check_training_entrypoint_semantics_flags_issue_204_patterns():

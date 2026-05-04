@@ -11,6 +11,9 @@ RESET_TERM_BASE_MASS = "base_mass_delta"
 RESET_TERM_GRAVITY = "gravity"
 RESET_TERM_BODY_IQUAT = "body_iquat"
 RESET_TERM_BODY_INERTIA = "body_inertia"
+RESET_TERM_BODY_IPOS = "body_ipos"
+RESET_TERM_BODY_MASS = "body_mass"
+RESET_TERM_GEOM_FRICTION = "geom_friction"
 RESET_TERM_KP = "kp"
 RESET_TERM_KD = "kd"
 
@@ -33,6 +36,8 @@ class ModelVariantSpec:
 class DomainRandomizationCapabilities:
     supported_reset_terms: frozenset[str] = field(default_factory=frozenset)
     supports_interval_push: bool = False
+    supports_interval_body_velocity_delta: bool = False
+    supports_interval_body_force: bool = False
 
     def supports_reset_term(self, term: str) -> bool:
         return term in self.supported_reset_terms
@@ -61,6 +66,17 @@ class DomainRandomizationCapabilities:
             body_inertia=(
                 payload.body_inertia if self.supports_reset_term(RESET_TERM_BODY_INERTIA) else None
             ),
+            body_ipos=(
+                payload.body_ipos if self.supports_reset_term(RESET_TERM_BODY_IPOS) else None
+            ),
+            body_mass=(
+                payload.body_mass if self.supports_reset_term(RESET_TERM_BODY_MASS) else None
+            ),
+            geom_friction=(
+                payload.geom_friction
+                if self.supports_reset_term(RESET_TERM_GEOM_FRICTION)
+                else None
+            ),
             kp=payload.kp if self.supports_reset_term(RESET_TERM_KP) else None,
             kd=payload.kd if self.supports_reset_term(RESET_TERM_KD) else None,
         )
@@ -74,6 +90,9 @@ class ResetRandomizationPayload:
     gravity: np.ndarray | None = None
     body_iquat: np.ndarray | None = None
     body_inertia: np.ndarray | None = None
+    body_ipos: np.ndarray | None = None
+    body_mass: np.ndarray | None = None
+    geom_friction: np.ndarray | None = None
     kp: np.ndarray | None = None
     kd: np.ndarray | None = None
 
@@ -89,6 +108,12 @@ class ResetRandomizationPayload:
             terms.add(RESET_TERM_BODY_IQUAT)
         if self.body_inertia is not None:
             terms.add(RESET_TERM_BODY_INERTIA)
+        if self.body_ipos is not None:
+            terms.add(RESET_TERM_BODY_IPOS)
+        if self.body_mass is not None:
+            terms.add(RESET_TERM_BODY_MASS)
+        if self.geom_friction is not None:
+            terms.add(RESET_TERM_GEOM_FRICTION)
         if self.kp is not None:
             terms.add(RESET_TERM_KP)
         if self.kd is not None:
@@ -102,9 +127,16 @@ class ResetRandomizationPayload:
 @dataclass
 class IntervalRandomizationPlan:
     push_perturbation_limit: Sequence[float] | np.ndarray | None = None
+    body_ids: np.ndarray | None = None
+    body_linear_velocity_delta: np.ndarray | None = None
+    body_force: np.ndarray | None = None
 
     def is_empty(self) -> bool:
-        return self.push_perturbation_limit is None
+        return (
+            self.push_perturbation_limit is None
+            and self.body_linear_velocity_delta is None
+            and self.body_force is None
+        )
 
 
 @dataclass
