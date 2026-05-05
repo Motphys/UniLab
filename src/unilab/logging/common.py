@@ -96,6 +96,8 @@ class BaseTrainingLogger:
         self._tb_writer: Any | None = None
         self._wandb_run = None
         self._owns_wandb_run = False
+        self._finished = False
+        self._closed = False
 
         if self._log_backend == "tensorboard" and log_dir:
             self._init_tensorboard(log_dir, tensorboard_subdir)
@@ -196,11 +198,35 @@ class BaseTrainingLogger:
             )
             self._live.start()
 
-    def finish(self, *, title: str = "Training Summary", extra_summary: str = ""):
+    def _stop_live(self) -> None:
         if self._live is not None:
             self._live.update(self._build_display())
             self._live.stop()
             self._live = None
+
+    def _close_backends(self) -> None:
+        if self._tb_writer:
+            self._tb_writer.close()
+            self._tb_writer = None
+        if self._wandb_run and self._owns_wandb_run:
+            wandb = _load_wandb()
+            if wandb is not None:
+                wandb.finish()
+            self._wandb_run = None
+            self._owns_wandb_run = False
+
+    def close(self) -> None:
+        """Release live terminal state and backend handles without printing a summary."""
+        if self._closed:
+            return
+        self._stop_live()
+        self._close_backends()
+        self._closed = True
+
+    def finish(self, *, title: str = "Training Summary", extra_summary: str = ""):
+        if self._finished:
+            return
+        self._stop_live()
 
         elapsed = time.time() - self._start_time
         if not self._no_print:
@@ -218,12 +244,9 @@ class BaseTrainingLogger:
             self._console.print()
             self._console.print(Panel(summary, title=f"[bold]{title}[/]", border_style="green"))
 
-        if self._tb_writer:
-            self._tb_writer.close()
-        if self._wandb_run and self._owns_wandb_run:
-            wandb = _load_wandb()
-            if wandb is not None:
-                wandb.finish()
+        self._close_backends()
+        self._closed = True
+        self._finished = True
 
     def update_ep_length(self, length: float):
         self._mean_ep_length = length

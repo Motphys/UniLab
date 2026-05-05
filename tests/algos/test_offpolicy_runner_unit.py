@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import queue
+from typing import cast
 
 import pytest
 import torch
@@ -12,6 +13,7 @@ from unilab.algos.torch.offpolicy.runner import (
     compute_train_start_threshold,
     replay_buffer_ready_for_learning,
 )
+from unilab.ipc.replay_buffer import ReplayBuffer
 
 
 class _FakeActor:
@@ -135,6 +137,8 @@ class _FakeLogger:
         del kwargs
         self.buffer_fill_calls: list[tuple[int, int]] = []
         self.step_calls: list[dict] = []
+        self.finish_calls = 0
+        self.close_calls = 0
         self._total_steps = 0
         self._mean_ep_length = 0.0
         _FakeLogger.last_instance = self
@@ -148,8 +152,12 @@ class _FakeLogger:
     def log_status(self, status: str) -> None:
         del status
 
-    def finish(self) -> None:
-        pass
+    def finish(self, *args, **kwargs) -> None:
+        del args, kwargs
+        self.finish_calls += 1
+
+    def close(self) -> None:
+        self.close_calls += 1
 
     def log_buffer_fill(self, current: int, target: int) -> None:
         self.buffer_fill_calls.append((current, target))
@@ -201,6 +209,12 @@ class _SyncReadyQueue:
         return 1
 
 
+class _InterruptingReadyQueue:
+    def get(self, timeout: float | None = None) -> int:
+        del timeout
+        raise KeyboardInterrupt
+
+
 class _RecordingQueue:
     def __init__(self) -> None:
         self.put_calls: list[int] = []
@@ -210,8 +224,18 @@ class _RecordingQueue:
 
 
 class _FakeProcess:
+    def __init__(self) -> None:
+        self._alive = True
+
     def is_alive(self) -> bool:
-        return True
+        return self._alive
+
+    def join(self, timeout: float | None = None) -> None:
+        del timeout
+        self._alive = False
+
+    def terminate(self) -> None:
+        self._alive = False
 
 
 class _FakeClock:
@@ -336,6 +360,42 @@ def test_offpolicy_runner_sync_waits_for_train_start_threshold(
     assert logger.step_calls[0]["extra_info"]["throughput_steps"] == 2
     assert _FakeWeightSync.last_instance is not None
     assert _FakeWeightSync.last_instance.write_calls == 1
+
+
+def test_offpolicy_runner_close_releases_active_logger_after_interrupt(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    runner = _make_runner(monkeypatch, sync_collection=True)
+    created_queues: list[object] = []
+
+    def queue_factory(maxsize: int = 0):
+        del maxsize
+        idx = len(created_queues)
+        if idx == 0:
+            queue_obj: object = _InterruptingReadyQueue()
+        elif idx == 1:
+            queue_obj = _RecordingQueue()
+        else:
+            queue_obj = queue.Queue()
+        created_queues.append(queue_obj)
+        return queue_obj
+
+    monkeypatch.setattr(runner_module._SPAWN_CTX, "Queue", queue_factory)
+    monkeypatch.setattr(runner_module.time, "sleep", lambda seconds: None)
+
+    with pytest.raises(KeyboardInterrupt):
+        runner.learn(max_iterations=1, save_interval=0, log_dir=str(tmp_path))
+
+    logger = _FakeLogger.last_instance
+    assert logger is not None
+    assert runner._active_logger is logger
+    assert logger.finish_calls == 0
+    assert logger.close_calls == 0
+
+    runner.close()
+
+    assert runner._active_logger is None
+    assert logger.close_calls == 1
 
 
 def test_offpolicy_runner_async_waits_for_train_start_threshold(
@@ -501,7 +561,7 @@ def test_multi_gpu_worker_rank0_propagates_collect_time_and_extra_info(
         world_size=2,
         learner_kwargs={},
         runner_kwargs=runner_kwargs,
-        replay_buffer=replay_buffer,
+        replay_buffer=cast(ReplayBuffer, replay_buffer),
         weight_sync_name=weight_sync.name,
         weight_sync_lock=weight_sync._lock,
         weight_param_shapes={"weight": torch.Size([1])},

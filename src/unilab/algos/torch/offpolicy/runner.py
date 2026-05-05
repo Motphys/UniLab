@@ -91,6 +91,7 @@ class OffPolicyRunner(AsyncRunner):
         self.use_layer_norm = use_layer_norm
         self.obs_normalization = obs_normalization
         self.actor_kwargs = actor_kwargs or {}
+        self._active_logger: OffPolicyLogger | None = None
 
         self.obs_dim, self.action_dim, self.critic_obs_dim = get_env_dims(
             self.env_name, sim_backend, env_cfg_override
@@ -251,6 +252,7 @@ class OffPolicyRunner(AsyncRunner):
         logger.set_collection_sync(self.sync_collection, self.env_steps_per_sync)
         if hasattr(self.learner, "use_symmetry") and self.learner.use_symmetry:
             logger.log_status("Symmetry augmentation: enabled")
+        self._active_logger = logger
         logger.start()
 
         reward_history: deque = deque(maxlen=100)
@@ -454,6 +456,14 @@ class OffPolicyRunner(AsyncRunner):
             "training_wall_time_sec": time.time() - train_start_wall,
         }
         self.last_run_summary = summary
+        self._active_logger = None
+
+    def close(self) -> None:
+        active_logger = getattr(self, "_active_logger", None)
+        if active_logger is not None:
+            active_logger.close()
+            self._active_logger = None
+        super().close()
 
     def _check_collector_alive(self) -> bool:
         if self._collector_process is not None and not self._collector_process.is_alive():

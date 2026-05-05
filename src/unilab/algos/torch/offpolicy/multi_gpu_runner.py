@@ -116,6 +116,8 @@ def _learner_worker(
         "nccl", rank=rank, world_size=world_size, timeout=timedelta(seconds=120)
     )
 
+    logger: Optional[OffPolicyLogger] = None
+    weight_sync: SharedWeightSync | None = None
     try:
         # 1. Initialise per-process GPU cache (host tensors already shared)
         replay_buffer.init_local_gpu_cache(device)
@@ -149,7 +151,6 @@ def _learner_worker(
         train_start_threshold = compute_train_start_threshold(batch_size, learning_starts, num_envs)
 
         # 6. Logger (rank 0 only)
-        logger: Optional[OffPolicyLogger] = None
         if rank == 0:
             os.makedirs(log_dir, exist_ok=True)
             logger = OffPolicyLogger(
@@ -304,8 +305,13 @@ def _learner_worker(
                 logger.finish()
 
         weight_sync.close()
+        weight_sync = None
 
     finally:
+        if logger is not None:
+            logger.close()
+        if weight_sync is not None:
+            weight_sync.close()
         dist.destroy_process_group()
 
 
