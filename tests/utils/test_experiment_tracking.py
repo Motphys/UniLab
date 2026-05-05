@@ -4,6 +4,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 import unilab.logging.offpolicy as offpolicy_module
 from unilab.logging import OffPolicyLogger, OnPolicyLogger
 from unilab.training.experiment import ExperimentTracker, build_wandb_settings
@@ -232,7 +234,9 @@ def test_offpolicy_logger_logs_separate_startup_wait_and_iter_throughput(monkeyp
     assert payload["timing/learner_wait_ms"] == 10_000.0
     assert payload["timing/startup_wait_ms"] == 9_750.0
     assert payload["timing/learner_collect_ms"] == 250.0
-    assert payload["perf/steps_per_sec_iter"] == 8.0
+    assert payload["timing/learner_train_ms"] == 750.0
+    assert payload["perf/iter_ms"] == 750.0
+    assert payload["perf/steps_per_sec_iter"] == pytest.approx(8.0 / 0.75)
 
     logger.finish()
 

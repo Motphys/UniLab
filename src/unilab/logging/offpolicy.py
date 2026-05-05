@@ -103,10 +103,13 @@ class OffPolicyLogger(BaseTrainingLogger):
     def _get_iter_steps_per_sec(self) -> float | None:
         if not self._has_iteration_extra_info or self._throughput_steps <= 0:
             return None
-        iter_time = self._collect_time + self._train_time
+        iter_time = self._get_iter_pipeline_time()
         if iter_time <= 0:
             return None
         return self._throughput_steps / iter_time
+
+    def _get_iter_pipeline_time(self) -> float:
+        return max(self._collect_time, self._train_time)
 
     def _get_wall_steps_per_sec(self, elapsed: float) -> float | None:
         if elapsed <= 0 or self._total_steps <= 0:
@@ -160,7 +163,7 @@ class OffPolicyLogger(BaseTrainingLogger):
         else:
             self._startup_wait_time = 0.0
             self._throughput_steps = 0
-        self._iter_times.append(collect_time + train_time)
+        self._iter_times.append(self._get_iter_pipeline_time())
         if metrics:
             self._latest_metrics.update(metrics)
         if reward is not None:
@@ -217,9 +220,7 @@ class OffPolicyLogger(BaseTrainingLogger):
                 writer.add_scalar("perf/steps_per_sec", wall_steps_per_sec, global_step)
             if wall_steps_per_sec is not None:
                 writer.add_scalar("perf/steps_per_sec_wall", wall_steps_per_sec, global_step)
-            writer.add_scalar(
-                "perf/iter_ms", (self._collect_time + self._train_time) * 1000, global_step
-            )
+            writer.add_scalar("perf/iter_ms", self._get_iter_pipeline_time() * 1000, global_step)
             writer.add_scalar(
                 "perf/collect_train_ratio",
                 self._collect_time / max(self._train_time, 1e-6),
@@ -257,7 +258,7 @@ class OffPolicyLogger(BaseTrainingLogger):
                 log_dict["perf/steps_per_sec"] = wall_steps_per_sec
             if wall_steps_per_sec is not None:
                 log_dict["perf/steps_per_sec_wall"] = wall_steps_per_sec
-            log_dict["perf/iter_ms"] = (self._collect_time + self._train_time) * 1000
+            log_dict["perf/iter_ms"] = self._get_iter_pipeline_time() * 1000
             log_dict["perf/collect_train_ratio"] = self._collect_time / max(self._train_time, 1e-6)
             wandb.log(log_dict, step=global_step)
 

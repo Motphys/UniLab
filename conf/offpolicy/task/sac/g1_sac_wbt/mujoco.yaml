@@ -6,7 +6,7 @@ training:
   sim_backend: mujoco
 algo:
   num_envs: 2048
-  max_iterations: 100000
+  max_iterations: 25000
   save_interval: 1000
   # --- holosoma WBT-specific overrides (vs sac.yaml defaults) ---
   gamma: 0.99
