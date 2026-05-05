@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -12,8 +13,9 @@ from unilab.training.experiment import ExperimentTracker, build_wandb_settings
 
 
 class _FakeConfig(dict):
-    def update(self, payload, allow_val_change=False):  # noqa: FBT002
-        super().update(payload)
+    def update(self, *args: Any, allow_val_change: bool = False, **kwargs: Any) -> None:  # noqa: FBT002
+        del allow_val_change
+        super().update(*args, **kwargs)
 
 
 class _FakeRun:
@@ -205,6 +207,23 @@ def test_offpolicy_logger_creates_and_finishes_owned_wandb_run(monkeypatch):
     assert init_call["config"]["obs_dim"] == 48
     assert init_call["config"]["action_dim"] == 12
     assert init_call["config"]["max_iterations"] == 321
+
+    logger.finish()
+    assert fake_wandb.finish_calls == 1
+
+
+def test_offpolicy_logger_close_releases_owned_wandb_run_once(monkeypatch):
+    fake_wandb = _FakeWandb()
+    monkeypatch.setitem(sys.modules, "wandb", fake_wandb)
+
+    logger = OffPolicyLogger(
+        algo_name="FastSAC",
+        env_name="Go2JoystickFlat",
+        log_backend="wandb",
+    )
+
+    logger.close()
+    assert fake_wandb.finish_calls == 1
 
     logger.finish()
     assert fake_wandb.finish_calls == 1
