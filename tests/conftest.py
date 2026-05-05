@@ -13,7 +13,7 @@ import torch
 from unilab.base import registry
 from unilab.base.base import ABEnv, EnvCfg
 from unilab.ipc.replay_buffer import ReplayBuffer
-from unilab.ipc.shared_onpolicy_storage import SharedOnPolicyStorage
+from unilab.ipc.rollout_ring_buffer import RolloutRingBuffer
 from unilab.ipc.weight_sync import SharedWeightSync
 
 # ---------------------------------------------------------------------------
@@ -105,7 +105,7 @@ def tiny_replay_buffer():
 
 @pytest.fixture
 def tiny_storage():
-    storage = SharedOnPolicyStorage(
+    storage = RolloutRingBuffer(
         num_envs=4,
         num_steps=10,
         obs_dim=_DUMMY_OBS_DIM,

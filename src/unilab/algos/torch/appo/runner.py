@@ -1,7 +1,7 @@
 """APPO Runner — Asynchronous PPO with native multiprocessing.
 
 Pipeline:
-  1. Collector subprocess collects on-policy rollouts → SharedOnPolicyStorage
+  1. Collector subprocess publishes rollout payloads → RolloutRingBuffer
   2. Learner reads rollouts, computes V-trace corrected updates
   3. Weights synced back to collector via SharedWeightSync
 """
@@ -19,7 +19,7 @@ from rsl_rl.utils import resolve_callable
 
 from unilab.algos.torch.appo.learner import APPOLearner
 from unilab.algos.torch.appo.worker import appo_collector_fn
-from unilab.ipc import AsyncRunner, SharedOnPolicyStorage, SharedWeightSync
+from unilab.ipc import AsyncRunner, RolloutRingBuffer, SharedWeightSync
 from unilab.logging import OffPolicyLogger
 
 
@@ -179,8 +179,8 @@ class APPORunner(AsyncRunner):
 
         learner = self._build_learner()
 
-        # Create shared storage (4-slot ring buffer for IPC; replay queue lives in learner)
-        shared_storage = SharedOnPolicyStorage(
+        # Create shared rollout IPC ring buffer; replay queue lives in learner.
+        rollout_ring_buffer = RolloutRingBuffer(
             num_envs=self.num_envs,
             num_steps=self.steps_per_env,
             obs_dim=self.obs_dim,
@@ -189,7 +189,7 @@ class APPORunner(AsyncRunner):
             num_slots=4,
             create=True,
         )
-        self._shared_resources.append(shared_storage)
+        self._shared_resources.append(rollout_ring_buffer)
 
         # Create weight sync for collector-side actor and critic bootstrap values.
         actor_weight_sync = SharedWeightSync.from_state_dict(
@@ -215,10 +215,10 @@ class APPORunner(AsyncRunner):
             "rl_cfg": self.rl_cfg,
             "num_envs": self.num_envs,
             "steps_per_env": self.steps_per_env,
-            "shm_storage_name": shared_storage.name,
+            "shm_rollout_ring_buffer_name": rollout_ring_buffer.name,
             "sync_primitives": (
-                shared_storage._write_ptr,
-                shared_storage._read_ptr,
+                rollout_ring_buffer._write_ptr,
+                rollout_ring_buffer._read_ptr,
             ),
             "obs_dim": self.obs_dim,
             "action_dim": self.action_dim,
@@ -270,7 +270,7 @@ class APPORunner(AsyncRunner):
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
             wait_start = time.time()
 
-            data_ready = shared_storage.wait_for_data(timeout=60.0)
+            data_ready = rollout_ring_buffer.wait_for_data(timeout=60.0)
             if not data_ready:
                 # Check if the collector subprocess died — fail fast instead of
                 # burning through remaining iterations with 60s timeouts each.
@@ -287,24 +287,24 @@ class APPORunner(AsyncRunner):
                 )
                 continue
 
-            available_on_arrive = shared_storage.available()
+            available_on_arrive = rollout_ring_buffer.available()
             wait_time = time.time() - wait_start
 
             # Drain ALL available slots into the replay queue in one pass.
             # This keeps the GPU busy: if the collector produced 3 rollouts while
             # the learner was training, we consume all 3 immediately rather than
             # processing them one-per-iteration.
-            num_new = shared_storage.available()
+            num_new = rollout_ring_buffer.available()
             rollout_collect_time = 0.0
             for _ in range(num_new):
-                raw = shared_storage.read_torch(self.device)
-                shared_storage.advance_read()
+                raw = rollout_ring_buffer.read_torch(self.device)
+                rollout_ring_buffer.advance_read()
 
                 raw_collect_time = raw.pop("rollout_collect_time_s", None)
                 if raw_collect_time is not None:
                     rollout_collect_time += float(raw_collect_time.reshape(-1)[0].item())
 
-                # Preprocess: storage is [N, T, *] (env-major); learner expects [T, N, *]
+                # Preprocess: payload is [N, T, *] (env-major); learner expects [T, N, *]
                 rollout: dict = {}
                 for k, v in raw.items():
                     if k not in ("last_obs", "last_critic") and v.ndim >= 2:

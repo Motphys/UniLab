@@ -1,6 +1,6 @@
 """APPO Rollout Worker — runs in a subprocess.
 
-Collects on-policy rollouts and writes to SharedOnPolicyStorage.
+Collects rollout payloads and writes them to RolloutRingBuffer.
 """
 
 from __future__ import annotations
@@ -59,7 +59,7 @@ def appo_collector_fn(
     rl_cfg: dict,
     num_envs: int,
     steps_per_env: int,
-    shm_storage_name: Dict[str, str],
+    shm_rollout_ring_buffer_name: Dict[str, str],
     sync_primitives: tuple,
     obs_dim: int,
     action_dim: int,
@@ -75,28 +75,28 @@ def appo_collector_fn(
 ):
     """Entry point for the APPO collector subprocess.
 
-    Creates environment + policy, collects rollouts, writes to SharedOnPolicyStorage.
+    Creates environment + policy, collects rollouts, writes raw payloads to the IPC ring buffer.
     """
     from copy import deepcopy
 
     from tensordict import TensorDict
 
     from unilab.base import registry
-    from unilab.ipc import SharedOnPolicyStorage, SharedWeightSync
+    from unilab.ipc import RolloutRingBuffer, SharedWeightSync
 
     ensure_registries()
 
     # Connect to shared memory
-    storage = SharedOnPolicyStorage(
+    ring_buffer = RolloutRingBuffer(
         num_envs=num_envs,
         num_steps=steps_per_env,
         obs_dim=obs_dim,
         action_dim=action_dim,
         critic_dim=critic_dim,
         create=False,
-        shm_name_prefix=shm_storage_name,
+        shm_name_prefix=shm_rollout_ring_buffer_name,
     )
-    storage.attach_sync_primitives(*sync_primitives)  # (write_ptr, read_ptr)
+    ring_buffer.attach_sync_primitives(*sync_primitives)  # (write_ptr, read_ptr)
     actor_weight_sync = SharedWeightSync(
         actor_weight_param_shapes, create=False, shm_name=actor_weight_sync_name
     )
@@ -208,7 +208,7 @@ def appo_collector_fn(
                 critic.load_state_dict(critic_sd)
 
             # Collect one rollout of length steps_per_env
-            write_buf = storage.write_buffer
+            write_buf = ring_buffer.write_buffer
             rollout_start = time.perf_counter()
             for step in range(steps_per_env):
                 # --- MLP inference (timed) ---
@@ -330,7 +330,7 @@ def appo_collector_fn(
             if critic_np is not None:
                 write_buf["last_critic"][:] = critic_np
             record_rollout_collect_time(write_buf, time.perf_counter() - rollout_start)
-            storage.signal_write_done()  # atomic increment, non-blocking
+            ring_buffer.signal_write_done()  # atomic increment, non-blocking
 
     except Exception as e:
         import traceback
@@ -345,7 +345,7 @@ def appo_collector_fn(
         stop_event.set()
         raise
 
-    storage.close()
+    ring_buffer.close()
     actor_weight_sync.close()
     critic_weight_sync.close()
     env.close()
