@@ -236,7 +236,7 @@ def test_offpolicy_logger_logs_separate_startup_wait_and_iter_throughput(monkeyp
     assert payload["timing/learner_collect_ms"] == 250.0
     assert payload["timing/learner_train_ms"] == 750.0
     assert payload["perf/iter_ms"] == 750.0
-    assert payload["perf/steps_per_sec_iter"] == pytest.approx(8.0 / 0.75)
+    assert payload["perf/steps_per_sec"] == pytest.approx(8.0 / 0.75)
 
     logger.finish()
 
@@ -263,7 +263,6 @@ def test_offpolicy_logger_omits_iteration_extra_fields_when_not_supplied(monkeyp
 
     payload, _ = fake_wandb.log_calls[-1]
     assert "timing/startup_wait_ms" not in payload
-    assert "perf/steps_per_sec_iter" not in payload
-    assert payload["perf/steps_per_sec_wall"] > 0
+    assert "perf/steps_per_sec" not in payload
 
     logger.finish()
