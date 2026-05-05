@@ -167,6 +167,17 @@ Domain randomization 必须遵守三类生命周期边界：
 
 缺任何一层，都只能算“底层有能力”或“任务里自己做了随机”，还不能算仓库层面的统一 DR 项。
 
+## 非标准 actuator/control 扩展
+
+不是所有机器人都适合走 backend 原生 position actuator。新增 motor actuator 任务时，应把策略输出到物理控制量的转换放在 env owner 层，通过 `SimBackend.set_pre_step_control(...)` 注册 pre-step control callback。backend 只负责在每个物理 substep 前调用 callback，并在每步后刷新传感器；position actuator 任务不注册 callback，继续走直接控制路径。
+
+Go2W 是当前 all-motor actuator 示例：
+
+- `apply_action()` 输出 owner-level control：腿部 12 维是期望关节位置，轮子 4 维是 torque。
+- pre-step callback 接收 `(backend, ctrl)`，从 backend named sensor 读取 joint position / velocity，按 `kp * (target - pos) - kd * vel` 计算腿部 motor torque，再拼接轮子 torque。
+- `randomize_kp` / `randomize_kd` 的配置路径与 Go2 保持一致，但 Go2W 的 kp/kd 只写入 env owner 缓存，不进入 `ResetRandomizationPayload.kp/kd`，避免 MuJoCo batch-env 里的 position-actuator kp/kd 机制泄漏到 motor actuator。
+- 传感器名、actuator 数量、`ctrl_range` 等 contract 在 env 初始化冷路径校验；pre-step 热路径只读 named sensor 并做数组运算，不解析 XML / asset，也不探测 backend 私有能力。
+
 ## Related Documents
 
 - [RL Infrastructure 开发标准](development-standard.md)

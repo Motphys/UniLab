@@ -90,11 +90,7 @@ def _compile_model_variant_chunk_to_mjb(
             if iterations is not None:
                 model.opt.iterations = int(iterations)
             if position_actuator_gains is not None:
-                kp_arr = np.asarray(position_actuator_gains["kp"], dtype=np.float64)
-                kd_arr = np.asarray(position_actuator_gains["kd"], dtype=np.float64)
-                model.actuator_gainprm[:, 0] = kp_arr
-                model.actuator_biasprm[:, 1] = -kp_arr
-                model.actuator_biasprm[:, 2] = -kd_arr
+                _apply_position_actuator_gains_to_mj_model(model, **position_actuator_gains)
             output_path = os.path.join(output_dir, f"variant_{idx}.mjb")
             mujoco.mj_saveModel(model, output_path)
             output_paths.append(output_path)
@@ -102,6 +98,45 @@ def _compile_model_variant_chunk_to_mjb(
     finally:
         for tmp_path in reversed(tmp_paths):
             os.remove(tmp_path)
+
+
+def _actuator_ids_from_selector(model, actuator_ids) -> np.ndarray:
+    ids = np.arange(model.nu)[actuator_ids]
+    return np.atleast_1d(np.asarray(ids, dtype=np.int32))
+
+
+def _assert_position_actuator_targets(model, actuator_ids=slice(None)) -> None:
+    ids = _actuator_ids_from_selector(model, actuator_ids)
+    if ids.size == 0:
+        return
+    affine_bias = int(mujoco.mjtBias.mjBIAS_AFFINE)
+    invalid = ids[np.asarray(model.actuator_biastype[ids], dtype=np.int32) != affine_bias]
+    if invalid.size == 0:
+        return
+    names = [
+        mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, int(idx)) or str(int(idx))
+        for idx in invalid[:8]
+    ]
+    suffix = "" if invalid.size <= 8 else f", ... ({invalid.size} total)"
+    raise ValueError(
+        "position_actuator_gains can only target MuJoCo position actuators; "
+        f"non-position actuator ids/names: {', '.join(names)}{suffix}"
+    )
+
+
+def _apply_position_actuator_gains_to_mj_model(
+    model,
+    *,
+    kp: float | np.ndarray,
+    kd: float | np.ndarray,
+    actuator_ids=slice(None),
+) -> None:
+    _assert_position_actuator_targets(model, actuator_ids)
+    kp_arr = np.asarray(kp, dtype=np.float64)
+    kd_arr = np.asarray(kd, dtype=np.float64)
+    model.actuator_gainprm[actuator_ids, 0] = kp_arr
+    model.actuator_biasprm[actuator_ids, 1] = -kp_arr
+    model.actuator_biasprm[actuator_ids, 2] = -kd_arr
 
 
 class MuJoCoBackend(SimBackend):
@@ -128,6 +163,7 @@ class MuJoCoBackend(SimBackend):
         self._position_actuator_gains = (
             None if position_actuator_gains is None else dict(position_actuator_gains)
         )
+        self._pre_step_control_fn = None
         self._model = self._load_base_model()
         self._base_body_id = (
             mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, base_name)
@@ -532,6 +568,9 @@ class MuJoCoBackend(SimBackend):
     # ------------------------------------------------------------------ #
 
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> dict | None:
+        if self._pre_step_control_fn is not None:
+            return self._step_with_pre_step_control(ctrl, nsteps)
+
         t0 = time.perf_counter()
         control_traj = np.broadcast_to(ctrl[:, None, :], (self._num_envs, nsteps, ctrl.shape[-1]))
         control_spec = int(mujoco.mjtState.mjSTATE_CTRL)
@@ -560,6 +599,51 @@ class MuJoCoBackend(SimBackend):
         sensor_np = self._pool.forward(self._physics_state)  # type: ignore[union-attr]
         self._sensor_data[:] = sensor_np.astype(self._np_dtype)
         refresh_cache_ms = (time.perf_counter() - t0) * 1000.0
+
+        return {
+            "timing": {
+                "set_ctrl_ms": set_ctrl_ms,
+                "physics_ms": physics_ms,
+                "refresh_cache_ms": refresh_cache_ms,
+            }
+        }
+
+    def _step_with_pre_step_control(
+        self, ctrl: np.ndarray, nsteps: int
+    ) -> dict[str, dict[str, float]]:
+        set_ctrl_ms = 0.0
+        physics_ms = 0.0
+        refresh_cache_ms = 0.0
+        has_pending_xfrc = bool(np.any(self._pending_xfrc_applied))
+
+        for _ in range(nsteps):
+            t0 = time.perf_counter()
+            native_ctrl = self._apply_pre_step_control(ctrl)
+            control_traj = native_ctrl[:, None, :]
+            control_spec = int(mujoco.mjtState.mjSTATE_CTRL)
+            if has_pending_xfrc:
+                control_spec |= int(mujoco.mjtState.mjSTATE_XFRC_APPLIED)
+                xfrc_traj = self._pending_xfrc_applied[:, None, :]
+                control_traj = np.concatenate((control_traj, xfrc_traj), axis=-1)
+            set_ctrl_ms += (time.perf_counter() - t0) * 1000.0
+
+            t0 = time.perf_counter()
+            state_np = self._pool.step(  # type: ignore[union-attr]
+                self._physics_state,
+                nstep=1,
+                control=control_traj,
+                control_spec=control_spec,
+            )
+            self._physics_state[:] = state_np.astype(self._np_dtype)
+            physics_ms += (time.perf_counter() - t0) * 1000.0
+
+            t0 = time.perf_counter()
+            sensor_np = self._pool.forward(self._physics_state)  # type: ignore[union-attr]
+            self._sensor_data[:] = sensor_np.astype(self._np_dtype)
+            refresh_cache_ms += (time.perf_counter() - t0) * 1000.0
+
+        if has_pending_xfrc:
+            self._pending_xfrc_applied.fill(0.0)
 
         return {
             "timing": {
@@ -896,8 +980,9 @@ class MuJoCoBackend(SimBackend):
         kd: float | np.ndarray,
         actuator_ids=slice(None),
     ) -> None:
-        kp_arr = np.asarray(kp, dtype=np.float64)
-        kd_arr = np.asarray(kd, dtype=np.float64)
-        model.actuator_gainprm[actuator_ids, 0] = kp_arr
-        model.actuator_biasprm[actuator_ids, 1] = -kp_arr
-        model.actuator_biasprm[actuator_ids, 2] = -kd_arr
+        _apply_position_actuator_gains_to_mj_model(
+            model,
+            kp=kp,
+            kd=kd,
+            actuator_ids=actuator_ids,
+        )

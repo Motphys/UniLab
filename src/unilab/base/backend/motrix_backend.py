@@ -91,6 +91,7 @@ class MotrixBackend(SimBackend):
             self._model.options.max_iterations = int(iterations)
         self._num_envs = num_envs
         self._np_dtype = np_dtype
+        self._pre_step_control_fn = None
 
         self._data = mtx.SceneData(self._model, batch=[num_envs])  # pyright: ignore[reportPossiblyUnbound]
         self._body: "mtx.Body" = _require_not_none(
@@ -111,11 +112,9 @@ class MotrixBackend(SimBackend):
             if actuator.typ == "position":
                 position_actuators.append(cast("mtx.PositionActuator", actuator))
         self._position_actuators = position_actuators
-        if len(self._position_actuators) != int(self._model.num_actuators):
-            raise ValueError(
-                "Motrix backend requires all actuators to be position actuators when "
-                "domain-randomization kp/kd support is enabled."
-            )
+        self._supports_position_actuator_gains = len(self._position_actuators) == int(
+            self._model.num_actuators
+        )
         self._default_actuator_kp = np.zeros((self.num_actuators,), dtype=np.float64)
         self._default_actuator_kd = np.zeros((self.num_actuators,), dtype=np.float64)
         for actuator in self._position_actuators:
@@ -210,6 +209,9 @@ class MotrixBackend(SimBackend):
     # ------------------------------------------------------------------ #
 
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> dict | None:
+        if self._pre_step_control_fn is not None:
+            return self._step_with_pre_step_control(ctrl, nsteps)
+
         t0 = time.perf_counter()
         self._data.actuator_ctrls = np.ascontiguousarray(ctrl)
         set_ctrl_ms = (time.perf_counter() - t0) * 1000.0
@@ -224,6 +226,35 @@ class MotrixBackend(SimBackend):
         t0 = time.perf_counter()
         self._refresh_link_pose_cache()
         refresh_cache_ms = (time.perf_counter() - t0) * 1000.0
+
+        return {
+            "timing": {
+                "set_ctrl_ms": set_ctrl_ms,
+                "physics_ms": physics_ms,
+                "refresh_cache_ms": refresh_cache_ms,
+            }
+        }
+
+    def _step_with_pre_step_control(
+        self, ctrl: np.ndarray, nsteps: int
+    ) -> dict[str, dict[str, float]]:
+        set_ctrl_ms = 0.0
+        physics_ms = 0.0
+        refresh_cache_ms = 0.0
+
+        for _ in range(nsteps):
+            t0 = time.perf_counter()
+            native_ctrl = self._apply_pre_step_control(ctrl)
+            self._data.actuator_ctrls = np.ascontiguousarray(native_ctrl)
+            set_ctrl_ms += (time.perf_counter() - t0) * 1000.0
+
+            t0 = time.perf_counter()
+            self._model.step(self._data)
+            physics_ms += (time.perf_counter() - t0) * 1000.0
+
+            t0 = time.perf_counter()
+            self._refresh_link_pose_cache()
+            refresh_cache_ms += (time.perf_counter() - t0) * 1000.0
 
         return {
             "timing": {
@@ -253,18 +284,21 @@ class MotrixBackend(SimBackend):
         data_slice.set_dof_vel(qvel)
         data_slice.set_dof_pos(qpos_motrix, self._model)
 
-        # Actuator targets follow the model's joint-position ordering only.
-        ctrl = qpos_motrix[:, self._joint_dof_pos_indices]
+        if self._supports_position_actuator_gains:
+            ctrl = qpos_motrix[:, self._joint_dof_pos_indices]
+        else:
+            ctrl = np.zeros((len(env_indices), self.num_actuators), dtype=self._np_dtype)
         data_slice.actuator_ctrls = np.ascontiguousarray(ctrl)
 
         self._model.forward_kinematic(data_slice)
         self._refresh_link_pose_cache(env_indices)
 
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
+        supported_reset_terms = {RESET_TERM_BASE_MASS, RESET_TERM_BASE_COM}
+        if self._supports_position_actuator_gains:
+            supported_reset_terms.update({RESET_TERM_KP, RESET_TERM_KD})
         return DomainRandomizationCapabilities(
-            supported_reset_terms=frozenset(
-                {RESET_TERM_BASE_MASS, RESET_TERM_BASE_COM, RESET_TERM_KP, RESET_TERM_KD}
-            ),
+            supported_reset_terms=frozenset(supported_reset_terms),
             supports_interval_push=True,
             supports_interval_body_velocity_delta=False,
         )
@@ -497,4 +531,8 @@ class MotrixBackend(SimBackend):
             actuator.set_kd_override(data_slice, kd[:, int(actuator.index)])
 
     def get_actuator_gains(self) -> tuple[np.ndarray, np.ndarray]:
+        if not self._supports_position_actuator_gains:
+            raise NotImplementedError(
+                "Motrix actuator gains are only exposed for all-position-actuator models"
+            )
         return self._default_actuator_kp.copy(), self._default_actuator_kd.copy()
