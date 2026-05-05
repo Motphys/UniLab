@@ -11,8 +11,8 @@ from unilab.algos.torch.appo.runner import APPORunner
 
 @pytest.fixture(autouse=True)
 def _reset_fakes() -> None:
-    _FakeSharedOnPolicyStorage.last_instance = None
-    _FakeSharedOnPolicyStorage.rollout_collect_times = [0.25]
+    _FakeRolloutRingBuffer.last_instance = None
+    _FakeRolloutRingBuffer.rollout_collect_times = [0.25]
     _FakeLogger.last_instance = None
 
 
@@ -38,8 +38,8 @@ class _FakeLearner:
         return {"loss": 0.5}
 
 
-class _FakeSharedOnPolicyStorage:
-    last_instance: "_FakeSharedOnPolicyStorage | None" = None
+class _FakeRolloutRingBuffer:
+    last_instance: "_FakeRolloutRingBuffer | None" = None
     rollout_collect_times: list[float] = [0.25]
 
     def __init__(
@@ -59,7 +59,7 @@ class _FakeSharedOnPolicyStorage:
         self._read_ptr = object()
         self.wait_calls = 0
         self.advance_calls = 0
-        _FakeSharedOnPolicyStorage.last_instance = self
+        _FakeRolloutRingBuffer.last_instance = self
 
     def wait_for_data(self, timeout: float = 60.0) -> bool:
         del timeout
@@ -180,7 +180,7 @@ def test_appo_runner_uses_explicit_runtime_context(
 
     monkeypatch.setattr(APPORunner, "_detect_dims", fake_detect_dims)
     monkeypatch.setattr(APPORunner, "_build_learner", lambda self: _FakeLearner())
-    monkeypatch.setattr(appo_runner_module, "SharedOnPolicyStorage", _FakeSharedOnPolicyStorage)
+    monkeypatch.setattr(appo_runner_module, "RolloutRingBuffer", _FakeRolloutRingBuffer)
     monkeypatch.setattr(appo_runner_module, "SharedWeightSync", _FakeWeightSync)
     monkeypatch.setattr(appo_runner_module, "OffPolicyLogger", _FakeLogger)
     monkeypatch.setattr(appo_runner_module.torch, "save", lambda *args, **kwargs: None)
@@ -215,7 +215,7 @@ def test_appo_runner_uses_collector_rollout_time_for_fps_inputs(
     monkeypatch.setattr(APPORunner, "_detect_dims", fake_detect_dims)
     monkeypatch.setattr(APPORunner, "_build_learner", lambda self: _FakeLearner())
     monkeypatch.setattr(APPORunner, "_check_collector_alive", lambda self: True)
-    monkeypatch.setattr(appo_runner_module, "SharedOnPolicyStorage", _FakeSharedOnPolicyStorage)
+    monkeypatch.setattr(appo_runner_module, "RolloutRingBuffer", _FakeRolloutRingBuffer)
     monkeypatch.setattr(appo_runner_module, "SharedWeightSync", _FakeWeightSync)
     monkeypatch.setattr(appo_runner_module, "OffPolicyLogger", _FakeLogger)
     monkeypatch.setattr(appo_runner_module.mp, "get_context", lambda method: queue)
@@ -239,7 +239,7 @@ def test_appo_runner_uses_collector_rollout_time_for_fps_inputs(
     runner.learn(max_iterations=1, save_interval=0, log_dir=str(tmp_path))
 
     logger = _FakeLogger.last_instance
-    storage = _FakeSharedOnPolicyStorage.last_instance
+    storage = _FakeRolloutRingBuffer.last_instance
     assert logger is not None
     assert storage is not None
     assert storage.wait_calls == 1

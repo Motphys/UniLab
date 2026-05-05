@@ -1,4 +1,4 @@
-"""Tests for SharedOnPolicyStorage IPC primitive."""
+"""Tests for RolloutRingBuffer IPC primitive."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import torch
 
-from unilab.ipc.shared_onpolicy_storage import SharedOnPolicyStorage
+from unilab.ipc.rollout_ring_buffer import RolloutRingBuffer
 
 _NUM_ENVS = 4
 _NUM_STEPS = 10
@@ -27,8 +27,8 @@ _EXPECTED_FIELDS = {
 }
 
 
-def _make_storage(num_slots: int = _NUM_SLOTS) -> SharedOnPolicyStorage:
-    return SharedOnPolicyStorage(
+def _make_ring_buffer(num_slots: int = _NUM_SLOTS) -> RolloutRingBuffer:
+    return RolloutRingBuffer(
         num_envs=_NUM_ENVS,
         num_steps=_NUM_STEPS,
         obs_dim=_OBS_DIM,
@@ -38,8 +38,8 @@ def _make_storage(num_slots: int = _NUM_SLOTS) -> SharedOnPolicyStorage:
     )
 
 
-def _make_storage_with_critic() -> SharedOnPolicyStorage:
-    return SharedOnPolicyStorage(
+def _make_ring_buffer_with_critic() -> RolloutRingBuffer:
+    return RolloutRingBuffer(
         num_envs=_NUM_ENVS,
         num_steps=_NUM_STEPS,
         obs_dim=_OBS_DIM,
@@ -51,7 +51,7 @@ def _make_storage_with_critic() -> SharedOnPolicyStorage:
 
 
 def test_pointers_start_at_zero():
-    s = _make_storage()
+    s = _make_ring_buffer()
     assert int(s._write_ptr.value) == 0
     assert int(s._read_ptr.value) == 0
     s.cleanup()
@@ -59,7 +59,7 @@ def test_pointers_start_at_zero():
 
 def test_signal_write_done_and_wait_for_data():
     """signal_write_done() advances write_ptr; wait_for_data() returns True."""
-    s = _make_storage()
+    s = _make_ring_buffer()
     assert s.available() == 0
     s.signal_write_done()
     assert s.available() == 1
@@ -68,7 +68,7 @@ def test_signal_write_done_and_wait_for_data():
 
 
 def test_available_returns_correct_count():
-    s = _make_storage(num_slots=4)
+    s = _make_ring_buffer(num_slots=4)
     assert s.available() == 0
     for i in range(3):
         s.signal_write_done()
@@ -78,7 +78,7 @@ def test_available_returns_correct_count():
 
 def test_advance_read_skips_overwritten_slots():
     """If writer ran far ahead (wp - rp > num_slots), advance_read fast-forwards."""
-    s = _make_storage(num_slots=2)
+    s = _make_ring_buffer(num_slots=2)
     # Writer produces 4 rollouts (2x more than num_slots)
     for _ in range(4):
         s.signal_write_done()
@@ -92,7 +92,7 @@ def test_advance_read_skips_overwritten_slots():
 
 def test_read_torch_returns_all_fields():
     """read_torch() must return a dict with all expected field keys."""
-    s = _make_storage()
+    s = _make_ring_buffer()
     # Fill write slot with non-zero data
     wb = s.write_buffer
     for arr in wb.values():
@@ -108,14 +108,14 @@ def test_read_torch_returns_all_fields():
 
 def test_cleanup_is_idempotent():
     """cleanup() called twice must not raise."""
-    s = _make_storage()
+    s = _make_ring_buffer()
     s.cleanup()
     s.cleanup()
 
 
 def test_wait_for_data_timeout_returns_false():
     """wait_for_data() with a short timeout returns False when no data is available."""
-    s = _make_storage()
+    s = _make_ring_buffer()
     result = s.wait_for_data(timeout=0.05)
     assert result is False
     s.cleanup()
@@ -123,7 +123,7 @@ def test_wait_for_data_timeout_returns_false():
 
 def test_write_buffer_returns_dict_of_arrays():
     """write_buffer property returns a dict of numpy arrays for the current write slot."""
-    s = _make_storage()
+    s = _make_ring_buffer()
     wb = s.write_buffer
     assert set(wb.keys()) == _EXPECTED_FIELDS
     for k, arr in wb.items():
@@ -133,13 +133,13 @@ def test_write_buffer_returns_dict_of_arrays():
 
 def test_close_does_not_raise():
     """close() (attach-mode teardown, no unlink) must not raise."""
-    s = _make_storage()
+    s = _make_ring_buffer()
     s.close()
 
 
 def test_attach_create_false_reads_same_data():
     """Attaching to existing shm (create=False) exposes the same data as the owner."""
-    owner = _make_storage()
+    owner = _make_ring_buffer()
     # Write known data into write slot 0
     wb = owner.write_buffer
     for arr in wb.values():
@@ -147,7 +147,7 @@ def test_attach_create_false_reads_same_data():
     owner.signal_write_done()
 
     # Attach
-    attached = SharedOnPolicyStorage(
+    attached = RolloutRingBuffer(
         num_envs=_NUM_ENVS,
         num_steps=_NUM_STEPS,
         obs_dim=_OBS_DIM,
@@ -170,8 +170,8 @@ def test_attach_create_false_reads_same_data():
 
 def test_attach_sync_primitives():
     """attach_sync_primitives() replaces internal pointers in the attached instance."""
-    owner = _make_storage()
-    attached = SharedOnPolicyStorage(
+    owner = _make_ring_buffer()
+    attached = RolloutRingBuffer(
         num_envs=_NUM_ENVS,
         num_steps=_NUM_STEPS,
         obs_dim=_OBS_DIM,
@@ -189,17 +189,17 @@ def test_attach_sync_primitives():
     owner.cleanup()
 
 
-def test_storage_allocates_optional_critic_fields():
-    storage = _make_storage_with_critic()
+def test_ring_buffer_allocates_optional_critic_fields():
+    ring_buffer = _make_ring_buffer_with_critic()
 
     expected = _EXPECTED_FIELDS | {"critic", "last_critic"}
-    assert set(storage.write_buffer.keys()) == expected
+    assert set(ring_buffer.write_buffer.keys()) == expected
 
-    storage.cleanup()
+    ring_buffer.cleanup()
 
 
-def test_storage_ipc_contract_has_no_privileged_fields():
-    from unilab.ipc.shared_onpolicy_storage import _FIELD_SHAPES
+def test_ring_buffer_ipc_contract_has_no_privileged_fields():
+    from unilab.ipc.rollout_ring_buffer import _FIELD_SHAPES
 
     assert "priv_info" not in _FIELD_SHAPES
     assert "last_priv_info" not in _FIELD_SHAPES

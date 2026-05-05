@@ -23,7 +23,7 @@ from unilab.algos.torch.hora.rsl_rl_compat import (
 )
 from unilab.base.observations import get_critic_base_dim, get_obs_dims
 from unilab.base.registry import ensure_registries
-from unilab.ipc import SharedOnPolicyStorage, SharedWeightSync
+from unilab.ipc import RolloutRingBuffer, SharedWeightSync
 from unilab.logging import OffPolicyLogger
 
 
@@ -160,7 +160,7 @@ class HoraAPPORunner(APPORunner):
 
         learner = self._build_learner()
 
-        shared_storage = SharedOnPolicyStorage(
+        rollout_ring_buffer = RolloutRingBuffer(
             num_envs=self.num_envs,
             num_steps=self.steps_per_env,
             obs_dim=self.obs_dim,
@@ -169,7 +169,7 @@ class HoraAPPORunner(APPORunner):
             num_slots=4,
             create=True,
         )
-        self._shared_resources.append(shared_storage)
+        self._shared_resources.append(rollout_ring_buffer)
 
         actor_weight_sync = SharedWeightSync.from_state_dict(
             learner.actor.state_dict(), create=True
@@ -193,10 +193,10 @@ class HoraAPPORunner(APPORunner):
             "rl_cfg": self.rl_cfg,
             "num_envs": self.num_envs,
             "steps_per_env": self.steps_per_env,
-            "shm_storage_name": shared_storage.name,
+            "shm_rollout_ring_buffer_name": rollout_ring_buffer.name,
             "sync_primitives": (
-                shared_storage._write_ptr,
-                shared_storage._read_ptr,
+                rollout_ring_buffer._write_ptr,
+                rollout_ring_buffer._read_ptr,
             ),
             "obs_dim": self.obs_dim,
             "action_dim": self.action_dim,
@@ -244,7 +244,7 @@ class HoraAPPORunner(APPORunner):
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
             wait_start = time.time()
 
-            data_ready = shared_storage.wait_for_data(timeout=60.0)
+            data_ready = rollout_ring_buffer.wait_for_data(timeout=60.0)
             if not data_ready:
                 if not self._check_collector_alive():
                     self._drain_metrics(
@@ -262,13 +262,13 @@ class HoraAPPORunner(APPORunner):
                 )
                 continue
 
-            available_on_arrive = shared_storage.available()
+            available_on_arrive = rollout_ring_buffer.available()
             wait_time = time.time() - wait_start
 
-            num_new = shared_storage.available()
+            num_new = rollout_ring_buffer.available()
             for _ in range(num_new):
-                raw = shared_storage.read_torch(self.device)
-                shared_storage.advance_read()
+                raw = rollout_ring_buffer.read_torch(self.device)
+                rollout_ring_buffer.advance_read()
 
                 rollout: dict = {}
                 for k, v in raw.items():

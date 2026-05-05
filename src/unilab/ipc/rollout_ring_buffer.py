@@ -1,4 +1,4 @@
-"""Shared on-policy rollout storage for APPO / async PPO."""
+"""Shared rollout IPC ring buffer for APPO / async PPO."""
 
 from __future__ import annotations
 
@@ -24,8 +24,8 @@ _FIELD_SHAPES = {
 }
 
 
-class SharedOnPolicyStorage:
-    """N-slot ring-buffer shared-memory store for on-policy rollouts."""
+class RolloutRingBuffer:
+    """N-slot shared-memory ring buffer for raw rollout payloads."""
 
     def __init__(
         self,
