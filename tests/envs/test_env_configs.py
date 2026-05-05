@@ -654,6 +654,7 @@ def test_g1_motion_tracking_clip_end_does_not_override_true_termination():
 _STANDARD_ENVS = [
     "Go1JoystickFlat",
     "Go2JoystickFlat",
+    "Go2WJoystickFlat",
     "G1WalkFlat",
     "G1WalkRough",
     "AllegroInhandRotation",
@@ -915,5 +916,36 @@ def test_go2_mujoco_reset_applies_kp_kd_domain_randomization(default_go2_reward_
         assert np.all(kp <= base_kp * 1.1)
         assert np.all(kd >= base_kd * 0.9)
         assert np.all(kd <= base_kd * 1.1)
+    finally:
+        env.close()
+
+
+def test_go2w_mujoco_keeps_kp_kd_out_of_backend_position_actuator_path():
+    _require_mujoco_runtime()
+    ensure_registries()
+
+    from unilab.base import registry
+
+    env = cast(
+        Any,
+        registry.make(
+            "Go2WJoystickFlat",
+            num_envs=2,
+            sim_backend="mujoco",
+            env_cfg_override={
+                "reward_config": {
+                    "scales": {"alive": 1.0, "torques": -0.0002},
+                    "tracking_sigma": 0.25,
+                    "base_height_target": 0.3,
+                }
+            },
+        ),
+    )
+    try:
+        env.init_state()
+        assert env._backend._position_actuator_gains is None
+        assert env._backend._pre_step_control_fn.__self__ is env
+        assert env._backend._pre_step_control_fn.__func__ is env._pre_step_motor_control.__func__
+        assert env._last_motor_ctrl.shape == (2, env.action_space.shape[0])
     finally:
         env.close()

@@ -1,5 +1,5 @@
 import abc
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -11,6 +11,8 @@ from unilab.dr.types import (
     IntervalRandomizationPlan,
     ResetRandomizationPayload,
 )
+
+PreStepControlFn = Callable[[Any, np.ndarray], np.ndarray]
 
 
 @dataclass(frozen=True)
@@ -25,6 +27,7 @@ class SimBackend(abc.ABC):
     """仿真后端统一接口"""
 
     _model_file: str
+    _pre_step_control_fn: PreStepControlFn | None
 
     # ------------------------------------------------------------------ #
     # Properties                                                           #
@@ -172,6 +175,26 @@ class SimBackend(abc.ABC):
         Returns:
             可选的 dict，可包含 "timing" key 记录各阶段耗时（ms）
         """
+
+    def set_pre_step_control(self, fn: PreStepControlFn | None) -> None:
+        """Register an env-owned policy-control to physics-control converter.
+
+        The callback receives ``(backend, ctrl)`` so owner code can read the
+        backend's freshly-updated sensor contract before every physics substep.
+        It must return backend-native actuator control with the same shape.
+        Position-actuator envs leave this unset and keep the direct control path.
+        """
+        self._pre_step_control_fn = fn
+
+    def _apply_pre_step_control(self, ctrl: np.ndarray) -> np.ndarray:
+        if self._pre_step_control_fn is None:
+            return ctrl
+        converted = np.asarray(self._pre_step_control_fn(self, ctrl), dtype=ctrl.dtype)
+        if converted.shape != ctrl.shape:
+            raise ValueError(
+                f"pre-step control must return shape {ctrl.shape}, got {converted.shape}"
+            )
+        return converted
 
     @abc.abstractmethod
     def set_state(

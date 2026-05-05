@@ -272,6 +272,17 @@ def test_ppo_go2_motrix_preserves_backend_env_overrides():
     assert cfg.env.domain_rand.randomize_kd is False
 
 
+def test_ppo_go2w_mujoco_uses_motor_owner_dr_path():
+    cfg = _compose("ppo", overrides=["task=go2w_joystick_flat/mujoco"])
+
+    assert cfg.training.task_name == "Go2WJoystickFlat"
+    assert cfg.training.sim_backend == "mujoco"
+    assert cfg.env.domain_rand.randomize_kp is True
+    assert cfg.env.domain_rand.randomize_kd is True
+    assert cfg.env.control_config.wheel_action_scale == pytest.approx(15.0)
+    assert cfg.reward.scales.torques < 0.0
+
+
 def test_offpolicy_g1_walk_flat_motrix_preserves_backend_env_overrides():
     cfg = _compose("offpolicy", overrides=["algo=sac", "task=sac/g1_walk_flat/motrix"])
 

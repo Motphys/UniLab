@@ -324,8 +324,10 @@
     <jointactuatorfrc name="RL_wheel_torque" joint="RL_wheel_joint" />
 
     <framequat name="imu_quat" objtype="site" objname="imu"/>
-    <gyro name="imu_gyro" site="imu"/>
+    <gyro name="gyro" site="imu"/>
     <accelerometer name="imu_acc" site="imu" />
+    <velocimeter name="local_linvel" site="imu"/>
+    <framezaxis name="upvector" objtype="site" objname="imu"/>
 
     <framepos name="frame_pos" objtype="site" objname="imu" />
     <framelinvel name="frame_vel" objtype="site" objname="imu" />
