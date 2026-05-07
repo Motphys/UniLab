@@ -5,6 +5,8 @@ from typing import Any, Optional
 import gymnasium as gym
 import numpy as np
 
+from unilab.terrains.terrain_generator import TerrainGeneratorCfg
+
 
 @dataclass(frozen=True)
 class EnvPlayCapabilities:
@@ -27,6 +29,9 @@ class EnvCfg:
     ctrl_dt: float = 0.01
     render_spacing: float = 1.0
     iterations: Optional[int] = None
+    terrain_generator: Optional[TerrainGeneratorCfg] = None
+    terrain_floor_geom: str = "floor"
+    env_spacing: float = 0.0
 
     @property
     def max_episode_steps(self) -> Optional[int]:

@@ -1,8 +1,20 @@
+import dataclasses
 import importlib
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Optional, Type, TypeVar
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Optional,
+    Type,
+    TypeVar,
+    cast,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 from .base import ABEnv, EnvCfg
 
@@ -117,6 +129,60 @@ def find_available_sim_backend(env_name: str) -> str:
     return backend
 
 
+def _resolve_dataclass_type(type_hint: Any) -> Optional[Type[Any]]:
+    """Strip Optional/Union and return the underlying dataclass type, or None."""
+    if type_hint is None:
+        return None
+    origin = get_origin(type_hint)
+    if origin is not None:
+        args = get_args(type_hint)
+        type_hint = next((arg for arg in args if arg is not type(None)), None)
+    if (
+        type_hint is not None
+        and dataclasses.is_dataclass(type_hint)
+        and isinstance(type_hint, type)
+    ):
+        return cast(Type[Any], type_hint)
+    return None
+
+
+def apply_cfg_overrides(target_obj: Any, overrides: Dict[str, Any]) -> None:
+    """Apply a (possibly nested) dict of overrides to ``target_obj`` in place.
+
+    Behavior:
+      - For each ``key, value`` in ``overrides``, ``target_obj.key`` must exist
+        (otherwise ``ValueError``).
+      - If ``value`` is a dict and ``target_obj.key`` is already a dataclass
+        instance, recurse into it (deep merge — preserves fields not present
+        in ``value``). This is what lets Hydra-style partial overrides like
+        ``env.terrain_generator.num_rows=4`` keep ``sub_terrains`` and other
+        defaults intact.
+      - If ``value`` is a dict and ``target_obj.key`` is currently ``None``,
+        instantiate the field's annotated dataclass type from the dict
+        (full-construction path).
+      - Otherwise ``setattr`` the value directly (scalar / list / non-dataclass).
+    """
+    try:
+        type_hints = get_type_hints(type(target_obj))
+    except Exception:
+        type_hints = {}
+
+    for key, value in overrides.items():
+        if not hasattr(target_obj, key):
+            raise ValueError(f"Config class '{type(target_obj).__name__}' has no attribute '{key}'")
+        existing = getattr(target_obj, key)
+        if isinstance(value, dict):
+            if dataclasses.is_dataclass(existing) and not isinstance(existing, type):
+                apply_cfg_overrides(existing, value)
+                continue
+            if existing is None:
+                target_type = _resolve_dataclass_type(type_hints.get(key))
+                if target_type is not None:
+                    setattr(target_obj, key, target_type(**value))
+                    continue
+        setattr(target_obj, key, value)
+
+
 def make(
     name: str,
     sim_backend: Optional[str] = None,
@@ -130,7 +196,6 @@ def make(
         name: Environment name
         sim_backend: Simulation backend ("mujoco" or "motrix"). If None, uses the
             explicit default backend order: "mujoco", then "motrix".
-        env_cfg_override: Dictionary of config overrides
         num_envs: Number of environments to create
 
     Returns:
@@ -144,30 +209,7 @@ def make(
     # Create environment config
     env_cfg = meta.env_cfg_cls()
     if env_cfg_override is not None:
-        from typing import get_args, get_origin, get_type_hints
-
-        # Get type hints for the config class
-        type_hints = get_type_hints(env_cfg.__class__)
-
-        for key, value in env_cfg_override.items():
-            if hasattr(env_cfg, key):
-                # If value is dict and target type is a dataclass, instantiate it
-                if isinstance(value, dict) and key in type_hints:
-                    target_type = type_hints[key]
-                    # Handle Union types (e.g., RewardConfig | None)
-                    origin = get_origin(target_type)
-                    if origin is not None:
-                        # Extract non-None type from Union
-                        args = get_args(target_type)
-                        target_type = next((arg for arg in args if arg is not type(None)), None)
-                    # Check if it's a dataclass
-                    if target_type and hasattr(target_type, "__dataclass_fields__"):
-                        value = target_type(**value)
-                setattr(env_cfg, key, value)
-            else:
-                raise ValueError(
-                    f"Config class '{env_cfg.__class__.__name__}' has no attribute '{key}'"
-                )
+        apply_cfg_overrides(env_cfg, env_cfg_override)
 
     # Validate config
     env_cfg.validate()

@@ -302,3 +302,4 @@ uv run scripts/train_rsl_rl.py task=sharpa_inhand/mujoco 'env.domain_rand.scale_
 
 - Index: [Documentation](../../README.md)
 - Previous: [G1 Motion Tracking](05-motion-tracking.md)
+- Next: [Dexterous In-Hand Manipulation](07-dexterous-inhand-manipulation.md)

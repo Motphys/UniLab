@@ -11,7 +11,7 @@ from unilab.assets import ASSETS_ROOT_PATH
 from unilab.scene.composer import compose_and_materialize
 from unilab.terrains import ROUGH_TERRAINS_CFG, TerrainGeneratorCfg
 
-GO2_BASE = ASSETS_ROOT_PATH / "robots" / "go2" / "scene_base.xml"
+GO2_BASE = ASSETS_ROOT_PATH / "robots" / "go2" / "scene_flat.xml"
 
 
 def _small_rough_cfg() -> TerrainGeneratorCfg:
