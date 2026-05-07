@@ -39,7 +39,7 @@ class MaterializedScene:
         terrain_origins: ``(num_rows, num_cols, 3)`` array of per-cell spawn
             origins computed by the terrain generator. Used by tasks that
             want to distribute envs across the grid (see
-            :func:`unilab.terrains.utils.compute_env_origins`).
+            :func:`unilab.terrains.utils.compute_env_origins_grid`).
     """
 
     scene_xml: Path

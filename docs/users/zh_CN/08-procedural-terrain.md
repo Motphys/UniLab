@@ -104,7 +104,7 @@ from unilab.terrains import ROUGH_TERRAINS_CFG, TerrainGeneratorCfg
 class MyTaskCfg(...):
     # 不能含 floor geom 之外其他冲突的 worldbody；至少保留一个名字为 `terrain_floor_geom`
     # 的 placeholder geom 让 contact sensor 在 load 阶段先校验通过。
-    model_file: str = ".../scene_base.xml"
+    model_file: str = ".../scene_flat.xml"
     terrain_generator: TerrainGeneratorCfg = field(default_factory=lambda: copy.deepcopy(ROUGH_TERRAINS_CFG))
     # 可选：base XML 里 placeholder geom 的名字。默认 "floor"。
     terrain_floor_geom: str = "floor"
@@ -141,7 +141,7 @@ uv run pytest tests/terrains tests/scene -q
 # Hydra compose + Go2JoystickRoughCfg 的 task owner 测试
 uv run pytest tests/config/test_locomotion_params.py -k rough -q
 
-# Issue #197 DoD #1: Hydra 命令行覆盖 + registry deep-merge 闭环
+# Hydra 命令行覆盖 + registry deep-merge 闭环
 uv run pytest tests/config/test_locomotion_params.py \
     -k "apply_cfg_overrides or hydra_terrain_override" -q
 
