@@ -3,12 +3,18 @@ from __future__ import annotations
 import abc
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 if TYPE_CHECKING:
     import mujoco
+
+# Base thickness for the outer border hfield slab. Has no effect on training
+# (collision uses the top surface, geom mass is forced to 0); only governs how
+# thick the visual base box is. 5cm is enough to look like a slab and well
+# above MuJoCo's minimum.
+_BORDER_BASE_THICKNESS = 0.05
 
 
 @dataclass
@@ -40,8 +46,6 @@ class TerrainGeometry:
     """MuJoCo geometry spec element, or None."""
     hfield: mujoco.MjsHField | None = None
     """MuJoCo heightfield spec element, or None."""
-    color: tuple[float, float, float, float] | None = None
-    """RGBA color override for this geometry, or None to use default."""
 
 
 @dataclass
@@ -111,9 +115,9 @@ class TerrainGeneratorCfg:
     :class:`TerrainGenerator` ``__init__``)."""
     border_width: float = 0.0
     """Width of the flat border around the entire terrain grid, in meters. Must
-    be an integer multiple of ``horizontal_scale`` if non-zero."""
-    border_height: float = 1.0
-    """Height of the border wall around the terrain grid, in meters."""
+    be an integer multiple of ``horizontal_scale`` if non-zero. The border is a
+    flat hfield slab whose top surface is flush with the inner-terrain floor at
+    z=0; it is NOT a wall."""
     num_rows: int = 1
     """Number of sub-terrain rows in the grid. Represents difficulty levels in
     curriculum mode. Note: Environments are randomly assigned to rows, so multiple
@@ -123,9 +127,6 @@ class TerrainGeneratorCfg:
 
     In curriculum mode the generator ignores this value and uses one column per terrain
     type (``len(sub_terrains)``). In random mode it is used as-is."""
-    color_scheme: Literal["height", "random", "none"] = "height"
-    """Coloring strategy for terrain geometry. "height" colors by elevation,
-    "random" assigns random colors, "none" uses uniform gray."""
     sub_terrains: dict[str, SubTerrainCfg] = field(default_factory=dict)
     """Named sub-terrain configurations to populate the grid."""
     difficulty_range: tuple[float, float] = (0.0, 1.0)
@@ -324,14 +325,6 @@ class TerrainGenerator:
         for terrain_geom in output.geometries:
             if terrain_geom.geom is not None:
                 terrain_geom.geom.pos = np.array(terrain_geom.geom.pos) + world_position
-                if terrain_geom.geom.material is not None:
-                    if self.cfg.color_scheme == "height" and terrain_geom.color:
-                        terrain_geom.geom.rgba[:] = terrain_geom.color
-                    elif self.cfg.color_scheme == "random":
-                        terrain_geom.geom.rgba[:3] = self.np_rng.uniform(0.3, 0.8, 3)
-                        terrain_geom.geom.rgba[3] = 1.0
-                    elif self.cfg.color_scheme == "none":
-                        terrain_geom.geom.rgba[:] = (0.5, 0.5, 0.5, 1.0)
 
         # Collect flat patches into pre-allocated arrays.
         spawn_origin = output.origin + world_position
@@ -354,13 +347,13 @@ class TerrainGenerator:
             return
         body = spec.body("terrain")
         bw = self.cfg.border_width
-        bh = abs(self.cfg.border_height)
         inner_x = self.cfg.num_rows * self.cfg.size[0]
         inner_y = self._num_cols * self.cfg.size[1]
         outer_x = inner_x + 2 * bw
 
-        # Surface flush with the inner-terrain floor at z=0; the slab's body
-        # extends downward by ``border_height`` to act as a containment apron.
+        # Top surface flush with the inner-terrain floor at z=0 — this is a flat
+        # apron around the grid, NOT a wall. Robots stepping past the inner grid
+        # simply continue on this flat region.
         strip_specs = [
             (outer_x, bw, 0.0, +inner_y / 2 + bw / 2),  # Top
             (outer_x, bw, 0.0, -inner_y / 2 - bw / 2),  # Bottom
@@ -376,7 +369,7 @@ class TerrainGenerator:
                 horizontal_scale=self.cfg.horizontal_scale,
                 pos_xy=(cx, cy),
                 surface_z=0.0,
-                base_thickness=bh,
+                base_thickness=_BORDER_BASE_THICKNESS,
             )
 
     def _add_grid_lights(self, spec: mujoco.MjSpec) -> None:

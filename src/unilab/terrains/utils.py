@@ -177,19 +177,3 @@ def find_flat_patches_from_heightfield(
     z = heights[selected[:, 0], selected[:, 1]] + z_offset
 
     return np.stack([x, y, z], axis=-1)
-
-
-def compute_env_origins_grid(num_envs: int, env_spacing: float) -> np.ndarray:
-    """Return ``(num_envs, 3)`` reset XY offsets on a ⌈√N⌉×⌈√N⌉ grid centered at origin."""
-    if num_envs <= 0:
-        return np.zeros((0, 3), dtype=np.float64)
-    if env_spacing <= 0.0:
-        return np.zeros((num_envs, 3), dtype=np.float64)
-    side = int(np.ceil(np.sqrt(num_envs)))
-    ii, jj = np.meshgrid(np.arange(side), np.arange(side), indexing="ij")
-    flat_i = ii.flatten()[:num_envs].astype(np.float64)
-    flat_j = jj.flatten()[:num_envs].astype(np.float64)
-    origins = np.zeros((num_envs, 3), dtype=np.float64)
-    origins[:, 0] = (flat_i - (side - 1) / 2.0) * env_spacing
-    origins[:, 1] = (flat_j - (side - 1) / 2.0) * env_spacing
-    return origins

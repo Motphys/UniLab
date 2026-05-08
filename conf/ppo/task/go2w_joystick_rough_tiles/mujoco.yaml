@@ -21,7 +21,6 @@ algo:
     entropy_coef: 1.0e-3
 env:
   model_file: src/unilab/assets/robots/go2w/scene_rough_tiles.xml
-  env_spacing: 0.0
   commands:
     vel_limit:
       - [-1.0, -0.6, -1.0]

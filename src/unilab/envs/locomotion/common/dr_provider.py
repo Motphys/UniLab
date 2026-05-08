@@ -85,7 +85,7 @@ class LocomotionDRProvider(DomainRandomizationProvider):
         qpos = np.tile(env._init_qpos, (num_reset, 1))
         qvel = np.tile(env._init_qvel, (num_reset, 1))
         qpos[:, 0:2] += np.random.uniform(-0.5, 0.5, (num_reset, 2))
-        qpos[:, 0:3] += env._env_origins[env_ids]
+        qpos[:, 0:3] += env._spawn.origins_for(env_ids)
         yaw = np.random.uniform(-np.pi, np.pi, (num_reset,))
         qpos[:, 3:7] = np_quat_mul(qpos[:, 3:7], np_yaw_to_quat(yaw))
         limit = self._get_qvel_limit(env)
@@ -99,6 +99,7 @@ class LocomotionDRProvider(DomainRandomizationProvider):
         }
         info_updates.update(self._build_extra_info_updates(env, num_reset))
         base_kp, base_kd = self._get_base_actuator_gains(env)
+        env._spawn.record_episode_start(env_ids, qpos[:, 0:3])
         return ResetPlan(
             env_ids=env_ids,
             qpos=qpos,

@@ -31,7 +31,6 @@ class EnvCfg:
     iterations: Optional[int] = None
     terrain_generator: Optional[TerrainGeneratorCfg] = None
     terrain_floor_geom: str = "floor"
-    env_spacing: float = 0.0
 
     @property
     def max_episode_steps(self) -> Optional[int]:

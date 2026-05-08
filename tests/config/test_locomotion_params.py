@@ -242,45 +242,8 @@ def test_go2_joystick_rough_playback_model_uses_materialized_scene():
         env.close()
 
 
-def test_go2_joystick_rough_distributes_env_origins_via_env_spacing():
-    """Reset positions must spread across the world via env_spacing grid
-    layout, not cluster at world origin.
-    """
-    import numpy as np
-
-    from unilab.envs.locomotion.go2.joystick import (
-        Go2JoystickRoughCfg,
-        Go2WalkTask,
-        RewardConfig,
-    )
-
-    cfg = Go2JoystickRoughCfg(
-        reward_config=RewardConfig(scales={}, tracking_sigma=0.25, base_height_target=0.3)
-    )
-    cfg.terrain_generator.num_rows = 4
-    cfg.terrain_generator.num_cols = 4
-    cfg.terrain_generator.border_width = 0.0
-    cfg.terrain_generator.add_lights = False
-    cfg.terrain_generator.seed = 0
-
-    env = Go2WalkTask(cfg, num_envs=64, backend_type="mujoco")
-    try:
-        assert env._env_origins.shape == (64, 3)
-        span = env._env_origins[:, 0:2].max(axis=0) - env._env_origins[:, 0:2].min(axis=0)
-        # 8x8 grid (ceil(sqrt(64))) at env_spacing=1.0 → span = (8-1)*1.0 = 7.0
-        assert span[0] == pytest.approx(7.0)
-        assert span[1] == pytest.approx(7.0)
-        state = env.init_state()
-        env.step(np.zeros((64, 12), dtype=np.float32))
-        assert state.obs["obs"].shape == (64, 49)
-    finally:
-        env.close()
-
-
-def test_go2_joystick_flat_env_spacing_defaults_to_zero():
-    """Flat task has env_spacing=0 (EnvCfg default) → all-zero env_origins."""
-    import numpy as np
-
+def test_go2_joystick_flat_no_terrain_materialized():
+    """Flat task has no terrain → no materialized scene path is set."""
     from unilab.envs.locomotion.go2.joystick import (
         Go2JoystickCfg,
         Go2WalkTask,
@@ -292,8 +255,6 @@ def test_go2_joystick_flat_env_spacing_defaults_to_zero():
     )
     env = Go2WalkTask(cfg, num_envs=4, backend_type="mujoco")
     try:
-        assert env._env_origins.shape == (4, 3)
-        assert np.all(env._env_origins == 0.0)
         assert env._materialized_model_file is None
     finally:
         env.close()
