@@ -518,6 +518,32 @@ class MuJoCoBackend(SimBackend):
     def get_geom_size(self, name: str) -> np.ndarray:
         return np.asarray(self._model.geom_size[self.get_geom_id(name)], dtype=np.float64).copy()
 
+    def sample_hfield_height(
+        self,
+        *,
+        hfield_geom_id: int,
+        offsets: np.ndarray,
+        frame_body_id: int,
+        alignment: str = "yaw",
+        output: str = "height",
+    ) -> np.ndarray:
+        if self._pool is None:
+            raise RuntimeError("MuJoCo backend pool must be materialized before hfield sampling")
+
+        offsets_np = np.ascontiguousarray(np.asarray(offsets, dtype=np.float64))
+        if offsets_np.ndim != 2 or offsets_np.shape[1] != 2:
+            raise ValueError(f"offsets must have shape (num_points, 2), got {offsets_np.shape}")
+
+        heights = self._pool.sample_hfield_height(
+            self._physics_state,
+            hfield_geom_id=int(hfield_geom_id),
+            offsets=offsets_np,
+            frame_body_id=int(frame_body_id),
+            alignment=alignment,
+            output=output,
+        )
+        return np.asarray(heights, dtype=self._np_dtype)
+
     def get_body_subtree_ids(self, root_body_id: int) -> np.ndarray:
         subtree_ids = {int(root_body_id)}
         changed = True

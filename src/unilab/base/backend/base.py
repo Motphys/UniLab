@@ -114,6 +114,31 @@ class SimBackend(abc.ABC):
         """Return one geom size vector through the backend contract."""
         raise NotImplementedError(f"{self.__class__.__name__} does not expose geom sizes")
 
+    def sample_hfield_height(
+        self,
+        *,
+        hfield_geom_id: int,
+        offsets: np.ndarray,
+        frame_body_id: int,
+        alignment: str = "yaw",
+        output: str = "height",
+    ) -> np.ndarray:
+        """Sample a height-field geom through a backend-native batched sensor path.
+
+        Args:
+            hfield_geom_id: Backend geom id for a height-field geom.
+            offsets: Local XY offsets with shape ``(num_points, 2)``.
+            frame_body_id: Backend body id that anchors the local offsets.
+            alignment: Native alignment mode, e.g. ``"yaw"``.
+            output: Native output mode, e.g. ``"height"`` or ``"clearance"``.
+
+        Returns:
+            Array with shape ``(num_envs, num_points)``.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support native height-field sampling"
+        )
+
     def get_body_subtree_ids(self, root_body_id: int) -> np.ndarray:
         """Return body ids in the subtree rooted at ``root_body_id``."""
         raise NotImplementedError(f"{self.__class__.__name__} does not expose body subtree ids")
