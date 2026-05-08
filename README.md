@@ -66,6 +66,11 @@ uv run train --algo sac --task g1_walk_flat --sim mujoco
 uv run train --algo sac --task g1_sac_wbt --sim mujoco training.use_amp=true
 ```
 
+```bash
+# Linux CUDA Sharpa in-hand HORA (36min on RTX 4090 D and Intel Xeon Platinum 8457C)
+uv run train --algo ppo --task sharpa_inhand --sim mujoco --profile hora
+```
+
 More training commands, script-level entrypoints, resume flow, and W&B details are in [03 Training Guide](docs/users/zh_CN/03-training.md).
 
 ## 🧱 System Layout

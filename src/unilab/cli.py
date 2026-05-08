@@ -81,6 +81,16 @@ def _check_task_name(task: str) -> None:
         )
 
 
+def _check_profile(profile: str | None) -> None:
+    if profile is None:
+        return
+    if TASK_NAME_PATTERN.fullmatch(profile) is None:
+        raise SystemExit(
+            "--profile must be a task owner variant such as `hora`; "
+            "do not include slashes, dots, or path separators."
+        )
+
+
 def _check_load_run(load_run: str) -> None:
     if load_run == "-1":
         return
@@ -137,36 +147,37 @@ def _python_executable_for_route(mode: str, sim: str, overrides: Sequence[str]) 
     return mxpython
 
 
-def build_route(algo: str, task: str, sim: str) -> Route:
+def build_route(algo: str, task: str, sim: str, profile: str | None = None) -> Route:
     task_choice: str
+    owner = f"{sim}_{profile}" if profile is not None else sim
     if algo in OFFPOLICY_ALGOS:
-        task_choice = f"{algo}/{task}/{sim}"
+        task_choice = f"{algo}/{task}/{owner}"
         return Route(
             script_name="train_offpolicy.py",
             config_group="offpolicy",
-            owner_task=f"{algo}/{task}/{sim}.yaml",
+            owner_task=f"{algo}/{task}/{owner}.yaml",
             generated_overrides=(f"algo={algo}", f"task={task_choice}"),
         )
-    task_choice = f"{task}/{sim}"
+    task_choice = f"{task}/{owner}"
     if algo == "ppo":
         return Route(
             script_name="train_rsl_rl.py",
             config_group="ppo",
-            owner_task=f"{task}/{sim}.yaml",
+            owner_task=f"{task}/{owner}.yaml",
             generated_overrides=(f"task={task_choice}",),
         )
     if algo == "mlx_ppo":
         return Route(
             script_name="train_mlx_ppo.py",
             config_group="ppo",
-            owner_task=f"{task}/{sim}.yaml",
+            owner_task=f"{task}/{owner}.yaml",
             generated_overrides=(f"task={task_choice}",),
         )
     if algo == "appo":
         return Route(
             script_name="train_appo.py",
             config_group="appo",
-            owner_task=f"{task}/{sim}.yaml",
+            owner_task=f"{task}/{owner}.yaml",
             generated_overrides=(f"task={task_choice}",),
         )
     raise SystemExit(f"Unsupported algo={algo!r}; choose one of: {', '.join(SUPPORTED_ALGOS)}")
@@ -179,16 +190,18 @@ def build_command(
     task: str,
     sim: str,
     overrides: Sequence[str],
+    profile: str | None = None,
     load_run: str | None = None,
     root: Path | None = None,
 ) -> list[str]:
     selected_root = root or repo_root()
     _check_private_checkout(selected_root)
     _check_task_name(task)
+    _check_profile(profile)
     _check_reserved_overrides(overrides)
     _check_runtime_requirements(algo, sim)
 
-    route = build_route(algo, task, sim)
+    route = build_route(algo, task, sim, profile)
     script = _script_path(route, selected_root)
     if not script.is_file():
         raise SystemExit(f"Entrypoint script not found: {script}")
@@ -217,6 +230,7 @@ def _train_eval_parser(*, mode: str) -> argparse.ArgumentParser:
     parser.add_argument("--algo", required=True, choices=SUPPORTED_ALGOS)
     parser.add_argument("--task", required=True)
     parser.add_argument("--sim", required=True, choices=SUPPORTED_SIMS)
+    parser.add_argument("--profile", default=None)
     if mode == "eval":
         parser.add_argument("--load-run", default=None)
     return parser
@@ -239,6 +253,7 @@ def _run_train_eval(mode: str, argv: Sequence[str] | None = None) -> int:
         algo=args.algo,
         task=args.task,
         sim=args.sim,
+        profile=args.profile,
         overrides=overrides,
         load_run=getattr(args, "load_run", None),
     )

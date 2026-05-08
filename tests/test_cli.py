@@ -73,6 +73,32 @@ def test_macos_motrix_train_no_play_uses_current_python(
     assert command[0] == sys.executable
 
 
+def test_train_profile_routes_to_owner_variant(tmp_path: Path) -> None:
+    (tmp_path / "scripts").mkdir(parents=True)
+    (tmp_path / "scripts" / "train_rsl_rl.py").write_text("", encoding="utf-8")
+    owner_dir = tmp_path / "conf" / "ppo" / "task" / "sharpa_inhand"
+    owner_dir.mkdir(parents=True)
+    (owner_dir / "mujoco_hora.yaml").write_text(
+        "training:\n  sim_backend: mujoco\n",
+        encoding="utf-8",
+    )
+
+    command = cli.build_command(
+        mode="train",
+        algo="ppo",
+        task="sharpa_inhand",
+        sim="mujoco",
+        profile="hora",
+        overrides=[],
+        root=tmp_path,
+    )
+
+    assert command[1:] == [
+        str(tmp_path / "scripts" / "train_rsl_rl.py"),
+        "task=sharpa_inhand/mujoco_hora",
+    ]
+
+
 def test_macos_motrix_eval_requires_mxpython(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
