@@ -222,7 +222,15 @@ class TestMuJoCoBasic:
 
         monkeypatch.setattr(np.random, "uniform", lambda low, high, size: sampled.copy())
 
-        def _fake_step(initial_state, *, nstep, control_spec=0, control=None, **kwargs):
+        def _fake_step(
+            initial_state,
+            *,
+            nstep,
+            control_spec=0,
+            control=None,
+            return_sensor=False,
+            **kwargs,
+        ):
             calls.append(
                 {
                     "nstep": nstep,
@@ -230,14 +238,12 @@ class TestMuJoCoBasic:
                     "control": None if control is None else np.array(control, copy=True),
                 }
             )
-            return np.array(initial_state, copy=True)
+            state = np.array(initial_state, copy=True)
+            if return_sensor:
+                return state, np.array(bkd._sensor_data, copy=True)
+            return state
 
         monkeypatch.setattr(bkd._pool, "step", _fake_step)
-        monkeypatch.setattr(
-            bkd._pool,
-            "forward",
-            lambda state: np.array(bkd._sensor_data, copy=True),
-        )
 
         bkd.apply_interval_randomization(IntervalRandomizationPlan(push_perturbation_limit=limit))
 
@@ -283,21 +289,27 @@ class TestMuJoCoBasic:
 
         monkeypatch.setattr(np.random, "uniform", lambda low, high, size: sampled.copy())
 
-        def _fake_step(initial_state, *, nstep, control_spec=0, control=None, **kwargs):
+        def _fake_step(
+            initial_state,
+            *,
+            nstep,
+            control_spec=0,
+            control=None,
+            return_sensor=False,
+            **kwargs,
+        ):
             calls.append(
                 {
                     "control_spec": control_spec,
                     "control": None if control is None else np.array(control, copy=True),
                 }
             )
-            return np.array(initial_state, copy=True)
+            state = np.array(initial_state, copy=True)
+            if return_sensor:
+                return state, np.array(bkd._sensor_data, copy=True)
+            return state
 
         monkeypatch.setattr(bkd._pool, "step", _fake_step)
-        monkeypatch.setattr(
-            bkd._pool,
-            "forward",
-            lambda state: np.array(bkd._sensor_data, copy=True),
-        )
 
         bkd.apply_interval_randomization(IntervalRandomizationPlan(push_perturbation_limit=limit))
         bkd.step(np.zeros((NUM_ENVS, bkd.model.nu), dtype=np.float64))
