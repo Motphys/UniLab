@@ -81,8 +81,8 @@ uv run scripts/generate_support_matrix.py --write
 | SAC (torch) | `g1_walk_rough` (G1 walk rough) | Tested | Registered |
 | SAC (torch) | `g1_sac_wbt` (g1 sac wbt) | Tested | Tested |
 | TD3 (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered |
-| FlashSAC (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | Tested |
-| FlashSAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested |
+| FlashSAC (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | Registered |
+| FlashSAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered |
 
 ### Source Index
 
