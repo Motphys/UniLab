@@ -1,0 +1,59 @@
+# @package _global_
+# G1 Whole-Body Tracking (WBT) FastSAC on MuJoCo — `deploy` profile.
+# Self-contained variant intended for sim2real-oriented training: enables the
+# full domain-randomization stack and bumps env count / iteration budget.
+# Kept independent from `mujoco.yaml` (no Hydra `defaults` inheritance) so
+# tuning here cannot regress the baseline `--task g1_sac_wbt --sim mujoco` run.
+training:
+  task_name: G1MotionTrackingSAC
+  sim_backend: mujoco
+algo:
+  num_envs: 4096
+  max_iterations: 40000
+  save_interval: 1000
+  # --- holosoma WBT-specific overrides (vs sac.yaml defaults) ---
+  gamma: 0.99
+  tau: 0.05
+  num_atoms: 501
+  updates_per_step: 4
+  policy_frequency: 2
+  use_symmetry: false
+  algo_params:
+    alpha_init: 0.1
+    target_entropy_ratio: 0.5
+    max_grad_norm: 10.0
+env:
+  control_config:
+    action_scale: 2.0
+  anchor_pos_z_threshold: 0.5
+  ee_body_pos_z_threshold: 0.5
+  # Domain randomization switches — aligned with Domain_Rand fields available
+  # to G1MotionTrackingEnv (see src/unilab/envs/motion_tracking/g1/tracking.py).
+  domain_rand:
+    randomize_base_mass: true
+    added_mass_range: [-1.5, 1.5]
+    random_com: true
+    com_offset_x: [-0.05, 0.05]
+    randomize_gravity: true
+    gravity_range: [[0.0, 0.0, -9.81], [0.0, 0.0, -9.81]]
+    push_robots: true
+    push_interval: 750
+    max_force: [1.0, 1.0, 0.5]
+    push_body_name: null
+    randomize_kp: true
+    kp_multiplier_range: [0.9, 1.1]
+    randomize_kd: true
+    kd_multiplier_range: [0.9, 1.1]
+reward:
+  scales:
+    motion_global_root_pos: 1.0
+    motion_global_root_ori: 0.5
+    motion_body_pos: 2.0
+    motion_body_ori: 1.0
+    motion_body_lin_vel: 1.0
+    motion_body_ang_vel: 1.0
+    motion_joint_pos: 0.0
+    motion_joint_vel: 0.0
+    action_rate_l2: -0.1
+    joint_limit: -2.0
+    undesired_contacts: -0.1

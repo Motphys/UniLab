@@ -16,13 +16,13 @@ uv run eval --algo <algo> --task <task> --sim <backend> --load-run <run>
 | 通用 G1 whole-body motion tracking | `g1_motion_tracking` | `G1MotionTracking`    | PPO、MLX PPO、APPO   |
 | flip clip 专用 profile             | `g1_flip_tracking`   | `G1FlipTracking`      | PPO、MLX PPO、APPO   |
 | wall-assisted flip 专用 profile    | `g1_wall_flip_tracking` | `G1WallFlipTracking` | PPO、MLX PPO、APPO   |
-| holosoma-aligned FastSAC WBT       | `g1_sac_wbt`         | `G1MotionTrackingSAC` | FastSAC，MuJoCo only |
+| holosoma-aligned FastSAC WBT       | `g1_sac_wbt`         | `G1MotionTrackingSAC` | FastSAC（MuJoCo 训练；MuJoCo / Motrix 回放） |
 
 当前已提交的 owner YAML 位于：
 
 - PPO / MLX PPO：`conf/ppo/task/g1_motion_tracking/`、`conf/ppo/task/g1_flip_tracking/`、`conf/ppo/task/g1_wall_flip_tracking/`
 - APPO：`conf/appo/task/g1_motion_tracking/`、`conf/appo/task/g1_flip_tracking/`、`conf/appo/task/g1_wall_flip_tracking/`
-- FastSAC WBT：`conf/offpolicy/task/sac/g1_sac_wbt/mujoco.yaml`
+- FastSAC WBT：`conf/offpolicy/task/sac/g1_sac_wbt/mujoco.yaml`（baseline 训练）、`mujoco_deploy.yaml`（`--profile deploy`，开启 domain randomization 的 sim2real-oriented 训练变体，自包含、不继承 baseline）、`motrix.yaml`（sim2sim 回放，继承 `mujoco.yaml`）
 
 默认 motion：
 
@@ -234,6 +234,28 @@ uv run train --algo appo --task g1_motion_tracking --sim mujoco \
   algo.num_envs=128 algo.max_iterations=5 training.no_play=true
 ```
 
+### FastSAC
+
+`g1_sac_wbt` 默认走 holosoma-aligned 配置（`mujoco.yaml`），不开启 domain randomization：
+
+```bash
+uv run train --algo sac --task g1_sac_wbt --sim mujoco training.use_amp=true
+```
+
+如果需要面向 sim2real 部署的训练变体，使用 `--profile deploy` 切到 `mujoco_deploy.yaml`：
+
+```bash
+uv run train --algo sac --task g1_sac_wbt --sim mujoco --profile deploy training.use_amp=true
+```
+
+`mujoco_deploy.yaml` 是自包含配置（不通过 Hydra `defaults` 继承 `mujoco.yaml`），相对 baseline 的差异：
+
+- `algo.num_envs`：2048 → 4096
+- `algo.max_iterations`：25000 → 40000
+- 启用 `env.domain_rand`：base mass、CoM、gravity、push、kp/kd 乘子全开
+
+deploy 链路与 baseline 物理隔离，调整其中任一字段都不会回流到 `--task g1_sac_wbt --sim mujoco` 的训练。
+
 ## 回放 Checkpoint
 
 统一回放入口是 `uv run eval`。`--load-run -1` 表示加载该 task 日志目录下的最新 run。
@@ -267,6 +289,23 @@ uv run eval --algo ppo --task g1_motion_tracking --sim mujoco --load-run -1 \
   env.sampling_mode=start \
   env.joint_position_range=[0.0,0.0]
 ```
+
+### Motrix sim2sim 回放 FastSAC checkpoint
+
+`G1MotionTrackingSAC` 同时注册了 MuJoCo 和 Motrix 两个后端，mujoco 训练得到的 checkpoint 可以直接走 Motrix 原生 renderer 回放（配置走 `motrix.yaml`，继承 `mujoco.yaml`）。先安装 Motrix extra：
+
+```bash
+uv sync --extra motrix
+```
+
+加载任意路径下的 checkpoint —— `--load-run` 参数不接受绝对路径，改用 Hydra passthrough：
+
+```bash
+uv run eval --algo sac --task g1_sac_wbt --sim motrix \
+  algo.load_run=/abs/path/to/logs/<run>/model_<N>.pt
+```
+
+`motrix.yaml` 在继承基础上只关掉 `randomize_kp/kd`（motrix 后端的 kp/kd 列切片覆盖路径有缺陷，且确定性 sim2sim 回放也不需要 actuator gain 扰动）；其他 DR 字段是否生效由 `mujoco.yaml` 决定，baseline 默认全部关闭。
 
 ## 交互式调试
 

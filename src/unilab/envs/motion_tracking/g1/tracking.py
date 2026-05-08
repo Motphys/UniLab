@@ -115,6 +115,12 @@ class Domain_Rand:
     max_force: list[float] = field(default_factory=lambda: [1.0, 1.0, 0.5])
     push_body_name: str | None = None
 
+    randomize_kp: bool = False
+    kp_multiplier_range: list[float] = field(default_factory=lambda: [0.9, 1.1])
+
+    randomize_kd: bool = False
+    kd_multiplier_range: list[float] = field(default_factory=lambda: [0.9, 1.1])
+
 
 @dataclass
 class G1MotionTrackingCfg(G1BaseCfg):
@@ -175,8 +181,16 @@ class G1MotionTrackingEnvCfg(G1MotionTrackingCfg):
 
 
 class G1MotionTrackingDomainRandomizationProvider(DomainRandomizationProvider):
+    def __init__(
+        self, *, base_kp: np.ndarray | None = None, base_kd: np.ndarray | None = None
+    ) -> None:
+        self._base_kp = base_kp
+        self._base_kd = base_kd
+
     def validate(self, env: Any, capabilities: DomainRandomizationCapabilities) -> None:
-        validate_common_reset_randomization(env, capabilities)
+        validate_common_reset_randomization(
+            env, capabilities, base_kp=self._base_kp, base_kd=self._base_kd
+        )
         validate_interval_push_support(env, capabilities)
 
     def build_interval_randomization_plan(
@@ -262,7 +276,9 @@ class G1MotionTrackingDomainRandomizationProvider(DomainRandomizationProvider):
             qpos=qpos,
             qvel=qvel,
             info_updates=info_updates,
-            randomization=build_common_reset_randomization(env, num_reset),
+            randomization=build_common_reset_randomization(
+                env, num_reset, base_kp=self._base_kp, base_kd=self._base_kd
+            ),
         )
 
     def build_reset_observation(
@@ -337,7 +353,14 @@ class G1MotionTrackingEnv(G1BaseEnv):
         self.motion_sampler = MotionSampler(
             self.motion_loader, mode=cfg.sampling_mode, num_envs=num_envs
         )
-        self._init_domain_randomization(G1MotionTrackingDomainRandomizationProvider())
+        if cfg.domain_rand.randomize_kp or cfg.domain_rand.randomize_kd:
+            base_kp, base_kd = backend.get_actuator_gains()
+            dr_provider = G1MotionTrackingDomainRandomizationProvider(
+                base_kp=base_kp, base_kd=base_kd
+            )
+        else:
+            dr_provider = G1MotionTrackingDomainRandomizationProvider()
+        self._init_domain_randomization(dr_provider)
 
         # Buffers for relative body transforms
         self.body_pos_relative_w = np.zeros(
