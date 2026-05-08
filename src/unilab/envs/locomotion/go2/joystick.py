@@ -155,7 +155,6 @@ class Go2JoystickDomainRandomizationProvider(LocomotionDRProvider):
 @registry.env("Go2JoystickFlat", sim_backend="mujoco")
 @registry.env("Go2JoystickFlat", sim_backend="motrix")
 @registry.env("Go2JoystickRough", sim_backend="mujoco")
-@registry.env("Go2JoystickRough", sim_backend="motrix")
 class Go2WalkTask(Go2BaseEnv):
     _cfg: Go2JoystickCfg
 
