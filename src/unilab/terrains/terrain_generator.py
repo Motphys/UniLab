@@ -8,6 +8,7 @@ import numpy as np
 
 _BORDER_BASE_THICKNESS = 0.05
 
+
 @dataclass
 class FlatPatchSamplingCfg:
     """Configuration for sampling flat patches on a heightfield surface."""
@@ -50,9 +51,8 @@ class TerrainHeightField:
     def physical_heights_xy(self) -> np.ndarray:
         """Return world-space surface heights as an ``(x, y)`` matrix."""
         return (
-            (self.noise.astype(np.float64) - self.elevation_min) * self.vertical_scale
-            + self.z_offset
-        )
+            self.noise.astype(np.float64) - self.elevation_min
+        ) * self.vertical_scale + self.z_offset
 
     def normalized_elevation(self) -> np.ndarray:
         """Return normalized hfield values in ``[0, 1]``."""
@@ -107,9 +107,7 @@ class GeneratedTerrain:
         if span <= 0.0:
             return np.zeros_like(self.heights_yx, dtype=np.uint16)
         normalized = (self.heights_yx - self.z_min) / span
-        return np.rint(np.clip(normalized, 0.0, 1.0) * np.iinfo(np.uint16).max).astype(
-            np.uint16
-        )
+        return np.rint(np.clip(normalized, 0.0, 1.0) * np.iinfo(np.uint16).max).astype(np.uint16)
 
     def write_png(self, path: Path) -> None:
         """Write the merged hfield as a 16-bit grayscale PNG."""
@@ -143,9 +141,7 @@ class SubTerrainCfg(abc.ABC):
     """Named flat-patch sampling configurations, or None to disable."""
 
     @abc.abstractmethod
-    def function(
-        self, difficulty: float, rng: np.random.Generator
-    ) -> TerrainOutput:
+    def function(self, difficulty: float, rng: np.random.Generator) -> TerrainOutput:
         """Generate backend-agnostic terrain data.
 
         Returns:

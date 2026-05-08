@@ -141,9 +141,7 @@ def test_holes_creates_deeper_minimum():
     )
     rng = np.random.default_rng(0)
     out_no = HfPyramidStairsTerrainCfg(holes=False, **common).function(0.5, rng)
-    out_yes = HfPyramidStairsTerrainCfg(holes=True, pit_depth=2.0, **common).function(
-        0.5, rng
-    )
+    out_yes = HfPyramidStairsTerrainCfg(holes=True, pit_depth=2.0, **common).function(0.5, rng)
 
     base_no = out_no.heightfield.base_thickness
     base_yes = out_yes.heightfield.base_thickness

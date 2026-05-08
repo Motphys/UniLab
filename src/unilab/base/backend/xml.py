@@ -275,9 +275,7 @@ def materialize_terrain_hfield_scene(
         raise ValueError(f"Scene '{source_model_file}' is missing an <asset> tag.")
     hfield = asset.find(f"./hfield[@name='{hfield_name}']")
     if hfield is None:
-        raise ValueError(
-            f"Scene '{source_model_file}' is missing hfield asset '{hfield_name}'."
-        )
+        raise ValueError(f"Scene '{source_model_file}' is missing hfield asset '{hfield_name}'.")
     hfield.set("file", str((output_path / hfield_rel).resolve()))
     hfield.set("size", generated.hfield_size_xml())
 

@@ -111,11 +111,7 @@ import tempfile
 from unilab.base.backend.xml import materialize_terrain_hfield_scene
 
 self._materialized_dir = tempfile.TemporaryDirectory(prefix="unilab_terrain_")
-model_file, terrain_origins = materialize_terrain_hfield_scene(
-    source_model_file=cfg.model_file,
-    terrain_cfg=cfg.terrain_generator,
-    output_dir=self._materialized_dir.name,
-)
+model_file, terrain_origins = materialize_terrain_hfield_scene(cfg.model_file, terrain_cfg=cfg.terrain_generator, output_dir=self._materialized_dir.name)
 backend = create_backend(..., model_file=model_file, ...)
 ```
 
