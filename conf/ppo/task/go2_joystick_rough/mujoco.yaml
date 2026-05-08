@@ -16,16 +16,12 @@ algo:
     entropy_coef: 1.0e-3
 env:
   terrain_generator:
-    seed: null
+    seed: 42
     curriculum: false
     size: [8.0, 8.0]
     num_rows: 10
     num_cols: 20
     border_width: 20.0
-    border_height: 1.0
-    color_scheme: height
-    difficulty_range: [0.0, 1.0]
-    add_lights: true
 reward:
   scales:
     tracking_lin_vel: 1.0

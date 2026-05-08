@@ -154,7 +154,6 @@ def test_border_uses_hfields():
     spec = mujoco.MjSpec()
     cfg = _small_rough_cfg()
     cfg.border_width = 5.0
-    cfg.border_height = 1.0
     n_inner = cfg.num_rows * cfg.num_cols
     TerrainGenerator(cfg).compile(spec)
     types = [geom.type for geom in spec.body("terrain").geoms]
