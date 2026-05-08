@@ -25,6 +25,7 @@ from unilab.base.observations import get_critic_base_dim, get_obs_dims
 from unilab.base.registry import ensure_registries
 from unilab.ipc import RolloutRingBuffer, SharedWeightSync
 from unilab.logging import OffPolicyLogger
+from unilab.training.seed import apply_training_seed, derive_worker_seed
 
 
 class HoraAPPORunner(APPORunner):
@@ -52,6 +53,7 @@ class HoraAPPORunner(APPORunner):
 
         ensure_registries()
 
+        apply_training_seed(self.seed, torch_runtime=True, cuda=True)
         env = registry.make(
             self.env_name,
             num_envs=self._detect_dim_probe_num_envs(),
@@ -90,6 +92,7 @@ class HoraAPPORunner(APPORunner):
         return 1
 
     def _build_learner(self):
+        apply_training_seed(self.seed, torch_runtime=True, cuda=True)
         cfg = dict(self.rl_cfg)
         if is_rsl_rl_v5():
             pass
@@ -210,6 +213,7 @@ class HoraAPPORunner(APPORunner):
             "collector_device": self.collector_device,
             "sim_backend": self.sim_backend,
             "env_cfg_override": self.env_cfg_overrides if self.env_cfg_overrides else None,
+            "seed": derive_worker_seed(self.seed, worker_index=0),
         }
         self._start_collector(
             target_fn=hora_appo_collector_fn,

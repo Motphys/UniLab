@@ -164,6 +164,21 @@ def test_offpolicy_hydra_default_algo():
     assert cfg.algo.algo == "sac"
 
 
+def test_appo_runner_kwargs_forward_algorithm_seed():
+    mod = _train_appo()
+    cfg = _appo_cfg(["algo.seed=37"])
+    rl_cfg = OmegaConf.to_container(cfg.algo, resolve=True)
+
+    kwargs = mod.build_appo_runner_kwargs(
+        cfg,
+        env_cfg_override={"reward_config": {}},
+        collector_device="cpu",
+        rl_cfg=cast(dict[str, Any], rl_cfg),
+    )
+
+    assert kwargs["seed"] == 37
+
+
 def test_offpolicy_hydra_default_task():
     cfg = _offpolicy_cfg()
     assert cfg.training.task_name == "G1WalkFlat"

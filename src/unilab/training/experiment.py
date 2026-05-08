@@ -161,6 +161,7 @@ class ExperimentTracker:
         full_cfg: Any,
         device: str | None = None,
         collector_device: str | None = None,
+        seed_info: Any | None = None,
     ):
         self.root_dir = Path(root_dir)
         self.log_dir = Path(log_dir)
@@ -171,6 +172,7 @@ class ExperimentTracker:
         self.full_cfg = full_cfg
         self.device = device
         self.collector_device = collector_device
+        self.seed_info = seed_info
         self.enabled = str(_cfg_get(training_cfg, "logger", "tensorboard")).lower() == "wandb"
 
         self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -223,6 +225,14 @@ class ExperimentTracker:
             "hardware": get_device_info_dict(),
             "wandb": self.wandb_settings,
         }
+        if self.seed_info is not None:
+            if hasattr(self.seed_info, "to_dict"):
+                seed_payload = self.seed_info.to_dict()
+            elif isinstance(self.seed_info, dict):
+                seed_payload = dict(self.seed_info)
+            else:
+                seed_payload = {"effective_seed": self.seed_info}
+            metadata.update(seed_payload)
 
         payload = {
             "run": _json_safe(metadata),
@@ -285,6 +295,13 @@ class ExperimentTracker:
             "wall_time_sec": wall_time_sec,
             "wandb_run_url": self.run_url,
         }
+        if self.seed_info is not None:
+            if hasattr(self.seed_info, "to_dict"):
+                payload.update(self.seed_info.to_dict())
+            elif isinstance(self.seed_info, dict):
+                payload.update(self.seed_info)
+            else:
+                payload["effective_seed"] = self.seed_info
         self._write_json(self.log_dir / "run_summary.json", _json_safe(payload))
 
         if self._run is not None:

@@ -16,6 +16,7 @@ sys.path.append(str(ROOT_DIR))
 
 from unilab.training import (
     BackendAdapter,
+    apply_configured_training_seed,
     assert_offpolicy_task_choice_matches_algo,
     create_env,
     ensure_registries,
@@ -161,6 +162,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
                 obs_normalization=False,
                 sim_backend=cfg.training.sim_backend,
                 env_cfg_override=env_cfg_override,
+                seed=cfg.algo.seed,
             )
 
         return FastSACRunner(
@@ -191,6 +193,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             env_steps_per_sync=cfg.training.env_steps_per_sync,
             sim_backend=cfg.training.sim_backend,
             use_symmetry=cfg.algo.use_symmetry,
+            seed=cfg.algo.seed,
         )
 
     if algo_name == "td3":
@@ -226,6 +229,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             use_cdq=cfg.algo.algo_params.use_cdq,
             obs_normalization=cfg.algo.obs_normalization,
             sim_backend=cfg.training.sim_backend,
+            seed=cfg.algo.seed,
         )
 
     if algo_name == "flashsac":
@@ -272,6 +276,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             normalized_g_max=cfg.algo.algo_params.normalized_g_max,
             n_step=cfg.algo.algo_params.n_step,
             use_compile=cfg.algo.algo_params.use_compile,
+            seed=cfg.algo.seed,
         )
 
     raise ValueError(f"Unsupported algo: {algo_name}")
@@ -497,6 +502,7 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
 def main(cfg: DictConfig) -> None:
     ensure_registries()
 
+    seed_info = apply_configured_training_seed(cfg, torch_runtime=True, cuda=True)
     algo_name = cfg.algo.algo
     task_name = cfg.training.task_name
     assert_offpolicy_task_choice_matches_algo(cfg, algo_name=algo_name)
@@ -522,6 +528,7 @@ def main(cfg: DictConfig) -> None:
             training_cfg=cfg.training,
             full_cfg=cfg,
             device=default_device(torch, cfg.training.device),
+            seed_info=seed_info,
         )
         tracker.start()
 

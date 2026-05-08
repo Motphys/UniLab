@@ -84,6 +84,11 @@ def test_experiment_tracker_writes_local_run_files(tmp_path):
         full_cfg={"training": {"logger": "tensorboard"}},
         device="cuda",
         collector_device="cpu",
+        seed_info={
+            "configured_seed": 5,
+            "configured_seed_source": "algo.seed",
+            "effective_seed": 5,
+        },
     )
 
     tracker.start()
@@ -95,8 +100,13 @@ def test_experiment_tracker_writes_local_run_files(tmp_path):
 
     assert run_config["run"]["algo"] == "appo"
     assert run_config["run"]["task"] == "G1MotionTracking"
+    assert run_config["run"]["configured_seed"] == 5
+    assert run_config["run"]["configured_seed_source"] == "algo.seed"
+    assert run_config["run"]["effective_seed"] == 5
     assert run_summary["final_mean_reward"] == 12.3
     assert run_summary["completed_iterations"] == 10
+    assert run_summary["configured_seed"] == 5
+    assert run_summary["effective_seed"] == 5
     assert run_summary["wall_time_sec"] >= 0.0
 
 

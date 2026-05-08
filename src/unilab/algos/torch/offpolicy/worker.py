@@ -15,6 +15,7 @@ from unilab.algos.torch.common.actor_factory import build_actor
 from unilab.base.final_observation import resolve_terminal_observation_contract
 from unilab.base.observations import get_obs_dims, split_obs_dict
 from unilab.base.registry import ensure_registries
+from unilab.training.seed import apply_training_seed
 
 
 def resolve_collector_actor_dims(
@@ -78,6 +79,7 @@ def off_policy_collector_fn(
     obs_dim: int | None = None,
     action_dim: int | None = None,
     actor_kwargs: dict | None = None,
+    seed: int | None = None,
     **kwargs,
 ):
     """Entry point for the off-policy collector subprocess."""
@@ -110,6 +112,7 @@ def off_policy_collector_fn(
             obs_dim=obs_dim,
             action_dim=action_dim,
             actor_kwargs=actor_kwargs,
+            seed=seed,
         )
     except Exception as e:
         print(f"[Collector] Exception: {e}", file=sys.stderr, flush=True)
@@ -145,12 +148,14 @@ def _run_collector(
     obs_dim,
     action_dim,
     actor_kwargs,
+    seed,
 ):
     del learning_starts
     from unilab.base import registry
     from unilab.ipc import SharedWeightSync
 
     ensure_registries()
+    apply_training_seed(seed, torch_runtime=True, cuda=True)
 
     # Initialize environment
     env = registry.make(

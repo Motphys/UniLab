@@ -21,6 +21,7 @@ from unilab.algos.torch.appo.learner import APPOLearner
 from unilab.algos.torch.appo.worker import appo_collector_fn
 from unilab.ipc import AsyncRunner, RolloutRingBuffer, SharedWeightSync
 from unilab.logging import OffPolicyLogger
+from unilab.training.seed import apply_training_seed, derive_worker_seed
 
 
 class APPORunner(AsyncRunner):
@@ -38,6 +39,7 @@ class APPORunner(AsyncRunner):
         steps_per_env: int = 24,
         num_workers: int = 1,  # kept for API compat, but only 1 collector used
         replay_queue_size: int = 3,
+        seed: int | None = None,
     ):
         super().__init__(
             env_name=env_name,
@@ -51,6 +53,7 @@ class APPORunner(AsyncRunner):
 
         self.steps_per_env = steps_per_env
         self.replay_queue_size = replay_queue_size
+        self.seed = seed
 
         # Resolve dims
         self._resolve_dims()
@@ -91,6 +94,7 @@ class APPORunner(AsyncRunner):
 
         ensure_registries()
 
+        apply_training_seed(self.seed, torch_runtime=True, cuda=True)
         env = registry.make(
             self.env_name,
             num_envs=1,
@@ -112,6 +116,7 @@ class APPORunner(AsyncRunner):
         import torch
         from tensordict import TensorDict
 
+        apply_training_seed(self.seed, torch_runtime=True, cuda=True)
         obs_example = torch.zeros((self.num_envs, self.obs_dim), device=self.device)
         td_example = TensorDict({"policy": obs_example}, batch_size=self.num_envs)
 
@@ -231,6 +236,7 @@ class APPORunner(AsyncRunner):
             "collector_device": self.collector_device,
             "sim_backend": self.sim_backend,
             "env_cfg_override": self.env_cfg_overrides if self.env_cfg_overrides else None,
+            "seed": derive_worker_seed(self.seed, worker_index=0),
         }
         self._start_collector(
             target_fn=appo_collector_fn,

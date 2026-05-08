@@ -15,6 +15,7 @@ from unilab.ipc import SharedObsNormStats, SharedWeightSync
 from unilab.ipc.async_runner import _SPAWN_CTX, AsyncRunner
 from unilab.ipc.replay_buffer import ReplayBuffer
 from unilab.logging import OffPolicyLogger
+from unilab.training.seed import apply_training_seed, derive_worker_seed
 from unilab.utils.device import get_default_device
 
 
@@ -61,6 +62,7 @@ class OffPolicyRunner(AsyncRunner):
         sim_backend: str = "mujoco",
         env_cfg_override: dict | None = None,
         actor_kwargs: dict | None = None,
+        seed: int | None = None,
     ):
         super().__init__(
             env_name=env_name,
@@ -91,8 +93,10 @@ class OffPolicyRunner(AsyncRunner):
         self.use_layer_norm = use_layer_norm
         self.obs_normalization = obs_normalization
         self.actor_kwargs = actor_kwargs or {}
+        self.seed = seed
         self._active_logger: OffPolicyLogger | None = None
 
+        apply_training_seed(self.seed, torch_runtime=True, cuda=True)
         self.obs_dim, self.action_dim, self.critic_obs_dim = get_env_dims(
             self.env_name, sim_backend, env_cfg_override
         )
@@ -226,6 +230,7 @@ class OffPolicyRunner(AsyncRunner):
             "obs_dim": self.obs_dim,
             "action_dim": self.action_dim,
             "actor_kwargs": self.actor_kwargs,
+            "seed": derive_worker_seed(self.seed, worker_index=0),
         }
         self._start_collector(
             target_fn=off_policy_collector_fn,

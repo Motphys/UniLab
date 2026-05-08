@@ -20,6 +20,7 @@ from unilab.algos.torch.rsl_rl_runtime import resolve_rsl_rl_ppo_runtime
 from unilab.base.backend.xml import materialize_scene_visual_override
 from unilab.training import (
     BackendAdapter,
+    apply_configured_training_seed,
     create_env,
     ensure_registries,
     get_latest_checkpoint,
@@ -242,6 +243,7 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
 def main(cfg: DictConfig) -> None:
     ensure_registries()
 
+    seed_info = apply_configured_training_seed(cfg, torch_runtime=True, cuda=True)
     env_cfg_override = build_ppo_env_cfg_override(cfg)
 
     if torch.cuda.is_available():
@@ -282,6 +284,7 @@ def main(cfg: DictConfig) -> None:
             training_cfg=cfg.training,
             full_cfg=cfg,
             device=device,
+            seed_info=seed_info,
         )
         tracker.start()
 

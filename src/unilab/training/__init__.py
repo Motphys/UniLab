@@ -19,6 +19,13 @@ from unilab.training.run import (
     resolve_checkpoint_path,
     resolve_task_checkpoint_path,
 )
+from unilab.training.seed import (
+    TrainingSeedInfo,
+    apply_configured_training_seed,
+    apply_training_seed,
+    derive_worker_seed,
+    resolve_training_seed,
+)
 
 __all__ = [
     "BackendAdapter",
@@ -35,5 +42,10 @@ __all__ = [
     "parse_checkpoint_path",
     "resolve_checkpoint_path",
     "resolve_task_checkpoint_path",
+    "TrainingSeedInfo",
+    "apply_configured_training_seed",
+    "apply_training_seed",
+    "derive_worker_seed",
+    "resolve_training_seed",
     "setup_logger",
 ]
