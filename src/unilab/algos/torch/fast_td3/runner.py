@@ -42,7 +42,11 @@ class FastTD3Runner(OffPolicyRunner):
         use_cdq: bool = True,
         obs_normalization: bool = True,
         sim_backend: str = "mujoco",
+        seed: int | None = None,
     ):
+        from unilab.training.seed import apply_training_seed
+
+        apply_training_seed(seed, torch_runtime=True, cuda=True)
         obs_dim, action_dim, critic_obs_dim = get_env_dims(
             env_name, sim_backend, env_cfg_override=env_cfg_override
         )
@@ -91,4 +95,5 @@ class FastTD3Runner(OffPolicyRunner):
             obs_normalization=obs_normalization,
             sim_backend=sim_backend,
             env_cfg_override=env_cfg_override,
+            seed=seed,
         )

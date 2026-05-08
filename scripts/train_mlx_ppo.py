@@ -31,6 +31,7 @@ from unilab.base.observations import flatten_obs_dict
 from unilab.logging import OnPolicyLogger
 from unilab.training import (
     BackendAdapter,
+    apply_configured_training_seed,
     create_env,
     ensure_registries,
     get_log_root,
@@ -369,7 +370,12 @@ def main(cfg: DictConfig) -> None:
     dtype = mx.float16 if use_fp16 else mx.float32
     model_dtype = mx.float32 if use_fp16 else dtype
 
-    mx.random.seed(cfg.training.seed)
+    seed_info = apply_configured_training_seed(
+        cfg,
+        torch_runtime=False,
+        cuda=False,
+        mlx_runtime=True,
+    )
 
     algo_cfg = cfg.algo.algorithm
     profile_collection = os.getenv("UNILAB_PROFILE_COLLECTION", "0") == "1"
@@ -403,6 +409,7 @@ def main(cfg: DictConfig) -> None:
         training_cfg=cfg.training,
         full_cfg=cfg,
         device="mps",
+        seed_info=seed_info,
     )
     tracker.start()
 

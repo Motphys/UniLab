@@ -18,6 +18,7 @@ from rsl_rl.utils import resolve_callable
 from unilab.base.final_observation import resolve_terminal_observation_contract
 from unilab.base.observations import split_obs_dict
 from unilab.base.registry import ensure_registries
+from unilab.training.seed import apply_training_seed
 
 
 def compute_timeout_bootstrap_correction(
@@ -72,6 +73,7 @@ def appo_collector_fn(
     collector_device: str = "cpu",
     sim_backend: str = "mujoco",
     env_cfg_override: dict | None = None,
+    seed: int | None = None,
 ):
     """Entry point for the APPO collector subprocess.
 
@@ -85,6 +87,7 @@ def appo_collector_fn(
     from unilab.ipc import RolloutRingBuffer, SharedWeightSync
 
     ensure_registries()
+    apply_training_seed(seed, torch_runtime=True, cuda=True)
 
     # Connect to shared memory
     ring_buffer = RolloutRingBuffer(

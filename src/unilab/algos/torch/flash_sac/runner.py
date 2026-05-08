@@ -52,12 +52,15 @@ class FlashSACRunner(OffPolicyRunner):
         normalized_g_max: float = 5.0,
         n_step: int = 1,
         use_compile: bool = False,
+        seed: int | None = None,
     ):
         from unilab.base import registry
         from unilab.base.observations import get_obs_dims
         from unilab.base.registry import ensure_registries
+        from unilab.training.seed import apply_training_seed
 
         ensure_registries()
+        apply_training_seed(seed, torch_runtime=True, cuda=True)
         env: Any = registry.make(
             env_name, num_envs=1, sim_backend=sim_backend, env_cfg_override=env_cfg_override
         )
@@ -118,6 +121,7 @@ class FlashSACRunner(OffPolicyRunner):
             device=runtime_device,
             actor_hidden_dim=actor_hidden_dim,
             use_layer_norm=False,
+            seed=seed,
             obs_normalization=obs_normalization,
             sim_backend=sim_backend,
             env_cfg_override=env_cfg_override,

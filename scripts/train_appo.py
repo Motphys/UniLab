@@ -19,6 +19,7 @@ sys.path.append(str(ROOT_DIR))
 from unilab.algos.torch.appo.runtime import resolve_appo_runtime
 from unilab.training import (
     BackendAdapter,
+    apply_configured_training_seed,
     create_env,
     ensure_registries,
     get_log_root,
@@ -48,6 +49,7 @@ def build_appo_runner_kwargs(
         "num_envs": cfg.algo.num_envs,
         "steps_per_env": cfg.algo.steps_per_env,
         "sim_backend": cfg.training.sim_backend,
+        "seed": rl_cfg.get("seed"),
     }
     if cfg.training.replay_queue_size is not None:
         runner_kwargs["replay_queue_size"] = cfg.training.replay_queue_size
@@ -333,6 +335,7 @@ def play_appo(
 def main(cfg: DictConfig) -> None:
     ensure_registries()
 
+    seed_info = apply_configured_training_seed(cfg, torch_runtime=True, cuda=True)
     env_cfg_override = BackendAdapter(
         cfg, root_dir=ROOT_DIR, algo_name="appo"
     ).build_task_env_cfg_override()
@@ -379,6 +382,7 @@ def main(cfg: DictConfig) -> None:
             full_cfg=cfg,
             device=learner_device,
             collector_device=collector_device,
+            seed_info=seed_info,
         )
         tracker.start()
 

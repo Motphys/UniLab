@@ -14,6 +14,7 @@ from rsl_rl.utils import resolve_callable
 
 from unilab.base.final_observation import resolve_terminal_observation_contract
 from unilab.base.registry import ensure_registries
+from unilab.training.seed import apply_training_seed
 
 from .observations import split_hora_obs_with_priv_info
 
@@ -76,6 +77,7 @@ def hora_appo_collector_fn(
     sim_backend: str = "mujoco",
     env_cfg_override: dict | None = None,
     priv_info_dim: int = 0,
+    seed: int | None = None,
 ):
     """Collect grouped HORA APPO rollouts into the shared IPC ring buffer."""
     from copy import deepcopy
@@ -91,6 +93,7 @@ def hora_appo_collector_fn(
     from unilab.ipc import RolloutRingBuffer, SharedWeightSync
 
     ensure_registries()
+    apply_training_seed(seed, torch_runtime=True, cuda=True)
 
     ring_buffer = RolloutRingBuffer(
         num_envs=num_envs,

@@ -34,6 +34,7 @@ from unilab.ipc import SharedWeightSync
 from unilab.ipc.async_runner import _SPAWN_CTX
 from unilab.ipc.replay_buffer import ReplayBuffer
 from unilab.logging import OffPolicyLogger
+from unilab.training.seed import apply_training_seed, derive_worker_seed
 
 
 def _find_free_port() -> int:
@@ -119,6 +120,11 @@ def _learner_worker(
     logger: Optional[OffPolicyLogger] = None
     weight_sync: SharedWeightSync | None = None
     try:
+        apply_training_seed(
+            derive_worker_seed(runner_kwargs.get("seed"), worker_index=rank + 1000),
+            torch_runtime=True,
+            cuda=True,
+        )
         # 1. Initialise per-process GPU cache (host tensors already shared)
         replay_buffer.init_local_gpu_cache(device)
 
@@ -441,6 +447,7 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
             "shared_obs_normalizer_stats": None,
             "sim_backend": self.sim_backend,
             "env_cfg_override": self.env_cfg_override,
+            "seed": derive_worker_seed(self.seed, worker_index=0),
         }
         self._start_collector(
             target_fn=off_policy_collector_fn,
@@ -470,6 +477,7 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
             "obs_dim": self.obs_dim,
             "action_dim": self.action_dim,
             "logger_type": logger_type,
+            "seed": self.seed,
         }
 
         try:
