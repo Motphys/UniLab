@@ -7,14 +7,9 @@ References:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import numpy as np
 
-from unilab.terrains.terrain_generator import FlatPatchSamplingCfg
-
-if TYPE_CHECKING:
-    import mujoco
+from unilab.terrains.terrain_generator import FlatPatchSamplingCfg  # noqa: F401
 
 
 def bilinear_zoom_2d(arr: np.ndarray, zoom_factors: float | tuple[float, float]) -> np.ndarray:
@@ -182,103 +177,6 @@ def find_flat_patches_from_heightfield(
     z = heights[selected[:, 0], selected[:, 1]] + z_offset
 
     return np.stack([x, y, z], axis=-1)
-
-
-def make_plane(
-    body: mujoco.MjsBody,
-    size: tuple[float, float],
-    height: float,
-    center_zero: bool = True,
-    plane_thickness: float = 1.0,
-):
-    """Create finite plane using box geometry."""
-    import mujoco
-
-    if center_zero:
-        pos = (0.0, 0.0, height - plane_thickness / 2.0)
-    else:
-        pos = (size[0] / 2.0, size[1] / 2.0, height - plane_thickness / 2.0)
-
-    box = body.add_geom(
-        type=mujoco.mjtGeom.mjGEOM_BOX,
-        size=(size[0] / 2.0, size[1] / 2.0, plane_thickness / 2.0),
-        pos=pos,
-    )
-    return [box]
-
-
-def make_border(
-    body: mujoco.MjsBody,
-    size: tuple[float, float],
-    inner_size: tuple[float, float],
-    height: float,
-    position: tuple[float, float, float],
-):
-    """Create rectangular border using four box geometries."""
-    import mujoco
-
-    boxes = []
-
-    thickness_x = (size[0] - inner_size[0]) / 2.0
-    thickness_y = (size[1] - inner_size[1]) / 2.0
-
-    box_dims = (size[0], thickness_y, height)
-
-    # Top.
-    box_pos = (
-        position[0],
-        position[1] + inner_size[1] / 2.0 + thickness_y / 2.0,
-        position[2],
-    )
-    box = body.add_geom(
-        type=mujoco.mjtGeom.mjGEOM_BOX,
-        size=(box_dims[0] / 2.0, box_dims[1] / 2.0, box_dims[2] / 2.0),
-        pos=box_pos,
-    )
-    boxes.append(box)
-
-    # Bottom.
-    box_pos = (
-        position[0],
-        position[1] - inner_size[1] / 2.0 - thickness_y / 2.0,
-        position[2],
-    )
-    box = body.add_geom(
-        type=mujoco.mjtGeom.mjGEOM_BOX,
-        size=(box_dims[0] / 2.0, box_dims[1] / 2.0, box_dims[2] / 2.0),
-        pos=box_pos,
-    )
-    boxes.append(box)
-
-    box_dims = (thickness_x, inner_size[1], height)
-
-    # Left.
-    box_pos = (
-        position[0] - inner_size[0] / 2.0 - thickness_x / 2.0,
-        position[1],
-        position[2],
-    )
-    box = body.add_geom(
-        type=mujoco.mjtGeom.mjGEOM_BOX,
-        size=(box_dims[0] / 2.0, box_dims[1] / 2.0, box_dims[2] / 2.0),
-        pos=box_pos,
-    )
-    boxes.append(box)
-
-    # Right.
-    box_pos = (
-        position[0] + inner_size[0] / 2.0 + thickness_x / 2.0,
-        position[1],
-        position[2],
-    )
-    box = body.add_geom(
-        type=mujoco.mjtGeom.mjGEOM_BOX,
-        size=(box_dims[0] / 2.0, box_dims[1] / 2.0, box_dims[2] / 2.0),
-        pos=box_pos,
-    )
-    boxes.append(box)
-
-    return boxes
 
 
 def compute_env_origins_grid(num_envs: int, env_spacing: float) -> np.ndarray:

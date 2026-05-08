@@ -7,12 +7,8 @@ from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
-from unilab.terrains._color import RGBA
-
 if TYPE_CHECKING:
     import mujoco
-
-_DARK_GRAY = (0.2, 0.2, 0.2, 1.0)
 
 
 @dataclass
@@ -102,9 +98,20 @@ class TerrainGeneratorCfg:
         Proportions control sampling probability. Use this for random variety.
     """
     size: tuple[float, float]
-    """Width and length of each sub-terrain patch, in meters."""
+    """Width and length of each sub-terrain patch, in meters. Both components
+    must be integer multiples of ``horizontal_scale``."""
+    horizontal_scale: float = 0.05
+    """Heightfield grid resolution along x and y, in meters per cell. Shared by
+    every sub-terrain (overwritten in :class:`TerrainGenerator` ``__init__``).
+    All length-like sub-terrain parameters (step_width, platform_width,
+    border_width, etc.) must be integer multiples of this value."""
+    vertical_scale: float = 0.005
+    """Heightfield height resolution, in meters per integer unit of the noise
+    array. Shared by every sub-terrain (overwritten in
+    :class:`TerrainGenerator` ``__init__``)."""
     border_width: float = 0.0
-    """Width of the flat border around the entire terrain grid, in meters."""
+    """Width of the flat border around the entire terrain grid, in meters. Must
+    be an integer multiple of ``horizontal_scale`` if non-zero."""
     border_height: float = 1.0
     """Height of the border wall around the terrain grid, in meters."""
     num_rows: int = 1
@@ -163,6 +170,9 @@ class TerrainGenerator:
 
         for sub_cfg in self.cfg.sub_terrains.values():
             sub_cfg.size = self.cfg.size
+
+        self._propagate_resolution()
+        self._validate_resolution()
 
         if self.cfg.seed is not None:
             seed = self.cfg.seed
@@ -338,33 +348,36 @@ class TerrainGenerator:
         return spawn_origin
 
     def _add_terrain_border(self, spec: mujoco.MjSpec) -> None:
-        from unilab.terrains.utils import make_border
+        from unilab.terrains.heightfield_terrains import _add_flat_hfield_slab
 
         if self.cfg.border_width <= 0.0:
             return
         body = spec.body("terrain")
-        border_size = (
-            self.cfg.num_rows * self.cfg.size[0] + 2 * self.cfg.border_width,
-            self._num_cols * self.cfg.size[1] + 2 * self.cfg.border_width,
-        )
-        inner_size = (
-            self.cfg.num_rows * self.cfg.size[0],
-            self._num_cols * self.cfg.size[1],
-        )
-        # Border should be centered at origin since the terrain grid is centered.
-        border_center = (0, 0, -self.cfg.border_height / 2)
-        boxes = make_border(
-            body,
-            border_size,
-            inner_size,
-            height=abs(self.cfg.border_height),
-            position=border_center,
-        )
-        for box in boxes:
-            if self.cfg.color_scheme == "random":
-                box.rgba = RGBA.random(self.np_rng, alpha=1.0)
-            else:
-                box.rgba = _DARK_GRAY
+        bw = self.cfg.border_width
+        bh = abs(self.cfg.border_height)
+        inner_x = self.cfg.num_rows * self.cfg.size[0]
+        inner_y = self._num_cols * self.cfg.size[1]
+        outer_x = inner_x + 2 * bw
+
+        # Surface flush with the inner-terrain floor at z=0; the slab's body
+        # extends downward by ``border_height`` to act as a containment apron.
+        strip_specs = [
+            (outer_x, bw, 0.0, +inner_y / 2 + bw / 2),  # Top
+            (outer_x, bw, 0.0, -inner_y / 2 - bw / 2),  # Bottom
+            (bw, inner_y, -inner_x / 2 - bw / 2, 0.0),  # Left
+            (bw, inner_y, +inner_x / 2 + bw / 2, 0.0),  # Right
+        ]
+
+        for size_x, size_y, cx, cy in strip_specs:
+            _add_flat_hfield_slab(
+                spec,
+                body,
+                size=(size_x, size_y),
+                horizontal_scale=self.cfg.horizontal_scale,
+                pos_xy=(cx, cy),
+                surface_z=0.0,
+                base_thickness=bh,
+            )
 
     def _add_grid_lights(self, spec: mujoco.MjSpec) -> None:
         if not self.cfg.add_lights:
@@ -381,3 +394,50 @@ class TerrainGenerator:
             type=mujoco.mjtLightType.mjLIGHT_DIRECTIONAL,
             dir=(0, 0, -1),
         )
+
+    def _propagate_resolution(self) -> None:
+        """Force every sub-terrain config to share the generator's resolution."""
+        hs = self.cfg.horizontal_scale
+        vs = self.cfg.vertical_scale
+        for sub_cfg in self.cfg.sub_terrains.values():
+            if hasattr(sub_cfg, "horizontal_scale"):
+                setattr(sub_cfg, "horizontal_scale", hs)
+            if hasattr(sub_cfg, "vertical_scale"):
+                setattr(sub_cfg, "vertical_scale", vs)
+
+    def _validate_resolution(self) -> None:
+        """Check that all length-like config values divide evenly by horizontal_scale."""
+        hs = self.cfg.horizontal_scale
+        if hs <= 0:
+            raise ValueError(f"horizontal_scale must be positive, got {hs}.")
+        if self.cfg.vertical_scale <= 0:
+            raise ValueError(f"vertical_scale must be positive, got {self.cfg.vertical_scale}.")
+
+        def _is_multiple(value: float) -> bool:
+            return abs(round(value / hs) * hs - value) <= 1e-9
+
+        for axis, sz in zip(("size[0]", "size[1]"), self.cfg.size):
+            if not _is_multiple(sz):
+                raise ValueError(
+                    f"TerrainGeneratorCfg.{axis}={sz} must be an integer multiple of "
+                    f"horizontal_scale={hs}."
+                )
+
+        if self.cfg.border_width > 0 and not _is_multiple(self.cfg.border_width):
+            raise ValueError(
+                f"TerrainGeneratorCfg.border_width={self.cfg.border_width} must be "
+                f"an integer multiple of horizontal_scale={hs}."
+            )
+
+        for name, sub_cfg in self.cfg.sub_terrains.items():
+            for fld in ("step_width", "platform_width", "border_width"):
+                if not hasattr(sub_cfg, fld):
+                    continue
+                value = getattr(sub_cfg, fld)
+                if value is None or value == 0:
+                    continue
+                if not _is_multiple(value):
+                    raise ValueError(
+                        f"Sub-terrain '{name}' field '{fld}'={value} must be an "
+                        f"integer multiple of horizontal_scale={hs}."
+                    )

@@ -11,6 +11,7 @@ References:
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -29,6 +30,8 @@ from unilab.terrains.utils import (
     bilinear_zoom_2d,
     find_flat_patches_from_heightfield,
 )
+
+_MIN_BASE_THICKNESS = 0.01
 
 
 def color_by_height(
@@ -196,6 +199,110 @@ def _compute_flat_patches(
     return flat_patches
 
 
+def _add_hfield_to_spec(
+    spec: mujoco.MjSpec,
+    body: mujoco.MjsBody,
+    noise: np.ndarray,
+    *,
+    size: tuple[float, float],
+    horizontal_scale: float,
+    vertical_scale: float,
+    base_thickness_ratio: float,
+    z_offset_fn: Callable[[float], float] = lambda max_h: 0.0,
+    color_scheme: str = "height",
+    pos_xy: tuple[float, float] | None = None,
+) -> tuple[mujoco.MjsHField, mujoco.MjsGeom, float, float]:
+    """Add a heightfield asset + geom to ``spec`` from a quantized int16 noise array.
+
+    The hfield's data range is normalized to ``[0, 1]`` from the noise array's
+    ``[min, max]``. ``z_offset_fn`` receives the resulting ``max_physical_height``
+    and returns the world-space z position for the hfield's data-zero plane.
+
+    Returns ``(field, geom, max_physical_height, z_offset)``.
+    """
+    import mujoco
+
+    elevation_min = int(np.min(noise))
+    elevation_max = int(np.max(noise))
+    elevation_range = elevation_max - elevation_min if elevation_max != elevation_min else 1
+
+    max_physical_height = elevation_range * vertical_scale
+    base_thickness = max(max_physical_height * base_thickness_ratio, _MIN_BASE_THICKNESS)
+
+    if elevation_range > 0:
+        normalized_elevation = (noise.astype(np.float64) - elevation_min) / elevation_range
+    else:
+        normalized_elevation = np.zeros_like(noise, dtype=np.float64)
+
+    z_offset = z_offset_fn(max_physical_height)
+
+    unique_id = uuid.uuid4().hex
+    field = spec.add_hfield(
+        name=f"hfield_{unique_id}",
+        size=[size[0] / 2, size[1] / 2, max_physical_height, base_thickness],
+        nrow=noise.shape[0],
+        ncol=noise.shape[1],
+        userdata=normalized_elevation.flatten().astype(np.float32).tolist(),
+    )
+
+    if color_scheme == "height":
+        material_name = color_by_height(spec, noise, unique_id, normalized_elevation)
+    else:
+        material_name = ""
+
+    if pos_xy is None:
+        pos_xy = (size[0] / 2, size[1] / 2)
+    if material_name:
+        geom = body.add_geom(
+            type=mujoco.mjtGeom.mjGEOM_HFIELD,
+            hfieldname=field.name,
+            pos=[pos_xy[0], pos_xy[1], z_offset],
+            material=material_name,
+        )
+    else:
+        geom = body.add_geom(
+            type=mujoco.mjtGeom.mjGEOM_HFIELD,
+            hfieldname=field.name,
+            pos=[pos_xy[0], pos_xy[1], z_offset],
+        )
+
+    return field, geom, max_physical_height, z_offset
+
+
+def _add_flat_hfield_slab(
+    spec: mujoco.MjSpec,
+    body: mujoco.MjsBody,
+    *,
+    size: tuple[float, float],
+    horizontal_scale: float,
+    pos_xy: tuple[float, float],
+    surface_z: float,
+    base_thickness: float,
+) -> tuple[mujoco.MjsHField, mujoco.MjsGeom]:
+    """Add a flat hfield slab at ``surface_z`` with ``base_thickness`` of body below."""
+    import mujoco
+
+    nrow = max(int(round(size[0] / horizontal_scale)), 2)
+    ncol = max(int(round(size[1] / horizontal_scale)), 2)
+
+    unique_id = uuid.uuid4().hex
+    field = spec.add_hfield(
+        name=f"hfield_{unique_id}",
+        size=[size[0] / 2, size[1] / 2, 1e-3, max(base_thickness, 1e-3)],
+        nrow=nrow,
+        ncol=ncol,
+        userdata=[0.0] * (nrow * ncol),
+    )
+
+    geom = body.add_geom(
+        type=mujoco.mjtGeom.mjGEOM_HFIELD,
+        hfieldname=field.name,
+        pos=[pos_xy[0], pos_xy[1], surface_z],
+    )
+
+    return field, geom
+
+
 @dataclass(kw_only=True)
 class HfPyramidSlopedTerrainCfg(SubTerrainCfg):
     slope_range: tuple[float, float]
@@ -297,55 +404,19 @@ class HfPyramidSlopedTerrainCfg(SubTerrainCfg):
 
             noise = np.rint(hf_raw).astype(np.int16)
 
-        elevation_min = np.min(noise)
-        elevation_max = np.max(noise)
-        elevation_range = elevation_max - elevation_min if elevation_max != elevation_min else 1
-
-        max_physical_height = elevation_range * self.vertical_scale
-        base_thickness = max_physical_height * self.base_thickness_ratio
-
-        if elevation_range > 0:
-            normalized_elevation = (noise - elevation_min) / elevation_range
-        else:
-            normalized_elevation = np.zeros_like(noise)
-
-        unique_id = uuid.uuid4().hex
-        field = spec.add_hfield(
-            name=f"hfield_{unique_id}",
-            size=[
-                self.size[0] / 2,
-                self.size[1] / 2,
-                max_physical_height,
-                base_thickness,
-            ],
-            nrow=noise.shape[0],
-            ncol=noise.shape[1],
-            userdata=normalized_elevation.flatten().astype(np.float32).tolist(),
+        z_offset_fn = (lambda max_h: -max_h) if self.inverted else (lambda max_h: 0.0)
+        field, hfield_geom, max_physical_height, hfield_z_offset = _add_hfield_to_spec(
+            spec,
+            body,
+            noise,
+            size=self.size,
+            horizontal_scale=self.horizontal_scale,
+            vertical_scale=self.vertical_scale,
+            base_thickness_ratio=self.base_thickness_ratio,
+            z_offset_fn=z_offset_fn,
         )
 
-        if self.inverted:
-            hfield_z_offset = -max_physical_height
-        else:
-            hfield_z_offset = 0
-
-        material_name = color_by_height(spec, noise, unique_id, normalized_elevation)
-
-        hfield_geom = body.add_geom(
-            type=mujoco.mjtGeom.mjGEOM_HFIELD,
-            hfieldname=field.name,
-            pos=[
-                self.size[0] / 2,
-                self.size[1] / 2,
-                hfield_z_offset,
-            ],
-            material=material_name,
-        )
-
-        if self.inverted:
-            spawn_height = hfield_z_offset
-        else:
-            spawn_height = max_physical_height
-
+        spawn_height = hfield_z_offset if self.inverted else max_physical_height
         origin = np.array([self.size[0] / 2, self.size[1] / 2, spawn_height])
 
         flat_patches = _compute_flat_patches(
@@ -467,39 +538,14 @@ class HfRandomUniformTerrainCfg(SubTerrainCfg):
             )
             noise = np.rint(z_upsampled).astype(np.int16)
 
-        elevation_min = np.min(noise)
-        elevation_max = np.max(noise)
-        elevation_range = elevation_max - elevation_min if elevation_max != elevation_min else 1
-
-        max_physical_height = elevation_range * self.vertical_scale
-        base_thickness = max_physical_height * self.base_thickness_ratio
-
-        if elevation_range > 0:
-            normalized_elevation = (noise - elevation_min) / elevation_range
-        else:
-            normalized_elevation = np.zeros_like(noise)
-
-        unique_id = uuid.uuid4().hex
-        field = spec.add_hfield(
-            name=f"hfield_{unique_id}",
-            size=[
-                self.size[0] / 2,
-                self.size[1] / 2,
-                max_physical_height,
-                base_thickness,
-            ],
-            nrow=noise.shape[0],
-            ncol=noise.shape[1],
-            userdata=normalized_elevation.flatten().astype(np.float32).tolist(),
-        )
-
-        material_name = color_by_height(spec, noise, unique_id, normalized_elevation)
-
-        hfield_geom = body.add_geom(
-            type=mujoco.mjtGeom.mjGEOM_HFIELD,
-            hfieldname=field.name,
-            pos=[self.size[0] / 2, self.size[1] / 2, 0],
-            material=material_name,
+        field, hfield_geom, _max_h, hfield_z_offset = _add_hfield_to_spec(
+            spec,
+            body,
+            noise,
+            size=self.size,
+            horizontal_scale=self.horizontal_scale,
+            vertical_scale=self.vertical_scale,
+            base_thickness_ratio=self.base_thickness_ratio,
         )
 
         spawn_height = (self.noise_range[0] + self.noise_range[1]) / 2
@@ -509,7 +555,7 @@ class HfRandomUniformTerrainCfg(SubTerrainCfg):
             noise,
             self.vertical_scale,
             self.horizontal_scale,
-            0,
+            hfield_z_offset,
             self.flat_patch_sampling,
             rng,
         )
@@ -594,39 +640,15 @@ class HfWaveTerrainCfg(SubTerrainCfg):
             hf_raw = amplitude_pixels * (np.cos(yy * wave_number) + np.sin(xx * wave_number))
             noise = np.rint(hf_raw).astype(np.int16)
 
-        elevation_min = np.min(noise)
-        elevation_max = np.max(noise)
-        elevation_range = elevation_max - elevation_min if elevation_max != elevation_min else 1
-
-        max_physical_height = elevation_range * self.vertical_scale
-        base_thickness = max_physical_height * self.base_thickness_ratio
-
-        if elevation_range > 0:
-            normalized_elevation = (noise - elevation_min) / elevation_range
-        else:
-            normalized_elevation = np.zeros_like(noise)
-
-        unique_id = uuid.uuid4().hex
-        field = spec.add_hfield(
-            name=f"hfield_{unique_id}",
-            size=[
-                self.size[0] / 2,
-                self.size[1] / 2,
-                max_physical_height,
-                base_thickness,
-            ],
-            nrow=noise.shape[0],
-            ncol=noise.shape[1],
-            userdata=normalized_elevation.flatten().astype(np.float32).tolist(),
-        )
-
-        material_name = color_by_height(spec, noise, unique_id, normalized_elevation)
-
-        hfield_geom = body.add_geom(
-            type=mujoco.mjtGeom.mjGEOM_HFIELD,
-            hfieldname=field.name,
-            pos=[self.size[0] / 2, self.size[1] / 2, -max_physical_height / 2],
-            material=material_name,
+        field, hfield_geom, _max_h, hfield_z_offset = _add_hfield_to_spec(
+            spec,
+            body,
+            noise,
+            size=self.size,
+            horizontal_scale=self.horizontal_scale,
+            vertical_scale=self.vertical_scale,
+            base_thickness_ratio=self.base_thickness_ratio,
+            z_offset_fn=lambda max_h: -max_h / 2,
         )
 
         spawn_height = 0.0
@@ -636,10 +658,245 @@ class HfWaveTerrainCfg(SubTerrainCfg):
             noise,
             self.vertical_scale,
             self.horizontal_scale,
-            -max_physical_height / 2,
+            hfield_z_offset,
             self.flat_patch_sampling,
             rng,
         )
 
         geom = TerrainGeometry(geom=hfield_geom, hfield=field)
         return TerrainOutput(origin=origin, geometries=[geom], flat_patches=flat_patches)
+
+
+@dataclass(kw_only=True)
+class HfPyramidStairsTerrainCfg(SubTerrainCfg):
+    """A pyramid stairs terrain encoded as a heightfield.
+
+    Concentric square rings from the outside in form a staircase climbing toward
+    a central platform. With ``holes=True`` the four diagonal corners of each
+    ring are carved out to a deep pit; agents falling into the pit reach a
+    terminating depth instead of an infinite void.
+    """
+
+    step_height_range: tuple[float, float]
+    """Min and max step height, in meters. Interpolated by difficulty."""
+    step_width: float
+    """Depth (run) of each step, in meters. Must be a multiple of horizontal_scale."""
+    platform_width: float = 1.0
+    """Side length of the flat square platform at the top of the staircase, in meters."""
+    border_width: float = 0.0
+    """Width of the flat outer border around the staircase, in meters."""
+    holes: bool = False
+    """If True, carve deep pits at the diagonal corners of each step ring."""
+    pit_depth: float = 5.0
+    """Depth of holes-mode pits below the lowest stair, in meters."""
+    horizontal_scale: float = 0.05
+    """Heightfield grid resolution. Overwritten by TerrainGenerator."""
+    vertical_scale: float = 0.005
+    """Heightfield height resolution. Overwritten by TerrainGenerator."""
+    base_thickness_ratio: float = 1.0
+    """Ratio of the heightfield base thickness to its surface height."""
+
+    def function(
+        self, difficulty: float, spec: mujoco.MjSpec, rng: np.random.Generator
+    ) -> TerrainOutput:
+        body = spec.body("terrain")
+
+        step_height = self.step_height_range[0] + difficulty * (
+            self.step_height_range[1] - self.step_height_range[0]
+        )
+
+        W = int(round(self.size[0] / self.horizontal_scale))
+        L = int(round(self.size[1] / self.horizontal_scale))
+        step_px = int(round(self.step_width / self.horizontal_scale))
+        plat_px = int(round(self.platform_width / self.horizontal_scale))
+        border_px = int(round(self.border_width / self.horizontal_scale))
+        step_units = int(round(step_height / self.vertical_scale))
+
+        noise = np.zeros((W, L), dtype=np.int16)
+
+        inner = min(W, L) - 2 * border_px
+        n_steps = max(0, (inner - plat_px) // (2 * step_px)) if step_px > 0 else 0
+
+        for k in range(n_steps):
+            lo_x = border_px + k * step_px
+            hi_x = W - border_px - k * step_px
+            lo_y = border_px + k * step_px
+            hi_y = L - border_px - k * step_px
+            noise[lo_x:hi_x, lo_y:hi_y] = (k + 1) * step_units
+
+        plat_lo_x = border_px + n_steps * step_px
+        plat_hi_x = W - border_px - n_steps * step_px
+        plat_lo_y = border_px + n_steps * step_px
+        plat_hi_y = L - border_px - n_steps * step_px
+        noise[plat_lo_x:plat_hi_x, plat_lo_y:plat_hi_y] = (n_steps + 1) * step_units
+
+        if self.holes:
+            pit_units = -int(round(self.pit_depth / self.vertical_scale))
+            if pit_units < np.iinfo(np.int16).min:
+                raise ValueError(
+                    f"pit_depth={self.pit_depth} m at vertical_scale="
+                    f"{self.vertical_scale} m overflows int16 range."
+                )
+            for k in range(n_steps):
+                lo_x = border_px + k * step_px
+                hi_x = W - border_px - k * step_px
+                lo_y = border_px + k * step_px
+                hi_y = L - border_px - k * step_px
+                # Four outer corner squares of this ring.
+                noise[lo_x : lo_x + step_px, lo_y : lo_y + step_px] = pit_units
+                noise[lo_x : lo_x + step_px, hi_y - step_px : hi_y] = pit_units
+                noise[hi_x - step_px : hi_x, lo_y : lo_y + step_px] = pit_units
+                noise[hi_x - step_px : hi_x, hi_y - step_px : hi_y] = pit_units
+
+        field, hfield_geom, _max_h, hfield_z_offset = _add_hfield_to_spec(
+            spec,
+            body,
+            noise,
+            size=self.size,
+            horizontal_scale=self.horizontal_scale,
+            vertical_scale=self.vertical_scale,
+            base_thickness_ratio=self.base_thickness_ratio,
+        )
+
+        spawn_z = (n_steps + 1) * step_units * self.vertical_scale
+        origin = np.array([self.size[0] / 2, self.size[1] / 2, spawn_z])
+
+        flat_patches = _compute_flat_patches(
+            noise,
+            self.vertical_scale,
+            self.horizontal_scale,
+            hfield_z_offset,
+            self.flat_patch_sampling,
+            rng,
+        )
+
+        geom = TerrainGeometry(geom=hfield_geom, hfield=field)
+        return TerrainOutput(origin=origin, geometries=[geom], flat_patches=flat_patches)
+
+
+@dataclass(kw_only=True)
+class HfInvertedPyramidStairsTerrainCfg(HfPyramidStairsTerrainCfg):
+    """A pit-style pyramid stairs terrain encoded as a heightfield.
+
+    Inverts :class:`HfPyramidStairsTerrainCfg`: outer ring sits at world z=0,
+    rings descend toward a central platform at the bottom. With ``holes=True``
+    the diagonal corners are even deeper than the platform.
+    """
+
+    def function(
+        self, difficulty: float, spec: mujoco.MjSpec, rng: np.random.Generator
+    ) -> TerrainOutput:
+        body = spec.body("terrain")
+
+        step_height = self.step_height_range[0] + difficulty * (
+            self.step_height_range[1] - self.step_height_range[0]
+        )
+
+        W = int(round(self.size[0] / self.horizontal_scale))
+        L = int(round(self.size[1] / self.horizontal_scale))
+        step_px = int(round(self.step_width / self.horizontal_scale))
+        plat_px = int(round(self.platform_width / self.horizontal_scale))
+        border_px = int(round(self.border_width / self.horizontal_scale))
+        step_units = int(round(step_height / self.vertical_scale))
+
+        noise = np.zeros((W, L), dtype=np.int16)
+
+        inner = min(W, L) - 2 * border_px
+        n_steps = max(0, (inner - plat_px) // (2 * step_px)) if step_px > 0 else 0
+
+        # Rings descend (negative values) from outer to inner.
+        for k in range(n_steps):
+            lo_x = border_px + k * step_px
+            hi_x = W - border_px - k * step_px
+            lo_y = border_px + k * step_px
+            hi_y = L - border_px - k * step_px
+            noise[lo_x:hi_x, lo_y:hi_y] = -(k + 1) * step_units
+
+        plat_lo_x = border_px + n_steps * step_px
+        plat_hi_x = W - border_px - n_steps * step_px
+        plat_lo_y = border_px + n_steps * step_px
+        plat_hi_y = L - border_px - n_steps * step_px
+        noise[plat_lo_x:plat_hi_x, plat_lo_y:plat_hi_y] = -(n_steps + 1) * step_units
+
+        if self.holes:
+            min_existing = int(noise.min())
+            pit_units = min_existing - int(round(self.pit_depth / self.vertical_scale))
+            if pit_units < np.iinfo(np.int16).min:
+                raise ValueError(
+                    f"pit_depth={self.pit_depth} m below platform at vertical_scale="
+                    f"{self.vertical_scale} m overflows int16 range."
+                )
+            for k in range(n_steps):
+                lo_x = border_px + k * step_px
+                hi_x = W - border_px - k * step_px
+                lo_y = border_px + k * step_px
+                hi_y = L - border_px - k * step_px
+                noise[lo_x : lo_x + step_px, lo_y : lo_y + step_px] = pit_units
+                noise[lo_x : lo_x + step_px, hi_y - step_px : hi_y] = pit_units
+                noise[hi_x - step_px : hi_x, lo_y : lo_y + step_px] = pit_units
+                noise[hi_x - step_px : hi_x, hi_y - step_px : hi_y] = pit_units
+
+        # Place data such that the original "0" layer (outer ring top) sits at
+        # world z=0 — matches the existing HfPyramidSloped(inverted) convention.
+        field, hfield_geom, _max_h, hfield_z_offset = _add_hfield_to_spec(
+            spec,
+            body,
+            noise,
+            size=self.size,
+            horizontal_scale=self.horizontal_scale,
+            vertical_scale=self.vertical_scale,
+            base_thickness_ratio=self.base_thickness_ratio,
+            z_offset_fn=lambda max_h: -max_h,
+        )
+
+        spawn_z = -(n_steps + 1) * step_units * self.vertical_scale
+        origin = np.array([self.size[0] / 2, self.size[1] / 2, spawn_z])
+
+        flat_patches = _compute_flat_patches(
+            noise,
+            self.vertical_scale,
+            self.horizontal_scale,
+            hfield_z_offset,
+            self.flat_patch_sampling,
+            rng,
+        )
+
+        geom = TerrainGeometry(geom=hfield_geom, hfield=field)
+        return TerrainOutput(origin=origin, geometries=[geom], flat_patches=flat_patches)
+
+
+@dataclass(kw_only=True)
+class HfFlatTerrainCfg(SubTerrainCfg):
+    """A flat heightfield terrain (all-zero noise array)."""
+
+    horizontal_scale: float = 0.05
+    """Heightfield grid resolution. Overwritten by TerrainGenerator."""
+    vertical_scale: float = 0.005
+    """Heightfield height resolution. Overwritten by TerrainGenerator."""
+    base_thickness_ratio: float = 0.0
+    """Ratio of the heightfield base thickness to its surface height. The
+    helper enforces a minimum thickness so a literal zero is fine here."""
+
+    def function(
+        self, difficulty: float, spec: mujoco.MjSpec, rng: np.random.Generator
+    ) -> TerrainOutput:
+        del difficulty, rng  # Unused.
+        body = spec.body("terrain")
+
+        width_pixels = int(round(self.size[0] / self.horizontal_scale))
+        length_pixels = int(round(self.size[1] / self.horizontal_scale))
+        noise = np.zeros((width_pixels, length_pixels), dtype=np.int16)
+
+        field, hfield_geom, _max_h, _z = _add_hfield_to_spec(
+            spec,
+            body,
+            noise,
+            size=self.size,
+            horizontal_scale=self.horizontal_scale,
+            vertical_scale=self.vertical_scale,
+            base_thickness_ratio=self.base_thickness_ratio,
+        )
+
+        origin = np.array([self.size[0] / 2, self.size[1] / 2, 0.0])
+        geom = TerrainGeometry(geom=hfield_geom, hfield=field)
+        return TerrainOutput(origin=origin, geometries=[geom])

@@ -136,3 +136,92 @@ def test_compute_env_origins_grid_non_square_count_is_truncated():
     assert origins.shape == (10, 3)
     unique_xy = {tuple(p[:2]) for p in origins}
     assert len(unique_xy) == 10
+
+
+def test_all_compiled_geoms_are_hfields():
+    """Compile a small ROUGH scene and assert every terrain-body geom is a hfield."""
+    spec = mujoco.MjSpec()
+    cfg = _small_rough_cfg()
+    TerrainGenerator(cfg).compile(spec)
+    for geom in spec.body("terrain").geoms:
+        assert geom.type == mujoco.mjtGeom.mjGEOM_HFIELD, (
+            f"Found non-hfield geom in terrain body: type={geom.type}"
+        )
+
+
+def test_border_uses_hfields():
+    """Enabling the outer border emits 4 additional hfield strips, no boxes."""
+    spec = mujoco.MjSpec()
+    cfg = _small_rough_cfg()
+    cfg.border_width = 5.0
+    cfg.border_height = 1.0
+    n_inner = cfg.num_rows * cfg.num_cols
+    TerrainGenerator(cfg).compile(spec)
+    types = [geom.type for geom in spec.body("terrain").geoms]
+    assert all(t == mujoco.mjtGeom.mjGEOM_HFIELD for t in types)
+    # 4 strips + n_inner per-cell hfields.
+    assert len(types) == n_inner + 4
+
+
+def test_resolution_validation_rejects_misaligned_step_width():
+    cfg = TerrainGeneratorCfg(
+        size=(4.0, 4.0),
+        horizontal_scale=0.05,
+        sub_terrains={"x": ALL_TERRAIN_PRESETS["pyramid_stairs"](step_width=0.07)},
+    )
+    with pytest.raises(ValueError, match="step_width"):
+        TerrainGenerator(cfg)
+
+
+def test_resolution_validation_rejects_misaligned_size():
+    cfg = TerrainGeneratorCfg(
+        size=(4.13, 4.13),
+        horizontal_scale=0.05,
+        sub_terrains={"x": ALL_TERRAIN_PRESETS["flat"]()},
+    )
+    with pytest.raises(ValueError, match="size"):
+        TerrainGenerator(cfg)
+
+
+def test_holes_creates_deeper_minimum():
+    """Holes mode must produce a strictly lower minimum than non-holes."""
+    spec_a = mujoco.MjSpec()
+    spec_a.worldbody.add_body(name="terrain")
+    spec_b = mujoco.MjSpec()
+    spec_b.worldbody.add_body(name="terrain")
+
+    from unilab.terrains import HfPyramidStairsTerrainCfg
+
+    common = dict(
+        size=(4.0, 4.0),
+        step_height_range=(0.1, 0.1),
+        step_width=0.3,
+        platform_width=1.0,
+        border_width=0.5,
+        horizontal_scale=0.05,
+        vertical_scale=0.005,
+    )
+    rng = np.random.default_rng(0)
+    out_no = HfPyramidStairsTerrainCfg(holes=False, **common).function(0.5, spec_a, rng)
+    out_yes = HfPyramidStairsTerrainCfg(holes=True, pit_depth=2.0, **common).function(
+        0.5, spec_b, rng
+    )
+
+    base_no = out_no.geometries[0].hfield.size[3]  # base_thickness
+    base_yes = out_yes.geometries[0].hfield.size[3]
+    max_no = out_no.geometries[0].hfield.size[2]  # max_physical_height
+    max_yes = out_yes.geometries[0].hfield.size[2]
+    # holes_yes must encode a deeper total span (pit + stairs).
+    assert max_yes > max_no
+    del base_no, base_yes  # unused but documents intent
+
+
+def test_inverted_stairs_spawn_is_negative():
+    spec = mujoco.MjSpec()
+    spec.worldbody.add_body(name="terrain")
+    cfg = ALL_TERRAIN_PRESETS["pyramid_stairs_inv"]()
+    cfg.size = (4.0, 4.0)
+    cfg.horizontal_scale = 0.05
+    cfg.vertical_scale = 0.005
+    out = cfg.function(difficulty=0.5, spec=spec, rng=np.random.default_rng(0))
+    assert out.origin[2] < 0.0

@@ -76,15 +76,15 @@ uv run train --algo ppo --task go2_joystick_rough --sim mujoco \
 
 | 名称 | 实现 | 描述 |
 | --- | --- | --- |
-| `flat` | `BoxFlatTerrainCfg` | 单块 box，作为 baseline patch |
-| `pyramid_stairs` | `BoxPyramidStairsTerrainCfg` | 金字塔形上行台阶 |
-| `pyramid_stairs_inv` | `BoxInvertedPyramidStairsTerrainCfg` | 倒金字塔形下行台阶 |
+| `flat` | `HfFlatTerrainCfg` | 全零 heightfield，作为 baseline patch |
+| `pyramid_stairs` | `HfPyramidStairsTerrainCfg` | 金字塔形上行台阶（heightfield 同心方环） |
+| `pyramid_stairs_inv` | `HfInvertedPyramidStairsTerrainCfg` | 倒金字塔形下行台阶 |
 | `hf_pyramid_slope` | `HfPyramidSlopedTerrainCfg` | heightfield 金字塔斜坡 |
 | `hf_pyramid_slope_inv` | `HfPyramidSlopedTerrainCfg(inverted=True)` | 倒置金字塔斜坡 |
 | `random_rough` | `HfRandomUniformTerrainCfg` | 随机均匀噪声 heightfield |
 | `wave_terrain` | `HfWaveTerrainCfg` | 正弦波 heightfield |
 
-每种都有自己的难度参数（`step_height_range`、`slope_range`、`noise_range` 等），完整字段定义见 [`primitive_terrains.py`](../../../src/unilab/terrains/primitive_terrains.py) 与 [`heightfield_terrains.py`](../../../src/unilab/terrains/heightfield_terrains.py)。
+每种都有自己的难度参数（`step_height_range`、`slope_range`、`noise_range` 等），完整字段定义见 [`heightfield_terrains.py`](../../../src/unilab/terrains/heightfield_terrains.py)。所有子地形（含 `flat` 与楼梯）现在都通过 hfield 实现，分辨率由 `TerrainGeneratorCfg.horizontal_scale` / `vertical_scale` 统一控制。
 
 内置组合定义在 [`unilab.terrains.config`](../../../src/unilab/terrains/config.py)：
 

@@ -21,14 +21,12 @@ from unilab.terrains.config import (
     wave_terrain,
 )
 from unilab.terrains.heightfield_terrains import (
+    HfFlatTerrainCfg,
+    HfInvertedPyramidStairsTerrainCfg,
     HfPyramidSlopedTerrainCfg,
+    HfPyramidStairsTerrainCfg,
     HfRandomUniformTerrainCfg,
     HfWaveTerrainCfg,
-)
-from unilab.terrains.primitive_terrains import (
-    BoxFlatTerrainCfg,
-    BoxInvertedPyramidStairsTerrainCfg,
-    BoxPyramidStairsTerrainCfg,
 )
 from unilab.terrains.terrain_generator import (
     FlatPatchSamplingCfg,
@@ -42,11 +40,11 @@ from unilab.terrains.utils import compute_env_origins_grid
 
 __all__ = [
     "ALL_TERRAIN_PRESETS",
-    "BoxFlatTerrainCfg",
-    "BoxInvertedPyramidStairsTerrainCfg",
-    "BoxPyramidStairsTerrainCfg",
     "FlatPatchSamplingCfg",
+    "HfFlatTerrainCfg",
+    "HfInvertedPyramidStairsTerrainCfg",
     "HfPyramidSlopedTerrainCfg",
+    "HfPyramidStairsTerrainCfg",
     "HfRandomUniformTerrainCfg",
     "HfWaveTerrainCfg",
     "ROUGH_TERRAINS_CFG",

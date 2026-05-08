@@ -18,14 +18,12 @@ from collections.abc import Callable
 from typing import Any, TypeVar
 
 from unilab.terrains.heightfield_terrains import (
+    HfFlatTerrainCfg,
+    HfInvertedPyramidStairsTerrainCfg,
     HfPyramidSlopedTerrainCfg,
+    HfPyramidStairsTerrainCfg,
     HfRandomUniformTerrainCfg,
     HfWaveTerrainCfg,
-)
-from unilab.terrains.primitive_terrains import (
-    BoxFlatTerrainCfg,
-    BoxInvertedPyramidStairsTerrainCfg,
-    BoxPyramidStairsTerrainCfg,
 )
 from unilab.terrains.terrain_generator import SubTerrainCfg, TerrainGeneratorCfg
 
@@ -46,12 +44,12 @@ def terrain_preset(fn: _F) -> _F:
 
 
 @terrain_preset
-def flat(**overrides: Any) -> BoxFlatTerrainCfg:
-    return BoxFlatTerrainCfg(**overrides)
+def flat(**overrides: Any) -> HfFlatTerrainCfg:
+    return HfFlatTerrainCfg(**overrides)
 
 
 @terrain_preset
-def pyramid_stairs(**overrides: Any) -> BoxPyramidStairsTerrainCfg:
+def pyramid_stairs(**overrides: Any) -> HfPyramidStairsTerrainCfg:
     defaults: dict[str, Any] = dict(
         step_height_range=(0.0, 0.2),
         step_width=0.3,
@@ -59,11 +57,11 @@ def pyramid_stairs(**overrides: Any) -> BoxPyramidStairsTerrainCfg:
         border_width=1.0,
     )
     defaults.update(overrides)
-    return BoxPyramidStairsTerrainCfg(**defaults)
+    return HfPyramidStairsTerrainCfg(**defaults)
 
 
 @terrain_preset
-def pyramid_stairs_inv(**overrides: Any) -> BoxInvertedPyramidStairsTerrainCfg:
+def pyramid_stairs_inv(**overrides: Any) -> HfInvertedPyramidStairsTerrainCfg:
     defaults: dict[str, Any] = dict(
         step_height_range=(0.0, 0.2),
         step_width=0.3,
@@ -71,7 +69,7 @@ def pyramid_stairs_inv(**overrides: Any) -> BoxInvertedPyramidStairsTerrainCfg:
         border_width=1.0,
     )
     defaults.update(overrides)
-    return BoxInvertedPyramidStairsTerrainCfg(**defaults)
+    return HfInvertedPyramidStairsTerrainCfg(**defaults)
 
 
 @terrain_preset
