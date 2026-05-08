@@ -34,6 +34,7 @@ import argparse
 import dataclasses
 import sys
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, get_args, get_origin, get_type_hints
 
@@ -93,7 +94,7 @@ def _build_reward_stub(env_cfg_cls: type) -> dict[str, Any] | None:
     return stub
 
 
-def _parse_args() -> argparse.Namespace:
+def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Visualize an RL task's training environment with zero actions."
     )
@@ -126,7 +127,7 @@ def _parse_args() -> argparse.Namespace:
             "robots apart for tasks whose default is 0."
         ),
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def _stitch_replicas(parent_scene_xml: Path, robot_base_xml: Path, env_origins: np.ndarray):
@@ -248,8 +249,8 @@ def _build_env_cfg_override(task_name: str, env_spacing: float | None) -> dict[s
     return override
 
 
-def main() -> int:
-    args = _parse_args()
+def main(argv: Sequence[str] | None = None) -> int:
+    args = _parse_args(argv)
     if args.num_envs < 1:
         raise SystemExit(f"--num_envs must be >= 1, got {args.num_envs}")
 
