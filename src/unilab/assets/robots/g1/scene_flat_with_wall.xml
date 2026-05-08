@@ -35,7 +35,7 @@
       - `euler`: wall rotation in radians
       - `size`: half extents of the box (half_thickness half_length half_height)
     -->
-    <body name="wall" pos="0 1.5 1.0" euler="0.0 0.0 1.5708">
+    <body name="wall" pos="0 1.45 1.0" euler="0.0 0.0 1.5708">
       <geom
         name="wall_collision"
         type="box"

@@ -46,6 +46,7 @@ uv run scripts/generate_support_matrix.py --write
 | PPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested |
 | PPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested |
 | PPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | Tested |
+| PPO (torch) | `g1_wall_flip_tracking` (G1 wall flip tracking) | Tested | Tested |
 | PPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | Tested |
 | PPO (torch) | `allegro_inhand_grasp` (allegro inhand grasp) | Tested | Tested |
 | PPO (torch) | `go2_handstand` (go2 handstand) | Tested | Tested |
@@ -58,6 +59,7 @@ uv run scripts/generate_support_matrix.py --write
 | PPO (mlx) | `g1_walk_flat` (G1 walk flat) | Tested | Tested |
 | PPO (mlx) | `g1_motion_tracking` (G1 motion tracking) | Configured | Configured |
 | PPO (mlx) | `g1_flip_tracking` (G1 flip tracking) | Configured | Configured |
+| PPO (mlx) | `g1_wall_flip_tracking` (G1 wall flip tracking) | Configured | Configured |
 | PPO (mlx) | `allegro_inhand` (Allegro in-hand) | Configured | Configured |
 | PPO (mlx) | `allegro_inhand_grasp` (allegro inhand grasp) | Configured | Configured |
 | PPO (mlx) | `go2_handstand` (go2 handstand) | Configured | Configured |
@@ -70,6 +72,7 @@ uv run scripts/generate_support_matrix.py --write
 | APPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered |
 | APPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested |
 | APPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | Tested |
+| APPO (torch) | `g1_wall_flip_tracking` (G1 wall flip tracking) | Tested | Tested |
 | APPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | Tested |
 | APPO (torch) | `sharpa_inhand` (sharpa inhand) | Tested | - |
 | SAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested |

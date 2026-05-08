@@ -24,6 +24,7 @@ _TASK_ORDER = {
     "g1_walk_rough": 3,
     "g1_motion_tracking": 4,
     "g1_flip_tracking": 5,
+    "g1_wall_flip_tracking": 6,
     "allegro_inhand": 7,
     "allegro_sac": 8,
 }
@@ -34,6 +35,7 @@ _TASK_LABELS = {
     "g1_walk_rough": "G1 walk rough",
     "g1_motion_tracking": "G1 motion tracking",
     "g1_flip_tracking": "G1 flip tracking",
+    "g1_wall_flip_tracking": "G1 wall flip tracking",
     "allegro_inhand": "Allegro in-hand",
     "allegro_sac": "Allegro SAC in-hand",
 }

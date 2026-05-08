@@ -15,23 +15,25 @@ uv run eval --algo <algo> --task <task> --sim <backend> --load-run <run>
 | ---------------------------------- | ---------------------- | ----------------------- | -------------------- |
 | 通用 G1 whole-body motion tracking | `g1_motion_tracking` | `G1MotionTracking`    | PPO、MLX PPO、APPO   |
 | flip clip 专用 profile             | `g1_flip_tracking`   | `G1FlipTracking`      | PPO、MLX PPO、APPO   |
+| wall-assisted flip 专用 profile    | `g1_wall_flip_tracking` | `G1WallFlipTracking` | PPO、MLX PPO、APPO   |
 | holosoma-aligned FastSAC WBT       | `g1_sac_wbt`         | `G1MotionTrackingSAC` | FastSAC，MuJoCo only |
 
 当前已提交的 owner YAML 位于：
 
-- PPO / MLX PPO：`conf/ppo/task/g1_motion_tracking/`、`conf/ppo/task/g1_flip_tracking/`
-- APPO：`conf/appo/task/g1_motion_tracking/`、`conf/appo/task/g1_flip_tracking/`
+- PPO / MLX PPO：`conf/ppo/task/g1_motion_tracking/`、`conf/ppo/task/g1_flip_tracking/`、`conf/ppo/task/g1_wall_flip_tracking/`
+- APPO：`conf/appo/task/g1_motion_tracking/`、`conf/appo/task/g1_flip_tracking/`、`conf/appo/task/g1_wall_flip_tracking/`
 - FastSAC WBT：`conf/offpolicy/task/sac/g1_sac_wbt/mujoco.yaml`
 
 默认 motion：
 
 - `g1_motion_tracking`：`src/unilab/assets/motions/g1/dance1_subject2_part.npz`
 - `g1_flip_tracking`：`src/unilab/assets/motions/g1/flip_360_001__A304.npz`
+- `g1_wall_flip_tracking`：`src/unilab/assets/motions/g1/flip_from_wall_104__A304.npz`
 - `g1_sac_wbt`：与 `g1_motion_tracking` 相同
 
 ## 推荐流程
 
-1. 选择 task：普通动作先用 `g1_motion_tracking`，flip 数据先用 `g1_flip_tracking`。
+1. 选择 task：普通动作先用 `g1_motion_tracking`，flat flip 数据先用 `g1_flip_tracking`，带墙起跳/接触数据先用 `g1_wall_flip_tracking`。
 2. 准备或选择 `.npz` motion 文件。
 3. 用 MuJoCo replay 检查 `.npz` 的姿态、速度和 body layout。
 4. 用较小训练预算做 smoke run。
@@ -191,17 +193,22 @@ PPO owner YAML 默认训练预算：
 
 - `g1_motion_tracking`：`algo.max_iterations=15000`
 - `g1_flip_tracking`：`algo.max_iterations=30000`
+- `g1_wall_flip_tracking`：`algo.max_iterations=30000`
 
 ```bash
 uv run train --algo ppo --task g1_motion_tracking --sim mujoco
 uv run train --algo ppo --task g1_flip_tracking --sim mujoco
+uv run train --algo ppo --task g1_wall_flip_tracking --sim mujoco
 ```
+
+`g1_wall_flip_tracking` 是独立的 wall-assisted flip profile，使用带墙场景和 `flip_from_wall_104__A304.npz`，不改变 `g1_flip_tracking` 的 flat flip 默认配置。
 
 Motrix：
 
 ```bash
 uv run train --algo ppo --task g1_motion_tracking --sim motrix
 uv run train --algo ppo --task g1_flip_tracking --sim motrix
+uv run train --algo ppo --task g1_wall_flip_tracking --sim motrix
 ```
 
 smoke run 可以降低训练预算：

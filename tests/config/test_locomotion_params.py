@@ -449,6 +449,17 @@ def test_ppo_g1_flip_tracking():
     assert cfg.algo.max_iterations == 30000
 
 
+def test_ppo_g1_wall_flip_tracking():
+    from hydra import compose, initialize_config_dir
+    from hydra.core.global_hydra import GlobalHydra
+
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(CONF_DIR / "ppo"), version_base="1.3"):
+        cfg = compose("config", overrides=["task=g1_wall_flip_tracking/mujoco"])
+    assert cfg.training.task_name == "G1WallFlipTracking"
+    assert cfg.algo.max_iterations == 30000
+
+
 # ---------------------------------------------------------------------------
 # Issue #197 DoD: rough terrain profile params overridable via Hydra
 # ---------------------------------------------------------------------------
