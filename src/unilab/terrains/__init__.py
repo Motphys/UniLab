@@ -36,7 +36,6 @@ from unilab.terrains.terrain_generator import (
     TerrainGeometry,
     TerrainOutput,
 )
-from unilab.terrains.utils import compute_env_origins_grid
 
 __all__ = [
     "ALL_TERRAIN_PRESETS",
@@ -54,7 +53,6 @@ __all__ = [
     "TerrainGeneratorCfg",
     "TerrainGeometry",
     "TerrainOutput",
-    "compute_env_origins_grid",
     "flat",
     "hf_pyramid_slope",
     "hf_pyramid_slope_inv",

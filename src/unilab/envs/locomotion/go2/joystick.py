@@ -18,6 +18,10 @@ from unilab.envs.locomotion.common.commands import Commands
 from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
 from unilab.envs.locomotion.common.dr_provider import LocomotionDRProvider
 from unilab.envs.locomotion.common.rewards import RewardContext
+from unilab.envs.locomotion.common.terrain_spawn import (
+    TerrainCurriculumCfg,
+    TerrainSpawnManager,
+)
 from unilab.envs.locomotion.go2.base import Go2BaseCfg, Go2BaseEnv
 from unilab.terrains import (
     SubTerrainCfg,
@@ -125,6 +129,7 @@ class Go2JoystickCfg(Go2BaseCfg):
     reward_config: RewardConfig | None = None
     sensor: JoystickSensor = field(default_factory=JoystickSensor)  # type: ignore[assignment]
     domain_rand: Go2DomainRandConfig = field(default_factory=Go2DomainRandConfig)
+    terrain_curriculum: TerrainCurriculumCfg = field(default_factory=TerrainCurriculumCfg)
 
 
 @registry.envcfg("Go2JoystickRough")
@@ -132,7 +137,6 @@ class Go2JoystickCfg(Go2BaseCfg):
 class Go2JoystickRoughCfg(Go2JoystickCfg):
     model_file: str = str(ASSETS_ROOT_PATH / "robots" / "go2" / "scene_flat.xml")
     terrain_generator: TerrainGeneratorCfg = field(default_factory=Go2RoughTerrainCfg)
-    env_spacing: float = 1.0
 
 
 class Go2JoystickDomainRandomizationProvider(LocomotionDRProvider):
@@ -164,6 +168,7 @@ class Go2WalkTask(Go2BaseEnv):
 
         self._materialized_dir: tempfile.TemporaryDirectory | None = None
         self._materialized_model_file: str | None = None
+        self._scene_terrain_origins: np.ndarray | None = None
         model_file = cfg.model_file
         if cfg.terrain_generator is not None:
             from unilab.scene.composer import compose_and_materialize
@@ -176,6 +181,7 @@ class Go2WalkTask(Go2BaseEnv):
                 floor_geom=cfg.terrain_floor_geom,
             )
             self._materialized_model_file = str(scene.scene_xml)
+            self._scene_terrain_origins = scene.terrain_origins
             model_file = self._materialized_model_file
 
         backend = create_backend(
@@ -193,6 +199,13 @@ class Go2WalkTask(Go2BaseEnv):
         self._reward_cfg = cfg.reward_config
         self._init_reward_functions()
         self._init_domain_randomization(Go2JoystickDomainRandomizationProvider())
+        if self._scene_terrain_origins is not None and cfg.terrain_generator is not None:
+            self._spawn = TerrainSpawnManager(
+                num_envs,
+                self._scene_terrain_origins,
+                cell_size=float(cfg.terrain_generator.size[0]),
+                cfg=cfg.terrain_curriculum,
+            )
         self.phase = np.zeros((num_envs,), dtype=np.float32)
         self.feet_phase = np.zeros((num_envs, len(cfg.sensor.feet_force)), dtype=np.float32)
         self.gait_frequency = 2
@@ -253,7 +266,19 @@ class Go2WalkTask(Go2BaseEnv):
         obs = self._compute_obs(
             state.info, linvel, gyro, gravity, dof_pos, dof_vel, self.feet_phase
         )
-        return state.replace(obs=obs, reward=reward, terminated=terminated)
+        state = state.replace(obs=obs, reward=reward, terminated=terminated)
+        done = state.terminated | state.truncated
+        if np.any(done):
+            done_indices = np.where(done)[0]
+            stats = self._spawn.update_on_done(
+                done_indices, self._backend.get_base_pos()[done_indices]
+            )
+            if stats:
+                if "log" not in state.info:
+                    state.info["log"] = {}
+                for k, v in stats.items():
+                    state.info["log"][f"terrain_curriculum/{k}"] = float(v)
+        return state
 
     def _compute_obs(
         self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel, feet_phase

@@ -147,7 +147,7 @@ class Go2WJoystickDomainRandomizationProvider(LocomotionDRProvider):
         qpos = np.tile(env._init_qpos, (num_reset, 1))
         qvel = np.tile(env._init_qvel, (num_reset, 1))
         qpos[:, 0:2] += np.random.uniform(-0.5, 0.5, (num_reset, 2))
-        qpos[:, 0:3] += env._env_origins[env_ids]
+        qpos[:, 0:3] += env._spawn.origins_for(env_ids)
         yaw = sample_go2w_reset_yaw(env.cfg.domain_rand, num_reset)
         qpos[:, 3:7] = np_quat_mul(qpos[:, 3:7], np_yaw_to_quat(yaw))
         qvel[:, 0:6] = np.asarray(

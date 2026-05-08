@@ -37,9 +37,9 @@ class MaterializedScene:
         scene_xml: Path to the materialized ``scene.xml`` (load this with
             ``mujoco.MjModel.from_xml_path``).
         terrain_origins: ``(num_rows, num_cols, 3)`` array of per-cell spawn
-            origins computed by the terrain generator. Used by tasks that
-            want to distribute envs across the grid (see
-            :func:`unilab.terrains.utils.compute_env_origins_grid`).
+            origins computed by the terrain generator. Consumed by
+            :class:`unilab.envs.locomotion.common.terrain_spawn.TerrainSpawnManager`
+            to assign each env to a specific cell at reset.
     """
 
     scene_xml: Path

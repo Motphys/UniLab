@@ -50,6 +50,7 @@ uv run scripts/generate_support_matrix.py --write
 | PPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | Tested |
 | PPO (torch) | `allegro_inhand_grasp` (allegro inhand grasp) | Tested | Tested |
 | PPO (torch) | `go2_handstand` (go2 handstand) | Tested | Tested |
+| PPO (torch) | `go2_joystick_rough` (go2 joystick rough) | Tested | - |
 | PPO (torch) | `go2w_joystick_flat` (go2w joystick flat) | Tested | - |
 | PPO (torch) | `go2w_joystick_rough_tiles` (go2w joystick rough tiles) | Tested | - |
 | PPO (torch) | `sharpa_inhand` (sharpa inhand) | Tested | - |
@@ -63,6 +64,7 @@ uv run scripts/generate_support_matrix.py --write
 | PPO (mlx) | `allegro_inhand` (Allegro in-hand) | Configured | Configured |
 | PPO (mlx) | `allegro_inhand_grasp` (allegro inhand grasp) | Configured | Configured |
 | PPO (mlx) | `go2_handstand` (go2 handstand) | Configured | Configured |
+| PPO (mlx) | `go2_joystick_rough` (go2 joystick rough) | Configured | - |
 | PPO (mlx) | `go2w_joystick_flat` (go2w joystick flat) | Configured | - |
 | PPO (mlx) | `go2w_joystick_rough_tiles` (go2w joystick rough tiles) | Configured | - |
 | PPO (mlx) | `sharpa_inhand` (sharpa inhand) | Configured | - |

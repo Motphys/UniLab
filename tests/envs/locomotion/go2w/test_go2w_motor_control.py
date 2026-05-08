@@ -104,11 +104,13 @@ def test_go2w_backend_reset_randomization_excludes_kp_kd_payload() -> None:
 
 
 def test_go2w_reset_plan_can_disable_initial_yaw_randomization() -> None:
+    from unilab.envs.locomotion.common.terrain_spawn import BaseSpawnManager
+
     cfg = Go2WJoystickCfg(reward_config=_reward_config())
     cfg.domain_rand.randomize_init_yaw = False
     env = SimpleNamespace(
         cfg=cfg,
-        _env_origins=np.zeros((2, 3), dtype=np.float32),
+        _spawn=BaseSpawnManager(),
         _init_qpos=np.concatenate(
             [np.array([0.0, 0.0, 0.42, 1.0, 0.0, 0.0, 0.0]), np.zeros(NUM_GO2W_ACTIONS)]
         ),

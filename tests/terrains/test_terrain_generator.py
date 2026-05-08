@@ -19,7 +19,6 @@ from unilab.terrains import (
     SubTerrainCfg,
     TerrainGenerator,
     TerrainGeneratorCfg,
-    compute_env_origins_grid,
 )
 
 EXPECTED_PRESETS = {
@@ -106,36 +105,6 @@ def test_compiled_rough_terrain_has_terrain_geoms_named():
     TerrainGenerator(cfg).compile(spec)
     geom_names = [g.name for g in spec.body("terrain").geoms]
     assert any(name.startswith("terrain_") for name in geom_names)
-
-
-def test_compute_env_origins_grid_zero_spacing_returns_zeros():
-    origins = compute_env_origins_grid(num_envs=16, env_spacing=0.0)
-    assert origins.shape == (16, 3)
-    assert np.all(origins == 0.0)
-
-
-def test_compute_env_origins_grid_centered_layout():
-    origins = compute_env_origins_grid(num_envs=4, env_spacing=2.0)
-    assert origins.shape == (4, 3)
-    expected = {(-1.0, -1.0, 0.0), (-1.0, 1.0, 0.0), (1.0, -1.0, 0.0), (1.0, 1.0, 0.0)}
-    assert {tuple(p) for p in origins} == expected
-    # Z is always 0.
-    assert np.all(origins[:, 2] == 0.0)
-
-
-def test_compute_env_origins_grid_spacing_scales_extent():
-    origins = compute_env_origins_grid(num_envs=64, env_spacing=2.0)
-    span_x = origins[:, 0].max() - origins[:, 0].min()
-    span_y = origins[:, 1].max() - origins[:, 1].min()
-    assert span_x == pytest.approx(14.0)
-    assert span_y == pytest.approx(14.0)
-
-
-def test_compute_env_origins_grid_non_square_count_is_truncated():
-    origins = compute_env_origins_grid(num_envs=10, env_spacing=1.0)
-    assert origins.shape == (10, 3)
-    unique_xy = {tuple(p[:2]) for p in origins}
-    assert len(unique_xy) == 10
 
 
 def test_all_compiled_geoms_are_hfields():

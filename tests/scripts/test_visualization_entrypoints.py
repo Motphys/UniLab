@@ -27,7 +27,6 @@ def test_visualize_task_env_keeps_canonical_defaults():
     assert args.task == "Go2JoystickFlat"
     assert args.backend == "mujoco"
     assert args.num_envs == 4
-    assert args.env_spacing is None
 
 
 def test_visualize_task_env_parses_explicit_args():
@@ -40,13 +39,10 @@ def test_visualize_task_env_parses_explicit_args():
             "--backend",
             "motrix",
             "--num_envs",
-            "4",
-            "--env_spacing",
-            "2",
+            "8",
         ]
     )
 
     assert args.task == "Go2JoystickRough"
     assert args.backend == "motrix"
-    assert args.num_envs == 4
-    assert args.env_spacing == 2.0
+    assert args.num_envs == 8
