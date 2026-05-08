@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -7,16 +8,41 @@ import numpy as np
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.dtype_config import get_global_dtype
-from unilab.envs.locomotion.go2w.height_scan import (
-    DEFAULT_SCAN_POINTS_X,
-    DEFAULT_SCAN_POINTS_Y,
-    HeightFieldCache,
-    HeightScanGrid,
-    HeightScanner,
-)
 from unilab.envs.locomotion.go2w.joystick import Go2WJoystickCfg, Go2WJoystickEnv
 
 GO2W_HEIGHT_SCAN_SCALE = 5.0
+DEFAULT_SCAN_POINTS_X: tuple[float, ...] = (
+    -0.8,
+    -0.7,
+    -0.6,
+    -0.5,
+    -0.4,
+    -0.3,
+    -0.2,
+    -0.1,
+    0.0,
+    0.1,
+    0.2,
+    0.3,
+    0.4,
+    0.5,
+    0.6,
+    0.7,
+    0.8,
+)
+DEFAULT_SCAN_POINTS_Y: tuple[float, ...] = (
+    -0.5,
+    -0.4,
+    -0.3,
+    -0.2,
+    -0.1,
+    0.0,
+    0.1,
+    0.2,
+    0.3,
+    0.4,
+    0.5,
+)
 
 
 @dataclass
@@ -43,7 +69,7 @@ class Go2WJoystickRoughTilesEnv(Go2WJoystickEnv):
 
     def __init__(self, cfg: Go2WJoystickRoughTilesCfg, num_envs=1, backend_type="mujoco"):
         super().__init__(cfg, num_envs=num_envs, backend_type=backend_type)
-        self._init_height_scanner()
+        self._init_height_scan_sensor()
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:
@@ -55,27 +81,24 @@ class Go2WJoystickRoughTilesEnv(Go2WJoystickEnv):
         scan_cfg = self._cfg.terrain_scan
         return len(scan_cfg.measured_points_x) * len(scan_cfg.measured_points_y)
 
-    def _init_height_scanner(self) -> None:
+    def _init_height_scan_sensor(self) -> None:
         scan_cfg = self._cfg.terrain_scan
         self._height_scan_dim = self._configured_height_scan_dim()
         if self._height_scan_dim <= 0:
             raise ValueError("terrain_scan measured points must be non-empty")
 
+        self._height_scan_hfield_geom_id: int | None = None
+        self._height_scan_frame_body_id: int | None = None
+        self._height_scan_offsets: np.ndarray | None = None
         if not scan_cfg.enabled:
-            self._height_scanner: HeightScanner | None = None
             return
 
-        grid = HeightScanGrid(
-            points_x=tuple(float(value) for value in scan_cfg.measured_points_x),
-            points_y=tuple(float(value) for value in scan_cfg.measured_points_y),
+        self._height_scan_hfield_geom_id = self._backend.get_geom_id(scan_cfg.geom_name)
+        self._height_scan_frame_body_id = self._backend.get_body_id(self._cfg.asset.base_name)
+        self._height_scan_offsets = _height_scan_offsets(
+            scan_cfg.measured_points_x,
+            scan_cfg.measured_points_y,
         )
-        cache = HeightFieldCache.from_mujoco_model(
-            self._backend.model,
-            hfield_name=scan_cfg.hfield_name,
-            geom_name=scan_cfg.geom_name,
-            dtype=get_global_dtype(),
-        )
-        self._height_scanner = HeightScanner(cache=cache, grid=grid, dtype=get_global_dtype())
 
     def _compute_obs(
         self,
@@ -109,12 +132,34 @@ class Go2WJoystickRoughTilesEnv(Go2WJoystickEnv):
         return np.asarray(np.mean(base_pos[:, 2:3] - raw_heights, axis=1), dtype=get_global_dtype())
 
     def _raw_height_scan_obs(self, num_obs: int) -> tuple[np.ndarray | None, np.ndarray | None]:
-        if self._height_scanner is None:
+        if (
+            self._height_scan_hfield_geom_id is None
+            or self._height_scan_frame_body_id is None
+            or self._height_scan_offsets is None
+        ):
             return None, None
 
         base_pos = np.asarray(self._backend.get_base_pos(), dtype=get_global_dtype())
-        base_quat = np.asarray(self._backend.get_base_quat(), dtype=get_global_dtype())
-        if base_pos.shape[0] != num_obs or base_quat.shape[0] != num_obs:
+        if base_pos.shape[0] != num_obs:
             return None, None
 
-        return self._height_scanner.scan(base_pos[:, :2], base_quat), base_pos
+        raw_heights = self._backend.sample_hfield_height(
+            hfield_geom_id=self._height_scan_hfield_geom_id,
+            offsets=self._height_scan_offsets,
+            frame_body_id=self._height_scan_frame_body_id,
+            alignment="yaw",
+            output="height",
+        )
+        if raw_heights.shape != (num_obs, self._height_scan_dim):
+            return None, None
+        return np.asarray(raw_heights, dtype=get_global_dtype()), base_pos
+
+
+def _height_scan_offsets(points_x: Sequence[float], points_y: Sequence[float]) -> np.ndarray:
+    x_grid, y_grid = np.meshgrid(
+        np.asarray(points_x, dtype=np.float64),
+        np.asarray(points_y, dtype=np.float64),
+        indexing="ij",
+    )
+    offsets = np.stack([x_grid.reshape(-1), y_grid.reshape(-1)], axis=1)
+    return np.ascontiguousarray(offsets, dtype=np.float64)
