@@ -47,15 +47,29 @@ class _FakeMuJoCoPool:
         self.step_calls: list[dict] = []
         self.forward_calls: list[np.ndarray] = []
 
-    def step(self, state, *, nstep, control, control_spec):
+    def step(
+        self,
+        state,
+        *,
+        nstep,
+        control,
+        control_spec,
+        return_sensor=False,
+        post_step_forward_sensor=False,
+    ):
         self.step_calls.append(
             {
                 "nstep": nstep,
                 "control": np.array(control, copy=True),
                 "control_spec": control_spec,
+                "return_sensor": return_sensor,
+                "post_step_forward_sensor": post_step_forward_sensor,
             }
         )
-        return np.asarray(state) + 1.0
+        state_out = np.asarray(state) + 1.0
+        if return_sensor:
+            return state_out, state_out[:, :1]
+        return state_out
 
     def forward(self, state):
         state_np = np.asarray(state)
@@ -76,6 +90,7 @@ def _fake_mujoco_backend(pre_step_control_fn=None):
     backend._physics_state = np.zeros((1, 1), dtype=np.float32)
     backend._sensor_data = np.zeros((1, 1), dtype=np.float32)
     backend._pending_xfrc_applied = np.zeros((1, 0), dtype=np.float64)
+    backend._post_step_forward_sensor = False
     backend._pool = _FakeMuJoCoPool()
     return backend
 
@@ -88,6 +103,9 @@ def test_mujoco_step_without_pre_step_control_keeps_batched_nsteps() -> None:
 
     assert len(backend._pool.step_calls) == 1
     assert backend._pool.step_calls[0]["nstep"] == 3
+    assert backend._pool.step_calls[0]["return_sensor"] is True
+    assert backend._pool.step_calls[0]["post_step_forward_sensor"] is False
+    assert backend._pool.forward_calls == []
     expected_control = np.broadcast_to(ctrl[:, None, :], (1, 3, ctrl.shape[-1]))
     np.testing.assert_allclose(backend._pool.step_calls[0]["control"], expected_control)
     np.testing.assert_allclose(backend._physics_state, [[1.0]])
@@ -110,6 +128,9 @@ def test_mujoco_step_with_pre_step_control_recomputes_each_physics_step() -> Non
 
     assert len(backend._pool.step_calls) == 3
     assert [call["nstep"] for call in backend._pool.step_calls] == [1, 1, 1]
+    assert all(call["return_sensor"] is True for call in backend._pool.step_calls)
+    assert all(call["post_step_forward_sensor"] is False for call in backend._pool.step_calls)
+    assert backend._pool.forward_calls == []
     np.testing.assert_allclose(seen_sensors, [[[0.0]], [[1.0]], [[2.0]]])
     np.testing.assert_allclose(backend._pool.step_calls[0]["control"], (ctrl + 1)[:, None, :])
     np.testing.assert_allclose(backend._pool.step_calls[1]["control"], (ctrl + 2)[:, None, :])
