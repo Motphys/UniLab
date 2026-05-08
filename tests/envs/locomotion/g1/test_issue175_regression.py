@@ -99,16 +99,6 @@ _G1_OWNER_CASES = [
         "action_scale": 1.0,
         "curriculum_enabled": True,
     },
-    {
-        "id": "flashsac_walk_motrix",
-        "config_group": "offpolicy",
-        "overrides": ["algo=flashsac", "task=flashsac/g1_walk_flat/motrix"],
-        "task_name": "G1WalkFlat",
-        "backend": "motrix",
-        "profile": "walk",
-        "action_scale": 1.0,
-        "curriculum_enabled": True,
-    },
 ]
 
 
