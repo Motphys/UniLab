@@ -7,6 +7,7 @@ providing a dedicated registry task for flip-focused datasets/profiles.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
@@ -72,3 +73,32 @@ class G1FlipTrackingEnv(G1MotionTrackingEnv):
     """G1 flip-tracking environment implementation."""
 
     _cfg: G1FlipTrackingCfg
+
+
+@dataclass
+class G1WallFlipTrackingCfg(G1FlipTrackingCfg):
+    """Config profile for wall-assisted G1 flip tracking clips."""
+
+    model_file: str = str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat_with_wall.xml")
+    motion_file: str | list[str] = str(
+        ASSETS_ROOT_PATH / "motions" / "g1" / "flip_from_wall_104__A304.npz"
+    )
+    sampling_mode: Literal["start", "clip_start", "uniform", "adaptive"] = "start"
+    anchor_pos_z_threshold: float = 0.5
+    ee_body_pos_z_threshold: float = 0.5
+
+
+@registry.envcfg("G1WallFlipTracking")
+@dataclass
+class G1WallFlipTrackingEnvCfg(G1WallFlipTrackingCfg):
+    """Registered configuration for G1 wall flip tracking."""
+
+    pass
+
+
+@registry.env("G1WallFlipTracking", sim_backend="mujoco")
+@registry.env("G1WallFlipTracking", sim_backend="motrix")
+class G1WallFlipTrackingEnv(G1MotionTrackingEnv):
+    """G1 wall flip-tracking environment implementation."""
+
+    _cfg: G1WallFlipTrackingCfg

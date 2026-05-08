@@ -387,6 +387,7 @@ def test_g1_motion_tracking_cfg_preserves_legacy_defaults():
     assert cfg.velocity_randomization.x == (-0.5, 0.5)
     assert cfg.joint_position_range == (-0.1, 0.1)
     assert cfg.anchor_ori_threshold == pytest.approx(0.8)
+    assert cfg.sampling_mode == "adaptive"
 
 
 def test_g1_motion_tracking_init_delegates_motion_body_ids_to_backend(monkeypatch):
@@ -539,12 +540,29 @@ def test_g1_flip_tracking_cfg_uses_flip_profile():
 
     cfg = G1FlipTrackingCfg()
 
+    assert str(cfg.model_file).endswith("scene_flat.xml")
     assert str(cfg.motion_file).endswith("flip_360_001__A304.npz")
     assert cfg.pose_randomization.x == (0.0, 0.0)
     assert cfg.velocity_randomization.x == (0.0, 0.0)
     assert cfg.joint_position_range == (0.0, 0.0)
     assert cfg.anchor_ori_threshold == pytest.approx(1e9)
     assert cfg.sampling_mode in {"start", "clip_start", "uniform", "adaptive"}
+
+
+def test_g1_wall_flip_tracking_cfg_uses_wall_flip_profile():
+    from unilab.envs.motion_tracking.g1.flip_tracking import G1WallFlipTrackingCfg
+
+    cfg = G1WallFlipTrackingCfg()
+
+    assert str(cfg.model_file).endswith("scene_flat_with_wall.xml")
+    assert str(cfg.motion_file).endswith("flip_from_wall_104__A304.npz")
+    assert cfg.pose_randomization.x == (0.0, 0.0)
+    assert cfg.velocity_randomization.x == (0.0, 0.0)
+    assert cfg.joint_position_range == (0.0, 0.0)
+    assert cfg.anchor_ori_threshold == pytest.approx(1e9)
+    assert cfg.anchor_pos_z_threshold == pytest.approx(0.5)
+    assert cfg.ee_body_pos_z_threshold == pytest.approx(0.5)
+    assert cfg.sampling_mode == "start"
 
 
 def test_g1_motion_tracking_clip_end_contributes_to_truncated():

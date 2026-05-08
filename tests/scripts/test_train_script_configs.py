@@ -35,6 +35,7 @@ _MLX_RUNTIME_USABLE = _mlx_runtime_usable()
         "g1_walk_flat/mujoco",
         "g1_motion_tracking/mujoco",
         "g1_flip_tracking/mujoco",
+        "g1_wall_flip_tracking/mujoco",
     ],
 )
 def test_appo_task_configs_load(task):
