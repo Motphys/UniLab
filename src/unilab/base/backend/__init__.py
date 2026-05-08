@@ -10,6 +10,7 @@ from .xml import (
     inject_motrix_tracking_sensors,
     inject_mujoco_tracking_sensors,
     materialize_scene_visual_override,
+    materialize_terrain_hfield_scene,
     processed_xml,
 )
 
@@ -67,5 +68,6 @@ __all__ = [
     "inject_motrix_tracking_sensors",
     "inject_mujoco_tracking_sensors",
     "materialize_scene_visual_override",
+    "materialize_terrain_hfield_scene",
     "processed_xml",
 ]

@@ -1,21 +1,12 @@
 from __future__ import annotations
 
 import abc
-import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import numpy as np
 
-if TYPE_CHECKING:
-    import mujoco
-
-# Base thickness for the outer border hfield slab. Has no effect on training
-# (collision uses the top surface, geom mass is forced to 0); only governs how
-# thick the visual base box is. 5cm is enough to look like a slab and well
-# above MuJoCo's minimum.
 _BORDER_BASE_THICKNESS = 0.05
-
 
 @dataclass
 class FlatPatchSamplingCfg:
@@ -41,21 +32,98 @@ class FlatPatchSamplingCfg:
 
 
 @dataclass
-class TerrainGeometry:
-    geom: mujoco.MjsGeom | None = None
-    """MuJoCo geometry spec element, or None."""
-    hfield: mujoco.MjsHField | None = None
-    """MuJoCo heightfield spec element, or None."""
+class TerrainHeightField:
+    """Backend-agnostic heightfield data for one sub-terrain patch."""
+
+    noise: np.ndarray
+    """Quantized height units before normalization."""
+    size: tuple[float, float]
+    """Patch size as ``(x, y)`` in meters."""
+    horizontal_scale: float
+    vertical_scale: float
+    elevation_min: int
+    elevation_max: int
+    max_physical_height: float
+    base_thickness: float
+    z_offset: float
+
+    def physical_heights_xy(self) -> np.ndarray:
+        """Return world-space surface heights as an ``(x, y)`` matrix."""
+        return (
+            (self.noise.astype(np.float64) - self.elevation_min) * self.vertical_scale
+            + self.z_offset
+        )
+
+    def normalized_elevation(self) -> np.ndarray:
+        """Return normalized hfield values in ``[0, 1]``."""
+        elevation_range = self.elevation_max - self.elevation_min
+        if elevation_range <= 0:
+            return np.zeros_like(self.noise, dtype=np.float64)
+        return (self.noise.astype(np.float64) - self.elevation_min) / elevation_range
 
 
 @dataclass
 class TerrainOutput:
     origin: np.ndarray
     """Spawn origin position (x, y, z) in the sub-terrain's local frame."""
-    geometries: list[TerrainGeometry]
-    """List of geometry elements comprising this terrain."""
+    heightfield: TerrainHeightField
+    """Backend-agnostic heightfield data."""
     flat_patches: dict[str, np.ndarray] | None = None
     """Named sets of flat patch positions, each an (N, 3) array. None if not configured."""
+
+
+@dataclass
+class GeneratedTerrain:
+    """Merged terrain heightfield ready to be exported as a single PNG asset."""
+
+    heights_yx: np.ndarray
+    """World-space surface heights in image convention: rows=y, cols=x."""
+    horizontal_scale: float
+    z_min: float
+    z_max: float
+    base_thickness: float
+    terrain_origins: np.ndarray
+
+    @property
+    def size(self) -> tuple[float, float]:
+        rows_y, cols_x = self.heights_yx.shape
+        return (cols_x * self.horizontal_scale, rows_y * self.horizontal_scale)
+
+    @property
+    def height_extent(self) -> float:
+        return max(self.z_max - self.z_min, self.horizontal_scale * 0.02)
+
+    @property
+    def hfield_size(self) -> tuple[float, float, float, float]:
+        size_x, size_y = self.size
+        return (size_x / 2, size_y / 2, self.height_extent, self.base_thickness)
+
+    @property
+    def geom_pos(self) -> tuple[float, float, float]:
+        return (0.0, 0.0, self.z_min)
+
+    def to_uint16(self) -> np.ndarray:
+        span = self.z_max - self.z_min
+        if span <= 0.0:
+            return np.zeros_like(self.heights_yx, dtype=np.uint16)
+        normalized = (self.heights_yx - self.z_min) / span
+        return np.rint(np.clip(normalized, 0.0, 1.0) * np.iinfo(np.uint16).max).astype(
+            np.uint16
+        )
+
+    def write_png(self, path: Path) -> None:
+        """Write the merged hfield as a 16-bit grayscale PNG."""
+        import imageio.v3 as iio
+
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        iio.imwrite(path, self.to_uint16())
+
+    def hfield_size_xml(self) -> str:
+        return " ".join(f"{value:.9g}" for value in self.hfield_size)
+
+    def geom_pos_xml(self) -> str:
+        return " ".join(f"{value:.9g}" for value in self.geom_pos)
 
 
 @dataclass
@@ -76,12 +144,12 @@ class SubTerrainCfg(abc.ABC):
 
     @abc.abstractmethod
     def function(
-        self, difficulty: float, spec: mujoco.MjSpec, rng: np.random.Generator
+        self, difficulty: float, rng: np.random.Generator
     ) -> TerrainOutput:
-        """Generate terrain geometry.
+        """Generate backend-agnostic terrain data.
 
         Returns:
-            TerrainOutput containing spawn origin and list of geometries.
+            TerrainOutput containing spawn origin and heightfield data.
         """
         raise NotImplementedError
 
@@ -202,86 +270,81 @@ class TerrainGenerator:
                 (self.cfg.num_rows, self._num_cols, max_num_patches, 3)
             )
 
-    def compile(self, spec: mujoco.MjSpec) -> None:
-        body = spec.worldbody.add_body(name="terrain")
+    def generate(self) -> GeneratedTerrain:
+        """Generate the full terrain as one backend-agnostic merged hfield."""
+        tile_x_px = int(round(self.cfg.size[0] / self.cfg.horizontal_scale))
+        tile_y_px = int(round(self.cfg.size[1] / self.cfg.horizontal_scale))
+        border_px = int(round(self.cfg.border_width / self.cfg.horizontal_scale))
+        rows_y = self._num_cols * tile_y_px + 2 * border_px
+        cols_x = self.cfg.num_rows * tile_x_px + 2 * border_px
+        heights_yx = np.zeros((rows_y, cols_x), dtype=np.float64)
+
+        max_base_thickness = _BORDER_BASE_THICKNESS if self.cfg.border_width > 0.0 else 0.0
+        self.terrain_origins.fill(0.0)
+
+        def place_output(output: TerrainOutput, sub_row: int, sub_col: int) -> None:
+            nonlocal max_base_thickness
+            patch_heights_xy = output.heightfield.physical_heights_xy()
+            if patch_heights_xy.shape != (tile_x_px, tile_y_px):
+                raise ValueError(
+                    "Sub-terrain heightfield shape does not match TerrainGeneratorCfg.size: "
+                    f"{patch_heights_xy.shape} != {(tile_x_px, tile_y_px)}"
+                )
+            x0 = border_px + sub_row * tile_x_px
+            y0 = border_px + sub_col * tile_y_px
+            heights_yx[y0 : y0 + tile_y_px, x0 : x0 + tile_x_px] = patch_heights_xy.T
+            max_base_thickness = max(max_base_thickness, output.heightfield.base_thickness)
+
+            world_position = self._get_sub_terrain_position(sub_row, sub_col)
+            spawn_origin = output.origin + world_position
+            self.terrain_origins[sub_row, sub_col] = spawn_origin
+            for name, arr in self.flat_patches.items():
+                if output.flat_patches is not None and name in output.flat_patches:
+                    patches = output.flat_patches[name]
+                    arr[sub_row, sub_col, : len(patches)] = patches + world_position
+                    arr[sub_row, sub_col, len(patches) :] = spawn_origin
+                else:
+                    arr[sub_row, sub_col] = spawn_origin
 
         if self.cfg.curriculum:
-            tic = time.perf_counter()
-            self._generate_curriculum_terrains(spec)
-            toc = time.perf_counter()
-            print(f"Curriculum terrain generation took {toc - tic:.4f} seconds.")
-
+            sub_terrains_cfgs = list(self.cfg.sub_terrains.values())
+            for sub_col in range(self._num_cols):
+                for sub_row in range(self.cfg.num_rows):
+                    lower, upper = self.cfg.difficulty_range
+                    difficulty = (sub_row + self.np_rng.uniform()) / self.cfg.num_rows
+                    difficulty = lower + (upper - lower) * difficulty
+                    output = sub_terrains_cfgs[sub_col].function(difficulty, self.np_rng)
+                    place_output(output, sub_row, sub_col)
         else:
-            tic = time.perf_counter()
-            self._generate_random_terrains(spec)
-            toc = time.perf_counter()
-            print(f"Terrain generation took {toc - tic:.4f} seconds.")
-
-        self._add_terrain_border(spec)
-        self._add_grid_lights(spec)
-
-        counter = 0
-        for geom in body.geoms:
-            geom.name = f"terrain_{counter}"
-            # Terrain is static (no joints), so body mass is physically meaningless.
-            # Without this, the thousands of dense geoms give the terrain body millions of kg
-            # of mass, which inflates stat.meanmass and makes MuJoCo's force arrow
-            # visualization invisible (arrows scale as force / meanmass).
-            geom.mass = 0
-            counter += 1
-
-    def _generate_random_terrains(self, spec: mujoco.MjSpec) -> None:
-        # Normalize the proportions of the sub-terrains.
-        proportions = np.array([sub_cfg.proportion for sub_cfg in self.cfg.sub_terrains.values()])
-        proportions /= np.sum(proportions)
-
-        sub_terrains_cfgs = list(self.cfg.sub_terrains.values())
-
-        # Randomly sample and place sub-terrains in the grid.
-        for index in range(self.cfg.num_rows * self._num_cols):
-            sub_row, sub_col = np.unravel_index(index, (self.cfg.num_rows, self._num_cols))
-            sub_row = int(sub_row)
-            sub_col = int(sub_col)
-
-            # Randomly select a sub-terrain type and difficulty.
-            sub_index = self.np_rng.choice(len(proportions), p=proportions)
-            difficulty = self.np_rng.uniform(*self.cfg.difficulty_range)
-
-            # Calculate the world position for this sub-terrain.
-            world_position = self._get_sub_terrain_position(sub_row, sub_col)
-
-            # Create the terrain mesh and get the spawn origin in world coordinates.
-            spawn_origin = self._create_terrain_geom(
-                spec,
-                world_position,
-                difficulty,
-                sub_terrains_cfgs[sub_index],
-                sub_row,
-                sub_col,
+            proportions = np.array(
+                [sub_cfg.proportion for sub_cfg in self.cfg.sub_terrains.values()]
             )
+            proportions /= np.sum(proportions)
+            sub_terrains_cfgs = list(self.cfg.sub_terrains.values())
+            for index in range(self.cfg.num_rows * self._num_cols):
+                sub_row, sub_col = np.unravel_index(index, (self.cfg.num_rows, self._num_cols))
+                sub_row = int(sub_row)
+                sub_col = int(sub_col)
+                sub_index = self.np_rng.choice(len(proportions), p=proportions)
+                difficulty = self.np_rng.uniform(*self.cfg.difficulty_range)
+                output = sub_terrains_cfgs[sub_index].function(difficulty, self.np_rng)
+                place_output(output, sub_row, sub_col)
 
-            # Store the spawn origin for this terrain.
-            self.terrain_origins[sub_row, sub_col] = spawn_origin
+        z_min = float(np.min(heights_yx))
+        z_max = float(np.max(heights_yx))
+        return GeneratedTerrain(
+            heights_yx=heights_yx,
+            horizontal_scale=self.cfg.horizontal_scale,
+            z_min=z_min,
+            z_max=z_max,
+            base_thickness=max(max_base_thickness, 1e-3),
+            terrain_origins=self.terrain_origins.copy(),
+        )
 
-    def _generate_curriculum_terrains(self, spec: mujoco.MjSpec) -> None:
-        # One column per terrain type — proportion is only for spawning.
-        sub_terrains_cfgs = list(self.cfg.sub_terrains.values())
-
-        for sub_col in range(self._num_cols):
-            for sub_row in range(self.cfg.num_rows):
-                lower, upper = self.cfg.difficulty_range
-                difficulty = (sub_row + self.np_rng.uniform()) / self.cfg.num_rows
-                difficulty = lower + (upper - lower) * difficulty
-                world_position = self._get_sub_terrain_position(sub_row, sub_col)
-                spawn_origin = self._create_terrain_geom(
-                    spec,
-                    world_position,
-                    difficulty,
-                    sub_terrains_cfgs[sub_col],
-                    sub_row,
-                    sub_col,
-                )
-                self.terrain_origins[sub_row, sub_col] = spawn_origin
+    def write_png(self, path: Path) -> GeneratedTerrain:
+        terrain = self.generate()
+        terrain.write_png(path)
+        return terrain
 
     def _get_sub_terrain_position(self, row: int, col: int) -> np.ndarray:
         """Get the world position for a sub-terrain at the given grid indices.
@@ -298,95 +361,6 @@ class TerrainGenerator:
         grid_offset_y = -self._num_cols * self.cfg.size[1] * 0.5
 
         return np.array([grid_offset_x + rel_x, grid_offset_y + rel_y, 0.0])
-
-    def _create_terrain_geom(
-        self,
-        spec: mujoco.MjSpec,
-        world_position: np.ndarray,
-        difficulty: float,
-        cfg: SubTerrainCfg,
-        sub_row: int,
-        sub_col: int,
-    ) -> np.ndarray:
-        """Create a terrain geometry at the specified world position.
-
-        Args:
-            spec: MuJoCo spec to add geometry to.
-            world_position: World position of the terrain's corner.
-            difficulty: Difficulty parameter for terrain generation.
-            cfg: Sub-terrain configuration.
-            sub_row: Row index in the terrain grid.
-            sub_col: Column index in the terrain grid.
-
-        Returns:
-            The spawn origin in world coordinates.
-        """
-        output = cfg.function(difficulty, spec, self.np_rng)
-        for terrain_geom in output.geometries:
-            if terrain_geom.geom is not None:
-                terrain_geom.geom.pos = np.array(terrain_geom.geom.pos) + world_position
-
-        # Collect flat patches into pre-allocated arrays.
-        spawn_origin = output.origin + world_position
-        for name, arr in self.flat_patches.items():
-            if output.flat_patches is not None and name in output.flat_patches:
-                patches = output.flat_patches[name]
-                arr[sub_row, sub_col, : len(patches)] = patches + world_position
-                arr[sub_row, sub_col, len(patches) :] = spawn_origin
-            else:
-                # Sub-terrain didn't produce patches: fill with spawn origin so that
-                # every slot contains a valid position for reset_root_state_from_flat_patches.
-                arr[sub_row, sub_col] = spawn_origin
-
-        return spawn_origin
-
-    def _add_terrain_border(self, spec: mujoco.MjSpec) -> None:
-        from unilab.terrains.heightfield_terrains import _add_flat_hfield_slab
-
-        if self.cfg.border_width <= 0.0:
-            return
-        body = spec.body("terrain")
-        bw = self.cfg.border_width
-        inner_x = self.cfg.num_rows * self.cfg.size[0]
-        inner_y = self._num_cols * self.cfg.size[1]
-        outer_x = inner_x + 2 * bw
-
-        # Top surface flush with the inner-terrain floor at z=0 — this is a flat
-        # apron around the grid, NOT a wall. Robots stepping past the inner grid
-        # simply continue on this flat region.
-        strip_specs = [
-            (outer_x, bw, 0.0, +inner_y / 2 + bw / 2),  # Top
-            (outer_x, bw, 0.0, -inner_y / 2 - bw / 2),  # Bottom
-            (bw, inner_y, -inner_x / 2 - bw / 2, 0.0),  # Left
-            (bw, inner_y, +inner_x / 2 + bw / 2, 0.0),  # Right
-        ]
-
-        for size_x, size_y, cx, cy in strip_specs:
-            _add_flat_hfield_slab(
-                spec,
-                body,
-                size=(size_x, size_y),
-                horizontal_scale=self.cfg.horizontal_scale,
-                pos_xy=(cx, cy),
-                surface_z=0.0,
-                base_thickness=_BORDER_BASE_THICKNESS,
-            )
-
-    def _add_grid_lights(self, spec: mujoco.MjSpec) -> None:
-        if not self.cfg.add_lights:
-            return
-
-        import mujoco
-
-        total_width = self.cfg.size[0] * self.cfg.num_rows
-        total_height = self.cfg.size[1] * self._num_cols
-        light_height = max(total_width, total_height) * 0.6
-
-        spec.body("terrain").add_light(
-            pos=(0, 0, light_height),
-            type=mujoco.mjtLightType.mjLIGHT_DIRECTIONAL,
-            dir=(0, 0, -1),
-        )
 
     def _propagate_resolution(self) -> None:
         """Force every sub-terrain config to share the generator's resolution."""

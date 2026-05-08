@@ -11,11 +11,16 @@ from unilab.base.backend import (
     create_motrix_compatible_xml,
     inject_motrix_tracking_sensors,
     inject_mujoco_tracking_sensors,
+    materialize_terrain_hfield_scene,
 )
 
 
 def _g1_scene() -> str:
     return str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
+
+
+def _go2_rough_scene() -> str:
+    return str(ASSETS_ROOT_PATH / "robots" / "go2" / "scene_rough.xml")
 
 
 def test_inject_mujoco_tracking_sensors_uses_mjspec_and_preserves_contract() -> None:
@@ -69,3 +74,36 @@ def test_motrix_xml_materialization_rewrites_auto_texture_colorspace() -> None:
         assert 'colorspace="sRGB"' in xml_text
     finally:
         os.remove(tmp_xml)
+
+
+def test_materialize_terrain_hfield_scene_replaces_template_png(tmp_path) -> None:
+    mujoco = pytest.importorskip("mujoco")
+
+    import copy
+
+    from unilab.terrains import ROUGH_TERRAINS_CFG
+
+    cfg = copy.deepcopy(ROUGH_TERRAINS_CFG)
+    cfg.num_rows = 2
+    cfg.num_cols = 2
+    cfg.border_width = 0.0
+    cfg.add_lights = False
+    cfg.seed = 0
+
+    scene_xml, terrain_origins = materialize_terrain_hfield_scene(
+        _go2_rough_scene(),
+        terrain_cfg=cfg,
+        output_dir=tmp_path,
+    )
+    assert terrain_origins.shape == (2, 2, 3)
+    assert (tmp_path / "hfields" / "hfield.png").is_file()
+    text = (tmp_path / "scene.xml").read_text()
+    assert str(tmp_path / "hfields" / "hfield.png") in text
+    assert 'hfield="terrain_hfield"' in text
+
+    model = mujoco.MjModel.from_xml_path(scene_xml)
+    hfield_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_HFIELD, "terrain_hfield")
+    geom_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
+    assert hfield_id >= 0
+    assert geom_id >= 0
+    assert int(model.geom_dataid[geom_id]) == hfield_id

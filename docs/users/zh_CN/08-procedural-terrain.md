@@ -9,7 +9,7 @@
 3. 想改子地形组合时，正确的入口是什么？
 4. 哪些是当前已知的边界，不是 bug 而是约束？
 
-底层 contract（cold-path materialization、注册新 sub-terrain、`MjSpec` 序列化）见 [`scene/composer.py`](../../../src/unilab/scene/composer.py) 与 [`terrains/terrain_generator.py`](../../../src/unilab/terrains/terrain_generator.py) 的源码注释。
+底层 contract（cold-path materialization、注册新 sub-terrain、hfield PNG 导出）见 [`base/backend/xml.py`](../../../src/unilab/base/backend/xml.py) 与 [`terrains/terrain_generator.py`](../../../src/unilab/terrains/terrain_generator.py) 的源码注释。
 
 ## 现状
 
@@ -21,10 +21,10 @@
 
 env 构造期会执行：
 
-1. 加载 [`scene_flat.xml`](../../../src/unilab/assets/robots/go2/scene_flat.xml)（机器人基础 XML，包含一个名为 `floor` 的占位 geom）。
-2. `TerrainGenerator(cfg.terrain_generator)` 在 `MjSpec` 上写入 `terrain` body、地形 geoms / heightfield / 灯光。
-3. 把所有引用 `floor` 的 contact sensor 重定向到 `terrain` 子树，再把 `floor` 占位 geom 删除。
-4. 写出 `scene.xml` + `assets/` 到 per-instance 的 `tempfile.TemporaryDirectory`，backend 用 `model_file=<materialized_xml>` 编译 `MjModel`。
+1. 加载 [`scene_rough.xml`](../../../src/unilab/assets/robots/go2/scene_rough.xml) 模板（包含一个名为 `terrain_hfield` 的 hfield asset 和一个名为 `floor` 的 hfield geom）。
+2. `TerrainGenerator(cfg.terrain_generator)` 只生成 backend-agnostic 的合并 height matrix，不依赖 MuJoCo。
+3. backend XML materializer 把合并后的 height matrix 写成 per-instance 的 `hfields/hfield.png`（uint16 PNG），并在临时 `scene.xml` 中替换 hfield 的 `file` / `size` / geom `pos`。
+4. 同步复制模板依赖（如 `go2.xml` 与 mesh assets）到 `tempfile.TemporaryDirectory`，backend 用 `model_file=<materialized_xml>` 编译 `MjModel`。
 5. tempdir 一直持有到 env `close()`；`Go2WalkTask.get_playback_model()` 返回该路径，离线回放视频复用同一个 materialized scene。
 
 `step()` / `reset()` / DR provider 不读 XML、不访问 asset 文件；地形相关全部发生在冷路径。
@@ -36,9 +36,7 @@ env 构造期会执行：
 uv run train --algo ppo --task go2_joystick_rough --sim mujoco
 ```
 
-PPO + MuJoCo 之外的组合（APPO、offpolicy、Motrix）目前没有 owner YAML。Motrix 后端虽然有 `@registry.env(..., sim_backend="motrix")` 注册，但当前 materializer 只验证过 MuJoCo 编译路径，没有 owner 配置。
-
-训练结束后默认会自动回放并导出 `play_video.mp4`，渲染场景就是上述 materialized scene。
+TODO: 适配任务
 
 ## 2. Hydra 命令行覆盖地形参数
 
@@ -52,7 +50,6 @@ PPO + MuJoCo 之外的组合（APPO、offpolicy、Motrix）目前没有 owner YA
 | `env.terrain_generator.num_cols` | grid 列数（curriculum 模式被忽略，列数 = `len(sub_terrains)`） | `20` |
 | `env.terrain_generator.border_width` | grid 外圈 flat border 宽度（米） | `20.0` |
 | `env.terrain_generator.difficulty_range` | 难度采样区间 `[min, max]`，∈ `[0, 1]` | `[0.0, 1.0]` |
-| `env.terrain_generator.add_lights` | 是否在 grid 上方加方向光 | `true` |
 
 示例：本地小规模 smoke + 固定种子 + curriculum 模式。
 
@@ -101,24 +98,25 @@ from unilab.terrains import ROUGH_TERRAINS_CFG, TerrainGeneratorCfg
 
 @dataclass
 class MyTaskCfg(...):
-    # 不能含 floor geom 之外其他冲突的 worldbody；至少保留一个名字为 `terrain_floor_geom`
-    # 的 placeholder geom 让 contact sensor 在 load 阶段先校验通过。
-    model_file: str = ".../scene_flat.xml"
+    # 模板 XML 里需要有 name="terrain_hfield" 的 hfield asset，以及一个使用
+    # 该 hfield 的 geom（默认命名为 floor，方便 contact sensor 复用）。
+    model_file: str = ".../scene_rough.xml"
     terrain_generator: TerrainGeneratorCfg = field(default_factory=lambda: copy.deepcopy(ROUGH_TERRAINS_CFG))
-    # 可选：base XML 里 placeholder geom 的名字。默认 "floor"。
-    terrain_floor_geom: str = "floor"
 ```
 
 env 的 `__init__` 沿用 `Go2WalkTask.__init__` 的物化模板：
 
 ```python
 import tempfile
-from pathlib import Path
-from unilab.scene.composer import compose_and_materialize
+from unilab.base.backend.xml import materialize_terrain_hfield_scene
 
 self._materialized_dir = tempfile.TemporaryDirectory(prefix="unilab_terrain_")
-scene = compose_and_materialize(base_xml=Path(cfg.model_file), terrain_cfg=cfg.terrain_generator, output_dir=Path(self._materialized_dir.name), floor_geom=cfg.terrain_floor_geom)
-backend = create_backend(..., model_file=str(scene.scene_xml), ...)
+model_file, terrain_origins = materialize_terrain_hfield_scene(
+    source_model_file=cfg.model_file,
+    terrain_cfg=cfg.terrain_generator,
+    output_dir=self._materialized_dir.name,
+)
+backend = create_backend(..., model_file=model_file, ...)
 ```
 
 注意：`TerrainGenerator.__init__` 会原地修改传入的 cfg（向每个 `sub_cfg.size` 写值）。如果在多个 env 之间共享同一个 `TerrainGeneratorCfg` 实例会互相污染，必须用 `default_factory` 或 `copy.deepcopy` 保证每个实例拿到独立 cfg；`Go2JoystickRoughCfg` 通过 `default_factory=Go2RoughTerrainCfg` 已处理。
@@ -134,8 +132,8 @@ uv run scripts/visualize_task_env.py --task Go2JoystickRough --num_envs 4
 ## 6. 验证
 
 ```bash
-# 程序化地形 + materializer 单元/集成测试
-uv run pytest tests/terrains tests/scene -q
+# 程序化地形 + hfield PNG materializer 单元/集成测试
+uv run pytest tests/terrains tests/utils/test_xml_utils.py -q
 
 # Hydra compose + Go2JoystickRoughCfg 的 task owner 测试
 uv run pytest tests/config/test_locomotion_params.py -k rough -q
@@ -152,11 +150,10 @@ uv run train --algo ppo --task go2_joystick_rough --sim mujoco \
 
 ## 已知约束
 
-- **当前只在 MuJoCo 后端验证过**：materializer 通过 `mujoco.MjSpec` 编辑 spec 并 `MjSpec.to_xml()` 序列化。Motrix 走相同的 `model_file` 入口理论可行，但仓库里没有 Motrix owner YAML，也没有 Motrix 路径下 hfield / 程序化场景的冒烟测试。生产训练请只用 `--sim mujoco`。
-- **Heightfield 高度着色会丢失**：`HfPyramidSlopedTerrainCfg` 等通过 `color_by_height` 写入 in-memory buffer texture，`MjSpec.to_xml()` 不能序列化这种 texture，因此 materialized 场景里 heightfield 会失去高度色，但物理一致，不影响训练。
-- **base XML 必须包含名为 `floor` 的 placeholder geom**：被 contact sensor 引用的 geom 必须在 load 阶段就存在，composer 会在 retarget 后再把它 strip 掉。如果不叫 `floor`，可以通过 `cfg.terrain_floor_geom` 覆盖。
+- **当前只在 MuJoCo 后端验证过**：terrain 生成本身不依赖 MuJoCo，但运行时仍需要 MuJoCo backend 编译 hfield scene。Motrix 没有 owner YAML，也没有 hfield 程序化场景冒烟测试。生产训练请只用 `--sim mujoco`。
+- **模板 XML 必须包含可替换 hfield**：默认查找名为 `terrain_hfield` 的 hfield asset，并更新第一个引用它的 geom。Go2 模板把该 geom 命名为 `floor`，所以现有 contact sensor 不需要重定向。
 - **`terrain_generator` 是 cold-path 配置**：env 构造完成后再修改 `cfg.terrain_generator` 不会影响已 materialize 的场景。要换地形必须重新构造 env（即重新跑训练命令）。
-- **`import unilab.terrains` 不依赖 mujoco**：模块对 `import mujoco` 用 `try/except ImportError` 包装，仅 `compose_and_materialize` 与 `TerrainGenerator.compile` 真正调用 mujoco；这是为了保证 [`tests/envs/test_env_configs.py::test_registry_bootstrap_and_config_imports_do_not_require_mujoco`](../../../tests/envs/test_env_configs.py) 这条 contract 不被破坏。
+- **`import unilab.terrains` 不依赖 mujoco**：`TerrainGenerator.generate()` / `write_png()` 是纯 numpy + imageio 路径。
 
 ## Navigation
 
