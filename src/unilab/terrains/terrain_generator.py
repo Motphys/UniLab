@@ -3,7 +3,7 @@ from __future__ import annotations
 import abc
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -46,8 +46,6 @@ class TerrainGeometry:
     """MuJoCo geometry spec element, or None."""
     hfield: mujoco.MjsHField | None = None
     """MuJoCo heightfield spec element, or None."""
-    color: tuple[float, float, float, float] | None = None
-    """RGBA color override for this geometry, or None to use default."""
 
 
 @dataclass
@@ -129,9 +127,6 @@ class TerrainGeneratorCfg:
 
     In curriculum mode the generator ignores this value and uses one column per terrain
     type (``len(sub_terrains)``). In random mode it is used as-is."""
-    color_scheme: Literal["height", "random", "none"] = "height"
-    """Coloring strategy for terrain geometry. "height" colors by elevation,
-    "random" assigns random colors, "none" uses uniform gray."""
     sub_terrains: dict[str, SubTerrainCfg] = field(default_factory=dict)
     """Named sub-terrain configurations to populate the grid."""
     difficulty_range: tuple[float, float] = (0.0, 1.0)
@@ -330,14 +325,6 @@ class TerrainGenerator:
         for terrain_geom in output.geometries:
             if terrain_geom.geom is not None:
                 terrain_geom.geom.pos = np.array(terrain_geom.geom.pos) + world_position
-                if terrain_geom.geom.material is not None:
-                    if self.cfg.color_scheme == "height" and terrain_geom.color:
-                        terrain_geom.geom.rgba[:] = terrain_geom.color
-                    elif self.cfg.color_scheme == "random":
-                        terrain_geom.geom.rgba[:3] = self.np_rng.uniform(0.3, 0.8, 3)
-                        terrain_geom.geom.rgba[3] = 1.0
-                    elif self.cfg.color_scheme == "none":
-                        terrain_geom.geom.rgba[:] = (0.5, 0.5, 0.5, 1.0)
 
         # Collect flat patches into pre-allocated arrays.
         spawn_origin = output.origin + world_position

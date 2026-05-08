@@ -27,152 +27,10 @@ from unilab.terrains.terrain_generator import (
 )
 from unilab.terrains.utils import (
     bilinear_resample_grid,
-    bilinear_zoom_2d,
     find_flat_patches_from_heightfield,
 )
 
 _MIN_BASE_THICKNESS = 0.01
-
-
-def color_by_height(
-    spec: mujoco.MjSpec,
-    noise: np.ndarray,
-    unique_id: str,
-    normalized_elevation: np.ndarray,
-    texture_size: int = 128,
-) -> str:
-    import mujoco
-
-    texture_name = f"hf_texture_{unique_id}"
-    texture = spec.add_texture(
-        name=texture_name,
-        type=mujoco.mjtTexture.mjTEXTURE_2D,
-        width=texture_size,
-        height=texture_size,
-    )
-
-    texture_elevation = bilinear_zoom_2d(
-        normalized_elevation,
-        (texture_size / noise.shape[0], texture_size / noise.shape[1]),
-    )
-
-    hue = 0.5 - texture_elevation * 0.45
-    saturation = 0.6 - texture_elevation * 0.2
-    value = 0.4 + texture_elevation * 0.3
-
-    c = value * saturation
-    x = c * (1 - np.abs((hue * 6) % 2 - 1))
-    m = value - c
-
-    hue_sector = (hue * 6).astype(int) % 6
-
-    r = np.zeros_like(hue)
-    g = np.zeros_like(hue)
-    b = np.zeros_like(hue)
-
-    mask = hue_sector == 0
-    r[mask] = c[mask]
-    g[mask] = x[mask]
-
-    mask = hue_sector == 1
-    r[mask] = x[mask]
-    g[mask] = c[mask]
-
-    mask = hue_sector == 2
-    g[mask] = c[mask]
-    b[mask] = x[mask]
-
-    mask = hue_sector == 3
-    g[mask] = x[mask]
-    b[mask] = c[mask]
-
-    mask = hue_sector == 4
-    r[mask] = x[mask]
-    b[mask] = c[mask]
-
-    mask = hue_sector == 5
-    r[mask] = c[mask]
-    b[mask] = x[mask]
-
-    r += m
-    g += m
-    b += m
-
-    rgb_data = np.stack([r, g, b], axis=-1)
-    rgb_data = (rgb_data * 255).astype(np.uint8)
-
-    rgb_data = np.flipud(rgb_data)
-    texture.data = rgb_data.tobytes()
-
-    material_name = f"hf_material_{unique_id}"
-    material = spec.add_material(name=material_name)
-    material.textures[mujoco.mjtTextureRole.mjTEXROLE_RGB] = texture_name
-
-    return material_name
-
-
-def _fractal_perlin_noise_2d(
-    x_size: int,
-    y_size: int,
-    rng: np.random.Generator,
-    octaves: int = 4,
-    persistence: float = 0.5,
-    lacunarity: float = 2.0,
-    scale: float = 1.0,
-) -> np.ndarray:
-    """Generate 2D fractal Perlin noise."""
-
-    def lerp(a, b, x):
-        return a + x * (b - a)
-
-    def fade(t):
-        return t * t * t * (t * (t * 6 - 15) + 10)
-
-    def gradient(h, x, y):
-        h = h % 4
-        return np.where(
-            h == 0,
-            x + y,
-            np.where(h == 1, x - y, np.where(h == 2, -x + y, -x - y)),
-        )
-
-    def perlin(x, y, p):
-        xi = x.astype(int) % 256
-        yi = y.astype(int) % 256
-        xf = x - x.astype(int)
-        yf = y - y.astype(int)
-        u = fade(xf)
-        v = fade(yf)
-
-        n00 = gradient(p[p[xi] + yi], xf, yf)
-        n01 = gradient(p[p[xi] + yi + 1], xf, yf - 1)
-        n11 = gradient(p[p[xi + 1] + yi + 1], xf - 1, yf - 1)
-        n10 = gradient(p[p[xi + 1] + yi], xf - 1, yf)
-
-        x1 = lerp(n00, n10, u)
-        x2 = lerp(n01, n11, u)
-        return lerp(x1, x2, v)
-
-    p = np.arange(256, dtype=int)
-    rng.shuffle(p)
-    p = np.stack([p, p]).flatten()
-
-    noise = np.zeros((x_size, y_size))
-    amplitude = 1.0
-    frequency = scale
-    total_amplitude = 0.0
-
-    x = np.linspace(0, x_size, x_size, endpoint=False)
-    y = np.linspace(0, y_size, y_size, endpoint=False)
-    xx, yy = np.meshgrid(x, y, indexing="ij")
-
-    for _ in range(octaves):
-        noise += amplitude * perlin(xx * frequency / x_size, yy * frequency / y_size, p)
-        total_amplitude += amplitude
-        amplitude *= persistence
-        frequency *= lacunarity
-
-    return noise / total_amplitude
 
 
 def _compute_flat_patches(
@@ -209,7 +67,6 @@ def _add_hfield_to_spec(
     vertical_scale: float,
     base_thickness_ratio: float,
     z_offset_fn: Callable[[float], float] = lambda max_h: 0.0,
-    color_scheme: str = "height",
     pos_xy: tuple[float, float] | None = None,
 ) -> tuple[mujoco.MjsHField, mujoco.MjsGeom, float, float]:
     """Add a heightfield asset + geom to ``spec`` from a quantized int16 noise array.
@@ -245,26 +102,13 @@ def _add_hfield_to_spec(
         userdata=normalized_elevation.flatten().astype(np.float32).tolist(),
     )
 
-    if color_scheme == "height":
-        material_name = color_by_height(spec, noise, unique_id, normalized_elevation)
-    else:
-        material_name = ""
-
     if pos_xy is None:
         pos_xy = (size[0] / 2, size[1] / 2)
-    if material_name:
-        geom = body.add_geom(
-            type=mujoco.mjtGeom.mjGEOM_HFIELD,
-            hfieldname=field.name,
-            pos=[pos_xy[0], pos_xy[1], z_offset],
-            material=material_name,
-        )
-    else:
-        geom = body.add_geom(
-            type=mujoco.mjtGeom.mjGEOM_HFIELD,
-            hfieldname=field.name,
-            pos=[pos_xy[0], pos_xy[1], z_offset],
-        )
+    geom = body.add_geom(
+        type=mujoco.mjtGeom.mjGEOM_HFIELD,
+        hfieldname=field.name,
+        pos=[pos_xy[0], pos_xy[1], z_offset],
+    )
 
     return field, geom, max_physical_height, z_offset
 

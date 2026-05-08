@@ -51,7 +51,6 @@ PPO + MuJoCo 之外的组合（APPO、offpolicy、Motrix）目前没有 owner YA
 | `env.terrain_generator.num_rows` | grid 行数（curriculum 模式 = 难度等级数） | `10` |
 | `env.terrain_generator.num_cols` | grid 列数（curriculum 模式被忽略，列数 = `len(sub_terrains)`） | `20` |
 | `env.terrain_generator.border_width` | grid 外圈 flat border 宽度（米） | `20.0` |
-| `env.terrain_generator.color_scheme` | `"height"` / `"random"` / `"none"` | `"height"` |
 | `env.terrain_generator.difficulty_range` | 难度采样区间 `[min, max]`，∈ `[0, 1]` | `[0.0, 1.0]` |
 | `env.terrain_generator.add_lights` | 是否在 grid 上方加方向光 | `true` |
 
