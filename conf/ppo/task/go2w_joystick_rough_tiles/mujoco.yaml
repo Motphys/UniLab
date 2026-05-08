@@ -1,0 +1,75 @@
+# @package _global_
+training:
+  task_name: Go2WJoystickRoughTiles
+  sim_backend: mujoco
+algo:
+  num_envs: 1024
+  num_steps_per_env: 48
+  max_iterations: 5000
+  empirical_normalization: false
+  obs_groups:
+    actor:
+      - actor
+    critic:
+      - critic
+  policy:
+    init_noise_std: 0.5
+    actor_hidden_dims: [512, 256, 128]
+    critic_hidden_dims: [512, 256, 128]
+  algorithm:
+    learning_rate: 1.0e-3
+    entropy_coef: 1.0e-3
+env:
+  model_file: src/unilab/assets/robots/go2w/scene_rough_tiles.xml
+  env_spacing: 0.0
+  commands:
+    vel_limit:
+      - [-1.0, -0.6, -1.0]
+      - [1.0, 0.6, 1.0]
+    resampling_time: 10.0
+    heading_command: true
+    heading_range: [-3.14, 3.14]
+  control_config:
+    action_scale: 0.25
+    wheel_action_scale: 10.0
+    Kp: 40.0
+    Kd: 1.0
+    wheel_Kd: 0.5
+    simulate_action_latency: false
+  terrain_scan:
+    enabled: true
+    hfield_name: go2w_tile_stairs_5x5
+    geom_name: terrain_scan_probe
+  domain_rand:
+    randomize_base_mass: true
+    added_mass_range: [-1.0, 2.0]
+    random_com: true
+    com_offset_x: [-0.05, 0.05]
+    randomize_kp: true
+    kp_multiplier_range: [0.9, 1.1]
+    randomize_kd: true
+    kd_multiplier_range: [0.9, 1.1]
+    randomize_init_yaw: false
+    init_yaw_range: [0.0, 0.0]
+    push_robots: false
+    push_body_name: base_link
+reward:
+  scales:
+    tracking_lin_vel: 1.5
+    tracking_ang_vel: 0.75
+    lin_vel_z: -1.0
+    ang_vel_xy: -0.05
+    orientation: -0.5
+    base_height: -10.0
+    torques: -5.0e-4
+    dof_acc: -1.0e-7
+    dof_vel: -1.0e-7
+    wheel_acc: -1.0e-7
+    action_rate: -0.01
+    stand_still: -0.5
+    hip_pos: -0.5
+    dof_error: -0.05
+    alive: 0.0
+  tracking_sigma: 0.25
+  base_height_target: 0.4
+  only_positive_rewards: true

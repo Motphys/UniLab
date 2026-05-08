@@ -279,8 +279,25 @@ def test_ppo_go2w_mujoco_uses_motor_owner_dr_path():
     assert cfg.training.sim_backend == "mujoco"
     assert cfg.env.domain_rand.randomize_kp is True
     assert cfg.env.domain_rand.randomize_kd is True
-    assert cfg.env.control_config.wheel_action_scale == pytest.approx(15.0)
+    assert cfg.env.control_config.wheel_action_scale == pytest.approx(10.0)
+    assert cfg.env.control_config.wheel_Kd == pytest.approx(0.5)
     assert cfg.reward.scales.torques < 0.0
+
+
+def test_ppo_go2w_rough_tiles_mujoco_uses_static_tile_terrain():
+    cfg = _compose("ppo", overrides=["task=go2w_joystick_rough_tiles/mujoco"])
+
+    assert cfg.training.task_name == "Go2WJoystickRoughTiles"
+    assert cfg.training.sim_backend == "mujoco"
+    assert str(cfg.env.model_file).endswith("src/unilab/assets/robots/go2w/scene_rough_tiles.xml")
+    assert cfg.env.terrain_scan.hfield_name == "go2w_tile_stairs_5x5"
+    assert cfg.env.terrain_scan.geom_name == "terrain_scan_probe"
+    assert cfg.env.commands.resampling_time == pytest.approx(10.0)
+    assert cfg.env.commands.heading_command is True
+    assert cfg.env.domain_rand.randomize_init_yaw is False
+    assert cfg.env.domain_rand.init_yaw_range == [0.0, 0.0]
+    assert cfg.reward.only_positive_rewards is True
+    assert cfg.algo.max_iterations == 5000
 
 
 def test_offpolicy_g1_walk_flat_motrix_preserves_backend_env_overrides():
