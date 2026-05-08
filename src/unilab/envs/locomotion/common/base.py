@@ -10,6 +10,7 @@ from unilab.base.backend import SimBackend
 from unilab.base.base import EnvCfg
 from unilab.base.np_env import NpEnv, NpEnvState
 from unilab.dtype_config import get_global_dtype
+from unilab.terrains.utils import compute_env_origins_grid
 
 
 @dataclass
@@ -46,6 +47,7 @@ class LocomotionBaseEnv(NpEnv):
         self._init_action_space()
         self._num_action = self._action_space.shape[0]
         self._init_buffers()
+        self._env_origins: np.ndarray = compute_env_origins_grid(num_envs, cfg.env_spacing)
 
     def _init_action_space(self) -> None:
         ctrl_range = self._backend.get_actuator_ctrl_range()

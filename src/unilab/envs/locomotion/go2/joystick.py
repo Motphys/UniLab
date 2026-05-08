@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import tempfile
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -17,6 +19,17 @@ from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
 from unilab.envs.locomotion.common.dr_provider import LocomotionDRProvider
 from unilab.envs.locomotion.common.rewards import RewardContext
 from unilab.envs.locomotion.go2.base import Go2BaseCfg, Go2BaseEnv
+from unilab.terrains import (
+    SubTerrainCfg,
+    TerrainGeneratorCfg,
+    flat,
+    hf_pyramid_slope,
+    hf_pyramid_slope_inv,
+    pyramid_stairs,
+    pyramid_stairs_inv,
+    random_rough,
+    wave_terrain,
+)
 
 
 @dataclass
@@ -49,6 +62,59 @@ class JoystickSensor:
     feet_pos = ["FL_pos", "FR_pos", "RL_pos", "RR_pos"]
 
 
+@dataclass(kw_only=True)
+class Go2RoughTerrainCfg(TerrainGeneratorCfg):
+    size: tuple[float, float] = (8.0, 8.0)
+    num_rows: int = 10
+    num_cols: int = 20
+    border_width: float = 20.0
+    add_lights: bool = True
+
+    sub_terrains: dict[str, SubTerrainCfg] = field(
+        default_factory=lambda: {
+            "flat": flat(proportion=0.2),
+            "pyramid_stairs": pyramid_stairs(
+                proportion=0.2,
+                step_height_range=(0.0, 0.2),
+                step_width=0.3,
+                platform_width=3.0,
+                border_width=1.0,
+            ),
+            "pyramid_stairs_inv": pyramid_stairs_inv(
+                proportion=0.2,
+                step_height_range=(0.0, 0.2),
+                step_width=0.3,
+                platform_width=3.0,
+                border_width=1.0,
+            ),
+            "hf_pyramid_slope": hf_pyramid_slope(
+                proportion=0.1,
+                slope_range=(0.0, 0.7),
+                platform_width=2.0,
+                border_width=0.25,
+            ),
+            "hf_pyramid_slope_inv": hf_pyramid_slope_inv(
+                proportion=0.1,
+                slope_range=(0.0, 0.7),
+                platform_width=2.0,
+                border_width=0.25,
+            ),
+            "random_rough": random_rough(
+                proportion=0.1,
+                noise_range=(0.02, 0.10),
+                noise_step=0.02,
+                border_width=0.25,
+            ),
+            "wave_terrain": wave_terrain(
+                proportion=0.1,
+                amplitude_range=(0.0, 0.2),
+                num_waves=4,
+                border_width=0.25,
+            ),
+        }
+    )
+
+
 @registry.envcfg("Go2JoystickFlat")
 @dataclass
 class Go2JoystickCfg(Go2BaseCfg):
@@ -59,6 +125,14 @@ class Go2JoystickCfg(Go2BaseCfg):
     reward_config: RewardConfig | None = None
     sensor: JoystickSensor = field(default_factory=JoystickSensor)  # type: ignore[assignment]
     domain_rand: Go2DomainRandConfig = field(default_factory=Go2DomainRandConfig)
+
+
+@registry.envcfg("Go2JoystickRough")
+@dataclass
+class Go2JoystickRoughCfg(Go2JoystickCfg):
+    model_file: str = str(ASSETS_ROOT_PATH / "robots" / "go2" / "scene_flat.xml")
+    terrain_generator: TerrainGeneratorCfg = field(default_factory=Go2RoughTerrainCfg)
+    env_spacing: float = 1.0
 
 
 class Go2JoystickDomainRandomizationProvider(LocomotionDRProvider):
@@ -80,15 +154,34 @@ class Go2JoystickDomainRandomizationProvider(LocomotionDRProvider):
 
 @registry.env("Go2JoystickFlat", sim_backend="mujoco")
 @registry.env("Go2JoystickFlat", sim_backend="motrix")
+@registry.env("Go2JoystickRough", sim_backend="mujoco")
+@registry.env("Go2JoystickRough", sim_backend="motrix")
 class Go2WalkTask(Go2BaseEnv):
     _cfg: Go2JoystickCfg
 
     def __init__(self, cfg: Go2JoystickCfg, num_envs=1, backend_type="mujoco"):
         if cfg.reward_config is None:
             raise ValueError("reward_config must be provided via Hydra configuration")
+
+        self._materialized_dir: tempfile.TemporaryDirectory | None = None
+        self._materialized_model_file: str | None = None
+        model_file = cfg.model_file
+        if cfg.terrain_generator is not None:
+            from unilab.scene.composer import compose_and_materialize
+
+            self._materialized_dir = tempfile.TemporaryDirectory(prefix="unilab_terrain_")
+            scene = compose_and_materialize(
+                base_xml=Path(cfg.model_file),
+                terrain_cfg=cfg.terrain_generator,
+                output_dir=Path(self._materialized_dir.name),
+                floor_geom=cfg.terrain_floor_geom,
+            )
+            self._materialized_model_file = str(scene.scene_xml)
+            model_file = self._materialized_model_file
+
         backend = create_backend(
             backend_type,
-            cfg.model_file,
+            model_file,
             num_envs,
             cfg.sim_dt,
             base_name=cfg.asset.base_name,
@@ -106,6 +199,18 @@ class Go2WalkTask(Go2BaseEnv):
         self.gait_frequency = 2
         self.feet_force = np.zeros((num_envs, len(cfg.sensor.feet_force), 3), dtype=np.float32)
         self.feet_pos = np.zeros((num_envs, len(cfg.sensor.feet_pos), 3), dtype=np.float32)
+
+    def get_playback_model(self, env_index: int | None = None) -> Any:
+        if self._materialized_model_file is not None:
+            return self._materialized_model_file
+        return super().get_playback_model(env_index)
+
+    def close(self) -> None:
+        if self._materialized_dir is not None:
+            self._materialized_dir.cleanup()
+            self._materialized_dir = None
+            self._materialized_model_file = None
+        super().close()
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:

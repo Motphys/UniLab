@@ -85,6 +85,7 @@ class LocomotionDRProvider(DomainRandomizationProvider):
         qpos = np.tile(env._init_qpos, (num_reset, 1))
         qvel = np.tile(env._init_qvel, (num_reset, 1))
         qpos[:, 0:2] += np.random.uniform(-0.5, 0.5, (num_reset, 2))
+        qpos[:, 0:3] += env._env_origins[env_ids]
         yaw = np.random.uniform(-np.pi, np.pi, (num_reset,))
         qpos[:, 3:7] = np_quat_mul(qpos[:, 3:7], np_yaw_to_quat(yaw))
         limit = self._get_qvel_limit(env)
