@@ -21,9 +21,10 @@ env:
       - [1.0, 0.0, 0.3]
   control_config:
     action_scale: 0.25
-    wheel_action_scale: 15.0
+    wheel_action_scale: 10.0
     Kp: 35.0
     Kd: 0.5
+    wheel_Kd: 0.5
   domain_rand:
     randomize_kp: true
     randomize_kd: true
@@ -37,7 +38,7 @@ reward:
     action_rate: -0.005
     similar_to_default: -0.1
     torques: -0.0002
-    wheel_vel: -0.001
+    wheel_vel: 0.0
     alive: 0.5
   tracking_sigma: 0.25
   base_height_target: 0.3

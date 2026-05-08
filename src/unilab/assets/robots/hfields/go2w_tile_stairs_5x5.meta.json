@@ -1,0 +1,19 @@
+{
+  "source": "src/unilab/assets/terrains/go2w_tile_stairs_5x5.xml",
+  "center": [
+    0.0,
+    0.0
+  ],
+  "radius": 20.0,
+  "resolution": 0.1,
+  "shape": [
+    401,
+    401
+  ],
+  "z_min": -1.3,
+  "z_max": 1.3,
+  "z_scale": 2.6,
+  "base_z": -1.3,
+  "mujoco_hfield_size_xml": "size=\"20.0 20.0 2.600000 0.05\"",
+  "note": "In the XML, place the hfield geom at pos='cx cy base_z' where cx,cy are --center. The last size entry (0.05) is the base thickness; raise it if z_min is lower than your floor plane."
+}
