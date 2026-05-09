@@ -142,6 +142,9 @@ def test_motrix_backend_smoke_contract(robot):
     caps = bkd.get_dr_capabilities()
     assert {"base_mass_delta", "base_com_offset", "kp", "kd"}.issubset(caps.supported_reset_terms)
     assert caps.supports_interval_push
+    play_caps = bkd.get_play_capabilities()
+    assert play_caps.supports_native_interactive_renderer
+    assert play_caps.supports_native_video_capture
 
 
 def test_motrix_backend_fixed_base_base_views_are_available():

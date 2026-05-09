@@ -40,7 +40,7 @@ unilab-viz-nan = "unilab.tools.viz_nan:main"
 unilab-export-scene = "unilab.tools.export_scene:main"
 
 [project.optional-dependencies]
-motrix = ["motrixsim==0.7.1.dev96425"]
+motrix = ["motrixsim-core==0.7.1.dev99744"]
 viser = ["viser>=1.0.26", "trimesh>=3.21.7"]
 
 [dependency-groups]
@@ -62,7 +62,7 @@ url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.uv.sources]
-motrixsim = { index = "motphys-pypi" }
+motrixsim-core = { index = "motphys-pypi" }
 mujoco-uni = { index = "test-pypi" }
 torch = [
     { index = "pytorch-cu128", marker = "sys_platform=='linux'" },

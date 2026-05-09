@@ -21,6 +21,7 @@ class BackendPlayCapabilities:
 
     supports_native_interactive_renderer: bool = False
     supports_physics_state_playback: bool = False
+    supports_native_video_capture: bool = False
 
 
 class SimBackend(abc.ABC):
@@ -297,16 +298,33 @@ class SimBackend(abc.ABC):
         """Return backend-native play/render capabilities."""
         return BackendPlayCapabilities()
 
-    def init_renderer(self, spacing: float = 1.0) -> None:
-        """Initialize a backend-native interactive renderer."""
-        raise NotImplementedError(
-            f"{self.__class__.__name__} does not support native interactive rendering"
-        )
+    def init_renderer(
+        self,
+        spacing: float = 1.0,
+        *,
+        headless: bool = False,
+        capture: bool = False,
+        width: int = 1280,
+        height: int = 720,
+        camera_kwargs: dict[str, Any] | None = None,
+    ) -> None:
+        """Initialize a backend-native renderer.
+
+        ``headless`` controls whether a native window is opened. ``capture``
+        controls whether ``capture_video_frame`` is valid for the renderer.
+        """
+        raise NotImplementedError(f"{self.__class__.__name__} does not support native rendering")
 
     def render(self) -> None:
         """Render one frame through a backend-native interactive renderer."""
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support native interactive rendering"
+        )
+
+    def capture_video_frame(self) -> np.ndarray:
+        """Capture one RGB frame through a backend-native renderer."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support native video capture"
         )
 
     def get_physics_state(self) -> np.ndarray:

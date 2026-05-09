@@ -311,46 +311,45 @@ def play_mlx_ppo(cfg: DictConfig, dtype, use_fp16: bool, resolved_sim_backend: s
         raw_obs = mx.array(flatten_obs_dict(state.obs))
         return mx.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0)
 
-    if resolved_sim_backend == "motrix":
-        print("[MLX PPO] Starting interactive visualization (motrix native renderer)...")
-        print("[MLX PPO] Close the render window to exit.")
-
-        try:
-            render_play_mode(
-                env,
-                sim_backend="motrix",
-                num_steps=None,
-                initialize=lambda: obs,
-                step=_play_step,
-            )
-        except Exception as e:
-            if "RenderClosedError" in str(type(e).__name__):
-                print("[MLX PPO] Render window closed.")
-            else:
-                raise
-        env.close()
-        return None
-
+    record_video = bool(getattr(cfg.training, "play_record_video", True))
     output_dir = run_dir if run_dir is not None else task_log_root
-    output_video = output_dir / "play_video.mp4"
+    output_video = output_dir / "play_video.mp4" if record_video else None
 
-    print("[MLX PPO] Collecting physics states for play...")
+    if record_video:
+        print(f"[MLX PPO] Rendering video to {output_video}...")
+    else:
+        print("[MLX PPO] Running playback without video recording...")
+    print("[MLX PPO] Rendering playback frames...")
     try:
         render_play_mode(
             env,
             sim_backend=resolved_sim_backend,
+            headless=bool(getattr(cfg.training, "play_headless", True)),
+            record_video=record_video,
             num_steps=cfg.training.play_steps,
             output_video=output_video,
             initialize=lambda: obs,
             step=_play_step,
+            camera_kwargs={
+                "cam_distance": getattr(cfg.training, "cam_distance", 2.0),
+                "cam_elevation": getattr(cfg.training, "cam_elevation", -20.0),
+                "cam_azimuth": getattr(cfg.training, "cam_azimuth", 90.0),
+                "cam_lookat": getattr(cfg.training, "cam_lookat", None),
+                "cam_tracking": getattr(cfg.training, "cam_tracking", False),
+                "cam_tracking_env_idx": getattr(cfg.training, "cam_tracking_env_idx", 0),
+                "cam_tracking_extra_envs": getattr(cfg.training, "cam_tracking_extra_envs", 2),
+            },
         )
     except ImportError:
         print("mediapy is required for play video export. Install with `pip install mediapy`.")
         env.close()
         return None
-    print(f"[MLX PPO] Play video saved: {output_video}")
+    if record_video:
+        print(f"[MLX PPO] Play video saved: {output_video}")
+    else:
+        print("[MLX PPO] Playback done.")
     env.close()
-    return str(output_video)
+    return str(output_video) if output_video is not None else None
 
 
 @hydra.main(version_base="1.3", config_path="../conf/ppo", config_name="config_mlx")

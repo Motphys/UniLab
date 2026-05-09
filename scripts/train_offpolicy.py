@@ -438,8 +438,8 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
         state = env.step(actions_np)
         return np.asarray(extract_play_obs(state.obs), dtype=np.float32)
 
-    # Use Motrix native rendering
-    if cfg.training.sim_backend == "motrix":
+    # Use Motrix native rendering only when no video output directory is available.
+    if cfg.training.sim_backend == "motrix" and load_path_dir is None:
         print("Starting interactive visualization (motrix native renderer)...")
         print("Close the render window to exit.")
 
@@ -470,12 +470,19 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
         print(f"Could not resolve checkpoint directory. load_path_dir={load_path_dir}")
         return None
 
-    output_video = os.path.join(load_path_dir, "play_video.mp4")
-    print("Collecting physics states...")
+    record_video = bool(getattr(cfg.training, "play_record_video", True))
+    output_video = os.path.join(load_path_dir, "play_video.mp4") if record_video else None
+    if record_video:
+        print(f"Rendering video to {output_video}...")
+    else:
+        print("Running playback without video recording...")
+    print("Rendering playback frames...")
     with torch.inference_mode():
         render_play_mode(
             env,
             sim_backend=cfg.training.sim_backend,
+            headless=bool(getattr(cfg.training, "play_headless", True)),
+            record_video=record_video,
             num_steps=cfg.training.play_steps,
             output_video=output_video,
             initialize=lambda: np.asarray(
@@ -493,7 +500,8 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
                 "cam_azimuth": cfg.training.cam_azimuth,
             },
         )
-    print(f"Saving video to {output_video} ...")
+    if record_video:
+        print(f"Saving video to {output_video} ...")
     print("Done.")
     return output_video
 

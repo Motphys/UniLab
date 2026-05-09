@@ -188,7 +188,7 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     if EXPORT_POLICY:
         runner.export_policy_to_onnx(path=str(load_path_dir))
         runner.export_policy_to_jit(path=str(load_path_dir))
-    if cfg.training.sim_backend == "motrix":
+    if cfg.training.sim_backend == "motrix" and load_path_dir is None:
         print("Starting interactive visualization (motrix native renderer)...")
         print("Close the render window to exit.")
         with torch.inference_mode():
@@ -208,10 +208,14 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
                 else:
                     raise
     else:
-        output_video = Path(load_path_dir) / "play_video.mp4"
-        print(f"Rendering video to {output_video}...")
+        record_video = bool(getattr(cfg.training, "play_record_video", True))
+        output_video = Path(load_path_dir) / "play_video.mp4" if record_video else None
+        if record_video:
+            print(f"Rendering video to {output_video}...")
+        else:
+            print("Running playback without video recording...")
 
-        print("Collecting physics states...")
+        print("Rendering playback frames...")
         with torch.inference_mode():
             render_play_mode(
                 env,
@@ -219,6 +223,8 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
                 render_spacing=float(
                     getattr(cfg.training, "render_spacing", getattr(env.cfg, "render_spacing", 1.0))
                 ),
+                headless=bool(getattr(cfg.training, "play_headless", True)),
+                record_video=record_video,
                 num_steps=cfg.training.play_steps,
                 output_video=output_video,
                 initialize=lambda: wrapped_env.reset()[0],
@@ -234,7 +240,7 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
                 },
             )
         print("Done.")
-        return str(output_video)
+        return str(output_video) if output_video is not None else None
 
     return None
 
