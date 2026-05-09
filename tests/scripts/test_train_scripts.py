@@ -358,7 +358,7 @@ def test_ppo_g1_mujoco_base_hyperparams_remain_separate():
 def test_ppo_g1_env_preset_has_env_overrides():
     cfg = _ppo_cfg(["task=g1_walk_flat/motrix"])
 
-    assert cfg.env.iterations == 3
+    assert OmegaConf.select(cfg, "env.motrix_max_iterations") is None
     assert cfg.env.control_config.action_scale == pytest.approx(0.5)
     assert cfg.env.commands.vel_limit == [[0.4, 0.0, 0.0], [0.7, 0.0, 0.0]]
     assert cfg.env.gait_phase_init_mode == "offset_phase"
@@ -413,11 +413,22 @@ def test_build_ppo_env_cfg_override_g1_motrix(
     assert env_cfg_override["reward_config"]["min_forward_speed_for_gait_reward"] == pytest.approx(
         0.05
     )
-    assert env_cfg_override["iterations"] == 3
+    assert "motrix_max_iterations" not in env_cfg_override
     assert env_cfg_override["control_config"]["action_scale"] == pytest.approx(0.5)
     assert env_cfg_override["commands"]["vel_limit"] == [[0.4, 0.0, 0.0], [0.7, 0.0, 0.0]]
     assert env_cfg_override["gait_phase_init_mode"] == "offset_phase"
     assert env_cfg_override["reset_base_qvel_limit"] == pytest.approx(0.05)
+
+
+def test_build_ppo_env_cfg_override_carries_motrix_max_iterations_override(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(["task=g1_walk_flat/motrix", "+env.motrix_max_iterations=9"])
+
+    env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
+
+    assert env_cfg_override["motrix_max_iterations"] == 9
 
 
 def test_offpolicy_g1_walk_flat_motrix_env_cfg_override_has_domain_rand():

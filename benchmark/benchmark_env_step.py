@@ -1,11 +1,12 @@
 """Benchmark env.step performance for a given task and backend.
 
 Usage:
-    # Run all combinations (go1/go2/g1/g1_motion_tracking x mujoco/motrix):
+    # Run all task-side benchmark specs over their benchmark backends:
     uv run benchmark/benchmark_env_step.py
 
     # Single task + backend:
     uv run benchmark/benchmark_env_step.py task=g1_walk_flat/motrix
+    uv run benchmark/benchmark_env_step.py task=g1_walk_rough/mujoco
 
     # Override bench params:
     uv run benchmark/benchmark_env_step.py task=go1_joystick_flat/mujoco num_envs=4096 num_steps=500
@@ -16,6 +17,8 @@ Usage:
 
 import importlib.util
 import sys
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -58,24 +61,243 @@ get_device_info_dict = _DEVICE_INFO.get_device_info_dict
 get_device_info_line = _DEVICE_INFO.get_device_info_line
 save_json = _OUTPUT.save_json
 
-TASK_CONFIGS = {
-    "go1": "task=go1_joystick_flat",
-    "go2": "task=go2_joystick_flat",
-    "g1": "task=g1_walk_flat",
-    "g1_mt": "task=g1_motion_tracking",
+BACKENDS = ["mujoco", "motrix"]
+
+
+@dataclass(frozen=True)
+class TaskConfig:
+    task_id: str
+    env_name: str
+    cfg_factory: Callable[[str], Any]
+    env_cls_factory: Callable[[], type]
+    backends: tuple[str, ...] = ("mujoco", "motrix")
+    aliases: tuple[str, ...] = ()
+
+    def build_cfg(self, backend: str) -> Any:
+        return self.cfg_factory(backend)
+
+    def matches_task_path(self, task_path: str) -> bool:
+        return task_path in {self.task_id, self.env_name, *self.aliases}
+
+
+def _quadruped_reward_config(reward_cls: type) -> Any:
+    return reward_cls(
+        scales={
+            "tracking_lin_vel": 1.0,
+            "tracking_ang_vel": 0.2,
+            "lin_vel_z": -5.0,
+            "ang_vel_xy": -0.1,
+            "base_height": -100.0,
+            "action_rate": -0.005,
+            "similar_to_default": -0.1,
+            "contact": 0.24,
+            "swing_feet_z": 4.0,
+        },
+        tracking_sigma=0.25,
+        base_height_target=0.3,
+    )
+
+
+def _g1_walk_reward_config() -> Any:
+    from unilab.envs.locomotion.g1.joystick import G1WalkRewardConfig
+
+    return G1WalkRewardConfig(
+        scales={
+            "tracking_lin_vel": 2.0,
+            "tracking_ang_vel": 1.5,
+            "penalty_ang_vel_xy": -1.0,
+            "penalty_orientation": -10.0,
+            "penalty_action_rate": -4.0,
+            "pose": -0.5,
+            "penalty_feet_ori": -20.0,
+            "feet_phase": 5.0,
+            "alive": 10.0,
+        },
+        tracking_sigma=0.25,
+        base_height_target=0.754,
+        min_base_height=0.3,
+        max_tilt_deg=65.0,
+        gait_frequency=1.5,
+        feet_phase_swing_height=0.09,
+        feet_phase_tracking_sigma=0.04,
+    )
+
+
+def _materialize_g1_rough_benchmark_scene() -> str:
+    import shutil
+    import xml.etree.ElementTree as ET
+
+    source_dir = ROOT_DIR / "src" / "unilab" / "assets" / "robots" / "g1"
+    output_dir = Path("/tmp/unilab_benchmark_g1_rough_scene")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    for name in ("g1.xml",):
+        shutil.copy2(source_dir / name, output_dir / name)
+    for name in ("assets", "textures", "hfields"):
+        shutil.copytree(source_dir / name, output_dir / name, dirs_exist_ok=True)
+
+    tree = ET.parse(source_dir / "scene_rough.xml")
+    hfield = tree.getroot().find("./asset/hfield[@name='hfield']")
+    if hfield is not None:
+        hfield.set("file", "hfields/hfield.png")
+    output_path = output_dir / "scene_rough.xml"
+    tree.write(output_path)
+    return str(output_path)
+
+
+def _go1_cfg(_: str) -> Any:
+    from unilab.envs.locomotion.go1.joystick import Go1JoystickCfg, RewardConfig
+
+    cfg = Go1JoystickCfg()
+    cfg.reward_config = _quadruped_reward_config(RewardConfig)
+    return cfg
+
+
+def _go1_env_cls() -> type:
+    from unilab.envs.locomotion.go1.joystick import Go1WalkTask
+
+    return Go1WalkTask
+
+
+def _go2_cfg(backend: str) -> Any:
+    from unilab.envs.locomotion.go2.joystick import Go2JoystickCfg, RewardConfig
+
+    cfg = Go2JoystickCfg()
+    cfg.reward_config = _quadruped_reward_config(RewardConfig)
+    if backend == "motrix":
+        cfg.domain_rand.randomize_kp = False
+        cfg.domain_rand.randomize_kd = False
+    return cfg
+
+
+def _go2_env_cls() -> type:
+    from unilab.envs.locomotion.go2.joystick import Go2WalkTask
+
+    return Go2WalkTask
+
+
+def _go2w_cfg(_: str) -> Any:
+    from unilab.envs.locomotion.go2w.joystick import Go2WJoystickCfg, RewardConfig
+
+    cfg = Go2WJoystickCfg()
+    cfg.reward_config = RewardConfig(
+        scales={
+            "tracking_lin_vel": 1.0,
+            "tracking_ang_vel": 0.2,
+            "lin_vel_z": -5.0,
+            "ang_vel_xy": -0.1,
+            "base_height": -100.0,
+            "action_rate": -0.005,
+            "similar_to_default": -0.1,
+            "torques": -0.0002,
+            "wheel_vel": 0.0,
+            "alive": 0.5,
+        },
+        tracking_sigma=0.25,
+        base_height_target=0.3,
+    )
+    return cfg
+
+
+def _go2w_env_cls() -> type:
+    from unilab.envs.locomotion.go2w.joystick import Go2WJoystickEnv
+
+    return Go2WJoystickEnv
+
+
+def _g1_flat_cfg(backend: str) -> Any:
+    from unilab.envs.locomotion.g1.joystick import G1WalkFlatCfg
+
+    cfg = G1WalkFlatCfg()
+    cfg.reward_config = _g1_walk_reward_config()
+    if backend == "motrix":
+        cfg.domain_rand.randomize_kp = False
+        cfg.domain_rand.randomize_kd = False
+    return cfg
+
+
+def _g1_rough_cfg(backend: str) -> Any:
+    from unilab.envs.locomotion.g1.joystick import G1WalkRoughCfg
+
+    cfg = G1WalkRoughCfg()
+    cfg.reward_config = _g1_walk_reward_config()
+    if backend == "motrix":
+        cfg.model_file = _materialize_g1_rough_benchmark_scene()
+        cfg.domain_rand.randomize_kp = False
+        cfg.domain_rand.randomize_kd = False
+    return cfg
+
+
+def _g1_motion_tracking_cfg(_: str) -> Any:
+    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnvCfg
+
+    return G1MotionTrackingEnvCfg()
+
+
+def _g1_walk_env_cls() -> type:
+    from unilab.envs.locomotion.g1.joystick import G1WalkEnv
+
+    return G1WalkEnv
+
+
+def _g1_motion_tracking_env_cls() -> type:
+    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
+
+    return G1MotionTrackingEnv
+
+
+TASK_CONFIGS: dict[str, TaskConfig] = {
+    "go1": TaskConfig(
+        task_id="go1_joystick_flat",
+        env_name="Go1JoystickFlat",
+        cfg_factory=_go1_cfg,
+        env_cls_factory=_go1_env_cls,
+    ),
+    "go2": TaskConfig(
+        task_id="go2_joystick_flat",
+        env_name="Go2JoystickFlat",
+        cfg_factory=_go2_cfg,
+        env_cls_factory=_go2_env_cls,
+    ),
+    "go2w": TaskConfig(
+        task_id="go2w_joystick_flat",
+        env_name="Go2WJoystickFlat",
+        cfg_factory=_go2w_cfg,
+        env_cls_factory=_go2w_env_cls,
+    ),
+    "g1": TaskConfig(
+        task_id="g1_walk_flat",
+        env_name="G1WalkFlat",
+        cfg_factory=_g1_flat_cfg,
+        env_cls_factory=_g1_walk_env_cls,
+    ),
+    "g1_rough": TaskConfig(
+        task_id="g1_walk_rough",
+        env_name="G1WalkRough",
+        cfg_factory=_g1_rough_cfg,
+        env_cls_factory=_g1_walk_env_cls,
+        aliases=("sac/g1_walk_rough",),
+    ),
+    "g1_mt": TaskConfig(
+        task_id="g1_motion_tracking",
+        env_name="G1MotionTracking",
+        cfg_factory=_g1_motion_tracking_cfg,
+        env_cls_factory=_g1_motion_tracking_env_cls,
+    ),
 }
 
 # Default benchmark parameters
 DEFAULT_NUM_ENVS = 2048
-DEFAULT_NUM_STEPS = 200
-DEFAULT_WARMUP_STEPS = 10
+DEFAULT_NUM_STEPS = 20
+DEFAULT_WARMUP_STEPS = 5
 
-BACKENDS = ["mujoco", "motrix"]
 TASK_COLORS = {
     "go1": "#4C78A8",
     "go2": "#54A24B",
     "g1": "#F58518",
     "g1_mt": "#B279A2",
+    "g1_rough": "#E45756",
+    "go2w": "#72B7B2",
 }
 BACKEND_STYLES = {
     "mujoco": {"marker": "o", "linestyle": "-", "hatch": "//"},
@@ -168,54 +390,135 @@ def _parse_cli_args(args: list[str]) -> tuple[dict[str, str], dict[str, Any], li
     return bench_kwargs, output_kwargs, hydra_overrides
 
 
-def _compose_cfg(extra_args: list[str]):
-    """Compose a Hydra config, handling GlobalHydra lifecycle."""
-    from hydra import compose, initialize_config_dir
-    from hydra.core.global_hydra import GlobalHydra
+def _split_task_choice(task_choice: str) -> tuple[str, str | None]:
+    """Return (task path without backend, backend if present)."""
+    normalized = task_choice.strip()
+    if normalized.startswith("task="):
+        normalized = normalized.split("=", 1)[1]
+    for backend in BACKENDS:
+        suffix = f"/{backend}"
+        if normalized.endswith(suffix):
+            return normalized[: -len(suffix)], backend
+    return normalized, None
 
-    config_dir = str(ROOT_DIR / "conf" / "ppo")
 
-    overrides = list(extra_args) + [
-        "hydra.run.dir=.",
-        "hydra.output_subdir=null",
-        "hydra/job_logging=disabled",
-        "hydra/hydra_logging=disabled",
-    ]
+def _matching_task_config(task_path: str) -> TaskConfig | None:
+    for task_config in TASK_CONFIGS.values():
+        if task_config.matches_task_path(task_path):
+            return task_config
+    return None
 
-    GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=config_dir, version_base="1.3"):
-        return compose(config_name="config", overrides=overrides)
+
+def _resolve_task_and_backend(hydra_overrides: list[str]) -> tuple[str, TaskConfig, str]:
+    """Resolve benchmark task/backend without consulting training owner YAML."""
+    task_key = "go1"
+    task_config = TASK_CONFIGS[task_key]
+    sim_backend: str | None = None
+
+    for arg in hydra_overrides:
+        if arg.startswith("task="):
+            task_path, backend = _split_task_choice(arg)
+            matched = _matching_task_config(task_path)
+            if matched is None:
+                available = ", ".join(task_config.task_id for task_config in TASK_CONFIGS.values())
+                raise ValueError(f"Unknown benchmark task {task_path!r}. Available: {available}")
+            task_config = matched
+            task_key = next(
+                key for key, candidate in TASK_CONFIGS.items() if candidate is task_config
+            )
+            sim_backend = backend or sim_backend
+        elif arg.startswith("training.sim_backend="):
+            sim_backend = arg.split("=", 1)[1]
+
+    if sim_backend is None:
+        sim_backend = task_config.backends[0]
+    if sim_backend not in task_config.backends:
+        supported = ", ".join(task_config.backends)
+        raise ValueError(
+            f"Benchmark task {task_config.task_id!r} supports backend(s) {supported}; "
+            f"got {sim_backend!r}."
+        )
+    return task_key, task_config, sim_backend
+
+
+def _dotlist_to_plain_dict(dotlist: list[str]) -> dict[str, Any]:
+    if not dotlist:
+        return {}
+    from omegaconf import OmegaConf
+
+    value = OmegaConf.to_container(OmegaConf.from_dotlist(dotlist), resolve=True)
+    if not isinstance(value, dict):
+        return {}
+    return cast(dict[str, Any], value)
+
+
+def _deep_merge_dict(target: dict[str, Any], updates: dict[str, Any]) -> None:
+    for key, value in updates.items():
+        if isinstance(value, dict) and isinstance(target.get(key), dict):
+            _deep_merge_dict(cast(dict[str, Any], target[key]), value)
+        else:
+            target[key] = value
+
+
+def _apply_plain_overrides(target: Any, overrides: dict[str, Any]) -> None:
+    import dataclasses
+
+    for key, value in overrides.items():
+        if not hasattr(target, key):
+            raise ValueError(f"Config class '{type(target).__name__}' has no attribute '{key}'")
+        existing = getattr(target, key)
+        if isinstance(value, dict) and isinstance(existing, dict):
+            _deep_merge_dict(existing, value)
+        elif isinstance(value, dict) and dataclasses.is_dataclass(existing):
+            _apply_plain_overrides(existing, value)
+        else:
+            setattr(target, key, value)
+
+
+def _apply_cli_cfg_overrides(cfg: Any, hydra_overrides: list[str]) -> None:
+    env_dotlist: list[str] = []
+    reward_dotlist: list[str] = []
+
+    for arg in hydra_overrides:
+        if arg.startswith("env."):
+            env_dotlist.append(arg[len("env.") :])
+        elif arg.startswith("+env."):
+            env_dotlist.append(arg[len("+env.") :])
+        elif arg.startswith("reward."):
+            reward_dotlist.append(arg[len("reward.") :])
+        elif arg.startswith("+reward."):
+            reward_dotlist.append(arg[len("+reward.") :])
+
+    env_overrides = _dotlist_to_plain_dict(env_dotlist)
+    if env_overrides:
+        _apply_plain_overrides(cfg, env_overrides)
+
+    reward_overrides = _dotlist_to_plain_dict(reward_dotlist)
+    if reward_overrides:
+        reward_config = getattr(cfg, "reward_config", None)
+        if reward_config is None:
+            raise ValueError("Cannot apply reward.* overrides: task has no reward_config")
+        _apply_plain_overrides(reward_config, reward_overrides)
 
 
 def _run_single(extra_args: list[str]) -> dict[str, Any]:
-    """Run a single bench in-process via Hydra and return timing records."""
-    from unilab.training import BackendAdapter, create_env, ensure_registries
-
+    """Run a single task-side benchmark and return timing records."""
     bench_kwargs, _, hydra_overrides = _parse_cli_args(extra_args)
-    cfg = _compose_cfg(hydra_overrides)
-
-    ensure_registries()
+    _, task_config, sim_backend = _resolve_task_and_backend(hydra_overrides)
 
     num_envs = int(bench_kwargs.get("num_envs", DEFAULT_NUM_ENVS))
     num_steps = int(bench_kwargs.get("num_steps", DEFAULT_NUM_STEPS))
     warmup_steps = int(bench_kwargs.get("warmup_steps", DEFAULT_WARMUP_STEPS))
 
-    task_name = cfg.training.task_name
-    sim_backend = cfg.training.sim_backend
-
-    adapter = BackendAdapter(cfg, root_dir=ROOT_DIR, algo_name="ppo")
-    env_cfg_override = adapter.build_task_env_cfg_override()
+    cfg = task_config.build_cfg(sim_backend)
+    _apply_cli_cfg_overrides(cfg, hydra_overrides)
+    cfg.validate()
 
     env = None
     timing_records: dict[str, list[float]] = {}
     try:
-        env = create_env(
-            cfg,
-            num_envs=num_envs,
-            env_cfg_override=env_cfg_override,
-            sim_backend=sim_backend,
-            task_name=task_name,
-        )
+        env_cls = task_config.env_cls_factory()
+        env = env_cls(cfg, num_envs=num_envs, backend_type=sim_backend)
 
         nu = env._backend.num_actuators  # type: ignore[reportAttributeAccessIssue]
         env.init_state()
@@ -235,7 +538,7 @@ def _run_single(extra_args: list[str]) -> dict[str, Any]:
             env.close()
 
     return {
-        "task_name": str(task_name),
+        "task_name": task_config.env_name,
         "sim_backend": str(sim_backend),
         "num_envs": num_envs,
         "num_steps": num_steps,
@@ -329,6 +632,10 @@ def _short_task_label(task_name: str) -> str:
     name = task_name.lower()
     if "motiontracking" in name:
         return "g1_mt"
+    if "rough" in name and name.startswith("g1"):
+        return "g1_rough"
+    if name.startswith("go2w"):
+        return "go2w"
     for prefix in ("go1", "go2", "g1"):
         if name.startswith(prefix):
             return prefix
@@ -735,13 +1042,14 @@ def _run_matrix(
 
     results: list[dict] = []
     failures: list[dict[str, str]] = []
-    for task_key, task_override in TASK_CONFIGS.items():
-        for backend in backends:
+    for task_key, task_config in TASK_CONFIGS.items():
+        for backend in task_config.backends:
+            if backend not in backends:
+                continue
             label = f"{task_key}/{backend}"
             print(f"Running {label} ...", flush=True)
             try:
-                # Task config format: task=go1_joystick_flat/mujoco
-                args = [f"{task_override}/{backend}"] + extra_args
+                args = [f"task={task_config.task_id}/{backend}"] + extra_args
                 result = _run_single(args)
                 result["task_key"] = task_key
                 results.append(result)

@@ -187,7 +187,7 @@ class Go2WalkTask(Go2BaseEnv):
             base_name=cfg.asset.base_name,
             push_body_name=cfg.domain_rand.push_body_name,
             position_actuator_gains={"kp": cfg.control_config.Kp, "kd": cfg.control_config.Kd},
-            iterations=cfg.iterations,
+            motrix_max_iterations=cfg.motrix_max_iterations,
         )
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True

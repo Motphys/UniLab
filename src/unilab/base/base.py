@@ -29,7 +29,7 @@ class EnvCfg:
     max_episode_seconds: Optional[float] = None
     ctrl_dt: float = 0.01
     render_spacing: float = 1.0
-    iterations: Optional[int] = None
+    motrix_max_iterations: Optional[int] = None
     terrain_generator: Optional[TerrainGeneratorCfg] = None
     terrain_floor_geom: str = "floor"
 

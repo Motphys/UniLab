@@ -464,7 +464,7 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
             base_name=cfg.base_name,
             push_body_name=cfg.domain_rand.push_body_name,
             add_body_sensors=True,
-            iterations=cfg.iterations,
+            motrix_max_iterations=cfg.motrix_max_iterations,
         )
         super().__init__(cfg, backend, num_envs)
 

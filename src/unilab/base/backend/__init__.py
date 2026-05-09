@@ -36,12 +36,13 @@ def create_backend(
         model_file: 模型文件路径
         num_envs: 环境数量
         sim_dt: 仿真时间步长
-        **kwargs: 其他参数（iterations, position_actuator_gains 等）
+        **kwargs: 其他参数（position_actuator_gains, motrix_max_iterations 等）
 
     Returns:
         SimBackend 实例
     """
     position_actuator_gains = kwargs.pop("position_actuator_gains", None)
+    motrix_max_iterations = kwargs.pop("motrix_max_iterations", None)
     if backend_type == "mujoco":
         MuJoCoBackend = _load_mujoco_backend()
         if position_actuator_gains is not None:
@@ -51,6 +52,8 @@ def create_backend(
         MotrixBackend, motrix_available = _load_motrix_backend()
         if not motrix_available:
             raise ImportError("MotrixSim not available, install motrixsim package")
+        if motrix_max_iterations is not None:
+            kwargs["max_iterations"] = motrix_max_iterations
         return cast(SimBackend, MotrixBackend(model_file, num_envs, sim_dt, **kwargs))
     else:
         raise ValueError(f"Unknown backend: {backend_type}")
