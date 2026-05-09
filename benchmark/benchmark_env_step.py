@@ -288,8 +288,8 @@ TASK_CONFIGS: dict[str, TaskConfig] = {
 
 # Default benchmark parameters
 DEFAULT_NUM_ENVS = 2048
-DEFAULT_NUM_STEPS = 1
-DEFAULT_WARMUP_STEPS = 1
+DEFAULT_NUM_STEPS = 20
+DEFAULT_WARMUP_STEPS = 5
 
 TASK_COLORS = {
     "go1": "#4C78A8",
@@ -420,9 +420,7 @@ def _resolve_task_and_backend(hydra_overrides: list[str]) -> tuple[str, TaskConf
             task_path, backend = _split_task_choice(arg)
             matched = _matching_task_config(task_path)
             if matched is None:
-                available = ", ".join(
-                    task_config.task_id for task_config in TASK_CONFIGS.values()
-                )
+                available = ", ".join(task_config.task_id for task_config in TASK_CONFIGS.values())
                 raise ValueError(f"Unknown benchmark task {task_path!r}. Available: {available}")
             task_config = matched
             task_key = next(
