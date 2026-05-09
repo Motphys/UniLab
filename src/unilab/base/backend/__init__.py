@@ -1,7 +1,6 @@
 from typing import Any, cast
 
 from .base import SimBackend
-from .motrix_backend import MOTRIX_AVAILABLE, MotrixBackend
 from .xml import (
     add_sensor,
     create_discardvisual_xml,
@@ -19,6 +18,12 @@ def _load_mujoco_backend() -> Any:
     from .mujoco_backend import MuJoCoBackend
 
     return MuJoCoBackend
+
+
+def _load_motrix_backend() -> tuple[Any, bool]:
+    from .motrix_backend import MOTRIX_AVAILABLE, MotrixBackend
+
+    return MotrixBackend, bool(MOTRIX_AVAILABLE)
 
 
 def create_backend(
@@ -43,9 +48,10 @@ def create_backend(
             kwargs["position_actuator_gains"] = position_actuator_gains
         return cast(SimBackend, MuJoCoBackend(model_file, num_envs, sim_dt, **kwargs))
     elif backend_type == "motrix":
-        if not MOTRIX_AVAILABLE:
+        MotrixBackend, motrix_available = _load_motrix_backend()
+        if not motrix_available:
             raise ImportError("MotrixSim not available, install motrixsim package")
-        return MotrixBackend(model_file, num_envs, sim_dt, **kwargs)
+        return cast(SimBackend, MotrixBackend(model_file, num_envs, sim_dt, **kwargs))
     else:
         raise ValueError(f"Unknown backend: {backend_type}")
 
@@ -53,6 +59,10 @@ def create_backend(
 def __getattr__(name: str):
     if name == "MuJoCoBackend":
         return _load_mujoco_backend()
+    if name == "MotrixBackend":
+        return _load_motrix_backend()[0]
+    if name == "MOTRIX_AVAILABLE":
+        return _load_motrix_backend()[1]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
