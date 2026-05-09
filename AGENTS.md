@@ -54,6 +54,15 @@ gh pr list
 gh pr view
 ```
 
+### PR Gate
+
+创建或更新 PR 前必须满足：
+
+1. 最终提交已经完成，且 `git status --short --branch` 确认工作树干净。
+2. 最终提交已经通过 `make test-all`。
+3. 如果用户明确说明已经跑过 `make test-all`，不要重复跑；但必须在 PR body 的 Validation 里记录 `make test-all` 已完成。
+4. 如果 `make test-all` 未通过且用户没有明确 override，不要创建或更新 PR。
+
 ### CI 工作流查看
 ```bash
 gh run list

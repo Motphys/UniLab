@@ -48,6 +48,7 @@ cache/
 
 
 # Local tool/runtime artifacts (any subfolder)
+.codex
 **/.codex/
 **/MUJOCO_LOG.TXT
 
