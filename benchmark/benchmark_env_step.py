@@ -72,9 +72,15 @@ class TaskConfig:
     env_cls_factory: Callable[[], type]
     backends: tuple[str, ...] = ("mujoco", "motrix")
     aliases: tuple[str, ...] = ()
+    cfg_finalizer: Callable[[Any, str], None] | None = None
+    include_in_matrix: bool = True
 
     def build_cfg(self, backend: str) -> Any:
         return self.cfg_factory(backend)
+
+    def finalize_cfg(self, cfg: Any, backend: str) -> None:
+        if self.cfg_finalizer is not None:
+            self.cfg_finalizer(cfg, backend)
 
     def matches_task_path(self, task_path: str) -> bool:
         return task_path in {self.task_id, self.env_name, *self.aliases}
@@ -145,6 +151,76 @@ def _materialize_g1_rough_benchmark_scene() -> str:
     return str(output_path)
 
 
+def _materialize_go2w_rough_tiles_motrix_scene() -> str:
+    import shutil
+    import xml.etree.ElementTree as ET
+
+    source_dir = ROOT_DIR / "src" / "unilab" / "assets" / "robots" / "go2w"
+    assets_dir = ROOT_DIR / "src" / "unilab" / "assets"
+    output_dir = Path("/tmp/unilab_benchmark_go2w_rough_tiles_scene")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    robot_tree = ET.parse(source_dir / "go2w.xml")
+    compiler = robot_tree.getroot().find("compiler")
+    if compiler is not None:
+        compiler.set("meshdir", str((source_dir.parent / "go2" / "assets").resolve()))
+    robot_tree.write(output_dir / "go2w.xml")
+
+    terrain_dst = output_dir / "go2w_tile_stairs_5x5.xml"
+    shutil.copy2(assets_dir / "terrains" / "go2w_tile_stairs_5x5.xml", terrain_dst)
+
+    scene_tree = ET.parse(source_dir / "scene_rough_tiles.xml")
+    root = scene_tree.getroot()
+    for include in root.findall("include"):
+        include_file = include.get("file", "")
+        if include_file == "go2w.xml":
+            include.set("file", "go2w.xml")
+        elif include_file.endswith("go2w_tile_stairs_5x5.xml"):
+            include.set("file", terrain_dst.name)
+
+    asset = root.find("asset")
+    if asset is not None:
+        for hfield in list(asset.findall("hfield")):
+            if hfield.get("name") == "go2w_tile_stairs_5x5":
+                asset.remove(hfield)
+
+    worldbody = root.find("worldbody")
+    if worldbody is not None:
+        for geom in list(worldbody.findall("geom")):
+            if geom.get("name") == "terrain_scan_probe":
+                worldbody.remove(geom)
+
+    output_path = output_dir / "scene_rough_tiles_motrix.xml"
+    scene_tree.write(output_path)
+    return str(output_path)
+
+
+def _materialize_sharpa_motrix_scene() -> str:
+    import xml.etree.ElementTree as ET
+
+    source_dir = ROOT_DIR / "src" / "unilab" / "assets" / "robots" / "sharpa_wave"
+    output_dir = Path("/tmp/unilab_benchmark_sharpa_scene")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    robot_tree = ET.parse(source_dir / "right_sharpa_wave.xml")
+    robot_root = robot_tree.getroot()
+    compiler = robot_root.find("compiler")
+    if compiler is not None:
+        compiler.set("meshdir", str((source_dir / "meshes").resolve()))
+
+    contact = robot_root.find("contact")
+    if contact is not None:
+        for exclude in list(contact.findall("exclude")):
+            if exclude.get("body1") == exclude.get("body2"):
+                contact.remove(exclude)
+    robot_tree.write(output_dir / "right_sharpa_wave.xml")
+
+    scene_tree = ET.parse(source_dir / "scene.xml")
+    output_path = output_dir / "scene.xml"
+    scene_tree.write(output_path)
+    return str(output_path)
+
+
 def _go1_cfg(_: str) -> Any:
     from unilab.envs.locomotion.go1.joystick import Go1JoystickCfg, RewardConfig
 
@@ -180,7 +256,24 @@ def _go2w_cfg(_: str) -> Any:
     from unilab.envs.locomotion.go2w.joystick import Go2WJoystickCfg, RewardConfig
 
     cfg = Go2WJoystickCfg()
-    cfg.reward_config = RewardConfig(
+    cfg.reward_config = _go2w_reward_config(RewardConfig)
+    return cfg
+
+
+def _go2w_rough_tiles_cfg(backend: str) -> Any:
+    from unilab.envs.locomotion.go2w.joystick import RewardConfig
+    from unilab.envs.locomotion.go2w.rough import Go2WJoystickRoughTilesCfg
+
+    cfg = Go2WJoystickRoughTilesCfg()
+    cfg.reward_config = _go2w_reward_config(RewardConfig)
+    if backend == "motrix":
+        cfg.model_file = _materialize_go2w_rough_tiles_motrix_scene()
+        cfg.terrain_scan.enabled = False
+    return cfg
+
+
+def _go2w_reward_config(reward_cls: type) -> Any:
+    return reward_cls(
         scales={
             "tracking_lin_vel": 1.0,
             "tracking_ang_vel": 0.2,
@@ -196,13 +289,18 @@ def _go2w_cfg(_: str) -> Any:
         tracking_sigma=0.25,
         base_height_target=0.3,
     )
-    return cfg
 
 
 def _go2w_env_cls() -> type:
     from unilab.envs.locomotion.go2w.joystick import Go2WJoystickEnv
 
     return Go2WJoystickEnv
+
+
+def _go2w_rough_tiles_env_cls() -> type:
+    from unilab.envs.locomotion.go2w.rough import Go2WJoystickRoughTilesEnv
+
+    return Go2WJoystickRoughTilesEnv
 
 
 def _g1_flat_cfg(backend: str) -> Any:
@@ -234,6 +332,52 @@ def _g1_motion_tracking_cfg(_: str) -> Any:
     return G1MotionTrackingEnvCfg()
 
 
+def _sharpa_inhand_cfg(backend: str) -> Any:
+    from unilab.envs.manipulation.sharpa_inhand.rotation import (
+        RewardConfig,
+        SharpaInhandRotationCfg,
+    )
+
+    cfg = SharpaInhandRotationCfg()
+    cfg.reward_config = RewardConfig()
+    cfg.grasp_cache_path = "/tmp/unilab_benchmark_sharpa_grasp"
+    cfg.sensor.tactile_force_sensor_names = [
+        "contact_right_thumb_elastomer_force",
+        "contact_right_index_elastomer_force",
+        "contact_right_middle_elastomer_force",
+        "contact_right_ring_elastomer_force",
+        "contact_right_pinky_elastomer_force",
+    ]
+    if backend == "motrix":
+        cfg.model_file = _materialize_sharpa_motrix_scene()
+        cfg.obs.enable_tactile = False
+        cfg.domain_rand.randomize_friction = False
+        cfg.domain_rand.randomize_com = False
+        cfg.domain_rand.randomize_mass = False
+        cfg.domain_rand.force_scale = 0.0
+    return cfg
+
+
+def _ensure_sharpa_benchmark_grasp_cache(cfg: Any, _: str) -> None:
+    from unilab.envs.manipulation.sharpa_inhand.base import (
+        SOURCE_DEFAULT_HAND_JOINT_POS_DEG,
+        resolve_grasp_cache_file,
+    )
+
+    if not str(cfg.grasp_cache_path).startswith("/tmp/unilab_benchmark_sharpa_grasp"):
+        return
+
+    hand_qpos = np.deg2rad(np.asarray(SOURCE_DEFAULT_HAND_JOINT_POS_DEG, dtype=np.float64))
+    object_height = 0.5 * (float(cfg.reset_height_lower) + float(cfg.reset_height_upper))
+    object_pose = np.asarray([0.0, 0.0, object_height, 1.0, 0.0, 0.0, 0.0], dtype=np.float64)
+    cache_row = np.concatenate([hand_qpos, object_pose], axis=0)
+
+    for scale_value in np.asarray(cfg.domain_rand.scale_list, dtype=np.float64):
+        cache_file = resolve_grasp_cache_file(cfg.grasp_cache_path, float(scale_value))
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        np.save(cache_file, cache_row[None, :])
+
+
 def _g1_walk_env_cls() -> type:
     from unilab.envs.locomotion.g1.joystick import G1WalkEnv
 
@@ -244,6 +388,12 @@ def _g1_motion_tracking_env_cls() -> type:
     from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
 
     return G1MotionTrackingEnv
+
+
+def _sharpa_inhand_env_cls() -> type:
+    from unilab.envs.manipulation.sharpa_inhand.rotation import SharpaInhandRotationEnv
+
+    return SharpaInhandRotationEnv
 
 
 TASK_CONFIGS: dict[str, TaskConfig] = {
@@ -265,6 +415,12 @@ TASK_CONFIGS: dict[str, TaskConfig] = {
         cfg_factory=_go2w_cfg,
         env_cls_factory=_go2w_env_cls,
     ),
+    "go2w_rough": TaskConfig(
+        task_id="go2w_joystick_rough_tiles",
+        env_name="Go2WJoystickRoughTiles",
+        cfg_factory=_go2w_rough_tiles_cfg,
+        env_cls_factory=_go2w_rough_tiles_env_cls,
+    ),
     "g1": TaskConfig(
         task_id="g1_walk_flat",
         env_name="G1WalkFlat",
@@ -284,6 +440,14 @@ TASK_CONFIGS: dict[str, TaskConfig] = {
         cfg_factory=_g1_motion_tracking_cfg,
         env_cls_factory=_g1_motion_tracking_env_cls,
     ),
+    "sharpa_inhand": TaskConfig(
+        task_id="sharpa_inhand",
+        env_name="SharpaInhandRotation",
+        cfg_factory=_sharpa_inhand_cfg,
+        env_cls_factory=_sharpa_inhand_env_cls,
+        cfg_finalizer=_ensure_sharpa_benchmark_grasp_cache,
+        include_in_matrix=False,
+    ),
 }
 
 # Default benchmark parameters
@@ -298,6 +462,9 @@ TASK_COLORS = {
     "g1_mt": "#B279A2",
     "g1_rough": "#E45756",
     "go2w": "#72B7B2",
+    "go2w_rough": "#499894",
+    "go2w_rough_tiles": "#499894",
+    "sharpa_inhand": "#D37295",
 }
 BACKEND_STYLES = {
     "mujoco": {"marker": "o", "linestyle": "-", "hatch": "//"},
@@ -512,6 +679,7 @@ def _run_single(extra_args: list[str]) -> dict[str, Any]:
 
     cfg = task_config.build_cfg(sim_backend)
     _apply_cli_cfg_overrides(cfg, hydra_overrides)
+    task_config.finalize_cfg(cfg, sim_backend)
     cfg.validate()
 
     env = None
@@ -632,8 +800,12 @@ def _short_task_label(task_name: str) -> str:
     name = task_name.lower()
     if "motiontracking" in name:
         return "g1_mt"
+    if name.startswith("sharpainhand"):
+        return "sharpa_inhand"
     if "rough" in name and name.startswith("g1"):
         return "g1_rough"
+    if name.startswith("go2w") and "roughtiles" in name:
+        return "go2w_rough_tiles"
     if name.startswith("go2w"):
         return "go2w"
     for prefix in ("go1", "go2", "g1"):
@@ -1043,6 +1215,8 @@ def _run_matrix(
     results: list[dict] = []
     failures: list[dict[str, str]] = []
     for task_key, task_config in TASK_CONFIGS.items():
+        if not task_config.include_in_matrix:
+            continue
         for backend in task_config.backends:
             if backend not in backends:
                 continue
