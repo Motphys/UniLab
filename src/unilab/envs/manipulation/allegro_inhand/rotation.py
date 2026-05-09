@@ -258,7 +258,7 @@ class AllegroRotationPPO(AllegroBaseEnv):
                 "kd": cfg.control_config.kd,
                 "actuator_ids": slice(0, 16),
             },
-            iterations=cfg.iterations,
+            motrix_max_iterations=cfg.motrix_max_iterations,
         )
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True

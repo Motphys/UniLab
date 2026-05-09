@@ -231,7 +231,7 @@ def test_ppo_g1_backend_specific_hyperparams_remain_separate():
     assert motrix_cfg.algo.max_iterations == 220
     assert motrix_cfg.algo.empirical_normalization is True
     assert motrix_cfg.algo.obs_groups.actor == ["policy"]
-    assert motrix_cfg.env.iterations == 3
+    assert OmegaConf.select(motrix_cfg, "env.motrix_max_iterations") is None
     assert motrix_cfg.env.control_config.action_scale == pytest.approx(0.5)
     assert motrix_cfg.env.commands.vel_limit == [[0.4, 0.0, 0.0], [0.7, 0.0, 0.0]]
     assert motrix_cfg.env.gait_phase_init_mode == "offset_phase"

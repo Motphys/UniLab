@@ -26,6 +26,7 @@ except ImportError:
 from .base import BackendPlayCapabilities, SimBackend
 
 T = TypeVar("T")
+DEFAULT_MOTRIX_MAX_ITERATIONS = 3
 
 
 def _require_not_none(value: T | None, error_message: str) -> T:
@@ -45,7 +46,7 @@ class MotrixBackend(SimBackend):
         base_name: str = "base",
         np_dtype=np.float32,
         add_body_sensors: bool = False,
-        iterations: int | None = None,
+        max_iterations: int | None = DEFAULT_MOTRIX_MAX_ITERATIONS,
         push_body_name: str | None = None,
     ):
         if not MOTRIX_AVAILABLE:
@@ -87,8 +88,9 @@ class MotrixBackend(SimBackend):
             }
 
         self._model.options.timestep = sim_dt
-        if iterations is not None:
-            self._model.options.max_iterations = int(iterations)
+        if max_iterations is None:
+            max_iterations = DEFAULT_MOTRIX_MAX_ITERATIONS
+        self._model.options.max_iterations = int(max_iterations)
         self._num_envs = num_envs
         self._np_dtype = np_dtype
         self._pre_step_control_fn = None
