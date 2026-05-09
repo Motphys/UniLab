@@ -2,15 +2,14 @@ from __future__ import annotations
 
 import tempfile
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 import numpy as np
-from etils import epath
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.backend import create_backend
+from unilab.base.backend.xml import materialize_terrain_hfield_scene
 from unilab.base.np_env import NpEnvState
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.locomotion.common import rewards
@@ -135,7 +134,7 @@ class Go2JoystickCfg(Go2BaseCfg):
 @registry.envcfg("Go2JoystickRough")
 @dataclass
 class Go2JoystickRoughCfg(Go2JoystickCfg):
-    model_file: str = str(ASSETS_ROOT_PATH / "robots" / "go2" / "scene_flat.xml")
+    model_file: str = str(ASSETS_ROOT_PATH / "robots" / "go2" / "scene_rough.xml")
     terrain_generator: TerrainGeneratorCfg = field(default_factory=Go2RoughTerrainCfg)
 
 
@@ -171,18 +170,14 @@ class Go2WalkTask(Go2BaseEnv):
         self._scene_terrain_origins: np.ndarray | None = None
         model_file = cfg.model_file
         if cfg.terrain_generator is not None:
-            from unilab.scene.composer import compose_and_materialize
-
             self._materialized_dir = tempfile.TemporaryDirectory(prefix="unilab_terrain_")
-            scene = compose_and_materialize(
-                base_xml=Path(cfg.model_file),
+            model_file, terrain_origins = materialize_terrain_hfield_scene(
+                source_model_file=cfg.model_file,
                 terrain_cfg=cfg.terrain_generator,
-                output_dir=Path(self._materialized_dir.name),
-                floor_geom=cfg.terrain_floor_geom,
+                output_dir=self._materialized_dir.name,
             )
-            self._materialized_model_file = str(scene.scene_xml)
-            self._scene_terrain_origins = scene.terrain_origins
-            model_file = self._materialized_model_file
+            self._materialized_model_file = model_file
+            self._scene_terrain_origins = terrain_origins
 
         backend = create_backend(
             backend_type,

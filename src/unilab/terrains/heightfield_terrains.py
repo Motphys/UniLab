@@ -10,19 +10,14 @@ References:
 
 from __future__ import annotations
 
-import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 import numpy as np
 
-if TYPE_CHECKING:
-    import mujoco
-
 from unilab.terrains.terrain_generator import (
     SubTerrainCfg,
-    TerrainGeometry,
+    TerrainHeightField,
     TerrainOutput,
 )
 from unilab.terrains.utils import (
@@ -31,6 +26,34 @@ from unilab.terrains.utils import (
 )
 
 _MIN_BASE_THICKNESS = 0.01
+
+
+def _build_heightfield(
+    noise: np.ndarray,
+    *,
+    size: tuple[float, float],
+    horizontal_scale: float,
+    vertical_scale: float,
+    base_thickness_ratio: float,
+    z_offset_fn: Callable[[float], float] = lambda max_h: 0.0,
+) -> TerrainHeightField:
+    elevation_min = int(np.min(noise))
+    elevation_max = int(np.max(noise))
+    elevation_range = elevation_max - elevation_min if elevation_max != elevation_min else 1
+    max_physical_height = elevation_range * vertical_scale
+    base_thickness = max(max_physical_height * base_thickness_ratio, _MIN_BASE_THICKNESS)
+    z_offset = z_offset_fn(max_physical_height)
+    return TerrainHeightField(
+        noise=noise.copy(),
+        size=size,
+        horizontal_scale=horizontal_scale,
+        vertical_scale=vertical_scale,
+        elevation_min=elevation_min,
+        elevation_max=elevation_max,
+        max_physical_height=max_physical_height,
+        base_thickness=base_thickness,
+        z_offset=z_offset,
+    )
 
 
 def _compute_flat_patches(
@@ -57,94 +80,40 @@ def _compute_flat_patches(
     return flat_patches
 
 
-def _add_hfield_to_spec(
-    spec: mujoco.MjSpec,
-    body: mujoco.MjsBody,
+def _make_terrain_output(
     noise: np.ndarray,
     *,
     size: tuple[float, float],
     horizontal_scale: float,
     vertical_scale: float,
     base_thickness_ratio: float,
+    origin: np.ndarray,
+    flat_patch_sampling: dict | None,
+    rng: np.random.Generator,
     z_offset_fn: Callable[[float], float] = lambda max_h: 0.0,
-    pos_xy: tuple[float, float] | None = None,
-) -> tuple[mujoco.MjsHField, mujoco.MjsGeom, float, float]:
-    """Add a heightfield asset + geom to ``spec`` from a quantized int16 noise array.
-
-    The hfield's data range is normalized to ``[0, 1]`` from the noise array's
-    ``[min, max]``. ``z_offset_fn`` receives the resulting ``max_physical_height``
-    and returns the world-space z position for the hfield's data-zero plane.
-
-    Returns ``(field, geom, max_physical_height, z_offset)``.
-    """
-    import mujoco
-
-    elevation_min = int(np.min(noise))
-    elevation_max = int(np.max(noise))
-    elevation_range = elevation_max - elevation_min if elevation_max != elevation_min else 1
-
-    max_physical_height = elevation_range * vertical_scale
-    base_thickness = max(max_physical_height * base_thickness_ratio, _MIN_BASE_THICKNESS)
-
-    if elevation_range > 0:
-        normalized_elevation = (noise.astype(np.float64) - elevation_min) / elevation_range
-    else:
-        normalized_elevation = np.zeros_like(noise, dtype=np.float64)
-
-    z_offset = z_offset_fn(max_physical_height)
-
-    unique_id = uuid.uuid4().hex
-    field = spec.add_hfield(
-        name=f"hfield_{unique_id}",
-        size=[size[0] / 2, size[1] / 2, max_physical_height, base_thickness],
-        nrow=noise.shape[0],
-        ncol=noise.shape[1],
-        userdata=normalized_elevation.flatten().astype(np.float32).tolist(),
+) -> TerrainOutput:
+    terrain_hfield = _build_heightfield(
+        noise,
+        size=size,
+        horizontal_scale=horizontal_scale,
+        vertical_scale=vertical_scale,
+        base_thickness_ratio=base_thickness_ratio,
+        z_offset_fn=z_offset_fn,
     )
 
-    if pos_xy is None:
-        pos_xy = (size[0] / 2, size[1] / 2)
-    geom = body.add_geom(
-        type=mujoco.mjtGeom.mjGEOM_HFIELD,
-        hfieldname=field.name,
-        pos=[pos_xy[0], pos_xy[1], z_offset],
+    flat_patches = _compute_flat_patches(
+        noise,
+        vertical_scale,
+        horizontal_scale,
+        terrain_hfield.z_offset,
+        flat_patch_sampling,
+        rng,
     )
-
-    return field, geom, max_physical_height, z_offset
-
-
-def _add_flat_hfield_slab(
-    spec: mujoco.MjSpec,
-    body: mujoco.MjsBody,
-    *,
-    size: tuple[float, float],
-    horizontal_scale: float,
-    pos_xy: tuple[float, float],
-    surface_z: float,
-    base_thickness: float,
-) -> tuple[mujoco.MjsHField, mujoco.MjsGeom]:
-    """Add a flat hfield slab at ``surface_z`` with ``base_thickness`` of body below."""
-    import mujoco
-
-    nrow = max(int(round(size[0] / horizontal_scale)), 2)
-    ncol = max(int(round(size[1] / horizontal_scale)), 2)
-
-    unique_id = uuid.uuid4().hex
-    field = spec.add_hfield(
-        name=f"hfield_{unique_id}",
-        size=[size[0] / 2, size[1] / 2, 1e-3, max(base_thickness, 1e-3)],
-        nrow=nrow,
-        ncol=ncol,
-        userdata=[0.0] * (nrow * ncol),
+    return TerrainOutput(
+        origin=origin,
+        heightfield=terrain_hfield,
+        flat_patches=flat_patches,
     )
-
-    geom = body.add_geom(
-        type=mujoco.mjtGeom.mjGEOM_HFIELD,
-        hfieldname=field.name,
-        pos=[pos_xy[0], pos_xy[1], surface_z],
-    )
-
-    return field, geom
 
 
 @dataclass(kw_only=True)
@@ -165,13 +134,7 @@ class HfPyramidSlopedTerrainCfg(SubTerrainCfg):
     base_thickness_ratio: float = 1.0
     """Ratio of the heightfield base thickness to its maximum surface height."""
 
-    def function(
-        self, difficulty: float, spec: mujoco.MjSpec, rng: np.random.Generator
-    ) -> TerrainOutput:
-        import mujoco
-
-        body = spec.body("terrain")
-
+    def function(self, difficulty: float, rng: np.random.Generator) -> TerrainOutput:
         if self.inverted:
             slope = -self.slope_range[0] - difficulty * (self.slope_range[1] - self.slope_range[0])
         else:
@@ -249,9 +212,7 @@ class HfPyramidSlopedTerrainCfg(SubTerrainCfg):
             noise = np.rint(hf_raw).astype(np.int16)
 
         z_offset_fn = (lambda max_h: -max_h) if self.inverted else (lambda max_h: 0.0)
-        field, hfield_geom, max_physical_height, hfield_z_offset = _add_hfield_to_spec(
-            spec,
-            body,
+        terrain_hfield = _build_heightfield(
             noise,
             size=self.size,
             horizontal_scale=self.horizontal_scale,
@@ -260,20 +221,22 @@ class HfPyramidSlopedTerrainCfg(SubTerrainCfg):
             z_offset_fn=z_offset_fn,
         )
 
-        spawn_height = hfield_z_offset if self.inverted else max_physical_height
+        spawn_height = (
+            terrain_hfield.z_offset if self.inverted else terrain_hfield.max_physical_height
+        )
         origin = np.array([self.size[0] / 2, self.size[1] / 2, spawn_height])
 
-        flat_patches = _compute_flat_patches(
+        return _make_terrain_output(
             noise,
-            self.vertical_scale,
-            self.horizontal_scale,
-            hfield_z_offset,
-            self.flat_patch_sampling,
-            rng,
+            size=self.size,
+            horizontal_scale=self.horizontal_scale,
+            vertical_scale=self.vertical_scale,
+            base_thickness_ratio=self.base_thickness_ratio,
+            origin=origin,
+            flat_patch_sampling=self.flat_patch_sampling,
+            rng=rng,
+            z_offset_fn=z_offset_fn,
         )
-
-        geom = TerrainGeometry(geom=hfield_geom, hfield=field)
-        return TerrainOutput(origin=origin, geometries=[geom], flat_patches=flat_patches)
 
 
 @dataclass(kw_only=True)
@@ -296,14 +259,8 @@ class HfRandomUniformTerrainCfg(SubTerrainCfg):
     """Width of the flat border around the terrain edges, in meters. Must be >=
     horizontal_scale if non-zero."""
 
-    def function(
-        self, difficulty: float, spec: mujoco.MjSpec, rng: np.random.Generator
-    ) -> TerrainOutput:
-        import mujoco
-
+    def function(self, difficulty: float, rng: np.random.Generator) -> TerrainOutput:
         del difficulty  # Unused.
-
-        body = spec.body("terrain")
 
         if self.border_width > 0 and self.border_width < self.horizontal_scale:
             raise ValueError(
@@ -382,30 +339,19 @@ class HfRandomUniformTerrainCfg(SubTerrainCfg):
             )
             noise = np.rint(z_upsampled).astype(np.int16)
 
-        field, hfield_geom, _max_h, hfield_z_offset = _add_hfield_to_spec(
-            spec,
-            body,
+        spawn_height = (self.noise_range[0] + self.noise_range[1]) / 2
+        origin = np.array([self.size[0] / 2, self.size[1] / 2, spawn_height])
+
+        return _make_terrain_output(
             noise,
             size=self.size,
             horizontal_scale=self.horizontal_scale,
             vertical_scale=self.vertical_scale,
             base_thickness_ratio=self.base_thickness_ratio,
+            origin=origin,
+            flat_patch_sampling=self.flat_patch_sampling,
+            rng=rng,
         )
-
-        spawn_height = (self.noise_range[0] + self.noise_range[1]) / 2
-        origin = np.array([self.size[0] / 2, self.size[1] / 2, spawn_height])
-
-        flat_patches = _compute_flat_patches(
-            noise,
-            self.vertical_scale,
-            self.horizontal_scale,
-            hfield_z_offset,
-            self.flat_patch_sampling,
-            rng,
-        )
-
-        geom = TerrainGeometry(geom=hfield_geom, hfield=field)
-        return TerrainOutput(origin=origin, geometries=[geom], flat_patches=flat_patches)
 
 
 @dataclass(kw_only=True)
@@ -424,13 +370,7 @@ class HfWaveTerrainCfg(SubTerrainCfg):
     """Width of the flat border around the terrain edges, in meters. Must be >=
     horizontal_scale if non-zero."""
 
-    def function(
-        self, difficulty: float, spec: mujoco.MjSpec, rng: np.random.Generator
-    ) -> TerrainOutput:
-        import mujoco
-
-        body = spec.body("terrain")
-
+    def function(self, difficulty: float, rng: np.random.Generator) -> TerrainOutput:
         if self.num_waves <= 0:
             raise ValueError(f"Number of waves must be positive. Got: {self.num_waves}")
 
@@ -484,31 +424,20 @@ class HfWaveTerrainCfg(SubTerrainCfg):
             hf_raw = amplitude_pixels * (np.cos(yy * wave_number) + np.sin(xx * wave_number))
             noise = np.rint(hf_raw).astype(np.int16)
 
-        field, hfield_geom, _max_h, hfield_z_offset = _add_hfield_to_spec(
-            spec,
-            body,
+        spawn_height = 0.0
+        origin = np.array([self.size[0] / 2, self.size[1] / 2, spawn_height])
+
+        return _make_terrain_output(
             noise,
             size=self.size,
             horizontal_scale=self.horizontal_scale,
             vertical_scale=self.vertical_scale,
             base_thickness_ratio=self.base_thickness_ratio,
+            origin=origin,
+            flat_patch_sampling=self.flat_patch_sampling,
+            rng=rng,
             z_offset_fn=lambda max_h: -max_h / 2,
         )
-
-        spawn_height = 0.0
-        origin = np.array([self.size[0] / 2, self.size[1] / 2, spawn_height])
-
-        flat_patches = _compute_flat_patches(
-            noise,
-            self.vertical_scale,
-            self.horizontal_scale,
-            hfield_z_offset,
-            self.flat_patch_sampling,
-            rng,
-        )
-
-        geom = TerrainGeometry(geom=hfield_geom, hfield=field)
-        return TerrainOutput(origin=origin, geometries=[geom], flat_patches=flat_patches)
 
 
 @dataclass(kw_only=True)
@@ -540,11 +469,7 @@ class HfPyramidStairsTerrainCfg(SubTerrainCfg):
     base_thickness_ratio: float = 1.0
     """Ratio of the heightfield base thickness to its surface height."""
 
-    def function(
-        self, difficulty: float, spec: mujoco.MjSpec, rng: np.random.Generator
-    ) -> TerrainOutput:
-        body = spec.body("terrain")
-
+    def function(self, difficulty: float, rng: np.random.Generator) -> TerrainOutput:
         step_height = self.step_height_range[0] + difficulty * (
             self.step_height_range[1] - self.step_height_range[0]
         )
@@ -592,30 +517,19 @@ class HfPyramidStairsTerrainCfg(SubTerrainCfg):
                 noise[hi_x - step_px : hi_x, lo_y : lo_y + step_px] = pit_units
                 noise[hi_x - step_px : hi_x, hi_y - step_px : hi_y] = pit_units
 
-        field, hfield_geom, _max_h, hfield_z_offset = _add_hfield_to_spec(
-            spec,
-            body,
+        spawn_z = (n_steps + 1) * step_units * self.vertical_scale
+        origin = np.array([self.size[0] / 2, self.size[1] / 2, spawn_z])
+
+        return _make_terrain_output(
             noise,
             size=self.size,
             horizontal_scale=self.horizontal_scale,
             vertical_scale=self.vertical_scale,
             base_thickness_ratio=self.base_thickness_ratio,
+            origin=origin,
+            flat_patch_sampling=self.flat_patch_sampling,
+            rng=rng,
         )
-
-        spawn_z = (n_steps + 1) * step_units * self.vertical_scale
-        origin = np.array([self.size[0] / 2, self.size[1] / 2, spawn_z])
-
-        flat_patches = _compute_flat_patches(
-            noise,
-            self.vertical_scale,
-            self.horizontal_scale,
-            hfield_z_offset,
-            self.flat_patch_sampling,
-            rng,
-        )
-
-        geom = TerrainGeometry(geom=hfield_geom, hfield=field)
-        return TerrainOutput(origin=origin, geometries=[geom], flat_patches=flat_patches)
 
 
 @dataclass(kw_only=True)
@@ -627,11 +541,7 @@ class HfInvertedPyramidStairsTerrainCfg(HfPyramidStairsTerrainCfg):
     the diagonal corners are even deeper than the platform.
     """
 
-    def function(
-        self, difficulty: float, spec: mujoco.MjSpec, rng: np.random.Generator
-    ) -> TerrainOutput:
-        body = spec.body("terrain")
-
+    def function(self, difficulty: float, rng: np.random.Generator) -> TerrainOutput:
         step_height = self.step_height_range[0] + difficulty * (
             self.step_height_range[1] - self.step_height_range[0]
         )
@@ -682,31 +592,20 @@ class HfInvertedPyramidStairsTerrainCfg(HfPyramidStairsTerrainCfg):
 
         # Place data such that the original "0" layer (outer ring top) sits at
         # world z=0 — matches the existing HfPyramidSloped(inverted) convention.
-        field, hfield_geom, _max_h, hfield_z_offset = _add_hfield_to_spec(
-            spec,
-            body,
+        spawn_z = -(n_steps + 1) * step_units * self.vertical_scale
+        origin = np.array([self.size[0] / 2, self.size[1] / 2, spawn_z])
+
+        return _make_terrain_output(
             noise,
             size=self.size,
             horizontal_scale=self.horizontal_scale,
             vertical_scale=self.vertical_scale,
             base_thickness_ratio=self.base_thickness_ratio,
+            origin=origin,
+            flat_patch_sampling=self.flat_patch_sampling,
+            rng=rng,
             z_offset_fn=lambda max_h: -max_h,
         )
-
-        spawn_z = -(n_steps + 1) * step_units * self.vertical_scale
-        origin = np.array([self.size[0] / 2, self.size[1] / 2, spawn_z])
-
-        flat_patches = _compute_flat_patches(
-            noise,
-            self.vertical_scale,
-            self.horizontal_scale,
-            hfield_z_offset,
-            self.flat_patch_sampling,
-            rng,
-        )
-
-        geom = TerrainGeometry(geom=hfield_geom, hfield=field)
-        return TerrainOutput(origin=origin, geometries=[geom], flat_patches=flat_patches)
 
 
 @dataclass(kw_only=True)
@@ -721,26 +620,21 @@ class HfFlatTerrainCfg(SubTerrainCfg):
     """Ratio of the heightfield base thickness to its surface height. The
     helper enforces a minimum thickness so a literal zero is fine here."""
 
-    def function(
-        self, difficulty: float, spec: mujoco.MjSpec, rng: np.random.Generator
-    ) -> TerrainOutput:
-        del difficulty, rng  # Unused.
-        body = spec.body("terrain")
+    def function(self, difficulty: float, rng: np.random.Generator) -> TerrainOutput:
+        del difficulty  # Unused.
 
         width_pixels = int(round(self.size[0] / self.horizontal_scale))
         length_pixels = int(round(self.size[1] / self.horizontal_scale))
         noise = np.zeros((width_pixels, length_pixels), dtype=np.int16)
 
-        field, hfield_geom, _max_h, _z = _add_hfield_to_spec(
-            spec,
-            body,
+        origin = np.array([self.size[0] / 2, self.size[1] / 2, 0.0])
+        return _make_terrain_output(
             noise,
             size=self.size,
             horizontal_scale=self.horizontal_scale,
             vertical_scale=self.vertical_scale,
             base_thickness_ratio=self.base_thickness_ratio,
+            origin=origin,
+            flat_patch_sampling=self.flat_patch_sampling,
+            rng=rng,
         )
-
-        origin = np.array([self.size[0] / 2, self.size[1] / 2, 0.0])
-        geom = TerrainGeometry(geom=hfield_geom, hfield=field)
-        return TerrainOutput(origin=origin, geometries=[geom])

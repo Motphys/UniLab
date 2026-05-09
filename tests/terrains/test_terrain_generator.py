@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import copy
 
-import mujoco
 import numpy as np
 import pytest
 
@@ -73,62 +72,38 @@ def _small_rough_cfg() -> TerrainGeneratorCfg:
     return cfg
 
 
-def test_terrain_generator_compiles_rough():
-    spec = mujoco.MjSpec()
-    cfg = _small_rough_cfg()
-    TerrainGenerator(cfg).compile(spec)
-    body = spec.body("terrain")
-    assert len(list(body.geoms)) > 0
-
-
 def test_terrain_generator_origins_shape():
     cfg = _small_rough_cfg()
     gen = TerrainGenerator(cfg)
     assert gen.terrain_origins.shape == (cfg.num_rows, cfg.num_cols, 3)
 
 
+def test_terrain_generator_generates_single_merged_hfield():
+    cfg = _small_rough_cfg()
+    cfg.border_width = 1.0
+    gen = TerrainGenerator(cfg)
+    terrain = gen.generate()
+    border_px = int(round(cfg.border_width / cfg.horizontal_scale))
+    tile_x_px = int(round(cfg.size[0] / cfg.horizontal_scale))
+    tile_y_px = int(round(cfg.size[1] / cfg.horizontal_scale))
+    assert terrain.heights_yx.shape == (
+        cfg.num_cols * tile_y_px + 2 * border_px,
+        cfg.num_rows * tile_x_px + 2 * border_px,
+    )
+    assert terrain.terrain_origins.shape == (cfg.num_rows, cfg.num_cols, 3)
+    assert terrain.to_uint16().dtype == np.uint16
+    assert terrain.hfield_size[0] == pytest.approx(terrain.size[0] / 2)
+    assert terrain.hfield_size[1] == pytest.approx(terrain.size[1] / 2)
+
+
 @pytest.mark.parametrize("preset_name", sorted(EXPECTED_PRESETS))
-def test_each_preset_produces_terrain_geom(preset_name):
-    spec = mujoco.MjSpec()
-    spec.worldbody.add_body(name="terrain")
+def test_each_preset_produces_heightfield(preset_name):
     rng = np.random.default_rng(42)
     cfg = ALL_TERRAIN_PRESETS[preset_name](proportion=1.0)
     cfg.size = (4.0, 4.0)
-    output = cfg.function(difficulty=0.5, spec=spec, rng=rng)
-    assert output.geometries
+    output = cfg.function(difficulty=0.5, rng=rng)
+    assert output.heightfield.noise.ndim == 2
     assert output.origin.shape == (3,)
-
-
-def test_compiled_rough_terrain_has_terrain_geoms_named():
-    spec = mujoco.MjSpec()
-    cfg = _small_rough_cfg()
-    TerrainGenerator(cfg).compile(spec)
-    geom_names = [g.name for g in spec.body("terrain").geoms]
-    assert any(name.startswith("terrain_") for name in geom_names)
-
-
-def test_all_compiled_geoms_are_hfields():
-    """Compile a small ROUGH scene and assert every terrain-body geom is a hfield."""
-    spec = mujoco.MjSpec()
-    cfg = _small_rough_cfg()
-    TerrainGenerator(cfg).compile(spec)
-    for geom in spec.body("terrain").geoms:
-        assert geom.type == mujoco.mjtGeom.mjGEOM_HFIELD, (
-            f"Found non-hfield geom in terrain body: type={geom.type}"
-        )
-
-
-def test_border_uses_hfields():
-    """Enabling the outer border emits 4 additional hfield strips, no boxes."""
-    spec = mujoco.MjSpec()
-    cfg = _small_rough_cfg()
-    cfg.border_width = 5.0
-    n_inner = cfg.num_rows * cfg.num_cols
-    TerrainGenerator(cfg).compile(spec)
-    types = [geom.type for geom in spec.body("terrain").geoms]
-    assert all(t == mujoco.mjtGeom.mjGEOM_HFIELD for t in types)
-    # 4 strips + n_inner per-cell hfields.
-    assert len(types) == n_inner + 4
 
 
 def test_resolution_validation_rejects_misaligned_step_width():
@@ -153,11 +128,6 @@ def test_resolution_validation_rejects_misaligned_size():
 
 def test_holes_creates_deeper_minimum():
     """Holes mode must produce a strictly lower minimum than non-holes."""
-    spec_a = mujoco.MjSpec()
-    spec_a.worldbody.add_body(name="terrain")
-    spec_b = mujoco.MjSpec()
-    spec_b.worldbody.add_body(name="terrain")
-
     from unilab.terrains import HfPyramidStairsTerrainCfg
 
     common = dict(
@@ -170,26 +140,22 @@ def test_holes_creates_deeper_minimum():
         vertical_scale=0.005,
     )
     rng = np.random.default_rng(0)
-    out_no = HfPyramidStairsTerrainCfg(holes=False, **common).function(0.5, spec_a, rng)
-    out_yes = HfPyramidStairsTerrainCfg(holes=True, pit_depth=2.0, **common).function(
-        0.5, spec_b, rng
-    )
+    out_no = HfPyramidStairsTerrainCfg(holes=False, **common).function(0.5, rng)
+    out_yes = HfPyramidStairsTerrainCfg(holes=True, pit_depth=2.0, **common).function(0.5, rng)
 
-    base_no = out_no.geometries[0].hfield.size[3]  # base_thickness
-    base_yes = out_yes.geometries[0].hfield.size[3]
-    max_no = out_no.geometries[0].hfield.size[2]  # max_physical_height
-    max_yes = out_yes.geometries[0].hfield.size[2]
+    base_no = out_no.heightfield.base_thickness
+    base_yes = out_yes.heightfield.base_thickness
+    max_no = out_no.heightfield.max_physical_height
+    max_yes = out_yes.heightfield.max_physical_height
     # holes_yes must encode a deeper total span (pit + stairs).
     assert max_yes > max_no
     del base_no, base_yes  # unused but documents intent
 
 
 def test_inverted_stairs_spawn_is_negative():
-    spec = mujoco.MjSpec()
-    spec.worldbody.add_body(name="terrain")
     cfg = ALL_TERRAIN_PRESETS["pyramid_stairs_inv"]()
     cfg.size = (4.0, 4.0)
     cfg.horizontal_scale = 0.05
     cfg.vertical_scale = 0.005
-    out = cfg.function(difficulty=0.5, spec=spec, rng=np.random.default_rng(0))
+    out = cfg.function(difficulty=0.5, rng=np.random.default_rng(0))
     assert out.origin[2] < 0.0

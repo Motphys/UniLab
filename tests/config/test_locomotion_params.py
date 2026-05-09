@@ -189,7 +189,7 @@ def test_go2_joystick_rough_uses_terrain_generator():
     from unilab.terrains import TerrainGeneratorCfg
 
     cfg = Go2JoystickRoughCfg()
-    assert cfg.model_file.endswith("scene_flat.xml")
+    assert cfg.model_file.endswith("scene_rough.xml")
     assert isinstance(cfg.terrain_generator, TerrainGeneratorCfg)
     assert cfg.terrain_generator.num_rows == 10
     assert cfg.terrain_generator.num_cols == 20
@@ -234,10 +234,9 @@ def test_go2_joystick_rough_playback_model_uses_materialized_scene():
         assert path.is_file()
         assert path.name == "scene.xml"
         text = path.read_text()
-        # Materialized scene must contain the procedural terrain body, not the
-        # original flat floor placeholder.
-        assert '<body name="terrain"' in text
-        assert 'geom1="floor"' not in text
+        assert str(path.parent / "hfields" / "hfield.png") in text
+        assert '<geom name="floor" type="hfield" hfield="terrain_hfield"' in text
+        assert (path.parent / "hfields" / "hfield.png").is_file()
     finally:
         env.close()
 

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 import xml.etree.ElementTree as ET
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any, cast
+
+import numpy as np
 
 
 def _enable_discardvisual(root: ET.Element) -> None:
@@ -227,6 +230,66 @@ def materialize_scene_visual_override(
         ground_material.set("texrepeat", _format_values(tuple(ground_texrepeat)))
 
     return _write_temp_xml(tree, source_model_file)
+
+
+def _copy_template_dependencies(root: ET.Element, source_dir: Path, output_dir: Path) -> None:
+    for include in root.findall(".//include"):
+        include_file = include.get("file")
+        if not include_file:
+            continue
+        include_path = Path(include_file)
+        src = include_path if include_path.is_absolute() else source_dir / include_path
+        dst = output_dir / include_path.name
+        shutil.copyfile(src, dst)
+        include.set("file", dst.name)
+
+    assets_src = source_dir / "assets"
+    assets_dst = output_dir / "assets"
+    if assets_src.is_dir():
+        shutil.copytree(assets_src, assets_dst, dirs_exist_ok=True)
+
+
+def materialize_terrain_hfield_scene(
+    source_model_file: str,
+    *,
+    terrain_cfg: Any,
+    output_dir: str | Path,
+    hfield_name: str = "terrain_hfield",
+) -> tuple[str, np.ndarray]:
+    """Materialize a scene template by replacing one hfield PNG."""
+    from unilab.terrains import TerrainGenerator
+
+    source_path = Path(source_model_file).resolve()
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    hfield_rel = Path("hfields") / "hfield.png"
+    generated = TerrainGenerator(terrain_cfg).write_png(output_path / hfield_rel)
+
+    tree = ET.parse(source_path)
+    root = tree.getroot()
+    _copy_template_dependencies(root, source_path.parent, output_path)
+
+    asset = root.find("asset")
+    if asset is None:
+        raise ValueError(f"Scene '{source_model_file}' is missing an <asset> tag.")
+    hfield = asset.find(f"./hfield[@name='{hfield_name}']")
+    if hfield is None:
+        raise ValueError(f"Scene '{source_model_file}' is missing hfield asset '{hfield_name}'.")
+    hfield.set("file", str((output_path / hfield_rel).resolve()))
+    hfield.set("size", generated.hfield_size_xml())
+
+    terrain_geom = root.find(f".//geom[@hfield='{hfield_name}']")
+    if terrain_geom is None:
+        raise ValueError(
+            f"Scene '{source_model_file}' is missing a geom using hfield '{hfield_name}'."
+        )
+    terrain_geom.set("pos", generated.geom_pos_xml())
+
+    ET.indent(tree, space="  ")
+    scene_xml = output_path / "scene.xml"
+    tree.write(scene_xml, encoding="unicode")
+    return str(scene_xml), generated.terrain_origins
 
 
 def inject_mujoco_tracking_sensors(

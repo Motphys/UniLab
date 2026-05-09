@@ -1,10 +1,9 @@
 """Procedural terrain generation.
 
-Ported from mjlab (https://github.com/mjlab/mjlab) for unilab issues #197 / #270.
+Ported from mjlab (https://github.com/mjlab/mjlab).
 The terrain generator builds a grid of difficulty-graded sub-terrains and writes
-geoms / heightfields into a MuJoCo MjSpec at cold path. See
-:mod:`unilab.scene.composer` for the materializer that turns a base XML plus a
-TerrainGeneratorCfg into a final scene.xml + assets directory.
+a merged heightfield PNG at cold path. The backend XML materializer replaces a
+scene template's hfield asset with that generated PNG before model loading.
 """
 
 from unilab.terrains.config import (
@@ -30,16 +29,18 @@ from unilab.terrains.heightfield_terrains import (
 )
 from unilab.terrains.terrain_generator import (
     FlatPatchSamplingCfg,
+    GeneratedTerrain,
     SubTerrainCfg,
     TerrainGenerator,
     TerrainGeneratorCfg,
-    TerrainGeometry,
+    TerrainHeightField,
     TerrainOutput,
 )
 
 __all__ = [
     "ALL_TERRAIN_PRESETS",
     "FlatPatchSamplingCfg",
+    "GeneratedTerrain",
     "HfFlatTerrainCfg",
     "HfInvertedPyramidStairsTerrainCfg",
     "HfPyramidSlopedTerrainCfg",
@@ -51,7 +52,7 @@ __all__ = [
     "SubTerrainCfg",
     "TerrainGenerator",
     "TerrainGeneratorCfg",
-    "TerrainGeometry",
+    "TerrainHeightField",
     "TerrainOutput",
     "flat",
     "hf_pyramid_slope",

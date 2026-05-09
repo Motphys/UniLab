@@ -133,7 +133,6 @@ exclude = [
     "src/unilab/algos/torch/common/ane_*",  # Apple Neural Engine, macOS-only
     "src/unilab/base/backend/",             # mujoco-uni stubs mismatch; optional backends
     "src/unilab/envs/",                     # mujoco-uni internal API, stubs mismatch
-    "src/unilab/scene/",                    # mujoco-uni MjSpec API, stubs mismatch
     "src/unilab/terrains/",                 # mujoco-uni MjSpec API, stubs mismatch
     "src/unilab/training/monitoring.py",    # optional pynvml/psutil deps
     "src/unilab/visualization/",            # direct mujoco C bindings + optional viser deps
