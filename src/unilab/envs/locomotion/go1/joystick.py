@@ -10,6 +10,7 @@ from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.backend import create_backend
 from unilab.base.np_env import NpEnvState
+from unilab.base.scene import SceneCfg
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.common.rotation import np_quat_mul, np_yaw_to_quat
 from unilab.envs.locomotion.common import rewards
@@ -43,7 +44,11 @@ class JoystickSensor:
 @registry.envcfg("Go1JoystickFlat")
 @dataclass
 class Go1JoystickCfg(Go1BaseCfg):
-    model_file: str = str(ASSETS_ROOT_PATH / "robots" / "go1" / "scene_flat.xml")
+    scene: SceneCfg = field(
+        default_factory=lambda: SceneCfg(
+            model_file=str(ASSETS_ROOT_PATH / "robots" / "go1" / "scene_flat.xml")
+        )
+    )
     max_episode_seconds: float = 20.0
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
@@ -85,7 +90,7 @@ class Go1WalkTask(Go1BaseEnv):
             raise ValueError("reward_config must be provided via Hydra configuration")
         backend = create_backend(
             backend_type,
-            cfg.model_file,
+            cfg.scene,
             num_envs,
             cfg.sim_dt,
             base_name=cfg.asset.base_name,

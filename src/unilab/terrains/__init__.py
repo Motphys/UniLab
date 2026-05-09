@@ -2,8 +2,8 @@
 
 Ported from mjlab (https://github.com/mjlab/mjlab).
 The terrain generator builds a grid of difficulty-graded sub-terrains and writes
-a merged heightfield PNG at cold path. The backend XML materializer replaces a
-scene template's hfield asset with that generated PNG before model loading.
+a merged heightfield PNG at cold path. Backend materializers consume that output
+to build backend-specific scene models.
 """
 
 from unilab.terrains.config import (

@@ -6,10 +6,14 @@ import numpy as np
 import pytest
 
 from unilab.envs.locomotion.common.terrain_spawn import (
-    BaseSpawnManager,
     TerrainCurriculumCfg,
     TerrainSpawnManager,
 )
+
+
+def _class_path(obj) -> str:
+    cls = type(obj)
+    return f"{cls.__module__}.{cls.__name__}"
 
 
 def _rough_cfg(*, curriculum_enabled: bool = False, seed: int = 0):
@@ -18,11 +22,11 @@ def _rough_cfg(*, curriculum_enabled: bool = False, seed: int = 0):
     cfg = Go2JoystickRoughCfg(
         reward_config=RewardConfig(scales={}, tracking_sigma=0.25, base_height_target=0.3)
     )
-    cfg.terrain_generator.num_rows = 3
-    cfg.terrain_generator.num_cols = 3
-    cfg.terrain_generator.border_width = 0.0
-    cfg.terrain_generator.add_lights = False
-    cfg.terrain_generator.seed = seed
+    cfg.scene.terrain.generator.num_rows = 3
+    cfg.scene.terrain.generator.num_cols = 3
+    cfg.scene.terrain.generator.border_width = 0.0
+    cfg.scene.terrain.generator.add_lights = False
+    cfg.scene.terrain.generator.seed = seed
     cfg.terrain_curriculum = TerrainCurriculumCfg(enabled=curriculum_enabled, seed=seed)
     return cfg
 
@@ -33,11 +37,84 @@ def test_terrain_spawn_attached_when_rough():
     cfg = _rough_cfg()
     env = Go2WalkTask(cfg, num_envs=4, backend_type="mujoco")
     try:
-        assert isinstance(env._spawn, TerrainSpawnManager)
+        assert _class_path(env._spawn) == (
+            "unilab.envs.locomotion.common.terrain_spawn.TerrainSpawnManager"
+        )
         assert env._scene_terrain_origins is not None
         assert env._scene_terrain_origins.shape == (3, 3, 3)
     finally:
         env.close()
+
+
+def test_terrain_spawn_attached_when_rough_motrix():
+    pytest.importorskip("motrixsim")
+
+    from unilab.envs.locomotion.go2.joystick import Go2WalkTask
+
+    cfg = _rough_cfg()
+    cfg.domain_rand.randomize_kp = False
+    cfg.domain_rand.randomize_kd = False
+    env = Go2WalkTask(cfg, num_envs=2, backend_type="motrix")
+    try:
+        assert _class_path(env._spawn) == (
+            "unilab.envs.locomotion.common.terrain_spawn.TerrainSpawnManager"
+        )
+        assert env._scene_terrain_origins is not None
+        assert env._scene_terrain_origins.shape == (3, 3, 3)
+        state = env.init_state()
+        assert state.obs["obs"].shape == (2, 49)
+    finally:
+        env.close()
+
+
+def test_terrain_spawn_samples_height_after_xy_jitter():
+    class FakeSurface:
+        def sample_height(self, xy):
+            xy = np.asarray(xy, dtype=np.float64)
+            return xy[:, 0] * 0.5 + xy[:, 1] * 0.25
+
+    origins = np.zeros((1, 1, 3), dtype=np.float64)
+    cfg = TerrainCurriculumCfg(spawn_height_margin=0.05)
+    spawn = TerrainSpawnManager(
+        1,
+        origins,
+        cell_size=1.0,
+        cfg=cfg,
+        terrain_surface_sampler=FakeSurface(),
+    )
+
+    qpos_xyz = np.asarray([[0.2, 0.4, 0.42]], dtype=np.float64)
+    spawned = spawn.apply_spawn(np.asarray([0], dtype=np.int32), qpos_xyz)
+
+    assert spawned[0, 0] == pytest.approx(0.2)
+    assert spawned[0, 1] == pytest.approx(0.4)
+    assert spawned[0, 2] == pytest.approx(0.2 * 0.5 + 0.4 * 0.25 + 0.42 + 0.05)
+
+
+def test_go2_rough_base_height_reward_uses_terrain_relative_height():
+    from unilab.envs.locomotion.go2.joystick import Go2WalkTask
+
+    class FakeBackend:
+        def get_base_pos(self):
+            return np.asarray(
+                [
+                    [1.0, 2.0, 1.25],
+                    [-1.0, 0.5, -0.2],
+                ],
+                dtype=np.float32,
+            )
+
+    class FakeSurface:
+        def sample_height(self, xy):
+            xy = np.asarray(xy, dtype=np.float64)
+            return np.asarray([0.75, -0.55], dtype=np.float64)
+
+    surface = FakeSurface()
+    env = Go2WalkTask.__new__(Go2WalkTask)
+    env._backend = FakeBackend()
+    env._terrain_surface_sample_height = surface.sample_height
+
+    np.testing.assert_allclose(env._reward_base_height_values(), np.asarray([0.5, 0.35]))
 
 
 def test_default_spawn_used_when_flat():
@@ -52,7 +129,9 @@ def test_default_spawn_used_when_flat():
     )
     env = Go2WalkTask(cfg, num_envs=4, backend_type="mujoco")
     try:
-        assert type(env._spawn) is BaseSpawnManager
+        assert _class_path(env._spawn) == (
+            "unilab.envs.locomotion.common.terrain_spawn.BaseSpawnManager"
+        )
         assert env._scene_terrain_origins is None
         # Origins are zeros (flat scene needs no spread; per-env xy jitter still applies).
         np.testing.assert_array_equal(env._spawn.origins_for(np.arange(4)), np.zeros((4, 3)))
@@ -133,9 +212,8 @@ def test_curriculum_logs_appear_after_done():
         env.close()
 
 
-def test_reset_uses_spawn_manager_origins(monkeypatch):
-    """When terrain present, the reset path must call spawn_manager.origins_for,
-    not env._env_origins (verifies dr_provider branching)."""
+def test_reset_uses_spawn_manager_apply_spawn(monkeypatch):
+    """When terrain present, reset must go through the spawn manager after xy jitter."""
     from unilab.envs.locomotion.go2.joystick import Go2WalkTask
 
     cfg = _rough_cfg(curriculum_enabled=False, seed=0)
@@ -143,17 +221,21 @@ def test_reset_uses_spawn_manager_origins(monkeypatch):
     try:
         sm = env._spawn
         assert sm is not None
-        called: list[np.ndarray] = []
-        original = sm.origins_for
+        called: list[tuple[np.ndarray, np.ndarray, np.ndarray | None]] = []
+        original = sm.apply_spawn
 
-        def spy(env_ids: np.ndarray) -> np.ndarray:
-            called.append(env_ids.copy())
-            return original(env_ids)
+        def spy(env_ids: np.ndarray, qpos_xyz: np.ndarray, *, yaw=None) -> np.ndarray:
+            called.append((env_ids.copy(), qpos_xyz.copy(), None if yaw is None else yaw.copy()))
+            return original(env_ids, qpos_xyz, yaw=yaw)
 
-        monkeypatch.setattr(sm, "origins_for", spy)
+        monkeypatch.setattr(sm, "apply_spawn", spy)
         env.init_state()
         assert len(called) >= 1
-        np.testing.assert_array_equal(called[0], np.arange(4))
+        env_ids, qpos_xyz, yaw = called[0]
+        np.testing.assert_array_equal(env_ids, np.arange(4))
+        assert qpos_xyz.shape == (4, 3)
+        assert yaw is not None
+        assert yaw.shape == (4,)
     finally:
         env.close()
 
@@ -176,7 +258,7 @@ def test_episode_start_recorded_after_reset(preset):
     try:
         env.init_state()
         sm = env._spawn
-        if isinstance(sm, TerrainSpawnManager):
+        if _class_path(sm) == "unilab.envs.locomotion.common.terrain_spawn.TerrainSpawnManager":
             assert np.all(sm._has_started)
     finally:
         env.close()

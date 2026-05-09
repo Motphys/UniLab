@@ -9,6 +9,8 @@ from typing import Any, Callable, TypeVar
 
 import numpy as np
 
+from unilab.base.scene import SceneCfg
+
 ObsT = TypeVar("ObsT")
 
 
@@ -32,6 +34,23 @@ def _resolve_headless(
     return record_video
 
 
+def _env_cfg_value(env: Any, name: str, default: Any) -> Any:
+    cfg = getattr(env, "cfg", None)
+    if cfg is None:
+        return default
+    return getattr(cfg, name, default)
+
+
+def _configured_model_file(env: Any) -> str | None:
+    cfg = getattr(env, "cfg", None)
+    scene = getattr(cfg, "scene", None) if cfg is not None else None
+    if scene is None:
+        return None
+    if not isinstance(scene, SceneCfg):
+        raise TypeError("env.cfg.scene must be a SceneCfg")
+    return scene.model_file
+
+
 def render_play_mode(
     env,
     *,
@@ -41,6 +60,7 @@ def render_play_mode(
     num_steps: int | None,
     output_video: str | Path | None = None,
     render_spacing: float | None = None,
+    render_offset_mode: str | None = None,
     headless: bool | None = None,
     record_video: bool | None = None,
     frame_state_getter: Callable[[], np.ndarray] | None = None,
@@ -67,10 +87,13 @@ def render_play_mode(
             effective_spacing = (
                 float(render_spacing)
                 if render_spacing is not None
-                else float(getattr(env.cfg, "render_spacing", 1.0))
+                else float(_env_cfg_value(env, "render_spacing", 1.0))
             )
             env.init_play_renderer(
                 render_spacing=effective_spacing,
+                render_offset_mode=(
+                    str(render_offset_mode) if render_offset_mode is not None else "grid"
+                ),
                 headless=should_run_headless,
                 capture=True,
                 width=1280,
@@ -93,10 +116,16 @@ def render_play_mode(
             assert frames is not None
             import mediapy as media
 
-            media.write_video(str(output_video), frames, fps=int(1.0 / env.cfg.ctrl_dt))
+            ctrl_dt = float(_env_cfg_value(env, "ctrl_dt", 1.0 / 60.0))
+            media.write_video(str(output_video), frames, fps=int(1.0 / ctrl_dt))
             return str(output_video)
 
-        env.init_play_renderer(render_spacing=render_spacing)
+        env.init_play_renderer(
+            render_spacing=render_spacing,
+            render_offset_mode=(
+                str(render_offset_mode) if render_offset_mode is not None else "grid"
+            ),
+        )
         obs = initialize()
         last_render_time = time.perf_counter()
         render_dt = 1.0 / 60.0
@@ -140,7 +169,7 @@ def render_play_mode(
     effective_spacing = (
         float(render_spacing)
         if render_spacing is not None
-        else float(getattr(env.cfg, "render_spacing", 1.0))
+        else float(_env_cfg_value(env, "render_spacing", 1.0))
     )
     with tempfile.TemporaryDirectory(prefix="unilab-playback-models-") as tmp_dir:
         model_files = _resolve_render_play_model_files(
@@ -175,7 +204,8 @@ def render_play_mode(
 
     import mediapy as media
 
-    media.write_video(str(output_video), frames, fps=int(1.0 / env.cfg.ctrl_dt))
+    ctrl_dt = float(_env_cfg_value(env, "ctrl_dt", 1.0 / 60.0))
+    media.write_video(str(output_video), frames, fps=int(1.0 / ctrl_dt))
     return str(output_video)
 
 
@@ -186,8 +216,11 @@ def _resolve_render_play_model_files(
     tmp_dir: str | Path,
 ) -> str | list[str]:
     """Resolve visual MuJoCo model files for offline play/video export."""
-    visual_model_file = str(env.cfg.model_file)
+    configured_model_file = _configured_model_file(env)
+    visual_model_file = str(configured_model_file) if configured_model_file else None
     if not hasattr(env, "get_playback_model"):
+        if visual_model_file is None:
+            raise ValueError("MuJoCo playback requires either cfg.scene or get_playback_model().")
         return visual_model_file
 
     first_model = env.get_playback_model(0)
@@ -198,7 +231,9 @@ def _resolve_render_play_model_files(
 
     mujoco: Any = _mujoco
 
-    visual_base = mujoco.MjModel.from_xml_path(visual_model_file)
+    visual_base = (
+        mujoco.MjModel.from_xml_path(visual_model_file) if visual_model_file is not None else None
+    )
     tmp_root = Path(tmp_dir)
     path_by_model_id: dict[int, str] = {}
     model_files: list[str] = []
@@ -210,12 +245,17 @@ def _resolve_render_play_model_files(
         key = id(playback_model)
         saved = path_by_model_id.get(key)
         if saved is None:
-            saved = _materialize_visual_playback_model(
-                visual_model_file=visual_model_file,
-                visual_base_model=visual_base,
-                playback_model=playback_model,
-                output_path=tmp_root / f"model_{len(path_by_model_id)}.mjb",
-            )
+            output_path = tmp_root / f"model_{len(path_by_model_id)}.mjb"
+            if visual_model_file is None or visual_base is None:
+                mujoco.mj_saveModel(playback_model, str(output_path))
+                saved = str(output_path)
+            else:
+                saved = _materialize_visual_playback_model(
+                    visual_model_file=visual_model_file,
+                    visual_base_model=visual_base,
+                    playback_model=playback_model,
+                    output_path=output_path,
+                )
             path_by_model_id[key] = saved
         model_files.append(saved)
 

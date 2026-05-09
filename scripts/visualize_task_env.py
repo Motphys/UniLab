@@ -29,7 +29,7 @@ import sys
 import time
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, get_args, get_origin, get_type_hints
+from typing import TYPE_CHECKING, Any, cast, get_args, get_origin, get_type_hints
 
 import numpy as np
 
@@ -45,6 +45,9 @@ from unilab.training import ensure_registries
 ensure_registries()
 
 from unilab.base import registry
+
+if TYPE_CHECKING:
+    from unilab.base.scene import SceneCfg
 
 
 def _build_reward_stub(env_cfg_cls: type) -> dict[str, Any] | None:
@@ -142,6 +145,7 @@ def _run_motrix(env, num_envs: int) -> None:
     from unilab.visualization import render_play_mode
 
     actions = np.zeros((num_envs, env.action_space.shape[0]), dtype=np.float32)
+    camera_kwargs = _motrix_camera_kwargs(env, num_envs)
 
     def initialize():
         return env.init_state()
@@ -156,15 +160,79 @@ def _run_motrix(env, num_envs: int) -> None:
         step=step,
         num_steps=None,
         render_spacing=getattr(env.cfg, "render_spacing", 1.0),
+        render_offset_mode=getattr(env.cfg, "render_offset_mode", "grid"),
+        camera_kwargs=camera_kwargs,
     )
+
+
+def _motrix_camera_kwargs(env, num_envs: int) -> dict[str, Any] | None:
+    """Point Motrix's interactive camera at the actual terrain spawn cells."""
+    spawn = getattr(env, "_spawn", None)
+    origins_for = getattr(spawn, "origins_for", None)
+    if not callable(origins_for):
+        return None
+
+    origins = np.asarray(origins_for(np.arange(num_envs, dtype=np.intp)), dtype=np.float64)
+    if origins.shape != (num_envs, 3):
+        return None
+    if not np.any(np.abs(origins[:, :2]) > 1e-6):
+        return None
+
+    xy_min = origins[:, :2].min(axis=0)
+    xy_max = origins[:, :2].max(axis=0)
+    lookat = np.asarray(
+        [
+            0.5 * (xy_min[0] + xy_max[0]),
+            0.5 * (xy_min[1] + xy_max[1]),
+            float(np.mean(origins[:, 2])),
+        ],
+        dtype=np.float64,
+    )
+    xy_span = xy_max - xy_min
+    distance = max(4.0, float(np.linalg.norm(xy_span) * 0.75))
+    if num_envs == 1:
+        lookat = origins[0].copy()
+        distance = 4.0
+    lookat[2] += 0.5
+    return {
+        "cam_lookat": lookat.tolist(),
+        "cam_distance": distance,
+        "cam_elevation": -25.0,
+        "cam_azimuth": 135.0,
+    }
+
+
+def _env_scene(env) -> "SceneCfg | None":
+    cfg = getattr(env, "cfg", None)
+    scene = getattr(cfg, "scene", None) if cfg is not None else None
+    if scene is None:
+        return None
+    model_file = getattr(scene, "model_file", None)
+    if model_file is None:
+        raise TypeError("env.cfg.scene must expose model_file")
+    return cast("SceneCfg", scene)
+
+
+def _mujoco_visual_xml_paths(env) -> tuple[Path, Path]:
+    scene = _env_scene(env)
+    static_model_file = None if scene is None else scene.model_file
+    backend = getattr(env, "_backend", None)
+    parent_xml = getattr(backend, "scene_visual_model_file", None)
+    if parent_xml is None:
+        parent_xml = static_model_file
+    if parent_xml is None:
+        raise ValueError(
+            "MuJoCo visualization requires cfg.scene or backend scene_visual_model_file."
+        )
+    robot_xml = static_model_file or parent_xml
+    return Path(parent_xml), Path(robot_xml)
 
 
 def _run_mujoco(env, num_envs: int) -> None:
     import mujoco
     import mujoco.viewer
 
-    parent_xml = getattr(env, "_materialized_model_file", None) or str(env.cfg.model_file)
-    robot_xml = str(env.cfg.model_file)
+    parent_xml, robot_xml = _mujoco_visual_xml_paths(env)
     env_origins = env._spawn.origins_for(np.arange(num_envs))
 
     if num_envs > 1 and not env_origins[:, :2].any():
@@ -174,7 +242,7 @@ def _run_mujoco(env, num_envs: int) -> None:
             "actual reset spawn)."
         )
 
-    decoder_model = mujoco.MjModel.from_xml_path(parent_xml)
+    decoder_model = mujoco.MjModel.from_xml_path(str(parent_xml))
     decoder_data = mujoco.MjData(decoder_model)
     nq_per = int(decoder_model.nq)
     nv_per = int(decoder_model.nv)
@@ -183,7 +251,7 @@ def _run_mujoco(env, num_envs: int) -> None:
     if num_envs == 1:
         viz_model = decoder_model
     else:
-        viz_model = _stitch_replicas(Path(parent_xml), Path(robot_xml), env_origins)
+        viz_model = _stitch_replicas(parent_xml, robot_xml, env_origins)
     viz_data = mujoco.MjData(viz_model)
 
     actions = np.zeros((num_envs, env.action_space.shape[0]), dtype=np.float32)
@@ -228,6 +296,23 @@ def _build_env_cfg_override(task_name: str) -> dict[str, Any]:
     return override
 
 
+def _print_backend_scene(env) -> None:
+    backend = getattr(env, "_backend", None)
+    scene = _env_scene(env)
+    scene_source = getattr(backend, "scene_visual_model_file", None)
+    if scene_source is None:
+        scene_source = getattr(backend, "scene_model_file", None)
+    if scene_source is None and scene is not None:
+        scene_source = scene.model_file
+    if scene_source is None:
+        scene_source = "<unknown>"
+    print(f"[visualize_task_env] backend scene: {scene_source}")
+
+    artifacts_dir = getattr(backend, "scene_artifacts_dir", None)
+    if artifacts_dir is not None:
+        print(f"[visualize_task_env] artifacts: {artifacts_dir}")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     if args.num_envs < 1:
@@ -243,10 +328,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         env_cfg_override=env_cfg_override,
     )
 
-    parent_xml = getattr(env, "_materialized_model_file", None) or getattr(
-        getattr(env, "cfg", None), "model_file", "<unknown>"
-    )
-    print(f"[visualize_task_env] backend scene: {parent_xml}")
+    _print_backend_scene(env)
 
     try:
         if args.backend == "motrix":

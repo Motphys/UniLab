@@ -635,7 +635,7 @@ def test_build_ppo_play_env_cfg_override_applies_g1_motion_tracking_play_profile
 
     assert cfg.training.play_env_num == 128
     assert env_cfg_override["render_spacing"] == pytest.approx(2.5)
-    assert env_cfg_override["model_file"] == "/tmp/g1_motion_tracking_play_scene.xml"
+    assert env_cfg_override["scene"].model_file == "/tmp/g1_motion_tracking_play_scene.xml"
     assert env_cfg_override["reward_config"]["scales"]["motion_body_pos"] == pytest.approx(1.0)
 
 
@@ -686,7 +686,7 @@ def test_build_ppo_play_env_cfg_override_resolves_relative_ground_texture(
     )
 
 
-def test_run_motrix_rsl_play_loop_uses_render_spacing():
+def test_run_motrix_rsl_play_loop_uses_render_spacing_and_offset_mode():
     import numpy as np
     import torch
     from tensordict import TensorDict
@@ -703,8 +703,8 @@ def test_run_motrix_rsl_play_loop_uses_render_spacing():
             self.init_renderer_calls = []
             self.render_calls = 0
 
-        def init_renderer(self, spacing=1.0):
-            self.init_renderer_calls.append(spacing)
+        def init_renderer(self, spacing=1.0, offset_mode="grid"):
+            self.init_renderer_calls.append((spacing, offset_mode))
 
         def render(self):
             self.render_calls += 1
@@ -712,13 +712,14 @@ def test_run_motrix_rsl_play_loop_uses_render_spacing():
     class FakeEnv:
         def __init__(self):
             self._renderer = FakeBackend()
-            self.cfg = type("Cfg", (), {"render_spacing": 2.5})()
+            self.cfg = type("Cfg", (), {"render_spacing": 2.5, "render_offset_mode": "zero"})()
 
-        def init_play_renderer(self, render_spacing=None):
+        def init_play_renderer(self, render_spacing=None, render_offset_mode=None):
+            offset_mode = "grid" if render_offset_mode is None else render_offset_mode
             if render_spacing is None:
-                self._renderer.init_renderer()
+                self._renderer.init_renderer(offset_mode=offset_mode)
             else:
-                self._renderer.init_renderer(render_spacing)
+                self._renderer.init_renderer(render_spacing, offset_mode=offset_mode)
 
         def render_play_frame(self):
             self._renderer.render()
@@ -748,12 +749,13 @@ def test_run_motrix_rsl_play_loop_uses_render_spacing():
         wrapped_env=wrapped_env,
         policy=FakePolicy(),
         render_spacing=2.5,
+        render_offset_mode="zero",
         num_steps=3,
     )
 
     assert wrapped_env.reset_calls == 1
     assert wrapped_env.step_calls == 3
-    assert wrapped_env.env._renderer.init_renderer_calls == [2.5]
+    assert wrapped_env.env._renderer.init_renderer_calls == [(2.5, "zero")]
     assert wrapped_env.env._renderer.render_calls == 3
 
 
@@ -853,8 +855,8 @@ def test_run_motrix_play_loop_runs_without_physics_state():
             assert actions.shape == (2, 3)
             return FakeState()
 
-        def init_play_renderer(self, render_spacing=None):
-            del render_spacing
+        def init_play_renderer(self, render_spacing=None, render_offset_mode=None):
+            del render_spacing, render_offset_mode
             self._renderer.init_renderer()
 
         def render_play_frame(self):
@@ -1765,6 +1767,82 @@ def test_train_rsl_rl_play_reports_missing_requested_checkpoint_in_resolved_run(
     assert "Could not resolve a checkpoint for play mode." in captured
     assert f"resolved_run={run_dir}" in captured
     assert "algo.checkpoint=12" in captured
+
+
+@pytest.mark.parametrize("play_headless", [True, False])
+def test_train_rsl_rl_motrix_play_uses_configured_steps_independent_of_headless(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, play_headless: bool
+):
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(
+        [
+            "task=go2_joystick_rough/motrix",
+            "training.play_only=true",
+            f"training.play_headless={str(play_headless).lower()}",
+            "training.play_record_video=false",
+            "training.play_steps=37",
+            "training.render_spacing=2.5",
+        ]
+    )
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    checkpoint = run_dir / "model_37.pt"
+    mod.torch.save({"actor_state_dict": {}}, checkpoint)
+
+    class FakeEnv:
+        def __init__(self):
+            self.cfg = type("Cfg", (), {"render_spacing": 2.5, "render_offset_mode": "zero"})()
+
+    class FakeWrapper:
+        def __init__(self, env, device):
+            self.env = env
+            self.device = device
+
+        def reset(self):
+            return 0, {}
+
+        def step(self, actions):
+            return 0, 0, False, {}
+
+    class FakeRunner:
+        def __init__(self, wrapped_env, train_cfg, log_dir, device):
+            self.wrapped_env = wrapped_env
+            self.train_cfg = train_cfg
+            self.log_dir = log_dir
+            self.device = device
+
+        def load(self, path):
+            self.loaded_path = path
+
+        def get_inference_policy(self, device):
+            return lambda obs: obs
+
+    captured: dict[str, Any] = {}
+
+    def fake_render_play_mode(env, **kwargs):
+        captured["env"] = env
+        captured.update(kwargs)
+        return None
+
+    monkeypatch.setattr(mod, "EXPORT_POLICY", False, raising=False)
+    monkeypatch.setattr(mod, "parse_checkpoint_path", lambda *args, **kwargs: (checkpoint, run_dir))
+    monkeypatch.setattr(mod, "build_ppo_play_env_cfg_override", lambda cfg: {})
+    monkeypatch.setattr(mod, "create_env", lambda *args, **kwargs: FakeEnv())
+    monkeypatch.setattr(mod, "_resolve_ppo_wrapper_cls", lambda rl_cfg: FakeWrapper)
+    monkeypatch.setattr(mod, "normalize_ppo_train_cfg", lambda rl_cfg: {})
+    monkeypatch.setattr(mod, "OnPolicyRunner", FakeRunner)
+    monkeypatch.setattr(mod, "render_play_mode", fake_render_play_mode)
+
+    result = mod.play_rsl_rl(cfg, device="cpu")
+
+    assert result is None
+    assert captured["sim_backend"] == "motrix"
+    assert captured["headless"] is play_headless
+    assert captured["record_video"] is False
+    assert captured["num_steps"] == 37
+    assert captured["output_video"] is None
+    assert captured["render_spacing"] == pytest.approx(2.5)
+    assert captured["render_offset_mode"] == "zero"
 
 
 def test_train_appo_get_log_root_uses_algo_log_name():

@@ -27,7 +27,6 @@ class ControlConfigBase:
 
 @dataclass
 class LocomotionBaseCfg(EnvCfg):
-    model_file: str = field(default=str(""))
     control_config: ControlConfigBase = field(default_factory=ControlConfigBase)
     sensor: Sensor = field(default_factory=Sensor)
     sim_dt: float = 0.01

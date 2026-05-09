@@ -9,7 +9,7 @@
 3. 想改子地形组合时，正确的入口是什么？
 4. 哪些是当前已知的边界，不是 bug 而是约束？
 
-底层 contract（cold-path materialization、注册新 sub-terrain、hfield PNG 导出）见 [`base/backend/xml.py`](../../../src/unilab/base/backend/xml.py) 与 [`terrains/terrain_generator.py`](../../../src/unilab/terrains/terrain_generator.py) 的源码注释。
+底层 contract（cold-path materialization、注册新 sub-terrain、hfield 导出）见 [`base/backend/xml.py`](../../../src/unilab/base/backend/xml.py)、[`base/backend/motrix_scene.py`](../../../src/unilab/base/backend/motrix_scene.py) 与 [`terrains/terrain_generator.py`](../../../src/unilab/terrains/terrain_generator.py) 的源码注释。
 
 ## 现状
 
@@ -17,15 +17,16 @@
 
 | 任务 | owner YAML | 后端 | 入口算法 | 代码 |
 | --- | --- | --- | --- | --- |
-| `Go2JoystickRough` | [`conf/ppo/task/go2_joystick_rough/mujoco.yaml`](../../../conf/ppo/task/go2_joystick_rough/mujoco.yaml) | MuJoCo | PPO (`train_rsl_rl.py`) | [`go2/joystick.py`](../../../src/unilab/envs/locomotion/go2/joystick.py) |
+| `Go2JoystickRough` | [`mujoco.yaml`](../../../conf/ppo/task/go2_joystick_rough/mujoco.yaml), [`motrix.yaml`](../../../conf/ppo/task/go2_joystick_rough/motrix.yaml) | MuJoCo / Motrix | PPO (`train_rsl_rl.py`) | [`go2/joystick.py`](../../../src/unilab/envs/locomotion/go2/joystick.py) |
 
 env 构造期会执行：
 
-1. 加载 [`scene_rough.xml`](../../../src/unilab/assets/robots/go2/scene_rough.xml) 模板（包含一个名为 `terrain_hfield` 的 hfield asset 和一个名为 `floor` 的 hfield geom）。
-2. `TerrainGenerator(cfg.terrain_generator)` 只生成 backend-agnostic 的合并 height matrix，不依赖 MuJoCo。
-3. backend XML materializer 把合并后的 height matrix 写成 per-instance 的 `hfields/hfield.png`（uint16 PNG），并在临时 `scene.xml` 中替换 hfield 的 `file` / `size` / geom `pos`。
-4. 同步复制模板依赖（如 `go2.xml` 与 mesh assets）到 `tempfile.TemporaryDirectory`，backend 用 `model_file=<materialized_xml>` 编译 `MjModel`。
-5. tempdir 一直持有到 env `close()`；`Go2WalkTask.get_playback_model()` 返回该路径，离线回放视频复用同一个 materialized scene。
+1. `Go2JoystickRoughCfg` 声明一个 `SceneCfg`，其中 `model_file` 指向 [`go2.xml`](../../../src/unilab/assets/robots/go2/go2.xml)，`fragment_files` 引入 [`locomotion_task.xml`](../../../src/unilab/assets/robots/go2/locomotion_task.xml) 里的 contact sensors，`scene.terrain` 声明要生成名为 `terrain_hfield` 的 hfield。
+2. backend scene materializer 调用 `TerrainGenerator(...)` 生成 backend-agnostic 的合并 height matrix 和 `terrain_origins`；terrain generator 本身不依赖 MuJoCo 或 Motrix。
+3. MuJoCo materializer 用 `MjSpec.add_hfield(...)` / `worldbody.add_geom(...)` 创建 terrain，再用 `MjSpec.attach(...)` 把 robot spec 挂到 scene 里，最终 `compile()` 得到 `MjModel`。
+4. Motrix materializer 用 `motrixsim.msd.World` 创建 terrain world，通过 `World.attach(...)` 拼接 robot world 和 task fragment，最终 `msd.build(...)` 得到 `SceneModel`。
+5. `go2.xml` 持有 robot-owned `home` keyframe；`locomotion_task.xml` 只持有与 terrain `floor` 相关的 contact sensors。
+6. backend 实例持有 cold-path scene artifacts 到 env `close()`；`terrain_origins` 通过 backend 场景属性传回 env，用于 spawn / curriculum。
 
 `step()` / `reset()` / DR provider 不读 XML、不访问 asset 文件；地形相关全部发生在冷路径。
 
@@ -36,29 +37,33 @@ env 构造期会执行：
 uv run train --algo ppo --task go2_joystick_rough --sim mujoco
 ```
 
-TODO: 适配任务
+Motrix 后端使用同一个 task owner：
+
+```bash
+uv run train --algo ppo --task go2_joystick_rough --sim motrix
+```
 
 ## 2. Hydra 命令行覆盖地形参数
 
-`Go2JoystickRough` 在 [conf/ppo/task/go2_joystick_rough/mujoco.yaml](../../../conf/ppo/task/go2_joystick_rough/mujoco.yaml) 里显式列出了一组可覆盖字段；这些字段允许 Hydra struct 模式接受命令行覆盖。
+`Go2JoystickRough` 在 `conf/ppo/task/go2_joystick_rough/{mujoco,motrix}.yaml` 里显式列出了一组可覆盖字段；这些字段允许 Hydra struct 模式接受命令行覆盖。
 
 | 字段 | 作用 | yaml 默认值 |
 | --- | --- | --- |
-| `env.terrain_generator.seed` | 随机种子，`null` 表示每次随机 | `null` |
-| `env.terrain_generator.curriculum` | `true`：每种 sub-terrain 一列、难度沿行递增；`false`：按 `proportion` 随机采样 | `false` |
-| `env.terrain_generator.num_rows` | grid 行数（curriculum 模式 = 难度等级数） | `10` |
-| `env.terrain_generator.num_cols` | grid 列数（curriculum 模式被忽略，列数 = `len(sub_terrains)`） | `20` |
-| `env.terrain_generator.border_width` | grid 外圈 flat border 宽度（米） | `20.0` |
-| `env.terrain_generator.difficulty_range` | 难度采样区间 `[min, max]`，∈ `[0, 1]` | `[0.0, 1.0]` |
+| `env.scene.terrain.generator.seed` | 随机种子，`null` 表示每次随机 | `42` |
+| `env.scene.terrain.generator.curriculum` | `true`：每种 sub-terrain 一列、难度沿行递增；`false`：按 `proportion` 随机采样 | `false` |
+| `env.scene.terrain.generator.num_rows` | grid 行数（curriculum 模式 = 难度等级数） | `10` |
+| `env.scene.terrain.generator.num_cols` | grid 列数（curriculum 模式被忽略，列数 = `len(sub_terrains)`） | `20` |
+| `env.scene.terrain.generator.border_width` | grid 外圈 flat border 宽度（米） | `20.0` |
+| `env.scene.terrain.generator.difficulty_range` | 难度采样区间 `[min, max]`，∈ `[0, 1]` | `[0.0, 1.0]` |
 
 示例：本地小规模 smoke + 固定种子 + curriculum 模式。
 
 ```bash
 uv run train --algo ppo --task go2_joystick_rough --sim mujoco \
-    env.terrain_generator.num_rows=4 \
-    env.terrain_generator.num_cols=6 \
-    env.terrain_generator.seed=42 \
-    env.terrain_generator.curriculum=true \
+    env.scene.terrain.generator.num_rows=4 \
+    env.scene.terrain.generator.num_cols=6 \
+    env.scene.terrain.generator.seed=42 \
+    env.scene.terrain.generator.curriculum=true \
     algo.num_envs=64 algo.max_iterations=2 training.no_play=true
 ```
 
@@ -89,33 +94,36 @@ uv run train --algo ppo --task go2_joystick_rough --sim mujoco \
 
 ## 4. 在新任务里启用程序化地形
 
-`terrain_generator` 是基类 [`EnvCfg`](../../../src/unilab/base/base.py) 上的字段，默认 `None`。在自己的 task cfg 里赋值即可启用：
+新任务通过 `SceneCfg` 启用程序化地形。`SceneCfg` 位于 [`base/scene.py`](../../../src/unilab/base/scene.py)，`scene.terrain.generator` 使用 [`TerrainGeneratorCfg`](../../../src/unilab/terrains/terrain_generator.py)。
 
-```python
-import copy
-from dataclasses import dataclass, field
-from unilab.terrains import ROUGH_TERRAINS_CFG, TerrainGeneratorCfg
-
-@dataclass
-class MyTaskCfg(...):
-    # 模板 XML 里需要有 name="terrain_hfield" 的 hfield asset，以及一个使用
-    # 该 hfield 的 geom（默认命名为 floor，方便 contact sensor 复用）。
-    model_file: str = ".../scene_rough.xml"
-    terrain_generator: TerrainGeneratorCfg = field(default_factory=lambda: copy.deepcopy(ROUGH_TERRAINS_CFG))
+```yaml
+env:
+  scene:
+    model_file: .../robot.xml
+    fragment_files:
+      - .../locomotion_task.xml
+    terrain:
+      kind: hfield
+      hfield_name: terrain_hfield
+      geom_name: floor
+      generator:
+        seed: 42
+        size: [8.0, 8.0]
+        num_rows: 10
+        num_cols: 20
+        border_width: 20.0
 ```
 
-env 的 `__init__` 沿用 `Go2WalkTask.__init__` 的物化模板：
+env 的 `__init__` 不需要直接调用 XML materializer；把 `scene` 交给 backend 构造即可：
 
 ```python
-import tempfile
-from unilab.base.backend.xml import materialize_terrain_hfield_scene
+from unilab.base.backend import create_backend
 
-self._materialized_dir = tempfile.TemporaryDirectory(prefix="unilab_terrain_")
-model_file, terrain_origins = materialize_terrain_hfield_scene(cfg.model_file, terrain_cfg=cfg.terrain_generator, output_dir=self._materialized_dir.name)
-backend = create_backend(..., model_file=model_file, ...)
+backend = create_backend(..., cfg.scene)
+terrain_origins = getattr(backend, "terrain_origins", None)
 ```
 
-注意：`TerrainGenerator.__init__` 会原地修改传入的 cfg（向每个 `sub_cfg.size` 写值）。如果在多个 env 之间共享同一个 `TerrainGeneratorCfg` 实例会互相污染，必须用 `default_factory` 或 `copy.deepcopy` 保证每个实例拿到独立 cfg；`Go2JoystickRoughCfg` 通过 `default_factory=Go2RoughTerrainCfg` 已处理。
+注意：`TerrainGenerator.__init__` 会原地修改传入的 cfg（向每个 `sub_cfg.size` 写值）。如果在多个 env 之间共享同一个 `TerrainGeneratorCfg` 实例会互相污染，必须用 `default_factory` 或 `copy.deepcopy` 保证每个实例拿到独立 cfg；`Go2JoystickRoughCfg` 通过 `scene.terrain.generator=Go2RoughTerrainCfg()` 已处理。
 
 ## 5. 可视化与离线回放
 
@@ -140,15 +148,20 @@ uv run pytest tests/config/test_locomotion_params.py \
 
 # 端到端 smoke：Hydra 命令行覆盖 grid 大小 + 种子，2 iter PPO
 uv run train --algo ppo --task go2_joystick_rough --sim mujoco \
-    env.terrain_generator.num_rows=4 env.terrain_generator.seed=42 \
+    env.scene.terrain.generator.num_rows=4 env.scene.terrain.generator.seed=42 \
+    algo.max_iterations=2 algo.num_envs=64
+
+uv run train --algo ppo --task go2_joystick_rough --sim motrix \
+    env.scene.terrain.generator.num_rows=4 env.scene.terrain.generator.seed=42 \
     algo.max_iterations=2 algo.num_envs=64
 ```
 
 ## 已知约束
 
-- **当前只在 MuJoCo 后端验证过**：terrain 生成本身不依赖 MuJoCo，但运行时仍需要 MuJoCo backend 编译 hfield scene。Motrix 没有 owner YAML，也没有 hfield 程序化场景冒烟测试。生产训练请只用 `--sim mujoco`。
-- **模板 XML 必须包含可替换 hfield**：默认查找名为 `terrain_hfield` 的 hfield asset，并更新第一个引用它的 geom。Go2 模板把该 geom 命名为 `floor`，所以现有 contact sensor 不需要重定向。
-- **`terrain_generator` 是 cold-path 配置**：env 构造完成后再修改 `cfg.terrain_generator` 不会影响已 materialize 的场景。要换地形必须重新构造 env（即重新跑训练命令）。
+- **MuJoCo / Motrix materializer 都有自动化 smoke 覆盖**：MuJoCo 路径返回 `MjModel`，Motrix 路径返回 `SceneModel`。生产训练性能和收敛质量仍需用独立 benchmark 记录，不由 smoke 测试保证。
+- **MuJoCo 组装路径依赖 `MjSpec.attach`**：robot XML、terrain 和 task sensor fragment 在 materialization 阶段组装并直接 compile 成 `MjModel`。
+- **Motrix 组装路径依赖 `motrixsim.msd.World.attach`**：`go2.xml` 持有 keyframe，`locomotion_task.xml` 作为纯 contact-sensor fragment 接入。
+- **`scene.terrain.generator` 是 cold-path 配置**：env 构造完成后再修改 generator 不会影响已 materialize 的场景。要换地形必须重新构造 env（即重新跑训练命令）。
 - **`import unilab.terrains` 不依赖 mujoco**：`TerrainGenerator.generate()` / `write_png()` 是纯 numpy + imageio 路径。
 
 ## Navigation

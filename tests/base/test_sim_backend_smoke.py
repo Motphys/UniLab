@@ -13,6 +13,7 @@ import pytest
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base.backend.xml import get_named_body_ids
+from unilab.base.scene import SceneCfg
 
 pytest.importorskip("mujoco", reason="mujoco not installed")
 
@@ -74,7 +75,9 @@ def _mujoco_expected_dof_dims(model) -> tuple[int, int]:
 def test_mujoco_backend_smoke_contract(robot):
     from unilab.base.backend.mujoco_backend import MuJoCoBackend
 
-    bkd = MuJoCoBackend(robot["model_file"], NUM_ENVS, SIM_DT, base_name=robot["base_name"])
+    bkd = MuJoCoBackend(
+        SceneCfg(model_file=robot["model_file"]), NUM_ENVS, SIM_DT, base_name=robot["base_name"]
+    )
     bkd.materialize()
 
     assert bkd.num_envs == NUM_ENVS
@@ -106,7 +109,12 @@ def test_mujoco_backend_fixed_base_dof_views_do_not_skip_first_joint():
 
     from unilab.base.backend.mujoco_backend import MuJoCoBackend
 
-    bkd = MuJoCoBackend(_ALLEGRO["model_file"], NUM_ENVS, SIM_DT, base_name=_ALLEGRO["base_name"])
+    bkd = MuJoCoBackend(
+        SceneCfg(model_file=_ALLEGRO["model_file"]),
+        NUM_ENVS,
+        SIM_DT,
+        base_name=_ALLEGRO["base_name"],
+    )
     assert int(bkd.model.jnt_type[0]) != int(mujoco.mjtJoint.mjJNT_FREE)
     _shape(bkd.get_dof_pos(), NUM_ENVS, bkd.model.nq)
     _shape(bkd.get_dof_vel(), NUM_ENVS, bkd.model.nv)
@@ -123,7 +131,9 @@ def test_motrix_backend_smoke_contract(robot):
 
     from unilab.base.backend.motrix_backend import MotrixBackend
 
-    bkd = MotrixBackend(robot["model_file"], NUM_ENVS, SIM_DT, base_name=robot["base_name"])
+    bkd = MotrixBackend(
+        SceneCfg(model_file=robot["model_file"]), NUM_ENVS, SIM_DT, base_name=robot["base_name"]
+    )
 
     assert bkd.num_envs == NUM_ENVS
     assert bkd.model is not None
@@ -152,7 +162,12 @@ def test_motrix_backend_fixed_base_base_views_are_available():
 
     from unilab.base.backend.motrix_backend import MotrixBackend
 
-    bkd = MotrixBackend(_ALLEGRO["model_file"], NUM_ENVS, SIM_DT, base_name=_ALLEGRO["base_name"])
+    bkd = MotrixBackend(
+        SceneCfg(model_file=_ALLEGRO["model_file"]),
+        NUM_ENVS,
+        SIM_DT,
+        base_name=_ALLEGRO["base_name"],
+    )
     _shape(bkd.get_base_pos(), NUM_ENVS, 3)
     _shape(bkd.get_base_quat(), NUM_ENVS, 4)
     np.testing.assert_allclose(bkd.get_base_lin_vel(), 0.0, atol=1e-8)
@@ -173,9 +188,13 @@ def test_cross_backend_base_pose_smoke(robot):
     from unilab.base.backend.motrix_backend import MotrixBackend
     from unilab.base.backend.mujoco_backend import MuJoCoBackend
 
-    mj = MuJoCoBackend(robot["model_file"], NUM_ENVS, SIM_DT, base_name=robot["base_name"])
+    mj = MuJoCoBackend(
+        SceneCfg(model_file=robot["model_file"]), NUM_ENVS, SIM_DT, base_name=robot["base_name"]
+    )
     mj.materialize()
-    mx = MotrixBackend(robot["model_file"], NUM_ENVS, SIM_DT, base_name=robot["base_name"])
+    mx = MotrixBackend(
+        SceneCfg(model_file=robot["model_file"]), NUM_ENVS, SIM_DT, base_name=robot["base_name"]
+    )
 
     nq, nv = mj.model.nq, mj.model.nv
     qpos = np.tile(_identity_qpos_mujoco(nq), (NUM_ENVS, 1))
@@ -198,8 +217,12 @@ def test_cross_backend_model_properties_smoke():
     from unilab.base.backend.motrix_backend import MotrixBackend
     from unilab.base.backend.mujoco_backend import MuJoCoBackend
 
-    mj = MuJoCoBackend(_G1["model_file"], NUM_ENVS, SIM_DT, base_name=_G1["base_name"])
-    mx = MotrixBackend(_G1["model_file"], NUM_ENVS, SIM_DT, base_name=_G1["base_name"])
+    mj = MuJoCoBackend(
+        SceneCfg(model_file=_G1["model_file"]), NUM_ENVS, SIM_DT, base_name=_G1["base_name"]
+    )
+    mx = MotrixBackend(
+        SceneCfg(model_file=_G1["model_file"]), NUM_ENVS, SIM_DT, base_name=_G1["base_name"]
+    )
 
     assert mj.num_actuators == mx.num_actuators
     assert mj.num_dof_vel == mx.num_dof_vel
@@ -214,7 +237,9 @@ def test_cross_backend_model_properties_smoke():
 def test_mujoco_model_properties_smoke():
     from unilab.base.backend.mujoco_backend import MuJoCoBackend
 
-    bkd = MuJoCoBackend(_G1["model_file"], NUM_ENVS, SIM_DT, base_name=_G1["base_name"])
+    bkd = MuJoCoBackend(
+        SceneCfg(model_file=_G1["model_file"]), NUM_ENVS, SIM_DT, base_name=_G1["base_name"]
+    )
     assert bkd.num_actuators == bkd.model.nu
     assert bkd.num_actuators > 0
     assert bkd.num_dof_vel > 0
@@ -230,7 +255,9 @@ def test_mujoco_metadata_getters_return_stable_copies():
 
     from unilab.base.backend.mujoco_backend import MuJoCoBackend
 
-    bkd = MuJoCoBackend(_SHARPA["model_file"], NUM_ENVS, SIM_DT, base_name=_SHARPA["base_name"])
+    bkd = MuJoCoBackend(
+        SceneCfg(model_file=_SHARPA["model_file"]), NUM_ENVS, SIM_DT, base_name=_SHARPA["base_name"]
+    )
     model = bkd.model
     object_geom_id = int(mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "object"))
     base_body_id = int(mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, _SHARPA["base_name"]))
@@ -301,7 +328,9 @@ def test_motrix_model_properties_smoke():
 
     from unilab.base.backend.motrix_backend import MotrixBackend
 
-    bkd = MotrixBackend(_G1["model_file"], NUM_ENVS, SIM_DT, base_name=_G1["base_name"])
+    bkd = MotrixBackend(
+        SceneCfg(model_file=_G1["model_file"]), NUM_ENVS, SIM_DT, base_name=_G1["base_name"]
+    )
     assert bkd.num_actuators > 0
     assert bkd.num_dof_vel > 0
     ctrl_range = bkd.get_actuator_ctrl_range()

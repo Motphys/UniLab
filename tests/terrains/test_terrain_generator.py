@@ -96,6 +96,33 @@ def test_terrain_generator_generates_single_merged_hfield():
     assert terrain.hfield_size[1] == pytest.approx(terrain.size[1] / 2)
 
 
+def test_generated_terrain_surface_sampler_uses_world_xy():
+    cfg = _small_rough_cfg()
+    cfg.border_width = 0.0
+    terrain = TerrainGenerator(cfg).generate()
+    sampler = terrain.surface_sampler()
+
+    origin = terrain.terrain_origins[0, 0]
+    sampled = sampler.sample_height(origin[:2])
+
+    assert sampled == pytest.approx(origin[2], abs=1e-4)
+
+
+def test_heightfield_surface_sampler_can_flip_world_y():
+    cfg = _small_rough_cfg()
+    cfg.border_width = 0.0
+    terrain = TerrainGenerator(cfg).generate()
+    sampler = terrain.surface_sampler(flip_y=True)
+    reference = terrain.surface_sampler()
+
+    xy = np.asarray([[1.25, -2.75], [-3.5, 4.25]], dtype=np.float64)
+
+    np.testing.assert_allclose(
+        sampler.sample_height(xy),
+        reference.sample_height(xy * np.asarray([1.0, -1.0])),
+    )
+
+
 @pytest.mark.parametrize("preset_name", sorted(EXPECTED_PRESETS))
 def test_each_preset_produces_heightfield(preset_name):
     rng = np.random.default_rng(42)

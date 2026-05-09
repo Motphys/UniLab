@@ -7,6 +7,7 @@ import numpy as np
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
+from unilab.base.scene import SceneCfg
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.locomotion.go2w.joystick import Go2WJoystickCfg, Go2WJoystickEnv
 
@@ -59,7 +60,11 @@ class TerrainScanConfig:
 class Go2WJoystickRoughTilesCfg(Go2WJoystickCfg):
     """5x5 tiled stair terrain for MuJoCo PPO Go2W training."""
 
-    model_file: str = str(ASSETS_ROOT_PATH / "robots" / "go2w" / "scene_rough_tiles.xml")
+    scene: SceneCfg = field(
+        default_factory=lambda: SceneCfg(
+            model_file=str(ASSETS_ROOT_PATH / "robots" / "go2w" / "scene_rough_tiles.xml")
+        )
+    )
     terrain_scan: TerrainScanConfig = field(default_factory=TerrainScanConfig)
 
 

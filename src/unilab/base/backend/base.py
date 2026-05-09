@@ -27,8 +27,8 @@ class BackendPlayCapabilities:
 class SimBackend(abc.ABC):
     """仿真后端统一接口"""
 
-    _model_file: str
     _pre_step_control_fn: PreStepControlFn | None
+    _scene_cleanup_handle: Any | None
 
     # ------------------------------------------------------------------ #
     # Properties                                                           #
@@ -174,9 +174,21 @@ class SimBackend(abc.ABC):
 
     def get_motion_body_ids(self, names: Sequence[str]) -> np.ndarray:
         """Resolve MuJoCo-style body IDs used by motion datasets."""
-        from unilab.base.backend.xml import get_named_body_ids
+        raise NotImplementedError(f"{self.__class__.__name__} does not expose motion body ids")
 
-        return np.asarray(get_named_body_ids(self._model_file, names), dtype=np.int32)
+    def cleanup_scene_assets(self) -> None:
+        """Release cold-path scene artifacts owned by the backend."""
+        cleanup_handle = getattr(self, "_scene_cleanup_handle", None)
+        if cleanup_handle is None:
+            return
+        cleanup_handle.cleanup()
+        self._scene_cleanup_handle = None
+
+    def __del__(self) -> None:
+        try:
+            self.cleanup_scene_assets()
+        except Exception:
+            pass
 
     @abc.abstractmethod
     def get_joint_range(self) -> np.ndarray | None:
@@ -302,6 +314,7 @@ class SimBackend(abc.ABC):
         self,
         spacing: float = 1.0,
         *,
+        offset_mode: str = "grid",
         headless: bool = False,
         capture: bool = False,
         width: int = 1280,

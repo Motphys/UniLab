@@ -458,7 +458,7 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
 
         backend = create_backend(
             backend_type,
-            cfg.model_file,
+            cfg.scene,
             num_envs,
             cfg.sim_dt,
             base_name=cfg.base_name,

@@ -1,10 +1,11 @@
-import os
 import time
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any, TypeVar, cast
 
 import numpy as np
 
+from unilab.base.scene import SceneCfg
 from unilab.dr.types import (
     RESET_TERM_BASE_COM,
     RESET_TERM_BASE_MASS,
@@ -35,12 +36,65 @@ def _require_not_none(value: T | None, error_message: str) -> T:
     return value
 
 
+@dataclass
+class _MotrixSceneContext:
+    model: "mtx.SceneModel"
+    terrain_origins: np.ndarray | None = None
+    terrain_surface_sampler: object | None = None
+    cleanup_handle: object | None = None
+
+
+def _build_motrix_scene_context(
+    scene: SceneCfg,
+    *,
+    add_body_sensors: bool,
+    base_name: str,
+) -> _MotrixSceneContext:
+    from unilab.base.backend.motrix_scene import (
+        materialize_motrix_hfield_attached_scene,
+        materialize_motrix_scene,
+    )
+
+    if scene is None:
+        raise ValueError("SceneCfg must be provided")
+    if not scene.model_file:
+        raise ValueError("SceneCfg.model_file must be provided")
+
+    if scene.terrain is None:
+        model = materialize_motrix_scene(
+            model_file=scene.model_file,
+            fragment_files=scene.fragment_files,
+            add_body_sensors=add_body_sensors,
+            base_name=base_name,
+        )
+        return _MotrixSceneContext(model=model)
+
+    if scene.terrain.generator is None:
+        raise ValueError("SceneCfg.terrain.generator must be configured for terrain scenes")
+
+    model, terrain_origins, terrain_surface_sampler = materialize_motrix_hfield_attached_scene(
+        model_file=scene.model_file,
+        terrain_cfg=scene.terrain.generator,
+        fragment_files=scene.fragment_files,
+        hfield_name=scene.terrain.hfield_name,
+        geom_name=scene.terrain.geom_name or "floor",
+        add_body_sensors=add_body_sensors,
+        base_name=base_name,
+        return_surface_sampler=True,
+    )
+    return _MotrixSceneContext(
+        model=model,
+        terrain_origins=terrain_origins,
+        terrain_surface_sampler=terrain_surface_sampler,
+    )
+
+
 class MotrixBackend(SimBackend):
     """MotrixSim 后端实现"""
 
     def __init__(
         self,
-        model_file: str,
+        scene: SceneCfg,
         num_envs: int,
         sim_dt: float,
         base_name: str = "base",
@@ -52,40 +106,22 @@ class MotrixBackend(SimBackend):
         if not MOTRIX_AVAILABLE:
             raise ImportError("motrixsim not available")
 
-        self.add_body_sensors = add_body_sensors
+        scene_context = _build_motrix_scene_context(
+            scene,
+            add_body_sensors=add_body_sensors,
+            base_name=base_name,
+        )
+        self._scene = scene
+        self.scene_artifacts_dir = None
+        self.terrain_origins = scene_context.terrain_origins
+        self.terrain_surface_sampler = scene_context.terrain_surface_sampler
+        self._scene_cleanup_handle = scene_context.cleanup_handle
         self._base_name = base_name
-        self._model_file = model_file
 
-        if self.add_body_sensors:
-            from unilab.base.backend.xml import inject_motrix_tracking_sensors
-
-            tmp_path, _, valid_bnames = inject_motrix_tracking_sensors(
-                model_file, baselink_name=base_name
-            )
-            try:
-                self._model = mtx.load_model(tmp_path)  # pyright: ignore[reportPossiblyUnbound]
-            finally:
-                os.remove(tmp_path)
-
-            # 用 motrixsim link index 作 key（Link 覆盖所有关节体，Body 只有 freejoint 根体）
-            self._body_id_to_name: dict[int, str] = {
-                idx: name
-                for name in valid_bnames
-                if (idx := self._model.get_link_index(name)) is not None
-            }
-        else:
-            from unilab.base.backend.xml import create_motrix_compatible_xml
-
-            tmp_path = create_motrix_compatible_xml(model_file)
-            try:
-                self._model = mtx.load_model(tmp_path)  # pyright: ignore[reportPossiblyUnbound]
-            finally:
-                os.remove(tmp_path)
-
-            # 枚举所有具名 link，用 link index 作 key
-            self._body_id_to_name = {  # type: ignore[assignment]
-                link.index: link.name for link in self._model.links if link.name
-            }
+        self._model = scene_context.model
+        self._body_id_to_name = {  # type: ignore[assignment]
+            link.index: link.name for link in self._model.links if link.name
+        }
 
         self._model.options.timestep = sim_dt
         if max_iterations is None:
@@ -151,6 +187,16 @@ class MotrixBackend(SimBackend):
         # 运行一次正向运动学，确保初始 link 位置和传感器数据有效。
         self._model.forward_kinematic(self._data)
         self._refresh_link_pose_cache()
+
+    def get_motion_body_ids(self, names: Sequence[str]) -> np.ndarray:
+        ids: list[int] = []
+        for name in names:
+            link_id = self._model.get_link_index(name)
+            if link_id is None or link_id < 0:
+                raise ValueError(f"Motion body '{name}' not found in Motrix model")
+            # Motion datasets use MuJoCo-style body ids, where worldbody is id 0.
+            ids.append(int(link_id) + 1)
+        return np.array(ids, dtype=np.int32)
 
     # ------------------------------------------------------------------ #
     # Properties                                                         #
@@ -457,7 +503,11 @@ class MotrixBackend(SimBackend):
         ex_force[:, 2] *= force_range[2]
         self._push_body_link.add_external_force(self._data, ex_force, local=True)
 
-    def _render_offsets(self, spacing: float) -> list[list[float]]:
+    def _render_offsets(self, spacing: float, offset_mode: str = "grid") -> list[list[float]]:
+        if offset_mode == "zero":
+            return [[0.0, 0.0, 0.0] for _ in range(self._num_envs)]
+        if offset_mode != "grid":
+            raise ValueError(f"Unsupported Motrix render_offset_mode: {offset_mode!r}")
         cols = int(np.ceil(np.sqrt(self._num_envs)))
         offsets = []
         for i in range(self._num_envs):
@@ -515,6 +565,7 @@ class MotrixBackend(SimBackend):
         self,
         spacing: float = 1.0,
         *,
+        offset_mode: str = "grid",
         headless: bool = False,
         capture: bool = False,
         width: int = 1280,
@@ -530,13 +581,15 @@ class MotrixBackend(SimBackend):
 
         settings = RenderSettings.performance()
         settings.enable_shadow = True
-        offsets = self._render_offsets(float(spacing))
-        if capture:
-            self._model.cameras.set_system_render_target("image", int(width), int(height))
+        offsets = self._render_offsets(float(spacing), offset_mode=str(offset_mode))
+        use_configured_camera = capture or camera_kwargs is not None
+        if use_configured_camera:
             lookat, distance, elevation, azimuth = self._resolve_system_camera_view(
                 offsets,
                 camera_kwargs,
             )
+        if capture:
+            self._model.cameras.set_system_render_target("image", int(width), int(height))
         render_app = RenderApp(headless=headless)
         render_app.launch(
             self._model,
@@ -544,8 +597,10 @@ class MotrixBackend(SimBackend):
             render_offset=offsets,
             render_settings=settings,
         )
-        if capture:
+        if use_configured_camera:
             render_app.system_camera.set_view(lookat, distance, elevation, azimuth)
+            if not capture:
+                render_app.set_main_camera(None)
         self._render_app = render_app
         self._render_headless = headless
         self._render_capture_enabled = capture
@@ -630,11 +685,13 @@ class MotrixBackend(SimBackend):
 
     def _set_position_actuator_kp_override(self, data_slice, kp: np.ndarray) -> None:
         for actuator in self._position_actuators:
-            actuator.set_kp_override(data_slice, kp[:, int(actuator.index)])
+            # TODO(motrixsim#1384): drop the copy once strided NumPy views are accepted.
+            actuator.set_kp_override(data_slice, np.ascontiguousarray(kp[:, int(actuator.index)]))
 
     def _set_position_actuator_kd_override(self, data_slice, kd: np.ndarray) -> None:
         for actuator in self._position_actuators:
-            actuator.set_kd_override(data_slice, kd[:, int(actuator.index)])
+            # TODO(motrixsim#1384): drop the copy once strided NumPy views are accepted.
+            actuator.set_kd_override(data_slice, np.ascontiguousarray(kd[:, int(actuator.index)]))
 
     def get_actuator_gains(self) -> tuple[np.ndarray, np.ndarray]:
         if not self._supports_position_actuator_gains:

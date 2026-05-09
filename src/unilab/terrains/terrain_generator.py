@@ -109,6 +109,15 @@ class GeneratedTerrain:
         normalized = (self.heights_yx - self.z_min) / span
         return np.rint(np.clip(normalized, 0.0, 1.0) * np.iinfo(np.uint16).max).astype(np.uint16)
 
+    def surface_sampler(self, *, flip_y: bool = False) -> "HeightfieldSurfaceSampler":
+        return HeightfieldSurfaceSampler(
+            heights_uint16=self.to_uint16(),
+            horizontal_scale=float(self.horizontal_scale),
+            z_min=float(self.z_min),
+            height_extent=float(self.height_extent),
+            flip_y=bool(flip_y),
+        )
+
     def write_png(self, path: Path) -> None:
         """Write the merged hfield as a 16-bit grayscale PNG."""
         import imageio.v3 as iio
@@ -122,6 +131,41 @@ class GeneratedTerrain:
 
     def geom_pos_xml(self) -> str:
         return " ".join(f"{value:.9g}" for value in self.geom_pos)
+
+
+@dataclass
+class HeightfieldSurfaceSampler:
+    """Compact world-space sampler for a generated hfield surface."""
+
+    heights_uint16: np.ndarray
+    horizontal_scale: float
+    z_min: float
+    height_extent: float
+    flip_y: bool = False
+
+    @property
+    def size(self) -> tuple[float, float]:
+        rows_y, cols_x = self.heights_uint16.shape
+        return (cols_x * self.horizontal_scale, rows_y * self.horizontal_scale)
+
+    def sample_height(self, xy: np.ndarray) -> np.ndarray:
+        points = np.asarray(xy, dtype=np.float64)
+        if points.ndim < 1 or points.shape[-1] != 2:
+            raise ValueError(f"xy must have shape (..., 2), got {points.shape}")
+
+        flat = points.reshape(-1, 2)
+        size_x, size_y = self.size
+        rows_y, cols_x = self.heights_uint16.shape
+        cols = np.rint((flat[:, 0] + size_x * 0.5) / self.horizontal_scale).astype(np.intp)
+        y = -flat[:, 1] if self.flip_y else flat[:, 1]
+        rows = np.rint((y + size_y * 0.5) / self.horizontal_scale).astype(np.intp)
+        cols = np.clip(cols, 0, cols_x - 1)
+        rows = np.clip(rows, 0, rows_y - 1)
+
+        raw = self.heights_uint16[rows, cols].astype(np.float64)
+        normalized = raw / float(np.iinfo(np.uint16).max)
+        heights = self.z_min + normalized * self.height_extent
+        return heights.reshape(points.shape[:-1])
 
 
 @dataclass

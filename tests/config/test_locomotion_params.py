@@ -185,15 +185,24 @@ def test_offpolicy_flashsac_go2_task_overrides():
 
 
 def test_go2_joystick_rough_uses_terrain_generator():
+    from unilab.assets import ASSETS_ROOT_PATH
+    from unilab.base.scene import SceneCfg, TerrainSceneCfg
     from unilab.envs.locomotion.go2.joystick import Go2JoystickRoughCfg
     from unilab.terrains import TerrainGeneratorCfg
 
     cfg = Go2JoystickRoughCfg()
-    assert cfg.model_file.endswith("scene_rough.xml")
-    assert isinstance(cfg.terrain_generator, TerrainGeneratorCfg)
-    assert cfg.terrain_generator.num_rows == 10
-    assert cfg.terrain_generator.num_cols == 20
-    assert len(cfg.terrain_generator.sub_terrains) == 7
+    assert isinstance(cfg.scene, SceneCfg)
+    assert isinstance(cfg.scene.terrain, TerrainSceneCfg)
+    assert cfg.scene.model_file.endswith("go2.xml")
+    assert cfg.scene.fragment_files == [
+        str(ASSETS_ROOT_PATH / "robots" / "go2" / "locomotion_task.xml")
+    ]
+    assert isinstance(cfg.scene.terrain.generator, TerrainGeneratorCfg)
+    assert cfg.scene.terrain.hfield_name == "terrain_hfield"
+    assert cfg.scene.terrain.geom_name == "floor"
+    assert cfg.scene.terrain.generator.num_rows == 10
+    assert cfg.scene.terrain.generator.num_cols == 20
+    assert len(cfg.scene.terrain.generator.sub_terrains) == 7
 
 
 def test_go2_joystick_rough_terrain_cfg_is_independent_per_instance():
@@ -202,47 +211,51 @@ def test_go2_joystick_rough_terrain_cfg_is_independent_per_instance():
 
     a = Go2JoystickRoughCfg()
     b = Go2JoystickRoughCfg()
-    assert a.terrain_generator is not b.terrain_generator
-    a.terrain_generator.num_rows = 1
-    assert b.terrain_generator.num_rows == 10
+    assert a.scene.terrain.generator is not b.scene.terrain.generator
+    a.scene.terrain.generator.num_rows = 1
+    assert b.scene.terrain.generator.num_rows == 10
 
 
-def test_go2_joystick_rough_playback_model_uses_materialized_scene():
-    """Offline playback / video rendering must point at the materialized scene"""
-    from pathlib import Path
+def test_go2_joystick_rough_playback_model_uses_backend_scene(tmp_path):
+    """Offline playback / video rendering must reuse the backend-compiled scene model."""
+    import mujoco
 
     from unilab.envs.locomotion.go2.joystick import (
         Go2JoystickRoughCfg,
         Go2WalkTask,
         RewardConfig,
     )
+    from unilab.visualization.playback import _resolve_render_play_model_files
 
     cfg = Go2JoystickRoughCfg(
         reward_config=RewardConfig(scales={}, tracking_sigma=0.25, base_height_target=0.3)
     )
-    cfg.terrain_generator.num_rows = 2
-    cfg.terrain_generator.num_cols = 2
-    cfg.terrain_generator.border_width = 0.0
-    cfg.terrain_generator.add_lights = False
-    cfg.terrain_generator.seed = 0
+    cfg.scene.terrain.generator.num_rows = 2
+    cfg.scene.terrain.generator.num_cols = 2
+    cfg.scene.terrain.generator.border_width = 0.0
+    cfg.scene.terrain.generator.add_lights = False
+    cfg.scene.terrain.generator.seed = 0
 
     env = Go2WalkTask(cfg, num_envs=2, backend_type="mujoco")
     try:
-        playback_path = env.get_playback_model(0)
-        assert isinstance(playback_path, str)
-        path = Path(playback_path)
-        assert path.is_file()
-        assert path.name == "scene.xml"
-        text = path.read_text()
-        assert str(path.parent / "hfields" / "hfield.png") in text
-        assert '<geom name="floor" type="hfield" hfield="terrain_hfield"' in text
-        assert (path.parent / "hfields" / "hfield.png").is_file()
+        playback_model = env.get_playback_model(0)
+        assert isinstance(playback_model, mujoco.MjModel)
+        assert env._backend.terrain_origins is not None
+        assert (Path(env._backend.scene_artifacts_dir) / "hfields" / "hfield.png").is_file()
+        assert Path(env._backend.scene_visual_model_file).is_file()
+        assert mujoco.mj_name2id(playback_model, mujoco.mjtObj.mjOBJ_HFIELD, "terrain_hfield") >= 0
+        assert mujoco.mj_name2id(playback_model, mujoco.mjtObj.mjOBJ_GEOM, "floor") >= 0
+        assert mujoco.mj_name2id(playback_model, mujoco.mjtObj.mjOBJ_SENSOR, "FL_foot_contact") >= 0
+        model_file = _resolve_render_play_model_files(env, num_envs=2, tmp_dir=tmp_path)
+        assert isinstance(model_file, str)
+        assert model_file.endswith(".mjb")
+        assert Path(model_file).is_file()
     finally:
         env.close()
 
 
 def test_go2_joystick_flat_no_terrain_materialized():
-    """Flat task has no terrain → no materialized scene path is set."""
+    """Flat task keeps the static scene source and has no terrain origins."""
     from unilab.envs.locomotion.go2.joystick import (
         Go2JoystickCfg,
         Go2WalkTask,
@@ -254,7 +267,9 @@ def test_go2_joystick_flat_no_terrain_materialized():
     )
     env = Go2WalkTask(cfg, num_envs=4, backend_type="mujoco")
     try:
-        assert env._materialized_model_file is None
+        assert env._backend.scene_model_file == cfg.scene.model_file
+        assert env._backend.terrain_origins is None
+        assert env._backend.scene_artifacts_dir is None
     finally:
         env.close()
 
@@ -268,6 +283,37 @@ def test_ppo_go2_joystick_rough_task_compose():
         cfg = compose("config", overrides=["task=go2_joystick_rough/mujoco"])
     assert cfg.training.task_name == "Go2JoystickRough"
     assert cfg.training.sim_backend == "mujoco"
+
+
+def test_ppo_go2_joystick_rough_motrix_task_compose():
+    from hydra import compose, initialize_config_dir
+    from hydra.core.global_hydra import GlobalHydra
+
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(CONF_DIR / "ppo"), version_base="1.3"):
+        cfg = compose("config", overrides=["task=go2_joystick_rough/motrix"])
+    assert cfg.training.task_name == "Go2JoystickRough"
+    assert cfg.training.sim_backend == "motrix"
+    assert cfg.algo.max_iterations == 2000
+    assert cfg.env.render_offset_mode == "zero"
+    assert cfg.env.scene.model_file.endswith("go2.xml")
+    assert cfg.env.scene.terrain.generator.num_rows == 10
+
+
+def test_ppo_go2_joystick_rough_motrix_matches_mujoco_training_config():
+    from hydra import compose, initialize_config_dir
+    from hydra.core.global_hydra import GlobalHydra
+    from omegaconf import OmegaConf
+
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(CONF_DIR / "ppo"), version_base="1.3"):
+        mujoco_cfg = compose("config", overrides=["task=go2_joystick_rough/mujoco"])
+        motrix_cfg = compose("config", overrides=["task=go2_joystick_rough/motrix"])
+
+    mujoco_dict = OmegaConf.to_container(mujoco_cfg, resolve=True)
+    motrix_dict = OmegaConf.to_container(motrix_cfg, resolve=True)
+    mujoco_dict["training"]["sim_backend"] = "motrix"
+    assert motrix_dict == mujoco_dict
 
 
 def test_offpolicy_g1_rough_terrain_task_overrides():
@@ -285,7 +331,7 @@ def test_offpolicy_g1_rough_terrain_task_overrides():
     assert cfg.algo.algo == "sac"
     assert cfg.training.task_name == "G1WalkRough"
     assert cfg.training.sim_backend == "mujoco"
-    assert G1WalkRoughCfg().model_file.endswith("scene_rough.xml")
+    assert G1WalkRoughCfg().scene.model_file.endswith("scene_rough.xml")
 
 
 def test_g1_task_owner_yamls_preserve_legacy_and_walk_observation_profiles():
@@ -435,18 +481,18 @@ def test_apply_cfg_overrides_deep_merges_dataclass_field():
     cfg = Go2JoystickRoughCfg()
     apply_cfg_overrides(
         cfg,
-        {"terrain_generator": {"num_rows": 4, "seed": 42, "curriculum": True}},
+        {"scene": {"terrain": {"generator": {"num_rows": 4, "seed": 42, "curriculum": True}}}},
     )
 
     # Overridden fields take effect.
-    assert cfg.terrain_generator.num_rows == 4
-    assert cfg.terrain_generator.seed == 42
-    assert cfg.terrain_generator.curriculum is True
+    assert cfg.scene.terrain.generator.num_rows == 4
+    assert cfg.scene.terrain.generator.seed == 42
+    assert cfg.scene.terrain.generator.curriculum is True
     # Non-overridden fields preserve Go2RoughTerrainCfg defaults.
-    assert cfg.terrain_generator.num_cols == 20
-    assert cfg.terrain_generator.border_width == pytest.approx(20.0)
-    assert len(cfg.terrain_generator.sub_terrains) == 7
-    assert cfg.terrain_generator.add_lights is True
+    assert cfg.scene.terrain.generator.num_cols == 20
+    assert cfg.scene.terrain.generator.border_width == pytest.approx(20.0)
+    assert len(cfg.scene.terrain.generator.sub_terrains) == 7
+    assert cfg.scene.terrain.generator.add_lights is True
 
 
 def test_ppo_go2_joystick_rough_hydra_terrain_override():
@@ -467,33 +513,35 @@ def test_ppo_go2_joystick_rough_hydra_terrain_override():
             "config",
             overrides=[
                 "task=go2_joystick_rough/mujoco",
-                "env.terrain_generator.num_rows=4",
-                "env.terrain_generator.num_cols=6",
-                "env.terrain_generator.seed=42",
-                "env.terrain_generator.curriculum=true",
+                "env.scene.terrain.generator.num_rows=4",
+                "env.scene.terrain.generator.num_cols=6",
+                "env.scene.terrain.generator.seed=42",
+                "env.scene.terrain.generator.curriculum=true",
             ],
         )
 
     # Yaml exposes the overridable schema (struct-mode acceptance).
-    assert cfg.env.terrain_generator.num_rows == 4
-    assert cfg.env.terrain_generator.num_cols == 6
-    assert cfg.env.terrain_generator.seed == 42
-    assert cfg.env.terrain_generator.curriculum is True
+    assert cfg.env.scene.terrain.hfield_name == "terrain_hfield"
+    assert cfg.env.scene.terrain.geom_name == "floor"
+    assert cfg.env.scene.terrain.generator.num_rows == 4
+    assert cfg.env.scene.terrain.generator.num_cols == 6
+    assert cfg.env.scene.terrain.generator.seed == 42
+    assert cfg.env.scene.terrain.generator.curriculum is True
 
     # End-to-end: the override dict produced by the adapter must, after the
     # registry's deep-merge, leave Go2JoystickRoughCfg in a coherent state —
     # overridden fields applied, untouched dataclass defaults preserved.
     adapter = BackendAdapter(cfg, root_dir=Path.cwd())
     env_cfg_override = adapter.build_task_env_cfg_override()
-    assert "terrain_generator" in env_cfg_override
-    assert env_cfg_override["terrain_generator"]["num_rows"] == 4
+    assert "scene" in env_cfg_override
+    assert env_cfg_override["scene"]["terrain"]["generator"]["num_rows"] == 4
 
     env_cfg = Go2JoystickRoughCfg()
     apply_cfg_overrides(env_cfg, env_cfg_override)
 
-    assert env_cfg.terrain_generator.num_rows == 4
-    assert env_cfg.terrain_generator.num_cols == 6
-    assert env_cfg.terrain_generator.seed == 42
-    assert env_cfg.terrain_generator.curriculum is True
+    assert env_cfg.scene.terrain.generator.num_rows == 4
+    assert env_cfg.scene.terrain.generator.num_cols == 6
+    assert env_cfg.scene.terrain.generator.seed == 42
+    assert env_cfg.scene.terrain.generator.curriculum is True
     # sub_terrains is not in the yaml schema, so its Python default survives.
-    assert len(env_cfg.terrain_generator.sub_terrains) == 7
+    assert len(env_cfg.scene.terrain.generator.sub_terrains) == 7

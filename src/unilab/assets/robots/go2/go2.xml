@@ -228,5 +228,18 @@
     <framelinvel objtype="geom" objname="RL" name="RL_vel"/>
   </sensor>
 
-</mujoco>
+  <keyframe>
+    <key name="home" qpos="
+        0 0 0.3  1 0 0 0
+        0 0.8 -1.5
+        0 0.8 -1.5
+        0 1 -1.5
+        0 1 -1.5"
+      ctrl="
+        0 0.8 -1.5
+        0 0.8 -1.5
+        0 1 -1.5
+        0 1 -1.5"/>
+  </keyframe>
 
+</mujoco>

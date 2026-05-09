@@ -25,6 +25,7 @@ if not hasattr(BatchEnvPool, "sample_hfield_height"):
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base.backend.mujoco_backend import MuJoCoBackend
+from unilab.base.scene import SceneCfg
 from unilab.envs.common.rotation import np_yaw_to_quat
 from unilab.envs.locomotion.go2w.rough import (
     Go2WJoystickRoughTilesEnv,
@@ -149,7 +150,9 @@ def _yaw_from_quat(quat: np.ndarray) -> np.ndarray:
 @pytest.fixture
 def go2w_rough_backend() -> Iterator[MuJoCoBackend]:
     model_file = str(ASSETS_ROOT_PATH / "robots" / "go2w" / "scene_rough_tiles.xml")
-    backend = MuJoCoBackend(model_file, num_envs=3, sim_dt=0.01, base_name="base_link")
+    backend = MuJoCoBackend(
+        SceneCfg(model_file=model_file), num_envs=3, sim_dt=0.01, base_name="base_link"
+    )
     backend.materialize()
     try:
         yield backend

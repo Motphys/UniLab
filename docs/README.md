@@ -27,8 +27,9 @@
 1. [CONTRIBUTING.md](../CONTRIBUTING.md) — 环境设置、常用命令、提交规范、PR 流程
 2. [RL Infrastructure 开发标准](developers/zh_CN/development-standard.md) — Runtime Model、分层架构、Design Principles、Contract、验证边界
 3. [Domain Randomization Contract](developers/zh_CN/domain-randomization-contract.md) — DR 生命周期、MuJoCo 随机场接口、新任务接入标准
-4. [协作流程](developers/zh_CN/collaboration.md) — Issue / Milestone / PR 协作规则、ADR 治理
-5. [ADR 索引](developers/adr/README.md) — 已落地的架构决策记录
+4. [SceneCfg 与场景组合设计](developers/zh_CN/scene-composition-design.md) — 程序化地形、场景组合、后端 materialization 边界
+5. [协作流程](developers/zh_CN/collaboration.md) — Issue / Milestone / PR 协作规则、ADR 治理
+6. [ADR 索引](developers/adr/README.md) — 已落地的架构决策记录
 
 ---
 

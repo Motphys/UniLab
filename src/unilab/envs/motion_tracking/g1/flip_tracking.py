@@ -11,6 +11,7 @@ from typing import Literal
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
+from unilab.base.scene import SceneCfg
 
 from .tracking import (
     G1MotionTrackingCfg,
@@ -46,7 +47,11 @@ def _zero_velocity_randomization() -> VelocityRandomization:
 class G1FlipTrackingCfg(G1MotionTrackingCfg):
     """Config profile for flip tracking clips."""
 
-    model_file: str = str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
+    scene: SceneCfg = field(
+        default_factory=lambda: SceneCfg(
+            model_file=str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
+        )
+    )
     motion_file: str | list[str] = str(
         ASSETS_ROOT_PATH / "motions" / "g1" / "flip_360_001__A304.npz"
     )
@@ -79,7 +84,11 @@ class G1FlipTrackingEnv(G1MotionTrackingEnv):
 class G1WallFlipTrackingCfg(G1FlipTrackingCfg):
     """Config profile for wall-assisted G1 flip tracking clips."""
 
-    model_file: str = str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat_with_wall.xml")
+    scene: SceneCfg = field(
+        default_factory=lambda: SceneCfg(
+            model_file=str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat_with_wall.xml")
+        )
+    )
     motion_file: str | list[str] = str(
         ASSETS_ROOT_PATH / "motions" / "g1" / "flip_from_wall_104__A304.npz"
     )

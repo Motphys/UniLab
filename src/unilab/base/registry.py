@@ -146,6 +146,15 @@ def _resolve_dataclass_type(type_hint: Any) -> Optional[Type[Any]]:
     return None
 
 
+def _construct_dataclass_from_dict(target_type: Type[Any], values: Dict[str, Any]) -> Any:
+    try:
+        target_obj = target_type()
+    except TypeError:
+        return target_type(**values)
+    apply_cfg_overrides(target_obj, values)
+    return target_obj
+
+
 def apply_cfg_overrides(target_obj: Any, overrides: Dict[str, Any]) -> None:
     """Apply a (possibly nested) dict of overrides to ``target_obj`` in place.
 
@@ -155,7 +164,7 @@ def apply_cfg_overrides(target_obj: Any, overrides: Dict[str, Any]) -> None:
       - If ``value`` is a dict and ``target_obj.key`` is already a dataclass
         instance, recurse into it (deep merge — preserves fields not present
         in ``value``). This is what lets Hydra-style partial overrides like
-        ``env.terrain_generator.num_rows=4`` keep ``sub_terrains`` and other
+        ``env.scene.terrain.generator.num_rows=4`` keep ``sub_terrains`` and other
         defaults intact.
       - If ``value`` is a dict and ``target_obj.key`` is currently ``None``,
         instantiate the field's annotated dataclass type from the dict
@@ -178,7 +187,7 @@ def apply_cfg_overrides(target_obj: Any, overrides: Dict[str, Any]) -> None:
             if existing is None:
                 target_type = _resolve_dataclass_type(type_hints.get(key))
                 if target_type is not None:
-                    setattr(target_obj, key, target_type(**value))
+                    setattr(target_obj, key, _construct_dataclass_from_dict(target_type, value))
                     continue
         setattr(target_obj, key, value)
 

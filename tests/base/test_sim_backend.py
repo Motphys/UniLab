@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from unilab.assets import ASSETS_ROOT_PATH
+from unilab.base.scene import SceneCfg
 from unilab.dr import (
     GeomSizeOverride,
     InitRandomizationPlan,
@@ -104,7 +105,9 @@ class TestMuJoCoBasic:
         from unilab.base.backend.mujoco_backend import MuJoCoBackend
 
         p = request.param
-        backend = MuJoCoBackend(p["model_file"], NUM_ENVS, SIM_DT, base_name=p["base_name"])
+        backend = MuJoCoBackend(
+            SceneCfg(model_file=p["model_file"]), NUM_ENVS, SIM_DT, base_name=p["base_name"]
+        )
         backend.materialize()
         return backend
 
@@ -116,7 +119,9 @@ class TestMuJoCoBasic:
     def test_apply_init_randomization_sets_variants_before_materialization(self):
         from unilab.base.backend.mujoco_backend import MuJoCoBackend
 
-        bkd = MuJoCoBackend(_SHARPA["model_file"], 4, SIM_DT, base_name=_SHARPA["base_name"])
+        bkd = MuJoCoBackend(
+            SceneCfg(model_file=_SHARPA["model_file"]), 4, SIM_DT, base_name=_SHARPA["base_name"]
+        )
         assert bkd._pool is None
         mujoco = _mujoco_module()
         geom_id = mujoco.mj_name2id(bkd.model, mujoco.mjtObj.mjOBJ_GEOM, "object")
@@ -150,7 +155,9 @@ class TestMuJoCoBasic:
     def test_get_playback_model_returns_env_specific_variant(self):
         from unilab.base.backend.mujoco_backend import MuJoCoBackend
 
-        bkd = MuJoCoBackend(_SHARPA["model_file"], 4, SIM_DT, base_name=_SHARPA["base_name"])
+        bkd = MuJoCoBackend(
+            SceneCfg(model_file=_SHARPA["model_file"]), 4, SIM_DT, base_name=_SHARPA["base_name"]
+        )
         mujoco = _mujoco_module()
         geom_id = mujoco.mj_name2id(bkd.model, mujoco.mjtObj.mjOBJ_GEOM, "object")
         base_size = np.asarray(bkd.model.geom_size[geom_id], dtype=np.float64).copy()
@@ -276,7 +283,7 @@ class TestMuJoCoBasic:
 
         mujoco = _mujoco_module()
         bkd = MuJoCoBackend(
-            _G1["model_file"],
+            SceneCfg(model_file=_G1["model_file"]),
             NUM_ENVS,
             SIM_DT,
             base_name=_G1["base_name"],
@@ -439,7 +446,7 @@ def test_mujoco_backend_discards_visual_assets():
 
     model_file = _xml("go2")
     full = mujoco.MjModel.from_xml_path(model_file)
-    trimmed = MuJoCoBackend(model_file, 1, SIM_DT, base_name="base")
+    trimmed = MuJoCoBackend(SceneCfg(model_file=model_file), 1, SIM_DT, base_name="base")
 
     assert trimmed.model.ngeom < full.ngeom
     assert trimmed.model.nmesh == 0
@@ -454,7 +461,7 @@ def test_motrix_backend_fixed_base_set_state_matches_mujoco_for_hand_and_ball():
 
     pytest.importorskip("motrixsim")
     mj = MuJoCoBackend(
-        _ALLEGRO["model_file"],
+        SceneCfg(model_file=_ALLEGRO["model_file"]),
         NUM_ENVS,
         SIM_DT,
         base_name=_ALLEGRO["base_name"],
@@ -462,7 +469,7 @@ def test_motrix_backend_fixed_base_set_state_matches_mujoco_for_hand_and_ball():
     )
     mj.materialize()
     mx = MotrixBackend(
-        _ALLEGRO["model_file"],
+        SceneCfg(model_file=_ALLEGRO["model_file"]),
         NUM_ENVS,
         SIM_DT,
         base_name=_ALLEGRO["base_name"],
@@ -506,7 +513,7 @@ class TestMuJoCoBodySensors:
         from unilab.base.backend.mujoco_backend import MuJoCoBackend
 
         backend = MuJoCoBackend(
-            _G1["model_file"],
+            SceneCfg(model_file=_G1["model_file"]),
             NUM_ENVS,
             SIM_DT,
             base_name=_G1["base_name"],
@@ -621,7 +628,9 @@ class TestMotrixBasic:
         from unilab.base.backend.motrix_backend import MotrixBackend
 
         p = request.param
-        bkd = MotrixBackend(p["model_file"], NUM_ENVS, SIM_DT, base_name=p["base_name"])
+        bkd = MotrixBackend(
+            SceneCfg(model_file=p["model_file"]), NUM_ENVS, SIM_DT, base_name=p["base_name"]
+        )
         return bkd, p["base_name"]
 
     @pytest.fixture
@@ -832,7 +841,7 @@ class TestMotrixBodySensors:
         from unilab.base.backend.motrix_backend import MotrixBackend
 
         return MotrixBackend(
-            _G1["model_file"],
+            SceneCfg(model_file=_G1["model_file"]),
             NUM_ENVS,
             SIM_DT,
             base_name=_G1["base_name"],
@@ -906,9 +915,13 @@ class TestCrossBackend:
 
         pytest.importorskip("motrixsim")
         p = request.param
-        mj = MuJoCoBackend(p["model_file"], NUM_ENVS, SIM_DT, base_name=p["base_name"])
+        mj = MuJoCoBackend(
+            SceneCfg(model_file=p["model_file"]), NUM_ENVS, SIM_DT, base_name=p["base_name"]
+        )
         mj.materialize()
-        mx = MotrixBackend(p["model_file"], NUM_ENVS, SIM_DT, base_name=p["base_name"])
+        mx = MotrixBackend(
+            SceneCfg(model_file=p["model_file"]), NUM_ENVS, SIM_DT, base_name=p["base_name"]
+        )
         nq, nv = mj.model.nq, mj.model.nv
         qpos = np.tile(_identity_qpos_mujoco(nq), (NUM_ENVS, 1))
         qvel = np.zeros((NUM_ENVS, nv))
@@ -967,7 +980,7 @@ class TestCrossBackendBodySensors:
 
         pytest.importorskip("motrixsim")
         mj = MuJoCoBackend(
-            _G1["model_file"],
+            SceneCfg(model_file=_G1["model_file"]),
             NUM_ENVS,
             SIM_DT,
             base_name=_G1["base_name"],
@@ -975,7 +988,7 @@ class TestCrossBackendBodySensors:
         )
         mj.materialize()
         mx = MotrixBackend(
-            _G1["model_file"],
+            SceneCfg(model_file=_G1["model_file"]),
             NUM_ENVS,
             SIM_DT,
             base_name=_G1["base_name"],
@@ -1092,7 +1105,9 @@ class TestMuJoCoModelProperties:
         from unilab.base.backend.mujoco_backend import MuJoCoBackend
 
         p = request.param
-        return MuJoCoBackend(p["model_file"], NUM_ENVS, SIM_DT, base_name=p["base_name"])
+        return MuJoCoBackend(
+            SceneCfg(model_file=p["model_file"]), NUM_ENVS, SIM_DT, base_name=p["base_name"]
+        )
 
     def test_num_actuators(self, bkd):
         assert bkd.num_actuators == bkd.model.nu
@@ -1163,7 +1178,9 @@ class TestMotrixModelProperties:
         from unilab.base.backend.motrix_backend import MotrixBackend
 
         p = request.param
-        bkd = MotrixBackend(p["model_file"], NUM_ENVS, SIM_DT, base_name=p["base_name"])
+        bkd = MotrixBackend(
+            SceneCfg(model_file=p["model_file"]), NUM_ENVS, SIM_DT, base_name=p["base_name"]
+        )
         return bkd, p["base_name"]
 
     @pytest.fixture
@@ -1221,8 +1238,12 @@ class TestCrossBackendModelProperties:
         from unilab.base.backend.motrix_backend import MotrixBackend
         from unilab.base.backend.mujoco_backend import MuJoCoBackend
 
-        mj = MuJoCoBackend(_G1["model_file"], NUM_ENVS, SIM_DT, base_name=_G1["base_name"])
-        mx = MotrixBackend(_G1["model_file"], NUM_ENVS, SIM_DT, base_name=_G1["base_name"])
+        mj = MuJoCoBackend(
+            SceneCfg(model_file=_G1["model_file"]), NUM_ENVS, SIM_DT, base_name=_G1["base_name"]
+        )
+        mx = MotrixBackend(
+            SceneCfg(model_file=_G1["model_file"]), NUM_ENVS, SIM_DT, base_name=_G1["base_name"]
+        )
         return mj, mx
 
     def test_num_dof_vel_match(self, backends):
