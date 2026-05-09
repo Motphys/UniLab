@@ -1,7 +1,7 @@
 import os
 import time
 from collections.abc import Sequence
-from typing import TypeVar, cast
+from typing import Any, TypeVar, cast
 
 import numpy as np
 
@@ -136,6 +136,8 @@ class MotrixBackend(SimBackend):
             self._body_link.get_center_of_mass_override(self._data)
         )
         self._render_app: "RenderApp | None" = None
+        self._render_headless: bool | None = None
+        self._render_capture_enabled = False
         self.backend_type = "motrix"
 
         # Pre-cache link objects to avoid repeated get_link() lookups.
@@ -309,7 +311,10 @@ class MotrixBackend(SimBackend):
         self.push_robots(plan.push_perturbation_limit)
 
     def get_play_capabilities(self) -> BackendPlayCapabilities:
-        return BackendPlayCapabilities(supports_native_interactive_renderer=True)
+        return BackendPlayCapabilities(
+            supports_native_interactive_renderer=True,
+            supports_native_video_capture=True,
+        )
 
     # ------------------------------------------------------------------ #
     # Base kinematics                                                    #
@@ -450,34 +455,133 @@ class MotrixBackend(SimBackend):
         ex_force[:, 2] *= force_range[2]
         self._push_body_link.add_external_force(self._data, ex_force, local=True)
 
-    def init_renderer(self, spacing: float = 1.0):
-        """Initialize interactive renderer for visualization"""
-        if self._render_app is not None:
-            return
-
+    def _render_offsets(self, spacing: float) -> list[list[float]]:
         cols = int(np.ceil(np.sqrt(self._num_envs)))
         offsets = []
         for i in range(self._num_envs):
             row = i // cols
             col = i % cols
             offsets.append([col * spacing, row * spacing, 0.0])
+        return offsets
 
-        self._render_app = RenderApp()
+    def _resolve_system_camera_view(
+        self,
+        offsets: Sequence[Sequence[float]],
+        camera_kwargs: dict[str, Any] | None,
+    ) -> tuple[list[float], float, float, float]:
+        cam_kw = dict(camera_kwargs or {})
+        if bool(cam_kw.get("cam_tracking", False)):
+            raise NotImplementedError("Motrix native video capture does not support cam_tracking")
+
+        lookat_raw = cam_kw.get("cam_lookat")
+        if lookat_raw is None:
+            offsets_np = np.asarray(offsets, dtype=np.float64)
+            lookat = [
+                float(np.mean(offsets_np[:, 0])),
+                float(np.mean(offsets_np[:, 1])),
+                0.75,
+            ]
+        else:
+            lookat_arr = np.asarray(lookat_raw, dtype=np.float64).reshape(-1)
+            if lookat_arr.shape != (3,):
+                raise ValueError(f"cam_lookat must contain 3 values, got {lookat_raw!r}")
+            lookat = [float(lookat_arr[0]), float(lookat_arr[1]), float(lookat_arr[2])]
+
+        return (
+            lookat,
+            float(cam_kw.get("cam_distance", 2.0)),
+            float(cam_kw.get("cam_elevation", -20.0)),
+            float(cam_kw.get("cam_azimuth", 90.0)),
+        )
+
+    def _assert_render_context_available(self, *, headless: bool, capture: bool) -> None:
+        if self._render_app is None:
+            return
+        if self._render_headless != headless:
+            raise RuntimeError(
+                "Motrix renderer is already initialized with "
+                f"headless={self._render_headless!r}; cannot reuse it with headless={headless!r}"
+            )
+        if capture and not self._render_capture_enabled:
+            raise RuntimeError(
+                "Motrix renderer is already initialized without video capture; "
+                "cannot enable capture on the existing renderer"
+            )
+        return
+
+    def init_renderer(
+        self,
+        spacing: float = 1.0,
+        *,
+        headless: bool = False,
+        capture: bool = False,
+        width: int = 1280,
+        height: int = 720,
+        camera_kwargs: dict[str, Any] | None = None,
+    ) -> None:
+        """Initialize a Motrix renderer, optionally enabling system-camera capture."""
+        headless = bool(headless)
+        capture = bool(capture)
+        self._assert_render_context_available(headless=headless, capture=capture)
+        if self._render_app is not None:
+            return
+
         settings = RenderSettings.performance()
         settings.enable_shadow = True
-        self._render_app.launch(
+        offsets = self._render_offsets(float(spacing))
+        if capture:
+            self._model.cameras.set_system_render_target("image", int(width), int(height))
+            lookat, distance, elevation, azimuth = self._resolve_system_camera_view(
+                offsets,
+                camera_kwargs,
+            )
+        render_app = RenderApp(headless=headless)
+        render_app.launch(
             self._model,
             batch=self._num_envs,
             render_offset=offsets,
             render_settings=settings,
         )
+        if capture:
+            render_app.system_camera.set_view(lookat, distance, elevation, azimuth)
+        self._render_app = render_app
+        self._render_headless = headless
+        self._render_capture_enabled = capture
 
     def render(self):
         """Render current state (interactive visualization)"""
         if self._render_app is None:
             self.init_renderer()
+        self._assert_render_context_available(headless=False, capture=False)
         assert self._render_app is not None
         self._render_app.sync(data=self._data)
+
+    def capture_video_frame(self) -> np.ndarray:
+        """Capture one RGB frame from Motrix's system camera."""
+        if self._render_app is None:
+            self.init_renderer(headless=True, capture=True)
+        if not self._render_capture_enabled:
+            raise RuntimeError("Motrix renderer is not initialized for video capture")
+        assert self._render_app is not None
+
+        task = self._render_app.system_camera.capture()
+        self._render_app.sync(data=self._data, wait=True)
+        image = task.take_image()
+        if image is None:
+            raise RuntimeError("Motrix system camera capture did not return an image")
+
+        pixels = np.asarray(image.pixels)
+        if pixels.ndim != 3:
+            raise RuntimeError(
+                f"Motrix system camera capture must return an HWC image, got shape {pixels.shape}"
+            )
+        if pixels.shape[-1] == 4:
+            pixels = pixels[..., :3]
+        if pixels.shape[-1] != 3:
+            raise RuntimeError(
+                f"Motrix system camera capture must return RGB/RGBA pixels, got shape {pixels.shape}"
+            )
+        return np.ascontiguousarray(pixels, dtype=np.uint8)
 
     def _apply_reset_randomization(
         self,

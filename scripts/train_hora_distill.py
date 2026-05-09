@@ -262,14 +262,13 @@ def play_hora_distill(cfg: DictConfig, device: str) -> str | None:
     actor.eval()
     hist_normalizer.eval()
 
-    if cfg.training.sim_backend == "motrix":
-        raise NotImplementedError(
-            "HORA distillation play_only currently supports offline MuJoCo video rendering only."
-        )
-
-    output_video = Path(load_path_dir) / "play_video_stage2.mp4"
-    print(f"Rendering video to {output_video}...")
-    print("Collecting physics states...")
+    record_video = bool(getattr(cfg.training, "play_record_video", True))
+    output_video = Path(load_path_dir) / "play_video_stage2.mp4" if record_video else None
+    if record_video:
+        print(f"Rendering video to {output_video}...")
+    else:
+        print("Running playback without video recording...")
+    print("Rendering playback frames...")
     with torch.inference_mode():
         render_play_mode(
             env,
@@ -277,6 +276,8 @@ def play_hora_distill(cfg: DictConfig, device: str) -> str | None:
             render_spacing=float(
                 getattr(cfg.training, "render_spacing", getattr(env.cfg, "render_spacing", 1.0))
             ),
+            headless=bool(getattr(cfg.training, "play_headless", True)),
+            record_video=record_video,
             num_steps=int(cfg.training.play_steps),
             output_video=output_video,
             initialize=lambda: wrapped_env.reset()[0],
@@ -286,7 +287,7 @@ def play_hora_distill(cfg: DictConfig, device: str) -> str | None:
             camera_kwargs=_play_camera_kwargs(cfg),
         )
     print("Done.")
-    return str(output_video)
+    return str(output_video) if output_video is not None else None
 
 
 @hydra.main(version_base="1.3", config_path="../conf/hora_distill", config_name="config")

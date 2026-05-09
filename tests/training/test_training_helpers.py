@@ -235,6 +235,118 @@ def test_render_play_mode_uses_env_interactive_contract():
     assert seen == [0, 1, 2]
 
 
+def test_render_play_mode_uses_motrix_native_video_capture(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    captured: dict[str, object] = {}
+
+    class FakeEnv:
+        def __init__(self):
+            self.cfg = type("Cfg", (), {"ctrl_dt": 0.05, "model_file": "scene.xml"})()
+            self.init_calls: list[dict[str, object]] = []
+            self.capture_calls = 0
+
+        def init_play_renderer(self, **kwargs):
+            self.init_calls.append(kwargs)
+
+        def capture_play_video_frame(self) -> np.ndarray:
+            self.capture_calls += 1
+            return np.full((2, 3, 3), self.capture_calls, dtype=np.uint8)
+
+    fake_media = types.ModuleType("mediapy")
+    fake_media.write_video = lambda path, frames, fps: captured.update(  # type: ignore[attr-defined]
+        {"video_path": path, "frames": frames, "fps": fps}
+    )
+    monkeypatch.setitem(sys.modules, "mediapy", fake_media)
+
+    env = FakeEnv()
+    output_path = tmp_path / "motrix.mp4"
+    result = render_play_mode(
+        env,
+        sim_backend="motrix",
+        initialize=lambda: 0,
+        step=lambda obs: obs + 1,
+        num_steps=2,
+        output_video=output_path,
+        render_spacing=2.5,
+        camera_kwargs={"cam_distance": 3.0},
+    )
+
+    assert result == str(output_path)
+    assert env.init_calls == [
+        {
+            "render_spacing": 2.5,
+            "headless": True,
+            "capture": True,
+            "width": 1280,
+            "height": 720,
+            "camera_kwargs": {"cam_distance": 3.0},
+        }
+    ]
+    assert env.capture_calls == 2
+    assert captured["video_path"] == str(output_path)
+    assert captured["fps"] == 20
+    frames = captured["frames"]
+    assert isinstance(frames, list)
+    assert len(frames) == 2
+    np.testing.assert_array_equal(frames[0], np.full((2, 3, 3), 1, dtype=np.uint8))
+    np.testing.assert_array_equal(frames[1], np.full((2, 3, 3), 2, dtype=np.uint8))
+
+
+def test_render_play_mode_records_motrix_interactive_capture(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    captured: dict[str, object] = {}
+
+    class FakeEnv:
+        def __init__(self):
+            self.cfg = type("Cfg", (), {"ctrl_dt": 0.05, "model_file": "scene.xml"})()
+            self.init_calls: list[dict[str, object]] = []
+            self.capture_calls = 0
+
+        def init_play_renderer(self, **kwargs):
+            self.init_calls.append(kwargs)
+
+        def capture_play_video_frame(self) -> np.ndarray:
+            self.capture_calls += 1
+            return np.full((2, 3, 3), self.capture_calls, dtype=np.uint8)
+
+    fake_media = types.ModuleType("mediapy")
+    fake_media.write_video = lambda path, frames, fps: captured.update(  # type: ignore[attr-defined]
+        {"video_path": path, "frames": frames, "fps": fps}
+    )
+    monkeypatch.setitem(sys.modules, "mediapy", fake_media)
+
+    env = FakeEnv()
+    output_path = tmp_path / "motrix_interactive.mp4"
+    result = render_play_mode(
+        env,
+        sim_backend="motrix",
+        initialize=lambda: 0,
+        step=lambda obs: obs + 1,
+        num_steps=2,
+        output_video=output_path,
+        headless=False,
+        record_video=True,
+        render_spacing=1.5,
+    )
+
+    assert result == str(output_path)
+    assert env.init_calls == [
+        {
+            "render_spacing": 1.5,
+            "headless": False,
+            "capture": True,
+            "width": 1280,
+            "height": 720,
+            "camera_kwargs": {},
+        }
+    ]
+    assert env.capture_calls == 2
+    assert captured["video_path"] == str(output_path)
+    assert captured["fps"] == 20
+
+
 def test_render_play_mode_defaults_to_env_physics_snapshot(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):

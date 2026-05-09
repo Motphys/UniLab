@@ -14,6 +14,7 @@ class EnvPlayCapabilities:
 
     supports_native_interactive_renderer: bool = False
     supports_physics_state_playback: bool = False
+    supports_native_video_capture: bool = False
 
 
 @dataclass
@@ -108,16 +109,31 @@ class ABEnv(abc.ABC):
     def close(self) -> None:
         """Clean up environment resources"""
 
-    def init_play_renderer(self, render_spacing: float | None = None) -> None:
-        """Initialize env-facing interactive playback when supported."""
+    def init_play_renderer(
+        self,
+        render_spacing: float | None = None,
+        *,
+        headless: bool = False,
+        capture: bool = False,
+        width: int = 1280,
+        height: int = 720,
+        camera_kwargs: dict[str, Any] | None = None,
+    ) -> None:
+        """Initialize env-facing playback rendering when supported."""
         raise NotImplementedError(
-            f"{self.__class__.__name__} does not support native interactive playback"
+            f"{self.__class__.__name__} does not support native playback rendering"
         )
 
     def render_play_frame(self) -> None:
         """Render one frame through the env-facing interactive playback contract."""
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support native interactive playback"
+        )
+
+    def capture_play_video_frame(self) -> np.ndarray:
+        """Capture one RGB frame through the env-facing video contract."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support native video capture"
         )
 
     def get_physics_state_snapshot(self) -> np.ndarray:

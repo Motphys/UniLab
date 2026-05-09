@@ -21,6 +21,8 @@ training:
   sim_backend: mujoco
   play_only: false
   play_env_num: 16
+  play_headless: true
+  play_record_video: true
   play_steps: 200
   render_spacing: 1.0
   cam_distance: 6.0

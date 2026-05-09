@@ -184,3 +184,173 @@ def test_motrix_step_with_pre_step_control_uses_single_step_loop() -> None:
     assert backend._model.step_n_calls == []
     assert seen_sensors == [0.0, 1.0, 2.0]
     np.testing.assert_allclose(backend._data.actuator_ctrls, ctrl + 3)
+
+
+def test_motrix_native_video_capture_uses_headless_system_camera(monkeypatch) -> None:
+    import unilab.base.backend.motrix_backend as mod
+
+    captured: dict[str, object] = {}
+
+    class FakeCameras:
+        def set_system_render_target(self, target, width, height):
+            captured["render_target"] = (target, width, height)
+
+    class FakeModel:
+        cameras = FakeCameras()
+
+    class FakeSettings:
+        enable_shadow = False
+
+    class FakeRenderSettings:
+        @staticmethod
+        def performance():
+            captured["settings"] = True
+            return FakeSettings()
+
+    class FakeImage:
+        pixels = np.arange(2 * 3 * 4, dtype=np.uint8).reshape(2, 3, 4)
+
+    class FakeTask:
+        def take_image(self):
+            captured["take_image"] = True
+            return FakeImage()
+
+    class FakeSystemCamera:
+        def set_view(self, lookat, distance, elevation, azimuth):
+            captured["set_view"] = {
+                "lookat": lookat,
+                "distance": distance,
+                "elevation": elevation,
+                "azimuth": azimuth,
+            }
+
+        def capture(self):
+            captured["capture"] = True
+            return FakeTask()
+
+    class FakeRenderApp:
+        def __init__(self, **kwargs):
+            captured["render_app_kwargs"] = kwargs
+            self.system_camera = FakeSystemCamera()
+
+        def launch(self, model, *, batch, render_offset, render_settings):
+            captured["launch"] = {
+                "model": model,
+                "batch": batch,
+                "render_offset": render_offset,
+                "render_settings": render_settings,
+            }
+
+        def sync(self, *, data, wait=False):
+            captured["sync"] = {"data": data, "wait": wait}
+
+    monkeypatch.setattr(mod, "RenderApp", FakeRenderApp, raising=False)
+    monkeypatch.setattr(mod, "RenderSettings", FakeRenderSettings, raising=False)
+
+    backend = object.__new__(mod.MotrixBackend)
+    backend._model = FakeModel()
+    backend._data = object()
+    backend._num_envs = 3
+    backend._render_app = None
+    backend._render_headless = None
+    backend._render_capture_enabled = False
+
+    backend.init_renderer(
+        spacing=1.5,
+        headless=True,
+        capture=True,
+        width=3,
+        height=2,
+        camera_kwargs={
+            "cam_lookat": [1.0, 2.0, 3.0],
+            "cam_distance": 4.0,
+            "cam_elevation": -30.0,
+            "cam_azimuth": 45.0,
+        },
+    )
+    frame = backend.capture_video_frame()
+
+    assert captured["render_target"] == ("image", 3, 2)
+    assert captured["render_app_kwargs"] == {"headless": True}
+    assert captured["launch"]["model"] is backend._model
+    assert captured["launch"]["batch"] == 3
+    assert captured["launch"]["render_offset"] == [
+        [0.0, 0.0, 0.0],
+        [1.5, 0.0, 0.0],
+        [0.0, 1.5, 0.0],
+    ]
+    assert captured["set_view"] == {
+        "lookat": [1.0, 2.0, 3.0],
+        "distance": 4.0,
+        "elevation": -30.0,
+        "azimuth": 45.0,
+    }
+    assert captured["sync"] == {"data": backend._data, "wait": True}
+    assert captured["capture"] is True
+    assert captured["take_image"] is True
+    assert frame.shape == (2, 3, 3)
+    np.testing.assert_array_equal(frame, FakeImage.pixels[..., :3])
+
+
+def test_motrix_native_video_capture_defaults_camera_lookat_to_grid_center(monkeypatch) -> None:
+    import unilab.base.backend.motrix_backend as mod
+
+    captured: dict[str, object] = {}
+
+    class FakeCameras:
+        def set_system_render_target(self, target, width, height):
+            del target, width, height
+
+    class FakeModel:
+        cameras = FakeCameras()
+
+    class FakeSettings:
+        enable_shadow = False
+
+    class FakeRenderSettings:
+        @staticmethod
+        def performance():
+            return FakeSettings()
+
+    class FakeSystemCamera:
+        def set_view(self, lookat, distance, elevation, azimuth):
+            captured["set_view"] = {
+                "lookat": lookat,
+                "distance": distance,
+                "elevation": elevation,
+                "azimuth": azimuth,
+            }
+
+    class FakeRenderApp:
+        def __init__(self, **kwargs):
+            del kwargs
+            self.system_camera = FakeSystemCamera()
+
+        def launch(self, model, *, batch, render_offset, render_settings):
+            del model, batch, render_offset, render_settings
+
+    monkeypatch.setattr(mod, "RenderApp", FakeRenderApp, raising=False)
+    monkeypatch.setattr(mod, "RenderSettings", FakeRenderSettings, raising=False)
+
+    backend = object.__new__(mod.MotrixBackend)
+    backend._model = FakeModel()
+    backend._num_envs = 4
+    backend._render_app = None
+    backend._render_headless = None
+    backend._render_capture_enabled = False
+
+    backend.init_renderer(
+        spacing=2.0,
+        headless=True,
+        capture=True,
+        width=3,
+        height=2,
+        camera_kwargs=None,
+    )
+
+    assert captured["set_view"] == {
+        "lookat": [1.0, 1.0, 0.75],
+        "distance": 2.0,
+        "elevation": -20.0,
+        "azimuth": 90.0,
+    }

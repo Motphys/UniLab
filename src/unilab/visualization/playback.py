@@ -12,6 +12,26 @@ import numpy as np
 ObsT = TypeVar("ObsT")
 
 
+def _resolve_record_video(
+    *,
+    record_video: bool | None,
+    output_video: str | Path | None,
+) -> bool:
+    if record_video is not None:
+        return bool(record_video)
+    return output_video is not None
+
+
+def _resolve_headless(
+    *,
+    headless: bool | None,
+    record_video: bool,
+) -> bool:
+    if headless is not None:
+        return bool(headless)
+    return record_video
+
+
 def render_play_mode(
     env,
     *,
@@ -21,13 +41,62 @@ def render_play_mode(
     num_steps: int | None,
     output_video: str | Path | None = None,
     render_spacing: float | None = None,
+    headless: bool | None = None,
+    record_video: bool | None = None,
     frame_state_getter: Callable[[], np.ndarray] | None = None,
     camera_kwargs: dict[str, Any] | None = None,
 ) -> str | None:
-    """Render interactive Motrix play or MuJoCo video generation through shared callbacks."""
-    if sim_backend == "motrix":
-        env.init_play_renderer(render_spacing=render_spacing)
+    """Render play mode with explicit headless and video-recording controls."""
+    should_record_video = _resolve_record_video(
+        record_video=record_video,
+        output_video=output_video,
+    )
+    should_run_headless = _resolve_headless(
+        headless=headless,
+        record_video=should_record_video,
+    )
 
+    if sim_backend == "motrix":
+        if should_run_headless or should_record_video:
+            if num_steps is None:
+                raise ValueError("Motrix captured playback requires a finite num_steps value.")
+            if should_record_video and output_video is None:
+                raise ValueError("Motrix video recording requires an output_video path.")
+
+            cam_kw = dict(camera_kwargs or {})
+            effective_spacing = (
+                float(render_spacing)
+                if render_spacing is not None
+                else float(getattr(env.cfg, "render_spacing", 1.0))
+            )
+            env.init_play_renderer(
+                render_spacing=effective_spacing,
+                headless=should_run_headless,
+                capture=True,
+                width=1280,
+                height=720,
+                camera_kwargs=cam_kw,
+            )
+
+            obs = initialize()
+            frames: list[np.ndarray] | None = [] if should_record_video else None
+            for _ in range(num_steps):
+                obs = step(obs)
+                frame = np.asarray(env.capture_play_video_frame(), dtype=np.uint8)
+                if frames is not None:
+                    frames.append(frame.copy())
+
+            if not should_record_video:
+                return None
+
+            assert output_video is not None
+            assert frames is not None
+            import mediapy as media
+
+            media.write_video(str(output_video), frames, fps=int(1.0 / env.cfg.ctrl_dt))
+            return str(output_video)
+
+        env.init_play_renderer(render_spacing=render_spacing)
         obs = initialize()
         last_render_time = time.perf_counter()
         render_dt = 1.0 / 60.0
@@ -44,6 +113,10 @@ def render_play_mode(
             steps_run += 1
         return None
 
+    if not should_run_headless:
+        raise NotImplementedError("MuJoCo play mode does not support interactive rendering here.")
+    if not should_record_video:
+        raise ValueError("MuJoCo play rendering requires record_video=true.")
     if num_steps is None:
         raise ValueError("MuJoCo play rendering requires a finite num_steps value.")
     if output_video is None:

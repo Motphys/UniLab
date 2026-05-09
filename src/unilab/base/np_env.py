@@ -283,19 +283,38 @@ class NpEnv(ABEnv):
             np.greater_equal(state.info["steps"], self._cfg.max_episode_steps, out=truncated)
         return truncated
 
-    def init_play_renderer(self, render_spacing: float | None = None) -> None:
-        """Initialize backend-native interactive playback when available."""
-        if not self.play_capabilities.supports_native_interactive_renderer:
+    def init_play_renderer(
+        self,
+        render_spacing: float | None = None,
+        *,
+        headless: bool = False,
+        capture: bool = False,
+        width: int = 1280,
+        height: int = 720,
+        camera_kwargs: dict[str, Any] | None = None,
+    ) -> None:
+        """Initialize backend-native playback rendering when available."""
+        if capture:
+            if not self.play_capabilities.supports_native_video_capture:
+                raise NotImplementedError(
+                    f"{self._backend.__class__.__name__} does not support native video capture"
+                )
+        elif not self.play_capabilities.supports_native_interactive_renderer:
             raise NotImplementedError(
                 f"{self._backend.__class__.__name__} does not support native interactive playback"
             )
-        if render_spacing is None:
-            self._backend.init_renderer()
-            return
-        try:
-            self._backend.init_renderer(spacing=render_spacing)
-        except TypeError:
-            self._backend.init_renderer()
+
+        spacing = (
+            float(render_spacing) if render_spacing is not None else float(self._cfg.render_spacing)
+        )
+        self._backend.init_renderer(
+            spacing=spacing,
+            headless=bool(headless),
+            capture=bool(capture),
+            width=int(width),
+            height=int(height),
+            camera_kwargs=camera_kwargs,
+        )
 
     def render_play_frame(self) -> None:
         """Render one interactive playback frame through the env contract."""
@@ -304,6 +323,16 @@ class NpEnv(ABEnv):
                 f"{self._backend.__class__.__name__} does not support native interactive playback"
             )
         self._backend.render()
+
+    def capture_play_video_frame(self) -> np.ndarray:
+        """Capture one detached RGB video frame through the env contract."""
+        if not self.play_capabilities.supports_native_video_capture:
+            raise NotImplementedError(
+                f"{self._backend.__class__.__name__} does not support native video capture"
+            )
+        return cast(
+            np.ndarray, np.asarray(self._backend.capture_video_frame(), dtype=np.uint8).copy()
+        )
 
     def get_physics_state_snapshot(self) -> np.ndarray:
         """Return a detached physics snapshot for offline playback/video export."""
@@ -331,6 +360,7 @@ class NpEnv(ABEnv):
         return EnvPlayCapabilities(
             supports_native_interactive_renderer=capabilities.supports_native_interactive_renderer,
             supports_physics_state_playback=capabilities.supports_physics_state_playback,
+            supports_native_video_capture=capabilities.supports_native_video_capture,
         )
 
     def get_playback_model(self, env_index: int | None = None) -> Any:

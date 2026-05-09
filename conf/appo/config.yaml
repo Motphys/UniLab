@@ -66,6 +66,8 @@ training:
   play_only: false
   no_play: false
   play_env_num: 16
+  play_headless: true
+  play_record_video: true
   play_steps: 150
   cam_distance: 6.0
   cam_elevation: -20.0

@@ -171,8 +171,12 @@ def play_hora_appo(
         print(f"Could not resolve checkpoint directory. load_path_dir={load_path_dir}")
         return None
 
-    output_video = os.path.join(load_path_dir, "play_video.mp4")
-    print(f"Rendering video to {output_video}...")
+    record_video = bool(getattr(cfg.training, "play_record_video", True))
+    output_video = os.path.join(load_path_dir, "play_video.mp4") if record_video else None
+    if record_video:
+        print(f"Rendering video to {output_video}...")
+    else:
+        print("Running playback without video recording...")
     num_steps = int(getattr(cfg.training, "play_steps", 1000))
     current_priv_info: np.ndarray | None = None
 
@@ -207,6 +211,8 @@ def play_hora_appo(
             render_spacing=float(
                 getattr(cfg.training, "render_spacing", getattr(env.cfg, "render_spacing", 1.0))
             ),
+            headless=bool(getattr(cfg.training, "play_headless", True)),
+            record_video=record_video,
             num_steps=num_steps,
             output_video=output_video,
             initialize=initialize_play_obs,
@@ -221,7 +227,8 @@ def play_hora_appo(
                 "cam_tracking_extra_envs": getattr(cfg.training, "cam_tracking_extra_envs", 2),
             },
         )
-    print(f"Saving video to {output_video} with mediapy...")
+    if record_video:
+        print(f"Saving video to {output_video} with mediapy...")
     print("Done.")
     return output_video
 

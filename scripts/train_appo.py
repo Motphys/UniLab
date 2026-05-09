@@ -260,7 +260,7 @@ def play_appo(
         else:
             print("ONNX export verified OK.")
 
-    if cfg.training.sim_backend == "motrix":
+    if cfg.training.sim_backend == "motrix" and load_path_dir is None:
         print("Starting interactive visualization (motrix native renderer)...")
         print("Close the render window to exit.")
         try:
@@ -281,14 +281,18 @@ def play_appo(
         print(f"Could not resolve checkpoint directory. load_path_dir={load_path_dir}")
         return None
 
-    output_video = os.path.join(load_path_dir, "play_video.mp4")
-    print(f"Rendering video to {output_video}...")
+    record_video = bool(getattr(cfg.training, "play_record_video", True))
+    output_video = os.path.join(load_path_dir, "play_video.mp4") if record_video else None
+    if record_video:
+        print(f"Rendering video to {output_video}...")
+    else:
+        print("Running playback without video recording...")
 
     if env.state is None:
         env.init_state()
     num_steps = int(getattr(cfg.training, "play_steps", 1000))
 
-    print("Collecting physics states...")
+    print("Rendering playback frames...")
     with torch.inference_mode():
         render_play_mode(
             env,
@@ -296,6 +300,8 @@ def play_appo(
             render_spacing=float(
                 getattr(cfg.training, "render_spacing", getattr(env.cfg, "render_spacing", 1.0))
             ),
+            headless=bool(getattr(cfg.training, "play_headless", True)),
+            record_video=record_video,
             num_steps=num_steps,
             output_video=output_video,
             initialize=lambda: np.asarray(
@@ -326,7 +332,8 @@ def play_appo(
                 "cam_tracking_extra_envs": getattr(cfg.training, "cam_tracking_extra_envs", 2),
             },
         )
-    print(f"Saving video to {output_video} with mediapy...")
+    if record_video:
+        print(f"Saving video to {output_video} with mediapy...")
     print("Done.")
     return output_video
 
