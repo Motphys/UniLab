@@ -55,6 +55,7 @@ class G1FlipTrackingCfg(G1MotionTrackingCfg):
         default_factory=_zero_velocity_randomization
     )
     joint_position_range: tuple[float, float] = (0.0, 0.0)
+    truncate_on_clip_end: bool = True
     # Some flip clips include large anchor orientation deviations.
     anchor_ori_threshold: float = 1e9
 
