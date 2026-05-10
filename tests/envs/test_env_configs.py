@@ -388,6 +388,7 @@ def test_g1_motion_tracking_cfg_preserves_legacy_defaults():
     assert cfg.joint_position_range == (-0.1, 0.1)
     assert cfg.anchor_ori_threshold == pytest.approx(0.8)
     assert cfg.sampling_mode == "adaptive"
+    assert cfg.truncate_on_clip_end is False
 
 
 def test_g1_motion_tracking_init_delegates_motion_body_ids_to_backend(monkeypatch):
@@ -545,6 +546,7 @@ def test_g1_flip_tracking_cfg_uses_flip_profile():
     assert cfg.pose_randomization.x == (0.0, 0.0)
     assert cfg.velocity_randomization.x == (0.0, 0.0)
     assert cfg.joint_position_range == (0.0, 0.0)
+    assert cfg.truncate_on_clip_end is True
     assert cfg.anchor_ori_threshold == pytest.approx(1e9)
     assert cfg.sampling_mode in {"start", "clip_start", "uniform", "adaptive"}
 
@@ -559,13 +561,18 @@ def test_g1_wall_flip_tracking_cfg_uses_wall_flip_profile():
     assert cfg.pose_randomization.x == (0.0, 0.0)
     assert cfg.velocity_randomization.x == (0.0, 0.0)
     assert cfg.joint_position_range == (0.0, 0.0)
+    assert cfg.truncate_on_clip_end is True
     assert cfg.anchor_ori_threshold == pytest.approx(1e9)
     assert cfg.anchor_pos_z_threshold == pytest.approx(0.5)
     assert cfg.ee_body_pos_z_threshold == pytest.approx(0.5)
     assert cfg.sampling_mode == "start"
 
 
-def test_g1_motion_tracking_clip_end_contributes_to_truncated():
+def _make_g1_motion_tracking_clip_end_stub(
+    *,
+    truncate_on_clip_end: bool,
+    terminated: np.ndarray | None = None,
+):
     from unilab.base.np_env import NpEnvState
     from unilab.envs.motion_tracking.g1.motion_loader import MotionData
     from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
@@ -580,6 +587,7 @@ def test_g1_motion_tracking_clip_end_contributes_to_truncated():
     class FakeSampler:
         def __init__(self) -> None:
             self.failure_updates: list[np.ndarray] = []
+            self.sampled_env_ids: list[np.ndarray] = []
 
         def get_current_motion(self) -> MotionData:
             return MotionData(
@@ -599,9 +607,17 @@ def test_g1_motion_tracking_clip_end_contributes_to_truncated():
         def step(self) -> np.ndarray:
             return np.array([1], dtype=np.int32)
 
+        def sample_frames(self, env_ids: np.ndarray) -> np.ndarray:
+            self.sampled_env_ids.append(env_ids.copy())
+            return np.full(len(env_ids), 7, dtype=np.int32)
+
     env = cast(Any, object.__new__(G1MotionTrackingEnv))
     env._num_envs = 2
-    env._cfg = type("Cfg", (), {"max_episode_steps": None})()
+    env._cfg = type(
+        "Cfg",
+        (),
+        {"max_episode_steps": None, "truncate_on_clip_end": truncate_on_clip_end},
+    )()
     env.body_ids = np.array([0], dtype=np.int32)
     env._backend = FakeBackend()
     env.motion_sampler = FakeSampler()
@@ -615,7 +631,9 @@ def test_g1_motion_tracking_clip_end_contributes_to_truncated():
         np.tile(np.array([[[1.0, 0.0, 0.0, 0.0]]], dtype=np.float32), (2, 1, 1)),
     )
     env._update_relative_transforms = lambda *args: None
-    env._compute_terminations = lambda *args: np.zeros((2,), dtype=bool)
+    env._compute_terminations = lambda *args: (
+        np.zeros((2,), dtype=bool) if terminated is None else terminated.copy()
+    )
     env._compute_reward = lambda *args: np.zeros((2,), dtype=np.float32)
     env._compute_obs = lambda *args: {
         "obs": np.zeros((2, 1), dtype=np.float32),
@@ -633,11 +651,32 @@ def test_g1_motion_tracking_clip_end_contributes_to_truncated():
         info={"steps": np.zeros((2,), dtype=np.uint32)},
     )
 
+    return env, state
+
+
+def test_g1_motion_tracking_clip_end_resamples_by_default_without_truncation():
+    env, state = _make_g1_motion_tracking_clip_end_stub(truncate_on_clip_end=False)
+
+    next_state = env.update_state(state)
+    truncated = env._compute_truncated(next_state)
+
+    np.testing.assert_array_equal(next_state.terminated, np.array([False, False]))
+    np.testing.assert_array_equal(truncated, np.array([False, False]))
+    np.testing.assert_array_equal(env.motion_sampler.sampled_env_ids[0], np.array([1]))
+    np.testing.assert_array_equal(
+        env.motion_sampler.failure_updates[0], np.array([False, False], dtype=bool)
+    )
+
+
+def test_g1_motion_tracking_clip_end_truncates_when_config_enabled():
+    env, state = _make_g1_motion_tracking_clip_end_stub(truncate_on_clip_end=True)
+
     next_state = env.update_state(state)
     truncated = env._compute_truncated(next_state)
 
     np.testing.assert_array_equal(next_state.terminated, np.array([False, False]))
     np.testing.assert_array_equal(truncated, np.array([False, True]))
+    assert env.motion_sampler.sampled_env_ids == []
     np.testing.assert_array_equal(
         env.motion_sampler.failure_updates[0], np.array([False, False], dtype=bool)
     )

@@ -153,6 +153,7 @@ class G1MotionTrackingCfg(G1BaseCfg):
         "right_wrist_yaw_link",
     )
     sampling_mode: Literal["start", "clip_start", "uniform", "adaptive"] = "adaptive"
+    truncate_on_clip_end: bool = False
     max_episode_seconds: float = 10.0
     reward_config: RewardConfig = field(default_factory=RewardConfig)
     pose_randomization: PoseRandomization = field(default_factory=PoseRandomization)
@@ -460,7 +461,12 @@ class G1MotionTrackingEnv(G1BaseEnv):
         # Advance motion frames
         done_env_ids = self.motion_sampler.step()
         if len(done_env_ids) > 0:
-            self._clip_end_truncated[done_env_ids] = True
+            if self._cfg.truncate_on_clip_end:
+                self._clip_end_truncated[done_env_ids] = True
+            else:
+                # Clip boundaries are not physically continuous; treat them as
+                # reference resampling points instead of advancing into the next clip.
+                self.motion_sampler.sample_frames(done_env_ids)
 
         return state.replace(obs=obs, reward=reward, terminated=terminated)
 
