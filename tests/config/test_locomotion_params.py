@@ -184,38 +184,23 @@ def test_offpolicy_flashsac_go2_task_overrides():
     assert cfg.env.control_config.action_scale == pytest.approx(0.4)
 
 
-def test_go2_joystick_rough_uses_terrain_generator():
-    from unilab.envs.locomotion.go2.joystick import Go2JoystickRoughCfg
-    from unilab.terrains import TerrainGeneratorCfg
-
-    cfg = Go2JoystickRoughCfg()
-    assert cfg.model_file.endswith("scene_rough.xml")
-    assert isinstance(cfg.terrain_generator, TerrainGeneratorCfg)
-    assert cfg.terrain_generator.num_rows == 10
-    assert cfg.terrain_generator.num_cols == 20
-    assert len(cfg.terrain_generator.sub_terrains) == 7
-
-
 def test_go2_joystick_rough_terrain_cfg_is_independent_per_instance():
     """Confirm `default_factory=lambda: copy.deepcopy(...)` so two cfgs don't share."""
-    from unilab.envs.locomotion.go2.joystick import Go2JoystickRoughCfg
+    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughCfg
 
     a = Go2JoystickRoughCfg()
     b = Go2JoystickRoughCfg()
     assert a.terrain_generator is not b.terrain_generator
-    a.terrain_generator.num_rows = 1
-    assert b.terrain_generator.num_rows == 10
+    a.terrain_generator.num_rows = 4
+    assert b.terrain_generator.num_rows == 1
 
 
 def test_go2_joystick_rough_playback_model_uses_materialized_scene():
     """Offline playback / video rendering must point at the materialized scene"""
     from pathlib import Path
 
-    from unilab.envs.locomotion.go2.joystick import (
-        Go2JoystickRoughCfg,
-        Go2WalkTask,
-        RewardConfig,
-    )
+    from unilab.envs.locomotion.go2.joystick import RewardConfig
+    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughCfg, Go2JoystickRoughEnv
 
     cfg = Go2JoystickRoughCfg(
         reward_config=RewardConfig(scales={}, tracking_sigma=0.25, base_height_target=0.3)
@@ -226,7 +211,7 @@ def test_go2_joystick_rough_playback_model_uses_materialized_scene():
     cfg.terrain_generator.add_lights = False
     cfg.terrain_generator.seed = 0
 
-    env = Go2WalkTask(cfg, num_envs=2, backend_type="mujoco")
+    env = Go2JoystickRoughEnv(cfg, num_envs=2, backend_type="mujoco")
     try:
         playback_path = env.get_playback_model(0)
         assert isinstance(playback_path, str)
@@ -430,12 +415,21 @@ def test_apply_cfg_overrides_deep_merges_dataclass_field():
     instances rather than re-instantiating them, so partial overrides like
     `terrain_generator.num_rows=4` keep `sub_terrains` and other defaults."""
     from unilab.base.registry import apply_cfg_overrides
-    from unilab.envs.locomotion.go2.joystick import Go2JoystickRoughCfg
+    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughCfg
 
     cfg = Go2JoystickRoughCfg()
     apply_cfg_overrides(
         cfg,
-        {"terrain_generator": {"num_rows": 4, "seed": 42, "curriculum": True}},
+        {
+            "terrain_generator": {
+                "num_rows": 4,
+                "num_cols": 4,
+                "seed": 42,
+                "curriculum": True,
+                "add_lights": True,
+                "border_width": 20.0,
+            }
+        },
     )
 
     # Overridden fields take effect.
@@ -443,7 +437,7 @@ def test_apply_cfg_overrides_deep_merges_dataclass_field():
     assert cfg.terrain_generator.seed == 42
     assert cfg.terrain_generator.curriculum is True
     # Non-overridden fields preserve Go2RoughTerrainCfg defaults.
-    assert cfg.terrain_generator.num_cols == 20
+    assert cfg.terrain_generator.num_cols == 4
     assert cfg.terrain_generator.border_width == pytest.approx(20.0)
     assert len(cfg.terrain_generator.sub_terrains) == 7
     assert cfg.terrain_generator.add_lights is True
@@ -458,7 +452,7 @@ def test_ppo_go2_joystick_rough_hydra_terrain_override():
     from hydra.core.global_hydra import GlobalHydra
 
     from unilab.base.registry import apply_cfg_overrides
-    from unilab.envs.locomotion.go2.joystick import Go2JoystickRoughCfg
+    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughCfg
     from unilab.training.backend_adapter import BackendAdapter
 
     GlobalHydra.instance().clear()

@@ -287,7 +287,7 @@ class TerrainGenerator:
                     f"{patch_heights_xy.shape} != {(tile_x_px, tile_y_px)}"
                 )
             x0 = border_px + sub_row * tile_x_px
-            y0 = border_px + sub_col * tile_y_px
+            y0 = border_px + (self._num_cols - 1 - sub_col) * tile_y_px
             heights_yx[y0 : y0 + tile_y_px, x0 : x0 + tile_x_px] = patch_heights_xy.T
             max_base_thickness = max(max_base_thickness, output.heightfield.base_thickness)
 
