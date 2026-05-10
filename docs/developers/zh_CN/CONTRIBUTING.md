@@ -8,6 +8,7 @@
 2. 按平台安装依赖:
    - macOS（MPS，安装 PyPI 的 torch wheel）: `uv sync`
    - Linux 默认（安装 PyTorch 官方 cu128 wheel；需要当前 PyTorch cu128 wheel 所支持的 NVIDIA 显卡与驱动栈）: `uv sync`
+   - Linux AMD / ROCm 工作站: `make sync-rocm`，运行命令时使用 `uv run --no-sync ...`
    - 需要 Motrix 时，在命令后追加 `--extra motrix`
 3. 创建分支，例如 `git checkout -b docs/improve-readme` 或 `git checkout -b fix/backend-bug`。
 
@@ -29,6 +30,7 @@
 
 ```bash
 make format         # ruff format + ruff check --fix
+make sync-rocm      # Linux AMD / ROCm >= 7.1: sync deps and install torch==2.11.0+rocm7.2
 make type           # mypy src/unilab + pyright
 make check          # format + type（代码相关提交前必跑）
 make test           # 非 slow 测试
@@ -107,7 +109,7 @@ uv run pytest -m "slow" -v
 | `ruff-format` | 在 `ubuntu-slim` 上执行 `uv sync --only-group dev` + `uv run --no-sync ruff format --check .` | ✅ |
 | `mypy` | 在 `ubuntu-slim` 上执行 `uv sync` + `uv run mypy src/unilab` | ✅ |
 | `pyright` | 在 `ubuntu-slim` 上执行 `uv sync` + `uv run pyright` | ✅ |
-| `test` | 在 `ubuntu-slim` 上以 Python 3.11 执行 `uv sync --extra motrix`，跳过 CUDA torch / torchvision / nvidia wheel，安装 CPU torch / torchvision，并用 `uv run --no-sync pytest -m "not slow" --cov=unilab --cov-report markdown-append:$GITHUB_STEP_SUMMARY --cov-fail-under=25` | ✅ |
+| `test` | 在 `ubuntu-slim` 上以 Python 3.11 执行 `uv sync --extra motrix`，跳过 CUDA torch / nvidia wheel，安装 CPU torch，并用 `uv run --no-sync pytest -m "not slow" --cov=unilab --cov-report markdown-append:$GITHUB_STEP_SUMMARY --cov-fail-under=25` | ✅ |
 
 只有协作元信息改动，例如 `LICENSE`、issue templates、`CODEOWNERS` 和 `.github/pull_request_template.md`，才会跳过 CI。文档改动会触发 CI，并由 `tests/scripts/test_check_docs.py` 校验。
 

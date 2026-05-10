@@ -266,6 +266,8 @@ uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco
 
 macOS Docker 目前不支持。
 
+Linux AMD / ROCm 容器不使用仓库根目录的 CUDA `Dockerfile`。请使用 ROCm >= 7.1 的 AMD 官方 `rocm/pytorch` 镜像，并按 ROCm Docker 要求挂载 `/dev/kfd`、`/dev/dri`、`--group-add=video`、`--ipc=host` 等设备与 IPC 参数。进入 ROCm 容器后可以运行 `make sync-rocm`，训练命令使用 `uv run --no-sync ...`。
+
 训练日志和产物仍会写入挂载后的仓库目录，例如 `logs/rsl_rl_ppo/<task>/`、`logs/fast_sac/<task>/`。如果只想快速验证 image 是否可用，可以直接运行：
 
 ```bash
