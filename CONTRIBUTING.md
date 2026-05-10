@@ -8,6 +8,7 @@ Languages: English | [简体中文](docs/developers/zh_CN/CONTRIBUTING.md)
 2. Install dependencies for your platform:
    - macOS (MPS, installs PyPI torch wheels): `uv sync`
    - Linux default (installs PyTorch cu128 wheels; requires an NVIDIA GPU/driver supported by current PyTorch cu128 wheels): `uv sync`
+   - Linux AMD / ROCm workstation: `make sync-rocm`, then run commands with `uv run --no-sync ...`
    - When you need Motrix, append `--extra motrix`
 3. Create a branch such as `git checkout -b docs/improve-readme` or `git checkout -b fix/backend-bug`.
 
@@ -29,6 +30,7 @@ Languages: English | [简体中文](docs/developers/zh_CN/CONTRIBUTING.md)
 
 ```bash
 make format         # ruff format + ruff check --fix
+make sync-rocm      # Linux AMD / ROCm >= 7.1: sync deps and install torch==2.11.0+rocm7.2
 make type           # mypy src/unilab + pyright
 make check          # format + type (required before code-related commits)
 make test           # non-slow tests

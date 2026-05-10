@@ -34,7 +34,13 @@ uv sync --extra motrix
 # Linux 默认（安装 PyTorch 官方 cu128 wheel）
 # 需要当前 PyTorch cu128 wheel 所支持的 NVIDIA 显卡与驱动栈
 uv sync --extra motrix
+
+# Linux AMD / ROCm 工作站
+# 要求 ROCm >= 7.1；当前安装 PyTorch 官方 ROCm 7.2 wheel。
+make sync-rocm
 ```
+
+`make sync-rocm` 会先按仓库 lock 同步非 torch 依赖，再从 PyTorch ROCm 源安装 `torch==2.11.0+rocm7.2` 和匹配的 `triton-rocm==3.6.0`。后续在该环境里运行训练命令时使用 `uv run --no-sync ...`，避免 `uv run` 自动把 Linux 默认 CUDA wheel 同步回来。PyTorch ROCm 运行时仍使用 `cuda` 设备类型，所以训练配置里的 `training.device=cuda` / 自动检测路径不需要改成 `rocm`。
 
 ## 中国大陆镜像
 
@@ -52,6 +58,9 @@ uv sync --index-url https://pypi.tuna.tsinghua.edu.cn/simple
 ```bash
 # Linux
 uv run scripts/train_rsl_rl.py task=go2_joystick_flat/motrix
+
+# Linux AMD / ROCm
+uv run --no-sync scripts/train_rsl_rl.py task=go2_joystick_flat/motrix
 
 # MacOS(其他后端为Motrix的训练同理，需要用 uv run mxpython)
 uv run mxpython scripts/train_rsl_rl.py task=go2_joystick_flat/motrix
@@ -131,6 +140,8 @@ docker run --rm --gpus all -it \
 ```bash
 docker run --rm --gpus all unilab:latest uv run python -c "import torch; print(torch.cuda.is_available())"
 ```
+
+ROCm 容器请使用 AMD 官方 `rocm/pytorch` 镜像，并按 ROCm Docker 要求挂载 `/dev/kfd`、`/dev/dri`、`--group-add=video` 和 `--ipc=host`。当前仓库根目录的 `Dockerfile` 保持 NVIDIA/CUDA 镜像，不用于 ROCm。
 
 ## Navigation
 

@@ -2,6 +2,11 @@
 sync:
 	uv sync
 
+.PHONY: sync-rocm
+sync-rocm:
+	uv sync --extra motrix --no-install-package torch
+	uv pip install --no-deps torch==2.11.0 triton-rocm==3.6.0 --torch-backend rocm7.2
+
 .PHONY: format
 format:
 	uv run ruff format
