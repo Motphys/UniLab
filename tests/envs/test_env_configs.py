@@ -541,7 +541,7 @@ def test_g1_flip_tracking_cfg_uses_flip_profile():
 
     cfg = G1FlipTrackingCfg()
 
-    assert str(cfg.model_file).endswith("scene_flat.xml")
+    assert cfg.scene.model_file.endswith("scene_flat.xml")
     assert str(cfg.motion_file).endswith("flip_360_001__A304.npz")
     assert cfg.pose_randomization.x == (0.0, 0.0)
     assert cfg.velocity_randomization.x == (0.0, 0.0)
@@ -556,7 +556,7 @@ def test_g1_wall_flip_tracking_cfg_uses_wall_flip_profile():
 
     cfg = G1WallFlipTrackingCfg()
 
-    assert str(cfg.model_file).endswith("scene_flat_with_wall.xml")
+    assert cfg.scene.model_file.endswith("scene_flat_with_wall.xml")
     assert str(cfg.motion_file).endswith("flip_from_wall_104__A304.npz")
     assert cfg.pose_randomization.x == (0.0, 0.0)
     assert cfg.velocity_randomization.x == (0.0, 0.0)

@@ -11,6 +11,7 @@ from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.backend import create_backend
 from unilab.base.np_env import NpEnvState
+from unilab.base.scene import SceneCfg
 from unilab.dr import (
     DomainRandomizationCapabilities,
     DomainRandomizationProvider,
@@ -126,7 +127,11 @@ class Domain_Rand:
 class G1MotionTrackingCfg(G1BaseCfg):
     """Configuration for G1 motion tracking environment."""
 
-    model_file: str = str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
+    scene: SceneCfg = field(
+        default_factory=lambda: SceneCfg(
+            model_file=str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
+        )
+    )
     # Kept at the historical single-clip default for backward compatibility.
     motion_file: str | list[str] = str(
         ASSETS_ROOT_PATH / "motions" / "g1" / "dance1_subject2_part.npz"
@@ -321,7 +326,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
 
         backend = create_backend(
             backend_type,
-            cfg.model_file,
+            cfg.scene,
             num_envs,
             cfg.sim_dt,
             base_name=cfg.asset.base_name,

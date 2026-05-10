@@ -5,7 +5,7 @@ from typing import Any, Optional
 import gymnasium as gym
 import numpy as np
 
-from unilab.terrains.terrain_generator import TerrainGeneratorCfg
+from .scene import SceneCfg
 
 
 @dataclass(frozen=True)
@@ -24,14 +24,13 @@ class EnvCfg:
 
     """
 
-    model_file: Optional[str] = None
+    scene: SceneCfg | None = None
     sim_dt: float = 0.01
     max_episode_seconds: Optional[float] = None
     ctrl_dt: float = 0.01
     render_spacing: float = 1.0
+    render_offset_mode: str = "grid"
     motrix_max_iterations: Optional[int] = None
-    terrain_generator: Optional[TerrainGeneratorCfg] = None
-    terrain_floor_geom: str = "floor"
 
     @property
     def max_episode_steps(self) -> Optional[int]:
@@ -112,6 +111,7 @@ class ABEnv(abc.ABC):
     def init_play_renderer(
         self,
         render_spacing: float | None = None,
+        render_offset_mode: str | None = None,
         *,
         headless: bool = False,
         capture: bool = False,

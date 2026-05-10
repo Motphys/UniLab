@@ -57,6 +57,7 @@ from unilab.training.rsl_rl import (
 ensure_registries()
 
 from unilab.base import registry
+from unilab.base.scene import SceneCfg
 from unilab.structured_configs import PPOConfig as _StructuredPPOConfig
 
 PPOConfig = _StructuredPPOConfig
@@ -695,7 +696,10 @@ def play_interactive(args, cfg: DictConfig | None = None):
     use_env_visual_model = bool(getattr(args, "use_env_visual_model", True))
     mj_model = None
     if use_env_visual_model:
-        model_file = getattr(getattr(env, "cfg", None), "model_file", None)
+        cfg_scene = getattr(getattr(env, "cfg", None), "scene", None)
+        if cfg_scene is not None and not isinstance(cfg_scene, SceneCfg):
+            raise TypeError("env.cfg.scene must be a SceneCfg")
+        model_file = None if cfg_scene is None else cfg_scene.model_file
         if model_file:
             try:
                 mj_model = mujoco.MjModel.from_xml_path(str(model_file))

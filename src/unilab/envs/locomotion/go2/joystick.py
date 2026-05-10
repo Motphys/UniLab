@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, cast
 
@@ -9,8 +9,8 @@ import numpy as np
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.backend import create_backend
-from unilab.base.backend.xml import materialize_terrain_hfield_scene
 from unilab.base.np_env import NpEnvState
+from unilab.base.scene import SceneCfg
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.locomotion.common import rewards
 from unilab.envs.locomotion.common.base import Sensor
@@ -58,7 +58,11 @@ class JoystickSensor(Sensor):
 @registry.envcfg("Go2JoystickFlat")
 @dataclass
 class Go2JoystickCfg(Go2BaseCfg):
-    model_file: str = str(ASSETS_ROOT_PATH / "robots" / "go2" / "scene_flat.xml")
+    scene: SceneCfg = field(
+        default_factory=lambda: SceneCfg(
+            model_file=str(ASSETS_ROOT_PATH / "robots" / "go2" / "scene_flat.xml")
+        )
+    )
     max_episode_seconds: float = 20.0
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
@@ -97,23 +101,13 @@ class Go2WalkTask(Go2BaseEnv):
         if cfg.reward_config is None:
             raise ValueError("reward_config must be provided via Hydra configuration")
 
-        self._materialized_dir: tempfile.TemporaryDirectory | None = None
-        self._materialized_model_file: str | None = None
         self._scene_terrain_origins: np.ndarray | None = None
-        model_file = cfg.model_file
-        if cfg.terrain_generator is not None:
-            self._materialized_dir = tempfile.TemporaryDirectory(prefix="unilab_terrain_")
-            model_file, terrain_origins = materialize_terrain_hfield_scene(
-                source_model_file=cfg.model_file,
-                terrain_cfg=cfg.terrain_generator,
-                output_dir=self._materialized_dir.name,
-            )
-            self._materialized_model_file = model_file
-            self._scene_terrain_origins = terrain_origins
+        scene_cfg = cfg.scene
+        terrain_generator = scene_cfg.terrain.generator if scene_cfg.terrain is not None else None
 
         backend = create_backend(
             backend_type,
-            model_file,
+            cfg.scene,
             num_envs,
             cfg.sim_dt,
             base_name=cfg.asset.base_name,
@@ -121,17 +115,23 @@ class Go2WalkTask(Go2BaseEnv):
             position_actuator_gains={"kp": cfg.control_config.Kp, "kd": cfg.control_config.Kd},
             motrix_max_iterations=cfg.motrix_max_iterations,
         )
+        self._terrain_surface_sampler = getattr(backend, "terrain_surface_sampler", None)
+        self._terrain_surface_sample_height = self._resolve_terrain_surface_sample_height()
+        terrain_origins = getattr(backend, "terrain_origins", None)
+        if terrain_origins is not None:
+            self._scene_terrain_origins = terrain_origins
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True
         self._reward_cfg = cfg.reward_config
         self._init_reward_functions()
         self._init_domain_randomization(Go2JoystickDomainRandomizationProvider())
-        if self._scene_terrain_origins is not None and cfg.terrain_generator is not None:
+        if self._scene_terrain_origins is not None and terrain_generator is not None:
             self._spawn = TerrainSpawnManager(
                 num_envs,
                 self._scene_terrain_origins,
-                cell_size=float(cfg.terrain_generator.size[0]),
+                cell_size=float(terrain_generator.size[0]),
                 cfg=cfg.terrain_curriculum,
+                terrain_surface_sampler=self._terrain_surface_sampler,
             )
         self.phase = np.zeros((num_envs,), dtype=np.float32)
         self.feet_phase = np.zeros((num_envs, len(cfg.sensor.feet_force)), dtype=np.float32)
@@ -140,16 +140,19 @@ class Go2WalkTask(Go2BaseEnv):
         self.feet_pos = np.zeros((num_envs, len(cfg.sensor.feet_pos), 3), dtype=np.float32)
 
     def get_playback_model(self, env_index: int | None = None) -> Any:
-        if self._materialized_model_file is not None:
-            return self._materialized_model_file
         return super().get_playback_model(env_index)
 
-    def close(self) -> None:
-        if self._materialized_dir is not None:
-            self._materialized_dir.cleanup()
-            self._materialized_dir = None
-            self._materialized_model_file = None
-        super().close()
+    def _resolve_terrain_surface_sample_height(
+        self,
+    ) -> Callable[[np.ndarray], np.ndarray] | None:
+        sampler = self._terrain_surface_sampler
+        if sampler is None:
+            return None
+
+        sample_height = getattr(sampler, "sample_height", None)
+        if not callable(sample_height):
+            raise TypeError("terrain_surface_sampler must expose sample_height(xy)")
+        return cast(Callable[[np.ndarray], np.ndarray], sample_height)
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:
@@ -241,7 +244,7 @@ class Go2WalkTask(Go2BaseEnv):
             default_angles=self.default_angles,
             tracking_sigma=cfg.tracking_sigma,
             base_height_target=cfg.base_height_target,
-            base_height=self._backend.get_base_pos()[:, 2],
+            base_height=self._reward_base_height_values(),
         )
 
         step_count = info.get("steps", np.zeros((self._num_envs,), dtype=np.uint32))
@@ -261,6 +264,15 @@ class Go2WalkTask(Go2BaseEnv):
         return reward * self._cfg.ctrl_dt
 
     # ── reward functions (robot-specific) ────────────────────────────
+
+    def _reward_base_height_values(self) -> np.ndarray:
+        base_pos = np.asarray(self._backend.get_base_pos(), dtype=get_global_dtype())
+        sample_height = self._terrain_surface_sample_height
+        if sample_height is None:
+            return np.asarray(base_pos[:, 2], dtype=get_global_dtype())
+
+        surface = np.asarray(sample_height(base_pos[:, :2]), dtype=get_global_dtype())
+        return np.asarray(base_pos[:, 2] - surface, dtype=get_global_dtype())
 
     def _reward_swing_feet_z(self, ctx: RewardContext) -> np.ndarray:
         is_swing = self.feet_phase >= 0.6

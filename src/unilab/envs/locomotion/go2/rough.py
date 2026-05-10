@@ -7,6 +7,7 @@ import numpy as np
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
+from unilab.base.scene import SceneCfg, TerrainSceneCfg
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.locomotion.go2.joystick import (
     Go2JoystickCfg,
@@ -128,8 +129,19 @@ class Go2RoughTerrainCfg(TerrainGeneratorCfg):
 @registry.envcfg("Go2JoystickRough")
 @dataclass
 class Go2JoystickRoughCfg(Go2JoystickCfg):
-    model_file: str = str(ASSETS_ROOT_PATH / "robots" / "go2" / "scene_rough.xml")
-    terrain_generator: TerrainGeneratorCfg = field(default_factory=Go2RoughTerrainCfg)
+    scene: SceneCfg = field(
+        default_factory=lambda: SceneCfg(
+            model_file=str(ASSETS_ROOT_PATH / "robots" / "go2" / "go2.xml"),
+            fragment_files=[
+                str(ASSETS_ROOT_PATH / "robots" / "go2" / "locomotion_task.xml"),
+            ],
+            terrain=TerrainSceneCfg(
+                generator=Go2RoughTerrainCfg(),
+                hfield_name="terrain_hfield",
+                geom_name="floor",
+            ),
+        )
+    )
     terrain_scan: TerrainScanConfig = field(default_factory=TerrainScanConfig)
     reward_config: RewardConfig | None = None
 
@@ -233,3 +245,6 @@ def _height_scan_offsets(points_x: Sequence[float], points_y: Sequence[float]) -
     )
     offsets = np.stack([x_grid.reshape(-1), y_grid.reshape(-1)], axis=1)
     return np.ascontiguousarray(offsets, dtype=np.float64)
+
+
+registry.register_env("Go2JoystickRough", Go2WalkTask, sim_backend="motrix")

@@ -9,6 +9,7 @@ import pytest
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 
+from unilab.base.scene import SceneCfg
 from unilab.training import (
     BackendAdapter,
     get_latest_checkpoint,
@@ -198,7 +199,7 @@ def test_backend_adapter_builds_play_scene_override():
 
     assert cfg.training.play_env_num == 128
     assert env_cfg_override["render_spacing"] == pytest.approx(2.5)
-    assert env_cfg_override["model_file"] == "/tmp/g1_motion_tracking_play_scene.xml"
+    assert env_cfg_override["scene"].model_file == "/tmp/g1_motion_tracking_play_scene.xml"
     assert captured["ground_texture_file"] == str(
         _ROOT_DIR / "src/unilab/assets/robots/g1/textures/floor.png"
     )
@@ -207,12 +208,14 @@ def test_backend_adapter_builds_play_scene_override():
 def test_render_play_mode_uses_env_interactive_contract():
     class FakeEnv:
         def __init__(self):
-            self.cfg = type("Cfg", (), {"ctrl_dt": 0.02, "model_file": "scene.xml"})()
-            self.init_calls: list[float | None] = []
+            self.cfg = type(
+                "Cfg", (), {"ctrl_dt": 0.02, "scene": SceneCfg(model_file="scene.xml")}
+            )()
+            self.init_calls: list[dict[str, object]] = []
             self.render_calls = 0
 
-        def init_play_renderer(self, render_spacing=None):
-            self.init_calls.append(render_spacing)
+        def init_play_renderer(self, **kwargs):
+            self.init_calls.append(kwargs)
 
         def render_play_frame(self):
             self.render_calls += 1
@@ -230,7 +233,7 @@ def test_render_play_mode_uses_env_interactive_contract():
     )
 
     assert result is None
-    assert env.init_calls == [2.5]
+    assert env.init_calls == [{"render_spacing": 2.5, "render_offset_mode": "grid"}]
     assert env.render_calls == 3
     assert seen == [0, 1, 2]
 
@@ -242,7 +245,9 @@ def test_render_play_mode_uses_motrix_native_video_capture(
 
     class FakeEnv:
         def __init__(self):
-            self.cfg = type("Cfg", (), {"ctrl_dt": 0.05, "model_file": "scene.xml"})()
+            self.cfg = type(
+                "Cfg", (), {"ctrl_dt": 0.05, "scene": SceneCfg(model_file="scene.xml")}
+            )()
             self.init_calls: list[dict[str, object]] = []
             self.capture_calls = 0
 
@@ -276,6 +281,7 @@ def test_render_play_mode_uses_motrix_native_video_capture(
     assert env.init_calls == [
         {
             "render_spacing": 2.5,
+            "render_offset_mode": "grid",
             "headless": True,
             "capture": True,
             "width": 1280,
@@ -300,7 +306,9 @@ def test_render_play_mode_records_motrix_interactive_capture(
 
     class FakeEnv:
         def __init__(self):
-            self.cfg = type("Cfg", (), {"ctrl_dt": 0.05, "model_file": "scene.xml"})()
+            self.cfg = type(
+                "Cfg", (), {"ctrl_dt": 0.05, "scene": SceneCfg(model_file="scene.xml")}
+            )()
             self.init_calls: list[dict[str, object]] = []
             self.capture_calls = 0
 
@@ -335,6 +343,7 @@ def test_render_play_mode_records_motrix_interactive_capture(
     assert env.init_calls == [
         {
             "render_spacing": 1.5,
+            "render_offset_mode": "grid",
             "headless": False,
             "capture": True,
             "width": 1280,
@@ -354,7 +363,9 @@ def test_render_play_mode_defaults_to_env_physics_snapshot(
 
     class FakeEnv:
         def __init__(self):
-            self.cfg = type("Cfg", (), {"ctrl_dt": 0.05, "model_file": "scene.xml"})()
+            self.cfg = type(
+                "Cfg", (), {"ctrl_dt": 0.05, "scene": SceneCfg(model_file="scene.xml")}
+            )()
             self.snapshot_calls = 0
 
         def get_physics_state_snapshot(self) -> np.ndarray:
@@ -419,7 +430,11 @@ def test_render_play_mode_uses_visualized_per_env_playback_models_for_video_expo
 
     class FakeEnv:
         def __init__(self):
-            self.cfg = type("Cfg", (), {"ctrl_dt": 0.05, "model_file": str(visual_model_path)})()
+            self.cfg = type(
+                "Cfg",
+                (),
+                {"ctrl_dt": 0.05, "scene": SceneCfg(model_file=str(visual_model_path))},
+            )()
             self.snapshot_calls = 0
             self._models = [
                 mujoco.MjModel.from_xml_string(
@@ -495,7 +510,9 @@ def test_render_play_mode_uses_visualized_per_env_playback_models_for_video_expo
 def test_render_play_mode_requires_env_snapshot_contract_for_video_export(tmp_path: Path):
     class FakeEnv:
         def __init__(self):
-            self.cfg = type("Cfg", (), {"ctrl_dt": 0.05, "model_file": "scene.xml"})()
+            self.cfg = type(
+                "Cfg", (), {"ctrl_dt": 0.05, "scene": SceneCfg(model_file="scene.xml")}
+            )()
 
         def get_physics_state_snapshot(self) -> np.ndarray:
             raise NotImplementedError("unsupported")

@@ -8,6 +8,7 @@ from typing import Any, Callable
 from omegaconf import DictConfig, OmegaConf
 
 from unilab.base.backend.xml import materialize_scene_visual_override
+from unilab.base.scene import SceneCfg
 from unilab.training.reward import extract_reward_config
 
 
@@ -57,16 +58,18 @@ class BackendAdapter:
         if not source_model_file:
             raise ValueError("play_profile.scene.source_model_file must be configured")
 
-        env_cfg_override["model_file"] = self.scene_materializer(
-            self._resolve_root_relative_path(str(source_model_file)),
-            ground_texture_file=(
-                self._resolve_root_relative_path(str(scene_override.ground_texture_file))
-                if getattr(scene_override, "ground_texture_file", None)
-                else None
-            ),
-            ground_texrepeat=getattr(scene_override, "ground_texrepeat", None),
-            skybox_rgb1=getattr(scene_override, "skybox_rgb1", None),
-            skybox_rgb2=getattr(scene_override, "skybox_rgb2", None),
+        env_cfg_override["scene"] = SceneCfg(
+            model_file=self.scene_materializer(
+                self._resolve_root_relative_path(str(source_model_file)),
+                ground_texture_file=(
+                    self._resolve_root_relative_path(str(scene_override.ground_texture_file))
+                    if getattr(scene_override, "ground_texture_file", None)
+                    else None
+                ),
+                ground_texrepeat=getattr(scene_override, "ground_texrepeat", None),
+                skybox_rgb1=getattr(scene_override, "skybox_rgb1", None),
+                skybox_rgb2=getattr(scene_override, "skybox_rgb2", None),
+            )
         )
         return env_cfg_override
 

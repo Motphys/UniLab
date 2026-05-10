@@ -3,13 +3,15 @@ import tempfile
 import time
 from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor
+from dataclasses import dataclass
 from multiprocessing import cpu_count, current_process, get_context
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 import mujoco
 import numpy as np
 from mujoco.batch_env import BatchEnvPool
 
+from unilab.base.scene import SceneCfg
 from unilab.dr.types import (
     RESET_TERM_BASE_COM,
     RESET_TERM_BASE_MASS,
@@ -139,12 +141,90 @@ def _apply_position_actuator_gains_to_mj_model(
     model.actuator_biasprm[actuator_ids, 2] = -kd_arr
 
 
+class _TempXmlCleanup:
+    def __init__(self, path: str) -> None:
+        self.path = path
+
+    def cleanup(self) -> None:
+        if os.path.exists(self.path):
+            os.remove(self.path)
+
+
+@dataclass
+class _MuJoCoSceneContext:
+    model_source: str | mujoco.MjModel
+    model_file: str
+    visual_model_file: str | None = None
+    artifacts_dir: str | None = None
+    terrain_origins: np.ndarray | None = None
+    terrain_surface_sampler: Any | None = None
+    cleanup_handle: Any | None = None
+
+
+def _build_mujoco_scene_context(scene: SceneCfg) -> _MuJoCoSceneContext:
+    from unilab.base.backend.xml import (
+        materialize_mujoco_hfield_attached_scene,
+        materialize_scene_fragments,
+    )
+
+    if scene is None:
+        raise ValueError("SceneCfg must be provided")
+    if not scene.model_file:
+        raise ValueError("SceneCfg.model_file must be provided")
+
+    if scene.terrain is None:
+        if not scene.fragment_files:
+            return _MuJoCoSceneContext(
+                model_source=scene.model_file,
+                model_file=scene.model_file,
+                visual_model_file=scene.model_file,
+            )
+        model_source = materialize_scene_fragments(
+            scene.model_file,
+            fragment_files=scene.fragment_files,
+        )
+        return _MuJoCoSceneContext(
+            model_source=model_source,
+            model_file=scene.model_file,
+            visual_model_file=model_source,
+            cleanup_handle=_TempXmlCleanup(model_source),
+        )
+
+    if scene.terrain.generator is None:
+        raise ValueError("SceneCfg.terrain.generator must be configured for terrain scenes")
+
+    output_dir = tempfile.TemporaryDirectory(prefix="unilab_scene_")
+    try:
+        model, terrain_origins, terrain_surface_sampler = materialize_mujoco_hfield_attached_scene(
+            model_file=scene.model_file,
+            terrain_cfg=scene.terrain.generator,
+            output_dir=output_dir.name,
+            fragment_files=scene.fragment_files,
+            hfield_name=scene.terrain.hfield_name,
+            geom_name=scene.terrain.geom_name or "floor",
+            return_surface_sampler=True,
+        )
+    except Exception:
+        output_dir.cleanup()
+        raise
+
+    return _MuJoCoSceneContext(
+        model_source=model,
+        model_file=scene.model_file,
+        visual_model_file=os.path.join(output_dir.name, "scene.xml"),
+        artifacts_dir=output_dir.name,
+        terrain_origins=terrain_origins,
+        terrain_surface_sampler=terrain_surface_sampler,
+        cleanup_handle=output_dir,
+    )
+
+
 class MuJoCoBackend(SimBackend):
     """MuJoCo 后端实现"""
 
     def __init__(
         self,
-        model_file: str,
+        scene: SceneCfg,
         num_envs: int,
         sim_dt: float,
         base_name: Optional[str] = None,
@@ -155,10 +235,17 @@ class MuJoCoBackend(SimBackend):
         push_body_name: Optional[str] = None,
         post_step_forward_sensor: bool = False,
     ):
+        scene_context = _build_mujoco_scene_context(scene)
+        self.scene_model_file = scene_context.model_file
+        self.scene_visual_model_file = scene_context.visual_model_file
+        self.scene_artifacts_dir = scene_context.artifacts_dir
+        self.terrain_origins = scene_context.terrain_origins
+        self.terrain_surface_sampler = scene_context.terrain_surface_sampler
+        self._scene_cleanup_handle = scene_context.cleanup_handle
         self.add_body_sensors = add_body_sensors
         self._base_name = base_name
         self._push_body_name = push_body_name
-        self._model_file = model_file
+        self._model_file = scene_context.model_source
         self._sim_dt = float(sim_dt)
         self._iterations = None if iterations is None else int(iterations)
         self._post_step_forward_sensor = bool(post_step_forward_sensor)
@@ -271,6 +358,15 @@ class MuJoCoBackend(SimBackend):
             self._tracked_angvel_b_all = _get_sensor_view("track_angvel_b", 3)
 
     def _load_base_model(self) -> mujoco.MjModel:
+        if isinstance(self._model_file, mujoco.MjModel):
+            if self.add_body_sensors:
+                raise ValueError("add_body_sensors is not supported for precompiled MuJoCo models")
+            self._tracked_body_ids = []
+            self._valid_bnames = []
+            model = self._model_file
+            self._configure_model(model)
+            return model
+
         model_path, tmp_paths, tracked_body_ids, valid_bnames = self._prepare_model_xml()
         try:
             model = mujoco.MjModel.from_xml_path(model_path)
@@ -290,7 +386,7 @@ class MuJoCoBackend(SimBackend):
     def _prepare_model_xml(self) -> tuple[str, list[str], list[int], list[str]]:
         from unilab.base.backend.xml import create_discardvisual_xml, inject_mujoco_tracking_sensors
 
-        model_path = create_discardvisual_xml(self._model_file)
+        model_path = create_discardvisual_xml(str(self._model_file))
         tmp_paths = [model_path]
         if self.add_body_sensors:
             model_path, tracked_body_ids, valid_bnames = inject_mujoco_tracking_sensors(
@@ -345,6 +441,10 @@ class MuJoCoBackend(SimBackend):
         variants = tuple(variant_specs)
         if not variants:
             return tuple()
+        if isinstance(self._model_file, mujoco.MjModel):
+            raise ValueError(
+                "MuJoCo model variants are not supported for precompiled materialized scenes"
+            )
 
         def _load_compiled_models_and_cleanup(paths: Sequence[str]) -> tuple[mujoco.MjModel, ...]:
             try:

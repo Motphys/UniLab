@@ -61,6 +61,7 @@ def run_motrix_rsl_play_loop(
     policy,
     *,
     render_spacing: float,
+    render_offset_mode: str,
     num_steps: int | None = None,
 ) -> None:
     env = wrapped_env.env
@@ -70,6 +71,7 @@ def run_motrix_rsl_play_loop(
             env,
             sim_backend="motrix",
             render_spacing=render_spacing,
+            render_offset_mode=render_offset_mode,
             num_steps=num_steps,
             initialize=lambda: wrapped_env.reset()[0],
             step=lambda obs: wrapped_env.step(policy(obs))[0],
@@ -139,6 +141,13 @@ def _format_play_checkpoint_error(
     )
 
 
+def _resolve_play_num_steps(cfg: DictConfig) -> int | None:
+    play_steps = OmegaConf.select(cfg, "training.play_steps", default=None)
+    if play_steps is None:
+        return None
+    return int(play_steps)
+
+
 def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     """Play mode for RSL-RL."""
     rl_cfg = _algo_config_dict(cfg)
@@ -188,34 +197,23 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     if EXPORT_POLICY:
         runner.export_policy_to_onnx(path=str(load_path_dir))
         runner.export_policy_to_jit(path=str(load_path_dir))
-    if cfg.training.sim_backend == "motrix" and load_path_dir is None:
-        print("Starting interactive visualization (motrix native renderer)...")
-        print("Close the render window to exit.")
-        with torch.inference_mode():
-            try:
-                run_motrix_rsl_play_loop(
-                    wrapped_env=wrapped_env,
-                    policy=policy,
-                    render_spacing=float(
-                        getattr(
-                            cfg.training, "render_spacing", getattr(env.cfg, "render_spacing", 1.0)
-                        )
-                    ),
-                )
-            except Exception as e:
-                if "RenderClosedError" in str(type(e).__name__):
-                    print("Render window closed.")
-                else:
-                    raise
-    else:
-        record_video = bool(getattr(cfg.training, "play_record_video", True))
-        output_video = Path(load_path_dir) / "play_video.mp4" if record_video else None
-        if record_video:
-            print(f"Rendering video to {output_video}...")
+    record_video = bool(getattr(cfg.training, "play_record_video", True))
+    headless = bool(getattr(cfg.training, "play_headless", True))
+    num_steps = _resolve_play_num_steps(cfg)
+    output_video = Path(load_path_dir) / "play_video.mp4" if record_video else None
+    if record_video:
+        print(f"Rendering video to {output_video}...")
+    elif cfg.training.sim_backend == "motrix" and not headless:
+        if num_steps is None:
+            print("Starting interactive visualization (motrix native renderer)...")
+            print("Close the render window to exit.")
         else:
-            print("Running playback without video recording...")
+            print(f"Running interactive visualization for {num_steps} steps...")
+    else:
+        print("Running playback without video recording...")
 
-        print("Rendering playback frames...")
+    print("Rendering playback frames...")
+    try:
         with torch.inference_mode():
             render_play_mode(
                 env,
@@ -223,9 +221,10 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
                 render_spacing=float(
                     getattr(cfg.training, "render_spacing", getattr(env.cfg, "render_spacing", 1.0))
                 ),
-                headless=bool(getattr(cfg.training, "play_headless", True)),
+                render_offset_mode=str(getattr(env.cfg, "render_offset_mode", "grid")),
+                headless=headless,
                 record_video=record_video,
-                num_steps=cfg.training.play_steps,
+                num_steps=num_steps,
                 output_video=output_video,
                 initialize=lambda: wrapped_env.reset()[0],
                 step=lambda obs: wrapped_env.step(policy(obs))[0],
@@ -239,10 +238,14 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
                     "cam_tracking_extra_envs": getattr(cfg.training, "cam_tracking_extra_envs", 2),
                 },
             )
+    except Exception as e:
+        if cfg.training.sim_backend == "motrix" and "RenderClosedError" in str(type(e).__name__):
+            print("Render window closed.")
+        else:
+            raise
+    if num_steps is not None:
         print("Done.")
-        return str(output_video) if output_video is not None else None
-
-    return None
+    return str(output_video) if output_video is not None else None
 
 
 @hydra.main(version_base="1.3", config_path="../conf/ppo", config_name="config")

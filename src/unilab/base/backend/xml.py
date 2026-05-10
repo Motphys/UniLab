@@ -6,9 +6,11 @@ import tempfile
 import xml.etree.ElementTree as ET
 from collections.abc import Iterator, Sequence
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast, overload
 
 import numpy as np
+
+from unilab.terrains.terrain_generator import TerrainGeneratorCfg
 
 
 def _enable_discardvisual(root: ET.Element) -> None:
@@ -168,25 +170,6 @@ def _write_temp_xml(tree: ET.ElementTree[ET.Element], model_file: str) -> str:  
     return output_path
 
 
-def _normalize_motrix_texture_colorspaces(tree: ET.ElementTree[ET.Element]) -> None:  # type: ignore[type-arg]
-    """Rewrite MuJoCo's implicit/auto texture colorspaces to Motrix-supported values."""
-    root = tree.getroot()
-    for texture in root.findall(".//texture"):
-        colorspace = texture.get("colorspace")
-        if colorspace is None:
-            texture.set("colorspace", "sRGB")
-            continue
-        if colorspace != "auto":
-            continue
-        texture.set("colorspace", "sRGB")
-
-
-def create_motrix_compatible_xml(model_file: str) -> str:
-    tree = ET.parse(model_file)
-    _normalize_motrix_texture_colorspaces(tree)
-    return _write_temp_xml(tree, model_file)
-
-
 def _format_values(values: list[float] | tuple[float, ...]) -> str:
     return " ".join(str(float(value)) for value in values)
 
@@ -232,64 +215,194 @@ def materialize_scene_visual_override(
     return _write_temp_xml(tree, source_model_file)
 
 
-def _copy_template_dependencies(root: ET.Element, source_dir: Path, output_dir: Path) -> None:
-    for include in root.findall(".//include"):
-        include_file = include.get("file")
-        if not include_file:
-            continue
-        include_path = Path(include_file)
-        src = include_path if include_path.is_absolute() else source_dir / include_path
-        dst = output_dir / include_path.name
-        shutil.copyfile(src, dst)
-        include.set("file", dst.name)
-
-    assets_src = source_dir / "assets"
-    assets_dst = output_dir / "assets"
-    if assets_src.is_dir():
-        shutil.copytree(assets_src, assets_dst, dirs_exist_ok=True)
-
-
-def materialize_terrain_hfield_scene(
+def materialize_scene_fragments(
     source_model_file: str,
     *,
-    terrain_cfg: Any,
+    fragment_files: Sequence[str],
+) -> str:
+    """Create a temporary scene XML with task/scene fragments merged."""
+    tree = ET.parse(source_model_file)
+    root = tree.getroot()
+    source_path = Path(source_model_file).resolve()
+    for fragment_file in fragment_files:
+        _merge_scene_fragment(root, _resolve_scene_fragment_path(fragment_file, source_path))
+    return _write_temp_xml(tree, source_model_file)
+
+
+_ATTACH_PREFIXED_ATTRS = {
+    "class",
+    "childclass",
+    "name",
+    "material",
+    "texture",
+    "mesh",
+    "joint",
+    "site",
+    "geom1",
+    "geom2",
+    "body1",
+    "body2",
+    "objname",
+    "refname",
+    "hfield",
+    "hfieldname",
+    "actuator",
+}
+
+
+def _strip_attach_prefixes(root: ET.Element) -> None:
+    for elem in root.iter():
+        for attr, value in list(elem.attrib.items()):
+            if attr in _ATTACH_PREFIXED_ATTRS and value.startswith("/"):
+                elem.set(attr, value[1:])
+
+
+def _flatten_attach_main_default(root: ET.Element) -> None:
+    default = root.find("default")
+    if default is None:
+        return
+    main = default.find("./default[@class='main']")
+    if main is None:
+        return
+    insert_at = list(default).index(main)
+    default.remove(main)
+    for child in list(main):
+        default.insert(insert_at, child)
+        insert_at += 1
+
+
+def _merge_scene_fragment(root: ET.Element, fragment_file: Path) -> None:
+    fragment_root = ET.parse(fragment_file).getroot()
+    if fragment_root.tag != "mujoco":
+        raise ValueError(f"Scene fragment '{fragment_file}' must have a <mujoco> root.")
+
+    for child in list(fragment_root):
+        if child.tag in {"sensor", "keyframe", "actuator"}:
+            existing = root.find(child.tag)
+            if existing is None:
+                root.append(child)
+            else:
+                existing.extend(list(child))
+            continue
+        root.append(child)
+
+
+def _resolve_scene_fragment_path(fragment_file: str, model_file: Path) -> Path:
+    path = Path(fragment_file)
+    if path.is_absolute():
+        return path
+    if path.is_file():
+        return path.resolve()
+    return (model_file.parent / path).resolve()
+
+
+def _copy_robot_asset_dir(model_file: Path, output_dir: Path) -> None:
+    assets_src = model_file.parent / "assets"
+    if assets_src.is_dir():
+        shutil.copytree(assets_src, output_dir / "assets", dirs_exist_ok=True)
+
+
+def _collect_mujoco_assets(asset_dir: Path) -> dict[str, bytes]:
+    assets: dict[str, bytes] = {}
+    if not asset_dir.is_dir():
+        return assets
+    for path in asset_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(asset_dir)
+        assets[str(rel)] = path.read_bytes()
+        assets[str(asset_dir.name / rel)] = path.read_bytes()
+    return assets
+
+
+@overload
+def materialize_mujoco_hfield_attached_scene(
+    *,
+    model_file: str,
+    terrain_cfg: TerrainGeneratorCfg,
     output_dir: str | Path,
+    fragment_files: Sequence[str] = (),
     hfield_name: str = "terrain_hfield",
-) -> tuple[str, np.ndarray]:
-    """Materialize a scene template by replacing one hfield PNG."""
+    geom_name: str = "floor",
+    return_surface_sampler: Literal[False] = False,
+) -> tuple[Any, np.ndarray]: ...
+
+
+@overload
+def materialize_mujoco_hfield_attached_scene(
+    *,
+    model_file: str,
+    terrain_cfg: TerrainGeneratorCfg,
+    output_dir: str | Path,
+    fragment_files: Sequence[str] = (),
+    hfield_name: str = "terrain_hfield",
+    geom_name: str = "floor",
+    return_surface_sampler: Literal[True],
+) -> tuple[Any, np.ndarray, Any]: ...
+
+
+def materialize_mujoco_hfield_attached_scene(
+    *,
+    model_file: str,
+    terrain_cfg: TerrainGeneratorCfg,
+    output_dir: str | Path,
+    fragment_files: Sequence[str] = (),
+    hfield_name: str = "terrain_hfield",
+    geom_name: str = "floor",
+    return_surface_sampler: bool = False,
+) -> tuple[Any, np.ndarray] | tuple[Any, np.ndarray, Any]:
+    """Build a MuJoCo model with generated hfield terrain and attached robot spec."""
+    import mujoco
+
     from unilab.terrains import TerrainGenerator
 
-    source_path = Path(source_model_file).resolve()
+    robot_path = Path(model_file).resolve()
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
+    _copy_robot_asset_dir(robot_path, output_path)
 
     hfield_rel = Path("hfields") / "hfield.png"
     generated = TerrainGenerator(terrain_cfg).write_png(output_path / hfield_rel)
 
-    tree = ET.parse(source_path)
-    root = tree.getroot()
-    _copy_template_dependencies(root, source_path.parent, output_path)
+    spec = mujoco.MjSpec()
+    spec.compiler.autolimits = True
+    spec.compiler.meshdir = "assets"
 
-    asset = root.find("asset")
-    if asset is None:
-        raise ValueError(f"Scene '{source_model_file}' is missing an <asset> tag.")
-    hfield = asset.find(f"./hfield[@name='{hfield_name}']")
-    if hfield is None:
-        raise ValueError(f"Scene '{source_model_file}' is missing hfield asset '{hfield_name}'.")
-    hfield.set("file", str((output_path / hfield_rel).resolve()))
-    hfield.set("size", generated.hfield_size_xml())
+    spec.add_hfield(
+        name=hfield_name,
+        file=str((output_path / hfield_rel).resolve()),
+        size=list(generated.hfield_size),
+    )
+    spec.worldbody.add_light(pos=[0.0, 0.0, 8.0], dir=[0.0, 0.0, -1.0])
+    spec.worldbody.add_geom(
+        name=geom_name,
+        type=mujoco.mjtGeom.mjGEOM_HFIELD,
+        hfieldname=hfield_name,
+        pos=list(generated.geom_pos),
+    )
 
-    terrain_geom = root.find(f".//geom[@hfield='{hfield_name}']")
-    if terrain_geom is None:
-        raise ValueError(
-            f"Scene '{source_model_file}' is missing a geom using hfield '{hfield_name}'."
-        )
-    terrain_geom.set("pos", generated.geom_pos_xml())
+    robot_spec = mujoco.MjSpec.from_file(str(robot_path))
+    frame = spec.worldbody.add_frame()
+    spec.attach(robot_spec, frame=frame)
 
-    ET.indent(tree, space="  ")
+    root = ET.fromstring(spec.to_xml())
+    _enable_discardvisual(root)
+    _strip_attach_prefixes(root)
+    _flatten_attach_main_default(root)
+    for fragment_file in fragment_files:
+        _merge_scene_fragment(root, _resolve_scene_fragment_path(fragment_file, robot_path))
+
+    ET.indent(root, space="  ")
     scene_xml = output_path / "scene.xml"
-    tree.write(scene_xml, encoding="unicode")
-    return str(scene_xml), generated.terrain_origins
+    scene_xml.write_text(ET.tostring(root, encoding="unicode"))
+
+    model = mujoco.MjSpec.from_string(
+        ET.tostring(root, encoding="unicode"),
+        assets=_collect_mujoco_assets(output_path / "assets"),
+    ).compile()
+    if return_surface_sampler:
+        return model, generated.terrain_origins, generated.surface_sampler()
+    return model, generated.terrain_origins
 
 
 def inject_mujoco_tracking_sensors(
@@ -313,63 +426,6 @@ def inject_mujoco_tracking_sensors(
         _add_b_sensors(spec, valid_bnames, baselink_name)
 
     return _materialize_spec_xml(spec, model_file), tracked_body_ids, valid_bnames
-
-
-def inject_motrix_tracking_sensors(model_file: str, baselink_name: str) -> tuple[str, list, list]:
-    """为 MotrixSim 后端注入 tracking sensors。
-
-    只注入相对 baselink 坐标系的 (_b) sensors。
-    世界系 (_w) 数据由 motrixsim body API 直接提供，无需 sensor 注入。
-
-    Returns:
-        (tmp_xml_path, tracked_body_ids, valid_bnames)
-    """
-    tracked_body_ids, valid_bnames = _get_named_bodies(model_file)
-    tree = ET.parse(model_file)
-    _normalize_motrix_texture_colorspaces(tree)
-    root = tree.getroot()
-    for bname in valid_bnames:
-        add_sensor(
-            root,
-            "framepos",
-            f"track_pos_b_{bname}",
-            objtype="xbody",
-            objname=bname,
-            reftype="xbody",
-            refname=baselink_name,
-        )
-    for bname in valid_bnames:
-        add_sensor(
-            root,
-            "framequat",
-            f"track_quat_b_{bname}",
-            objtype="xbody",
-            objname=bname,
-            reftype="xbody",
-            refname=baselink_name,
-        )
-    for bname in valid_bnames:
-        add_sensor(
-            root,
-            "framelinvel",
-            f"track_linvel_b_{bname}",
-            objtype="xbody",
-            objname=bname,
-            reftype="xbody",
-            refname=baselink_name,
-        )
-    for bname in valid_bnames:
-        add_sensor(
-            root,
-            "frameangvel",
-            f"track_angvel_b_{bname}",
-            objtype="xbody",
-            objname=bname,
-            reftype="xbody",
-            refname=baselink_name,
-        )
-
-    return _write_temp_xml(tree, model_file), tracked_body_ids, valid_bnames
 
 
 def processed_xml(xml_path):

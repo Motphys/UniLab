@@ -10,6 +10,7 @@ import numpy as np
 
 from unilab.base.backend import SimBackend
 from unilab.base.base import ABEnv, EnvCfg, EnvPlayCapabilities
+from unilab.base.scene import SceneCfg
 from unilab.dr import DomainRandomizationManager, DomainRandomizationProvider
 from unilab.dtype_config import get_global_dtype
 
@@ -154,8 +155,7 @@ class NpEnv(ABEnv):
             )
             nan_ids = self._nan_guard.check(self._state.obs, self._state.reward)
             if nan_ids is not None:
-                model_file = getattr(self._cfg, "model_file", "")
-                self._nan_guard.dump(nan_ids, str(model_file), self.step_counter)
+                self._nan_guard.dump(nan_ids, self._nan_guard_model_file(), self.step_counter)
 
         np.nan_to_num(self._state.reward, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
@@ -197,6 +197,15 @@ class NpEnv(ABEnv):
                         self._state.info[key] = value
                 elif isinstance(value, np.ndarray):
                     self._state.info[key][env_indices] = value
+
+    def _nan_guard_model_file(self) -> str:
+        scene = getattr(self._cfg, "scene", None)
+        if isinstance(scene, SceneCfg) and scene.model_file:
+            return str(scene.model_file)
+        model_file = getattr(self._backend, "scene_model_file", None)
+        if model_file:
+            return str(model_file)
+        return ""
 
     def _ensure_final_observation_scratch(self) -> dict[str, np.ndarray]:
         assert self._state is not None
@@ -286,6 +295,7 @@ class NpEnv(ABEnv):
     def init_play_renderer(
         self,
         render_spacing: float | None = None,
+        render_offset_mode: str | None = None,
         *,
         headless: bool = False,
         capture: bool = False,
@@ -307,8 +317,14 @@ class NpEnv(ABEnv):
         spacing = (
             float(render_spacing) if render_spacing is not None else float(self._cfg.render_spacing)
         )
+        offset_mode = (
+            str(render_offset_mode)
+            if render_offset_mode is not None
+            else str(getattr(self._cfg, "render_offset_mode", "grid"))
+        )
         self._backend.init_renderer(
             spacing=spacing,
+            offset_mode=offset_mode,
             headless=bool(headless),
             capture=bool(capture),
             width=int(width),
@@ -379,7 +395,9 @@ class NpEnv(ABEnv):
 
     def close(self) -> None:
         """关闭环境"""
-        pass
+        cleanup_scene_assets = getattr(self._backend, "cleanup_scene_assets", None)
+        if callable(cleanup_scene_assets):
+            cleanup_scene_assets()
 
     def _supports_backend_property(self, name: str) -> bool:
         return hasattr(self._backend, name)

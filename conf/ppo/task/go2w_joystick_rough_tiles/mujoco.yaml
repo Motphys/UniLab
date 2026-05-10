@@ -20,7 +20,8 @@ algo:
     learning_rate: 1.0e-3
     entropy_coef: 1.0e-3
 env:
-  model_file: src/unilab/assets/robots/go2w/scene_rough_tiles.xml
+  scene:
+    model_file: src/unilab/assets/robots/go2w/scene_rough_tiles.xml
   commands:
     vel_limit:
       - [-1.0, -0.6, -1.0]

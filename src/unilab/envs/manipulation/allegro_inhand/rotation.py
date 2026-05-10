@@ -12,6 +12,7 @@ from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.backend import create_backend
 from unilab.base.np_env import NpEnvState
+from unilab.base.scene import SceneCfg
 from unilab.dr import (
     DomainRandomizationCapabilities,
     DomainRandomizationProvider,
@@ -99,7 +100,11 @@ class DomainRandConfig:
 @registry.envcfg("AllegroInhandRotation")
 @dataclass
 class AllegroRotationPPOCfg(AllegroBaseCfg):
-    model_file: str = str(ASSETS_ROOT_PATH / "robots" / "allegro_hand" / "scene.xml")
+    scene: SceneCfg = field(
+        default_factory=lambda: SceneCfg(
+            model_file=str(ASSETS_ROOT_PATH / "robots" / "allegro_hand" / "scene.xml")
+        )
+    )
     max_episode_seconds: float = 20.0
     reward_config: RewardConfigPPO | None = None
     domain_rand: DomainRandConfig = field(default_factory=DomainRandConfig)
@@ -247,7 +252,7 @@ class AllegroRotationPPO(AllegroBaseEnv):
             raise ValueError("reward_config must be provided via Hydra configuration")
         backend = create_backend(
             backend_type,
-            cfg.model_file,
+            cfg.scene,
             num_envs,
             cfg.sim_dt,
             base_name="palm",
