@@ -32,8 +32,6 @@ from pathlib import Path
 from typing import Any, cast
 
 import hydra
-import mujoco
-import mujoco.viewer
 import numpy as np
 import torch
 from omegaconf import DictConfig, OmegaConf
@@ -68,6 +66,9 @@ try:
 except ImportError:
     print("Could not import rsl_rl. Please ensure it is installed.")
     sys.exit(1)
+
+import mujoco
+import mujoco.viewer
 
 
 @dataclass
@@ -710,6 +711,9 @@ def play_interactive(args, cfg: DictConfig | None = None):
             mj_model = env.get_playback_model()
         except NotImplementedError as exc:
             raise AttributeError("Environment does not expose a playback model contract") from exc
+        if isinstance(mj_model, str):
+            print(f"[play_interactive] Using playback model for viewer: {mj_model}")
+            mj_model = mujoco.MjModel.from_xml_path(mj_model)
 
     viz_data = mujoco.MjData(mj_model)
     state_spec = mujoco.mjtState.mjSTATE_FULLPHYSICS
