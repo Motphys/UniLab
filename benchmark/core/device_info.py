@@ -141,11 +141,48 @@ def _get_device_info_linux() -> Dict[str, str]:
                 text=True,
                 stderr=subprocess.DEVNULL,
             )
-            gpu_match = re.search(r"Card series\s*:\s*(.+)", rocm_out)
+            gpu_match = re.search(r"Card series\s*:\s*(.+)", rocm_out, re.IGNORECASE)
             if gpu_match:
                 info["gpu_name"] = gpu_match.group(1).strip()
         except Exception:
             pass
+    # GPU memory via amd-smi (AMD ROCm). On unified-memory APUs this reports
+    # the BIOS-allocated visible VRAM slice, e.g. 96 GB out of 128 GB.
+    try:
+        amd_smi_out = subprocess.check_output(
+            ["amd-smi", "metric"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+        vram_match = re.search(r"TOTAL_VISIBLE_VRAM:\s*(\d+)\s*MB", amd_smi_out)
+        if vram_match:
+            info["gpu_memory"] = f"{int(vram_match.group(1))} MB"
+        gtt_match = re.search(r"TOTAL_GTT:\s*(\d+)\s*MB", amd_smi_out)
+        if gtt_match:
+            info["gpu_gtt_memory"] = f"{int(gtt_match.group(1))} MB"
+    except Exception:
+        pass
+    # Fallback GPU via lspci (AMD/ATI and others)
+    if info["gpu_name"] == "unknown":
+        try:
+            lspci_out = subprocess.check_output(["lspci"], text=True, stderr=subprocess.DEVNULL)
+            for line in lspci_out.splitlines():
+                if "VGA" in line or "Display" in line or "3D" in line:
+                    if "AMD" in line or "ATI" in line:
+                        match = re.search(r"\[AMD/ATI\]\s*(.+)", line)
+                        if match:
+                            name = match.group(1).strip()
+                            name = re.sub(r"\s*\(rev.*\)", "", name)
+                            info["gpu_name"] = name
+                            break
+        except Exception:
+            pass
+    # If GPU name is still generic/unknown, try to infer from CPU model (APUs)
+    if info["gpu_name"] in ("unknown", "AMD Radeon Graphics"):
+        chip = info.get("chip", "")
+        match = re.search(r"w(?:ith)?/\s*(Radeon\s+[\w\s\+]+)", chip, re.IGNORECASE)
+        if match:
+            info["gpu_name"] = match.group(1).strip()
     return info
 
 

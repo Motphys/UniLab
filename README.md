@@ -22,11 +22,15 @@ cd UniLab
 
 # 2. Install dependencies
 uv sync --extra motrix
+# Linux AMD / ROCm workstation:
+# make sync-rocm
 
 # 3. Run a first PPO training job
 # macOS: 73s on M5Max-128GB, 1min43s on M3Max-48GB, 2.5min on MacBookNeo-8GB
 # Linux: 31s on RTX 4090 and R9-9950x3d
 uv run train --algo ppo --task go2_joystick_flat --sim motrix
+# Linux AMD / ROCm workstation after make sync-rocm:
+# uv run --no-sync train --algo ppo --task go2_joystick_flat --sim motrix
 ```
 
 This is the first-level training entrypoint. It routes to the registered `go2_joystick_flat/motrix` task owner config and keeps backend selection in the CLI flags.
@@ -41,6 +45,8 @@ uv run demo
 ```
 
 On macOS / MacBook, the UniLab CLI routes Motrix renderer playback through `mxpython` when needed. Detailed script-level commands are documented under `docs/users/zh_CN/`.
+
+On Linux AMD / ROCm workstations, `make sync-rocm` requires ROCm 7.1 or newer and installs the PyTorch ROCm 7.2 wheel (`torch==2.11.0+rocm7.2`). Use `uv run --no-sync ...` after that setup so `uv` does not resync the default Linux CUDA wheel.
 
 ### Interactive Notebooks
 

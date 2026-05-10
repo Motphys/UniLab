@@ -17,7 +17,8 @@ def _class_path(obj) -> str:
 
 
 def _rough_cfg(*, curriculum_enabled: bool = False, seed: int = 0):
-    from unilab.envs.locomotion.go2.joystick import Go2JoystickRoughCfg, RewardConfig
+    from unilab.envs.locomotion.go2.joystick import RewardConfig
+    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughCfg
 
     cfg = Go2JoystickRoughCfg(
         reward_config=RewardConfig(scales={}, tracking_sigma=0.25, base_height_target=0.3)
@@ -32,10 +33,10 @@ def _rough_cfg(*, curriculum_enabled: bool = False, seed: int = 0):
 
 
 def test_terrain_spawn_attached_when_rough():
-    from unilab.envs.locomotion.go2.joystick import Go2WalkTask
+    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughEnv
 
     cfg = _rough_cfg()
-    env = Go2WalkTask(cfg, num_envs=4, backend_type="mujoco")
+    env = Go2JoystickRoughEnv(cfg, num_envs=4, backend_type="mujoco")
     try:
         assert _class_path(env._spawn) == (
             "unilab.envs.locomotion.common.terrain_spawn.TerrainSpawnManager"
@@ -140,10 +141,10 @@ def test_default_spawn_used_when_flat():
 
 
 def test_curriculum_disabled_distributes_levels_uniformly():
-    from unilab.envs.locomotion.go2.joystick import Go2WalkTask
+    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughEnv
 
     cfg = _rough_cfg(curriculum_enabled=False, seed=0)
-    env = Go2WalkTask(cfg, num_envs=64, backend_type="mujoco")
+    env = Go2JoystickRoughEnv(cfg, num_envs=64, backend_type="mujoco")
     try:
         sm = env._spawn
         assert sm is not None
@@ -156,10 +157,10 @@ def test_curriculum_disabled_distributes_levels_uniformly():
 
 
 def test_curriculum_enabled_levels_start_at_zero():
-    from unilab.envs.locomotion.go2.joystick import Go2WalkTask
+    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughEnv
 
     cfg = _rough_cfg(curriculum_enabled=True, seed=0)
-    env = Go2WalkTask(cfg, num_envs=8, backend_type="mujoco")
+    env = Go2JoystickRoughEnv(cfg, num_envs=8, backend_type="mujoco")
     try:
         sm = env._spawn
         assert sm is not None
@@ -169,10 +170,10 @@ def test_curriculum_enabled_levels_start_at_zero():
 
 
 def test_reset_qpos_xy_matches_terrain_origins():
-    from unilab.envs.locomotion.go2.joystick import Go2WalkTask
+    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughEnv
 
     cfg = _rough_cfg(curriculum_enabled=False, seed=0)
-    env = Go2WalkTask(cfg, num_envs=4, backend_type="mujoco")
+    env = Go2JoystickRoughEnv(cfg, num_envs=4, backend_type="mujoco")
     try:
         sm = env._spawn
         assert sm is not None
@@ -188,11 +189,40 @@ def test_reset_qpos_xy_matches_terrain_origins():
         env.close()
 
 
+def test_rough_reset_spawns_upright_on_terrain():
+    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughEnv
+
+    cfg = _rough_cfg(curriculum_enabled=False, seed=0)
+    env = Go2JoystickRoughEnv(cfg, num_envs=64, backend_type="mujoco")
+    try:
+        env.init_state()
+        upvector = env._backend.get_sensor_data("upvector")
+        assert np.all(upvector[:, 2] > 0.9)
+    finally:
+        env.close()
+
+
+def test_rough_reset_spawns_above_sampled_terrain():
+    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughEnv
+
+    cfg = _rough_cfg(curriculum_enabled=False, seed=0)
+    env = Go2JoystickRoughEnv(cfg, num_envs=64, backend_type="mujoco")
+    try:
+        env.init_state()
+        raw_heights, _ = env._raw_height_scan_obs(env.num_envs)
+        assert raw_heights is not None
+        center_heights = raw_heights[:, raw_heights.shape[1] // 2]
+        clearance = env._backend.get_base_pos()[:, 2] - center_heights
+        assert np.all(clearance > 0.25)
+    finally:
+        env.close()
+
+
 def test_curriculum_logs_appear_after_done():
-    from unilab.envs.locomotion.go2.joystick import Go2WalkTask
+    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughEnv
 
     cfg = _rough_cfg(curriculum_enabled=True, seed=0)
-    env = Go2WalkTask(cfg, num_envs=4, backend_type="mujoco")
+    env = Go2JoystickRoughEnv(cfg, num_envs=4, backend_type="mujoco")
     try:
         state = env.init_state()
         env.apply_action(np.zeros((4, 12), dtype=np.float32), state)
@@ -214,10 +244,10 @@ def test_curriculum_logs_appear_after_done():
 
 def test_reset_uses_spawn_manager_apply_spawn(monkeypatch):
     """When terrain present, reset must go through the spawn manager after xy jitter."""
-    from unilab.envs.locomotion.go2.joystick import Go2WalkTask
+    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughEnv
 
     cfg = _rough_cfg(curriculum_enabled=False, seed=0)
-    env = Go2WalkTask(cfg, num_envs=4, backend_type="mujoco")
+    env = Go2JoystickRoughEnv(cfg, num_envs=4, backend_type="mujoco")
     try:
         sm = env._spawn
         assert sm is not None
@@ -247,14 +277,17 @@ def test_episode_start_recorded_after_reset(preset):
         Go2WalkTask,
         RewardConfig,
     )
+    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughEnv
 
     if preset == "flat":
         cfg = Go2JoystickCfg(
             reward_config=RewardConfig(scales={}, tracking_sigma=0.25, base_height_target=0.3)
         )
+        env_cls = Go2WalkTask
     else:
         cfg = _rough_cfg(curriculum_enabled=False, seed=0)
-    env = Go2WalkTask(cfg, num_envs=4, backend_type="mujoco")
+        env_cls = Go2JoystickRoughEnv
+    env = env_cls(cfg, num_envs=4, backend_type="mujoco")
     try:
         env.init_state()
         sm = env._spawn

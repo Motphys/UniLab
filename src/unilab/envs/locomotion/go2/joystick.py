@@ -10,9 +10,10 @@ from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.backend import create_backend
 from unilab.base.np_env import NpEnvState
-from unilab.base.scene import SceneCfg, TerrainSceneCfg
+from unilab.base.scene import SceneCfg
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.locomotion.common import rewards
+from unilab.envs.locomotion.common.base import Sensor
 from unilab.envs.locomotion.common.commands import Commands
 from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
 from unilab.envs.locomotion.common.dr_provider import LocomotionDRProvider
@@ -22,17 +23,6 @@ from unilab.envs.locomotion.common.terrain_spawn import (
     TerrainSpawnManager,
 )
 from unilab.envs.locomotion.go2.base import Go2BaseCfg, Go2BaseEnv
-from unilab.terrains import (
-    SubTerrainCfg,
-    TerrainGeneratorCfg,
-    flat,
-    hf_pyramid_slope,
-    hf_pyramid_slope_inv,
-    pyramid_stairs,
-    pyramid_stairs_inv,
-    random_rough,
-    wave_terrain,
-)
 
 
 @dataclass
@@ -58,64 +48,11 @@ class RewardConfig:
 
 
 @dataclass
-class JoystickSensor:
+class JoystickSensor(Sensor):
     local_linvel = "local_linvel"
     gyro = "gyro"
     feet_force = ["FL_foot_contact", "FR_foot_contact", "RL_foot_contact", "RR_foot_contact"]
     feet_pos = ["FL_pos", "FR_pos", "RL_pos", "RR_pos"]
-
-
-@dataclass(kw_only=True)
-class Go2RoughTerrainCfg(TerrainGeneratorCfg):
-    size: tuple[float, float] = (8.0, 8.0)
-    num_rows: int = 10
-    num_cols: int = 20
-    border_width: float = 20.0
-    add_lights: bool = True
-
-    sub_terrains: dict[str, SubTerrainCfg] = field(
-        default_factory=lambda: {
-            "flat": flat(proportion=0.2),
-            "pyramid_stairs": pyramid_stairs(
-                proportion=0.2,
-                step_height_range=(0.0, 0.2),
-                step_width=0.3,
-                platform_width=3.0,
-                border_width=1.0,
-            ),
-            "pyramid_stairs_inv": pyramid_stairs_inv(
-                proportion=0.2,
-                step_height_range=(0.0, 0.2),
-                step_width=0.3,
-                platform_width=3.0,
-                border_width=1.0,
-            ),
-            "hf_pyramid_slope": hf_pyramid_slope(
-                proportion=0.1,
-                slope_range=(0.0, 0.7),
-                platform_width=2.0,
-                border_width=0.25,
-            ),
-            "hf_pyramid_slope_inv": hf_pyramid_slope_inv(
-                proportion=0.1,
-                slope_range=(0.0, 0.7),
-                platform_width=2.0,
-                border_width=0.25,
-            ),
-            "random_rough": random_rough(
-                proportion=0.1,
-                noise_range=(0.02, 0.10),
-                noise_step=0.02,
-                border_width=0.25,
-            ),
-            "wave_terrain": wave_terrain(
-                proportion=0.1,
-                amplitude_range=(0.0, 0.2),
-                num_waves=4,
-                border_width=0.25,
-            ),
-        }
-    )
 
 
 @registry.envcfg("Go2JoystickFlat")
@@ -130,27 +67,9 @@ class Go2JoystickCfg(Go2BaseCfg):
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
     reward_config: RewardConfig | None = None
-    sensor: JoystickSensor = field(default_factory=JoystickSensor)  # type: ignore[assignment]
+    sensor: JoystickSensor = field(default_factory=JoystickSensor)
     domain_rand: Go2DomainRandConfig = field(default_factory=Go2DomainRandConfig)
     terrain_curriculum: TerrainCurriculumCfg = field(default_factory=TerrainCurriculumCfg)
-
-
-@registry.envcfg("Go2JoystickRough")
-@dataclass
-class Go2JoystickRoughCfg(Go2JoystickCfg):
-    scene: SceneCfg = field(
-        default_factory=lambda: SceneCfg(
-            model_file=str(ASSETS_ROOT_PATH / "robots" / "go2" / "go2.xml"),
-            fragment_files=[
-                str(ASSETS_ROOT_PATH / "robots" / "go2" / "locomotion_task.xml"),
-            ],
-            terrain=TerrainSceneCfg(
-                generator=Go2RoughTerrainCfg(),
-                hfield_name="terrain_hfield",
-                geom_name="floor",
-            ),
-        )
-    )
 
 
 class Go2JoystickDomainRandomizationProvider(LocomotionDRProvider):
@@ -165,15 +84,16 @@ class Go2JoystickDomainRandomizationProvider(LocomotionDRProvider):
         dof_pos: Any,
         dof_vel: Any,
     ) -> dict[str, np.ndarray]:
-        return env._compute_obs(  # type: ignore[no-any-return]
-            info_updates, linvel, gyro, gravity, dof_pos, dof_vel, env.feet_phase[env_ids]
+        return cast(
+            dict[str, np.ndarray],
+            env._compute_obs(
+                info_updates, linvel, gyro, gravity, dof_pos, dof_vel, env.feet_phase[env_ids]
+            ),
         )
 
 
 @registry.env("Go2JoystickFlat", sim_backend="mujoco")
 @registry.env("Go2JoystickFlat", sim_backend="motrix")
-@registry.env("Go2JoystickRough", sim_backend="mujoco")
-@registry.env("Go2JoystickRough", sim_backend="motrix")
 class Go2WalkTask(Go2BaseEnv):
     _cfg: Go2JoystickCfg
 

@@ -187,7 +187,7 @@ def test_offpolicy_flashsac_go2_task_overrides():
 def test_go2_joystick_rough_uses_terrain_generator():
     from unilab.assets import ASSETS_ROOT_PATH
     from unilab.base.scene import SceneCfg, TerrainSceneCfg
-    from unilab.envs.locomotion.go2.joystick import Go2JoystickRoughCfg
+    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughCfg
     from unilab.terrains import TerrainGeneratorCfg
 
     cfg = Go2JoystickRoughCfg()
@@ -200,31 +200,28 @@ def test_go2_joystick_rough_uses_terrain_generator():
     assert isinstance(cfg.scene.terrain.generator, TerrainGeneratorCfg)
     assert cfg.scene.terrain.hfield_name == "terrain_hfield"
     assert cfg.scene.terrain.geom_name == "floor"
-    assert cfg.scene.terrain.generator.num_rows == 10
-    assert cfg.scene.terrain.generator.num_cols == 20
+    assert cfg.scene.terrain.generator.num_rows == 1
+    assert cfg.scene.terrain.generator.num_cols == 1
     assert len(cfg.scene.terrain.generator.sub_terrains) == 7
 
 
 def test_go2_joystick_rough_terrain_cfg_is_independent_per_instance():
-    """Confirm `default_factory=lambda: copy.deepcopy(...)` so two cfgs don't share."""
-    from unilab.envs.locomotion.go2.joystick import Go2JoystickRoughCfg
+    """Confirm rough terrain cfg defaults are not shared across instances."""
+    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughCfg
 
     a = Go2JoystickRoughCfg()
     b = Go2JoystickRoughCfg()
     assert a.scene.terrain.generator is not b.scene.terrain.generator
-    a.scene.terrain.generator.num_rows = 1
-    assert b.scene.terrain.generator.num_rows == 10
+    a.scene.terrain.generator.num_rows = 4
+    assert b.scene.terrain.generator.num_rows == 1
 
 
 def test_go2_joystick_rough_playback_model_uses_backend_scene(tmp_path):
     """Offline playback / video rendering must reuse the backend-compiled scene model."""
     import mujoco
 
-    from unilab.envs.locomotion.go2.joystick import (
-        Go2JoystickRoughCfg,
-        Go2WalkTask,
-        RewardConfig,
-    )
+    from unilab.envs.locomotion.go2.joystick import RewardConfig
+    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughCfg, Go2JoystickRoughEnv
     from unilab.visualization.playback import _resolve_render_play_model_files
 
     cfg = Go2JoystickRoughCfg(
@@ -236,7 +233,7 @@ def test_go2_joystick_rough_playback_model_uses_backend_scene(tmp_path):
     cfg.scene.terrain.generator.add_lights = False
     cfg.scene.terrain.generator.seed = 0
 
-    env = Go2WalkTask(cfg, num_envs=2, backend_type="mujoco")
+    env = Go2JoystickRoughEnv(cfg, num_envs=2, backend_type="mujoco")
     try:
         playback_model = env.get_playback_model(0)
         assert isinstance(playback_model, mujoco.MjModel)
@@ -294,10 +291,10 @@ def test_ppo_go2_joystick_rough_motrix_task_compose():
         cfg = compose("config", overrides=["task=go2_joystick_rough/motrix"])
     assert cfg.training.task_name == "Go2JoystickRough"
     assert cfg.training.sim_backend == "motrix"
-    assert cfg.algo.max_iterations == 2000
+    assert cfg.algo.max_iterations == 500
     assert cfg.env.render_offset_mode == "zero"
     assert cfg.env.scene.model_file.endswith("go2.xml")
-    assert cfg.env.scene.terrain.generator.num_rows == 10
+    assert cfg.env.scene.terrain.generator.num_rows == 1
 
 
 def test_ppo_go2_joystick_rough_motrix_matches_mujoco_training_config():
@@ -474,9 +471,9 @@ def test_ppo_g1_wall_flip_tracking():
 def test_apply_cfg_overrides_deep_merges_dataclass_field():
     """registry.apply_cfg_overrides must deep-merge into existing dataclass
     instances rather than re-instantiating them, so partial overrides like
-    `terrain_generator.num_rows=4` keep `sub_terrains` and other defaults."""
+    `scene.terrain.generator.num_rows=4` keep `sub_terrains` and other defaults."""
     from unilab.base.registry import apply_cfg_overrides
-    from unilab.envs.locomotion.go2.joystick import Go2JoystickRoughCfg
+    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughCfg
 
     cfg = Go2JoystickRoughCfg()
     apply_cfg_overrides(
@@ -489,10 +486,10 @@ def test_apply_cfg_overrides_deep_merges_dataclass_field():
     assert cfg.scene.terrain.generator.seed == 42
     assert cfg.scene.terrain.generator.curriculum is True
     # Non-overridden fields preserve Go2RoughTerrainCfg defaults.
-    assert cfg.scene.terrain.generator.num_cols == 20
-    assert cfg.scene.terrain.generator.border_width == pytest.approx(20.0)
+    assert cfg.scene.terrain.generator.num_cols == 1
+    assert cfg.scene.terrain.generator.border_width == pytest.approx(1.0)
     assert len(cfg.scene.terrain.generator.sub_terrains) == 7
-    assert cfg.scene.terrain.generator.add_lights is True
+    assert cfg.scene.terrain.generator.add_lights is False
 
 
 def test_ppo_go2_joystick_rough_hydra_terrain_override():
@@ -504,7 +501,7 @@ def test_ppo_go2_joystick_rough_hydra_terrain_override():
     from hydra.core.global_hydra import GlobalHydra
 
     from unilab.base.registry import apply_cfg_overrides
-    from unilab.envs.locomotion.go2.joystick import Go2JoystickRoughCfg
+    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughCfg
     from unilab.training.backend_adapter import BackendAdapter
 
     GlobalHydra.instance().clear()
