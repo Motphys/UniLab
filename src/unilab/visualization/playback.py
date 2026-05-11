@@ -51,6 +51,14 @@ def _configured_model_file(env: Any) -> str | None:
     return scene.model_file
 
 
+def _visual_model_file(env: Any) -> str | None:
+    backend = getattr(env, "_backend", None)
+    backend_visual_model_file = getattr(backend, "scene_visual_model_file", None)
+    if backend_visual_model_file:
+        return str(backend_visual_model_file)
+    return _configured_model_file(env)
+
+
 def render_play_mode(
     env,
     *,
@@ -216,8 +224,7 @@ def _resolve_render_play_model_files(
     tmp_dir: str | Path,
 ) -> str | list[str]:
     """Resolve visual MuJoCo model files for offline play/video export."""
-    configured_model_file = _configured_model_file(env)
-    visual_model_file = str(configured_model_file) if configured_model_file else None
+    visual_model_file = _visual_model_file(env)
     if not hasattr(env, "get_playback_model"):
         if visual_model_file is None:
             raise ValueError("MuJoCo playback requires either cfg.scene or get_playback_model().")

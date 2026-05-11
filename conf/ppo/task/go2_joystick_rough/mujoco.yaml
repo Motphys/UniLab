@@ -2,11 +2,11 @@
 training:
   task_name: Go2JoystickRough
   sim_backend: mujoco
-  play_steps: 2500
+  play_steps: 500
   play_env_num: 16
   render_spacing: 0.0
   cam_tracking: true
-  cam_tracking_env_idx: 0
+  cam_tracking_env_idx: 8
   cam_tracking_extra_envs: 9
 
 interactive:
@@ -53,7 +53,7 @@ env:
       geom_name: floor
       generator:
         seed: 42
-        curriculum: true
+        curriculum: false
         size: [8.0, 8.0]
         num_rows: 6
         num_cols: 6

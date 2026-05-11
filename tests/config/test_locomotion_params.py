@@ -246,6 +246,10 @@ def test_go2_joystick_rough_playback_model_uses_backend_scene(tmp_path):
         assert isinstance(model_file, str)
         assert model_file.endswith(".mjb")
         assert Path(model_file).is_file()
+        rendered_model = mujoco.MjModel.from_binary_path(model_file)
+        assert mujoco.mj_name2id(rendered_model, mujoco.mjtObj.mjOBJ_HFIELD, "terrain_hfield") >= 0
+        assert mujoco.mj_name2id(rendered_model, mujoco.mjtObj.mjOBJ_GEOM, "floor") >= 0
+        assert rendered_model.ngeom > playback_model.ngeom
     finally:
         env.close()
 
