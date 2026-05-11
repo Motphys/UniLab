@@ -24,6 +24,12 @@ env:
     action_scale: 2.0
   anchor_pos_z_threshold: 0.5
   ee_body_pos_z_threshold: 0.5
+  truncate_on_clip_end: true
+  noise_config:
+    level: 1.0
+    scale_joint_angle: 0.01
+    scale_joint_vel: 1.5
+    scale_gyro: 0.2
 reward:
   scales:
     motion_global_root_pos: 1.0

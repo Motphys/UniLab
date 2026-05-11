@@ -13,6 +13,11 @@ env:
     action_scale: 0.25
   curriculum:
     enabled: false
+  noise_config:
+    level: 1.0
+    scale_joint_angle: 0.01
+    scale_joint_vel: 1.5
+    scale_gyro: 0.2
 reward:
   scales:
     tracking_lin_vel: 2.0
