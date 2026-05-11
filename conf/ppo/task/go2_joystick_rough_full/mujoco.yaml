@@ -85,7 +85,7 @@ reward:
     contact_forces: -1.5e-4
     tracking_lin_vel: 3.0
     tracking_ang_vel: 1.5
-    feet_air_time: 0.1
+    feet_air_time: 0.5
     feet_air_time_variance: -1.0
     feet_contact_without_cmd: 0.1
     feet_slide: -0.1
