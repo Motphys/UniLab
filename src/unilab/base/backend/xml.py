@@ -310,8 +310,8 @@ def _ensure_generated_hfield_scene_visuals(root: ET.Element, geom_name: str) -> 
     if root.find("visual") is None:
         root.append(
             ET.fromstring(
-                '<visual><headlight diffuse="0.8 0.8 0.8" ambient="0.45 0.45 0.45" '
-                'specular="0.1 0.1 0.1"/><rgba haze="0.15 0.25 0.35 1"/>'
+                '<visual><headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" '
+                'specular="0.0 0.0 0.0"/><rgba haze="0.15 0.25 0.35 1"/>'
                 '<global azimuth="-130" elevation="-20"/><quality offsamples="4"/>'
                 '<map force="0.01"/></visual>'
             )
@@ -322,7 +322,8 @@ def _ensure_generated_hfield_scene_visuals(root: ET.Element, geom_name: str) -> 
         terrain_geom.set("material", "groundplane")
     for light in root.findall(".//light"):
         light.set("directional", "true")
-        light.set("castshadow", "false")
+        light.set("castshadow", "true")
+        light.set("dir", "-0.35 -0.45 -1")
 
 
 def _merge_scene_fragment(root: ET.Element, fragment_file: Path) -> None:

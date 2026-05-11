@@ -177,14 +177,14 @@ class Go2RoughTerrainCfg(TerrainGeneratorCfg):
                 step_height_range=(0.025, 0.10),
                 step_width=0.4,
                 platform_width=3.0,
-                border_width=1.0,
+                border_width=0.2,
             ),
             "pyramid_stairs_inv": pyramid_stairs_inv(
                 proportion=0.1,
                 step_height_range=(0.025, 0.10),
                 step_width=0.4,
                 platform_width=3.0,
-                border_width=1.0,
+                border_width=0.2,
             ),
             "hf_pyramid_slope": hf_pyramid_slope(
                 proportion=0.2,
