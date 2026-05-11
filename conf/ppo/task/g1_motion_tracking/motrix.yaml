@@ -13,6 +13,11 @@ algo:
       - actor
   algorithm:
     entropy_coef: 0.005
+  noise_config:
+    level: 1.0
+    scale_joint_angle: 0.01
+    scale_joint_vel: 1.5
+    scale_gyro: 0.2
 play_profile:
   enabled: true
   env:

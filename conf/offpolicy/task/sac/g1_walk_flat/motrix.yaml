@@ -23,6 +23,11 @@ env:
     level_down_threshold: 150.0
     level_up_threshold: 750.0
     degree: 0.001
+  noise_config:
+    level: 1.0
+    scale_joint_angle: 0.01
+    scale_joint_vel: 1.5
+    scale_gyro: 0.2
 reward:
   scales:
     tracking_lin_vel: 2.2
