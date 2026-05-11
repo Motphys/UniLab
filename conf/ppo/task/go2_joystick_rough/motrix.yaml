@@ -1,0 +1,65 @@
+# @package _global_
+training:
+  task_name: Go2JoystickRough
+  sim_backend: motrix
+  play_env_num: 16
+  cam_tracking: true
+  cam_tracking_env_idx: 0
+  cam_tracking_extra_envs: 9
+
+interactive:
+  action_mode: policy
+  policy_obs_mode: auto
+  camera_follow_body: true
+  use_env_visual_model: false
+
+algo:
+  num_envs: 1024
+  num_steps_per_env: 24
+  max_iterations: 500
+  empirical_normalization: false
+  obs_groups:
+    actor:
+      - actor
+    critic:
+      - critic
+  policy:
+    init_noise_std: 1.0
+  algorithm:
+    learning_rate: 1.0e-3
+    entropy_coef: 1.0e-2
+
+env:
+  render_offset_mode: zero
+  terrain_curriculum:
+    enabled: false
+  scene:
+    model_file: src/unilab/assets/robots/go2/go2.xml
+    fragment_files:
+      - src/unilab/assets/robots/go2/locomotion_task.xml
+    terrain:
+      hfield_name: terrain_hfield
+      geom_name: floor
+      generator:
+        seed: 42
+        curriculum: false
+        size: [8.0, 8.0]
+        num_rows: 1
+        num_cols: 1
+        border_width: 1.0
+  terrain_scan:
+    enabled: true
+    geom_name: floor
+reward:
+  scales:
+    tracking_lin_vel: 1.0
+    tracking_ang_vel: 0.75
+    lin_vel_z: -1.0
+    ang_vel_xy: -0.05
+    base_height: -10.0
+    action_rate: -0.005
+    similar_to_default: -0.1
+    contact: 0.24
+    swing_feet_z: 4.0
+  tracking_sigma: 0.25
+  base_height_target: 0.3

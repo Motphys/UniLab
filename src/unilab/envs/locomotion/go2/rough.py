@@ -1000,3 +1000,6 @@ def _yaw_from_quat(quat: np.ndarray) -> np.ndarray:
     y = quat[:, 2]
     z = quat[:, 3]
     return np.arctan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+
+
+registry.register_env("Go2JoystickRough", Go2WalkTask, sim_backend="motrix")
