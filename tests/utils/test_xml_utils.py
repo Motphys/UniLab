@@ -203,3 +203,40 @@ def test_materialize_motrix_hfield_attached_scene_composes_robot_and_task_fragme
     assert model.num_sensors >= 23
     assert model.get_body("base") is not None
     assert model.get_link("base") is not None
+
+
+def test_materialize_motrix_hfield_row_direction_uses_compiled_order() -> None:
+    pytest.importorskip("motrixsim")
+
+    import copy
+
+    import numpy as np
+
+    from unilab.terrains import ROUGH_TERRAINS_CFG, TerrainGenerator
+
+    cfg = copy.deepcopy(ROUGH_TERRAINS_CFG)
+    cfg.num_rows = 2
+    cfg.num_cols = 2
+    cfg.border_width = 0.0
+    cfg.add_lights = False
+    cfg.seed = 123
+
+    generated = TerrainGenerator(cfg).generate()
+    motrix_model, _, motrix_sampler = materialize_motrix_hfield_attached_scene(
+        model_file=_go2_robot(),
+        terrain_cfg=cfg,
+        fragment_files=[_go2_locomotion_task()],
+        return_surface_sampler=True,
+    )
+
+    motrix_heights = motrix_model.get_hfield("terrain_hfield").height_matrix
+
+    expected_hfield = np.flipud(generated.heights_yx - generated.z_min)
+    np.testing.assert_allclose(motrix_heights, expected_hfield, atol=1e-6)
+
+    xy = np.asarray([[0.0, -2.0], [0.0, 2.0], [2.0, -2.0], [-2.0, 2.0]], dtype=np.float64)
+    np.testing.assert_allclose(
+        motrix_sampler.sample_height(xy),
+        generated.surface_sampler().sample_height(xy),
+        atol=1e-6,
+    )

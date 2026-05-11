@@ -108,21 +108,6 @@ def test_generated_terrain_surface_sampler_uses_world_xy():
     assert sampled == pytest.approx(origin[2], abs=1e-4)
 
 
-def test_heightfield_surface_sampler_can_flip_world_y():
-    cfg = _small_rough_cfg()
-    cfg.border_width = 0.0
-    terrain = TerrainGenerator(cfg).generate()
-    sampler = terrain.surface_sampler(flip_y=True)
-    reference = terrain.surface_sampler()
-
-    xy = np.asarray([[1.25, -2.75], [-3.5, 4.25]], dtype=np.float64)
-
-    np.testing.assert_allclose(
-        sampler.sample_height(xy),
-        reference.sample_height(xy * np.asarray([1.0, -1.0])),
-    )
-
-
 @pytest.mark.parametrize("preset_name", sorted(EXPECTED_PRESETS))
 def test_each_preset_produces_heightfield(preset_name):
     rng = np.random.default_rng(42)
