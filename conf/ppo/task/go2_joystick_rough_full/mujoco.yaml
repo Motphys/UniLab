@@ -43,7 +43,7 @@ env:
     heading_command: true
     heading_range: [-3.141592653589793, 3.141592653589793]
   terrain_curriculum:
-    enabled: true
+    enabled: false
   terrain_generator:
     seed: 42
     curriculum: true

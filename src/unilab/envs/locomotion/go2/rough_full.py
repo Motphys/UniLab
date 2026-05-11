@@ -170,7 +170,7 @@ class Go2RoughTerrainCfg(TerrainGeneratorCfg):
 
     sub_terrains: dict[str, SubTerrainCfg] = field(
         default_factory=lambda: {
-            "flat": flat(proportion=0.2),
+            "flat": flat(proportion=0.0),
             "pyramid_stairs": pyramid_stairs(
                 proportion=0.1,
                 step_height_range=(0.025, 0.10),
