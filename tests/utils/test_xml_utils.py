@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import xml.etree.ElementTree as ET
 
 import pytest
 
@@ -139,7 +140,15 @@ def test_materialize_mujoco_hfield_attached_scene_composes_robot_and_task_fragme
     assert (tmp_path / "hfields" / "hfield.png").is_file()
     scene_xml = tmp_path / "scene.xml"
     assert scene_xml.is_file()
+    scene_root = ET.parse(scene_xml).getroot()
+    compiler = scene_root.find("compiler")
+    assert compiler is None or compiler.get("discardvisual") != "true"
+    assert scene_root.find("./asset/texture[@name='groundplane']") is not None
+    assert scene_root.find("./asset/material[@name='groundplane']") is not None
+    assert scene_root.find("./visual/headlight") is not None
+    assert scene_root.find(".//geom[@name='floor']").get("material") == "groundplane"
     reloaded_model = mujoco.MjModel.from_xml_path(str(scene_xml))
+    assert model.ngeom < reloaded_model.ngeom
     assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_HFIELD, "terrain_hfield") >= 0
     assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "floor") >= 0
     assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SENSOR, "FL_foot_contact") >= 0

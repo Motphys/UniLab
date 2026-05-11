@@ -117,3 +117,33 @@ def test_mujoco_visual_xml_paths_prefer_backend_visual_scene(tmp_path: Path):
 
     assert parent == visual_xml
     assert robot == robot_xml
+
+
+def test_play_interactive_viewer_model_prefers_backend_visual_scene(tmp_path: Path, monkeypatch):
+    mod = _load_script("play_interactive")
+    visual_xml = tmp_path / "scene.xml"
+    visual_xml.write_text("<mujoco/>", encoding="utf-8")
+
+    import mujoco
+
+    loaded: list[str] = []
+
+    def fake_from_xml_path(path: str):
+        loaded.append(path)
+        return object()
+
+    monkeypatch.setattr(mujoco.MjModel, "from_xml_path", fake_from_xml_path)
+
+    class FakeBackend:
+        scene_visual_model_file = str(visual_xml)
+
+    class FakeEnv:
+        _backend = FakeBackend()
+
+        def get_playback_model(self):
+            raise AssertionError("backend visual scene should be preferred")
+
+    model = mod._load_viewer_model(FakeEnv(), use_env_visual_model=False)
+
+    assert model is not None
+    assert loaded == [str(visual_xml)]

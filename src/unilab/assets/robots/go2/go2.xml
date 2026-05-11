@@ -27,10 +27,10 @@
         <geom type="mesh" contype="0" conaffinity="0" group="2"/>
       </default>
       <default class="collision">
-        <geom group="3"/>
+        <geom group="3"  contype="1" conaffinity="2"/>
         <default class="foot">
-          <geom size="0.022" pos="-0.002 0 -0.213" priority="1" solimp="0.015 1 0.022" condim="3"
-            friction="0.8 0.02 0.01"/>
+          <geom size="0.022" pos="-0.002 0 -0.213" priority="1" condim="6"
+            friction="0.4 0.02 0.01"/>
         </default>
       </default>
     </default>

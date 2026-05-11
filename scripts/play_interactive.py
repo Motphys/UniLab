@@ -529,6 +529,43 @@ def _render_reward_debug_targets(
                     _add_axis_arrow(scene, p, pz, marker_radius * 0.45, z_rgba)
 
 
+def _load_viewer_model(env: Any, *, use_env_visual_model: bool):
+    import mujoco
+
+    backend = getattr(env, "_backend", None)
+    backend_visual_model_file = getattr(backend, "scene_visual_model_file", None)
+    if backend_visual_model_file:
+        print(
+            f"[play_interactive] Using backend visual model for viewer: {backend_visual_model_file}"
+        )
+        return mujoco.MjModel.from_xml_path(str(backend_visual_model_file))
+
+    if use_env_visual_model:
+        cfg_scene = getattr(getattr(env, "cfg", None), "scene", None)
+        if cfg_scene is not None and not isinstance(cfg_scene, SceneCfg):
+            raise TypeError("env.cfg.scene must be a SceneCfg")
+        model_file = None if cfg_scene is None else cfg_scene.model_file
+        if model_file:
+            try:
+                print(f"[play_interactive] Using configured visual model for viewer: {model_file}")
+                return mujoco.MjModel.from_xml_path(str(model_file))
+            except Exception as exc:
+                print(
+                    "[play_interactive] WARNING: failed to load configured visual model; "
+                    f"falling back to playback model ({exc})."
+                )
+
+    try:
+        playback_model = env.get_playback_model()
+    except NotImplementedError as exc:
+        raise AttributeError("Environment does not expose a playback model contract") from exc
+    if isinstance(playback_model, str):
+        print(f"[play_interactive] Using playback model for viewer: {playback_model}")
+        return mujoco.MjModel.from_xml_path(playback_model)
+    print("[play_interactive] Using backend playback model for viewer.")
+    return playback_model
+
+
 def play_interactive(args, cfg: DictConfig | None = None):
     if torch.cuda.is_available():
         device = "cuda"
@@ -694,30 +731,7 @@ def play_interactive(args, cfg: DictConfig | None = None):
 
     # Dedicated MjData for the viewer (never touches the rollout workers)
     use_env_visual_model = bool(getattr(args, "use_env_visual_model", True))
-    mj_model = None
-    if use_env_visual_model:
-        cfg_scene = getattr(getattr(env, "cfg", None), "scene", None)
-        if cfg_scene is not None and not isinstance(cfg_scene, SceneCfg):
-            raise TypeError("env.cfg.scene must be a SceneCfg")
-        model_file = None if cfg_scene is None else cfg_scene.model_file
-        if model_file:
-            try:
-                mj_model = mujoco.MjModel.from_xml_path(str(model_file))
-                print(f"[play_interactive] Using visual model for viewer: {model_file}")
-            except Exception as exc:
-                print(
-                    "[play_interactive] WARNING: failed to load visual model; "
-                    f"falling back to playback model ({exc})."
-                )
-                mj_model = None
-    if mj_model is None:
-        try:
-            mj_model = env.get_playback_model()
-        except NotImplementedError as exc:
-            raise AttributeError("Environment does not expose a playback model contract") from exc
-        if isinstance(mj_model, str):
-            print(f"[play_interactive] Using playback model for viewer: {mj_model}")
-            mj_model = mujoco.MjModel.from_xml_path(mj_model)
+    mj_model = _load_viewer_model(env, use_env_visual_model=use_env_visual_model)
 
     viz_data = mujoco.MjData(mj_model)
     state_spec = mujoco.mjtState.mjSTATE_FULLPHYSICS
