@@ -316,7 +316,7 @@ def play_mlx_ppo(cfg: DictConfig, dtype, use_fp16: bool, resolved_sim_backend: s
     output_video = output_dir / "play_video.mp4" if record_video else None
 
     if record_video:
-        print(f"[MLX PPO] Rendering video to {output_video}...")
+        print("[MLX PPO] Rendering video ...")
     else:
         print("[MLX PPO] Running playback without video recording...")
     print("[MLX PPO] Rendering playback frames...")

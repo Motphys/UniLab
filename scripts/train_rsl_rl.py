@@ -202,7 +202,7 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     num_steps = _resolve_play_num_steps(cfg)
     output_video = Path(load_path_dir) / "play_video.mp4" if record_video else None
     if record_video:
-        print(f"Rendering video to {output_video}...")
+        print("Rendering video ...")
     elif cfg.training.sim_backend == "motrix" and not headless:
         if num_steps is None:
             print("Starting interactive visualization (motrix native renderer)...")

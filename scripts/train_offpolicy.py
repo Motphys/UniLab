@@ -610,7 +610,7 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
     record_video = bool(getattr(cfg.training, "play_record_video", True))
     output_video = os.path.join(load_path_dir, "play_video.mp4") if record_video else None
     if record_video:
-        print(f"Rendering video to {output_video}...")
+        print("Rendering video ...")
     else:
         print("Running playback without video recording...")
     print("Rendering playback frames...")

@@ -80,6 +80,7 @@ class BaseTrainingLogger:
         self._console = Console()
         self._live: Live | None = None
         self._refresh_rate = refresh_per_second
+        self._last_live_refresh_time: float | None = None
 
         self._start_time: float = 0.0
         self._iteration: int = 0
@@ -203,13 +204,14 @@ class BaseTrainingLogger:
                 refresh_per_second=self._refresh_rate,
                 transient=False,
             )
-            self._live.start(refresh=True)
+            self._live.start(refresh=False)
 
     def _stop_live(self) -> None:
         if self._live is not None:
-            self._live.update(self._build_display())
+            self._live.update(self._build_display(), refresh=True)
             self._live.stop()
             self._live = None
+            self._last_live_refresh_time = None
 
     def _close_backends(self) -> None:
         if self._tb_writer:
@@ -260,11 +262,17 @@ class BaseTrainingLogger:
 
     def log_save(self, path: str):
         self._last_save = path
-        self._refresh()
 
-    def _refresh(self):
-        if self._live is not None:
-            self._live.update(self._build_display(), refresh=True)
+    def _refresh(self, *, force: bool = False):
+        if self._live is None:
+            return
+        now = time.time()
+        if not force and self._refresh_rate > 0 and self._last_live_refresh_time is not None:
+            min_interval_s = 1.0 / self._refresh_rate
+            if now - self._last_live_refresh_time < min_interval_s:
+                return
+        self._last_live_refresh_time = now
+        self._live.update(self._build_display(), refresh=True)
 
     def _estimate_eta(self) -> str:
         if self._iteration <= 0:

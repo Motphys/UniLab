@@ -80,6 +80,7 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._replay_queue_len: int = 0
         self._replay_queue_max: int = 0
         self._status: str = "Initializing..."
+        self._terminal_refresh_started: bool = False
 
     def _format_tensorboard_message(self, tb_dir: str) -> str:
         return f"[dim]TensorBoard logging to: {tb_dir}[/]"
@@ -101,7 +102,8 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._buffer_target = target
         pct = current / max(target, 1) * 100
         self._status = f"Buffer fill: {current:,}/{target:,} ({pct:.0f}%)"
-        self._refresh()
+        if not self._terminal_refresh_started:
+            self._refresh()
 
     def _get_iter_steps_per_sec(self) -> float | None:
         if not self._has_iteration_extra_info or self._throughput_steps <= 0:
@@ -163,7 +165,6 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._buffer_size = buffer_size
         if mean_reward != 0:
             self._reward_history.append(mean_reward)
-        self._refresh()
 
     def log_step(
         self,
@@ -197,6 +198,7 @@ class OffPolicyLogger(BaseTrainingLogger):
         if reward_components:
             self._latest_reward_components = reward_components
         self._status = "Training"
+        self._terminal_refresh_started = True
         self._refresh()
         self._backend_log_step(iteration, metrics, reward, reward_components, train_time)
 
@@ -281,7 +283,8 @@ class OffPolicyLogger(BaseTrainingLogger):
 
     def log_status(self, status: str):
         self._status = status
-        self._refresh()
+        if not self._terminal_refresh_started or "[red]" in status or "ERROR" in status:
+            self._refresh(force=True)
 
     def _build_display(self) -> Panel:
         header = self._build_compact_header(include_status=True)

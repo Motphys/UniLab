@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+import unilab.logging.common as common_module
 import unilab.logging.offpolicy as offpolicy_module
 from unilab.logging import OffPolicyLogger, OnPolicyLogger
 from unilab.training.experiment import ExperimentTracker, build_wandb_settings
@@ -52,6 +53,75 @@ class _FakeWandb:
 
     def Video(self, path: str, format: str = "mp4"):  # noqa: N802
         return _FakeVideo(path, format=format)
+
+
+def test_training_logger_defers_initial_live_render(monkeypatch):
+    start_refresh_values: list[bool] = []
+
+    class _FakeLive:
+        def __init__(self, *args, **kwargs):
+            del args, kwargs
+
+        def start(self, *, refresh: bool = False) -> None:
+            start_refresh_values.append(refresh)
+
+        def update(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        def stop(self) -> None:
+            pass
+
+    monkeypatch.setattr(common_module, "Live", _FakeLive)
+
+    logger = OffPolicyLogger(log_backend="none")
+    logger.start()
+    logger.close()
+
+    assert start_refresh_values == [False]
+
+
+def test_offpolicy_training_terminal_refresh_uses_single_low_frequency_trigger(monkeypatch):
+    update_refresh_values: list[bool | None] = []
+    now = 100.0
+
+    class _FakeLive:
+        def __init__(self, *args, **kwargs):
+            del args, kwargs
+
+        def start(self, *, refresh: bool = False) -> None:
+            del refresh
+
+        def update(self, *args, **kwargs) -> None:
+            del args
+            update_refresh_values.append(kwargs.get("refresh"))
+
+        def stop(self) -> None:
+            pass
+
+    def _fake_time() -> float:
+        return now
+
+    monkeypatch.setattr(common_module, "Live", _FakeLive)
+    monkeypatch.setattr(common_module.time, "time", _fake_time)
+
+    logger = OffPolicyLogger(log_backend="none", refresh_per_second=4)
+    logger.start()
+    logger.log_step(iteration=1, train_time=0.01, wait_time=0.0)
+    assert update_refresh_values == [True]
+
+    logger.log_collector(total_steps=128, buffer_size=128, mean_reward=2.0)
+    logger.log_status("Collector metrics updated")
+    logger.log_save("/tmp/model_2.pt")
+    assert update_refresh_values == [True]
+
+    now += 0.3
+    logger.log_step(iteration=2, train_time=0.01, wait_time=0.0)
+    assert update_refresh_values == [True, True]
+
+    logger.log_status("[red]ERROR: Collector died[/]")
+    assert update_refresh_values == [True, True, True]
+
+    logger.close()
 
 
 def test_build_wandb_settings_defaults_for_shared_workspace():
