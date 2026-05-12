@@ -53,7 +53,7 @@ uv sync --index-url https://pypi.tuna.tsinghua.edu.cn/simple
 
 ### 训练一个最小任务
 
-在 macOS / MacBook 上，只要命令会打开 MotrixSim 原生 renderer，就需要用 `uv run mxpython` 启动；不需要可视化的训练仍可使用 `uv run ... training.no_play=true`。
+在 macOS / MacBook 上，MotrixSim 交互回放需要 `mxpython`；统一 CLI 会自动路由。Linux/server 上需要只录制视频时，使用 `--render-mode record`；不需要可视化的训练使用 `training.no_play=true`。
 
 ```bash
 # Linux
@@ -62,8 +62,11 @@ uv run scripts/train_rsl_rl.py task=go2_joystick_flat/motrix
 # Linux AMD / ROCm
 uv run --no-sync scripts/train_rsl_rl.py task=go2_joystick_flat/motrix
 
-# MacOS(其他后端为Motrix的训练同理，需要用 uv run mxpython)
-uv run mxpython scripts/train_rsl_rl.py task=go2_joystick_flat/motrix
+# MacOS：推荐用统一 CLI 自动路由到 mxpython
+uv run train --algo ppo --task go2_joystick_flat --sim motrix
+
+# Linux/server：训练后只录制视频，不打开窗口
+uv run train --algo ppo --task go2_joystick_flat --sim motrix --render-mode record
 ```
 
 ### 常用入口脚本

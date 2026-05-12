@@ -3,31 +3,34 @@ from typing import Any, cast
 from unilab.base.scene import SceneCfg
 
 from .base import SimBackend
-from .motrix_scene import (
+from .motrix.scene import (
     add_motrix_tracking_frame_sensors,
     materialize_motrix_hfield_attached_scene,
     materialize_motrix_scene,
 )
-from .xml import (
-    add_sensor,
-    create_discardvisual_xml,
-    get_named_body_ids,
-    inject_mujoco_tracking_sensors,
-    materialize_mujoco_hfield_attached_scene,
-    materialize_scene_fragments,
-    materialize_scene_visual_override,
-    processed_xml,
+
+_MUJOCO_XML_EXPORTS = frozenset(
+    {
+        "add_sensor",
+        "create_discardvisual_xml",
+        "get_named_body_ids",
+        "inject_mujoco_tracking_sensors",
+        "materialize_mujoco_hfield_attached_scene",
+        "materialize_scene_fragments",
+        "materialize_scene_visual_override",
+        "processed_xml",
+    }
 )
 
 
 def _load_mujoco_backend() -> Any:
-    from .mujoco_backend import MuJoCoBackend
+    from .mujoco.backend import MuJoCoBackend
 
     return MuJoCoBackend
 
 
 def _load_motrix_backend() -> tuple[Any, bool]:
-    from .motrix_backend import MOTRIX_AVAILABLE, MotrixBackend
+    from .motrix.backend import MOTRIX_AVAILABLE, MotrixBackend
 
     return MotrixBackend, bool(MOTRIX_AVAILABLE)
 
@@ -78,6 +81,10 @@ def __getattr__(name: str):
         return _load_motrix_backend()[0]
     if name == "MOTRIX_AVAILABLE":
         return _load_motrix_backend()[1]
+    if name in _MUJOCO_XML_EXPORTS:
+        from .mujoco import xml
+
+        return getattr(xml, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 

@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import abc
 import dataclasses
+from collections.abc import Callable
 from dataclasses import dataclass
+from os import PathLike
 from typing import TYPE_CHECKING, Any, Optional, Tuple, cast
 
 import gymnasium as gym
 import numpy as np
 
 from unilab.base.backend import SimBackend
+from unilab.base.backend.base import BackendPlayRenderPlan
 from unilab.base.base import ABEnv, EnvCfg, EnvPlayCapabilities
 from unilab.base.scene import SceneCfg
 from unilab.dr import DomainRandomizationManager, DomainRandomizationProvider
@@ -37,7 +40,7 @@ class NpEnv(ABEnv):
 
     def __init__(self, cfg: EnvCfg, backend: SimBackend, num_envs: int):
         self._cfg = cfg
-        self._backend: Any = backend
+        self._backend: SimBackend = backend
         self._num_envs = num_envs
         self._state: Optional[NpEnvState] = None
         self._truncated_scratch: np.ndarray = np.zeros((self._num_envs,), dtype=bool)
@@ -329,6 +332,49 @@ class NpEnv(ABEnv):
             capture=bool(capture),
             width=int(width),
             height=int(height),
+            camera_kwargs=camera_kwargs,
+        )
+
+    def resolve_play_render_plan(
+        self,
+        *,
+        play_render_mode: str | None,
+        play_steps: int | None,
+        output_video: str | PathLike[str] | None,
+    ) -> BackendPlayRenderPlan:
+        """Resolve high-level playback mode through the concrete backend."""
+        return self._backend.resolve_play_render_plan(
+            play_render_mode=play_render_mode,
+            play_steps=play_steps,
+            output_video=output_video,
+        )
+
+    def run_playback(
+        self,
+        *,
+        initialize: Callable[[], Any],
+        step: Callable[[Any], Any],
+        num_steps: int | None,
+        output_video: str | PathLike[str] | None = None,
+        render_spacing: float | None = None,
+        render_offset_mode: str | None = None,
+        headless: bool | None = None,
+        record_video: bool | None = None,
+        frame_state_getter: Callable[[], np.ndarray] | None = None,
+        camera_kwargs: dict[str, Any] | None = None,
+    ) -> str | None:
+        """Execute playback through the concrete backend."""
+        return self._backend.run_playback(
+            env=self,
+            initialize=initialize,
+            step=step,
+            num_steps=num_steps,
+            output_video=output_video,
+            render_spacing=render_spacing,
+            render_offset_mode=render_offset_mode,
+            headless=headless,
+            record_video=record_video,
+            frame_state_getter=frame_state_getter,
             camera_kwargs=camera_kwargs,
         )
 

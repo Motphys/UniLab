@@ -117,3 +117,69 @@ def test_macos_motrix_eval_requires_mxpython(
             load_run="-1",
             root=tmp_path,
         )
+
+
+def test_eval_render_mode_generates_training_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_minimal_checkout(tmp_path)
+    _pretend_motrix_is_installed(monkeypatch)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Linux")
+    command = cli.build_command(
+        mode="eval",
+        algo="ppo",
+        task="go2_joystick_flat",
+        sim="motrix",
+        overrides=[],
+        load_run="-1",
+        render_mode="record",
+        root=tmp_path,
+    )
+
+    assert "training.play_render_mode=record" in command
+    assert "training.play_only=true" in command
+    assert "algo.load_run=-1" in command
+
+
+def test_macos_motrix_render_mode_none_does_not_require_mxpython(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_minimal_checkout(tmp_path)
+    _pretend_motrix_is_installed(monkeypatch)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(cli.shutil, "which", lambda name: None)
+
+    command = cli.build_command(
+        mode="eval",
+        algo="ppo",
+        task="go2_joystick_flat",
+        sim="motrix",
+        overrides=[],
+        load_run="-1",
+        render_mode="none",
+        root=tmp_path,
+    )
+
+    assert command[0] == sys.executable
+
+
+def test_macos_motrix_render_mode_record_does_not_require_mxpython(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_minimal_checkout(tmp_path)
+    _pretend_motrix_is_installed(monkeypatch)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(cli.shutil, "which", lambda name: None)
+
+    command = cli.build_command(
+        mode="eval",
+        algo="ppo",
+        task="go2_joystick_flat",
+        sim="motrix",
+        overrides=[],
+        load_run="-1",
+        render_mode="record",
+        root=tmp_path,
+    )
+
+    assert command[0] == sys.executable

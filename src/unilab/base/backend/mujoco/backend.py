@@ -31,7 +31,14 @@ from unilab.dr.types import (
 )
 from unilab.dtype_config import get_global_dtype
 
-from .base import BackendHeightScanner, BackendPlayCapabilities, SimBackend
+from ..base import (
+    BackendHeightScanner,
+    BackendPlayCapabilities,
+    BackendPlayRenderPlan,
+    SimBackend,
+    normalize_play_render_mode,
+)
+from .playback import run_mujoco_playback
 
 
 def _root_state_dims(model) -> tuple[int, int]:
@@ -71,7 +78,10 @@ def _prepare_variant_model_xml(
     add_body_sensors: bool,
     base_name: str | None,
 ) -> tuple[str, list[str]]:
-    from unilab.base.backend.xml import create_discardvisual_xml, inject_mujoco_tracking_sensors
+    from unilab.base.backend.mujoco.xml import (
+        create_discardvisual_xml,
+        inject_mujoco_tracking_sensors,
+    )
 
     model_path = create_discardvisual_xml(model_file)
     tmp_paths = [model_path]
@@ -187,7 +197,7 @@ class _MuJoCoSceneContext:
 
 
 def _build_mujoco_scene_context(scene: SceneCfg) -> _MuJoCoSceneContext:
-    from unilab.base.backend.xml import (
+    from unilab.base.backend.mujoco.xml import (
         materialize_mujoco_hfield_attached_scene,
         materialize_scene_fragments,
     )
@@ -409,7 +419,10 @@ class MuJoCoBackend(SimBackend):
         return model
 
     def _prepare_model_xml(self) -> tuple[str, list[str], list[int], list[str]]:
-        from unilab.base.backend.xml import create_discardvisual_xml, inject_mujoco_tracking_sensors
+        from unilab.base.backend.mujoco.xml import (
+            create_discardvisual_xml,
+            inject_mujoco_tracking_sensors,
+        )
 
         model_path = create_discardvisual_xml(str(self._model_file))
         tmp_paths = [model_path]
@@ -909,6 +922,71 @@ class MuJoCoBackend(SimBackend):
 
     def get_play_capabilities(self) -> BackendPlayCapabilities:
         return BackendPlayCapabilities(supports_physics_state_playback=True)
+
+    def resolve_play_render_plan(
+        self,
+        *,
+        play_render_mode: str | None,
+        play_steps: int | None,
+        output_video: str | os.PathLike[str] | None,
+    ) -> BackendPlayRenderPlan:
+        mode = normalize_play_render_mode(play_render_mode)
+        effective_mode = "record" if mode == "auto" else mode
+        if effective_mode == "none":
+            return BackendPlayRenderPlan(
+                mode=effective_mode,
+                headless=True,
+                record_video=False,
+                num_steps=None,
+                output_video=None,
+            )
+        if effective_mode == "interactive":
+            raise NotImplementedError("MuJoCo playback does not support interactive rendering.")
+        assert effective_mode == "record"
+        if play_steps is None:
+            raise ValueError("MuJoCo record playback requires a finite training.play_steps value.")
+        if output_video is None:
+            raise ValueError("MuJoCo record playback requires an output video path.")
+        return BackendPlayRenderPlan(
+            mode=effective_mode,
+            headless=True,
+            record_video=True,
+            num_steps=int(play_steps),
+            output_video=output_video,
+        )
+
+    def run_playback(
+        self,
+        *,
+        env: Any,
+        initialize,
+        step,
+        num_steps: int | None,
+        output_video: str | os.PathLike[str] | None = None,
+        render_spacing: float | None = None,
+        render_offset_mode: str | None = None,
+        headless: bool | None = None,
+        record_video: bool | None = None,
+        frame_state_getter=None,
+        camera_kwargs: dict[str, Any] | None = None,
+    ) -> str | None:
+        del render_offset_mode
+        should_record_video = (
+            bool(record_video) if record_video is not None else output_video is not None
+        )
+        should_run_headless = bool(headless) if headless is not None else should_record_video
+        return run_mujoco_playback(
+            env=env,
+            initialize=initialize,
+            step=step,
+            num_steps=num_steps,
+            output_video=output_video,
+            render_spacing=render_spacing,
+            headless=should_run_headless,
+            record_video=should_record_video,
+            frame_state_getter=frame_state_getter,
+            camera_kwargs=camera_kwargs,
+        )
 
     # ------------------------------------------------------------------ #
     # Base kinematics                                                    #

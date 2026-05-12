@@ -52,11 +52,14 @@ For evaluation and demo playback:
 ```bash
 uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1
 
+# Headless Motrix video export for Linux/server runs
+uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1 --render-mode record
+
 # Demo playback from a local trained checkpoint
 uv run demo
 ```
 
-On macOS / MacBook, the UniLab CLI routes Motrix renderer playback through `mxpython` when needed. Detailed script-level commands are documented under `docs/users/zh_CN/`.
+On macOS / MacBook, the UniLab CLI routes Motrix interactive playback through `mxpython` when needed. Motrix defaults to interactive playback; use `--render-mode record` for headless video export or `--render-mode none` to skip playback. Detailed script-level commands are documented under `docs/users/zh_CN/`.
 
 On Linux AMD / ROCm workstations, `make sync-rocm` requires ROCm 7.1 or newer and installs the PyTorch ROCm 7.2 wheel (`torch==2.11.0+rocm7.2`). Use `uv run --no-sync ...` after that setup so `uv` does not resync the default Linux CUDA wheel.
 

@@ -9,7 +9,7 @@
 3. 想改子地形组合时，正确的入口是什么？
 4. 哪些是当前已知的边界，不是 bug 而是约束？
 
-底层 contract（cold-path materialization、注册新 sub-terrain、hfield 导出）见 [`base/backend/xml.py`](../../../src/unilab/base/backend/xml.py)、[`base/backend/motrix_scene.py`](../../../src/unilab/base/backend/motrix_scene.py) 与 [`terrains/terrain_generator.py`](../../../src/unilab/terrains/terrain_generator.py) 的源码注释。
+底层 contract（cold-path materialization、注册新 sub-terrain、hfield 导出）见 [`base/backend/mujoco/xml.py`](../../../src/unilab/base/backend/mujoco/xml.py)、[`base/backend/motrix/scene.py`](../../../src/unilab/base/backend/motrix/scene.py) 与 [`terrains/terrain_generator.py`](../../../src/unilab/terrains/terrain_generator.py) 的源码注释。
 
 ## 现状
 

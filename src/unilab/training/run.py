@@ -6,6 +6,30 @@ from pathlib import Path
 
 from omegaconf import DictConfig, OmegaConf
 
+from unilab.base.backend.base import BackendPlayRenderPlan, normalize_play_render_mode
+
+
+def should_run_playback(*, play_only: bool, no_play: bool, play_render_mode: str | None) -> bool:
+    """Return whether train/eval should enter playback for the configured mode."""
+    if normalize_play_render_mode(play_render_mode) == "none":
+        return False
+    return bool(play_only) or not bool(no_play)
+
+
+def log_playback_plan(plan: BackendPlayRenderPlan, *, prefix: str = "") -> None:
+    """Print user-facing playback status for a resolved backend plan."""
+    if plan.mode == "none":
+        print(f"{prefix}Skipping playback because training.play_render_mode=none.")
+        return
+    if plan.record_video:
+        print(f"{prefix}Rendering video to {plan.output_video}...")
+    elif plan.mode == "interactive":
+        print(f"{prefix}Starting interactive visualization (motrix native renderer)...")
+        print(f"{prefix}Close the render window to exit.")
+    else:
+        print(f"{prefix}Running playback without video recording...")
+    print(f"{prefix}Rendering playback frames...")
+
 
 def get_log_root(root_dir: str | Path, cfg: DictConfig) -> Path:
     """Resolve the algorithm log root, honoring optional training.log_root overrides."""

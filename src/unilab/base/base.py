@@ -1,9 +1,13 @@
 import abc
+from collections.abc import Callable
 from dataclasses import dataclass
+from os import PathLike
 from typing import Any, Optional
 
 import gymnasium as gym
 import numpy as np
+
+from unilab.base.backend.base import BackendPlayRenderPlan
 
 from .scene import SceneCfg
 
@@ -61,6 +65,72 @@ class ABEnv(abc.ABC):
     def play_capabilities(self) -> EnvPlayCapabilities:
         """Return env-facing play/render capabilities."""
         return EnvPlayCapabilities()
+
+    def resolve_play_render_plan(
+        self,
+        *,
+        play_render_mode: str | None,
+        play_steps: int | None,
+        output_video: str | PathLike[str] | None,
+    ) -> BackendPlayRenderPlan:
+        """Resolve high-level playback mode through the backend contract."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not define playback render mode semantics"
+        )
+
+    def run_playback(
+        self,
+        *,
+        initialize: Callable[[], Any],
+        step: Callable[[Any], Any],
+        num_steps: int | None,
+        output_video: str | PathLike[str] | None = None,
+        render_spacing: float | None = None,
+        render_offset_mode: str | None = None,
+        headless: bool | None = None,
+        record_video: bool | None = None,
+        frame_state_getter: Callable[[], np.ndarray] | None = None,
+        camera_kwargs: dict[str, Any] | None = None,
+    ) -> str | None:
+        """Execute playback through the backend contract."""
+        raise NotImplementedError(f"{self.__class__.__name__} does not support playback execution")
+
+    def run_playback_mode(
+        self,
+        *,
+        play_render_mode: str | None,
+        play_steps: int | None,
+        output_video: str | PathLike[str] | None,
+        initialize: Callable[[], Any],
+        step: Callable[[Any], Any],
+        render_spacing: float | None = None,
+        render_offset_mode: str | None = None,
+        frame_state_getter: Callable[[], np.ndarray] | None = None,
+        camera_kwargs: dict[str, Any] | None = None,
+        on_plan: Callable[[BackendPlayRenderPlan], None] | None = None,
+    ) -> str | None:
+        """Resolve configured playback mode and execute it through the backend contract."""
+        plan = self.resolve_play_render_plan(
+            play_render_mode=play_render_mode,
+            play_steps=play_steps,
+            output_video=output_video,
+        )
+        if on_plan is not None:
+            on_plan(plan)
+        if plan.mode == "none":
+            return None
+        return self.run_playback(
+            initialize=initialize,
+            step=step,
+            num_steps=plan.num_steps,
+            output_video=plan.output_video,
+            render_spacing=render_spacing,
+            render_offset_mode=render_offset_mode,
+            headless=plan.headless,
+            record_video=plan.record_video,
+            frame_state_getter=frame_state_getter,
+            camera_kwargs=camera_kwargs,
+        )
 
     @property
     @abc.abstractmethod

@@ -11,7 +11,7 @@ UniLab 当前支持两个仿真后端:
 
 - `uv sync --extra motrix` 会安装 Motrix 依赖。
 - Motrix 路径的 registry bootstrap 和 Hydra 配置 compose 不再要求导入 MuJoCo。
-- 在 macOS / MacBook 上，只要命令会打开 MotrixSim 原生 renderer（训练后自动回放或 `training.play_only=true`），就需要用 `uv run mxpython` 启动；不需要可视化的训练仍可使用 `uv run scripts/... training.no_play=true`。
+- 在 macOS / MacBook 上，统一 CLI 会在 MotrixSim 交互回放时自动路由到 `mxpython`；直接调用脚本时，交互回放需要用 `uv run mxpython` 启动。不需要可视化的训练使用 `training.no_play=true` 或 `training.play_render_mode=none`。
 - 任何 `task=.../mujoco` 的实际运行、MuJoCo playback、以及 MuJoCo-only 调试工具，仍然要求可用的 MuJoCo runtime。
 - 某些任务目前仍然只有 MuJoCo owner 配置；例如 APPO 路径下 `go1_joystick_flat` 对 Motrix 仅为 `Registered`。
 
@@ -115,13 +115,23 @@ uv run scripts/train_rsl_rl.py task=go1_joystick_flat/motrix
 
 ## Playback Differences
 
-- `mujoco`: 训练后的自动回放会导出 `play_video.mp4`
-- `motrix`: 回放通常打开交互式 renderer 窗口，而不是导出视频；macOS / MacBook 上需要用 `uv run mxpython` 启动
+- `mujoco`: `training.play_render_mode=auto` 会导出 `play_video.mp4`
+- `motrix`: `training.play_render_mode=auto` 会打开交互式 renderer 窗口，不录制视频，不受 `play_steps` 限制；macOS / MacBook 上交互回放需要 `mxpython`
+- `training.play_render_mode=record`: 两个后端都只录制视频；MotrixSim 强制 headless，不打开窗口
+- `training.play_render_mode=none`: 不回放
 
 对 G1 motion tracking 来说，目前已验证的 Motrix 路径是 `PPO (torch) + motrix` 和 `APPO (torch) + motrix`。`scripts/play_interactive.py` 仍然沿用 MuJoCo 路径。
 
 ```bash
-uv run scripts/train_rsl_rl.py task=go1_joystick_flat/mujoco training.play_only=true
+# 统一 CLI：默认回放
+uv run eval --algo ppo --task go1_joystick_flat --sim mujoco --load-run -1
+uv run eval --algo ppo --task go1_joystick_flat --sim motrix --load-run -1
+
+# Linux/server：MotrixSim 只录制视频，不打开窗口
+uv run eval --algo ppo --task go1_joystick_flat --sim motrix --load-run -1 --render-mode record
+
+# 跳过训练后自动回放
+uv run train --algo ppo --task go1_joystick_flat --sim motrix training.no_play=true
 
 # macOS / MacBook 上的 MotrixSim 原生 renderer
 uv run mxpython scripts/train_rsl_rl.py task=go1_joystick_flat/motrix training.play_only=true

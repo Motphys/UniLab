@@ -7,7 +7,7 @@ from typing import Any, Callable
 
 from omegaconf import DictConfig, OmegaConf
 
-from unilab.base.backend.xml import materialize_scene_visual_override
+from unilab.base.backend.mujoco.xml import materialize_scene_visual_override
 from unilab.base.scene import SceneCfg
 from unilab.training.reward import extract_reward_config
 
