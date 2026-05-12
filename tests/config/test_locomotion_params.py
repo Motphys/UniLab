@@ -294,9 +294,23 @@ def test_ppo_go2_joystick_rough_motrix_task_compose():
         cfg = compose("config", overrides=["task=go2_joystick_rough/motrix"])
     assert cfg.training.task_name == "Go2JoystickRough"
     assert cfg.training.sim_backend == "motrix"
-    assert cfg.algo.max_iterations == 500
+    assert cfg.algo.num_envs == 4096
+    assert cfg.algo.max_iterations == 2000
     assert cfg.env.render_offset_mode == "zero"
     assert cfg.env.scene.model_file.endswith("go2.xml")
+    assert cfg.env.scene.terrain.generator.num_rows == 6
+    assert cfg.env.scene.terrain.generator.num_cols == 6
+    assert cfg.env.terrain_scan.enabled is True
+    assert cfg.reward.scales.tracking_lin_vel == pytest.approx(3.0)
+    assert "base_height" not in cfg.reward.scales
+    assert "swing_feet_z" not in cfg.reward.scales
+
+
+def test_go2_joystick_rough_motrix_registers_rough_env():
+    from unilab.base import registry
+    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughEnv
+
+    assert registry._envs["Go2JoystickRough"].env_cls_dict["motrix"] is Go2JoystickRoughEnv
 
 
 def test_offpolicy_g1_rough_terrain_task_overrides():

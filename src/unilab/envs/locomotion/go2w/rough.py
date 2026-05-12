@@ -95,6 +95,7 @@ class Go2WJoystickRoughTilesEnv(Go2WJoystickEnv):
         self._height_scan_hfield_geom_id: int | None = None
         self._height_scan_frame_body_id: int | None = None
         self._height_scan_offsets: np.ndarray | None = None
+        self._height_scan_sensor: object | None = None
         if not scan_cfg.enabled:
             return
 
@@ -103,6 +104,13 @@ class Go2WJoystickRoughTilesEnv(Go2WJoystickEnv):
         self._height_scan_offsets = _height_scan_offsets(
             scan_cfg.measured_points_x,
             scan_cfg.measured_points_y,
+        )
+        self._height_scan_sensor = self._backend.create_hfield_scanner(
+            hfield_geom_id=self._height_scan_hfield_geom_id,
+            offsets=self._height_scan_offsets,
+            frame_body_id=self._height_scan_frame_body_id,
+            alignment="yaw",
+            output="height",
         )
 
     def _compute_obs(
@@ -137,10 +145,12 @@ class Go2WJoystickRoughTilesEnv(Go2WJoystickEnv):
         return np.asarray(np.mean(base_pos[:, 2:3] - raw_heights, axis=1), dtype=get_global_dtype())
 
     def _raw_height_scan_obs(self, num_obs: int) -> tuple[np.ndarray | None, np.ndarray | None]:
+        height_scan_sensor = getattr(self, "_height_scan_sensor", None)
         if (
             self._height_scan_hfield_geom_id is None
             or self._height_scan_frame_body_id is None
             or self._height_scan_offsets is None
+            or height_scan_sensor is None
         ):
             return None, None
 
@@ -148,13 +158,10 @@ class Go2WJoystickRoughTilesEnv(Go2WJoystickEnv):
         if base_pos.shape[0] != num_obs:
             return None, None
 
-        raw_heights = self._backend.sample_hfield_height(
-            hfield_geom_id=self._height_scan_hfield_geom_id,
-            offsets=self._height_scan_offsets,
-            frame_body_id=self._height_scan_frame_body_id,
-            alignment="yaw",
-            output="height",
-        )
+        scan = getattr(height_scan_sensor, "scan", None)
+        if not callable(scan):
+            return None, None
+        raw_heights = scan()
         if raw_heights.shape != (num_obs, self._height_scan_dim):
             return None, None
         return np.asarray(raw_heights, dtype=get_global_dtype()), base_pos

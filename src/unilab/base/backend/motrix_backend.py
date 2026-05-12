@@ -24,7 +24,7 @@ try:
 except ImportError:
     MOTRIX_AVAILABLE = False
 
-from .base import BackendPlayCapabilities, SimBackend
+from .base import BackendHeightScanner, BackendPlayCapabilities, SimBackend
 from .motrix_camera import (
     MotrixTrackingCamera,
     render_offsets,
@@ -48,6 +48,22 @@ class _MotrixSceneContext:
     terrain_origins: np.ndarray | None = None
     terrain_surface_sampler: object | None = None
     cleanup_handle: object | None = None
+
+
+@dataclass
+class _MotrixTerrainScanner(BackendHeightScanner):
+    scanner: "mtx.TerrainScanner"
+    data: "mtx.SceneData"
+    out: np.ndarray
+
+    def scan(self) -> np.ndarray:
+        heights = np.asarray(self.scanner.scan(self.data, out=self.out))
+        if heights.shape != self.out.shape:
+            raise ValueError(
+                f"Motrix TerrainScanner.scan returned shape {heights.shape}, "
+                f"expected {self.out.shape}"
+            )
+        return heights
 
 
 def _build_motrix_scene_context(
@@ -258,6 +274,12 @@ class MotrixBackend(SimBackend):
                 raise ValueError(f"Body '{name}' not found in Motrix model")
             ids.append(int(bid))
         return np.array(ids, dtype=np.int32)
+
+    def get_geom_id(self, name: str) -> int:
+        geom_id = self._model.get_geom_index(name)
+        if geom_id is None or geom_id < 0:
+            raise ValueError(f"Geom '{name}' not found in Motrix model")
+        return int(geom_id)
 
     def get_joint_range(self) -> np.ndarray | None:
         return None
@@ -510,6 +532,51 @@ class MotrixBackend(SimBackend):
         ex_force[:, 1] *= force_range[1]
         ex_force[:, 2] *= force_range[2]
         self._push_body_link.add_external_force(self._data, ex_force, local=True)
+
+    def create_hfield_scanner(
+        self,
+        *,
+        hfield_geom_id: int,
+        offsets: np.ndarray,
+        frame_body_id: int,
+        alignment: str = "yaw",
+        output: str = "height",
+    ) -> BackendHeightScanner:
+        offsets_np = np.ascontiguousarray(np.asarray(offsets, dtype=np.float32))
+        if offsets_np.ndim != 2 or offsets_np.shape[1] != 2:
+            raise ValueError(f"offsets must have shape (num_points, 2), got {offsets_np.shape}")
+
+        if alignment != "yaw":
+            raise ValueError(f"MotrixBackend only supports alignment='yaw', got {alignment!r}")
+        if output not in {"height", "clearance"}:
+            raise ValueError(f"Unsupported hfield sampling output: {output!r}")
+
+        geom_id = int(hfield_geom_id)
+        if geom_id < 0 or geom_id >= int(self._model.num_geoms):
+            raise ValueError(f"hfield_geom_id out of range: {geom_id}")
+
+        body_id = int(frame_body_id)
+        if body_id < 0 or body_id >= int(self._model.num_links):
+            raise ValueError(f"frame_body_id out of range: {body_id}")
+
+        terrain = self._model.get_geom(geom_id)
+        if terrain is None:
+            raise ValueError(f"Geom id {geom_id} not found in Motrix model")
+        if not isinstance(terrain, mtx.GeomHField):
+            raise ValueError(f"Geom id {geom_id} is not backed by a Motrix hfield")
+        frame = self._link_cache[body_id]
+        scanner = mtx.TerrainScanner(
+            terrain,
+            frame,
+            offsets_np,
+            alignment=alignment,
+            output=output,
+        )
+        return _MotrixTerrainScanner(
+            scanner=scanner,
+            data=self._data,
+            out=np.empty((self._num_envs, offsets_np.shape[0]), dtype=self._np_dtype),
+        )
 
     def _update_tracking_camera_view(self) -> None:
         if (
