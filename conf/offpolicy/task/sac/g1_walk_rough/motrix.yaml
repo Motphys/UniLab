@@ -1,6 +1,6 @@
 # @package _global_
 training:
-  task_name: G1WalkFlat
+  task_name: G1WalkRough
   sim_backend: motrix
 algo:
   num_envs: 2048

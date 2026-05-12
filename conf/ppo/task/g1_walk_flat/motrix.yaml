@@ -4,11 +4,13 @@ training:
   sim_backend: motrix
 algo:
   num_envs: 2048
-  max_iterations: 220
+  max_iterations: 2200
   empirical_normalization: true
   obs_groups:
     actor:
       - policy
+    critic:
+      - critic
   policy:
     init_noise_std: 0.5
   algorithm:
