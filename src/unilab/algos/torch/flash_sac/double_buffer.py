@@ -19,8 +19,7 @@ def _validate_flashsac_double_buffer_runtime(
     device: str,
     replay_prefetch_mode: str,
 ) -> None:
-    if not str(device).startswith("cuda"):
-        raise ValueError("FlashSAC-B cpu_pinned_double_buffer requires a CUDA device")
+    _ = device
     if cfg.training.num_gpus > 1:
         raise ValueError("FlashSAC-B cpu_pinned_double_buffer is single-GPU only")
     if cfg.training.no_sync_collection:

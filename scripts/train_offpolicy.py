@@ -202,8 +202,6 @@ def build_runner(algo_name: str, cfg: DictConfig):
 
             _ensure()
             _device = cfg.training.device or get_default_device()
-            if not str(_device).startswith("cuda"):
-                raise ValueError("cpu_pinned_double_buffer requires a CUDA device")
             _env = create_env(cfg, num_envs=1, env_cfg_override=env_cfg_override)
             assert _env.action_space.shape
             from unilab.base.observations import get_obs_dims as _get_obs_dims

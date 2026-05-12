@@ -190,6 +190,97 @@ class _RecordingTrace:
         self.cuda_spans.append({"name": name, "category": category, "args": args or {}})
 
 
+def _service_collector_pack(pipeline) -> None:
+    from unilab.algos.torch.offpolicy.worker import _collector_pack_shared_batch
+
+    request = pipeline._collector_pack_request_queue.get_nowait()
+    ready = _collector_pack_shared_batch(
+        pipeline._replay_buffer,
+        request,
+        pipeline._collector_pack_shared_slots,
+    )
+    pipeline._collector_pack_ready_queue.put(ready)
+
+
+def _sample_ready(pipeline, tick_id: int, sample_count: int):
+    if pipeline.start_prepare(tick_id=tick_id, sample_count=sample_count):
+        _service_collector_pack(pipeline)
+    assert pipeline.wait_until_ready(tick_id=tick_id, sample_count=sample_count)
+    return pipeline.sample_large_batch(tick_id=tick_id, sample_count=sample_count)
+
+
+class TestPortableDoubleBuffer:
+    def _make_pipeline(self, rb, sample_count=16, base_seed=42, device="cpu", trace=None):
+        from unilab.ipc.replay_pipelines.cpu_pinned_double_buffer import (
+            CPUPinnedDoubleBufferReplayPipeline,
+        )
+
+        shared_slots = [
+            torch.empty((sample_count, rb._storage.shape[1]), dtype=torch.float32).share_memory_()
+            for _ in range(2)
+        ]
+        return CPUPinnedDoubleBufferReplayPipeline(
+            rb,
+            device=device,
+            sample_count=sample_count,
+            base_seed=base_seed,
+            trace_recorder=trace,
+            collector_pack_request_queue=queue.Queue(),
+            collector_pack_ready_queue=queue.Queue(),
+            collector_pack_shared_slots=shared_slots,
+        )
+
+    def test_cpu_portable_path_samples_expected_batch_without_cuda_pinning(self):
+        rb = _make_cpu_replay(capacity=128, obs_dim=4, action_dim=2)
+        pipeline = self._make_pipeline(rb, sample_count=8, base_seed=13)
+
+        batch = _sample_ready(pipeline, tick_id=2, sample_count=8)
+
+        gen = torch.Generator(device="cpu")
+        gen.manual_seed(13 + 2)
+        expected_indices = torch.randint(0, int(rb.size[0]), (8,), generator=gen)
+        torch.testing.assert_close(batch["obs"], rb._storage[expected_indices, rb._obs_sl])
+        assert all(value.device.type == "cpu" for value in batch.values())
+        assert pipeline._host_pinned is False
+        assert pipeline._h2d_submitter == "torch_copy"
+        assert not any(slot.is_pinned() for slot in pipeline._collector_pack_shared_slots)
+        pipeline.close()
+
+    def test_cpu_portable_trace_keeps_replay_slices_without_cuda_span(self):
+        rb = _make_cpu_replay(capacity=128, obs_dim=4, action_dim=2)
+        trace = _RecordingTrace()
+        pipeline = self._make_pipeline(rb, sample_count=8, base_seed=3, trace=trace)
+
+        _sample_ready(pipeline, tick_id=2, sample_count=8)
+
+        names = {event["name"] for event in trace.slices}
+        cuda_names = {event["name"] for event in trace.cuda_spans}
+        assert "replay_pipeline/collector_pack_request" in names
+        assert "replay_pipeline/batch_h2d_submit" in names
+        assert "replay_pipeline/batch_h2d_wait" in names
+        assert "replay_pipeline/hot_cold_swap" in names
+        assert "gpu/replay_pipeline_batch_h2d" not in cuda_names
+        submit = next(
+            event for event in trace.slices if event["name"] == "replay_pipeline/batch_h2d_submit"
+        )
+        assert submit["args"]["h2d_submitter"] == "torch_copy"
+        assert submit["args"]["pinned_memory"] is False
+        assert submit["args"]["direct_pinned_shared"] is False
+        pipeline.close()
+
+    @pytest.mark.skipif(not torch.backends.mps.is_available(), reason="MPS required")
+    def test_mps_portable_path_samples_on_mps(self):
+        rb = _make_cpu_replay(capacity=128, obs_dim=4, action_dim=2)
+        pipeline = self._make_pipeline(rb, sample_count=8, base_seed=5, device="mps")
+
+        batch = _sample_ready(pipeline, tick_id=1, sample_count=8)
+
+        assert all(value.device.type == "mps" for value in batch.values())
+        assert pipeline._host_pinned is False
+        assert pipeline._h2d_submitter == "torch_copy"
+        pipeline.close()
+
+
 # ---------------------------------------------------------------------------
 # CPUPinnedDoubleBufferReplayPipeline (experimental path)
 # ---------------------------------------------------------------------------
@@ -252,22 +343,11 @@ class TestCPUPinnedDoubleBuffer:
 
     @staticmethod
     def _service_collector_pack(pipeline) -> None:
-        from unilab.algos.torch.offpolicy.worker import _collector_pack_shared_batch
-
-        request = pipeline._collector_pack_request_queue.get_nowait()
-        ready = _collector_pack_shared_batch(
-            pipeline._replay_buffer,
-            request,
-            pipeline._collector_pack_shared_slots,
-        )
-        pipeline._collector_pack_ready_queue.put(ready)
+        _service_collector_pack(pipeline)
 
     @staticmethod
     def _sample_ready(pipeline, tick_id: int, sample_count: int):
-        if pipeline.start_prepare(tick_id=tick_id, sample_count=sample_count):
-            TestCPUPinnedDoubleBuffer._service_collector_pack(pipeline)
-        assert pipeline.wait_until_ready(tick_id=tick_id, sample_count=sample_count)
-        return pipeline.sample_large_batch(tick_id=tick_id, sample_count=sample_count)
+        return _sample_ready(pipeline, tick_id=tick_id, sample_count=sample_count)
 
     def test_allocates_two_host_and_two_gpu_slots(self):
         rb = self._make_cuda_replay()

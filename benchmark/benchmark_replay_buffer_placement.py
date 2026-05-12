@@ -28,7 +28,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from statistics import mean, median, pstdev
-from typing import Any
+from typing import Any, cast
 
 import torch
 from hydra import compose, initialize_config_dir
@@ -61,20 +61,20 @@ DEFAULT_SIM = "mujoco"
 FLOAT_BYTES = 4
 TIMING_LABELS = {
     "cpu_full_random_sample": "CPU full sample",
-    "gpu_full_random_sample": "GPU full sample",
-    "current_ipc_incremental_h2d": "IPC incremental H2D",
+    "gpu_full_random_sample": "Device full sample",
+    "current_ipc_incremental_h2d": "IPC incremental transfer",
     "cpu_full_presample": "CPU pre-sample",
-    "cpu_sampled_batch_h2d": "Sampled batch H2D",
-    "cpu_presample_plus_h2d": "CPU pre-sample + H2D",
+    "cpu_sampled_batch_h2d": "Sampled batch transfer",
+    "cpu_presample_plus_h2d": "CPU pre-sample + transfer",
 }
 SCHEME_SEGMENTS = {
     "current": (
-        ("current_ipc_incremental_h2d", "Incremental H2D", "#4C78A8"),
-        ("gpu_full_random_sample", "GPU random sample", "#72B7B2"),
+        ("current_ipc_incremental_h2d", "Incremental transfer", "#4C78A8"),
+        ("gpu_full_random_sample", "Device random sample", "#72B7B2"),
     ),
     "cpu_presample": (
         ("cpu_full_presample", "CPU pre-sample", "#F58518"),
-        ("cpu_sampled_batch_h2d", "Sampled batch H2D", "#E45756"),
+        ("cpu_sampled_batch_h2d", "Sampled batch transfer", "#E45756"),
     ),
 }
 SCHEME_LABELS = {
@@ -172,9 +172,11 @@ def _stats(samples_ms: list[float], *, warmup: int, repeat: int) -> TimingStats:
     )
 
 
-def _sync_cuda(device: torch.device) -> None:
+def _sync_device(device: torch.device) -> None:
     if device.type == "cuda":
         torch.cuda.synchronize(device)
+    elif device.type == "mps" and hasattr(torch, "mps"):
+        torch.mps.synchronize()
 
 
 def _measure_ms(
@@ -187,21 +189,23 @@ def _measure_ms(
     samples_ms: list[float] = []
     for idx in range(warmup + repeat):
         if device is not None:
-            _sync_cuda(device)
+            _sync_device(device)
         t0 = time.perf_counter_ns()
         fn()
         if device is not None:
-            _sync_cuda(device)
+            _sync_device(device)
         elapsed_ms = (time.perf_counter_ns() - t0) / 1e6
         if idx >= warmup:
             samples_ms.append(elapsed_ms)
     return _stats(samples_ms, warmup=warmup, repeat=repeat)
 
 
-def _cleanup_cuda() -> None:
+def _cleanup_device() -> None:
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+    if hasattr(torch, "mps") and torch.backends.mps.is_available():
+        torch.mps.empty_cache()
 
 
 def _compose_offpolicy_cfg(algo: str, task: str, sim: str) -> DictConfig:
@@ -295,7 +299,10 @@ def _resolve_env_shape_and_symmetry(cfg: DictConfig, algo: str) -> tuple[ReplayS
         symmetry_batch_multiplier = 1
         use_symmetry = bool(OmegaConf.select(cfg, "algo.use_symmetry", default=False))
         if algo == "sac" and use_symmetry:
-            symmetry = env.build_symmetry_augmentation(device="cpu")
+            symmetry_builder = getattr(env, "build_symmetry_augmentation", None)
+            if not callable(symmetry_builder):
+                raise ValueError(f"{cfg.training.task_name} does not provide symmetry augmentation")
+            symmetry = cast(Any, symmetry_builder(device="cpu"))
             if symmetry is None:
                 raise ValueError(f"{cfg.training.task_name} does not provide symmetry augmentation")
             symmetry_batch_multiplier = int(symmetry.batch_multiplier)
@@ -443,7 +450,7 @@ def _bench_cpu_full_random_sample(
         return _measure_ms(sample_cpu, warmup=warmup, repeat=repeat)
     finally:
         del out, storage
-        _cleanup_cuda()
+        _cleanup_device()
 
 
 def _bench_gpu_full_random_sample(
@@ -476,7 +483,7 @@ def _bench_gpu_full_random_sample(
         return _measure_ms(sample_gpu, warmup=warmup, repeat=repeat, device=device)
     finally:
         del out, storage
-        _cleanup_cuda()
+        _cleanup_device()
 
 
 def _bench_current_ipc_incremental_h2d(
@@ -510,11 +517,12 @@ def _bench_current_ipc_incremental_h2d(
         remaining = case.incremental_rows
         source_offset = 0
         target_offset = offset
+        non_blocking = source.is_pinned() and device.type == "cuda"
         while remaining > 0:
             chunk_rows = min(remaining, case.benchmark_capacity_rows - target_offset)
             target[target_offset : target_offset + chunk_rows].copy_(
                 source[source_offset : source_offset + chunk_rows],
-                non_blocking=source.is_pinned(),
+                non_blocking=non_blocking,
             )
             remaining -= chunk_rows
             source_offset += chunk_rows
@@ -525,7 +533,7 @@ def _bench_current_ipc_incremental_h2d(
         return _measure_ms(copy_increment, warmup=warmup, repeat=repeat, device=device)
     finally:
         del source, target
-        _cleanup_cuda()
+        _cleanup_device()
 
 
 def _bench_cpu_presample(
@@ -570,13 +578,13 @@ def _bench_cpu_sampled_h2d(
     target = torch.empty_like(sampled, device=device)
 
     def copy_sampled_batch() -> None:
-        target.copy_(sampled, non_blocking=sampled.is_pinned())
+        target.copy_(sampled, non_blocking=sampled.is_pinned() and device.type == "cuda")
 
     try:
         return _measure_ms(copy_sampled_batch, warmup=warmup, repeat=repeat, device=device)
     finally:
         del target
-        _cleanup_cuda()
+        _cleanup_device()
 
 
 def _run_case(
@@ -591,6 +599,15 @@ def _run_case(
 ) -> CaseResult:
     notes: list[str] = []
     timings: dict[str, TimingStats] = {}
+    effective_incremental_source_pinned = incremental_source_pinned
+    effective_sampled_batch_pinned = sampled_batch_pinned
+    if device.type != "cuda":
+        if incremental_source_pinned:
+            notes.append(f"pinned incremental source is CUDA-only; using pageable CPU for {device}")
+        if sampled_batch_pinned:
+            notes.append(f"pinned sampled batch is CUDA-only; using pageable CPU for {device}")
+        effective_incremental_source_pinned = False
+        effective_sampled_batch_pinned = False
 
     print(f"\n[{case.algo}] {case.command}")
     print(
@@ -621,10 +638,6 @@ def _run_case(
     )
     _print_timing("CPU full replay random sample", timings["cpu_full_random_sample"])
 
-    if device.type != "cuda":
-        notes.append(f"selected device is {device}; GPU and H2D timings were skipped")
-        return CaseResult(case=case, timings=timings, notes=notes)
-
     timings["gpu_full_random_sample"] = _bench_gpu_full_random_sample(
         case,
         device=device,
@@ -632,7 +645,7 @@ def _run_case(
         repeat=repeat,
         prefill=prefill,
     )
-    _print_timing("GPU full replay random sample", timings["gpu_full_random_sample"])
+    _print_timing("Device full replay random sample", timings["gpu_full_random_sample"])
 
     timings["current_ipc_incremental_h2d"] = _bench_current_ipc_incremental_h2d(
         case,
@@ -640,17 +653,20 @@ def _run_case(
         warmup=warmup,
         repeat=repeat,
         prefill=prefill,
-        source_pinned=incremental_source_pinned,
+        source_pinned=effective_incremental_source_pinned,
         notes=notes,
     )
-    _print_timing("Current IPC incremental H2D", timings["current_ipc_incremental_h2d"])
+    _print_timing(
+        "Current IPC incremental transfer",
+        timings["current_ipc_incremental_h2d"],
+    )
 
     cpu_presample_stats, storage, sampled = _bench_cpu_presample(
         case,
         warmup=warmup,
         repeat=repeat,
         prefill=prefill,
-        sampled_prefer_pinned=sampled_batch_pinned,
+        sampled_prefer_pinned=effective_sampled_batch_pinned,
         notes=notes,
     )
     timings["cpu_full_presample"] = cpu_presample_stats
@@ -662,10 +678,10 @@ def _run_case(
             warmup=warmup,
             repeat=repeat,
         )
-        _print_timing("CPU sampled batch H2D", timings["cpu_sampled_batch_h2d"])
+        _print_timing("CPU sampled batch transfer", timings["cpu_sampled_batch_h2d"])
     finally:
         del sampled, storage
-        _cleanup_cuda()
+        _cleanup_device()
 
     return CaseResult(case=case, timings=timings, notes=notes)
 
@@ -897,10 +913,16 @@ def _parse_tasks(value: str) -> list[str]:
 
 def _resolve_device(value: str) -> torch.device:
     if value == "auto":
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        if torch.backends.mps.is_available():
+            return torch.device("mps")
+        return torch.device("cpu")
     device = torch.device(value)
     if device.type == "cuda" and not torch.cuda.is_available():
         raise ValueError("CUDA was requested but torch.cuda.is_available() is false")
+    if device.type == "mps" and not torch.backends.mps.is_available():
+        raise ValueError("MPS was requested but torch.backends.mps.is_available() is false")
     return device
 
 
@@ -945,13 +967,13 @@ def main(argv: list[str] | None = None) -> int:
         "--incremental-source",
         choices=("pageable", "pinned"),
         default="pageable",
-        help="CPU source memory for the incremental full-replay H2D copy.",
+        help="CPU source memory for the incremental full-replay device transfer.",
     )
     parser.add_argument(
         "--sampled-batch-memory",
         choices=("pinned", "pageable"),
         default="pinned",
-        help="CPU memory for the pre-sampled batch before H2D.",
+        help="CPU memory for the pre-sampled batch before device transfer.",
     )
     parser.add_argument("--out-json", type=Path, default=DEFAULT_OUTPUT_JSON)
     parser.add_argument(
@@ -977,8 +999,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"PyTorch: {torch.__version__}")
     device_info_line = get_device_info_line()
     print(device_info_line)
-    if device.type != "cuda":
-        print(f"WARNING: selected device is {device}; GPU and H2D timing sections will be skipped.")
+    if device.type == "cuda":
+        print("Transfer path: CUDA pinned/native fast path where pinned memory is available.")
+    else:
+        print(f"Transfer path: portable torch_copy path on {device}.")
 
     results: list[CaseResult] = []
     for skipped in skipped_targets:

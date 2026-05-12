@@ -1,4 +1,9 @@
-"""CPU-pinned double-buffer replay pipeline (experimental B path)."""
+"""Double-buffer replay pipeline for packed CPU replay samples.
+
+CUDA uses the original CPU-pinned shared slot + native async H2D fast path.
+Non-CUDA devices use the same collector-thread packing contract and a
+portable torch copy into the device batch slots.
+"""
 
 from __future__ import annotations
 
@@ -16,12 +21,11 @@ from unilab.ipc.replay_pipelines.base import ReplayTickMetadata
 
 
 class CPUPinnedDoubleBufferReplayPipeline:
-    """Double-buffered pinned-host → GPU sampled-batch pipeline.
+    """Double-buffered packed replay batch pipeline.
 
-    Two pinned host buffers and two GPU buffers alternate as hot/cold.
-    CPU samples from the authoritative CPU replay, packs into the cold
-    pinned slot, and issues an async H2D copy.  The GPU learner consumes
-    the hot slot while the cold slot is being prepared.
+    CUDA keeps the pinned-host → GPU fast path.  MPS/CPU keep the same
+    collector-thread pack and hot/cold batch contract with a portable torch
+    copy into the learner device slot.
     """
 
     def __init__(
@@ -39,23 +43,24 @@ class CPUPinnedDoubleBufferReplayPipeline:
         collector_pack_ready_queue=None,
         collector_pack_shared_slots=None,
     ) -> None:
-        if not str(device).startswith("cuda"):
-            raise ValueError("cpu_pinned_double_buffer requires a CUDA device")
         self._replay_buffer = replay_buffer
         self._device = torch.device(device)
+        self._device_type = self._device.type
         self._sample_count = sample_count
         self._base_seed = base_seed
         self._trace_recorder = trace_recorder
-        self._trace_cuda_events = bool(trace_cuda_events)
+        self._trace_cuda_events = bool(trace_cuda_events) and self._device_type == "cuda"
         self._verbose = bool(verbose)
         self._verbose_output_dir = verbose_output_dir if self._verbose else None
         self._pack_layout = "packed"
         self._pack_executor = "collector_thread"
-        self._h2d_submitter = "pybind11"
-        from unilab.ipc.replay_pipelines.native_h2d import ensure_available
+        self._h2d_submitter = "pybind11" if self._device_type == "cuda" else "torch_copy"
+        self._host_pinned = False
+        self._direct_pinned_shared = False
+        if self._device_type == "cuda":
+            from unilab.ipc.replay_pipelines.native_h2d import ensure_available
 
-        ensure_available()
-        self._host_pinned = True
+            ensure_available()
         if not getattr(replay_buffer, "_packed_cpu_storage", False):
             raise ValueError("pack_layout='packed' requires ReplayBuffer(packed_cpu_storage=True)")
         if (
@@ -74,22 +79,26 @@ class CPUPinnedDoubleBufferReplayPipeline:
         self._collector_pack_shared_slots = collector_pack_shared_slots
         self._registered_shared_slots: list[torch.Tensor] = []
         self._registered_shared_ptrs: list[int] = []
-        self._cudart = torch.cuda.cudart()
+        self._cudart = torch.cuda.cudart() if self._device_type == "cuda" else None
         self._fields: Dict[str, tuple[torch.Tensor, int]] = {}
         self._packed_width = int(replay_buffer._storage.shape[1])
         self._host_packed: list[torch.Tensor] = []
         self._register_collector_shared_slots()
         self._gpu_packed = [
             torch.empty(
-                (self._sample_count, self._packed_width), dtype=torch.float32, device=device
+                (self._sample_count, self._packed_width), dtype=torch.float32, device=self._device
             )
             for _ in range(2)
         ]
         self._host: list[Dict[str, torch.Tensor]] = []
         self._gpu: list[Dict[str, torch.Tensor]] = []
 
-        self._copy_stream = torch.cuda.Stream(device=device)
-        self._ready_events = [torch.cuda.Event() for _ in range(2)]
+        if self._device_type == "cuda":
+            self._copy_stream = torch.cuda.Stream(device=self._device)
+            self._ready_events = [torch.cuda.Event() for _ in range(2)]
+        else:
+            self._copy_stream = None
+            self._ready_events = [threading.Event() for _ in range(2)]
 
         self._hot = 0
         self._cold = 1
@@ -109,10 +118,16 @@ class CPUPinnedDoubleBufferReplayPipeline:
         )
         self._collector_h2d_thread.start()
 
+    @property
+    def h2d_submitter(self) -> str:
+        return self._h2d_submitter
+
     # -- allocation helpers --------------------------------------------------
 
     def _register_collector_shared_slots(self) -> None:
         assert self._collector_pack_shared_slots is not None
+        if self._device_type != "cuda":
+            return
         assert self._cudart is not None
         for slot in self._collector_pack_shared_slots:
             nbytes = int(slot.numel() * slot.element_size())
@@ -124,6 +139,8 @@ class CPUPinnedDoubleBufferReplayPipeline:
                 raise RuntimeError("cudaHostRegister did not make collector replay slot pinned")
             self._registered_shared_slots.append(slot)
             self._registered_shared_ptrs.append(int(slot.data_ptr()))
+        self._host_pinned = True
+        self._direct_pinned_shared = True
 
     def _unregister_collector_shared_slots(self) -> None:
         if self._cudart is None:
@@ -165,23 +182,30 @@ class CPUPinnedDoubleBufferReplayPipeline:
         start_event = None
         end_event = None
         record_cuda = self._trace_recorder is not None and self._trace_cuda_events
-        with torch.cuda.device(self._device):
-            copy_stream = cast(torch.cuda.Stream, self._copy_stream)
-            with torch.cuda.stream(copy_stream):
-                if record_cuda:
-                    start_event = torch.cuda.Event(enable_timing=True)
-                    end_event = torch.cuda.Event(enable_timing=True)
-                    cast(Any, start_event).record()
-                from unilab.ipc.replay_pipelines.native_h2d import submit_h2d
+        self._clear_ready(slot)
+        if self._device_type == "cuda":
+            with torch.cuda.device(self._device):
+                copy_stream = cast(torch.cuda.Stream, self._copy_stream)
+                with torch.cuda.stream(copy_stream):
+                    if record_cuda:
+                        start_event = torch.cuda.Event(enable_timing=True)
+                        end_event = torch.cuda.Event(enable_timing=True)
+                        cast(Any, start_event).record()
+                    from unilab.ipc.replay_pipelines.native_h2d import submit_h2d
 
-                submit_h2d(
-                    self._gpu_packed[slot],
-                    self._packed_h2d_source(slot),
-                    copy_stream,
-                )
-                if end_event is not None:
-                    cast(Any, end_event).record()
-                self._ready_events[slot].record(copy_stream)
+                    submit_h2d(
+                        self._gpu_packed[slot],
+                        self._packed_h2d_source(slot),
+                        copy_stream,
+                    )
+                    if end_event is not None:
+                        cast(Any, end_event).record()
+                    cast(torch.cuda.Event, self._ready_events[slot]).record(copy_stream)
+        else:
+            self._gpu_packed[slot].copy_(self._packed_h2d_source(slot))
+            if self._device_type == "mps" and hasattr(torch, "mps"):
+                torch.mps.synchronize()
+            self._mark_ready(slot)
         h2d_end_ns = time.perf_counter_ns()
         if record_cuda and start_event is not None and end_event is not None:
             args: Dict[str, object] = {
@@ -191,7 +215,7 @@ class CPUPinnedDoubleBufferReplayPipeline:
                 "pack_layout": self._pack_layout,
                 "pack_executor": self._pack_executor,
                 "h2d_submitter": self._h2d_submitter,
-                "direct_pinned_shared": True,
+                "direct_pinned_shared": self._direct_pinned_shared,
             }
             if metadata is not None:
                 args.update(
@@ -231,6 +255,15 @@ class CPUPinnedDoubleBufferReplayPipeline:
         shared_slot = int(ready["shared_slot"])
         if shared_slot != slot:
             raise RuntimeError("collector_thread shared slot must match target GPU slot")
+        if self._device_type == "cuda":
+            self._submit_device_transfer(metadata)
+        return metadata
+
+    def _submit_device_transfer(self, metadata: ReplayTickMetadata) -> None:
+        slot = metadata.batch_gpu_slot
+        shared_slot = metadata.batch_host_slot
+        assert slot is not None
+        assert shared_slot is not None
         h2d_submit_ns = time.perf_counter_ns()
         self.last_incremental_h2d_time_s = self._submit_h2d(slot, metadata)
         if self._trace_recorder is not None:
@@ -248,10 +281,21 @@ class CPUPinnedDoubleBufferReplayPipeline:
                     "h2d_submitter": self._h2d_submitter,
                     "h2d_bytes": self._h2d_bytes(),
                     "h2d_submitted": True,
-                    "direct_pinned_shared": True,
+                    "pinned_memory": self._host_pinned,
+                    "direct_pinned_shared": self._direct_pinned_shared,
+                    "learner_thread_submit": self._device_type != "cuda",
                 },
             )
-        return metadata
+
+    def _ensure_device_transfer_ready(self, metadata: ReplayTickMetadata) -> None:
+        slot = metadata.batch_gpu_slot
+        assert slot is not None
+        if self._ready_query(slot):
+            return
+        if self._device_type == "cuda":
+            self._synchronize_ready(slot)
+            return
+        self._submit_device_transfer(metadata)
 
     def _collector_h2d_worker(self) -> None:
         while True:
@@ -272,7 +316,9 @@ class CPUPinnedDoubleBufferReplayPipeline:
                             f"pending tick {self._prepare_tick_id}"
                         )
                     self._prepared_metadata = metadata
-                    self._prepare_state = "h2d_submitted"
+                    self._prepare_state = (
+                        "h2d_submitted" if self._device_type == "cuda" else "host_ready"
+                    )
                     self._prepare_error = None
                     self._prepare_condition.notify_all()
             except BaseException as exc:
@@ -283,6 +329,32 @@ class CPUPinnedDoubleBufferReplayPipeline:
     def _h2d_bytes(self) -> int:
         source = self._packed_h2d_source(0)
         return int(source.numel() * source.element_size())
+
+    def _clear_ready(self, slot: int) -> None:
+        if self._device_type != "cuda":
+            cast(threading.Event, self._ready_events[slot]).clear()
+
+    def _mark_ready(self, slot: int) -> None:
+        if self._device_type != "cuda":
+            cast(threading.Event, self._ready_events[slot]).set()
+
+    def _ready_query(self, slot: int) -> bool:
+        if self._device_type == "cuda":
+            return bool(cast(torch.cuda.Event, self._ready_events[slot]).query())
+        return cast(threading.Event, self._ready_events[slot]).is_set()
+
+    def _synchronize_ready(self, slot: int) -> None:
+        if self._device_type == "cuda":
+            cast(torch.cuda.Event, self._ready_events[slot]).synchronize()
+            return
+        cast(threading.Event, self._ready_events[slot]).wait()
+
+    def _wait_current_stream_for_ready(self, slot: int) -> None:
+        if self._device_type == "cuda":
+            current_stream = cast(Any, torch.cuda.current_stream(self._device))
+            current_stream.wait_event(cast(torch.cuda.Event, self._ready_events[slot]))
+            return
+        self._synchronize_ready(slot)
 
     # -- public API -----------------------------------------------------------
 
@@ -295,7 +367,7 @@ class CPUPinnedDoubleBufferReplayPipeline:
             raise self._prepare_error
         if self._prepared_metadata is not None:
             slot = self._prepared_metadata.batch_gpu_slot
-            if slot is not None and self._ready_events[slot].query():
+            if slot is not None and self._ready_query(slot):
                 self._prepare_state = "ready"
 
     def start_prepare(
@@ -304,7 +376,7 @@ class CPUPinnedDoubleBufferReplayPipeline:
         sample_count: int,
         min_snapshot_ptr: int | None = None,
     ) -> bool:
-        """Start CPU pack + async H2D for the current cold slot.
+        """Start CPU pack + device transfer for the current cold slot.
 
         Returns True when this call launches new work. If the same tick is
         already pending or prepared, returns False.
@@ -326,6 +398,7 @@ class CPUPinnedDoubleBufferReplayPipeline:
                 "Cannot prepare a new replay batch before the previous batch is consumed"
             )
         slot = self._cold
+        self._clear_ready(slot)
         self._prepare_tick_id = int(tick_id)
         self._prepare_error = None
         snapshot_ptr, snapshot_size = self._snapshot()
@@ -378,7 +451,8 @@ class CPUPinnedDoubleBufferReplayPipeline:
         metadata = self._prepared_or_wait(tick_id)
         slot = metadata.batch_gpu_slot
         assert slot is not None
-        self._ready_events[slot].synchronize()
+        self._ensure_device_transfer_ready(metadata)
+        self._synchronize_ready(slot)
         self._prepare_state = "ready"
         return True
 
@@ -417,7 +491,7 @@ class CPUPinnedDoubleBufferReplayPipeline:
             slot = metadata.batch_gpu_slot
             assert slot is not None
             _t0 = time.perf_counter_ns()
-            cast(Any, torch.cuda.current_stream(self._device)).wait_event(self._ready_events[slot])
+            self._wait_current_stream_for_ready(slot)
             if self._trace_recorder is not None:
                 _wait_end = time.perf_counter_ns()
                 self._trace_recorder.add_slice(
@@ -477,7 +551,7 @@ class CPUPinnedDoubleBufferReplayPipeline:
         if self._prepared_metadata is not None:
             slot = self._prepared_metadata.batch_gpu_slot
             if slot is not None:
-                self._ready_events[slot].synchronize()
+                self._synchronize_ready(slot)
         self._unregister_collector_shared_slots()
         if self._verbose and self._verbose_output_dir and self._verbose_pack_records:
             try:

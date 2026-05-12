@@ -127,17 +127,64 @@ def test_sac_multi_gpu_rejects_cpu_pinned_double_buffer():
         _offpolicy().build_runner("sac", cfg)
 
 
-def test_sac_cpu_device_rejects_cpu_pinned_double_buffer():
+@pytest.mark.parametrize("device", ["cpu", "mps"])
+def test_sac_portable_devices_allow_cpu_pinned_double_buffer(
+    monkeypatch: pytest.MonkeyPatch,
+    device: str,
+):
+    import gymnasium as gym
+
+    mod = _offpolicy()
     cfg = _offpolicy_cfg(
         [
             "algo=sac",
-            "training.device=cpu",
+            f"training.device={device}",
             "training.replay_pipeline=cpu_pinned_double_buffer",
             "algo.use_symmetry=false",
         ]
     )
-    with pytest.raises(ValueError, match="requires a CUDA device"):
-        _offpolicy().build_runner("sac", cfg)
+
+    class _FakeEnv:
+        obs_groups_spec = {"obs": 4, "critic": 6}
+        action_space = gym.spaces.Box(-1.0, 1.0, shape=(2,))
+
+        def build_symmetry_augmentation(self, device=None):
+            return None
+
+        def close(self):
+            pass
+
+    class _FakeLearner:
+        class actor:
+            @staticmethod
+            def state_dict():
+                return {"w": MagicMock(shape=(4,))}
+
+        update_count = 0
+
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+
+    class _FakeRunner:
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+
+    monkeypatch.setattr(mod, "ensure_registries", lambda: None)
+    monkeypatch.setattr(mod, "create_env", lambda *args, **kwargs: _FakeEnv())
+
+    import unilab.algos.torch.fast_sac.learner as learner_mod
+
+    monkeypatch.setattr(learner_mod, "FastSACLearner", _FakeLearner)
+
+    import unilab.algos.torch.offpolicy.double_buffer_runner as db_mod
+
+    monkeypatch.setattr(db_mod, "DoubleBufferOffPolicyRunner", _FakeRunner)
+
+    runner = mod.build_runner("sac", cfg)
+
+    assert isinstance(runner, _FakeRunner)
+    assert runner.kwargs["device"] == device
+    assert runner.kwargs["replay_prefetch_mode"] == "one_tick"
 
 
 def test_sac_async_collection_rejects_cpu_pinned_double_buffer():
@@ -152,16 +199,48 @@ def test_sac_async_collection_rejects_cpu_pinned_double_buffer():
         _offpolicy().build_runner("sac", cfg)
 
 
-def test_flashsac_double_buffer_cpu_device_rejected():
+@pytest.mark.parametrize("device", ["cpu", "mps"])
+def test_flashsac_double_buffer_portable_devices_allowed(
+    monkeypatch: pytest.MonkeyPatch,
+    device: str,
+):
+    import gymnasium as gym
+
+    import unilab.algos.torch.flash_sac.double_buffer as flash_db_mod
+
+    mod = _offpolicy()
     cfg = _offpolicy_cfg(
         [
             "algo=flashsac",
-            "training.device=cpu",
+            f"training.device={device}",
             "training.replay_pipeline=cpu_pinned_double_buffer",
         ]
     )
-    with pytest.raises(ValueError, match="FlashSAC-B .* requires a CUDA device"):
-        _offpolicy().build_runner("flashsac", cfg)
+
+    class _FakeEnv:
+        obs_groups_spec = {"obs": 4, "critic": 6}
+        action_space = gym.spaces.Box(-1.0, 1.0, shape=(2,))
+
+        def close(self):
+            pass
+
+    class _FakeLearner:
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+
+    class _FakeRunner:
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+
+    monkeypatch.setattr(flash_db_mod, "ensure_registries", lambda: None)
+    monkeypatch.setattr(flash_db_mod, "create_env", lambda *args, **kwargs: _FakeEnv())
+    monkeypatch.setattr(flash_db_mod, "FlashSACLearner", _FakeLearner)
+    monkeypatch.setattr(flash_db_mod, "DoubleBufferOffPolicyRunner", _FakeRunner)
+
+    runner = mod.build_runner("flashsac", cfg)
+
+    assert isinstance(runner, _FakeRunner)
+    assert runner.kwargs["device"] == device
 
 
 def test_flashsac_double_buffer_multi_gpu_rejected():

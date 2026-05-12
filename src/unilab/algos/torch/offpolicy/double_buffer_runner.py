@@ -55,7 +55,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         self.verbose_metrics = bool(verbose_metrics)
         self.replay_pack_layout = "packed"
         self.replay_pack_executor = "collector_thread"
-        self.replay_h2d_submitter = "pybind11"
+        self.replay_h2d_submitter = "auto"
 
     def learn(
         self,
@@ -118,6 +118,11 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             collector_pack_request_queue=collector_pack_request_queue,
             collector_pack_ready_queue=collector_pack_ready_queue,
             collector_pack_shared_slots=collector_pack_shared_slots,
+        )
+        self.replay_h2d_submitter = getattr(
+            replay_pipeline,
+            "h2d_submitter",
+            self.replay_h2d_submitter,
         )
 
         # --- weight sync ---
