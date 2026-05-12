@@ -485,8 +485,8 @@ def test_ppo_g1_flip_tracking():
     assert cfg.algo.max_iterations == 20000
     assert cfg.algo.empirical_normalization is True
     assert cfg.algo.obs_groups.critic == ["critic"]
-    assert cfg.algo.algorithm.entropy_coef == pytest.approx(0.001)
-    assert cfg.algo.algorithm.desired_kl == pytest.approx(0.02)
+    assert cfg.algo.algorithm.entropy_coef == pytest.approx(0.005)
+    assert cfg.algo.algorithm.desired_kl == pytest.approx(0.01)
     assert cfg.env.sampling_mode == "start"
     assert cfg.env.truncate_on_clip_end is False
     assert cfg.env.sim_dt == pytest.approx(0.005)
@@ -514,8 +514,8 @@ def test_ppo_g1_wall_flip_tracking():
     assert cfg.algo.max_iterations == 20000
     assert cfg.algo.empirical_normalization is True
     assert cfg.algo.obs_groups.critic == ["critic"]
-    assert cfg.algo.algorithm.entropy_coef == pytest.approx(0.001)
-    assert cfg.algo.algorithm.desired_kl == pytest.approx(0.02)
+    assert cfg.algo.algorithm.entropy_coef == pytest.approx(0.005)
+    assert cfg.algo.algorithm.desired_kl == pytest.approx(0.01)
     assert cfg.env.sampling_mode == "start"
     assert cfg.env.truncate_on_clip_end is False
     assert cfg.env.sim_dt == pytest.approx(0.005)

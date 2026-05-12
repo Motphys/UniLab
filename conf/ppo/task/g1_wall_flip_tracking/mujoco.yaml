@@ -14,8 +14,8 @@ algo:
     critic:
       - critic
   algorithm:
-    entropy_coef: 0.001
-    desired_kl: 0.02
+    entropy_coef: 0.005
+    desired_kl: 0.01
 env:
   sampling_mode: start
   truncate_on_clip_end: false
