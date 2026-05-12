@@ -8,6 +8,14 @@ Train robot RL without a GPU simulation backend.
 
 UniLab uses **CPU simulation + shared-memory runtime + GPU learning** instead of coupling simulation and learning inside one GPU-resident pipeline.
 
+```
+┌───────────────────┐                            ┌─────────────────────────┐
+│  CPU Physics Sim  │   Unified Shared Memory    │   GPU Policy Training   │
+│   MuJoCo/Motrix   │ ─────────────────────────▶ │     PPO / SAC / TD3     │
+│ Multithread Step  │    SharedReplayBuffer      │ CUDA / MPS / ROCm / XPU │
+└───────────────────┘                            └─────────────────────────┘
+```
+
 Start with the `Quick Demo` below to run the primary training command from this repository.
 
 ## 🚀 Quick Demo
@@ -78,16 +86,6 @@ uv run train --algo ppo --task sharpa_inhand --sim mujoco --profile hora
 ```
 
 More training commands, script-level entrypoints, resume flow, and W&B details are in [03 Training Guide](docs/users/zh_CN/03-training.md).
-
-## 🧱 System Layout
-
-```
-┌───────────────────┐     Unified Shared Memory     ┌────────────────────┐
-│  CPU Physics Sim  │ ───────────────────────────▶  │ GPU Policy Training│
-│  mujoco.rollout   │      SharedReplayBuffer       │   PPO / SAC / TD3  │
-│ Multithread Step  │    (PyTorch shared tensors)   │     CUDA / MPS     │
-└───────────────────┘                               └────────────────────┘
-```
 
 ## 🎯 Training Entrypoints
 
