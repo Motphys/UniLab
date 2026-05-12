@@ -192,7 +192,7 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
         Any,
         OnPolicyRunner(cast(Any, wrapped_env), train_cfg, log_dir=None, device=device),
     )
-    runner.load(str(load_path))
+    runner.load(str(load_path), map_location=device)
     policy = runner.get_inference_policy(device=device)
     if EXPORT_POLICY:
         runner.export_policy_to_onnx(path=str(load_path_dir))

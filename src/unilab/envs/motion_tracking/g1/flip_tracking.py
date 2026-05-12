@@ -60,7 +60,8 @@ class G1FlipTrackingCfg(G1MotionTrackingCfg):
         default_factory=_zero_velocity_randomization
     )
     joint_position_range: tuple[float, float] = (0.0, 0.0)
-    truncate_on_clip_end: bool = True
+    sampling_mode: Literal["start", "clip_start", "uniform", "adaptive"] = "start"
+    terminate_on_undesired_contacts: bool = True
     # Some flip clips include large anchor orientation deviations.
     anchor_ori_threshold: float = 1e9
 
@@ -93,7 +94,7 @@ class G1WallFlipTrackingCfg(G1FlipTrackingCfg):
     motion_file: str | list[str] = str(
         ASSETS_ROOT_PATH / "motions" / "g1" / "flip_from_wall_104__A304.npz"
     )
-    sampling_mode: Literal["start", "clip_start", "uniform", "adaptive"] = "start"
+    sampling_mode: Literal["start", "clip_start", "uniform", "adaptive"] = "adaptive"
     anchor_pos_z_threshold: float = 0.5
     ee_body_pos_z_threshold: float = 0.5
 

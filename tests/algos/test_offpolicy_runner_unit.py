@@ -67,7 +67,11 @@ class _FakeReplayBuffer:
         critic_dim: int = 0,
         defer_gpu: bool = False,
     ):
-        del capacity, obs_dim, action_dim, device, critic_dim, defer_gpu
+        del capacity, defer_gpu
+        self.obs_dim = obs_dim
+        self.action_dim = action_dim
+        self.device = device
+        self.critic_dim = critic_dim
         self.size = torch.zeros(1, dtype=torch.int64)
         self.ptr = torch.zeros(1, dtype=torch.int64)
         self.collect_time_s = torch.zeros(1, dtype=torch.float32)
@@ -498,6 +502,44 @@ def test_multi_gpu_runner_passes_explicit_runtime_context_to_collector(
 
     assert captured["sim_backend"] == "motrix"
     assert captured["env_cfg_override"] == {"reward_config": {"scales": {"alive": 1.0}}}
+
+
+def test_multi_gpu_runner_allocates_replay_critic_storage(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setattr(multi_gpu_runner_module, "ReplayBuffer", _FakeReplayBuffer)
+    monkeypatch.setattr(multi_gpu_runner_module, "SharedWeightSync", _FakeWeightSync)
+    monkeypatch.setattr(multi_gpu_runner_module.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(runner_module, "get_env_dims", lambda *args, **kwargs: (4, 2, 7))
+    monkeypatch.setattr(
+        multi_gpu_runner_module.tmp,
+        "spawn",
+        lambda *args, **kwargs: None,
+    )
+
+    runner = multi_gpu_runner_module.MultiGPUOffPolicyRunner(
+        learner=_FakeLearner(),
+        env_name="DummyEnv",
+        algo_type="sac",
+        learner_kwargs={},
+        num_gpus=2,
+        num_envs=2,
+        replay_buffer_n=8,
+        batch_size=8,
+        learning_starts=6,
+        updates_per_step=1,
+        policy_frequency=1,
+        sync_collection=False,
+        env_steps_per_sync=1,
+        device="cpu",
+    )
+    monkeypatch.setattr(runner, "_start_collector", lambda *args, **kwargs: None)
+
+    runner.learn(max_iterations=0, save_interval=0, log_dir=str(tmp_path))
+
+    replay_buffer = _FakeReplayBuffer.last_instance
+    assert replay_buffer is not None
+    assert replay_buffer.critic_dim == 7
 
 
 def test_multi_gpu_worker_rank0_propagates_collect_time_and_extra_info(

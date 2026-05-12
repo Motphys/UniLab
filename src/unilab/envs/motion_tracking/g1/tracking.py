@@ -39,7 +39,7 @@ from unilab.envs.common.rotation import (
 )
 from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
 
-from .motion_loader import MotionLoader, MotionSampler
+from .motion_loader import MotionData, MotionLoader, MotionSampler
 
 
 @dataclass
@@ -54,6 +54,7 @@ class RewardConfig:
             "motion_body_ori": 1.0,
             "motion_body_lin_vel": 1.0,
             "motion_body_ang_vel": 1.0,
+            "motion_ee_body_pos_z": 0.0,
             "motion_joint_pos": 0.0,
             "motion_joint_vel": 0.0,
             "action_rate_l2": -0.1,
@@ -176,6 +177,7 @@ class G1MotionTrackingCfg(G1BaseCfg):
         "right_wrist_yaw_link",
     )
     undesired_contact_z_threshold: float = 0.05
+    terminate_on_undesired_contacts: bool = False
 
 
 @registry.envcfg("G1MotionTracking")
@@ -184,6 +186,76 @@ class G1MotionTrackingEnvCfg(G1MotionTrackingCfg):
     """Registered configuration for G1 motion tracking."""
 
     pass
+
+
+def _build_motion_reference_state(
+    env: Any, env_ids: np.ndarray, motion_data: MotionData
+) -> tuple[np.ndarray, np.ndarray]:
+    dtype = get_global_dtype()
+    num_reset = len(env_ids)
+
+    root_pos = motion_data.body_pos_w[:, 0].copy()
+    root_ori = motion_data.body_quat_w[:, 0].copy()
+    root_lin_vel = motion_data.body_lin_vel_w[:, 0].copy()
+    root_ang_vel = motion_data.body_ang_vel_w[:, 0].copy()
+    joint_pos = motion_data.joint_pos.copy()
+    joint_vel = motion_data.joint_vel.copy()
+
+    pose_rand = env.cfg.pose_randomization
+    pose_ranges = [
+        (pose_rand.x[0], pose_rand.x[1]),
+        (pose_rand.y[0], pose_rand.y[1]),
+        (pose_rand.z[0], pose_rand.z[1]),
+        (pose_rand.roll[0], pose_rand.roll[1]),
+        (pose_rand.pitch[0], pose_rand.pitch[1]),
+        (pose_rand.yaw[0], pose_rand.yaw[1]),
+    ]
+    pose_samples = np.array(
+        [[np.random.uniform(low, high) for low, high in pose_ranges] for _ in range(num_reset)],
+        dtype=dtype,
+    )
+    root_pos += pose_samples[:, 0:3]
+    root_ori = np_quat_mul(
+        np_quat_from_euler_xyz(pose_samples[:, 3], pose_samples[:, 4], pose_samples[:, 5]),
+        root_ori,
+    )
+
+    vel_rand = env.cfg.velocity_randomization
+    vel_ranges = [
+        (vel_rand.x[0], vel_rand.x[1]),
+        (vel_rand.y[0], vel_rand.y[1]),
+        (vel_rand.z[0], vel_rand.z[1]),
+        (vel_rand.roll[0], vel_rand.roll[1]),
+        (vel_rand.pitch[0], vel_rand.pitch[1]),
+        (vel_rand.yaw[0], vel_rand.yaw[1]),
+    ]
+    vel_samples = np.array(
+        [[np.random.uniform(low, high) for low, high in vel_ranges] for _ in range(num_reset)],
+        dtype=dtype,
+    )
+    root_lin_vel += vel_samples[:, :3]
+    root_ang_vel += vel_samples[:, 3:]
+
+    joint_pos += np_sample_uniform(
+        env.cfg.joint_position_range[0],
+        env.cfg.joint_position_range[1],
+        joint_pos.shape,
+        dtype=np.float32,
+    )
+    joint_range = env._get_joint_range()
+    if joint_range is not None:
+        joint_pos = np.clip(joint_pos, joint_range[:, 0], joint_range[:, 1])
+
+    qpos = np.tile(env._init_qpos, (num_reset, 1))
+    qvel = np.tile(env._init_qvel, (num_reset, 1))
+    qpos[:, 0:3] = root_pos
+    qpos[:, 3:7] = root_ori
+    qpos[:, 7:] = joint_pos
+
+    qvel[:, 0:3] = root_lin_vel
+    qvel[:, 3:6] = np_quat_apply(np_quat_inv(root_ori), root_ang_vel)
+    qvel[:, 6:] = joint_vel
+    return qpos, qvel
 
 
 class G1MotionTrackingDomainRandomizationProvider(DomainRandomizationProvider):
@@ -205,73 +277,10 @@ class G1MotionTrackingDomainRandomizationProvider(DomainRandomizationProvider):
         return build_interval_push_plan(env, step_counter)
 
     def build_reset_plan(self, env: Any, env_ids: np.ndarray) -> ResetPlan:
-        dtype = get_global_dtype()
         num_reset = len(env_ids)
-
         motion_frames = env.motion_sampler.sample_frames(env_ids)
         motion_data = env.motion_loader.get_motion_at_frame(motion_frames)
-
-        root_pos = motion_data.body_pos_w[:, 0].copy()
-        root_ori = motion_data.body_quat_w[:, 0].copy()
-        root_lin_vel = motion_data.body_lin_vel_w[:, 0].copy()
-        root_ang_vel = motion_data.body_ang_vel_w[:, 0].copy()
-        joint_pos = motion_data.joint_pos.copy()
-        joint_vel = motion_data.joint_vel.copy()
-
-        pose_rand = env.cfg.pose_randomization
-        pose_ranges = [
-            (pose_rand.x[0], pose_rand.x[1]),
-            (pose_rand.y[0], pose_rand.y[1]),
-            (pose_rand.z[0], pose_rand.z[1]),
-            (pose_rand.roll[0], pose_rand.roll[1]),
-            (pose_rand.pitch[0], pose_rand.pitch[1]),
-            (pose_rand.yaw[0], pose_rand.yaw[1]),
-        ]
-        pose_samples = np.array(
-            [[np.random.uniform(low, high) for low, high in pose_ranges] for _ in range(num_reset)],
-            dtype=dtype,
-        )
-        root_pos += pose_samples[:, 0:3]
-        root_ori = np_quat_mul(
-            np_quat_from_euler_xyz(pose_samples[:, 3], pose_samples[:, 4], pose_samples[:, 5]),
-            root_ori,
-        )
-
-        vel_rand = env.cfg.velocity_randomization
-        vel_ranges = [
-            (vel_rand.x[0], vel_rand.x[1]),
-            (vel_rand.y[0], vel_rand.y[1]),
-            (vel_rand.z[0], vel_rand.z[1]),
-            (vel_rand.roll[0], vel_rand.roll[1]),
-            (vel_rand.pitch[0], vel_rand.pitch[1]),
-            (vel_rand.yaw[0], vel_rand.yaw[1]),
-        ]
-        vel_samples = np.array(
-            [[np.random.uniform(low, high) for low, high in vel_ranges] for _ in range(num_reset)],
-            dtype=dtype,
-        )
-        root_lin_vel += vel_samples[:, :3]
-        root_ang_vel += vel_samples[:, 3:]
-
-        joint_pos += np_sample_uniform(
-            env.cfg.joint_position_range[0],
-            env.cfg.joint_position_range[1],
-            joint_pos.shape,
-            dtype=np.float32,
-        )
-        joint_range = env._get_joint_range()
-        if joint_range is not None:
-            joint_pos = np.clip(joint_pos, joint_range[:, 0], joint_range[:, 1])
-
-        qpos = np.tile(env._init_qpos, (num_reset, 1))
-        qvel = np.tile(env._init_qvel, (num_reset, 1))
-        qpos[:, 0:3] = root_pos
-        qpos[:, 3:7] = root_ori
-        qpos[:, 7:] = joint_pos
-
-        qvel[:, 0:3] = root_lin_vel
-        qvel[:, 3:6] = np_quat_apply(np_quat_inv(root_ori), root_ang_vel)
-        qvel[:, 6:] = joint_vel
+        qpos, qvel = _build_motion_reference_state(env, env_ids, motion_data)
 
         info_updates = {
             "current_actions": zero_actions(num_reset, env._num_action),
@@ -381,6 +390,45 @@ class G1MotionTrackingEnv(G1BaseEnv):
         self._init_reward_functions()
         self._clip_end_truncated = np.zeros((num_envs,), dtype=bool)
 
+    def _resample_reference_state(self, env_ids: np.ndarray) -> None:
+        motion_frames = self.motion_sampler.sample_frames(env_ids)
+        motion_data = self.motion_loader.get_motion_at_frame(motion_frames)
+        qpos, qvel = _build_motion_reference_state(self, env_ids, motion_data)
+        self._backend.set_state(env_ids, qpos, qvel)
+
+    def _refresh_observation_rows(
+        self, obs: dict[str, np.ndarray], info: dict, env_ids: np.ndarray
+    ) -> None:
+        motion_data = self.motion_loader.get_motion_at_frame(
+            self.motion_sampler.current_frames[env_ids]
+        )
+        linvel = self.get_local_linvel()[env_ids]
+        gyro = self.get_gyro()[env_ids]
+        dof_pos = self.get_dof_pos()[env_ids]
+        dof_vel = self.get_dof_vel()[env_ids]
+        robot_body_pos_w, robot_body_quat_w = self._get_body_pose_w()
+
+        obs_info: dict[str, Any] = {}
+        current_actions = info.get("current_actions")
+        if isinstance(current_actions, np.ndarray):
+            obs_info["current_actions"] = current_actions[env_ids]
+
+        refreshed_obs = self._compute_obs(
+            obs_info,
+            motion_data,
+            linvel,
+            gyro,
+            dof_pos,
+            dof_vel,
+            robot_body_pos_w[env_ids],
+            robot_body_quat_w[env_ids],
+        )
+        for key, value in refreshed_obs.items():
+            if value.shape[0] == len(env_ids):
+                obs[key][env_ids] = value
+            else:
+                obs[key][env_ids] = value[env_ids]
+
     def _get_body_pose_w(self) -> tuple[np.ndarray, np.ndarray]:
         return self._backend.get_body_pos_w(self.body_ids), self._backend.get_body_quat_w(
             self.body_ids
@@ -393,6 +441,8 @@ class G1MotionTrackingEnv(G1BaseEnv):
     def obs_groups_spec(self) -> dict[str, int]:
         # Actor: command(2n) + motion_anchor_pos_b(3) + motion_anchor_ori_b(6)
         #        + linvel(3) + gyro(3) + joint_pos(n) + joint_vel(n) + actions(n)
+        # Critic mirrors MJLab physical terms without actor observation noise:
+        #        command, motion anchor, robot body pos/ori, linvel, gyro, joints, actions.
         n = self._num_action
         actor_dim = 3 + 6 + 3 + 3 + n * 5
         critic_extra_dim = len(self._cfg.body_names) * 9
@@ -406,6 +456,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
             "motion_body_ori": self._reward_motion_body_ori,
             "motion_body_lin_vel": self._reward_motion_body_lin_vel,
             "motion_body_ang_vel": self._reward_motion_body_ang_vel,
+            "motion_ee_body_pos_z": self._reward_motion_ee_body_pos_z,
             "motion_joint_pos": self._reward_motion_joint_pos,
             "motion_joint_vel": self._reward_motion_joint_vel,
             "action_rate_l2": self._reward_action_rate_l2,
@@ -469,9 +520,12 @@ class G1MotionTrackingEnv(G1BaseEnv):
             if self._cfg.truncate_on_clip_end:
                 self._clip_end_truncated[done_env_ids] = True
             else:
-                # Clip boundaries are not physically continuous; treat them as
-                # reference resampling points instead of advancing into the next clip.
-                self.motion_sampler.sample_frames(done_env_ids)
+                # Match MJLab: clip boundaries are command resampling points, not
+                # episode boundaries; sync the simulated robot to the new reference.
+                resample_env_ids = done_env_ids[~terminated[done_env_ids]]
+                if len(resample_env_ids) > 0:
+                    self._resample_reference_state(resample_env_ids)
+                    self._refresh_observation_rows(obs, state.info, resample_env_ids)
 
         return state.replace(obs=obs, reward=reward, terminated=terminated)
 
@@ -550,6 +604,12 @@ class G1MotionTrackingEnv(G1BaseEnv):
             )
             terminated |= ee_pos_error_z > self._cfg.ee_body_pos_z_threshold
 
+        if self._cfg.terminate_on_undesired_contacts and len(
+            self.undesired_contact_body_indices
+        ) > 0:
+            body_z = robot_body_pos_w[:, self.undesired_contact_body_indices, 2]
+            terminated |= np.any(body_z < self._cfg.undesired_contact_z_threshold, axis=-1)
+
         return terminated
 
     def _compute_obs(
@@ -595,10 +655,10 @@ class G1MotionTrackingEnv(G1BaseEnv):
 
         # Per-step observation noise on sensor channels
         noise_cfg = self._cfg.noise_config
-        linvel = self._obs_noise(linvel, noise_cfg.scale_linvel)
-        gyro = self._obs_noise(gyro, noise_cfg.scale_gyro)
-        joint_pos_rel = self._obs_noise(joint_pos_rel, noise_cfg.scale_joint_angle)
-        dof_vel = self._obs_noise(dof_vel, noise_cfg.scale_joint_vel)
+        actor_linvel = self._obs_noise(linvel, noise_cfg.scale_linvel)
+        actor_gyro = self._obs_noise(gyro, noise_cfg.scale_gyro)
+        actor_joint_pos_rel = self._obs_noise(joint_pos_rel, noise_cfg.scale_joint_angle)
+        actor_dof_vel = self._obs_noise(dof_vel, noise_cfg.scale_joint_vel)
 
         # Actor observations
         actor_obs = np.concatenate(
@@ -606,10 +666,10 @@ class G1MotionTrackingEnv(G1BaseEnv):
                 command,
                 motion_anchor_pos_b,
                 motion_anchor_ori_b,
-                linvel,
-                gyro,
-                joint_pos_rel,
-                dof_vel,
+                actor_linvel,
+                actor_gyro,
+                actor_joint_pos_rel,
+                actor_dof_vel,
                 last_actions,
             ],
             axis=1,
@@ -640,7 +700,21 @@ class G1MotionTrackingEnv(G1BaseEnv):
             dtype=get_global_dtype(),
         )
 
-        critic_obs = np.concatenate([actor_obs, critic_extra], axis=1, dtype=get_global_dtype())
+        critic_obs = np.concatenate(
+            [
+                command,
+                motion_anchor_pos_b,
+                motion_anchor_ori_b,
+                critic_extra,
+                linvel,
+                gyro,
+                joint_pos_rel,
+                dof_vel,
+                last_actions,
+            ],
+            axis=1,
+            dtype=get_global_dtype(),
+        )
         return {"obs": actor_obs, "critic": critic_obs}
 
     def _compute_reward(
@@ -742,6 +816,17 @@ class G1MotionTrackingEnv(G1BaseEnv):
         error = np.sum(np.square(motion_data.body_ang_vel_w - robot_body_ang_vel_w), axis=-1)
         return np.asarray(
             np.exp(-error.mean(-1) / self._cfg.reward_config.std_body_ang_vel**2),
+            dtype=get_global_dtype(),
+        )
+
+    def _reward_motion_ee_body_pos_z(self, info: dict) -> np.ndarray:
+        robot_body_pos_w = info["robot_body_pos_w"]
+        error = np.square(
+            self.body_pos_relative_w[:, self.ee_body_indices, 2]
+            - robot_body_pos_w[:, self.ee_body_indices, 2]
+        )
+        return np.asarray(
+            np.exp(-error.mean(-1) / self._cfg.reward_config.std_body_pos**2),
             dtype=get_global_dtype(),
         )
 

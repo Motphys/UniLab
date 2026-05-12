@@ -406,6 +406,7 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
             action_dim=self.action_dim,
             device=self.device,
             defer_gpu=True,  # No GPU tensors in main process; workers call init_local_gpu_cache
+            critic_dim=self.critic_obs_dim,
         )
         self._shared_resources.append(replay_buffer)
 

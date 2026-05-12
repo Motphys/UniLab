@@ -160,3 +160,14 @@ def test_rsl_rl_ppo_one_iteration(
         runner.learn(num_learning_iterations=1, init_at_random_ep_len=True)
 
     env.close()
+
+
+def test_normalize_ppo_train_cfg_maps_empirical_normalization_to_models():
+    cfg = PPOConfig()
+    train_cfg = cfg.to_dict()
+    train_cfg["empirical_normalization"] = True
+
+    normalized = normalize_ppo_train_cfg(train_cfg)
+
+    assert normalized["actor"]["obs_normalization"] is True
+    assert normalized["critic"]["obs_normalization"] is True
