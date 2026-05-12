@@ -252,6 +252,49 @@ def _go2_env_cls() -> type:
     return Go2WalkTask
 
 
+def _go2_rough_cfg(_: str) -> Any:
+    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughCfg, RoughRewardConfig
+
+    cfg = Go2JoystickRoughCfg()
+    cfg.scene.terrain.generator.seed = 42
+    cfg.scene.terrain.generator.num_rows = 6
+    cfg.scene.terrain.generator.num_cols = 6
+    cfg.reward_config = RoughRewardConfig(
+        scales={
+            "lin_vel_z": -2.0,
+            "ang_vel_xy": -0.05,
+            "joint_torques_l2": -2.5e-5,
+            "joint_acc_l2": -2.5e-7,
+            "joint_pos_limits": -5.0,
+            "joint_power": -2.0e-5,
+            "stand_still": -2.0,
+            "joint_pos_penalty": -1.0,
+            "joint_mirror": -0.05,
+            "action_rate": -0.01,
+            "undesired_contacts": -1.0,
+            "contact_forces": -1.5e-4,
+            "tracking_lin_vel": 3.0,
+            "tracking_ang_vel": 1.5,
+            "feet_air_time": 0.5,
+            "feet_air_time_variance": -1.0,
+            "feet_contact_without_cmd": 0.1,
+            "feet_slide": -0.1,
+            "feet_height_body": -5.0,
+            "feet_gait": 0.5,
+            "upward": 1.0,
+        },
+        tracking_sigma=0.25,
+        base_height_target=0.33,
+    )
+    return cfg
+
+
+def _go2_rough_env_cls() -> type:
+    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughEnv
+
+    return Go2JoystickRoughEnv
+
+
 def _go2w_cfg(_: str) -> Any:
     from unilab.envs.locomotion.go2w.joystick import Go2WJoystickCfg, RewardConfig
 
@@ -409,6 +452,12 @@ TASK_CONFIGS: dict[str, TaskConfig] = {
         cfg_factory=_go2_cfg,
         env_cls_factory=_go2_env_cls,
     ),
+    "go2_rough": TaskConfig(
+        task_id="go2_joystick_rough",
+        env_name="Go2JoystickRough",
+        cfg_factory=_go2_rough_cfg,
+        env_cls_factory=_go2_rough_env_cls,
+    ),
     "go2w": TaskConfig(
         task_id="go2w_joystick_flat",
         env_name="Go2WJoystickFlat",
@@ -458,6 +507,7 @@ DEFAULT_WARMUP_STEPS = 5
 TASK_COLORS = {
     "go1": "#4C78A8",
     "go2": "#54A24B",
+    "go2_rough": "#8CD17D",
     "g1": "#F58518",
     "g1_mt": "#B279A2",
     "g1_rough": "#E45756",

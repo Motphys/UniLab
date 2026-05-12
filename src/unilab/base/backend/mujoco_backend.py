@@ -31,13 +31,38 @@ from unilab.dr.types import (
 )
 from unilab.dtype_config import get_global_dtype
 
-from .base import BackendPlayCapabilities, SimBackend
+from .base import BackendHeightScanner, BackendPlayCapabilities, SimBackend
 
 
 def _root_state_dims(model) -> tuple[int, int]:
     if model.njnt > 0 and int(model.jnt_type[0]) == int(mujoco.mjtJoint.mjJNT_FREE):
         return 7, 6
     return 0, 0
+
+
+@dataclass
+class _MuJoCoHeightScanner(BackendHeightScanner):
+    backend: "MuJoCoBackend"
+    hfield_geom_id: int
+    offsets: np.ndarray
+    frame_body_id: int
+    alignment: str
+    output: str
+
+    def scan(self) -> np.ndarray:
+        pool = self.backend._pool
+        if pool is None:
+            raise RuntimeError("MuJoCo backend pool must be materialized before hfield scanning")
+
+        heights = pool.sample_hfield_height(
+            self.backend._physics_state,
+            hfield_geom_id=self.hfield_geom_id,
+            offsets=self.offsets,
+            frame_body_id=self.frame_body_id,
+            alignment=self.alignment,
+            output=self.output,
+        )
+        return np.asarray(heights, dtype=self.backend._np_dtype)
 
 
 def _prepare_variant_model_xml(
@@ -618,7 +643,7 @@ class MuJoCoBackend(SimBackend):
     def get_geom_size(self, name: str) -> np.ndarray:
         return np.asarray(self._model.geom_size[self.get_geom_id(name)], dtype=np.float64).copy()
 
-    def sample_hfield_height(
+    def create_hfield_scanner(
         self,
         *,
         hfield_geom_id: int,
@@ -626,23 +651,19 @@ class MuJoCoBackend(SimBackend):
         frame_body_id: int,
         alignment: str = "yaw",
         output: str = "height",
-    ) -> np.ndarray:
-        if self._pool is None:
-            raise RuntimeError("MuJoCo backend pool must be materialized before hfield sampling")
-
+    ) -> BackendHeightScanner:
         offsets_np = np.ascontiguousarray(np.asarray(offsets, dtype=np.float64))
         if offsets_np.ndim != 2 or offsets_np.shape[1] != 2:
             raise ValueError(f"offsets must have shape (num_points, 2), got {offsets_np.shape}")
 
-        heights = self._pool.sample_hfield_height(
-            self._physics_state,
+        return _MuJoCoHeightScanner(
+            backend=self,
             hfield_geom_id=int(hfield_geom_id),
             offsets=offsets_np,
             frame_body_id=int(frame_body_id),
             alignment=alignment,
             output=output,
         )
-        return np.asarray(heights, dtype=self._np_dtype)
 
     def get_body_subtree_ids(self, root_body_id: int) -> np.ndarray:
         subtree_ids = {int(root_body_id)}

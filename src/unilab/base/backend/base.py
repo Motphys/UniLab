@@ -24,6 +24,14 @@ class BackendPlayCapabilities:
     supports_native_video_capture: bool = False
 
 
+class BackendHeightScanner(abc.ABC):
+    """Backend-owned height-field scanner created on the env init path."""
+
+    @abc.abstractmethod
+    def scan(self) -> np.ndarray:
+        """Return sampled values with shape ``(num_envs, num_points)``."""
+
+
 class SimBackend(abc.ABC):
     """仿真后端统一接口"""
 
@@ -115,7 +123,7 @@ class SimBackend(abc.ABC):
         """Return one geom size vector through the backend contract."""
         raise NotImplementedError(f"{self.__class__.__name__} does not expose geom sizes")
 
-    def sample_hfield_height(
+    def create_hfield_scanner(
         self,
         *,
         hfield_geom_id: int,
@@ -123,21 +131,13 @@ class SimBackend(abc.ABC):
         frame_body_id: int,
         alignment: str = "yaw",
         output: str = "height",
-    ) -> np.ndarray:
-        """Sample a height-field geom through a backend-native batched sensor path.
+    ) -> BackendHeightScanner:
+        """Create a reusable height-field scanner on the init/cold path.
 
-        Args:
-            hfield_geom_id: Backend geom id for a height-field geom.
-            offsets: Local XY offsets with shape ``(num_points, 2)``.
-            frame_body_id: Backend body id that anchors the local offsets.
-            alignment: Native alignment mode, e.g. ``"yaw"``.
-            output: Native output mode, e.g. ``"height"`` or ``"clearance"``.
-
-        Returns:
-            Array with shape ``(num_envs, num_points)``.
+        Backends that support height-field terrain scan must override this method.
         """
         raise NotImplementedError(
-            f"{self.__class__.__name__} does not support native height-field sampling"
+            f"{self.__class__.__name__} does not support native height-field scanners"
         )
 
     def get_body_subtree_ids(self, root_body_id: int) -> np.ndarray:
