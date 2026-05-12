@@ -23,7 +23,6 @@ _EXPECTED_FIELDS = {
     "dones",
     "truncated",
     "last_obs",
-    "rollout_collect_time_s",
 }
 
 

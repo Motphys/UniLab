@@ -12,7 +12,7 @@ from unilab.algos.torch.appo.runner import APPORunner
 @pytest.fixture(autouse=True)
 def _reset_fakes() -> None:
     _FakeRolloutRingBuffer.last_instance = None
-    _FakeRolloutRingBuffer.rollout_collect_times = [0.25]
+    _FakeRolloutRingBuffer.available_rollouts = 1
     _FakeLogger.last_instance = None
 
 
@@ -40,7 +40,7 @@ class _FakeLearner:
 
 class _FakeRolloutRingBuffer:
     last_instance: "_FakeRolloutRingBuffer | None" = None
-    rollout_collect_times: list[float] = [0.25]
+    available_rollouts: int = 1
 
     def __init__(
         self,
@@ -67,10 +67,9 @@ class _FakeRolloutRingBuffer:
         return True
 
     def available(self) -> int:
-        return max(len(self.rollout_collect_times) - self.advance_calls, 0)
+        return max(self.available_rollouts - self.advance_calls, 0)
 
     def read_torch(self, device: str) -> dict[str, torch.Tensor]:
-        collect_time = self.rollout_collect_times[self.advance_calls]
         return {
             "obs": torch.zeros(2, 4, 4, device=device),
             "critic": torch.zeros(2, 4, 7, device=device),
@@ -81,7 +80,6 @@ class _FakeRolloutRingBuffer:
             "truncated": torch.zeros(2, 4, device=device),
             "last_obs": torch.zeros(2, 4, device=device),
             "last_critic": torch.zeros(2, 7, device=device),
-            "rollout_collect_time_s": torch.tensor([collect_time], device=device),
         }
 
     def advance_read(self) -> None:
@@ -204,7 +202,7 @@ def test_appo_runner_uses_explicit_runtime_context(
     assert captured_collector["env_cfg_override"] == {"reward_config": {"scales": {"alive": 1.0}}}
 
 
-def test_appo_runner_uses_collector_rollout_time_for_fps_inputs(
+def test_appo_runner_logs_learner_timing_for_fps_inputs(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     def fake_detect_dims(self: APPORunner) -> tuple[int, int]:
@@ -247,9 +245,11 @@ def test_appo_runner_uses_collector_rollout_time_for_fps_inputs(
     assert logger.step_calls
 
     step = logger.step_calls[0]
-    assert step["collect_time"] == pytest.approx(0.25)
+    assert "collect_time" not in step
     assert step["wait_time"] == pytest.approx(10.0)
     assert step["train_time"] == pytest.approx(0.5)
-    assert step["extra_info"]["startup_wait_time"] == pytest.approx(9.75)
+    assert step["learner_incremental_h2d_time"] >= 0.0
+    assert step["weight_sync_time"] >= 0.0
+    assert step["extra_info"]["startup_wait_time"] == pytest.approx(10.0)
     assert step["extra_info"]["throughput_steps"] == 8
     assert step["metrics"]["rollouts_read"] == 1.0

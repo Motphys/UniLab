@@ -99,6 +99,7 @@ class CPUPinnedDoubleBufferReplayPipeline:
         self._prepare_tick_id: int | None = None
         self._prepare_state = "idle"
         self._prepare_error: BaseException | None = None
+        self.last_incremental_h2d_time_s = 0.0
         self._prepare_condition = threading.Condition()
         self._closed = False
         self._collector_h2d_thread = threading.Thread(
@@ -159,7 +160,7 @@ class CPUPinnedDoubleBufferReplayPipeline:
     def _snapshot(self) -> tuple[int, int]:
         return int(self._replay_buffer.ptr[0]), int(self._replay_buffer.size[0])
 
-    def _submit_h2d(self, slot: int, metadata: ReplayTickMetadata | None = None) -> None:
+    def _submit_h2d(self, slot: int, metadata: ReplayTickMetadata | None = None) -> float:
         h2d_begin_ns = time.perf_counter_ns()
         start_event = None
         end_event = None
@@ -181,6 +182,7 @@ class CPUPinnedDoubleBufferReplayPipeline:
                 if end_event is not None:
                     cast(Any, end_event).record()
                 self._ready_events[slot].record(copy_stream)
+        h2d_end_ns = time.perf_counter_ns()
         if record_cuda and start_event is not None and end_event is not None:
             args: Dict[str, object] = {
                 "slot": slot,
@@ -212,6 +214,7 @@ class CPUPinnedDoubleBufferReplayPipeline:
                 end_event=cast(Any, end_event),
                 args=args,
             )
+        return (h2d_end_ns - h2d_begin_ns) / 1e9
 
     def _submit_collector_packed_h2d(self, ready: dict) -> ReplayTickMetadata:
         metadata = ReplayTickMetadata(
@@ -229,7 +232,7 @@ class CPUPinnedDoubleBufferReplayPipeline:
         if shared_slot != slot:
             raise RuntimeError("collector_thread shared slot must match target GPU slot")
         h2d_submit_ns = time.perf_counter_ns()
-        self._submit_h2d(slot, metadata)
+        self.last_incremental_h2d_time_s = self._submit_h2d(slot, metadata)
         if self._trace_recorder is not None:
             self._trace_recorder.add_slice(
                 "replay_pipeline/batch_h2d_submit",

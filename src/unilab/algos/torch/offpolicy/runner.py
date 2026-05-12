@@ -295,8 +295,6 @@ class OffPolicyRunner(AsyncRunner):
 
         # Training loop
         for iteration in range(1, max_iterations + 1):
-            iter_start = time.time()
-
             # Wait for data
             wait_start = time.time()
             wait_start_ns = time.perf_counter_ns() if trace_recorder else 0
@@ -405,12 +403,8 @@ class OffPolicyRunner(AsyncRunner):
                 logger,
                 trace_recorder,
             )
-            collect_time = float(getattr(replay_buffer, "collect_time_s", torch.zeros(1))[0])
-            if collect_time <= 0:
-                collect_time = time.time() - iter_start - wait_time
-            collect_time = max(float(collect_time), 0.0)
-            if not have_startup_wait_time and wait_time > collect_time:
-                startup_wait_time = max(wait_time - collect_time, 0.0)
+            if not have_startup_wait_time:
+                startup_wait_time = wait_time
                 have_startup_wait_time = True
             _reward_stats_ns = time.perf_counter_ns() if trace_recorder else 0
             reward_stats_ptr = self._update_reward_stats_from_replay(
@@ -426,7 +420,6 @@ class OffPolicyRunner(AsyncRunner):
                     end_ns=time.perf_counter_ns(),
                 )
 
-            train_start = time.time()
             from collections import defaultdict
 
             iter_metrics = defaultdict(list)
@@ -438,6 +431,9 @@ class OffPolicyRunner(AsyncRunner):
             # Sample from torch buffer (zero-copy on CUDA/MPS)
             _sample_ns = time.perf_counter_ns() if trace_recorder else 0
             large_batch = replay_buffer.sample(self.batch_size * self.updates_per_step)
+            learner_incremental_h2d_time = float(
+                getattr(replay_buffer, "last_incremental_h2d_time_s", 0.0)
+            )
             if trace_recorder:
                 trace_recorder.add_slice(
                     "learner/replay_sample",
@@ -446,6 +442,8 @@ class OffPolicyRunner(AsyncRunner):
                     end_ns=time.perf_counter_ns(),
                     args={"total_batch": self.batch_size * self.updates_per_step},
                 )
+
+            train_start = time.time()
 
             for update_idx in range(self.updates_per_step):
                 s = update_idx * self.batch_size
@@ -518,9 +516,12 @@ class OffPolicyRunner(AsyncRunner):
                     )
                 )
 
+            train_time = time.time() - train_start
             self.learner.update_count += 1
             _ws_ns = time.perf_counter_ns() if trace_recorder else 0
+            weight_sync_start = time.perf_counter()
             weight_sync.write_weights(self.learner.actor.state_dict())
+            weight_sync_time = time.perf_counter() - weight_sync_start
             if trace_recorder:
                 trace_recorder.add_slice(
                     "learner/weight_sync_write",
@@ -534,7 +535,6 @@ class OffPolicyRunner(AsyncRunner):
                     category="replay",
                 )
                 trace_recorder.flush_cuda_pending()
-            train_time = time.time() - train_start
 
             if self.sync_collection and trainer_done_queue:
                 trainer_done_queue.put(1)
@@ -554,9 +554,10 @@ class OffPolicyRunner(AsyncRunner):
                 metrics=avg_metrics,
                 reward=mean_reward,
                 reward_components=latest_reward_components,
-                collect_time=collect_time,
                 train_time=train_time,
                 wait_time=wait_time,
+                learner_incremental_h2d_time=learner_incremental_h2d_time,
+                weight_sync_time=weight_sync_time,
                 extra_info={
                     "startup_wait_time": startup_wait_time if iteration == 1 else 0.0,
                     "throughput_steps": self.num_envs * self.env_steps_per_sync,

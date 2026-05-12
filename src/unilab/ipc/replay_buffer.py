@@ -31,7 +31,7 @@ class ReplayBuffer(SharedBufferBase):
         self._obs_dim = obs_dim
         self._action_dim = action_dim
         self._critic_dim = critic_dim
-        self.collect_time_s = torch.zeros(1, dtype=torch.float32).share_memory_()
+        self.last_incremental_h2d_time_s = 0.0
         self._packed_cpu_storage = bool(packed_cpu_storage)
         self.trace_recorder: Any | None = None
         self.trace_thread_time = False
@@ -297,6 +297,7 @@ class ReplayBuffer(SharedBufferBase):
 
     def sample(self, batch_size: int) -> Dict[str, torch.Tensor]:
         """Sample batch (called by learner)."""
+        self.last_incremental_h2d_time_s = 0.0
         _trace_ns = time.perf_counter_ns() if self.trace_recorder is not None else 0
         size = int(self.size[0])
         _indices_ns = time.perf_counter_ns() if self.trace_recorder is not None else 0
@@ -388,13 +389,15 @@ class ReplayBuffer(SharedBufferBase):
                             self.next_critic_obs[: delta - split], non_blocking=True
                         )
 
+                h2d_end_ns = time.perf_counter_ns()
                 self._gpu_synced_ptr = ptr
+                self.last_incremental_h2d_time_s = (h2d_end_ns - _h2d_ns) / 1e9
                 if self.trace_recorder is not None:
                     self.trace_recorder.add_slice(
                         "replay/h2d_lazy_sync",
                         category="replay",
                         start_ns=_h2d_ns,
-                        end_ns=time.perf_counter_ns(),
+                        end_ns=h2d_end_ns,
                         args={"delta": int(delta)},
                     )
                     if start_event is not None and end_event is not None:

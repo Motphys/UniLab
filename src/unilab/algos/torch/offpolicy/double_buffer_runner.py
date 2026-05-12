@@ -227,8 +227,6 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
 
         # ---- training loop ----
         for iteration in range(1, max_iterations + 1):
-            iter_start = time.time()
-
             # -- wait for data --
             wait_start = time.time()
             wait_start_ns = time.perf_counter_ns()
@@ -343,7 +341,6 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 logger,
                 trace_recorder,
             )
-            collect_time = time.time() - iter_start
             _reward_stats_ns = time.perf_counter_ns()
             reward_stats_ptr = self._update_reward_stats_from_replay(
                 replay_buffer,
@@ -359,7 +356,6 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 )
 
             # -- train --
-            train_start = time.time()
             iter_metrics = defaultdict(list)
             ptr_before = int(replay_buffer.ptr[0])
             collector_released_for_next = False
@@ -382,6 +378,9 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 large_batch = replay_pipeline.sample_large_batch(
                     tick_id=iteration,
                     sample_count=sample_count,
+                )
+                learner_incremental_h2d_time = float(
+                    getattr(replay_pipeline, "last_incremental_h2d_time_s", 0.0)
                 )
                 if iteration < max_iterations:
                     min_snapshot_ptr = int(replay_buffer.ptr[0]) + (
@@ -414,6 +413,8 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                             "explicit_compute_stream": False,
                         },
                     )
+
+                train_start = time.time()
 
                 for update_idx in range(self.updates_per_step):
                     s = update_idx * self.batch_size
@@ -475,9 +476,12 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                     )
                 )
 
+            train_time = time.time() - train_start
             self.learner.update_count += 1
             _ws_ns = time.perf_counter_ns()
+            weight_sync_start = time.perf_counter()
             weight_sync.write_weights(self.learner.actor.state_dict())
+            weight_sync_time = time.perf_counter() - weight_sync_start
             if trace_recorder:
                 trace_recorder.add_slice(
                     "learner/weight_sync_write",
@@ -491,7 +495,6 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                     int(replay_buffer.size[0]),
                     category="replay",
                 )
-            train_time = time.time() - train_start
 
             if self.sync_collection and trainer_done_queue and not collector_released_for_next:
                 trainer_done_queue.put(1)
@@ -516,9 +519,13 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                     metrics=avg_metrics,
                     reward=mean_reward,
                     reward_components=latest_reward_components,
-                    collect_time=collect_time,
                     train_time=train_time,
                     wait_time=wait_time,
+                    learner_incremental_h2d_time=learner_incremental_h2d_time,
+                    weight_sync_time=weight_sync_time,
+                    extra_info={
+                        "throughput_steps": self.num_envs * self.env_steps_per_sync,
+                    },
                 )
 
             if save_interval > 0 and iteration % save_interval == 0:

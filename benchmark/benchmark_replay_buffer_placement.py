@@ -231,11 +231,7 @@ def _discover_supported_tasks(algo: str, sim: str) -> list[str]:
     task_root = ROOT_DIR / "conf" / "offpolicy" / "task" / algo
     if not task_root.is_dir():
         return []
-    return sorted(
-        path.parent.name
-        for path in task_root.glob(f"*/{sim}.yaml")
-        if path.is_file()
-    )
+    return sorted(path.parent.name for path in task_root.glob(f"*/{sim}.yaml") if path.is_file())
 
 
 def _resolve_targets(
@@ -301,9 +297,7 @@ def _resolve_env_shape_and_symmetry(cfg: DictConfig, algo: str) -> tuple[ReplayS
         if algo == "sac" and use_symmetry:
             symmetry = env.build_symmetry_augmentation(device="cpu")
             if symmetry is None:
-                raise ValueError(
-                    f"{cfg.training.task_name} does not provide symmetry augmentation"
-                )
+                raise ValueError(f"{cfg.training.task_name} does not provide symmetry augmentation")
             symmetry_batch_multiplier = int(symmetry.batch_multiplier)
     finally:
         env.close()

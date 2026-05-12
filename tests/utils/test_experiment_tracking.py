@@ -252,9 +252,10 @@ def test_offpolicy_logger_logs_separate_startup_wait_and_iter_throughput(monkeyp
     logger.log_step(
         iteration=1,
         metrics={},
-        collect_time=0.25,
         train_time=0.75,
         wait_time=10.0,
+        learner_incremental_h2d_time=0.02,
+        weight_sync_time=0.05,
         extra_info={"startup_wait_time": 9.75, "throughput_steps": 8},
     )
 
@@ -262,10 +263,13 @@ def test_offpolicy_logger_logs_separate_startup_wait_and_iter_throughput(monkeyp
     assert step == 1
     assert payload["timing/learner_wait_ms"] == 10_000.0
     assert payload["timing/startup_wait_ms"] == 9_750.0
-    assert payload["timing/learner_collect_ms"] == 250.0
+    assert "timing/learner_collect_ms" not in payload
+    assert payload["timing/learner_incremental_h2d_ms"] == 20.0
     assert payload["timing/learner_train_ms"] == 750.0
-    assert payload["perf/iter_ms"] == 750.0
-    assert payload["perf/steps_per_sec"] == pytest.approx(8.0 / 0.75)
+    assert payload["timing/learner_weight_sync_ms"] == 50.0
+    assert payload["perf/iter_ms"] == pytest.approx(820.0)
+    assert payload["perf/steps_per_sec"] == pytest.approx(8.0 / 0.82)
+    assert "perf/collect_train_ratio" not in payload
 
     logger.finish()
 
@@ -285,13 +289,15 @@ def test_offpolicy_logger_omits_iteration_extra_fields_when_not_supplied(monkeyp
     logger.log_step(
         iteration=1,
         metrics={},
-        collect_time=0.25,
         train_time=0.75,
         wait_time=1.0,
+        learner_incremental_h2d_time=0.02,
+        weight_sync_time=0.05,
     )
 
     payload, _ = fake_wandb.log_calls[-1]
     assert "timing/startup_wait_ms" not in payload
+    assert "timing/learner_collect_ms" not in payload
     assert "perf/steps_per_sec" not in payload
 
     logger.finish()

@@ -5,7 +5,6 @@ from __future__ import annotations
 import multiprocessing as mp
 
 import numpy as np
-import pytest
 import torch
 
 from unilab.ipc.replay_buffer import ReplayBuffer
@@ -46,13 +45,6 @@ def test_add_single_batch_increases_size():
     obs, act, rew, nobs, done, trunc = _random_batch(16)
     buf.add(obs, act, rew, nobs, done, trunc)
     assert int(buf.size[0]) == 16
-
-
-def test_collect_time_metadata_is_shared():
-    buf = _make_buf()
-    assert hasattr(buf, "collect_time_s")
-    buf.collect_time_s[0] = 1.25
-    assert float(buf.collect_time_s[0]) == pytest.approx(1.25)
 
 
 def test_add_beyond_capacity_wraps_ptr():
