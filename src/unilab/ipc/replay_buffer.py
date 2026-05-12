@@ -1,6 +1,7 @@
 """Minimal zero-copy replay buffer for off-policy RL."""
 
-from typing import Dict
+import time
+from typing import Any, Dict, cast
 
 import torch
 
@@ -24,16 +25,24 @@ class ReplayBuffer(SharedBufferBase):
         device: str,
         defer_gpu: bool = False,
         critic_dim: int = 0,
+        packed_cpu_storage: bool = False,
     ):
         super().__init__(capacity, device, defer_gpu=defer_gpu)
         self._obs_dim = obs_dim
         self._action_dim = action_dim
         self._critic_dim = critic_dim
         self.collect_time_s = torch.zeros(1, dtype=torch.float32).share_memory_()
+        self._packed_cpu_storage = bool(packed_cpu_storage)
+        self.trace_recorder: Any | None = None
+        self.trace_thread_time = False
+        self.trace_cuda_events = True
 
         self.size = torch.zeros(1, dtype=torch.int64).share_memory_()
 
         if device == "cuda":
+            if self._packed_cpu_storage:
+                self._init_packed_storage(capacity, obs_dim, action_dim, critic_dim)
+                return
             # 6 separate contiguous shared tensors — keeps H2D copy_ on contiguous memory
             self.obs = torch.zeros(capacity, obs_dim).share_memory_()
             self.next_obs = torch.zeros(capacity, obs_dim).share_memory_()
@@ -59,30 +68,34 @@ class ReplayBuffer(SharedBufferBase):
                     self.critic_obs_gpu = torch.empty(capacity, critic_dim, device="cuda")
                     self.next_critic_obs_gpu = torch.empty(capacity, critic_dim, device="cuda")
         else:
-            # Single packed host tensor;
-            # layout: [obs | next_obs | actions | rew | done | trunc | critic | next_critic]
-            total_dim = 2 * obs_dim + action_dim + 3 + 2 * critic_dim
-            self._storage = torch.zeros(capacity, total_dim).share_memory_()
+            self._packed_cpu_storage = True
+            self._init_packed_storage(capacity, obs_dim, action_dim, critic_dim)
 
-            c = 0
-            self._obs_sl = slice(c, c + obs_dim)
-            c += obs_dim
-            self._nobs_sl = slice(c, c + obs_dim)
-            c += obs_dim
-            self._act_sl = slice(c, c + action_dim)
-            c += action_dim
-            self._rew_col = c
-            c += 1
-            self._done_col = c
-            c += 1
-            self._trunc_col = c
-            c += 1
+    def _init_packed_storage(
+        self, capacity: int, obs_dim: int, action_dim: int, critic_dim: int
+    ) -> None:
+        total_dim = 2 * obs_dim + action_dim + 3 + 2 * critic_dim
+        self._storage = torch.zeros(capacity, total_dim).share_memory_()
 
-            if critic_dim > 0:
-                self._critic_sl = slice(c, c + critic_dim)
-                c += critic_dim
-                self._ncritic_sl = slice(c, c + critic_dim)
-                c += critic_dim
+        c = 0
+        self._obs_sl = slice(c, c + obs_dim)
+        c += obs_dim
+        self._nobs_sl = slice(c, c + obs_dim)
+        c += obs_dim
+        self._act_sl = slice(c, c + action_dim)
+        c += action_dim
+        self._rew_col = c
+        c += 1
+        self._done_col = c
+        c += 1
+        self._trunc_col = c
+        c += 1
+
+        if critic_dim > 0:
+            self._critic_sl = slice(c, c + critic_dim)
+            c += critic_dim
+            self._ncritic_sl = slice(c, c + critic_dim)
+            c += critic_dim
 
     def __getstate__(self) -> dict:
         """Custom pickle support.
@@ -95,6 +108,7 @@ class ReplayBuffer(SharedBufferBase):
         """
         state = self.__dict__.copy()
         state["_cuda_stream"] = None
+        state["trace_recorder"] = None
         for key in (
             "obs_gpu",
             "next_obs_gpu",
@@ -150,11 +164,12 @@ class ReplayBuffer(SharedBufferBase):
         done = terminated | truncated. Learners must pair it with
         `truncated` when computing bootstrap masks.
         """
+        _trace_ns = time.perf_counter_ns() if self.trace_recorder is not None else 0
         n = obs.shape[0]
         idx = int(self.ptr[0]) % self.capacity
         has_critic = self._critic_dim > 0 and critic is not None
 
-        if self.device == "cuda":
+        if self.device == "cuda" and not self._packed_cpu_storage:
             if idx + n <= self.capacity:
                 self.obs[idx : idx + n] = obs
                 self.next_obs[idx : idx + n] = next_obs
@@ -251,6 +266,14 @@ class ReplayBuffer(SharedBufferBase):
 
         self.ptr[0] += n
         self.size[0] = min(int(self.size[0]) + n, self.capacity)
+        if self.trace_recorder is not None:
+            self.trace_recorder.add_slice(
+                "replay/add",
+                category="replay",
+                start_ns=_trace_ns,
+                end_ns=time.perf_counter_ns(),
+                args={"batch_size": int(n), "device": self.device},
+            )
 
     @staticmethod
     def _patch_terminal_next_observations(
@@ -274,13 +297,30 @@ class ReplayBuffer(SharedBufferBase):
 
     def sample(self, batch_size: int) -> Dict[str, torch.Tensor]:
         """Sample batch (called by learner)."""
+        _trace_ns = time.perf_counter_ns() if self.trace_recorder is not None else 0
         size = int(self.size[0])
+        _indices_ns = time.perf_counter_ns() if self.trace_recorder is not None else 0
         indices = torch.randint(0, size, (batch_size,))
+        if self.trace_recorder is not None:
+            self.trace_recorder.add_slice(
+                "replay/sample_indices",
+                category="replay",
+                start_ns=_indices_ns,
+                end_ns=time.perf_counter_ns(),
+                args={"batch_size": int(batch_size), "size": int(size)},
+            )
 
-        if self.device == "cuda":
+        if self.device == "cuda" and not self._packed_cpu_storage:
             # Lazy sync: only sync new data since last sample
             ptr = int(self.ptr[0])
             if ptr > self._gpu_synced_ptr:
+                _h2d_ns = time.perf_counter_ns()
+                start_event = None
+                end_event = None
+                if self.trace_recorder is not None and self.trace_cuda_events:
+                    start_event = torch.cuda.Event(enable_timing=True)
+                    end_event = torch.cuda.Event(enable_timing=True)
+                    cast(Any, start_event).record()
                 delta = ptr - self._gpu_synced_ptr
                 idx = self._gpu_synced_ptr % self.capacity
 
@@ -349,6 +389,24 @@ class ReplayBuffer(SharedBufferBase):
                         )
 
                 self._gpu_synced_ptr = ptr
+                if self.trace_recorder is not None:
+                    self.trace_recorder.add_slice(
+                        "replay/h2d_lazy_sync",
+                        category="replay",
+                        start_ns=_h2d_ns,
+                        end_ns=time.perf_counter_ns(),
+                        args={"delta": int(delta)},
+                    )
+                    if start_event is not None and end_event is not None:
+                        cast(Any, end_event).record()
+                        self.trace_recorder.add_cuda_pending_span(
+                            "gpu/replay_h2d_lazy_sync",
+                            category="gpu",
+                            cpu_begin_ns=_h2d_ns,
+                            start_event=cast(Any, start_event),
+                            end_event=cast(Any, end_event),
+                            args={"delta": int(delta)},
+                        )
 
             indices = indices.to(self.obs_gpu.device)
             batch = {
@@ -362,18 +420,33 @@ class ReplayBuffer(SharedBufferBase):
             if self._critic_dim > 0:
                 batch["critic"] = self.critic_obs_gpu[indices]
                 batch["next_critic"] = self.next_critic_obs_gpu[indices]
+            if self.trace_recorder is not None:
+                self.trace_recorder.add_slice(
+                    "replay/sample",
+                    category="replay",
+                    start_ns=_trace_ns,
+                    end_ns=time.perf_counter_ns(),
+                    args={"batch_size": int(batch_size), "device": self.device},
+                )
             return batch
-        else:
-            chunk = self._storage[indices].to(self.device)
-            batch = {
-                "obs": chunk[:, self._obs_sl],
-                "next_obs": chunk[:, self._nobs_sl],
-                "actions": chunk[:, self._act_sl],
-                "rewards": chunk[:, self._rew_col],
-                "dones": chunk[:, self._done_col],
-                "truncated": chunk[:, self._trunc_col],
-            }
-            if self._critic_dim > 0:
-                batch["critic"] = chunk[:, self._critic_sl]
-                batch["next_critic"] = chunk[:, self._ncritic_sl]
-            return batch
+        chunk = self._storage[indices].to(self.device)
+        batch = {
+            "obs": chunk[:, self._obs_sl],
+            "next_obs": chunk[:, self._nobs_sl],
+            "actions": chunk[:, self._act_sl],
+            "rewards": chunk[:, self._rew_col],
+            "dones": chunk[:, self._done_col],
+            "truncated": chunk[:, self._trunc_col],
+        }
+        if self._critic_dim > 0:
+            batch["critic"] = chunk[:, self._critic_sl]
+            batch["next_critic"] = chunk[:, self._ncritic_sl]
+        if self.trace_recorder is not None:
+            self.trace_recorder.add_slice(
+                "replay/sample",
+                category="replay",
+                start_ns=_trace_ns,
+                end_ns=time.perf_counter_ns(),
+                args={"batch_size": int(batch_size), "device": self.device},
+            )
+        return batch

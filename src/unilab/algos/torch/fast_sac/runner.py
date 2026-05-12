@@ -42,6 +42,10 @@ class FastSACRunner(OffPolicyRunner):
         use_symmetry: bool = False,
         world_size: int = 1,
         seed: int | None = None,
+        trace_enabled: bool = False,
+        trace_output_dir: str | None = None,
+        trace_thread_time: bool = False,
+        trace_cuda_events: bool = True,
     ):
         from unilab.base import registry
         from unilab.base.registry import ensure_registries
@@ -124,4 +128,8 @@ class FastSACRunner(OffPolicyRunner):
             sim_backend=sim_backend,
             env_cfg_override=env_cfg_override,
             seed=seed,
+            trace_enabled=trace_enabled,
+            trace_output_dir=trace_output_dir,
+            trace_thread_time=trace_thread_time,
+            trace_cuda_events=trace_cuda_events,
         )

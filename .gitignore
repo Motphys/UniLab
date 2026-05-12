@@ -23,6 +23,9 @@ htmlcov/
 
 # Project specific
 logs/
+runs/
+run_config.json
+run_summary.json
 .worktrees/
 *.log
 .DS_Store

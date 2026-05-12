@@ -53,6 +53,10 @@ class FlashSACRunner(OffPolicyRunner):
         n_step: int = 1,
         use_compile: bool = False,
         seed: int | None = None,
+        trace_enabled: bool = False,
+        trace_output_dir: str | None = None,
+        trace_thread_time: bool = False,
+        trace_cuda_events: bool = True,
     ):
         from unilab.base import registry
         from unilab.base.observations import get_obs_dims
@@ -130,4 +134,8 @@ class FlashSACRunner(OffPolicyRunner):
                 "actor_noise_zeta_mu": actor_noise_zeta_mu,
                 "actor_noise_zeta_max": actor_noise_zeta_max,
             },
+            trace_enabled=trace_enabled,
+            trace_output_dir=trace_output_dir,
+            trace_thread_time=trace_thread_time,
+            trace_cuda_events=trace_cuda_events,
         )

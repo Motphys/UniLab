@@ -19,6 +19,7 @@ def test_reward_injection_in_training():
                 "algo.max_iterations=1",
                 "algo.num_envs=64",
                 "training.no_play=true",
+                "training.replay_pipeline=gpu_cache",
                 "training.task_name=G1WalkFlat",  # Ensure correct task
             ],
         )
