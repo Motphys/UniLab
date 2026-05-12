@@ -25,6 +25,12 @@ except ImportError:
     MOTRIX_AVAILABLE = False
 
 from .base import BackendPlayCapabilities, SimBackend
+from .motrix_camera import (
+    MotrixTrackingCamera,
+    render_offsets,
+    resolve_system_camera_view,
+    tracking_camera_lookat,
+)
 
 T = TypeVar("T")
 DEFAULT_MOTRIX_MAX_ITERATIONS = 3
@@ -176,6 +182,8 @@ class MotrixBackend(SimBackend):
         self._render_app: "RenderApp | None" = None
         self._render_headless: bool | None = None
         self._render_capture_enabled = False
+        self._render_offsets_np: np.ndarray | None = None
+        self._render_tracking_camera: MotrixTrackingCamera | None = None
         self.backend_type = "motrix"
 
         # Pre-cache link objects to avoid repeated get_link() lookups.
@@ -503,47 +511,23 @@ class MotrixBackend(SimBackend):
         ex_force[:, 2] *= force_range[2]
         self._push_body_link.add_external_force(self._data, ex_force, local=True)
 
-    def _render_offsets(self, spacing: float, offset_mode: str = "grid") -> list[list[float]]:
-        if offset_mode == "zero":
-            return [[0.0, 0.0, 0.0] for _ in range(self._num_envs)]
-        if offset_mode != "grid":
-            raise ValueError(f"Unsupported Motrix render_offset_mode: {offset_mode!r}")
-        cols = int(np.ceil(np.sqrt(self._num_envs)))
-        offsets = []
-        for i in range(self._num_envs):
-            row = i // cols
-            col = i % cols
-            offsets.append([col * spacing, row * spacing, 0.0])
-        return offsets
-
-    def _resolve_system_camera_view(
-        self,
-        offsets: Sequence[Sequence[float]],
-        camera_kwargs: dict[str, Any] | None,
-    ) -> tuple[list[float], float, float, float]:
-        cam_kw = dict(camera_kwargs or {})
-        if bool(cam_kw.get("cam_tracking", False)):
-            raise NotImplementedError("Motrix native video capture does not support cam_tracking")
-
-        lookat_raw = cam_kw.get("cam_lookat")
-        if lookat_raw is None:
-            offsets_np = np.asarray(offsets, dtype=np.float64)
-            lookat = [
-                float(np.mean(offsets_np[:, 0])),
-                float(np.mean(offsets_np[:, 1])),
-                0.75,
-            ]
-        else:
-            lookat_arr = np.asarray(lookat_raw, dtype=np.float64).reshape(-1)
-            if lookat_arr.shape != (3,):
-                raise ValueError(f"cam_lookat must contain 3 values, got {lookat_raw!r}")
-            lookat = [float(lookat_arr[0]), float(lookat_arr[1]), float(lookat_arr[2])]
-
-        return (
+    def _update_tracking_camera_view(self) -> None:
+        if (
+            self._render_app is None
+            or self._render_tracking_camera is None
+            or self._render_offsets_np is None
+        ):
+            return
+        lookat = tracking_camera_lookat(
+            self.get_base_pos(),
+            self._render_tracking_camera,
+            self._render_offsets_np,
+        )
+        self._render_app.system_camera.set_view(
             lookat,
-            float(cam_kw.get("cam_distance", 2.0)),
-            float(cam_kw.get("cam_elevation", -20.0)),
-            float(cam_kw.get("cam_azimuth", 90.0)),
+            self._render_tracking_camera.distance,
+            self._render_tracking_camera.elevation,
+            self._render_tracking_camera.azimuth,
         )
 
     def _assert_render_context_available(self, *, headless: bool, capture: bool) -> None:
@@ -581,13 +565,29 @@ class MotrixBackend(SimBackend):
 
         settings = RenderSettings.performance()
         settings.enable_shadow = True
-        offsets = self._render_offsets(float(spacing), offset_mode=str(offset_mode))
+        offsets = render_offsets(
+            self._num_envs,
+            float(spacing),
+            offset_mode=str(offset_mode),
+        )
+        offsets_np = np.asarray(offsets, dtype=np.float64)
+        self._render_offsets_np = offsets_np
         use_configured_camera = capture or camera_kwargs is not None
         if use_configured_camera:
-            lookat, distance, elevation, azimuth = self._resolve_system_camera_view(
+            base_positions = (
+                self.get_base_pos()
+                if bool(dict(camera_kwargs or {}).get("cam_tracking", False))
+                else None
+            )
+            camera_view = resolve_system_camera_view(
+                self._num_envs,
+                base_positions,
                 offsets,
                 camera_kwargs,
             )
+            tracking_camera = camera_view.tracking
+        else:
+            tracking_camera = None
         if capture:
             self._model.cameras.set_system_render_target("image", int(width), int(height))
         render_app = RenderApp(headless=headless)
@@ -598,12 +598,18 @@ class MotrixBackend(SimBackend):
             render_settings=settings,
         )
         if use_configured_camera:
-            render_app.system_camera.set_view(lookat, distance, elevation, azimuth)
+            render_app.system_camera.set_view(
+                camera_view.lookat,
+                camera_view.distance,
+                camera_view.elevation,
+                camera_view.azimuth,
+            )
             if not capture:
                 render_app.set_main_camera(None)
         self._render_app = render_app
         self._render_headless = headless
         self._render_capture_enabled = capture
+        self._render_tracking_camera = tracking_camera
 
     def render(self):
         """Render current state (interactive visualization)"""
@@ -611,6 +617,7 @@ class MotrixBackend(SimBackend):
             self.init_renderer()
         self._assert_render_context_available(headless=False, capture=False)
         assert self._render_app is not None
+        self._update_tracking_camera_view()
         self._render_app.sync(data=self._data)
 
     def capture_video_frame(self) -> np.ndarray:
@@ -621,6 +628,7 @@ class MotrixBackend(SimBackend):
             raise RuntimeError("Motrix renderer is not initialized for video capture")
         assert self._render_app is not None
 
+        self._update_tracking_camera_view()
         task = self._render_app.system_camera.capture()
         self._render_app.sync(data=self._data, wait=True)
         image = task.take_image()
