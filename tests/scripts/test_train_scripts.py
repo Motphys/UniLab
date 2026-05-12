@@ -332,14 +332,14 @@ def test_ppo_go1_resolved_algo_matches_old_motrix_behavior():
     assert cfg.algo.algorithm.entropy_coef == pytest.approx(1.0e-3)
 
 
-def test_ppo_g1_resolved_algo_matches_old_motrix_behavior():
-    """Equivalence: PPO G1 algo hyperparams match pre-refactor motrix values.
+def test_ppo_g1_resolved_algo_matches_motrix_owner():
+    """Equivalence: PPO G1 algo hyperparams match the Motrix owner values.
 
     For this migration we align with the final UniLab1 Motrix runtime.
     """
     cfg = _ppo_cfg(["task=g1_walk_flat/motrix"])
 
-    assert cfg.algo.max_iterations == 220
+    assert cfg.algo.max_iterations == 2200
     assert cfg.algo.empirical_normalization is True
     assert cfg.algo.obs_groups.actor == ["policy"]
     assert cfg.algo.policy.init_noise_std == pytest.approx(0.5)

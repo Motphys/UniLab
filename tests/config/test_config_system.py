@@ -228,7 +228,7 @@ def test_ppo_g1_backend_specific_hyperparams_remain_separate():
     assert mujoco_cfg.algo.empirical_normalization is False
     assert mujoco_cfg.algo.obs_groups.actor == ["actor"]
 
-    assert motrix_cfg.algo.max_iterations == 220
+    assert motrix_cfg.algo.max_iterations == 2200
     assert motrix_cfg.algo.empirical_normalization is True
     assert motrix_cfg.algo.obs_groups.actor == ["policy"]
     assert OmegaConf.select(motrix_cfg, "env.motrix_max_iterations") is None
