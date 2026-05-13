@@ -30,6 +30,7 @@ from unilab.training import (
 )
 from unilab.training.experiment import ExperimentTracker, patch_rsl_rl_wandb_writer
 from unilab.training.rsl_rl import RslRlVecEnvWrapper, normalize_ppo_train_cfg
+from unilab.utils.device import get_default_device
 from unilab.visualization import render_play_mode
 
 try:
@@ -255,12 +256,7 @@ def main(cfg: DictConfig) -> None:
     seed_info = apply_configured_training_seed(cfg, torch_runtime=True, cuda=True)
     env_cfg_override = build_ppo_env_cfg_override(cfg)
 
-    if torch.cuda.is_available():
-        device = "cuda"
-    elif torch.backends.mps.is_available():
-        device = "mps"
-    else:
-        device = "cpu"
+    device = get_default_device()
     print(f"Using device: {device}")
 
     # Compute effective max_iterations (supports num_timesteps override)

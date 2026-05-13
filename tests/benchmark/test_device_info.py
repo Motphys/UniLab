@@ -51,3 +51,38 @@ GPU: 0
     assert info["gpu_memory"] == "98304 MB"
     assert info["gpu_gtt_memory"] == "15862 MB"
     assert info["memory"] == "31.0 GB"
+
+
+def test_linux_device_info_reads_intel_igpu_from_lspci(monkeypatch):
+    cpuinfo = "model name\t: Intel(R) Core(TM) Ultra 9 185H\nprocessor\t: 0\n"
+    meminfo = "MemTotal:       31692928 kB\n"
+    lspci_out = (
+        "00:02.0 VGA compatible controller: "
+        "Intel Corporation Meteor Lake-P [Intel Arc Graphics] (rev 08)\n"
+    )
+
+    def fake_open(path, *args, **kwargs):
+        del args, kwargs
+        from io import StringIO
+
+        if path == "/proc/cpuinfo":
+            return StringIO(cpuinfo)
+        if path == "/proc/meminfo":
+            return StringIO(meminfo)
+        raise FileNotFoundError(path)
+
+    def fake_check_output(cmd, *args, **kwargs):
+        del args, kwargs
+        if cmd[0] == "lspci":
+            return lspci_out
+        # No nvidia-smi, rocm-smi, or amd-smi on Intel iGPU systems
+        raise FileNotFoundError(cmd[0])
+
+    monkeypatch.setattr(device_info, "open", fake_open, raising=False)
+    monkeypatch.setattr(device_info.subprocess, "check_output", fake_check_output)
+
+    info = device_info._get_device_info_linux()
+
+    assert info["gpu_name"] == "Intel Arc Graphics"
+    assert info["chip"] == "Intel(R) Core(TM) Ultra 9 185H"
+    assert info["memory"] == "30.2 GB"
