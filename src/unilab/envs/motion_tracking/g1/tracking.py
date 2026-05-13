@@ -603,9 +603,10 @@ class G1MotionTrackingEnv(G1BaseEnv):
             )
             terminated |= ee_pos_error_z > self._cfg.ee_body_pos_z_threshold
 
-        if self._cfg.terminate_on_undesired_contacts and len(
-            self.undesired_contact_body_indices
-        ) > 0:
+        if (
+            self._cfg.terminate_on_undesired_contacts
+            and len(self.undesired_contact_body_indices) > 0
+        ):
             body_z = robot_body_pos_w[:, self.undesired_contact_body_indices, 2]
             terminated |= np.any(body_z < self._cfg.undesired_contact_z_threshold, axis=-1)
 

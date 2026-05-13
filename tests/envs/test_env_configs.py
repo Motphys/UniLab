@@ -391,9 +391,7 @@ def test_g1_motion_tracking_critic_uses_clean_mjlab_aligned_terms():
         joint_pos=np.array([[0.1, 0.2]], dtype=np.float32),
         joint_vel=np.array([[0.3, 0.4]], dtype=np.float32),
         body_pos_w=np.zeros((1, 2, 3), dtype=np.float32),
-        body_quat_w=np.tile(
-            np.array([[[1.0, 0.0, 0.0, 0.0]]], dtype=np.float32), (1, 2, 1)
-        ),
+        body_quat_w=np.tile(np.array([[[1.0, 0.0, 0.0, 0.0]]], dtype=np.float32), (1, 2, 1)),
         body_lin_vel_w=np.zeros((1, 2, 3), dtype=np.float32),
         body_ang_vel_w=np.zeros((1, 2, 3), dtype=np.float32),
     )
@@ -402,9 +400,7 @@ def test_g1_motion_tracking_critic_uses_clean_mjlab_aligned_terms():
     dof_pos = np.array([[0.7, -0.2]], dtype=np.float32)
     dof_vel = np.array([[7.0, 8.0]], dtype=np.float32)
     robot_body_pos_w = np.array([[[0.0, 0.0, 0.0], [0.2, 0.0, 0.1]]], dtype=np.float32)
-    robot_body_quat_w = np.tile(
-        np.array([[[1.0, 0.0, 0.0, 0.0]]], dtype=np.float32), (1, 2, 1)
-    )
+    robot_body_quat_w = np.tile(np.array([[[1.0, 0.0, 0.0, 0.0]]], dtype=np.float32), (1, 2, 1))
     info = {"current_actions": np.array([[0.1, -0.2]], dtype=np.float32)}
 
     obs = env._compute_obs(
@@ -423,11 +419,26 @@ def test_g1_motion_tracking_critic_uses_clean_mjlab_aligned_terms():
     np.testing.assert_allclose(obs["obs"][:, 19:21], dof_pos - env.default_angles + 100.0)
     np.testing.assert_allclose(obs["obs"][:, 21:23], dof_vel + 100.0)
 
-    np.testing.assert_allclose(obs["critic"][:, 19:22], linvel)
-    np.testing.assert_allclose(obs["critic"][:, 22:25], gyro)
-    np.testing.assert_allclose(obs["critic"][:, 25:27], dof_pos - env.default_angles)
-    np.testing.assert_allclose(obs["critic"][:, 27:29], dof_vel)
-    np.testing.assert_allclose(obs["critic"][:, 29:31], info["current_actions"])
+    command_dim = motion_data.joint_pos.shape[1] + motion_data.joint_vel.shape[1]
+    anchor_dim = 3 + 6
+    clean_proprio_start = command_dim + anchor_dim
+    np.testing.assert_allclose(
+        obs["critic"][:, clean_proprio_start : clean_proprio_start + 3], linvel
+    )
+    np.testing.assert_allclose(
+        obs["critic"][:, clean_proprio_start + 3 : clean_proprio_start + 6], gyro
+    )
+    np.testing.assert_allclose(
+        obs["critic"][:, clean_proprio_start + 6 : clean_proprio_start + 8],
+        dof_pos - env.default_angles,
+    )
+    np.testing.assert_allclose(
+        obs["critic"][:, clean_proprio_start + 8 : clean_proprio_start + 10], dof_vel
+    )
+    np.testing.assert_allclose(
+        obs["critic"][:, clean_proprio_start + 10 : clean_proprio_start + 12],
+        info["current_actions"],
+    )
 
 
 def test_g1_motion_tracking_can_terminate_on_undesired_contacts():
@@ -752,9 +763,7 @@ def _make_g1_motion_tracking_clip_end_stub(
             self.failure_updates.append(terminated.copy())
 
         def step(self) -> np.ndarray:
-            env_ids = (
-                np.array([1], dtype=np.int32) if step_env_ids is None else step_env_ids.copy()
-            )
+            env_ids = np.array([1], dtype=np.int32) if step_env_ids is None else step_env_ids.copy()
             self.current_frames[env_ids] = 99
             self._after_step = True
             return env_ids
