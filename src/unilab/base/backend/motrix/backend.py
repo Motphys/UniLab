@@ -1,3 +1,4 @@
+import os
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -24,13 +25,20 @@ try:
 except ImportError:
     MOTRIX_AVAILABLE = False
 
-from .base import BackendHeightScanner, BackendPlayCapabilities, SimBackend
-from .motrix_camera import (
+from ..base import (
+    BackendHeightScanner,
+    BackendPlayCapabilities,
+    BackendPlayRenderPlan,
+    SimBackend,
+    normalize_play_render_mode,
+)
+from ..motrix_camera import (
     MotrixTrackingCamera,
     render_offsets,
     resolve_system_camera_view,
     tracking_camera_lookat,
 )
+from .playback import run_motrix_playback
 
 T = TypeVar("T")
 DEFAULT_MOTRIX_MAX_ITERATIONS = 3
@@ -72,7 +80,7 @@ def _build_motrix_scene_context(
     add_body_sensors: bool,
     base_name: str,
 ) -> _MotrixSceneContext:
-    from unilab.base.backend.motrix_scene import (
+    from unilab.base.backend.motrix.scene import (
         materialize_motrix_hfield_attached_scene,
         materialize_motrix_scene,
     )
@@ -393,6 +401,88 @@ class MotrixBackend(SimBackend):
             supports_native_interactive_renderer=True,
             supports_native_video_capture=True,
         )
+
+    def resolve_play_render_plan(
+        self,
+        *,
+        play_render_mode: str | None,
+        play_steps: int | None,
+        output_video: str | os.PathLike[str] | None,
+    ) -> BackendPlayRenderPlan:
+        mode = normalize_play_render_mode(play_render_mode)
+        effective_mode = "interactive" if mode == "auto" else mode
+        if effective_mode == "none":
+            return BackendPlayRenderPlan(
+                mode=effective_mode,
+                headless=True,
+                record_video=False,
+                num_steps=None,
+                output_video=None,
+            )
+        if effective_mode == "interactive":
+            return BackendPlayRenderPlan(
+                mode=effective_mode,
+                headless=False,
+                record_video=False,
+                num_steps=None,
+                output_video=None,
+            )
+        assert effective_mode == "record"
+        if play_steps is None:
+            raise ValueError("Motrix record playback requires a finite training.play_steps value.")
+        if output_video is None:
+            raise ValueError("Motrix record playback requires an output video path.")
+        return BackendPlayRenderPlan(
+            mode=effective_mode,
+            headless=True,
+            record_video=True,
+            num_steps=int(play_steps),
+            output_video=output_video,
+        )
+
+    def run_playback(
+        self,
+        *,
+        env: Any,
+        initialize,
+        step,
+        num_steps: int | None,
+        output_video: str | os.PathLike[str] | None = None,
+        render_spacing: float | None = None,
+        render_offset_mode: str | None = None,
+        headless: bool | None = None,
+        record_video: bool | None = None,
+        frame_state_getter=None,
+        camera_kwargs: dict[str, Any] | None = None,
+    ) -> str | None:
+        del frame_state_getter
+        should_record_video = (
+            bool(record_video) if record_video is not None else output_video is not None
+        )
+        should_run_headless = bool(headless) if headless is not None else should_record_video
+        try:
+            return run_motrix_playback(
+                backend=self,
+                env=env,
+                initialize=initialize,
+                step=step,
+                num_steps=num_steps,
+                output_video=output_video,
+                render_spacing=render_spacing,
+                render_offset_mode=render_offset_mode,
+                headless=should_run_headless,
+                record_video=should_record_video,
+                camera_kwargs=camera_kwargs,
+            )
+        except Exception as e:
+            if (
+                not should_run_headless
+                and not should_record_video
+                and "RenderClosedError" in type(e).__name__
+            ):
+                print("Render window closed.")
+                return None
+            raise
 
     # ------------------------------------------------------------------ #
     # Base kinematics                                                    #

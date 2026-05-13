@@ -13,6 +13,7 @@ algo:
     alpha_init: 0.001
     target_entropy_ratio: 0.0
 env:
+  sim_dt: 0.01
   control_config:
     action_scale: 1.0
   gait_phase_init_mode: "offset_phase"

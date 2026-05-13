@@ -41,7 +41,7 @@ import numpy as np
 from tqdm import tqdm
 
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.base.backend.xml import inject_mujoco_tracking_sensors
+from unilab.base.backend.mujoco.xml import inject_mujoco_tracking_sensors
 from unilab.envs.common.rotation import np_quat_angular_velocity, np_quat_ensure_continuity
 
 ROOT_COLUMNS = [

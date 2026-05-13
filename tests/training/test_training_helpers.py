@@ -9,6 +9,10 @@ import pytest
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 
+from unilab.base.backend.motrix.backend import MotrixBackend
+from unilab.base.backend.motrix.playback import run_motrix_playback
+from unilab.base.backend.mujoco.backend import MuJoCoBackend
+from unilab.base.backend.mujoco.playback import run_mujoco_playback
 from unilab.base.scene import SceneCfg
 from unilab.training import (
     BackendAdapter,
@@ -21,6 +25,19 @@ from unilab.visualization.playback import render_play_mode
 
 _ROOT_DIR = Path(__file__).resolve().parents[2]
 _CONF_DIR = _ROOT_DIR / "conf"
+
+
+def _resolve_low_level_playback_flags(kwargs: dict[str, object]) -> dict[str, object]:
+    record_video = kwargs.get("record_video")
+    resolved_record_video = (
+        bool(record_video) if record_video is not None else kwargs.get("output_video") is not None
+    )
+    headless = kwargs.get("headless")
+    resolved_headless = bool(headless) if headless is not None else resolved_record_video
+    updated = dict(kwargs)
+    updated["record_video"] = resolved_record_video
+    updated["headless"] = resolved_headless
+    return updated
 
 
 def _normalize_overrides(overrides: list[str] | None, *, offpolicy: bool = False) -> list[str]:
@@ -214,10 +231,15 @@ def test_render_play_mode_uses_env_interactive_contract():
             self.init_calls: list[dict[str, object]] = []
             self.render_calls = 0
 
-        def init_play_renderer(self, **kwargs):
+        def run_playback(self, **kwargs):
+            kwargs = _resolve_low_level_playback_flags(kwargs)
+            kwargs.pop("frame_state_getter", None)
+            return run_motrix_playback(backend=self, env=self, **kwargs)
+
+        def init_renderer(self, **kwargs):
             self.init_calls.append(kwargs)
 
-        def render_play_frame(self):
+        def render(self):
             self.render_calls += 1
 
     env = FakeEnv()
@@ -233,9 +255,106 @@ def test_render_play_mode_uses_env_interactive_contract():
     )
 
     assert result is None
-    assert env.init_calls == [{"render_spacing": 2.5, "render_offset_mode": "grid"}]
+    assert env.init_calls == [{"spacing": 2.5, "offset_mode": "grid"}]
     assert env.render_calls == 3
     assert seen == [0, 1, 2]
+
+
+def test_backend_play_render_plan_maps_auto_by_backend(tmp_path: Path):
+    motrix = MotrixBackend.__new__(MotrixBackend)
+    motrix_plan = motrix.resolve_play_render_plan(
+        play_render_mode="auto",
+        play_steps=37,
+        output_video=tmp_path / "motrix.mp4",
+    )
+    assert motrix_plan.mode == "interactive"
+    assert motrix_plan.headless is False
+    assert motrix_plan.record_video is False
+    assert motrix_plan.num_steps is None
+    assert motrix_plan.output_video is None
+
+    mujoco = MuJoCoBackend.__new__(MuJoCoBackend)
+    mujoco_plan = mujoco.resolve_play_render_plan(
+        play_render_mode="auto",
+        play_steps=37,
+        output_video=tmp_path / "mujoco.mp4",
+    )
+    assert mujoco_plan.mode == "record"
+    assert mujoco_plan.headless is True
+    assert mujoco_plan.record_video is True
+    assert mujoco_plan.num_steps == 37
+    assert mujoco_plan.output_video == tmp_path / "mujoco.mp4"
+
+
+def test_motrix_record_play_render_plan_is_headless(tmp_path: Path):
+    backend = MotrixBackend.__new__(MotrixBackend)
+    plan = backend.resolve_play_render_plan(
+        play_render_mode="record",
+        play_steps=12,
+        output_video=tmp_path / "motrix.mp4",
+    )
+
+    assert plan.mode == "record"
+    assert plan.headless is True
+    assert plan.record_video is True
+    assert plan.num_steps == 12
+
+
+def test_motrix_interactive_run_playback_treats_window_close_as_done(capsys):
+    class RenderClosedError(RuntimeError):
+        pass
+
+    class FakeEnv:
+        cfg = type("Cfg", (), {"render_spacing": 1.0, "ctrl_dt": 0.02})()
+
+    backend = MotrixBackend.__new__(MotrixBackend)
+    backend.init_renderer = lambda **kwargs: None
+
+    def _render():
+        raise RenderClosedError("closed")
+
+    backend.render = _render
+    backend.capture_video_frame = lambda: np.zeros((2, 2, 3), dtype=np.uint8)
+
+    result = backend.run_playback(
+        env=FakeEnv(),
+        initialize=lambda: 0,
+        step=lambda obs: obs + 1,
+        num_steps=None,
+        output_video=None,
+        headless=False,
+        record_video=False,
+    )
+
+    assert result is None
+    assert "Render window closed." in capsys.readouterr().out
+
+
+def test_motrix_record_run_playback_does_not_swallow_render_closed(tmp_path: Path):
+    class RenderClosedError(RuntimeError):
+        pass
+
+    class FakeEnv:
+        cfg = type("Cfg", (), {"render_spacing": 1.0, "ctrl_dt": 0.02})()
+
+    backend = MotrixBackend.__new__(MotrixBackend)
+    backend.init_renderer = lambda **kwargs: None
+
+    def _capture_video_frame():
+        raise RenderClosedError("closed")
+
+    backend.capture_video_frame = _capture_video_frame
+
+    with pytest.raises(RenderClosedError):
+        backend.run_playback(
+            env=FakeEnv(),
+            initialize=lambda: 0,
+            step=lambda obs: obs + 1,
+            num_steps=1,
+            output_video=tmp_path / "play.mp4",
+            headless=True,
+            record_video=True,
+        )
 
 
 def test_render_play_mode_uses_motrix_native_video_capture(
@@ -251,10 +370,15 @@ def test_render_play_mode_uses_motrix_native_video_capture(
             self.init_calls: list[dict[str, object]] = []
             self.capture_calls = 0
 
-        def init_play_renderer(self, **kwargs):
+        def run_playback(self, **kwargs):
+            kwargs = _resolve_low_level_playback_flags(kwargs)
+            kwargs.pop("frame_state_getter", None)
+            return run_motrix_playback(backend=self, env=self, **kwargs)
+
+        def init_renderer(self, **kwargs):
             self.init_calls.append(kwargs)
 
-        def capture_play_video_frame(self) -> np.ndarray:
+        def capture_video_frame(self) -> np.ndarray:
             self.capture_calls += 1
             return np.full((2, 3, 3), self.capture_calls, dtype=np.uint8)
 
@@ -280,8 +404,8 @@ def test_render_play_mode_uses_motrix_native_video_capture(
     assert result == str(output_path)
     assert env.init_calls == [
         {
-            "render_spacing": 2.5,
-            "render_offset_mode": "grid",
+            "spacing": 2.5,
+            "offset_mode": "grid",
             "headless": True,
             "capture": True,
             "width": 1280,
@@ -299,7 +423,7 @@ def test_render_play_mode_uses_motrix_native_video_capture(
     np.testing.assert_array_equal(frames[1], np.full((2, 3, 3), 2, dtype=np.uint8))
 
 
-def test_render_play_mode_records_motrix_interactive_capture(
+def test_render_play_mode_rejects_motrix_record_with_interactive_window(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
     captured: dict[str, object] = {}
@@ -312,10 +436,15 @@ def test_render_play_mode_records_motrix_interactive_capture(
             self.init_calls: list[dict[str, object]] = []
             self.capture_calls = 0
 
-        def init_play_renderer(self, **kwargs):
+        def run_playback(self, **kwargs):
+            kwargs = _resolve_low_level_playback_flags(kwargs)
+            kwargs.pop("frame_state_getter", None)
+            return run_motrix_playback(backend=self, env=self, **kwargs)
+
+        def init_renderer(self, **kwargs):
             self.init_calls.append(kwargs)
 
-        def capture_play_video_frame(self) -> np.ndarray:
+        def capture_video_frame(self) -> np.ndarray:
             self.capture_calls += 1
             return np.full((2, 3, 3), self.capture_calls, dtype=np.uint8)
 
@@ -327,33 +456,22 @@ def test_render_play_mode_records_motrix_interactive_capture(
 
     env = FakeEnv()
     output_path = tmp_path / "motrix_interactive.mp4"
-    result = render_play_mode(
-        env,
-        sim_backend="motrix",
-        initialize=lambda: 0,
-        step=lambda obs: obs + 1,
-        num_steps=2,
-        output_video=output_path,
-        headless=False,
-        record_video=True,
-        render_spacing=1.5,
-    )
+    with pytest.raises(ValueError, match="Motrix video recording requires headless=true"):
+        render_play_mode(
+            env,
+            sim_backend="motrix",
+            initialize=lambda: 0,
+            step=lambda obs: obs + 1,
+            num_steps=2,
+            output_video=output_path,
+            headless=False,
+            record_video=True,
+            render_spacing=1.5,
+        )
 
-    assert result == str(output_path)
-    assert env.init_calls == [
-        {
-            "render_spacing": 1.5,
-            "render_offset_mode": "grid",
-            "headless": False,
-            "capture": True,
-            "width": 1280,
-            "height": 720,
-            "camera_kwargs": {},
-        }
-    ]
-    assert env.capture_calls == 2
-    assert captured["video_path"] == str(output_path)
-    assert captured["fps"] == 20
+    assert env.init_calls == []
+    assert env.capture_calls == 0
+    assert captured == {}
 
 
 def test_render_play_mode_defaults_to_env_physics_snapshot(
@@ -371,6 +489,11 @@ def test_render_play_mode_defaults_to_env_physics_snapshot(
         def get_physics_state_snapshot(self) -> np.ndarray:
             self.snapshot_calls += 1
             return np.full((2, 4), self.snapshot_calls, dtype=np.float32)
+
+        def run_playback(self, **kwargs):
+            kwargs = _resolve_low_level_playback_flags(kwargs)
+            kwargs.pop("render_offset_mode", None)
+            return run_mujoco_playback(env=self, **kwargs)
 
     def _render_states_get_frames(state_list, model_file, **kwargs):
         captured["states"] = state_list
@@ -453,6 +576,11 @@ def test_render_play_mode_uses_visualized_per_env_playback_models_for_video_expo
             idx = 0 if env_index is None else int(env_index)
             return self._models[idx]
 
+        def run_playback(self, **kwargs):
+            kwargs = _resolve_low_level_playback_flags(kwargs)
+            kwargs.pop("render_offset_mode", None)
+            return run_mujoco_playback(env=self, **kwargs)
+
     def _render_states_get_frames(state_list, model_file, **kwargs):
         del kwargs
         captured["states"] = state_list
@@ -516,6 +644,11 @@ def test_render_play_mode_requires_env_snapshot_contract_for_video_export(tmp_pa
 
         def get_physics_state_snapshot(self) -> np.ndarray:
             raise NotImplementedError("unsupported")
+
+        def run_playback(self, **kwargs):
+            kwargs = _resolve_low_level_playback_flags(kwargs)
+            kwargs.pop("render_offset_mode", None)
+            return run_mujoco_playback(env=self, **kwargs)
 
     with pytest.raises(NotImplementedError, match="unsupported"):
         render_play_mode(

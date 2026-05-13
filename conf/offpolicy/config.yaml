@@ -20,9 +20,8 @@ training:
   use_amp: false
   play_only: false
   no_play: false
+  play_render_mode: auto
   play_env_num: 16
-  play_headless: true
-  play_record_video: true
   play_steps: 800
   cam_distance: 6.0
   cam_elevation: -20.0

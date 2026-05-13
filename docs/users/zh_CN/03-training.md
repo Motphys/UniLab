@@ -47,8 +47,17 @@ uv run train --algo mlx_ppo --task go2_joystick_flat --sim mujoco
 训练命令默认会在训练结束后自动进入回放。
 
 - `mujoco` 会导出 `play_video.mp4`
-- `motrix` 会打开交互式窗口渲染
+- `motrix` 会打开交互式窗口渲染，不录制视频，关闭窗口后退出
 - `training.no_play=true` 可以跳过自动回放
+
+回放渲染由 `training.play_render_mode` 控制；统一 CLI 可用 `--render-mode` 设置同一字段。
+
+| 模式 | MotrixSim | MuJoCo |
+|------|-----------|--------|
+| `auto` | 默认交互窗口，不录制，不受 `play_steps` 限制 | 默认离线导出 `play_video.mp4` |
+| `interactive` | 交互窗口，不录制，不受 `play_steps` 限制 | 不支持 |
+| `record` | 只录制视频，headless，不打开窗口，使用 `play_steps` | 离线导出视频，使用 `play_steps` |
+| `none` | 不回放 | 不回放 |
 
 Hydra override 可以直接追加在命令末尾：
 
@@ -65,6 +74,12 @@ run 目录命名格式是 `YYYY-MM-DD_HH-MM-SS_<sim_backend>`，例如 `2026-03-
 ```bash
 # 回放最新 run
 uv run eval --algo ppo --task go2_joystick_flat --sim mujoco --load-run -1
+
+# MotrixSim 默认打开交互窗口
+uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1
+
+# Linux/server 上只录制 MotrixSim 视频，不打开窗口
+uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1 --render-mode record
 
 # 回放指定 run
 uv run eval --algo ppo --task go2_joystick_flat --sim mujoco --load-run 2026-04-24_01-36-01_mujoco
@@ -127,7 +142,7 @@ uv run scripts/train_offpolicy.py algo=td3 task=td3/g1_walk_flat/mujoco
 uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco algo.num_envs=2048 algo.max_iterations=1000
 ```
 
-在 macOS / MacBook 上，统一 CLI 会在需要打开 MotrixSim 原生 renderer 时自动路由到 `mxpython`。如果直接调用脚本，只要命令会打开 MotrixSim 原生 renderer（训练后自动回放或 `training.play_only=true`），就需要用 `uv run mxpython` 启动；不需要可视化的训练仍可使用 `uv run scripts/... training.no_play=true`。
+在 macOS / MacBook 上，统一 CLI 会在需要打开 MotrixSim 原生 renderer 时自动路由到 `mxpython`。如果直接调用脚本，MotrixSim 交互回放需要用 `uv run mxpython` 启动；不需要可视化的训练使用 `training.no_play=true` 或 `training.play_render_mode=none`。
 
 ## 脚本回放
 
@@ -140,6 +155,9 @@ uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco training
 
 # macOS / MacBook 上的 MotrixSim 原生 renderer
 uv run mxpython scripts/train_rsl_rl.py task=go2_joystick_flat/motrix training.play_only=true
+
+# Linux/server 上只录制 MotrixSim 视频
+uv run scripts/train_rsl_rl.py task=go2_joystick_flat/motrix training.play_only=true training.play_render_mode=record
 
 # 回放指定 run
 uv run scripts/train_offpolicy.py algo=td3 task=td3/g1_walk_flat/mujoco training.play_only=true algo.load_run="2024-02-04_12-00-00"
@@ -176,6 +194,7 @@ algo=sac
 ```bash
 training.play_only=true
 training.no_play=true
+training.play_render_mode=auto
 algo.load_run="-1"
 training.logger=tensorboard
 algo.num_envs=2048

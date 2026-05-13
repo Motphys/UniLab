@@ -17,6 +17,7 @@ from unilab.demo import run_demo
 
 SUPPORTED_ALGOS = ("ppo", "mlx_ppo", "appo", "sac", "td3", "flashsac")
 SUPPORTED_SIMS = ("mujoco", "motrix")
+SUPPORTED_RENDER_MODES = ("auto", "interactive", "record", "none")
 OFFPOLICY_ALGOS = {"sac", "td3", "flashsac"}
 RESERVED_OVERRIDE_KEYS = {
     "algo",
@@ -120,8 +121,20 @@ def _override_bool(overrides: Sequence[str], key: str) -> bool | None:
     return selected
 
 
+def _override_value(overrides: Sequence[str], key: str) -> str | None:
+    selected: str | None = None
+    for override in overrides:
+        if _override_key(override) != key or "=" not in override:
+            continue
+        selected = override.split("=", 1)[1].strip()
+    return selected
+
+
 def _needs_motrix_renderer(mode: str, sim: str, overrides: Sequence[str]) -> bool:
     if sim != "motrix":
+        return False
+    play_render_mode = _override_value(overrides, "training.play_render_mode")
+    if play_render_mode is not None and play_render_mode.strip().lower() in {"none", "record"}:
         return False
     if mode == "eval":
         return True
@@ -192,6 +205,7 @@ def build_command(
     overrides: Sequence[str],
     profile: str | None = None,
     load_run: str | None = None,
+    render_mode: str | None = None,
     root: Path | None = None,
 ) -> list[str]:
     selected_root = root or repo_root()
@@ -213,6 +227,8 @@ def build_command(
         )
 
     generated = list(route.generated_overrides)
+    if render_mode is not None:
+        generated.append(f"training.play_render_mode={render_mode}")
     if mode == "eval":
         generated.append("training.play_only=true")
         if load_run is not None:
@@ -221,7 +237,7 @@ def build_command(
                 raise SystemExit("Use either --load-run or algo.load_run=..., not both.")
             generated.append(f"algo.load_run={load_run}")
 
-    executable = _python_executable_for_route(mode, sim, overrides)
+    executable = _python_executable_for_route(mode, sim, (*generated, *overrides))
     return [executable, str(script), *generated, *overrides]
 
 
@@ -231,6 +247,7 @@ def _train_eval_parser(*, mode: str) -> argparse.ArgumentParser:
     parser.add_argument("--task", required=True)
     parser.add_argument("--sim", required=True, choices=SUPPORTED_SIMS)
     parser.add_argument("--profile", default=None)
+    parser.add_argument("--render-mode", choices=SUPPORTED_RENDER_MODES, default=None)
     if mode == "eval":
         parser.add_argument("--load-run", default=None)
     return parser
@@ -256,6 +273,7 @@ def _run_train_eval(mode: str, argv: Sequence[str] | None = None) -> int:
         profile=args.profile,
         overrides=overrides,
         load_run=getattr(args, "load_run", None),
+        render_mode=args.render_mode,
     )
     return subprocess.run(command, check=False).returncode
 

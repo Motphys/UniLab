@@ -24,7 +24,7 @@ if not hasattr(BatchEnvPool, "sample_hfield_height"):
     )
 
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.base.backend.mujoco_backend import MuJoCoBackend
+from unilab.base.backend.mujoco.backend import MuJoCoBackend
 from unilab.base.scene import SceneCfg
 from unilab.envs.common.rotation import np_yaw_to_quat
 from unilab.envs.locomotion.go2w.rough import (

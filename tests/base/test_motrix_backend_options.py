@@ -119,8 +119,8 @@ class _FakeTerrainScanner:
 
 
 def _install_fake_motrix(monkeypatch, tmp_path):
-    import unilab.base.backend.motrix_backend as mod
-    import unilab.base.backend.motrix_scene as scene_mod
+    import unilab.base.backend.motrix.backend as mod
+    import unilab.base.backend.motrix.scene as scene_mod
 
     fake_model = _FakeMotrixModel()
     _FakeTerrainScanner.instances.clear()

@@ -17,7 +17,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from unilab.algos.torch.rsl_rl_runtime import resolve_rsl_rl_ppo_runtime
-from unilab.base.backend.xml import materialize_scene_visual_override
+from unilab.base.backend.mujoco.xml import materialize_scene_visual_override
 from unilab.training import (
     BackendAdapter,
     apply_configured_training_seed,
@@ -26,12 +26,13 @@ from unilab.training import (
     get_latest_checkpoint,
     get_latest_run,
     get_log_root,
+    log_playback_plan,
     parse_checkpoint_path,
+    should_run_playback,
 )
 from unilab.training.experiment import ExperimentTracker, patch_rsl_rl_wandb_writer
 from unilab.training.rsl_rl import RslRlVecEnvWrapper, normalize_ppo_train_cfg
 from unilab.utils.device import get_default_device
-from unilab.visualization import render_play_mode
 
 try:
     from rsl_rl.runners import OnPolicyRunner
@@ -68,9 +69,7 @@ def run_motrix_rsl_play_loop(
     env = wrapped_env.env
 
     with torch.inference_mode():
-        render_play_mode(
-            env,
-            sim_backend="motrix",
+        env.run_playback(
             render_spacing=render_spacing,
             render_offset_mode=render_offset_mode,
             num_steps=num_steps,
@@ -198,35 +197,25 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     if EXPORT_POLICY:
         runner.export_policy_to_onnx(path=str(load_path_dir))
         runner.export_policy_to_jit(path=str(load_path_dir))
-    record_video = bool(getattr(cfg.training, "play_record_video", True))
-    headless = bool(getattr(cfg.training, "play_headless", True))
     num_steps = _resolve_play_num_steps(cfg)
-    output_video = Path(load_path_dir) / "play_video.mp4" if record_video else None
-    if record_video:
-        print("Rendering video ...")
-    elif cfg.training.sim_backend == "motrix" and not headless:
-        if num_steps is None:
-            print("Starting interactive visualization (motrix native renderer)...")
-            print("Close the render window to exit.")
-        else:
-            print(f"Running interactive visualization for {num_steps} steps...")
-    else:
-        print("Running playback without video recording...")
+    output_video = Path(load_path_dir) / "play_video.mp4"
+    playback_mode: str | None = None
 
-    print("Rendering playback frames...")
+    def _log_plan(plan) -> None:
+        nonlocal playback_mode
+        playback_mode = plan.mode
+        log_playback_plan(plan)
+
     try:
         with torch.inference_mode():
-            render_play_mode(
-                env,
-                sim_backend=cfg.training.sim_backend,
+            play_video_path = env.run_playback_mode(
+                play_render_mode=getattr(cfg.training, "play_render_mode", "auto"),
+                play_steps=num_steps,
+                output_video=output_video,
                 render_spacing=float(
                     getattr(cfg.training, "render_spacing", getattr(env.cfg, "render_spacing", 1.0))
                 ),
                 render_offset_mode=str(getattr(env.cfg, "render_offset_mode", "grid")),
-                headless=headless,
-                record_video=record_video,
-                num_steps=num_steps,
-                output_video=output_video,
                 initialize=lambda: wrapped_env.reset()[0],
                 step=lambda obs: wrapped_env.step(policy(obs))[0],
                 camera_kwargs={
@@ -238,15 +227,16 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
                     "cam_tracking_env_idx": getattr(cfg.training, "cam_tracking_env_idx", 0),
                     "cam_tracking_extra_envs": getattr(cfg.training, "cam_tracking_extra_envs", 2),
                 },
+                on_plan=_log_plan,
             )
     except Exception as e:
         if cfg.training.sim_backend == "motrix" and "RenderClosedError" in str(type(e).__name__):
             print("Render window closed.")
         else:
             raise
-    if num_steps is not None:
+    if playback_mode != "none" and num_steps is not None:
         print("Done.")
-    return str(output_video) if output_video is not None else None
+    return play_video_path
 
 
 @hydra.main(version_base="1.3", config_path="../conf/ppo", config_name="config")
@@ -384,7 +374,11 @@ def main(cfg: DictConfig) -> None:
                 tracker.update_summary(train_summary)
             env.close()
 
-        if cfg.training.play_only or not cfg.training.no_play:
+        if should_run_playback(
+            play_only=cfg.training.play_only,
+            no_play=cfg.training.no_play,
+            play_render_mode=getattr(cfg.training, "play_render_mode", "auto"),
+        ):
             play_video_path = play_rsl_rl(cfg, device)
             if tracker is not None:
                 tracker.log_video(play_video_path)

@@ -79,7 +79,7 @@ class _FakeMuJoCoPool:
 
 def _fake_mujoco_backend(pre_step_control_fn=None):
     try:
-        from unilab.base.backend.mujoco_backend import MuJoCoBackend
+        from unilab.base.backend.mujoco.backend import MuJoCoBackend
     except Exception as exc:
         pytest.skip(f"MuJoCo backend import unavailable: {exc}")
 
@@ -154,7 +154,7 @@ class _FakeMotrixModel:
 
 
 def _fake_motrix_backend(pre_step_control_fn=None):
-    from unilab.base.backend.motrix_backend import MotrixBackend
+    from unilab.base.backend.motrix.backend import MotrixBackend
 
     backend = object.__new__(MotrixBackend)
     backend._pre_step_control_fn = pre_step_control_fn
@@ -187,7 +187,7 @@ def test_motrix_step_with_pre_step_control_uses_single_step_loop() -> None:
 
 
 def test_motrix_native_video_capture_uses_headless_system_camera(monkeypatch) -> None:
-    import unilab.base.backend.motrix_backend as mod
+    import unilab.base.backend.motrix.backend as mod
 
     captured: dict[str, object] = {}
 
@@ -293,7 +293,7 @@ def test_motrix_native_video_capture_uses_headless_system_camera(monkeypatch) ->
 
 
 def test_motrix_native_video_capture_defaults_camera_lookat_to_grid_center(monkeypatch) -> None:
-    import unilab.base.backend.motrix_backend as mod
+    import unilab.base.backend.motrix.backend as mod
 
     captured: dict[str, object] = {}
 
@@ -357,7 +357,7 @@ def test_motrix_native_video_capture_defaults_camera_lookat_to_grid_center(monke
 
 
 def test_motrix_native_video_capture_tracks_primary_env_base(monkeypatch) -> None:
-    import unilab.base.backend.motrix_backend as mod
+    import unilab.base.backend.motrix.backend as mod
 
     captured: dict[str, object] = {"set_views": []}
     base_positions = np.array(
@@ -473,7 +473,7 @@ def test_motrix_native_video_capture_tracks_primary_env_base(monkeypatch) -> Non
 
 
 def test_motrix_interactive_renderer_applies_camera_kwargs(monkeypatch) -> None:
-    import unilab.base.backend.motrix_backend as mod
+    import unilab.base.backend.motrix.backend as mod
 
     captured: dict[str, object] = {}
 
@@ -545,7 +545,7 @@ def test_motrix_interactive_renderer_applies_camera_kwargs(monkeypatch) -> None:
 
 
 def test_motrix_renderer_zero_offset_mode(monkeypatch) -> None:
-    import unilab.base.backend.motrix_backend as mod
+    import unilab.base.backend.motrix.backend as mod
 
     captured: dict[str, object] = {}
 

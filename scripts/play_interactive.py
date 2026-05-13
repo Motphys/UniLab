@@ -122,7 +122,7 @@ def _infer_checkpoint_actor_input_dim(ckpt_path: str) -> int | None:
 
 
 def _backend_adapter(cfg: DictConfig):
-    from unilab.base.backend.xml import materialize_scene_visual_override
+    from unilab.base.backend.mujoco.xml import materialize_scene_visual_override
     from unilab.training import BackendAdapter
 
     return BackendAdapter(

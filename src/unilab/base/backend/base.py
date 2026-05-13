@@ -1,6 +1,7 @@
 import abc
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from os import PathLike
 from typing import Any
 
 import numpy as np
@@ -32,11 +33,34 @@ class BackendHeightScanner(abc.ABC):
         """Return sampled values with shape ``(num_envs, num_points)``."""
 
 
+PLAY_RENDER_MODES = frozenset({"auto", "interactive", "record", "none"})
+
+
+@dataclass(frozen=True)
+class BackendPlayRenderPlan:
+    """Backend-resolved playback rendering behavior."""
+
+    mode: str
+    headless: bool
+    record_video: bool
+    num_steps: int | None
+    output_video: str | PathLike[str] | None
+
+
+def normalize_play_render_mode(play_render_mode: str | None) -> str:
+    mode = "auto" if play_render_mode is None else str(play_render_mode).strip().lower()
+    if mode not in PLAY_RENDER_MODES:
+        joined = ", ".join(sorted(PLAY_RENDER_MODES))
+        raise ValueError(f"training.play_render_mode must be one of: {joined}; got {mode!r}.")
+    return mode
+
+
 class SimBackend(abc.ABC):
     """仿真后端统一接口"""
 
     _pre_step_control_fn: PreStepControlFn | None
     _scene_cleanup_handle: Any | None
+    backend_type: str
 
     # ------------------------------------------------------------------ #
     # Properties                                                           #
@@ -309,6 +333,36 @@ class SimBackend(abc.ABC):
     def get_play_capabilities(self) -> BackendPlayCapabilities:
         """Return backend-native play/render capabilities."""
         return BackendPlayCapabilities()
+
+    def resolve_play_render_plan(
+        self,
+        *,
+        play_render_mode: str | None,
+        play_steps: int | None,
+        output_video: str | PathLike[str] | None,
+    ) -> BackendPlayRenderPlan:
+        """Resolve high-level playback mode into backend-owned render parameters."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not define playback render mode semantics"
+        )
+
+    def run_playback(
+        self,
+        *,
+        env: Any,
+        initialize: Callable[[], Any],
+        step: Callable[[Any], Any],
+        num_steps: int | None,
+        output_video: str | PathLike[str] | None = None,
+        render_spacing: float | None = None,
+        render_offset_mode: str | None = None,
+        headless: bool | None = None,
+        record_video: bool | None = None,
+        frame_state_getter: Callable[[], np.ndarray] | None = None,
+        camera_kwargs: dict[str, Any] | None = None,
+    ) -> str | None:
+        """Execute backend-owned playback for an env wrapper."""
+        raise NotImplementedError(f"{self.__class__.__name__} does not support playback execution")
 
     def init_renderer(
         self,

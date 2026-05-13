@@ -21,12 +21,13 @@ from unilab.training import (
     create_env,
     ensure_registries,
     get_log_root,
+    log_playback_plan,
+    should_run_playback,
 )
 from unilab.training import (
     resolve_checkpoint_path as resolve_checkpoint_path_common,
 )
 from unilab.training.experiment import ExperimentTracker
-from unilab.visualization import render_play_mode
 
 
 def default_device(torch_module, preferred: str | None = None) -> str:
@@ -428,53 +429,11 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
         state = env.step(actions_np)
         return np.asarray(extract_play_obs(state.obs), dtype=np.float32)
 
-    # Use Motrix native rendering only when no video output directory is available.
-    if cfg.training.sim_backend == "motrix" and load_path_dir is None:
-        print("Starting interactive visualization (motrix native renderer)...")
-        print("Close the render window to exit.")
-
-        with torch.inference_mode():
-            try:
-                render_play_mode(
-                    env,
-                    sim_backend="motrix",
-                    num_steps=None,
-                    initialize=lambda: np.asarray(
-                        extract_play_obs(
-                            extract_reset_obs(
-                                env.reset(np.arange(cfg.training.play_env_num, dtype=np.int32))
-                            )
-                        ),
-                        dtype=np.float32,
-                    ),
-                    step=_policy_step,
-                )
-            except Exception as e:
-                if "RenderClosedError" in str(type(e).__name__):
-                    print("Render window closed.")
-                else:
-                    raise
-        return None
-
-    if load_path_dir is None:
-        print(f"Could not resolve checkpoint directory. load_path_dir={load_path_dir}")
-        return None
-
-    record_video = bool(getattr(cfg.training, "play_record_video", True))
-    output_video = os.path.join(load_path_dir, "play_video.mp4") if record_video else None
-    if record_video:
-        print("Rendering video ...")
-    else:
-        print("Running playback without video recording...")
-    print("Rendering playback frames...")
     with torch.inference_mode():
-        render_play_mode(
-            env,
-            sim_backend=cfg.training.sim_backend,
-            headless=bool(getattr(cfg.training, "play_headless", True)),
-            record_video=record_video,
-            num_steps=cfg.training.play_steps,
-            output_video=output_video,
+        play_video_path = env.run_playback_mode(
+            play_render_mode=getattr(cfg.training, "play_render_mode", "auto"),
+            play_steps=getattr(cfg.training, "play_steps", None),
+            output_video=os.path.join(load_path_dir, "play_video.mp4") if load_path_dir else None,
             initialize=lambda: np.asarray(
                 extract_play_obs(
                     extract_reset_obs(
@@ -489,11 +448,12 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
                 "cam_elevation": cfg.training.cam_elevation,
                 "cam_azimuth": cfg.training.cam_azimuth,
             },
+            on_plan=log_playback_plan,
         )
-    if record_video:
-        print(f"Saving video to {output_video} ...")
+    if play_video_path is not None:
+        print(f"Saving video to {play_video_path} ...")
     print("Done.")
-    return output_video
+    return play_video_path
 
 
 @hydra.main(version_base="1.3", config_path="../conf/offpolicy", config_name="config")
@@ -545,7 +505,11 @@ def main(cfg: DictConfig) -> None:
             finally:
                 runner.close()
 
-        if cfg.training.play_only or not cfg.training.no_play:
+        if should_run_playback(
+            play_only=cfg.training.play_only,
+            no_play=cfg.training.no_play,
+            play_render_mode=getattr(cfg.training, "play_render_mode", "auto"),
+        ):
             print("@" * 50)
             play_video_path = play_offpolicy(algo_name, cfg)
             if tracker is not None:
