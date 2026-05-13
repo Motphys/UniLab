@@ -516,7 +516,7 @@ def test_ppo_g1_wall_flip_tracking():
     assert cfg.algo.obs_groups.critic == ["critic"]
     assert cfg.algo.algorithm.entropy_coef == pytest.approx(0.005)
     assert cfg.algo.algorithm.desired_kl == pytest.approx(0.01)
-    assert cfg.env.sampling_mode == "adaptive"
+    assert cfg.env.sampling_mode == "start"
     assert cfg.env.truncate_on_clip_end is False
     assert cfg.env.sim_dt == pytest.approx(0.005)
     assert list(cfg.env.control_config.action_scale) == pytest.approx(G1_MJLAB_ACTION_SCALE)
