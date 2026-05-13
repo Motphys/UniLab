@@ -366,6 +366,117 @@ def test_g1_motion_tracking_uses_split_body_pose_queries():
     np.testing.assert_array_equal(env._backend.calls[1][1], np.array([1, 3], dtype=np.int32))
 
 
+def test_g1_motion_tracking_critic_uses_clean_mjlab_aligned_terms():
+    from unilab.envs.motion_tracking.g1.motion_loader import MotionData
+    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
+
+    env = cast(Any, object.__new__(G1MotionTrackingEnv))
+    env._num_envs = 1
+    env._num_action = 2
+    env._cfg = SimpleNamespace(
+        noise_config=SimpleNamespace(
+            level=1.0,
+            scale_linvel=1.0,
+            scale_gyro=1.0,
+            scale_joint_angle=1.0,
+            scale_joint_vel=1.0,
+        ),
+        body_names=("pelvis", "torso_link"),
+    )
+    env.default_angles = np.array([[0.5, -0.5]], dtype=np.float32)
+    env.anchor_body_idx = 0
+    env._obs_noise = lambda data, scale: np.asarray(data + 100.0, dtype=np.float32)
+
+    motion_data = MotionData(
+        joint_pos=np.array([[0.1, 0.2]], dtype=np.float32),
+        joint_vel=np.array([[0.3, 0.4]], dtype=np.float32),
+        body_pos_w=np.zeros((1, 2, 3), dtype=np.float32),
+        body_quat_w=np.tile(np.array([[[1.0, 0.0, 0.0, 0.0]]], dtype=np.float32), (1, 2, 1)),
+        body_lin_vel_w=np.zeros((1, 2, 3), dtype=np.float32),
+        body_ang_vel_w=np.zeros((1, 2, 3), dtype=np.float32),
+    )
+    linvel = np.array([[1.0, 2.0, 3.0]], dtype=np.float32)
+    gyro = np.array([[4.0, 5.0, 6.0]], dtype=np.float32)
+    dof_pos = np.array([[0.7, -0.2]], dtype=np.float32)
+    dof_vel = np.array([[7.0, 8.0]], dtype=np.float32)
+    robot_body_pos_w = np.array([[[0.0, 0.0, 0.0], [0.2, 0.0, 0.1]]], dtype=np.float32)
+    robot_body_quat_w = np.tile(np.array([[[1.0, 0.0, 0.0, 0.0]]], dtype=np.float32), (1, 2, 1))
+    info = {"current_actions": np.array([[0.1, -0.2]], dtype=np.float32)}
+
+    obs = env._compute_obs(
+        info,
+        motion_data,
+        linvel,
+        gyro,
+        dof_pos,
+        dof_vel,
+        robot_body_pos_w,
+        robot_body_quat_w,
+    )
+
+    np.testing.assert_allclose(obs["obs"][:, 13:16], linvel + 100.0)
+    np.testing.assert_allclose(obs["obs"][:, 16:19], gyro + 100.0)
+    np.testing.assert_allclose(obs["obs"][:, 19:21], dof_pos - env.default_angles + 100.0)
+    np.testing.assert_allclose(obs["obs"][:, 21:23], dof_vel + 100.0)
+
+    command_dim = motion_data.joint_pos.shape[1] + motion_data.joint_vel.shape[1]
+    anchor_dim = 3 + 6
+    clean_proprio_start = command_dim + anchor_dim
+    np.testing.assert_allclose(
+        obs["critic"][:, clean_proprio_start : clean_proprio_start + 3], linvel
+    )
+    np.testing.assert_allclose(
+        obs["critic"][:, clean_proprio_start + 3 : clean_proprio_start + 6], gyro
+    )
+    np.testing.assert_allclose(
+        obs["critic"][:, clean_proprio_start + 6 : clean_proprio_start + 8],
+        dof_pos - env.default_angles,
+    )
+    np.testing.assert_allclose(
+        obs["critic"][:, clean_proprio_start + 8 : clean_proprio_start + 10], dof_vel
+    )
+    np.testing.assert_allclose(
+        obs["critic"][:, clean_proprio_start + 10 : clean_proprio_start + 12],
+        info["current_actions"],
+    )
+
+
+def test_g1_motion_tracking_can_terminate_on_undesired_contacts():
+    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
+
+    env = cast(Any, object.__new__(G1MotionTrackingEnv))
+    env._num_envs = 2
+    env.anchor_body_idx = 0
+    env.ee_body_indices = np.array([1], dtype=np.int32)
+    env.undesired_contact_body_indices = np.array([2], dtype=np.int32)
+    env.body_pos_relative_w = np.array(
+        [
+            [[0.0, 0.0, 1.0], [0.0, 0.0, 0.8], [0.0, 0.0, 0.8]],
+            [[0.0, 0.0, 1.0], [0.0, 0.0, 0.8], [0.0, 0.0, 0.8]],
+        ],
+        dtype=np.float32,
+    )
+    env._cfg = SimpleNamespace(
+        anchor_pos_z_threshold=0.5,
+        anchor_ori_threshold=1e9,
+        ee_body_pos_z_threshold=0.5,
+        terminate_on_undesired_contacts=True,
+        undesired_contact_z_threshold=0.05,
+    )
+    quat = np.tile(np.array([[[1.0, 0.0, 0.0, 0.0]]], dtype=np.float32), (2, 3, 1))
+    motion_data = SimpleNamespace(body_pos_w=env.body_pos_relative_w.copy(), body_quat_w=quat)
+    robot_body_pos_w = env.body_pos_relative_w.copy()
+    robot_body_pos_w[0, 2, 2] = 0.04
+    robot_body_pos_w[1, 2, 2] = 0.10
+
+    terminated = env._compute_terminations(motion_data, robot_body_pos_w, quat)
+    np.testing.assert_array_equal(terminated, np.array([True, False]))
+
+    env._cfg.terminate_on_undesired_contacts = False
+    terminated_without_contact = env._compute_terminations(motion_data, robot_body_pos_w, quat)
+    np.testing.assert_array_equal(terminated_without_contact, np.array([False, False]))
+
+
 def test_g1_motion_tracking_cfg_has_domain_rand_for_motrix():
     from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingCfg
 
@@ -546,9 +657,10 @@ def test_g1_flip_tracking_cfg_uses_flip_profile():
     assert cfg.pose_randomization.x == (0.0, 0.0)
     assert cfg.velocity_randomization.x == (0.0, 0.0)
     assert cfg.joint_position_range == (0.0, 0.0)
-    assert cfg.truncate_on_clip_end is True
+    assert cfg.truncate_on_clip_end is False
     assert cfg.anchor_ori_threshold == pytest.approx(1e9)
-    assert cfg.sampling_mode in {"start", "clip_start", "uniform", "adaptive"}
+    assert cfg.terminate_on_undesired_contacts is True
+    assert cfg.sampling_mode == "start"
 
 
 def test_g1_wall_flip_tracking_cfg_uses_wall_flip_profile():
@@ -561,35 +673,81 @@ def test_g1_wall_flip_tracking_cfg_uses_wall_flip_profile():
     assert cfg.pose_randomization.x == (0.0, 0.0)
     assert cfg.velocity_randomization.x == (0.0, 0.0)
     assert cfg.joint_position_range == (0.0, 0.0)
-    assert cfg.truncate_on_clip_end is True
+    assert cfg.truncate_on_clip_end is False
     assert cfg.anchor_ori_threshold == pytest.approx(1e9)
     assert cfg.anchor_pos_z_threshold == pytest.approx(0.5)
     assert cfg.ee_body_pos_z_threshold == pytest.approx(0.5)
-    assert cfg.sampling_mode == "start"
+    assert cfg.terminate_on_undesired_contacts is True
+    assert cfg.sampling_mode == "adaptive"
+
+
+def test_g1_motion_tracking_apply_action_accepts_per_joint_action_scale():
+    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
+
+    env = cast(Any, object.__new__(G1MotionTrackingEnv))
+    env.default_angles = np.array([0.5, -0.5, 1.0], dtype=np.float32)
+    env._cfg = SimpleNamespace(
+        control_config=SimpleNamespace(
+            action_scale=[0.1, 0.2, 0.3],
+            simulate_action_latency=False,
+        )
+    )
+    state = SimpleNamespace(info={})
+    actions = np.array([[1.0, -1.0, 0.5]], dtype=np.float32)
+
+    ctrl = env.apply_action(actions, state)
+
+    np.testing.assert_allclose(ctrl, np.array([[0.6, -0.7, 1.15]], dtype=np.float32))
+    np.testing.assert_array_equal(state.info["current_actions"], actions)
 
 
 def _make_g1_motion_tracking_clip_end_stub(
     *,
     truncate_on_clip_end: bool,
     terminated: np.ndarray | None = None,
+    step_env_ids: np.ndarray | None = None,
 ):
     from unilab.base.np_env import NpEnvState
     from unilab.envs.motion_tracking.g1.motion_loader import MotionData
     from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
 
     class FakeBackend:
+        def __init__(self) -> None:
+            self.set_state_calls: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
+
         def get_body_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
             return np.zeros((2, len(body_ids), 3), dtype=np.float32)
 
         def get_body_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
             return np.zeros((2, len(body_ids), 3), dtype=np.float32)
 
+        def set_state(self, env_ids: np.ndarray, qpos: np.ndarray, qvel: np.ndarray) -> None:
+            self.set_state_calls.append((env_ids.copy(), qpos.copy(), qvel.copy()))
+
+    class FakeMotionLoader:
+        def get_motion_at_frame(self, frames: np.ndarray) -> MotionData:
+            frame_values = frames.astype(np.float32)[:, None]
+            return MotionData(
+                joint_pos=np.repeat(frame_values, 2, axis=1),
+                joint_vel=np.repeat(frame_values + 10.0, 2, axis=1),
+                body_pos_w=np.pad(frame_values[:, None, :], ((0, 0), (0, 0), (0, 2))),
+                body_quat_w=np.tile(
+                    np.array([[[1.0, 0.0, 0.0, 0.0]]], dtype=np.float32), (len(frames), 1, 1)
+                ),
+                body_lin_vel_w=np.zeros((len(frames), 1, 3), dtype=np.float32),
+                body_ang_vel_w=np.zeros((len(frames), 1, 3), dtype=np.float32),
+            )
+
     class FakeSampler:
         def __init__(self) -> None:
             self.failure_updates: list[np.ndarray] = []
             self.sampled_env_ids: list[np.ndarray] = []
+            self.current_frames = np.zeros((2,), dtype=np.int32)
+            self._after_step = False
 
         def get_current_motion(self) -> MotionData:
+            if self._after_step and np.any(self.current_frames == 99):
+                raise AssertionError("queried all current motion while a clip-end frame is invalid")
             return MotionData(
                 joint_pos=np.zeros((2, 2), dtype=np.float32),
                 joint_vel=np.zeros((2, 2), dtype=np.float32),
@@ -605,27 +763,45 @@ def _make_g1_motion_tracking_clip_end_stub(
             self.failure_updates.append(terminated.copy())
 
         def step(self) -> np.ndarray:
-            return np.array([1], dtype=np.int32)
+            env_ids = np.array([1], dtype=np.int32) if step_env_ids is None else step_env_ids.copy()
+            self.current_frames[env_ids] = 99
+            self._after_step = True
+            return env_ids
 
         def sample_frames(self, env_ids: np.ndarray) -> np.ndarray:
             self.sampled_env_ids.append(env_ids.copy())
+            self.current_frames[env_ids] = 7
             return np.full(len(env_ids), 7, dtype=np.int32)
 
     env = cast(Any, object.__new__(G1MotionTrackingEnv))
     env._num_envs = 2
-    env._cfg = type(
-        "Cfg",
-        (),
-        {"max_episode_steps": None, "truncate_on_clip_end": truncate_on_clip_end},
-    )()
+    zero_pose = SimpleNamespace(
+        x=(0.0, 0.0),
+        y=(0.0, 0.0),
+        z=(0.0, 0.0),
+        roll=(0.0, 0.0),
+        pitch=(0.0, 0.0),
+        yaw=(0.0, 0.0),
+    )
+    env._cfg = SimpleNamespace(
+        max_episode_steps=None,
+        truncate_on_clip_end=truncate_on_clip_end,
+        pose_randomization=zero_pose,
+        velocity_randomization=zero_pose,
+        joint_position_range=(0.0, 0.0),
+    )
     env.body_ids = np.array([0], dtype=np.int32)
     env._backend = FakeBackend()
     env.motion_sampler = FakeSampler()
+    env.motion_loader = FakeMotionLoader()
     env._clip_end_truncated = np.zeros((2,), dtype=bool)
+    env._init_qpos = np.zeros((9,), dtype=np.float32)
+    env._init_qvel = np.zeros((8,), dtype=np.float32)
     env.get_local_linvel = lambda: np.zeros((2, 3), dtype=np.float32)
     env.get_gyro = lambda: np.zeros((2, 3), dtype=np.float32)
     env.get_dof_pos = lambda: np.zeros((2, 2), dtype=np.float32)
     env.get_dof_vel = lambda: np.zeros((2, 2), dtype=np.float32)
+    env._get_joint_range = lambda: None
     env._get_body_pose_w = lambda: (
         np.zeros((2, 1, 3), dtype=np.float32),
         np.tile(np.array([[[1.0, 0.0, 0.0, 0.0]]], dtype=np.float32), (2, 1, 1)),
@@ -663,6 +839,12 @@ def test_g1_motion_tracking_clip_end_resamples_by_default_without_truncation():
     np.testing.assert_array_equal(next_state.terminated, np.array([False, False]))
     np.testing.assert_array_equal(truncated, np.array([False, False]))
     np.testing.assert_array_equal(env.motion_sampler.sampled_env_ids[0], np.array([1]))
+    assert len(env._backend.set_state_calls) == 1
+    set_state_env_ids, qpos, qvel = env._backend.set_state_calls[0]
+    np.testing.assert_array_equal(set_state_env_ids, np.array([1], dtype=np.int32))
+    np.testing.assert_array_equal(qpos[:, 0], np.array([7.0], dtype=np.float32))
+    np.testing.assert_array_equal(qpos[:, 7:], np.array([[7.0, 7.0]], dtype=np.float32))
+    np.testing.assert_array_equal(qvel[:, 6:], np.array([[17.0, 17.0]], dtype=np.float32))
     np.testing.assert_array_equal(
         env.motion_sampler.failure_updates[0], np.array([False, False], dtype=bool)
     )
@@ -677,9 +859,45 @@ def test_g1_motion_tracking_clip_end_truncates_when_config_enabled():
     np.testing.assert_array_equal(next_state.terminated, np.array([False, False]))
     np.testing.assert_array_equal(truncated, np.array([False, True]))
     assert env.motion_sampler.sampled_env_ids == []
+    assert env._backend.set_state_calls == []
     np.testing.assert_array_equal(
         env.motion_sampler.failure_updates[0], np.array([False, False], dtype=bool)
     )
+
+
+def test_g1_motion_tracking_clip_end_resample_skips_terminated_envs():
+    env, state = _make_g1_motion_tracking_clip_end_stub(
+        truncate_on_clip_end=False,
+        terminated=np.array([False, True], dtype=bool),
+    )
+
+    next_state = env.update_state(state)
+    truncated = env._compute_truncated(next_state)
+
+    np.testing.assert_array_equal(next_state.terminated, np.array([False, True]))
+    np.testing.assert_array_equal(truncated, np.array([False, False]))
+    assert env.motion_sampler.sampled_env_ids == []
+    assert env._backend.set_state_calls == []
+
+
+def test_g1_motion_tracking_clip_end_resample_keeps_terminated_final_obs_valid():
+    env, state = _make_g1_motion_tracking_clip_end_stub(
+        truncate_on_clip_end=False,
+        terminated=np.array([False, True], dtype=bool),
+        step_env_ids=np.array([0, 1], dtype=np.int32),
+    )
+
+    next_state = env.update_state(state)
+    truncated = env._compute_truncated(next_state)
+
+    np.testing.assert_array_equal(next_state.terminated, np.array([False, True]))
+    np.testing.assert_array_equal(truncated, np.array([False, False]))
+    np.testing.assert_array_equal(env.motion_sampler.sampled_env_ids[0], np.array([0]))
+    assert len(env._backend.set_state_calls) == 1
+    set_state_env_ids, qpos, qvel = env._backend.set_state_calls[0]
+    np.testing.assert_array_equal(set_state_env_ids, np.array([0], dtype=np.int32))
+    np.testing.assert_array_equal(qpos[:, 0], np.array([7.0], dtype=np.float32))
+    np.testing.assert_array_equal(qvel[:, 6:], np.array([[17.0, 17.0]], dtype=np.float32))
 
 
 def test_g1_motion_tracking_clip_end_does_not_override_true_termination():

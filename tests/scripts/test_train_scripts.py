@@ -1811,8 +1811,9 @@ def test_train_rsl_rl_motrix_play_uses_configured_steps_independent_of_headless(
             self.log_dir = log_dir
             self.device = device
 
-        def load(self, path):
+        def load(self, path, **kwargs):
             self.loaded_path = path
+            self.load_kwargs = kwargs
 
         def get_inference_policy(self, device):
             return lambda obs: obs

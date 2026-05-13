@@ -134,6 +134,7 @@ def _install_fake_motrix(monkeypatch, tmp_path):
             TerrainScanner=_FakeTerrainScanner,
             GeomHField=_FakeNativeHFieldGeom,
         ),
+        raising=False,
     )
     monkeypatch.setattr(scene_mod, "materialize_motrix_scene", lambda **kwargs: fake_model)
     return mod, fake_model
