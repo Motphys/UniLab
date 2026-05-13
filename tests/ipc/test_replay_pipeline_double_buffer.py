@@ -175,6 +175,40 @@ def _sample_ready(pipeline, tick_id: int, sample_count: int):
     return pipeline.sample_large_batch(tick_id=tick_id, sample_count=sample_count)
 
 
+def test_torch_copy_mps_defers_device_copy_to_wait(monkeypatch):
+    from unilab.ipc.replay_pipelines.transfer.torch_copy import TorchCopyReplayTransferBackend
+
+    mps = getattr(torch, "mps", None)
+    if mps is not None:
+        monkeypatch.setattr(mps, "synchronize", lambda: None, raising=False)
+
+    backend = TorchCopyReplayTransferBackend(device=torch.device("mps"), ring_depth=1)
+    src = torch.arange(6, dtype=torch.float32).view(2, 3)
+    dst = torch.zeros_like(src)
+
+    backend.submit_h2d(
+        slot=0,
+        dst=dst,
+        src=src,
+        metadata=None,
+        trace_recorder=None,
+        trace_cuda_events=False,
+        h2d_bytes=src.numel() * src.element_size(),
+        pack_layout="packed",
+        pack_executor="collector_thread",
+    )
+
+    assert backend.h2d_submitter == "torch_copy_main_thread"
+    assert backend.ready_query(0)
+    torch.testing.assert_close(dst, torch.zeros_like(src))
+
+    backend.wait_current_stream_for_ready(0)
+
+    torch.testing.assert_close(dst, src)
+    assert backend._pending_copies[0] is None
+    assert backend.last_wait_copy_time_s > 0.0
+
+
 class TestPortableDoubleBuffer:
     def _make_pipeline(self, rb, sample_count=16, base_seed=42, device="cpu", trace=None):
         from unilab.ipc.replay_pipelines.cpu_pinned_double_buffer import (
@@ -271,7 +305,7 @@ class TestPortableDoubleBuffer:
 
         assert all(value.device.type == "mps" for value in batch.values())
         assert pipeline._host_pinned is False
-        assert pipeline._h2d_submitter == "torch_copy"
+        assert pipeline._h2d_submitter == "torch_copy_main_thread"
         pipeline.close()
 
 

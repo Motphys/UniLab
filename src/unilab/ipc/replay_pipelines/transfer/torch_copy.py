@@ -23,7 +23,15 @@ class TorchCopyReplayTransferBackend:
     def __init__(self, *, device: torch.device, ring_depth: int) -> None:
         self.device = device
         self.device_family = device.type
-        self._ready_events = [threading.Event() for _ in range(int(ring_depth))]
+        self._ring_depth = int(ring_depth)
+        self._ready_events = [threading.Event() for _ in range(self._ring_depth)]
+        self._defer_copy_to_wait = device.type == "mps"
+        self._pending_copies: list[tuple[torch.Tensor, torch.Tensor] | None] = [
+            None for _ in range(self._ring_depth)
+        ]
+        self.last_wait_copy_time_s = 0.0
+        if self._defer_copy_to_wait:
+            self.h2d_submitter = "torch_copy_main_thread"
 
     def register_host_slots(self, slots: list[torch.Tensor]) -> None:
         del slots
@@ -54,6 +62,15 @@ class TorchCopyReplayTransferBackend:
         del metadata, trace_recorder, trace_cuda_events, h2d_bytes, pack_layout, pack_executor
         h2d_begin_ns = time.perf_counter_ns()
         self.clear_ready(slot)
+        self.last_wait_copy_time_s = 0.0
+        if self._defer_copy_to_wait:
+            # PyTorch MPS command submission from a background transfer thread
+            # can trip Metal command-buffer assertions.  Keep the collector CPU
+            # pack overlap, but submit the actual MPS copy from the learner
+            # thread when the batch is consumed.
+            self._pending_copies[slot] = (dst, src)
+            self._ready_events[slot].set()
+            return (time.perf_counter_ns() - h2d_begin_ns) / 1e9
         dst.copy_(src, non_blocking=src.is_pinned())
         self._synchronize_device()
         self._ready_events[slot].set()
@@ -61,6 +78,8 @@ class TorchCopyReplayTransferBackend:
 
     def clear_ready(self, slot: int) -> None:
         self._ready_events[slot].clear()
+        self._pending_copies[slot] = None
+        self.last_wait_copy_time_s = 0.0
 
     def ready_query(self, slot: int) -> bool:
         return self._ready_events[slot].is_set()
@@ -70,8 +89,20 @@ class TorchCopyReplayTransferBackend:
 
     def wait_current_stream_for_ready(self, slot: int) -> None:
         self.synchronize_ready(slot)
+        pending = self._pending_copies[slot]
+        if pending is None:
+            return
+        dst, src = pending
+        copy_begin_ns = time.perf_counter_ns()
+        dst.copy_(src, non_blocking=False)
+        self._synchronize_device()
+        self.last_wait_copy_time_s = (time.perf_counter_ns() - copy_begin_ns) / 1e9
+        self._pending_copies[slot] = None
 
     def close(self) -> None:
+        for slot in range(len(self._pending_copies)):
+            self._pending_copies[slot] = None
+        self.last_wait_copy_time_s = 0.0
         return None
 
     def _synchronize_device(self) -> None:

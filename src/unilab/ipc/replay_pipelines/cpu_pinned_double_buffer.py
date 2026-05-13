@@ -285,6 +285,9 @@ class CPUPinnedDoubleBufferReplayPipeline:
 
     def _wait_current_stream_for_ready(self, slot: int) -> None:
         self._transfer_backend.wait_current_stream_for_ready(slot)
+        wait_copy_time_s = float(getattr(self._transfer_backend, "last_wait_copy_time_s", 0.0))
+        if wait_copy_time_s > 0.0:
+            self.last_incremental_h2d_time_s = wait_copy_time_s
 
     # -- public API -----------------------------------------------------------
 
