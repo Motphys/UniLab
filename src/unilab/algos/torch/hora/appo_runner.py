@@ -244,7 +244,6 @@ class HoraAPPORunner(APPORunner):
         replay_queue: deque[dict] = deque(maxlen=self.replay_queue_size)
 
         for iteration in range(1, max_iterations + 1):
-            iter_start = time.time()
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
             wait_start = time.time()
 
@@ -270,8 +269,11 @@ class HoraAPPORunner(APPORunner):
             wait_time = time.time() - wait_start
 
             num_new = rollout_ring_buffer.available()
+            learner_incremental_h2d_time = 0.0
             for _ in range(num_new):
+                h2d_start = time.perf_counter()
                 raw = rollout_ring_buffer.read_torch(self.device)
+                learner_incremental_h2d_time += time.perf_counter() - h2d_start
                 rollout_ring_buffer.advance_read()
 
                 rollout: dict = {}
@@ -287,7 +289,6 @@ class HoraAPPORunner(APPORunner):
                 replay_queue.append(rollout)
 
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
-            collect_time = time.time() - iter_start
 
             combined: dict = {}
             for k in replay_queue[0]:
@@ -299,9 +300,11 @@ class HoraAPPORunner(APPORunner):
             train_start = time.time()
             learner.process_batch(combined)
             metrics = learner.update(combined)
+            train_time = time.time() - train_start
+            weight_sync_start = time.perf_counter()
             actor_weight_sync.write_weights(learner.actor.state_dict())
             critic_weight_sync.write_weights(learner.critic.state_dict())
-            train_time = time.time() - train_start
+            weight_sync_time = time.perf_counter() - weight_sync_start
 
             metrics["replay_queue_len"] = float(len(replay_queue))
             metrics["available_on_arrive"] = float(available_on_arrive)
@@ -320,9 +323,10 @@ class HoraAPPORunner(APPORunner):
                 metrics=metrics,
                 reward=mean_reward,
                 reward_components=latest_reward_components,
-                collect_time=collect_time,
                 train_time=train_time,
                 wait_time=wait_time,
+                learner_incremental_h2d_time=learner_incremental_h2d_time,
+                weight_sync_time=weight_sync_time,
             )
 
             if save_interval > 0 and iteration % save_interval == 0:

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import multiprocessing as mp
+import time
 from multiprocessing import shared_memory
-from typing import Dict
+from typing import Any, Dict
 
 import numpy as np
 
@@ -19,6 +20,8 @@ class SharedWeightSync:
     ):
         self._param_shapes = param_shapes
         self._param_names = list(param_shapes.keys())
+        self.trace_recorder: Any | None = None
+        self.trace_thread_time = False
 
         total_numel = sum(s.numel() for s in param_shapes.values())
         _f32 = np.dtype(np.float32).itemsize
@@ -42,7 +45,6 @@ class SharedWeightSync:
         self._version_arr: np.ndarray = np.ndarray((1,), dtype=np.int64, buffer=buf[data_bytes:])
         if create:
             self._version_arr[0] = 0
-        self._total_numel = total_numel
 
     @property
     def name(self) -> str:
@@ -60,6 +62,8 @@ class SharedWeightSync:
         return obj
 
     def write_weights(self, state_dict) -> None:
+        _trace_ns = time.perf_counter_ns()
+        _thread_ns = time.thread_time_ns() if self.trace_thread_time else None
         if self._lock is not None:
             with self._lock:
                 offset = 0
@@ -80,10 +84,26 @@ class SharedWeightSync:
                 self._buffer[offset : offset + n] = arr
                 offset += n
             self._version_arr[0] += 1
+        if self.trace_recorder is not None:
+            self.trace_recorder.add_slice(
+                "weight_sync/write_weights_d2h",
+                category="weight_sync",
+                start_ns=_trace_ns,
+                end_ns=time.perf_counter_ns(),
+                args={"version": int(self._version_arr[0]), "mode": "sync"},
+            )
+            if _thread_ns is not None:
+                self.trace_recorder.add_counter(
+                    "weight_sync/write_thread_cpu_us",
+                    (time.thread_time_ns() - _thread_ns) / 1000.0,
+                    category="weight_sync",
+                )
 
     def read_weights_into(self, state_dict) -> int:
         import torch
 
+        _trace_ns = time.perf_counter_ns()
+        _thread_ns = time.thread_time_ns() if self.trace_thread_time else None
         if self._lock is not None:
             with self._lock:
                 offset = 0
@@ -93,7 +113,7 @@ class SharedWeightSync:
                     data = self._buffer[offset : offset + n].copy()
                     param.data.copy_(torch.from_numpy(data.reshape(param.shape)))
                     offset += n
-                return int(self._version_arr[0])
+                version = int(self._version_arr[0])
         else:
             # No lock - direct read (for subprocess)
             offset = 0
@@ -103,7 +123,22 @@ class SharedWeightSync:
                 data = self._buffer[offset : offset + n].copy()
                 param.data.copy_(torch.from_numpy(data.reshape(param.shape)))
                 offset += n
-            return int(self._version_arr[0])
+            version = int(self._version_arr[0])
+        if self.trace_recorder is not None:
+            self.trace_recorder.add_slice(
+                "weight_sync/read_weights_into_cpu_actor",
+                category="weight_sync",
+                start_ns=_trace_ns,
+                end_ns=time.perf_counter_ns(),
+                args={"version": version},
+            )
+            if _thread_ns is not None:
+                self.trace_recorder.add_counter(
+                    "weight_sync/read_thread_cpu_us",
+                    (time.thread_time_ns() - _thread_ns) / 1000.0,
+                    category="weight_sync",
+                )
+        return version
 
     def cleanup(self) -> None:
         try:

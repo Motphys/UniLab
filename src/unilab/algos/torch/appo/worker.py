@@ -49,11 +49,6 @@ def compute_timeout_bootstrap_correction(
     return corrections
 
 
-def record_rollout_collect_time(write_buf: dict[str, np.ndarray], collect_time_s: float) -> None:
-    """Write collector-measured rollout wall time into shared rollout metadata."""
-    write_buf["rollout_collect_time_s"][:] = float(collect_time_s)
-
-
 def appo_collector_fn(
     stop_event: Any,
     env_name: str,
@@ -212,7 +207,6 @@ def appo_collector_fn(
 
             # Collect one rollout of length steps_per_env
             write_buf = ring_buffer.write_buffer
-            rollout_start = time.perf_counter()
             for step in range(steps_per_env):
                 # --- MLP inference (timed) ---
                 t_mlp = time.perf_counter()
@@ -332,7 +326,6 @@ def appo_collector_fn(
             write_buf["last_obs"][:] = obs_np
             if critic_np is not None:
                 write_buf["last_critic"][:] = critic_np
-            record_rollout_collect_time(write_buf, time.perf_counter() - rollout_start)
             ring_buffer.signal_write_done()  # atomic increment, non-blocking
 
     except Exception as e:

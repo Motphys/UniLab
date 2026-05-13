@@ -31,6 +31,12 @@ training:
   log_dir: null
   no_sync_collection: false
   env_steps_per_sync: 1
+  trace_enabled: false
+  trace_output_dir: null
+  trace_thread_time: false
+  trace_cuda_events: true
+  replay_prefetch_mode: one_tick
+  verbose_metrics: false
 
 hydra:
   run:

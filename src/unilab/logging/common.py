@@ -80,6 +80,7 @@ class BaseTrainingLogger:
         self._console = Console()
         self._live: Live | None = None
         self._refresh_rate = refresh_per_second
+        self._last_live_refresh_time: float | None = None
 
         self._start_time: float = 0.0
         self._iteration: int = 0
@@ -187,22 +188,30 @@ class BaseTrainingLogger:
             self._console.print(self._format_wandb_message(project, name))
 
     def start(self, *, status: str = ""):
+        if self._live is not None:
+            if status:
+                self._status = status
+            self._refresh()
+            return
+
         self._start_time = time.time()
         self._status = status
         if not self._no_print:
             self._live = Live(
                 self._build_display(),
                 console=self._console,
+                auto_refresh=False,
                 refresh_per_second=self._refresh_rate,
                 transient=False,
             )
-            self._live.start()
+            self._live.start(refresh=False)
 
     def _stop_live(self) -> None:
         if self._live is not None:
-            self._live.update(self._build_display())
+            self._live.update(self._build_display(), refresh=True)
             self._live.stop()
             self._live = None
+            self._last_live_refresh_time = None
 
     def _close_backends(self) -> None:
         if self._tb_writer:
@@ -253,11 +262,17 @@ class BaseTrainingLogger:
 
     def log_save(self, path: str):
         self._last_save = path
-        self._refresh()
 
-    def _refresh(self):
-        if self._live is not None:
-            self._live.update(self._build_display())
+    def _refresh(self, *, force: bool = False):
+        if self._live is None:
+            return
+        now = time.time()
+        if not force and self._refresh_rate > 0 and self._last_live_refresh_time is not None:
+            min_interval_s = 1.0 / self._refresh_rate
+            if now - self._last_live_refresh_time < min_interval_s:
+                return
+        self._last_live_refresh_time = now
+        self._live.update(self._build_display(), refresh=True)
 
     def _estimate_eta(self) -> str:
         if self._iteration <= 0:
@@ -289,17 +304,22 @@ class BaseTrainingLogger:
 
         return Panel(header_text, style="dim", box=box.SIMPLE)
 
-    def _build_reward_table_common(self, *, wait_message: str) -> Table:
+    def _build_reward_table_common(
+        self,
+        *,
+        wait_message: str,
+        include_ep_length: bool = True,
+    ) -> Table:
         table = Table(
-            title="[bold]Rewards[/]",
             box=box.SIMPLE_HEAVY,
             show_header=True,
+            show_edge=False,
             header_style="bold green",
             expand=True,
             pad_edge=False,
         )
-        table.add_column("Component", style="white", ratio=2)
-        table.add_column("Value", justify="right", ratio=1)
+        table.add_column("Rewards", style="white", ratio=1)
+        table.add_column("Value", justify="right", ratio=2)
 
         if self._reward_history:
             recent = list(self._reward_history)
@@ -319,11 +339,14 @@ class BaseTrainingLogger:
             else:
                 trend = ""
 
-            table.add_row(f"[bold]Mean Reward[/] {trend}", f"[bold green]{mean_rew:.3f}[/]")
-            table.add_row("  Peak", f"[dim]{peak_rew:.3f}[/]")
-            if self._mean_ep_length > 0:
+            table.add_row(
+                f"[bold]Reward[/] {trend}",
+                f"Mean [bold green]{mean_rew:.3f}[/] / Peak [dim]{peak_rew:.3f}[/]",
+            )
+            if include_ep_length and self._mean_ep_length > 0:
                 table.add_row("  Ep Len", f"[dim]{self._mean_ep_length:.1f}[/]")
-            table.add_row("", "")
+            if include_ep_length:
+                table.add_row("", "")
         else:
             table.add_row(wait_message, "")
 

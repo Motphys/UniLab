@@ -3,10 +3,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from unilab.algos.torch.appo.worker import (
-    compute_timeout_bootstrap_correction,
-    record_rollout_collect_time,
-)
+from unilab.algos.torch.appo.worker import compute_timeout_bootstrap_correction
 
 
 class _FakeCritic:
@@ -39,11 +36,3 @@ def test_compute_timeout_bootstrap_correction_prefers_explicit_final_critic():
     )
 
     np.testing.assert_allclose(correction, np.array([12.0, 0.0], dtype=np.float32))
-
-
-def test_record_rollout_collect_time_writes_storage_metadata():
-    write_buf = {"rollout_collect_time_s": np.zeros((1,), dtype=np.float32)}
-
-    record_rollout_collect_time(write_buf, 1.25)
-
-    np.testing.assert_allclose(write_buf["rollout_collect_time_s"], np.array([1.25]))

@@ -301,14 +301,12 @@ class APPORunner(AsyncRunner):
             # the learner was training, we consume all 3 immediately rather than
             # processing them one-per-iteration.
             num_new = rollout_ring_buffer.available()
-            rollout_collect_time = 0.0
+            learner_incremental_h2d_time = 0.0
             for _ in range(num_new):
+                h2d_start = time.perf_counter()
                 raw = rollout_ring_buffer.read_torch(self.device)
+                learner_incremental_h2d_time += time.perf_counter() - h2d_start
                 rollout_ring_buffer.advance_read()
-
-                raw_collect_time = raw.pop("rollout_collect_time_s", None)
-                if raw_collect_time is not None:
-                    rollout_collect_time += float(raw_collect_time.reshape(-1)[0].item())
 
                 # Preprocess: payload is [N, T, *] (env-major); learner expects [T, N, *]
                 rollout: dict = {}
@@ -324,8 +322,7 @@ class APPORunner(AsyncRunner):
                 replay_queue.append(rollout)
 
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
-            collect_time = rollout_collect_time
-            startup_wait_time = max(wait_time - collect_time, 0.0) if iteration == 1 else 0.0
+            startup_wait_time = wait_time if iteration == 1 else 0.0
 
             # Concatenate all rollouts in the replay queue along the env dimension.
             # Each rollout keeps its own behavior_log_probs so V-trace IS ratios are
@@ -342,9 +339,11 @@ class APPORunner(AsyncRunner):
             train_start = time.time()
             learner.process_batch(combined)
             metrics = learner.update(combined)
+            train_time = time.time() - train_start
+            weight_sync_start = time.perf_counter()
             actor_weight_sync.write_weights(learner.actor.state_dict())
             critic_weight_sync.write_weights(learner.critic.state_dict())
-            train_time = time.time() - train_start
+            weight_sync_time = time.perf_counter() - weight_sync_start
 
             metrics["replay_queue_len"] = float(len(replay_queue))
             metrics["available_on_arrive"] = float(available_on_arrive)
@@ -365,9 +364,10 @@ class APPORunner(AsyncRunner):
                 metrics=metrics,
                 reward=mean_reward,
                 reward_components=latest_reward_components,
-                collect_time=collect_time,
                 train_time=train_time,
                 wait_time=wait_time,
+                learner_incremental_h2d_time=learner_incremental_h2d_time,
+                weight_sync_time=weight_sync_time,
                 extra_info={
                     "startup_wait_time": startup_wait_time,
                     "throughput_steps": num_new * env_steps_per_sync,

@@ -46,3 +46,4 @@ clean:
 	find . -type d -name ".ruff_cache" -exec rm -rf {} +
 	find . -type d -name "htmlcov" -exec rm -rf {} +
 	find . -type f -name ".coverage" -delete
+	rm -f train_appo.log train_offpolicy.log train_rsl_rl.log

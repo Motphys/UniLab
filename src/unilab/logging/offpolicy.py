@@ -10,6 +10,7 @@ from rich import box
 from rich.console import Group
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
 from unilab.logging.common import BaseTrainingLogger, _fmt_number, _fmt_time, _load_wandb
 
@@ -65,6 +66,8 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._buffer_target: int = 0
         self._wait_time: float = 0.0
         self._startup_wait_time: float = 0.0
+        self._learner_incremental_h2d_time: float = 0.0
+        self._weight_sync_time: float = 0.0
         self._throughput_steps: int = 0
         self._has_iteration_extra_info: bool = False
         self._iter_times: deque = deque(maxlen=50)
@@ -77,6 +80,7 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._replay_queue_len: int = 0
         self._replay_queue_max: int = 0
         self._status: str = "Initializing..."
+        self._terminal_refresh_started: bool = False
 
     def _format_tensorboard_message(self, tb_dir: str) -> str:
         return f"[dim]TensorBoard logging to: {tb_dir}[/]"
@@ -98,7 +102,8 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._buffer_target = target
         pct = current / max(target, 1) * 100
         self._status = f"Buffer fill: {current:,}/{target:,} ({pct:.0f}%)"
-        self._refresh()
+        if not self._terminal_refresh_started:
+            self._refresh()
 
     def _get_iter_steps_per_sec(self) -> float | None:
         if not self._has_iteration_extra_info or self._throughput_steps <= 0:
@@ -109,7 +114,33 @@ class OffPolicyLogger(BaseTrainingLogger):
         return self._throughput_steps / iter_time
 
     def _get_iter_pipeline_time(self) -> float:
-        return max(self._collect_time, self._train_time)
+        return self._learner_incremental_h2d_time + self._train_time + self._weight_sync_time
+
+    def _build_compact_header(self, *, include_status: bool) -> Text:
+        elapsed = time.time() - self._start_time if self._start_time else 0
+        eta = self._estimate_eta()
+        iter_steps_per_sec = self._get_iter_steps_per_sec()
+        fields: list[tuple[str, str]] = [
+            (f" {self.algo_name}", "bold cyan"),
+            (self.env_name, "bold white"),
+            (f"iter {self._iteration}/{self.max_iterations}", "yellow"),
+            (f"⏱ {_fmt_time(elapsed)}", "green"),
+        ]
+        if eta:
+            fields.append((f"ETA {eta}", "bold magenta"))
+        if self._mean_ep_length > 0:
+            fields.append((f"Ep Len {self._mean_ep_length:.1f}", "yellow"))
+        if iter_steps_per_sec is not None:
+            fields.append((f"Steps/s {iter_steps_per_sec:,.0f}", "bold green"))
+        if include_status and self._status:
+            fields.append((self._status, "dim italic"))
+
+        header_text = Text(no_wrap=True, overflow="ellipsis")
+        for index, (text, style) in enumerate(fields):
+            if index > 0:
+                header_text.append(" | ", style="dim")
+            header_text.append(text, style=style)
+        return header_text
 
     def update_collector_timing(self, timing_ms: dict[str, float]):
         self._collector_timing.update(timing_ms)
@@ -134,7 +165,6 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._buffer_size = buffer_size
         if mean_reward != 0:
             self._reward_history.append(mean_reward)
-        self._refresh()
 
     def log_step(
         self,
@@ -142,15 +172,17 @@ class OffPolicyLogger(BaseTrainingLogger):
         metrics: dict[str, float] | None = None,
         reward: float | None = None,
         reward_components: dict[str, float] | None = None,
-        collect_time: float = 0.0,
         train_time: float = 0.0,
         wait_time: float = 0.0,
+        learner_incremental_h2d_time: float = 0.0,
+        weight_sync_time: float = 0.0,
         extra_info: dict | None = None,
     ):
         self._iteration = iteration
-        self._collect_time = collect_time
         self._train_time = train_time
         self._wait_time = wait_time
+        self._learner_incremental_h2d_time = learner_incremental_h2d_time
+        self._weight_sync_time = weight_sync_time
         self._has_iteration_extra_info = extra_info is not None
         if extra_info:
             self._startup_wait_time = float(extra_info.get("startup_wait_time", 0.0))
@@ -166,10 +198,9 @@ class OffPolicyLogger(BaseTrainingLogger):
         if reward_components:
             self._latest_reward_components = reward_components
         self._status = "Training"
+        self._terminal_refresh_started = True
         self._refresh()
-        self._backend_log_step(
-            iteration, metrics, reward, reward_components, collect_time, train_time
-        )
+        self._backend_log_step(iteration, metrics, reward, reward_components, train_time)
 
     def _backend_log_step(
         self,
@@ -177,7 +208,6 @@ class OffPolicyLogger(BaseTrainingLogger):
         metrics: dict[str, float] | None,
         reward: float | None,
         reward_components: dict[str, float] | None,
-        collect_time: float,
         train_time: float,
     ):
         global_step = self._total_steps if self._total_steps > 0 else iteration
@@ -202,18 +232,22 @@ class OffPolicyLogger(BaseTrainingLogger):
                 writer.add_scalar(
                     "timing/startup_wait_ms", self._startup_wait_time * 1000, global_step
                 )
-            writer.add_scalar("timing/learner_collect_ms", collect_time * 1000, global_step)
+            writer.add_scalar(
+                "timing/learner_incremental_h2d_ms",
+                self._learner_incremental_h2d_time * 1000,
+                global_step,
+            )
             writer.add_scalar("timing/learner_train_ms", train_time * 1000, global_step)
+            writer.add_scalar(
+                "timing/learner_weight_sync_ms",
+                self._weight_sync_time * 1000,
+                global_step,
+            )
             for key, value in self._collector_timing.items():
                 writer.add_scalar(f"timing/collector_{key}", value, global_step)
             if iter_steps_per_sec is not None:
                 writer.add_scalar("perf/steps_per_sec", iter_steps_per_sec, global_step)
             writer.add_scalar("perf/iter_ms", self._get_iter_pipeline_time() * 1000, global_step)
-            writer.add_scalar(
-                "perf/collect_train_ratio",
-                self._collect_time / max(self._train_time, 1e-6),
-                global_step,
-            )
 
         if self._wandb_run:
             wandb = _load_wandb()
@@ -235,31 +269,35 @@ class OffPolicyLogger(BaseTrainingLogger):
             log_dict["timing/learner_wait_ms"] = self._wait_time * 1000
             if self._has_iteration_extra_info:
                 log_dict["timing/startup_wait_ms"] = self._startup_wait_time * 1000
-            log_dict["timing/learner_collect_ms"] = collect_time * 1000
+            log_dict["timing/learner_incremental_h2d_ms"] = (
+                self._learner_incremental_h2d_time * 1000
+            )
             log_dict["timing/learner_train_ms"] = train_time * 1000
+            log_dict["timing/learner_weight_sync_ms"] = self._weight_sync_time * 1000
             for key, value in self._collector_timing.items():
                 log_dict[f"timing/collector_{key}"] = value
             if iter_steps_per_sec is not None:
                 log_dict["perf/steps_per_sec"] = iter_steps_per_sec
             log_dict["perf/iter_ms"] = self._get_iter_pipeline_time() * 1000
-            log_dict["perf/collect_train_ratio"] = self._collect_time / max(self._train_time, 1e-6)
             wandb.log(log_dict, step=global_step)
 
     def log_status(self, status: str):
         self._status = status
-        self._refresh()
+        if not self._terminal_refresh_started or "[red]" in status or "ERROR" in status:
+            self._refresh(force=True)
 
     def _build_display(self) -> Panel:
-        header_panel = self._build_header(include_status=True)
+        header = self._build_compact_header(include_status=True)
         left = self._build_metrics_table()
         right = self._build_reward_table()
         bottom = self._build_timing_table()
         grid = Table.grid(expand=True)
         grid.add_column(ratio=1)
+        grid.add_column(width=2)
         grid.add_column(ratio=1)
-        grid.add_row(left, right)
+        grid.add_row(left, "", right)
         return Panel(
-            Group(header_panel, grid, bottom),
+            Group(header, Text(""), grid, Text(""), bottom),
             title="[bold] 🚀 UniLab Off-Policy Training [/]",
             border_style="bright_blue",
             padding=(0, 1),
@@ -267,14 +305,14 @@ class OffPolicyLogger(BaseTrainingLogger):
 
     def _build_metrics_table(self) -> Table:
         table = Table(
-            title="[bold]Losses & Metrics[/]",
             box=box.SIMPLE_HEAVY,
             show_header=True,
+            show_edge=False,
             header_style="bold cyan",
             expand=True,
             pad_edge=False,
         )
-        table.add_column("Metric", style="white", ratio=2)
+        table.add_column("Losses & Metrics", style="white", ratio=2)
         table.add_column("Value", style="yellow", justify="right", ratio=1)
         if not self._latest_metrics:
             table.add_row("[dim]Waiting for data...[/]", "")
@@ -291,89 +329,82 @@ class OffPolicyLogger(BaseTrainingLogger):
         return table
 
     def _build_reward_table(self) -> Table:
-        return self._build_reward_table_common(wait_message="[dim]Waiting for data...[/]")
+        return self._build_reward_table_common(
+            wait_message="[dim]Waiting for data...[/]",
+            include_ep_length=False,
+        )
 
     def _build_timing_table(self) -> Table:
         table = Table(
-            title="[bold]Timing & System[/]",
             box=box.SIMPLE_HEAVY,
             show_header=True,
+            show_edge=False,
             header_style="bold blue",
             expand=True,
             pad_edge=False,
         )
-        table.add_column("Item", style="white", ratio=2, no_wrap=True)
+        table.add_column("Learner", style="white", ratio=2, no_wrap=True)
         table.add_column("Value", style="yellow", justify="right", ratio=1, no_wrap=True)
-        table.add_column("Item", style="white", ratio=2, no_wrap=True)
+        table.add_column("Collector", style="white", ratio=2, no_wrap=True)
+        table.add_column("Value", style="yellow", justify="right", ratio=1, no_wrap=True)
+        table.add_column("System", style="white", ratio=2, no_wrap=True)
         table.add_column("Value", style="yellow", justify="right", ratio=1, no_wrap=True)
 
-        elapsed = time.time() - self._start_time if self._start_time else 0
-        table.add_row("Elapsed", _fmt_time(elapsed), "Buffer", f"{self._buffer_size:,}")
         wait_ms = self._wait_time * 1000
         wait_color = "red" if wait_ms > 1.0 else "yellow"
-        table.add_row(
-            "[dim]learner[/] Wait",
-            f"[{wait_color}]{wait_ms:.1f}ms[/]",
-            "[dim]learner[/] Train",
-            f"{self._train_time * 1000:.1f}ms",
-        )
-        table.add_row(
-            "[dim]learner[/] Collect",
-            f"{self._collect_time * 1000:.1f}ms",
-            "",
-            "",
-        )
-        if self._startup_wait_time > 0:
-            table.add_row(
-                "[dim]startup[/] Wait",
-                f"{self._startup_wait_time * 1000:.1f}ms",
-                "",
-                "",
+        learner_items = [
+            ("Wait", f"[{wait_color}]{wait_ms:.1f}ms[/]"),
+            ("H2D", f"{self._learner_incremental_h2d_time * 1000:.1f}ms"),
+            ("Train", f"{self._train_time * 1000:.1f}ms"),
+            ("Weight Sync", f"{self._weight_sync_time * 1000:.1f}ms"),
+        ]
+        collector_order = {
+            "env_step_total_ms": 0,
+            "step_core_ms": 1,
+            "update_state_ms": 2,
+            "reset_done_ms": 3,
+            "mlp_infer_ms": 4,
+        }
+        collector_items = [
+            (key, f"{value:.1f}ms")
+            for key, value in sorted(
+                self._collector_timing.items(),
+                key=lambda item: (collector_order.get(item[0], len(collector_order)), item[0]),
             )
-        timing_items = list(self._collector_timing.items())
-        for index in range(0, len(timing_items), 2):
-            left_key, left_value = timing_items[index]
-            if index + 1 < len(timing_items):
-                right_key, right_value = timing_items[index + 1]
-                table.add_row(
-                    f"[dim]collector[/] {left_key}",
-                    f"{left_value:.1f}ms",
-                    f"[dim]collector[/] {right_key}",
-                    f"{right_value:.1f}ms",
-                )
-            else:
-                table.add_row(f"[dim]collector[/] {left_key}", f"{left_value:.1f}ms", "", "")
-        table.add_row(
-            "Timeout Rate",
-            f"{self._timeout_rate * 100:.1f}%",
-            "Terminated Rate",
-            f"{self._terminated_rate * 100:.1f}%",
+        ]
+        system_items = [
+            ("Buffer", f"{self._buffer_size:,}"),
+        ]
+        if self._startup_wait_time > 0:
+            system_items.append(("Startup Wait", f"{self._startup_wait_time * 1000:.1f}ms"))
+        system_items.extend(
+            [
+                ("Timeout Rate", f"{self._timeout_rate * 100:.1f}%"),
+                ("Terminated Rate", f"{self._terminated_rate * 100:.1f}%"),
+            ]
         )
-        utilization = self._buffer_utilization
-        if utilization >= 1.5:
-            utilization_str = f"[bold red]{utilization:.2f}  (collector >> learner)[/]"
-        elif utilization >= 1.0:
-            utilization_str = f"[yellow]{utilization:.2f}[/]"
-        else:
-            utilization_str = f"[green]{utilization:.2f}[/]"
-        table.add_row("Write/Read", utilization_str, "", "")
-        table.add_row(
-            "Envs",
-            f"{self.num_envs:,}",
-            "Sync Collect",
+        system_items.append(("Envs", f"{self.num_envs:,}"))
+        sync_collect = (
             f"{'✓' if self._sync_collection else '✗'} ({self._env_steps_per_sync})"
             if self._sync_collection
-            else "✗",
+            else "✗"
         )
+        system_items.append(("Sync Collect", sync_collect))
         if self._replay_queue_max > 0:
             replay_color = "green" if self._replay_queue_len < self._replay_queue_max else "yellow"
-            table.add_row(
-                "Replay Queue",
-                f"[{replay_color}]{self._replay_queue_len}/{self._replay_queue_max}[/]",
-                "",
-                "",
+            system_items.append(
+                (
+                    "Replay Queue",
+                    f"[{replay_color}]{self._replay_queue_len}/{self._replay_queue_max}[/]",
+                )
             )
-        iter_steps_per_sec = self._get_iter_steps_per_sec()
-        if iter_steps_per_sec is not None:
-            table.add_row("Steps/s", f"{iter_steps_per_sec:,.0f}", "", "")
+        row_count = max(len(learner_items), len(collector_items), len(system_items))
+        for index in range(row_count):
+            row: list[str] = []
+            for items in (learner_items, collector_items, system_items):
+                if index < len(items):
+                    row.extend(items[index])
+                else:
+                    row.extend(["", ""])
+            table.add_row(*row)
         return table

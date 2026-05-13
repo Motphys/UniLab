@@ -4,7 +4,8 @@ Architecture:
   Main process   → creates ReplayBuffer (host-only), WeightSync, queues
                  → spawns Collector subprocess (CPU, env simulation)
                  → spawns N Learner workers via mp.spawn (one per GPU)
-  Learner rank i → creates its own GPU cache, communicates via NCCL all_reduce
+  Learner rank i → samples packed CPU replay rows to its rank device, then
+                   communicates via NCCL all_reduce
   Collector      → talks only to rank 0 via collection_ready_queue / trainer_done_queue
 """
 
@@ -125,8 +126,8 @@ def _learner_worker(
             torch_runtime=True,
             cuda=True,
         )
-        # 1. Initialise per-process GPU cache (host tensors already shared)
-        replay_buffer.init_local_gpu_cache(device)
+        # 1. Bind this worker's process-local replay samples to its rank device.
+        replay_buffer.device = device
 
         # 2. Create learner on this device
         learner = FastSACLearner(device=device, world_size=world_size, **learner_kwargs)
@@ -181,8 +182,6 @@ def _learner_worker(
 
         # 7. Training loop
         for it in range(1, max_iterations + 1):
-            iter_start = time.time()
-
             # --- Wait for data (rank 0 only, then barrier syncs everyone) ---
             wait_start = time.time()
             if rank == 0:
@@ -225,23 +224,21 @@ def _learner_worker(
 
             dist.barrier()
             wait_time = time.time() - wait_start if rank == 0 else 0.0
-            collect_time = (
-                float(getattr(replay_buffer, "collect_time_s", torch.zeros(1))[0])
-                if rank == 0
-                else 0.0
-            )
-            if rank == 0 and collect_time <= 0:
-                collect_time = time.time() - iter_start
-            if rank == 0 and not have_startup_wait_time and wait_time > collect_time:
-                startup_wait_time = max(wait_time - collect_time, 0.0)
+            if rank == 0 and not have_startup_wait_time:
+                startup_wait_time = wait_time
                 have_startup_wait_time = True
 
             # --- Training: each rank independently samples a different mini-batch ---
-            train_start = time.time()
             iter_metrics: dict = defaultdict(list)
             ptr_before = int(replay_buffer.ptr[0]) if rank == 0 else 0
 
             large_batch = replay_buffer.sample(batch_size * updates_per_step)
+            learner_incremental_h2d_time = (
+                float(getattr(replay_buffer, "last_incremental_h2d_time_s", 0.0))
+                if rank == 0
+                else 0.0
+            )
+            train_start = time.time()
 
             for update_idx in range(updates_per_step):
                 s = update_idx * batch_size
@@ -266,7 +263,9 @@ def _learner_worker(
             # --- Post-iteration work: rank 0 only ---
             if rank == 0:
                 learner.update_count += 1
+                weight_sync_start = time.perf_counter()
                 weight_sync.write_weights(learner.actor.state_dict())
+                weight_sync_time = time.perf_counter() - weight_sync_start
 
                 if sync_collection and trainer_done_queue is not None:
                     trainer_done_queue.put(1)
@@ -287,9 +286,10 @@ def _learner_worker(
                         metrics=avg_metrics,
                         reward=mean_reward,
                         reward_components=latest_reward_components,
-                        collect_time=collect_time,
                         train_time=train_time,
                         wait_time=wait_time,
+                        learner_incremental_h2d_time=learner_incremental_h2d_time,
+                        weight_sync_time=weight_sync_time,
                         extra_info={
                             "startup_wait_time": startup_wait_time if it == 1 else 0.0,
                             "throughput_steps": num_envs * env_steps_per_sync,
@@ -405,8 +405,9 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
             obs_dim=self.obs_dim,
             action_dim=self.action_dim,
             device=self.device,
-            defer_gpu=True,  # No GPU tensors in main process; workers call init_local_gpu_cache
+            defer_gpu=True,
             critic_dim=self.critic_obs_dim,
+            packed_cpu_storage=True,
         )
         self._shared_resources.append(replay_buffer)
 

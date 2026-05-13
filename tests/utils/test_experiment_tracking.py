@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+import unilab.logging.common as common_module
 import unilab.logging.offpolicy as offpolicy_module
 from unilab.logging import OffPolicyLogger, OnPolicyLogger
 from unilab.training.experiment import ExperimentTracker, build_wandb_settings
@@ -52,6 +53,75 @@ class _FakeWandb:
 
     def Video(self, path: str, format: str = "mp4"):  # noqa: N802
         return _FakeVideo(path, format=format)
+
+
+def test_training_logger_defers_initial_live_render(monkeypatch):
+    start_refresh_values: list[bool] = []
+
+    class _FakeLive:
+        def __init__(self, *args, **kwargs):
+            del args, kwargs
+
+        def start(self, *, refresh: bool = False) -> None:
+            start_refresh_values.append(refresh)
+
+        def update(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        def stop(self) -> None:
+            pass
+
+    monkeypatch.setattr(common_module, "Live", _FakeLive)
+
+    logger = OffPolicyLogger(log_backend="none")
+    logger.start()
+    logger.close()
+
+    assert start_refresh_values == [False]
+
+
+def test_offpolicy_training_terminal_refresh_uses_single_low_frequency_trigger(monkeypatch):
+    update_refresh_values: list[bool | None] = []
+    now = 100.0
+
+    class _FakeLive:
+        def __init__(self, *args, **kwargs):
+            del args, kwargs
+
+        def start(self, *, refresh: bool = False) -> None:
+            del refresh
+
+        def update(self, *args, **kwargs) -> None:
+            del args
+            update_refresh_values.append(kwargs.get("refresh"))
+
+        def stop(self) -> None:
+            pass
+
+    def _fake_time() -> float:
+        return now
+
+    monkeypatch.setattr(common_module, "Live", _FakeLive)
+    monkeypatch.setattr(common_module.time, "time", _fake_time)
+
+    logger = OffPolicyLogger(log_backend="none", refresh_per_second=4)
+    logger.start()
+    logger.log_step(iteration=1, train_time=0.01, wait_time=0.0)
+    assert update_refresh_values == [True]
+
+    logger.log_collector(total_steps=128, buffer_size=128, mean_reward=2.0)
+    logger.log_status("Collector metrics updated")
+    logger.log_save("/tmp/model_2.pt")
+    assert update_refresh_values == [True]
+
+    now += 0.3
+    logger.log_step(iteration=2, train_time=0.01, wait_time=0.0)
+    assert update_refresh_values == [True, True]
+
+    logger.log_status("[red]ERROR: Collector died[/]")
+    assert update_refresh_values == [True, True, True]
+
+    logger.close()
 
 
 def test_build_wandb_settings_defaults_for_shared_workspace():
@@ -252,9 +322,10 @@ def test_offpolicy_logger_logs_separate_startup_wait_and_iter_throughput(monkeyp
     logger.log_step(
         iteration=1,
         metrics={},
-        collect_time=0.25,
         train_time=0.75,
         wait_time=10.0,
+        learner_incremental_h2d_time=0.02,
+        weight_sync_time=0.05,
         extra_info={"startup_wait_time": 9.75, "throughput_steps": 8},
     )
 
@@ -262,10 +333,13 @@ def test_offpolicy_logger_logs_separate_startup_wait_and_iter_throughput(monkeyp
     assert step == 1
     assert payload["timing/learner_wait_ms"] == 10_000.0
     assert payload["timing/startup_wait_ms"] == 9_750.0
-    assert payload["timing/learner_collect_ms"] == 250.0
+    assert "timing/learner_collect_ms" not in payload
+    assert payload["timing/learner_incremental_h2d_ms"] == 20.0
     assert payload["timing/learner_train_ms"] == 750.0
-    assert payload["perf/iter_ms"] == 750.0
-    assert payload["perf/steps_per_sec"] == pytest.approx(8.0 / 0.75)
+    assert payload["timing/learner_weight_sync_ms"] == 50.0
+    assert payload["perf/iter_ms"] == pytest.approx(820.0)
+    assert payload["perf/steps_per_sec"] == pytest.approx(8.0 / 0.82)
+    assert "perf/collect_train_ratio" not in payload
 
     logger.finish()
 
@@ -285,13 +359,15 @@ def test_offpolicy_logger_omits_iteration_extra_fields_when_not_supplied(monkeyp
     logger.log_step(
         iteration=1,
         metrics={},
-        collect_time=0.25,
         train_time=0.75,
         wait_time=1.0,
+        learner_incremental_h2d_time=0.02,
+        weight_sync_time=0.05,
     )
 
     payload, _ = fake_wandb.log_calls[-1]
     assert "timing/startup_wait_ms" not in payload
+    assert "timing/learner_collect_ms" not in payload
     assert "perf/steps_per_sec" not in payload
 
     logger.finish()

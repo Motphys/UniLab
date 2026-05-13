@@ -265,7 +265,7 @@ def play_hora_distill(cfg: DictConfig, device: str) -> str | None:
     record_video = bool(getattr(cfg.training, "play_record_video", True))
     output_video = Path(load_path_dir) / "play_video_stage2.mp4" if record_video else None
     if record_video:
-        print(f"Rendering video to {output_video}...")
+        print("Rendering video ...")
     else:
         print("Running playback without video recording...")
     print("Rendering playback frames...")

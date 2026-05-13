@@ -9,6 +9,7 @@ Coverage targets:
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -57,6 +58,38 @@ def _load_script(name: str) -> Any:
     mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
     spec.loader.exec_module(mod)  # type: ignore[union-attr]
     return mod
+
+
+def test_analyze_offpolicy_trace_reports_training_e2e(tmp_path, capsys):
+    trace_path = tmp_path / "trace.json"
+    trace_path.write_text(
+        json.dumps(
+            {
+                "traceEvents": [
+                    {"name": "learner/wait_for_data", "ph": "X", "ts": 0.0, "dur": 10.0},
+                    {"name": "learner/wait_for_data", "ph": "X", "ts": 1000.0, "dur": 10.0},
+                    {"name": "learner/training_e2e", "ph": "X", "ts": 0.0, "dur": 2500.0},
+                    {"name": "learner/weight_sync_write", "ph": "X", "ts": 800.0, "dur": 100.0},
+                    {
+                        "name": "learner/update_critic",
+                        "ph": "X",
+                        "ts": 1200.0,
+                        "dur": 50.0,
+                        "args": {"update_idx": 0},
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    mod = _load_script("analyze_offpolicy_trace")
+
+    mod.analyze_training_e2e(trace_path)
+    mod.analyze_iteration_resume_gap(trace_path)
+
+    out = capsys.readouterr().out
+    assert "training_e2e: n=1 mean=2.500ms" in out
+    assert "weight_sync_end_to_next_update0_start_gap: n=1 mean=0.300ms" in out
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +256,16 @@ def test_offpolicy_hydra_default_play_flags():
     assert cfg.training.play_only is False
     assert cfg.training.no_play is False
     assert cfg.algo.load_run == "-1"
+
+
+def test_offpolicy_hydra_default_trace_flags():
+    cfg = _offpolicy_cfg()
+    assert cfg.training.trace_enabled is False
+    assert cfg.training.trace_output_dir is None
+    assert cfg.training.trace_thread_time is False
+    assert cfg.training.trace_cuda_events is True
+    assert cfg.training.verbose_metrics is False
+    assert "replay_h2d_submitter" not in cfg.training
 
 
 def test_offpolicy_hydra_algo_td3():
@@ -924,13 +967,23 @@ def test_offpolicy_default_device_cuda_available():
 def test_offpolicy_default_device_mps_fallback():
     mock_torch = MagicMock()
     mock_torch.cuda.is_available.return_value = False
+    mock_torch.xpu.is_available.return_value = False
     mock_torch.backends.mps.is_available.return_value = True
     assert _offpolicy().default_device(mock_torch) == "mps"
+
+
+def test_offpolicy_default_device_xpu_before_mps():
+    mock_torch = MagicMock()
+    mock_torch.cuda.is_available.return_value = False
+    mock_torch.xpu.is_available.return_value = True
+    mock_torch.backends.mps.is_available.return_value = True
+    assert _offpolicy().default_device(mock_torch) == "xpu"
 
 
 def test_offpolicy_default_device_cpu_fallback():
     mock_torch = MagicMock()
     mock_torch.cuda.is_available.return_value = False
+    mock_torch.xpu.is_available.return_value = False
     mock_torch.backends.mps.is_available.return_value = False
     assert _offpolicy().default_device(mock_torch) == "cpu"
 
@@ -1604,7 +1657,7 @@ def test_offpolicy_flashsac_rejects_multi_gpu():
         _offpolicy().build_runner("flashsac", cfg)
 
 
-def test_offpolicy_sac_multi_gpu_rejects_symmetry():
+def test_offpolicy_sac_multi_gpu_rejected_by_double_buffer():
     cfg = _offpolicy_cfg(
         [
             "algo=sac",
@@ -1614,19 +1667,11 @@ def test_offpolicy_sac_multi_gpu_rejects_symmetry():
         ]
     )
 
-    with pytest.raises(
-        ValueError,
-        match="Off-policy symmetry augmentation does not support training.num_gpus > 1",
-    ):
+    with pytest.raises(ValueError, match="currently single-GPU only"):
         _offpolicy().build_runner("sac", cfg)
 
 
-def test_offpolicy_sac_multi_gpu_allows_explicit_symmetry_disable(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    import gymnasium as gym
-
-    mod = _offpolicy()
+def test_offpolicy_sac_multi_gpu_rejects_even_with_explicit_symmetry_disable():
     cfg = _offpolicy_cfg(
         [
             "algo=sac",
@@ -1637,41 +1682,8 @@ def test_offpolicy_sac_multi_gpu_allows_explicit_symmetry_disable(
         ]
     )
 
-    class _FakeEnv:
-        obs_groups_spec = {"obs": 4, "critic": 6}
-        action_space = gym.spaces.Box(-1.0, 1.0, shape=(2,))
-
-        def close(self) -> None:
-            return None
-
-    class _FakeLearner:
-        def __init__(self, *args, **kwargs) -> None:
-            self.args = args
-            self.kwargs = kwargs
-
-    class _FakeRunner:
-        @staticmethod
-        def validate_capabilities(*args, **kwargs) -> None:
-            return None
-
-        def __init__(self, *args, **kwargs) -> None:
-            self.args = args
-            self.kwargs = kwargs
-
-    monkeypatch.setattr(mod, "ensure_registries", lambda: None)
-    monkeypatch.setattr(mod, "create_env", lambda *args, **kwargs: _FakeEnv())
-
-    import unilab.algos.torch.fast_sac.learner as learner_mod
-    import unilab.algos.torch.offpolicy.multi_gpu_runner as multi_gpu_runner_mod
-
-    monkeypatch.setattr(learner_mod, "FastSACLearner", _FakeLearner)
-    monkeypatch.setattr(multi_gpu_runner_mod, "MultiGPUOffPolicyRunner", _FakeRunner)
-
-    runner = mod.build_runner("sac", cfg)
-
-    assert isinstance(runner, _FakeRunner)
-    assert runner.kwargs["num_gpus"] == 2
-    assert runner.kwargs["learner_kwargs"]["use_symmetry"] is False
+    with pytest.raises(ValueError, match="currently single-GPU only"):
+        _offpolicy().build_runner("sac", cfg)
 
 
 @pytest.mark.parametrize(

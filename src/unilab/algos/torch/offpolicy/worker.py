@@ -6,6 +6,7 @@ actor policy. Runs in a subprocess; writes to ReplayBuffer.
 
 import queue
 import sys
+import time
 from typing import cast
 
 import numpy as np
@@ -55,6 +56,92 @@ def sample_offpolicy_actions(
     raise ValueError(f"Unsupported off-policy algo_type for collector action sampling: {algo_type}")
 
 
+def _collector_pack_shared_batch(replay_buffer, request: dict, shared_slots) -> dict:
+    tick_id = int(request["tick_id"])
+    snapshot_ptr = int(replay_buffer.ptr[0])
+    snapshot_size = int(replay_buffer.size[0])
+    sample_seed = int(request["sample_seed"])
+    sample_count = int(request["sample_count"])
+    shared_slot = int(request["shared_slot"])
+    target_gpu_slot = int(request["target_gpu_slot"])
+    learner_hot_gpu_slot = int(request["learner_hot_gpu_slot"])
+    if target_gpu_slot == learner_hot_gpu_slot:
+        raise RuntimeError(
+            "collector_thread pack target_gpu_slot must differ from learner_hot_gpu_slot"
+        )
+    gen = torch.Generator(device="cpu")
+    gen.manual_seed(sample_seed)
+    indices = torch.randint(0, snapshot_size, (sample_count,), generator=gen)
+    dst = shared_slots[shared_slot]
+    pack_begin_ns = time.perf_counter_ns()
+    torch.index_select(replay_buffer._storage, 0, indices, out=dst)
+    pack_end_ns = time.perf_counter_ns()
+    return {
+        "tick_id": tick_id,
+        "snapshot_ptr": snapshot_ptr,
+        "snapshot_size": snapshot_size,
+        "sample_seed": sample_seed,
+        "sample_count": sample_count,
+        "shared_slot": shared_slot,
+        "target_gpu_slot": target_gpu_slot,
+        "learner_hot_gpu_slot": learner_hot_gpu_slot,
+        "pack_layout": "packed",
+        "pack_executor": "collector_thread",
+        "pack_begin_ns": pack_begin_ns,
+        "pack_end_ns": pack_end_ns,
+    }
+
+
+def _service_collector_pack_requests(
+    replay_buffer,
+    request_queue,
+    ready_queue,
+    shared_slots,
+    trace_recorder=None,
+    *,
+    block_timeout: float = 0.0,
+    pending_request: dict | None = None,
+) -> tuple[bool, dict | None]:
+    if request_queue is None or ready_queue is None or shared_slots is None:
+        return False, pending_request
+    request = pending_request
+    if request is None:
+        try:
+            request = (
+                request_queue.get(timeout=block_timeout)
+                if block_timeout > 0
+                else request_queue.get_nowait()
+            )
+        except queue.Empty:
+            return False, None
+    if request is None:
+        return False, None
+    min_snapshot_ptr = int(request.get("min_snapshot_ptr", 0))
+    if int(replay_buffer.ptr[0]) < min_snapshot_ptr:
+        return False, request
+    ready = _collector_pack_shared_batch(replay_buffer, request, shared_slots)
+    if trace_recorder:
+        trace_recorder.add_slice(
+            "collector/cpu_pack_sample_batch",
+            category="collector",
+            start_ns=int(ready["pack_begin_ns"]),
+            end_ns=int(ready["pack_end_ns"]),
+            args={
+                "tick_id": int(ready["tick_id"]),
+                "sample_count": int(ready["sample_count"]),
+                "shared_slot": int(ready["shared_slot"]),
+                "target_gpu_slot": int(ready["target_gpu_slot"]),
+                "learner_hot_gpu_slot": int(ready["learner_hot_gpu_slot"]),
+                "pack_layout": "packed",
+                "pack_executor": "collector_thread",
+                "shared_memory": True,
+                "pinned_memory": False,
+            },
+        )
+    ready_queue.put(ready)
+    return True, None
+
+
 def off_policy_collector_fn(
     stop_event,
     env_name: str,
@@ -80,6 +167,11 @@ def off_policy_collector_fn(
     action_dim: int | None = None,
     actor_kwargs: dict | None = None,
     seed: int | None = None,
+    trace_enabled: bool = False,
+    trace_thread_time: bool = False,
+    collector_pack_request_queue=None,
+    collector_pack_ready_queue=None,
+    collector_pack_shared_slots=None,
     **kwargs,
 ):
     """Entry point for the off-policy collector subprocess."""
@@ -113,6 +205,11 @@ def off_policy_collector_fn(
             action_dim=action_dim,
             actor_kwargs=actor_kwargs,
             seed=seed,
+            trace_enabled=trace_enabled,
+            trace_thread_time=trace_thread_time,
+            collector_pack_request_queue=collector_pack_request_queue,
+            collector_pack_ready_queue=collector_pack_ready_queue,
+            collector_pack_shared_slots=collector_pack_shared_slots,
         )
     except Exception as e:
         print(f"[Collector] Exception: {e}", file=sys.stderr, flush=True)
@@ -149,6 +246,11 @@ def _run_collector(
     action_dim,
     actor_kwargs,
     seed,
+    trace_enabled,
+    trace_thread_time,
+    collector_pack_request_queue,
+    collector_pack_ready_queue,
+    collector_pack_shared_slots,
 ):
     del learning_starts
     from unilab.base import registry
@@ -156,6 +258,12 @@ def _run_collector(
 
     ensure_registries()
     apply_training_seed(seed, torch_runtime=True, cuda=True)
+
+    trace_recorder = None
+    if trace_enabled:
+        from unilab.logging.trace_event import TraceRecorder
+
+        trace_recorder = TraceRecorder("offpolicy_collector")
 
     # Initialize environment
     env = registry.make(
@@ -168,6 +276,8 @@ def _run_collector(
     weight_sync = SharedWeightSync(
         weight_param_shapes, create=False, shm_name=weight_sync_name, lock=weight_sync_lock
     )
+    weight_sync.trace_recorder = trace_recorder
+    weight_sync.trace_thread_time = trace_thread_time
 
     # Build actor (always on CPU for env interaction)
     obs_dim, action_dim = resolve_collector_actor_dims(
@@ -186,6 +296,8 @@ def _run_collector(
         **(actor_kwargs or {}),
     )
     actor.eval()
+    replay_buffer.trace_recorder = trace_recorder
+    replay_buffer.trace_thread_time = trace_thread_time
 
     # Load initial weights
     sd = dict(actor.state_dict())
@@ -217,18 +329,26 @@ def _run_collector(
     import time as _time
 
     _last_log_time = _time.time()
-    chunk_start = _time.perf_counter()
 
     # Track env.step calls collected since the last learner phase.
     env_steps_since_sync = 0
+    pending_collector_pack_request = None
 
     # Collection loop
     while not stop_event.is_set():
         # Check for weight updates
         if weight_sync.version > local_weight_version:
+            _wt_ns = _time.perf_counter_ns()
             sd = dict(actor.state_dict())
             local_weight_version = weight_sync.read_weights_into(sd)
             actor.load_state_dict(sd)
+            if trace_recorder:
+                trace_recorder.add_slice(
+                    "collector/check_weight_update",
+                    category="collector",
+                    start_ns=_wt_ns,
+                    end_ns=_time.perf_counter_ns(),
+                )
 
             # Update normalizer stats
             if obs_normalization and shared_obs_normalizer_stats is not None:
@@ -248,6 +368,7 @@ def _run_collector(
         # Select action
         with torch.no_grad():
             _t_infer = _time.perf_counter()
+            _t_infer_ns = _time.perf_counter_ns()
             obs_torch = torch.from_numpy(obs_np_input)
             dones_torch = torch.from_numpy(prev_dones_np)
             actions_torch = sample_offpolicy_actions(
@@ -258,9 +379,25 @@ def _run_collector(
             )
             actions_np = actions_torch.numpy()
             timing_accum_ms["mlp_infer_ms"] += (_time.perf_counter() - _t_infer) * 1000
+            if trace_recorder:
+                trace_recorder.add_slice(
+                    "collector/actor_infer_cpu",
+                    category="collector",
+                    start_ns=_t_infer_ns,
+                    end_ns=_time.perf_counter_ns(),
+                )
 
         # Step environment
+        _env_ns = _time.perf_counter_ns()
         state = env.step(actions_np)
+        if trace_recorder:
+            trace_recorder.add_slice(
+                "collector/env_step",
+                category="collector",
+                start_ns=_env_ns,
+                end_ns=_time.perf_counter_ns(),
+                args={"num_envs": num_envs},
+            )
 
         timing_info = state.info.get("timing", {})
         if timing_info:
@@ -298,6 +435,7 @@ def _run_collector(
         # ReplayBuffer `dones` follows the UniLab env lifecycle contract:
         # done = terminated | truncated. Learners use `truncated` to keep
         # bootstrap enabled for timeout/truncation rows.
+        _rb_ns = _time.perf_counter_ns()
         replay_buffer.add(
             torch.from_numpy(obs_np),
             torch.from_numpy(actions_np),
@@ -318,6 +456,22 @@ def _run_collector(
                 if terminal_contract.terminal_critic is not None
                 else None
             ),
+        )
+        if trace_recorder:
+            trace_recorder.add_slice(
+                "collector/replay_add",
+                category="collector",
+                start_ns=_rb_ns,
+                end_ns=_time.perf_counter_ns(),
+            )
+        _, pending_collector_pack_request = _service_collector_pack_requests(
+            replay_buffer,
+            collector_pack_request_queue,
+            collector_pack_ready_queue,
+            collector_pack_shared_slots,
+            trace_recorder,
+            block_timeout=0.0,
+            pending_request=pending_collector_pack_request,
         )
 
         # Track episode rewards - vectorized
@@ -343,22 +497,57 @@ def _run_collector(
             and trainer_done_queue is not None
         ):
             if env_steps_since_sync >= env_steps_per_sync:
-                collect_time_s = _time.perf_counter() - chunk_start
-                replay_buffer.collect_time_s[0] = float(collect_time_s)
+                _sig_ns = _time.perf_counter_ns()
                 collection_ready_queue.put(1)
+                if trace_recorder:
+                    trace_recorder.add_slice(
+                        "collector/signal_ready",
+                        category="collector",
+                        start_ns=_sig_ns,
+                        end_ns=_time.perf_counter_ns(),
+                    )
+                _wait_ns = _time.perf_counter_ns()
                 while not stop_event.is_set():
+                    _, pending_collector_pack_request = _service_collector_pack_requests(
+                        replay_buffer,
+                        collector_pack_request_queue,
+                        collector_pack_ready_queue,
+                        collector_pack_shared_slots,
+                        trace_recorder,
+                        block_timeout=0.0,
+                        pending_request=pending_collector_pack_request,
+                    )
                     try:
-                        trainer_done_queue.get(timeout=1.0)
+                        trainer_done_queue.get(timeout=0.001)
+                        _, pending_collector_pack_request = _service_collector_pack_requests(
+                            replay_buffer,
+                            collector_pack_request_queue,
+                            collector_pack_ready_queue,
+                            collector_pack_shared_slots,
+                            trace_recorder,
+                            block_timeout=0.0,
+                            pending_request=pending_collector_pack_request,
+                        )
                         break
                     except queue.Empty:
                         continue
+                if trace_recorder:
+                    trace_recorder.add_slice(
+                        "collector/wait_trainer_done",
+                        category="collector",
+                        start_ns=_wait_ns,
+                        end_ns=_time.perf_counter_ns(),
+                    )
+                    if metrics_queue is not None:
+                        try:
+                            metrics_queue.put_nowait(
+                                {"trace_events": trace_recorder.drain_events()}
+                            )
+                        except Exception:
+                            pass
                 env_steps_since_sync = 0
-                chunk_start = _time.perf_counter()
         elif env_steps_since_sync >= env_steps_per_sync:
-            collect_time_s = _time.perf_counter() - chunk_start
-            replay_buffer.collect_time_s[0] = float(collect_time_s)
             env_steps_since_sync = 0
-            chunk_start = _time.perf_counter()
 
         # Progress log every 2 seconds
         now = _time.time()
@@ -406,8 +595,16 @@ def _run_collector(
                     timeout_count_window = 0
                     terminated_count_window = 0
 
+                if trace_recorder:
+                    msg["trace_events"] = trace_recorder.drain_events()
+
                 metrics_queue.put_nowait(msg)
             except Exception as e:
                 print(f"[OffPolicyWorker] metrics enqueue error: {e}", file=sys.stderr)
 
+    if metrics_queue is not None and trace_recorder:
+        try:
+            metrics_queue.put_nowait({"trace_events": trace_recorder.drain_events()})
+        except Exception:
+            pass
     weight_sync.close()
