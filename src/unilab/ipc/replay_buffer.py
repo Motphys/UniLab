@@ -1,7 +1,7 @@
-"""Minimal zero-copy replay buffer for off-policy RL."""
+"""Packed shared-memory replay buffer for off-policy RL."""
 
 import time
-from typing import Any, Dict, cast
+from typing import Any, Dict
 
 import torch
 
@@ -9,12 +9,11 @@ from unilab.ipc.shared_buffer import SharedBufferBase
 
 
 class ReplayBuffer(SharedBufferBase):
-    """Shared tensor replay buffer with device-adaptive sampling.
+    """Shared replay buffer backed by authoritative packed CPU storage.
 
-    Design:
-    - CUDA: 6 separate contiguous host tensors for efficient strided H2D sync;
-            lazy sync to GPU cache on sample() call
-    - MPS/CPU: single packed host tensor; 1 H2D Metal command per sample()
+    Device transfer is owned by replay pipeline transfer backends.  The
+    fallback sample() path copies a sampled packed batch to ``self.device`` and
+    keeps no per-device replay cache.
     """
 
     def __init__(
@@ -28,48 +27,18 @@ class ReplayBuffer(SharedBufferBase):
         packed_cpu_storage: bool = False,
     ):
         super().__init__(capacity, device, defer_gpu=defer_gpu)
+        del packed_cpu_storage
         self._obs_dim = obs_dim
         self._action_dim = action_dim
         self._critic_dim = critic_dim
         self.last_incremental_h2d_time_s = 0.0
-        self._packed_cpu_storage = bool(packed_cpu_storage)
+        self._packed_cpu_storage = True
         self.trace_recorder: Any | None = None
         self.trace_thread_time = False
         self.trace_cuda_events = True
 
         self.size = torch.zeros(1, dtype=torch.int64).share_memory_()
-
-        if device == "cuda":
-            if self._packed_cpu_storage:
-                self._init_packed_storage(capacity, obs_dim, action_dim, critic_dim)
-                return
-            # 6 separate contiguous shared tensors — keeps H2D copy_ on contiguous memory
-            self.obs = torch.zeros(capacity, obs_dim).share_memory_()
-            self.next_obs = torch.zeros(capacity, obs_dim).share_memory_()
-            self.actions = torch.zeros(capacity, action_dim).share_memory_()
-            self.rewards = torch.zeros(capacity).share_memory_()
-            self.dones = torch.zeros(capacity).share_memory_()
-            self.truncated = torch.zeros(capacity).share_memory_()
-
-            if critic_dim > 0:
-                self.critic_obs = torch.zeros(capacity, critic_dim).share_memory_()
-                self.next_critic_obs = torch.zeros(capacity, critic_dim).share_memory_()
-
-            if not defer_gpu:
-                # GPU cache for zero-copy sampling
-                self.obs_gpu = torch.empty(capacity, obs_dim, device="cuda")
-                self.next_obs_gpu = torch.empty(capacity, obs_dim, device="cuda")
-                self.actions_gpu = torch.empty(capacity, action_dim, device="cuda")
-                self.rewards_gpu = torch.empty(capacity, device="cuda")
-                self.dones_gpu = torch.empty(capacity, device="cuda")
-                self.truncated_gpu = torch.empty(capacity, device="cuda")
-
-                if critic_dim > 0:
-                    self.critic_obs_gpu = torch.empty(capacity, critic_dim, device="cuda")
-                    self.next_critic_obs_gpu = torch.empty(capacity, critic_dim, device="cuda")
-        else:
-            self._packed_cpu_storage = True
-            self._init_packed_storage(capacity, obs_dim, action_dim, critic_dim)
+        self._init_packed_storage(capacity, obs_dim, action_dim, critic_dim)
 
     def _init_packed_storage(
         self, capacity: int, obs_dim: int, action_dim: int, critic_dim: int
@@ -101,48 +70,12 @@ class ReplayBuffer(SharedBufferBase):
         """Custom pickle support.
 
         The collector subprocess only calls add(), which writes to the CPU
-        shared-memory tensors (self.obs, self.actions, …).  It never calls
-        sample(), so it doesn't need the GPU cache or the CUDA stream.
-        Neither torch.cuda.Stream nor CUDA tensors are picklable, so we strip
-        them here.  The original object in the learner process is unaffected.
+        shared-memory tensor.  The original object in the learner process is
+        unaffected.
         """
         state = self.__dict__.copy()
-        state["_cuda_stream"] = None
         state["trace_recorder"] = None
-        for key in (
-            "obs_gpu",
-            "next_obs_gpu",
-            "actions_gpu",
-            "rewards_gpu",
-            "dones_gpu",
-            "truncated_gpu",
-            "critic_obs_gpu",
-            "next_critic_obs_gpu",
-        ):
-            state.pop(key, None)
         return state
-
-    def init_local_gpu_cache(self, device: str) -> None:
-        """Per-process GPU cache initialisation for multi-GPU training.
-
-        Each Learner process calls this once after being spawned, binding
-        its own GPU cache to ``device``.  The shared host tensors (obs,
-        actions, …) already exist; only the GPU-side copies are created here.
-        """
-        assert self.device == "cuda", "init_local_gpu_cache is only for CUDA buffers"
-        obs_dim = self.obs.shape[1]
-        act_dim = self.actions.shape[1]
-        self.obs_gpu = torch.zeros(self.capacity, obs_dim, device=device)
-        self.next_obs_gpu = torch.zeros(self.capacity, obs_dim, device=device)
-        self.actions_gpu = torch.zeros(self.capacity, act_dim, device=device)
-        self.rewards_gpu = torch.zeros(self.capacity, device=device)
-        self.dones_gpu = torch.zeros(self.capacity, device=device)
-        self.truncated_gpu = torch.zeros(self.capacity, device=device)
-        if self._critic_dim > 0:
-            self.critic_obs_gpu = torch.zeros(self.capacity, self._critic_dim, device=device)
-            self.next_critic_obs_gpu = torch.zeros(self.capacity, self._critic_dim, device=device)
-        self._gpu_synced_ptr = 0
-        self._cuda_stream = torch.cuda.Stream(device=device)
 
     def add(
         self,
@@ -168,101 +101,49 @@ class ReplayBuffer(SharedBufferBase):
         n = obs.shape[0]
         idx = int(self.ptr[0]) % self.capacity
         has_critic = self._critic_dim > 0 and critic is not None
+        if self._critic_dim > 0 and (critic is None or next_critic is None):
+            raise ValueError("ReplayBuffer with critic_dim > 0 requires critic and next_critic")
 
-        if self.device == "cuda" and not self._packed_cpu_storage:
-            if idx + n <= self.capacity:
-                self.obs[idx : idx + n] = obs
-                self.next_obs[idx : idx + n] = next_obs
-                self.actions[idx : idx + n] = actions
-                self.rewards[idx : idx + n] = rewards
-                self.dones[idx : idx + n] = dones
-                self.truncated[idx : idx + n] = truncated
-                if has_critic:
-                    assert critic is not None and next_critic is not None
-                    self.critic_obs[idx : idx + n] = critic
-                    self.next_critic_obs[idx : idx + n] = next_critic
-                self._patch_terminal_next_observations(
-                    self.next_obs[idx : idx + n],
-                    terminal_mask,
-                    terminal_next_obs,
-                    self.next_critic_obs[idx : idx + n] if has_critic else None,
-                    terminal_next_critic,
-                )
-            else:
-                split = self.capacity - idx
-                self.obs[idx:] = obs[:split]
-                self.obs[: n - split] = obs[split:]
-                self.next_obs[idx:] = next_obs[:split]
-                self.next_obs[: n - split] = next_obs[split:]
-                self.actions[idx:] = actions[:split]
-                self.actions[: n - split] = actions[split:]
-                self.rewards[idx:] = rewards[:split]
-                self.rewards[: n - split] = rewards[split:]
-                self.dones[idx:] = dones[:split]
-                self.dones[: n - split] = dones[split:]
-                self.truncated[idx:] = truncated[:split]
-                self.truncated[: n - split] = truncated[split:]
-                if has_critic:
-                    assert critic is not None and next_critic is not None
-                    self.critic_obs[idx:] = critic[:split]
-                    self.critic_obs[: n - split] = critic[split:]
-                    self.next_critic_obs[idx:] = next_critic[:split]
-                    self.next_critic_obs[: n - split] = next_critic[split:]
-                self._patch_terminal_next_observations(
-                    self.next_obs[idx:],
-                    terminal_mask[:split] if terminal_mask is not None else None,
-                    terminal_next_obs[:split] if terminal_next_obs is not None else None,
-                    self.next_critic_obs[idx:] if has_critic else None,
-                    terminal_next_critic[:split] if terminal_next_critic is not None else None,
-                )
-                self._patch_terminal_next_observations(
-                    self.next_obs[: n - split],
-                    terminal_mask[split:] if terminal_mask is not None else None,
-                    terminal_next_obs[split:] if terminal_next_obs is not None else None,
-                    self.next_critic_obs[: n - split] if has_critic else None,
-                    terminal_next_critic[split:] if terminal_next_critic is not None else None,
-                )
+        parts = [
+            obs,
+            next_obs,
+            actions,
+            rewards.unsqueeze(1),
+            dones.unsqueeze(1),
+            truncated.unsqueeze(1),
+        ]
+        if has_critic:
+            assert next_critic is not None
+            parts.extend([critic, next_critic])
+        row = torch.cat(parts, dim=1)
+
+        if idx + n <= self.capacity:
+            self._storage[idx : idx + n] = row
+            self._patch_terminal_next_observations(
+                self._storage[idx : idx + n, self._nobs_sl],
+                terminal_mask,
+                terminal_next_obs,
+                self._storage[idx : idx + n, self._ncritic_sl] if has_critic else None,
+                terminal_next_critic,
+            )
         else:
-            parts = [
-                obs,
-                next_obs,
-                actions,
-                rewards.unsqueeze(1),
-                dones.unsqueeze(1),
-                truncated.unsqueeze(1),
-            ]
-            if has_critic:
-                assert next_critic is not None
-                parts.extend([critic, next_critic])
-            row = torch.cat(parts, dim=1)
-
-            if idx + n <= self.capacity:
-                self._storage[idx : idx + n] = row
-                self._patch_terminal_next_observations(
-                    self._storage[idx : idx + n, self._nobs_sl],
-                    terminal_mask,
-                    terminal_next_obs,
-                    self._storage[idx : idx + n, self._ncritic_sl] if has_critic else None,
-                    terminal_next_critic,
-                )
-            else:
-                split = self.capacity - idx
-                self._storage[idx:] = row[:split]
-                self._storage[: n - split] = row[split:]
-                self._patch_terminal_next_observations(
-                    self._storage[idx:, self._nobs_sl],
-                    terminal_mask[:split] if terminal_mask is not None else None,
-                    terminal_next_obs[:split] if terminal_next_obs is not None else None,
-                    self._storage[idx:, self._ncritic_sl] if has_critic else None,
-                    terminal_next_critic[:split] if terminal_next_critic is not None else None,
-                )
-                self._patch_terminal_next_observations(
-                    self._storage[: n - split, self._nobs_sl],
-                    terminal_mask[split:] if terminal_mask is not None else None,
-                    terminal_next_obs[split:] if terminal_next_obs is not None else None,
-                    self._storage[: n - split, self._ncritic_sl] if has_critic else None,
-                    terminal_next_critic[split:] if terminal_next_critic is not None else None,
-                )
+            split = self.capacity - idx
+            self._storage[idx:] = row[:split]
+            self._storage[: n - split] = row[split:]
+            self._patch_terminal_next_observations(
+                self._storage[idx:, self._nobs_sl],
+                terminal_mask[:split] if terminal_mask is not None else None,
+                terminal_next_obs[:split] if terminal_next_obs is not None else None,
+                self._storage[idx:, self._ncritic_sl] if has_critic else None,
+                terminal_next_critic[:split] if terminal_next_critic is not None else None,
+            )
+            self._patch_terminal_next_observations(
+                self._storage[: n - split, self._nobs_sl],
+                terminal_mask[split:] if terminal_mask is not None else None,
+                terminal_next_obs[split:] if terminal_next_obs is not None else None,
+                self._storage[: n - split, self._ncritic_sl] if has_critic else None,
+                terminal_next_critic[split:] if terminal_next_critic is not None else None,
+            )
 
         self.ptr[0] += n
         self.size[0] = min(int(self.size[0]) + n, self.capacity)
@@ -311,127 +192,6 @@ class ReplayBuffer(SharedBufferBase):
                 args={"batch_size": int(batch_size), "size": int(size)},
             )
 
-        if self.device == "cuda" and not self._packed_cpu_storage:
-            # Lazy sync: only sync new data since last sample
-            ptr = int(self.ptr[0])
-            if ptr > self._gpu_synced_ptr:
-                _h2d_ns = time.perf_counter_ns()
-                start_event = None
-                end_event = None
-                if self.trace_recorder is not None and self.trace_cuda_events:
-                    start_event = torch.cuda.Event(enable_timing=True)
-                    end_event = torch.cuda.Event(enable_timing=True)
-                    cast(Any, start_event).record()
-                delta = ptr - self._gpu_synced_ptr
-                idx = self._gpu_synced_ptr % self.capacity
-
-                if idx + delta <= self.capacity:
-                    self.obs_gpu[idx : idx + delta].copy_(
-                        self.obs[idx : idx + delta], non_blocking=True
-                    )
-                    self.next_obs_gpu[idx : idx + delta].copy_(
-                        self.next_obs[idx : idx + delta], non_blocking=True
-                    )
-                    self.actions_gpu[idx : idx + delta].copy_(
-                        self.actions[idx : idx + delta], non_blocking=True
-                    )
-                    self.rewards_gpu[idx : idx + delta].copy_(
-                        self.rewards[idx : idx + delta], non_blocking=True
-                    )
-                    self.dones_gpu[idx : idx + delta].copy_(
-                        self.dones[idx : idx + delta], non_blocking=True
-                    )
-                    self.truncated_gpu[idx : idx + delta].copy_(
-                        self.truncated[idx : idx + delta], non_blocking=True
-                    )
-                    if self._critic_dim > 0:
-                        self.critic_obs_gpu[idx : idx + delta].copy_(
-                            self.critic_obs[idx : idx + delta], non_blocking=True
-                        )
-                        self.next_critic_obs_gpu[idx : idx + delta].copy_(
-                            self.next_critic_obs[idx : idx + delta], non_blocking=True
-                        )
-                else:
-                    split = self.capacity - idx
-                    self.obs_gpu[idx:].copy_(self.obs[idx:], non_blocking=True)
-                    self.obs_gpu[: delta - split].copy_(
-                        self.obs[: delta - split], non_blocking=True
-                    )
-                    self.next_obs_gpu[idx:].copy_(self.next_obs[idx:], non_blocking=True)
-                    self.next_obs_gpu[: delta - split].copy_(
-                        self.next_obs[: delta - split], non_blocking=True
-                    )
-                    self.actions_gpu[idx:].copy_(self.actions[idx:], non_blocking=True)
-                    self.actions_gpu[: delta - split].copy_(
-                        self.actions[: delta - split], non_blocking=True
-                    )
-                    self.rewards_gpu[idx:].copy_(self.rewards[idx:], non_blocking=True)
-                    self.rewards_gpu[: delta - split].copy_(
-                        self.rewards[: delta - split], non_blocking=True
-                    )
-                    self.dones_gpu[idx:].copy_(self.dones[idx:], non_blocking=True)
-                    self.dones_gpu[: delta - split].copy_(
-                        self.dones[: delta - split], non_blocking=True
-                    )
-                    self.truncated_gpu[idx:].copy_(self.truncated[idx:], non_blocking=True)
-                    self.truncated_gpu[: delta - split].copy_(
-                        self.truncated[: delta - split], non_blocking=True
-                    )
-                    if self._critic_dim > 0:
-                        self.critic_obs_gpu[idx:].copy_(self.critic_obs[idx:], non_blocking=True)
-                        self.critic_obs_gpu[: delta - split].copy_(
-                            self.critic_obs[: delta - split], non_blocking=True
-                        )
-                        self.next_critic_obs_gpu[idx:].copy_(
-                            self.next_critic_obs[idx:], non_blocking=True
-                        )
-                        self.next_critic_obs_gpu[: delta - split].copy_(
-                            self.next_critic_obs[: delta - split], non_blocking=True
-                        )
-
-                h2d_end_ns = time.perf_counter_ns()
-                self._gpu_synced_ptr = ptr
-                self.last_incremental_h2d_time_s = (h2d_end_ns - _h2d_ns) / 1e9
-                if self.trace_recorder is not None:
-                    self.trace_recorder.add_slice(
-                        "replay/h2d_lazy_sync",
-                        category="replay",
-                        start_ns=_h2d_ns,
-                        end_ns=h2d_end_ns,
-                        args={"delta": int(delta)},
-                    )
-                    if start_event is not None and end_event is not None:
-                        cast(Any, end_event).record()
-                        self.trace_recorder.add_cuda_pending_span(
-                            "gpu/replay_h2d_lazy_sync",
-                            category="gpu",
-                            cpu_begin_ns=_h2d_ns,
-                            start_event=cast(Any, start_event),
-                            end_event=cast(Any, end_event),
-                            args={"delta": int(delta)},
-                        )
-
-            indices = indices.to(self.obs_gpu.device)
-            batch = {
-                "obs": self.obs_gpu[indices],
-                "actions": self.actions_gpu[indices],
-                "rewards": self.rewards_gpu[indices],
-                "next_obs": self.next_obs_gpu[indices],
-                "dones": self.dones_gpu[indices],
-                "truncated": self.truncated_gpu[indices],
-            }
-            if self._critic_dim > 0:
-                batch["critic"] = self.critic_obs_gpu[indices]
-                batch["next_critic"] = self.next_critic_obs_gpu[indices]
-            if self.trace_recorder is not None:
-                self.trace_recorder.add_slice(
-                    "replay/sample",
-                    category="replay",
-                    start_ns=_trace_ns,
-                    end_ns=time.perf_counter_ns(),
-                    args={"batch_size": int(batch_size), "device": self.device},
-                )
-            return batch
         chunk = self._storage[indices].to(self.device)
         batch = {
             "obs": chunk[:, self._obs_sl],

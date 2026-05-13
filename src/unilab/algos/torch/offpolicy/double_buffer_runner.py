@@ -32,7 +32,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
     """OffPolicyRunner variant that uses CPUPinnedDoubleBufferReplayPipeline.
 
     The only behavioural difference from the parent class is in learn():
-    - ReplayBuffer is created with defer_gpu=True (no GPU cache allocation).
+    - ReplayBuffer is created as packed CPU shared storage.
     - Sampling goes through CPUPinnedDoubleBufferReplayPipeline instead of
       ReplayBuffer.sample().
     """
@@ -56,6 +56,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         self.replay_pack_layout = "packed"
         self.replay_pack_executor = "collector_thread"
         self.replay_h2d_submitter = "auto"
+        self.replay_transfer_backend: dict[str, object] = {}
 
     def learn(
         self,
@@ -77,7 +78,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         ckpt_path: str | None = None
         iteration = 0
 
-        # --- replay buffer (no GPU cache) ---
+        # --- replay buffer (packed CPU shared storage) ---
         buffer_capacity = self.replay_buffer_n * self.num_envs
         replay_buffer = ReplayBuffer(
             capacity=buffer_capacity,
@@ -123,6 +124,11 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             replay_pipeline,
             "h2d_submitter",
             self.replay_h2d_submitter,
+        )
+        self.replay_transfer_backend = getattr(
+            replay_pipeline,
+            "transfer_manifest",
+            {},
         )
 
         # --- weight sync ---
@@ -213,6 +219,12 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         logger.log_status(f"Replay pack layout: {self.replay_pack_layout}")
         logger.log_status(f"Replay pack executor: {self.replay_pack_executor}")
         logger.log_status(f"Replay H2D submitter: {self.replay_h2d_submitter}")
+        if self.replay_transfer_backend:
+            logger.log_status(
+                "Replay transfer backend: "
+                f"{self.replay_transfer_backend.get('backend')} "
+                f"({self.replay_transfer_backend.get('device_family')})"
+            )
         logger.log_status(
             f"Replay learner lightweight: fixed (log_interval={self.LEARNER_LOG_INTERVAL})"
         )
@@ -414,6 +426,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                             "replay_pack_layout": self.replay_pack_layout,
                             "replay_pack_executor": self.replay_pack_executor,
                             "replay_h2d_submitter": self.replay_h2d_submitter,
+                            "replay_transfer_backend": self.replay_transfer_backend,
                             "prepared_tick": prepared_tick,
                             "explicit_compute_stream": False,
                         },
@@ -548,6 +561,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                     "iterations": iteration,
                     "pipeline": "cpu_pinned_double_buffer",
                     "replay_h2d_submitter": self.replay_h2d_submitter,
+                    "replay_transfer_backend": self.replay_transfer_backend,
                     "learner_log_interval": self.LEARNER_LOG_INTERVAL,
                 },
             )

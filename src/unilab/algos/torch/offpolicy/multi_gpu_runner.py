@@ -4,7 +4,8 @@ Architecture:
   Main process   → creates ReplayBuffer (host-only), WeightSync, queues
                  → spawns Collector subprocess (CPU, env simulation)
                  → spawns N Learner workers via mp.spawn (one per GPU)
-  Learner rank i → creates its own GPU cache, communicates via NCCL all_reduce
+  Learner rank i → samples packed CPU replay rows to its rank device, then
+                   communicates via NCCL all_reduce
   Collector      → talks only to rank 0 via collection_ready_queue / trainer_done_queue
 """
 
@@ -125,8 +126,8 @@ def _learner_worker(
             torch_runtime=True,
             cuda=True,
         )
-        # 1. Initialise per-process GPU cache (host tensors already shared)
-        replay_buffer.init_local_gpu_cache(device)
+        # 1. Bind this worker's process-local replay samples to its rank device.
+        replay_buffer.device = device
 
         # 2. Create learner on this device
         learner = FastSACLearner(device=device, world_size=world_size, **learner_kwargs)
@@ -404,8 +405,9 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
             obs_dim=self.obs_dim,
             action_dim=self.action_dim,
             device=self.device,
-            defer_gpu=True,  # No GPU tensors in main process; workers call init_local_gpu_cache
+            defer_gpu=True,
             critic_dim=self.critic_obs_dim,
+            packed_cpu_storage=True,
         )
         self._shared_resources.append(replay_buffer)
 

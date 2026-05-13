@@ -35,6 +35,10 @@ def default_device(torch_module, preferred: str | None = None) -> str:
         return preferred
     if torch_module.cuda.is_available():
         return "cuda"
+    xpu = getattr(torch_module, "xpu", None)
+    xpu_is_available = getattr(xpu, "is_available", None)
+    if callable(xpu_is_available) and xpu_is_available():
+        return "xpu"
     if torch_module.backends.mps.is_available():
         return "mps"
     return "cpu"
@@ -89,14 +93,6 @@ def build_runner(algo_name: str, cfg: DictConfig):
     """Build algorithm runner from unified Hydra config."""
     env_cfg_override = build_offpolicy_env_cfg_override(algo_name, cfg)
 
-    replay_pipeline = getattr(cfg.training, "replay_pipeline", "auto")
-    if replay_pipeline == "auto":
-        replay_pipeline = "cpu_pinned_double_buffer" if algo_name == "sac" else "gpu_cache"
-    if replay_pipeline not in {"auto", "gpu_cache", "cpu_pinned_double_buffer"}:
-        raise ValueError(
-            f"Unsupported training.replay_pipeline={replay_pipeline!r}; "
-            "expected 'auto', 'gpu_cache' or 'cpu_pinned_double_buffer'"
-        )
     replay_prefetch_mode = getattr(cfg.training, "replay_prefetch_mode", "one_tick")
     if replay_prefetch_mode != "one_tick":
         raise ValueError(
@@ -104,188 +100,51 @@ def build_runner(algo_name: str, cfg: DictConfig):
             "expected 'one_tick'"
         )
     verbose_metrics = bool(getattr(cfg.training, "verbose_metrics", False))
-    if replay_pipeline == "cpu_pinned_double_buffer" and algo_name not in {"sac", "flashsac"}:
-        raise ValueError(f"cpu_pinned_double_buffer is not enabled for algo={algo_name}")
+    if cfg.training.num_gpus > 1:
+        if algo_name == "flashsac":
+            raise ValueError("FlashSAC does not support training.num_gpus > 1")
+        raise ValueError("cpu_pinned_double_buffer is currently single-GPU only")
 
-    if algo_name == "flashsac" and cfg.training.num_gpus > 1:
-        raise ValueError("FlashSAC does not support training.num_gpus > 1")
+    if cfg.training.no_sync_collection:
+        raise ValueError("cpu_pinned_double_buffer requires synchronized collection")
 
     if algo_name == "sac":
-        if replay_pipeline == "cpu_pinned_double_buffer" and cfg.training.num_gpus > 1:
-            raise ValueError("cpu_pinned_double_buffer is initially single-GPU only")
-        if replay_pipeline == "cpu_pinned_double_buffer" and cfg.training.no_sync_collection:
-            raise ValueError(
-                "cpu_pinned_double_buffer requires synchronized collection in this MVP"
-            )
-
-        from unilab.algos.torch.common.device import get_env_dims
         from unilab.algos.torch.fast_sac.learner import FastSACLearner
-        from unilab.algos.torch.fast_sac.runner import FastSACRunner
+        from unilab.algos.torch.offpolicy.double_buffer_runner import (
+            DoubleBufferOffPolicyRunner,
+        )
+        from unilab.base.registry import ensure_registries as _ensure
         from unilab.utils.device import get_default_device
 
-        # Multi-GPU path
-        if cfg.training.num_gpus > 1:
-            from unilab.algos.torch.offpolicy.multi_gpu_runner import MultiGPUOffPolicyRunner
+        _ensure()
+        _device = cfg.training.device or get_default_device()
+        _env = create_env(cfg, num_envs=1, env_cfg_override=env_cfg_override)
+        assert _env.action_space.shape
+        from unilab.base.observations import get_obs_dims as _get_obs_dims
 
-            ensure_registries()
-            device = cfg.training.device or get_default_device()
-            env = create_env(
-                cfg,
-                num_envs=1,
-                env_cfg_override=env_cfg_override,
-            )
-            assert env.action_space.shape
-            from unilab.base.observations import get_obs_dims
+        _obs_dim, _critic_dim = _get_obs_dims(_env.obs_groups_spec)
+        _action_dim = _env.action_space.shape[0]
+        _symmetry_aug = None
+        if cfg.algo.use_symmetry:
+            _symmetry_aug = _env.build_symmetry_augmentation(device=_device)
+            if _symmetry_aug is None:
+                _env.close()
+                raise ValueError(f"{cfg.training.task_name} does not provide symmetry augmentation")
+        _env.close()
 
-            obs_dim, critic_dim = get_obs_dims(env.obs_groups_spec)
-            action_dim = env.action_space.shape[0]
-            env.close()
+        _batch_size = cfg.algo.batch_size
+        if _symmetry_aug is not None:
+            if _batch_size % _symmetry_aug.batch_multiplier != 0:
+                raise ValueError(
+                    "Symmetry augmentation requires batch_size divisible by "
+                    f"{_symmetry_aug.batch_multiplier}, got {_batch_size}"
+                )
+            _batch_size = _batch_size // _symmetry_aug.batch_multiplier
 
-            learner_kwargs = {
-                "obs_dim": obs_dim,
-                "action_dim": action_dim,
-                "gamma": cfg.algo.gamma,
-                "tau": cfg.algo.tau,
-                "actor_lr": cfg.algo.actor_lr,
-                "critic_lr": cfg.algo.critic_lr,
-                "alpha_lr": cfg.algo.algo_params.alpha_lr,
-                "alpha_init": cfg.algo.algo_params.alpha_init,
-                "target_entropy_ratio": cfg.algo.algo_params.target_entropy_ratio,
-                "actor_hidden_dim": cfg.algo.actor_hidden_dim,
-                "critic_hidden_dim": cfg.algo.critic_hidden_dim,
-                "num_atoms": cfg.algo.num_atoms,
-                "use_layer_norm": cfg.algo.use_layer_norm,
-                "max_grad_norm": cfg.algo.algo_params.max_grad_norm,
-                "use_amp": cfg.training.use_amp,
-                "critic_obs_dim": critic_dim,
-                "use_symmetry": cfg.algo.use_symmetry,
-            }
-            MultiGPUOffPolicyRunner.validate_capabilities(
-                algo_type="sac",
-                learner_kwargs=learner_kwargs,
-                num_gpus=cfg.training.num_gpus,
-            )
-            main_learner = FastSACLearner(device=device, **learner_kwargs)
-
-            return MultiGPUOffPolicyRunner(
-                learner=main_learner,
-                env_name=cfg.training.task_name,
-                algo_type="sac",
-                learner_kwargs=learner_kwargs,
-                num_gpus=cfg.training.num_gpus,
-                num_envs=cfg.algo.num_envs,
-                replay_buffer_n=cfg.algo.replay_buffer_n,
-                batch_size=cfg.algo.batch_size,
-                learning_starts=cfg.algo.learning_starts,
-                updates_per_step=cfg.algo.updates_per_step,
-                policy_frequency=cfg.algo.policy_frequency,
-                sync_collection=not cfg.training.no_sync_collection,
-                env_steps_per_sync=cfg.training.env_steps_per_sync,
-                device=device,
-                actor_hidden_dim=cfg.algo.actor_hidden_dim,
-                use_layer_norm=cfg.algo.use_layer_norm,
-                obs_normalization=False,
-                sim_backend=cfg.training.sim_backend,
-                env_cfg_override=env_cfg_override,
-                seed=cfg.algo.seed,
-                trace_enabled=cfg.training.trace_enabled,
-                trace_output_dir=cfg.training.trace_output_dir,
-                trace_thread_time=cfg.training.trace_thread_time,
-                trace_cuda_events=cfg.training.trace_cuda_events,
-            )
-
-        if replay_pipeline == "cpu_pinned_double_buffer":
-            from unilab.algos.torch.offpolicy.double_buffer_runner import (
-                DoubleBufferOffPolicyRunner,
-            )
-            from unilab.base.registry import ensure_registries as _ensure
-
-            _ensure()
-            _device = cfg.training.device or get_default_device()
-            _env = create_env(cfg, num_envs=1, env_cfg_override=env_cfg_override)
-            assert _env.action_space.shape
-            from unilab.base.observations import get_obs_dims as _get_obs_dims
-
-            _obs_dim, _critic_dim = _get_obs_dims(_env.obs_groups_spec)
-            _action_dim = _env.action_space.shape[0]
-            _symmetry_aug = None
-            if cfg.algo.use_symmetry:
-                _symmetry_aug = _env.build_symmetry_augmentation(device=_device)
-                if _symmetry_aug is None:
-                    _env.close()
-                    raise ValueError(
-                        f"{cfg.training.task_name} does not provide symmetry augmentation"
-                    )
-            _env.close()
-
-            _batch_size = cfg.algo.batch_size
-            if _symmetry_aug is not None:
-                if _batch_size % _symmetry_aug.batch_multiplier != 0:
-                    raise ValueError(
-                        "Symmetry augmentation requires batch_size divisible by "
-                        f"{_symmetry_aug.batch_multiplier}, got {_batch_size}"
-                    )
-                _batch_size = _batch_size // _symmetry_aug.batch_multiplier
-
-            _learner = FastSACLearner(
-                obs_dim=_obs_dim,
-                action_dim=_action_dim,
-                device=_device,
-                gamma=cfg.algo.gamma,
-                tau=cfg.algo.tau,
-                actor_lr=cfg.algo.actor_lr,
-                critic_lr=cfg.algo.critic_lr,
-                alpha_lr=cfg.algo.algo_params.alpha_lr,
-                alpha_init=cfg.algo.algo_params.alpha_init,
-                target_entropy_ratio=cfg.algo.algo_params.target_entropy_ratio,
-                actor_hidden_dim=cfg.algo.actor_hidden_dim,
-                critic_hidden_dim=cfg.algo.critic_hidden_dim,
-                num_atoms=cfg.algo.num_atoms,
-                use_layer_norm=cfg.algo.use_layer_norm,
-                max_grad_norm=cfg.algo.algo_params.max_grad_norm,
-                use_amp=cfg.training.use_amp,
-                use_symmetry=cfg.algo.use_symmetry,
-                symmetry_augmentation=_symmetry_aug,
-                critic_obs_dim=_critic_dim,
-            )
-
-            return DoubleBufferOffPolicyRunner(
-                learner=_learner,
-                env_name=cfg.training.task_name,
-                algo_type="sac",
-                num_envs=cfg.algo.num_envs,
-                replay_buffer_n=cfg.algo.replay_buffer_n,
-                batch_size=_batch_size,
-                learning_starts=cfg.algo.learning_starts,
-                updates_per_step=cfg.algo.updates_per_step,
-                policy_frequency=cfg.algo.policy_frequency,
-                sync_collection=not cfg.training.no_sync_collection,
-                env_steps_per_sync=cfg.training.env_steps_per_sync,
-                device=_device,
-                actor_hidden_dim=cfg.algo.actor_hidden_dim,
-                use_layer_norm=cfg.algo.use_layer_norm,
-                obs_normalization=cfg.algo.obs_normalization,
-                sim_backend=cfg.training.sim_backend,
-                env_cfg_override=env_cfg_override,
-                trace_enabled=cfg.training.trace_enabled,
-                trace_output_dir=cfg.training.trace_output_dir,
-                trace_thread_time=cfg.training.trace_thread_time,
-                trace_cuda_events=cfg.training.trace_cuda_events,
-                replay_prefetch_mode=replay_prefetch_mode,
-                verbose_metrics=verbose_metrics,
-                seed=cfg.algo.seed,
-            )
-
-        return FastSACRunner(
-            env_name=cfg.training.task_name,
-            env_cfg_override=env_cfg_override,
-            device=cfg.training.device,
-            num_envs=cfg.algo.num_envs,
-            replay_buffer_n=cfg.algo.replay_buffer_n,
-            batch_size=cfg.algo.batch_size,
-            learning_starts=cfg.algo.learning_starts,
-            updates_per_step=cfg.algo.updates_per_step,
-            policy_frequency=cfg.algo.policy_frequency,
+        _learner = FastSACLearner(
+            obs_dim=_obs_dim,
+            action_dim=_action_dim,
+            device=_device,
             gamma=cfg.algo.gamma,
             tau=cfg.algo.tau,
             actor_lr=cfg.algo.actor_lr,
@@ -293,39 +152,64 @@ def build_runner(algo_name: str, cfg: DictConfig):
             alpha_lr=cfg.algo.algo_params.alpha_lr,
             alpha_init=cfg.algo.algo_params.alpha_init,
             target_entropy_ratio=cfg.algo.algo_params.target_entropy_ratio,
-            obs_normalization=cfg.algo.obs_normalization,
             actor_hidden_dim=cfg.algo.actor_hidden_dim,
             critic_hidden_dim=cfg.algo.critic_hidden_dim,
             num_atoms=cfg.algo.num_atoms,
             use_layer_norm=cfg.algo.use_layer_norm,
             max_grad_norm=cfg.algo.algo_params.max_grad_norm,
             use_amp=cfg.training.use_amp,
-            sync_collection=not cfg.training.no_sync_collection,
-            env_steps_per_sync=cfg.training.env_steps_per_sync,
-            sim_backend=cfg.training.sim_backend,
             use_symmetry=cfg.algo.use_symmetry,
-            seed=cfg.algo.seed,
+            symmetry_augmentation=_symmetry_aug,
+            critic_obs_dim=_critic_dim,
+        )
+
+        return DoubleBufferOffPolicyRunner(
+            learner=_learner,
+            env_name=cfg.training.task_name,
+            algo_type="sac",
+            num_envs=cfg.algo.num_envs,
+            replay_buffer_n=cfg.algo.replay_buffer_n,
+            batch_size=_batch_size,
+            learning_starts=cfg.algo.learning_starts,
+            updates_per_step=cfg.algo.updates_per_step,
+            policy_frequency=cfg.algo.policy_frequency,
+            sync_collection=True,
+            env_steps_per_sync=cfg.training.env_steps_per_sync,
+            device=_device,
+            actor_hidden_dim=cfg.algo.actor_hidden_dim,
+            use_layer_norm=cfg.algo.use_layer_norm,
+            obs_normalization=cfg.algo.obs_normalization,
+            sim_backend=cfg.training.sim_backend,
+            env_cfg_override=env_cfg_override,
             trace_enabled=cfg.training.trace_enabled,
             trace_output_dir=cfg.training.trace_output_dir,
             trace_thread_time=cfg.training.trace_thread_time,
             trace_cuda_events=cfg.training.trace_cuda_events,
+            replay_prefetch_mode=replay_prefetch_mode,
+            verbose_metrics=verbose_metrics,
+            seed=cfg.algo.seed,
         )
 
     if algo_name == "td3":
-        from unilab.algos.torch.fast_td3.runner import FastTD3Runner
+        from unilab.algos.torch.common.device import get_env_dims
+        from unilab.algos.torch.fast_td3.learner import FastTD3Learner
+        from unilab.algos.torch.offpolicy.double_buffer_runner import (
+            DoubleBufferOffPolicyRunner,
+        )
+        from unilab.utils.device import get_default_device
 
-        return FastTD3Runner(
-            env_name=cfg.training.task_name,
+        _device = cfg.training.device or get_default_device()
+        _obs_dim, _action_dim, _critic_dim = get_env_dims(
+            cfg.training.task_name,
+            cfg.training.sim_backend,
             env_cfg_override=env_cfg_override,
-            device=cfg.training.device,
+        )
+        _learner = FastTD3Learner(
+            obs_dim=_obs_dim,
+            action_dim=_action_dim,
+            critic_obs_dim=_critic_dim,
             num_envs=cfg.algo.num_envs,
-            replay_buffer_n=cfg.algo.replay_buffer_n,
-            batch_size=cfg.algo.batch_size,
-            learning_starts=cfg.algo.learning_starts,
-            num_updates=cfg.algo.updates_per_step,
-            policy_frequency=cfg.algo.policy_frequency,
-            sync_collection=not cfg.training.no_sync_collection,
-            env_steps_per_sync=cfg.training.env_steps_per_sync,
+            device=_device,
             gamma=cfg.algo.gamma,
             tau=cfg.algo.tau,
             actor_lr=cfg.algo.actor_lr,
@@ -338,80 +222,51 @@ def build_runner(algo_name: str, cfg: DictConfig):
             init_scale=cfg.algo.algo_params.init_scale,
             log_std_min=cfg.algo.algo_params.log_std_min,
             log_std_max=cfg.algo.algo_params.log_std_max,
-            policy_noise=cfg.algo.algo_params.policy_noise,
-            noise_clip=cfg.algo.algo_params.noise_clip,
             weight_decay=cfg.algo.algo_params.weight_decay,
             use_cdq=cfg.algo.algo_params.use_cdq,
+            policy_noise=cfg.algo.algo_params.policy_noise,
+            noise_clip=cfg.algo.algo_params.noise_clip,
+            policy_frequency=cfg.algo.policy_frequency,
             obs_normalization=cfg.algo.obs_normalization,
-            sim_backend=cfg.training.sim_backend,
-            seed=cfg.algo.seed,
-            trace_enabled=cfg.training.trace_enabled,
-            trace_output_dir=cfg.training.trace_output_dir,
-            trace_thread_time=cfg.training.trace_thread_time,
-            trace_cuda_events=cfg.training.trace_cuda_events,
         )
 
-    if algo_name == "flashsac":
-        if replay_pipeline == "cpu_pinned_double_buffer":
-            from unilab.algos.torch.flash_sac.double_buffer import (
-                build_flashsac_double_buffer_runner,
-            )
-
-            return build_flashsac_double_buffer_runner(
-                cfg,
-                env_cfg_override=env_cfg_override,
-                replay_prefetch_mode=replay_prefetch_mode,
-                verbose_metrics=verbose_metrics,
-            )
-
-        from unilab.algos.torch.flash_sac.runner import FlashSACRunner
-
-        return FlashSACRunner(
+        return DoubleBufferOffPolicyRunner(
+            learner=_learner,
             env_name=cfg.training.task_name,
+            algo_type="td3",
             env_cfg_override=env_cfg_override,
-            device=cfg.training.device,
+            device=_device,
             num_envs=cfg.algo.num_envs,
             replay_buffer_n=cfg.algo.replay_buffer_n,
             batch_size=cfg.algo.batch_size,
             learning_starts=cfg.algo.learning_starts,
             updates_per_step=cfg.algo.updates_per_step,
             policy_frequency=cfg.algo.policy_frequency,
-            gamma=cfg.algo.gamma,
-            tau=cfg.algo.tau,
-            actor_lr=cfg.algo.actor_lr,
-            critic_lr=cfg.algo.critic_lr,
-            obs_normalization=cfg.algo.obs_normalization,
-            actor_hidden_dim=cfg.algo.actor_hidden_dim,
-            critic_hidden_dim=cfg.algo.critic_hidden_dim,
-            num_atoms=cfg.algo.num_atoms,
-            use_amp=cfg.training.use_amp,
-            sync_collection=not cfg.training.no_sync_collection,
+            sync_collection=True,
             env_steps_per_sync=cfg.training.env_steps_per_sync,
+            actor_hidden_dim=cfg.algo.actor_hidden_dim,
+            use_layer_norm=False,
+            obs_normalization=cfg.algo.obs_normalization,
             sim_backend=cfg.training.sim_backend,
-            actor_num_blocks=cfg.algo.algo_params.actor_num_blocks,
-            critic_num_blocks=cfg.algo.algo_params.critic_num_blocks,
-            actor_bc_alpha=cfg.algo.algo_params.actor_bc_alpha,
-            actor_noise_zeta_mu=cfg.algo.algo_params.actor_noise_zeta_mu,
-            actor_noise_zeta_max=cfg.algo.algo_params.actor_noise_zeta_max,
-            critic_min_v=cfg.algo.algo_params.critic_min_v,
-            critic_max_v=cfg.algo.algo_params.critic_max_v,
-            target_sigma=cfg.algo.algo_params.temp_target_sigma,
-            target_entropy=cfg.algo.algo_params.temp_target_entropy,
-            temp_initial_value=cfg.algo.algo_params.temp_initial_value,
-            learning_rate_init=cfg.algo.algo_params.learning_rate_init,
-            learning_rate_peak=cfg.algo.algo_params.learning_rate_peak,
-            learning_rate_end=cfg.algo.algo_params.learning_rate_end,
-            learning_rate_warmup_steps=cfg.algo.algo_params.learning_rate_warmup_steps,
-            learning_rate_decay_steps=cfg.algo.algo_params.learning_rate_decay_steps,
-            normalize_reward=cfg.algo.algo_params.normalize_reward,
-            normalized_g_max=cfg.algo.algo_params.normalized_g_max,
-            n_step=cfg.algo.algo_params.n_step,
-            use_compile=cfg.algo.algo_params.use_compile,
             seed=cfg.algo.seed,
             trace_enabled=cfg.training.trace_enabled,
             trace_output_dir=cfg.training.trace_output_dir,
             trace_thread_time=cfg.training.trace_thread_time,
             trace_cuda_events=cfg.training.trace_cuda_events,
+            replay_prefetch_mode=replay_prefetch_mode,
+            verbose_metrics=verbose_metrics,
+        )
+
+    if algo_name == "flashsac":
+        from unilab.algos.torch.flash_sac.double_buffer import (
+            build_flashsac_double_buffer_runner,
+        )
+
+        return build_flashsac_double_buffer_runner(
+            cfg,
+            env_cfg_override=env_cfg_override,
+            replay_prefetch_mode=replay_prefetch_mode,
+            verbose_metrics=verbose_metrics,
         )
 
     raise ValueError(f"Unsupported algo: {algo_name}")

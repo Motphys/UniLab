@@ -967,13 +967,23 @@ def test_offpolicy_default_device_cuda_available():
 def test_offpolicy_default_device_mps_fallback():
     mock_torch = MagicMock()
     mock_torch.cuda.is_available.return_value = False
+    mock_torch.xpu.is_available.return_value = False
     mock_torch.backends.mps.is_available.return_value = True
     assert _offpolicy().default_device(mock_torch) == "mps"
+
+
+def test_offpolicy_default_device_xpu_before_mps():
+    mock_torch = MagicMock()
+    mock_torch.cuda.is_available.return_value = False
+    mock_torch.xpu.is_available.return_value = True
+    mock_torch.backends.mps.is_available.return_value = True
+    assert _offpolicy().default_device(mock_torch) == "xpu"
 
 
 def test_offpolicy_default_device_cpu_fallback():
     mock_torch = MagicMock()
     mock_torch.cuda.is_available.return_value = False
+    mock_torch.xpu.is_available.return_value = False
     mock_torch.backends.mps.is_available.return_value = False
     assert _offpolicy().default_device(mock_torch) == "cpu"
 
@@ -1647,76 +1657,33 @@ def test_offpolicy_flashsac_rejects_multi_gpu():
         _offpolicy().build_runner("flashsac", cfg)
 
 
-def test_offpolicy_sac_multi_gpu_rejects_symmetry():
+def test_offpolicy_sac_multi_gpu_rejected_by_double_buffer():
     cfg = _offpolicy_cfg(
         [
             "algo=sac",
             "task=sac/g1_walk_flat/mujoco",
             "training.num_gpus=2",
             "training.device=cpu",
-            "training.replay_pipeline=gpu_cache",
         ]
     )
 
-    with pytest.raises(
-        ValueError,
-        match="Off-policy symmetry augmentation does not support training.num_gpus > 1",
-    ):
+    with pytest.raises(ValueError, match="currently single-GPU only"):
         _offpolicy().build_runner("sac", cfg)
 
 
-def test_offpolicy_sac_multi_gpu_allows_explicit_symmetry_disable(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    import gymnasium as gym
-
-    mod = _offpolicy()
+def test_offpolicy_sac_multi_gpu_rejects_even_with_explicit_symmetry_disable():
     cfg = _offpolicy_cfg(
         [
             "algo=sac",
             "task=sac/g1_walk_flat/mujoco",
             "training.num_gpus=2",
             "training.device=cpu",
-            "training.replay_pipeline=gpu_cache",
             "algo.use_symmetry=false",
         ]
     )
 
-    class _FakeEnv:
-        obs_groups_spec = {"obs": 4, "critic": 6}
-        action_space = gym.spaces.Box(-1.0, 1.0, shape=(2,))
-
-        def close(self) -> None:
-            return None
-
-    class _FakeLearner:
-        def __init__(self, *args, **kwargs) -> None:
-            self.args = args
-            self.kwargs = kwargs
-
-    class _FakeRunner:
-        @staticmethod
-        def validate_capabilities(*args, **kwargs) -> None:
-            return None
-
-        def __init__(self, *args, **kwargs) -> None:
-            self.args = args
-            self.kwargs = kwargs
-
-    monkeypatch.setattr(mod, "ensure_registries", lambda: None)
-    monkeypatch.setattr(mod, "create_env", lambda *args, **kwargs: _FakeEnv())
-
-    import unilab.algos.torch.fast_sac.learner as learner_mod
-    import unilab.algos.torch.offpolicy.multi_gpu_runner as multi_gpu_runner_mod
-
-    monkeypatch.setattr(learner_mod, "FastSACLearner", _FakeLearner)
-    monkeypatch.setattr(multi_gpu_runner_mod, "MultiGPUOffPolicyRunner", _FakeRunner)
-
-    runner = mod.build_runner("sac", cfg)
-
-    assert isinstance(runner, _FakeRunner)
-    assert runner.kwargs["num_gpus"] == 2
-    assert runner.kwargs["learner_kwargs"]["use_symmetry"] is False
+    with pytest.raises(ValueError, match="currently single-GPU only"):
+        _offpolicy().build_runner("sac", cfg)
 
 
 @pytest.mark.parametrize(

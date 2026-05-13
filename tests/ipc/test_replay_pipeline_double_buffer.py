@@ -9,15 +9,8 @@ import pytest
 import torch
 
 from unilab.ipc.replay_buffer import ReplayBuffer
-from unilab.ipc.replay_pipelines.base import ReplayPipeline, ReplayTickMetadata
-from unilab.ipc.replay_pipelines.gpu_cache import GpuCacheReplayPipeline
 
 _HAS_CUDA = torch.cuda.is_available()
-
-
-# ---------------------------------------------------------------------------
-# GpuCacheReplayPipeline (control path)
-# ---------------------------------------------------------------------------
 
 
 def _make_cpu_replay(capacity: int = 64, obs_dim: int = 4, action_dim: int = 2) -> ReplayBuffer:
@@ -32,33 +25,6 @@ def _make_cpu_replay(capacity: int = 64, obs_dim: int = 4, action_dim: int = 2) 
         truncated=torch.zeros(n),
     )
     return rb
-
-
-def test_gpu_cache_pipeline_satisfies_protocol():
-    rb = _make_cpu_replay()
-    pipeline = GpuCacheReplayPipeline(rb)
-    assert isinstance(pipeline, ReplayPipeline)
-
-
-def test_gpu_cache_pipeline_sample_returns_correct_keys():
-    rb = _make_cpu_replay()
-    pipeline = GpuCacheReplayPipeline(rb)
-    batch = pipeline.sample_large_batch(tick_id=0, sample_count=8)
-    assert "obs" in batch
-    assert "actions" in batch
-    assert "rewards" in batch
-    assert "next_obs" in batch
-    assert "dones" in batch
-    assert "truncated" in batch
-
-
-def test_gpu_cache_pipeline_sample_correct_shape():
-    rb = _make_cpu_replay(obs_dim=5, action_dim=3)
-    pipeline = GpuCacheReplayPipeline(rb)
-    batch = pipeline.sample_large_batch(tick_id=0, sample_count=16)
-    assert batch["obs"].shape == (16, 5)
-    assert batch["actions"].shape == (16, 3)
-    assert batch["rewards"].shape == (16,)
 
 
 def test_collector_pack_shared_batch_writes_expected_packed_rows():
@@ -243,6 +209,9 @@ class TestPortableDoubleBuffer:
         assert all(value.device.type == "cpu" for value in batch.values())
         assert pipeline._host_pinned is False
         assert pipeline._h2d_submitter == "torch_copy"
+        assert pipeline.transfer_manifest["backend"] == "TorchCopyReplayTransferBackend"
+        assert pipeline.transfer_manifest["device_family"] == "cpu"
+        assert pipeline.transfer_manifest["supports_async_submit"] is False
         assert not any(slot.is_pinned() for slot in pipeline._collector_pack_shared_slots)
         pipeline.close()
 
@@ -266,6 +235,31 @@ class TestPortableDoubleBuffer:
         assert submit["args"]["h2d_submitter"] == "torch_copy"
         assert submit["args"]["pinned_memory"] is False
         assert submit["args"]["direct_pinned_shared"] is False
+        assert submit["args"]["device_family"] == "cpu"
+        assert submit["args"]["host_memory_kind"] == "pageable_shared"
+        assert submit["args"]["supports_async_submit"] is False
+        assert submit["args"]["ring_depth"] == 2
+        pipeline.close()
+
+    def test_cpu_portable_transfer_submits_on_pack_ready_before_wait(self):
+        rb = _make_cpu_replay(capacity=128, obs_dim=4, action_dim=2)
+        trace = _RecordingTrace()
+        pipeline = self._make_pipeline(rb, sample_count=8, base_seed=3, trace=trace)
+
+        assert pipeline.start_prepare(tick_id=2, sample_count=8)
+        _service_collector_pack(pipeline)
+        deadline = time.time() + 2.0
+        while time.time() < deadline and not pipeline.batch_ready(tick_id=2, sample_count=8):
+            time.sleep(0.01)
+
+        assert pipeline.batch_ready(tick_id=2, sample_count=8)
+        names = [event["name"] for event in trace.slices]
+        assert "replay_pipeline/batch_h2d_submit" in names
+        assert "replay_pipeline/batch_h2d_wait" not in names
+        submit = next(
+            event for event in trace.slices if event["name"] == "replay_pipeline/batch_h2d_submit"
+        )
+        assert submit["args"]["transfer_worker_submit"] is True
         pipeline.close()
 
     @pytest.mark.skipif(not torch.backends.mps.is_available(), reason="MPS required")
@@ -484,7 +478,7 @@ class TestCPUPinnedDoubleBuffer:
         batch = self._sample_ready(pipeline, tick_id=0, sample_count=16)
         assert batch["obs"].shape == (16, obs_dim)
 
-    def test_defer_gpu_replay_buffer_does_not_allocate_gpu_cache(self):
+    def test_defer_gpu_replay_buffer_does_not_allocate_gpu_tensors(self):
         rb = self._make_cuda_replay(defer_gpu=True)
         assert not hasattr(rb, "obs_gpu")
         pipeline = self._make_pipeline(rb, sample_count=8)
@@ -531,7 +525,7 @@ class TestCPUPinnedDoubleBuffer:
             batch["next_critic"], rb._storage[expected_indices, rb._ncritic_sl].cuda()
         )
 
-    def test_packed_layout_requires_packed_replay_storage(self):
+    def test_replay_buffer_uses_packed_storage_for_legacy_false_flag(self):
         rb = ReplayBuffer(
             capacity=128,
             obs_dim=4,
@@ -540,22 +534,11 @@ class TestCPUPinnedDoubleBuffer:
             defer_gpu=True,
             packed_cpu_storage=False,
         )
-        from unilab.ipc.replay_pipelines.cpu_pinned_double_buffer import (
-            CPUPinnedDoubleBufferReplayPipeline,
-        )
 
-        with pytest.raises(ValueError, match="requires ReplayBuffer"):
-            CPUPinnedDoubleBufferReplayPipeline(
-                rb,
-                device="cuda",
-                sample_count=8,
-                collector_pack_request_queue=queue.Queue(),
-                collector_pack_ready_queue=queue.Queue(),
-                collector_pack_shared_slots=[
-                    torch.empty((8, 4 + 4 + 2 + 3), dtype=torch.float32).share_memory_()
-                    for _ in range(2)
-                ],
-            )
+        assert rb._packed_cpu_storage is True
+        assert rb._storage.shape == (128, 4 + 4 + 2 + 3)
+        pipeline = self._make_pipeline(rb, sample_count=8)
+        pipeline.close()
 
     def test_trace_events_include_gpu_span_and_swap_metadata(self):
         rb = self._make_cuda_replay(defer_gpu=True)

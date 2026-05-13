@@ -12,12 +12,13 @@ import os
 import queue
 import threading
 import time
-from typing import Any, Dict, List, Tuple, cast
+from typing import Dict, List, Tuple
 
 import torch
 
 from unilab.ipc.replay_buffer import ReplayBuffer
 from unilab.ipc.replay_pipelines.base import ReplayTickMetadata
+from unilab.ipc.replay_pipelines.transfer import build_replay_transfer_backend
 
 
 class CPUPinnedDoubleBufferReplayPipeline:
@@ -54,13 +55,20 @@ class CPUPinnedDoubleBufferReplayPipeline:
         self._verbose_output_dir = verbose_output_dir if self._verbose else None
         self._pack_layout = "packed"
         self._pack_executor = "collector_thread"
-        self._h2d_submitter = "pybind11" if self._device_type == "cuda" else "torch_copy"
-        self._host_pinned = False
-        self._direct_pinned_shared = False
-        if self._device_type == "cuda":
-            from unilab.ipc.replay_pipelines.native_h2d import ensure_available
-
-            ensure_available()
+        self._ring_depth = 2
+        self._transfer_backend = build_replay_transfer_backend(
+            device=self._device,
+            ring_depth=self._ring_depth,
+        )
+        self._trace_cuda_events = bool(trace_cuda_events) and (
+            self._transfer_backend.supports_timing_events
+        )
+        self._h2d_submitter = self._transfer_backend.h2d_submitter
+        self._host_pinned = self._transfer_backend.host_pinned
+        self._direct_pinned_shared = self._transfer_backend.direct_pinned_shared
+        self._device_family = self._transfer_backend.device_family
+        self._host_memory_kind = self._transfer_backend.host_memory_kind
+        self._supports_async_submit = self._transfer_backend.supports_async_submit
         if not getattr(replay_buffer, "_packed_cpu_storage", False):
             raise ValueError("pack_layout='packed' requires ReplayBuffer(packed_cpu_storage=True)")
         if (
@@ -77,28 +85,17 @@ class CPUPinnedDoubleBufferReplayPipeline:
         self._collector_pack_request_queue = collector_pack_request_queue
         self._collector_pack_ready_queue = collector_pack_ready_queue
         self._collector_pack_shared_slots = collector_pack_shared_slots
-        self._registered_shared_slots: list[torch.Tensor] = []
-        self._registered_shared_ptrs: list[int] = []
-        self._cudart = torch.cuda.cudart() if self._device_type == "cuda" else None
         self._fields: Dict[str, tuple[torch.Tensor, int]] = {}
         self._packed_width = int(replay_buffer._storage.shape[1])
         self._host_packed: list[torch.Tensor] = []
         self._register_collector_shared_slots()
-        self._gpu_packed = [
-            torch.empty(
-                (self._sample_count, self._packed_width), dtype=torch.float32, device=self._device
-            )
-            for _ in range(2)
-        ]
+        self._gpu_packed = self._transfer_backend.allocate_device_slots(
+            count=self._ring_depth,
+            shape=(self._sample_count, self._packed_width),
+            dtype=torch.float32,
+        )
         self._host: list[Dict[str, torch.Tensor]] = []
         self._gpu: list[Dict[str, torch.Tensor]] = []
-
-        if self._device_type == "cuda":
-            self._copy_stream = torch.cuda.Stream(device=self._device)
-            self._ready_events = [torch.cuda.Event() for _ in range(2)]
-        else:
-            self._copy_stream = None
-            self._ready_events = [threading.Event() for _ in range(2)]
 
         self._hot = 0
         self._cold = 1
@@ -122,36 +119,33 @@ class CPUPinnedDoubleBufferReplayPipeline:
     def h2d_submitter(self) -> str:
         return self._h2d_submitter
 
+    @property
+    def transfer_manifest(self) -> dict[str, object]:
+        return {
+            "backend": type(self._transfer_backend).__name__,
+            "device": str(self._device),
+            "device_family": self._device_family,
+            "host_memory_kind": self._host_memory_kind,
+            "host_pinned": self._host_pinned,
+            "direct_pinned_shared": self._direct_pinned_shared,
+            "supports_async_submit": self._supports_async_submit,
+            "supports_timing_events": self._transfer_backend.supports_timing_events,
+            "h2d_submitter": self._h2d_submitter,
+            "ring_depth": self._ring_depth,
+        }
+
     # -- allocation helpers --------------------------------------------------
 
     def _register_collector_shared_slots(self) -> None:
         assert self._collector_pack_shared_slots is not None
-        if self._device_type != "cuda":
-            return
-        assert self._cudart is not None
-        for slot in self._collector_pack_shared_slots:
-            nbytes = int(slot.numel() * slot.element_size())
-            result = self._cudart.cudaHostRegister(int(slot.data_ptr()), nbytes, 0)
-            if result != self._cudart.cudaError.success:
-                raise RuntimeError(f"cudaHostRegister failed for collector replay slot: {result}")
-            if not slot.is_pinned():
-                self._cudart.cudaHostUnregister(int(slot.data_ptr()))
-                raise RuntimeError("cudaHostRegister did not make collector replay slot pinned")
-            self._registered_shared_slots.append(slot)
-            self._registered_shared_ptrs.append(int(slot.data_ptr()))
-        self._host_pinned = True
-        self._direct_pinned_shared = True
+        self._transfer_backend.register_host_slots(self._collector_pack_shared_slots)
+        self._host_pinned = self._transfer_backend.host_pinned
+        self._direct_pinned_shared = self._transfer_backend.direct_pinned_shared
 
     def _unregister_collector_shared_slots(self) -> None:
-        if self._cudart is None:
-            return
-        while self._registered_shared_ptrs:
-            ptr = self._registered_shared_ptrs.pop()
-            try:
-                self._cudart.cudaHostUnregister(int(ptr))
-            except Exception:
-                pass
-        self._registered_shared_slots.clear()
+        self._transfer_backend.close()
+        self._host_pinned = self._transfer_backend.host_pinned
+        self._direct_pinned_shared = self._transfer_backend.direct_pinned_shared
 
     def _packed_h2d_source(self, slot: int) -> torch.Tensor:
         assert self._collector_pack_shared_slots is not None
@@ -178,67 +172,18 @@ class CPUPinnedDoubleBufferReplayPipeline:
         return int(self._replay_buffer.ptr[0]), int(self._replay_buffer.size[0])
 
     def _submit_h2d(self, slot: int, metadata: ReplayTickMetadata | None = None) -> float:
-        h2d_begin_ns = time.perf_counter_ns()
-        start_event = None
-        end_event = None
-        record_cuda = self._trace_recorder is not None and self._trace_cuda_events
         self._clear_ready(slot)
-        if self._device_type == "cuda":
-            with torch.cuda.device(self._device):
-                copy_stream = cast(torch.cuda.Stream, self._copy_stream)
-                with torch.cuda.stream(copy_stream):
-                    if record_cuda:
-                        start_event = torch.cuda.Event(enable_timing=True)
-                        end_event = torch.cuda.Event(enable_timing=True)
-                        cast(Any, start_event).record()
-                    from unilab.ipc.replay_pipelines.native_h2d import submit_h2d
-
-                    submit_h2d(
-                        self._gpu_packed[slot],
-                        self._packed_h2d_source(slot),
-                        copy_stream,
-                    )
-                    if end_event is not None:
-                        cast(Any, end_event).record()
-                    cast(torch.cuda.Event, self._ready_events[slot]).record(copy_stream)
-        else:
-            self._gpu_packed[slot].copy_(self._packed_h2d_source(slot))
-            if self._device_type == "mps" and hasattr(torch, "mps"):
-                torch.mps.synchronize()
-            self._mark_ready(slot)
-        h2d_end_ns = time.perf_counter_ns()
-        if record_cuda and start_event is not None and end_event is not None:
-            args: Dict[str, object] = {
-                "slot": slot,
-                "h2d_bytes": self._h2d_bytes(),
-                "pinned_memory": self._host_pinned,
-                "pack_layout": self._pack_layout,
-                "pack_executor": self._pack_executor,
-                "h2d_submitter": self._h2d_submitter,
-                "direct_pinned_shared": self._direct_pinned_shared,
-            }
-            if metadata is not None:
-                args.update(
-                    {
-                        "tick_id": int(metadata.tick_id),
-                        "snapshot_ptr": int(metadata.snapshot_ptr),
-                        "snapshot_size": int(metadata.snapshot_size),
-                        "sample_seed": int(metadata.sample_seed),
-                        "sample_count": int(metadata.sample_count),
-                        "batch_host_slot": metadata.batch_host_slot,
-                        "batch_gpu_slot": metadata.batch_gpu_slot,
-                    }
-                )
-            trace_recorder = cast(Any, self._trace_recorder)
-            trace_recorder.add_cuda_pending_span(
-                "gpu/replay_pipeline_batch_h2d",
-                category="gpu",
-                cpu_begin_ns=h2d_begin_ns,
-                start_event=cast(Any, start_event),
-                end_event=cast(Any, end_event),
-                args=args,
-            )
-        return (h2d_end_ns - h2d_begin_ns) / 1e9
+        return self._transfer_backend.submit_h2d(
+            slot=slot,
+            dst=self._gpu_packed[slot],
+            src=self._packed_h2d_source(slot),
+            metadata=metadata,
+            trace_recorder=self._trace_recorder,
+            trace_cuda_events=self._trace_cuda_events,
+            h2d_bytes=self._h2d_bytes(),
+            pack_layout=self._pack_layout,
+            pack_executor=self._pack_executor,
+        )
 
     def _submit_collector_packed_h2d(self, ready: dict) -> ReplayTickMetadata:
         metadata = ReplayTickMetadata(
@@ -255,8 +200,7 @@ class CPUPinnedDoubleBufferReplayPipeline:
         shared_slot = int(ready["shared_slot"])
         if shared_slot != slot:
             raise RuntimeError("collector_thread shared slot must match target GPU slot")
-        if self._device_type == "cuda":
-            self._submit_device_transfer(metadata)
+        self._submit_device_transfer(metadata)
         return metadata
 
     def _submit_device_transfer(self, metadata: ReplayTickMetadata) -> None:
@@ -283,7 +227,12 @@ class CPUPinnedDoubleBufferReplayPipeline:
                     "h2d_submitted": True,
                     "pinned_memory": self._host_pinned,
                     "direct_pinned_shared": self._direct_pinned_shared,
-                    "learner_thread_submit": self._device_type != "cuda",
+                    "device_family": self._device_family,
+                    "host_memory_kind": self._host_memory_kind,
+                    "supports_async_submit": self._supports_async_submit,
+                    "supports_timing_events": self._transfer_backend.supports_timing_events,
+                    "ring_depth": self._ring_depth,
+                    "transfer_worker_submit": True,
                 },
             )
 
@@ -292,10 +241,7 @@ class CPUPinnedDoubleBufferReplayPipeline:
         assert slot is not None
         if self._ready_query(slot):
             return
-        if self._device_type == "cuda":
-            self._synchronize_ready(slot)
-            return
-        self._submit_device_transfer(metadata)
+        self._synchronize_ready(slot)
 
     def _collector_h2d_worker(self) -> None:
         while True:
@@ -316,9 +262,7 @@ class CPUPinnedDoubleBufferReplayPipeline:
                             f"pending tick {self._prepare_tick_id}"
                         )
                     self._prepared_metadata = metadata
-                    self._prepare_state = (
-                        "h2d_submitted" if self._device_type == "cuda" else "host_ready"
-                    )
+                    self._prepare_state = "h2d_submitted"
                     self._prepare_error = None
                     self._prepare_condition.notify_all()
             except BaseException as exc:
@@ -331,30 +275,16 @@ class CPUPinnedDoubleBufferReplayPipeline:
         return int(source.numel() * source.element_size())
 
     def _clear_ready(self, slot: int) -> None:
-        if self._device_type != "cuda":
-            cast(threading.Event, self._ready_events[slot]).clear()
-
-    def _mark_ready(self, slot: int) -> None:
-        if self._device_type != "cuda":
-            cast(threading.Event, self._ready_events[slot]).set()
+        self._transfer_backend.clear_ready(slot)
 
     def _ready_query(self, slot: int) -> bool:
-        if self._device_type == "cuda":
-            return bool(cast(torch.cuda.Event, self._ready_events[slot]).query())
-        return cast(threading.Event, self._ready_events[slot]).is_set()
+        return self._transfer_backend.ready_query(slot)
 
     def _synchronize_ready(self, slot: int) -> None:
-        if self._device_type == "cuda":
-            cast(torch.cuda.Event, self._ready_events[slot]).synchronize()
-            return
-        cast(threading.Event, self._ready_events[slot]).wait()
+        self._transfer_backend.synchronize_ready(slot)
 
     def _wait_current_stream_for_ready(self, slot: int) -> None:
-        if self._device_type == "cuda":
-            current_stream = cast(Any, torch.cuda.current_stream(self._device))
-            current_stream.wait_event(cast(torch.cuda.Event, self._ready_events[slot]))
-            return
-        self._synchronize_ready(slot)
+        self._transfer_backend.wait_current_stream_for_ready(slot)
 
     # -- public API -----------------------------------------------------------
 

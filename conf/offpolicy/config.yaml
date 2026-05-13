@@ -35,7 +35,6 @@ training:
   trace_output_dir: null
   trace_thread_time: false
   trace_cuda_events: true
-  replay_pipeline: auto
   replay_prefetch_mode: one_tick
   verbose_metrics: false
 

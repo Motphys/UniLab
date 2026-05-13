@@ -53,11 +53,6 @@ def _offpolicy_cfg(overrides=None):
 # ---------------------------------------------------------------------------
 
 
-def test_default_replay_pipeline_is_auto():
-    cfg = _offpolicy_cfg()
-    assert cfg.training.replay_pipeline == "auto"
-
-
 def test_default_replay_prefetch_mode_is_one_tick():
     cfg = _offpolicy_cfg()
     assert cfg.training.replay_prefetch_mode == "one_tick"
@@ -87,32 +82,35 @@ def test_same_tick_replay_prefetch_mode_rejected():
         _offpolicy().build_runner("sac", cfg)
 
 
-def test_cli_override_replay_pipeline_accepted():
-    cfg = _offpolicy_cfg(["training.replay_pipeline=cpu_pinned_double_buffer"])
-    assert cfg.training.replay_pipeline == "cpu_pinned_double_buffer"
-    assert cfg.training.verbose_metrics is False
-
-
-def test_cli_override_replay_pipeline_gpu_cache_accepted():
-    cfg = _offpolicy_cfg(["training.replay_pipeline=gpu_cache"])
-    assert cfg.training.replay_pipeline == "gpu_cache"
-
-
-def test_unknown_replay_pipeline_rejected():
-    cfg = _offpolicy_cfg(["training.replay_pipeline=typo_pipeline"])
-    with pytest.raises(ValueError, match="Unsupported training.replay_pipeline"):
-        _offpolicy().build_runner("sac", cfg)
-
-
 # ---------------------------------------------------------------------------
 # Dispatch rejections
 # ---------------------------------------------------------------------------
 
 
-def test_td3_rejects_cpu_pinned_double_buffer():
-    cfg = _offpolicy_cfg(["algo=td3", "training.replay_pipeline=cpu_pinned_double_buffer"])
-    with pytest.raises(ValueError, match="cpu_pinned_double_buffer is not enabled"):
-        _offpolicy().build_runner("td3", cfg)
+def test_td3_dispatches_to_double_buffer_runner(monkeypatch: pytest.MonkeyPatch):
+    import unilab.algos.torch.common.device as device_mod
+    import unilab.algos.torch.fast_td3.learner as learner_mod
+    import unilab.algos.torch.offpolicy.double_buffer_runner as db_mod
+
+    cfg = _offpolicy_cfg(["algo=td3"])
+
+    class _FakeLearner:
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+
+    class _FakeRunner:
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+
+    monkeypatch.setattr(device_mod, "get_env_dims", lambda *args, **kwargs: (4, 2, 6))
+    monkeypatch.setattr(learner_mod, "FastTD3Learner", _FakeLearner)
+    monkeypatch.setattr(db_mod, "DoubleBufferOffPolicyRunner", _FakeRunner)
+
+    runner = _offpolicy().build_runner("td3", cfg)
+
+    assert isinstance(runner, _FakeRunner)
+    assert runner.kwargs["algo_type"] == "td3"
+    assert runner.kwargs["learner"].kwargs["critic_obs_dim"] == 6
 
 
 def test_sac_multi_gpu_rejects_cpu_pinned_double_buffer():
@@ -120,10 +118,9 @@ def test_sac_multi_gpu_rejects_cpu_pinned_double_buffer():
         [
             "algo=sac",
             "training.num_gpus=2",
-            "training.replay_pipeline=cpu_pinned_double_buffer",
         ]
     )
-    with pytest.raises(ValueError, match="cpu_pinned_double_buffer is initially single-GPU only"):
+    with pytest.raises(ValueError, match="currently single-GPU only"):
         _offpolicy().build_runner("sac", cfg)
 
 
@@ -139,7 +136,6 @@ def test_sac_portable_devices_allow_cpu_pinned_double_buffer(
         [
             "algo=sac",
             f"training.device={device}",
-            "training.replay_pipeline=cpu_pinned_double_buffer",
             "algo.use_symmetry=false",
         ]
     )
@@ -192,7 +188,6 @@ def test_sac_async_collection_rejects_cpu_pinned_double_buffer():
         [
             "algo=sac",
             "training.no_sync_collection=true",
-            "training.replay_pipeline=cpu_pinned_double_buffer",
         ]
     )
     with pytest.raises(ValueError, match="requires synchronized collection"):
@@ -213,7 +208,6 @@ def test_flashsac_double_buffer_portable_devices_allowed(
         [
             "algo=flashsac",
             f"training.device={device}",
-            "training.replay_pipeline=cpu_pinned_double_buffer",
         ]
     )
 
@@ -249,7 +243,6 @@ def test_flashsac_double_buffer_multi_gpu_rejected():
             "algo=flashsac",
             "training.device=cuda",
             "training.num_gpus=2",
-            "training.replay_pipeline=cpu_pinned_double_buffer",
         ]
     )
     with pytest.raises(ValueError, match="FlashSAC does not support training.num_gpus > 1"):
@@ -262,7 +255,6 @@ def test_flashsac_double_buffer_async_collection_rejected():
             "algo=flashsac",
             "training.device=cuda",
             "training.no_sync_collection=true",
-            "training.replay_pipeline=cpu_pinned_double_buffer",
         ]
     )
     with pytest.raises(ValueError, match="requires synchronized collection"):
@@ -274,7 +266,6 @@ def test_flashsac_double_buffer_n_step_rejected():
         [
             "algo=flashsac",
             "training.device=cuda",
-            "training.replay_pipeline=cpu_pinned_double_buffer",
             "algo.algo_params.n_step=3",
         ]
     )
@@ -287,7 +278,6 @@ def test_flashsac_double_buffer_compile_rejected():
         [
             "algo=flashsac",
             "training.device=cuda",
-            "training.replay_pipeline=cpu_pinned_double_buffer",
             "algo.algo_params.use_compile=true",
         ]
     )
@@ -300,7 +290,6 @@ def test_flashsac_double_buffer_amp_rejected():
         [
             "algo=flashsac",
             "training.device=cuda",
-            "training.replay_pipeline=cpu_pinned_double_buffer",
             "training.use_amp=true",
         ]
     )
@@ -318,7 +307,7 @@ def test_flashsac_double_buffer_amp_rejected():
 )
 def test_old_b_path_internal_knobs_are_not_hydra_options(override):
     with pytest.raises(Exception, match=override.split("=", 1)[0]):
-        _offpolicy_cfg(["algo=sac", "training.replay_pipeline=cpu_pinned_double_buffer", override])
+        _offpolicy_cfg(["algo=sac", override])
 
 
 # ---------------------------------------------------------------------------
@@ -333,7 +322,6 @@ def test_sac_double_buffer_dispatches_to_correct_runner(monkeypatch: pytest.Monk
     cfg = _offpolicy_cfg(
         [
             "algo=sac",
-            "training.replay_pipeline=cpu_pinned_double_buffer",
             "training.device=cuda",
             "algo.use_symmetry=false",
         ]
@@ -394,7 +382,6 @@ def test_sac_double_buffer_one_tick_prefetch_mode_passed(monkeypatch: pytest.Mon
     cfg = _offpolicy_cfg(
         [
             "algo=sac",
-            "training.replay_pipeline=cpu_pinned_double_buffer",
             "training.replay_prefetch_mode=one_tick",
             "training.device=cuda",
             "algo.use_symmetry=false",
@@ -506,7 +493,6 @@ def test_flashsac_double_buffer_dispatches_to_correct_runner(monkeypatch: pytest
     cfg = _offpolicy_cfg(
         [
             "algo=flashsac",
-            "training.replay_pipeline=cpu_pinned_double_buffer",
             "training.device=cuda",
             "training.trace_enabled=true",
             "training.trace_output_dir=/tmp/flashsac_trace",
@@ -558,7 +544,6 @@ def test_flashsac_double_buffer_actor_kwargs_passed(monkeypatch: pytest.MonkeyPa
     cfg = _offpolicy_cfg(
         [
             "algo=flashsac",
-            "training.replay_pipeline=cpu_pinned_double_buffer",
             "training.device=cuda",
             "algo.algo_params.actor_num_blocks=3",
             "algo.algo_params.actor_noise_zeta_mu=4.0",
@@ -604,7 +589,6 @@ def test_flashsac_double_buffer_verbose_metrics_passed(monkeypatch: pytest.Monke
     cfg = _offpolicy_cfg(
         [
             "algo=flashsac",
-            "training.replay_pipeline=cpu_pinned_double_buffer",
             "training.verbose_metrics=true",
             "training.device=cuda",
         ]
@@ -633,47 +617,6 @@ def test_flashsac_double_buffer_verbose_metrics_passed(monkeypatch: pytest.Monke
     runner = mod.build_runner("flashsac", cfg)
 
     assert runner.kwargs["verbose_metrics"] is True
-
-
-# ---------------------------------------------------------------------------
-# Default path unchanged
-# ---------------------------------------------------------------------------
-
-
-def test_explicit_gpu_cache_still_returns_fast_sac_runner(monkeypatch: pytest.MonkeyPatch):
-    """When replay_pipeline=gpu_cache, build_runner returns FastSACRunner."""
-    mod = _offpolicy()
-    cfg = _offpolicy_cfg(["algo=sac", "training.replay_pipeline=gpu_cache"])
-
-    class _FakeRunner:
-        def __init__(self, *args, **kwargs):
-            self.kwargs = kwargs
-
-    import unilab.algos.torch.fast_sac.runner as runner_mod
-
-    monkeypatch.setattr(runner_mod, "FastSACRunner", _FakeRunner)
-
-    runner = mod.build_runner("sac", cfg)
-    assert isinstance(runner, _FakeRunner)
-
-
-def test_flashsac_explicit_gpu_cache_still_returns_flashsac_runner(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    """When FlashSAC uses replay_pipeline=gpu_cache, build_runner returns FlashSACRunner."""
-    mod = _offpolicy()
-    cfg = _offpolicy_cfg(["algo=flashsac", "training.replay_pipeline=gpu_cache"])
-
-    class _FakeRunner:
-        def __init__(self, *args, **kwargs):
-            self.kwargs = kwargs
-
-    import unilab.algos.torch.flash_sac.runner as runner_mod
-
-    monkeypatch.setattr(runner_mod, "FlashSACRunner", _FakeRunner)
-
-    runner = mod.build_runner("flashsac", cfg)
-    assert isinstance(runner, _FakeRunner)
 
 
 # ---------------------------------------------------------------------------
@@ -851,7 +794,6 @@ def test_sac_double_buffer_verbose_metrics_passed(monkeypatch: pytest.MonkeyPatc
     cfg = _offpolicy_cfg(
         [
             "algo=sac",
-            "training.replay_pipeline=cpu_pinned_double_buffer",
             "training.verbose_metrics=true",
             "training.device=cuda",
             "algo.use_symmetry=false",

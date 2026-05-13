@@ -85,9 +85,6 @@ class _FakeReplayBuffer:
         self.sample_sizes_at_call: list[int] = []
         _FakeReplayBuffer.last_instance = self
 
-    def init_local_gpu_cache(self, device: str) -> None:
-        del device
-
     def sample(self, batch_size: int) -> dict[str, torch.Tensor]:
         self.sample_calls += 1
         self.last_incremental_h2d_time_s = 0.004

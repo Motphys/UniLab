@@ -24,7 +24,6 @@ def test_sac_default_case_uses_effective_symmetry_batch() -> None:
     assert case.learner_batch_size == case.configured_batch_size // 2
     assert case.sample_count == case.learner_batch_size * case.updates_per_step
     assert case.incremental_rows == case.num_envs * case.env_steps_per_sync
-    assert case.replay_pipeline == "cpu_pinned_double_buffer"
 
 
 def test_flashsac_default_case_uses_configured_batch() -> None:
@@ -46,7 +45,6 @@ def test_flashsac_default_case_uses_configured_batch() -> None:
     assert case.benchmark_capacity_rows == 1024
     assert case.learner_batch_size == case.configured_batch_size
     assert case.sample_count == case.configured_batch_size * case.updates_per_step
-    assert case.replay_pipeline == "gpu_cache"
 
 
 def test_replay_shape_packed_width_includes_critic_fields() -> None:
@@ -98,9 +96,31 @@ def test_resolve_device_auto_prefers_mps_when_cuda_is_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(bench.torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(
+        bench.torch, "xpu", type("_Xpu", (), {"is_available": lambda: False}), raising=False
+    )
     monkeypatch.setattr(bench.torch.backends.mps, "is_available", lambda: True)
 
     assert bench._resolve_device("auto") == torch.device("mps")
+
+
+def test_resolve_device_auto_prefers_xpu_before_mps(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(bench.torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(
+        bench.torch, "xpu", type("_Xpu", (), {"is_available": lambda: True}), raising=False
+    )
+    monkeypatch.setattr(bench.torch.backends.mps, "is_available", lambda: True)
+
+    assert bench._resolve_device("auto") == torch.device("xpu")
+
+
+def test_resolve_device_rejects_unavailable_xpu(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        bench.torch, "xpu", type("_Xpu", (), {"is_available": lambda: False}), raising=False
+    )
+
+    with pytest.raises(ValueError, match="XPU was requested"):
+        bench._resolve_device("xpu")
 
 
 def test_resolve_device_rejects_unavailable_mps(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -110,6 +130,16 @@ def test_resolve_device_rejects_unavailable_mps(monkeypatch: pytest.MonkeyPatch)
         bench._resolve_device("mps")
 
 
+def test_replay_transfer_manifest_records_backend_fields() -> None:
+    manifest = bench._replay_transfer_manifest(torch.device("cpu"))
+
+    assert manifest["backend"] == "TorchCopyReplayTransferBackend"
+    assert manifest["device_family"] == "cpu"
+    assert manifest["host_memory_kind"] == "pageable_shared"
+    assert manifest["supports_async_submit"] is False
+    assert manifest["ring_depth"] == 2
+
+
 def test_run_case_cpu_portable_path_records_device_transfer_timings() -> None:
     case = bench.BenchmarkCase(
         algo="sac",
@@ -117,7 +147,6 @@ def test_run_case_cpu_portable_path_records_device_transfer_timings() -> None:
         sim="mujoco",
         command="uv run train --algo sac --task dummy --sim mujoco",
         training_task_name="Dummy",
-        replay_pipeline="cpu_pinned_double_buffer",
         num_envs=2,
         env_steps_per_sync=1,
         replay_buffer_n=4,

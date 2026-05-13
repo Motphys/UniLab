@@ -101,7 +101,6 @@ class BenchmarkCase:
     sim: str
     command: str
     training_task_name: str
-    replay_pipeline: str
     num_envs: int
     env_steps_per_sync: int
     replay_buffer_n: int
@@ -175,8 +174,55 @@ def _stats(samples_ms: list[float], *, warmup: int, repeat: int) -> TimingStats:
 def _sync_device(device: torch.device) -> None:
     if device.type == "cuda":
         torch.cuda.synchronize(device)
+    elif device.type == "xpu" and _xpu_available():
+        synchronize = getattr(torch.xpu, "synchronize", None)
+        if callable(synchronize):
+            try:
+                synchronize(device)
+            except TypeError:
+                synchronize()
     elif device.type == "mps" and hasattr(torch, "mps"):
         torch.mps.synchronize()
+
+
+def _xpu_available() -> bool:
+    xpu = getattr(torch, "xpu", None)
+    is_available = getattr(xpu, "is_available", None)
+    return bool(callable(is_available) and is_available())
+
+
+def _replay_transfer_manifest(device: torch.device, *, ring_depth: int = 2) -> dict[str, Any]:
+    if device.type == "cuda":
+        torch_version = getattr(torch, "version", None)
+        is_rocm = bool(getattr(torch_version, "hip", None))
+        return {
+            "backend": "CudaLikeReplayTransferBackend",
+            "device_family": "rocm" if is_rocm else "cuda",
+            "host_memory_kind": "registered_pinned_shared",
+            "supports_async_submit": True,
+            "supports_timing_events": True,
+            "h2d_submitter": "torch_copy_stream" if is_rocm else "pybind11",
+            "ring_depth": ring_depth,
+        }
+    if device.type == "xpu":
+        return {
+            "backend": "XpuReplayTransferBackend",
+            "device_family": "xpu",
+            "host_memory_kind": "pageable_shared",
+            "supports_async_submit": True,
+            "supports_timing_events": False,
+            "h2d_submitter": "torch_xpu_copy_stream",
+            "ring_depth": ring_depth,
+        }
+    return {
+        "backend": "TorchCopyReplayTransferBackend",
+        "device_family": device.type,
+        "host_memory_kind": "pageable_shared",
+        "supports_async_submit": False,
+        "supports_timing_events": False,
+        "h2d_submitter": "torch_copy",
+        "ring_depth": ring_depth,
+    }
 
 
 def _measure_ms(
@@ -271,13 +317,6 @@ def _resolve_targets(
     return targets, skipped
 
 
-def _resolve_replay_pipeline(algo: str, cfg: DictConfig) -> str:
-    replay_pipeline = str(OmegaConf.select(cfg, "training.replay_pipeline") or "auto")
-    if replay_pipeline == "auto":
-        return "cpu_pinned_double_buffer" if algo == "sac" else "gpu_cache"
-    return replay_pipeline
-
-
 def _resolve_env_shape_and_symmetry(cfg: DictConfig, algo: str) -> tuple[ReplayShape, int]:
     from unilab.base.observations import get_obs_dims
     from unilab.training import BackendAdapter, create_env, ensure_registries
@@ -353,7 +392,6 @@ def _build_case(
         sim=sim,
         command=command,
         training_task_name=str(cfg.training.task_name),
-        replay_pipeline=_resolve_replay_pipeline(algo, cfg),
         num_envs=num_envs,
         env_steps_per_sync=env_steps_per_sync,
         replay_buffer_n=replay_buffer_n,
@@ -915,12 +953,16 @@ def _resolve_device(value: str) -> torch.device:
     if value == "auto":
         if torch.cuda.is_available():
             return torch.device("cuda")
+        if _xpu_available():
+            return torch.device("xpu")
         if torch.backends.mps.is_available():
             return torch.device("mps")
         return torch.device("cpu")
     device = torch.device(value)
     if device.type == "cuda" and not torch.cuda.is_available():
         raise ValueError("CUDA was requested but torch.cuda.is_available() is false")
+    if device.type == "xpu" and not _xpu_available():
+        raise ValueError("XPU was requested but torch.xpu.is_available() is false")
     if device.type == "mps" and not torch.backends.mps.is_available():
         raise ValueError("MPS was requested but torch.backends.mps.is_available() is false")
     return device
@@ -998,9 +1040,17 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Device request: {args.device} -> {device}")
     print(f"PyTorch: {torch.__version__}")
     device_info_line = get_device_info_line()
+    transfer_manifest = _replay_transfer_manifest(device)
     print(device_info_line)
+    print(
+        "Replay transfer backend: "
+        f"{transfer_manifest['backend']} "
+        f"({transfer_manifest['device_family']}, {transfer_manifest['h2d_submitter']})"
+    )
     if device.type == "cuda":
         print("Transfer path: CUDA pinned/native fast path where pinned memory is available.")
+    elif device.type == "xpu":
+        print("Transfer path: XPU stream/event torch copy path.")
     else:
         print(f"Transfer path: portable torch_copy path on {device}.")
 
@@ -1040,6 +1090,7 @@ def main(argv: list[str] | None = None) -> int:
         "torch_version": torch.__version__,
         "device": str(device),
         "device_info": get_device_info_dict(),
+        "replay_transfer_backend": transfer_manifest,
         "args": {
             "algos": algos,
             "tasks": tasks,
