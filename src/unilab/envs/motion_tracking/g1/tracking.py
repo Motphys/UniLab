@@ -59,7 +59,6 @@ class RewardConfig:
             "motion_joint_vel": 0.0,
             "action_rate_l2": -0.1,
             "joint_limit": -10.0,
-            "undesired_contacts": -0.1,
         }
     )
     # Standard deviations for exponential rewards
@@ -653,30 +652,31 @@ class G1MotionTrackingEnv(G1BaseEnv):
         joint_pos_rel = dof_pos - self.default_angles
         last_actions = info.get("current_actions", np.zeros_like(joint_pos_rel))
 
-        # Per-step observation noise on sensor channels
+        # Per-step observation noise on sensor channels (actor only).
+        # Critic uses the clean originals — asymmetric actor–critic contract.
         noise_cfg = self._cfg.noise_config
-        actor_linvel = self._obs_noise(linvel, noise_cfg.scale_linvel)
-        actor_gyro = self._obs_noise(gyro, noise_cfg.scale_gyro)
-        actor_joint_pos_rel = self._obs_noise(joint_pos_rel, noise_cfg.scale_joint_angle)
-        actor_dof_vel = self._obs_noise(dof_vel, noise_cfg.scale_joint_vel)
+        noisy_linvel = self._obs_noise(linvel, noise_cfg.scale_linvel)
+        noisy_gyro = self._obs_noise(gyro, noise_cfg.scale_gyro)
+        noisy_joint_pos_rel = self._obs_noise(joint_pos_rel, noise_cfg.scale_joint_angle)
+        noisy_dof_vel = self._obs_noise(dof_vel, noise_cfg.scale_joint_vel)
 
-        # Actor observations
+        # Actor observations (noisy proprioception)
         actor_obs = np.concatenate(
             [
                 command,
                 motion_anchor_pos_b,
                 motion_anchor_ori_b,
-                actor_linvel,
-                actor_gyro,
-                actor_joint_pos_rel,
-                actor_dof_vel,
+                noisy_linvel,
+                noisy_gyro,
+                noisy_joint_pos_rel,
+                noisy_dof_vel,
                 last_actions,
             ],
             axis=1,
             dtype=get_global_dtype(),
         )
 
-        # Robot body positions in robot anchor frame (critic-only) — vectorized
+        # Robot body positions in robot anchor frame (critic-only privileged) — vectorized
         n_body = len(self._cfg.body_names)
         # Flatten (N, B, *) -> (N*B, *) for batched frame transform
         anchor_pos_tiled = np.tile(robot_anchor_pos_w, (1, n_body)).reshape(num_envs * n_body, 3)
@@ -700,17 +700,18 @@ class G1MotionTrackingEnv(G1BaseEnv):
             dtype=get_global_dtype(),
         )
 
+        # Critic observations (clean proprioception + privileged body transforms)
         critic_obs = np.concatenate(
             [
                 command,
                 motion_anchor_pos_b,
                 motion_anchor_ori_b,
-                critic_extra,
                 linvel,
                 gyro,
                 joint_pos_rel,
                 dof_vel,
                 last_actions,
+                critic_extra,
             ],
             axis=1,
             dtype=get_global_dtype(),

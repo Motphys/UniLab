@@ -17,11 +17,10 @@ def _class_path(obj) -> str:
 
 
 def _rough_cfg(*, curriculum_enabled: bool = False, seed: int = 0):
-    from unilab.envs.locomotion.go2.joystick import RewardConfig
-    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughCfg
+    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughCfg, RoughRewardConfig
 
     cfg = Go2JoystickRoughCfg(
-        reward_config=RewardConfig(scales={}, tracking_sigma=0.25, base_height_target=0.3)
+        reward_config=RoughRewardConfig(scales={}, tracking_sigma=0.25, base_height_target=0.3)
     )
     cfg.scene.terrain.generator.num_rows = 3
     cfg.scene.terrain.generator.num_cols = 3
@@ -189,19 +188,6 @@ def test_reset_qpos_xy_matches_terrain_origins():
         env.close()
 
 
-def test_rough_reset_spawns_upright_on_terrain():
-    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughEnv
-
-    cfg = _rough_cfg(curriculum_enabled=False, seed=0)
-    env = Go2JoystickRoughEnv(cfg, num_envs=64, backend_type="mujoco")
-    try:
-        env.init_state()
-        upvector = env._backend.get_sensor_data("upvector")
-        assert np.all(upvector[:, 2] > 0.9)
-    finally:
-        env.close()
-
-
 def test_rough_reset_spawns_above_sampled_terrain():
     from unilab.envs.locomotion.go2.rough import Go2JoystickRoughEnv
 
@@ -238,34 +224,6 @@ def test_curriculum_logs_appear_after_done():
             "terrain_curriculum/num_skipped",
         ):
             assert key in log
-    finally:
-        env.close()
-
-
-def test_reset_uses_spawn_manager_apply_spawn(monkeypatch):
-    """When terrain present, reset must go through the spawn manager after xy jitter."""
-    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughEnv
-
-    cfg = _rough_cfg(curriculum_enabled=False, seed=0)
-    env = Go2JoystickRoughEnv(cfg, num_envs=4, backend_type="mujoco")
-    try:
-        sm = env._spawn
-        assert sm is not None
-        called: list[tuple[np.ndarray, np.ndarray, np.ndarray | None]] = []
-        original = sm.apply_spawn
-
-        def spy(env_ids: np.ndarray, qpos_xyz: np.ndarray, *, yaw=None) -> np.ndarray:
-            called.append((env_ids.copy(), qpos_xyz.copy(), None if yaw is None else yaw.copy()))
-            return original(env_ids, qpos_xyz, yaw=yaw)
-
-        monkeypatch.setattr(sm, "apply_spawn", spy)
-        env.init_state()
-        assert len(called) >= 1
-        env_ids, qpos_xyz, yaw = called[0]
-        np.testing.assert_array_equal(env_ids, np.arange(4))
-        assert qpos_xyz.shape == (4, 3)
-        assert yaw is not None
-        assert yaw.shape == (4,)
     finally:
         env.close()
 

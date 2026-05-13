@@ -4,11 +4,13 @@ training:
   sim_backend: motrix
 algo:
   num_envs: 2048
-  max_iterations: 220
+  max_iterations: 2200
   empirical_normalization: true
   obs_groups:
     actor:
       - policy
+    critic:
+      - critic
   policy:
     init_noise_std: 0.5
   algorithm:
@@ -28,6 +30,11 @@ env:
   reset_base_qvel_limit: 0.05
   curriculum:
     enabled: false
+  noise_config:
+    level: 1.0
+    scale_joint_angle: 0.01
+    scale_joint_vel: 1.5
+    scale_gyro: 0.2
 reward:
   scales:
     tracking_lin_vel: 2.0

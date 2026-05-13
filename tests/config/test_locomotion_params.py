@@ -232,8 +232,6 @@ def test_go2_joystick_rough_uses_terrain_generator():
     assert isinstance(cfg.scene.terrain.generator, TerrainGeneratorCfg)
     assert cfg.scene.terrain.hfield_name == "terrain_hfield"
     assert cfg.scene.terrain.geom_name == "floor"
-    assert cfg.scene.terrain.generator.num_rows == 1
-    assert cfg.scene.terrain.generator.num_cols == 1
     assert len(cfg.scene.terrain.generator.sub_terrains) == 7
 
 
@@ -243,9 +241,10 @@ def test_go2_joystick_rough_terrain_cfg_is_independent_per_instance():
 
     a = Go2JoystickRoughCfg()
     b = Go2JoystickRoughCfg()
+    b.scene.terrain.generator.num_rows = 3
     assert a.scene.terrain.generator is not b.scene.terrain.generator
     a.scene.terrain.generator.num_rows = 4
-    assert b.scene.terrain.generator.num_rows == 1
+    assert b.scene.terrain.generator.num_rows == 3
 
 
 def test_go2_joystick_rough_playback_model_uses_backend_scene(tmp_path):
@@ -279,6 +278,10 @@ def test_go2_joystick_rough_playback_model_uses_backend_scene(tmp_path):
         assert isinstance(model_file, str)
         assert model_file.endswith(".mjb")
         assert Path(model_file).is_file()
+        rendered_model = mujoco.MjModel.from_binary_path(model_file)
+        assert mujoco.mj_name2id(rendered_model, mujoco.mjtObj.mjOBJ_HFIELD, "terrain_hfield") >= 0
+        assert mujoco.mj_name2id(rendered_model, mujoco.mjtObj.mjOBJ_GEOM, "floor") >= 0
+        assert rendered_model.ngeom > playback_model.ngeom
     finally:
         env.close()
 
@@ -323,26 +326,23 @@ def test_ppo_go2_joystick_rough_motrix_task_compose():
         cfg = compose("config", overrides=["task=go2_joystick_rough/motrix"])
     assert cfg.training.task_name == "Go2JoystickRough"
     assert cfg.training.sim_backend == "motrix"
-    assert cfg.algo.max_iterations == 500
+    assert cfg.algo.num_envs == 4096
+    assert cfg.algo.max_iterations == 2000
     assert cfg.env.render_offset_mode == "zero"
     assert cfg.env.scene.model_file.endswith("go2.xml")
-    assert cfg.env.scene.terrain.generator.num_rows == 1
+    assert cfg.env.scene.terrain.generator.num_rows == 6
+    assert cfg.env.scene.terrain.generator.num_cols == 6
+    assert cfg.env.terrain_scan.enabled is True
+    assert cfg.reward.scales.tracking_lin_vel == pytest.approx(3.0)
+    assert "base_height" not in cfg.reward.scales
+    assert "swing_feet_z" not in cfg.reward.scales
 
 
-def test_ppo_go2_joystick_rough_motrix_matches_mujoco_training_config():
-    from hydra import compose, initialize_config_dir
-    from hydra.core.global_hydra import GlobalHydra
-    from omegaconf import OmegaConf
+def test_go2_joystick_rough_motrix_registers_rough_env():
+    from unilab.base import registry
+    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughEnv
 
-    GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(CONF_DIR / "ppo"), version_base="1.3"):
-        mujoco_cfg = compose("config", overrides=["task=go2_joystick_rough/mujoco"])
-        motrix_cfg = compose("config", overrides=["task=go2_joystick_rough/motrix"])
-
-    mujoco_dict = OmegaConf.to_container(mujoco_cfg, resolve=True)
-    motrix_dict = OmegaConf.to_container(motrix_cfg, resolve=True)
-    mujoco_dict["training"]["sim_backend"] = "motrix"
-    assert motrix_dict == mujoco_dict
+    assert registry._envs["Go2JoystickRough"].env_cls_dict["motrix"] is Go2JoystickRoughEnv
 
 
 def test_offpolicy_g1_rough_terrain_task_overrides():
@@ -546,6 +546,12 @@ def test_apply_cfg_overrides_deep_merges_dataclass_field():
     from unilab.envs.locomotion.go2.rough import Go2JoystickRoughCfg
 
     cfg = Go2JoystickRoughCfg()
+    cfg.scene.terrain.generator.num_cols = 3
+    cfg.scene.terrain.generator.border_width = 2.5
+    cfg.scene.terrain.generator.sub_terrains = {
+        "test_flat": cfg.scene.terrain.generator.sub_terrains["flat"]
+    }
+    cfg.scene.terrain.generator.add_lights = False
     apply_cfg_overrides(
         cfg,
         {"scene": {"terrain": {"generator": {"num_rows": 4, "seed": 42, "curriculum": True}}}},
@@ -555,10 +561,10 @@ def test_apply_cfg_overrides_deep_merges_dataclass_field():
     assert cfg.scene.terrain.generator.num_rows == 4
     assert cfg.scene.terrain.generator.seed == 42
     assert cfg.scene.terrain.generator.curriculum is True
-    # Non-overridden fields preserve Go2RoughTerrainCfg defaults.
-    assert cfg.scene.terrain.generator.num_cols == 1
-    assert cfg.scene.terrain.generator.border_width == pytest.approx(1.0)
-    assert len(cfg.scene.terrain.generator.sub_terrains) == 7
+    # Non-overridden fields preserve the pre-existing instance state.
+    assert cfg.scene.terrain.generator.num_cols == 3
+    assert cfg.scene.terrain.generator.border_width == pytest.approx(2.5)
+    assert list(cfg.scene.terrain.generator.sub_terrains) == ["test_flat"]
     assert cfg.scene.terrain.generator.add_lights is False
 
 

@@ -152,8 +152,10 @@ def materialize_motrix_hfield_attached_scene(
     # MotrixSim's hfield source uses MuJoCo-style X/Y half extents.
     hfield.size = [float(generated.hfield_size[0]), float(generated.hfield_size[1])]
     hfield.height_scale = float(generated.height_extent)
+    # MotrixSim buffers use compiled hfield row order: row 0 is the -Y side.
+    hfield_data = np.ascontiguousarray(np.flipud(generated.heights_yx).astype(np.float32))
     hfield.source_type = msd.HFieldSourceType.buffer(
-        np.ascontiguousarray(generated.heights_yx.astype(np.float32).reshape(-1)),
+        hfield_data.reshape(-1),
         f"{hfield_name}_buffer",
     )
     world.assets.hfields[hfield_name] = hfield
@@ -181,6 +183,5 @@ def materialize_motrix_hfield_attached_scene(
         add_motrix_tracking_frame_sensors(world, base_name=base_name)
 
     if return_surface_sampler:
-        # TODO(motrixsim): remove flip_y once MotrixSim hfield Y convention aligns with MuJoCo.
-        return msd.build(world), generated.terrain_origins, generated.surface_sampler(flip_y=True)
+        return msd.build(world), generated.terrain_origins, generated.surface_sampler()
     return msd.build(world), generated.terrain_origins

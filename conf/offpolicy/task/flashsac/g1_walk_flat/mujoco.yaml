@@ -25,6 +25,7 @@ env:
     level_up_threshold: 750.0
     degree: 0.001
   noise_config:
+    level: 1.0
     scale_gyro: 0.0
     scale_gravity: 0.0
     scale_joint_angle: 0.01

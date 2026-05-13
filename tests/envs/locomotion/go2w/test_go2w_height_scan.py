@@ -196,31 +196,42 @@ def test_mujoco_backend_hfield_sampling_matches_python_reference(
         grid=grid,
     ).scan(backend.get_base_pos()[:, :2], backend.get_base_quat())
 
-    native = backend.sample_hfield_height(
+    scanner = backend.create_hfield_scanner(
         hfield_geom_id=backend.get_geom_id(scan_cfg.geom_name),
         offsets=_height_scan_offsets(scan_cfg.measured_points_x, scan_cfg.measured_points_y),
         frame_body_id=backend.get_body_id("base_link"),
         alignment="yaw",
         output="height",
     )
+    native = scanner.scan()
 
     assert native.shape == reference.shape
     np.testing.assert_allclose(native, reference, atol=1e-6, rtol=0)
 
 
 def test_go2w_rough_height_scan_uses_backend_native_sampling() -> None:
+    class FakeHeightScanner:
+        def __init__(self, heights: np.ndarray) -> None:
+            self.calls = 0
+            self.heights = heights
+
+        def scan(self) -> np.ndarray:
+            self.calls += 1
+            return self.heights
+
     class FakeBackend:
         def __init__(self) -> None:
-            self.calls: list[dict[str, Any]] = []
+            self.scanner_calls: list[dict[str, Any]] = []
             self.base_pos = np.asarray([[0.0, 0.0, 0.6], [1.0, 0.0, 0.7]], dtype=np.float32)
             self.heights = np.asarray([[0.1, 0.2], [0.3, 0.4]], dtype=np.float32)
+            self.scanner = FakeHeightScanner(self.heights)
 
         def get_base_pos(self) -> np.ndarray:
             return self.base_pos
 
-        def sample_hfield_height(self, **kwargs: Any) -> np.ndarray:
-            self.calls.append(kwargs)
-            return self.heights
+        def create_hfield_scanner(self, **kwargs: Any) -> FakeHeightScanner:
+            self.scanner_calls.append(kwargs)
+            return self.scanner
 
     env = object.__new__(Go2WJoystickRoughTilesEnv)
     fake_backend = FakeBackend()
@@ -229,13 +240,21 @@ def test_go2w_rough_height_scan_uses_backend_native_sampling() -> None:
     env._height_scan_hfield_geom_id = 7
     env._height_scan_frame_body_id = 3
     env._height_scan_offsets = np.asarray([[0.0, 0.0], [0.1, -0.1]], dtype=np.float64)
+    env._height_scan_sensor = fake_backend.create_hfield_scanner(
+        hfield_geom_id=env._height_scan_hfield_geom_id,
+        offsets=env._height_scan_offsets,
+        frame_body_id=env._height_scan_frame_body_id,
+        alignment="yaw",
+        output="height",
+    )
 
     raw_heights, base_pos = env._raw_height_scan_obs(num_obs=2)
 
     np.testing.assert_array_equal(raw_heights, fake_backend.heights)
     np.testing.assert_array_equal(base_pos, fake_backend.base_pos)
-    assert len(fake_backend.calls) == 1
-    call = fake_backend.calls[0]
+    assert fake_backend.scanner.calls == 1
+    assert len(fake_backend.scanner_calls) == 1
+    call = fake_backend.scanner_calls[0]
     assert call["hfield_geom_id"] == 7
     assert call["frame_body_id"] == 3
     assert call["alignment"] == "yaw"

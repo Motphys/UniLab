@@ -109,13 +109,12 @@ class GeneratedTerrain:
         normalized = (self.heights_yx - self.z_min) / span
         return np.rint(np.clip(normalized, 0.0, 1.0) * np.iinfo(np.uint16).max).astype(np.uint16)
 
-    def surface_sampler(self, *, flip_y: bool = False) -> "HeightfieldSurfaceSampler":
+    def surface_sampler(self) -> "HeightfieldSurfaceSampler":
         return HeightfieldSurfaceSampler(
             heights_uint16=self.to_uint16(),
             horizontal_scale=float(self.horizontal_scale),
             z_min=float(self.z_min),
             height_extent=float(self.height_extent),
-            flip_y=bool(flip_y),
         )
 
     def write_png(self, path: Path) -> None:
@@ -141,7 +140,6 @@ class HeightfieldSurfaceSampler:
     horizontal_scale: float
     z_min: float
     height_extent: float
-    flip_y: bool = False
 
     @property
     def size(self) -> tuple[float, float]:
@@ -157,8 +155,7 @@ class HeightfieldSurfaceSampler:
         size_x, size_y = self.size
         rows_y, cols_x = self.heights_uint16.shape
         cols = np.rint((flat[:, 0] + size_x * 0.5) / self.horizontal_scale).astype(np.intp)
-        y = flat[:, 1] if self.flip_y else -flat[:, 1]
-        rows = np.rint((y + size_y * 0.5) / self.horizontal_scale).astype(np.intp)
+        rows = np.rint((-flat[:, 1] + size_y * 0.5) / self.horizontal_scale).astype(np.intp)
         cols = np.clip(cols, 0, cols_x - 1)
         rows = np.clip(rows, 0, rows_y - 1)
 

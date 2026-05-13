@@ -13,10 +13,10 @@ from unilab.envs.locomotion.common.base import (
 
 @dataclass
 class NoiseConfig:
-    level: float = 1.0
-    scale_joint_angle: float = 0.01
-    scale_joint_vel: float = 1.5
-    scale_gyro: float = 0.2
+    level: float = 0.0
+    scale_joint_angle: float = 0.02
+    scale_joint_vel: float = 0.3
+    scale_gyro: float = 0.1
     scale_gravity: float = 0.05
     scale_linvel: float = 0.1
 

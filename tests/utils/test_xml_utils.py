@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import xml.etree.ElementTree as ET
 
 import pytest
 
@@ -139,7 +140,15 @@ def test_materialize_mujoco_hfield_attached_scene_composes_robot_and_task_fragme
     assert (tmp_path / "hfields" / "hfield.png").is_file()
     scene_xml = tmp_path / "scene.xml"
     assert scene_xml.is_file()
+    scene_root = ET.parse(scene_xml).getroot()
+    compiler = scene_root.find("compiler")
+    assert compiler is None or compiler.get("discardvisual") != "true"
+    assert scene_root.find("./asset/texture[@name='groundplane']") is not None
+    assert scene_root.find("./asset/material[@name='groundplane']") is not None
+    assert scene_root.find("./visual/headlight") is not None
+    assert scene_root.find(".//geom[@name='floor']").get("material") == "groundplane"
     reloaded_model = mujoco.MjModel.from_xml_path(str(scene_xml))
+    assert model.ngeom < reloaded_model.ngeom
     assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_HFIELD, "terrain_hfield") >= 0
     assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "floor") >= 0
     assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SENSOR, "FL_foot_contact") >= 0
@@ -203,3 +212,40 @@ def test_materialize_motrix_hfield_attached_scene_composes_robot_and_task_fragme
     assert model.num_sensors >= 23
     assert model.get_body("base") is not None
     assert model.get_link("base") is not None
+
+
+def test_materialize_motrix_hfield_row_direction_uses_compiled_order() -> None:
+    pytest.importorskip("motrixsim")
+
+    import copy
+
+    import numpy as np
+
+    from unilab.terrains import ROUGH_TERRAINS_CFG, TerrainGenerator
+
+    cfg = copy.deepcopy(ROUGH_TERRAINS_CFG)
+    cfg.num_rows = 2
+    cfg.num_cols = 2
+    cfg.border_width = 0.0
+    cfg.add_lights = False
+    cfg.seed = 123
+
+    generated = TerrainGenerator(cfg).generate()
+    motrix_model, _, motrix_sampler = materialize_motrix_hfield_attached_scene(
+        model_file=_go2_robot(),
+        terrain_cfg=cfg,
+        fragment_files=[_go2_locomotion_task()],
+        return_surface_sampler=True,
+    )
+
+    motrix_heights = motrix_model.get_hfield("terrain_hfield").height_matrix
+
+    expected_hfield = np.flipud(generated.heights_yx - generated.z_min)
+    np.testing.assert_allclose(motrix_heights, expected_hfield, atol=1e-6)
+
+    xy = np.asarray([[0.0, -2.0], [0.0, 2.0], [2.0, -2.0], [-2.0, 2.0]], dtype=np.float64)
+    np.testing.assert_allclose(
+        motrix_sampler.sample_height(xy),
+        generated.surface_sampler().sample_height(xy),
+        atol=1e-6,
+    )

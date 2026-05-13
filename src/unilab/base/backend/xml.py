@@ -21,6 +21,11 @@ def _enable_discardvisual(root: ET.Element) -> None:
     compiler_tag.set("discardvisual", "true")
 
 
+def _write_xml_root(root: ET.Element, output_path: Path) -> None:
+    ET.indent(root, space="  ")
+    output_path.write_text(ET.tostring(root, encoding="unicode"), encoding="utf-8")
+
+
 def create_discardvisual_xml(model_file: str) -> str:
     tree = ET.parse(model_file)
     _enable_discardvisual(tree.getroot())
@@ -271,6 +276,56 @@ def _flatten_attach_main_default(root: ET.Element) -> None:
         insert_at += 1
 
 
+def _ensure_child(parent: ET.Element, query: str, xml: str) -> None:
+    if parent.find(query) is None:
+        parent.append(ET.fromstring(xml))
+
+
+def _ensure_generated_hfield_scene_visuals(root: ET.Element, geom_name: str) -> None:
+    asset = root.find("asset")
+    if asset is None:
+        asset = ET.Element("asset")
+        root.insert(0, asset)
+
+    _ensure_child(
+        asset,
+        "./texture[@type='skybox']",
+        '<texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" '
+        'rgb2="0 0 0" width="512" height="3072"/>',
+    )
+    _ensure_child(
+        asset,
+        "./texture[@name='groundplane']",
+        '<texture type="2d" name="groundplane" builtin="checker" mark="edge" '
+        'rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3" markrgb="0.8 0.8 0.8" '
+        'width="300" height="300"/>',
+    )
+    _ensure_child(
+        asset,
+        "./material[@name='groundplane']",
+        '<material name="groundplane" texture="groundplane" texuniform="true" '
+        'texrepeat="5 5" reflectance="0.2"/>',
+    )
+
+    if root.find("visual") is None:
+        root.append(
+            ET.fromstring(
+                '<visual><headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" '
+                'specular="0.0 0.0 0.0"/><rgba haze="0.15 0.25 0.35 1"/>'
+                '<global azimuth="-130" elevation="-20"/><quality offsamples="4"/>'
+                '<map force="0.01"/></visual>'
+            )
+        )
+
+    terrain_geom = root.find(f".//geom[@name='{geom_name}']")
+    if terrain_geom is not None and terrain_geom.get("material") is None:
+        terrain_geom.set("material", "groundplane")
+    for light in root.findall(".//light"):
+        light.set("directional", "true")
+        light.set("castshadow", "true")
+        light.set("dir", "-0.35 -0.45 -1")
+
+
 def _merge_scene_fragment(root: ET.Element, fragment_file: Path) -> None:
     fragment_root = ET.parse(fragment_file).getroot()
     if fragment_root.tag != "mujoco":
@@ -386,18 +441,19 @@ def materialize_mujoco_hfield_attached_scene(
     spec.attach(robot_spec, frame=frame)
 
     root = ET.fromstring(spec.to_xml())
-    _enable_discardvisual(root)
     _strip_attach_prefixes(root)
     _flatten_attach_main_default(root)
+    _ensure_generated_hfield_scene_visuals(root, geom_name)
     for fragment_file in fragment_files:
         _merge_scene_fragment(root, _resolve_scene_fragment_path(fragment_file, robot_path))
 
-    ET.indent(root, space="  ")
     scene_xml = output_path / "scene.xml"
-    scene_xml.write_text(ET.tostring(root, encoding="unicode"))
+    _write_xml_root(root, scene_xml)
 
+    physics_root = ET.fromstring(ET.tostring(root, encoding="unicode"))
+    _enable_discardvisual(physics_root)
     model = mujoco.MjSpec.from_string(
-        ET.tostring(root, encoding="unicode"),
+        ET.tostring(physics_root, encoding="unicode"),
         assets=_collect_mujoco_assets(output_path / "assets"),
     ).compile()
     if return_surface_sampler:
