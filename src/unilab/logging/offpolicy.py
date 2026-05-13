@@ -77,8 +77,8 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._buffer_utilization: float = 0.0
         self._sync_collection: bool = False
         self._env_steps_per_sync: int = 0
-        self._replay_queue_len: int = 0
-        self._replay_queue_max: int = 0
+        self._staging_pool_len: int = 0
+        self._staging_pool_max: int = 0
         self._status: str = "Initializing..."
         self._terminal_refresh_started: bool = False
 
@@ -153,8 +153,11 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._buffer_utilization = float(utilization)
 
     def update_replay_queue(self, current_len: int, max_size: int):
-        self._replay_queue_len = current_len
-        self._replay_queue_max = max_size
+        self.update_staging_pool(current_len, max_size)
+
+    def update_staging_pool(self, current_len: int, max_size: int):
+        self._staging_pool_len = current_len
+        self._staging_pool_max = max_size
 
     def set_collection_sync(self, enabled: bool, env_steps_per_sync: int = 0):
         self._sync_collection = enabled
@@ -390,12 +393,12 @@ class OffPolicyLogger(BaseTrainingLogger):
             else "✗"
         )
         system_items.append(("Sync Collect", sync_collect))
-        if self._replay_queue_max > 0:
-            replay_color = "green" if self._replay_queue_len < self._replay_queue_max else "yellow"
+        if self._staging_pool_max > 0:
+            staging_color = "green" if self._staging_pool_len < self._staging_pool_max else "yellow"
             system_items.append(
                 (
-                    "Replay Queue",
-                    f"[{replay_color}]{self._replay_queue_len}/{self._replay_queue_max}[/]",
+                    "Staging Pool",
+                    f"[{staging_color}]{self._staging_pool_len}/{self._staging_pool_max}[/]",
                 )
             )
         row_count = max(len(learner_items), len(collector_items), len(system_items))

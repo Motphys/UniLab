@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import queue
 
+import numpy as np
 import pytest
 import torch
 
@@ -11,6 +12,7 @@ from unilab.algos.torch.appo.runner import APPORunner
 
 @pytest.fixture(autouse=True)
 def _reset_fakes() -> None:
+    _FakeLearner.last_instance = None
     _FakeRolloutRingBuffer.last_instance = None
     _FakeRolloutRingBuffer.available_rollouts = 1
     _FakeLogger.last_instance = None
@@ -22,10 +24,14 @@ class _FakeModule:
 
 
 class _FakeLearner:
+    last_instance: "_FakeLearner | None" = None
+
     def __init__(self) -> None:
         self.actor = _FakeModule()
         self.critic = _FakeModule()
         self.num_learning_epochs = 1
+        self.last_batch: dict[str, torch.Tensor] | None = None
+        _FakeLearner.last_instance = self
 
     def get_state_dict(self) -> dict[str, int]:
         return {"iteration": 0}
@@ -61,6 +67,20 @@ class _FakeRolloutRingBuffer:
         self.advance_calls = 0
         _FakeRolloutRingBuffer.last_instance = self
 
+    @property
+    def slot_shapes(self) -> dict[str, tuple[int, ...]]:
+        return {
+            "obs": (2, 4, 4),
+            "critic": (2, 4, 7),
+            "actions": (2, 4, 2),
+            "log_probs": (2, 4),
+            "rewards": (2, 4),
+            "dones": (2, 4),
+            "truncated": (2, 4),
+            "last_obs": (2, 4),
+            "last_critic": (2, 7),
+        }
+
     def wait_for_data(self, timeout: float = 60.0) -> bool:
         del timeout
         self.wait_calls += 1
@@ -80,6 +100,13 @@ class _FakeRolloutRingBuffer:
             "truncated": torch.zeros(2, 4, device=device),
             "last_obs": torch.zeros(2, 4, device=device),
             "last_critic": torch.zeros(2, 7, device=device),
+        }
+
+    def read_numpy_views(self) -> dict[str, np.ndarray]:
+        value = float(self.advance_calls + 1)
+        return {
+            field: np.full(shape, value, dtype=np.float32)
+            for field, shape in self.slot_shapes.items()
         }
 
     def advance_read(self) -> None:
@@ -133,6 +160,9 @@ class _FakeLogger:
         pass
 
     def update_replay_queue(self, current_len: int, max_size: int) -> None:
+        del current_len, max_size
+
+    def update_staging_pool(self, current_len: int, max_size: int) -> None:
         del current_len, max_size
 
     def log_collector(self, total_steps: int, buffer_size: int, mean_reward: float = 0.0) -> None:
@@ -253,3 +283,63 @@ def test_appo_runner_logs_learner_timing_for_fps_inputs(
     assert step["extra_info"]["startup_wait_time"] == pytest.approx(10.0)
     assert step["extra_info"]["throughput_steps"] == 8
     assert step["metrics"]["rollouts_read"] == 1.0
+    assert step["metrics"]["staging_pool_len"] == 1.0
+
+
+def test_appo_runner_stages_multiple_rollouts_without_runner_cat(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    def fake_detect_dims(self: APPORunner) -> tuple[int, int]:
+        self.critic_dim = 7
+        self.critic_input_dim = 5
+        return (4, 2)
+
+    def fail_cat(*args, **kwargs):
+        del args, kwargs
+        raise AssertionError("runner must not rebuild APPO batches with torch.cat")
+
+    _FakeRolloutRingBuffer.available_rollouts = 2
+    monkeypatch.setattr(APPORunner, "_detect_dims", fake_detect_dims)
+    monkeypatch.setattr(APPORunner, "_build_learner", lambda self: _FakeLearner())
+    monkeypatch.setattr(APPORunner, "_check_collector_alive", lambda self: True)
+    monkeypatch.setattr(appo_runner_module, "RolloutRingBuffer", _FakeRolloutRingBuffer)
+    monkeypatch.setattr(appo_runner_module, "SharedWeightSync", _FakeWeightSync)
+    monkeypatch.setattr(appo_runner_module, "OffPolicyLogger", _FakeLogger)
+    monkeypatch.setattr(appo_runner_module.mp, "get_context", lambda method: queue)
+    monkeypatch.setattr(appo_runner_module.torch, "save", lambda *args, **kwargs: None)
+    monkeypatch.setattr(appo_runner_module.torch, "cat", fail_cat)
+
+    fake_clock = _FakeClock([100.0, 100.0, 110.0, 120.0, 120.5, 121.0])
+    monkeypatch.setattr(appo_runner_module.time, "time", fake_clock.time)
+
+    runner = APPORunner(
+        env_name="DummyEnv",
+        env_cfg_overrides={},
+        rl_cfg={"actor": {}, "critic": {}, "algorithm": {}},
+        device="cpu",
+        collector_device="cpu",
+        sim_backend="mujoco",
+        num_envs=2,
+        steps_per_env=4,
+    )
+    monkeypatch.setattr(runner, "_start_collector", lambda *args, **kwargs: None)
+
+    runner.learn(max_iterations=1, save_interval=0, log_dir=str(tmp_path))
+
+    storage = _FakeRolloutRingBuffer.last_instance
+    learner = _FakeLearner.last_instance
+    logger = _FakeLogger.last_instance
+    assert storage is not None
+    assert learner is not None
+    assert learner.last_batch is not None
+    assert logger is not None
+    assert storage.advance_calls == 2
+
+    batch = learner.last_batch
+    assert batch["observations"].shape == (4, 4, 4)
+    assert batch["actions"].shape == (4, 4, 2)
+    assert batch["actions_log_prob"].shape == (4, 4)
+    assert batch["last_obs"].shape == (4, 4)
+    assert torch.equal(torch.unique(batch["observations"]), torch.tensor([1.0, 2.0]))
+    assert logger.step_calls[0]["metrics"]["staging_pool_len"] == 2.0
+    assert logger.step_calls[0]["metrics"]["rollouts_read"] == 2.0

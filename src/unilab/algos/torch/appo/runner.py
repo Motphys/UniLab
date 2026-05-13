@@ -18,6 +18,7 @@ import torch
 from rsl_rl.utils import resolve_callable
 
 from unilab.algos.torch.appo.learner import APPOLearner
+from unilab.algos.torch.appo.staging import RolloutStagingPool
 from unilab.algos.torch.appo.worker import appo_collector_fn
 from unilab.ipc import AsyncRunner, RolloutRingBuffer, SharedWeightSync
 from unilab.logging import OffPolicyLogger
@@ -53,7 +54,10 @@ class APPORunner(AsyncRunner):
 
         self.steps_per_env = steps_per_env
         self.replay_queue_size = replay_queue_size
+        self.staging_pool_size = replay_queue_size
         self.seed = seed
+        if self.staging_pool_size < 1:
+            raise ValueError("APPO staging pool size must be >= 1")
 
         # Resolve dims
         self._resolve_dims()
@@ -184,7 +188,8 @@ class APPORunner(AsyncRunner):
 
         learner = self._build_learner()
 
-        # Create shared rollout IPC ring buffer; replay queue lives in learner.
+        # Create shared rollout IPC ring buffer; learner-side tensor lifetime is
+        # owned by the bounded staging pool below.
         rollout_ring_buffer = RolloutRingBuffer(
             num_envs=self.num_envs,
             num_steps=self.steps_per_env,
@@ -259,17 +264,19 @@ class APPORunner(AsyncRunner):
         logger.start()
         logger.log_status(
             f"Waiting for first rollout... "
-            f"(replay_queue={self.replay_queue_size}, "
+            f"(staging_pool={self.staging_pool_size}, "
             f"epochs={learner.num_learning_epochs})"
         )
 
         reward_history: deque = deque(maxlen=200)
         latest_reward_components: dict = {}
 
-        # Replay queue: stores the last replay_queue_size preprocessed rollouts in
-        # learner-process memory.  Each entry is a dict of GPU tensors with shape
-        # [T, N, *] (time-major) ready for process_batch / update.
-        replay_queue: deque[dict] = deque(maxlen=self.replay_queue_size)
+        staging_pool = RolloutStagingPool(
+            capacity=self.staging_pool_size,
+            num_envs=self.num_envs,
+            slot_shapes=rollout_ring_buffer.slot_shapes,
+            device=self.device,
+        )
 
         for iteration in range(1, max_iterations + 1):
             # Drain collector metrics while waiting for next rollout
@@ -296,7 +303,7 @@ class APPORunner(AsyncRunner):
             available_on_arrive = rollout_ring_buffer.available()
             wait_time = time.time() - wait_start
 
-            # Drain ALL available slots into the replay queue in one pass.
+            # Drain ALL available slots into the staging pool in one pass.
             # This keeps the GPU busy: if the collector produced 3 rollouts while
             # the learner was training, we consume all 3 immediately rather than
             # processing them one-per-iteration.
@@ -304,37 +311,14 @@ class APPORunner(AsyncRunner):
             learner_incremental_h2d_time = 0.0
             for _ in range(num_new):
                 h2d_start = time.perf_counter()
-                raw = rollout_ring_buffer.read_torch(self.device)
+                staging_pool.stage_numpy_views(rollout_ring_buffer.read_numpy_views())
                 learner_incremental_h2d_time += time.perf_counter() - h2d_start
                 rollout_ring_buffer.advance_read()
-
-                # Preprocess: payload is [N, T, *] (env-major); learner expects [T, N, *]
-                rollout: dict = {}
-                for k, v in raw.items():
-                    if k not in ("last_obs", "last_critic") and v.ndim >= 2:
-                        rollout[k] = v.transpose(0, 1)
-                    else:
-                        rollout[k] = v
-                if "obs" in rollout:
-                    rollout["observations"] = rollout.pop("obs")
-                if "log_probs" in rollout:
-                    rollout["actions_log_prob"] = rollout.pop("log_probs")
-                replay_queue.append(rollout)
 
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
             startup_wait_time = wait_time if iteration == 1 else 0.0
 
-            # Concatenate all rollouts in the replay queue along the env dimension.
-            # Each rollout keeps its own behavior_log_probs so V-trace IS ratios are
-            # computed independently per env-column — correct for any staleness level.
-            combined: dict = {}
-            for k in replay_queue[0]:
-                if k in ("last_obs", "last_critic"):
-                    # last_obs and last_critic are [N, D] - concat along dim 0
-                    combined[k] = torch.cat([r[k] for r in replay_queue], dim=0)
-                else:
-                    # All other tensors are [T, N, ...] - concat along dim 1 (env dimension)
-                    combined[k] = torch.cat([r[k] for r in replay_queue], dim=1)
+            combined = staging_pool.batch()
 
             train_start = time.time()
             learner.process_batch(combined)
@@ -345,11 +329,12 @@ class APPORunner(AsyncRunner):
             critic_weight_sync.write_weights(learner.critic.state_dict())
             weight_sync_time = time.perf_counter() - weight_sync_start
 
-            metrics["replay_queue_len"] = float(len(replay_queue))
+            metrics["staging_pool_len"] = float(staging_pool.active_count)
+            metrics["staging_pool_capacity"] = float(staging_pool.capacity)
             metrics["available_on_arrive"] = float(available_on_arrive)
             metrics["rollouts_read"] = float(num_new)
 
-            logger.update_replay_queue(len(replay_queue), self.replay_queue_size)
+            logger.update_staging_pool(staging_pool.active_count, staging_pool.capacity)
 
             mean_reward = (
                 sum(list(reward_history)[-50:]) / max(len(list(reward_history)[-50:]), 1)
