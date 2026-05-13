@@ -178,7 +178,9 @@ class FlashSACLearner:
         self.critic_obs_dim = critic_obs_dim
         self.action_dim = action_dim
         self.update_count = 0
-        self.use_amp = bool(use_amp and self.device.type == "cuda")
+        self.use_amp = bool(use_amp and self.device.type in ("cuda", "xpu"))
+        # CUDA uses fp16 + GradScaler; XPU uses bf16 (fp32 range, no scaler needed).
+        self._amp_dtype = torch.bfloat16 if self.device.type == "xpu" else torch.float16
         self.use_compile = bool(
             use_compile and hasattr(torch, "compile") and self.device.type == "cuda"
         )
@@ -223,7 +225,12 @@ class FlashSACLearner:
             else None
         )
 
-        self.scaler: Any | None = getattr(torch.amp, "GradScaler")("cuda") if self.use_amp else None
+        # GradScaler is only needed for fp16 (cuda); bf16 on xpu doesn't need it.
+        self.scaler: Any | None = (
+            getattr(torch.amp, "GradScaler")("cuda")
+            if self.use_amp and self.device.type == "cuda"
+            else None
+        )
         lr_peak = learning_rate_peak if learning_rate_peak > 0 else actor_lr
         fused = self.device.type == "cuda"
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=lr_peak, fused=fused)
@@ -256,7 +263,9 @@ class FlashSACLearner:
         return cast(torch.Tensor, self.obs_normalizer(obs, update=update))
 
     def _autocast(self):
-        return torch.autocast(device_type="cuda", dtype=torch.float16, enabled=self.use_amp)
+        return torch.autocast(
+            device_type=self.device.type, dtype=self._amp_dtype, enabled=self.use_amp
+        )
 
     def update_reward_stats(
         self,

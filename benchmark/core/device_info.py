@@ -162,7 +162,7 @@ def _get_device_info_linux() -> Dict[str, str]:
             info["gpu_gtt_memory"] = f"{int(gtt_match.group(1))} MB"
     except Exception:
         pass
-    # Fallback GPU via lspci (AMD/ATI and others)
+    # Fallback GPU via lspci (AMD/ATI, Intel iGPU/Arc, and others)
     if info["gpu_name"] == "unknown":
         try:
             lspci_out = subprocess.check_output(["lspci"], text=True, stderr=subprocess.DEVNULL)
@@ -174,6 +174,12 @@ def _get_device_info_linux() -> Dict[str, str]:
                             name = match.group(1).strip()
                             name = re.sub(r"\s*\(rev.*\)", "", name)
                             info["gpu_name"] = name
+                            break
+                    elif "Intel" in line:
+                        # e.g. "Intel Corporation Meteor Lake-P [Intel Arc Graphics] (rev 08)"
+                        match = re.search(r"\[([^\]]+)\]", line)
+                        if match:
+                            info["gpu_name"] = match.group(1).strip()
                             break
         except Exception:
             pass
