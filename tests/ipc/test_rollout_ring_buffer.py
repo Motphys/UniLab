@@ -81,11 +81,28 @@ def test_advance_read_skips_overwritten_slots():
     # Writer produces 4 rollouts (2x more than num_slots)
     for _ in range(4):
         s.signal_write_done()
-    # wp = 4, rp = 0 → available = 4 > num_slots
     s.advance_read()
     # After advance, rp should have jumped past overwritten slots
     # wp - rp should be <= num_slots
     assert int(s._write_ptr.value) - int(s._read_ptr.value) <= s.num_slots
+    s.cleanup()
+
+
+def test_reader_clamps_to_oldest_non_overwritten_slot_before_read():
+    s = _make_ring_buffer(num_slots=2)
+    for value in (1.0, 2.0, 3.0):
+        wb = s.write_buffer
+        for arr in wb.values():
+            arr[:] = value
+        s.signal_write_done()
+
+    assert s.available() == 2
+    first = s.read_torch("cpu")
+    assert torch.all(first["obs"] == 2.0)
+
+    s.advance_read()
+    second = s.read_torch("cpu")
+    assert torch.all(second["obs"] == 3.0)
     s.cleanup()
 
 
@@ -102,6 +119,26 @@ def test_read_torch_returns_all_fields():
     assert set(result.keys()) == _EXPECTED_FIELDS
     for k, v in result.items():
         assert isinstance(v, torch.Tensor), f"{k} is not a tensor"
+    s.cleanup()
+
+
+def test_copy_read_slot_to_torch_reuses_destination_tensors():
+    s = _make_ring_buffer()
+    wb = s.write_buffer
+    for arr in wb.values():
+        arr[:] = 7.0
+    s.signal_write_done()
+
+    destination = {
+        field: torch.empty(shape, dtype=torch.float32) for field, shape in s.slot_shapes.items()
+    }
+    pointers = {field: tensor.data_ptr() for field, tensor in destination.items()}
+
+    s.copy_read_slot_to_torch(destination)
+
+    assert {field: tensor.data_ptr() for field, tensor in destination.items()} == pointers
+    for tensor in destination.values():
+        assert torch.all(tensor == 7.0)
     s.cleanup()
 
 

@@ -81,9 +81,22 @@ class RolloutRingBuffer:
     def name(self) -> Dict[str, str]:
         return {field: shm.name for field, shm in self._shm_blocks.items()}
 
+    @property
+    def slot_shapes(self) -> Dict[str, tuple[int, ...]]:
+        return {field: tuple(arr.shape[1:]) for field, arr in self._arrays.items()}
+
     def attach_sync_primitives(self, write_ptr, read_ptr) -> None:
         self._write_ptr = write_ptr
         self._read_ptr = read_ptr
+
+    def _clamp_read_ptr_to_valid_window(self) -> None:
+        wp = int(self._write_ptr.value)
+        oldest_available = max(0, wp - self.num_slots)
+        if int(self._read_ptr.value) >= oldest_available:
+            return
+        with self._read_ptr.get_lock():
+            if int(self._read_ptr.value) < oldest_available:
+                self._read_ptr.value = oldest_available
 
     @property
     def write_slot(self) -> int:
@@ -99,7 +112,8 @@ class RolloutRingBuffer:
             self._write_ptr.value += 1
 
     def available(self) -> int:
-        return int(self._write_ptr.value) - int(self._read_ptr.value)
+        self._clamp_read_ptr_to_valid_window()
+        return min(max(0, int(self._write_ptr.value) - int(self._read_ptr.value)), self.num_slots)
 
     def wait_for_data(self, timeout: float = 60.0) -> bool:
         import time
@@ -113,23 +127,52 @@ class RolloutRingBuffer:
 
     @property
     def read_slot(self) -> int:
+        self._clamp_read_ptr_to_valid_window()
         return int(self._read_ptr.value) % self.num_slots
+
+    def read_numpy_views(self) -> dict[str, np.ndarray]:
+        """Return shared-memory views for the current read slot.
+
+        The returned arrays are borrowed views. Consumers must copy them into
+        owned storage before calling advance_read().
+        """
+        s = self.read_slot
+        return {field: arr[s] for field, arr in self._arrays.items()}
+
+    def copy_read_slot_to_torch(self, destination: dict) -> None:
+        import torch
+
+        s = self.read_slot
+        for field, arr in self._arrays.items():
+            if field not in destination:
+                raise KeyError(f"missing destination tensor for rollout field {field!r}")
+            dst = destination[field]
+            src_view = arr[s]
+            if tuple(dst.shape) != tuple(src_view.shape):
+                raise ValueError(
+                    f"destination shape mismatch for {field!r}: "
+                    f"expected {tuple(src_view.shape)}, got {tuple(dst.shape)}"
+                )
+            if dst.dtype != torch.float32:
+                raise TypeError(f"destination tensor for {field!r} must be torch.float32")
+            dst.copy_(torch.from_numpy(src_view), non_blocking=False)
 
     def read_torch(self, device: str) -> dict:
         import torch
 
-        s = self.read_slot
-        return {
-            field: torch.from_numpy(arr[s].copy()).to(device) for field, arr in self._arrays.items()
+        result = {
+            field: torch.empty(tuple(arr.shape[1:]), dtype=torch.float32, device=device)
+            for field, arr in self._arrays.items()
         }
+        self.copy_read_slot_to_torch(result)
+        return result
 
     def advance_read(self) -> None:
         with self._read_ptr.get_lock():
-            rp = self._read_ptr.value + 1
-            wp = self._write_ptr.value
-            if wp - rp > self.num_slots:
-                rp = wp - self.num_slots + 1
-            self._read_ptr.value = rp
+            wp = int(self._write_ptr.value)
+            rp = min(int(self._read_ptr.value) + 1, wp)
+            oldest_available = max(0, wp - self.num_slots)
+            self._read_ptr.value = max(rp, oldest_available)
 
     def cleanup(self) -> None:
         for shm in self._shm_blocks.values():

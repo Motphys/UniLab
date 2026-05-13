@@ -14,6 +14,7 @@ import torch
 from rsl_rl.utils import resolve_callable
 
 from unilab.algos.torch.appo.runner import APPORunner
+from unilab.algos.torch.appo.staging import RolloutStagingPool
 from unilab.algos.torch.hora.appo_learner import HoraAPPOLearner
 from unilab.algos.torch.hora.appo_worker import hora_appo_collector_fn
 from unilab.algos.torch.hora.rsl_rl_compat import (
@@ -235,13 +236,18 @@ class HoraAPPORunner(APPORunner):
         logger.start()
         logger.log_status(
             f"Waiting for first rollout... "
-            f"(replay_queue={self.replay_queue_size}, "
+            f"(staging_pool={self.staging_pool_size}, "
             f"epochs={learner.num_learning_epochs})"
         )
 
         reward_history: deque = deque(maxlen=200)
         latest_reward_components: dict = {}
-        replay_queue: deque[dict] = deque(maxlen=self.replay_queue_size)
+        staging_pool = RolloutStagingPool(
+            capacity=self.staging_pool_size,
+            num_envs=self.num_envs,
+            slot_shapes=rollout_ring_buffer.slot_shapes,
+            device=self.device,
+        )
 
         for iteration in range(1, max_iterations + 1):
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
@@ -272,30 +278,13 @@ class HoraAPPORunner(APPORunner):
             learner_incremental_h2d_time = 0.0
             for _ in range(num_new):
                 h2d_start = time.perf_counter()
-                raw = rollout_ring_buffer.read_torch(self.device)
+                staging_pool.stage_numpy_views(rollout_ring_buffer.read_numpy_views())
                 learner_incremental_h2d_time += time.perf_counter() - h2d_start
                 rollout_ring_buffer.advance_read()
 
-                rollout: dict = {}
-                for k, v in raw.items():
-                    if k not in ("last_obs", "last_critic") and v.ndim >= 2:
-                        rollout[k] = v.transpose(0, 1)
-                    else:
-                        rollout[k] = v
-                if "obs" in rollout:
-                    rollout["observations"] = rollout.pop("obs")
-                if "log_probs" in rollout:
-                    rollout["actions_log_prob"] = rollout.pop("log_probs")
-                replay_queue.append(rollout)
-
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
 
-            combined: dict = {}
-            for k in replay_queue[0]:
-                if k in ("last_obs", "last_critic"):
-                    combined[k] = torch.cat([r[k] for r in replay_queue], dim=0)
-                else:
-                    combined[k] = torch.cat([r[k] for r in replay_queue], dim=1)
+            combined = staging_pool.batch()
 
             train_start = time.time()
             learner.process_batch(combined)
@@ -306,9 +295,10 @@ class HoraAPPORunner(APPORunner):
             critic_weight_sync.write_weights(learner.critic.state_dict())
             weight_sync_time = time.perf_counter() - weight_sync_start
 
-            metrics["replay_queue_len"] = float(len(replay_queue))
+            metrics["staging_pool_len"] = float(staging_pool.active_count)
+            metrics["staging_pool_capacity"] = float(staging_pool.capacity)
             metrics["available_on_arrive"] = float(available_on_arrive)
-            logger.update_replay_queue(len(replay_queue), self.replay_queue_size)
+            logger.update_staging_pool(staging_pool.active_count, staging_pool.capacity)
 
             mean_reward = (
                 sum(list(reward_history)[-50:]) / max(len(list(reward_history)[-50:]), 1)
