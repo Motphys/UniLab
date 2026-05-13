@@ -423,11 +423,11 @@ def test_g1_motion_tracking_critic_uses_clean_mjlab_aligned_terms():
     np.testing.assert_allclose(obs["obs"][:, 19:21], dof_pos - env.default_angles + 100.0)
     np.testing.assert_allclose(obs["obs"][:, 21:23], dof_vel + 100.0)
 
-    np.testing.assert_allclose(obs["critic"][:, 31:34], linvel)
-    np.testing.assert_allclose(obs["critic"][:, 34:37], gyro)
-    np.testing.assert_allclose(obs["critic"][:, 37:39], dof_pos - env.default_angles)
-    np.testing.assert_allclose(obs["critic"][:, 39:41], dof_vel)
-    np.testing.assert_allclose(obs["critic"][:, 41:43], info["current_actions"])
+    np.testing.assert_allclose(obs["critic"][:, 19:22], linvel)
+    np.testing.assert_allclose(obs["critic"][:, 22:25], gyro)
+    np.testing.assert_allclose(obs["critic"][:, 25:27], dof_pos - env.default_angles)
+    np.testing.assert_allclose(obs["critic"][:, 27:29], dof_vel)
+    np.testing.assert_allclose(obs["critic"][:, 29:31], info["current_actions"])
 
 
 def test_g1_motion_tracking_can_terminate_on_undesired_contacts():
@@ -487,7 +487,7 @@ def test_g1_motion_tracking_cfg_preserves_legacy_defaults():
     assert cfg.velocity_randomization.x == (-0.5, 0.5)
     assert cfg.joint_position_range == (-0.1, 0.1)
     assert cfg.anchor_ori_threshold == pytest.approx(0.8)
-    assert cfg.sampling_mode == "start"
+    assert cfg.sampling_mode == "adaptive"
     assert cfg.truncate_on_clip_end is False
 
 
