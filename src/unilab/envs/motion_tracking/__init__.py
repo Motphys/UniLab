@@ -14,6 +14,9 @@ from .g1 import (
     G1WallFlipTrackingCfg,
     G1WallFlipTrackingEnv,
     G1WallFlipTrackingEnvCfg,
+    G1ClimbTrackingCfg,
+    G1ClimbTrackingEnv,
+    G1ClimbTrackingEnvCfg,
 )
 
 __all__ = [
@@ -28,4 +31,7 @@ __all__ = [
     "G1WallFlipTrackingCfg",
     "G1WallFlipTrackingEnv",
     "G1WallFlipTrackingEnvCfg",
+    "G1ClimbTrackingCfg",
+    "G1ClimbTrackingEnv",
+    "G1ClimbTrackingEnvCfg",
 ]
