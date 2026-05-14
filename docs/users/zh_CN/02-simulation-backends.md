@@ -50,6 +50,7 @@ uv run scripts/generate_support_matrix.py --write
 | PPO (torch) | `g1_wall_flip_tracking` (G1 wall flip tracking) | Tested | Tested |
 | PPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | Tested |
 | PPO (torch) | `allegro_inhand_grasp` (allegro inhand grasp) | Tested | Tested |
+| PPO (torch) | `go2_arm_manip_loco` (go2 arm manip loco) | Tested | - |
 | PPO (torch) | `go2_handstand` (go2 handstand) | Tested | Tested |
 | PPO (torch) | `go2w_joystick_flat` (go2w joystick flat) | Tested | - |
 | PPO (torch) | `go2w_joystick_rough_tiles` (go2w joystick rough tiles) | Tested | - |
@@ -64,6 +65,7 @@ uv run scripts/generate_support_matrix.py --write
 | PPO (mlx) | `g1_wall_flip_tracking` (G1 wall flip tracking) | Configured | Configured |
 | PPO (mlx) | `allegro_inhand` (Allegro in-hand) | Configured | Configured |
 | PPO (mlx) | `allegro_inhand_grasp` (allegro inhand grasp) | Configured | Configured |
+| PPO (mlx) | `go2_arm_manip_loco` (go2 arm manip loco) | Configured | - |
 | PPO (mlx) | `go2_handstand` (go2 handstand) | Configured | Configured |
 | PPO (mlx) | `go2w_joystick_flat` (go2w joystick flat) | Configured | - |
 | PPO (mlx) | `go2w_joystick_rough_tiles` (go2w joystick rough tiles) | Configured | - |

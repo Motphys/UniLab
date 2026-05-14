@@ -71,7 +71,7 @@ class DomainRandomizationManager:
         if not new_terms:
             return
         self._warned_reset_terms |= new_terms
-        logger.warning(
+        logging.warning(
             "%s backend does not support reset randomization terms: %s; skipping them.",
             self._env._backend.backend_type,
             ", ".join(sorted(new_terms)),

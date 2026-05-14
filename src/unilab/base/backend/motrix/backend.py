@@ -454,8 +454,9 @@ class MotrixBackend(SimBackend):
         record_video: bool | None = None,
         frame_state_getter=None,
         camera_kwargs: dict[str, Any] | None = None,
+        extra_data_getter=None,
     ) -> str | None:
-        del frame_state_getter
+        del frame_state_getter, extra_data_getter
         should_record_video = (
             bool(record_video) if record_video is not None else output_video is not None
         )

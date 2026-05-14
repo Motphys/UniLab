@@ -171,6 +171,7 @@ class Go2WalkTask(Go2BaseEnv):
             "alive": rewards.alive,
             "swing_feet_z": self._reward_swing_feet_z,
             "contact": self._reward_contact,
+            "foot_drag": self._reward_foot_drag,
         }
 
     def update_state(self, state: NpEnvState) -> NpEnvState:

@@ -1,0 +1,108 @@
+# @package _global_
+training:
+  task_name: Go2ArmManipLoco
+  sim_backend: mujoco
+algo:
+  num_envs: 4096
+  max_iterations: 151
+  empirical_normalization: true
+  obs_groups:
+    actor:
+      - actor
+  policy:
+    init_noise_std: 0.5
+  algorithm:
+    learning_rate: 3.0e-4
+    entropy_coef: 1.0e-3
+    num_mini_batches: 4
+reward:
+  scales:
+    # locomotion: tracking
+    tracking_lin_vel: 2.0 #1.0
+    tracking_ang_vel: 0.5 #0.2
+    # locomotion: velocity / orientation penalties
+    lin_vel_z: -5.0
+    ang_vel_xy: -0.1
+    roll: -5.0 #-2.0
+    # locomotion: height / pose
+    base_height: -100 #-20.0   # go2+arm 躯干振荡更大（有机械臂质量），-100 会与步态产生对抗
+    similar_to_default: -0.0   # 对齐 Go2 Joystick（L1）
+    leg_pose: -0.1              # 保留但不使用（被 similar_to_default 替代）
+    dof_pos_limits: 0.0        # 保留但不使用（未配置软限位）
+    # locomotion: effort penalties
+    action_rate: -0.005
+    torques: 0.0               # 保留但不使用（backend 未提供 torques）
+    energy: 0.0                # 保留但不使用
+    dof_vel: 0.0               # 保留但不使用
+    dof_acc: 0.0               # 保留但不使用
+    # locomotion: gait（对齐 Go2 Joystick）
+    stand_still: -0.5          
+    contact: 0.24
+    swing_feet_z: 4.0
+    foot_drag: -0.1
+    # manipulation rewards
+    object_distance: 2.0
+    object_distance_l2: -0.5
+    # arm collision penalty
+    arm_collision: -1.0
+  tracking_sigma: 0.25
+  base_height_target: 0.3
+  object_sigma: 0.1
+env:
+  goal_ee:
+    sphere_l_range:     [0.3, 0.6]
+    sphere_phi_range:   [-1.2566, 1.0472]
+    sphere_theta_range: [-2.3562, 2.3562]
+    traj_time_range:    [1.0, 3.0]
+    hold_time_range:    [0.5, 2.0]
+    collision_upper_limits: [0.3, 0.15, -0.115]
+    collision_lower_limits: [-0.2, -0.15, -0.515]
+    underground_limit: -0.57
+    num_collision_check_samples: 10
+    num_resample_attempts: 10
+    default_orn_roll: 0.0
+    arm_induced_pitch: 0.78
+    delta_orn_r: [-0.5, 0.5]
+    delta_orn_p: [-0.5, 0.5]
+    delta_orn_y: [-0.5, 0.5]
+    init_ee_cart: [0.25, 0.0, 0.25]
+  control_config:
+    arm_action_scale: 0.0
+  ik:
+    damping: 0.05
+    gain: 1.0
+    dq_clip: 0.2
+    use_orientation: true
+    orientation_mode: target  # target: 跟踪采样姿态；zero_error: 用 Jrot 约束姿态变化但不追姿态
+  commands:
+    vel_limit:
+      - [-0.6, -0.4, -0.8]   # 对齐 Go2 Joystick 默认范围
+      - [1.0, 0.4, 0.8]
+    zero_command_prob: 0.15  # 显式采样 command=0，训练稳定站立
+    resample_time_s: 4.0   # 不设置表示 null，不做中途重采样（对齐 Joystick）
+  curriculum:
+    enable: false             # 对齐 Joystick（无课程学习）
+  domain_rand:
+    randomize_base_mass: false
+    added_mass_range: [-1.0, 1.0]
+    randomize_body_mass: true
+    body_mass_multiplier_range: [0.9, 1.1]
+    random_com: true
+    com_offset_x: [-0.03, 0.03]
+    randomize_gravity: false
+    randomize_ground_friction: true
+    ground_friction_multiplier_range: [0.8, 1.2]
+    randomize_dof_armature: true
+    dof_armature_multiplier_range: [0.8, 1.2]
+    push_robots: true
+    push_interval: 500
+    max_force: [1.2, 1.2, 0.6]
+    push_body_name: base
+    randomize_kp: true
+    kp_multiplier_range: [0.9, 1.1]
+    randomize_kd: true
+    kd_multiplier_range: [0.9, 1.1]
+  arm_stage:
+    freeze_arm_joints: false
+    disable_ee_goal_trajectory: false
+    fixed_ee_goal_cart: [0.15, 0.0, 0.25]

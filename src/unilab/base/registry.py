@@ -267,14 +267,14 @@ def ensure_registries(
             package = importlib.import_module(package_name)
         except ImportError as exc:
             if is_optional:
-                logger.warning("Optional registry package not found: %s (%s)", package_name, exc)
+                logging.warning("Optional registry package not found: %s (%s)", package_name, exc)
             elif fail_on_error:
                 raise ImportError(
                     f"Failed to import registry package '{package_name}'. "
                     f"Add to optional_packages if this is expected to be absent."
                 ) from exc
             else:
-                logger.warning("Registry package not found: %s (%s)", package_name, exc)
+                logging.warning("Registry package not found: %s (%s)", package_name, exc)
             continue
 
         modules = getattr(package, _REGISTRY_MODULES_ATTR, ())
@@ -297,6 +297,6 @@ def ensure_registries(
                         f"from '{package_name}'. "
                         f"Fix the import error or add '{package_name}' to optional_packages."
                     ) from exc
-                logger.warning(
+                logging.warning(
                     "Failed to import declared registry module '%s': %s", module_name, exc
                 )

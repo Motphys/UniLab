@@ -53,9 +53,27 @@ class LocomotionDRProvider(DomainRandomizationProvider):
         """
         return None, None
 
+    def _get_reset_randomization_baselines(
+        self, env: Any
+    ) -> tuple[np.ndarray | None, np.ndarray | None, int | None, np.ndarray | None]:
+        """Return cached model tables used for reset-time randomization."""
+        return None, None, None, None
+
     def validate(self, env: Any, capabilities: DomainRandomizationCapabilities) -> None:
         base_kp, base_kd = self._get_base_actuator_gains(env)
-        validate_common_reset_randomization(env, capabilities, base_kp=base_kp, base_kd=base_kd)
+        base_body_mass, base_geom_friction, ground_geom_id, base_dof_armature = (
+            self._get_reset_randomization_baselines(env)
+        )
+        validate_common_reset_randomization(
+            env,
+            capabilities,
+            base_kp=base_kp,
+            base_kd=base_kd,
+            base_body_mass=base_body_mass,
+            base_geom_friction=base_geom_friction,
+            ground_geom_id=ground_geom_id,
+            base_dof_armature=base_dof_armature,
+        )
         validate_interval_push_support(env, capabilities)
 
     def build_interval_randomization_plan(
@@ -99,6 +117,9 @@ class LocomotionDRProvider(DomainRandomizationProvider):
         }
         info_updates.update(self._build_extra_info_updates(env, num_reset))
         base_kp, base_kd = self._get_base_actuator_gains(env)
+        base_body_mass, base_geom_friction, ground_geom_id, base_dof_armature = (
+            self._get_reset_randomization_baselines(env)
+        )
         env._spawn.record_episode_start(env_ids, qpos[:, 0:3])
         return ResetPlan(
             env_ids=env_ids,
@@ -106,7 +127,14 @@ class LocomotionDRProvider(DomainRandomizationProvider):
             qvel=qvel,
             info_updates=info_updates,
             randomization=build_common_reset_randomization(
-                env, num_reset, base_kp=base_kp, base_kd=base_kd
+                env,
+                num_reset,
+                base_kp=base_kp,
+                base_kd=base_kd,
+                base_body_mass=base_body_mass,
+                base_geom_friction=base_geom_friction,
+                ground_geom_id=ground_geom_id,
+                base_dof_armature=base_dof_armature,
             ),
         )
 

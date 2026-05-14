@@ -19,6 +19,7 @@ from unilab.dr.types import (
     RESET_TERM_BODY_IPOS,
     RESET_TERM_BODY_IQUAT,
     RESET_TERM_BODY_MASS,
+    RESET_TERM_DOF_ARMATURE,
     RESET_TERM_GEOM_FRICTION,
     RESET_TERM_GRAVITY,
     RESET_TERM_KD,
@@ -717,8 +718,43 @@ class MuJoCoBackend(SimBackend):
     def get_body_ipos(self) -> np.ndarray:
         return np.asarray(self._model.body_ipos, dtype=np.float64).copy()
 
+    def get_dof_armature(self) -> np.ndarray:
+        return np.asarray(self._model.dof_armature, dtype=np.float64).copy()
+
     def get_motion_body_ids(self, names: Sequence[str]) -> np.ndarray:
         return self.get_body_ids(names)
+
+    def get_site_ids(self, names: Sequence[str]) -> np.ndarray:
+        ids: list[int] = []
+        for name in names:
+            sid = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_SITE, name)
+            if sid < 0:
+                raise ValueError(f"Site '{name}' not found in MuJoCo model")
+            ids.append(sid)
+        return np.array(ids, dtype=np.int32)
+
+    def get_joint_dof_indices(self, names: Sequence[str]) -> np.ndarray:
+        indices: list[int] = []
+        for name in names:
+            jid = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_JOINT, name)
+            if jid < 0:
+                raise ValueError(f"Joint '{name}' not found in MuJoCo model")
+            indices.append(int(self._model.jnt_dofadr[jid]))
+        return np.array(indices, dtype=np.int32)
+
+    def get_joint_dof_pos_indices(self, names: Sequence[str]) -> np.ndarray:
+        indices: list[int] = []
+        for name in names:
+            jid = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_JOINT, name)
+            if jid < 0:
+                raise ValueError(f"Joint '{name}' not found in MuJoCo model")
+            if int(self._model.jnt_type[jid]) == int(mujoco.mjtJoint.mjJNT_FREE):
+                raise ValueError(f"Joint '{name}' is not a single-DoF joint")
+            indices.append(int(self._model.jnt_qposadr[jid]) - self._root_qpos_dim)
+        return np.array(indices, dtype=np.int32)
+
+    def get_joint_dof_vel_indices(self, names: Sequence[str]) -> np.ndarray:
+        return self.get_joint_dof_indices(names) - self._root_qvel_dim
 
     def get_joint_range(self) -> np.ndarray | None:
         if self._root_qpos_dim > 0:
@@ -852,6 +888,7 @@ class MuJoCoBackend(SimBackend):
                     RESET_TERM_BODY_INERTIA,
                     RESET_TERM_BODY_IPOS,
                     RESET_TERM_BODY_MASS,
+                    RESET_TERM_DOF_ARMATURE,
                     RESET_TERM_GEOM_FRICTION,
                     RESET_TERM_KP,
                     RESET_TERM_KD,
@@ -969,6 +1006,7 @@ class MuJoCoBackend(SimBackend):
         record_video: bool | None = None,
         frame_state_getter=None,
         camera_kwargs: dict[str, Any] | None = None,
+        extra_data_getter=None,
     ) -> str | None:
         del render_offset_mode
         should_record_video = (
@@ -986,6 +1024,7 @@ class MuJoCoBackend(SimBackend):
             record_video=should_record_video,
             frame_state_getter=frame_state_getter,
             camera_kwargs=camera_kwargs,
+            extra_data_getter=extra_data_getter,
         )
 
     # ------------------------------------------------------------------ #
@@ -1055,6 +1094,28 @@ class MuJoCoBackend(SimBackend):
 
     def get_sensor_data(self, name: str) -> np.ndarray:
         return self._sensor_views[name]
+
+    def get_site_jacobian_w(
+        self,
+        site_id: int,
+        dof_indices: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """批量 Jacobian，shape (num_envs, 3, len(dof_indices))。
+
+        使用 BatchEnvPool.compute_site_jacobians 原生接口，无需每 env 独立 MjData。
+        scalar site_id → pool 返回 (N, 3, nv)（k 维被 squeeze）。
+        """
+        dof_indices = np.asarray(dof_indices, dtype=np.int32).reshape(-1)
+        jp, jr = self._pool.compute_site_jacobians(  # type: ignore[union-attr]
+            self._physics_state.astype(np.float64),
+            int(site_id),
+            jacp=True,
+            jacr=True,
+        )
+        return (
+            jp[:, :, dof_indices].astype(self._np_dtype),
+            jr[:, :, dof_indices].astype(self._np_dtype),
+        )
 
     # ------------------------------------------------------------------ #
     # Mujoco-specific                                                 #
@@ -1175,6 +1236,14 @@ class MuJoCoBackend(SimBackend):
                 name="geom_friction",
                 num_reset=num_reset,
                 shaped_tail=(self._model.ngeom, 3),
+            )
+
+        if randomization.dof_armature is not None:
+            translated["dof_armature"] = self._coerce_reset_field(
+                randomization.dof_armature,
+                name="dof_armature",
+                num_reset=num_reset,
+                shaped_tail=(self._model.nv,),
             )
 
         if randomization.kp is not None:

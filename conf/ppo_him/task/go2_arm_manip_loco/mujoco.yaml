@@ -1,0 +1,99 @@
+# @package _global_
+training:
+  task_name: Go2ArmManipLoco
+  sim_backend: mujoco
+algo:
+  num_envs: 128 #1024
+  max_iterations: 3000
+  num_one_step_obs: 76        # actor single-step obs dim (linvel excluded)
+  num_actor_history: 5        # actor sees 5 steps → 380-dim obs
+  num_critic_history: 1       # critic sees 1-step privileged obs → 79-dim
+  empirical_normalization: true
+  policy:
+    init_noise_std: 0.5
+  algorithm:
+    learning_rate: 3.0e-4
+    entropy_coef: 1.0e-3
+  estimator:
+    velocity_target_start: 0  # linvel at critic_obs[0:3]
+    target_obs_start: 3       # 76-dim obs without linvel starts at critic_obs[3]
+reward:
+  scales:
+    # locomotion: tracking
+    tracking_lin_vel: 1.0
+    tracking_ang_vel: 0.2
+    # locomotion: velocity / orientation penalties
+    lin_vel_z: -5.0
+    ang_vel_xy: -0.1
+    roll: -2.0
+    # locomotion: height / pose
+    base_height: -100.0
+    leg_pose: -0.1
+    dof_pos_limits: -10.0
+    # locomotion: effort penalties
+    action_rate: -0.005
+    torques: -0.0002
+    energy: -0.0002
+    dof_vel: -0.0001
+    dof_acc: -2.5e-7
+    # locomotion: gait
+    stand_still: -0.1
+    contact: 0.24
+    swing_feet_z: 4.0
+    # manipulation rewards
+    object_distance: 2.0
+    object_distance_l2: -0.5
+    # arm collision penalty
+    arm_collision: -1.0
+  tracking_sigma: 0.25
+  base_height_target: 0.3
+  object_sigma: 0.1
+env:
+  goal_ee:
+    sphere_l_range:     [0.3, 0.6]
+    sphere_phi_range:   [-1.2566, 1.0472]
+    sphere_theta_range: [-2.3562, 2.3562]
+    traj_time_range:    [1.0, 3.0]
+    hold_time_range:    [0.5, 2.0]
+    collision_upper_limits: [0.3, 0.15, -0.115]
+    collision_lower_limits: [-0.2, -0.15, -0.515]
+    underground_limit: -0.57
+    num_collision_check_samples: 10
+    num_resample_attempts: 10
+    init_ee_cart: [0.30, 0.0, 0.25]
+  ik:
+    damping: 0.05
+    gain: 1.0
+    dq_clip: 0.2
+    use_orientation: false
+  commands:
+    vel_limit:
+      - [-0.3, -0.2, -0.4]   # 课程学习起始范围（较小）
+      - [0.5, 0.2, 0.4]
+    resample_time_s: 5.0
+  curriculum:
+    enable: true
+    threshold: 0.8
+    step_size: [0.1, 0.05, 0.1]
+    max_vel_limit: [1.0, 0.4, 0.8]
+  history:
+    num_actor_history: 5
+    num_critic_history: 1
+  domain_rand:
+    randomize_base_mass: true
+    added_mass_range: [-1.0, 1.0]
+    random_com: true
+    com_offset_x: [-0.03, 0.03]
+    randomize_gravity: false
+    push_robots: true
+    push_interval: 500
+    max_force: [1.2, 1.2, 0.6]
+    push_body_name: base
+    randomize_kp: true
+    kp_multiplier_range: [0.9, 1.1]
+    randomize_kd: true
+    kd_multiplier_range: [0.9, 1.1]
+  arm_stage:
+    freeze_arm_joints: true
+    disable_ee_goal_trajectory: true
+    fixed_ee_goal_cart: [0.30, 0.0, 0.25]

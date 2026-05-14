@@ -98,6 +98,13 @@ def orientation(ctx: RewardContext) -> np.ndarray:
     return np.square(g[:, 0]) + np.square(g[:, 1])  # type: ignore[no-any-return]
 
 
+def roll(ctx: RewardContext) -> np.ndarray:
+    """Penalty for deviation from roll orientation."""
+    g = ctx.gravity
+    assert g is not None
+    return np.square(g[:, 0])  # type: ignore[no-any-return]
+
+
 def upright(ctx: RewardContext) -> np.ndarray:
     """Exponential reward for upright orientation."""
     g = ctx.gravity

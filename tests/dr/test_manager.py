@@ -15,7 +15,14 @@ from unilab.dr import (
     ResetRandomizationPayload,
 )
 from unilab.dr.dr_utils import build_common_reset_randomization
-from unilab.dr.types import RESET_TERM_BASE_MASS, RESET_TERM_GRAVITY, RESET_TERM_KP
+from unilab.dr.types import (
+    RESET_TERM_BASE_MASS,
+    RESET_TERM_BODY_MASS,
+    RESET_TERM_DOF_ARMATURE,
+    RESET_TERM_GEOM_FRICTION,
+    RESET_TERM_GRAVITY,
+    RESET_TERM_KP,
+)
 
 
 def test_capabilities_filter_reset_payload_drops_unsupported_terms():
@@ -60,6 +67,51 @@ def test_build_common_reset_randomization_samples_gravity_vector():
     assert np.all(payload.gravity[:, 1] <= 2.0)
     assert np.all(payload.gravity[:, 2] >= -10.5)
     assert np.all(payload.gravity[:, 2] <= -8.5)
+
+
+def test_build_common_reset_randomization_samples_mass_ground_friction_and_armature():
+    env = SimpleNamespace(
+        cfg=SimpleNamespace(
+            domain_rand=SimpleNamespace(
+                randomize_body_mass=True,
+                body_mass_multiplier_range=[0.5, 0.5],
+                randomize_ground_friction=True,
+                ground_friction_multiplier_range=[2.0, 2.0],
+                randomize_dof_armature=True,
+                dof_armature_multiplier_range=[3.0, 3.0],
+            )
+        )
+    )
+    base_body_mass = np.asarray([0.0, 10.0, 2.0, 0.5], dtype=np.float64)
+    base_geom_friction = np.asarray([[1.0, 0.005, 0.0001], [0.8, 0.004, 0.0002]], dtype=np.float64)
+    base_dof_armature = np.asarray([0.0, 0.01, 0.02, 0.0], dtype=np.float64)
+
+    payload = build_common_reset_randomization(
+        env,
+        num_reset=3,
+        base_body_mass=base_body_mass,
+        base_geom_friction=base_geom_friction,
+        ground_geom_id=1,
+        base_dof_armature=base_dof_armature,
+    )
+
+    assert payload is not None
+    assert payload.requested_terms() == frozenset(
+        {RESET_TERM_BODY_MASS, RESET_TERM_GEOM_FRICTION, RESET_TERM_DOF_ARMATURE}
+    )
+    assert payload.body_mass is not None
+    np.testing.assert_allclose(payload.body_mass[:, 0], 0.0)
+    np.testing.assert_allclose(
+        payload.body_mass[:, 1:], np.broadcast_to(base_body_mass[1:] * 0.5, (3, 3))
+    )
+    assert payload.geom_friction is not None
+    expected_friction = np.broadcast_to(base_geom_friction, (3, 2, 3)).copy()
+    expected_friction[:, 1, 0] *= 2.0
+    np.testing.assert_allclose(payload.geom_friction, expected_friction)
+    assert payload.dof_armature is not None
+    expected_armature = np.broadcast_to(base_dof_armature, (3, 4)).copy()
+    expected_armature[:, [1, 2]] *= 3.0
+    np.testing.assert_allclose(payload.dof_armature, expected_armature)
 
 
 @dataclass
