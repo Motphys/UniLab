@@ -99,9 +99,10 @@
     <mesh name="link5_0" file="assets/link5_0.obj"/>
     <mesh name="link5_1" file="assets/link5_1.obj"/>
     <mesh name="link6" file="assets/link6.obj"/>
-    <mesh name="camera_stand" file="assets/camera_stand.obj"/>
     <mesh name="left" file="assets/left.obj"/>
     <mesh name="right" file="assets/right.obj"/>
+    <mesh file="assets/slider_base_link_0.STL" />
+    <mesh name="base_link_base_link" file="assets/new_base_link.STL" />
 
     <mesh name="base_0" file="../go2/assets/base_0.obj"/>
     <mesh name="base_1" file="../go2/assets/base_1.obj"/>
@@ -140,6 +141,7 @@
       <body name="slider_base_link" pos="-0.03 0 0.08">
         <inertial pos="-0.000148259796543093 5.14853659705494E-10 0.000282430035707958" mass="0.0789580723155737" diaginertia="2.26581866682277e-06 0.000187384565036367 0.000188161998720563" />
         <geom type="box" size="0.03 0.02 0.015" class="collision" />
+        <geom mesh="slider_base_link_0" material="gray" class="visual" />
       </body>
       <body name="FL_hip" pos="0.1934 0.0465 0">
         <inertial pos="-0.0054 0.00194 -0.000105" quat="0.497014 0.499245 0.505462 0.498237" mass="0.678"
@@ -260,10 +262,11 @@
         <body name="arm_base" childclass="airbot_play">
           <site name="armbasepoint" pos="0 0 0" euler="0 0 0" size="0.01" type="sphere" rgba="1 0 0 1"/>
           <inertial pos="-0.0262913514073823 -0.0151414731978384 0.0260741549397302" mass="0.735520547128483" diaginertia="0.000798907222818606 0.000995609340418481 0.001483737681037"/>
-          <geom name="arm_base_mount_collision" type="box" pos="-0.02 0 0.005" size="0.0806 0.1375 0.0025" euler="0 0 1.5708" rgba="0.2 0.2 0.2 1" class="obj_collision"/>
+          <!-- <geom name="arm_base_mount_collision" type="box" pos="-0.02 0 0.005" size="0.0806 0.1375 0.0025" euler="0 0 1.5708" rgba="0.2 0.2 0.2 1" class="obj_collision"/> -->
           <geom name="base_link_collision" type="box" pos="-0.015 0 0.045" size="0.07 0.05 0.04" rgba="1 0 0 0.5" class="obj_collision"/>
-          <geom name="arm_base_0_visual" type="mesh" mesh="arm_base_0" pos="0 0 -0.0015" material="Gree_Light_Base" class="obj_visual"/>
-          <geom name="arm_base_1_visual" type="mesh" mesh="arm_base_1" material="Paint_Matte_Black" class="obj_visual"/>
+          <!-- <geom name="arm_base_0_visual" type="mesh" mesh="arm_base_0" pos="0 0 -0.0015" material="Gree_Light_Base" class="obj_visual"/>
+          <geom name="arm_base_1_visual" type="mesh" mesh="arm_base_1" material="Paint_Matte_Black" class="obj_visual"/> -->
+          <geom name="base_link_visual" type="mesh" mesh="base_link_base_link" material="Paint_Matte_Black" class="obj_visual" />
           <site name="touch_site_base" pos="-0.015 0 0.045" size="0.001" type="sphere" group="3"/>
           <body name="link1" pos="0 0 0.1172">
             <inertial pos="7.9126e-05 -0.002527 -0.0041359" quat="0.696716 0.716558 0.0238919 -0.0236876" mass="0.54639" diaginertia="0.000346294 0.000325437 0.000286269"/>
@@ -306,7 +309,6 @@
                       <joint name="joint6" class="joint6"/>
                       <geom name="link6_collision" type="box" pos="0 0 -0.07" size="0.025 0.08 0.015" rgba="1 0 0 0.5" class="obj_collision"/>
                       <geom name="link6_visual" type="mesh" mesh="link6" material="Paint_Matte_Black" class="obj_visual"/>
-                      <geom name="camera_stand_visual" type="mesh" mesh="camera_stand" material="Paint_Matte_Black" class="obj_visual"/>
                       <site name="endpoint" pos="0 0 0.015" euler="0 -1.5708 0" size="0.01" type="sphere" rgba="0 1 0 1"/>
                       <site name="touch_site_link6" pos="0 0 -0.07" size="0.001" type="sphere" group="3"/>
                       <body name="eef_connect_base_link">
