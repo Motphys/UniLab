@@ -638,6 +638,26 @@ def test_build_ppo_env_cfg_override_sharpa_grasp_cli_override_wins(
     assert env_cfg_override["reward_config"]["scales"]["rotate"] == pytest.approx(0.3)
 
 
+def test_build_ppo_env_cfg_override_sharpa_grasp_motrix_owner(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(
+        [
+            "task=sharpa_inhand_grasp/motrix",
+            "algo.max_iterations=1",
+            "env.grasp_collection_target=128",
+        ]
+    )
+
+    env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
+
+    assert cfg.training.task_name == "SharpaInhandRotationGrasp"
+    assert cfg.training.sim_backend == "motrix"
+    assert env_cfg_override["grasp_collection_target"] == 128
+    assert env_cfg_override["domain_rand"]["scale_list"] == [0.8]
+
+
 def test_ppo_cli_algo_override_wins_over_base(
     monkeypatch: pytest.MonkeyPatch,
 ):

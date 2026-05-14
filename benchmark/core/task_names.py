@@ -74,5 +74,15 @@ def locomotion_task_spec(task_name: str) -> LocomotionTaskSpec:
     return _TASK_SPECS[normalize_locomotion_task_id(task_name)]
 
 
+def locomotion_task_model_file(task_name: str) -> str:
+    cfg = locomotion_task_spec(task_name).config_cls()
+    scene = getattr(cfg, "scene", None)
+    model_file = getattr(scene, "model_file", None)
+    if model_file:
+        return str(model_file)
+
+    raise ValueError(f"{type(cfg).__name__} does not define scene.model_file")
+
+
 def locomotion_env_name(task_name: str) -> str:
     return locomotion_task_spec(task_name).env_task_name

@@ -52,6 +52,7 @@ get_device_info_dict = _device_info.get_device_info_dict
 get_device_info_line = _device_info.get_device_info_line
 canonical_locomotion_task_ids = _task_names.canonical_locomotion_task_ids
 locomotion_task_spec = _task_names.locomotion_task_spec
+locomotion_task_model_file = _task_names.locomotion_task_model_file
 normalize_locomotion_task_id = _task_names.normalize_locomotion_task_id
 
 
@@ -94,8 +95,7 @@ def _reset_genesis() -> None:
 
 
 def _load_task_xml(task_name: str) -> str:
-    cfg = locomotion_task_spec(task_name).config_cls()
-    return str(cfg.scene.model_file)
+    return locomotion_task_model_file(task_name)
 
 
 def _build_scene(xml_path: str, batch_size: int):

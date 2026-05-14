@@ -28,13 +28,13 @@ if str(ROOT_DIR) not in sys.path:
 try:
     from benchmark.core.task_names import (
         canonical_locomotion_task_ids,
-        locomotion_task_spec,
+        locomotion_task_model_file,
         normalize_locomotion_task_id,
     )
 except ModuleNotFoundError:
     from core.task_names import (
         canonical_locomotion_task_ids,
-        locomotion_task_spec,
+        locomotion_task_model_file,
         normalize_locomotion_task_id,
     )
 
@@ -62,7 +62,7 @@ class SpeedRecord:
 
 def load_model_for_task(task: str) -> mujoco.MjModel:
     task_key = normalize_locomotion_task_id(task)
-    return mujoco.MjModel.from_xml_path(locomotion_task_spec(task_key).config_cls().model_file)
+    return mujoco.MjModel.from_xml_path(locomotion_task_model_file(task_key))
 
 
 def _set_state_for_forward(model, data, state):

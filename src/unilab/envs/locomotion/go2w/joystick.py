@@ -571,3 +571,6 @@ class Go2WJoystickEnv(Go2WBaseEnv):
     def _reward_dof_error(self, ctx: RewardContext) -> np.ndarray:
         diff = ctx.dof_pos - DEFAULT_GO2W_ANGLES[:NUM_LEG_ACTIONS]
         return np.asarray(np.sum(np.square(diff), axis=1), dtype=get_global_dtype())
+
+
+registry.register_env("Go2WJoystickFlat", Go2WJoystickEnv, sim_backend="motrix")

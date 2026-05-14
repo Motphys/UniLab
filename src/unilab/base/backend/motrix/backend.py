@@ -10,9 +10,14 @@ from unilab.base.scene import SceneCfg
 from unilab.dr.types import (
     RESET_TERM_BASE_COM,
     RESET_TERM_BASE_MASS,
+    RESET_TERM_BODY_IPOS,
+    RESET_TERM_BODY_MASS,
+    RESET_TERM_GEOM_FRICTION,
+    RESET_TERM_GRAVITY,
     RESET_TERM_KD,
     RESET_TERM_KP,
     DomainRandomizationCapabilities,
+    InitRandomizationPlan,
     IntervalRandomizationPlan,
     ResetRandomizationPayload,
 )
@@ -50,12 +55,9 @@ def _require_not_none(value: T | None, error_message: str) -> T:
     return value
 
 
-def _position_actuator_kd_override_setter(actuator: Any) -> Any | None:
-    for method_name in ("set_kd_override", "set_damping_override"):
-        setter = getattr(actuator, method_name, None)
-        if setter is not None:
-            return setter
-    return None
+def _first_scalar(value: Any) -> float:
+    arr = np.asarray(value, dtype=np.float32)
+    return float(arr.reshape(-1)[0])
 
 
 @dataclass
@@ -191,33 +193,65 @@ class MotrixBackend(SimBackend):
         self._supports_position_actuator_gains = len(self._position_actuators) == int(
             self._model.num_actuators
         )
-        self._default_actuator_kp = np.zeros((self.num_actuators,), dtype=np.float64)
-        self._default_actuator_kd = np.zeros((self.num_actuators,), dtype=np.float64)
-        self._position_actuator_kd_override_setters: list[tuple[int, Any]] = []
+        self._default_actuator_kp = np.zeros((self.num_actuators,), dtype=np.float32)
+        self._default_actuator_kd = np.zeros((self.num_actuators,), dtype=np.float32)
         for actuator in self._position_actuators:
             idx = int(actuator.index)
             # TODO: switch to motrixsim model-level actuator gain API once available.
-            self._default_actuator_kp[idx] = float(
-                np.asarray(actuator.get_kp_override(self._data), dtype=np.float64)[0]
-            )
-            self._default_actuator_kd[idx] = float(
-                np.asarray(actuator.get_kd_override(self._data), dtype=np.float64)[0]
-            )
-            kd_setter = _position_actuator_kd_override_setter(actuator)
-            if kd_setter is not None:
-                self._position_actuator_kd_override_setters.append((idx, kd_setter))
-        self._supports_position_actuator_kd_override = len(
-            self._position_actuator_kd_override_setters
-        ) == int(self._model.num_actuators)
+            self._default_actuator_kp[idx] = _first_scalar(actuator.get_kp_override(self._data))
+            self._default_actuator_kd[idx] = _first_scalar(actuator.get_kd_override(self._data))
         self._floating_base_quat_indices: tuple[np.ndarray, ...] = tuple(
             np.asarray(floating_base.dof_pos_indices[3:7], dtype=np.intp)
             for floating_base in getattr(self._model, "floating_bases", [])
             if len(floating_base.dof_pos_indices) >= 7
         )
-        self._default_base_mass_override = np.array(self._body_link.get_mass_override(self._data))
-        self._default_base_com_override = np.array(
-            self._body_link.get_center_of_mass_override(self._data)
+        self._links_by_id: dict[int, "mtx.Link"] = {
+            int(link.index): link for link in self._model.links
+        }
+        self._supports_external_force = all(
+            callable(getattr(link, "add_external_force", None))
+            for link in self._links_by_id.values()
         )
+        self._applied_body_forces: dict[int, np.ndarray] = {}
+        self._geoms_by_id: dict[int, "mtx.Geom"] = {
+            int(geom.index): geom for geom in self._model.geoms
+        }
+        # TODO(motrixsim): once pure visual geoms either stop exposing friction
+        # override methods or safely no-op them, drop this collision-mask filter.
+        self._geom_friction_override_ids = tuple(
+            geom_id
+            for geom_id, geom in self._geoms_by_id.items()
+            if (
+                int(getattr(geom, "collision_group", 0)) != 0
+                or int(getattr(geom, "collision_affinity", 0)) != 0
+            )
+        )
+        self._supports_geom_friction_override = all(
+            callable(getattr(geom, "get_friction_override", None))
+            and callable(getattr(geom, "set_friction_override", None))
+            for geom_id, geom in self._geoms_by_id.items()
+            if geom_id in self._geom_friction_override_ids
+        )
+        self._supports_gravity_override = callable(
+            getattr(self._model, "get_gravity_override", None)
+        ) and callable(getattr(self._model, "set_gravity_override", None))
+        self._default_body_mass = np.zeros((int(self._model.num_links),), dtype=np.float32)
+        self._default_body_ipos = np.zeros((int(self._model.num_links), 3), dtype=np.float32)
+        for link_id, link in self._links_by_id.items():
+            self._default_body_mass[link_id] = _first_scalar(link.get_mass_override(self._data))
+            self._default_body_ipos[link_id] = np.asarray(
+                link.get_center_of_mass_override(self._data),
+                dtype=np.float32,
+            ).reshape(self._num_envs, 3)[0]
+        self._default_geom_friction = np.zeros((int(self._model.num_geoms), 3), dtype=np.float32)
+        if self._supports_geom_friction_override:
+            for geom_id in self._geom_friction_override_ids:
+                geom = self._geoms_by_id[geom_id]
+                self._default_geom_friction[geom_id] = np.asarray(
+                    geom.get_friction_override(self._data),
+                    dtype=np.float32,
+                ).reshape(self._num_envs, 3)[0]
+        self._init_geom_size_overrides: dict[int, np.ndarray] = {}
         self._render_app: "RenderApp | None" = None
         self._render_headless: bool | None = None
         self._render_capture_enabled = False
@@ -280,11 +314,14 @@ class MotrixBackend(SimBackend):
 
     def get_keyframe_qpos(self, name: str) -> np.ndarray:
         if hasattr(self._model, "keyframes") and self._model.num_keyframes > 0:
-            return np.array(self._model.keyframes[0].dof_pos, dtype=self._np_dtype)
-        return np.array(self._model.compute_init_dof_pos(), dtype=self._np_dtype)
+            qpos = np.array(self._model.keyframes[0].dof_pos, dtype=self._np_dtype)
+        else:
+            qpos = np.array(self._model.compute_init_dof_pos(), dtype=self._np_dtype)
+        return self._motrix_qpos_to_mujoco(qpos)
 
     def get_default_qpos(self) -> np.ndarray:
-        return np.array(self._model.compute_init_dof_pos(), dtype=self._np_dtype)
+        qpos = np.array(self._model.compute_init_dof_pos(), dtype=self._np_dtype)
+        return self._motrix_qpos_to_mujoco(qpos)
 
     def get_init_qvel(self) -> np.ndarray:
         return np.zeros((self._model.num_dof_vel,), dtype=self._np_dtype)
@@ -303,6 +340,71 @@ class MotrixBackend(SimBackend):
         if geom_id is None or geom_id < 0:
             raise ValueError(f"Geom '{name}' not found in Motrix model")
         return int(geom_id)
+
+    def get_geom_size(self, name: str) -> np.ndarray:
+        geom = _require_not_none(
+            self._model.get_geom(name),
+            f"Geom '{name}' not found in Motrix model",
+        )
+        return np.asarray(geom.size, dtype=np.float64).copy()
+
+    def get_body_mass(self) -> np.ndarray:
+        return self._default_body_mass.copy()
+
+    def get_body_ipos(self) -> np.ndarray:
+        return self._default_body_ipos.copy()
+
+    def get_body_subtree_ids(self, root_body_id: int) -> np.ndarray:
+        root_id = int(root_body_id)
+        if root_id < 0 or root_id >= int(self._model.num_links):
+            raise ValueError(f"root_body_id out of range: {root_id}")
+        if root_id != int(self._body_link.index):
+            raise NotImplementedError(
+                "MotrixBackend only exposes the configured base articulation subtree"
+            )
+
+        subtree_ids = {root_id}
+        for link in self._model.links:
+            link_id = int(link.index)
+            joint_indices = getattr(link, "joint_indices", ())
+            if link_id != root_id and len(joint_indices) > 0:
+                subtree_ids.add(link_id)
+        return np.asarray(sorted(subtree_ids), dtype=np.int32)
+
+    def get_geom_names(self) -> tuple[str, ...]:
+        return tuple(
+            str(getattr(self._geoms_by_id[geom_id], "name", "") or "")
+            for geom_id in range(int(self._model.num_geoms))
+        )
+
+    def get_geom_body_ids(self) -> np.ndarray:
+        body_ids = np.zeros((int(self._model.num_geoms),), dtype=np.int32)
+        for geom_id in range(int(self._model.num_geoms)):
+            link = getattr(self._geoms_by_id[geom_id], "link", None)
+            if link is None:
+                body_ids[geom_id] = -1
+            else:
+                body_ids[geom_id] = int(link.index)
+        return body_ids
+
+    def get_geom_contact_masks(self) -> tuple[np.ndarray, np.ndarray]:
+        contype = np.zeros((int(self._model.num_geoms),), dtype=np.int32)
+        conaffinity = np.zeros((int(self._model.num_geoms),), dtype=np.int32)
+        for geom_id in range(int(self._model.num_geoms)):
+            geom = self._geoms_by_id[geom_id]
+            if not hasattr(geom, "collision_group") or not hasattr(geom, "collision_affinity"):
+                raise NotImplementedError("Motrix geom objects do not expose contact masks")
+            contype[geom_id] = int(geom.collision_group)
+            conaffinity[geom_id] = int(geom.collision_affinity)
+        return contype, conaffinity
+
+    def get_geom_friction(self) -> np.ndarray:
+        if not self._supports_geom_friction_override:
+            raise NotImplementedError("Motrix geom friction override is not available")
+        return self._default_geom_friction.copy()
+
+    def get_gravity(self) -> np.ndarray:
+        return np.asarray(self._model.options.gravity, dtype=np.float64).copy()
 
     def get_joint_range(self) -> np.ndarray | None:
         return None
@@ -383,6 +485,8 @@ class MotrixBackend(SimBackend):
 
         # Batch set state
         data_slice.reset(self._model)
+        self._clear_applied_body_forces(env_indices)
+        self._apply_init_geom_size_overrides(data_slice, env_indices)
         self._apply_reset_randomization(data_slice, env_indices, randomization)
         data_slice.set_dof_vel(qvel)
         data_slice.set_dof_pos(qpos_motrix, self._model)
@@ -397,21 +501,85 @@ class MotrixBackend(SimBackend):
         self._refresh_link_pose_cache(env_indices)
 
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
-        supported_reset_terms = {RESET_TERM_BASE_MASS, RESET_TERM_BASE_COM}
-        if self._supports_position_actuator_gains:
-            supported_reset_terms.add(RESET_TERM_KP)
-        if self._supports_position_actuator_kd_override:
-            supported_reset_terms.add(RESET_TERM_KD)
+        supported_reset_terms = {
+            RESET_TERM_BASE_MASS,
+            RESET_TERM_BASE_COM,
+            RESET_TERM_BODY_MASS,
+            RESET_TERM_BODY_IPOS,
+        }
+        if getattr(self, "_supports_position_actuator_gains", False):
+            supported_reset_terms.update({RESET_TERM_KP, RESET_TERM_KD})
+        if getattr(self, "_supports_geom_friction_override", False):
+            supported_reset_terms.add(RESET_TERM_GEOM_FRICTION)
+        if getattr(self, "_supports_gravity_override", False):
+            supported_reset_terms.add(RESET_TERM_GRAVITY)
         return DomainRandomizationCapabilities(
             supported_reset_terms=frozenset(supported_reset_terms),
             supports_interval_push=True,
             supports_interval_body_velocity_delta=False,
+            supports_interval_body_force=getattr(self, "_supports_external_force", False),
         )
 
-    def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
-        if plan.push_perturbation_limit is None:
+    def apply_init_randomization(self, plan: InitRandomizationPlan) -> None:
+        if plan.is_empty():
             return
-        self.push_robots(plan.push_perturbation_limit)
+        model_assignments = np.asarray(plan.model_assignments, dtype=np.int32)
+        if model_assignments.shape != (self._num_envs,):
+            raise ValueError(
+                f"model_assignments must have shape ({self._num_envs},), "
+                f"got {model_assignments.shape}"
+            )
+        if np.any(model_assignments < 0) or np.any(model_assignments >= len(plan.model_variants)):
+            raise ValueError(
+                "model_assignments must refer to entries in InitRandomizationPlan.model_variants"
+            )
+
+        geom_size_overrides: dict[int, np.ndarray] = {}
+        for variant_id, variant in enumerate(plan.model_variants):
+            env_indices = np.flatnonzero(model_assignments == variant_id)
+            if env_indices.size == 0:
+                continue
+            for override in variant.geom_size_overrides:
+                geom_id = self.get_geom_id(override.geom_name)
+                geom = _require_not_none(
+                    self._model.get_geom(geom_id),
+                    f"Geom '{override.geom_name}' not found in Motrix model",
+                )
+                override_shape = np.asarray(geom.get_size_override(self._data)).shape
+                if len(override_shape) != 2:
+                    raise ValueError(
+                        f"Motrix geom '{override.geom_name}' size override must be rank-2, "
+                        f"got shape {override_shape}"
+                    )
+                width = int(override_shape[1])
+                size = np.asarray(override.size, dtype=np.float64).reshape(-1)
+                if size.size < width:
+                    raise ValueError(
+                        f"GeomSizeOverride for '{override.geom_name}' has {size.size} values, "
+                        f"but Motrix expects at least {width}"
+                    )
+                values = geom_size_overrides.setdefault(
+                    geom_id,
+                    np.asarray(geom.get_size_override(self._data), dtype=np.float64).copy(),
+                )
+                values[env_indices, :] = size[:width]
+
+        self._init_geom_size_overrides = geom_size_overrides
+        self._apply_init_geom_size_overrides(self._data, np.arange(self._num_envs, dtype=np.int32))
+
+    def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
+        if plan.is_empty():
+            return
+        if plan.push_perturbation_limit is not None:
+            self.push_robots(plan.push_perturbation_limit)
+        if plan.body_force is not None:
+            if plan.body_ids is None:
+                raise ValueError("Interval body-force perturbation requires body_ids")
+            self.apply_body_force(plan.body_ids, plan.body_force)
+        if plan.body_linear_velocity_delta is not None:
+            if plan.body_ids is None:
+                raise ValueError("Interval body-velocity perturbation requires body_ids")
+            self.apply_body_linear_velocity_delta(plan.body_ids, plan.body_linear_velocity_delta)
 
     def get_play_capabilities(self) -> BackendPlayCapabilities:
         return BackendPlayCapabilities(
@@ -623,8 +791,15 @@ class MotrixBackend(SimBackend):
         """Convert every MuJoCo freejoint quaternion slice from wxyz to xyzw."""
         qpos_motrix = np.array(qpos, copy=True)
         for quat_indices in self._floating_base_quat_indices:
-            qpos_motrix[:, quat_indices] = qpos[:, quat_indices[[1, 2, 3, 0]]]
+            qpos_motrix[..., quat_indices] = qpos[..., quat_indices[[1, 2, 3, 0]]]
         return qpos_motrix
+
+    def _motrix_qpos_to_mujoco(self, qpos: np.ndarray) -> np.ndarray:
+        """Convert every Motrix freejoint quaternion slice from xyzw to wxyz."""
+        qpos_mujoco = np.array(qpos, copy=True)
+        for quat_indices in self._floating_base_quat_indices:
+            qpos_mujoco[..., quat_indices] = qpos[..., quat_indices[[3, 0, 1, 2]]]
+        return qpos_mujoco
 
     def _refresh_link_pose_cache(self, env_indices: np.ndarray | None = None) -> None:
         if env_indices is None:
@@ -634,12 +809,116 @@ class MotrixBackend(SimBackend):
             mask[env_indices] = True
             self._link_poses[env_indices] = self._model.get_link_poses(self._data[mask])
 
+    def _coerce_reset_field(
+        self,
+        value: np.ndarray,
+        *,
+        name: str,
+        num_reset: int,
+        shaped_tail: tuple[int, ...],
+    ) -> np.ndarray:
+        arr = np.asarray(value, dtype=np.float32)
+        shaped = (num_reset, *shaped_tail)
+        flat_shape = (num_reset, int(np.prod(shaped_tail)))
+        if arr.shape == shaped:
+            return arr.copy()
+        if arr.shape == flat_shape:
+            return arr.reshape(shaped).copy()
+        raise ValueError(f"{name} must have shape {shaped} or {flat_shape}, got {arr.shape}")
+
+    def _apply_init_geom_size_overrides(self, data_slice, env_indices: np.ndarray) -> None:
+        if not self._init_geom_size_overrides:
+            return
+        env_ids = np.asarray(env_indices, dtype=np.intp)
+        for geom_id, values in self._init_geom_size_overrides.items():
+            geom = _require_not_none(
+                self._model.get_geom(int(geom_id)),
+                f"Geom id {geom_id} not found in Motrix model",
+            )
+            geom.set_size_override(
+                data_slice,
+                np.ascontiguousarray(np.asarray(values[env_ids], dtype=np.float32)),
+            )
+
+    def _set_link_mass_overrides(self, data_slice, body_mass: np.ndarray) -> None:
+        for link_id, link in self._links_by_id.items():
+            link.set_mass_override(
+                data_slice,
+                np.ascontiguousarray(np.asarray(body_mass[:, link_id], dtype=np.float32)),
+            )
+
+    def _set_link_ipos_overrides(self, data_slice, body_ipos: np.ndarray) -> None:
+        for link_id, link in self._links_by_id.items():
+            link.set_center_of_mass_override(
+                data_slice,
+                np.ascontiguousarray(np.asarray(body_ipos[:, link_id, :], dtype=np.float32)),
+            )
+
+    def _set_geom_friction_overrides(self, data_slice, geom_friction: np.ndarray) -> None:
+        if not self._supports_geom_friction_override:
+            raise NotImplementedError("Motrix geom friction override is not available")
+        override_ids = getattr(self, "_geom_friction_override_ids", tuple(self._geoms_by_id))
+        unsupported_ids = sorted(set(self._geoms_by_id) - set(override_ids))
+        if unsupported_ids:
+            unsupported_values = geom_friction[:, unsupported_ids, :]
+            default_values = self._default_geom_friction[None, unsupported_ids, :]
+            if not np.allclose(unsupported_values, default_values):
+                raise ValueError(
+                    "Motrix geom friction override only supports collision geoms; "
+                    f"non-collision geom ids were modified: {unsupported_ids}"
+                )
+        for geom_id in override_ids:
+            geom = self._geoms_by_id[int(geom_id)]
+            geom.set_friction_override(
+                data_slice,
+                np.ascontiguousarray(np.asarray(geom_friction[:, geom_id, :], dtype=np.float32)),
+            )
+
+    def _clear_applied_body_forces(self, env_indices: np.ndarray) -> None:
+        if not self._applied_body_forces:
+            return
+        env_ids = np.asarray(env_indices, dtype=np.intp)
+        for applied_force in self._applied_body_forces.values():
+            applied_force[env_ids, :] = 0.0
+
     def push_robots(self, force_range):
         ex_force = np.random.rand(self.num_envs, 3) * 2 - 1  # [x_force, y_force, z_force]
         ex_force[:, 0] *= force_range[0]
         ex_force[:, 1] *= force_range[1]
         ex_force[:, 2] *= force_range[2]
         self._push_body_link.add_external_force(self._data, ex_force, local=True)
+
+    def apply_body_force(
+        self,
+        body_ids: np.ndarray,
+        force: np.ndarray,
+    ) -> None:
+        """Apply absolute world-frame external forces through Motrix Link API."""
+        if not getattr(self, "_supports_external_force", False):
+            raise NotImplementedError("Motrix link external-force API is not available")
+        body_ids_np = np.asarray(body_ids, dtype=np.int32).reshape(-1)
+        force_np = np.asarray(force, dtype=np.float64)
+        expected_shape = (self._num_envs, body_ids_np.size, 3)
+        if force_np.shape != expected_shape:
+            raise ValueError(f"body force must have shape {expected_shape}, got {force_np.shape}")
+        for body_offset, body_id in enumerate(body_ids_np):
+            link_id = int(body_id)
+            link = self._links_by_id.get(link_id)
+            if link is None:
+                raise ValueError(f"Body id {link_id} not found in Motrix model")
+            target_force = np.asarray(force_np[:, body_offset, :], dtype=np.float64)
+            applied_force = self._applied_body_forces.setdefault(
+                link_id,
+                np.zeros((self._num_envs, 3), dtype=np.float64),
+            )
+            delta_force = target_force - applied_force
+            if np.any(delta_force):
+                link.add_external_force(
+                    self._data,
+                    np.ascontiguousarray(delta_force.astype(np.float32)),
+                    local=False,
+                )
+                applied_force[:] = target_force
 
     def create_hfield_scanner(
         self,
@@ -841,17 +1120,65 @@ class MotrixBackend(SimBackend):
             )
 
         env_ids = np.asarray(env_indices, dtype=np.intp)
-        if randomization.base_mass_delta is not None:
-            base_mass = self._default_base_mass_override[env_ids].copy()
-            randomized_mass = base_mass + randomization.base_mass_delta
-            self._body_link.set_mass_override(data_slice, randomized_mass)
-
-        if randomization.base_com_offset is not None:
-            base_com = self._default_base_com_override[env_ids].copy()
-            randomized_com = base_com + randomization.base_com_offset
-            self._body_link.set_center_of_mass_override(data_slice, randomized_com)
-
         num_reset = len(env_ids)
+        body_mass = None
+        if randomization.body_mass is not None:
+            body_mass = self._coerce_reset_field(
+                randomization.body_mass,
+                name="body_mass",
+                num_reset=num_reset,
+                shaped_tail=(int(self._model.num_links),),
+            )
+        if randomization.base_mass_delta is not None:
+            if body_mass is None:
+                body_mass = np.broadcast_to(
+                    self._default_body_mass,
+                    (num_reset, int(self._model.num_links)),
+                ).copy()
+            body_mass[:, int(self._body_link.index)] += np.asarray(
+                randomization.base_mass_delta, dtype=np.float32
+            )
+        if body_mass is not None:
+            self._set_link_mass_overrides(data_slice, body_mass)
+
+        body_ipos = None
+        if randomization.body_ipos is not None:
+            body_ipos = self._coerce_reset_field(
+                randomization.body_ipos,
+                name="body_ipos",
+                num_reset=num_reset,
+                shaped_tail=(int(self._model.num_links), 3),
+            )
+        if randomization.base_com_offset is not None:
+            if body_ipos is None:
+                body_ipos = np.broadcast_to(
+                    self._default_body_ipos,
+                    (num_reset, int(self._model.num_links), 3),
+                ).copy()
+            body_ipos[:, int(self._body_link.index), :] += np.asarray(
+                randomization.base_com_offset, dtype=np.float32
+            )
+        if body_ipos is not None:
+            self._set_link_ipos_overrides(data_slice, body_ipos)
+
+        if randomization.geom_friction is not None:
+            geom_friction = self._coerce_reset_field(
+                randomization.geom_friction,
+                name="geom_friction",
+                num_reset=num_reset,
+                shaped_tail=(int(self._model.num_geoms), 3),
+            )
+            self._set_geom_friction_overrides(data_slice, geom_friction)
+
+        if randomization.gravity is not None:
+            gravity = self._coerce_reset_field(
+                randomization.gravity,
+                name="gravity",
+                num_reset=num_reset,
+                shaped_tail=(3,),
+            )
+            self._set_gravity_override(data_slice, gravity)
+
         if randomization.kp is not None:
             kp = np.asarray(randomization.kp, dtype=np.float32)
             expected_shape = (num_reset, self.num_actuators)
@@ -866,15 +1193,34 @@ class MotrixBackend(SimBackend):
                 raise ValueError(f"kd must have shape {expected_shape}, got {kd.shape}")
             self._set_position_actuator_kd_override(data_slice, kd)
 
+    def _set_gravity_override(self, data_slice, gravity: np.ndarray) -> None:
+        if not getattr(self, "_supports_gravity_override", False):
+            raise NotImplementedError("Motrix gravity override is not available")
+        self._model.set_gravity_override(
+            data_slice,
+            np.ascontiguousarray(np.asarray(gravity, dtype=np.float32)),
+        )
+
     def _set_position_actuator_kp_override(self, data_slice, kp: np.ndarray) -> None:
+        if not self._supports_position_actuator_gains:
+            raise NotImplementedError(
+                "Motrix actuator kp override is only available for all-position-actuator models"
+            )
         for actuator in self._position_actuators:
             # TODO(motrixsim#1384): drop the copy once strided NumPy views are accepted.
             actuator.set_kp_override(data_slice, np.ascontiguousarray(kp[:, int(actuator.index)]))
 
     def _set_position_actuator_kd_override(self, data_slice, kd: np.ndarray) -> None:
-        for actuator_index, setter in self._position_actuator_kd_override_setters:
+        if not self._supports_position_actuator_gains:
+            raise NotImplementedError(
+                "Motrix actuator kd override is only available for all-position-actuator models"
+            )
+        for actuator in self._position_actuators:
             # TODO(motrixsim#1384): drop the copy once strided NumPy views are accepted.
-            setter(data_slice, np.ascontiguousarray(kd[:, actuator_index]))
+            actuator.set_damping_override(
+                data_slice,
+                np.ascontiguousarray(kd[:, int(actuator.index)]),
+            )
 
     def get_actuator_gains(self) -> tuple[np.ndarray, np.ndarray]:
         if not self._supports_position_actuator_gains:
