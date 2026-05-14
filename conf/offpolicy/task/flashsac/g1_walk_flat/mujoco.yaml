@@ -3,13 +3,13 @@ training:
   task_name: G1WalkFlat
   sim_backend: mujoco
 algo:
-  num_envs: 3072
+  num_envs: 2048
   learning_starts: 49
   max_iterations: 5000
   save_interval: 1000
   updates_per_step: 8
   #use_symmetry: true
-  replay_buffer_n: 1366
+  replay_buffer_n: 2048
   tau: 0.05
 env:
   control_config:
@@ -37,8 +37,8 @@ reward:
     tracking_ang_vel: 1.5
     penalty_ang_vel_xy: -1.5
     penalty_orientation: -10.0
-    penalty_action_rate: -4.0
-    pose: -0.8
+    penalty_action_rate: -3.5
+    pose: -1.0
     penalty_feet_ori: -25.0
     feet_phase: 6.0
     alive: 10.0
@@ -50,4 +50,4 @@ reward:
   feet_phase_swing_height: 0.09
   feet_phase_tracking_sigma: 0.02
   close_feet_threshold: 0.15
-  pose_weights: [0.01, 2.0, 5.0, 0.01, 5.0, 5.0, 0.01, 2.0, 5.0, 0.01, 5.0, 5.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0]
+  pose_weights: [0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0]
