@@ -385,6 +385,24 @@ class TestMuJoCoBasic:
             pool.get_field(1, "body_inertia").reshape(bkd.model.nbody, 3), updated
         )
 
+    def test_set_state_dof_armature_randomization_only_affects_target_envs(self, bkd):
+        pool = bkd._pool
+        original = [pool.get_field(i, "dof_armature").copy() for i in range(NUM_ENVS)]
+        qpos = _identity_qpos_mujoco(bkd.model.nq)
+        qvel = np.zeros((1, bkd.model.nv))
+        updated = original[1].copy()
+        updated += np.linspace(0.01, 0.03, updated.size, dtype=np.float64)
+
+        bkd.set_state(
+            np.array([1]),
+            qpos,
+            qvel,
+            randomization=ResetRandomizationPayload(dof_armature=updated[None, :]),
+        )
+
+        np.testing.assert_array_equal(pool.get_field(0, "dof_armature"), original[0])
+        np.testing.assert_allclose(pool.get_field(1, "dof_armature"), updated)
+
     def test_set_state_kp_kd_randomization_only_affects_target_envs(self, bkd):
         pool = bkd._pool
         original_kp = [pool.get_field(i, "kp").copy() for i in range(NUM_ENVS)]

@@ -196,6 +196,10 @@ class SimBackend(abc.ABC):
         """Return the backend body inertial-position table."""
         raise NotImplementedError(f"{self.__class__.__name__} does not expose body ipos")
 
+    def get_dof_armature(self) -> np.ndarray:
+        """Return the backend dof-armature table."""
+        raise NotImplementedError(f"{self.__class__.__name__} does not expose dof armature")
+
     def get_motion_body_ids(self, names: Sequence[str]) -> np.ndarray:
         """Resolve MuJoCo-style body IDs used by motion datasets."""
         raise NotImplementedError(f"{self.__class__.__name__} does not expose motion body ids")
@@ -360,6 +364,7 @@ class SimBackend(abc.ABC):
         record_video: bool | None = None,
         frame_state_getter: Callable[[], np.ndarray] | None = None,
         camera_kwargs: dict[str, Any] | None = None,
+        extra_data_getter: Callable[[], np.ndarray | None] | None = None,
     ) -> str | None:
         """Execute backend-owned playback for an env wrapper."""
         raise NotImplementedError(f"{self.__class__.__name__} does not support playback execution")
@@ -575,6 +580,76 @@ class SimBackend(abc.ABC):
         Returns:
             (num_envs, len(body_ids), 3)
         """
+
+    # ------------------------------------------------------------------ #
+    # Kinematics / Jacobian                                                #
+    # ------------------------------------------------------------------ #
+
+    def get_site_ids(self, names: Sequence[str]) -> np.ndarray:
+        """将 site 名称列表转换为整数 ID 数组。
+
+        Args:
+            names: site 名称列表
+
+        Returns:
+            shape (len(names),) 的 int32 ID 数组
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not implement get_site_ids")
+
+    def get_joint_dof_indices(self, names: Sequence[str]) -> np.ndarray:
+        """将关节名称列表转换为速度空间（qvel）的 DoF 索引数组。
+
+        Args:
+            names: 关节名称列表
+
+        Returns:
+            shape (len(names),) 的 int32 索引数组（相对于 qvel 起始位置）
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not implement get_joint_dof_indices")
+
+    def get_joint_dof_pos_indices(self, names: Sequence[str]) -> np.ndarray:
+        """将关节名称列表转换为位置空间（qpos）的 DoF 索引数组。
+
+        仅支持单自由度关节（非 free joint）。
+
+        Args:
+            names: 关节名称列表
+
+        Returns:
+            shape (len(names),) 的 int32 索引数组（相对于 qpos 中关节部分的起始位置）
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement get_joint_dof_pos_indices"
+        )
+
+    def get_joint_dof_vel_indices(self, names: Sequence[str]) -> np.ndarray:
+        """将关节名称列表转换为速度空间（qvel）的 DoF 索引数组（相对于关节部分起始）。
+
+        Args:
+            names: 关节名称列表
+
+        Returns:
+            shape (len(names),) 的 int32 索引数组
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement get_joint_dof_vel_indices"
+        )
+
+    def get_site_jacobian_w(
+        self,
+        site_id: int,
+        dof_indices: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """批量计算指定 site 相对于指定 DoF 列的世界系 Jacobian。
+
+        Args:
+            site_id: site 整数 ID
+            dof_indices: 要提取的 DoF 列索引，shape (n_dof,)
+
+        Returns:
+            (jacp, jacr)，各为 shape (num_envs, 3, n_dof) 的平移/旋转 Jacobian
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not implement get_site_jacobian_w")
 
     # ------------------------------------------------------------------ #
     # Sensors                                                              #

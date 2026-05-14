@@ -362,6 +362,7 @@ class NpEnv(ABEnv):
         record_video: bool | None = None,
         frame_state_getter: Callable[[], np.ndarray] | None = None,
         camera_kwargs: dict[str, Any] | None = None,
+        extra_data_getter: Callable[[], np.ndarray | None] | None = None,
     ) -> str | None:
         """Execute playback through the concrete backend."""
         return self._backend.run_playback(
@@ -376,6 +377,7 @@ class NpEnv(ABEnv):
             record_video=record_video,
             frame_state_getter=frame_state_getter,
             camera_kwargs=camera_kwargs,
+            extra_data_getter=extra_data_getter,
         )
 
     def render_play_frame(self) -> None:

@@ -16,6 +16,7 @@
 - [06 域随机化](users/zh_CN/06-domain-randomization.md) — 域随机化配置与最佳实践
 - [07 灵巧手操作](users/zh_CN/07-dexterous-inhand-manipulation.md) — Allegro / Sharpa in-hand 操作训练
 - [08 程序化地形](users/zh_CN/08-procedural-terrain.md) — Go2JoystickRough rough terrain 用法与覆盖
+- [09 Go2 Arm Manip Loco](users/zh_CN/09-go2-arm-manip-loco-training.md) — Go2 + Airbot manip loco 训练、回放和验证入口
 - [术语表](glossary.md) — owner YAML、cold path、Evidence Grades 等核心术语
 
 ---

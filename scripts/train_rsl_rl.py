@@ -228,6 +228,11 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
                     "cam_tracking_extra_envs": getattr(cfg.training, "cam_tracking_extra_envs", 2),
                 },
                 on_plan=_log_plan,
+                extra_data_getter=(
+                    (lambda: getattr(env, "curr_ee_goal_world", None))
+                    if hasattr(env, "curr_ee_goal_world")
+                    else None
+                ),
             )
     except Exception as e:
         if cfg.training.sim_backend == "motrix" and "RenderClosedError" in str(type(e).__name__):

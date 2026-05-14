@@ -98,6 +98,9 @@ def test_mujoco_backend_smoke_contract(robot):
         "gravity",
         "body_iquat",
         "body_inertia",
+        "body_mass",
+        "dof_armature",
+        "geom_friction",
         "kp",
         "kd",
     }.issubset(caps.supported_reset_terms)
@@ -321,6 +324,12 @@ def test_mujoco_metadata_getters_return_stable_copies():
     np.testing.assert_allclose(body_ipos, model.body_ipos)
     body_ipos[base_body_id, 0] += 1.0
     assert not np.isclose(body_ipos[base_body_id, 0], model.body_ipos[base_body_id, 0])
+
+    dof_armature = bkd.get_dof_armature()
+    _shape(dof_armature, model.nv)
+    np.testing.assert_allclose(dof_armature, model.dof_armature)
+    dof_armature[-1] += 1.0
+    assert not np.isclose(dof_armature[-1], model.dof_armature[-1])
 
 
 def test_motrix_model_properties_smoke():

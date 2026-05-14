@@ -26,7 +26,9 @@ def run_motrix_playback(
     headless: bool,
     record_video: bool,
     camera_kwargs: dict[str, Any] | None,
+    extra_data_getter: Callable[[], np.ndarray | None] | None = None,
 ) -> str | None:
+    del extra_data_getter
     if record_video and not headless:
         raise ValueError("Motrix video recording requires headless=true.")
 

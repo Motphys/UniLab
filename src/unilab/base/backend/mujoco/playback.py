@@ -27,6 +27,7 @@ def run_mujoco_playback(
     record_video: bool,
     frame_state_getter: Callable[[], np.ndarray] | None,
     camera_kwargs: dict[str, Any] | None,
+    extra_data_getter: Callable[[], np.ndarray | None] | None = None,
 ) -> str | None:
     if not headless:
         raise NotImplementedError("MuJoCo play mode does not support interactive rendering here.")
@@ -42,9 +43,21 @@ def run_mujoco_playback(
 
     obs = initialize()
     state_list = []
+    marker_list: list[np.ndarray | None] = []
     for _ in range(num_steps):
         obs = step(obs)
         state_list.append(np.asarray(frame_state_getter(), dtype=np.float32).copy())
+        if extra_data_getter is not None:
+            marker = extra_data_getter()
+            marker_list.append(
+                np.asarray(marker, dtype=np.float32).copy() if marker is not None else None
+            )
+        else:
+            marker_list.append(None)
+
+    marker_positions_list = (
+        marker_list if any(marker is not None for marker in marker_list) else None
+    )
 
     from unilab.visualization import render_many
 
@@ -76,6 +89,7 @@ def run_mujoco_playback(
                 cam_elevation=cam_kw.get("cam_elevation", -20),
                 cam_azimuth=cam_kw.get("cam_azimuth", 90),
                 render_spacing=effective_spacing,
+                marker_positions_list=marker_positions_list,
             )
         else:
             frames = render_many.render_states_get_frames(
@@ -85,6 +99,7 @@ def run_mujoco_playback(
                 height=720,
                 camera_id=-1,
                 render_spacing=effective_spacing,
+                marker_positions_list=marker_positions_list,
                 **cam_kw,
             )
 
