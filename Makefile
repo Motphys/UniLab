@@ -4,8 +4,14 @@ sync:
 
 .PHONY: sync-rocm
 sync-rocm:
-	uv sync --extra motrix --no-install-package torch
-	uv pip install --no-deps torch==2.11.0 triton-rocm==3.6.0 --torch-backend rocm7.2
+	@cp pyproject.toml pyproject.toml.bak && cp uv.lock uv.lock.bak
+	@cp pyproject.rocm.toml pyproject.toml
+	@bash -c ' \
+		trap "mv pyproject.toml.bak pyproject.toml && mv uv.lock.bak uv.lock" EXIT INT TERM; \
+		if [ -f uv.rocm.lock ]; then cp uv.rocm.lock uv.lock; fi; \
+		uv sync --extra motrix; \
+		cp uv.lock uv.rocm.lock; \
+	'
 
 .PHONY: sync-xpu
 sync-xpu:

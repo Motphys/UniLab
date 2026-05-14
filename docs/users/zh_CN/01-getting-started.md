@@ -40,7 +40,7 @@ uv sync --extra motrix
 make sync-rocm
 ```
 
-`make sync-rocm` 会先按仓库 lock 同步非 torch 依赖，再从 PyTorch ROCm 源安装 `torch==2.11.0+rocm7.2` 和匹配的 `triton-rocm==3.6.0`。后续在该环境里运行训练命令时使用 `uv run --no-sync ...`，避免 `uv run` 自动把 Linux 默认 CUDA wheel 同步回来。PyTorch ROCm 运行时仍使用 `cuda` 设备类型，所以训练配置里的 `training.device=cuda` / 自动检测路径不需要改成 `rocm`。
+`make sync-rocm` 会基于 `pyproject.rocm.toml` 从 PyTorch ROCm 源同步并安装 `torch==2.11.0+rocm7.2`、`torchvision` 和 `triton-rocm==3.6.0`。后续在该环境里运行训练命令时使用 `uv run --no-sync ...`，避免 `uv run` 自动把 Linux 默认 CUDA wheel 同步回来。PyTorch ROCm 运行时仍使用 `cuda` 设备类型，所以训练配置里的 `training.device=cuda` / 自动检测路径不需要改成 `rocm`。
 
 ## 中国大陆镜像
 
