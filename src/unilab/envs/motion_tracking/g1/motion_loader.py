@@ -156,15 +156,46 @@ class MotionLoader:
         clip_indices = self.get_clip_indices(frame_idx)
         return np.asarray(self.clip_end_frames[clip_indices], dtype=np.int32)
 
-    def get_motion_at_frame(self, frame_idx: np.ndarray) -> MotionData:
+    def make_motion_data_buffer(self, num_frames: int) -> MotionData:
+        """Allocate a reusable ``MotionData`` buffer for frame-index gathers."""
+        return MotionData(
+            joint_pos=np.empty((num_frames, self.num_joints), dtype=self.joint_pos.dtype),
+            joint_vel=np.empty((num_frames, self.num_joints), dtype=self.joint_vel.dtype),
+            body_pos_w=np.empty(
+                (num_frames, self.num_bodies, 3), dtype=self.body_pos_w.dtype
+            ),
+            body_quat_w=np.empty(
+                (num_frames, self.num_bodies, 4), dtype=self.body_quat_w.dtype
+            ),
+            body_lin_vel_w=np.empty(
+                (num_frames, self.num_bodies, 3), dtype=self.body_lin_vel_w.dtype
+            ),
+            body_ang_vel_w=np.empty(
+                (num_frames, self.num_bodies, 3), dtype=self.body_ang_vel_w.dtype
+            ),
+        )
+
+    def get_motion_at_frame(
+        self, frame_idx: np.ndarray, out: MotionData | None = None
+    ) -> MotionData:
         """Get motion data at specified frame indices.
 
         Args:
             frame_idx: Frame indices (N,)
+            out: Optional reusable output buffer.
 
         Returns:
             MotionData at specified frames
         """
+        if out is not None:
+            np.take(self.joint_pos, frame_idx, axis=0, out=out.joint_pos)
+            np.take(self.joint_vel, frame_idx, axis=0, out=out.joint_vel)
+            np.take(self.body_pos_w, frame_idx, axis=0, out=out.body_pos_w)
+            np.take(self.body_quat_w, frame_idx, axis=0, out=out.body_quat_w)
+            np.take(self.body_lin_vel_w, frame_idx, axis=0, out=out.body_lin_vel_w)
+            np.take(self.body_ang_vel_w, frame_idx, axis=0, out=out.body_ang_vel_w)
+            return out
+
         return MotionData(
             joint_pos=self.joint_pos[frame_idx],
             joint_vel=self.joint_vel[frame_idx],
@@ -238,6 +269,7 @@ class MotionSampler:
         self.sampling_entropy = 0.0
         self.sampling_top1_prob = 0.0
         self.sampling_top1_bin = 0.0
+        self._done_mask = np.zeros(num_envs, dtype=bool)
 
     def sample_frames(self, env_ids: np.ndarray) -> np.ndarray:
         """Sample motion frames for specified environments.
@@ -373,9 +405,9 @@ class MotionSampler:
         self.current_frames += 1
 
         # Find environments that reached the end of their current clip.
-        done_mask = self.current_frames > self.current_clip_end_frames
-        return np.where(done_mask)[0]
+        np.greater(self.current_frames, self.current_clip_end_frames, out=self._done_mask)
+        return np.flatnonzero(self._done_mask)
 
-    def get_current_motion(self) -> MotionData:
+    def get_current_motion(self, out: MotionData | None = None) -> MotionData:
         """Get motion data at current frames for all environments."""
-        return self.motion_loader.get_motion_at_frame(self.current_frames)
+        return self.motion_loader.get_motion_at_frame(self.current_frames, out=out)

@@ -458,6 +458,8 @@ def _compute_g1_motion_tracking_obs_stub(env_cls: type):
     env = cast(Any, object.__new__(env_cls))
     env._num_envs = 1
     env._num_action = 2
+    env._n_motion_bodies = 2
+    env._critic_obs_width = env._critic_base_obs_dim(env._num_action) + env._n_motion_bodies * 9
     env._cfg = SimpleNamespace(
         noise_config=SimpleNamespace(
             level=1.0,
@@ -470,6 +472,15 @@ def _compute_g1_motion_tracking_obs_stub(env_cls: type):
     )
     env.default_angles = np.array([[0.5, -0.5]], dtype=np.float32)
     env.anchor_body_idx = 0
+    env._motion_anchor_pos_b = np.empty((1, 3), dtype=np.float32)
+    env._motion_anchor_ori_b = np.empty((1, 6), dtype=np.float32)
+    env._motion_command = np.empty((1, 4), dtype=np.float32)
+    env._joint_pos_rel = np.empty((1, 2), dtype=np.float32)
+    env._body_vec_error = np.empty((1, 2, 3), dtype=np.float32)
+    env._body_vec_tmp = np.empty((1, 2, 3), dtype=np.float32)
+    env._quat_error_w = np.empty((1, 2), dtype=np.float32)
+    env._quat_error_x = np.empty((1, 2), dtype=np.float32)
+    env._zero_actions = np.zeros((1, 2), dtype=np.float32)
     env._obs_noise = lambda data, scale: np.asarray(data + 100.0, dtype=np.float32)
 
     motion_data = MotionData(
@@ -538,6 +549,56 @@ def test_g1_motion_tracking_critic_uses_clean_beyondmimic_aligned_terms():
     )
 
 
+def test_g1_motion_tracking_anchor_frame_writers_match_reference():
+    from unilab.envs.common.rotation import (
+        np_matrix_from_quat,
+        np_quat_apply,
+        np_quat_inv,
+        np_quat_mul,
+    )
+    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
+
+    rng = np.random.default_rng(123)
+    num_envs = 4
+    num_bodies = 5
+    dtype = np.float64
+
+    def random_quat(shape: tuple[int, ...]) -> np.ndarray:
+        quat = rng.normal(size=(*shape, 4)).astype(dtype)
+        quat /= np.linalg.norm(quat, axis=-1, keepdims=True)
+        return quat
+
+    anchor_pos = rng.normal(size=(num_envs, 3)).astype(dtype)
+    anchor_quat = random_quat((num_envs,))
+    body_pos = rng.normal(size=(num_envs, num_bodies, 3)).astype(dtype)
+    body_quat = random_quat((num_envs, num_bodies))
+
+    env = cast(Any, object.__new__(G1MotionTrackingEnv))
+    env._body_vec_error = np.empty((num_envs, num_bodies, 3), dtype=dtype)
+    env._body_vec_tmp = np.empty((num_envs, num_bodies, 3), dtype=dtype)
+    env._quat_error_w = np.empty((num_envs, num_bodies), dtype=dtype)
+    env._quat_error_x = np.empty((num_envs, num_bodies), dtype=dtype)
+
+    pos_out = np.empty((num_envs, num_bodies, 3), dtype=dtype)
+    ori_out = np.empty((num_envs, num_bodies, 6), dtype=dtype)
+
+    env._write_body_pos_in_anchor_frame(anchor_pos, anchor_quat, body_pos, pos_out)
+    env._write_body_ori6_in_anchor_frame(anchor_quat, body_quat, ori_out)
+
+    anchor_quat_inv = np_quat_inv(anchor_quat)
+    tiled_anchor_quat_inv = np.repeat(anchor_quat_inv, num_bodies, axis=0)
+    rel_pos_flat = (body_pos - anchor_pos[:, None, :]).reshape(num_envs * num_bodies, 3)
+    ref_pos = np_quat_apply(tiled_anchor_quat_inv, rel_pos_flat).reshape(num_envs, num_bodies, 3)
+    ref_quat = np_quat_mul(
+        tiled_anchor_quat_inv,
+        body_quat.reshape(num_envs * num_bodies, 4),
+    )
+    ref_ori = np_matrix_from_quat(ref_quat)[:, :, :2].reshape(num_envs, num_bodies, 6)
+
+    np.testing.assert_allclose(pos_out, ref_pos, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(ori_out, ref_ori, rtol=1e-12, atol=1e-12)
+
+
 def test_g1_motion_tracking_deploy_actor_matches_unitree_mimic_terms():
     from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingDeployEnv
 
@@ -600,6 +661,8 @@ def _compute_g1_box_tracking_obs_stub():
     env = cast(Any, object.__new__(G1BoxTrackingEnv))
     env._num_envs = 1
     env._num_action = 2
+    env._n_motion_bodies = 2
+    env._critic_obs_width = env._critic_base_obs_dim(env._num_action) + env._n_motion_bodies * 9
     env._cfg = SimpleNamespace(
         noise_config=SimpleNamespace(
             level=1.0,
@@ -613,6 +676,12 @@ def _compute_g1_box_tracking_obs_stub():
     env.default_angles = np.array([[0.5, -0.5]], dtype=np.float32)
     env.anchor_body_idx = 0
     env._object_body_ids = np.array([7], dtype=np.int32)
+    env._motion_anchor_pos_b = np.empty((1, 3), dtype=np.float32)
+    env._motion_anchor_ori_b = np.empty((1, 6), dtype=np.float32)
+    env._motion_command = np.empty((1, 4), dtype=np.float32)
+    env._joint_pos_rel = np.empty((1, 2), dtype=np.float32)
+    env._body_vec_error = np.empty((1, 2, 3), dtype=np.float32)
+    env._zero_actions = np.zeros((1, 2), dtype=np.float32)
     env._obs_noise = lambda data, scale: np.asarray(data + 100.0, dtype=np.float32)
 
     class FakeBackend:
@@ -685,6 +754,8 @@ def test_g1_box_tracking_critic_object_state_respects_subset_env_order():
     env = cast(Any, object.__new__(G1BoxTrackingEnv))
     env._num_envs = 4
     env._num_action = 2
+    env._n_motion_bodies = 2
+    env._critic_obs_width = env._critic_base_obs_dim(env._num_action) + env._n_motion_bodies * 9
     env.anchor_body_idx = 0
     env._object_body_ids = np.array([7], dtype=np.int32)
     env._cfg = SimpleNamespace(
@@ -698,6 +769,7 @@ def test_g1_box_tracking_critic_object_state_respects_subset_env_order():
         body_names=("pelvis", "torso_link"),
     )
     env.default_angles = np.zeros((2,), dtype=np.float32)
+    env._body_vec_error = np.empty((4, 2, 3), dtype=np.float32)
     env._obs_noise = lambda data, scale: np.asarray(data, dtype=np.float32)
 
     class FakeBackend:
@@ -784,7 +856,15 @@ def test_g1_motion_tracking_can_terminate_on_undesired_contacts():
     env._num_envs = 2
     env.anchor_body_idx = 0
     env.ee_body_indices = np.array([1], dtype=np.int32)
+    env._has_ee_body_indices = True
     env.undesired_contact_body_indices = np.array([2], dtype=np.int32)
+    env._has_undesired_contact_body_indices = True
+    env._terminated = np.empty((2,), dtype=bool)
+    env._env_bool = np.empty((2,), dtype=bool)
+    env._env_error = np.empty((2,), dtype=np.float32)
+    env._ee_pos_error_z = np.empty((2, 1), dtype=np.float32)
+    env._ee_terminated = np.empty((2, 1), dtype=bool)
+    env._undesired_contact_mask = np.empty((2, 1), dtype=bool)
     env.body_pos_relative_w = np.array(
         [
             [[0.0, 0.0, 1.0], [0.0, 0.0, 0.8], [0.0, 0.0, 0.8]],
@@ -854,6 +934,19 @@ def test_g1_motion_tracking_init_delegates_motion_body_ids_to_backend(monkeypatc
             calls["motion_body_ids_names"] = names
             return np.array([1, 2], dtype=np.int32)
 
+        def copy_body_state_w(
+            self,
+            body_ids: np.ndarray,
+            out_pos: np.ndarray,
+            out_quat: np.ndarray,
+            out_lin_vel: np.ndarray,
+            out_ang_vel: np.ndarray,
+        ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+            return out_pos, out_quat, out_lin_vel, out_ang_vel
+
+        def get_joint_range(self) -> None:
+            return None
+
     def fake_base_init(self, cfg, backend, num_envs):
         self._cfg = cfg
         self._backend = backend
@@ -883,7 +976,10 @@ def test_g1_motion_tracking_init_delegates_motion_body_ids_to_backend(monkeypatc
     monkeypatch.setattr(
         G1MotionTrackingEnv,
         "_init_reward_functions",
-        lambda self: calls.setdefault("reward_init", True),
+        lambda self: (
+            calls.setdefault("reward_init", True),
+            setattr(self, "_reward_fns", {}),
+        ),
     )
 
     cfg = G1MotionTrackingCfg(
@@ -1057,6 +1153,25 @@ def _make_g1_motion_tracking_clip_end_stub(
         def get_body_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
             return np.zeros((2, len(body_ids), 3), dtype=np.float32)
 
+        def get_body_pos_w(self, body_ids: np.ndarray) -> np.ndarray:
+            return np.zeros((2, len(body_ids), 3), dtype=np.float32)
+
+        def get_body_quat_w(self, body_ids: np.ndarray) -> np.ndarray:
+            return np.tile(
+                np.array([[[1.0, 0.0, 0.0, 0.0]]], dtype=np.float32),
+                (2, len(body_ids), 1),
+            )
+
+        def get_body_pose_w_rows(
+            self, env_ids: np.ndarray, body_ids: np.ndarray
+        ) -> tuple[np.ndarray, np.ndarray]:
+            rows = np.asarray(env_ids, dtype=np.intp)
+            return self.get_body_pos_w(body_ids)[rows], self.get_body_quat_w(body_ids)[rows]
+
+        def get_sensor_data_rows(self, name: str, env_ids: np.ndarray) -> np.ndarray:
+            del name
+            return np.zeros((len(env_ids), 3), dtype=np.float32)
+
         def set_state(self, env_ids: np.ndarray, qpos: np.ndarray, qvel: np.ndarray) -> None:
             self.set_state_calls.append((env_ids.copy(), qpos.copy(), qvel.copy()))
 
@@ -1122,6 +1237,7 @@ def _make_g1_motion_tracking_clip_end_stub(
     env._cfg = SimpleNamespace(
         max_episode_steps=None,
         truncate_on_clip_end=truncate_on_clip_end,
+        sensor=SimpleNamespace(local_linvel="local_linvel", gyro="gyro"),
         pose_randomization=zero_pose,
         velocity_randomization=zero_pose,
         joint_position_range=(0.0, 0.0),
@@ -1130,7 +1246,10 @@ def _make_g1_motion_tracking_clip_end_stub(
     env._backend = FakeBackend()
     env.motion_sampler = FakeSampler()
     env.motion_loader = FakeMotionLoader()
+    env._motion_data_buffer = None
+    env._copy_body_state_w = None
     env._clip_end_truncated = np.zeros((2,), dtype=bool)
+    env._env_bool = np.empty((2,), dtype=bool)
     env._init_qpos = np.zeros((9,), dtype=np.float32)
     env._init_qvel = np.zeros((8,), dtype=np.float32)
     env.get_local_linvel = lambda: np.zeros((2, 3), dtype=np.float32)

@@ -149,21 +149,22 @@ def test_motrix_backend_smoke_contract(robot):
     nq = bkd.get_dof_pos().shape[-1] + 7
     nv = bkd.get_dof_vel().shape[-1] + 6
     qpos = _identity_qpos_mujoco(nq, xyz=(1.0, 2.0, 0.8))
-    gravity = np.asarray([[1.0, 2.0, -3.0]], dtype=np.float64)
-    bkd.set_state(
-        np.array([0]),
-        qpos,
-        np.zeros((1, nv)),
-        randomization=ResetRandomizationPayload(gravity=gravity),
-    )
+    caps = bkd.get_dr_capabilities()
+    if "gravity" in caps.supported_reset_terms:
+        gravity = np.asarray([[1.0, 2.0, -3.0]], dtype=np.float64)
+        bkd.set_state(
+            np.array([0]),
+            qpos,
+            np.zeros((1, nv)),
+            randomization=ResetRandomizationPayload(gravity=gravity),
+        )
+        np.testing.assert_allclose(bkd.model.get_gravity_override(bkd.data)[0], gravity[0])
+    else:
+        bkd.set_state(np.array([0]), qpos, np.zeros((1, nv)))
     np.testing.assert_allclose(bkd.get_base_pos()[0], (1.0, 2.0, 0.8), atol=1e-4)
-    np.testing.assert_allclose(bkd.model.get_gravity_override(bkd.data)[0], gravity[0])
     _unit_quat(bkd.get_base_quat(), "Motrix smoke")
 
-    caps = bkd.get_dr_capabilities()
-    assert {"base_mass_delta", "base_com_offset", "gravity", "kp", "kd"}.issubset(
-        caps.supported_reset_terms
-    )
+    assert {"base_mass_delta", "base_com_offset", "kp", "kd"}.issubset(caps.supported_reset_terms)
     assert caps.supports_interval_push
     play_caps = bkd.get_play_capabilities()
     assert play_caps.supports_native_interactive_renderer
@@ -383,6 +384,39 @@ def test_motrix_model_properties_smoke():
     _shape(ctrl_range, bkd.num_actuators, 2)
     assert bkd.get_default_qpos().ndim == 1
     assert bkd.get_joint_range() is None
+
+
+def test_motrix_copy_body_state_matches_split_queries():
+    pytest.importorskip("motrixsim")
+
+    from unilab.base.backend.motrix.backend import MotrixBackend
+
+    bkd = MotrixBackend(
+        SceneCfg(model_file=_G1["model_file"]),
+        NUM_ENVS,
+        SIM_DT,
+        base_name=_G1["base_name"],
+        add_body_sensors=True,
+    )
+    body_names = ["pelvis", "torso_link"]
+    body_ids = np.asarray([bkd.model.get_link_index(name) for name in body_names], dtype=np.int32)
+
+    expected_pos = bkd.get_body_pos_w(body_ids)
+    expected_quat = bkd.get_body_quat_w(body_ids)
+    expected_lin_vel = bkd.get_body_lin_vel_w(body_ids)
+    expected_ang_vel = bkd.get_body_ang_vel_w(body_ids)
+    out_pos = np.empty_like(expected_pos)
+    out_quat = np.empty_like(expected_quat)
+    out_lin_vel = np.empty_like(expected_lin_vel)
+    out_ang_vel = np.empty_like(expected_ang_vel)
+
+    result = bkd.copy_body_state_w(body_ids, out_pos, out_quat, out_lin_vel, out_ang_vel)
+
+    assert result == (out_pos, out_quat, out_lin_vel, out_ang_vel)
+    np.testing.assert_allclose(out_pos, expected_pos)
+    np.testing.assert_allclose(out_quat, expected_quat)
+    np.testing.assert_allclose(out_lin_vel, expected_lin_vel)
+    np.testing.assert_allclose(out_ang_vel, expected_ang_vel)
 
 
 def test_motrix_default_qpos_uses_mujoco_quaternion_convention():

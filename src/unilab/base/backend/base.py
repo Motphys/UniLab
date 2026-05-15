@@ -533,6 +533,40 @@ class SimBackend(abc.ABC):
             (num_envs, len(body_ids), 3)
         """
 
+    def get_body_state_w(
+        self, body_ids: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """获取指定 body 的世界系位置、四元数、线速度和角速度。"""
+        return (
+            self.get_body_pos_w(body_ids),
+            self.get_body_quat_w(body_ids),
+            self.get_body_lin_vel_w(body_ids),
+            self.get_body_ang_vel_w(body_ids),
+        )
+
+    def copy_body_state_w(
+        self,
+        body_ids: np.ndarray,
+        out_pos: np.ndarray,
+        out_quat: np.ndarray,
+        out_lin_vel: np.ndarray,
+        out_ang_vel: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Copy selected world-frame body state into caller-owned buffers."""
+        pos, quat, lin_vel, ang_vel = self.get_body_state_w(body_ids)
+        out_pos[...] = pos
+        out_quat[...] = quat
+        out_lin_vel[...] = lin_vel
+        out_ang_vel[...] = ang_vel
+        return out_pos, out_quat, out_lin_vel, out_ang_vel
+
+    def get_body_pose_w_rows(
+        self, env_ids: np.ndarray, body_ids: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Get selected env rows of world-frame body position and quaternion."""
+        rows = np.asarray(env_ids, dtype=np.intp)
+        return self.get_body_pos_w(body_ids)[rows], self.get_body_quat_w(body_ids)[rows]
+
     # ------------------------------------------------------------------ #
     # Body kinematics — baselink frame                                     #
     # ------------------------------------------------------------------ #
@@ -665,6 +699,10 @@ class SimBackend(abc.ABC):
         Returns:
             传感器数据数组
         """
+
+    def get_sensor_data_rows(self, name: str, env_ids: np.ndarray) -> np.ndarray:
+        """Get selected env rows of a sensor array."""
+        return self.get_sensor_data(name)[np.asarray(env_ids, dtype=np.intp)]
 
     def get_sensor_data_batch(self, names: Sequence[str]) -> np.ndarray:
         """Fetch multiple sensors and concatenate their flattened values.

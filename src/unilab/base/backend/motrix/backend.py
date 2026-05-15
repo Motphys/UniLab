@@ -258,6 +258,7 @@ class MotrixBackend(SimBackend):
         self._render_offsets_np: np.ndarray | None = None
         self._render_tracking_camera: MotrixTrackingCamera | None = None
         self.backend_type = "motrix"
+        self._link_velocity_cache: np.ndarray | None = None
 
         # Pre-cache link objects to avoid repeated get_link() lookups.
         self._link_cache: dict[int, "mtx.Link"] = {}
@@ -719,11 +720,65 @@ class MotrixBackend(SimBackend):
     def get_body_quat_w(self, body_ids: np.ndarray) -> np.ndarray:
         return self._xyzw_to_wxyz(self._get_link_poses_w(body_ids)[:, :, 3:])
 
+    def get_body_pose_w_rows(
+        self, env_ids: np.ndarray, body_ids: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        rows = np.asarray(env_ids, dtype=np.intp)
+        poses_w = self._link_poses[rows[:, None], self._as_body_ids(body_ids), :]
+        return poses_w[:, :, :3], self._xyzw_to_wxyz(poses_w[:, :, 3:])
+
     def get_body_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
         return self._get_link_lin_vel_w(body_ids)
 
     def get_body_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
         return self._get_link_ang_vel_w(body_ids)
+
+    def get_body_state_w(
+        self, body_ids: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        poses_w = self._get_link_poses_w(body_ids)
+        return (
+            poses_w[:, :, :3],
+            self._xyzw_to_wxyz(poses_w[:, :, 3:]),
+            self._get_link_lin_vel_w(body_ids),
+            self._get_link_ang_vel_w(body_ids),
+        )
+
+    def copy_body_state_w(
+        self,
+        body_ids: np.ndarray,
+        out_pos: np.ndarray,
+        out_quat: np.ndarray,
+        out_lin_vel: np.ndarray,
+        out_ang_vel: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        ids = self._as_body_ids(body_ids)
+        poses_w = self._get_link_poses_w(ids)
+        out_pos[..., 0] = poses_w[..., 0]
+        out_pos[..., 1] = poses_w[..., 1]
+        out_pos[..., 2] = poses_w[..., 2]
+        out_quat[..., 0] = poses_w[..., 6]
+        out_quat[..., 1] = poses_w[..., 3]
+        out_quat[..., 2] = poses_w[..., 4]
+        out_quat[..., 3] = poses_w[..., 5]
+
+        link_velocity_cache = self._model.get_link_velocities(self._data)
+        if self._link_velocity_cache is None or self._link_velocity_cache.shape != (
+            self._num_envs,
+            len(ids),
+            6,
+        ):
+            self._link_velocity_cache = np.empty(
+                (self._num_envs, len(ids), 6), dtype=self._np_dtype
+            )
+        np.take(link_velocity_cache, ids, axis=1, out=self._link_velocity_cache)
+        out_lin_vel[..., 0] = self._link_velocity_cache[..., 0]
+        out_lin_vel[..., 1] = self._link_velocity_cache[..., 1]
+        out_lin_vel[..., 2] = self._link_velocity_cache[..., 2]
+        out_ang_vel[..., 0] = self._link_velocity_cache[..., 3]
+        out_ang_vel[..., 1] = self._link_velocity_cache[..., 4]
+        out_ang_vel[..., 2] = self._link_velocity_cache[..., 5]
+        return out_pos, out_quat, out_lin_vel, out_ang_vel
 
     # ------------------------------------------------------------------ #
     # Body kinematics — baselink frame                                   #
@@ -748,6 +803,12 @@ class MotrixBackend(SimBackend):
 
     def get_sensor_data(self, name: str) -> np.ndarray:
         return self._model.get_sensor_value(name, self._data)  # type: ignore[no-any-return]
+
+    def get_sensor_data_rows(self, name: str, env_ids: np.ndarray) -> np.ndarray:
+        rows = np.asarray(env_ids, dtype=np.intp)
+        mask = np.zeros(self._num_envs, dtype=bool)
+        mask[rows] = True
+        return self._model.get_sensor_value(name, self._data[mask])  # type: ignore[no-any-return]
 
     def get_sensor_data_batch(self, names: Sequence[str]) -> np.ndarray:
         sensor_names = tuple(names)
