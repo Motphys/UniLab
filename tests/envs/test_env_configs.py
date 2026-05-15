@@ -52,14 +52,19 @@ def test_registry_bootstrap_and_config_imports_do_not_require_mujoco():
         from unilab.base import registry
         from unilab.base.backend import create_backend
         from unilab.envs.manipulation.allegro_inhand.rotation import AllegroRotationCfg
-        from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingCfg
+        from unilab.envs.motion_tracking.g1.tracking import (
+            G1MotionTrackingCfg,
+            G1MotionTrackingDeployEnvCfg,
+        )
         from unilab.base.registry import ensure_registries
 
         ensure_registries()
         assert callable(create_backend)
         assert registry.contains("G1MotionTracking")
+        assert registry.contains("G1MotionTrackingDeploy")
         assert registry.contains("AllegroInhandRotation")
         G1MotionTrackingCfg()
+        G1MotionTrackingDeployEnvCfg()
         AllegroRotationCfg()
         """
     )
@@ -366,11 +371,10 @@ def test_g1_motion_tracking_uses_split_body_pose_queries():
     np.testing.assert_array_equal(env._backend.calls[1][1], np.array([1, 3], dtype=np.int32))
 
 
-def test_g1_motion_tracking_critic_uses_clean_mjlab_aligned_terms():
+def _compute_g1_motion_tracking_obs_stub(env_cls: type):
     from unilab.envs.motion_tracking.g1.motion_loader import MotionData
-    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
 
-    env = cast(Any, object.__new__(G1MotionTrackingEnv))
+    env = cast(Any, object.__new__(env_cls))
     env._num_envs = 1
     env._num_action = 2
     env._cfg = SimpleNamespace(
@@ -413,11 +417,23 @@ def test_g1_motion_tracking_critic_uses_clean_mjlab_aligned_terms():
         robot_body_pos_w,
         robot_body_quat_w,
     )
+    return env, obs, motion_data, linvel, gyro, dof_pos, dof_vel, info
 
+
+def test_g1_motion_tracking_critic_uses_clean_mjlab_aligned_terms():
+    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
+
+    env, obs, motion_data, linvel, gyro, dof_pos, dof_vel, info = (
+        _compute_g1_motion_tracking_obs_stub(G1MotionTrackingEnv)
+    )
+
+    assert env.obs_groups_spec == {"obs": 25, "critic": 43}
+    assert obs["obs"].shape == (1, 25)
     np.testing.assert_allclose(obs["obs"][:, 13:16], linvel + 100.0)
     np.testing.assert_allclose(obs["obs"][:, 16:19], gyro + 100.0)
     np.testing.assert_allclose(obs["obs"][:, 19:21], dof_pos - env.default_angles + 100.0)
     np.testing.assert_allclose(obs["obs"][:, 21:23], dof_vel + 100.0)
+    np.testing.assert_allclose(obs["obs"][:, 23:25], info["current_actions"])
 
     command_dim = motion_data.joint_pos.shape[1] + motion_data.joint_vel.shape[1]
     anchor_dim = 3 + 6
@@ -439,6 +455,21 @@ def test_g1_motion_tracking_critic_uses_clean_mjlab_aligned_terms():
         obs["critic"][:, clean_proprio_start + 10 : clean_proprio_start + 12],
         info["current_actions"],
     )
+
+
+def test_g1_motion_tracking_deploy_actor_matches_unitree_mimic_terms():
+    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingDeployEnv
+
+    env, obs, _motion_data, _linvel, gyro, dof_pos, dof_vel, info = (
+        _compute_g1_motion_tracking_obs_stub(G1MotionTrackingDeployEnv)
+    )
+
+    assert env.obs_groups_spec == {"obs": 19, "critic": 43}
+    assert obs["obs"].shape == (1, 19)
+    np.testing.assert_allclose(obs["obs"][:, 10:13], gyro + 100.0)
+    np.testing.assert_allclose(obs["obs"][:, 13:15], dof_pos - env.default_angles + 100.0)
+    np.testing.assert_allclose(obs["obs"][:, 15:17], dof_vel + 100.0)
+    np.testing.assert_allclose(obs["obs"][:, 17:19], info["current_actions"])
 
 
 def test_g1_motion_tracking_can_terminate_on_undesired_contacts():
@@ -1157,6 +1188,44 @@ def test_g1_motion_tracking_reset_and_step(sim_backend: str):
         assert state.reward.shape == (2,)
         assert state.terminated.shape == (2,)
         assert state.truncated.shape == (2,)
+    finally:
+        env.close()
+
+
+def test_g1_motion_tracking_deploy_reset_and_step_mujoco():
+    """Deploy env keeps motion-tracking behavior but exposes unitree mimic actor inputs."""
+    ensure_registries()
+    _require_mujoco_runtime()
+    from unilab.base import registry
+
+    motion_dir = Path(__file__).parents[2] / "src" / "unilab" / "assets" / "motions" / "g1"
+    if not motion_dir.exists():
+        pytest.skip(f"Motion data directory not found: {motion_dir}")
+
+    npz_files = list(motion_dir.glob("*.npz"))
+    if not npz_files:
+        pytest.skip(f"No .npz motion files in {motion_dir}")
+
+    env = cast(
+        Any,
+        registry.make(
+            "G1MotionTrackingDeploy",
+            num_envs=2,
+            sim_backend="mujoco",
+            env_cfg_override={"motion_file": str(npz_files[0])},
+        ),
+    )
+    try:
+        assert env.obs_groups_spec == {"obs": 154, "critic": 286}
+        state = env.init_state()
+        assert state.obs["obs"].shape == (2, 154)
+        assert state.obs["critic"].shape == (2, 286)
+
+        action_shape = env.action_space.shape
+        assert action_shape is not None
+        state = env.step(np.zeros((2, action_shape[0])))
+        assert state.obs["obs"].shape == (2, 154)
+        assert state.obs["critic"].shape == (2, 286)
     finally:
         env.close()
 
