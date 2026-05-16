@@ -3,6 +3,9 @@
 __unilab_registry_modules__ = ("unilab.envs.motion_tracking.g1",)
 
 from .g1 import (
+    G1ClimbTrackingCfg,
+    G1ClimbTrackingEnv,
+    G1ClimbTrackingEnvCfg,
     G1FlipTrackingCfg,
     G1FlipTrackingEnv,
     G1FlipTrackingEnvCfg,
@@ -14,9 +17,6 @@ from .g1 import (
     G1WallFlipTrackingCfg,
     G1WallFlipTrackingEnv,
     G1WallFlipTrackingEnvCfg,
-    G1ClimbTrackingCfg,
-    G1ClimbTrackingEnv,
-    G1ClimbTrackingEnvCfg,
 )
 
 __all__ = [

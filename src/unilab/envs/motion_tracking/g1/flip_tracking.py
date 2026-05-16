@@ -141,6 +141,7 @@ class G1ClimbTrackingEnvCfg(G1ClimbTrackingCfg):
 
 
 @registry.env("G1ClimbTracking", sim_backend="mujoco")
+@registry.env("G1ClimbTracking", sim_backend="motrix")
 class G1ClimbTrackingEnv(G1MotionTrackingEnv):
     """G1 climb-tracking environment implementation."""
 
