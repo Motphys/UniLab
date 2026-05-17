@@ -85,20 +85,24 @@
     <material name="gray" rgba="0.671705 0.692426 0.774270 1"/>
     <material name="Paint_Matte_Black" specular="0.5" shininess="0.5" rgba="0.00111266039 0.00111266039 0.00111266039 1.0"/>
     <material name="Paint_Metallic_Cool_Grey" specular="0.5" shininess="0.5" rgba="0.928523183 0.928523183 0.928523123 1.0"/>
+    <material name="Paint_Metallic_White" specular="0.5" shininess="0.5" rgba="0.928523183 0.928523183 0.928523123 1.0"/>
     <material name="Gree_Light_Base" specular="0.5" shininess="0.5" rgba="0.6 1 1 1"/>
     <material name="default_material" rgba="0.7 0.7 0.7 1" />
+    <mesh name="arm_base_0" file="assets/arm_base_0.obj"/>
+    <mesh name="arm_base_1" file="assets/arm_base_1.obj"/>
+    <mesh name="link1" file="assets/link1.obj"/>
+    <mesh name="link2_0" file="assets/link2_0.obj"/>
+    <mesh name="link2_1" file="assets/link2_1.obj"/>
+    <mesh name="link3_0" file="assets/link3_0.obj"/>
+    <mesh name="link3_1" file="assets/link3_1.obj"/>
+    <mesh name="link4" file="assets/link4.obj"/>
+    <mesh name="link5_0" file="assets/link5_0.obj"/>
+    <mesh name="link5_1" file="assets/link5_1.obj"/>
+    <mesh name="link6" file="assets/link6.obj"/>
+    <mesh name="left" file="assets/left.obj"/>
+    <mesh name="right" file="assets/right.obj"/>
+    <mesh file="assets/slider_base_link_0.STL" />
     <mesh name="base_link_base_link" file="assets/new_base_link.STL" />
-    <mesh name="link1_link1" file="assets/link1.STL" />
-    <mesh name="link2_link2" file="assets/link2.STL" />
-    <mesh name="link3_link3" file="assets/link3.STL" />
-    <mesh name="link4_link4" file="assets/link4.STL" />
-    <mesh name="link5_link5" file="assets/link5.STL" />
-    <mesh name="link6_link6" file="assets/link6.STL" />
-    <mesh name="eef_connect_base_link_eef_connect_base_link" file="assets/eef_connect_base_link.STL" />
-    <mesh name="g2_base_link_g2_base_link" file="assets/g2_base_link.STL" />
-    <mesh name="g2_left_link_g2_left_link" file="assets/g2_left_link.STL" />
-    <mesh name="g2_right_link_g2_right_link" file="assets/g2_right_link.STL" />
-    <mesh name="camera_stand" file="assets/camera_stand.obj" />
 
     <mesh name="base_0" file="../go2/assets/base_0.obj"/>
     <mesh name="base_1" file="../go2/assets/base_1.obj"/>
@@ -116,7 +120,6 @@
     <mesh name="calf_mirror_0" file="../go2/assets/calf_mirror_0.obj"/>
     <mesh name="calf_mirror_1" file="../go2/assets/calf_mirror_1.obj"/>
     <mesh name="foot" file="../go2/assets/foot.obj"/>
-    <mesh name="slider_base_link_0" file="assets/slider_base_link_0.STL" />
   </asset>
 
   <worldbody>
@@ -256,103 +259,85 @@
 
       <!-- ======= AIRBOT PLAY ======= -->
       <body name="arm_base_on_go2" pos="0.0045 0 0.0945">
-  <!-- ======= AIRBOT PLAY ======= -->
-    <body name="arm_base" childclass="airbot_play">
-      <site name="armbasepoint" pos='0 0 0' euler="0 0 0" size='0.01' type='sphere' rgba='1 0 0 1'/>
-      <inertial pos="-0.0262913514073823 -0.0151414731978384 0.0260741549397302" mass="0.735520547128483" diaginertia="0.000798907222818606 0.000995609340418481 0.001483737681037" />
-      <!-- <freejoint/> -->
-      <!-- <geom name="base_link_collision" type="mesh" mesh="collision_base_link" class="obj_collision" /> -->
-      <geom name="base_link_collision" type="box" pos="-0.015 0 0.045" size="0.07 0.05 0.04" rgba="1 0 0 0.5" class="obj_collision"/>
-      <geom name="base_link_visual" type="mesh" mesh="base_link_base_link" material="default_material" class="obj_visual" />
-      <site name="touch_site_base" pos="0 0 0.045" size="0.001" type="sphere" group="3"/>
-      <body name="link1" pos="0 0 0.1127">
-        <inertial pos="0.00014396 -0.00098536 -0.020968" mass="0.607" diaginertia="0.0011117 0.0010136 0.0003867" />
-        <joint name="joint1" class="joint1" />
-        <geom name="link1_visual" type="mesh" mesh="link1_link1" material="default_material" class="obj_visual" />
-        <site name="touch_site_link1" pos="0 0 0" size="0.001" type="sphere" group="3"/>
-        <body name="link2" quat="0.1359 0.1359 -0.6939 0.6939">
-          <inertial pos="0.13769 0.012537 0.0044739" mass="0.918" diaginertia="0.00094437 0.034794 0.034611" />
-          <joint name="joint2" class="joint2" />
-          <geom name="link2_collision1" type="box" pos="0.08 0.015 0" euler="0 0 0.15" size="0.11 0.03 0.04" rgba="1 0 0 0.5" class="obj_collision"/>
-          <geom name="link2_collision2" type="box" pos="0.235 0.015 0" euler="0 0 -0.3" size="0.065 0.025 0.045" rgba="1 0 0 0.5" class="obj_collision"/>
-          <geom name="link2_visual" type="mesh" mesh="link2_link2" material="default_material" class="obj_visual" />
-          <site name="touch_site_link2" pos="0.15 0 0" size="0.001" type="sphere" group="3"/>
-          <body name="link3" pos="0.27009 0 0" quat="0.5581 0 0 0.8298">
-            <inertial pos="1.5134E-05 0.10706 0.0082136" mass="0.7" diaginertia="0.015659 0.00045929 0.015481" />
-            <joint name="joint3" class="joint3" />
-            <geom name="link3_collision" type="box" pos="0.0 0.12 0" euler="0 0 -1.57" size="0.13 0.030 0.030" rgba="1 0 0 0.5" class="obj_collision"/>
-            <geom name="link3_visual" type="mesh" mesh="link3_link3" material="default_material" class="obj_visual" />
-            <site name="touch_site_link3" pos="0 0.12 0" size="0.001" type="sphere" group="3"/>
-            <body name="link4" pos="0 0.29015 0" quat="0.5 -0.5 -0.5 -0.5">
-              <inertial pos="-1.6216E-05 0.002995 -0.019407" mass="0.359" diaginertia="0.00051773 0.00052925 0.00013681" />
-              <joint name="joint4" class="joint4" />
-              <geom name="link4_visual" type="mesh" mesh="link4_link4" material="default_material" class="obj_visual" />
-              <!-- <geom name="link4_collision" type="box" pos="0 0.008 0.025" euler="0 0 0" size="0.03 0.045 0.06" rgba="1 0 0 0.5" class="obj_collision"/> -->
-              <geom name="link4_collision" type="cylinder" pos="0 0 0.0" euler="-1.57 0 0" size="0.033 0.033" rgba="1 0 0 0.5" class="obj_collision"/>
-              <site name="touch_site_link4" pos="0 0 0" size="0.001" type="sphere" group="3"/>
-              <body name="link5" quat="0.7071 0.7071 0 0">
-                <inertial pos="-4.5037E-05 0.033144 0.0024106" mass="0.403" diaginertia="0.0011602 0.00024251 0.0010846" />
-                <joint name="joint5" class="joint5" />
-                <geom name="link5_visual" type="mesh" mesh="link5_link5" material="default_material" class="obj_visual" />
-                <geom name="link5_collision" type="cylinder" pos="0 0.05 0" euler="-1.57 0 0" size="0.033 0.033" rgba="1 0 0 0.5" class="obj_collision"/>
-                <geom name="link5_collision2" type="box" pos="0 0.025 -0.038" euler="-1.57 0 0" size="0.025 0.01 0.045" rgba="1 0 0 0.5" class="obj_collision"/>
-                <site name="touch_site_link5" pos="0 0.05 0" size="0.001" type="sphere" group="3"/>
-                <body name="link6" quat="0.7071 -0.7071 0 0">
-                  <inertial pos="-4.6366E-05 4.3424E-05 0.066592" mass="0.11" diaginertia="0.00051056 0.00051056 1.73e-05" />
-                  <joint name="joint6" class="joint6" />
-                  <geom name="link6_visual" type="mesh" mesh="link6_link6" material="default_material" class="obj_visual" />
-                  <site name="touch_site_link6" pos="0 0 0.06" size="0.001" type="sphere" group="3"/>
-                  <body name="eef_connect_base_link" pos="0.0 0.0 0.0865">
-                    <!-- 新增camera mujoco中的旋转:z x y -0.5236-->
-                    <body pos="-0.0 -0.110 0.025" euler="3.1416 0 0">
-                      <camera name="eye_arm" mode="fixed" euler="-0.5236 0 0" fovy="72.5376526571421"/>
-                      <!-- <geom type="box" size="0.02 0.02 0.02" rgba="1 0 0 1" euler="-0.5236 0 0"/>
-                      <geom type="cylinder" size="0.005 0.03" rgba="0 1 0 1" euler="1.57 0 0" /> -->
-                    </body>
-                    <geom type="mesh" pos="-0.0 0 0.145" euler="0 0 1.5708" material="Paint_Matte_Black" mesh="camera_stand" class="obj_visual"/>
-                    <!-- 新增camera -->
-                    <inertial pos="-3.3561E-06 0.00011601 0.004189" mass="0.019009" diaginertia="4.38e-06 4.28e-06 7.5e-06" />
-                    <geom name="eef_connect_base_link_visual" type="mesh" mesh="eef_connect_base_link_eef_connect_base_link" material="default_material" class="obj_visual" />
-                    <site name="touch_site_eef" pos="0 0 0.008" size="0.001" type="sphere" group="3"/>
-                    <body name="g2_base_link" pos="0.0 0.0 0.016">
-                      <inertial pos="5.9308E-05 -3.262E-05 0.034814" mass="0.488" diaginertia="0.00089244 0.00111055 0.00042051" />
-                      <geom name="g2_base_link_visual" type="mesh" mesh="g2_base_link_g2_base_link" material="default_material" class="obj_visual" />
-                      <geom name="g2_base_link_collision" type="box" pos="0 0 0.06" euler="0 0 1.57" size="0.023 0.07 0.013" rgba="1 0 0 0.5" class="obj_collision"/>
-                      <geom name="g2_base_link_collision2" type="cylinder" pos="0 0 0.02" euler="0 0 0" size="0.03 0.03" rgba="1 0 0 0.5" class="obj_collision"/>
-                      <site name="touch_site_g2base" pos="0 0 0.04" size="0.001" type="sphere" group="3"/>
-                      <body name="g2_left_link" pos="0 0 0.0635" quat="0.7071 0 -0.7071 0">
-                        <inertial pos="0.018307 5.9636E-06 0.012505" mass="0.054004" diaginertia="2.46e-05 4.78e-05 4.892e-05" />
-                        <!-- <joint name="g2_left_joint" type="slide" range="0 0.0366" axis="0 0 1" /> -->
-                        <geom name="g2_left_link_visual" type="mesh" mesh="g2_left_link_g2_left_link" material="default_material" class="obj_visual" />
-                        <geom name="g2_left_link_collision" type="box" pos="0.02 0 0.015" euler="0 0.2 0" size="0.015 0.03 0.01" rgba="1 0 0 0.5" class="obj_collision"/>
-                        <geom name="g2_left_link_collision2" type="box" pos="0.05 0 0.012" euler="0 0.24 0" size="0.015 0.02 0.008" rgba="1 0 0 0.5" class="obj_collision"/>
+        <body name="arm_base" childclass="airbot_play">
+          <site name="armbasepoint" pos="0 0 0" euler="0 0 0" size="0.01" type="sphere" rgba="1 0 0 1"/>
+          <inertial pos="-0.0262913514073823 -0.0151414731978384 0.0260741549397302" mass="0.735520547128483" diaginertia="0.000798907222818606 0.000995609340418481 0.001483737681037"/>
+          <!-- <geom name="arm_base_mount_collision" type="box" pos="-0.02 0 0.005" size="0.0806 0.1375 0.0025" euler="0 0 1.5708" rgba="0.2 0.2 0.2 1" class="obj_collision"/> -->
+          <geom name="base_link_collision" type="box" pos="-0.015 0 0.045" size="0.07 0.05 0.04" rgba="1 0 0 0.5" class="obj_collision"/>
+          <!-- <geom name="arm_base_0_visual" type="mesh" mesh="arm_base_0" pos="0 0 -0.0015" material="Gree_Light_Base" class="obj_visual"/>
+          <geom name="arm_base_1_visual" type="mesh" mesh="arm_base_1" material="Paint_Matte_Black" class="obj_visual"/> -->
+          <geom name="base_link_visual" type="mesh" mesh="base_link_base_link" material="Paint_Matte_Black" class="obj_visual" />
+          <site name="touch_site_base" pos="-0.015 0 0.045" size="0.001" type="sphere" group="3"/>
+          <body name="link1" pos="0 0 0.1172">
+            <inertial pos="7.9126e-05 -0.002527 -0.0041359" quat="0.696716 0.716558 0.0238919 -0.0236876" mass="0.54639" diaginertia="0.000346294 0.000325437 0.000286269"/>
+            <joint name="joint1" class="joint1"/>
+            <geom name="link1_visual" type="mesh" mesh="link1" material="Paint_Matte_Black" class="obj_visual"/>
+            <site name="touch_site_link1" pos="0 0 0" size="0.001" type="sphere" group="3"/>
+            <body name="link2" quat="0.135866 0.135867 -0.69393 0.693932">
+              <inertial pos="0.22493 0.0047721 0.008023" quat="-0.210875 0.632473 -0.273056 0.693506" mass="0.64621" diaginertia="0.00516535 0.00505042 0.000418626"/>
+              <joint name="joint2" class="joint2"/>
+              <geom name="link2_collision1" type="box" pos="0.08 0.015 0" euler="0 0 0.15" size="0.11 0.03 0.04" rgba="1 0 0 0.5" class="obj_collision"/>
+              <geom name="link2_collision2" type="box" pos="0.235 0.015 0" euler="0 0 -0.3" size="0.065 0.025 0.045" rgba="1 0 0 0.5" class="obj_collision"/>
+              <geom name="link2_0_visual" type="mesh" mesh="link2_0" material="Paint_Matte_Black" class="obj_visual"/>
+              <geom name="link2_1_visual" type="mesh" mesh="link2_1" material="Paint_Metallic_White" class="obj_visual"/>
+              <site name="touch_site_link2" pos="0.15 0 0" size="0.001" type="sphere" group="3"/>
+              <body name="link3" pos="0.27009 0 0" quat="0.192144 0 0 -0.981367">
+                <inertial pos="0.16813 -5.5576e-05 0.0031184" quat="0.511278 0.488423 0.489191 0.510617" mass="0.26829" diaginertia="0.0031527 0.0030951 0.000239403"/>
+                <joint name="joint3" class="joint3"/>
+                <geom name="link3_collision" type="box" pos="0.13 0 0" size="0.13 0.025 0.025" rgba="1 0 0 0.5" class="obj_collision"/>
+                <geom name="link3_0_visual" type="mesh" mesh="link3_0" material="Paint_Matte_Black" class="obj_visual"/>
+                <geom name="link3_1_visual" type="mesh" mesh="link3_1" material="Paint_Metallic_White" class="obj_visual"/>
+                <site name="touch_site_link3" pos="0.13 0 0" size="0.001" type="sphere" group="3"/>
+                <body name="link4" pos="0.29015 0 0" quat="-2.59734e-06 0.707105 2.59735e-06 0.707108">
+                  <inertial pos="5.2436e-06 0.00040412 -0.03228" quat="0.999969 -0.000174762 -0.00792041 -6.98144e-05" mass="0.34876" diaginertia="0.000423574 0.000412 0.000126826"/>
+                  <joint name="joint4" class="joint4"/>
+                  <geom name="link4_visual" type="mesh" mesh="link4" material="Paint_Matte_Black" class="obj_visual"/>
+                  <geom name="link4_collision" type="cylinder" pos="0 0 0" euler="1.5708 0 0" size="0.03 0.03" rgba="1 0 0 0.5" class="obj_collision"/>
+                  <site name="touch_site_link4" pos="0 0 0" size="0.001" type="sphere" group="3"/>
+                  <body name="link5" quat="0.707105 0.707108 0 0">
+                    <inertial pos="8.3328e-06 0.026148 0.002525" quat="0.531568 0.4663 0.4663 0.531568" mass="0.36132" diaginertia="0.0004677 0.000432922 0.000178178"/>
+                    <joint name="joint5" class="joint5"/>
+                    <geom name="link5_0_visual" type="mesh" mesh="link5_0" material="Paint_Matte_Black" class="obj_visual"/>
+                    <geom name="link5_1_visual" type="mesh" mesh="link5_1" material="Paint_Metallic_White" class="obj_visual"/>
+                    <geom name="link5_collision" type="cylinder" pos="0 0.06 0" euler="1.5708 0 0" size="0.03 0.03" rgba="1 0 0 0.5" class="obj_collision"/>
+                    <site name="touch_site_link5" pos="0 0.06 0" size="0.001" type="sphere" group="3"/>
+                    <body name="link6" pos="0 0.23645 0" quat="0.499998 -0.5 0.5 0.500002">
+                      <body pos="-0.105 0 -0.12" euler="3.1416 0 1.5708">
+                        <camera name="eye_arm" mode="fixed" euler="-0.5236 0 0" fovy="72.5376526571421"/>
                       </body>
-                      <body name="g2_right_link" pos="0 0 0.0635" quat="0 0.7071 0 0.7071">
-                        <inertial pos="0.018307 -6.8572E-07 0.012505" mass="0.054004" diaginertia="2.46e-05 4.78e-05 4.892e-05" />
-                        <!-- <joint name="g2_right_joint" type="slide" range="0 0.0366" axis="0 0 1" /> -->
-                        <geom name="g2_right_link_visual" type="mesh" mesh="g2_right_link_g2_right_link" material="default_material" class="obj_visual" />
-                         <geom name="g2_right_link_collision" type="box" pos="0.02 0 0.015" euler="0 0.2 0" size="0.015 0.03 0.01" rgba="1 0 0 0.5" class="obj_collision"/>
-                         <geom name="g2_right_link_collision2" type="box" pos="0.05 0 0.012" euler="0 0.24 0" size="0.015 0.02 0.008" rgba="1 0 0 0.5" class="obj_collision"/>
+                      <inertial pos="-0.0047053 7.3857e-05 -0.12293" mass="0.53855" diaginertia="5e-05 5e-05 3.85e-05"/>
+                      <joint name="joint6" class="joint6"/>
+                      <geom name="link6_collision" type="box" pos="0 0 -0.07" size="0.025 0.08 0.015" rgba="1 0 0 0.5" class="obj_collision"/>
+                      <geom name="link6_visual" type="mesh" mesh="link6" material="Paint_Matte_Black" class="obj_visual"/>
+                      <site name="endpoint" pos="0 0 0.015" euler="0 -1.5708 0" size="0.01" type="sphere" rgba="0 1 0 1"/>
+                      <site name="touch_site_link6" pos="0 0 -0.07" size="0.001" type="sphere" group="3"/>
+                      <body name="eef_connect_base_link">
+                        <geom name="eef_collision" type="sphere" size=".012" pos="0 0 0.015" rgba="1 0 0 0.5" class="obj_collision"/>
+                        <site name="touch_site_eef" pos="0 0 0.015" size="0.001" type="sphere" group="3"/>
+                        <body name="g2_base_link">
+                          <geom name="g2_base_link_collision" type="box" pos="0 0 -0.07" size="0.025 0.08 0.015" rgba="1 0 0 0.5" class="obj_collision"/>
+                          <site name="touch_site_g2base" pos="0 0 -0.07" size="0.001" type="sphere" group="3"/>
+                          <body name="g2_left_link">
+                            <inertial pos="-0.048742 0.0096369 0.00044322" quat="0.757393 0.0415116 0.0313705 0.650883" mass="0.0626" diaginertia="2.79281e-05 1.90181e-05 1.21737e-05"/>
+                            <geom name="g2_left_link_visual" type="mesh" mesh="right" material="Paint_Matte_Black" class="obj_visual"/>
+                            <geom name="g2_left_finger_pad" type="box" size=".00525 .002 .02" pos="0 0.002 0.005" rgba="1 0 0 0.5" class="obj_collision"/>
+                            <geom name="g2_left_finger_collision" type="box" size=".015 .002 .018" pos="0 0.002 -0.035" rgba="1 0 0 0.5" class="obj_collision"/>
+                          </body>
+                          <body name="g2_right_link">
+                            <inertial pos="-0.049039 -0.0096764 0.00038868" quat="0.650491 0.0296695 0.0398251 0.757889" mass="0.061803" diaginertia="2.74809e-05 1.88104e-05 1.19127e-05"/>
+                            <geom name="g2_right_link_visual" type="mesh" mesh="left" material="Paint_Matte_Black" class="obj_visual"/>
+                            <geom name="g2_right_finger_pad" type="box" size=".00525 .002 .02" pos="0 -0.002 0.005" rgba="1 0 0 0.5" class="obj_collision"/>
+                            <geom name="g2_right_finger_collision" type="box" size=".015 .002 .018" pos="0 -0.002 -0.035" rgba="1 0 0 0.5" class="obj_collision"/>
+                          </body>
+                        </body>
                       </body>
-                      <!-- 新增末端执行器link(指示末端) -->
-                      <body name="end_effector_link" pos="0.0 0.0 0.1235">
-                        <site name="endpoint" pos='0 0 0' quat="1 1 -1 1" size='0.01' type='sphere' rgba='0 1 0 1'/>
-                        <geom name="eef_collision" type="sphere" size=".012" pos="0 0 0.02" rgba="1 0 0 0.5" class="obj_collision"/>
-                      </body>
-                      <!-- <body name="g2_virtual_link">
-                      <inertial pos="0 0 0" mass="1e-6" diaginertia="1e-9 1e-9 1e-9" />
-                        <joint name="g2_joint" type="slide" range="0.0 0.072" axis="0.0 0.0 1.0" />
-                      </body> -->
                     </body>
                   </body>
-                  <!-- <body name="end_link" pos="0.0 0.0 0.2466" quat="0.5 0.5 -0.5 0.5" /> -->
                 </body>
               </body>
             </body>
           </body>
         </body>
-      </body>
-    </body>
       </body>
     </body>
 

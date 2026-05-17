@@ -187,6 +187,14 @@ class G1MotionTrackingEnvCfg(G1MotionTrackingCfg):
     pass
 
 
+@registry.envcfg("G1MotionTrackingDeploy")
+@dataclass
+class G1MotionTrackingDeployEnvCfg(G1MotionTrackingCfg):
+    """Registered deploy configuration for G1 motion tracking."""
+
+    pass
+
+
 def _build_motion_reference_state(
     env: Any, env_ids: np.ndarray, motion_data: MotionData
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -443,9 +451,44 @@ class G1MotionTrackingEnv(G1BaseEnv):
         # Critic mirrors MJLab physical terms without actor observation noise:
         #        command, motion anchor, robot body pos/ori, linvel, gyro, joints, actions.
         n = self._num_action
-        actor_dim = 3 + 6 + 3 + 3 + n * 5
         critic_extra_dim = len(self._cfg.body_names) * 9
-        return {"obs": actor_dim, "critic": actor_dim + critic_extra_dim}
+        return {
+            "obs": self._actor_obs_dim(n),
+            "critic": self._critic_base_obs_dim(n) + critic_extra_dim,
+        }
+
+    def _actor_obs_dim(self, n: int) -> int:
+        return 3 + 6 + 3 + 3 + n * 5
+
+    def _critic_base_obs_dim(self, n: int) -> int:
+        return 3 + 6 + 3 + 3 + n * 5
+
+    def _build_actor_obs(
+        self,
+        *,
+        command: np.ndarray,
+        motion_anchor_pos_b: np.ndarray,
+        motion_anchor_ori_b: np.ndarray,
+        noisy_linvel: np.ndarray,
+        noisy_gyro: np.ndarray,
+        noisy_joint_pos_rel: np.ndarray,
+        noisy_dof_vel: np.ndarray,
+        last_actions: np.ndarray,
+    ) -> np.ndarray:
+        return np.concatenate(
+            [
+                command,
+                motion_anchor_pos_b,
+                motion_anchor_ori_b,
+                noisy_linvel,
+                noisy_gyro,
+                noisy_joint_pos_rel,
+                noisy_dof_vel,
+                last_actions,
+            ],
+            axis=1,
+            dtype=get_global_dtype(),
+        )
 
     def _init_reward_functions(self):
         self._reward_fns = {
@@ -662,19 +705,15 @@ class G1MotionTrackingEnv(G1BaseEnv):
         noisy_dof_vel = self._obs_noise(dof_vel, noise_cfg.scale_joint_vel)
 
         # Actor observations (noisy proprioception)
-        actor_obs = np.concatenate(
-            [
-                command,
-                motion_anchor_pos_b,
-                motion_anchor_ori_b,
-                noisy_linvel,
-                noisy_gyro,
-                noisy_joint_pos_rel,
-                noisy_dof_vel,
-                last_actions,
-            ],
-            axis=1,
-            dtype=get_global_dtype(),
+        actor_obs = self._build_actor_obs(
+            command=command,
+            motion_anchor_pos_b=motion_anchor_pos_b,
+            motion_anchor_ori_b=motion_anchor_ori_b,
+            noisy_linvel=noisy_linvel,
+            noisy_gyro=noisy_gyro,
+            noisy_joint_pos_rel=noisy_joint_pos_rel,
+            noisy_dof_vel=noisy_dof_vel,
+            last_actions=last_actions,
         )
 
         # Robot body positions in robot anchor frame (critic-only privileged) — vectorized
@@ -871,3 +910,41 @@ class G1MotionTrackingEnv(G1BaseEnv):
         upper_violation = np.maximum(0, dof_pos - upper)
         violation = lower_violation + upper_violation
         return np.asarray(np.sum(np.square(violation), axis=1), dtype=get_global_dtype())
+
+
+@registry.env("G1MotionTrackingDeploy", sim_backend="mujoco")
+@registry.env("G1MotionTrackingDeploy", sim_backend="motrix")
+class G1MotionTrackingDeployEnv(G1MotionTrackingEnv):
+    """Deploy-oriented G1 motion tracking env with unitree_rl_lab mimic actor inputs."""
+
+    _cfg: G1MotionTrackingDeployEnvCfg
+
+    def _actor_obs_dim(self, n: int) -> int:
+        # unitree_rl_lab mimic deploy actor input:
+        # motion_command(2n), motion_anchor_ori_b(6), gyro(3), joints, actions.
+        return 6 + 3 + n * 5
+
+    def _build_actor_obs(
+        self,
+        *,
+        command: np.ndarray,
+        motion_anchor_pos_b: np.ndarray,
+        motion_anchor_ori_b: np.ndarray,
+        noisy_linvel: np.ndarray,
+        noisy_gyro: np.ndarray,
+        noisy_joint_pos_rel: np.ndarray,
+        noisy_dof_vel: np.ndarray,
+        last_actions: np.ndarray,
+    ) -> np.ndarray:
+        return np.concatenate(
+            [
+                command,
+                motion_anchor_ori_b,
+                noisy_gyro,
+                noisy_joint_pos_rel,
+                noisy_dof_vel,
+                last_actions,
+            ],
+            axis=1,
+            dtype=get_global_dtype(),
+        )
