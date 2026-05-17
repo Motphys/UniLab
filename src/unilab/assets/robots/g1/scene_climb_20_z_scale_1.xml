@@ -1,0 +1,133 @@
+<mujoco model="g1_29dof climb 20 z scale 1 scene">
+  <include file="g1.xml"/>
+
+  <statistic center="0 0 0.9" extent="2.2"/>
+
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.1 0.1 0.1" specular="0.9 0.9 0.9"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <global azimuth="140" elevation="-20"/>
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3"
+      markrgb="0.8 0.8 0.8" width="300" height="300"/>
+    <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
+    <material name="climb_box1_material" rgba="0.3 0.7 0.9 1"/>
+    <material name="climb_box2_material" rgba="0.7 0.3 0.9 1"/>
+    <mesh
+      name="climb_box1_mesh"
+      file="climb_20_z_scale_1/box1.obj"
+      scale="0.7415730337078652 0.7415730337078652 0.7415730337078652"
+    />
+    <mesh
+      name="climb_box2_mesh"
+      file="climb_20_z_scale_1/box2.obj"
+      scale="0.7415730337078652 0.7415730337078652 0.7415730337078652"
+    />
+  </asset>
+
+  <worldbody>
+    <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/>
+    <body name="climb_terrain" pos="0 0 0">
+      <geom
+        name="climb_box1"
+        type="mesh"
+        mesh="climb_box1_mesh"
+        material="climb_box1_material"
+        contype="1"
+        conaffinity="1"
+        condim="3"
+        friction="1.0 0.1 0.1"
+      />
+      <geom
+        name="climb_box2"
+        type="mesh"
+        mesh="climb_box2_mesh"
+        material="climb_box2_material"
+        contype="1"
+        conaffinity="1"
+        condim="3"
+        friction="1.0 0.1 0.1"
+      />
+    </body>
+  </worldbody>
+
+  <sensor>
+    <contact name="left_foot_contact_0_floor" geom1="floor" geom2="left_foot_contact_0_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="left_foot_contact_1_floor" geom1="floor" geom2="left_foot_contact_1_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="left_foot_contact_2_floor" geom1="floor" geom2="left_foot_contact_2_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="left_foot_contact_3_floor" geom1="floor" geom2="left_foot_contact_3_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="right_foot_contact_0_floor" geom1="floor" geom2="right_foot_contact_0_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="right_foot_contact_1_floor" geom1="floor" geom2="right_foot_contact_1_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="right_foot_contact_2_floor" geom1="floor" geom2="right_foot_contact_2_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="right_foot_contact_3_floor" geom1="floor" geom2="right_foot_contact_3_geom" data="found" num="1" reduce="mindist"/>
+
+    <contact name="left_foot_contact_0_climb_box1" geom1="climb_box1" geom2="left_foot_contact_0_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="left_foot_contact_1_climb_box1" geom1="climb_box1" geom2="left_foot_contact_1_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="left_foot_contact_2_climb_box1" geom1="climb_box1" geom2="left_foot_contact_2_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="left_foot_contact_3_climb_box1" geom1="climb_box1" geom2="left_foot_contact_3_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="right_foot_contact_0_climb_box1" geom1="climb_box1" geom2="right_foot_contact_0_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="right_foot_contact_1_climb_box1" geom1="climb_box1" geom2="right_foot_contact_1_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="right_foot_contact_2_climb_box1" geom1="climb_box1" geom2="right_foot_contact_2_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="right_foot_contact_3_climb_box1" geom1="climb_box1" geom2="right_foot_contact_3_geom" data="found" num="1" reduce="mindist"/>
+
+    <contact name="left_foot_contact_0_climb_box2" geom1="climb_box2" geom2="left_foot_contact_0_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="left_foot_contact_1_climb_box2" geom1="climb_box2" geom2="left_foot_contact_1_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="left_foot_contact_2_climb_box2" geom1="climb_box2" geom2="left_foot_contact_2_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="left_foot_contact_3_climb_box2" geom1="climb_box2" geom2="left_foot_contact_3_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="right_foot_contact_0_climb_box2" geom1="climb_box2" geom2="right_foot_contact_0_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="right_foot_contact_1_climb_box2" geom1="climb_box2" geom2="right_foot_contact_1_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="right_foot_contact_2_climb_box2" geom1="climb_box2" geom2="right_foot_contact_2_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="right_foot_contact_3_climb_box2" geom1="climb_box2" geom2="right_foot_contact_3_geom" data="found" num="1" reduce="mindist"/>
+
+    <contact name="undesired_contact_floor_pelvis_collision" geom1="floor" geom2="pelvis_collision" data="found" num="1" reduce="mindist"/>
+    <contact name="undesired_contact_climb_box1_pelvis_collision" geom1="climb_box1" geom2="pelvis_collision" data="found" num="1" reduce="mindist"/>
+    <contact name="undesired_contact_climb_box2_pelvis_collision" geom1="climb_box2" geom2="pelvis_collision" data="found" num="1" reduce="mindist"/>
+    <contact name="undesired_contact_floor_left_hip_collision" geom1="floor" geom2="left_hip_collision" data="found" num="1" reduce="mindist"/>
+    <contact name="undesired_contact_climb_box1_left_hip_collision" geom1="climb_box1" geom2="left_hip_collision" data="found" num="1" reduce="mindist"/>
+    <contact name="undesired_contact_climb_box2_left_hip_collision" geom1="climb_box2" geom2="left_hip_collision" data="found" num="1" reduce="mindist"/>
+    <contact name="undesired_contact_floor_left_thigh_collision" geom1="floor" geom2="left_thigh_collision" data="found" num="1" reduce="mindist"/>
+    <contact name="undesired_contact_climb_box1_left_thigh_collision" geom1="climb_box1" geom2="left_thigh_collision" data="found" num="1" reduce="mindist"/>
+    <contact name="undesired_contact_climb_box2_left_thigh_collision" geom1="climb_box2" geom2="left_thigh_collision" data="found" num="1" reduce="mindist"/>
+    <contact name="undesired_contact_floor_right_hip_collision" geom1="floor" geom2="right_hip_collision" data="found" num="1" reduce="mindist"/>
+    <contact name="undesired_contact_climb_box1_right_hip_collision" geom1="climb_box1" geom2="right_hip_collision" data="found" num="1" reduce="mindist"/>
+    <contact name="undesired_contact_climb_box2_right_hip_collision" geom1="climb_box2" geom2="right_hip_collision" data="found" num="1" reduce="mindist"/>
+    <contact name="undesired_contact_floor_right_thigh_collision" geom1="floor" geom2="right_thigh_collision" data="found" num="1" reduce="mindist"/>
+    <contact name="undesired_contact_climb_box1_right_thigh_collision" geom1="climb_box1" geom2="right_thigh_collision" data="found" num="1" reduce="mindist"/>
+    <contact name="undesired_contact_climb_box2_right_thigh_collision" geom1="climb_box2" geom2="right_thigh_collision" data="found" num="1" reduce="mindist"/>
+    <contact name="undesired_contact_floor_torso_collision" geom1="floor" geom2="torso_collision" data="found" num="1" reduce="mindist"/>
+    <contact name="undesired_contact_climb_box1_torso_collision" geom1="climb_box1" geom2="torso_collision" data="found" num="1" reduce="mindist"/>
+    <contact name="undesired_contact_climb_box2_torso_collision" geom1="climb_box2" geom2="torso_collision" data="found" num="1" reduce="mindist"/>
+    <contact name="undesired_contact_floor_head_collision" geom1="floor" geom2="head_collision" data="found" num="1" reduce="mindist"/>
+    <contact name="undesired_contact_climb_box1_head_collision" geom1="climb_box1" geom2="head_collision" data="found" num="1" reduce="mindist"/>
+    <contact name="undesired_contact_climb_box2_head_collision" geom1="climb_box2" geom2="head_collision" data="found" num="1" reduce="mindist"/>
+    <contact name="undesired_contact_floor_left_shoulder_yaw_collision" geom1="floor" geom2="left_shoulder_yaw_collision" data="found" num="1" reduce="mindist"/>
+    <contact name="undesired_contact_climb_box1_left_shoulder_yaw_collision" geom1="climb_box1" geom2="left_shoulder_yaw_collision" data="found" num="1" reduce="mindist"/>
+    <contact name="undesired_contact_climb_box2_left_shoulder_yaw_collision" geom1="climb_box2" geom2="left_shoulder_yaw_collision" data="found" num="1" reduce="mindist"/>
+    <contact name="undesired_contact_floor_right_shoulder_yaw_collision" geom1="floor" geom2="right_shoulder_yaw_collision" data="found" num="1" reduce="mindist"/>
+    <contact name="undesired_contact_climb_box1_right_shoulder_yaw_collision" geom1="climb_box1" geom2="right_shoulder_yaw_collision" data="found" num="1" reduce="mindist"/>
+    <contact name="undesired_contact_climb_box2_right_shoulder_yaw_collision" geom1="climb_box2" geom2="right_shoulder_yaw_collision" data="found" num="1" reduce="mindist"/>
+  </sensor>
+
+  <keyframe>
+    <key name="stand"
+      qpos="
+      0 0 0.754
+      1 0 0 0
+      -0.312 0.0 0.0 0.669 -0.363 0.0
+      -0.312 0.0 0.0 0.669 -0.363 0.0
+      0.0 0.0 0.0
+      0.2  0.2 0.0 0.6 0.0 0.0 0.0
+      0.2 -0.2 0.0 0.6 0.0 0.0 0.0
+      "
+      ctrl="
+      -0.312 0.0 0.0 0.669 -0.363 0.0
+      -0.312 0.0 0.0 0.669 -0.363 0.0
+      0.0 0.0 0.0
+      0.2  0.2 0.0 0.6 0.0 0.0 0.0
+      0.2 -0.2 0.0 0.6 0.0 0.0 0.0
+      "/>
+  </keyframe>
+</mujoco>

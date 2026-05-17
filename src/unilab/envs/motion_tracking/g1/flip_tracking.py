@@ -113,3 +113,36 @@ class G1WallFlipTrackingEnv(G1MotionTrackingEnv):
     """G1 wall flip-tracking environment implementation."""
 
     _cfg: G1WallFlipTrackingCfg
+
+
+@dataclass
+class G1ClimbTrackingCfg(G1MotionTrackingCfg):
+    """Config profile for the climb_20_z_scale_1 motion clip."""
+
+    scene: SceneCfg = field(
+        default_factory=lambda: SceneCfg(
+            model_file=str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_climb_20_z_scale_1.xml")
+        )
+    )
+    motion_file: str | list[str] = str(
+        ASSETS_ROOT_PATH / "motions" / "g1" / "climb_20_z_scale_1.0.npz"
+    )
+    max_episode_seconds: float = 15.0
+    anchor_pos_z_threshold: float = 0.5
+    ee_body_pos_z_threshold: float = 0.5
+
+
+@registry.envcfg("G1ClimbTracking")
+@dataclass
+class G1ClimbTrackingEnvCfg(G1ClimbTrackingCfg):
+    """Registered configuration for G1 box-climb motion tracking."""
+
+    pass
+
+
+@registry.env("G1ClimbTracking", sim_backend="mujoco")
+@registry.env("G1ClimbTracking", sim_backend="motrix")
+class G1ClimbTrackingEnv(G1MotionTrackingEnv):
+    """G1 climb-tracking environment implementation."""
+
+    _cfg: G1ClimbTrackingCfg

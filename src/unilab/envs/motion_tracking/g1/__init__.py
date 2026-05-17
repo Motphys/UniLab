@@ -1,6 +1,9 @@
 """Motion tracking environments for Unitree G1."""
 
 from .flip_tracking import (
+    G1ClimbTrackingCfg,
+    G1ClimbTrackingEnv,
+    G1ClimbTrackingEnvCfg,
     G1FlipTrackingCfg,
     G1FlipTrackingEnv,
     G1FlipTrackingEnvCfg,
@@ -31,4 +34,7 @@ __all__ = [
     "G1WallFlipTrackingCfg",
     "G1WallFlipTrackingEnv",
     "G1WallFlipTrackingEnvCfg",
+    "G1ClimbTrackingCfg",
+    "G1ClimbTrackingEnv",
+    "G1ClimbTrackingEnvCfg",
 ]
