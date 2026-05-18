@@ -1,6 +1,6 @@
 # @package _global_
 training:
-  task_name: Go2WJoystickRoughTiles
+  task_name: Go2WJoystickRough
   sim_backend: mujoco
 algo:
   num_envs: 1024
@@ -21,7 +21,17 @@ algo:
     entropy_coef: 1.0e-3
 env:
   scene:
-    model_file: src/unilab/assets/robots/go2w/scene_rough_tiles.xml
+    model_file: src/unilab/assets/robots/go2w/go2w.xml
+    terrain:
+      hfield_name: terrain_hfield
+      geom_name: floor
+      generator:
+        seed: 42
+        curriculum: false
+        size: [8.0, 8.0]
+        num_rows: 6
+        num_cols: 6
+        border_width: 1.0
   commands:
     vel_limit:
       - [-1.0, -0.6, -1.0]
@@ -38,8 +48,11 @@ env:
     simulate_action_latency: false
   terrain_scan:
     enabled: true
-    hfield_name: go2w_tile_stairs_5x5
-    geom_name: terrain_scan_probe
+    hfield_name: terrain_hfield
+    geom_name: floor
+  termination_config:
+    terrain_out_of_bounds: true
+    terrain_distance_buffer: 3.0
   domain_rand:
     randomize_base_mass: true
     added_mass_range: [-1.0, 2.0]

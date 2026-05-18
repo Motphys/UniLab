@@ -352,9 +352,38 @@ def _resolve_scene_fragment_path(fragment_file: str, model_file: Path) -> Path:
 
 
 def _copy_robot_asset_dir(model_file: Path, output_dir: Path) -> None:
-    assets_src = model_file.parent / "assets"
-    if assets_src.is_dir():
-        shutil.copytree(assets_src, output_dir / "assets", dirs_exist_ok=True)
+    """Copy the robot's mesh / texture assets next to the output scene.
+
+    Honors the ``meshdir`` (and ``texturedir``) declared in the model's
+    ``<compiler>`` tag — falling back to ``<model_file_dir>/assets`` when
+    the compiler tag is missing or points at a non-existent path. This
+    keeps materialization working for models like ``go2w.xml`` whose
+    meshdir is relative to a sibling robot directory.
+    """
+    candidates: list[Path] = []
+    try:
+        root = ET.parse(model_file).getroot()
+    except (ET.ParseError, OSError):
+        root = None
+    if root is not None:
+        compiler = root.find("compiler")
+        if compiler is not None:
+            for attr in ("meshdir", "texturedir"):
+                value = compiler.get(attr)
+                if not value:
+                    continue
+                path = Path(value)
+                if not path.is_absolute():
+                    path = (model_file.parent / path).resolve()
+                if path.is_dir() and path not in candidates:
+                    candidates.append(path)
+
+    fallback = model_file.parent / "assets"
+    if fallback.is_dir() and fallback not in candidates:
+        candidates.append(fallback)
+
+    for src in candidates:
+        shutil.copytree(src, output_dir / "assets", dirs_exist_ok=True)
 
 
 def _collect_mujoco_assets(asset_dir: Path) -> dict[str, bytes]:

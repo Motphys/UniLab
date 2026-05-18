@@ -297,16 +297,16 @@ def test_ppo_go2w_motrix_uses_motor_owner_scene_path():
     assert cfg.reward.scales.torques < 0.0
 
 
-def test_ppo_go2w_rough_tiles_mujoco_uses_static_tile_terrain():
-    cfg = _compose("ppo", overrides=["task=go2w_joystick_rough_tiles/mujoco"])
+def test_ppo_go2w_rough_mujoco_uses_terrain_generator():
+    cfg = _compose("ppo", overrides=["task=go2w_joystick_rough/mujoco"])
 
-    assert cfg.training.task_name == "Go2WJoystickRoughTiles"
+    assert cfg.training.task_name == "Go2WJoystickRough"
     assert cfg.training.sim_backend == "mujoco"
-    assert str(cfg.env.scene.model_file).endswith(
-        "src/unilab/assets/robots/go2w/scene_rough_tiles.xml"
-    )
-    assert cfg.env.terrain_scan.hfield_name == "go2w_tile_stairs_5x5"
-    assert cfg.env.terrain_scan.geom_name == "terrain_scan_probe"
+    assert str(cfg.env.scene.model_file).endswith("src/unilab/assets/robots/go2w/go2w.xml")
+    assert cfg.env.scene.terrain.hfield_name == "terrain_hfield"
+    assert cfg.env.scene.terrain.geom_name == "floor"
+    assert cfg.env.terrain_scan.hfield_name == "terrain_hfield"
+    assert cfg.env.terrain_scan.geom_name == "floor"
     assert cfg.env.commands.resampling_time == pytest.approx(10.0)
     assert cfg.env.commands.heading_command is True
     assert cfg.env.domain_rand.randomize_init_yaw is False

@@ -34,8 +34,6 @@ uv run scripts/generate_support_matrix.py --write
 | `Benchmarked` | 存在与该组合绑定的已提交 benchmark manifest。 |
 | `Recommended` | 仓库中存在显式 recommendation 元数据。 |
 
-`Tested` 只描述仓库中已有自动化覆盖，不代表该组合具备同名 MuJoCo owner 的全部 backend capability；例如 phase-1 Motrix owner 可能只覆盖训练 smoke 和明确启用的 DR 子集。
-
 未检测到与这些组合绑定的已提交 benchmark manifest，因此当前不会自动提升到 `Benchmarked`。
 仓库中目前也没有单独的 recommendation 元数据，因此当前不会自动提升到 `Recommended`。
 
@@ -51,15 +49,15 @@ uv run scripts/generate_support_matrix.py --write
 | PPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | Tested |
 | PPO (torch) | `g1_wall_flip_tracking` (G1 wall flip tracking) | Tested | Tested |
 | PPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | Tested |
-| PPO (torch) | `sharpa_inhand` (Sharpa in-hand) | Tested | Tested |
-| PPO (torch) | `sharpa_inhand_grasp` (Sharpa in-hand grasp) | Tested | Tested |
 | PPO (torch) | `allegro_inhand_grasp` (allegro inhand grasp) | Tested | Tested |
 | PPO (torch) | `g1_climb_tracking` (g1 climb tracking) | Tested | Tested |
 | PPO (torch) | `g1_motion_tracking_deploy` (g1 motion tracking deploy) | Tested | Tested |
 | PPO (torch) | `go2_arm_manip_loco` (go2 arm manip loco) | Tested | - |
 | PPO (torch) | `go2_handstand` (go2 handstand) | Tested | Tested |
-| PPO (torch) | `go2w_joystick_flat` (go2w joystick flat) | Tested | Tested |
-| PPO (torch) | `go2w_joystick_rough_tiles` (go2w joystick rough tiles) | Tested | Tested |
+| PPO (torch) | `go2w_joystick_flat` (go2w joystick flat) | Tested | - |
+| PPO (torch) | `go2w_joystick_rough` (go2w joystick rough) | Tested | Tested |
+| PPO (torch) | `sharpa_inhand` (sharpa inhand) | Tested | - |
+| PPO (torch) | `sharpa_inhand_grasp` (sharpa inhand grasp) | Tested | - |
 | PPO (mlx) | `go1_joystick_flat` (Go1 joystick) | Tested | Tested |
 | PPO (mlx) | `go2_joystick_flat` (Go2 joystick) | Tested | Tested |
 | PPO (mlx) | `go2_joystick_rough` (Go2 joystick rough) | Configured | Configured |
@@ -68,15 +66,15 @@ uv run scripts/generate_support_matrix.py --write
 | PPO (mlx) | `g1_flip_tracking` (G1 flip tracking) | Configured | Configured |
 | PPO (mlx) | `g1_wall_flip_tracking` (G1 wall flip tracking) | Configured | Configured |
 | PPO (mlx) | `allegro_inhand` (Allegro in-hand) | Configured | Configured |
-| PPO (mlx) | `sharpa_inhand` (Sharpa in-hand) | Configured | Configured |
-| PPO (mlx) | `sharpa_inhand_grasp` (Sharpa in-hand grasp) | Configured | Configured |
 | PPO (mlx) | `allegro_inhand_grasp` (allegro inhand grasp) | Configured | Configured |
 | PPO (mlx) | `g1_climb_tracking` (g1 climb tracking) | Configured | Configured |
 | PPO (mlx) | `g1_motion_tracking_deploy` (g1 motion tracking deploy) | Configured | Configured |
 | PPO (mlx) | `go2_arm_manip_loco` (go2 arm manip loco) | Configured | - |
 | PPO (mlx) | `go2_handstand` (go2 handstand) | Configured | Configured |
-| PPO (mlx) | `go2w_joystick_flat` (go2w joystick flat) | Configured | Configured |
-| PPO (mlx) | `go2w_joystick_rough_tiles` (go2w joystick rough tiles) | Configured | Configured |
+| PPO (mlx) | `go2w_joystick_flat` (go2w joystick flat) | Configured | - |
+| PPO (mlx) | `go2w_joystick_rough` (go2w joystick rough) | Configured | Configured |
+| PPO (mlx) | `sharpa_inhand` (sharpa inhand) | Configured | - |
+| PPO (mlx) | `sharpa_inhand_grasp` (sharpa inhand grasp) | Configured | - |
 | APPO (torch) | `go1_joystick_flat` (Go1 joystick) | Tested | Registered |
 | APPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | Registered |
 | APPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered |
@@ -84,8 +82,8 @@ uv run scripts/generate_support_matrix.py --write
 | APPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | Tested |
 | APPO (torch) | `g1_wall_flip_tracking` (G1 wall flip tracking) | Tested | Tested |
 | APPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | Tested |
-| APPO (torch) | `sharpa_inhand` (Sharpa in-hand) | Tested | Registered |
 | APPO (torch) | `g1_climb_tracking` (g1 climb tracking) | Tested | Tested |
+| APPO (torch) | `sharpa_inhand` (sharpa inhand) | Tested | - |
 | SAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested |
 | SAC (torch) | `g1_walk_rough` (G1 walk rough) | Tested | Tested |
 | SAC (torch) | `g1_sac_wbt` (g1 sac wbt) | Tested | Tested |
