@@ -448,7 +448,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
     def obs_groups_spec(self) -> dict[str, int]:
         # Actor: command(2n) + motion_anchor_pos_b(3) + motion_anchor_ori_b(6)
         #        + linvel(3) + gyro(3) + joint_pos(n) + joint_vel(n) + actions(n)
-        # Critic mirrors MJLab physical terms without actor observation noise:
+        # Critic mirrors BeyondMimic physical terms without actor observation noise:
         #        command, motion anchor, robot body pos/ori, linvel, gyro, joints, actions.
         n = self._num_action
         critic_extra_dim = len(self._cfg.body_names) * 9
@@ -562,7 +562,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
             if self._cfg.truncate_on_clip_end:
                 self._clip_end_truncated[done_env_ids] = True
             else:
-                # Match MJLab: clip boundaries are command resampling points, not
+                # Match BeyondMimic: clip boundaries are command resampling points, not
                 # episode boundaries; sync the simulated robot to the new reference.
                 resample_env_ids = done_env_ids[~terminated[done_env_ids]]
                 if len(resample_env_ids) > 0:
