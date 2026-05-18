@@ -28,18 +28,4 @@
     <contact name="RR_foot_contact" geom1="floor" geom2="RR" data="force" num="1" reduce="mindist"/>
   </sensor>
 
-  <keyframe>
-    <key name="home" qpos="
-        0 0 0.27 1 0 0 0  
-        0 0.9 -1.8
-        0 0.9 -1.8
-        0 1 -1.8
-        0 1 -1.8"
-      ctrl="
-        0 0.9 -1.8
-        0 0.9 -1.8
-        0 1 -1.8
-        0 1 -1.8"/>
-  </keyframe>
-
 </mujoco>

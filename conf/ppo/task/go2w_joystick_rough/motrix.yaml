@@ -3,9 +3,9 @@ training:
   task_name: Go2WJoystickRough
   sim_backend: motrix
 algo:
-  num_envs: 1024
-  num_steps_per_env: 48
-  max_iterations: 5000
+  num_envs: 4096
+  num_steps_per_env: 24
+  max_iterations: 1000
   empirical_normalization: false
   obs_groups:
     actor:

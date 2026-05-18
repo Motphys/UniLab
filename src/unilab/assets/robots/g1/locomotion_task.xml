@@ -12,24 +12,4 @@
     <framelinvel objtype="site" objname="left_foot" name="left_foot_linvel"/>
     <framelinvel objtype="site" objname="right_foot" name="right_foot_linvel"/>
   </sensor>
-
-  <keyframe>
-    <key name="stand"
-      qpos="
-      0 0 0.754
-      1 0 0 0
-      -0.312 0.0 0.0 0.669 -0.363 0.0
-      -0.312 0.0 0.0 0.669 -0.363 0.0
-      0.0 0.0 0.0
-      0.2  0.2 0.0 0.6 0.0 0.0 0.0
-      0.2 -0.2 0.0 0.6 0.0 0.0 0.0
-      "
-      ctrl="
-      -0.312 0.0 0.0 0.669 -0.363 0.0
-      -0.312 0.0 0.0 0.669 -0.363 0.0
-      0.0 0.0 0.0
-      0.2  0.2 0.0 0.6 0.0 0.0 0.0
-      0.2 -0.2 0.0 0.6 0.0 0.0 0.0
-      "/>
-  </keyframe>
 </mujoco>

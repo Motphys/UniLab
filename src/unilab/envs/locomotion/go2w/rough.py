@@ -43,9 +43,6 @@ class Go2WJoystickRoughCfg(Go2WJoystickCfg):
     scene: SceneCfg = field(
         default_factory=lambda: SceneCfg(
             model_file=str(ASSETS_ROOT_PATH / "robots" / "go2w" / "go2w.xml"),
-            fragment_files=[
-                str(ASSETS_ROOT_PATH / "robots" / "go2w" / "locomotion_task.xml"),
-            ],
             terrain=TerrainSceneCfg(
                 generator=Go2RoughTerrainCfg(),
                 hfield_name="terrain_hfield",

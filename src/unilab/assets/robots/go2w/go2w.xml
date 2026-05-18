@@ -333,4 +333,18 @@
     <framelinvel name="frame_vel" objtype="site" objname="imu" />
   </sensor>
 
+  <keyframe>
+    <key name="home" qpos="
+        0 0 0.42  1 0 0 0
+        0 0.8 -1.5 0
+        0 0.8 -1.5 0
+        0 0.8 -1.5 0
+        0 0.8 -1.5 0"
+      ctrl="
+        0 0 0 0
+        0 0 0 0
+        0 0 0 0
+        0 0 0 0"/>
+  </keyframe>
+
 </mujoco>
