@@ -2,6 +2,7 @@
 training:
   task_name: Go2JoystickRough
   sim_backend: motrix
+  play_steps: 500
   play_env_num: 16
   cam_tracking: true
   cam_tracking_env_idx: 0
@@ -16,7 +17,7 @@ interactive:
 algo:
   num_envs: 4096
   num_steps_per_env: 24
-  max_iterations: 2000
+  max_iterations: 1000
   empirical_normalization: false
   obs_groups:
     actor:
@@ -83,6 +84,7 @@ reward:
     joint_pos_limits: -5.0
     joint_power: -2.0e-5
     stand_still: -2.0
+    hip_pos: -0.5
     joint_pos_penalty: -1.0
     joint_mirror: -0.05
     action_rate: -0.01

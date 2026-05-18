@@ -8,6 +8,7 @@ import numpy as np
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
+from unilab.base.backend.base import BackendHeightScanner
 from unilab.base.np_env import NpEnvState
 from unilab.base.scene import SceneCfg, TerrainSceneCfg
 from unilab.dr import DomainRandomizationManager, ResetPlan
@@ -343,6 +344,7 @@ class Go2JoystickRoughEnv(Go2WalkTask):
             "joint_pos_limits": self._reward_joint_pos_limits,
             "joint_power": self._reward_joint_power,
             "stand_still": self._reward_stand_still,
+            "hip_pos": self._reward_hip_pos,
             "joint_pos_penalty": self._reward_joint_pos_penalty,
             "joint_mirror": self._reward_joint_mirror,
             "action_rate": rewards.action_rate,
@@ -435,7 +437,7 @@ class Go2JoystickRoughEnv(Go2WalkTask):
         self._height_scan_hfield_geom_id: int | None = None
         self._height_scan_frame_body_id: int | None = None
         self._height_scan_offsets: np.ndarray | None = None
-        self._height_scan_sensor: Any | None = None
+        self._height_scan_sensor: BackendHeightScanner | None = None
         if not scan_cfg.enabled:
             return
 
@@ -580,12 +582,11 @@ class Go2JoystickRoughEnv(Go2WalkTask):
         return np.asarray(np.mean(base_pos[:, 2:3] - raw_heights, axis=1), dtype=get_global_dtype())
 
     def _raw_height_scan_obs(self, num_obs: int) -> tuple[np.ndarray | None, np.ndarray | None]:
-        height_scan_sensor = getattr(self, "_height_scan_sensor", None)
         if (
             self._height_scan_hfield_geom_id is None
             or self._height_scan_frame_body_id is None
             or self._height_scan_offsets is None
-            or height_scan_sensor is None
+            or self._height_scan_sensor is None
         ):
             return None, None
 
@@ -593,7 +594,7 @@ class Go2JoystickRoughEnv(Go2WalkTask):
         if base_pos.shape[0] != num_obs:
             return None, None
 
-        raw_heights = height_scan_sensor.scan()
+        raw_heights = self._height_scan_sensor.scan()
         if raw_heights.shape != (num_obs, self._height_scan_dim):
             return None, None
         return np.asarray(raw_heights, dtype=get_global_dtype()), base_pos
@@ -754,6 +755,13 @@ class Go2JoystickRoughEnv(Go2WalkTask):
         dof_error = np.sum(np.abs(ctx.dof_pos - self.default_angles), axis=1)
         return np.asarray(
             dof_error * stopped * self._upright_scale(ctx.gravity), dtype=get_global_dtype()
+        )
+
+    def _reward_hip_pos(self, ctx: RewardContext) -> np.ndarray:
+        diff = ctx.dof_pos[:, GO2_HIP_INDICES] - self.default_angles[GO2_HIP_INDICES]
+        return np.asarray(
+            np.sum(np.square(diff), axis=1) * self._upright_scale(ctx.gravity),
+            dtype=get_global_dtype(),
         )
 
     def _reward_joint_pos_penalty(self, ctx: RewardContext) -> np.ndarray:
