@@ -33,6 +33,8 @@ algo:
 env:
   control_config:
     action_scale: 0.25
+    hip_action_scale: 0.125
+    non_hip_action_scale: 0.25
     clip_actions: 100.0
   commands:
     vel_limit: [[-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]]
@@ -65,27 +67,50 @@ env:
     randomize_base_mass: true
     added_mass_range: [-1.0, 3.0]
     random_com: true
-    push_robots: false
+    randomize_kp: true
+    kp_multiplier_range: [0.5, 2.0]
+    randomize_kd: true
+    kd_multiplier_range: [0.5, 2.0]
+    push_robots: true
+    push_interval: 625
+    max_force: [1.0, 1.0, 0.5]
 
 reward:
   scales:
-    tracking_lin_vel: 3.0
-    tracking_ang_vel: 1.5
     lin_vel_z: -2.0
     ang_vel_xy: -0.05
-    orientation: -1.0
-    action_rate_l2: -0.01
-    joint_torques_l2: -0.0002
+    joint_torques_l2: -2.5e-5
     joint_acc_l2: -2.5e-7
-    joint_pos_limits: -1.0
-    joint_pos_penalty: -0.3
+    joint_pos_limits: -5.0
     joint_power: -2.0e-5
-    stand_still: -1.0
+    stand_still: -2.0
+    hip_pos: -0.5
+    joint_pos_penalty: -1.0
+    joint_mirror: -0.05
+    action_rate: -0.01
+    undesired_contacts: -1.0
+    contact_forces: -1.5e-4
+    tracking_lin_vel: 3.0
+    tracking_ang_vel: 1.5
+    feet_air_time: 0.5
+    feet_air_time_variance: -1.0
+    feet_contact_without_cmd: 0.1
+    feet_slide: -0.1
+    feet_height_body: -5.0
+    feet_gait: 0.5
     upward: 1.0
-    swing_feet_z: 4.0
   tracking_sigma: 0.25
   base_height_target: 0.27
   stand_still_command_threshold: 0.1
   joint_pos_penalty_stand_still_scale: 5.0
   joint_pos_penalty_velocity_threshold: 0.5
   joint_pos_penalty_command_threshold: 0.1
+  contact_threshold: 1.0
+  contact_forces_threshold: 100.0
+  feet_air_time_threshold: 0.5
+  feet_height_body_target: -0.17
+  feet_height_body_tanh_mult: 2.0
+  feet_gait_std: 0.7071067811865476
+  feet_gait_max_err: 0.2
+  feet_gait_velocity_threshold: 0.5
+  feet_gait_command_threshold: 0.1
