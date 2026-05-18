@@ -1,11 +1,4 @@
-"""G1 joystick rough-terrain task.
-
-Combines isaaclab-style biped rewards (``track_lin_vel_xy_yaw_frame_exp``,
-``feet_air_time_positive_biped``, ``feet_slide``, ``joint_deviation_l1``) with
-the locomotion ``common`` rewards already used by other rough envs. Scene
-geometry is procedurally generated via :class:`G1RoughTerrainCfg` — unlike
-``G1WalkRough`` which reads a fixed PNG heightfield.
-"""
+"""G1 joystick rough-terrain task."""
 
 from __future__ import annotations
 
@@ -97,8 +90,6 @@ class G1RoughTerrainCfg(TerrainGeneratorCfg):
     add_lights: bool = True
     horizontal_scale: float = 0.2
 
-    # IsaacLab keeps default ROUGH_TERRAINS_CFG proportions for bipeds; we keep
-    # step_width / platform_width aligned with horizontal_scale=0.2.
     sub_terrains: dict[str, SubTerrainCfg] = field(
         default_factory=lambda: {
             "flat": flat(proportion=0.2),

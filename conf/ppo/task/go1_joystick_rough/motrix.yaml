@@ -78,11 +78,12 @@ reward:
     action_rate_l2: -0.01
     joint_torques_l2: -0.0002
     joint_acc_l2: -2.5e-7
-    joint_pos_limits: -5.0
-    joint_pos_penalty: -1.0
+    joint_pos_limits: -1.0
+    joint_pos_penalty: -0.3
     joint_power: -2.0e-5
-    stand_still: -2.0
+    stand_still: -1.0
     upward: 1.0
+    swing_feet_z: 4.0
   tracking_sigma: 0.25
   base_height_target: 0.27
   stand_still_command_threshold: 0.1

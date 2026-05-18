@@ -104,7 +104,6 @@ class Go1RoughTerrainCfg(TerrainGeneratorCfg):
     add_lights: bool = True
     horizontal_scale: float = 0.2
 
-    # IsaacLab uses scaled-down terrains for small quadrupeds (Go1/A1/Go2).
     sub_terrains: dict[str, SubTerrainCfg] = field(
         default_factory=lambda: {
             "flat": flat(proportion=0.0),
@@ -301,6 +300,26 @@ class Go1JoystickRoughEnv(Go1WalkTask):
         # and curriculum logging.
         state = self._maybe_log_curriculum(state)
         return state
+
+    def _reward_swing_feet_z(self, ctx: RewardContext) -> np.ndarray:
+        """Swing-phase foot-lift reward, terrain-robust.
+
+        Uses foot z **relative to the base** instead of world z so the target
+        is meaningful regardless of terrain height. Gated on ``commands`` so it
+        doesn't fight the stand_still penalty when the command is zero.
+        """
+        is_swing = self.feet_phase >= 0.6
+        # Foot height below the base when standing is ~0.27 m (init_state.pos).
+        # During swing we want the foot ~0.10 m above the local terrain, i.e.
+        # ~0.17 m below the base.
+        target_rel_z = -0.17
+        base_z = self._backend.get_base_pos()[:, 2:3]
+        rel_z = self.feet_pos[:, :, 2] - base_z
+        height_error = np.square(rel_z - target_rel_z)
+        swing_rew = np.exp(-height_error / 0.01) * is_swing
+        moving = np.linalg.norm(ctx.info["commands"], axis=1) > 0.1
+        reward = np.sum(swing_rew, axis=1) / len(self._cfg.sensor.feet_pos)
+        return np.asarray(reward * moving, dtype=get_global_dtype())
 
     def _compute_obs(
         self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel, feet_phase

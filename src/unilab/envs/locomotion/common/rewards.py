@@ -267,7 +267,7 @@ def upward(ctx: RewardContext) -> np.ndarray:
     return np.asarray(np.square(1.0 + ctx.gravity[:, 2]), dtype=get_global_dtype())
 
 
-# ── biped-style rewards (mirrored from isaaclab) ─────────────────────
+# ── biped-style rewards ─────────────────────
 
 
 def track_lin_vel_xy_yaw_frame_exp(ctx: RewardContext) -> np.ndarray:
