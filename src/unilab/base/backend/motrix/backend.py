@@ -857,7 +857,9 @@ class MotrixBackend(SimBackend):
     def _set_position_actuator_kd_override(self, data_slice, kd: np.ndarray) -> None:
         for actuator in self._position_actuators:
             # TODO(motrixsim#1384): drop the copy once strided NumPy views are accepted.
-            actuator.set_kd_override(data_slice, np.ascontiguousarray(kd[:, int(actuator.index)]))
+            actuator.set_damping_override(
+                data_slice, np.ascontiguousarray(kd[:, int(actuator.index)])
+            )
 
     def get_actuator_gains(self) -> tuple[np.ndarray, np.ndarray]:
         if not self._supports_position_actuator_gains:

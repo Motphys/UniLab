@@ -16,7 +16,10 @@ Usage:
 """
 
 import importlib.util
+import json
+import subprocess
 import sys
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -55,10 +58,16 @@ def _load_helper_module(module_name: str, relative_path: str):
 
 
 _DEVICE_INFO = _load_helper_module("bench_env_step_device_info", "device_info.py")
+_MEM_PROFILE = _load_helper_module("bench_env_step_mem_profile", "mem_profile.py")
 _OUTPUT = _load_helper_module("bench_env_step_output", "output.py")
 
 get_device_info_dict = _DEVICE_INFO.get_device_info_dict
 get_device_info_line = _DEVICE_INFO.get_device_info_line
+MEMORY_METRICS = _MEM_PROFILE.MEMORY_METRICS
+_build_memory_summary = _MEM_PROFILE.build_memory_summary
+_format_mb = _MEM_PROFILE.format_mb
+_mb = _MEM_PROFILE.mb
+_memory_snapshot = _MEM_PROFILE.memory_snapshot
 save_json = _OUTPUT.save_json
 
 BACKENDS = ["mujoco", "motrix"]
@@ -734,7 +743,9 @@ def _run_single(extra_args: list[str]) -> dict[str, Any]:
 
     env = None
     timing_records: dict[str, list[float]] = {}
+    memory_samples: dict[str, dict[str, Any]] = {}
     try:
+        memory_samples["before_env"] = _memory_snapshot("before_env")
         env_cls = task_config.env_cls_factory()
         env = env_cls(cfg, num_envs=num_envs, backend_type=sim_backend)
 
@@ -751,9 +762,11 @@ def _run_single(extra_args: list[str]) -> dict[str, Any]:
             timing = state.info.get("timing", {})
             for k, v in timing.items():
                 timing_records.setdefault(k, []).append(float(v))
+        memory_samples["after_benchmark"] = _memory_snapshot("after_benchmark")
     finally:
         if env is not None:
             env.close()
+            memory_samples["after_close"] = _memory_snapshot("after_close")
 
     return {
         "task_name": task_config.env_name,
@@ -762,6 +775,7 @@ def _run_single(extra_args: list[str]) -> dict[str, Any]:
         "num_steps": num_steps,
         "warmup_steps": warmup_steps,
         "timing_records": timing_records,
+        "memory": _build_memory_summary(memory_samples, num_envs),
     }
 
 
@@ -789,6 +803,7 @@ def _compute_result_summary(result: dict[str, Any]) -> dict[str, Any]:
         "throughput_env_steps_per_s": throughput,
         "timing_mean_ms": {},
         "timing_median_ms": {},
+        "memory": result.get("memory", {}),
     }
     for key, values in tr.items():
         arr = np.array(values, dtype=np.float64)
@@ -799,6 +814,8 @@ def _compute_result_summary(result: dict[str, Any]) -> dict[str, Any]:
 
 def _serialize_result(result: dict[str, Any]) -> dict[str, Any]:
     summary = _compute_result_summary(result)
+    memory = result.get("memory", {})
+    preferred_metric = str(memory.get("preferred_metric", "rss"))
     return {
         "task_name": result["task_name"],
         "task_key": result.get("task_key"),
@@ -806,10 +823,18 @@ def _serialize_result(result: dict[str, Any]) -> dict[str, Any]:
         "num_envs": result["num_envs"],
         "num_steps": result["num_steps"],
         "warmup_steps": result["warmup_steps"],
+        "memory": memory,
         "plot_data": {
             "label": summary["label"],
             "median_step_ms": summary["median_step_ms"],
             "throughput_env_steps_per_s": summary["throughput_env_steps_per_s"],
+            "total_rss_delta_mb": _mb(memory.get("total_rss_delta_bytes")),
+            "total_uss_delta_mb": _mb(memory.get("total_uss_delta_bytes")),
+            "preferred_memory_metric": preferred_metric,
+            "total_preferred_delta_mb": _mb(memory.get(f"total_{preferred_metric}_delta_bytes")),
+            "retained_preferred_delta_after_close_mb": _mb(
+                memory.get(f"retained_{preferred_metric}_delta_after_close_bytes")
+            ),
             "breakdown_median_ms": {
                 key: _median_timing_ms(result, key) for key, _, _ in BREAKDOWN_SEGMENTS
             },
@@ -834,6 +859,30 @@ def _print_single_report(result: dict[str, Any]) -> None:
     print(f"  Min step time:    {summary['min_step_ms']:.3f}ms")
     print(f"  Max step time:    {summary['max_step_ms']:.3f}ms")
     print(f"  Throughput:       {summary['throughput_env_steps_per_s']:.0f} env-steps/s")
+    memory = result.get("memory", {})
+    if memory:
+        preferred_metric = str(memory.get("preferred_metric", "rss"))
+        print(
+            "  Memory RSS:       "
+            f"total Δ={_format_mb(memory.get('total_rss_delta_bytes'))}, "
+            f"after step={_format_mb(memory.get('after_benchmark_rss_bytes'), signed=False)}"
+        )
+        if memory.get("total_uss_delta_bytes") is not None:
+            print(
+                "  Memory USS:       "
+                f"total Δ={_format_mb(memory.get('total_uss_delta_bytes'))}, "
+                f"after step={_format_mb(memory.get('after_benchmark_uss_bytes'), signed=False)}"
+            )
+        print(
+            "  Memory retained:  "
+            f"after close Δ={_format_mb(memory.get(f'retained_{preferred_metric}_delta_after_close_bytes'))} "
+            f"({preferred_metric.upper()})"
+        )
+        print(
+            "  Memory baseline:  "
+            f"before env={_format_mb(memory.get('before_env_rss_bytes'), signed=False)} "
+            f"(source: {memory.get('rss_source', 'unavailable')})"
+        )
     if tr:
         print(f"{'- ' * 30}")
         print("  Breakdown:")
@@ -877,6 +926,9 @@ def _print_comparison_table(results: list[dict[str, Any]]) -> None:
         ("  reset_done", "reset_done_ms"),
         ("  env_step_other", "env_step_other_ms"),
         ("throughput", "__throughput__"),
+        ("memory RSS Δ", "__total_rss_delta_mb__"),
+        ("memory USS Δ", "__total_uss_delta_mb__"),
+        ("close USS Δ", "__close_uss_delta_mb__"),
     ]
 
     # Build short column labels
@@ -898,7 +950,7 @@ def _print_comparison_table(results: list[dict[str, Any]]) -> None:
     header += "│".join(c.center(col_w) for c in col_labels) + "│"
     print(header)
 
-    unit_row = "│" + "(median ms)".center(metric_w) + "│"
+    unit_row = "│" + "(ms / MB)".center(metric_w) + "│"
     unit_row += "│".join(" " * col_w for _ in results) + "│"
     print(unit_row)
     print(hline("├", "┼", "┤"))
@@ -912,6 +964,17 @@ def _print_comparison_table(results: list[dict[str, Any]]) -> None:
                 total_s = total_arr.sum() / 1000.0
                 steps_per_env = r["num_steps"] * r["num_envs"]
                 cells.append(f"{steps_per_env / total_s:,.0f}" if total_s > 0 else "-")
+        elif key == "__total_rss_delta_mb__":
+            for r in results:
+                cells.append(_format_mb(r.get("memory", {}).get("total_rss_delta_bytes")))
+        elif key == "__total_uss_delta_mb__":
+            for r in results:
+                cells.append(_format_mb(r.get("memory", {}).get("total_uss_delta_bytes")))
+        elif key == "__close_uss_delta_mb__":
+            for r in results:
+                cells.append(
+                    _format_mb(r.get("memory", {}).get("retained_uss_delta_after_close_bytes"))
+                )
         else:
             for r in results:
                 arr = _timing_array(r, key)
@@ -1119,9 +1182,14 @@ def _save_summary_plot(results: list[dict[str, Any]], output_path: Path) -> bool
     labels = [summary["label"] for summary in summaries]
     width = 0.78
 
-    fig, axes = plt.subplots(1, 2, figsize=(max(10, len(labels) * 1.6), 5.5))
+    fig, axes = plt.subplots(1, 3, figsize=(max(13, len(labels) * 2.0), 5.5))
     median_ms = [summary["median_step_ms"] for summary in summaries]
     throughput = [summary["throughput_env_steps_per_s"] for summary in summaries]
+    memory_metric = [str(summary["memory"].get("preferred_metric", "rss")) for summary in summaries]
+    total_memory_delta_mb = [
+        _mb(summary["memory"].get(f"total_{memory_metric[idx]}_delta_bytes")) or 0.0
+        for idx, summary in enumerate(summaries)
+    ]
 
     for idx, result in enumerate(ordered):
         style = _backend_style(result["sim_backend"])
@@ -1144,6 +1212,15 @@ def _save_summary_plot(results: list[dict[str, Any]], output_path: Path) -> bool
             hatch=style["hatch"],
             alpha=0.92,
         )
+        axes[2].bar(
+            x[idx],
+            total_memory_delta_mb[idx],
+            width=width,
+            color=color,
+            edgecolor="#444444",
+            hatch=style["hatch"],
+            alpha=0.92,
+        )
 
     axes[0].set_ylabel("median env.step time (ms)")
     axes[0].set_title("Latency")
@@ -1153,14 +1230,19 @@ def _save_summary_plot(results: list[dict[str, Any]], output_path: Path) -> bool
     axes[1].set_title("Throughput")
     axes[1].grid(axis="y", alpha=0.3)
 
+    axes[2].axhline(0.0, color="#5F6368", linewidth=0.8)
+    axes[2].set_ylabel("memory delta (MB, USS preferred)")
+    axes[2].set_title("Memory")
+    axes[2].grid(axis="y", alpha=0.3)
+
     for ax in axes:
         _decorate_grouped_xaxis(ax, ordered, x, groups)
 
     fig.suptitle(f"Env step benchmark summary\n{get_device_info_line()}")
     handles = _backend_legend_handles()
     if handles:
-        axes[1].legend(handles=handles, title="backend", loc="upper right")
-    fig.subplots_adjust(bottom=0.24, top=0.82, wspace=0.22)
+        axes[2].legend(handles=handles, fontsize=8, loc="upper right")
+    fig.subplots_adjust(bottom=0.24, top=0.82, wspace=0.28)
     fig.savefig(output_path, dpi=160, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved: {output_path.resolve()}")
@@ -1245,6 +1327,12 @@ def _persist_outputs(
         "device_info": get_device_info_dict(),
         "matplotlib_available": plt is not None,
         "plot_files": plot_files,
+        "memory_measurement": {
+            "single_case": "in_process",
+            "matrix": "case_subprocess_isolated",
+            "growth_range": "before_env_to_after_benchmark",
+            "metrics": list(MEMORY_METRICS),
+        },
     }
     if failures:
         meta["failures"] = failures
@@ -1252,11 +1340,70 @@ def _persist_outputs(
     save_json(out_json, [_serialize_result(result) for result in results], meta)
 
 
+def _case_runner_args(extra_args: list[str]) -> list[str]:
+    args: list[str] = []
+    i = 0
+    while i < len(extra_args):
+        arg = extra_args[i]
+        if arg in {"--out-json", "--plot-dir"}:
+            i += 2
+            continue
+        if arg.startswith("--out-json=") or arg.startswith("--plot-dir="):
+            i += 1
+            continue
+        if arg.startswith("out_json=") or arg.startswith("plot_dir="):
+            i += 1
+            continue
+        if arg == "--skip-plots" or arg.startswith("skip_plots="):
+            i += 1
+            continue
+        args.append(arg)
+        i += 1
+    return args
+
+
+def _tail_text(text: str, *, max_lines: int = 24) -> str:
+    lines = text.splitlines()
+    return "\n".join(lines[-max_lines:])
+
+
+def _run_single_isolated(label: str, args: list[str]) -> dict[str, Any]:
+    with tempfile.TemporaryDirectory(prefix="unilab_env_step_case_") as tmpdir:
+        result_json = Path(tmpdir) / "result.json"
+        cmd = [
+            "uv",
+            "run",
+            "benchmark/benchmark_env_step.py",
+            *args,
+            "--emit-full-result-json",
+            str(result_json),
+        ]
+        completed = subprocess.run(
+            cmd,
+            cwd=ROOT_DIR,
+            capture_output=True,
+            text=True,
+        )
+        if completed.returncode != 0:
+            details = _tail_text(completed.stdout + "\n" + completed.stderr)
+            raise RuntimeError(details or f"case process exited with {completed.returncode}")
+
+        if not result_json.exists():
+            details = _tail_text(completed.stdout + "\n" + completed.stderr)
+            raise RuntimeError(f"{label} produced no result JSON\n{details}")
+
+        payload = json.loads(result_json.read_text(encoding="utf-8"))
+        record = payload.get("result")
+        if not isinstance(record, dict):
+            raise RuntimeError(f"{label} produced no raw result record")
+        return cast(dict[str, Any], record)
+
+
 def _run_matrix(
     extra_args: list[str], *, out_json: Path, plot_dir: Path | None, skip_plots: bool
 ) -> None:
     """Run all task x backend combinations and print comparison."""
-    from unilab.base.backend.motrix_backend import MOTRIX_AVAILABLE
+    from unilab.base.backend import MOTRIX_AVAILABLE
 
     backends = BACKENDS if MOTRIX_AVAILABLE else ["mujoco"]
     if not MOTRIX_AVAILABLE:
@@ -1273,8 +1420,8 @@ def _run_matrix(
             label = f"{task_key}/{backend}"
             print(f"Running {label} ...", flush=True)
             try:
-                args = [f"task={task_config.task_id}/{backend}"] + extra_args
-                result = _run_single(args)
+                args = [f"task={task_config.task_id}/{backend}"] + _case_runner_args(extra_args)
+                result = _run_single_isolated(label, args)
                 result["task_key"] = task_key
                 results.append(result)
                 _print_single_report(result)
@@ -1294,8 +1441,34 @@ def _run_matrix(
     )
 
 
+def _extract_emit_full_result_arg(argv: list[str]) -> tuple[Path | None, list[str]]:
+    emit_path: Path | None = None
+    remaining: list[str] = []
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--emit-full-result-json":
+            i += 1
+            if i >= len(argv):
+                raise ValueError("--emit-full-result-json requires a path")
+            emit_path = Path(argv[i])
+        elif arg.startswith("--emit-full-result-json="):
+            emit_path = Path(arg.split("=", 1)[1])
+        else:
+            remaining.append(arg)
+        i += 1
+    return emit_path, remaining
+
+
 def main() -> None:
     argv = sys.argv[1:]
+    emit_full_result_json, argv = _extract_emit_full_result_arg(argv)
+    if emit_full_result_json is not None:
+        result = _run_single(argv)
+        emit_full_result_json.parent.mkdir(parents=True, exist_ok=True)
+        emit_full_result_json.write_text(json.dumps({"result": result}), encoding="utf-8")
+        return
+
     _, output_kwargs, _ = _parse_cli_args(argv)
     out_json = Path(output_kwargs["out_json"]) if output_kwargs["out_json"] else DEFAULT_OUTPUT_JSON
     plot_dir = Path(output_kwargs["plot_dir"]) if output_kwargs["plot_dir"] else None
