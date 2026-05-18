@@ -5,11 +5,11 @@ training:
 algo:
   num_envs: 2048
   learning_starts: 49
-  max_iterations: 5000
+  max_iterations: 6000
   save_interval: 1000
-  updates_per_step: 8
+  updates_per_step: 5
   #use_symmetry: true
-  replay_buffer_n: 2048
+  replay_buffer_n: 256
   tau: 0.05
 env:
   control_config:
@@ -25,7 +25,7 @@ env:
     level_up_threshold: 750.0
     degree: 0.001
   noise_config:
-    level: 1.0
+    level: 0.0
     scale_gyro: 0.0
     scale_gravity: 0.0
     scale_joint_angle: 0.01
