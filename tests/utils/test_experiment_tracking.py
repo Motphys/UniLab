@@ -55,6 +55,18 @@ class _FakeWandb:
         return _FakeVideo(path, format=format)
 
 
+class _FakeTensorBoardWriter:
+    def __init__(self) -> None:
+        self.scalars: list[tuple[str, float, int]] = []
+        self.close_calls = 0
+
+    def add_scalar(self, tag: str, value: float, step: int) -> None:
+        self.scalars.append((tag, value, step))
+
+    def close(self) -> None:
+        self.close_calls += 1
+
+
 def test_training_logger_defers_initial_live_render(monkeypatch):
     start_refresh_values: list[bool] = []
 
@@ -309,7 +321,7 @@ def test_offpolicy_logger_close_releases_owned_wandb_run_once(monkeypatch):
     assert fake_wandb.finish_calls == 1
 
 
-def test_offpolicy_logger_logs_separate_startup_wait_and_iter_throughput(monkeypatch):
+def test_offpolicy_logger_logs_wait_and_iter_throughput(monkeypatch):
     fake_wandb = _FakeWandb()
     monkeypatch.setitem(sys.modules, "wandb", fake_wandb)
 
@@ -326,13 +338,12 @@ def test_offpolicy_logger_logs_separate_startup_wait_and_iter_throughput(monkeyp
         wait_time=10.0,
         learner_incremental_h2d_time=0.02,
         weight_sync_time=0.05,
-        extra_info={"startup_wait_time": 9.75, "throughput_steps": 8},
+        extra_info={"throughput_steps": 8},
     )
 
     payload, step = fake_wandb.log_calls[-1]
     assert step == 1
     assert payload["timing/learner_wait_ms"] == 10_000.0
-    assert payload["timing/startup_wait_ms"] == 9_750.0
     assert "timing/learner_collect_ms" not in payload
     assert payload["timing/learner_incremental_h2d_ms"] == 20.0
     assert payload["timing/learner_train_ms"] == 750.0
@@ -342,6 +353,36 @@ def test_offpolicy_logger_logs_separate_startup_wait_and_iter_throughput(monkeyp
     assert "perf/collect_train_ratio" not in payload
 
     logger.finish()
+
+
+def test_offpolicy_logger_logs_collector_phase_timing_to_backends(monkeypatch):
+    fake_wandb = _FakeWandb()
+    monkeypatch.setitem(sys.modules, "wandb", fake_wandb)
+
+    wandb_logger = OffPolicyLogger(
+        algo_name="FastSAC",
+        env_name="Go2JoystickFlat",
+        log_backend="wandb",
+    )
+    wandb_logger.update_collector_timing({"replay_ms": 1.25})
+    wandb_logger.log_step(iteration=3, metrics={}, train_time=0.1)
+
+    payload, _ = fake_wandb.log_calls[-1]
+    assert payload["timing/collector_replay_ms"] == pytest.approx(1.25)
+    wandb_logger.finish()
+
+    tb_writer = _FakeTensorBoardWriter()
+    tb_logger = OffPolicyLogger(
+        algo_name="FastSAC",
+        env_name="Go2JoystickFlat",
+        log_backend="none",
+    )
+    tb_logger._tb_writer = tb_writer
+    tb_logger.update_collector_timing({"replay_ms": 2.5})
+    tb_logger.log_step(iteration=4, metrics={}, train_time=0.1)
+
+    assert ("timing/collector_replay_ms", 2.5, 4) in tb_writer.scalars
+    tb_logger.finish()
 
 
 def test_offpolicy_logger_omits_iteration_extra_fields_when_not_supplied(monkeypatch):
@@ -366,7 +407,6 @@ def test_offpolicy_logger_omits_iteration_extra_fields_when_not_supplied(monkeyp
     )
 
     payload, _ = fake_wandb.log_calls[-1]
-    assert "timing/startup_wait_ms" not in payload
     assert "timing/learner_collect_ms" not in payload
     assert "perf/steps_per_sec" not in payload
 

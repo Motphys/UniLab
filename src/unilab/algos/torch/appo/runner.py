@@ -316,7 +316,6 @@ class APPORunner(AsyncRunner):
                 rollout_ring_buffer.advance_read()
 
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
-            startup_wait_time = wait_time if iteration == 1 else 0.0
 
             combined = staging_pool.batch()
 
@@ -354,7 +353,6 @@ class APPORunner(AsyncRunner):
                 learner_incremental_h2d_time=learner_incremental_h2d_time,
                 weight_sync_time=weight_sync_time,
                 extra_info={
-                    "startup_wait_time": startup_wait_time,
                     "throughput_steps": num_new * env_steps_per_sync,
                 },
             )

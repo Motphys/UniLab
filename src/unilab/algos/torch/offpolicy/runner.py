@@ -288,8 +288,6 @@ class OffPolicyRunner(AsyncRunner):
         write_read_ema = 0.0
         reward_stats_ptr = 0
         train_start_threshold = self.train_start_threshold
-        startup_wait_time = 0.0
-        have_startup_wait_time = False
 
         training_e2e_start_ns = time.perf_counter_ns() if trace_recorder else 0
 
@@ -403,9 +401,6 @@ class OffPolicyRunner(AsyncRunner):
                 logger,
                 trace_recorder,
             )
-            if not have_startup_wait_time:
-                startup_wait_time = wait_time
-                have_startup_wait_time = True
             _reward_stats_ns = time.perf_counter_ns() if trace_recorder else 0
             reward_stats_ptr = self._update_reward_stats_from_replay(
                 replay_buffer,
@@ -559,7 +554,6 @@ class OffPolicyRunner(AsyncRunner):
                 learner_incremental_h2d_time=learner_incremental_h2d_time,
                 weight_sync_time=weight_sync_time,
                 extra_info={
-                    "startup_wait_time": startup_wait_time if iteration == 1 else 0.0,
                     "throughput_steps": self.num_envs * self.env_steps_per_sync,
                 },
             )
