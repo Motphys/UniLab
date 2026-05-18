@@ -1,19 +1,4 @@
-"""Go1 joystick rough-terrain task.
-
-This mirrors ``Go2JoystickRough``'s reward set and runtime contracts as
-closely as Go1's asset / actuator layout allows. The leg ordering (FR, FL, RR,
-RL × hip/thigh/knee = 12 actuators) and ``FL/FR/RL/RR`` foot/site naming match
-Go2 byte-for-byte, so the same gait, hip-deviation and feet-related rewards
-work directly.
-
-Differences from Go2 rough:
-* Go1's xml uses class-tagged collision geoms (unnamed) for hip / thigh / calf;
-  ``undesired_contact`` therefore uses ``body2=`` selectors and drops the
-  per-calf split (calf body subtree contains the foot site).
-* Go1 has no ``base1/base2/base3`` collision geom names; trunk contacts are
-  collapsed into a single ``trunk_contact`` sensor.
-* Calf contact is omitted from the undesired-contact list for the reason above.
-"""
+"""Go1 joystick rough-terrain task."""
 
 from __future__ import annotations
 
@@ -36,6 +21,7 @@ from unilab.envs.common.rotation import (
 )
 from unilab.envs.locomotion.common import rewards
 from unilab.envs.locomotion.common.commands import Commands
+from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
 from unilab.envs.locomotion.common.height_scan import (
     HeightScanConfig,
     base_height_from_scan,
@@ -73,8 +59,6 @@ from unilab.terrains import (
 
 
 GO1_HEIGHT_SCAN_SCALE = 5.0
-# Joint ordering (FR, FL, RR, RL × hip/thigh/knee) — hip indices are the
-# abduction joints, identical to Go2.
 GO1_HIP_INDICES = np.asarray([0, 3, 6, 9], dtype=np.int32)
 GO1_FRONT_LEFT = 0
 GO1_FRONT_RIGHT = 1
@@ -92,6 +76,14 @@ class RoughControlConfig(ControlConfig):
     hip_action_scale: float = 0.125
     non_hip_action_scale: float = 0.25
     clip_actions: float = 100.0
+
+
+@dataclass
+class Go1RoughDomainRandConfig(DomainRandConfig):
+    randomize_kp: bool = True
+    kp_multiplier_range: list[float] = field(default_factory=lambda: [0.9, 1.1])
+    randomize_kd: bool = True
+    kd_multiplier_range: list[float] = field(default_factory=lambda: [0.9, 1.1])
 
 
 @dataclass
@@ -229,6 +221,7 @@ class Go1JoystickRoughCfg(Go1JoystickCfg):
     termination_config: RoughTerminationConfig = field(default_factory=RoughTerminationConfig)
     terrain_curriculum: TerrainCurriculumCfg = field(default_factory=TerrainCurriculumCfg)
     sensor: RoughJoystickSensor = field(default_factory=RoughJoystickSensor)
+    domain_rand: Go1RoughDomainRandConfig = field(default_factory=Go1RoughDomainRandConfig)
     reward_config: RoughRewardConfig | None = None
 
 
@@ -247,8 +240,6 @@ class Go1JoystickRoughDomainRandomizationProvider(Go1JoystickDomainRandomization
         qpos[:, 0:2] += np.random.uniform(-0.5, 0.5, (num_reset, 2))
         qpos[:, 2] += np.random.uniform(0.1, 0.3, (num_reset,))
         qpos[:, 0:3] += env._spawn.origins_for(env_ids)
-        # Random roll/pitch/yaw forces the policy to learn recovery from any
-        # initial orientation (matches Go2 rough).
         roll = np.random.uniform(-3.14, 3.14, (num_reset,))
         pitch = np.random.uniform(-3.14, 3.14, (num_reset,))
         yaw = np.random.uniform(-3.14, 3.14, (num_reset,))
@@ -284,7 +275,6 @@ class Go1JoystickRoughEnv(Go1WalkTask):
     def __init__(self, cfg: Go1JoystickRoughCfg, num_envs=1, backend_type="mujoco"):
         super().__init__(cfg, num_envs=num_envs, backend_type=backend_type)
 
-        # Replace default no-op spawn manager with terrain-aware one.
         terrain_origins = getattr(self._backend, "terrain_origins", None)
         terrain_generator = (
             cfg.scene.terrain.generator if cfg.scene.terrain is not None else None
@@ -301,7 +291,6 @@ class Go1JoystickRoughEnv(Go1WalkTask):
             self, Go1JoystickRoughDomainRandomizationProvider()
         )
 
-        # PD-estimation buffers and joint limits for the lifted common rewards.
         self._last_dof_vel_for_acc = np.zeros(
             (num_envs, self._num_action), dtype=get_global_dtype()
         )
@@ -310,8 +299,6 @@ class Go1JoystickRoughEnv(Go1WalkTask):
             np.asarray(joint_range, dtype=get_global_dtype()) if joint_range is not None else None
         )
 
-        # Per-joint action scale: smaller scale on the hip abduction joints
-        # tames sideways flailing during early training (mirrors Go2 rough).
         self._action_scale = np.full(
             (self._num_action,),
             float(cfg.control_config.non_hip_action_scale),
@@ -319,7 +306,6 @@ class Go1JoystickRoughEnv(Go1WalkTask):
         )
         self._action_scale[GO1_HIP_INDICES] = float(cfg.control_config.hip_action_scale)
 
-        # Foot kinematics + contact-timer state for the gait/air-time rewards.
         self.feet_vel = np.zeros((num_envs, len(cfg.sensor.feet_vel), 3), dtype=np.float32)
         self._last_foot_contact = np.zeros((num_envs, len(cfg.sensor.feet_force)), dtype=bool)
         self._current_air_time = np.zeros(
@@ -450,7 +436,6 @@ class Go1JoystickRoughEnv(Go1WalkTask):
         state.info["qacc"] = self._estimate_dof_acc(dof_vel)
         state.info["torques"] = self._estimate_pd_torques(state.info, dof_pos, dof_vel)
 
-        # Never terminate on tilt — let the policy learn recovery.
         terminated = np.zeros((self._num_envs,), dtype=bool)
         reward = self._compute_rough_reward(state.info, linvel, gyro, gravity, dof_pos, dof_vel)
         obs = self._compute_obs(state.info, linvel, gyro, gravity, dof_pos, dof_vel)
@@ -477,10 +462,9 @@ class Go1JoystickRoughEnv(Go1WalkTask):
         gravity: np.ndarray,
         dof_pos: np.ndarray,
         dof_vel: np.ndarray,
-        *args,  # absorbs feet_phase passed by parent reset path; unused here.
+        *args,
     ) -> dict[str, np.ndarray]:
         del args
-        # Rough-style obs (no feet_phase in actor obs), matching Go2 rough.
         noise_cfg = self._cfg.noise_config
         diff = dof_pos - self.default_angles
         policy_gyro = self._obs_noise(gyro, noise_cfg.scale_gyro) * 0.25
@@ -590,8 +574,6 @@ class Go1JoystickRoughEnv(Go1WalkTask):
         )
         return np.asarray(torques, dtype=get_global_dtype())
 
-    # ── contact timer ─────────────────────────────────────────────────────
-
     def _foot_contact_mask(self) -> np.ndarray:
         contact_force = np.linalg.norm(self.feet_force, axis=2)
         return np.asarray(contact_force > self._reward_cfg.contact_threshold, dtype=bool)
@@ -616,8 +598,6 @@ class Go1JoystickRoughEnv(Go1WalkTask):
         self._current_contact_time[contact] += self._cfg.ctrl_dt
         self._last_foot_contact[:] = contact
 
-    # ── foot kinematics in body frame ─────────────────────────────────────
-
     def _relative_foot_vel_body(self) -> np.ndarray:
         base_quat = np.asarray(self._backend.get_base_quat(), dtype=get_global_dtype())
         base_linvel = np.asarray(
@@ -635,8 +615,6 @@ class Go1JoystickRoughEnv(Go1WalkTask):
         flat = relative_pos.reshape(self._num_envs * relative_pos.shape[1], 3)
         quat = np.repeat(base_quat, relative_pos.shape[1], axis=0)
         return np_quat_apply_inverse(quat, flat).reshape(relative_pos.shape)
-
-    # ── Go2-style env-coupled rewards (ported verbatim, Go1 names) ────────
 
     def _reward_hip_pos(self, ctx: RewardContext) -> np.ndarray:
         diff = ctx.dof_pos[:, GO1_HIP_INDICES] - self.default_angles[GO1_HIP_INDICES]
@@ -753,9 +731,7 @@ class Go1JoystickRoughEnv(Go1WalkTask):
         )
 
     def _reward_swing_feet_z(self, ctx: RewardContext) -> np.ndarray:
-        """Swing-phase foot-lift reward, terrain-robust (body-relative z)."""
         is_swing = self.feet_phase >= 0.6
-        # Stance ~0.27 m below the base; we want the foot ~0.10 m higher in swing.
         target_rel_z = -0.17
         base_z = self._backend.get_base_pos()[:, 2:3]
         rel_z = self.feet_pos[:, :, 2] - base_z
@@ -764,9 +740,6 @@ class Go1JoystickRoughEnv(Go1WalkTask):
         moving = np.linalg.norm(ctx.info["commands"], axis=1) > 0.1
         reward = np.sum(swing_rew, axis=1) / len(self._cfg.sensor.feet_pos)
         return np.asarray(reward * moving, dtype=get_global_dtype())
-
-
-# ── module helpers ────────────────────────────────────────────────────────
 
 
 def _force_norm_columns(force: np.ndarray, num_envs: int) -> np.ndarray:
