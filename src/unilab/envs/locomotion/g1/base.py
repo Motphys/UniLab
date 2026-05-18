@@ -9,6 +9,9 @@ from unilab.envs.locomotion.common.base import (
     LocomotionBaseCfg,
     LocomotionBaseEnv,
 )
+from unilab.envs.locomotion.common.base import (
+    Sensor as LocomotionSensor,
+)
 
 
 @dataclass
@@ -27,6 +30,13 @@ class ControlConfig(ControlConfigBase):
 
 
 @dataclass
+class Sensor(LocomotionSensor):
+    local_linvel: str = "pelvis_local_linvel"
+    gyro: str = "torso_gyro"
+    upvector: str = "torso_upvector"
+
+
+@dataclass
 class Asset:
     base_name = "pelvis"
     foot_name = "ankle_roll_link"
@@ -37,6 +47,7 @@ class Asset:
 class G1BaseCfg(LocomotionBaseCfg):
     noise_config: NoiseConfig = field(default_factory=NoiseConfig)
     control_config: ControlConfig = field(default_factory=ControlConfig)  # type: ignore[assignment]
+    sensor: Sensor = field(default_factory=Sensor)
     asset: Asset = field(default_factory=Asset)
     sim_dt: float = 0.02 / 3.0
     ctrl_dt: float = 0.02
