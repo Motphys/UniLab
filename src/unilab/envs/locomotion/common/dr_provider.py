@@ -159,8 +159,7 @@ class LocomotionDRProvider(DomainRandomizationProvider):
     ) -> dict[str, np.ndarray]:
         linvel = env.get_local_linvel()[env_ids]
         gyro = env.get_gyro()[env_ids]
-        gravity_sensor = getattr(getattr(env.cfg, "sensor", None), "upvector", "upvector")
-        gravity = env._backend.get_sensor_data(gravity_sensor)[env_ids]
+        gravity = env._backend.get_sensor_data("upvector")[env_ids]
         dof_pos = env.get_dof_pos()[env_ids]
         dof_vel = env.get_dof_vel()[env_ids]
         return cast(

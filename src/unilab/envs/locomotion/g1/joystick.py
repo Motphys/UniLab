@@ -327,7 +327,7 @@ class G1WalkEnv(G1BaseEnv):
     def update_state(self, state: NpEnvState) -> NpEnvState:
         linvel = self.get_local_linvel()
         gyro = self.get_gyro()
-        gravity = self._backend.get_sensor_data(self._cfg.sensor.upvector)
+        gravity = self._backend.get_sensor_data("upvector")
         dof_pos = self.get_dof_pos()
         dof_vel = self.get_dof_vel()
 
