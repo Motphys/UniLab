@@ -14,6 +14,22 @@ from rich.text import Text
 
 from unilab.logging.common import BaseTrainingLogger, _fmt_number, _fmt_time, _load_wandb
 
+OFFPOLICY_COLLECTOR_TIMING_ORDER = {
+    "weight_sync_ms": 0,
+    "action_select_ms": 1,
+    "env_step_ms": 2,
+    "replay_ms": 3,
+    "sync_coordination_ms": 4,
+}
+
+OFFPOLICY_COLLECTOR_TIMING_LABELS = {
+    "weight_sync_ms": "Weight Sync",
+    "action_select_ms": "Action Select",
+    "env_step_ms": "Env Step",
+    "replay_ms": "Replay",
+    "sync_coordination_ms": "Sync Coordination",
+}
+
 
 class OffPolicyLogger(BaseTrainingLogger):
     """Rich logger for off-policy RL algorithms (SAC, TD3, etc)."""
@@ -65,7 +81,6 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._buffer_size: int = 0
         self._buffer_target: int = 0
         self._wait_time: float = 0.0
-        self._startup_wait_time: float = 0.0
         self._learner_incremental_h2d_time: float = 0.0
         self._weight_sync_time: float = 0.0
         self._throughput_steps: int = 0
@@ -188,10 +203,8 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._weight_sync_time = weight_sync_time
         self._has_iteration_extra_info = extra_info is not None
         if extra_info:
-            self._startup_wait_time = float(extra_info.get("startup_wait_time", 0.0))
             self._throughput_steps = int(extra_info.get("throughput_steps", 0))
         else:
-            self._startup_wait_time = 0.0
             self._throughput_steps = 0
         self._iter_times.append(self._get_iter_pipeline_time())
         if metrics:
@@ -231,10 +244,6 @@ class OffPolicyLogger(BaseTrainingLogger):
             writer.add_scalar("episode/timeout_rate", self._timeout_rate, global_step)
             writer.add_scalar("episode/terminated_rate", self._terminated_rate, global_step)
             writer.add_scalar("timing/learner_wait_ms", self._wait_time * 1000, global_step)
-            if self._has_iteration_extra_info:
-                writer.add_scalar(
-                    "timing/startup_wait_ms", self._startup_wait_time * 1000, global_step
-                )
             writer.add_scalar(
                 "timing/learner_incremental_h2d_ms",
                 self._learner_incremental_h2d_time * 1000,
@@ -270,8 +279,6 @@ class OffPolicyLogger(BaseTrainingLogger):
             log_dict["episode/timeout_rate"] = self._timeout_rate
             log_dict["episode/terminated_rate"] = self._terminated_rate
             log_dict["timing/learner_wait_ms"] = self._wait_time * 1000
-            if self._has_iteration_extra_info:
-                log_dict["timing/startup_wait_ms"] = self._startup_wait_time * 1000
             log_dict["timing/learner_incremental_h2d_ms"] = (
                 self._learner_incremental_h2d_time * 1000
             )
@@ -361,25 +368,21 @@ class OffPolicyLogger(BaseTrainingLogger):
             ("Train", f"{self._train_time * 1000:.1f}ms"),
             ("Weight Sync", f"{self._weight_sync_time * 1000:.1f}ms"),
         ]
-        collector_order = {
-            "env_step_total_ms": 0,
-            "step_core_ms": 1,
-            "update_state_ms": 2,
-            "reset_done_ms": 3,
-            "mlp_infer_ms": 4,
-        }
         collector_items = [
-            (key, f"{value:.1f}ms")
+            (OFFPOLICY_COLLECTOR_TIMING_LABELS.get(key, key), f"{value:.1f}ms")
             for key, value in sorted(
                 self._collector_timing.items(),
-                key=lambda item: (collector_order.get(item[0], len(collector_order)), item[0]),
+                key=lambda item: (
+                    OFFPOLICY_COLLECTOR_TIMING_ORDER.get(
+                        item[0], len(OFFPOLICY_COLLECTOR_TIMING_ORDER)
+                    ),
+                    item[0],
+                ),
             )
         ]
         system_items = [
             ("Buffer", f"{self._buffer_size:,}"),
         ]
-        if self._startup_wait_time > 0:
-            system_items.append(("Startup Wait", f"{self._startup_wait_time * 1000:.1f}ms"))
         system_items.extend(
             [
                 ("Timeout Rate", f"{self._timeout_rate * 100:.1f}%"),

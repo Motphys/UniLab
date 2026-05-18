@@ -280,7 +280,7 @@ def test_appo_runner_logs_learner_timing_for_fps_inputs(
     assert step["train_time"] == pytest.approx(0.5)
     assert step["learner_incremental_h2d_time"] >= 0.0
     assert step["weight_sync_time"] >= 0.0
-    assert step["extra_info"]["startup_wait_time"] == pytest.approx(10.0)
+    assert step["extra_info"] == {"throughput_steps": 8}
     assert step["extra_info"]["throughput_steps"] == 8
     assert step["metrics"]["rollouts_read"] == 1.0
     assert step["metrics"]["staging_pool_len"] == 1.0

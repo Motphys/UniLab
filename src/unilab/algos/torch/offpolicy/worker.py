@@ -18,6 +18,17 @@ from unilab.base.observations import get_obs_dims, split_obs_dict
 from unilab.base.registry import ensure_registries
 from unilab.training.seed import apply_training_seed
 
+# Exclusive phases for one collector loop iteration (one vectorized env.step).
+# Every key is recorded once per iteration so the reported averages share one
+# denominator and can be summed without double counting.
+COLLECTOR_TIMING_KEYS = (
+    "weight_sync_ms",
+    "action_select_ms",
+    "env_step_ms",
+    "replay_ms",
+    "sync_coordination_ms",
+)
+
 
 def resolve_collector_actor_dims(
     env,
@@ -56,6 +67,17 @@ def sample_offpolicy_actions(
     raise ValueError(f"Unsupported off-policy algo_type for collector action sampling: {algo_type}")
 
 
+def _record_timing_ms(timing_accum_ms, timing_counts, key: str, value: float) -> None:
+    timing_accum_ms[key] += float(value)
+    timing_counts[key] += 1
+
+
+def _record_phase_ms(cycle_timing_ms: dict[str, float], key: str, start_ns: int) -> int:
+    end_ns = time.perf_counter_ns()
+    cycle_timing_ms[key] += (end_ns - start_ns) / 1e6
+    return end_ns
+
+
 def _collector_pack_shared_batch(replay_buffer, request: dict, shared_slots) -> dict:
     tick_id = int(request["tick_id"])
     snapshot_ptr = int(replay_buffer.ptr[0])
@@ -69,11 +91,11 @@ def _collector_pack_shared_batch(replay_buffer, request: dict, shared_slots) -> 
         raise RuntimeError(
             "collector_thread pack target_gpu_slot must differ from learner_hot_gpu_slot"
         )
+    pack_begin_ns = time.perf_counter_ns()
     gen = torch.Generator(device="cpu")
     gen.manual_seed(sample_seed)
     indices = torch.randint(0, snapshot_size, (sample_count,), generator=gen)
     dst = shared_slots[shared_slot]
-    pack_begin_ns = time.perf_counter_ns()
     torch.index_select(replay_buffer._storage, 0, indices, out=dst)
     pack_end_ns = time.perf_counter_ns()
     return {
@@ -314,7 +336,7 @@ def _run_collector(
 
     ep_reward_components = defaultdict(list)
     timing_accum_ms = defaultdict(float)
-    timing_count = 0
+    timing_counts = defaultdict(int)
     done_count_window = 0
     timeout_count_window = 0
     terminated_count_window = 0
@@ -336,6 +358,9 @@ def _run_collector(
 
     # Collection loop
     while not stop_event.is_set():
+        cycle_timing_ms: dict[str, float] = dict.fromkeys(COLLECTOR_TIMING_KEYS, 0.0)
+        phase_start_ns = _time.perf_counter_ns()
+
         # Check for weight updates
         if weight_sync.version > local_weight_version:
             _wt_ns = _time.perf_counter_ns()
@@ -356,6 +381,7 @@ def _run_collector(
                 if stats is not None:
                     # Apply stats to a local normalizer if needed, or directly to actor
                     pass  # Handled by EmpiricalNormalization in learner if actor possesses it. We need a local normalizer.
+        phase_start_ns = _record_phase_ms(cycle_timing_ms, "weight_sync_ms", phase_start_ns)
 
         # Normalize obs_np
         obs_np_input = obs_np
@@ -367,7 +393,6 @@ def _run_collector(
 
         # Select action
         with torch.no_grad():
-            _t_infer = _time.perf_counter()
             _t_infer_ns = _time.perf_counter_ns()
             obs_torch = torch.from_numpy(obs_np_input)
             dones_torch = torch.from_numpy(prev_dones_np)
@@ -378,7 +403,6 @@ def _run_collector(
                 prev_dones_torch=dones_torch,
             )
             actions_np = actions_torch.numpy()
-            timing_accum_ms["mlp_infer_ms"] += (_time.perf_counter() - _t_infer) * 1000
             if trace_recorder:
                 trace_recorder.add_slice(
                     "collector/actor_infer_cpu",
@@ -386,6 +410,7 @@ def _run_collector(
                     start_ns=_t_infer_ns,
                     end_ns=_time.perf_counter_ns(),
                 )
+        phase_start_ns = _record_phase_ms(cycle_timing_ms, "action_select_ms", phase_start_ns)
 
         # Step environment
         _env_ns = _time.perf_counter_ns()
@@ -398,13 +423,7 @@ def _run_collector(
                 end_ns=_time.perf_counter_ns(),
                 args={"num_envs": num_envs},
             )
-
-        timing_info = state.info.get("timing", {})
-        if timing_info:
-            for key in ("env_step_total_ms", "step_core_ms", "update_state_ms", "reset_done_ms"):
-                if key in timing_info:
-                    timing_accum_ms[key] += float(timing_info[key])
-            timing_count += 1
+        phase_start_ns = _record_phase_ms(cycle_timing_ms, "env_step_ms", phase_start_ns)
 
         # Extract data as numpy
         next_obs_np, next_critic_np = split_obs_dict(state.obs)
@@ -431,6 +450,7 @@ def _run_collector(
             info=state.info,
             truncated=truncated_np,
         )
+        phase_start_ns = _record_phase_ms(cycle_timing_ms, "replay_ms", phase_start_ns)
 
         # ReplayBuffer `dones` follows the UniLab env lifecycle contract:
         # done = terminated | truncated. Learners use `truncated` to keep
@@ -464,6 +484,7 @@ def _run_collector(
                 start_ns=_rb_ns,
                 end_ns=_time.perf_counter_ns(),
             )
+        phase_start_ns = _record_phase_ms(cycle_timing_ms, "replay_ms", phase_start_ns)
         _, pending_collector_pack_request = _service_collector_pack_requests(
             replay_buffer,
             collector_pack_request_queue,
@@ -473,6 +494,7 @@ def _run_collector(
             block_timeout=0.0,
             pending_request=pending_collector_pack_request,
         )
+        phase_start_ns = _record_phase_ms(cycle_timing_ms, "replay_ms", phase_start_ns)
 
         # Track episode rewards - vectorized
         current_ep_rewards += rewards_np
@@ -489,6 +511,7 @@ def _run_collector(
         critic_np = next_critic_np
         total_steps += num_envs
         env_steps_since_sync += 1
+        phase_start_ns = _record_phase_ms(cycle_timing_ms, "sync_coordination_ms", phase_start_ns)
 
         # Signal the learner once this collection chunk is ready.
         if (
@@ -506,6 +529,9 @@ def _run_collector(
                         start_ns=_sig_ns,
                         end_ns=_time.perf_counter_ns(),
                     )
+                phase_start_ns = _record_phase_ms(
+                    cycle_timing_ms, "sync_coordination_ms", phase_start_ns
+                )
                 _wait_ns = _time.perf_counter_ns()
                 while not stop_event.is_set():
                     _, pending_collector_pack_request = _service_collector_pack_requests(
@@ -517,8 +543,12 @@ def _run_collector(
                         block_timeout=0.0,
                         pending_request=pending_collector_pack_request,
                     )
+                    phase_start_ns = _record_phase_ms(cycle_timing_ms, "replay_ms", phase_start_ns)
                     try:
                         trainer_done_queue.get(timeout=0.001)
+                        phase_start_ns = _record_phase_ms(
+                            cycle_timing_ms, "sync_coordination_ms", phase_start_ns
+                        )
                         _, pending_collector_pack_request = _service_collector_pack_requests(
                             replay_buffer,
                             collector_pack_request_queue,
@@ -528,8 +558,14 @@ def _run_collector(
                             block_timeout=0.0,
                             pending_request=pending_collector_pack_request,
                         )
+                        phase_start_ns = _record_phase_ms(
+                            cycle_timing_ms, "replay_ms", phase_start_ns
+                        )
                         break
                     except queue.Empty:
+                        phase_start_ns = _record_phase_ms(
+                            cycle_timing_ms, "sync_coordination_ms", phase_start_ns
+                        )
                         continue
                 if trace_recorder:
                     trace_recorder.add_slice(
@@ -545,9 +581,13 @@ def _run_collector(
                             )
                         except Exception:
                             pass
+                    phase_start_ns = _record_phase_ms(
+                        cycle_timing_ms, "sync_coordination_ms", phase_start_ns
+                    )
                 env_steps_since_sync = 0
         elif env_steps_since_sync >= env_steps_per_sync:
             env_steps_since_sync = 0
+        phase_start_ns = _record_phase_ms(cycle_timing_ms, "sync_coordination_ms", phase_start_ns)
 
         # Progress log every 2 seconds
         now = _time.time()
@@ -562,16 +602,19 @@ def _run_collector(
                     ep_reward_components[k].append(v)
 
         # Send metrics periodically
-        if metrics_queue is not None and total_steps % (num_envs * 10) == 0 and ep_rewards:
+        if metrics_queue is not None and total_steps % (num_envs * 10) == 0:
             import statistics
 
             try:
                 msg = {
                     "total_steps": total_steps,
-                    "mean_ep_reward": statistics.mean(ep_rewards[-100:]),
-                    "mean_ep_length": statistics.mean(ep_lengths[-100:]) if ep_lengths else 0.0,
                     "buffer_size": int(replay_buffer.size[0]),
                 }
+                if ep_rewards:
+                    msg["mean_ep_reward"] = statistics.mean(ep_rewards[-100:])
+                    msg["mean_ep_length"] = (
+                        statistics.mean(ep_lengths[-100:]) if ep_lengths else 0.0
+                    )
                 # Add mean reward components
                 if ep_reward_components:
                     components_mean = {}
@@ -581,12 +624,12 @@ def _run_collector(
                     msg["reward_components"] = components_mean
                     ep_reward_components.clear()  # reset after sending
 
-                if timing_count > 0:
+                if timing_counts:
                     msg["collector_timing_ms"] = {
-                        k: (v / timing_count) for k, v in timing_accum_ms.items()
+                        k: (v / timing_counts[k])
+                        for k, v in timing_accum_ms.items()
+                        if timing_counts[k] > 0
                     }
-                    timing_accum_ms.clear()
-                    timing_count = 0
 
                 if done_count_window > 0:
                     msg["timeout_rate"] = timeout_count_window / done_count_window
@@ -599,8 +642,15 @@ def _run_collector(
                     msg["trace_events"] = trace_recorder.drain_events()
 
                 metrics_queue.put_nowait(msg)
+                if "collector_timing_ms" in msg:
+                    timing_accum_ms.clear()
+                    timing_counts.clear()
             except Exception as e:
                 print(f"[OffPolicyWorker] metrics enqueue error: {e}", file=sys.stderr)
+        phase_start_ns = _record_phase_ms(cycle_timing_ms, "sync_coordination_ms", phase_start_ns)
+
+        for key in COLLECTOR_TIMING_KEYS:
+            _record_timing_ms(timing_accum_ms, timing_counts, key, cycle_timing_ms[key])
 
     if metrics_queue is not None and trace_recorder:
         try:

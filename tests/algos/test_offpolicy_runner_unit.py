@@ -372,7 +372,7 @@ def test_offpolicy_runner_sync_waits_for_train_start_threshold(
     assert "collect_time" not in logger.step_calls[0]
     assert logger.step_calls[0]["learner_incremental_h2d_time"] == pytest.approx(0.004)
     assert logger.step_calls[0]["weight_sync_time"] >= 0.0
-    assert logger.step_calls[0]["extra_info"]["startup_wait_time"] == pytest.approx(10.0)
+    assert logger.step_calls[0]["extra_info"] == {"throughput_steps": 2}
     assert logger.step_calls[0]["extra_info"]["throughput_steps"] == 2
     assert _FakeWeightSync.last_instance is not None
     assert _FakeWeightSync.last_instance.write_calls == 1
@@ -446,7 +446,7 @@ def test_offpolicy_runner_async_waits_for_train_start_threshold(
     assert "collect_time" not in logger.step_calls[0]
     assert logger.step_calls[0]["learner_incremental_h2d_time"] == pytest.approx(0.004)
     assert logger.step_calls[0]["weight_sync_time"] >= 0.0
-    assert logger.step_calls[0]["extra_info"]["startup_wait_time"] == pytest.approx(10.0)
+    assert logger.step_calls[0]["extra_info"] == {"throughput_steps": 2}
     assert logger.step_calls[0]["extra_info"]["throughput_steps"] == 2
 
 
@@ -922,5 +922,5 @@ def test_multi_gpu_worker_rank0_propagates_learner_timing_and_extra_info(
     assert "collect_time" not in step
     assert step["learner_incremental_h2d_time"] == pytest.approx(0.004)
     assert step["weight_sync_time"] >= 0.0
-    assert step["extra_info"]["startup_wait_time"] == pytest.approx(10.0)
+    assert step["extra_info"] == {"throughput_steps": 2}
     assert step["extra_info"]["throughput_steps"] == 2
