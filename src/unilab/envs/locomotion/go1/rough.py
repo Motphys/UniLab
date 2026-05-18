@@ -180,17 +180,16 @@ class Go1JoystickRoughDomainRandomizationProvider(Go1JoystickDomainRandomization
         qpos = np.tile(env._init_qpos, (num_reset, 1))
         qvel = np.tile(env._init_qvel, (num_reset, 1))
         qpos[:, 0:2] += np.random.uniform(-0.5, 0.5, (num_reset, 2))
-        qpos[:, 2] += np.random.uniform(0.05, 0.2, (num_reset,))
+        qpos[:, 2] += np.random.uniform(0.1, 0.3, (num_reset,))
         qpos[:, 0:3] += env._spawn.origins_for(env_ids)
+        # Random roll/pitch/yaw forces the policy to learn recovery from any
+        # initial orientation (same idea as Go2 rough).
+        roll = np.random.uniform(-3.14, 3.14, (num_reset,))
+        pitch = np.random.uniform(-3.14, 3.14, (num_reset,))
         yaw = np.random.uniform(-3.14, 3.14, (num_reset,))
-        qpos[:, 3:7] = np_quat_mul(
-            qpos[:, 3:7],
-            np_quat_from_euler_xyz(
-                np.zeros_like(yaw), np.zeros_like(yaw), yaw
-            ),
-        )
+        qpos[:, 3:7] = np_quat_mul(qpos[:, 3:7], np_quat_from_euler_xyz(roll, pitch, yaw))
         qvel[:, 0:6] = np.asarray(
-            np.random.uniform(-0.3, 0.3, size=(num_reset, 6)), dtype=get_global_dtype()
+            np.random.uniform(-0.5, 0.5, size=(num_reset, 6)), dtype=get_global_dtype()
         )
         commands = self._sample_commands(env, num_reset)
         _zero_small_xy_commands(commands)
@@ -256,7 +255,16 @@ class Go1JoystickRoughEnv(Go1WalkTask):
         base_spec = super().obs_groups_spec
         return {"obs": base_spec["obs"], "critic": base_spec["critic"] + self._height_scan_dim}
 
+    def _upright_scale(self, gravity: np.ndarray | None) -> np.ndarray:
+        """Gate in [0, 1] that suppresses rewards as the robot tips over."""
+        return rewards.upright_scale(gravity, self._num_envs)
+
     def _init_reward_functions(self):
+        scale_gravity = self._upright_scale
+
+        def gated(fn):
+            return lambda ctx: fn(ctx) * scale_gravity(ctx.gravity)
+
         def _joint_pos_penalty(ctx: RewardContext) -> np.ndarray:
             cfg = self._reward_cfg
             return rewards.joint_pos_penalty(
@@ -264,29 +272,29 @@ class Go1JoystickRoughEnv(Go1WalkTask):
                 stand_still_scale=cfg.joint_pos_penalty_stand_still_scale,
                 velocity_threshold=cfg.joint_pos_penalty_velocity_threshold,
                 command_threshold=cfg.joint_pos_penalty_command_threshold,
-            )
+            ) * scale_gravity(ctx.gravity)
 
         def _stand_still(ctx: RewardContext) -> np.ndarray:
             return rewards.stand_still(
                 ctx, command_threshold=self._reward_cfg.stand_still_command_threshold
-            )
+            ) * scale_gravity(ctx.gravity)
 
         self._reward_fns: dict[str, Any] = {
-            "tracking_lin_vel": rewards.tracking_lin_vel,
-            "tracking_ang_vel": rewards.tracking_ang_vel,
-            "lin_vel_z": rewards.lin_vel_z,
-            "ang_vel_xy": rewards.ang_vel_xy,
+            "tracking_lin_vel": gated(rewards.tracking_lin_vel),
+            "tracking_ang_vel": gated(rewards.tracking_ang_vel),
+            "lin_vel_z": gated(rewards.lin_vel_z),
+            "ang_vel_xy": gated(rewards.ang_vel_xy),
             "orientation": rewards.orientation,
-            "base_height": rewards.base_height,
+            "base_height": gated(rewards.base_height),
             "action_rate": rewards.action_rate,
             "action_rate_l2": rewards.action_rate,
             "similar_to_default": rewards.similar_to_default,
-            "dof_torques_l2": rewards.dof_torques_l2,
-            "joint_torques_l2": rewards.dof_torques_l2,
-            "dof_acc_l2": rewards.dof_acc_l2,
-            "joint_acc_l2": rewards.dof_acc_l2,
-            "joint_pos_limits": rewards.joint_pos_limits,
-            "joint_power": rewards.joint_power,
+            "dof_torques_l2": gated(rewards.dof_torques_l2),
+            "joint_torques_l2": gated(rewards.dof_torques_l2),
+            "dof_acc_l2": gated(rewards.dof_acc_l2),
+            "joint_acc_l2": gated(rewards.dof_acc_l2),
+            "joint_pos_limits": gated(rewards.joint_pos_limits),
+            "joint_power": gated(rewards.joint_power),
             "stand_still": _stand_still,
             "joint_pos_penalty": _joint_pos_penalty,
             "upward": rewards.upward,
@@ -296,6 +304,10 @@ class Go1JoystickRoughEnv(Go1WalkTask):
 
     def update_state(self, state: NpEnvState) -> NpEnvState:
         state = super().update_state(state)
+        # Parent ``Go1WalkTask`` terminates on tilt (``gravity[:,2] <= 0.5``);
+        # for rough terrain we instead let the robot try to recover (so the
+        # policy can learn recovery), matching Go2 rough behaviour.
+        state = state.replace(terminated=np.zeros((self._num_envs,), dtype=bool))
         # Add height-scan to critic observation, terrain-out-of-bounds truncation,
         # and curriculum logging.
         state = self._maybe_log_curriculum(state)

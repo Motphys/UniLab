@@ -69,8 +69,8 @@ env:
 
 reward:
   scales:
-    tracking_lin_vel: 1.5
-    tracking_ang_vel: 0.75
+    tracking_lin_vel: 3.0
+    tracking_ang_vel: 1.5
     lin_vel_z: -2.0
     ang_vel_xy: -0.05
     orientation: -1.0
