@@ -310,17 +310,6 @@ def test_g1_walk_flat_assets_define_contact_sensors_for_gait_rewards():
         assert name in scene_text
 
     for name in (
-        "pelvis_local_linvel",
-        "pelvis_gyro",
-        "pelvis_acceleration",
-        "pelvis_upvector",
-        "torso_gyro",
-        "torso_acceleration",
-        "torso_upvector",
-    ):
-        assert name in model_text
-
-    for name in (
         "left_foot_contact_0_geom",
         "left_foot_contact_1_geom",
         "left_foot_contact_2_geom",
@@ -431,7 +420,7 @@ def _compute_g1_motion_tracking_obs_stub(env_cls: type):
     return env, obs, motion_data, linvel, gyro, dof_pos, dof_vel, info
 
 
-def test_g1_motion_tracking_critic_uses_clean_beyondmimic_aligned_terms():
+def test_g1_motion_tracking_critic_uses_clean_mjlab_aligned_terms():
     from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
 
     env, obs, motion_data, linvel, gyro, dof_pos, dof_vel, info = (

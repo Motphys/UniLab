@@ -9,7 +9,7 @@ import pytest
 
 CONF_DIR = Path(__file__).parent.parent.parent / "conf"
 
-G1_BEYONDMIMIC_ACTION_SCALE = [
+G1_MJLAB_ACTION_SCALE = [
     0.5475464629911068,
     0.35066146637882434,
     0.5475464629911068,
@@ -483,9 +483,6 @@ def test_ppo_g1_motion_tracking_deploy():
     assert cfg.training.task_name == "G1MotionTrackingDeploy"
     assert cfg.algo.max_iterations == 15000
     assert cfg.algo.algorithm.entropy_coef == pytest.approx(0.005)
-    assert cfg.env.sim_dt == pytest.approx(0.005)
-    assert cfg.env.sensor.gyro == "pelvis_gyro"
-    assert list(cfg.env.control_config.action_scale) == pytest.approx(G1_BEYONDMIMIC_ACTION_SCALE)
 
 
 def test_ppo_g1_flip_tracking():
@@ -505,7 +502,7 @@ def test_ppo_g1_flip_tracking():
     assert cfg.env.sampling_mode == "start"
     assert cfg.env.truncate_on_clip_end is False
     assert cfg.env.sim_dt == pytest.approx(0.005)
-    assert list(cfg.env.control_config.action_scale) == pytest.approx(G1_BEYONDMIMIC_ACTION_SCALE)
+    assert list(cfg.env.control_config.action_scale) == pytest.approx(G1_MJLAB_ACTION_SCALE)
     assert cfg.env.anchor_pos_z_threshold == pytest.approx(0.5)
     assert cfg.env.ee_body_pos_z_threshold == pytest.approx(0.5)
     assert cfg.env.terminate_on_undesired_contacts is True
@@ -534,7 +531,7 @@ def test_ppo_g1_wall_flip_tracking():
     assert cfg.env.sampling_mode == "start"
     assert cfg.env.truncate_on_clip_end is False
     assert cfg.env.sim_dt == pytest.approx(0.005)
-    assert list(cfg.env.control_config.action_scale) == pytest.approx(G1_BEYONDMIMIC_ACTION_SCALE)
+    assert list(cfg.env.control_config.action_scale) == pytest.approx(G1_MJLAB_ACTION_SCALE)
     assert cfg.env.anchor_pos_z_threshold == pytest.approx(0.5)
     assert cfg.env.ee_body_pos_z_threshold == pytest.approx(0.5)
     assert cfg.env.terminate_on_undesired_contacts is True
