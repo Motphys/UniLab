@@ -321,10 +321,19 @@ def _ensure_generated_hfield_scene_visuals(root: ET.Element, geom_name: str) -> 
     terrain_geom = root.find(f".//geom[@name='{geom_name}']")
     if terrain_geom is not None and terrain_geom.get("material") is None:
         terrain_geom.set("material", "groundplane")
-    for light in root.findall(".//light"):
-        light.set("directional", "true")
-        light.set("castshadow", "true")
-        light.set("dir", "-0.35 -0.45 -1")
+    # Robot models sometimes ship with a spot- or target-mode light (e.g. G1's
+    # ``spotlight`` tracking the trunk). Such lights have an implicit
+    # ``type`` and cannot coexist with ``directional="true"``. Drop them; the
+    # overhead light added by the materializer plus the headlight under
+    # ``visual`` is sufficient for terrain visualization.
+    for parent in root.iter():
+        for light in list(parent.findall("light")):
+            if light.get("mode") or light.get("target") or light.get("type"):
+                parent.remove(light)
+                continue
+            light.set("directional", "true")
+            light.set("castshadow", "true")
+            light.set("dir", "-0.35 -0.45 -1")
 
 
 def _merge_scene_fragment(root: ET.Element, fragment_file: Path) -> None:

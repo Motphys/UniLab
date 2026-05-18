@@ -976,6 +976,7 @@ _STANDARD_ENVS = [
     "Go2WJoystickRough",
     "G1WalkFlat",
     "G1WalkRough",
+    "G1JoystickRough",
     "AllegroInhandRotation",
     "AllegroInhandRotationGrasp",
 ]
