@@ -31,6 +31,10 @@ from unilab.envs.locomotion.common.height_scan import (
     terrain_out_of_bounds,
 )
 from unilab.envs.locomotion.common.rewards import RewardContext
+from unilab.envs.locomotion.common.terrain_spawn import (
+    TerrainCurriculumCfg,
+    TerrainSpawnManager,
+)
 from unilab.envs.locomotion.go1.base import ControlConfig
 from unilab.envs.locomotion.go1.joystick import (
     Go1JoystickCfg,
@@ -166,6 +170,7 @@ class Go1JoystickRoughCfg(Go1JoystickCfg):
     commands: RoughCommands = field(default_factory=RoughCommands)
     terrain_scan: TerrainScanConfig = field(default_factory=TerrainScanConfig)
     termination_config: RoughTerminationConfig = field(default_factory=RoughTerminationConfig)
+    terrain_curriculum: TerrainCurriculumCfg = field(default_factory=TerrainCurriculumCfg)
     sensor: JoystickSensor = field(default_factory=JoystickSensor)
     reward_config: RoughRewardConfig | None = None
 
@@ -218,6 +223,23 @@ class Go1JoystickRoughEnv(Go1WalkTask):
 
     def __init__(self, cfg: Go1JoystickRoughCfg, num_envs=1, backend_type="mujoco"):
         super().__init__(cfg, num_envs=num_envs, backend_type=backend_type)
+        # Replace the default no-op spawn manager with one that places each env
+        # on a terrain tile when the scene has a procedural terrain attached.
+        terrain_origins = getattr(self._backend, "terrain_origins", None)
+        terrain_generator = (
+            cfg.scene.terrain.generator if cfg.scene.terrain is not None else None
+        )
+        if terrain_origins is not None and terrain_generator is not None:
+            terrain_surface_sampler = getattr(
+                self._backend, "terrain_surface_sampler", None
+            )
+            self._spawn = TerrainSpawnManager(
+                num_envs,
+                terrain_origins,
+                cell_size=float(terrain_generator.size[0]),
+                cfg=cfg.terrain_curriculum,
+                terrain_surface_sampler=terrain_surface_sampler,
+            )
         self._dr_manager = DomainRandomizationManager(
             self, Go1JoystickRoughDomainRandomizationProvider()
         )

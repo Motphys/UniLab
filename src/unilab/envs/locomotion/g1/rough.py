@@ -29,6 +29,10 @@ from unilab.envs.locomotion.common.height_scan import (
     terrain_out_of_bounds,
 )
 from unilab.envs.locomotion.common.rewards import RewardContext
+from unilab.envs.locomotion.common.terrain_spawn import (
+    TerrainCurriculumCfg,
+    TerrainSpawnManager,
+)
 from unilab.envs.locomotion.g1.joystick import (
     LEFT_FOOT_CONTACT_SENSORS,
     RIGHT_FOOT_CONTACT_SENSORS,
@@ -159,6 +163,7 @@ class G1JoystickRoughCfg(G1WalkEnvCfg):
     reward_config: G1JoystickRoughRewardConfig | None = None
     terrain_scan: TerrainScanConfig = field(default_factory=TerrainScanConfig)
     termination_config: RoughTerminationConfig = field(default_factory=RoughTerminationConfig)
+    terrain_curriculum: TerrainCurriculumCfg = field(default_factory=TerrainCurriculumCfg)
 
 
 @registry.env("G1JoystickRough", sim_backend="mujoco")
@@ -168,6 +173,18 @@ class G1JoystickRoughEnv(G1WalkEnv):
 
     def __init__(self, cfg: G1JoystickRoughCfg, num_envs=1, backend_type="mujoco"):
         super().__init__(cfg, num_envs=num_envs, backend_type=backend_type)
+        terrain_origins = getattr(self._backend, "terrain_origins", None)
+        terrain_generator = (
+            cfg.scene.terrain.generator if cfg.scene.terrain is not None else None
+        )
+        if terrain_origins is not None and terrain_generator is not None:
+            self._spawn = TerrainSpawnManager(
+                num_envs,
+                terrain_origins,
+                cell_size=float(terrain_generator.size[0]),
+                cfg=cfg.terrain_curriculum,
+                terrain_surface_sampler=getattr(self._backend, "terrain_surface_sampler", None),
+            )
         init_height_scan_sensor(self, cfg.terrain_scan, cfg.asset.base_name)
         joint_range = self._backend.get_joint_range()
         self._joint_range = (
