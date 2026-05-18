@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -8,7 +7,6 @@ import numpy as np
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
-from unilab.base.backend.base import BackendHeightScanner
 from unilab.base.np_env import NpEnvState
 from unilab.base.scene import SceneCfg, TerrainSceneCfg
 from unilab.dr import DomainRandomizationManager, ResetPlan
@@ -20,6 +18,16 @@ from unilab.envs.common.rotation import (
     np_quat_mul,
 )
 from unilab.envs.locomotion.common import rewards
+from unilab.envs.locomotion.common.height_scan import (
+    DEFAULT_SCAN_POINTS_X,
+    DEFAULT_SCAN_POINTS_Y,
+    HeightScanConfig,
+    base_height_from_scan,
+    height_scan_obs,
+    init_height_scan_sensor,
+    raw_height_scan_obs,
+    terrain_out_of_bounds,
+)
 from unilab.envs.locomotion.common.rewards import RewardContext
 from unilab.envs.locomotion.go2.base import ControlConfig
 from unilab.envs.locomotion.go2.joystick import (
@@ -50,48 +58,12 @@ GO2_FRONT_LEFT = 0
 GO2_FRONT_RIGHT = 1
 GO2_REAR_LEFT = 2
 GO2_REAR_RIGHT = 3
-DEFAULT_SCAN_POINTS_X: tuple[float, ...] = (
-    -0.8,
-    -0.7,
-    -0.6,
-    -0.5,
-    -0.4,
-    -0.3,
-    -0.2,
-    -0.1,
-    0.0,
-    0.1,
-    0.2,
-    0.3,
-    0.4,
-    0.5,
-    0.6,
-    0.7,
-    0.8,
-)
-DEFAULT_SCAN_POINTS_Y: tuple[float, ...] = (
-    -0.5,
-    -0.4,
-    -0.3,
-    -0.2,
-    -0.1,
-    0.0,
-    0.1,
-    0.2,
-    0.3,
-    0.4,
-    0.5,
-)
 
 
 @dataclass
-class TerrainScanConfig:
-    enabled: bool = True
-    hfield_name: str = "terrain_hfield"
-    geom_name: str = "floor"
-    measured_points_x: list[float] = field(default_factory=lambda: list(DEFAULT_SCAN_POINTS_X))
-    measured_points_y: list[float] = field(default_factory=lambda: list(DEFAULT_SCAN_POINTS_Y))
-    vertical_offset: float = 0.5
+class TerrainScanConfig(HeightScanConfig):
+    """Backward-compatible alias used by Go2-rough yaml configs."""
+
     scale: float = GO2_HEIGHT_SCAN_SCALE
 
 
@@ -316,7 +288,7 @@ class Go2JoystickRoughEnv(Go2WalkTask):
         self._last_air_time = np.zeros((num_envs, len(cfg.sensor.feet_force)), dtype=np.float32)
         self._last_contact_time = np.zeros((num_envs, len(cfg.sensor.feet_force)), dtype=np.float32)
         self._first_foot_contact = np.zeros((num_envs, len(cfg.sensor.feet_force)), dtype=bool)
-        self._init_height_scan_sensor()
+        init_height_scan_sensor(self, cfg.terrain_scan, cfg.asset.base_name)
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:
@@ -332,20 +304,40 @@ class Go2JoystickRoughEnv(Go2WalkTask):
         return obs, info
 
     def _init_reward_functions(self):
+        scale_gravity = self._upright_scale  # local alias for lambda capture
+
+        def gated(fn):
+            return lambda ctx: fn(ctx) * scale_gravity(ctx.gravity)
+
+        # joint_pos_penalty needs its three thresholds from the reward config
+        def _joint_pos_penalty(ctx: RewardContext) -> np.ndarray:
+            cfg = self._reward_cfg
+            return rewards.joint_pos_penalty(
+                ctx,
+                stand_still_scale=cfg.joint_pos_penalty_stand_still_scale,
+                velocity_threshold=cfg.joint_pos_penalty_velocity_threshold,
+                command_threshold=cfg.joint_pos_penalty_command_threshold,
+            ) * scale_gravity(ctx.gravity)
+
+        def _stand_still(ctx: RewardContext) -> np.ndarray:
+            return rewards.stand_still(
+                ctx, command_threshold=self._reward_cfg.stand_still_command_threshold
+            ) * scale_gravity(ctx.gravity)
+
         self._reward_fns: dict[str, Any] = {
-            "tracking_lin_vel": self._reward_tracking_lin_vel,
-            "tracking_ang_vel": self._reward_tracking_ang_vel,
-            "lin_vel_z": self._reward_lin_vel_z,
-            "ang_vel_xy": self._reward_ang_vel_xy,
-            "dof_torques_l2": self._reward_dof_torques_l2,
-            "joint_torques_l2": self._reward_dof_torques_l2,
-            "dof_acc_l2": self._reward_dof_acc_l2,
-            "joint_acc_l2": self._reward_dof_acc_l2,
-            "joint_pos_limits": self._reward_joint_pos_limits,
-            "joint_power": self._reward_joint_power,
-            "stand_still": self._reward_stand_still,
+            "tracking_lin_vel": gated(rewards.tracking_lin_vel),
+            "tracking_ang_vel": gated(rewards.tracking_ang_vel),
+            "lin_vel_z": gated(rewards.lin_vel_z),
+            "ang_vel_xy": gated(rewards.ang_vel_xy),
+            "dof_torques_l2": gated(rewards.dof_torques_l2),
+            "joint_torques_l2": gated(rewards.dof_torques_l2),
+            "dof_acc_l2": gated(rewards.dof_acc_l2),
+            "joint_acc_l2": gated(rewards.dof_acc_l2),
+            "joint_pos_limits": gated(rewards.joint_pos_limits),
+            "joint_power": gated(rewards.joint_power),
+            "stand_still": _stand_still,
             "hip_pos": self._reward_hip_pos,
-            "joint_pos_penalty": self._reward_joint_pos_penalty,
+            "joint_pos_penalty": _joint_pos_penalty,
             "joint_mirror": self._reward_joint_mirror,
             "action_rate": rewards.action_rate,
             "action_rate_l2": rewards.action_rate,
@@ -357,7 +349,7 @@ class Go2JoystickRoughEnv(Go2WalkTask):
             "feet_slide": self._reward_feet_slide,
             "feet_height_body": self._reward_feet_height_body,
             "feet_gait": self._reward_feet_gait,
-            "upward": self._reward_upward,
+            "upward": rewards.upward,
         }
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
@@ -424,37 +416,6 @@ class Go2JoystickRoughEnv(Go2WalkTask):
                     state.info["log"][f"terrain_curriculum/{k}"] = float(v)
         return state
 
-    def _configured_height_scan_dim(self) -> int:
-        scan_cfg = self._cfg.terrain_scan
-        return len(scan_cfg.measured_points_x) * len(scan_cfg.measured_points_y)
-
-    def _init_height_scan_sensor(self) -> None:
-        scan_cfg = self._cfg.terrain_scan
-        self._height_scan_dim = self._configured_height_scan_dim()
-        if self._height_scan_dim <= 0:
-            raise ValueError("terrain_scan measured points must be non-empty")
-
-        self._height_scan_hfield_geom_id: int | None = None
-        self._height_scan_frame_body_id: int | None = None
-        self._height_scan_offsets: np.ndarray | None = None
-        self._height_scan_sensor: BackendHeightScanner | None = None
-        if not scan_cfg.enabled:
-            return
-
-        self._height_scan_hfield_geom_id = self._backend.get_geom_id(scan_cfg.geom_name)
-        self._height_scan_frame_body_id = self._backend.get_body_id(self._cfg.asset.base_name)
-        self._height_scan_offsets = _height_scan_offsets(
-            scan_cfg.measured_points_x,
-            scan_cfg.measured_points_y,
-        )
-        self._height_scan_sensor = self._backend.create_hfield_scanner(
-            hfield_geom_id=self._height_scan_hfield_geom_id,
-            offsets=self._height_scan_offsets,
-            frame_body_id=self._height_scan_frame_body_id,
-            alignment="yaw",
-            output="height",
-        )
-
     def _compute_obs(
         self,
         info: dict,
@@ -485,7 +446,7 @@ class Go2JoystickRoughEnv(Go2WalkTask):
             dtype=get_global_dtype(),
         )
         critic = np.concatenate(
-            [critic_base, self._height_scan_obs(critic_base.shape[0])],
+            [critic_base, height_scan_obs(self, self._cfg.terrain_scan, critic_base.shape[0])],
             axis=1,
             dtype=get_global_dtype(),
         )
@@ -513,9 +474,10 @@ class Go2JoystickRoughEnv(Go2WalkTask):
             default_angles=self.default_angles,
             tracking_sigma=cfg.tracking_sigma,
             base_height_target=cfg.base_height_target,
-            base_height=self._reward_base_height_values(self._num_envs),
+            base_height=base_height_from_scan(self, self._num_envs),
             gravity=gravity,
             dof_vel=dof_vel,
+            joint_range=self._joint_range,
         )
 
         step_count = info.get("steps", np.zeros((self._num_envs,), dtype=np.uint32))
@@ -536,68 +498,30 @@ class Go2JoystickRoughEnv(Go2WalkTask):
 
     def _compute_terminated(self, gravity: np.ndarray) -> np.ndarray:
         # return gravity[:, 2] <= 0.5
+        del gravity
         return np.zeros((self._num_envs,), dtype=bool)
 
     def _compute_truncated(self, state: NpEnvState) -> np.ndarray:
         truncated = super()._compute_truncated(state)
         if self._cfg.termination_config.terrain_out_of_bounds:
-            np.logical_or(truncated, self._terrain_out_of_bounds(), out=truncated)
+            terrain_scene = self._cfg.scene.terrain
+            terrain_cfg = terrain_scene.generator if terrain_scene is not None else None
+            np.logical_or(
+                truncated,
+                terrain_out_of_bounds(
+                    self,
+                    terrain_cfg,
+                    float(self._cfg.termination_config.terrain_distance_buffer),
+                ),
+                out=truncated,
+            )
         return truncated
 
-    def _terrain_out_of_bounds(self) -> np.ndarray:
-        terrain_scene = self._cfg.scene.terrain
-        terrain_cfg = terrain_scene.generator if terrain_scene is not None else None
-        if terrain_cfg is None:
-            return np.zeros((self._num_envs,), dtype=bool)
-
-        size_x, size_y = terrain_cfg.size
-        num_cols = _terrain_num_cols(terrain_cfg)
-        map_width = terrain_cfg.num_rows * float(size_x) + 2.0 * float(terrain_cfg.border_width)
-        map_height = num_cols * float(size_y) + 2.0 * float(terrain_cfg.border_width)
-        distance_buffer = float(self._cfg.termination_config.terrain_distance_buffer)
-        base_pos = np.asarray(self._backend.get_base_pos(), dtype=get_global_dtype())
-        if base_pos.shape[0] != self._num_envs:
-            return np.zeros((self._num_envs,), dtype=bool)
-        x_out = np.abs(base_pos[:, 0]) > 0.5 * map_width - distance_buffer
-        y_out = np.abs(base_pos[:, 1]) > 0.5 * map_height - distance_buffer
-        return np.asarray(x_out | y_out, dtype=bool)
-
-    def _height_scan_obs(self, num_obs: int) -> np.ndarray:
-        raw_heights, base_pos = self._raw_height_scan_obs(num_obs)
-        if raw_heights is None or base_pos is None:
-            return np.zeros((num_obs, self._height_scan_dim), dtype=get_global_dtype())
-        scan_cfg = self._cfg.terrain_scan
-        heights = np.clip(base_pos[:, 2:3] - scan_cfg.vertical_offset - raw_heights, -1.0, 1.0)
-        return np.asarray(heights * scan_cfg.scale, dtype=get_global_dtype())
-
     def _reward_base_height_values(self, num_obs: int | None = None) -> np.ndarray:
-        if num_obs is None:
-            num_obs = int(np.asarray(self._backend.get_base_pos()).shape[0])
-        raw_heights, base_pos = self._raw_height_scan_obs(num_obs)
-        if raw_heights is None or base_pos is None:
-            base_pos = np.asarray(self._backend.get_base_pos(), dtype=get_global_dtype())
-            if base_pos.shape[0] != num_obs:
-                return np.zeros((num_obs,), dtype=get_global_dtype())
-            return np.asarray(base_pos[:, 2], dtype=get_global_dtype())
-        return np.asarray(np.mean(base_pos[:, 2:3] - raw_heights, axis=1), dtype=get_global_dtype())
+        return base_height_from_scan(self, num_obs)
 
     def _raw_height_scan_obs(self, num_obs: int) -> tuple[np.ndarray | None, np.ndarray | None]:
-        if (
-            self._height_scan_hfield_geom_id is None
-            or self._height_scan_frame_body_id is None
-            or self._height_scan_offsets is None
-            or self._height_scan_sensor is None
-        ):
-            return None, None
-
-        base_pos = np.asarray(self._backend.get_base_pos(), dtype=get_global_dtype())
-        if base_pos.shape[0] != num_obs:
-            return None, None
-
-        raw_heights = self._height_scan_sensor.scan()
-        if raw_heights.shape != (num_obs, self._height_scan_dim):
-            return None, None
-        return np.asarray(raw_heights, dtype=get_global_dtype()), base_pos
+        return raw_height_scan_obs(self, num_obs)
 
     def _estimate_dof_acc(self, dof_vel: np.ndarray) -> np.ndarray:
         qacc = np.asarray((dof_vel - self._last_dof_vel_for_acc) / self._cfg.ctrl_dt)
@@ -684,78 +608,9 @@ class Go2JoystickRoughEnv(Go2WalkTask):
         self._last_foot_contact[:] = contact
 
     def _upright_scale(self, gravity: np.ndarray | None) -> np.ndarray:
-        if gravity is None:
-            return np.ones((self._num_envs,), dtype=get_global_dtype())
-        return np.asarray(np.clip(gravity[:, 2], 0.0, 0.7) / 0.7, dtype=get_global_dtype())
+        return rewards.upright_scale(gravity, self._num_envs)
 
-    def _reward_tracking_lin_vel(self, ctx: RewardContext) -> np.ndarray:
-        return np.asarray(
-            rewards.tracking_lin_vel(ctx) * self._upright_scale(ctx.gravity),
-            dtype=get_global_dtype(),
-        )
-
-    def _reward_tracking_ang_vel(self, ctx: RewardContext) -> np.ndarray:
-        return np.asarray(
-            rewards.tracking_ang_vel(ctx) * self._upright_scale(ctx.gravity),
-            dtype=get_global_dtype(),
-        )
-
-    def _reward_lin_vel_z(self, ctx: RewardContext) -> np.ndarray:
-        return np.asarray(
-            rewards.lin_vel_z(ctx) * self._upright_scale(ctx.gravity), dtype=get_global_dtype()
-        )
-
-    def _reward_ang_vel_xy(self, ctx: RewardContext) -> np.ndarray:
-        return np.asarray(
-            rewards.ang_vel_xy(ctx) * self._upright_scale(ctx.gravity), dtype=get_global_dtype()
-        )
-
-    def _reward_dof_torques_l2(self, ctx: RewardContext) -> np.ndarray:
-        torques = np.asarray(
-            ctx.info.get("torques", np.zeros((ctx.num_envs, self._num_action))),
-            dtype=get_global_dtype(),
-        )
-        return np.asarray(
-            np.sum(np.square(torques), axis=1) * self._upright_scale(ctx.gravity),
-            dtype=get_global_dtype(),
-        )
-
-    def _reward_dof_acc_l2(self, ctx: RewardContext) -> np.ndarray:
-        qacc = np.asarray(
-            ctx.info.get("qacc", np.zeros((ctx.num_envs, self._num_action))),
-            dtype=get_global_dtype(),
-        )
-        return np.asarray(
-            np.sum(np.square(qacc), axis=1) * self._upright_scale(ctx.gravity),
-            dtype=get_global_dtype(),
-        )
-
-    def _reward_joint_pos_limits(self, ctx: RewardContext) -> np.ndarray:
-        if self._joint_range is None:
-            return np.zeros((ctx.num_envs,), dtype=get_global_dtype())
-        lower = self._joint_range[:, 0]
-        upper = self._joint_range[:, 1]
-        low_error = np.clip(lower - ctx.dof_pos, 0.0, None)
-        high_error = np.clip(ctx.dof_pos - upper, 0.0, None)
-        error = np.sum(low_error + high_error, axis=1)
-        return np.asarray(error * self._upright_scale(ctx.gravity), dtype=get_global_dtype())
-
-    def _reward_joint_power(self, ctx: RewardContext) -> np.ndarray:
-        assert ctx.dof_vel is not None
-        torques = np.asarray(
-            ctx.info.get("torques", np.zeros((ctx.num_envs, self._num_action))),
-            dtype=get_global_dtype(),
-        )
-        power = np.sum(np.abs(ctx.dof_vel * torques), axis=1)
-        return np.asarray(power * self._upright_scale(ctx.gravity), dtype=get_global_dtype())
-
-    def _reward_stand_still(self, ctx: RewardContext) -> np.ndarray:
-        cfg = self._reward_cfg
-        stopped = np.linalg.norm(ctx.info["commands"], axis=1) < cfg.stand_still_command_threshold
-        dof_error = np.sum(np.abs(ctx.dof_pos - self.default_angles), axis=1)
-        return np.asarray(
-            dof_error * stopped * self._upright_scale(ctx.gravity), dtype=get_global_dtype()
-        )
+    # ── reward functions that need backend / env state (kept as methods) ────
 
     def _reward_hip_pos(self, ctx: RewardContext) -> np.ndarray:
         diff = ctx.dof_pos[:, GO2_HIP_INDICES] - self.default_angles[GO2_HIP_INDICES]
@@ -763,21 +618,6 @@ class Go2JoystickRoughEnv(Go2WalkTask):
             np.sum(np.square(diff), axis=1) * self._upright_scale(ctx.gravity),
             dtype=get_global_dtype(),
         )
-
-    def _reward_joint_pos_penalty(self, ctx: RewardContext) -> np.ndarray:
-        cfg = self._reward_cfg
-        command_norm = np.linalg.norm(ctx.info["commands"], axis=1)
-        body_vel = np.linalg.norm(ctx.linvel[:, :2], axis=1)
-        running_error = np.linalg.norm(ctx.dof_pos - self.default_angles, axis=1)
-        moving = (command_norm > cfg.joint_pos_penalty_command_threshold) | (
-            body_vel > cfg.joint_pos_penalty_velocity_threshold
-        )
-        reward = np.where(
-            moving,
-            running_error,
-            cfg.joint_pos_penalty_stand_still_scale * running_error,
-        )
-        return np.asarray(reward * self._upright_scale(ctx.gravity), dtype=get_global_dtype())
 
     def _reward_joint_mirror(self, ctx: RewardContext) -> np.ndarray:
         fr_rl = ctx.dof_pos[:, 0:3] - ctx.dof_pos[:, 9:12]
@@ -881,77 +721,27 @@ class Go2JoystickRoughEnv(Go2WalkTask):
         air = self._current_air_time
         contact = self._current_contact_time
         sync_fl_rr = _gait_sync_reward(
-            air,
-            contact,
-            GO2_FRONT_LEFT,
-            GO2_REAR_RIGHT,
-            cfg.feet_gait_std,
-            cfg.feet_gait_max_err,
+            air, contact, GO2_FRONT_LEFT, GO2_REAR_RIGHT, cfg.feet_gait_std, cfg.feet_gait_max_err
         )
         sync_fr_rl = _gait_sync_reward(
-            air,
-            contact,
-            GO2_FRONT_RIGHT,
-            GO2_REAR_LEFT,
-            cfg.feet_gait_std,
-            cfg.feet_gait_max_err,
+            air, contact, GO2_FRONT_RIGHT, GO2_REAR_LEFT, cfg.feet_gait_std, cfg.feet_gait_max_err
         )
         async_fl_fr = _gait_async_reward(
-            air,
-            contact,
-            GO2_FRONT_LEFT,
-            GO2_FRONT_RIGHT,
-            cfg.feet_gait_std,
-            cfg.feet_gait_max_err,
+            air, contact, GO2_FRONT_LEFT, GO2_FRONT_RIGHT, cfg.feet_gait_std, cfg.feet_gait_max_err
         )
         async_rr_rl = _gait_async_reward(
-            air,
-            contact,
-            GO2_REAR_RIGHT,
-            GO2_REAR_LEFT,
-            cfg.feet_gait_std,
-            cfg.feet_gait_max_err,
+            air, contact, GO2_REAR_RIGHT, GO2_REAR_LEFT, cfg.feet_gait_std, cfg.feet_gait_max_err
         )
         async_fl_rl = _gait_async_reward(
-            air,
-            contact,
-            GO2_FRONT_LEFT,
-            GO2_REAR_LEFT,
-            cfg.feet_gait_std,
-            cfg.feet_gait_max_err,
+            air, contact, GO2_FRONT_LEFT, GO2_REAR_LEFT, cfg.feet_gait_std, cfg.feet_gait_max_err
         )
         async_fr_rr = _gait_async_reward(
-            air,
-            contact,
-            GO2_FRONT_RIGHT,
-            GO2_REAR_RIGHT,
-            cfg.feet_gait_std,
-            cfg.feet_gait_max_err,
+            air, contact, GO2_FRONT_RIGHT, GO2_REAR_RIGHT, cfg.feet_gait_std, cfg.feet_gait_max_err
         )
         reward = sync_fl_rr * sync_fr_rl * async_fl_fr * async_rr_rl * async_fl_rl * async_fr_rr
         return np.asarray(
             reward * enabled * self._upright_scale(ctx.gravity), dtype=get_global_dtype()
         )
-
-    def _reward_upward(self, ctx: RewardContext) -> np.ndarray:
-        assert ctx.gravity is not None
-        return np.asarray(np.square(1.0 + ctx.gravity[:, 2]), dtype=get_global_dtype())
-
-
-def _height_scan_offsets(points_x: Sequence[float], points_y: Sequence[float]) -> np.ndarray:
-    x_grid, y_grid = np.meshgrid(
-        np.asarray(points_x, dtype=np.float64),
-        np.asarray(points_y, dtype=np.float64),
-        indexing="ij",
-    )
-    offsets = np.stack([x_grid.reshape(-1), y_grid.reshape(-1)], axis=1)
-    return np.ascontiguousarray(offsets, dtype=np.float64)
-
-
-def _terrain_num_cols(terrain_cfg: TerrainGeneratorCfg) -> int:
-    if terrain_cfg.curriculum:
-        return len(terrain_cfg.sub_terrains)
-    return terrain_cfg.num_cols
 
 
 def _force_norm_columns(force: np.ndarray, num_envs: int) -> np.ndarray:
@@ -1012,6 +802,25 @@ def _yaw_from_quat(quat: np.ndarray) -> np.ndarray:
     y = quat[:, 2]
     z = quat[:, 3]
     return np.arctan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+
+
+# Backwards-compat aliases for any callers that imported the unused defaults.
+__all__ = [
+    "DEFAULT_SCAN_POINTS_X",
+    "DEFAULT_SCAN_POINTS_Y",
+    "GO2_HEIGHT_SCAN_SCALE",
+    "GO2_HIP_INDICES",
+    "Go2JoystickRoughCfg",
+    "Go2JoystickRoughDomainRandomizationProvider",
+    "Go2JoystickRoughEnv",
+    "Go2RoughTerrainCfg",
+    "RoughCommands",
+    "RoughControlConfig",
+    "RoughJoystickSensor",
+    "RoughRewardConfig",
+    "RoughTerminationConfig",
+    "TerrainScanConfig",
+]
 
 
 registry.register_env("Go2JoystickRough", Go2JoystickRoughEnv, sim_backend="motrix")
