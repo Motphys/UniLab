@@ -1,0 +1,90 @@
+# @package _global_
+training:
+  task_name: Go1JoystickRough
+  sim_backend: mujoco
+  play_steps: 500
+  play_env_num: 16
+  cam_tracking: true
+  cam_tracking_env_idx: 0
+  cam_tracking_extra_envs: 9
+
+interactive:
+  action_mode: policy
+  policy_obs_mode: auto
+  camera_follow_body: true
+  use_env_visual_model: false
+
+algo:
+  num_envs: 4096
+  num_steps_per_env: 24
+  max_iterations: 1000
+  empirical_normalization: false
+  obs_groups:
+    actor:
+      - actor
+    critic:
+      - critic
+  policy:
+    init_noise_std: 1.0
+  algorithm:
+    learning_rate: 1.0e-3
+    entropy_coef: 1.0e-2
+
+env:
+  control_config:
+    action_scale: 0.25
+    clip_actions: 100.0
+  commands:
+    vel_limit: [[-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]]
+    resampling_time: 10.0
+    heading_command: true
+    heading_range: [-3.141592653589793, 3.141592653589793]
+  terrain_curriculum:
+    enabled: false
+  scene:
+    model_file: src/unilab/assets/robots/go1/go1.xml
+    fragment_files:
+      - src/unilab/assets/robots/go1/locomotion_task.xml
+    terrain:
+      hfield_name: terrain_hfield
+      geom_name: floor
+      generator:
+        seed: 42
+        curriculum: false
+        size: [8.0, 8.0]
+        num_rows: 6
+        num_cols: 6
+        border_width: 1.0
+  terrain_scan:
+    enabled: true
+    geom_name: floor
+  termination_config:
+    terrain_out_of_bounds: true
+    terrain_distance_buffer: 3.0
+  domain_rand:
+    randomize_base_mass: true
+    added_mass_range: [-1.0, 3.0]
+    random_com: true
+    push_robots: false
+
+reward:
+  scales:
+    tracking_lin_vel: 1.5
+    tracking_ang_vel: 0.75
+    lin_vel_z: -2.0
+    ang_vel_xy: -0.05
+    orientation: -1.0
+    action_rate_l2: -0.01
+    joint_torques_l2: -0.0002
+    joint_acc_l2: -2.5e-7
+    joint_pos_limits: -5.0
+    joint_pos_penalty: -1.0
+    joint_power: -2.0e-5
+    stand_still: -2.0
+    upward: 1.0
+  tracking_sigma: 0.25
+  base_height_target: 0.27
+  stand_still_command_threshold: 0.1
+  joint_pos_penalty_stand_still_scale: 5.0
+  joint_pos_penalty_velocity_threshold: 0.5
+  joint_pos_penalty_command_threshold: 0.1

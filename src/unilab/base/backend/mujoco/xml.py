@@ -252,6 +252,7 @@ _ATTACH_PREFIXED_ATTRS = {
     "hfield",
     "hfieldname",
     "actuator",
+    "target",
 }
 
 
