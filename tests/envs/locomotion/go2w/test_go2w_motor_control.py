@@ -143,6 +143,9 @@ def test_go2w_init_does_not_pass_position_actuator_gains(monkeypatch: pytest.Mon
         def get_actuator_ctrl_range(self) -> np.ndarray:
             return np.tile(np.array([-15.0, 15.0]), (NUM_GO2W_ACTIONS, 1))
 
+        def get_joint_range(self) -> np.ndarray:
+            return np.tile(np.array([-3.14, 3.14]), (NUM_GO2W_ACTIONS, 1))
+
         def get_sensor_data(self, name: str) -> np.ndarray:
             if name.endswith("_pos") or name.endswith("_vel"):
                 return np.zeros((2, 1), dtype=np.float32)

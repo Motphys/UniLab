@@ -5,7 +5,7 @@ training:
 algo:
   num_envs: 2048
   num_steps_per_env: 24
-  max_iterations: 2000
+  max_iterations: 20000
   empirical_normalization: true
   obs_groups:
     actor:
@@ -21,19 +21,59 @@ algo:
 env:
   render_offset_mode: zero
   domain_rand:
-    randomize_kp: false
-    randomize_kd: false
+    randomize_base_mass: true
+    added_mass_range: [-1.0, 3.0]
+    random_com: true
+    com_offset_x: [-0.05, 0.05]
+    randomize_kp: true
+    kp_multiplier_range: [0.5, 2.0]
+    randomize_kd: true
+    kd_multiplier_range: [0.5, 2.0]
+    push_robots: true
+    push_interval: 500
+    max_force: [0.5, 0.5, 0.0]
   control_config:
-    action_scale: 0.5
+    action_scale:
+      - 0.54755
+      - 0.35066
+      - 0.54755
+      - 0.35066
+      - 0.43858
+      - 0.43858
+      - 0.54755
+      - 0.35066
+      - 0.54755
+      - 0.35066
+      - 0.43858
+      - 0.43858
+      - 0.54755
+      - 0.43858
+      - 0.43858
+      - 0.43857
+      - 0.43857
+      - 0.43857
+      - 0.43857
+      - 0.43857
+      - 0.07450
+      - 0.07450
+      - 0.43857
+      - 0.43857
+      - 0.43857
+      - 0.43857
+      - 0.43857
+      - 0.07450
+      - 0.07450
   commands:
     vel_limit:
-      - [0.0, 0.0, -1.0]
-      - [1.0, 0.0, 1.0]
+      - [-1.0, -1.0, -1.0]
+      - [1.0, 1.0, 1.0]
     resampling_time: 10.0
-    heading_command: false
+    heading_command: true
+    heading_control_stiffness: 0.5
+    rel_standing_envs: 0.02
     heading_range: [-3.141592653589793, 3.141592653589793]
   gait_phase_init_mode: offset_phase
-  reset_base_qvel_limit: 0.05
+  reset_base_qvel_limit: 0.5
   curriculum:
     enabled: false
   noise_config:
@@ -63,22 +103,23 @@ env:
     terrain_distance_buffer: 3.0
 reward:
   scales:
-    track_lin_vel_xy_yaw_frame_exp: 1.0
-    track_ang_vel_z_world_exp: 2.0
+    track_lin_vel_xy_yaw_frame_exp: 3.0
+    track_ang_vel_z_world_exp: 3.0
     feet_air_time: 0.25
-    feet_slide: -0.1
-    dof_pos_limits_ankle: -1.0
+    feet_slide: -0.2
+    joint_pos_limits: -0.5
     joint_deviation_hip: -0.1
     joint_deviation_arms: -0.1
     joint_deviation_torso: -0.1
-    lin_vel_z: -2.0
-    ang_vel_xy: -0.05
-    flat_orientation_l2: -1.0
+    joint_pos_penalty: -1.0
+    lin_vel_z: 0.0
+    ang_vel_xy: -0.1
+    flat_orientation_l2: -0.2
     action_rate_l2: -0.005
-    dof_torques_l2: -1.5e-7
-    dof_acc_l2: -1.25e-7
-    alive: 1.0
-  tracking_sigma: 0.5
+    joint_torques_l2: -1.5e-7
+    joint_acc_l2: -1.25e-7
+    upward: 1.0
+  tracking_sigma: 0.25
   gait_frequency: 1.5
   feet_phase_swing_height: 0.09
   feet_phase_tracking_sigma: 0.008
@@ -88,4 +129,4 @@ reward:
   max_tilt_deg: 35.0
   feet_air_time_threshold: 0.4
   feet_air_time_command_threshold: 0.1
-  termination_penalty: -200.0
+  termination_penalty: -0.0

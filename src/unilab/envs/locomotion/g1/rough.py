@@ -12,6 +12,7 @@ from unilab.base import registry
 from unilab.base.np_env import NpEnvState
 from unilab.base.scene import SceneCfg, TerrainSceneCfg
 from unilab.dtype_config import get_global_dtype
+from unilab.envs.common.rotation import np_quat_apply, np_quat_apply_inverse, np_yaw_quat
 from unilab.envs.locomotion.common import rewards
 from unilab.envs.locomotion.common.height_scan import (
     HeightScanConfig,
@@ -33,6 +34,10 @@ from unilab.envs.locomotion.g1.joystick import (
     G1WalkEnv,
     G1WalkEnvCfg,
     compute_aggregated_foot_contact,
+    sample_heading_commands,
+    wrap_to_pi,
+    yaw_from_quat,
+    zero_small_xy_commands,
 )
 from unilab.terrains import (
     SubTerrainCfg,
@@ -59,6 +64,8 @@ G1_ARM_INDICES = np.asarray(
     dtype=np.int32,
 )  # shoulder pitch/roll/yaw + elbow (each side)
 G1_WAIST_INDICES = np.asarray([12], dtype=np.int32)
+G1_LEG_INDICES = np.asarray([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], dtype=np.int32)
+G1_HIP_KNEE_INDICES = np.asarray([0, 1, 2, 3, 6, 7, 8, 9], dtype=np.int32)
 
 
 @dataclass
@@ -80,6 +87,9 @@ class G1JoystickRoughRewardConfig(G1RewardConfig):
     feet_air_time_command_threshold: float = 0.1
     termination_penalty: float = -200.0
     only_positive_rewards: bool = False
+    joint_pos_penalty_stand_still_scale: float = 5.0
+    joint_pos_penalty_velocity_threshold: float = 0.5
+    joint_pos_penalty_command_threshold: float = 0.1
 
 
 @dataclass(kw_only=True)
@@ -192,8 +202,13 @@ class G1JoystickRoughEnv(G1WalkEnv):
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:
-        base_spec = super().obs_groups_spec
-        return {"obs": base_spec["obs"], "critic": base_spec["critic"] + self._height_scan_dim}
+        return {"obs": 96, "critic": 99 + self._height_scan_dim}
+
+    def _uses_walk_observation_profile(self) -> bool:
+        return True
+
+    def _terrain_relative_base_height(self) -> np.ndarray:
+        return base_height_from_scan(self, self._num_envs)
 
     def _init_reward_functions(self):
         def _joint_deviation_hip(ctx: RewardContext) -> np.ndarray:
@@ -224,6 +239,34 @@ class G1JoystickRoughEnv(G1WalkEnv):
                 command_threshold=self._reward_cfg.feet_air_time_command_threshold,
             )
 
+        def _joint_torques_l2(ctx: RewardContext) -> np.ndarray:
+            torques = np.asarray(
+                ctx.info.get("torques", np.zeros((ctx.num_envs, self._num_action))),
+                dtype=get_global_dtype(),
+            )
+            return np.asarray(
+                np.sum(np.square(torques[:, G1_LEG_INDICES]), axis=1),
+                dtype=get_global_dtype(),
+            )
+
+        def _joint_acc_l2(ctx: RewardContext) -> np.ndarray:
+            qacc = np.asarray(
+                ctx.info.get("qacc", np.zeros((ctx.num_envs, self._num_action))),
+                dtype=get_global_dtype(),
+            )
+            return np.asarray(
+                np.sum(np.square(qacc[:, G1_HIP_KNEE_INDICES]), axis=1),
+                dtype=get_global_dtype(),
+            )
+
+        def _joint_pos_penalty(ctx: RewardContext) -> np.ndarray:
+            return rewards.joint_pos_penalty(
+                ctx,
+                stand_still_scale=self._reward_cfg.joint_pos_penalty_stand_still_scale,
+                velocity_threshold=self._reward_cfg.joint_pos_penalty_velocity_threshold,
+                command_threshold=self._reward_cfg.joint_pos_penalty_command_threshold,
+            )
+
         # G1WalkEnv populated this dispatch in its __init__; we now overwrite it
         # entirely with the biped-style mix the user asked for.
         self._reward_fns: dict[str, Any] = {
@@ -242,7 +285,10 @@ class G1JoystickRoughEnv(G1WalkEnv):
             "action_rate_l2": rewards.action_rate,
             "dof_torques_l2": rewards.dof_torques_l2,
             "dof_acc_l2": rewards.dof_acc_l2,
+            "joint_torques_l2": _joint_torques_l2,
+            "joint_acc_l2": _joint_acc_l2,
             "joint_pos_limits": rewards.joint_pos_limits,
+            "joint_pos_penalty": _joint_pos_penalty,
             "dof_pos_limits_ankle": _dof_pos_limits_ankle,
             "joint_deviation_hip": _joint_deviation_hip,
             "joint_deviation_arms": _joint_deviation_arms,
@@ -252,6 +298,7 @@ class G1JoystickRoughEnv(G1WalkEnv):
             "feet_slide": self._reward_feet_slide_biped,
             # survival
             "alive": rewards.alive,
+            "upward": rewards.upward,
         }
 
     # ── biped feet_slide: reads ankle (foot) world linvel ──────────────────
@@ -276,6 +323,7 @@ class G1JoystickRoughEnv(G1WalkEnv):
     #    info["torques"] / info["qacc"], height scan & out-of-bounds ─────
 
     def update_state(self, state: NpEnvState) -> NpEnvState:
+        self._update_commands(state.info)
         self._step_contact_timers()
         # Stash for the reward dispatch which reads ctx.info.
         state.info["current_air_time"] = self._current_air_time
@@ -330,14 +378,86 @@ class G1JoystickRoughEnv(G1WalkEnv):
     def _compute_obs(
         self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel
     ) -> dict[str, np.ndarray]:
-        obs = super()._compute_obs(info, linvel, gyro, gravity, dof_pos, dof_vel)
-        num_obs = obs["critic"].shape[0]
-        obs["critic"] = np.concatenate(
-            [obs["critic"], height_scan_obs(self, self._cfg.terrain_scan, num_obs)],
+        noise_cfg = self._cfg.noise_config
+        diff = dof_pos - self.default_angles
+        command = info["commands"]
+        last_actions = info.get("current_actions", np.zeros_like(diff))
+
+        actor = np.concatenate(
+            [
+                self._obs_noise(gyro, noise_cfg.scale_gyro) * 0.25,
+                self._obs_noise(-gravity, noise_cfg.scale_gravity),
+                command,
+                self._obs_noise(diff, noise_cfg.scale_joint_angle),
+                self._obs_noise(dof_vel, noise_cfg.scale_joint_vel) * 0.05,
+                last_actions,
+            ],
             axis=1,
             dtype=get_global_dtype(),
         )
-        return obs
+        critic_base = np.concatenate(
+            [
+                linvel,
+                gyro,
+                -gravity,
+                command,
+                diff,
+                dof_vel,
+                last_actions,
+            ],
+            axis=1,
+            dtype=get_global_dtype(),
+        )
+        critic = np.concatenate(
+            [critic_base, height_scan_obs(self, self._cfg.terrain_scan, critic_base.shape[0])],
+            axis=1,
+            dtype=get_global_dtype(),
+        )
+        return {"obs": actor, "critic": critic}
+
+    def _update_commands(self, info: dict) -> None:
+        commands_arr = np.asarray(info["commands"], dtype=get_global_dtype())
+        resampling_time = float(getattr(self._cfg.commands, "resampling_time", 0.0))
+        if resampling_time > 0.0:
+            interval_steps = max(int(round(resampling_time / self._cfg.ctrl_dt)), 1)
+            steps = np.asarray(info.get("steps", np.zeros((self._num_envs,), dtype=np.uint32)))
+            resample_mask = (steps > 0) & ((steps % interval_steps) == 0)
+            if np.any(resample_mask):
+                num_resample = int(np.count_nonzero(resample_mask))
+                low = np.asarray(self._cfg.commands.vel_limit[0], dtype=get_global_dtype())
+                high = np.asarray(self._cfg.commands.vel_limit[1], dtype=get_global_dtype())
+                sampled = np.random.uniform(low=low, high=high, size=(num_resample, 3)).astype(
+                    get_global_dtype()
+                )
+                zero_small_xy_commands(sampled)
+                standing_prob = float(getattr(self._cfg.commands, "rel_standing_envs", 0.0))
+                if standing_prob > 0.0:
+                    standing = np.random.uniform(size=(num_resample,)) < min(standing_prob, 1.0)
+                    sampled[standing] = 0.0
+                commands_arr[resample_mask] = sampled
+                if getattr(self._cfg.commands, "heading_command", False):
+                    heading_commands = self._ensure_heading_commands(info, commands_arr.shape[0])
+                    heading_commands[resample_mask] = sample_heading_commands(self, num_resample)
+                    info["heading_commands"] = heading_commands
+
+        if getattr(self._cfg.commands, "heading_command", False):
+            heading_commands = self._ensure_heading_commands(info, commands_arr.shape[0])
+            base_quat = np.asarray(self._backend.get_base_quat(), dtype=get_global_dtype())
+            if base_quat.shape[0] == commands_arr.shape[0]:
+                heading = yaw_from_quat(base_quat)
+                stiffness = float(getattr(self._cfg.commands, "heading_control_stiffness", 0.5))
+                commands_arr[:, 2] = np.clip(
+                    stiffness * wrap_to_pi(heading_commands - heading), -2.0, 2.0
+                )
+        info["commands"] = commands_arr
+
+    def _ensure_heading_commands(self, info: dict, num_obs: int) -> np.ndarray:
+        heading_commands = info.get("heading_commands")
+        if heading_commands is None or np.asarray(heading_commands).shape != (num_obs,):
+            heading_commands = sample_heading_commands(self, num_obs)
+        heading_commands = np.asarray(heading_commands, dtype=get_global_dtype())
+        info["heading_commands"] = heading_commands
+        return heading_commands
 
     def _build_reward_context(
         self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel
@@ -349,13 +469,15 @@ class G1JoystickRoughEnv(G1WalkEnv):
         return ctx
 
     def _compute_yaw_frame_linvel(self) -> np.ndarray:
-        base_linvel = np.asarray(
-            self._backend.get_sensor_data("global_linvel")
-            if False
-            else self._backend.get_sensor_data("local_linvel"),
+        local_linvel = np.asarray(
+            self._backend.get_sensor_data("local_linvel"), dtype=get_global_dtype()
+        )
+        base_quat = np.asarray(self._backend.get_base_quat(), dtype=get_global_dtype())
+        global_linvel = np_quat_apply(base_quat, local_linvel)
+        return np.asarray(
+            np_quat_apply_inverse(np_yaw_quat(base_quat), global_linvel),
             dtype=get_global_dtype(),
         )
-        return base_linvel
 
     def _raw_height_scan_obs(self, num_obs: int) -> tuple[np.ndarray | None, np.ndarray | None]:
         return raw_height_scan_obs(self, num_obs)
@@ -378,7 +500,8 @@ class G1JoystickRoughEnv(G1WalkEnv):
         kp, kd = kp_kd
         kp = np.asarray(kp, dtype=get_global_dtype())
         kd = np.asarray(kd, dtype=get_global_dtype())
-        targets = actions * float(self._cfg.control_config.action_scale) + self.default_angles
+        action_scale = np.asarray(self._cfg.control_config.action_scale, dtype=get_global_dtype())
+        targets = actions * action_scale + self.default_angles
         return np.asarray(kp * (targets - dof_pos) - kd * dof_vel, dtype=get_global_dtype())
 
 

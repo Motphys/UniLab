@@ -3,7 +3,7 @@ training:
   task_name: Go2WJoystickRough
   sim_backend: motrix
 algo:
-  num_envs: 4096
+  num_envs: 2048
   num_steps_per_env: 24
   max_iterations: 1000
   empirical_normalization: false
@@ -35,17 +35,20 @@ env:
         border_width: 1.0
   commands:
     vel_limit:
-      - [-1.0, -0.6, -1.0]
-      - [1.0, 0.6, 1.0]
+      - [-1.0, -1.0, -1.0]
+      - [1.0, 1.0, 1.0]
     resampling_time: 10.0
     heading_command: true
+    heading_control_stiffness: 0.5
+    rel_standing_envs: 0.02
     heading_range: [-3.14, 3.14]
   control_config:
-    action_scale: 0.25
-    wheel_action_scale: 10.0
+    action_scale: [0.125, 0.25, 0.25, 0.125, 0.25, 0.25, 0.125, 0.25, 0.25, 0.125, 0.25, 0.25]
+    wheel_action_scale: 5.0
     Kp: 40.0
     Kd: 1.0
     wheel_Kd: 0.5
+    clip_actions: 100.0
     simulate_action_latency: false
   terrain_scan:
     enabled: true
@@ -56,34 +59,35 @@ env:
     terrain_distance_buffer: 3.0
   domain_rand:
     randomize_base_mass: true
-    added_mass_range: [-1.0, 2.0]
+    added_mass_range: [-1.0, 3.0]
     random_com: true
     com_offset_x: [-0.05, 0.05]
     randomize_kp: true
-    kp_multiplier_range: [0.9, 1.1]
+    kp_multiplier_range: [0.5, 2.0]
     randomize_kd: true
-    kd_multiplier_range: [0.9, 1.1]
-    randomize_init_yaw: false
-    init_yaw_range: [0.0, 0.0]
-    push_robots: false
+    kd_multiplier_range: [0.5, 2.0]
+    randomize_init_yaw: true
+    init_yaw_range: [-3.14, 3.14]
+    push_robots: true
+    push_interval: 500
+    max_force: [0.5, 0.5, 0.0]
     push_body_name: base_link
 reward:
   scales:
-    tracking_lin_vel: 1.5
-    tracking_ang_vel: 0.75
-    lin_vel_z: -1.0
+    tracking_lin_vel: 3.0
+    tracking_ang_vel: 1.5
+    lin_vel_z: -2.0
     ang_vel_xy: -0.05
-    orientation: -0.5
-    base_height: -10.0
-    torques: -5.0e-4
-    dof_acc: -1.0e-7
-    dof_vel: -1.0e-7
-    wheel_acc: -1.0e-7
+    joint_torques_l2: -2.5e-5
+    joint_acc_l2: -2.5e-7
+    joint_acc_wheel_l2: -2.5e-9
+    joint_pos_limits: -5.0
+    joint_power: -2.0e-5
     action_rate: -0.01
-    stand_still: -0.5
-    hip_pos: -0.5
-    dof_error: -0.05
-    alive: 0.0
+    stand_still: -2.0
+    joint_pos_penalty: -1.0
+    joint_mirror: -0.05
+    upward: 1.0
   tracking_sigma: 0.25
   base_height_target: 0.4
-  only_positive_rewards: true
+  only_positive_rewards: false

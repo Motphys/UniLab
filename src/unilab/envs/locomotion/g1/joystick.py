@@ -125,6 +125,31 @@ def compute_forward_command_mask(commands: np.ndarray) -> np.ndarray:
     return np.asarray(np.maximum(commands[:, 0], 0.0) > 1.0e-6, dtype=get_global_dtype())
 
 
+def zero_small_xy_commands(commands: np.ndarray) -> None:
+    moving = np.linalg.norm(commands[:, :2], axis=1) > 0.2
+    commands[:, :2] *= moving[:, None]
+
+
+def sample_heading_commands(env: Any, num_samples: int) -> np.ndarray:
+    heading_range = np.asarray(env.cfg.commands.heading_range, dtype=get_global_dtype())
+    if heading_range.shape != (2,):
+        raise ValueError(f"commands.heading_range must have shape (2,), got {heading_range.shape}")
+    low, high = float(np.min(heading_range)), float(np.max(heading_range))
+    return np.asarray(np.random.uniform(low, high, size=(num_samples,)), dtype=get_global_dtype())
+
+
+def wrap_to_pi(angle: np.ndarray) -> np.ndarray:
+    return (angle + np.pi) % (2.0 * np.pi) - np.pi
+
+
+def yaw_from_quat(quat: np.ndarray) -> np.ndarray:
+    w = quat[:, 0]
+    x = quat[:, 1]
+    y = quat[:, 2]
+    z = quat[:, 3]
+    return np.arctan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+
+
 @dataclass
 class G1RewardConfig:
     scales: dict[str, float]
@@ -217,7 +242,21 @@ class G1WalkDomainRandomizationProvider(LocomotionDRProvider):
         return float(env.cfg.reset_base_qvel_limit)
 
     def _build_extra_info_updates(self, env: Any, num_reset: int) -> dict[str, np.ndarray]:
-        return {"gait_phase": self._sample_gait_phase(env, num_reset)}
+        updates = {"gait_phase": self._sample_gait_phase(env, num_reset)}
+        if getattr(env.cfg.commands, "heading_command", False):
+            updates["heading_commands"] = sample_heading_commands(env, num_reset)
+        return updates
+
+    def _sample_commands(self, env: Any, num_reset: int) -> np.ndarray:
+        commands = super()._sample_commands(env, num_reset)
+        zero_small_xy_commands(commands)
+        standing_prob = float(getattr(env.cfg.commands, "rel_standing_envs", 0.0))
+        if standing_prob > 0.0:
+            standing = np.random.uniform(size=(num_reset,)) < min(standing_prob, 1.0)
+            commands[standing] = 0.0
+        if getattr(env.cfg.commands, "heading_command", False):
+            commands[:, 2] = 0.0
+        return commands
 
     def _sample_gait_phase(self, env: Any, num_reset: int) -> np.ndarray:
         mode = env.cfg.gait_phase_init_mode
@@ -324,6 +363,9 @@ class G1WalkEnv(G1BaseEnv):
             "alive": rewards.alive,
         }
 
+    def _terrain_relative_base_height(self) -> np.ndarray:
+        return np.asarray(self._backend.get_base_pos()[:, 2], dtype=get_global_dtype())
+
     def update_state(self, state: NpEnvState) -> NpEnvState:
         linvel = self.get_local_linvel()
         gyro = self.get_gyro()
@@ -335,7 +377,7 @@ class G1WalkEnv(G1BaseEnv):
         tilt = np.arccos(np.clip(gravity[:, 2], -1, 1))
         terminated = np.logical_or(
             tilt > max_tilt_rad,
-            self._backend.get_base_pos()[:, 2] < self._reward_cfg.min_base_height,
+            self._terrain_relative_base_height() < self._reward_cfg.min_base_height,
         )
 
         reward = self._compute_reward(state.info, linvel, gyro, gravity, dof_pos, dof_vel)

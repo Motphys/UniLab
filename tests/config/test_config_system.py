@@ -309,22 +309,37 @@ def test_ppo_go2w_rough_mujoco_uses_terrain_generator():
     assert cfg.env.terrain_scan.geom_name == "floor"
     assert cfg.env.commands.resampling_time == pytest.approx(10.0)
     assert cfg.env.commands.heading_command is True
-    assert cfg.env.domain_rand.randomize_init_yaw is False
-    assert cfg.env.domain_rand.init_yaw_range == [0.0, 0.0]
-    assert cfg.reward.only_positive_rewards is True
+    assert cfg.env.commands.vel_limit == [[-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]]
+    assert cfg.env.control_config.clip_actions == pytest.approx(100.0)
+    assert cfg.env.control_config.wheel_action_scale == pytest.approx(5.0)
+    assert cfg.env.domain_rand.randomize_init_yaw is True
+    assert cfg.env.domain_rand.init_yaw_range == [-3.14, 3.14]
+    assert cfg.env.domain_rand.kp_multiplier_range == [0.5, 2.0]
+    assert cfg.reward.scales.tracking_lin_vel == pytest.approx(3.0)
+    assert cfg.reward.scales.joint_pos_limits == pytest.approx(-5.0)
+    assert cfg.reward.scales.joint_mirror == pytest.approx(-0.05)
+    assert cfg.reward.only_positive_rewards is False
     assert cfg.algo.max_iterations == 5000
 
 
-def test_ppo_go2w_rough_tiles_motrix_uses_scene_model_file():
-    cfg = _compose("ppo", overrides=["task=go2w_joystick_rough_tiles/motrix"])
+def test_ppo_g1_rough_mujoco_aligns_robotlab_non_terrain_terms():
+    cfg = _compose("ppo", overrides=["task=g1_joystick_rough/mujoco"])
 
-    assert cfg.training.task_name == "Go2WJoystickRoughTiles"
-    assert cfg.training.sim_backend == "motrix"
-    assert "model_file" not in cfg.env
-    assert str(cfg.env.scene.model_file).endswith(
-        "src/unilab/assets/robots/go2w/scene_rough_tiles.xml"
-    )
-    assert cfg.env.terrain_scan.enabled is False
+    assert cfg.training.task_name == "G1JoystickRough"
+    assert cfg.env.commands.vel_limit == [[-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]]
+    assert cfg.env.commands.heading_command is True
+    assert cfg.env.commands.rel_standing_envs == pytest.approx(0.02)
+    assert len(cfg.env.control_config.action_scale) == 29
+    assert cfg.env.reset_base_qvel_limit == pytest.approx(0.5)
+    assert cfg.env.scene.terrain.generator.curriculum is False
+    assert cfg.env.domain_rand.added_mass_range == [-1.0, 3.0]
+    assert cfg.env.domain_rand.kp_multiplier_range == [0.5, 2.0]
+    assert cfg.reward.scales.track_lin_vel_xy_yaw_frame_exp == pytest.approx(3.0)
+    assert cfg.reward.scales.track_ang_vel_z_world_exp == pytest.approx(3.0)
+    assert cfg.reward.scales.joint_pos_penalty == pytest.approx(-1.0)
+    assert cfg.reward.scales.upward == pytest.approx(1.0)
+    assert cfg.reward.tracking_sigma == pytest.approx(0.25)
+    assert cfg.reward.termination_penalty == pytest.approx(-200.0)
 
 
 def test_offpolicy_g1_walk_flat_motrix_preserves_backend_env_overrides():
