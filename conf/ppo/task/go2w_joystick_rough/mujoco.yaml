@@ -42,10 +42,10 @@ env:
     rel_standing_envs: 0.02
     heading_range: [-3.14, 3.14]
   control_config:
-    action_scale: [0.125, 0.25, 0.25, 0.125, 0.25, 0.25, 0.125, 0.25, 0.25, 0.125, 0.25, 0.25]
-    wheel_action_scale: 5.0
-    Kp: 40.0
-    Kd: 1.0
+    action_scale: 0.5
+    wheel_action_scale: 10.0
+    Kp: 50.0
+    Kd: 1.5
     wheel_Kd: 0.5
     clip_actions: 100.0
     simulate_action_latency: false
@@ -61,11 +61,13 @@ env:
     added_mass_range: [-1.0, 3.0]
     random_com: true
     com_offset_x: [-0.05, 0.05]
-    randomize_kp: true
+    randomize_kp: false
     kp_multiplier_range: [0.5, 2.0]
-    randomize_kd: true
+    randomize_kd: false
     kd_multiplier_range: [0.5, 2.0]
     randomize_init_yaw: true
+    init_roll_range: [-3.14, 3.14]
+    init_pitch_range: [-3.14, 3.14]
     init_yaw_range: [-3.14, 3.14]
     push_robots: true
     push_interval: 500

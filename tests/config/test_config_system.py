@@ -277,10 +277,38 @@ def test_ppo_go2w_mujoco_uses_motor_owner_dr_path():
 
     assert cfg.training.task_name == "Go2WJoystickFlat"
     assert cfg.training.sim_backend == "mujoco"
-    assert cfg.env.domain_rand.randomize_kp is True
-    assert cfg.env.domain_rand.randomize_kd is True
+    assert cfg.env.commands.vel_limit == [[0.0, 0.0, -1.0], [1.0, 0.0, 1.0]]
+    assert cfg.env.domain_rand.randomize_kp is False
+    assert cfg.env.domain_rand.randomize_kd is False
+    assert cfg.env.control_config.action_scale == pytest.approx(0.5)
+    assert cfg.env.control_config.Kp == pytest.approx(50.0)
+    assert cfg.env.control_config.Kd == pytest.approx(1.5)
     assert cfg.env.control_config.wheel_action_scale == pytest.approx(10.0)
     assert cfg.env.control_config.wheel_Kd == pytest.approx(0.5)
+    assert cfg.reward.scales.tracking_ang_vel == pytest.approx(0.75)
+    assert cfg.reward.scales.orientation == pytest.approx(-2.0)
+    assert cfg.reward.scales.upward == pytest.approx(1.0)
+    assert cfg.reward.base_height_target == pytest.approx(0.4)
+    assert cfg.reward.scales.torques < 0.0
+
+
+def test_ppo_go2w_motrix_uses_motor_owner_dr_path():
+    cfg = _compose("ppo", overrides=["task=go2w_joystick_flat/motrix"])
+
+    assert cfg.training.task_name == "Go2WJoystickFlat"
+    assert cfg.training.sim_backend == "motrix"
+    assert cfg.env.render_offset_mode == "zero"
+    assert cfg.env.commands.vel_limit == [[0.0, 0.0, -1.0], [1.0, 0.0, 1.0]]
+    assert cfg.env.domain_rand.randomize_kp is False
+    assert cfg.env.domain_rand.randomize_kd is False
+    assert cfg.env.control_config.action_scale == pytest.approx(0.5)
+    assert cfg.env.control_config.Kp == pytest.approx(50.0)
+    assert cfg.env.control_config.Kd == pytest.approx(1.5)
+    assert cfg.env.control_config.wheel_action_scale == pytest.approx(10.0)
+    assert cfg.env.control_config.wheel_Kd == pytest.approx(0.5)
+    assert cfg.reward.scales.tracking_ang_vel == pytest.approx(0.75)
+    assert cfg.reward.scales.orientation == pytest.approx(-2.0)
+    assert cfg.reward.scales.upward == pytest.approx(1.0)
     assert cfg.reward.scales.torques < 0.0
 
 
@@ -311,8 +339,15 @@ def test_ppo_go2w_rough_mujoco_uses_terrain_generator():
     assert cfg.env.commands.heading_command is True
     assert cfg.env.commands.vel_limit == [[-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]]
     assert cfg.env.control_config.clip_actions == pytest.approx(100.0)
-    assert cfg.env.control_config.wheel_action_scale == pytest.approx(5.0)
+    assert cfg.env.control_config.action_scale == pytest.approx(0.5)
+    assert cfg.env.control_config.wheel_action_scale == pytest.approx(10.0)
+    assert cfg.env.control_config.Kp == pytest.approx(50.0)
+    assert cfg.env.control_config.Kd == pytest.approx(1.5)
+    assert cfg.env.domain_rand.randomize_kp is False
+    assert cfg.env.domain_rand.randomize_kd is False
     assert cfg.env.domain_rand.randomize_init_yaw is True
+    assert cfg.env.domain_rand.init_roll_range == [-3.14, 3.14]
+    assert cfg.env.domain_rand.init_pitch_range == [-3.14, 3.14]
     assert cfg.env.domain_rand.init_yaw_range == [-3.14, 3.14]
     assert cfg.env.domain_rand.kp_multiplier_range == [0.5, 2.0]
     assert cfg.reward.scales.tracking_lin_vel == pytest.approx(3.0)
@@ -320,6 +355,25 @@ def test_ppo_go2w_rough_mujoco_uses_terrain_generator():
     assert cfg.reward.scales.joint_mirror == pytest.approx(-0.05)
     assert cfg.reward.only_positive_rewards is False
     assert cfg.algo.max_iterations == 5000
+
+
+def test_ppo_go2w_rough_motrix_uses_flip_reset_and_strong_control():
+    cfg = _compose("ppo", overrides=["task=go2w_joystick_rough/motrix"])
+
+    assert cfg.training.task_name == "Go2WJoystickRough"
+    assert cfg.training.sim_backend == "motrix"
+    assert cfg.env.commands.vel_limit == [[0.0, 0.0, -1.0], [1.0, 0.0, 1.0]]
+    assert cfg.env.control_config.action_scale == pytest.approx(0.5)
+    assert cfg.env.control_config.wheel_action_scale == pytest.approx(10.0)
+    assert cfg.env.control_config.Kp == pytest.approx(50.0)
+    assert cfg.env.control_config.Kd == pytest.approx(1.5)
+    assert cfg.env.domain_rand.randomize_kp is False
+    assert cfg.env.domain_rand.randomize_kd is False
+    assert cfg.env.domain_rand.init_roll_range == [-3.14, 3.14]
+    assert cfg.env.domain_rand.init_pitch_range == [-3.14, 3.14]
+    assert cfg.env.domain_rand.init_yaw_range == [-3.14, 3.14]
+    assert cfg.reward.scales.orientation == pytest.approx(-2.0)
+    assert cfg.reward.scales.upward == pytest.approx(1.0)
 
 
 def test_ppo_g1_rough_mujoco_aligns_robotlab_non_terrain_terms():
