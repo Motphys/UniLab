@@ -6,9 +6,11 @@ Benchmarks Isaac Gym across go1/go2/g1 locomotion robots and outputs JSON + plot
 aligned with benchmark/benchmark_physics_step_mj_step.py.
 
 Run without creating any new environment:
-    PYTHONPATH=/home/admin1/.holosoma_deps/isaacgym/python \
-    LD_LIBRARY_PATH=/home/admin1/.holosoma_deps/miniconda3/envs/hsgym/lib \
-    uv run --no-project /home/admin1/.holosoma_deps/miniconda3/envs/hsgym/bin/python3.8 \
+    export UNILAB_ISAACGYM_DEPS_ROOT=/path/to/isaacgym-deps
+    export UNILAB_ISAACGYM_MODELS_ROOT=/path/to/robot-models
+    PYTHONPATH=$UNILAB_ISAACGYM_DEPS_ROOT/isaacgym/python \
+    LD_LIBRARY_PATH=$UNILAB_ISAACGYM_DEPS_ROOT/miniconda3/envs/hsgym/lib \
+    uv run --no-project $UNILAB_ISAACGYM_DEPS_ROOT/miniconda3/envs/hsgym/bin/python3.8 \
         benchmark/benchmark_physics_step_isaacgym.py
 """
 
@@ -34,11 +36,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_DEPS_ROOT = Path("/home/admin1/.holosoma_deps")
+DEFAULT_DEPS_ROOT = Path(
+    os.environ.get("UNILAB_ISAACGYM_DEPS_ROOT", "~/isaacgym-deps")
+).expanduser()
 DEFAULT_ISAACGYM_PYTHON = DEFAULT_DEPS_ROOT / "isaacgym" / "python"
 DEFAULT_HSGYM_PYTHON = DEFAULT_DEPS_ROOT / "miniconda3" / "envs" / "hsgym" / "bin" / "python3.8"
 DEFAULT_HSGYM_LIB = DEFAULT_DEPS_ROOT / "miniconda3" / "envs" / "hsgym" / "lib"
-DEFAULT_MODELS_ROOT = Path("/home/admin1/ws/models")
+DEFAULT_MODELS_ROOT = Path(
+    os.environ.get("UNILAB_ISAACGYM_MODELS_ROOT", "~/robot-models")
+).expanduser()
 
 if str(DEFAULT_ISAACGYM_PYTHON) not in sys.path:
     sys.path.insert(0, str(DEFAULT_ISAACGYM_PYTHON))
@@ -156,7 +162,7 @@ def _require_isaacgym() -> None:
     raise RuntimeError(
         "Isaac Gym is unavailable in the current runtime.\n"
         f"Import detail: {detail}\n"
-        "Use the existing /home/admin1/.holosoma_deps runtime directly:\n"
+        "Set UNILAB_ISAACGYM_DEPS_ROOT to your Isaac Gym runtime, then run:\n"
         f"  {_runtime_hint()}"
     )
 
