@@ -50,6 +50,14 @@ def _require_not_none(value: T | None, error_message: str) -> T:
     return value
 
 
+def _position_actuator_kd_override_setter(actuator: Any) -> Any | None:
+    for method_name in ("set_kd_override", "set_damping_override"):
+        setter = getattr(actuator, method_name, None)
+        if setter is not None:
+            return setter
+    return None
+
+
 @dataclass
 class _MotrixSceneContext:
     model: "mtx.SceneModel"
@@ -185,6 +193,7 @@ class MotrixBackend(SimBackend):
         )
         self._default_actuator_kp = np.zeros((self.num_actuators,), dtype=np.float64)
         self._default_actuator_kd = np.zeros((self.num_actuators,), dtype=np.float64)
+        self._position_actuator_kd_override_setters: list[tuple[int, Any]] = []
         for actuator in self._position_actuators:
             idx = int(actuator.index)
             # TODO: switch to motrixsim model-level actuator gain API once available.
@@ -194,6 +203,12 @@ class MotrixBackend(SimBackend):
             self._default_actuator_kd[idx] = float(
                 np.asarray(actuator.get_kd_override(self._data), dtype=np.float64)[0]
             )
+            kd_setter = _position_actuator_kd_override_setter(actuator)
+            if kd_setter is not None:
+                self._position_actuator_kd_override_setters.append((idx, kd_setter))
+        self._supports_position_actuator_kd_override = len(
+            self._position_actuator_kd_override_setters
+        ) == int(self._model.num_actuators)
         self._floating_base_quat_indices: tuple[np.ndarray, ...] = tuple(
             np.asarray(floating_base.dof_pos_indices[3:7], dtype=np.intp)
             for floating_base in getattr(self._model, "floating_bases", [])
@@ -384,7 +399,9 @@ class MotrixBackend(SimBackend):
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
         supported_reset_terms = {RESET_TERM_BASE_MASS, RESET_TERM_BASE_COM}
         if self._supports_position_actuator_gains:
-            supported_reset_terms.update({RESET_TERM_KP, RESET_TERM_KD})
+            supported_reset_terms.add(RESET_TERM_KP)
+        if self._supports_position_actuator_kd_override:
+            supported_reset_terms.add(RESET_TERM_KD)
         return DomainRandomizationCapabilities(
             supported_reset_terms=frozenset(supported_reset_terms),
             supports_interval_push=True,
@@ -855,11 +872,9 @@ class MotrixBackend(SimBackend):
             actuator.set_kp_override(data_slice, np.ascontiguousarray(kp[:, int(actuator.index)]))
 
     def _set_position_actuator_kd_override(self, data_slice, kd: np.ndarray) -> None:
-        for actuator in self._position_actuators:
+        for actuator_index, setter in self._position_actuator_kd_override_setters:
             # TODO(motrixsim#1384): drop the copy once strided NumPy views are accepted.
-            actuator.set_damping_override(
-                data_slice, np.ascontiguousarray(kd[:, int(actuator.index)])
-            )
+            setter(data_slice, np.ascontiguousarray(kd[:, actuator_index]))
 
     def get_actuator_gains(self) -> tuple[np.ndarray, np.ndarray]:
         if not self._supports_position_actuator_gains:

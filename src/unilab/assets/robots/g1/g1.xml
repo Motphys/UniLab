@@ -362,14 +362,14 @@
   </actuator>
 
   <sensor>
-    <velocimeter site="imu_in_pelvis" name="local_linvel"/>
-    <!-- <gyro site="imu_in_pelvis" name="imu-pelvis-angular-velocity" cutoff="34.9" noise="0.0005"/>
-    <accelerometer site="imu_in_pelvis" name="imu-pelvis-linear-acceleration" cutoff="157" noise="0.01"/>
-    <framezaxis objtype="site" objname="imu_in_pelvis" name="pelvis_upvector"/> -->
+    <velocimeter site="imu_in_pelvis" name="pelvis_local_linvel"/>
+    <gyro site="imu_in_pelvis" name="pelvis_gyro" cutoff="34.9" noise="0.0005"/>
+    <accelerometer site="imu_in_pelvis" name="pelvis_acceleration" cutoff="157" noise="0.01"/>
+    <framezaxis objtype="site" objname="imu_in_pelvis" name="pelvis_upvector"/>
 
-    <gyro site="imu_in_torso" name="gyro" cutoff="34.9" noise="0.0005"/>
-    <accelerometer site="imu_in_torso" name="acceleration" cutoff="157" noise="0.01"/>
-    <framezaxis objname="imu_in_torso" objtype="site" name="upvector"/>
+    <gyro site="imu_in_torso" name="torso_gyro" cutoff="34.9" noise="0.0005"/>
+    <accelerometer site="imu_in_torso" name="torso_acceleration" cutoff="157" noise="0.01"/>
+    <framezaxis objname="imu_in_torso" objtype="site" name="torso_upvector"/>
 
     <framepos objtype="site" objname="left_foot" name="left_foot_pos"/>
     <framequat objtype="site" objname="left_foot" name="left_foot_quat"/>
