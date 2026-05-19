@@ -8,6 +8,22 @@ dist/
 .venv/
 .python-version
 
+# Local secrets and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+.netrc
+.npmrc
+.pypirc
+
 # Test and coverage artifacts
 .coverage
 htmlcov/
@@ -29,6 +45,7 @@ run_summary.json
 .worktrees/
 *.log
 .DS_Store
+.ipynb_checkpoints/
 *.bak
 *.backup
 *.old
