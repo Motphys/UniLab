@@ -104,11 +104,11 @@ class Go2WJoystickRoughDomainRandomizationProvider(Go2WJoystickDomainRandomizati
         qpos = np.tile(env._init_qpos, (num_reset, 1))
         qvel = np.tile(env._init_qvel, (num_reset, 1))
         qpos[:, 0:2] += np.random.uniform(-0.5, 0.5, (num_reset, 2))
-        qpos[:, 2] += self._sample_angle_range(env.cfg.domain_rand.init_z_range, num_reset)
+        qpos[:, 2] += np.random.uniform(0.1, 0.3, (num_reset,))
         qpos[:, 0:3] += env._spawn.origins_for(env_ids)
-        roll = self._sample_angle_range(env.cfg.domain_rand.init_roll_range, num_reset)
-        pitch = self._sample_angle_range(env.cfg.domain_rand.init_pitch_range, num_reset)
-        yaw = self._sample_angle_range(env.cfg.domain_rand.init_yaw_range, num_reset)
+        roll = np.random.uniform(-3.14, 3.14, (num_reset,))
+        pitch = np.random.uniform(-3.14, 3.14, (num_reset,))
+        yaw = np.random.uniform(-3.14, 3.14, (num_reset,))
         qpos[:, 3:7] = np_quat_mul(qpos[:, 3:7], np_quat_from_euler_xyz(roll, pitch, yaw))
         qvel[:, 0:6] = np.asarray(
             np.random.uniform(-0.5, 0.5, size=(num_reset, 6)), dtype=get_global_dtype()
@@ -135,13 +135,6 @@ class Go2WJoystickRoughDomainRandomizationProvider(Go2WJoystickDomainRandomizati
             randomization=build_go2w_backend_reset_randomization(env, num_reset),
         )
 
-    def _sample_angle_range(self, value: list[float], num_samples: int) -> np.ndarray:
-        angle_range = np.asarray(value, dtype=np.float64)
-        if angle_range.shape != (2,):
-            raise ValueError(f"reset angle range must have shape (2,), got {angle_range.shape}")
-        low, high = float(np.min(angle_range)), float(np.max(angle_range))
-        return np.asarray(np.random.uniform(low, high, size=(num_samples,)), dtype=get_global_dtype())
-
 
 @registry.env("Go2WJoystickRough", sim_backend="mujoco")
 class Go2WJoystickRoughEnv(Go2WJoystickEnv):
@@ -150,9 +143,7 @@ class Go2WJoystickRoughEnv(Go2WJoystickEnv):
     def __init__(self, cfg: Go2WJoystickRoughCfg, num_envs=1, backend_type="mujoco"):
         super().__init__(cfg, num_envs=num_envs, backend_type=backend_type)
         terrain_origins = getattr(self._backend, "terrain_origins", None)
-        terrain_generator = (
-            cfg.scene.terrain.generator if cfg.scene.terrain is not None else None
-        )
+        terrain_generator = cfg.scene.terrain.generator if cfg.scene.terrain is not None else None
         if terrain_origins is not None and terrain_generator is not None:
             self._spawn = TerrainSpawnManager(
                 num_envs,

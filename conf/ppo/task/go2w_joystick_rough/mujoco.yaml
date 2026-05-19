@@ -3,7 +3,7 @@ training:
   task_name: Go2WJoystickRough
   sim_backend: mujoco
 algo:
-  num_envs: 1024
+  num_envs: 2048
   num_steps_per_env: 48
   max_iterations: 5000
   empirical_normalization: false
@@ -12,13 +12,6 @@ algo:
       - actor
     critic:
       - critic
-  policy:
-    init_noise_std: 0.5
-    actor_hidden_dims: [512, 256, 128]
-    critic_hidden_dims: [512, 256, 128]
-  algorithm:
-    learning_rate: 1.0e-3
-    entropy_coef: 1.0e-3
 env:
   scene:
     model_file: src/unilab/assets/robots/go2w/go2w.xml
@@ -33,17 +26,13 @@ env:
         num_cols: 6
         border_width: 20.0
   commands:
-    vel_limit:
-      - [-1.0, -1.0, -1.0]
-      - [1.0, 1.0, 1.0]
+    vel_limit: [[-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]]
     resampling_time: 10.0
     heading_command: true
     heading_range: [-3.141592653589793, 3.141592653589793]
   control_config:
     action_scale: 0.5
     wheel_action_scale: 10.0
-    Kp: 50.0
-    Kd: 1.5
     wheel_Kd: 0.5
     clip_actions: 100.0
     simulate_action_latency: false
@@ -60,13 +49,9 @@ env:
     random_com: true
     com_offset_x: [-0.05, 0.05]
     randomize_kp: false
-    kp_multiplier_range: [0.5, 2.0]
+    kp_multiplier_range: [0.5, 1.0]
     randomize_kd: false
-    kd_multiplier_range: [0.5, 2.0]
-    randomize_init_yaw: true
-    init_roll_range: [-3.14, 3.14]
-    init_pitch_range: [-3.14, 3.14]
-    init_yaw_range: [-3.14, 3.14]
+    kd_multiplier_range: [0.5, 1.0]
     push_robots: true
     push_interval: 500
     max_force: [0.5, 0.5, 0.0]

@@ -3,20 +3,15 @@ training:
   task_name: Go2WJoystickRough
   sim_backend: motrix
 algo:
-  num_envs: 4096
-  num_steps_per_env: 24
-  max_iterations: 1500
+  num_envs: 2048
+  num_steps_per_env: 48
+  max_iterations: 5000
   empirical_normalization: false
   obs_groups:
     actor:
       - actor
     critic:
       - critic
-  policy:
-    init_noise_std: 1.0
-  algorithm:
-    learning_rate: 1.0e-3
-    entropy_coef: 1.0e-2
 env:
   render_offset_mode: zero
   scene:
@@ -39,8 +34,6 @@ env:
   control_config:
     action_scale: 0.5
     wheel_action_scale: 10.0
-    Kp: 50.0
-    Kd: 1.5
     wheel_Kd: 0.5
     clip_actions: 100.0
     simulate_action_latency: false
@@ -60,11 +53,6 @@ env:
     kp_multiplier_range: [0.5, 1.0]
     randomize_kd: true
     kd_multiplier_range: [0.5, 1.0]
-    randomize_init_yaw: true
-    init_z_range: [0.1, 0.3]
-    init_roll_range: [-3.14, 3.14]
-    init_pitch_range: [-3.14, 3.14]
-    init_yaw_range: [-3.14, 3.14]
     push_robots: true
     push_interval: 625
     max_force: [1.0, 1.0, 0.5]
