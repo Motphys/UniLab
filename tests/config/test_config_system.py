@@ -224,7 +224,7 @@ def test_ppo_g1_backend_specific_hyperparams_remain_separate():
     mujoco_cfg = _compose("ppo", overrides=["task=g1_walk_flat/mujoco"])
     motrix_cfg = _compose("ppo", overrides=["task=g1_walk_flat/motrix"])
 
-    assert mujoco_cfg.algo.max_iterations == 220
+    assert mujoco_cfg.algo.max_iterations == 2200
     assert mujoco_cfg.algo.empirical_normalization is False
     assert mujoco_cfg.algo.obs_groups.actor == ["actor"]
 

@@ -444,7 +444,7 @@ def test_ppo_g1_num_envs():
     with initialize_config_dir(config_dir=str(CONF_DIR / "ppo"), version_base="1.3"):
         cfg = compose("config", overrides=["task=g1_walk_flat/mujoco"])
     assert cfg.algo.num_envs == 2048
-    assert cfg.algo.max_iterations == 220
+    assert cfg.algo.max_iterations == 2200
     assert cfg.training.task_name == "G1WalkFlat"
     assert "obs_profile" not in cfg.env
     assert cfg.env.curriculum.enabled is False
