@@ -176,9 +176,7 @@ class G1JoystickRoughEnv(G1WalkEnv):
     def __init__(self, cfg: G1JoystickRoughCfg, num_envs=1, backend_type="mujoco"):
         super().__init__(cfg, num_envs=num_envs, backend_type=backend_type)
         terrain_origins = getattr(self._backend, "terrain_origins", None)
-        terrain_generator = (
-            cfg.scene.terrain.generator if cfg.scene.terrain is not None else None
-        )
+        terrain_generator = cfg.scene.terrain.generator if cfg.scene.terrain is not None else None
         if terrain_origins is not None and terrain_generator is not None:
             self._spawn = TerrainSpawnManager(
                 num_envs,
@@ -211,6 +209,11 @@ class G1JoystickRoughEnv(G1WalkEnv):
         return base_height_from_scan(self, self._num_envs)
 
     def _init_reward_functions(self):
+        scale_gravity = self._upright_scale
+
+        def gated(fn):
+            return lambda ctx: fn(ctx) * scale_gravity(ctx.gravity)
+
         def _joint_deviation_hip(ctx: RewardContext) -> np.ndarray:
             return rewards.joint_deviation_l1(ctx, G1_LEG_HIP_INDICES)
 
@@ -228,16 +231,14 @@ class G1JoystickRoughEnv(G1WalkEnv):
             ankle_pos = ctx.dof_pos[:, G1_ANKLE_INDICES]
             low_error = np.clip(ankle_lower - ankle_pos, 0.0, None)
             high_error = np.clip(ankle_pos - ankle_upper, 0.0, None)
-            return np.asarray(
-                np.sum(low_error + high_error, axis=1), dtype=get_global_dtype()
-            )
+            return np.asarray(np.sum(low_error + high_error, axis=1), dtype=get_global_dtype())
 
         def _feet_air_time(ctx: RewardContext) -> np.ndarray:
             return rewards.feet_air_time_positive_biped(
                 ctx,
                 threshold=self._reward_cfg.feet_air_time_threshold,
                 command_threshold=self._reward_cfg.feet_air_time_command_threshold,
-            )
+            ) * scale_gravity(ctx.gravity)
 
         def _joint_torques_l2(ctx: RewardContext) -> np.ndarray:
             torques = np.asarray(
@@ -265,21 +266,21 @@ class G1JoystickRoughEnv(G1WalkEnv):
                 stand_still_scale=self._reward_cfg.joint_pos_penalty_stand_still_scale,
                 velocity_threshold=self._reward_cfg.joint_pos_penalty_velocity_threshold,
                 command_threshold=self._reward_cfg.joint_pos_penalty_command_threshold,
-            )
+            ) * scale_gravity(ctx.gravity)
 
         # G1WalkEnv populated this dispatch in its __init__; we now overwrite it
         # entirely with the biped-style mix the user asked for.
         self._reward_fns: dict[str, Any] = {
             # tracking
-            "tracking_lin_vel": rewards.tracking_lin_vel,
-            "tracking_ang_vel": rewards.tracking_ang_vel,
-            "track_lin_vel_xy_yaw_frame_exp": rewards.track_lin_vel_xy_yaw_frame_exp,
-            "track_ang_vel_z_world_exp": rewards.track_ang_vel_z_world_exp,
+            "tracking_lin_vel": gated(rewards.tracking_lin_vel),
+            "tracking_ang_vel": gated(rewards.tracking_ang_vel),
+            "track_lin_vel_xy_yaw_frame_exp": gated(rewards.track_lin_vel_xy_yaw_frame_exp),
+            "track_ang_vel_z_world_exp": gated(rewards.track_ang_vel_z_world_exp),
             # penalties
-            "lin_vel_z": rewards.lin_vel_z,
-            "ang_vel_xy": rewards.ang_vel_xy,
-            "orientation": rewards.orientation,
-            "flat_orientation_l2": rewards.orientation,
+            "lin_vel_z": gated(rewards.lin_vel_z),
+            "ang_vel_xy": gated(rewards.ang_vel_xy),
+            "orientation": gated(rewards.orientation),
+            "flat_orientation_l2": gated(rewards.orientation),
             "base_height": rewards.base_height,
             "action_rate": rewards.action_rate,
             "action_rate_l2": rewards.action_rate,
@@ -301,23 +302,13 @@ class G1JoystickRoughEnv(G1WalkEnv):
             "upward": rewards.upward,
         }
 
-    # ── biped feet_slide: reads ankle (foot) world linvel ──────────────────
+    # ── biped feet_slide: root-relative foot velocity ──────────────────────
 
     def _reward_feet_slide_biped(self, ctx: RewardContext) -> np.ndarray:
-        del ctx
-        left_vel = np.asarray(
-            self._backend.get_sensor_data("left_foot_linvel"), dtype=get_global_dtype()
-        )
-        right_vel = np.asarray(
-            self._backend.get_sensor_data("right_foot_linvel"), dtype=get_global_dtype()
-        )
-        left_speed = np.linalg.norm(left_vel[:, :2], axis=1)
-        right_speed = np.linalg.norm(right_vel[:, :2], axis=1)
-        left_contact = compute_aggregated_foot_contact(self._backend, LEFT_FOOT_CONTACT_SENSORS)
-        right_contact = compute_aggregated_foot_contact(self._backend, RIGHT_FOOT_CONTACT_SENSORS)
-        return np.asarray(
-            left_speed * left_contact + right_speed * right_contact, dtype=get_global_dtype()
-        )
+        foot_vel_body = self._relative_foot_vel_body()
+        lateral_vel = np.linalg.norm(foot_vel_body[:, :, :2], axis=2)
+        reward = np.sum(lateral_vel * self._foot_contact_mask(), axis=1)
+        return np.asarray(reward * self._upright_scale(ctx.gravity), dtype=get_global_dtype())
 
     # ── update loop: extend G1WalkEnv to include contact timers,
     #    info["torques"] / info["qacc"], height scan & out-of-bounds ─────
@@ -340,6 +331,15 @@ class G1JoystickRoughEnv(G1WalkEnv):
         state = self._maybe_extend_truncated(state)
         return state
 
+    def reset(self, env_indices: np.ndarray) -> tuple[dict[str, np.ndarray], dict]:
+        env_ids = np.asarray(env_indices, dtype=np.int32)
+        obs, info = super().reset(env_ids)
+        dof_vel = self.get_dof_vel()
+        if dof_vel.shape[0] == self._num_envs:
+            self._last_dof_vel_for_acc[env_ids] = dof_vel[env_ids]
+        self._reset_contact_timers(env_ids)
+        return obs, info
+
     def _apply_termination_penalty(self, state: NpEnvState) -> NpEnvState:
         weight = float(self._reward_cfg.termination_penalty)
         if weight == 0.0:
@@ -352,9 +352,7 @@ class G1JoystickRoughEnv(G1WalkEnv):
         return state.replace(reward=state.reward + penalty)
 
     def _step_contact_timers(self) -> None:
-        left = compute_aggregated_foot_contact(self._backend, LEFT_FOOT_CONTACT_SENSORS)
-        right = compute_aggregated_foot_contact(self._backend, RIGHT_FOOT_CONTACT_SENSORS)
-        contact = np.stack([left, right], axis=1).astype(bool)
+        contact = self._foot_contact_mask()
         air = ~contact
         self._current_air_time = np.where(
             air, self._current_air_time + self._cfg.ctrl_dt, 0.0
@@ -363,6 +361,19 @@ class G1JoystickRoughEnv(G1WalkEnv):
             contact, self._current_contact_time + self._cfg.ctrl_dt, 0.0
         ).astype(np.float32)
         self._last_foot_contact = contact
+
+    def _reset_contact_timers(self, env_ids: np.ndarray) -> None:
+        self._current_air_time[env_ids] = 0.0
+        self._current_contact_time[env_ids] = 0.0
+        self._last_foot_contact[env_ids] = self._foot_contact_mask()[env_ids]
+
+    def _foot_contact_mask(self) -> np.ndarray:
+        left = compute_aggregated_foot_contact(self._backend, LEFT_FOOT_CONTACT_SENSORS)
+        right = compute_aggregated_foot_contact(self._backend, RIGHT_FOOT_CONTACT_SENSORS)
+        return np.stack([left, right], axis=1).astype(bool)
+
+    def _upright_scale(self, gravity: np.ndarray | None) -> np.ndarray:
+        return rewards.upright_scale(gravity, self._num_envs)
 
     def _maybe_extend_truncated(self, state: NpEnvState) -> NpEnvState:
         if not self._cfg.termination_config.terrain_out_of_bounds:
@@ -476,6 +487,27 @@ class G1JoystickRoughEnv(G1WalkEnv):
         global_linvel = np_quat_apply(base_quat, local_linvel)
         return np.asarray(
             np_quat_apply_inverse(np_yaw_quat(base_quat), global_linvel),
+            dtype=get_global_dtype(),
+        )
+
+    def _relative_foot_vel_body(self) -> np.ndarray:
+        left_vel = np.asarray(
+            self._backend.get_sensor_data("left_foot_linvel"), dtype=get_global_dtype()
+        )
+        right_vel = np.asarray(
+            self._backend.get_sensor_data("right_foot_linvel"), dtype=get_global_dtype()
+        )
+        foot_vel = np.stack([left_vel, right_vel], axis=1)
+        base_quat = np.asarray(self._backend.get_base_quat(), dtype=get_global_dtype())
+        local_linvel = np.asarray(
+            self._backend.get_sensor_data("local_linvel"), dtype=get_global_dtype()
+        )
+        root_vel = np_quat_apply(base_quat, local_linvel)
+        relative_vel = foot_vel - root_vel[:, None, :]
+        flat = relative_vel.reshape(self._num_envs * relative_vel.shape[1], 3)
+        quat = np.repeat(base_quat, relative_vel.shape[1], axis=0)
+        return np.asarray(
+            np_quat_apply_inverse(quat, flat).reshape(relative_vel.shape),
             dtype=get_global_dtype(),
         )
 
