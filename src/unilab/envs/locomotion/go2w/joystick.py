@@ -45,6 +45,7 @@ class InitState:
 @dataclass
 class Go2WDomainRandConfig(DomainRandConfig):
     randomize_init_yaw: bool = True
+    init_z_range: list[float] = field(default_factory=lambda: [0.0, 0.2])
     init_roll_range: list[float] = field(default_factory=lambda: [0.0, 0.0])
     init_pitch_range: list[float] = field(default_factory=lambda: [0.0, 0.0])
     init_yaw_range: list[float] = field(default_factory=lambda: [-np.pi, np.pi])

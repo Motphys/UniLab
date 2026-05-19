@@ -31,16 +31,14 @@ env:
         size: [8.0, 8.0]
         num_rows: 6
         num_cols: 6
-        border_width: 1.0
+        border_width: 20.0
   commands:
     vel_limit:
       - [-1.0, -1.0, -1.0]
       - [1.0, 1.0, 1.0]
     resampling_time: 10.0
     heading_command: true
-    heading_control_stiffness: 0.5
-    rel_standing_envs: 0.02
-    heading_range: [-3.14, 3.14]
+    heading_range: [-3.141592653589793, 3.141592653589793]
   control_config:
     action_scale: 0.5
     wheel_action_scale: 10.0
@@ -86,6 +84,7 @@ reward:
     joint_power: -2.0e-5
     action_rate: -0.01
     stand_still: -2.0
+    hip_pos: -0.5
     joint_pos_penalty: -1.0
     joint_mirror: -0.05
     upward: 1.0

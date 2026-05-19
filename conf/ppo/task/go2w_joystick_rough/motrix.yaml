@@ -3,9 +3,9 @@ training:
   task_name: Go2WJoystickRough
   sim_backend: motrix
 algo:
-  num_envs: 2048
+  num_envs: 4096
   num_steps_per_env: 24
-  max_iterations: 1000
+  max_iterations: 1500
   empirical_normalization: false
   obs_groups:
     actor:
@@ -13,12 +13,10 @@ algo:
     critic:
       - critic
   policy:
-    init_noise_std: 0.5
-    actor_hidden_dims: [512, 256, 128]
-    critic_hidden_dims: [512, 256, 128]
+    init_noise_std: 1.0
   algorithm:
     learning_rate: 1.0e-3
-    entropy_coef: 1.0e-3
+    entropy_coef: 1.0e-2
 env:
   render_offset_mode: zero
   scene:
@@ -32,16 +30,12 @@ env:
         size: [8.0, 8.0]
         num_rows: 6
         num_cols: 6
-        border_width: 1.0
+        border_width: 20.0
   commands:
-    vel_limit:
-      - [0.0, 0.0, -1.0]
-      - [1.0, 0.0, 1.0]
+    vel_limit: [[-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]]
     resampling_time: 10.0
     heading_command: true
-    heading_control_stiffness: 0.5
-    rel_standing_envs: 0.02
-    heading_range: [-3.14, 3.14]
+    heading_range: [-3.141592653589793, 3.141592653589793]
   control_config:
     action_scale: 0.5
     wheel_action_scale: 10.0
@@ -62,17 +56,18 @@ env:
     added_mass_range: [-1.0, 3.0]
     random_com: true
     com_offset_x: [-0.05, 0.05]
-    randomize_kp: false
-    kp_multiplier_range: [0.5, 2.0]
-    randomize_kd: false
-    kd_multiplier_range: [0.5, 2.0]
+    randomize_kp: true
+    kp_multiplier_range: [0.5, 1.0]
+    randomize_kd: true
+    kd_multiplier_range: [0.5, 1.0]
     randomize_init_yaw: true
+    init_z_range: [0.1, 0.3]
     init_roll_range: [-3.14, 3.14]
     init_pitch_range: [-3.14, 3.14]
     init_yaw_range: [-3.14, 3.14]
     push_robots: true
-    push_interval: 500
-    max_force: [0.5, 0.5, 0.0]
+    push_interval: 625
+    max_force: [1.0, 1.0, 0.5]
     push_body_name: base_link
 reward:
   scales:
@@ -88,6 +83,7 @@ reward:
     joint_power: -2.0e-5
     action_rate: -0.01
     stand_still: -2.0
+    hip_pos: -0.5
     joint_pos_penalty: -1.0
     joint_mirror: -0.05
     upward: 1.0

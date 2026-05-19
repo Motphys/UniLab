@@ -56,7 +56,7 @@ env:
         size: [8.0, 8.0]
         num_rows: 6
         num_cols: 6
-        border_width: 1.0
+        border_width: 20.0
   terrain_scan:
     enabled: true
     geom_name: floor
