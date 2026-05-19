@@ -172,8 +172,6 @@ def _materialize_g1_rough_benchmark_scene() -> str:
     return str(output_path)
 
 
-
-
 def _materialize_sharpa_motrix_scene() -> str:
     import xml.etree.ElementTree as ET
 

@@ -19,13 +19,37 @@ import numpy as np
 
 from unilab.dtype_config import get_global_dtype
 
-
 DEFAULT_SCAN_POINTS_X: tuple[float, ...] = (
-    -0.8, -0.7, -0.6, -0.5, -0.4, -0.3, -0.2, -0.1,
-    0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8,
+    -0.8,
+    -0.7,
+    -0.6,
+    -0.5,
+    -0.4,
+    -0.3,
+    -0.2,
+    -0.1,
+    0.0,
+    0.1,
+    0.2,
+    0.3,
+    0.4,
+    0.5,
+    0.6,
+    0.7,
+    0.8,
 )
 DEFAULT_SCAN_POINTS_Y: tuple[float, ...] = (
-    -0.5, -0.4, -0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5,
+    -0.5,
+    -0.4,
+    -0.3,
+    -0.2,
+    -0.1,
+    0.0,
+    0.1,
+    0.2,
+    0.3,
+    0.4,
+    0.5,
 )
 
 
@@ -88,9 +112,7 @@ def init_height_scan_sensor(env: Any, scan_cfg: HeightScanConfig, base_body_name
     )
 
 
-def raw_height_scan_obs(
-    env: Any, num_obs: int
-) -> tuple[np.ndarray | None, np.ndarray | None]:
+def raw_height_scan_obs(env: Any, num_obs: int) -> tuple[np.ndarray | None, np.ndarray | None]:
     """Return (raw_heights (N, P), base_pos (N, 3)) or (None, None) if sensor not ready."""
     if (
         env._height_scan_hfield_geom_id is None
@@ -138,9 +160,7 @@ def terrain_num_cols(terrain_cfg: Any) -> int:
     return terrain_cfg.num_cols
 
 
-def terrain_out_of_bounds(
-    env: Any, terrain_cfg: Any, distance_buffer: float
-) -> np.ndarray:
+def terrain_out_of_bounds(env: Any, terrain_cfg: Any, distance_buffer: float) -> np.ndarray:
     """Boolean mask: True when the body's (x, y) is outside the terrain footprint."""
     if terrain_cfg is None:
         return np.zeros((env._num_envs,), dtype=bool)

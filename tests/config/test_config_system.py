@@ -338,9 +338,7 @@ def test_ppo_go2w_rough_mujoco_uses_terrain_generator():
     assert cfg.env.commands.resampling_time == pytest.approx(10.0)
     assert cfg.env.commands.heading_command is True
     assert cfg.env.commands.vel_limit == [[-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]]
-    assert cfg.env.commands.heading_range == pytest.approx(
-        [-3.141592653589793, 3.141592653589793]
-    )
+    assert cfg.env.commands.heading_range == pytest.approx([-3.141592653589793, 3.141592653589793])
     assert "rel_standing_envs" not in cfg.env.commands
     assert cfg.env.control_config.clip_actions == pytest.approx(100.0)
     assert cfg.env.control_config.action_scale == pytest.approx(0.5)
@@ -368,9 +366,7 @@ def test_ppo_go2w_rough_motrix_uses_yaw_reset_and_strong_control():
     assert cfg.training.task_name == "Go2WJoystickRough"
     assert cfg.training.sim_backend == "motrix"
     assert cfg.env.commands.vel_limit == [[-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]]
-    assert cfg.env.commands.heading_range == pytest.approx(
-        [-3.141592653589793, 3.141592653589793]
-    )
+    assert cfg.env.commands.heading_range == pytest.approx([-3.141592653589793, 3.141592653589793])
     assert "rel_standing_envs" not in cfg.env.commands
     assert cfg.env.control_config.action_scale == pytest.approx(0.5)
     assert cfg.env.control_config.wheel_action_scale == pytest.approx(10.0)
