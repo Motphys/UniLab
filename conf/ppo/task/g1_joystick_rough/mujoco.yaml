@@ -87,3 +87,4 @@ reward:
   max_tilt_deg: 35.0
   feet_air_time_threshold: 0.4
   feet_air_time_command_threshold: 0.1
+  termination_penalty: -200.0

@@ -78,6 +78,7 @@ class G1JoystickRoughRewardConfig(G1RewardConfig):
 
     feet_air_time_threshold: float = 0.4
     feet_air_time_command_threshold: float = 0.1
+    termination_penalty: float = -200.0
     only_positive_rewards: bool = False
 
 
@@ -287,8 +288,20 @@ class G1JoystickRoughEnv(G1WalkEnv):
         state.info["qacc"] = self._estimate_dof_acc(dof_vel)
 
         state = super().update_state(state)
+        state = self._apply_termination_penalty(state)
         state = self._maybe_extend_truncated(state)
         return state
+
+    def _apply_termination_penalty(self, state: NpEnvState) -> NpEnvState:
+        weight = float(self._reward_cfg.termination_penalty)
+        if weight == 0.0:
+            return state
+        terminal = state.terminated.astype(get_global_dtype())
+        penalty = weight * terminal
+        if "log" not in state.info:
+            state.info["log"] = {}
+        state.info["log"]["reward/termination_penalty"] = float(np.mean(penalty))
+        return state.replace(reward=state.reward + penalty)
 
     def _step_contact_timers(self) -> None:
         left = compute_aggregated_foot_contact(self._backend, LEFT_FOOT_CONTACT_SENSORS)
