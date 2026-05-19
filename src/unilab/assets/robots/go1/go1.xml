@@ -24,7 +24,7 @@
         <geom type="mesh" contype="0" conaffinity="0" group="2" material="dark"/>
       </default>
       <default class="collision">
-        <geom group="3" type="capsule"/>
+        <geom group="3" type="capsule" contype="1" conaffinity="2"/>
         <default class="hip_left1">
           <geom size="0.046 0.02" pos="0 0.045 0" quat="1 1 0 0" type="cylinder"/>
         </default>

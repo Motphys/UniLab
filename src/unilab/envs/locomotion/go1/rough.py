@@ -33,7 +33,6 @@ from unilab.envs.locomotion.common.height_scan import (
 from unilab.envs.locomotion.common.rewards import RewardContext
 from unilab.envs.locomotion.common.terrain_spawn import (
     TerrainCurriculumCfg,
-    TerrainSpawnManager,
 )
 from unilab.envs.locomotion.go1.base import ControlConfig
 from unilab.envs.locomotion.go1.joystick import (
@@ -238,7 +237,7 @@ class Go1JoystickRoughDomainRandomizationProvider(Go1JoystickDomainRandomization
         qpos = np.tile(env._init_qpos, (num_reset, 1))
         qvel = np.tile(env._init_qvel, (num_reset, 1))
         qpos[:, 0:2] += np.random.uniform(-0.5, 0.5, (num_reset, 2))
-        qpos[:, 2] += np.random.uniform(0.1, 0.3, (num_reset,))
+        qpos[:, 2] += np.random.uniform(0.25, 0.5, (num_reset,))
         qpos[:, 0:3] += env._spawn.origins_for(env_ids)
         roll = np.random.uniform(-3.14, 3.14, (num_reset,))
         pitch = np.random.uniform(-3.14, 3.14, (num_reset,))
@@ -274,19 +273,6 @@ class Go1JoystickRoughEnv(Go1WalkTask):
 
     def __init__(self, cfg: Go1JoystickRoughCfg, num_envs=1, backend_type="mujoco"):
         super().__init__(cfg, num_envs=num_envs, backend_type=backend_type)
-
-        terrain_origins = getattr(self._backend, "terrain_origins", None)
-        terrain_generator = (
-            cfg.scene.terrain.generator if cfg.scene.terrain is not None else None
-        )
-        if terrain_origins is not None and terrain_generator is not None:
-            self._spawn = TerrainSpawnManager(
-                num_envs,
-                terrain_origins,
-                cell_size=float(terrain_generator.size[0]),
-                cfg=cfg.terrain_curriculum,
-                terrain_surface_sampler=getattr(self._backend, "terrain_surface_sampler", None),
-            )
         self._dr_manager = DomainRandomizationManager(
             self, Go1JoystickRoughDomainRandomizationProvider()
         )
@@ -308,18 +294,12 @@ class Go1JoystickRoughEnv(Go1WalkTask):
 
         self.feet_vel = np.zeros((num_envs, len(cfg.sensor.feet_vel), 3), dtype=np.float32)
         self._last_foot_contact = np.zeros((num_envs, len(cfg.sensor.feet_force)), dtype=bool)
-        self._current_air_time = np.zeros(
-            (num_envs, len(cfg.sensor.feet_force)), dtype=np.float32
-        )
+        self._current_air_time = np.zeros((num_envs, len(cfg.sensor.feet_force)), dtype=np.float32)
         self._current_contact_time = np.zeros(
             (num_envs, len(cfg.sensor.feet_force)), dtype=np.float32
         )
-        self._last_air_time = np.zeros(
-            (num_envs, len(cfg.sensor.feet_force)), dtype=np.float32
-        )
-        self._last_contact_time = np.zeros(
-            (num_envs, len(cfg.sensor.feet_force)), dtype=np.float32
-        )
+        self._last_air_time = np.zeros((num_envs, len(cfg.sensor.feet_force)), dtype=np.float32)
+        self._last_contact_time = np.zeros((num_envs, len(cfg.sensor.feet_force)), dtype=np.float32)
         self._first_foot_contact = np.zeros((num_envs, len(cfg.sensor.feet_force)), dtype=bool)
 
         init_height_scan_sensor(self, cfg.terrain_scan, cfg.asset.base_name)
@@ -387,8 +367,6 @@ class Go1JoystickRoughEnv(Go1WalkTask):
             "feet_height_body": self._reward_feet_height_body,
             "feet_gait": self._reward_feet_gait,
             "upward": rewards.upward,
-            "alive": rewards.alive,
-            "swing_feet_z": self._reward_swing_feet_z,
         }
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
@@ -412,6 +390,7 @@ class Go1JoystickRoughEnv(Go1WalkTask):
         )
 
     def update_state(self, state: NpEnvState) -> NpEnvState:
+        self._update_commands(state.info)
         self.phase = np.fmod(self.phase + self._cfg.ctrl_dt * self.gait_frequency, 1.0)
         self.feet_phase[:, 0] = self.phase
         self.feet_phase[:, 3] = self.phase
@@ -436,9 +415,11 @@ class Go1JoystickRoughEnv(Go1WalkTask):
         state.info["qacc"] = self._estimate_dof_acc(dof_vel)
         state.info["torques"] = self._estimate_pd_torques(state.info, dof_pos, dof_vel)
 
-        terminated = np.zeros((self._num_envs,), dtype=bool)
+        terminated = self._compute_terminated(gravity)
         reward = self._compute_rough_reward(state.info, linvel, gyro, gravity, dof_pos, dof_vel)
-        obs = self._compute_obs(state.info, linvel, gyro, gravity, dof_pos, dof_vel)
+        obs = self._compute_obs(
+            state.info, linvel, gyro, gravity, dof_pos, dof_vel, self.feet_phase
+        )
         state = state.replace(obs=obs, reward=reward, terminated=terminated)
 
         done = state.terminated | state.truncated
@@ -462,9 +443,9 @@ class Go1JoystickRoughEnv(Go1WalkTask):
         gravity: np.ndarray,
         dof_pos: np.ndarray,
         dof_vel: np.ndarray,
-        *args,
+        feet_phase: np.ndarray,
     ) -> dict[str, np.ndarray]:
-        del args
+        del feet_phase
         noise_cfg = self._cfg.noise_config
         diff = dof_pos - self.default_angles
         policy_gyro = self._obs_noise(gyro, noise_cfg.scale_gyro) * 0.25
@@ -534,6 +515,10 @@ class Go1JoystickRoughEnv(Go1WalkTask):
         info["log"] = log
         return reward * self._cfg.ctrl_dt
 
+    def _compute_terminated(self, gravity: np.ndarray) -> np.ndarray:
+        del gravity
+        return np.zeros((self._num_envs,), dtype=bool)
+
     def _compute_truncated(self, state: NpEnvState) -> np.ndarray:
         truncated = super()._compute_truncated(state)
         if self._cfg.termination_config.terrain_out_of_bounds:
@@ -549,6 +534,9 @@ class Go1JoystickRoughEnv(Go1WalkTask):
                 out=truncated,
             )
         return truncated
+
+    def _reward_base_height_values(self, num_obs: int | None = None) -> np.ndarray:
+        return base_height_from_scan(self, num_obs)
 
     def _raw_height_scan_obs(self, num_obs: int) -> tuple[np.ndarray | None, np.ndarray | None]:
         return raw_height_scan_obs(self, num_obs)
@@ -573,6 +561,45 @@ class Go1JoystickRoughEnv(Go1WalkTask):
             - float(self._cfg.control_config.Kd) * dof_vel
         )
         return np.asarray(torques, dtype=get_global_dtype())
+
+    def _update_commands(self, info: dict) -> None:
+        commands_arr = np.asarray(info["commands"], dtype=get_global_dtype())
+        resampling_time = float(self._cfg.commands.resampling_time)
+        if resampling_time > 0.0:
+            interval_steps = max(int(round(resampling_time / self._cfg.ctrl_dt)), 1)
+            steps = np.asarray(info.get("steps", np.zeros((self._num_envs,), dtype=np.uint32)))
+            resample_mask = (steps > 0) & ((steps % interval_steps) == 0)
+            if np.any(resample_mask):
+                num_resample = int(np.count_nonzero(resample_mask))
+                low = np.asarray(self._cfg.commands.vel_limit[0], dtype=get_global_dtype())
+                high = np.asarray(self._cfg.commands.vel_limit[1], dtype=get_global_dtype())
+                sampled = np.random.uniform(low=low, high=high, size=(num_resample, 3)).astype(
+                    get_global_dtype()
+                )
+                _zero_small_xy_commands(sampled)
+                commands_arr[resample_mask] = sampled
+                if self._cfg.commands.heading_command:
+                    heading_commands = self._ensure_heading_commands(info, commands_arr.shape[0])
+                    heading_commands[resample_mask] = _sample_heading_commands(self, num_resample)
+                    info["heading_commands"] = heading_commands
+
+        if self._cfg.commands.heading_command:
+            heading_commands = self._ensure_heading_commands(info, commands_arr.shape[0])
+            base_quat = np.asarray(self._backend.get_base_quat(), dtype=get_global_dtype())
+            if base_quat.shape[0] == commands_arr.shape[0]:
+                heading = _yaw_from_quat(base_quat)
+                commands_arr[:, 2] = np.clip(
+                    0.5 * _wrap_to_pi(heading_commands - heading), -2.0, 2.0
+                )
+        info["commands"] = commands_arr
+
+    def _ensure_heading_commands(self, info: dict, num_obs: int) -> np.ndarray:
+        heading_commands = info.get("heading_commands")
+        if heading_commands is None or np.asarray(heading_commands).shape != (num_obs,):
+            heading_commands = _sample_heading_commands(self, num_obs)
+        heading_commands = np.asarray(heading_commands, dtype=get_global_dtype())
+        info["heading_commands"] = heading_commands
+        return heading_commands
 
     def _foot_contact_mask(self) -> np.ndarray:
         contact_force = np.linalg.norm(self.feet_force, axis=2)
@@ -730,17 +757,6 @@ class Go1JoystickRoughEnv(Go1WalkTask):
             reward * enabled * self._upright_scale(ctx.gravity), dtype=get_global_dtype()
         )
 
-    def _reward_swing_feet_z(self, ctx: RewardContext) -> np.ndarray:
-        is_swing = self.feet_phase >= 0.6
-        target_rel_z = -0.17
-        base_z = self._backend.get_base_pos()[:, 2:3]
-        rel_z = self.feet_pos[:, :, 2] - base_z
-        height_error = np.square(rel_z - target_rel_z)
-        swing_rew = np.exp(-height_error / 0.01) * is_swing
-        moving = np.linalg.norm(ctx.info["commands"], axis=1) > 0.1
-        reward = np.sum(swing_rew, axis=1) / len(self._cfg.sensor.feet_pos)
-        return np.asarray(reward * moving, dtype=get_global_dtype())
-
 
 def _force_norm_columns(force: np.ndarray, num_envs: int) -> np.ndarray:
     force = np.asarray(force, dtype=get_global_dtype()).reshape(num_envs, -1)
@@ -788,6 +804,18 @@ def _sample_heading_commands(env: Any, num_samples: int) -> np.ndarray:
         raise ValueError(f"commands.heading_range must have shape (2,), got {heading_range.shape}")
     low, high = float(np.min(heading_range)), float(np.max(heading_range))
     return np.asarray(np.random.uniform(low, high, size=(num_samples,)), dtype=get_global_dtype())
+
+
+def _wrap_to_pi(angle: np.ndarray) -> np.ndarray:
+    return (angle + np.pi) % (2.0 * np.pi) - np.pi
+
+
+def _yaw_from_quat(quat: np.ndarray) -> np.ndarray:
+    w = quat[:, 0]
+    x = quat[:, 1]
+    y = quat[:, 2]
+    z = quat[:, 3]
+    return np.arctan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
 
 registry.register_env("Go1JoystickRough", Go1JoystickRoughEnv, sim_backend="motrix")

@@ -4,6 +4,7 @@ training:
   sim_backend: mujoco
   play_steps: 500
   play_env_num: 16
+  render_spacing: 0.0
   cam_tracking: true
   cam_tracking_env_idx: 0
   cam_tracking_extra_envs: 9
@@ -17,7 +18,7 @@ interactive:
 algo:
   num_envs: 4096
   num_steps_per_env: 24
-  max_iterations: 1000
+  max_iterations: 600
   empirical_normalization: false
   obs_groups:
     actor:
@@ -100,7 +101,7 @@ reward:
     feet_gait: 0.5
     upward: 1.0
   tracking_sigma: 0.25
-  base_height_target: 0.27
+  base_height_target: 0.33
   stand_still_command_threshold: 0.1
   joint_pos_penalty_stand_still_scale: 5.0
   joint_pos_penalty_velocity_threshold: 0.5
@@ -108,7 +109,7 @@ reward:
   contact_threshold: 1.0
   contact_forces_threshold: 100.0
   feet_air_time_threshold: 0.5
-  feet_height_body_target: -0.17
+  feet_height_body_target: -0.2
   feet_height_body_tanh_mult: 2.0
   feet_gait_std: 0.7071067811865476
   feet_gait_max_err: 0.2

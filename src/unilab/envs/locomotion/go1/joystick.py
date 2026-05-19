@@ -18,6 +18,10 @@ from unilab.envs.locomotion.common.commands import Commands
 from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
 from unilab.envs.locomotion.common.dr_provider import LocomotionDRProvider
 from unilab.envs.locomotion.common.rewards import RewardContext
+from unilab.envs.locomotion.common.terrain_spawn import (
+    TerrainCurriculumCfg,
+    TerrainSpawnManager,
+)
 from unilab.envs.locomotion.go1.base import Go1BaseCfg, Go1BaseEnv
 
 
@@ -88,6 +92,9 @@ class Go1WalkTask(Go1BaseEnv):
     def __init__(self, cfg: Go1JoystickCfg, num_envs=1, backend_type="mujoco"):
         if cfg.reward_config is None:
             raise ValueError("reward_config must be provided via Hydra configuration")
+        self._scene_terrain_origins: np.ndarray | None = None
+        scene_cfg = cfg.scene
+        terrain_generator = scene_cfg.terrain.generator if scene_cfg.terrain is not None else None
         backend = create_backend(
             backend_type,
             cfg.scene,
@@ -98,10 +105,22 @@ class Go1WalkTask(Go1BaseEnv):
             position_actuator_gains={"kp": cfg.control_config.Kp, "kd": cfg.control_config.Kd},
             motrix_max_iterations=cfg.motrix_max_iterations,
         )
+        self._terrain_surface_sampler = getattr(backend, "terrain_surface_sampler", None)
+        terrain_origins = getattr(backend, "terrain_origins", None)
+        if terrain_origins is not None:
+            self._scene_terrain_origins = terrain_origins
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True
         self._reward_cfg = cfg.reward_config
         self._init_reward_functions()
+        if self._scene_terrain_origins is not None and terrain_generator is not None:
+            self._spawn = TerrainSpawnManager(
+                num_envs,
+                self._scene_terrain_origins,
+                cell_size=float(terrain_generator.size[0]),
+                cfg=getattr(cfg, "terrain_curriculum", TerrainCurriculumCfg()),
+                terrain_surface_sampler=self._terrain_surface_sampler,
+            )
         self.phase = np.zeros((num_envs,), dtype=np.float32)
         self.feet_phase = np.zeros((num_envs, len(cfg.sensor.feet_force)), dtype=np.float32)
         self.gait_frequency = 2
