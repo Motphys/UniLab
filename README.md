@@ -29,20 +29,19 @@ git clone https://github.com/unilabsim/UniLab.git
 cd UniLab
 
 # 2. Install dependencies
+# Choose exactly one command for your platform; do not run all three.
+
+# Linux CUDA or macOS
 uv sync --extra motrix
-# Linux AMD / ROCm workstation:
+
+# Linux AMD / ROCm
 # make sync-rocm
-# Linux Intel Arc / iGPU workstation:
+
+# Linux Intel Arc / iGPU
 # make sync-xpu
 
 # 3. Run a first PPO training job
-# macOS: 73s on M5Max-128GB, 1min43s on M3Max-48GB, 2.5min on MacBookNeo-8GB
-# Linux: 31s on RTX 4090 + R9-9950x3d, 2min16s on Intel Arc iGPU + Core Ultra 9 185H
 uv run train --algo ppo --task go2_joystick_flat --sim motrix
-# Linux AMD / ROCm workstation after make sync-rocm:
-# uv run --no-sync train --algo ppo --task go2_joystick_flat --sim motrix
-# Linux Intel Arc / XPU workstation after make sync-xpu:
-# uv run --no-sync train --algo ppo --task go2_joystick_flat --sim motrix
 ```
 
 This is the first-level training entrypoint. It routes to the registered `go2_joystick_flat/motrix` task owner config and keeps backend selection in the CLI flags.
@@ -61,9 +60,9 @@ uv run demo
 
 On macOS / MacBook, the UniLab CLI routes Motrix interactive playback through `mxpython` when needed. Motrix defaults to interactive playback; use `--render-mode record` for headless video export or `--render-mode none` to skip playback. Detailed script-level commands are documented under `docs/users/zh_CN/`.
 
-On Linux AMD / ROCm workstations, `make sync-rocm` requires ROCm 7.1 or newer and installs the PyTorch ROCm 7.2 wheel (`torch==2.11.0+rocm7.2`). Use `uv run --no-sync ...` after that setup so `uv` does not resync the default Linux CUDA wheel.
+<!-- On Linux AMD / ROCm workstations, `make sync-rocm` requires ROCm 7.1 or newer and installs the PyTorch ROCm 7.2 wheel (`torch==2.11.0+rocm7.2`). Use `uv run --no-sync ...` after that setup so `uv` does not resync the default Linux CUDA wheel. -->
 
-On Linux Intel Arc / iGPU workstations, `make sync-xpu` installs the PyTorch XPU wheel (`torch==2.7.0+xpu`) which bundles the Intel oneAPI compiler/SYCL runtimes. The GPU userspace driver itself must come from the system package manager — on Ubuntu 24.04+ / 26.04 install `intel-opencl-icd` and `libze-intel-gpu1` (kernel 6.2+ ships the i915 driver). Use `uv run --no-sync ...` after the swap so `uv` does not resync the default Linux CUDA wheel. Off-policy training (`--algo sac` / `--algo flashsac`) supports bf16 mixed precision via `training.use_amp=true` on XPU; on-policy PPO does not need AMP.
+<!-- On Linux Intel Arc / iGPU workstations, `make sync-xpu` installs the PyTorch XPU wheel (`torch==2.7.0+xpu`) which bundles the Intel oneAPI compiler/SYCL runtimes. The GPU userspace driver itself must come from the system package manager — on Ubuntu 24.04+ / 26.04 install `intel-opencl-icd` and `libze-intel-gpu1` (kernel 6.2+ ships the i915 driver). Use `uv run --no-sync ...` after the swap so `uv` does not resync the default Linux CUDA wheel. Off-policy training (`--algo sac` / `--algo flashsac`) supports bf16 mixed precision via `training.use_amp=true` on XPU; on-policy PPO does not need AMP. -->
 
 ### Interactive Notebooks
 
@@ -84,13 +83,11 @@ uv run train --algo sac --task g1_walk_flat --sim mujoco
 ```
 
 ```bash
-# Linux CUDA G1 motion tracking (27min on RTX 4090 and R9-9950x3d)
 # macOS users: omit training.use_amp=true
 uv run train --algo sac --task g1_sac_wbt --sim mujoco training.use_amp=true
 ```
 
 ```bash
-# Linux CUDA Sharpa in-hand HORA (36min on RTX 4090 D and Intel Xeon Platinum 8457C)
 uv run train --algo ppo --task sharpa_inhand --sim mujoco --profile hora
 ```
 

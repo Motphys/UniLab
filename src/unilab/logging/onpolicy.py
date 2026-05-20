@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-import time
 from typing import Any
 
 from rich import box
 from rich.console import Group
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
-from unilab.logging.common import BaseTrainingLogger, _fmt_number, _fmt_time, _load_wandb
+from unilab.logging.common import BaseTrainingLogger, _fmt_number, _load_wandb
 
 
 class OnPolicyLogger(BaseTrainingLogger):
@@ -121,21 +121,17 @@ class OnPolicyLogger(BaseTrainingLogger):
             wandb.log(log_dict, step=iteration)
 
     def _build_display(self) -> Panel:
-        header_panel = self._build_header(include_status=False)
-
+        header = self._build_compact_header(include_status=True)
         left = self._build_metrics_table()
         right = self._build_reward_table()
         bottom = self._build_timing_table()
-
         grid = Table.grid(expand=True)
         grid.add_column(ratio=1)
+        grid.add_column(width=2)
         grid.add_column(ratio=1)
-        grid.add_row(left, right)
-
-        main_group = Group(header_panel, grid, bottom)
-
+        grid.add_row(left, "", right)
         return Panel(
-            main_group,
+            Group(header, Text(""), grid, Text(""), bottom),
             title="[bold] 🚀 UniLab On-Policy Training [/]",
             border_style="bright_blue",
             padding=(0, 1),
@@ -143,54 +139,94 @@ class OnPolicyLogger(BaseTrainingLogger):
 
     def _build_metrics_table(self) -> Table:
         table = Table(
-            title="[bold]Policy Metrics[/]",
             box=box.SIMPLE_HEAVY,
             show_header=True,
+            show_edge=False,
             header_style="bold cyan",
             expand=True,
             pad_edge=False,
         )
-        table.add_column("Metric", style="white", ratio=2)
+        table.add_column("Losses & Metrics", style="white", ratio=2)
         table.add_column("Value", style="yellow", justify="right", ratio=1)
 
         if not self._latest_metrics:
-            table.add_row("[dim]Waiting...[/]", "")
+            table.add_row("[dim]Waiting for data...[/]", "")
         else:
-            for k in sorted(self._latest_metrics.keys()):
-                v = self._latest_metrics[k]
-                name = k.replace("_", " ").title()
-                table.add_row(name, _fmt_number(v))
+            loss_keys = sorted([key for key in self._latest_metrics if "loss" in key.lower()])
+            other_keys = sorted([key for key in self._latest_metrics if "loss" not in key.lower()])
+            for key in loss_keys:
+                value = self._latest_metrics[key]
+                style = "red" if value > 10 else "yellow"
+                table.add_row(key.replace("_", " ").title(), f"[{style}]{_fmt_number(value)}[/]")
+            for key in other_keys:
+                value = self._latest_metrics[key]
+                table.add_row(f"  {key.replace('_', ' ').title()}", _fmt_number(value))
 
         return table
 
     def _build_reward_table(self) -> Table:
-        return self._build_reward_table_common(wait_message="[dim]Waiting...[/]")
+        return self._build_reward_table_common(
+            wait_message="[dim]Waiting for data...[/]",
+            include_ep_length=False,
+        )
 
     def _build_timing_table(self) -> Table:
         table = Table(
-            title="[bold]Timing[/]",
             box=box.SIMPLE_HEAVY,
             show_header=True,
+            show_edge=False,
             header_style="bold blue",
             expand=True,
             pad_edge=False,
         )
-        table.add_column("Item", style="white", ratio=1)
-        table.add_column("Value", style="yellow", justify="right", ratio=1)
-        table.add_column("Item", style="white", ratio=1)
-        table.add_column("Value", style="yellow", justify="right", ratio=1)
+        table.add_column("Learner", style="white", ratio=2, no_wrap=True)
+        table.add_column("Value", style="yellow", justify="right", ratio=1, no_wrap=True)
+        table.add_column("Collector", style="white", ratio=2, no_wrap=True)
+        table.add_column("Value", style="yellow", justify="right", ratio=1, no_wrap=True)
+        table.add_column("System", style="white", ratio=2, no_wrap=True)
+        table.add_column("Value", style="yellow", justify="right", ratio=1, no_wrap=True)
 
-        elapsed = time.time() - self._start_time if self._start_time else 0
         iter_time = self._collect_time + self._train_time
         fps = int(self.num_envs * self.num_steps / max(iter_time, 1e-8)) if iter_time > 0 else 0
 
-        table.add_row("Elapsed", _fmt_time(elapsed), "Envs", f"{self.num_envs:,}")
-        table.add_row(
-            "Collect",
-            f"{self._collect_time * 1000:.1f}ms",
-            "Train",
-            f"{self._train_time * 1000:.1f}ms",
-        )
-        table.add_row("Iter Time", f"{iter_time * 1000:.1f}ms", "Steps/s", f"{fps:,}")
+        learner_items = [
+            ("Train", f"{self._train_time * 1000:.1f}ms"),
+            ("Iter Time", f"{iter_time * 1000:.1f}ms"),
+        ]
+        collector_items = [
+            ("Collect", f"{self._collect_time * 1000:.1f}ms"),
+        ]
+        system_items = [
+            ("Envs", f"{self.num_envs:,}"),
+            ("Steps/s", f"{fps:,}"),
+        ]
+
+        row_count = max(len(learner_items), len(collector_items), len(system_items))
+        for index in range(row_count):
+            row: list[str] = []
+            for items in (learner_items, collector_items, system_items):
+                if index < len(items):
+                    row.extend(items[index])
+                else:
+                    row.extend(["", ""])
+            table.add_row(*row)
 
         return table
+
+    def _build_compact_header(
+        self,
+        *,
+        include_status: bool,
+        extra_fields: list[tuple[str, str]] | None = None,
+    ) -> Text:
+        iter_time = self._collect_time + self._train_time
+        header_extra_fields: list[tuple[str, str]] = []
+        if iter_time > 0:
+            steps_per_second = self.num_envs * self.num_steps / iter_time
+            header_extra_fields.append((f"Steps/s {steps_per_second:,.0f}", "bold green"))
+        if extra_fields:
+            header_extra_fields.extend(extra_fields)
+        return super()._build_compact_header(
+            include_status=include_status,
+            extra_fields=header_extra_fields,
+        )

@@ -304,6 +304,36 @@ class BaseTrainingLogger:
 
         return Panel(header_text, style="dim", box=box.SIMPLE)
 
+    def _build_compact_header(
+        self,
+        *,
+        include_status: bool,
+        extra_fields: list[tuple[str, str]] | None = None,
+    ) -> Text:
+        elapsed = time.time() - self._start_time if self._start_time else 0
+        eta = self._estimate_eta()
+        fields: list[tuple[str, str]] = [
+            (f" {self.algo_name}", "bold cyan"),
+            (self.env_name, "bold white"),
+            (f"iter {self._iteration}/{self.max_iterations}", "yellow"),
+            (f"⏱ {_fmt_time(elapsed)}", "green"),
+        ]
+        if eta:
+            fields.append((f"ETA {eta}", "bold magenta"))
+        if self._mean_ep_length > 0:
+            fields.append((f"Ep Len {self._mean_ep_length:.1f}", "yellow"))
+        if extra_fields:
+            fields.extend(extra_fields)
+        if include_status and self._status:
+            fields.append((self._status, "dim italic"))
+
+        header_text = Text(no_wrap=True, overflow="ellipsis")
+        for index, (text, style) in enumerate(fields):
+            if index > 0:
+                header_text.append(" | ", style="dim")
+            header_text.append(text, style=style)
+        return header_text
+
     def _build_reward_table_common(
         self,
         *,
