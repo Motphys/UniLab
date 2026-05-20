@@ -385,6 +385,32 @@ def test_offpolicy_logger_logs_collector_phase_timing_to_backends(monkeypatch):
     tb_logger.finish()
 
 
+def test_offpolicy_logger_logs_reward_comparison_metrics(monkeypatch):
+    fake_wandb = _FakeWandb()
+    monkeypatch.setitem(sys.modules, "wandb", fake_wandb)
+
+    logger = OffPolicyLogger(
+        algo_name="FastSAC",
+        env_name="G1WalkFlat",
+        log_backend="wandb",
+    )
+    logger.log_collector(total_steps=128, buffer_size=128)
+    logger.log_step(
+        iteration=2,
+        metrics={},
+        reward=3.0,
+        reward_metrics={"mean_ep100": 2.0},
+    )
+
+    payload, step = fake_wandb.log_calls[-1]
+    assert step == 128
+    assert payload["reward/mean"] == 3.0
+    assert payload["reward/mean_ep100"] == 2.0
+    assert "reward/mean_unilab_100x100" not in payload
+
+    logger.finish()
+
+
 def test_offpolicy_logger_omits_iteration_extra_fields_when_not_supplied(monkeypatch):
     fake_wandb = _FakeWandb()
     monkeypatch.setitem(sys.modules, "wandb", fake_wandb)

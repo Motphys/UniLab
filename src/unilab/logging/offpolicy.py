@@ -189,6 +189,7 @@ class OffPolicyLogger(BaseTrainingLogger):
         iteration: int,
         metrics: dict[str, float] | None = None,
         reward: float | None = None,
+        reward_metrics: dict[str, float] | None = None,
         reward_components: dict[str, float] | None = None,
         train_time: float = 0.0,
         wait_time: float = 0.0,
@@ -216,13 +217,21 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._status = "Training"
         self._terminal_refresh_started = True
         self._refresh()
-        self._backend_log_step(iteration, metrics, reward, reward_components, train_time)
+        self._backend_log_step(
+            iteration,
+            metrics,
+            reward,
+            reward_metrics,
+            reward_components,
+            train_time,
+        )
 
     def _backend_log_step(
         self,
         iteration: int,
         metrics: dict[str, float] | None,
         reward: float | None,
+        reward_metrics: dict[str, float] | None,
         reward_components: dict[str, float] | None,
         train_time: float,
     ):
@@ -236,6 +245,9 @@ class OffPolicyLogger(BaseTrainingLogger):
                     writer.add_scalar(f"train/{key}", value, global_step)
             if reward is not None:
                 writer.add_scalar("reward/mean", reward, global_step)
+            if reward_metrics:
+                for key, value in reward_metrics.items():
+                    writer.add_scalar(f"reward/{key}", value, global_step)
             if reward_components:
                 for key, value in reward_components.items():
                     writer.add_scalar(f"reward/{key}", value, global_step)
@@ -271,6 +283,9 @@ class OffPolicyLogger(BaseTrainingLogger):
                     log_dict[f"train/{key}"] = value
             if reward is not None:
                 log_dict["reward/mean"] = reward
+            if reward_metrics:
+                for key, value in reward_metrics.items():
+                    log_dict[f"reward/{key}"] = value
             if reward_components:
                 for key, value in reward_components.items():
                     log_dict[f"reward/{key}"] = value
