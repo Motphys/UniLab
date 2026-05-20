@@ -22,7 +22,7 @@ from unilab.envs.common.rotation import (
     np_yaw_from_quat,
 )
 from unilab.envs.locomotion.common import rewards
-from unilab.envs.locomotion.common.commands import Commands
+from unilab.envs.locomotion.common.commands import Commands, zero_small_xy_commands
 from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
 from unilab.envs.locomotion.common.height_scan import (
     HeightScanConfig,
@@ -229,7 +229,7 @@ class Go1JoystickRoughCfg(Go1JoystickCfg):
 class Go1JoystickRoughDomainRandomizationProvider(Go1JoystickDomainRandomizationProvider):
     def _sample_commands(self, env: Any, num_reset: int) -> np.ndarray:
         commands = super()._sample_commands(env, num_reset)
-        _zero_small_xy_commands(commands)
+        zero_small_xy_commands(commands, threshold=0.001)
         if env.cfg.commands.heading_command:
             commands[:, 2] = 0.0
         return commands
@@ -578,7 +578,7 @@ class Go1JoystickRoughEnv(Go1WalkTask):
                 sampled = np.random.uniform(low=low, high=high, size=(num_resample, 3)).astype(
                     get_global_dtype()
                 )
-                _zero_small_xy_commands(sampled)
+                zero_small_xy_commands(sampled, threshold=0.001)
                 commands_arr[resample_mask] = sampled
                 if self._cfg.commands.heading_command:
                     heading_commands = self._ensure_heading_commands(info, commands_arr.shape[0])
@@ -793,11 +793,6 @@ def _gait_async_reward(
     se_act_0 = np.clip(np.square(air[:, foot_0] - contact[:, foot_1]), 0.0, max_err**2)
     se_act_1 = np.clip(np.square(contact[:, foot_0] - air[:, foot_1]), 0.0, max_err**2)
     return np.exp(-(se_act_0 + se_act_1) / std)
-
-
-def _zero_small_xy_commands(commands: np.ndarray) -> None:
-    moving = np.linalg.norm(commands[:, :2], axis=1) > 0.001
-    commands[:, :2] *= moving[:, None]
 
 
 def _sample_heading_commands(env: Any, num_samples: int) -> np.ndarray:

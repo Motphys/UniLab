@@ -24,7 +24,7 @@ from unilab.envs.common.rotation import (
     np_yaw_to_quat,
 )
 from unilab.envs.locomotion.common import rewards
-from unilab.envs.locomotion.common.commands import Commands
+from unilab.envs.locomotion.common.commands import Commands, zero_small_xy_commands
 from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
 from unilab.envs.locomotion.common.dr_provider import LocomotionDRProvider
 from unilab.envs.locomotion.common.rewards import RewardContext
@@ -219,11 +219,6 @@ class Go2WJoystickDomainRandomizationProvider(LocomotionDRProvider):
         if getattr(env.cfg.commands, "heading_command", False):
             commands[:, 2] = 0.0
         return commands
-
-
-def zero_small_xy_commands(commands: np.ndarray) -> None:
-    moving = np.linalg.norm(commands[:, :2], axis=1) > 0.2
-    commands[:, :2] *= moving[:, None]
 
 
 def sample_go2w_heading_commands(env: Any, num_samples: int) -> np.ndarray:

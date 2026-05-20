@@ -18,7 +18,7 @@ from unilab.base.np_env import NpEnvState
 from unilab.base.scene import SceneCfg
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.locomotion.common import rewards
-from unilab.envs.locomotion.common.commands import Commands
+from unilab.envs.locomotion.common.commands import Commands, zero_small_xy_commands
 from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
 from unilab.envs.locomotion.common.dr_provider import LocomotionDRProvider
 from unilab.envs.locomotion.common.rewards import RewardContext
@@ -123,11 +123,6 @@ def compute_forward_speed_gate(linvel: np.ndarray, min_forward_speed: float) -> 
 
 def compute_forward_command_mask(commands: np.ndarray) -> np.ndarray:
     return np.asarray(np.maximum(commands[:, 0], 0.0) > 1.0e-6, dtype=get_global_dtype())
-
-
-def zero_small_xy_commands(commands: np.ndarray) -> None:
-    moving = np.linalg.norm(commands[:, :2], axis=1) > 0.2
-    commands[:, :2] *= moving[:, None]
 
 
 def sample_heading_commands(env: Any, num_samples: int) -> np.ndarray:

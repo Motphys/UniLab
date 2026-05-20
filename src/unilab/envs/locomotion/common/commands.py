@@ -28,3 +28,9 @@ def sample_velocity_commands(
     return np.asarray(
         rng.uniform(low=low, high=high, size=(num_samples, 3)), dtype=get_global_dtype()
     )
+
+
+def zero_small_xy_commands(commands: np.ndarray, *, threshold: float = 0.2) -> None:
+    """Zero ``commands[:, :2]`` in-place wherever its norm is below ``threshold``."""
+    moving = np.linalg.norm(commands[:, :2], axis=1) > threshold
+    commands[:, :2] *= moving[:, None]

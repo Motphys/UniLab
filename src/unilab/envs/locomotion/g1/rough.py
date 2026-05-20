@@ -20,6 +20,7 @@ from unilab.envs.common.rotation import (
     np_yaw_quat,
 )
 from unilab.envs.locomotion.common import rewards
+from unilab.envs.locomotion.common.commands import zero_small_xy_commands
 from unilab.envs.locomotion.common.height_scan import (
     HeightScanConfig,
     base_height_from_scan,
@@ -41,7 +42,6 @@ from unilab.envs.locomotion.g1.joystick import (
     G1WalkEnvCfg,
     compute_aggregated_foot_contact,
     sample_heading_commands,
-    zero_small_xy_commands,
 )
 from unilab.terrains import (
     SubTerrainCfg,

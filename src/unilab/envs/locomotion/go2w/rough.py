@@ -19,7 +19,7 @@ from unilab.envs.common.rotation import (
     np_yaw_from_quat,
 )
 from unilab.envs.locomotion.common import rewards
-from unilab.envs.locomotion.common.commands import Commands
+from unilab.envs.locomotion.common.commands import Commands, zero_small_xy_commands
 from unilab.envs.locomotion.common.height_scan import (
     HeightScanConfig,
     base_height_from_scan,
@@ -97,7 +97,7 @@ class Go2WJoystickRoughDomainRandomizationProvider(Go2WJoystickDomainRandomizati
             np.random.uniform(low=low, high=high, size=(num_reset, 3)),
             dtype=get_global_dtype(),
         )
-        _zero_small_xy_commands(commands)
+        zero_small_xy_commands(commands, threshold=0.001)
         if env.cfg.commands.heading_command:
             commands[:, 2] = 0.0
         return commands
@@ -275,7 +275,7 @@ class Go2WJoystickRoughEnv(Go2WJoystickEnv):
                 sampled = np.random.uniform(low=low, high=high, size=(num_resample, 3)).astype(
                     get_global_dtype()
                 )
-                _zero_small_xy_commands(sampled)
+                zero_small_xy_commands(sampled, threshold=0.001)
                 commands_arr[resample_mask] = sampled
                 if self._cfg.commands.heading_command:
                     heading_commands = self._ensure_heading_commands(info, commands_arr.shape[0])
@@ -319,8 +319,3 @@ class Go2WJoystickRoughEnv(Go2WJoystickEnv):
 
 
 registry.register_env("Go2WJoystickRough", Go2WJoystickRoughEnv, sim_backend="motrix")
-
-
-def _zero_small_xy_commands(commands: np.ndarray) -> None:
-    moving = np.linalg.norm(commands[:, :2], axis=1) > 0.001
-    commands[:, :2] *= moving[:, None]
