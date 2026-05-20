@@ -14,6 +14,7 @@ import pytest
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base.backend.mujoco.xml import get_named_body_ids
 from unilab.base.scene import SceneCfg
+from unilab.dr.types import ResetRandomizationPayload
 
 pytest.importorskip("mujoco", reason="mujoco not installed")
 
@@ -148,12 +149,21 @@ def test_motrix_backend_smoke_contract(robot):
     nq = bkd.get_dof_pos().shape[-1] + 7
     nv = bkd.get_dof_vel().shape[-1] + 6
     qpos = _identity_qpos_mujoco(nq, xyz=(1.0, 2.0, 0.8))
-    bkd.set_state(np.array([0]), qpos, np.zeros((1, nv)))
+    gravity = np.asarray([[1.0, 2.0, -3.0]], dtype=np.float64)
+    bkd.set_state(
+        np.array([0]),
+        qpos,
+        np.zeros((1, nv)),
+        randomization=ResetRandomizationPayload(gravity=gravity),
+    )
     np.testing.assert_allclose(bkd.get_base_pos()[0], (1.0, 2.0, 0.8), atol=1e-4)
+    np.testing.assert_allclose(bkd.model.get_gravity_override(bkd.data)[0], gravity[0])
     _unit_quat(bkd.get_base_quat(), "Motrix smoke")
 
     caps = bkd.get_dr_capabilities()
-    assert {"base_mass_delta", "base_com_offset", "kp", "kd"}.issubset(caps.supported_reset_terms)
+    assert {"base_mass_delta", "base_com_offset", "gravity", "kp", "kd"}.issubset(
+        caps.supported_reset_terms
+    )
     assert caps.supports_interval_push
     play_caps = bkd.get_play_capabilities()
     assert play_caps.supports_native_interactive_renderer
@@ -346,3 +356,36 @@ def test_motrix_model_properties_smoke():
     _shape(ctrl_range, bkd.num_actuators, 2)
     assert bkd.get_default_qpos().ndim == 1
     assert bkd.get_joint_range() is None
+
+
+def test_motrix_default_qpos_uses_mujoco_quaternion_convention():
+    pytest.importorskip("motrixsim")
+
+    from unilab.base.backend.motrix.backend import MotrixBackend
+
+    bkd = MotrixBackend(
+        SceneCfg(model_file=_SHARPA["model_file"]), NUM_ENVS, SIM_DT, base_name=_SHARPA["base_name"]
+    )
+    qpos = bkd.get_default_qpos()
+    assert qpos.ndim == 1
+
+    assert len(bkd._floating_base_quat_indices) > 0
+    for quat_indices in bkd._floating_base_quat_indices:
+        np.testing.assert_allclose(
+            np.abs(qpos[quat_indices]),
+            [1.0, 0.0, 0.0, 0.0],
+            atol=1.0e-6,
+        )
+
+    env_ids = np.arange(NUM_ENVS, dtype=np.int32)
+    bkd.set_state(
+        env_ids,
+        np.broadcast_to(qpos, (NUM_ENVS, qpos.shape[0])).copy(),
+        np.zeros((NUM_ENVS, bkd.model.num_dof_vel), dtype=np.float64),
+    )
+    object_body_id = bkd.get_body_id("object")
+    np.testing.assert_allclose(
+        np.abs(bkd.get_body_quat_w(np.asarray([object_body_id], dtype=np.int32))[:, 0, :]),
+        np.broadcast_to([1.0, 0.0, 0.0, 0.0], (NUM_ENVS, 4)),
+        atol=1.0e-6,
+    )

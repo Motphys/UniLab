@@ -22,7 +22,7 @@ algo:
 env:
   render_offset_mode: zero
   scene:
-  model_file: src/unilab/assets/robots/go2w/scene_rough_tiles_motrix.xml
+    model_file: src/unilab/assets/robots/go2w/scene_rough_tiles.xml
   commands:
     vel_limit:
       - [-1.0, -0.6, -1.0]

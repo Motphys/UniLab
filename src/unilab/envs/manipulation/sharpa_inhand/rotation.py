@@ -138,8 +138,6 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
             )
 
     def build_init_randomization_plan(self, env: Any) -> InitRandomizationPlan | None:
-        if env._backend.backend_type != "mujoco":
-            return None
         base_size = getattr(env, "_object_geom_base_size", None)
 
         if base_size is None:
@@ -437,6 +435,7 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
 
 
 @registry.env("SharpaInhandRotation", sim_backend="mujoco")
+@registry.env("SharpaInhandRotation", sim_backend="motrix")
 class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
     _cfg: SharpaInhandRotationCfg
     _reward_cfg: RewardConfig
@@ -1436,6 +1435,7 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
             dtype=self._np_dtype,
         )
         p_gain, d_gain = self._resolve_pd_gains(state.info)
+
         # Explicit virtual torque used for reward parity with source Sharpa formulation.
         virtual_torques = np.asarray(
             p_gain * (targets - dof_pos) - d_gain * dof_vel,

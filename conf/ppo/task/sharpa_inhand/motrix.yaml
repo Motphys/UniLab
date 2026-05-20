@@ -1,0 +1,22 @@
+# @package _global_
+defaults:
+  - /task/sharpa_inhand/mujoco
+  - _self_
+
+training:
+  task_name: SharpaInhandRotation
+  sim_backend: motrix
+
+algo:
+  num_envs: 2048
+
+env:
+  sim_dt: 0.01
+  # Motrix phase-1 supports object scale variants, object mass/COM, geom friction,
+  # direct object-force perturbations, and position-actuator kp/kd reset
+  # randomization. MotrixSim gravity override now supports reset-time gravity
+  # direction randomization.
+  domain_rand:
+    randomize_gravity: false
+    randomize_gravity_direction: true
+    randomize_pd_gains: true

@@ -28,6 +28,8 @@ _TASK_ORDER = {
     "g1_wall_flip_tracking": 7,
     "allegro_inhand": 8,
     "allegro_sac": 9,
+    "sharpa_inhand": 10,
+    "sharpa_inhand_grasp": 11,
 }
 _TASK_LABELS = {
     "go1_joystick_flat": "Go1 joystick",
@@ -40,6 +42,8 @@ _TASK_LABELS = {
     "g1_wall_flip_tracking": "G1 wall flip tracking",
     "allegro_inhand": "Allegro in-hand",
     "allegro_sac": "Allegro SAC in-hand",
+    "sharpa_inhand": "Sharpa in-hand",
+    "sharpa_inhand_grasp": "Sharpa in-hand grasp",
 }
 
 
@@ -294,6 +298,9 @@ def render_support_matrix(root: Path | None = None) -> str:
         "| `Tested` | `tests/` 中有自动化覆盖该 entrypoint/task owner/backend 组合。这里的 `Tested` 包含 config compose 与脚本/运行时测试，不等同于默认推荐路径。 |",
         "| `Benchmarked` | 存在与该组合绑定的已提交 benchmark manifest。 |",
         "| `Recommended` | 仓库中存在显式 recommendation 元数据。 |",
+        "",
+        "`Tested` 只描述仓库中已有自动化覆盖，不代表该组合具备同名 MuJoCo owner 的全部 backend capability；"
+        "例如 phase-1 Motrix owner 可能只覆盖训练 smoke 和明确启用的 DR 子集。",
         "",
         benchmark_note,
         recommendation_note,

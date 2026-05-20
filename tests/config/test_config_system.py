@@ -284,6 +284,19 @@ def test_ppo_go2w_mujoco_uses_motor_owner_dr_path():
     assert cfg.reward.scales.torques < 0.0
 
 
+def test_ppo_go2w_motrix_uses_motor_owner_scene_path():
+    cfg = _compose("ppo", overrides=["task=go2w_joystick_flat/motrix"])
+
+    assert cfg.training.task_name == "Go2WJoystickFlat"
+    assert cfg.training.sim_backend == "motrix"
+    assert "model_file" not in cfg.env
+    assert str(cfg.env.scene.model_file).endswith("src/unilab/assets/robots/go2w/scene_flat.xml")
+    assert cfg.env.domain_rand.randomize_kp is True
+    assert cfg.env.domain_rand.randomize_kd is True
+    assert cfg.env.control_config.wheel_action_scale == pytest.approx(10.0)
+    assert cfg.reward.scales.torques < 0.0
+
+
 def test_ppo_go2w_rough_tiles_mujoco_uses_static_tile_terrain():
     cfg = _compose("ppo", overrides=["task=go2w_joystick_rough_tiles/mujoco"])
 
@@ -300,6 +313,18 @@ def test_ppo_go2w_rough_tiles_mujoco_uses_static_tile_terrain():
     assert cfg.env.domain_rand.init_yaw_range == [0.0, 0.0]
     assert cfg.reward.only_positive_rewards is True
     assert cfg.algo.max_iterations == 5000
+
+
+def test_ppo_go2w_rough_tiles_motrix_uses_scene_model_file():
+    cfg = _compose("ppo", overrides=["task=go2w_joystick_rough_tiles/motrix"])
+
+    assert cfg.training.task_name == "Go2WJoystickRoughTiles"
+    assert cfg.training.sim_backend == "motrix"
+    assert "model_file" not in cfg.env
+    assert str(cfg.env.scene.model_file).endswith(
+        "src/unilab/assets/robots/go2w/scene_rough_tiles.xml"
+    )
+    assert cfg.env.terrain_scan.enabled is False
 
 
 def test_offpolicy_g1_walk_flat_motrix_preserves_backend_env_overrides():

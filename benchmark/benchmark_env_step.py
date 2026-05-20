@@ -95,147 +95,65 @@ class TaskConfig:
         return task_path in {self.task_id, self.env_name, *self.aliases}
 
 
-def _quadruped_reward_config(reward_cls: type) -> Any:
-    return reward_cls(
-        scales={
-            "tracking_lin_vel": 1.0,
-            "tracking_ang_vel": 0.2,
-            "lin_vel_z": -5.0,
-            "ang_vel_xy": -0.1,
-            "base_height": -100.0,
-            "action_rate": -0.005,
-            "similar_to_default": -0.1,
-            "contact": 0.24,
-            "swing_feet_z": 4.0,
-        },
-        tracking_sigma=0.25,
-        base_height_target=0.3,
+def _owner_yaml_cfg(
+    *,
+    config_root: str,
+    algo_name: str,
+    overrides: list[str],
+    env_cfg_cls: Callable[[], Any],
+) -> Any:
+    from hydra import compose, initialize_config_dir
+    from hydra.core.global_hydra import GlobalHydra
+
+    from unilab.base.registry import apply_cfg_overrides
+    from unilab.training import BackendAdapter
+
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(ROOT_DIR / "conf" / config_root), version_base="1.3"):
+        owner_cfg = compose(
+            config_name="config",
+            overrides=[
+                *overrides,
+                "hydra.run.dir=.",
+                "hydra.output_subdir=null",
+                "hydra/job_logging=disabled",
+                "hydra/hydra_logging=disabled",
+            ],
+        )
+
+    env_cfg_override = BackendAdapter(
+        owner_cfg,
+        root_dir=ROOT_DIR,
+        algo_name=algo_name,
+    ).build_task_env_cfg_override()
+
+    cfg = env_cfg_cls()
+    apply_cfg_overrides(cfg, env_cfg_override)
+    return cfg
+
+
+def _ppo_owner_yaml_cfg(task_id: str, backend: str, env_cfg_cls: Callable[[], Any]) -> Any:
+    return _owner_yaml_cfg(
+        config_root="ppo",
+        algo_name="ppo",
+        overrides=[f"task={task_id}/{backend}"],
+        env_cfg_cls=env_cfg_cls,
     )
 
 
-def _g1_walk_reward_config() -> Any:
-    from unilab.envs.locomotion.g1.joystick import G1WalkRewardConfig
-
-    return G1WalkRewardConfig(
-        scales={
-            "tracking_lin_vel": 2.0,
-            "tracking_ang_vel": 1.5,
-            "penalty_ang_vel_xy": -1.0,
-            "penalty_orientation": -10.0,
-            "penalty_action_rate": -4.0,
-            "pose": -0.5,
-            "penalty_feet_ori": -20.0,
-            "feet_phase": 5.0,
-            "alive": 10.0,
-        },
-        tracking_sigma=0.25,
-        base_height_target=0.754,
-        min_base_height=0.3,
-        max_tilt_deg=65.0,
-        gait_frequency=1.5,
-        feet_phase_swing_height=0.09,
-        feet_phase_tracking_sigma=0.04,
+def _sac_owner_yaml_cfg(task_id: str, backend: str, env_cfg_cls: Callable[[], Any]) -> Any:
+    return _owner_yaml_cfg(
+        config_root="offpolicy",
+        algo_name="sac",
+        overrides=["algo=sac", f"task=sac/{task_id}/{backend}"],
+        env_cfg_cls=env_cfg_cls,
     )
-
-
-def _materialize_g1_rough_benchmark_scene() -> str:
-    import shutil
-    import xml.etree.ElementTree as ET
-
-    source_dir = ROOT_DIR / "src" / "unilab" / "assets" / "robots" / "g1"
-    output_dir = Path("/tmp/unilab_benchmark_g1_rough_scene")
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    for name in ("g1.xml",):
-        shutil.copy2(source_dir / name, output_dir / name)
-    for name in ("assets", "textures", "hfields"):
-        shutil.copytree(source_dir / name, output_dir / name, dirs_exist_ok=True)
-
-    tree = ET.parse(source_dir / "scene_rough.xml")
-    hfield = tree.getroot().find("./asset/hfield[@name='hfield']")
-    if hfield is not None:
-        hfield.set("file", "hfields/hfield.png")
-    output_path = output_dir / "scene_rough.xml"
-    tree.write(output_path)
-    return str(output_path)
-
-
-def _materialize_go2w_rough_tiles_motrix_scene() -> str:
-    import shutil
-    import xml.etree.ElementTree as ET
-
-    source_dir = ROOT_DIR / "src" / "unilab" / "assets" / "robots" / "go2w"
-    assets_dir = ROOT_DIR / "src" / "unilab" / "assets"
-    output_dir = Path("/tmp/unilab_benchmark_go2w_rough_tiles_scene")
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    robot_tree = ET.parse(source_dir / "go2w.xml")
-    compiler = robot_tree.getroot().find("compiler")
-    if compiler is not None:
-        compiler.set("meshdir", str((source_dir.parent / "go2" / "assets").resolve()))
-    robot_tree.write(output_dir / "go2w.xml")
-
-    terrain_dst = output_dir / "go2w_tile_stairs_5x5.xml"
-    shutil.copy2(assets_dir / "terrains" / "go2w_tile_stairs_5x5.xml", terrain_dst)
-
-    scene_tree = ET.parse(source_dir / "scene_rough_tiles.xml")
-    root = scene_tree.getroot()
-    for include in root.findall("include"):
-        include_file = include.get("file", "")
-        if include_file == "go2w.xml":
-            include.set("file", "go2w.xml")
-        elif include_file.endswith("go2w_tile_stairs_5x5.xml"):
-            include.set("file", terrain_dst.name)
-
-    asset = root.find("asset")
-    if asset is not None:
-        for hfield in list(asset.findall("hfield")):
-            if hfield.get("name") == "go2w_tile_stairs_5x5":
-                asset.remove(hfield)
-
-    worldbody = root.find("worldbody")
-    if worldbody is not None:
-        for geom in list(worldbody.findall("geom")):
-            if geom.get("name") == "terrain_scan_probe":
-                worldbody.remove(geom)
-
-    output_path = output_dir / "scene_rough_tiles_motrix.xml"
-    scene_tree.write(output_path)
-    return str(output_path)
-
-
-def _materialize_sharpa_motrix_scene() -> str:
-    import xml.etree.ElementTree as ET
-
-    source_dir = ROOT_DIR / "src" / "unilab" / "assets" / "robots" / "sharpa_wave"
-    output_dir = Path("/tmp/unilab_benchmark_sharpa_scene")
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    robot_tree = ET.parse(source_dir / "right_sharpa_wave.xml")
-    robot_root = robot_tree.getroot()
-    compiler = robot_root.find("compiler")
-    if compiler is not None:
-        compiler.set("meshdir", str((source_dir / "meshes").resolve()))
-
-    contact = robot_root.find("contact")
-    if contact is not None:
-        for exclude in list(contact.findall("exclude")):
-            if exclude.get("body1") == exclude.get("body2"):
-                contact.remove(exclude)
-    robot_tree.write(output_dir / "right_sharpa_wave.xml")
-
-    scene_tree = ET.parse(source_dir / "scene.xml")
-    output_path = output_dir / "scene.xml"
-    scene_tree.write(output_path)
-    return str(output_path)
 
 
 def _go1_cfg(_: str) -> Any:
-    from unilab.envs.locomotion.go1.joystick import Go1JoystickCfg, RewardConfig
+    from unilab.envs.locomotion.go1.joystick import Go1JoystickCfg
 
-    cfg = Go1JoystickCfg()
-    cfg.reward_config = _quadruped_reward_config(RewardConfig)
-    return cfg
+    return _ppo_owner_yaml_cfg("go1_joystick_flat", _, Go1JoystickCfg)
 
 
 def _go1_env_cls() -> type:
@@ -245,14 +163,9 @@ def _go1_env_cls() -> type:
 
 
 def _go2_cfg(backend: str) -> Any:
-    from unilab.envs.locomotion.go2.joystick import Go2JoystickCfg, RewardConfig
+    from unilab.envs.locomotion.go2.joystick import Go2JoystickCfg
 
-    cfg = Go2JoystickCfg()
-    cfg.reward_config = _quadruped_reward_config(RewardConfig)
-    if backend == "motrix":
-        cfg.domain_rand.randomize_kp = False
-        cfg.domain_rand.randomize_kd = False
-    return cfg
+    return _ppo_owner_yaml_cfg("go2_joystick_flat", backend, Go2JoystickCfg)
 
 
 def _go2_env_cls() -> type:
@@ -262,40 +175,9 @@ def _go2_env_cls() -> type:
 
 
 def _go2_rough_cfg(_: str) -> Any:
-    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughCfg, RoughRewardConfig
+    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughCfg
 
-    cfg = Go2JoystickRoughCfg()
-    cfg.scene.terrain.generator.seed = 42
-    cfg.scene.terrain.generator.num_rows = 6
-    cfg.scene.terrain.generator.num_cols = 6
-    cfg.reward_config = RoughRewardConfig(
-        scales={
-            "lin_vel_z": -2.0,
-            "ang_vel_xy": -0.05,
-            "joint_torques_l2": -2.5e-5,
-            "joint_acc_l2": -2.5e-7,
-            "joint_pos_limits": -5.0,
-            "joint_power": -2.0e-5,
-            "stand_still": -2.0,
-            "joint_pos_penalty": -1.0,
-            "joint_mirror": -0.05,
-            "action_rate": -0.01,
-            "undesired_contacts": -1.0,
-            "contact_forces": -1.5e-4,
-            "tracking_lin_vel": 3.0,
-            "tracking_ang_vel": 1.5,
-            "feet_air_time": 0.5,
-            "feet_air_time_variance": -1.0,
-            "feet_contact_without_cmd": 0.1,
-            "feet_slide": -0.1,
-            "feet_height_body": -5.0,
-            "feet_gait": 0.5,
-            "upward": 1.0,
-        },
-        tracking_sigma=0.25,
-        base_height_target=0.33,
-    )
-    return cfg
+    return _ppo_owner_yaml_cfg("go2_joystick_rough", _, Go2JoystickRoughCfg)
 
 
 def _go2_rough_env_cls() -> type:
@@ -305,41 +187,18 @@ def _go2_rough_env_cls() -> type:
 
 
 def _go2w_cfg(_: str) -> Any:
-    from unilab.envs.locomotion.go2w.joystick import Go2WJoystickCfg, RewardConfig
+    from unilab.envs.locomotion.go2w.joystick import Go2WJoystickCfg
 
-    cfg = Go2WJoystickCfg()
-    cfg.reward_config = _go2w_reward_config(RewardConfig)
-    return cfg
+    return _ppo_owner_yaml_cfg("go2w_joystick_flat", _, Go2WJoystickCfg)
 
 
 def _go2w_rough_tiles_cfg(backend: str) -> Any:
-    from unilab.envs.locomotion.go2w.joystick import RewardConfig
     from unilab.envs.locomotion.go2w.rough import Go2WJoystickRoughTilesCfg
 
-    cfg = Go2WJoystickRoughTilesCfg()
-    cfg.reward_config = _go2w_reward_config(RewardConfig)
-    if backend == "motrix":
-        cfg.model_file = _materialize_go2w_rough_tiles_motrix_scene()
-        cfg.terrain_scan.enabled = False
-    return cfg
-
-
-def _go2w_reward_config(reward_cls: type) -> Any:
-    return reward_cls(
-        scales={
-            "tracking_lin_vel": 1.0,
-            "tracking_ang_vel": 0.2,
-            "lin_vel_z": -5.0,
-            "ang_vel_xy": -0.1,
-            "base_height": -100.0,
-            "action_rate": -0.005,
-            "similar_to_default": -0.1,
-            "torques": -0.0002,
-            "wheel_vel": 0.0,
-            "alive": 0.5,
-        },
-        tracking_sigma=0.25,
-        base_height_target=0.3,
+    return _ppo_owner_yaml_cfg(
+        "go2w_joystick_rough_tiles",
+        backend,
+        Go2WJoystickRoughTilesCfg,
     )
 
 
@@ -358,55 +217,55 @@ def _go2w_rough_tiles_env_cls() -> type:
 def _g1_flat_cfg(backend: str) -> Any:
     from unilab.envs.locomotion.g1.joystick import G1WalkFlatCfg
 
-    cfg = G1WalkFlatCfg()
-    cfg.reward_config = _g1_walk_reward_config()
-    if backend == "motrix":
-        cfg.domain_rand.randomize_kp = False
-        cfg.domain_rand.randomize_kd = False
-    return cfg
+    return _ppo_owner_yaml_cfg("g1_walk_flat", backend, G1WalkFlatCfg)
 
 
 def _g1_rough_cfg(backend: str) -> Any:
     from unilab.envs.locomotion.g1.joystick import G1WalkRoughCfg
 
-    cfg = G1WalkRoughCfg()
-    cfg.reward_config = _g1_walk_reward_config()
-    if backend == "motrix":
-        cfg.model_file = _materialize_g1_rough_benchmark_scene()
-        cfg.domain_rand.randomize_kp = False
-        cfg.domain_rand.randomize_kd = False
-    return cfg
+    return _sac_owner_yaml_cfg("g1_walk_rough", backend, G1WalkRoughCfg)
 
 
-def _g1_motion_tracking_cfg(_: str) -> Any:
+def _g1_motion_tracking_cfg(backend: str) -> Any:
     from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnvCfg
 
-    return G1MotionTrackingEnvCfg()
+    return _ppo_owner_yaml_cfg(
+        "g1_motion_tracking",
+        backend,
+        G1MotionTrackingEnvCfg,
+    )
 
 
 def _sharpa_inhand_cfg(backend: str) -> Any:
-    from unilab.envs.manipulation.sharpa_inhand.rotation import (
-        RewardConfig,
-        SharpaInhandRotationCfg,
-    )
+    from hydra import compose, initialize_config_dir
+    from hydra.core.global_hydra import GlobalHydra
+
+    from unilab.base.registry import apply_cfg_overrides
+    from unilab.envs.manipulation.sharpa_inhand.rotation import SharpaInhandRotationCfg
+    from unilab.training import BackendAdapter
+
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(ROOT_DIR / "conf" / "ppo"), version_base="1.3"):
+        owner_cfg = compose(
+            config_name="config",
+            overrides=[
+                f"task=sharpa_inhand/{backend}",
+                "env.grasp_cache_path=/tmp/unilab_benchmark_sharpa_grasp",
+                "hydra.run.dir=.",
+                "hydra.output_subdir=null",
+                "hydra/job_logging=disabled",
+                "hydra/hydra_logging=disabled",
+            ],
+        )
+
+    env_cfg_override = BackendAdapter(
+        owner_cfg,
+        root_dir=ROOT_DIR,
+        algo_name="ppo",
+    ).build_task_env_cfg_override()
 
     cfg = SharpaInhandRotationCfg()
-    cfg.reward_config = RewardConfig()
-    cfg.grasp_cache_path = "/tmp/unilab_benchmark_sharpa_grasp"
-    cfg.sensor.tactile_force_sensor_names = [
-        "contact_right_thumb_elastomer_force",
-        "contact_right_index_elastomer_force",
-        "contact_right_middle_elastomer_force",
-        "contact_right_ring_elastomer_force",
-        "contact_right_pinky_elastomer_force",
-    ]
-    if backend == "motrix":
-        cfg.model_file = _materialize_sharpa_motrix_scene()
-        cfg.obs.enable_tactile = False
-        cfg.domain_rand.randomize_friction = False
-        cfg.domain_rand.randomize_com = False
-        cfg.domain_rand.randomize_mass = False
-        cfg.domain_rand.force_scale = 0.0
+    apply_cfg_overrides(cfg, env_cfg_override)
     return cfg
 
 
@@ -504,7 +363,6 @@ TASK_CONFIGS: dict[str, TaskConfig] = {
         cfg_factory=_sharpa_inhand_cfg,
         env_cls_factory=_sharpa_inhand_env_cls,
         cfg_finalizer=_ensure_sharpa_benchmark_grasp_cache,
-        include_in_matrix=False,
     ),
 }
 

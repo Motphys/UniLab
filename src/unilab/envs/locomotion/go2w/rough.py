@@ -167,6 +167,9 @@ class Go2WJoystickRoughTilesEnv(Go2WJoystickEnv):
         return np.asarray(raw_heights, dtype=get_global_dtype()), base_pos
 
 
+registry.register_env("Go2WJoystickRoughTiles", Go2WJoystickRoughTilesEnv, sim_backend="motrix")
+
+
 def _height_scan_offsets(points_x: Sequence[float], points_y: Sequence[float]) -> np.ndarray:
     x_grid, y_grid = np.meshgrid(
         np.asarray(points_x, dtype=np.float64),
