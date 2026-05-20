@@ -14,6 +14,7 @@ import torch
 
 from unilab.algos.torch.offpolicy.runner import (
     OffPolicyRunner,
+    build_reward_comparison_metrics,
     compute_train_start_threshold,
     replay_buffer_ready_for_learning,
 )
@@ -536,6 +537,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                     iteration=iteration,
                     metrics=avg_metrics,
                     reward=mean_reward,
+                    reward_metrics=build_reward_comparison_metrics(reward_history, mean_reward),
                     reward_components=latest_reward_components,
                     train_time=train_time,
                     wait_time=wait_time,

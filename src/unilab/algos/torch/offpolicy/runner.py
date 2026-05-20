@@ -40,6 +40,17 @@ def replay_buffer_ready_for_learning(
     )
 
 
+def build_reward_comparison_metrics(
+    reward_history: deque,
+    smoothed_reward: float,
+) -> dict[str, float]:
+    """Return the latest collector-side 100-episode mean for reward comparison."""
+    del smoothed_reward
+    if not reward_history:
+        return {}
+    return {"mean_ep100": float(reward_history[-1])}
+
+
 class OffPolicyRunner(AsyncRunner):
     """Unified runner for SAC and TD3."""
 
@@ -548,6 +559,7 @@ class OffPolicyRunner(AsyncRunner):
                 iteration=iteration,
                 metrics=avg_metrics,
                 reward=mean_reward,
+                reward_metrics=build_reward_comparison_metrics(reward_history, mean_reward),
                 reward_components=latest_reward_components,
                 train_time=train_time,
                 wait_time=wait_time,
