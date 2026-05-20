@@ -18,7 +18,11 @@ from unilab.base.np_env import NpEnvState
 from unilab.base.scene import SceneCfg
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.locomotion.common import rewards
-from unilab.envs.locomotion.common.commands import Commands, zero_small_xy_commands
+from unilab.envs.locomotion.common.commands import (
+    Commands,
+    sample_heading_commands,
+    zero_small_xy_commands,
+)
 from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
 from unilab.envs.locomotion.common.dr_provider import LocomotionDRProvider
 from unilab.envs.locomotion.common.rewards import RewardContext
@@ -123,14 +127,6 @@ def compute_forward_speed_gate(linvel: np.ndarray, min_forward_speed: float) -> 
 
 def compute_forward_command_mask(commands: np.ndarray) -> np.ndarray:
     return np.asarray(np.maximum(commands[:, 0], 0.0) > 1.0e-6, dtype=get_global_dtype())
-
-
-def sample_heading_commands(env: Any, num_samples: int) -> np.ndarray:
-    heading_range = np.asarray(env.cfg.commands.heading_range, dtype=get_global_dtype())
-    if heading_range.shape != (2,):
-        raise ValueError(f"commands.heading_range must have shape (2,), got {heading_range.shape}")
-    low, high = float(np.min(heading_range)), float(np.max(heading_range))
-    return np.asarray(np.random.uniform(low, high, size=(num_samples,)), dtype=get_global_dtype())
 
 
 @dataclass

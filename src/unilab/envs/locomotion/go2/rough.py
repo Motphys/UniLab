@@ -16,11 +16,13 @@ from unilab.envs.common.rotation import (
     np_quat_apply_inverse,
     np_quat_from_euler_xyz,
     np_quat_mul,
-    np_wrap_to_pi,
-    np_yaw_from_quat,
 )
 from unilab.envs.locomotion.common import rewards
-from unilab.envs.locomotion.common.commands import zero_small_xy_commands
+from unilab.envs.locomotion.common.commands import (
+    apply_heading_yaw_feedback,
+    sample_heading_commands,
+    zero_small_xy_commands,
+)
 from unilab.envs.locomotion.common.height_scan import (
     DEFAULT_SCAN_POINTS_X,
     DEFAULT_SCAN_POINTS_Y,
@@ -245,7 +247,7 @@ class Go2JoystickRoughDomainRandomizationProvider(Go2JoystickDomainRandomization
             "torques": np.zeros((num_reset, env._num_action), dtype=get_global_dtype()),
         }
         if env.cfg.commands.heading_command:
-            info_updates["heading_commands"] = _sample_heading_commands(env, num_reset)
+            info_updates["heading_commands"] = sample_heading_commands(env, num_reset)
         env._spawn.record_episode_start(env_ids, qpos[:, 0:3])
         return ResetPlan(
             env_ids=env_ids,
@@ -565,23 +567,22 @@ class Go2JoystickRoughEnv(Go2WalkTask):
                 commands_arr[resample_mask] = sampled
                 if self._cfg.commands.heading_command:
                     heading_commands = self._ensure_heading_commands(info, commands_arr.shape[0])
-                    heading_commands[resample_mask] = _sample_heading_commands(self, num_resample)
+                    heading_commands[resample_mask] = sample_heading_commands(self, num_resample)
                     info["heading_commands"] = heading_commands
 
         if self._cfg.commands.heading_command:
             heading_commands = self._ensure_heading_commands(info, commands_arr.shape[0])
             base_quat = np.asarray(self._backend.get_base_quat(), dtype=get_global_dtype())
             if base_quat.shape[0] == commands_arr.shape[0]:
-                heading = np_yaw_from_quat(base_quat)
-                commands_arr[:, 2] = np.clip(
-                    0.5 * np_wrap_to_pi(heading_commands - heading), -2.0, 2.0
+                apply_heading_yaw_feedback(
+                    commands_arr, base_quat, heading_commands, stiffness=0.5
                 )
         info["commands"] = commands_arr
 
     def _ensure_heading_commands(self, info: dict, num_obs: int) -> np.ndarray:
         heading_commands = info.get("heading_commands")
         if heading_commands is None or np.asarray(heading_commands).shape != (num_obs,):
-            heading_commands = _sample_heading_commands(self, num_obs)
+            heading_commands = sample_heading_commands(self, num_obs)
         heading_commands = np.asarray(heading_commands, dtype=get_global_dtype())
         info["heading_commands"] = heading_commands
         return heading_commands
@@ -780,14 +781,6 @@ def _gait_async_reward(
     se_act_0 = np.clip(np.square(air[:, foot_0] - contact[:, foot_1]), 0.0, max_err**2)
     se_act_1 = np.clip(np.square(contact[:, foot_0] - air[:, foot_1]), 0.0, max_err**2)
     return np.exp(-(se_act_0 + se_act_1) / std)
-
-
-def _sample_heading_commands(env: Any, num_samples: int) -> np.ndarray:
-    heading_range = np.asarray(env.cfg.commands.heading_range, dtype=get_global_dtype())
-    if heading_range.shape != (2,):
-        raise ValueError(f"commands.heading_range must have shape (2,), got {heading_range.shape}")
-    low, high = float(np.min(heading_range)), float(np.max(heading_range))
-    return np.asarray(np.random.uniform(low, high, size=(num_samples,)), dtype=get_global_dtype())
 
 
 # Backwards-compat aliases for any callers that imported the unused defaults.
