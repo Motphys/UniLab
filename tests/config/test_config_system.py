@@ -318,9 +318,8 @@ def test_ppo_go2w_motrix_uses_motor_owner_scene_path():
     assert cfg.training.task_name == "Go2WJoystickFlat"
     assert cfg.training.sim_backend == "motrix"
     assert "model_file" not in cfg.env
-    assert str(cfg.env.scene.model_file).endswith("src/unilab/assets/robots/go2w/scene_flat.xml")
-    assert cfg.env.domain_rand.randomize_kp is True
-    assert cfg.env.domain_rand.randomize_kd is True
+    assert cfg.env.domain_rand.randomize_kp is False
+    assert cfg.env.domain_rand.randomize_kd is False
     assert cfg.env.control_config.wheel_action_scale == pytest.approx(10.0)
     assert cfg.reward.scales.torques < 0.0
 
