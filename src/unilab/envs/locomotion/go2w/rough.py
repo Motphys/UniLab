@@ -104,7 +104,7 @@ class Go2WJoystickRoughDomainRandomizationProvider(Go2WJoystickDomainRandomizati
         qpos = np.tile(env._init_qpos, (num_reset, 1))
         qvel = np.tile(env._init_qvel, (num_reset, 1))
         qpos[:, 0:2] += np.random.uniform(-0.5, 0.5, (num_reset, 2))
-        qpos[:, 2] += np.random.uniform(0.1, 0.3, (num_reset,))
+        qpos[:, 2] += np.random.uniform(0.25, 0.5, (num_reset,))
         qpos[:, 0:3] += env._spawn.origins_for(env_ids)
         roll = np.random.uniform(-3.14, 3.14, (num_reset,))
         pitch = np.random.uniform(-3.14, 3.14, (num_reset,))
