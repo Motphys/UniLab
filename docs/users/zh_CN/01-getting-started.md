@@ -144,7 +144,18 @@ docker run --rm --gpus all -it \
 docker run --rm --gpus all unilab:latest uv run python -c "import torch; print(torch.cuda.is_available())"
 ```
 
-ROCm 容器请使用 AMD 官方 `rocm/pytorch` 镜像，并按 ROCm Docker 要求挂载 `/dev/kfd`、`/dev/dri`、`--group-add=video` 和 `--ipc=host`。当前仓库根目录的 `Dockerfile` 保持 NVIDIA/CUDA 镜像，不用于 ROCm。
+ROCm 容器请使用 AMD 官方 [rocm/pytorch](https://hub.docker.com/r/rocm/pytorch) 镜像，并按 ROCm Docker 要求挂载 `/dev/kfd`、`/dev/dri`、`--group-add=video` 和 `--ipc=host`。当前仓库根目录的 `Dockerfile` 保持 NVIDIA/CUDA 镜像，不用于 ROCm。关于ROCm详细信息请参考[AMD ROCm官方文档](https://rocm.docs.amd.com/en/latest/)
+
+e.g.
+```
+alias drun='docker run --rm -it --network=host --ipc=host \
+        --device=/dev/kfd --device=/dev/dri/renderD128 --group-add=video \
+        --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
+        --shm-size 8G --hostname=w7900 \
+        -v /DATA:/DATA -w /DATA'
+
+drun rocm/pytorch:rocm7.2.3_ubuntu24.04_py3.12_pytorch_release_2.7.1
+```
 
 ## Navigation
 
