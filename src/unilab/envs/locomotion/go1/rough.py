@@ -269,6 +269,7 @@ class Go1JoystickRoughDomainRandomizationProvider(Go1JoystickDomainRandomization
 class Go1JoystickRoughEnv(Go1WalkTask):
     _cfg: Go1JoystickRoughCfg
     _reward_cfg: RoughRewardConfig
+    _height_scan_dim: int = 0
 
     def __init__(self, cfg: Go1JoystickRoughCfg, num_envs=1, backend_type="mujoco"):
         super().__init__(cfg, num_envs=num_envs, backend_type=backend_type)
@@ -575,9 +576,7 @@ class Go1JoystickRoughEnv(Go1WalkTask):
             heading_commands = self._ensure_heading_commands(info, commands_arr.shape[0])
             base_quat = np.asarray(self._backend.get_base_quat(), dtype=get_global_dtype())
             if base_quat.shape[0] == commands_arr.shape[0]:
-                apply_heading_yaw_feedback(
-                    commands_arr, base_quat, heading_commands, stiffness=0.5
-                )
+                apply_heading_yaw_feedback(commands_arr, base_quat, heading_commands, stiffness=0.5)
         info["commands"] = commands_arr
 
     def _ensure_heading_commands(self, info: dict, num_obs: int) -> np.ndarray:

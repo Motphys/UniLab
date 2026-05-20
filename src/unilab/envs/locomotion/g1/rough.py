@@ -170,6 +170,7 @@ class G1JoystickRoughCfg(G1WalkEnvCfg):
 class G1JoystickRoughEnv(G1WalkEnv):
     _cfg: G1JoystickRoughCfg
     _reward_cfg: G1JoystickRoughRewardConfig
+    _height_scan_dim: int = 0
 
     def __init__(self, cfg: G1JoystickRoughCfg, num_envs=1, backend_type="mujoco"):
         super().__init__(cfg, num_envs=num_envs, backend_type=backend_type)

@@ -25,8 +25,10 @@ from unilab.envs.locomotion.common import rewards
 from unilab.envs.locomotion.common.commands import (
     Commands,
     apply_heading_yaw_feedback,
-    sample_heading_commands as sample_go2w_heading_commands,
     zero_small_xy_commands,
+)
+from unilab.envs.locomotion.common.commands import (
+    sample_heading_commands as sample_go2w_heading_commands,
 )
 from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
 from unilab.envs.locomotion.common.dr_provider import LocomotionDRProvider

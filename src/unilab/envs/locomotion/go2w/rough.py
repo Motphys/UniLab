@@ -132,6 +132,7 @@ class Go2WJoystickRoughDomainRandomizationProvider(Go2WJoystickDomainRandomizati
 @registry.env("Go2WJoystickRough", sim_backend="mujoco")
 class Go2WJoystickRoughEnv(Go2WJoystickEnv):
     _cfg: Go2WJoystickRoughCfg
+    _height_scan_dim: int = 0
 
     def __init__(self, cfg: Go2WJoystickRoughCfg, num_envs=1, backend_type="mujoco"):
         super().__init__(cfg, num_envs=num_envs, backend_type=backend_type)
@@ -278,9 +279,7 @@ class Go2WJoystickRoughEnv(Go2WJoystickEnv):
             heading_commands = self._ensure_heading_commands(info, commands_arr.shape[0])
             base_quat = np.asarray(self._backend.get_base_quat(), dtype=get_global_dtype())
             if base_quat.shape[0] == commands_arr.shape[0]:
-                apply_heading_yaw_feedback(
-                    commands_arr, base_quat, heading_commands, stiffness=0.5
-                )
+                apply_heading_yaw_feedback(commands_arr, base_quat, heading_commands, stiffness=0.5)
         info["commands"] = commands_arr
 
     def _compute_terminated(self, gravity: np.ndarray) -> np.ndarray:

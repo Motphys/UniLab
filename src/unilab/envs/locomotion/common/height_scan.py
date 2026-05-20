@@ -157,7 +157,7 @@ def base_height_from_scan(env: Any, num_obs: int | None = None) -> np.ndarray:
 def terrain_num_cols(terrain_cfg: Any) -> int:
     if terrain_cfg.curriculum:
         return len(terrain_cfg.sub_terrains)
-    return terrain_cfg.num_cols
+    return int(terrain_cfg.num_cols)
 
 
 def terrain_out_of_bounds(env: Any, terrain_cfg: Any, distance_buffer: float) -> np.ndarray:

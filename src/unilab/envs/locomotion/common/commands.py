@@ -57,6 +57,4 @@ def apply_heading_yaw_feedback(
 ) -> None:
     """In-place P-control on heading error → ``commands[:, 2]`` (yaw rate)."""
     heading = np_yaw_from_quat(base_quat)
-    commands[:, 2] = np.clip(
-        stiffness * np_wrap_to_pi(heading_commands - heading), -clip, clip
-    )
+    commands[:, 2] = np.clip(stiffness * np_wrap_to_pi(heading_commands - heading), -clip, clip)

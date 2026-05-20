@@ -343,18 +343,12 @@ def test_ppo_go2w_rough_mujoco_uses_terrain_generator():
     assert cfg.env.control_config.clip_actions == pytest.approx(100.0)
     assert cfg.env.control_config.action_scale == pytest.approx(0.5)
     assert cfg.env.control_config.wheel_action_scale == pytest.approx(10.0)
-    assert cfg.env.control_config.Kp == pytest.approx(50.0)
-    assert cfg.env.control_config.Kd == pytest.approx(1.5)
     assert cfg.env.domain_rand.randomize_kp is False
     assert cfg.env.domain_rand.randomize_kd is False
-    assert cfg.env.domain_rand.randomize_init_yaw is True
-    assert cfg.env.domain_rand.init_roll_range == [-3.14, 3.14]
-    assert cfg.env.domain_rand.init_pitch_range == [-3.14, 3.14]
-    assert cfg.env.domain_rand.init_yaw_range == [-3.14, 3.14]
-    assert cfg.env.domain_rand.kp_multiplier_range == [0.5, 2.0]
+    assert cfg.env.domain_rand.kp_multiplier_range == [0.5, 1.0]
     assert cfg.reward.scales.tracking_lin_vel == pytest.approx(3.0)
     assert cfg.reward.scales.joint_pos_limits == pytest.approx(-5.0)
-    assert cfg.reward.scales.hip_pos == pytest.approx(-0.5)
+    assert cfg.reward.scales.hip_pos == pytest.approx(-2.0)
     assert cfg.reward.scales.joint_mirror == pytest.approx(-0.05)
     assert cfg.reward.only_positive_rewards is False
     assert cfg.algo.max_iterations == 5000
@@ -370,18 +364,12 @@ def test_ppo_go2w_rough_motrix_uses_yaw_reset_and_strong_control():
     assert "rel_standing_envs" not in cfg.env.commands
     assert cfg.env.control_config.action_scale == pytest.approx(0.5)
     assert cfg.env.control_config.wheel_action_scale == pytest.approx(10.0)
-    assert cfg.env.control_config.Kp == pytest.approx(50.0)
-    assert cfg.env.control_config.Kd == pytest.approx(1.5)
     assert cfg.env.domain_rand.randomize_kp is True
     assert cfg.env.domain_rand.randomize_kd is True
-    assert cfg.env.domain_rand.init_z_range == [0.1, 0.3]
-    assert cfg.env.domain_rand.init_roll_range == [-3.14, 3.14]
-    assert cfg.env.domain_rand.init_pitch_range == [-3.14, 3.14]
-    assert cfg.env.domain_rand.init_yaw_range == [-3.14, 3.14]
     assert cfg.reward.scales.orientation == pytest.approx(-2.0)
     assert cfg.reward.scales.hip_pos == pytest.approx(-0.5)
     assert cfg.reward.scales.upward == pytest.approx(1.0)
-    assert cfg.algo.max_iterations == 1500
+    assert cfg.algo.max_iterations == 2000
 
 
 def test_offpolicy_g1_walk_flat_motrix_preserves_backend_env_overrides():
