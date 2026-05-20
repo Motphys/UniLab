@@ -130,14 +130,21 @@ class OffPolicyLogger(BaseTrainingLogger):
     def _get_iter_pipeline_time(self) -> float:
         return self._learner_incremental_h2d_time + self._train_time + self._weight_sync_time
 
-    def _build_compact_header(self, *, include_status: bool) -> Text:
+    def _build_compact_header(
+        self,
+        *,
+        include_status: bool,
+        extra_fields: list[tuple[str, str]] | None = None,
+    ) -> Text:
         iter_steps_per_sec = self._get_iter_steps_per_sec()
-        extra_fields: list[tuple[str, str]] = []
+        header_extra_fields: list[tuple[str, str]] = []
         if iter_steps_per_sec is not None:
-            extra_fields.append((f"Steps/s {iter_steps_per_sec:,.0f}", "bold green"))
+            header_extra_fields.append((f"Steps/s {iter_steps_per_sec:,.0f}", "bold green"))
+        if extra_fields:
+            header_extra_fields.extend(extra_fields)
         return super()._build_compact_header(
             include_status=include_status,
-            extra_fields=extra_fields,
+            extra_fields=header_extra_fields,
         )
 
     def update_collector_timing(self, timing_ms: dict[str, float]):

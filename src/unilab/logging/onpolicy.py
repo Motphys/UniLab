@@ -213,13 +213,20 @@ class OnPolicyLogger(BaseTrainingLogger):
 
         return table
 
-    def _build_compact_header(self, *, include_status: bool) -> Text:
+    def _build_compact_header(
+        self,
+        *,
+        include_status: bool,
+        extra_fields: list[tuple[str, str]] | None = None,
+    ) -> Text:
         iter_time = self._collect_time + self._train_time
-        extra_fields: list[tuple[str, str]] = []
+        header_extra_fields: list[tuple[str, str]] = []
         if iter_time > 0:
             steps_per_second = self.num_envs * self.num_steps / iter_time
-            extra_fields.append((f"Steps/s {steps_per_second:,.0f}", "bold green"))
+            header_extra_fields.append((f"Steps/s {steps_per_second:,.0f}", "bold green"))
+        if extra_fields:
+            header_extra_fields.extend(extra_fields)
         return super()._build_compact_header(
             include_status=include_status,
-            extra_fields=extra_fields,
+            extra_fields=header_extra_fields,
         )
