@@ -6,9 +6,9 @@ import numpy as np
 
 from unilab.envs.locomotion.common.base import (
     BaseNoiseConfig,
-    ControlConfigBase,
     LocomotionBaseCfg,
     LocomotionBaseEnv,
+    PdControlConfig,
 )
 
 
@@ -18,9 +18,8 @@ class NoiseConfig(BaseNoiseConfig):
 
 
 @dataclass
-class ControlConfig(ControlConfigBase):
-    Kp: float = 35.0
-    Kd: float = 0.5
+class ControlConfig(PdControlConfig):
+    pass
 
 
 @dataclass

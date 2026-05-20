@@ -3,6 +3,7 @@ from .base import (
     ControlConfigBase,
     LocomotionBaseCfg,
     LocomotionBaseEnv,
+    PdControlConfig,
     Sensor,
 )
 from .commands import Commands, sample_velocity_commands
@@ -26,6 +27,7 @@ __all__ = [
     "LocomotionBaseCfg",
     "LocomotionBaseEnv",
     "LocomotionDRProvider",
+    "PdControlConfig",
     "RewardContext",
     "Sensor",
     "sample_velocity_commands",

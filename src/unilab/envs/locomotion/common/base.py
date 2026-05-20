@@ -26,6 +26,14 @@ class ControlConfigBase:
 
 
 @dataclass
+class PdControlConfig(ControlConfigBase):
+    """``ControlConfigBase`` plus shared PD-actuator gains (Go1/Go2/Go2W defaults)."""
+
+    Kp: float = 35.0
+    Kd: float = 0.5
+
+
+@dataclass
 class BaseNoiseConfig:
     level: float = 0.0
     scale_joint_angle: float = 0.03
