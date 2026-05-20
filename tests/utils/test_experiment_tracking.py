@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from rich.console import Console
 
 import unilab.logging.common as common_module
-import unilab.logging.offpolicy as offpolicy_module
 from unilab.logging import OffPolicyLogger, OnPolicyLogger
 from unilab.training.experiment import ExperimentTracker, build_wandb_settings
 
@@ -132,6 +132,42 @@ def test_offpolicy_training_terminal_refresh_uses_single_low_frequency_trigger(m
 
     logger.log_status("[red]ERROR: Collector died[/]")
     assert update_refresh_values == [True, True, True]
+
+    logger.close()
+
+
+def test_onpolicy_logger_uses_offpolicy_terminal_layout():
+    logger = OnPolicyLogger(
+        algo_name="MLX_PPO",
+        env_name="Go2JoystickFlat",
+        max_iterations=10,
+        num_envs=4,
+        num_steps=8,
+        log_backend="no_print",
+    )
+    logger.start()
+    logger.log_step(
+        iteration=1,
+        metrics={"surrogate": 0.1, "value_loss": 0.2},
+        reward=3.0,
+        collect_time=0.02,
+        train_time=0.03,
+    )
+    logger.update_ep_length(12.0)
+
+    console = Console(record=True, width=120)
+    console.print(logger._build_display())
+    output = console.export_text()
+
+    assert "Losses & Metrics" in output
+    assert "Learner" in output
+    assert "Collector" in output
+    assert "Train" in output
+    assert "Collect" in output
+    assert "Steps/s" in output
+    assert "Rollout Steps" not in output
+    assert "Steps/Env" not in output
+    assert "Policy Metrics" not in output
 
     logger.close()
 
@@ -421,7 +457,7 @@ def test_offpolicy_logger_omits_iteration_extra_fields_when_not_supplied(monkeyp
         log_backend="wandb",
     )
     logger._start_time = 1.0
-    monkeypatch.setattr(offpolicy_module.time, "time", lambda: 2.0)
+    monkeypatch.setattr(common_module.time, "time", lambda: 2.0)
     logger.log_collector(total_steps=8, buffer_size=8)
     logger.log_step(
         iteration=1,

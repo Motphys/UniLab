@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from collections import deque
 from typing import Any
 
@@ -12,7 +11,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from unilab.logging.common import BaseTrainingLogger, _fmt_number, _fmt_time, _load_wandb
+from unilab.logging.common import BaseTrainingLogger, _fmt_number, _load_wandb
 
 OFFPOLICY_COLLECTOR_TIMING_ORDER = {
     "weight_sync_ms": 0,
@@ -132,30 +131,14 @@ class OffPolicyLogger(BaseTrainingLogger):
         return self._learner_incremental_h2d_time + self._train_time + self._weight_sync_time
 
     def _build_compact_header(self, *, include_status: bool) -> Text:
-        elapsed = time.time() - self._start_time if self._start_time else 0
-        eta = self._estimate_eta()
         iter_steps_per_sec = self._get_iter_steps_per_sec()
-        fields: list[tuple[str, str]] = [
-            (f" {self.algo_name}", "bold cyan"),
-            (self.env_name, "bold white"),
-            (f"iter {self._iteration}/{self.max_iterations}", "yellow"),
-            (f"⏱ {_fmt_time(elapsed)}", "green"),
-        ]
-        if eta:
-            fields.append((f"ETA {eta}", "bold magenta"))
-        if self._mean_ep_length > 0:
-            fields.append((f"Ep Len {self._mean_ep_length:.1f}", "yellow"))
+        extra_fields: list[tuple[str, str]] = []
         if iter_steps_per_sec is not None:
-            fields.append((f"Steps/s {iter_steps_per_sec:,.0f}", "bold green"))
-        if include_status and self._status:
-            fields.append((self._status, "dim italic"))
-
-        header_text = Text(no_wrap=True, overflow="ellipsis")
-        for index, (text, style) in enumerate(fields):
-            if index > 0:
-                header_text.append(" | ", style="dim")
-            header_text.append(text, style=style)
-        return header_text
+            extra_fields.append((f"Steps/s {iter_steps_per_sec:,.0f}", "bold green"))
+        return super()._build_compact_header(
+            include_status=include_status,
+            extra_fields=extra_fields,
+        )
 
     def update_collector_timing(self, timing_ms: dict[str, float]):
         self._collector_timing.update(timing_ms)
