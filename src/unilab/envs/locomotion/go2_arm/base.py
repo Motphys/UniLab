@@ -116,7 +116,7 @@ class Go2ArmSensor(Sensor):
 
 @dataclass
 class Go2ArmBaseCfg(LocomotionBaseCfg):
-    noise_config: NoiseConfig = field(default_factory=NoiseConfig)
+    noise_config: NoiseConfig = field(default_factory=NoiseConfig)  # type: ignore[assignment]
     control_config: ControlConfig = field(default_factory=ControlConfig)  # type: ignore[assignment]
     ik: IKConfig = field(default_factory=IKConfig)
     asset: Asset = field(default_factory=Asset)

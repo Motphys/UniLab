@@ -1,4 +1,10 @@
-from .base import ControlConfigBase, LocomotionBaseCfg, LocomotionBaseEnv, Sensor
+from .base import (
+    BaseNoiseConfig,
+    ControlConfigBase,
+    LocomotionBaseCfg,
+    LocomotionBaseEnv,
+    Sensor,
+)
 from .commands import Commands, sample_velocity_commands
 from .domain_rand import DomainRandConfig
 from .dr_provider import LocomotionDRProvider
@@ -10,6 +16,7 @@ from .height_scan import (
 from .rewards import RewardContext
 
 __all__ = [
+    "BaseNoiseConfig",
     "Commands",
     "ControlConfigBase",
     "DEFAULT_SCAN_POINTS_X",

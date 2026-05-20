@@ -6,6 +6,7 @@ import gymnasium as gym
 import numpy as np
 
 from unilab.envs.locomotion.common.base import (
+    BaseNoiseConfig,
     ControlConfigBase,
     LocomotionBaseCfg,
     LocomotionBaseEnv,
@@ -55,13 +56,7 @@ DEFAULT_GO2W_ANGLES = np.concatenate(
 
 
 @dataclass
-class NoiseConfig:
-    level: float = 0.0
-    scale_joint_angle: float = 0.03
-    scale_joint_vel: float = 0.5
-    scale_gyro: float = 0.2
-    scale_gravity: float = 0.05
-    scale_linvel: float = 0.1
+class NoiseConfig(BaseNoiseConfig):
     scale_wheel_vel: float = 0.5
 
 
@@ -83,7 +78,7 @@ class Asset:
 
 @dataclass
 class Go2WBaseCfg(LocomotionBaseCfg):
-    noise_config: NoiseConfig = field(default_factory=NoiseConfig)
+    noise_config: NoiseConfig = field(default_factory=NoiseConfig)  # type: ignore[assignment]
     control_config: ControlConfig = field(default_factory=ControlConfig)  # type: ignore[assignment]
     asset: Asset = field(default_factory=Asset)
     sim_dt: float = 0.005
@@ -142,14 +137,6 @@ class Go2WBaseEnv(LocomotionBaseEnv):
     def _init_buffers(self) -> None:
         super()._init_buffers()
         self.default_angles = np.asarray(DEFAULT_GO2W_ANGLES, dtype=self.default_angles.dtype)
-
-    def _obs_noise(self, data: np.ndarray, scale: float) -> np.ndarray:
-        noise_cfg = self._cfg.noise_config
-        if noise_cfg.level <= 0.0:
-            return data
-        return data + (
-            np.random.uniform(-1.0, 1.0, data.shape).astype(data.dtype) * noise_cfg.level * scale
-        )
 
     def get_dof_pos(self) -> np.ndarray:
         return stack_joint_sensors(self._backend, "pos", dtype=self.default_angles.dtype)
