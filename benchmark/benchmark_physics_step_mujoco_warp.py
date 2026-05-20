@@ -79,7 +79,8 @@ DEFAULT_BATCH_SIZES = [2**k for k in range(8, 15)]  # 256 .. 16384
 DEFAULT_NJMAX_BY_TASK = {
     "go1_joystick_flat": 100,
     "go2_joystick_flat": 100,
-    "g1_walk_flat": 150,
+    "g1_walk_flat": 256,
+    "sharpa_inhand": 128,
 }
 
 
@@ -114,7 +115,7 @@ def _require_mujoco_warp() -> None:
 
 def _load_task_model(task_name: str) -> Any:
     cfg = locomotion_task_spec(task_name).config_cls()
-    return cast(Any, mujoco).MjModel.from_xml_path(cfg.model_file)
+    return cast(Any, mujoco).MjModel.from_xml_path(cfg.scene.model_file)
 
 
 def _task_njmax(task_name: str) -> int:

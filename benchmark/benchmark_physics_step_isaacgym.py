@@ -6,11 +6,13 @@ Benchmarks Isaac Gym across go1/go2/g1 locomotion robots and outputs JSON + plot
 aligned with benchmark/benchmark_physics_step_mj_step.py.
 
 Run without creating any new environment:
-    export UNILAB_ISAACGYM_DEPS_ROOT=/path/to/isaacgym-deps
-    export UNILAB_ISAACGYM_MODELS_ROOT=/path/to/robot-models
-    PYTHONPATH=$UNILAB_ISAACGYM_DEPS_ROOT/isaacgym/python \
-    LD_LIBRARY_PATH=$UNILAB_ISAACGYM_DEPS_ROOT/miniconda3/envs/hsgym/lib \
-    uv run --no-project $UNILAB_ISAACGYM_DEPS_ROOT/miniconda3/envs/hsgym/bin/python3.8 \
+    export UNILAB_BENCHMARK_HOLOSOMA_DEPS=/home/admin1/.holosoma_deps
+    export UNILAB_BENCHMARK_HSGYM_PYTHON=$UNILAB_BENCHMARK_HOLOSOMA_DEPS/miniconda3/envs/hsgym/bin/python3.8
+    export UNILAB_BENCHMARK_HSGYM_LIB=$UNILAB_BENCHMARK_HOLOSOMA_DEPS/miniconda3/envs/hsgym/lib
+    export UNILAB_BENCHMARK_MODELS_ROOT=/home/admin1/ws/models
+    PYTHONPATH=$UNILAB_BENCHMARK_HOLOSOMA_DEPS/isaacgym/python \
+    LD_LIBRARY_PATH=$UNILAB_BENCHMARK_HSGYM_LIB \
+    uv run --no-project $UNILAB_BENCHMARK_HSGYM_PYTHON \
         benchmark/benchmark_physics_step_isaacgym.py
 """
 
@@ -36,14 +38,40 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+# Machine-specific runtime paths. Each fallback below is the path on the original
+# benchmarking machine; override via environment variables when running elsewhere,
+# or edit the fallback strings directly if you prefer hard-coding for your machine.
+#   UNILAB_BENCHMARK_HOLOSOMA_DEPS   -> root of the holosoma deps tree (contains isaacgym/python)
+#   UNILAB_BENCHMARK_HSGYM_PYTHON    -> the python3.8 binary that ships with the hsgym conda env
+#   UNILAB_BENCHMARK_HSGYM_LIB       -> the hsgym conda env lib/ (LD_LIBRARY_PATH at launch)
+#   UNILAB_BENCHMARK_MODELS_ROOT     -> directory containing URDF model trees referenced by TASK_SPECS
+# Legacy UNILAB_ISAACGYM_* variables remain accepted as aliases for existing
+# local benchmark setups.
 DEFAULT_DEPS_ROOT = Path(
-    os.environ.get("UNILAB_ISAACGYM_DEPS_ROOT", "~/isaacgym-deps")
+    os.environ.get(
+        "UNILAB_BENCHMARK_HOLOSOMA_DEPS",
+        os.environ.get("UNILAB_ISAACGYM_DEPS_ROOT", "/home/admin1/.holosoma_deps"),
+    )
 ).expanduser()
 DEFAULT_ISAACGYM_PYTHON = DEFAULT_DEPS_ROOT / "isaacgym" / "python"
-DEFAULT_HSGYM_PYTHON = DEFAULT_DEPS_ROOT / "miniconda3" / "envs" / "hsgym" / "bin" / "python3.8"
-DEFAULT_HSGYM_LIB = DEFAULT_DEPS_ROOT / "miniconda3" / "envs" / "hsgym" / "lib"
+DEFAULT_HSGYM_PYTHON = Path(
+    os.environ.get(
+        "UNILAB_BENCHMARK_HSGYM_PYTHON",
+        DEFAULT_DEPS_ROOT / "miniconda3" / "envs" / "hsgym" / "bin" / "python3.8",
+    )
+).expanduser()
+DEFAULT_HSGYM_LIB = Path(
+    os.environ.get(
+        "UNILAB_BENCHMARK_HSGYM_LIB",
+        DEFAULT_DEPS_ROOT / "miniconda3" / "envs" / "hsgym" / "lib",
+    )
+).expanduser()
 DEFAULT_MODELS_ROOT = Path(
-    os.environ.get("UNILAB_ISAACGYM_MODELS_ROOT", "~/robot-models")
+    os.environ.get(
+        "UNILAB_BENCHMARK_MODELS_ROOT",
+        os.environ.get("UNILAB_ISAACGYM_MODELS_ROOT", "/home/admin1/ws/models"),
+    )
 ).expanduser()
 
 if str(DEFAULT_ISAACGYM_PYTHON) not in sys.path:
@@ -100,20 +128,32 @@ TASK_SPECS = {
         asset_file="g1_description/g1_29dof_rev_1_0.urdf",
         initial_height=0.78,
     ),
+    "sharpa_inhand": TaskSpec(
+        owner_task_id="sharpa_inhand",
+        display_name="sharpa_inhand",
+        asset_root=DEFAULT_MODELS_ROOT,
+        asset_file="right_sharpa_wave/right_sharpa_wave.urdf",
+        initial_height=0.30,
+    ),
 }
 TASK_ALIASES = {
     "Go1JoystickFlat": "go1_joystick_flat",
     "Go2JoystickFlat": "go2_joystick_flat",
     "G1WalkFlat": "g1_walk_flat",
+    "SharpaInhandRotation": "sharpa_inhand",
     "task=go1_joystick_flat/isaacgym": "go1_joystick_flat",
     "task=go2_joystick_flat/isaacgym": "go2_joystick_flat",
     "task=g1_walk_flat/isaacgym": "g1_walk_flat",
+    "task=sharpa_inhand/isaacgym": "sharpa_inhand",
     "go1_joystick_flat/isaacgym": "go1_joystick_flat",
     "go2_joystick_flat/isaacgym": "go2_joystick_flat",
     "g1_walk_flat/isaacgym": "g1_walk_flat",
+    "sharpa_inhand/isaacgym": "sharpa_inhand",
     "go1": "go1_joystick_flat",
     "go2": "go2_joystick_flat",
     "g1": "g1_walk_flat",
+    "sharpa": "sharpa_inhand",
+    "sharpahand": "sharpa_inhand",
 }
 DEFAULT_TASK_IDS = list(TASK_SPECS.keys())
 DEFAULT_BATCH_SIZES = [2**k for k in range(8, 15)]  # 256 .. 16384
@@ -162,7 +202,8 @@ def _require_isaacgym() -> None:
     raise RuntimeError(
         "Isaac Gym is unavailable in the current runtime.\n"
         f"Import detail: {detail}\n"
-        "Set UNILAB_ISAACGYM_DEPS_ROOT to your Isaac Gym runtime, then run:\n"
+        "Set UNILAB_BENCHMARK_HOLOSOMA_DEPS / UNILAB_BENCHMARK_HSGYM_* "
+        "for your Isaac Gym runtime, then run:\n"
         f"  {_runtime_hint()}"
     )
 
@@ -227,6 +268,7 @@ def _build_task_sim(
     nthread: int,
     compute_device_id: int,
     graphics_device_id: int,
+    models_root: Path,
 ):
     spec = _task_spec(task_name)
     gym, sim = _create_sim(compute_device_id, graphics_device_id, nthread)
@@ -241,7 +283,7 @@ def _build_task_sim(
     asset_options.armature = 0.01
     asset_options.default_dof_drive_mode = int(gymapi_mod.DOF_MODE_POS)
 
-    asset = gym.load_asset(sim, str(spec.asset_root), spec.asset_file, asset_options)
+    asset = gym.load_asset(sim, str(models_root), spec.asset_file, asset_options)
     dof_props = gym.get_asset_dof_properties(asset)
     dof_props["driveMode"][:].fill(gymapi_mod.DOF_MODE_POS)
     dof_props["stiffness"][:].fill(1000.0)
@@ -269,6 +311,8 @@ def _build_task_sim(
 
 
 def _run_sim(gym, sim, nstep: int, niter: int) -> float:
+    if niter <= 0:
+        return 0.0
     t0 = time.perf_counter()
     for _ in range(niter):
         for _ in range(nstep):
@@ -286,6 +330,7 @@ def _bench_one_task(
     iters: int,
     compute_device_id: int,
     graphics_device_id: int,
+    models_root: Path,
 ) -> List[BenchRecord]:
     task_key = _normalize_task_name(task_name)
     records: List[BenchRecord] = []
@@ -297,6 +342,7 @@ def _bench_one_task(
             nthread=nthread,
             compute_device_id=compute_device_id,
             graphics_device_id=graphics_device_id,
+            models_root=models_root,
         )
         try:
             _run_sim(gym, sim, nstep=nstep, niter=warmup)
@@ -399,6 +445,12 @@ def main():
     parser.add_argument("--iters", type=int, default=3)
     parser.add_argument("--compute-device-id", type=int, default=0)
     parser.add_argument("--graphics-device-id", type=int, default=-1)
+    parser.add_argument(
+        "--models-root",
+        type=str,
+        default=str(DEFAULT_MODELS_ROOT),
+        help="Root containing go1_description/go2_description/g1_description/sharpa_wave URDFs",
+    )
     parser.add_argument("--tasks", type=str, default=",".join(DEFAULT_TASK_IDS))
     parser.add_argument(
         "--batch-sizes", type=str, default=",".join(str(x) for x in DEFAULT_BATCH_SIZES)
@@ -420,11 +472,14 @@ def main():
 
     task_names = [_normalize_task_name(x) for x in args.tasks.split(",") if x.strip()]
     batch_sizes = [int(x.strip()) for x in args.batch_sizes.split(",") if x.strip()]
+    models_root = Path(args.models_root).expanduser().resolve()
+    if not models_root.is_dir():
+        raise NotADirectoryError(f"--models-root is not a directory: {models_root}")
 
     print("Isaac Gym backend available")
     print(f"Tasks: {task_names}")
     print(f"Batch sizes: {batch_sizes}")
-    print(f"Model root: {DEFAULT_MODELS_ROOT}")
+    print(f"Model root: {models_root}")
 
     records: List[BenchRecord] = []
     for task_name in task_names:
@@ -438,6 +493,7 @@ def main():
                 iters=args.iters,
                 compute_device_id=args.compute_device_id,
                 graphics_device_id=args.graphics_device_id,
+                models_root=models_root,
             )
         )
 
@@ -456,7 +512,7 @@ def main():
             "compute_device_id": args.compute_device_id,
             "graphics_device_id": args.graphics_device_id,
             "backends": sorted({r.backend for r in records}),
-            "models_root": str(DEFAULT_MODELS_ROOT),
+            "models_root": str(models_root),
             "asset_files": {task: _task_spec(task).asset_file for task in task_names},
             "isaacgym_python_path": str(DEFAULT_ISAACGYM_PYTHON),
             "hsgym_python": str(DEFAULT_HSGYM_PYTHON),
