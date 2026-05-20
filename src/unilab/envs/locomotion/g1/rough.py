@@ -58,8 +58,6 @@ from unilab.terrains import (
 
 # pyright: reportIncompatibleVariableOverride=false, reportAttributeAccessIssue=false, reportCallIssue=false
 
-G1_HEIGHT_SCAN_SCALE = 5.0
-
 # Joint indices on the 29-DoF G1, derived from the joint order in g1.xml.
 # 0..5: left leg, 6..11: right leg, 12..14: waist, 15..21: left arm, 22..28: right arm.
 G1_LEG_HIP_INDICES = np.asarray([1, 2, 7, 8], dtype=np.int32)  # hip_roll + hip_yaw on each leg
@@ -71,11 +69,6 @@ G1_ARM_INDICES = np.asarray(
 G1_WAIST_INDICES = np.asarray([12], dtype=np.int32)
 G1_LEG_INDICES = np.asarray([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], dtype=np.int32)
 G1_HIP_KNEE_INDICES = np.asarray([0, 1, 2, 3, 6, 7, 8, 9], dtype=np.int32)
-
-
-@dataclass
-class TerrainScanConfig(HeightScanConfig):
-    scale: float = G1_HEIGHT_SCAN_SCALE
 
 
 @dataclass
@@ -168,7 +161,7 @@ class G1JoystickRoughCfg(G1WalkEnvCfg):
         )
     )
     reward_config: G1JoystickRoughRewardConfig | None = None
-    terrain_scan: TerrainScanConfig = field(default_factory=TerrainScanConfig)
+    terrain_scan: HeightScanConfig = field(default_factory=HeightScanConfig)
     termination_config: RoughTerminationConfig = field(default_factory=RoughTerminationConfig)
     terrain_curriculum: TerrainCurriculumCfg = field(default_factory=TerrainCurriculumCfg)
 

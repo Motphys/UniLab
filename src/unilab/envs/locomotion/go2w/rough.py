@@ -48,18 +48,6 @@ from unilab.envs.locomotion.go2w.joystick import (
 # pyright: reportIncompatibleVariableOverride=false, reportAttributeAccessIssue=false, reportCallIssue=false
 
 
-GO2W_HEIGHT_SCAN_SCALE = 5.0
-
-
-@dataclass
-class TerrainScanConfig(HeightScanConfig):
-    """Backward-compatible alias used by Go2W rough yaml configs."""
-
-    hfield_name: str = "terrain_hfield"
-    geom_name: str = "floor"
-    scale: float = GO2W_HEIGHT_SCAN_SCALE
-
-
 @dataclass
 class Go2WRoughCommands(Commands):
     vel_limit: list[list[float]] = field(
@@ -86,7 +74,7 @@ class Go2WJoystickRoughCfg(Go2WJoystickCfg):
         )
     )
     commands: Go2WRoughCommands = field(default_factory=Go2WRoughCommands)
-    terrain_scan: TerrainScanConfig = field(default_factory=TerrainScanConfig)
+    terrain_scan: HeightScanConfig = field(default_factory=HeightScanConfig)
     termination_config: RoughTerminationConfig = field(default_factory=RoughTerminationConfig)
     terrain_curriculum: TerrainCurriculumCfg = field(default_factory=TerrainCurriculumCfg)
 

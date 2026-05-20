@@ -62,17 +62,11 @@ from unilab.terrains import (
 # pyright: reportIncompatibleVariableOverride=false, reportAttributeAccessIssue=false, reportCallIssue=false
 
 
-GO1_HEIGHT_SCAN_SCALE = 5.0
 GO1_HIP_INDICES = np.asarray([0, 3, 6, 9], dtype=np.int32)
 GO1_FRONT_LEFT = 0
 GO1_FRONT_RIGHT = 1
 GO1_REAR_LEFT = 2
 GO1_REAR_RIGHT = 3
-
-
-@dataclass
-class TerrainScanConfig(HeightScanConfig):
-    scale: float = GO1_HEIGHT_SCAN_SCALE
 
 
 @dataclass
@@ -221,7 +215,7 @@ class Go1JoystickRoughCfg(Go1JoystickCfg):
     )
     control_config: RoughControlConfig = field(default_factory=RoughControlConfig)
     commands: RoughCommands = field(default_factory=RoughCommands)
-    terrain_scan: TerrainScanConfig = field(default_factory=TerrainScanConfig)
+    terrain_scan: HeightScanConfig = field(default_factory=HeightScanConfig)
     termination_config: RoughTerminationConfig = field(default_factory=RoughTerminationConfig)
     terrain_curriculum: TerrainCurriculumCfg = field(default_factory=TerrainCurriculumCfg)
     sensor: RoughJoystickSensor = field(default_factory=RoughJoystickSensor)
