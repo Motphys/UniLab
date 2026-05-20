@@ -1,10 +1,9 @@
 # @package _global_
 training:
-  task_name: Go2JoystickRough
-  sim_backend: mujoco
+  task_name: Go1JoystickRough
+  sim_backend: motrix
   play_steps: 500
   play_env_num: 16
-  render_spacing: 0.0
   cam_tracking: true
   cam_tracking_env_idx: 0
   cam_tracking_extra_envs: 9
@@ -18,7 +17,7 @@ interactive:
 algo:
   num_envs: 4096
   num_steps_per_env: 24
-  max_iterations: 1000
+  max_iterations: 600
   empirical_normalization: false
   obs_groups:
     actor:
@@ -30,8 +29,9 @@ algo:
   algorithm:
     learning_rate: 1.0e-3
     entropy_coef: 1.0e-2
-    
+
 env:
+  render_offset_mode: zero
   control_config:
     action_scale: 0.25
     hip_action_scale: 0.125
@@ -45,9 +45,9 @@ env:
   terrain_curriculum:
     enabled: false
   scene:
-    model_file: src/unilab/assets/robots/go2/go2.xml
+    model_file: src/unilab/assets/robots/go1/go1.xml
     fragment_files:
-      - src/unilab/assets/robots/go2/locomotion_task.xml
+      - src/unilab/assets/robots/go1/locomotion_task.xml
     terrain:
       hfield_name: terrain_hfield
       geom_name: floor

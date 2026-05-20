@@ -252,6 +252,7 @@ _ATTACH_PREFIXED_ATTRS = {
     "hfield",
     "hfieldname",
     "actuator",
+    "target",
 }
 
 
@@ -320,10 +321,19 @@ def _ensure_generated_hfield_scene_visuals(root: ET.Element, geom_name: str) -> 
     terrain_geom = root.find(f".//geom[@name='{geom_name}']")
     if terrain_geom is not None and terrain_geom.get("material") is None:
         terrain_geom.set("material", "groundplane")
-    for light in root.findall(".//light"):
-        light.set("directional", "true")
-        light.set("castshadow", "true")
-        light.set("dir", "-0.35 -0.45 -1")
+    # Robot models sometimes ship with a spot- or target-mode light (e.g. G1's
+    # ``spotlight`` tracking the trunk). Such lights have an implicit
+    # ``type`` and cannot coexist with ``directional="true"``. Drop them; the
+    # overhead light added by the materializer plus the headlight under
+    # ``visual`` is sufficient for terrain visualization.
+    for parent in root.iter():
+        for light in list(parent.findall("light")):
+            if light.get("mode") or light.get("target") or light.get("type"):
+                parent.remove(light)
+                continue
+            light.set("directional", "true")
+            light.set("castshadow", "true")
+            light.set("dir", "-0.35 -0.45 -1")
 
 
 def _merge_scene_fragment(root: ET.Element, fragment_file: Path) -> None:
@@ -352,9 +362,38 @@ def _resolve_scene_fragment_path(fragment_file: str, model_file: Path) -> Path:
 
 
 def _copy_robot_asset_dir(model_file: Path, output_dir: Path) -> None:
-    assets_src = model_file.parent / "assets"
-    if assets_src.is_dir():
-        shutil.copytree(assets_src, output_dir / "assets", dirs_exist_ok=True)
+    """Copy the robot's mesh / texture assets next to the output scene.
+
+    Honors the ``meshdir`` (and ``texturedir``) declared in the model's
+    ``<compiler>`` tag — falling back to ``<model_file_dir>/assets`` when
+    the compiler tag is missing or points at a non-existent path. This
+    keeps materialization working for models like ``go2w.xml`` whose
+    meshdir is relative to a sibling robot directory.
+    """
+    candidates: list[Path] = []
+    try:
+        root = ET.parse(model_file).getroot()
+    except (ET.ParseError, OSError):
+        root = None
+    if root is not None:
+        compiler = root.find("compiler")
+        if compiler is not None:
+            for attr in ("meshdir", "texturedir"):
+                value = compiler.get(attr)
+                if not value:
+                    continue
+                path = Path(value)
+                if not path.is_absolute():
+                    path = (model_file.parent / path).resolve()
+                if path.is_dir() and path not in candidates:
+                    candidates.append(path)
+
+    fallback = model_file.parent / "assets"
+    if fallback.is_dir() and fallback not in candidates:
+        candidates.append(fallback)
+
+    for src in candidates:
+        shutil.copytree(src, output_dir / "assets", dirs_exist_ok=True)
 
 
 def _collect_mujoco_assets(asset_dir: Path) -> dict[str, bytes]:

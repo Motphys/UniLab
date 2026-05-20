@@ -1,3 +1,5 @@
+"""Go1 joystick rough-terrain task."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -19,13 +21,13 @@ from unilab.envs.common.rotation import (
 )
 from unilab.envs.locomotion.common import rewards
 from unilab.envs.locomotion.common.commands import (
+    Commands,
     apply_heading_yaw_feedback,
     sample_heading_commands,
     zero_small_xy_commands,
 )
+from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
 from unilab.envs.locomotion.common.height_scan import (
-    DEFAULT_SCAN_POINTS_X,
-    DEFAULT_SCAN_POINTS_Y,
     HeightScanConfig,
     base_height_from_scan,
     height_scan_obs,
@@ -34,12 +36,14 @@ from unilab.envs.locomotion.common.height_scan import (
     terrain_out_of_bounds,
 )
 from unilab.envs.locomotion.common.rewards import RewardContext
-from unilab.envs.locomotion.go2.base import ControlConfig
-from unilab.envs.locomotion.go2.joystick import (
-    Commands,
-    Go2JoystickCfg,
-    Go2JoystickDomainRandomizationProvider,
-    Go2WalkTask,
+from unilab.envs.locomotion.common.terrain_spawn import (
+    TerrainCurriculumCfg,
+)
+from unilab.envs.locomotion.go1.base import ControlConfig
+from unilab.envs.locomotion.go1.joystick import (
+    Go1JoystickCfg,
+    Go1JoystickDomainRandomizationProvider,
+    Go1WalkTask,
     JoystickSensor,
     RewardConfig,
 )
@@ -57,11 +61,12 @@ from unilab.terrains import (
 
 # pyright: reportIncompatibleVariableOverride=false, reportAttributeAccessIssue=false, reportCallIssue=false
 
-GO2_HIP_INDICES = np.asarray([0, 3, 6, 9], dtype=np.int32)
-GO2_FRONT_LEFT = 0
-GO2_FRONT_RIGHT = 1
-GO2_REAR_LEFT = 2
-GO2_REAR_RIGHT = 3
+
+GO1_HIP_INDICES = np.asarray([0, 3, 6, 9], dtype=np.int32)
+GO1_FRONT_LEFT = 0
+GO1_FRONT_RIGHT = 1
+GO1_REAR_LEFT = 2
+GO1_REAR_RIGHT = 3
 
 
 @dataclass
@@ -69,6 +74,14 @@ class RoughControlConfig(ControlConfig):
     hip_action_scale: float = 0.125
     non_hip_action_scale: float = 0.25
     clip_actions: float = 100.0
+
+
+@dataclass
+class Go1RoughDomainRandConfig(DomainRandConfig):
+    randomize_kp: bool = True
+    kp_multiplier_range: list[float] = field(default_factory=lambda: [0.9, 1.1])
+    randomize_kd: bool = True
+    kd_multiplier_range: list[float] = field(default_factory=lambda: [0.9, 1.1])
 
 
 @dataclass
@@ -92,7 +105,7 @@ class RoughRewardConfig(RewardConfig):
     feet_air_time_threshold: float = 0.5
     feet_height_body_target: float = -0.2
     feet_height_body_tanh_mult: float = 2.0
-    feet_gait_std: float = np.sqrt(0.5)
+    feet_gait_std: float = float(np.sqrt(0.5))
     feet_gait_max_err: float = 0.2
     feet_gait_velocity_threshold: float = 0.5
     feet_gait_command_threshold: float = 0.1
@@ -131,7 +144,7 @@ class RoughTerminationConfig:
 
 
 @dataclass(kw_only=True)
-class Go2RoughTerrainCfg(TerrainGeneratorCfg):
+class Go1RoughTerrainCfg(TerrainGeneratorCfg):
     size: tuple[float, float] = (8.0, 8.0)
     num_rows: int = 6
     num_cols: int = 6
@@ -184,17 +197,17 @@ class Go2RoughTerrainCfg(TerrainGeneratorCfg):
     )
 
 
-@registry.envcfg("Go2JoystickRough")
+@registry.envcfg("Go1JoystickRough")
 @dataclass
-class Go2JoystickRoughCfg(Go2JoystickCfg):
+class Go1JoystickRoughCfg(Go1JoystickCfg):
     scene: SceneCfg = field(
         default_factory=lambda: SceneCfg(
-            model_file=str(ASSETS_ROOT_PATH / "robots" / "go2" / "go2.xml"),
+            model_file=str(ASSETS_ROOT_PATH / "robots" / "go1" / "go1.xml"),
             fragment_files=[
-                str(ASSETS_ROOT_PATH / "robots" / "go2" / "locomotion_task.xml"),
+                str(ASSETS_ROOT_PATH / "robots" / "go1" / "locomotion_task.xml"),
             ],
             terrain=TerrainSceneCfg(
-                generator=Go2RoughTerrainCfg(),
+                generator=Go1RoughTerrainCfg(),
                 hfield_name="terrain_hfield",
                 geom_name="floor",
             ),
@@ -204,11 +217,13 @@ class Go2JoystickRoughCfg(Go2JoystickCfg):
     commands: RoughCommands = field(default_factory=RoughCommands)
     terrain_scan: HeightScanConfig = field(default_factory=HeightScanConfig)
     termination_config: RoughTerminationConfig = field(default_factory=RoughTerminationConfig)
+    terrain_curriculum: TerrainCurriculumCfg = field(default_factory=TerrainCurriculumCfg)
     sensor: RoughJoystickSensor = field(default_factory=RoughJoystickSensor)
+    domain_rand: Go1RoughDomainRandConfig = field(default_factory=Go1RoughDomainRandConfig)
     reward_config: RoughRewardConfig | None = None
 
 
-class Go2JoystickRoughDomainRandomizationProvider(Go2JoystickDomainRandomizationProvider):
+class Go1JoystickRoughDomainRandomizationProvider(Go1JoystickDomainRandomizationProvider):
     def _sample_commands(self, env: Any, num_reset: int) -> np.ndarray:
         commands = super()._sample_commands(env, num_reset)
         zero_small_xy_commands(commands, threshold=0.001)
@@ -221,7 +236,7 @@ class Go2JoystickRoughDomainRandomizationProvider(Go2JoystickDomainRandomization
         qpos = np.tile(env._init_qpos, (num_reset, 1))
         qvel = np.tile(env._init_qvel, (num_reset, 1))
         qpos[:, 0:2] += np.random.uniform(-0.5, 0.5, (num_reset, 2))
-        qpos[:, 2] += np.random.uniform(0.1, 0.3, (num_reset,))
+        qpos[:, 2] += np.random.uniform(0.25, 0.5, (num_reset,))
         qpos[:, 0:3] += env._spawn.origins_for(env_ids)
         roll = np.random.uniform(-3.14, 3.14, (num_reset,))
         pitch = np.random.uniform(-3.14, 3.14, (num_reset,))
@@ -250,32 +265,33 @@ class Go2JoystickRoughDomainRandomizationProvider(Go2JoystickDomainRandomization
         )
 
 
-@registry.env("Go2JoystickRough", sim_backend="mujoco")
-class Go2JoystickRoughEnv(Go2WalkTask):
-    _cfg: Go2JoystickRoughCfg
+@registry.env("Go1JoystickRough", sim_backend="mujoco")
+class Go1JoystickRoughEnv(Go1WalkTask):
+    _cfg: Go1JoystickRoughCfg
     _reward_cfg: RoughRewardConfig
+    _height_scan_dim: int = 0
 
-    def __init__(self, cfg: Go2JoystickRoughCfg, num_envs=1, backend_type="mujoco"):
-        self._height_scan_dim = len(cfg.terrain_scan.measured_points_x) * len(
-            cfg.terrain_scan.measured_points_y
-        )
+    def __init__(self, cfg: Go1JoystickRoughCfg, num_envs=1, backend_type="mujoco"):
         super().__init__(cfg, num_envs=num_envs, backend_type=backend_type)
         self._dr_manager = DomainRandomizationManager(
-            self, Go2JoystickRoughDomainRandomizationProvider()
+            self, Go1JoystickRoughDomainRandomizationProvider()
         )
+
         self._last_dof_vel_for_acc = np.zeros(
             (num_envs, self._num_action), dtype=get_global_dtype()
         )
+        joint_range = self._backend.get_joint_range()
+        self._joint_range = (
+            np.asarray(joint_range, dtype=get_global_dtype()) if joint_range is not None else None
+        )
+
         self._action_scale = np.full(
             (self._num_action,),
             float(cfg.control_config.non_hip_action_scale),
             dtype=get_global_dtype(),
         )
-        self._action_scale[GO2_HIP_INDICES] = float(cfg.control_config.hip_action_scale)
-        joint_range = self._backend.get_joint_range()
-        self._joint_range = (
-            np.asarray(joint_range, dtype=get_global_dtype()) if joint_range is not None else None
-        )
+        self._action_scale[GO1_HIP_INDICES] = float(cfg.control_config.hip_action_scale)
+
         self.feet_vel = np.zeros((num_envs, len(cfg.sensor.feet_vel), 3), dtype=np.float32)
         self._last_foot_contact = np.zeros((num_envs, len(cfg.sensor.feet_force)), dtype=bool)
         self._current_air_time = np.zeros((num_envs, len(cfg.sensor.feet_force)), dtype=np.float32)
@@ -285,10 +301,12 @@ class Go2JoystickRoughEnv(Go2WalkTask):
         self._last_air_time = np.zeros((num_envs, len(cfg.sensor.feet_force)), dtype=np.float32)
         self._last_contact_time = np.zeros((num_envs, len(cfg.sensor.feet_force)), dtype=np.float32)
         self._first_foot_contact = np.zeros((num_envs, len(cfg.sensor.feet_force)), dtype=bool)
+
         init_height_scan_sensor(self, cfg.terrain_scan, cfg.asset.base_name)
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:
+        # Match the rough format: policy obs = 45, critic = 48 + height_scan.
         return {"obs": 45, "critic": 48 + self._height_scan_dim}
 
     def reset(self, env_indices: np.ndarray) -> tuple[dict[str, np.ndarray], dict]:
@@ -300,13 +318,15 @@ class Go2JoystickRoughEnv(Go2WalkTask):
         self._reset_contact_timers(env_ids)
         return obs, info
 
+    def _upright_scale(self, gravity: np.ndarray | None) -> np.ndarray:
+        return rewards.upright_scale(gravity, self._num_envs)
+
     def _init_reward_functions(self):
-        scale_gravity = self._upright_scale  # local alias for lambda capture
+        scale_gravity = self._upright_scale
 
         def gated(fn):
             return lambda ctx: fn(ctx) * scale_gravity(ctx.gravity)
 
-        # joint_pos_penalty needs its three thresholds from the reward config
         def _joint_pos_penalty(ctx: RewardContext) -> np.ndarray:
             cfg = self._reward_cfg
             return rewards.joint_pos_penalty(
@@ -350,7 +370,7 @@ class Go2JoystickRoughEnv(Go2WalkTask):
         }
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
-        clipped_actions = np.asarray(
+        clipped = np.asarray(
             np.clip(
                 actions,
                 -float(self._cfg.control_config.clip_actions),
@@ -358,14 +378,12 @@ class Go2JoystickRoughEnv(Go2WalkTask):
             ),
             dtype=get_global_dtype(),
         )
-        state.info["last_actions"] = state.info.get(
-            "current_actions", np.zeros_like(clipped_actions)
-        )
-        state.info["current_actions"] = clipped_actions
+        state.info["last_actions"] = state.info.get("current_actions", np.zeros_like(clipped))
+        state.info["current_actions"] = clipped
         exec_actions = (
             state.info["last_actions"]
             if self._cfg.control_config.simulate_action_latency
-            else clipped_actions
+            else clipped
         )
         return np.asarray(
             exec_actions * self._action_scale + self.default_angles, dtype=get_global_dtype()
@@ -384,6 +402,7 @@ class Go2JoystickRoughEnv(Go2WalkTask):
         gravity = self._backend.get_sensor_data("upvector")
         dof_pos = self.get_dof_pos()
         dof_vel = self.get_dof_vel()
+
         self.feet_force[:, :, :] = 0
         for i in range(len(self._cfg.sensor.feet_force)):
             self.feet_force[:, i, :] = self._backend.get_sensor_data(self._cfg.sensor.feet_force[i])
@@ -391,15 +410,18 @@ class Go2JoystickRoughEnv(Go2WalkTask):
             self.feet_pos[:, i, :] = self._backend.get_sensor_data(self._cfg.sensor.feet_pos[i])
         for i in range(len(self._cfg.sensor.feet_vel)):
             self.feet_vel[:, i, :] = self._backend.get_sensor_data(self._cfg.sensor.feet_vel[i])
+
         self._update_contact_timers(self._foot_contact_mask())
         state.info["qacc"] = self._estimate_dof_acc(dof_vel)
         state.info["torques"] = self._estimate_pd_torques(state.info, dof_pos, dof_vel)
+
         terminated = self._compute_terminated(gravity)
         reward = self._compute_rough_reward(state.info, linvel, gyro, gravity, dof_pos, dof_vel)
         obs = self._compute_obs(
             state.info, linvel, gyro, gravity, dof_pos, dof_vel, self.feet_phase
         )
         state = state.replace(obs=obs, reward=reward, terminated=terminated)
+
         done = state.terminated | state.truncated
         if np.any(done):
             done_indices = np.where(done)[0]
@@ -483,7 +505,6 @@ class Go2JoystickRoughEnv(Go2WalkTask):
         )
 
     def _compute_terminated(self, gravity: np.ndarray) -> np.ndarray:
-        # return gravity[:, 2] <= 0.5
         del gravity
         return np.zeros((self._num_envs,), dtype=bool)
 
@@ -590,13 +611,26 @@ class Go2JoystickRoughEnv(Go2WalkTask):
         self._current_contact_time[contact] += self._cfg.ctrl_dt
         self._last_foot_contact[:] = contact
 
-    def _upright_scale(self, gravity: np.ndarray | None) -> np.ndarray:
-        return rewards.upright_scale(gravity, self._num_envs)
+    def _relative_foot_vel_body(self) -> np.ndarray:
+        base_quat = np.asarray(self._backend.get_base_quat(), dtype=get_global_dtype())
+        base_linvel = np.asarray(
+            self._backend.get_sensor_data("global_linvel"), dtype=get_global_dtype()
+        )
+        relative_vel = self.feet_vel - base_linvel[:, None, :]
+        flat = relative_vel.reshape(self._num_envs * relative_vel.shape[1], 3)
+        quat = np.repeat(base_quat, relative_vel.shape[1], axis=0)
+        return np_quat_apply_inverse(quat, flat).reshape(relative_vel.shape)
 
-    # ── reward functions that need backend / env state (kept as methods) ────
+    def _relative_foot_pos_body(self) -> np.ndarray:
+        base_quat = np.asarray(self._backend.get_base_quat(), dtype=get_global_dtype())
+        base_pos = np.asarray(self._backend.get_base_pos(), dtype=get_global_dtype())
+        relative_pos = self.feet_pos - base_pos[:, None, :]
+        flat = relative_pos.reshape(self._num_envs * relative_pos.shape[1], 3)
+        quat = np.repeat(base_quat, relative_pos.shape[1], axis=0)
+        return np_quat_apply_inverse(quat, flat).reshape(relative_pos.shape)
 
     def _reward_hip_pos(self, ctx: RewardContext) -> np.ndarray:
-        diff = ctx.dof_pos[:, GO2_HIP_INDICES] - self.default_angles[GO2_HIP_INDICES]
+        diff = ctx.dof_pos[:, GO1_HIP_INDICES] - self.default_angles[GO1_HIP_INDICES]
         return np.asarray(
             np.sum(np.square(diff), axis=1) * self._upright_scale(ctx.gravity),
             dtype=get_global_dtype(),
@@ -628,7 +662,8 @@ class Go2JoystickRoughEnv(Go2WalkTask):
         force_norm = np.linalg.norm(self.feet_force, axis=2)
         violation = np.clip(force_norm - self._reward_cfg.contact_forces_threshold, 0.0, None)
         return np.asarray(
-            np.sum(violation, axis=1) * self._upright_scale(ctx.gravity), dtype=get_global_dtype()
+            np.sum(violation, axis=1) * self._upright_scale(ctx.gravity),
+            dtype=get_global_dtype(),
         )
 
     def _reward_feet_air_time(self, ctx: RewardContext) -> np.ndarray:
@@ -655,24 +690,6 @@ class Go2JoystickRoughEnv(Go2WalkTask):
         return np.asarray(
             reward * stopped * self._upright_scale(ctx.gravity), dtype=get_global_dtype()
         )
-
-    def _relative_foot_vel_body(self) -> np.ndarray:
-        base_quat = np.asarray(self._backend.get_base_quat(), dtype=get_global_dtype())
-        base_linvel = np.asarray(
-            self._backend.get_sensor_data("global_linvel"), dtype=get_global_dtype()
-        )
-        relative_vel = self.feet_vel - base_linvel[:, None, :]
-        flat = relative_vel.reshape(self._num_envs * relative_vel.shape[1], 3)
-        quat = np.repeat(base_quat, relative_vel.shape[1], axis=0)
-        return np_quat_apply_inverse(quat, flat).reshape(relative_vel.shape)
-
-    def _relative_foot_pos_body(self) -> np.ndarray:
-        base_quat = np.asarray(self._backend.get_base_quat(), dtype=get_global_dtype())
-        base_pos = np.asarray(self._backend.get_base_pos(), dtype=get_global_dtype())
-        relative_pos = self.feet_pos - base_pos[:, None, :]
-        flat = relative_pos.reshape(self._num_envs * relative_pos.shape[1], 3)
-        quat = np.repeat(base_quat, relative_pos.shape[1], axis=0)
-        return np_quat_apply_inverse(quat, flat).reshape(relative_pos.shape)
 
     def _reward_feet_slide(self, ctx: RewardContext) -> np.ndarray:
         foot_vel_body = self._relative_foot_vel_body()
@@ -704,22 +721,22 @@ class Go2JoystickRoughEnv(Go2WalkTask):
         air = self._current_air_time
         contact = self._current_contact_time
         sync_fl_rr = _gait_sync_reward(
-            air, contact, GO2_FRONT_LEFT, GO2_REAR_RIGHT, cfg.feet_gait_std, cfg.feet_gait_max_err
+            air, contact, GO1_FRONT_LEFT, GO1_REAR_RIGHT, cfg.feet_gait_std, cfg.feet_gait_max_err
         )
         sync_fr_rl = _gait_sync_reward(
-            air, contact, GO2_FRONT_RIGHT, GO2_REAR_LEFT, cfg.feet_gait_std, cfg.feet_gait_max_err
+            air, contact, GO1_FRONT_RIGHT, GO1_REAR_LEFT, cfg.feet_gait_std, cfg.feet_gait_max_err
         )
         async_fl_fr = _gait_async_reward(
-            air, contact, GO2_FRONT_LEFT, GO2_FRONT_RIGHT, cfg.feet_gait_std, cfg.feet_gait_max_err
+            air, contact, GO1_FRONT_LEFT, GO1_FRONT_RIGHT, cfg.feet_gait_std, cfg.feet_gait_max_err
         )
         async_rr_rl = _gait_async_reward(
-            air, contact, GO2_REAR_RIGHT, GO2_REAR_LEFT, cfg.feet_gait_std, cfg.feet_gait_max_err
+            air, contact, GO1_REAR_RIGHT, GO1_REAR_LEFT, cfg.feet_gait_std, cfg.feet_gait_max_err
         )
         async_fl_rl = _gait_async_reward(
-            air, contact, GO2_FRONT_LEFT, GO2_REAR_LEFT, cfg.feet_gait_std, cfg.feet_gait_max_err
+            air, contact, GO1_FRONT_LEFT, GO1_REAR_LEFT, cfg.feet_gait_std, cfg.feet_gait_max_err
         )
         async_fr_rr = _gait_async_reward(
-            air, contact, GO2_FRONT_RIGHT, GO2_REAR_RIGHT, cfg.feet_gait_std, cfg.feet_gait_max_err
+            air, contact, GO1_FRONT_RIGHT, GO1_REAR_RIGHT, cfg.feet_gait_std, cfg.feet_gait_max_err
         )
         reward = sync_fl_rr * sync_fr_rl * async_fl_fr * async_rr_rl * async_fl_rl * async_fr_rr
         return np.asarray(
@@ -762,21 +779,4 @@ def _gait_async_reward(
     return np.exp(-(se_act_0 + se_act_1) / std)
 
 
-# Backwards-compat aliases for any callers that imported the unused defaults.
-__all__ = [
-    "DEFAULT_SCAN_POINTS_X",
-    "DEFAULT_SCAN_POINTS_Y",
-    "GO2_HIP_INDICES",
-    "Go2JoystickRoughCfg",
-    "Go2JoystickRoughDomainRandomizationProvider",
-    "Go2JoystickRoughEnv",
-    "Go2RoughTerrainCfg",
-    "RoughCommands",
-    "RoughControlConfig",
-    "RoughJoystickSensor",
-    "RoughRewardConfig",
-    "RoughTerminationConfig",
-]
-
-
-registry.register_env("Go2JoystickRough", Go2JoystickRoughEnv, sim_backend="motrix")
+registry.register_env("Go1JoystickRough", Go1JoystickRoughEnv, sim_backend="motrix")

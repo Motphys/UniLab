@@ -17,9 +17,19 @@ from unilab.dr.dr_utils import (
     zero_actions,
 )
 from unilab.dtype_config import get_global_dtype
-from unilab.envs.common.rotation import np_quat_mul, np_yaw_to_quat
+from unilab.envs.common.rotation import (
+    np_quat_mul,
+    np_yaw_to_quat,
+)
 from unilab.envs.locomotion.common import rewards
-from unilab.envs.locomotion.common.commands import Commands
+from unilab.envs.locomotion.common.commands import (
+    Commands,
+    apply_heading_yaw_feedback,
+    zero_small_xy_commands,
+)
+from unilab.envs.locomotion.common.commands import (
+    sample_heading_commands as sample_go2w_heading_commands,
+)
 from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
 from unilab.envs.locomotion.common.dr_provider import LocomotionDRProvider
 from unilab.envs.locomotion.common.rewards import RewardContext
@@ -45,6 +55,9 @@ class InitState:
 @dataclass
 class Go2WDomainRandConfig(DomainRandConfig):
     randomize_init_yaw: bool = True
+    init_z_range: list[float] = field(default_factory=lambda: [0.0, 0.2])
+    init_roll_range: list[float] = field(default_factory=lambda: [0.0, 0.0])
+    init_pitch_range: list[float] = field(default_factory=lambda: [0.0, 0.0])
     init_yaw_range: list[float] = field(default_factory=lambda: [-np.pi, np.pi])
 
     randomize_kp: bool = True
@@ -60,6 +73,9 @@ class RewardConfig:
     tracking_sigma: float
     base_height_target: float
     only_positive_rewards: bool = False
+    joint_pos_penalty_stand_still_scale: float = 5.0
+    joint_pos_penalty_velocity_threshold: float = 0.5
+    joint_pos_penalty_command_threshold: float = 0.1
 
 
 @dataclass
@@ -201,34 +217,13 @@ class Go2WJoystickDomainRandomizationProvider(LocomotionDRProvider):
     def _sample_commands(self, env: Any, num_reset: int) -> np.ndarray:
         commands = super()._sample_commands(env, num_reset)
         zero_small_xy_commands(commands)
+        standing_prob = float(getattr(env.cfg.commands, "rel_standing_envs", 0.0))
+        if standing_prob > 0.0:
+            standing = np.random.uniform(size=(num_reset,)) < min(standing_prob, 1.0)
+            commands[standing] = 0.0
         if getattr(env.cfg.commands, "heading_command", False):
             commands[:, 2] = 0.0
         return commands
-
-
-def zero_small_xy_commands(commands: np.ndarray) -> None:
-    moving = np.linalg.norm(commands[:, :2], axis=1) > 0.2
-    commands[:, :2] *= moving[:, None]
-
-
-def sample_go2w_heading_commands(env: Any, num_samples: int) -> np.ndarray:
-    heading_range = np.asarray(env.cfg.commands.heading_range, dtype=get_global_dtype())
-    if heading_range.shape != (2,):
-        raise ValueError(f"commands.heading_range must have shape (2,), got {heading_range.shape}")
-    low, high = float(np.min(heading_range)), float(np.max(heading_range))
-    return np.asarray(np.random.uniform(low, high, size=(num_samples,)), dtype=get_global_dtype())
-
-
-def wrap_to_pi_np(angle: np.ndarray) -> np.ndarray:
-    return (angle + np.pi) % (2.0 * np.pi) - np.pi
-
-
-def yaw_from_quat_np(quat: np.ndarray) -> np.ndarray:
-    w = quat[:, 0]
-    x = quat[:, 1]
-    y = quat[:, 2]
-    z = quat[:, 3]
-    return np.arctan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
 
 @registry.env("Go2WJoystickFlat", sim_backend="mujoco")
@@ -255,6 +250,12 @@ class Go2WJoystickEnv(Go2WBaseEnv):
         self._validate_motor_control_contract(ctrl_range, num_envs)
         self._ctrl_lower = ctrl_range[:, 0].astype(self._np_dtype)
         self._ctrl_upper = ctrl_range[:, 1].astype(self._np_dtype)
+        joint_range = self._backend.get_joint_range()
+        self._leg_joint_range = (
+            np.asarray(joint_range[:NUM_LEG_ACTIONS], dtype=get_global_dtype())
+            if joint_range is not None
+            else None
+        )
         self._base_motor_kp = np.full((NUM_LEG_ACTIONS,), cfg.control_config.Kp, dtype=np.float64)
         self._base_motor_kd = np.full((NUM_LEG_ACTIONS,), cfg.control_config.Kd, dtype=np.float64)
         self._base_wheel_kd = np.full(
@@ -312,14 +313,22 @@ class Go2WJoystickEnv(Go2WBaseEnv):
             "similar_to_default": rewards.similar_to_default,
             "orientation": rewards.orientation,
             "torques": self._reward_torques_l2,
+            "joint_torques_l2": self._reward_joint_torques_l2,
             "energy": rewards.energy,
             "dof_vel": self._reward_dof_vel,
             "dof_acc": self._reward_dof_acc,
+            "joint_acc_l2": self._reward_dof_acc,
             "wheel_acc": self._reward_wheel_acc,
+            "joint_acc_wheel_l2": self._reward_wheel_acc,
+            "joint_pos_limits": rewards.joint_pos_limits,
             "stand_still": self._reward_stand_still,
             "hip_pos": self._reward_hip_pos,
             "dof_error": self._reward_dof_error,
+            "joint_pos_penalty": self._reward_joint_pos_penalty,
+            "joint_power": self._reward_joint_power,
+            "joint_mirror": self._reward_joint_mirror,
             "alive": rewards.alive,
+            "upward": rewards.upward,
             "wheel_vel": self._reward_wheel_vel,
         }
 
@@ -359,7 +368,8 @@ class Go2WJoystickEnv(Go2WBaseEnv):
         )
 
         leg_targets = (
-            exec_actions[:, :NUM_LEG_ACTIONS] * self._cfg.control_config.action_scale
+            exec_actions[:, :NUM_LEG_ACTIONS]
+            * np.asarray(self._cfg.control_config.action_scale, dtype=self._np_dtype)
             + self.default_angles[:NUM_LEG_ACTIONS]
         )
         wheel_velocity_targets = (
@@ -392,10 +402,13 @@ class Go2WJoystickEnv(Go2WBaseEnv):
         dof_vel = self.get_dof_vel()
         state.info["torques"] = self._last_motor_ctrl.copy()
         state.info["qacc"] = self._estimate_dof_acc(dof_vel)
-        terminated = gravity[:, 2] <= 0.5
+        terminated = self._compute_terminated(gravity)
         reward = self._compute_reward(state.info, linvel, gyro, gravity, dof_pos, dof_vel)
         obs = self._compute_obs(state.info, linvel, gyro, gravity, dof_pos, dof_vel)
         return state.replace(obs=obs, reward=reward, terminated=terminated)
+
+    def _compute_terminated(self, gravity: np.ndarray) -> np.ndarray:
+        return gravity[:, 2] <= 0.5
 
     def _compute_obs(
         self,
@@ -435,7 +448,6 @@ class Go2WJoystickEnv(Go2WBaseEnv):
     def _compute_reward(self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel) -> np.ndarray:
         dtype = get_global_dtype()
         num_obs = linvel.shape[0]
-        reward = np.zeros((num_obs,), dtype=dtype)
         ctx = RewardContext(
             info=info,
             linvel=linvel,
@@ -448,25 +460,17 @@ class Go2WJoystickEnv(Go2WBaseEnv):
             base_height_target=self._reward_cfg.base_height_target,
             base_height=self._reward_base_height_values(num_obs),
             gravity=gravity,
+            joint_range=self._leg_joint_range,
         )
-
-        step_count = info.get("steps", np.zeros((num_obs,), dtype=np.uint32))
-        should_log = self._enable_reward_log and (int(step_count[0]) % 4 == 0)
-        log = {} if should_log else info.get("log", {})
-
-        for name, scale in self._reward_cfg.scales.items():
-            if scale == 0 or name not in self._reward_fns:
-                continue
-            rew = self._reward_fns[name](ctx)
-            weighted_rew = rew * scale
-            reward += weighted_rew
-            if should_log:
-                log[f"reward/{name}"] = float(np.mean(weighted_rew))
-
-        info["log"] = log
-        if self._reward_cfg.only_positive_rewards:
-            np.maximum(reward, 0.0, out=reward)
-        return reward * self._cfg.ctrl_dt
+        return rewards.run_reward_dispatch(
+            scales=self._reward_cfg.scales,
+            fns=self._reward_fns,
+            ctx=ctx,
+            info=info,
+            enable_log=self._enable_reward_log,
+            ctrl_dt=self._cfg.ctrl_dt,
+            only_positive=self._reward_cfg.only_positive_rewards,
+        )
 
     def _update_commands(self, info: dict) -> None:
         commands = info.get("commands")
@@ -487,6 +491,10 @@ class Go2WJoystickEnv(Go2WBaseEnv):
                     get_global_dtype()
                 )
                 zero_small_xy_commands(sampled)
+                standing_prob = float(getattr(self._cfg.commands, "rel_standing_envs", 0.0))
+                if standing_prob > 0.0:
+                    standing = np.random.uniform(size=(num_resample,)) < min(standing_prob, 1.0)
+                    sampled[standing] = 0.0
                 commands_arr[resample_mask] = sampled
                 if getattr(self._cfg.commands, "heading_command", False):
                     heading_commands = self._ensure_heading_commands(info, commands_arr.shape[0])
@@ -499,9 +507,9 @@ class Go2WJoystickEnv(Go2WBaseEnv):
             heading_commands = self._ensure_heading_commands(info, commands_arr.shape[0])
             base_quat = np.asarray(self._backend.get_base_quat(), dtype=get_global_dtype())
             if base_quat.shape[0] == commands_arr.shape[0]:
-                heading = yaw_from_quat_np(base_quat)
-                commands_arr[:, 2] = np.clip(
-                    0.5 * wrap_to_pi_np(heading_commands - heading), -2.0, 2.0
+                stiffness = float(getattr(self._cfg.commands, "heading_control_stiffness", 0.5))
+                apply_heading_yaw_feedback(
+                    commands_arr, base_quat, heading_commands, stiffness=stiffness
                 )
         info["commands"] = commands_arr
 
@@ -537,6 +545,16 @@ class Go2WJoystickEnv(Go2WBaseEnv):
         )
         return np.asarray(np.sum(np.square(torques), axis=1), dtype=get_global_dtype())
 
+    def _reward_joint_torques_l2(self, ctx: RewardContext) -> np.ndarray:
+        torques = np.asarray(
+            ctx.info.get("torques", np.zeros((ctx.num_envs, self._num_action))),
+            dtype=get_global_dtype(),
+        )
+        return np.asarray(
+            np.sum(np.square(torques[:, :NUM_LEG_ACTIONS]), axis=1),
+            dtype=get_global_dtype(),
+        )
+
     def _reward_dof_vel(self, ctx: RewardContext) -> np.ndarray:
         assert ctx.dof_vel is not None
         return np.asarray(
@@ -571,6 +589,31 @@ class Go2WJoystickEnv(Go2WBaseEnv):
     def _reward_dof_error(self, ctx: RewardContext) -> np.ndarray:
         diff = ctx.dof_pos - DEFAULT_GO2W_ANGLES[:NUM_LEG_ACTIONS]
         return np.asarray(np.sum(np.square(diff), axis=1), dtype=get_global_dtype())
+
+    def _reward_joint_pos_penalty(self, ctx: RewardContext) -> np.ndarray:
+        return rewards.joint_pos_penalty(
+            ctx,
+            stand_still_scale=self._reward_cfg.joint_pos_penalty_stand_still_scale,
+            velocity_threshold=self._reward_cfg.joint_pos_penalty_velocity_threshold,
+            command_threshold=self._reward_cfg.joint_pos_penalty_command_threshold,
+        )
+
+    def _reward_joint_power(self, ctx: RewardContext) -> np.ndarray:
+        assert ctx.dof_vel is not None
+        torques = np.asarray(
+            ctx.info.get("torques", np.zeros((ctx.num_envs, self._num_action))),
+            dtype=get_global_dtype(),
+        )
+        return np.asarray(
+            np.sum(np.abs(ctx.dof_vel[:, :NUM_LEG_ACTIONS] * torques[:, :NUM_LEG_ACTIONS]), axis=1),
+            dtype=get_global_dtype(),
+        )
+
+    def _reward_joint_mirror(self, ctx: RewardContext) -> np.ndarray:
+        fr_rl = ctx.dof_pos[:, 0:3] - ctx.dof_pos[:, 9:12]
+        fl_rr = ctx.dof_pos[:, 3:6] - ctx.dof_pos[:, 6:9]
+        mirror = 0.5 * (np.sum(np.square(fr_rl), axis=1) + np.sum(np.square(fl_rr), axis=1))
+        return np.asarray(mirror, dtype=get_global_dtype())
 
 
 registry.register_env("Go2WJoystickFlat", Go2WJoystickEnv, sim_backend="motrix")

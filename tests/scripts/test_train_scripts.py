@@ -395,7 +395,7 @@ def test_ppo_g1_resolved_algo_matches_motrix_owner():
 def test_ppo_g1_mujoco_base_hyperparams_remain_separate():
     cfg = _ppo_cfg(["task=g1_walk_flat/mujoco"])
 
-    assert cfg.algo.max_iterations == 220
+    assert cfg.algo.max_iterations == 2200
     assert cfg.algo.empirical_normalization is False
     assert cfg.algo.obs_groups.actor == ["actor"]
 

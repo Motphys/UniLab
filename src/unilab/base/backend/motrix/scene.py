@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import tempfile
+import xml.etree.ElementTree as ET
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, overload
@@ -22,10 +24,76 @@ def _resolve_scene_fragment_path(fragment_file: str, model_file: Path) -> Path:
     return (model_file.parent / path).resolve()
 
 
+def _extract_keyframes(fragment_file: Path) -> list[ET.Element]:
+    """Return ``<keyframe>`` child elements declared inside ``fragment_file``."""
+    root = ET.parse(fragment_file).getroot()
+    return list(root.findall("keyframe"))
+
+
+def _materialize_robot_with_fragment_keyframes(
+    robot_path: Path, fragment_paths: Sequence[Path]
+) -> Path:
+    """Inject fragment ``<keyframe>`` blocks into a temporary copy of ``robot_path``.
+
+    motrix's ``msd.from_file`` validates ``<keyframe>`` qpos against the loaded
+    model. fragment XMLs only carry sensors/contacts (no body), so a fragment
+    with its own keyframe fails to parse on its own. Mujoco backend already
+    merges fragments into the scene XML before parsing; this helper does the
+    equivalent for the keyframe block so motrix can load a robot model that
+    owns the keyframe declared in a sibling fragment.
+
+    Returns the original ``robot_path`` when no fragment has a keyframe.
+    """
+    fragment_keyframes: list[ET.Element] = []
+    for fragment_path in fragment_paths:
+        fragment_keyframes.extend(_extract_keyframes(fragment_path))
+    if not fragment_keyframes:
+        return robot_path
+
+    tree = ET.parse(robot_path)
+    root = tree.getroot()
+    existing = root.find("keyframe")
+    if existing is None:
+        existing = ET.SubElement(root, "keyframe")
+    for keyframe in fragment_keyframes:
+        existing.extend(list(keyframe))
+
+    tmp = tempfile.NamedTemporaryFile(
+        suffix=f"_{robot_path.name}",
+        dir=str(robot_path.parent),
+        mode="w",
+        delete=False,
+    )
+    tmp.close()
+    tree.write(tmp.name)
+    return Path(tmp.name)
+
+
+def _materialize_fragment_without_keyframes(fragment_file: Path) -> Path:
+    """Strip ``<keyframe>`` from a fragment XML; return original if no change."""
+    tree = ET.parse(fragment_file)
+    root = tree.getroot()
+    keyframes = root.findall("keyframe")
+    if not keyframes:
+        return fragment_file
+    for keyframe in keyframes:
+        root.remove(keyframe)
+    tmp = tempfile.NamedTemporaryFile(
+        suffix=f"_{fragment_file.name}",
+        dir=str(fragment_file.parent),
+        mode="w",
+        delete=False,
+    )
+    tmp.close()
+    tree.write(tmp.name)
+    return Path(tmp.name)
+
+
 def _attach_motrix_scene_fragment(world: World, fragment_file: Path) -> None:
     import motrixsim.msd as msd
 
-    fragment = msd.from_file(str(fragment_file))
+    sanitized = _materialize_fragment_without_keyframes(fragment_file)
+    fragment = msd.from_file(str(sanitized))
     world.attach(fragment)
 
 
@@ -85,12 +153,13 @@ def materialize_motrix_scene(
     import motrixsim.msd as msd
 
     model_path = Path(model_file).resolve()
-    world = msd.from_file(str(model_path))
-    for fragment_file in fragment_files:
-        _attach_motrix_scene_fragment(
-            world,
-            _resolve_scene_fragment_path(fragment_file, model_path),
-        )
+    fragment_paths = [
+        _resolve_scene_fragment_path(fragment_file, model_path) for fragment_file in fragment_files
+    ]
+    robot_path = _materialize_robot_with_fragment_keyframes(model_path, fragment_paths)
+    world = msd.from_file(str(robot_path))
+    for fragment_path in fragment_paths:
+        _attach_motrix_scene_fragment(world, fragment_path)
     if add_body_sensors:
         add_motrix_tracking_frame_sensors(world, base_name=base_name)
     return msd.build(world)
@@ -169,16 +238,17 @@ def materialize_motrix_hfield_attached_scene(
     terrain_geom.physics_material.friction = [1.0, 0.005, 0.0001]
     world.hierarchy.geoms.append(terrain_geom)
 
-    robot_world = msd.from_file(str(robot_path))
+    fragment_paths = [
+        _resolve_scene_fragment_path(fragment_file, robot_path) for fragment_file in fragment_files
+    ]
+    merged_robot_path = _materialize_robot_with_fragment_keyframes(robot_path, fragment_paths)
+    robot_world = msd.from_file(str(merged_robot_path))
     world.attach(robot_world)
     # TODO(motrixsim): remove this once msd.World.attach carries keyframes.
     world.keyframes.extend(robot_world.keyframes)
 
-    for fragment_file in fragment_files:
-        _attach_motrix_scene_fragment(
-            world,
-            _resolve_scene_fragment_path(fragment_file, robot_path),
-        )
+    for fragment_path in fragment_paths:
+        _attach_motrix_scene_fragment(world, fragment_path)
     if add_body_sensors:
         add_motrix_tracking_frame_sensors(world, base_name=base_name)
 

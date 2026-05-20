@@ -15,32 +15,33 @@ algo:
     learning_rate: 3.0e-4
     entropy_coef: 1.0e-3
 env:
-  scene:
-    model_file: src/unilab/assets/robots/go2w/scene_flat.xml
+  render_offset_mode: zero
   commands:
     vel_limit:
-      - [0.5, 0.0, -0.3]
-      - [1.0, 0.0, 0.3]
+      - [0.0, 0.0, -1.0]
+      - [1.0, 0.0, 1.0]
   control_config:
-    action_scale: 0.25
+    action_scale: 0.5
     wheel_action_scale: 10.0
-    Kp: 35.0
-    Kd: 0.5
+    Kp: 50.0
+    Kd: 1.5
     wheel_Kd: 0.5
   domain_rand:
-    randomize_kp: true
-    randomize_kd: true
+    randomize_kp: false
+    randomize_kd: false
 reward:
   scales:
     tracking_lin_vel: 1.0
-    tracking_ang_vel: 0.2
+    tracking_ang_vel: 0.75
     lin_vel_z: -5.0
     ang_vel_xy: -0.1
     base_height: -100.0
+    orientation: -2.0
     action_rate: -0.005
-    similar_to_default: -0.1
+    similar_to_default: -0.5
     torques: -0.0002
     wheel_vel: 0.0
     alive: 0.5
+    upward: 1.0
   tracking_sigma: 0.25
-  base_height_target: 0.3
+  base_height_target: 0.4

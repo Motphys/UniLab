@@ -150,6 +150,54 @@ def _sac_owner_yaml_cfg(task_id: str, backend: str, env_cfg_cls: Callable[[], An
     )
 
 
+def _materialize_g1_rough_benchmark_scene() -> str:
+    import shutil
+    import xml.etree.ElementTree as ET
+
+    source_dir = ROOT_DIR / "src" / "unilab" / "assets" / "robots" / "g1"
+    output_dir = Path("/tmp/unilab_benchmark_g1_rough_scene")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    for name in ("g1.xml",):
+        shutil.copy2(source_dir / name, output_dir / name)
+    for name in ("assets", "textures", "hfields"):
+        shutil.copytree(source_dir / name, output_dir / name, dirs_exist_ok=True)
+
+    tree = ET.parse(source_dir / "scene_rough.xml")
+    hfield = tree.getroot().find("./asset/hfield[@name='hfield']")
+    if hfield is not None:
+        hfield.set("file", "hfields/hfield.png")
+    output_path = output_dir / "scene_rough.xml"
+    tree.write(output_path)
+    return str(output_path)
+
+
+def _materialize_sharpa_motrix_scene() -> str:
+    import xml.etree.ElementTree as ET
+
+    source_dir = ROOT_DIR / "src" / "unilab" / "assets" / "robots" / "sharpa_wave"
+    output_dir = Path("/tmp/unilab_benchmark_sharpa_scene")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    robot_tree = ET.parse(source_dir / "right_sharpa_wave.xml")
+    robot_root = robot_tree.getroot()
+    compiler = robot_root.find("compiler")
+    if compiler is not None:
+        compiler.set("meshdir", str((source_dir / "meshes").resolve()))
+
+    contact = robot_root.find("contact")
+    if contact is not None:
+        for exclude in list(contact.findall("exclude")):
+            if exclude.get("body1") == exclude.get("body2"):
+                contact.remove(exclude)
+    robot_tree.write(output_dir / "right_sharpa_wave.xml")
+
+    scene_tree = ET.parse(source_dir / "scene.xml")
+    output_path = output_dir / "scene.xml"
+    scene_tree.write(output_path)
+    return str(output_path)
+
+
 def _go1_cfg(_: str) -> Any:
     from unilab.envs.locomotion.go1.joystick import Go1JoystickCfg
 
@@ -192,13 +240,32 @@ def _go2w_cfg(_: str) -> Any:
     return _ppo_owner_yaml_cfg("go2w_joystick_flat", _, Go2WJoystickCfg)
 
 
-def _go2w_rough_tiles_cfg(backend: str) -> Any:
-    from unilab.envs.locomotion.go2w.rough import Go2WJoystickRoughTilesCfg
+def _go2w_rough_cfg(backend: str) -> Any:
+    del backend
+    from unilab.envs.locomotion.go2w.joystick import RewardConfig
+    from unilab.envs.locomotion.go2w.rough import Go2WJoystickRoughCfg
 
-    return _ppo_owner_yaml_cfg(
-        "go2w_joystick_rough_tiles",
-        backend,
-        Go2WJoystickRoughTilesCfg,
+    cfg = Go2WJoystickRoughCfg()
+    cfg.reward_config = _go2w_reward_config(RewardConfig)
+    return cfg
+
+
+def _go2w_reward_config(reward_cls: type) -> Any:
+    return reward_cls(
+        scales={
+            "tracking_lin_vel": 1.0,
+            "tracking_ang_vel": 0.2,
+            "lin_vel_z": -5.0,
+            "ang_vel_xy": -0.1,
+            "base_height": -100.0,
+            "action_rate": -0.005,
+            "similar_to_default": -0.1,
+            "torques": -0.0002,
+            "wheel_vel": 0.0,
+            "alive": 0.5,
+        },
+        tracking_sigma=0.25,
+        base_height_target=0.3,
     )
 
 
@@ -208,10 +275,10 @@ def _go2w_env_cls() -> type:
     return Go2WJoystickEnv
 
 
-def _go2w_rough_tiles_env_cls() -> type:
-    from unilab.envs.locomotion.go2w.rough import Go2WJoystickRoughTilesEnv
+def _go2w_rough_env_cls() -> type:
+    from unilab.envs.locomotion.go2w.rough import Go2WJoystickRoughEnv
 
-    return Go2WJoystickRoughTilesEnv
+    return Go2WJoystickRoughEnv
 
 
 def _g1_flat_cfg(backend: str) -> Any:
@@ -333,10 +400,10 @@ TASK_CONFIGS: dict[str, TaskConfig] = {
         env_cls_factory=_go2w_env_cls,
     ),
     "go2w_rough": TaskConfig(
-        task_id="go2w_joystick_rough_tiles",
-        env_name="Go2WJoystickRoughTiles",
-        cfg_factory=_go2w_rough_tiles_cfg,
-        env_cls_factory=_go2w_rough_tiles_env_cls,
+        task_id="go2w_joystick_rough",
+        env_name="Go2WJoystickRough",
+        cfg_factory=_go2w_rough_cfg,
+        env_cls_factory=_go2w_rough_env_cls,
     ),
     "g1": TaskConfig(
         task_id="g1_walk_flat",

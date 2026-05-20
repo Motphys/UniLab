@@ -72,4 +72,7 @@ cache/
 **/.codex/
 **/MUJOCO_LOG.TXT
 
+# Backend temp XML emitted next to robot.xml (motrix/mujoco scene materialization)
+src/unilab/assets/robots/**/tmp*.xml
+
 CLAUDE.md
