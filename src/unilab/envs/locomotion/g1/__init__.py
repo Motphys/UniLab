@@ -7,4 +7,3 @@ from .joystick import (
     G1WalkRewardConfig,
     G1WalkRoughCfg,
 )
-from .rough import G1JoystickRoughCfg, G1JoystickRoughEnv
