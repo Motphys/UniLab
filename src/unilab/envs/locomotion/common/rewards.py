@@ -9,7 +9,9 @@ joystick environment can reference them **directly** in its
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 
@@ -321,3 +323,44 @@ def joint_deviation_l1(ctx: RewardContext, joint_indices: np.ndarray | None = No
     if joint_indices is not None:
         diff = diff[:, joint_indices]
     return np.asarray(np.sum(np.abs(diff), axis=1), dtype=get_global_dtype())
+
+
+# ── reward dispatch ──────────────────────────────────────────────────
+
+
+def run_reward_dispatch(
+    *,
+    scales: Mapping[str, float],
+    fns: Mapping[str, Callable[[RewardContext], np.ndarray]],
+    ctx: RewardContext,
+    info: dict[str, Any],
+    enable_log: bool,
+    ctrl_dt: float,
+    log_every_n_steps: int = 4,
+    only_positive: bool = False,
+) -> np.ndarray:
+    """Standard ``scales × fns(ctx)`` reduction shared by all locomotion envs.
+
+    - Writes per-reward means into ``info["log"]`` when ``enable_log`` and the
+      ``steps[0]`` cadence matches ``log_every_n_steps``.
+    - Returns ``reward * ctrl_dt`` (with optional positive clamp).
+    """
+    dtype = get_global_dtype()
+    reward = np.zeros((ctx.num_envs,), dtype=dtype)
+    step_count = info.get("steps", np.zeros((ctx.num_envs,), dtype=np.uint32))
+    should_log = enable_log and (int(step_count[0]) % log_every_n_steps == 0)
+    log = {} if should_log else info.get("log", {})
+
+    for name, scale in scales.items():
+        if scale == 0 or name not in fns:
+            continue
+        rew = fns[name](ctx)
+        weighted_rew = rew * scale
+        reward += weighted_rew
+        if should_log:
+            log[f"reward/{name}"] = float(np.mean(weighted_rew))
+
+    info["log"] = log
+    if only_positive:
+        np.maximum(reward, 0.0, out=reward)
+    return reward * ctrl_dt

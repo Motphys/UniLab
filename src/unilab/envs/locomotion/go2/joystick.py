@@ -232,10 +232,7 @@ class Go2WalkTask(Go2BaseEnv):
         return {"obs": obs, "critic": critic}
 
     def _compute_reward(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
-        dtype = get_global_dtype()
-        reward = np.zeros((self._num_envs,), dtype=dtype)
         cfg = self._reward_cfg
-
         ctx = RewardContext(
             info=info,
             linvel=linvel,
@@ -247,22 +244,14 @@ class Go2WalkTask(Go2BaseEnv):
             base_height_target=cfg.base_height_target,
             base_height=self._reward_base_height_values(),
         )
-
-        step_count = info.get("steps", np.zeros((self._num_envs,), dtype=np.uint32))
-        should_log = self._enable_reward_log and (int(step_count[0]) % 4 == 0)
-        log = {} if should_log else info.get("log", {})
-
-        for name, scale in cfg.scales.items():
-            if scale == 0 or name not in self._reward_fns:
-                continue
-            rew = self._reward_fns[name](ctx)
-            weighted_rew = rew * scale
-            reward += weighted_rew
-            if should_log:
-                log[f"reward/{name}"] = float(np.mean(weighted_rew))
-
-        info["log"] = log
-        return reward * self._cfg.ctrl_dt
+        return rewards.run_reward_dispatch(
+            scales=cfg.scales,
+            fns=self._reward_fns,
+            ctx=ctx,
+            info=info,
+            enable_log=self._enable_reward_log,
+            ctrl_dt=self._cfg.ctrl_dt,
+        )
 
     # ── reward functions (robot-specific) ────────────────────────────
 

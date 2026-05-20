@@ -446,7 +446,6 @@ class Go2WJoystickEnv(Go2WBaseEnv):
     def _compute_reward(self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel) -> np.ndarray:
         dtype = get_global_dtype()
         num_obs = linvel.shape[0]
-        reward = np.zeros((num_obs,), dtype=dtype)
         ctx = RewardContext(
             info=info,
             linvel=linvel,
@@ -461,24 +460,15 @@ class Go2WJoystickEnv(Go2WBaseEnv):
             gravity=gravity,
             joint_range=self._leg_joint_range,
         )
-
-        step_count = info.get("steps", np.zeros((num_obs,), dtype=np.uint32))
-        should_log = self._enable_reward_log and (int(step_count[0]) % 4 == 0)
-        log = {} if should_log else info.get("log", {})
-
-        for name, scale in self._reward_cfg.scales.items():
-            if scale == 0 or name not in self._reward_fns:
-                continue
-            rew = self._reward_fns[name](ctx)
-            weighted_rew = rew * scale
-            reward += weighted_rew
-            if should_log:
-                log[f"reward/{name}"] = float(np.mean(weighted_rew))
-
-        info["log"] = log
-        if self._reward_cfg.only_positive_rewards:
-            np.maximum(reward, 0.0, out=reward)
-        return reward * self._cfg.ctrl_dt
+        return rewards.run_reward_dispatch(
+            scales=self._reward_cfg.scales,
+            fns=self._reward_fns,
+            ctx=ctx,
+            info=info,
+            enable_log=self._enable_reward_log,
+            ctrl_dt=self._cfg.ctrl_dt,
+            only_positive=self._reward_cfg.only_positive_rewards,
+        )
 
     def _update_commands(self, info: dict) -> None:
         commands = info.get("commands")

@@ -511,26 +511,16 @@ class G1WalkEnv(G1BaseEnv):
         )
 
     def _compute_reward(self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel) -> np.ndarray:
-        dtype = get_global_dtype()
-        reward = np.zeros((self._num_envs,), dtype=dtype)
         cfg = self._reward_cfg
         ctx = self._build_reward_context(info, linvel, gyro, gravity, dof_pos, dof_vel)
-
-        step_count = info.get("steps", np.zeros((self._num_envs,), dtype=np.uint32))
-        should_log = self._enable_reward_log and (int(step_count[0]) % 4 == 0)
-        log = {} if should_log else info.get("log", {})
-
-        for name, scale in cfg.scales.items():
-            if scale == 0 or name not in self._reward_fns:
-                continue
-            rew = self._reward_fns[name](ctx)
-            weighted_rew = rew * scale
-            reward += weighted_rew
-            if should_log:
-                log[f"reward/{name}"] = float(np.mean(weighted_rew))
-
-        info["log"] = log
-        return reward * self._cfg.ctrl_dt
+        return rewards.run_reward_dispatch(
+            scales=cfg.scales,
+            fns=self._reward_fns,
+            ctx=ctx,
+            info=info,
+            enable_log=self._enable_reward_log,
+            ctrl_dt=self._cfg.ctrl_dt,
+        )
 
     def _reward_feet_phase(self, ctx: RewardContext):
         """步态相位奖励：鼓励正确的摆动腿高度"""
