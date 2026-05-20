@@ -69,11 +69,10 @@ reward:
     joint_power: -2.0e-5
     action_rate: -0.01
     stand_still: -2.0
-    hip_pos: -0.5
+    hip_pos: -2.0
     joint_pos_penalty: -1.0
     joint_mirror: -0.05
     upward: 1.0
-    base_height: -100.0
   tracking_sigma: 0.25
   base_height_target: 0.4
   only_positive_rewards: false
