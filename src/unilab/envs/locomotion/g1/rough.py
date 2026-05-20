@@ -478,9 +478,7 @@ class G1JoystickRoughEnv(G1WalkEnv):
         return ctx
 
     def _compute_yaw_frame_linvel(self) -> np.ndarray:
-        local_linvel = np.asarray(
-            self._backend.get_sensor_data("local_linvel"), dtype=get_global_dtype()
-        )
+        local_linvel = np.asarray(self.get_local_linvel(), dtype=get_global_dtype())
         base_quat = np.asarray(self._backend.get_base_quat(), dtype=get_global_dtype())
         global_linvel = np_quat_apply(base_quat, local_linvel)
         return np.asarray(
@@ -497,9 +495,7 @@ class G1JoystickRoughEnv(G1WalkEnv):
         )
         foot_vel = np.stack([left_vel, right_vel], axis=1)
         base_quat = np.asarray(self._backend.get_base_quat(), dtype=get_global_dtype())
-        local_linvel = np.asarray(
-            self._backend.get_sensor_data("local_linvel"), dtype=get_global_dtype()
-        )
+        local_linvel = np.asarray(self.get_local_linvel(), dtype=get_global_dtype())
         root_vel = np_quat_apply(base_quat, local_linvel)
         relative_vel = foot_vel - root_vel[:, None, :]
         flat = relative_vel.reshape(self._num_envs * relative_vel.shape[1], 3)
