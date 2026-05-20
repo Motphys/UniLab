@@ -111,4 +111,23 @@
     <contact name="undesired_contact_climb_box2_right_shoulder_yaw_collision" geom1="climb_box2" geom2="right_shoulder_yaw_collision" data="found" num="1" reduce="mindist"/>
   </sensor>
 
+  <keyframe>
+    <key name="stand"
+      qpos="
+      0 0 0.754
+      1 0 0 0
+      -0.312 0.0 0.0 0.669 -0.363 0.0
+      -0.312 0.0 0.0 0.669 -0.363 0.0
+      0.0 0.0 0.0
+      0.2  0.2 0.0 0.6 0.0 0.0 0.0
+      0.2 -0.2 0.0 0.6 0.0 0.0 0.0
+      "
+      ctrl="
+      -0.312 0.0 0.0 0.669 -0.363 0.0
+      -0.312 0.0 0.0 0.669 -0.363 0.0
+      0.0 0.0 0.0
+      0.2  0.2 0.0 0.6 0.0 0.0 0.0
+      0.2 -0.2 0.0 0.6 0.0 0.0 0.0
+      "/>
+  </keyframe>
 </mujoco>
