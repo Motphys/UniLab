@@ -12,7 +12,13 @@ from unilab.base import registry
 from unilab.base.np_env import NpEnvState
 from unilab.base.scene import SceneCfg, TerrainSceneCfg
 from unilab.dtype_config import get_global_dtype
-from unilab.envs.common.rotation import np_quat_apply, np_quat_apply_inverse, np_yaw_quat
+from unilab.envs.common.rotation import (
+    np_quat_apply,
+    np_quat_apply_inverse,
+    np_wrap_to_pi,
+    np_yaw_from_quat,
+    np_yaw_quat,
+)
 from unilab.envs.locomotion.common import rewards
 from unilab.envs.locomotion.common.height_scan import (
     HeightScanConfig,
@@ -35,8 +41,6 @@ from unilab.envs.locomotion.g1.joystick import (
     G1WalkEnvCfg,
     compute_aggregated_foot_contact,
     sample_heading_commands,
-    wrap_to_pi,
-    yaw_from_quat,
     zero_small_xy_commands,
 )
 from unilab.terrains import (
@@ -455,10 +459,10 @@ class G1JoystickRoughEnv(G1WalkEnv):
             heading_commands = self._ensure_heading_commands(info, commands_arr.shape[0])
             base_quat = np.asarray(self._backend.get_base_quat(), dtype=get_global_dtype())
             if base_quat.shape[0] == commands_arr.shape[0]:
-                heading = yaw_from_quat(base_quat)
+                heading = np_yaw_from_quat(base_quat)
                 stiffness = float(getattr(self._cfg.commands, "heading_control_stiffness", 0.5))
                 commands_arr[:, 2] = np.clip(
-                    stiffness * wrap_to_pi(heading_commands - heading), -2.0, 2.0
+                    stiffness * np_wrap_to_pi(heading_commands - heading), -2.0, 2.0
                 )
         info["commands"] = commands_arr
 

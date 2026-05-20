@@ -12,7 +12,12 @@ from unilab.base.scene import SceneCfg, TerrainSceneCfg
 from unilab.dr import DomainRandomizationManager, ResetPlan
 from unilab.dr.dr_utils import zero_actions
 from unilab.dtype_config import get_global_dtype
-from unilab.envs.common.rotation import np_quat_from_euler_xyz, np_quat_mul
+from unilab.envs.common.rotation import (
+    np_quat_from_euler_xyz,
+    np_quat_mul,
+    np_wrap_to_pi,
+    np_yaw_from_quat,
+)
 from unilab.envs.locomotion.common import rewards
 from unilab.envs.locomotion.common.commands import Commands
 from unilab.envs.locomotion.common.height_scan import (
@@ -36,8 +41,6 @@ from unilab.envs.locomotion.go2w.joystick import (
     Go2WJoystickEnv,
     build_go2w_backend_reset_randomization,
     sample_go2w_heading_commands,
-    wrap_to_pi_np,
-    yaw_from_quat_np,
 )
 
 # pyright: reportIncompatibleVariableOverride=false, reportAttributeAccessIssue=false, reportCallIssue=false
@@ -285,9 +288,9 @@ class Go2WJoystickRoughEnv(Go2WJoystickEnv):
             heading_commands = self._ensure_heading_commands(info, commands_arr.shape[0])
             base_quat = np.asarray(self._backend.get_base_quat(), dtype=get_global_dtype())
             if base_quat.shape[0] == commands_arr.shape[0]:
-                heading = yaw_from_quat_np(base_quat)
+                heading = np_yaw_from_quat(base_quat)
                 commands_arr[:, 2] = np.clip(
-                    0.5 * wrap_to_pi_np(heading_commands - heading), -2.0, 2.0
+                    0.5 * np_wrap_to_pi(heading_commands - heading), -2.0, 2.0
                 )
         info["commands"] = commands_arr
 

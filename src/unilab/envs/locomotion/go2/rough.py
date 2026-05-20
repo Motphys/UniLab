@@ -16,6 +16,8 @@ from unilab.envs.common.rotation import (
     np_quat_apply_inverse,
     np_quat_from_euler_xyz,
     np_quat_mul,
+    np_wrap_to_pi,
+    np_yaw_from_quat,
 )
 from unilab.envs.locomotion.common import rewards
 from unilab.envs.locomotion.common.height_scan import (
@@ -569,9 +571,9 @@ class Go2JoystickRoughEnv(Go2WalkTask):
             heading_commands = self._ensure_heading_commands(info, commands_arr.shape[0])
             base_quat = np.asarray(self._backend.get_base_quat(), dtype=get_global_dtype())
             if base_quat.shape[0] == commands_arr.shape[0]:
-                heading = _yaw_from_quat(base_quat)
+                heading = np_yaw_from_quat(base_quat)
                 commands_arr[:, 2] = np.clip(
-                    0.5 * _wrap_to_pi(heading_commands - heading), -2.0, 2.0
+                    0.5 * np_wrap_to_pi(heading_commands - heading), -2.0, 2.0
                 )
         info["commands"] = commands_arr
 
@@ -790,18 +792,6 @@ def _sample_heading_commands(env: Any, num_samples: int) -> np.ndarray:
         raise ValueError(f"commands.heading_range must have shape (2,), got {heading_range.shape}")
     low, high = float(np.min(heading_range)), float(np.max(heading_range))
     return np.asarray(np.random.uniform(low, high, size=(num_samples,)), dtype=get_global_dtype())
-
-
-def _wrap_to_pi(angle: np.ndarray) -> np.ndarray:
-    return (angle + np.pi) % (2.0 * np.pi) - np.pi
-
-
-def _yaw_from_quat(quat: np.ndarray) -> np.ndarray:
-    w = quat[:, 0]
-    x = quat[:, 1]
-    y = quat[:, 2]
-    z = quat[:, 3]
-    return np.arctan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
 
 # Backwards-compat aliases for any callers that imported the unused defaults.

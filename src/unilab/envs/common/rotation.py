@@ -132,6 +132,20 @@ def np_yaw_to_quat(yaw: np.ndarray) -> np.ndarray:
     )
 
 
+def np_yaw_from_quat(quat: np.ndarray) -> np.ndarray:
+    """Yaw angle (N,) from quaternion batch (N, 4), w-first."""
+    w = quat[:, 0]
+    x = quat[:, 1]
+    y = quat[:, 2]
+    z = quat[:, 3]
+    return np.arctan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+
+
+def np_wrap_to_pi(angle: np.ndarray) -> np.ndarray:
+    """Wrap angle(s) into (-pi, pi]."""
+    return (angle + np.pi) % (2.0 * np.pi) - np.pi
+
+
 def np_quat_inv(q: np.ndarray) -> np.ndarray:
     """Inverse of unit quaternions (N, 4) or (4,), w-first."""
     return np_quat_conjugate(q)

@@ -138,18 +138,6 @@ def sample_heading_commands(env: Any, num_samples: int) -> np.ndarray:
     return np.asarray(np.random.uniform(low, high, size=(num_samples,)), dtype=get_global_dtype())
 
 
-def wrap_to_pi(angle: np.ndarray) -> np.ndarray:
-    return (angle + np.pi) % (2.0 * np.pi) - np.pi
-
-
-def yaw_from_quat(quat: np.ndarray) -> np.ndarray:
-    w = quat[:, 0]
-    x = quat[:, 1]
-    y = quat[:, 2]
-    z = quat[:, 3]
-    return np.arctan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
-
-
 @dataclass
 class G1RewardConfig:
     scales: dict[str, float]
