@@ -314,10 +314,12 @@ class G1MotionTrackingDomainRandomizationProvider(DomainRandomizationProvider):
         dof_pos = env.get_dof_pos()[env_ids]
         dof_vel = env.get_dof_vel()[env_ids]
         all_pos_w, all_quat_w = env._get_body_pose_w()
+        obs_info = dict(info_updates)
+        obs_info["env_ids"] = env_ids
         return cast(
             dict[str, np.ndarray],
             env._compute_obs(
-                info_updates,
+                obs_info,
                 motion_data,
                 linvel,
                 gyro,
@@ -419,6 +421,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
         current_actions = info.get("current_actions")
         if isinstance(current_actions, np.ndarray):
             obs_info["current_actions"] = current_actions[env_ids]
+        obs_info["env_ids"] = env_ids
 
         refreshed_obs = self._compute_obs(
             obs_info,

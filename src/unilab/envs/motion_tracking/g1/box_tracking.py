@@ -198,7 +198,7 @@ class G1BoxTrackingEnv(G1MotionTrackingEnv):
             dr_provider = G1BoxTrackingDomainRandomizationProvider(base_kp=base_kp, base_kd=base_kd)
         else:
             dr_provider = G1BoxTrackingDomainRandomizationProvider()
-        self._init_domain_randomization(dr_provider)
+        self._dr_manager = type(self._dr_manager)(self, dr_provider)
 
         self._object_body_ids = self._backend.get_body_ids([cfg.object_body_name])
 
@@ -310,10 +310,16 @@ class G1BoxTrackingEnv(G1MotionTrackingEnv):
             info, motion_data, linvel, gyro, dof_pos, dof_vel, robot_body_pos_w, robot_body_quat_w
         )
 
-        num_envs = linvel.shape[0]
-        obj_pos_w = self._backend.get_body_pos_w(self._object_body_ids)[:num_envs, 0, :]
-        obj_quat_w = self._backend.get_body_quat_w(self._object_body_ids)[:num_envs, 0, :]
-        obj_lin_vel_w = self._backend.get_body_lin_vel_w(self._object_body_ids)[:num_envs, 0, :]
+        env_ids = info.get("env_ids")
+        if isinstance(env_ids, np.ndarray):
+            obj_pos_w = self._backend.get_body_pos_w(self._object_body_ids)[env_ids, 0, :]
+            obj_quat_w = self._backend.get_body_quat_w(self._object_body_ids)[env_ids, 0, :]
+            obj_lin_vel_w = self._backend.get_body_lin_vel_w(self._object_body_ids)[env_ids, 0, :]
+        else:
+            num_envs = linvel.shape[0]
+            obj_pos_w = self._backend.get_body_pos_w(self._object_body_ids)[:num_envs, 0, :]
+            obj_quat_w = self._backend.get_body_quat_w(self._object_body_ids)[:num_envs, 0, :]
+            obj_lin_vel_w = self._backend.get_body_lin_vel_w(self._object_body_ids)[:num_envs, 0, :]
 
         anchor_pos_w = robot_body_pos_w[:, self.anchor_body_idx]
         anchor_quat_w = robot_body_quat_w[:, self.anchor_body_idx]
@@ -322,6 +328,7 @@ class G1BoxTrackingEnv(G1MotionTrackingEnv):
             anchor_pos_w, anchor_quat_w, obj_pos_w, obj_quat_w
         )
         obj_ori_mat = np_matrix_from_quat(obj_ori_rel)
+        num_envs = linvel.shape[0]
         obj_ori_b = obj_ori_mat[:, :, :2].reshape(num_envs, 6)
         obj_lin_vel_b = np_quat_apply(np_quat_inv(anchor_quat_w), obj_lin_vel_w)
 

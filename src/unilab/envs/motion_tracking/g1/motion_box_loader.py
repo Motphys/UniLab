@@ -29,18 +29,41 @@ class BoxMotionLoader(MotionLoader):
         object_quat_list: list[np.ndarray] = []
         object_lin_vel_list: list[np.ndarray] = []
         object_ang_vel_list: list[np.ndarray] = []
-        has_object = False
+        required_object_keys = (
+            "object_pos_w",
+            "object_quat_w",
+            "object_lin_vel_w",
+            "object_ang_vel_w",
+        )
+        has_object: bool | None = None
 
         for clip_idx, motion_path in enumerate(self.motion_files):
             with np.load(motion_path) as data:
-                if "object_pos_w" in data:
+                present_object_keys = tuple(key for key in required_object_keys if key in data)
+                clip_has_object = len(present_object_keys) > 0
+
+                if 0 < len(present_object_keys) < len(required_object_keys):
+                    missing = [key for key in required_object_keys if key not in data]
+                    raise ValueError(
+                        f"Motion file '{motion_path}' has incomplete object data; "
+                        f"missing keys: {', '.join(missing)}"
+                    )
+
+                if clip_idx == 0:
+                    has_object = clip_has_object
+                elif has_object != clip_has_object:
+                    raise ValueError(
+                        f"Motion file '{motion_path}' has inconsistent object data presence; "
+                        "all clips must either provide object state or omit it"
+                    )
+
+                if clip_has_object:
                     obj_pos = data["object_pos_w"].astype(np.float32)
                     obj_quat = data["object_quat_w"].astype(np.float32)
                     obj_lin_vel = data["object_lin_vel_w"].astype(np.float32)
                     obj_ang_vel = data["object_ang_vel_w"].astype(np.float32)
 
                     if clip_idx == 0:
-                        has_object = True
                         self._obj_pos_dim = obj_pos.shape[1]
                     elif obj_pos.shape[1] != self._obj_pos_dim:
                         raise ValueError(
@@ -51,14 +74,9 @@ class BoxMotionLoader(MotionLoader):
                     object_quat_list.append(obj_quat)
                     object_lin_vel_list.append(obj_lin_vel)
                     object_ang_vel_list.append(obj_ang_vel)
-                elif has_object:
-                    raise ValueError(
-                        f"Motion file '{motion_path}' is missing object data "
-                        "but earlier clips had it; all clips must be consistent"
-                    )
 
-        self.has_object = has_object
-        if has_object:
+        self.has_object = bool(has_object)
+        if self.has_object:
             self.object_pos_w = np.concatenate(object_pos_list, axis=0)
             self.object_quat_w = np.concatenate(object_quat_list, axis=0)
             self.object_lin_vel_w = np.concatenate(object_lin_vel_list, axis=0)
