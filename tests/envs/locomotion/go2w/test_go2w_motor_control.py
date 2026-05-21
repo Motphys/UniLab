@@ -72,6 +72,9 @@ def test_go2w_joint_state_reads_named_sensors() -> None:
             idx = len(calls)
             return np.array([[float(idx)], [float(idx + 100)]], dtype=np.float32)
 
+        def get_sensor_data_batch(self, names) -> np.ndarray:
+            return np.concatenate([self.get_sensor_data(name) for name in names], axis=1)
+
     env = cast(Any, object.__new__(_ConcreteGo2WBaseEnv))
     env._backend = FakeBackend()
     env.default_angles = DEFAULT_GO2W_ANGLES.astype(np.float32)
@@ -150,6 +153,9 @@ def test_go2w_init_does_not_pass_position_actuator_gains(monkeypatch: pytest.Mon
             if name.endswith("_pos") or name.endswith("_vel"):
                 return np.zeros((2, 1), dtype=np.float32)
             raise KeyError(name)
+
+        def get_sensor_data_batch(self, names) -> np.ndarray:
+            return np.concatenate([self.get_sensor_data(name) for name in names], axis=1)
 
         def set_pre_step_control(self, fn) -> None:
             captured["pre_step_control"] = fn
@@ -259,9 +265,15 @@ def test_go2w_pre_step_motor_control_reads_from_passed_backend() -> None:
                 return np.ones((1, 1), dtype=np.float32) * 0.1
             raise KeyError(name)
 
+        def get_sensor_data_batch(self, names) -> np.ndarray:
+            return np.concatenate([self.get_sensor_data(name) for name in names], axis=1)
+
     class PoisonBackend:
         def get_sensor_data(self, name: str) -> np.ndarray:
             raise AssertionError(f"unexpected env backend read: {name}")
+
+        def get_sensor_data_batch(self, names) -> np.ndarray:
+            raise AssertionError(f"unexpected env backend read: {names}")
 
     env = cast(Any, object.__new__(Go2WJoystickEnv))
     env._backend = PoisonBackend()

@@ -1095,6 +1095,13 @@ class MuJoCoBackend(SimBackend):
     def get_sensor_data(self, name: str) -> np.ndarray:
         return self._sensor_views[name]
 
+    def get_sensor_data_batch(self, names: Sequence[str]) -> np.ndarray:
+        sensor_names = tuple(names)
+        if not sensor_names:
+            return np.empty((self._num_envs, 0), dtype=self._np_dtype)
+        values = [self._sensor_views[name].reshape(self._num_envs, -1) for name in sensor_names]
+        return np.concatenate(values, axis=1)
+
     def get_site_jacobian_w(
         self,
         site_id: int,
