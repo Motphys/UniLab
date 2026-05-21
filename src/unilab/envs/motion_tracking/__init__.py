@@ -3,6 +3,11 @@
 __unilab_registry_modules__ = ("unilab.envs.motion_tracking.g1",)
 
 from .g1 import (
+    BoxMotionData,
+    BoxMotionLoader,
+    G1BoxTrackingCfg,
+    G1BoxTrackingEnv,
+    G1BoxTrackingEnvCfg,
     G1ClimbTrackingCfg,
     G1ClimbTrackingEnv,
     G1ClimbTrackingEnvCfg,
@@ -34,4 +39,9 @@ __all__ = [
     "G1ClimbTrackingCfg",
     "G1ClimbTrackingEnv",
     "G1ClimbTrackingEnvCfg",
+    "G1BoxTrackingCfg",
+    "G1BoxTrackingEnv",
+    "G1BoxTrackingEnvCfg",
+    "BoxMotionData",
+    "BoxMotionLoader",
 ]
