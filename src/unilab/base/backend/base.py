@@ -665,3 +665,19 @@ class SimBackend(abc.ABC):
         Returns:
             传感器数据数组
         """
+
+    def get_sensor_data_batch(self, names: Sequence[str]) -> np.ndarray:
+        """Fetch multiple sensors and concatenate their flattened values.
+
+        Args:
+            names: Sensor names in output order.
+
+        Returns:
+            Array with shape ``(num_envs, total_sensor_values)``.
+        """
+        sensor_names = tuple(names)
+        if not sensor_names:
+            return np.empty((self.num_envs, 0), dtype=np.float64)
+        values = [np.asarray(self.get_sensor_data(name)) for name in sensor_names]
+        flat_values = [value.reshape(value.shape[0], -1) for value in values]
+        return np.concatenate(flat_values, axis=1)
