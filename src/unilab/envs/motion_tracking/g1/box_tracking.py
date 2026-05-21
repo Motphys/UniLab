@@ -10,7 +10,7 @@ import numpy as np
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.scene import SceneCfg
-from unilab.dr import ResetPlan
+from unilab.dr import DomainRandomizationManager, ResetPlan
 from unilab.dr.dr_utils import build_common_reset_randomization, zero_actions
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.common.math import np_sample_uniform
@@ -198,7 +198,9 @@ class G1BoxTrackingEnv(G1MotionTrackingEnv):
             dr_provider = G1BoxTrackingDomainRandomizationProvider(base_kp=base_kp, base_kd=base_kd)
         else:
             dr_provider = G1BoxTrackingDomainRandomizationProvider()
-        self._init_domain_randomization(dr_provider)
+        # Parent init already applied init randomization and materialized the backend.
+        # Box tracking only needs to swap in a box-aware reset/obs provider for future resets.
+        self._dr_manager = DomainRandomizationManager(self, dr_provider)
 
         self._object_body_ids = self._backend.get_body_ids([cfg.object_body_name])
 
