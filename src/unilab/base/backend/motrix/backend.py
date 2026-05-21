@@ -749,6 +749,13 @@ class MotrixBackend(SimBackend):
     def get_sensor_data(self, name: str) -> np.ndarray:
         return self._model.get_sensor_value(name, self._data)  # type: ignore[no-any-return]
 
+    def get_sensor_data_batch(self, names: Sequence[str]) -> np.ndarray:
+        sensor_names = tuple(names)
+        if not sensor_names:
+            return np.empty((self._num_envs, 0), dtype=self._np_dtype)
+        values = self._model.get_sensor_values(sensor_names, self._data)
+        return np.asarray(values, dtype=self._np_dtype)
+
     # ------------------------------------------------------------------ #
     # MotrixSim-specific                                                 #
     # ------------------------------------------------------------------ #

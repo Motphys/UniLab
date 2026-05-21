@@ -247,6 +247,33 @@ def test_cross_backend_model_properties_smoke():
     np.testing.assert_array_equal(mx.get_motion_body_ids(body_names), expected)
 
 
+@pytest.mark.parametrize("backend_type", ["mujoco", "motrix"])
+def test_backend_batch_sensor_data_matches_individual_sensors(backend_type):
+    if backend_type == "motrix":
+        pytest.importorskip("motrixsim")
+
+    from unilab.base.backend import create_backend
+    from unilab.envs.locomotion.go2w.base import JOINT_SENSOR_PREFIXES
+
+    bkd = create_backend(
+        backend_type,
+        SceneCfg(model_file=_xml("go2w", "scene_flat.xml")),
+        NUM_ENVS,
+        SIM_DT,
+        base_name="base_link",
+    )
+    bkd.materialize()
+
+    names = tuple(f"{prefix}_pos" for prefix in JOINT_SENSOR_PREFIXES[:4])
+    expected = np.concatenate(
+        [np.asarray(bkd.get_sensor_data(name)).reshape(NUM_ENVS, -1) for name in names],
+        axis=1,
+    )
+
+    np.testing.assert_allclose(bkd.get_sensor_data_batch(names), expected)
+    _shape(bkd.get_sensor_data_batch(()), NUM_ENVS, 0)
+
+
 def test_mujoco_model_properties_smoke():
     from unilab.base.backend.mujoco.backend import MuJoCoBackend
 

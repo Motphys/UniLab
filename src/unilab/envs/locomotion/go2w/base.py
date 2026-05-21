@@ -83,16 +83,10 @@ class Go2WBaseCfg(LocomotionBaseCfg):
     ctrl_dt: float = 0.02
 
 
-def _sensor_scalar(data: np.ndarray) -> np.ndarray:
-    return data.reshape(data.shape[0], -1)[:, 0]
-
-
 def stack_joint_sensors(backend, suffix: str, *, dtype: np.dtype | type) -> np.ndarray:
-    values = [
-        _sensor_scalar(backend.get_sensor_data(f"{prefix}_{suffix}"))
-        for prefix in JOINT_SENSOR_PREFIXES
-    ]
-    return np.asarray(np.stack(values, axis=1), dtype=dtype)
+    names = tuple(f"{prefix}_{suffix}" for prefix in JOINT_SENSOR_PREFIXES)
+    values = backend.get_sensor_data_batch(names)
+    return np.asarray(values.reshape(values.shape[0], -1)[:, :NUM_GO2W_ACTIONS], dtype=dtype)
 
 
 def compute_go2w_motor_ctrl(
