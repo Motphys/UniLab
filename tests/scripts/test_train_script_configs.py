@@ -51,6 +51,7 @@ def _write_sharpa_smoke_cache(cache_prefix, scale_values: list[float]) -> None:
         "go2_joystick_flat/mujoco",
         "g1_walk_flat/mujoco",
         "g1_motion_tracking/mujoco",
+        "g1_box_tracking/mujoco",
         "g1_flip_tracking/mujoco",
         "g1_wall_flip_tracking/mujoco",
     ],

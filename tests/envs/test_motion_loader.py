@@ -201,7 +201,9 @@ def test_box_motion_loader_reads_object_state_and_trims_robot_joints(tmp_path):
     sampled = loader.get_motion_at_frame(np.array([0, 1], dtype=np.int32))
     np.testing.assert_allclose(sampled.joint_pos, np.array([[1.0, 1.0], [2.0, 2.0]]))
     np.testing.assert_allclose(sampled.joint_vel, np.array([[101.0, 101.0], [102.0, 102.0]]))
-    np.testing.assert_allclose(sampled.object_quat_w, np.array([[1.0, 1.0, 0.0, 0.0], [1.0, 2.0, 0.0, 0.0]]))
+    np.testing.assert_allclose(
+        sampled.object_quat_w, np.array([[1.0, 1.0, 0.0, 0.0], [1.0, 2.0, 0.0, 0.0]])
+    )
 
 
 def test_box_motion_loader_rejects_partial_object_key_sets(tmp_path):

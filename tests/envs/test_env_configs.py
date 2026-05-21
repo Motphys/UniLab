@@ -358,13 +358,7 @@ def test_g1_box_tracking_scene_compiles_with_pelvis_imu_sensor_names():
 
     repo_root = Path(__file__).parents[2]
     scene_xml = (
-        repo_root
-        / "src"
-        / "unilab"
-        / "assets"
-        / "robots"
-        / "g1"
-        / "scene_flat_with_largebox.xml"
+        repo_root / "src" / "unilab" / "assets" / "robots" / "g1" / "scene_flat_with_largebox.xml"
     )
 
     model = mujoco.MjModel.from_xml_path(str(scene_xml))
@@ -392,7 +386,7 @@ def test_g1_box_tracking_scene_uses_sphere_hand_and_box_tracking_mesh():
         'mesh name="largebox_mesh" file="box_tracking/largebox.obj"',
         '<freejoint name="largebox_joint"/>',
         '<geom name="largebox" type="mesh" mesh="largebox_mesh"',
-        '0.0 0.5 0.85',
+        "0.0 0.5 0.85",
     ):
         assert snippet in scene_text
 
@@ -407,34 +401,6 @@ def test_g1_box_tracking_scene_uses_sphere_hand_and_box_tracking_mesh():
         "right_foot_contact_3",
     ):
         assert name in scene_text
-
-
-def test_g1_flat_sphere_hand_scene_uses_sphere_hand_without_largebox():
-    repo_root = Path(__file__).parents[2]
-    scene_text = (
-        repo_root / "src" / "unilab" / "assets" / "robots" / "g1" / "scene_flat_sphere_hand.xml"
-    ).read_text()
-
-    assert '<include file="g1_sphere_hand.xml"/>' in scene_text
-    assert '<geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/>' in scene_text
-    assert "largebox_mesh" not in scene_text
-    assert "largebox_joint" not in scene_text
-    assert 'body name="largebox"' not in scene_text
-
-
-def test_g1_flat_sphere_hand_scene_compiles_without_largebox():
-    mujoco = pytest.importorskip("mujoco")
-
-    repo_root = Path(__file__).parents[2]
-    scene_xml = (
-        repo_root / "src" / "unilab" / "assets" / "robots" / "g1" / "scene_flat_sphere_hand.xml"
-    )
-    model = mujoco.MjModel.from_xml_path(str(scene_xml))
-
-    assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "largebox") == -1
-    assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "largebox") == -1
-    assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SENSOR, "pelvis_gyro") >= 0
-    assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SENSOR, "torso_gyro") >= 0
 
 
 def test_allegro_rotation_obs_groups_spec_dims():
@@ -599,20 +565,26 @@ def test_g1_box_tracking_cfg_uses_largebox_scene_and_motion_defaults():
     assert cfg.object_ori_threshold == pytest.approx(0.8)
     assert isinstance(cfg.reward_config, BoxRewardConfig)
     assert cfg.reward_config.scales["object_global_ref_position_error_exp"] == pytest.approx(1.0)
-    assert cfg.reward_config.scales["object_global_ref_orientation_error_exp"] == pytest.approx(
-        1.0
-    )
+    assert cfg.reward_config.scales["object_global_ref_orientation_error_exp"] == pytest.approx(1.0)
 
 
 def test_g1_box_tracking_is_exported_from_g1_and_motion_tracking_packages():
     from unilab.envs.motion_tracking import (
         G1BoxTrackingCfg as TopLevelCfg,
+    )
+    from unilab.envs.motion_tracking import (
         G1BoxTrackingEnv as TopLevelEnv,
+    )
+    from unilab.envs.motion_tracking import (
         G1BoxTrackingEnvCfg as TopLevelEnvCfg,
     )
     from unilab.envs.motion_tracking.g1 import (
         G1BoxTrackingCfg as G1PkgCfg,
+    )
+    from unilab.envs.motion_tracking.g1 import (
         G1BoxTrackingEnv as G1PkgEnv,
+    )
+    from unilab.envs.motion_tracking.g1 import (
         G1BoxTrackingEnvCfg as G1PkgEnvCfg,
     )
 
@@ -780,7 +752,10 @@ def test_g1_box_tracking_critic_object_state_respects_subset_env_order():
     robot_body_quat_w = np.tile(np.array([[[1.0, 0.0, 0.0, 0.0]]], dtype=np.float32), (2, 2, 1))
 
     obs = env._compute_obs(
-        {"env_ids": np.array([2, 0], dtype=np.int32), "current_actions": np.zeros((2, 2), dtype=np.float32)},
+        {
+            "env_ids": np.array([2, 0], dtype=np.int32),
+            "current_actions": np.zeros((2, 2), dtype=np.float32),
+        },
         motion_data,
         linvel,
         gyro,

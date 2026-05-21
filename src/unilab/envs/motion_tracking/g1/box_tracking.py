@@ -198,7 +198,7 @@ class G1BoxTrackingEnv(G1MotionTrackingEnv):
             dr_provider = G1BoxTrackingDomainRandomizationProvider(base_kp=base_kp, base_kd=base_kd)
         else:
             dr_provider = G1BoxTrackingDomainRandomizationProvider()
-        self._dr_manager = type(self._dr_manager)(self, dr_provider)
+        self._init_domain_randomization(dr_provider)
 
         self._object_body_ids = self._backend.get_body_ids([cfg.object_body_name])
 
