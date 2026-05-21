@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -159,7 +159,7 @@ class G1BoxTrackingDomainRandomizationProvider(G1MotionTrackingDomainRandomizati
     def build_reset_plan(self, env: Any, env_ids: np.ndarray) -> ResetPlan:
         num_reset = len(env_ids)
         motion_frames = env.motion_sampler.sample_frames(env_ids)
-        motion_data = env.motion_loader.get_motion_at_frame(motion_frames)
+        motion_data = cast(BoxMotionData, env.motion_loader.get_motion_at_frame(motion_frames))
         qpos, qvel = _build_box_motion_reference_state(env, env_ids, motion_data)
 
         info_updates = {
@@ -195,12 +195,10 @@ class G1BoxTrackingEnv(G1MotionTrackingEnv):
 
         if cfg.domain_rand.randomize_kp or cfg.domain_rand.randomize_kd:
             base_kp, base_kd = self._backend.get_actuator_gains()
-            self._dr_provider = G1BoxTrackingDomainRandomizationProvider(
-                base_kp=base_kp, base_kd=base_kd
-            )
+            dr_provider = G1BoxTrackingDomainRandomizationProvider(base_kp=base_kp, base_kd=base_kd)
         else:
-            self._dr_provider = G1BoxTrackingDomainRandomizationProvider()
-        self._dr_manager._provider = self._dr_provider
+            dr_provider = G1BoxTrackingDomainRandomizationProvider()
+        self._init_domain_randomization(dr_provider)
 
         self._object_body_ids = self._backend.get_body_ids([cfg.object_body_name])
 
@@ -225,7 +223,7 @@ class G1BoxTrackingEnv(G1MotionTrackingEnv):
 
     def _resample_reference_state(self, env_ids: np.ndarray) -> None:
         motion_frames = self.motion_sampler.sample_frames(env_ids)
-        motion_data = self.motion_loader.get_motion_at_frame(motion_frames)
+        motion_data = cast(BoxMotionData, self.motion_loader.get_motion_at_frame(motion_frames))
         qpos, qvel = _build_box_motion_reference_state(self, env_ids, motion_data)
         self._backend.set_state(env_ids, qpos, qvel)
 
@@ -332,7 +330,9 @@ class G1BoxTrackingEnv(G1MotionTrackingEnv):
             axis=1,
             dtype=get_global_dtype(),
         )
-        obs["critic"] = np.concatenate([obs["critic"], object_obs], axis=1, dtype=get_global_dtype())
+        obs["critic"] = np.concatenate(
+            [obs["critic"], object_obs], axis=1, dtype=get_global_dtype()
+        )
         return obs
 
     def _reward_object_position(self, info: dict) -> np.ndarray:
