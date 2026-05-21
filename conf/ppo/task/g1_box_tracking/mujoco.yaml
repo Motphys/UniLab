@@ -12,6 +12,11 @@ algo:
       - actor
   algorithm:
     entropy_coef: 0.005
+env:
+  sim_dt: 0.005
+  sensor:
+    gyro: pelvis_gyro
+    upvector: pelvis_upvector
 reward:
   scales:
     motion_global_root_pos: 0.5
