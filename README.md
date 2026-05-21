@@ -78,12 +78,10 @@ Prefer a guided, step-by-step experience? Open the notebooks in Jupyter:
 These are example repository runs for documented commands and hardware setups. They are useful as concrete entrypoints and reported timings, but they are **not** yet a formal benchmark manifest.
 
 ```bash
-# Linux SAC (5.5min on RTX 4090 and R9-9950x3d)
 uv run train --algo sac --task g1_walk_flat --sim mujoco
 ```
 
 ```bash
-# macOS users: omit training.use_amp=true
 uv run train --algo sac --task g1_sac_wbt --sim mujoco training.use_amp=true
 ```
 
@@ -107,4 +105,4 @@ Use [docs/README.md](docs/README.md) as the documentation index. High-signal ent
 - [Training Guide](docs/users/zh_CN/03-training.md): training, playback, resume flow, Hydra overrides, and W&B
 - [Simulation Backends](docs/users/zh_CN/02-simulation-backends.md): generated MuJoCo / Motrix support matrix
 - [Development Standard](docs/developers/zh_CN/development-standard.md): contracts, layering, and validation boundaries
-- [ADR Index](docs/developers/adr/README.md): accepted architecture decisions
+- [ADR Index](docs/developers/adr/ADR-0000-index.md): accepted architecture decisions
