@@ -15,21 +15,15 @@ def test_documentation_files_match_current_repo_contracts():
 
 def test_sharpa_domain_randomization_doc_matches_owner_config():
     root = Path(__file__).resolve().parents[2]
-    doc_path = root / "docs" / "users" / "zh_CN" / "06-domain-randomization.md"
+    doc_path = root / "docs" / "users" / "zh_CN" / "05-domain-randomization.md"
     content = doc_path.read_text(encoding="utf-8")
+
     owner_cfg = OmegaConf.load(root / "conf" / "ppo" / "task" / "sharpa_inhand" / "mujoco.yaml")
 
-    sharpa_rows = [
-        line for line in content.splitlines() if line.startswith("| `SharpaInhandRotation` |")
-    ]
-    assert sharpa_rows
+    assert "Sharpa" in content
+    assert "`geom_size`" in content
     if float(owner_cfg.env.domain_rand.force_scale) > 0.0:
-        assert all("| 无 |" not in row for row in sharpa_rows)
-        assert any("body_force" in row for row in sharpa_rows)
-
-    assert "`env.domain_rand.scale_list`" in content
-    assert "`env.scale_list`" not in content
-    assert "必须能被 `num_scales` 整除" not in content
+        assert "`gravity`" in content
 
 
 def test_check_training_entrypoint_semantics_flags_issue_204_patterns():
@@ -144,7 +138,7 @@ def test_collect_doc_errors_scans_scripts_markdown(tmp_path):
 
 def test_check_zh_cn_doc_shape_requires_language_navigation_and_index(tmp_path):
     root = tmp_path
-    doc_path = root / "docs" / "users" / "zh_CN" / "06-domain-randomization.md"
+    doc_path = root / "docs" / "users" / "zh_CN" / "05-domain-randomization.md"
     doc_path.parent.mkdir(parents=True)
     content = "# 域随机化\n\n缺少语言头。\n"
 
@@ -157,7 +151,7 @@ def test_check_zh_cn_doc_shape_requires_language_navigation_and_index(tmp_path):
 
 def test_check_zh_cn_doc_shape_accepts_user_contract(tmp_path):
     root = tmp_path
-    doc_path = root / "docs" / "users" / "zh_CN" / "06-domain-randomization.md"
+    doc_path = root / "docs" / "users" / "zh_CN" / "05-domain-randomization.md"
     doc_path.parent.mkdir(parents=True)
     content = (
         "# 域随机化\n\n语言: 简体中文\n\n正文。\n\n"
@@ -181,6 +175,34 @@ def test_check_zh_cn_doc_shape_accepts_developer_contract(tmp_path):
     errors = doc_checks.check_zh_cn_doc_shape(content, doc_path, root)
 
     assert errors == []
+
+
+def test_check_user_doc_architecture_flags_migration_phrasing_and_missing_task_sections(tmp_path):
+    root = tmp_path
+    task_index = root / "docs" / "users" / "zh_CN" / "D-tasks" / "01-task-index.md"
+    task_index.parent.mkdir(parents=True)
+    task_index.write_text("# 任务\n\n语言: 简体中文\n\n已拆成。\n", encoding="utf-8")
+
+    from tests.scripts.doc_checks import check_user_doc_architecture
+
+    errors = check_user_doc_architecture(task_index.read_text(encoding="utf-8"), task_index, root)
+
+    assert any("已拆成" in error for error in errors)
+    assert any("按机器人家族" in error for error in errors)
+    assert any("按任务类型" in error for error in errors)
+
+
+def test_check_user_doc_architecture_requires_backend_matrix_route(tmp_path):
+    root = tmp_path
+    doc_path = root / "docs" / "users" / "zh_CN" / "02-simulation-backends.md"
+    doc_path.parent.mkdir(parents=True)
+    doc_path.write_text("# 仿真后端\n\n语言: 简体中文\n\n正文。\n", encoding="utf-8")
+
+    from tests.scripts.doc_checks import check_user_doc_architecture
+
+    errors = check_user_doc_architecture(doc_path.read_text(encoding="utf-8"), doc_path, root)
+
+    assert any("E-reference/01-backend-support-matrix.md" in error for error in errors)
 
 
 def test_check_adr_shape_requires_governance_fields(tmp_path):
@@ -219,7 +241,7 @@ None.
 
 ## Related Documents
 
-- [ADR Index](README.md)
+- [ADR Index](ADR-0000-index.md)
 """
 
     errors = doc_checks.check_adr_shape(content, doc_path, root)

@@ -2,7 +2,7 @@
 
 语言: 简体中文
 
-本页记录 domain randomization 的开发者 contract、MuJoCo `BatchEnvPool` 随机场接口快照，以及新任务接入最低标准。用户侧配置入口见 [域随机化](../../users/zh_CN/06-domain-randomization.md)。
+本页记录 domain randomization 的开发者 contract、MuJoCo `BatchEnvPool` 随机场接口快照，以及新任务接入最低标准。用户侧配置入口见 [域随机化](../../users/zh_CN/05-domain-randomization.md)。
 
 ## Contract Boundary
 

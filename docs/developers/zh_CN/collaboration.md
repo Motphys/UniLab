@@ -55,7 +55,7 @@
 当改动涉及 runtime / backend / config / registry contract 时，issue 或 PR 需要显式链接对应 ADR:
 
 - 架构标准入口: [RL Infrastructure 开发标准](development-standard.md)
-- ADR 索引: [ADR Index](../adr/README.md)
+- ADR 索引: [ADR Index](../adr/ADR-0000-index.md)
 - backend 能力边界: [ADR-0002](../adr/ADR-0002-backend-capability-boundary-for-play-and-snapshot.md)
 - task owner / compose: [ADR-0003](../adr/ADR-0003-task-owner-and-config-compose-contract.md)
 - registry bootstrap: [ADR-0004](../adr/ADR-0004-registry-bootstrap-contract.md)

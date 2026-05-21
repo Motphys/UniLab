@@ -58,6 +58,14 @@ SKIP_PATTERNS = [
     r"(^|/)\.pytest_cache(/|$)",
 ]
 
+USER_DOC_MIGRATION_PHRASES = [
+    "已拆成",
+    "本页改成",
+    "下沉到参考页",
+]
+
+USER_DOC_MAX_LINES = 120
+
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
@@ -279,7 +287,10 @@ def check_training_entrypoint_semantics(content: str, doc_path: Path, root: Path
 
 def check_generated_support_matrix(content: str, doc_path: Path, root: Path) -> list[str]:
     errors: list[str] = []
-    if doc_path != root / "docs" / "users" / "zh_CN" / "02-simulation-backends.md":
+    if (
+        doc_path
+        != root / "docs" / "users" / "zh_CN" / "E-reference" / "01-backend-support-matrix.md"
+    ):
         return errors
 
     expected = replace_generated_block(content, render_generated_block(root))
@@ -318,7 +329,7 @@ def check_adr_shape(content: str, doc_path: Path, root: Path) -> list[str]:
     adr_dir = root / "docs" / "developers" / "adr"
     if doc_path.parent != adr_dir or doc_path.suffix != ".md":
         return errors
-    if doc_path.name == "README.md":
+    if doc_path.name == "ADR-0000-index.md":
         return errors
 
     required_tokens = [
@@ -338,6 +349,44 @@ def check_adr_shape(content: str, doc_path: Path, root: Path) -> list[str]:
     return errors
 
 
+def check_user_doc_architecture(content: str, doc_path: Path, root: Path) -> list[str]:
+    errors: list[str] = []
+    user_root = root / "docs" / "users" / "zh_CN"
+    try:
+        doc_path.relative_to(user_root)
+    except ValueError:
+        return errors
+
+    exempt_long_docs = {
+        user_root / "E-reference" / "01-backend-support-matrix.md",
+    }
+    if doc_path not in exempt_long_docs and len(content.splitlines()) > USER_DOC_MAX_LINES:
+        errors.append(
+            f"{doc_path}: user docs should stay concise; split files before exceeding "
+            f"{USER_DOC_MAX_LINES} lines"
+        )
+
+    for phrase in USER_DOC_MIGRATION_PHRASES:
+        if phrase in content:
+            errors.append(
+                f"{doc_path}: user docs should not expose migration/restructure phrasing: `{phrase}`"
+            )
+
+    tasks_index = user_root / "D-tasks" / "01-task-index.md"
+    if doc_path == tasks_index:
+        for token in ("## 按机器人家族", "## 按任务类型"):
+            if token not in content:
+                errors.append(f"{doc_path}: task index must include `{token}`")
+
+    backend_overview = user_root / "02-simulation-backends.md"
+    if doc_path == backend_overview and "E-reference/01-backend-support-matrix.md" not in content:
+        errors.append(
+            f"{doc_path}: backend overview must route users to `E-reference/01-backend-support-matrix.md`"
+        )
+
+    return errors
+
+
 def check_document(doc_path: Path, root: Path) -> list[str]:
     content = doc_path.read_text(encoding="utf-8")
     errors: list[str] = []
@@ -353,6 +402,7 @@ def check_document(doc_path: Path, root: Path) -> list[str]:
     errors.extend(check_generated_support_matrix(content, doc_path, root))
     errors.extend(check_zh_cn_doc_shape(content, doc_path, root))
     errors.extend(check_adr_shape(content, doc_path, root))
+    errors.extend(check_user_doc_architecture(content, doc_path, root))
     return errors
 
 
