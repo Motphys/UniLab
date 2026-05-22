@@ -10,6 +10,90 @@ import torch
 from tensordict import TensorDict
 
 
+def test_hora_sac_actor_shapes_and_stable_module_names() -> None:
+    from unilab.algos.torch.hora.sac_models import HoraSACActor
+
+    actor = HoraSACActor(
+        obs_dim=5,
+        priv_info_dim=3,
+        action_dim=2,
+        hidden_dim=16,
+        priv_info_embed_dim=4,
+        priv_mlp_hidden_dims=(8, 4),
+        use_layer_norm=False,
+    )
+
+    obs = torch.zeros(6, 5)
+    priv_info = torch.zeros(6, 3)
+    actions, log_probs, log_std = actor.get_actions_and_log_probs(obs, priv_info)
+
+    assert hasattr(actor, "priv_encoder")
+    assert hasattr(actor, "actor_trunk")
+    assert hasattr(actor, "action_mean_head")
+    assert hasattr(actor, "action_logstd_head")
+    assert actions.shape == (6, 2)
+    assert log_probs.shape == (6,)
+    assert log_std.shape == (6, 2)
+
+
+def test_hora_sac_learner_derives_priv_info_from_critic_contract() -> None:
+    from unilab.algos.torch.hora.sac_learner import derive_priv_info_from_critic_obs
+
+    actor_obs = torch.zeros((4, 5), dtype=torch.float32)
+    priv_info = torch.arange(12, dtype=torch.float32).reshape(4, 3)
+    critic_obs = torch.cat([actor_obs, priv_info], dim=-1)
+
+    torch.testing.assert_close(
+        derive_priv_info_from_critic_obs(actor_obs, critic_obs, context="test"),
+        priv_info,
+    )
+
+    with pytest.raises(ValueError, match="privileged tail"):
+        derive_priv_info_from_critic_obs(actor_obs, actor_obs, context="test")
+
+
+def test_hora_sac_learner_updates_with_privileged_tail() -> None:
+    from unilab.algos.torch.hora.sac_learner import HoraSACLearner
+
+    torch.manual_seed(23)
+    learner = HoraSACLearner(
+        obs_dim=5,
+        critic_obs_dim=8,
+        priv_info_dim=3,
+        action_dim=2,
+        device="cpu",
+        actor_hidden_dim=16,
+        critic_hidden_dim=16,
+        priv_info_embed_dim=4,
+        priv_mlp_hidden_dims=(8, 4),
+        num_atoms=11,
+        use_layer_norm=False,
+        actor_lr=1e-3,
+        critic_lr=1e-3,
+        alpha_lr=1e-3,
+    )
+    obs = torch.randn(7, 5)
+    next_obs = torch.randn(7, 5)
+    priv_info = torch.randn(7, 3)
+    next_priv_info = torch.randn(7, 3)
+    batch = {
+        "obs": obs,
+        "critic": torch.cat([obs, priv_info], dim=-1),
+        "actions": torch.randn(7, 2).clamp(-0.5, 0.5),
+        "rewards": torch.randn(7),
+        "next_obs": next_obs,
+        "next_critic": torch.cat([next_obs, next_priv_info], dim=-1),
+        "dones": torch.zeros(7),
+        "truncated": torch.zeros(7),
+    }
+
+    critic_metrics = learner.update_critic(batch)
+    actor_metrics = learner.update_actor(batch)
+
+    assert torch.isfinite(torch.tensor(list(critic_metrics.values()))).all()
+    assert torch.isfinite(torch.tensor(list(actor_metrics.values()))).all()
+
+
 def test_hora_rsl_wrapper_uses_explicit_np_env_state_contract() -> None:
     """HORA wrapper must not probe required NpEnvState fields dynamically."""
     from unilab.algos.torch.hora.rsl_rl import HoraRslRlVecEnvWrapper

@@ -199,6 +199,25 @@ def test_offpolicy_hydra_default_algo():
     assert cfg.algo.algo == "sac"
 
 
+def test_offpolicy_hora_sac_sharpa_owner_defaults_to_non_hard_dr_args():
+    cfg = _offpolicy_cfg(["algo=sac", "task=sac/sharpa_inhand/mujoco_hora"])
+
+    assert cfg.training.task_name == "SharpaInhandRotation"
+    assert cfg.training.sim_backend == "mujoco"
+    assert cfg.training.no_play is True
+    assert cfg.algo.algo_log_name == "hora_sac"
+    assert cfg.algo.runtime_impl == "hora_sac"
+    assert cfg.algo.num_envs == 1024
+    assert cfg.algo.batch_size == 2048
+    assert cfg.algo.replay_buffer_n == 1280
+    assert cfg.algo.updates_per_step == 7
+    assert cfg.algo.policy_frequency == 2
+    assert cfg.algo.actor_lr == pytest.approx(4.5e-4)
+    assert cfg.algo.critic_lr == pytest.approx(4.5e-4)
+    assert cfg.algo.algo_params.alpha_lr == pytest.approx(4.5e-4)
+    assert cfg.env.obs.observation_mode == "separated"
+
+
 def test_appo_runner_kwargs_forward_algorithm_seed():
     mod = _train_appo()
     cfg = _appo_cfg(["algo.seed=37"])

@@ -14,6 +14,9 @@ def build_actor(
     actor_num_blocks: int = 2,
     actor_noise_zeta_mu: float = 2.0,
     actor_noise_zeta_max: int = 16,
+    priv_info_dim: int | None = None,
+    priv_info_embed_dim: int = 9,
+    priv_mlp_hidden_dims: tuple[int, ...] | list[int] = (256, 128, 9),
 ):
     """Build the correct actor model based on algorithm type."""
     if algo_type == "sac":
@@ -23,6 +26,21 @@ def build_actor(
             obs_dim=obs_dim,
             action_dim=action_dim,
             hidden_dim=actor_hidden_dim,
+            use_layer_norm=use_layer_norm,
+            device=device,
+        )
+    if algo_type == "hora_sac":
+        if priv_info_dim is None:
+            raise ValueError("build_actor(algo_type='hora_sac') requires priv_info_dim.")
+        from unilab.algos.torch.hora.sac_models import HoraSACActor
+
+        return HoraSACActor(
+            obs_dim=obs_dim,
+            priv_info_dim=int(priv_info_dim),
+            action_dim=action_dim,
+            hidden_dim=actor_hidden_dim,
+            priv_info_embed_dim=priv_info_embed_dim,
+            priv_mlp_hidden_dims=tuple(priv_mlp_hidden_dims),
             use_layer_norm=use_layer_norm,
             device=device,
         )

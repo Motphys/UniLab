@@ -57,6 +57,7 @@ def sample_offpolicy_actions(
     algo_type: str,
     obs_torch: torch.Tensor,
     prev_dones_torch: torch.Tensor,
+    priv_info_torch: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Sample collector actions using the algorithm's exploration policy."""
     if algo_type in ("sac", "td3", "flashsac"):
@@ -64,7 +65,39 @@ def sample_offpolicy_actions(
             torch.Tensor,
             actor.explore(obs_torch, dones=prev_dones_torch, deterministic=False),
         )
+    if algo_type == "hora_sac":
+        if priv_info_torch is None:
+            raise ValueError("HORA-SAC collector action sampling requires priv_info_torch.")
+        return cast(
+            torch.Tensor,
+            actor.explore(obs_torch, priv_info_torch, deterministic=False),
+        )
     raise ValueError(f"Unsupported off-policy algo_type for collector action sampling: {algo_type}")
+
+
+def resolve_offpolicy_actor_priv_info(
+    *,
+    algo_type: str,
+    obs_np: np.ndarray,
+    critic_np: np.ndarray,
+    info: dict | None,
+) -> np.ndarray | None:
+    """Resolve optional collector-side actor context for privileged off-policy actors."""
+    if algo_type != "hora_sac":
+        return None
+
+    from unilab.algos.torch.hora.observations import split_hora_obs_with_priv_info
+
+    _, _, priv_info_np = split_hora_obs_with_priv_info(
+        {"obs": obs_np, "critic": critic_np},
+        info,
+    )
+    if priv_info_np is None:
+        raise ValueError(
+            "HORA-SAC collector requires privileged info from info['critic_info'] "
+            "or the critic observation tail."
+        )
+    return np.asarray(priv_info_np, dtype=np.float32)
 
 
 def _record_timing_ms(timing_accum_ms, timing_counts, key: str, value: float) -> None:
@@ -347,6 +380,7 @@ def _run_collector(
     obs_np, critic_np = split_obs_dict(state.obs)
     obs_np = np.asarray(obs_np, dtype=np.float32)
     critic_np = np.asarray(critic_np, dtype=np.float32)
+    info_dict = state.info
     prev_dones_np = np.zeros(num_envs, dtype=np.float32)
     import time as _time
 
@@ -396,11 +430,21 @@ def _run_collector(
             _t_infer_ns = _time.perf_counter_ns()
             obs_torch = torch.from_numpy(obs_np_input)
             dones_torch = torch.from_numpy(prev_dones_np)
+            priv_info_np = resolve_offpolicy_actor_priv_info(
+                algo_type=algo_type,
+                obs_np=obs_np,
+                critic_np=critic_np,
+                info=info_dict,
+            )
+            priv_info_torch = (
+                torch.from_numpy(priv_info_np) if priv_info_np is not None else None
+            )
             actions_torch = sample_offpolicy_actions(
                 actor=actor,
                 algo_type=algo_type,
                 obs_torch=obs_torch,
                 prev_dones_torch=dones_torch,
+                priv_info_torch=priv_info_torch,
             )
             actions_np = actions_torch.numpy()
             if trace_recorder:
@@ -509,6 +553,7 @@ def _run_collector(
 
         obs_np = next_obs_np
         critic_np = next_critic_np
+        info_dict = state.info
         total_steps += num_envs
         env_steps_since_sync += 1
         phase_start_ns = _record_phase_ms(cycle_timing_ms, "sync_coordination_ms", phase_start_ns)

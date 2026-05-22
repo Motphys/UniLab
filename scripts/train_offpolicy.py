@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import hydra
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
@@ -114,24 +114,36 @@ def build_runner(algo_name: str, cfg: DictConfig):
         from unilab.algos.torch.offpolicy.double_buffer_runner import (
             DoubleBufferOffPolicyRunner,
         )
+        from unilab.algos.torch.offpolicy.runtime import resolve_custom_offpolicy_runtime
         from unilab.base.registry import ensure_registries as _ensure
         from unilab.utils.device import get_default_device
 
         _ensure()
         _device = cfg.training.device or get_default_device()
+        _rl_cfg = cast(dict[str, Any], OmegaConf.to_container(cfg.algo, resolve=True))
+        _custom_runtime = resolve_custom_offpolicy_runtime(_rl_cfg)
         _env = create_env(cfg, num_envs=1, env_cfg_override=env_cfg_override)
-        assert _env.action_space.shape
-        from unilab.base.observations import get_obs_dims as _get_obs_dims
+        try:
+            assert _env.action_space.shape
+            from unilab.base.observations import get_obs_dims as _get_obs_dims
 
-        _obs_dim, _critic_dim = _get_obs_dims(_env.obs_groups_spec)
-        _action_dim = _env.action_space.shape[0]
-        _symmetry_aug = None
-        if cfg.algo.use_symmetry:
-            _symmetry_aug = _env.build_symmetry_augmentation(device=_device)
-            if _symmetry_aug is None:
-                _env.close()
-                raise ValueError(f"{cfg.training.task_name} does not provide symmetry augmentation")
-        _env.close()
+            _obs_dim, _critic_dim = _get_obs_dims(_env.obs_groups_spec)
+            _action_dim = _env.action_space.shape[0]
+            _symmetry_aug = None
+            if (
+                _custom_runtime is not None
+                and cfg.algo.use_symmetry
+                and not _custom_runtime.supports_symmetry
+            ):
+                raise ValueError("Selected SAC off-policy runtime does not support symmetry.")
+            if cfg.algo.use_symmetry:
+                _symmetry_aug = _env.build_symmetry_augmentation(device=_device)
+                if _symmetry_aug is None:
+                    raise ValueError(
+                        f"{cfg.training.task_name} does not provide symmetry augmentation"
+                    )
+        finally:
+            _env.close()
 
         _batch_size = cfg.algo.batch_size
         if _symmetry_aug is not None:
@@ -142,7 +154,25 @@ def build_runner(algo_name: str, cfg: DictConfig):
                 )
             _batch_size = _batch_size // _symmetry_aug.batch_multiplier
 
-        _learner = FastSACLearner(
+        _learner_cls = FastSACLearner
+        _algo_type = "sac"
+        _actor_kwargs: dict[str, Any] = {}
+        _learner_extra_kwargs: dict[str, Any] = {}
+        if _custom_runtime is not None:
+            _learner_extra_kwargs = cast(
+                dict[str, Any],
+                _custom_runtime.build_model_kwargs(
+                    obs_dim=int(_obs_dim),
+                    critic_obs_dim=int(_critic_dim),
+                ),
+            )
+            if _custom_runtime.learner_cls is not None:
+                _learner_cls = _custom_runtime.learner_cls
+            if _custom_runtime.algo_type is not None:
+                _algo_type = str(_custom_runtime.algo_type)
+            _actor_kwargs = dict(_learner_extra_kwargs)
+
+        _learner = _learner_cls(
             obs_dim=_obs_dim,
             action_dim=_action_dim,
             device=_device,
@@ -162,12 +192,13 @@ def build_runner(algo_name: str, cfg: DictConfig):
             use_symmetry=cfg.algo.use_symmetry,
             symmetry_augmentation=_symmetry_aug,
             critic_obs_dim=_critic_dim,
+            **_learner_extra_kwargs,
         )
 
         return DoubleBufferOffPolicyRunner(
             learner=_learner,
             env_name=cfg.training.task_name,
-            algo_type="sac",
+            algo_type=_algo_type,
             num_envs=cfg.algo.num_envs,
             replay_buffer_n=cfg.algo.replay_buffer_n,
             batch_size=_batch_size,
@@ -182,6 +213,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             obs_normalization=cfg.algo.obs_normalization,
             sim_backend=cfg.training.sim_backend,
             env_cfg_override=env_cfg_override,
+            actor_kwargs=_actor_kwargs,
             trace_enabled=cfg.training.trace_enabled,
             trace_output_dir=cfg.training.trace_output_dir,
             trace_thread_time=cfg.training.trace_thread_time,

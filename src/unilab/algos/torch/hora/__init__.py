@@ -8,6 +8,8 @@ from .ppo import HoraPPO
 
 if TYPE_CHECKING:
     from .appo import HoraAPPORunner, play_hora_appo
+    from .sac_learner import HoraSACLearner
+    from .sac_models import HoraSACActor
 
 __all__ = [
     "HoraActorModel",
@@ -15,6 +17,8 @@ __all__ = [
     "HoraCriticModel",
     "HoraDistillationTrainer",
     "HoraPPO",
+    "HoraSACActor",
+    "HoraSACLearner",
     "HoraSharedActorCritic",
     "play_hora_appo",
 ]
@@ -27,6 +31,15 @@ def __getattr__(name: str) -> Any:
         exports = {
             "HoraAPPORunner": HoraAPPORunner,
             "play_hora_appo": play_hora_appo,
+        }
+        return exports[name]
+    if name in {"HoraSACActor", "HoraSACLearner"}:
+        from .sac_learner import HoraSACLearner
+        from .sac_models import HoraSACActor
+
+        exports = {
+            "HoraSACActor": HoraSACActor,
+            "HoraSACLearner": HoraSACLearner,
         }
         return exports[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -375,6 +375,48 @@ def test_sac_double_buffer_dispatches_to_correct_runner(monkeypatch: pytest.Monk
     }
 
 
+def test_hora_sac_dispatches_through_double_buffer_runner(monkeypatch: pytest.MonkeyPatch):
+    import gymnasium as gym
+
+    mod = _offpolicy()
+    cfg = _offpolicy_cfg(
+        [
+            "algo=sac",
+            "task=sac/sharpa_inhand/mujoco_hora",
+            "training.device=cpu",
+        ]
+    )
+
+    class _FakeEnv:
+        obs_groups_spec = {"obs": 4, "critic": 7}
+        action_space = gym.spaces.Box(-1.0, 1.0, shape=(2,))
+
+        def close(self):
+            pass
+
+    class _FakeRunner:
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+
+    monkeypatch.setattr(mod, "ensure_registries", lambda: None)
+    monkeypatch.setattr(mod, "create_env", lambda *args, **kwargs: _FakeEnv())
+
+    import unilab.algos.torch.offpolicy.double_buffer_runner as db_mod
+
+    monkeypatch.setattr(db_mod, "DoubleBufferOffPolicyRunner", _FakeRunner)
+
+    runner = mod.build_runner("sac", cfg)
+
+    assert isinstance(runner, _FakeRunner)
+    assert runner.kwargs["algo_type"] == "hora_sac"
+    assert runner.kwargs["actor_kwargs"]["priv_info_dim"] == 3
+    assert runner.kwargs["actor_kwargs"]["priv_info_embed_dim"] == 9
+    assert runner.kwargs["num_envs"] == 1024
+    assert runner.kwargs["batch_size"] == 2048
+    assert runner.kwargs["updates_per_step"] == 7
+    assert runner.kwargs["policy_frequency"] == 2
+
+
 def test_sac_double_buffer_one_tick_prefetch_mode_passed(monkeypatch: pytest.MonkeyPatch):
     import gymnasium as gym
 

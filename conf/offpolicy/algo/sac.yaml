@@ -1,6 +1,8 @@
 # @package algo
 algo: sac
 algo_log_name: fast_sac
+runtime_impl: null
+runtime_resolver: null
 load_run: "-1"
 seed: 1
 num_envs: 4096
@@ -22,6 +24,7 @@ num_atoms: 101
 obs_normalization: true
 use_layer_norm: true
 use_symmetry: false
+actor: {}
 algo_params:
   alpha_lr: 3.0e-4
   alpha_init: 0.01

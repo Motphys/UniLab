@@ -31,6 +31,8 @@ class SACAlgoParams:
 class SACConfig(BaseConfig):
     algo: str = "sac"
     algo_log_name: str = "fast_sac"
+    runtime_impl: Optional[str] = None
+    runtime_resolver: Optional[str] = None
     seed: int = 1
     num_envs: int = 4096
     batch_size: int = 8192
@@ -51,6 +53,7 @@ class SACConfig(BaseConfig):
     obs_normalization: bool = True
     use_layer_norm: bool = True
     use_symmetry: bool = False
+    actor: dict[str, Any] = field(default_factory=dict)
     algo_params: SACAlgoParams = field(default_factory=SACAlgoParams)
 
 
