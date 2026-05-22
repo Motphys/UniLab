@@ -1,8 +1,14 @@
-![G1 motion tracking overview](docs/assets/g1_readme.png)
+<h1 align="center"> UniLab </h1>
 
-# UniLab
+<h3 align="center">
+A Heterogeneous Training Architecture for Robot Reinforcement Learning
+</h3>
 
-Languages: English | [简体中文](docs/users/zh_CN/01-getting-started.md)
+<p align="center">Languages: English | <a href="docs/users/zh_CN/01-getting-started.md">简体中文</a></p>
+
+<p align="center">
+  <img src="docs/assets/teaser.png" alt="UniLab Teaser" width="90%" />
+</a>
 
 Train robot RL without a GPU simulation backend.
 
