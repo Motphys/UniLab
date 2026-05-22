@@ -333,6 +333,76 @@ def test_g1_walk_flat_assets_define_contact_sensors_for_gait_rewards():
         assert name in model_text
 
 
+def test_g1_sphere_hand_assets_align_with_current_g1_sensor_names():
+    repo_root = Path(__file__).parents[2]
+    model_text = (
+        repo_root / "src" / "unilab" / "assets" / "robots" / "g1" / "g1_sphere_hand.xml"
+    ).read_text()
+
+    for name in (
+        "pelvis_local_linvel",
+        "pelvis_gyro",
+        "pelvis_acceleration",
+        "pelvis_upvector",
+        "torso_gyro",
+        "torso_acceleration",
+        "torso_upvector",
+        "left_foot_quat",
+        "right_foot_quat",
+    ):
+        assert name in model_text
+
+
+def test_g1_box_tracking_scene_compiles_with_pelvis_imu_sensor_names():
+    mujoco = pytest.importorskip("mujoco")
+
+    repo_root = Path(__file__).parents[2]
+    scene_xml = (
+        repo_root / "src" / "unilab" / "assets" / "robots" / "g1" / "scene_flat_with_largebox.xml"
+    )
+
+    model = mujoco.MjModel.from_xml_path(str(scene_xml))
+
+    for sensor_name in (
+        "pelvis_local_linvel",
+        "pelvis_gyro",
+        "pelvis_acceleration",
+        "pelvis_upvector",
+        "torso_gyro",
+        "torso_acceleration",
+        "torso_upvector",
+    ):
+        assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SENSOR, sensor_name) >= 0
+
+
+def test_g1_box_tracking_scene_uses_sphere_hand_and_box_tracking_mesh():
+    repo_root = Path(__file__).parents[2]
+    scene_text = (
+        repo_root / "src" / "unilab" / "assets" / "robots" / "g1" / "scene_flat_with_largebox.xml"
+    ).read_text()
+
+    for snippet in (
+        '<include file="g1_sphere_hand.xml"/>',
+        'mesh name="largebox_mesh" file="box_tracking/largebox.obj"',
+        '<freejoint name="largebox_joint"/>',
+        '<geom name="largebox" type="mesh" mesh="largebox_mesh"',
+        "0.0 0.5 0.85",
+    ):
+        assert snippet in scene_text
+
+    for name in (
+        "left_foot_contact_0",
+        "left_foot_contact_1",
+        "left_foot_contact_2",
+        "left_foot_contact_3",
+        "right_foot_contact_0",
+        "right_foot_contact_1",
+        "right_foot_contact_2",
+        "right_foot_contact_3",
+    ):
+        assert name in scene_text
+
+
 def test_allegro_rotation_obs_groups_spec_dims():
     """Allegro rotation obs_groups_spec should expose single actor obs group."""
     from unilab.envs.manipulation.allegro_inhand.rotation import AllegroRotationPPO
@@ -481,6 +551,230 @@ def test_g1_motion_tracking_deploy_actor_matches_unitree_mimic_terms():
     np.testing.assert_allclose(obs["obs"][:, 13:15], dof_pos - env.default_angles + 100.0)
     np.testing.assert_allclose(obs["obs"][:, 15:17], dof_vel + 100.0)
     np.testing.assert_allclose(obs["obs"][:, 17:19], info["current_actions"])
+
+
+def test_g1_box_tracking_cfg_uses_largebox_scene_and_motion_defaults():
+    from unilab.envs.motion_tracking.g1.box_tracking import BoxRewardConfig, G1BoxTrackingCfg
+
+    cfg = G1BoxTrackingCfg()
+
+    assert cfg.scene.model_file.endswith("scene_flat_with_largebox.xml")
+    assert str(cfg.motion_file).endswith("sub3_largebox_003_boxconverted.npz")
+    assert cfg.object_body_name == "largebox"
+    assert cfg.object_pos_threshold == pytest.approx(0.25)
+    assert cfg.object_ori_threshold == pytest.approx(0.8)
+    assert isinstance(cfg.reward_config, BoxRewardConfig)
+    assert cfg.reward_config.scales["object_global_ref_position_error_exp"] == pytest.approx(1.0)
+    assert cfg.reward_config.scales["object_global_ref_orientation_error_exp"] == pytest.approx(1.0)
+
+
+def test_g1_box_tracking_is_exported_from_g1_and_motion_tracking_packages():
+    from unilab.envs.motion_tracking import (
+        G1BoxTrackingCfg as TopLevelCfg,
+    )
+    from unilab.envs.motion_tracking import (
+        G1BoxTrackingEnv as TopLevelEnv,
+    )
+    from unilab.envs.motion_tracking import (
+        G1BoxTrackingEnvCfg as TopLevelEnvCfg,
+    )
+    from unilab.envs.motion_tracking.g1 import (
+        G1BoxTrackingCfg as G1PkgCfg,
+    )
+    from unilab.envs.motion_tracking.g1 import (
+        G1BoxTrackingEnv as G1PkgEnv,
+    )
+    from unilab.envs.motion_tracking.g1 import (
+        G1BoxTrackingEnvCfg as G1PkgEnvCfg,
+    )
+
+    assert TopLevelCfg is G1PkgCfg
+    assert TopLevelEnv is G1PkgEnv
+    assert TopLevelEnvCfg is G1PkgEnvCfg
+
+
+def _compute_g1_box_tracking_obs_stub():
+    from unilab.envs.motion_tracking.g1.box_tracking import G1BoxTrackingEnv
+    from unilab.envs.motion_tracking.g1.motion_box_loader import BoxMotionData
+
+    env = cast(Any, object.__new__(G1BoxTrackingEnv))
+    env._num_envs = 1
+    env._num_action = 2
+    env._cfg = SimpleNamespace(
+        noise_config=SimpleNamespace(
+            level=1.0,
+            scale_linvel=1.0,
+            scale_gyro=1.0,
+            scale_joint_angle=1.0,
+            scale_joint_vel=1.0,
+        ),
+        body_names=("pelvis", "torso_link"),
+    )
+    env.default_angles = np.array([[0.5, -0.5]], dtype=np.float32)
+    env.anchor_body_idx = 0
+    env._object_body_ids = np.array([7], dtype=np.int32)
+    env._obs_noise = lambda data, scale: np.asarray(data + 100.0, dtype=np.float32)
+
+    class FakeBackend:
+        def get_body_pos_w(self, body_ids: np.ndarray) -> np.ndarray:
+            np.testing.assert_array_equal(body_ids, np.array([7], dtype=np.int32))
+            return np.array([[[1.0, 2.0, 3.0]]], dtype=np.float32)
+
+        def get_body_quat_w(self, body_ids: np.ndarray) -> np.ndarray:
+            np.testing.assert_array_equal(body_ids, np.array([7], dtype=np.int32))
+            return np.array([[[1.0, 0.0, 0.0, 0.0]]], dtype=np.float32)
+
+        def get_body_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
+            np.testing.assert_array_equal(body_ids, np.array([7], dtype=np.int32))
+            return np.array([[[4.0, 5.0, 6.0]]], dtype=np.float32)
+
+    env._backend = FakeBackend()
+
+    motion_data = BoxMotionData(
+        joint_pos=np.array([[0.1, 0.2]], dtype=np.float32),
+        joint_vel=np.array([[0.3, 0.4]], dtype=np.float32),
+        body_pos_w=np.zeros((1, 2, 3), dtype=np.float32),
+        body_quat_w=np.tile(np.array([[[1.0, 0.0, 0.0, 0.0]]], dtype=np.float32), (1, 2, 1)),
+        body_lin_vel_w=np.zeros((1, 2, 3), dtype=np.float32),
+        body_ang_vel_w=np.zeros((1, 2, 3), dtype=np.float32),
+        object_pos_w=np.array([[1.0, 2.0, 3.0]], dtype=np.float32),
+        object_quat_w=np.array([[1.0, 0.0, 0.0, 0.0]], dtype=np.float32),
+        object_lin_vel_w=np.array([[4.0, 5.0, 6.0]], dtype=np.float32),
+        object_ang_vel_w=np.array([[7.0, 8.0, 9.0]], dtype=np.float32),
+    )
+    linvel = np.array([[1.0, 2.0, 3.0]], dtype=np.float32)
+    gyro = np.array([[4.0, 5.0, 6.0]], dtype=np.float32)
+    dof_pos = np.array([[0.7, -0.2]], dtype=np.float32)
+    dof_vel = np.array([[7.0, 8.0]], dtype=np.float32)
+    robot_body_pos_w = np.array([[[0.0, 0.0, 0.0], [0.2, 0.0, 0.1]]], dtype=np.float32)
+    robot_body_quat_w = np.tile(np.array([[[1.0, 0.0, 0.0, 0.0]]], dtype=np.float32), (1, 2, 1))
+    info = {"current_actions": np.array([[0.1, -0.2]], dtype=np.float32)}
+
+    obs = env._compute_obs(
+        info,
+        motion_data,
+        linvel,
+        gyro,
+        dof_pos,
+        dof_vel,
+        robot_body_pos_w,
+        robot_body_quat_w,
+    )
+    return env, obs, gyro, dof_pos, dof_vel, info
+
+
+def test_g1_box_tracking_actor_matches_deploy_and_critic_adds_object_state():
+    env, obs, gyro, dof_pos, dof_vel, info = _compute_g1_box_tracking_obs_stub()
+
+    assert env.obs_groups_spec == {"obs": 19, "critic": 55}
+    assert obs["obs"].shape == (1, 19)
+    np.testing.assert_allclose(obs["obs"][:, 10:13], gyro + 100.0)
+    np.testing.assert_allclose(obs["obs"][:, 13:15], dof_pos - env.default_angles + 100.0)
+    np.testing.assert_allclose(obs["obs"][:, 15:17], dof_vel + 100.0)
+    np.testing.assert_allclose(obs["obs"][:, 17:19], info["current_actions"])
+    np.testing.assert_allclose(
+        obs["critic"][:, -12:],
+        np.array([[1.0, 2.0, 3.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 4.0, 5.0, 6.0]], dtype=np.float32),
+    )
+
+
+def test_g1_box_tracking_critic_object_state_respects_subset_env_order():
+    from unilab.envs.motion_tracking.g1.box_tracking import G1BoxTrackingEnv
+    from unilab.envs.motion_tracking.g1.motion_box_loader import BoxMotionData
+
+    env = cast(Any, object.__new__(G1BoxTrackingEnv))
+    env._num_envs = 4
+    env._num_action = 2
+    env.anchor_body_idx = 0
+    env._object_body_ids = np.array([7], dtype=np.int32)
+    env._cfg = SimpleNamespace(
+        noise_config=SimpleNamespace(
+            level=0.0,
+            scale_linvel=0.0,
+            scale_gyro=0.0,
+            scale_joint_angle=0.0,
+            scale_joint_vel=0.0,
+        ),
+        body_names=("pelvis", "torso_link"),
+    )
+    env.default_angles = np.zeros((2,), dtype=np.float32)
+    env._obs_noise = lambda data, scale: np.asarray(data, dtype=np.float32)
+
+    class FakeBackend:
+        def get_body_pos_w(self, body_ids: np.ndarray) -> np.ndarray:
+            np.testing.assert_array_equal(body_ids, np.array([7], dtype=np.int32))
+            return np.array(
+                [
+                    [[10.0, 0.0, 0.0]],
+                    [[20.0, 0.0, 0.0]],
+                    [[30.0, 0.0, 0.0]],
+                    [[40.0, 0.0, 0.0]],
+                ],
+                dtype=np.float32,
+            )
+
+        def get_body_quat_w(self, body_ids: np.ndarray) -> np.ndarray:
+            np.testing.assert_array_equal(body_ids, np.array([7], dtype=np.int32))
+            return np.tile(np.array([[[1.0, 0.0, 0.0, 0.0]]], dtype=np.float32), (4, 1, 1))
+
+        def get_body_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
+            np.testing.assert_array_equal(body_ids, np.array([7], dtype=np.int32))
+            return np.array(
+                [
+                    [[1.0, 0.0, 0.0]],
+                    [[2.0, 0.0, 0.0]],
+                    [[3.0, 0.0, 0.0]],
+                    [[4.0, 0.0, 0.0]],
+                ],
+                dtype=np.float32,
+            )
+
+    env._backend = FakeBackend()
+
+    motion_data = BoxMotionData(
+        joint_pos=np.zeros((2, 2), dtype=np.float32),
+        joint_vel=np.zeros((2, 2), dtype=np.float32),
+        body_pos_w=np.zeros((2, 2, 3), dtype=np.float32),
+        body_quat_w=np.tile(np.array([[[1.0, 0.0, 0.0, 0.0]]], dtype=np.float32), (2, 2, 1)),
+        body_lin_vel_w=np.zeros((2, 2, 3), dtype=np.float32),
+        body_ang_vel_w=np.zeros((2, 2, 3), dtype=np.float32),
+        object_pos_w=np.zeros((2, 3), dtype=np.float32),
+        object_quat_w=np.tile(np.array([[1.0, 0.0, 0.0, 0.0]], dtype=np.float32), (2, 1)),
+        object_lin_vel_w=np.zeros((2, 3), dtype=np.float32),
+        object_ang_vel_w=np.zeros((2, 3), dtype=np.float32),
+    )
+
+    linvel = np.zeros((2, 3), dtype=np.float32)
+    gyro = np.zeros((2, 3), dtype=np.float32)
+    dof_pos = np.zeros((2, 2), dtype=np.float32)
+    dof_vel = np.zeros((2, 2), dtype=np.float32)
+    robot_body_pos_w = np.zeros((2, 2, 3), dtype=np.float32)
+    robot_body_quat_w = np.tile(np.array([[[1.0, 0.0, 0.0, 0.0]]], dtype=np.float32), (2, 2, 1))
+
+    obs = env._compute_obs(
+        {
+            "env_ids": np.array([2, 0], dtype=np.int32),
+            "current_actions": np.zeros((2, 2), dtype=np.float32),
+        },
+        motion_data,
+        linvel,
+        gyro,
+        dof_pos,
+        dof_vel,
+        robot_body_pos_w,
+        robot_body_quat_w,
+    )
+
+    np.testing.assert_allclose(
+        obs["critic"][:, -12:],
+        np.array(
+            [
+                [30.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 3.0, 0.0, 0.0],
+                [10.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            ],
+            dtype=np.float32,
+        ),
+    )
 
 
 def test_g1_motion_tracking_can_terminate_on_undesired_contacts():

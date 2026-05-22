@@ -1,5 +1,6 @@
 """Motion tracking environments for Unitree G1."""
 
+from .box_tracking import G1BoxTrackingCfg, G1BoxTrackingEnv, G1BoxTrackingEnvCfg
 from .flip_tracking import (
     G1ClimbTrackingCfg,
     G1ClimbTrackingEnv,
@@ -11,6 +12,7 @@ from .flip_tracking import (
     G1WallFlipTrackingEnv,
     G1WallFlipTrackingEnvCfg,
 )
+from .motion_box_loader import BoxMotionData, BoxMotionLoader
 from .tracking import (
     G1MotionTrackingCfg,
     G1MotionTrackingDeployEnv,
@@ -37,4 +39,9 @@ __all__ = [
     "G1ClimbTrackingCfg",
     "G1ClimbTrackingEnv",
     "G1ClimbTrackingEnvCfg",
+    "G1BoxTrackingCfg",
+    "G1BoxTrackingEnv",
+    "G1BoxTrackingEnvCfg",
+    "BoxMotionData",
+    "BoxMotionLoader",
 ]

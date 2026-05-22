@@ -488,6 +488,22 @@ def test_ppo_g1_motion_tracking_deploy():
     assert list(cfg.env.control_config.action_scale) == pytest.approx(G1_BEYONDMIMIC_ACTION_SCALE)
 
 
+def test_ppo_g1_box_tracking():
+    from hydra import compose, initialize_config_dir
+    from hydra.core.global_hydra import GlobalHydra
+
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(CONF_DIR / "ppo"), version_base="1.3"):
+        cfg = compose("config", overrides=["task=g1_box_tracking/mujoco"])
+    assert cfg.training.task_name == "G1BoxTracking"
+    assert cfg.algo.max_iterations == 30000
+    assert cfg.algo.algorithm.entropy_coef == pytest.approx(0.005)
+    assert cfg.reward.scales.object_global_ref_position_error_exp == pytest.approx(2.0)
+    assert cfg.reward.scales.object_global_ref_orientation_error_exp == pytest.approx(2.0)
+    assert cfg.reward.std_object_pos == pytest.approx(0.2)
+    assert cfg.reward.std_object_ori == pytest.approx(0.3)
+
+
 def test_ppo_g1_flip_tracking():
     from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
