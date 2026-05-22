@@ -112,6 +112,8 @@ interactive:
   camera_elevation: null
   camera_azimuth: null
   use_env_visual_model: true
+  speed: 1.0
+  start_paused: false
 
 viser:
   port: 8080

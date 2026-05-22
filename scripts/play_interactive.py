@@ -53,6 +53,13 @@ from unilab.training.rsl_rl import (
     get_policy_obs_dims,
     normalize_ppo_train_cfg,
 )
+from unilab.visualization.interactive_playback import (
+    PlaybackControls,
+    RslRlPlaybackConfig,
+    create_rsl_rl_playback_session,
+    prepare_motion_overlay_selection,
+    select_torch_device,
+)
 
 ensure_registries()
 
@@ -61,6 +68,7 @@ from unilab.base.scene import SceneCfg
 from unilab.structured_configs import PPOConfig as _StructuredPPOConfig
 
 PPOConfig = _StructuredPPOConfig
+_PLAYBACK_ENV_UNAVAILABLE = "playback_env_unavailable"
 
 try:
     from rsl_rl.runners import OnPolicyRunner
@@ -101,6 +109,8 @@ class PlayInteractiveArgs:
     camera_elevation: float | None
     camera_azimuth: float | None
     use_env_visual_model: bool
+    speed: float
+    start_paused: bool
 
 
 def _infer_checkpoint_actor_input_dim(ckpt_path: str) -> int | None:
@@ -566,13 +576,23 @@ def _load_viewer_model(env: Any, *, use_env_visual_model: bool):
     return playback_model
 
 
+def _build_playback_config(args, *, num_envs: int = 1) -> RslRlPlaybackConfig:
+    return RslRlPlaybackConfig(
+        task=str(args.task),
+        load_run=str(args.load_run),
+        checkpoint=getattr(args, "checkpoint", None),
+        action_mode=str(args.action_mode),
+        policy_obs_mode=str(args.policy_obs_mode),
+        algo_log_name=str(getattr(args, "algo_log_name", "rsl_rl_ppo")),
+        log_root=getattr(args, "log_root", None),
+        num_envs=num_envs,
+        speed=float(getattr(args, "speed", 1.0)),
+        start_paused=bool(getattr(args, "start_paused", False)),
+    )
+
+
 def play_interactive(args, cfg: DictConfig | None = None):
-    if torch.cuda.is_available():
-        device = "cuda"
-    elif torch.backends.mps.is_available():
-        device = "mps"
-    else:
-        device = "cpu"
+    device = select_torch_device()
     print(f"[play_interactive] Device: {device}")
 
     # Always use a single env for interactive view
@@ -585,16 +605,16 @@ def play_interactive(args, cfg: DictConfig | None = None):
         )
         return
 
-    if cfg is None:
-        env = registry.make(args.task, num_envs=1, sim_backend="mujoco")
-    else:
+    def _create_env(num_envs: int):
+        if cfg is None:
+            return registry.make(args.task, num_envs=num_envs, sim_backend="mujoco")
         from unilab.training import create_env
 
         env_cfg_override = _backend_adapter(cfg).build_task_env_cfg_override()
         try:
-            env = create_env(
+            return create_env(
                 cfg,
-                num_envs=1,
+                num_envs=num_envs,
                 env_cfg_override=env_cfg_override,
                 sim_backend="mujoco",
                 task_name=args.task,
@@ -606,8 +626,31 @@ def play_interactive(args, cfg: DictConfig | None = None):
                     f"{args.task}. Available backends: {available_backends or ('<none>',)}. "
                     "This script only supports MuJoCo viewer mode."
                 )
-                return
+                raise RuntimeError(_PLAYBACK_ENV_UNAVAILABLE) from exc
             raise
+
+    try:
+        session = create_rsl_rl_playback_session(
+            playback_cfg=_build_playback_config(args, num_envs=1),
+            env_factory=_create_env,
+            algo_config=_algo_config_dict(cfg),
+            root_dir=ROOT_DIR,
+            device=device,
+            checkpoint_resolver=resolve_checkpoint,
+            checkpoint_input_dim_reader=_infer_checkpoint_actor_input_dim,
+            entrypoint_log_root=get_entrypoint_log_root,
+            wrapper_cls=RslRlVecEnvWrapper,
+            runner_cls=OnPolicyRunner,
+            policy_obs_dims_getter=get_policy_obs_dims,
+            train_cfg_normalizer=normalize_ppo_train_cfg,
+            log=lambda message: print(f"[play_interactive] {message}"),
+        )
+    except RuntimeError as exc:
+        if str(exc) == _PLAYBACK_ENV_UNAVAILABLE:
+            return
+        raise
+    playback_session = session[0]
+    env = playback_session.env
 
     if _uses_native_mujoco_viewer_launch() and not _can_launch_glfw_viewer():
         print(
@@ -615,112 +658,19 @@ def play_interactive(args, cfg: DictConfig | None = None):
             "Set DISPLAY correctly, or run this command in a desktop session."
         )
         return
-    actor_obs_dim, flat_obs_dim = get_policy_obs_dims(env.obs_groups_spec)
-
-    policy_obs_mode = args.policy_obs_mode
-    algo_log_name = getattr(args, "algo_log_name", "rsl_rl_ppo")
-    ckpt = None
-    if args.action_mode == "policy":
-        ckpt = resolve_checkpoint(
-            args.task,
-            args.load_run,
-            getattr(args, "checkpoint", None),
-            algo_log_name,
-            getattr(args, "log_root", None),
-        )
-        if policy_obs_mode == "auto" and ckpt is not None:
-            ckpt_dim = _infer_checkpoint_actor_input_dim(ckpt)
-            if ckpt_dim == actor_obs_dim:
-                policy_obs_mode = "actor"
-            elif ckpt_dim == flat_obs_dim:
-                policy_obs_mode = "flat"
-            elif ckpt_dim is not None:
-                raise RuntimeError(
-                    "Checkpoint actor input dim mismatch: "
-                    f"ckpt={ckpt_dim}, actor_obs={actor_obs_dim}, flat_obs={flat_obs_dim}. "
-                    "Please pass --policy_obs_mode actor|flat explicitly if needed."
-                )
-            else:
-                # Default fallback keeps current behavior.
-                policy_obs_mode = "flat"
-
-    wrapped_env = RslRlVecEnvWrapper(env, device=device, policy_obs_mode=policy_obs_mode)
-    print(
-        "[play_interactive] Policy obs mode: "
-        f"{policy_obs_mode} (actor_obs={actor_obs_dim}, flat_obs={flat_obs_dim})"
+    overlay = prepare_motion_overlay_selection(
+        env,
+        show_target_bodies=bool(args.show_target_bodies),
+        show_reward_debug=bool(args.show_reward_debug),
+        target_body_names=str(args.target_body_names),
+        target_max_bodies=int(args.target_max_bodies),
+        log=lambda message: print(f"[play_interactive] {message}"),
     )
 
-    train_cfg = normalize_ppo_train_cfg(_algo_config_dict(cfg))
-    if "runner" not in train_cfg:
-        train_cfg["runner"] = {}
-    train_cfg["runner"]["logger"] = "none"
-
-    policy = None
-    if args.action_mode == "policy":
-        if ckpt is None:
-            print("[play_interactive] WARNING: no checkpoint found — falling back to zero actions.")
-        else:
-            log_dir = str(
-                get_entrypoint_log_root(
-                    ROOT_DIR,
-                    algo_log_name=algo_log_name,
-                    log_root=getattr(args, "log_root", None),
-                )
-                / args.task
-                / "play_temp"
-            )
-            runner = OnPolicyRunner(wrapped_env, train_cfg, log_dir=log_dir, device=device)
-            runner.load(
-                ckpt,
-                load_cfg={
-                    "actor": True,
-                    "critic": False,
-                    "optimizer": False,
-                    "iteration": False,
-                    "rnd": False,
-                },
-            )
-            policy = runner.get_inference_policy(device=device)
-
-    print(f"[play_interactive] Action mode: {args.action_mode}")
-
-    target_vis_enabled = False
-    selected_indices = np.zeros((0,), dtype=np.int32)
-    if args.show_target_bodies or args.show_reward_debug:
-        if hasattr(env, "motion_loader") and hasattr(env, "motion_sampler"):
-            names = tuple(getattr(env.cfg, "body_names", ()))
-            if len(names) > 0:
-                name_to_idx = {name: i for i, name in enumerate(names)}
-                if args.target_body_names.strip():
-                    chosen = []
-                    for name in [n.strip() for n in args.target_body_names.split(",") if n.strip()]:
-                        if name in name_to_idx:
-                            chosen.append(name_to_idx[name])
-                        else:
-                            print(
-                                f"[play_interactive] WARNING: body name not found in task body list: {name}"
-                            )
-                    selected_indices = np.array(chosen, dtype=np.int32)
-                else:
-                    selected_indices = np.arange(len(names), dtype=np.int32)
-
-                if args.target_max_bodies > 0:
-                    selected_indices = selected_indices[: args.target_max_bodies]
-
-                target_vis_enabled = selected_indices.size > 0
-            else:
-                print(
-                    "[play_interactive] WARNING: task has no body_names; cannot visualize targets."
-                )
-        else:
-            print(
-                "[play_interactive] WARNING: target/reward visualization only works for motion-tracking tasks."
-            )
-
-    if target_vis_enabled:
+    if overlay.enabled:
         print(
             "[play_interactive] Target visualization enabled "
-            f"({selected_indices.size} bodies, axes={args.target_show_axes})."
+            f"({overlay.selected_indices.size} bodies, axes={args.target_show_axes})."
         )
     if args.show_reward_debug:
         print(
@@ -737,21 +687,32 @@ def play_interactive(args, cfg: DictConfig | None = None):
     state_spec = mujoco.mjtState.mjSTATE_FULLPHYSICS
     ctrl_dt = env.cfg.ctrl_dt
 
-    obs, _ = wrapped_env.reset()
-    paused_state = {"paused": False}
+    playback_session.reset()
+    controls = PlaybackControls(
+        paused=bool(getattr(args, "start_paused", False)),
+        speed=float(getattr(args, "speed", 1.0)),
+    )
 
     def _on_key(keycode: int) -> None:
         if keycode == ord(" "):
-            paused_state["paused"] = not paused_state["paused"]
-            status = "paused" if paused_state["paused"] else "resumed"
+            paused = controls.toggle_pause()
+            status = "paused" if paused else "resumed"
             print(f"[play_interactive] {status} (space)")
+        elif keycode in (ord("N"), ord("n")):
+            controls.request_single_step()
+            if not controls.paused:
+                controls.pause()
+                print("[play_interactive] paused for single-step mode (n)")
+            print("[play_interactive] single step requested (n)")
+        elif keycode in (ord("+"), ord("=")):
+            controls.set_speed(controls.speed * 1.25)
+            print(f"[play_interactive] speed={controls.speed:.2f}x")
+        elif keycode in (ord("-"), ord("_")):
+            controls.set_speed(controls.speed / 1.25)
+            print(f"[play_interactive] speed={controls.speed:.2f}x")
 
     print("[play_interactive] Opening viewer — close the window or press Esc to quit.")
-    print("[play_interactive] Controls: Space = pause/resume")
-
-    # Get action bounds for random mode
-    action_low = env.action_space.low
-    action_high = env.action_space.high
+    print("[play_interactive] Controls: Space=pause/resume, N=single-step, +/-=speed")
 
     with mujoco.viewer.launch_passive(mj_model, viz_data, key_callback=_on_key) as viewer:
         focus_body_id = _resolve_focus_body_id(
@@ -776,26 +737,10 @@ def play_interactive(args, cfg: DictConfig | None = None):
             while viewer.is_running():
                 t0 = time.perf_counter()
 
-                if not paused_state["paused"]:
-                    if args.action_mode == "policy" and policy is not None:
-                        actions = policy(obs)
-                    elif args.action_mode == "random":
-                        actions = (
-                            torch.from_numpy(
-                                np.random.uniform(
-                                    action_low, action_high, size=(1, env.action_space.shape[0])
-                                )
-                            )
-                            .to(device)
-                            .float()
-                        )
-                    else:  # zero
-                        actions = torch.zeros(1, env.action_space.shape[0], device=device)
-
-                    obs, _, _, _ = wrapped_env.step(actions)
+                playback_session.advance(controls)
 
                 # Push env state[0] into viz_data and refresh scene
-                phys = env.get_physics_state_snapshot()[0].astype(np.float64)
+                phys = playback_session.physics_state()[0].astype(np.float64)
                 mujoco.mj_setState(mj_model, viz_data, phys, state_spec)
                 mujoco.mj_forward(mj_model, viz_data)
 
@@ -807,12 +752,12 @@ def play_interactive(args, cfg: DictConfig | None = None):
                         base_pos[2] + float(getattr(args, "camera_height_offset", 0.15))
                     )
 
-                if target_vis_enabled:
+                if overlay.enabled:
                     if args.show_reward_debug:
                         _render_reward_debug_targets(
                             viewer,
-                            env.state.info,
-                            selected_indices,
+                            playback_session.info,
+                            overlay.selected_indices,
                             marker_radius=args.target_marker_radius,
                             marker_alpha=args.target_marker_alpha,
                             show_axes=args.target_show_axes,
@@ -828,7 +773,7 @@ def play_interactive(args, cfg: DictConfig | None = None):
                         _render_motion_targets(
                             viewer,
                             motion_data,
-                            selected_indices,
+                            overlay.selected_indices,
                             marker_radius=args.target_marker_radius,
                             marker_alpha=args.target_marker_alpha,
                             show_axes=args.target_show_axes,
@@ -841,8 +786,9 @@ def play_interactive(args, cfg: DictConfig | None = None):
 
                 # Real-time pacing
                 elapsed = time.perf_counter() - t0
-                if ctrl_dt - elapsed > 0:
-                    time.sleep(ctrl_dt - elapsed)
+                target_dt = controls.target_dt(ctrl_dt)
+                if target_dt - elapsed > 0:
+                    time.sleep(target_dt - elapsed)
 
     print("[play_interactive] Done.")
 
@@ -899,6 +845,8 @@ def _build_play_args(cfg: DictConfig) -> PlayInteractiveArgs:
             else None
         ),
         use_env_visual_model=bool(cfg.interactive.use_env_visual_model),
+        speed=float(OmegaConf.select(cfg, "interactive.speed", default=1.0)),
+        start_paused=bool(OmegaConf.select(cfg, "interactive.start_paused", default=False)),
     )
 
 
