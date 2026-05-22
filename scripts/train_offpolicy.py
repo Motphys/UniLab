@@ -46,7 +46,7 @@ def default_device(torch_module, preferred: str | None = None) -> str:
 
 
 def resolve_checkpoint_path(
-    root_dir: Path, algo_log_name: str, task: str, load_run: str
+    root_dir: Path, algo_log_name: str, task: str, load_run: str | int
 ) -> tuple[str | None, str | None]:
     checkpoint_path, checkpoint_dir = resolve_checkpoint_path_common(
         Path(root_dir) / "logs" / algo_log_name / task,

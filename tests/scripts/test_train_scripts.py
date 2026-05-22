@@ -1081,6 +1081,20 @@ def test_resolve_checkpoint_latest_picks_highest_iter(tmp_path):
     assert "model_100.pt" in path
 
 
+def test_resolve_checkpoint_accepts_integer_latest_run(tmp_path):
+    """load_run=-1 from Hydra CLI picks the latest model."""
+    task_dir = tmp_path / "logs" / "sac" / "MyTask" / "run1"
+    task_dir.mkdir(parents=True)
+    (task_dir / "model_10.pt").write_bytes(b"")
+    (task_dir / "model_50.pt").write_bytes(b"")
+
+    path, path_dir = _offpolicy().resolve_checkpoint_path(tmp_path, "sac", "MyTask", -1)
+
+    assert path is not None
+    assert "model_50.pt" in path
+    assert path_dir == str(task_dir)
+
+
 def test_resolve_checkpoint_explicit_run_name(tmp_path):
     """load_run = run-directory name under the log root."""
     task_dir = tmp_path / "logs" / "sac" / "MyTask" / "myrun"
