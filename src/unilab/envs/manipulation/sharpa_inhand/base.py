@@ -11,6 +11,7 @@ from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base.backend import SimBackend
 from unilab.base.base import EnvCfg
 from unilab.base.np_env import NpEnv, NpEnvState
+from unilab.base.scene import SceneCfg
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.common.rotation import np_quat_apply, np_quat_mul
 
@@ -152,7 +153,11 @@ class SharpaDomainRandConfig:
 
 @dataclass
 class SharpaInhandBaseCfg(EnvCfg):
-    model_file: str = str(ASSETS_ROOT_PATH / "robots" / "sharpa_wave" / "scene.xml")
+    scene: SceneCfg = field(
+        default_factory=lambda: SceneCfg(
+            model_file=str(ASSETS_ROOT_PATH / "robots" / "sharpa_wave" / "scene.xml")
+        )
+    )
     max_episode_seconds: float = 20.0
     sim_dt: float = 1.0 / 240.0
     ctrl_dt: float = 12.0 / 240.0

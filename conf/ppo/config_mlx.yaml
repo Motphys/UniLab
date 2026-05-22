@@ -57,6 +57,7 @@ training:
   sim_backend: mujoco
   play_only: false
   no_play: false
+  play_render_mode: auto
   play_env_num: 16
   play_steps: 150
   logger: tensorboard

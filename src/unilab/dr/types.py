@@ -13,6 +13,7 @@ RESET_TERM_BODY_IQUAT = "body_iquat"
 RESET_TERM_BODY_INERTIA = "body_inertia"
 RESET_TERM_BODY_IPOS = "body_ipos"
 RESET_TERM_BODY_MASS = "body_mass"
+RESET_TERM_DOF_ARMATURE = "dof_armature"
 RESET_TERM_GEOM_FRICTION = "geom_friction"
 RESET_TERM_KP = "kp"
 RESET_TERM_KD = "kd"
@@ -72,6 +73,9 @@ class DomainRandomizationCapabilities:
             body_mass=(
                 payload.body_mass if self.supports_reset_term(RESET_TERM_BODY_MASS) else None
             ),
+            dof_armature=(
+                payload.dof_armature if self.supports_reset_term(RESET_TERM_DOF_ARMATURE) else None
+            ),
             geom_friction=(
                 payload.geom_friction
                 if self.supports_reset_term(RESET_TERM_GEOM_FRICTION)
@@ -92,6 +96,7 @@ class ResetRandomizationPayload:
     body_inertia: np.ndarray | None = None
     body_ipos: np.ndarray | None = None
     body_mass: np.ndarray | None = None
+    dof_armature: np.ndarray | None = None
     geom_friction: np.ndarray | None = None
     kp: np.ndarray | None = None
     kd: np.ndarray | None = None
@@ -112,6 +117,8 @@ class ResetRandomizationPayload:
             terms.add(RESET_TERM_BODY_IPOS)
         if self.body_mass is not None:
             terms.add(RESET_TERM_BODY_MASS)
+        if self.dof_armature is not None:
+            terms.add(RESET_TERM_DOF_ARMATURE)
         if self.geom_friction is not None:
             terms.add(RESET_TERM_GEOM_FRICTION)
         if self.kp is not None:

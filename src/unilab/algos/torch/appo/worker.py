@@ -1,6 +1,6 @@
 """APPO Rollout Worker — runs in a subprocess.
 
-Collects on-policy rollouts and writes to SharedOnPolicyStorage.
+Collects rollout payloads and writes them to RolloutRingBuffer.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from rsl_rl.utils import resolve_callable
 from unilab.base.final_observation import resolve_terminal_observation_contract
 from unilab.base.observations import split_obs_dict
 from unilab.base.registry import ensure_registries
+from unilab.training.seed import apply_training_seed
 
 
 def compute_timeout_bootstrap_correction(
@@ -48,18 +49,13 @@ def compute_timeout_bootstrap_correction(
     return corrections
 
 
-def record_rollout_collect_time(write_buf: dict[str, np.ndarray], collect_time_s: float) -> None:
-    """Write collector-measured rollout wall time into shared rollout metadata."""
-    write_buf["rollout_collect_time_s"][:] = float(collect_time_s)
-
-
 def appo_collector_fn(
     stop_event: Any,
     env_name: str,
     rl_cfg: dict,
     num_envs: int,
     steps_per_env: int,
-    shm_storage_name: Dict[str, str],
+    shm_rollout_ring_buffer_name: Dict[str, str],
     sync_primitives: tuple,
     obs_dim: int,
     action_dim: int,
@@ -72,31 +68,33 @@ def appo_collector_fn(
     collector_device: str = "cpu",
     sim_backend: str = "mujoco",
     env_cfg_override: dict | None = None,
+    seed: int | None = None,
 ):
     """Entry point for the APPO collector subprocess.
 
-    Creates environment + policy, collects rollouts, writes to SharedOnPolicyStorage.
+    Creates environment + policy, collects rollouts, writes raw payloads to the IPC ring buffer.
     """
     from copy import deepcopy
 
     from tensordict import TensorDict
 
     from unilab.base import registry
-    from unilab.ipc import SharedOnPolicyStorage, SharedWeightSync
+    from unilab.ipc import RolloutRingBuffer, SharedWeightSync
 
     ensure_registries()
+    apply_training_seed(seed, torch_runtime=True, cuda=True)
 
     # Connect to shared memory
-    storage = SharedOnPolicyStorage(
+    ring_buffer = RolloutRingBuffer(
         num_envs=num_envs,
         num_steps=steps_per_env,
         obs_dim=obs_dim,
         action_dim=action_dim,
         critic_dim=critic_dim,
         create=False,
-        shm_name_prefix=shm_storage_name,
+        shm_name_prefix=shm_rollout_ring_buffer_name,
     )
-    storage.attach_sync_primitives(*sync_primitives)  # (write_ptr, read_ptr)
+    ring_buffer.attach_sync_primitives(*sync_primitives)  # (write_ptr, read_ptr)
     actor_weight_sync = SharedWeightSync(
         actor_weight_param_shapes, create=False, shm_name=actor_weight_sync_name
     )
@@ -208,8 +206,7 @@ def appo_collector_fn(
                 critic.load_state_dict(critic_sd)
 
             # Collect one rollout of length steps_per_env
-            write_buf = storage.write_buffer
-            rollout_start = time.perf_counter()
+            write_buf = ring_buffer.write_buffer
             for step in range(steps_per_env):
                 # --- MLP inference (timed) ---
                 t_mlp = time.perf_counter()
@@ -329,8 +326,7 @@ def appo_collector_fn(
             write_buf["last_obs"][:] = obs_np
             if critic_np is not None:
                 write_buf["last_critic"][:] = critic_np
-            record_rollout_collect_time(write_buf, time.perf_counter() - rollout_start)
-            storage.signal_write_done()  # atomic increment, non-blocking
+            ring_buffer.signal_write_done()  # atomic increment, non-blocking
 
     except Exception as e:
         import traceback
@@ -345,7 +341,7 @@ def appo_collector_fn(
         stop_event.set()
         raise
 
-    storage.close()
+    ring_buffer.close()
     actor_weight_sync.close()
     critic_weight_sync.close()
     env.close()

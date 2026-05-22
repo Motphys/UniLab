@@ -12,7 +12,9 @@ import numpy as np
 import pytest
 
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.base.backend.xml import get_named_body_ids
+from unilab.base.backend.mujoco.xml import get_named_body_ids
+from unilab.base.scene import SceneCfg
+from unilab.dr.types import ResetRandomizationPayload
 
 pytest.importorskip("mujoco", reason="mujoco not installed")
 
@@ -72,9 +74,11 @@ def _mujoco_expected_dof_dims(model) -> tuple[int, int]:
 
 @pytest.mark.parametrize("robot", BASIC_ROBOTS)
 def test_mujoco_backend_smoke_contract(robot):
-    from unilab.base.backend.mujoco_backend import MuJoCoBackend
+    from unilab.base.backend.mujoco.backend import MuJoCoBackend
 
-    bkd = MuJoCoBackend(robot["model_file"], NUM_ENVS, SIM_DT, base_name=robot["base_name"])
+    bkd = MuJoCoBackend(
+        SceneCfg(model_file=robot["model_file"]), NUM_ENVS, SIM_DT, base_name=robot["base_name"]
+    )
     bkd.materialize()
 
     assert bkd.num_envs == NUM_ENVS
@@ -95,6 +99,9 @@ def test_mujoco_backend_smoke_contract(robot):
         "gravity",
         "body_iquat",
         "body_inertia",
+        "body_mass",
+        "dof_armature",
+        "geom_friction",
         "kp",
         "kd",
     }.issubset(caps.supported_reset_terms)
@@ -104,9 +111,14 @@ def test_mujoco_backend_smoke_contract(robot):
 def test_mujoco_backend_fixed_base_dof_views_do_not_skip_first_joint():
     mujoco = _mujoco_module()
 
-    from unilab.base.backend.mujoco_backend import MuJoCoBackend
+    from unilab.base.backend.mujoco.backend import MuJoCoBackend
 
-    bkd = MuJoCoBackend(_ALLEGRO["model_file"], NUM_ENVS, SIM_DT, base_name=_ALLEGRO["base_name"])
+    bkd = MuJoCoBackend(
+        SceneCfg(model_file=_ALLEGRO["model_file"]),
+        NUM_ENVS,
+        SIM_DT,
+        base_name=_ALLEGRO["base_name"],
+    )
     assert int(bkd.model.jnt_type[0]) != int(mujoco.mjtJoint.mjJNT_FREE)
     _shape(bkd.get_dof_pos(), NUM_ENVS, bkd.model.nq)
     _shape(bkd.get_dof_vel(), NUM_ENVS, bkd.model.nv)
@@ -121,9 +133,11 @@ def test_mujoco_backend_fixed_base_dof_views_do_not_skip_first_joint():
 def test_motrix_backend_smoke_contract(robot):
     pytest.importorskip("motrixsim")
 
-    from unilab.base.backend.motrix_backend import MotrixBackend
+    from unilab.base.backend.motrix.backend import MotrixBackend
 
-    bkd = MotrixBackend(robot["model_file"], NUM_ENVS, SIM_DT, base_name=robot["base_name"])
+    bkd = MotrixBackend(
+        SceneCfg(model_file=robot["model_file"]), NUM_ENVS, SIM_DT, base_name=robot["base_name"]
+    )
 
     assert bkd.num_envs == NUM_ENVS
     assert bkd.model is not None
@@ -135,21 +149,38 @@ def test_motrix_backend_smoke_contract(robot):
     nq = bkd.get_dof_pos().shape[-1] + 7
     nv = bkd.get_dof_vel().shape[-1] + 6
     qpos = _identity_qpos_mujoco(nq, xyz=(1.0, 2.0, 0.8))
-    bkd.set_state(np.array([0]), qpos, np.zeros((1, nv)))
+    gravity = np.asarray([[1.0, 2.0, -3.0]], dtype=np.float64)
+    bkd.set_state(
+        np.array([0]),
+        qpos,
+        np.zeros((1, nv)),
+        randomization=ResetRandomizationPayload(gravity=gravity),
+    )
     np.testing.assert_allclose(bkd.get_base_pos()[0], (1.0, 2.0, 0.8), atol=1e-4)
+    np.testing.assert_allclose(bkd.model.get_gravity_override(bkd.data)[0], gravity[0])
     _unit_quat(bkd.get_base_quat(), "Motrix smoke")
 
     caps = bkd.get_dr_capabilities()
-    assert {"base_mass_delta", "base_com_offset", "kp", "kd"}.issubset(caps.supported_reset_terms)
+    assert {"base_mass_delta", "base_com_offset", "gravity", "kp", "kd"}.issubset(
+        caps.supported_reset_terms
+    )
     assert caps.supports_interval_push
+    play_caps = bkd.get_play_capabilities()
+    assert play_caps.supports_native_interactive_renderer
+    assert play_caps.supports_native_video_capture
 
 
 def test_motrix_backend_fixed_base_base_views_are_available():
     pytest.importorskip("motrixsim")
 
-    from unilab.base.backend.motrix_backend import MotrixBackend
+    from unilab.base.backend.motrix.backend import MotrixBackend
 
-    bkd = MotrixBackend(_ALLEGRO["model_file"], NUM_ENVS, SIM_DT, base_name=_ALLEGRO["base_name"])
+    bkd = MotrixBackend(
+        SceneCfg(model_file=_ALLEGRO["model_file"]),
+        NUM_ENVS,
+        SIM_DT,
+        base_name=_ALLEGRO["base_name"],
+    )
     _shape(bkd.get_base_pos(), NUM_ENVS, 3)
     _shape(bkd.get_base_quat(), NUM_ENVS, 4)
     np.testing.assert_allclose(bkd.get_base_lin_vel(), 0.0, atol=1e-8)
@@ -167,12 +198,16 @@ def test_motrix_backend_fixed_base_base_views_are_available():
 def test_cross_backend_base_pose_smoke(robot):
     pytest.importorskip("motrixsim")
 
-    from unilab.base.backend.motrix_backend import MotrixBackend
-    from unilab.base.backend.mujoco_backend import MuJoCoBackend
+    from unilab.base.backend.motrix.backend import MotrixBackend
+    from unilab.base.backend.mujoco.backend import MuJoCoBackend
 
-    mj = MuJoCoBackend(robot["model_file"], NUM_ENVS, SIM_DT, base_name=robot["base_name"])
+    mj = MuJoCoBackend(
+        SceneCfg(model_file=robot["model_file"]), NUM_ENVS, SIM_DT, base_name=robot["base_name"]
+    )
     mj.materialize()
-    mx = MotrixBackend(robot["model_file"], NUM_ENVS, SIM_DT, base_name=robot["base_name"])
+    mx = MotrixBackend(
+        SceneCfg(model_file=robot["model_file"]), NUM_ENVS, SIM_DT, base_name=robot["base_name"]
+    )
 
     nq, nv = mj.model.nq, mj.model.nv
     qpos = np.tile(_identity_qpos_mujoco(nq), (NUM_ENVS, 1))
@@ -192,11 +227,15 @@ def test_cross_backend_base_pose_smoke(robot):
 def test_cross_backend_model_properties_smoke():
     pytest.importorskip("motrixsim")
 
-    from unilab.base.backend.motrix_backend import MotrixBackend
-    from unilab.base.backend.mujoco_backend import MuJoCoBackend
+    from unilab.base.backend.motrix.backend import MotrixBackend
+    from unilab.base.backend.mujoco.backend import MuJoCoBackend
 
-    mj = MuJoCoBackend(_G1["model_file"], NUM_ENVS, SIM_DT, base_name=_G1["base_name"])
-    mx = MotrixBackend(_G1["model_file"], NUM_ENVS, SIM_DT, base_name=_G1["base_name"])
+    mj = MuJoCoBackend(
+        SceneCfg(model_file=_G1["model_file"]), NUM_ENVS, SIM_DT, base_name=_G1["base_name"]
+    )
+    mx = MotrixBackend(
+        SceneCfg(model_file=_G1["model_file"]), NUM_ENVS, SIM_DT, base_name=_G1["base_name"]
+    )
 
     assert mj.num_actuators == mx.num_actuators
     assert mj.num_dof_vel == mx.num_dof_vel
@@ -208,10 +247,39 @@ def test_cross_backend_model_properties_smoke():
     np.testing.assert_array_equal(mx.get_motion_body_ids(body_names), expected)
 
 
-def test_mujoco_model_properties_smoke():
-    from unilab.base.backend.mujoco_backend import MuJoCoBackend
+@pytest.mark.parametrize("backend_type", ["mujoco", "motrix"])
+def test_backend_batch_sensor_data_matches_individual_sensors(backend_type):
+    if backend_type == "motrix":
+        pytest.importorskip("motrixsim")
 
-    bkd = MuJoCoBackend(_G1["model_file"], NUM_ENVS, SIM_DT, base_name=_G1["base_name"])
+    from unilab.base.backend import create_backend
+    from unilab.envs.locomotion.go2w.base import JOINT_SENSOR_PREFIXES
+
+    bkd = create_backend(
+        backend_type,
+        SceneCfg(model_file=_xml("go2w", "scene_flat.xml")),
+        NUM_ENVS,
+        SIM_DT,
+        base_name="base_link",
+    )
+    bkd.materialize()
+
+    names = tuple(f"{prefix}_pos" for prefix in JOINT_SENSOR_PREFIXES[:4])
+    expected = np.concatenate(
+        [np.asarray(bkd.get_sensor_data(name)).reshape(NUM_ENVS, -1) for name in names],
+        axis=1,
+    )
+
+    np.testing.assert_allclose(bkd.get_sensor_data_batch(names), expected)
+    _shape(bkd.get_sensor_data_batch(()), NUM_ENVS, 0)
+
+
+def test_mujoco_model_properties_smoke():
+    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+
+    bkd = MuJoCoBackend(
+        SceneCfg(model_file=_G1["model_file"]), NUM_ENVS, SIM_DT, base_name=_G1["base_name"]
+    )
     assert bkd.num_actuators == bkd.model.nu
     assert bkd.num_actuators > 0
     assert bkd.num_dof_vel > 0
@@ -225,9 +293,11 @@ def test_mujoco_model_properties_smoke():
 def test_mujoco_metadata_getters_return_stable_copies():
     mujoco = _mujoco_module()
 
-    from unilab.base.backend.mujoco_backend import MuJoCoBackend
+    from unilab.base.backend.mujoco.backend import MuJoCoBackend
 
-    bkd = MuJoCoBackend(_SHARPA["model_file"], NUM_ENVS, SIM_DT, base_name=_SHARPA["base_name"])
+    bkd = MuJoCoBackend(
+        SceneCfg(model_file=_SHARPA["model_file"]), NUM_ENVS, SIM_DT, base_name=_SHARPA["base_name"]
+    )
     model = bkd.model
     object_geom_id = int(mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "object"))
     base_body_id = int(mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, _SHARPA["base_name"]))
@@ -292,16 +362,57 @@ def test_mujoco_metadata_getters_return_stable_copies():
     body_ipos[base_body_id, 0] += 1.0
     assert not np.isclose(body_ipos[base_body_id, 0], model.body_ipos[base_body_id, 0])
 
+    dof_armature = bkd.get_dof_armature()
+    _shape(dof_armature, model.nv)
+    np.testing.assert_allclose(dof_armature, model.dof_armature)
+    dof_armature[-1] += 1.0
+    assert not np.isclose(dof_armature[-1], model.dof_armature[-1])
+
 
 def test_motrix_model_properties_smoke():
     pytest.importorskip("motrixsim")
 
-    from unilab.base.backend.motrix_backend import MotrixBackend
+    from unilab.base.backend.motrix.backend import MotrixBackend
 
-    bkd = MotrixBackend(_G1["model_file"], NUM_ENVS, SIM_DT, base_name=_G1["base_name"])
+    bkd = MotrixBackend(
+        SceneCfg(model_file=_G1["model_file"]), NUM_ENVS, SIM_DT, base_name=_G1["base_name"]
+    )
     assert bkd.num_actuators > 0
     assert bkd.num_dof_vel > 0
     ctrl_range = bkd.get_actuator_ctrl_range()
     _shape(ctrl_range, bkd.num_actuators, 2)
     assert bkd.get_default_qpos().ndim == 1
     assert bkd.get_joint_range() is None
+
+
+def test_motrix_default_qpos_uses_mujoco_quaternion_convention():
+    pytest.importorskip("motrixsim")
+
+    from unilab.base.backend.motrix.backend import MotrixBackend
+
+    bkd = MotrixBackend(
+        SceneCfg(model_file=_SHARPA["model_file"]), NUM_ENVS, SIM_DT, base_name=_SHARPA["base_name"]
+    )
+    qpos = bkd.get_default_qpos()
+    assert qpos.ndim == 1
+
+    assert len(bkd._floating_base_quat_indices) > 0
+    for quat_indices in bkd._floating_base_quat_indices:
+        np.testing.assert_allclose(
+            np.abs(qpos[quat_indices]),
+            [1.0, 0.0, 0.0, 0.0],
+            atol=1.0e-6,
+        )
+
+    env_ids = np.arange(NUM_ENVS, dtype=np.int32)
+    bkd.set_state(
+        env_ids,
+        np.broadcast_to(qpos, (NUM_ENVS, qpos.shape[0])).copy(),
+        np.zeros((NUM_ENVS, bkd.model.num_dof_vel), dtype=np.float64),
+    )
+    object_body_id = bkd.get_body_id("object")
+    np.testing.assert_allclose(
+        np.abs(bkd.get_body_quat_w(np.asarray([object_body_id], dtype=np.int32))[:, 0, :]),
+        np.broadcast_to([1.0, 0.0, 0.0, 0.0], (NUM_ENVS, 4)),
+        atol=1.0e-6,
+    )

@@ -17,6 +17,7 @@ from unilab.demo import run_demo
 
 SUPPORTED_ALGOS = ("ppo", "mlx_ppo", "appo", "sac", "td3", "flashsac")
 SUPPORTED_SIMS = ("mujoco", "motrix")
+SUPPORTED_RENDER_MODES = ("auto", "interactive", "record", "none")
 OFFPOLICY_ALGOS = {"sac", "td3", "flashsac"}
 RESERVED_OVERRIDE_KEYS = {
     "algo",
@@ -81,6 +82,16 @@ def _check_task_name(task: str) -> None:
         )
 
 
+def _check_profile(profile: str | None) -> None:
+    if profile is None:
+        return
+    if TASK_NAME_PATTERN.fullmatch(profile) is None:
+        raise SystemExit(
+            "--profile must be a task owner variant such as `hora`; "
+            "do not include slashes, dots, or path separators."
+        )
+
+
 def _check_load_run(load_run: str) -> None:
     if load_run == "-1":
         return
@@ -110,8 +121,20 @@ def _override_bool(overrides: Sequence[str], key: str) -> bool | None:
     return selected
 
 
+def _override_value(overrides: Sequence[str], key: str) -> str | None:
+    selected: str | None = None
+    for override in overrides:
+        if _override_key(override) != key or "=" not in override:
+            continue
+        selected = override.split("=", 1)[1].strip()
+    return selected
+
+
 def _needs_motrix_renderer(mode: str, sim: str, overrides: Sequence[str]) -> bool:
     if sim != "motrix":
+        return False
+    play_render_mode = _override_value(overrides, "training.play_render_mode")
+    if play_render_mode is not None and play_render_mode.strip().lower() in {"none", "record"}:
         return False
     if mode == "eval":
         return True
@@ -137,36 +160,37 @@ def _python_executable_for_route(mode: str, sim: str, overrides: Sequence[str]) 
     return mxpython
 
 
-def build_route(algo: str, task: str, sim: str) -> Route:
+def build_route(algo: str, task: str, sim: str, profile: str | None = None) -> Route:
     task_choice: str
+    owner = f"{sim}_{profile}" if profile is not None else sim
     if algo in OFFPOLICY_ALGOS:
-        task_choice = f"{algo}/{task}/{sim}"
+        task_choice = f"{algo}/{task}/{owner}"
         return Route(
             script_name="train_offpolicy.py",
             config_group="offpolicy",
-            owner_task=f"{algo}/{task}/{sim}.yaml",
+            owner_task=f"{algo}/{task}/{owner}.yaml",
             generated_overrides=(f"algo={algo}", f"task={task_choice}"),
         )
-    task_choice = f"{task}/{sim}"
+    task_choice = f"{task}/{owner}"
     if algo == "ppo":
         return Route(
             script_name="train_rsl_rl.py",
             config_group="ppo",
-            owner_task=f"{task}/{sim}.yaml",
+            owner_task=f"{task}/{owner}.yaml",
             generated_overrides=(f"task={task_choice}",),
         )
     if algo == "mlx_ppo":
         return Route(
             script_name="train_mlx_ppo.py",
             config_group="ppo",
-            owner_task=f"{task}/{sim}.yaml",
+            owner_task=f"{task}/{owner}.yaml",
             generated_overrides=(f"task={task_choice}",),
         )
     if algo == "appo":
         return Route(
             script_name="train_appo.py",
             config_group="appo",
-            owner_task=f"{task}/{sim}.yaml",
+            owner_task=f"{task}/{owner}.yaml",
             generated_overrides=(f"task={task_choice}",),
         )
     raise SystemExit(f"Unsupported algo={algo!r}; choose one of: {', '.join(SUPPORTED_ALGOS)}")
@@ -179,16 +203,19 @@ def build_command(
     task: str,
     sim: str,
     overrides: Sequence[str],
+    profile: str | None = None,
     load_run: str | None = None,
+    render_mode: str | None = None,
     root: Path | None = None,
 ) -> list[str]:
     selected_root = root or repo_root()
     _check_private_checkout(selected_root)
     _check_task_name(task)
+    _check_profile(profile)
     _check_reserved_overrides(overrides)
     _check_runtime_requirements(algo, sim)
 
-    route = build_route(algo, task, sim)
+    route = build_route(algo, task, sim, profile)
     script = _script_path(route, selected_root)
     if not script.is_file():
         raise SystemExit(f"Entrypoint script not found: {script}")
@@ -200,6 +227,8 @@ def build_command(
         )
 
     generated = list(route.generated_overrides)
+    if render_mode is not None:
+        generated.append(f"training.play_render_mode={render_mode}")
     if mode == "eval":
         generated.append("training.play_only=true")
         if load_run is not None:
@@ -208,7 +237,7 @@ def build_command(
                 raise SystemExit("Use either --load-run or algo.load_run=..., not both.")
             generated.append(f"algo.load_run={load_run}")
 
-    executable = _python_executable_for_route(mode, sim, overrides)
+    executable = _python_executable_for_route(mode, sim, (*generated, *overrides))
     return [executable, str(script), *generated, *overrides]
 
 
@@ -217,6 +246,8 @@ def _train_eval_parser(*, mode: str) -> argparse.ArgumentParser:
     parser.add_argument("--algo", required=True, choices=SUPPORTED_ALGOS)
     parser.add_argument("--task", required=True)
     parser.add_argument("--sim", required=True, choices=SUPPORTED_SIMS)
+    parser.add_argument("--profile", default=None)
+    parser.add_argument("--render-mode", choices=SUPPORTED_RENDER_MODES, default=None)
     if mode == "eval":
         parser.add_argument("--load-run", default=None)
     return parser
@@ -239,8 +270,10 @@ def _run_train_eval(mode: str, argv: Sequence[str] | None = None) -> int:
         algo=args.algo,
         task=args.task,
         sim=args.sim,
+        profile=args.profile,
         overrides=overrides,
         load_run=getattr(args, "load_run", None),
+        render_mode=args.render_mode,
     )
     return subprocess.run(command, check=False).returncode
 

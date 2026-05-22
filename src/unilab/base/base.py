@@ -1,9 +1,15 @@
 import abc
+from collections.abc import Callable
 from dataclasses import dataclass
+from os import PathLike
 from typing import Any, Optional
 
 import gymnasium as gym
 import numpy as np
+
+from unilab.base.backend.base import BackendPlayRenderPlan
+
+from .scene import SceneCfg
 
 
 @dataclass(frozen=True)
@@ -12,6 +18,7 @@ class EnvPlayCapabilities:
 
     supports_native_interactive_renderer: bool = False
     supports_physics_state_playback: bool = False
+    supports_native_video_capture: bool = False
 
 
 @dataclass
@@ -21,12 +28,13 @@ class EnvCfg:
 
     """
 
-    model_file: Optional[str] = None
+    scene: SceneCfg | None = None
     sim_dt: float = 0.01
     max_episode_seconds: Optional[float] = None
     ctrl_dt: float = 0.01
     render_spacing: float = 1.0
-    iterations: Optional[int] = None
+    render_offset_mode: str = "grid"
+    motrix_max_iterations: Optional[int] = None
 
     @property
     def max_episode_steps(self) -> Optional[int]:
@@ -57,6 +65,75 @@ class ABEnv(abc.ABC):
     def play_capabilities(self) -> EnvPlayCapabilities:
         """Return env-facing play/render capabilities."""
         return EnvPlayCapabilities()
+
+    def resolve_play_render_plan(
+        self,
+        *,
+        play_render_mode: str | None,
+        play_steps: int | None,
+        output_video: str | PathLike[str] | None,
+    ) -> BackendPlayRenderPlan:
+        """Resolve high-level playback mode through the backend contract."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not define playback render mode semantics"
+        )
+
+    def run_playback(
+        self,
+        *,
+        initialize: Callable[[], Any],
+        step: Callable[[Any], Any],
+        num_steps: int | None,
+        output_video: str | PathLike[str] | None = None,
+        render_spacing: float | None = None,
+        render_offset_mode: str | None = None,
+        headless: bool | None = None,
+        record_video: bool | None = None,
+        frame_state_getter: Callable[[], np.ndarray] | None = None,
+        camera_kwargs: dict[str, Any] | None = None,
+        extra_data_getter: Callable[[], np.ndarray | None] | None = None,
+    ) -> str | None:
+        """Execute playback through the backend contract."""
+        raise NotImplementedError(f"{self.__class__.__name__} does not support playback execution")
+
+    def run_playback_mode(
+        self,
+        *,
+        play_render_mode: str | None,
+        play_steps: int | None,
+        output_video: str | PathLike[str] | None,
+        initialize: Callable[[], Any],
+        step: Callable[[Any], Any],
+        render_spacing: float | None = None,
+        render_offset_mode: str | None = None,
+        frame_state_getter: Callable[[], np.ndarray] | None = None,
+        camera_kwargs: dict[str, Any] | None = None,
+        extra_data_getter: Callable[[], np.ndarray | None] | None = None,
+        on_plan: Callable[[BackendPlayRenderPlan], None] | None = None,
+    ) -> str | None:
+        """Resolve configured playback mode and execute it through the backend contract."""
+        plan = self.resolve_play_render_plan(
+            play_render_mode=play_render_mode,
+            play_steps=play_steps,
+            output_video=output_video,
+        )
+        if on_plan is not None:
+            on_plan(plan)
+        if plan.mode == "none":
+            return None
+        return self.run_playback(
+            initialize=initialize,
+            step=step,
+            num_steps=plan.num_steps,
+            output_video=plan.output_video,
+            render_spacing=render_spacing,
+            render_offset_mode=render_offset_mode,
+            headless=plan.headless,
+            record_video=plan.record_video,
+            frame_state_getter=frame_state_getter,
+            camera_kwargs=camera_kwargs,
+            extra_data_getter=extra_data_getter,
+        )
 
     @property
     @abc.abstractmethod
@@ -104,16 +181,32 @@ class ABEnv(abc.ABC):
     def close(self) -> None:
         """Clean up environment resources"""
 
-    def init_play_renderer(self, render_spacing: float | None = None) -> None:
-        """Initialize env-facing interactive playback when supported."""
+    def init_play_renderer(
+        self,
+        render_spacing: float | None = None,
+        render_offset_mode: str | None = None,
+        *,
+        headless: bool = False,
+        capture: bool = False,
+        width: int = 1280,
+        height: int = 720,
+        camera_kwargs: dict[str, Any] | None = None,
+    ) -> None:
+        """Initialize env-facing playback rendering when supported."""
         raise NotImplementedError(
-            f"{self.__class__.__name__} does not support native interactive playback"
+            f"{self.__class__.__name__} does not support native playback rendering"
         )
 
     def render_play_frame(self) -> None:
         """Render one frame through the env-facing interactive playback contract."""
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support native interactive playback"
+        )
+
+    def capture_play_video_frame(self) -> np.ndarray:
+        """Capture one RGB frame through the env-facing video contract."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support native video capture"
         )
 
     def get_physics_state_snapshot(self) -> np.ndarray:

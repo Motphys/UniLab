@@ -1,21 +1,27 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
-from etils import epath
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.backend import create_backend
 from unilab.base.np_env import NpEnvState
+from unilab.base.scene import SceneCfg
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.locomotion.common import rewards
+from unilab.envs.locomotion.common.base import Sensor
 from unilab.envs.locomotion.common.commands import Commands
 from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
 from unilab.envs.locomotion.common.dr_provider import LocomotionDRProvider
 from unilab.envs.locomotion.common.rewards import RewardContext
+from unilab.envs.locomotion.common.terrain_spawn import (
+    TerrainCurriculumCfg,
+    TerrainSpawnManager,
+)
 from unilab.envs.locomotion.go2.base import Go2BaseCfg, Go2BaseEnv
 
 
@@ -42,7 +48,7 @@ class RewardConfig:
 
 
 @dataclass
-class JoystickSensor:
+class JoystickSensor(Sensor):
     local_linvel = "local_linvel"
     gyro = "gyro"
     feet_force = ["FL_foot_contact", "FR_foot_contact", "RL_foot_contact", "RR_foot_contact"]
@@ -52,13 +58,18 @@ class JoystickSensor:
 @registry.envcfg("Go2JoystickFlat")
 @dataclass
 class Go2JoystickCfg(Go2BaseCfg):
-    model_file: str = str(ASSETS_ROOT_PATH / "robots" / "go2" / "scene_flat.xml")
+    scene: SceneCfg = field(
+        default_factory=lambda: SceneCfg(
+            model_file=str(ASSETS_ROOT_PATH / "robots" / "go2" / "scene_flat.xml")
+        )
+    )
     max_episode_seconds: float = 20.0
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
     reward_config: RewardConfig | None = None
-    sensor: JoystickSensor = field(default_factory=JoystickSensor)  # type: ignore[assignment]
+    sensor: JoystickSensor = field(default_factory=JoystickSensor)
     domain_rand: Go2DomainRandConfig = field(default_factory=Go2DomainRandConfig)
+    terrain_curriculum: TerrainCurriculumCfg = field(default_factory=TerrainCurriculumCfg)
 
 
 class Go2JoystickDomainRandomizationProvider(LocomotionDRProvider):
@@ -73,8 +84,11 @@ class Go2JoystickDomainRandomizationProvider(LocomotionDRProvider):
         dof_pos: Any,
         dof_vel: Any,
     ) -> dict[str, np.ndarray]:
-        return env._compute_obs(  # type: ignore[no-any-return]
-            info_updates, linvel, gyro, gravity, dof_pos, dof_vel, env.feet_phase[env_ids]
+        return cast(
+            dict[str, np.ndarray],
+            env._compute_obs(
+                info_updates, linvel, gyro, gravity, dof_pos, dof_vel, env.feet_phase[env_ids]
+            ),
         )
 
 
@@ -86,26 +100,59 @@ class Go2WalkTask(Go2BaseEnv):
     def __init__(self, cfg: Go2JoystickCfg, num_envs=1, backend_type="mujoco"):
         if cfg.reward_config is None:
             raise ValueError("reward_config must be provided via Hydra configuration")
+
+        self._scene_terrain_origins: np.ndarray | None = None
+        scene_cfg = cfg.scene
+        terrain_generator = scene_cfg.terrain.generator if scene_cfg.terrain is not None else None
+
         backend = create_backend(
             backend_type,
-            cfg.model_file,
+            cfg.scene,
             num_envs,
             cfg.sim_dt,
             base_name=cfg.asset.base_name,
             push_body_name=cfg.domain_rand.push_body_name,
             position_actuator_gains={"kp": cfg.control_config.Kp, "kd": cfg.control_config.Kd},
-            iterations=cfg.iterations,
+            motrix_max_iterations=cfg.motrix_max_iterations,
         )
+        self._terrain_surface_sampler = getattr(backend, "terrain_surface_sampler", None)
+        self._terrain_surface_sample_height = self._resolve_terrain_surface_sample_height()
+        terrain_origins = getattr(backend, "terrain_origins", None)
+        if terrain_origins is not None:
+            self._scene_terrain_origins = terrain_origins
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True
         self._reward_cfg = cfg.reward_config
         self._init_reward_functions()
         self._init_domain_randomization(Go2JoystickDomainRandomizationProvider())
+        if self._scene_terrain_origins is not None and terrain_generator is not None:
+            self._spawn = TerrainSpawnManager(
+                num_envs,
+                self._scene_terrain_origins,
+                cell_size=float(terrain_generator.size[0]),
+                cfg=cfg.terrain_curriculum,
+                terrain_surface_sampler=self._terrain_surface_sampler,
+            )
         self.phase = np.zeros((num_envs,), dtype=np.float32)
         self.feet_phase = np.zeros((num_envs, len(cfg.sensor.feet_force)), dtype=np.float32)
         self.gait_frequency = 2
         self.feet_force = np.zeros((num_envs, len(cfg.sensor.feet_force), 3), dtype=np.float32)
         self.feet_pos = np.zeros((num_envs, len(cfg.sensor.feet_pos), 3), dtype=np.float32)
+
+    def get_playback_model(self, env_index: int | None = None) -> Any:
+        return super().get_playback_model(env_index)
+
+    def _resolve_terrain_surface_sample_height(
+        self,
+    ) -> Callable[[np.ndarray], np.ndarray] | None:
+        sampler = self._terrain_surface_sampler
+        if sampler is None:
+            return None
+
+        sample_height = getattr(sampler, "sample_height", None)
+        if not callable(sample_height):
+            raise TypeError("terrain_surface_sampler must expose sample_height(xy)")
+        return cast(Callable[[np.ndarray], np.ndarray], sample_height)
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:
@@ -124,6 +171,7 @@ class Go2WalkTask(Go2BaseEnv):
             "alive": rewards.alive,
             "swing_feet_z": self._reward_swing_feet_z,
             "contact": self._reward_contact,
+            "foot_drag": self._reward_foot_drag,
         }
 
     def update_state(self, state: NpEnvState) -> NpEnvState:
@@ -149,7 +197,19 @@ class Go2WalkTask(Go2BaseEnv):
         obs = self._compute_obs(
             state.info, linvel, gyro, gravity, dof_pos, dof_vel, self.feet_phase
         )
-        return state.replace(obs=obs, reward=reward, terminated=terminated)
+        state = state.replace(obs=obs, reward=reward, terminated=terminated)
+        done = state.terminated | state.truncated
+        if np.any(done):
+            done_indices = np.where(done)[0]
+            stats = self._spawn.update_on_done(
+                done_indices, self._backend.get_base_pos()[done_indices]
+            )
+            if stats:
+                if "log" not in state.info:
+                    state.info["log"] = {}
+                for k, v in stats.items():
+                    state.info["log"][f"terrain_curriculum/{k}"] = float(v)
+        return state
 
     def _compute_obs(
         self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel, feet_phase
@@ -172,10 +232,7 @@ class Go2WalkTask(Go2BaseEnv):
         return {"obs": obs, "critic": critic}
 
     def _compute_reward(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
-        dtype = get_global_dtype()
-        reward = np.zeros((self._num_envs,), dtype=dtype)
         cfg = self._reward_cfg
-
         ctx = RewardContext(
             info=info,
             linvel=linvel,
@@ -185,26 +242,27 @@ class Go2WalkTask(Go2BaseEnv):
             default_angles=self.default_angles,
             tracking_sigma=cfg.tracking_sigma,
             base_height_target=cfg.base_height_target,
-            base_height=self._backend.get_base_pos()[:, 2],
+            base_height=self._reward_base_height_values(),
+        )
+        return rewards.run_reward_dispatch(
+            scales=cfg.scales,
+            fns=self._reward_fns,
+            ctx=ctx,
+            info=info,
+            enable_log=self._enable_reward_log,
+            ctrl_dt=self._cfg.ctrl_dt,
         )
 
-        step_count = info.get("steps", np.zeros((self._num_envs,), dtype=np.uint32))
-        should_log = self._enable_reward_log and (int(step_count[0]) % 4 == 0)
-        log = {} if should_log else info.get("log", {})
-
-        for name, scale in cfg.scales.items():
-            if scale == 0 or name not in self._reward_fns:
-                continue
-            rew = self._reward_fns[name](ctx)
-            weighted_rew = rew * scale
-            reward += weighted_rew
-            if should_log:
-                log[f"reward/{name}"] = float(np.mean(weighted_rew))
-
-        info["log"] = log
-        return reward * self._cfg.ctrl_dt
-
     # ── reward functions (robot-specific) ────────────────────────────
+
+    def _reward_base_height_values(self) -> np.ndarray:
+        base_pos = np.asarray(self._backend.get_base_pos(), dtype=get_global_dtype())
+        sample_height = self._terrain_surface_sample_height
+        if sample_height is None:
+            return np.asarray(base_pos[:, 2], dtype=get_global_dtype())
+
+        surface = np.asarray(sample_height(base_pos[:, :2]), dtype=get_global_dtype())
+        return np.asarray(base_pos[:, 2] - surface, dtype=get_global_dtype())
 
     def _reward_swing_feet_z(self, ctx: RewardContext) -> np.ndarray:
         is_swing = self.feet_phase >= 0.6

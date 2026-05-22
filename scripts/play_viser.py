@@ -35,7 +35,6 @@ from pathlib import Path
 from typing import Any, cast
 
 import hydra
-import mujoco
 import numpy as np
 import torch
 from omegaconf import DictConfig, OmegaConf
@@ -77,6 +76,7 @@ if not VISER_AVAILABLE:
     print("[play_viser] viser is not installed. Install with: uv sync --extra viser")
     sys.exit(1)
 
+import mujoco
 import viser  # noqa: E402
 from play_interactive import (  # noqa: E402
     PlayInteractiveArgs,

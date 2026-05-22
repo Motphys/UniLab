@@ -37,6 +37,9 @@ required-markers = [
     "platform_machine == 'x86_64' and sys_platform == 'linux'",
 ]
 
+[manifest]
+excludes = ["torchvision"]
+
 [[package]]
 name = "absl-py"
 version = "2.1.0"
@@ -2107,8 +2110,8 @@ wheels = [
 ]
 
 [[package]]
-name = "motrixsim"
-version = "0.7.1.dev96425"
+name = "motrixsim-core"
+version = "0.7.1.dev102197"
 source = { registry = "https://pypi.motphys.com/simple/" }
 dependencies = [
     { name = "absl-py" },
@@ -2116,18 +2119,18 @@ dependencies = [
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
 wheels = [
-    { url = "https://pypi.motphys.com/packages/motrixsim-0.7.1.dev96425-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:c713733a47a27e632ed39665f52ae3fa0eda5d08ed623ef1c134b24d1fda58d0" },
-    { url = "https://pypi.motphys.com/packages/motrixsim-0.7.1.dev96425-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:5b8add73bfd90913874c6dff283bb87b68d9714769661f2591740bbb5a6fe867" },
-    { url = "https://pypi.motphys.com/packages/motrixsim-0.7.1.dev96425-cp310-cp310-win_amd64.whl", hash = "sha256:67a3282f2b6b3e65aff776c80559e72422679d72023349e94ab572f74fb52765" },
-    { url = "https://pypi.motphys.com/packages/motrixsim-0.7.1.dev96425-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:5c6d60a5e8178ee73451bfa59d04f3098cb75ddd349f4569dd559ed49df23cc6" },
-    { url = "https://pypi.motphys.com/packages/motrixsim-0.7.1.dev96425-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:285e81aebb576e61e17bbc8e2894df365b7be758eb99043fe90f4d43a44d1e19" },
-    { url = "https://pypi.motphys.com/packages/motrixsim-0.7.1.dev96425-cp311-cp311-win_amd64.whl", hash = "sha256:618f006011ed7bd44773ce7e3309218147fdc929a351d202938773b72e6b4930" },
-    { url = "https://pypi.motphys.com/packages/motrixsim-0.7.1.dev96425-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:9d40be7b9b5afc57e27ff75bfcb03755a5c5b9764e787b1355a1f7f6f96f8f52" },
-    { url = "https://pypi.motphys.com/packages/motrixsim-0.7.1.dev96425-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:219d720b8a41b32587eef2f67bf1eae262da3e44170737871424116e6ae0b7f1" },
-    { url = "https://pypi.motphys.com/packages/motrixsim-0.7.1.dev96425-cp312-cp312-win_amd64.whl", hash = "sha256:97baed34ed8c71b1f6c5f73e5cd40c141f751e1944500626605ac31368518267" },
-    { url = "https://pypi.motphys.com/packages/motrixsim-0.7.1.dev96425-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:99669b580d23238c91410f6a21e1f0b2122c6280627f5ef9e60fef36be06db3b" },
-    { url = "https://pypi.motphys.com/packages/motrixsim-0.7.1.dev96425-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:616e138e93afd077a3b90229d44c44b33d4f3213b7d97f08155313c4c5accda7" },
-    { url = "https://pypi.motphys.com/packages/motrixsim-0.7.1.dev96425-cp313-cp313-win_amd64.whl", hash = "sha256:84358430ee89d5745f7b8d70ce1f8c72f467a6562b9c91ebdb6893d86c8722d6" },
+    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.7.1.dev102197-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:8fad2d5a4d62aefc193f96eb75275b2e8bfa79782743a11ecaa6c135eb8d7a36" },
+    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.7.1.dev102197-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f243deb4e8f3f8ca50ed03f8f17b77166e172d981f06bb58d90e8286bd48601e" },
+    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.7.1.dev102197-cp310-cp310-win_amd64.whl", hash = "sha256:71f349bb7992f814e8313110ca677215eb422714efb9b27590ef1a9c8bb45fc2" },
+    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.7.1.dev102197-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:edadd108c9d66e83cbab997fa5ab2d4bcff86cf9a401496ce9341a51d77ba4a5" },
+    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.7.1.dev102197-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:395952a9058f2839cb884c7aabdf4a93ee909bd04249ca4b0e07fc593562b7fe" },
+    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.7.1.dev102197-cp311-cp311-win_amd64.whl", hash = "sha256:7d8e9096e6d107b16f264e6263988910344173783464caa607a4b631de000647" },
+    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.7.1.dev102197-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:c9ca7cc02f875aaef640e42eba051ed33a1d832d3e05bc3235c35e9868441391" },
+    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.7.1.dev102197-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:facdcde4a8055a5e90827784d85cb9b4f5d3b93645e5377098b2cc0007591875" },
+    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.7.1.dev102197-cp312-cp312-win_amd64.whl", hash = "sha256:8417561f5877ed2bfa9ae798d9ac22df10ff438bf6b3cd22474ead563c739a7d" },
+    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.7.1.dev102197-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:cd9c6862d29b44d2fb5547b285ecbdc5af784a43e562a545819301f89090faea" },
+    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.7.1.dev102197-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d6d72d5be0726679ce1a7be3ad4ad9c3f9c5fc3fae30fabdc6d9f200b7cad5e2" },
+    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.7.1.dev102197-cp313-cp313-win_amd64.whl", hash = "sha256:ccb4d5673215267c1296f618a8153013c0cdb68bbeef9f17100cc8b4cff1bccc" },
 ]
 
 [[package]]
@@ -3696,7 +3699,6 @@ dependencies = [
     { name = "tensordict" },
     { name = "torch", version = "2.7.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux'" },
     { name = "torch", version = "2.7.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux'" },
-    { name = "torchvision" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/d5/23/dae404688e571e73662b7754ab2a8bddcc48f625c338b7f55576ad528653/rsl_rl_lib-5.0.1.tar.gz", hash = "sha256:b6e1fce8f4481c6118d53c7b03b80c8070d0a1edd3df3efbec5e5e6ff7c92132", size = 58623, upload-time = "2026-03-04T08:19:49.671Z" }
 wheels = [
@@ -4263,40 +4265,6 @@ wheels = [
 ]
 
 [[package]]
-name = "torchvision"
-version = "0.22.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "pillow" },
-    { name = "torch", version = "2.7.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux'" },
-    { name = "torch", version = "2.7.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux'" },
-]
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/eb/03/a514766f068b088180f273913e539d08e830be3ae46ef8577ea62584a27c/torchvision-0.22.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:72256f1d7ff510b16c9fb4dd488584d0693f40c792f286a9620674438a81ccca", size = 1947829, upload-time = "2025-04-23T14:42:04.652Z" },
-    { url = "https://files.pythonhosted.org/packages/a3/e5/ec4b52041cd8c440521b75864376605756bd2d112d6351ea6a1ab25008c1/torchvision-0.22.0-cp310-cp310-manylinux_2_28_aarch64.whl", hash = "sha256:810ea4af3bc63cf39e834f91f4218ff5999271caaffe2456247df905002bd6c0", size = 2512604, upload-time = "2025-04-23T14:41:56.515Z" },
-    { url = "https://files.pythonhosted.org/packages/e7/9e/e898a377e674da47e95227f3d7be2c49550ce381eebd8c7831c1f8bb7d39/torchvision-0.22.0-cp310-cp310-manylinux_2_28_x86_64.whl", hash = "sha256:6fbca169c690fa2b9b8c39c0ad76d5b8992296d0d03df01e11df97ce12b4e0ac", size = 7446399, upload-time = "2025-04-23T14:41:49.793Z" },
-    { url = "https://files.pythonhosted.org/packages/c7/ec/2cdb90c6d9d61410b3df9ca67c210b60bf9b07aac31f800380b20b90386c/torchvision-0.22.0-cp310-cp310-win_amd64.whl", hash = "sha256:8c869df2e8e00f7b1d80a34439e6d4609b50fe3141032f50b38341ec2b59404e", size = 1716700, upload-time = "2025-04-23T14:42:03.562Z" },
-    { url = "https://files.pythonhosted.org/packages/b1/43/28bc858b022f6337326d75f4027d2073aad5432328f01ee1236d847f1b82/torchvision-0.22.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:191ea28321fc262d8aa1a7fe79c41ff2848864bf382f9f6ea45c41dde8313792", size = 1947828, upload-time = "2025-04-23T14:42:00.439Z" },
-    { url = "https://files.pythonhosted.org/packages/7e/71/ce9a303b94e64fe25d534593522ffc76848c4e64c11e4cbe9f6b8d537210/torchvision-0.22.0-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:6c5620e10ffe388eb6f4744962106ed7cf1508d26e6fdfa0c10522d3249aea24", size = 2514016, upload-time = "2025-04-23T14:41:48.566Z" },
-    { url = "https://files.pythonhosted.org/packages/09/42/6908bff012a1dcc4fc515e52339652d7f488e208986542765c02ea775c2f/torchvision-0.22.0-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:ce292701c77c64dd3935e3e31c722c3b8b176a75f76dc09b804342efc1db5494", size = 7447546, upload-time = "2025-04-23T14:41:47.297Z" },
-    { url = "https://files.pythonhosted.org/packages/e4/cf/8f9305cc0ea26badbbb3558ecae54c04a245429f03168f7fad502f8a5b25/torchvision-0.22.0-cp311-cp311-win_amd64.whl", hash = "sha256:e4017b5685dbab4250df58084f07d95e677b2f3ed6c2e507a1afb8eb23b580ca", size = 1716472, upload-time = "2025-04-23T14:42:01.999Z" },
-    { url = "https://files.pythonhosted.org/packages/cb/ea/887d1d61cf4431a46280972de665f350af1898ce5006cd046326e5d0a2f2/torchvision-0.22.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:31c3165418fe21c3d81fe3459e51077c2f948801b8933ed18169f54652796a0f", size = 1947826, upload-time = "2025-04-23T14:41:59.188Z" },
-    { url = "https://files.pythonhosted.org/packages/72/ef/21f8b6122e13ae045b8e49658029c695fd774cd21083b3fa5c3f9c5d3e35/torchvision-0.22.0-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:8f116bc82e0c076e70ba7776e611ed392b9666aa443662e687808b08993d26af", size = 2514571, upload-time = "2025-04-23T14:41:53.458Z" },
-    { url = "https://files.pythonhosted.org/packages/7c/48/5f7617f6c60d135f86277c53f9d5682dfa4e66f4697f505f1530e8b69fb1/torchvision-0.22.0-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:ce4dc334ebd508de2c534817c9388e928bc2500cf981906ae8d6e2ca3bf4727a", size = 7446522, upload-time = "2025-04-23T14:41:34.9Z" },
-    { url = "https://files.pythonhosted.org/packages/99/94/a015e93955f5d3a68689cc7c385a3cfcd2d62b84655d18b61f32fb04eb67/torchvision-0.22.0-cp312-cp312-win_amd64.whl", hash = "sha256:24b8c9255c209ca419cc7174906da2791c8b557b75c23496663ec7d73b55bebf", size = 1716664, upload-time = "2025-04-23T14:41:58.019Z" },
-    { url = "https://files.pythonhosted.org/packages/e1/2a/9b34685599dcb341d12fc2730055155623db7a619d2415a8d31f17050952/torchvision-0.22.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:ece17995857dd328485c9c027c0b20ffc52db232e30c84ff6c95ab77201112c5", size = 1947823, upload-time = "2025-04-23T14:41:39.956Z" },
-    { url = "https://files.pythonhosted.org/packages/77/77/88f64879483d66daf84f1d1c4d5c31ebb08e640411139042a258d5f7dbfe/torchvision-0.22.0-cp313-cp313-manylinux_2_28_aarch64.whl", hash = "sha256:471c6dd75bb984c6ebe4f60322894a290bf3d4b195e769d80754f3689cd7f238", size = 2471592, upload-time = "2025-04-23T14:41:54.991Z" },
-    { url = "https://files.pythonhosted.org/packages/f7/82/2f813eaae7c1fae1f9d9e7829578f5a91f39ef48d6c1c588a8900533dd3d/torchvision-0.22.0-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:2b839ac0610a38f56bef115ee5b9eaca5f9c2da3c3569a68cc62dbcc179c157f", size = 7446333, upload-time = "2025-04-23T14:41:36.603Z" },
-    { url = "https://files.pythonhosted.org/packages/58/19/ca7a4f8907a56351dfe6ae0a708f4e6b3569b5c61d282e3e7f61cf42a4ce/torchvision-0.22.0-cp313-cp313-win_amd64.whl", hash = "sha256:4ada1c08b2f761443cd65b7c7b4aec9e2fc28f75b0d4e1b1ebc9d3953ebccc4d", size = 1716693, upload-time = "2025-04-23T14:41:41.031Z" },
-    { url = "https://files.pythonhosted.org/packages/6f/a7/f43e9c8d13118b4ffbaebea664c9338ab20fa115a908125afd2238ff16e7/torchvision-0.22.0-cp313-cp313t-macosx_11_0_arm64.whl", hash = "sha256:cdc96daa4658b47ce9384154c86ed1e70cba9d972a19f5de6e33f8f94a626790", size = 2137621, upload-time = "2025-04-23T14:41:51.427Z" },
-    { url = "https://files.pythonhosted.org/packages/6a/9a/2b59f5758ba7e3f23bc84e16947493bbce97392ec6d18efba7bdf0a3b10e/torchvision-0.22.0-cp313-cp313t-manylinux_2_28_aarch64.whl", hash = "sha256:753d3c84eeadd5979a33b3b73a25ecd0aa4af44d6b45ed2c70d44f5e0ac68312", size = 2476555, upload-time = "2025-04-23T14:41:38.357Z" },
-    { url = "https://files.pythonhosted.org/packages/7d/40/a7bc2ab9b1e56d10a7fd9ae83191bb425fa308caa23d148f1c568006e02c/torchvision-0.22.0-cp313-cp313t-manylinux_2_28_x86_64.whl", hash = "sha256:b30e3ed29e4a61f7499bca50f57d8ebd23dfc52b14608efa17a534a55ee59a03", size = 7617924, upload-time = "2025-04-23T14:41:42.709Z" },
-    { url = "https://files.pythonhosted.org/packages/c1/7b/30d423bdb2546250d719d7821aaf9058cc093d165565b245b159c788a9dd/torchvision-0.22.0-cp313-cp313t-win_amd64.whl", hash = "sha256:e5d680162694fac4c8a374954e261ddfb4eb0ce103287b0f693e4e9c579ef957", size = 1638621, upload-time = "2025-04-23T14:41:46.06Z" },
-]
-
-[[package]]
 name = "tornado"
 version = "6.5.5"
 source = { registry = "https://pypi.org/simple" }
@@ -4449,7 +4417,7 @@ dependencies = [
 
 [package.optional-dependencies]
 motrix = [
-    { name = "motrixsim" },
+    { name = "motrixsim-core" },
 ]
 viser = [
     { name = "trimesh" },
@@ -4474,7 +4442,7 @@ requires-dist = [
     { name = "lark", specifier = ">=1.3.1" },
     { name = "mediapy" },
     { name = "mlx", marker = "sys_platform == 'darwin'" },
-    { name = "motrixsim", marker = "extra == 'motrix'", specifier = "==0.7.1.dev96425", index = "https://pypi.motphys.com/simple/" },
+    { name = "motrixsim-core", marker = "extra == 'motrix'", specifier = "==0.7.1.dev102197", index = "https://pypi.motphys.com/simple/" },
     { name = "mujoco-uni", specifier = "==3.7.0rc0", index = "https://test.pypi.org/simple/" },
     { name = "notebook", specifier = ">=7.5.5" },
     { name = "numpy" },

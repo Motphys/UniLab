@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from unilab.assets import ASSETS_ROOT_PATH
+from unilab.base.scene import SceneCfg
 from unilab.dr import (
     GeomSizeOverride,
     InitRandomizationPlan,
@@ -101,10 +102,12 @@ def _allegro_state() -> tuple[np.ndarray, np.ndarray]:
 class TestMuJoCoBasic:
     @pytest.fixture(params=BASIC_ROBOTS)
     def bkd(self, request):
-        from unilab.base.backend.mujoco_backend import MuJoCoBackend
+        from unilab.base.backend.mujoco.backend import MuJoCoBackend
 
         p = request.param
-        backend = MuJoCoBackend(p["model_file"], NUM_ENVS, SIM_DT, base_name=p["base_name"])
+        backend = MuJoCoBackend(
+            SceneCfg(model_file=p["model_file"]), NUM_ENVS, SIM_DT, base_name=p["base_name"]
+        )
         backend.materialize()
         return backend
 
@@ -114,9 +117,11 @@ class TestMuJoCoBasic:
         assert bkd.num_envs == NUM_ENVS
 
     def test_apply_init_randomization_sets_variants_before_materialization(self):
-        from unilab.base.backend.mujoco_backend import MuJoCoBackend
+        from unilab.base.backend.mujoco.backend import MuJoCoBackend
 
-        bkd = MuJoCoBackend(_SHARPA["model_file"], 4, SIM_DT, base_name=_SHARPA["base_name"])
+        bkd = MuJoCoBackend(
+            SceneCfg(model_file=_SHARPA["model_file"]), 4, SIM_DT, base_name=_SHARPA["base_name"]
+        )
         assert bkd._pool is None
         mujoco = _mujoco_module()
         geom_id = mujoco.mj_name2id(bkd.model, mujoco.mjtObj.mjOBJ_GEOM, "object")
@@ -148,9 +153,11 @@ class TestMuJoCoBasic:
         assert bkd._pool is not None
 
     def test_get_playback_model_returns_env_specific_variant(self):
-        from unilab.base.backend.mujoco_backend import MuJoCoBackend
+        from unilab.base.backend.mujoco.backend import MuJoCoBackend
 
-        bkd = MuJoCoBackend(_SHARPA["model_file"], 4, SIM_DT, base_name=_SHARPA["base_name"])
+        bkd = MuJoCoBackend(
+            SceneCfg(model_file=_SHARPA["model_file"]), 4, SIM_DT, base_name=_SHARPA["base_name"]
+        )
         mujoco = _mujoco_module()
         geom_id = mujoco.mj_name2id(bkd.model, mujoco.mjtObj.mjOBJ_GEOM, "object")
         base_size = np.asarray(bkd.model.geom_size[geom_id], dtype=np.float64).copy()
@@ -222,7 +229,15 @@ class TestMuJoCoBasic:
 
         monkeypatch.setattr(np.random, "uniform", lambda low, high, size: sampled.copy())
 
-        def _fake_step(initial_state, *, nstep, control_spec=0, control=None, **kwargs):
+        def _fake_step(
+            initial_state,
+            *,
+            nstep,
+            control_spec=0,
+            control=None,
+            return_sensor=False,
+            **kwargs,
+        ):
             calls.append(
                 {
                     "nstep": nstep,
@@ -230,14 +245,12 @@ class TestMuJoCoBasic:
                     "control": None if control is None else np.array(control, copy=True),
                 }
             )
-            return np.array(initial_state, copy=True)
+            state = np.array(initial_state, copy=True)
+            if return_sensor:
+                return state, np.array(bkd._sensor_data, copy=True)
+            return state
 
         monkeypatch.setattr(bkd._pool, "step", _fake_step)
-        monkeypatch.setattr(
-            bkd._pool,
-            "forward",
-            lambda state: np.array(bkd._sensor_data, copy=True),
-        )
 
         bkd.apply_interval_randomization(IntervalRandomizationPlan(push_perturbation_limit=limit))
 
@@ -266,11 +279,11 @@ class TestMuJoCoBasic:
         assert calls[1]["control"].shape == (NUM_ENVS, 1, bkd.model.nu)
 
     def test_interval_push_uses_configured_body(self, monkeypatch: pytest.MonkeyPatch):
-        from unilab.base.backend.mujoco_backend import MuJoCoBackend
+        from unilab.base.backend.mujoco.backend import MuJoCoBackend
 
         mujoco = _mujoco_module()
         bkd = MuJoCoBackend(
-            _G1["model_file"],
+            SceneCfg(model_file=_G1["model_file"]),
             NUM_ENVS,
             SIM_DT,
             base_name=_G1["base_name"],
@@ -283,21 +296,27 @@ class TestMuJoCoBasic:
 
         monkeypatch.setattr(np.random, "uniform", lambda low, high, size: sampled.copy())
 
-        def _fake_step(initial_state, *, nstep, control_spec=0, control=None, **kwargs):
+        def _fake_step(
+            initial_state,
+            *,
+            nstep,
+            control_spec=0,
+            control=None,
+            return_sensor=False,
+            **kwargs,
+        ):
             calls.append(
                 {
                     "control_spec": control_spec,
                     "control": None if control is None else np.array(control, copy=True),
                 }
             )
-            return np.array(initial_state, copy=True)
+            state = np.array(initial_state, copy=True)
+            if return_sensor:
+                return state, np.array(bkd._sensor_data, copy=True)
+            return state
 
         monkeypatch.setattr(bkd._pool, "step", _fake_step)
-        monkeypatch.setattr(
-            bkd._pool,
-            "forward",
-            lambda state: np.array(bkd._sensor_data, copy=True),
-        )
 
         bkd.apply_interval_randomization(IntervalRandomizationPlan(push_perturbation_limit=limit))
         bkd.step(np.zeros((NUM_ENVS, bkd.model.nu), dtype=np.float64))
@@ -366,6 +385,24 @@ class TestMuJoCoBasic:
             pool.get_field(1, "body_inertia").reshape(bkd.model.nbody, 3), updated
         )
 
+    def test_set_state_dof_armature_randomization_only_affects_target_envs(self, bkd):
+        pool = bkd._pool
+        original = [pool.get_field(i, "dof_armature").copy() for i in range(NUM_ENVS)]
+        qpos = _identity_qpos_mujoco(bkd.model.nq)
+        qvel = np.zeros((1, bkd.model.nv))
+        updated = original[1].copy()
+        updated += np.linspace(0.01, 0.03, updated.size, dtype=np.float64)
+
+        bkd.set_state(
+            np.array([1]),
+            qpos,
+            qvel,
+            randomization=ResetRandomizationPayload(dof_armature=updated[None, :]),
+        )
+
+        np.testing.assert_array_equal(pool.get_field(0, "dof_armature"), original[0])
+        np.testing.assert_allclose(pool.get_field(1, "dof_armature"), updated)
+
     def test_set_state_kp_kd_randomization_only_affects_target_envs(self, bkd):
         pool = bkd._pool
         original_kp = [pool.get_field(i, "kp").copy() for i in range(NUM_ENVS)]
@@ -423,11 +460,11 @@ class TestMuJoCoBasic:
 def test_mujoco_backend_discards_visual_assets():
     mujoco = _mujoco_module()
 
-    from unilab.base.backend.mujoco_backend import MuJoCoBackend
+    from unilab.base.backend.mujoco.backend import MuJoCoBackend
 
     model_file = _xml("go2")
     full = mujoco.MjModel.from_xml_path(model_file)
-    trimmed = MuJoCoBackend(model_file, 1, SIM_DT, base_name="base")
+    trimmed = MuJoCoBackend(SceneCfg(model_file=model_file), 1, SIM_DT, base_name="base")
 
     assert trimmed.model.ngeom < full.ngeom
     assert trimmed.model.nmesh == 0
@@ -437,12 +474,12 @@ def test_mujoco_backend_discards_visual_assets():
 
 @pytest.mark.slow
 def test_motrix_backend_fixed_base_set_state_matches_mujoco_for_hand_and_ball():
-    from unilab.base.backend.motrix_backend import MotrixBackend
-    from unilab.base.backend.mujoco_backend import MuJoCoBackend
+    from unilab.base.backend.motrix.backend import MotrixBackend
+    from unilab.base.backend.mujoco.backend import MuJoCoBackend
 
     pytest.importorskip("motrixsim")
     mj = MuJoCoBackend(
-        _ALLEGRO["model_file"],
+        SceneCfg(model_file=_ALLEGRO["model_file"]),
         NUM_ENVS,
         SIM_DT,
         base_name=_ALLEGRO["base_name"],
@@ -450,7 +487,7 @@ def test_motrix_backend_fixed_base_set_state_matches_mujoco_for_hand_and_ball():
     )
     mj.materialize()
     mx = MotrixBackend(
-        _ALLEGRO["model_file"],
+        SceneCfg(model_file=_ALLEGRO["model_file"]),
         NUM_ENVS,
         SIM_DT,
         base_name=_ALLEGRO["base_name"],
@@ -491,10 +528,10 @@ def test_motrix_backend_fixed_base_set_state_matches_mujoco_for_hand_and_ball():
 class TestMuJoCoBodySensors:
     @pytest.fixture
     def bkd(self):
-        from unilab.base.backend.mujoco_backend import MuJoCoBackend
+        from unilab.base.backend.mujoco.backend import MuJoCoBackend
 
         backend = MuJoCoBackend(
-            _G1["model_file"],
+            SceneCfg(model_file=_G1["model_file"]),
             NUM_ENVS,
             SIM_DT,
             base_name=_G1["base_name"],
@@ -606,10 +643,12 @@ class TestMotrixBasic:
     # dependent fixtures can share the same parameter value.
     @pytest.fixture(params=BASIC_ROBOTS)
     def _ctx(self, request):
-        from unilab.base.backend.motrix_backend import MotrixBackend
+        from unilab.base.backend.motrix.backend import MotrixBackend
 
         p = request.param
-        bkd = MotrixBackend(p["model_file"], NUM_ENVS, SIM_DT, base_name=p["base_name"])
+        bkd = MotrixBackend(
+            SceneCfg(model_file=p["model_file"]), NUM_ENVS, SIM_DT, base_name=p["base_name"]
+        )
         return bkd, p["base_name"]
 
     @pytest.fixture
@@ -817,10 +856,10 @@ class TestMotrixBodySensors:
 
     @pytest.fixture
     def bkd(self):
-        from unilab.base.backend.motrix_backend import MotrixBackend
+        from unilab.base.backend.motrix.backend import MotrixBackend
 
         return MotrixBackend(
-            _G1["model_file"],
+            SceneCfg(model_file=_G1["model_file"]),
             NUM_ENVS,
             SIM_DT,
             base_name=_G1["base_name"],
@@ -889,14 +928,18 @@ class TestCrossBackend:
     @pytest.fixture(params=BASIC_ROBOTS)
     def synced(self, request):
         """创建并同步两后端初始状态，返回 (mj, mx, base_name)。"""
-        from unilab.base.backend.motrix_backend import MotrixBackend
-        from unilab.base.backend.mujoco_backend import MuJoCoBackend
+        from unilab.base.backend.motrix.backend import MotrixBackend
+        from unilab.base.backend.mujoco.backend import MuJoCoBackend
 
         pytest.importorskip("motrixsim")
         p = request.param
-        mj = MuJoCoBackend(p["model_file"], NUM_ENVS, SIM_DT, base_name=p["base_name"])
+        mj = MuJoCoBackend(
+            SceneCfg(model_file=p["model_file"]), NUM_ENVS, SIM_DT, base_name=p["base_name"]
+        )
         mj.materialize()
-        mx = MotrixBackend(p["model_file"], NUM_ENVS, SIM_DT, base_name=p["base_name"])
+        mx = MotrixBackend(
+            SceneCfg(model_file=p["model_file"]), NUM_ENVS, SIM_DT, base_name=p["base_name"]
+        )
         nq, nv = mj.model.nq, mj.model.nv
         qpos = np.tile(_identity_qpos_mujoco(nq), (NUM_ENVS, 1))
         qvel = np.zeros((NUM_ENVS, nv))
@@ -950,12 +993,12 @@ class TestCrossBackendBodySensors:
 
     @pytest.fixture
     def synced(self):
-        from unilab.base.backend.motrix_backend import MotrixBackend
-        from unilab.base.backend.mujoco_backend import MuJoCoBackend
+        from unilab.base.backend.motrix.backend import MotrixBackend
+        from unilab.base.backend.mujoco.backend import MuJoCoBackend
 
         pytest.importorskip("motrixsim")
         mj = MuJoCoBackend(
-            _G1["model_file"],
+            SceneCfg(model_file=_G1["model_file"]),
             NUM_ENVS,
             SIM_DT,
             base_name=_G1["base_name"],
@@ -963,7 +1006,7 @@ class TestCrossBackendBodySensors:
         )
         mj.materialize()
         mx = MotrixBackend(
-            _G1["model_file"],
+            SceneCfg(model_file=_G1["model_file"]),
             NUM_ENVS,
             SIM_DT,
             base_name=_G1["base_name"],
@@ -1077,10 +1120,12 @@ class TestCrossBackendBodySensors:
 class TestMuJoCoModelProperties:
     @pytest.fixture(params=BASIC_ROBOTS)
     def bkd(self, request):
-        from unilab.base.backend.mujoco_backend import MuJoCoBackend
+        from unilab.base.backend.mujoco.backend import MuJoCoBackend
 
         p = request.param
-        return MuJoCoBackend(p["model_file"], NUM_ENVS, SIM_DT, base_name=p["base_name"])
+        return MuJoCoBackend(
+            SceneCfg(model_file=p["model_file"]), NUM_ENVS, SIM_DT, base_name=p["base_name"]
+        )
 
     def test_num_actuators(self, bkd):
         assert bkd.num_actuators == bkd.model.nu
@@ -1148,10 +1193,12 @@ class TestMotrixModelProperties:
 
     @pytest.fixture(params=BASIC_ROBOTS)
     def _ctx(self, request):
-        from unilab.base.backend.motrix_backend import MotrixBackend
+        from unilab.base.backend.motrix.backend import MotrixBackend
 
         p = request.param
-        bkd = MotrixBackend(p["model_file"], NUM_ENVS, SIM_DT, base_name=p["base_name"])
+        bkd = MotrixBackend(
+            SceneCfg(model_file=p["model_file"]), NUM_ENVS, SIM_DT, base_name=p["base_name"]
+        )
         return bkd, p["base_name"]
 
     @pytest.fixture
@@ -1206,11 +1253,15 @@ class TestCrossBackendModelProperties:
 
     @pytest.fixture
     def backends(self):
-        from unilab.base.backend.motrix_backend import MotrixBackend
-        from unilab.base.backend.mujoco_backend import MuJoCoBackend
+        from unilab.base.backend.motrix.backend import MotrixBackend
+        from unilab.base.backend.mujoco.backend import MuJoCoBackend
 
-        mj = MuJoCoBackend(_G1["model_file"], NUM_ENVS, SIM_DT, base_name=_G1["base_name"])
-        mx = MotrixBackend(_G1["model_file"], NUM_ENVS, SIM_DT, base_name=_G1["base_name"])
+        mj = MuJoCoBackend(
+            SceneCfg(model_file=_G1["model_file"]), NUM_ENVS, SIM_DT, base_name=_G1["base_name"]
+        )
+        mx = MotrixBackend(
+            SceneCfg(model_file=_G1["model_file"]), NUM_ENVS, SIM_DT, base_name=_G1["base_name"]
+        )
         return mj, mx
 
     def test_num_dof_vel_match(self, backends):

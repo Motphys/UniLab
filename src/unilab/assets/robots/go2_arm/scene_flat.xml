@@ -1,0 +1,66 @@
+<mujoco model="go2 scene">
+  <include file="go2_with_arm_mjx_full_collision.xml"/>
+
+  <statistic center="0 0 0.1" extent="0.8" meansize="0.04"/>
+
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <global azimuth="-130" elevation="-20"/>
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3"
+      markrgb="0.8 0.8 0.8" width="300" height="300"/>
+    <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
+  </asset>
+
+  <worldbody>
+    <light pos="0 0 1.5" dir="0 0 -1" directional="true"/>
+    <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/>
+  </worldbody>
+
+  <sensor>
+    <contact name="FL_foot_contact" geom1="floor" geom2="FL" data="found" num="1" reduce="mindist"/>
+    <contact name="FR_foot_contact" geom1="floor" geom2="FR" data="found" num="1" reduce="mindist"/>
+    <contact name="RL_foot_contact" geom1="floor" geom2="RL" data="found" num="1" reduce="mindist"/>
+    <contact name="RR_foot_contact" geom1="floor" geom2="RR" data="found" num="1" reduce="mindist"/>
+
+    <contact name="base1_contact" geom1="floor" geom2="base1" data="found" num="1" reduce="mindist"/>
+    <contact name="base2_contact" geom1="floor" geom2="base2" data="found" num="1" reduce="mindist"/>
+    <contact name="base3_contact" geom1="floor" geom2="base3" data="found" num="1" reduce="mindist"/>
+
+    <contact name="FL_hip_contact" geom1="floor" geom2="fl_hip_0" data="found" num="1" reduce="mindist"/>
+    <contact name="FR_hip_contact" geom1="floor" geom2="fr_hip_0" data="found" num="1" reduce="mindist"/>
+    <contact name="RL_hip_contact" geom1="floor" geom2="rl_hip_0" data="found" num="1" reduce="mindist"/>
+    <contact name="RR_hip_contact" geom1="floor" geom2="rr_hip_0" data="found" num="1" reduce="mindist"/>
+
+    <contact name="FL_thigh_contact" geom1="floor" geom2="fl_thigh_0" data="found" num="1" reduce="mindist"/>
+    <contact name="FR_thigh_contact" geom1="floor" geom2="fr_thigh_0" data="found" num="1" reduce="mindist"/>
+    <contact name="RL_thigh_contact" geom1="floor" geom2="rl_thigh_0" data="found" num="1" reduce="mindist"/>
+    <contact name="RR_thigh_contact" geom1="floor" geom2="rr_thigh_0" data="found" num="1" reduce="mindist"/>
+
+    <contact name="FL_calf_contact1" geom1="floor" geom2="fl_calf_0" data="found" num="1" reduce="mindist"/>
+    <contact name="FR_calf_contact1" geom1="floor" geom2="fr_calf_0" data="found" num="1" reduce="mindist"/>
+    <contact name="RL_calf_contact1" geom1="floor" geom2="rl_calf_0" data="found" num="1" reduce="mindist"/>
+    <contact name="RR_calf_contact1" geom1="floor" geom2="rr_calf_0" data="found" num="1" reduce="mindist"/>
+
+    <contact name="FL_calf_contact2" geom1="floor" geom2="fl_calf_1" data="found" num="1" reduce="mindist"/>
+    <contact name="FR_calf_contact2" geom1="floor" geom2="fr_calf_1" data="found" num="1" reduce="mindist"/>
+    <contact name="RL_calf_contact2" geom1="floor" geom2="rl_calf_1" data="found" num="1" reduce="mindist"/>
+    <contact name="RR_calf_contact2" geom1="floor" geom2="rr_calf_1" data="found" num="1" reduce="mindist"/>
+  </sensor>
+
+  <keyframe>
+    <key name="home" qpos="
+    0 0 0.278
+    1 0 0 0
+    0.1 0.8 -1.5
+    -0.1 0.8 -1.5
+    0.1 0.8 -1.5
+    -0.1 0.8 -1.5
+    0 0 0 1.6 0 -1.6"
+      ctrl="0.1 0.8 -1.5 -0.1 0.8 -1.5 0.1 0.8 -1.5 -0.1 0.8 -1.5 0 0 0 1.6 0 -1.6"/>
+  </keyframe>
+</mujoco>

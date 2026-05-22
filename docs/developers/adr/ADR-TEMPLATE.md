@@ -34,5 +34,5 @@
 
 ## Related Documents
 
-- [ADR Index](README.md)
+- [ADR Index](ADR-0000-index.md)
 - [RL Infrastructure 开发标准](../zh_CN/development-standard.md)

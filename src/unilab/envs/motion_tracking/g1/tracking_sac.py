@@ -26,12 +26,17 @@ class G1MotionTrackingSACCfg(G1MotionTrackingCfg):
 
 
 @registry.env("G1MotionTrackingSAC", sim_backend="mujoco")
+@registry.env("G1MotionTrackingSAC", sim_backend="motrix")
 class G1MotionTrackingSACEnv(G1MotionTrackingEnv):
     """G1 Motion Tracking environment for FastSAC training.
 
     Extends the PPO motion-tracking environment with ``base_lin_vel``
     appended to the critic observation, matching holosoma's asymmetric
     actor-critic WBT design.
+
+    The motrix backend is registered for sim2sim eval/playback only — checkpoints
+    trained on mujoco can be replayed via motrix's native renderer through
+    ``eval --sim motrix``.
     """
 
     @property

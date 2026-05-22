@@ -15,6 +15,7 @@ Run without changing repo dependencies:
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import time
 from dataclasses import asdict, dataclass
@@ -51,6 +52,7 @@ get_device_info_dict = _device_info.get_device_info_dict
 get_device_info_line = _device_info.get_device_info_line
 canonical_locomotion_task_ids = _task_names.canonical_locomotion_task_ids
 locomotion_task_spec = _task_names.locomotion_task_spec
+locomotion_task_model_file = _task_names.locomotion_task_model_file
 normalize_locomotion_task_id = _task_names.normalize_locomotion_task_id
 
 
@@ -67,7 +69,6 @@ class BenchRecord:
 
 DEFAULT_TASK_IDS = canonical_locomotion_task_ids()
 DEFAULT_BATCH_SIZES = [2**k for k in range(8, 15)]  # 256 .. 16384
-_GENESIS_INITIALIZED = False
 
 
 def _display_backend(backend: str) -> str:
@@ -86,18 +87,15 @@ def _require_genesis() -> None:
         )
 
 
-def _init_genesis() -> None:
-    global _GENESIS_INITIALIZED
-    if _GENESIS_INITIALIZED:
-        return
+def _reset_genesis() -> None:
+    # Quadrants runtime pool leaks across scenes; only gs.destroy() frees it.
     gs_mod = cast(Any, gs)
+    gs_mod.destroy()
     gs_mod.init(backend=gs_mod.gpu)
-    _GENESIS_INITIALIZED = True
 
 
 def _load_task_xml(task_name: str) -> str:
-    cfg = locomotion_task_spec(task_name).config_cls()
-    return str(cfg.model_file)
+    return locomotion_task_model_file(task_name)
 
 
 def _build_scene(xml_path: str, batch_size: int):
@@ -139,7 +137,10 @@ def _bench_one_task(
             _run_scene(scene, nstep=nstep, niter=warmup)
             avg_t = _run_scene(scene, nstep=nstep, niter=iters)
         finally:
+            scene.destroy()
             del scene
+            gc.collect()
+            _reset_genesis()
 
         records.append(
             BenchRecord(
@@ -253,7 +254,7 @@ def main():
     args = parser.parse_args()
 
     _require_genesis()
-    _init_genesis()
+    _reset_genesis()
 
     task_names = [normalize_locomotion_task_id(x) for x in args.tasks.split(",") if x.strip()]
     batch_sizes = [int(x.strip()) for x in args.batch_sizes.split(",") if x.strip()]

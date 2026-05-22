@@ -6,9 +6,10 @@ import gymnasium as gym
 import numpy as np
 
 from unilab.envs.locomotion.common.base import (
-    ControlConfigBase,
+    BaseNoiseConfig,
     LocomotionBaseCfg,
     LocomotionBaseEnv,
+    PdControlConfig,
 )
 
 LEG_JOINT_SENSOR_PREFIXES: tuple[str, ...] = (
@@ -41,10 +42,10 @@ DEFAULT_LEG_ANGLES = np.asarray(
         0.8,
         -1.5,
         0.0,
-        1.0,
+        0.8,
         -1.5,
         0.0,
-        1.0,
+        0.8,
         -1.5,
     ],
     dtype=np.float64,
@@ -55,22 +56,15 @@ DEFAULT_GO2W_ANGLES = np.concatenate(
 
 
 @dataclass
-class NoiseConfig:
-    level: float = 0.0
-    scale_joint_angle: float = 0.03
-    scale_joint_vel: float = 0.5
-    scale_gyro: float = 0.2
-    scale_gravity: float = 0.05
-    scale_linvel: float = 0.1
+class NoiseConfig(BaseNoiseConfig):
     scale_wheel_vel: float = 0.5
 
 
 @dataclass
-class ControlConfig(ControlConfigBase):
+class ControlConfig(PdControlConfig):
     action_scale: float = 0.25
-    wheel_action_scale: float = 15.0
-    Kp: float = 35.0
-    Kd: float = 0.5
+    wheel_action_scale: float = 10.0
+    wheel_Kd: float = 0.5  # noqa: N815 - Hydra config key kept for compatibility.
     clip_actions: float = 1.0
 
 
@@ -82,23 +76,17 @@ class Asset:
 
 @dataclass
 class Go2WBaseCfg(LocomotionBaseCfg):
-    noise_config: NoiseConfig = field(default_factory=NoiseConfig)
+    noise_config: NoiseConfig = field(default_factory=NoiseConfig)  # type: ignore[assignment]
     control_config: ControlConfig = field(default_factory=ControlConfig)  # type: ignore[assignment]
     asset: Asset = field(default_factory=Asset)
     sim_dt: float = 0.005
     ctrl_dt: float = 0.02
 
 
-def _sensor_scalar(data: np.ndarray) -> np.ndarray:
-    return data.reshape(data.shape[0], -1)[:, 0]
-
-
 def stack_joint_sensors(backend, suffix: str, *, dtype: np.dtype | type) -> np.ndarray:
-    values = [
-        _sensor_scalar(backend.get_sensor_data(f"{prefix}_{suffix}"))
-        for prefix in JOINT_SENSOR_PREFIXES
-    ]
-    return np.asarray(np.stack(values, axis=1), dtype=dtype)
+    names = tuple(f"{prefix}_{suffix}" for prefix in JOINT_SENSOR_PREFIXES)
+    values = backend.get_sensor_data_batch(names)
+    return np.asarray(values.reshape(values.shape[0], -1)[:, :NUM_GO2W_ACTIONS], dtype=dtype)
 
 
 def compute_go2w_motor_ctrl(
@@ -107,6 +95,7 @@ def compute_go2w_motor_ctrl(
     joint_vel: np.ndarray,
     leg_kp: np.ndarray,
     leg_kd: np.ndarray,
+    wheel_kd: np.ndarray,
     ctrl_lower: np.ndarray,
     ctrl_upper: np.ndarray,
     out: np.ndarray,
@@ -119,7 +108,9 @@ def compute_go2w_motor_ctrl(
     np.subtract(policy_ctrl[:, :NUM_LEG_ACTIONS], joint_pos[:, :NUM_LEG_ACTIONS], out=leg_out)
     np.multiply(leg_out, leg_kp, out=leg_out)
     leg_out -= leg_kd * joint_vel[:, :NUM_LEG_ACTIONS]
-    out[:, NUM_LEG_ACTIONS:] = policy_ctrl[:, NUM_LEG_ACTIONS:]
+    wheel_out = out[:, NUM_LEG_ACTIONS:]
+    np.subtract(policy_ctrl[:, NUM_LEG_ACTIONS:], joint_vel[:, NUM_LEG_ACTIONS:], out=wheel_out)
+    np.multiply(wheel_out, wheel_kd, out=wheel_out)
     np.clip(out, ctrl_lower, ctrl_upper, out=out)
     return out
 
@@ -138,14 +129,6 @@ class Go2WBaseEnv(LocomotionBaseEnv):
     def _init_buffers(self) -> None:
         super()._init_buffers()
         self.default_angles = np.asarray(DEFAULT_GO2W_ANGLES, dtype=self.default_angles.dtype)
-
-    def _obs_noise(self, data: np.ndarray, scale: float) -> np.ndarray:
-        noise_cfg = self._cfg.noise_config
-        if noise_cfg.level <= 0.0:
-            return data
-        return data + (
-            np.random.uniform(-1.0, 1.0, data.shape).astype(data.dtype) * noise_cfg.level * scale
-        )
 
     def get_dof_pos(self) -> np.ndarray:
         return stack_joint_sensors(self._backend, "pos", dtype=self.default_angles.dtype)

@@ -3,7 +3,12 @@ training:
   task_name: Go2HandStand
   sim_backend: motrix
 algo:
-  max_iterations: 151
+  num_envs: 1024
+  max_iterations: 3000
+  policy:
+    init_noise_std: 0.5
+  algorithm:
+    entropy_coef: 0.005
   obs_groups:
     actor:
       - actor
@@ -11,11 +16,15 @@ algo:
       - critic
 reward:
   scales:
-    contact: -0.1
+    contact: -0.5
     height: 1.0
     oritentation: 1.0
-    pose: -0.1
+    pose: -0.3
     penalty_contact: -0.2
+    action_rate: -0.01
+    tar: 0.3
+    feet_air_time: 1.0
+    world_z_vel_penalty: -1.0
   tracking_sigma: 0.25
   base_height_target: 0.3
 env:

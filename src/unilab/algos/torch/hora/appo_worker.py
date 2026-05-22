@@ -14,6 +14,7 @@ from rsl_rl.utils import resolve_callable
 
 from unilab.base.final_observation import resolve_terminal_observation_contract
 from unilab.base.registry import ensure_registries
+from unilab.training.seed import apply_training_seed
 
 from .observations import split_hora_obs_with_priv_info
 
@@ -62,7 +63,7 @@ def hora_appo_collector_fn(
     rl_cfg: dict,
     num_envs: int,
     steps_per_env: int,
-    shm_storage_name: Dict[str, str],
+    shm_rollout_ring_buffer_name: Dict[str, str],
     sync_primitives: tuple,
     obs_dim: int,
     action_dim: int,
@@ -76,32 +77,35 @@ def hora_appo_collector_fn(
     sim_backend: str = "mujoco",
     env_cfg_override: dict | None = None,
     priv_info_dim: int = 0,
+    seed: int | None = None,
 ):
-    """Collect grouped HORA APPO rollouts into shared storage."""
+    """Collect grouped HORA APPO rollouts into the shared IPC ring buffer."""
     from copy import deepcopy
 
     from tensordict import TensorDict
 
+    from unilab.algos.torch.hora.models import build_hora_shared_actor_critic
     from unilab.algos.torch.hora.rsl_rl_compat import (
         convert_config_v3_to_v4,
         is_rsl_rl_v4,
         is_rsl_rl_v5,
     )
     from unilab.base import registry
-    from unilab.ipc import SharedOnPolicyStorage, SharedWeightSync
+    from unilab.ipc import RolloutRingBuffer, SharedWeightSync
 
     ensure_registries()
+    apply_training_seed(seed, torch_runtime=True, cuda=True)
 
-    storage = SharedOnPolicyStorage(
+    ring_buffer = RolloutRingBuffer(
         num_envs=num_envs,
         num_steps=steps_per_env,
         obs_dim=obs_dim,
         action_dim=action_dim,
         critic_dim=critic_dim,
         create=False,
-        shm_name_prefix=shm_storage_name,
+        shm_name_prefix=shm_rollout_ring_buffer_name,
     )
-    storage.attach_sync_primitives(*sync_primitives)
+    ring_buffer.attach_sync_primitives(*sync_primitives)
     actor_weight_sync = SharedWeightSync(
         actor_weight_param_shapes,
         create=False,
@@ -140,15 +144,38 @@ def hora_appo_collector_fn(
     actor_cfg = deepcopy(cfg["actor"])
     actor_cls = resolve_callable(actor_cfg.pop("class_name"))
     actor_cfg.pop("num_actions", None)
-    actor = actor_cls(td_example, cfg["obs_groups"], "actor", action_dim, **actor_cfg)
-    actor = actor.to(collector_device)
-    actor.eval()
 
     critic_cfg = deepcopy(cfg.get("critic") or cfg.get("actor") or {})
     critic_cls = resolve_callable(critic_cfg.pop("class_name", "rsl_rl.models.MLPModel"))
     critic_cfg.pop("num_actions", None)
     critic_cfg.pop("distribution_cfg", None)
-    critic = critic_cls(td_example, cfg["obs_groups"], "critic", 1, **critic_cfg)
+    shared_model = build_hora_shared_actor_critic(
+        obs_dim=obs_dim,
+        action_dim=action_dim,
+        priv_info_dim=priv_info_dim,
+        actor_cfg=actor_cfg,
+        critic_cfg=critic_cfg,
+    ).to(collector_device)
+
+    actor = actor_cls(
+        td_example,
+        cfg["obs_groups"],
+        "actor",
+        action_dim,
+        shared_model=shared_model,
+        **actor_cfg,
+    )
+    actor = actor.to(collector_device)
+    actor.eval()
+
+    critic = critic_cls(
+        td_example,
+        cfg["obs_groups"],
+        "critic",
+        1,
+        shared_model=shared_model,
+        **critic_cfg,
+    )
     critic = critic.to(collector_device)
     critic.eval()
 
@@ -218,7 +245,7 @@ def hora_appo_collector_fn(
                 local_critic_weight_version = critic_weight_sync.read_weights_into(critic_sd)
                 critic.load_state_dict(critic_sd)
 
-            write_buf = storage.write_buffer
+            write_buf = ring_buffer.write_buffer
             for step in range(steps_per_env):
                 t_mlp = time.perf_counter()
                 with torch.no_grad():
@@ -361,7 +388,7 @@ def hora_appo_collector_fn(
             write_buf["last_obs"][:] = obs_np
             if critic_np is not None:
                 write_buf["last_critic"][:] = critic_np
-            storage.signal_write_done()
+            ring_buffer.signal_write_done()
 
     except Exception as e:
         import traceback
@@ -376,7 +403,7 @@ def hora_appo_collector_fn(
         stop_event.set()
         raise
 
-    storage.close()
+    ring_buffer.close()
     actor_weight_sync.close()
     critic_weight_sync.close()
     env.close()

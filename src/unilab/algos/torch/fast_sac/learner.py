@@ -401,7 +401,9 @@ class FastSACLearner:
         self.tau = tau
         self.max_grad_norm = max_grad_norm
         self.use_autotune = use_autotune
-        self.use_amp = use_amp and device == "cuda"
+        self.use_amp = use_amp and device in ("cuda", "xpu")
+        # CUDA uses fp16 + GradScaler; XPU uses bf16 (fp32 range, no scaler needed).
+        self._amp_dtype = torch.bfloat16 if device == "xpu" else torch.float16
         self.world_size = world_size
         self.critic_obs_dim = critic_obs_dim
 
@@ -476,8 +478,12 @@ class FastSACLearner:
         # Step counter
         self.update_count = 0
 
-        # AMP scaler for mixed precision
-        self.scaler = torch.amp.GradScaler("cuda") if self.use_amp else None  # pyright: ignore[reportPrivateImportUsage]
+        # AMP scaler for mixed precision (fp16 only; bf16 has fp32 range and skips scaler)
+        self.scaler = (
+            torch.amp.GradScaler("cuda")  # pyright: ignore[reportPrivateImportUsage]
+            if self.use_amp and device == "cuda"
+            else None
+        )
 
         self.symmetry = symmetry_augmentation
         if use_symmetry and symmetry_augmentation is None:
@@ -485,6 +491,11 @@ class FastSACLearner:
                 "FastSACLearner use_symmetry=True requires a symmetry_augmentation contract"
             )
         self.use_symmetry = use_symmetry
+
+    def _autocast(self):
+        return torch.amp.autocast(  # pyright: ignore[reportPrivateImportUsage]
+            self.device, dtype=self._amp_dtype, enabled=self.use_amp
+        )
 
     def _reduce_gradients(self, model: nn.Module) -> None:
         """All-reduce gradients across all workers and divide by world_size.
@@ -548,20 +559,20 @@ class FastSACLearner:
         discount = torch.full_like(dones, self.gamma)
 
         with torch.no_grad():
-            with torch.amp.autocast("cuda", enabled=self.use_amp):  # pyright: ignore[reportPrivateImportUsage]
+            with self._autocast():
                 next_actions, next_log_probs, _ = self.actor.get_actions_and_log_probs(next_obs)
             adjusted_rewards = (
                 rewards - discount * bootstrap * self.log_alpha.exp() * next_log_probs
             )
 
-            with torch.amp.autocast("cuda", enabled=self.use_amp):  # pyright: ignore[reportPrivateImportUsage]
+            with self._autocast():
                 target_distributions = self.qnet_target.projection(
                     critic_next_obs, next_actions, adjusted_rewards, bootstrap, discount
                 )
                 target_values = self.qnet_target.get_value(target_distributions)
 
         # Critic loss: cross-entropy with projected distributions
-        with torch.amp.autocast("cuda", enabled=self.use_amp):  # pyright: ignore[reportPrivateImportUsage]
+        with self._autocast():
             q_outputs = self.qnet(critic_obs, actions)
             critic_log_probs = F.log_softmax(q_outputs, dim=-1).clamp(min=-30.0)
             critic_losses = -torch.sum(target_distributions * critic_log_probs, dim=-1)
@@ -634,14 +645,14 @@ class FastSACLearner:
                 dim=0,
             )
 
-        with torch.amp.autocast("cuda", enabled=self.use_amp):  # pyright: ignore[reportPrivateImportUsage]
+        with self._autocast():
             actions, log_probs, log_std = self.actor.get_actions_and_log_probs(obs)
 
         with torch.no_grad():
             action_std = log_std.exp().mean()
             policy_entropy = -log_probs.mean()
 
-        with torch.amp.autocast("cuda", enabled=self.use_amp):  # pyright: ignore[reportPrivateImportUsage]
+        with self._autocast():
             q_outputs = self.qnet(critic_obs, actions)
             q_probs = F.softmax(q_outputs, dim=-1)
             q_values = self.qnet.get_value(q_probs)

@@ -4,7 +4,8 @@ Architecture:
   Main process   → creates ReplayBuffer (host-only), WeightSync, queues
                  → spawns Collector subprocess (CPU, env simulation)
                  → spawns N Learner workers via mp.spawn (one per GPU)
-  Learner rank i → creates its own GPU cache, communicates via NCCL all_reduce
+  Learner rank i → samples packed CPU replay rows to its rank device, then
+                   communicates via NCCL all_reduce
   Collector      → talks only to rank 0 via collection_ready_queue / trainer_done_queue
 """
 
@@ -26,6 +27,7 @@ import torch.multiprocessing as tmp  # torch.multiprocessing for spawn
 from unilab.algos.torch.fast_sac.learner import FastSACLearner
 from unilab.algos.torch.offpolicy.runner import (
     OffPolicyRunner,
+    build_reward_comparison_metrics,
     compute_train_start_threshold,
     replay_buffer_ready_for_learning,
 )
@@ -34,6 +36,7 @@ from unilab.ipc import SharedWeightSync
 from unilab.ipc.async_runner import _SPAWN_CTX
 from unilab.ipc.replay_buffer import ReplayBuffer
 from unilab.logging import OffPolicyLogger
+from unilab.training.seed import apply_training_seed, derive_worker_seed
 
 
 def _find_free_port() -> int:
@@ -116,9 +119,16 @@ def _learner_worker(
         "nccl", rank=rank, world_size=world_size, timeout=timedelta(seconds=120)
     )
 
+    logger: Optional[OffPolicyLogger] = None
+    weight_sync: SharedWeightSync | None = None
     try:
-        # 1. Initialise per-process GPU cache (host tensors already shared)
-        replay_buffer.init_local_gpu_cache(device)
+        apply_training_seed(
+            derive_worker_seed(runner_kwargs.get("seed"), worker_index=rank + 1000),
+            torch_runtime=True,
+            cuda=True,
+        )
+        # 1. Bind this worker's process-local replay samples to its rank device.
+        replay_buffer.device = device
 
         # 2. Create learner on this device
         learner = FastSACLearner(device=device, world_size=world_size, **learner_kwargs)
@@ -149,7 +159,6 @@ def _learner_worker(
         train_start_threshold = compute_train_start_threshold(batch_size, learning_starts, num_envs)
 
         # 6. Logger (rank 0 only)
-        logger: Optional[OffPolicyLogger] = None
         if rank == 0:
             os.makedirs(log_dir, exist_ok=True)
             logger = OffPolicyLogger(
@@ -169,13 +178,9 @@ def _learner_worker(
         latest_reward_components: dict = {}
         write_read_ema = 0.0
         last_buf_log = 0
-        startup_wait_time = 0.0
-        have_startup_wait_time = False
 
         # 7. Training loop
         for it in range(1, max_iterations + 1):
-            iter_start = time.time()
-
             # --- Wait for data (rank 0 only, then barrier syncs everyone) ---
             wait_start = time.time()
             if rank == 0:
@@ -218,23 +223,18 @@ def _learner_worker(
 
             dist.barrier()
             wait_time = time.time() - wait_start if rank == 0 else 0.0
-            collect_time = (
-                float(getattr(replay_buffer, "collect_time_s", torch.zeros(1))[0])
-                if rank == 0
-                else 0.0
-            )
-            if rank == 0 and collect_time <= 0:
-                collect_time = time.time() - iter_start
-            if rank == 0 and not have_startup_wait_time and wait_time > collect_time:
-                startup_wait_time = max(wait_time - collect_time, 0.0)
-                have_startup_wait_time = True
 
             # --- Training: each rank independently samples a different mini-batch ---
-            train_start = time.time()
             iter_metrics: dict = defaultdict(list)
             ptr_before = int(replay_buffer.ptr[0]) if rank == 0 else 0
 
             large_batch = replay_buffer.sample(batch_size * updates_per_step)
+            learner_incremental_h2d_time = (
+                float(getattr(replay_buffer, "last_incremental_h2d_time_s", 0.0))
+                if rank == 0
+                else 0.0
+            )
+            train_start = time.time()
 
             for update_idx in range(updates_per_step):
                 s = update_idx * batch_size
@@ -259,7 +259,9 @@ def _learner_worker(
             # --- Post-iteration work: rank 0 only ---
             if rank == 0:
                 learner.update_count += 1
+                weight_sync_start = time.perf_counter()
                 weight_sync.write_weights(learner.actor.state_dict())
+                weight_sync_time = time.perf_counter() - weight_sync_start
 
                 if sync_collection and trainer_done_queue is not None:
                     trainer_done_queue.put(1)
@@ -279,12 +281,13 @@ def _learner_worker(
                         iteration=it,
                         metrics=avg_metrics,
                         reward=mean_reward,
+                        reward_metrics=build_reward_comparison_metrics(reward_history, mean_reward),
                         reward_components=latest_reward_components,
-                        collect_time=collect_time,
                         train_time=train_time,
                         wait_time=wait_time,
+                        learner_incremental_h2d_time=learner_incremental_h2d_time,
+                        weight_sync_time=weight_sync_time,
                         extra_info={
-                            "startup_wait_time": startup_wait_time if it == 1 else 0.0,
                             "throughput_steps": num_envs * env_steps_per_sync,
                         },
                     )
@@ -304,8 +307,13 @@ def _learner_worker(
                 logger.finish()
 
         weight_sync.close()
+        weight_sync = None
 
     finally:
+        if logger is not None:
+            logger.close()
+        if weight_sync is not None:
+            weight_sync.close()
         dist.destroy_process_group()
 
 
@@ -393,7 +401,9 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
             obs_dim=self.obs_dim,
             action_dim=self.action_dim,
             device=self.device,
-            defer_gpu=True,  # No GPU tensors in main process; workers call init_local_gpu_cache
+            defer_gpu=True,
+            critic_dim=self.critic_obs_dim,
+            packed_cpu_storage=True,
         )
         self._shared_resources.append(replay_buffer)
 
@@ -435,6 +445,7 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
             "shared_obs_normalizer_stats": None,
             "sim_backend": self.sim_backend,
             "env_cfg_override": self.env_cfg_override,
+            "seed": derive_worker_seed(self.seed, worker_index=0),
         }
         self._start_collector(
             target_fn=off_policy_collector_fn,
@@ -464,6 +475,7 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
             "obs_dim": self.obs_dim,
             "action_dim": self.action_dim,
             "logger_type": logger_type,
+            "seed": self.seed,
         }
 
         try:

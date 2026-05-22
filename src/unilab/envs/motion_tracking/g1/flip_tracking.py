@@ -7,9 +7,11 @@ providing a dedicated registry task for flip-focused datasets/profiles.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
+from unilab.base.scene import SceneCfg
 
 from .tracking import (
     G1MotionTrackingCfg,
@@ -45,7 +47,11 @@ def _zero_velocity_randomization() -> VelocityRandomization:
 class G1FlipTrackingCfg(G1MotionTrackingCfg):
     """Config profile for flip tracking clips."""
 
-    model_file: str = str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
+    scene: SceneCfg = field(
+        default_factory=lambda: SceneCfg(
+            model_file=str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
+        )
+    )
     motion_file: str | list[str] = str(
         ASSETS_ROOT_PATH / "motions" / "g1" / "flip_360_001__A304.npz"
     )
@@ -54,6 +60,8 @@ class G1FlipTrackingCfg(G1MotionTrackingCfg):
         default_factory=_zero_velocity_randomization
     )
     joint_position_range: tuple[float, float] = (0.0, 0.0)
+    sampling_mode: Literal["start", "clip_start", "uniform", "adaptive"] = "start"
+    terminate_on_undesired_contacts: bool = True
     # Some flip clips include large anchor orientation deviations.
     anchor_ori_threshold: float = 1e9
 
@@ -72,3 +80,69 @@ class G1FlipTrackingEnv(G1MotionTrackingEnv):
     """G1 flip-tracking environment implementation."""
 
     _cfg: G1FlipTrackingCfg
+
+
+@dataclass
+class G1WallFlipTrackingCfg(G1FlipTrackingCfg):
+    """Config profile for wall-assisted G1 flip tracking clips."""
+
+    scene: SceneCfg = field(
+        default_factory=lambda: SceneCfg(
+            model_file=str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat_with_wall.xml")
+        )
+    )
+    motion_file: str | list[str] = str(
+        ASSETS_ROOT_PATH / "motions" / "g1" / "flip_from_wall_104__A304.npz"
+    )
+    sampling_mode: Literal["start", "clip_start", "uniform", "adaptive"] = "adaptive"
+    anchor_pos_z_threshold: float = 0.5
+    ee_body_pos_z_threshold: float = 0.5
+
+
+@registry.envcfg("G1WallFlipTracking")
+@dataclass
+class G1WallFlipTrackingEnvCfg(G1WallFlipTrackingCfg):
+    """Registered configuration for G1 wall flip tracking."""
+
+    pass
+
+
+@registry.env("G1WallFlipTracking", sim_backend="mujoco")
+@registry.env("G1WallFlipTracking", sim_backend="motrix")
+class G1WallFlipTrackingEnv(G1MotionTrackingEnv):
+    """G1 wall flip-tracking environment implementation."""
+
+    _cfg: G1WallFlipTrackingCfg
+
+
+@dataclass
+class G1ClimbTrackingCfg(G1MotionTrackingCfg):
+    """Config profile for the climb_20_z_scale_1 motion clip."""
+
+    scene: SceneCfg = field(
+        default_factory=lambda: SceneCfg(
+            model_file=str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_climb_20_z_scale_1.xml")
+        )
+    )
+    motion_file: str | list[str] = str(
+        ASSETS_ROOT_PATH / "motions" / "g1" / "climb_20_z_scale_1.0.npz"
+    )
+    max_episode_seconds: float = 15.0
+    anchor_pos_z_threshold: float = 0.5
+    ee_body_pos_z_threshold: float = 0.5
+
+
+@registry.envcfg("G1ClimbTracking")
+@dataclass
+class G1ClimbTrackingEnvCfg(G1ClimbTrackingCfg):
+    """Registered configuration for G1 box-climb motion tracking."""
+
+    pass
+
+
+@registry.env("G1ClimbTracking", sim_backend="mujoco")
+@registry.env("G1ClimbTracking", sim_backend="motrix")
+class G1ClimbTrackingEnv(G1MotionTrackingEnv):
+    """G1 climb-tracking environment implementation."""
+
+    _cfg: G1ClimbTrackingCfg

@@ -26,7 +26,6 @@ class ControlConfig:
 
 @dataclass
 class AllegroBaseCfg(EnvCfg):
-    model_file: str = ""
     sim_dt: float = 0.005
     ctrl_dt: float = 0.05
     noise_config: NoiseConfig = field(default_factory=NoiseConfig)

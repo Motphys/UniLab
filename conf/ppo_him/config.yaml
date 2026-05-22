@@ -1,0 +1,83 @@
+defaults:
+  - _self_
+  - task: go2_arm_manip_loco/mujoco
+
+algo:
+  algo_log_name: ppo_him
+  seed: 1
+  num_envs: 128
+  num_steps_per_env: 24
+  max_iterations: 3000
+  save_interval: 300
+  empirical_normalization: false
+  load_run: "-1"
+  checkpoint: -1
+  # ── HIM-PPO specific ────────────────────────────────────────────────
+  num_one_step_obs: ???        # REQUIRED: single-step obs dim (e.g. 75)
+  num_actor_history: 5        # actor sees H * num_one_step_obs history
+  num_critic_history: 1       # critic sees 1-step obs (privileged)
+  policy:
+    init_noise_std: 1.0
+    actor_hidden_dims: [512, 256, 128]
+    critic_hidden_dims: [512, 256, 128]
+    activation: elu
+  estimator:
+    enc_hidden_dims: [128, 64, 16]
+    tar_hidden_dims: [128, 64]
+    learning_rate: 1.0e-3
+    num_prototype: 32
+    temperature: 3.0
+    velocity_target_start: 0  # index of linvel (3D) in critic obs
+    target_obs_start: 3       # start index of one-step obs in critic obs
+  algorithm:
+    value_loss_coef: 1.0
+    use_clipped_value_loss: true
+    clip_param: 0.2
+    entropy_coef: 0.01
+    num_learning_epochs: 5
+    num_mini_batches: 4
+    learning_rate: 1.0e-3
+    schedule: adaptive
+    desired_kl: 0.01
+    gamma: 0.99
+    lam: 0.95
+    max_grad_norm: 1.0
+
+training:
+  task_name: ???
+  device: null
+  logger: tensorboard
+  wandb_project: unilab
+  wandb_entity: null
+  wandb_group: null
+  wandb_job_type: null
+  wandb_name: null
+  wandb_tags: []
+  wandb_notes: null
+  wandb_mode: null
+  sim_backend: mujoco
+  play_only: false
+  no_play: false
+  play_env_num: 4
+  render_spacing: 1.0
+  play_steps: 200
+  cam_distance: 6.0
+  cam_elevation: -20.0
+  cam_azimuth: 90.0
+  cam_lookat: null
+  cam_tracking: false
+  cam_tracking_env_idx: 0
+  cam_tracking_extra_envs: 2
+  log_root: null
+  num_timesteps: null
+  log_dir: null
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  job:
+    chdir: false
+  job_logging:
+    root:
+      handlers: [console]

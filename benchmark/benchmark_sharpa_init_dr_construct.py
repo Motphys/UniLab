@@ -17,8 +17,8 @@ Relevant `mujoco-uni` constraint from source:
   - a sequence of `MjModel` with length `1` or `nbatch`.
 
 See:
-- `/home/admin1/ws/unilabsim/mujoco_uni/python/mujoco/batch_env.py`
-- `/home/admin1/ws/unilabsim/mujoco_uni/python/mujoco/batch_env.cc`
+- `mujoco_uni/python/mujoco/batch_env.py`
+- `mujoco_uni/python/mujoco/batch_env.cc`
 
 Usage:
     uv run benchmark/benchmark_sharpa_init_dr_construct.py
@@ -597,8 +597,8 @@ def main() -> None:
             "repeats": args.repeats,
             "warmup": args.warmup,
             "batch_env_contract": {
-                "source_py": "/home/admin1/ws/unilabsim/mujoco_uni/python/mujoco/batch_env.py",
-                "source_cc": "/home/admin1/ws/unilabsim/mujoco_uni/python/mujoco/batch_env.cc",
+                "source_py": "mujoco_uni/python/mujoco/batch_env.py",
+                "source_cc": "mujoco_uni/python/mujoco/batch_env.cc",
                 "accepted_model_arity": "single MjModel, or sequence length 1 or nbatch",
             },
             "init_dr_off_mode": "local monkeypatch: provider returns no InitRandomizationPlan",

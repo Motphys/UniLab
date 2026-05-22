@@ -1,7 +1,7 @@
 """APPO Runner — Asynchronous PPO with native multiprocessing.
 
 Pipeline:
-  1. Collector subprocess collects on-policy rollouts → SharedOnPolicyStorage
+  1. Collector subprocess publishes rollout payloads → RolloutRingBuffer
   2. Learner reads rollouts, computes V-trace corrected updates
   3. Weights synced back to collector via SharedWeightSync
 """
@@ -18,16 +18,29 @@ import torch
 from rsl_rl.utils import resolve_callable
 
 from unilab.algos.torch.appo.learner import APPOLearner
+from unilab.algos.torch.appo.staging import RolloutStagingPool
 from unilab.algos.torch.appo.worker import appo_collector_fn
-from unilab.ipc import AsyncRunner, SharedOnPolicyStorage, SharedWeightSync
+from unilab.ipc import AsyncRunner, RolloutRingBuffer, SharedWeightSync
 from unilab.logging import OffPolicyLogger
-from unilab.training.metrics import writer_add_scalar, writer_add_text
+from unilab.training.seed import apply_training_seed, derive_worker_seed
 
 
 def _optimizer_lr_from_state(optimizer: torch.optim.Optimizer) -> float:
     if not optimizer.param_groups:
         return 0.0
     return float(optimizer.param_groups[0].get("lr", 0.0))
+
+
+def _sync_resume_target_actor(learner: APPOLearner) -> None:
+    """After resume, target actor must exactly match the restored actor."""
+    target_actor = getattr(learner, "target_actor", None)
+    if target_actor is None:
+        learner.update_target_network()
+        return
+    target_actor.load_state_dict(learner.actor.state_dict())
+    target_actor.eval()
+    for param in target_actor.parameters():
+        param.requires_grad = False
 
 
 class APPORunner(AsyncRunner):
@@ -45,8 +58,7 @@ class APPORunner(AsyncRunner):
         steps_per_env: int = 24,
         num_workers: int = 1,  # kept for API compat, but only 1 collector used
         replay_queue_size: int = 3,
-        config_hash: str | None = None,
-        seed_bundle: dict[str, int | str | None] | None = None,
+        seed: int | None = None,
         resume_path: str | None = None,
     ):
         del num_workers
@@ -62,10 +74,11 @@ class APPORunner(AsyncRunner):
 
         self.steps_per_env = steps_per_env
         self.replay_queue_size = replay_queue_size
-        self.config_hash = config_hash
-        self.seed_bundle = seed_bundle or {}
-        self._metadata_written = False
+        self.staging_pool_size = replay_queue_size
+        self.seed = seed
         self.resume_path = resume_path
+        if self.staging_pool_size < 1:
+            raise ValueError("APPO staging pool size must be >= 1")
 
         # Resolve dims
         self._resolve_dims()
@@ -106,6 +119,7 @@ class APPORunner(AsyncRunner):
 
         ensure_registries()
 
+        apply_training_seed(self.seed, torch_runtime=True, cuda=True)
         env = registry.make(
             self.env_name,
             num_envs=1,
@@ -127,6 +141,7 @@ class APPORunner(AsyncRunner):
         import torch
         from tensordict import TensorDict
 
+        apply_training_seed(self.seed, torch_runtime=True, cuda=True)
         obs_example = torch.zeros((self.num_envs, self.obs_dim), device=self.device)
         td_example = TensorDict({"policy": obs_example}, batch_size=self.num_envs)
 
@@ -202,10 +217,11 @@ class APPORunner(AsyncRunner):
             if "optimizer" in checkpoint:
                 learner.optimizer.load_state_dict(checkpoint["optimizer"])
                 learner.learning_rate = _optimizer_lr_from_state(learner.optimizer)
-            learner.update_target_network()
+            _sync_resume_target_actor(learner)
 
-        # Create shared storage (4-slot ring buffer for IPC; replay queue lives in learner)
-        shared_storage = SharedOnPolicyStorage(
+        # Create shared rollout IPC ring buffer; learner-side tensor lifetime is
+        # owned by the bounded staging pool below.
+        rollout_ring_buffer = RolloutRingBuffer(
             num_envs=self.num_envs,
             num_steps=self.steps_per_env,
             obs_dim=self.obs_dim,
@@ -214,7 +230,7 @@ class APPORunner(AsyncRunner):
             num_slots=4,
             create=True,
         )
-        self._shared_resources.append(shared_storage)
+        self._shared_resources.append(rollout_ring_buffer)
 
         # Create weight sync for collector-side actor and critic bootstrap values.
         actor_weight_sync = SharedWeightSync.from_state_dict(
@@ -240,10 +256,10 @@ class APPORunner(AsyncRunner):
             "rl_cfg": self.rl_cfg,
             "num_envs": self.num_envs,
             "steps_per_env": self.steps_per_env,
-            "shm_storage_name": shared_storage.name,
+            "shm_rollout_ring_buffer_name": rollout_ring_buffer.name,
             "sync_primitives": (
-                shared_storage._write_ptr,
-                shared_storage._read_ptr,
+                rollout_ring_buffer._write_ptr,
+                rollout_ring_buffer._read_ptr,
             ),
             "obs_dim": self.obs_dim,
             "action_dim": self.action_dim,
@@ -256,6 +272,7 @@ class APPORunner(AsyncRunner):
             "collector_device": self.collector_device,
             "sim_backend": self.sim_backend,
             "env_cfg_override": self.env_cfg_overrides if self.env_cfg_overrides else None,
+            "seed": derive_worker_seed(self.seed, worker_index=0),
         }
         self._start_collector(
             target_fn=appo_collector_fn,
@@ -276,27 +293,28 @@ class APPORunner(AsyncRunner):
         )
         logger.set_collection_sync(True, env_steps_per_sync)
         logger.start()
-        self._write_metadata(logger, step=0)
         logger.log_status(
             f"Waiting for first rollout... "
-            f"(replay_queue={self.replay_queue_size}, "
+            f"(staging_pool={self.staging_pool_size}, "
             f"epochs={learner.num_learning_epochs})"
         )
 
         reward_history: deque = deque(maxlen=200)
         latest_reward_components: dict = {}
 
-        # Replay queue: stores the last replay_queue_size preprocessed rollouts in
-        # learner-process memory.  Each entry is a dict of GPU tensors with shape
-        # [T, N, *] (time-major) ready for process_batch / update.
-        replay_queue: deque[dict] = deque(maxlen=self.replay_queue_size)
+        staging_pool = RolloutStagingPool(
+            capacity=self.staging_pool_size,
+            num_envs=self.num_envs,
+            slot_shapes=rollout_ring_buffer.slot_shapes,
+            device=self.device,
+        )
 
         for iteration in range(1, max_iterations + 1):
             # Drain collector metrics while waiting for next rollout
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
             wait_start = time.time()
 
-            data_ready = shared_storage.wait_for_data(timeout=60.0)
+            data_ready = rollout_ring_buffer.wait_for_data(timeout=60.0)
             if not data_ready:
                 # Check if the collector subprocess died — fail fast instead of
                 # burning through remaining iterations with 60s timeouts each.
@@ -304,84 +322,49 @@ class APPORunner(AsyncRunner):
                     self._drain_metrics(
                         metrics_queue, reward_history, latest_reward_components, logger
                     )
-                    exitcode = None
-                    if self._collector_process is not None:
-                        exitcode = self._collector_process.exitcode
                     raise RuntimeError(
                         "APPO collector process died before producing data. "
-                        f"exitcode={exitcode}. Check stderr for [APPO WORKER CRASH] messages."
+                        "Check stderr for [APPO WORKER CRASH] messages."
                     )
                 logger.log_status(
                     f"[yellow]Warning: Timeout waiting for data at iteration {iteration}[/]"
                 )
                 continue
 
-            available_on_arrive = shared_storage.available()
+            available_on_arrive = rollout_ring_buffer.available()
             wait_time = time.time() - wait_start
 
-            # Drain ALL available slots into the replay queue in one pass.
+            # Drain ALL available slots into the staging pool in one pass.
             # This keeps the GPU busy: if the collector produced 3 rollouts while
             # the learner was training, we consume all 3 immediately rather than
             # processing them one-per-iteration.
-            num_new = shared_storage.available()
-            rollout_collect_time = 0.0
+            num_new = rollout_ring_buffer.available()
+            learner_incremental_h2d_time = 0.0
             for _ in range(num_new):
-                raw = shared_storage.read_torch(self.device)
-                shared_storage.advance_read()
-
-                raw_collect_time = raw.pop("rollout_collect_time_s", None)
-                if raw_collect_time is not None:
-                    rollout_collect_time += float(raw_collect_time.reshape(-1)[0].item())
-
-                # Preprocess: storage is [N, T, *] (env-major); learner expects [T, N, *]
-                rollout: dict = {}
-                for k, v in raw.items():
-                    if k not in ("last_obs", "last_critic") and v.ndim >= 2:
-                        rollout[k] = v.transpose(0, 1)
-                    else:
-                        rollout[k] = v
-                if "obs" in rollout:
-                    rollout["observations"] = rollout.pop("obs")
-                if "log_probs" in rollout:
-                    rollout["actions_log_prob"] = rollout.pop("log_probs")
-                replay_queue.append(rollout)
+                h2d_start = time.perf_counter()
+                staging_pool.stage_numpy_views(rollout_ring_buffer.read_numpy_views())
+                learner_incremental_h2d_time += time.perf_counter() - h2d_start
+                rollout_ring_buffer.advance_read()
 
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
-            collect_time = rollout_collect_time
-            startup_wait_time = max(wait_time - collect_time, 0.0) if iteration == 1 else 0.0
 
-            # Concatenate all rollouts in the replay queue along the env dimension.
-            # Each rollout keeps its own behavior_log_probs so V-trace IS ratios are
-            # computed independently per env-column.
-            combined: dict = {}
-            for k in replay_queue[0]:
-                if k in ("last_obs", "last_critic"):
-                    # last_obs and last_critic are [N, D] - concat along dim 0
-                    combined[k] = torch.cat([r[k] for r in replay_queue], dim=0)
-                else:
-                    # All other tensors are [T, N, ...] - concat along dim 1 (env dimension)
-                    combined[k] = torch.cat([r[k] for r in replay_queue], dim=1)
+            combined = staging_pool.batch()
 
             train_start = time.time()
             learner.process_batch(combined)
             metrics = learner.update(combined)
+            train_time = time.time() - train_start
+            weight_sync_start = time.perf_counter()
             actor_weight_sync.write_weights(learner.actor.state_dict())
             critic_weight_sync.write_weights(learner.critic.state_dict())
-            train_time = time.time() - train_start
+            weight_sync_time = time.perf_counter() - weight_sync_start
 
-            metrics["replay_queue_len"] = float(len(replay_queue))
+            metrics["staging_pool_len"] = float(staging_pool.active_count)
+            metrics["staging_pool_capacity"] = float(staging_pool.capacity)
             metrics["available_on_arrive"] = float(available_on_arrive)
             metrics["rollouts_read"] = float(num_new)
-            metrics.update(
-                self._canonical_metrics(
-                    logger=logger,
-                    num_new=num_new,
-                    env_steps_per_sync=env_steps_per_sync,
-                    train_time=train_time,
-                    wait_time=wait_time,
-                )
-            )
-            logger.update_replay_queue(len(replay_queue), self.replay_queue_size)
+
+            logger.update_staging_pool(staging_pool.active_count, staging_pool.capacity)
 
             mean_reward = (
                 sum(list(reward_history)[-50:]) / max(len(list(reward_history)[-50:]), 1)
@@ -396,11 +379,11 @@ class APPORunner(AsyncRunner):
                 metrics=metrics,
                 reward=mean_reward,
                 reward_components=latest_reward_components,
-                collect_time=collect_time,
                 train_time=train_time,
                 wait_time=wait_time,
+                learner_incremental_h2d_time=learner_incremental_h2d_time,
+                weight_sync_time=weight_sync_time,
                 extra_info={
-                    "startup_wait_time": startup_wait_time,
                     "throughput_steps": num_new * env_steps_per_sync,
                 },
             )
@@ -474,57 +457,3 @@ class APPORunner(AsyncRunner):
             except Exception as e:
                 print(f"[APPORunner] metrics drain error: {e}", file=sys.stderr)
                 break
-
-    def _write_metadata(self, logger: OffPolicyLogger, *, step: int) -> None:
-        if self._metadata_written:
-            return
-        if getattr(logger, "_tb_writer", None) is not None:
-            if self.config_hash:
-                writer_add_text(logger._tb_writer, "config/hash", self.config_hash, step)
-            if self.seed_bundle:
-                writer_add_text(logger._tb_writer, "seed/bundle", str(self.seed_bundle), step)
-                for key, value in self.seed_bundle.items():
-                    if isinstance(value, (int, float)) and value is not None:
-                        writer_add_scalar(logger._tb_writer, f"seed/{key}", value, step)
-        if getattr(logger, "_wandb_run", None) is not None:
-            from unilab.logging.common import _load_wandb
-
-            wandb = _load_wandb()
-            if wandb is not None:
-                payload: dict[str, float | str] = {}
-                if self.config_hash:
-                    payload["config/hash"] = self.config_hash
-                if self.seed_bundle:
-                    payload["seed/bundle"] = str(self.seed_bundle)
-                    for key, value in self.seed_bundle.items():
-                        if isinstance(value, (int, float)) and value is not None:
-                            payload[f"seed/{key}"] = float(value)
-                if payload:
-                    wandb.log(payload, step=step)
-        self._metadata_written = True
-
-    def _canonical_metrics(
-        self,
-        *,
-        logger: OffPolicyLogger,
-        num_new: int,
-        env_steps_per_sync: int,
-        train_time: float,
-        wait_time: float,
-    ) -> dict[str, float]:
-        # Collector work overlaps learner work in APPO.  The learner-side wall
-        # clock for a pipeline turn is wait + train; collect_time is collector
-        # service time metadata, not an additional sequential phase.
-        learner_pipeline_time = max(float(wait_time + train_time), 1e-12)
-        iteration_time = learner_pipeline_time
-        throughput_steps = int(num_new * env_steps_per_sync)
-        total_env_steps = int(getattr(logger, "_total_steps", 0))
-        if total_env_steps <= 0:
-            total_env_steps = int(throughput_steps)
-
-        metrics = {
-            "train/env_steps_total": float(total_env_steps),
-            "throughput/env_steps_per_sec": float(throughput_steps / iteration_time),
-            "pipeline/learner_idle_time_frac": float(wait_time / learner_pipeline_time),
-        }
-        return metrics

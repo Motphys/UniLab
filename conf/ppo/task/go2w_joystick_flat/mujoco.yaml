@@ -17,27 +17,30 @@ algo:
 env:
   commands:
     vel_limit:
-      - [0.5, 0.0, -0.3]
-      - [1.0, 0.0, 0.3]
+      - [0.0, 0.0, -1.0]
+      - [1.0, 0.0, 1.0]
   control_config:
-    action_scale: 0.25
-    wheel_action_scale: 15.0
-    Kp: 35.0
-    Kd: 0.5
+    action_scale: 0.5
+    wheel_action_scale: 10.0
+    Kp: 50.0
+    Kd: 1.5
+    wheel_Kd: 0.5
   domain_rand:
-    randomize_kp: true
-    randomize_kd: true
+    randomize_kp: false
+    randomize_kd: false
 reward:
   scales:
     tracking_lin_vel: 1.0
-    tracking_ang_vel: 0.2
+    tracking_ang_vel: 0.75
     lin_vel_z: -5.0
     ang_vel_xy: -0.1
     base_height: -100.0
+    orientation: -2.0
     action_rate: -0.005
-    similar_to_default: -0.1
+    similar_to_default: -0.5
     torques: -0.0002
-    wheel_vel: -0.001
+    wheel_vel: 0.0
     alive: 0.5
+    upward: 1.0
   tracking_sigma: 0.25
-  base_height_target: 0.3
+  base_height_target: 0.4

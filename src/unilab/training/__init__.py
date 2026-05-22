@@ -15,9 +15,18 @@ from unilab.training.run import (
     get_latest_checkpoint,
     get_latest_run,
     get_log_root,
+    log_playback_plan,
     parse_checkpoint_path,
     resolve_checkpoint_path,
     resolve_task_checkpoint_path,
+    should_run_playback,
+)
+from unilab.training.seed import (
+    TrainingSeedInfo,
+    apply_configured_training_seed,
+    apply_training_seed,
+    derive_worker_seed,
+    resolve_training_seed,
 )
 
 __all__ = [
@@ -32,8 +41,15 @@ __all__ = [
     "get_latest_checkpoint",
     "get_latest_run",
     "get_log_root",
+    "log_playback_plan",
     "parse_checkpoint_path",
     "resolve_checkpoint_path",
     "resolve_task_checkpoint_path",
+    "should_run_playback",
+    "TrainingSeedInfo",
+    "apply_configured_training_seed",
+    "apply_training_seed",
+    "derive_worker_seed",
+    "resolve_training_seed",
     "setup_logger",
 ]

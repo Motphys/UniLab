@@ -45,7 +45,7 @@ import numpy as np
 from matplotlib.patches import Rectangle
 from mujoco.batch_env import BatchEnvPool
 
-from unilab.base.backend.xml import create_discardvisual_xml
+from unilab.base.backend.mujoco.xml import create_discardvisual_xml
 from unilab.dtype_config import get_global_dtype
 
 matplotlib.use("Agg")
@@ -73,7 +73,7 @@ get_device_info_dict = _DEVICE_INFO.get_device_info_dict
 get_device_info_line = _DEVICE_INFO.get_device_info_line
 save_json = _OUTPUT.save_json
 canonical_locomotion_task_ids = _TASK_NAMES.canonical_locomotion_task_ids
-locomotion_task_spec = _TASK_NAMES.locomotion_task_spec
+locomotion_task_model_file = _TASK_NAMES.locomotion_task_model_file
 normalize_locomotion_task_id = _TASK_NAMES.normalize_locomotion_task_id
 
 
@@ -208,9 +208,7 @@ def _benchmark_one(
     iters: int,
     seed: int,
 ) -> BenchRecord:
-    spec = locomotion_task_spec(task)
-    cfg = spec.config_cls()
-    model = _load_discardvisual_model(cfg.model_file)
+    model = _load_discardvisual_model(locomotion_task_model_file(task))
     np_dtype = get_global_dtype()
 
     state0, _ = _keyframe0_state_and_ctrl(model)

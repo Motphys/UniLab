@@ -2,6 +2,22 @@
 sync:
 	uv sync
 
+.PHONY: sync-rocm
+sync-rocm:
+	@cp pyproject.toml pyproject.toml.bak && cp uv.lock uv.lock.bak
+	@cp pyproject.rocm.toml pyproject.toml
+	@bash -c ' \
+		trap "mv pyproject.toml.bak pyproject.toml && mv uv.lock.bak uv.lock" EXIT INT TERM; \
+		if [ -f uv.rocm.lock ]; then cp uv.rocm.lock uv.lock; fi; \
+		uv sync --extra motrix; \
+		cp uv.lock uv.rocm.lock; \
+	'
+
+.PHONY: sync-xpu
+sync-xpu:
+	uv sync --extra motrix --no-install-package torch
+	uv pip install torch==2.7.0 --torch-backend xpu
+
 .PHONY: format
 format:
 	uv run ruff format
@@ -41,3 +57,4 @@ clean:
 	find . -type d -name ".ruff_cache" -exec rm -rf {} +
 	find . -type d -name "htmlcov" -exec rm -rf {} +
 	find . -type f -name ".coverage" -delete
+	rm -f train_appo.log train_offpolicy.log train_rsl_rl.log

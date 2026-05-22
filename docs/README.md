@@ -1,36 +1,52 @@
 # UniLab Documentation
 
-本页是 UniLab 文档的入口索引。根据你的角色选择对应的阅读路径。
+本页是 UniLab 文档总入口。文档按角色、信息层次和速查场景分层组织。
 
----
+## 设计原则
 
-## 普通用户
+- 单个文件只讲一个主题，不把安装、训练、算法、任务、设计讨论混在一起
+- 用户文档和 developer 文档严格分层，默认先服务用户运行与速查
+- 算法、机器人任务、专题场景分别建独立文件，避免大而全页面
+- 目录结构预留双语扩展：后续英文文档按同一层级镜像
+- agent / 速查场景需要最短路由，优先给出角色化入口
 
-想安装、运行、训练，不修改代码。
+## 用户入口
 
-- [01 快速开始](users/zh_CN/01-getting-started.md) — 安装依赖、第一次运行、验证环境
-- [02 仿真后端](users/zh_CN/02-simulation-backends.md) — MuJoCo / Motrix 支持范围与选择
-- [03 训练指南](users/zh_CN/03-training.md) — 训练、回放、续训、Hydra 覆盖、W&B
-- [04 算法说明](users/zh_CN/04-algorithms.md) — APPO、FastSAC、FastTD3 用法与区别
-- [05 G1 全身运动跟踪](users/zh_CN/05-motion-tracking.md) — G1 运动跟踪任务
-- [06 域随机化](users/zh_CN/06-domain-randomization.md) — 域随机化配置与最佳实践
-- [术语表](glossary.md) — owner YAML、cold path、Evidence Grades 等核心术语
+先跑起来，再按主题深入。
 
----
+1. [01 快速开始](users/zh_CN/01-getting-started.md)
+2. [02 仿真后端](users/zh_CN/02-simulation-backends.md)
+3. [03 训练指南](users/zh_CN/03-training.md)
+4. [04 算法说明](users/zh_CN/04-algorithms.md)
+5. [05 域随机化](users/zh_CN/05-domain-randomization.md)
 
-## 合作开发者
+专题和速查入口：
 
-要提交 PR、扩展功能、修改架构。
+- [A 安装与环境](users/zh_CN/A-getting-started/01-install.md)
+- [B 训练分专题](users/zh_CN/B-training/01-unified-cli.md)
+- [C 算法分专题](users/zh_CN/C-algorithms/01-ppo-torch.md)
+- [D 任务索引](users/zh_CN/D-tasks/01-task-index.md)
+- [E 后端支持矩阵](users/zh_CN/E-reference/01-backend-support-matrix.md)
+- [术语表](glossary.md)
 
-1. [CONTRIBUTING.md](../CONTRIBUTING.md) — 环境设置、常用命令、提交规范、PR 流程
-2. [RL Infrastructure 开发标准](developers/zh_CN/development-standard.md) — Runtime Model、分层架构、Design Principles、Contract、验证边界
-3. [Domain Randomization Contract](developers/zh_CN/domain-randomization-contract.md) — DR 生命周期、MuJoCo 随机场接口、新任务接入标准
-4. [协作流程](developers/zh_CN/collaboration.md) — Issue / Milestone / PR 协作规则、ADR 治理
-5. [ADR 索引](developers/adr/README.md) — 已落地的架构决策记录
+## Developer 入口
 
----
+默认入口只放正式规范和协作基线；设计草案与调查笔记归档在补充目录。
 
-## AI Agents
+1. [CONTRIBUTING.md](../CONTRIBUTING.md)
+2. [RL Infrastructure 开发标准](developers/zh_CN/development-standard.md)
+3. [协作流程](developers/zh_CN/collaboration.md)
+4. [Domain Randomization Contract](developers/zh_CN/domain-randomization-contract.md)
+5. [ADR 索引](developers/adr/ADR-0000-index.md)
 
-1. [AGENTS.md](../AGENTS.md) — 核心原则、高风险区域、关键文件指针
-2. 需要深层上下文时，参考 [开发标准](developers/zh_CN/development-standard.md)。
+补充资料：
+
+- [Motrix Contact Sensor 适配笔记](developers/zh_CN/motrix-contact-sensor-notes.md)
+- [SceneCfg 与场景组合设计](developers/zh_CN/scene-composition-design.md)
+
+## Agent / 速查入口
+
+面向需要快速定位命令、任务入口和规范边界的 agent 或维护者。
+
+1. [Agent 速查](agents/zh_CN/01-agent-quick-reference.md)
+2. [AGENTS.md](../AGENTS.md)

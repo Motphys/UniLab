@@ -31,11 +31,14 @@ from unilab.base.observations import flatten_obs_dict
 from unilab.logging import OnPolicyLogger
 from unilab.training import (
     BackendAdapter,
+    apply_configured_training_seed,
     create_env,
     ensure_registries,
     get_log_root,
+    log_playback_plan,
     parse_checkpoint_path,
     setup_logger,
+    should_run_playback,
 )
 from unilab.training import (
     get_latest_checkpoint as get_latest_checkpoint_common,
@@ -44,7 +47,6 @@ from unilab.training import (
     get_latest_run as get_latest_run_common,
 )
 from unilab.training.experiment import ExperimentTracker
-from unilab.visualization import render_play_mode
 
 ensure_registries()
 
@@ -310,46 +312,35 @@ def play_mlx_ppo(cfg: DictConfig, dtype, use_fp16: bool, resolved_sim_backend: s
         raw_obs = mx.array(flatten_obs_dict(state.obs))
         return mx.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0)
 
-    if resolved_sim_backend == "motrix":
-        print("[MLX PPO] Starting interactive visualization (motrix native renderer)...")
-        print("[MLX PPO] Close the render window to exit.")
-
-        try:
-            render_play_mode(
-                env,
-                sim_backend="motrix",
-                num_steps=None,
-                initialize=lambda: obs,
-                step=_play_step,
-            )
-        except Exception as e:
-            if "RenderClosedError" in str(type(e).__name__):
-                print("[MLX PPO] Render window closed.")
-            else:
-                raise
-        env.close()
-        return None
-
     output_dir = run_dir if run_dir is not None else task_log_root
-    output_video = output_dir / "play_video.mp4"
-
-    print("[MLX PPO] Collecting physics states for play...")
     try:
-        render_play_mode(
-            env,
-            sim_backend=resolved_sim_backend,
-            num_steps=cfg.training.play_steps,
-            output_video=output_video,
+        play_video_path = env.run_playback_mode(
+            play_render_mode=getattr(cfg.training, "play_render_mode", "auto"),
+            play_steps=getattr(cfg.training, "play_steps", None),
+            output_video=output_dir / "play_video.mp4",
             initialize=lambda: obs,
             step=_play_step,
+            camera_kwargs={
+                "cam_distance": getattr(cfg.training, "cam_distance", 2.0),
+                "cam_elevation": getattr(cfg.training, "cam_elevation", -20.0),
+                "cam_azimuth": getattr(cfg.training, "cam_azimuth", 90.0),
+                "cam_lookat": getattr(cfg.training, "cam_lookat", None),
+                "cam_tracking": getattr(cfg.training, "cam_tracking", False),
+                "cam_tracking_env_idx": getattr(cfg.training, "cam_tracking_env_idx", 0),
+                "cam_tracking_extra_envs": getattr(cfg.training, "cam_tracking_extra_envs", 2),
+            },
+            on_plan=lambda plan: log_playback_plan(plan, prefix="[MLX PPO] "),
         )
     except ImportError:
         print("mediapy is required for play video export. Install with `pip install mediapy`.")
         env.close()
         return None
-    print(f"[MLX PPO] Play video saved: {output_video}")
+    if play_video_path is not None:
+        print(f"[MLX PPO] Play video saved: {play_video_path}")
+    else:
+        print("[MLX PPO] Playback done.")
     env.close()
-    return str(output_video)
+    return play_video_path
 
 
 @hydra.main(version_base="1.3", config_path="../conf/ppo", config_name="config_mlx")
@@ -369,7 +360,12 @@ def main(cfg: DictConfig) -> None:
     dtype = mx.float16 if use_fp16 else mx.float32
     model_dtype = mx.float32 if use_fp16 else dtype
 
-    mx.random.seed(cfg.training.seed)
+    seed_info = apply_configured_training_seed(
+        cfg,
+        torch_runtime=False,
+        cuda=False,
+        mlx_runtime=True,
+    )
 
     algo_cfg = cfg.algo.algorithm
     profile_collection = os.getenv("UNILAB_PROFILE_COLLECTION", "0") == "1"
@@ -403,6 +399,7 @@ def main(cfg: DictConfig) -> None:
         training_cfg=cfg.training,
         full_cfg=cfg,
         device="mps",
+        seed_info=seed_info,
     )
     tracker.start()
 
@@ -726,7 +723,11 @@ def main(cfg: DictConfig) -> None:
     tracker.update_summary(train_summary)
 
     play_video_path = None
-    if not cfg.training.no_play:
+    if should_run_playback(
+        play_only=False,
+        no_play=cfg.training.no_play,
+        play_render_mode=getattr(cfg.training, "play_render_mode", "auto"),
+    ):
         play_video_path = play_mlx_ppo(cfg, dtype, use_fp16, resolved_sim_backend)
         tracker.log_video(play_video_path)
 

@@ -145,9 +145,20 @@ def init_worker(model_path, shape):
 def render_frame_job(args):
     """
     Worker function to render a single frame.
-    args: (state_batch, offsets, transparent, cam_distance, cam_elevation, cam_azimuth, cam_lookat)
+    args: (state_batch, offsets, transparent, cam_distance, cam_elevation, cam_azimuth,
+           cam_lookat, marker_positions)
+    marker_positions: optional (num_envs, 3) world-frame positions for overlay spheres.
     """
-    state_batch, offsets, transparent, cam_distance, cam_elevation, cam_azimuth, cam_lookat = args
+    (
+        state_batch,
+        offsets,
+        transparent,
+        cam_distance,
+        cam_elevation,
+        cam_azimuth,
+        cam_lookat,
+        marker_positions,
+    ) = args
 
     models = _worker_ctx["models"]
     data_list = _worker_ctx["data_list"]
@@ -296,6 +307,29 @@ def render_frame_job(args):
         mujoco.mjv_addGeoms(model, data, vopt, pert, catmask_static, renderer.scene)
         vopt.geomgroup[0] = geomgroup0
 
+    # 3. Overlay marker spheres (e.g. EE goal positions)
+    if marker_positions is not None:
+        scene = renderer.scene
+        sphere_rgba = np.array([1.0, 0.2, 0.2, 0.8], dtype=np.float32)
+        sphere_size = np.array([0.025, 0.0, 0.0], dtype=np.float32)
+        eye3 = np.eye(3, dtype=np.float32).flatten()
+        for env_idx in range(num_envs):
+            if scene.ngeom >= scene.maxgeom:
+                break
+            pos = marker_positions[env_idx].astype(np.float32).copy()
+            if offsets is not None:
+                pos[0] += float(offsets[env_idx, 0])
+                pos[1] += float(offsets[env_idx, 1])
+            mujoco.mjv_initGeom(
+                scene.geoms[scene.ngeom],
+                type=mujoco.mjtGeom.mjGEOM_SPHERE,
+                size=sphere_size,
+                pos=pos,
+                mat=eye3,
+                rgba=sphere_rgba,
+            )
+            scene.ngeom += 1
+
     return renderer.render()
 
 
@@ -311,6 +345,7 @@ def render_states_get_frames(
     cam_azimuth=90,
     cam_lookat=None,
     render_spacing=1.0,
+    marker_positions_list=None,
 ):
     """
     Render a list of physics states and return the list of frames.
@@ -327,6 +362,7 @@ def render_states_get_frames(
         cam_azimuth: Camera azimuth angle in degrees.
         cam_lookat: Optional [x, y, z] lookat override for the free camera.
         render_spacing: Grid spacing used to offset each env in composed video frames.
+        marker_positions_list: Optional list of (num_envs, 3) arrays for overlay spheres.
     Returns:
         List of numpy arrays (H, W, 3) (RGB)
     """
@@ -344,8 +380,13 @@ def render_states_get_frames(
 
     # Prepare arguments for each frame
     tasks = [
-        (s, offsets, False, cam_distance, cam_elevation, cam_azimuth, cam_lookat)
-        for s in state_list
+        (s, offsets, False, cam_distance, cam_elevation, cam_azimuth, cam_lookat, m)
+        for s, m in zip(
+            state_list,
+            marker_positions_list
+            if marker_positions_list is not None
+            else [None] * len(state_list),
+        )
     ]
 
     frames = []
@@ -399,6 +440,7 @@ def render_frame_tracking_job(args):
         cam_distance,
         cam_elevation,
         cam_azimuth,
+        marker_positions,
     ) = args
 
     models = _worker_ctx["models"]
@@ -504,6 +546,29 @@ def render_frame_tracking_job(args):
         mujoco.mjv_addGeoms(model, data, vopt, pert, catmask_static, renderer.scene)
         vopt.geomgroup[0] = geomgroup0
 
+    # Overlay marker spheres for rendered envs
+    if marker_positions is not None:
+        scene = renderer.scene
+        sphere_rgba = np.array([1.0, 0.2, 0.2, 0.8], dtype=np.float32)
+        sphere_size = np.array([0.025, 0.0, 0.0], dtype=np.float32)
+        eye3 = np.eye(3, dtype=np.float32).flatten()
+        for global_i in env_indices:
+            if scene.ngeom >= scene.maxgeom:
+                break
+            pos = marker_positions[global_i].astype(np.float32).copy()
+            if offsets is not None:
+                pos[0] += float(offsets[global_i, 0])
+                pos[1] += float(offsets[global_i, 1])
+            mujoco.mjv_initGeom(
+                scene.geoms[scene.ngeom],
+                type=mujoco.mjtGeom.mjGEOM_SPHERE,
+                size=sphere_size,
+                pos=pos,
+                mat=eye3,
+                rgba=sphere_rgba,
+            )
+            scene.ngeom += 1
+
     return renderer.render()
 
 
@@ -518,6 +583,7 @@ def render_states_get_frames_tracking(
     cam_elevation=-20,
     cam_azimuth=90,
     render_spacing=1.0,
+    marker_positions_list=None,
 ):
     """Render with camera tracking on a single primary environment.
 
@@ -554,8 +620,13 @@ def render_states_get_frames_tracking(
     )
 
     tasks = [
-        (s, offsets, env_indices, primary_local_idx, cam_distance, cam_elevation, cam_azimuth)
-        for s in state_list
+        (s, offsets, env_indices, primary_local_idx, cam_distance, cam_elevation, cam_azimuth, m)
+        for s, m in zip(
+            state_list,
+            marker_positions_list
+            if marker_positions_list is not None
+            else [None] * len(state_list),
+        )
     ]
 
     # Camera tracking changes each frame so multiprocessing gives inconsistent

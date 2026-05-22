@@ -74,6 +74,7 @@ training:
     output_dir: null
   play_only: false
   no_play: false
+  play_render_mode: auto
   play_env_num: 16
   render_spacing: 1.0
   play_steps: 200

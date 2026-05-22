@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import copy
 import inspect
 import textwrap
 
@@ -96,6 +97,7 @@ def test_hora_appo_runner_builds_shared_actor_critic_core() -> None:
     runner.action_dim = 3
     runner.priv_info_dim = 2
     runner.device = "cpu"
+    runner.seed = None
     runner.rl_cfg = {
         "obs_groups": {
             "actor": {"actor": 5, "priv_info": 2},
@@ -121,6 +123,65 @@ def test_hora_appo_runner_builds_shared_actor_critic_core() -> None:
     learner = runner._build_learner()
 
     assert learner.actor.shared is learner.critic.shared
+
+
+def test_hora_appo_worker_builds_shared_actor_critic_core() -> None:
+    from unilab.algos.torch.hora.appo_worker import hora_appo_collector_fn
+
+    source = textwrap.dedent(inspect.getsource(hora_appo_collector_fn))
+    tree = ast.parse(source)
+    shared_model_keywords = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.keyword)
+        and node.arg == "shared_model"
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "shared_model"
+    ]
+
+    assert "build_hora_shared_actor_critic" in source
+    assert len(shared_model_keywords) >= 2
+
+
+def test_hora_appo_play_builds_explicit_shared_actor_core() -> None:
+    from unilab.algos.torch.hora.appo import play_hora_appo
+
+    source = textwrap.dedent(inspect.getsource(play_hora_appo))
+    tree = ast.parse(source)
+    shared_model_keywords = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.keyword)
+        and node.arg == "shared_model"
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "shared_model"
+    ]
+
+    assert "build_hora_shared_actor_critic" in source
+    assert len(shared_model_keywords) >= 1
+
+
+def test_hora_appo_resume_rejects_inconsistent_shared_checkpoint() -> None:
+    from unilab.algos.torch.hora.appo_runner import _validate_hora_shared_checkpoint
+
+    learner = _make_hora_appo_learner()
+    joint_checkpoint = {
+        "actor": copy.deepcopy(learner.actor.state_dict()),
+        "critic": copy.deepcopy(learner.critic.state_dict()),
+    }
+
+    _validate_hora_shared_checkpoint(joint_checkpoint)
+
+    bad_checkpoint = copy.deepcopy(joint_checkpoint)
+    shared_key = next(
+        key
+        for key, value in bad_checkpoint["critic"].items()
+        if key.startswith("shared.") and torch.is_floating_point(value)
+    )
+    bad_checkpoint["critic"][shared_key] = bad_checkpoint["critic"][shared_key] + 1.0
+
+    with pytest.raises(ValueError, match="Invalid HORA APPO checkpoint"):
+        _validate_hora_shared_checkpoint(bad_checkpoint)
 
 
 def test_hora_appo_combined_optimizer_has_unique_parameters() -> None:

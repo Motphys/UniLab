@@ -53,9 +53,27 @@ class LocomotionDRProvider(DomainRandomizationProvider):
         """
         return None, None
 
+    def _get_reset_randomization_baselines(
+        self, env: Any
+    ) -> tuple[np.ndarray | None, np.ndarray | None, int | None, np.ndarray | None]:
+        """Return cached model tables used for reset-time randomization."""
+        return None, None, None, None
+
     def validate(self, env: Any, capabilities: DomainRandomizationCapabilities) -> None:
         base_kp, base_kd = self._get_base_actuator_gains(env)
-        validate_common_reset_randomization(env, capabilities, base_kp=base_kp, base_kd=base_kd)
+        base_body_mass, base_geom_friction, ground_geom_id, base_dof_armature = (
+            self._get_reset_randomization_baselines(env)
+        )
+        validate_common_reset_randomization(
+            env,
+            capabilities,
+            base_kp=base_kp,
+            base_kd=base_kd,
+            base_body_mass=base_body_mass,
+            base_geom_friction=base_geom_friction,
+            ground_geom_id=ground_geom_id,
+            base_dof_armature=base_dof_armature,
+        )
         validate_interval_push_support(env, capabilities)
 
     def build_interval_randomization_plan(
@@ -87,6 +105,7 @@ class LocomotionDRProvider(DomainRandomizationProvider):
         qpos[:, 0:2] += np.random.uniform(-0.5, 0.5, (num_reset, 2))
         yaw = np.random.uniform(-np.pi, np.pi, (num_reset,))
         qpos[:, 3:7] = np_quat_mul(qpos[:, 3:7], np_yaw_to_quat(yaw))
+        qpos[:, 0:3] = env._spawn.apply_spawn(env_ids, qpos[:, 0:3], yaw=yaw)
         limit = self._get_qvel_limit(env)
         qvel[:, 0:6] = np.asarray(
             np.random.uniform(-limit, limit, size=(num_reset, 6)), dtype=get_global_dtype()
@@ -98,13 +117,24 @@ class LocomotionDRProvider(DomainRandomizationProvider):
         }
         info_updates.update(self._build_extra_info_updates(env, num_reset))
         base_kp, base_kd = self._get_base_actuator_gains(env)
+        base_body_mass, base_geom_friction, ground_geom_id, base_dof_armature = (
+            self._get_reset_randomization_baselines(env)
+        )
+        env._spawn.record_episode_start(env_ids, qpos[:, 0:3])
         return ResetPlan(
             env_ids=env_ids,
             qpos=qpos,
             qvel=qvel,
             info_updates=info_updates,
             randomization=build_common_reset_randomization(
-                env, num_reset, base_kp=base_kp, base_kd=base_kd
+                env,
+                num_reset,
+                base_kp=base_kp,
+                base_kd=base_kd,
+                base_body_mass=base_body_mass,
+                base_geom_friction=base_geom_friction,
+                ground_geom_id=ground_geom_id,
+                base_dof_armature=base_dof_armature,
             ),
         )
 
@@ -129,7 +159,8 @@ class LocomotionDRProvider(DomainRandomizationProvider):
     ) -> dict[str, np.ndarray]:
         linvel = env.get_local_linvel()[env_ids]
         gyro = env.get_gyro()[env_ids]
-        gravity = env._backend.get_sensor_data("upvector")[env_ids]
+        gravity_sensor = getattr(getattr(env.cfg, "sensor", None), "upvector", "upvector")
+        gravity = env._backend.get_sensor_data(gravity_sensor)[env_ids]
         dof_pos = env.get_dof_pos()[env_ids]
         dof_vel = env.get_dof_vel()[env_ids]
         return cast(

@@ -1,11 +1,12 @@
 """Benchmark env.step performance for a given task and backend.
 
 Usage:
-    # Run all combinations (go1/go2/g1/g1_motion_tracking x mujoco/motrix):
+    # Run all task-side benchmark specs over their benchmark backends:
     uv run benchmark/benchmark_env_step.py
 
     # Single task + backend:
     uv run benchmark/benchmark_env_step.py task=g1_walk_flat/motrix
+    uv run benchmark/benchmark_env_step.py task=g1_walk_rough/mujoco
 
     # Override bench params:
     uv run benchmark/benchmark_env_step.py task=go1_joystick_flat/mujoco num_envs=4096 num_steps=500
@@ -15,7 +16,12 @@ Usage:
 """
 
 import importlib.util
+import json
+import subprocess
 import sys
+import tempfile
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -52,30 +58,397 @@ def _load_helper_module(module_name: str, relative_path: str):
 
 
 _DEVICE_INFO = _load_helper_module("bench_env_step_device_info", "device_info.py")
+_MEM_PROFILE = _load_helper_module("bench_env_step_mem_profile", "mem_profile.py")
 _OUTPUT = _load_helper_module("bench_env_step_output", "output.py")
 
 get_device_info_dict = _DEVICE_INFO.get_device_info_dict
 get_device_info_line = _DEVICE_INFO.get_device_info_line
+MEMORY_METRICS = _MEM_PROFILE.MEMORY_METRICS
+_build_memory_summary = _MEM_PROFILE.build_memory_summary
+_format_mb = _MEM_PROFILE.format_mb
+_mb = _MEM_PROFILE.mb
+_memory_snapshot = _MEM_PROFILE.memory_snapshot
 save_json = _OUTPUT.save_json
 
-TASK_CONFIGS = {
-    "go1": "task=go1_joystick_flat",
-    "go2": "task=go2_joystick_flat",
-    "g1": "task=g1_walk_flat",
-    "g1_mt": "task=g1_motion_tracking",
+BACKENDS = ["mujoco", "motrix"]
+
+
+@dataclass(frozen=True)
+class TaskConfig:
+    task_id: str
+    env_name: str
+    cfg_factory: Callable[[str], Any]
+    env_cls_factory: Callable[[], type]
+    backends: tuple[str, ...] = ("mujoco", "motrix")
+    aliases: tuple[str, ...] = ()
+    cfg_finalizer: Callable[[Any, str], None] | None = None
+    include_in_matrix: bool = True
+
+    def build_cfg(self, backend: str) -> Any:
+        return self.cfg_factory(backend)
+
+    def finalize_cfg(self, cfg: Any, backend: str) -> None:
+        if self.cfg_finalizer is not None:
+            self.cfg_finalizer(cfg, backend)
+
+    def matches_task_path(self, task_path: str) -> bool:
+        return task_path in {self.task_id, self.env_name, *self.aliases}
+
+
+def _owner_yaml_cfg(
+    *,
+    config_root: str,
+    algo_name: str,
+    overrides: list[str],
+    env_cfg_cls: Callable[[], Any],
+) -> Any:
+    from hydra import compose, initialize_config_dir
+    from hydra.core.global_hydra import GlobalHydra
+
+    from unilab.base.registry import apply_cfg_overrides
+    from unilab.training import BackendAdapter
+
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(ROOT_DIR / "conf" / config_root), version_base="1.3"):
+        owner_cfg = compose(
+            config_name="config",
+            overrides=[
+                *overrides,
+                "hydra.run.dir=.",
+                "hydra.output_subdir=null",
+                "hydra/job_logging=disabled",
+                "hydra/hydra_logging=disabled",
+            ],
+        )
+
+    env_cfg_override = BackendAdapter(
+        owner_cfg,
+        root_dir=ROOT_DIR,
+        algo_name=algo_name,
+    ).build_task_env_cfg_override()
+
+    cfg = env_cfg_cls()
+    apply_cfg_overrides(cfg, env_cfg_override)
+    return cfg
+
+
+def _ppo_owner_yaml_cfg(task_id: str, backend: str, env_cfg_cls: Callable[[], Any]) -> Any:
+    return _owner_yaml_cfg(
+        config_root="ppo",
+        algo_name="ppo",
+        overrides=[f"task={task_id}/{backend}"],
+        env_cfg_cls=env_cfg_cls,
+    )
+
+
+def _sac_owner_yaml_cfg(task_id: str, backend: str, env_cfg_cls: Callable[[], Any]) -> Any:
+    return _owner_yaml_cfg(
+        config_root="offpolicy",
+        algo_name="sac",
+        overrides=["algo=sac", f"task=sac/{task_id}/{backend}"],
+        env_cfg_cls=env_cfg_cls,
+    )
+
+
+def _materialize_g1_rough_benchmark_scene() -> str:
+    import shutil
+    import xml.etree.ElementTree as ET
+
+    source_dir = ROOT_DIR / "src" / "unilab" / "assets" / "robots" / "g1"
+    output_dir = Path("/tmp/unilab_benchmark_g1_rough_scene")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    for name in ("g1.xml",):
+        shutil.copy2(source_dir / name, output_dir / name)
+    for name in ("assets", "textures", "hfields"):
+        shutil.copytree(source_dir / name, output_dir / name, dirs_exist_ok=True)
+
+    tree = ET.parse(source_dir / "scene_rough.xml")
+    hfield = tree.getroot().find("./asset/hfield[@name='hfield']")
+    if hfield is not None:
+        hfield.set("file", "hfields/hfield.png")
+    output_path = output_dir / "scene_rough.xml"
+    tree.write(output_path)
+    return str(output_path)
+
+
+def _materialize_sharpa_motrix_scene() -> str:
+    import xml.etree.ElementTree as ET
+
+    source_dir = ROOT_DIR / "src" / "unilab" / "assets" / "robots" / "sharpa_wave"
+    output_dir = Path("/tmp/unilab_benchmark_sharpa_scene")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    robot_tree = ET.parse(source_dir / "right_sharpa_wave.xml")
+    robot_root = robot_tree.getroot()
+    compiler = robot_root.find("compiler")
+    if compiler is not None:
+        compiler.set("meshdir", str((source_dir / "meshes").resolve()))
+
+    contact = robot_root.find("contact")
+    if contact is not None:
+        for exclude in list(contact.findall("exclude")):
+            if exclude.get("body1") == exclude.get("body2"):
+                contact.remove(exclude)
+    robot_tree.write(output_dir / "right_sharpa_wave.xml")
+
+    scene_tree = ET.parse(source_dir / "scene.xml")
+    output_path = output_dir / "scene.xml"
+    scene_tree.write(output_path)
+    return str(output_path)
+
+
+def _go1_cfg(_: str) -> Any:
+    from unilab.envs.locomotion.go1.joystick import Go1JoystickCfg
+
+    return _ppo_owner_yaml_cfg("go1_joystick_flat", _, Go1JoystickCfg)
+
+
+def _go1_env_cls() -> type:
+    from unilab.envs.locomotion.go1.joystick import Go1WalkTask
+
+    return Go1WalkTask
+
+
+def _go2_cfg(backend: str) -> Any:
+    from unilab.envs.locomotion.go2.joystick import Go2JoystickCfg
+
+    return _ppo_owner_yaml_cfg("go2_joystick_flat", backend, Go2JoystickCfg)
+
+
+def _go2_env_cls() -> type:
+    from unilab.envs.locomotion.go2.joystick import Go2WalkTask
+
+    return Go2WalkTask
+
+
+def _go2_rough_cfg(_: str) -> Any:
+    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughCfg
+
+    return _ppo_owner_yaml_cfg("go2_joystick_rough", _, Go2JoystickRoughCfg)
+
+
+def _go2_rough_env_cls() -> type:
+    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughEnv
+
+    return Go2JoystickRoughEnv
+
+
+def _go2w_cfg(_: str) -> Any:
+    from unilab.envs.locomotion.go2w.joystick import Go2WJoystickCfg
+
+    return _ppo_owner_yaml_cfg("go2w_joystick_flat", _, Go2WJoystickCfg)
+
+
+def _go2w_rough_cfg(backend: str) -> Any:
+    del backend
+    from unilab.envs.locomotion.go2w.joystick import RewardConfig
+    from unilab.envs.locomotion.go2w.rough import Go2WJoystickRoughCfg
+
+    cfg = Go2WJoystickRoughCfg()
+    cfg.reward_config = _go2w_reward_config(RewardConfig)
+    return cfg
+
+
+def _go2w_reward_config(reward_cls: type) -> Any:
+    return reward_cls(
+        scales={
+            "tracking_lin_vel": 1.0,
+            "tracking_ang_vel": 0.2,
+            "lin_vel_z": -5.0,
+            "ang_vel_xy": -0.1,
+            "base_height": -100.0,
+            "action_rate": -0.005,
+            "similar_to_default": -0.1,
+            "torques": -0.0002,
+            "wheel_vel": 0.0,
+            "alive": 0.5,
+        },
+        tracking_sigma=0.25,
+        base_height_target=0.3,
+    )
+
+
+def _go2w_env_cls() -> type:
+    from unilab.envs.locomotion.go2w.joystick import Go2WJoystickEnv
+
+    return Go2WJoystickEnv
+
+
+def _go2w_rough_env_cls() -> type:
+    from unilab.envs.locomotion.go2w.rough import Go2WJoystickRoughEnv
+
+    return Go2WJoystickRoughEnv
+
+
+def _g1_flat_cfg(backend: str) -> Any:
+    from unilab.envs.locomotion.g1.joystick import G1WalkFlatCfg
+
+    return _ppo_owner_yaml_cfg("g1_walk_flat", backend, G1WalkFlatCfg)
+
+
+def _g1_rough_cfg(backend: str) -> Any:
+    from unilab.envs.locomotion.g1.joystick import G1WalkRoughCfg
+
+    return _sac_owner_yaml_cfg("g1_walk_rough", backend, G1WalkRoughCfg)
+
+
+def _g1_motion_tracking_cfg(backend: str) -> Any:
+    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnvCfg
+
+    return _ppo_owner_yaml_cfg(
+        "g1_motion_tracking",
+        backend,
+        G1MotionTrackingEnvCfg,
+    )
+
+
+def _sharpa_inhand_cfg(backend: str) -> Any:
+    from hydra import compose, initialize_config_dir
+    from hydra.core.global_hydra import GlobalHydra
+
+    from unilab.base.registry import apply_cfg_overrides
+    from unilab.envs.manipulation.sharpa_inhand.rotation import SharpaInhandRotationCfg
+    from unilab.training import BackendAdapter
+
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(ROOT_DIR / "conf" / "ppo"), version_base="1.3"):
+        owner_cfg = compose(
+            config_name="config",
+            overrides=[
+                f"task=sharpa_inhand/{backend}",
+                "env.grasp_cache_path=/tmp/unilab_benchmark_sharpa_grasp",
+                "hydra.run.dir=.",
+                "hydra.output_subdir=null",
+                "hydra/job_logging=disabled",
+                "hydra/hydra_logging=disabled",
+            ],
+        )
+
+    env_cfg_override = BackendAdapter(
+        owner_cfg,
+        root_dir=ROOT_DIR,
+        algo_name="ppo",
+    ).build_task_env_cfg_override()
+
+    cfg = SharpaInhandRotationCfg()
+    apply_cfg_overrides(cfg, env_cfg_override)
+    return cfg
+
+
+def _ensure_sharpa_benchmark_grasp_cache(cfg: Any, _: str) -> None:
+    from unilab.envs.manipulation.sharpa_inhand.base import (
+        SOURCE_DEFAULT_HAND_JOINT_POS_DEG,
+        resolve_grasp_cache_file,
+    )
+
+    if not str(cfg.grasp_cache_path).startswith("/tmp/unilab_benchmark_sharpa_grasp"):
+        return
+
+    hand_qpos = np.deg2rad(np.asarray(SOURCE_DEFAULT_HAND_JOINT_POS_DEG, dtype=np.float64))
+    object_height = 0.5 * (float(cfg.reset_height_lower) + float(cfg.reset_height_upper))
+    object_pose = np.asarray([0.0, 0.0, object_height, 1.0, 0.0, 0.0, 0.0], dtype=np.float64)
+    cache_row = np.concatenate([hand_qpos, object_pose], axis=0)
+
+    for scale_value in np.asarray(cfg.domain_rand.scale_list, dtype=np.float64):
+        cache_file = resolve_grasp_cache_file(cfg.grasp_cache_path, float(scale_value))
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        np.save(cache_file, cache_row[None, :])
+
+
+def _g1_walk_env_cls() -> type:
+    from unilab.envs.locomotion.g1.joystick import G1WalkEnv
+
+    return G1WalkEnv
+
+
+def _g1_motion_tracking_env_cls() -> type:
+    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
+
+    return G1MotionTrackingEnv
+
+
+def _sharpa_inhand_env_cls() -> type:
+    from unilab.envs.manipulation.sharpa_inhand.rotation import SharpaInhandRotationEnv
+
+    return SharpaInhandRotationEnv
+
+
+TASK_CONFIGS: dict[str, TaskConfig] = {
+    "go1": TaskConfig(
+        task_id="go1_joystick_flat",
+        env_name="Go1JoystickFlat",
+        cfg_factory=_go1_cfg,
+        env_cls_factory=_go1_env_cls,
+    ),
+    "go2": TaskConfig(
+        task_id="go2_joystick_flat",
+        env_name="Go2JoystickFlat",
+        cfg_factory=_go2_cfg,
+        env_cls_factory=_go2_env_cls,
+    ),
+    "go2_rough": TaskConfig(
+        task_id="go2_joystick_rough",
+        env_name="Go2JoystickRough",
+        cfg_factory=_go2_rough_cfg,
+        env_cls_factory=_go2_rough_env_cls,
+    ),
+    "go2w": TaskConfig(
+        task_id="go2w_joystick_flat",
+        env_name="Go2WJoystickFlat",
+        cfg_factory=_go2w_cfg,
+        env_cls_factory=_go2w_env_cls,
+    ),
+    "go2w_rough": TaskConfig(
+        task_id="go2w_joystick_rough",
+        env_name="Go2WJoystickRough",
+        cfg_factory=_go2w_rough_cfg,
+        env_cls_factory=_go2w_rough_env_cls,
+    ),
+    "g1": TaskConfig(
+        task_id="g1_walk_flat",
+        env_name="G1WalkFlat",
+        cfg_factory=_g1_flat_cfg,
+        env_cls_factory=_g1_walk_env_cls,
+    ),
+    "g1_rough": TaskConfig(
+        task_id="g1_walk_rough",
+        env_name="G1WalkRough",
+        cfg_factory=_g1_rough_cfg,
+        env_cls_factory=_g1_walk_env_cls,
+        aliases=("sac/g1_walk_rough",),
+    ),
+    "g1_mt": TaskConfig(
+        task_id="g1_motion_tracking",
+        env_name="G1MotionTracking",
+        cfg_factory=_g1_motion_tracking_cfg,
+        env_cls_factory=_g1_motion_tracking_env_cls,
+    ),
+    "sharpa_inhand": TaskConfig(
+        task_id="sharpa_inhand",
+        env_name="SharpaInhandRotation",
+        cfg_factory=_sharpa_inhand_cfg,
+        env_cls_factory=_sharpa_inhand_env_cls,
+        cfg_finalizer=_ensure_sharpa_benchmark_grasp_cache,
+    ),
 }
 
 # Default benchmark parameters
 DEFAULT_NUM_ENVS = 2048
-DEFAULT_NUM_STEPS = 200
-DEFAULT_WARMUP_STEPS = 10
+DEFAULT_NUM_STEPS = 20
+DEFAULT_WARMUP_STEPS = 5
 
-BACKENDS = ["mujoco", "motrix"]
 TASK_COLORS = {
     "go1": "#4C78A8",
     "go2": "#54A24B",
+    "go2_rough": "#8CD17D",
     "g1": "#F58518",
     "g1_mt": "#B279A2",
+    "g1_rough": "#E45756",
+    "go2w": "#72B7B2",
+    "go2w_rough": "#499894",
+    "go2w_rough_tiles": "#499894",
+    "sharpa_inhand": "#D37295",
 }
 BACKEND_STYLES = {
     "mujoco": {"marker": "o", "linestyle": "-", "hatch": "//"},
@@ -168,54 +541,138 @@ def _parse_cli_args(args: list[str]) -> tuple[dict[str, str], dict[str, Any], li
     return bench_kwargs, output_kwargs, hydra_overrides
 
 
-def _compose_cfg(extra_args: list[str]):
-    """Compose a Hydra config, handling GlobalHydra lifecycle."""
-    from hydra import compose, initialize_config_dir
-    from hydra.core.global_hydra import GlobalHydra
+def _split_task_choice(task_choice: str) -> tuple[str, str | None]:
+    """Return (task path without backend, backend if present)."""
+    normalized = task_choice.strip()
+    if normalized.startswith("task="):
+        normalized = normalized.split("=", 1)[1]
+    for backend in BACKENDS:
+        suffix = f"/{backend}"
+        if normalized.endswith(suffix):
+            return normalized[: -len(suffix)], backend
+    return normalized, None
 
-    config_dir = str(ROOT_DIR / "conf" / "ppo")
 
-    overrides = list(extra_args) + [
-        "hydra.run.dir=.",
-        "hydra.output_subdir=null",
-        "hydra/job_logging=disabled",
-        "hydra/hydra_logging=disabled",
-    ]
+def _matching_task_config(task_path: str) -> TaskConfig | None:
+    for task_config in TASK_CONFIGS.values():
+        if task_config.matches_task_path(task_path):
+            return task_config
+    return None
 
-    GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=config_dir, version_base="1.3"):
-        return compose(config_name="config", overrides=overrides)
+
+def _resolve_task_and_backend(hydra_overrides: list[str]) -> tuple[str, TaskConfig, str]:
+    """Resolve benchmark task/backend without consulting training owner YAML."""
+    task_key = "go1"
+    task_config = TASK_CONFIGS[task_key]
+    sim_backend: str | None = None
+
+    for arg in hydra_overrides:
+        if arg.startswith("task="):
+            task_path, backend = _split_task_choice(arg)
+            matched = _matching_task_config(task_path)
+            if matched is None:
+                available = ", ".join(task_config.task_id for task_config in TASK_CONFIGS.values())
+                raise ValueError(f"Unknown benchmark task {task_path!r}. Available: {available}")
+            task_config = matched
+            task_key = next(
+                key for key, candidate in TASK_CONFIGS.items() if candidate is task_config
+            )
+            sim_backend = backend or sim_backend
+        elif arg.startswith("training.sim_backend="):
+            sim_backend = arg.split("=", 1)[1]
+
+    if sim_backend is None:
+        sim_backend = task_config.backends[0]
+    if sim_backend not in task_config.backends:
+        supported = ", ".join(task_config.backends)
+        raise ValueError(
+            f"Benchmark task {task_config.task_id!r} supports backend(s) {supported}; "
+            f"got {sim_backend!r}."
+        )
+    return task_key, task_config, sim_backend
+
+
+def _dotlist_to_plain_dict(dotlist: list[str]) -> dict[str, Any]:
+    if not dotlist:
+        return {}
+    from omegaconf import OmegaConf
+
+    value = OmegaConf.to_container(OmegaConf.from_dotlist(dotlist), resolve=True)
+    if not isinstance(value, dict):
+        return {}
+    return cast(dict[str, Any], value)
+
+
+def _deep_merge_dict(target: dict[str, Any], updates: dict[str, Any]) -> None:
+    for key, value in updates.items():
+        if isinstance(value, dict) and isinstance(target.get(key), dict):
+            _deep_merge_dict(cast(dict[str, Any], target[key]), value)
+        else:
+            target[key] = value
+
+
+def _apply_plain_overrides(target: Any, overrides: dict[str, Any]) -> None:
+    import dataclasses
+
+    for key, value in overrides.items():
+        if not hasattr(target, key):
+            raise ValueError(f"Config class '{type(target).__name__}' has no attribute '{key}'")
+        existing = getattr(target, key)
+        if isinstance(value, dict) and isinstance(existing, dict):
+            _deep_merge_dict(existing, value)
+        elif isinstance(value, dict) and dataclasses.is_dataclass(existing):
+            _apply_plain_overrides(existing, value)
+        else:
+            setattr(target, key, value)
+
+
+def _apply_cli_cfg_overrides(cfg: Any, hydra_overrides: list[str]) -> None:
+    env_dotlist: list[str] = []
+    reward_dotlist: list[str] = []
+
+    for arg in hydra_overrides:
+        if arg.startswith("env."):
+            env_dotlist.append(arg[len("env.") :])
+        elif arg.startswith("+env."):
+            env_dotlist.append(arg[len("+env.") :])
+        elif arg.startswith("reward."):
+            reward_dotlist.append(arg[len("reward.") :])
+        elif arg.startswith("+reward."):
+            reward_dotlist.append(arg[len("+reward.") :])
+
+    env_overrides = _dotlist_to_plain_dict(env_dotlist)
+    if env_overrides:
+        _apply_plain_overrides(cfg, env_overrides)
+
+    reward_overrides = _dotlist_to_plain_dict(reward_dotlist)
+    if reward_overrides:
+        reward_config = getattr(cfg, "reward_config", None)
+        if reward_config is None:
+            raise ValueError("Cannot apply reward.* overrides: task has no reward_config")
+        _apply_plain_overrides(reward_config, reward_overrides)
 
 
 def _run_single(extra_args: list[str]) -> dict[str, Any]:
-    """Run a single bench in-process via Hydra and return timing records."""
-    from unilab.training import BackendAdapter, create_env, ensure_registries
-
+    """Run a single task-side benchmark and return timing records."""
     bench_kwargs, _, hydra_overrides = _parse_cli_args(extra_args)
-    cfg = _compose_cfg(hydra_overrides)
-
-    ensure_registries()
+    _, task_config, sim_backend = _resolve_task_and_backend(hydra_overrides)
 
     num_envs = int(bench_kwargs.get("num_envs", DEFAULT_NUM_ENVS))
     num_steps = int(bench_kwargs.get("num_steps", DEFAULT_NUM_STEPS))
     warmup_steps = int(bench_kwargs.get("warmup_steps", DEFAULT_WARMUP_STEPS))
 
-    task_name = cfg.training.task_name
-    sim_backend = cfg.training.sim_backend
-
-    adapter = BackendAdapter(cfg, root_dir=ROOT_DIR, algo_name="ppo")
-    env_cfg_override = adapter.build_task_env_cfg_override()
+    cfg = task_config.build_cfg(sim_backend)
+    _apply_cli_cfg_overrides(cfg, hydra_overrides)
+    task_config.finalize_cfg(cfg, sim_backend)
+    cfg.validate()
 
     env = None
     timing_records: dict[str, list[float]] = {}
+    memory_samples: dict[str, dict[str, Any]] = {}
     try:
-        env = create_env(
-            cfg,
-            num_envs=num_envs,
-            env_cfg_override=env_cfg_override,
-            sim_backend=sim_backend,
-            task_name=task_name,
-        )
+        memory_samples["before_env"] = _memory_snapshot("before_env")
+        env_cls = task_config.env_cls_factory()
+        env = env_cls(cfg, num_envs=num_envs, backend_type=sim_backend)
 
         nu = env._backend.num_actuators  # type: ignore[reportAttributeAccessIssue]
         env.init_state()
@@ -230,17 +687,20 @@ def _run_single(extra_args: list[str]) -> dict[str, Any]:
             timing = state.info.get("timing", {})
             for k, v in timing.items():
                 timing_records.setdefault(k, []).append(float(v))
+        memory_samples["after_benchmark"] = _memory_snapshot("after_benchmark")
     finally:
         if env is not None:
             env.close()
+            memory_samples["after_close"] = _memory_snapshot("after_close")
 
     return {
-        "task_name": str(task_name),
+        "task_name": task_config.env_name,
         "sim_backend": str(sim_backend),
         "num_envs": num_envs,
         "num_steps": num_steps,
         "warmup_steps": warmup_steps,
         "timing_records": timing_records,
+        "memory": _build_memory_summary(memory_samples, num_envs),
     }
 
 
@@ -268,6 +728,7 @@ def _compute_result_summary(result: dict[str, Any]) -> dict[str, Any]:
         "throughput_env_steps_per_s": throughput,
         "timing_mean_ms": {},
         "timing_median_ms": {},
+        "memory": result.get("memory", {}),
     }
     for key, values in tr.items():
         arr = np.array(values, dtype=np.float64)
@@ -278,6 +739,8 @@ def _compute_result_summary(result: dict[str, Any]) -> dict[str, Any]:
 
 def _serialize_result(result: dict[str, Any]) -> dict[str, Any]:
     summary = _compute_result_summary(result)
+    memory = result.get("memory", {})
+    preferred_metric = str(memory.get("preferred_metric", "rss"))
     return {
         "task_name": result["task_name"],
         "task_key": result.get("task_key"),
@@ -285,10 +748,18 @@ def _serialize_result(result: dict[str, Any]) -> dict[str, Any]:
         "num_envs": result["num_envs"],
         "num_steps": result["num_steps"],
         "warmup_steps": result["warmup_steps"],
+        "memory": memory,
         "plot_data": {
             "label": summary["label"],
             "median_step_ms": summary["median_step_ms"],
             "throughput_env_steps_per_s": summary["throughput_env_steps_per_s"],
+            "total_rss_delta_mb": _mb(memory.get("total_rss_delta_bytes")),
+            "total_uss_delta_mb": _mb(memory.get("total_uss_delta_bytes")),
+            "preferred_memory_metric": preferred_metric,
+            "total_preferred_delta_mb": _mb(memory.get(f"total_{preferred_metric}_delta_bytes")),
+            "retained_preferred_delta_after_close_mb": _mb(
+                memory.get(f"retained_{preferred_metric}_delta_after_close_bytes")
+            ),
             "breakdown_median_ms": {
                 key: _median_timing_ms(result, key) for key, _, _ in BREAKDOWN_SEGMENTS
             },
@@ -313,6 +784,30 @@ def _print_single_report(result: dict[str, Any]) -> None:
     print(f"  Min step time:    {summary['min_step_ms']:.3f}ms")
     print(f"  Max step time:    {summary['max_step_ms']:.3f}ms")
     print(f"  Throughput:       {summary['throughput_env_steps_per_s']:.0f} env-steps/s")
+    memory = result.get("memory", {})
+    if memory:
+        preferred_metric = str(memory.get("preferred_metric", "rss"))
+        print(
+            "  Memory RSS:       "
+            f"total Δ={_format_mb(memory.get('total_rss_delta_bytes'))}, "
+            f"after step={_format_mb(memory.get('after_benchmark_rss_bytes'), signed=False)}"
+        )
+        if memory.get("total_uss_delta_bytes") is not None:
+            print(
+                "  Memory USS:       "
+                f"total Δ={_format_mb(memory.get('total_uss_delta_bytes'))}, "
+                f"after step={_format_mb(memory.get('after_benchmark_uss_bytes'), signed=False)}"
+            )
+        print(
+            "  Memory retained:  "
+            f"after close Δ={_format_mb(memory.get(f'retained_{preferred_metric}_delta_after_close_bytes'))} "
+            f"({preferred_metric.upper()})"
+        )
+        print(
+            "  Memory baseline:  "
+            f"before env={_format_mb(memory.get('before_env_rss_bytes'), signed=False)} "
+            f"(source: {memory.get('rss_source', 'unavailable')})"
+        )
     if tr:
         print(f"{'- ' * 30}")
         print("  Breakdown:")
@@ -329,6 +824,14 @@ def _short_task_label(task_name: str) -> str:
     name = task_name.lower()
     if "motiontracking" in name:
         return "g1_mt"
+    if name.startswith("sharpainhand"):
+        return "sharpa_inhand"
+    if "rough" in name and name.startswith("g1"):
+        return "g1_rough"
+    if name.startswith("go2w") and "roughtiles" in name:
+        return "go2w_rough_tiles"
+    if name.startswith("go2w"):
+        return "go2w"
     for prefix in ("go1", "go2", "g1"):
         if name.startswith(prefix):
             return prefix
@@ -348,6 +851,9 @@ def _print_comparison_table(results: list[dict[str, Any]]) -> None:
         ("  reset_done", "reset_done_ms"),
         ("  env_step_other", "env_step_other_ms"),
         ("throughput", "__throughput__"),
+        ("memory RSS Δ", "__total_rss_delta_mb__"),
+        ("memory USS Δ", "__total_uss_delta_mb__"),
+        ("close USS Δ", "__close_uss_delta_mb__"),
     ]
 
     # Build short column labels
@@ -369,7 +875,7 @@ def _print_comparison_table(results: list[dict[str, Any]]) -> None:
     header += "│".join(c.center(col_w) for c in col_labels) + "│"
     print(header)
 
-    unit_row = "│" + "(median ms)".center(metric_w) + "│"
+    unit_row = "│" + "(ms / MB)".center(metric_w) + "│"
     unit_row += "│".join(" " * col_w for _ in results) + "│"
     print(unit_row)
     print(hline("├", "┼", "┤"))
@@ -383,6 +889,17 @@ def _print_comparison_table(results: list[dict[str, Any]]) -> None:
                 total_s = total_arr.sum() / 1000.0
                 steps_per_env = r["num_steps"] * r["num_envs"]
                 cells.append(f"{steps_per_env / total_s:,.0f}" if total_s > 0 else "-")
+        elif key == "__total_rss_delta_mb__":
+            for r in results:
+                cells.append(_format_mb(r.get("memory", {}).get("total_rss_delta_bytes")))
+        elif key == "__total_uss_delta_mb__":
+            for r in results:
+                cells.append(_format_mb(r.get("memory", {}).get("total_uss_delta_bytes")))
+        elif key == "__close_uss_delta_mb__":
+            for r in results:
+                cells.append(
+                    _format_mb(r.get("memory", {}).get("retained_uss_delta_after_close_bytes"))
+                )
         else:
             for r in results:
                 arr = _timing_array(r, key)
@@ -590,9 +1107,14 @@ def _save_summary_plot(results: list[dict[str, Any]], output_path: Path) -> bool
     labels = [summary["label"] for summary in summaries]
     width = 0.78
 
-    fig, axes = plt.subplots(1, 2, figsize=(max(10, len(labels) * 1.6), 5.5))
+    fig, axes = plt.subplots(1, 3, figsize=(max(13, len(labels) * 2.0), 5.5))
     median_ms = [summary["median_step_ms"] for summary in summaries]
     throughput = [summary["throughput_env_steps_per_s"] for summary in summaries]
+    memory_metric = [str(summary["memory"].get("preferred_metric", "rss")) for summary in summaries]
+    total_memory_delta_mb = [
+        _mb(summary["memory"].get(f"total_{memory_metric[idx]}_delta_bytes")) or 0.0
+        for idx, summary in enumerate(summaries)
+    ]
 
     for idx, result in enumerate(ordered):
         style = _backend_style(result["sim_backend"])
@@ -615,6 +1137,15 @@ def _save_summary_plot(results: list[dict[str, Any]], output_path: Path) -> bool
             hatch=style["hatch"],
             alpha=0.92,
         )
+        axes[2].bar(
+            x[idx],
+            total_memory_delta_mb[idx],
+            width=width,
+            color=color,
+            edgecolor="#444444",
+            hatch=style["hatch"],
+            alpha=0.92,
+        )
 
     axes[0].set_ylabel("median env.step time (ms)")
     axes[0].set_title("Latency")
@@ -624,14 +1155,19 @@ def _save_summary_plot(results: list[dict[str, Any]], output_path: Path) -> bool
     axes[1].set_title("Throughput")
     axes[1].grid(axis="y", alpha=0.3)
 
+    axes[2].axhline(0.0, color="#5F6368", linewidth=0.8)
+    axes[2].set_ylabel("memory delta (MB, USS preferred)")
+    axes[2].set_title("Memory")
+    axes[2].grid(axis="y", alpha=0.3)
+
     for ax in axes:
         _decorate_grouped_xaxis(ax, ordered, x, groups)
 
     fig.suptitle(f"Env step benchmark summary\n{get_device_info_line()}")
     handles = _backend_legend_handles()
     if handles:
-        axes[1].legend(handles=handles, title="backend", loc="upper right")
-    fig.subplots_adjust(bottom=0.24, top=0.82, wspace=0.22)
+        axes[2].legend(handles=handles, fontsize=8, loc="upper right")
+    fig.subplots_adjust(bottom=0.24, top=0.82, wspace=0.28)
     fig.savefig(output_path, dpi=160, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved: {output_path.resolve()}")
@@ -716,6 +1252,12 @@ def _persist_outputs(
         "device_info": get_device_info_dict(),
         "matplotlib_available": plt is not None,
         "plot_files": plot_files,
+        "memory_measurement": {
+            "single_case": "in_process",
+            "matrix": "case_subprocess_isolated",
+            "growth_range": "before_env_to_after_benchmark",
+            "metrics": list(MEMORY_METRICS),
+        },
     }
     if failures:
         meta["failures"] = failures
@@ -723,11 +1265,70 @@ def _persist_outputs(
     save_json(out_json, [_serialize_result(result) for result in results], meta)
 
 
+def _case_runner_args(extra_args: list[str]) -> list[str]:
+    args: list[str] = []
+    i = 0
+    while i < len(extra_args):
+        arg = extra_args[i]
+        if arg in {"--out-json", "--plot-dir"}:
+            i += 2
+            continue
+        if arg.startswith("--out-json=") or arg.startswith("--plot-dir="):
+            i += 1
+            continue
+        if arg.startswith("out_json=") or arg.startswith("plot_dir="):
+            i += 1
+            continue
+        if arg == "--skip-plots" or arg.startswith("skip_plots="):
+            i += 1
+            continue
+        args.append(arg)
+        i += 1
+    return args
+
+
+def _tail_text(text: str, *, max_lines: int = 24) -> str:
+    lines = text.splitlines()
+    return "\n".join(lines[-max_lines:])
+
+
+def _run_single_isolated(label: str, args: list[str]) -> dict[str, Any]:
+    with tempfile.TemporaryDirectory(prefix="unilab_env_step_case_") as tmpdir:
+        result_json = Path(tmpdir) / "result.json"
+        cmd = [
+            "uv",
+            "run",
+            "benchmark/benchmark_env_step.py",
+            *args,
+            "--emit-full-result-json",
+            str(result_json),
+        ]
+        completed = subprocess.run(
+            cmd,
+            cwd=ROOT_DIR,
+            capture_output=True,
+            text=True,
+        )
+        if completed.returncode != 0:
+            details = _tail_text(completed.stdout + "\n" + completed.stderr)
+            raise RuntimeError(details or f"case process exited with {completed.returncode}")
+
+        if not result_json.exists():
+            details = _tail_text(completed.stdout + "\n" + completed.stderr)
+            raise RuntimeError(f"{label} produced no result JSON\n{details}")
+
+        payload = json.loads(result_json.read_text(encoding="utf-8"))
+        record = payload.get("result")
+        if not isinstance(record, dict):
+            raise RuntimeError(f"{label} produced no raw result record")
+        return cast(dict[str, Any], record)
+
+
 def _run_matrix(
     extra_args: list[str], *, out_json: Path, plot_dir: Path | None, skip_plots: bool
 ) -> None:
     """Run all task x backend combinations and print comparison."""
-    from unilab.base.backend.motrix_backend import MOTRIX_AVAILABLE
+    from unilab.base.backend import MOTRIX_AVAILABLE
 
     backends = BACKENDS if MOTRIX_AVAILABLE else ["mujoco"]
     if not MOTRIX_AVAILABLE:
@@ -735,14 +1336,17 @@ def _run_matrix(
 
     results: list[dict] = []
     failures: list[dict[str, str]] = []
-    for task_key, task_override in TASK_CONFIGS.items():
-        for backend in backends:
+    for task_key, task_config in TASK_CONFIGS.items():
+        if not task_config.include_in_matrix:
+            continue
+        for backend in task_config.backends:
+            if backend not in backends:
+                continue
             label = f"{task_key}/{backend}"
             print(f"Running {label} ...", flush=True)
             try:
-                # Task config format: task=go1_joystick_flat/mujoco
-                args = [f"{task_override}/{backend}"] + extra_args
-                result = _run_single(args)
+                args = [f"task={task_config.task_id}/{backend}"] + _case_runner_args(extra_args)
+                result = _run_single_isolated(label, args)
                 result["task_key"] = task_key
                 results.append(result)
                 _print_single_report(result)
@@ -762,8 +1366,34 @@ def _run_matrix(
     )
 
 
+def _extract_emit_full_result_arg(argv: list[str]) -> tuple[Path | None, list[str]]:
+    emit_path: Path | None = None
+    remaining: list[str] = []
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--emit-full-result-json":
+            i += 1
+            if i >= len(argv):
+                raise ValueError("--emit-full-result-json requires a path")
+            emit_path = Path(argv[i])
+        elif arg.startswith("--emit-full-result-json="):
+            emit_path = Path(arg.split("=", 1)[1])
+        else:
+            remaining.append(arg)
+        i += 1
+    return emit_path, remaining
+
+
 def main() -> None:
     argv = sys.argv[1:]
+    emit_full_result_json, argv = _extract_emit_full_result_arg(argv)
+    if emit_full_result_json is not None:
+        result = _run_single(argv)
+        emit_full_result_json.parent.mkdir(parents=True, exist_ok=True)
+        emit_full_result_json.write_text(json.dumps({"result": result}), encoding="utf-8")
+        return
+
     _, output_kwargs, _ = _parse_cli_args(argv)
     out_json = Path(output_kwargs["out_json"]) if output_kwargs["out_json"] else DEFAULT_OUTPUT_JSON
     plot_dir = Path(output_kwargs["plot_dir"]) if output_kwargs["plot_dir"] else None

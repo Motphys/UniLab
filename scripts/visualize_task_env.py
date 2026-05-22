@@ -1,0 +1,347 @@
+"""Interactive viewer for an RL task's training environment.
+
+Builds the env via the same `registry.make(...)` path that the trainer uses,
+then steps it with zero actions so you can verify spawn distribution,
+procedural terrain, sensor placements, asset materials, and domain
+randomization look right before kicking off a real training run.
+
+The script is self-contained: it does NOT read any Hydra training config.
+
+Mujoco backend: stitches all `--num_envs` robot replicas into the same scene
+and drives every replica's qpos/qvel each frame from `env.get_physics_state_snapshot()`.
+
+Motrix backend: delegates to `render_play_mode`, whose native renderer lays
+all `num_envs` robots out on a grid using `cfg.render_spacing`.
+
+Usage:
+    uv run scripts/visualize_task_env.py --task Go2JoystickFlat
+    uv run scripts/visualize_task_env.py --task Go2JoystickRough --num_envs 16
+    uv run scripts/visualize_task_env.py --task Go1JoystickFlat --backend motrix --num_envs 4
+"""
+
+# pyright: reportAttributeAccessIssue=false
+
+from __future__ import annotations
+
+import argparse
+import dataclasses
+import sys
+import time
+from collections.abc import Sequence
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, cast, get_args, get_origin, get_type_hints
+
+import numpy as np
+
+ROOT_DIR = Path(__file__).parent.parent
+SRC_DIR = ROOT_DIR / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from unilab.training import ensure_registries
+
+ensure_registries()
+
+from unilab.base import registry
+
+if TYPE_CHECKING:
+    from unilab.base.scene import SceneCfg
+
+
+def _build_reward_stub(env_cfg_cls: type) -> dict[str, Any] | None:
+    """Generate a minimal reward_config dict for the given env cfg class."""
+    try:
+        type_hints = get_type_hints(env_cfg_cls)
+    except Exception:
+        return None
+    reward_type = type_hints.get("reward_config")
+    if reward_type is None:
+        return None
+    if get_origin(reward_type) is not None:
+        non_none = [a for a in get_args(reward_type) if a is not type(None)]
+        if not non_none:
+            return None
+        reward_type = non_none[0]
+    if not dataclasses.is_dataclass(reward_type):
+        return None
+
+    stub: dict[str, Any] = {}
+    for f in dataclasses.fields(reward_type):
+        if f.default is not dataclasses.MISSING:
+            continue
+        if f.default_factory is not dataclasses.MISSING:  # type: ignore[misc]
+            continue
+        type_str = str(f.type)
+        if "dict" in type_str:
+            stub[f.name] = {}
+        elif "list" in type_str or "tuple" in type_str or "Sequence" in type_str:
+            stub[f.name] = []
+        elif "bool" in type_str:
+            stub[f.name] = False
+        elif "float" in type_str or "int" in type_str:
+            stub[f.name] = 0.0
+        elif "str" in type_str:
+            stub[f.name] = ""
+        else:
+            stub[f.name] = None
+    return stub
+
+
+def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Visualize an RL task's training environment with zero actions."
+    )
+    parser.add_argument(
+        "--task",
+        type=str,
+        default="Go2JoystickFlat",
+        help="Registered task name (e.g. Go2JoystickFlat, Go2JoystickRough, Go1JoystickFlat).",
+    )
+    parser.add_argument(
+        "--backend",
+        type=str,
+        choices=["mujoco", "motrix"],
+        default="mujoco",
+        help="Physics backend to construct the env with (default: mujoco).",
+    )
+    parser.add_argument(
+        "--num_envs",
+        type=int,
+        default=4,
+        help="Number of envs to construct and visualize (default: 4).",
+    )
+    return parser.parse_args(argv)
+
+
+def _stitch_replicas(parent_scene_xml: Path, robot_base_xml: Path, env_origins: np.ndarray):
+    """Attach (N - 1) extra robots to the parent scene."""
+    import mujoco
+
+    spec = mujoco.MjSpec.from_file(str(parent_scene_xml))
+    for i in range(1, len(env_origins)):
+        child = mujoco.MjSpec.from_file(str(robot_base_xml))
+        for geom in list(child.worldbody.geoms):
+            if geom.name == "floor":
+                child.delete(geom)
+        for light in list(child.lights):
+            child.delete(light)
+        for tex in list(child.textures):
+            if tex.type == mujoco.mjtTexture.mjTEXTURE_SKYBOX:
+                child.delete(tex)
+        for sensor in list(child.sensors):
+            child.delete(sensor)
+        for kf in list(child.keys):
+            child.delete(kf)
+        frame = spec.worldbody.add_frame(
+            pos=[float(env_origins[i, 0]), float(env_origins[i, 1]), 0.0]
+        )
+        spec.attach(child, prefix=f"env{i}/", frame=frame)
+    return spec.compile()
+
+
+def _run_motrix(env, num_envs: int) -> None:
+    from unilab.visualization import render_play_mode
+
+    actions = np.zeros((num_envs, env.action_space.shape[0]), dtype=np.float32)
+    camera_kwargs = _motrix_camera_kwargs(env, num_envs)
+
+    def initialize():
+        return env.init_state()
+
+    def step(_obs):
+        return env.step(actions)
+
+    render_play_mode(
+        env,
+        sim_backend="motrix",
+        initialize=initialize,
+        step=step,
+        num_steps=None,
+        render_spacing=getattr(env.cfg, "render_spacing", 1.0),
+        render_offset_mode=getattr(env.cfg, "render_offset_mode", "grid"),
+        camera_kwargs=camera_kwargs,
+    )
+
+
+def _motrix_camera_kwargs(env, num_envs: int) -> dict[str, Any] | None:
+    """Point Motrix's interactive camera at the actual terrain spawn cells."""
+    spawn = getattr(env, "_spawn", None)
+    origins_for = getattr(spawn, "origins_for", None)
+    if not callable(origins_for):
+        return None
+
+    origins = np.asarray(origins_for(np.arange(num_envs, dtype=np.intp)), dtype=np.float64)
+    if origins.shape != (num_envs, 3):
+        return None
+    if not np.any(np.abs(origins[:, :2]) > 1e-6):
+        return None
+
+    xy_min = origins[:, :2].min(axis=0)
+    xy_max = origins[:, :2].max(axis=0)
+    lookat = np.asarray(
+        [
+            0.5 * (xy_min[0] + xy_max[0]),
+            0.5 * (xy_min[1] + xy_max[1]),
+            float(np.mean(origins[:, 2])),
+        ],
+        dtype=np.float64,
+    )
+    xy_span = xy_max - xy_min
+    distance = max(4.0, float(np.linalg.norm(xy_span) * 0.75))
+    if num_envs == 1:
+        lookat = origins[0].copy()
+        distance = 4.0
+    lookat[2] += 0.5
+    return {
+        "cam_lookat": lookat.tolist(),
+        "cam_distance": distance,
+        "cam_elevation": -25.0,
+        "cam_azimuth": 135.0,
+    }
+
+
+def _env_scene(env) -> "SceneCfg | None":
+    cfg = getattr(env, "cfg", None)
+    scene = getattr(cfg, "scene", None) if cfg is not None else None
+    if scene is None:
+        return None
+    model_file = getattr(scene, "model_file", None)
+    if model_file is None:
+        raise TypeError("env.cfg.scene must expose model_file")
+    return cast("SceneCfg", scene)
+
+
+def _mujoco_visual_xml_paths(env) -> tuple[Path, Path]:
+    scene = _env_scene(env)
+    static_model_file = None if scene is None else scene.model_file
+    backend = getattr(env, "_backend", None)
+    parent_xml = getattr(backend, "scene_visual_model_file", None)
+    if parent_xml is None:
+        parent_xml = static_model_file
+    if parent_xml is None:
+        raise ValueError(
+            "MuJoCo visualization requires cfg.scene or backend scene_visual_model_file."
+        )
+    robot_xml = static_model_file or parent_xml
+    return Path(parent_xml), Path(robot_xml)
+
+
+def _run_mujoco(env, num_envs: int) -> None:
+    import mujoco
+    import mujoco.viewer
+
+    parent_xml, robot_xml = _mujoco_visual_xml_paths(env)
+    env_origins = env._spawn.origins_for(np.arange(num_envs))
+
+    if num_envs > 1 and not env_origins[:, :2].any():
+        print(
+            f"[visualize_task_env] NOTE: env has no terrain; all {num_envs} "
+            "robots will overlap at the world origin (this matches the env's "
+            "actual reset spawn)."
+        )
+
+    decoder_model = mujoco.MjModel.from_xml_path(str(parent_xml))
+    decoder_data = mujoco.MjData(decoder_model)
+    nq_per = int(decoder_model.nq)
+    nv_per = int(decoder_model.nv)
+    state_spec = mujoco.mjtState.mjSTATE_FULLPHYSICS
+
+    if num_envs == 1:
+        viz_model = decoder_model
+    else:
+        viz_model = _stitch_replicas(parent_xml, robot_xml, env_origins)
+    viz_data = mujoco.MjData(viz_model)
+
+    actions = np.zeros((num_envs, env.action_space.shape[0]), dtype=np.float32)
+    env.init_state()
+    ctrl_dt = float(env.cfg.ctrl_dt)
+
+    print(
+        f"[visualize_task_env] viz_model: {viz_model.ngeom} geoms, "
+        f"{viz_model.nbody} bodies, nq={viz_model.nq} (per-env nq={nq_per})."
+    )
+    print("[visualize_task_env] Opening MuJoCo viewer — close the window or press Esc to quit.")
+
+    with mujoco.viewer.launch_passive(viz_model, viz_data) as viewer:
+        while viewer.is_running():
+            t0 = time.perf_counter()
+            env.step(actions)
+            phys = env.get_physics_state_snapshot()
+            for i in range(num_envs):
+                mujoco.mj_setState(
+                    decoder_model, decoder_data, phys[i].astype(np.float64), state_spec
+                )
+                viz_data.qpos[i * nq_per : (i + 1) * nq_per] = decoder_data.qpos
+                viz_data.qvel[i * nv_per : (i + 1) * nv_per] = decoder_data.qvel
+            mujoco.mj_forward(viz_model, viz_data)
+            viewer.sync()
+            sleep = ctrl_dt - (time.perf_counter() - t0)
+            if sleep > 0:
+                time.sleep(sleep)
+
+
+def _build_env_cfg_override(task_name: str) -> dict[str, Any]:
+    """Build the env_cfg_override dict from CLI args alone — no Hydra."""
+    if task_name not in registry._envs:
+        raise SystemExit(
+            f"Task '{task_name}' is not registered. Available: {sorted(registry._envs.keys())}"
+        )
+    env_cfg_cls = registry._envs[task_name].env_cfg_cls
+    override: dict[str, Any] = {}
+    reward_stub = _build_reward_stub(env_cfg_cls)
+    if reward_stub is not None:
+        override["reward_config"] = reward_stub
+    return override
+
+
+def _print_backend_scene(env) -> None:
+    backend = getattr(env, "_backend", None)
+    scene = _env_scene(env)
+    scene_source = getattr(backend, "scene_visual_model_file", None)
+    if scene_source is None:
+        scene_source = getattr(backend, "scene_model_file", None)
+    if scene_source is None and scene is not None:
+        scene_source = scene.model_file
+    if scene_source is None:
+        scene_source = "<unknown>"
+    print(f"[visualize_task_env] backend scene: {scene_source}")
+
+    artifacts_dir = getattr(backend, "scene_artifacts_dir", None)
+    if artifacts_dir is not None:
+        print(f"[visualize_task_env] artifacts: {artifacts_dir}")
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = _parse_args(argv)
+    if args.num_envs < 1:
+        raise SystemExit(f"--num_envs must be >= 1, got {args.num_envs}")
+
+    print(f"[visualize_task_env] task={args.task} backend={args.backend} num_envs={args.num_envs}")
+
+    env_cfg_override = _build_env_cfg_override(args.task)
+    env = registry.make(
+        args.task,
+        num_envs=args.num_envs,
+        sim_backend=args.backend,
+        env_cfg_override=env_cfg_override,
+    )
+
+    _print_backend_scene(env)
+
+    try:
+        if args.backend == "motrix":
+            _run_motrix(env, args.num_envs)
+        else:
+            _run_mujoco(env, args.num_envs)
+    finally:
+        close = getattr(env, "close", None)
+        if callable(close):
+            close()
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

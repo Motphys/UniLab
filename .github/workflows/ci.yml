@@ -9,14 +9,6 @@ on:
       - ".github/CODEOWNERS"
       - ".github/ISSUE_TEMPLATE/**"
       - ".github/pull_request_template.md"
-  pull_request_target:
-    branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths-ignore:
-      - "LICENSE"
-      - ".github/CODEOWNERS"
-      - ".github/ISSUE_TEMPLATE/**"
-      - ".github/pull_request_template.md"
   workflow_dispatch:
 
 concurrency:
@@ -31,20 +23,7 @@ env:
 
 jobs:
   ruff-lint:
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      (
-        github.event_name == 'pull_request' &&
-        (
-          github.event.pull_request.head.repo.full_name == github.repository ||
-          github.event.pull_request.head.ref != 'main'
-        )
-      ) ||
-      (
-        github.event_name == 'pull_request_target' &&
-        github.event.pull_request.head.repo.full_name != github.repository &&
-        github.event.pull_request.head.ref == 'main'
-      )
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     timeout-minutes: 5
     runs-on: ubuntu-slim
     steps:
@@ -60,20 +39,7 @@ jobs:
         run: uv run --no-sync ruff check --output-format=github .
 
   ruff-format:
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      (
-        github.event_name == 'pull_request' &&
-        (
-          github.event.pull_request.head.repo.full_name == github.repository ||
-          github.event.pull_request.head.ref != 'main'
-        )
-      ) ||
-      (
-        github.event_name == 'pull_request_target' &&
-        github.event.pull_request.head.repo.full_name != github.repository &&
-        github.event.pull_request.head.ref == 'main'
-      )
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     timeout-minutes: 5
     runs-on: ubuntu-slim
     steps:
@@ -89,20 +55,7 @@ jobs:
         run: uv run --no-sync ruff format --check .
 
   mypy:
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      (
-        github.event_name == 'pull_request' &&
-        (
-          github.event.pull_request.head.repo.full_name == github.repository ||
-          github.event.pull_request.head.ref != 'main'
-        )
-      ) ||
-      (
-        github.event_name == 'pull_request_target' &&
-        github.event.pull_request.head.repo.full_name != github.repository &&
-        github.event.pull_request.head.ref == 'main'
-      )
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     timeout-minutes: 10
     runs-on: ubuntu-slim
     steps:
@@ -118,20 +71,7 @@ jobs:
         run: uv run mypy src/unilab
 
   pyright:
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      (
-        github.event_name == 'pull_request' &&
-        (
-          github.event.pull_request.head.repo.full_name == github.repository ||
-          github.event.pull_request.head.ref != 'main'
-        )
-      ) ||
-      (
-        github.event_name == 'pull_request_target' &&
-        github.event.pull_request.head.repo.full_name != github.repository &&
-        github.event.pull_request.head.ref == 'main'
-      )
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     timeout-minutes: 10
     runs-on: ubuntu-slim
     steps:
@@ -147,20 +87,7 @@ jobs:
         run: uv run pyright
 
   test:
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      (
-        github.event_name == 'pull_request' &&
-        (
-          github.event.pull_request.head.repo.full_name == github.repository ||
-          github.event.pull_request.head.ref != 'main'
-        )
-      ) ||
-      (
-        github.event_name == 'pull_request_target' &&
-        github.event.pull_request.head.repo.full_name != github.repository &&
-        github.event.pull_request.head.ref == 'main'
-      )
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     strategy:
       matrix:
         os: [ubuntu-slim]
@@ -180,7 +107,6 @@ jobs:
         run: |
           uv sync --extra motrix \
             --no-install-package torch \
-            --no-install-package torchvision \
             --no-install-package nvidia-cublas-cu12 \
             --no-install-package nvidia-cuda-cupti-cu12 \
             --no-install-package nvidia-cuda-nvrtc-cu12 \
@@ -196,6 +122,6 @@ jobs:
             --no-install-package nvidia-nvjitlink-cu12 \
             --no-install-package nvidia-nvtx-cu12 \
             --no-install-package triton
-          uv pip install torch==2.7.0 torchvision==0.22.0 --index-url https://download.pytorch.org/whl/cpu
+          uv pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu
       - name: Test with coverage
         run: uv run --no-sync pytest -m "not slow" --cov=unilab --cov-report "markdown-append:${GITHUB_STEP_SUMMARY:-/dev/null}" --cov-fail-under=25

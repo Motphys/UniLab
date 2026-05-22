@@ -216,6 +216,62 @@ class HoraSharedActorCritic(nn.Module):
         return self.value_head(core_output.trunk_latent), core_output
 
 
+def build_hora_shared_actor_critic(
+    *,
+    obs_dim: int,
+    action_dim: int,
+    priv_info_dim: int,
+    actor_cfg: dict[str, Any] | None = None,
+    critic_cfg: dict[str, Any] | None = None,
+) -> HoraSharedActorCritic:
+    """Build the shared HORA core from actor/critic config without mutating inputs."""
+    shared_cfg = copy.deepcopy(actor_cfg or {})
+    critic_shared_cfg = copy.deepcopy(critic_cfg or {})
+    for cfg in (shared_cfg, critic_shared_cfg):
+        cfg.pop("class_name", None)
+        cfg.pop("num_actions", None)
+    critic_shared_cfg.pop("distribution_cfg", None)
+
+    activation = shared_cfg.pop("activation", None)
+    if activation is None:
+        activation = critic_shared_cfg.pop("activation", "elu")
+    else:
+        critic_shared_cfg.pop("activation", None)
+
+    obs_normalization = shared_cfg.pop("obs_normalization", None)
+    if obs_normalization is None:
+        obs_normalization = critic_shared_cfg.pop("obs_normalization", False)
+    else:
+        critic_shared_cfg.pop("obs_normalization", None)
+
+    priv_info_embed_dim = shared_cfg.pop("priv_info_embed_dim", None)
+    if priv_info_embed_dim is None:
+        priv_info_embed_dim = critic_shared_cfg.pop("priv_info_embed_dim", priv_info_dim)
+    else:
+        critic_shared_cfg.pop("priv_info_embed_dim", None)
+
+    priv_mlp_hidden_dims = shared_cfg.pop("priv_mlp_hidden_dims", None)
+    if priv_mlp_hidden_dims is None:
+        priv_mlp_hidden_dims = critic_shared_cfg.pop("priv_mlp_hidden_dims", (256, 128, 8))
+    else:
+        critic_shared_cfg.pop("priv_mlp_hidden_dims", None)
+
+    return HoraSharedActorCritic(
+        obs_dim=obs_dim,
+        action_dim=action_dim,
+        priv_info_dim=priv_info_dim,
+        actor_hidden_dims=shared_cfg.pop("hidden_dims", (512, 256, 128)),
+        activation=str(activation),
+        obs_normalization=bool(obs_normalization),
+        distribution_cfg=shared_cfg.pop("distribution_cfg", None),
+        priv_info_embed_dim=int(priv_info_embed_dim),
+        priv_mlp_hidden_dims=priv_mlp_hidden_dims,
+        use_student_encoder=bool(shared_cfg.pop("use_student_encoder", False)),
+        proprio_hist_len=int(shared_cfg.pop("proprio_hist_len", 30)),
+        proprio_frame_dim=shared_cfg.pop("proprio_frame_dim", None),
+    )
+
+
 class _HoraInferenceModule(nn.Module):
     input_names = ["actor", "priv_info", "proprio_hist"]
     output_names = ["actions"]

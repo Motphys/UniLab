@@ -13,10 +13,15 @@ import numpy as np
 import torch
 from rsl_rl.utils import resolve_callable
 
-from unilab.algos.torch.appo.runner import APPORunner, _optimizer_lr_from_state
+from unilab.algos.torch.appo.runner import (
+    APPORunner,
+    _optimizer_lr_from_state,
+    _sync_resume_target_actor,
+)
+from unilab.algos.torch.appo.staging import RolloutStagingPool
 from unilab.algos.torch.hora.appo_learner import HoraAPPOLearner
 from unilab.algos.torch.hora.appo_worker import hora_appo_collector_fn
-from unilab.algos.torch.hora.models import HoraSharedActorCritic
+from unilab.algos.torch.hora.models import build_hora_shared_actor_critic
 from unilab.algos.torch.hora.rsl_rl_compat import (
     convert_config_v3_to_v4,
     is_rsl_rl_v4,
@@ -24,8 +29,34 @@ from unilab.algos.torch.hora.rsl_rl_compat import (
 )
 from unilab.base.observations import get_critic_base_dim, get_obs_dims
 from unilab.base.registry import ensure_registries
-from unilab.ipc import SharedOnPolicyStorage, SharedWeightSync
+from unilab.ipc import RolloutRingBuffer, SharedWeightSync
 from unilab.logging import OffPolicyLogger
+from unilab.training.seed import apply_training_seed, derive_worker_seed
+
+
+def _validate_hora_shared_checkpoint(checkpoint: dict[str, Any]) -> None:
+    """Validate that a HORA APPO checkpoint matches the current shared model contract."""
+    actor_state = checkpoint.get("actor")
+    critic_state = checkpoint.get("critic")
+    if not isinstance(actor_state, dict) or not isinstance(critic_state, dict):
+        raise ValueError("HORA APPO checkpoint must contain actor and critic state dicts.")
+
+    shared_keys = sorted(
+        key for key in actor_state if key.startswith("shared.") and key in critic_state
+    )
+    if not shared_keys:
+        raise ValueError("HORA APPO checkpoint does not contain shared actor/critic weights.")
+
+    for key in shared_keys:
+        actor_value = actor_state[key]
+        critic_value = critic_state[key]
+        if torch.is_tensor(actor_value) and torch.is_tensor(critic_value):
+            if actor_value.shape != critic_value.shape or not torch.equal(
+                actor_value.cpu(), critic_value.cpu()
+            ):
+                raise ValueError("Invalid HORA APPO checkpoint: shared model state is inconsistent.")
+        elif actor_value != critic_value:
+            raise ValueError("Invalid HORA APPO checkpoint: shared model state is inconsistent.")
 
 
 class HoraAPPORunner(APPORunner):
@@ -53,6 +84,7 @@ class HoraAPPORunner(APPORunner):
 
         ensure_registries()
 
+        apply_training_seed(self.seed, torch_runtime=True, cuda=True)
         env = registry.make(
             self.env_name,
             num_envs=self._detect_dim_probe_num_envs(),
@@ -91,6 +123,7 @@ class HoraAPPORunner(APPORunner):
         return 1
 
     def _build_learner(self):
+        apply_training_seed(self.seed, torch_runtime=True, cuda=True)
         cfg = dict(self.rl_cfg)
         if is_rsl_rl_v5():
             pass
@@ -115,36 +148,12 @@ class HoraAPPORunner(APPORunner):
         critic_cfg.pop("num_actions", None)
         critic_cfg.pop("distribution_cfg", None)
 
-        shared_cfg = deepcopy(actor_cfg)
-        critic_shared_cfg = deepcopy(critic_cfg)
-        shared_model = HoraSharedActorCritic(
+        shared_model = build_hora_shared_actor_critic(
             obs_dim=self.obs_dim,
             action_dim=self.action_dim,
             priv_info_dim=self.priv_info_dim,
-            actor_hidden_dims=shared_cfg.pop("hidden_dims", (512, 256, 128)),
-            activation=shared_cfg.pop(
-                "activation", critic_shared_cfg.pop("activation", "elu")
-            ),
-            obs_normalization=bool(
-                shared_cfg.pop(
-                    "obs_normalization",
-                    critic_shared_cfg.pop("obs_normalization", False),
-                )
-            ),
-            distribution_cfg=shared_cfg.pop("distribution_cfg", None),
-            priv_info_embed_dim=int(
-                shared_cfg.pop(
-                    "priv_info_embed_dim",
-                    critic_shared_cfg.pop("priv_info_embed_dim", self.priv_info_dim),
-                )
-            ),
-            priv_mlp_hidden_dims=shared_cfg.pop(
-                "priv_mlp_hidden_dims",
-                critic_shared_cfg.pop("priv_mlp_hidden_dims", (256, 128, 8)),
-            ),
-            use_student_encoder=bool(shared_cfg.pop("use_student_encoder", False)),
-            proprio_hist_len=int(shared_cfg.pop("proprio_hist_len", 30)),
-            proprio_frame_dim=shared_cfg.pop("proprio_frame_dim", None),
+            actor_cfg=actor_cfg,
+            critic_cfg=critic_cfg,
         ).to(self.device)
 
         actor = actor_cls(
@@ -210,14 +219,15 @@ class HoraAPPORunner(APPORunner):
         learner = self._build_learner()
         if self.resume_path:
             checkpoint = torch.load(self.resume_path, map_location=self.device, weights_only=True)
+            _validate_hora_shared_checkpoint(checkpoint)
             learner.actor.load_state_dict(checkpoint["actor"])
             learner.critic.load_state_dict(checkpoint["critic"])
             if "optimizer" in checkpoint:
                 learner.optimizer.load_state_dict(checkpoint["optimizer"])
                 learner.learning_rate = _optimizer_lr_from_state(learner.optimizer)
-            learner.update_target_network()
+            _sync_resume_target_actor(learner)
 
-        shared_storage = SharedOnPolicyStorage(
+        rollout_ring_buffer = RolloutRingBuffer(
             num_envs=self.num_envs,
             num_steps=self.steps_per_env,
             obs_dim=self.obs_dim,
@@ -226,7 +236,7 @@ class HoraAPPORunner(APPORunner):
             num_slots=4,
             create=True,
         )
-        self._shared_resources.append(shared_storage)
+        self._shared_resources.append(rollout_ring_buffer)
 
         actor_weight_sync = SharedWeightSync.from_state_dict(
             learner.actor.state_dict(), create=True
@@ -250,10 +260,10 @@ class HoraAPPORunner(APPORunner):
             "rl_cfg": self.rl_cfg,
             "num_envs": self.num_envs,
             "steps_per_env": self.steps_per_env,
-            "shm_storage_name": shared_storage.name,
+            "shm_rollout_ring_buffer_name": rollout_ring_buffer.name,
             "sync_primitives": (
-                shared_storage._write_ptr,
-                shared_storage._read_ptr,
+                rollout_ring_buffer._write_ptr,
+                rollout_ring_buffer._read_ptr,
             ),
             "obs_dim": self.obs_dim,
             "action_dim": self.action_dim,
@@ -267,6 +277,7 @@ class HoraAPPORunner(APPORunner):
             "collector_device": self.collector_device,
             "sim_backend": self.sim_backend,
             "env_cfg_override": self.env_cfg_overrides if self.env_cfg_overrides else None,
+            "seed": derive_worker_seed(self.seed, worker_index=0),
         }
         self._start_collector(
             target_fn=hora_appo_collector_fn,
@@ -288,20 +299,24 @@ class HoraAPPORunner(APPORunner):
         logger.start()
         logger.log_status(
             f"Waiting for first rollout... "
-            f"(replay_queue={self.replay_queue_size}, "
+            f"(staging_pool={self.staging_pool_size}, "
             f"epochs={learner.num_learning_epochs})"
         )
 
         reward_history: deque = deque(maxlen=200)
         latest_reward_components: dict = {}
-        replay_queue: deque[dict] = deque(maxlen=self.replay_queue_size)
+        staging_pool = RolloutStagingPool(
+            capacity=self.staging_pool_size,
+            num_envs=self.num_envs,
+            slot_shapes=rollout_ring_buffer.slot_shapes,
+            device=self.device,
+        )
 
         for iteration in range(1, max_iterations + 1):
-            iter_start = time.time()
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
             wait_start = time.time()
 
-            data_ready = shared_storage.wait_for_data(timeout=60.0)
+            data_ready = rollout_ring_buffer.wait_for_data(timeout=60.0)
             if not data_ready:
                 if not self._check_collector_alive():
                     self._drain_metrics(
@@ -319,49 +334,35 @@ class HoraAPPORunner(APPORunner):
                 )
                 continue
 
-            available_on_arrive = shared_storage.available()
+            available_on_arrive = rollout_ring_buffer.available()
             wait_time = time.time() - wait_start
 
-            num_new = shared_storage.available()
+            num_new = rollout_ring_buffer.available()
+            learner_incremental_h2d_time = 0.0
             for _ in range(num_new):
-                raw = shared_storage.read_torch(self.device)
-                shared_storage.advance_read()
-
-                raw.pop("rollout_collect_time_s", None)
-
-                rollout: dict = {}
-                for k, v in raw.items():
-                    if k not in ("last_obs", "last_critic") and v.ndim >= 2:
-                        rollout[k] = v.transpose(0, 1)
-                    else:
-                        rollout[k] = v
-                if "obs" in rollout:
-                    rollout["observations"] = rollout.pop("obs")
-                if "log_probs" in rollout:
-                    rollout["actions_log_prob"] = rollout.pop("log_probs")
-                replay_queue.append(rollout)
+                h2d_start = time.perf_counter()
+                staging_pool.stage_numpy_views(rollout_ring_buffer.read_numpy_views())
+                learner_incremental_h2d_time += time.perf_counter() - h2d_start
+                rollout_ring_buffer.advance_read()
 
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
-            collect_time = time.time() - iter_start
 
-            combined: dict = {}
-            for k in replay_queue[0]:
-                if k in ("last_obs", "last_critic"):
-                    combined[k] = torch.cat([r[k] for r in replay_queue], dim=0)
-                else:
-                    combined[k] = torch.cat([r[k] for r in replay_queue], dim=1)
+            combined = staging_pool.batch()
 
             train_start = time.time()
             learner.process_batch(combined)
             metrics = learner.update(combined)
+            train_time = time.time() - train_start
+            weight_sync_start = time.perf_counter()
             actor_weight_sync.write_weights(learner.actor.state_dict())
             critic_weight_sync.write_weights(learner.critic.state_dict())
-            train_time = time.time() - train_start
+            weight_sync_time = time.perf_counter() - weight_sync_start
 
-            metrics["replay_queue_len"] = float(len(replay_queue))
+            metrics["staging_pool_len"] = float(staging_pool.active_count)
+            metrics["staging_pool_capacity"] = float(staging_pool.capacity)
             metrics["available_on_arrive"] = float(available_on_arrive)
             metrics["rollouts_read"] = float(num_new)
-            logger.update_replay_queue(len(replay_queue), self.replay_queue_size)
+            logger.update_staging_pool(staging_pool.active_count, staging_pool.capacity)
 
             mean_reward = (
                 sum(list(reward_history)[-50:]) / max(len(list(reward_history)[-50:]), 1)
@@ -376,9 +377,13 @@ class HoraAPPORunner(APPORunner):
                 metrics=metrics,
                 reward=mean_reward,
                 reward_components=latest_reward_components,
-                collect_time=collect_time,
                 train_time=train_time,
                 wait_time=wait_time,
+                learner_incremental_h2d_time=learner_incremental_h2d_time,
+                weight_sync_time=weight_sync_time,
+                extra_info={
+                    "throughput_steps": num_new * env_steps_per_sync,
+                },
             )
 
             if save_interval > 0 and iteration % save_interval == 0:

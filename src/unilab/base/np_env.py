@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import abc
 import dataclasses
+from collections.abc import Callable
 from dataclasses import dataclass
+from os import PathLike
 from typing import TYPE_CHECKING, Any, Optional, Tuple, cast
 
 import gymnasium as gym
 import numpy as np
 
 from unilab.base.backend import SimBackend
+from unilab.base.backend.base import BackendPlayRenderPlan
 from unilab.base.base import ABEnv, EnvCfg, EnvPlayCapabilities
+from unilab.base.scene import SceneCfg
 from unilab.dr import DomainRandomizationManager, DomainRandomizationProvider
 from unilab.dtype_config import get_global_dtype
 
@@ -36,7 +40,7 @@ class NpEnv(ABEnv):
 
     def __init__(self, cfg: EnvCfg, backend: SimBackend, num_envs: int):
         self._cfg = cfg
-        self._backend: Any = backend
+        self._backend: SimBackend = backend
         self._num_envs = num_envs
         self._state: Optional[NpEnvState] = None
         self._truncated_scratch: np.ndarray = np.zeros((self._num_envs,), dtype=bool)
@@ -154,8 +158,7 @@ class NpEnv(ABEnv):
             )
             nan_ids = self._nan_guard.check(self._state.obs, self._state.reward)
             if nan_ids is not None:
-                model_file = getattr(self._cfg, "model_file", "")
-                self._nan_guard.dump(nan_ids, str(model_file), self.step_counter)
+                self._nan_guard.dump(nan_ids, self._nan_guard_model_file(), self.step_counter)
 
         np.nan_to_num(self._state.reward, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
@@ -197,6 +200,15 @@ class NpEnv(ABEnv):
                         self._state.info[key] = value
                 elif isinstance(value, np.ndarray):
                     self._state.info[key][env_indices] = value
+
+    def _nan_guard_model_file(self) -> str:
+        scene = getattr(self._cfg, "scene", None)
+        if isinstance(scene, SceneCfg) and scene.model_file:
+            return str(scene.model_file)
+        model_file = getattr(self._backend, "scene_model_file", None)
+        if model_file:
+            return str(model_file)
+        return ""
 
     def _ensure_final_observation_scratch(self) -> dict[str, np.ndarray]:
         assert self._state is not None
@@ -283,19 +295,90 @@ class NpEnv(ABEnv):
             np.greater_equal(state.info["steps"], self._cfg.max_episode_steps, out=truncated)
         return truncated
 
-    def init_play_renderer(self, render_spacing: float | None = None) -> None:
-        """Initialize backend-native interactive playback when available."""
-        if not self.play_capabilities.supports_native_interactive_renderer:
+    def init_play_renderer(
+        self,
+        render_spacing: float | None = None,
+        render_offset_mode: str | None = None,
+        *,
+        headless: bool = False,
+        capture: bool = False,
+        width: int = 1280,
+        height: int = 720,
+        camera_kwargs: dict[str, Any] | None = None,
+    ) -> None:
+        """Initialize backend-native playback rendering when available."""
+        if capture:
+            if not self.play_capabilities.supports_native_video_capture:
+                raise NotImplementedError(
+                    f"{self._backend.__class__.__name__} does not support native video capture"
+                )
+        elif not self.play_capabilities.supports_native_interactive_renderer:
             raise NotImplementedError(
                 f"{self._backend.__class__.__name__} does not support native interactive playback"
             )
-        if render_spacing is None:
-            self._backend.init_renderer()
-            return
-        try:
-            self._backend.init_renderer(spacing=render_spacing)
-        except TypeError:
-            self._backend.init_renderer()
+
+        spacing = (
+            float(render_spacing) if render_spacing is not None else float(self._cfg.render_spacing)
+        )
+        offset_mode = (
+            str(render_offset_mode)
+            if render_offset_mode is not None
+            else str(getattr(self._cfg, "render_offset_mode", "grid"))
+        )
+        self._backend.init_renderer(
+            spacing=spacing,
+            offset_mode=offset_mode,
+            headless=bool(headless),
+            capture=bool(capture),
+            width=int(width),
+            height=int(height),
+            camera_kwargs=camera_kwargs,
+        )
+
+    def resolve_play_render_plan(
+        self,
+        *,
+        play_render_mode: str | None,
+        play_steps: int | None,
+        output_video: str | PathLike[str] | None,
+    ) -> BackendPlayRenderPlan:
+        """Resolve high-level playback mode through the concrete backend."""
+        return self._backend.resolve_play_render_plan(
+            play_render_mode=play_render_mode,
+            play_steps=play_steps,
+            output_video=output_video,
+        )
+
+    def run_playback(
+        self,
+        *,
+        initialize: Callable[[], Any],
+        step: Callable[[Any], Any],
+        num_steps: int | None,
+        output_video: str | PathLike[str] | None = None,
+        render_spacing: float | None = None,
+        render_offset_mode: str | None = None,
+        headless: bool | None = None,
+        record_video: bool | None = None,
+        frame_state_getter: Callable[[], np.ndarray] | None = None,
+        camera_kwargs: dict[str, Any] | None = None,
+        extra_data_getter: Callable[[], np.ndarray | None] | None = None,
+    ) -> str | None:
+        """Execute playback through the concrete backend."""
+        return self._backend.run_playback(
+            env=self,
+            initialize=initialize,
+            step=step,
+            num_steps=num_steps,
+            output_video=output_video,
+            render_spacing=render_spacing,
+            render_offset_mode=render_offset_mode,
+            headless=headless,
+            record_video=record_video,
+            frame_state_getter=frame_state_getter,
+            camera_kwargs=camera_kwargs,
+            extra_data_getter=extra_data_getter,
+        )
 
     def render_play_frame(self) -> None:
         """Render one interactive playback frame through the env contract."""
@@ -304,6 +387,16 @@ class NpEnv(ABEnv):
                 f"{self._backend.__class__.__name__} does not support native interactive playback"
             )
         self._backend.render()
+
+    def capture_play_video_frame(self) -> np.ndarray:
+        """Capture one detached RGB video frame through the env contract."""
+        if not self.play_capabilities.supports_native_video_capture:
+            raise NotImplementedError(
+                f"{self._backend.__class__.__name__} does not support native video capture"
+            )
+        return cast(
+            np.ndarray, np.asarray(self._backend.capture_video_frame(), dtype=np.uint8).copy()
+        )
 
     def get_physics_state_snapshot(self) -> np.ndarray:
         """Return a detached physics snapshot for offline playback/video export."""
@@ -331,6 +424,7 @@ class NpEnv(ABEnv):
         return EnvPlayCapabilities(
             supports_native_interactive_renderer=capabilities.supports_native_interactive_renderer,
             supports_physics_state_playback=capabilities.supports_physics_state_playback,
+            supports_native_video_capture=capabilities.supports_native_video_capture,
         )
 
     def get_playback_model(self, env_index: int | None = None) -> Any:
@@ -349,7 +443,9 @@ class NpEnv(ABEnv):
 
     def close(self) -> None:
         """关闭环境"""
-        pass
+        cleanup_scene_assets = getattr(self._backend, "cleanup_scene_assets", None)
+        if callable(cleanup_scene_assets):
+            cleanup_scene_assets()
 
     def _supports_backend_property(self, name: str) -> bool:
         return hasattr(self._backend, name)

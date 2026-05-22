@@ -20,22 +20,30 @@ BACKENDS: tuple[str, str] = ("mujoco", "motrix")
 _TASK_ORDER = {
     "go1_joystick_flat": 0,
     "go2_joystick_flat": 1,
-    "g1_walk_flat": 2,
-    "g1_walk_rough": 3,
-    "g1_motion_tracking": 4,
-    "g1_flip_tracking": 5,
-    "allegro_inhand": 7,
-    "allegro_sac": 8,
+    "go2_joystick_rough": 2,
+    "g1_walk_flat": 3,
+    "g1_walk_rough": 4,
+    "g1_motion_tracking": 5,
+    "g1_flip_tracking": 6,
+    "g1_wall_flip_tracking": 7,
+    "allegro_inhand": 8,
+    "allegro_sac": 9,
+    "sharpa_inhand": 10,
+    "sharpa_inhand_grasp": 11,
 }
 _TASK_LABELS = {
     "go1_joystick_flat": "Go1 joystick",
     "go2_joystick_flat": "Go2 joystick",
+    "go2_joystick_rough": "Go2 joystick rough",
     "g1_walk_flat": "G1 walk flat",
     "g1_walk_rough": "G1 walk rough",
     "g1_motion_tracking": "G1 motion tracking",
     "g1_flip_tracking": "G1 flip tracking",
+    "g1_wall_flip_tracking": "G1 wall flip tracking",
     "allegro_inhand": "Allegro in-hand",
     "allegro_sac": "Allegro SAC in-hand",
+    "sharpa_inhand": "Sharpa in-hand",
+    "sharpa_inhand_grasp": "Sharpa in-hand grasp",
 }
 
 
@@ -290,6 +298,9 @@ def render_support_matrix(root: Path | None = None) -> str:
         "| `Tested` | `tests/` 中有自动化覆盖该 entrypoint/task owner/backend 组合。这里的 `Tested` 包含 config compose 与脚本/运行时测试，不等同于默认推荐路径。 |",
         "| `Benchmarked` | 存在与该组合绑定的已提交 benchmark manifest。 |",
         "| `Recommended` | 仓库中存在显式 recommendation 元数据。 |",
+        "",
+        "`Tested` 只描述仓库中已有自动化覆盖，不代表该组合具备同名 MuJoCo owner 的全部 backend capability；"
+        "例如 phase-1 Motrix owner 可能只覆盖训练 smoke 和明确启用的 DR 子集。",
         "",
         benchmark_note,
         recommendation_note,

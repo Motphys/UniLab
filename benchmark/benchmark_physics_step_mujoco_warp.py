@@ -60,6 +60,7 @@ get_device_info_dict = _device_info.get_device_info_dict
 get_device_info_line = _device_info.get_device_info_line
 canonical_locomotion_task_ids = _task_names.canonical_locomotion_task_ids
 locomotion_task_spec = _task_names.locomotion_task_spec
+locomotion_task_model_file = _task_names.locomotion_task_model_file
 normalize_locomotion_task_id = _task_names.normalize_locomotion_task_id
 
 
@@ -79,7 +80,8 @@ DEFAULT_BATCH_SIZES = [2**k for k in range(8, 15)]  # 256 .. 16384
 DEFAULT_NJMAX_BY_TASK = {
     "go1_joystick_flat": 100,
     "go2_joystick_flat": 100,
-    "g1_walk_flat": 150,
+    "g1_walk_flat": 256,
+    "sharpa_inhand": 128,
 }
 
 
@@ -113,8 +115,7 @@ def _require_mujoco_warp() -> None:
 
 
 def _load_task_model(task_name: str) -> Any:
-    cfg = locomotion_task_spec(task_name).config_cls()
-    return cast(Any, mujoco).MjModel.from_xml_path(cfg.model_file)
+    return cast(Any, mujoco).MjModel.from_xml_path(locomotion_task_model_file(task_name))
 
 
 def _task_njmax(task_name: str) -> int:

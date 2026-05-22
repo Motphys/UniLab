@@ -17,19 +17,22 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from unilab.algos.torch.rsl_rl_runtime import resolve_rsl_rl_ppo_runtime
-from unilab.base.backend.xml import materialize_scene_visual_override
+from unilab.base.backend.mujoco.xml import materialize_scene_visual_override
 from unilab.training import (
     BackendAdapter,
+    apply_configured_training_seed,
     create_env,
     ensure_registries,
     get_latest_checkpoint,
     get_latest_run,
     get_log_root,
+    log_playback_plan,
     parse_checkpoint_path,
+    should_run_playback,
 )
 from unilab.training.experiment import ExperimentTracker, patch_rsl_rl_wandb_writer
 from unilab.training.rsl_rl import RslRlVecEnvWrapper, normalize_ppo_train_cfg
-from unilab.visualization import render_play_mode
+from unilab.utils.device import get_default_device
 
 try:
     from rsl_rl.runners import OnPolicyRunner
@@ -60,15 +63,15 @@ def run_motrix_rsl_play_loop(
     policy,
     *,
     render_spacing: float,
+    render_offset_mode: str,
     num_steps: int | None = None,
 ) -> None:
     env = wrapped_env.env
 
     with torch.inference_mode():
-        render_play_mode(
-            env,
-            sim_backend="motrix",
+        env.run_playback(
             render_spacing=render_spacing,
+            render_offset_mode=render_offset_mode,
             num_steps=num_steps,
             initialize=lambda: wrapped_env.reset()[0],
             step=lambda obs: wrapped_env.step(policy(obs))[0],
@@ -138,6 +141,13 @@ def _format_play_checkpoint_error(
     )
 
 
+def _resolve_play_num_steps(cfg: DictConfig) -> int | None:
+    play_steps = OmegaConf.select(cfg, "training.play_steps", default=None)
+    if play_steps is None:
+        return None
+    return int(play_steps)
+
+
 def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     """Play mode for RSL-RL."""
     rl_cfg = _algo_config_dict(cfg)
@@ -182,44 +192,30 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
         Any,
         OnPolicyRunner(cast(Any, wrapped_env), train_cfg, log_dir=None, device=device),
     )
-    runner.load(str(load_path))
+    runner.load(str(load_path), map_location=device)
     policy = runner.get_inference_policy(device=device)
     if EXPORT_POLICY:
         runner.export_policy_to_onnx(path=str(load_path_dir))
         runner.export_policy_to_jit(path=str(load_path_dir))
-    if cfg.training.sim_backend == "motrix":
-        print("Starting interactive visualization (motrix native renderer)...")
-        print("Close the render window to exit.")
-        with torch.inference_mode():
-            try:
-                run_motrix_rsl_play_loop(
-                    wrapped_env=wrapped_env,
-                    policy=policy,
-                    render_spacing=float(
-                        getattr(
-                            cfg.training, "render_spacing", getattr(env.cfg, "render_spacing", 1.0)
-                        )
-                    ),
-                )
-            except Exception as e:
-                if "RenderClosedError" in str(type(e).__name__):
-                    print("Render window closed.")
-                else:
-                    raise
-    else:
-        output_video = Path(load_path_dir) / "play_video.mp4"
-        print(f"Rendering video to {output_video}...")
+    num_steps = _resolve_play_num_steps(cfg)
+    output_video = Path(load_path_dir) / "play_video.mp4"
+    playback_mode: str | None = None
 
-        print("Collecting physics states...")
+    def _log_plan(plan) -> None:
+        nonlocal playback_mode
+        playback_mode = plan.mode
+        log_playback_plan(plan)
+
+    try:
         with torch.inference_mode():
-            render_play_mode(
-                env,
-                sim_backend=cfg.training.sim_backend,
+            play_video_path = env.run_playback_mode(
+                play_render_mode=getattr(cfg.training, "play_render_mode", "auto"),
+                play_steps=num_steps,
+                output_video=output_video,
                 render_spacing=float(
                     getattr(cfg.training, "render_spacing", getattr(env.cfg, "render_spacing", 1.0))
                 ),
-                num_steps=cfg.training.play_steps,
-                output_video=output_video,
+                render_offset_mode=str(getattr(env.cfg, "render_offset_mode", "grid")),
                 initialize=lambda: wrapped_env.reset()[0],
                 step=lambda obs: wrapped_env.step(policy(obs))[0],
                 camera_kwargs={
@@ -231,25 +227,31 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
                     "cam_tracking_env_idx": getattr(cfg.training, "cam_tracking_env_idx", 0),
                     "cam_tracking_extra_envs": getattr(cfg.training, "cam_tracking_extra_envs", 2),
                 },
+                on_plan=_log_plan,
+                extra_data_getter=(
+                    (lambda: getattr(env, "curr_ee_goal_world", None))
+                    if hasattr(env, "curr_ee_goal_world")
+                    else None
+                ),
             )
+    except Exception as e:
+        if cfg.training.sim_backend == "motrix" and "RenderClosedError" in str(type(e).__name__):
+            print("Render window closed.")
+        else:
+            raise
+    if playback_mode != "none" and num_steps is not None:
         print("Done.")
-        return str(output_video)
-
-    return None
+    return play_video_path
 
 
 @hydra.main(version_base="1.3", config_path="../conf/ppo", config_name="config")
 def main(cfg: DictConfig) -> None:
     ensure_registries()
 
+    seed_info = apply_configured_training_seed(cfg, torch_runtime=True, cuda=True)
     env_cfg_override = build_ppo_env_cfg_override(cfg)
 
-    if torch.cuda.is_available():
-        device = "cuda"
-    elif torch.backends.mps.is_available():
-        device = "mps"
-    else:
-        device = "cpu"
+    device = get_default_device()
     print(f"Using device: {device}")
 
     # Compute effective max_iterations (supports num_timesteps override)
@@ -282,6 +284,7 @@ def main(cfg: DictConfig) -> None:
             training_cfg=cfg.training,
             full_cfg=cfg,
             device=device,
+            seed_info=seed_info,
         )
         tracker.start()
 
@@ -376,7 +379,11 @@ def main(cfg: DictConfig) -> None:
                 tracker.update_summary(train_summary)
             env.close()
 
-        if cfg.training.play_only or not cfg.training.no_play:
+        if should_run_playback(
+            play_only=cfg.training.play_only,
+            no_play=cfg.training.no_play,
+            play_render_mode=getattr(cfg.training, "play_render_mode", "auto"),
+        ):
             play_video_path = play_rsl_rl(cfg, device)
             if tracker is not None:
                 tracker.log_video(play_video_path)

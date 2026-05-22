@@ -9,7 +9,9 @@ joystick environment can reference them **directly** in its
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 
@@ -42,6 +44,10 @@ class RewardContext:
 
     # ── optional weights (G1 pose rewards) ──────────────────────────
     pose_weights: np.ndarray | None = None
+
+    # ── optional state populated for rough / biped tasks ────────────
+    joint_range: np.ndarray | None = None  # (num_action, 2) — [lower, upper]
+    linvel_yaw: np.ndarray | None = None  # (N, 3) — base linvel in yaw frame
 
 
 # ── tracking rewards ─────────────────────────────────────────────────
@@ -96,6 +102,13 @@ def orientation(ctx: RewardContext) -> np.ndarray:
     g = ctx.gravity
     assert g is not None
     return np.square(g[:, 0]) + np.square(g[:, 1])  # type: ignore[no-any-return]
+
+
+def roll(ctx: RewardContext) -> np.ndarray:
+    """Penalty for deviation from roll orientation."""
+    g = ctx.gravity
+    assert g is not None
+    return np.square(g[:, 0])  # type: ignore[no-any-return]
 
 
 def upright(ctx: RewardContext) -> np.ndarray:
@@ -169,3 +182,185 @@ def dof_acc(ctx: RewardContext) -> np.ndarray:
 def alive(ctx: RewardContext) -> np.ndarray:
     """Constant reward for staying alive."""
     return np.ones((ctx.num_envs,), dtype=get_global_dtype())
+
+
+# ── quadruped-rough helpers / penalties ──────────────────────────────
+
+
+def upright_scale(gravity: np.ndarray | None, num_envs: int) -> np.ndarray:
+    """Scalar gate in [0, 1] from the body-up projection of gravity.
+
+    Used by quadruped rough tasks to suppress reward / penalty bookkeeping
+    while the robot is tipping over. Returns 1.0 when the body is upright
+    (gravity[:, 2] >= 0.7) and 0.0 when fully tipped.
+    """
+    if gravity is None:
+        return np.ones((num_envs,), dtype=get_global_dtype())
+    return np.asarray(np.clip(gravity[:, 2], 0.0, 0.7) / 0.7, dtype=get_global_dtype())
+
+
+def dof_torques_l2(ctx: RewardContext) -> np.ndarray:
+    """Penalty for joint torque magnitude (L2)."""
+    torques = np.asarray(
+        ctx.info.get("torques", np.zeros((ctx.num_envs, ctx.dof_pos.shape[1]))),
+        dtype=get_global_dtype(),
+    )
+    return np.asarray(np.sum(np.square(torques), axis=1), dtype=get_global_dtype())
+
+
+def dof_acc_l2(ctx: RewardContext) -> np.ndarray:
+    """Penalty for joint acceleration magnitude (L2)."""
+    qacc = np.asarray(
+        ctx.info.get("qacc", np.zeros((ctx.num_envs, ctx.dof_pos.shape[1]))),
+        dtype=get_global_dtype(),
+    )
+    return np.asarray(np.sum(np.square(qacc), axis=1), dtype=get_global_dtype())
+
+
+def joint_pos_limits(ctx: RewardContext) -> np.ndarray:
+    """Penalty for joint position over/under-shoot relative to backend limits."""
+    if ctx.joint_range is None:
+        return np.zeros((ctx.num_envs,), dtype=get_global_dtype())
+    lower = ctx.joint_range[:, 0]
+    upper = ctx.joint_range[:, 1]
+    low_error = np.clip(lower - ctx.dof_pos, 0.0, None)
+    high_error = np.clip(ctx.dof_pos - upper, 0.0, None)
+    return np.asarray(np.sum(low_error + high_error, axis=1), dtype=get_global_dtype())
+
+
+def joint_power(ctx: RewardContext) -> np.ndarray:
+    """Penalty for joint mechanical power (|tau * dq|)."""
+    assert ctx.dof_vel is not None
+    torques = np.asarray(
+        ctx.info.get("torques", np.zeros((ctx.num_envs, ctx.dof_pos.shape[1]))),
+        dtype=get_global_dtype(),
+    )
+    return np.asarray(np.sum(np.abs(ctx.dof_vel * torques), axis=1), dtype=get_global_dtype())
+
+
+def stand_still(ctx: RewardContext, command_threshold: float = 0.1) -> np.ndarray:
+    """Penalty for joint deviation from default while command norm is below threshold."""
+    stopped = np.linalg.norm(ctx.info["commands"], axis=1) < command_threshold
+    dof_error = np.sum(np.abs(ctx.dof_pos - ctx.default_angles), axis=1)
+    return np.asarray(dof_error * stopped, dtype=get_global_dtype())
+
+
+def joint_pos_penalty(
+    ctx: RewardContext,
+    *,
+    stand_still_scale: float = 5.0,
+    velocity_threshold: float = 0.5,
+    command_threshold: float = 0.1,
+) -> np.ndarray:
+    """Penalty for joint deviation that switches scale based on command/body motion."""
+    command_norm = np.linalg.norm(ctx.info["commands"], axis=1)
+    body_vel = np.linalg.norm(ctx.linvel[:, :2], axis=1)
+    running_error = np.linalg.norm(ctx.dof_pos - ctx.default_angles, axis=1)
+    moving = (command_norm > command_threshold) | (body_vel > velocity_threshold)
+    return np.asarray(
+        np.where(moving, running_error, stand_still_scale * running_error),
+        dtype=get_global_dtype(),
+    )
+
+
+def upward(ctx: RewardContext) -> np.ndarray:
+    """Reward favouring an upright body (no Go2 upright gate)."""
+    assert ctx.gravity is not None
+    return np.asarray(np.square(1.0 + ctx.gravity[:, 2]), dtype=get_global_dtype())
+
+
+# ── biped-style rewards ─────────────────────
+
+
+def track_lin_vel_xy_yaw_frame_exp(ctx: RewardContext) -> np.ndarray:
+    """Exponential tracking of xy linear velocity in the gravity-aligned yaw frame.
+
+    Requires ``ctx.linvel_yaw`` (base linvel rotated into yaw frame).
+    """
+    linvel = ctx.linvel_yaw if ctx.linvel_yaw is not None else ctx.linvel
+    commands = ctx.info["commands"]
+    lin_vel_error = np.sum(np.square(commands[:, :2] - linvel[:, :2]), axis=1)
+    return np.asarray(np.exp(-lin_vel_error / ctx.tracking_sigma), dtype=get_global_dtype())
+
+
+def track_ang_vel_z_world_exp(ctx: RewardContext) -> np.ndarray:
+    """Exponential tracking of yaw angular velocity (world frame)."""
+    commands = ctx.info["commands"]
+    ang_vel_error = np.square(commands[:, 2] - ctx.gyro[:, 2])
+    return np.asarray(np.exp(-ang_vel_error / ctx.tracking_sigma), dtype=get_global_dtype())
+
+
+def feet_air_time_positive_biped(
+    ctx: RewardContext,
+    *,
+    threshold: float = 0.4,
+    command_threshold: float = 0.1,
+) -> np.ndarray:
+    """Biped foot air-time reward: only rewards single-stance phase.
+
+    Reads ``ctx.info`` keys ``current_air_time``, ``current_contact_time`` (each
+    shape (N, 2)); the environment populates them per step.
+    """
+    air = np.asarray(
+        ctx.info.get("current_air_time", np.zeros((ctx.num_envs, 2))), dtype=get_global_dtype()
+    )
+    contact = np.asarray(
+        ctx.info.get("current_contact_time", np.zeros((ctx.num_envs, 2))), dtype=get_global_dtype()
+    )
+    in_contact = contact > 0.0
+    in_mode_time = np.where(in_contact, contact, air)
+    single_stance = np.sum(in_contact.astype(np.int32), axis=1) == 1
+    masked = np.where(single_stance[:, None], in_mode_time, 0.0)
+    reward = np.min(masked, axis=1)
+    reward = np.clip(reward, None, threshold)
+    moving = np.linalg.norm(ctx.info["commands"][:, :2], axis=1) > command_threshold
+    return np.asarray(reward * moving, dtype=get_global_dtype())
+
+
+def joint_deviation_l1(ctx: RewardContext, joint_indices: np.ndarray | None = None) -> np.ndarray:
+    """L1 penalty for joints deviating from their default positions."""
+    diff = ctx.dof_pos - ctx.default_angles
+    if joint_indices is not None:
+        diff = diff[:, joint_indices]
+    return np.asarray(np.sum(np.abs(diff), axis=1), dtype=get_global_dtype())
+
+
+# ── reward dispatch ──────────────────────────────────────────────────
+
+
+def run_reward_dispatch(
+    *,
+    scales: Mapping[str, float],
+    fns: Mapping[str, Callable[[RewardContext], np.ndarray]],
+    ctx: RewardContext,
+    info: dict[str, Any],
+    enable_log: bool,
+    ctrl_dt: float,
+    log_every_n_steps: int = 4,
+    only_positive: bool = False,
+) -> np.ndarray:
+    """Standard ``scales × fns(ctx)`` reduction shared by all locomotion envs.
+
+    - Writes per-reward means into ``info["log"]`` when ``enable_log`` and the
+      ``steps[0]`` cadence matches ``log_every_n_steps``.
+    - Returns ``reward * ctrl_dt`` (with optional positive clamp).
+    """
+    dtype = get_global_dtype()
+    reward = np.zeros((ctx.num_envs,), dtype=dtype)
+    step_count = info.get("steps", np.zeros((ctx.num_envs,), dtype=np.uint32))
+    should_log = enable_log and (int(step_count[0]) % log_every_n_steps == 0)
+    log = {} if should_log else info.get("log", {})
+
+    for name, scale in scales.items():
+        if scale == 0 or name not in fns:
+            continue
+        rew = fns[name](ctx)
+        weighted_rew = rew * scale
+        reward += weighted_rew
+        if should_log:
+            log[f"reward/{name}"] = float(np.mean(weighted_rew))
+
+    info["log"] = log
+    if only_positive:
+        np.maximum(reward, 0.0, out=reward)
+    return reward * ctrl_dt

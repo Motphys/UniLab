@@ -37,16 +37,17 @@ from unilab.algos.torch.hora.distill_config import (
     teacher_run_metadata as _teacher_run_metadata,
 )
 from unilab.algos.torch.hora.rsl_rl import HoraRslRlVecEnvWrapper as RslRlVecEnvWrapper
-from unilab.base.backend.xml import materialize_scene_visual_override
+from unilab.base.backend.mujoco.xml import materialize_scene_visual_override
 from unilab.training import (
     BackendAdapter,
     create_env,
     ensure_registries,
     get_latest_run,
     get_log_root,
+    log_playback_plan,
     setup_logger,
+    should_run_playback,
 )
-from unilab.visualization import render_play_mode
 
 
 def _write_distill_run_config(
@@ -262,31 +263,23 @@ def play_hora_distill(cfg: DictConfig, device: str) -> str | None:
     actor.eval()
     hist_normalizer.eval()
 
-    if cfg.training.sim_backend == "motrix":
-        raise NotImplementedError(
-            "HORA distillation play_only currently supports offline MuJoCo video rendering only."
-        )
-
-    output_video = Path(load_path_dir) / "play_video_stage2.mp4"
-    print(f"Rendering video to {output_video}...")
-    print("Collecting physics states...")
     with torch.inference_mode():
-        render_play_mode(
-            env,
-            sim_backend=cfg.training.sim_backend,
+        play_video_path = env.run_playback_mode(
+            play_render_mode=getattr(cfg.training, "play_render_mode", "auto"),
+            play_steps=getattr(cfg.training, "play_steps", None),
+            output_video=Path(load_path_dir) / "play_video_stage2.mp4",
             render_spacing=float(
                 getattr(cfg.training, "render_spacing", getattr(env.cfg, "render_spacing", 1.0))
             ),
-            num_steps=int(cfg.training.play_steps),
-            output_video=output_video,
             initialize=lambda: wrapped_env.reset()[0],
             step=lambda obs: wrapped_env.step(
                 _student_policy(actor, hist_normalizer, obs, device=torch_device)
             )[0],
             camera_kwargs=_play_camera_kwargs(cfg),
+            on_plan=log_playback_plan,
         )
     print("Done.")
-    return str(output_video)
+    return play_video_path
 
 
 @hydra.main(version_base="1.3", config_path="../conf/hora_distill", config_name="config")
@@ -302,7 +295,11 @@ def main(cfg: DictConfig) -> None:
     else:
         device = "cpu"
 
-    if cfg.training.play_only:
+    if should_run_playback(
+        play_only=cfg.training.play_only,
+        no_play=True,
+        play_render_mode=getattr(cfg.training, "play_render_mode", "auto"),
+    ):
         play_hora_distill(cfg, device)
         return
 

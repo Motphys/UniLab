@@ -27,7 +27,7 @@
         <geom type="mesh" contype="0" conaffinity="0" group="2" />
       </default>
       <default class="collision">
-        <geom group="3" />
+        <geom group="3" contype="1" conaffinity="2" />
         <default class="foot">
           <geom size="0.022" priority="1" condim="6"
             friction="0.8 0.02 0.01" />
@@ -57,6 +57,7 @@
     <mesh file="calf_mirror.stl" />
     <mesh file="wheel.stl" />
     <mesh file="wheel_convex.stl" />
+
   </asset>
 
   <worldbody>
@@ -108,7 +109,11 @@
                 diaginertia="0.003 0.0016 0.0016" />
               <joint name="FL_wheel_joint" pos="0 0 0" axis="0 1 0" />
               <geom type="mesh" quat="0.0 1.0 0.0 0.0" rgba="0.15 0.15 0.15 1" mesh="wheel" class="visual"/>
+
               <geom type="mesh" quat="0.0 1.0 0.0 0.0" mesh="wheel_convex" class="foot" />
+
+              <!-- <geom type="cylinder" size="0.08 0.02" pos="0 0.050764 0"
+                quat="0.707107 0.707107 0 0" class="foot" /> -->
             </body>
 
           </body>
@@ -149,7 +154,11 @@
                 diaginertia="0.003 0.0016 0.0016" />
               <joint name="FR_wheel_joint" pos="0 0 0" axis="0 1 0" />
               <geom type="mesh" rgba="0.15 0.15 0.15 1" mesh="wheel" class="visual"/>
+
               <geom type="mesh" mesh="wheel_convex" class="foot"/>
+
+              <!-- <geom type="cylinder" size="0.08 0.02" pos="0 -0.050764 0"
+                quat="0.707107 0.707107 0 0" class="foot" /> -->
             </body>
 
           </body>
@@ -190,7 +199,11 @@
                 diaginertia="0.003 0.0016 0.0016" />
               <joint name="RL_wheel_joint" pos="0 0 0" axis="0 1 0" />
               <geom type="mesh" quat="0.0 1.0 0.0 0.0" rgba="0.15 0.15 0.15 1" mesh="wheel" class="visual"/>
+
               <geom type="mesh" quat="0.0 1.0 0.0 0.0" mesh="wheel_convex" class="foot"/>
+
+              <!-- <geom type="cylinder" size="0.08 0.02" pos="0 0.050764 0"
+                quat="0.707107 0.707107 0 0" class="foot" /> -->
             </body>
 
           </body>
@@ -233,7 +246,11 @@
                 diaginertia="0.003 0.0016 0.0016" />
               <joint name="RR_wheel_joint" pos="0 0 0" axis="0 1 0" />
               <geom type="mesh" rgba="0.15 0.15 0.15 1" mesh="wheel" class="visual"/>
+
               <geom type="mesh" mesh="wheel_convex" class="foot"/>
+
+              <!-- <geom type="cylinder" size="0.08 0.02" pos="0 -0.050764 0"
+                quat="0.707107 0.707107 0 0" class="foot" /> -->
             </body>
 
           </body>
@@ -277,7 +294,7 @@
     <jointpos name="RR_hip_pos" joint="RR_hip_joint" />
     <jointpos name="RR_thigh_pos" joint="RR_thigh_joint" />
     <jointpos name="RR_calf_pos" joint="RR_calf_joint" />
-    
+
     <jointpos name="RL_hip_pos" joint="RL_hip_joint" />
     <jointpos name="RL_thigh_pos" joint="RL_thigh_joint" />
     <jointpos name="RL_calf_pos" joint="RL_calf_joint" />

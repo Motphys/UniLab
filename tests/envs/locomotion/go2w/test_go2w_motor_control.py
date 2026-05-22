@@ -12,11 +12,13 @@ from unilab.envs.locomotion.go2w.base import (
     JOINT_SENSOR_PREFIXES,
     NUM_GO2W_ACTIONS,
     NUM_LEG_ACTIONS,
+    NUM_WHEEL_ACTIONS,
     Go2WBaseEnv,
     compute_go2w_motor_ctrl,
 )
 from unilab.envs.locomotion.go2w.joystick import (
     Go2WJoystickCfg,
+    Go2WJoystickDomainRandomizationProvider,
     Go2WJoystickEnv,
     RewardConfig,
     build_go2w_backend_reset_randomization,
@@ -32,7 +34,7 @@ class _ConcreteGo2WBaseEnv(Go2WBaseEnv):
         return state
 
 
-def test_compute_go2w_motor_ctrl_converts_legs_and_preserves_wheel_torque() -> None:
+def test_compute_go2w_motor_ctrl_converts_legs_and_tracks_wheel_velocity() -> None:
     policy_ctrl = np.zeros((1, NUM_GO2W_ACTIONS), dtype=np.float64)
     policy_ctrl[:, :NUM_LEG_ACTIONS] = 0.5
     policy_ctrl[:, NUM_LEG_ACTIONS:] = np.array([[2.0, -2.0, 20.0, -20.0]])
@@ -40,6 +42,7 @@ def test_compute_go2w_motor_ctrl_converts_legs_and_preserves_wheel_torque() -> N
     joint_vel = np.ones_like(policy_ctrl) * 0.1
     leg_kp = np.ones((1, NUM_LEG_ACTIONS), dtype=np.float64) * 10.0
     leg_kd = np.ones((1, NUM_LEG_ACTIONS), dtype=np.float64) * 2.0
+    wheel_kd = np.ones((1, NUM_WHEEL_ACTIONS), dtype=np.float64) * 2.0
     ctrl_range = np.tile(np.array([-15.0, 15.0]), (NUM_GO2W_ACTIONS, 1))
     out = np.zeros_like(policy_ctrl)
 
@@ -49,6 +52,7 @@ def test_compute_go2w_motor_ctrl_converts_legs_and_preserves_wheel_torque() -> N
         joint_vel,
         leg_kp,
         leg_kd,
+        wheel_kd,
         ctrl_range[:, 0],
         ctrl_range[:, 1],
         out,
@@ -56,7 +60,7 @@ def test_compute_go2w_motor_ctrl_converts_legs_and_preserves_wheel_torque() -> N
 
     assert result is out
     np.testing.assert_allclose(result[:, :NUM_LEG_ACTIONS], 4.8)
-    np.testing.assert_allclose(result[:, NUM_LEG_ACTIONS:], [[2.0, -2.0, 15.0, -15.0]])
+    np.testing.assert_allclose(result[:, NUM_LEG_ACTIONS:], [[3.8, -4.2, 15.0, -15.0]])
 
 
 def test_go2w_joint_state_reads_named_sensors() -> None:
@@ -67,6 +71,9 @@ def test_go2w_joint_state_reads_named_sensors() -> None:
             calls.append(name)
             idx = len(calls)
             return np.array([[float(idx)], [float(idx + 100)]], dtype=np.float32)
+
+        def get_sensor_data_batch(self, names) -> np.ndarray:
+            return np.concatenate([self.get_sensor_data(name) for name in names], axis=1)
 
     env = cast(Any, object.__new__(_ConcreteGo2WBaseEnv))
     env._backend = FakeBackend()
@@ -99,6 +106,34 @@ def test_go2w_backend_reset_randomization_excludes_kp_kd_payload() -> None:
     assert payload.gravity is not None
 
 
+def test_go2w_reset_plan_can_disable_initial_yaw_randomization() -> None:
+    from unilab.envs.locomotion.common.terrain_spawn import BaseSpawnManager
+
+    cfg = Go2WJoystickCfg(reward_config=_reward_config())
+    cfg.domain_rand.randomize_init_yaw = False
+    env = SimpleNamespace(
+        cfg=cfg,
+        _spawn=BaseSpawnManager(),
+        _init_qpos=np.concatenate(
+            [np.array([0.0, 0.0, 0.42, 1.0, 0.0, 0.0, 0.0]), np.zeros(NUM_GO2W_ACTIONS)]
+        ),
+        _init_qvel=np.zeros(6 + NUM_GO2W_ACTIONS),
+        _num_action=NUM_GO2W_ACTIONS,
+        sample_reset_motor_gains=lambda num_reset: (
+            np.ones((num_reset, NUM_LEG_ACTIONS)),
+            np.ones((num_reset, NUM_LEG_ACTIONS)),
+        ),
+        set_motor_gains=lambda env_ids, motor_kp, motor_kd: None,
+    )
+
+    plan = Go2WJoystickDomainRandomizationProvider().build_reset_plan(
+        env, np.array([0, 1], dtype=np.int32)
+    )
+
+    expected = np.tile(np.array([[1.0, 0.0, 0.0, 0.0]]), (2, 1))
+    np.testing.assert_allclose(plan.qpos[:, 3:7], expected)
+
+
 def test_go2w_init_does_not_pass_position_actuator_gains(monkeypatch: pytest.MonkeyPatch) -> None:
     from unilab.envs.locomotion.go2w import joystick as go2w_module
 
@@ -111,10 +146,16 @@ def test_go2w_init_does_not_pass_position_actuator_gains(monkeypatch: pytest.Mon
         def get_actuator_ctrl_range(self) -> np.ndarray:
             return np.tile(np.array([-15.0, 15.0]), (NUM_GO2W_ACTIONS, 1))
 
+        def get_joint_range(self) -> np.ndarray:
+            return np.tile(np.array([-3.14, 3.14]), (NUM_GO2W_ACTIONS, 1))
+
         def get_sensor_data(self, name: str) -> np.ndarray:
             if name.endswith("_pos") or name.endswith("_vel"):
                 return np.zeros((2, 1), dtype=np.float32)
             raise KeyError(name)
+
+        def get_sensor_data_batch(self, names) -> np.ndarray:
+            return np.concatenate([self.get_sensor_data(name) for name in names], axis=1)
 
         def set_pre_step_control(self, fn) -> None:
             captured["pre_step_control"] = fn
@@ -143,7 +184,7 @@ def test_go2w_init_does_not_pass_position_actuator_gains(monkeypatch: pytest.Mon
     assert callable(captured["pre_step_control"])
 
 
-def test_go2w_apply_action_maps_legs_to_targets_and_wheels_to_torque() -> None:
+def test_go2w_apply_action_maps_legs_to_targets_and_wheels_to_velocity_targets() -> None:
     env = cast(Any, object.__new__(Go2WJoystickEnv))
     env._cfg = Go2WJoystickCfg(reward_config=_reward_config())
     env._np_dtype = np.float32
@@ -163,8 +204,53 @@ def test_go2w_apply_action_maps_legs_to_targets_and_wheels_to_torque() -> None:
 
     expected_leg_targets = (DEFAULT_GO2W_ANGLES[:NUM_LEG_ACTIONS] + 0.25).reshape(1, -1)
     np.testing.assert_allclose(ctrl[:, :NUM_LEG_ACTIONS], expected_leg_targets)
-    np.testing.assert_allclose(ctrl[:, NUM_LEG_ACTIONS:], 15.0)
+    np.testing.assert_allclose(ctrl[:, NUM_LEG_ACTIONS:], 10.0)
     np.testing.assert_allclose(state.info["current_actions"], action)
+
+
+def test_go2w_compute_obs_accepts_reset_subset_info_shapes() -> None:
+    env = cast(Any, object.__new__(Go2WJoystickEnv))
+    env._cfg = Go2WJoystickCfg(reward_config=_reward_config())
+    env._num_envs = 2
+    env._num_action = NUM_GO2W_ACTIONS
+    env.default_angles = DEFAULT_GO2W_ANGLES.astype(np.float32)
+    info = {
+        "current_actions": np.zeros((1, NUM_GO2W_ACTIONS), dtype=np.float32),
+        "commands": np.zeros((1, 3), dtype=np.float32),
+        "torques": np.ones((1, NUM_GO2W_ACTIONS), dtype=np.float32),
+    }
+    linvel = np.zeros((1, 3), dtype=np.float32)
+    gyro = np.zeros((1, 3), dtype=np.float32)
+    gravity = np.zeros((1, 3), dtype=np.float32)
+    dof_pos = DEFAULT_GO2W_ANGLES.reshape(1, -1).astype(np.float32)
+    dof_vel = np.zeros((1, NUM_GO2W_ACTIONS), dtype=np.float32)
+
+    obs = env._compute_obs(info, linvel, gyro, gravity, dof_pos, dof_vel)
+
+    assert obs["obs"].shape == (1, env.obs_groups_spec["obs"])
+    assert obs["critic"].shape == (1, env.obs_groups_spec["critic"])
+    np.testing.assert_allclose(obs["critic"][:, -NUM_GO2W_ACTIONS:], 1.0)
+
+
+def test_go2w_heading_command_updates_yaw_rate_from_heading_error() -> None:
+    class FakeBackend:
+        def get_base_quat(self) -> np.ndarray:
+            return np.array([[1.0, 0.0, 0.0, 0.0]], dtype=np.float32)
+
+    env = cast(Any, object.__new__(Go2WJoystickEnv))
+    env._cfg = Go2WJoystickCfg(reward_config=_reward_config())
+    env._cfg.commands.heading_command = True
+    env._num_envs = 1
+    env._backend = FakeBackend()
+    info = {
+        "commands": np.zeros((1, 3), dtype=np.float32),
+        "heading_commands": np.array([np.pi / 2.0], dtype=np.float32),
+        "steps": np.zeros((1,), dtype=np.uint32),
+    }
+
+    env._update_commands(info)
+
+    np.testing.assert_allclose(info["commands"][:, 2], [0.25 * np.pi], rtol=1e-6)
 
 
 def test_go2w_pre_step_motor_control_reads_from_passed_backend() -> None:
@@ -179,9 +265,15 @@ def test_go2w_pre_step_motor_control_reads_from_passed_backend() -> None:
                 return np.ones((1, 1), dtype=np.float32) * 0.1
             raise KeyError(name)
 
+        def get_sensor_data_batch(self, names) -> np.ndarray:
+            return np.concatenate([self.get_sensor_data(name) for name in names], axis=1)
+
     class PoisonBackend:
         def get_sensor_data(self, name: str) -> np.ndarray:
             raise AssertionError(f"unexpected env backend read: {name}")
+
+        def get_sensor_data_batch(self, names) -> np.ndarray:
+            raise AssertionError(f"unexpected env backend read: {names}")
 
     env = cast(Any, object.__new__(Go2WJoystickEnv))
     env._backend = PoisonBackend()
@@ -189,6 +281,7 @@ def test_go2w_pre_step_motor_control_reads_from_passed_backend() -> None:
     env._np_dtype = np.float32
     env._motor_kp = np.ones((1, NUM_LEG_ACTIONS), dtype=np.float64) * 10.0
     env._motor_kd = np.ones((1, NUM_LEG_ACTIONS), dtype=np.float64) * 2.0
+    env._wheel_kd = np.ones((1, NUM_WHEEL_ACTIONS), dtype=np.float64) * 2.0
     ctrl_range = np.tile(np.array([-15.0, 15.0]), (NUM_GO2W_ACTIONS, 1))
     env._ctrl_lower = ctrl_range[:, 0].astype(np.float32)
     env._ctrl_upper = ctrl_range[:, 1].astype(np.float32)
@@ -202,4 +295,4 @@ def test_go2w_pre_step_motor_control_reads_from_passed_backend() -> None:
     assert calls[:NUM_GO2W_ACTIONS] == [f"{prefix}_pos" for prefix in JOINT_SENSOR_PREFIXES]
     assert calls[NUM_GO2W_ACTIONS:] == [f"{prefix}_vel" for prefix in JOINT_SENSOR_PREFIXES]
     np.testing.assert_allclose(motor_ctrl[:, :NUM_LEG_ACTIONS], 4.8)
-    np.testing.assert_allclose(motor_ctrl[:, NUM_LEG_ACTIONS:], [[1.0, -1.0, 2.0, -2.0]])
+    np.testing.assert_allclose(motor_ctrl[:, NUM_LEG_ACTIONS:], [[1.8, -2.2, 3.8, -4.2]])

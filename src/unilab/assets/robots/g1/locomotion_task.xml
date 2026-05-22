@@ -1,0 +1,35 @@
+<mujoco model="g1 locomotion task">
+  <sensor>
+    <contact name="left_foot_contact_0" geom1="floor" geom2="left_foot_contact_0_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="left_foot_contact_1" geom1="floor" geom2="left_foot_contact_1_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="left_foot_contact_2" geom1="floor" geom2="left_foot_contact_2_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="left_foot_contact_3" geom1="floor" geom2="left_foot_contact_3_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="right_foot_contact_0" geom1="floor" geom2="right_foot_contact_0_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="right_foot_contact_1" geom1="floor" geom2="right_foot_contact_1_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="right_foot_contact_2" geom1="floor" geom2="right_foot_contact_2_geom" data="found" num="1" reduce="mindist"/>
+    <contact name="right_foot_contact_3" geom1="floor" geom2="right_foot_contact_3_geom" data="found" num="1" reduce="mindist"/>
+
+    <framelinvel objtype="site" objname="left_foot" name="left_foot_linvel"/>
+    <framelinvel objtype="site" objname="right_foot" name="right_foot_linvel"/>
+  </sensor>
+
+  <keyframe>
+    <key name="stand"
+      qpos="
+      0 0 0.754
+      1 0 0 0
+      -0.312 0.0 0.0 0.669 -0.363 0.0
+      -0.312 0.0 0.0 0.669 -0.363 0.0
+      0.0 0.0 0.0
+      0.2  0.2 0.0 0.6 0.0 0.0 0.0
+      0.2 -0.2 0.0 0.6 0.0 0.0 0.0
+      "
+      ctrl="
+      -0.312 0.0 0.0 0.669 -0.363 0.0
+      -0.312 0.0 0.0 0.669 -0.363 0.0
+      0.0 0.0 0.0
+      0.2  0.2 0.0 0.6 0.0 0.0 0.0
+      0.2 -0.2 0.0 0.6 0.0 0.0 0.0
+      "/>
+  </keyframe>
+</mujoco>

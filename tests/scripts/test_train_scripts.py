@@ -9,6 +9,7 @@ Coverage targets:
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -20,6 +21,8 @@ import pytest
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
+
+from unilab.base.backend.motrix.playback import run_motrix_playback
 
 _SCRIPTS_DIR = Path(__file__).parent.parent.parent / "scripts"
 _CONF_DIR = Path(__file__).parent.parent.parent / "conf"
@@ -57,6 +60,38 @@ def _load_script(name: str) -> Any:
     mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
     spec.loader.exec_module(mod)  # type: ignore[union-attr]
     return mod
+
+
+def test_analyze_offpolicy_trace_reports_training_e2e(tmp_path, capsys):
+    trace_path = tmp_path / "trace.json"
+    trace_path.write_text(
+        json.dumps(
+            {
+                "traceEvents": [
+                    {"name": "learner/wait_for_data", "ph": "X", "ts": 0.0, "dur": 10.0},
+                    {"name": "learner/wait_for_data", "ph": "X", "ts": 1000.0, "dur": 10.0},
+                    {"name": "learner/training_e2e", "ph": "X", "ts": 0.0, "dur": 2500.0},
+                    {"name": "learner/weight_sync_write", "ph": "X", "ts": 800.0, "dur": 100.0},
+                    {
+                        "name": "learner/update_critic",
+                        "ph": "X",
+                        "ts": 1200.0,
+                        "dur": 50.0,
+                        "args": {"update_idx": 0},
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    mod = _load_script("analyze_offpolicy_trace")
+
+    mod.analyze_training_e2e(trace_path)
+    mod.analyze_iteration_resume_gap(trace_path)
+
+    out = capsys.readouterr().out
+    assert "training_e2e: n=1 mean=2.500ms" in out
+    assert "weight_sync_end_to_next_update0_start_gap: n=1 mean=0.300ms" in out
 
 
 # ---------------------------------------------------------------------------
@@ -164,6 +199,80 @@ def test_offpolicy_hydra_default_algo():
     assert cfg.algo.algo == "sac"
 
 
+def test_appo_runner_kwargs_forward_algorithm_seed():
+    mod = _train_appo()
+    cfg = _appo_cfg(["algo.seed=37"])
+    rl_cfg = OmegaConf.to_container(cfg.algo, resolve=True)
+
+    kwargs = mod.build_appo_runner_kwargs(
+        cfg,
+        env_cfg_override={"reward_config": {}},
+        collector_device="cpu",
+        rl_cfg=cast(dict[str, Any], rl_cfg),
+    )
+
+    assert kwargs["seed"] == 37
+
+
+def test_appo_runner_kwargs_default_load_run_does_not_resume(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mod = _train_appo()
+    cfg = _appo_cfg(["task=allegro_inhand/mujoco", "algo.load_run=-1"])
+
+    def fail_resolve(*args, **kwargs):
+        del args, kwargs
+        raise AssertionError("training default load_run=-1 must not request resume")
+
+    monkeypatch.setattr(mod, "resolve_appo_checkpoint_path", fail_resolve)
+
+    kwargs = mod.build_appo_runner_kwargs(
+        cfg,
+        env_cfg_override={"reward_config": {}},
+        collector_device="cpu",
+    )
+
+    assert "resume_path" not in kwargs
+
+
+def test_appo_runner_kwargs_explicit_load_run_sets_resume_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    mod = _train_appo()
+    cfg = _appo_cfg(["task=allegro_inhand/mujoco", "algo.load_run=run1"])
+    log_root = tmp_path / "logs" / "appo"
+    run_dir = log_root / cfg.training.task_name / "run1"
+    run_dir.mkdir(parents=True)
+    (run_dir / "model_3.pt").write_bytes(b"")
+    (run_dir / "model_9.pt").write_bytes(b"")
+    monkeypatch.setattr(mod, "_get_log_root", lambda _cfg: str(log_root))
+
+    kwargs = mod.build_appo_runner_kwargs(
+        cfg,
+        env_cfg_override={"reward_config": {}},
+        collector_device="cpu",
+    )
+
+    assert kwargs["resume_path"] == str(run_dir / "model_9.pt")
+
+
+def test_appo_runner_kwargs_missing_explicit_load_run_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    mod = _train_appo()
+    cfg = _appo_cfg(["task=allegro_inhand/mujoco", "algo.load_run=missing_run"])
+    monkeypatch.setattr(mod, "_get_log_root", lambda _cfg: str(tmp_path / "logs" / "appo"))
+
+    with pytest.raises(FileNotFoundError, match="missing_run"):
+        mod.build_appo_runner_kwargs(
+            cfg,
+            env_cfg_override={"reward_config": {}},
+            collector_device="cpu",
+        )
+
+
 def test_offpolicy_hydra_default_task():
     cfg = _offpolicy_cfg()
     assert cfg.training.task_name == "G1WalkFlat"
@@ -208,6 +317,16 @@ def test_offpolicy_hydra_default_play_flags():
     assert cfg.training.play_only is False
     assert cfg.training.no_play is False
     assert cfg.algo.load_run == "-1"
+
+
+def test_offpolicy_hydra_default_trace_flags():
+    cfg = _offpolicy_cfg()
+    assert cfg.training.trace_enabled is False
+    assert cfg.training.trace_output_dir is None
+    assert cfg.training.trace_thread_time is False
+    assert cfg.training.trace_cuda_events is True
+    assert cfg.training.verbose_metrics is False
+    assert "replay_h2d_submitter" not in cfg.training
 
 
 def test_offpolicy_hydra_algo_td3():
@@ -317,14 +436,14 @@ def test_ppo_go1_resolved_algo_matches_old_motrix_behavior():
     assert cfg.algo.algorithm.entropy_coef == pytest.approx(1.0e-3)
 
 
-def test_ppo_g1_resolved_algo_matches_old_motrix_behavior():
-    """Equivalence: PPO G1 algo hyperparams match pre-refactor motrix values.
+def test_ppo_g1_resolved_algo_matches_motrix_owner():
+    """Equivalence: PPO G1 algo hyperparams match the Motrix owner values.
 
     For this migration we align with the final UniLab1 Motrix runtime.
     """
     cfg = _ppo_cfg(["task=g1_walk_flat/motrix"])
 
-    assert cfg.algo.max_iterations == 220
+    assert cfg.algo.max_iterations == 2200
     assert cfg.algo.empirical_normalization is True
     assert cfg.algo.obs_groups.actor == ["policy"]
     assert cfg.algo.policy.init_noise_std == pytest.approx(0.5)
@@ -335,7 +454,7 @@ def test_ppo_g1_resolved_algo_matches_old_motrix_behavior():
 def test_ppo_g1_mujoco_base_hyperparams_remain_separate():
     cfg = _ppo_cfg(["task=g1_walk_flat/mujoco"])
 
-    assert cfg.algo.max_iterations == 220
+    assert cfg.algo.max_iterations == 2200
     assert cfg.algo.empirical_normalization is False
     assert cfg.algo.obs_groups.actor == ["actor"]
 
@@ -343,7 +462,7 @@ def test_ppo_g1_mujoco_base_hyperparams_remain_separate():
 def test_ppo_g1_env_preset_has_env_overrides():
     cfg = _ppo_cfg(["task=g1_walk_flat/motrix"])
 
-    assert cfg.env.iterations == 3
+    assert OmegaConf.select(cfg, "env.motrix_max_iterations") is None
     assert cfg.env.control_config.action_scale == pytest.approx(0.5)
     assert cfg.env.commands.vel_limit == [[0.4, 0.0, 0.0], [0.7, 0.0, 0.0]]
     assert cfg.env.gait_phase_init_mode == "offset_phase"
@@ -398,11 +517,22 @@ def test_build_ppo_env_cfg_override_g1_motrix(
     assert env_cfg_override["reward_config"]["min_forward_speed_for_gait_reward"] == pytest.approx(
         0.05
     )
-    assert env_cfg_override["iterations"] == 3
+    assert "motrix_max_iterations" not in env_cfg_override
     assert env_cfg_override["control_config"]["action_scale"] == pytest.approx(0.5)
     assert env_cfg_override["commands"]["vel_limit"] == [[0.4, 0.0, 0.0], [0.7, 0.0, 0.0]]
     assert env_cfg_override["gait_phase_init_mode"] == "offset_phase"
     assert env_cfg_override["reset_base_qvel_limit"] == pytest.approx(0.05)
+
+
+def test_build_ppo_env_cfg_override_carries_motrix_max_iterations_override(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(["task=g1_walk_flat/motrix", "+env.motrix_max_iterations=9"])
+
+    env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
+
+    assert env_cfg_override["motrix_max_iterations"] == 9
 
 
 def test_offpolicy_g1_walk_flat_motrix_env_cfg_override_has_domain_rand():
@@ -462,7 +592,7 @@ def test_build_ppo_env_cfg_override_allegro_mujoco(
     assert appo_cfg.algo.num_envs == 1024
     assert appo_cfg.algo.steps_per_env == cfg.algo.num_steps_per_env
     assert appo_cfg.algo.max_iterations == 3000
-    assert appo_cfg.algo.save_interval == 5000
+    assert appo_cfg.algo.save_interval == 500
     assert list(appo_cfg.algo.actor.hidden_dims) == list(cfg.algo.actor.hidden_dims)
     assert appo_cfg.algo.actor.activation == cfg.algo.actor.activation
     assert appo_cfg.algo.actor.obs_normalization is True
@@ -568,6 +698,26 @@ def test_build_ppo_env_cfg_override_sharpa_grasp_cli_override_wins(
     assert env_cfg_override["reward_config"]["scales"]["rotate"] == pytest.approx(0.3)
 
 
+def test_build_ppo_env_cfg_override_sharpa_grasp_motrix_owner(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(
+        [
+            "task=sharpa_inhand_grasp/motrix",
+            "algo.max_iterations=1",
+            "env.grasp_collection_target=128",
+        ]
+    )
+
+    env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
+
+    assert cfg.training.task_name == "SharpaInhandRotationGrasp"
+    assert cfg.training.sim_backend == "motrix"
+    assert env_cfg_override["grasp_collection_target"] == 128
+    assert env_cfg_override["domain_rand"]["scale_list"] == [0.8]
+
+
 def test_ppo_cli_algo_override_wins_over_base(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -610,7 +760,7 @@ def test_build_ppo_play_env_cfg_override_applies_g1_motion_tracking_play_profile
 
     assert cfg.training.play_env_num == 128
     assert env_cfg_override["render_spacing"] == pytest.approx(2.5)
-    assert env_cfg_override["model_file"] == "/tmp/g1_motion_tracking_play_scene.xml"
+    assert env_cfg_override["scene"].model_file == "/tmp/g1_motion_tracking_play_scene.xml"
     assert env_cfg_override["reward_config"]["scales"]["motion_body_pos"] == pytest.approx(1.0)
 
 
@@ -661,7 +811,7 @@ def test_build_ppo_play_env_cfg_override_resolves_relative_ground_texture(
     )
 
 
-def test_run_motrix_rsl_play_loop_uses_render_spacing():
+def test_run_motrix_rsl_play_loop_uses_render_spacing_and_offset_mode():
     import numpy as np
     import torch
     from tensordict import TensorDict
@@ -678,8 +828,8 @@ def test_run_motrix_rsl_play_loop_uses_render_spacing():
             self.init_renderer_calls = []
             self.render_calls = 0
 
-        def init_renderer(self, spacing=1.0):
-            self.init_renderer_calls.append(spacing)
+        def init_renderer(self, spacing=1.0, offset_mode="grid"):
+            self.init_renderer_calls.append((spacing, offset_mode))
 
         def render(self):
             self.render_calls += 1
@@ -687,16 +837,33 @@ def test_run_motrix_rsl_play_loop_uses_render_spacing():
     class FakeEnv:
         def __init__(self):
             self._renderer = FakeBackend()
-            self.cfg = type("Cfg", (), {"render_spacing": 2.5})()
+            self.cfg = type("Cfg", (), {"render_spacing": 2.5, "render_offset_mode": "zero"})()
 
-        def init_play_renderer(self, render_spacing=None):
+        def init_play_renderer(self, render_spacing=None, render_offset_mode=None):
+            offset_mode = "grid" if render_offset_mode is None else render_offset_mode
             if render_spacing is None:
-                self._renderer.init_renderer()
+                self._renderer.init_renderer(offset_mode=offset_mode)
             else:
-                self._renderer.init_renderer(render_spacing)
+                self._renderer.init_renderer(render_spacing, offset_mode=offset_mode)
 
         def render_play_frame(self):
             self._renderer.render()
+
+        def run_playback(self, **kwargs):
+            kwargs.pop("frame_state_getter", None)
+            kwargs.setdefault("output_video", None)
+            kwargs.setdefault("camera_kwargs", None)
+            return run_motrix_playback(
+                backend=self._renderer,
+                env=self,
+                headless=False if kwargs.get("headless") is None else bool(kwargs["headless"]),
+                record_video=(
+                    bool(kwargs["record_video"])
+                    if kwargs.get("record_video") is not None
+                    else kwargs.get("output_video") is not None
+                ),
+                **{k: v for k, v in kwargs.items() if k not in {"headless", "record_video"}},
+            )
 
     class FakeWrapper:
         def __init__(self):
@@ -723,12 +890,13 @@ def test_run_motrix_rsl_play_loop_uses_render_spacing():
         wrapped_env=wrapped_env,
         policy=FakePolicy(),
         render_spacing=2.5,
+        render_offset_mode="zero",
         num_steps=3,
     )
 
     assert wrapped_env.reset_calls == 1
     assert wrapped_env.step_calls == 3
-    assert wrapped_env.env._renderer.init_renderer_calls == [2.5]
+    assert wrapped_env.env._renderer.init_renderer_calls == [(2.5, "zero")]
     assert wrapped_env.env._renderer.render_calls == 3
 
 
@@ -796,7 +964,8 @@ def test_run_motrix_play_loop_runs_without_physics_state():
             self.init_renderer_calls = 0
             self.render_calls = 0
 
-        def init_renderer(self):
+        def init_renderer(self, spacing=1.0, offset_mode="grid", **kwargs):
+            del spacing, offset_mode, kwargs
             self.init_renderer_calls += 1
 
         def render(self):
@@ -828,12 +997,30 @@ def test_run_motrix_play_loop_runs_without_physics_state():
             assert actions.shape == (2, 3)
             return FakeState()
 
-        def init_play_renderer(self, render_spacing=None):
-            del render_spacing
+        def init_play_renderer(self, render_spacing=None, render_offset_mode=None):
+            del render_spacing, render_offset_mode
             self._renderer.init_renderer()
 
         def render_play_frame(self):
             self._renderer.render()
+
+        def run_playback(self, **kwargs):
+            kwargs.pop("frame_state_getter", None)
+            kwargs.setdefault("output_video", None)
+            kwargs.setdefault("render_spacing", None)
+            kwargs.setdefault("render_offset_mode", None)
+            kwargs.setdefault("camera_kwargs", None)
+            return run_motrix_playback(
+                backend=self._renderer,
+                env=self,
+                headless=False if kwargs.get("headless") is None else bool(kwargs["headless"]),
+                record_video=(
+                    bool(kwargs["record_video"])
+                    if kwargs.get("record_video") is not None
+                    else kwargs.get("output_video") is not None
+                ),
+                **{k: v for k, v in kwargs.items() if k not in {"headless", "record_video"}},
+            )
 
     env = FakeEnv()
 
@@ -897,13 +1084,23 @@ def test_offpolicy_default_device_cuda_available():
 def test_offpolicy_default_device_mps_fallback():
     mock_torch = MagicMock()
     mock_torch.cuda.is_available.return_value = False
+    mock_torch.xpu.is_available.return_value = False
     mock_torch.backends.mps.is_available.return_value = True
     assert _offpolicy().default_device(mock_torch) == "mps"
+
+
+def test_offpolicy_default_device_xpu_before_mps():
+    mock_torch = MagicMock()
+    mock_torch.cuda.is_available.return_value = False
+    mock_torch.xpu.is_available.return_value = True
+    mock_torch.backends.mps.is_available.return_value = True
+    assert _offpolicy().default_device(mock_torch) == "xpu"
 
 
 def test_offpolicy_default_device_cpu_fallback():
     mock_torch = MagicMock()
     mock_torch.cuda.is_available.return_value = False
+    mock_torch.xpu.is_available.return_value = False
     mock_torch.backends.mps.is_available.return_value = False
     assert _offpolicy().default_device(mock_torch) == "cpu"
 
@@ -1577,7 +1774,7 @@ def test_offpolicy_flashsac_rejects_multi_gpu():
         _offpolicy().build_runner("flashsac", cfg)
 
 
-def test_offpolicy_sac_multi_gpu_rejects_symmetry():
+def test_offpolicy_sac_multi_gpu_rejected_by_double_buffer():
     cfg = _offpolicy_cfg(
         [
             "algo=sac",
@@ -1587,19 +1784,11 @@ def test_offpolicy_sac_multi_gpu_rejects_symmetry():
         ]
     )
 
-    with pytest.raises(
-        ValueError,
-        match="Off-policy symmetry augmentation does not support training.num_gpus > 1",
-    ):
+    with pytest.raises(ValueError, match="currently single-GPU only"):
         _offpolicy().build_runner("sac", cfg)
 
 
-def test_offpolicy_sac_multi_gpu_allows_explicit_symmetry_disable(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    import gymnasium as gym
-
-    mod = _offpolicy()
+def test_offpolicy_sac_multi_gpu_rejects_even_with_explicit_symmetry_disable():
     cfg = _offpolicy_cfg(
         [
             "algo=sac",
@@ -1610,41 +1799,8 @@ def test_offpolicy_sac_multi_gpu_allows_explicit_symmetry_disable(
         ]
     )
 
-    class _FakeEnv:
-        obs_groups_spec = {"obs": 4, "critic": 6}
-        action_space = gym.spaces.Box(-1.0, 1.0, shape=(2,))
-
-        def close(self) -> None:
-            return None
-
-    class _FakeLearner:
-        def __init__(self, *args, **kwargs) -> None:
-            self.args = args
-            self.kwargs = kwargs
-
-    class _FakeRunner:
-        @staticmethod
-        def validate_capabilities(*args, **kwargs) -> None:
-            return None
-
-        def __init__(self, *args, **kwargs) -> None:
-            self.args = args
-            self.kwargs = kwargs
-
-    monkeypatch.setattr(mod, "ensure_registries", lambda: None)
-    monkeypatch.setattr(mod, "create_env", lambda *args, **kwargs: _FakeEnv())
-
-    import unilab.algos.torch.fast_sac.learner as learner_mod
-    import unilab.algos.torch.offpolicy.multi_gpu_runner as multi_gpu_runner_mod
-
-    monkeypatch.setattr(learner_mod, "FastSACLearner", _FakeLearner)
-    monkeypatch.setattr(multi_gpu_runner_mod, "MultiGPUOffPolicyRunner", _FakeRunner)
-
-    runner = mod.build_runner("sac", cfg)
-
-    assert isinstance(runner, _FakeRunner)
-    assert runner.kwargs["num_gpus"] == 2
-    assert runner.kwargs["learner_kwargs"]["use_symmetry"] is False
+    with pytest.raises(ValueError, match="currently single-GPU only"):
+        _offpolicy().build_runner("sac", cfg)
 
 
 @pytest.mark.parametrize(
@@ -1740,6 +1896,184 @@ def test_train_rsl_rl_play_reports_missing_requested_checkpoint_in_resolved_run(
     assert "Could not resolve a checkpoint for play mode." in captured
     assert f"resolved_run={run_dir}" in captured
     assert "algo.checkpoint=12" in captured
+
+
+def test_train_rsl_rl_motrix_auto_play_is_interactive(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(
+        [
+            "task=go2_joystick_rough/motrix",
+            "training.play_only=true",
+            "training.play_steps=37",
+            "training.render_spacing=2.5",
+        ]
+    )
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    checkpoint = run_dir / "model_37.pt"
+    mod.torch.save({"actor_state_dict": {}}, checkpoint)
+
+    class FakeEnv:
+        def __init__(self):
+            self.cfg = type("Cfg", (), {"render_spacing": 2.5, "render_offset_mode": "zero"})()
+
+        def run_playback_mode(self, **kwargs):
+            assert kwargs["play_render_mode"] == "auto"
+            assert kwargs["play_steps"] == 37
+            plan = type(
+                "Plan",
+                (),
+                {
+                    "mode": "interactive",
+                    "headless": False,
+                    "record_video": False,
+                    "num_steps": None,
+                    "output_video": None,
+                },
+            )()
+            kwargs["on_plan"](plan)
+            captured["env"] = self
+            captured.update({key: value for key, value in kwargs.items() if key != "on_plan"})
+            captured["headless"] = plan.headless
+            captured["record_video"] = plan.record_video
+            captured["num_steps"] = plan.num_steps
+            captured["output_video"] = plan.output_video
+            return None
+
+    class FakeWrapper:
+        def __init__(self, env, device):
+            self.env = env
+            self.device = device
+
+        def reset(self):
+            return 0, {}
+
+        def step(self, actions):
+            return 0, 0, False, {}
+
+    class FakeRunner:
+        def __init__(self, wrapped_env, train_cfg, log_dir, device):
+            self.wrapped_env = wrapped_env
+            self.train_cfg = train_cfg
+            self.log_dir = log_dir
+            self.device = device
+
+        def load(self, path, **kwargs):
+            self.loaded_path = path
+            self.load_kwargs = kwargs
+
+        def get_inference_policy(self, device):
+            return lambda obs: obs
+
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setattr(mod, "EXPORT_POLICY", False, raising=False)
+    monkeypatch.setattr(mod, "parse_checkpoint_path", lambda *args, **kwargs: (checkpoint, run_dir))
+    monkeypatch.setattr(mod, "build_ppo_play_env_cfg_override", lambda cfg: {})
+    monkeypatch.setattr(mod, "create_env", lambda *args, **kwargs: FakeEnv())
+    monkeypatch.setattr(mod, "_resolve_ppo_wrapper_cls", lambda rl_cfg: FakeWrapper)
+    monkeypatch.setattr(mod, "normalize_ppo_train_cfg", lambda rl_cfg: {})
+    monkeypatch.setattr(mod, "OnPolicyRunner", FakeRunner)
+
+    result = mod.play_rsl_rl(cfg, device="cpu")
+
+    assert result is None
+    assert captured["headless"] is False
+    assert captured["record_video"] is False
+    assert captured["num_steps"] is None
+    assert captured["output_video"] is None
+    assert captured["render_spacing"] == pytest.approx(2.5)
+    assert captured["render_offset_mode"] == "zero"
+
+
+def test_train_rsl_rl_record_play_uses_backend_plan(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(
+        [
+            "task=go2_joystick_rough/motrix",
+            "training.play_only=true",
+            "training.play_render_mode=record",
+            "training.play_steps=37",
+        ]
+    )
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    checkpoint = run_dir / "model_37.pt"
+    mod.torch.save({"actor_state_dict": {}}, checkpoint)
+
+    class FakeEnv:
+        def __init__(self):
+            self.cfg = type("Cfg", (), {"render_spacing": 1.0, "render_offset_mode": "grid"})()
+
+        def run_playback_mode(self, **kwargs):
+            assert kwargs["play_render_mode"] == "record"
+            assert kwargs["play_steps"] == 37
+            plan = type(
+                "Plan",
+                (),
+                {
+                    "mode": "record",
+                    "headless": True,
+                    "record_video": True,
+                    "num_steps": 37,
+                    "output_video": kwargs["output_video"],
+                },
+            )()
+            kwargs["on_plan"](plan)
+            captured["env"] = self
+            captured.update({key: value for key, value in kwargs.items() if key != "on_plan"})
+            captured["headless"] = plan.headless
+            captured["record_video"] = plan.record_video
+            captured["num_steps"] = plan.num_steps
+            captured["output_video"] = plan.output_video
+            return str(plan.output_video)
+
+    class FakeWrapper:
+        def __init__(self, env, device):
+            self.env = env
+            self.device = device
+
+        def reset(self):
+            return 0, {}
+
+        def step(self, actions):
+            return 0, 0, False, {}
+
+    class FakeRunner:
+        def __init__(self, wrapped_env, train_cfg, log_dir, device):
+            self.wrapped_env = wrapped_env
+            self.train_cfg = train_cfg
+            self.log_dir = log_dir
+            self.device = device
+
+        def load(self, path, map_location=None):
+            self.loaded_path = path
+            self.map_location = map_location
+
+        def get_inference_policy(self, device):
+            return lambda obs: obs
+
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setattr(mod, "EXPORT_POLICY", False, raising=False)
+    monkeypatch.setattr(mod, "parse_checkpoint_path", lambda *args, **kwargs: (checkpoint, run_dir))
+    monkeypatch.setattr(mod, "build_ppo_play_env_cfg_override", lambda cfg: {})
+    monkeypatch.setattr(mod, "create_env", lambda *args, **kwargs: FakeEnv())
+    monkeypatch.setattr(mod, "_resolve_ppo_wrapper_cls", lambda rl_cfg: FakeWrapper)
+    monkeypatch.setattr(mod, "normalize_ppo_train_cfg", lambda rl_cfg: {})
+    monkeypatch.setattr(mod, "OnPolicyRunner", FakeRunner)
+
+    result = mod.play_rsl_rl(cfg, device="cpu")
+
+    assert result == str(run_dir / "play_video.mp4")
+    assert captured["headless"] is True
+    assert captured["record_video"] is True
+    assert captured["num_steps"] == 37
+    assert captured["output_video"] == run_dir / "play_video.mp4"
 
 
 def test_train_appo_get_log_root_uses_algo_log_name():

@@ -18,9 +18,9 @@ from unilab.algos.torch.hora.rsl_rl_compat import (
     is_rsl_rl_v5,
 )
 from unilab.base.observations import get_obs_dims
-from unilab.training import BackendAdapter, create_env
-from unilab.visualization import render_play_mode
+from unilab.training import BackendAdapter, create_env, log_playback_plan
 
+from .models import build_hora_shared_actor_critic
 from .observations import build_hora_actor_tensordict, split_hora_obs_with_priv_info
 from .runtime import is_hora_appo_runtime
 
@@ -154,7 +154,27 @@ def play_hora_appo(
     actor_cfg = deepcopy(rl_cfg_dict["actor"])
     actor_cls = resolve_callable(actor_cfg.pop("class_name"))
     actor_cfg.pop("num_actions", None)
-    actor = actor_cls(td_example, rl_cfg_dict["obs_groups"], "actor", action_dim, **actor_cfg)
+
+    critic_cfg = deepcopy(rl_cfg_dict.get("critic") or rl_cfg_dict.get("actor") or {})
+    critic_cfg.pop("class_name", None)
+    critic_cfg.pop("num_actions", None)
+    critic_cfg.pop("distribution_cfg", None)
+
+    shared_model = build_hora_shared_actor_critic(
+        obs_dim=obs_dim,
+        action_dim=action_dim,
+        priv_info_dim=priv_info_dim,
+        actor_cfg=actor_cfg,
+        critic_cfg=critic_cfg,
+    ).to(device)
+    actor = actor_cls(
+        td_example,
+        rl_cfg_dict["obs_groups"],
+        "actor",
+        action_dim,
+        shared_model=shared_model,
+        **actor_cfg,
+    )
     actor = actor.to(device)
     actor.eval()
 
@@ -167,13 +187,6 @@ def play_hora_appo(
     checkpoint = torch.load(load_path, map_location=device, weights_only=True)
     actor.load_state_dict(checkpoint["actor"])
 
-    if load_path_dir is None:
-        print(f"Could not resolve checkpoint directory. load_path_dir={load_path_dir}")
-        return None
-
-    output_video = os.path.join(load_path_dir, "play_video.mp4")
-    print(f"Rendering video to {output_video}...")
-    num_steps = int(getattr(cfg.training, "play_steps", 1000))
     current_priv_info: np.ndarray | None = None
 
     def initialize_play_obs() -> np.ndarray:
@@ -201,29 +214,35 @@ def play_hora_appo(
 
     print("Collecting physics states...")
     with torch.inference_mode():
-        render_play_mode(
-            env,
-            sim_backend=cfg.training.sim_backend,
-            render_spacing=float(
-                getattr(cfg.training, "render_spacing", getattr(env.cfg, "render_spacing", 1.0))
+        play_video_path = cast(
+            str | None,
+            env.run_playback_mode(
+                play_render_mode=getattr(cfg.training, "play_render_mode", "auto"),
+                play_steps=getattr(cfg.training, "play_steps", None),
+                output_video=os.path.join(load_path_dir, "play_video.mp4")
+                if load_path_dir
+                else None,
+                render_spacing=float(
+                    getattr(cfg.training, "render_spacing", getattr(env.cfg, "render_spacing", 1.0))
+                ),
+                initialize=initialize_play_obs,
+                step=step_play_obs,
+                camera_kwargs={
+                    "cam_distance": cfg.training.cam_distance,
+                    "cam_elevation": cfg.training.cam_elevation,
+                    "cam_azimuth": cfg.training.cam_azimuth,
+                    "cam_lookat": getattr(cfg.training, "cam_lookat", None),
+                    "cam_tracking": getattr(cfg.training, "cam_tracking", False),
+                    "cam_tracking_env_idx": getattr(cfg.training, "cam_tracking_env_idx", 0),
+                    "cam_tracking_extra_envs": getattr(cfg.training, "cam_tracking_extra_envs", 2),
+                },
+                on_plan=log_playback_plan,
             ),
-            num_steps=num_steps,
-            output_video=output_video,
-            initialize=initialize_play_obs,
-            step=step_play_obs,
-            camera_kwargs={
-                "cam_distance": cfg.training.cam_distance,
-                "cam_elevation": cfg.training.cam_elevation,
-                "cam_azimuth": cfg.training.cam_azimuth,
-                "cam_lookat": getattr(cfg.training, "cam_lookat", None),
-                "cam_tracking": getattr(cfg.training, "cam_tracking", False),
-                "cam_tracking_env_idx": getattr(cfg.training, "cam_tracking_env_idx", 0),
-                "cam_tracking_extra_envs": getattr(cfg.training, "cam_tracking_extra_envs", 2),
-            },
         )
-    print(f"Saving video to {output_video} with mediapy...")
+    if play_video_path is not None:
+        print(f"Saving video to {play_video_path} with mediapy...")
     print("Done.")
-    return output_video
+    return play_video_path
 
 
 __all__ = ["HoraAPPORunner", "HoraAPPORuntime", "play_hora_appo", "resolve_hora_appo_runtime"]

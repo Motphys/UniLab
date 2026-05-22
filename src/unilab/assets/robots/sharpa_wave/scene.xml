@@ -35,7 +35,6 @@
         solref="0.01 1"
         material="object_orient_mat"
       />
-      <inertial pos="0 0 0" mass="0.05" diaginertia="0.0001 0.0001 0.0001"/>
     </body>
   </worldbody>
 

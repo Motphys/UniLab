@@ -14,13 +14,9 @@ import matplotlib.pyplot as plt
 import mlx.core as mx
 import numpy as np
 import torch
+from mujoco import rollout as mj_rollout
 
 from unilab.base import registry
-
-try:
-    from mujoco import mlx_step as mj_mlx_step
-except Exception:
-    mj_mlx_step = None
 
 
 def ensure_registries() -> None:
@@ -126,15 +122,8 @@ def measure_physics_step_ms(num_envs: int, iters: int) -> float:
         env.close()
 
 
-def _unpack_rollout_out(step_out):
-    state_mx, sensor_mx = step_out
-    return state_mx[:, -1, :], sensor_mx[:, -1, :]
-
-
-def measure_physics_step_mlx_native_ms(num_envs: int, iters: int) -> float:
-    """Measure pure MuJoCo physics stepping via native mujoco.mlx_step."""
-    if mj_mlx_step is None:
-        raise RuntimeError("Native mujoco.mlx_step is unavailable.")
+def measure_physics_step_rollout_ms(num_envs: int, iters: int) -> float:
+    """Measure pure MuJoCo physics stepping via mujoco.rollout."""
     env = registry.make(ENV_TASK_NAME, num_envs=num_envs, sim_backend="mujoco")
     try:
         initial_state, _, _ = env.reset(np.arange(env.num_envs))
@@ -145,43 +134,45 @@ def measure_physics_step_mlx_native_ms(num_envs: int, iters: int) -> float:
             action_high,
             size=(env.num_envs, env.action_space.shape[0]),
         ).astype(np.float32)
-        actions_mx = mx.array(actions_np, dtype=mx.float32)
-        control_mx = mx.broadcast_to(
-            actions_mx[:, None, :],
+        control_np = np.broadcast_to(
+            actions_np[:, None, :],
             (env.num_envs, env.cfg.sim_substeps, env.action_space.shape[0]),
+        ).copy()
+        state_buf = np.empty(
+            (env.num_envs, env.cfg.sim_substeps, env.physics_state_dim), dtype=np.float32
+        )
+        sensor_buf = np.empty(
+            (env.num_envs, env.cfg.sim_substeps, env.model.nsensordata), dtype=np.float32
         )
         model_batch = [env._model] * env.num_envs
-        initial_state = mx.array(initial_state, dtype=mx.float32)
-        with mj_mlx_step.MlxStepRunner(nthread=env._n_threads) as runner:
+        with mj_rollout.Rollout(nthread=env._n_threads) as runner:
             for _ in range(20):
-                step_out = runner.step(
-                    model=model_batch,
-                    data=env._worker_data,
-                    initial_state=initial_state,
-                    control=control_mx,
+                runner.rollout(
+                    model_batch,
+                    env._worker_data,
+                    initial_state,
+                    control_np,
                     nstep=env.cfg.sim_substeps,
-                    out_dtype=mx.float32,
+                    state=state_buf,
+                    sensordata=sensor_buf,
                 )
-                last_state_mx, last_sensor_mx = _unpack_rollout_out(step_out)
-                mx.eval(last_state_mx, last_sensor_mx)
-                initial_state = last_state_mx
+                initial_state = state_buf[:, -1, :].copy()
 
             elapsed = 0.0
             for _ in range(iters):
                 t0 = time.perf_counter()
-                step_out = runner.step(
-                    model=model_batch,
-                    data=env._worker_data,
-                    initial_state=initial_state,
-                    control=control_mx,
+                runner.rollout(
+                    model_batch,
+                    env._worker_data,
+                    initial_state,
+                    control_np,
                     nstep=env.cfg.sim_substeps,
-                    out_dtype=mx.float32,
+                    state=state_buf,
+                    sensordata=sensor_buf,
                 )
-                last_state_mx, last_sensor_mx = _unpack_rollout_out(step_out)
-                mx.eval(last_state_mx, last_sensor_mx)
                 t1 = time.perf_counter()
                 elapsed += t1 - t0
-                initial_state = last_state_mx
+                initial_state = state_buf[:, -1, :].copy()
         return elapsed / iters * 1000.0
     finally:
         env.close()
@@ -194,8 +185,6 @@ def measure_rollout_bridge_mlx_pipeline_ms(
     scalars_mx: dict,
 ) -> dict:
     """End-to-end: MLX action -> MuJoCo rollout -> MLX sensordata/reward."""
-    if mj_mlx_step is None:
-        raise RuntimeError("Native mujoco.mlx_step is unavailable.")
     env = registry.make(ENV_TASK_NAME, num_envs=num_envs, sim_backend="mujoco")
     try:
         initial_state, _, reset_info = env.reset(np.arange(env.num_envs))
@@ -212,19 +201,30 @@ def measure_rollout_bridge_mlx_pipeline_ms(
         control_mx = mx.broadcast_to(
             actions_mx[:, None, :], (env.num_envs, env.cfg.sim_substeps, env.action_space.shape[0])
         )
+        control_np = np.array(control_mx)
+        state_buf = np.empty(
+            (env.num_envs, env.cfg.sim_substeps, env.physics_state_dim), dtype=np.float32
+        )
+        sensor_buf = np.empty(
+            (env.num_envs, env.cfg.sim_substeps, env.model.nsensordata), dtype=np.float32
+        )
         mx.eval(control_mx, commands_mx, last_actions_mx)
         model_batch = [env._model] * env.num_envs
-        with mj_mlx_step.MlxStepRunner(nthread=env._n_threads) as runner:
+        with mj_rollout.Rollout(nthread=env._n_threads) as runner:
             for _ in range(10):
-                rollout_out = runner.step(
-                    model=model_batch,
-                    data=env._worker_data,
+                runner.rollout(
+                    model_batch,
+                    env._worker_data,
                     initial_state=initial_state,
-                    control=control_mx,
+                    control=control_np,
                     nstep=env.cfg.sim_substeps,
-                    out_dtype=mx.float32,
+                    state=state_buf,
+                    sensordata=sensor_buf,
                 )
-                last_state_mx, last_sensor_mx = _unpack_rollout_out(rollout_out)
+                last_state = state_buf[:, -1, :].copy()
+                last_sensor = sensor_buf[:, -1, :]
+                last_state_mx = mx.array(last_state, dtype=mx.float32)
+                last_sensor_mx = mx.array(last_sensor, dtype=mx.float32)
                 obs_mx, rew_mx, done_mx = mlx_postprocess_go1(
                     sensor_mx=last_sensor_mx,
                     physics_mx=last_state_mx,
@@ -235,22 +235,26 @@ def measure_rollout_bridge_mlx_pipeline_ms(
                     scalars=scalars_mx,
                 )
                 mx.eval(obs_mx, rew_mx, done_mx)
-                initial_state = last_state_mx
+                initial_state = last_state
 
             rollout_elapsed = 0.0
             post_elapsed = 0.0
             for _ in range(iters):
                 t0 = time.perf_counter()
-                rollout_out = runner.step(
-                    model=model_batch,
-                    data=env._worker_data,
+                runner.rollout(
+                    model_batch,
+                    env._worker_data,
                     initial_state=initial_state,
-                    control=control_mx,
+                    control=control_np,
                     nstep=env.cfg.sim_substeps,
-                    out_dtype=mx.float32,
+                    state=state_buf,
+                    sensordata=sensor_buf,
                 )
                 t1 = time.perf_counter()
-                last_state_mx, last_sensor_mx = _unpack_rollout_out(rollout_out)
+                last_state = state_buf[:, -1, :].copy()
+                last_sensor = sensor_buf[:, -1, :]
+                last_state_mx = mx.array(last_state, dtype=mx.float32)
+                last_sensor_mx = mx.array(last_sensor, dtype=mx.float32)
                 obs_mx, rew_mx, done_mx = mlx_postprocess_go1(
                     sensor_mx=last_sensor_mx,
                     physics_mx=last_state_mx,
@@ -264,7 +268,7 @@ def measure_rollout_bridge_mlx_pipeline_ms(
                 t2 = time.perf_counter()
                 rollout_elapsed += t1 - t0
                 post_elapsed += t2 - t1
-                initial_state = last_state_mx
+                initial_state = last_state
 
             rollout_ms = rollout_elapsed / iters * 1000.0
             post_ms = post_elapsed / iters * 1000.0
@@ -442,7 +446,7 @@ def bench_one_envnum(num_envs: int, iters: int, layout: dict):
         physics_step_env_wrapper_ms = measure_physics_step_ms(num_envs=num_envs, iters=iters)
     except Exception:
         physics_step_env_wrapper_ms = 0.0
-    physics_step_mlx_native_ms = measure_physics_step_mlx_native_ms(num_envs=num_envs, iters=iters)
+    physics_step_rollout_ms = measure_physics_step_rollout_ms(num_envs=num_envs, iters=iters)
 
     sensor_np = np.random.randn(num_envs, layout["sensor_dim"]).astype(np.float32)
     physics_np = np.random.randn(num_envs, layout["physics_dim"]).astype(np.float32)
@@ -698,7 +702,7 @@ def bench_one_envnum(num_envs: int, iters: int, layout: dict):
             "num_action": layout["num_action"],
         },
         "physics_step_mode": {
-            "physics_step_mlx_native_ms": physics_step_mlx_native_ms,
+            "physics_step_rollout_ms": physics_step_rollout_ms,
             "physics_step_env_wrapper_ms": physics_step_env_wrapper_ms,
         },
         "mlx_rollout_bridge_mode": {
@@ -710,32 +714,32 @@ def bench_one_envnum(num_envs: int, iters: int, layout: dict):
             "compute_numpy_ms": cpu_compute_ms,
             "transfer_obs_rew_done_to_torch_mps_ms": cpu_transfer_ms,
             "total_ms": cpu_total_ms,
-            "total_with_physics_ms": cpu_total_ms + physics_step_mlx_native_ms,
+            "total_with_physics_ms": cpu_total_ms + physics_step_rollout_ms,
         },
         "cpu_numpy_to_mlx_mode": {
             "compute_numpy_ms": cpu_to_mlx_compute_ms,
             "transfer_obs_rew_done_to_mlx_ms": cpu_to_mlx_transfer_ms,
             "total_ms": cpu_to_mlx_total_ms,
-            "total_with_physics_ms": cpu_to_mlx_total_ms + physics_step_mlx_native_ms,
+            "total_with_physics_ms": cpu_to_mlx_total_ms + physics_step_rollout_ms,
         },
         "torch_mps_mode": {
             "transfer_all_numpy_to_torch_mps_ms": torch_transfer_ms,
             "compute_postprocess_on_torch_mps_ms": torch_compute_ms,
             "total_ms": torch_total_ms,
-            "total_with_physics_ms": torch_total_ms + physics_step_mlx_native_ms,
+            "total_with_physics_ms": torch_total_ms + physics_step_rollout_ms,
         },
         "mlx_mode": {
             "transfer_all_numpy_to_mlx_ms": mlx_transfer_ms,
             "compute_postprocess_on_mlx_ms": mlx_compute_ms,
             "total_ms": mlx_total_ms,
-            "total_with_physics_ms": mlx_total_ms + physics_step_mlx_native_ms,
+            "total_with_physics_ms": mlx_total_ms + physics_step_rollout_ms,
         },
         "mlx_to_torch_mps_mode": {
             "transfer_all_numpy_to_mlx_ms": mlx_torch_transfer_ms,
             "compute_postprocess_on_mlx_ms": mlx_torch_compute_ms,
             "transfer_postprocess_result_mlx_to_torch_mps_ms": mlx_to_torch_transfer_ms,
             "total_ms": mlx_to_torch_total_ms,
-            "total_with_physics_ms": mlx_to_torch_total_ms + physics_step_mlx_native_ms,
+            "total_with_physics_ms": mlx_to_torch_total_ms + physics_step_rollout_ms,
         },
         "speedup_cpu_div_torch_mps": cpu_total_ms / torch_total_ms if torch_total_ms > 0 else 0.0,
         "speedup_cpu_div_mlx": cpu_total_ms / mlx_total_ms if mlx_total_ms > 0 else 0.0,
@@ -779,7 +783,7 @@ def plot_results(results: list[dict], output_png: Path):
             for r in results
         ]
     )
-    physics_step = np.array([r["physics_step_mode"]["physics_step_mlx_native_ms"] for r in results])
+    physics_step = np.array([r["physics_step_mode"]["physics_step_rollout_ms"] for r in results])
 
     fig, (ax_top, ax_bottom) = plt.subplots(2, 1, figsize=(13, 10), sharex=True)
     x_cpu = x - 2.0 * w
@@ -1090,7 +1094,7 @@ def main():
         one = bench_one_envnum(nenv, args.iters, layout)
         all_results.append(one)
         print(
-            f"[{nenv}] Physics(mlx_native)={one['physics_step_mode']['physics_step_mlx_native_ms']:.3f} ms, "
+            f"[{nenv}] Physics(rollout)={one['physics_step_mode']['physics_step_rollout_ms']:.3f} ms, "
             f"Physics(env_wrapper)={one['physics_step_mode']['physics_step_env_wrapper_ms']:.3f} ms, "
             f"CPU={one['cpu_numpy_mode']['total_with_physics_ms']:.3f} ms, "
             f"CPU->MLX={one['cpu_numpy_to_mlx_mode']['total_with_physics_ms']:.3f} ms, "
@@ -1124,7 +1128,7 @@ def main():
             "env_task_name": ENV_TASK_NAME,
             "note": (
                 "Postprocess logic synchronized with latest "
-                f"{OWNER_TASK_ID} (env: {ENV_TASK_NAME}); physics step uses native mujoco.mlx_step."
+                f"{OWNER_TASK_ID} (env: {ENV_TASK_NAME}); physics step uses mujoco.rollout."
             ),
         },
         "summary": {
@@ -1137,10 +1141,10 @@ def main():
             "geomean_speedup_torch_over_mlx_postprocess": geomean(
                 [r["speedup_torch_mps_div_mlx"] for r in all_results]
             ),
-            "geomean_env_wrapper_over_mlx_native_physics": geomean(
+            "geomean_env_wrapper_over_rollout_physics": geomean(
                 [
                     r["physics_step_mode"]["physics_step_env_wrapper_ms"]
-                    / max(r["physics_step_mode"]["physics_step_mlx_native_ms"], 1e-12)
+                    / max(r["physics_step_mode"]["physics_step_rollout_ms"], 1e-12)
                     for r in all_results
                 ]
             ),

@@ -99,16 +99,6 @@ _G1_OWNER_CASES = [
         "action_scale": 1.0,
         "curriculum_enabled": True,
     },
-    {
-        "id": "flashsac_walk_motrix",
-        "config_group": "offpolicy",
-        "overrides": ["algo=flashsac", "task=flashsac/g1_walk_flat/motrix"],
-        "task_name": "G1WalkFlat",
-        "backend": "motrix",
-        "profile": "walk",
-        "action_scale": 1.0,
-        "curriculum_enabled": True,
-    },
 ]
 
 
@@ -177,7 +167,7 @@ def test_g1_owner_yaml_regression_contract(case: dict[str, Any]):
     )
 
     if "model_suffix" in case:
-        assert str(full_env_cfg.model_file).endswith(case["model_suffix"])
+        assert full_env_cfg.scene.model_file.endswith(case["model_suffix"])
 
     reward_config = OmegaConf.to_container(cfg.reward, resolve=True)
     assert env_cfg_override["reward_config"] == reward_config

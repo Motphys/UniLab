@@ -12,7 +12,11 @@ from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
 
 from unilab.base.registry import ensure_registries
-from unilab.envs.manipulation.sharpa_inhand.base import SharpaInhandBaseEnv
+from unilab.envs.manipulation.sharpa_inhand.base import (
+    SOURCE_DEFAULT_HAND_JOINT_POS_DEG,
+    SharpaInhandBaseEnv,
+    resolve_grasp_cache_file,
+)
 from unilab.envs.manipulation.sharpa_inhand.rotation import SharpaInhandRotationDRProvider
 
 _CONF_DIR = Path(__file__).resolve().parents[2] / "conf"
@@ -33,6 +37,71 @@ def test_sharpa_env_uses_backend_contract_for_mujoco_metadata() -> None:
     assert "_backend.model" not in source
 
 
+def test_sharpa_motrix_owner_cfg_enables_supported_dr_terms() -> None:
+    cfg, env_cfg_override = _compose_sharpa_motrix_owner_cfg(num_envs=2)
+
+    assert cfg.training.task_name == "SharpaInhandRotation"
+    assert cfg.training.sim_backend == "motrix"
+    assert env_cfg_override["domain_rand"]["scale_list"] == [
+        0.8,
+        0.9,
+        1.0,
+        1.1,
+        1.2,
+        1.3,
+        1.4,
+        1.5,
+        1.6,
+    ]
+    assert env_cfg_override["domain_rand"]["randomize_pd_gains"] is True
+    assert env_cfg_override["domain_rand"]["randomize_friction"] is True
+    assert env_cfg_override["domain_rand"]["randomize_com"] is True
+    assert env_cfg_override["domain_rand"]["randomize_mass"] is True
+    assert env_cfg_override["domain_rand"]["randomize_gravity"] is False
+    assert env_cfg_override["domain_rand"]["randomize_gravity_direction"] is True
+    assert env_cfg_override["domain_rand"]["force_scale"] == pytest.approx(2.0)
+
+
+def test_sharpa_registry_exposes_rotation_and_grasp_motrix() -> None:
+    ensure_registries()
+
+    from unilab.base import registry
+
+    registered = registry.list_registered_envs()
+
+    assert set(registered["SharpaInhandRotation"]["available_backends"]) == {"mujoco", "motrix"}
+    assert set(registered["SharpaInhandRotationGrasp"]["available_backends"]) == {
+        "mujoco",
+        "motrix",
+    }
+
+
+def test_sharpa_grasp_motrix_owner_cfg() -> None:
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(_CONF_DIR / "ppo"), version_base="1.3"):
+        cfg = compose(
+            "config",
+            overrides=[
+                "task=sharpa_inhand_grasp/motrix",
+                "algo.num_envs=2",
+            ],
+        )
+
+    env_cfg_override = OmegaConf.to_container(cfg.env, resolve=True)
+    assert isinstance(env_cfg_override, dict)
+
+    assert cfg.training.task_name == "SharpaInhandRotationGrasp"
+    assert cfg.training.sim_backend == "motrix"
+    assert env_cfg_override["domain_rand"]["scale_list"] == [0.8]
+    assert env_cfg_override["domain_rand"]["randomize_gravity"] is False
+    assert env_cfg_override["domain_rand"]["randomize_gravity_direction"] is False
+    assert env_cfg_override["domain_rand"]["randomize_pd_gains"] is False
+    assert env_cfg_override["domain_rand"]["randomize_friction"] is False
+    assert env_cfg_override["domain_rand"]["randomize_com"] is False
+    assert env_cfg_override["domain_rand"]["randomize_mass"] is True
+    assert env_cfg_override["domain_rand"]["force_scale"] == pytest.approx(0.0)
+
+
 def _require_mujoco_runtime() -> None:
     """Require the MuJoCo batch runtime used by Sharpa reset randomization tests.
 
@@ -50,6 +119,10 @@ def _require_mujoco_runtime() -> None:
             "mujoco.batch_env not available (platform/libstdc++ issue)",
             allow_module_level=False,
         )
+
+
+def _require_motrix_runtime() -> None:
+    pytest.importorskip("motrixsim", reason="motrixsim not installed")
 
 
 def _compose_sharpa_mujoco_owner_cfg(num_envs: int) -> tuple[Any, dict[str, Any]]:
@@ -75,6 +148,36 @@ def _compose_sharpa_mujoco_owner_cfg(num_envs: int) -> tuple[Any, dict[str, Any]
     assert isinstance(env_cfg_override, dict)
     env_cfg_override["reward_config"] = OmegaConf.to_container(cfg.reward, resolve=True)
     return cfg, env_cfg_override
+
+
+def _compose_sharpa_motrix_owner_cfg(num_envs: int) -> tuple[Any, dict[str, Any]]:
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(_CONF_DIR / "ppo"), version_base="1.3"):
+        cfg = compose(
+            "config",
+            overrides=[
+                "task=sharpa_inhand/motrix",
+                f"algo.num_envs={num_envs}",
+            ],
+        )
+
+    env_cfg_override = OmegaConf.to_container(cfg.env, resolve=True)
+    assert isinstance(env_cfg_override, dict)
+    env_cfg_override["reward_config"] = OmegaConf.to_container(cfg.reward, resolve=True)
+    return cfg, env_cfg_override
+
+
+def _write_sharpa_grasp_cache(
+    cache_prefix: Path,
+    scale_values: list[float],
+    *,
+    rows: int = 8,
+) -> None:
+    hand_qpos = np.deg2rad(np.asarray(SOURCE_DEFAULT_HAND_JOINT_POS_DEG, dtype=np.float64))
+    object_pose = np.asarray([-0.09559, -0.00517, 0.61906, 1.0, 0.0, 0.0, 0.0])
+    cache = np.broadcast_to(np.concatenate([hand_qpos, object_pose]), (rows, 29)).copy()
+    for scale_value in scale_values:
+        np.save(resolve_grasp_cache_file(str(cache_prefix), float(scale_value)), cache)
 
 
 def _build_fake_tactile_env(
@@ -152,6 +255,211 @@ def _build_fake_tactile_env(
     return env
 
 
+def test_sharpa_motrix_reset_and_step_smoke() -> None:
+    _require_motrix_runtime()
+    ensure_registries()
+
+    from unilab.base import registry
+
+    num_envs = 2
+    _, env_cfg_override = _compose_sharpa_motrix_owner_cfg(num_envs)
+    with TemporaryDirectory() as tmp_dir:
+        cache_prefix = Path(tmp_dir) / "sharpa_grasp"
+        env_cfg_override["grasp_cache_path"] = str(cache_prefix)
+        _write_sharpa_grasp_cache(
+            cache_prefix,
+            [float(value) for value in env_cfg_override["domain_rand"]["scale_list"]],
+        )
+
+        env = registry.make(
+            "SharpaInhandRotation",
+            num_envs=num_envs,
+            sim_backend="motrix",
+            env_cfg_override=env_cfg_override,
+        )
+        env_obj: Any = env
+        try:
+            obs, info = env.reset(np.arange(num_envs, dtype=np.int32))
+            assert isinstance(obs, dict)
+            assert set(obs) == {"obs"}
+            assert obs["obs"].shape[0] == num_envs
+            assert info["p_gain"].shape == (num_envs, env_obj._num_action)
+            assert info["d_gain"].shape == (num_envs, env_obj._num_action)
+
+            state = env.step(np.zeros((num_envs, env_obj._num_action), dtype=env_obj._np_dtype))
+
+            assert isinstance(state.obs, dict)
+            assert state.obs["obs"].shape[0] == num_envs
+            assert np.all(np.isfinite(state.reward))
+        finally:
+            env.close()
+
+
+def test_sharpa_grasp_motrix_reset_and_step_smoke() -> None:
+    _require_motrix_runtime()
+    ensure_registries()
+
+    from unilab.base import registry
+
+    num_envs = 2
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(_CONF_DIR / "ppo"), version_base="1.3"):
+        cfg = compose(
+            "config",
+            overrides=[
+                "task=sharpa_inhand_grasp/motrix",
+                f"algo.num_envs={num_envs}",
+            ],
+        )
+
+    env_cfg_override = OmegaConf.to_container(cfg.env, resolve=True)
+    assert isinstance(env_cfg_override, dict)
+    env_cfg_override["reward_config"] = OmegaConf.to_container(cfg.reward, resolve=True)
+
+    env = registry.make(
+        "SharpaInhandRotationGrasp",
+        num_envs=num_envs,
+        sim_backend="motrix",
+        env_cfg_override=env_cfg_override,
+    )
+    env_obj: Any = env
+    try:
+        obs, info = env.reset(np.arange(num_envs, dtype=np.int32))
+        assert isinstance(obs, dict)
+        assert set(obs) == {"obs"}
+        assert obs["obs"].shape[0] == num_envs
+        assert info["p_gain"].shape == (num_envs, env_obj._num_action)
+        assert info["d_gain"].shape == (num_envs, env_obj._num_action)
+        np.testing.assert_allclose(
+            np.abs(info["object_default_pose"][:, 3:7]),
+            np.abs(env_obj.get_object_quat()),
+            atol=1.0e-6,
+        )
+
+        state = env.step(np.zeros((num_envs, env_obj._num_action), dtype=env_obj._np_dtype))
+
+        assert isinstance(state.obs, dict)
+        assert state.obs["obs"].shape[0] == num_envs
+        assert np.all(np.isfinite(state.reward))
+    finally:
+        env.close()
+
+
+def test_sharpa_motrix_reset_applies_scale_mass_and_com_randomization() -> None:
+    _require_motrix_runtime()
+    ensure_registries()
+
+    from unilab.base import registry
+
+    num_envs = 9
+    _, env_cfg_override = _compose_sharpa_motrix_owner_cfg(num_envs)
+    with TemporaryDirectory() as tmp_dir:
+        cache_prefix = Path(tmp_dir) / "sharpa_grasp"
+        env_cfg_override["grasp_cache_path"] = str(cache_prefix)
+        _write_sharpa_grasp_cache(
+            cache_prefix,
+            [float(value) for value in env_cfg_override["domain_rand"]["scale_list"]],
+        )
+
+        env = registry.make(
+            "SharpaInhandRotation",
+            num_envs=num_envs,
+            sim_backend="motrix",
+            env_cfg_override=env_cfg_override,
+        )
+        env_obj: Any = env
+        try:
+            _, info = env.reset(np.arange(num_envs, dtype=np.int32))
+            backend: Any = env_obj._backend
+            object_link = backend.model.get_link("object")
+            object_geom = backend.model.get_geom("object")
+
+            mass = np.asarray(object_link.get_mass_override(backend.data), dtype=np.float64)
+            com = np.asarray(
+                object_link.get_center_of_mass_override(backend.data), dtype=np.float64
+            )
+            size = np.asarray(object_geom.get_size_override(backend.data), dtype=np.float64)
+            geom_friction = np.stack(
+                [
+                    np.asarray(backend.model.get_geom(geom_id).get_friction_override(backend.data))
+                    for geom_id in range(int(backend.model.num_geoms))
+                ],
+                axis=1,
+            ).astype(np.float64)
+            layout = env_obj._critic_info_layout()
+            critic_info = np.asarray(info["critic_info"], dtype=np.float64)
+
+            np.testing.assert_allclose(mass, critic_info[:, layout["mass"]].reshape(num_envs))
+            np.testing.assert_allclose(com, critic_info[:, layout["com"]], atol=1.0e-7)
+            expected_size = env_obj._object_geom_base_size[:2] * env_obj.scale_values[
+                env_obj.scale_ids
+            ].reshape(num_envs, 1)
+            np.testing.assert_allclose(size, expected_size)
+            assert np.unique(np.round(mass, 6)).size > 1
+            assert np.unique(np.round(com.reshape(-1), 6)).size > 1
+            assert np.unique(np.round(size[:, 0], 6)).size > 1
+
+            friction_scale = critic_info[:, layout["friction"]].reshape(num_envs)
+            assert np.unique(np.round(friction_scale, 6)).size > 1
+            assert np.all(friction_scale >= env_obj._cfg.domain_rand.randomize_friction_scale_lower)
+            assert np.all(friction_scale <= env_obj._cfg.domain_rand.randomize_friction_scale_upper)
+            for env_idx in range(num_envs):
+                scale = friction_scale[env_idx]
+                for material, base_friction in (
+                    ("object", env_obj._cfg.domain_rand.object_base_friction),
+                    ("metal", env_obj._cfg.domain_rand.metal_base_friction),
+                    ("elastomer", env_obj._cfg.domain_rand.elastomer_base_friction),
+                ):
+                    actual = geom_friction[env_idx, env_obj._friction_geom_ids[material]]
+                    expected = env_obj._friction_profile(material, base_friction) * scale
+                    np.testing.assert_allclose(actual, np.broadcast_to(expected, actual.shape))
+        finally:
+            env.close()
+
+
+def test_sharpa_motrix_interval_force_writes_object_link_external_force() -> None:
+    _require_motrix_runtime()
+    ensure_registries()
+
+    from unilab.base import registry
+
+    num_envs = 4
+    _, env_cfg_override = _compose_sharpa_motrix_owner_cfg(num_envs)
+    env_cfg_override["domain_rand"]["force_scale"] = 2.0
+    env_cfg_override["domain_rand"]["random_force_prob_scalar"] = 1.0
+    with TemporaryDirectory() as tmp_dir:
+        cache_prefix = Path(tmp_dir) / "sharpa_grasp"
+        env_cfg_override["grasp_cache_path"] = str(cache_prefix)
+        _write_sharpa_grasp_cache(
+            cache_prefix,
+            [float(value) for value in env_cfg_override["domain_rand"]["scale_list"]],
+        )
+
+        env = registry.make(
+            "SharpaInhandRotation",
+            num_envs=num_envs,
+            sim_backend="motrix",
+            env_cfg_override=env_cfg_override,
+        )
+        env_obj: Any = env
+        try:
+            env.init_state()
+            backend: Any = env_obj._backend
+            body_id = int(env_obj._object_body_id)
+
+            assert backend.get_dr_capabilities().supports_interval_body_force
+            env_obj._dr_manager.apply_interval_randomization_if_due(env_obj.step_counter)
+
+            assert np.any(np.linalg.norm(env_obj._random_object_force, axis=1) > 0.0)
+            np.testing.assert_allclose(
+                backend._applied_body_forces[body_id],
+                env_obj._random_object_force,
+                atol=1.0e-6,
+            )
+        finally:
+            env.close()
+
+
 def test_sharpa_provider_builds_mujoco_init_geom_scale_plan() -> None:
     env = SimpleNamespace(
         _backend=SimpleNamespace(backend_type="mujoco"),
@@ -180,18 +488,20 @@ def test_sharpa_provider_builds_mujoco_init_geom_scale_plan() -> None:
     )
 
 
-def test_sharpa_provider_skips_non_mujoco_init_geom_scale_plan() -> None:
+def test_sharpa_provider_builds_motrix_init_geom_scale_plan() -> None:
     env = SimpleNamespace(
         _backend=SimpleNamespace(backend_type="motrix"),
         _object_geom_base_size=np.array([0.02, 0.016, 0.0], dtype=np.float64),
-        scale_values=np.array([0.5], dtype=np.float64),
-        scale_ids=np.array([0], dtype=np.int32),
+        scale_values=np.array([0.5, 0.8], dtype=np.float64),
+        scale_ids=np.array([0, 0, 1, 1], dtype=np.int32),
         cfg=SimpleNamespace(object_geom_name="object"),
     )
 
     plan = SharpaInhandRotationDRProvider().build_init_randomization_plan(env)
 
-    assert plan is None
+    assert plan is not None
+    np.testing.assert_array_equal(plan.model_assignments, np.array([0, 0, 1, 1], dtype=np.int32))
+    assert len(plan.model_variants) == 2
 
 
 def test_sharpa_tactile_force_matches_reference_smoothing_and_order() -> None:

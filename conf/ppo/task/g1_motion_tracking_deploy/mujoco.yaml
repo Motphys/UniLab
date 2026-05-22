@@ -1,0 +1,71 @@
+# @package _global_
+training:
+  task_name: G1MotionTrackingDeploy
+  sim_backend: mujoco
+  play_steps: 1000
+algo:
+  num_envs: 1024
+  max_iterations: 15000
+  save_interval: 500
+  obs_groups:
+    actor:
+      - actor
+  algorithm:
+    entropy_coef: 0.005
+env:
+  sim_dt: 0.005
+  sensor:
+    local_linvel: pelvis_local_linvel
+    gyro: pelvis_gyro
+    upvector: pelvis_upvector
+  control_config:
+    action_scale:
+      - 0.5475464629911068
+      - 0.35066146637882434
+      - 0.5475464629911068
+      - 0.35066146637882434
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.5475464629911068
+      - 0.35066146637882434
+      - 0.5475464629911068
+      - 0.35066146637882434
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.5475464629911068
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.07450087032950714
+      - 0.07450087032950714
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.07450087032950714
+      - 0.07450087032950714
+reward:
+  scales:
+    motion_global_root_pos: 0.5
+    motion_global_root_ori: 0.5
+    motion_body_pos: 1.0
+    motion_body_ori: 1.0
+    motion_body_lin_vel: 1.0
+    motion_body_ang_vel: 1.0
+    motion_joint_pos: 0.0
+    motion_joint_vel: 0.0
+    action_rate_l2: -0.1
+    joint_limit: -10.0
+  std_root_pos: 0.3
+  std_root_ori: 0.4
+  std_body_pos: 0.3
+  std_body_ori: 0.4
+  std_body_lin_vel: 1.0
+  std_body_ang_vel: 3.14
+  std_joint_pos: 0.2
+  std_joint_vel: 1.0

@@ -19,12 +19,20 @@ sys.path.append(str(ROOT_DIR))
 from unilab.algos.torch.appo.runtime import resolve_appo_runtime
 from unilab.training import (
     BackendAdapter,
+    apply_configured_training_seed,
     create_env,
     ensure_registries,
     get_log_root,
+    log_playback_plan,
+    should_run_playback,
 )
 from unilab.training.experiment import ExperimentTracker
-from unilab.visualization import render_play_mode
+
+
+def _training_resume_requested(load_run: Any) -> bool:
+    if load_run is None:
+        return False
+    return str(load_run) not in {"", "-1"}
 
 
 def build_appo_runner_kwargs(
@@ -48,9 +56,19 @@ def build_appo_runner_kwargs(
         "num_envs": cfg.algo.num_envs,
         "steps_per_env": cfg.algo.steps_per_env,
         "sim_backend": cfg.training.sim_backend,
+        "seed": rl_cfg.get("seed"),
     }
     if cfg.training.replay_queue_size is not None:
         runner_kwargs["replay_queue_size"] = cfg.training.replay_queue_size
+    load_run = OmegaConf.select(cfg, "algo.load_run", default="-1")
+    if _training_resume_requested(load_run):
+        resume_path, _ = resolve_appo_checkpoint_path(
+            os.path.join(_get_log_root(cfg), cfg.training.task_name),
+            str(load_run),
+        )
+        if resume_path is None:
+            raise FileNotFoundError(f"Could not resolve APPO resume checkpoint: {load_run}")
+        runner_kwargs["resume_path"] = resume_path
     return runner_kwargs
 
 
@@ -68,9 +86,7 @@ def run_motrix_play_loop(
         env.init_state()
 
     with torch.inference_mode():
-        render_play_mode(
-            env,
-            sim_backend="motrix",
+        env.run_playback(
             num_steps=num_steps,
             initialize=lambda: np.asarray(
                 env.reset(np.arange(play_env_num, dtype=np.int32))[0]["obs"],
@@ -258,44 +274,17 @@ def play_appo(
         else:
             print("ONNX export verified OK.")
 
-    if cfg.training.sim_backend == "motrix":
-        print("Starting interactive visualization (motrix native renderer)...")
-        print("Close the render window to exit.")
-        try:
-            run_motrix_play_loop(
-                env=env,
-                actor=actor,
-                device=device,
-                play_env_num=cfg.training.play_env_num,
-            )
-        except Exception as e:
-            if "RenderClosedError" in str(type(e).__name__):
-                print("Render window closed.")
-            else:
-                raise
-        return None
-
-    if load_path_dir is None:
-        print(f"Could not resolve checkpoint directory. load_path_dir={load_path_dir}")
-        return None
-
-    output_video = os.path.join(load_path_dir, "play_video.mp4")
-    print(f"Rendering video to {output_video}...")
-
     if env.state is None:
         env.init_state()
-    num_steps = int(getattr(cfg.training, "play_steps", 1000))
 
-    print("Collecting physics states...")
     with torch.inference_mode():
-        render_play_mode(
-            env,
-            sim_backend=cfg.training.sim_backend,
+        play_video_path = env.run_playback_mode(
+            play_render_mode=getattr(cfg.training, "play_render_mode", "auto"),
+            play_steps=getattr(cfg.training, "play_steps", None),
+            output_video=os.path.join(load_path_dir, "play_video.mp4") if load_path_dir else None,
             render_spacing=float(
                 getattr(cfg.training, "render_spacing", getattr(env.cfg, "render_spacing", 1.0))
             ),
-            num_steps=num_steps,
-            output_video=output_video,
             initialize=lambda: np.asarray(
                 env.reset(np.arange(cfg.training.play_env_num, dtype=np.int32))[0]["obs"],
                 dtype=np.float32,
@@ -323,16 +312,19 @@ def play_appo(
                 "cam_tracking_env_idx": getattr(cfg.training, "cam_tracking_env_idx", 0),
                 "cam_tracking_extra_envs": getattr(cfg.training, "cam_tracking_extra_envs", 2),
             },
+            on_plan=log_playback_plan,
         )
-    print(f"Saving video to {output_video} with mediapy...")
+    if play_video_path is not None:
+        print(f"Saving video to {play_video_path} with mediapy...")
     print("Done.")
-    return output_video
+    return play_video_path
 
 
 @hydra.main(version_base="1.3", config_path="../conf/appo", config_name="config")
 def main(cfg: DictConfig) -> None:
     ensure_registries()
 
+    seed_info = apply_configured_training_seed(cfg, torch_runtime=True, cuda=True)
     env_cfg_override = BackendAdapter(
         cfg, root_dir=ROOT_DIR, algo_name="appo"
     ).build_task_env_cfg_override()
@@ -379,6 +371,7 @@ def main(cfg: DictConfig) -> None:
             full_cfg=cfg,
             device=learner_device,
             collector_device=collector_device,
+            seed_info=seed_info,
         )
         tracker.start()
 
@@ -405,7 +398,11 @@ def main(cfg: DictConfig) -> None:
             finally:
                 runner.close()
 
-        if cfg.training.play_only or not cfg.training.no_play:
+        if should_run_playback(
+            play_only=cfg.training.play_only,
+            no_play=cfg.training.no_play,
+            play_render_mode=getattr(cfg.training, "play_render_mode", "auto"),
+        ):
             play_video_path = appo_runtime.play_fn(
                 cfg,
                 rl_cfg,

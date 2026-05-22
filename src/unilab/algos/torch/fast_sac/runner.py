@@ -41,11 +41,18 @@ class FastSACRunner(OffPolicyRunner):
         sim_backend: str = "mujoco",
         use_symmetry: bool = False,
         world_size: int = 1,
+        seed: int | None = None,
+        trace_enabled: bool = False,
+        trace_output_dir: str | None = None,
+        trace_thread_time: bool = False,
+        trace_cuda_events: bool = True,
     ):
         from unilab.base import registry
         from unilab.base.registry import ensure_registries
+        from unilab.training.seed import apply_training_seed
 
         ensure_registries()
+        apply_training_seed(seed, torch_runtime=True, cuda=True)
         env: Any = registry.make(
             env_name, num_envs=1, sim_backend=sim_backend, env_cfg_override=env_cfg_override
         )
@@ -120,4 +127,9 @@ class FastSACRunner(OffPolicyRunner):
             obs_normalization=obs_normalization,
             sim_backend=sim_backend,
             env_cfg_override=env_cfg_override,
+            seed=seed,
+            trace_enabled=trace_enabled,
+            trace_output_dir=trace_output_dir,
+            trace_thread_time=trace_thread_time,
+            trace_cuda_events=trace_cuda_events,
         )

@@ -5,7 +5,8 @@ import statistics
 import sys
 import time
 from collections import deque
-from typing import cast
+from pathlib import Path
+from typing import Any, cast
 
 import torch
 
@@ -14,7 +15,8 @@ from unilab.algos.torch.offpolicy.worker import off_policy_collector_fn
 from unilab.ipc import SharedObsNormStats, SharedWeightSync
 from unilab.ipc.async_runner import _SPAWN_CTX, AsyncRunner
 from unilab.ipc.replay_buffer import ReplayBuffer
-from unilab.logging import OffPolicyLogger
+from unilab.logging import OffPolicyLogger, TraceRecorder
+from unilab.training.seed import apply_training_seed, derive_worker_seed
 from unilab.utils.device import get_default_device
 
 
@@ -36,6 +38,17 @@ def replay_buffer_ready_for_learning(
         learning_starts,
         num_envs,
     )
+
+
+def build_reward_comparison_metrics(
+    reward_history: deque,
+    smoothed_reward: float,
+) -> dict[str, float]:
+    """Return the latest collector-side 100-episode mean for reward comparison."""
+    del smoothed_reward
+    if not reward_history:
+        return {}
+    return {"mean_ep100": float(reward_history[-1])}
 
 
 class OffPolicyRunner(AsyncRunner):
@@ -61,6 +74,11 @@ class OffPolicyRunner(AsyncRunner):
         sim_backend: str = "mujoco",
         env_cfg_override: dict | None = None,
         actor_kwargs: dict | None = None,
+        seed: int | None = None,
+        trace_enabled: bool = False,
+        trace_output_dir: str | None = None,
+        trace_thread_time: bool = False,
+        trace_cuda_events: bool = True,
     ):
         super().__init__(
             env_name=env_name,
@@ -91,7 +109,14 @@ class OffPolicyRunner(AsyncRunner):
         self.use_layer_norm = use_layer_norm
         self.obs_normalization = obs_normalization
         self.actor_kwargs = actor_kwargs or {}
+        self.seed = seed
+        self._active_logger: OffPolicyLogger | None = None
+        self.trace_enabled = trace_enabled
+        self.trace_output_dir = trace_output_dir
+        self.trace_thread_time = trace_thread_time
+        self.trace_cuda_events = trace_cuda_events
 
+        apply_training_seed(self.seed, torch_runtime=True, cuda=True)
         self.obs_dim, self.action_dim, self.critic_obs_dim = get_env_dims(
             self.env_name, sim_backend, env_cfg_override
         )
@@ -163,6 +188,12 @@ class OffPolicyRunner(AsyncRunner):
     ) -> None:
         """Unified training loop for off-policy algorithms."""
         os.makedirs(log_dir, exist_ok=True)
+        trace_output_path = None
+        trace_recorder: TraceRecorder | None = None
+        if self.trace_enabled:
+            trace_root = Path(self.trace_output_dir or log_dir)
+            trace_output_path = trace_root / "perfetto_offpolicy_timeline.json"
+            trace_recorder = TraceRecorder("offpolicy_learner")
         train_start_wall = time.time()
         best_mean_reward = float("-inf")
         last_mean_reward = 0.0
@@ -179,10 +210,15 @@ class OffPolicyRunner(AsyncRunner):
             critic_dim=self.critic_obs_dim,
         )
         self._shared_resources.append(replay_buffer)
+        replay_buffer.trace_recorder = trace_recorder
+        replay_buffer.trace_thread_time = self.trace_thread_time
+        replay_buffer.trace_cuda_events = self.trace_cuda_events
 
         # Setup weight sync
         weight_sync = SharedWeightSync.from_state_dict(self.learner.actor.state_dict(), create=True)
         self._shared_resources.append(weight_sync)
+        weight_sync.trace_recorder = trace_recorder
+        weight_sync.trace_thread_time = self.trace_thread_time
 
         # Setup sync queues
         collection_ready_queue = None
@@ -225,6 +261,9 @@ class OffPolicyRunner(AsyncRunner):
             "obs_dim": self.obs_dim,
             "action_dim": self.action_dim,
             "actor_kwargs": self.actor_kwargs,
+            "seed": derive_worker_seed(self.seed, worker_index=0),
+            "trace_enabled": self.trace_enabled,
+            "trace_thread_time": self.trace_thread_time,
         }
         self._start_collector(
             target_fn=off_policy_collector_fn,
@@ -251,6 +290,7 @@ class OffPolicyRunner(AsyncRunner):
         logger.set_collection_sync(self.sync_collection, self.env_steps_per_sync)
         if hasattr(self.learner, "use_symmetry") and self.learner.use_symmetry:
             logger.log_status("Symmetry augmentation: enabled")
+        self._active_logger = logger
         logger.start()
 
         reward_history: deque = deque(maxlen=100)
@@ -259,15 +299,14 @@ class OffPolicyRunner(AsyncRunner):
         write_read_ema = 0.0
         reward_stats_ptr = 0
         train_start_threshold = self.train_start_threshold
-        startup_wait_time = 0.0
-        have_startup_wait_time = False
+
+        training_e2e_start_ns = time.perf_counter_ns() if trace_recorder else 0
 
         # Training loop
         for iteration in range(1, max_iterations + 1):
-            iter_start = time.time()
-
             # Wait for data
             wait_start = time.time()
+            wait_start_ns = time.perf_counter_ns() if trace_recorder else 0
             if self.sync_collection and collection_ready_queue:
                 import queue
 
@@ -277,7 +316,11 @@ class OffPolicyRunner(AsyncRunner):
                     except queue.Empty:
                         if not self._check_collector_alive():
                             self._drain_metrics(
-                                metrics_queue, reward_history, latest_reward_components, logger
+                                metrics_queue,
+                                reward_history,
+                                latest_reward_components,
+                                logger,
+                                trace_recorder,
                             )
                             logger.log_status("[red]ERROR: Collector died[/]")
                             logger.finish()
@@ -296,7 +339,11 @@ class OffPolicyRunner(AsyncRunner):
                         continue
 
                     self._drain_metrics(
-                        metrics_queue, reward_history, latest_reward_components, logger
+                        metrics_queue,
+                        reward_history,
+                        latest_reward_components,
+                        logger,
+                        trace_recorder,
                     )
                     cur_size = int(replay_buffer.size[0])
                     if replay_buffer_ready_for_learning(
@@ -342,25 +389,43 @@ class OffPolicyRunner(AsyncRunner):
                         logger.log_buffer_fill(cur_size, train_start_threshold)
                     time.sleep(0.1)
                     self._drain_metrics(
-                        metrics_queue, reward_history, latest_reward_components, logger
+                        metrics_queue,
+                        reward_history,
+                        latest_reward_components,
+                        logger,
+                        trace_recorder,
                     )
 
             wait_time = time.time() - wait_start
-            self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
-            collect_time = float(getattr(replay_buffer, "collect_time_s", torch.zeros(1))[0])
-            if collect_time <= 0:
-                collect_time = time.time() - iter_start - wait_time
-            collect_time = max(float(collect_time), 0.0)
-            if not have_startup_wait_time and wait_time > collect_time:
-                startup_wait_time = max(wait_time - collect_time, 0.0)
-                have_startup_wait_time = True
+            if trace_recorder:
+                trace_recorder.add_slice(
+                    "learner/wait_for_data",
+                    category="learner",
+                    start_ns=wait_start_ns,
+                    end_ns=time.perf_counter_ns(),
+                    args={"iteration": iteration},
+                )
+            self._drain_metrics(
+                metrics_queue,
+                reward_history,
+                latest_reward_components,
+                logger,
+                trace_recorder,
+            )
+            _reward_stats_ns = time.perf_counter_ns() if trace_recorder else 0
             reward_stats_ptr = self._update_reward_stats_from_replay(
                 replay_buffer,
                 reward_stats_ptr,
                 int(replay_buffer.ptr[0]),
             )
+            if trace_recorder:
+                trace_recorder.add_slice(
+                    "learner/update_reward_stats",
+                    category="learner",
+                    start_ns=_reward_stats_ns,
+                    end_ns=time.perf_counter_ns(),
+                )
 
-            train_start = time.time()
             from collections import defaultdict
 
             iter_metrics = defaultdict(list)
@@ -370,29 +435,83 @@ class OffPolicyRunner(AsyncRunner):
             learner = self.learner
 
             # Sample from torch buffer (zero-copy on CUDA/MPS)
+            _sample_ns = time.perf_counter_ns() if trace_recorder else 0
             large_batch = replay_buffer.sample(self.batch_size * self.updates_per_step)
+            learner_incremental_h2d_time = float(
+                getattr(replay_buffer, "last_incremental_h2d_time_s", 0.0)
+            )
+            if trace_recorder:
+                trace_recorder.add_slice(
+                    "learner/replay_sample",
+                    category="learner",
+                    start_ns=_sample_ns,
+                    end_ns=time.perf_counter_ns(),
+                    args={"total_batch": self.batch_size * self.updates_per_step},
+                )
+
+            train_start = time.time()
 
             for update_idx in range(self.updates_per_step):
                 s = update_idx * self.batch_size
                 e = s + self.batch_size
                 batch = {k: v[s:e] for k, v in large_batch.items()}
 
+                _critic_ns = time.perf_counter_ns() if trace_recorder else 0
                 critic_metrics = learner.update_critic(batch)
+                if trace_recorder:
+                    trace_recorder.add_slice(
+                        "learner/update_critic",
+                        category="learner",
+                        start_ns=_critic_ns,
+                        end_ns=time.perf_counter_ns(),
+                        args={"update_idx": update_idx},
+                    )
                 for k, v in critic_metrics.items():
                     iter_metrics[k].append(v)
 
                 actor_updated = False
                 if update_idx % self.policy_frequency == 0:
+                    _actor_ns = time.perf_counter_ns() if trace_recorder else 0
                     actor_metrics = learner.update_actor(batch)
+                    if trace_recorder:
+                        trace_recorder.add_slice(
+                            "learner/update_actor",
+                            category="learner",
+                            start_ns=_actor_ns,
+                            end_ns=time.perf_counter_ns(),
+                            args={"update_idx": update_idx},
+                        )
                     for k, v in actor_metrics.items():
                         iter_metrics[k].append(v)
                     actor_updated = True
 
+                _target_ns = time.perf_counter_ns() if trace_recorder else 0
+                target_updated = False
                 if self.algo_type == "td3":
                     if actor_updated:
                         learner.soft_update_target()
+                        target_updated = True
                 else:
                     learner.soft_update_target()
+                    target_updated = True
+                if trace_recorder:
+                    target_trace_args: dict[str, Any] = {"update_idx": update_idx}
+                    if self.algo_type == "td3":
+                        target_trace_args.update(
+                            {
+                                "algo_type": self.algo_type,
+                                "policy_frequency": self.policy_frequency,
+                                "actor_updated": actor_updated,
+                                "target_updated": target_updated,
+                            }
+                        )
+                    trace_recorder.add_slice(
+                        "learner/soft_update_target",
+                        category="learner",
+                        start_ns=_target_ns,
+                        end_ns=time.perf_counter_ns(),
+                        args=target_trace_args,
+                    )
 
             if self.obs_normalization and getattr(self.learner, "obs_normalizer", None) is not None:
                 assert shared_obs_normalizer_stats is not None
@@ -403,9 +522,25 @@ class OffPolicyRunner(AsyncRunner):
                     )
                 )
 
-            self.learner.update_count += 1
-            weight_sync.write_weights(self.learner.actor.state_dict())
             train_time = time.time() - train_start
+            self.learner.update_count += 1
+            _ws_ns = time.perf_counter_ns() if trace_recorder else 0
+            weight_sync_start = time.perf_counter()
+            weight_sync.write_weights(self.learner.actor.state_dict())
+            weight_sync_time = time.perf_counter() - weight_sync_start
+            if trace_recorder:
+                trace_recorder.add_slice(
+                    "learner/weight_sync_write",
+                    category="learner",
+                    start_ns=_ws_ns,
+                    end_ns=time.perf_counter_ns(),
+                )
+                trace_recorder.add_counter(
+                    "replay_size",
+                    int(replay_buffer.size[0]),
+                    category="replay",
+                )
+                trace_recorder.flush_cuda_pending()
 
             if self.sync_collection and trainer_done_queue:
                 trainer_done_queue.put(1)
@@ -424,12 +559,13 @@ class OffPolicyRunner(AsyncRunner):
                 iteration=iteration,
                 metrics=avg_metrics,
                 reward=mean_reward,
+                reward_metrics=build_reward_comparison_metrics(reward_history, mean_reward),
                 reward_components=latest_reward_components,
-                collect_time=collect_time,
                 train_time=train_time,
                 wait_time=wait_time,
+                learner_incremental_h2d_time=learner_incremental_h2d_time,
+                weight_sync_time=weight_sync_time,
                 extra_info={
-                    "startup_wait_time": startup_wait_time if iteration == 1 else 0.0,
                     "throughput_steps": self.num_envs * self.env_steps_per_sync,
                 },
             )
@@ -439,10 +575,22 @@ class OffPolicyRunner(AsyncRunner):
                 torch.save(self.learner.get_state_dict(), ckpt_path)
                 logger.log_save(ckpt_path)
 
+        if trace_recorder:
+            trace_recorder.add_slice(
+                "learner/training_e2e",
+                category="learner",
+                start_ns=training_e2e_start_ns,
+                end_ns=time.perf_counter_ns(),
+                args={"iterations": iteration},
+            )
+
         ckpt_path = os.path.join(log_dir, f"model_{max_iterations}.pt")
         torch.save(self.learner.get_state_dict(), ckpt_path)
         logger.log_save(ckpt_path)
         logger.finish()
+        if trace_recorder and trace_output_path:
+            trace_recorder.write_json(trace_output_path)
+            print(f"[Runner] Perfetto trace written to {trace_output_path}")
         summary = {
             "status": "completed",
             "completed_iterations": iteration,
@@ -451,9 +599,18 @@ class OffPolicyRunner(AsyncRunner):
             "best_mean_reward": best_mean_reward if reward_history else None,
             "mean_episode_length": float(logger._mean_ep_length),
             "last_checkpoint": ckpt_path,
+            "trace_path": str(trace_output_path) if trace_output_path is not None else None,
             "training_wall_time_sec": time.time() - train_start_wall,
         }
         self.last_run_summary = summary
+        self._active_logger = None
+
+    def close(self) -> None:
+        active_logger = getattr(self, "_active_logger", None)
+        if active_logger is not None:
+            active_logger.close()
+            self._active_logger = None
+        super().close()
 
     def _check_collector_alive(self) -> bool:
         if self._collector_process is not None and not self._collector_process.is_alive():
@@ -461,10 +618,13 @@ class OffPolicyRunner(AsyncRunner):
         return True
 
     @staticmethod
-    def _drain_metrics(queue, reward_history, reward_components, logger):
-        while not queue.empty():
+    def _drain_metrics(queue, reward_history, reward_components, logger, trace_recorder=None):
+        while True:
             try:
                 m = queue.get_nowait()
+            except Exception:
+                break
+            try:
                 if "error" in m:
                     logger.log_status(f"[red]Collector ERROR: {m['error']}[/]")
                     raise RuntimeError(f"Collector process failed: {m['error']}")
@@ -496,6 +656,9 @@ class OffPolicyRunner(AsyncRunner):
                         m["buffer_size"],
                         m.get("mean_ep_reward", 0.0) if updated_rew else 0.0,
                     )
+
+                if trace_recorder and "trace_events" in m:
+                    trace_recorder.extend(m["trace_events"])
 
             except Exception as e:
                 print(f"[OffPolicyRunner] metrics drain error: {e}", file=sys.stderr)

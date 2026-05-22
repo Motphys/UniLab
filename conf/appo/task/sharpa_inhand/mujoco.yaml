@@ -68,7 +68,7 @@ env:
       - contact_right_ring_elastomer_force
       - contact_right_pinky_elastomer_force
   disable_tactile_ids: []
-  use_default_object_pose_for_object_pos_anchor: false
+  use_default_object_pose_for_object_pos_anchor: true
   obs:
     observation_mode: flattened
     enable_tactile: true

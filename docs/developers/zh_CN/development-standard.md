@@ -61,7 +61,7 @@ CPU Physics Sim ──shm──► Collector / IPC ──shm──► GPU Learne
 |------|------|--------|
 | PPO (torch) | `scripts/train_rsl_rl.py` | `registry.make` -> `RslRlVecEnvWrapper` -> `rsl_rl.OnPolicyRunner` |
 | PPO (MLX) | `scripts/train_mlx_ppo.py` | `registry.make` -> MLX `RolloutBuffer` -> `PPOTrainer` |
-| APPO | `scripts/train_appo.py` | `APPORunner` -> collector -> `SharedOnPolicyStorage` |
+| APPO | `scripts/train_appo.py` | `APPORunner` -> collector -> `RolloutRingBuffer` |
 | SAC / TD3 | `scripts/train_offpolicy.py` | `OffPolicyRunner` -> collector -> `ReplayBuffer` |
 
 动手前，先定位自己正在修改哪条链路。
@@ -108,7 +108,7 @@ Env **负责** MDP 语义、observation 结构、reward、reset，以及 backend
 
 所有异步算法共享 `src/unilab/ipc/async_runner.py` 中的 `AsyncRunner`: 统一的 spawn 模型、统一的 collector lifecycle、统一的 shared-resource cleanup。
 
-- **APPO**: collector 写入 `SharedOnPolicyStorage`；learner 使用 V-trace；actor 权重通过 `SharedWeightSync` 回传
+- **APPO**: collector 写入 `RolloutRingBuffer`；learner 使用 V-trace；actor 权重通过 `SharedWeightSync` 回传
 - **Off-policy**: collector 写入 `ReplayBuffer`；learner 从中采样；`SharedWeightSync` 同步权重；同时支持同步和异步采集
 
 不要在 shared runner 之外复制并行协议、绕过 shared-resource lifecycle，或引入隐式耦合。
@@ -153,7 +153,7 @@ Env **负责** MDP 语义、observation 结构、reward、reset，以及 backend
 
 以下 ADR 记录了本页涉及的稳定 contract 以及 backend 能力边界:
 
-- [ADR Index](../adr/README.md)
+- [ADR Index](../adr/ADR-0000-index.md)
 - [ADR-0001 Runtime Model And Layer Boundaries](../adr/ADR-0001-runtime-model-and-layer-boundaries.md)
 - [ADR-0002 Backend Capability Boundary For Play And Snapshot](../adr/ADR-0002-backend-capability-boundary-for-play-and-snapshot.md)
 - [ADR-0003 Task Owner And Config Compose Contract](../adr/ADR-0003-task-owner-and-config-compose-contract.md)

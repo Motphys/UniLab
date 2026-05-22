@@ -8,6 +8,22 @@ dist/
 .venv/
 .python-version
 
+# Local secrets and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+.netrc
+.npmrc
+.pypirc
+
 # Test and coverage artifacts
 .coverage
 htmlcov/
@@ -23,9 +39,13 @@ htmlcov/
 
 # Project specific
 logs/
+runs/
+run_config.json
+run_summary.json
 .worktrees/
 *.log
 .DS_Store
+.ipynb_checkpoints/
 *.bak
 *.backup
 *.old
@@ -48,8 +68,12 @@ cache/
 
 
 # Local tool/runtime artifacts (any subfolder)
+.codex
 **/.codex/
 **/._*
 **/MUJOCO_LOG.TXT
+
+# Backend temp XML emitted next to robot.xml (motrix/mujoco scene materialization)
+src/unilab/assets/robots/**/tmp*.xml
 
 CLAUDE.md
