@@ -10,6 +10,7 @@
 | flat flip clip | `g1_flip_tracking` | PPO、MLX PPO、APPO | `src/unilab/assets/motions/g1/flip_360_001__A304.npz` |
 | wall-assisted flip | `g1_wall_flip_tracking` | PPO、MLX PPO、APPO | `src/unilab/assets/motions/g1/flip_from_wall_104__A304.npz` |
 | holosoma-aligned WBT | `g1_sac_wbt` | SAC | 与 `g1_motion_tracking` 共用 |
+| crawl-slope WBT (SAC) | `g1_sac_wbt` + 自定义场景 | SAC | `src/unilab/assets/motions/g1/motion_crawl_slope_uni.npz` |
 
 ## 配置入口
 
@@ -70,6 +71,32 @@ uv run scripts/train_offpolicy.py algo=sac task=sac/g1_sac_wbt/motrix training.p
 ```
 
 `--profile deploy` 会切到面向部署的独立 SAC owner；Motrix sim2sim 回放时用绝对路径透传 `algo.load_run`，不要塞进 `--load-run`。
+
+## SAC WBT on crawl-slope 场景
+
+在斜坡地形上跑 `g1_sac_wbt`，需要同时切换 motion 片段和 MuJoCo 场景文件，并固定 episode 长度、关闭 reset 随机化：
+
+```bash
+CUDA_VISIBLE_DEVICES=1 uv run scripts/train_offpolicy.py \
+  algo=sac task=sac/g1_sac_wbt/mujoco training.use_amp=true algo.seed=1 \
+  +env.motion_file=src/unilab/assets/motions/g1/motion_crawl_slope_uni.npz \
+  +env.scene.model_file=src/unilab/assets/robots/g1/scene_crawl_slope.xml \
+  +env.sampling_mode=start \
+  env.truncate_on_clip_end=true \
+  +env.max_episode_seconds=20.0 \
+  '+env.pose_randomization={x:[0,0],y:[0,0],z:[0,0],roll:[0,0],pitch:[0,0],yaw:[0,0]}' \
+  '+env.velocity_randomization={x:[0,0],y:[0,0],z:[0,0],roll:[0,0],pitch:[0,0],yaw:[0,0]}' \
+  '+env.joint_position_range=[0,0]'
+```
+
+关键覆写：
+
+- `env.motion_file`：`motion_crawl_slope_uni.npz`，匹配该场景的爬坡动作。
+- `env.scene.model_file`：`scene_crawl_slope.xml`，把 `geom_floor` 替换为 `crawl_slope_{slope, plateau, ground}` 三段凸壳 mesh。
+- `env.sampling_mode=start` + `env.truncate_on_clip_end=true` + `env.max_episode_seconds=20.0`：所有 env 从 clip 起点出发，到 clip 末尾或 20s 后截断，避免 adaptive 采样在没法对齐的地形上乱跳。
+- `pose_randomization` / `velocity_randomization` 全置零 + `joint_position_range=[0,0]`：reset 时不再加噪，复用 motion 的精确初始状态，便于在固定起点上确定性地学坡道接触。
+
+多环境网格渲染时，新场景的 mesh 地形会被自动复制到每个 env 的 grid cell 下（见 `src/unilab/visualization/render_many.py`），plane 和 hfield 仍只画一份。
 
 ## 交互式调试
 

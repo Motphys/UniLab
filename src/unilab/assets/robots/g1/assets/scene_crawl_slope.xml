@@ -1,0 +1,67 @@
+<mujoco model="g1_29dof crawl slope scene">
+  <include file="g1.xml"/>
+
+  <statistic center="0 0 0.5" extent="3.0"/>
+
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.1 0.1 0.1" specular="0.9 0.9 0.9"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <global azimuth="140" elevation="-20"/>
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3"
+      markrgb="0.8 0.8 0.8" width="300" height="300"/>
+    <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
+    <material name="slope_material" rgba="0.35 0.35 0.4 1"/>
+
+    <!--
+      The crawl-slope terrain is the holosoma terrain_slope.obj (single
+      non-convex mesh of 24 verts / 36 tris) decomposed into three convex
+      pieces, because MuJoCo's mesh-vs-primitive collisions use the per-mesh
+      convex hull. Each piece below is an 8-vertex hexahedron and is therefore
+      a true convex hull of itself, so the combined collision surface is
+      geometrically identical to the original OBJ.
+    -->
+    <mesh name="crawl_slope_slope"   file="crawl_slope/slope.obj"/>
+    <mesh name="crawl_slope_plateau" file="crawl_slope/plateau.obj"/>
+    <mesh name="crawl_slope_ground"  file="crawl_slope/ground.obj"/>
+  </asset>
+
+  <worldbody>
+    <geom name="crawl_slope_slope" type="mesh" mesh="crawl_slope_slope"
+          material="slope_material" contype="1" conaffinity="1"
+          friction="1.0 0.1 0.1"
+          solimp="0.99 0.99 0.01 0.5 2" solref="0.001 1"/>
+    <geom name="crawl_slope_plateau" type="mesh" mesh="crawl_slope_plateau"
+          material="slope_material" contype="1" conaffinity="1"
+          friction="1.0 0.1 0.1"
+          solimp="0.99 0.99 0.01 0.5 2" solref="0.001 1"/>
+    <geom name="crawl_slope_ground" type="mesh" mesh="crawl_slope_ground"
+          material="groundplane" contype="1" conaffinity="1"
+          friction="1.0 0.1 0.1"
+          solimp="0.99 0.99 0.01 0.5 2" solref="0.001 1"/>
+  </worldbody>
+
+  <keyframe>
+    <key name="stand"
+      qpos="
+      0 0 0.754
+      1 0 0 0
+      -0.312 0.0 0.0 0.669 -0.363 0.0
+      -0.312 0.0 0.0 0.669 -0.363 0.0
+      0.0 0.0 0.0
+      0.2  0.2 0.0 0.6 0.0 0.0 0.0
+      0.2 -0.2 0.0 0.6 0.0 0.0 0.0
+      "
+      ctrl="
+      -0.312 0.0 0.0 0.669 -0.363 0.0
+      -0.312 0.0 0.0 0.669 -0.363 0.0
+      0.0 0.0 0.0
+      0.2  0.2 0.0 0.6 0.0 0.0 0.0
+      0.2 -0.2 0.0 0.6 0.0 0.0 0.0
+      "/>
+  </keyframe>
+
+</mujoco>
