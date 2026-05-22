@@ -10,7 +10,7 @@ Key differences from standard PPO:
 """
 
 import copy
-from itertools import chain
+from collections.abc import Iterable
 
 import numpy as np
 import torch
@@ -18,6 +18,36 @@ import torch.nn as nn
 from rsl_rl.models import MLPModel
 from rsl_rl.utils import resolve_optimizer
 from tensordict import TensorDict
+
+
+def _sample_tensor_for_metric(tensor: torch.Tensor, max_items: int = 8192) -> torch.Tensor:
+    """Return a deterministic bounded sample for scalar metrics."""
+    flat = tensor.detach().reshape(-1)
+    if flat.numel() <= max_items:
+        return flat
+    stride = max(flat.numel() // max_items, 1)
+    return flat[::stride][:max_items]
+
+
+def _grad_norm(parameters) -> float:
+    """Compute gradient norm without mutating gradients or clipping."""
+    norms = [p.grad.detach().norm(2) for p in parameters if getattr(p, "grad", None) is not None]
+    if not norms:
+        return 0.0
+    return float(torch.norm(torch.stack(norms), 2).item())
+
+
+def _unique_parameters(parameters: Iterable[torch.nn.Parameter]) -> list[torch.nn.Parameter]:
+    """Return parameters without duplicate object ids, preserving first use order."""
+    unique: list[torch.nn.Parameter] = []
+    seen: set[int] = set()
+    for param in parameters:
+        ident = id(param)
+        if ident in seen:
+            continue
+        seen.add(ident)
+        unique.append(param)
+    return unique
 
 
 def vtrace_advantages(
@@ -111,6 +141,8 @@ class APPOLearner:
         use_clipped_value_loss: bool = True,
         schedule: str = "fixed",
         desired_kl: float = 0.01,
+        adaptive_kl_factor: float = 1.2,
+        adaptive_lr_factor: float = 1.1,
         device: str = "cpu",
         optimizer: str = "adam",
         # APPO-specific parameters
@@ -129,6 +161,9 @@ class APPOLearner:
         self.target_actor.eval()
         for p in self.target_actor.parameters():
             p.requires_grad = False
+        actor_params = _unique_parameters(self.actor.parameters())
+        critic_params = _unique_parameters(self.critic.parameters())
+        self._combined_params = _unique_parameters([*actor_params, *critic_params])
 
         # PPO parameters
         self.clip_param = clip_param
@@ -143,6 +178,12 @@ class APPOLearner:
         self.desired_kl = desired_kl
         self.schedule = schedule
         self.learning_rate = learning_rate
+        if adaptive_kl_factor <= 1.0:
+            raise ValueError(f"adaptive_kl_factor must be > 1.0, got {adaptive_kl_factor}")
+        if adaptive_lr_factor <= 1.0:
+            raise ValueError(f"adaptive_lr_factor must be > 1.0, got {adaptive_lr_factor}")
+        self.adaptive_kl_factor = adaptive_kl_factor
+        self.adaptive_lr_factor = adaptive_lr_factor
 
         # APPO-specific parameters
         self.tau = tau
@@ -150,10 +191,11 @@ class APPOLearner:
         self.vtrace_clip_rho = vtrace_clip_rho
         self.vtrace_clip_c = vtrace_clip_c
         self._update_counter = 0
+        self.last_update_metrics: dict[str, float] = {}
 
         # Optimizer
         self.optimizer = resolve_optimizer(optimizer)(  # pyright: ignore[reportCallIssue]
-            chain(self.actor.parameters(), self.critic.parameters()), lr=learning_rate
+            self._combined_params, lr=learning_rate
         )
 
     def train_mode(self):
@@ -171,6 +213,23 @@ class APPOLearner:
         for target_param, param in zip(self.target_actor.parameters(), self.actor.parameters()):
             target_param.data.copy_(self.tau * param.data + (1.0 - self.tau) * target_param.data)
         # Also copy buffers (e.g. normalization stats)
+        self.sync_target_actor_buffers()
+
+    def _update_adaptive_learning_rate(self, kl_mean: float) -> None:
+        """Update optimizer LR from KL according to the configured adaptive schedule."""
+        if self.desired_kl is None or self.schedule != "adaptive":
+            return
+
+        if kl_mean > self.desired_kl * self.adaptive_kl_factor:
+            self.learning_rate = max(1e-5, self.learning_rate / self.adaptive_lr_factor)
+        elif 0.0 < kl_mean < self.desired_kl / self.adaptive_kl_factor:
+            self.learning_rate = min(1e-2, self.learning_rate * self.adaptive_lr_factor)
+
+        for param_group in self.optimizer.param_groups:
+            param_group["lr"] = self.learning_rate
+
+    def sync_target_actor_buffers(self):
+        """Copy actor buffers such as observation-normalization stats to target actor."""
         for target_buf, buf in zip(self.target_actor.buffers(), self.actor.buffers()):
             target_buf.data.copy_(buf.data)
 
@@ -231,6 +290,7 @@ class APPOLearner:
         if hasattr(self.actor, "update_normalization"):
             self.actor.update_normalization(obs_td)
             self.actor.update_normalization(last_obs_td)
+            self.sync_target_actor_buffers()
         if hasattr(self.critic, "update_normalization"):
             self.critic.update_normalization(critic_obs_td)
             self.critic.update_normalization(critic_last_obs_td)
@@ -253,6 +313,15 @@ class APPOLearner:
             batch_dict["_old_mu"] = self.target_actor.output_mean.clone()
             batch_dict["_old_sigma"] = self.target_actor.output_std.clone()
         target_log_probs = target_log_probs_flat.view(T, N)
+        with torch.inference_mode():
+            rhos = torch.exp(target_log_probs - behavior_log_probs)
+            rho_sample = _sample_tensor_for_metric(rhos)
+            batch_dict["_appo_process_metrics"] = {
+                "vtrace/rho_clip_fraction": float(
+                    (rhos > float(self.vtrace_clip_rho)).float().mean().item()
+                ),
+                "vtrace/rho_raw_p99": float(torch.quantile(rho_sample, 0.99).item()),
+            }
 
         # V-trace targets and advantages
         vs, advantages = vtrace_advantages(
@@ -276,16 +345,7 @@ class APPOLearner:
         return batch_dict
 
     def update(self, batch_dict):
-        """Perform APPO update with IS-corrected PPO clipping.
-
-        Key difference from standard PPO:
-        - Uses IS ratio: clip(π_b/π_target, 0, 2) * (π_current/π_b)
-        - Advantages are already V-trace corrected
-
-        Returns:
-            dict with loss metrics
-        """
-        # Flatten [T, N, ...] -> [T*N, ...]
+        """Perform the original main APPO update with additional detached metrics."""
         obs_flat = batch_dict["observations"].flatten(0, 1)
         actions_flat = batch_dict["actions"].flatten(0, 1)
         returns_flat = batch_dict["returns"].flatten(0, 1)
@@ -293,31 +353,30 @@ class APPOLearner:
         behavior_log_probs_flat = batch_dict["actions_log_prob"].flatten(0, 1)
         old_values_flat = batch_dict["values"].flatten(0, 1)
         target_log_probs_flat = batch_dict["target_log_probs"].flatten(0, 1)
-        # Normalize advantages globally
         advantages_flat = (advantages_flat - advantages_flat.mean()) / (
             advantages_flat.std() + 1e-8
         )
 
-        # Reuse cached TensorDict from process_batch if available
         obs_td = batch_dict.get("_obs_td")
         if obs_td is None:
             obs_td = TensorDict(
                 {"policy": obs_flat}, batch_size=obs_flat.shape[0], device=self.device
             )
 
-        # Critic uses explicit critic obs when available
-        critic_obs_flat = batch_dict.get("_critic_obs_flat")
-        if critic_obs_flat is None:
-            critic_base_flat = batch_dict.get("critic")
-            if critic_base_flat is None:
-                critic_obs_flat = obs_flat
-            else:
-                critic_obs_flat = critic_base_flat.flatten(0, 1)
-        critic_obs_td = TensorDict(
-            {"policy": critic_obs_flat}, batch_size=critic_obs_flat.shape[0], device=self.device
-        )
+        critic_obs_td = batch_dict.get("_critic_obs_td")
+        if critic_obs_td is None:
+            critic_obs_flat = batch_dict.get("_critic_obs_flat")
+            if critic_obs_flat is None:
+                critic_base_flat = batch_dict.get("critic")
+                critic_obs_flat = (
+                    obs_flat if critic_base_flat is None else critic_base_flat.flatten(0, 1)
+                )
+            critic_obs_td = TensorDict(
+                {"policy": critic_obs_flat},
+                batch_size=critic_obs_flat.shape[0],
+                device=self.device,
+            )
 
-        # Use target policy mu/sigma cached by process_batch() — no second forward pass.
         with torch.inference_mode():
             old_mu_flat = batch_dict["_old_mu"]
             old_sigma_flat = batch_dict["_old_sigma"]
@@ -325,10 +384,14 @@ class APPOLearner:
         batch_size = obs_flat.shape[0]
         mini_batch_size = batch_size // self.num_mini_batches
 
-        mean_value_loss = 0.0
         mean_surrogate_loss = 0.0
+        mean_value_loss = 0.0
         mean_entropy = 0.0
         mean_kl = 0.0
+        mean_clip_fraction = 0.0
+        mean_behavior_to_current_kl = 0.0
+        mean_target_to_current_kl = 0.0
+        mean_global_grad_norm = 0.0
         num_updates = 0
 
         for epoch in range(self.num_learning_epochs):
@@ -350,35 +413,26 @@ class APPOLearner:
                 old_mu_mini = old_mu_flat[batch_idx]
                 old_sigma_mini = old_sigma_flat[batch_idx]
 
-                # Forward pass
                 _ = self.actor(obs_mini_td, stochastic_output=True)
                 current_log_prob = self.actor.get_output_log_prob(actions_mini)
                 value = self.critic(critic_obs_mini_td).squeeze(-1)
                 entropy = self.actor.output_entropy.mean()
-
-                # Current policy mu/sigma for KL
                 mu = self.actor.output_mean
                 sigma = self.actor.output_std
 
-                # V-trace style PPO ratio: min(π_current/π_target, π_current/π_b)
-                # = clamp(π_b/π_target, max=1) * π_current/π_b
-                # Fresh data (π_b≈π_target) → standard PPO ratio.
-                # Stale data → single-sided clip downweights the update without
-                # amplifying it (unlike IMPACT's [0,2] range).
                 with torch.no_grad():
                     clipped_rho = torch.clamp(
                         torch.exp(behavior_logp_mini - target_logp_mini), max=1.0
                     )
                 ratio = clipped_rho * torch.exp(current_log_prob - behavior_logp_mini)
 
-                # PPO Surrogate Loss
                 surrogate = -advantages_mini * ratio
                 surrogate_clipped = -advantages_mini * torch.clamp(
                     ratio, 1.0 - self.clip_param, 1.0 + self.clip_param
                 )
                 surrogate_loss = torch.max(surrogate, surrogate_clipped).mean()
 
-                # Adaptive LR via analytical KL
+                kl_mean_value: float | None = None
                 if self.desired_kl is not None and self.schedule == "adaptive":
                     with torch.inference_mode():
                         kl = torch.sum(
@@ -389,18 +443,13 @@ class APPOLearner:
                             dim=-1,
                         )
                         kl_mean = torch.mean(kl)
+                        kl_mean_value = float(kl_mean.item())
 
-                        if kl_mean > self.desired_kl * 2.0:
-                            self.learning_rate = max(1e-5, self.learning_rate / 1.5)
-                        elif kl_mean < self.desired_kl / 2.0 and kl_mean > 0.0:
-                            self.learning_rate = min(1e-2, self.learning_rate * 1.5)
+                        self._update_adaptive_learning_rate(kl_mean_value)
 
-                        for param_group in self.optimizer.param_groups:
-                            param_group["lr"] = self.learning_rate
+                        mean_kl += kl_mean_value
+                        mean_target_to_current_kl += kl_mean_value
 
-                        mean_kl += kl_mean.item()
-
-                # Value Loss with clipping
                 if self.use_clipped_value_loss:
                     value_clipped = old_values_mini + (value - old_values_mini).clamp(
                         -self.clip_param, self.clip_param
@@ -411,33 +460,61 @@ class APPOLearner:
                 else:
                     value_loss = (value - target_values_mini).pow(2).mean()
 
-                # Total loss
                 loss = (
                     surrogate_loss + self.value_loss_coef * value_loss - self.entropy_coef * entropy
                 )
 
-                # Gradient step
                 self.optimizer.zero_grad(set_to_none=True)
                 loss.backward()
-                nn.utils.clip_grad_norm_(
-                    chain(self.actor.parameters(), self.critic.parameters()), self.max_grad_norm
-                )
+                global_grad_norm = _grad_norm(self._combined_params)
+                nn.utils.clip_grad_norm_(self._combined_params, self.max_grad_norm)
                 self.optimizer.step()
+
+                with torch.inference_mode():
+                    clip_fraction = (torch.abs(ratio - 1.0) > self.clip_param).float().mean().item()
+                    behavior_to_current_kl = (behavior_logp_mini - current_log_prob).mean().item()
+                    if kl_mean_value is None:
+                        kl = torch.sum(
+                            torch.log(sigma / old_sigma_mini + 1e-5)
+                            + (old_sigma_mini.pow(2) + (old_mu_mini - mu).pow(2))
+                            / (2.0 * sigma.pow(2))
+                            - 0.5,
+                            dim=-1,
+                        )
+                        kl_mean_value = float(torch.mean(kl).item())
+                        mean_target_to_current_kl += kl_mean_value
 
                 mean_value_loss += value_loss.item()
                 mean_surrogate_loss += surrogate_loss.item()
                 mean_entropy += entropy.item()
+                mean_clip_fraction += float(clip_fraction)
+                mean_behavior_to_current_kl += float(behavior_to_current_kl)
+                mean_global_grad_norm += global_grad_norm
                 num_updates += 1
 
-        # Target network update
         self._update_counter += 1
         if self._update_counter % self.target_update_freq == 0:
             self.update_target_network()
 
         num_updates = max(num_updates, 1)
-        return {
+        final_lr = float(self.learning_rate)
+        self.learning_rate = final_lr
+
+        metrics = {
             "surrogate_loss": mean_surrogate_loss / num_updates,
             "value_loss": mean_value_loss / num_updates,
             "entropy": mean_entropy / num_updates,
             "kl": mean_kl / num_updates if self.schedule == "adaptive" else 0.0,
+            "loss/policy_loss": mean_surrogate_loss / num_updates,
+            "loss/value_loss": mean_value_loss / num_updates,
+            "policy/entropy": mean_entropy / num_updates,
+            "ppo/approx_kl": mean_target_to_current_kl / num_updates,
+            "ppo/clip_fraction": mean_clip_fraction / num_updates,
+            "grad/global_norm": mean_global_grad_norm / num_updates,
+            "optim/learning_rate": final_lr,
+            "policy_kl/behavior_to_current_kl": mean_behavior_to_current_kl / num_updates,
+            "appo/updates_executed": float(num_updates),
         }
+        metrics.update(batch_dict.get("_appo_process_metrics", {}))
+        self.last_update_metrics = metrics
+        return metrics

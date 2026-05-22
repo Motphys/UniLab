@@ -13,9 +13,10 @@ import numpy as np
 import torch
 from rsl_rl.utils import resolve_callable
 
-from unilab.algos.torch.appo.runner import APPORunner
+from unilab.algos.torch.appo.runner import APPORunner, _optimizer_lr_from_state
 from unilab.algos.torch.hora.appo_learner import HoraAPPOLearner
 from unilab.algos.torch.hora.appo_worker import hora_appo_collector_fn
+from unilab.algos.torch.hora.models import HoraSharedActorCritic
 from unilab.algos.torch.hora.rsl_rl_compat import (
     convert_config_v3_to_v4,
     is_rsl_rl_v4,
@@ -109,13 +110,59 @@ class HoraAPPORunner(APPORunner):
         actor_cfg = deepcopy(cfg.get("actor", {}))
         actor_cls = resolve_callable(actor_cfg.pop("class_name"))
         actor_cfg.pop("num_actions", None)
-        actor = actor_cls(td_example, cfg["obs_groups"], "actor", self.action_dim, **actor_cfg)
-
         critic_cfg: dict[str, Any] = deepcopy(cfg.get("critic") or cfg.get("actor") or {})
         critic_cls = resolve_callable(critic_cfg.pop("class_name", "rsl_rl.models.MLPModel"))
         critic_cfg.pop("num_actions", None)
         critic_cfg.pop("distribution_cfg", None)
-        critic = critic_cls(td_example, cfg["obs_groups"], "critic", 1, **critic_cfg)
+
+        shared_cfg = deepcopy(actor_cfg)
+        critic_shared_cfg = deepcopy(critic_cfg)
+        shared_model = HoraSharedActorCritic(
+            obs_dim=self.obs_dim,
+            action_dim=self.action_dim,
+            priv_info_dim=self.priv_info_dim,
+            actor_hidden_dims=shared_cfg.pop("hidden_dims", (512, 256, 128)),
+            activation=shared_cfg.pop(
+                "activation", critic_shared_cfg.pop("activation", "elu")
+            ),
+            obs_normalization=bool(
+                shared_cfg.pop(
+                    "obs_normalization",
+                    critic_shared_cfg.pop("obs_normalization", False),
+                )
+            ),
+            distribution_cfg=shared_cfg.pop("distribution_cfg", None),
+            priv_info_embed_dim=int(
+                shared_cfg.pop(
+                    "priv_info_embed_dim",
+                    critic_shared_cfg.pop("priv_info_embed_dim", self.priv_info_dim),
+                )
+            ),
+            priv_mlp_hidden_dims=shared_cfg.pop(
+                "priv_mlp_hidden_dims",
+                critic_shared_cfg.pop("priv_mlp_hidden_dims", (256, 128, 8)),
+            ),
+            use_student_encoder=bool(shared_cfg.pop("use_student_encoder", False)),
+            proprio_hist_len=int(shared_cfg.pop("proprio_hist_len", 30)),
+            proprio_frame_dim=shared_cfg.pop("proprio_frame_dim", None),
+        ).to(self.device)
+
+        actor = actor_cls(
+            td_example,
+            cfg["obs_groups"],
+            "actor",
+            self.action_dim,
+            shared_model=shared_model,
+            **actor_cfg,
+        )
+        critic = critic_cls(
+            td_example,
+            cfg["obs_groups"],
+            "critic",
+            1,
+            shared_model=shared_model,
+            **critic_cfg,
+        )
 
         algo_cfg = cfg.get("algorithm", cfg)
         return HoraAPPOLearner(
@@ -134,6 +181,8 @@ class HoraAPPORunner(APPORunner):
             use_clipped_value_loss=algo_cfg.get("use_clipped_value_loss", True),
             schedule=algo_cfg.get("schedule", "fixed"),
             desired_kl=algo_cfg.get("desired_kl", 0.01),
+            adaptive_kl_factor=algo_cfg.get("adaptive_kl_factor", 1.2),
+            adaptive_lr_factor=algo_cfg.get("adaptive_lr_factor", 1.1),
             optimizer=algo_cfg.get("optimizer", "adam"),
             tau=algo_cfg.get("tau", 1.0),
             target_update_freq=algo_cfg.get("target_update_freq", 1),
@@ -159,6 +208,14 @@ class HoraAPPORunner(APPORunner):
         iteration = 0
 
         learner = self._build_learner()
+        if self.resume_path:
+            checkpoint = torch.load(self.resume_path, map_location=self.device, weights_only=True)
+            learner.actor.load_state_dict(checkpoint["actor"])
+            learner.critic.load_state_dict(checkpoint["critic"])
+            if "optimizer" in checkpoint:
+                learner.optimizer.load_state_dict(checkpoint["optimizer"])
+                learner.learning_rate = _optimizer_lr_from_state(learner.optimizer)
+            learner.update_target_network()
 
         shared_storage = SharedOnPolicyStorage(
             num_envs=self.num_envs,
@@ -270,6 +327,8 @@ class HoraAPPORunner(APPORunner):
                 raw = shared_storage.read_torch(self.device)
                 shared_storage.advance_read()
 
+                raw.pop("rollout_collect_time_s", None)
+
                 rollout: dict = {}
                 for k, v in raw.items():
                     if k not in ("last_obs", "last_critic") and v.ndim >= 2:
@@ -301,6 +360,7 @@ class HoraAPPORunner(APPORunner):
 
             metrics["replay_queue_len"] = float(len(replay_queue))
             metrics["available_on_arrive"] = float(available_on_arrive)
+            metrics["rollouts_read"] = float(num_new)
             logger.update_replay_queue(len(replay_queue), self.replay_queue_size)
 
             mean_reward = (

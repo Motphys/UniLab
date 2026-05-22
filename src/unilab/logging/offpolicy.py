@@ -14,6 +14,33 @@ from rich.table import Table
 from unilab.logging.common import BaseTrainingLogger, _fmt_number, _fmt_time, _load_wandb
 
 
+def _metric_backend_key(key: str) -> str:
+    """Keep canonical slash metrics intact; namespace legacy flat metrics under train/."""
+    return key if "/" in key else f"train/{key}"
+
+
+def _reward_backend_key(key: str) -> str:
+    """Keep canonical reward/* keys intact; namespace bare component names under reward/."""
+    return key if key.startswith("reward/") else f"reward/{key}"
+
+
+def _dedupe_metric_aliases(metrics: dict[str, float] | None) -> dict[str, float] | None:
+    """Drop legacy flat APPO aliases when canonical metrics are present."""
+    if not metrics:
+        return metrics
+    normalized = dict(metrics)
+    aliases = {
+        "surrogate_loss": "loss/policy_loss",
+        "value_loss": "loss/value_loss",
+        "entropy": "policy/entropy",
+        "kl": "ppo/approx_kl",
+    }
+    for legacy_key, canonical_key in aliases.items():
+        if canonical_key in normalized:
+            normalized.pop(legacy_key, None)
+    return normalized
+
+
 class OffPolicyLogger(BaseTrainingLogger):
     """Rich logger for off-policy RL algorithms (SAC, TD3, etc)."""
 
@@ -103,10 +130,15 @@ class OffPolicyLogger(BaseTrainingLogger):
     def _get_iter_steps_per_sec(self) -> float | None:
         if not self._has_iteration_extra_info or self._throughput_steps <= 0:
             return None
-        iter_time = self._collect_time + self._train_time
+        iter_time = self._get_pipeline_wall_time()
         if iter_time <= 0:
             return None
         return self._throughput_steps / iter_time
+
+    def _get_pipeline_wall_time(self) -> float:
+        if self._sync_collection and self._has_iteration_extra_info:
+            return self._wait_time + self._train_time
+        return self._collect_time + self._train_time
 
     def _get_wall_steps_per_sec(self, elapsed: float) -> float | None:
         if elapsed <= 0 or self._total_steps <= 0:
@@ -149,6 +181,7 @@ class OffPolicyLogger(BaseTrainingLogger):
         wait_time: float = 0.0,
         extra_info: dict | None = None,
     ):
+        metrics = _dedupe_metric_aliases(metrics)
         self._iteration = iteration
         self._collect_time = collect_time
         self._train_time = train_time
@@ -160,7 +193,7 @@ class OffPolicyLogger(BaseTrainingLogger):
         else:
             self._startup_wait_time = 0.0
             self._throughput_steps = 0
-        self._iter_times.append(collect_time + train_time)
+        self._iter_times.append(self._get_pipeline_wall_time())
         if metrics:
             self._latest_metrics.update(metrics)
         if reward is not None:
@@ -186,17 +219,23 @@ class OffPolicyLogger(BaseTrainingLogger):
         elapsed = time.time() - self._start_time if self._start_time else 0
         iter_steps_per_sec = self._get_iter_steps_per_sec()
         wall_steps_per_sec = self._get_wall_steps_per_sec(elapsed)
+        axis_scalars = {
+            "axis/iteration": float(iteration),
+            "axis/env_steps_total": float(global_step),
+        }
 
         if self._tb_writer:
             writer = self._tb_writer
+            for key, value in axis_scalars.items():
+                writer.add_scalar(key, value, global_step)
             if metrics:
                 for key, value in metrics.items():
-                    writer.add_scalar(f"train/{key}", value, global_step)
+                    writer.add_scalar(_metric_backend_key(key), value, global_step)
             if reward is not None:
                 writer.add_scalar("reward/mean", reward, global_step)
             if reward_components:
                 for key, value in reward_components.items():
-                    writer.add_scalar(f"reward/{key}", value, global_step)
+                    writer.add_scalar(_reward_backend_key(key), value, global_step)
             if self._mean_ep_length > 0:
                 writer.add_scalar("episode/length", self._mean_ep_length, global_step)
             writer.add_scalar("episode/timeout_rate", self._timeout_rate, global_step)
@@ -217,9 +256,7 @@ class OffPolicyLogger(BaseTrainingLogger):
                 writer.add_scalar("perf/steps_per_sec", wall_steps_per_sec, global_step)
             if wall_steps_per_sec is not None:
                 writer.add_scalar("perf/steps_per_sec_wall", wall_steps_per_sec, global_step)
-            writer.add_scalar(
-                "perf/iter_ms", (self._collect_time + self._train_time) * 1000, global_step
-            )
+            writer.add_scalar("perf/iter_ms", self._get_pipeline_wall_time() * 1000, global_step)
             writer.add_scalar(
                 "perf/collect_train_ratio",
                 self._collect_time / max(self._train_time, 1e-6),
@@ -230,15 +267,15 @@ class OffPolicyLogger(BaseTrainingLogger):
             wandb = _load_wandb()
             if wandb is None:
                 return
-            log_dict: dict[str, Any] = {"iteration": iteration}
+            log_dict: dict[str, Any] = {"iteration": iteration, **axis_scalars}
             if metrics:
                 for key, value in metrics.items():
-                    log_dict[f"train/{key}"] = value
+                    log_dict[_metric_backend_key(key)] = value
             if reward is not None:
                 log_dict["reward/mean"] = reward
             if reward_components:
                 for key, value in reward_components.items():
-                    log_dict[f"reward/{key}"] = value
+                    log_dict[_reward_backend_key(key)] = value
             if self._mean_ep_length > 0:
                 log_dict["episode/length"] = self._mean_ep_length
             log_dict["episode/timeout_rate"] = self._timeout_rate
@@ -257,7 +294,7 @@ class OffPolicyLogger(BaseTrainingLogger):
                 log_dict["perf/steps_per_sec"] = wall_steps_per_sec
             if wall_steps_per_sec is not None:
                 log_dict["perf/steps_per_sec_wall"] = wall_steps_per_sec
-            log_dict["perf/iter_ms"] = (self._collect_time + self._train_time) * 1000
+            log_dict["perf/iter_ms"] = self._get_pipeline_wall_time() * 1000
             log_dict["perf/collect_train_ratio"] = self._collect_time / max(self._train_time, 1e-6)
             wandb.log(log_dict, step=global_step)
 

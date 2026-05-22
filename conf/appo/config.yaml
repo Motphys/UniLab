@@ -41,6 +41,8 @@ algo:
     use_clipped_value_loss: true
     schedule: adaptive
     desired_kl: 0.01
+    adaptive_kl_factor: 1.2
+    adaptive_lr_factor: 1.1
     optimizer: adam
     tau: 1.0
     target_update_freq: 1

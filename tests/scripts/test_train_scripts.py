@@ -458,10 +458,11 @@ def test_build_ppo_env_cfg_override_allegro_mujoco(
     assert env_cfg_override["domain_rand"]["joint_noise"] == pytest.approx(0.0)
     assert env_cfg_override["domain_rand"]["ball_vel_noise"] == pytest.approx(0.0)
     assert env_cfg_override["domain_rand"]["ball_z_offset"] == pytest.approx(0.0)
-    assert appo_cfg.algo.num_envs == cfg.algo.num_envs
+    assert appo_cfg.training.replay_queue_size == 4
+    assert appo_cfg.algo.num_envs == 1024
     assert appo_cfg.algo.steps_per_env == cfg.algo.num_steps_per_env
-    assert appo_cfg.algo.max_iterations == cfg.algo.max_iterations
-    assert appo_cfg.algo.save_interval == cfg.algo.save_interval
+    assert appo_cfg.algo.max_iterations == 3000
+    assert appo_cfg.algo.save_interval == 5000
     assert list(appo_cfg.algo.actor.hidden_dims) == list(cfg.algo.actor.hidden_dims)
     assert appo_cfg.algo.actor.activation == cfg.algo.actor.activation
     assert appo_cfg.algo.actor.obs_normalization is True
@@ -473,7 +474,7 @@ def test_build_ppo_env_cfg_override_allegro_mujoco(
     )
     assert appo_cfg.algo.algorithm.entropy_coef == pytest.approx(cfg.algo.algorithm.entropy_coef)
     assert appo_cfg.algo.algorithm.learning_rate == pytest.approx(cfg.algo.algorithm.learning_rate)
-    assert appo_cfg.algo.algorithm.desired_kl == pytest.approx(cfg.algo.algorithm.desired_kl)
+    assert appo_cfg.algo.algorithm.desired_kl == pytest.approx(0.025)
     assert appo_cfg.algo.algorithm.num_learning_epochs == cfg.algo.algorithm.num_learning_epochs
     assert appo_cfg.algo.algorithm.num_mini_batches == cfg.algo.algorithm.num_mini_batches
     assert appo_cfg.algo.algorithm.clip_param == pytest.approx(cfg.algo.algorithm.clip_param)
@@ -486,10 +487,10 @@ def test_build_ppo_env_cfg_override_allegro_mujoco(
     assert appo_cfg.algo.algorithm.schedule == cfg.algo.algorithm.schedule
     assert appo_motrix_cfg.training.task_name == appo_cfg.training.task_name
     assert appo_motrix_cfg.training.sim_backend == ppo_motrix_cfg.training.sim_backend
-    assert appo_motrix_cfg.algo.num_envs == appo_cfg.algo.num_envs
-    assert appo_motrix_cfg.algo.steps_per_env == appo_cfg.algo.steps_per_env
-    assert appo_motrix_cfg.algo.max_iterations == appo_cfg.algo.max_iterations
-    assert appo_motrix_cfg.algo.save_interval == appo_cfg.algo.save_interval
+    assert appo_motrix_cfg.algo.num_envs == ppo_motrix_cfg.algo.num_envs
+    assert appo_motrix_cfg.algo.steps_per_env == ppo_motrix_cfg.algo.num_steps_per_env
+    assert appo_motrix_cfg.algo.max_iterations == ppo_motrix_cfg.algo.max_iterations
+    assert appo_motrix_cfg.algo.save_interval == ppo_motrix_cfg.algo.save_interval
     assert appo_motrix_cfg.algo.actor.obs_normalization is True
     assert appo_motrix_cfg.algo.critic.obs_normalization is True
     assert appo_motrix_cfg.reward.scales.rotate == pytest.approx(

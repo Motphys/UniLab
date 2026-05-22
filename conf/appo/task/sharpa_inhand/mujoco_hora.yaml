@@ -5,10 +5,21 @@ defaults:
   - /task/sharpa_inhand/mujoco
   - _self_
 
+training:
+  replay_queue_size: 8
+  cam_distance: 0.75
+  cam_lookat: [0.0, 0.0, 0.62]
+  cam_elevation: -25.0
+  cam_azimuth: 45.0
+
 algo:
   algo_log_name: hora_appo
   runtime_impl: hora_appo
   runtime_resolver: unilab.algos.torch.hora.appo:resolve_hora_appo_runtime
+  num_envs: 2048
+  steps_per_env: 8
+  max_iterations: 1360
+  save_interval: 170
   obs_groups:
     # Keep grouped keys explicit in the owner YAML; runtime support for these
     # grouped observations lands in the next implementation step.
@@ -26,7 +37,19 @@ algo:
     class_name: unilab.algos.torch.hora:HoraCriticModel
     priv_info_embed_dim: 9
     priv_mlp_hidden_dims: [256, 128, 9]
+  algorithm:
+    learning_rate: 0.001
+    desired_kl: 0.04
+    adaptive_kl_factor: 1.2
+    adaptive_lr_factor: 1.1
 
 env:
   obs:
     observation_mode: separated
+  domain_rand:
+    randomize_friction: true
+    randomize_friction_scale_lower: 0.75
+    randomize_friction_scale_upper: 1.25
+    elastomer_base_friction: 2.0
+    metal_base_friction: 1.0
+    object_base_friction: 2.0

@@ -21,6 +21,13 @@ from unilab.algos.torch.appo.learner import APPOLearner
 from unilab.algos.torch.appo.worker import appo_collector_fn
 from unilab.ipc import AsyncRunner, SharedOnPolicyStorage, SharedWeightSync
 from unilab.logging import OffPolicyLogger
+from unilab.training.metrics import writer_add_scalar, writer_add_text
+
+
+def _optimizer_lr_from_state(optimizer: torch.optim.Optimizer) -> float:
+    if not optimizer.param_groups:
+        return 0.0
+    return float(optimizer.param_groups[0].get("lr", 0.0))
 
 
 class APPORunner(AsyncRunner):
@@ -38,7 +45,11 @@ class APPORunner(AsyncRunner):
         steps_per_env: int = 24,
         num_workers: int = 1,  # kept for API compat, but only 1 collector used
         replay_queue_size: int = 3,
+        config_hash: str | None = None,
+        seed_bundle: dict[str, int | str | None] | None = None,
+        resume_path: str | None = None,
     ):
+        del num_workers
         super().__init__(
             env_name=env_name,
             env_cfg_overrides=env_cfg_overrides,
@@ -51,6 +62,10 @@ class APPORunner(AsyncRunner):
 
         self.steps_per_env = steps_per_env
         self.replay_queue_size = replay_queue_size
+        self.config_hash = config_hash
+        self.seed_bundle = seed_bundle or {}
+        self._metadata_written = False
+        self.resume_path = resume_path
 
         # Resolve dims
         self._resolve_dims()
@@ -152,6 +167,8 @@ class APPORunner(AsyncRunner):
             use_clipped_value_loss=algo_cfg.get("use_clipped_value_loss", True),
             schedule=algo_cfg.get("schedule", "fixed"),
             desired_kl=algo_cfg.get("desired_kl", 0.01),
+            adaptive_kl_factor=algo_cfg.get("adaptive_kl_factor", 1.2),
+            adaptive_lr_factor=algo_cfg.get("adaptive_lr_factor", 1.1),
             optimizer=algo_cfg.get("optimizer", "adam"),
             tau=algo_cfg.get("tau", 1.0),
             target_update_freq=algo_cfg.get("target_update_freq", 1),
@@ -178,6 +195,14 @@ class APPORunner(AsyncRunner):
         iteration = 0
 
         learner = self._build_learner()
+        if self.resume_path:
+            checkpoint = torch.load(self.resume_path, map_location=self.device, weights_only=True)
+            learner.actor.load_state_dict(checkpoint["actor"])
+            learner.critic.load_state_dict(checkpoint["critic"])
+            if "optimizer" in checkpoint:
+                learner.optimizer.load_state_dict(checkpoint["optimizer"])
+                learner.learning_rate = _optimizer_lr_from_state(learner.optimizer)
+            learner.update_target_network()
 
         # Create shared storage (4-slot ring buffer for IPC; replay queue lives in learner)
         shared_storage = SharedOnPolicyStorage(
@@ -251,6 +276,7 @@ class APPORunner(AsyncRunner):
         )
         logger.set_collection_sync(True, env_steps_per_sync)
         logger.start()
+        self._write_metadata(logger, step=0)
         logger.log_status(
             f"Waiting for first rollout... "
             f"(replay_queue={self.replay_queue_size}, "
@@ -278,9 +304,12 @@ class APPORunner(AsyncRunner):
                     self._drain_metrics(
                         metrics_queue, reward_history, latest_reward_components, logger
                     )
+                    exitcode = None
+                    if self._collector_process is not None:
+                        exitcode = self._collector_process.exitcode
                     raise RuntimeError(
                         "APPO collector process died before producing data. "
-                        "Check stderr for [APPO WORKER CRASH] messages."
+                        f"exitcode={exitcode}. Check stderr for [APPO WORKER CRASH] messages."
                     )
                 logger.log_status(
                     f"[yellow]Warning: Timeout waiting for data at iteration {iteration}[/]"
@@ -323,7 +352,7 @@ class APPORunner(AsyncRunner):
 
             # Concatenate all rollouts in the replay queue along the env dimension.
             # Each rollout keeps its own behavior_log_probs so V-trace IS ratios are
-            # computed independently per env-column — correct for any staleness level.
+            # computed independently per env-column.
             combined: dict = {}
             for k in replay_queue[0]:
                 if k in ("last_obs", "last_critic"):
@@ -343,7 +372,15 @@ class APPORunner(AsyncRunner):
             metrics["replay_queue_len"] = float(len(replay_queue))
             metrics["available_on_arrive"] = float(available_on_arrive)
             metrics["rollouts_read"] = float(num_new)
-
+            metrics.update(
+                self._canonical_metrics(
+                    logger=logger,
+                    num_new=num_new,
+                    env_steps_per_sync=env_steps_per_sync,
+                    train_time=train_time,
+                    wait_time=wait_time,
+                )
+            )
             logger.update_replay_queue(len(replay_queue), self.replay_queue_size)
 
             mean_reward = (
@@ -437,3 +474,57 @@ class APPORunner(AsyncRunner):
             except Exception as e:
                 print(f"[APPORunner] metrics drain error: {e}", file=sys.stderr)
                 break
+
+    def _write_metadata(self, logger: OffPolicyLogger, *, step: int) -> None:
+        if self._metadata_written:
+            return
+        if getattr(logger, "_tb_writer", None) is not None:
+            if self.config_hash:
+                writer_add_text(logger._tb_writer, "config/hash", self.config_hash, step)
+            if self.seed_bundle:
+                writer_add_text(logger._tb_writer, "seed/bundle", str(self.seed_bundle), step)
+                for key, value in self.seed_bundle.items():
+                    if isinstance(value, (int, float)) and value is not None:
+                        writer_add_scalar(logger._tb_writer, f"seed/{key}", value, step)
+        if getattr(logger, "_wandb_run", None) is not None:
+            from unilab.logging.common import _load_wandb
+
+            wandb = _load_wandb()
+            if wandb is not None:
+                payload: dict[str, float | str] = {}
+                if self.config_hash:
+                    payload["config/hash"] = self.config_hash
+                if self.seed_bundle:
+                    payload["seed/bundle"] = str(self.seed_bundle)
+                    for key, value in self.seed_bundle.items():
+                        if isinstance(value, (int, float)) and value is not None:
+                            payload[f"seed/{key}"] = float(value)
+                if payload:
+                    wandb.log(payload, step=step)
+        self._metadata_written = True
+
+    def _canonical_metrics(
+        self,
+        *,
+        logger: OffPolicyLogger,
+        num_new: int,
+        env_steps_per_sync: int,
+        train_time: float,
+        wait_time: float,
+    ) -> dict[str, float]:
+        # Collector work overlaps learner work in APPO.  The learner-side wall
+        # clock for a pipeline turn is wait + train; collect_time is collector
+        # service time metadata, not an additional sequential phase.
+        learner_pipeline_time = max(float(wait_time + train_time), 1e-12)
+        iteration_time = learner_pipeline_time
+        throughput_steps = int(num_new * env_steps_per_sync)
+        total_env_steps = int(getattr(logger, "_total_steps", 0))
+        if total_env_steps <= 0:
+            total_env_steps = int(throughput_steps)
+
+        metrics = {
+            "train/env_steps_total": float(total_env_steps),
+            "throughput/env_steps_per_sec": float(throughput_steps / iteration_time),
+            "pipeline/learner_idle_time_frac": float(wait_time / learner_pipeline_time),
+        }
+        return metrics
