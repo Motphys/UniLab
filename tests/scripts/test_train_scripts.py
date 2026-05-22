@@ -2047,6 +2047,13 @@ def test_play_resolve_checkpoint_uses_algo_log_name(tmp_path):
         mod.ROOT_DIR = original_root
 
 
+def test_ppo_interactive_config_includes_playback_controls():
+    cfg = _ppo_cfg()
+
+    assert cfg.interactive.speed == pytest.approx(1.0)
+    assert cfg.interactive.start_paused is False
+
+
 def test_play_interactive_runner_log_dir_uses_algo_log_name(monkeypatch: pytest.MonkeyPatch):
     import types
 
@@ -2133,6 +2140,8 @@ def test_play_interactive_runner_log_dir_uses_algo_log_name(monkeypatch: pytest.
         reward_debug_ang_vel_scale=0.05,
         reward_debug_show_connectors=False,
         reward_debug_show_global_anchor=False,
+        speed=1.0,
+        start_paused=False,
     )
 
     mod.play_interactive(args)

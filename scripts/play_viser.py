@@ -55,6 +55,11 @@ from unilab.training.rsl_rl import (
     get_policy_obs_dims,
     normalize_ppo_train_cfg,
 )
+from unilab.visualization.interactive_playback import (
+    PlaybackControls,
+    create_rsl_rl_playback_session,
+    select_torch_device,
+)
 from unilab.visualization.render_many import get_grid_offsets
 from unilab.visualization.viser_scene import (
     VISER_AVAILABLE,
@@ -82,6 +87,7 @@ from play_interactive import (  # noqa: E402
     PlayInteractiveArgs,
     _available_backends_for_task,
     _backend_adapter,
+    _build_playback_config,
     _infer_checkpoint_actor_input_dim,
     resolve_checkpoint,
 )
@@ -208,11 +214,7 @@ def _close_scene_entries(entries: list[dict[str, Any]]) -> None:
 
 
 def play_viser(args: PlayInteractiveArgs, cfg: DictConfig) -> None:
-    device = (
-        "cuda"
-        if torch.cuda.is_available()
-        else ("mps" if torch.backends.mps.is_available() else "cpu")
-    )
+    device = select_torch_device()
     print(f"[play_viser] Device: {device}")
 
     # --- Validate backend ---------------------------------------------------
@@ -227,83 +229,36 @@ def play_viser(args: PlayInteractiveArgs, cfg: DictConfig) -> None:
     # --- Create environment --------------------------------------------------
     num_envs = int(OmegaConf.select(cfg, "viser.max_envs") or 1)
 
-    if cfg is None:
-        env = registry.make(args.task, num_envs=num_envs, sim_backend="mujoco")
-    else:
+    def _create_env(env_count: int):
+        if cfg is None:
+            return registry.make(args.task, num_envs=env_count, sim_backend="mujoco")
         from unilab.training import create_env
 
         env_cfg_override = _backend_adapter(cfg).build_task_env_cfg_override()
-        env = create_env(
+        return create_env(
             cfg,
-            num_envs=num_envs,
+            num_envs=env_count,
             env_cfg_override=env_cfg_override,
             sim_backend="mujoco",
             task_name=args.task,
         )
 
-    # --- Load policy ---------------------------------------------------------
-    actor_obs_dim, flat_obs_dim = get_policy_obs_dims(env.obs_groups_spec)
-
-    policy_obs_mode = args.policy_obs_mode
-    algo_log_name = getattr(args, "algo_log_name", "rsl_rl_ppo")
-    ckpt = None
-    if args.action_mode == "policy":
-        ckpt = resolve_checkpoint(
-            args.task,
-            args.load_run,
-            getattr(args, "checkpoint", None),
-            algo_log_name,
-            getattr(args, "log_root", None),
-        )
-        if policy_obs_mode == "auto" and ckpt is not None:
-            ckpt_dim = _infer_checkpoint_actor_input_dim(ckpt)
-            if ckpt_dim == actor_obs_dim:
-                policy_obs_mode = "actor"
-            elif ckpt_dim == flat_obs_dim:
-                policy_obs_mode = "flat"
-            elif ckpt_dim is not None:
-                raise RuntimeError(
-                    f"Checkpoint actor input dim mismatch: "
-                    f"ckpt={ckpt_dim}, actor_obs={actor_obs_dim}, flat_obs={flat_obs_dim}."
-                )
-            else:
-                policy_obs_mode = "flat"
-
-    wrapped_env = RslRlVecEnvWrapper(env, device=device, policy_obs_mode=policy_obs_mode)
-
-    train_cfg = normalize_ppo_train_cfg(_algo_config_dict(cfg))
-    if "runner" not in train_cfg:
-        train_cfg["runner"] = {}
-    train_cfg["runner"]["logger"] = "none"
-
-    policy = None
-    if args.action_mode == "policy":
-        if ckpt is None:
-            print("[play_viser] WARNING: no checkpoint found — falling back to zero actions.")
-        else:
-            log_dir = str(
-                get_entrypoint_log_root(
-                    ROOT_DIR,
-                    algo_log_name=algo_log_name,
-                    log_root=getattr(args, "log_root", None),
-                )
-                / args.task
-                / "play_temp"
-            )
-            runner = OnPolicyRunner(wrapped_env, train_cfg, log_dir=log_dir, device=device)
-            runner.load(
-                ckpt,
-                load_cfg={
-                    "actor": True,
-                    "critic": False,
-                    "optimizer": False,
-                    "iteration": False,
-                    "rnd": False,
-                },
-            )
-            policy = runner.get_inference_policy(device=device)
-
-    print(f"[play_viser] Action mode: {args.action_mode}")
+    playback_session, _policy_obs_mode, _checkpoint_path = create_rsl_rl_playback_session(
+        playback_cfg=_build_playback_config(args, num_envs=num_envs),
+        env_factory=_create_env,
+        algo_config=_algo_config_dict(cfg),
+        root_dir=ROOT_DIR,
+        device=device,
+        checkpoint_resolver=resolve_checkpoint,
+        checkpoint_input_dim_reader=_infer_checkpoint_actor_input_dim,
+        entrypoint_log_root=get_entrypoint_log_root,
+        wrapper_cls=RslRlVecEnvWrapper,
+        runner_cls=OnPolicyRunner,
+        policy_obs_dims_getter=get_policy_obs_dims,
+        train_cfg_normalizer=normalize_ppo_train_cfg,
+        log=lambda message: print(f"[play_viser] {message}"),
+    )
+    env = playback_session.env
 
     # --- GUI controls --------------------------------------------------------
     max_visible_envs = min(int(OmegaConf.select(cfg, "viser.max_envs") or num_envs), num_envs)
@@ -343,6 +298,7 @@ def play_viser(args: PlayInteractiveArgs, cfg: DictConfig) -> None:
             initial_value=env_options[initial_env_idx],
         )
         pause_button = server.gui.add_button("Pause / Resume")
+        step_button = server.gui.add_button("Step")
         speed_slider = server.gui.add_slider(
             "Speed",
             min=0.1,
@@ -351,7 +307,11 @@ def play_viser(args: PlayInteractiveArgs, cfg: DictConfig) -> None:
             initial_value=1.0,
         )
 
-    paused = {"value": False}
+    controls = PlaybackControls(
+        paused=bool(getattr(args, "start_paused", False)),
+        speed=float(getattr(args, "speed", 1.0)),
+    )
+    speed_slider.value = controls.speed
     env_idx = {"value": initial_env_idx}
     display_mode = {"value": initial_mode}
     visible_envs = {"value": max_visible_envs}
@@ -389,9 +349,18 @@ def play_viser(args: PlayInteractiveArgs, cfg: DictConfig) -> None:
     @pause_button.on_click
     def _on_pause_click(event: Any) -> None:
         del event
-        paused["value"] = not paused["value"]
-        status = "paused" if paused["value"] else "resumed"
+        paused = controls.toggle_pause()
+        status = "paused" if paused else "resumed"
         print(f"[play_viser] {status}")
+
+    @step_button.on_click
+    def _on_step_click(event: Any) -> None:
+        del event
+        if not controls.paused:
+            controls.pause()
+            print("[play_viser] paused for single-step mode")
+        controls.request_single_step()
+        print("[play_viser] single step requested")
 
     @display_dropdown.on_update
     def _on_display_mode_update(event: Any) -> None:
@@ -413,9 +382,7 @@ def play_viser(args: PlayInteractiveArgs, cfg: DictConfig) -> None:
 
     env_dropdown.disabled = display_mode["value"] == "all"
 
-    obs, _info = wrapped_env.reset()
-    action_low = env.action_space.low
-    action_high = env.action_space.high
+    playback_session.reset()
 
     print(f"[play_viser] Server running at http://localhost:{port}")
     print(f"[play_viser] {num_envs} environment(s) loaded. Open browser to view.")
@@ -433,27 +400,10 @@ def play_viser(args: PlayInteractiveArgs, cfg: DictConfig) -> None:
             while True:
                 t0 = time.perf_counter()
 
-                if not paused["value"]:
-                    if args.action_mode == "policy" and policy is not None:
-                        actions = policy(obs)
-                    elif args.action_mode == "random":
-                        actions = (
-                            torch.from_numpy(
-                                np.random.uniform(
-                                    action_low,
-                                    action_high,
-                                    size=(num_envs, env.action_space.shape[0]),
-                                )
-                            )
-                            .to(device)
-                            .float()
-                        )
-                    else:  # zero
-                        actions = torch.zeros(num_envs, env.action_space.shape[0], device=device)
+                controls.set_speed(float(speed_slider.value))
+                playback_session.advance(controls)
 
-                    obs, _, _, _ = wrapped_env.step(actions)
-
-                physics_batch = env.get_physics_state_snapshot()
+                physics_batch = playback_session.physics_state()
                 for entry in scene_entries["value"]:
                     phys = physics_batch[int(entry["runtime_env_idx"])].astype(np.float64)
                     mujoco.mj_setState(entry["model"], entry["data"], phys, state_spec)
@@ -461,8 +411,7 @@ def play_viser(args: PlayInteractiveArgs, cfg: DictConfig) -> None:
                     entry["scene"].update(entry["data"])
 
                 # Real-time pacing
-                speed = speed_slider.value
-                target_dt = ctrl_dt / speed
+                target_dt = controls.target_dt(ctrl_dt)
                 elapsed = time.perf_counter() - t0
                 if target_dt - elapsed > 0:
                     time.sleep(target_dt - elapsed)
@@ -527,6 +476,8 @@ def _build_play_args(cfg: DictConfig) -> PlayInteractiveArgs:
             else None
         ),
         use_env_visual_model=bool(cfg.interactive.use_env_visual_model),
+        speed=float(OmegaConf.select(cfg, "interactive.speed", default=1.0)),
+        start_paused=bool(OmegaConf.select(cfg, "interactive.start_paused", default=False)),
     )
 
 
