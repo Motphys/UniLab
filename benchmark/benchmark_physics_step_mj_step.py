@@ -68,6 +68,13 @@ TASK_HATCH = {"go1_joystick_flat": "//", "go2_joystick_flat": "\\\\", "g1_walk_f
 
 
 def _keyframe0_state_and_ctrl(model: Any) -> tuple[np.ndarray, np.ndarray]:
+    """Return (full physics state, ctrl) from keyframe 0.
+
+    ctrl is `model.key_ctrl[0]` (PD targets that hold the robot at the keyframe pose).
+    motrix's benchmark uses the same `keyframes[0].ctrl` so both engines see
+    byte-identical inputs and a physically meaningful workload (stable contacts,
+    solver actually iterates).
+    """
     mujoco_mod = cast(Any, mujoco)
     data = mujoco_mod.MjData(model)
     if model.nkey > 0:
@@ -130,7 +137,6 @@ def _bench_one_task(
     iters: int,
 ) -> List[BenchRecord]:
     task_key = normalize_locomotion_task_id(task_name)
-    np.random.seed(42)
     model = _load_task_model(task_key)
     nstate = cast(Any, mujoco).mj_stateSize(model, cast(Any, mujoco).mjtState.mjSTATE_FULLPHYSICS)
     state0, ctrl0 = _keyframe0_state_and_ctrl(model)
