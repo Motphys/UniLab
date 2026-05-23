@@ -18,7 +18,7 @@
 | 平台 | 安装命令 | 运行说明 |
 |------|----------|----------|
 | Linux CUDA / macOS | `uv sync --extra motrix` | 常规使用 `uv run ...` |
-| Linux AMD / ROCm | `make sync-rocm` | 后续命令使用 `uv run --no-sync ...` |
+| Linux AMD / ROCm | `make sync-rocm` | 后续命令使用 `uv run ...` |
 | Linux Intel Arc / iGPU | `make sync-xpu` | 后续命令使用 `uv run --no-sync ...` |
 
 ## 第一条命令

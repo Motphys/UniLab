@@ -40,7 +40,7 @@ uv run demo --device cpu
 
 - `--algo`、`--task`、`--sim` 保持显式
 - backend 选择走 `--sim`，不要单独切 `training.sim_backend`
-- AMD / Intel 特殊环境使用 `uv run --no-sync ...`
+- ROCm 环境在 `make sync-rocm` 后使用 `uv run ...`；Intel XPU 环境使用 `uv run --no-sync ...`
 - `eval --load-run` 只接受 `-1` 或 run 目录名，不接受绝对路径
 
 ## render mode
