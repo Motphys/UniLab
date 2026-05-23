@@ -9,6 +9,7 @@ import pytest
 from rich.console import Console
 
 import unilab.logging.common as common_module
+import unilab.training.experiment as experiment_module
 from unilab.logging import OffPolicyLogger, OnPolicyLogger
 from unilab.training.experiment import ExperimentTracker, build_wandb_settings
 
@@ -190,7 +191,28 @@ def test_build_wandb_settings_defaults_for_shared_workspace():
     assert "mujoco" in settings["tags"]
 
 
-def test_experiment_tracker_writes_local_run_files(tmp_path):
+def test_experiment_device_info_uses_benchmark_helper():
+    helper_path = experiment_module._benchmark_device_info_path()
+    assert helper_path is not None
+    assert helper_path.name == "device_info.py"
+
+    info = experiment_module.get_device_info_dict()
+    assert info["platform"]
+    assert "chip" in info
+    assert "cpu_total_cores" in info
+    assert "memory" in info
+    assert "gpu_name" in info or "gpu_cores" in info
+
+
+def test_experiment_tracker_writes_local_run_files(tmp_path, monkeypatch):
+    hardware = {
+        "platform": "test-platform",
+        "chip": "test-cpu",
+        "cpu_total_cores": "16",
+        "gpu_name": "test-gpu",
+        "memory": "64 GB",
+    }
+    monkeypatch.setattr(experiment_module, "get_device_info_dict", lambda: hardware)
     log_dir = tmp_path / "logs" / "run1"
     tracker = ExperimentTracker(
         root_dir=tmp_path,
@@ -221,6 +243,7 @@ def test_experiment_tracker_writes_local_run_files(tmp_path):
     assert run_config["run"]["configured_seed"] == 5
     assert run_config["run"]["configured_seed_source"] == "algo.seed"
     assert run_config["run"]["effective_seed"] == 5
+    assert run_config["run"]["hardware"] == hardware
     assert run_summary["final_mean_reward"] == 12.3
     assert run_summary["completed_iterations"] == 10
     assert run_summary["configured_seed"] == 5
