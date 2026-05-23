@@ -27,3 +27,4 @@ algo_params:
   alpha_init: 0.01
   target_entropy_ratio: 0.0
   max_grad_norm: 0.0
+  use_compile: false
