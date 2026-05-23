@@ -119,6 +119,9 @@ viser:
   display_mode: all
   max_envs: 16
 
+env:
+  post_step_forward_sensor: true
+
 hydra:
   run:
     dir: .

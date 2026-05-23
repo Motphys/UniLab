@@ -269,7 +269,7 @@ class MuJoCoBackend(SimBackend):
         position_actuator_gains: dict | None = None,
         iterations: int | None = None,
         push_body_name: Optional[str] = None,
-        post_step_forward_sensor: bool = False,
+        post_step_forward_sensor: bool = True,
     ):
         scene_context = _build_mujoco_scene_context(scene)
         self.scene_model_file = scene_context.model_file
@@ -782,11 +782,13 @@ class MuJoCoBackend(SimBackend):
         set_ctrl_ms = (time.perf_counter() - t0) * 1000.0
 
         t0 = time.perf_counter()
-        state_np = self._pool.step(  # type: ignore[union-attr]
+        state_np, sensor_np = self._pool.step(  # type: ignore[union-attr]
             self._physics_state,
             nstep=nsteps,
             control=control_traj,
             control_spec=control_spec,
+            return_sensor=True,
+            post_step_forward_sensor=self._post_step_forward_sensor,
         )
         if control_spec & int(mujoco.mjtState.mjSTATE_XFRC_APPLIED):
             self._pending_xfrc_applied.fill(0.0)
@@ -794,7 +796,6 @@ class MuJoCoBackend(SimBackend):
         physics_ms = (time.perf_counter() - t0) * 1000.0
 
         t0 = time.perf_counter()
-        sensor_np = self._pool.forward(self._physics_state)  # type: ignore[union-attr]
         self._sensor_data[:] = sensor_np.astype(self._np_dtype)
         refresh_cache_ms = (time.perf_counter() - t0) * 1000.0
 
@@ -826,17 +827,18 @@ class MuJoCoBackend(SimBackend):
             set_ctrl_ms += (time.perf_counter() - t0) * 1000.0
 
             t0 = time.perf_counter()
-            state_np = self._pool.step(  # type: ignore[union-attr]
+            state_np, sensor_np = self._pool.step(  # type: ignore[union-attr]
                 self._physics_state,
                 nstep=1,
                 control=control_traj,
                 control_spec=control_spec,
+                return_sensor=True,
+                post_step_forward_sensor=self._post_step_forward_sensor,
             )
             self._physics_state[:] = state_np.astype(self._np_dtype)
             physics_ms += (time.perf_counter() - t0) * 1000.0
 
             t0 = time.perf_counter()
-            sensor_np = self._pool.forward(self._physics_state)  # type: ignore[union-attr]
             self._sensor_data[:] = sensor_np.astype(self._np_dtype)
             refresh_cache_ms += (time.perf_counter() - t0) * 1000.0
 

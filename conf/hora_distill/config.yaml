@@ -34,6 +34,9 @@ training:
   log_root: null
   log_dir: null
 
+env:
+  post_step_forward_sensor: true
+
 hydra:
   run:
     dir: .

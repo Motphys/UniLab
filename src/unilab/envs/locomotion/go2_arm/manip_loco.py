@@ -285,6 +285,7 @@ class Go2ArmManipLocoEnv(Go2ArmBaseEnv):
             push_body_name=cfg.domain_rand.push_body_name,
             position_actuator_gains=build_go2_arm_position_gains(cfg.control_config),
             iterations=cfg.iterations,
+            post_step_forward_sensor=cfg.post_step_forward_sensor,
         )
         super().__init__(cfg, backend, num_envs)
         if self._num_action != 18:

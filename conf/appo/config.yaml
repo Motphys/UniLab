@@ -78,6 +78,9 @@ training:
   cam_tracking_extra_envs: 2
   replay_queue_size: null
 
+env:
+  post_step_forward_sensor: true
+
 hydra:
   run:
     dir: .

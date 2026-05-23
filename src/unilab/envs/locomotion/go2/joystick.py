@@ -114,6 +114,7 @@ class Go2WalkTask(Go2BaseEnv):
             push_body_name=cfg.domain_rand.push_body_name,
             position_actuator_gains={"kp": cfg.control_config.Kp, "kd": cfg.control_config.Kd},
             motrix_max_iterations=cfg.motrix_max_iterations,
+            post_step_forward_sensor=cfg.post_step_forward_sensor,
         )
         self._terrain_surface_sampler = getattr(backend, "terrain_surface_sampler", None)
         self._terrain_surface_sample_height = self._resolve_terrain_surface_sample_height()

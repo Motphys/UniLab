@@ -75,6 +75,9 @@ training:
   save_interval: 50
   log_root: null
 
+env:
+  post_step_forward_sensor: true
+
 hydra:
   run:
     dir: .

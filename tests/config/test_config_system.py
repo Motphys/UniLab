@@ -252,6 +252,17 @@ def test_ppo_g1_backend_specific_hyperparams_remain_separate():
     assert motrix_cfg.reward.max_tilt_deg == pytest.approx(35.0)
 
 
+def test_mujoco_post_step_forward_sensor_default_and_override():
+    default_cfg = _compose("appo", overrides=["task=sharpa_inhand/mujoco_hora"])
+    override_cfg = _compose(
+        "appo",
+        overrides=["task=sharpa_inhand/mujoco_hora", "env.post_step_forward_sensor=false"],
+    )
+
+    assert default_cfg.env.post_step_forward_sensor is True
+    assert override_cfg.env.post_step_forward_sensor is False
+
+
 def test_ppo_go1_motrix_preserves_reward_and_algo_values():
     cfg = _compose("ppo", overrides=["task=go1_joystick_flat/motrix"])
 

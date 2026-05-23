@@ -671,3 +671,53 @@ def test_create_backend_does_not_route_motrix_option_to_mujoco(monkeypatch) -> N
 
     assert "motrix_max_iterations" not in captured["kwargs"]
     assert "max_iterations" not in captured["kwargs"]
+
+
+def test_create_backend_routes_post_step_forward_sensor_to_mujoco(monkeypatch) -> None:
+    import unilab.base.backend as backend_factory
+    from unilab.base.scene import SceneCfg
+
+    captured: dict[str, Any] = {}
+
+    class FakeMuJoCoBackend:
+        def __init__(self, scene: SceneCfg, num_envs: int, sim_dt: float, **kwargs: Any) -> None:
+            captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(backend_factory, "_load_mujoco_backend", lambda: FakeMuJoCoBackend)
+
+    backend_factory.create_backend(
+        "mujoco",
+        SceneCfg(model_file="model.xml"),
+        num_envs=1,
+        sim_dt=0.01,
+        post_step_forward_sensor=False,
+    )
+
+    assert captured["kwargs"]["post_step_forward_sensor"] is False
+
+
+def test_create_backend_does_not_route_post_step_forward_sensor_to_motrix(monkeypatch) -> None:
+    import unilab.base.backend as backend_factory
+    from unilab.base.scene import SceneCfg
+
+    captured: dict[str, Any] = {}
+
+    class FakeMotrixBackend:
+        def __init__(self, scene: SceneCfg, num_envs: int, sim_dt: float, **kwargs: Any) -> None:
+            captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(
+        backend_factory,
+        "_load_motrix_backend",
+        lambda: (FakeMotrixBackend, True),
+    )
+
+    backend_factory.create_backend(
+        "motrix",
+        SceneCfg(model_file="model.xml"),
+        num_envs=1,
+        sim_dt=0.01,
+        post_step_forward_sensor=False,
+    )
+
+    assert "post_step_forward_sensor" not in captured["kwargs"]

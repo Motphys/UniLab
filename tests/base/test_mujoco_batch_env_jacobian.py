@@ -17,8 +17,6 @@ except Exception:
     )
 
 if not hasattr(BatchEnvPool, "compute_site_jacobians"):
-    # This is a mujoco-uni 3.8 API. UniLab currently pins mujoco-uni 3.7.0rc0
-    # because Sharpa simulates incorrectly on 3.8, so keep this coverage skipped.
     pytest.skip(
         "BatchEnvPool.compute_site_jacobians requires mujoco-uni>=3.8.0rc0",
         allow_module_level=True,
