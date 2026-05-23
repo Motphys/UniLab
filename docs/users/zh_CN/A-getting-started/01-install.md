@@ -25,13 +25,14 @@ brew install cmake
 | 平台 | 同步命令 | 运行说明 |
 |------|----------|----------|
 | Linux CUDA / macOS | `uv sync --extra motrix` | 常规训练直接用 `uv run ...` |
-| Linux AMD / ROCm | `make sync-rocm` | 后续命令用 `uv run --no-sync ...` |
+| Linux AMD / ROCm | `make sync-rocm` | 后续命令用 `uv run ...` |
 | Linux Intel Arc / iGPU | `make sync-xpu` | 后续命令用 `uv run --no-sync ...` |
 
 ROCm 路径的额外约束：
 
 - `make sync-rocm` 要求 ROCm >= 7.1，并按仓库的 ROCm 依赖文件安装对应 PyTorch wheel。
-- 之后不要直接用裸 `uv run ...`，避免被默认 Linux wheel 覆盖。
+- `make sync-rocm` 会把 `pyproject.rocm.toml` / `uv.rocm.lock` 激活为当前 `pyproject.toml` / `uv.lock`，所以后续可以直接用裸 `uv run ...`。
+- 切回默认 CUDA / macOS profile 时运行 `git restore -- pyproject.toml uv.lock`，然后重新执行 `uv sync --extra motrix`；提交非 ROCm 依赖改动前应确认当前 profile。
 - 训练配置里的设备字段仍然沿用 `cuda` 语义，不需要改成 `rocm`。
 
 Intel XPU 路径同样建议保持 `uv run --no-sync ...`，避免把默认 Linux 依赖重新同步回来。Ubuntu 24.04+ / 26.04 上还需要系统驱动包，例如 `intel-opencl-icd` 和 `libze-intel-gpu1`；off-policy 训练可按需加 `training.use_amp=true`。

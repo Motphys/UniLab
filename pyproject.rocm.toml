@@ -7,11 +7,12 @@ name = "unilab"
 version = "0.1.0"
 description = "Universal Lab for Robot Learning"
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy",
     "torch==2.11.0",
-    "torchvision",
     "triton-rocm==3.6.0 ; sys_platform == 'linux' and platform_machine == 'x86_64'",
     "mujoco-uni==3.8.0rc2",
     "gymnasium",
@@ -42,7 +43,7 @@ unilab-viz-nan = "unilab.tools.viz_nan:main"
 unilab-export-scene = "unilab.tools.export_scene:main"
 
 [project.optional-dependencies]
-motrix = ["motrixsim-core==0.7.1.dev100199"]
+motrix = ["motrixsim-core==0.7.1.dev102197"]
 viser = ["viser>=1.0.26", "trimesh>=3.21.7"]
 
 [dependency-groups]
@@ -70,15 +71,17 @@ mujoco-uni = { index = "test-pypi" }
 torch = [
     { index = "pytorch-rocm72", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
 ]
-torchvision = [
-    { index = "pytorch-rocm72", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
-]
 triton-rocm = [
     { index = "pytorch-rocm72", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
 ]
 
 [tool.uv]
-exclude-dependencies = ["nvidia-cublas-cu12", "nvidia-cuda-runtime-cu12", "nvidia-cudnn-cu12"]
+exclude-dependencies = [
+    "torchvision",
+    "nvidia-cublas-cu12",
+    "nvidia-cuda-runtime-cu12",
+    "nvidia-cudnn-cu12",
+]
 required-environments = [
     "sys_platform == 'darwin' and platform_machine == 'arm64'",
     "sys_platform == 'linux' and platform_machine == 'x86_64'",

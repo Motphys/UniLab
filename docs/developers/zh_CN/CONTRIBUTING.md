@@ -8,7 +8,8 @@
 2. 按平台安装依赖:
    - macOS（MPS，安装 PyPI 的 torch wheel）: `uv sync`
    - Linux 默认（安装 PyTorch 官方 cu128 wheel；需要当前 PyTorch cu128 wheel 所支持的 NVIDIA 显卡与驱动栈）: `uv sync`
-   - Linux AMD / ROCm 工作站: `make sync-rocm`，运行命令时使用 `uv run --no-sync ...`
+   - Linux AMD / ROCm 工作站: `make sync-rocm`，运行命令时使用 `uv run ...`
+   - 从 ROCm 切回默认 CUDA / macOS profile: `git restore -- pyproject.toml uv.lock` 后重新 `uv sync --extra motrix`
    - 需要 Motrix 时，在命令后追加 `--extra motrix`
 3. 创建分支，例如 `git checkout -b docs/improve-readme` 或 `git checkout -b fix/backend-bug`。
 
