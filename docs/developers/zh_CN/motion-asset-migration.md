@@ -12,12 +12,10 @@ motion 资产（`.npz` / `.csv`）已从 Git 仓库迁移到 Hugging Face 数据
 
 ## 首次使用
 
-1. 安装 `huggingface_hub`（可选依赖）：
+1. 安装依赖（`huggingface_hub` 和 `ninja` 已包含在核心依赖中）：
 
    ```bash
-   uv sync --extra hf
-   # 或
-   uv pip install huggingface_hub
+   uv sync
    ```
 
 2. 直接运行训练 / 评估命令，motion 文件会在 `MotionLoader` 初始化时自动下载：

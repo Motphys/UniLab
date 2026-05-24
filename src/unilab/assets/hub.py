@@ -78,9 +78,9 @@ def _download_from_hf(relative_path: str) -> str:
         raise ImportError(
             f"Motion file '{relative_path}' not found locally. "
             "Install huggingface_hub to enable automatic downloading:\n"
-            "  uv pip install huggingface_hub\n"
-            "Or install with the hf extra:\n"
-            "  uv sync --extra hf"
+            "  uv sync\n"
+            "Or:\n"
+            "  uv pip install huggingface_hub"
         ) from None
 
     logger.info(

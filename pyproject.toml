@@ -32,6 +32,8 @@ dependencies = [
     "wandb",
     "notebook>=7.5.5",
     "onnxruntime>=1.24.3",
+    "huggingface_hub>=0.25",
+    "ninja",
 ]
 
 [project.scripts]
@@ -44,7 +46,6 @@ unilab-export-scene = "unilab.tools.export_scene:main"
 [project.optional-dependencies]
 motrix = ["motrixsim-core==0.7.1.dev102197"]
 viser = ["viser>=1.0.26", "trimesh>=3.21.7"]
-hf = ["huggingface_hub>=0.25"]
 
 [dependency-groups]
 dev = ["pytest", "pytest-cov", "ruff", "mypy", "pyright>=1.1.408"]
