@@ -9,6 +9,8 @@ from typing import Literal
 
 import numpy as np
 
+from unilab.assets.hub import resolve_motion_files
+
 
 @dataclass
 class MotionData:
@@ -34,6 +36,7 @@ class MotionLoader:
                 motion files currently keep MuJoCo body-id layout, so these
                 indices are expected to follow that convention.
         """
+        motion_file = resolve_motion_files(motion_file)
         self.motion_files = self._normalize_motion_files(motion_file)
 
         joint_pos_list: list[np.ndarray] = []
