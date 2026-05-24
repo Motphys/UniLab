@@ -121,6 +121,7 @@ class FlashSACAlgoParams:
     learning_rate_warmup_steps: int = 0
     learning_rate_decay_steps: int = 500000
     n_step: int = 1
+    amp_dtype: str = "auto"
     use_compile: bool = False
 
 

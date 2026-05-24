@@ -328,7 +328,11 @@ def test_flashsac_double_buffer_n_step_rejected():
         _offpolicy().build_runner("flashsac", cfg)
 
 
-def test_flashsac_double_buffer_compile_rejected():
+def test_flashsac_double_buffer_compile_passed_to_learner(monkeypatch: pytest.MonkeyPatch):
+    import gymnasium as gym
+
+    import unilab.algos.torch.flash_sac.double_buffer as flash_db_mod
+
     cfg = _offpolicy_cfg(
         [
             "algo=flashsac",
@@ -336,20 +340,70 @@ def test_flashsac_double_buffer_compile_rejected():
             "algo.algo_params.use_compile=true",
         ]
     )
-    with pytest.raises(ValueError, match="use_compile=false"):
-        _offpolicy().build_runner("flashsac", cfg)
+
+    class _FakeEnv:
+        obs_groups_spec = {"obs": 4, "critic": 6}
+        action_space = gym.spaces.Box(-1.0, 1.0, shape=(2,))
+
+        def close(self):
+            pass
+
+    class _FakeLearner:
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+
+    class _FakeRunner:
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+
+    monkeypatch.setattr(flash_db_mod, "ensure_registries", lambda: None)
+    monkeypatch.setattr(flash_db_mod, "create_env", lambda *args, **kwargs: _FakeEnv())
+    monkeypatch.setattr(flash_db_mod, "FlashSACLearner", _FakeLearner)
+    monkeypatch.setattr(flash_db_mod, "DoubleBufferOffPolicyRunner", _FakeRunner)
+
+    runner = _offpolicy().build_runner("flashsac", cfg)
+
+    assert runner.kwargs["learner"].kwargs["use_compile"] is True
 
 
-def test_flashsac_double_buffer_amp_rejected():
+def test_flashsac_double_buffer_amp_passed_to_learner(monkeypatch: pytest.MonkeyPatch):
+    import gymnasium as gym
+
+    import unilab.algos.torch.flash_sac.double_buffer as flash_db_mod
+
     cfg = _offpolicy_cfg(
         [
             "algo=flashsac",
             "training.device=cuda",
             "training.use_amp=true",
+            "algo.algo_params.amp_dtype=bf16",
         ]
     )
-    with pytest.raises(ValueError, match="training.use_amp=false"):
-        _offpolicy().build_runner("flashsac", cfg)
+
+    class _FakeEnv:
+        obs_groups_spec = {"obs": 4, "critic": 6}
+        action_space = gym.spaces.Box(-1.0, 1.0, shape=(2,))
+
+        def close(self):
+            pass
+
+    class _FakeLearner:
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+
+    class _FakeRunner:
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+
+    monkeypatch.setattr(flash_db_mod, "ensure_registries", lambda: None)
+    monkeypatch.setattr(flash_db_mod, "create_env", lambda *args, **kwargs: _FakeEnv())
+    monkeypatch.setattr(flash_db_mod, "FlashSACLearner", _FakeLearner)
+    monkeypatch.setattr(flash_db_mod, "DoubleBufferOffPolicyRunner", _FakeRunner)
+
+    runner = _offpolicy().build_runner("flashsac", cfg)
+
+    assert runner.kwargs["learner"].kwargs["use_amp"] is True
+    assert runner.kwargs["learner"].kwargs["amp_dtype"] == "bf16"
 
 
 @pytest.mark.parametrize(

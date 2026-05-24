@@ -30,10 +30,6 @@ def _validate_flashsac_double_buffer_runtime(
         )
     if cfg.algo.algo_params.n_step != 1:
         raise ValueError("FlashSAC-B initially supports n_step=1 only")
-    if cfg.algo.algo_params.use_compile:
-        raise ValueError("FlashSAC-B initially requires algo.algo_params.use_compile=false")
-    if cfg.training.use_amp:
-        raise ValueError("FlashSAC-B initially requires training.use_amp=false")
 
 
 def build_flashsac_double_buffer_runner(
@@ -96,6 +92,7 @@ def build_flashsac_double_buffer_runner(
         n_step=cfg.algo.algo_params.n_step,
         obs_normalization=cfg.algo.obs_normalization,
         use_amp=cfg.training.use_amp,
+        amp_dtype=cfg.algo.algo_params.amp_dtype,
         use_compile=cfg.algo.algo_params.use_compile,
     )
 

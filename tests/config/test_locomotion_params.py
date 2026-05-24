@@ -82,6 +82,7 @@ def test_flashsac_config_defaults():
     assert cfg.obs_normalization is False
     assert isinstance(cfg.algo_params, FlashSACAlgoParams)
     assert cfg.algo_params.normalize_reward is True
+    assert cfg.algo_params.amp_dtype == "auto"
     assert cfg.algo_params.use_compile is False
 
 
@@ -194,6 +195,7 @@ def test_offpolicy_flashsac_g1_task_overrides():
     assert cfg.training.sim_backend == "mujoco"
     assert cfg.algo.algo_params.actor_num_blocks == 2
     assert cfg.algo.algo_params.normalize_reward is True
+    assert cfg.algo.algo_params.amp_dtype == "auto"
 
 
 def test_offpolicy_flashsac_go2_task_overrides():
