@@ -75,7 +75,7 @@ def test_resolve_calls_hf_hub_download_for_missing_file():
 
     assert result == str(missing)
     fake_download.assert_called_once_with(
-        repo_id="LeeLeno/unilab-motions",
+        repo_id="unilabsim/unilab-motions",
         filename=expected_relative,
         repo_type="dataset",
         local_dir=str(ASSETS_ROOT_PATH),
@@ -98,7 +98,7 @@ def test_resolve_relative_path_falls_back_to_hf():
 
     assert result == str(local)
     fake_download.assert_called_once_with(
-        repo_id="LeeLeno/unilab-motions",
+        repo_id="unilabsim/unilab-motions",
         filename=rel,
         repo_type="dataset",
         local_dir=str(ASSETS_ROOT_PATH),
