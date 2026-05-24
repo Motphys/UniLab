@@ -8,6 +8,7 @@ import importlib
 import importlib.util
 import json
 import os
+import platform
 import socket
 import subprocess
 import time
@@ -57,9 +58,29 @@ def _json_safe(value: Any) -> Any:
         return str(value)
 
 
+def _fallback_device_info_dict() -> dict[str, str]:
+    return {
+        "platform": platform.platform(),
+        "chip": platform.processor() or "unknown",
+        "cpu_total_cores": str(os.cpu_count() or "unknown"),
+        "gpu_name": "unknown",
+        "memory": "unknown",
+    }
+
+
+def _benchmark_device_info_path() -> Path | None:
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "benchmark" / "core" / "device_info.py"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def get_device_info_dict() -> dict[str, str]:
     try:
-        module_path = Path(__file__).resolve().parents[4] / "benchmark" / "core" / "device_info.py"
+        module_path = _benchmark_device_info_path()
+        if module_path is None:
+            return _fallback_device_info_dict()
         spec = importlib.util.spec_from_file_location(
             "unilab_benchmark_device_info",
             module_path,
@@ -71,7 +92,7 @@ def get_device_info_dict() -> dict[str, str]:
         getter = getattr(module, "get_device_info_dict")
         return dict(getter())
     except Exception:
-        return {"platform": os.uname().sysname if hasattr(os, "uname") else "unknown"}
+        return _fallback_device_info_dict()
 
 
 def get_git_info(root_dir: str | Path) -> dict[str, Any]:

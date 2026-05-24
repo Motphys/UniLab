@@ -275,6 +275,28 @@ def test_offpolicy_hydra_algo_td3():
     assert cfg.algo.algo == "td3"
 
 
+def test_hora_distill_run_config_records_hardware(tmp_path, monkeypatch):
+    mod = _train_hora_distill()
+    hardware = {
+        "platform": "test-platform",
+        "chip": "test-cpu",
+        "cpu_total_cores": "8",
+        "gpu_name": "test-gpu",
+        "memory": "32 GB",
+    }
+    monkeypatch.setattr(mod, "get_device_info_dict", lambda: hardware)
+    cfg = OmegaConf.create({"training": {"task_name": "Task", "sim_backend": "mujoco"}})
+
+    mod._write_distill_run_config(
+        tmp_path,
+        cfg=cfg,
+        teacher_metadata={"checkpoint_path": "teacher.pt"},
+    )
+
+    payload = json.loads((tmp_path / "distill_run_config.json").read_text(encoding="utf-8"))
+    assert payload["run"]["hardware"] == hardware
+
+
 def test_hora_distill_task_owner_overrides_root_config_defaults():
     mod = _train_hora_distill()
     root_cfg = OmegaConf.load(_CONF_DIR / "hora_distill" / "config.yaml")
