@@ -23,6 +23,7 @@ NPZ source layout (per src/unilab/envs/motion_tracking/g1/motion_loader.py):
   Body axis is in MuJoCo body-id order; we slice down to 14 tracked bodies
   using mj_name2id() so the deploy side does not need to repeat the lookup.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -60,15 +61,22 @@ def main():
     ap.add_argument("--motion", type=Path, default=DEFAULT_NPZ)
     ap.add_argument("--scene", type=Path, default=DEFAULT_SCENE)
     ap.add_argument("--output", "-o", type=Path, default=DEFAULT_OUT)
-    ap.add_argument("--start-frame", type=int, default=0,
-                    help="First frame to include (inclusive). Default 0.")
+    ap.add_argument(
+        "--start-frame", type=int, default=0, help="First frame to include (inclusive). Default 0."
+    )
     end_group = ap.add_mutually_exclusive_group()
-    end_group.add_argument("--end-frame", type=int, default=None,
-                           help="One past the last frame (exclusive). "
-                                "Default = NPZ frame count.")
-    end_group.add_argument("--duration", type=float, default=None,
-                           help="Seconds to keep starting at --start-frame. "
-                                "Resolved to frames via NPZ fps.")
+    end_group.add_argument(
+        "--end-frame",
+        type=int,
+        default=None,
+        help="One past the last frame (exclusive). Default = NPZ frame count.",
+    )
+    end_group.add_argument(
+        "--duration",
+        type=float,
+        default=None,
+        help="Seconds to keep starting at --start-frame. Resolved to frames via NPZ fps.",
+    )
     args = ap.parse_args()
 
     if not args.motion.exists():
@@ -113,9 +121,7 @@ def main():
     else:
         end = total_frames
     if not (0 <= start < end <= total_frames):
-        raise SystemExit(
-            f"Invalid frame range [{start}, {end}); valid is [0, {total_frames}]"
-        )
+        raise SystemExit(f"Invalid frame range [{start}, {end}); valid is [0, {total_frames}]")
     if (start, end) != (0, total_frames):
         joint_pos = joint_pos[start:end]
         joint_vel = joint_vel[start:end]
@@ -159,14 +165,14 @@ def main():
     )
     actual_bytes = args.output.stat().st_size
     if actual_bytes != expected_bytes:
-        raise SystemExit(
-            f"Wrote {actual_bytes} bytes but expected {expected_bytes}"
-        )
+        raise SystemExit(f"Wrote {actual_bytes} bytes but expected {expected_bytes}")
 
     duration_s = num_frames / fps
     print(f"Wrote {args.output} ({actual_bytes} bytes)")
-    print(f"  fps={fps}, frames={num_frames}, joints={num_joints}, "
-          f"bodies={num_bodies}, duration={duration_s:.2f}s")
+    print(
+        f"  fps={fps}, frames={num_frames}, joints={num_joints}, "
+        f"bodies={num_bodies}, duration={duration_s:.2f}s"
+    )
 
 
 if __name__ == "__main__":

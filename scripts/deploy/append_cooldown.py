@@ -50,6 +50,7 @@ Validate in sim BEFORE swapping on the real robot:
         --motion ../deploy_ws/assets/dance1_cooldown.bin \
         --init-mode stand --render
 """
+
 from __future__ import annotations
 
 import argparse
@@ -76,6 +77,7 @@ DEFAULT_HOLD_SEC = 0.5
 # all use: header (4 int32: fps, F, J, B) then six float32 blocks.
 # ----------------------------------------------------------------------------
 
+
 def load_motion_bin(path: Path) -> dict:
     with open(path, "rb") as f:
         fps, nf, nj, nb = struct.unpack("<iiii", f.read(16))
@@ -85,8 +87,7 @@ def load_motion_bin(path: Path) -> dict:
         bq = np.frombuffer(f.read(nf * nb * 4 * 4), "<f4").reshape(nf, nb, 4).copy()
         bv = np.frombuffer(f.read(nf * nb * 3 * 4), "<f4").reshape(nf, nb, 3).copy()
         bav = np.frombuffer(f.read(nf * nb * 3 * 4), "<f4").reshape(nf, nb, 3).copy()
-    return dict(fps=fps, nf=nf, nj=nj, nb=nb,
-                jp=jp, jv=jv, bp=bp, bq=bq, bv=bv, bav=bav)
+    return dict(fps=fps, nf=nf, nj=nj, nb=nb, jp=jp, jv=jv, bp=bp, bq=bq, bv=bv, bav=bav)
 
 
 def save_motion_bin(path: Path, fps: int, jp, jv, bp, bq, bv, bav) -> None:
@@ -105,8 +106,10 @@ def save_motion_bin(path: Path, fps: int, jp, jv, bp, bq, bv, bav) -> None:
 # FixStand FK — compute body world states at the 'stand' keyframe.
 # ----------------------------------------------------------------------------
 
-def compute_fixstand_body_states(scene: Path, tracked_ids: list[int]
-                                 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+
+def compute_fixstand_body_states(
+    scene: Path, tracked_ids: list[int]
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     model = mujoco.MjModel.from_xml_path(str(scene))
     data = mujoco.MjData(model)
     key_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_KEY, "stand")
@@ -115,16 +118,20 @@ def compute_fixstand_body_states(scene: Path, tracked_ids: list[int]
     mujoco.mj_resetDataKeyframe(model, data, key_id)
     mujoco.mj_forward(model, data)
     jp = np.asarray(data.qpos[7:], dtype=np.float64).copy()
-    bp = np.stack([np.asarray(data.xpos[i], dtype=np.float64).copy()
-                   for i in tracked_ids])
-    bq = np.stack([np.asarray(data.xquat[i], dtype=np.float64).copy()  # wxyz
-                   for i in tracked_ids])
+    bp = np.stack([np.asarray(data.xpos[i], dtype=np.float64).copy() for i in tracked_ids])
+    bq = np.stack(
+        [
+            np.asarray(data.xquat[i], dtype=np.float64).copy()  # wxyz
+            for i in tracked_ids
+        ]
+    )
     return jp, bp, bq
 
 
 # ----------------------------------------------------------------------------
 # Cubic Hermite — same primitive as prepend_warmup.py.
 # ----------------------------------------------------------------------------
+
 
 def hermite(p0, v0, p1, v1, t, T):
     s = t / T
@@ -140,6 +147,7 @@ def hermite(p0, v0, p1, v1, t, T):
 
     def _r(a):
         return a.reshape(a.shape + (1,) * (np.ndim(p0)))
+
     p = _r(h00) * p0 + _r(h10) * T * v0 + _r(h01) * p1 + _r(h11) * T * v1
     pd = _r(h00d / T) * p0 + _r(h10d) * v0 + _r(h01d / T) * p1 + _r(h11d) * v1
     return p, pd
@@ -148,6 +156,7 @@ def hermite(p0, v0, p1, v1, t, T):
 # ----------------------------------------------------------------------------
 # Quaternion SLERP along quintic smoothstep.
 # ----------------------------------------------------------------------------
+
 
 def slerp_smoothstep(q0: np.ndarray, q1: np.ndarray, u: np.ndarray) -> np.ndarray:
     q0 = q0 / np.linalg.norm(q0)
@@ -171,6 +180,7 @@ def slerp_smoothstep(q0: np.ndarray, q1: np.ndarray, u: np.ndarray) -> np.ndarra
 # ----------------------------------------------------------------------------
 # World-frame angular velocity from a quaternion sequence by finite difference.
 # ----------------------------------------------------------------------------
+
 
 def quat_seq_ang_vel(q_seq: np.ndarray, dt: float) -> np.ndarray:
     n = q_seq.shape[0]
@@ -201,35 +211,57 @@ def quat_seq_ang_vel(q_seq: np.ndarray, dt: float) -> np.ndarray:
 # Main
 # ----------------------------------------------------------------------------
 
+
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--input", type=Path, default=DEFAULT_IN)
     ap.add_argument("--output", type=Path, default=DEFAULT_OUT)
-    ap.add_argument("--config", type=Path, default=DEFAULT_CFG,
-                    help="deploy_config.yaml (for default_angles, tracked ids).")
-    ap.add_argument("--scene", type=Path, default=DEFAULT_SCENE,
-                    help="MuJoCo XML with 'stand' keyframe (for FixStand FK).")
-    ap.add_argument("--cut-frame", type=int, default=None,
-                    help="If set, truncate the input bin so that frame "
-                         "CUT_FRAME becomes the new last frame (inclusive). "
-                         "Frames after that are dropped, and the cooldown ramps "
-                         "from this frame to default. Use this when the dance's "
-                         "actual last frame has too much momentum for any post-"
-                         "hoc interpolation to stabilize. Find a low-energy "
-                         "frame (low joint vel, near-upright torso, near-zero "
-                         "pelvis vertical vel) and cut there.")
-    ap.add_argument("--cooldown-sec", type=float, default=DEFAULT_COOLDOWN_SEC,
-                    help="Length of Hermite deceleration ramp [seconds]. "
-                         "Lowers joint vel from orig.jv[-1] to 0 and joint pos "
-                         "to default_angles over this interval.")
-    ap.add_argument("--hold-sec", type=float, default=DEFAULT_HOLD_SEC,
-                    help="Length of trailing static-hold segment [seconds]. "
-                         "Appended AFTER the Hermite ramp; frames are pure "
-                         "(default_angles, 0, FixStand FK body, 0). Lets the "
-                         "tracking policy physically converge to stand before "
-                         "the FSM timeout swaps to State_FixStand. Set to 0 to "
-                         "disable. Recommended >= 0.3s.")
+    ap.add_argument(
+        "--config",
+        type=Path,
+        default=DEFAULT_CFG,
+        help="deploy_config.yaml (for default_angles, tracked ids).",
+    )
+    ap.add_argument(
+        "--scene",
+        type=Path,
+        default=DEFAULT_SCENE,
+        help="MuJoCo XML with 'stand' keyframe (for FixStand FK).",
+    )
+    ap.add_argument(
+        "--cut-frame",
+        type=int,
+        default=None,
+        help="If set, truncate the input bin so that frame "
+        "CUT_FRAME becomes the new last frame (inclusive). "
+        "Frames after that are dropped, and the cooldown ramps "
+        "from this frame to default. Use this when the dance's "
+        "actual last frame has too much momentum for any post-"
+        "hoc interpolation to stabilize. Find a low-energy "
+        "frame (low joint vel, near-upright torso, near-zero "
+        "pelvis vertical vel) and cut there.",
+    )
+    ap.add_argument(
+        "--cooldown-sec",
+        type=float,
+        default=DEFAULT_COOLDOWN_SEC,
+        help="Length of Hermite deceleration ramp [seconds]. "
+        "Lowers joint vel from orig.jv[-1] to 0 and joint pos "
+        "to default_angles over this interval.",
+    )
+    ap.add_argument(
+        "--hold-sec",
+        type=float,
+        default=DEFAULT_HOLD_SEC,
+        help="Length of trailing static-hold segment [seconds]. "
+        "Appended AFTER the Hermite ramp; frames are pure "
+        "(default_angles, 0, FixStand FK body, 0). Lets the "
+        "tracking policy physically converge to stand before "
+        "the FSM timeout swaps to State_FixStand. Set to 0 to "
+        "disable. Recommended >= 0.3s.",
+    )
     args = ap.parse_args()
 
     with open(args.config) as f:
@@ -247,12 +279,14 @@ def main() -> None:
     if args.cut_frame is not None:
         cf = int(args.cut_frame)
         if cf < 1 or cf >= orig["nf"]:
-            raise SystemExit(f"cut-frame={cf} out of range [1, {orig['nf']-1}]")
+            raise SystemExit(f"cut-frame={cf} out of range [1, {orig['nf'] - 1}]")
         # Keep frames [0, cf] (cf becomes the new last frame, inclusive).
         keep = cf + 1
-        print(f"Truncating input: keep frames [0, {cf}]  "
-              f"({orig['nf']} -> {keep} frames, {orig['nf']/fps:.2f}s -> {keep/fps:.2f}s)",
-              file=sys.stderr)
+        print(
+            f"Truncating input: keep frames [0, {cf}]  "
+            f"({orig['nf']} -> {keep} frames, {orig['nf'] / fps:.2f}s -> {keep / fps:.2f}s)",
+            file=sys.stderr,
+        )
         for k in ("jp", "jv", "bp", "bq", "bv", "bav"):
             orig[k] = orig[k][:keep]
         orig["nf"] = keep
@@ -261,38 +295,46 @@ def main() -> None:
         jv_l2 = float(np.linalg.norm(orig["jv"][-1]))
         jp_dev = float(np.abs(orig["jp"][-1] - default_angles).max())
         bv_z = float(abs(orig["bv"][-1, a, 2]))
-        print(f"  cut-point energy: |jv|={jv_l2:.2f} rad/s  jp_dev={jp_dev:.3f} rad  "
-              f"|bv_z|={bv_z:.3f} m/s", file=sys.stderr)
+        print(
+            f"  cut-point energy: |jv|={jv_l2:.2f} rad/s  jp_dev={jp_dev:.3f} rad  "
+            f"|bv_z|={bv_z:.3f} m/s",
+            file=sys.stderr,
+        )
 
     dt = 1.0 / fps
     N = int(round(args.cooldown_sec * fps))
     if N < 2:
-        raise SystemExit(f"cooldown-sec={args.cooldown_sec}s too short for fps={fps} (need >= 2 frames)")
+        raise SystemExit(
+            f"cooldown-sec={args.cooldown_sec}s too short for fps={fps} (need >= 2 frames)"
+        )
     K = int(round(args.hold_sec * fps)) if args.hold_sec > 0.0 else 0
     if args.hold_sec > 0.0 and K < 1:
-        raise SystemExit(f"hold-sec={args.hold_sec}s rounds to 0 frames at fps={fps}; pass 0 or >= {dt:.3f}s")
-    T = N * dt   # frame N of the cooldown == FixStand target exactly
+        raise SystemExit(
+            f"hold-sec={args.hold_sec}s rounds to 0 frames at fps={fps}; pass 0 or >= {dt:.3f}s"
+        )
+    T = N * dt  # frame N of the cooldown == FixStand target exactly
 
     fk_jp, fk_bp, fk_bq = compute_fixstand_body_states(args.scene, tracked_ids)
 
     keyframe_diff = float(np.abs(fk_jp - default_angles).max())
     if keyframe_diff > 1e-3:
-        print(f"WARN: 'stand' keyframe joint pos differs from deploy_config "
-              f"default_angles by {keyframe_diff:.4f} rad — using deploy_config "
-              "values for cooldown end (so command_joint_pos matches what "
-              "FixStand will hold on the real robot).", file=sys.stderr)
+        print(
+            f"WARN: 'stand' keyframe joint pos differs from deploy_config "
+            f"default_angles by {keyframe_diff:.4f} rad — using deploy_config "
+            "values for cooldown end (so command_joint_pos matches what "
+            "FixStand will hold on the real robot).",
+            file=sys.stderr,
+        )
 
     # --- joint pos/vel: analytic Hermite, orig[-1] -> default_angles --------
     # ts[k] = (k+1)*dt so the first cooldown frame is one dt after orig[-1]
     # and the last cooldown frame (k = N-1) lands exactly at t = T = N*dt,
     # i.e. precisely on the (default_angles, 0) boundary.
     ts = (np.arange(N) + 1) * dt
-    jp_c, jv_c = hermite(orig["jp"][-1], orig["jv"][-1],
-                         default_angles, np.zeros(J), ts, T)
+    jp_c, jv_c = hermite(orig["jp"][-1], orig["jv"][-1], default_angles, np.zeros(J), ts, T)
 
     # --- body pos / lin_vel: analytic Hermite per axis ----------------------
-    bp_c, bv_c = hermite(orig["bp"][-1], orig["bv"][-1],
-                         fk_bp, np.zeros((B, 3)), ts, T)
+    bp_c, bv_c = hermite(orig["bp"][-1], orig["bv"][-1], fk_bp, np.zeros((B, 3)), ts, T)
 
     # --- body quat: SLERP along quintic smoothstep --------------------------
     u = ts / T
@@ -324,11 +366,11 @@ def main() -> None:
         bav_h = np.zeros((K, B, 3), dtype=np.float64)
 
     # --- concatenate original + cooldown (+ hold) -------------------------
-    parts_jp  = [orig["jp"],  jp_c]
-    parts_jv  = [orig["jv"],  jv_c]
-    parts_bp  = [orig["bp"],  bp_c]
-    parts_bq  = [orig["bq"],  bq_c]
-    parts_bv  = [orig["bv"],  bv_c]
+    parts_jp = [orig["jp"], jp_c]
+    parts_jv = [orig["jv"], jv_c]
+    parts_bp = [orig["bp"], bp_c]
+    parts_bq = [orig["bq"], bq_c]
+    parts_bv = [orig["bv"], bv_c]
     parts_bav = [orig["bav"], bav_c]
     if K > 0:
         parts_jp.append(jp_h)
@@ -337,11 +379,11 @@ def main() -> None:
         parts_bq.append(bq_h)
         parts_bv.append(bv_h)
         parts_bav.append(bav_h)
-    new_jp  = np.concatenate(parts_jp,  axis=0)
-    new_jv  = np.concatenate(parts_jv,  axis=0)
-    new_bp  = np.concatenate(parts_bp,  axis=0)
-    new_bq  = np.concatenate(parts_bq,  axis=0)
-    new_bv  = np.concatenate(parts_bv,  axis=0)
+    new_jp = np.concatenate(parts_jp, axis=0)
+    new_jv = np.concatenate(parts_jv, axis=0)
+    new_bp = np.concatenate(parts_bp, axis=0)
+    new_bq = np.concatenate(parts_bq, axis=0)
+    new_bv = np.concatenate(parts_bv, axis=0)
     new_bav = np.concatenate(parts_bav, axis=0)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -364,12 +406,15 @@ def main() -> None:
 
     print(f"Wrote {args.output}")
     print(f"  fps={fps}  J={J}  B={B}")
-    print(f"  frames: {orig['nf']} (orig)  -> {new_jp.shape[0]} "
-          f"({orig['nf']} dance + {N} cooldown + {K} hold)")
-    print(f"  duration: {orig['nf']/fps:.2f}s -> {new_jp.shape[0]/fps:.2f}s "
-          f"(cooldown_sec={args.cooldown_sec}, hold_sec={args.hold_sec})")
-    print(f"  end (last frame) command_joint_pos == default_angles? "
-          f"max_diff={end_jp_diff:.6f} rad")
+    print(
+        f"  frames: {orig['nf']} (orig)  -> {new_jp.shape[0]} "
+        f"({orig['nf']} dance + {N} cooldown + {K} hold)"
+    )
+    print(
+        f"  duration: {orig['nf'] / fps:.2f}s -> {new_jp.shape[0] / fps:.2f}s "
+        f"(cooldown_sec={args.cooldown_sec}, hold_sec={args.hold_sec})"
+    )
+    print(f"  end (last frame) command_joint_pos == default_angles? max_diff={end_jp_diff:.6f} rad")
     print(f"  end (last frame) command_joint_vel L2 = {end_jv_l2:.6f} rad/s (should be 0)")
     print("  seam check (orig last frame vs cooldown first frame; one-dt-step apart):")
     print(f"    |Δjoint_pos|_∞       = {seam_jp:.4f} rad")

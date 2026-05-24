@@ -55,6 +55,7 @@ Validate in sim BEFORE swapping on the real robot:
         --motion ../deploy_ws/assets/dance1_warmup.bin \
         --init-mode stand --render
 """
+
 from __future__ import annotations
 
 import argparse
@@ -80,6 +81,7 @@ DEFAULT_WARMUP_SEC = 1.5
 # all use: header (4 int32: fps, F, J, B) then six float32 blocks.
 # ----------------------------------------------------------------------------
 
+
 def load_motion_bin(path: Path) -> dict:
     with open(path, "rb") as f:
         fps, nf, nj, nb = struct.unpack("<iiii", f.read(16))
@@ -89,8 +91,7 @@ def load_motion_bin(path: Path) -> dict:
         bq = np.frombuffer(f.read(nf * nb * 4 * 4), "<f4").reshape(nf, nb, 4).copy()
         bv = np.frombuffer(f.read(nf * nb * 3 * 4), "<f4").reshape(nf, nb, 3).copy()
         bav = np.frombuffer(f.read(nf * nb * 3 * 4), "<f4").reshape(nf, nb, 3).copy()
-    return dict(fps=fps, nf=nf, nj=nj, nb=nb,
-                jp=jp, jv=jv, bp=bp, bq=bq, bv=bv, bav=bav)
+    return dict(fps=fps, nf=nf, nj=nj, nb=nb, jp=jp, jv=jv, bp=bp, bq=bq, bv=bv, bav=bav)
 
 
 def save_motion_bin(path: Path, fps: int, jp, jv, bp, bq, bv, bav) -> None:
@@ -111,8 +112,10 @@ def save_motion_bin(path: Path, fps: int, jp, jv, bp, bq, bv, bav) -> None:
 # deploy_config.yaml), so the result is layer-compatible with the original bin.
 # ----------------------------------------------------------------------------
 
-def compute_fixstand_body_states(scene: Path, tracked_ids: list[int]
-                                 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+
+def compute_fixstand_body_states(
+    scene: Path, tracked_ids: list[int]
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     model = mujoco.MjModel.from_xml_path(str(scene))
     data = mujoco.MjData(model)
     key_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_KEY, "stand")
@@ -121,10 +124,13 @@ def compute_fixstand_body_states(scene: Path, tracked_ids: list[int]
     mujoco.mj_resetDataKeyframe(model, data, key_id)
     mujoco.mj_forward(model, data)
     jp = np.asarray(data.qpos[7:], dtype=np.float64).copy()
-    bp = np.stack([np.asarray(data.xpos[i], dtype=np.float64).copy()
-                   for i in tracked_ids])
-    bq = np.stack([np.asarray(data.xquat[i], dtype=np.float64).copy()  # wxyz
-                   for i in tracked_ids])
+    bp = np.stack([np.asarray(data.xpos[i], dtype=np.float64).copy() for i in tracked_ids])
+    bq = np.stack(
+        [
+            np.asarray(data.xquat[i], dtype=np.float64).copy()  # wxyz
+            for i in tracked_ids
+        ]
+    )
     return jp, bp, bq
 
 
@@ -134,6 +140,7 @@ def compute_fixstand_body_states(scene: Path, tracked_ids: list[int]
 # Returns (p(t), p'(t)) where t may be an array with shape (N,) and p* may
 # have additional trailing dims (broadcasting).
 # ----------------------------------------------------------------------------
+
 
 def hermite(p0, v0, p1, v1, t, T):
     s = t / T
@@ -146,9 +153,11 @@ def hermite(p0, v0, p1, v1, t, T):
     h10d = 3 * s2 - 4 * s + 1
     h01d = -6 * s2 + 6 * s
     h11d = 3 * s2 - 2 * s
+
     # Reshape s-dim coefficients for broadcasting against p*'s trailing dims.
     def _r(a):
         return a.reshape(a.shape + (1,) * (np.ndim(p0)))
+
     p = _r(h00) * p0 + _r(h10) * T * v0 + _r(h01) * p1 + _r(h11) * T * v1
     pd = _r(h00d / T) * p0 + _r(h10d) * v0 + _r(h01d / T) * p1 + _r(h11d) * v1
     return p, pd
@@ -159,15 +168,16 @@ def hermite(p0, v0, p1, v1, t, T):
 # u in [0, 1]. Operates on (4,) wxyz quaternions, returns (N, 4).
 # ----------------------------------------------------------------------------
 
+
 def slerp_smoothstep(q0: np.ndarray, q1: np.ndarray, u: np.ndarray) -> np.ndarray:
     q0 = q0 / np.linalg.norm(q0)
     q1 = q1 / np.linalg.norm(q1)
     dot = float(np.dot(q0, q1))
-    if dot < 0.0:                  # shortest path
+    if dot < 0.0:  # shortest path
         q1 = -q1
         dot = -dot
     s = 6 * u**5 - 15 * u**4 + 10 * u**3
-    if dot > 0.9995:               # near-parallel: lerp + renormalise
+    if dot > 0.9995:  # near-parallel: lerp + renormalise
         out = (1 - s)[:, None] * q0 + s[:, None] * q1
         return out / np.linalg.norm(out, axis=-1, keepdims=True)
     theta_0 = np.arccos(np.clip(dot, -1.0, 1.0))
@@ -184,11 +194,12 @@ def slerp_smoothstep(q0: np.ndarray, q1: np.ndarray, u: np.ndarray) -> np.ndarra
 # Central difference for interior, forward/backward at endpoints.
 # ----------------------------------------------------------------------------
 
+
 def quat_seq_ang_vel(q_seq: np.ndarray, dt: float) -> np.ndarray:
     n = q_seq.shape[0]
     out = np.zeros((n, 3), dtype=np.float64)
 
-    def diff(q_a, q_b, h):                # ω over interval h, expressed in world
+    def diff(q_a, q_b, h):  # ω over interval h, expressed in world
         aw, ax, ay, az = q_a
         bw, bx, by, bz = q_b
         # Δq = q_b * q_a^{-1}
@@ -196,7 +207,7 @@ def quat_seq_ang_vel(q_seq: np.ndarray, dt: float) -> np.ndarray:
         dx = -bw * ax + bx * aw - by * az + bz * ay
         dy = -bw * ay + bx * az + by * aw - bz * ax
         dz = -bw * az - bx * ay + by * ax + bz * aw
-        if dw < 0.0:                      # shortest path
+        if dw < 0.0:  # shortest path
             dw, dx, dy, dz = -dw, -dx, -dy, -dz
         return np.array([2 * dx / h, 2 * dy / h, 2 * dz / h])
 
@@ -214,17 +225,31 @@ def quat_seq_ang_vel(q_seq: np.ndarray, dt: float) -> np.ndarray:
 # Main
 # ----------------------------------------------------------------------------
 
+
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--input", type=Path, default=DEFAULT_IN)
     ap.add_argument("--output", type=Path, default=DEFAULT_OUT)
-    ap.add_argument("--config", type=Path, default=DEFAULT_CFG,
-                    help="deploy_config.yaml (for default_angles, tracked ids).")
-    ap.add_argument("--scene", type=Path, default=DEFAULT_SCENE,
-                    help="MuJoCo XML with 'stand' keyframe (for FixStand FK).")
-    ap.add_argument("--warmup-sec", type=float, default=DEFAULT_WARMUP_SEC,
-                    help="Length of prepended warmup interval [seconds].")
+    ap.add_argument(
+        "--config",
+        type=Path,
+        default=DEFAULT_CFG,
+        help="deploy_config.yaml (for default_angles, tracked ids).",
+    )
+    ap.add_argument(
+        "--scene",
+        type=Path,
+        default=DEFAULT_SCENE,
+        help="MuJoCo XML with 'stand' keyframe (for FixStand FK).",
+    )
+    ap.add_argument(
+        "--warmup-sec",
+        type=float,
+        default=DEFAULT_WARMUP_SEC,
+        help="Length of prepended warmup interval [seconds].",
+    )
     args = ap.parse_args()
 
     with open(args.config) as f:
@@ -242,26 +267,29 @@ def main() -> None:
     dt = 1.0 / fps
     N = int(round(args.warmup_sec * fps))
     if N < 2:
-        raise SystemExit(f"warmup-sec={args.warmup_sec}s too short for fps={fps} (need >= 2 frames)")
-    T = N * dt   # so frame N in the new bin == original frame 0 exactly
+        raise SystemExit(
+            f"warmup-sec={args.warmup_sec}s too short for fps={fps} (need >= 2 frames)"
+        )
+    T = N * dt  # so frame N in the new bin == original frame 0 exactly
 
     fk_jp, fk_bp, fk_bq = compute_fixstand_body_states(args.scene, tracked_ids)
 
     keyframe_diff = float(np.abs(fk_jp - default_angles).max())
     if keyframe_diff > 1e-3:
-        print(f"WARN: 'stand' keyframe joint pos differs from deploy_config "
-              f"default_angles by {keyframe_diff:.4f} rad — using deploy_config "
-              "values for warmup start (so command_joint_pos matches what "
-              "FixStand actually holds on the real robot).", file=sys.stderr)
+        print(
+            f"WARN: 'stand' keyframe joint pos differs from deploy_config "
+            f"default_angles by {keyframe_diff:.4f} rad — using deploy_config "
+            "values for warmup start (so command_joint_pos matches what "
+            "FixStand actually holds on the real robot).",
+            file=sys.stderr,
+        )
 
     # --- joint pos/vel: analytic Hermite -----------------------------------
-    ts = np.arange(N) * dt                                     # (N,)
-    jp_w, jv_w = hermite(default_angles, np.zeros(J),
-                         orig["jp"][0], orig["jv"][0], ts, T)
+    ts = np.arange(N) * dt  # (N,)
+    jp_w, jv_w = hermite(default_angles, np.zeros(J), orig["jp"][0], orig["jv"][0], ts, T)
 
     # --- body pos / lin_vel: analytic Hermite per axis ---------------------
-    bp_w, bv_w = hermite(fk_bp, np.zeros((B, 3)),
-                         orig["bp"][0], orig["bv"][0], ts, T)
+    bp_w, bv_w = hermite(fk_bp, np.zeros((B, 3)), orig["bp"][0], orig["bv"][0], ts, T)
 
     # --- body quat: SLERP along quintic smoothstep -------------------------
     u = ts / T
@@ -305,10 +333,14 @@ def main() -> None:
     print(f"Wrote {args.output}")
     print(f"  fps={fps}  J={J}  B={B}")
     print(f"  frames: {orig['nf']} (orig)  -> {new_jp.shape[0]} ({N} warmup + {orig['nf']} dance)")
-    print(f"  duration: {orig['nf']/fps:.2f}s -> {new_jp.shape[0]/fps:.2f}s "
-          f"(warmup_sec={args.warmup_sec})")
-    print(f"  init (frame 0) command_joint_pos == default_angles? "
-          f"max_diff={float(np.abs(new_jp[0] - default_angles).max()):.6f} rad")
+    print(
+        f"  duration: {orig['nf'] / fps:.2f}s -> {new_jp.shape[0] / fps:.2f}s "
+        f"(warmup_sec={args.warmup_sec})"
+    )
+    print(
+        f"  init (frame 0) command_joint_pos == default_angles? "
+        f"max_diff={float(np.abs(new_jp[0] - default_angles).max()):.6f} rad"
+    )
     print(f"  init (frame 0) command_joint_vel L2 = {init_jvel_l2:.6f} rad/s (should be 0)")
     print("  seam check (warmup last frame vs original frame 0; one-dt-step apart):")
     print(f"    |Δjoint_pos|_∞       = {seam_jp:.4f} rad")

@@ -22,6 +22,7 @@ obs_layout schema v2 (per-term history_length):
     so each term independently flattens its full history → total obs_dim is
     the sum of dim * history_length over all entries.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -73,8 +74,9 @@ def _round_list(arr, ndigits=6):
     return [round(float(v), ndigits) for v in arr]
 
 
-def _build_obs_layout(num_action: int, hist_len: int,
-                      enable_zero_anchor_pos: bool, enable_zero_linvel: bool):
+def _build_obs_layout(
+    num_action: int, hist_len: int, enable_zero_anchor_pos: bool, enable_zero_linvel: bool
+):
     """Build obs_layout in the exact order tracking.py:_compute_obs assembles.
 
     Returns (layout_list, total_obs_dim).
@@ -83,56 +85,101 @@ def _build_obs_layout(num_action: int, hist_len: int,
     """
     layout = [
         # ---- single-step reference terms (history_length=1) ----
-        {"name": "command_joint_pos", "dim": num_action, "history_length": 1,
-         "source": "motion_ref_frame.joint_pos"},
-        {"name": "command_joint_vel", "dim": num_action, "history_length": 1,
-         "source": "motion_ref_frame.joint_vel"},
+        {
+            "name": "command_joint_pos",
+            "dim": num_action,
+            "history_length": 1,
+            "source": "motion_ref_frame.joint_pos",
+        },
+        {
+            "name": "command_joint_vel",
+            "dim": num_action,
+            "history_length": 1,
+            "source": "motion_ref_frame.joint_vel",
+        },
     ]
     if not enable_zero_anchor_pos:
-        layout.append({
-            "name": "motion_anchor_pos_b", "dim": 3, "history_length": 1,
-            "source": "subtract_frame(robot_anchor_w, motion_anchor_w).pos",
-        })
-    layout.append({
-        "name": "motion_anchor_ori_b", "dim": 6, "history_length": 1,
-        "source": "rotation_matrix(subtract_frame(...).quat)[:, :2].flatten()",
-    })
+        layout.append(
+            {
+                "name": "motion_anchor_pos_b",
+                "dim": 3,
+                "history_length": 1,
+                "source": "subtract_frame(robot_anchor_w, motion_anchor_w).pos",
+            }
+        )
+    layout.append(
+        {
+            "name": "motion_anchor_ori_b",
+            "dim": 6,
+            "history_length": 1,
+            "source": "rotation_matrix(subtract_frame(...).quat)[:, :2].flatten()",
+        }
+    )
     if not enable_zero_linvel:
-        layout.append({
-            "name": "base_lin_vel", "dim": 3, "history_length": 1,
-            "source": "imu.local_linvel (state-estimated)",
-        })
+        layout.append(
+            {
+                "name": "base_lin_vel",
+                "dim": 3,
+                "history_length": 1,
+                "source": "imu.local_linvel (state-estimated)",
+            }
+        )
     # ---- proprio terms with H-step oldest-first history ----
-    layout.extend([
-        {"name": "gyro", "dim": 3, "history_length": hist_len,
-         "source": "imu.gyroscope"},
-        {"name": "joint_pos_rel", "dim": num_action, "history_length": hist_len,
-         "source": "dof_pos - default_angles"},
-        {"name": "dof_vel", "dim": num_action, "history_length": hist_len,
-         "source": "dof_vel"},
-        {"name": "last_actions", "dim": num_action, "history_length": hist_len,
-         "source": "previous raw actor output"},
-    ])
+    layout.extend(
+        [
+            {"name": "gyro", "dim": 3, "history_length": hist_len, "source": "imu.gyroscope"},
+            {
+                "name": "joint_pos_rel",
+                "dim": num_action,
+                "history_length": hist_len,
+                "source": "dof_pos - default_angles",
+            },
+            {"name": "dof_vel", "dim": num_action, "history_length": hist_len, "source": "dof_vel"},
+            {
+                "name": "last_actions",
+                "dim": num_action,
+                "history_length": hist_len,
+                "source": "previous raw actor output",
+            },
+        ]
+    )
     total = sum(seg["dim"] * seg["history_length"] for seg in layout)
     return layout, total
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--scene", type=Path, default=DEFAULT_SCENE,
-                    help="MuJoCo scene file containing the 'stand' keyframe.")
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument(
+        "--scene",
+        type=Path,
+        default=DEFAULT_SCENE,
+        help="MuJoCo scene file containing the 'stand' keyframe.",
+    )
     ap.add_argument("--output", "-o", type=Path, default=DEFAULT_OUT)
-    ap.add_argument("--obs-history-length", type=int, default=DEFAULT_OBS_HISTORY_LENGTH,
-                    help="Proprio history length H. Must match training-side "
-                         "noise_config.obs_history_length. Default 5 = current "
-                         "mujoco_deploy.yaml. Set 1 for the legacy 154-d schema.")
-    ap.add_argument("--enable-zero-anchor-pos", action="store_true", default=True,
-                    help="Drop motion_anchor_pos_b from actor obs (mjlab parity). "
-                         "Matches mujoco_deploy.yaml's noise_config flag.")
-    ap.add_argument("--enable-zero-linvel", action="store_true", default=True,
-                    help="Drop base_lin_vel from actor obs (mjlab parity). "
-                         "Matches mujoco_deploy.yaml's noise_config flag.")
+    ap.add_argument(
+        "--obs-history-length",
+        type=int,
+        default=DEFAULT_OBS_HISTORY_LENGTH,
+        help="Proprio history length H. Must match training-side "
+        "noise_config.obs_history_length. Default 5 = current "
+        "mujoco_deploy.yaml. Set 1 for the legacy 154-d schema.",
+    )
+    ap.add_argument(
+        "--enable-zero-anchor-pos",
+        action="store_true",
+        default=True,
+        help="Drop motion_anchor_pos_b from actor obs (mjlab parity). "
+        "Matches mujoco_deploy.yaml's noise_config flag.",
+    )
+    ap.add_argument(
+        "--enable-zero-linvel",
+        action="store_true",
+        default=True,
+        help="Drop base_lin_vel from actor obs (mjlab parity). "
+        "Matches mujoco_deploy.yaml's noise_config flag.",
+    )
     args = ap.parse_args()
 
     if not args.scene.exists():
@@ -160,7 +207,7 @@ def main():
     # Joint limits: skip the floating-root joint (jnt 0).
     if model.njnt < 1 + model.nu:
         raise SystemExit(f"Insufficient joints: njnt={model.njnt}")
-    jnt_range = model.jnt_range[1:1 + model.nu].copy()
+    jnt_range = model.jnt_range[1 : 1 + model.nu].copy()
     joint_lower = jnt_range[:, 0]
     joint_upper = jnt_range[:, 1]
 
@@ -178,9 +225,7 @@ def main():
         raise SystemExit(f"Keyframe '{KEYFRAME_NAME}' not found; have {names}")
     stand_qpos = model.key_qpos[key_id]
     if len(stand_qpos) != ROOT_QPOS_DIM + model.nu:
-        raise SystemExit(
-            f"stand qpos len {len(stand_qpos)} != {ROOT_QPOS_DIM}+{model.nu}"
-        )
+        raise SystemExit(f"stand qpos len {len(stand_qpos)} != {ROOT_QPOS_DIM}+{model.nu}")
     default_angles = stand_qpos[ROOT_QPOS_DIM:].copy()
 
     # 14 tracked body indices (in MuJoCo body-id space; deploy side won't use
@@ -223,7 +268,6 @@ def main():
         "ctrl_dt": CTRL_DT,
         "action_scale": ACTION_SCALE,
         "ema_alpha": EMA_ALPHA,
-
         # ---- joint config (in MuJoCo actuator order; deploy side assumes
         # this matches the SDK motor index 1:1 for G1-29DOF — verify per-motor
         # before real-robot run) ----
@@ -237,13 +281,11 @@ def main():
         "joint_upper": _round_list(joint_upper),
         "force_lower": _round_list(force_lower, 3),
         "force_upper": _round_list(force_upper, 3),
-
         # ---- motion / anchor ----
         "tracked_body_names": list(TRACKED_BODY_NAMES),
         "tracked_body_mujoco_ids": tracked_body_ids,
         "anchor_body_name": ANCHOR_BODY_NAME,
         "anchor_body_idx_in_tracked": int(anchor_body_idx_in_tracked),
-
         # ---- noise (NOT applied at deploy; documentation only — per-step
         # uniform noise scales used during training, plus persistent encoder
         # bias absorbed into joint_pos_rel) ----
@@ -254,7 +296,6 @@ def main():
             "anchor_ori": 0.05,
             "joint_pos_encoder_bias_per_episode": 0.01,
         },
-
         # ---- obs layout (SINGLE SOURCE OF TRUTH for both ends) ----
         # Each entry: name, dim (per-step), history_length, source.
         # Total obs_dim = sum(dim * history_length).
@@ -268,13 +309,17 @@ def main():
         yaml.safe_dump(cfg, f, sort_keys=False, default_flow_style=None, width=120)
 
     print(f"Wrote {args.output} ({args.output.stat().st_size} bytes)")
-    print(f"  joints: {model.nu}, tracked bodies: {len(TRACKED_BODY_NAMES)}, "
-          f"anchor='{ANCHOR_BODY_NAME}' (idx_in_tracked={anchor_body_idx_in_tracked})")
+    print(
+        f"  joints: {model.nu}, tracked bodies: {len(TRACKED_BODY_NAMES)}, "
+        f"anchor='{ANCHOR_BODY_NAME}' (idx_in_tracked={anchor_body_idx_in_tracked})"
+    )
     print(f"  obs_history_length={args.obs_history_length}, total obs_dim={obs_dim}")
     print("  obs_layout segments:")
     for seg in obs_layout:
-        print(f"    {seg['name']:24s} dim={seg['dim']:3d}  H={seg['history_length']:1d}  "
-              f"contrib={seg['dim'] * seg['history_length']}")
+        print(
+            f"    {seg['name']:24s} dim={seg['dim']:3d}  H={seg['history_length']:1d}  "
+            f"contrib={seg['dim'] * seg['history_length']}"
+        )
     print(f"  default_angles[:6] = {_round_list(default_angles[:6], 3)}")
     print(f"  kp[:3] = {_round_list(kp[:3], 3)}, kd[:3] = {_round_list(kv[:3], 3)}")
 

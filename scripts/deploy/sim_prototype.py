@@ -27,6 +27,7 @@ Differences from training-side eval (deliberate):
   - Robot anchor pos in world is locked to the first motion frame's torso pos
     (since real robot has no GPS/SLAM).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -91,20 +92,14 @@ def build_obs_from_layout(
         name = seg["name"]
         dim = int(seg["dim"])
         if name not in segments:
-            raise SystemExit(
-                f"obs_layout segment '{name}' has no value provider in prototype"
-            )
+            raise SystemExit(f"obs_layout segment '{name}' has no value provider in prototype")
         arr = np.asarray(segments[name], dtype=np.float32).reshape(-1)
         if arr.size != dim:
-            raise SystemExit(
-                f"obs segment '{name}': expected dim {dim}, got {arr.size}"
-            )
+            raise SystemExit(f"obs segment '{name}': expected dim {dim}, got {arr.size}")
         parts.append(arr)
     obs = np.concatenate(parts, axis=0).astype(np.float32, copy=False)
     if obs.size != obs_dim:
-        raise SystemExit(
-            f"assembled obs dim {obs.size} != cfg.obs_dim {obs_dim}"
-        )
+        raise SystemExit(f"assembled obs dim {obs.size} != cfg.obs_dim {obs_dim}")
     return obs
 
 
@@ -183,9 +178,7 @@ class ObsAssembler:
             parts.append(self._buffers[name].reshape(-1))
         obs = np.concatenate(parts, axis=0).astype(np.float32, copy=False)
         if obs.size != self.obs_dim:
-            raise SystemExit(
-                f"assembled obs dim {obs.size} != cfg.obs_dim {self.obs_dim}"
-            )
+            raise SystemExit(f"assembled obs dim {obs.size} != cfg.obs_dim {self.obs_dim}")
         return obs
 
     def _set_validated(self, name: str, value) -> None:
@@ -193,9 +186,7 @@ class ObsAssembler:
         dim = buf.shape[1]
         arr = np.asarray(value, dtype=np.float32).reshape(-1)
         if arr.size != dim:
-            raise SystemExit(
-                f"obs segment '{name}': expected dim {dim}, got {arr.size}"
-            )
+            raise SystemExit(f"obs segment '{name}': expected dim {dim}, got {arr.size}")
         buf[-1, :] = arr
 
 
@@ -261,26 +252,40 @@ def compute_obs_segments(
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--onnx", type=Path, default=DEFAULT_ONNX,
-                    help="ONNX policy. If absent or --no-onnx, prototype runs a "
-                         "default-angle ctrl sanity check (obs assembly only).")
-    ap.add_argument("--no-onnx", action="store_true",
-                    help="Skip ONNX inference even if the file exists.")
+    ap.add_argument(
+        "--onnx",
+        type=Path,
+        default=DEFAULT_ONNX,
+        help="ONNX policy. If absent or --no-onnx, prototype runs a "
+        "default-angle ctrl sanity check (obs assembly only).",
+    )
+    ap.add_argument(
+        "--no-onnx", action="store_true", help="Skip ONNX inference even if the file exists."
+    )
     ap.add_argument("--config", type=Path, default=DEFAULT_CFG)
     ap.add_argument("--motion", type=Path, default=DEFAULT_BIN)
     ap.add_argument("--scene", type=Path, default=DEFAULT_SCENE)
-    ap.add_argument("--render", action="store_true",
-                    help="Open MuJoCo passive viewer (requires display).")
-    ap.add_argument("--max-steps", type=int, default=0,
-                    help="0 = play to end of clip then loop once.")
-    ap.add_argument("--cheat-anchor", action="store_true",
-                    help="Use sim-true robot torso pos for anchor (debug; "
-                         "would not be available on real robot).")
-    ap.add_argument("--init-mode", choices=["rsi", "stand"], default="rsi",
-                    help="rsi = teleport robot to motion frame 0 (training-time "
-                         "reset condition; default). stand = leave robot in the "
-                         "'stand' keyframe pose (== FixStand default_angles, "
-                         "matching the deploy-time FSM transition).")
+    ap.add_argument(
+        "--render", action="store_true", help="Open MuJoCo passive viewer (requires display)."
+    )
+    ap.add_argument(
+        "--max-steps", type=int, default=0, help="0 = play to end of clip then loop once."
+    )
+    ap.add_argument(
+        "--cheat-anchor",
+        action="store_true",
+        help="Use sim-true robot torso pos for anchor (debug; "
+        "would not be available on real robot).",
+    )
+    ap.add_argument(
+        "--init-mode",
+        choices=["rsi", "stand"],
+        default="rsi",
+        help="rsi = teleport robot to motion frame 0 (training-time "
+        "reset condition; default). stand = leave robot in the "
+        "'stand' keyframe pose (== FixStand default_angles, "
+        "matching the deploy-time FSM transition).",
+    )
     args = ap.parse_args()
 
     with open(args.config) as f:
@@ -288,9 +293,7 @@ def main():
     motion = load_motion_bin(args.motion)
 
     expected_dim = int(cfg["obs_dim"])
-    layout_total = sum(
-        int(s["dim"]) * int(s.get("history_length", 1)) for s in cfg["obs_layout"]
-    )
+    layout_total = sum(int(s["dim"]) * int(s.get("history_length", 1)) for s in cfg["obs_layout"])
     if layout_total != expected_dim:
         raise SystemExit(
             f"cfg internal inconsistency: sum(obs_layout dim*history_length)={layout_total} "
@@ -303,13 +306,16 @@ def main():
     inp_name = out_name = None
     if use_onnx:
         import onnxruntime as ort  # local import: optional in sanity mode
+
         sess = ort.InferenceSession(str(args.onnx), providers=["CPUExecutionProvider"])
         inp_name = sess.get_inputs()[0].name
         out_name = sess.get_outputs()[0].name
         onnx_in_shape = sess.get_inputs()[0].shape
         onnx_in_dim = int(onnx_in_shape[-1]) if isinstance(onnx_in_shape[-1], int) else -1
-        print(f"ONNX: input={inp_name} {onnx_in_shape}, output={out_name} "
-              f"{sess.get_outputs()[0].shape}")
+        print(
+            f"ONNX: input={inp_name} {onnx_in_shape}, output={out_name} "
+            f"{sess.get_outputs()[0].shape}"
+        )
         if onnx_in_dim != expected_dim:
             raise SystemExit(
                 f"ONNX input dim {onnx_in_dim} != cfg.obs_dim {expected_dim}. "
@@ -317,14 +323,18 @@ def main():
             )
     else:
         reason = "missing" if not args.onnx.exists() else "disabled (--no-onnx)"
-        print(f"ONNX: {reason} — running OBS-ASSEMBLY SANITY CHECK only "
-              "(ctrl = default_angles, no policy in the loop)")
+        print(
+            f"ONNX: {reason} — running OBS-ASSEMBLY SANITY CHECK only "
+            "(ctrl = default_angles, no policy in the loop)"
+        )
 
-    print(f"obs_dim={expected_dim}, layout segments=[" +
-          ", ".join(
-              f"{s['name']}({s['dim']}×{int(s.get('history_length', 1))})"
-              for s in cfg["obs_layout"]
-          ) + "]")
+    print(
+        f"obs_dim={expected_dim}, layout segments=["
+        + ", ".join(
+            f"{s['name']}({s['dim']}×{int(s.get('history_length', 1))})" for s in cfg["obs_layout"]
+        )
+        + "]"
+    )
 
     model = mujoco.MjModel.from_xml_path(str(args.scene))
     data = mujoco.MjData(model)
@@ -356,8 +366,7 @@ def main():
         data.qvel[3:6] = motion["body_ang_vel_w"][0, pelvis_id_in_tracked]
         data.qvel[6:] = motion["joint_vel"][0]
     mujoco.mj_forward(model, data)
-    print(f"init_mode={args.init_mode}: base xyz={data.qpos[:3]}, "
-          f"base quat={data.qpos[3:7]}")
+    print(f"init_mode={args.init_mode}: base xyz={data.qpos[:3]}, base quat={data.qpos[3:7]}")
 
     default_angles = np.asarray(cfg["default_angles"], dtype=np.float32)
     action_scale = float(cfg["action_scale"])
@@ -396,6 +405,7 @@ def main():
     viewer = None
     if args.render:
         from mujoco import viewer as mj_viewer
+
         viewer = mj_viewer.launch_passive(model, data)
 
     t_wall = time.time()
@@ -403,7 +413,7 @@ def main():
         frame_idx = step % n_frames
 
         robot_torso_quat_w = data.xquat[anchor_body_id].astype(np.float32)
-        gyro = data.sensordata[gyro_adr:gyro_adr + gyro_dim].astype(np.float32)
+        gyro = data.sensordata[gyro_adr : gyro_adr + gyro_dim].astype(np.float32)
         dof_pos = data.qpos[7:].astype(np.float32)
         dof_vel = data.qvel[6:].astype(np.float32)
 
@@ -418,10 +428,13 @@ def main():
         else:
             robot_torso_pos_w_used = robot_anchor_pos_w_locked
         current_segments = compute_obs_segments(
-            cfg, motion_frame,
+            cfg,
+            motion_frame,
             robot_torso_pos_w=robot_torso_pos_w_used,
             robot_torso_quat_w=robot_torso_quat_w,
-            gyro=gyro, dof_pos=dof_pos, dof_vel=dof_vel,
+            gyro=gyro,
+            dof_pos=dof_pos,
+            dof_vel=dof_vel,
             last_actions=last_actions,
         )
         # Stateful: first call auto-resets (fills history with current segments,
@@ -461,11 +474,13 @@ def main():
                 time.sleep(target - elapsed)
 
         if step % 50 == 0:
-            print(f"step {step:4d} frame={frame_idx:3d}  "
-                  f"obs_norm={obs_norms[-1]:7.2f}  "
-                  f"|action|={action_amplitudes[-1]:5.2f}  "
-                  f"z_err={z_errors[-1]:.3f}m  "
-                  f"q_target[:3]={q_target_smoothed[:3]}")
+            print(
+                f"step {step:4d} frame={frame_idx:3d}  "
+                f"obs_norm={obs_norms[-1]:7.2f}  "
+                f"|action|={action_amplitudes[-1]:5.2f}  "
+                f"z_err={z_errors[-1]:.3f}m  "
+                f"q_target[:3]={q_target_smoothed[:3]}"
+            )
 
         if not np.all(np.isfinite(data.qpos)):
             print(f"!! NaN at step {step}, aborting")
@@ -479,16 +494,20 @@ def main():
 
     n = len(obs_norms)
     print()
-    print(f"Ran {n} ctrl steps ({n*ctrl_dt:.2f}s of motion).")
+    print(f"Ran {n} ctrl steps ({n * ctrl_dt:.2f}s of motion).")
     print(f"obs_norm:        mean={np.mean(obs_norms):.3f}  max={np.max(obs_norms):.3f}")
-    print(f"|action| max:    mean={np.mean(action_amplitudes):.3f}  max={np.max(action_amplitudes):.3f}")
+    print(
+        f"|action| max:    mean={np.mean(action_amplitudes):.3f}  max={np.max(action_amplitudes):.3f}"
+    )
     print(f"|torso z err|:   mean={np.mean(z_errors):.4f}m  max={np.max(z_errors):.4f}m")
 
     if not use_onnx:
         # Sanity mode never claims tracking — only that obs assembly is finite & shaped.
-        print("SANITY OK — obs assembly produced finite vectors of expected width "
-              f"({expected_dim}); end-to-end tracking requires running with a "
-              f"matching ONNX (input dim {expected_dim}).")
+        print(
+            "SANITY OK — obs assembly produced finite vectors of expected width "
+            f"({expected_dim}); end-to-end tracking requires running with a "
+            f"matching ONNX (input dim {expected_dim})."
+        )
     elif np.max(z_errors) < 0.2 and n == total_steps:
         print("PROTOTYPE OK — obs assembly + ONNX inference produces tracking behavior.")
     elif n < total_steps:

@@ -19,6 +19,7 @@ The test is hermetic: it does NOT spin up MuJoCo, does NOT load motion clips,
 and does NOT depend on training infra. It synthesizes fixed random inputs,
 runs the assembly on both sides, and asserts bit-for-bit equality.
 """
+
 from __future__ import annotations
 
 import sys
@@ -35,6 +36,7 @@ SIM_PROTOTYPE = REPO_ROOT / "scripts" / "deploy" / "sim_prototype.py"
 def _load_sim_prototype():
     """Import sim_prototype as a module (it's under scripts/, not src/)."""
     import importlib.util
+
     spec = importlib.util.spec_from_file_location("sim_prototype", SIM_PROTOTYPE)
     mod = importlib.util.module_from_spec(spec)
     sys.modules["sim_prototype"] = mod
@@ -45,6 +47,7 @@ def _load_sim_prototype():
 # ---------------------------------------------------------------------------
 # Reference deque (mirrors deploy ObservationTermCfg::reset / add / get).
 # ---------------------------------------------------------------------------
+
 
 class _DeployTerm:
     """Bit-for-bit copy of ObservationTermCfg buffer semantics.
@@ -89,9 +92,9 @@ def _deploy_compute_group(layout, current_segments_by_name):
         for seg in layout:
             terms[seg["name"]].add(segments[seg["name"]])
         # Concat each term's full history oldest-first, then across terms.
-        out = np.concatenate(
-            [terms[seg["name"]].get() for seg in layout], axis=0
-        ).astype(np.float32)
+        out = np.concatenate([terms[seg["name"]].get() for seg in layout], axis=0).astype(
+            np.float32
+        )
         out_per_step.append(out)
     return out_per_step
 
@@ -101,18 +104,19 @@ def _deploy_compute_group(layout, current_segments_by_name):
 # deploy profile (H=5, both zero flags ON).
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def deploy_cfg():
     n = 29
     H = 5
     obs_layout = [
-        {"name": "command_joint_pos",   "dim": n, "history_length": 1},
-        {"name": "command_joint_vel",   "dim": n, "history_length": 1},
+        {"name": "command_joint_pos", "dim": n, "history_length": 1},
+        {"name": "command_joint_vel", "dim": n, "history_length": 1},
         {"name": "motion_anchor_ori_b", "dim": 6, "history_length": 1},
-        {"name": "gyro",                "dim": 3, "history_length": H},
-        {"name": "joint_pos_rel",       "dim": n, "history_length": H},
-        {"name": "dof_vel",             "dim": n, "history_length": H},
-        {"name": "last_actions",        "dim": n, "history_length": H},
+        {"name": "gyro", "dim": 3, "history_length": H},
+        {"name": "joint_pos_rel", "dim": n, "history_length": H},
+        {"name": "dof_vel", "dim": n, "history_length": H},
+        {"name": "last_actions", "dim": n, "history_length": H},
     ]
     total = sum(s["dim"] * s["history_length"] for s in obs_layout)
     return {
@@ -130,13 +134,13 @@ def rng():
 
 def _random_segments(rng, num_action=29):
     return {
-        "command_joint_pos":   rng.normal(size=num_action).astype(np.float32),
-        "command_joint_vel":   rng.normal(size=num_action).astype(np.float32),
+        "command_joint_pos": rng.normal(size=num_action).astype(np.float32),
+        "command_joint_vel": rng.normal(size=num_action).astype(np.float32),
         "motion_anchor_ori_b": rng.normal(size=6).astype(np.float32),
-        "gyro":                rng.normal(size=3).astype(np.float32),
-        "joint_pos_rel":       rng.normal(size=num_action).astype(np.float32),
-        "dof_vel":             rng.normal(size=num_action).astype(np.float32),
-        "last_actions":        rng.normal(size=num_action).astype(np.float32),
+        "gyro": rng.normal(size=3).astype(np.float32),
+        "joint_pos_rel": rng.normal(size=num_action).astype(np.float32),
+        "dof_vel": rng.normal(size=num_action).astype(np.float32),
+        "last_actions": rng.normal(size=num_action).astype(np.float32),
     }
 
 
@@ -144,14 +148,13 @@ def _random_segments(rng, num_action=29):
 # Tests
 # ---------------------------------------------------------------------------
 
+
 class TestObsDim:
     def test_deploy_profile_dim_is_514(self, deploy_cfg):
         assert deploy_cfg["obs_dim"] == 514
 
     def test_layout_sum_matches_obs_dim(self, deploy_cfg):
-        total = sum(
-            s["dim"] * s.get("history_length", 1) for s in deploy_cfg["obs_layout"]
-        )
+        total = sum(s["dim"] * s.get("history_length", 1) for s in deploy_cfg["obs_layout"])
         assert total == deploy_cfg["obs_dim"]
 
 
@@ -198,7 +201,7 @@ class TestSchemaAssemblerVsDeploy:
         # Find the gyro block. layout order: cmd_jp, cmd_jv, anchor_ori, gyro,...
         # offset = 29 + 29 + 6 = 64
         offset = 29 + 29 + 6
-        gyro_block = obs[offset:offset + 3 * 5].reshape(5, 3)
+        gyro_block = obs[offset : offset + 3 * 5].reshape(5, 3)
         # Newest at the END (idx 4) = gyros[9]; oldest = gyros[5].
         expected = np.stack(gyros[5:10])
         np.testing.assert_array_equal(gyro_block, expected)
@@ -235,10 +238,10 @@ class TestTrainingAssemblerVsDeploy:
 
         # Initial buffer of zeros (matches tracking_obs.py allocation).
         buf = {
-            "gyro":          np.zeros((n_env, H, 3),  dtype=np.float32),
-            "joint_pos_rel": np.zeros((n_env, H, n),  dtype=np.float32),
-            "dof_vel":       np.zeros((n_env, H, n),  dtype=np.float32),
-            "last_actions":  np.zeros((n_env, H, n),  dtype=np.float32),
+            "gyro": np.zeros((n_env, H, 3), dtype=np.float32),
+            "joint_pos_rel": np.zeros((n_env, H, n), dtype=np.float32),
+            "dof_vel": np.zeros((n_env, H, n), dtype=np.float32),
+            "last_actions": np.zeros((n_env, H, n), dtype=np.float32),
         }
 
         all_segments = [_random_segments(rng) for _ in range(15)]
@@ -249,8 +252,8 @@ class TestTrainingAssemblerVsDeploy:
         for key in ("gyro", "joint_pos_rel", "dof_vel", "last_actions"):
             buf[key][:, :, :] = s0[key][None, None, :]
         refs0 = {
-            "command_joint_pos":   s0["command_joint_pos"][None, :],
-            "command_joint_vel":   s0["command_joint_vel"][None, :],
+            "command_joint_pos": s0["command_joint_pos"][None, :],
+            "command_joint_vel": s0["command_joint_vel"][None, :],
             "motion_anchor_ori_b": s0["motion_anchor_ori_b"][None, :],
         }
         train_obs0 = self._training_actor_obs(buf, refs0, s0, n_env)
@@ -263,14 +266,13 @@ class TestTrainingAssemblerVsDeploy:
                 buf[key][:, :-1] = buf[key][:, 1:]
                 buf[key][:, -1] = sk[key][None, :]
             refs = {
-                "command_joint_pos":   sk["command_joint_pos"][None, :],
-                "command_joint_vel":   sk["command_joint_vel"][None, :],
+                "command_joint_pos": sk["command_joint_pos"][None, :],
+                "command_joint_vel": sk["command_joint_vel"][None, :],
                 "motion_anchor_ori_b": sk["motion_anchor_ori_b"][None, :],
             }
             train_obs = self._training_actor_obs(buf, refs, sk, n_env)
             np.testing.assert_array_equal(
-                train_obs[0], deploy_seq[k],
-                err_msg=f"training <-> deploy mismatch at step {k}"
+                train_obs[0], deploy_seq[k], err_msg=f"training <-> deploy mismatch at step {k}"
             )
 
 
@@ -281,13 +283,13 @@ class TestBackCompat:
     def legacy_cfg(self):
         n = 29
         obs_layout = [
-            {"name": "command_joint_pos",   "dim": n, "history_length": 1},
-            {"name": "command_joint_vel",   "dim": n, "history_length": 1},
+            {"name": "command_joint_pos", "dim": n, "history_length": 1},
+            {"name": "command_joint_vel", "dim": n, "history_length": 1},
             {"name": "motion_anchor_ori_b", "dim": 6, "history_length": 1},
-            {"name": "gyro",                "dim": 3, "history_length": 1},
-            {"name": "joint_pos_rel",       "dim": n, "history_length": 1},
-            {"name": "dof_vel",             "dim": n, "history_length": 1},
-            {"name": "last_actions",        "dim": n, "history_length": 1},
+            {"name": "gyro", "dim": 3, "history_length": 1},
+            {"name": "joint_pos_rel", "dim": n, "history_length": 1},
+            {"name": "dof_vel", "dim": n, "history_length": 1},
+            {"name": "last_actions", "dim": n, "history_length": 1},
         ]
         return {
             "obs_dim": 154,
