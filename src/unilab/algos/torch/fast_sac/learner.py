@@ -393,19 +393,21 @@ class FastSACLearner:
         use_autotune: bool = True,
         use_symmetry: bool = False,
         use_amp: bool = False,
+        amp_dtype: str = "auto",
         use_compile: bool = False,
         symmetry_augmentation: SymmetryAugmentation | None = None,
         world_size: int = 1,
     ):
         self.device = device
+        self._device_type = torch.device(device).type
         self.gamma = gamma
         self.tau = tau
         self.max_grad_norm = max_grad_norm
         self.use_autotune = use_autotune
-        self.use_amp = use_amp and device in ("cuda", "xpu")
+        self.use_amp = bool(use_amp) and self._device_type in ("cuda", "xpu")
         self.use_compile = bool(use_compile)
-        # CUDA uses fp16 + GradScaler; XPU uses bf16 (fp32 range, no scaler needed).
-        self._amp_dtype = torch.bfloat16 if device == "xpu" else torch.float16
+        self.amp_dtype = amp_dtype
+        self._amp_dtype = self._resolve_amp_dtype(amp_dtype, self._device_type)
         self.world_size = world_size
         self.critic_obs_dim = critic_obs_dim
 
@@ -483,7 +485,7 @@ class FastSACLearner:
         # AMP scaler for mixed precision (fp16 only; bf16 has fp32 range and skips scaler)
         self.scaler = (
             torch.amp.GradScaler("cuda")  # pyright: ignore[reportPrivateImportUsage]
-            if self.use_amp and device == "cuda"
+            if self._should_use_grad_scaler(self.use_amp, self._device_type, self._amp_dtype)
             else None
         )
 
@@ -495,6 +497,25 @@ class FastSACLearner:
         self.use_symmetry = use_symmetry
         if self.use_compile:
             self._compile_training_methods()
+
+    @staticmethod
+    def _resolve_amp_dtype(amp_dtype: str, device_type: str) -> torch.dtype:
+        normalized = amp_dtype.lower()
+        if normalized == "auto":
+            return torch.bfloat16 if device_type == "xpu" else torch.float16
+        if normalized == "fp16":
+            return torch.float16
+        if normalized == "bf16":
+            return torch.bfloat16
+        raise ValueError("FastSAC amp_dtype must be one of: auto, fp16, bf16")
+
+    @staticmethod
+    def _should_use_grad_scaler(
+        use_amp: bool,
+        device_type: str,
+        amp_dtype: torch.dtype,
+    ) -> bool:
+        return bool(use_amp) and device_type == "cuda" and amp_dtype == torch.float16
 
     def _compile_training_methods(self) -> None:
         compile_fn = getattr(torch, "compile", None)
@@ -513,7 +534,7 @@ class FastSACLearner:
 
     def _autocast(self):
         return torch.amp.autocast(  # pyright: ignore[reportPrivateImportUsage]
-            self.device, dtype=self._amp_dtype, enabled=self.use_amp
+            self._device_type, dtype=self._amp_dtype, enabled=self.use_amp
         )
 
     def _reduce_gradients(self, model: nn.Module) -> None:
@@ -673,9 +694,7 @@ class FastSACLearner:
         alpha_loss = torch.tensor(0.0, device=self.device)
         if self.use_autotune:
             self.alpha_optimizer.zero_grad(set_to_none=True)
-            alpha_loss = (
-                -self.log_alpha.exp() * (next_log_probs + self.target_entropy)
-            ).mean()
+            alpha_loss = (-self.log_alpha.exp() * (next_log_probs + self.target_entropy)).mean()
             if torch.isfinite(alpha_loss):
                 alpha_loss.backward()
                 if self.world_size > 1 and self.log_alpha.grad is not None:

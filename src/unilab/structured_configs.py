@@ -25,6 +25,7 @@ class SACAlgoParams:
     alpha_init: float = 0.01
     target_entropy_ratio: float = 0.0
     max_grad_norm: float = 0.0
+    amp_dtype: str = "auto"
     use_compile: bool = False
 
 
