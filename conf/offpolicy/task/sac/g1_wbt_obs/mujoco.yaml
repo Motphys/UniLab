@@ -17,7 +17,10 @@
 # tracking) are unaffected.
 #
 # Deploy compatibility:
-#   * 154-dim actor obs (command 58 + anchor_ori 6 + 5 × proprio 18 = 154)
+#   * Actor obs schema:
+#       command(2·29=58) + anchor_ori(6) + H·(gyro 3 + joint_pos_rel 29
+#                                              + dof_vel 29 + last_actions 29)
+#       = 64 + 5·90 = 514 dims  (with H=5 below)
 #   * Same channel order as ``scripts/deploy/export_deploy_config.py`` emits
 #   * Bit-identical to deploy obs assembly — covered by
 #     ``tests/scripts/test_obs_alignment_g1_wbt.py``
