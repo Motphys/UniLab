@@ -142,9 +142,7 @@ class G1WBTObsDomainRandomizationProvider(G1MotionTrackingDomainRandomizationPro
             or self._foot_geom_ids is None
             or self._foot_geom_ids.size == 0
         ):
-            raise ValueError(
-                "randomize_geom_friction=True but provider has no foot geom IDs"
-            )
+            raise ValueError("randomize_geom_friction=True but provider has no foot geom IDs")
 
     def build_reset_plan(self, env: Any, env_ids: np.ndarray) -> ResetPlan:
         num_reset = len(env_ids)
@@ -278,11 +276,7 @@ class G1WBTObsEnv(G1MotionTrackingSACEnv):
                 geom_names = self._backend.get_geom_names()
                 pattern = re.compile(dr_cfg.friction_geom_pattern)
                 foot_geom_ids = np.asarray(
-                    [
-                        i
-                        for i, name in enumerate(geom_names)
-                        if name and pattern.match(name)
-                    ],
+                    [i for i, name in enumerate(geom_names) if name and pattern.match(name)],
                     dtype=np.int64,
                 )
                 if foot_geom_ids.size == 0:
@@ -296,7 +290,14 @@ class G1WBTObsEnv(G1MotionTrackingSACEnv):
                 base_geom_friction=base_geom_friction,
                 foot_geom_ids=foot_geom_ids,
             )
-            self._init_domain_randomization(extended_provider)
+            # Swap the per-reset DR provider directly. ``_init_domain_randomization``
+            # cannot be called twice — it materializes the backend at the end and
+            # MuJoCo's pool raises on a second materialize. The parent's call
+            # already (a) ran init randomization and (b) materialized; we only
+            # need the new provider's ``build_reset_plan`` for per-episode DR.
+            from unilab.dr import DomainRandomizationManager
+
+            self._dr_manager = DomainRandomizationManager(self, extended_provider)
 
     # ------------------------------------------------------------------ #
     # Rewards
@@ -429,12 +430,10 @@ class G1WBTObsEnv(G1MotionTrackingSACEnv):
                 self._push_obs_history(env_ids, components)
             sel = slice(None) if env_ids is None else env_ids
             for key in ("gyro", "joint_pos_rel", "dof_vel", "last_actions"):
-                buf = self._hist_buf[key][sel]   # (n_e, H, D)
+                buf = self._hist_buf[key][sel]  # (n_e, H, D)
                 actor_terms.append(buf.reshape(buf.shape[0], -1))
         else:
-            actor_terms.extend(
-                [noisy_gyro, noisy_joint_pos_rel, noisy_dof_vel, last_actions]
-            )
+            actor_terms.extend([noisy_gyro, noisy_joint_pos_rel, noisy_dof_vel, last_actions])
 
         return np.concatenate(actor_terms, axis=1, dtype=get_global_dtype())
 
