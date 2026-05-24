@@ -1,0 +1,108 @@
+# @package _global_
+# G1 Whole-Body Tracking (WBT) FastSAC on MuJoCo — task ``g1_wbt_obs``.
+#
+# Trains an SAC policy whose actor obs schema is byte-aligned with the C++
+# deploy framework's ``ObservationManager`` (per-term history,
+# ``use_gym_history=false``). Pelvis-IMU selection is yaml-driven via
+# ``env.sensor.*`` — no XML duplication is required because the upstream
+# ``g1.xml`` exposes both pelvis and torso IMU sensors.
+#
+# Train command:
+#   uv run train --algo sac --task g1_wbt_obs --sim mujoco training.use_amp=true
+#
+# The task name binds to ``G1WBTObs`` (see
+# ``src/unilab/envs/motion_tracking/g1/tracking_obs.py``), a strict subclass
+# of ``G1MotionTrackingSACEnv`` — base classes are untouched, so other tasks
+# (``g1_sac_wbt``, ``g1_motion_tracking_deploy``, locomotion / flip / box
+# tracking) are unaffected.
+#
+# Deploy compatibility:
+#   * 154-dim actor obs (command 58 + anchor_ori 6 + 5 × proprio 18 = 154)
+#   * Same channel order as ``scripts/deploy/export_deploy_config.py`` emits
+#   * Bit-identical to deploy obs assembly — covered by
+#     ``tests/scripts/test_obs_alignment_g1_wbt.py``
+training:
+  task_name: G1WBTObs
+  sim_backend: mujoco
+algo:
+  num_envs: 4096
+  max_iterations: 40000
+  save_interval: 1000
+  # FastSAC overrides aligned with holosoma WBT.
+  gamma: 0.99
+  tau: 0.005
+  num_atoms: 501
+  updates_per_step: 4
+  policy_frequency: 2
+  use_symmetry: false
+  algo_params:
+    alpha_init: 0.1
+    target_entropy_ratio: 0.5
+    max_grad_norm: 10.0
+env:
+  # Route IMU sensors to the pelvis (deploy reads the primary IMU on real G1).
+  sensor:
+    local_linvel: pelvis_local_linvel
+    gyro: pelvis_gyro
+    upvector: pelvis_upvector
+  control_config:
+    action_scale: 2.0
+    simulate_action_latency: true
+  anchor_pos_z_threshold: 0.30
+  ee_body_pos_z_threshold: 0.5
+  truncate_on_clip_end: true
+  noise_config:
+    level: 1.0
+    scale_joint_angle: 0.01
+    scale_joint_vel: 0.5
+    scale_gyro: 0.2
+    # Deploy-aligned actor obs schema.
+    enable_zero_linvel: true
+    enable_zero_anchor_pos: true
+    enable_anchor_ori_noise: true
+    scale_anchor_ori: 0.05
+    # Per-term proprio history, oldest-first; matches deploy
+    # ``ObservationManager`` group-by-term mode.
+    obs_history_length: 5
+  domain_rand:
+    randomize_base_mass: true
+    added_mass_range: [-1.0, 1.0]
+    random_com: true
+    com_offset_x: [-0.05, 0.05]
+    randomize_com_y: true
+    com_offset_y: [-0.05, 0.05]
+    randomize_com_z: true
+    com_offset_z: [-0.05, 0.05]
+    randomize_gravity: false
+    gravity_range: [[0.0, 0.0, -9.81], [0.0, 0.0, -9.81]]
+    push_robots: true
+    push_interval: 200
+    max_force: [300.0, 300.0, 120.0]
+    push_body_name: null
+    randomize_kp: true
+    kp_multiplier_range: [0.9, 1.1]
+    randomize_kd: true
+    kd_multiplier_range: [0.85, 1.15]
+    # Per-reset foot-geom friction (regex over geom names).
+    randomize_geom_friction: true
+    friction_range: [0.3, 1.2]
+    friction_geom_pattern: "^(left|right)_foot[1-7]_collision$"
+    # Per-episode additive bias on actor's joint_pos channel.
+    enable_encoder_bias: true
+    encoder_bias_range: [-0.01, 0.01]
+reward:
+  scales:
+    motion_global_root_pos: 1.5
+    motion_global_root_ori: 1.0
+    motion_body_pos: 1.0
+    motion_body_ori: 1.0
+    motion_body_lin_vel: 1.0
+    motion_body_ang_vel: 1.0
+    motion_joint_pos: 0.0
+    motion_joint_vel: 0.0
+    action_rate_l2: -0.15
+    joint_limit: -5.0
+    undesired_contacts: -0.1
+    # Sim2real-ergonomic penalties (only computed when scale != 0).
+    joint_acc_l2: -2.5e-7
+    joint_torque_l2: -1e-5
