@@ -101,9 +101,7 @@ def _download_from_hf(relative_path: str) -> str:
             "  uv pip install huggingface_hub"
         ) from None
 
-    logger.info(
-        "Downloading %s from HF repo %s ...", relative_path, _HF_REPO_ID
-    )
+    logger.info("Downloading %s from HF repo %s ...", relative_path, _HF_REPO_ID)
 
     try:
         local_path = _hf_download(hf_hub_download, relative_path)
@@ -113,8 +111,7 @@ def _download_from_hf(relative_path: str) -> str:
         current_endpoint = os.environ.get("HF_ENDPOINT", "")
         if current_endpoint and current_endpoint != _HF_OFFICIAL_ENDPOINT:
             logger.warning(
-                "Download failed with HF_ENDPOINT=%s, "
-                "retrying with %s ...",
+                "Download failed with HF_ENDPOINT=%s, retrying with %s ...",
                 current_endpoint,
                 _HF_OFFICIAL_ENDPOINT,
             )

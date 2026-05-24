@@ -11,7 +11,6 @@ import pytest
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.assets.hub import resolve_motion_files
 
-
 # ---------------------------------------------------------------------------
 # Local-path fast path
 # ---------------------------------------------------------------------------
