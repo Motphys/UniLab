@@ -20,7 +20,7 @@ import argparse
 from pathlib import Path
 
 import numpy as np
-from unilab.utils.xml_utils import _get_named_bodies
+from unilab.base.backend.mujoco.xml import _get_named_bodies
 
 from unilab.assets import ASSETS_ROOT_PATH
 
