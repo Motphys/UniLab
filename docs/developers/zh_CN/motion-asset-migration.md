@@ -1,6 +1,6 @@
 # Motion 资产迁移指南（HF）
 
-语言：简体中文
+语言: 简体中文
 
 ## 背景
 
@@ -101,3 +101,7 @@ git rebase origin/main
 - 唯一集成点：`MotionLoader.__init__`（冷路径）
 - 热路径（`step` / `reset`）**不会**触发任何文件下载或解析
 - `ASSETS_ROOT_PATH` 定义不变，下载落盘位置与原始本地路径完全一致
+
+## Navigation
+
+- Index: [Documentation](../../README.md)
