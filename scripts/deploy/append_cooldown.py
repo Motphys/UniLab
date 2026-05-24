@@ -39,14 +39,14 @@ reverse direction:
 
 Use
 ---
-    uv run python scripts/deploy/append_cooldown.py \
+    uv run scripts/deploy/append_cooldown.py \
         --input  ../deploy_ws/assets/dance1.bin \
         --output ../deploy_ws/assets/dance1_cooldown.bin \
         --config ../deploy_ws/assets/deploy_config.yaml \
         --cooldown-sec 2.0
 
 Validate in sim BEFORE swapping on the real robot:
-    uv run python scripts/deploy/sim_prototype.py \
+    uv run scripts/deploy/sim_prototype.py \
         --motion ../deploy_ws/assets/dance1_cooldown.bin \
         --init-mode stand --render
 """

@@ -44,14 +44,14 @@ warmup's frame 0 (body_pos/body_quat) is exactly what default_angles produces.
 
 Use
 ---
-    uv run python scripts/deploy/prepend_warmup.py \
+    uv run scripts/deploy/prepend_warmup.py \
         --input  ../deploy_ws/assets/dance1.bin \
         --output ../deploy_ws/assets/dance1_warmup.bin \
         --config ../deploy_ws/assets/deploy_config.yaml \
         --warmup-sec 1.5
 
 Validate in sim BEFORE swapping on the real robot:
-    uv run python scripts/deploy/sim_prototype.py \
+    uv run scripts/deploy/sim_prototype.py \
         --motion ../deploy_ws/assets/dance1_warmup.bin \
         --init-mode stand --render
 """
