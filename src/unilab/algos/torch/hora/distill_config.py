@@ -29,6 +29,27 @@ def _sanitize_path_token(value: str, *, fallback: str) -> str:
     return sanitized or fallback
 
 
+def _teacher_config_paths(
+    algo_family: str,
+    task: str,
+    *,
+    root: Path,
+) -> tuple[Path, Path, Path | None]:
+    """Resolve teacher owner/default paths for supported HORA teacher families."""
+    algo_family = str(algo_family)
+    if algo_family == "sac":
+        return (
+            root / "conf" / "offpolicy" / "task" / f"{task}.yaml",
+            root / "conf" / "offpolicy",
+            root / "conf" / "offpolicy" / "algo" / "sac.yaml",
+        )
+    return (
+        root / "conf" / algo_family / "task" / f"{task}.yaml",
+        root / "conf" / algo_family,
+        None,
+    )
+
+
 def load_teacher_owner_config(
     algo_family: str,
     task: str,
@@ -37,13 +58,22 @@ def load_teacher_owner_config(
 ) -> DictConfig:
     """Load a HORA teacher owner config and its direct owner defaults."""
     root = _root(root_dir)
-    owner_path = root / "conf" / str(algo_family) / "task" / f"{task}.yaml"
-    owner_cfg = _load_yaml_config(owner_path)
+    owner_path, defaults_base, algo_defaults_path = _teacher_config_paths(
+        algo_family,
+        task,
+        root=root,
+    )
     merged_cfg = OmegaConf.create()
+    if algo_defaults_path is not None:
+        merged_cfg = OmegaConf.merge(
+            merged_cfg,
+            OmegaConf.create({"algo": _load_yaml_config(algo_defaults_path)}),
+        )
+    owner_cfg = _load_yaml_config(owner_path)
     for default_entry in owner_cfg.get("defaults", []):
         if not isinstance(default_entry, str) or default_entry == "_self_":
             continue
-        include_path = root / "conf" / str(algo_family) / f"{default_entry.lstrip('/')}.yaml"
+        include_path = defaults_base / f"{default_entry.lstrip('/')}.yaml"
         merged_cfg = OmegaConf.merge(merged_cfg, _load_yaml_config(include_path))
     return cast(DictConfig, OmegaConf.merge(merged_cfg, owner_cfg))
 
@@ -72,6 +102,44 @@ def teacher_default_cfg(
         teacher_task,
         root_dir=root_dir,
     )
+    if teacher_algo_family == "sac":
+        runtime_impl = OmegaConf.select(teacher_cfg, "algo.runtime_impl")
+        if runtime_impl != "hora_sac":
+            raise ValueError(
+                "HORA distillation SAC teacher owner must select runtime_impl='hora_sac'. "
+                f"Got task={teacher_task} runtime_impl={runtime_impl!r}."
+            )
+        actor_cfg = OmegaConf.to_container(OmegaConf.select(teacher_cfg, "algo.actor"), resolve=True)
+        if not isinstance(actor_cfg, dict):
+            actor_cfg = {}
+        return OmegaConf.create(
+            {
+                "training": OmegaConf.select(teacher_cfg, "training"),
+                "reward": OmegaConf.select(teacher_cfg, "reward"),
+                "env": OmegaConf.select(teacher_cfg, "env"),
+                "algo": {
+                    "model": {
+                        "teacher_arch": "hora_sac",
+                        "actor_hidden_dim": OmegaConf.select(
+                            teacher_cfg,
+                            "algo.actor_hidden_dim",
+                            default=512,
+                        ),
+                        "use_layer_norm": OmegaConf.select(
+                            teacher_cfg,
+                            "algo.use_layer_norm",
+                            default=True,
+                        ),
+                        "priv_info_embed_dim": actor_cfg.get("priv_info_embed_dim", 9),
+                        "priv_mlp_hidden_dims": actor_cfg.get(
+                            "priv_mlp_hidden_dims",
+                            [256, 128, 9],
+                        ),
+                    }
+                },
+            }
+        )
+
     actor_cfg = OmegaConf.to_container(OmegaConf.select(teacher_cfg, "algo.actor"), resolve=True)
     if not isinstance(actor_cfg, dict):
         actor_cfg = {}

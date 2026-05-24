@@ -372,17 +372,22 @@ def test_hora_distill_script_delegates_teacher_owner_resolution():
     assert 'conf" / str(algo_family)' not in source
 
 
-@pytest.mark.parametrize("teacher_algo_family", ["ppo", "appo"])
-def test_hora_distill_teacher_owner_defaults_support_ppo_and_appo(
+@pytest.mark.parametrize("teacher_algo_family", ["ppo", "appo", "sac"])
+def test_hora_distill_teacher_owner_defaults_support_ppo_appo_and_sac(
     teacher_algo_family: str,
 ):
     mod = _train_hora_distill()
+    teacher_task = (
+        "sac/sharpa_inhand/mujoco_hora"
+        if teacher_algo_family == "sac"
+        else "sharpa_inhand/mujoco_hora"
+    )
     cfg = mod._apply_teacher_defaults(
         _hora_distill_cfg(
             [
                 "task=sharpa_inhand/mujoco",
                 f"teacher.algo_family={teacher_algo_family}",
-                "teacher.task=sharpa_inhand/mujoco_hora",
+                f"teacher.task={teacher_task}",
             ]
         )
     )
@@ -391,6 +396,24 @@ def test_hora_distill_teacher_owner_defaults_support_ppo_and_appo(
     assert cfg.training.sim_backend == "mujoco"
     assert cfg.algo.model.priv_info_embed_dim == 9
     assert cfg.algo.model.priv_mlp_hidden_dims == [256, 128, 9]
+    if teacher_algo_family == "sac":
+        assert cfg.algo.model.teacher_arch == "hora_sac"
+        assert cfg.algo.model.actor_hidden_dim == 512
+
+
+def test_hora_distill_sac_teacher_requires_hora_sac_runtime():
+    mod = _train_hora_distill()
+
+    with pytest.raises(ValueError, match="runtime_impl='hora_sac'"):
+        mod._apply_teacher_defaults(
+            _hora_distill_cfg(
+                [
+                    "task=sharpa_inhand/mujoco",
+                    "teacher.algo_family=sac",
+                    "teacher.task=sac/g1_walk_flat/mujoco",
+                ]
+            )
+        )
 
 
 @pytest.mark.parametrize("teacher_algo_family", ["ppo", "appo"])

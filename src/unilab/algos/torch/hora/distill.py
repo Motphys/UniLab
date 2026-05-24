@@ -9,11 +9,161 @@ from pathlib import Path
 from typing import Any, cast
 
 import torch
+import torch.nn as nn
 from omegaconf import DictConfig, OmegaConf
 from tensordict import TensorDict
 
 from unilab.algos.torch.common.normalization import EmpiricalNormalization
-from unilab.algos.torch.hora.models import HoraActorModel, HoraSharedActorCritic
+from unilab.algos.torch.hora.models import (
+    HoraActorModel,
+    HoraCoreOutput,
+    HoraSharedActorCritic,
+    ProprioAdaptTConv,
+)
+from unilab.algos.torch.hora.sac_models import HoraSACActor
+
+
+class HoraSACDistillShared(nn.Module):
+    """SAC-teacher-compatible HORA stage-2 shared actor."""
+
+    def __init__(
+        self,
+        obs_dim: int,
+        action_dim: int,
+        *,
+        priv_info_dim: int,
+        hidden_dim: int = 512,
+        priv_info_embed_dim: int = 9,
+        priv_mlp_hidden_dims: list[int] | tuple[int, ...] = (256, 128, 9),
+        use_layer_norm: bool = True,
+        proprio_hist_len: int = 30,
+        proprio_frame_dim: int | None = None,
+        device: torch.device | str = "cpu",
+    ) -> None:
+        super().__init__()
+        teacher = HoraSACActor(
+            obs_dim=obs_dim,
+            priv_info_dim=priv_info_dim,
+            action_dim=action_dim,
+            hidden_dim=hidden_dim,
+            priv_info_embed_dim=priv_info_embed_dim,
+            priv_mlp_hidden_dims=priv_mlp_hidden_dims,
+            use_layer_norm=use_layer_norm,
+            device=device,
+        )
+        self.obs_dim = int(obs_dim)
+        self.action_dim = int(action_dim)
+        self.priv_info_dim = int(priv_info_dim)
+        self.priv_info_embed_dim = int(priv_info_embed_dim)
+        self.proprio_hist_len = int(proprio_hist_len)
+        self.proprio_frame_dim = (
+            int(proprio_frame_dim) if proprio_frame_dim is not None else self.obs_dim // 3
+        )
+        self.obs_normalizer = nn.Identity()
+        self.priv_encoder = teacher.priv_encoder
+        self.priv_projection = teacher.priv_projection
+        self.actor_trunk = teacher.actor_trunk
+        self.action_mean_head = teacher.action_mean_head
+        self.adapt_tconv = ProprioAdaptTConv(self.proprio_frame_dim, self.priv_info_embed_dim)
+
+    def load_teacher_actor_state_dict(self, actor_state: dict[str, torch.Tensor]) -> None:
+        own_state = self.state_dict()
+        teacher_state = {
+            key: value
+            for key, value in actor_state.items()
+            if key in own_state and not key.startswith("adapt_tconv.")
+        }
+        missing = sorted(
+            key
+            for key in own_state
+            if not key.startswith("adapt_tconv.") and key not in teacher_state
+        )
+        if missing:
+            raise ValueError(f"HORA-SAC teacher checkpoint is missing actor keys: {missing}")
+        self.load_state_dict(teacher_state, strict=False)
+
+    def encode_privileged_info(self, priv_info: torch.Tensor) -> torch.Tensor:
+        return torch.tanh(self.priv_projection(self.priv_encoder(priv_info)))
+
+    def encode_proprio_history(self, proprio_hist: torch.Tensor) -> torch.Tensor:
+        return torch.tanh(self.adapt_tconv(proprio_hist))
+
+    def _zero_privileged_latent(
+        self,
+        batch_size: int,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> torch.Tensor:
+        return torch.zeros((batch_size, self.priv_info_embed_dim), device=device, dtype=dtype)
+
+    def policy_mean(
+        self,
+        obs: TensorDict,
+        *,
+        prefer_student: bool,
+        require_privileged_target: bool = True,
+    ) -> tuple[torch.Tensor, HoraCoreOutput]:
+        actor_obs = obs["actor"]
+        priv_info = obs.get("priv_info")
+        if priv_info is None:
+            if require_privileged_target or not prefer_student:
+                raise ValueError("priv_info is required for HORA-SAC distillation")
+            privileged_target = self._zero_privileged_latent(
+                actor_obs.shape[0],
+                actor_obs.device,
+                actor_obs.dtype,
+            )
+        else:
+            privileged_target = self.encode_privileged_info(priv_info)
+
+        if prefer_student:
+            proprio_hist = obs.get("proprio_hist")
+            if proprio_hist is None:
+                raise ValueError("proprio_hist is required for HORA-SAC student inference")
+            privileged_latent = self.encode_proprio_history(proprio_hist)
+        else:
+            privileged_latent = privileged_target
+
+        trunk_latent = self.actor_trunk(torch.cat([actor_obs, privileged_latent], dim=-1))
+        mean = self.action_mean_head(trunk_latent)
+        return (
+            mean,
+            HoraCoreOutput(
+                policy_obs=actor_obs,
+                trunk_latent=trunk_latent,
+                privileged_latent=privileged_latent,
+                privileged_target=privileged_target,
+            ),
+        )
+
+
+class HoraSACDistillActor(nn.Module):
+    """Stage-2 actor wrapper for HORA-SAC teachers."""
+
+    is_recurrent: bool = False
+
+    def __init__(self, shared: HoraSACDistillShared) -> None:
+        super().__init__()
+        self.shared = shared
+        self.prefer_student = True
+
+    def forward(
+        self,
+        obs: TensorDict,
+        masks: torch.Tensor | None = None,
+        hidden_state=None,
+        stochastic_output: bool = False,
+    ) -> torch.Tensor:
+        del masks, hidden_state, stochastic_output
+        mean, _ = self.shared.policy_mean(
+            obs,
+            prefer_student=self.prefer_student,
+            require_privileged_target=False,
+        )
+        return torch.tanh(mean)
+
+    def load_sac_teacher_actor_state_dict(self, actor_state: dict[str, torch.Tensor]) -> None:
+        self.shared.load_teacher_actor_state_dict(actor_state)
 
 
 @dataclass
@@ -29,7 +179,7 @@ def build_student_actor_and_normalizer(
     cfg: DictConfig,
     *,
     device: torch.device,
-) -> tuple[HoraActorModel, EmpiricalNormalization]:
+) -> tuple[nn.Module, EmpiricalNormalization]:
     actor_obs = env.get_observations()
     actor_dim = int(actor_obs["actor"].shape[-1])
     priv_info_dim = int(actor_obs["priv_info"].shape[-1])
@@ -37,6 +187,23 @@ def build_student_actor_and_normalizer(
 
     model_cfg = OmegaConf.to_container(cfg.algo.model, resolve=True)
     assert isinstance(model_cfg, dict)
+    if model_cfg.get("teacher_arch") == "hora_sac":
+        shared_sac = HoraSACDistillShared(
+            obs_dim=actor_dim,
+            action_dim=int(env.num_actions),
+            priv_info_dim=priv_info_dim,
+            hidden_dim=int(model_cfg.get("actor_hidden_dim", 512)),
+            priv_info_embed_dim=int(model_cfg.get("priv_info_embed_dim", priv_info_dim)),
+            priv_mlp_hidden_dims=model_cfg.get("priv_mlp_hidden_dims", [256, 128, 9]),
+            use_layer_norm=bool(model_cfg.get("use_layer_norm", True)),
+            proprio_hist_len=int(proprio_hist_shape[0]),
+            proprio_frame_dim=int(proprio_hist_shape[1]),
+            device=device,
+        ).to(device)
+        actor = HoraSACDistillActor(shared_sac).to(device)
+        hist_normalizer = EmpiricalNormalization(proprio_hist_shape, device=device)
+        return actor, hist_normalizer
+
     shared = HoraSharedActorCritic(
         obs_dim=actor_dim,
         action_dim=int(env.num_actions),
@@ -64,13 +231,26 @@ def build_student_actor_and_normalizer(
 
 
 def load_teacher_actor_weights(
-    actor: HoraActorModel,
+    actor: nn.Module,
     teacher_checkpoint: str | Path,
     *,
     teacher_algo_family: str,
     device: torch.device,
 ) -> None:
     checkpoint = torch.load(teacher_checkpoint, map_location=device, weights_only=False)
+    if str(teacher_algo_family) == "sac":
+        actor_state = checkpoint.get("actor")
+        if actor_state is None:
+            raise ValueError(
+                "Checkpoint does not contain the expected HORA-SAC actor weights. "
+                f"checkpoint={teacher_checkpoint}"
+            )
+        load_sac = getattr(actor, "load_sac_teacher_actor_state_dict", None)
+        if load_sac is None:
+            raise ValueError("Selected distillation actor does not support HORA-SAC weights.")
+        load_sac(actor_state)
+        return
+
     actor_state_key = {
         "ppo": "actor_state_dict",
         "appo": "actor",
@@ -78,7 +258,7 @@ def load_teacher_actor_weights(
     if actor_state_key is None:
         raise ValueError(
             "Unsupported HORA teacher algorithm family for distillation: "
-            f"{teacher_algo_family!r}. Expected one of ['ppo', 'appo']."
+            f"{teacher_algo_family!r}. Expected one of ['ppo', 'appo', 'sac']."
         )
     actor_state = checkpoint.get(actor_state_key)
     if actor_state is None:
@@ -91,7 +271,7 @@ def load_teacher_actor_weights(
 
 
 def load_distilled_checkpoint(
-    actor: HoraActorModel,
+    actor: nn.Module,
     hist_normalizer: EmpiricalNormalization,
     checkpoint_path: str | Path,
     *,

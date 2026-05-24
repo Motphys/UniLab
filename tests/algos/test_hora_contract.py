@@ -94,6 +94,87 @@ def test_hora_sac_learner_updates_with_privileged_tail() -> None:
     assert torch.isfinite(torch.tensor(list(actor_metrics.values()))).all()
 
 
+def test_hora_sac_distilled_student_forward_does_not_require_priv_info() -> None:
+    from unilab.algos.torch.hora.distill import HoraSACDistillActor, HoraSACDistillShared
+
+    shared = HoraSACDistillShared(
+        obs_dim=12,
+        action_dim=4,
+        priv_info_dim=3,
+        hidden_dim=32,
+        priv_info_embed_dim=3,
+        priv_mlp_hidden_dims=(8, 3),
+        use_layer_norm=False,
+        proprio_hist_len=30,
+        proprio_frame_dim=2,
+        device="cpu",
+    )
+    actor = HoraSACDistillActor(shared)
+    student_obs = TensorDict(
+        {
+            "actor": torch.zeros((5, 12), dtype=torch.float32),
+            "proprio_hist": torch.zeros((5, 30, 2), dtype=torch.float32),
+        },
+        batch_size=[5],
+    )
+
+    actions = actor(student_obs)
+
+    assert actions.shape == (5, 4)
+    with pytest.raises(ValueError, match="priv_info is required"):
+        shared.policy_mean(student_obs, prefer_student=True)
+
+
+def test_hora_sac_distill_loads_teacher_actor_weights(tmp_path) -> None:
+    from unilab.algos.torch.hora.distill import (
+        HoraSACDistillActor,
+        HoraSACDistillShared,
+        load_teacher_actor_weights,
+    )
+    from unilab.algos.torch.hora.sac_models import HoraSACActor
+
+    teacher = HoraSACActor(
+        obs_dim=12,
+        priv_info_dim=3,
+        action_dim=4,
+        hidden_dim=32,
+        priv_info_embed_dim=3,
+        priv_mlp_hidden_dims=(8, 3),
+        use_layer_norm=False,
+    )
+    shared = HoraSACDistillShared(
+        obs_dim=12,
+        action_dim=4,
+        priv_info_dim=3,
+        hidden_dim=32,
+        priv_info_embed_dim=3,
+        priv_mlp_hidden_dims=(8, 3),
+        use_layer_norm=False,
+        proprio_hist_len=30,
+        proprio_frame_dim=2,
+        device="cpu",
+    )
+    actor = HoraSACDistillActor(shared)
+    checkpoint = tmp_path / "model.pt"
+    torch.save({"actor": teacher.state_dict()}, checkpoint)
+
+    load_teacher_actor_weights(
+        actor,
+        checkpoint,
+        teacher_algo_family="sac",
+        device=torch.device("cpu"),
+    )
+
+    torch.testing.assert_close(
+        actor.shared.action_mean_head.weight,
+        teacher.action_mean_head.weight,
+    )
+    torch.testing.assert_close(
+        actor.shared.encode_privileged_info(torch.zeros(2, 3)),
+        teacher.encode_privileged_info(torch.zeros(2, 3)),
+    )
+
+
 def test_hora_rsl_wrapper_uses_explicit_np_env_state_contract() -> None:
     """HORA wrapper must not probe required NpEnvState fields dynamically."""
     from unilab.algos.torch.hora.rsl_rl import HoraRslRlVecEnvWrapper
