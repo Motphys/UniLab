@@ -1,11 +1,11 @@
 # @package _global_
 # G1 Whole-Body Tracking (WBT) FastSAC on MuJoCo — task ``g1_wbt_obs``.
 #
-# Trains an SAC policy whose actor obs schema is byte-aligned with the C++
-# deploy framework's ``ObservationManager`` (per-term history,
-# ``use_gym_history=false``). Pelvis-IMU selection is yaml-driven via
-# ``env.sensor.*`` — no XML duplication is required because the upstream
-# ``g1.xml`` exposes both pelvis and torso IMU sensors.
+# Field-by-field port of the active deploy training profile from
+# ``feat/g1_deploy_v2`` (``conf/offpolicy/task/sac/g1_sac_wbt/mujoco_deploy.yaml``
+# in that branch — Stage 4+5, the one actually used for ONNX-on-real-G1
+# runs; ``mujoco_deploy_v2.yaml`` Plan B was a tuning experiment and is
+# NOT what this profile ports).
 #
 # Train command:
 #   uv run train --algo sac --task g1_wbt_obs --sim mujoco training.use_amp=true
@@ -17,6 +17,8 @@
 # tracking) are unaffected.
 #
 # Deploy compatibility:
+#   * Pelvis-IMU selection is yaml-driven via ``env.sensor.*`` (the upstream
+#     ``g1.xml`` exposes both pelvis and torso IMU sensors).
 #   * Actor obs schema:
 #       command(2·29=58) + anchor_ori(6) + H·(gyro 3 + joint_pos_rel 29
 #                                              + dof_vel 29 + last_actions 29)
@@ -29,11 +31,11 @@ training:
   sim_backend: mujoco
 algo:
   num_envs: 4096
-  max_iterations: 40000
+  max_iterations: 140000
   save_interval: 1000
   # FastSAC overrides aligned with holosoma WBT.
   gamma: 0.99
-  tau: 0.005
+  tau: 0.05
   num_atoms: 501
   updates_per_step: 4
   policy_frequency: 2
@@ -43,6 +45,7 @@ algo:
     target_entropy_ratio: 0.5
     max_grad_norm: 10.0
 env:
+  sim_dt: 0.005
   # Route IMU sensors to the pelvis (deploy reads the primary IMU on real G1).
   sensor:
     local_linvel: pelvis_local_linvel
@@ -50,62 +53,81 @@ env:
     upvector: pelvis_upvector
   control_config:
     action_scale: 2.0
+    # One-step action latency: model the SDK send/recv delay so the trained
+    # actor sees the same delayed feedback the C++ controller produces.
     simulate_action_latency: true
-  anchor_pos_z_threshold: 0.30
+  # Stage 4 anchor-tighten — implicit "stay near reference" pressure for
+  # root_pos (which is unobservable to the actor under enable_zero_anchor_pos).
+  anchor_pos_z_threshold: 0.40
+  # KEPT at 0.5 — green-run history shows ee termination causes terminated_rate
+  # spikes; only tighten the anchor channel.
   ee_body_pos_z_threshold: 0.5
   truncate_on_clip_end: true
   noise_config:
     level: 1.0
-    scale_joint_angle: 0.01
-    scale_joint_vel: 0.5
-    scale_gyro: 0.2
-    # Deploy-aligned actor obs schema.
+    scale_joint_angle: 0.01      # mjlab parity
+    scale_joint_vel: 0.5         # mjlab parity (was 1.5 — too aggressive)
+    scale_gyro: 0.2              # mjlab parity
+    # mjlab "No-State-Estimation" parity: G1 has no torso-pose estimator and
+    # no base linvel sensor at deploy → drop both channels from actor obs.
+    # Critic still sees the clean values (asymmetric A/C).
     enable_zero_linvel: true
     enable_zero_anchor_pos: true
+    # mjlab Unoise(±0.05) on the 6-d anchor rotation columns.
     enable_anchor_ori_noise: true
     scale_anchor_ori: 0.05
-    # Per-term proprio history, oldest-first; matches deploy
-    # ``ObservationManager`` group-by-term mode.
+    # 5-step per-term proprio history (BeyondMimic / MOSAIC parity).
+    # Actor obs 154 → 514 d. Refs (command_*, anchor_ori_b) stay single-step;
+    # gyro / joint_pos_rel / dof_vel / last_actions get 5-step oldest-first
+    # history. Lets the actor implicitly estimate base linear velocity from
+    # joint deltas + IMU without requiring a deploy-side state estimator.
     obs_history_length: 5
   domain_rand:
     randomize_base_mass: true
     added_mass_range: [-1.0, 1.0]
     random_com: true
     com_offset_x: [-0.05, 0.05]
-    randomize_com_y: true
+    randomize_com_y: true            # mjlab base_com offset is 3-axis
     com_offset_y: [-0.05, 0.05]
     randomize_com_z: true
     com_offset_z: [-0.05, 0.05]
     randomize_gravity: false
     gravity_range: [[0.0, 0.0, -9.81], [0.0, 0.0, -9.81]]
     push_robots: true
+    # Stage 4: 200 ctrl steps ≈ 4 s. Empirical minimum interval that sustains
+    # body_ori / body_ang_vel tracking under push training pressure.
     push_interval: 200
+    # Stage 4: Δv 0.2 m/s — empirical minimum effective training-pressure dose.
+    # This is TRAINING pressure, NOT a sim2real disturbance model — the trained
+    # policy does not generate push at deploy time regardless of this value.
     max_force: [300.0, 300.0, 120.0]
     push_body_name: null
     randomize_kp: true
     kp_multiplier_range: [0.9, 1.1]
     randomize_kd: true
     kd_multiplier_range: [0.85, 1.15]
-    # Per-reset foot-geom friction (regex over geom names).
+    # mjlab parity: foot geom friction sampled per-episode, shared across feet,
+    # absolute value uniform on the sliding-friction column.
     randomize_geom_friction: true
     friction_range: [0.3, 1.2]
     friction_geom_pattern: "^(left|right)_foot[1-7]_collision$"
-    # Per-episode additive bias on actor's joint_pos channel.
+    # mjlab parity: persistent ±0.01 rad encoder bias added to actor's joint_pos.
     enable_encoder_bias: true
     encoder_bias_range: [-0.01, 0.01]
 reward:
   scales:
-    motion_global_root_pos: 1.5
-    motion_global_root_ori: 1.0
+    # Stage 4 + Stage 5 (mjlab parity weights from g1_29dof/dance_102).
+    motion_global_root_pos: 1.0       # Stage 2.5 (was 0.5; compensate obs-zeroing of anchor_pos)
+    motion_global_root_ori: 1.0       # Stage 1.5 (was 0.5; restore root attitude authority)
     motion_body_pos: 1.0
     motion_body_ori: 1.0
     motion_body_lin_vel: 1.0
     motion_body_ang_vel: 1.0
     motion_joint_pos: 0.0
     motion_joint_vel: 0.0
-    action_rate_l2: -0.15
+    action_rate_l2: -0.1
     joint_limit: -5.0
     undesired_contacts: -0.1
-    # Sim2real-ergonomic penalties (only computed when scale != 0).
+    # Stage 5 sim2real-friendly penalties (computed only when scale != 0).
     joint_acc_l2: -2.5e-7
     joint_torque_l2: -1e-5
