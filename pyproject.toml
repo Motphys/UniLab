@@ -38,6 +38,7 @@ dependencies = [
 train = "unilab.cli:train_main"
 eval = "unilab.cli:eval_main"
 demo = "unilab.cli:demo_main"
+unilab-complete = "unilab.tools.completion:main"
 unilab-viz-nan = "unilab.tools.viz_nan:main"
 unilab-export-scene = "unilab.tools.export_scene:main"
 
