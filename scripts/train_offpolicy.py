@@ -46,7 +46,7 @@ def default_device(torch_module, preferred: str | None = None) -> str:
 
 
 def resolve_checkpoint_path(
-    root_dir: Path, algo_log_name: str, task: str, load_run: str
+    root_dir: Path, algo_log_name: str, task: str, load_run: str | int
 ) -> tuple[str | None, str | None]:
     checkpoint_path, checkpoint_dir = resolve_checkpoint_path_common(
         Path(root_dir) / "logs" / algo_log_name / task,
@@ -189,6 +189,8 @@ def build_runner(algo_name: str, cfg: DictConfig):
             use_layer_norm=cfg.algo.use_layer_norm,
             max_grad_norm=cfg.algo.algo_params.max_grad_norm,
             use_amp=cfg.training.use_amp,
+            amp_dtype=cfg.algo.algo_params.amp_dtype,
+            use_compile=cfg.algo.algo_params.use_compile,
             use_symmetry=cfg.algo.use_symmetry,
             symmetry_augmentation=_symmetry_aug,
             critic_obs_dim=_critic_dim,

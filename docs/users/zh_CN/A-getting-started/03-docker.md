@@ -50,7 +50,7 @@ docker run --rm --gpus all unilab:latest uv run python -c "import torch; print(t
 ## ROCm 说明
 
 - ROCm 请使用 AMD 官方 `rocm/pytorch` 镜像
-- 训练命令仍使用 `uv run --no-sync ...`
+- 进入容器后先运行 `make sync-rocm` 激活 ROCm profile，训练命令使用 `uv run ...`
 - 设备挂载通常至少包括 `/dev/kfd`、`/dev/dri`、`--group-add=video` 和 `--ipc=host`
 - 仓库根目录 `Dockerfile` 保持 NVIDIA / CUDA 路径，不直接承担 ROCm 容器职责
 

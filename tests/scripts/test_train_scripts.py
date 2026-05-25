@@ -353,6 +353,28 @@ def test_offpolicy_hydra_algo_td3():
     assert cfg.algo.algo == "td3"
 
 
+def test_hora_distill_run_config_records_hardware(tmp_path, monkeypatch):
+    mod = _train_hora_distill()
+    hardware = {
+        "platform": "test-platform",
+        "chip": "test-cpu",
+        "cpu_total_cores": "8",
+        "gpu_name": "test-gpu",
+        "memory": "32 GB",
+    }
+    monkeypatch.setattr(mod, "get_device_info_dict", lambda: hardware)
+    cfg = OmegaConf.create({"training": {"task_name": "Task", "sim_backend": "mujoco"}})
+
+    mod._write_distill_run_config(
+        tmp_path,
+        cfg=cfg,
+        teacher_metadata={"checkpoint_path": "teacher.pt"},
+    )
+
+    payload = json.loads((tmp_path / "distill_run_config.json").read_text(encoding="utf-8"))
+    assert payload["run"]["hardware"] == hardware
+
+
 def test_hora_distill_task_owner_overrides_root_config_defaults():
     mod = _train_hora_distill()
     root_cfg = OmegaConf.load(_CONF_DIR / "hora_distill" / "config.yaml")
@@ -1192,6 +1214,20 @@ def test_resolve_checkpoint_latest_picks_highest_iter(tmp_path):
     path, path_dir = _offpolicy().resolve_checkpoint_path(tmp_path, "sac", "MyTask", "-1")
     assert path is not None
     assert "model_100.pt" in path
+
+
+def test_resolve_checkpoint_accepts_integer_latest_run(tmp_path):
+    """load_run=-1 from Hydra CLI picks the latest model."""
+    task_dir = tmp_path / "logs" / "sac" / "MyTask" / "run1"
+    task_dir.mkdir(parents=True)
+    (task_dir / "model_10.pt").write_bytes(b"")
+    (task_dir / "model_50.pt").write_bytes(b"")
+
+    path, path_dir = _offpolicy().resolve_checkpoint_path(tmp_path, "sac", "MyTask", -1)
+
+    assert path is not None
+    assert "model_50.pt" in path
+    assert path_dir == str(task_dir)
 
 
 def test_resolve_checkpoint_explicit_run_name(tmp_path):
@@ -2160,6 +2196,13 @@ def test_play_resolve_checkpoint_uses_algo_log_name(tmp_path):
         mod.ROOT_DIR = original_root
 
 
+def test_ppo_interactive_config_includes_playback_controls():
+    cfg = _ppo_cfg()
+
+    assert cfg.interactive.speed == pytest.approx(1.0)
+    assert cfg.interactive.start_paused is False
+
+
 def test_play_interactive_runner_log_dir_uses_algo_log_name(monkeypatch: pytest.MonkeyPatch):
     import types
 
@@ -2246,6 +2289,8 @@ def test_play_interactive_runner_log_dir_uses_algo_log_name(monkeypatch: pytest.
         reward_debug_ang_vel_scale=0.05,
         reward_debug_show_connectors=False,
         reward_debug_show_global_anchor=False,
+        speed=1.0,
+        start_paused=False,
     )
 
     mod.play_interactive(args)

@@ -7,11 +7,14 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 pytest.importorskip("mujoco")
+
+ROOT_DIR = Path(__file__).resolve().parents[2]
 
 
 def _mlx_runtime_usable() -> bool:
@@ -43,21 +46,30 @@ def _write_sharpa_smoke_cache(cache_prefix, scale_values: list[float]) -> None:
         )
 
 
+APPO_MUJOCO_SMOKE_TASKS = [
+    "go1_joystick_flat/mujoco",
+    "go2_joystick_flat/mujoco",
+    "g1_walk_flat/mujoco",
+    "g1_motion_tracking/mujoco",
+    "g1_flip_tracking/mujoco",
+    "g1_wall_flip_tracking/mujoco",
+]
+
+
+def test_appo_mujoco_smoke_tasks_have_owner_configs():
+    """APPO runtime smoke coverage must not declare tasks without owner YAML."""
+    missing = [
+        task
+        for task in APPO_MUJOCO_SMOKE_TASKS
+        if not (ROOT_DIR / "conf" / "appo" / "task" / f"{task}.yaml").is_file()
+    ]
+    assert missing == []
+
+
 @pytest.mark.slow
-@pytest.mark.parametrize(
-    "task",
-    [
-        "go1_joystick_flat/mujoco",
-        "go2_joystick_flat/mujoco",
-        "g1_walk_flat/mujoco",
-        "g1_motion_tracking/mujoco",
-        "g1_box_tracking/mujoco",
-        "g1_flip_tracking/mujoco",
-        "g1_wall_flip_tracking/mujoco",
-    ],
-)
+@pytest.mark.parametrize("task", APPO_MUJOCO_SMOKE_TASKS)
 def test_appo_task_configs_load(task):
-    """APPO can start training with all supported task configs."""
+    """APPO can start training with selected MuJoCo owner configs."""
     if not _MLX_RUNTIME_USABLE:
         pytest.skip("mlx runtime aborts in subprocess on this host")
     result = subprocess.run(

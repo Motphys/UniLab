@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """
-Benchmark MotrixSim backend physics as driven by UniLab env.step.
+Benchmark MotrixSim parallel physics execution.
 
-Sweeps batch sizes across the current locomotion owner task ids
-(go1_joystick_flat / go2_joystick_flat / g1_walk_flat).  The benchmark
-constructs the same task-side env/config path used by benchmark_env_step.py,
-warms up with full env.step calls, then reports the Motrix backend physics
-segment from state.info["timing"]["backend_physics_ms"].
+Uses the motrixsim Python API directly (no UniLab env / backend wrapper)
+to mirror benchmark/benchmark_physics_step_mj_step.py:
+  * sim_dt comes from the XML (`<option timestep>`), not overridden.
+  * max_iterations comes from the XML (`<option iterations>`), not overridden.
+  * Initial state = keyframe 0, no randomization.
+  * ctrl = uniform(-1, 1), pre-generated with the shared seed used by mj_step.
+  * Each measured call advances `--nstep` physics steps (default 20).
+  * SPS = batch_size * nstep / wall_clock_time.
 
 Run:
     uv run benchmark/benchmark_physics_step_motrixsim.py
@@ -29,11 +32,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 try:
-    from benchmark import benchmark_env_step as _benchmark_env_step
-except ModuleNotFoundError:
-    import benchmark_env_step as _benchmark_env_step  # type: ignore[no-redef]
-
-try:
     from benchmark.core import device_info as _benchmark_device_info
     from benchmark.core import task_names as _benchmark_task_names
 except ModuleNotFoundError:
@@ -44,6 +42,8 @@ get_device_info_dict = _benchmark_device_info.get_device_info_dict
 get_device_info_line = _benchmark_device_info.get_device_info_line
 canonical_locomotion_task_ids = _benchmark_task_names.canonical_locomotion_task_ids
 locomotion_task_spec = _benchmark_task_names.locomotion_task_spec
+locomotion_task_model_file = _benchmark_task_names.locomotion_task_model_file
+normalize_locomotion_task_id = _benchmark_task_names.normalize_locomotion_task_id
 
 _MOTRIXSIM_IMPORT_ERROR: Exception | None = None
 try:
@@ -51,6 +51,14 @@ try:
 except Exception as _motrixsim_error:
     mtx = None  # type: ignore[assignment]
     _MOTRIXSIM_IMPORT_ERROR = _motrixsim_error
+
+# Mirror UniLab MotrixBackend's production default. Training uses this value
+# (EnvConfig.motrix_max_iterations defaults to None, and the backend falls back
+# to DEFAULT_MOTRIX_MAX_ITERATIONS), so the benchmark reflects real workloads
+# rather than the XML's <option iterations> which would otherwise leak in.
+from unilab.base.backend.motrix.backend import (  # noqa: E402
+    DEFAULT_MOTRIX_MAX_ITERATIONS,
+)
 
 
 @dataclass
@@ -62,27 +70,10 @@ class BenchRecord:
     nthread: int
     avg_time_sec: float
     sps: float
-    sim_substeps: int
-    avg_env_step_time_sec: float
-    env_step_sps: float
-    median_env_step_ms: float
-    median_backend_physics_ms: float
-    median_backend_set_ctrl_ms: float
-    median_backend_refresh_cache_ms: float
 
 
-DEFAULT_TASK_IDS = ["go1_joystick_flat", "go2_joystick_flat", "g1_walk_flat"]
+DEFAULT_TASK_IDS = canonical_locomotion_task_ids()
 DEFAULT_BATCH_SIZES = [2**k for k in range(8, 15)]  # 256 .. 16384
-
-
-def _normalize_task_name(task_name: str) -> str:
-    normalized = task_name.strip()
-    if normalized.startswith("task="):
-        normalized = normalized[len("task=") :]
-    if "/" in normalized:
-        normalized = normalized.rsplit("/", 1)[0]
-    spec = locomotion_task_spec(normalized)
-    return spec.owner_task_id
 
 
 def _require_motrixsim() -> None:
@@ -98,99 +89,51 @@ def _require_motrixsim() -> None:
     )
 
 
-def _motrix_task_config(task_name: str) -> Any:
-    task_config = _benchmark_env_step._matching_task_config(task_name)
-    if task_config is None:
-        env_name = locomotion_task_spec(task_name).env_task_name
-        task_config = _benchmark_env_step._matching_task_config(env_name)
-    if task_config is None:
-        raise ValueError(f"Task '{task_name}' is not registered in benchmark_env_step.py")
-    return task_config
+def _load_task_model(task_name: str) -> Any:
+    model_file = locomotion_task_model_file(task_name)
+    model = mtx.load_model(model_file)  # type: ignore[union-attr]
+    model.options.max_iterations = DEFAULT_MOTRIX_MAX_ITERATIONS
+    return model
 
 
-def _build_motrix_env(task_name: str, num_envs: int) -> tuple[Any, Any]:
-    task_config = _motrix_task_config(task_name)
-    cfg = task_config.build_cfg("motrix")
-    task_config.finalize_cfg(cfg, "motrix")
-    cfg.validate()
-
-    env_cls = task_config.env_cls_factory()
-    env = env_cls(cfg, num_envs=num_envs, backend_type="motrix")
-    env.init_state()
-    return env, cfg
+def _apply_keyframe0(model: Any, data: Any) -> None:
+    if model.num_keyframes > 0:
+        model.keyframes[0].apply(data)
+        model.forward_kinematic(data)
 
 
-def _sample_actions(num_envs: int, num_actions: int, rng: np.random.Generator) -> np.ndarray:
-    return rng.uniform(-1, 1, size=(num_envs, num_actions)).astype(np.float32)
+def _keyframe0_ctrl(model: Any, batch_size: int) -> np.ndarray:
+    """Return (batch, nu) ctrl tiled from `model.keyframes[0].ctrl`.
+
+    Mirrors mj_step's `model.key_ctrl[0]`: PD targets that hold the robot at the
+    keyframe pose. Same per-env ctrl held across all nstep substeps.
+    """
+    num_actuators = int(model.num_actuators)
+    if num_actuators == 0:
+        return np.empty((batch_size, 0), dtype=np.float32)
+    if model.num_keyframes > 0:
+        ctrl0 = np.asarray(model.keyframes[0].ctrl, dtype=np.float32)
+    else:
+        ctrl0 = np.zeros((num_actuators,), dtype=np.float32)
+    return np.broadcast_to(ctrl0, (batch_size, num_actuators)).copy()
 
 
-def _append_timing(
-    timing_records: dict[str, list[float]],
-    timing: dict[str, Any],
-) -> None:
-    for key, value in timing.items():
-        timing_records.setdefault(key, []).append(float(value))
-
-
-def _median_timing_ms(timing_records: dict[str, list[float]], key: str) -> float:
-    values = timing_records.get(key, [])
-    if not values:
-        return 0.0
-    return float(np.median(np.asarray(values, dtype=np.float64)))
-
-
-def _sum_timing_sec(
-    timing_records: dict[str, list[float]],
-    key: str,
-    fallback_sec: float,
-    niter: int,
-) -> float:
-    values = timing_records.get(key, [])
-    if not values:
-        return fallback_sec / niter
-    return float(np.asarray(values, dtype=np.float64).sum() / 1000.0 / niter)
-
-
-def _run_env_step(
-    env: Any,
-    *,
-    batch_size: int,
+def _run_step(
+    model: Any,
+    data: Any,
+    ctrl: np.ndarray,
     nstep: int,
     niter: int,
-    rng: np.random.Generator,
-    collect_timing: bool,
-) -> tuple[float, float, dict[str, list[float]]]:
-    num_actions = int(env._backend.num_actuators)  # type: ignore[reportAttributeAccessIssue]
-    timing_records: dict[str, list[float]] = {}
-
-    t0 = time.perf_counter()
+) -> float:
+    """Run niter iterations of (apply keyframe -> step_n(nstep)). Returns avg seconds per iter."""
+    t_total = 0.0
     for _ in range(niter):
-        for _ in range(nstep):
-            actions = _sample_actions(batch_size, num_actions, rng)
-            state = env.step(actions)
-            if collect_timing:
-                timing = state.info.get("timing", {})
-                if isinstance(timing, dict):
-                    _append_timing(timing_records, timing)
-    elapsed_sec = time.perf_counter() - t0
-
-    if not collect_timing:
-        avg_elapsed_sec = elapsed_sec / niter
-        return avg_elapsed_sec, avg_elapsed_sec, timing_records
-
-    avg_physics_sec = _sum_timing_sec(
-        timing_records,
-        "backend_physics_ms",
-        fallback_sec=elapsed_sec,
-        niter=niter,
-    )
-    avg_env_step_sec = _sum_timing_sec(
-        timing_records,
-        "env_step_total_ms",
-        fallback_sec=elapsed_sec,
-        niter=niter,
-    )
-    return avg_physics_sec, avg_env_step_sec, timing_records
+        _apply_keyframe0(model, data)
+        data.actuator_ctrls = np.ascontiguousarray(ctrl)
+        t0 = time.perf_counter()
+        model.step_n(data, nstep)
+        t_total += time.perf_counter() - t0
+    return t_total / niter
 
 
 def _bench_one_task(
@@ -199,40 +142,17 @@ def _bench_one_task(
     nstep: int,
     warmup: int,
     iters: int,
-    seed: int,
 ) -> List[BenchRecord]:
-    task_key = _normalize_task_name(task_name)
+    task_key = normalize_locomotion_task_id(task_name)
+    model = _load_task_model(task_key)
 
     records: List[BenchRecord] = []
     for batch_size in batch_sizes:
-        env = None
-        try:
-            env, cfg = _build_motrix_env(task_key, batch_size)
-            sim_substeps = int(cfg.sim_substeps)
-            rng = np.random.default_rng(seed + batch_size)
+        data = mtx.SceneData(model, batch=[batch_size])  # type: ignore[union-attr]
+        ctrl = _keyframe0_ctrl(model, batch_size)
 
-            _run_env_step(
-                env,
-                batch_size=batch_size,
-                nstep=nstep,
-                niter=warmup,
-                rng=rng,
-                collect_timing=False,
-            )
-            avg_physics_t, avg_env_step_t, timing_records = _run_env_step(
-                env,
-                batch_size=batch_size,
-                nstep=nstep,
-                niter=iters,
-                rng=rng,
-                collect_timing=True,
-            )
-        finally:
-            if env is not None:
-                env.close()
-
-        physics_steps_per_iter = batch_size * nstep * sim_substeps
-        env_steps_per_iter = batch_size * nstep
+        _run_step(model, data, ctrl, nstep=nstep, niter=warmup)
+        avg_t = _run_step(model, data, ctrl, nstep=nstep, niter=iters)
 
         records.append(
             BenchRecord(
@@ -241,25 +161,14 @@ def _bench_one_task(
                 batch_size=batch_size,
                 nstep=nstep,
                 nthread=0,
-                avg_time_sec=avg_physics_t,
-                sps=physics_steps_per_iter / avg_physics_t,
-                sim_substeps=sim_substeps,
-                avg_env_step_time_sec=avg_env_step_t,
-                env_step_sps=env_steps_per_iter / avg_env_step_t,
-                median_env_step_ms=_median_timing_ms(timing_records, "env_step_total_ms"),
-                median_backend_physics_ms=_median_timing_ms(timing_records, "backend_physics_ms"),
-                median_backend_set_ctrl_ms=_median_timing_ms(timing_records, "backend_set_ctrl_ms"),
-                median_backend_refresh_cache_ms=_median_timing_ms(
-                    timing_records, "backend_refresh_cache_ms"
-                ),
+                avg_time_sec=avg_t,
+                sps=batch_size * nstep / avg_t,
             )
         )
         print(
             f"[{task_key}] batch={batch_size:5d} "
-            f"motrixsim_physics={avg_physics_t * 1000:.3f}ms "
-            f"({physics_steps_per_iter / avg_physics_t / 1e4:.2f}万 physics-steps/s)  "
-            f"env_step={avg_env_step_t * 1000:.3f}ms "
-            f"({env_steps_per_iter / avg_env_step_t / 1e4:.2f}万 env-steps/s)"
+            f"motrixsim={avg_t * 1000:.3f}ms "
+            f"({batch_size * nstep / avg_t / 1e4:.2f}万fps)"
         )
     return records
 
@@ -337,7 +246,6 @@ def main():
     parser.add_argument("--nstep", type=int, default=20)
     parser.add_argument("--warmup", type=int, default=2)
     parser.add_argument("--iters", type=int, default=3)
-    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--tasks", type=str, default=",".join(DEFAULT_TASK_IDS))
     parser.add_argument(
         "--batch-sizes", type=str, default=",".join(str(x) for x in DEFAULT_BATCH_SIZES)
@@ -357,7 +265,7 @@ def main():
 
     _require_motrixsim()
 
-    task_names = [_normalize_task_name(x) for x in args.tasks.split(",") if x.strip()]
+    task_names = [normalize_locomotion_task_id(x) for x in args.tasks.split(",") if x.strip()]
     batch_sizes = [int(x.strip()) for x in args.batch_sizes.split(",") if x.strip()]
 
     print("MotrixSim backend available")
@@ -373,7 +281,6 @@ def main():
                 nstep=args.nstep,
                 warmup=args.warmup,
                 iters=args.iters,
-                seed=args.seed,
             )
         )
 
@@ -386,14 +293,9 @@ def main():
             "tasks": task_names,
             "batch_sizes": batch_sizes,
             "nstep": args.nstep,
-            "step_unit": "env.step calls",
-            "sps_unit": "physics substeps/s",
-            "env_step_sps_unit": "env.step calls/s",
             "warmup": args.warmup,
             "iters": args.iters,
-            "seed": args.seed,
             "backends": sorted({r.backend for r in records}),
-            "measurement": "unilab_env_step_backend_physics_ms",
         },
         "results": [asdict(r) for r in records],
     }

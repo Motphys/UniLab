@@ -48,6 +48,7 @@ from unilab.training import (
     setup_logger,
     should_run_playback,
 )
+from unilab.training.experiment import get_device_info_dict
 
 
 def _write_distill_run_config(
@@ -72,6 +73,7 @@ def _write_distill_run_config(
             "task": str(OmegaConf.select(cfg, "training.task_name")),
             "sim_backend": str(OmegaConf.select(cfg, "training.sim_backend")),
             "log_dir": str(log_dir),
+            "hardware": get_device_info_dict(),
             "teacher": teacher_metadata,
         },
         "config": OmegaConf.to_container(cfg, resolve=True),

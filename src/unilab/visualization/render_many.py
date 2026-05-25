@@ -114,6 +114,29 @@ def _close_worker():
         _worker_ctx["renderer"].close()
 
 
+def _replicable_terrain_geom_indices(model) -> np.ndarray:
+    """Group-0 worldbody geoms that should be duplicated under each env in the grid.
+
+    Plane and heightfield geoms are skipped — they already span a large area that
+    covers every env in the grid, and duplicating them would just create overlapping
+    copies (and tiling artifacts for hfields).
+    """
+    skip_types = {
+        int(mujoco.mjtGeom.mjGEOM_PLANE),
+        int(mujoco.mjtGeom.mjGEOM_HFIELD),
+    }
+    indices: list[int] = []
+    for gi in range(model.ngeom):
+        if int(model.geom_group[gi]) != 0:
+            continue
+        if int(model.geom_bodyid[gi]) != 0:
+            continue
+        if int(model.geom_type[gi]) in skip_types:
+            continue
+        indices.append(gi)
+    return np.asarray(indices, dtype=np.int64)
+
+
 def init_worker(model_path, shape):
     """Initialize MuJoCo-only rendering context for a worker process."""
     import atexit
@@ -138,6 +161,7 @@ def init_worker(model_path, shape):
 
     _worker_ctx["models"] = models
     _worker_ctx["data_list"] = [mujoco.MjData(model) for model in models]
+    _worker_ctx["terrain_geom_indices"] = [_replicable_terrain_geom_indices(m) for m in models]
     _worker_ctx["renderer"] = mujoco.Renderer(models[0], height=shape[1], width=shape[0])
     atexit.register(_close_worker)
 
@@ -163,6 +187,9 @@ def render_frame_job(args):
     models = _worker_ctx["models"]
     data_list = _worker_ctx["data_list"]
     renderer = _worker_ctx["renderer"]
+    terrain_geom_indices = _worker_ctx.get("terrain_geom_indices") or [
+        _replicable_terrain_geom_indices(m) for m in models
+    ]
 
     # Visual options
     vopt = mujoco.MjvOption()
@@ -295,17 +322,27 @@ def render_frame_job(args):
 
     # 2. Add other robots
     for i in range(1, num_envs):
-        model = models[min(i, len(models) - 1)]
+        model_idx = min(i, len(models) - 1)
+        model = models[model_idx]
         data = data_list[min(i, len(data_list) - 1)]
         set_state(model, data, state_batch[i], offsets[i] if offsets is not None else None)
         mujoco.mjv_addGeoms(model, data, vopt, pert, catmask_dynamic, renderer.scene)
 
-        # Avoid duplicating world floor/static group-0 geoms across envs, while still
-        # adding fixed-base static visuals (e.g., Sharpa base link visual).
-        geomgroup0 = int(vopt.geomgroup[0])
-        vopt.geomgroup[0] = 0
-        mujoco.mjv_addGeoms(model, data, vopt, pert, catmask_static, renderer.scene)
-        vopt.geomgroup[0] = geomgroup0
+        # Replicate non-plane group-0 worldbody geoms (e.g. mesh terrain) under each
+        # env's grid cell. Planes are infinite and don't need duplicating.
+        terrain_idx = terrain_geom_indices[model_idx]
+        if offsets is not None and terrain_idx.size > 0:
+            original_xpos = data.geom_xpos[terrain_idx].copy()
+            data.geom_xpos[terrain_idx, 0] += float(offsets[i, 0])
+            data.geom_xpos[terrain_idx, 1] += float(offsets[i, 1])
+            mujoco.mjv_addGeoms(model, data, vopt, pert, catmask_static, renderer.scene)
+            data.geom_xpos[terrain_idx] = original_xpos
+        else:
+            # No terrain to replicate; skip group-0 statics to avoid redundant floor draws.
+            geomgroup0 = int(vopt.geomgroup[0])
+            vopt.geomgroup[0] = 0
+            mujoco.mjv_addGeoms(model, data, vopt, pert, catmask_static, renderer.scene)
+            vopt.geomgroup[0] = geomgroup0
 
     # 3. Overlay marker spheres (e.g. EE goal positions)
     if marker_positions is not None:
@@ -446,6 +483,9 @@ def render_frame_tracking_job(args):
     models = _worker_ctx["models"]
     data_list = _worker_ctx["data_list"]
     renderer = _worker_ctx["renderer"]
+    terrain_geom_indices = _worker_ctx.get("terrain_geom_indices") or [
+        _replicable_terrain_geom_indices(m) for m in models
+    ]
 
     vopt = mujoco.MjvOption()
     pert = mujoco.MjvPerturb()
@@ -534,17 +574,26 @@ def render_frame_tracking_job(args):
     for local_i, global_i in enumerate(env_indices):
         if local_i == primary_local_idx:
             continue
-        model = models[min(global_i, len(models) - 1)]
+        model_idx = min(global_i, len(models) - 1)
+        model = models[model_idx]
         data = data_list[min(global_i, len(data_list) - 1)]
         set_state(
             model, data, state_batch[global_i], offsets[global_i] if offsets is not None else None
         )
         mujoco.mjv_addGeoms(model, data, vopt, pert, catmask_dynamic, renderer.scene)
 
-        geomgroup0 = int(vopt.geomgroup[0])
-        vopt.geomgroup[0] = 0
-        mujoco.mjv_addGeoms(model, data, vopt, pert, catmask_static, renderer.scene)
-        vopt.geomgroup[0] = geomgroup0
+        terrain_idx = terrain_geom_indices[model_idx]
+        if offsets is not None and terrain_idx.size > 0:
+            original_xpos = data.geom_xpos[terrain_idx].copy()
+            data.geom_xpos[terrain_idx, 0] += float(offsets[global_i, 0])
+            data.geom_xpos[terrain_idx, 1] += float(offsets[global_i, 1])
+            mujoco.mjv_addGeoms(model, data, vopt, pert, catmask_static, renderer.scene)
+            data.geom_xpos[terrain_idx] = original_xpos
+        else:
+            geomgroup0 = int(vopt.geomgroup[0])
+            vopt.geomgroup[0] = 0
+            mujoco.mjv_addGeoms(model, data, vopt, pert, catmask_static, renderer.scene)
+            vopt.geomgroup[0] = geomgroup0
 
     # Overlay marker spheres for rendered envs
     if marker_positions is not None:

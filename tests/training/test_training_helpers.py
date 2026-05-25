@@ -19,6 +19,7 @@ from unilab.training import (
     get_latest_checkpoint,
     get_latest_run,
     parse_checkpoint_path,
+    resolve_checkpoint_path,
     resolve_task_checkpoint_path,
 )
 from unilab.visualization.playback import render_play_mode
@@ -91,6 +92,19 @@ def test_get_latest_run_and_checkpoint_support_shared_checkpoint_resolution(tmp_
 
     assert latest_run == newer_run
     assert latest_checkpoint == newer_run / "model_9.pt"
+
+
+def test_resolve_checkpoint_path_accepts_integer_latest_run(tmp_path: Path):
+    task_dir = tmp_path / "logs" / "sac" / "MyTask"
+    run_dir = task_dir / "2024-02-01_00-00-00_motrix"
+    run_dir.mkdir(parents=True)
+    selected_model = run_dir / "model_9.pt"
+    selected_model.write_bytes(b"")
+
+    checkpoint_path, checkpoint_dir = resolve_checkpoint_path(task_dir, -1)
+
+    assert checkpoint_path == selected_model
+    assert checkpoint_dir == run_dir
 
 
 def test_parse_checkpoint_path_uses_algo_log_name_from_cfg(tmp_path: Path):
@@ -178,6 +192,23 @@ def test_resolve_task_checkpoint_path_returns_run_dir_when_checkpoint_missing(tm
     )
 
     assert checkpoint_path is None
+    assert checkpoint_dir == run_dir
+
+
+def test_resolve_task_checkpoint_path_accepts_integer_latest_run(tmp_path: Path):
+    run_dir = tmp_path / "logs" / "custom_ppo" / "MyTask" / "2024-01-01_00-00-00_mujoco"
+    run_dir.mkdir(parents=True)
+    selected_model = run_dir / "model_12.pt"
+    selected_model.write_bytes(b"")
+
+    checkpoint_path, checkpoint_dir = resolve_task_checkpoint_path(
+        tmp_path,
+        task_name="MyTask",
+        load_run=-1,
+        algo_log_name="custom_ppo",
+    )
+
+    assert checkpoint_path == selected_model
     assert checkpoint_dir == run_dir
 
 

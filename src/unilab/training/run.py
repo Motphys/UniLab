@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from os import PathLike
 from pathlib import Path
 
 from omegaconf import DictConfig, OmegaConf
@@ -89,24 +90,29 @@ def get_latest_checkpoint(run_dir: str | Path, *, suffix: str = ".pt") -> Path |
     return max(model_files, key=_iteration)
 
 
+def _normalize_load_run(load_run: str | int | PathLike[str]) -> str:
+    return str(load_run)
+
+
 def resolve_checkpoint_path(
     base_log_dir: str | Path,
-    load_run: str,
+    load_run: str | int | PathLike[str],
     *,
     suffix: str = ".pt",
 ) -> tuple[Path | None, Path | None]:
     """Resolve a latest or explicit checkpoint path from a task log root."""
     base_dir = Path(base_log_dir)
-    if load_run == "-1":
+    selected_run = _normalize_load_run(load_run)
+    if selected_run == "-1":
         run_dir = get_latest_run(base_dir)
         if run_dir is None:
             return None, None
         checkpoint = get_latest_checkpoint(run_dir, suffix=suffix)
         return (checkpoint, run_dir) if checkpoint is not None else (None, None)
 
-    candidate = Path(load_run)
+    candidate = Path(selected_run)
     if not candidate.exists():
-        candidate = base_dir / load_run
+        candidate = base_dir / selected_run
     if candidate.is_file():
         return candidate, candidate.parent
     if candidate.is_dir():
@@ -119,14 +125,18 @@ def parse_checkpoint_path(
     cfg: DictConfig,
     *,
     root_dir: str | Path,
-    load_run: str | None = None,
+    load_run: str | int | PathLike[str] | None = None,
     task_name: str | None = None,
     checkpoint: str | int | None = None,
     suffix: str = ".pt",
 ) -> tuple[Path | None, Path | None]:
     """Resolve a checkpoint path from Hydra config and repository root."""
     selected_task = task_name or str(OmegaConf.select(cfg, "training.task_name"))
-    selected_run = load_run or str(OmegaConf.select(cfg, "algo.load_run", default="-1"))
+    selected_run = (
+        _normalize_load_run(load_run)
+        if load_run is not None
+        else str(OmegaConf.select(cfg, "algo.load_run", default="-1"))
+    )
     selected_checkpoint = checkpoint
     if selected_checkpoint is None:
         selected_checkpoint = OmegaConf.select(cfg, "algo.checkpoint", default=-1)
@@ -148,7 +158,7 @@ def resolve_task_checkpoint_path(
     root_dir: str | Path,
     *,
     task_name: str,
-    load_run: str,
+    load_run: str | int | PathLike[str],
     algo_log_name: str,
     checkpoint: str | None = None,
     suffix: str = ".pt",
@@ -165,12 +175,13 @@ def resolve_task_checkpoint_path(
     )
 
     run_dir: Path | None
-    if load_run == "-1":
+    selected_run = _normalize_load_run(load_run)
+    if selected_run == "-1":
         run_dir = get_latest_run(task_log_root)
     else:
-        candidate = Path(load_run)
+        candidate = Path(selected_run)
         if not candidate.exists():
-            candidate = task_log_root / load_run
+            candidate = task_log_root / selected_run
         if candidate.is_file():
             return candidate, candidate.parent
         run_dir = candidate if candidate.is_dir() else None

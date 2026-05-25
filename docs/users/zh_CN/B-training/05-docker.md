@@ -19,7 +19,7 @@ uv run eval --algo ppo --task go2_joystick_flat --sim mujoco --load-run -1
 ## 适用范围
 
 - 根目录 `Dockerfile`：Linux NVIDIA / CUDA
-- ROCm：使用 AMD 官方镜像，命令走 `uv run --no-sync ...`
+- ROCm：使用 AMD 官方镜像，进入容器后先运行 `make sync-rocm`，命令走 `uv run ...`
 - macOS Docker：不作为主路径
 - 训练产物仍写回挂载后的仓库 `logs/` 目录
 - 如果你要在容器里直接调脚本入口，命令形式与非容器环境完全一致

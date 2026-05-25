@@ -40,4 +40,5 @@ algo_params:
   learning_rate_warmup_steps: 0
   learning_rate_decay_steps: 500000
   n_step: 1
+  amp_dtype: auto
   use_compile: false
