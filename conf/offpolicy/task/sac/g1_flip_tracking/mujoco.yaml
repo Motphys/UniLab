@@ -30,11 +30,11 @@ algo:
   policy_frequency: 2
   use_symmetry: false
   algo_params:
-    alpha_init: 0.1
-    target_entropy_ratio: 0.5
+    alpha_init: 0.02
+    target_entropy_ratio: 0.2
     max_grad_norm: 10.0
 env:
-  sampling_mode: start
+  sampling_mode: adaptive
   truncate_on_clip_end: false
   sim_dt: 0.005
   control_config:
@@ -68,11 +68,26 @@ env:
       - 0.43857731392336724
       - 0.07450087032950714
       - 0.07450087032950714
-  anchor_pos_z_threshold: 0.5
-  ee_body_pos_z_threshold: 0.5
-  terminate_on_undesired_contacts: true
+  anchor_pos_z_threshold: 0.8
+  ee_body_pos_z_threshold: 0.8
+  terminate_on_undesired_contacts: false
   noise_config:
     level: 0.0
+  pose_randomization:
+    x: [-0.02, 0.02]
+    y: [-0.02, 0.02]
+    z: [-0.005, 0.005]
+    roll: [-0.05, 0.05]
+    pitch: [-0.05, 0.05]
+    yaw: [-0.05, 0.05]
+  velocity_randomization:
+    x: [-0.1, 0.1]
+    y: [-0.1, 0.1]
+    z: [-0.05, 0.05]
+    roll: [-0.1, 0.1]
+    pitch: [-0.1, 0.1]
+    yaw: [-0.1, 0.1]
+  joint_position_range: [-0.02, 0.02]
 reward:
   scales:
     motion_global_root_pos: 0.5
