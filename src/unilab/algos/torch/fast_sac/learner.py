@@ -405,7 +405,9 @@ class FastSACLearner:
         self.max_grad_norm = max_grad_norm
         self.use_autotune = use_autotune
         self.use_amp = bool(use_amp) and self._device_type in ("cuda", "xpu")
-        self.use_compile = bool(use_compile)
+        self.use_compile = (
+            bool(use_compile) and self._device_type == "cuda" and hasattr(torch, "compile")
+        )
         self.amp_dtype = amp_dtype
         self._amp_dtype = self._resolve_amp_dtype(amp_dtype, self._device_type)
         self.world_size = world_size
@@ -502,7 +504,7 @@ class FastSACLearner:
     def _resolve_amp_dtype(amp_dtype: str, device_type: str) -> torch.dtype:
         normalized = amp_dtype.lower()
         if normalized == "auto":
-            return torch.bfloat16 if device_type == "xpu" else torch.float16
+            return torch.bfloat16
         if normalized == "fp16":
             return torch.float16
         if normalized == "bf16":
@@ -519,10 +521,8 @@ class FastSACLearner:
 
     def _compile_training_methods(self) -> None:
         compile_fn = getattr(torch, "compile", None)
-        if compile_fn is None:
-            raise ValueError("FastSAC compile requires torch.compile support")
-        if torch.device(self.device).type != "cuda":
-            raise ValueError("FastSAC compile currently requires a CUDA device")
+        if compile_fn is None or torch.device(self.device).type != "cuda":
+            return
 
         compile_kwargs = {"options": {"triton.cudagraphs": False}}
         self._critic_loss_tensors = compile_fn(  # type: ignore[method-assign]

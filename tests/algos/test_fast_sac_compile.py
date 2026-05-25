@@ -46,7 +46,7 @@ def test_fast_sac_compile_targets_training_hot_paths(monkeypatch) -> None:
 
 
 def test_fast_sac_amp_dtype_resolution_and_scaler_rules() -> None:
-    assert FastSACLearner._resolve_amp_dtype("auto", "cuda") is torch.float16
+    assert FastSACLearner._resolve_amp_dtype("auto", "cuda") is torch.bfloat16
     assert FastSACLearner._resolve_amp_dtype("auto", "xpu") is torch.bfloat16
     assert FastSACLearner._resolve_amp_dtype("fp16", "cuda") is torch.float16
     assert FastSACLearner._resolve_amp_dtype("bf16", "cuda") is torch.bfloat16

@@ -17,7 +17,7 @@ training:
   wandb_mode: null
   sim_backend: mujoco
   num_gpus: 1
-  use_amp: false
+  use_amp: true
   play_only: false
   no_play: false
   play_render_mode: auto
