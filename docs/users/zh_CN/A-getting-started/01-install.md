@@ -12,6 +12,25 @@ git clone https://github.com/unilabsim/UniLab.git
 cd UniLab
 ```
 
+## conda / pip 用户说明
+
+当前推荐路径仍然是源码仓库内的 `uv` 工作流：用 `uv sync` 同步依赖，用 `uv run train` / `uv run eval` / `uv run demo` 运行命令。conda 可以作为外层 Python、CUDA 或系统库隔离环境，但进入环境后仍建议继续使用本仓库的 `uv` 命令。
+
+```bash
+conda create -n unilab python=3.13
+conda activate unilab
+pip install uv
+git clone https://github.com/unilabsim/UniLab.git
+cd UniLab
+uv sync --extra motrix
+```
+
+如果不需要 Motrix，可按平台表选择不带 extra 的默认同步，或使用 ROCm / XPU 的专用 `make` 路径。中国大陆镜像用户可同时配置 conda、pip 和 uv 镜像，但最终仍以 `uv sync` 生成的仓库环境为准。
+
+`pip install -e .` 和 `pip install .` 当前只适合源码 checkout 内的开发验证，不代表已经支持在任意目录通过 wheel / sdist 直接运行训练。训练入口仍依赖仓库中的 `conf/` 和 `scripts/`；pip-only 安装、构建包后仓库外运行，以及正式发布 wheel 的验证路径由 #360 跟踪。
+
+可选后端依赖由对应同步路径安装：Motrix 使用 `uv sync --extra motrix`，MuJoCo 仍需要本机 runtime 可用，ROCm / XPU 依赖按下方平台命令处理。后端选择仍通过 `--sim` 路由到 task owner 配置，不要单独 override `training.sim_backend` 来切换后端。
+
 ## 2. 安装系统依赖
 
 ```bash

@@ -44,6 +44,7 @@ uv run demo
 ## 去哪里找细节
 
 - 安装命令、国内镜像、ROCm / XPU 注意事项：见 [安装与环境](A-getting-started/01-install.md)
+- conda / pip 用户的当前支持边界：见 [安装与环境](A-getting-started/01-install.md#conda--pip-用户说明)
 - `train` / `eval` / `demo` 细节：见 [训练指南](03-training.md)
 - backend 差异：见 [仿真后端](02-simulation-backends.md)
 - 精确支持状态：见 [后端支持矩阵](E-reference/01-backend-support-matrix.md)
