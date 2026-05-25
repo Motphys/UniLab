@@ -32,6 +32,7 @@ algo:
     entropy_coef: 1.0e-2
 
 env:
+  sim_dt: 0.002
   control_config:
     action_scale: 0.25
     hip_action_scale: 0.125

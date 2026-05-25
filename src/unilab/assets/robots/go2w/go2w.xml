@@ -1,11 +1,11 @@
 <mujoco model="go2">
   <compiler angle="radian" meshdir="../go2/assets" autolimits="true" />
 
-  <option cone="elliptic" impratio="100" />
+  <option cone="elliptic" impratio="100" ccd_iterations="500" />
 
   <default>
     <default class="go2">
-      <geom friction="0.4" margin="0.001" condim="1" />
+      <geom friction="0.4" margin="0.001" condim="1" solref="0.01 1" />
       <joint axis="0 1 0" damping="0.1" armature="0.01" frictionloss="0.2" />
       <motor ctrlrange="-23.7 23.7" />
       <default class="abduction">
@@ -27,10 +27,11 @@
         <geom type="mesh" contype="0" conaffinity="0" group="2" />
       </default>
       <default class="collision">
-        <geom group="3" contype="1" conaffinity="2" />
+        <geom group="3" contype="1" conaffinity="2"
+          friction="0 0 0" margin="0.001" condim="1" solref="0.01 1" />
         <default class="foot">
-          <geom size="0.022" priority="1" condim="6"
-            friction="0.8 0.02 0.01" />
+          <geom size="0.022" priority="1" margin="0.005" condim="6"
+            solref="0.01 1" friction="0.8 0.02 0.01" />
         </default>
       </default>
     </default>
@@ -110,7 +111,8 @@
               <joint name="FL_wheel_joint" pos="0 0 0" axis="0 1 0" />
               <geom type="mesh" quat="0.0 1.0 0.0 0.0" rgba="0.15 0.15 0.15 1" mesh="wheel" class="visual"/>
 
-              <geom type="mesh" quat="0.0 1.0 0.0 0.0" mesh="wheel_convex" class="foot" />
+              <geom name="FL_wheel_collision" type="mesh" quat="0.0 1.0 0.0 0.0"
+                mesh="wheel_convex" class="foot" />
 
               <!-- <geom type="cylinder" size="0.08 0.02" pos="0 0.050764 0"
                 quat="0.707107 0.707107 0 0" class="foot" /> -->
@@ -155,7 +157,7 @@
               <joint name="FR_wheel_joint" pos="0 0 0" axis="0 1 0" />
               <geom type="mesh" rgba="0.15 0.15 0.15 1" mesh="wheel" class="visual"/>
 
-              <geom type="mesh" mesh="wheel_convex" class="foot"/>
+              <geom name="FR_wheel_collision" type="mesh" mesh="wheel_convex" class="foot"/>
 
               <!-- <geom type="cylinder" size="0.08 0.02" pos="0 -0.050764 0"
                 quat="0.707107 0.707107 0 0" class="foot" /> -->
@@ -200,7 +202,8 @@
               <joint name="RL_wheel_joint" pos="0 0 0" axis="0 1 0" />
               <geom type="mesh" quat="0.0 1.0 0.0 0.0" rgba="0.15 0.15 0.15 1" mesh="wheel" class="visual"/>
 
-              <geom type="mesh" quat="0.0 1.0 0.0 0.0" mesh="wheel_convex" class="foot"/>
+              <geom name="RL_wheel_collision" type="mesh" quat="0.0 1.0 0.0 0.0"
+                mesh="wheel_convex" class="foot"/>
 
               <!-- <geom type="cylinder" size="0.08 0.02" pos="0 0.050764 0"
                 quat="0.707107 0.707107 0 0" class="foot" /> -->
@@ -247,7 +250,7 @@
               <joint name="RR_wheel_joint" pos="0 0 0" axis="0 1 0" />
               <geom type="mesh" rgba="0.15 0.15 0.15 1" mesh="wheel" class="visual"/>
 
-              <geom type="mesh" mesh="wheel_convex" class="foot"/>
+              <geom name="RR_wheel_collision" type="mesh" mesh="wheel_convex" class="foot"/>
 
               <!-- <geom type="cylinder" size="0.08 0.02" pos="0 -0.050764 0"
                 quat="0.707107 0.707107 0 0" class="foot" /> -->

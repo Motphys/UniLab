@@ -4,7 +4,7 @@ training:
   sim_backend: mujoco
 algo:
   num_envs: 2048
-  num_steps_per_env: 48
+  num_steps_per_env: 24
   max_iterations: 5000
   empirical_normalization: false
   obs_groups:
@@ -13,6 +13,7 @@ algo:
     critic:
       - critic
 env:
+  sim_dt: 0.002
   scene:
     model_file: src/unilab/assets/robots/go2w/go2w.xml
     terrain:
@@ -48,13 +49,13 @@ env:
     added_mass_range: [-1.0, 3.0]
     random_com: true
     com_offset_x: [-0.05, 0.05]
-    randomize_kp: false
+    randomize_kp: true
     kp_multiplier_range: [0.5, 1.0]
-    randomize_kd: false
+    randomize_kd: true
     kd_multiplier_range: [0.5, 1.0]
     push_robots: true
-    push_interval: 500
-    max_force: [0.5, 0.5, 0.0]
+    push_interval: 625
+    max_force: [1.0, 1.0, 0.5]
     push_body_name: base_link
 reward:
   scales:
@@ -62,6 +63,7 @@ reward:
     tracking_ang_vel: 1.5
     lin_vel_z: -2.0
     ang_vel_xy: -0.05
+    orientation: -2.0
     joint_torques_l2: -2.5e-5
     joint_acc_l2: -2.5e-7
     joint_acc_wheel_l2: -2.5e-9

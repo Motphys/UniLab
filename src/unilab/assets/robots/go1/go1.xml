@@ -1,11 +1,11 @@
 <mujoco model="go1">
   <compiler angle="radian" meshdir="assets" autolimits="true"/>
 
-  <option cone="elliptic" impratio="100" timestep="0.01"/>
+  <option cone="elliptic" impratio="100" ccd_iterations="500" timestep="0.01"/>
 
   <default>
     <default class="go1">
-      <geom friction="0.6" margin="0.001" condim="1"/>
+      <geom friction="0.6" margin="0.001" condim="1" solref="0.01 1"/>
       <joint axis="0 1 0" damping="2" armature="0.01" frictionloss="0.2"/>
       <position kp="100" forcerange="-23.7 23.7"/>
       <default class="abduction">
@@ -24,7 +24,8 @@
         <geom type="mesh" contype="0" conaffinity="0" group="2" material="dark"/>
       </default>
       <default class="collision">
-        <geom group="3" type="capsule" contype="1" conaffinity="2"/>
+        <geom group="3" type="capsule" contype="1" conaffinity="2"
+          friction="0 0 0" margin="0.001" condim="1" solref="0.01 1"/>
         <default class="hip_left1">
           <geom size="0.046 0.02" pos="0 0.045 0" quat="1 1 0 0" type="cylinder"/>
         </default>
@@ -59,7 +60,8 @@
           <geom size="0.01" fromto="0.02 0 -0.13 0 0 -0.2"/>
         </default>
         <default class="foot">
-          <geom type="sphere" size="0.023" pos="0 0 -0.213" priority="1" solimp="0.015 1 0.023" condim="6"
+          <geom type="sphere" size="0.023" pos="0 0 -0.213" priority="1"
+            solref="0.01 1" solimp="0.015 1 0.023" margin="0.005" condim="6"
             friction="0.8 0.02 0.01"/>
         </default>
       </default>

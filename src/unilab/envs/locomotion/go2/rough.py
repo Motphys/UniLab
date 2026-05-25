@@ -626,9 +626,11 @@ class Go2JoystickRoughEnv(Go2WalkTask):
 
     def _reward_contact_forces(self, ctx: RewardContext) -> np.ndarray:
         force_norm = np.linalg.norm(self.feet_force, axis=2)
-        violation = np.clip(force_norm - self._reward_cfg.contact_forces_threshold, 0.0, None)
+        force_clip = np.minimum(force_norm, 1500.0)
+        violation = np.clip(force_clip - self._reward_cfg.contact_forces_threshold, 0.0, None)
         return np.asarray(
-            np.sum(violation, axis=1) * self._upright_scale(ctx.gravity), dtype=get_global_dtype()
+            np.sum(violation, axis=1) * self._upright_scale(ctx.gravity),
+            dtype=get_global_dtype(),
         )
 
     def _reward_feet_air_time(self, ctx: RewardContext) -> np.ndarray:
