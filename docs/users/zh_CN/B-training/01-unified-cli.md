@@ -19,6 +19,26 @@ uv run train --algo mlx_ppo --task go2_joystick_flat --sim mujoco
 
 支持的后端：`mujoco`、`motrix`
 
+## Tab 自动补全
+
+补全脚本是可选项，只补全 `uv run train` 和 `uv run eval` 的入口、flags 和部分 choices，不改变命令行为。Linux / WSL Bash 用户可把下面内容写入 `~/.bashrc`：
+
+```bash
+if [ -f "/path_to_unilab/UniLab/scripts/completions/unilab.bash" ]; then
+    source "/path_to_unilab/UniLab/scripts/completions/unilab.bash"
+fi
+```
+
+macOS 默认 Zsh 用户可把下面内容写入 `~/.zshrc`：
+
+```zsh
+autoload -Uz compinit
+compinit
+source "/path_to_unilab/UniLab/scripts/completions/unilab.zsh"
+```
+
+重新打开终端或 source 对应 rc 文件后，可用 `uv run <TAB>`、`uv run train --algo <TAB>`、`uv run train --sim <TAB>` 查看候选项。把 `/path_to_unilab/UniLab` 替换成你的 UniLab checkout 路径。
+
 ## eval
 
 ```bash
