@@ -17,7 +17,7 @@
 
 | 平台 | 安装命令 | 运行说明 |
 |------|----------|----------|
-| Linux CUDA / macOS | `uv sync --extra motrix` | 常规使用 `uv run ...` |
+| Linux CUDA / macOS | `make setup-motrix` | 常规使用 `uv run ...`；底层同步命令是 `uv sync --extra motrix` |
 | Linux AMD / ROCm | `make sync-rocm` | 后续命令使用 `uv run ...` |
 | Linux Intel Arc / iGPU | `make sync-xpu` | 后续命令使用 `uv run --no-sync ...` |
 

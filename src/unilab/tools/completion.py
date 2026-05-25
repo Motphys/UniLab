@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import os
+import platform
 import re
 import sys
 from dataclasses import dataclass
@@ -16,6 +18,9 @@ TRAINING_ENTRYPOINTS = {
     "eval": "unilab.cli:eval_main",
 }
 SCRIPT_ASSIGNMENT_PATTERN = re.compile(r'^([A-Za-z0-9_.-]+)\s*=\s*"([^"]+)"\s*(?:#.*)?$')
+COMPLETION_BLOCK_START = "# >>> unilab completion >>>"
+COMPLETION_BLOCK_END = "# <<< unilab completion <<<"
+SUPPORTED_SHELLS = ("bash", "zsh")
 
 
 @dataclass(frozen=True)
@@ -149,8 +154,134 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return args
 
 
+def _detect_shell(selected: str) -> str:
+    if selected != "auto":
+        return selected
+
+    shell_name = Path(os.environ.get("SHELL", "")).name
+    if shell_name in SUPPORTED_SHELLS:
+        return shell_name
+    system_name = platform.system()
+    if system_name == "Darwin":
+        return "zsh"
+    if system_name == "Linux":
+        return "bash"
+    raise SystemExit("Cannot detect shell for completion install; use --shell bash or --shell zsh.")
+
+
+def _default_rc_file(shell: str) -> Path:
+    if shell == "bash":
+        return Path.home() / ".bashrc"
+    if shell == "zsh":
+        return Path.home() / ".zshrc"
+    raise SystemExit(f"Unsupported shell={shell!r}; choose one of: {', '.join(SUPPORTED_SHELLS)}")
+
+
+def _completion_script_path(shell: str) -> Path:
+    root = _find_project_root(Path.cwd()) or cli.repo_root()
+    return root / "scripts" / "completions" / f"unilab.{shell}"
+
+
+def _quote_shell_path(path: Path) -> str:
+    return str(path).replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _completion_block(script_path: Path) -> str:
+    quoted = _quote_shell_path(script_path)
+    return (
+        f"{COMPLETION_BLOCK_START}\n"
+        f'if [ -f "{quoted}" ]; then\n'
+        f'    source "{quoted}"\n'
+        "fi\n"
+        f"{COMPLETION_BLOCK_END}\n"
+    )
+
+
+def _without_completion_block(content: str, *, force: bool = False) -> str:
+    start = content.find(COMPLETION_BLOCK_START)
+    end = content.find(COMPLETION_BLOCK_END)
+    if start == -1 and end == -1:
+        return content
+    if start == -1 or end == -1 or end < start:
+        if force:
+            return content
+        raise SystemExit(
+            "Existing UniLab completion block is malformed; rerun with --force or edit it manually."
+        )
+
+    end_line = content.find("\n", end)
+    if end_line == -1:
+        end_line = len(content)
+    else:
+        end_line += 1
+    return (content[:start].rstrip() + "\n" + content[end_line:].lstrip("\n")).lstrip("\n")
+
+
+def _write_completion_block(
+    *,
+    rc_file: Path,
+    script_path: Path,
+    dry_run: bool,
+    force: bool,
+) -> None:
+    content = rc_file.read_text(encoding="utf-8") if rc_file.exists() else ""
+    cleaned = _without_completion_block(content, force=force).rstrip()
+    block = _completion_block(script_path).rstrip()
+    updated = f"{cleaned}\n\n{block}\n" if cleaned else f"{block}\n"
+    if dry_run:
+        print(updated, end="")
+        return
+    rc_file.parent.mkdir(parents=True, exist_ok=True)
+    rc_file.write_text(updated, encoding="utf-8")
+    print(f"Installed UniLab completion in {rc_file}")
+    print(f"Open a new shell or run: source {rc_file}")
+
+
+def _remove_completion_block(*, rc_file: Path, dry_run: bool, force: bool) -> None:
+    if not rc_file.exists():
+        print(f"No rc file found: {rc_file}")
+        return
+    content = rc_file.read_text(encoding="utf-8")
+    updated = _without_completion_block(content, force=force)
+    if dry_run:
+        print(updated, end="")
+        return
+    rc_file.write_text(updated, encoding="utf-8")
+    print(f"Removed UniLab completion from {rc_file}")
+
+
+def _install_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="unilab-complete install")
+    parser.add_argument("--shell", choices=("auto", *SUPPORTED_SHELLS), default="auto")
+    parser.add_argument("--rc-file", type=Path, default=None)
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--uninstall", action="store_true")
+    return parser
+
+
+def install_main(argv: Sequence[str] | None = None) -> int:
+    args = _install_parser().parse_args(argv)
+    shell = _detect_shell(args.shell)
+    rc_file = args.rc_file or _default_rc_file(shell)
+    if args.uninstall:
+        _remove_completion_block(rc_file=rc_file, dry_run=args.dry_run, force=args.force)
+        return 0
+    _write_completion_block(
+        rc_file=rc_file,
+        script_path=_completion_script_path(shell),
+        dry_run=args.dry_run,
+        force=args.force,
+    )
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    args = _parse_args(argv)
+    selected_argv = list(sys.argv[1:] if argv is None else argv)
+    if selected_argv and selected_argv[0] == "install":
+        return install_main(selected_argv[1:])
+
+    args = _parse_args(selected_argv)
     for candidate in complete_words(args.words, args.cword):
         print(candidate)
     return 0

@@ -21,7 +21,18 @@ uv run train --algo mlx_ppo --task go2_joystick_flat --sim mujoco
 
 ## Tab 自动补全
 
-补全脚本是可选项，只补全 `uv run train` 和 `uv run eval` 的入口、flags 和部分 choices，不改变命令行为。Linux / WSL Bash 用户可把下面内容写入 `~/.bashrc`：
+补全脚本是可选项，只补全 `uv run train` 和 `uv run eval` 的入口、flags 和部分 choices，不改变命令行为。新环境可用一条 setup 命令完成同步和补全安装：
+
+```bash
+make setup
+
+# 需要 Motrix 时：
+make setup-motrix
+```
+
+`make setup` 会执行 `uv sync` 和 `uv run --no-sync unilab-complete install`；`make setup-motrix` 会执行 `uv sync --extra motrix` 和同样的补全安装。安装命令会按 `$SHELL` / 平台选择 Bash 或 Zsh，只写入用户级 rc 文件。当前终端不会被子进程自动激活，重新打开终端或 source 对应 rc 文件后生效。
+
+Linux / WSL Bash 用户也可手动把下面内容写入 `~/.bashrc`：
 
 ```bash
 if [ -f "/path_to_unilab/UniLab/scripts/completions/unilab.bash" ]; then

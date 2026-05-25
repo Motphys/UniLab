@@ -2,6 +2,20 @@
 sync:
 	uv sync
 
+.PHONY: setup
+setup:
+	uv sync
+	uv run --no-sync unilab-complete install
+
+.PHONY: setup-motrix
+setup-motrix:
+	uv sync --extra motrix
+	uv run --no-sync unilab-complete install
+
+.PHONY: install-completion
+install-completion:
+	uv run --no-sync unilab-complete install
+
 .PHONY: sync-rocm
 sync-rocm:
 	@cp pyproject.rocm.toml pyproject.toml

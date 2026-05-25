@@ -39,7 +39,8 @@ cd UniLab
 # Choose exactly one command for your platform; do not run all three.
 
 # Linux CUDA or macOS
-uv sync --extra motrix
+make setup-motrix
+# Without shell completion setup: uv sync --extra motrix
 
 # Linux AMD / ROCm
 # make sync-rocm
