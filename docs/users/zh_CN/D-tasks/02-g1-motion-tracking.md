@@ -2,15 +2,20 @@
 
 语言: 简体中文
 
+> **Motion 资产已迁移到 Hugging Face**：`.npz` 文件不再随仓库分发，首次使用时由 `MotionLoader` 自动从
+> [unilabsim/unilab-motions](https://huggingface.co/datasets/unilabsim/unilab-motions)
+> 下载。`uv sync` 已自动安装所需依赖。详见
+> [迁移指南](../../../developers/zh_CN/motion-asset-migration.md)。
+
 ## 任务范围
 
 | 场景 | task | 常用算法 | 默认 motion |
 |------|------|----------|-------------|
-| 通用全身 tracking | `g1_motion_tracking` | PPO、MLX PPO、APPO | `src/unilab/assets/motions/g1/dance1_subject2_part.npz` |
-| flat flip clip | `g1_flip_tracking` | PPO、MLX PPO、APPO | `src/unilab/assets/motions/g1/flip_360_001__A304.npz` |
-| wall-assisted flip | `g1_wall_flip_tracking` | PPO、MLX PPO、APPO | `src/unilab/assets/motions/g1/flip_from_wall_104__A304.npz` |
+| 通用全身 tracking | `g1_motion_tracking` | PPO、MLX PPO、APPO | `dance1_subject2_part.npz` |
+| flat flip clip | `g1_flip_tracking` | PPO、MLX PPO、APPO | `flip_360_001__A304.npz` |
+| wall-assisted flip | `g1_wall_flip_tracking` | PPO、MLX PPO、APPO | `flip_from_wall_104__A304.npz` |
 | holosoma-aligned WBT | `g1_sac_wbt` | SAC | 与 `g1_motion_tracking` 共用 |
-| crawl-slope WBT (SAC) | `g1_sac_wbt` + 自定义场景 | SAC | `src/unilab/assets/motions/g1/motion_crawl_slope_uni.npz` |
+| crawl-slope WBT (SAC) | `g1_sac_wbt` + 自定义场景 | SAC | `motion_crawl_slope_uni.npz` |
 | sim2real-aligned WBT (deploy chain) | `g1_wbt_obs` | SAC | 与 `g1_motion_tracking` 共用 |
 
 ## 配置入口
@@ -91,14 +96,7 @@ CUDA_VISIBLE_DEVICES=1 uv run scripts/train_offpolicy.py \
   '+env.joint_position_range=[0,0]'
 ```
 
-关键覆写：
-
-- `env.motion_file`：`motion_crawl_slope_uni.npz`，匹配该场景的爬坡动作。
-- `env.scene.model_file`：`scene_crawl_slope.xml`，把 `geom_floor` 替换为 `crawl_slope_{slope, plateau, ground}` 三段凸壳 mesh。
-- `env.sampling_mode=start` + `env.truncate_on_clip_end=true` + `env.max_episode_seconds=20.0`：所有 env 从 clip 起点出发，到 clip 末尾或 20s 后截断，避免 adaptive 采样在没法对齐的地形上乱跳。
-- `pose_randomization` / `velocity_randomization` 全置零 + `joint_position_range=[0,0]`：reset 时不再加噪，复用 motion 的精确初始状态，便于在固定起点上确定性地学坡道接触。
-
-多环境网格渲染时，新场景的 mesh 地形会被自动复制到每个 env 的 grid cell 下（见 `src/unilab/visualization/render_many.py`），plane 和 hfield 仍只画一份。
+关键覆写：`env.motion_file` 切爬坡动作；`env.scene.model_file` 切三段凸壳 mesh 场景；`sampling_mode=start` + `truncate_on_clip_end=true` 从 clip 起点出发并截断；randomization 全置零复用 motion 精确初始状态。
 
 ## 交互式调试
 
