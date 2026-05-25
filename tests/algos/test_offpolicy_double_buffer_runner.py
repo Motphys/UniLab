@@ -181,7 +181,7 @@ def test_sac_portable_devices_allow_cpu_pinned_double_buffer(
     assert isinstance(runner, _FakeRunner)
     assert runner.kwargs["device"] == device
     assert runner.kwargs["replay_prefetch_mode"] == "one_tick"
-    assert runner.kwargs["learner"].kwargs["use_compile"] is False
+    assert runner.kwargs["learner"].kwargs["use_compile"] is True
 
 
 def test_sac_compile_override_is_passed_to_learner(monkeypatch: pytest.MonkeyPatch):

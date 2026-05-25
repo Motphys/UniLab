@@ -28,4 +28,4 @@ algo_params:
   target_entropy_ratio: 0.0
   max_grad_norm: 0.0
   amp_dtype: auto
-  use_compile: false
+  use_compile: true

@@ -57,7 +57,7 @@ def test_sac_config_defaults():
     assert cfg.use_symmetry is False
     assert isinstance(cfg.algo_params, SACAlgoParams)
     assert cfg.algo_params.alpha_init == 0.01
-    assert cfg.algo_params.use_compile is False
+    assert cfg.algo_params.use_compile is True
 
 
 def test_td3_config_defaults():
@@ -83,7 +83,7 @@ def test_flashsac_config_defaults():
     assert isinstance(cfg.algo_params, FlashSACAlgoParams)
     assert cfg.algo_params.normalize_reward is True
     assert cfg.algo_params.amp_dtype == "auto"
-    assert cfg.algo_params.use_compile is False
+    assert cfg.algo_params.use_compile is True
 
 
 def test_ppo_config_defaults():
@@ -144,7 +144,7 @@ def test_offpolicy_sac_g1_task_overrides():
     assert cfg.algo.max_iterations == 5000
     assert cfg.algo.use_symmetry is True
     assert cfg.algo.algo_params.target_entropy_ratio == pytest.approx(0.0)
-    assert cfg.algo.algo_params.use_compile is False
+    assert cfg.algo.algo_params.use_compile is True
     assert cfg.training.task_name == "G1WalkFlat"
 
     assert cfg.env.control_config.action_scale == pytest.approx(1.0)

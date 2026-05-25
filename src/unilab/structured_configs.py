@@ -26,7 +26,7 @@ class SACAlgoParams:
     target_entropy_ratio: float = 0.0
     max_grad_norm: float = 0.0
     amp_dtype: str = "auto"
-    use_compile: bool = False
+    use_compile: bool = True
 
 
 @dataclass
@@ -122,7 +122,7 @@ class FlashSACAlgoParams:
     learning_rate_decay_steps: int = 500000
     n_step: int = 1
     amp_dtype: str = "auto"
-    use_compile: bool = False
+    use_compile: bool = True
 
 
 @dataclass
