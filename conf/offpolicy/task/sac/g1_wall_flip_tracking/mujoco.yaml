@@ -13,7 +13,17 @@
 # task_name binds to ``G1WallFlipTrackingSAC`` (see
 # ``src/unilab/envs/motion_tracking/g1/flip_tracking_sac.py``). The wall scene
 # (``scene_flat_with_wall.xml``) and motion clip come from the cfg default.
-# ``sampling_mode`` is left at the cfg default (``adaptive``).
+#
+# Key changes from initial migration (compared to PPO wall-flip):
+#   1. sampling_mode: start — matches PPO; adaptive puts the agent in
+#      unrecoverable mid-flip states early in training and poisons the buffer.
+#   2. alpha_init: 0.005 / target_entropy_ratio: 0.0 — the original 0.1/0.5
+#      produced an entropy bonus ~20x larger than the tracking reward, drowning
+#      the dense motion-tracking signal and saturating the C51 support range.
+#   3. truncate_on_clip_end: true — gives the Q-function clean episode
+#      boundaries instead of reward discontinuities at clip resamples.
+#   4. Relaxed termination (0.5 → 0.8, undesired contacts off) — lets SAC
+#      accumulate longer trajectories in the buffer during early training.
 training:
   task_name: G1WallFlipTrackingSAC
   sim_backend: mujoco
@@ -29,11 +39,12 @@ algo:
   policy_frequency: 2
   use_symmetry: false
   algo_params:
-    alpha_init: 0.1
-    target_entropy_ratio: 0.5
+    alpha_init: 0.005
+    target_entropy_ratio: 0.0
     max_grad_norm: 10.0
 env:
-  truncate_on_clip_end: false
+  sampling_mode: start
+  truncate_on_clip_end: true
   sim_dt: 0.005
   control_config:
     action_scale:
@@ -66,9 +77,9 @@ env:
       - 0.43857731392336724
       - 0.07450087032950714
       - 0.07450087032950714
-  anchor_pos_z_threshold: 0.5
-  ee_body_pos_z_threshold: 0.5
-  terminate_on_undesired_contacts: true
+  anchor_pos_z_threshold: 0.8
+  ee_body_pos_z_threshold: 0.8
+  terminate_on_undesired_contacts: false
   noise_config:
     level: 0.0
 reward:
