@@ -393,17 +393,21 @@ class FastSACLearner:
         use_autotune: bool = True,
         use_symmetry: bool = False,
         use_amp: bool = False,
+        amp_dtype: str = "auto",
+        use_compile: bool = False,
         symmetry_augmentation: SymmetryAugmentation | None = None,
         world_size: int = 1,
     ):
         self.device = device
+        self._device_type = torch.device(device).type
         self.gamma = gamma
         self.tau = tau
         self.max_grad_norm = max_grad_norm
         self.use_autotune = use_autotune
-        self.use_amp = use_amp and device in ("cuda", "xpu")
-        # CUDA uses fp16 + GradScaler; XPU uses bf16 (fp32 range, no scaler needed).
-        self._amp_dtype = torch.bfloat16 if device == "xpu" else torch.float16
+        self.use_amp = bool(use_amp) and self._device_type in ("cuda", "xpu")
+        self.use_compile = bool(use_compile)
+        self.amp_dtype = amp_dtype
+        self._amp_dtype = self._resolve_amp_dtype(amp_dtype, self._device_type)
         self.world_size = world_size
         self.critic_obs_dim = critic_obs_dim
 
@@ -481,7 +485,7 @@ class FastSACLearner:
         # AMP scaler for mixed precision (fp16 only; bf16 has fp32 range and skips scaler)
         self.scaler = (
             torch.amp.GradScaler("cuda")  # pyright: ignore[reportPrivateImportUsage]
-            if self.use_amp and device == "cuda"
+            if self._should_use_grad_scaler(self.use_amp, self._device_type, self._amp_dtype)
             else None
         )
 
@@ -491,10 +495,46 @@ class FastSACLearner:
                 "FastSACLearner use_symmetry=True requires a symmetry_augmentation contract"
             )
         self.use_symmetry = use_symmetry
+        if self.use_compile:
+            self._compile_training_methods()
+
+    @staticmethod
+    def _resolve_amp_dtype(amp_dtype: str, device_type: str) -> torch.dtype:
+        normalized = amp_dtype.lower()
+        if normalized == "auto":
+            return torch.bfloat16 if device_type == "xpu" else torch.float16
+        if normalized == "fp16":
+            return torch.float16
+        if normalized == "bf16":
+            return torch.bfloat16
+        raise ValueError("FastSAC amp_dtype must be one of: auto, fp16, bf16")
+
+    @staticmethod
+    def _should_use_grad_scaler(
+        use_amp: bool,
+        device_type: str,
+        amp_dtype: torch.dtype,
+    ) -> bool:
+        return bool(use_amp) and device_type == "cuda" and amp_dtype == torch.float16
+
+    def _compile_training_methods(self) -> None:
+        compile_fn = getattr(torch, "compile", None)
+        if compile_fn is None:
+            raise ValueError("FastSAC compile requires torch.compile support")
+        if torch.device(self.device).type != "cuda":
+            raise ValueError("FastSAC compile currently requires a CUDA device")
+
+        compile_kwargs = {"options": {"triton.cudagraphs": False}}
+        self._critic_loss_tensors = compile_fn(  # type: ignore[method-assign]
+            self._critic_loss_tensors, **compile_kwargs
+        )
+        self._actor_loss_tensors = compile_fn(  # type: ignore[method-assign]
+            self._actor_loss_tensors, **compile_kwargs
+        )
 
     def _autocast(self):
         return torch.amp.autocast(  # pyright: ignore[reportPrivateImportUsage]
-            self.device, dtype=self._amp_dtype, enabled=self.use_amp
+            self._device_type, dtype=self._amp_dtype, enabled=self.use_amp
         )
 
     def _reduce_gradients(self, model: nn.Module) -> None:
@@ -517,6 +557,63 @@ class FastSACLearner:
                 n = p.grad.numel()
                 p.grad.copy_(flat[offset : offset + n].view_as(p.grad))
                 offset += n
+
+    def _critic_loss_tensors(
+        self,
+        critic_obs: torch.Tensor,
+        actions: torch.Tensor,
+        rewards: torch.Tensor,
+        next_obs: torch.Tensor,
+        critic_next_obs: torch.Tensor,
+        dones: torch.Tensor,
+        truncated: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        bootstrap = torch.clamp(1.0 - dones.float() + truncated.float(), 0.0, 1.0)
+        discount = torch.full_like(dones, self.gamma)
+
+        with torch.no_grad():
+            with self._autocast():
+                next_actions, next_log_probs, _ = self.actor.get_actions_and_log_probs(next_obs)
+            adjusted_rewards = (
+                rewards - discount * bootstrap * self.log_alpha.exp() * next_log_probs
+            )
+
+            with self._autocast():
+                target_distributions = self.qnet_target.projection(
+                    critic_next_obs, next_actions, adjusted_rewards, bootstrap, discount
+                )
+                target_values = self.qnet_target.get_value(target_distributions)
+                target_q_max = target_values.max()
+                target_q_min = target_values.min()
+
+        with self._autocast():
+            q_outputs = self.qnet(critic_obs, actions)
+            critic_log_probs = F.log_softmax(q_outputs, dim=-1).clamp(min=-30.0)
+            critic_losses = -torch.sum(target_distributions * critic_log_probs, dim=-1)
+            qf_loss = critic_losses.mean(dim=1).sum(dim=0)
+
+        return qf_loss, target_q_max, target_q_min, next_log_probs.detach()
+
+    def _actor_loss_tensors(
+        self,
+        obs: torch.Tensor,
+        critic_obs: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        with self._autocast():
+            actions, log_probs, log_std = self.actor.get_actions_and_log_probs(obs)
+
+        with torch.no_grad():
+            action_std = log_std.exp().mean()
+            policy_entropy = -log_probs.mean()
+
+        with self._autocast():
+            q_outputs = self.qnet(critic_obs, actions)
+            q_probs = F.softmax(q_outputs, dim=-1)
+            q_values = self.qnet.get_value(q_probs)
+            qf_value = q_values.mean(dim=0)
+            actor_loss = (self.log_alpha.exp().detach() * log_probs - qf_value).mean()
+
+        return actor_loss, policy_entropy, action_std
 
     def update_critic(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One critic update step."""
@@ -555,28 +652,15 @@ class FastSACLearner:
             dones = dones.repeat(2)
             truncated = truncated.repeat(2)
 
-        bootstrap = torch.clamp(1.0 - dones.float() + truncated.float(), 0.0, 1.0)
-        discount = torch.full_like(dones, self.gamma)
-
-        with torch.no_grad():
-            with self._autocast():
-                next_actions, next_log_probs, _ = self.actor.get_actions_and_log_probs(next_obs)
-            adjusted_rewards = (
-                rewards - discount * bootstrap * self.log_alpha.exp() * next_log_probs
-            )
-
-            with self._autocast():
-                target_distributions = self.qnet_target.projection(
-                    critic_next_obs, next_actions, adjusted_rewards, bootstrap, discount
-                )
-                target_values = self.qnet_target.get_value(target_distributions)
-
-        # Critic loss: cross-entropy with projected distributions
-        with self._autocast():
-            q_outputs = self.qnet(critic_obs, actions)
-            critic_log_probs = F.log_softmax(q_outputs, dim=-1).clamp(min=-30.0)
-            critic_losses = -torch.sum(target_distributions * critic_log_probs, dim=-1)
-            qf_loss = critic_losses.mean(dim=1).sum(dim=0)
+        qf_loss, target_q_max, target_q_min, next_log_probs = self._critic_loss_tensors(
+            critic_obs,
+            actions,
+            rewards,
+            next_obs,
+            critic_next_obs,
+            dones,
+            truncated,
+        )
 
         # Skip if NaN
         if torch.isfinite(qf_loss):
@@ -610,11 +694,7 @@ class FastSACLearner:
         alpha_loss = torch.tensor(0.0, device=self.device)
         if self.use_autotune:
             self.alpha_optimizer.zero_grad(set_to_none=True)
-            # using next_log_probs like holosoma
-            # holosoma: alpha_loss = (-self.log_alpha.exp() * (next_state_log_probs.detach() + self.target_entropy)).mean()
-            alpha_loss = (
-                -self.log_alpha.exp() * (next_log_probs.detach() + self.target_entropy)
-            ).mean()
+            alpha_loss = (-self.log_alpha.exp() * (next_log_probs + self.target_entropy)).mean()
             if torch.isfinite(alpha_loss):
                 alpha_loss.backward()
                 if self.world_size > 1 and self.log_alpha.grad is not None:
@@ -625,8 +705,8 @@ class FastSACLearner:
         return {
             "qf_loss": qf_loss.item(),
             "critic_grad_norm": critic_grad_norm.item(),
-            "target_q_max": target_values.max().item(),
-            "target_q_min": target_values.min().item(),
+            "target_q_max": target_q_max.item(),
+            "target_q_min": target_q_min.item(),
             "alpha_loss": alpha_loss.item(),
             "alpha": self.log_alpha.exp().item(),
         }
@@ -645,19 +725,7 @@ class FastSACLearner:
                 dim=0,
             )
 
-        with self._autocast():
-            actions, log_probs, log_std = self.actor.get_actions_and_log_probs(obs)
-
-        with torch.no_grad():
-            action_std = log_std.exp().mean()
-            policy_entropy = -log_probs.mean()
-
-        with self._autocast():
-            q_outputs = self.qnet(critic_obs, actions)
-            q_probs = F.softmax(q_outputs, dim=-1)
-            q_values = self.qnet.get_value(q_probs)
-            qf_value = q_values.mean(dim=0)
-            actor_loss = (self.log_alpha.exp().detach() * log_probs - qf_value).mean()
+        actor_loss, policy_entropy, action_std = self._actor_loss_tensors(obs, critic_obs)
 
         # Skip if NaN
         if torch.isfinite(actor_loss):

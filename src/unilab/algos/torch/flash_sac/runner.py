@@ -51,6 +51,7 @@ class FlashSACRunner(OffPolicyRunner):
         normalize_reward: bool = True,
         normalized_g_max: float = 5.0,
         n_step: int = 1,
+        amp_dtype: str = "auto",
         use_compile: bool = False,
         seed: int | None = None,
         trace_enabled: bool = False,
@@ -107,6 +108,7 @@ class FlashSACRunner(OffPolicyRunner):
             n_step=n_step,
             obs_normalization=obs_normalization,
             use_amp=use_amp,
+            amp_dtype=amp_dtype,
             use_compile=use_compile,
         )
 

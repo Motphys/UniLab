@@ -18,7 +18,6 @@ from unilab.algos.torch.flash_sac.network import (
 )
 from unilab.algos.torch.flash_sac.update import (
     build_lr_lambda,
-    compute_categorical_td_target,
     resolve_target_entropy,
     select_min_q_log_probs,
 )
@@ -167,6 +166,7 @@ class FlashSACLearner:
         n_step: int = 1,
         obs_normalization: bool = False,
         use_amp: bool = False,
+        amp_dtype: str = "auto",
         use_compile: bool = False,
     ):
         self.device = torch.device(device)
@@ -179,8 +179,8 @@ class FlashSACLearner:
         self.action_dim = action_dim
         self.update_count = 0
         self.use_amp = bool(use_amp and self.device.type in ("cuda", "xpu"))
-        # CUDA uses fp16 + GradScaler; XPU uses bf16 (fp32 range, no scaler needed).
-        self._amp_dtype = torch.bfloat16 if self.device.type == "xpu" else torch.float16
+        self.amp_dtype = amp_dtype
+        self._amp_dtype = self._resolve_amp_dtype(amp_dtype, self.device.type)
         self.use_compile = bool(
             use_compile and hasattr(torch, "compile") and self.device.type == "cuda"
         )
@@ -228,7 +228,7 @@ class FlashSACLearner:
         # GradScaler is only needed for fp16 (cuda); bf16 on xpu doesn't need it.
         self.scaler: Any | None = (
             getattr(torch.amp, "GradScaler")("cuda")
-            if self.use_amp and self.device.type == "cuda"
+            if self._should_use_grad_scaler(self.use_amp, self.device.type, self._amp_dtype)
             else None
         )
         lr_peak = learning_rate_peak if learning_rate_peak > 0 else actor_lr
@@ -253,9 +253,42 @@ class FlashSACLearner:
         )
 
         if self.use_compile:
-            self.actor.get_mean_and_std = torch.compile(  # type: ignore[method-assign]
-                self.actor.get_mean_and_std, mode="reduce-overhead"
-            )
+            self._compile_training_methods()
+
+    def _compile_training_methods(self) -> None:
+        compile_fn = getattr(torch, "compile", None)
+        if compile_fn is None or self.device.type != "cuda":
+            return
+
+        compile_kwargs = {"options": {"triton.cudagraphs": False}}
+        self.actor.get_mean_and_std = compile_fn(  # type: ignore[method-assign]
+            self.actor.get_mean_and_std, **compile_kwargs
+        )
+        self._critic_loss_tensors = compile_fn(  # type: ignore[method-assign]
+            self._critic_loss_tensors, **compile_kwargs
+        )
+        self._actor_loss_tensors = compile_fn(  # type: ignore[method-assign]
+            self._actor_loss_tensors, **compile_kwargs
+        )
+
+    @staticmethod
+    def _resolve_amp_dtype(amp_dtype: str, device_type: str) -> torch.dtype:
+        normalized = amp_dtype.lower()
+        if normalized == "auto":
+            return torch.bfloat16 if device_type == "xpu" else torch.float16
+        if normalized == "fp16":
+            return torch.float16
+        if normalized == "bf16":
+            return torch.bfloat16
+        raise ValueError("FlashSAC amp_dtype must be one of: auto, fp16, bf16")
+
+    @staticmethod
+    def _should_use_grad_scaler(
+        use_amp: bool,
+        device_type: str,
+        amp_dtype: torch.dtype,
+    ) -> bool:
+        return bool(use_amp) and device_type == "cuda" and amp_dtype == torch.float16
 
     def _maybe_normalize_obs(self, obs: torch.Tensor, *, update: bool) -> torch.Tensor:
         if isinstance(self.obs_normalizer, nn.Identity):
@@ -280,6 +313,60 @@ class FlashSACLearner:
     def _set_requires_grad(module: nn.Module, requires_grad: bool) -> None:
         for param in module.parameters():
             param.requires_grad_(requires_grad)
+
+    def _critic_loss_tensors(
+        self,
+        next_q_values: torch.Tensor,
+        next_q_log_probs_full: torch.Tensor,
+        support: torch.Tensor,
+        rewards: torch.Tensor,
+        dones: torch.Tensor,
+        truncated: torch.Tensor,
+        actor_entropy: torch.Tensor,
+        pred_log_probs: torch.Tensor,
+        gamma: float,
+    ) -> torch.Tensor:
+        next_q_log_probs = select_min_q_log_probs(next_q_values, next_q_log_probs_full)
+        batch_size, num_bins = next_q_log_probs.shape
+        support_view = support.view(1, -1)
+        rewards = rewards.view(-1, 1)
+        dones = dones.view(-1, 1)
+        truncated = truncated.view(-1, 1)
+        actor_entropy = actor_entropy.view(-1, 1)
+
+        bootstrap = torch.clamp(1.0 - dones + truncated, 0.0, 1.0)
+        support_min = support_view.min()
+        support_max = support_view.max()
+        target_bin_values = rewards + bootstrap * gamma * (support_view - actor_entropy)
+        target_bin_values = torch.clamp(target_bin_values, support_min, support_max)
+
+        bin_width = torch.clamp(support_view[0, 1] - support_view[0, 0], min=1e-8)
+        offsets = (target_bin_values - support_min) / bin_width
+        lower = torch.floor(offsets).long().clamp(0, num_bins - 1)
+        upper = torch.ceil(offsets).long().clamp(0, num_bins - 1)
+        frac = offsets - lower.float()
+
+        probs = next_q_log_probs.exp()
+        target_probs = torch.zeros(batch_size, num_bins, dtype=probs.dtype, device=probs.device)
+        target_probs.scatter_add_(1, lower, probs * (1.0 - frac))
+        target_probs.scatter_add_(1, upper, probs * frac)
+        return cast(torch.Tensor, -(target_probs.unsqueeze(0) * pred_log_probs).sum(dim=-1).mean())
+
+    def _actor_loss_tensors(
+        self,
+        log_probs: torch.Tensor,
+        q_values: torch.Tensor,
+        actions: torch.Tensor,
+        expert_actions: torch.Tensor,
+        temp_value: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        min_q = torch.min(q_values[0], q_values[1])
+        actor_loss = (temp_value.detach() * log_probs - min_q).mean()
+        if self.actor_bc_alpha > 0:
+            bc_loss = torch.mean((actions - expert_actions) ** 2)
+            actor_loss = actor_loss + self.actor_bc_alpha * min_q.abs().mean().detach() * bc_loss
+        entropy = -log_probs.detach().mean()
+        return actor_loss, entropy
 
     def update_critic(self, batch: dict[str, torch.Tensor]) -> dict[str, float]:
         obs = batch["obs"].to(self.device)
@@ -309,22 +396,22 @@ class FlashSACLearner:
                 qs_all, q_info_all = self.target_critic(obs_all, act_all, training=True)
                 next_q_values = qs_all.chunk(2, dim=1)[1]
                 next_q_log_probs_full = q_info_all["log_prob"].chunk(2, dim=1)[1]
-                next_q_log_probs = select_min_q_log_probs(next_q_values, next_q_log_probs_full)
                 support = cast(torch.Tensor, self.target_critic.predictor.support)
-                target_probs = compute_categorical_td_target(
-                    support=support,
-                    target_log_probs=next_q_log_probs,
-                    reward=rewards,
-                    dones=dones,
-                    truncated=truncated,
-                    actor_entropy=actor_entropy,
-                    gamma=gamma,
-                )
 
         with self._autocast():
             _, pred_info_all = self.critic(obs_all, act_all, training=True)
             pred_log_probs = pred_info_all["log_prob"].chunk(2, dim=1)[0]
-            critic_loss = -(target_probs.unsqueeze(0) * pred_log_probs).sum(dim=-1).mean()
+            critic_loss = self._critic_loss_tensors(
+                next_q_values,
+                next_q_log_probs_full,
+                support,
+                rewards,
+                dones,
+                truncated,
+                actor_entropy,
+                pred_log_probs,
+                gamma,
+            )
 
         self.critic_optimizer.zero_grad(set_to_none=True)
         if self.scaler is not None:
@@ -365,14 +452,9 @@ class FlashSACLearner:
             self._set_requires_grad(self.critic, False)
             q_values, _ = self.critic(critic_obs, actions, training=False)
             self._set_requires_grad(self.critic, True)
-            min_q = torch.min(q_values[0], q_values[1])
-
-            actor_loss = (self.temperature().detach() * log_probs - min_q).mean()
-            if self.actor_bc_alpha > 0:
-                bc_loss = torch.mean((actions - expert_actions) ** 2)
-                actor_loss = (
-                    actor_loss + self.actor_bc_alpha * min_q.abs().mean().detach() * bc_loss
-                )
+            actor_loss, entropy = self._actor_loss_tensors(
+                log_probs, q_values, actions, expert_actions, self.temperature()
+            )
 
         self.actor_optimizer.zero_grad(set_to_none=True)
         if self.scaler is not None:
@@ -385,7 +467,6 @@ class FlashSACLearner:
         self.actor_scheduler.step()
         self.actor.normalize_parameters()
 
-        entropy = -log_probs.detach().mean()
         temp_value = self.temperature()
         temp_loss = temp_value * (entropy - self.target_entropy)
         self.temperature_optimizer.zero_grad(set_to_none=True)
