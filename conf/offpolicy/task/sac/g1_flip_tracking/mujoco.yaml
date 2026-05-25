@@ -30,8 +30,8 @@ algo:
   policy_frequency: 2
   use_symmetry: false
   algo_params:
-    alpha_init: 0.02
-    target_entropy_ratio: 0.2
+    alpha_init: 0.005
+    target_entropy_ratio: 0.05
     max_grad_norm: 10.0
 env:
   sampling_mode: uniform
