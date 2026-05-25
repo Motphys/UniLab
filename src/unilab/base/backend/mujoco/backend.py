@@ -1066,11 +1066,46 @@ class MuJoCoBackend(SimBackend):
     def get_body_quat_w(self, body_ids: np.ndarray) -> np.ndarray:
         return self._tracked_quat_w_all[:, self._get_mapped_indices(body_ids), :]  # type: ignore[no-any-return]
 
+    def get_body_pose_w_rows(
+        self, env_ids: np.ndarray, body_ids: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        rows = np.asarray(env_ids, dtype=np.intp)
+        mapped = self._get_mapped_indices(body_ids)
+        return self._tracked_pos_w_all[rows[:, None], mapped], self._tracked_quat_w_all[
+            rows[:, None], mapped
+        ]
+
     def get_body_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
         return self._tracked_linvel_w_all[:, self._get_mapped_indices(body_ids), :]  # type: ignore[no-any-return]
 
     def get_body_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
         return self._tracked_angvel_w_all[:, self._get_mapped_indices(body_ids), :]  # type: ignore[no-any-return]
+
+    def get_body_state_w(
+        self, body_ids: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        mapped = self._get_mapped_indices(body_ids)
+        return (
+            self._tracked_pos_w_all[:, mapped, :],
+            self._tracked_quat_w_all[:, mapped, :],
+            self._tracked_linvel_w_all[:, mapped, :],
+            self._tracked_angvel_w_all[:, mapped, :],
+        )
+
+    def copy_body_state_w(
+        self,
+        body_ids: np.ndarray,
+        out_pos: np.ndarray,
+        out_quat: np.ndarray,
+        out_lin_vel: np.ndarray,
+        out_ang_vel: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        mapped = self._get_mapped_indices(body_ids)
+        np.take(self._tracked_pos_w_all, mapped, axis=1, out=out_pos)
+        np.take(self._tracked_quat_w_all, mapped, axis=1, out=out_quat)
+        np.take(self._tracked_linvel_w_all, mapped, axis=1, out=out_lin_vel)
+        np.take(self._tracked_angvel_w_all, mapped, axis=1, out=out_ang_vel)
+        return out_pos, out_quat, out_lin_vel, out_ang_vel
 
     # ------------------------------------------------------------------ #
     # Body kinematics — baselink frame                                   #
@@ -1094,6 +1129,9 @@ class MuJoCoBackend(SimBackend):
 
     def get_sensor_data(self, name: str) -> np.ndarray:
         return self._sensor_views[name]
+
+    def get_sensor_data_rows(self, name: str, env_ids: np.ndarray) -> np.ndarray:
+        return self._sensor_views[name][np.asarray(env_ids, dtype=np.intp)]
 
     def get_sensor_data_batch(self, names: Sequence[str]) -> np.ndarray:
         sensor_names = tuple(names)

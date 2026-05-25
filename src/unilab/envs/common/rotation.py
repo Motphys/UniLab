@@ -32,6 +32,37 @@ def np_quat_mul(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
     return result[0] if q1_was_1d and q2_was_1d else result
 
 
+def np_quat_conjugate_batched(q: np.ndarray) -> np.ndarray:
+    """Conjugate quaternions with shape (..., 4), w-first."""
+    if q.shape[-1] != 4:
+        raise ValueError(f"Expected quaternion last dimension 4, got {q.shape}")
+    conj = np.array(q, copy=True)
+    conj[..., 1:] *= -1
+    return conj
+
+
+def np_quat_mul_batched(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
+    """Multiply broadcast-compatible quaternion arrays with shape (..., 4)."""
+    if q1.shape[-1] != 4 or q2.shape[-1] != 4:
+        raise ValueError(f"Expected quaternion last dimension 4, got {q1.shape} and {q2.shape}")
+
+    lead_shape = np.broadcast_shapes(q1.shape[:-1], q2.shape[:-1])
+    q1 = np.broadcast_to(q1, (*lead_shape, 4))
+    q2 = np.broadcast_to(q2, (*lead_shape, 4))
+
+    w1, x1, y1, z1 = q1[..., 0], q1[..., 1], q1[..., 2], q1[..., 3]
+    w2, x2, y2, z2 = q2[..., 0], q2[..., 1], q2[..., 2], q2[..., 3]
+    return np.stack(
+        [
+            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
+            w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
+            w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
+            w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
+        ],
+        axis=-1,
+    )
+
+
 def np_quat_conjugate(q: np.ndarray) -> np.ndarray:
     """Conjugate of unit quaternions (N, 4) or (4,), w-first."""
     if q.ndim == 1:
@@ -192,6 +223,36 @@ def np_quat_apply(q: np.ndarray, v: np.ndarray) -> np.ndarray:
     return rotated
 
 
+def np_quat_apply_batched(q: np.ndarray, v: np.ndarray) -> np.ndarray:
+    """Rotate broadcast-compatible vector arrays by quaternions.
+
+    ``q`` has shape (..., 4), ``v`` has shape (..., 3), and leading dimensions
+    are broadcast. This avoids flattening/tile allocations in hot env paths.
+    """
+    if q.shape[-1] != 4 or v.shape[-1] != 3:
+        raise ValueError(f"Expected q (..., 4) and v (..., 3), got {q.shape} and {v.shape}")
+
+    lead_shape = np.broadcast_shapes(q.shape[:-1], v.shape[:-1])
+    q = np.broadcast_to(q, (*lead_shape, 4))
+    v = np.broadcast_to(v, (*lead_shape, 3))
+
+    w, x, y, z = q[..., 0], q[..., 1], q[..., 2], q[..., 3]
+    vx, vy, vz = v[..., 0], v[..., 1], v[..., 2]
+
+    tx = 2 * (y * vz - z * vy)
+    ty = 2 * (z * vx - x * vz)
+    tz = 2 * (x * vy - y * vx)
+
+    return v + np.stack(
+        [
+            w * tx + y * tz - z * ty,
+            w * ty + z * tx - x * tz,
+            w * tz + x * ty - y * tx,
+        ],
+        axis=-1,
+    )
+
+
 def np_quat_apply_inverse(q: np.ndarray, v: np.ndarray) -> np.ndarray:
     """Rotate vector(s) by inverse quaternion(s)."""
     return np_quat_apply(np_quat_inv(q), v)
@@ -222,6 +283,38 @@ def np_quat_error_magnitude(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
     error = 2.0 * np.arctan2(xyz_norm, w)
     magnitude: np.ndarray = error[0] if q1_was_1d and q2_was_1d else error
     return magnitude
+
+
+def np_quat_error_magnitude_batched(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
+    """Angular error magnitude for broadcast-compatible quaternions (..., 4)."""
+    q_rel = np_quat_mul_batched(q2, np_quat_conjugate_batched(q1))
+    sign = np.where(q_rel[..., 0:1] < 0.0, -1.0, 1.0)
+    q_rel = q_rel * sign
+    xyz_norm = np.linalg.norm(q_rel[..., 1:], axis=-1)
+    w = np.clip(q_rel[..., 0], -1.0, 1.0)
+    return 2.0 * np.arctan2(xyz_norm, w)
+
+
+def np_quat_error_magnitude_squared_batched(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
+    """Squared angular error for broadcast-compatible quaternions (..., 4)."""
+    if q1.shape[-1] != 4 or q2.shape[-1] != 4:
+        raise ValueError(f"Expected quaternion last dimension 4, got {q1.shape} and {q2.shape}")
+
+    lead_shape = np.broadcast_shapes(q1.shape[:-1], q2.shape[:-1])
+    q1 = np.broadcast_to(q1, (*lead_shape, 4))
+    q2 = np.broadcast_to(q2, (*lead_shape, 4))
+
+    w1, x1, y1, z1 = q1[..., 0], q1[..., 1], q1[..., 2], q1[..., 3]
+    w2, x2, y2, z2 = q2[..., 0], q2[..., 1], q2[..., 2], q2[..., 3]
+
+    # Relative rotation q2 * conj(q1), without materializing the full quaternion.
+    rel_w = np.abs(w2 * w1 + x2 * x1 + y2 * y1 + z2 * z1)
+    rel_x = -w2 * x1 + x2 * w1 - y2 * z1 + z2 * y1
+    rel_y = -w2 * y1 + x2 * z1 + y2 * w1 - z2 * x1
+    rel_z = -w2 * z1 - x2 * y1 + y2 * x1 + z2 * w1
+    xyz_norm = np.sqrt(rel_x * rel_x + rel_y * rel_y + rel_z * rel_z)
+    angle = 2.0 * np.arctan2(xyz_norm, np.clip(rel_w, -1.0, 1.0))
+    return angle * angle
 
 
 def np_quat_from_euler_xyz(roll: np.ndarray, pitch: np.ndarray, yaw: np.ndarray) -> np.ndarray:
@@ -300,10 +393,95 @@ def np_matrix_from_quat(q: np.ndarray) -> np.ndarray:
     return result[0] if q_was_1d else result
 
 
+def np_matrix_first_two_cols_from_quat(q: np.ndarray) -> np.ndarray:
+    """Return flattened first two rotation-matrix columns for quaternions (..., 4).
+
+    The output order matches ``np_matrix_from_quat(q)[:, :, :2].reshape(..., 6)``.
+    """
+    if q.shape[-1] != 4:
+        raise ValueError(f"Expected quaternion last dimension 4, got {q.shape}")
+
+    w, x, y, z = q[..., 0], q[..., 1], q[..., 2], q[..., 3]
+
+    xx = x * x
+    yy = y * y
+    zz = z * z
+    xy = x * y
+    xz = x * z
+    yz = y * z
+    wx = w * x
+    wy = w * y
+    wz = w * z
+
+    return np.stack(
+        [
+            1 - 2 * (yy + zz),
+            2 * (xy - wz),
+            2 * (xy + wz),
+            1 - 2 * (xx + zz),
+            2 * (xz - wy),
+            2 * (yz + wx),
+        ],
+        axis=-1,
+    )
+
+
 def np_subtract_frame_transforms(
     pos1: np.ndarray, quat1: np.ndarray, pos2: np.ndarray, quat2: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
     """Compute relative transform from frame 1 to frame 2 in frame-1 coordinates."""
     rel_pos = np_quat_apply_inverse(quat1, pos2 - pos1)
     rel_quat = np_quat_mul(np_quat_inv(quat1), quat2)
+    return rel_pos, rel_quat
+
+
+def np_subtract_anchor_frame_transforms(
+    anchor_pos: np.ndarray,
+    anchor_quat: np.ndarray,
+    body_pos: np.ndarray,
+    body_quat: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Compute body transforms relative to per-env anchors.
+
+    ``anchor_pos``/``anchor_quat`` are shaped (N, 3)/(N, 4), while
+    ``body_pos``/``body_quat`` are shaped (N, B, 3)/(N, B, 4).
+    """
+    aw = anchor_quat[:, None, 0]
+    ax = anchor_quat[:, None, 1]
+    ay = anchor_quat[:, None, 2]
+    az = anchor_quat[:, None, 3]
+
+    vx = body_pos[..., 0] - anchor_pos[:, None, 0]
+    vy = body_pos[..., 1] - anchor_pos[:, None, 1]
+    vz = body_pos[..., 2] - anchor_pos[:, None, 2]
+
+    # Rotate by conj(anchor_quat) without materializing the conjugate quaternion.
+    qx = -ax
+    qy = -ay
+    qz = -az
+    tx = 2 * (qy * vz - qz * vy)
+    ty = 2 * (qz * vx - qx * vz)
+    tz = 2 * (qx * vy - qy * vx)
+    rel_pos = np.stack(
+        [
+            vx + aw * tx + qy * tz - qz * ty,
+            vy + aw * ty + qz * tx - qx * tz,
+            vz + aw * tz + qx * ty - qy * tx,
+        ],
+        axis=-1,
+    )
+
+    bw = body_quat[..., 0]
+    bx = body_quat[..., 1]
+    by = body_quat[..., 2]
+    bz = body_quat[..., 3]
+    rel_quat = np.stack(
+        [
+            aw * bw + ax * bx + ay * by + az * bz,
+            aw * bx - ax * bw - ay * bz + az * by,
+            aw * by + ax * bz - ay * bw - az * bx,
+            aw * bz - ax * by + ay * bx - az * bw,
+        ],
+        axis=-1,
+    )
     return rel_pos, rel_quat

@@ -28,14 +28,10 @@ from unilab.dr.dr_utils import (
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.common.math import np_sample_uniform
 from unilab.envs.common.rotation import (
-    np_matrix_from_quat,
     np_quat_apply,
-    np_quat_error_magnitude,
     np_quat_from_euler_xyz,
     np_quat_inv,
     np_quat_mul,
-    np_subtract_frame_transforms,
-    np_yaw_quat,
 )
 from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
 
@@ -265,6 +261,64 @@ def _build_motion_reference_state(
     return qpos, qvel
 
 
+def _gravity_z_in_body_from_quat_w(quat_w: np.ndarray) -> np.ndarray:
+    """Z component of world gravity ``[0, 0, -1]`` expressed in body frame."""
+    return 2.0 * (quat_w[:, 1] * quat_w[:, 1] + quat_w[:, 2] * quat_w[:, 2]) - 1.0
+
+
+def _write_motion_anchor_transform(
+    robot_anchor_pos_w: np.ndarray,
+    robot_anchor_quat_w: np.ndarray,
+    anchor_pos_w: np.ndarray,
+    anchor_quat_w: np.ndarray,
+    out_pos: np.ndarray,
+    out_ori6: np.ndarray,
+) -> None:
+    aw = robot_anchor_quat_w[:, 0]
+    ax = robot_anchor_quat_w[:, 1]
+    ay = robot_anchor_quat_w[:, 2]
+    az = robot_anchor_quat_w[:, 3]
+
+    vx = anchor_pos_w[:, 0] - robot_anchor_pos_w[:, 0]
+    vy = anchor_pos_w[:, 1] - robot_anchor_pos_w[:, 1]
+    vz = anchor_pos_w[:, 2] - robot_anchor_pos_w[:, 2]
+
+    qx = -ax
+    qy = -ay
+    qz = -az
+    tx = 2 * (qy * vz - qz * vy)
+    ty = 2 * (qz * vx - qx * vz)
+    tz = 2 * (qx * vy - qy * vx)
+    out_pos[:, 0] = vx + aw * tx + qy * tz - qz * ty
+    out_pos[:, 1] = vy + aw * ty + qz * tx - qx * tz
+    out_pos[:, 2] = vz + aw * tz + qx * ty - qy * tx
+
+    bw = anchor_quat_w[:, 0]
+    bx = anchor_quat_w[:, 1]
+    by = anchor_quat_w[:, 2]
+    bz = anchor_quat_w[:, 3]
+    rw = aw * bw + ax * bx + ay * by + az * bz
+    rx = aw * bx - ax * bw - ay * bz + az * by
+    ry = aw * by + ax * bz - ay * bw - az * bx
+    rz = aw * bz - ax * by + ay * bx - az * bw
+
+    xx = rx * rx
+    yy = ry * ry
+    zz = rz * rz
+    xy = rx * ry
+    xz = rx * rz
+    yz = ry * rz
+    wx = rw * rx
+    wy = rw * ry
+    wz = rw * rz
+    out_ori6[:, 0] = 1 - 2 * (yy + zz)
+    out_ori6[:, 1] = 2 * (xy - wz)
+    out_ori6[:, 2] = 2 * (xy + wz)
+    out_ori6[:, 3] = 1 - 2 * (xx + zz)
+    out_ori6[:, 4] = 2 * (xz - wy)
+    out_ori6[:, 5] = 2 * (yz + wx)
+
+
 class G1MotionTrackingDomainRandomizationProvider(DomainRandomizationProvider):
     def __init__(
         self, *, base_kp: np.ndarray | None = None, base_kd: np.ndarray | None = None
@@ -364,6 +418,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
         self.ee_body_indices = np.array(
             [cfg.body_names.index(name) for name in cfg.ee_body_names], dtype=np.int32
         )
+        self._has_ee_body_indices = bool(self.ee_body_indices.size)
 
         # Get non-EE body indices for undesired contact penalty
         ee_set = set(cfg.ee_body_names)
@@ -371,6 +426,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
             [i for i, name in enumerate(cfg.body_names) if name not in ee_set],
             dtype=np.int32,
         )
+        self._has_undesired_contact_body_indices = bool(self.undesired_contact_body_indices.size)
 
         # Load motion data
         self.motion_loader = MotionLoader(cfg.motion_file, body_indices=motion_body_ids)
@@ -386,17 +442,67 @@ class G1MotionTrackingEnv(G1BaseEnv):
             dr_provider = G1MotionTrackingDomainRandomizationProvider()
         self._init_domain_randomization(dr_provider)
 
+        dtype = get_global_dtype()
+        n_body = len(cfg.body_names)
+        self._n_motion_bodies = n_body
+        self._actor_obs_width = self._actor_obs_dim(self._num_action)
+        self._critic_base_obs_width = self._critic_base_obs_dim(self._num_action)
+        self._critic_obs_width = self._critic_base_obs_width + n_body * 9
+        self._copy_body_state_w = self._backend.copy_body_state_w
+
         # Buffers for relative body transforms
-        self.body_pos_relative_w = np.zeros(
-            (num_envs, len(cfg.body_names), 3), dtype=get_global_dtype()
-        )
-        self.body_quat_relative_w = np.zeros(
-            (num_envs, len(cfg.body_names), 4), dtype=get_global_dtype()
-        )
+        self.body_pos_relative_w = np.zeros((num_envs, n_body, 3), dtype=dtype)
+        self.body_quat_relative_w = np.zeros((num_envs, n_body, 4), dtype=dtype)
         self.body_quat_relative_w[:, :, 0] = 1.0  # Initialize to identity quaternion
+        self._motion_data_buffer = (
+            self.motion_loader.make_motion_data_buffer(num_envs)
+            if hasattr(self.motion_loader, "make_motion_data_buffer")
+            else None
+        )
+        self._zero_actions = np.zeros((num_envs, self._num_action), dtype=dtype)
+        self._joint_range = self._backend.get_joint_range()
+        if self._joint_range is not None:
+            self._joint_range = np.asarray(self._joint_range, dtype=dtype)
+            self._joint_lower = self._joint_range[:, 0]
+            self._joint_upper = self._joint_range[:, 1]
+        else:
+            self._joint_lower = None
+            self._joint_upper = None
+        self._delta_pos_w = np.empty((num_envs, 3), dtype=dtype)
+        self._delta_ori_w = np.empty((num_envs, 4), dtype=dtype)
+        self._motion_anchor_pos_b = np.empty((num_envs, 3), dtype=dtype)
+        self._motion_anchor_ori_b = np.empty((num_envs, 6), dtype=dtype)
+        self._motion_command = np.empty((num_envs, self._num_action * 2), dtype=dtype)
+        self._joint_pos_rel = np.empty((num_envs, self._num_action), dtype=dtype)
+        self._robot_body_pos_w = np.empty((num_envs, n_body, 3), dtype=dtype)
+        self._robot_body_quat_w = np.empty((num_envs, n_body, 4), dtype=dtype)
+        self._robot_body_lin_vel_w = np.empty((num_envs, n_body, 3), dtype=dtype)
+        self._robot_body_ang_vel_w = np.empty((num_envs, n_body, 3), dtype=dtype)
+        self._quat_error_w = np.empty((num_envs, n_body), dtype=dtype)
+        self._quat_error_x = np.empty((num_envs, n_body), dtype=dtype)
+        self._body_vec_error = np.empty((num_envs, n_body, 3), dtype=dtype)
+        self._body_vec_tmp = np.empty((num_envs, n_body, 3), dtype=dtype)
+        self._joint_error = np.empty((num_envs, self._num_action), dtype=dtype)
+        self._joint_error_upper = np.empty((num_envs, self._num_action), dtype=dtype)
+        self._env_error = np.empty((num_envs,), dtype=dtype)
+        self._env_error2 = np.empty((num_envs,), dtype=dtype)
+        self._reward_term = np.empty((num_envs,), dtype=dtype)
+        self._weighted_reward = np.empty((num_envs,), dtype=dtype)
+        self._terminated = np.empty((num_envs,), dtype=bool)
+        self._env_bool = np.empty((num_envs,), dtype=bool)
+        self._ee_pos_error_z = np.empty((num_envs, self.ee_body_indices.size), dtype=dtype)
+        self._ee_terminated = np.empty((num_envs, self.ee_body_indices.size), dtype=bool)
+        self._undesired_contact_mask = np.empty(
+            (num_envs, self.undesired_contact_body_indices.size), dtype=bool
+        )
 
         self._enable_reward_log = True
         self._init_reward_functions()
+        self._active_reward_fns = {
+            name: reward_fn
+            for name, reward_fn in self._reward_fns.items()
+            if self._reward_term_is_active(name)
+        }
         self._clip_end_truncated = np.zeros((num_envs,), dtype=bool)
 
     def _resample_reference_state(self, env_ids: np.ndarray) -> None:
@@ -411,11 +517,14 @@ class G1MotionTrackingEnv(G1BaseEnv):
         motion_data = self.motion_loader.get_motion_at_frame(
             self.motion_sampler.current_frames[env_ids]
         )
-        linvel = self.get_local_linvel()[env_ids]
-        gyro = self.get_gyro()[env_ids]
-        dof_pos = self.get_dof_pos()[env_ids]
-        dof_vel = self.get_dof_vel()[env_ids]
-        robot_body_pos_w, robot_body_quat_w = self._get_body_pose_w()
+        row_ids = np.asarray(env_ids, dtype=np.intp)
+        linvel = self._backend.get_sensor_data_rows(self._cfg.sensor.local_linvel, row_ids)
+        gyro = self._backend.get_sensor_data_rows(self._cfg.sensor.gyro, row_ids)
+        dof_pos = self.get_dof_pos()[row_ids]
+        dof_vel = self.get_dof_vel()[row_ids]
+        robot_body_pos_w, robot_body_quat_w = self._backend.get_body_pose_w_rows(
+            row_ids, self.body_ids
+        )
 
         obs_info: dict[str, Any] = {}
         current_actions = info.get("current_actions")
@@ -430,8 +539,8 @@ class G1MotionTrackingEnv(G1BaseEnv):
             gyro,
             dof_pos,
             dof_vel,
-            robot_body_pos_w[env_ids],
-            robot_body_quat_w[env_ids],
+            robot_body_pos_w,
+            robot_body_quat_w,
         )
         for key, value in refreshed_obs.items():
             if value.shape[0] == len(env_ids):
@@ -444,8 +553,31 @@ class G1MotionTrackingEnv(G1BaseEnv):
             self.body_ids
         )
 
+    def _get_body_state_w(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        copy_body_state_w = self._copy_body_state_w
+        if copy_body_state_w is not None:
+            return copy_body_state_w(
+                self.body_ids,
+                self._robot_body_pos_w,
+                self._robot_body_quat_w,
+                self._robot_body_lin_vel_w,
+                self._robot_body_ang_vel_w,
+            )
+        robot_body_pos_w, robot_body_quat_w = self._get_body_pose_w()
+        return (
+            robot_body_pos_w,
+            robot_body_quat_w,
+            self._backend.get_body_lin_vel_w(self.body_ids),
+            self._backend.get_body_ang_vel_w(self.body_ids),
+        )
+
     def _get_joint_range(self) -> np.ndarray | None:
-        return self._backend.get_joint_range()  # type: ignore[no-any-return]
+        return self._joint_range
+
+    def _get_current_motion(self) -> MotionData:
+        if self._motion_data_buffer is None:
+            return self.motion_sampler.get_current_motion()
+        return self.motion_sampler.get_current_motion(self._motion_data_buffer)
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:
@@ -454,11 +586,13 @@ class G1MotionTrackingEnv(G1BaseEnv):
         # Critic mirrors BeyondMimic physical terms without actor observation noise:
         #        command, motion anchor, robot body pos/ori, linvel, gyro, joints, actions.
         n = self._num_action
-        critic_extra_dim = len(self._cfg.body_names) * 9
-        return {
-            "obs": self._actor_obs_dim(n),
-            "critic": self._critic_base_obs_dim(n) + critic_extra_dim,
-        }
+        actor_width = getattr(self, "_actor_obs_width", self._actor_obs_dim(n))
+        critic_width = getattr(
+            self,
+            "_critic_obs_width",
+            self._critic_base_obs_dim(n) + len(self._cfg.body_names) * 9,
+        )
+        return {"obs": actor_width, "critic": critic_width}
 
     def _actor_obs_dim(self, n: int) -> int:
         return 3 + 6 + 3 + 3 + n * 5
@@ -478,20 +612,26 @@ class G1MotionTrackingEnv(G1BaseEnv):
         noisy_dof_vel: np.ndarray,
         last_actions: np.ndarray,
     ) -> np.ndarray:
-        return np.concatenate(
-            [
-                command,
-                motion_anchor_pos_b,
-                motion_anchor_ori_b,
-                noisy_linvel,
-                noisy_gyro,
-                noisy_joint_pos_rel,
-                noisy_dof_vel,
-                last_actions,
-            ],
-            axis=1,
-            dtype=get_global_dtype(),
-        )
+        num_envs = command.shape[0]
+        n_action = noisy_joint_pos_rel.shape[1]
+        actor_obs = np.empty((num_envs, self._actor_obs_dim(n_action)), dtype=get_global_dtype())
+        offset = 0
+        actor_obs[:, offset : offset + command.shape[1]] = command
+        offset += command.shape[1]
+        actor_obs[:, offset : offset + 3] = motion_anchor_pos_b
+        offset += 3
+        actor_obs[:, offset : offset + 6] = motion_anchor_ori_b
+        offset += 6
+        actor_obs[:, offset : offset + 3] = noisy_linvel
+        offset += 3
+        actor_obs[:, offset : offset + 3] = noisy_gyro
+        offset += 3
+        actor_obs[:, offset : offset + n_action] = noisy_joint_pos_rel
+        offset += n_action
+        actor_obs[:, offset : offset + n_action] = noisy_dof_vel
+        offset += n_action
+        actor_obs[:, offset : offset + n_action] = last_actions
+        return actor_obs
 
     def _init_reward_functions(self):
         self._reward_fns = {
@@ -509,11 +649,20 @@ class G1MotionTrackingEnv(G1BaseEnv):
             "undesired_contacts": self._reward_undesired_contacts,
         }
 
+    def _reward_term_is_active(self, name: str) -> bool:
+        if name == "joint_limit":
+            return self._joint_lower is not None and self._joint_upper is not None
+        if name == "undesired_contacts":
+            return self._has_undesired_contact_body_indices
+        if name == "motion_ee_body_pos_z":
+            return self._has_ee_body_indices
+        return True
+
     def update_state(self, state: NpEnvState) -> NpEnvState:
         self._clip_end_truncated.fill(False)
 
         # Get current motion data
-        motion_data = self.motion_sampler.get_current_motion()
+        motion_data = self._get_current_motion()
 
         # Get robot state
         linvel = self.get_local_linvel()
@@ -522,9 +671,12 @@ class G1MotionTrackingEnv(G1BaseEnv):
         dof_vel = self.get_dof_vel()
 
         # Get body states
-        robot_body_pos_w, robot_body_quat_w = self._get_body_pose_w()
-        robot_body_lin_vel_w = self._backend.get_body_lin_vel_w(self.body_ids)
-        robot_body_ang_vel_w = self._backend.get_body_ang_vel_w(self.body_ids)
+        (
+            robot_body_pos_w,
+            robot_body_quat_w,
+            robot_body_lin_vel_w,
+            robot_body_ang_vel_w,
+        ) = self._get_body_state_w()
 
         # Compute relative body transforms (for observations and rewards)
         self._update_relative_transforms(motion_data, robot_body_pos_w, robot_body_quat_w)
@@ -576,7 +728,12 @@ class G1MotionTrackingEnv(G1BaseEnv):
 
     def _compute_truncated(self, state: NpEnvState) -> np.ndarray:
         truncated = super()._compute_truncated(state)
-        clip_end_only = np.logical_and(self._clip_end_truncated, ~state.terminated)
+        clip_end_only = getattr(self, "_env_bool", None)
+        if clip_end_only is None or clip_end_only.shape != (self._num_envs,):
+            clip_end_only = np.empty((self._num_envs,), dtype=bool)
+            self._env_bool = clip_end_only
+        np.logical_not(state.terminated, out=clip_end_only)
+        np.logical_and(self._clip_end_truncated, clip_end_only, out=clip_end_only)
         np.logical_or(truncated, clip_end_only, out=truncated)
         return truncated
 
@@ -584,9 +741,6 @@ class G1MotionTrackingEnv(G1BaseEnv):
         self, motion_data, robot_body_pos_w: np.ndarray, robot_body_quat_w: np.ndarray
     ):
         """Update relative body transforms for tracking."""
-        n_env = robot_body_pos_w.shape[0]
-        n_body = len(self._cfg.body_names)
-
         # Get anchor states
         anchor_pos_w = motion_data.body_pos_w[:, self.anchor_body_idx]
         anchor_quat_w = motion_data.body_quat_w[:, self.anchor_body_idx]
@@ -594,26 +748,81 @@ class G1MotionTrackingEnv(G1BaseEnv):
         robot_anchor_quat_w = robot_body_quat_w[:, self.anchor_body_idx]
 
         # Compute delta transform: keep robot's XY position, use motion's Z height
-        # and apply yaw-only rotation difference
-        delta_pos_w = robot_anchor_pos_w.copy()
+        # and apply yaw-only rotation difference.
+        delta_pos_w = self._delta_pos_w
+        delta_pos_w[:] = robot_anchor_pos_w
         delta_pos_w[:, 2] = anchor_pos_w[:, 2]
 
-        # Compute yaw-only rotation difference
-        quat_diff = np_quat_mul(robot_anchor_quat_w, np_quat_inv(anchor_quat_w))
-        delta_ori_w = np_yaw_quat(quat_diff)
-
-        # Vectorized: transform all bodies at once using reshape trick
-        # Flatten (N, B, 4) -> (N*B, 4) for quat ops, then reshape back
-        delta_ori_tiled = np.tile(delta_ori_w, (1, n_body)).reshape(n_env * n_body, 4)
-        motion_quat_flat = motion_data.body_quat_w.reshape(n_env * n_body, 4)
-        self.body_quat_relative_w[:] = np_quat_mul(delta_ori_tiled, motion_quat_flat).reshape(
-            n_env, n_body, 4
+        # Compute yaw-only rotation difference, equivalent to
+        # np_yaw_quat(np_quat_mul(robot_anchor_quat_w, np_quat_inv(anchor_quat_w))).
+        delta_ori_w = self._delta_ori_w
+        rw, rx, ry, rz = (
+            robot_anchor_quat_w[:, 0],
+            robot_anchor_quat_w[:, 1],
+            robot_anchor_quat_w[:, 2],
+            robot_anchor_quat_w[:, 3],
         )
+        aw, ax, ay, az = (
+            anchor_quat_w[:, 0],
+            anchor_quat_w[:, 1],
+            anchor_quat_w[:, 2],
+            anchor_quat_w[:, 3],
+        )
+        qw = rw * aw + rx * ax + ry * ay + rz * az
+        qx = -rw * ax + rx * aw - ry * az + rz * ay
+        qy = -rw * ay + rx * az + ry * aw - rz * ax
+        qz = -rw * az - rx * ay + ry * ax + rz * aw
+        half_yaw = 0.5 * np.arctan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz))
+        np.cos(half_yaw, out=delta_ori_w[:, 0])
+        delta_ori_w[:, 1:3] = 0.0
+        np.sin(half_yaw, out=delta_ori_w[:, 3])
 
-        rel_pos_all = motion_data.body_pos_w - anchor_pos_w[:, None, :]  # (N, B, 3)
-        rel_pos_flat = rel_pos_all.reshape(n_env * n_body, 3)
-        rotated = np_quat_apply(delta_ori_tiled, rel_pos_flat).reshape(n_env, n_body, 3)
-        self.body_pos_relative_w[:] = delta_pos_w[:, None, :] + rotated
+        dw1 = delta_ori_w[:, 0]
+        dz1 = delta_ori_w[:, 3]
+        dw = dw1[:, None]
+        dz = dz1[:, None]
+        mw = motion_data.body_quat_w[..., 0]
+        mx = motion_data.body_quat_w[..., 1]
+        my = motion_data.body_quat_w[..., 2]
+        mz = motion_data.body_quat_w[..., 3]
+        out_quat = self.body_quat_relative_w
+        out_quat[..., 0] = dw * mw
+        out_quat[..., 0] -= dz * mz
+        out_quat[..., 1] = dw * mx
+        out_quat[..., 1] -= dz * my
+        out_quat[..., 2] = dw * my
+        out_quat[..., 2] += dz * mx
+        out_quat[..., 3] = dw * mz
+        out_quat[..., 3] += dz * mw
+
+        rel_pos = self._body_vec_error
+        vx = rel_pos[..., 0]
+        vy = rel_pos[..., 1]
+        vz = rel_pos[..., 2]
+        np.subtract(motion_data.body_pos_w[..., 0], anchor_pos_w[:, None, 0], out=vx)
+        np.subtract(motion_data.body_pos_w[..., 1], anchor_pos_w[:, None, 1], out=vy)
+        np.subtract(motion_data.body_pos_w[..., 2], anchor_pos_w[:, None, 2], out=vz)
+
+        yaw_cross = self._env_error
+        yaw_z2 = self._reward_term
+        np.multiply(dw1, dz1, out=yaw_cross)
+        yaw_cross *= 2.0
+        np.square(dz1, out=yaw_z2)
+        yaw_z2 *= 2.0
+        yaw_cross_2d = yaw_cross[:, None]
+        yaw_z2_2d = yaw_z2[:, None]
+
+        out_pos = self.body_pos_relative_w
+        out_pos[..., 0] = vx
+        out_pos[..., 0] -= yaw_cross_2d * vy
+        out_pos[..., 0] -= yaw_z2_2d * vx
+        out_pos[..., 0] += delta_pos_w[:, None, 0]
+        out_pos[..., 1] = vy
+        out_pos[..., 1] += yaw_cross_2d * vx
+        out_pos[..., 1] -= yaw_z2_2d * vy
+        out_pos[..., 1] += delta_pos_w[:, None, 1]
+        out_pos[..., 2] = vz
+        out_pos[..., 2] += delta_pos_w[:, None, 2]
 
     def _compute_terminations(
         self,
@@ -622,41 +831,114 @@ class G1MotionTrackingEnv(G1BaseEnv):
         robot_body_quat_w: np.ndarray,
     ) -> np.ndarray:
         """Compute termination conditions."""
-        terminated = np.zeros(self._num_envs, dtype=bool)
+        terminated = self._terminated
+        terminated.fill(False)
 
         # Anchor position error (Z-axis only)
         anchor_pos_w = motion_data.body_pos_w[:, self.anchor_body_idx]
         robot_anchor_pos_w = robot_body_pos_w[:, self.anchor_body_idx]
-        anchor_pos_error_z = np.abs(anchor_pos_w[:, 2] - robot_anchor_pos_w[:, 2])
-        terminated |= anchor_pos_error_z > self._cfg.anchor_pos_z_threshold
+        np.subtract(anchor_pos_w[:, 2], robot_anchor_pos_w[:, 2], out=self._env_error)
+        np.abs(self._env_error, out=self._env_error)
+        np.greater(self._env_error, self._cfg.anchor_pos_z_threshold, out=self._env_bool)
+        terminated |= self._env_bool
 
-        # Anchor orientation error (gravity direction)
-        anchor_quat_w = motion_data.body_quat_w[:, self.anchor_body_idx]
-        robot_anchor_quat_w = robot_body_quat_w[:, self.anchor_body_idx]
-        gravity_vec = np.broadcast_to(
-            np.array([[0, 0, -1]], dtype=get_global_dtype()),
-            (anchor_quat_w.shape[0], 3),
-        ).copy()
-        motion_gravity_b = np_quat_apply(np_quat_inv(anchor_quat_w), gravity_vec)
-        robot_gravity_b = np_quat_apply(np_quat_inv(robot_anchor_quat_w), gravity_vec)
-        gravity_error = np.abs(motion_gravity_b[:, 2] - robot_gravity_b[:, 2])
-        terminated |= gravity_error > self._cfg.anchor_ori_threshold
+        # Anchor orientation error (gravity direction). The gravity-z difference
+        # is bounded by 2 for unit quaternions, so huge thresholds disable this
+        # termination without doing the per-step math.
+        if self._cfg.anchor_ori_threshold < 2.0:
+            anchor_quat_w = motion_data.body_quat_w[:, self.anchor_body_idx]
+            robot_anchor_quat_w = robot_body_quat_w[:, self.anchor_body_idx]
+            motion_gravity_z_b = _gravity_z_in_body_from_quat_w(anchor_quat_w)
+            robot_gravity_z_b = _gravity_z_in_body_from_quat_w(robot_anchor_quat_w)
+            np.subtract(motion_gravity_z_b, robot_gravity_z_b, out=self._env_error)
+            np.abs(self._env_error, out=self._env_error)
+            np.greater(self._env_error, self._cfg.anchor_ori_threshold, out=self._env_bool)
+            terminated |= self._env_bool
 
         # End-effector position error (Z-axis only)
-        for ee_idx in self.ee_body_indices:
-            ee_pos_error_z = np.abs(
-                self.body_pos_relative_w[:, ee_idx, 2] - robot_body_pos_w[:, ee_idx, 2]
+        if self._has_ee_body_indices:
+            np.subtract(
+                self.body_pos_relative_w[:, self.ee_body_indices, 2],
+                robot_body_pos_w[:, self.ee_body_indices, 2],
+                out=self._ee_pos_error_z,
             )
-            terminated |= ee_pos_error_z > self._cfg.ee_body_pos_z_threshold
+            np.abs(self._ee_pos_error_z, out=self._ee_pos_error_z)
+            np.greater(
+                self._ee_pos_error_z,
+                self._cfg.ee_body_pos_z_threshold,
+                out=self._ee_terminated,
+            )
+            np.logical_or.reduce(self._ee_terminated, axis=1, out=self._env_bool)
+            terminated |= self._env_bool
 
-        if (
-            self._cfg.terminate_on_undesired_contacts
-            and len(self.undesired_contact_body_indices) > 0
-        ):
+        if self._cfg.terminate_on_undesired_contacts and self._has_undesired_contact_body_indices:
             body_z = robot_body_pos_w[:, self.undesired_contact_body_indices, 2]
-            terminated |= np.any(body_z < self._cfg.undesired_contact_z_threshold, axis=-1)
+            np.less(
+                body_z,
+                self._cfg.undesired_contact_z_threshold,
+                out=self._undesired_contact_mask,
+            )
+            np.logical_or.reduce(self._undesired_contact_mask, axis=-1, out=self._env_bool)
+            terminated |= self._env_bool
 
         return terminated
+
+    def _write_body_pos_in_anchor_frame(
+        self,
+        anchor_pos: np.ndarray,
+        anchor_quat: np.ndarray,
+        body_pos: np.ndarray,
+        out: np.ndarray,
+    ) -> None:
+        aw = anchor_quat[:, None, 0]
+        ax = anchor_quat[:, None, 1]
+        ay = anchor_quat[:, None, 2]
+        az = anchor_quat[:, None, 3]
+
+        num_envs, n_body = body_pos.shape[:2]
+        rel_pos = self._body_vec_error[:num_envs, :n_body]
+
+        vx = rel_pos[..., 0]
+        vy = rel_pos[..., 1]
+        vz = rel_pos[..., 2]
+        np.subtract(body_pos[..., 0], anchor_pos[:, None, 0], out=vx)
+        np.subtract(body_pos[..., 1], anchor_pos[:, None, 1], out=vy)
+        np.subtract(body_pos[..., 2], anchor_pos[:, None, 2], out=vz)
+
+        tx = 2 * (az * vy - ay * vz)
+        ty = 2 * (ax * vz - az * vx)
+        tz = 2 * (ay * vx - ax * vy)
+
+        out[..., 0] = vx + aw * tx + az * ty - ay * tz
+        out[..., 1] = vy + aw * ty + ax * tz - az * tx
+        out[..., 2] = vz + aw * tz + ay * tx - ax * ty
+
+    def _write_body_ori6_in_anchor_frame(
+        self,
+        anchor_quat: np.ndarray,
+        body_quat: np.ndarray,
+        out: np.ndarray,
+    ) -> None:
+        aw = anchor_quat[:, None, 0]
+        ax = anchor_quat[:, None, 1]
+        ay = anchor_quat[:, None, 2]
+        az = anchor_quat[:, None, 3]
+        bw = body_quat[..., 0]
+        bx = body_quat[..., 1]
+        by = body_quat[..., 2]
+        bz = body_quat[..., 3]
+
+        rw = aw * bw + ax * bx + ay * by + az * bz
+        rx = aw * bx - ax * bw - ay * bz + az * by
+        ry = aw * by + ax * bz - ay * bw - az * bx
+        rz = aw * bz - ax * by + ay * bx - az * bw
+
+        out[..., 0] = 1 - 2 * (ry * ry + rz * rz)
+        out[..., 1] = 2 * (rx * ry - rw * rz)
+        out[..., 2] = 2 * (rx * ry + rw * rz)
+        out[..., 3] = 1 - 2 * (rx * rx + rz * rz)
+        out[..., 4] = 2 * (rx * rz - rw * ry)
+        out[..., 5] = 2 * (ry * rz + rw * rx)
 
     def _compute_obs(
         self,
@@ -671,11 +953,9 @@ class G1MotionTrackingEnv(G1BaseEnv):
     ) -> dict[str, np.ndarray]:
         """Compute observations as dict with actor and critic groups."""
         num_envs = linvel.shape[0]
-        command = np.concatenate(
-            [motion_data.joint_pos, motion_data.joint_vel],
-            axis=1,
-            dtype=get_global_dtype(),
-        )
+        dtype = get_global_dtype()
+        n_action = dof_pos.shape[1]
+        n_body = self._n_motion_bodies
 
         # Get anchor states
         anchor_pos_w = motion_data.body_pos_w[:, self.anchor_body_idx]
@@ -683,81 +963,93 @@ class G1MotionTrackingEnv(G1BaseEnv):
         robot_anchor_pos_w = robot_body_pos_w[:, self.anchor_body_idx]
         robot_anchor_quat_w = robot_body_quat_w[:, self.anchor_body_idx]
 
-        # Motion anchor position in robot frame
-        motion_anchor_pos_b, _ = np_subtract_frame_transforms(
-            robot_anchor_pos_w, robot_anchor_quat_w, anchor_pos_w, anchor_quat_w
+        # Motion anchor pose in robot frame
+        if num_envs == self._num_envs:
+            motion_anchor_pos_b = self._motion_anchor_pos_b
+            motion_anchor_ori_b = self._motion_anchor_ori_b
+            joint_pos_rel = self._joint_pos_rel
+            zero_actions = self._zero_actions
+        else:
+            motion_anchor_pos_b = np.empty((num_envs, 3), dtype=dtype)
+            motion_anchor_ori_b = np.empty((num_envs, 6), dtype=dtype)
+            joint_pos_rel = np.empty((num_envs, n_action), dtype=dtype)
+            zero_actions = np.zeros((num_envs, n_action), dtype=dtype)
+        _write_motion_anchor_transform(
+            robot_anchor_pos_w,
+            robot_anchor_quat_w,
+            anchor_pos_w,
+            anchor_quat_w,
+            motion_anchor_pos_b,
+            motion_anchor_ori_b,
         )
-
-        # Motion anchor orientation in robot frame (as rotation matrix first 2 columns)
-        _, motion_anchor_ori_rel = np_subtract_frame_transforms(
-            robot_anchor_pos_w, robot_anchor_quat_w, anchor_pos_w, anchor_quat_w
-        )
-        motion_anchor_ori_mat = np_matrix_from_quat(motion_anchor_ori_rel)
-        motion_anchor_ori_b = motion_anchor_ori_mat[:, :, :2].reshape(num_envs, 6)
 
         # Joint positions and velocities
-        joint_pos_rel = dof_pos - self.default_angles
-        last_actions = info.get("current_actions", np.zeros_like(joint_pos_rel))
+        np.subtract(dof_pos, self.default_angles, out=joint_pos_rel)
+        last_actions = info.get("current_actions")
+        if not isinstance(last_actions, np.ndarray):
+            last_actions = zero_actions
+
+        if num_envs == self._num_envs:
+            command = self._motion_command
+        else:
+            command = np.empty((num_envs, n_action * 2), dtype=dtype)
+        command[:, :n_action] = motion_data.joint_pos
+        command[:, n_action : n_action * 2] = motion_data.joint_vel
 
         # Per-step observation noise on sensor channels (actor only).
         # Critic uses the clean originals — asymmetric actor–critic contract.
         noise_cfg = self._cfg.noise_config
-        noisy_linvel = self._obs_noise(linvel, noise_cfg.scale_linvel)
-        noisy_gyro = self._obs_noise(gyro, noise_cfg.scale_gyro)
-        noisy_joint_pos_rel = self._obs_noise(joint_pos_rel, noise_cfg.scale_joint_angle)
-        noisy_dof_vel = self._obs_noise(dof_vel, noise_cfg.scale_joint_vel)
+        noise_enabled = noise_cfg.level > 0.0
+        if noise_enabled:
+            linvel_actor = self._obs_noise(linvel, noise_cfg.scale_linvel)
+            gyro_actor = self._obs_noise(gyro, noise_cfg.scale_gyro)
+            joint_pos_actor = self._obs_noise(joint_pos_rel, noise_cfg.scale_joint_angle)
+            dof_vel_actor = self._obs_noise(dof_vel, noise_cfg.scale_joint_vel)
+        else:
+            linvel_actor = linvel
+            gyro_actor = gyro
+            joint_pos_actor = joint_pos_rel
+            dof_vel_actor = dof_vel
 
         # Actor observations (noisy proprioception)
         actor_obs = self._build_actor_obs(
             command=command,
             motion_anchor_pos_b=motion_anchor_pos_b,
             motion_anchor_ori_b=motion_anchor_ori_b,
-            noisy_linvel=noisy_linvel,
-            noisy_gyro=noisy_gyro,
-            noisy_joint_pos_rel=noisy_joint_pos_rel,
-            noisy_dof_vel=noisy_dof_vel,
+            noisy_linvel=linvel_actor,
+            noisy_gyro=gyro_actor,
+            noisy_joint_pos_rel=joint_pos_actor,
+            noisy_dof_vel=dof_vel_actor,
             last_actions=last_actions,
         )
 
-        # Robot body positions in robot anchor frame (critic-only privileged) — vectorized
-        n_body = len(self._cfg.body_names)
-        # Flatten (N, B, *) -> (N*B, *) for batched frame transform
-        anchor_pos_tiled = np.tile(robot_anchor_pos_w, (1, n_body)).reshape(num_envs * n_body, 3)
-        anchor_quat_tiled = np.tile(robot_anchor_quat_w, (1, n_body)).reshape(num_envs * n_body, 4)
-        body_pos_flat = robot_body_pos_w.reshape(num_envs * n_body, 3)
-        body_quat_flat = robot_body_quat_w.reshape(num_envs * n_body, 4)
-
-        pos_b_flat, ori_b_flat = np_subtract_frame_transforms(
-            anchor_pos_tiled, anchor_quat_tiled, body_pos_flat, body_quat_flat
-        )
-        robot_body_pos_b = pos_b_flat.reshape(num_envs, n_body, 3)
-        ori_mat = np_matrix_from_quat(ori_b_flat)  # (N*B, 3, 3)
-        robot_body_ori_b = ori_mat[:, :, :2].reshape(num_envs, n_body, 6)
-
-        critic_extra = np.concatenate(
-            [
-                robot_body_pos_b.reshape(num_envs, -1),
-                robot_body_ori_b.reshape(num_envs, -1),
-            ],
-            axis=1,
-            dtype=get_global_dtype(),
-        )
-
         # Critic observations (clean proprioception + privileged body transforms)
-        critic_obs = np.concatenate(
-            [
-                command,
-                motion_anchor_pos_b,
-                motion_anchor_ori_b,
-                linvel,
-                gyro,
-                joint_pos_rel,
-                dof_vel,
-                last_actions,
-                critic_extra,
-            ],
-            axis=1,
-            dtype=get_global_dtype(),
+        critic_obs = np.empty((num_envs, self._critic_obs_width), dtype=dtype)
+        offset = 0
+        critic_obs[:, offset : offset + command.shape[1]] = command
+        offset += command.shape[1]
+        critic_obs[:, offset : offset + 3] = motion_anchor_pos_b
+        offset += 3
+        critic_obs[:, offset : offset + 6] = motion_anchor_ori_b
+        offset += 6
+        critic_obs[:, offset : offset + 3] = linvel
+        offset += 3
+        critic_obs[:, offset : offset + 3] = gyro
+        offset += 3
+        critic_obs[:, offset : offset + n_action] = joint_pos_rel
+        offset += n_action
+        critic_obs[:, offset : offset + n_action] = dof_vel
+        offset += n_action
+        critic_obs[:, offset : offset + n_action] = last_actions
+        offset += n_action
+        robot_body_pos_b = critic_obs[:, offset : offset + n_body * 3].reshape(num_envs, n_body, 3)
+        self._write_body_pos_in_anchor_frame(
+            robot_anchor_pos_w, robot_anchor_quat_w, robot_body_pos_w, robot_body_pos_b
+        )
+        offset += n_body * 3
+        robot_body_ori_b = critic_obs[:, offset : offset + n_body * 6].reshape(num_envs, n_body, 6)
+        self._write_body_ori6_in_anchor_frame(
+            robot_anchor_quat_w, robot_body_quat_w, robot_body_ori_b
         )
         return {"obs": actor_obs, "critic": critic_obs}
 
@@ -773,12 +1065,14 @@ class G1MotionTrackingEnv(G1BaseEnv):
         dof_vel: np.ndarray,
     ) -> np.ndarray:
         """Compute reward."""
-        dtype = get_global_dtype()
-        reward = np.zeros((self._num_envs,), dtype=dtype)
+        reward = self._env_error2
+        reward.fill(0.0)
         cfg = self._cfg.reward_config
 
-        step_count = info.get("steps", np.zeros((self._num_envs,), dtype=np.uint32))
-        should_log = self._enable_reward_log and (int(step_count[0]) % 4 == 0)
+        step_count = info.get("steps")
+        should_log = self._enable_reward_log and (
+            int(step_count[0]) % 4 == 0 if isinstance(step_count, np.ndarray) else True
+        )
         log = {} if should_log else info.get("log", {})
 
         # Store motion and robot states in info for reward functions
@@ -794,16 +1088,66 @@ class G1MotionTrackingEnv(G1BaseEnv):
         info["dof_vel"] = dof_vel
 
         for name, scale in cfg.scales.items():
-            if scale == 0 or name not in self._reward_fns:
+            if scale == 0:
                 continue
-            rew = self._reward_fns[name](info)
-            weighted_rew = rew * scale
+            reward_fn = self._active_reward_fns.get(name)
+            if reward_fn is None:
+                if should_log and name in self._reward_fns:
+                    log[f"reward/{name}"] = 0.0
+                continue
+            rew = reward_fn(info)
+            weighted_rew = self._weighted_reward
+            np.multiply(rew, scale, out=weighted_rew)
             reward += weighted_rew
             if should_log:
-                log[f"reward/{name}"] = float(np.mean(weighted_rew))
+                log[f"reward/{name}"] = float(np.sum(weighted_rew) / weighted_rew.size)
 
         info["log"] = log
-        return reward * self._cfg.ctrl_dt
+        reward *= self._cfg.ctrl_dt
+        return reward
+
+    def _mean_body_xyz_squared_error(self, reference: np.ndarray, actual: np.ndarray) -> np.ndarray:
+        vec_error = self._body_vec_error
+        env_error = self._env_error
+        tmp_error = self._reward_term
+        np.subtract(reference[..., 0], actual[..., 0], out=vec_error[..., 0])
+        np.square(vec_error[..., 0], out=vec_error[..., 0])
+        np.sum(vec_error[..., 0], axis=1, out=env_error)
+        np.subtract(reference[..., 1], actual[..., 1], out=vec_error[..., 1])
+        np.square(vec_error[..., 1], out=vec_error[..., 1])
+        np.sum(vec_error[..., 1], axis=1, out=tmp_error)
+        env_error += tmp_error
+        np.subtract(reference[..., 2], actual[..., 2], out=vec_error[..., 2])
+        np.square(vec_error[..., 2], out=vec_error[..., 2])
+        np.sum(vec_error[..., 2], axis=1, out=tmp_error)
+        env_error += tmp_error
+        env_error /= reference.shape[1]
+        return env_error
+
+    def _quat_error_magnitude_squared_body(self, q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
+        rel_w = self._quat_error_w
+        rel_x = self._quat_error_x
+        # Motion/backend quaternions are unit quaternions, so the relative
+        # rotation angle only needs abs(dot(q1, q2)).
+        np.multiply(q1[..., 0], q2[..., 0], out=rel_w)
+        np.multiply(q1[..., 1], q2[..., 1], out=rel_x)
+        rel_w += rel_x
+        np.multiply(q1[..., 2], q2[..., 2], out=rel_x)
+        rel_w += rel_x
+        np.multiply(q1[..., 3], q2[..., 3], out=rel_x)
+        rel_w += rel_x
+        np.abs(rel_w, out=rel_w)
+        np.clip(rel_w, 0.0, 1.0, out=rel_w)
+        np.arccos(rel_w, out=rel_x)
+        rel_x *= 2.0
+        np.square(rel_x, out=rel_x)
+        return rel_x
+
+    def _exp_reward_from_error(self, error: np.ndarray, std: float) -> np.ndarray:
+        out = self._reward_term
+        np.divide(error, -(std**2), out=out)
+        np.exp(out, out=out)
+        return out
 
     # Reward functions
     def _reward_motion_global_root_pos(self, info: dict) -> np.ndarray:
@@ -811,108 +1155,126 @@ class G1MotionTrackingEnv(G1BaseEnv):
         robot_body_pos_w = info["robot_body_pos_w"]
         anchor_pos_w = motion_data.body_pos_w[:, self.anchor_body_idx]
         robot_anchor_pos_w = robot_body_pos_w[:, self.anchor_body_idx]
-        error = np.sum(np.square(anchor_pos_w - robot_anchor_pos_w), axis=-1)
-        return np.asarray(
-            np.exp(-error / self._cfg.reward_config.std_root_pos**2), dtype=get_global_dtype()
-        )
+        error = self._env_error
+        np.subtract(anchor_pos_w[:, 0], robot_anchor_pos_w[:, 0], out=error)
+        np.square(error, out=error)
+        np.subtract(anchor_pos_w[:, 1], robot_anchor_pos_w[:, 1], out=self._reward_term)
+        np.square(self._reward_term, out=self._reward_term)
+        error += self._reward_term
+        np.subtract(anchor_pos_w[:, 2], robot_anchor_pos_w[:, 2], out=self._reward_term)
+        np.square(self._reward_term, out=self._reward_term)
+        error += self._reward_term
+        return self._exp_reward_from_error(error, self._cfg.reward_config.std_root_pos)
 
     def _reward_motion_global_root_ori(self, info: dict) -> np.ndarray:
         motion_data = info["motion_data"]
         robot_body_quat_w = info["robot_body_quat_w"]
         anchor_quat_w = motion_data.body_quat_w[:, self.anchor_body_idx]
         robot_anchor_quat_w = robot_body_quat_w[:, self.anchor_body_idx]
-        error = np_quat_error_magnitude(anchor_quat_w, robot_anchor_quat_w) ** 2
-        return np.exp(-error / self._cfg.reward_config.std_root_ori**2)
+        np.multiply(anchor_quat_w[:, 0], robot_anchor_quat_w[:, 0], out=self._env_error)
+        np.multiply(anchor_quat_w[:, 1], robot_anchor_quat_w[:, 1], out=self._reward_term)
+        self._env_error += self._reward_term
+        np.multiply(anchor_quat_w[:, 2], robot_anchor_quat_w[:, 2], out=self._reward_term)
+        self._env_error += self._reward_term
+        np.multiply(anchor_quat_w[:, 3], robot_anchor_quat_w[:, 3], out=self._reward_term)
+        self._env_error += self._reward_term
+        np.abs(self._env_error, out=self._env_error)
+        np.clip(self._env_error, 0.0, 1.0, out=self._env_error)
+        np.arccos(self._env_error, out=self._env_error)
+        self._env_error *= 2.0
+        np.square(self._env_error, out=self._env_error)
+        return self._exp_reward_from_error(self._env_error, self._cfg.reward_config.std_root_ori)
 
     def _reward_motion_body_pos(self, info: dict) -> np.ndarray:
         robot_body_pos_w = info["robot_body_pos_w"]
-        error = np.sum(np.square(self.body_pos_relative_w - robot_body_pos_w), axis=-1)
-        return np.asarray(
-            np.exp(-error.mean(-1) / self._cfg.reward_config.std_body_pos**2),
-            dtype=get_global_dtype(),
-        )
+        error = self._mean_body_xyz_squared_error(self.body_pos_relative_w, robot_body_pos_w)
+        return self._exp_reward_from_error(error, self._cfg.reward_config.std_body_pos)
 
     def _reward_motion_body_ori(self, info: dict) -> np.ndarray:
         robot_body_quat_w = info["robot_body_quat_w"]
-        # np_quat_error_magnitude only supports (N, 4) — flatten body dim first
-        n_env, n_body = robot_body_quat_w.shape[:2]
-        ref_flat = self.body_quat_relative_w.reshape(n_env * n_body, 4)
-        rob_flat = robot_body_quat_w.reshape(n_env * n_body, 4)
-        error = np_quat_error_magnitude(ref_flat, rob_flat) ** 2
-        error = error.reshape(n_env, n_body)
-        return np.asarray(
-            np.exp(-error.mean(-1) / self._cfg.reward_config.std_body_ori**2),
-            dtype=get_global_dtype(),
+        error = self._quat_error_magnitude_squared_body(
+            self.body_quat_relative_w, robot_body_quat_w
         )
+        np.sum(error, axis=-1, out=self._env_error)
+        self._env_error /= error.shape[1]
+        return self._exp_reward_from_error(self._env_error, self._cfg.reward_config.std_body_ori)
 
     def _reward_motion_body_lin_vel(self, info: dict) -> np.ndarray:
         motion_data = info["motion_data"]
         robot_body_lin_vel_w = info["robot_body_lin_vel_w"]
-        error = np.sum(np.square(motion_data.body_lin_vel_w - robot_body_lin_vel_w), axis=-1)
-        return np.asarray(
-            np.exp(-error.mean(-1) / self._cfg.reward_config.std_body_lin_vel**2),
-            dtype=get_global_dtype(),
-        )
+        error = self._mean_body_xyz_squared_error(motion_data.body_lin_vel_w, robot_body_lin_vel_w)
+        return self._exp_reward_from_error(error, self._cfg.reward_config.std_body_lin_vel)
 
     def _reward_motion_body_ang_vel(self, info: dict) -> np.ndarray:
         motion_data = info["motion_data"]
         robot_body_ang_vel_w = info["robot_body_ang_vel_w"]
-        error = np.sum(np.square(motion_data.body_ang_vel_w - robot_body_ang_vel_w), axis=-1)
-        return np.asarray(
-            np.exp(-error.mean(-1) / self._cfg.reward_config.std_body_ang_vel**2),
-            dtype=get_global_dtype(),
-        )
+        error = self._mean_body_xyz_squared_error(motion_data.body_ang_vel_w, robot_body_ang_vel_w)
+        return self._exp_reward_from_error(error, self._cfg.reward_config.std_body_ang_vel)
 
     def _reward_motion_ee_body_pos_z(self, info: dict) -> np.ndarray:
         robot_body_pos_w = info["robot_body_pos_w"]
-        error = np.square(
-            self.body_pos_relative_w[:, self.ee_body_indices, 2]
-            - robot_body_pos_w[:, self.ee_body_indices, 2]
+        np.subtract(
+            self.body_pos_relative_w[:, self.ee_body_indices, 2],
+            robot_body_pos_w[:, self.ee_body_indices, 2],
+            out=self._ee_pos_error_z,
         )
-        return np.asarray(
-            np.exp(-error.mean(-1) / self._cfg.reward_config.std_body_pos**2),
-            dtype=get_global_dtype(),
-        )
+        np.square(self._ee_pos_error_z, out=self._ee_pos_error_z)
+        np.sum(self._ee_pos_error_z, axis=-1, out=self._env_error)
+        self._env_error /= self._ee_pos_error_z.shape[1]
+        return self._exp_reward_from_error(self._env_error, self._cfg.reward_config.std_body_pos)
 
     def _reward_motion_joint_pos(self, info: dict) -> np.ndarray:
         motion_data = info["motion_data"]
         dof_pos = info["dof_pos"]
-        error = np.mean(np.square(motion_data.joint_pos - dof_pos), axis=-1)
-        return np.asarray(
-            np.exp(-error / self._cfg.reward_config.std_joint_pos**2), dtype=get_global_dtype()
-        )
+        np.subtract(motion_data.joint_pos, dof_pos, out=self._joint_error)
+        np.square(self._joint_error, out=self._joint_error)
+        np.sum(self._joint_error, axis=1, out=self._env_error)
+        self._env_error /= dof_pos.shape[1]
+        return self._exp_reward_from_error(self._env_error, self._cfg.reward_config.std_joint_pos)
 
     def _reward_motion_joint_vel(self, info: dict) -> np.ndarray:
         motion_data = info["motion_data"]
         dof_vel = info["dof_vel"]
-        error = np.mean(np.square(motion_data.joint_vel - dof_vel), axis=-1)
-        return np.asarray(
-            np.exp(-error / self._cfg.reward_config.std_joint_vel**2), dtype=get_global_dtype()
-        )
+        np.subtract(motion_data.joint_vel, dof_vel, out=self._joint_error)
+        np.square(self._joint_error, out=self._joint_error)
+        np.sum(self._joint_error, axis=1, out=self._env_error)
+        self._env_error /= dof_vel.shape[1]
+        return self._exp_reward_from_error(self._env_error, self._cfg.reward_config.std_joint_vel)
 
     def _reward_undesired_contacts(self, info: dict) -> np.ndarray:
         robot_body_pos_w = info["robot_body_pos_w"]
         body_z = robot_body_pos_w[:, self.undesired_contact_body_indices, 2]
-        is_contact = body_z < self._cfg.undesired_contact_z_threshold
-        return np.asarray(is_contact.sum(axis=-1), dtype=get_global_dtype())
+        np.less(
+            body_z,
+            self._cfg.undesired_contact_z_threshold,
+            out=self._undesired_contact_mask,
+        )
+        np.sum(self._undesired_contact_mask, axis=-1, out=self._env_error)
+        return self._env_error
 
     def _reward_action_rate_l2(self, info: dict) -> np.ndarray:
-        action_diff = info["current_actions"] - info["last_actions"]
-        return np.asarray(np.sum(np.square(action_diff), axis=1), dtype=get_global_dtype())
+        np.subtract(info["current_actions"], info["last_actions"], out=self._joint_error)
+        np.square(self._joint_error, out=self._joint_error)
+        np.sum(self._joint_error, axis=1, out=self._env_error)
+        return self._env_error
 
     def _reward_joint_limit(self, info: dict) -> np.ndarray:
         dof_pos = info["dof_pos"]
-        joint_range = self._get_joint_range()
-        if joint_range is None:
-            return np.zeros((self._num_envs,), dtype=get_global_dtype())
-        lower = joint_range[:, 0]
-        upper = joint_range[:, 1]
+        lower = self._joint_lower
+        upper = self._joint_upper
+        if lower is None or upper is None:
+            self._reward_term.fill(0.0)
+            return self._reward_term
 
         # Compute violation
-        lower_violation = np.maximum(0, lower - dof_pos)
-        upper_violation = np.maximum(0, dof_pos - upper)
-        violation = lower_violation + upper_violation
-        return np.asarray(np.sum(np.square(violation), axis=1), dtype=get_global_dtype())
+        np.subtract(lower, dof_pos, out=self._joint_error)
+        np.maximum(self._joint_error, 0, out=self._joint_error)
+        np.subtract(dof_pos, upper, out=self._joint_error_upper)
+        np.maximum(self._joint_error_upper, 0, out=self._joint_error_upper)
+        self._joint_error += self._joint_error_upper
+        np.square(self._joint_error, out=self._joint_error)
+        np.sum(self._joint_error, axis=1, out=self._reward_term)
+        return self._reward_term
 
 
 @registry.env("G1MotionTrackingDeploy", sim_backend="mujoco")
