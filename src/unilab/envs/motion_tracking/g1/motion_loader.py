@@ -161,12 +161,8 @@ class MotionLoader:
         return MotionData(
             joint_pos=np.empty((num_frames, self.num_joints), dtype=self.joint_pos.dtype),
             joint_vel=np.empty((num_frames, self.num_joints), dtype=self.joint_vel.dtype),
-            body_pos_w=np.empty(
-                (num_frames, self.num_bodies, 3), dtype=self.body_pos_w.dtype
-            ),
-            body_quat_w=np.empty(
-                (num_frames, self.num_bodies, 4), dtype=self.body_quat_w.dtype
-            ),
+            body_pos_w=np.empty((num_frames, self.num_bodies, 3), dtype=self.body_pos_w.dtype),
+            body_quat_w=np.empty((num_frames, self.num_bodies, 4), dtype=self.body_quat_w.dtype),
             body_lin_vel_w=np.empty(
                 (num_frames, self.num_bodies, 3), dtype=self.body_lin_vel_w.dtype
             ),

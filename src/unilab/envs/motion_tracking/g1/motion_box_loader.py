@@ -92,8 +92,10 @@ class BoxMotionLoader(MotionLoader):
             self.joint_pos = self.joint_pos[:, :n_robot_joints]
             self.joint_vel = self.joint_vel[:, :n_robot_joints]
 
-    def get_motion_at_frame(self, frame_idx: np.ndarray) -> BoxMotionData:
-        base = super().get_motion_at_frame(frame_idx)
+    def get_motion_at_frame(
+        self, frame_idx: np.ndarray, out: MotionData | None = None
+    ) -> BoxMotionData:
+        base = super().get_motion_at_frame(frame_idx, out=out)
         if not self.has_object:
             return BoxMotionData(
                 joint_pos=base.joint_pos,
@@ -103,6 +105,18 @@ class BoxMotionLoader(MotionLoader):
                 body_lin_vel_w=base.body_lin_vel_w,
                 body_ang_vel_w=base.body_ang_vel_w,
             )
+        if (
+            isinstance(out, BoxMotionData)
+            and out.object_pos_w is not None
+            and out.object_quat_w is not None
+            and out.object_lin_vel_w is not None
+            and out.object_ang_vel_w is not None
+        ):
+            np.take(self.object_pos_w, frame_idx, axis=0, out=out.object_pos_w)
+            np.take(self.object_quat_w, frame_idx, axis=0, out=out.object_quat_w)
+            np.take(self.object_lin_vel_w, frame_idx, axis=0, out=out.object_lin_vel_w)
+            np.take(self.object_ang_vel_w, frame_idx, axis=0, out=out.object_ang_vel_w)
+            return out
         return BoxMotionData(
             joint_pos=base.joint_pos,
             joint_vel=base.joint_vel,

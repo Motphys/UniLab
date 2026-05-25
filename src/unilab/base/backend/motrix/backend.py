@@ -808,7 +808,9 @@ class MotrixBackend(SimBackend):
         rows = np.asarray(env_ids, dtype=np.intp)
         mask = np.zeros(self._num_envs, dtype=bool)
         mask[rows] = True
-        return self._model.get_sensor_value(name, self._data[mask])  # type: ignore[no-any-return]
+        selected_rows = np.flatnonzero(mask)
+        selected_values = self._model.get_sensor_value(name, self._data[mask])
+        return selected_values[np.searchsorted(selected_rows, rows)]  # type: ignore[no-any-return]
 
     def get_sensor_data_batch(self, names: Sequence[str]) -> np.ndarray:
         sensor_names = tuple(names)

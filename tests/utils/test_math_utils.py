@@ -117,22 +117,14 @@ def test_batched_quaternion_helpers_match_flattened_helpers() -> None:
         np.linspace(0.2, -0.15, num_envs * num_bodies),
         np.linspace(-0.5, 0.25, num_envs * num_bodies),
     ).reshape(num_envs, num_bodies, 4)
-    vectors = np.linspace(-0.6, 0.7, num_envs * num_bodies * 3).reshape(
-        num_envs, num_bodies, 3
-    )
+    vectors = np.linspace(-0.6, 0.7, num_envs * num_bodies * 3).reshape(num_envs, num_bodies, 3)
 
-    anchor_quat_tiled = np.tile(anchor_quat, (1, num_bodies)).reshape(
-        num_envs * num_bodies, 4
-    )
+    anchor_quat_tiled = np.tile(anchor_quat, (1, num_bodies)).reshape(num_envs * num_bodies, 4)
     body_quat_flat = body_quat.reshape(num_envs * num_bodies, 4)
     vectors_flat = vectors.reshape(num_envs * num_bodies, 3)
 
-    expected_mul = np_quat_mul(anchor_quat_tiled, body_quat_flat).reshape(
-        num_envs, num_bodies, 4
-    )
-    expected_apply = np_quat_apply(anchor_quat_tiled, vectors_flat).reshape(
-        num_envs, num_bodies, 3
-    )
+    expected_mul = np_quat_mul(anchor_quat_tiled, body_quat_flat).reshape(num_envs, num_bodies, 4)
+    expected_apply = np_quat_apply(anchor_quat_tiled, vectors_flat).reshape(num_envs, num_bodies, 3)
     expected_error = np_quat_error_magnitude(anchor_quat_tiled, body_quat_flat).reshape(
         num_envs, num_bodies
     )
@@ -172,9 +164,7 @@ def test_anchor_frame_transform_matches_flattened_path() -> None:
     num_bodies = 4
 
     anchor_pos = np.linspace(-0.2, 0.4, num_envs * 3).reshape(num_envs, 3)
-    body_pos = np.linspace(-0.5, 0.7, num_envs * num_bodies * 3).reshape(
-        num_envs, num_bodies, 3
-    )
+    body_pos = np.linspace(-0.5, 0.7, num_envs * num_bodies * 3).reshape(num_envs, num_bodies, 3)
     anchor_quat = np_quat_from_euler_xyz(
         np.linspace(0.0, 0.2, num_envs),
         np.linspace(-0.1, 0.1, num_envs),
@@ -186,12 +176,8 @@ def test_anchor_frame_transform_matches_flattened_path() -> None:
         np.linspace(-0.4, 0.3, num_envs * num_bodies),
     ).reshape(num_envs, num_bodies, 4)
 
-    anchor_pos_tiled = np.tile(anchor_pos, (1, num_bodies)).reshape(
-        num_envs * num_bodies, 3
-    )
-    anchor_quat_tiled = np.tile(anchor_quat, (1, num_bodies)).reshape(
-        num_envs * num_bodies, 4
-    )
+    anchor_pos_tiled = np.tile(anchor_pos, (1, num_bodies)).reshape(num_envs * num_bodies, 3)
+    anchor_quat_tiled = np.tile(anchor_quat, (1, num_bodies)).reshape(num_envs * num_bodies, 4)
     expected_pos, expected_quat = np_subtract_frame_transforms(
         anchor_pos_tiled,
         anchor_quat_tiled,

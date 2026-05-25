@@ -29,7 +29,6 @@ from unilab.dtype_config import get_global_dtype
 from unilab.envs.common.math import np_sample_uniform
 from unilab.envs.common.rotation import (
     np_quat_apply,
-    np_quat_error_magnitude_squared_batched,
     np_quat_from_euler_xyz,
     np_quat_inv,
     np_quat_mul,

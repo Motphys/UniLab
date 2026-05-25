@@ -599,6 +599,232 @@ def test_g1_motion_tracking_anchor_frame_writers_match_reference():
     np.testing.assert_allclose(ori_out, ref_ori, rtol=1e-12, atol=1e-12)
 
 
+def test_g1_motion_tracking_relative_transform_fast_path_matches_reference():
+    from unilab.envs.common.rotation import np_quat_apply, np_quat_inv, np_quat_mul, np_yaw_quat
+    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
+
+    rng = np.random.default_rng(321)
+    num_envs = 4
+    num_bodies = 5
+    anchor_idx = 2
+    dtype = np.float64
+
+    def random_quat(shape: tuple[int, ...]) -> np.ndarray:
+        quat = rng.normal(size=(*shape, 4)).astype(dtype)
+        quat /= np.linalg.norm(quat, axis=-1, keepdims=True)
+        return quat
+
+    motion_data = SimpleNamespace(
+        body_pos_w=rng.normal(size=(num_envs, num_bodies, 3)).astype(dtype),
+        body_quat_w=random_quat((num_envs, num_bodies)),
+    )
+    robot_body_pos_w = rng.normal(size=(num_envs, num_bodies, 3)).astype(dtype)
+    robot_body_quat_w = random_quat((num_envs, num_bodies))
+
+    env = cast(Any, object.__new__(G1MotionTrackingEnv))
+    env.anchor_body_idx = anchor_idx
+    env.body_pos_relative_w = np.empty((num_envs, num_bodies, 3), dtype=dtype)
+    env.body_quat_relative_w = np.empty((num_envs, num_bodies, 4), dtype=dtype)
+    env._delta_pos_w = np.empty((num_envs, 3), dtype=dtype)
+    env._delta_ori_w = np.empty((num_envs, 4), dtype=dtype)
+    env._body_vec_error = np.empty((num_envs, num_bodies, 3), dtype=dtype)
+    env._env_error = np.empty((num_envs,), dtype=dtype)
+    env._reward_term = np.empty((num_envs,), dtype=dtype)
+
+    env._update_relative_transforms(motion_data, robot_body_pos_w, robot_body_quat_w)
+
+    anchor_pos_w = motion_data.body_pos_w[:, anchor_idx]
+    anchor_quat_w = motion_data.body_quat_w[:, anchor_idx]
+    robot_anchor_pos_w = robot_body_pos_w[:, anchor_idx]
+    robot_anchor_quat_w = robot_body_quat_w[:, anchor_idx]
+    delta_pos_w = robot_anchor_pos_w.copy()
+    delta_pos_w[:, 2] = anchor_pos_w[:, 2]
+    delta_ori_w = np_yaw_quat(np_quat_mul(robot_anchor_quat_w, np_quat_inv(anchor_quat_w)))
+    delta_ori_tiled = np.tile(delta_ori_w, (1, num_bodies)).reshape(num_envs * num_bodies, 4)
+    expected_quat = np_quat_mul(
+        delta_ori_tiled,
+        motion_data.body_quat_w.reshape(num_envs * num_bodies, 4),
+    ).reshape(num_envs, num_bodies, 4)
+    rel_pos_flat = (motion_data.body_pos_w - anchor_pos_w[:, None, :]).reshape(
+        num_envs * num_bodies, 3
+    )
+    expected_pos = delta_pos_w[:, None, :] + np_quat_apply(delta_ori_tiled, rel_pos_flat).reshape(
+        num_envs, num_bodies, 3
+    )
+
+    np.testing.assert_allclose(env.body_pos_relative_w, expected_pos, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(env.body_quat_relative_w, expected_quat, rtol=1e-12, atol=1e-12)
+
+
+def test_g1_motion_tracking_reward_fast_path_matches_reference():
+    from unilab.envs.common.rotation import np_quat_error_magnitude
+    from unilab.envs.motion_tracking.g1.motion_loader import MotionData
+    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv, RewardConfig
+
+    rng = np.random.default_rng(456)
+    num_envs = 3
+    num_bodies = 4
+    num_actions = 2
+    anchor_idx = 1
+    ee_indices = np.array([2, 3], dtype=np.int32)
+    undesired_indices = np.array([0, 1], dtype=np.int32)
+    dtype = np.float64
+
+    def random_quat(shape: tuple[int, ...]) -> np.ndarray:
+        quat = rng.normal(size=(*shape, 4)).astype(dtype)
+        quat /= np.linalg.norm(quat, axis=-1, keepdims=True)
+        return quat
+
+    reward_config = RewardConfig()
+    reward_config.scales = {
+        "motion_global_root_pos": 0.5,
+        "motion_global_root_ori": 0.25,
+        "motion_body_pos": 1.0,
+        "motion_body_ori": 0.75,
+        "motion_body_lin_vel": 0.4,
+        "motion_body_ang_vel": 0.3,
+        "motion_ee_body_pos_z": 0.2,
+        "motion_joint_pos": 0.6,
+        "motion_joint_vel": 0.7,
+        "action_rate_l2": -0.1,
+        "joint_limit": -0.2,
+        "undesired_contacts": -0.3,
+    }
+    ctrl_dt = 0.02
+    contact_threshold = 0.05
+
+    motion_data = MotionData(
+        joint_pos=rng.normal(size=(num_envs, num_actions)).astype(dtype),
+        joint_vel=rng.normal(size=(num_envs, num_actions)).astype(dtype),
+        body_pos_w=rng.normal(size=(num_envs, num_bodies, 3)).astype(dtype),
+        body_quat_w=random_quat((num_envs, num_bodies)),
+        body_lin_vel_w=rng.normal(size=(num_envs, num_bodies, 3)).astype(dtype),
+        body_ang_vel_w=rng.normal(size=(num_envs, num_bodies, 3)).astype(dtype),
+    )
+    robot_body_pos_w = rng.normal(size=(num_envs, num_bodies, 3)).astype(dtype)
+    robot_body_pos_w[:, undesired_indices, 2] = np.array(
+        [[0.01, 0.10], [0.20, 0.02], [0.07, 0.03]], dtype=dtype
+    )
+    robot_body_quat_w = random_quat((num_envs, num_bodies))
+    robot_body_lin_vel_w = rng.normal(size=(num_envs, num_bodies, 3)).astype(dtype)
+    robot_body_ang_vel_w = rng.normal(size=(num_envs, num_bodies, 3)).astype(dtype)
+    dof_pos = rng.normal(size=(num_envs, num_actions)).astype(dtype)
+    dof_vel = rng.normal(size=(num_envs, num_actions)).astype(dtype)
+    current_actions = rng.normal(size=(num_envs, num_actions)).astype(dtype)
+    last_actions = rng.normal(size=(num_envs, num_actions)).astype(dtype)
+    body_pos_relative_w = rng.normal(size=(num_envs, num_bodies, 3)).astype(dtype)
+    body_quat_relative_w = random_quat((num_envs, num_bodies))
+    joint_lower = np.array([-0.2, -0.1], dtype=dtype)
+    joint_upper = np.array([0.1, 0.2], dtype=dtype)
+
+    env = cast(Any, object.__new__(G1MotionTrackingEnv))
+    env._num_envs = num_envs
+    env.anchor_body_idx = anchor_idx
+    env.ee_body_indices = ee_indices
+    env.undesired_contact_body_indices = undesired_indices
+    env._has_ee_body_indices = True
+    env._has_undesired_contact_body_indices = True
+    env._cfg = SimpleNamespace(
+        reward_config=reward_config,
+        ctrl_dt=ctrl_dt,
+        undesired_contact_z_threshold=contact_threshold,
+    )
+    env.body_pos_relative_w = body_pos_relative_w.copy()
+    env.body_quat_relative_w = body_quat_relative_w.copy()
+    env._joint_lower = joint_lower
+    env._joint_upper = joint_upper
+    env._body_vec_error = np.empty((num_envs, num_bodies, 3), dtype=dtype)
+    env._joint_error = np.empty((num_envs, num_actions), dtype=dtype)
+    env._joint_error_upper = np.empty((num_envs, num_actions), dtype=dtype)
+    env._env_error = np.empty((num_envs,), dtype=dtype)
+    env._env_error2 = np.empty((num_envs,), dtype=dtype)
+    env._reward_term = np.empty((num_envs,), dtype=dtype)
+    env._weighted_reward = np.empty((num_envs,), dtype=dtype)
+    env._quat_error_w = np.empty((num_envs, num_bodies), dtype=dtype)
+    env._quat_error_x = np.empty((num_envs, num_bodies), dtype=dtype)
+    env._ee_pos_error_z = np.empty((num_envs, ee_indices.size), dtype=dtype)
+    env._undesired_contact_mask = np.empty((num_envs, undesired_indices.size), dtype=bool)
+    env._enable_reward_log = False
+    env._init_reward_functions()
+    env._active_reward_fns = {
+        name: fn for name, fn in env._reward_fns.items() if env._reward_term_is_active(name)
+    }
+
+    info = {
+        "current_actions": current_actions,
+        "last_actions": last_actions,
+        "steps": np.zeros((num_envs,), dtype=np.uint32),
+    }
+    actual = env._compute_reward(
+        info,
+        motion_data,
+        robot_body_pos_w,
+        robot_body_quat_w,
+        robot_body_lin_vel_w,
+        robot_body_ang_vel_w,
+        dof_pos,
+        dof_vel,
+    ).copy()
+
+    cfg = reward_config
+    expected = np.zeros((num_envs,), dtype=dtype)
+    root_pos_error = np.sum(
+        np.square(motion_data.body_pos_w[:, anchor_idx] - robot_body_pos_w[:, anchor_idx]),
+        axis=-1,
+    )
+    expected += cfg.scales["motion_global_root_pos"] * np.exp(-root_pos_error / cfg.std_root_pos**2)
+    root_ori_error = (
+        np_quat_error_magnitude(
+            motion_data.body_quat_w[:, anchor_idx],
+            robot_body_quat_w[:, anchor_idx],
+        )
+        ** 2
+    )
+    expected += cfg.scales["motion_global_root_ori"] * np.exp(-root_ori_error / cfg.std_root_ori**2)
+    body_pos_error = np.sum(np.square(body_pos_relative_w - robot_body_pos_w), axis=-1)
+    expected += cfg.scales["motion_body_pos"] * np.exp(
+        -body_pos_error.mean(-1) / cfg.std_body_pos**2
+    )
+    body_ori_error = np_quat_error_magnitude(
+        body_quat_relative_w.reshape(num_envs * num_bodies, 4),
+        robot_body_quat_w.reshape(num_envs * num_bodies, 4),
+    ).reshape(num_envs, num_bodies)
+    expected += cfg.scales["motion_body_ori"] * np.exp(
+        -np.square(body_ori_error).mean(-1) / cfg.std_body_ori**2
+    )
+    body_lin_error = np.sum(np.square(motion_data.body_lin_vel_w - robot_body_lin_vel_w), axis=-1)
+    expected += cfg.scales["motion_body_lin_vel"] * np.exp(
+        -body_lin_error.mean(-1) / cfg.std_body_lin_vel**2
+    )
+    body_ang_error = np.sum(np.square(motion_data.body_ang_vel_w - robot_body_ang_vel_w), axis=-1)
+    expected += cfg.scales["motion_body_ang_vel"] * np.exp(
+        -body_ang_error.mean(-1) / cfg.std_body_ang_vel**2
+    )
+    ee_error = np.square(body_pos_relative_w[:, ee_indices, 2] - robot_body_pos_w[:, ee_indices, 2])
+    expected += cfg.scales["motion_ee_body_pos_z"] * np.exp(
+        -ee_error.mean(-1) / cfg.std_body_pos**2
+    )
+    joint_pos_error = np.mean(np.square(motion_data.joint_pos - dof_pos), axis=-1)
+    expected += cfg.scales["motion_joint_pos"] * np.exp(-joint_pos_error / cfg.std_joint_pos**2)
+    joint_vel_error = np.mean(np.square(motion_data.joint_vel - dof_vel), axis=-1)
+    expected += cfg.scales["motion_joint_vel"] * np.exp(-joint_vel_error / cfg.std_joint_vel**2)
+    expected += cfg.scales["action_rate_l2"] * np.sum(
+        np.square(current_actions - last_actions), axis=1
+    )
+    lower_violation = np.maximum(0, joint_lower - dof_pos)
+    upper_violation = np.maximum(0, dof_pos - joint_upper)
+    expected += cfg.scales["joint_limit"] * np.sum(
+        np.square(lower_violation + upper_violation), axis=1
+    )
+    expected += cfg.scales["undesired_contacts"] * np.sum(
+        robot_body_pos_w[:, undesired_indices, 2] < contact_threshold,
+        axis=-1,
+    )
+    expected *= ctrl_dt
+
+    np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12)
+
+
 def test_g1_motion_tracking_deploy_actor_matches_unitree_mimic_terms():
     from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingDeployEnv
 

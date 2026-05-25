@@ -536,7 +536,7 @@ class SimBackend(abc.ABC):
     def get_body_state_w(
         self, body_ids: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """获取指定 body 的世界系位置、四元数、线速度和角速度。"""
+        """Get selected body position, quaternion, linear velocity, and angular velocity."""
         return (
             self.get_body_pos_w(body_ids),
             self.get_body_quat_w(body_ids),
