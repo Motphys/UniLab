@@ -757,9 +757,9 @@ class MuJoCoBackend(SimBackend):
         return self.get_joint_dof_indices(names) - self._root_qvel_dim
 
     def get_joint_range(self) -> np.ndarray | None:
-        if self._root_qpos_dim > 0:
-            return np.array(self._model.jnt_range[1:], dtype=self._np_dtype)
-        return np.array(self._model.jnt_range, dtype=self._np_dtype)
+        jnt_range = self._model.jnt_range
+        mask = self._model.jnt_type != int(mujoco.mjtJoint.mjJNT_FREE)
+        return np.array(jnt_range[mask], dtype=self._np_dtype)
 
     # ------------------------------------------------------------------ #
     # Simulation control                                                 #
