@@ -268,6 +268,8 @@ class MotrixBackend(SimBackend):
 
         # 运行一次正向运动学，确保初始 link 位置和传感器数据有效。
         self._model.forward_kinematic(self._data)
+        self._link_velocities: np.ndarray | None = None
+        self._link_velocity_cache_valid = False
         self._refresh_link_pose_cache()
 
     def get_motion_body_ids(self, names: Sequence[str]) -> np.ndarray:
@@ -431,6 +433,7 @@ class MotrixBackend(SimBackend):
 
         t0 = time.perf_counter()
         self._refresh_link_pose_cache()
+        self._invalidate_link_velocity_cache()
         refresh_cache_ms = (time.perf_counter() - t0) * 1000.0
 
         return {
@@ -460,6 +463,7 @@ class MotrixBackend(SimBackend):
 
             t0 = time.perf_counter()
             self._refresh_link_pose_cache()
+            self._invalidate_link_velocity_cache()
             refresh_cache_ms += (time.perf_counter() - t0) * 1000.0
 
         return {
@@ -500,6 +504,7 @@ class MotrixBackend(SimBackend):
 
         self._model.forward_kinematic(data_slice)
         self._refresh_link_pose_cache(env_indices)
+        self._invalidate_link_velocity_cache()
 
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
         supported_reset_terms = {
@@ -727,6 +732,10 @@ class MotrixBackend(SimBackend):
         poses_w = self._link_poses[rows[:, None], self._as_body_ids(body_ids), :]
         return poses_w[:, :, :3], self._xyzw_to_wxyz(poses_w[:, :, 3:])
 
+    def get_body_pose_w(self, body_ids: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        poses = self._get_link_poses_w(body_ids)
+        return poses[:, :, :3], self._xyzw_to_wxyz(poses[:, :, 3:])
+
     def get_body_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
         return self._get_link_lin_vel_w(body_ids)
 
@@ -737,11 +746,12 @@ class MotrixBackend(SimBackend):
         self, body_ids: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         poses_w = self._get_link_poses_w(body_ids)
+        lin_vel_w, ang_vel_w = self.get_body_vel_w(body_ids)
         return (
             poses_w[:, :, :3],
             self._xyzw_to_wxyz(poses_w[:, :, 3:]),
-            self._get_link_lin_vel_w(body_ids),
-            self._get_link_ang_vel_w(body_ids),
+            lin_vel_w,
+            ang_vel_w,
         )
 
     def copy_body_state_w(
@@ -762,7 +772,7 @@ class MotrixBackend(SimBackend):
         out_quat[..., 2] = poses_w[..., 4]
         out_quat[..., 3] = poses_w[..., 5]
 
-        link_velocity_cache = self._model.get_link_velocities(self._data)
+        link_velocity_cache = self._ensure_link_velocity_cache()
         if self._link_velocity_cache is None or self._link_velocity_cache.shape != (
             self._num_envs,
             len(ids),
@@ -779,6 +789,11 @@ class MotrixBackend(SimBackend):
         out_ang_vel[..., 1] = self._link_velocity_cache[..., 4]
         out_ang_vel[..., 2] = self._link_velocity_cache[..., 5]
         return out_pos, out_quat, out_lin_vel, out_ang_vel
+
+    def get_body_vel_w(self, body_ids: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        ids = self._as_body_ids(body_ids)
+        velocities = np.ascontiguousarray(self._ensure_link_velocity_cache()[:, ids, :])
+        return velocities[:, :, :3], velocities[:, :, 3:]
 
     # ------------------------------------------------------------------ #
     # Body kinematics — baselink frame                                   #
@@ -832,17 +847,11 @@ class MotrixBackend(SimBackend):
 
     def _get_link_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
         ids = self._as_body_ids(body_ids)
-        return np.stack(
-            [self._link_cache[int(bid)].get_linear_velocity(self._data) for bid in ids],
-            axis=1,
-        )
+        return np.ascontiguousarray(self._ensure_link_velocity_cache()[:, ids, :3])
 
     def _get_link_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
         ids = self._as_body_ids(body_ids)
-        return np.stack(
-            [self._link_cache[int(bid)].get_angular_velocity(self._data) for bid in ids],
-            axis=1,
-        )
+        return np.ascontiguousarray(self._ensure_link_velocity_cache()[:, ids, 3:])
 
     def _get_body_sensor_values(self, body_ids: np.ndarray, prefix: str) -> np.ndarray:
         return np.stack(
@@ -878,6 +887,28 @@ class MotrixBackend(SimBackend):
             mask = np.zeros(self._num_envs, dtype=bool)
             mask[env_indices] = True
             self._link_poses[env_indices] = self._model.get_link_poses(self._data[mask])
+
+    def _refresh_link_velocity_cache(self, env_indices: np.ndarray | None = None) -> None:
+        if env_indices is None:
+            self._link_velocities = self._model.get_link_velocities(self._data)
+        else:
+            mask = np.zeros(self._num_envs, dtype=bool)
+            mask[env_indices] = True
+            if self._link_velocities is None:
+                self._link_velocities = self._model.get_link_velocities(self._data)
+                self._link_velocity_cache_valid = True
+                return
+            self._link_velocities[env_indices] = self._model.get_link_velocities(self._data[mask])
+        self._link_velocity_cache_valid = True
+
+    def _invalidate_link_velocity_cache(self) -> None:
+        self._link_velocity_cache_valid = False
+
+    def _ensure_link_velocity_cache(self) -> np.ndarray:
+        if self._link_velocities is None or not self._link_velocity_cache_valid:
+            self._refresh_link_velocity_cache()
+        assert self._link_velocities is not None
+        return self._link_velocities
 
     def _coerce_reset_field(
         self,

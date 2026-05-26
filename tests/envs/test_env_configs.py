@@ -423,21 +423,17 @@ def test_allegro_grasp_obs_groups_spec_dims():
     assert spec == {"obs": 105}
 
 
-def test_g1_motion_tracking_uses_split_body_pose_queries():
-    """G1MotionTracking should query pos/quat via the stable split backend API."""
+def test_g1_motion_tracking_uses_combined_body_pose_query():
+    """G1MotionTracking should query pos/quat via the stable combined backend API."""
     from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
 
     class FakeBackend:
         def __init__(self) -> None:
-            self.calls: list[tuple[str, np.ndarray]] = []
+            self.calls: list[np.ndarray] = []
 
-        def get_body_pos_w(self, body_ids: np.ndarray) -> np.ndarray:
-            self.calls.append(("pos", body_ids.copy()))
-            return np.ones((2, len(body_ids), 3))
-
-        def get_body_quat_w(self, body_ids: np.ndarray) -> np.ndarray:
-            self.calls.append(("quat", body_ids.copy()))
-            return np.ones((2, len(body_ids), 4))
+        def get_body_pose_w(self, body_ids: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+            self.calls.append(body_ids.copy())
+            return np.ones((2, len(body_ids), 3)), np.ones((2, len(body_ids), 4))
 
     env = cast(Any, object.__new__(G1MotionTrackingEnv))
     env._backend = FakeBackend()
@@ -447,9 +443,8 @@ def test_g1_motion_tracking_uses_split_body_pose_queries():
 
     assert pos_w.shape == (2, 2, 3)
     assert quat_w.shape == (2, 2, 4)
-    assert [name for name, _ in env._backend.calls] == ["pos", "quat"]
-    np.testing.assert_array_equal(env._backend.calls[0][1], np.array([1, 3], dtype=np.int32))
-    np.testing.assert_array_equal(env._backend.calls[1][1], np.array([1, 3], dtype=np.int32))
+    assert len(env._backend.calls) == 1
+    np.testing.assert_array_equal(env._backend.calls[0], np.array([1, 3], dtype=np.int32))
 
 
 def _compute_g1_motion_tracking_obs_stub(env_cls: type):
@@ -1388,6 +1383,9 @@ def _make_g1_motion_tracking_clip_end_stub(
                 (2, len(body_ids), 1),
             )
 
+        def get_body_pose_w(self, body_ids: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+            return self.get_body_pos_w(body_ids), self.get_body_quat_w(body_ids)
+
         def get_body_pose_w_rows(
             self, env_ids: np.ndarray, body_ids: np.ndarray
         ) -> tuple[np.ndarray, np.ndarray]:
@@ -1397,6 +1395,9 @@ def _make_g1_motion_tracking_clip_end_stub(
         def get_sensor_data_rows(self, name: str, env_ids: np.ndarray) -> np.ndarray:
             del name
             return np.zeros((len(env_ids), 3), dtype=np.float32)
+
+        def get_body_vel_w(self, body_ids: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+            return self.get_body_lin_vel_w(body_ids), self.get_body_ang_vel_w(body_ids)
 
         def set_state(self, env_ids: np.ndarray, qpos: np.ndarray, qvel: np.ndarray) -> None:
             self.set_state_calls.append((env_ids.copy(), qpos.copy(), qvel.copy()))

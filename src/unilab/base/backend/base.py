@@ -511,6 +511,10 @@ class SimBackend(abc.ABC):
             (num_envs, len(body_ids), 4)
         """
 
+    def get_body_pose_w(self, body_ids: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """获取指定 body 在世界系下的位置和四元数（wxyz）"""
+        return self.get_body_pos_w(body_ids), self.get_body_quat_w(body_ids)
+
     @abc.abstractmethod
     def get_body_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
         """获取指定 body 在世界系下的线速度
@@ -521,6 +525,10 @@ class SimBackend(abc.ABC):
         Returns:
             (num_envs, len(body_ids), 3)
         """
+
+    def get_body_vel_w(self, body_ids: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """获取指定 body 在世界系下的线速度和角速度"""
+        return self.get_body_lin_vel_w(body_ids), self.get_body_ang_vel_w(body_ids)
 
     @abc.abstractmethod
     def get_body_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
