@@ -114,6 +114,24 @@ def _close_worker():
         _worker_ctx["renderer"].close()
 
 
+def _offset_freejoint_object_qpos(model, data, offset) -> set[int]:
+    """Offset all non-root freejoint bodies and return shifted body ids."""
+    shifted_body_ids: set[int] = set()
+    for body_id in range(2, model.nbody):
+        jnt_adr = model.body_jntadr[body_id]
+        if jnt_adr < 0:
+            continue
+        jnt_end = model.body_jntadr[body_id] + model.body_jntnum[body_id]
+        for joint_id in range(jnt_adr, jnt_end):
+            if model.jnt_type[joint_id] == 0:  # mjJNT_FREE
+                qpos_adr = model.jnt_qposadr[joint_id]
+                data.qpos[qpos_adr] += offset[0]
+                data.qpos[qpos_adr + 1] += offset[1]
+                shifted_body_ids.add(body_id)
+                break
+    return shifted_body_ids
+
+
 def _replicable_terrain_geom_indices(model) -> np.ndarray:
     """Group-0 worldbody geoms that should be duplicated under each env in the grid.
 
@@ -229,14 +247,8 @@ def render_frame_job(args):
             if not robot_moved:
                 apply_root_offset = True
 
-            # 2. Box offset
-            box_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "box")
-            if box_id >= 0:
-                jnt_adr = model.body_jntadr[box_id]
-                if jnt_adr >= 0:
-                    qpos_adr = model.jnt_qposadr[jnt_adr]
-                    d.qpos[qpos_adr] += offset[0]
-                    d.qpos[qpos_adr + 1] += offset[1]
+            # 2. Offset any independent freejoint objects (e.g. box, largebox)
+            shifted_body_ids = _offset_freejoint_object_qpos(model, d, offset)
 
             # 3. Target offset (target_x, target_y)
             target_x = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "target_x")
@@ -261,35 +273,24 @@ def render_frame_job(args):
             # So we need to shift geoms that belong to bodies which are NOT Box or Target.
             # Or simpler: Shift everything, but subtract offset from Box/Target qpos first? No.
 
-            # Let's iterate bodies.
-            # Simple heuristic: Shift everything except Box and Target?
-            box_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "box")
             target_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "mocap_target")
-
-            # Also target might be just a body named "mocap_target"
+            qpos_shifted_bodies = set(shifted_body_ids)
+            if target_body_id >= 0:
+                qpos_shifted_bodies.add(target_body_id)
 
             for i in range(model.ngeom):
                 body_id = model.geom_bodyid[i]
-                # If it is robot body.
-                # We want to shift generally everything that wasn't shifted by Qpos.
-                # Box and Target were shifted by Qpos.
-                # Floor (Plane) should usually NOT be shifted (infinite).
-                # Everything else (Robot Base, Robot Links, Decoration) should be shifted.
-
-                is_box_or_target = (body_id == box_body_id) or (body_id == target_body_id)
+                is_already_shifted = body_id in qpos_shifted_bodies
                 is_plane = model.geom_type[i] == mujoco.mjtGeom.mjGEOM_PLANE
 
-                if not is_box_or_target and not is_plane:
+                if not is_already_shifted and not is_plane:
                     d.geom_xpos[i, 0] += offset[0]
                     d.geom_xpos[i, 1] += offset[1]
 
-            # Also update site positions if they are visualized
             for i in range(model.nsite):
                 body_id = model.site_bodyid[i]
-
-                is_box_or_target = (body_id == box_body_id) or (body_id == target_body_id)
-
-                if not is_box_or_target:
+                is_already_shifted = body_id in qpos_shifted_bodies
+                if not is_already_shifted:
                     d.site_xpos[i, 0] += offset[0]
                     d.site_xpos[i, 1] += offset[1]
 
@@ -512,13 +513,7 @@ def render_frame_tracking_job(args):
             if not robot_moved:
                 apply_root_offset = True
 
-            box_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "box")
-            if box_id >= 0:
-                jnt_adr = model.body_jntadr[box_id]
-                if jnt_adr >= 0:
-                    qpos_adr = model.jnt_qposadr[jnt_adr]
-                    d.qpos[qpos_adr] += offset[0]
-                    d.qpos[qpos_adr + 1] += offset[1]
+            shifted_body_ids = _offset_freejoint_object_qpos(model, d, offset)
 
             target_x = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "target_x")
             if target_x >= 0:
@@ -531,22 +526,24 @@ def render_frame_tracking_job(args):
         mujoco.mj_forward(model, d)
 
         if apply_root_offset and offset is not None:
-            box_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "box")
             target_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "mocap_target")
+            qpos_shifted_bodies = set(shifted_body_ids)
+            if target_body_id >= 0:
+                qpos_shifted_bodies.add(target_body_id)
 
             for i in range(model.ngeom):
                 body_id = model.geom_bodyid[i]
-                is_box_or_target = (body_id == box_body_id) or (body_id == target_body_id)
+                is_already_shifted = body_id in qpos_shifted_bodies
                 is_plane = model.geom_type[i] == mujoco.mjtGeom.mjGEOM_PLANE
 
-                if not is_box_or_target and not is_plane:
+                if not is_already_shifted and not is_plane:
                     d.geom_xpos[i, 0] += offset[0]
                     d.geom_xpos[i, 1] += offset[1]
 
             for i in range(model.nsite):
                 body_id = model.site_bodyid[i]
-                is_box_or_target = (body_id == box_body_id) or (body_id == target_body_id)
-                if not is_box_or_target:
+                is_already_shifted = body_id in qpos_shifted_bodies
+                if not is_already_shifted:
                     d.site_xpos[i, 0] += offset[0]
                     d.site_xpos[i, 1] += offset[1]
 
