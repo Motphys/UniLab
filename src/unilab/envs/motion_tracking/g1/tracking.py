@@ -549,9 +549,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
                 obs[key][env_ids] = value[env_ids]
 
     def _get_body_pose_w(self) -> tuple[np.ndarray, np.ndarray]:
-        return self._backend.get_body_pos_w(self.body_ids), self._backend.get_body_quat_w(
-            self.body_ids
-        )
+        return self._backend.get_body_pose_w(self.body_ids)
 
     def _get_body_state_w(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         copy_body_state_w = self._copy_body_state_w
@@ -564,11 +562,12 @@ class G1MotionTrackingEnv(G1BaseEnv):
                 self._robot_body_ang_vel_w,
             )
         robot_body_pos_w, robot_body_quat_w = self._get_body_pose_w()
+        robot_body_lin_vel_w, robot_body_ang_vel_w = self._backend.get_body_vel_w(self.body_ids)
         return (
             robot_body_pos_w,
             robot_body_quat_w,
-            self._backend.get_body_lin_vel_w(self.body_ids),
-            self._backend.get_body_ang_vel_w(self.body_ids),
+            robot_body_lin_vel_w,
+            robot_body_ang_vel_w,
         )
 
     def _get_joint_range(self) -> np.ndarray | None:
