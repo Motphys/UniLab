@@ -261,12 +261,12 @@ class FastTD3Learner:
         bootstrap = (truncations | ~dones).float()
         discount = torch.full_like(rewards, self.gamma)
 
-        # Target policy smoothing
+        # Target policy smoothing (uses online actor, matching reference FastTD3)
         clipped_noise = torch.randn_like(actions)
         clipped_noise = clipped_noise.mul(self.policy_noise).clamp(
             -self.noise_clip, self.noise_clip
         )
-        next_state_actions = (self.actor_target(next_observations) + clipped_noise).clamp(-1.0, 1.0)
+        next_state_actions = (self.actor(next_observations) + clipped_noise).clamp(-1.0, 1.0)
 
         with torch.no_grad():
             qf1_next_target_proj, qf2_next_target_proj = self.qnet_target.projection(
@@ -349,16 +349,11 @@ class FastTD3Learner:
 
     @torch.no_grad()
     def soft_update_target(self) -> None:
-        """Polyak-average update of target networks."""
+        """Polyak-average update of critic target network only (matching reference FastTD3)."""
         src_ps = [p.data for p in self.qnet.parameters()]
         tgt_ps = [p.data for p in self.qnet_target.parameters()]
         torch._foreach_mul_(tgt_ps, 1.0 - self.tau)
         torch._foreach_add_(tgt_ps, src_ps, alpha=self.tau)
-
-        src_actor_ps = [p.data for p in self.actor.parameters()]
-        tgt_actor_ps = [p.data for p in self.actor_target.parameters()]
-        torch._foreach_mul_(tgt_actor_ps, 1.0 - self.tau)
-        torch._foreach_add_(tgt_actor_ps, src_actor_ps, alpha=self.tau)
 
     @torch.no_grad()
     def soft_update(self) -> None:

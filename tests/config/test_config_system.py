@@ -208,8 +208,39 @@ def test_offpolicy_g1_walk_flat_mujoco_td3_uses_td3_task_owner():
     assert cfg.training.task_name == "G1WalkFlat"
     assert cfg.training.sim_backend == "mujoco"
     assert cfg.algo.max_iterations == 100000
+    assert cfg.algo.tau == pytest.approx(0.1)
+    assert cfg.algo.actor_hidden_dim == 512
+    assert cfg.algo.critic_hidden_dim == 1024
     assert cfg.reward.scales.tracking_lin_vel == pytest.approx(2.0)
     assert cfg.env.control_config.action_scale == pytest.approx(1.0)
+
+
+def test_offpolicy_td3_go2_joystick_flat_motrix_composes():
+    cfg = _compose(
+        "offpolicy",
+        overrides=["algo=td3", "task=td3/go2_joystick_flat/motrix"],
+    )
+
+    assert cfg.training.task_name == "Go2JoystickFlat"
+    assert cfg.training.sim_backend == "motrix"
+    assert cfg.algo.algo == "td3"
+    assert cfg.algo.tau == pytest.approx(0.1)
+    assert cfg.algo.algo_params.weight_decay == pytest.approx(0.1)
+    assert cfg.algo.algo_params.policy_noise == pytest.approx(0.2)
+    assert cfg.reward.scales.tracking_lin_vel == pytest.approx(1.0)
+    assert cfg.reward.base_height_target == pytest.approx(0.3)
+
+
+def test_offpolicy_td3_go1_joystick_flat_motrix_composes():
+    cfg = _compose(
+        "offpolicy",
+        overrides=["algo=td3", "task=td3/go1_joystick_flat/motrix"],
+    )
+
+    assert cfg.training.task_name == "Go1JoystickFlat"
+    assert cfg.training.sim_backend == "motrix"
+    assert cfg.algo.algo == "td3"
+    assert cfg.reward.scales.tracking_lin_vel == pytest.approx(1.0)
 
 
 def test_offpolicy_g1_walk_flat_motrix_preserves_backend_specific_algo_value():
