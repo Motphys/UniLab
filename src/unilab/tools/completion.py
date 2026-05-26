@@ -24,10 +24,19 @@ SUPPORTED_SHELLS = ("bash", "zsh")
 
 
 @dataclass(frozen=True)
+class TaskCompletionEntry:
+    algo: str
+    task: str
+    sim: str
+    owner: str
+
+
+@dataclass(frozen=True)
 class CompletionMetadata:
     commands: tuple[str, ...]
     flags: dict[str, tuple[str, ...]]
     choices: dict[str, dict[str, tuple[str, ...]]]
+    tasks: tuple[TaskCompletionEntry, ...]
 
 
 def _find_project_root(start: Path) -> Path | None:
@@ -91,6 +100,68 @@ def _parser_choices(command: str) -> dict[str, tuple[str, ...]]:
     return choices
 
 
+def _sim_from_owner(owner: str) -> str | None:
+    for sim in cli.SUPPORTED_SIMS:
+        if owner == sim or owner.startswith(f"{sim}_"):
+            return sim
+    return None
+
+
+def _task_entries_for_group(
+    root: Path, group: str, algos: Sequence[str]
+) -> list[TaskCompletionEntry]:
+    entries: list[TaskCompletionEntry] = []
+    task_root = root / "conf" / group / "task"
+    if not task_root.is_dir():
+        return entries
+    for task_dir in sorted(path for path in task_root.iterdir() if path.is_dir()):
+        for owner_yaml in sorted(task_dir.glob("*.yaml")):
+            sim = _sim_from_owner(owner_yaml.stem)
+            if sim is None:
+                continue
+            entries.extend(
+                TaskCompletionEntry(algo=algo, task=task_dir.name, sim=sim, owner=owner_yaml.stem)
+                for algo in algos
+            )
+    return entries
+
+
+def _task_entries_for_offpolicy(root: Path) -> list[TaskCompletionEntry]:
+    entries: list[TaskCompletionEntry] = []
+    task_root = root / "conf" / "offpolicy" / "task"
+    if not task_root.is_dir():
+        return entries
+    for algo in cli.SUPPORTED_ALGOS:
+        algo_root = task_root / algo
+        if not algo_root.is_dir():
+            continue
+        for task_dir in sorted(path for path in algo_root.iterdir() if path.is_dir()):
+            for owner_yaml in sorted(task_dir.glob("*.yaml")):
+                sim = _sim_from_owner(owner_yaml.stem)
+                if sim is None:
+                    continue
+                entries.append(
+                    TaskCompletionEntry(
+                        algo=algo,
+                        task=task_dir.name,
+                        sim=sim,
+                        owner=owner_yaml.stem,
+                    )
+                )
+    return entries
+
+
+def _task_entries(root: Path) -> tuple[TaskCompletionEntry, ...]:
+    entries = [
+        *_task_entries_for_group(root, "ppo", ("ppo", "mlx_ppo")),
+        *_task_entries_for_group(root, "appo", ("appo",)),
+        *_task_entries_for_offpolicy(root),
+    ]
+    return tuple(
+        sorted(entries, key=lambda entry: (entry.task, entry.algo, entry.sim, entry.owner))
+    )
+
+
 def build_metadata(root: Path | None = None) -> CompletionMetadata:
     selected_root = root or _find_project_root(Path.cwd()) or cli.repo_root()
     scripts = _read_project_scripts(selected_root / "pyproject.toml")
@@ -99,6 +170,7 @@ def build_metadata(root: Path | None = None) -> CompletionMetadata:
         commands=commands,
         flags={command: _parser_flags(command) for command in commands},
         choices={command: _parser_choices(command) for command in commands},
+        tasks=_task_entries(selected_root),
     )
 
 
@@ -116,6 +188,58 @@ def _previous_word(words: Sequence[str], cword: int) -> str:
 
 def _matching(candidates: Sequence[str], prefix: str) -> list[str]:
     return [candidate for candidate in candidates if candidate.startswith(prefix)]
+
+
+def _option_state(words: Sequence[str], cword: int) -> tuple[dict[str, str], set[str]]:
+    values: dict[str, str] = {}
+    used: set[str] = set()
+    index = 3
+    limit = min(cword, len(words))
+    while index < limit:
+        token = words[index]
+        if not token.startswith("--"):
+            index += 1
+            continue
+        if "=" in token:
+            option, value = token.split("=", 1)
+            used.add(option)
+            values[option] = value
+            index += 1
+            continue
+        used.add(token)
+        if index + 1 < limit and not words[index + 1].startswith("--"):
+            values[token] = words[index + 1]
+            index += 2
+            continue
+        index += 1
+    return values, used
+
+
+def _available_flags(metadata: CompletionMetadata, command: str, used: set[str]) -> tuple[str, ...]:
+    return tuple(flag for flag in metadata.flags.get(command, ()) if flag not in used)
+
+
+def _task_choices(
+    metadata: CompletionMetadata,
+    *,
+    prefix: str,
+    selected_algo: str | None,
+    selected_sim: str | None,
+    selected_profile: str | None,
+) -> list[str]:
+    tasks: set[str] = set()
+    for entry in metadata.tasks:
+        if selected_algo is not None and entry.algo != selected_algo:
+            continue
+        if selected_sim is not None and entry.sim != selected_sim:
+            continue
+        if selected_profile is not None:
+            if selected_sim is not None and entry.owner != f"{selected_sim}_{selected_profile}":
+                continue
+            if selected_sim is None and not entry.owner.endswith(f"_{selected_profile}"):
+                continue
+        tasks.add(entry.task)
+    return _matching(tuple(sorted(tasks)), prefix)
 
 
 def complete_words(
@@ -136,11 +260,20 @@ def complete_words(
         return []
 
     previous = _previous_word(words, cword)
+    option_values, used_options = _option_state(words, cword)
     choices = selected_metadata.choices.get(command, {})
+    if previous == "--task":
+        return _task_choices(
+            selected_metadata,
+            prefix=current,
+            selected_algo=option_values.get("--algo"),
+            selected_sim=option_values.get("--sim"),
+            selected_profile=option_values.get("--profile"),
+        )
     if previous in choices:
         return _matching(choices[previous], current)
-    if current.startswith("-") or previous == command:
-        return _matching(selected_metadata.flags.get(command, ()), current)
+    if current == "" or current.startswith("-") or previous == command:
+        return _matching(_available_flags(selected_metadata, command, used_options), current)
     return []
 
 
