@@ -32,6 +32,8 @@ make setup-motrix
 
 `make setup` 会执行 `uv sync` 和 `uv run --no-sync unilab-complete install`；`make setup-motrix` 会执行 `uv sync --extra motrix` 和同样的补全安装。安装命令会按 `$SHELL` / 平台选择 Bash 或 Zsh，只写入用户级 rc 文件。当前终端不会被子进程自动激活，重新打开终端或 source 对应 rc 文件后生效。
 
+`make setup` / `make setup-motrix` 要求本机已安装 `make`。如果系统没有 `make`，可直接执行 `uv sync && uv run --no-sync unilab-complete install`，或需要 Motrix 时执行 `uv sync --extra motrix && uv run --no-sync unilab-complete install`。
+
 Linux / WSL Bash 用户也可手动把下面内容写入 `~/.bashrc`：
 
 ```bash

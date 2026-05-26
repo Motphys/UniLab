@@ -41,6 +41,7 @@ cd UniLab
 # Linux CUDA or macOS
 make setup-motrix
 # Without shell completion setup: uv sync --extra motrix
+# If `make` is not installed: uv sync --extra motrix && uv run --no-sync unilab-complete install
 
 # Linux AMD / ROCm
 # make sync-rocm

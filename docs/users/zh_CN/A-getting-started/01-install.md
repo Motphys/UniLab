@@ -27,6 +27,8 @@ make setup-motrix
 
 如果不需要 Motrix，可使用 `make setup`；如果只想手动同步依赖、不写 shell rc，可继续使用底层命令 `uv sync` 或 `uv sync --extra motrix`。ROCm / XPU 仍使用下方专用 `make` 路径。中国大陆镜像用户可同时配置 conda、pip 和 uv 镜像，但最终仍以 `uv sync` 生成的仓库环境为准。
 
+`make setup` / `make setup-motrix` 要求本机已安装 `make`。如果系统没有 `make`，可直接执行等价命令：`uv sync --extra motrix && uv run --no-sync unilab-complete install`，或不需要 Motrix 时执行 `uv sync && uv run --no-sync unilab-complete install`。
+
 `pip install -e .` 和 `pip install .` 当前只适合源码 checkout 内的开发验证，不代表已经支持在任意目录通过 wheel / sdist 直接运行训练。训练入口仍依赖仓库中的 `conf/` 和 `scripts/`；pip-only 安装、构建包后仓库外运行，以及正式发布 wheel 的验证路径由 #360 跟踪。
 
 可选后端依赖由对应同步路径安装：Motrix 使用 `uv sync --extra motrix`，MuJoCo 仍需要本机 runtime 可用，ROCm / XPU 依赖按下方平台命令处理。后端选择仍通过 `--sim` 路由到 task owner 配置，不要单独 override `training.sim_backend` 来切换后端。
@@ -46,6 +48,8 @@ brew install cmake
 | Linux CUDA / macOS | `make setup-motrix` | 同步 Motrix 依赖并安装 Tab 补全；底层命令是 `uv sync --extra motrix` |
 | Linux AMD / ROCm | `make sync-rocm` | 后续命令用 `uv run ...` |
 | Linux Intel Arc / iGPU | `make sync-xpu` | 后续命令用 `uv run --no-sync ...` |
+
+`make` 不可用时，Linux CUDA / macOS 可改用 `uv sync --extra motrix && uv run --no-sync unilab-complete install`。
 
 ROCm 路径的额外约束：
 
