@@ -5,10 +5,12 @@ training:
   play_steps: 1000
 algo:
   num_envs: 1024
-  max_iterations: 5000
+  max_iterations: 8000
   save_interval: 500
   algorithm:
     entropy_coef: 0.005
+env:
+  truncate_on_clip_end: true
 reward:
   scales:
     motion_global_root_pos: 0.5
