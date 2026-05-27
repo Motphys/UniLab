@@ -17,6 +17,9 @@ TRAINING_ENTRYPOINTS = {
     "train": "unilab.cli:train_main",
     "eval": "unilab.cli:eval_main",
 }
+RUN_PATH_ROOTS = ("benchmark", "scripts")
+RUN_PATH_SUFFIXES = (".py", ".sh")
+RUN_PATH_IGNORED_PARTS = ("__pycache__", "outputs")
 SCRIPT_ASSIGNMENT_PATTERN = re.compile(r'^([A-Za-z0-9_.-]+)\s*=\s*"([^"]+)"\s*(?:#.*)?$')
 COMPLETION_BLOCK_START = "# >>> unilab completion >>>"
 COMPLETION_BLOCK_END = "# <<< unilab completion <<<"
@@ -37,6 +40,7 @@ class CompletionMetadata:
     flags: dict[str, tuple[str, ...]]
     choices: dict[str, dict[str, tuple[str, ...]]]
     tasks: tuple[TaskCompletionEntry, ...]
+    run_paths: tuple[str, ...] = ()
 
 
 def _find_project_root(start: Path) -> Path | None:
@@ -73,6 +77,13 @@ def _training_commands(scripts: Mapping[str, str]) -> tuple[str, ...]:
         for command, target in TRAINING_ENTRYPOINTS.items()
         if scripts.get(command) == target
     )
+
+
+def _project_commands(scripts: Mapping[str, str]) -> tuple[str, ...]:
+    training_commands = _training_commands(scripts)
+    commands = [*training_commands]
+    commands.extend(command for command in sorted(scripts) if command not in training_commands)
+    return tuple(commands)
 
 
 def _parser_for_command(command: str) -> argparse.ArgumentParser:
@@ -162,15 +173,49 @@ def _task_entries(root: Path) -> tuple[TaskCompletionEntry, ...]:
     )
 
 
+def _is_run_path(path: Path) -> bool:
+    return path.is_file() and path.suffix in RUN_PATH_SUFFIXES and path.name != "__init__.py"
+
+
+def _has_run_path_descendant(path: Path) -> bool:
+    return any(
+        child.name != "__init__.py" and child.suffix in RUN_PATH_SUFFIXES
+        for child in path.rglob("*")
+    )
+
+
+def _run_path_entries(root: Path) -> tuple[str, ...]:
+    entries: set[str] = set()
+    for path_root in RUN_PATH_ROOTS:
+        base = root / path_root
+        if not base.is_dir():
+            continue
+        entries.add(f"{path_root}/")
+        for path in base.rglob("*"):
+            if path.name.startswith("."):
+                continue
+            relative_parts = path.relative_to(root).parts
+            if any(part in RUN_PATH_IGNORED_PARTS for part in relative_parts):
+                continue
+            relative_path = path.relative_to(root).as_posix()
+            if path.is_dir():
+                if _has_run_path_descendant(path):
+                    entries.add(f"{relative_path}/")
+            elif _is_run_path(path):
+                entries.add(relative_path)
+    return tuple(sorted(entries))
+
+
 def build_metadata(root: Path | None = None) -> CompletionMetadata:
     selected_root = root or _find_project_root(Path.cwd()) or cli.repo_root()
     scripts = _read_project_scripts(selected_root / "pyproject.toml")
-    commands = _training_commands(scripts)
+    training_commands = _training_commands(scripts)
     return CompletionMetadata(
-        commands=commands,
-        flags={command: _parser_flags(command) for command in commands},
-        choices={command: _parser_choices(command) for command in commands},
+        commands=_project_commands(scripts),
+        flags={command: _parser_flags(command) for command in training_commands},
+        choices={command: _parser_choices(command) for command in training_commands},
         tasks=_task_entries(selected_root),
+        run_paths=_run_path_entries(selected_root),
     )
 
 
@@ -188,6 +233,25 @@ def _previous_word(words: Sequence[str], cword: int) -> str:
 
 def _matching(candidates: Sequence[str], prefix: str) -> list[str]:
     return [candidate for candidate in candidates if candidate.startswith(prefix)]
+
+
+def _dedupe(candidates: Sequence[str]) -> list[str]:
+    return list(dict.fromkeys(candidates))
+
+
+def _path_choices(candidates: Sequence[str], prefix: str) -> list[str]:
+    choices: set[str] = set()
+    for candidate in candidates:
+        if not candidate.startswith(prefix):
+            continue
+        remainder = candidate[len(prefix) :]
+        if remainder == "":
+            continue
+        if "/" in remainder:
+            choices.add(f"{prefix}{remainder.split('/', 1)[0]}/")
+        else:
+            choices.add(candidate)
+    return sorted(choices)
 
 
 def _option_state(words: Sequence[str], cword: int) -> tuple[dict[str, str], set[str]]:
@@ -253,7 +317,12 @@ def complete_words(
 
     current = _current_word(words, cword)
     if cword <= 2:
-        return _matching(selected_metadata.commands, current)
+        return _dedupe(
+            [
+                *_matching(selected_metadata.commands, current),
+                *_path_choices(selected_metadata.run_paths, current),
+            ]
+        )
 
     command = words[2]
     if command not in selected_metadata.commands:

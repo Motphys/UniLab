@@ -15,7 +15,15 @@ _unilab_uv_complete() {
         return 0
     fi
 
+    if [[ ${#candidates[@]} -eq 0 ]]; then
+        if [[ $COMP_CWORD -le 2 || ${COMP_WORDS[2]} != "train" && ${COMP_WORDS[2]} != "eval" ]]; then
+            compopt -o default -o bashdefault 2>/dev/null || true
+            return 1
+        fi
+        return 0
+    fi
+
     COMPREPLY=("${candidates[@]}")
 }
 
-complete -F _unilab_uv_complete uv
+complete -o default -o bashdefault -F _unilab_uv_complete uv

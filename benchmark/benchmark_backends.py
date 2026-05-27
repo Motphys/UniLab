@@ -188,7 +188,7 @@ def run_mlx(size, warmup, repeat, dtype_name):
 
 def main():
     parser = argparse.ArgumentParser(description="Benchmark NumPy/Torch/MLX compute.")
-    parser.add_argument("--sizes", type=str, default=",".join(str(2**k) for k in range(5, 15)))
+    parser.add_argument("--sizes", type=str, default=",".join(str(2**k) for k in range(5, 12)))
     parser.add_argument("--warmup", type=int, default=1)
     parser.add_argument("--repeat", type=int, default=2)
     parser.add_argument("--dtypes", type=str, default="float16,float32")
