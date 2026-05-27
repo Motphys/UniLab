@@ -181,7 +181,9 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 # only contain autosummary directives that would otherwise fail.
 if not _UNILAB_AVAILABLE:
     exclude_patterns.append("api_reference/**")
-language = "en"  # Sphinx search-index language only; both /en/ and /zh_CN/ trees are built in one pass
+language = (
+    "en"  # Sphinx search-index language only; both /en/ and /zh_CN/ trees are built in one pass
+)
 nitpicky = False  # flip to True once API ref stabilizes
 
 # ---------------------------------------------------------------------------
