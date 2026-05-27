@@ -32,7 +32,16 @@ def main() -> int:
         print(render_support_matrix(root))
         return 0
 
-    doc_path = root / "docs" / "users" / "zh_CN" / "E-reference" / "01-backend-support-matrix.md"
+    doc_path = (
+        root
+        / "docs"
+        / "sphinx"
+        / "source"
+        / "zh_CN"
+        / "user_guide"
+        / "E-reference"
+        / "01-backend-support-matrix.md"
+    )
     content = doc_path.read_text(encoding="utf-8")
     updated = replace_generated_block(content, render_generated_block(root))
     doc_path.write_text(updated, encoding="utf-8")

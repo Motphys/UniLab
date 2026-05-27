@@ -5,13 +5,27 @@ on:
     branches: [main]
     paths:
       - "docs/sphinx/**"
+      - "docs/README.md"
       - "src/unilab/**"
+      - "scripts/generate_support_matrix.py"
+      - "conf/**"
+      - "README.md"
+      - "CONTRIBUTING.md"
+      - "AGENTS.md"
+      - "CLAUDE.md"
       - ".github/workflows/docs.yml"
   pull_request:
     branches: [main]
     paths:
       - "docs/sphinx/**"
+      - "docs/README.md"
       - "src/unilab/**"
+      - "scripts/generate_support_matrix.py"
+      - "conf/**"
+      - "README.md"
+      - "CONTRIBUTING.md"
+      - "AGENTS.md"
+      - "CLAUDE.md"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
