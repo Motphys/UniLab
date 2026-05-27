@@ -374,12 +374,13 @@ def _sharpa_inhand_cfg(backend: str) -> Any:
     from unilab.envs.manipulation.sharpa_inhand.rotation import SharpaInhandRotationCfg
     from unilab.training import BackendAdapter
 
+    yaml_backend = _hydra_yaml_backend(backend)
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(ROOT_DIR / "conf" / "ppo"), version_base="1.3"):
         owner_cfg = compose(
             config_name="config",
             overrides=[
-                f"task=sharpa_inhand/{backend}",
+                f"task=sharpa_inhand/{yaml_backend}",
                 "env.grasp_cache_path=/tmp/unilab_benchmark_sharpa_grasp",
                 "hydra.run.dir=.",
                 "hydra.output_subdir=null",
@@ -500,6 +501,7 @@ TASK_CONFIGS: dict[str, TaskConfig] = {
         cfg_factory=_sharpa_inhand_cfg,
         env_cls_factory=_sharpa_inhand_env_cls,
         cfg_finalizer=_ensure_sharpa_benchmark_grasp_cache,
+        backends=("mujoco", "motrix", "mjwarp"),
     ),
 }
 
