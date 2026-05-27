@@ -18,6 +18,26 @@ env:
     local_linvel: pelvis_local_linvel
     gyro: pelvis_gyro
     upvector: pelvis_upvector
+  domain_rand:
+      random_com: true
+      com_offset_x: [-0.025, 0.025]
+      com_offset_y: [-0.05, 0.05]
+      com_offset_z: [-0.05, 0.05]
+      randomize_base_mass: true
+      added_mass_range: [-1.5, 1.5]
+      push_robots: true
+      push_interval: 750
+      max_force: [1.0, 1.0, 0.5]
+      randomize_geom_friction: true
+      friction_range: [0.3, 1.2]
+      randomize_joint_default_pos: true
+      joint_default_pos_range: [-0.01, 0.01]
+  noise_config:
+      scale_joint_angle: 0.01
+      scale_joint_vel: 0.5
+      scale_gyro: 0.2
+      scale_linvel: 0.5
+      scale_gravity: 0.05
   control_config:
     action_scale:
       - 0.5475464629911068
