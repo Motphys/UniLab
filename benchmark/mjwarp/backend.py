@@ -28,7 +28,7 @@ from typing import Any
 
 import numpy as np
 
-from unilab.base.backend.base import SimBackend
+from unilab.base.backend.base import BackendHeightScanner, SimBackend
 from unilab.base.scene import SceneCfg
 from unilab.dr.types import (
     DomainRandomizationCapabilities,
@@ -48,6 +48,98 @@ def _import_mjwarp():
     import warp as wp
 
     return mujoco_warp, wp
+
+
+class _MjwarpHeightScanner(BackendHeightScanner):
+    """GPU-accelerated height scanner using mujoco_warp.rays()."""
+
+    def __init__(
+        self,
+        backend: "MjwarpBackend",
+        hfield_geom_id: int,
+        offsets: np.ndarray,
+        frame_body_id: int,
+        alignment: str,
+        output: str,
+    ) -> None:
+        self._backend = backend
+        self._hfield_geom_id = hfield_geom_id
+        self._offsets = np.asarray(offsets, dtype=np.float64)  # (num_points, 2)
+        self._num_points = self._offsets.shape[0]
+        self._frame_body_id = frame_body_id
+        self._alignment = alignment
+        self._output = output
+        self._ray_height = 50.0
+
+        wp = backend._wp
+        n = backend._num_envs
+        nray = self._num_points
+        from mujoco_warp._src.types import vec6f
+
+        self._vec6f = vec6f
+        self._pnt_buf = wp.zeros((n, nray), dtype=wp.vec3f)
+        self._vec_buf = wp.zeros((n, nray), dtype=wp.vec3f)
+        self._dist_buf = wp.zeros((n, nray), dtype=wp.float32)
+        self._geomid_buf = wp.zeros((n, nray), dtype=wp.int32)
+        self._normal_buf = wp.zeros((n, nray), dtype=wp.vec3f)
+        self._bodyexclude = wp.full((nray,), frame_body_id, dtype=wp.int32)
+
+        # Pre-compute constant ray direction (0, 0, -1) for all envs/rays
+        vec_np = np.zeros((n, nray, 3), dtype=np.float32)
+        vec_np[:, :, 2] = -1.0
+        self._vec_buf.assign(vec_np)
+
+    def scan(self) -> np.ndarray:
+        backend = self._backend
+        wp = backend._wp
+
+        base_pos = backend._cache_qpos[:, 0:3]  # (num_envs, 3)
+        base_quat = backend._cache_qpos[:, 3:7]  # (num_envs, 4) wxyz
+
+        # Extract yaw from quaternion (w, x, y, z)
+        w, x, y, z = base_quat[:, 0], base_quat[:, 1], base_quat[:, 2], base_quat[:, 3]
+        yaw = np.arctan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+
+        cos_yaw = np.cos(yaw)[:, None]  # (num_envs, 1)
+        sin_yaw = np.sin(yaw)[:, None]
+
+        # Rotate offsets by yaw: R @ [ox, oy]^T
+        ox = self._offsets[:, 0]  # (num_points,)
+        oy = self._offsets[:, 1]
+        # Broadcast: (num_envs, 1) * (1, num_points) → (num_envs, num_points)
+        rx = cos_yaw * ox[None, :] - sin_yaw * oy[None, :]
+        ry = sin_yaw * ox[None, :] + cos_yaw * oy[None, :]
+
+        # Ray origins: base_pos + rotated offset + z_offset
+        n = backend._num_envs
+        nray = self._num_points
+        pnt_np = np.zeros((n, nray, 3), dtype=np.float32)
+        pnt_np[:, :, 0] = (base_pos[:, 0:1] + rx).astype(np.float32)
+        pnt_np[:, :, 1] = (base_pos[:, 1:2] + ry).astype(np.float32)
+        pnt_np[:, :, 2] = (base_pos[:, 2:3] + self._ray_height).astype(np.float32)
+
+        self._pnt_buf.assign(pnt_np)
+        geomgroup = self._vec6f(-1, -1, -1, -1, -1, -1)
+
+        backend._mjwarp.rays(
+            backend._mjw_model,
+            backend._mjw_data,
+            self._pnt_buf,
+            self._vec_buf,
+            geomgroup,
+            True,
+            self._bodyexclude,
+            self._dist_buf,
+            self._geomid_buf,
+            self._normal_buf,
+        )
+        wp.synchronize_device()
+
+        dist = self._dist_buf.numpy()  # (num_envs, num_points)
+        # Height = origin_z - dist. Where dist == -1 (no hit), use 0.
+        origin_z = pnt_np[:, :, 2]
+        heights = np.where(dist >= 0, origin_z - dist, 0.0)
+        return heights.astype(np.float64)
 
 
 class MjwarpBackend(SimBackend):
@@ -76,10 +168,6 @@ class MjwarpBackend(SimBackend):
 
         if scene is None or not scene.model_file:
             raise ValueError("MjwarpBackend requires a SceneCfg with a model_file")
-        if scene.fragment_files:
-            raise NotImplementedError(
-                "MjwarpBackend Phase 1 does not implement scene fragment composition"
-            )
 
         mujoco = _import_mujoco()
         mujoco_warp, wp = _import_mjwarp()
@@ -87,7 +175,40 @@ class MjwarpBackend(SimBackend):
         self._wp = wp
         self._mjwarp = mujoco_warp
 
-        self._mj_model = mujoco.MjModel.from_xml_path(scene.model_file)
+        # Scene materialization: three paths depending on terrain / fragments.
+        self.terrain_origins = None
+        self.terrain_surface_sampler = None
+        self._terrain_tmpdir = None
+
+        if scene.terrain is not None:
+            import tempfile
+
+            from unilab.base.backend.mujoco.xml import (
+                materialize_mujoco_hfield_attached_scene,
+            )
+
+            tmpdir = tempfile.TemporaryDirectory(prefix="mjwarp_terrain_")
+            self._terrain_tmpdir = tmpdir
+            result = materialize_mujoco_hfield_attached_scene(
+                model_file=scene.model_file,
+                terrain_cfg=scene.terrain.generator,
+                output_dir=tmpdir.name,
+                fragment_files=scene.fragment_files or [],
+                hfield_name=scene.terrain.hfield_name,
+                geom_name=scene.terrain.geom_name or "floor",
+                return_surface_sampler=True,
+            )
+            self._mj_model, self.terrain_origins, self.terrain_surface_sampler = result
+        elif scene.fragment_files:
+            from unilab.base.backend.mujoco.xml import materialize_scene_fragments
+
+            xml_path = materialize_scene_fragments(
+                scene.model_file, fragment_files=scene.fragment_files
+            )
+            self._mj_model = mujoco.MjModel.from_xml_path(xml_path)
+        else:
+            self._mj_model = mujoco.MjModel.from_xml_path(scene.model_file)
+
         self._mj_model.opt.timestep = float(sim_dt)
 
         self._base_name = base_name
@@ -313,9 +434,42 @@ class MjwarpBackend(SimBackend):
         return ids
 
     def get_joint_range(self) -> np.ndarray | None:
-        # Optional; contract allows None. Avoid emulating the per-joint table
-        # in Phase 1 until a benchmark task actually consumes it.
-        return None
+        jnt_range = self._mj_model.jnt_range
+        mask = self._mj_model.jnt_type != 0  # exclude mjJNT_FREE
+        filtered = jnt_range[mask]
+        if filtered.size == 0:
+            return None
+        return np.asarray(filtered, dtype=np.float64)
+
+    def get_geom_id(self, name: str) -> int:
+        mujoco = self._mujoco
+        gid = mujoco.mj_name2id(self._mj_model, int(mujoco.mjtObj.mjOBJ_GEOM), name)
+        if gid < 0:
+            raise ValueError(f"Geom {name!r} not found in mjwarp model")
+        return int(gid)
+
+    def create_hfield_scanner(
+        self,
+        *,
+        hfield_geom_id: int,
+        offsets: np.ndarray,
+        frame_body_id: int,
+        alignment: str = "yaw",
+        output: str = "height",
+    ) -> BackendHeightScanner:
+        offsets_np = np.ascontiguousarray(np.asarray(offsets, dtype=np.float64))
+        if offsets_np.ndim != 2 or offsets_np.shape[1] != 2:
+            raise ValueError(
+                f"offsets must have shape (num_points, 2), got {offsets_np.shape}"
+            )
+        return _MjwarpHeightScanner(
+            backend=self,
+            hfield_geom_id=int(hfield_geom_id),
+            offsets=offsets_np,
+            frame_body_id=int(frame_body_id),
+            alignment=alignment,
+            output=output,
+        )
 
     def get_actuator_gains(self) -> tuple[np.ndarray, np.ndarray]:
         """Return per-actuator (kp, kd) read from the underlying mujoco model.

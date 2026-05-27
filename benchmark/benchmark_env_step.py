@@ -457,6 +457,7 @@ TASK_CONFIGS: dict[str, TaskConfig] = {
         env_name="Go2JoystickRough",
         cfg_factory=_go2_rough_cfg,
         env_cls_factory=_go2_rough_env_cls,
+        backends=("mujoco", "motrix", "mjwarp"),
     ),
     "go2w": TaskConfig(
         task_id="go2w_joystick_flat",
@@ -470,6 +471,7 @@ TASK_CONFIGS: dict[str, TaskConfig] = {
         env_name="Go2WJoystickRough",
         cfg_factory=_go2w_rough_cfg,
         env_cls_factory=_go2w_rough_env_cls,
+        backends=("mujoco", "motrix", "mjwarp"),
     ),
     "g1": TaskConfig(
         task_id="g1_walk_flat",
