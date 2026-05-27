@@ -1,0 +1,23 @@
+# Build artifacts
+build/
+_build/
+source/_autosummary/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.python-version
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
+
+# Sphinx
+*.pot

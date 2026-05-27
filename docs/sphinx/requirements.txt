@@ -1,0 +1,12 @@
+sphinx>=7.4,<8
+furo>=2024.8.6
+myst-parser>=3.0
+sphinx-copybutton>=0.5
+sphinx-design>=0.6
+sphinx-autobuild>=2024.10
+sphinx-autodoc-typehints>=2.3
+sphinxcontrib-video>=0.4
+sphinxcontrib-mermaid>=0.9
+sphinx-togglebutton>=0.3
+linkify-it-py>=2.0
+sphinx-sitemap>=2.6

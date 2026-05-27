@@ -23,7 +23,7 @@ def main() -> int:
     parser.add_argument(
         "--write",
         action="store_true",
-        help="Update docs/users/zh_CN/E-reference/01-backend-support-matrix.md in place.",
+        help="Update docs/sphinx/source/user_guide/zh_CN/E-reference/01-backend-support-matrix.md in place.",
     )
     args = parser.parse_args()
 

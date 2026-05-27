@@ -4,7 +4,7 @@
 A Heterogeneous Architecture for Robot RL Beyond GPU-Dominant Paradigms
 </h3>
 
-<p align="center">Languages: English | <a href="docs/users/zh_CN/01-getting-started.md">简体中文</a></p>
+<p align="center">Languages: English | <a href="docs/sphinx/source/user_guide/zh_CN/01-getting-started.md">简体中文</a></p>
 
 <p align="center">
   <img src="docs/assets/teaser.jpg" alt="UniLab Teaser" width="95%" />
@@ -67,7 +67,7 @@ uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1 --ren
 uv run demo
 ```
 
-On macOS / MacBook, the UniLab CLI routes Motrix interactive playback through `mxpython` when needed. Motrix defaults to interactive playback; use `--render-mode record` for headless video export or `--render-mode none` to skip playback. Detailed script-level commands are documented under `docs/users/zh_CN/`.
+On macOS / MacBook, the UniLab CLI routes Motrix interactive playback through `mxpython` when needed. Motrix defaults to interactive playback; use `--render-mode record` for headless video export or `--render-mode none` to skip playback. Detailed script-level commands are documented under `docs/sphinx/source/user_guide/zh_CN/`.
 
 <!-- On Linux AMD / ROCm workstations, `make sync-rocm` requires ROCm 7.1 or newer, installs the PyTorch ROCm 7.2 wheel (`torch==2.11.0+rocm7.2`), and activates the ROCm profile as the current `pyproject.toml` / `uv.lock` so regular `uv run ...` commands work after setup. Restore `pyproject.toml` / `uv.lock` from git to switch back to the default CUDA / macOS profile. -->
 
@@ -98,20 +98,20 @@ uv run train --algo sac --task g1_sac_wbt --sim mujoco
 uv run train --algo ppo --task sharpa_inhand --sim mujoco --profile hora
 ```
 
-More training commands, script-level entrypoints, resume flow, and W&B details are in [03 Training Guide](docs/users/zh_CN/03-training.md).
+More training commands, script-level entrypoints, resume flow, and W&B details are in [03 Training Guide](docs/sphinx/source/user_guide/zh_CN/03-training.md).
 
 ## 🎯 Training Entrypoints
 
 Use `uv run train` for training, `uv run eval` for checkpoint playback, and `uv run demo` for the local demo preset. These commands are the first-level training interface and keep algorithm, task, and backend selection explicit.
 
-See [03 Training Guide](docs/users/zh_CN/03-training.md) for the algorithm matrix, log directory layout, Hydra overrides, script-level entrypoints, and demo flags.
+See [03 Training Guide](docs/sphinx/source/user_guide/zh_CN/03-training.md) for the algorithm matrix, log directory layout, Hydra overrides, script-level entrypoints, and demo flags.
 
 ## 📚 Documentation
 
 Use [docs/README.md](docs/README.md) as the documentation index. High-signal entrypoints:
 
-- [Getting Started](docs/users/zh_CN/01-getting-started.md): installation, Docker runtime, dependency setup, and first-run commands
-- [Training Guide](docs/users/zh_CN/03-training.md): training, playback, resume flow, Hydra overrides, and W&B
-- [Simulation Backends](docs/users/zh_CN/02-simulation-backends.md): generated MuJoCo / Motrix support matrix
-- [Development Standard](docs/developers/zh_CN/development-standard.md): contracts, layering, and validation boundaries
-- [ADR Index](docs/developers/adr/ADR-0000-index.md): accepted architecture decisions
+- [Getting Started](docs/sphinx/source/user_guide/zh_CN/01-getting-started.md): installation, Docker runtime, dependency setup, and first-run commands
+- [Training Guide](docs/sphinx/source/user_guide/zh_CN/03-training.md): training, playback, resume flow, Hydra overrides, and W&B
+- [Simulation Backends](docs/sphinx/source/user_guide/zh_CN/02-simulation-backends.md): generated MuJoCo / Motrix support matrix
+- [Development Standard](docs/sphinx/source/developer_guide/zh_CN/development-standard.md): contracts, layering, and validation boundaries
+- [ADR Index](docs/sphinx/source/developer_guide/adr/ADR-0000-index.md): accepted architecture decisions
