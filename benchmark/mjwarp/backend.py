@@ -68,7 +68,7 @@ class MjwarpBackend(SimBackend):
         position_actuator_gains: Any = None,
         **_ignored_kwargs: Any,
     ) -> None:
-        del base_name, push_body_name, position_actuator_gains, _ignored_kwargs
+        del position_actuator_gains, _ignored_kwargs
 
         self._pre_step_control_fn = None
         self._scene_cleanup_handle = None
@@ -83,11 +83,15 @@ class MjwarpBackend(SimBackend):
 
         mujoco = _import_mujoco()
         mujoco_warp, wp = _import_mjwarp()
+        self._mujoco = mujoco
         self._wp = wp
         self._mjwarp = mujoco_warp
 
         self._mj_model = mujoco.MjModel.from_xml_path(scene.model_file)
         self._mj_model.opt.timestep = float(sim_dt)
+
+        self._base_name = base_name
+        self._push_body_name = push_body_name
 
         self._num_envs = int(num_envs)
         self._nq = int(self._mj_model.nq)
@@ -180,6 +184,32 @@ class MjwarpBackend(SimBackend):
         # allocation in the hot path.
         self._ctrl_scratch_f32 = np.zeros((self._num_envs, self._nu), dtype=np.float32)
 
+        # Resolve push body id (used by DR interval push for tasks like go1).
+        # ``push_body_name`` falls back to ``base_name``; -1 means push is
+        # unsupported for this env. Matches MuJoCoBackend semantics.
+        push_target = self._push_body_name if self._push_body_name is not None else self._base_name
+        if push_target is None:
+            self._push_body_id = -1
+        else:
+            body_id = mujoco.mj_name2id(
+                self._mj_model, int(mujoco.mjtObj.mjOBJ_BODY), push_target
+            )
+            if body_id < 0:
+                raise ValueError(
+                    f"Push body {push_target!r} not found in mjwarp model"
+                )
+            self._push_body_id = int(body_id)
+
+        # Pending external wrench buffer ``(num_envs, nbody, 6)`` written into
+        # ``data.xfrc_applied`` at the start of every ``step`` and cleared
+        # afterwards. mujoco_warp's xfrc_applied dtype is spatial_vectorf
+        # (6 floats: linear xyz + angular xyz).
+        self._nbody = int(self._mj_model.nbody)
+        self._pending_xfrc_applied = np.zeros(
+            (self._num_envs, self._nbody, 6), dtype=np.float32
+        )
+        self._xfrc_dirty = False  # avoid H2D when no force is pending
+
     # ------------------------------------------------------------------ #
     # Hot-path: step                                                       #
     # ------------------------------------------------------------------ #
@@ -188,10 +218,12 @@ class MjwarpBackend(SimBackend):
         ctrl = self._apply_pre_step_control(ctrl)
         wp = self._wp
 
-        # H2D copy of ctrl.
+        # H2D copy of ctrl (and pending external wrench if any).
         t0 = time.perf_counter()
         np.copyto(self._ctrl_scratch_f32, np.asarray(ctrl, dtype=np.float32))
         self._mjw_data.ctrl.assign(self._ctrl_scratch_f32)
+        if self._xfrc_dirty:
+            self._mjw_data.xfrc_applied.assign(self._pending_xfrc_applied)
         wp.synchronize_device()
         set_ctrl_ms = (time.perf_counter() - t0) * 1000.0
 
@@ -201,6 +233,14 @@ class MjwarpBackend(SimBackend):
             self._mjwarp.step(self._mjw_model, self._mjw_data)
         wp.synchronize_device()
         physics_ms = (time.perf_counter() - t0) * 1000.0
+
+        # Clear pending external wrench so the next step starts clean. MuJoCo's
+        # xfrc_applied is sticky across steps; the env layer expects it to be
+        # consumed and reset by the backend.
+        if self._xfrc_dirty:
+            self._pending_xfrc_applied.fill(0.0)
+            self._mjw_data.xfrc_applied.assign(self._pending_xfrc_applied)
+            self._xfrc_dirty = False
 
         # D2H refresh of qpos / qvel / sensordata into pre-allocated host buffers.
         t0 = time.perf_counter()
@@ -262,10 +302,15 @@ class MjwarpBackend(SimBackend):
         return np.zeros((self._nv,), dtype=np.float64)
 
     def get_body_ids(self, names: Sequence[str]) -> np.ndarray:
-        raise NotImplementedError(
-            "MjwarpBackend Phase 1 does not implement get_body_ids "
-            "(not used by g1_walk_flat benchmark)"
-        )
+        ids = np.empty(len(names), dtype=np.int32)
+        for i, name in enumerate(names):
+            body_id = self._mujoco.mj_name2id(
+                self._mj_model, int(self._mujoco.mjtObj.mjOBJ_BODY), str(name)
+            )
+            if body_id < 0:
+                raise ValueError(f"Body {name!r} not found in mjwarp model")
+            ids[i] = body_id
+        return ids
 
     def get_joint_range(self) -> np.ndarray | None:
         # Optional; contract allows None. Avoid emulating the per-joint table
@@ -334,24 +379,73 @@ class MjwarpBackend(SimBackend):
 
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
         # mjwarp's batched Data shares the Model across worlds, so per-env
-        # actuator gain / mass / friction overrides are not supported in
-        # Phase 1. supports_interval_push is False so the LocomotionDRProvider's
-        # validate_interval_push_support skips its check when push_robots=False
-        # (the default for g1_walk_flat).
+        # actuator gain / mass / friction overrides are not supported.
+        # Reset-time randomization payload terms (kp/kd/body_mass/com/etc.)
+        # are filtered upstream by the DR manager based on the empty set
+        # returned here. Interval push and per-body force ARE supported via
+        # the GPU-side xfrc_applied buffer (see apply_body_force / step).
+        push_supported = self._push_body_id >= 0
         return DomainRandomizationCapabilities(
             supported_reset_terms=frozenset(),
-            supports_interval_push=False,
+            supports_interval_push=push_supported,
             supports_interval_body_velocity_delta=False,
-            supports_interval_body_force=False,
+            supports_interval_body_force=True,
         )
 
     def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
         if plan.is_empty():
             return
-        raise NotImplementedError(
-            "MjwarpBackend Phase 1 does not implement interval randomization "
-            "(non-empty plan received; expected empty for g1_walk_flat default cfg)"
+        # Start from a clean wrench buffer so successive applies do not
+        # accumulate stale forces. Matches MuJoCoBackend.apply_interval_randomization
+        # ([src/unilab/base/backend/mujoco/backend.py]).
+        self._pending_xfrc_applied.fill(0.0)
+        if plan.push_perturbation_limit is not None:
+            self._sample_push_into_pending(plan.push_perturbation_limit)
+            self._xfrc_dirty = True
+        if plan.body_force is not None:
+            if plan.body_ids is None:
+                raise ValueError("Interval body-force perturbation requires body_ids")
+            self.apply_body_force(plan.body_ids, plan.body_force)
+        if plan.body_linear_velocity_delta is not None:
+            raise NotImplementedError(
+                "MjwarpBackend does not implement interval body linear velocity delta "
+                "(no current benchmark task requires it)"
+            )
+
+    def _sample_push_into_pending(
+        self, force_range: Sequence[float] | np.ndarray
+    ) -> None:
+        if self._push_body_id < 0:
+            raise RuntimeError("Interval push requested but push_body_id is unresolved")
+        ex_force = np.random.uniform(-1.0, 1.0, size=(self._num_envs, 3))
+        ex_force *= np.asarray(force_range, dtype=np.float64)
+        self._pending_xfrc_applied[:, self._push_body_id, 0:3] = ex_force.astype(
+            np.float32, copy=False
         )
+
+    def apply_body_force(
+        self,
+        body_ids: np.ndarray,
+        force: np.ndarray,
+    ) -> None:
+        """Accumulate one world-frame force vector per target body for the
+        upcoming step. Mirrors MuJoCoBackend.apply_body_force semantics; the
+        force is staged in the host-side buffer and uploaded to
+        ``data.xfrc_applied`` at the start of ``step``.
+        """
+        body_ids_np = np.asarray(body_ids, dtype=np.int32).reshape(-1)
+        force_np = np.asarray(force, dtype=np.float64)
+        expected_shape = (self._num_envs, body_ids_np.size, 3)
+        if force_np.shape != expected_shape:
+            raise ValueError(
+                f"body force must have shape {expected_shape}, got {force_np.shape}"
+            )
+        for body_offset, body_id in enumerate(body_ids_np):
+            bid = int(body_id)
+            self._pending_xfrc_applied[:, bid, 0:3] += force_np[:, body_offset, :].astype(
+                np.float32, copy=False
+            )
+        self._xfrc_dirty = True
 
     def materialize(self) -> None:
         # mjwarp model/data are already finalized in __init__.
@@ -440,7 +534,8 @@ class MjwarpBackend(SimBackend):
                 f"available: {sorted(self._sensor_adr)}"
             )
         adr, dim = slot
-        values = self._cache_sensordata[:, adr : adr + dim]
-        if dim == 1:
-            return values[:, 0].copy()
-        return values.copy()
+        # Match MuJoCoBackend.get_sensor_data: always return shape
+        # (num_envs, dim). Tasks rely on NumPy broadcasting on the dim axis
+        # (e.g. go2 broadcasts dim=1 contact "found" sensors into a (num_envs, 3)
+        # feet_force buffer). Squeezing dim==1 here would break that path.
+        return self._cache_sensordata[:, adr : adr + dim].copy()

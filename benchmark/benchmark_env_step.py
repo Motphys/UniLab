@@ -443,12 +443,14 @@ TASK_CONFIGS: dict[str, TaskConfig] = {
         env_name="Go1JoystickFlat",
         cfg_factory=_go1_cfg,
         env_cls_factory=_go1_env_cls,
+        backends=("mujoco", "motrix", "mjwarp"),
     ),
     "go2": TaskConfig(
         task_id="go2_joystick_flat",
         env_name="Go2JoystickFlat",
         cfg_factory=_go2_cfg,
         env_cls_factory=_go2_env_cls,
+        backends=("mujoco", "motrix", "mjwarp"),
     ),
     "go2_rough": TaskConfig(
         task_id="go2_joystick_rough",
@@ -461,6 +463,7 @@ TASK_CONFIGS: dict[str, TaskConfig] = {
         env_name="Go2WJoystickFlat",
         cfg_factory=_go2w_cfg,
         env_cls_factory=_go2w_env_cls,
+        backends=("mujoco", "motrix", "mjwarp"),
     ),
     "go2w_rough": TaskConfig(
         task_id="go2w_joystick_rough",
