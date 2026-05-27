@@ -232,9 +232,7 @@ class MjwarpBackend(SimBackend):
             self._dof_qvel_start = 6
             expected_dof = self._nq - 7
             if expected_dof != self._nu:
-                raise ValueError(
-                    f"DOF count mismatch: nq-7={expected_dof} but nu={self._nu}"
-                )
+                raise ValueError(f"DOF count mismatch: nq-7={expected_dof} but nu={self._nu}")
         else:
             self._dof_qpos_start = 0
             self._dof_qvel_start = 0
@@ -242,9 +240,7 @@ class MjwarpBackend(SimBackend):
         # Build sensor-name -> (adr, dim) map once on the cold path.
         self._sensor_adr: dict[str, tuple[int, int]] = {}
         for sid in range(int(self._mj_model.nsensor)):
-            name = mujoco.mj_id2name(
-                self._mj_model, int(mujoco.mjtObj.mjOBJ_SENSOR), sid
-            )
+            name = mujoco.mj_id2name(self._mj_model, int(mujoco.mjtObj.mjOBJ_SENSOR), sid)
             if name is None:
                 continue
             self._sensor_adr[str(name)] = (
@@ -255,9 +251,7 @@ class MjwarpBackend(SimBackend):
         # Cache keyframe qpos (CPU numpy) for reset.
         self._keyframe_qpos: dict[str, np.ndarray] = {}
         for kid in range(int(self._mj_model.nkey)):
-            kname = mujoco.mj_id2name(
-                self._mj_model, int(mujoco.mjtObj.mjOBJ_KEY), kid
-            )
+            kname = mujoco.mj_id2name(self._mj_model, int(mujoco.mjtObj.mjOBJ_KEY), kid)
             if kname is None:
                 continue
             self._keyframe_qpos[str(kname)] = np.asarray(
@@ -265,9 +259,7 @@ class MjwarpBackend(SimBackend):
             )
 
         # Cache actuator ctrl range and joint ranges for the env's cold path.
-        self._actuator_ctrl_range = np.asarray(
-            self._mj_model.actuator_ctrlrange, dtype=np.float64
-        )
+        self._actuator_ctrl_range = np.asarray(self._mj_model.actuator_ctrlrange, dtype=np.float64)
 
         # Upload to GPU. ``njmax`` controls per-world constraint capacity;
         # the default is too small for legged robots with multiple feet making
@@ -312,13 +304,9 @@ class MjwarpBackend(SimBackend):
         if push_target is None:
             self._push_body_id = -1
         else:
-            body_id = mujoco.mj_name2id(
-                self._mj_model, int(mujoco.mjtObj.mjOBJ_BODY), push_target
-            )
+            body_id = mujoco.mj_name2id(self._mj_model, int(mujoco.mjtObj.mjOBJ_BODY), push_target)
             if body_id < 0:
-                raise ValueError(
-                    f"Push body {push_target!r} not found in mjwarp model"
-                )
+                raise ValueError(f"Push body {push_target!r} not found in mjwarp model")
             self._push_body_id = int(body_id)
 
         # Pending external wrench buffer ``(num_envs, nbody, 6)`` written into
@@ -326,9 +314,7 @@ class MjwarpBackend(SimBackend):
         # afterwards. mujoco_warp's xfrc_applied dtype is spatial_vectorf
         # (6 floats: linear xyz + angular xyz).
         self._nbody = int(self._mj_model.nbody)
-        self._pending_xfrc_applied = np.zeros(
-            (self._num_envs, self._nbody, 6), dtype=np.float32
-        )
+        self._pending_xfrc_applied = np.zeros((self._num_envs, self._nbody, 6), dtype=np.float32)
         self._xfrc_dirty = False  # avoid H2D when no force is pending
 
     # ------------------------------------------------------------------ #
@@ -488,6 +474,11 @@ class MjwarpBackend(SimBackend):
             raise ValueError(f"Geom {name!r} not found in mjwarp model")
         return int(gid)
 
+    def get_motion_body_ids(self, names: Sequence[str]) -> np.ndarray:
+        # Motion tracking uses MuJoCo body-id layout for its motion library,
+        # so the resolved IDs are the same as get_body_ids.
+        return self.get_body_ids(names)
+
     def create_hfield_scanner(
         self,
         *,
@@ -499,9 +490,7 @@ class MjwarpBackend(SimBackend):
     ) -> BackendHeightScanner:
         offsets_np = np.ascontiguousarray(np.asarray(offsets, dtype=np.float64))
         if offsets_np.ndim != 2 or offsets_np.shape[1] != 2:
-            raise ValueError(
-                f"offsets must have shape (num_points, 2), got {offsets_np.shape}"
-            )
+            raise ValueError(f"offsets must have shape (num_points, 2), got {offsets_np.shape}")
         return _MjwarpHeightScanner(
             backend=self,
             hfield_geom_id=int(hfield_geom_id),
@@ -595,19 +584,21 @@ class MjwarpBackend(SimBackend):
 
         push_supported = self._push_body_id >= 0
         return DomainRandomizationCapabilities(
-            supported_reset_terms=frozenset({
-                RESET_TERM_KP,
-                RESET_TERM_KD,
-                RESET_TERM_BASE_MASS,
-                RESET_TERM_BASE_COM,
-                RESET_TERM_GRAVITY,
-                RESET_TERM_BODY_IPOS,
-                RESET_TERM_BODY_IQUAT,
-                RESET_TERM_BODY_INERTIA,
-                RESET_TERM_BODY_MASS,
-                RESET_TERM_DOF_ARMATURE,
-                RESET_TERM_GEOM_FRICTION,
-            }),
+            supported_reset_terms=frozenset(
+                {
+                    RESET_TERM_KP,
+                    RESET_TERM_KD,
+                    RESET_TERM_BASE_MASS,
+                    RESET_TERM_BASE_COM,
+                    RESET_TERM_GRAVITY,
+                    RESET_TERM_BODY_IPOS,
+                    RESET_TERM_BODY_IQUAT,
+                    RESET_TERM_BODY_INERTIA,
+                    RESET_TERM_BODY_MASS,
+                    RESET_TERM_DOF_ARMATURE,
+                    RESET_TERM_GEOM_FRICTION,
+                }
+            ),
             supports_interval_push=push_supported,
             supports_interval_body_velocity_delta=False,
             supports_interval_body_force=True,
@@ -633,9 +624,7 @@ class MjwarpBackend(SimBackend):
                 "(no current benchmark task requires it)"
             )
 
-    def _sample_push_into_pending(
-        self, force_range: Sequence[float] | np.ndarray
-    ) -> None:
+    def _sample_push_into_pending(self, force_range: Sequence[float] | np.ndarray) -> None:
         if self._push_body_id < 0:
             raise RuntimeError("Interval push requested but push_body_id is unresolved")
         ex_force = np.random.uniform(-1.0, 1.0, size=(self._num_envs, 3))
@@ -658,9 +647,7 @@ class MjwarpBackend(SimBackend):
         force_np = np.asarray(force, dtype=np.float64)
         expected_shape = (self._num_envs, body_ids_np.size, 3)
         if force_np.shape != expected_shape:
-            raise ValueError(
-                f"body force must have shape {expected_shape}, got {force_np.shape}"
-            )
+            raise ValueError(f"body force must have shape {expected_shape}, got {force_np.shape}")
         for body_offset, body_id in enumerate(body_ids_np):
             bid = int(body_id)
             self._pending_xfrc_applied[:, bid, 0:3] += force_np[:, body_offset, :].astype(
@@ -723,10 +710,15 @@ class MjwarpBackend(SimBackend):
         return np.asarray(xquat[:, body_ids_np, :], dtype=np.float64)
 
     def get_body_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
-        raise NotImplementedError("MjwarpBackend Phase 1 does not implement get_body_lin_vel_w")
+        # MuJoCo cvel layout per body is [angular_xyz, linear_xyz]; mjwarp matches.
+        body_ids_np = np.asarray(body_ids, dtype=np.int32).reshape(-1)
+        cvel = self._mjw_data.cvel.numpy()  # (num_envs, nbody, 6)
+        return np.asarray(cvel[:, body_ids_np, 3:6], dtype=np.float64)
 
     def get_body_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
-        raise NotImplementedError("MjwarpBackend Phase 1 does not implement get_body_ang_vel_w")
+        body_ids_np = np.asarray(body_ids, dtype=np.int32).reshape(-1)
+        cvel = self._mjw_data.cvel.numpy()  # (num_envs, nbody, 6)
+        return np.asarray(cvel[:, body_ids_np, 0:3], dtype=np.float64)
 
     # ------------------------------------------------------------------ #
     # Body kinematics — baselink frame                                     #
@@ -752,8 +744,7 @@ class MjwarpBackend(SimBackend):
         slot = self._sensor_adr.get(name)
         if slot is None:
             raise ValueError(
-                f"Sensor {name!r} not found in mjwarp model; "
-                f"available: {sorted(self._sensor_adr)}"
+                f"Sensor {name!r} not found in mjwarp model; available: {sorted(self._sensor_adr)}"
             )
         adr, dim = slot
         # Match MuJoCoBackend.get_sensor_data: always return shape
