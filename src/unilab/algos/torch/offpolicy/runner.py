@@ -469,7 +469,6 @@ class OffPolicyRunner(AsyncRunner):
                 for k, v in critic_metrics.items():
                     iter_metrics[k].append(v)
 
-                actor_updated = False
                 if update_idx % self.policy_frequency == 0:
                     _actor_ns = time.perf_counter_ns() if trace_recorder else 0
                     actor_metrics = learner.update_actor(batch)
@@ -483,34 +482,16 @@ class OffPolicyRunner(AsyncRunner):
                         )
                     for k, v in actor_metrics.items():
                         iter_metrics[k].append(v)
-                    actor_updated = True
 
                 _target_ns = time.perf_counter_ns() if trace_recorder else 0
-                target_updated = False
-                if self.algo_type == "td3":
-                    if actor_updated:
-                        learner.soft_update_target()
-                        target_updated = True
-                else:
-                    learner.soft_update_target()
-                    target_updated = True
+                learner.soft_update_target()
                 if trace_recorder:
-                    target_trace_args: dict[str, Any] = {"update_idx": update_idx}
-                    if self.algo_type == "td3":
-                        target_trace_args.update(
-                            {
-                                "algo_type": self.algo_type,
-                                "policy_frequency": self.policy_frequency,
-                                "actor_updated": actor_updated,
-                                "target_updated": target_updated,
-                            }
-                        )
                     trace_recorder.add_slice(
                         "learner/soft_update_target",
                         category="learner",
                         start_ns=_target_ns,
                         end_ns=time.perf_counter_ns(),
-                        args=target_trace_args,
+                        args={"update_idx": update_idx},
                     )
 
             if self.obs_normalization and getattr(self.learner, "obs_normalizer", None) is not None:

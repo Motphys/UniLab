@@ -14,6 +14,7 @@ def build_actor(
     actor_num_blocks: int = 2,
     actor_noise_zeta_mu: float = 2.0,
     actor_noise_zeta_max: int = 16,
+    **kwargs,
 ):
     """Build the correct actor model based on algorithm type."""
     if algo_type == "sac":
@@ -34,9 +35,9 @@ def build_actor(
             n_act=action_dim,
             num_envs=num_envs,
             hidden_dim=actor_hidden_dim,
-            init_scale=0.01,
-            log_std_min=-0.9,
-            log_std_max=0.0,
+            init_scale=kwargs.get("init_scale", 0.01),
+            log_std_min=kwargs.get("log_std_min", -1.6),
+            log_std_max=kwargs.get("log_std_max", -0.22),
             device=device,
         )
     if algo_type == "flashsac":

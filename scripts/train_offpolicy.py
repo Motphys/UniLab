@@ -233,6 +233,12 @@ def build_runner(algo_name: str, cfg: DictConfig):
             obs_normalization=cfg.algo.obs_normalization,
         )
 
+        _actor_kwargs = {
+            "init_scale": cfg.algo.algo_params.init_scale,
+            "log_std_min": cfg.algo.algo_params.log_std_min,
+            "log_std_max": cfg.algo.algo_params.log_std_max,
+        }
+
         return DoubleBufferOffPolicyRunner(
             learner=_learner,
             env_name=cfg.training.task_name,
@@ -258,6 +264,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             trace_cuda_events=cfg.training.trace_cuda_events,
             replay_prefetch_mode=replay_prefetch_mode,
             verbose_metrics=verbose_metrics,
+            actor_kwargs=_actor_kwargs,
         )
 
     if algo_name == "flashsac":
