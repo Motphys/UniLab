@@ -18,7 +18,6 @@ from unilab.dr import (
     IntervalRandomizationPlan,
     ResetPlan,
 )
-from unilab.dr.types import RESET_TERM_GEOM_FRICTION, ResetRandomizationPayload
 from unilab.dr.dr_utils import (
     build_common_reset_randomization,
     build_interval_push_plan,
@@ -26,6 +25,7 @@ from unilab.dr.dr_utils import (
     validate_interval_push_support,
     zero_actions,
 )
+from unilab.dr.types import RESET_TERM_GEOM_FRICTION, ResetRandomizationPayload
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.common.math import np_sample_uniform
 from unilab.envs.common.rotation import (
