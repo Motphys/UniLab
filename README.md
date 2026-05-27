@@ -23,6 +23,7 @@ UniLab uses **CPU simulation + shared-memory runtime + GPU learning** instead of
 ```
 
 Start with the `Quick Demo` below to run the primary training command from this repository.
+Conda and pip users should still follow the repository `uv` workflow for now; see [安装与环境](docs/users/zh_CN/A-getting-started/01-install.md#conda--pip-用户说明) for the current boundaries.
 
 ## 🚀 Quick Demo
 
@@ -38,7 +39,9 @@ cd UniLab
 # Choose exactly one command for your platform; do not run all three.
 
 # Linux CUDA or macOS
-uv sync --extra motrix
+make setup-motrix
+# Without shell completion setup: uv sync --extra motrix
+# If `make` is not installed: uv sync --extra motrix && uv run --no-sync unilab-complete install
 
 # Linux AMD / ROCm
 # make sync-rocm
