@@ -8,6 +8,10 @@ Usage:
     uv run benchmark/benchmark_env_step.py task=g1_walk_flat/motrix
     uv run benchmark/benchmark_env_step.py task=g1_walk_rough/mujoco
 
+    # mjwarp backend (Phase 1: g1_walk_flat only) requires extra deps:
+    uv run --with mujoco-warp --with warp-lang \\
+        benchmark/benchmark_env_step.py task=g1_walk_flat/mjwarp
+
     # Override bench params:
     uv run benchmark/benchmark_env_step.py task=go1_joystick_flat/mujoco num_envs=4096 num_steps=500
 
@@ -70,7 +74,54 @@ _mb = _MEM_PROFILE.mb
 _memory_snapshot = _MEM_PROFILE.memory_snapshot
 save_json = _OUTPUT.save_json
 
-BACKENDS = ["mujoco", "motrix"]
+
+def _install_mjwarp_patch() -> bool:
+    """Route ``backend_type == "mjwarp"`` to ``benchmark/mjwarp`` via factory patch.
+
+    Must run before any task env module (e.g. ``unilab.envs.locomotion.g1.joystick``)
+    is imported, because those modules bind ``create_backend`` at module load
+    time via ``from unilab.base.backend import create_backend``.
+
+    Returns True if ``mujoco_warp`` + ``warp`` are importable, False otherwise.
+    Idempotent.
+    """
+    try:
+        import mujoco_warp  # noqa: F401
+        import warp  # noqa: F401
+    except ImportError:
+        return False
+
+    import unilab.base.backend as _ub_backend
+
+    if getattr(_ub_backend, "_mjwarp_patched", False):
+        return True
+
+    # benchmark/ is not an installed package, so we load the adapter the same
+    # way device_info/mem_profile/output are loaded above (importlib by path).
+    mjwarp_backend_module = _load_helper_module(
+        "bench_env_step_mjwarp_backend",
+        "../mjwarp/backend.py",
+    )
+    mjwarp_backend_cls = mjwarp_backend_module.MjwarpBackend
+
+    _orig_create_backend = _ub_backend.create_backend
+
+    def _patched_create_backend(backend_type, scene, num_envs, sim_dt, **kwargs):
+        if backend_type == "mjwarp":
+            # Strip kwargs that only apply to other backends so MjwarpBackend's
+            # signature stays narrow.
+            kwargs.pop("motrix_max_iterations", None)
+            return mjwarp_backend_cls(scene, num_envs, sim_dt, **kwargs)
+        return _orig_create_backend(backend_type, scene, num_envs, sim_dt, **kwargs)
+
+    _ub_backend.create_backend = _patched_create_backend
+    _ub_backend._mjwarp_patched = True
+    return True
+
+
+MJWARP_AVAILABLE = _install_mjwarp_patch()
+
+BACKENDS = ["mujoco", "motrix", "mjwarp"]
 
 
 @dataclass(frozen=True)
@@ -132,20 +183,32 @@ def _owner_yaml_cfg(
     return cfg
 
 
+# Backends that do not own a task YAML reuse the mujoco YAML during cfg
+# composition. The actual backend selection happens later when the env
+# constructs its SimBackend via the (monkey-patched) create_backend factory.
+_HYDRA_YAML_BACKEND_ALIAS = {"mjwarp": "mujoco"}
+
+
+def _hydra_yaml_backend(backend: str) -> str:
+    return _HYDRA_YAML_BACKEND_ALIAS.get(backend, backend)
+
+
 def _ppo_owner_yaml_cfg(task_id: str, backend: str, env_cfg_cls: Callable[[], Any]) -> Any:
+    yaml_backend = _hydra_yaml_backend(backend)
     return _owner_yaml_cfg(
         config_root="ppo",
         algo_name="ppo",
-        overrides=[f"task={task_id}/{backend}"],
+        overrides=[f"task={task_id}/{yaml_backend}"],
         env_cfg_cls=env_cfg_cls,
     )
 
 
 def _sac_owner_yaml_cfg(task_id: str, backend: str, env_cfg_cls: Callable[[], Any]) -> Any:
+    yaml_backend = _hydra_yaml_backend(backend)
     return _owner_yaml_cfg(
         config_root="offpolicy",
         algo_name="sac",
-        overrides=["algo=sac", f"task=sac/{task_id}/{backend}"],
+        overrides=["algo=sac", f"task=sac/{task_id}/{yaml_backend}"],
         env_cfg_cls=env_cfg_cls,
     )
 
@@ -410,6 +473,7 @@ TASK_CONFIGS: dict[str, TaskConfig] = {
         env_name="G1WalkFlat",
         cfg_factory=_g1_flat_cfg,
         env_cls_factory=_g1_walk_env_cls,
+        backends=("mujoco", "motrix", "mjwarp"),
     ),
     "g1_rough": TaskConfig(
         task_id="g1_walk_rough",
@@ -417,6 +481,7 @@ TASK_CONFIGS: dict[str, TaskConfig] = {
         cfg_factory=_g1_rough_cfg,
         env_cls_factory=_g1_walk_env_cls,
         aliases=("sac/g1_walk_rough",),
+        backends=("mujoco", "motrix", "mjwarp"),
     ),
     "g1_mt": TaskConfig(
         task_id="g1_motion_tracking",
@@ -453,10 +518,12 @@ TASK_COLORS = {
 BACKEND_STYLES = {
     "mujoco": {"marker": "o", "linestyle": "-", "hatch": "//"},
     "motrix": {"marker": "s", "linestyle": "--", "hatch": "xx"},
+    "mjwarp": {"marker": "^", "linestyle": ":", "hatch": ".."},
 }
 BACKEND_TICK_LABELS = {
     "mujoco": "mj",
     "motrix": "mx",
+    "mjwarp": "wp",
 }
 BREAKDOWN_SEGMENTS = [
     ("apply_action_ms", "apply_action", "#4C78A8"),
@@ -1293,11 +1360,20 @@ def _tail_text(text: str, *, max_lines: int = 24) -> str:
 
 
 def _run_single_isolated(label: str, args: list[str]) -> dict[str, Any]:
+    # mjwarp cases need their optional deps re-declared in the subprocess
+    # because the case is launched via a fresh `uv run` (the parent's
+    # ephemeral --with environment doesn't propagate).
+    needs_mjwarp = any(arg.endswith("/mjwarp") or arg == "training.sim_backend=mjwarp"
+                       for arg in args)
     with tempfile.TemporaryDirectory(prefix="unilab_env_step_case_") as tmpdir:
         result_json = Path(tmpdir) / "result.json"
+        uv_extra: list[str] = []
+        if needs_mjwarp:
+            uv_extra = ["--with", "mujoco-warp", "--with", "warp-lang"]
         cmd = [
             "uv",
             "run",
+            *uv_extra,
             "benchmark/benchmark_env_step.py",
             *args,
             "--emit-full-result-json",
@@ -1330,9 +1406,16 @@ def _run_matrix(
     """Run all task x backend combinations and print comparison."""
     from unilab.base.backend import MOTRIX_AVAILABLE
 
-    backends = BACKENDS if MOTRIX_AVAILABLE else ["mujoco"]
-    if not MOTRIX_AVAILABLE:
-        print("Note: motrixsim not available, running mujoco only\n")
+    backends = ["mujoco"]
+    if MOTRIX_AVAILABLE:
+        backends.append("motrix")
+    else:
+        print("Note: motrixsim not available; skipping motrix column\n")
+    if MJWARP_AVAILABLE:
+        backends.append("mjwarp")
+    else:
+        print("Note: mujoco_warp not available; skipping mjwarp column "
+              "(install via `uv run --with mujoco-warp --with warp-lang`)\n")
 
     results: list[dict] = []
     failures: list[dict[str, str]] = []
