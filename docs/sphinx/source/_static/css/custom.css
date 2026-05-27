@@ -1,0 +1,142 @@
+/* UniLab doc — typography + landing hero on top of Furo */
+
+:root {
+    --ul-hero-bg: linear-gradient(135deg, #eff6ff 0%, #ede9fe 50%, #fef3c7 100%);
+    --ul-hero-border: rgba(99, 102, 241, 0.18);
+    --ul-card-hover: 0 8px 24px rgba(37, 99, 235, 0.10);
+}
+
+body.dark .landing-hero, body[data-theme="dark"] .landing-hero {
+    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 60%, #312e81 100%);
+    border-color: rgba(96, 165, 250, 0.25);
+}
+
+/* ---------- Landing hero ---------- */
+.landing-hero {
+    background: var(--ul-hero-bg);
+    border: 1px solid var(--ul-hero-border);
+    border-radius: 16px;
+    padding: 2.4rem 2rem 2rem 2rem;
+    margin: 0 0 2rem 0;
+}
+
+.landing-hero h1 {
+    font-size: 3rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    margin: 0.3rem 0 0.5rem 0;
+    background: linear-gradient(90deg, #1e40af, #6d28d9, #be185d);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+.landing-hero h3 {
+    font-weight: 500;
+    margin-top: 0;
+    color: var(--color-foreground-secondary);
+    line-height: 1.4;
+}
+
+.landing-hero p {
+    font-size: 1.05rem;
+    line-height: 1.65;
+    max-width: 56rem;
+}
+
+.landing-badge {
+    display: inline-block !important;
+    margin: 0 4px 8px 0 !important;
+    vertical-align: middle;
+}
+
+/* ---------- Card polish ---------- */
+.sd-card {
+    margin-bottom: 0.6rem;
+    border: 1px solid var(--color-background-border);
+    transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+}
+
+.sd-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--ul-card-hover);
+    border-color: var(--color-brand-primary);
+}
+
+.sd-card-title {
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+
+/* ---------- Typography ---------- */
+.highlight pre {
+    line-height: 1.55;
+    font-size: 0.9em;
+    border-radius: 8px;
+}
+
+h1, h2, h3, h4 {
+    letter-spacing: -0.015em;
+}
+
+h2 {
+    margin-top: 2.4rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--color-background-border);
+}
+
+/* ---------- Tables in cards ---------- */
+.sd-card table {
+    margin: 0;
+    font-size: 0.9em;
+}
+
+.sd-card th, .sd-card td {
+    padding: 4px 8px;
+}
+
+/* ---------- Inline kbd ---------- */
+kbd {
+    background: var(--color-background-secondary);
+    border: 1px solid var(--color-foreground-border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 0.85em;
+    font-family: var(--font-stack--monospace);
+}
+
+/* ---------- Mermaid diagrams ---------- */
+.mermaid {
+    text-align: center;
+    background: var(--color-background-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+    margin: 1rem 0;
+}
+
+/* ---------- Feature list (changelog teaser) ---------- */
+.feature-list ul {
+    list-style: none;
+    padding-left: 0;
+}
+.feature-list li {
+    padding: 0.5rem 0.8rem;
+    margin: 0.4rem 0;
+    background: var(--color-background-secondary);
+    border-left: 3px solid var(--color-brand-primary);
+    border-radius: 0 6px 6px 0;
+}
+
+/* ---------- Buttons ---------- */
+.sd-btn {
+    margin: 0.3rem 0.3rem 0.3rem 0;
+}
+
+/* ---------- Sidebar caption ---------- */
+.sidebar-tree .caption {
+    color: var(--color-brand-primary);
+    font-weight: 700;
+    text-transform: none;
+    letter-spacing: 0;
+    margin-top: 1rem;
+}

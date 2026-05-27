@@ -1,6 +1,6 @@
 # Contributing to UniLab
 
-Languages: English | [简体中文](docs/developers/zh_CN/CONTRIBUTING.md)
+Languages: English | [简体中文](docs/sphinx/source/zh_CN/developer_guide/CONTRIBUTING.md)
 
 ## Development Environment Setup
 
@@ -23,8 +23,8 @@ Languages: English | [简体中文](docs/developers/zh_CN/CONTRIBUTING.md)
 
 ## Read Before You Start
 
-- Before changing training entrypoints, runners, env contracts, or backend paths, read [RL Infrastructure Development Standard](docs/developers/zh_CN/development-standard.md)
-- Before changing collaboration flow or issue / milestone rules, read [Collaboration Workflow](docs/developers/zh_CN/collaboration.md)
+- Before changing training entrypoints, runners, env contracts, or backend paths, read [RL Infrastructure Development Standard](docs/sphinx/source/zh_CN/developer_guide/development-standard.md)
+- Before changing collaboration flow or issue / milestone rules, read [Collaboration Workflow](docs/sphinx/source/zh_CN/developer_guide/collaboration.md)
 
 ## Common Commands
 
@@ -68,7 +68,7 @@ Use GitHub Issues to report bugs or propose features.
 
 ## Deep References
 
-- **Architecture & contracts**: [RL Infrastructure Development Standard](docs/developers/zh_CN/development-standard.md)
-- **Collaboration & ADR governance**: [Collaboration Workflow](docs/developers/zh_CN/collaboration.md)
-- **Test layout & markers**: [Development Standard §Testing](docs/developers/zh_CN/development-standard.md)
-- **Configuration system**: [Development Standard §Configuration](docs/developers/zh_CN/development-standard.md)
+- **Architecture & contracts**: [RL Infrastructure Development Standard](docs/sphinx/source/zh_CN/developer_guide/development-standard.md)
+- **Collaboration & ADR governance**: [Collaboration Workflow](docs/sphinx/source/zh_CN/developer_guide/collaboration.md)
+- **Test layout & markers**: [Development Standard §Testing](docs/sphinx/source/zh_CN/developer_guide/development-standard.md)
+- **Configuration system**: [Development Standard §Configuration](docs/sphinx/source/zh_CN/developer_guide/development-standard.md)
