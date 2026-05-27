@@ -105,6 +105,19 @@ def _resolve_ppo_wrapper_cls(rl_cfg: dict[str, Any]) -> type[RslRlVecEnvWrapper]
     ).wrapper_cls
 
 
+def apply_ppo_runtime_flags(
+    train_cfg: dict[str, Any],
+    cfg: DictConfig,
+    *,
+    training_enabled: bool,
+) -> None:
+    algorithm_cfg = train_cfg.setdefault("algorithm", {})
+    if not isinstance(algorithm_cfg, dict):
+        return
+    if not training_enabled:
+        algorithm_cfg["enable_compile"] = False
+
+
 def _format_play_checkpoint_error(
     cfg: DictConfig,
     *,
@@ -184,6 +197,7 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     )
     wrapped_env = wrapper_cls(env, device=device)
     train_cfg = normalize_ppo_train_cfg(rl_cfg)
+    apply_ppo_runtime_flags(train_cfg, cfg, training_enabled=False)
     if "runner" not in train_cfg:
         train_cfg["runner"] = {}
     train_cfg["runner"]["logger"] = "none"
@@ -317,6 +331,7 @@ def main(cfg: DictConfig) -> None:
             wrapped_env = wrapper_cls(env, device=device)
 
             train_cfg = normalize_ppo_train_cfg(rl_cfg)
+            apply_ppo_runtime_flags(train_cfg, cfg, training_enabled=True)
             if "runner" not in train_cfg:
                 train_cfg["runner"] = {}
 

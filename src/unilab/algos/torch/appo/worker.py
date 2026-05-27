@@ -49,6 +49,20 @@ def compute_timeout_bootstrap_correction(
     return corrections
 
 
+def compile_mlp_for_collector(*, actor: Any, critic: Any, collector_device: str) -> None:
+    """Compile collector-side MLP forwards when CUDA torch.compile is available."""
+    if torch.device(collector_device).type != "cuda":
+        return
+    compile_fn = getattr(torch, "compile", None)
+    if compile_fn is None:
+        return
+
+    compile_kwargs = {"options": {"triton.cudagraphs": False}}
+    for module in (actor, critic):
+        if hasattr(module, "mlp"):
+            module.mlp.forward = compile_fn(module.mlp.forward, **compile_kwargs)
+
+
 def appo_collector_fn(
     stop_event: Any,
     env_name: str,
@@ -69,6 +83,7 @@ def appo_collector_fn(
     sim_backend: str = "mujoco",
     env_cfg_override: dict | None = None,
     seed: int | None = None,
+    enable_compile: bool = False,
 ):
     """Entry point for the APPO collector subprocess.
 
@@ -144,6 +159,8 @@ def appo_collector_fn(
     )
     critic = critic.to(collector_device)
     critic.eval()
+    if enable_compile:
+        compile_mlp_for_collector(actor=actor, critic=critic, collector_device=collector_device)
 
     # Load initial weights
     actor_sd = dict(actor.state_dict())

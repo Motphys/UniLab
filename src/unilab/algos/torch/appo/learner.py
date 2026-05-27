@@ -118,9 +118,11 @@ class APPOLearner:
         target_update_freq: int = 1,
         vtrace_clip_rho: float = 1.0,
         vtrace_clip_c: float = 1.0,
+        enable_compile: bool = True,
         **kwargs,
     ):
         self.device = device
+        self._device_type = torch.device(device).type
         self.actor = actor.to(self.device)
         self.critic = critic.to(self.device)
 
@@ -150,11 +152,26 @@ class APPOLearner:
         self.vtrace_clip_rho = vtrace_clip_rho
         self.vtrace_clip_c = vtrace_clip_c
         self._update_counter = 0
+        self.enable_compile = (
+            bool(enable_compile) and self._device_type == "cuda" and hasattr(torch, "compile")
+        )
 
         # Optimizer
         self.optimizer = resolve_optimizer(optimizer)(  # pyright: ignore[reportCallIssue]
             chain(self.actor.parameters(), self.critic.parameters()), lr=learning_rate
         )
+        if self.enable_compile:
+            self._compile_training_methods()
+
+    def _compile_training_methods(self) -> None:
+        compile_fn = getattr(torch, "compile", None)
+        if compile_fn is None or self._device_type != "cuda":
+            return
+
+        compile_kwargs = {"options": {"triton.cudagraphs": False}}
+        for module in (self.actor, self.critic, self.target_actor):
+            if hasattr(module, "mlp"):
+                module.mlp.forward = compile_fn(module.mlp.forward, **compile_kwargs)
 
     def train_mode(self):
         """Set actor/critic to training mode (enables EmpiricalNormalization.update)."""

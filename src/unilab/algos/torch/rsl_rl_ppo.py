@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import torch
 from rsl_rl.algorithms import PPO
 from tensordict import TensorDict
@@ -7,6 +9,35 @@ from tensordict import TensorDict
 
 class FinalObservationAwarePPO(PPO):
     """PPO variant that bootstraps time limits from env final_observation."""
+
+    def __init__(
+        self,
+        *args: Any,
+        enable_compile: bool = False,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.enable_compile = (
+            bool(enable_compile)
+            and torch.device(self.device).type == "cuda"
+            and hasattr(torch, "compile")
+        )
+        if self.enable_compile:
+            self._compile_training_methods()
+
+    def _compile_training_methods(self) -> None:
+        compile_fn = getattr(torch, "compile", None)
+        if compile_fn is None or torch.device(self.device).type != "cuda":
+            return
+
+        compile_kwargs = {"options": {"triton.cudagraphs": False}}
+        if hasattr(self.actor, "mlp"):
+            self.actor.mlp.forward = compile_fn(self.actor.mlp.forward, **compile_kwargs)
+        if hasattr(self.critic, "mlp"):
+            self.critic.mlp.forward = compile_fn(self.critic.mlp.forward, **compile_kwargs)
+        if self.rnd:
+            self.rnd.predictor.forward = compile_fn(self.rnd.predictor.forward, **compile_kwargs)
+            self.rnd.target.forward = compile_fn(self.rnd.target.forward, **compile_kwargs)
 
     def process_env_step(
         self,

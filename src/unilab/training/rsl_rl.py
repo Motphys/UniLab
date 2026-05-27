@@ -36,7 +36,6 @@ def normalize_ppo_train_cfg(train_cfg: dict[str, Any]) -> dict[str, Any]:
             "adaptive_lr_update_interval",
             "metrics_interval",
             "finite_check_interval",
-            "enable_compile",
             "warmup_strict_iters",
             "warmup_metrics_interval",
             "warmup_finite_check_interval",

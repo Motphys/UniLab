@@ -46,6 +46,7 @@ algo:
     target_update_freq: 1
     vtrace_clip_rho: 1.0
     vtrace_clip_c: 1.0
+    enable_compile: true
 
 training:
   task_name: Go1JoystickFlat

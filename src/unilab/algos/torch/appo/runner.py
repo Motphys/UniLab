@@ -166,6 +166,7 @@ class APPORunner(AsyncRunner):
             target_update_freq=algo_cfg.get("target_update_freq", 1),
             vtrace_clip_rho=algo_cfg.get("vtrace_clip_rho", 1.0),
             vtrace_clip_c=algo_cfg.get("vtrace_clip_c", 1.0),
+            enable_compile=algo_cfg.get("enable_compile", True),
         )
         return learner
 
@@ -242,6 +243,9 @@ class APPORunner(AsyncRunner):
             "sim_backend": self.sim_backend,
             "env_cfg_override": self.env_cfg_overrides if self.env_cfg_overrides else None,
             "seed": derive_worker_seed(self.seed, worker_index=0),
+            "enable_compile": bool(
+                self.rl_cfg.get("algorithm", self.rl_cfg).get("enable_compile", False)
+            ),
         }
         self._start_collector(
             target_fn=appo_collector_fn,
