@@ -300,8 +300,8 @@ def check_generated_support_matrix(content: str, doc_path: Path, root: Path) -> 
         / "docs"
         / "sphinx"
         / "source"
-        / "user_guide"
         / "zh_CN"
+        / "user_guide"
         / "E-reference"
         / "01-backend-support-matrix.md"
     ):
@@ -318,11 +318,16 @@ def check_generated_support_matrix(content: str, doc_path: Path, root: Path) -> 
 
 def check_zh_cn_doc_shape(content: str, doc_path: Path, root: Path) -> list[str]:
     errors: list[str] = []
-    checked_dirs = {
-        root / "docs" / "sphinx" / "source" / "user_guide" / "zh_CN",
-        root / "docs" / "sphinx" / "source" / "developer_guide" / "zh_CN",
-    }
-    if doc_path.parent not in checked_dirs or doc_path.suffix != ".md":
+    zh_root = root / "docs" / "sphinx" / "source" / "zh_CN"
+    try:
+        doc_path.relative_to(zh_root)
+    except ValueError:
+        return errors
+    if doc_path.suffix != ".md":
+        return errors
+    # Section / language landing pages don't carry the language-tag + navigation
+    # contract — they have their own toctree-driven layout.
+    if doc_path.name == "index.md":
         return errors
 
     lines = content.splitlines()
@@ -332,15 +337,15 @@ def check_zh_cn_doc_shape(content: str, doc_path: Path, root: Path) -> list[str]
     if "\n## Navigation\n" not in content:
         errors.append(f"{doc_path}: zh_CN docs must include a `## Navigation` section")
 
-    if "- Index: [Documentation](../../index.md)" not in content:
-        errors.append(f"{doc_path}: zh_CN docs must link back to docs index in Navigation")
+    if not re.search(r"- Index:\s*\[[^\]]+\]\([^)]+index\.md\)", content):
+        errors.append(f"{doc_path}: zh_CN docs must link back to a docs index in Navigation")
 
     return errors
 
 
 def check_adr_shape(content: str, doc_path: Path, root: Path) -> list[str]:
     errors: list[str] = []
-    adr_dir = root / "docs" / "sphinx" / "source" / "developer_guide" / "adr"
+    adr_dir = root / "docs" / "sphinx" / "source" / "adr"
     if doc_path.parent != adr_dir or doc_path.suffix != ".md":
         return errors
     if doc_path.name in ("ADR-0000-index.md", "README.md"):
@@ -365,7 +370,7 @@ def check_adr_shape(content: str, doc_path: Path, root: Path) -> list[str]:
 
 def check_user_doc_architecture(content: str, doc_path: Path, root: Path) -> list[str]:
     errors: list[str] = []
-    user_root = root / "docs" / "sphinx" / "source" / "user_guide" / "zh_CN"
+    user_root = root / "docs" / "sphinx" / "source" / "zh_CN" / "user_guide"
     try:
         doc_path.relative_to(user_root)
     except ValueError:

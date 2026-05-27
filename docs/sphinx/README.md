@@ -1,41 +1,47 @@
 # UniLab Sphinx Documentation
 
-UniLab 的文档源码全部放在这个目录下。CI 在 push to `main` 时构建,然后通过 deploy key
-推到独立仓库 [`unilabsim/UniLab-doc`](https://github.com/unilabsim/UniLab-doc) 的
-`gh-pages` 分支,由 GitHub Pages 发布到
-<https://unilabsim.github.io/UniLab-doc/>。
+UniLab 的文档源码全部在这里,**双语平行结构**——`source/en/` 是英文版,`source/zh_CN/`
+是中文版,`adr/`、`api_reference/`、`glossary.md`、`changelog.md`、`_static/` 共享。
+
+CI 在 push to `main` 时构建 Sphinx,通过 deploy key 推到独立仓
+[`unilabsim/UniLab-doc`](https://github.com/unilabsim/UniLab-doc) 的 `gh-pages` 分支,
+由 GitHub Pages 发布到 <https://unilabsim.github.io/UniLab-doc/>。
+
+## 目录结构
 
 ```
 docs/sphinx/
-├── Makefile               一次性 / live build / strict build 入口
-├── requirements.txt       构建依赖
+├── AGENTS.md                 ← agent 写文档时必读
+├── README.md                 ← 本文件;build / deploy / 目录结构
+├── Makefile                  ← html / live / strict 三档构建
+├── requirements.txt          ← Sphinx + 扩展依赖,不含 unilab 本身
 └── source/
-    ├── conf.py            Sphinx 配置(theme、autodoc、intersphinx)
-    ├── index.md           Landing
-    ├── glossary.md
-    ├── changelog.md
-    ├── _static/           CSS / 图片 / 视频 / teaser 资源
-    ├── _templates/        autosummary 模板
-    ├── user_guide/        英文用户文档
-    │   ├── getting_started/
-    │   ├── backends/
-    │   ├── algorithms/
-    │   ├── tasks/
-    │   ├── domain_randomization/
-    │   ├── terrain/
-    │   ├── manipulation/
-    │   ├── tooling/
-    │   └── zh_CN/         中文用户文档(从原 docs/users/zh_CN 迁来)
-    ├── developer_guide/   英文 developer 文档
-    │   ├── architecture/
-    │   ├── contracts/
-    │   ├── extending/
-    │   ├── adr/           ADR(中英共用,使用英文文件名)
-    │   └── zh_CN/         中文 developer 文档(从原 docs/developers/zh_CN 迁来)
-    ├── agents/zh_CN/      Agent 速查
-    ├── transfer/          Sim-to-real / sim-to-sim / framework migration
-    └── api_reference/     autodoc 驱动的 Python API
+    ├── conf.py               ← Sphinx 配置
+    ├── index.md              ← 根 landing(语言 picker)
+    │
+    ├── _static/              ← 共享:CSS / 图片 / 视频 / teaser
+    ├── _templates/           ← 共享:autosummary 模板
+    ├── adr/                  ← 共享:ADR(中英共用,中文为主)
+    ├── api_reference/        ← 共享:autodoc 驱动(英文,从 src/ docstring 拉)
+    ├── glossary.md           ← 共享:术语表
+    ├── changelog.md          ← 共享
+    │
+    ├── en/                   ← 英文版
+    │   ├── index.md          ← 英文站根
+    │   ├── user_guide/       ← getting_started / backends / algorithms / tasks / DR / terrain / manipulation / tooling
+    │   ├── developer_guide/  ← architecture / contracts / extending / contributing
+    │   ├── transfer/         ← sim_to_real / sim_to_sim / framework_migration
+    │   └── agents/           ← 占位,待写
+    │
+    └── zh_CN/                ← 中文版
+        ├── index.md          ← 中文站根
+        ├── user_guide/       ← 01-getting-started / 02-simulation-backends / ... / A-E 速查
+        ├── developer_guide/  ← development-standard / collaboration / domain-randomization-contract / ...
+        ├── transfer/         ← 占位,待写
+        └── agents/           ← Agent 速查(中文,01-agent-quick-reference.md)
 ```
+
+URL 模式:`/`(语言 picker)、`/en/...`、`/zh_CN/...`。两种语言路径 1:1 镜像。
 
 ## 本地构建
 
@@ -54,7 +60,7 @@ uv pip install -e ../..
 
 # 3. 一次性构建
 make html
-# 输出:build/html/index.html
+# 输出:build/html/index.html(根 picker)、build/html/en/index.html、build/html/zh_CN/index.html
 
 # 4. live preview(推荐写文档时用)
 make live
@@ -74,14 +80,14 @@ UNILAB_DOCS_SKIP_AUTODOC=1 make html
 
 CI 工作流在 `.github/workflows/docs.yml`:
 
-- **PR**: 只 build,不部署。失败会阻塞 PR(只看 build job,deploy 不跑)。
-- **push to main**: build + 用 deploy key 把 `build/html` 推到
-  `unilabsim/UniLab-doc` 的 `gh-pages` 分支。
-- **手动**: `workflow_dispatch` 也能触发。
+- **PR**: 只 build,不部署。failed 阻塞 PR(只看 build job,deploy 不跑)
+- **push to main**: build + 用 deploy key 把 `build/html`(含 `/`、`/en/`、`/zh_CN/`)推到
+  `unilabsim/UniLab-doc` 的 `gh-pages` 分支
+- **手动**: `workflow_dispatch` 也能触发
 
-### Deploy key 配置(一次性 setup,已做过可跳过)
+### Deploy key 配置(一次性 setup)
 
-CI 用 SSH deploy key 跨仓推送,不需要 PAT。流程:
+CI 用 SSH deploy key 跨仓推送,不需要 PAT:
 
 ```bash
 # 1. 在本地生成专用 keypair(不要复用个人 SSH key)
@@ -104,8 +110,7 @@ CI step 用的是 `peaceiris/actions-gh-pages@v4`,详见 `.github/workflows/docs
 
 ### UniLab-doc 仓的 Pages 设置
 
-`Settings → Pages` 要选:
-
+`Settings → Pages`:
 - **Source**: Deploy from a branch
 - **Branch**: `gh-pages` / `/ (root)`
 
@@ -113,20 +118,22 @@ CI step 用的是 `peaceiris/actions-gh-pages@v4`,详见 `.github/workflows/docs
 
 ## 写新文档的约定
 
-1. **中英分层**:英文页面放在主结构(`user_guide/`, `developer_guide/` 等);中文页面放在对应的 `zh_CN/` 子目录,文件名与英文对齐。
-2. **改 API 用 autodoc**:`api_reference/` 下页面只放 `automodule` / `autosummary` 指令,不要手写 API 表格——会和 docstring 漂移。
-3. **链接源码**:正文里引用代码用 `{file}` / `{doc}` 角色或绝对 GitHub 链接,不要写相对路径(部署后路径会变)。
-4. **图片放 `_static/`**:使用 `_static/assets/foo.png` 这种相对路径在 Sphinx 下能解析。
-5. **ADR**:新 ADR 文件用 `ADR-NNNN-kebab-title.md` 命名,记得追加到 `developer_guide/index.md` 的 ADR toctree。
+详细规则见 [`AGENTS.md`](AGENTS.md)。要点:
 
-## 已知不全的部分
+1. **双语平行**:英文进 `source/en/<section>/`,中文进 `source/zh_CN/<section>/`,**路径 1:1 镜像**(同名文件)
+2. **共享内容**:ADR、API reference、glossary、changelog、`_static` 都在根目录共享,不写双语
+3. **跨语言引用**:跨语言时用绝对路径 `/<lang>/<section>/<page>`,如 `{doc}`/zh_CN/user_guide/index``
+4. **API 文档 = autodoc**:`api_reference/` 下页面只放 `automodule` / `autosummary`,不写手写表格
+5. **图片放 `_static/`**:Sphinx 下用 `_static/assets/foo.png` 这种路径
+6. **ADR 命名**:`ADR-NNNN-kebab-title.md`,挂到 `adr/README.md` 索引和各语言 developer_guide 的 ADR toctree
 
-下列页面还是占位结构,内容待填:
+## 已知不全(框架已搭,内容待填)
 
-- `developer_guide/architecture/*` (5 篇,主仓中文等价物在 `zh_CN/`)
-- `developer_guide/contracts/*` (5 篇,主仓中文等价物在 `zh_CN/`)
-- `developer_guide/extending/*` (4 篇)
-- `user_guide/tasks/*` 个别页面
-- `transfer/sim_to_real/*` 个别页面
+- `source/en/user_guide/` 个别页面(中文等价物在 `zh_CN/user_guide/`)
+- `source/en/developer_guide/architecture/`、`contracts/`、`extending/` 各页(中文等价物在 `zh_CN/developer_guide/`)
+- `source/en/transfer/sim_to_real/` 个别页面
+- `source/zh_CN/transfer/` 全部(等英文稳定后再翻)
+- `source/en/agents/` 全部
+- `source/en/agents/` 全部(中文版在 `source/zh_CN/agents/01-agent-quick-reference.md`)
 
-中文版多数已有内容,可以作为英文翻译的底稿。
+中文版多数已有完整内容,可作为英文翻译底稿;反过来,英文 transfer 一节内容完整,可作为中文翻译底稿。
