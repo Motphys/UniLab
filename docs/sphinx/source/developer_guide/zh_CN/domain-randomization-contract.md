@@ -186,6 +186,6 @@ Go2W 是当前 all-motor actuator 示例：
 
 ## Navigation
 
-- Index: [Documentation](../../README.md)
+- Index: [Documentation](../../index.md)
 - Previous: [Development Standard](development-standard.md)
 - Next: [Collaboration](collaboration.md)

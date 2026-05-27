@@ -61,6 +61,6 @@ uv run scripts/train_offpolicy.py --cfg job
 
 ## Navigation
 
-- Index: [Documentation](../../../README.md)
+- Index: [Documentation](../../../index.md)
 - Previous: [评估、回放与恢复训练](02-playback-and-resume.md)
 - Next: [日志、run 目录与 W&B](04-logging-and-wandb.md)

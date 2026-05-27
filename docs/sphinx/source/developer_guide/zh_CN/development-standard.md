@@ -167,5 +167,5 @@ Env **负责** MDP 语义、observation 结构、reward、reset，以及 backend
 
 ## Navigation
 
-- Index: [Documentation](../../README.md)
+- Index: [Documentation](../../index.md)
 - Next: [Domain Randomization Contract](domain-randomization-contract.md)

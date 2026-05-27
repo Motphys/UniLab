@@ -114,6 +114,6 @@ uv run scripts/train_hora_distill.py \
 
 ## Navigation
 
-- Index: [Documentation](../../../README.md)
+- Index: [Documentation](../../../index.md)
 - Previous: [Allegro Inhand](03-allegro-inhand.md)
 - Next: [Go2 Rough Terrain](05-go2-rough-terrain.md)

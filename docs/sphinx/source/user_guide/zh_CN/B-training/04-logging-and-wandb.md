@@ -57,6 +57,6 @@ uv run train --algo ppo --task go2_joystick_flat --sim mujoco \
 
 ## Navigation
 
-- Index: [Documentation](../../../README.md)
+- Index: [Documentation](../../../index.md)
 - Previous: [Hydra 覆盖规则](03-hydra-overrides.md)
 - Next: [训练相关 Docker 用法](05-docker.md)

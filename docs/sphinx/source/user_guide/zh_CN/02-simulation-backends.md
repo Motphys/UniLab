@@ -57,6 +57,6 @@ macOS / MacBook 上，统一 CLI 会在 Motrix 交互回放时自动路由到 `m
 
 ## Navigation
 
-- Index: [Documentation](../../README.md)
+- Index: [Documentation](../../index.md)
 - Previous: [Getting Started](01-getting-started.md)
 - Next: [Backend Support Matrix](E-reference/01-backend-support-matrix.md)

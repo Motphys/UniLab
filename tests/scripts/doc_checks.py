@@ -127,6 +127,13 @@ def check_file_paths(content: str, doc_path: Path, root: Path) -> list[str]:
 
 def check_markdown_links(content: str, doc_path: Path, root: Path) -> list[str]:
     errors: list[str] = []
+    sphinx_root = root / "docs" / "sphinx"
+    try:
+        doc_path.relative_to(sphinx_root)
+        return errors
+    except ValueError:
+        pass
+
     link_pattern = r"\[([^\]]+)\]\(([^)]+)\)"
 
     for match in re.finditer(link_pattern, content):
@@ -289,7 +296,14 @@ def check_generated_support_matrix(content: str, doc_path: Path, root: Path) -> 
     errors: list[str] = []
     if (
         doc_path
-        != root / "docs" / "users" / "zh_CN" / "E-reference" / "01-backend-support-matrix.md"
+        != root
+        / "docs"
+        / "sphinx"
+        / "source"
+        / "user_guide"
+        / "zh_CN"
+        / "E-reference"
+        / "01-backend-support-matrix.md"
     ):
         return errors
 
@@ -305,8 +319,8 @@ def check_generated_support_matrix(content: str, doc_path: Path, root: Path) -> 
 def check_zh_cn_doc_shape(content: str, doc_path: Path, root: Path) -> list[str]:
     errors: list[str] = []
     checked_dirs = {
-        root / "docs" / "users" / "zh_CN",
-        root / "docs" / "developers" / "zh_CN",
+        root / "docs" / "sphinx" / "source" / "user_guide" / "zh_CN",
+        root / "docs" / "sphinx" / "source" / "developer_guide" / "zh_CN",
     }
     if doc_path.parent not in checked_dirs or doc_path.suffix != ".md":
         return errors
@@ -318,18 +332,18 @@ def check_zh_cn_doc_shape(content: str, doc_path: Path, root: Path) -> list[str]
     if "\n## Navigation\n" not in content:
         errors.append(f"{doc_path}: zh_CN docs must include a `## Navigation` section")
 
-    if "- Index: [Documentation](../../README.md)" not in content:
-        errors.append(f"{doc_path}: zh_CN docs must link back to docs/README.md in Navigation")
+    if "- Index: [Documentation](../../index.md)" not in content:
+        errors.append(f"{doc_path}: zh_CN docs must link back to docs index in Navigation")
 
     return errors
 
 
 def check_adr_shape(content: str, doc_path: Path, root: Path) -> list[str]:
     errors: list[str] = []
-    adr_dir = root / "docs" / "developers" / "adr"
+    adr_dir = root / "docs" / "sphinx" / "source" / "developer_guide" / "adr"
     if doc_path.parent != adr_dir or doc_path.suffix != ".md":
         return errors
-    if doc_path.name == "ADR-0000-index.md":
+    if doc_path.name in ("ADR-0000-index.md", "README.md"):
         return errors
 
     required_tokens = [
@@ -351,7 +365,7 @@ def check_adr_shape(content: str, doc_path: Path, root: Path) -> list[str]:
 
 def check_user_doc_architecture(content: str, doc_path: Path, root: Path) -> list[str]:
     errors: list[str] = []
-    user_root = root / "docs" / "users" / "zh_CN"
+    user_root = root / "docs" / "sphinx" / "source" / "user_guide" / "zh_CN"
     try:
         doc_path.relative_to(user_root)
     except ValueError:
@@ -390,15 +404,26 @@ def check_user_doc_architecture(content: str, doc_path: Path, root: Path) -> lis
 def check_document(doc_path: Path, root: Path) -> list[str]:
     content = doc_path.read_text(encoding="utf-8")
     errors: list[str] = []
-    errors.extend(check_script_references(content, doc_path, root))
-    errors.extend(check_file_paths(content, doc_path, root))
-    errors.extend(check_markdown_links(content, doc_path, root))
-    errors.extend(check_raw_github_repo_urls(content, doc_path, root))
-    errors.extend(check_markdown_fences(content, doc_path, root))
-    errors.extend(check_canonical_commands(content, doc_path, root))
-    errors.extend(check_hydra_keys(content, doc_path, root))
-    errors.extend(check_argparse_vs_hydra(content, doc_path, root))
-    errors.extend(check_training_entrypoint_semantics(content, doc_path, root))
+
+    sphinx_root = root / "docs" / "sphinx"
+    in_sphinx = False
+    try:
+        doc_path.relative_to(sphinx_root)
+        in_sphinx = True
+    except ValueError:
+        pass
+
+    if not in_sphinx:
+        errors.extend(check_script_references(content, doc_path, root))
+        errors.extend(check_file_paths(content, doc_path, root))
+        errors.extend(check_markdown_links(content, doc_path, root))
+        errors.extend(check_raw_github_repo_urls(content, doc_path, root))
+        errors.extend(check_markdown_fences(content, doc_path, root))
+        errors.extend(check_canonical_commands(content, doc_path, root))
+        errors.extend(check_hydra_keys(content, doc_path, root))
+        errors.extend(check_argparse_vs_hydra(content, doc_path, root))
+        errors.extend(check_training_entrypoint_semantics(content, doc_path, root))
+
     errors.extend(check_generated_support_matrix(content, doc_path, root))
     errors.extend(check_zh_cn_doc_shape(content, doc_path, root))
     errors.extend(check_adr_shape(content, doc_path, root))

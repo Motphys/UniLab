@@ -15,7 +15,9 @@ def test_documentation_files_match_current_repo_contracts():
 
 def test_sharpa_domain_randomization_doc_matches_owner_config():
     root = Path(__file__).resolve().parents[2]
-    doc_path = root / "docs" / "users" / "zh_CN" / "05-domain-randomization.md"
+    doc_path = (
+        root / "docs" / "sphinx" / "source" / "user_guide" / "zh_CN" / "05-domain-randomization.md"
+    )
     content = doc_path.read_text(encoding="utf-8")
 
     owner_cfg = OmegaConf.load(root / "conf" / "ppo" / "task" / "sharpa_inhand" / "mujoco.yaml")
@@ -138,7 +140,9 @@ def test_collect_doc_errors_scans_scripts_markdown(tmp_path):
 
 def test_check_zh_cn_doc_shape_requires_language_navigation_and_index(tmp_path):
     root = tmp_path
-    doc_path = root / "docs" / "users" / "zh_CN" / "05-domain-randomization.md"
+    doc_path = (
+        root / "docs" / "sphinx" / "source" / "user_guide" / "zh_CN" / "05-domain-randomization.md"
+    )
     doc_path.parent.mkdir(parents=True)
     content = "# 域随机化\n\n缺少语言头。\n"
 
@@ -146,16 +150,18 @@ def test_check_zh_cn_doc_shape_requires_language_navigation_and_index(tmp_path):
 
     assert any("语言: 简体中文" in error for error in errors)
     assert any("## Navigation" in error for error in errors)
-    assert any("docs/README.md" in error for error in errors)
+    assert any("docs index" in error for error in errors)
 
 
 def test_check_zh_cn_doc_shape_accepts_user_contract(tmp_path):
     root = tmp_path
-    doc_path = root / "docs" / "users" / "zh_CN" / "05-domain-randomization.md"
+    doc_path = (
+        root / "docs" / "sphinx" / "source" / "user_guide" / "zh_CN" / "05-domain-randomization.md"
+    )
     doc_path.parent.mkdir(parents=True)
     content = (
         "# 域随机化\n\n语言: 简体中文\n\n正文。\n\n"
-        "## Navigation\n\n- Index: [Documentation](../../README.md)\n"
+        "## Navigation\n\n- Index: [Documentation](../../index.md)\n"
     )
 
     errors = doc_checks.check_zh_cn_doc_shape(content, doc_path, root)
@@ -165,11 +171,19 @@ def test_check_zh_cn_doc_shape_accepts_user_contract(tmp_path):
 
 def test_check_zh_cn_doc_shape_accepts_developer_contract(tmp_path):
     root = tmp_path
-    doc_path = root / "docs" / "developers" / "zh_CN" / "development-standard.md"
+    doc_path = (
+        root
+        / "docs"
+        / "sphinx"
+        / "source"
+        / "developer_guide"
+        / "zh_CN"
+        / "development-standard.md"
+    )
     doc_path.parent.mkdir(parents=True)
     content = (
         "# RL Infrastructure 开发标准\n\n语言: 简体中文\n\n正文。\n\n"
-        "## Navigation\n\n- Index: [Documentation](../../README.md)\n"
+        "## Navigation\n\n- Index: [Documentation](../../index.md)\n"
     )
 
     errors = doc_checks.check_zh_cn_doc_shape(content, doc_path, root)
@@ -179,7 +193,16 @@ def test_check_zh_cn_doc_shape_accepts_developer_contract(tmp_path):
 
 def test_check_user_doc_architecture_flags_migration_phrasing_and_missing_task_sections(tmp_path):
     root = tmp_path
-    task_index = root / "docs" / "users" / "zh_CN" / "D-tasks" / "01-task-index.md"
+    task_index = (
+        root
+        / "docs"
+        / "sphinx"
+        / "source"
+        / "user_guide"
+        / "zh_CN"
+        / "D-tasks"
+        / "01-task-index.md"
+    )
     task_index.parent.mkdir(parents=True)
     task_index.write_text("# 任务\n\n语言: 简体中文\n\n已拆成。\n", encoding="utf-8")
 
@@ -194,7 +217,9 @@ def test_check_user_doc_architecture_flags_migration_phrasing_and_missing_task_s
 
 def test_check_user_doc_architecture_requires_backend_matrix_route(tmp_path):
     root = tmp_path
-    doc_path = root / "docs" / "users" / "zh_CN" / "02-simulation-backends.md"
+    doc_path = (
+        root / "docs" / "sphinx" / "source" / "user_guide" / "zh_CN" / "02-simulation-backends.md"
+    )
     doc_path.parent.mkdir(parents=True)
     doc_path.write_text("# 仿真后端\n\n语言: 简体中文\n\n正文。\n", encoding="utf-8")
 
@@ -207,7 +232,9 @@ def test_check_user_doc_architecture_requires_backend_matrix_route(tmp_path):
 
 def test_check_adr_shape_requires_governance_fields(tmp_path):
     root = tmp_path
-    doc_path = root / "docs" / "developers" / "adr" / "ADR-9999-example.md"
+    doc_path = (
+        root / "docs" / "sphinx" / "source" / "developer_guide" / "adr" / "ADR-9999-example.md"
+    )
     doc_path.parent.mkdir(parents=True)
     content = "# ADR-9999 Example\n\n- Status: Accepted\n"
 
@@ -220,7 +247,9 @@ def test_check_adr_shape_requires_governance_fields(tmp_path):
 
 def test_check_adr_shape_accepts_template_contract(tmp_path):
     root = tmp_path
-    doc_path = root / "docs" / "developers" / "adr" / "ADR-9999-example.md"
+    doc_path = (
+        root / "docs" / "sphinx" / "source" / "developer_guide" / "adr" / "ADR-9999-example.md"
+    )
     doc_path.parent.mkdir(parents=True)
     content = """
 # ADR-9999 Example

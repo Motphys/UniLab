@@ -61,5 +61,5 @@ uv run python -c "import mujoco; m=mujoco.MjModel.from_xml_path('src/unilab/asse
 
 ## Navigation
 
-- Index: [Documentation](../../../README.md)
+- Index: [Documentation](../../../index.md)
 - Previous: [Go2 Rough Terrain](05-go2-rough-terrain.md)

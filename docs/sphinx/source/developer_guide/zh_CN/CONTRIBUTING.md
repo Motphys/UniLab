@@ -158,5 +158,5 @@ UniLab 使用 Hydra + dataclass 配置系统:
 
 ## Navigation
 
-- Index: [Documentation](../../README.md)
+- Index: [Documentation](../../index.md)
 - Previous: [Collaboration](collaboration.md)

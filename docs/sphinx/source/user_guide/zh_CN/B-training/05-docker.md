@@ -26,5 +26,5 @@ uv run eval --algo ppo --task go2_joystick_flat --sim mujoco --load-run -1
 
 ## Navigation
 
-- Index: [Documentation](../../../README.md)
+- Index: [Documentation](../../../index.md)
 - Previous: [日志、run 目录与 W&B](04-logging-and-wandb.md)

@@ -35,6 +35,6 @@ logs/mlx_rl_train/<task>/
 
 ## Navigation
 
-- Index: [Documentation](../../../README.md)
+- Index: [Documentation](../../../index.md)
 - Previous: [PPO (torch / RSL-RL)](01-ppo-torch.md)
 - Next: [APPO](03-appo.md)

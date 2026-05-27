@@ -38,6 +38,6 @@ logs/rsl_rl_ppo/<task>/
 
 ## Navigation
 
-- Index: [Documentation](../../../README.md)
+- Index: [Documentation](../../../index.md)
 - Previous: [算法说明](../04-algorithms.md)
 - Next: [MLX PPO](02-mlx-ppo.md)

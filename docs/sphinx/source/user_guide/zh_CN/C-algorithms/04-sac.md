@@ -71,6 +71,6 @@ logs/fast_sac/<task>/
 
 ## Navigation
 
-- Index: [Documentation](../../../README.md)
+- Index: [Documentation](../../../index.md)
 - Previous: [APPO](03-appo.md)
 - Next: [TD3](05-td3.md)

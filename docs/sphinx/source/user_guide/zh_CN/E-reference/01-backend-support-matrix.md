@@ -119,5 +119,5 @@ uv run scripts/generate_support_matrix.py --write
 
 ## Navigation
 
-- Index: [Documentation](../../../README.md)
+- Index: [Documentation](../../../index.md)
 - Previous: [仿真后端](../02-simulation-backends.md)

@@ -64,5 +64,5 @@ docker run --rm -it --network=host --ipc=host \
 
 ## Navigation
 
-- Index: [Documentation](../../../README.md)
+- Index: [Documentation](../../../index.md)
 - Previous: [首次运行](02-first-run.md)

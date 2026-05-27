@@ -85,6 +85,6 @@ uv run demo --device cpu
 
 ## Navigation
 
-- Index: [Documentation](../../../README.md)
+- Index: [Documentation](../../../index.md)
 - Previous: [训练指南](../03-training.md)
 - Next: [评估、回放与恢复训练](02-playback-and-resume.md)

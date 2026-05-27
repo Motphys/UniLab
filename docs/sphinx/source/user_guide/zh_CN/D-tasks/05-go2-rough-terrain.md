@@ -95,6 +95,6 @@ uv run pytest tests/envs/locomotion/test_go2_terrain_spawn.py tests/envs/locomot
 
 ## Navigation
 
-- Index: [Documentation](../../../README.md)
+- Index: [Documentation](../../../index.md)
 - Previous: [Sharpa Inhand](04-sharpa-inhand.md)
 - Next: [Go2 Arm Manip Loco](06-go2-arm-manip-loco.md)

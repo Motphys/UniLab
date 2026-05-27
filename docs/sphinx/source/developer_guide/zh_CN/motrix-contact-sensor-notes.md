@@ -145,4 +145,4 @@ env 层的 `_read_tactile_force()` 对 contact sensor 走 `get_contact_force_mag
 
 ## Navigation
 
-- Index: [Documentation](../../README.md)
+- Index: [Documentation](../../index.md)

@@ -65,6 +65,6 @@
 
 ## Navigation
 
-- Index: [Documentation](../../README.md)
+- Index: [Documentation](../../index.md)
 - Previous: [Domain Randomization Contract](domain-randomization-contract.md)
 - Next: [Contributing](CONTRIBUTING.md)

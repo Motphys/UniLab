@@ -55,6 +55,6 @@ uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco training
 
 ## Navigation
 
-- Index: [Documentation](../../../README.md)
+- Index: [Documentation](../../../index.md)
 - Previous: [统一 CLI](01-unified-cli.md)
 - Next: [Hydra 覆盖规则](03-hydra-overrides.md)

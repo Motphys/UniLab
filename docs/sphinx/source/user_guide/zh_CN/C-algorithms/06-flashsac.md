@@ -63,5 +63,5 @@ logs/flash_sac/<task>/
 
 ## Navigation
 
-- Index: [Documentation](../../../README.md)
+- Index: [Documentation](../../../index.md)
 - Previous: [TD3](05-td3.md)

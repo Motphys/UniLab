@@ -5,7 +5,7 @@
 > **Motion 资产已迁移到 Hugging Face**：`.npz` 文件不再随仓库分发，首次使用时由 `MotionLoader` 自动从
 > [unilabsim/unilab-motions](https://huggingface.co/datasets/unilabsim/unilab-motions)
 > 下载。`uv sync` 已自动安装所需依赖。详见
-> [迁移指南](../../../developers/zh_CN/motion-asset-migration.md)。
+> [迁移指南](../../../developer_guide/zh_CN/motion-asset-migration.md)。
 
 ## 任务范围
 
@@ -113,6 +113,6 @@ uv run scripts/play_interactive.py task=g1_motion_tracking/mujoco interactive.sh
 
 ## Navigation
 
-- Index: [Documentation](../../../README.md)
+- Index: [Documentation](../../../index.md)
 - Previous: [任务索引](01-task-index.md)
 - Next: [Allegro Inhand](03-allegro-inhand.md)

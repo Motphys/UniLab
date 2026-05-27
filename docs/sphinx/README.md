@@ -116,7 +116,7 @@ CI step 用的是 `peaceiris/actions-gh-pages@v4`,详见 `.github/workflows/docs
 1. **中英分层**:英文页面放在主结构(`user_guide/`, `developer_guide/` 等);中文页面放在对应的 `zh_CN/` 子目录,文件名与英文对齐。
 2. **改 API 用 autodoc**:`api_reference/` 下页面只放 `automodule` / `autosummary` 指令,不要手写 API 表格——会和 docstring 漂移。
 3. **链接源码**:正文里引用代码用 `{file}` / `{doc}` 角色或绝对 GitHub 链接,不要写相对路径(部署后路径会变)。
-4. **图片放 `_static/`**:`![alt](../../_static/assets/foo.png)` 这种相对路径在 Sphinx 下能解析。
+4. **图片放 `_static/`**:使用 `_static/assets/foo.png` 这种相对路径在 Sphinx 下能解析。
 5. **ADR**:新 ADR 文件用 `ADR-NNNN-kebab-title.md` 命名,记得追加到 `developer_guide/index.md` 的 ADR toctree。
 
 ## 已知不全的部分

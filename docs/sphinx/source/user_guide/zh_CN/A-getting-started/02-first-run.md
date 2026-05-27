@@ -57,6 +57,6 @@ uv run scripts/train_appo.py task=go1_joystick_flat/mujoco
 
 ## Navigation
 
-- Index: [Documentation](../../../README.md)
+- Index: [Documentation](../../../index.md)
 - Previous: [安装与环境](01-install.md)
 - Next: [Docker](03-docker.md)

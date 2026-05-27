@@ -53,6 +53,6 @@ uv run scripts/train_rsl_rl.py \
 
 ## Navigation
 
-- Index: [Documentation](../../../README.md)
+- Index: [Documentation](../../../index.md)
 - Previous: [G1 Motion Tracking](02-g1-motion-tracking.md)
 - Next: [Sharpa Inhand](04-sharpa-inhand.md)

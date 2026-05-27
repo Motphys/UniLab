@@ -27,6 +27,6 @@
 
 ## Navigation
 
-- Index: [Documentation](../../README.md)
+- Index: [Documentation](../../index.md)
 - Previous: [Training Guide](03-training.md)
 - Next: [PPO](C-algorithms/01-ppo-torch.md)

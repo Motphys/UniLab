@@ -52,5 +52,5 @@ uv run demo
 
 ## Navigation
 
-- Index: [Documentation](../../README.md)
+- Index: [Documentation](../../index.md)
 - Next: [Install](A-getting-started/01-install.md)

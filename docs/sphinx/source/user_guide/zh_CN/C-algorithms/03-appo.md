@@ -70,6 +70,6 @@ logs/appo/<task>/
 
 ## Navigation
 
-- Index: [Documentation](../../../README.md)
+- Index: [Documentation](../../../index.md)
 - Previous: [MLX PPO](02-mlx-ppo.md)
 - Next: [SAC](04-sac.md)

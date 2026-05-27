@@ -39,6 +39,6 @@ uv run demo
 
 ## Navigation
 
-- Index: [Documentation](../../README.md)
+- Index: [Documentation](../../index.md)
 - Previous: [Simulation Backends](02-simulation-backends.md)
 - Next: [Unified CLI](B-training/01-unified-cli.md)

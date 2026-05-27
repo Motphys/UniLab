@@ -80,6 +80,6 @@ uv sync --index-url https://pypi.tuna.tsinghua.edu.cn/simple
 
 ## Navigation
 
-- Index: [Documentation](../../../README.md)
+- Index: [Documentation](../../../index.md)
 - Previous: [快速开始](../01-getting-started.md)
 - Next: [首次运行](02-first-run.md)

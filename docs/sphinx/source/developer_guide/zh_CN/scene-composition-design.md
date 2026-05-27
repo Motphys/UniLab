@@ -371,6 +371,6 @@ env:
 
 ## Navigation
 
-- Index: [Documentation](../../README.md)
+- Index: [Documentation](../../index.md)
 - Related: [RL Infrastructure 开发标准](development-standard.md)
 - Related: [Go2 Rough Terrain](../../users/zh_CN/D-tasks/05-go2-rough-terrain.md)
