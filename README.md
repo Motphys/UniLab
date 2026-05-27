@@ -7,7 +7,7 @@ A Heterogeneous Architecture for Robot RL Beyond GPU-Dominant Paradigms
 <p align="center">Languages: English | <a href="docs/sphinx/source/zh_CN/user_guide/01-getting-started.md">简体中文</a></p>
 
 <p align="center">
-  <img src="docs/assets/teaser.jpg" alt="UniLab Teaser" width="95%" />
+  <img src="docs/sphinx/source/_static/assets/teaser.jpg" alt="UniLab Teaser" width="95%" />
 </a>
 
 Train robot RL without a GPU simulation backend.
@@ -23,7 +23,7 @@ UniLab uses **CPU simulation + shared-memory runtime + GPU learning** instead of
 ```
 
 Start with the `Quick Demo` below to run the primary training command from this repository.
-Conda and pip users should still follow the repository `uv` workflow for now; see [install](docs/users/zh_CN/A-getting-started/01-install.md#conda--pip-用户说明) for the current boundaries.
+Conda and pip users should still follow the repository `uv` workflow for now; see [install](docs/sphinx/source/zh_CN/user_guide/A-getting-started/01-install.md#conda--pip-用户说明) for the current boundaries.
 
 ## 🚀 Quick Demo
 
