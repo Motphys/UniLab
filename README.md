@@ -23,7 +23,7 @@ UniLab uses **CPU simulation + shared-memory runtime + GPU learning** instead of
 ```
 
 Start with the `Quick Demo` below to run the primary training command from this repository.
-Conda and pip users should still follow the repository `uv` workflow for now; see [安装与环境](docs/users/zh_CN/A-getting-started/01-install.md#conda--pip-用户说明) for the current boundaries.
+Conda and pip users should still follow the repository `uv` workflow for now; see [install](docs/users/zh_CN/A-getting-started/01-install.md#conda--pip-用户说明) for the current boundaries.
 
 ## 🚀 Quick Demo
 
