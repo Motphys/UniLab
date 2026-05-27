@@ -67,9 +67,17 @@ def build_common_reset_randomization(
         payload.body_mass = body_mass
 
     if getattr(domain_rand, "random_com", False):
-        low, high = domain_rand.com_offset_x
         base_com_offset = np.zeros((num_reset, 3), dtype=np.float64)
+        low, high = domain_rand.com_offset_x
         base_com_offset[:, 0] = np.random.uniform(low, high, size=(num_reset,))
+        com_offset_y = getattr(domain_rand, "com_offset_y", None)
+        if com_offset_y is not None:
+            low, high = com_offset_y
+            base_com_offset[:, 1] = np.random.uniform(low, high, size=(num_reset,))
+        com_offset_z = getattr(domain_rand, "com_offset_z", None)
+        if com_offset_z is not None:
+            low, high = com_offset_z
+            base_com_offset[:, 2] = np.random.uniform(low, high, size=(num_reset,))
         payload.base_com_offset = base_com_offset
 
     if getattr(domain_rand, "randomize_gravity", False):

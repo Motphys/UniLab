@@ -18,6 +18,7 @@ from unilab.dr import (
     IntervalRandomizationPlan,
     ResetPlan,
 )
+from unilab.dr.types import RESET_TERM_GEOM_FRICTION, ResetRandomizationPayload
 from unilab.dr.dr_utils import (
     build_common_reset_randomization,
     build_interval_push_plan,
@@ -101,6 +102,8 @@ class Domain_Rand:
 
     random_com: bool = False
     com_offset_x: list[float] = field(default_factory=lambda: [-0.05, 0.05])
+    com_offset_y: list[float] = field(default_factory=lambda: [-0.05, 0.05])
+    com_offset_z: list[float] = field(default_factory=lambda: [-0.05, 0.05])
 
     randomize_gravity: bool = False
     gravity_range: list[list[float]] = field(
@@ -117,6 +120,13 @@ class Domain_Rand:
 
     randomize_kd: bool = False
     kd_multiplier_range: list[float] = field(default_factory=lambda: [0.9, 1.1])
+
+    randomize_geom_friction: bool = False
+    friction_range: list[float] = field(default_factory=lambda: [0.3, 1.2])
+    friction_geom_pattern: str = r"^(left|right)_foot[1-7]_collision$"
+
+    randomize_joint_default_pos: bool = False
+    joint_default_pos_range: list[float] = field(default_factory=lambda: [-0.01, 0.01])
 
 
 @dataclass
@@ -321,16 +331,35 @@ def _write_motion_anchor_transform(
 
 class G1MotionTrackingDomainRandomizationProvider(DomainRandomizationProvider):
     def __init__(
-        self, *, base_kp: np.ndarray | None = None, base_kd: np.ndarray | None = None
+        self,
+        *,
+        base_kp: np.ndarray | None = None,
+        base_kd: np.ndarray | None = None,
+        base_geom_friction: np.ndarray | None = None,
+        foot_geom_ids: np.ndarray | None = None,
     ) -> None:
         self._base_kp = base_kp
         self._base_kd = base_kd
+        self._base_geom_friction = base_geom_friction
+        self._foot_geom_ids = foot_geom_ids
 
     def validate(self, env: Any, capabilities: DomainRandomizationCapabilities) -> None:
         validate_common_reset_randomization(
             env, capabilities, base_kp=self._base_kp, base_kd=self._base_kd
         )
         validate_interval_push_support(env, capabilities)
+        if getattr(env.cfg.domain_rand, "randomize_geom_friction", False):
+            if not capabilities.supports_reset_term(RESET_TERM_GEOM_FRICTION):
+                raise NotImplementedError(
+                    f"{env._backend.backend_type} backend does not support "
+                    "geom-friction reset randomization"
+                )
+            if (
+                self._base_geom_friction is None
+                or self._foot_geom_ids is None
+                or self._foot_geom_ids.size == 0
+            ):
+                raise ValueError("randomize_geom_friction=True but provider has no foot geom IDs")
 
     def build_interval_randomization_plan(
         self, env: Any, step_counter: int
@@ -347,14 +376,39 @@ class G1MotionTrackingDomainRandomizationProvider(DomainRandomizationProvider):
             "current_actions": zero_actions(num_reset, env._num_action),
             "last_actions": zero_actions(num_reset, env._num_action),
         }
+        randomization = build_common_reset_randomization(
+            env, num_reset, base_kp=self._base_kp, base_kd=self._base_kd
+        )
+
+        dr_cfg = env.cfg.domain_rand
+        if getattr(dr_cfg, "randomize_geom_friction", False):
+            assert self._base_geom_friction is not None
+            assert self._foot_geom_ids is not None
+            payload = randomization or ResetRandomizationPayload()
+            low, high = dr_cfg.friction_range
+            scale = np.random.uniform(low, high, size=(num_reset, 1)).astype(np.float64)
+            geom_friction = np.broadcast_to(
+                self._base_geom_friction,
+                (num_reset, *self._base_geom_friction.shape),
+            ).copy()
+            geom_friction[:, self._foot_geom_ids, 0] = scale * np.ones(
+                (1, self._foot_geom_ids.size)
+            )
+            payload.geom_friction = geom_friction
+            randomization = payload
+
+        if getattr(dr_cfg, "randomize_joint_default_pos", False):
+            low, high = dr_cfg.joint_default_pos_range
+            info_updates["default_dof_pos_bias"] = np.random.uniform(
+                low, high, size=(num_reset, env._num_action)
+            ).astype(get_global_dtype())
+
         return ResetPlan(
             env_ids=env_ids,
             qpos=qpos,
             qvel=qvel,
             info_updates=info_updates,
-            randomization=build_common_reset_randomization(
-                env, num_reset, base_kp=self._base_kp, base_kd=self._base_kd
-            ),
+            randomization=randomization,
         )
 
     def build_reset_observation(
@@ -369,6 +423,9 @@ class G1MotionTrackingDomainRandomizationProvider(DomainRandomizationProvider):
         dof_vel = env.get_dof_vel()[env_ids]
         all_pos_w, all_quat_w = env._get_body_pose_w()
         obs_info = dict(info_updates)
+        default_dof_pos_bias = info_updates.get("default_dof_pos_bias")
+        if isinstance(default_dof_pos_bias, np.ndarray):
+            obs_info["default_dof_pos_bias"] = default_dof_pos_bias
         obs_info["env_ids"] = env_ids
         return cast(
             dict[str, np.ndarray],
@@ -433,13 +490,34 @@ class G1MotionTrackingEnv(G1BaseEnv):
         self.motion_sampler = MotionSampler(
             self.motion_loader, mode=cfg.sampling_mode, num_envs=num_envs
         )
-        if cfg.domain_rand.randomize_kp or cfg.domain_rand.randomize_kd:
+        needs_kp_kd = cfg.domain_rand.randomize_kp or cfg.domain_rand.randomize_kd
+        needs_friction = getattr(cfg.domain_rand, "randomize_geom_friction", False)
+        base_kp = base_kd = None
+        if needs_kp_kd:
             base_kp, base_kd = backend.get_actuator_gains()
-            dr_provider = G1MotionTrackingDomainRandomizationProvider(
-                base_kp=base_kp, base_kd=base_kd
+        base_geom_friction = None
+        foot_geom_ids = None
+        if needs_friction:
+            import re as _re
+
+            base_geom_friction = backend.get_geom_friction()
+            geom_names = backend.get_geom_names()
+            pattern = _re.compile(cfg.domain_rand.friction_geom_pattern)
+            foot_geom_ids = np.asarray(
+                [i for i, name in enumerate(geom_names) if name and pattern.match(name)],
+                dtype=np.int64,
             )
-        else:
-            dr_provider = G1MotionTrackingDomainRandomizationProvider()
+            if foot_geom_ids.size == 0:
+                raise ValueError(
+                    "friction_geom_pattern "
+                    f"'{cfg.domain_rand.friction_geom_pattern}' did not match any geom"
+                )
+        dr_provider = G1MotionTrackingDomainRandomizationProvider(
+            base_kp=base_kp,
+            base_kd=base_kd,
+            base_geom_friction=base_geom_friction,
+            foot_geom_ids=foot_geom_ids,
+        )
         self._init_domain_randomization(dr_provider)
 
         dtype = get_global_dtype()
@@ -504,6 +582,30 @@ class G1MotionTrackingEnv(G1BaseEnv):
             if self._reward_term_is_active(name)
         }
         self._clip_end_truncated = np.zeros((num_envs,), dtype=bool)
+
+    def _effective_default_angles(self, env_ids: np.ndarray | None = None) -> np.ndarray:
+        """Return default_angles with per-episode joint-default-pos bias applied."""
+        state = getattr(self, "_state", None)
+        if state is not None:
+            bias = state.info.get("default_dof_pos_bias")
+            if bias is not None:
+                if env_ids is not None:
+                    return self.default_angles + bias[env_ids]
+                return self.default_angles + bias
+        return self.default_angles
+
+    def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
+        state.info["last_actions"] = state.info.get("current_actions", np.zeros_like(actions))
+        state.info["current_actions"] = actions
+        exec_actions = (
+            state.info["last_actions"]
+            if self._cfg.control_config.simulate_action_latency
+            else actions
+        )
+        bias = state.info.get("default_dof_pos_bias")
+        base = self.default_angles + bias if bias is not None else self.default_angles
+        ctrl: np.ndarray = exec_actions * self._cfg.control_config.action_scale + base
+        return ctrl
 
     def _resample_reference_state(self, env_ids: np.ndarray) -> None:
         motion_frames = self.motion_sampler.sample_frames(env_ids)
@@ -983,7 +1085,9 @@ class G1MotionTrackingEnv(G1BaseEnv):
         )
 
         # Joint positions and velocities
-        np.subtract(dof_pos, self.default_angles, out=joint_pos_rel)
+        bias = info.get("default_dof_pos_bias")
+        effective_default = self.default_angles + bias if bias is not None else self.default_angles
+        np.subtract(dof_pos, effective_default, out=joint_pos_rel)
         last_actions = info.get("current_actions")
         if not isinstance(last_actions, np.ndarray):
             last_actions = zero_actions
