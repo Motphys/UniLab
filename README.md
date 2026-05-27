@@ -1,7 +1,7 @@
 <h1 align="center"> UniLab </h1>
 
 <h3 align="center">
-A Heterogeneous Training Architecture for Robot Reinforcement Learning
+A Heterogeneous Architecture for Robot RL Beyond GPU-Dominant Paradigms
 </h3>
 
 <p align="center">Languages: English | <a href="docs/users/zh_CN/01-getting-started.md">简体中文</a></p>
@@ -87,11 +87,11 @@ Prefer a guided, step-by-step experience? Open the notebooks in Jupyter:
 These are example repository runs for documented commands and hardware setups. They are useful as concrete entrypoints and reported timings, but they are **not** yet a formal benchmark manifest.
 
 ```bash
-uv run train --algo sac --task g1_walk_flat --sim mujoco
+uv run train --algo sac --task g1_walk_flat --sim motrix
 ```
 
 ```bash
-uv run train --algo sac --task g1_sac_wbt --sim mujoco training.use_amp=true
+uv run train --algo sac --task g1_sac_wbt --sim mujoco
 ```
 
 ```bash
