@@ -7,7 +7,7 @@ A Heterogeneous Training Architecture for Robot Reinforcement Learning
 <p align="center">Languages: English | <a href="docs/users/zh_CN/01-getting-started.md">简体中文</a></p>
 
 <p align="center">
-  <img src="docs/assets/teaser.jpg" alt="UniLab Teaser" width="90%" />
+  <img src="docs/assets/teaser.jpg" alt="UniLab Teaser" width="95%" />
 </a>
 
 Train robot RL without a GPU simulation backend.
