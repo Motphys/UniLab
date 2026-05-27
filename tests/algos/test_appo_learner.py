@@ -7,15 +7,7 @@ import torch
 from unilab.algos.torch.appo.learner import APPOLearner
 
 
-class _FakeModule:
-    class MLP(torch.nn.Module):
-        def forward(self, x):
-            return x
-
-    mlp = MLP()
-
-
-def test_appo_learner_compile_targets_actor_critic_and_target(monkeypatch) -> None:
+def test_appo_learner_compile_targets_minibatch_loss(monkeypatch) -> None:
     calls: list[tuple[str, dict[str, Any]]] = []
 
     def fake_compile(fn, **kwargs):
@@ -24,13 +16,15 @@ def test_appo_learner_compile_targets_actor_critic_and_target(monkeypatch) -> No
 
     learner = object.__new__(APPOLearner)
     learner._device_type = "cuda"
-    learner.actor = _FakeModule()
-    learner.critic = _FakeModule()
-    learner.target_actor = _FakeModule()
+    learner._minibatch_loss_fn = learner._minibatch_loss_tensors
     monkeypatch.setattr(torch, "compile", fake_compile)
 
     learner._compile_training_methods()
 
-    assert len(calls) == 3
-    assert all(name.endswith("MLP.forward") for name, _ in calls)
-    assert all(kwargs == {"options": {"triton.cudagraphs": False}} for _, kwargs in calls)
+    assert calls == [
+        (
+            "APPOLearner._minibatch_loss_tensors",
+            {"mode": "reduce-overhead", "fullgraph": False},
+        )
+    ]
+    assert learner._minibatch_loss_fn == learner._minibatch_loss_tensors
