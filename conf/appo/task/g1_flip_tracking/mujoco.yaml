@@ -4,8 +4,9 @@ training:
   sim_backend: mujoco
   play_steps: 1000
 algo:
-  num_envs: 1024
-  max_iterations: 3500
+  num_envs: 512
+  steps_per_env: 16
+  max_iterations: 6000
   save_interval: 500
   algorithm:
     entropy_coef: 0.005
