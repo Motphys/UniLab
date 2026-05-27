@@ -3,11 +3,11 @@ training:
   task_name: G1WalkFlat
   sim_backend: mujoco
 algo:
-  num_envs: 2048
+  num_envs: 4096
   learning_starts: 49
-  max_iterations: 6000
+  max_iterations: 5000
   save_interval: 1000
-  updates_per_step: 5
+  updates_per_step: 8
   #use_symmetry: true
   replay_buffer_n: 256
   tau: 0.05
