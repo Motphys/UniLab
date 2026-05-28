@@ -54,8 +54,8 @@ def test_replay_shape_packed_width_includes_critic_fields() -> None:
 
 
 def test_wbt_owner_config_is_only_included_when_present() -> None:
-    assert bench._owner_config_exists("sac", "g1_sac_wbt", "mujoco")
-    assert not bench._owner_config_exists("flashsac", "g1_sac_wbt", "mujoco")
+    assert bench._owner_config_exists("sac", "g1_motion_tracking", "mujoco")
+    assert not bench._owner_config_exists("flashsac", "g1_motion_tracking", "mujoco")
 
 
 def test_default_discovery_includes_existing_offpolicy_mujoco_tasks() -> None:
@@ -68,11 +68,11 @@ def test_default_discovery_includes_existing_offpolicy_mujoco_tasks() -> None:
     assert skipped == []
     assert ("sac", "g1_walk_flat") in targets
     assert ("sac", "g1_walk_rough") in targets
-    assert ("sac", "g1_sac_wbt") in targets
+    assert ("sac", "g1_motion_tracking") in targets
     assert ("flashsac", "g1_walk_flat") in targets
     assert ("flashsac", "go2_joystick_flat") in targets
     assert ("td3", "g1_walk_flat") in targets
-    assert ("flashsac", "g1_sac_wbt") not in targets
+    assert ("flashsac", "g1_motion_tracking") not in targets
 
 
 def test_td3_is_an_allowed_benchmark_algo() -> None:
@@ -80,9 +80,9 @@ def test_td3_is_an_allowed_benchmark_algo() -> None:
 
 
 def test_parse_tasks_deduplicates_ordered_values() -> None:
-    assert bench._parse_tasks("g1_walk_flat,g1_sac_wbt,g1_walk_flat") == [
+    assert bench._parse_tasks("g1_walk_flat,g1_motion_tracking,g1_walk_flat") == [
         "g1_walk_flat",
-        "g1_sac_wbt",
+        "g1_motion_tracking",
     ]
 
 
