@@ -3,15 +3,17 @@ training:
   task_name: G1WallFlipTracking
   sim_backend: mujoco
   play_steps: 1000
+  replay_queue_size: 5
 algo:
   num_envs: 1024
+  steps_per_env: 20
   max_iterations: 7000
   save_interval: 500
   algorithm:
     entropy_coef: 0.005
-    num_learning_epochs: 10
+    num_learning_epochs: 6
     num_mini_batches: 8
-    desired_kl: 0.01
+    desired_kl: 0.008
 env:
   sampling_mode: start
   truncate_on_clip_end: true
