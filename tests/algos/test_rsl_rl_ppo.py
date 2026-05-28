@@ -70,7 +70,7 @@ class _FakeStorage:
 
 
 def test_final_observation_aware_ppo_bootstraps_from_final_observation():
-    algo = object.__new__(FinalObservationAwarePPO)
+    algo: Any = object.__new__(FinalObservationAwarePPO)
     algo.actor = _FakeActor()
     algo.critic = _FakeCritic(torch.tensor([[3.0], [4.0]]))
     algo.rnd = None
@@ -94,29 +94,33 @@ def test_final_observation_aware_ppo_bootstraps_from_final_observation():
         },
     )
 
+    assert algo.storage.saved_rewards is not None
+    assert algo.critic.last_obs is not None
     assert torch.allclose(algo.storage.saved_rewards, torch.tensor([1.0 + 0.99 * 3.0, 2.0]))
     assert torch.equal(algo.critic.last_obs["policy"], final_obs["policy"])
 
 
-def test_final_observation_aware_ppo_compile_targets_model_modules(monkeypatch) -> None:
+def test_final_observation_aware_ppo_compile_targets_minibatch_loss(monkeypatch) -> None:
     calls: list[tuple[str, dict[str, Any]]] = []
 
     def fake_compile(fn: Callable, **kwargs):
         calls.append((getattr(fn, "__qualname__", type(fn).__name__), kwargs))
         return fn
 
-    algo = object.__new__(FinalObservationAwarePPO)
+    algo: Any = object.__new__(FinalObservationAwarePPO)
     algo.device = "cuda"
-    algo.actor = _FakeActor()
-    algo.critic = _FakeCritic(torch.zeros(1, 1))
-    algo.rnd = None
+    algo._minibatch_loss_fn = algo._minibatch_loss_tensors
     monkeypatch.setattr(torch, "compile", fake_compile)
 
     algo._compile_training_methods()
 
-    assert len(calls) == 2
-    assert all(name.endswith("MLP.forward") for name, _ in calls)
-    assert all(kwargs == {"options": {"triton.cudagraphs": False}} for _, kwargs in calls)
+    assert calls == [
+        (
+            "FinalObservationAwarePPO._minibatch_loss_tensors",
+            {"mode": "reduce-overhead", "fullgraph": False},
+        )
+    ]
+    assert algo._minibatch_loss_fn == algo._minibatch_loss_tensors
 
 
 def test_normalize_ppo_train_cfg_preserves_unilab_runtime_flags() -> None:
