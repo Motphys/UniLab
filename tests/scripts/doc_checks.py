@@ -451,8 +451,7 @@ def check_sphinx_source_migration_guards(content: str, doc_path: Path, root: Pat
         for match in re.finditer(r"(?m)^语言: 简体中文$", content):
             line_no = content.count("\n", 0, match.start()) + 1
             warnings.append(
-                f"{doc_path}:{line_no}: English Sphinx pages must not declare "
-                "`语言: 简体中文`"
+                f"{doc_path}:{line_no}: English Sphinx pages must not declare `语言: 简体中文`"
             )
         for match in re.finditer(r"(?m)^## Navigation\s*$", content):
             line_no = content.count("\n", 0, match.start()) + 1
