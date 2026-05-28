@@ -1,63 +1,63 @@
-# 协作流程
+# Collaboration Workflow
 
 
-仓库文档只记录稳定标准。执行状态、owner 和阶段推进应放在 GitHub 协作对象中。
+Repository documentation only records stable standards. Execution status, owners, and stage progression belong in GitHub collaboration objects.
 
-如果你只是想安装或训练 UniLab，请先看 {doc}`/en/user_guide/getting_started/installation` 和 {doc}`/en/user_guide/getting_started/training`。
+If you just want to install or train UniLab, start with {doc}`/en/user_guide/getting_started/installation` and {doc}`/en/user_guide/getting_started/training`.
 
 ## Work Item Granularity
 
-每个 issue 至少应该回答这些问题:
+Each issue should at minimum answer these questions:
 
-1. 我们在解决什么问题？
-2. 预期交付物是什么？
-3. 完成标准是什么？
-4. 谁负责执行？
-5. 有哪些上游阻塞？
+1. What problem are we solving?
+2. What is the expected deliverable?
+3. What is the completion criterion?
+4. Who is responsible for execution?
+5. What upstream blockers exist?
 
-推荐的 issue 类型:
+Recommended issue types:
 
 - `bug`
 - `work item`: feature / infra / benchmark / test / sim / docs work
 
 ## Milestone Structure
 
-每个 milestone 应该:
+Each milestone should:
 
-- 在 GitHub 中作为 milestone 对象存在
-- 有一个 tracking issue 来汇总子 issue
-- 把执行细节写在子 issue 里，而不是 milestone 描述里
-- 用交付产物来定义完成，而不只是“代码已合并”
+- Exist as a milestone object in GitHub
+- Have a tracking issue that aggregates sub-issues
+- Keep execution details in the sub-issues, not in the milestone description
+- Define completion by delivered artifacts, not just "code merged"
 
-典型完成产物:
+Typical completion artifacts:
 
 - green CI
-- benchmark 结果或 W&B run 链接
+- benchmark results or W&B run link
 - demo video / ONNX export / checkpoint path
-- 若用户可见行为变化，则附带 docs 更新
+- if user-visible behavior changes, accompanying docs updates
 
 ## PR Evidence Standard
 
-每个 PR 都应该:
+Every PR should:
 
-- 链接 driving issue
-- 描述用户可见变化和训练影响
-- 列出实际执行过的验证命令
-- 说明行为是否在 `mujoco`、`motrix`、macOS 或 Linux 间发生变化
+- Link the driving issue
+- Describe user-visible changes and training impact
+- List the validation commands actually executed
+- State whether behavior changes between `mujoco`, `motrix`, macOS, or Linux
 
 ## Ownership Model
 
-执行 owner 用 GitHub assignees 表达，review owner 用 `CODEOWNERS` 表达。如果暂时没有稳定的 GitHub handle，就让 issue 保持 unassigned，并在 issue body 里临时注明预期 owner。
+Execution owners are expressed via GitHub assignees, and review owners are expressed via `CODEOWNERS`. If a stable GitHub handle is not yet available, leave the issue unassigned and note the intended owner temporarily in the issue body.
 
 ## ADR Governance
 
-当改动涉及 runtime / backend / config / registry contract 时，issue 或 PR 需要显式链接对应 ADR:
+When a change touches runtime / backend / config / registry contracts, the issue or PR must explicitly link the corresponding ADR:
 
-- 架构标准入口: {doc}`RL Infrastructure 开发标准 </en/developer_guide/architecture/development_standard>`
-- ADR 索引: {doc}`ADR Index </adr/README>`
-- backend 能力边界: {doc}`ADR-0002 </adr/ADR-0002-backend-capability-boundary-for-play-and-snapshot>`
+- Architecture standards entry: {doc}`RL Infrastructure Development Standard </en/developer_guide/architecture/development_standard>`
+- ADR index: {doc}`ADR Index </adr/README>`
+- Backend capability boundary: {doc}`ADR-0002 </adr/ADR-0002-backend-capability-boundary-for-play-and-snapshot>`
 - task owner / compose: {doc}`ADR-0003 </adr/ADR-0003-task-owner-and-config-compose-contract>`
-- registry bootstrap: {doc}`ADR-0004 </adr/ADR-0004-registry-bootstrap-contract>`
+- Registry bootstrap: {doc}`ADR-0004 </adr/ADR-0004-registry-bootstrap-contract>`
 
-如果现有 ADR 无法覆盖新的结构性决策，在同一 PR 内新增 ADR，并把链接补回上述文档。
-新增 ADR 使用 {doc}`ADR Template </adr/ADR-TEMPLATE>`，并明确 `Supersedes`、`Superseded by`、`Alternatives Considered` 和 `Evidence In Repo`。
+If existing ADRs cannot cover a new structural decision, add a new ADR in the same PR and link it back into the documents above.
+New ADRs use the {doc}`ADR Template </adr/ADR-TEMPLATE>` and must explicitly state `Supersedes`, `Superseded by`, `Alternatives Considered`, and `Evidence In Repo`.
