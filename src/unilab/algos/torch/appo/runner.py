@@ -243,9 +243,6 @@ class APPORunner(AsyncRunner):
             "sim_backend": self.sim_backend,
             "env_cfg_override": self.env_cfg_overrides if self.env_cfg_overrides else None,
             "seed": derive_worker_seed(self.seed, worker_index=0),
-            "enable_compile": bool(
-                self.rl_cfg.get("algorithm", self.rl_cfg).get("enable_compile", False)
-            ),
         }
         self._start_collector(
             target_fn=appo_collector_fn,
