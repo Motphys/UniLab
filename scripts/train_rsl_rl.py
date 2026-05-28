@@ -41,6 +41,22 @@ except ImportError:
     sys.exit(1)
 
 
+def _patch_runner_action_std_logging(runner: Any) -> None:
+    original_log = runner.logger.log
+
+    def _safe_log(self, *args, **kwargs):
+        policy = runner.alg.get_policy()
+        dist = policy.distribution
+        if dist.std_type == "scalar":
+            std = dist.std_param
+        else:
+            std = torch.exp(dist.log_std_param)
+        kwargs["action_std"] = std.detach().clone()
+        return original_log(*args, **kwargs)
+
+    runner.logger.log = _safe_log.__get__(runner.logger, type(runner.logger))
+
+
 def _backend_adapter(cfg: DictConfig) -> BackendAdapter:
     return BackendAdapter(
         cfg,
@@ -356,6 +372,7 @@ def main(cfg: DictConfig) -> None:
                 Any,
                 OnPolicyRunner(cast(Any, wrapped_env), train_cfg, log_dir=log_dir, device=device),
             )
+            _patch_runner_action_std_logging(runner)
 
             if cfg.algo.load_run != "-1":
                 resume_path, _ = parse_checkpoint_path(cfg, root_dir=ROOT_DIR)
