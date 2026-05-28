@@ -21,6 +21,14 @@ RUN_PATH_ROOTS = ("benchmark", "scripts")
 RUN_PATH_SUFFIXES = (".py", ".sh")
 RUN_PATH_IGNORED_PARTS = ("__pycache__", "outputs")
 SCRIPT_ASSIGNMENT_PATTERN = re.compile(r'^([A-Za-z0-9_.-]+)\s*=\s*"([^"]+)"\s*(?:#.*)?$')
+DEFAULT_ALGO_LOG_NAMES = {
+    "ppo": "rsl_rl_ppo",
+    "mlx_ppo": "mlx_rl_train",
+    "appo": "appo",
+    "sac": "fast_sac",
+    "td3": "fast_td3",
+    "flashsac": "flash_sac",
+}
 COMPLETION_BLOCK_START = "# >>> unilab completion >>>"
 COMPLETION_BLOCK_END = "# <<< unilab completion <<<"
 SUPPORTED_SHELLS = ("bash", "zsh")
@@ -41,6 +49,7 @@ class CompletionMetadata:
     choices: dict[str, dict[str, tuple[str, ...]]]
     tasks: tuple[TaskCompletionEntry, ...]
     run_paths: tuple[str, ...] = ()
+    root: Path | None = None
 
 
 def _find_project_root(start: Path) -> Path | None:
@@ -216,6 +225,7 @@ def build_metadata(root: Path | None = None) -> CompletionMetadata:
         choices={command: _parser_choices(command) for command in training_commands},
         tasks=_task_entries(selected_root),
         run_paths=_run_path_entries(selected_root),
+        root=selected_root,
     )
 
 
@@ -306,6 +316,146 @@ def _task_choices(
     return _matching(tuple(sorted(tasks)), prefix)
 
 
+def _profile_choices(
+    metadata: CompletionMetadata,
+    *,
+    prefix: str,
+    selected_algo: str | None,
+    selected_sim: str | None,
+    selected_task: str | None,
+) -> list[str]:
+    profiles: set[str] = set()
+    for entry in metadata.tasks:
+        if selected_algo is not None and entry.algo != selected_algo:
+            continue
+        if selected_sim is not None and entry.sim != selected_sim:
+            continue
+        if selected_task is not None and entry.task != selected_task:
+            continue
+        owner_prefix = f"{entry.sim}_"
+        if not entry.owner.startswith(owner_prefix):
+            continue
+        profile = entry.owner[len(owner_prefix) :]
+        if profile:
+            profiles.add(profile)
+    return _matching(tuple(sorted(profiles)), prefix)
+
+
+def _strip_yaml_scalar(value: str) -> str:
+    selected = value.split("#", 1)[0].strip()
+    if len(selected) >= 2 and selected[0] == selected[-1] and selected[0] in {'"', "'"}:
+        return selected[1:-1]
+    return selected
+
+
+def _yaml_section_scalar(path: Path, section: str, key: str) -> str | None:
+    if not path.is_file():
+        return None
+    in_section = False
+    section_indent = 0
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(raw_line) - len(raw_line.lstrip())
+        if indent == 0 and stripped.endswith(":"):
+            in_section = stripped[:-1] == section
+            section_indent = indent
+            continue
+        if not in_section:
+            continue
+        if indent <= section_indent:
+            break
+        if stripped.startswith(f"{key}:"):
+            return _strip_yaml_scalar(stripped.split(":", 1)[1])
+    return None
+
+
+def _owner_yaml_paths(
+    root: Path,
+    *,
+    selected_algo: str,
+    selected_task: str,
+    selected_sim: str,
+    selected_profile: str | None,
+) -> tuple[Path, ...]:
+    try:
+        route = cli.build_route(selected_algo, selected_task, selected_sim, selected_profile)
+    except SystemExit:
+        return ()
+
+    route_path = root / "conf" / route.config_group / "task" / route.owner_task
+    if not route_path.is_file():
+        return ()
+
+    paths = [route_path]
+    if selected_profile is not None:
+        try:
+            base_route = cli.build_route(selected_algo, selected_task, selected_sim, None)
+        except SystemExit:
+            base_route = None
+        if base_route is not None:
+            base_path = root / "conf" / base_route.config_group / "task" / base_route.owner_task
+            if base_path not in paths:
+                paths.append(base_path)
+    return tuple(paths)
+
+
+def _first_yaml_section_scalar(paths: Sequence[Path], section: str, key: str) -> str | None:
+    for path in paths:
+        selected = _yaml_section_scalar(path, section, key)
+        if selected not in (None, ""):
+            return selected
+    return None
+
+
+def _load_run_choices(
+    metadata: CompletionMetadata,
+    *,
+    prefix: str,
+    selected_algo: str | None,
+    selected_task: str | None,
+    selected_sim: str | None,
+    selected_profile: str | None,
+) -> list[str]:
+    candidates = ["-1"]
+    if metadata.root is None or not selected_algo or not selected_task or not selected_sim:
+        return _matching(candidates, prefix)
+
+    owner_paths = _owner_yaml_paths(
+        metadata.root,
+        selected_algo=selected_algo,
+        selected_task=selected_task,
+        selected_sim=selected_sim,
+        selected_profile=selected_profile,
+    )
+    if not owner_paths:
+        return _matching(candidates, prefix)
+
+    task_name = _first_yaml_section_scalar(owner_paths, "training", "task_name") or selected_task
+    log_root = _first_yaml_section_scalar(owner_paths, "training", "log_root")
+    if log_root is not None:
+        log_root_path = Path(log_root)
+        base_log_root = log_root_path if log_root_path.is_absolute() else metadata.root / log_root_path
+    else:
+        algo_log_name = (
+            _first_yaml_section_scalar(owner_paths, "algo", "algo_log_name")
+            or DEFAULT_ALGO_LOG_NAMES.get(selected_algo)
+        )
+        if algo_log_name is None:
+            return _matching(candidates, prefix)
+        base_log_root = metadata.root / "logs" / algo_log_name
+
+    task_log_root = base_log_root / task_name
+    if task_log_root.is_dir():
+        candidates.extend(
+            path.name
+            for path in sorted(task_log_root.iterdir())
+            if path.is_dir() and cli.RUN_ID_PATTERN.fullmatch(path.name) is not None
+        )
+    return _dedupe(_matching(candidates, prefix))
+
+
 def complete_words(
     words: Sequence[str],
     cword: int,
@@ -341,6 +491,23 @@ def complete_words(
         )
     if previous in choices:
         return _matching(choices[previous], current)
+    if command == "eval" and previous == "--load-run":
+        return _load_run_choices(
+            selected_metadata,
+            prefix=current,
+            selected_algo=option_values.get("--algo"),
+            selected_task=option_values.get("--task"),
+            selected_sim=option_values.get("--sim"),
+            selected_profile=option_values.get("--profile"),
+        )
+    if command in {"train", "eval"} and previous == "--profile":
+        return _profile_choices(
+            selected_metadata,
+            prefix=current,
+            selected_algo=option_values.get("--algo"),
+            selected_sim=option_values.get("--sim"),
+            selected_task=option_values.get("--task"),
+        )
     if current == "" or current.startswith("-") or previous == command:
         return _matching(_available_flags(selected_metadata, command, used_options), current)
     return []
