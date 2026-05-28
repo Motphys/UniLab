@@ -1,6 +1,5 @@
 # Dexterous In-Hand Manipulation 训练
 
-语言: 简体中文
 
 本页只说明如何运行当前仓库已有的 dexterous inhand manipulation 流程。后端选择必须通过 `task=<task>/<backend>` 完成，不要单独 override `training.sim_backend` 来切后端。
 
@@ -210,9 +209,3 @@ uv run scripts/train_hora_distill.py task=sharpa_inhand/mujoco training.play_onl
 - `logs/hora_ppo/SharpaInhandRotation/<run>/`
 - `logs/hora_appo/SharpaInhandRotation/<run>/`
 - `logs/hora_distill/SharpaInhandRotation/<run>/`
-
-## Navigation
-
-- Index: [Documentation](../../README.md)
-- Previous: [Domain Randomization](06-domain-randomization.md)
-- Next: [Procedural Terrain](08-procedural-terrain.md)

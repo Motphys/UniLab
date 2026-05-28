@@ -1,6 +1,5 @@
 # 快速开始
 
-语言: 简体中文
 
 本页只回答三个问题:
 
@@ -107,7 +106,7 @@ uv run demo
 支持的算法：`ppo`、`mlx_ppo`、`appo`、`sac`、`td3`、`flashsac`
 支持的模拟器：`mujoco`、`motrix`
 
-详细用法见 [训练指南](03-training.md)。
+详细用法见 {doc}`训练指南 <training>`。
 
 ## Docker
 
@@ -145,8 +144,3 @@ docker run --rm --gpus all unilab:latest uv run python -c "import torch; print(t
 ```
 
 ROCm 容器请使用 AMD 官方 `rocm/pytorch` 镜像，并按 ROCm Docker 要求挂载 `/dev/kfd`、`/dev/dri`、`--group-add=video` 和 `--ipc=host`。当前仓库根目录的 `Dockerfile` 保持 NVIDIA/CUDA 镜像，不用于 ROCm。
-
-## Navigation
-
-- Index: [Documentation](../../README.md)
-- Next: [Simulation Backends](02-simulation-backends.md)

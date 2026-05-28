@@ -1,10 +1,9 @@
 # SceneCfg 与场景组合设计
 
-语言: 简体中文
 
 本文描述 UniLab 面向程序化地形和场景组合的目标设计。它覆盖 #197 当前 rough terrain scene profile / materialization 需求，并为 #270 的通用 cold-path scene composition primitives 留出扩展边界。
 
-本文不是用户使用指南。当前可运行的 rough terrain 用法见 [程序化地形](../../users/zh_CN/08-procedural-terrain.md)。
+本文不是用户使用指南。当前可运行的 rough terrain 用法见 {doc}`Procedural Terrain </en/user_guide/terrain/procedural>`。
 
 ## 1. 背景
 
@@ -368,9 +367,3 @@ env:
 3. `terrain_origins` 通过 backend 场景属性传回 env，用于 spawn / curriculum。
 4. `SceneCfg` 第一阶段放在 `base/scene.py`，由 env cfg 引用。
 5. Motrix rough terrain hfield 暂未支持时必须 fail loudly，不能静默退回 flat scene。
-
-## Navigation
-
-- Index: [Documentation](../../README.md)
-- Related: [RL Infrastructure 开发标准](development-standard.md)
-- Related: [程序化地形](../../users/zh_CN/08-procedural-terrain.md)

@@ -52,7 +52,7 @@ uv run scripts/train_rsl_rl.py \
 
 ## 深入文档
 
-- 需要更底层 contract 时，去看 developer 文档里的 [Domain Randomization Contract](../../developer_guide/zh_CN/domain-randomization-contract.md)
+- 需要更底层 contract 时，去看 developer 文档里的 {doc}`Domain Randomization Contract </zh_CN/developer_guide/domain-randomization-contract>`
 
 ## Navigation
 

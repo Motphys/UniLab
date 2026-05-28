@@ -47,4 +47,4 @@ task. See
 ## See also
 
 - {doc}`known_capability_gaps`
-- {doc}`../../developer_guide/adr/ADR-0002-backend-capability-boundary-for-play-and-snapshot`
+- {doc}`/adr/ADR-0002-backend-capability-boundary-for-play-and-snapshot`

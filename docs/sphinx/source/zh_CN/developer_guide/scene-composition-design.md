@@ -4,7 +4,7 @@
 
 本文描述 UniLab 面向程序化地形和场景组合的目标设计。它覆盖 #197 当前 rough terrain scene profile / materialization 需求，并为 #270 的通用 cold-path scene composition primitives 留出扩展边界。
 
-本文不是用户使用指南。当前可运行的 rough terrain 用法见 [Go2 Rough Terrain](../../users/zh_CN/D-tasks/05-go2-rough-terrain.md)。
+本文不是用户使用指南。当前可运行的 rough terrain 用法见 {doc}`Go2 Rough Terrain </zh_CN/user_guide/D-tasks/05-go2-rough-terrain>`。
 
 ## 1. 背景
 
@@ -373,4 +373,4 @@ env:
 
 - Index: [Documentation](../index.md)
 - Related: [RL Infrastructure 开发标准](development-standard.md)
-- Related: [Go2 Rough Terrain](../../users/zh_CN/D-tasks/05-go2-rough-terrain.md)
+- Related: {doc}`Go2 Rough Terrain </zh_CN/user_guide/D-tasks/05-go2-rough-terrain>`

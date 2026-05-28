@@ -10,23 +10,32 @@ sd_hide_title: true
 
 # UniLab Documentation
 
-### A Universal Lab for Robot Learning — *train policies without a GPU simulator.*
+### Robot learning infrastructure documentation.
 
-Pick your language to continue:
+Pick a language to continue:
 
-```{button-ref} en/index
-:ref-type: doc
-:color: primary
-:class: sd-px-4 sd-py-2
-
-English
-```
-```{button-ref} zh_CN/index
-:ref-type: doc
-:color: primary
-:class: sd-px-4 sd-py-2
-
-简体中文
+```{raw} html
+<div class="landing-language-picker">
+  <label class="landing-language-picker__label" for="landing-language-select">Documentation language</label>
+  <select class="landing-language-picker__select" id="landing-language-select" aria-label="Documentation language">
+    <option value="" selected disabled>Choose a language</option>
+    <option value="en/index.html">English</option>
+    <option value="zh_CN/index.html">简体中文</option>
+  </select>
+</div>
+<script>
+(function () {
+  var select = document.getElementById("landing-language-select");
+  if (!select) {
+    return;
+  }
+  select.addEventListener("change", function () {
+    if (this.value) {
+      window.location.href = this.value;
+    }
+  });
+}());
+</script>
 ```
 
 :::

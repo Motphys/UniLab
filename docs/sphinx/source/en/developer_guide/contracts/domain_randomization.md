@@ -1,8 +1,7 @@
 # Domain Randomization Contract
 
-语言: 简体中文
 
-本页记录 domain randomization 的开发者 contract、MuJoCo `BatchEnvPool` 随机场接口快照，以及新任务接入最低标准。用户侧配置入口见 [域随机化](../../users/zh_CN/06-domain-randomization.md)。
+本页记录 domain randomization 的开发者 contract、MuJoCo `BatchEnvPool` 随机场接口快照，以及新任务接入最低标准。用户侧配置入口见 {doc}`Domain Randomization </en/user_guide/domain_randomization/index>`。
 
 ## Contract Boundary
 
@@ -161,7 +160,7 @@ Domain randomization 必须遵守三类生命周期边界：
 
 如果某个随机项要做成“统一 DR 项”，还需要同时满足三层一致：
 
-1. [`ResetRandomizationPayload`](../../../src/unilab/dr/types.py) 里有明确字段
+1. `ResetRandomizationPayload` in `src/unilab/dr/types.py` 里有明确字段
 2. backend capability 明确声明支持，并在 backend 内真正落地
 3. 任务 config / provider 真正采样并下发该字段
 
@@ -180,12 +179,6 @@ Go2W 是当前 all-motor actuator 示例：
 
 ## Related Documents
 
-- [RL Infrastructure 开发标准](development-standard.md)
-- [ADR-0001 Runtime Model And Layer Boundaries](../adr/ADR-0001-runtime-model-and-layer-boundaries.md)
-- [ADR-0002 Backend Capability Boundary For Play And Snapshot](../adr/ADR-0002-backend-capability-boundary-for-play-and-snapshot.md)
-
-## Navigation
-
-- Index: [Documentation](../../README.md)
-- Previous: [Development Standard](development-standard.md)
-- Next: [Collaboration](collaboration.md)
+- {doc}`RL Infrastructure 开发标准 </en/developer_guide/architecture/development_standard>`
+- {doc}`ADR-0001 Runtime Model And Layer Boundaries </adr/ADR-0001-runtime-model-and-layer-boundaries>`
+- {doc}`ADR-0002 Backend Capability Boundary For Play And Snapshot </adr/ADR-0002-backend-capability-boundary-for-play-and-snapshot>`

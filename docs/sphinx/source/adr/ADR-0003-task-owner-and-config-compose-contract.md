@@ -40,13 +40,13 @@
 
 ## Evidence In Repo
 
-- 架构标准与配置语义: `docs/developers/zh_CN/development-standard.md`
-- 后端选择说明: `docs/users/zh_CN/02-simulation-backends.md`
+- 架构标准与配置语义: `docs/sphinx/source/zh_CN/developer_guide/development-standard.md`
+- 后端选择说明: `docs/sphinx/source/zh_CN/user_guide/02-simulation-backends.md`
 - 配置测试: `tests/config/test_config_system.py`
 
 ## Related Documents
 
-- [ADR Index](README.md)
-- [RL Infrastructure 开发标准](../zh_CN/development-standard.md)
-- [仿真后端](../../users/zh_CN/02-simulation-backends.md)
-- [协作流程](../zh_CN/collaboration.md)
+- {doc}`ADR Index </adr/README>`
+- {doc}`RL Infrastructure 开发标准 </zh_CN/developer_guide/development-standard>`
+- {doc}`仿真后端 </zh_CN/user_guide/02-simulation-backends>`
+- {doc}`协作流程 </zh_CN/developer_guide/collaboration>`

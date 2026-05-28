@@ -47,5 +47,5 @@ Before claiming the backend is supported, you need (at minimum):
 :class: note
 After validation, update the task's evidence grades in the manifest:
 `Configured` → `Tested` → `Benchmarked` → `Recommended`. See
-{doc}`../../glossary` for definitions.
+{doc}`/glossary` for definitions.
 ::::
