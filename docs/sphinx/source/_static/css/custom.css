@@ -3,12 +3,23 @@
 :root {
     --ul-hero-bg: linear-gradient(135deg, #eff6ff 0%, #ede9fe 50%, #fef3c7 100%);
     --ul-hero-border: rgba(99, 102, 241, 0.18);
+    --ul-hero-text-shadow: none;
     --ul-card-hover: 0 8px 24px rgba(37, 99, 235, 0.10);
 }
 
-body.dark .landing-hero, body[data-theme="dark"] .landing-hero {
-    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 60%, #312e81 100%);
-    border-color: rgba(96, 165, 250, 0.25);
+/* Dark theme overrides — Furo uses body[data-theme="dark"] for explicit
+   dark mode and the prefers-color-scheme media query for auto (when
+   data-theme="auto"). We mirror both. */
+body[data-theme="dark"] {
+    --ul-hero-bg: linear-gradient(135deg, #0f172a 0%, #1e1b4b 60%, #312e81 100%);
+    --ul-hero-border: rgba(96, 165, 250, 0.25);
+}
+
+@media (prefers-color-scheme: dark) {
+    body:not([data-theme="light"]) {
+        --ul-hero-bg: linear-gradient(135deg, #0f172a 0%, #1e1b4b 60%, #312e81 100%);
+        --ul-hero-border: rgba(96, 165, 250, 0.25);
+    }
 }
 
 /* ---------- Language switcher ---------- */
@@ -75,10 +86,19 @@ body.dark .landing-hero, body[data-theme="dark"] .landing-hero {
     font-weight: 800;
     letter-spacing: -0.02em;
     margin: 0.3rem 0 0.5rem 0;
-    background: linear-gradient(90deg, #1e40af, #6d28d9, #be185d);
+    background: var(--ul-hero-h1-gradient, linear-gradient(90deg, #1e40af, #6d28d9, #be185d));
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
+}
+
+body[data-theme="dark"] {
+    --ul-hero-h1-gradient: linear-gradient(90deg, #93c5fd, #c4b5fd, #fbcfe8);
+}
+@media (prefers-color-scheme: dark) {
+    body:not([data-theme="light"]) {
+        --ul-hero-h1-gradient: linear-gradient(90deg, #93c5fd, #c4b5fd, #fbcfe8);
+    }
 }
 
 .landing-hero h3 {
@@ -191,15 +211,26 @@ kbd {
     margin-top: 1rem;
 }
 
-@media (max-width: 640px) {
-    .language-switcher,
-    .landing-language-picker {
-        align-items: stretch;
-        flex-direction: column;
-    }
-
-    .language-switcher__select,
-    .landing-language-picker__select {
-        width: 100%;
-    }
+/* ---------- Sidebar language switcher ---------- */
+.sidebar-lang-switcher {
+    padding: 0.4rem 0.8rem;
+    margin: 0 0 0.2rem 0;
 }
+.sidebar-lang-switcher__select {
+    width: 100%;
+    padding: 0.35rem 0.6rem;
+    font-size: 0.85rem;
+    border: 1px solid var(--color-foreground-border);
+    border-radius: 6px;
+    background: var(--color-background-secondary);
+    color: var(--color-foreground-primary);
+    cursor: pointer;
+    appearance: auto;
+}
+.sidebar-lang-switcher__select:hover {
+    border-color: var(--color-brand-primary);
+}
+
+/* Hide old body-injected language switcher */
+.language-switcher { display: none !important; }
+.landing-language-picker { display: none !important; }
