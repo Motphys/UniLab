@@ -81,6 +81,10 @@ uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1
 # Linux/server 上只录制 MotrixSim 视频，不打开窗口
 uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1 --render-mode record
 
+# Off-policy playback can skip ONNX export and still record MP4
+uv run eval --algo sac --task g1_walk_flat --sim mujoco --load-run -1 \
+    --render-mode record training.export_onnx=false
+
 # 回放指定 run
 uv run eval --algo ppo --task go2_joystick_flat --sim mujoco --load-run 2026-04-24_01-36-01_mujoco
 ```
@@ -161,6 +165,11 @@ uv run scripts/train_rsl_rl.py task=go2_joystick_flat/motrix training.play_only=
 
 # 回放指定 run
 uv run scripts/train_offpolicy.py algo=td3 task=td3/g1_walk_flat/mujoco training.play_only=true algo.load_run="2024-02-04_12-00-00"
+
+# Skip ONNX export during off-policy playback but still record video
+uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco \
+  training.play_only=true training.play_render_mode=record \
+  training.export_onnx=false
 ```
 
 ## 恢复训练

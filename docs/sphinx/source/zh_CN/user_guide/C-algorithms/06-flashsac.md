@@ -42,7 +42,18 @@ uv run scripts/train_offpolicy.py \
   task=flashsac/g1_walk_flat/mujoco \
   training.play_only=true \
   algo.load_run="2026-04-23_14-06-57_mujoco"
+
+uv run scripts/train_offpolicy.py \
+  algo=flashsac \
+  task=flashsac/g1_walk_flat/mujoco \
+  training.play_only=true \
+  training.play_render_mode=record \
+  training.export_onnx=false
 ```
+
+如果只需要 off-policy 回放或录制 MP4, 可以设置 `training.export_onnx=false`
+跳过 `policy.onnx` 导出。该开关只在 `train_offpolicy.py` 链路生效；范围与统一
+CLI 用法见 [评估、回放与恢复训练](../B-training/02-playback-and-resume.md)。
 
 ## 关键字段
 

@@ -61,7 +61,18 @@ uv run scripts/train_offpolicy.py \
   task=sac/g1_walk_flat/mujoco \
   training.play_only=true \
   algo.load_run="2024-02-04_12-00-00"
+
+uv run scripts/train_offpolicy.py \
+  algo=sac \
+  task=sac/g1_walk_flat/mujoco \
+  training.play_only=true \
+  training.play_render_mode=record \
+  training.export_onnx=false
 ```
+
+当你只想回放 / 录制 MP4, 不想先导出 `policy.onnx` 时, 可以设置
+`training.export_onnx=false`。这个开关只在 off-policy 回放链路生效；通用说明见
+[评估、回放与恢复训练](../B-training/02-playback-and-resume.md)。
 
 ## 日志根目录
 
