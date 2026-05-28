@@ -213,12 +213,36 @@ def test_train_profile_value_position_completes_profile_names(tmp_path: Path) ->
     assert choices == ["hora"]
     assert "--algo" not in choices
     assert complete_words(
-        ["uv", "run", "train", "--algo", "ppo", "--task", "go1", "--sim", "mujoco", "--profile", ""],
+        [
+            "uv",
+            "run",
+            "train",
+            "--algo",
+            "ppo",
+            "--task",
+            "go1",
+            "--sim",
+            "mujoco",
+            "--profile",
+            "",
+        ],
         10,
         metadata,
     ) == ["hora"]
     assert complete_words(
-        ["uv", "run", "train", "--algo", "ppo", "--task", "go1", "--sim", "motrix", "--profile", ""],
+        [
+            "uv",
+            "run",
+            "train",
+            "--algo",
+            "ppo",
+            "--task",
+            "go1",
+            "--sim",
+            "motrix",
+            "--profile",
+            "",
+        ],
         10,
         metadata,
     ) == ["lab"]
@@ -234,7 +258,19 @@ def test_task_completion_respects_selected_profile(tmp_path: Path) -> None:
     metadata = build_metadata(tmp_path)
 
     assert complete_words(
-        ["uv", "run", "train", "--algo", "ppo", "--sim", "mujoco", "--profile", "hora", "--task", ""],
+        [
+            "uv",
+            "run",
+            "train",
+            "--algo",
+            "ppo",
+            "--sim",
+            "mujoco",
+            "--profile",
+            "hora",
+            "--task",
+            "",
+        ],
         10,
         metadata,
     ) == ["go1"]

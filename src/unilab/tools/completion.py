@@ -436,12 +436,13 @@ def _load_run_choices(
     log_root = _first_yaml_section_scalar(owner_paths, "training", "log_root")
     if log_root is not None:
         log_root_path = Path(log_root)
-        base_log_root = log_root_path if log_root_path.is_absolute() else metadata.root / log_root_path
-    else:
-        algo_log_name = (
-            _first_yaml_section_scalar(owner_paths, "algo", "algo_log_name")
-            or DEFAULT_ALGO_LOG_NAMES.get(selected_algo)
+        base_log_root = (
+            log_root_path if log_root_path.is_absolute() else metadata.root / log_root_path
         )
+    else:
+        algo_log_name = _first_yaml_section_scalar(
+            owner_paths, "algo", "algo_log_name"
+        ) or DEFAULT_ALGO_LOG_NAMES.get(selected_algo)
         if algo_log_name is None:
             return _matching(candidates, prefix)
         base_log_root = metadata.root / "logs" / algo_log_name
