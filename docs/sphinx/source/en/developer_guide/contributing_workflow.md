@@ -1,10 +1,9 @@
 # 协作流程
 
-语言: 简体中文
 
 仓库文档只记录稳定标准。执行状态、owner 和阶段推进应放在 GitHub 协作对象中。
 
-如果你只是想安装或训练 UniLab，请先看 `README.md`、`docs/users/zh_CN/01-getting-started.md` 和 `docs/users/zh_CN/03-training.md`。
+如果你只是想安装或训练 UniLab，请先看 {doc}`/en/user_guide/getting_started/installation` 和 {doc}`/en/user_guide/getting_started/training`。
 
 ## Work Item Granularity
 
@@ -54,17 +53,11 @@
 
 当改动涉及 runtime / backend / config / registry contract 时，issue 或 PR 需要显式链接对应 ADR:
 
-- 架构标准入口: [RL Infrastructure 开发标准](development-standard.md)
-- ADR 索引: [ADR Index](../adr/README.md)
-- backend 能力边界: [ADR-0002](../adr/ADR-0002-backend-capability-boundary-for-play-and-snapshot.md)
-- task owner / compose: [ADR-0003](../adr/ADR-0003-task-owner-and-config-compose-contract.md)
-- registry bootstrap: [ADR-0004](../adr/ADR-0004-registry-bootstrap-contract.md)
+- 架构标准入口: {doc}`RL Infrastructure 开发标准 </en/developer_guide/architecture/development_standard>`
+- ADR 索引: {doc}`ADR Index </adr/README>`
+- backend 能力边界: {doc}`ADR-0002 </adr/ADR-0002-backend-capability-boundary-for-play-and-snapshot>`
+- task owner / compose: {doc}`ADR-0003 </adr/ADR-0003-task-owner-and-config-compose-contract>`
+- registry bootstrap: {doc}`ADR-0004 </adr/ADR-0004-registry-bootstrap-contract>`
 
 如果现有 ADR 无法覆盖新的结构性决策，在同一 PR 内新增 ADR，并把链接补回上述文档。
-新增 ADR 使用 [ADR Template](../adr/ADR-TEMPLATE.md)，并明确 `Supersedes`、`Superseded by`、`Alternatives Considered` 和 `Evidence In Repo`。
-
-## Navigation
-
-- Index: [Documentation](../../README.md)
-- Previous: [Domain Randomization Contract](domain-randomization-contract.md)
-- Next: [Contributing](CONTRIBUTING.md)
+新增 ADR 使用 {doc}`ADR Template </adr/ADR-TEMPLATE>`，并明确 `Supersedes`、`Superseded by`、`Alternatives Considered` 和 `Evidence In Repo`。

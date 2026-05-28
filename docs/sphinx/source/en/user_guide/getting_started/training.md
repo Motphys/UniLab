@@ -1,6 +1,5 @@
 # 训练指南
 
-语言: 简体中文
 
 本页覆盖训练、回放、恢复训练、Hydra override 和 W&B。
 
@@ -270,7 +269,7 @@ docker run --rm --gpus all -it \
   unilab:latest bash
 ```
 
-这里延续 [快速开始](01-getting-started.md) 中的做法：将 `.venv` 单独放到 named volume，避免容器内创建的虚拟环境污染宿主机仓库目录。
+这里延续 {doc}`快速开始 <quickstart>` 中的做法：将 `.venv` 单独放到 named volume，避免容器内创建的虚拟环境污染宿主机仓库目录。
 
 进入容器后，可以直接执行：
 
@@ -292,9 +291,3 @@ Linux AMD / ROCm 容器不使用仓库根目录的 CUDA `Dockerfile`。请使用
 ```bash
 docker run --rm unilab:latest
 ```
-
-## Navigation
-
-- Index: [Documentation](../../README.md)
-- Previous: [Simulation Backends](02-simulation-backends.md)
-- Next: [Algorithms](04-algorithms.md)

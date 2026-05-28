@@ -1,6 +1,5 @@
 # Go2 Arm Manip Loco Training Entry Guide
 
-语言: 简体中文
 
 本页说明 `go2_arm_manip_loco` 的训练、恢复、回放和验证入口。该任务当前使用 MuJoCo owner 配置，后端选择应通过 `task=go2_arm_manip_loco/mujoco` 或统一 CLI 的 `--sim mujoco` 完成，不要单独覆盖 `training.sim_backend` 来切换后端。
 
@@ -108,8 +107,3 @@ uv run python -c "import mujoco; m=mujoco.MjModel.from_xml_path('src/unilab/asse
 - `env.goal_ee` 控制末端目标采样范围、轨迹时间和碰撞过滤。
 - `reward.scales.tracking_lin_vel`、`tracking_ang_vel`、`stand_still` 直接影响四足跟踪和静止行为的权衡。
 - `env.domain_rand` 中的质量、摩擦、推力和 PD 随机化会改变训练难度；排查收敛问题时可以先关闭部分随机化做对照。
-
-## Navigation
-
-- Index: [Documentation](../../README.md)
-- Previous: [Procedural Terrain](08-procedural-terrain.md)

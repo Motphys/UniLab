@@ -1,6 +1,5 @@
 # G1 运动跟踪指南
 
-语言: 简体中文
 
 本页是 G1 全身运动跟踪任务的操作指南，覆盖从 motion 文件准备、训练、回放到交互式调试的完整流程。常规训练和回放优先使用统一 CLI：
 
@@ -139,7 +138,7 @@ uv run scripts/motion/bones_seed_csv_to_npz.py \
   --output temp/flip_090_001__A304.npz
 ```
 
-更多 BONES-SEED 输入列约定见 [motion scripts README](../../../scripts/motion/README.md)。
+更多 BONES-SEED 输入列约定见 `scripts/motion/README.md`。
 
 ### Holosoma NPZ remap
 
@@ -349,9 +348,3 @@ uv run scripts/play_interactive.py \
   algo.load_run=2026-03-16_01-35-12_mujoco \
   algo.checkpoint=model_5000.pt
 ```
-
-## Navigation
-
-- Index: [Documentation](../../README.md)
-- Previous: [Algorithms](04-algorithms.md)
-- Next: [Domain Randomization](06-domain-randomization.md)

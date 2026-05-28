@@ -52,7 +52,7 @@ When you add or remove a capability:
 2. If the change is a *new contract*, add an ADR under
    `developer_guide/adr/`.
 3. Update the affected task owner YAMLs' `capabilities` blocks.
-4. Mention the change in the next release notes (see {doc}`../../changelog`).
+4. Mention the change in the next release notes (see {doc}`/changelog`).
 
 ## See also
 

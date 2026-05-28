@@ -11,6 +11,56 @@ body.dark .landing-hero, body[data-theme="dark"] .landing-hero {
     border-color: rgba(96, 165, 250, 0.25);
 }
 
+/* ---------- Language switcher ---------- */
+.language-switcher {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0 0 1rem 0;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--color-background-border);
+}
+
+.language-switcher__label,
+.landing-language-picker__label {
+    color: var(--color-foreground-secondary);
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.language-switcher__select,
+.landing-language-picker__select {
+    min-width: 10rem;
+    border: 1px solid var(--color-background-border);
+    border-radius: 6px;
+    background: var(--color-background-primary);
+    color: var(--color-foreground-primary);
+    font: inherit;
+    line-height: 1.4;
+    padding: 0.45rem 2rem 0.45rem 0.7rem;
+}
+
+.language-switcher__select:focus,
+.landing-language-picker__select:focus {
+    border-color: var(--color-brand-primary);
+    outline: 2px solid color-mix(in srgb, var(--color-brand-primary) 28%, transparent);
+    outline-offset: 2px;
+}
+
+.landing-language-picker {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.65rem;
+    margin-top: 1.1rem;
+}
+
+.landing-language-picker__select {
+    min-width: 13rem;
+    background: var(--color-background-primary);
+}
+
 /* ---------- Landing hero ---------- */
 .landing-hero {
     background: var(--ul-hero-bg);
@@ -139,4 +189,17 @@ kbd {
     text-transform: none;
     letter-spacing: 0;
     margin-top: 1rem;
+}
+
+@media (max-width: 640px) {
+    .language-switcher,
+    .landing-language-picker {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .language-switcher__select,
+    .landing-language-picker__select {
+        width: 100%;
+    }
 }

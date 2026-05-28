@@ -54,6 +54,6 @@ owner YAML 直接持有 `training.task_name`、`training.sim_backend`、`reward`
 
 ## Related Documents
 
-- [仿真后端](users/zh_CN/02-simulation-backends.md)
-- [RL Infrastructure 开发标准](developers/zh_CN/development-standard.md)
-- [ADR-0003 Task Owner And Config Compose Contract](developers/adr/ADR-0003-task-owner-and-config-compose-contract.md)
+- {doc}`仿真后端 </zh_CN/user_guide/02-simulation-backends>`
+- {doc}`RL Infrastructure 开发标准 </zh_CN/developer_guide/development-standard>`
+- {doc}`ADR-0003 Task Owner And Config Compose Contract </adr/ADR-0003-task-owner-and-config-compose-contract>`

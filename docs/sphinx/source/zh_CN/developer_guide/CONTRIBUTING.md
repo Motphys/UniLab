@@ -18,7 +18,7 @@
 - 始终使用 `uv run`；不要在 `uv run` 之外直接调用 `python`
 - 代码相关提交前必须运行 `make check`
 - 备份文件、临时导出物和历史兼容副本不要进入源码树；不要提交 `*.bak`、`*.tmp`、`*.old`、`*.orig` 或以 `~` 结尾的编辑器备份文件
-- 只要改动用户可见工作流，就要同步维护顶层 `README.md`、`CONTRIBUTING.md`，以及 `docs/users/zh_CN/` 和 `docs/developers/zh_CN/` 下对应语言文档
+- 只要改动用户可见工作流，就要同步维护顶层 `README.md`、`CONTRIBUTING.md`，以及 `docs/sphinx/source/en/`、`docs/sphinx/source/zh_CN/` 下对应文档
 - 不要再往 `src/unilab/utils/` 塞新的 owner 逻辑；当前 `src/unilab/utils/*.py` 仅是过渡期 shim，计划在 `0.2.0` 删除
 - 新模块/包名应直接表达 owner 职责：默认使用单数名词；只有在语义本身就是集合契约时才使用复数；工厂模块使用 `_factory` 后缀
 
@@ -119,7 +119,7 @@ uv run pytest -m "slow" -v
 - 文档里的每条命令都必须能在当前仓库里对应到真实脚本、配置或 Makefile 目标
 - 描述 backend 支持时，优先使用 `Registered`、`Configured`、`Benchmarked`、`Recommended`
 - 使用相对链接，保证 GitHub 渲染正确
-- 修改用户可见文档时，保持 `README.md`、`CONTRIBUTING.md` 和 `docs/users/zh_CN/`、`docs/developers/zh_CN/` 下对应文档在结构上严格对齐
+- 修改用户可见文档时，保持 `README.md`、`CONTRIBUTING.md` 和 `docs/sphinx/source/en/`、`docs/sphinx/source/zh_CN/` 下对应文档在结构上对齐
 - 如果提到 CI、日志目录或支持矩阵，请对照 `.github/workflows/ci.yml`、`scripts/` 和 `conf/` 再核对一次
 
 ## GitHub Collaboration Model
@@ -154,7 +154,7 @@ UniLab 使用 Hydra + dataclass 配置系统:
 - **修改超参数**: 编辑对应 YAML，或使用 `algo.num_envs=2048` 这样的 CLI override
 - **添加新算法**: 在 `structured_configs.py` 中添加 dataclass，并创建对应的 `conf/` 目录
 
-更多细节见 [Training Guide](../../users/zh_CN/03-training.md) 的 Hydra 部分，以及 [Development Standard](development-standard.md)。
+更多细节见 {doc}`训练指南 </zh_CN/user_guide/03-training>` 的 Hydra 部分，以及 {doc}`Development Standard <development-standard>`。
 
 ## Navigation
 

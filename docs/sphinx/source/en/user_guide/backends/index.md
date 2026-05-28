@@ -1,6 +1,5 @@
 # 仿真后端
 
-语言: 简体中文
 
 UniLab 当前支持两个仿真后端:
 
@@ -151,14 +150,8 @@ uv run mxpython scripts/train_rsl_rl.py task=go1_joystick_flat/motrix training.p
 
 ## Architecture Decision References
 
-- 总体架构标准: [RL Infrastructure 开发标准](../../developers/zh_CN/development-standard.md)
-- 后端能力边界 ADR: [ADR-0002 Backend Capability Boundary For Play And Snapshot](../../developers/adr/ADR-0002-backend-capability-boundary-for-play-and-snapshot.md)
-- task owner / compose contract ADR: [ADR-0003 Task Owner And Config Compose Contract](../../developers/adr/ADR-0003-task-owner-and-config-compose-contract.md)
-- registry bootstrap ADR: [ADR-0004 Registry Bootstrap Contract](../../developers/adr/ADR-0004-registry-bootstrap-contract.md)
-- ADR 索引: [ADR Index](../../developers/adr/README.md)
-
-## Navigation
-
-- Index: [Documentation](../../README.md)
-- Previous: [Getting Started](01-getting-started.md)
-- Next: [Training Guide](03-training.md)
+- 总体架构标准: {doc}`RL Infrastructure 开发标准 </en/developer_guide/architecture/development_standard>`
+- 后端能力边界 ADR: {doc}`ADR-0002 Backend Capability Boundary For Play And Snapshot </adr/ADR-0002-backend-capability-boundary-for-play-and-snapshot>`
+- task owner / compose contract ADR: {doc}`ADR-0003 Task Owner And Config Compose Contract </adr/ADR-0003-task-owner-and-config-compose-contract>`
+- registry bootstrap ADR: {doc}`ADR-0004 Registry Bootstrap Contract </adr/ADR-0004-registry-bootstrap-contract>`
+- ADR 索引: {doc}`ADR Index </adr/README>`

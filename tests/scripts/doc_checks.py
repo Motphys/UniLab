@@ -66,6 +66,29 @@ USER_DOC_MIGRATION_PHRASES = [
 
 USER_DOC_MAX_LINES = 120
 
+SPHINX_REMOVED_PATH_PATTERNS = [
+    (
+        r"\.\./\.\./README\.md",
+        "Use a MyST `{doc}` link to `/index` instead of `../../README.md`",
+    ),
+    (
+        r"\bdocs/users/(?:en|zh_CN)/",
+        "Use `docs/sphinx/source/<lang>/user_guide/` or a MyST `{doc}` link",
+    ),
+    (
+        r"\bdocs/developers/(?:en|zh_CN|adr)/",
+        "Use `docs/sphinx/source/<lang>/developer_guide/`, `/adr/`, or a MyST `{doc}` link",
+    ),
+    (
+        r"(?<![\w/-])(?:\.\./)*users/(?:en|zh_CN)/",
+        "Use the current `user_guide` Sphinx path or a MyST `{doc}` link",
+    ),
+    (
+        r"(?<![\w/-])(?:\.\./)*developers/(?:en|zh_CN|adr)/",
+        "Use the current `developer_guide` / `adr` Sphinx path or a MyST `{doc}` link",
+    ),
+]
+
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
@@ -406,6 +429,48 @@ def check_user_doc_architecture(content: str, doc_path: Path, root: Path) -> lis
     return errors
 
 
+def check_sphinx_source_migration_guards(content: str, doc_path: Path, root: Path) -> list[str]:
+    warnings: list[str] = []
+    sphinx_source = root / "docs" / "sphinx" / "source"
+    try:
+        relative_path = doc_path.relative_to(sphinx_source)
+    except ValueError:
+        return warnings
+    if doc_path.suffix != ".md":
+        return warnings
+
+    for pattern, message in SPHINX_REMOVED_PATH_PATTERNS:
+        for match in re.finditer(pattern, content):
+            line_no = content.count("\n", 0, match.start()) + 1
+            removed_path = match.group(0)
+            warnings.append(
+                f"{doc_path}:{line_no}: Removed Sphinx doc path `{removed_path}`: {message}"
+            )
+
+    if relative_path.parts and relative_path.parts[0] == "en":
+        for match in re.finditer(r"(?m)^语言: 简体中文$", content):
+            line_no = content.count("\n", 0, match.start()) + 1
+            warnings.append(
+                f"{doc_path}:{line_no}: English Sphinx pages must not declare "
+                "`语言: 简体中文`"
+            )
+        for match in re.finditer(r"(?m)^## Navigation\s*$", content):
+            line_no = content.count("\n", 0, match.start()) + 1
+            warnings.append(
+                f"{doc_path}:{line_no}: English Sphinx pages should use toctree/Furo "
+                "navigation instead of a hand-written `## Navigation` section"
+            )
+
+    return warnings
+
+
+def check_document_warnings(doc_path: Path, root: Path) -> list[str]:
+    content = doc_path.read_text(encoding="utf-8")
+    warnings: list[str] = []
+    warnings.extend(check_sphinx_source_migration_guards(content, doc_path, root))
+    return warnings
+
+
 def check_document(doc_path: Path, root: Path) -> list[str]:
     content = doc_path.read_text(encoding="utf-8")
     errors: list[str] = []
@@ -442,3 +507,11 @@ def collect_doc_errors(root: Path | None = None) -> list[str]:
     for doc_path in find_docs(resolved_root):
         errors.extend(check_document(doc_path, resolved_root))
     return errors
+
+
+def collect_doc_warnings(root: Path | None = None) -> list[str]:
+    resolved_root = root or repo_root()
+    warnings: list[str] = []
+    for doc_path in find_docs(resolved_root):
+        warnings.extend(check_document_warnings(doc_path, resolved_root))
+    return warnings

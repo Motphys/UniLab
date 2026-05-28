@@ -1,8 +1,7 @@
 # 算法
 
-语言: 简体中文
 
-本页只保留算法级说明。入口脚本和通用 CLI 参数见 [Training Guide](03-training.md)。
+本页只保留算法级说明。入口脚本和通用 CLI 参数见 {doc}`Training Guide <../getting_started/training>`。
 
 ## APPO
 
@@ -150,9 +149,3 @@ uv run scripts/train_offpolicy.py algo=flashsac task=flashsac/g1_walk_flat/mujoc
 | `algo.algo_params.critic_num_blocks` | 2 | critic FlashSAC block 层数 |
 | `training.play_only` | false | 仅回放 |
 | `training.no_play` | false | 跳过自动回放 |
-
-## Navigation
-
-- Index: [Documentation](../../README.md)
-- Previous: [Training Guide](03-training.md)
-- Next: [G1 Motion Tracking](05-motion-tracking.md)

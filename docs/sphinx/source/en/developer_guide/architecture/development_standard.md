@@ -1,12 +1,11 @@
 # RL Infrastructure 开发标准
 
-语言: 简体中文
 
 UniLab 是一个**高性能、模块化、contract 驱动**的 RL infrastructure 仓库。这个标准只回答一个问题: **什么样的改动是对的**。
 
 工程属性: 高性能、结构化、系统性、模块化、可复用、可观测。
 
-核心术语定义见 [UniLab Glossary](../../glossary.md)。
+核心术语定义见 {doc}`UniLab Glossary </glossary>`。
 
 ---
 
@@ -153,19 +152,12 @@ Env **负责** MDP 语义、observation 结构、reward、reset，以及 backend
 
 以下 ADR 记录了本页涉及的稳定 contract 以及 backend 能力边界:
 
-- [ADR Index](../adr/README.md)
-- [ADR-0001 Runtime Model And Layer Boundaries](../adr/ADR-0001-runtime-model-and-layer-boundaries.md)
-- [ADR-0002 Backend Capability Boundary For Play And Snapshot](../adr/ADR-0002-backend-capability-boundary-for-play-and-snapshot.md)
-- [ADR-0003 Task Owner And Config Compose Contract](../adr/ADR-0003-task-owner-and-config-compose-contract.md)
-- [ADR-0004 Registry Bootstrap Contract](../adr/ADR-0004-registry-bootstrap-contract.md)
-- [ADR-0005 Unified Obs Critic Env And IPC Contract](../adr/ADR-0005-unified-obs-critic-env-and-ipc-contract.md)
-- [Domain Randomization Contract](domain-randomization-contract.md)
+- {doc}`ADR Index </adr/README>`
+- {doc}`ADR-0001 Runtime Model And Layer Boundaries </adr/ADR-0001-runtime-model-and-layer-boundaries>`
+- {doc}`ADR-0002 Backend Capability Boundary For Play And Snapshot </adr/ADR-0002-backend-capability-boundary-for-play-and-snapshot>`
+- {doc}`ADR-0003 Task Owner And Config Compose Contract </adr/ADR-0003-task-owner-and-config-compose-contract>`
+- {doc}`ADR-0004 Registry Bootstrap Contract </adr/ADR-0004-registry-bootstrap-contract>`
+- {doc}`ADR-0005 Unified Obs Critic Env And IPC Contract </adr/ADR-0005-unified-obs-critic-env-and-ipc-contract>`
+- {doc}`Domain Randomization Contract </en/developer_guide/contracts/domain_randomization>`
 
-协作与交付流程要求见 [Collaboration](collaboration.md)。
-
----
-
-## Navigation
-
-- Index: [Documentation](../../README.md)
-- Next: [Domain Randomization Contract](domain-randomization-contract.md)
+协作与交付流程要求见 {doc}`Collaboration <../contributing_workflow>`。

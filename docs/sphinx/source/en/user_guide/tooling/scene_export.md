@@ -1,10 +1,16 @@
 # Scene Export
 
-Dump the resolved scene (joint order, asset paths, friction declarations) for a task owner:
+Scene export is implemented by `src/unilab/tools/export_scene.py` and registered
+as the `unilab-export-scene` console entry in `pyproject.toml`. It accepts a
+MuJoCo XML or MJB model path, writes `scene.xml`, copies mesh assets when they
+are discoverable, and can create a zip archive.
+
+For task-level materialization checks, use the script that constructs an env
+from the registry and owner config:
 
 ```bash
-uv run unilab-export-scene --task g1_motion_tracking --sim motrix \
-    --out /tmp/g1_scene.json
+uv run scripts/visualize_task_env.py --task Go2JoystickRough --backend mujoco --num_envs 4
 ```
 
-Useful when porting to real hardware or to debug joint-order mismatches between ONNX export and the motor driver. See {py:mod}`unilab.tools.export_scene`.
+`tests/test_export_scene.py` covers the export helper, including `scene.xml`
+creation, reloadability, and zip output.
