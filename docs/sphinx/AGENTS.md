@@ -17,26 +17,35 @@ Sphinx 文档写作规则。
 
 ```text
 source/
-├── index.md                 # root landing; language selection is site-level
-├── en/                      # English semantic tree
-├── zh_CN/                   # Chinese tree; legacy numbered paths are kept short-term
+├── index.md                 # root redirect → en/index.html (no language picker)
+├── en/                      # English tree (site root, shown in sidebar nav)
+├── zh_CN/                   # Chinese tree (hidden from sidebar, via switcher only)
 ├── adr/                     # shared ADR, one set
 ├── api_reference/           # shared autodoc output from src/ docstrings
 ├── glossary.md
 ├── changelog.md
 ├── _static/
 └── _templates/
+    ├── sidebar/
+    │   └── lang_switcher.html   # language dropdown in sidebar
+    └── autosummary/
 ```
 
-`source/en/` and `source/zh_CN/` are parallel language roots, but they are **not
-currently a strict 1:1 path mirror**. The Chinese user guide still keeps
+`source/en/` is the **default site root**. Visitors land on `/en/index.html`
+directly (root `index.md` is a redirect). The sidebar navigation tree only
+shows English pages. `source/zh_CN/` pages are built but accessible only
+through the sidebar language switcher — they never appear in the navigation
+tree.
+
+`source/en/` and `source/zh_CN/` are parallel language roots, but they are
+**not currently a strict 1:1 path mirror**. The Chinese user guide still keeps
 compatibility paths such as `01-getting-started.md`, `A-getting-started/`, and
 `C-algorithms/`. Do not rename those paths just to mirror English during an
-unrelated documentation change.
+unrelated documentation change. The language switcher uses an explicit path map
+in `conf.py` (`_LANGUAGE_PATH_FORWARD`) to handle the mismatch.
 
-The root landing uses the site language switcher pattern. Do not add per-page
-language button blocks or hand-written cross-language navigation. Use the root
-language entry and the language switcher for language changes.
+Do not add per-page language button blocks or hand-written cross-language
+navigation. The sidebar language switcher handles language changes globally.
 
 ## Core Principles
 

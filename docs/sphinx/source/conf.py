@@ -198,6 +198,17 @@ html_favicon = None  # add _static/favicon.ico when ready
 html_baseurl = "https://unilabsim.github.io/UniLab-doc/"
 sitemap_url_scheme = "{link}"
 
+html_sidebars = {
+    "**": [
+        "sidebar/brand.html",
+        "sidebar/lang_switcher.html",
+        "sidebar/search.html",
+        "sidebar/scroll-start.html",
+        "sidebar/navigation.html",
+        "sidebar/scroll-end.html",
+    ],
+}
+
 html_theme_options = {
     "sidebar_hide_name": False,
     "navigation_with_keys": True,
