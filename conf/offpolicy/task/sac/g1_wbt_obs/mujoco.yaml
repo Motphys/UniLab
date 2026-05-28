@@ -2,8 +2,7 @@
 # G1 Whole-Body Tracking (WBT) FastSAC on MuJoCo — task ``g1_wbt_obs``.
 #
 # Field-by-field port of the active deploy training profile from
-# ``feat/g1_deploy_v2`` (``conf/offpolicy/task/sac/g1_sac_wbt/mujoco_deploy.yaml``
-# in that branch — Stage 4+5, the one actually used for ONNX-on-real-G1
+# ``feat/g1_deploy_v2`` (Stage 4+5, the one actually used for ONNX-on-real-G1
 # runs; ``mujoco_deploy_v2.yaml`` Plan B was a tuning experiment and is
 # NOT what this profile ports).
 #
@@ -13,7 +12,7 @@
 # The task name binds to ``G1WBTObs`` (see
 # ``src/unilab/envs/motion_tracking/g1/tracking_obs.py``), a strict subclass
 # of ``G1MotionTrackingSACEnv`` — base classes are untouched, so other tasks
-# (``g1_sac_wbt``, ``g1_motion_tracking_deploy``, locomotion / flip / box
+# (``g1_motion_tracking``, ``g1_motion_tracking_deploy``, locomotion / flip / box
 # tracking) are unaffected.
 #
 # Deploy compatibility:

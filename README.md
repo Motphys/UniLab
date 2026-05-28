@@ -91,7 +91,7 @@ uv run train --algo sac --task g1_walk_flat --sim motrix
 ```
 
 ```bash
-uv run train --algo sac --task g1_sac_wbt --sim mujoco
+uv run train --algo sac --task g1_motion_tracking --sim mujoco
 ```
 
 ```bash
