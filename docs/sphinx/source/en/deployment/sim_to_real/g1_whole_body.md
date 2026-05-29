@@ -28,24 +28,29 @@ If any of those is off, fix it in sim. Hardware will *amplify* every defect.
 
 ## 1. Export
 
-Pattern your script after `scripts/export_g1_motion_tracking.py` (see the
-{doc}`onnx_export_and_runtime` page for the general procedure):
+Use the training playback path to export `policy.onnx`, then export the G1 WBT
+deploy config and motion binary with the committed deployment helpers:
 
 ```bash
-uv run python scripts/export_g1_motion_tracking.py \
-    --run-dir runs/g1_motion_tracking_motrix/.../ \
-    --out-dir deploy/g1/<checkpoint_name>/
+uv run scripts/train_rsl_rl.py task=g1_motion_tracking/motrix \
+  training.play_only=true \
+  algo.load_run=-1
+
+uv run scripts/deploy/export_deploy_config.py \
+  --output logs/deploy/deploy_config.yaml
+
+uv run scripts/deploy/export_motion_bin.py \
+  --output logs/deploy/dance1.bin
 ```
 
-The output directory should contain:
+The deployment-side prototype consumes:
 
 ```
-deploy/g1/<name>/
-├── actor.onnx
-├── obs_stats.npz
-├── action_scale.npz
-├── manifest.yaml
-└── reference_motion.npz     # the motion clip the policy was trained on
+runs/<run>/
+└── policy.onnx
+logs/deploy/
+├── deploy_config.yaml
+└── dance1.bin
 ```
 
 ## 2. Observation contract
@@ -88,7 +93,8 @@ unmodeled dynamics. Always feed back the **commanded** action.
 UniLab trains in **position-target** mode at the policy frequency (typically
 50 Hz). The motor driver then runs a high-rate PD loop at ~2 kHz.
 
-- Action = target joint position, **scaled** by `action_scale.npz`.
+- Action = target joint position, **scaled** by the `action_scale` entry in
+  `deploy_config.yaml`.
 - Hard-clamp the target to the safe joint range on the **driver** side, not
   in the policy. The policy was trained against soft penalties; relying on
   Python-side clamping invites a delay glitch to push past the limit.
@@ -135,16 +141,18 @@ single inverted axis in the IMU mounting. Step 1 catches this.
 ## 7. What to log
 
 Log the **full observation vector**, **full action vector**, and **wall
-clock** for every step. On a failure replay it against the sim model:
+clock** for every step. Before hardware bring-up, validate the same ONNX,
+deploy config, and motion binary through the MuJoCo deployment prototype:
 
 ```bash
-uv run python scripts/replay_hardware_trace.py \
-    --trace deploy/g1/<name>/hw_run_2026-05-18.npz \
-    --task g1_motion_tracking --sim motrix
+uv run scripts/deploy/sim_prototype.py \
+  --onnx runs/<run>/policy.onnx \
+  --config logs/deploy/deploy_config.yaml \
+  --motion logs/deploy/dance1.bin
 ```
 
-A divergence point in joint position between sim-replay and the recorded
-trace is the start of your bug.
+A mismatch between the ONNX input width and `deploy_config.yaml` `obs_dim` is a
+deployment contract bug, not a hardware tuning problem.
 
 ## See also
 

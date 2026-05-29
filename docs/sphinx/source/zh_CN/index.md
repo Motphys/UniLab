@@ -33,11 +33,11 @@ UniLab 是一个**高性能、模块化、contract 驱动**的 RL infrastructure
 面向 agent / 维护者的最短路由。
 :::
 
-:::{grid-item-card} 🔁 Transfer
+:::{grid-item-card} 🔁 Deployment
 :link: transfer/index
 :link-type: doc
 
-Sim-to-real、sim-to-sim、framework migration。(尚未翻译,可看[英文版](../en/transfer/index.md))
+Sim-to-real、sim-to-sim、framework migration。(尚未翻译,可看[英文版](../en/deployment/index.md))
 :::
 
 ::::
@@ -69,7 +69,7 @@ agents/index
 
 ```{toctree}
 :hidden:
-:caption: Transfer
+:caption: Deployment
 
 transfer/index
 ```
@@ -83,4 +83,3 @@ transfer/index
 /glossary
 /changelog
 ```
-

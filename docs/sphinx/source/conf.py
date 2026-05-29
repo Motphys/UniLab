@@ -274,11 +274,12 @@ _LANGUAGE_DOC_ROOTS = ("en", "zh_CN")
 # bouncing to the language index. Forward direction only — reverse map is
 # computed below.
 _LANGUAGE_PATH_FORWARD: dict[str, str] = {
-    "en/user_guide/getting_started/quickstart": "zh_CN/user_guide/01-getting-started",
-    "en/user_guide/getting_started/installation": "zh_CN/user_guide/A-getting-started/01-install",
-    "en/user_guide/getting_started/training": "zh_CN/user_guide/03-training",
-    "en/user_guide/getting_started/configuration_overrides": "zh_CN/user_guide/B-training/03-hydra-overrides",
-    "en/user_guide/getting_started/evaluation_and_playback": "zh_CN/user_guide/B-training/02-playback-and-resume",
+    "en/getting_started/index": "zh_CN/user_guide/01-getting-started",
+    "en/getting_started/quickstart": "zh_CN/user_guide/01-getting-started",
+    "en/getting_started/installation": "zh_CN/user_guide/A-getting-started/01-install",
+    "en/getting_started/training": "zh_CN/user_guide/03-training",
+    "en/getting_started/configuration_overrides": "zh_CN/user_guide/B-training/03-hydra-overrides",
+    "en/getting_started/evaluation_and_playback": "zh_CN/user_guide/B-training/02-playback-and-resume",
     "en/user_guide/backends/index": "zh_CN/user_guide/02-simulation-backends",
     "en/user_guide/backends/choosing_a_backend": "zh_CN/user_guide/E-reference/01-backend-support-matrix",
     "en/user_guide/algorithms/overview": "zh_CN/user_guide/04-algorithms",
@@ -296,7 +297,8 @@ _LANGUAGE_PATH_FORWARD: dict[str, str] = {
     "en/developer_guide/contracts/domain_randomization": "zh_CN/developer_guide/domain-randomization-contract",
     "en/developer_guide/contributing": "zh_CN/developer_guide/CONTRIBUTING",
     "en/developer_guide/contributing_workflow": "zh_CN/developer_guide/collaboration",
-    "en/agents/index": "zh_CN/agents/01-agent-quick-reference",
+    "en/deployment/index": "zh_CN/transfer/index",
+    "en/developer_guide/agent_quick_reference": "zh_CN/agents/01-agent-quick-reference",
 }
 # Keyed by (current_pagename, target_language) → target_pagename.
 _LANGUAGE_PATH_MAP: dict[tuple[str, str], str] = {}

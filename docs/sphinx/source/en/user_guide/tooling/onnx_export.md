@@ -18,4 +18,4 @@ uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco \
 ```
 
 Use the same task owner and algorithm family that produced the checkpoint. For
-deployment context, see {doc}`../../transfer/sim_to_real/onnx_export_and_runtime`.
+deployment context, see {doc}`../../deployment/sim_to_real/onnx_export_and_runtime`.

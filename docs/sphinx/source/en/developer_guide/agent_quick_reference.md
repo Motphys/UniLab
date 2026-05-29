@@ -1,11 +1,11 @@
-# Agents / Quick Reference
+# Agent Quick Reference
 
 This page is for maintainers and agents who need the shortest route to current
 repo facts.
 
 ## Start Here
 
-- Install and smoke check: {doc}`../user_guide/getting_started/installation`
+- Install and smoke check: {doc}`../getting_started/installation`
 - Backend choice: {doc}`../user_guide/backends/choosing_a_backend`
 - PPO entrypoint: `scripts/train_rsl_rl.py`
 - MLX PPO entrypoint: `scripts/train_mlx_ppo.py`
@@ -20,13 +20,8 @@ repo facts.
 - Backend contract: `src/unilab/base/backend/base.py`
 - Training helpers: `src/unilab/training/run.py`
 - Config schema: `src/unilab/structured_configs.py`
-- Developer standard: {doc}`../developer_guide/architecture/development_standard`
+- Developer standard: {doc}`architecture/development_standard`
 
 Use `uv run scripts/...` for script examples, choose backends through task owner
 YAML, and write only facts that can be traced to code, config, tests, or current
 docs.
-
-```{toctree}
-:maxdepth: 1
-:hidden:
-```

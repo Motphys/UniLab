@@ -152,4 +152,4 @@ UniLab 使用 Hydra + dataclass 配置系统:
 - **修改超参数**: 编辑对应 YAML，或使用 `algo.num_envs=2048` 这样的 CLI override
 - **添加新算法**: 在 `structured_configs.py` 中添加 dataclass，并创建对应的 `conf/` 目录
 
-更多细节见 {doc}`Training Guide </en/user_guide/getting_started/training>` 的 Hydra 部分，以及 {doc}`Development Standard <architecture/development_standard>`。
+更多细节见 {doc}`Training Guide </en/getting_started/training>` 的 Hydra 部分，以及 {doc}`Development Standard <architecture/development_standard>`。

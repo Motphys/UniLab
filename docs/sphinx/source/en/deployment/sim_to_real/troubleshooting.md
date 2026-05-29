@@ -23,15 +23,16 @@ sideways, start here.
 
 Almost always one of:
 
-1. **Joint order swapped.** Inspect `actor.onnx` input order vs the joint
+1. **Joint order swapped.** Inspect `policy.onnx` input width and the joint
    order in your motor driver. Use `unilab-export-scene` to dump the
    training joint order.
 2. **Action scale unit mismatch.** Policy outputs unscaled values; the
    driver expects rad, but you fed it normalized [-1, 1]. Apply
-   `action_scale.npz` before sending to the driver.
-3. **Observation normalization not applied.** Apply `obs_stats.npz` to the
-   raw observation **before** ONNX inference. Forgetting this is the most
-   common single-step failure.
+   the `action_scale` / default-angle convention from `deploy_config.yaml`
+   before sending targets to the driver.
+3. **Observation layout mismatch.** Compare `deploy_config.yaml` `obs_layout`
+   against the training owner and validate it with `scripts/deploy/sim_prototype.py`
+   before running on hardware.
 
 ## Cube drops in Allegro / Sharpa inhand
 
@@ -54,7 +55,7 @@ investigation tomorrow takes 30 minutes instead of 4 hours:
 
 - Full hardware trace (`obs / action / wall_clock` for the entire run).
 - Sim-side YAML used to train: `runs/<run>/config.yaml`.
-- `manifest.yaml` from the export step.
+- `policy.onnx` and, for the G1 WBT path, `deploy_config.yaml`.
 - One sim rollout video using **the same** seed: `eval --seed <same>
   --render-mode record`.
 - A `git diff` between the run's commit and `main` if any.

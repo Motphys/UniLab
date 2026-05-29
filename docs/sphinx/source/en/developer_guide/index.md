@@ -20,6 +20,12 @@ Dev environment, code style, tests, PR template.
 Branching, ADR-first changes, review etiquette.
 :::
 
+:::{grid-item-card} Maintainer quick reference
+:link: agent_quick_reference
+:link-type: doc
+Entrypoints, load-bearing contracts, and the shortest route to repo facts.
+:::
+
 ::::
 
 ## Architecture
@@ -166,4 +172,5 @@ extending/new_terrain
 
 contributing
 contributing_workflow
+agent_quick_reference
 ```

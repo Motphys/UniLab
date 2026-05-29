@@ -3,7 +3,7 @@
 
 Repository documentation only records stable standards. Execution status, owners, and stage progression belong in GitHub collaboration objects.
 
-If you just want to install or train UniLab, start with {doc}`/en/user_guide/getting_started/installation` and {doc}`/en/user_guide/getting_started/training`.
+If you just want to install or train UniLab, start with {doc}`/en/getting_started/installation` and {doc}`/en/getting_started/training`.
 
 ## Work Item Granularity
 

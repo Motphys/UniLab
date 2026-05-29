@@ -45,17 +45,11 @@ rl.dump("rewards_<backend>.npz")
 
 ## Automating it
 
-UniLab ships a parity check tool you can wire into CI:
-
-```bash
-uv run python scripts/reward_parity.py \
-    --task g1_motion_tracking \
-    --backends mujoco motrix \
-    --trace traces/fixed_sweep.npz \
-    --tolerance 0.05
-```
-
-Exits non-zero if MAD exceeds tolerance, so you can gate merges on it.
+The repository does not currently include a standalone reward-parity helper in
+`scripts/`. When adding parity coverage, keep the test close to the
+backend/task-owner boundary: compose both owner YAMLs, reset with a fixed seed,
+replay a deterministic action sequence, and assert on the logged reward
+components under `tests/`.
 
 ## See also
 

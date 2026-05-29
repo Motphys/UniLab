@@ -5,12 +5,12 @@ page in this section drills into one stage.
 
 ## What "sim-to-real" means in UniLab
 
-A trained UniLab policy is just `(actor.onnx, observation spec, action spec,
+A trained UniLab policy is just `(policy.onnx, observation spec, action spec,
 normalization stats)`. The hardware-side code is a thin runtime that:
 
 1. Reads sensors → assembles the **same observation vector** the policy saw
    in simulation.
-2. Runs `actor.onnx` (CPU or NPU) on that vector.
+2. Runs `policy.onnx` (CPU or NPU) on that vector.
 3. Maps the action vector to the same actuator interface used by the env's
    `SimBackend`.
 
@@ -33,7 +33,7 @@ flowchart LR
 
 | Stage | UniLab artefact | Page |
 |---|---|---|
-| Train | YAML owner + `train` CLI | {doc}`../../user_guide/getting_started/training` |
+| Train | YAML owner + `train` CLI | {doc}`../../getting_started/training` |
 | Curriculum + DR | `unilab.dr` + task-side providers | {doc}`domain_randomization_for_real` |
 | Cross-backend sanity | `task=<task>/<other_backend>` | {doc}`../sim_to_sim/why_switch` |
 | ONNX export | `unilab.algos.torch.common.ane_wrapper` + scripts | {doc}`onnx_export_and_runtime` |

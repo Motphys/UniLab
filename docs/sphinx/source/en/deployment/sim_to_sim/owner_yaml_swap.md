@@ -15,8 +15,8 @@ page is the recipe.
 
 1. Copy the existing owner YAML:
    ```bash
-   cp conf/ppo/go2_joystick_flat/motrix.yaml \
-      conf/ppo/go2_joystick_flat/mujoco.yaml
+   cp conf/ppo/task/go2_joystick_flat/motrix.yaml \
+      conf/ppo/task/go2_joystick_flat/mujoco.yaml
    ```
 2. Inside the new file, set `training.sim_backend: mujoco`.
 3. Adjust the **physical parameters** the new backend needs:
@@ -28,8 +28,8 @@ page is the recipe.
 4. Re-resolve any backend-conditional DR ranges. Some randomizations are
    meaningful on one backend but no-ops on the other (e.g. friction
    damping coefficient).
-5. Register the new owner YAML in the task registry if your project uses
-   manifest-driven registration (see
+5. Verify the env/backend pair is registered and importable through the
+   registry bootstrap (see
    {doc}`../../developer_guide/architecture/registry_bootstrap`).
 
 ## Validation gate
@@ -45,7 +45,12 @@ Before claiming the backend is supported, you need (at minimum):
 
 ::::{admonition} Evidence grades
 :class: note
-After validation, update the task's evidence grades in the manifest:
-`Configured` → `Tested` → `Benchmarked` → `Recommended`. See
-{doc}`/glossary` for definitions.
+After validation, refresh the generated support data if the support status
+changed:
+
+```bash
+uv run scripts/generate_support_matrix.py --write
+```
+
+See {doc}`/glossary` for the evidence-grade definitions.
 ::::

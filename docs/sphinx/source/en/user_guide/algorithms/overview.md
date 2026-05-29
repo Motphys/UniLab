@@ -1,7 +1,7 @@
 # Algorithms
 
 
-This page only retains algorithm-level descriptions. For entry-point scripts and common CLI parameters, see {doc}`Training Guide <../getting_started/training>`.
+This page only retains algorithm-level descriptions. For entry-point scripts and common CLI parameters, see {doc}`Training Guide </en/getting_started/training>`.
 
 ## APPO
 

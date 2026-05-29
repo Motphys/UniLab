@@ -1,7 +1,7 @@
-# Transfer Tutorials
+# Deployment
 
-A hands-on playbook for moving a UniLab policy across *environments*,
-*backends*, and *frameworks*. Each tutorial follows the same shape:
+A hands-on playbook for moving a UniLab policy across hardware, simulation
+backends, and source frameworks. Each tutorial follows the same shape:
 
 1. **What you start with** — the trained artefact and config.
 2. **What changes** — the minimal set of edits in code, YAML, and assets.
@@ -18,8 +18,6 @@ A hands-on playbook for moving a UniLab policy across *environments*,
 :class-card: sd-shadow-md
 
 Deploy a trained policy on G1 / Go2 / Allegro hardware via ONNX or CoreML.
-+++
-9 tutorials · safety-first
 :::
 
 :::{grid-item-card} 🔀 Sim → Sim
@@ -28,8 +26,6 @@ Deploy a trained policy on G1 / Go2 / Allegro hardware via ONNX or CoreML.
 :class-card: sd-shadow-md
 
 Switch the same task between MuJoCo and Motrix without retraining from scratch.
-+++
-6 tutorials · backend parity
 :::
 
 :::{grid-item-card} 🔁 Framework Migration
@@ -38,8 +34,6 @@ Switch the same task between MuJoCo and Motrix without retraining from scratch.
 :class-card: sd-shadow-md
 
 Bring tasks over from Isaac Lab / Legged Gym / rsl_rl / skrl.
-+++
-6 tutorials · concept maps
 :::
 
 ::::

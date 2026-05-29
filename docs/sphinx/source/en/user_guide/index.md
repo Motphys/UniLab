@@ -1,55 +1,55 @@
 # User Guide
 
-From a fresh checkout to a trained policy you can play back, headlessly
-record, or deploy on real hardware.
+Daily usage reference once the repo is installed. If you are setting up UniLab
+for the first time, start with {doc}`../getting_started/index`.
 
 ```{div} feature-list
 
 - Pick a backend (**MuJoCo** for fidelity, **Motrix** for throughput).
 - Pick an algorithm (PPO is the default; SAC variants for off-policy).
 - Run on whatever GPU you have (CUDA / MPS / ROCm / XPU).
-- Ship: ONNX, Core ML, or just `.pt`.
+- Export: ONNX for deployment-oriented playback paths.
 
 ```
 
-## 1. Getting Started
+## Training Basics
 
 ::::{grid} 1 1 3 3
 :gutter: 3
 
 :::{grid-item-card} 🧰 Install
-:link: getting_started/installation
+:link: ../getting_started/installation
 :link-type: doc
 `uv` setup, GPU stacks, common pitfalls.
 :::
 
 :::{grid-item-card} ⚡ Quickstart
-:link: getting_started/quickstart
+:link: ../getting_started/quickstart
 :link-type: doc
 First training run in three commands.
 :::
 
 :::{grid-item-card} 🎓 Training in depth
-:link: getting_started/training
+:link: ../getting_started/training
 :link-type: doc
 Runner lifecycle, checkpoints, distributed.
 :::
 
 :::{grid-item-card} 🧪 Config overrides
-:link: getting_started/configuration_overrides
+:link: ../getting_started/configuration_overrides
 :link-type: doc
 The Hydra `key=value` cheatsheet.
 :::
 
 :::{grid-item-card} 🎬 Evaluation & playback
-:link: getting_started/evaluation_and_playback
+:link: ../getting_started/evaluation_and_playback
 :link-type: doc
 Headless render, MP4 export, replay.
 :::
 
 ::::
 
-## 2. Simulation Backends
+## Simulation Backends
 
 ::::{grid} 1 1 2 2
 :gutter: 3
@@ -80,7 +80,7 @@ When to switch — feature parity, perf, gotchas.
 
 ::::
 
-## 3. Algorithms
+## Algorithms
 
 ```{toctree}
 :maxdepth: 1
@@ -96,7 +96,7 @@ algorithms/hora
 algorithms/mlx_ppo
 ```
 
-## 4. Tasks
+## Tasks
 
 ::::{grid} 1 1 2 2
 :gutter: 3
@@ -127,7 +127,7 @@ Allegro / Sharpa in-hand and grasp generation.
 
 ::::
 
-## 5. Domain Randomization
+## Domain Randomization
 
 ```{toctree}
 :maxdepth: 1
@@ -136,7 +136,7 @@ domain_randomization/index
 domain_randomization/recipes
 ```
 
-## 6. Terrain
+## Terrain
 
 ```{toctree}
 :maxdepth: 1
@@ -145,7 +145,7 @@ terrain/procedural
 terrain/heightfield_import
 ```
 
-## 7. Manipulation
+## Manipulation
 
 ```{toctree}
 :maxdepth: 1
@@ -154,7 +154,7 @@ manipulation/dexterous_inhand
 manipulation/manip_loco
 ```
 
-## 8. Tooling
+## Tooling
 
 ```{toctree}
 :maxdepth: 1
@@ -167,13 +167,13 @@ tooling/scene_export
 
 ```{toctree}
 :hidden:
-:caption: Getting Started
+:caption: Training Basics
 
-getting_started/installation
-getting_started/quickstart
-getting_started/training
-getting_started/configuration_overrides
-getting_started/evaluation_and_playback
+../getting_started/installation
+../getting_started/quickstart
+../getting_started/training
+../getting_started/configuration_overrides
+../getting_started/evaluation_and_playback
 ```
 
 ```{toctree}
