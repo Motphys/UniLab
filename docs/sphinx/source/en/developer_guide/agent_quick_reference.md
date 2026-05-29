@@ -20,7 +20,7 @@ repo facts.
 - Backend contract: `src/unilab/base/backend/base.py`
 - Training helpers: `src/unilab/training/run.py`
 - Config schema: `src/unilab/structured_configs.py`
-- Developer standard: {doc}`architecture/development_standard`
+- Developer standard: {doc}`architecture/overview`
 
 Use `uv run scripts/...` for script examples, choose backends through task owner
 YAML, and write only facts that can be traced to code, config, tests, or current

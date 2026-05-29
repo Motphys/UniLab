@@ -1,4 +1,4 @@
-# Domain Randomization Status
+# Domain Randomization
 
 
 This page only describes the current status of tasks in the repo that are already registered and already wired to a DR provider. All conclusions come from the code; nothing is inferred from design intent.
@@ -295,4 +295,6 @@ uv run scripts/train_rsl_rl.py task=sharpa_inhand/mujoco 'env.domain_rand.scale_
 - The hot path must not read XML, parse assets, or use `getattr` / `hasattr` to probe backend-private capability to decide scaling behavior.
 - When extending to other shape DR, prefer to reuse the init-lifecycle contract; do not stuff shape fields into the reset payload.
 
-For an underlying snapshot of the `BatchEnvPool` randomization-field interface and the criteria for onboarding new tasks, see {doc}`Domain Randomization Contract </en/developer_guide/contracts/domain_randomization>`.
+For configuration examples, see {doc}`configuration`. For the developer
+provider interface and backend capability boundary, see
+{doc}`writing_providers` and {doc}`Domain Randomization Contract </en/developer_guide/contracts/dr_contract>`.

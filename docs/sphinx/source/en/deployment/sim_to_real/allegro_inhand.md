@@ -12,8 +12,9 @@ deviations in:
 - Finger pad friction (depends on temperature & humidity!)
 - Joint backlash
 
-…break a policy that worked perfectly in sim. Aggressive DR is mandatory:
-see {doc}`domain_randomization_for_real` for the recipe.
+can move a policy outside the regime it saw in simulation. Use the task-owned
+domain-randomization config and validate the ranges in sim before hardware
+bring-up; see {doc}`domain_randomization`.
 
 ## Observation contract
 
@@ -46,9 +47,10 @@ see {doc}`domain_randomization_for_real` for the recipe.
 
 ::::{admonition} Vision pipeline latency
 :class: warning
-Pose estimators introduce 30–80 ms of delay. The policy was trained with
-small or zero delay by default — re-train with realistic delay injection
-*before* hardware deployment. See {doc}`latency_and_observation_lag`.
+Pose-estimation latency is deployment-stack specific. Measure it in the
+hardware observation builder, then make the training owner and deploy runtime
+agree on the observation timing before hardware deployment. See
+{doc}`latency_budget`.
 ::::
 
 ## Grasp generator
@@ -58,29 +60,27 @@ that samples plausible initial hand configurations. The hardware-side
 equivalent is the operator placing the cube in the hand — verify your
 distribution of starting configurations matches the trained env's grasp
 generator output (see
-{py:mod}`unilab.envs.manipulation.allegro_inhand.grasp_gen`).
+`unilab.envs.manipulation.allegro_inhand.grasp_gen`).
 
 If your real-world starting grip differs systematically, **add those poses
 to the grasp generator**, retrain, and try again.
 
 ## Action interface
 
-Position targets at ~30 Hz, low-rate PD on the hand controller. The hand
-firmware imposes its own torque limits; ensure they envelope the policy's
-output range.
+The manipulation envs map policy actions to joint position targets through the
+task control config (`src/unilab/envs/manipulation/allegro_inhand/base.py` and
+`src/unilab/envs/manipulation/sharpa_inhand/base.py`). The deploy controller
+must use the same joint order, action scale, and limit policy.
 
 ## Failure recovery
 
-A drop is unrecoverable without re-grasp. Hardware-side safety layer
-detects drop via:
-
-- Wrist force-torque magnitude < `cube_mass * g * 0.5` for >100 ms, OR
-- Visual cube pose drops below palm height.
-
-On detection: zero torque, alert operator.
+A drop is unrecoverable without re-grasp. The hardware-side safety layer should
+own the drop detector, using whatever cube-pose or force sensing the deploy
+stack actually provides. On detection, enter the controller's safe state and
+alert the operator.
 
 ## See also
 
-- {doc}`onnx_export_and_runtime`
-- {doc}`domain_randomization_for_real`
+- {doc}`onnx_runtime`
+- {doc}`domain_randomization`
 - {doc}`../../user_guide/manipulation/dexterous_inhand`

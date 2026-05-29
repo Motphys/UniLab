@@ -8,10 +8,10 @@ deployment path.
 
 | skrl | UniLab |
 |---|---|
-| `Agent` (PPO, SAC, …) | {py:mod}`unilab.algos.torch.*` |
-| `RolloutMemory` | {py:mod}`unilab.ipc.rollout_ring_buffer` |
-| `ReplayMemory` | {py:mod}`unilab.ipc.replay_buffer` |
-| `Trainer` | {py:mod}`unilab.training.run` |
+| `Agent` (PPO, SAC, …) | `unilab.algos.torch.*` |
+| `RolloutMemory` | `unilab.ipc.rollout_ring_buffer` |
+| `ReplayMemory` | `unilab.ipc.replay_buffer` |
+| `Trainer` | `unilab.training.run` |
 | `Wrapper` for env | `NpEnv` subclassing |
 
 ## What to expect

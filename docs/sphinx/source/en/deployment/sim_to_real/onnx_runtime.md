@@ -1,4 +1,4 @@
-# ONNX Export and Runtime
+# ONNX Runtime
 
 UniLab exports ONNX policies from the existing training playback paths. Use the
 same algorithm family and task owner that produced the checkpoint; the playback
@@ -74,6 +74,6 @@ path above stays on the committed ONNX export behavior in the training scripts.
 
 ## See Also
 
-- {doc}`latency_and_observation_lag`
+- {doc}`latency_budget`
 - {doc}`safety_layers`
-- {py:class}`unilab.algos.torch.common.ane_actor.ANEActor`
+- `unilab.algos.torch.common.ane_actor.ANEActor`

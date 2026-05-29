@@ -46,7 +46,7 @@ Almost always one of:
 
 That's a **sim-to-sim** problem, not sim-to-real. See
 {doc}`../sim_to_sim/contact_and_friction_alignment` and
-{doc}`../sim_to_sim/reward_parity_checks`.
+{doc}`../sim_to_sim/reward_parity`.
 
 ## What to capture before opening a bug report
 
@@ -64,4 +64,4 @@ investigation tomorrow takes 30 minutes instead of 4 hours:
 
 - {doc}`overview`
 - {doc}`safety_layers`
-- {doc}`latency_and_observation_lag`
+- {doc}`latency_budget`

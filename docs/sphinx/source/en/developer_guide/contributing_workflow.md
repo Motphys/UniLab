@@ -3,7 +3,9 @@
 
 Repository documentation only records stable standards. Execution status, owners, and stage progression belong in GitHub collaboration objects.
 
-If you just want to install or train UniLab, start with {doc}`/en/getting_started/installation` and {doc}`/en/getting_started/training`.
+If you just want to install or train UniLab, start with
+{doc}`/en/getting_started/installation` and
+{doc}`/en/getting_started/first_training`.
 
 ## Work Item Granularity
 
@@ -53,8 +55,8 @@ Execution owners are expressed via GitHub assignees, and review owners are expre
 
 When a change touches runtime / backend / config / registry contracts, the issue or PR must explicitly link the corresponding ADR:
 
-- Architecture standards entry: {doc}`RL Infrastructure Development Standard </en/developer_guide/architecture/development_standard>`
-- ADR index: {doc}`ADR Index </adr/README>`
+- Architecture standards entry: {doc}`Architecture Overview </en/developer_guide/architecture/overview>`
+- ADR index: {doc}`ADR Index </adr/ADR-0000-index>`
 - Backend capability boundary: {doc}`ADR-0002 </adr/ADR-0002-backend-capability-boundary-for-play-and-snapshot>`
 - task owner / compose: {doc}`ADR-0003 </adr/ADR-0003-task-owner-and-config-compose-contract>`
 - Registry bootstrap: {doc}`ADR-0004 </adr/ADR-0004-registry-bootstrap-contract>`

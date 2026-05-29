@@ -1,4 +1,24 @@
-# DR Recipes
+# Configuration
+
+Domain randomization is configured inside the selected task owner YAML, usually
+under `env.domain_rand`. Use the owner YAML path to select backend-specific
+behavior first, then override fields inside that selected owner.
+
+```bash
+uv run scripts/train_rsl_rl.py task=g1_walk_flat/mujoco \
+  env.domain_rand.randomize_gravity=true \
+  'env.domain_rand.gravity_range=[[0.0,0.0,-10.5],[0.0,0.0,-8.5]]'
+```
+
+Common lifecycle boundaries:
+
+- Init-lifecycle items change model identity or geometry and must run during
+  env/backend initialization.
+- Reset-lifecycle items perturb state or model parameters at reset through a
+  backend-supported payload.
+- Interval-lifecycle items apply perturbations between steps.
+
+The detailed task status and field semantics are in {doc}`index`.
 
 Domain randomization is split by lifecycle: init, reset, and interval. The
 manager path is `src/unilab/dr/manager.py`; task providers live near the env

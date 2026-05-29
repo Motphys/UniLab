@@ -100,10 +100,10 @@ A side-by-side map of common config fields across Isaac Lab / Legged Gym
 * - Command range curriculum
   - bespoke
   - `update_command_curriculum`
-  - {py:mod}`unilab.base.curriculum`
+  - `unilab.base.curriculum`
 ```
 
 ## See also
 
-- {doc}`reward_porting_cookbook`
-- {doc}`../../developer_guide/contracts/task_owner_config`
+- {doc}`reward_porting`
+- {doc}`../../developer_guide/contracts/task_owner`

@@ -17,11 +17,12 @@ backends, and source frameworks. Each tutorial follows the same shape:
 :link-type: doc
 :class-card: sd-shadow-md
 
-Deploy a trained policy on G1 / Go2 / Allegro hardware via ONNX or CoreML.
+Prepare a trained policy for G1 / Go2 / Allegro bring-up with ONNX exports and
+deploy-side contract checks.
 :::
 
 :::{grid-item-card} 🔀 Sim → Sim
-:link: sim_to_sim/why_switch
+:link: sim_to_sim/backend_swap
 :link-type: doc
 :class-card: sd-shadow-md
 
@@ -70,13 +71,13 @@ Cube rotation; friction + vision.
 :::
 
 :::{grid-item-card} 📦 ONNX export & runtime
-:link: sim_to_real/onnx_export_and_runtime
+:link: sim_to_real/onnx_runtime
 :link-type: doc
-PyTorch → ONNX, ANE / CoreML path.
+Training playback exports, ONNX Runtime checks, and deploy prototype inputs.
 :::
 
 :::{grid-item-card} 🎲 Sim-to-real DR
-:link: sim_to_real/domain_randomization_for_real
+:link: sim_to_real/domain_randomization
 :link-type: doc
 Priority-ordered DR recipes.
 :::
@@ -88,9 +89,9 @@ Soft limits, EMA, e-stop, watchdog.
 :::
 
 :::{grid-item-card} ⏱ Latency & observation lag
-:link: sim_to_real/latency_and_observation_lag
+:link: sim_to_real/latency_budget
 :link-type: doc
-Wrappers and budgets.
+Training-side latency knobs and deploy-side measurement checks.
 :::
 
 :::{grid-item-card} 🔧 Troubleshooting
@@ -108,8 +109,8 @@ Symptom → cause → fix cookbook.
 ::::{grid} 1 1 2 3
 :gutter: 3
 
-:::{grid-item-card} 🤔 Why switch
-:link: sim_to_sim/why_switch
+:::{grid-item-card} 🤔 Backend swap
+:link: sim_to_sim/backend_swap
 :link-type: doc
 :::
 
@@ -124,7 +125,7 @@ Symptom → cause → fix cookbook.
 :::
 
 :::{grid-item-card} ⚖ Reward parity checks
-:link: sim_to_sim/reward_parity_checks
+:link: sim_to_sim/reward_parity
 :link-type: doc
 :::
 
@@ -134,7 +135,7 @@ Symptom → cause → fix cookbook.
 :::
 
 :::{grid-item-card} 🚫 Known capability gaps
-:link: sim_to_sim/known_capability_gaps
+:link: sim_to_sim/capability_gaps
 :link-type: doc
 :::
 
@@ -178,7 +179,7 @@ Side-by-side field map.
 :::
 
 :::{grid-item-card} 📒 Reward porting cookbook
-:link: framework_migration/reward_porting_cookbook
+:link: framework_migration/reward_porting
 :link-type: doc
 Common reward terms in UniLab style.
 :::
@@ -193,10 +194,10 @@ sim_to_real/overview
 sim_to_real/g1_whole_body
 sim_to_real/go2_locomotion
 sim_to_real/allegro_inhand
-sim_to_real/onnx_export_and_runtime
-sim_to_real/domain_randomization_for_real
+sim_to_real/onnx_runtime
+sim_to_real/domain_randomization
 sim_to_real/safety_layers
-sim_to_real/latency_and_observation_lag
+sim_to_real/latency_budget
 sim_to_real/troubleshooting
 ```
 
@@ -204,12 +205,12 @@ sim_to_real/troubleshooting
 :hidden:
 :caption: Sim-to-Sim
 
-sim_to_sim/why_switch
+sim_to_sim/backend_swap
 sim_to_sim/owner_yaml_swap
 sim_to_sim/contact_and_friction_alignment
-sim_to_sim/reward_parity_checks
+sim_to_sim/reward_parity
 sim_to_sim/playback_and_snapshot_differences
-sim_to_sim/known_capability_gaps
+sim_to_sim/capability_gaps
 ```
 
 ```{toctree}
@@ -221,5 +222,5 @@ framework_migration/from_legged_gym
 framework_migration/from_rsl_rl
 framework_migration/from_skrl
 framework_migration/task_config_translation
-framework_migration/reward_porting_cookbook
+framework_migration/reward_porting
 ```

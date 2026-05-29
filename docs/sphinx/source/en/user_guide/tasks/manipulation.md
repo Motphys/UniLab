@@ -1,4 +1,4 @@
-# Manipulation Zoo
+# Manipulation
 
 Manipulation tasks live in `src/unilab/envs/manipulation/` and the Go2 arm
 manip-loco env lives in `src/unilab/envs/locomotion/go2_arm/`.

@@ -2,9 +2,10 @@
 
 ::::{admonition} Hardware target
 :class: note
-Unitree G1 humanoid (29-DoF variant). Joints assumed in the order the
-URDF in `assets/robots/g1/` declares — verify with `unilab-export-scene`
-before flashing.
+Unitree G1 humanoid (29-DoF variant). Joints are assumed in the order exported
+by `scripts/deploy/export_deploy_config.py` from
+`src/unilab/assets/robots/g1/scene_flat.xml`; verify that order before
+hardware bring-up.
 ::::
 
 This guide walks the **last mile** between a converged G1 motion-tracking
@@ -14,17 +15,19 @@ policy and a closed-loop run on the robot.
 
 ```bash
 # Replay the policy headlessly and produce a video.
-uv run eval --algo ppo --task g1_motion_tracking --sim motrix \
-    --load-run -1 --render-mode record --episodes 5
+uv run scripts/train_rsl_rl.py task=g1_motion_tracking/motrix \
+  training.play_only=true \
+  algo.load_run=-1
 ```
 
 What to look for in the video:
 
-- The pelvis stays inside a ±10 cm box around the reference trajectory.
-- No "hand of god" recovery moves (large impulsive joint velocities).
-- Foot strikes are roughly periodic — no chatter.
+- The tracked bodies follow the reference motion without large discontinuities.
+- Joint velocities and actions remain finite and within the expected range.
+- Contact timing looks consistent with the reference motion.
 
-If any of those is off, fix it in sim. Hardware will *amplify* every defect.
+If any of those is off, fix the sim-side checkpoint or deploy contract before
+hardware bring-up.
 
 ## 1. Export
 
@@ -55,7 +58,9 @@ logs/deploy/
 
 ## 2. Observation contract
 
-The motion-tracking observation, in order, is:
+For the committed G1 WBT deploy helper, the observation layout is exported into
+`deploy_config.yaml` as `obs_layout`. `scripts/deploy/export_deploy_config.py`
+is the source of truth for the segment order:
 
 ```{list-table}
 :header-rows: 1
@@ -64,40 +69,43 @@ The motion-tracking observation, in order, is:
 * - Group
   - Dim
   - Source on hardware
-* - Joint position error (vs ref)
+* - `command_joint_pos`
   - 29
-  - encoder − reference clip phase-aligned to wall clock
-* - Joint velocity
+  - motion reference frame joint position
+* - `command_joint_vel`
   - 29
-  - encoder differentiated + low-pass (cutoff 50 Hz)
-* - Projected gravity (base)
-  - 3
-  - IMU orientation → R\_world\_base · [0,0,-1]
-* - Base angular velocity
-  - 3
-  - IMU gyro, bias-corrected
-* - Phase variable
-  - 2
-  - sin / cos of motion clip time
-* - Previous action
+  - motion reference frame joint velocity
+* - `motion_anchor_ori_b`
+  - 6
+  - anchor orientation term from the reference and robot torso frames
+* - `gyro`
+  - 3 per history step
+  - IMU gyro term
+* - `joint_pos_rel`
+  - 29 per history step
+  - measured joint position minus `default_angles`
+* - `dof_vel`
+  - 29 per history step
+  - joint velocity term
+* - `last_actions`
   - 29
-  - last policy output (NOT measured joint pos!)
+  - previous raw actor output
 ```
 
-Hardware-side bring-up bug #1 is conflating *previous action* with *measured
-joint position*. They differ by the position-error term in the PD law plus
-unmodeled dynamics. Always feed back the **commanded** action.
+The export script also records each segment's `history_length` and verifies the
+total `obs_dim`. `scripts/deploy/sim_prototype.py` refuses to run when the ONNX
+input width and `deploy_config.yaml` `obs_dim` disagree.
 
 ## 3. Actuator interface
 
-UniLab trains in **position-target** mode at the policy frequency (typically
-50 Hz). The motor driver then runs a high-rate PD loop at ~2 kHz.
+The G1 deploy prototype maps actor output exactly as:
+`action * action_scale + default_angles`, then clips to `joint_lower` /
+`joint_upper` and applies EMA smoothing from `ema_alpha`.
 
 - Action = target joint position, **scaled** by the `action_scale` entry in
   `deploy_config.yaml`.
-- Hard-clamp the target to the safe joint range on the **driver** side, not
-  in the policy. The policy was trained against soft penalties; relying on
-  Python-side clamping invites a delay glitch to push past the limit.
+- Clamp the target to the generated joint range before it reaches the motor
+  driver.
 
 ## 4. Reference motion sync
 
@@ -110,7 +118,7 @@ clip. On hardware you need a wall-clock → phase mapping that is:
 - **Bounded rate** — clip dφ/dt to the value the policy was trained with
   (the motion loader records this; load `reference_motion.npz`).
 
-See {py:mod}`unilab.envs.motion_tracking.g1.motion_loader` for the sim-side
+See `unilab.envs.motion_tracking.g1.motion_loader` for the sim-side
 loader you should mirror on hardware.
 
 ## 5. Safety layer
@@ -118,10 +126,12 @@ loader you should mirror on hardware.
 Hardware-side: see {doc}`safety_layers` for the standard structure. The G1
 specifics:
 
-- Reject actions whose Δ from previous > 0.3 rad — the policy never
-  produces this, so it's almost certainly a comms corruption.
-- Trip on |base roll| > 30° → soft-stop into a stable seated pose.
-- Watchdog on policy heartbeat (must produce one action per 20 ms).
+- Reject non-finite actions and shape mismatches before applying
+  `action_scale`.
+- Clamp generated targets with `joint_lower` / `joint_upper` from
+  `deploy_config.yaml`.
+- Keep watchdog, pose monitor, and operator-stop thresholds in the deploy
+  controller and test them independently of the policy.
 
 ## 6. Closed-loop bring-up sequence
 
@@ -132,11 +142,8 @@ specifics:
 3. **Gantry-supported gait**. Track motion at half time-rate (dφ/dt halved).
 4. **Free-stand**. Full rate, then remove gantry.
 
-::::{admonition} Don't skip steps
-:class: warning
-We have seen 6/10 policies that pass step 1–3 fall in step 4 because of a
-single inverted axis in the IMU mounting. Step 1 catches this.
-::::
+Do not skip the observation-only stage: it is where axis-order, joint-order,
+and `last_actions` wiring mistakes are easiest to catch.
 
 ## 7. What to log
 
@@ -156,8 +163,8 @@ deployment contract bug, not a hardware tuning problem.
 
 ## See also
 
-- {doc}`onnx_export_and_runtime`
-- {doc}`domain_randomization_for_real`
-- {doc}`latency_and_observation_lag`
+- {doc}`onnx_runtime`
+- {doc}`domain_randomization`
+- {doc}`latency_budget`
 - {doc}`safety_layers`
-- {doc}`../../user_guide/tasks/g1_motion_tracking`
+- {doc}`../../user_guide/tasks/motion_tracking`

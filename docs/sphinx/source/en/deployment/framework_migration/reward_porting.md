@@ -1,4 +1,4 @@
-# Reward Porting Cookbook
+# Reward Porting
 
 Reward terms are where most porting bugs hide. This cookbook captures the
 common terms and their UniLab idiom.
@@ -38,7 +38,7 @@ Notes:
 
 - UniLab's `state` carries `prev_contact` so you don't need to manage
   edge detection yourself. See
-  {py:mod}`unilab.envs.locomotion.common.rewards`.
+  `unilab.envs.locomotion.common.rewards`.
 
 ## Pattern: action smoothness penalty
 
@@ -47,7 +47,7 @@ def reward_action_rate(self, state):
     return -np.sum((state.action - state.prev_action) ** 2, axis=1)
 ```
 
-Already a stock helper in {py:mod}`unilab.envs.locomotion.common.rewards`.
+Already a stock helper in `unilab.envs.locomotion.common.rewards`.
 
 ## Pattern: posture penalty
 
@@ -76,5 +76,5 @@ def reward_termination(self, state):
 ## See also
 
 - {doc}`task_config_translation`
-- {py:mod}`unilab.training.reward`
-- {py:mod}`unilab.envs.locomotion.common.rewards`
+- `unilab.training.reward`
+- `unilab.envs.locomotion.common.rewards`

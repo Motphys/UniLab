@@ -1,6 +1,6 @@
-# FastTD3
+# TD3
 
-FastTD3 shares the off-policy training script with SAC and FlashSAC. Select it
+TD3 shares the off-policy training script with SAC and FlashSAC. Select it
 with `algo=td3` and an owner path under `conf/offpolicy/task/td3/`.
 
 ## Quick Start

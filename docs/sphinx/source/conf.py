@@ -6,6 +6,7 @@ import os
 import sys
 import warnings
 from datetime import datetime
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Path setup — make the UniLab source tree importable for autodoc.
@@ -167,7 +168,6 @@ intersphinx_mapping = {
     "numpy": ("https://numpy.org/doc/stable/", None),
     "torch": ("https://pytorch.org/docs/stable/", None),
     "gymnasium": ("https://gymnasium.farama.org/", None),
-    "hydra": ("https://hydra.cc/docs/", None),
 }
 
 # General -------------------------------------------------------------------
@@ -275,30 +275,54 @@ _LANGUAGE_DOC_ROOTS = ("en", "zh_CN")
 # computed below.
 _LANGUAGE_PATH_FORWARD: dict[str, str] = {
     "en/getting_started/index": "zh_CN/user_guide/01-getting-started",
-    "en/getting_started/quickstart": "zh_CN/user_guide/01-getting-started",
     "en/getting_started/installation": "zh_CN/user_guide/A-getting-started/01-install",
-    "en/getting_started/training": "zh_CN/user_guide/03-training",
-    "en/getting_started/configuration_overrides": "zh_CN/user_guide/B-training/03-hydra-overrides",
+    "en/getting_started/first_training": "zh_CN/user_guide/A-getting-started/02-first-run",
     "en/getting_started/evaluation_and_playback": "zh_CN/user_guide/B-training/02-playback-and-resume",
+    "en/getting_started/project_structure": "zh_CN/user_guide/01-getting-started",
+    "en/user_guide/training/index": "zh_CN/user_guide/03-training",
+    "en/user_guide/training/cli_reference": "zh_CN/user_guide/B-training/01-unified-cli",
+    "en/user_guide/training/hydra_config": "zh_CN/user_guide/B-training/03-hydra-overrides",
+    "en/user_guide/training/logging": "zh_CN/user_guide/B-training/04-logging-and-wandb",
+    "en/user_guide/training/resume_and_checkpoints": "zh_CN/user_guide/B-training/02-playback-and-resume",
+    "en/user_guide/training/docker": "zh_CN/user_guide/B-training/05-docker",
+    "en/user_guide/training/multi_gpu": "zh_CN/user_guide/03-training",
     "en/user_guide/backends/index": "zh_CN/user_guide/02-simulation-backends",
     "en/user_guide/backends/choosing_a_backend": "zh_CN/user_guide/E-reference/01-backend-support-matrix",
-    "en/user_guide/algorithms/overview": "zh_CN/user_guide/04-algorithms",
+    "en/user_guide/algorithms/index": "zh_CN/user_guide/04-algorithms",
     "en/user_guide/algorithms/ppo": "zh_CN/user_guide/C-algorithms/01-ppo-torch",
     "en/user_guide/algorithms/mlx_ppo": "zh_CN/user_guide/C-algorithms/02-mlx-ppo",
     "en/user_guide/algorithms/appo": "zh_CN/user_guide/C-algorithms/03-appo",
-    "en/user_guide/algorithms/fast_sac": "zh_CN/user_guide/C-algorithms/04-sac",
-    "en/user_guide/algorithms/fast_td3": "zh_CN/user_guide/C-algorithms/05-td3",
+    "en/user_guide/algorithms/sac": "zh_CN/user_guide/C-algorithms/04-sac",
+    "en/user_guide/algorithms/td3": "zh_CN/user_guide/C-algorithms/05-td3",
     "en/user_guide/algorithms/flash_sac": "zh_CN/user_guide/C-algorithms/06-flashsac",
-    "en/user_guide/tasks/g1_motion_tracking": "zh_CN/user_guide/D-tasks/02-g1-motion-tracking",
-    "en/user_guide/tasks/go2_arm_manip_loco": "zh_CN/user_guide/D-tasks/06-go2-arm-manip-loco",
+    "en/user_guide/tasks/index": "zh_CN/user_guide/D-tasks/01-task-index",
+    "en/user_guide/tasks/locomotion": "zh_CN/user_guide/D-tasks/01-task-index",
+    "en/user_guide/tasks/motion_tracking": "zh_CN/user_guide/D-tasks/02-g1-motion-tracking",
+    "en/user_guide/tasks/manipulation": "zh_CN/user_guide/D-tasks/03-allegro-inhand",
+    "en/user_guide/tasks/manip_loco": "zh_CN/user_guide/D-tasks/06-go2-arm-manip-loco",
     "en/user_guide/domain_randomization/index": "zh_CN/user_guide/05-domain-randomization",
-    "en/developer_guide/architecture/development_standard": "zh_CN/developer_guide/development-standard",
+    "en/user_guide/domain_randomization/configuration": "zh_CN/user_guide/05-domain-randomization",
+    "en/user_guide/domain_randomization/writing_providers": "zh_CN/developer_guide/domain-randomization-contract",
+    "en/developer_guide/index": "zh_CN/developer_guide/index",
+    "en/developer_guide/architecture/overview": "zh_CN/developer_guide/development-standard",
+    "en/developer_guide/architecture/runtime_model": "zh_CN/developer_guide/development-standard",
+    "en/developer_guide/architecture/layer_boundaries": "zh_CN/developer_guide/development-standard",
+    "en/developer_guide/architecture/registry": "zh_CN/developer_guide/development-standard",
     "en/developer_guide/architecture/scene_composition": "zh_CN/developer_guide/scene-composition-design",
-    "en/developer_guide/contracts/domain_randomization": "zh_CN/developer_guide/domain-randomization-contract",
+    "en/developer_guide/contracts/env_contract": "zh_CN/developer_guide/development-standard",
+    "en/developer_guide/contracts/dr_contract": "zh_CN/developer_guide/domain-randomization-contract",
+    "en/developer_guide/contracts/task_owner": "zh_CN/developer_guide/development-standard",
+    "en/developer_guide/contracts/backend_contract": "zh_CN/developer_guide/development-standard",
+    "en/developer_guide/contracts/runner_lifecycle": "zh_CN/developer_guide/development-standard",
+    "en/developer_guide/extending/new_task": "zh_CN/developer_guide/development-standard",
+    "en/developer_guide/extending/new_backend": "zh_CN/developer_guide/development-standard",
+    "en/developer_guide/extending/new_algorithm": "zh_CN/developer_guide/development-standard",
+    "en/developer_guide/extending/new_terrain": "zh_CN/developer_guide/scene-composition-design",
     "en/developer_guide/contributing": "zh_CN/developer_guide/CONTRIBUTING",
     "en/developer_guide/contributing_workflow": "zh_CN/developer_guide/collaboration",
     "en/deployment/index": "zh_CN/transfer/index",
     "en/developer_guide/agent_quick_reference": "zh_CN/agents/01-agent-quick-reference",
+    "en/reference/support_matrix": "zh_CN/user_guide/E-reference/01-backend-support-matrix",
 }
 # Keyed by (current_pagename, target_language) → target_pagename.
 _LANGUAGE_PATH_MAP: dict[tuple[str, str], str] = {}
@@ -350,6 +374,59 @@ def _inject_language_switcher(app, pagename, templatename, context, doctree):
     context["body"] = f"{switcher}\n{context.get('body', '')}"
 
 
+def _sidebar_navigation_language(pagename: str) -> str:
+    page_language = _page_language(pagename)
+    if page_language in _LANGUAGE_DOC_ROOTS:
+        return page_language
+    return "en"
+
+
+def _filter_sidebar_navigation_tree(
+    pagename: str,
+    context: dict[str, Any],
+) -> str | None:
+    # Root index.md keeps both language roots in the build graph; the opposite
+    # language root should only be reachable through the language switcher.
+    navigation_tree = context.get("furo_navigation_tree")
+    pathto = context.get("pathto")
+    if not navigation_tree or pathto is None:
+        return None
+
+    from bs4 import BeautifulSoup
+
+    sidebar_language = _sidebar_navigation_language(pagename)
+    opposite_language = "zh_CN" if sidebar_language == "en" else "en"
+    opposite_root_href = pathto(f"{opposite_language}/index")
+
+    soup = BeautifulSoup(navigation_tree, "html.parser")
+    root_list = soup.find("ul")
+    if root_list is None:
+        return None
+
+    for item in list(root_list.find_all("li", recursive=False)):
+        link = item.find("a", recursive=False)
+        href = link.get("href", "") if link else ""
+        if href == opposite_root_href:
+            item.decompose()
+
+    return str(soup)
+
+
+def _inject_language_sidebar_navigation(
+    app: Any,
+    pagename: str,
+    templatename: str,
+    context: dict[str, Any],
+    doctree: Any,
+) -> None:
+    if doctree is None:
+        return
+
+    navigation_tree = _filter_sidebar_navigation_tree(pagename, context)
+    if navigation_tree is not None:
+        context["furo_navigation_tree"] = navigation_tree
+
+
 # Expose `_UNILAB_AVAILABLE` as a Sphinx tag so `.. only:: api_ref` blocks
 # in prose can be conditionally rendered.
 def setup(app):
@@ -358,4 +435,5 @@ def setup(app):
     else:
         app.tags.add("prose_only")
     app.connect("html-page-context", _inject_language_switcher)
+    app.connect("html-page-context", _inject_language_sidebar_navigation, priority=700)
     return {"parallel_read_safe": True}

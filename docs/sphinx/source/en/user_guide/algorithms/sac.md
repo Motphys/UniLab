@@ -1,8 +1,9 @@
-# FastSAC
+# SAC
 
-FastSAC is selected through the shared off-policy entrypoint
+SAC is selected through the shared off-policy entrypoint
 `scripts/train_offpolicy.py`. The main config is `conf/offpolicy/config.yaml`,
-and the SAC algorithm defaults live in `conf/offpolicy/algo/sac.yaml`.
+and the SAC algorithm defaults live in `conf/offpolicy/algo/sac.yaml`. The
+current log name is `fast_sac`.
 
 ## Quick Start
 

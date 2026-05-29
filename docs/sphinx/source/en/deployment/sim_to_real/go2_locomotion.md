@@ -30,7 +30,7 @@ deltas.
   - encoder
 * - Joint velocities
   - 12 / 16
-  - encoder, low-pass 50 Hz
+  - encoder velocity after the deploy controller's filtering path
 * - Previous action
   - 12 / 16
   - last policy output
@@ -41,20 +41,20 @@ deltas.
 
 ::::{admonition} State estimator caveat
 :class: warning
-The policy is *trained against the simulator's ground-truth base velocity*.
-A poor real-world state estimator is the #1 cause of jittery walking. If
-you do not have a working KF, train a separate variant of the policy with
-**estimated** velocity in observation (see HIM-PPO at
-{doc}`../../user_guide/algorithms/him_ppo`).
+The policy is trained against the observation terms emitted by the selected env
+owner. If deployment cannot provide the same base-velocity signal, train a
+variant whose actor observation matches the estimator you can run on the robot
+(see HIM-PPO at {doc}`../../user_guide/algorithms/him_ppo`).
 ::::
 
 ## Rough terrain caveat
 
 For `go2_joystick_rough` the policy expects elevated terrain features. On a
 flat indoor surface the rough-trained policy will be *more conservative*
-than necessary but will still run. For deployment on slopes / debris:
+than necessary but should still be validated through replay before hardware
+bring-up. For deployment on slopes / debris:
 
-- DR ranges for ground friction should include μ = 0.3 (wet tile).
+- Choose ground-friction DR ranges from measured deployment surfaces.
 - Train with terrain curriculum: see
   {doc}`../../user_guide/terrain/procedural`.
 
@@ -62,10 +62,10 @@ than necessary but will still run. For deployment on slopes / debris:
 
 Go2W policies output **continuous wheel velocity** for the rear wheel
 joints and **position targets** for the legs. The action vector ordering
-must match `assets/robots/go2w/`. Verify with `unilab-export-scene`.
+must match `src/unilab/assets/robots/go2w/`. Verify with `unilab-export-scene`.
 
 ## See also
 
-- {doc}`onnx_export_and_runtime`
-- {doc}`domain_randomization_for_real`
-- {doc}`../../user_guide/tasks/locomotion_zoo`
+- {doc}`onnx_runtime`
+- {doc}`domain_randomization`
+- {doc}`../../user_guide/tasks/locomotion`

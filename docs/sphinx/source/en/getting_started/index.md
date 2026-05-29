@@ -13,16 +13,10 @@ Set up `uv`, sync dependencies, and choose the platform profile for your
 machine.
 :::
 
-:::{grid-item-card} Quickstart
-:link: quickstart
+:::{grid-item-card} First training
+:link: first_training
 :link-type: doc
-Run the first PPO job and check the expected output.
-:::
-
-:::{grid-item-card} Training
-:link: training
-:link-type: doc
-Learn the CLI entry points, resume flow, and Hydra-driven runtime knobs.
+Run a small PPO Go2 job and confirm the training loop starts.
 :::
 
 :::{grid-item-card} Evaluation and playback
@@ -31,21 +25,23 @@ Learn the CLI entry points, resume flow, and Hydra-driven runtime knobs.
 Replay checkpoints, export video, and use demo mode.
 :::
 
-:::{grid-item-card} Configuration overrides
-:link: configuration_overrides
+:::{grid-item-card} Project structure
+:link: project_structure
 :link-type: doc
-Use Hydra `key=value` overrides without leaving the script entrypoint.
+Find the directories that own scripts, configs, envs, backends, and docs.
 :::
 
 ::::
+
+For daily training options after the first run, use
+{doc}`../user_guide/training/index`.
 
 ```{toctree}
 :hidden:
 :caption: Getting Started
 
 installation
-quickstart
-training
-configuration_overrides
+first_training
 evaluation_and_playback
+project_structure
 ```

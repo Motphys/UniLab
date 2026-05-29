@@ -1,9 +1,8 @@
 # Hardware Safety Layers
 
-The policy assumes its actions are safe-by-training. On real hardware that
-assumption fails on the first comms glitch. The safety layer is the thin
-shim that lives **between the policy output and the motor driver** and
-catches the failure modes.
+The policy produces actions under the training contract. A deploy-side safety
+layer must live **between the policy output and the motor driver** and reject
+contract violations before they become actuator commands.
 
 ## Required components
 
@@ -16,15 +15,15 @@ catches the failure modes.
 * - Schema check
   - Action has correct dtype, shape, finite values. Reject NaN / Inf.
 * - Range clamp
-  - Hard-clamp each joint target to the URDF limits. Driver-side, not
-    Python-side.
+  - Clamp each joint target to deploy-configured joint limits.
 * - Δ clamp
-  - Reject Δ > policy-trained max per step. Catches single-frame spikes.
+  - Reject or clamp per-step action deltas using a threshold owned by the
+    deploy controller.
 * - Rate limit
   - Slew-rate limit applied AFTER clamp.
 * - Watchdog
-  - If no fresh action arrives within Δt_max, hold the last action; after
-    a second Δt_max, fade-to-zero / safe pose.
+  - If no fresh action arrives within the controller-owned timeout, hold the
+    last known safe target or enter the controller's safe state.
 * - Pose monitor
   - Roll / pitch outside operating envelope → triggered fault.
 * - Operator stop
@@ -43,39 +42,43 @@ flowchart LR
     OP -.->|E-stop| D
 ```
 
-Critically, the safety layer is **not** in Python. Python GC pauses can
-exceed 100 ms; that's a guaranteed face-plant on a humanoid. Implement in
-C++ or Rust with bounded allocation.
+Keep the hard real-time safety checks in the deploy controller, not in the
+training script. The repository's G1 helper path exports deploy config and runs
+a MuJoCo prototype; it does not implement a production motor-driver safety
+loop.
 
 ## What the policy assumes you've configured
 
-UniLab task owners declare these in YAML (see
-`conf/<task>/owner.yaml`):
+The G1 deployment helper exports these fields into `deploy_config.yaml`:
 
 ```yaml
-action_limits:
-  joint_pos_min: [-2.0, -1.5, ...]   # URDF lower bounds
-  joint_pos_max: [ 2.0,  1.5, ...]
-  joint_delta_max: [0.3, 0.3, ...]   # per-step delta cap
-
-safety_pose:
-  joint_pos: [0.0, 0.7, -1.4, ...]   # the "sit" / "fold" pose
-  ramp_time_s: 0.5
+action_scale: 2.0
+ema_alpha: 1.0
+default_angles: [...]
+joint_lower: [...]
+joint_upper: [...]
+kp: [...]
+kd: [...]
 ```
 
-Your safety layer should consume these directly — don't hand-copy values.
+`scripts/deploy/sim_prototype.py` consumes the same fields and applies
+`action * action_scale + default_angles`, joint clipping, and EMA smoothing.
+Hardware controllers should consume generated config rather than hand-copying
+joint ranges or gains.
 
 ## Hand-off testing
 
 Before integrating policy → safety → motor, test the safety layer in
 isolation:
 
-1. Inject NaN action → verify reject + watchdog engages.
-2. Inject Δ = 1.0 rad single-step → verify Δ-clamp limits to 0.3.
-3. Cut policy feed mid-run → verify hold-then-fade.
+1. Inject a NaN action and verify the command is rejected.
+2. Inject an out-of-range joint target and verify clamping uses
+   `joint_lower` / `joint_upper` from `deploy_config.yaml`.
+3. Cut the policy feed mid-run and verify the controller enters its configured
+   safe state.
 
 ## See also
 
-- {doc}`onnx_export_and_runtime`
+- {doc}`onnx_runtime`
 - {doc}`troubleshooting`
 - {doc}`g1_whole_body`

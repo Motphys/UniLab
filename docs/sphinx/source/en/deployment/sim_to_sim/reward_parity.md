@@ -1,4 +1,4 @@
-# Reward Parity Checks Across Backends
+# Reward Parity Across Backends
 
 Two backends with "the same" reward function rarely produce **numerically
 identical** rewards — and that's fine. What you want is **trajectory-level
@@ -10,28 +10,19 @@ similar reward curve.
 1. Freeze a **fixed seed**, fixed initial state, fixed action sequence.
    The action sequence can be a sinusoidal sweep over joints, or a replay
    from a real rollout — anything deterministic.
-2. Replay it in both backends. Log per-step reward components (not just
-   the scalar total).
-3. For each reward term, plot `r_backend_A` vs `r_backend_B` over time.
-   Compute correlation and mean absolute deviation.
-
-```python
-from unilab.training.reward import RewardLogger
-
-rl = RewardLogger(env)
-for action in fixed_action_sequence:
-    _, _, _, info = env.step(action)
-    rl.record(info["reward_components"])
-rl.dump("rewards_<backend>.npz")
-```
+2. Replay it in both backends. Log per-step reward components from
+   `info["log"]`; locomotion reward dispatch writes `reward/<term>` entries
+   there when reward logging is enabled.
+3. For each reward term, compare the two time series and inspect the first
+   frame where they diverge.
 
 ## What good parity looks like
 
-| Term type | Acceptable parity |
+| Term type | What to inspect |
 |---|---|
-| Smooth penalty (`-α‖v − v*‖²`) | Correlation > 0.95, MAD < 5% |
-| Contact-conditional bonus (`+β if foot_contact else 0`) | Correlation may be lower; check timing of contact events |
-| Termination penalty | Trigger frames should match within ±2 sim steps |
+| Smooth penalties | Same units, frames, and command inputs. |
+| Contact-conditional terms | Contact timing and sensor availability in both backends. |
+| Termination penalties | The termination mask and final-observation path. |
 
 ## What's a red flag
 
@@ -41,7 +32,7 @@ rl.dump("rewards_<backend>.npz")
   {doc}`contact_and_friction_alignment`.
 - **One reward term zero in one backend.** Capability gap: the term reads
   a feature one backend doesn't expose. See
-  {doc}`known_capability_gaps`.
+  {doc}`capability_gaps`.
 
 ## Automating it
 
@@ -54,4 +45,4 @@ components under `tests/`.
 ## See also
 
 - {doc}`contact_and_friction_alignment`
-- {doc}`../../developer_guide/contracts/backend_capability`
+- {doc}`../../developer_guide/contracts/backend_contract`

@@ -1,7 +1,7 @@
 # Extending UniLab: New Task
 
 Start from the contracts: {doc}`../contracts/env_contract`,
-{doc}`../contracts/task_owner_config`, and
+{doc}`../contracts/task_owner`, and
 {doc}`/adr/ADR-0005-unified-obs-critic-env-and-ipc-contract`.
 
 ## Implementation Checklist

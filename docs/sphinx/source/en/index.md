@@ -19,12 +19,12 @@ configs, and backend contracts. Use the landing page to install, run a smoke
 training job, choose an algorithm/backend, or jump into deployment and extension
 docs.
 
-```{button-ref} getting_started/quickstart
+```{button-ref} getting_started/first_training
 :ref-type: doc
 :color: primary
 :class: sd-px-4 sd-py-2
 
-Quickstart
+First training
 ```
 ```{button-ref} user_guide/index
 :ref-type: doc
@@ -73,7 +73,7 @@ uv run scripts/train_rsl_rl.py task=go2_joystick_flat/motrix \
 
 For platform-specific setup, see {doc}`getting_started/installation`.
 For the longer first-run walkthrough, see
-{doc}`getting_started/quickstart`.
+{doc}`getting_started/first_training`.
 
 ## Start where you are
 
@@ -88,7 +88,7 @@ machine.
 :::
 
 :::{grid-item-card} Run or replay training
-:link: getting_started/quickstart
+:link: getting_started/first_training
 :link-type: doc
 Start with PPO on Go2, then move to evaluation, playback, or checkpoint resume.
 :::
@@ -100,7 +100,7 @@ Compare MuJoCo and Motrix through task owner YAMLs and backend capability docs.
 :::
 
 :::{grid-item-card} Pick an algorithm
-:link: user_guide/algorithms/overview
+:link: user_guide/algorithms/index
 :link-type: doc
 Compare PPO, APPO, SAC, TD3, FlashSAC, MLX PPO, HIM-PPO, and HORA entrypoints.
 :::

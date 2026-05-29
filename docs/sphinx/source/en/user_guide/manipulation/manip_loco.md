@@ -21,4 +21,4 @@ The env currently raises if constructed with a backend other than MuJoCo. Keep
 backend selection in `task=go2_arm_manip_loco/mujoco`, and do not override
 `training.sim_backend` alone.
 
-See {doc}`../tasks/go2_arm_manip_loco` for the longer task entry.
+See {doc}`../tasks/manip_loco` for the task entry.

@@ -6,7 +6,7 @@ Quick pointers to generated API docs and repository-wide reference pages.
 :gutter: 3
 
 :::{grid-item-card} API reference
-:link: api
+:link: api/index
 :link-type: doc
 Typed autodoc output for the public Python surface.
 :::
@@ -24,7 +24,7 @@ Published documentation and release notes.
 :::
 
 :::{grid-item-card} Backend support matrix
-:link: ../user_guide/backends/index
+:link: support_matrix
 :link-type: doc
 Generated backend × task evidence and selection notes.
 :::
@@ -41,9 +41,9 @@ Shared architecture decisions and their status.
 :hidden:
 :caption: Reference
 
-api
+api/index
 glossary
 changelog
 adr
-../user_guide/backends/index
+support_matrix
 ```

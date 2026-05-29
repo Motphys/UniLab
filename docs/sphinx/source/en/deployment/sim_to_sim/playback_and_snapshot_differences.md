@@ -7,44 +7,32 @@ you replay** a run. This page captures the practical implications.
 
 | Backend | Mechanism | Best for |
 |---|---|---|
-| MuJoCo | Re-run the simulation from initial state + action trace | Deterministic re-run, debugging |
-| Motrix | Native frame-by-frame snapshot stream | Video export, fast scrubbing, headless render |
+| MuJoCo | Physics-state playback path reported by `supports_physics_state_playback` | Record-mode playback and offline video export |
+| Motrix | Native interactive renderer and native video capture reported by `get_play_capabilities()` | Interactive playback and record-mode capture |
 
-Motrix's `--render-mode record` works headlessly out of the box; MuJoCo
-playback on macOS / servers needs additional setup
-(GLFW / EGL / Xvfb).
+Both backends resolve `training.play_render_mode` through
+`SimBackend.resolve_play_render_plan(...)`; unsupported modes should fail at
+the backend boundary instead of branching in training scripts.
 
 ## Snapshot
 
-Motrix can serialize the simulator state mid-run; MuJoCo can't natively at
-the same granularity. This matters if you:
-
-- Want to fork an episode at a checkpoint and explore multiple actions.
-- Are building an analysis tool that scrubs through long trajectories.
+MuJoCo currently reports `supports_physics_state_playback=True`. Motrix reports
+native interactive rendering and native video capture instead. Treat these as
+different backend capabilities rather than feature parity.
 
 The capability-boundary contract
-({doc}`../../developer_guide/contracts/backend_capability`) requires that
+({doc}`../../developer_guide/contracts/backend_contract`) requires that
 *neither* env code nor algorithm code call snapshot-only paths directly —
 it must be routed through a capability-aware abstraction. ADR-0002
 codifies this.
 
 ## What to put in your task owner
 
-If your task **requires** snapshot (e.g. tree-search policies), declare it
-in the owner YAML's capability block:
-
-```yaml
-capabilities:
-  required:
-    - snapshot
-    - playback_native_video
-```
-
-If a backend lacks a required capability the registry must refuse the
-task. See
-{doc}`../../developer_guide/architecture/registry_bootstrap`.
+If a task starts to require a playback or snapshot capability, add that need to
+the backend contract first, then validate it at the env/backend boundary. Do not
+hide the requirement in a training script branch.
 
 ## See also
 
-- {doc}`known_capability_gaps`
+- {doc}`capability_gaps`
 - {doc}`/adr/ADR-0002-backend-capability-boundary-for-play-and-snapshot`

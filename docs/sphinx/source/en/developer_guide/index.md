@@ -1,148 +1,96 @@
 # Developer Guide
 
-Submitting a PR, extending UniLab with a new backend / task / algorithm, or
-auditing the runtime architecture? Start here.
-
-## Onboarding
-
-::::{grid} 1 1 2 2
-:gutter: 3
-
-:::{grid-item-card} 🤝 Contributing
-:link: contributing
-:link-type: doc
-Dev environment, code style, tests, PR template.
-:::
-
-:::{grid-item-card} 🔄 PR workflow
-:link: contributing_workflow
-:link-type: doc
-Branching, ADR-first changes, review etiquette.
-:::
-
-:::{grid-item-card} Maintainer quick reference
-:link: agent_quick_reference
-:link-type: doc
-Entrypoints, load-bearing contracts, and the shortest route to repo facts.
-:::
-
-::::
-
-## Architecture
-
-::::{grid} 1 1 3 3
-:gutter: 3
-
-:::{grid-item-card} 📐 Development standard
-:link: architecture/development_standard
-:link-type: doc
-:::
-
-:::{grid-item-card} 🏗 Runtime model
-:link: architecture/runtime_model
-:link-type: doc
-:::
-
-:::{grid-item-card} 🧱 Layer boundaries
-:link: architecture/layer_boundaries
-:link-type: doc
-:::
-
-:::{grid-item-card} 🎬 Scene composition
-:link: architecture/scene_composition
-:link-type: doc
-:::
-
-:::{grid-item-card} 🧷 Registry bootstrap
-:link: architecture/registry_bootstrap
-:link-type: doc
-:::
-
-::::
-
-## Contracts
-
-These are the *load-bearing* interfaces. Break one and downstream tasks break.
+Use this section when you are changing UniLab itself: runtime contracts,
+backend capabilities, task owners, algorithms, tests, or contribution workflow.
 
 ::::{grid} 1 1 2 3
 :gutter: 3
 
-:::{grid-item-card} 📋 NpEnv contract
+:::{grid-item-card} Architecture overview
+:link: architecture/overview
+:link-type: doc
+Runtime model, layer ownership, config-first rules, and validation standards.
+:::
+
+:::{grid-item-card} Registry
+:link: architecture/registry
+:link-type: doc
+Bootstrap imports, env registration, and runtime construction.
+:::
+
+:::{grid-item-card} Env contract
 :link: contracts/env_contract
 :link-type: doc
+`NpEnvState`, reset/step shape, observation groups, and wrapper expectations.
 :::
 
-:::{grid-item-card} 🔌 Backend capability
-:link: contracts/backend_capability
+:::{grid-item-card} Backend contract
+:link: contracts/backend_contract
 :link-type: doc
+The `SimBackend` boundary and optional capability pattern.
 :::
 
-:::{grid-item-card} ⚙ Task owner config
-:link: contracts/task_owner_config
+:::{grid-item-card} Task owner contract
+:link: contracts/task_owner
 :link-type: doc
+Hydra owner YAML identity and backend-selection rules.
 :::
 
-:::{grid-item-card} 🎲 Domain randomization
-:link: contracts/domain_randomization
+:::{grid-item-card} Domain randomization contract
+:link: contracts/dr_contract
 :link-type: doc
-:::
-
-:::{grid-item-card} 🔁 Runner lifecycle
-:link: contracts/runner_lifecycle
-:link-type: doc
+Init, reset, interval, and backend capability boundaries for DR providers.
 :::
 
 ::::
 
-## Extending UniLab
+## Extending
 
 ::::{grid} 1 1 2 2
 :gutter: 3
 
-:::{grid-item-card} 🆕 New task
+:::{grid-item-card} New task
 :link: extending/new_task
 :link-type: doc
+Add env config, registration, owner YAMLs, and tests.
 :::
 
-:::{grid-item-card} 🧮 New backend
+:::{grid-item-card} New backend
 :link: extending/new_backend
 :link-type: doc
+Add a `SimBackend` implementation and explicit capability support.
 :::
 
-:::{grid-item-card} 🤖 New algorithm
+:::{grid-item-card} New algorithm
 :link: extending/new_algorithm
 :link-type: doc
+Add configs, runner code, and script-level assembly without changing env contracts.
 :::
 
-:::{grid-item-card} 🏞 New terrain
+:::{grid-item-card} New terrain
 :link: extending/new_terrain
 :link-type: doc
+Extend terrain generation while keeping asset access on cold paths.
 :::
 
 ::::
 
-## Architecture Decision Records
+## Contributor Workflow
 
-ADRs live in the shared [`/adr/`](../../adr/README.md) directory (one set, currently
-mostly Chinese — see {doc}`/adr/ADR-0000-index` for the full index).
-
-```{toctree}
-:maxdepth: 1
-:caption: ADR(shared)
-
-/adr/README
-/adr/ADR-0000-index
-```
+- {doc}`contributing`
+- {doc}`contributing_workflow`
+- {doc}`agent_quick_reference`
+- {doc}`ADR index </adr/ADR-0000-index>`
 
 ```{toctree}
 :hidden:
 :caption: Architecture
 
-architecture/development_standard
+architecture/overview
 architecture/runtime_model
 architecture/layer_boundaries
 architecture/scene_composition
-architecture/registry_bootstrap
+architecture/registry
 ```
 
 ```{toctree}
@@ -150,9 +98,9 @@ architecture/registry_bootstrap
 :caption: Contracts
 
 contracts/env_contract
-contracts/backend_capability
-contracts/task_owner_config
-contracts/domain_randomization
+contracts/backend_contract
+contracts/task_owner
+contracts/dr_contract
 contracts/runner_lifecycle
 ```
 

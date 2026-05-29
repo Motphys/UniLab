@@ -1,4 +1,4 @@
-# Locomotion Zoo
+# Locomotion
 
 Locomotion tasks are registered in `src/unilab/envs/locomotion/` and
 `src/unilab/envs/motion_tracking/`. The available owner YAMLs under `conf/`
@@ -23,5 +23,5 @@ uv run scripts/train_appo.py task=g1_motion_tracking/mujoco training.no_play=tru
 uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco
 ```
 
-Check the generated support matrix for evidence grade by entrypoint, task owner,
-and backend: {doc}`/zh_CN/user_guide/E-reference/01-backend-support-matrix`.
+Check the support matrix for evidence grade by entrypoint, task owner, and
+backend: {doc}`../../reference/support_matrix`.

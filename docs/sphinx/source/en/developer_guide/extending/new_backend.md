@@ -1,6 +1,6 @@
 # Extending UniLab: New Backend
 
-Read {doc}`../contracts/backend_capability` and
+Read {doc}`../contracts/backend_contract` and
 {doc}`/adr/ADR-0002-backend-capability-boundary-for-play-and-snapshot` before
 adding backend code.
 

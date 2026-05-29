@@ -20,11 +20,11 @@ Only one task in the current repo registers and wires up procedural terrain:
 
 During env construction:
 
-1. `Go2JoystickRoughCfg` declares a `SceneCfg` whose `model_file` points to `go2.xml`, `fragment_files` brings in the contact sensors from `locomotion_task.xml`, and `scene.terrain` declares an hfield named `terrain_hfield` to be generated.
+1. `Go2JoystickRoughCfg` declares a `SceneCfg` whose `model_file` points to `go2.xml`, `fragment_files` brings in the task-level contact sensors and `home` keyframe from `locomotion_task.xml`, and `scene.terrain` declares an hfield named `terrain_hfield` to be generated.
 2. The backend scene materializer calls `TerrainGenerator(...)` to produce a backend-agnostic merged height matrix and `terrain_origins`; the terrain generator itself does not depend on MuJoCo or Motrix.
 3. The MuJoCo materializer uses `MjSpec.add_hfield(...)` / `worldbody.add_geom(...)` to create the terrain, then uses `MjSpec.attach(...)` to attach the robot spec to the scene, and finally `compile()` produces the `MjModel`.
 4. The Motrix materializer uses `motrixsim.msd.World` to create the terrain world, uses `World.attach(...)` to stitch in the robot world and task fragment, and finally `msd.build(...)` produces the `SceneModel`.
-5. `go2.xml` holds the robot-owned `home` keyframe; `locomotion_task.xml` only holds the contact sensors associated with the terrain `floor`.
+5. `go2.xml` is the robot model; `locomotion_task.xml` is the task fragment for rough terrain and contains the contact sensors associated with the terrain `floor` plus the task-level `home` keyframe.
 6. The backend instance owns the cold-path scene artifacts until env `close()`; `terrain_origins` is passed back to env via a backend scene attribute, used for spawn / curriculum.
 
 `step()` / `reset()` / DR provider never read XML or access asset files; everything terrain-related happens on the cold path.
@@ -98,14 +98,14 @@ Built-in compositions are defined in `unilab.terrains.config`, and `Go2JoystickR
 
 ## 4. Height Scan Observation
 
-`Go2JoystickRoughEnv` only concatenates the height scan into the `critic` group; the actor obs still follows the 49-dimensional contract of flat Go2 joystick. Default scan points are 17 in the x direction and 11 in the y direction, totaling 187 dimensions, so `obs_groups_spec` is:
+`Go2JoystickRoughEnv` only concatenates the height scan into the `critic` group; the actor obs follows the 45-dimensional rough-task contract. Default scan points are 17 in the x direction and 11 in the y direction, totaling 187 dimensions, so `obs_groups_spec` is:
 
 | obs group | Dimension | Content |
 | --- | ---: | --- |
-| `obs` | `49` | actor policy input |
-| `critic` | `239` | flat critic 52 dims + height scan 187 dims |
+| `obs` | `45` | actor policy input |
+| `critic` | `235` | rough critic 48 dims + height scan 187 dims |
 
-The height scan's geom/body id and sampling offsets are cached during env init; the hot path only calls the backend contract `sample_hfield_height(...)` and consumes cached ids / offsets. XML is not parsed and asset metadata is not read in `step()` / `reset()`.
+The height scan's geom/body id and sampling offsets are cached during env init; the hot path only uses the backend-owned scanner created by `create_hfield_scanner(...)` and consumes cached ids / offsets. XML is not parsed and asset metadata is not read in `step()` / `reset()`.
 
 ## 5. Enabling Procedural Terrain in a New Task
 
@@ -178,7 +178,7 @@ uv run train --algo ppo --task go2_joystick_rough --sim motrix \
 
 - **Both MuJoCo and Motrix materializers have automated smoke coverage**: the MuJoCo path returns `MjModel`, the Motrix path returns `SceneModel`. Production training performance and convergence quality still need to be recorded by independent benchmarks; they are not guaranteed by smoke tests.
 - **The MuJoCo assembly path depends on `MjSpec.attach`**: the robot XML, terrain, and task sensor fragment are assembled at the materialization stage and compiled directly into `MjModel`.
-- **The Motrix assembly path depends on `motrixsim.msd.World.attach`**: `go2.xml` holds the keyframe, and `locomotion_task.xml` is wired in as a pure contact-sensor fragment.
-- **The height scan is currently only wired into the MuJoCo rough env**: the Motrix rough variant reuses the actor/critic obs of the base `Go2WalkTask`; to wire the height scan into Motrix, the backend `sample_hfield_height(...)` contract must first be aligned.
+- **The Motrix assembly path depends on `motrixsim.msd.World.attach`**: `go2.xml` provides the robot model, and `locomotion_task.xml` is wired in as the task fragment that carries contact sensors and the task-level keyframe.
+- **Height scan support goes through `create_hfield_scanner(...)`**: the rough env caches scanner ids and offsets during initialization, then consumes scanner output in observation/reward code without parsing XML on the hot path.
 - **`scene.terrain.generator` is a cold-path config**: modifying the generator after env construction does not affect the already materialized scene. To change terrains, the env must be reconstructed (i.e. rerun the training command).
 - **`import unilab.terrains` does not depend on mujoco**: `TerrainGenerator.generate()` / `write_png()` is a pure numpy + imageio path.

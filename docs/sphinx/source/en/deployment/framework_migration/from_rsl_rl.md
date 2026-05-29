@@ -1,19 +1,19 @@
 # Migrating from RSL-RL
 
 You're already using RSL-RL standalone? Good news: UniLab ships RSL-RL PPO
-as one of its supported algorithms ({py:mod}`unilab.algos.torch.rsl_rl_ppo`)
+as one of its supported algorithms (`unilab.algos.torch.rsl_rl_ppo`)
 and it's nearly drop-in.
 
 ## What you gain by moving inside UniLab
 
 1. **Env contract.** RSL-RL leaves env structure to you. UniLab's
-   {py:class}`unilab.base.np_env.NpEnv` standardizes obs/info/reset
+   `unilab.base.np_env.NpEnv` standardizes obs/info/reset
    signatures, makes parallelism and resets less error-prone.
 2. **Task owners.** Hydra-based config compose, plus the registry-driven
    backend / task / algo selection. No more bespoke train scripts per
    robot.
 3. **Async runner.** Wrap RSL-RL PPO inside
-   {py:mod}`unilab.algos.torch.appo` for higher throughput on machines
+   `unilab.algos.torch.appo` for higher throughput on machines
    with many CPU cores.
 4. **Deployment story.** ONNX export with the right wrapper, safety
    layer documentation, and the
@@ -30,7 +30,7 @@ and it's nearly drop-in.
 
 1. Move your env into `unilab.envs.<family>.<task>/`.
 2. Convert your training config to a Hydra group under `conf/ppo/<task>/`.
-3. Run `uv run train --algo ppo --task <task> --sim <backend>`.
+3. Run `uv run scripts/train_rsl_rl.py task=<task>/<backend>`.
 4. Compare reward curves against your standalone RSL-RL baseline.
 
 ## When NOT to migrate

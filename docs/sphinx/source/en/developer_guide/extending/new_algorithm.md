@@ -1,7 +1,7 @@
 # Extending UniLab: New Algorithm
 
 Algorithm work must preserve the env, config, and runner contracts. Start with
-{doc}`../contracts/env_contract`, {doc}`../contracts/task_owner_config`, and
+{doc}`../contracts/env_contract`, {doc}`../contracts/task_owner`, and
 {doc}`../contracts/runner_lifecycle`.
 
 ## Choose The Integration Path

@@ -21,7 +21,7 @@ you what stays the same, what changes, and where the sharp edges are.
   - UniLab equivalent
   - Notes
 * - `DirectRLEnv`
-  - {py:class}`unilab.base.np_env.NpEnv`
+  - `unilab.base.np_env.NpEnv`
   - UniLab obs is always a **dict**, not a tensor.
 * - `RigidBody.cfg`
   - Task-side asset import + scene composition
@@ -30,11 +30,11 @@ you what stays the same, what changes, and where the sharp edges are.
   - CPU MuJoCo / Motrix + GPU learner
   - Architectural inversion — see below.
 * - `RandomizationCfg`
-  - {doc}`../../developer_guide/contracts/domain_randomization`
+  - {doc}`../../developer_guide/contracts/dr_contract`
   - UniLab DR runs in cold-path resampling only.
 * - `RewardManager` chains
   - Reward composition in env, plus
-    {py:mod}`unilab.training.reward` bookkeeping
+    `unilab.training.reward` bookkeeping
   - Reward terms still keyed for component-wise logging.
 * - `EventCfg` event-driven hooks
   - Phase + curriculum + DR providers
@@ -52,7 +52,7 @@ Implications:
 
 - **Per-env step time** in UniLab is comparable or worse than Isaac on a
   single env. **Throughput** comes from process parallelism + asynchrony
-  (see {py:mod}`unilab.ipc.async_runner`).
+  (see `unilab.ipc.async_runner`).
 - You can run on **MPS, ROCm, XPU** as the learner device — Isaac is
   CUDA-only.
 - **No GPU contention** between simulator and learner — your trainer's
@@ -65,13 +65,13 @@ Implications:
    estimator or move the query to cold path.
 2. **Port the asset.** UniLab consumes MJCF as its source of truth. If
    you have USD, convert to MJCF first.
-3. **Port the env.** Subclass {py:class}`unilab.base.np_env.NpEnv`. Move
+3. **Port the env.** Subclass `unilab.base.np_env.NpEnv`. Move
    reward computation into the env's `compute_reward()`.
 4. **Port the YAML.** Map Isaac Lab's `EnvCfg` fields to UniLab task owner
    YAML following the table in
    {doc}`task_config_translation`.
 5. **Port the reward.** Use the cookbook at
-   {doc}`reward_porting_cookbook`.
+   {doc}`reward_porting`.
 6. **Validate.** Train a small run, compare reward curves against your
    Isaac baseline.
 
@@ -90,4 +90,4 @@ Implications:
 - {doc}`from_legged_gym`
 - {doc}`from_rsl_rl`
 - {doc}`task_config_translation`
-- {doc}`reward_porting_cookbook`
+- {doc}`reward_porting`
