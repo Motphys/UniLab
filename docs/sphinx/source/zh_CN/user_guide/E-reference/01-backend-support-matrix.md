@@ -77,7 +77,7 @@ uv run scripts/generate_support_matrix.py --write
 | PPO (mlx) | `go2w_joystick_flat` (go2w joystick flat) | Configured | Configured |
 | PPO (mlx) | `go2w_joystick_rough` (go2w joystick rough) | Configured | Configured |
 | APPO (torch) | `go1_joystick_flat` (Go1 joystick) | Tested | Registered |
-| APPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | Registered |
+| APPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | Tested |
 | APPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered |
 | APPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested |
 | APPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | Tested |
