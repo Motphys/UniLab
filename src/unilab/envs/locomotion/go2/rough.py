@@ -58,6 +58,7 @@ from unilab.terrains import (
 # pyright: reportIncompatibleVariableOverride=false, reportAttributeAccessIssue=false, reportCallIssue=false
 
 GO2_HIP_INDICES = np.asarray([0, 3, 6, 9], dtype=np.int32)
+GO2_ACTUATOR_TO_DOF_INDICES = np.asarray([3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8], dtype=np.int32)
 GO2_FRONT_LEFT = 0
 GO2_FRONT_RIGHT = 1
 GO2_REAR_LEFT = 2
@@ -221,7 +222,7 @@ class Go2JoystickRoughDomainRandomizationProvider(Go2JoystickDomainRandomization
         qpos = np.tile(env._init_qpos, (num_reset, 1))
         qvel = np.tile(env._init_qvel, (num_reset, 1))
         qpos[:, 0:2] += np.random.uniform(-0.5, 0.5, (num_reset, 2))
-        qpos[:, 2] += np.random.uniform(0.1, 0.3, (num_reset,))
+        qpos[:, 2] += np.random.uniform(0.25, 0.5, (num_reset,))
         qpos[:, 0:3] += env._spawn.origins_for(env_ids)
         roll = np.random.uniform(-3.14, 3.14, (num_reset,))
         pitch = np.random.uniform(-3.14, 3.14, (num_reset,))
@@ -272,6 +273,7 @@ class Go2JoystickRoughEnv(Go2WalkTask):
             dtype=get_global_dtype(),
         )
         self._action_scale[GO2_HIP_INDICES] = float(cfg.control_config.hip_action_scale)
+        self._default_angles_actuator = self.default_angles[GO2_ACTUATOR_TO_DOF_INDICES]
         joint_range = self._backend.get_joint_range()
         self._joint_range = (
             np.asarray(joint_range, dtype=get_global_dtype()) if joint_range is not None else None
@@ -367,7 +369,8 @@ class Go2JoystickRoughEnv(Go2WalkTask):
             else clipped_actions
         )
         return np.asarray(
-            exec_actions * self._action_scale + self.default_angles, dtype=get_global_dtype()
+            exec_actions * self._action_scale + self._default_angles_actuator,
+            dtype=get_global_dtype(),
         )
 
     def update_state(self, state: NpEnvState) -> NpEnvState:
@@ -522,9 +525,11 @@ class Go2JoystickRoughEnv(Go2WalkTask):
         )
         if self._cfg.control_config.simulate_action_latency:
             actions = np.asarray(info.get("last_actions", actions), dtype=get_global_dtype())
-        targets = actions * self._action_scale + self.default_angles
+        targets_actuator = actions * self._action_scale + self._default_angles_actuator
+        targets_dof = np.empty_like(targets_actuator)
+        targets_dof[:, GO2_ACTUATOR_TO_DOF_INDICES] = targets_actuator
         torques = (
-            float(self._cfg.control_config.Kp) * (targets - dof_pos)
+            float(self._cfg.control_config.Kp) * (targets_dof - dof_pos)
             - float(self._cfg.control_config.Kd) * dof_vel
         )
         return np.asarray(torques, dtype=get_global_dtype())
@@ -767,6 +772,7 @@ def _gait_async_reward(
 __all__ = [
     "DEFAULT_SCAN_POINTS_X",
     "DEFAULT_SCAN_POINTS_Y",
+    "GO2_ACTUATOR_TO_DOF_INDICES",
     "GO2_HIP_INDICES",
     "Go2JoystickRoughCfg",
     "Go2JoystickRoughDomainRandomizationProvider",

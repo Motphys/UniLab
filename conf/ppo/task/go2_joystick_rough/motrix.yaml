@@ -17,7 +17,7 @@ interactive:
 algo:
   num_envs: 2048
   num_steps_per_env: 24
-  max_iterations: 1000
+  max_iterations: 1500
   empirical_normalization: false
   obs_groups:
     actor:
@@ -31,7 +31,6 @@ algo:
     entropy_coef: 1.0e-2
 
 env:
-  sim_dt: 0.005
   render_offset_mode: zero
   control_config:
     action_scale: 0.25
@@ -100,7 +99,7 @@ reward:
     feet_gait: 0.5
     upward: 1.0
   tracking_sigma: 0.25
-  base_height_target: 0.33
+  base_height_target: 0.3
   stand_still_command_threshold: 0.1
   joint_pos_penalty_stand_still_scale: 5.0
   joint_pos_penalty_velocity_threshold: 0.5
