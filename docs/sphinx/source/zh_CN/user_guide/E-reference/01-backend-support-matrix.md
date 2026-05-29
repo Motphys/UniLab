@@ -83,7 +83,7 @@ uv run scripts/generate_support_matrix.py --write
 | APPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | Tested |
 | APPO (torch) | `g1_wall_flip_tracking` (G1 wall flip tracking) | Tested | Tested |
 | APPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | Tested |
-| APPO (torch) | `sharpa_inhand` (Sharpa in-hand) | Tested | Registered |
+| APPO (torch) | `sharpa_inhand` (Sharpa in-hand) | Tested | Tested |
 | APPO (torch) | `g1_climb_tracking` (g1 climb tracking) | Tested | Tested |
 | SAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested |
 | SAC (torch) | `g1_walk_rough` (G1 walk rough) | Tested | Tested |
