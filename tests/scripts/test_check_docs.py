@@ -60,6 +60,29 @@ Logs live under logs/<algo.algo_log_name>/<task>/.
     assert errors == []
 
 
+def test_check_hydra_keys_ignores_non_command_fenced_blocks():
+    root = Path(__file__).resolve().parents[2]
+    doc_path = root / "README.md"
+    content = """
+```bibtex
+@article{jia2026unilab,
+  title  = {UniLab},
+  author = {UniLab Contributors},
+  year   = {2026}
+}
+```
+
+```bash
+uv run scripts/train_rsl_rl.py missing_key=true task=go1_joystick_flat/mujoco
+```
+"""
+
+    errors = doc_checks.check_hydra_keys(content, doc_path, root)
+
+    assert not any("title" in error or "author" in error or "year" in error for error in errors)
+    assert any("Unknown config key: missing_key" in error for error in errors)
+
+
 def test_check_script_references_ignores_tests_paths():
     root = Path(__file__).resolve().parents[2]
     doc_path = root / "CONTRIBUTING.md"

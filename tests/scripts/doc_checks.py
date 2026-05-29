@@ -236,7 +236,19 @@ def check_hydra_keys(content: str, doc_path: Path, root: Path) -> list[str]:
     del root
     errors: list[str] = []
     hydra_pattern = r"(?:^|\s)([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)="
+    command_fence_languages = {"", "bash", "console", "shell", "sh", "text"}
+    in_fence = False
+    fence_language = ""
+
     for line in content.splitlines():
+        fence_match = re.match(r"^\s*```\s*([A-Za-z0-9_+-]*)", line)
+        if fence_match:
+            in_fence = not in_fence
+            fence_language = fence_match.group(1).lower() if in_fence else ""
+            continue
+        if in_fence and fence_language not in command_fence_languages:
+            continue
+
         stripped = line.strip()
         is_cli_line = (
             "scripts/train_" in stripped
