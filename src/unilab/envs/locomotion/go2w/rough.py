@@ -254,7 +254,6 @@ class Go2WJoystickRoughEnv(Go2WJoystickEnv):
             "joint_acc_l2": gated(self._reward_dof_acc),
             "wheel_acc": gated(self._reward_wheel_acc),
             "joint_acc_wheel_l2": gated(self._reward_wheel_acc),
-            "joint_pos_limits": gated(rewards.joint_pos_limits),
             "stand_still": _stand_still,
             "hip_pos": gated(self._reward_hip_pos),
             "dof_error": gated(self._reward_dof_error),

@@ -32,8 +32,9 @@ env:
     heading_command: true
     heading_range: [-3.141592653589793, 3.141592653589793]
   control_config:
-    action_scale: 0.5
-    wheel_action_scale: 10.0
+    action_scale: 0.25
+    hip_action_scale: 0.125
+    wheel_action_scale: 5.0
     wheel_Kd: 0.5
     clip_actions: 100.0
     simulate_action_latency: false
@@ -67,7 +68,6 @@ reward:
     joint_torques_l2: -2.5e-5
     joint_acc_l2: -2.5e-7
     joint_acc_wheel_l2: -2.5e-9
-    joint_pos_limits: -5.0
     joint_power: -2.0e-5
     action_rate: -0.01
     stand_still: -2.0

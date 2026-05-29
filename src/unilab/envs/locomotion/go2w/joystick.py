@@ -244,6 +244,7 @@ class Go2WJoystickEnv(Go2WBaseEnv):
         )
         super().__init__(cfg, backend, num_envs)
         self._np_dtype = get_global_dtype()
+        self._leg_action_scale = self._build_leg_action_scale()
         self._reward_cfg = cfg.reward_config
         self._enable_reward_log = True
         ctrl_range = np.asarray(self._backend.get_actuator_ctrl_range(), dtype=np.float64)
@@ -302,6 +303,17 @@ class Go2WJoystickEnv(Go2WBaseEnv):
         if vel.shape != expected_shape:
             raise ValueError(f"Go2W joint velocity sensor stack must have shape {expected_shape}")
 
+    def _build_leg_action_scale(self) -> np.ndarray:
+        scale = np.full(
+            (NUM_LEG_ACTIONS,),
+            float(self._cfg.control_config.action_scale),
+            dtype=self._np_dtype,
+        )
+        hip_action_scale = self._cfg.control_config.hip_action_scale
+        if hip_action_scale is not None:
+            scale[GO2W_HIP_INDICES] = float(hip_action_scale)
+        return scale
+
     def _init_reward_functions(self) -> None:
         self._reward_fns: dict[str, Any] = {
             "tracking_lin_vel": rewards.tracking_lin_vel,
@@ -320,7 +332,6 @@ class Go2WJoystickEnv(Go2WBaseEnv):
             "joint_acc_l2": self._reward_dof_acc,
             "wheel_acc": self._reward_wheel_acc,
             "joint_acc_wheel_l2": self._reward_wheel_acc,
-            "joint_pos_limits": rewards.joint_pos_limits,
             "stand_still": self._reward_stand_still,
             "hip_pos": self._reward_hip_pos,
             "dof_error": self._reward_dof_error,
@@ -369,7 +380,7 @@ class Go2WJoystickEnv(Go2WBaseEnv):
 
         leg_targets = (
             exec_actions[:, :NUM_LEG_ACTIONS]
-            * np.asarray(self._cfg.control_config.action_scale, dtype=self._np_dtype)
+            * self._leg_action_scale
             + self.default_angles[:NUM_LEG_ACTIONS]
         )
         wheel_velocity_targets = (

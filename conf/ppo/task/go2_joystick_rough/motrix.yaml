@@ -81,7 +81,6 @@ reward:
     ang_vel_xy: -0.05
     joint_torques_l2: -2.5e-5
     joint_acc_l2: -2.5e-7
-    joint_pos_limits: -5.0
     joint_power: -2.0e-5
     stand_still: -2.0
     hip_pos: -0.5

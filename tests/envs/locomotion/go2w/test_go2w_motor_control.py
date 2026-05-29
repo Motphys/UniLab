@@ -191,6 +191,7 @@ def test_go2w_apply_action_maps_legs_to_targets_and_wheels_to_velocity_targets()
     env._num_envs = 1
     env._num_action = NUM_GO2W_ACTIONS
     env.default_angles = DEFAULT_GO2W_ANGLES.astype(np.float32)
+    env._leg_action_scale = env._build_leg_action_scale()
     state = NpEnvState(
         obs={},
         reward=np.zeros((1,), dtype=np.float32),

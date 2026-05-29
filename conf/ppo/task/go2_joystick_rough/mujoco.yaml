@@ -16,9 +16,9 @@ interactive:
   use_env_visual_model: false
 
 algo:
-  num_envs: 4096
+  num_envs: 1024
   num_steps_per_env: 24
-  max_iterations: 1000
+  max_iterations: 1500
   empirical_normalization: false
   obs_groups:
     actor:
@@ -32,7 +32,7 @@ algo:
     entropy_coef: 1.0e-2
     
 env:
-  sim_dt: 0.002
+  sim_dt: 0.001
   control_config:
     action_scale: 0.25
     hip_action_scale: 0.125
@@ -83,7 +83,6 @@ reward:
     ang_vel_xy: -0.05
     joint_torques_l2: -2.5e-5
     joint_acc_l2: -2.5e-7
-    joint_pos_limits: -5.0
     joint_power: -2.0e-5
     stand_still: -2.0
     hip_pos: -0.5

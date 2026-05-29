@@ -330,7 +330,6 @@ class Go2JoystickRoughEnv(Go2WalkTask):
             "joint_torques_l2": gated(rewards.dof_torques_l2),
             "dof_acc_l2": gated(rewards.dof_acc_l2),
             "joint_acc_l2": gated(rewards.dof_acc_l2),
-            "joint_pos_limits": gated(rewards.joint_pos_limits),
             "joint_power": gated(rewards.joint_power),
             "stand_still": _stand_still,
             "hip_pos": self._reward_hip_pos,

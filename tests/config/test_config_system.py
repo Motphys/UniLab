@@ -371,13 +371,13 @@ def test_ppo_go2w_rough_mujoco_uses_terrain_generator():
     assert cfg.env.commands.heading_range == pytest.approx([-3.141592653589793, 3.141592653589793])
     assert "rel_standing_envs" not in cfg.env.commands
     assert cfg.env.control_config.clip_actions == pytest.approx(100.0)
-    assert cfg.env.control_config.action_scale == pytest.approx(0.5)
-    assert cfg.env.control_config.wheel_action_scale == pytest.approx(10.0)
-    assert cfg.env.domain_rand.randomize_kp is False
-    assert cfg.env.domain_rand.randomize_kd is False
+    assert cfg.env.control_config.action_scale == pytest.approx(0.25)
+    assert cfg.env.control_config.hip_action_scale == pytest.approx(0.125)
+    assert cfg.env.control_config.wheel_action_scale == pytest.approx(5.0)
+    assert cfg.env.domain_rand.randomize_kp is True
+    assert cfg.env.domain_rand.randomize_kd is True
     assert cfg.env.domain_rand.kp_multiplier_range == [0.5, 1.0]
     assert cfg.reward.scales.tracking_lin_vel == pytest.approx(3.0)
-    assert cfg.reward.scales.joint_pos_limits == pytest.approx(-5.0)
     assert cfg.reward.scales.hip_pos == pytest.approx(-2.0)
     assert cfg.reward.scales.joint_mirror == pytest.approx(-0.05)
     assert cfg.reward.only_positive_rewards is False
@@ -392,8 +392,9 @@ def test_ppo_go2w_rough_motrix_uses_yaw_reset_and_strong_control():
     assert cfg.env.commands.vel_limit == [[-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]]
     assert cfg.env.commands.heading_range == pytest.approx([-3.141592653589793, 3.141592653589793])
     assert "rel_standing_envs" not in cfg.env.commands
-    assert cfg.env.control_config.action_scale == pytest.approx(0.5)
-    assert cfg.env.control_config.wheel_action_scale == pytest.approx(10.0)
+    assert cfg.env.control_config.action_scale == pytest.approx(0.25)
+    assert cfg.env.control_config.hip_action_scale == pytest.approx(0.125)
+    assert cfg.env.control_config.wheel_action_scale == pytest.approx(5.0)
     assert cfg.env.domain_rand.randomize_kp is True
     assert cfg.env.domain_rand.randomize_kd is True
     assert cfg.reward.scales.orientation == pytest.approx(-2.0)
