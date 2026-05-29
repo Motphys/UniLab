@@ -130,10 +130,10 @@ Use [docs/README.md](docs/README.md) as the documentation index. High-signal ent
 
 ```bibtex
 @article{jia2026mujocouni,
-  title={MuJoCoUni: Persistent Batched Runtime Primitives for MuJoCo},
-  author={Jia, Yufei and Wu, Junzhe},
-  journal={arXiv preprint arXiv:2605.24922},
-  year={2026}
+  title  = {MuJoCoUni: Persistent Batched Runtime Primitives for MuJoCo},
+  author = {Jia, Yufei and Wu, Junzhe},
+  journal = {arXiv preprint arXiv:2605.24922},
+  year   = {2026}
 }
 
 @software{motrixsim2026,

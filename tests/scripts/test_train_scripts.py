@@ -887,6 +887,18 @@ def test_g1_motion_tracking_appo_task_exposes_final_reward():
     assert cfg.reward.scales.motion_body_pos == pytest.approx(1.0)
 
 
+def test_sharpa_appo_motrix_owner_uses_backend_specific_overrides():
+    cfg = _appo_cfg(["task=sharpa_inhand/motrix"])
+
+    assert cfg.training.task_name == "SharpaInhandRotation"
+    assert cfg.training.sim_backend == "motrix"
+    assert cfg.algo.num_envs == 2048
+    assert cfg.env.sim_dt == pytest.approx(0.01)
+    assert cfg.env.domain_rand.randomize_gravity is True
+    assert cfg.env.domain_rand.randomize_gravity_direction is False
+    assert cfg.env.domain_rand.randomize_pd_gains is True
+
+
 # ---------------------------------------------------------------------------
 # train_appo.py — motrix runner / play helpers
 # ---------------------------------------------------------------------------
