@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import queue
+
 import numpy as np
-import torch
 
 from unilab.algos.torch.appo.worker import (
-    compile_mlp_for_collector,
     compute_timeout_bootstrap_correction,
+    put_latest_metrics,
 )
 
 
@@ -41,33 +42,12 @@ def test_compute_timeout_bootstrap_correction_prefers_explicit_final_critic():
     np.testing.assert_allclose(correction, np.array([12.0, 0.0], dtype=np.float32))
 
 
-def test_compile_mlp_for_collector_targets_cuda_mlp_only(monkeypatch):
-    calls = []
+def test_put_latest_metrics_replaces_stale_item_when_queue_is_full(capsys):
+    metrics_queue = queue.Queue(maxsize=1)
+    metrics_queue.put_nowait({"total_steps": 1})
 
-    def fake_compile(fn, **kwargs):
-        calls.append((getattr(fn, "__qualname__", type(fn).__name__), kwargs))
-        return fn
+    put_latest_metrics(metrics_queue, {"total_steps": 2}, worker_name="APPOWorker")
 
-    class FakeModule:
-        class MLP(torch.nn.Module):
-            def forward(self, x):
-                return x
-
-        mlp = MLP()
-
-    monkeypatch.setattr(torch, "compile", fake_compile)
-
-    compile_mlp_for_collector(actor=FakeModule(), critic=FakeModule(), collector_device="cuda")
-
-    assert len(calls) == 2
-    assert all(name.endswith("MLP.forward") for name, _ in calls)
-    assert all(kwargs == {"options": {"triton.cudagraphs": False}} for _, kwargs in calls)
-
-
-def test_compile_mlp_for_collector_skips_cpu(monkeypatch):
-    calls = []
-    monkeypatch.setattr(torch, "compile", lambda fn, **kwargs: calls.append(fn) or fn)
-
-    compile_mlp_for_collector(actor=object(), critic=object(), collector_device="cpu")
-
-    assert calls == []
+    assert metrics_queue.get_nowait() == {"total_steps": 2}
+    captured = capsys.readouterr()
+    assert captured.err == ""

@@ -7,13 +7,14 @@ import torch
 from rsl_rl.algorithms import PPO
 from tensordict import TensorDict
 
-
 _LOG_2_PI = math.log(2.0 * math.pi)
 _NORMAL_ENTROPY_OFFSET = 0.5 * (1.0 + _LOG_2_PI)
 
 
 class FinalObservationAwarePPO(PPO):
     """PPO variant that bootstraps time limits from env final_observation."""
+
+    learning_rate: float
 
     def __init__(
         self,
@@ -146,7 +147,7 @@ class FinalObservationAwarePPO(PPO):
 
     def update(self) -> dict[str, float]:
         if not self._supports_compiled_update_path():
-            return super().update()
+            return cast(dict[str, float], super().update())
 
         mean_value_loss = 0.0
         mean_surrogate_loss = 0.0
@@ -188,13 +189,15 @@ class FinalObservationAwarePPO(PPO):
 
             if self.desired_kl is not None and self.schedule == "adaptive":
                 kl_value = float(kl_mean.detach())
+                learning_rate = float(self.learning_rate)
                 if kl_value > self.desired_kl * 2.0:
-                    self.learning_rate = max(1e-5, self.learning_rate / 1.5)
+                    learning_rate = max(1e-5, learning_rate / 1.5)
                 elif kl_value < self.desired_kl / 2.0 and kl_value > 0.0:
-                    self.learning_rate = min(1e-2, self.learning_rate * 1.5)
+                    learning_rate = min(1e-2, learning_rate * 1.5)
 
+                self.learning_rate = learning_rate
                 for param_group in self.optimizer.param_groups:
-                    param_group["lr"] = self.learning_rate
+                    param_group["lr"] = learning_rate
 
             self.optimizer.zero_grad()
             loss.backward()

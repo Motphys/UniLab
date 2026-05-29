@@ -21,7 +21,6 @@ from rsl_rl.models import MLPModel
 from rsl_rl.utils import resolve_optimizer
 from tensordict import TensorDict
 
-
 _LOG_2_PI = math.log(2.0 * math.pi)
 _NORMAL_ENTROPY_OFFSET = 0.5 * (1.0 + _LOG_2_PI)
 
