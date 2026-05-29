@@ -115,3 +115,41 @@ Use [docs/README.md](docs/README.md) as the documentation index. High-signal ent
 - [Simulation Backends](docs/sphinx/source/zh_CN/user_guide/02-simulation-backends.md): generated MuJoCo / Motrix support matrix
 - [Development Standard](docs/sphinx/source/zh_CN/developer_guide/development-standard.md): contracts, layering, and validation boundaries
 - [ADR Index](docs/sphinx/source/adr/ADR-0000-index.md): accepted architecture decisions
+
+## Citation
+
+### UniLab
+
+```bibtex
+@misc{jia2026UniLab,
+  title         = {UniLab: A Heterogeneous Architecture for Robot RL Beyond GPU-Dominant Paradigms},
+  author        = {Yufei Jia and Zhanxiang Cao and Mingrui Yu and Heng Zhang and Shenyu Chen and Dixuan Jiang and Meng Li and Xiaofan Li and Yiyang Liu and Junzhe Wu and Zheng Li and XiLin Fang and Tingyu Cui and Shengcheng Fu and Haoyang Li and Anqi Wang and Zifan Wang and Dongjie Zhu and Chenyu Cao and Zhenbiao Huang and Ziang Zheng and Jie Lu and Xin Ma and Zhengyang Wei and Xiang Zhao and Tianyue Zhan and Ye He and Yuxiang Chen and Yizhou Jiang and Yue Li and Haizhou Ge and Yuhang Dong and Fan Jia and Ziheng Zhang and Meng Zhang and Xiwa Deng and Zhixing Chen and Hanyang Shao and Chenxin Dong and Yixuan Li and Yizhi Chen and Bokui Chen and Kaifeng Zhang and Hanqing Cui and Yusen Qin and Ruqi Huang and Lei Han and Tiancai Wang and Xiang Li and Yue Gao and Guyue Zhou},
+  year          = {2026},
+  eprint        = {2605.30313},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.RO},
+  url           = {https://arxiv.org/abs/2605.30313}
+}
+```
+
+### Physics Backends
+
+```bibtex
+@software{motrixsim2026,
+  title  = {MotrixSim: A Physics Simulation Engine for Robotics and Embodied AI},
+  author = {{Motphys Team}},
+  year   = {2026},
+  url    = {https://motrixsim.readthedocs.io/},
+  note   = {Python binary package}
+}
+
+@misc{jia2026mujocounipersistentbatchedruntimeprimitives,
+  title         = {MuJoCoUni:Persistent Batched Runtime Primitives for MuJoCo},
+  author        = {Yufei Jia and Junzhe Wu},
+  year          = {2026},
+  eprint        = {2605.24922},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.RO},
+  url           = {https://arxiv.org/abs/2605.24922}
+}
+```
