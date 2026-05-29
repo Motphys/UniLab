@@ -50,7 +50,7 @@ make setup-motrix
 # make sync-xpu
 
 # 3. Run a first PPO training job
-uv run train --algo ppo --task go2_joystick_flat --sim motrix
+uv run train --algo appo --task go2_joystick_flat --sim motrix
 ```
 
 This is the first-level training entrypoint. It routes to the registered `go2_joystick_flat/motrix` task owner config and keeps backend selection in the CLI flags.
@@ -58,13 +58,10 @@ This is the first-level training entrypoint. It routes to the registered `go2_jo
 For evaluation and demo playback:
 
 ```bash
-uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1
+uv run eval --algo appo --task go2_joystick_flat --sim motrix --load-run -1
 
 # Headless Motrix video export for Linux/server runs
-uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1 --render-mode record
-
-# Demo playback from a local trained checkpoint
-uv run demo
+uv run eval --algo appo --task go2_joystick_flat --sim motrix --load-run -1 --render-mode record
 ```
 
 On macOS / MacBook, the UniLab CLI routes Motrix interactive playback through `mxpython` when needed. Motrix defaults to interactive playback; use `--render-mode record` for headless video export or `--render-mode none` to skip playback. Detailed script-level commands are documented under `docs/sphinx/source/zh_CN/user_guide/`.
@@ -135,21 +132,18 @@ Use [docs/README.md](docs/README.md) as the documentation index. High-signal ent
 ### Physics Backends
 
 ```bibtex
+@article{jia2026mujocouni,
+  title={MuJoCoUni: Persistent Batched Runtime Primitives for MuJoCo},
+  author={Jia, Yufei and Wu, Junzhe},
+  journal={arXiv preprint arXiv:2605.24922},
+  year={2026}
+}
+
 @software{motrixsim2026,
   title  = {MotrixSim: A Physics Simulation Engine for Robotics and Embodied AI},
   author = {{Motphys Team}},
   year   = {2026},
   url    = {https://motrixsim.readthedocs.io/},
   note   = {Python binary package}
-}
-
-@misc{jia2026mujocounipersistentbatchedruntimeprimitives,
-  title         = {MuJoCoUni:Persistent Batched Runtime Primitives for MuJoCo},
-  author        = {Yufei Jia and Junzhe Wu},
-  year          = {2026},
-  eprint        = {2605.24922},
-  archivePrefix = {arXiv},
-  primaryClass  = {cs.RO},
-  url           = {https://arxiv.org/abs/2605.24922}
 }
 ```
