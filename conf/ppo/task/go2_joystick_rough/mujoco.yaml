@@ -16,9 +16,9 @@ interactive:
   use_env_visual_model: false
 
 algo:
-  num_envs: 1024
+  num_envs: 2048
   num_steps_per_env: 24
-  max_iterations: 1500
+  max_iterations: 1000
   empirical_normalization: false
   obs_groups:
     actor:
@@ -32,7 +32,6 @@ algo:
     entropy_coef: 1.0e-2
     
 env:
-  sim_dt: 0.001
   control_config:
     action_scale: 0.25
     hip_action_scale: 0.125
@@ -46,7 +45,7 @@ env:
   terrain_curriculum:
     enabled: false
   scene:
-    model_file: src/unilab/assets/robots/go2/go2.xml
+    model_file: src/unilab/assets/robots/go2/go2_mujoco.xml
     fragment_files:
       - src/unilab/assets/robots/go2/locomotion_task.xml
     terrain:

@@ -2,6 +2,18 @@
 training:
   task_name: Go2WJoystickRough
   sim_backend: motrix
+  play_steps: 500
+  play_env_num: 16
+  cam_tracking: true
+  cam_tracking_env_idx: 0
+  cam_tracking_extra_envs: 9
+
+interactive:
+  action_mode: policy
+  policy_obs_mode: auto
+  camera_follow_body: true
+  use_env_visual_model: false
+
 algo:
   num_envs: 2048
   num_steps_per_env: 24
@@ -16,6 +28,8 @@ env:
   render_offset_mode: zero
   scene:
     model_file: src/unilab/assets/robots/go2w/go2w.xml
+    fragment_files:
+      - src/unilab/assets/robots/go2w/locomotion_task.xml
     terrain:
       hfield_name: terrain_hfield
       geom_name: floor

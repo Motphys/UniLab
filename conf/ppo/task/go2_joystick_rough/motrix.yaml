@@ -15,7 +15,7 @@ interactive:
   use_env_visual_model: false
 
 algo:
-  num_envs: 4096
+  num_envs: 2048
   num_steps_per_env: 24
   max_iterations: 1000
   empirical_normalization: false
@@ -31,6 +31,7 @@ algo:
     entropy_coef: 1.0e-2
 
 env:
+  sim_dt: 0.005
   render_offset_mode: zero
   control_config:
     action_scale: 0.25
