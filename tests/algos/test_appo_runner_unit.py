@@ -147,8 +147,8 @@ class _FakeLogger:
     def set_collection_sync(self, enabled: bool, env_steps_per_sync: int) -> None:
         del enabled, env_steps_per_sync
 
-    def start(self) -> None:
-        pass
+    def start(self, *, status: str = "") -> None:
+        del status
 
     def log_status(self, status: str) -> None:
         del status
