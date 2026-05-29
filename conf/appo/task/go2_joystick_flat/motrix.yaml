@@ -3,8 +3,14 @@ training:
   task_name: Go2JoystickFlat
   sim_backend: motrix
 algo:
-  num_envs: 1024
-  max_iterations: 150
+  num_envs: 512
+  steps_per_env: 24
+  max_iterations: 180
+env:
+  sim_dt: 0.015
+algorithm:
+  num_learning_epochs: 25
+  num_mini_batches: 8
 reward:
   scales:
     tracking_lin_vel: 1.0
