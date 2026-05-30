@@ -15,7 +15,7 @@ interactive:
   use_env_visual_model: false
 
 algo:
-  num_envs: 2048
+  num_envs: 4096
   num_steps_per_env: 24
   max_iterations: 1500
   empirical_normalization: false
