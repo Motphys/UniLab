@@ -63,11 +63,11 @@ def register_env_config(name: str, env_cfg_cls: Type[EnvCfg]):
 
 
 def envcfg(name: str) -> Callable[[Type[TEnvCfg]], Type[TEnvCfg]]:
-    """Decorate an environment configuration class and register it by name.
+    """
+    Decorator to register an environment configuration class with a name.
 
-    Example::
-
-        @envcfg("my-env")
+    Usage:
+        @register_env_config_decorator("my-env")
         @dataclass
         class MyEnvCfg(EnvCfg):
             ...
@@ -101,11 +101,11 @@ def register_env(name: str, env_cls: Type[ABEnv], sim_backend: str):
 
 
 def env(name: str, sim_backend: str) -> Callable[[Type[ABEnv]], Type[ABEnv]]:
-    """Decorate an environment class and register it for a simulation backend.
+    """
+    Decorator to register an environment class with a name and simulation backend.
 
-    Example::
-
-        @env("my-env", "mujoco")
+    Usage:
+        @register_env_decorator("my-env", "np")
         class MyEnv(ABEnv):
             ...
     """
@@ -158,10 +158,18 @@ def _construct_dataclass_from_dict(target_type: Type[Any], values: Dict[str, Any
 def apply_cfg_overrides(target_obj: Any, overrides: Dict[str, Any]) -> None:
     """Apply a (possibly nested) dict of overrides to ``target_obj`` in place.
 
-    Every override key must already exist on ``target_obj``. Nested dict values
-    are deep-merged into existing dataclass fields, and ``None`` dataclass fields
-    are constructed from their annotations. Scalar, list, and non-dataclass
-    values are assigned directly.
+    Behavior:
+      - For each ``key, value`` in ``overrides``, ``target_obj.key`` must exist
+        (otherwise ``ValueError``).
+      - If ``value`` is a dict and ``target_obj.key`` is already a dataclass
+        instance, recurse into it (deep merge — preserves fields not present
+        in ``value``). This is what lets Hydra-style partial overrides like
+        ``env.scene.terrain.generator.num_rows=4`` keep ``sub_terrains`` and other
+        defaults intact.
+      - If ``value`` is a dict and ``target_obj.key`` is currently ``None``,
+        instantiate the field's annotated dataclass type from the dict
+        (full-construction path).
+      - Otherwise ``setattr`` the value directly (scalar / list / non-dataclass).
     """
     try:
         type_hints = get_type_hints(type(target_obj))
