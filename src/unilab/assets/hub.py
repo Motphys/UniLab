@@ -147,9 +147,7 @@ def _download_from_hf(
             original = os.environ["HF_ENDPOINT"]
             os.environ["HF_ENDPOINT"] = _HF_OFFICIAL_ENDPOINT
             try:
-                local_path = _hf_download(
-                    hf_hub_download, relative_path, repo_id=repo_id
-                )
+                local_path = _hf_download(hf_hub_download, relative_path, repo_id=repo_id)
             finally:
                 os.environ["HF_ENDPOINT"] = original
         else:

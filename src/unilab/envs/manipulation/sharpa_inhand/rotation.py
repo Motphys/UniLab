@@ -6,6 +6,7 @@ from typing import Any, cast
 
 import numpy as np
 
+from unilab.assets.hub import resolve_grasp_cache_files
 from unilab.base import registry
 from unilab.base.backend import create_backend
 from unilab.base.np_env import NpEnvState
@@ -35,7 +36,6 @@ from unilab.envs.common.rotation import (
     np_quat_mul,
     np_quat_to_axis_angle,
 )
-from unilab.assets.hub import resolve_grasp_cache_files
 from unilab.envs.manipulation.sharpa_inhand.base import (
     SharpaInhandBaseCfg,
     SharpaInhandBaseEnv,
