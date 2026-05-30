@@ -9,6 +9,8 @@ from typing import Literal
 
 import numpy as np
 
+from unilab.assets.hub import resolve_motion_files
+
 
 @dataclass
 class MotionData:
@@ -34,6 +36,7 @@ class MotionLoader:
                 motion files currently keep MuJoCo body-id layout, so these
                 indices are expected to follow that convention.
         """
+        motion_file = resolve_motion_files(motion_file)
         self.motion_files = self._normalize_motion_files(motion_file)
 
         joint_pos_list: list[np.ndarray] = []
@@ -156,15 +159,42 @@ class MotionLoader:
         clip_indices = self.get_clip_indices(frame_idx)
         return np.asarray(self.clip_end_frames[clip_indices], dtype=np.int32)
 
-    def get_motion_at_frame(self, frame_idx: np.ndarray) -> MotionData:
+    def make_motion_data_buffer(self, num_frames: int) -> MotionData:
+        """Allocate a reusable ``MotionData`` buffer for frame-index gathers."""
+        return MotionData(
+            joint_pos=np.empty((num_frames, self.num_joints), dtype=self.joint_pos.dtype),
+            joint_vel=np.empty((num_frames, self.num_joints), dtype=self.joint_vel.dtype),
+            body_pos_w=np.empty((num_frames, self.num_bodies, 3), dtype=self.body_pos_w.dtype),
+            body_quat_w=np.empty((num_frames, self.num_bodies, 4), dtype=self.body_quat_w.dtype),
+            body_lin_vel_w=np.empty(
+                (num_frames, self.num_bodies, 3), dtype=self.body_lin_vel_w.dtype
+            ),
+            body_ang_vel_w=np.empty(
+                (num_frames, self.num_bodies, 3), dtype=self.body_ang_vel_w.dtype
+            ),
+        )
+
+    def get_motion_at_frame(
+        self, frame_idx: np.ndarray, out: MotionData | None = None
+    ) -> MotionData:
         """Get motion data at specified frame indices.
 
         Args:
             frame_idx: Frame indices (N,)
+            out: Optional reusable output buffer.
 
         Returns:
             MotionData at specified frames
         """
+        if out is not None:
+            np.take(self.joint_pos, frame_idx, axis=0, out=out.joint_pos)
+            np.take(self.joint_vel, frame_idx, axis=0, out=out.joint_vel)
+            np.take(self.body_pos_w, frame_idx, axis=0, out=out.body_pos_w)
+            np.take(self.body_quat_w, frame_idx, axis=0, out=out.body_quat_w)
+            np.take(self.body_lin_vel_w, frame_idx, axis=0, out=out.body_lin_vel_w)
+            np.take(self.body_ang_vel_w, frame_idx, axis=0, out=out.body_ang_vel_w)
+            return out
+
         return MotionData(
             joint_pos=self.joint_pos[frame_idx],
             joint_vel=self.joint_vel[frame_idx],
@@ -181,29 +211,36 @@ class MotionSampler:
     def __init__(
         self,
         motion_loader: MotionLoader,
-        mode: Literal["start", "clip_start", "uniform", "adaptive"],
+        mode: Literal["start", "clip_start", "uniform", "adaptive", "mixed"],
         num_envs: int,
         bin_count: int | None = None,
         adaptive_lambda: float = 0.8,
         adaptive_kernel_size: int = 1,
         adaptive_uniform_ratio: float = 0.1,
         adaptive_alpha: float = 0.001,
+        start_ratio: float = 0.0,
     ):
         """Initialize motion sampler.
 
         Args:
             motion_loader: Motion loader instance
-            mode: Sampling mode ("start", "clip_start", "uniform", "adaptive")
+            mode: Sampling mode ("start", "clip_start", "uniform", "adaptive", "mixed")
             num_envs: Number of parallel environments
             bin_count: Number of bins for adaptive sampling (auto if None)
             adaptive_lambda: Decay factor for adaptive kernel
             adaptive_kernel_size: Kernel size for adaptive sampling
             adaptive_uniform_ratio: Uniform sampling ratio for adaptive mode
             adaptive_alpha: EMA alpha for failure count updates
+            start_ratio: Fraction of envs forced to frame 0 in "mixed" mode
+                (remaining envs are uniformly sampled). Lets buffer concentrate
+                launch-transition samples while keeping motion-clip coverage.
         """
+        if not 0.0 <= start_ratio <= 1.0:
+            raise ValueError(f"start_ratio must be in [0, 1], got {start_ratio}")
         self.motion_loader = motion_loader
         self.mode = mode
         self.num_envs = num_envs
+        self.start_ratio = start_ratio
 
         # Current frame indices for each environment
         self.current_frames = np.zeros(num_envs, dtype=np.int32)
@@ -238,6 +275,7 @@ class MotionSampler:
         self.sampling_entropy = 0.0
         self.sampling_top1_prob = 0.0
         self.sampling_top1_bin = 0.0
+        self._done_mask = np.zeros(num_envs, dtype=bool)
 
     def sample_frames(self, env_ids: np.ndarray) -> np.ndarray:
         """Sample motion frames for specified environments.
@@ -256,6 +294,8 @@ class MotionSampler:
             return self._sample_uniform(env_ids)
         elif self.mode == "adaptive":
             return self._sample_adaptive(env_ids)
+        elif self.mode == "mixed":
+            return self._sample_mixed(env_ids)
         else:
             raise ValueError(f"Unknown sampling mode: {self.mode}")
 
@@ -287,6 +327,40 @@ class MotionSampler:
         self.sampling_entropy = 1.0  # Maximum entropy for uniform
         self.sampling_top1_prob = 1.0 / self.bin_count
         self.sampling_top1_bin = 0.5  # No specific bin preference
+
+        return frames
+
+    def _sample_mixed(self, env_ids: np.ndarray) -> np.ndarray:
+        """Per-env Bernoulli mix of ``start`` (frame 0) and ``uniform``.
+
+        Each env independently lands on frame 0 with probability ``start_ratio``
+        and on a uniformly sampled frame otherwise. This concentrates buffer
+        coverage on the launch transition (frame 0 -> apex) while preserving
+        uniform RSI's whole-clip coverage everywhere else.
+        """
+        n = len(env_ids)
+        use_start = np.random.random(n) < self.start_ratio
+        frames = np.where(
+            use_start,
+            0,
+            np.random.randint(0, self.motion_loader.num_frames, n),
+        ).astype(np.int32)
+        self._set_sampled_frames(env_ids, frames)
+
+        # Metrics: mixture of a degenerate start mass and a uniform spread.
+        # Reflect the start over-representation in top1.
+        start_mass = self.start_ratio + (1.0 - self.start_ratio) / self.bin_count
+        self.sampling_top1_prob = float(start_mass)
+        self.sampling_top1_bin = 0.0
+        if start_mass >= 1.0 - 1e-9:
+            self.sampling_entropy = 0.0
+        else:
+            uniform_mass = (1.0 - self.start_ratio) / self.bin_count
+            H = -start_mass * math.log(start_mass + 1e-12)
+            H -= (self.bin_count - 1) * uniform_mass * math.log(uniform_mass + 1e-12)
+            self.sampling_entropy = (
+                float(H / math.log(self.bin_count)) if self.bin_count > 1 else 1.0
+            )
 
         return frames
 
@@ -373,9 +447,9 @@ class MotionSampler:
         self.current_frames += 1
 
         # Find environments that reached the end of their current clip.
-        done_mask = self.current_frames > self.current_clip_end_frames
-        return np.where(done_mask)[0]
+        np.greater(self.current_frames, self.current_clip_end_frames, out=self._done_mask)
+        return np.flatnonzero(self._done_mask)
 
-    def get_current_motion(self) -> MotionData:
+    def get_current_motion(self, out: MotionData | None = None) -> MotionData:
         """Get motion data at current frames for all environments."""
-        return self.motion_loader.get_motion_at_frame(self.current_frames)
+        return self.motion_loader.get_motion_at_frame(self.current_frames, out=out)

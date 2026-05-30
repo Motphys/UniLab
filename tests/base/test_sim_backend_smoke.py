@@ -369,6 +369,38 @@ def test_mujoco_metadata_getters_return_stable_copies():
     assert not np.isclose(dof_armature[-1], model.dof_armature[-1])
 
 
+def test_mujoco_copy_body_state_matches_split_queries():
+    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+
+    bkd = MuJoCoBackend(
+        SceneCfg(model_file=_G1["model_file"]),
+        NUM_ENVS,
+        SIM_DT,
+        base_name=_G1["base_name"],
+        add_body_sensors=True,
+    )
+    bkd.materialize()
+    bkd.step(np.zeros((NUM_ENVS, bkd.model.nu)), nsteps=1)
+    body_ids = bkd.get_body_ids(["pelvis", "torso_link"])
+
+    expected_pos = bkd.get_body_pos_w(body_ids)
+    expected_quat = bkd.get_body_quat_w(body_ids)
+    expected_lin_vel = bkd.get_body_lin_vel_w(body_ids)
+    expected_ang_vel = bkd.get_body_ang_vel_w(body_ids)
+    out_pos = np.empty_like(expected_pos)
+    out_quat = np.empty_like(expected_quat)
+    out_lin_vel = np.empty_like(expected_lin_vel)
+    out_ang_vel = np.empty_like(expected_ang_vel)
+
+    result = bkd.copy_body_state_w(body_ids, out_pos, out_quat, out_lin_vel, out_ang_vel)
+
+    assert result == (out_pos, out_quat, out_lin_vel, out_ang_vel)
+    np.testing.assert_allclose(out_pos, expected_pos)
+    np.testing.assert_allclose(out_quat, expected_quat)
+    np.testing.assert_allclose(out_lin_vel, expected_lin_vel)
+    np.testing.assert_allclose(out_ang_vel, expected_ang_vel)
+
+
 def test_motrix_model_properties_smoke():
     pytest.importorskip("motrixsim")
 
@@ -383,6 +415,45 @@ def test_motrix_model_properties_smoke():
     _shape(ctrl_range, bkd.num_actuators, 2)
     assert bkd.get_default_qpos().ndim == 1
     assert bkd.get_joint_range() is None
+
+
+def test_motrix_copy_body_state_matches_split_queries():
+    pytest.importorskip("motrixsim")
+
+    from unilab.base.backend.motrix.backend import MotrixBackend
+
+    bkd = MotrixBackend(
+        SceneCfg(model_file=_G1["model_file"]),
+        NUM_ENVS,
+        SIM_DT,
+        base_name=_G1["base_name"],
+        add_body_sensors=True,
+    )
+    body_names = ["pelvis", "torso_link"]
+    body_ids = np.asarray([bkd.model.get_link_index(name) for name in body_names], dtype=np.int32)
+
+    expected_pos = bkd.get_body_pos_w(body_ids)
+    expected_quat = bkd.get_body_quat_w(body_ids)
+    expected_lin_vel = bkd.get_body_lin_vel_w(body_ids)
+    expected_ang_vel = bkd.get_body_ang_vel_w(body_ids)
+    out_pos = np.empty_like(expected_pos)
+    out_quat = np.empty_like(expected_quat)
+    out_lin_vel = np.empty_like(expected_lin_vel)
+    out_ang_vel = np.empty_like(expected_ang_vel)
+
+    result = bkd.copy_body_state_w(body_ids, out_pos, out_quat, out_lin_vel, out_ang_vel)
+
+    assert result == (out_pos, out_quat, out_lin_vel, out_ang_vel)
+    np.testing.assert_allclose(out_pos, expected_pos)
+    np.testing.assert_allclose(out_quat, expected_quat)
+    np.testing.assert_allclose(out_lin_vel, expected_lin_vel)
+    np.testing.assert_allclose(out_ang_vel, expected_ang_vel)
+
+    row_ids = np.array([1, 0, 1], dtype=np.int32)
+    np.testing.assert_allclose(
+        bkd.get_sensor_data_rows("pelvis_local_linvel", row_ids),
+        bkd.get_sensor_data("pelvis_local_linvel")[row_ids],
+    )
 
 
 def test_motrix_default_qpos_uses_mujoco_quaternion_convention():

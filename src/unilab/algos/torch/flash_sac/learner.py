@@ -275,7 +275,7 @@ class FlashSACLearner:
     def _resolve_amp_dtype(amp_dtype: str, device_type: str) -> torch.dtype:
         normalized = amp_dtype.lower()
         if normalized == "auto":
-            return torch.bfloat16 if device_type == "xpu" else torch.float16
+            return torch.bfloat16
         if normalized == "fp16":
             return torch.float16
         if normalized == "bf16":

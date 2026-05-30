@@ -59,7 +59,7 @@ env:
   reset_height_upper: 0.63906
   reset_angle_diff: 0.7853981633974483
   rot_axis: [0.0, 0.0, 1.0]
-  grasp_cache_path: cache/sharpa_grasp_linspace
+  grasp_cache_path: caches/sharpa_grasp_linspace
   sensor:
     tactile_force_sensor_names:
       - contact_right_thumb_elastomer_force

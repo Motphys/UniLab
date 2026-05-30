@@ -189,6 +189,7 @@ class APPORunner(AsyncRunner):
             target_update_freq=algo_cfg.get("target_update_freq", 1),
             vtrace_clip_rho=algo_cfg.get("vtrace_clip_rho", 1.0),
             vtrace_clip_c=algo_cfg.get("vtrace_clip_c", 1.0),
+            enable_compile=algo_cfg.get("enable_compile", True),
         )
         return learner
 
@@ -292,12 +293,12 @@ class APPORunner(AsyncRunner):
             log_backend=logger_type,
         )
         logger.set_collection_sync(True, env_steps_per_sync)
-        logger.start()
         logger.log_status(
             f"Waiting for first rollout... "
             f"(staging_pool={self.staging_pool_size}, "
             f"epochs={learner.num_learning_epochs})"
         )
+        logger_started = False
 
         reward_history: deque = deque(maxlen=200)
         latest_reward_components: dict = {}
@@ -330,6 +331,10 @@ class APPORunner(AsyncRunner):
                     f"[yellow]Warning: Timeout waiting for data at iteration {iteration}[/]"
                 )
                 continue
+
+            if not logger_started:
+                logger.start(status="Training")
+                logger_started = True
 
             available_on_arrive = rollout_ring_buffer.available()
             wait_time = time.time() - wait_start

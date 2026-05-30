@@ -66,6 +66,29 @@ USER_DOC_MIGRATION_PHRASES = [
 
 USER_DOC_MAX_LINES = 120
 
+SPHINX_REMOVED_PATH_PATTERNS = [
+    (
+        r"\.\./\.\./README\.md",
+        "Use a MyST `{doc}` link to `/index` instead of `../../README.md`",
+    ),
+    (
+        r"\bdocs/users/(?:en|zh_CN)/",
+        "Use `docs/sphinx/source/<lang>/user_guide/` or a MyST `{doc}` link",
+    ),
+    (
+        r"\bdocs/developers/(?:en|zh_CN|adr)/",
+        "Use `docs/sphinx/source/<lang>/developer_guide/`, `/adr/`, or a MyST `{doc}` link",
+    ),
+    (
+        r"(?<![\w/-])(?:\.\./)*users/(?:en|zh_CN)/",
+        "Use the current `user_guide` Sphinx path or a MyST `{doc}` link",
+    ),
+    (
+        r"(?<![\w/-])(?:\.\./)*developers/(?:en|zh_CN|adr)/",
+        "Use the current `developer_guide` / `adr` Sphinx path or a MyST `{doc}` link",
+    ),
+]
+
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
@@ -127,6 +150,13 @@ def check_file_paths(content: str, doc_path: Path, root: Path) -> list[str]:
 
 def check_markdown_links(content: str, doc_path: Path, root: Path) -> list[str]:
     errors: list[str] = []
+    sphinx_root = root / "docs" / "sphinx"
+    try:
+        doc_path.relative_to(sphinx_root)
+        return errors
+    except ValueError:
+        pass
+
     link_pattern = r"\[([^\]]+)\]\(([^)]+)\)"
 
     for match in re.finditer(link_pattern, content):
@@ -206,7 +236,19 @@ def check_hydra_keys(content: str, doc_path: Path, root: Path) -> list[str]:
     del root
     errors: list[str] = []
     hydra_pattern = r"(?:^|\s)([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)="
+    command_fence_languages = {"", "bash", "console", "shell", "sh", "text"}
+    in_fence = False
+    fence_language = ""
+
     for line in content.splitlines():
+        fence_match = re.match(r"^\s*```\s*([A-Za-z0-9_+-]*)", line)
+        if fence_match:
+            in_fence = not in_fence
+            fence_language = fence_match.group(1).lower() if in_fence else ""
+            continue
+        if in_fence and fence_language not in command_fence_languages:
+            continue
+
         stripped = line.strip()
         is_cli_line = (
             "scripts/train_" in stripped
@@ -289,7 +331,14 @@ def check_generated_support_matrix(content: str, doc_path: Path, root: Path) -> 
     errors: list[str] = []
     if (
         doc_path
-        != root / "docs" / "users" / "zh_CN" / "E-reference" / "01-backend-support-matrix.md"
+        != root
+        / "docs"
+        / "sphinx"
+        / "source"
+        / "zh_CN"
+        / "1-user_guide"
+        / "5-reference"
+        / "1-backend-support-matrix.md"
     ):
         return errors
 
@@ -304,11 +353,16 @@ def check_generated_support_matrix(content: str, doc_path: Path, root: Path) -> 
 
 def check_zh_cn_doc_shape(content: str, doc_path: Path, root: Path) -> list[str]:
     errors: list[str] = []
-    checked_dirs = {
-        root / "docs" / "users" / "zh_CN",
-        root / "docs" / "developers" / "zh_CN",
-    }
-    if doc_path.parent not in checked_dirs or doc_path.suffix != ".md":
+    zh_root = root / "docs" / "sphinx" / "source" / "zh_CN"
+    try:
+        doc_path.relative_to(zh_root)
+    except ValueError:
+        return errors
+    if doc_path.suffix != ".md":
+        return errors
+    # Section / language landing pages don't carry the language-tag + navigation
+    # contract — they have their own toctree-driven layout.
+    if doc_path.name in {"index.md", "0-index.md"}:
         return errors
 
     lines = content.splitlines()
@@ -318,18 +372,18 @@ def check_zh_cn_doc_shape(content: str, doc_path: Path, root: Path) -> list[str]
     if "\n## Navigation\n" not in content:
         errors.append(f"{doc_path}: zh_CN docs must include a `## Navigation` section")
 
-    if "- Index: [Documentation](../../README.md)" not in content:
-        errors.append(f"{doc_path}: zh_CN docs must link back to docs/README.md in Navigation")
+    if not re.search(r"- Index:\s*\[[^\]]+\]\([^)]*(?:0-)?index\.md\)", content):
+        errors.append(f"{doc_path}: zh_CN docs must link back to a docs index in Navigation")
 
     return errors
 
 
 def check_adr_shape(content: str, doc_path: Path, root: Path) -> list[str]:
     errors: list[str] = []
-    adr_dir = root / "docs" / "developers" / "adr"
+    adr_dir = root / "docs" / "sphinx" / "source" / "adr"
     if doc_path.parent != adr_dir or doc_path.suffix != ".md":
         return errors
-    if doc_path.name == "ADR-0000-index.md":
+    if doc_path.name in ("ADR-0000-index.md", "README.md"):
         return errors
 
     required_tokens = [
@@ -351,14 +405,14 @@ def check_adr_shape(content: str, doc_path: Path, root: Path) -> list[str]:
 
 def check_user_doc_architecture(content: str, doc_path: Path, root: Path) -> list[str]:
     errors: list[str] = []
-    user_root = root / "docs" / "users" / "zh_CN"
+    user_root = root / "docs" / "sphinx" / "source" / "zh_CN" / "1-user_guide"
     try:
         doc_path.relative_to(user_root)
     except ValueError:
         return errors
 
     exempt_long_docs = {
-        user_root / "E-reference" / "01-backend-support-matrix.md",
+        user_root / "5-reference" / "1-backend-support-matrix.md",
     }
     if doc_path not in exempt_long_docs and len(content.splitlines()) > USER_DOC_MAX_LINES:
         errors.append(
@@ -372,33 +426,85 @@ def check_user_doc_architecture(content: str, doc_path: Path, root: Path) -> lis
                 f"{doc_path}: user docs should not expose migration/restructure phrasing: `{phrase}`"
             )
 
-    tasks_index = user_root / "D-tasks" / "01-task-index.md"
+    tasks_index = user_root / "4-tasks" / "1-task-index.md"
     if doc_path == tasks_index:
         for token in ("## 按机器人家族", "## 按任务类型"):
             if token not in content:
                 errors.append(f"{doc_path}: task index must include `{token}`")
 
-    backend_overview = user_root / "02-simulation-backends.md"
-    if doc_path == backend_overview and "E-reference/01-backend-support-matrix.md" not in content:
+    backend_overview = user_root / "2-simulation-backends.md"
+    if doc_path == backend_overview and "5-reference/1-backend-support-matrix.md" not in content:
         errors.append(
-            f"{doc_path}: backend overview must route users to `E-reference/01-backend-support-matrix.md`"
+            f"{doc_path}: backend overview must route users to `5-reference/1-backend-support-matrix.md`"
         )
 
     return errors
 
 
+def check_sphinx_source_migration_guards(content: str, doc_path: Path, root: Path) -> list[str]:
+    warnings: list[str] = []
+    sphinx_source = root / "docs" / "sphinx" / "source"
+    try:
+        relative_path = doc_path.relative_to(sphinx_source)
+    except ValueError:
+        return warnings
+    if doc_path.suffix != ".md":
+        return warnings
+
+    for pattern, message in SPHINX_REMOVED_PATH_PATTERNS:
+        for match in re.finditer(pattern, content):
+            line_no = content.count("\n", 0, match.start()) + 1
+            removed_path = match.group(0)
+            warnings.append(
+                f"{doc_path}:{line_no}: Removed Sphinx doc path `{removed_path}`: {message}"
+            )
+
+    if relative_path.parts and relative_path.parts[0] == "en":
+        for match in re.finditer(r"(?m)^语言: 简体中文$", content):
+            line_no = content.count("\n", 0, match.start()) + 1
+            warnings.append(
+                f"{doc_path}:{line_no}: English Sphinx pages must not declare `语言: 简体中文`"
+            )
+        for match in re.finditer(r"(?m)^## Navigation\s*$", content):
+            line_no = content.count("\n", 0, match.start()) + 1
+            warnings.append(
+                f"{doc_path}:{line_no}: English Sphinx pages should use toctree/Furo "
+                "navigation instead of a hand-written `## Navigation` section"
+            )
+
+    return warnings
+
+
+def check_document_warnings(doc_path: Path, root: Path) -> list[str]:
+    content = doc_path.read_text(encoding="utf-8")
+    warnings: list[str] = []
+    warnings.extend(check_sphinx_source_migration_guards(content, doc_path, root))
+    return warnings
+
+
 def check_document(doc_path: Path, root: Path) -> list[str]:
     content = doc_path.read_text(encoding="utf-8")
     errors: list[str] = []
-    errors.extend(check_script_references(content, doc_path, root))
-    errors.extend(check_file_paths(content, doc_path, root))
-    errors.extend(check_markdown_links(content, doc_path, root))
-    errors.extend(check_raw_github_repo_urls(content, doc_path, root))
-    errors.extend(check_markdown_fences(content, doc_path, root))
-    errors.extend(check_canonical_commands(content, doc_path, root))
-    errors.extend(check_hydra_keys(content, doc_path, root))
-    errors.extend(check_argparse_vs_hydra(content, doc_path, root))
-    errors.extend(check_training_entrypoint_semantics(content, doc_path, root))
+
+    sphinx_root = root / "docs" / "sphinx"
+    in_sphinx = False
+    try:
+        doc_path.relative_to(sphinx_root)
+        in_sphinx = True
+    except ValueError:
+        pass
+
+    if not in_sphinx:
+        errors.extend(check_script_references(content, doc_path, root))
+        errors.extend(check_file_paths(content, doc_path, root))
+        errors.extend(check_markdown_links(content, doc_path, root))
+        errors.extend(check_raw_github_repo_urls(content, doc_path, root))
+        errors.extend(check_markdown_fences(content, doc_path, root))
+        errors.extend(check_canonical_commands(content, doc_path, root))
+        errors.extend(check_hydra_keys(content, doc_path, root))
+        errors.extend(check_argparse_vs_hydra(content, doc_path, root))
+        errors.extend(check_training_entrypoint_semantics(content, doc_path, root))
+
     errors.extend(check_generated_support_matrix(content, doc_path, root))
     errors.extend(check_zh_cn_doc_shape(content, doc_path, root))
     errors.extend(check_adr_shape(content, doc_path, root))
@@ -412,3 +518,11 @@ def collect_doc_errors(root: Path | None = None) -> list[str]:
     for doc_path in find_docs(resolved_root):
         errors.extend(check_document(doc_path, resolved_root))
     return errors
+
+
+def collect_doc_warnings(root: Path | None = None) -> list[str]:
+    resolved_root = root or repo_root()
+    warnings: list[str] = []
+    for doc_path in find_docs(resolved_root):
+        warnings.extend(check_document_warnings(doc_path, resolved_root))
+    return warnings

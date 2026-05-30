@@ -13,21 +13,21 @@ env_steps_per_sync: 1
 max_iterations: 5000
 save_interval: 500
 gamma: 0.97
-tau: 0.01
+tau: 0.1
 actor_lr: 3.0e-4
 critic_lr: 3.0e-4
-actor_hidden_dim: 256
-critic_hidden_dim: 512
+actor_hidden_dim: 512
+critic_hidden_dim: 1024
 num_atoms: 101
 obs_normalization: true
 use_layer_norm: false
 algo_params:
-  weight_decay: 0.001
+  weight_decay: 0.1
   v_min: -10.0
   v_max: 10.0
   init_scale: 0.01
-  log_std_min: -5.0
-  log_std_max: 0.0
-  policy_noise: 0.1
-  noise_clip: 0.2
+  log_std_min: -1.6
+  log_std_max: -0.22
+  policy_noise: 0.2
+  noise_clip: 0.5
   use_cdq: true

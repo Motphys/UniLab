@@ -9,6 +9,7 @@ import statistics
 import sys
 import time
 from collections import defaultdict
+from queue import Empty, Full
 from typing import Any, Dict
 
 import numpy as np
@@ -19,6 +20,36 @@ from unilab.base.final_observation import resolve_terminal_observation_contract
 from unilab.base.observations import split_obs_dict
 from unilab.base.registry import ensure_registries
 from unilab.training.seed import apply_training_seed
+
+
+def put_latest_metrics(metrics_queue: Any, msg: dict[str, Any], *, worker_name: str) -> None:
+    """Best-effort metrics enqueue that keeps recent data under learner stalls."""
+    try:
+        metrics_queue.put_nowait(msg)
+        return
+    except Full:
+        pass
+    except Exception as e:
+        print(f"[{worker_name}] metrics enqueue error: {type(e).__name__}: {e}", file=sys.stderr)
+        return
+
+    try:
+        metrics_queue.get_nowait()
+    except Empty:
+        pass
+    except Exception as e:
+        print(
+            f"[{worker_name}] metrics drop stale metrics error: {type(e).__name__}: {e}",
+            file=sys.stderr,
+        )
+        return
+
+    try:
+        metrics_queue.put_nowait(msg)
+    except Full:
+        pass
+    except Exception as e:
+        print(f"[{worker_name}] metrics enqueue error: {type(e).__name__}: {e}", file=sys.stderr)
 
 
 def compute_timeout_bootstrap_correction(
@@ -144,7 +175,6 @@ def appo_collector_fn(
     )
     critic = critic.to(collector_device)
     critic.eval()
-
     # Load initial weights
     actor_sd = dict(actor.state_dict())
     actor_weight_sync.read_weights_into(actor_sd)
@@ -316,9 +346,12 @@ def appo_collector_fn(
                                 k: statistics.mean(v) for k, v in ep_reward_components.items() if v
                             }
                             ep_reward_components.clear()
-                        metrics_queue.put_nowait(msg)
+                        put_latest_metrics(metrics_queue, msg, worker_name="APPOWorker")
                     except Exception as e:
-                        print(f"[APPOWorker] metrics enqueue error: {e}", file=sys.stderr)
+                        print(
+                            f"[APPOWorker] metrics build error: {type(e).__name__}: {e}",
+                            file=sys.stderr,
+                        )
 
                 obs_np = next_actor_obs_np
                 critic_np = next_critic_np

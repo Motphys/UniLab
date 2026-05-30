@@ -62,8 +62,17 @@ third-party
 temp/
 agent/
 
+# Motion assets (downloaded from HF at runtime)
+src/unilab/assets/motions/g1/*.npz
+src/unilab/assets/motions/g1/*.csv
 src/unilab/assets/motions/g1/flip
 src/unilab/assets/motions/g1/flip_npz
+
+# Grasp cache assets (downloaded from HF at runtime)
+src/unilab/assets/caches/*.npy
+
+# Scene assets (downloaded from HF at runtime)
+src/unilab/assets/scenes/teaser/
 cache/
 
 

@@ -296,7 +296,7 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
             return
 
         output_file = resolve_grasp_cache_file(
-            self._cfg.grasp_cache_path or "cache/sharpa_grasp_linspace",
+            self._cfg.grasp_cache_path or "caches/sharpa_grasp_linspace",
             float(self.scale_values[0]),
         )
         output_file.parent.mkdir(parents=True, exist_ok=True)

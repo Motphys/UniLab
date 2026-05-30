@@ -72,6 +72,19 @@ def build_appo_runner_kwargs(
     return runner_kwargs
 
 
+def apply_appo_runtime_flags(
+    rl_cfg: dict[str, Any],
+    cfg: DictConfig,
+    *,
+    training_enabled: bool,
+) -> None:
+    algorithm_cfg = rl_cfg.setdefault("algorithm", {})
+    if not isinstance(algorithm_cfg, dict):
+        return
+    if not training_enabled:
+        algorithm_cfg["enable_compile"] = False
+
+
 def run_motrix_play_loop(
     env,
     actor,
@@ -334,6 +347,7 @@ def main(cfg: DictConfig) -> None:
     if not isinstance(rl_cfg_raw, dict):
         raise TypeError("cfg.algo must resolve to a dict")
     rl_cfg = cast(dict[str, Any], rl_cfg_raw)
+    apply_appo_runtime_flags(rl_cfg, cfg, training_enabled=not cfg.training.play_only)
     appo_runtime = resolve_appo_runtime(rl_cfg, default_play_fn=play_appo)
 
     if cfg.training.log_dir is None:

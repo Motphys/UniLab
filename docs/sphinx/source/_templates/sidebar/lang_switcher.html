@@ -1,0 +1,20 @@
+{# Furo sidebar component: language switcher placed below brand, above search #}
+{%- set current = current_language|default("en") -%}
+{%- set en_target = language_switcher_targets.get("en", "en/0-index") if language_switcher_targets is defined else "en/0-index" -%}
+{%- set zh_target = language_switcher_targets.get("zh_CN", "zh_CN/0-index") if language_switcher_targets is defined else "zh_CN/0-index" -%}
+<div class="sidebar-lang-switcher">
+  <select class="sidebar-lang-switcher__select" aria-label="Language">
+    <option value="{{ pathto(en_target)|e }}"{% if current == "en" %} selected{% endif %}>English</option>
+    <option value="{{ pathto(zh_target)|e }}"{% if current == "zh_CN" %} selected{% endif %}>简体中文</option>
+  </select>
+</div>
+<script>
+(function(){
+  var sel = document.querySelector(".sidebar-lang-switcher__select");
+  if (!sel) return;
+  sel.addEventListener("change", function(){
+    var url = this.value;
+    if (url) window.location.href = new URL(url, window.location.href).href;
+  });
+})();
+</script>

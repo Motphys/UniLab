@@ -11,11 +11,15 @@ def test_documentation_files_match_current_repo_contracts():
     root = Path(__file__).resolve().parents[2]
     errors = doc_checks.collect_doc_errors(root)
     assert errors == []
+    warnings = doc_checks.collect_doc_warnings(root)
+    assert warnings == []
 
 
 def test_sharpa_domain_randomization_doc_matches_owner_config():
     root = Path(__file__).resolve().parents[2]
-    doc_path = root / "docs" / "users" / "zh_CN" / "05-domain-randomization.md"
+    doc_path = (
+        root / "docs" / "sphinx" / "source" / "zh_CN" / "1-user_guide" / "5-domain-randomization.md"
+    )
     content = doc_path.read_text(encoding="utf-8")
 
     owner_cfg = OmegaConf.load(root / "conf" / "ppo" / "task" / "sharpa_inhand" / "mujoco.yaml")
@@ -54,6 +58,29 @@ Logs live under logs/<algo.algo_log_name>/<task>/.
     errors = doc_checks.check_training_entrypoint_semantics(content, doc_path, root)
 
     assert errors == []
+
+
+def test_check_hydra_keys_ignores_non_command_fenced_blocks():
+    root = Path(__file__).resolve().parents[2]
+    doc_path = root / "README.md"
+    content = """
+```bibtex
+@article{jia2026unilab,
+  title  = {UniLab},
+  author = {UniLab Contributors},
+  year   = {2026}
+}
+```
+
+```bash
+uv run scripts/train_rsl_rl.py missing_key=true task=go1_joystick_flat/mujoco
+```
+"""
+
+    errors = doc_checks.check_hydra_keys(content, doc_path, root)
+
+    assert not any("title" in error or "author" in error or "year" in error for error in errors)
+    assert any("Unknown config key: missing_key" in error for error in errors)
 
 
 def test_check_script_references_ignores_tests_paths():
@@ -138,7 +165,9 @@ def test_collect_doc_errors_scans_scripts_markdown(tmp_path):
 
 def test_check_zh_cn_doc_shape_requires_language_navigation_and_index(tmp_path):
     root = tmp_path
-    doc_path = root / "docs" / "users" / "zh_CN" / "05-domain-randomization.md"
+    doc_path = (
+        root / "docs" / "sphinx" / "source" / "zh_CN" / "1-user_guide" / "5-domain-randomization.md"
+    )
     doc_path.parent.mkdir(parents=True)
     content = "# 域随机化\n\n缺少语言头。\n"
 
@@ -146,16 +175,18 @@ def test_check_zh_cn_doc_shape_requires_language_navigation_and_index(tmp_path):
 
     assert any("语言: 简体中文" in error for error in errors)
     assert any("## Navigation" in error for error in errors)
-    assert any("docs/README.md" in error for error in errors)
+    assert any("docs index" in error for error in errors)
 
 
 def test_check_zh_cn_doc_shape_accepts_user_contract(tmp_path):
     root = tmp_path
-    doc_path = root / "docs" / "users" / "zh_CN" / "05-domain-randomization.md"
+    doc_path = (
+        root / "docs" / "sphinx" / "source" / "zh_CN" / "1-user_guide" / "5-domain-randomization.md"
+    )
     doc_path.parent.mkdir(parents=True)
     content = (
         "# 域随机化\n\n语言: 简体中文\n\n正文。\n\n"
-        "## Navigation\n\n- Index: [Documentation](../../README.md)\n"
+        "## Navigation\n\n- Index: [Documentation](../index.md)\n"
     )
 
     errors = doc_checks.check_zh_cn_doc_shape(content, doc_path, root)
@@ -165,11 +196,19 @@ def test_check_zh_cn_doc_shape_accepts_user_contract(tmp_path):
 
 def test_check_zh_cn_doc_shape_accepts_developer_contract(tmp_path):
     root = tmp_path
-    doc_path = root / "docs" / "developers" / "zh_CN" / "development-standard.md"
+    doc_path = (
+        root
+        / "docs"
+        / "sphinx"
+        / "source"
+        / "zh_CN"
+        / "2-developer_guide"
+        / "1-development-standard.md"
+    )
     doc_path.parent.mkdir(parents=True)
     content = (
         "# RL Infrastructure 开发标准\n\n语言: 简体中文\n\n正文。\n\n"
-        "## Navigation\n\n- Index: [Documentation](../../README.md)\n"
+        "## Navigation\n\n- Index: [Documentation](../index.md)\n"
     )
 
     errors = doc_checks.check_zh_cn_doc_shape(content, doc_path, root)
@@ -179,7 +218,16 @@ def test_check_zh_cn_doc_shape_accepts_developer_contract(tmp_path):
 
 def test_check_user_doc_architecture_flags_migration_phrasing_and_missing_task_sections(tmp_path):
     root = tmp_path
-    task_index = root / "docs" / "users" / "zh_CN" / "D-tasks" / "01-task-index.md"
+    task_index = (
+        root
+        / "docs"
+        / "sphinx"
+        / "source"
+        / "zh_CN"
+        / "1-user_guide"
+        / "4-tasks"
+        / "1-task-index.md"
+    )
     task_index.parent.mkdir(parents=True)
     task_index.write_text("# 任务\n\n语言: 简体中文\n\n已拆成。\n", encoding="utf-8")
 
@@ -194,7 +242,9 @@ def test_check_user_doc_architecture_flags_migration_phrasing_and_missing_task_s
 
 def test_check_user_doc_architecture_requires_backend_matrix_route(tmp_path):
     root = tmp_path
-    doc_path = root / "docs" / "users" / "zh_CN" / "02-simulation-backends.md"
+    doc_path = (
+        root / "docs" / "sphinx" / "source" / "zh_CN" / "1-user_guide" / "2-simulation-backends.md"
+    )
     doc_path.parent.mkdir(parents=True)
     doc_path.write_text("# 仿真后端\n\n语言: 简体中文\n\n正文。\n", encoding="utf-8")
 
@@ -202,12 +252,68 @@ def test_check_user_doc_architecture_requires_backend_matrix_route(tmp_path):
 
     errors = check_user_doc_architecture(doc_path.read_text(encoding="utf-8"), doc_path, root)
 
-    assert any("E-reference/01-backend-support-matrix.md" in error for error in errors)
+    assert any("5-reference/1-backend-support-matrix.md" in error for error in errors)
+
+
+def test_check_sphinx_source_migration_guards_flags_removed_paths_and_english_navigation(
+    tmp_path,
+):
+    root = tmp_path
+    doc_path = root / "docs" / "sphinx" / "source" / "en" / "user_guide" / "old.md"
+    doc_path.parent.mkdir(parents=True)
+    content = """
+# Old Page
+
+See [Documentation](../../README.md).
+See docs/users/zh_CN/03-training.md and docs/developers/zh_CN/collaboration.md.
+See ../../users/zh_CN/1-simulation-backends.md and ../../developers/adr/README.md.
+语言: 简体中文
+
+## Navigation
+"""
+
+    warnings = doc_checks.check_sphinx_source_migration_guards(content, doc_path, root)
+
+    assert any("../../README.md" in warning for warning in warnings)
+    assert any("docs/users/" in warning for warning in warnings)
+    assert any("docs/developers/" in warning for warning in warnings)
+    assert any("users/" in warning for warning in warnings)
+    assert any("developers/" in warning for warning in warnings)
+    assert any("语言: 简体中文" in warning for warning in warnings)
+    assert any("English Sphinx pages" in warning for warning in warnings)
+
+
+def test_collect_doc_warnings_scans_sphinx_source_migration_guards(tmp_path):
+    root = tmp_path
+    doc_path = root / "docs" / "sphinx" / "source" / "en" / "old.md"
+    doc_path.parent.mkdir(parents=True)
+    doc_path.write_text("See [Documentation](../../README.md).\n", encoding="utf-8")
+
+    warnings = doc_checks.collect_doc_warnings(root)
+
+    assert any("../../README.md" in warning for warning in warnings)
+
+
+def test_check_sphinx_source_migration_guards_accepts_current_doc_roles(tmp_path):
+    root = tmp_path
+    doc_path = root / "docs" / "sphinx" / "source" / "adr" / "README.md"
+    doc_path.parent.mkdir(parents=True)
+    content = """
+# ADR
+
+- {doc}`Documentation </index>`
+    - {doc}`仿真后端 </zh_CN/1-user_guide/2-simulation-backends>`
+- {doc}`ADR Index </adr/README>`
+"""
+
+    warnings = doc_checks.check_sphinx_source_migration_guards(content, doc_path, root)
+
+    assert warnings == []
 
 
 def test_check_adr_shape_requires_governance_fields(tmp_path):
     root = tmp_path
-    doc_path = root / "docs" / "developers" / "adr" / "ADR-9999-example.md"
+    doc_path = root / "docs" / "sphinx" / "source" / "adr" / "ADR-9999-example.md"
     doc_path.parent.mkdir(parents=True)
     content = "# ADR-9999 Example\n\n- Status: Accepted\n"
 
@@ -220,7 +326,7 @@ def test_check_adr_shape_requires_governance_fields(tmp_path):
 
 def test_check_adr_shape_accepts_template_contract(tmp_path):
     root = tmp_path
-    doc_path = root / "docs" / "developers" / "adr" / "ADR-9999-example.md"
+    doc_path = root / "docs" / "sphinx" / "source" / "adr" / "ADR-9999-example.md"
     doc_path.parent.mkdir(parents=True)
     content = """
 # ADR-9999 Example

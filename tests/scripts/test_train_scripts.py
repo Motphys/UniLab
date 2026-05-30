@@ -316,6 +316,7 @@ def test_offpolicy_hydra_default_play_flags():
     cfg = _offpolicy_cfg()
     assert cfg.training.play_only is False
     assert cfg.training.no_play is False
+    assert cfg.training.export_onnx is True
     assert cfg.algo.load_run == "-1"
 
 
@@ -971,6 +972,18 @@ def test_g1_motion_tracking_appo_task_exposes_final_reward():
     assert cfg.reward.scales.motion_body_pos == pytest.approx(1.0)
 
 
+def test_sharpa_appo_motrix_owner_uses_backend_specific_overrides():
+    cfg = _appo_cfg(["task=sharpa_inhand/motrix"])
+
+    assert cfg.training.task_name == "SharpaInhandRotation"
+    assert cfg.training.sim_backend == "motrix"
+    assert cfg.algo.num_envs == 2048
+    assert cfg.env.sim_dt == pytest.approx(0.01)
+    assert cfg.env.domain_rand.randomize_gravity is True
+    assert cfg.env.domain_rand.randomize_gravity_direction is False
+    assert cfg.env.domain_rand.randomize_pd_gains is True
+
+
 # ---------------------------------------------------------------------------
 # train_appo.py — motrix runner / play helpers
 # ---------------------------------------------------------------------------
@@ -1264,6 +1277,262 @@ def test_offpolicy_extract_play_obs_uses_obs_group_only():
 
     assert play_obs.shape == (2, 98)
     assert np.allclose(play_obs, 1.0)
+
+
+def test_offpolicy_play_actor_spec_uses_hora_sac_runtime():
+    cfg = _offpolicy_cfg(
+        [
+            "algo=sac",
+            "task=sac/sharpa_inhand/mujoco_hora",
+        ]
+    )
+
+    actor_algo_type, actor_kwargs = _offpolicy().resolve_play_actor_spec(
+        "sac",
+        cfg,
+        obs_dim=4,
+        critic_obs_dim=6,
+    )
+
+    assert actor_algo_type == "hora_sac"
+    assert actor_kwargs["priv_info_dim"] == 2
+
+
+def test_play_offpolicy_can_skip_onnx_export_and_still_record_video(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+):
+    import torch
+
+    mod = _offpolicy()
+    cfg = _offpolicy_cfg(
+        [
+            "algo=sac",
+            "task=sac/g1_walk_flat/mujoco",
+            "training.play_only=true",
+            "training.play_render_mode=record",
+            "training.export_onnx=false",
+        ]
+    )
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    checkpoint = run_dir / "model_5000.pt"
+    torch.save({"actor": {}}, checkpoint)
+
+    captured: dict[str, Any] = {}
+
+    class FakeActor:
+        def eval(self):
+            return self
+
+        def load_state_dict(self, state_dict):
+            captured["loaded_state_dict"] = state_dict
+
+        def as_export_module(self):
+            raise AssertionError("ONNX export should be skipped when training.export_onnx=false")
+
+        def explore(self, obs, deterministic=True):
+            captured["deterministic"] = deterministic
+            return torch.zeros((obs.shape[0], 2), dtype=obs.dtype, device=obs.device)
+
+    class FakeEnv:
+        def __init__(self):
+            self.obs_groups_spec = {"obs": 4}
+            self.action_space = type("ActionSpace", (), {"shape": (2,)})()
+            self.state = None
+
+        def init_state(self):
+            self.state = type(
+                "State",
+                (),
+                {"obs": {"obs": np.zeros((cfg.training.play_env_num, 4), dtype=np.float32)}},
+            )()
+
+        def reset(self, env_ids):
+            batch = len(env_ids)
+            return ({"obs": np.zeros((batch, 4), dtype=np.float32)}, {})
+
+        def step(self, actions):
+            batch = actions.shape[0]
+            self.state = type(
+                "State",
+                (),
+                {"obs": {"obs": np.ones((batch, 4), dtype=np.float32)}},
+            )()
+            captured["actions_shape"] = actions.shape
+            return self.state
+
+        def run_playback_mode(self, **kwargs):
+            captured["play_render_mode"] = kwargs["play_render_mode"]
+            captured["output_video"] = kwargs["output_video"]
+            init_obs = kwargs["initialize"]()
+            captured["init_obs_shape"] = init_obs.shape
+            next_obs = kwargs["step"](init_obs)
+            captured["next_obs_shape"] = next_obs.shape
+            return str(kwargs["output_video"])
+
+    monkeypatch.setattr(mod, "build_offpolicy_env_cfg_override", lambda algo_name, cfg: {})
+    monkeypatch.setattr(mod, "default_device", lambda torch_module, preferred=None: "cpu")
+    monkeypatch.setattr(mod, "create_env", lambda *args, **kwargs: FakeEnv())
+    monkeypatch.setattr(mod, "resolve_play_obs_dim", lambda obs_groups_spec: 4)
+    monkeypatch.setattr(mod, "extract_play_obs", lambda obs_dict: obs_dict["obs"])
+    monkeypatch.setattr(
+        mod,
+        "resolve_checkpoint_path",
+        lambda *args, **kwargs: (str(checkpoint), str(run_dir)),
+    )
+    monkeypatch.setattr(
+        torch.onnx,
+        "export",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("torch.onnx.export should not be called when training.export_onnx=false")
+        ),
+    )
+
+    import unilab.algos.torch.common.actor_factory as actor_factory
+
+    monkeypatch.setattr(actor_factory, "build_actor", lambda *args, **kwargs: FakeActor())
+
+    result = mod.play_offpolicy("sac", cfg)
+    out = capsys.readouterr().out
+
+    assert result == str(run_dir / "play_video.mp4")
+    assert captured["loaded_state_dict"] == {}
+    assert captured["play_render_mode"] == "record"
+    assert captured["actions_shape"] == (cfg.training.play_env_num, 2)
+    assert captured["init_obs_shape"] == (cfg.training.play_env_num, 4)
+    assert captured["next_obs_shape"] == (cfg.training.play_env_num, 4)
+    assert captured["deterministic"] is True
+    assert "Skipping ONNX export because training.export_onnx=false." in out
+    assert not (run_dir / "policy.onnx").exists()
+
+
+def test_play_offpolicy_uses_hora_sac_actor_and_priv_info(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    import torch
+
+    mod = _offpolicy()
+    cfg = _offpolicy_cfg(
+        [
+            "algo=sac",
+            "task=sac/sharpa_inhand/mujoco_hora",
+            "training.play_only=true",
+            "training.play_render_mode=record",
+            "training.export_onnx=false",
+            "training.play_env_num=2",
+        ]
+    )
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    checkpoint = run_dir / "model_5000.pt"
+    torch.save({"actor": {}}, checkpoint)
+
+    captured: dict[str, Any] = {}
+    reset_priv = np.array([[4.0, 5.0], [6.0, 7.0]], dtype=np.float32)
+    step_priv = np.array([[8.0, 9.0], [10.0, 11.0]], dtype=np.float32)
+
+    class FakeHoraActor:
+        def eval(self):
+            return self
+
+        def load_state_dict(self, state_dict):
+            captured["loaded_state_dict"] = state_dict
+
+        def explore(self, obs, priv_info, deterministic=True):
+            captured["obs_shape"] = tuple(obs.shape)
+            captured["priv_info"] = priv_info.detach().cpu().numpy()
+            captured["deterministic"] = deterministic
+            return torch.zeros((obs.shape[0], 2), dtype=obs.dtype, device=obs.device)
+
+    class FakeEnv:
+        def __init__(self):
+            self.obs_groups_spec = {"obs": 3, "critic": 5}
+            self.action_space = type("ActionSpace", (), {"shape": (2,)})()
+            self.state = None
+
+        def init_state(self):
+            self.state = type(
+                "State",
+                (),
+                {
+                    "obs": {
+                        "obs": np.zeros((cfg.training.play_env_num, 3), dtype=np.float32),
+                        "critic": np.zeros((cfg.training.play_env_num, 5), dtype=np.float32),
+                    },
+                    "info": {"critic_info": reset_priv},
+                },
+            )()
+
+        def reset(self, env_ids):
+            batch = len(env_ids)
+            return (
+                {
+                    "obs": np.zeros((batch, 3), dtype=np.float32),
+                    "critic": np.concatenate(
+                        [np.zeros((batch, 3), dtype=np.float32), reset_priv],
+                        axis=1,
+                    ),
+                },
+                {"critic_info": reset_priv},
+            )
+
+        def step(self, actions):
+            batch = actions.shape[0]
+            captured["actions_shape"] = actions.shape
+            self.state = type(
+                "State",
+                (),
+                {
+                    "obs": {
+                        "obs": np.ones((batch, 3), dtype=np.float32),
+                        "critic": np.concatenate(
+                            [np.ones((batch, 3), dtype=np.float32), step_priv],
+                            axis=1,
+                        ),
+                    },
+                    "info": {"critic_info": step_priv},
+                },
+            )()
+            return self.state
+
+        def run_playback_mode(self, **kwargs):
+            init_obs = kwargs["initialize"]()
+            captured["init_obs_shape"] = init_obs.shape
+            next_obs = kwargs["step"](init_obs)
+            captured["next_obs_shape"] = next_obs.shape
+            return str(kwargs["output_video"])
+
+    monkeypatch.setattr(mod, "build_offpolicy_env_cfg_override", lambda algo_name, cfg: {})
+    monkeypatch.setattr(mod, "default_device", lambda torch_module, preferred=None: "cpu")
+    monkeypatch.setattr(mod, "create_env", lambda *args, **kwargs: FakeEnv())
+    monkeypatch.setattr(
+        mod,
+        "resolve_checkpoint_path",
+        lambda *args, **kwargs: (str(checkpoint), str(run_dir)),
+    )
+
+    import unilab.algos.torch.common.actor_factory as actor_factory
+
+    def fake_build_actor(algo_type, obs_dim, action_dim, hidden_dim, use_layer_norm, device, **kw):
+        captured["build_actor"] = (algo_type, obs_dim, action_dim, kw)
+        return FakeHoraActor()
+
+    monkeypatch.setattr(actor_factory, "build_actor", fake_build_actor)
+
+    result = mod.play_offpolicy("sac", cfg)
+
+    assert result == str(run_dir / "play_video.mp4")
+    assert captured["build_actor"][0] == "hora_sac"
+    assert captured["build_actor"][1:3] == (3, 2)
+    assert captured["build_actor"][3]["priv_info_dim"] == 2
+    assert captured["loaded_state_dict"] == {}
+    assert captured["actions_shape"] == (cfg.training.play_env_num, 2)
+    assert captured["init_obs_shape"] == (cfg.training.play_env_num, 3)
+    assert captured["next_obs_shape"] == (cfg.training.play_env_num, 3)
+    assert captured["obs_shape"] == (cfg.training.play_env_num, 3)
+    np.testing.assert_allclose(captured["priv_info"], reset_priv)
+    assert captured["deterministic"] is True
+    assert not (run_dir / "policy.onnx").exists()
 
 
 # ---------------------------------------------------------------------------

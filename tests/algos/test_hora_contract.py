@@ -253,6 +253,29 @@ def test_hora_appo_learner_uses_one_shared_actor_critic_core() -> None:
     assert learner.actor.shared is learner.critic.shared
 
 
+def test_hora_appo_minibatch_tensor_path_matches_tensordict_forward() -> None:
+    torch.manual_seed(29)
+    learner = _make_hora_appo_learner()
+    actor_obs = torch.randn(6, 5)
+    priv_info = torch.randn(6, 2)
+    critic_obs = torch.cat([actor_obs, priv_info], dim=-1)
+    obs_td = TensorDict(
+        {"actor": actor_obs, "priv_info": priv_info},
+        batch_size=actor_obs.shape[0],
+    )
+
+    with torch.inference_mode():
+        learner.actor(obs_td, stochastic_output=True)
+        expected_mean = learner.actor.output_mean.clone()
+        expected_std = learner.actor.output_std.clone()
+        expected_value = learner.critic(obs_td).squeeze(-1)
+        mean, std, value = learner._minibatch_policy_value(actor_obs, critic_obs)
+
+    torch.testing.assert_close(mean, expected_mean)
+    torch.testing.assert_close(std, expected_std)
+    torch.testing.assert_close(value, expected_value)
+
+
 def test_hora_appo_runner_builds_shared_actor_critic_core() -> None:
     from unilab.algos.torch.hora.appo_runner import HoraAPPORunner
 

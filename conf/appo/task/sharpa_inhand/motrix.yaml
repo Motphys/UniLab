@@ -1,0 +1,18 @@
+# @package _global_
+defaults:
+  - /task/sharpa_inhand/mujoco
+  - _self_
+
+training:
+  task_name: SharpaInhandRotation
+  sim_backend: motrix
+
+algo:
+  num_envs: 2048
+
+env:
+  sim_dt: 0.01
+  domain_rand:
+    randomize_gravity: true
+    randomize_gravity_direction: false
+    randomize_pd_gains: true

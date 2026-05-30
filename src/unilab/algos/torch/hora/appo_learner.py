@@ -7,6 +7,7 @@ from tensordict import TensorDict
 
 from unilab.algos.torch.appo.learner import (
     APPOLearner,
+    _distribution_std,
     _sample_tensor_for_metric,
     vtrace_advantages,
 )
@@ -47,6 +48,30 @@ def _derive_priv_info_from_critic(
 
 class HoraAPPOLearner(APPOLearner):
     """APPO learner variant for HORA grouped observations."""
+
+    def _minibatch_policy_value(
+        self,
+        obs_mini: torch.Tensor,
+        critic_obs_mini: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        priv_info = _derive_priv_info_from_critic(
+            obs_mini,
+            critic_obs_mini,
+            context="minibatch update",
+        )
+        shared_actor = self.actor.shared
+        mean = shared_actor.policy_mean_from_tensors(
+            obs_mini,
+            priv_info,
+            prefer_student=self.actor.prefer_student,
+        )
+        std = _distribution_std(shared_actor.distribution, mean)
+        value = self.critic.shared.value_from_tensors(
+            obs_mini,
+            priv_info,
+            prefer_student=False,
+        ).squeeze(-1)
+        return mean, std, value
 
     def process_batch(self, batch_dict):
         """Compute V-trace targets for grouped HORA rollouts."""
@@ -94,7 +119,6 @@ class HoraAPPOLearner(APPOLearner):
             self.critic.update_normalization(critic_last_obs_td)
 
         batch_dict["_critic_obs_flat"] = critic_obs_flat
-        batch_dict["_critic_obs_td"] = critic_obs_td
 
         with torch.inference_mode():
             values_flat = self.critic(critic_obs_td)
@@ -134,10 +158,5 @@ class HoraAPPOLearner(APPOLearner):
         batch_dict["advantages"] = advantages
         batch_dict["returns"] = vs
         batch_dict["target_log_probs"] = target_log_probs
-        batch_dict["_obs_td"] = obs_td
 
         return batch_dict
-
-    def update(self, batch_dict):
-        """Perform APPO update using the shared actor/critic implementation."""
-        return super().update(batch_dict)

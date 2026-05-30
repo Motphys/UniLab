@@ -8,6 +8,7 @@ import subprocess
 import sys
 import types
 
+import numpy as np
 import pytest
 
 pytestmark = pytest.mark.skipif(
@@ -82,3 +83,26 @@ def test_egl_runtime_usable_returns_false_on_probe_failure(monkeypatch) -> None:
     monkeypatch.setattr(render_many.subprocess, "run", _fake_run)
 
     assert render_many._egl_runtime_usable() is False
+
+
+def test_offset_freejoint_object_qpos_handles_arbitrary_object_body(monkeypatch) -> None:
+    render_many = _reload_render_many(monkeypatch)
+
+    model = types.SimpleNamespace(
+        nbody=4,
+        body_jntadr=np.array([-1, 0, 1, -1], dtype=np.int32),
+        body_jntnum=np.array([0, 1, 1, 0], dtype=np.int32),
+        jnt_type=np.array([0, 0], dtype=np.int32),
+        jnt_qposadr=np.array([0, 7], dtype=np.int32),
+    )
+    data = types.SimpleNamespace(qpos=np.zeros((14,), dtype=np.float32))
+
+    shifted = render_many._offset_freejoint_object_qpos(
+        model, data, np.array([1.5, -2.0], dtype=np.float32)
+    )
+
+    assert shifted == {2}
+    assert data.qpos[0] == pytest.approx(0.0)
+    assert data.qpos[1] == pytest.approx(0.0)
+    assert data.qpos[7] == pytest.approx(1.5)
+    assert data.qpos[8] == pytest.approx(-2.0)

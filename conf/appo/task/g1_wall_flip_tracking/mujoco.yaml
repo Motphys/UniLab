@@ -3,21 +3,69 @@ training:
   task_name: G1WallFlipTracking
   sim_backend: mujoco
   play_steps: 1000
+  replay_queue_size: 5
 algo:
   num_envs: 1024
-  max_iterations: 5000
+  steps_per_env: 20
+  max_iterations: 7000
   save_interval: 500
+  algorithm:
+    entropy_coef: 0.005
+    num_learning_epochs: 6
+    num_mini_batches: 8
+    desired_kl: 0.008
+env:
+  sampling_mode: start
+  truncate_on_clip_end: true
+  sim_dt: 0.005
+  control_config:
+    action_scale:
+      - 0.5475464629911068
+      - 0.35066146637882434
+      - 0.5475464629911068
+      - 0.35066146637882434
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.5475464629911068
+      - 0.35066146637882434
+      - 0.5475464629911068
+      - 0.35066146637882434
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.5475464629911068
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.07450087032950714
+      - 0.07450087032950714
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.07450087032950714
+      - 0.07450087032950714
+  anchor_pos_z_threshold: 0.5
+  ee_body_pos_z_threshold: 0.5
+  terminate_on_undesired_contacts: true
+  noise_config:
+    level: 0.0
 reward:
   scales:
     motion_global_root_pos: 0.5
     motion_global_root_ori: 0.5
-    motion_body_pos: 1.0
-    motion_body_ori: 1.0
+    motion_body_pos: 2.0
+    motion_body_ori: 1.5
     motion_body_lin_vel: 1.0
     motion_body_ang_vel: 1.0
+    motion_ee_body_pos_z: 2.0
     motion_joint_pos: 0.0
     motion_joint_vel: 0.0
-    action_rate_l2: -0.1
+    action_rate_l2: -0.005
     joint_limit: -10.0
   std_root_pos: 0.3
   std_root_ori: 0.4

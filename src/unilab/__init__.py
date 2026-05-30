@@ -1,9 +1,7 @@
 """UniLab package initialization."""
 
-import os
-
-from etils import epath
+from pathlib import Path
 
 __version__ = "0.0.0"
 
-ROOT_PATH = epath.Path(__file__).parent
+ROOT_PATH = Path(__file__).resolve().parent

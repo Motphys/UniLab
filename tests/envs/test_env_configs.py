@@ -423,21 +423,17 @@ def test_allegro_grasp_obs_groups_spec_dims():
     assert spec == {"obs": 105}
 
 
-def test_g1_motion_tracking_uses_split_body_pose_queries():
-    """G1MotionTracking should query pos/quat via the stable split backend API."""
+def test_g1_motion_tracking_uses_combined_body_pose_query():
+    """G1MotionTracking should query pos/quat via the stable combined backend API."""
     from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
 
     class FakeBackend:
         def __init__(self) -> None:
-            self.calls: list[tuple[str, np.ndarray]] = []
+            self.calls: list[np.ndarray] = []
 
-        def get_body_pos_w(self, body_ids: np.ndarray) -> np.ndarray:
-            self.calls.append(("pos", body_ids.copy()))
-            return np.ones((2, len(body_ids), 3))
-
-        def get_body_quat_w(self, body_ids: np.ndarray) -> np.ndarray:
-            self.calls.append(("quat", body_ids.copy()))
-            return np.ones((2, len(body_ids), 4))
+        def get_body_pose_w(self, body_ids: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+            self.calls.append(body_ids.copy())
+            return np.ones((2, len(body_ids), 3)), np.ones((2, len(body_ids), 4))
 
     env = cast(Any, object.__new__(G1MotionTrackingEnv))
     env._backend = FakeBackend()
@@ -447,9 +443,8 @@ def test_g1_motion_tracking_uses_split_body_pose_queries():
 
     assert pos_w.shape == (2, 2, 3)
     assert quat_w.shape == (2, 2, 4)
-    assert [name for name, _ in env._backend.calls] == ["pos", "quat"]
-    np.testing.assert_array_equal(env._backend.calls[0][1], np.array([1, 3], dtype=np.int32))
-    np.testing.assert_array_equal(env._backend.calls[1][1], np.array([1, 3], dtype=np.int32))
+    assert len(env._backend.calls) == 1
+    np.testing.assert_array_equal(env._backend.calls[0], np.array([1, 3], dtype=np.int32))
 
 
 def _compute_g1_motion_tracking_obs_stub(env_cls: type):
@@ -458,6 +453,8 @@ def _compute_g1_motion_tracking_obs_stub(env_cls: type):
     env = cast(Any, object.__new__(env_cls))
     env._num_envs = 1
     env._num_action = 2
+    env._n_motion_bodies = 2
+    env._critic_obs_width = env._critic_base_obs_dim(env._num_action) + env._n_motion_bodies * 9
     env._cfg = SimpleNamespace(
         noise_config=SimpleNamespace(
             level=1.0,
@@ -470,6 +467,15 @@ def _compute_g1_motion_tracking_obs_stub(env_cls: type):
     )
     env.default_angles = np.array([[0.5, -0.5]], dtype=np.float32)
     env.anchor_body_idx = 0
+    env._motion_anchor_pos_b = np.empty((1, 3), dtype=np.float32)
+    env._motion_anchor_ori_b = np.empty((1, 6), dtype=np.float32)
+    env._motion_command = np.empty((1, 4), dtype=np.float32)
+    env._joint_pos_rel = np.empty((1, 2), dtype=np.float32)
+    env._body_vec_error = np.empty((1, 2, 3), dtype=np.float32)
+    env._body_vec_tmp = np.empty((1, 2, 3), dtype=np.float32)
+    env._quat_error_w = np.empty((1, 2), dtype=np.float32)
+    env._quat_error_x = np.empty((1, 2), dtype=np.float32)
+    env._zero_actions = np.zeros((1, 2), dtype=np.float32)
     env._obs_noise = lambda data, scale: np.asarray(data + 100.0, dtype=np.float32)
 
     motion_data = MotionData(
@@ -538,6 +544,282 @@ def test_g1_motion_tracking_critic_uses_clean_beyondmimic_aligned_terms():
     )
 
 
+def test_g1_motion_tracking_anchor_frame_writers_match_reference():
+    from unilab.envs.common.rotation import (
+        np_matrix_from_quat,
+        np_quat_apply,
+        np_quat_inv,
+        np_quat_mul,
+    )
+    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
+
+    rng = np.random.default_rng(123)
+    num_envs = 4
+    num_bodies = 5
+    dtype = np.float64
+
+    def random_quat(shape: tuple[int, ...]) -> np.ndarray:
+        quat = rng.normal(size=(*shape, 4)).astype(dtype)
+        quat /= np.linalg.norm(quat, axis=-1, keepdims=True)
+        return quat
+
+    anchor_pos = rng.normal(size=(num_envs, 3)).astype(dtype)
+    anchor_quat = random_quat((num_envs,))
+    body_pos = rng.normal(size=(num_envs, num_bodies, 3)).astype(dtype)
+    body_quat = random_quat((num_envs, num_bodies))
+
+    env = cast(Any, object.__new__(G1MotionTrackingEnv))
+    env._body_vec_error = np.empty((num_envs, num_bodies, 3), dtype=dtype)
+    env._body_vec_tmp = np.empty((num_envs, num_bodies, 3), dtype=dtype)
+    env._quat_error_w = np.empty((num_envs, num_bodies), dtype=dtype)
+    env._quat_error_x = np.empty((num_envs, num_bodies), dtype=dtype)
+
+    pos_out = np.empty((num_envs, num_bodies, 3), dtype=dtype)
+    ori_out = np.empty((num_envs, num_bodies, 6), dtype=dtype)
+
+    env._write_body_pos_in_anchor_frame(anchor_pos, anchor_quat, body_pos, pos_out)
+    env._write_body_ori6_in_anchor_frame(anchor_quat, body_quat, ori_out)
+
+    anchor_quat_inv = np_quat_inv(anchor_quat)
+    tiled_anchor_quat_inv = np.repeat(anchor_quat_inv, num_bodies, axis=0)
+    rel_pos_flat = (body_pos - anchor_pos[:, None, :]).reshape(num_envs * num_bodies, 3)
+    ref_pos = np_quat_apply(tiled_anchor_quat_inv, rel_pos_flat).reshape(num_envs, num_bodies, 3)
+    ref_quat = np_quat_mul(
+        tiled_anchor_quat_inv,
+        body_quat.reshape(num_envs * num_bodies, 4),
+    )
+    ref_ori = np_matrix_from_quat(ref_quat)[:, :, :2].reshape(num_envs, num_bodies, 6)
+
+    np.testing.assert_allclose(pos_out, ref_pos, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(ori_out, ref_ori, rtol=1e-12, atol=1e-12)
+
+
+def test_g1_motion_tracking_relative_transform_fast_path_matches_reference():
+    from unilab.envs.common.rotation import np_quat_apply, np_quat_inv, np_quat_mul, np_yaw_quat
+    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
+
+    rng = np.random.default_rng(321)
+    num_envs = 4
+    num_bodies = 5
+    anchor_idx = 2
+    dtype = np.float64
+
+    def random_quat(shape: tuple[int, ...]) -> np.ndarray:
+        quat = rng.normal(size=(*shape, 4)).astype(dtype)
+        quat /= np.linalg.norm(quat, axis=-1, keepdims=True)
+        return quat
+
+    motion_data = SimpleNamespace(
+        body_pos_w=rng.normal(size=(num_envs, num_bodies, 3)).astype(dtype),
+        body_quat_w=random_quat((num_envs, num_bodies)),
+    )
+    robot_body_pos_w = rng.normal(size=(num_envs, num_bodies, 3)).astype(dtype)
+    robot_body_quat_w = random_quat((num_envs, num_bodies))
+
+    env = cast(Any, object.__new__(G1MotionTrackingEnv))
+    env.anchor_body_idx = anchor_idx
+    env.body_pos_relative_w = np.empty((num_envs, num_bodies, 3), dtype=dtype)
+    env.body_quat_relative_w = np.empty((num_envs, num_bodies, 4), dtype=dtype)
+    env._delta_pos_w = np.empty((num_envs, 3), dtype=dtype)
+    env._delta_ori_w = np.empty((num_envs, 4), dtype=dtype)
+    env._body_vec_error = np.empty((num_envs, num_bodies, 3), dtype=dtype)
+    env._env_error = np.empty((num_envs,), dtype=dtype)
+    env._reward_term = np.empty((num_envs,), dtype=dtype)
+
+    env._update_relative_transforms(motion_data, robot_body_pos_w, robot_body_quat_w)
+
+    anchor_pos_w = motion_data.body_pos_w[:, anchor_idx]
+    anchor_quat_w = motion_data.body_quat_w[:, anchor_idx]
+    robot_anchor_pos_w = robot_body_pos_w[:, anchor_idx]
+    robot_anchor_quat_w = robot_body_quat_w[:, anchor_idx]
+    delta_pos_w = robot_anchor_pos_w.copy()
+    delta_pos_w[:, 2] = anchor_pos_w[:, 2]
+    delta_ori_w = np_yaw_quat(np_quat_mul(robot_anchor_quat_w, np_quat_inv(anchor_quat_w)))
+    delta_ori_tiled = np.tile(delta_ori_w, (1, num_bodies)).reshape(num_envs * num_bodies, 4)
+    expected_quat = np_quat_mul(
+        delta_ori_tiled,
+        motion_data.body_quat_w.reshape(num_envs * num_bodies, 4),
+    ).reshape(num_envs, num_bodies, 4)
+    rel_pos_flat = (motion_data.body_pos_w - anchor_pos_w[:, None, :]).reshape(
+        num_envs * num_bodies, 3
+    )
+    expected_pos = delta_pos_w[:, None, :] + np_quat_apply(delta_ori_tiled, rel_pos_flat).reshape(
+        num_envs, num_bodies, 3
+    )
+
+    np.testing.assert_allclose(env.body_pos_relative_w, expected_pos, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(env.body_quat_relative_w, expected_quat, rtol=1e-12, atol=1e-12)
+
+
+def test_g1_motion_tracking_reward_fast_path_matches_reference():
+    from unilab.envs.common.rotation import np_quat_error_magnitude
+    from unilab.envs.motion_tracking.g1.motion_loader import MotionData
+    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv, RewardConfig
+
+    rng = np.random.default_rng(456)
+    num_envs = 3
+    num_bodies = 4
+    num_actions = 2
+    anchor_idx = 1
+    ee_indices = np.array([2, 3], dtype=np.int32)
+    undesired_indices = np.array([0, 1], dtype=np.int32)
+    dtype = np.float64
+
+    def random_quat(shape: tuple[int, ...]) -> np.ndarray:
+        quat = rng.normal(size=(*shape, 4)).astype(dtype)
+        quat /= np.linalg.norm(quat, axis=-1, keepdims=True)
+        return quat
+
+    reward_config = RewardConfig()
+    reward_config.scales = {
+        "motion_global_root_pos": 0.5,
+        "motion_global_root_ori": 0.25,
+        "motion_body_pos": 1.0,
+        "motion_body_ori": 0.75,
+        "motion_body_lin_vel": 0.4,
+        "motion_body_ang_vel": 0.3,
+        "motion_ee_body_pos_z": 0.2,
+        "motion_joint_pos": 0.6,
+        "motion_joint_vel": 0.7,
+        "action_rate_l2": -0.1,
+        "joint_limit": -0.2,
+        "undesired_contacts": -0.3,
+    }
+    ctrl_dt = 0.02
+    contact_threshold = 0.05
+
+    motion_data = MotionData(
+        joint_pos=rng.normal(size=(num_envs, num_actions)).astype(dtype),
+        joint_vel=rng.normal(size=(num_envs, num_actions)).astype(dtype),
+        body_pos_w=rng.normal(size=(num_envs, num_bodies, 3)).astype(dtype),
+        body_quat_w=random_quat((num_envs, num_bodies)),
+        body_lin_vel_w=rng.normal(size=(num_envs, num_bodies, 3)).astype(dtype),
+        body_ang_vel_w=rng.normal(size=(num_envs, num_bodies, 3)).astype(dtype),
+    )
+    robot_body_pos_w = rng.normal(size=(num_envs, num_bodies, 3)).astype(dtype)
+    robot_body_pos_w[:, undesired_indices, 2] = np.array(
+        [[0.01, 0.10], [0.20, 0.02], [0.07, 0.03]], dtype=dtype
+    )
+    robot_body_quat_w = random_quat((num_envs, num_bodies))
+    robot_body_lin_vel_w = rng.normal(size=(num_envs, num_bodies, 3)).astype(dtype)
+    robot_body_ang_vel_w = rng.normal(size=(num_envs, num_bodies, 3)).astype(dtype)
+    dof_pos = rng.normal(size=(num_envs, num_actions)).astype(dtype)
+    dof_vel = rng.normal(size=(num_envs, num_actions)).astype(dtype)
+    current_actions = rng.normal(size=(num_envs, num_actions)).astype(dtype)
+    last_actions = rng.normal(size=(num_envs, num_actions)).astype(dtype)
+    body_pos_relative_w = rng.normal(size=(num_envs, num_bodies, 3)).astype(dtype)
+    body_quat_relative_w = random_quat((num_envs, num_bodies))
+    joint_lower = np.array([-0.2, -0.1], dtype=dtype)
+    joint_upper = np.array([0.1, 0.2], dtype=dtype)
+
+    env = cast(Any, object.__new__(G1MotionTrackingEnv))
+    env._num_envs = num_envs
+    env.anchor_body_idx = anchor_idx
+    env.ee_body_indices = ee_indices
+    env.undesired_contact_body_indices = undesired_indices
+    env._has_ee_body_indices = True
+    env._has_undesired_contact_body_indices = True
+    env._cfg = SimpleNamespace(
+        reward_config=reward_config,
+        ctrl_dt=ctrl_dt,
+        undesired_contact_z_threshold=contact_threshold,
+    )
+    env.body_pos_relative_w = body_pos_relative_w.copy()
+    env.body_quat_relative_w = body_quat_relative_w.copy()
+    env._joint_lower = joint_lower
+    env._joint_upper = joint_upper
+    env._body_vec_error = np.empty((num_envs, num_bodies, 3), dtype=dtype)
+    env._joint_error = np.empty((num_envs, num_actions), dtype=dtype)
+    env._joint_error_upper = np.empty((num_envs, num_actions), dtype=dtype)
+    env._env_error = np.empty((num_envs,), dtype=dtype)
+    env._env_error2 = np.empty((num_envs,), dtype=dtype)
+    env._reward_term = np.empty((num_envs,), dtype=dtype)
+    env._weighted_reward = np.empty((num_envs,), dtype=dtype)
+    env._quat_error_w = np.empty((num_envs, num_bodies), dtype=dtype)
+    env._quat_error_x = np.empty((num_envs, num_bodies), dtype=dtype)
+    env._ee_pos_error_z = np.empty((num_envs, ee_indices.size), dtype=dtype)
+    env._undesired_contact_mask = np.empty((num_envs, undesired_indices.size), dtype=bool)
+    env._enable_reward_log = False
+    env._init_reward_functions()
+    env._active_reward_fns = {
+        name: fn for name, fn in env._reward_fns.items() if env._reward_term_is_active(name)
+    }
+
+    info = {
+        "current_actions": current_actions,
+        "last_actions": last_actions,
+        "steps": np.zeros((num_envs,), dtype=np.uint32),
+    }
+    actual = env._compute_reward(
+        info,
+        motion_data,
+        robot_body_pos_w,
+        robot_body_quat_w,
+        robot_body_lin_vel_w,
+        robot_body_ang_vel_w,
+        dof_pos,
+        dof_vel,
+    ).copy()
+
+    cfg = reward_config
+    expected = np.zeros((num_envs,), dtype=dtype)
+    root_pos_error = np.sum(
+        np.square(motion_data.body_pos_w[:, anchor_idx] - robot_body_pos_w[:, anchor_idx]),
+        axis=-1,
+    )
+    expected += cfg.scales["motion_global_root_pos"] * np.exp(-root_pos_error / cfg.std_root_pos**2)
+    root_ori_error = (
+        np_quat_error_magnitude(
+            motion_data.body_quat_w[:, anchor_idx],
+            robot_body_quat_w[:, anchor_idx],
+        )
+        ** 2
+    )
+    expected += cfg.scales["motion_global_root_ori"] * np.exp(-root_ori_error / cfg.std_root_ori**2)
+    body_pos_error = np.sum(np.square(body_pos_relative_w - robot_body_pos_w), axis=-1)
+    expected += cfg.scales["motion_body_pos"] * np.exp(
+        -body_pos_error.mean(-1) / cfg.std_body_pos**2
+    )
+    body_ori_error = np_quat_error_magnitude(
+        body_quat_relative_w.reshape(num_envs * num_bodies, 4),
+        robot_body_quat_w.reshape(num_envs * num_bodies, 4),
+    ).reshape(num_envs, num_bodies)
+    expected += cfg.scales["motion_body_ori"] * np.exp(
+        -np.square(body_ori_error).mean(-1) / cfg.std_body_ori**2
+    )
+    body_lin_error = np.sum(np.square(motion_data.body_lin_vel_w - robot_body_lin_vel_w), axis=-1)
+    expected += cfg.scales["motion_body_lin_vel"] * np.exp(
+        -body_lin_error.mean(-1) / cfg.std_body_lin_vel**2
+    )
+    body_ang_error = np.sum(np.square(motion_data.body_ang_vel_w - robot_body_ang_vel_w), axis=-1)
+    expected += cfg.scales["motion_body_ang_vel"] * np.exp(
+        -body_ang_error.mean(-1) / cfg.std_body_ang_vel**2
+    )
+    ee_error = np.square(body_pos_relative_w[:, ee_indices, 2] - robot_body_pos_w[:, ee_indices, 2])
+    expected += cfg.scales["motion_ee_body_pos_z"] * np.exp(
+        -ee_error.mean(-1) / cfg.std_body_pos**2
+    )
+    joint_pos_error = np.mean(np.square(motion_data.joint_pos - dof_pos), axis=-1)
+    expected += cfg.scales["motion_joint_pos"] * np.exp(-joint_pos_error / cfg.std_joint_pos**2)
+    joint_vel_error = np.mean(np.square(motion_data.joint_vel - dof_vel), axis=-1)
+    expected += cfg.scales["motion_joint_vel"] * np.exp(-joint_vel_error / cfg.std_joint_vel**2)
+    expected += cfg.scales["action_rate_l2"] * np.sum(
+        np.square(current_actions - last_actions), axis=1
+    )
+    lower_violation = np.maximum(0, joint_lower - dof_pos)
+    upper_violation = np.maximum(0, dof_pos - joint_upper)
+    expected += cfg.scales["joint_limit"] * np.sum(
+        np.square(lower_violation + upper_violation), axis=1
+    )
+    expected += cfg.scales["undesired_contacts"] * np.sum(
+        robot_body_pos_w[:, undesired_indices, 2] < contact_threshold,
+        axis=-1,
+    )
+    expected *= ctrl_dt
+
+    np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12)
+
+
 def test_g1_motion_tracking_deploy_actor_matches_unitree_mimic_terms():
     from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingDeployEnv
 
@@ -600,6 +882,8 @@ def _compute_g1_box_tracking_obs_stub():
     env = cast(Any, object.__new__(G1BoxTrackingEnv))
     env._num_envs = 1
     env._num_action = 2
+    env._n_motion_bodies = 2
+    env._critic_obs_width = env._critic_base_obs_dim(env._num_action) + env._n_motion_bodies * 9
     env._cfg = SimpleNamespace(
         noise_config=SimpleNamespace(
             level=1.0,
@@ -613,6 +897,12 @@ def _compute_g1_box_tracking_obs_stub():
     env.default_angles = np.array([[0.5, -0.5]], dtype=np.float32)
     env.anchor_body_idx = 0
     env._object_body_ids = np.array([7], dtype=np.int32)
+    env._motion_anchor_pos_b = np.empty((1, 3), dtype=np.float32)
+    env._motion_anchor_ori_b = np.empty((1, 6), dtype=np.float32)
+    env._motion_command = np.empty((1, 4), dtype=np.float32)
+    env._joint_pos_rel = np.empty((1, 2), dtype=np.float32)
+    env._body_vec_error = np.empty((1, 2, 3), dtype=np.float32)
+    env._zero_actions = np.zeros((1, 2), dtype=np.float32)
     env._obs_noise = lambda data, scale: np.asarray(data + 100.0, dtype=np.float32)
 
     class FakeBackend:
@@ -685,6 +975,8 @@ def test_g1_box_tracking_critic_object_state_respects_subset_env_order():
     env = cast(Any, object.__new__(G1BoxTrackingEnv))
     env._num_envs = 4
     env._num_action = 2
+    env._n_motion_bodies = 2
+    env._critic_obs_width = env._critic_base_obs_dim(env._num_action) + env._n_motion_bodies * 9
     env.anchor_body_idx = 0
     env._object_body_ids = np.array([7], dtype=np.int32)
     env._cfg = SimpleNamespace(
@@ -698,6 +990,7 @@ def test_g1_box_tracking_critic_object_state_respects_subset_env_order():
         body_names=("pelvis", "torso_link"),
     )
     env.default_angles = np.zeros((2,), dtype=np.float32)
+    env._body_vec_error = np.empty((4, 2, 3), dtype=np.float32)
     env._obs_noise = lambda data, scale: np.asarray(data, dtype=np.float32)
 
     class FakeBackend:
@@ -784,7 +1077,15 @@ def test_g1_motion_tracking_can_terminate_on_undesired_contacts():
     env._num_envs = 2
     env.anchor_body_idx = 0
     env.ee_body_indices = np.array([1], dtype=np.int32)
+    env._has_ee_body_indices = True
     env.undesired_contact_body_indices = np.array([2], dtype=np.int32)
+    env._has_undesired_contact_body_indices = True
+    env._terminated = np.empty((2,), dtype=bool)
+    env._env_bool = np.empty((2,), dtype=bool)
+    env._env_error = np.empty((2,), dtype=np.float32)
+    env._ee_pos_error_z = np.empty((2, 1), dtype=np.float32)
+    env._ee_terminated = np.empty((2, 1), dtype=bool)
+    env._undesired_contact_mask = np.empty((2, 1), dtype=bool)
     env.body_pos_relative_w = np.array(
         [
             [[0.0, 0.0, 1.0], [0.0, 0.0, 0.8], [0.0, 0.0, 0.8]],
@@ -854,6 +1155,19 @@ def test_g1_motion_tracking_init_delegates_motion_body_ids_to_backend(monkeypatc
             calls["motion_body_ids_names"] = names
             return np.array([1, 2], dtype=np.int32)
 
+        def copy_body_state_w(
+            self,
+            body_ids: np.ndarray,
+            out_pos: np.ndarray,
+            out_quat: np.ndarray,
+            out_lin_vel: np.ndarray,
+            out_ang_vel: np.ndarray,
+        ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+            return out_pos, out_quat, out_lin_vel, out_ang_vel
+
+        def get_joint_range(self) -> None:
+            return None
+
     def fake_base_init(self, cfg, backend, num_envs):
         self._cfg = cfg
         self._backend = backend
@@ -867,8 +1181,14 @@ def test_g1_motion_tracking_init_delegates_motion_body_ids_to_backend(monkeypatc
             calls["motion_loader"] = (motion_file, body_indices.copy())
 
     class FakeMotionSampler:
-        def __init__(self, motion_loader: Any, mode: str, num_envs: int):
-            calls["motion_sampler"] = (motion_loader, mode, num_envs)
+        def __init__(
+            self,
+            motion_loader: Any,
+            mode: str,
+            num_envs: int,
+            start_ratio: float = 0.0,
+        ):
+            calls["motion_sampler"] = (motion_loader, mode, num_envs, start_ratio)
 
     fake_backend = FakeBackend()
     monkeypatch.setattr(tracking_module, "create_backend", lambda *args, **kwargs: fake_backend)
@@ -883,7 +1203,10 @@ def test_g1_motion_tracking_init_delegates_motion_body_ids_to_backend(monkeypatc
     monkeypatch.setattr(
         G1MotionTrackingEnv,
         "_init_reward_functions",
-        lambda self: calls.setdefault("reward_init", True),
+        lambda self: (
+            calls.setdefault("reward_init", True),
+            setattr(self, "_reward_fns", {}),
+        ),
     )
 
     cfg = G1MotionTrackingCfg(
@@ -898,7 +1221,7 @@ def test_g1_motion_tracking_init_delegates_motion_body_ids_to_backend(monkeypatc
     assert calls["motion_body_ids_names"] == cfg.body_names
     assert calls["motion_loader"][0] == "dummy_motion.npz"
     np.testing.assert_array_equal(calls["motion_loader"][1], np.array([1, 2], dtype=np.int32))
-    assert calls["motion_sampler"][1:] == ("adaptive", 4)
+    assert calls["motion_sampler"][1:] == ("adaptive", 4, cfg.sampling_start_ratio)
     assert calls["dr_provider"] == "G1MotionTrackingDomainRandomizationProvider"
     assert calls["reward_init"] is True
 
@@ -1057,6 +1380,31 @@ def _make_g1_motion_tracking_clip_end_stub(
         def get_body_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
             return np.zeros((2, len(body_ids), 3), dtype=np.float32)
 
+        def get_body_pos_w(self, body_ids: np.ndarray) -> np.ndarray:
+            return np.zeros((2, len(body_ids), 3), dtype=np.float32)
+
+        def get_body_quat_w(self, body_ids: np.ndarray) -> np.ndarray:
+            return np.tile(
+                np.array([[[1.0, 0.0, 0.0, 0.0]]], dtype=np.float32),
+                (2, len(body_ids), 1),
+            )
+
+        def get_body_pose_w(self, body_ids: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+            return self.get_body_pos_w(body_ids), self.get_body_quat_w(body_ids)
+
+        def get_body_pose_w_rows(
+            self, env_ids: np.ndarray, body_ids: np.ndarray
+        ) -> tuple[np.ndarray, np.ndarray]:
+            rows = np.asarray(env_ids, dtype=np.intp)
+            return self.get_body_pos_w(body_ids)[rows], self.get_body_quat_w(body_ids)[rows]
+
+        def get_sensor_data_rows(self, name: str, env_ids: np.ndarray) -> np.ndarray:
+            del name
+            return np.zeros((len(env_ids), 3), dtype=np.float32)
+
+        def get_body_vel_w(self, body_ids: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+            return self.get_body_lin_vel_w(body_ids), self.get_body_ang_vel_w(body_ids)
+
         def set_state(self, env_ids: np.ndarray, qpos: np.ndarray, qvel: np.ndarray) -> None:
             self.set_state_calls.append((env_ids.copy(), qpos.copy(), qvel.copy()))
 
@@ -1122,6 +1470,7 @@ def _make_g1_motion_tracking_clip_end_stub(
     env._cfg = SimpleNamespace(
         max_episode_steps=None,
         truncate_on_clip_end=truncate_on_clip_end,
+        sensor=SimpleNamespace(local_linvel="local_linvel", gyro="gyro"),
         pose_randomization=zero_pose,
         velocity_randomization=zero_pose,
         joint_position_range=(0.0, 0.0),
@@ -1130,7 +1479,10 @@ def _make_g1_motion_tracking_clip_end_stub(
     env._backend = FakeBackend()
     env.motion_sampler = FakeSampler()
     env.motion_loader = FakeMotionLoader()
+    env._motion_data_buffer = None
+    env._copy_body_state_w = None
     env._clip_end_truncated = np.zeros((2,), dtype=bool)
+    env._env_bool = np.empty((2,), dtype=bool)
     env._init_qpos = np.zeros((9,), dtype=np.float32)
     env._init_qvel = np.zeros((8,), dtype=np.float32)
     env.get_local_linvel = lambda: np.zeros((2, 3), dtype=np.float32)

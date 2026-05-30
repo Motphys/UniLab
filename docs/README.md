@@ -1,52 +1,39 @@
 # UniLab Documentation
 
-本页是 UniLab 文档总入口。文档按角色、信息层次和速查场景分层组织。
+UniLab 的全部文档源码统一在 [`docs/sphinx/`](sphinx/) 下,通过 Sphinx 构建,部署到
+<https://unilabsim.github.io/UniLab-doc/>。
 
-## 设计原则
+发布入口:
 
-- 单个文件只讲一个主题，不把安装、训练、算法、任务、设计讨论混在一起
-- 用户文档和 developer 文档严格分层，默认先服务用户运行与速查
-- 算法、机器人任务、专题场景分别建独立文件，避免大而全页面
-- 目录结构预留双语扩展：后续英文文档按同一层级镜像
-- agent / 速查场景需要最短路由，优先给出角色化入口
+- Project page: <https://unilabsim.github.io>
+- Paper: <https://arxiv.org/abs/2605.30313>
+- Documentation: <https://unilabsim.github.io/UniLab-doc/>
 
-## 用户入口
+文档采用**双语平行结构**:`source/en/` 是英文版,`source/zh_CN/` 是中文版,
+`source/adr/`、`source/api_reference/`、`source/glossary.md`、`source/changelog.md` 在两种语言间共享。
 
-先跑起来，再按主题深入。
+## 入口
 
-1. [01 快速开始](users/zh_CN/01-getting-started.md)
-2. [02 仿真后端](users/zh_CN/02-simulation-backends.md)
-3. [03 训练指南](users/zh_CN/03-training.md)
-4. [04 算法说明](users/zh_CN/04-algorithms.md)
-5. [05 域随机化](users/zh_CN/05-domain-randomization.md)
+| 内容 | 路径 |
+|------|------|
+| 英文用户指南 | [`docs/sphinx/source/en/2-user_guide/`](sphinx/source/en/2-user_guide/) |
+| 中文用户指南 | [`docs/sphinx/source/zh_CN/1-user_guide/`](sphinx/source/zh_CN/1-user_guide/) |
+| 英文 Developer 指南 | [`docs/sphinx/source/en/4-developer_guide/`](sphinx/source/en/4-developer_guide/) |
+| 中文 Developer 指南 | [`docs/sphinx/source/zh_CN/2-developer_guide/`](sphinx/source/zh_CN/2-developer_guide/) |
+| 英文 Deployment(sim-to-real / sim-to-sim) | [`docs/sphinx/source/en/3-deployment/`](sphinx/source/en/3-deployment/) |
+| 中文 Agent 速查 | [`docs/sphinx/source/zh_CN/3-agents/`](sphinx/source/zh_CN/3-agents/) |
+| ADR(共享,中文为主) | [`docs/sphinx/source/adr/`](sphinx/source/adr/) |
+| API Reference(autodoc,英文) | [`docs/sphinx/source/api_reference/`](sphinx/source/api_reference/) |
+| 术语表 | [`docs/sphinx/source/glossary.md`](sphinx/source/glossary.md) |
 
-专题和速查入口：
+## 本地构建
 
-- [A 安装与环境](users/zh_CN/A-getting-started/01-install.md)
-- [B 训练分专题](users/zh_CN/B-training/01-unified-cli.md)
-- [C 算法分专题](users/zh_CN/C-algorithms/01-ppo-torch.md)
-- [D 任务索引](users/zh_CN/D-tasks/01-task-index.md)
-- [E 后端支持矩阵](users/zh_CN/E-reference/01-backend-support-matrix.md)
-- [术语表](glossary.md)
+```bash
+cd docs/sphinx
+uv pip install -r requirements.txt
+make html        # 一次性构建
+make live        # sphinx-autobuild,自动 reload
+```
 
-## Developer 入口
-
-默认入口只放正式规范和协作基线；设计草案与调查笔记归档在补充目录。
-
-1. [CONTRIBUTING.md](../CONTRIBUTING.md)
-2. [RL Infrastructure 开发标准](developers/zh_CN/development-standard.md)
-3. [协作流程](developers/zh_CN/collaboration.md)
-4. [Domain Randomization Contract](developers/zh_CN/domain-randomization-contract.md)
-5. [ADR 索引](developers/adr/ADR-0000-index.md)
-
-补充资料：
-
-- [Motrix Contact Sensor 适配笔记](developers/zh_CN/motrix-contact-sensor-notes.md)
-- [SceneCfg 与场景组合设计](developers/zh_CN/scene-composition-design.md)
-
-## Agent / 速查入口
-
-面向需要快速定位命令、任务入口和规范边界的 agent 或维护者。
-
-1. [Agent 速查](agents/zh_CN/01-agent-quick-reference.md)
-2. [AGENTS.md](../AGENTS.md)
+详细构建与部署流程见 [`docs/sphinx/README.md`](sphinx/README.md)。
+Agent 写文档时应遵守的规则见 [`docs/sphinx/AGENTS.md`](sphinx/AGENTS.md)。

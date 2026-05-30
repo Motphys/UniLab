@@ -12,6 +12,7 @@ import numpy as np
 import torch
 from rsl_rl.utils import resolve_callable
 
+from unilab.algos.torch.appo.worker import put_latest_metrics
 from unilab.base.final_observation import resolve_terminal_observation_contract
 from unilab.base.registry import ensure_registries
 from unilab.training.seed import apply_training_seed
@@ -377,9 +378,12 @@ def hora_appo_collector_fn(
                                 k: statistics.mean(v) for k, v in ep_reward_components.items() if v
                             }
                             ep_reward_components.clear()
-                        metrics_queue.put_nowait(msg)
+                        put_latest_metrics(metrics_queue, msg, worker_name="HoraAPPOWorker")
                     except Exception as e:
-                        print(f"[HoraAPPOWorker] metrics enqueue error: {e}", file=sys.stderr)
+                        print(
+                            f"[HoraAPPOWorker] metrics build error: {type(e).__name__}: {e}",
+                            file=sys.stderr,
+                        )
 
                 obs_np = next_actor_obs_np
                 critic_np = next_critic_np

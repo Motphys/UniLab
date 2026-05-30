@@ -322,7 +322,9 @@ class G1WBTObsEnv(G1MotionTrackingSACEnv):
         last_actions = info.get("last_actions")
         if last_actions is None:
             return np.zeros((self._num_envs,), dtype=get_global_dtype())
-        target_q = last_actions * self._cfg.control_config.action_scale + self.default_angles
+        target_q = (
+            last_actions * self._cfg.control_config.action_scale + self._effective_default_angles()
+        )
         torque = self._base_kp * (target_q - dof_pos) - self._base_kd * dof_vel
         return np.asarray(np.sum(np.square(torque), axis=1), dtype=get_global_dtype())
 

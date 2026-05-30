@@ -41,6 +41,22 @@ except ImportError:
     sys.exit(1)
 
 
+def _patch_runner_action_std_logging(runner: Any) -> None:
+    original_log = runner.logger.log
+
+    def _safe_log(self, *args, **kwargs):
+        policy = runner.alg.get_policy()
+        dist = policy.distribution
+        if dist.std_type == "scalar":
+            std = dist.std_param
+        else:
+            std = torch.exp(dist.log_std_param)
+        kwargs["action_std"] = std.detach().clone()
+        return original_log(*args, **kwargs)
+
+    runner.logger.log = _safe_log.__get__(runner.logger, type(runner.logger))
+
+
 def _backend_adapter(cfg: DictConfig) -> BackendAdapter:
     return BackendAdapter(
         cfg,
@@ -103,6 +119,19 @@ def _resolve_ppo_wrapper_cls(rl_cfg: dict[str, Any]) -> type[RslRlVecEnvWrapper]
         rl_cfg,
         default_wrapper_cls=RslRlVecEnvWrapper,
     ).wrapper_cls
+
+
+def apply_ppo_runtime_flags(
+    train_cfg: dict[str, Any],
+    cfg: DictConfig,
+    *,
+    training_enabled: bool,
+) -> None:
+    algorithm_cfg = train_cfg.setdefault("algorithm", {})
+    if not isinstance(algorithm_cfg, dict):
+        return
+    if not training_enabled:
+        algorithm_cfg["enable_compile"] = False
 
 
 def _format_play_checkpoint_error(
@@ -184,6 +213,7 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     )
     wrapped_env = wrapper_cls(env, device=device)
     train_cfg = normalize_ppo_train_cfg(rl_cfg)
+    apply_ppo_runtime_flags(train_cfg, cfg, training_enabled=False)
     if "runner" not in train_cfg:
         train_cfg["runner"] = {}
     train_cfg["runner"]["logger"] = "none"
@@ -317,6 +347,7 @@ def main(cfg: DictConfig) -> None:
             wrapped_env = wrapper_cls(env, device=device)
 
             train_cfg = normalize_ppo_train_cfg(rl_cfg)
+            apply_ppo_runtime_flags(train_cfg, cfg, training_enabled=True)
             if "runner" not in train_cfg:
                 train_cfg["runner"] = {}
 
@@ -341,6 +372,7 @@ def main(cfg: DictConfig) -> None:
                 Any,
                 OnPolicyRunner(cast(Any, wrapped_env), train_cfg, log_dir=log_dir, device=device),
             )
+            _patch_runner_action_std_logging(runner)
 
             if cfg.algo.load_run != "-1":
                 resume_path, _ = parse_checkpoint_path(cfg, root_dir=ROOT_DIR)

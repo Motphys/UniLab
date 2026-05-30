@@ -453,7 +453,6 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                     for k, v in critic_metrics.items():
                         iter_metrics[k].append(v)
 
-                    actor_updated = False
                     if update_idx % self.policy_frequency == 0:
                         _actor_ns = time.perf_counter_ns()
                         actor_metrics = learner.update_actor(batch)
@@ -467,14 +466,9 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                             )
                         for k, v in actor_metrics.items():
                             iter_metrics[k].append(v)
-                        actor_updated = True
 
                     _target_ns = time.perf_counter_ns()
-                    if self.algo_type == "td3":
-                        if actor_updated:
-                            learner.soft_update_target()
-                    else:
-                        learner.soft_update_target()
+                    learner.soft_update_target()
                     if trace_recorder:
                         trace_recorder.add_slice(
                             "learner/soft_update_target",

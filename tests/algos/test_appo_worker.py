@@ -1,9 +1,13 @@
 from __future__ import annotations
 
-import numpy as np
-import torch
+import queue
 
-from unilab.algos.torch.appo.worker import compute_timeout_bootstrap_correction
+import numpy as np
+
+from unilab.algos.torch.appo.worker import (
+    compute_timeout_bootstrap_correction,
+    put_latest_metrics,
+)
 
 
 class _FakeCritic:
@@ -36,3 +40,14 @@ def test_compute_timeout_bootstrap_correction_prefers_explicit_final_critic():
     )
 
     np.testing.assert_allclose(correction, np.array([12.0, 0.0], dtype=np.float32))
+
+
+def test_put_latest_metrics_replaces_stale_item_when_queue_is_full(capsys):
+    metrics_queue = queue.Queue(maxsize=1)
+    metrics_queue.put_nowait({"total_steps": 1})
+
+    put_latest_metrics(metrics_queue, {"total_steps": 2}, worker_name="APPOWorker")
+
+    assert metrics_queue.get_nowait() == {"total_steps": 2}
+    captured = capsys.readouterr()
+    assert captured.err == ""

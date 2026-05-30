@@ -145,7 +145,13 @@ class _FakeMotrixModel:
         return None
 
     def get_link_poses(self, data: Any) -> np.ndarray:
-        return np.asarray([[[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]]], dtype=np.float64)
+        num_envs = int(getattr(data, "num_envs", 1))
+        pose = np.asarray([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0], dtype=np.float64)
+        return np.broadcast_to(pose, (num_envs, self.num_links, 7)).copy()
+
+    def get_link_velocities(self, data: Any) -> np.ndarray:
+        num_envs = int(getattr(data, "num_envs", 1))
+        return np.zeros((num_envs, self.num_links, 6), dtype=np.float32)
 
     def get_gravity_override(self, data: Any) -> np.ndarray:
         num_envs = int(getattr(data, "num_envs", 1))
@@ -277,6 +283,49 @@ def test_motrix_backend_dr_capabilities_include_pd_gains_when_overrides_availabl
     assert RESET_TERM_GEOM_FRICTION in caps.supported_reset_terms
     assert RESET_TERM_GRAVITY in caps.supported_reset_terms
     assert caps.supports_interval_body_force
+
+
+def test_motrix_backend_uses_cached_batch_link_velocities() -> None:
+    import unilab.base.backend.motrix.backend as mod
+
+    backend = object.__new__(mod.MotrixBackend)
+    backend._link_velocities = np.arange(2 * 3 * 6, dtype=np.float32).reshape(2, 3, 6)
+    backend._link_velocity_cache_valid = True
+
+    body_ids = np.asarray([2, 0], dtype=np.int32)
+
+    np.testing.assert_allclose(
+        backend._get_link_lin_vel_w(body_ids),
+        backend._link_velocities[:, body_ids, :3],
+    )
+    np.testing.assert_allclose(
+        backend._get_link_ang_vel_w(body_ids),
+        backend._link_velocities[:, body_ids, 3:],
+    )
+
+    lin_vel, ang_vel = backend.get_body_vel_w(body_ids)
+    np.testing.assert_allclose(lin_vel, backend._link_velocities[:, body_ids, :3])
+    np.testing.assert_allclose(ang_vel, backend._link_velocities[:, body_ids, 3:])
+
+
+def test_motrix_backend_get_body_pose_w_slices_cached_poses_once() -> None:
+    import unilab.base.backend.motrix.backend as mod
+
+    backend = object.__new__(mod.MotrixBackend)
+    backend._link_poses = np.asarray(
+        [
+            [
+                [1.0, 2.0, 3.0, 0.1, 0.2, 0.3, 0.4],
+                [4.0, 5.0, 6.0, 0.5, 0.6, 0.7, 0.8],
+            ]
+        ],
+        dtype=np.float32,
+    )
+
+    pos, quat = backend.get_body_pose_w(np.asarray([1], dtype=np.int32))
+
+    np.testing.assert_allclose(pos, [[[4.0, 5.0, 6.0]]])
+    np.testing.assert_allclose(quat, [[[0.8, 0.5, 0.6, 0.7]]])
 
 
 def test_motrix_backend_applies_init_geom_size_overrides(monkeypatch, tmp_path) -> None:

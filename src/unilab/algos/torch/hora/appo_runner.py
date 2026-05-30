@@ -197,6 +197,7 @@ class HoraAPPORunner(APPORunner):
             target_update_freq=algo_cfg.get("target_update_freq", 1),
             vtrace_clip_rho=algo_cfg.get("vtrace_clip_rho", 1.0),
             vtrace_clip_c=algo_cfg.get("vtrace_clip_c", 1.0),
+            enable_compile=algo_cfg.get("enable_compile", True),
         )
 
     def _collector_fn(self, stop_event, **kwargs):

@@ -4,5 +4,5 @@ contact_links:
     url: https://github.com/unilabsim/UniLab/blob/main/CONTRIBUTING.md
     about: Review the contributing workflow before opening a task or bug.
   - name: Collaboration Workflow
-    url: https://github.com/unilabsim/UniLab/blob/main/docs/developers/zh_CN/collaboration.md
+    url: https://github.com/unilabsim/UniLab/blob/main/docs/sphinx/source/zh_CN/2-developer_guide/2-collaboration.md
     about: See how UniLab tracks work across issues, milestones, and PRs.

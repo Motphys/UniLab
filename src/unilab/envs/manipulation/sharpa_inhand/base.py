@@ -197,7 +197,7 @@ class SharpaInhandBaseCfg(EnvCfg):
 
     rot_axis: tuple[float, float, float] = (0.0, 0.0, 1.0)
 
-    grasp_cache_path: str = "cache/sharpa_grasp_linspace"
+    grasp_cache_path: str = str(ASSETS_ROOT_PATH / "caches" / "sharpa_grasp_linspace")
     disable_tactile_ids: list[int] = field(default_factory=list)
     # Match the reference Sharpa object-position reward/privileged-info anchor
     # by using the fixed XML/default object pose instead of the sampled grasp reset.

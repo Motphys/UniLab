@@ -203,6 +203,58 @@ class HoraSharedActorCritic(nn.Module):
             privileged_target=privileged_target,
         )
 
+    def trunk_latent_from_tensors(
+        self,
+        actor_obs: torch.Tensor,
+        priv_info: torch.Tensor | None,
+        *,
+        prefer_student: bool,
+        proprio_hist: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Tensor-only HORA trunk path used by APPO compiled minibatch loss."""
+        policy_obs = self._normalize_actor_obs(actor_obs)
+        if prefer_student and self.adapt_tconv is not None and proprio_hist is not None:
+            privileged_latent = self.encode_proprio_history(proprio_hist)
+        elif priv_info is not None:
+            privileged_latent = self.encode_privileged_info(priv_info)
+        else:
+            privileged_latent = self._zero_privileged_latent(
+                actor_obs.shape[0], actor_obs.device, actor_obs.dtype
+            )
+        return self.trunk(torch.cat([policy_obs, privileged_latent], dim=-1))
+
+    def policy_mean_from_tensors(
+        self,
+        actor_obs: torch.Tensor,
+        priv_info: torch.Tensor | None,
+        *,
+        prefer_student: bool,
+        proprio_hist: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        trunk_latent = self.trunk_latent_from_tensors(
+            actor_obs,
+            priv_info,
+            prefer_student=prefer_student,
+            proprio_hist=proprio_hist,
+        )
+        return self.mu_head(trunk_latent)
+
+    def value_from_tensors(
+        self,
+        actor_obs: torch.Tensor,
+        priv_info: torch.Tensor | None,
+        *,
+        prefer_student: bool,
+        proprio_hist: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        trunk_latent = self.trunk_latent_from_tensors(
+            actor_obs,
+            priv_info,
+            prefer_student=prefer_student,
+            proprio_hist=proprio_hist,
+        )
+        return self.value_head(trunk_latent)
+
     def policy_mean(
         self, obs: TensorDict, *, prefer_student: bool
     ) -> tuple[torch.Tensor, HoraCoreOutput]:

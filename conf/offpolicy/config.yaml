@@ -17,10 +17,11 @@ training:
   wandb_mode: null
   sim_backend: mujoco
   num_gpus: 1
-  use_amp: false
+  use_amp: true
   play_only: false
   no_play: false
   play_render_mode: auto
+  export_onnx: true
   play_env_num: 16
   play_steps: 800
   cam_distance: 6.0
