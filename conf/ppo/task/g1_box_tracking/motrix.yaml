@@ -2,7 +2,7 @@
 training:
   task_name: G1BoxTracking
   sim_backend: motrix
-  play_env_num: 128
+  play_env_num: 16
   play_steps: 1000
 algo:
   num_envs: 1024

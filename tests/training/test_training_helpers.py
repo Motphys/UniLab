@@ -230,7 +230,7 @@ def test_backend_adapter_env_cfg_override_for_motrix_sac_g1_walk_flat():
 
 def test_backend_adapter_builds_play_scene_override():
     cfg = _ppo_cfg(["task=g1_motion_tracking/motrix", "training.play_only=true"])
-    assert cfg.training.play_env_num == 128
+    assert cfg.training.play_env_num == 16
     captured: dict[str, object] = {}
 
     def _fake_materializer(source_model_file: str, **kwargs) -> str:
@@ -245,7 +245,7 @@ def test_backend_adapter_builds_play_scene_override():
         scene_materializer=_fake_materializer,
     ).build_play_env_cfg_override()
 
-    assert cfg.training.play_env_num == 128
+    assert cfg.training.play_env_num == 16
     assert env_cfg_override["render_spacing"] == pytest.approx(2.5)
     assert env_cfg_override["scene"].model_file == "/tmp/g1_motion_tracking_play_scene.xml"
     assert captured["ground_texture_file"] == str(
