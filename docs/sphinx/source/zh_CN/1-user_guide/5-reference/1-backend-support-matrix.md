@@ -53,7 +53,7 @@ uv run scripts/generate_support_matrix.py --write
 | PPO (torch) | `g1_climb_tracking` (g1 climb tracking) | Tested | Tested |
 | PPO (torch) | `g1_motion_tracking_deploy` (g1 motion tracking deploy) | Tested | Tested |
 | PPO (torch) | `go1_joystick_rough` (go1 joystick rough) | Tested | Tested |
-| PPO (torch) | `go2_arm_manip_loco` (go2 arm manip loco) | Tested | - |
+| PPO (torch) | `go2_arm_manip_loco` (go2 arm manip loco) | Tested | Tested |
 | PPO (torch) | `go2_handstand` (go2 handstand) | Tested | Tested |
 | PPO (torch) | `go2w_joystick_flat` (go2w joystick flat) | Tested | Tested |
 | PPO (torch) | `go2w_joystick_rough` (go2w joystick rough) | Tested | Tested |
@@ -72,7 +72,7 @@ uv run scripts/generate_support_matrix.py --write
 | PPO (mlx) | `g1_climb_tracking` (g1 climb tracking) | Configured | Configured |
 | PPO (mlx) | `g1_motion_tracking_deploy` (g1 motion tracking deploy) | Configured | Configured |
 | PPO (mlx) | `go1_joystick_rough` (go1 joystick rough) | Configured | Configured |
-| PPO (mlx) | `go2_arm_manip_loco` (go2 arm manip loco) | Configured | - |
+| PPO (mlx) | `go2_arm_manip_loco` (go2 arm manip loco) | Configured | Configured |
 | PPO (mlx) | `go2_handstand` (go2 handstand) | Configured | Configured |
 | PPO (mlx) | `go2w_joystick_flat` (go2w joystick flat) | Configured | Configured |
 | PPO (mlx) | `go2w_joystick_rough` (go2w joystick rough) | Configured | Configured |

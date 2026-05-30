@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import mlx.core as mx
 
 
 class EmpiricalNormalization:
     """Normalize features using running mean/std over batch axis."""
 
-    def __init__(self, shape: int, eps: float = 1e-2, dtype=mx.float32) -> None:
+    def __init__(self, shape: int, eps: float = 1e-2, dtype: Any | None = None) -> None:
         self.eps = float(eps)
-        self.dtype = dtype
+        self.dtype = mx.float32 if dtype is None else dtype
         self.mean = mx.zeros((1, shape), dtype=self.dtype)
         self.var = mx.ones((1, shape), dtype=self.dtype)
         self.std = mx.ones((1, shape), dtype=self.dtype)
@@ -39,9 +41,9 @@ class EmpiricalNormalization:
 class EmpiricalDiscountedVariationNormalization:
     """Reward normalization with running std of discounted returns."""
 
-    def __init__(self, eps: float = 1e-2, gamma: float = 0.99, dtype=mx.float32) -> None:
-        self.dtype = dtype
-        self.emp_norm = EmpiricalNormalization(shape=1, eps=eps, dtype=dtype)
+    def __init__(self, eps: float = 1e-2, gamma: float = 0.99, dtype: Any | None = None) -> None:
+        self.dtype = mx.float32 if dtype is None else dtype
+        self.emp_norm = EmpiricalNormalization(shape=1, eps=eps, dtype=self.dtype)
         self.gamma = float(gamma)
         self.avg: mx.array | None = None
 
