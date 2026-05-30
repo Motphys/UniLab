@@ -70,11 +70,17 @@ uv run demo dance --refresh
 uv run demo dance --device cpu
 ```
 
-可用 demo 名：`dance`、`wallflip`、`boxtracking`、`locomani`、`inhandgrasp`。
+可用 demo 名：`teaser`、`dance`、`wallflip`、`boxtracking`、`locomani`、`inhandgrasp`。
 首次运行时从 `unilabsim/unilab-checkpoints` Hugging Face dataset 拉取预训练
 checkpoint，落盘到 `src/unilab/assets/checkpoints/<demo>/model_0.pt`，再启动
 交互式回放（motrix 任务走 `train_rsl_rl.py --play_only`，mujoco 任务走
 `scripts/play_interactive.py`）。`--refresh` 强制重新下载。
+
+> 面向大陆用户：若 `huggingface.co` 不可达，运行 demo 前切换到社区镜像：
+>
+> ```bash
+> export HF_ENDPOINT=https://hf-mirror.com
+> ```
 
 ## 规则
 

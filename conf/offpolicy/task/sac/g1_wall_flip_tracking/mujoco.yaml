@@ -1,32 +1,4 @@
 # @package _global_
-# G1 wall-assisted flip tracking with FastSAC on MuJoCo — task
-# ``g1_wall_flip_tracking``.
-#
-# Migrates the PPO wall-flip motion
-# (``conf/ppo/task/g1_wall_flip_tracking/mujoco.yaml``) into the SAC pipeline,
-# same split as g1_flip_tracking: algo block from the WBT-SAC profile,
-# env / reward block from the wall-flip task.
-#
-# Train command:
-#   uv run train --algo sac --task g1_wall_flip_tracking --sim mujoco training.use_amp=true
-#
-# task_name binds to ``G1WallFlipTrackingSAC`` (see
-# ``src/unilab/envs/motion_tracking/g1/flip_tracking_sac.py``). The wall scene
-# (``scene_flat_with_wall.xml``) and motion clip come from the cfg default.
-#
-# Key changes from initial migration (compared to PPO wall-flip):
-#   1. sampling_mode: uniform — RSI (Reference State Initialization) gives the
-#      buffer transitions from ALL phases of the flip; ``start`` creates a
-#      frontier problem where SAC never sees post-launch transitions.
-#   2. alpha_init: 0.005 / target_entropy_ratio: 0.0 — the original 0.1/0.5
-#      produced an entropy bonus ~20x larger than the tracking reward, drowning
-#      the dense motion-tracking signal and saturating the C51 support range.
-#   3. truncate_on_clip_end: true — gives the Q-function clean episode
-#      boundaries instead of reward discontinuities at clip resamples.
-#   4. Termination nearly disabled (anchor/ee thresholds → 1e9, contacts off)
-#      — during high-dynamic phases even small deviations produce >0.8 m
-#      errors; tight thresholds kill RSI-spawned episodes in 1-2 steps,
-#      leaving the buffer with uninformative micro-transitions.
 training:
   task_name: G1WallFlipTrackingSAC
   sim_backend: mujoco

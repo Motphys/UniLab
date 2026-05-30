@@ -35,11 +35,19 @@ uv run train --algo ppo --task go2_joystick_flat --sim motrix
 uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1
 ```
 
-本地 demo：
+本地 demo（首次运行会从 Hugging Face 自动拉取预训练 checkpoint）：
 
 ```bash
-uv run demo
+uv run demo dance
 ```
+
+可用 demo 名：`teaser`、`dance`、`wallflip`、`boxtracking`、`locomani`、`inhandgrasp`。
+
+> 面向大陆用户：motion、scene 和 demo checkpoint 默认从 `huggingface.co` 拉取。如果官方端点不可达，可在运行 `train` / `eval` / `demo` 前切换到社区镜像：
+>
+> ```bash
+> export HF_ENDPOINT=https://hf-mirror.com
+> ```
 
 ## 去哪里找细节
 
