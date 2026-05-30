@@ -338,6 +338,86 @@ class MotrixBackend(SimBackend):
             ids.append(int(bid))
         return np.array(ids, dtype=np.int32)
 
+    def get_site_ids(self, names: Sequence[str]) -> np.ndarray:
+        ids: list[int] = []
+        for name in names:
+            sid = self._model.get_site_index(name)
+            if sid is None or sid < 0:
+                raise ValueError(f"Site '{name}' not found in Motrix model")
+            ids.append(int(sid))
+        return np.array(ids, dtype=np.int32)
+
+    def get_joint_dof_indices(self, names: Sequence[str]) -> np.ndarray:
+        indices: list[int] = []
+        for name in names:
+            joint = self._resolve_single_dof_joint(name)
+            indices.append(int(joint.dof_vel_index))
+        return np.array(indices, dtype=np.int32)
+
+    def get_joint_dof_pos_indices(self, names: Sequence[str]) -> np.ndarray:
+        indices: list[int] = []
+        for name in names:
+            joint = self._resolve_single_dof_joint(name)
+            indices.append(self._joint_dof_local_index(name, int(joint.dof_pos_index), pos=True))
+        return np.array(indices, dtype=np.int32)
+
+    def get_joint_dof_vel_indices(self, names: Sequence[str]) -> np.ndarray:
+        indices: list[int] = []
+        for name in names:
+            joint = self._resolve_single_dof_joint(name)
+            indices.append(self._joint_dof_local_index(name, int(joint.dof_vel_index), pos=False))
+        return np.array(indices, dtype=np.int32)
+
+    def get_site_jacobian_w(
+        self,
+        site_id: int,
+        dof_indices: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        sid = int(site_id)
+        if sid < 0 or sid >= int(self._model.num_sites):
+            raise ValueError(f"site_id out of range: {sid}")
+
+        site = self._model.sites[sid]
+        jac = np.asarray(site.get_jacobian(self._data), dtype=self._np_dtype)
+        if jac.ndim != 3 or jac.shape[0] != self._num_envs or jac.shape[1] != 6:
+            raise ValueError(
+                f"Motrix site Jacobian for site {sid} must have shape "
+                f"({self._num_envs}, 6, n), got {jac.shape}"
+            )
+
+        site_dof_indices = np.asarray(site.dof_vel_indices, dtype=np.int64).reshape(-1)
+        col_by_dof = {int(dof_index): col for col, dof_index in enumerate(site_dof_indices)}
+        requested = np.asarray(dof_indices, dtype=np.int64).reshape(-1)
+        cols: list[int] = []
+        for dof_index in requested:
+            key = int(dof_index)
+            if key not in col_by_dof:
+                raise ValueError(f"DoF index {key} is not present in site {sid} Jacobian")
+            cols.append(col_by_dof[key])
+
+        selected = jac[:, :, np.asarray(cols, dtype=np.intp)]
+        # Motrix returns angular rows first and linear rows second.
+        jacp = selected[:, 3:6, :]
+        jacr = selected[:, 0:3, :]
+        return jacp, jacr
+
+    def _resolve_single_dof_joint(self, name: str):
+        jid = self._model.get_joint_index(name)
+        if jid is None or jid < 0:
+            raise ValueError(f"Joint '{name}' not found in Motrix model")
+        joint = self._model.joints[int(jid)]
+        if int(getattr(joint, "num_dof_vel", 1)) != 1:
+            raise ValueError(f"Joint '{name}' is not a single-DoF joint")
+        return joint
+
+    def _joint_dof_local_index(self, name: str, model_index: int, *, pos: bool) -> int:
+        all_indices = self._joint_dof_pos_indices if pos else self._joint_dof_vel_indices
+        matches = np.flatnonzero(all_indices == int(model_index))
+        if matches.size != 1:
+            space = "qpos" if pos else "qvel"
+            raise ValueError(f"Joint '{name}' {space} index {model_index} is not in joint DoFs")
+        return int(matches[0])
+
     def get_geom_id(self, name: str) -> int:
         geom_id = self._model.get_geom_index(name)
         if geom_id is None or geom_id < 0:
