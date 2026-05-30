@@ -410,7 +410,7 @@ def test_appo_defaults():
         cfg = compose("config")
     assert cfg.algo.algo == "appo"
     assert cfg.algo.max_iterations == 150
-    assert cfg.algo.algorithm.enable_compile is True
+    assert cfg.algo.algorithm.enable_compile is False
 
 
 def test_appo_g1_task_overrides():
@@ -441,7 +441,7 @@ def test_ppo_go1_max_iterations():
         cfg = compose("config", overrides=["task=go1_joystick_flat/mujoco"])
     assert cfg.algo.max_iterations == 151
     assert "actor" in cfg.algo.obs_groups
-    assert cfg.algo.algorithm.enable_compile is True
+    assert cfg.algo.algorithm.enable_compile is False
 
 
 def test_ppo_compile_overrides():

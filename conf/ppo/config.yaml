@@ -48,7 +48,7 @@ algo:
     adaptive_lr_update_interval: 5
     metrics_interval: 8
     finite_check_interval: 8
-    enable_compile: true
+    enable_compile: false
     warmup_strict_iters: 10
     warmup_metrics_interval: 2
     warmup_finite_check_interval: 2
