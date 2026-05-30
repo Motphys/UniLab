@@ -40,6 +40,7 @@ class RewardConfig:
     tracking_sigma: float
     base_height_target: float
     target_foot_height: float = 0.1
+    knee_height_target: float = 0.08
 
 
 @dataclass
@@ -136,6 +137,7 @@ class Go2HandStandTask(Go2BaseEnv):
             cfg.sim_dt,
             base_name=cfg.asset.base_name,
             push_body_name=cfg.domain_rand.push_body_name,
+            add_body_sensors=bool(getattr(cfg, "add_body_sensors", False)),
             position_actuator_gains={"kp": cfg.control_config.Kp, "kd": cfg.control_config.Kd},
             motrix_max_iterations=cfg.motrix_max_iterations,
         )
@@ -143,7 +145,7 @@ class Go2HandStandTask(Go2BaseEnv):
         self._enable_reward_log = True
         self._reward_cfg = cfg.reward_config
         self._init_reward_functions()
-        self._init_domain_randomization(Go2HandStandDomainRandomizationProvider())
+        self._init_task_domain_randomization()
         self.phase = np.zeros((num_envs,), dtype=np.float32)
         self.feet_phase = np.zeros((num_envs, len(cfg.sensor.feet_force)), dtype=np.float32)
         # Initialize rear leg (RL, RR) phases with alternating values for gait
@@ -162,6 +164,9 @@ class Go2HandStandTask(Go2BaseEnv):
         self._joint_ids = [0, 1, 2, 3, 4, 5, 6, 9]
         self._tar_ids = [6, 7, 8, 9, 10, 11]
         self.target_angle = np.array([0, 1.82, -1.16, 0.0, 1.82, -1.16])
+
+    def _init_task_domain_randomization(self) -> None:
+        self._init_domain_randomization(Go2HandStandDomainRandomizationProvider())
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:

@@ -39,6 +39,7 @@ recommendation metadata, so rows do not auto-promote to `Benchmarked` or
 | PPO (torch) | `g1_motion_tracking_deploy` | Tested | Tested |
 | PPO (torch) | `go1_joystick_rough` | Tested | Tested |
 | PPO (torch) | `go2_arm_manip_loco` | Tested | - |
+| PPO (torch) | `go2_footstand` | Tested | - |
 | PPO (torch) | `go2_handstand` | Tested | Tested |
 | PPO (torch) | `go2w_joystick_flat` | Tested | Tested |
 | PPO (torch) | `go2w_joystick_rough` | Tested | Tested |
@@ -58,6 +59,7 @@ recommendation metadata, so rows do not auto-promote to `Benchmarked` or
 | PPO (mlx) | `g1_motion_tracking_deploy` | Configured | Configured |
 | PPO (mlx) | `go1_joystick_rough` | Configured | Configured |
 | PPO (mlx) | `go2_arm_manip_loco` | Configured | - |
+| PPO (mlx) | `go2_footstand` | Configured | - |
 | PPO (mlx) | `go2_handstand` | Configured | Configured |
 | PPO (mlx) | `go2w_joystick_flat` | Configured | Configured |
 | PPO (mlx) | `go2w_joystick_rough` | Configured | Configured |
