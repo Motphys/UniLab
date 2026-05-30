@@ -79,6 +79,13 @@ uv run eval --algo appo --task go2_joystick_flat --sim motrix --load-run -1 --re
 
 On macOS / MacBook, the UniLab CLI routes Motrix interactive playback through `mxpython` when needed. Motrix defaults to interactive playback; use `--render-mode record` for headless video export or `--render-mode none` to skip playback. Detailed script-level commands are in the [Training Guide](docs/sphinx/source/zh_CN/1-user_guide/3-training.md).
 
+The Go2Arm manipulation-locomotion PPO task also supports Motrix after installing the `motrix` extra:
+
+```bash
+uv run train --algo ppo --task go2_arm_manip_loco --sim motrix
+uv run eval --algo ppo --task go2_arm_manip_loco --sim motrix --load-run -1
+```
+
 <!-- On Linux AMD / ROCm workstations, `make sync-rocm` requires ROCm 7.1 or newer, installs the PyTorch ROCm 7.2 wheel (`torch==2.11.0+rocm7.2`), and activates the ROCm profile as the current `pyproject.toml` / `uv.lock` so regular `uv run ...` commands work after setup. Restore `pyproject.toml` / `uv.lock` from git to switch back to the default CUDA / macOS profile. -->
 
 <!-- On Linux Intel Arc / iGPU workstations, `make sync-xpu` installs the PyTorch XPU wheel (`torch==2.7.0+xpu`) which bundles the Intel oneAPI compiler/SYCL runtimes. The GPU userspace driver itself must come from the system package manager — on Ubuntu 24.04+ / 26.04 install `intel-opencl-icd` and `libze-intel-gpu1` (kernel 6.2+ ships the i915 driver). Use `uv run --no-sync ...` after the swap so `uv` does not resync the default Linux CUDA wheel. Off-policy training (`--algo sac` / `--algo flashsac`) supports bf16 mixed precision via `training.use_amp=true` on XPU; on-policy PPO does not need AMP. -->
@@ -100,6 +107,11 @@ uv run train --algo sac --task g1_walk_flat --sim mujoco
 
 ```bash
 uv run train --algo sac --task g1_motion_tracking --sim motrix
+```
+
+```bash
+uv run train --algo ppo --task go2_arm_manip_loco --sim motrix
+uv run eval --algo ppo --task go2_arm_manip_loco --sim motrix --load-run -1
 ```
 
 ```bash

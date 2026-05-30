@@ -192,6 +192,19 @@ def test_supported_task_composes(
     _assert_reward_populated(cfg, task_file)
 
 
+def test_ppo_go2_arm_manip_loco_motrix_preserves_backend_overrides():
+    cfg = _compose("ppo", overrides=["task=go2_arm_manip_loco/motrix"])
+
+    assert cfg.training.task_name == "Go2ArmManipLoco"
+    assert cfg.training.sim_backend == "motrix"
+    assert cfg.algo.num_envs == 4096
+    assert cfg.algo.max_iterations == 3000
+    assert cfg.reward.scales.tracking_lin_vel == pytest.approx(2.0)
+    assert cfg.env.domain_rand.randomize_dof_armature is False
+    assert cfg.env.domain_rand.randomize_kp is False
+    assert cfg.env.domain_rand.randomize_kd is False
+
+
 def test_offpolicy_g1_walk_flat_motrix_sac_preserves_backend_overrides():
     cfg = _compose("offpolicy", overrides=["algo=sac", "task=sac/g1_walk_flat/motrix"])
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import Sequence, Tuple
+from typing import Any, Sequence, Tuple
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -27,16 +27,16 @@ class MLPActorCritic(nn.Module):
         obs_normalization: bool = False,
         noise_std_type: str = "log",
         state_dependent_std: bool = False,
-        dtype=mx.float32,
+        dtype: Any | None = None,
     ) -> None:
         super().__init__()
         self.action_dim = int(action_dim)
-        self.dtype = dtype
+        self.dtype = mx.float32 if dtype is None else dtype
         self.noise_std_type = noise_std_type
         self.state_dependent_std = bool(state_dependent_std)
         self.obs_normalization = bool(obs_normalization)
         self.obs_normalizer = (
-            EmpiricalNormalization(obs_dim, dtype=dtype) if self.obs_normalization else None
+            EmpiricalNormalization(obs_dim, dtype=self.dtype) if self.obs_normalization else None
         )
         actor_output_dim = action_dim * 2 if self.state_dependent_std else action_dim
         self.actor = MLP(obs_dim, actor_output_dim, actor_hidden_dims, activation=activation)
