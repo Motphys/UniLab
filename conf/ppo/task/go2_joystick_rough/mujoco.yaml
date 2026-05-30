@@ -18,7 +18,7 @@ interactive:
 algo:
   num_envs: 4096
   num_steps_per_env: 24
-  max_iterations: 1000
+  max_iterations: 1500
   empirical_normalization: false
   obs_groups:
     actor:
@@ -32,6 +32,7 @@ algo:
     entropy_coef: 1.0e-2
 
 env:
+  sim_dt: 0.002
   control_config:
     action_scale: 0.25
     hip_action_scale: 0.125
@@ -45,7 +46,7 @@ env:
   terrain_curriculum:
     enabled: false
   scene:
-    model_file: src/unilab/assets/robots/go2/go2.xml
+    model_file: src/unilab/assets/robots/go2/go2_mujoco.xml
     fragment_files:
       - src/unilab/assets/robots/go2/locomotion_task.xml
     terrain:
@@ -82,7 +83,6 @@ reward:
     ang_vel_xy: -0.05
     joint_torques_l2: -2.5e-5
     joint_acc_l2: -2.5e-7
-    joint_pos_limits: -5.0
     joint_power: -2.0e-5
     stand_still: -2.0
     hip_pos: -0.5
@@ -101,7 +101,7 @@ reward:
     feet_gait: 0.5
     upward: 1.0
   tracking_sigma: 0.25
-  base_height_target: 0.33
+  base_height_target: 0.3
   stand_still_command_threshold: 0.1
   joint_pos_penalty_stand_still_scale: 5.0
   joint_pos_penalty_velocity_threshold: 0.5

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Generator, Union
+from typing import Any, Dict, Generator, Union
 
 import mlx.core as mx
 
@@ -18,9 +18,10 @@ class RolloutBuffer:
     action_dim: int
     gamma: float
     lam: float
-    dtype: mx.Dtype = mx.float32
+    dtype: Any | None = None
 
     def __post_init__(self) -> None:
+        self.dtype = mx.float32 if self.dtype is None else self.dtype
         self.observations: Union[list[mx.array], mx.array] = []
         self.actions: Union[list[mx.array], mx.array] = []
         self.log_probs: Union[list[mx.array], mx.array] = []

@@ -63,6 +63,7 @@ class NoiseConfig(BaseNoiseConfig):
 @dataclass
 class ControlConfig(PdControlConfig):
     action_scale: float = 0.25
+    hip_action_scale: float | None = None
     wheel_action_scale: float = 10.0
     wheel_Kd: float = 0.5  # noqa: N815 - Hydra config key kept for compatibility.
     clip_actions: float = 1.0

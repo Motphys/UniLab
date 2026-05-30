@@ -75,6 +75,16 @@ def test_go2_arm_manip_loco_cfg_registered():
     assert registry.contains("Go2ArmManipLoco")
 
 
+def test_go2_arm_manip_loco_registers_motrix_backend():
+    """Go2ArmManipLoco should route through both MuJoCo and Motrix backends."""
+    _ensure_go2_arm_manip_loco_registered()
+    registry = _registry_module()
+    meta = registry._envs["Go2ArmManipLoco"]
+
+    assert meta.support_sim_backend("mujoco")
+    assert meta.support_sim_backend("motrix")
+
+
 def test_go2_arm_manip_loco_cfg_declares_scene_for_playback():
     """MuJoCo video playback needs the original visual scene, not only legacy model_file."""
     from unilab.base.scene import SceneCfg

@@ -1,32 +1,6 @@
 name: Docs
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "docs/sphinx/**"
-      - "docs/README.md"
-      - "src/unilab/**"
-      - "scripts/generate_support_matrix.py"
-      - "conf/**"
-      - "README.md"
-      - "CONTRIBUTING.md"
-      - "AGENTS.md"
-      - "CLAUDE.md"
-      - ".github/workflows/docs.yml"
-  pull_request:
-    branches: [main]
-    paths:
-      - "docs/sphinx/**"
-      - "docs/README.md"
-      - "src/unilab/**"
-      - "scripts/generate_support_matrix.py"
-      - "conf/**"
-      - "README.md"
-      - "CONTRIBUTING.md"
-      - "AGENTS.md"
-      - "CLAUDE.md"
-      - ".github/workflows/docs.yml"
   workflow_dispatch:
 
 permissions:
@@ -67,8 +41,9 @@ jobs:
       - name: Install UniLab (autodoc target)
         id: install_unilab
         continue-on-error: true
-        # We skip extras (motrix, mlx) — autodoc_mock_imports in conf.py
-        # covers heavy deps. If install fails we still build prose-only.
+        # We skip extras (motrix, mlx) — conf.py provides lightweight MLX
+        # docs stubs, and autodoc_mock_imports covers the remaining heavy deps.
+        # If install fails we still build prose-only.
         run: pip install -e .
 
       - name: Configure prose-only fallback
@@ -96,7 +71,7 @@ jobs:
   deploy:
     name: Deploy to UniLab-doc gh-pages
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

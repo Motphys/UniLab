@@ -9,11 +9,13 @@ import pytest
 from unilab import cli
 
 
-def _make_minimal_checkout(root: Path, *, algo: str = "ppo") -> None:
+def _make_minimal_checkout(
+    root: Path, *, algo: str = "ppo", task: str = "go2_joystick_flat"
+) -> None:
     (root / "scripts").mkdir(parents=True)
     (root / "scripts" / "train_rsl_rl.py").write_text("", encoding="utf-8")
-    (root / "conf" / algo / "task" / "go2_joystick_flat").mkdir(parents=True)
-    (root / "conf" / algo / "task" / "go2_joystick_flat" / "motrix.yaml").write_text(
+    (root / "conf" / algo / "task" / task).mkdir(parents=True)
+    (root / "conf" / algo / "task" / task / "motrix.yaml").write_text(
         "training:\n  sim_backend: motrix\n",
         encoding="utf-8",
     )
@@ -97,6 +99,43 @@ def test_train_profile_routes_to_owner_variant(tmp_path: Path) -> None:
         str(tmp_path / "scripts" / "train_rsl_rl.py"),
         "task=sharpa_inhand/mujoco_hora",
     ]
+
+
+def test_go2_arm_manip_loco_motrix_train_and_eval_route_to_owner_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_minimal_checkout(tmp_path, task="go2_arm_manip_loco")
+    _pretend_motrix_is_installed(monkeypatch)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Linux")
+
+    train_command = cli.build_command(
+        mode="train",
+        algo="ppo",
+        task="go2_arm_manip_loco",
+        sim="motrix",
+        overrides=[],
+        root=tmp_path,
+    )
+    eval_command = cli.build_command(
+        mode="eval",
+        algo="ppo",
+        task="go2_arm_manip_loco",
+        sim="motrix",
+        overrides=[],
+        load_run="-1",
+        root=tmp_path,
+    )
+
+    assert train_command[1:] == [
+        str(tmp_path / "scripts" / "train_rsl_rl.py"),
+        "task=go2_arm_manip_loco/motrix",
+    ]
+    assert eval_command[1:3] == [
+        str(tmp_path / "scripts" / "train_rsl_rl.py"),
+        "task=go2_arm_manip_loco/motrix",
+    ]
+    assert "training.play_only=true" in eval_command
+    assert "algo.load_run=-1" in eval_command
 
 
 def test_macos_motrix_eval_requires_mxpython(

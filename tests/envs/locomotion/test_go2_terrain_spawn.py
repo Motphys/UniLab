@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
@@ -115,6 +117,29 @@ def test_go2_rough_base_height_reward_uses_terrain_relative_height():
     env._terrain_surface_sample_height = surface.sample_height
 
     np.testing.assert_allclose(env._reward_base_height_values(), np.asarray([0.5, 0.35]))
+
+
+def test_go2_rough_pd_torque_estimate_returns_dof_order():
+    from unilab.envs.locomotion.go2.rough import (
+        GO2_ACTUATOR_TO_DOF_INDICES,
+        Go2JoystickRoughEnv,
+    )
+
+    env = Go2JoystickRoughEnv.__new__(Go2JoystickRoughEnv)
+    env._num_action = 12
+    env._cfg = SimpleNamespace(
+        control_config=SimpleNamespace(Kp=2.0, Kd=0.5, simulate_action_latency=False)
+    )
+    env._action_scale = np.ones((12,), dtype=np.float32)
+    env.default_angles = np.arange(12, dtype=np.float32)
+    env._default_angles_actuator = env.default_angles[GO2_ACTUATOR_TO_DOF_INDICES]
+    dof_pos = np.zeros((1, 12), dtype=np.float32)
+    dof_vel = np.zeros((1, 12), dtype=np.float32)
+    info = {"current_actions": np.zeros((1, 12), dtype=np.float32)}
+
+    torques = env._estimate_pd_torques(info, dof_pos, dof_vel)
+
+    np.testing.assert_allclose(torques, 2.0 * env.default_angles[None, :])
 
 
 def test_default_spawn_used_when_flat():

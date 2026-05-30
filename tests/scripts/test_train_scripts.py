@@ -858,6 +858,35 @@ def test_build_ppo_play_env_cfg_override_resolves_relative_ground_texture(
     )
 
 
+def test_go2_arm_manip_loco_motrix_eval_uses_visual_floor(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(["task=go2_arm_manip_loco/motrix", "training.play_only=true"])
+
+    captured = {}
+
+    def _fake_materialize(source_model_file, **kwargs):
+        captured["source_model_file"] = source_model_file
+        captured.update(kwargs)
+        return "/tmp/go2_arm_manip_loco_play_scene.xml"
+
+    monkeypatch.setattr(mod, "materialize_scene_visual_override", _fake_materialize)
+
+    env_cfg_override = mod.build_ppo_play_env_cfg_override(cfg)
+
+    assert captured["source_model_file"] == str(
+        mod.ROOT_DIR / "src/unilab/assets/robots/go2_arm/scene_flat.xml"
+    )
+    assert captured["ground_texture_file"] == str(
+        mod.ROOT_DIR / "src/unilab/assets/robots/g1/textures/floor.png"
+    )
+    assert captured["skybox_rgb1"] == [0.90, 0.90, 0.91]
+    assert captured["skybox_rgb2"] == [0.68, 0.68, 0.70]
+    assert captured["ground_texrepeat"] == [0.25, 0.25]
+    assert env_cfg_override["scene"].model_file == "/tmp/go2_arm_manip_loco_play_scene.xml"
+
+
 def test_run_motrix_rsl_play_loop_uses_render_spacing_and_offset_mode():
     import numpy as np
     import torch

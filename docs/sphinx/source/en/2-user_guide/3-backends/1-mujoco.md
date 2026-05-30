@@ -1,7 +1,7 @@
 # MuJoCo Backend
 
 MuJoCo is the default backend path in the committed owner configs. The Python
-dependency is `mujoco-uni==3.8.0rc2` in `pyproject.toml`, and the adapter lives
+dependency is `mujoco-uni==3.8.0` in `pyproject.toml`, and the adapter lives
 under `src/unilab/base/backend/mujoco/`.
 
 ## When To Use It

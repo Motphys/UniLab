@@ -18,8 +18,8 @@ algo:
   runtime_resolver: unilab.algos.torch.hora.appo:resolve_hora_appo_runtime
   num_envs: 2048
   steps_per_env: 8
-  max_iterations: 1360
-  save_interval: 170
+  max_iterations: 305
+  save_interval: 51
   obs_groups:
     # Keep grouped keys explicit in the owner YAML; runtime support for these
     # grouped observations lands in the next implementation step.

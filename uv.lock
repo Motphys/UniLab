@@ -2188,7 +2188,7 @@ wheels = [
 
 [[package]]
 name = "motrixsim-core"
-version = "0.8.1.dev104632"
+version = "0.8.1.dev104665"
 source = { registry = "https://pypi.motphys.com/simple/" }
 dependencies = [
     { name = "absl-py" },
@@ -2196,18 +2196,18 @@ dependencies = [
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
 wheels = [
-    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.8.1.dev104632-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:e988e74fbb92c2fcd2df7375ebfadceab7e720f2d5eabca67a4e02ae28ba4197" },
-    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.8.1.dev104632-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:94b994b2dbb7d7ad7e25f30d803af241fde8fdbdfe8004e88c7c89779862af82" },
-    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.8.1.dev104632-cp310-cp310-win_amd64.whl", hash = "sha256:0f804a1fd051fca5b1cca96bbccd50215387ca56be714b8f45bb98fe3562659e" },
-    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.8.1.dev104632-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:b5126de3f53351eba13ee59b59d3156a9d5c744001e3f9b49bbc210e09b550e8" },
-    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.8.1.dev104632-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:5f0dadaf513fc369ca5d80da30293298ccb0d41faf9b5aa351787fae8c90fe2a" },
-    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.8.1.dev104632-cp311-cp311-win_amd64.whl", hash = "sha256:b86dd41c12b55604b5a2f42fd25a32c7fc9fe2a7b2ea5fce6a21dc93a9fdab62" },
-    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.8.1.dev104632-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:12a91cdbdf21fda6f9244ce7470ef812261925d8a3d1535ed89e609d691e860d" },
-    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.8.1.dev104632-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:203bf623c191e118e17cf86896b8ed9604986d7dd6cb54dae4c56bbe6f975ae2" },
-    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.8.1.dev104632-cp312-cp312-win_amd64.whl", hash = "sha256:92539572bd539e6d9fb0352afbfce1f888d3b6354b479b876ca2d55426fadf25" },
-    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.8.1.dev104632-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:5b86e661ca4cd3b6ed03809546ea76f2b35934776e0e62e2565f3df562654114" },
-    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.8.1.dev104632-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:da9898a00b41a0380b6df3b9d3e4a26836067a0dc76a9676fc5d726c81fad4ac" },
-    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.8.1.dev104632-cp313-cp313-win_amd64.whl", hash = "sha256:2b37acfc4f95cb3566cfa7302b6dbd22c3f12303b315385cb929305f79880eca" },
+    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.8.1.dev104665-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:d8edf31dae9034b7bbefe212cd6da6aea60cea20870ef01873ee7dd9067db2cc" },
+    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.8.1.dev104665-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:fe10e09491701cd49791e9950099cc168aa17a75eaeb9738bffda5137e7dfa0e" },
+    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.8.1.dev104665-cp310-cp310-win_amd64.whl", hash = "sha256:332440fe47cda9d3d97f1772510b004f28631230de2d9b1d7a1525ae8c1f9684" },
+    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.8.1.dev104665-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:25b8d068df0fa10e861ca7d23f96569bed5bec63d9b4207358177eb3404e470c" },
+    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.8.1.dev104665-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:680dc47a8f3ec03610bc42b7c7c822b3813ea807db759710802745f1427502c2" },
+    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.8.1.dev104665-cp311-cp311-win_amd64.whl", hash = "sha256:9cafd333d86aa457a51873488959191be8ea7b89e2ee6561ad2e07f3095a3080" },
+    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.8.1.dev104665-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:3352d692b98f5fc9a6ae231f9c5ab258701ce3ecd7b4423e9897e28c6ee44d6b" },
+    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.8.1.dev104665-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:a24e88243786bce09834ea7d3b9104b0d0f6801eca5e81304cc9b52fc81d0882" },
+    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.8.1.dev104665-cp312-cp312-win_amd64.whl", hash = "sha256:e2315b282e45ef9f8fdc771c86efb44b6b86c883f49c97bcdd7f7e588f577634" },
+    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.8.1.dev104665-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:b4b54895b04ef8c593238ec829cf8e6d10200fd993ab036c6e9c556295905ac1" },
+    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.8.1.dev104665-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:332744f7556f61c1c4e9ad5f4521de3aee4d1418e16d08b7932359e4a24e3d52" },
+    { url = "https://pypi.motphys.com/packages/motrixsim_core-0.8.1.dev104665-cp313-cp313-win_amd64.whl", hash = "sha256:4181802459c8ce7b4dae3bcb300f6638c475d0c205ea35536c0ef04578bc7800" },
 ]
 
 [[package]]
@@ -2262,7 +2262,7 @@ wheels = [
 [[package]]
 name = "mujoco-uni"
 version = "3.8.0"
-source = { registry = "https://test.pypi.org/simple/" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "absl-py" },
     { name = "etils", version = "1.13.0", source = { registry = "https://pypi.org/simple" }, extra = ["epath"], marker = "python_full_version < '3.11'" },
@@ -2272,16 +2272,16 @@ dependencies = [
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "pyopengl" },
 ]
-sdist = { url = "https://test-files.pythonhosted.org/packages/d7/af/c042c865b78400d1309736903168a07dea67d84872a9b999bc19328de412/mujoco_uni-3.8.0.tar.gz", hash = "sha256:8b1e32dce4f6b7f87b4cb7bfa55ab25a9a9e3191b6bde865196eaa04bf1baac5", size = 4818846, upload-time = "2026-05-30T08:27:46.335Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d7/af/c042c865b78400d1309736903168a07dea67d84872a9b999bc19328de412/mujoco_uni-3.8.0.tar.gz", hash = "sha256:8b1e32dce4f6b7f87b4cb7bfa55ab25a9a9e3191b6bde865196eaa04bf1baac5", size = 4818846, upload-time = "2026-05-30T08:34:12.19Z" }
 wheels = [
-    { url = "https://test-files.pythonhosted.org/packages/dc/06/662b657925a036b709e82474656b25e39559ef399449c78492a4f9f69b60/mujoco_uni-3.8.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:5e7c9daa247c1237ac4753d6269da39ff260d502e12819a8ba4921d0c8f542fa", size = 7039352, upload-time = "2026-05-30T08:27:11.647Z" },
-    { url = "https://test-files.pythonhosted.org/packages/bd/a1/31f6e13cbe25bcd840cccb7aeccb41235202728ab0e899cc12e6ac617fa6/mujoco_uni-3.8.0-cp310-cp310-manylinux_2_27_x86_64.whl", hash = "sha256:1326817ad54620ecfe473f581667f7be0d8f9df78db59b69c69b33c4c588a17d", size = 10781648, upload-time = "2026-05-30T08:52:09.722Z" },
-    { url = "https://test-files.pythonhosted.org/packages/00/6f/cc3a8e72105253587a839732c2cdcedb7f674aaf8ffc250b21caf3e920bb/mujoco_uni-3.8.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:ada4f286820bb982bb88ba14ad825e8f9ae1d2d69dbc1c1bd619ce5952f1ac90", size = 7053583, upload-time = "2026-05-30T08:27:19.999Z" },
-    { url = "https://test-files.pythonhosted.org/packages/72/d0/68202a14dabd695062d121fb706dfa88f97151e41b0bced26e14d0cac953/mujoco_uni-3.8.0-cp311-cp311-manylinux_2_27_x86_64.whl", hash = "sha256:0689b6fff5f69d943f501dcddde02fcc35ffa67821106c35f45643894c21be58", size = 10796553, upload-time = "2026-05-30T08:52:14.587Z" },
-    { url = "https://test-files.pythonhosted.org/packages/f1/10/4d385b13ba42948bd806c1ba3101c6cd196cd56ae74692ba8a399c4292de/mujoco_uni-3.8.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:e7df4482799acda1f5817ee4fb3f8ca403692b8120118984b1bcd525bfbe0bcf", size = 7068818, upload-time = "2026-05-30T08:27:28.019Z" },
-    { url = "https://test-files.pythonhosted.org/packages/5d/00/60a2fe19e943eb67d1df1b000c1eedc8dd1ed44106959fb2f9cec4fa4ec1/mujoco_uni-3.8.0-cp312-cp312-manylinux_2_27_x86_64.whl", hash = "sha256:241890f6cfcbd31ef4bc169eee7442fbdca35e48740f0b67ac8f7872fc4b8453", size = 10890544, upload-time = "2026-05-30T08:52:18.324Z" },
-    { url = "https://test-files.pythonhosted.org/packages/90/23/98a7802d7fc5111b2449364aaf1b1a364266f62d7578c4442db5f59eb114/mujoco_uni-3.8.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:bc191279752a4a63f161ff026ed5cb8aac013c1934c308944f3cc5970bae90ca", size = 7069246, upload-time = "2026-05-30T08:27:39.513Z" },
-    { url = "https://test-files.pythonhosted.org/packages/dd/23/a1bce997e15a8d27beadff7c320375bb5c71a9cf2700607ec97c6239240c/mujoco_uni-3.8.0-cp313-cp313-manylinux_2_27_x86_64.whl", hash = "sha256:441bbb1800a8f36985f146c5bc3fa3eb6c1aa16efe6eb94770c653994258c8f7", size = 10890301, upload-time = "2026-05-30T08:52:21.413Z" },
+    { url = "https://files.pythonhosted.org/packages/dc/06/662b657925a036b709e82474656b25e39559ef399449c78492a4f9f69b60/mujoco_uni-3.8.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:5e7c9daa247c1237ac4753d6269da39ff260d502e12819a8ba4921d0c8f542fa", size = 7039352, upload-time = "2026-05-30T08:34:01.139Z" },
+    { url = "https://files.pythonhosted.org/packages/bd/a1/31f6e13cbe25bcd840cccb7aeccb41235202728ab0e899cc12e6ac617fa6/mujoco_uni-3.8.0-cp310-cp310-manylinux_2_27_x86_64.whl", hash = "sha256:1326817ad54620ecfe473f581667f7be0d8f9df78db59b69c69b33c4c588a17d", size = 10781648, upload-time = "2026-05-30T09:16:34.589Z" },
+    { url = "https://files.pythonhosted.org/packages/00/6f/cc3a8e72105253587a839732c2cdcedb7f674aaf8ffc250b21caf3e920bb/mujoco_uni-3.8.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:ada4f286820bb982bb88ba14ad825e8f9ae1d2d69dbc1c1bd619ce5952f1ac90", size = 7053583, upload-time = "2026-05-30T08:34:04.819Z" },
+    { url = "https://files.pythonhosted.org/packages/72/d0/68202a14dabd695062d121fb706dfa88f97151e41b0bced26e14d0cac953/mujoco_uni-3.8.0-cp311-cp311-manylinux_2_27_x86_64.whl", hash = "sha256:0689b6fff5f69d943f501dcddde02fcc35ffa67821106c35f45643894c21be58", size = 10796553, upload-time = "2026-05-30T09:16:37.602Z" },
+    { url = "https://files.pythonhosted.org/packages/f1/10/4d385b13ba42948bd806c1ba3101c6cd196cd56ae74692ba8a399c4292de/mujoco_uni-3.8.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:e7df4482799acda1f5817ee4fb3f8ca403692b8120118984b1bcd525bfbe0bcf", size = 7068818, upload-time = "2026-05-30T08:34:07.91Z" },
+    { url = "https://files.pythonhosted.org/packages/5d/00/60a2fe19e943eb67d1df1b000c1eedc8dd1ed44106959fb2f9cec4fa4ec1/mujoco_uni-3.8.0-cp312-cp312-manylinux_2_27_x86_64.whl", hash = "sha256:241890f6cfcbd31ef4bc169eee7442fbdca35e48740f0b67ac8f7872fc4b8453", size = 10890544, upload-time = "2026-05-30T09:16:40.622Z" },
+    { url = "https://files.pythonhosted.org/packages/90/23/98a7802d7fc5111b2449364aaf1b1a364266f62d7578c4442db5f59eb114/mujoco_uni-3.8.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:bc191279752a4a63f161ff026ed5cb8aac013c1934c308944f3cc5970bae90ca", size = 7069246, upload-time = "2026-05-30T08:34:10.292Z" },
+    { url = "https://files.pythonhosted.org/packages/dd/23/a1bce997e15a8d27beadff7c320375bb5c71a9cf2700607ec97c6239240c/mujoco_uni-3.8.0-cp313-cp313-manylinux_2_27_x86_64.whl", hash = "sha256:441bbb1800a8f36985f146c5bc3fa3eb6c1aa16efe6eb94770c653994258c8f7", size = 10890301, upload-time = "2026-05-30T09:16:43.505Z" },
 ]
 
 [[package]]
@@ -4576,8 +4576,8 @@ requires-dist = [
     { name = "lark", specifier = ">=1.3.1" },
     { name = "mediapy" },
     { name = "mlx", marker = "sys_platform == 'darwin'" },
-    { name = "motrixsim-core", marker = "extra == 'motrix'", specifier = "==0.8.1.dev104632", index = "https://pypi.motphys.com/simple/" },
-    { name = "mujoco-uni", specifier = "==3.8.0", index = "https://test.pypi.org/simple/" },
+    { name = "motrixsim-core", marker = "extra == 'motrix'", specifier = "==0.8.1.dev104665", index = "https://pypi.motphys.com/simple/" },
+    { name = "mujoco-uni", specifier = "==3.8.0" },
     { name = "ninja", marker = "sys_platform == 'linux'" },
     { name = "notebook", specifier = ">=7.5.5" },
     { name = "numpy" },

@@ -265,6 +265,7 @@ class Go2ArmManipLocoDRProvider(LocomotionDRProvider):
         return env._update_history(raw, env_ids=env_ids)  # type: ignore[no-any-return]
 
 
+@registry.env("Go2ArmManipLoco", sim_backend="motrix")
 @registry.env("Go2ArmManipLoco", sim_backend="mujoco")
 class Go2ArmManipLocoEnv(Go2ArmBaseEnv):
     _cfg: Go2ArmManipLocoCfg
@@ -272,20 +273,31 @@ class Go2ArmManipLocoEnv(Go2ArmBaseEnv):
     def __init__(self, cfg: Go2ArmManipLocoCfg, num_envs=1, backend_type="mujoco"):
         if cfg.reward_config is None:
             raise ValueError("reward_config must be provided via Hydra configuration")
-        if backend_type != "mujoco":
-            raise ValueError("Go2ArmManipLoco currently supports only the mujoco backend")
+        if backend_type not in {"mujoco", "motrix"}:
+            raise ValueError(
+                "Go2ArmManipLoco supports only the mujoco and motrix backends, "
+                f"got {backend_type!r}"
+            )
 
         scene = _resolve_go2_arm_scene(cfg)
+        backend_kwargs: dict[str, Any] = {
+            "base_name": cfg.asset.base_name,
+            "push_body_name": cfg.domain_rand.push_body_name,
+        }
+        if backend_type == "motrix":
+            backend_kwargs["motrix_max_iterations"] = cfg.iterations
+        else:
+            backend_kwargs["position_actuator_gains"] = build_go2_arm_position_gains(
+                cfg.control_config
+            )
+            backend_kwargs["iterations"] = cfg.iterations
+            backend_kwargs["post_step_forward_sensor"] = cfg.post_step_forward_sensor
         backend = create_backend(
             backend_type,
             scene,
             num_envs,
             cfg.sim_dt,
-            base_name=cfg.asset.base_name,
-            push_body_name=cfg.domain_rand.push_body_name,
-            position_actuator_gains=build_go2_arm_position_gains(cfg.control_config),
-            iterations=cfg.iterations,
-            post_step_forward_sensor=cfg.post_step_forward_sensor,
+            **backend_kwargs,
         )
         super().__init__(cfg, backend, num_envs)
         if self._num_action != 18:

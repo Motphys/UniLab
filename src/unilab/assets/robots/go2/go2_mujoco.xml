@@ -1,11 +1,11 @@
 <mujoco model="go2">
   <compiler angle="radian" meshdir="assets" autolimits="true"/>
 
-  <option cone="elliptic" impratio="100" timestep="0.02"/>
+  <option cone="elliptic" impratio="100" ccd_iterations="500" timestep="0.02"/>
 
   <default>
     <default class="go2">
-      <geom friction="0.6" margin="0.001" condim="1"/>
+      <geom friction="0.6" margin="0.001" condim="1" solref="0.01 1"/>
       <joint axis="0 1 0" damping="0.5" armature="0.01" frictionloss="0.2"/>
       <position forcerange="-23.7 23.7" kp="35"/>
       <default class="abduction">
@@ -27,10 +27,11 @@
         <geom type="mesh" contype="0" conaffinity="0" group="2"/>
       </default>
       <default class="collision">
-        <geom group="3"  contype="1" conaffinity="2"/>
+        <geom group="3" contype="1" conaffinity="2"
+          friction="0 0 0" margin="0.001" condim="1" solref="0.01 1"/>
         <default class="foot">
-          <geom size="0.022" pos="-0.002 0 -0.213" priority="1" condim="6"
-            friction="0.4 0.02 0.01"/>
+          <geom size="0.022" pos="-0.002 0 -0.213" priority="1"
+            margin="0.005" condim="6" solref="0.01 1" friction="0.4 0.02 0.01"/>
         </default>
       </default>
     </default>
@@ -203,25 +204,14 @@
   <sensor>
 
     <gyro site="imu" name="gyro"/>
-    <accelerometer site="imu" name="accelerometer"/>
     <velocimeter site="imu" name="local_linvel"/>
     <framezaxis objtype="site" objname="imu" name="upvector"/>
-
-    <!-- <framequat objtype="site" objname="imu" name="orientation"/> -->
     <framepos objtype="site" objname="imu" name="global_position"/>
     <framelinvel objtype="site" objname="imu" name="global_linvel"/>
-    <frameangvel objtype="site" objname="imu" name="global_angvel"/>
-
-    <!-- <framelinvel objtype="site" objname="FR" name="FR_global_linvel"/>
-    <framelinvel objtype="site" objname="FL" name="FL_global_linvel"/>
-    <framelinvel objtype="site" objname="RR" name="RR_global_linvel"/>
-    <framelinvel objtype="site" objname="RL" name="RL_global_linvel"/> -->
-
     <framepos objtype="geom" objname="FR" name="FR_pos"/>
     <framepos objtype="geom" objname="FL" name="FL_pos"/>
     <framepos objtype="geom" objname="RR" name="RR_pos"/>
     <framepos objtype="geom" objname="RL" name="RL_pos"/>
-
     <framelinvel objtype="geom" objname="FR" name="FR_vel"/>
     <framelinvel objtype="geom" objname="FL" name="FL_vel"/>
     <framelinvel objtype="geom" objname="RR" name="RR_vel"/>

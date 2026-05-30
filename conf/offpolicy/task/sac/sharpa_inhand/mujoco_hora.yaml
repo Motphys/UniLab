@@ -23,8 +23,8 @@ algo:
   updates_per_step: 14
   learning_starts: 1
   policy_frequency: 2
-  max_iterations: 39063
-  save_interval: 1000
+  max_iterations: 5371
+  save_interval: 896
   actor_lr: 4.5e-4
   critic_lr: 4.5e-4
   use_symmetry: false

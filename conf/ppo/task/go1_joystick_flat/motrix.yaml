@@ -2,7 +2,20 @@
 training:
   task_name: Go1JoystickFlat
   sim_backend: motrix
+  play_steps: 500
+  play_env_num: 16
+  cam_tracking: true
+  cam_tracking_env_idx: 0
+  cam_tracking_extra_envs: 9
+
+interactive:
+  action_mode: policy
+  policy_obs_mode: auto
+  camera_follow_body: true
+  use_env_visual_model: false
+
 algo:
+  num_envs: 1024
   max_iterations: 151
   obs_groups:
     actor:
