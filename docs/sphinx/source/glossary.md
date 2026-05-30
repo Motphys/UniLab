@@ -1,3 +1,7 @@
+---
+orphan: true
+---
+
 # UniLab Glossary
 
 语言: 简体中文
