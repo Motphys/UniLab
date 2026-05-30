@@ -44,10 +44,19 @@ Supported render modes are `auto`, `interactive`, `record`, and `none`.
 ## Demo
 
 ```bash
-uv run demo
-uv run demo --preset go2_joystick_mujoco_ppo
-uv run demo --refresh --device cpu
+uv run demo dance
+uv run demo wallflip
+uv run demo boxtracking
+uv run demo locomani
+uv run demo inhandgrasp
+uv run demo dance --refresh --device cpu
 ```
+
+Available demos: `dance`, `wallflip`, `boxtracking`, `locomani`, `inhandgrasp`.
+Each demo fetches a pre-trained checkpoint from the
+`unilabsim/unilab-checkpoints` Hugging Face dataset on first run and caches it
+under `src/unilab/assets/checkpoints/<demo>/model_0.pt`. Pass `--refresh` to
+re-download.
 
 The demo entrypoint is implemented by `src/unilab/demo.py` and routed from
 `src/unilab/cli.py`.

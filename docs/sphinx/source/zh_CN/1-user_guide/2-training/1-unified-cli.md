@@ -61,13 +61,20 @@ uv run eval --algo ppo --task go2_joystick_flat --sim mujoco --load-run -1
 ## demo
 
 ```bash
-uv run demo
-uv run demo --preset go2_joystick_mujoco_ppo
-uv run demo --refresh
-uv run demo --device cpu
+uv run demo dance
+uv run demo wallflip
+uv run demo boxtracking
+uv run demo locomani
+uv run demo inhandgrasp
+uv run demo dance --refresh
+uv run demo dance --device cpu
 ```
 
-`demo` 会从本地预设 run 复制 checkpoint，再走回放命令；不是远端模型下载器。
+可用 demo 名：`dance`、`wallflip`、`boxtracking`、`locomani`、`inhandgrasp`。
+首次运行时从 `unilabsim/unilab-checkpoints` Hugging Face dataset 拉取预训练
+checkpoint，落盘到 `src/unilab/assets/checkpoints/<demo>/model_0.pt`，再启动
+交互式回放（motrix 任务走 `train_rsl_rl.py --play_only`，mujoco 任务走
+`scripts/play_interactive.py`）。`--refresh` 强制重新下载。
 
 ## 规则
 
