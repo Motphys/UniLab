@@ -1181,8 +1181,14 @@ def test_g1_motion_tracking_init_delegates_motion_body_ids_to_backend(monkeypatc
             calls["motion_loader"] = (motion_file, body_indices.copy())
 
     class FakeMotionSampler:
-        def __init__(self, motion_loader: Any, mode: str, num_envs: int):
-            calls["motion_sampler"] = (motion_loader, mode, num_envs)
+        def __init__(
+            self,
+            motion_loader: Any,
+            mode: str,
+            num_envs: int,
+            start_ratio: float = 0.0,
+        ):
+            calls["motion_sampler"] = (motion_loader, mode, num_envs, start_ratio)
 
     fake_backend = FakeBackend()
     monkeypatch.setattr(tracking_module, "create_backend", lambda *args, **kwargs: fake_backend)
@@ -1215,7 +1221,7 @@ def test_g1_motion_tracking_init_delegates_motion_body_ids_to_backend(monkeypatc
     assert calls["motion_body_ids_names"] == cfg.body_names
     assert calls["motion_loader"][0] == "dummy_motion.npz"
     np.testing.assert_array_equal(calls["motion_loader"][1], np.array([1, 2], dtype=np.int32))
-    assert calls["motion_sampler"][1:] == ("adaptive", 4)
+    assert calls["motion_sampler"][1:] == ("adaptive", 4, cfg.sampling_start_ratio)
     assert calls["dr_provider"] == "G1MotionTrackingDomainRandomizationProvider"
     assert calls["reward_init"] is True
 

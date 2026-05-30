@@ -173,6 +173,7 @@ class APPOAlgorithmConfig:
     target_update_freq: int = 1
     vtrace_clip_rho: float = 1.0
     vtrace_clip_c: float = 1.0
+    enable_compile: bool = True
 
 
 @dataclass
@@ -246,7 +247,7 @@ class PPOAlgorithmConfig:
     adaptive_lr_update_interval: int = 5
     metrics_interval: int = 8
     finite_check_interval: int = 8
-    enable_compile: bool = False
+    enable_compile: bool = True
     warmup_strict_iters: int = 10
     warmup_metrics_interval: int = 2
     warmup_finite_check_interval: int = 2

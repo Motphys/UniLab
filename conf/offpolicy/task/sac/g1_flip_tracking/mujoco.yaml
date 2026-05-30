@@ -1,20 +1,41 @@
 # @package _global_
+# G1 flip tracking with FastSAC on MuJoCo — task ``g1_flip_tracking``.
+#
+# Migrates the PPO flip motion (``conf/ppo/task/g1_flip_tracking/mujoco.yaml``)
+# into the SAC pipeline:
+#   * algo block follows the proven WBT-SAC profile (``g1_sac_wbt``),
+#     since the action is being migrated INTO the SAC algorithm;
+#   * env / reward block follows the flip task (scene / motion / per-joint
+#     action_scale / clean obs), which are task properties, not algo knobs.
+#
+# Train command:
+#   uv run train --algo sac --task g1_flip_tracking --sim mujoco training.use_amp=true
+#
+# task_name binds to ``G1FlipTrackingSAC`` (see
+# ``src/unilab/envs/motion_tracking/g1/flip_tracking_sac.py``): the flip cfg
+# composed with the SAC asymmetric actor-critic obs (base_lin_vel into critic).
+# PPO flip (``G1FlipTracking``) and other SAC tasks are unaffected.
 training:
-  task_name: G1FlipTracking
+  task_name: G1FlipTrackingSAC
   sim_backend: mujoco
   play_steps: 1000
 algo:
-  num_envs: 1024
-  steps_per_env: 24
-  max_iterations: 3500
-  save_interval: 500
-  algorithm:
-    entropy_coef: 0.005
-    num_learning_epochs: 10
-    num_mini_batches: 8
-    desired_kl: 0.01
+  num_envs: 4096
+  max_iterations: 25000
+  save_interval: 1000
+  gamma: 0.99
+  tau: 0.05
+  num_atoms: 501
+  updates_per_step: 4
+  policy_frequency: 2
+  use_symmetry: false
+  algo_params:
+    alpha_init: 0.005
+    target_entropy_ratio: 0.05
+    max_grad_norm: 10.0
 env:
-  sampling_mode: start
+  sampling_mode: mixed
+  sampling_start_ratio: 0.1
   truncate_on_clip_end: true
   sim_dt: 0.005
   control_config:
@@ -66,6 +87,7 @@ reward:
     motion_joint_vel: 0.0
     action_rate_l2: -0.005
     joint_limit: -10.0
+    undesired_contacts: -0.1
   std_root_pos: 0.3
   std_root_ori: 0.4
   std_body_pos: 0.3

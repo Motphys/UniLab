@@ -94,6 +94,7 @@ def test_ppo_config_defaults():
     assert cfg.max_iterations == 101
     assert cfg.algorithm.clip_param == 0.2
     assert cfg.algorithm.class_name == "unilab.algos.torch.rsl_rl_ppo:FinalObservationAwarePPO"
+    assert cfg.algorithm.enable_compile is True
     assert cfg.policy.class_name == "ActorCritic"
 
 
@@ -104,6 +105,7 @@ def test_appo_config_defaults():
     assert cfg.algo == "appo"
     assert cfg.num_envs == 2048
     assert cfg.actor.class_name == "rsl_rl.models.MLPModel"
+    assert cfg.algorithm.enable_compile is True
 
 
 def test_base_config_to_dict():
@@ -408,6 +410,7 @@ def test_appo_defaults():
         cfg = compose("config")
     assert cfg.algo.algo == "appo"
     assert cfg.algo.max_iterations == 150
+    assert cfg.algo.algorithm.enable_compile is False
 
 
 def test_appo_g1_task_overrides():
@@ -438,6 +441,23 @@ def test_ppo_go1_max_iterations():
         cfg = compose("config", overrides=["task=go1_joystick_flat/mujoco"])
     assert cfg.algo.max_iterations == 151
     assert "actor" in cfg.algo.obs_groups
+    assert cfg.algo.algorithm.enable_compile is False
+
+
+def test_ppo_compile_overrides():
+    from hydra import compose, initialize_config_dir
+    from hydra.core.global_hydra import GlobalHydra
+
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(CONF_DIR / "ppo"), version_base="1.3"):
+        cfg = compose(
+            "config",
+            overrides=[
+                "task=go1_joystick_flat/mujoco",
+                "algo.algorithm.enable_compile=false",
+            ],
+        )
+    assert cfg.algo.algorithm.enable_compile is False
 
 
 def test_ppo_g1_num_envs():

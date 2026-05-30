@@ -12,6 +12,12 @@ from .flip_tracking import (
     G1WallFlipTrackingEnv,
     G1WallFlipTrackingEnvCfg,
 )
+from .flip_tracking_sac import (
+    G1FlipTrackingSACCfg,
+    G1FlipTrackingSACEnv,
+    G1WallFlipTrackingSACCfg,
+    G1WallFlipTrackingSACEnv,
+)
 from .motion_box_loader import BoxMotionData, BoxMotionLoader
 from .tracking import (
     G1MotionTrackingCfg,
@@ -39,6 +45,10 @@ __all__ = [
     "G1WallFlipTrackingCfg",
     "G1WallFlipTrackingEnv",
     "G1WallFlipTrackingEnvCfg",
+    "G1FlipTrackingSACCfg",
+    "G1FlipTrackingSACEnv",
+    "G1WallFlipTrackingSACCfg",
+    "G1WallFlipTrackingSACEnv",
     "G1ClimbTrackingCfg",
     "G1ClimbTrackingEnv",
     "G1ClimbTrackingEnvCfg",

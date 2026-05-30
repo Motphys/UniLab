@@ -10,7 +10,9 @@ Key differences from standard PPO:
 """
 
 import copy
+import math
 from itertools import chain
+from typing import Any
 
 import numpy as np
 import torch
@@ -18,6 +20,9 @@ import torch.nn as nn
 from rsl_rl.models import MLPModel
 from rsl_rl.utils import resolve_optimizer
 from tensordict import TensorDict
+
+_LOG_2_PI = math.log(2.0 * math.pi)
+_NORMAL_ENTROPY_OFFSET = 0.5 * (1.0 + _LOG_2_PI)
 
 
 def vtrace_advantages(
@@ -118,9 +123,11 @@ class APPOLearner:
         target_update_freq: int = 1,
         vtrace_clip_rho: float = 1.0,
         vtrace_clip_c: float = 1.0,
+        enable_compile: bool = True,
         **kwargs,
     ):
         self.device = device
+        self._device_type = torch.device(device).type
         self.actor = actor.to(self.device)
         self.critic = critic.to(self.device)
 
@@ -150,11 +157,105 @@ class APPOLearner:
         self.vtrace_clip_rho = vtrace_clip_rho
         self.vtrace_clip_c = vtrace_clip_c
         self._update_counter = 0
+        self.enable_compile = (
+            bool(enable_compile) and self._device_type == "cuda" and hasattr(torch, "compile")
+        )
 
         # Optimizer
         self.optimizer = resolve_optimizer(optimizer)(  # pyright: ignore[reportCallIssue]
             chain(self.actor.parameters(), self.critic.parameters()), lr=learning_rate
         )
+        self._minibatch_loss_fn = self._minibatch_loss_tensors
+        if self.enable_compile:
+            self._compile_training_methods()
+
+    def _compile_training_methods(self) -> None:
+        compile_fn = getattr(torch, "compile", None)
+        if compile_fn is None or self._device_type != "cuda":
+            return
+
+        self._minibatch_loss_fn = compile_fn(
+            self._minibatch_loss_tensors,
+            mode="reduce-overhead",
+            fullgraph=False,
+        )
+
+    def _actor_mean_std(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        distribution: Any = self.actor.distribution
+        if distribution is None:
+            raise RuntimeError("APPO actor must expose a stochastic distribution")
+
+        mean = self.actor.mlp(self.actor.obs_normalizer(obs))
+        if distribution.std_type == "scalar":
+            std = distribution.std_param.expand_as(mean)
+        else:
+            std = torch.exp(distribution.log_std_param).expand_as(mean)
+        return mean, std
+
+    def _critic_value(self, obs: torch.Tensor) -> torch.Tensor:
+        return self.critic.mlp(self.critic.obs_normalizer(obs)).squeeze(-1)
+
+    @staticmethod
+    def _gaussian_log_prob(
+        actions: torch.Tensor, mean: torch.Tensor, std: torch.Tensor
+    ) -> torch.Tensor:
+        normalized = (actions - mean) / std
+        return (-0.5 * (normalized.pow(2) + 2.0 * torch.log(std) + _LOG_2_PI)).sum(dim=-1)
+
+    @staticmethod
+    def _gaussian_entropy(std: torch.Tensor) -> torch.Tensor:
+        return (torch.log(std) + _NORMAL_ENTROPY_OFFSET).sum(dim=-1)
+
+    def _minibatch_loss_tensors(
+        self,
+        obs_mini: torch.Tensor,
+        critic_obs_mini: torch.Tensor,
+        actions_mini: torch.Tensor,
+        target_values_mini: torch.Tensor,
+        advantages_mini: torch.Tensor,
+        behavior_logp_mini: torch.Tensor,
+        old_values_mini: torch.Tensor,
+        target_logp_mini: torch.Tensor,
+        old_mu_mini: torch.Tensor,
+        old_sigma_mini: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        mu, sigma = self._actor_mean_std(obs_mini)
+        current_log_prob = self._gaussian_log_prob(actions_mini, mu, sigma)
+        value = self._critic_value(critic_obs_mini)
+        entropy = self._gaussian_entropy(sigma).mean()
+
+        # V-trace style PPO ratio: min(π_current/π_target, π_current/π_b)
+        # = clamp(π_b/π_target, max=1) * π_current/π_b.
+        with torch.no_grad():
+            clipped_rho = torch.clamp(torch.exp(behavior_logp_mini - target_logp_mini), max=1.0)
+        ratio = clipped_rho * torch.exp(current_log_prob - behavior_logp_mini)
+
+        surrogate = -advantages_mini * ratio
+        surrogate_clipped = -advantages_mini * torch.clamp(
+            ratio, 1.0 - self.clip_param, 1.0 + self.clip_param
+        )
+        surrogate_loss = torch.max(surrogate, surrogate_clipped).mean()
+
+        if self.use_clipped_value_loss:
+            value_clipped = old_values_mini + (value - old_values_mini).clamp(
+                -self.clip_param, self.clip_param
+            )
+            value_losses = (value - target_values_mini).pow(2)
+            value_losses_clipped = (value_clipped - target_values_mini).pow(2)
+            value_loss = torch.max(value_losses, value_losses_clipped).mean()
+        else:
+            value_loss = (value - target_values_mini).pow(2).mean()
+
+        kl = torch.sum(
+            torch.log(sigma / old_sigma_mini + 1e-5)
+            + (old_sigma_mini.pow(2) + (old_mu_mini - mu).pow(2)) / (2.0 * sigma.pow(2))
+            - 0.5,
+            dim=-1,
+        )
+        kl_mean = torch.mean(kl)
+
+        loss = surrogate_loss + self.value_loss_coef * value_loss - self.entropy_coef * entropy
+        return loss, surrogate_loss, value_loss, entropy, kl_mean
 
     def train_mode(self):
         """Set actor/critic to training mode (enables EmpiricalNormalization.update)."""
@@ -271,7 +372,6 @@ class APPOLearner:
         batch_dict["advantages"] = advantages
         batch_dict["returns"] = vs  # V-trace targets as returns
         batch_dict["target_log_probs"] = target_log_probs
-        batch_dict["_obs_td"] = obs_td  # Cache for update()
 
         return batch_dict
 
@@ -298,13 +398,6 @@ class APPOLearner:
             advantages_flat.std() + 1e-8
         )
 
-        # Reuse cached TensorDict from process_batch if available
-        obs_td = batch_dict.get("_obs_td")
-        if obs_td is None:
-            obs_td = TensorDict(
-                {"policy": obs_flat}, batch_size=obs_flat.shape[0], device=self.device
-            )
-
         # Critic uses explicit critic obs when available
         critic_obs_flat = batch_dict.get("_critic_obs_flat")
         if critic_obs_flat is None:
@@ -313,9 +406,6 @@ class APPOLearner:
                 critic_obs_flat = obs_flat
             else:
                 critic_obs_flat = critic_base_flat.flatten(0, 1)
-        critic_obs_td = TensorDict(
-            {"policy": critic_obs_flat}, batch_size=critic_obs_flat.shape[0], device=self.device
-        )
 
         # Use target policy mu/sigma cached by process_batch() — no second forward pass.
         with torch.inference_mode():
@@ -339,8 +429,8 @@ class APPOLearner:
                 end = (i + 1) * mini_batch_size
                 batch_idx = indices[start:end]
 
-                obs_mini_td = obs_td[batch_idx]
-                critic_obs_mini_td = critic_obs_td[batch_idx]
+                obs_mini = obs_flat[batch_idx]
+                critic_obs_mini = critic_obs_flat[batch_idx]
                 actions_mini = actions_flat[batch_idx]
                 target_values_mini = returns_flat[batch_idx]
                 advantages_mini = advantages_flat[batch_idx]
@@ -350,71 +440,31 @@ class APPOLearner:
                 old_mu_mini = old_mu_flat[batch_idx]
                 old_sigma_mini = old_sigma_flat[batch_idx]
 
-                # Forward pass
-                _ = self.actor(obs_mini_td, stochastic_output=True)
-                current_log_prob = self.actor.get_output_log_prob(actions_mini)
-                value = self.critic(critic_obs_mini_td).squeeze(-1)
-                entropy = self.actor.output_entropy.mean()
-
-                # Current policy mu/sigma for KL
-                mu = self.actor.output_mean
-                sigma = self.actor.output_std
-
-                # V-trace style PPO ratio: min(π_current/π_target, π_current/π_b)
-                # = clamp(π_b/π_target, max=1) * π_current/π_b
-                # Fresh data (π_b≈π_target) → standard PPO ratio.
-                # Stale data → single-sided clip downweights the update without
-                # amplifying it (unlike IMPACT's [0,2] range).
-                with torch.no_grad():
-                    clipped_rho = torch.clamp(
-                        torch.exp(behavior_logp_mini - target_logp_mini), max=1.0
-                    )
-                ratio = clipped_rho * torch.exp(current_log_prob - behavior_logp_mini)
-
-                # PPO Surrogate Loss
-                surrogate = -advantages_mini * ratio
-                surrogate_clipped = -advantages_mini * torch.clamp(
-                    ratio, 1.0 - self.clip_param, 1.0 + self.clip_param
+                loss, surrogate_loss, value_loss, entropy, kl_mean = self._minibatch_loss_fn(
+                    obs_mini,
+                    critic_obs_mini,
+                    actions_mini,
+                    target_values_mini,
+                    advantages_mini,
+                    behavior_logp_mini,
+                    old_values_mini,
+                    target_logp_mini,
+                    old_mu_mini,
+                    old_sigma_mini,
                 )
-                surrogate_loss = torch.max(surrogate, surrogate_clipped).mean()
 
                 # Adaptive LR via analytical KL
                 if self.desired_kl is not None and self.schedule == "adaptive":
-                    with torch.inference_mode():
-                        kl = torch.sum(
-                            torch.log(sigma / old_sigma_mini + 1e-5)
-                            + (old_sigma_mini.pow(2) + (old_mu_mini - mu).pow(2))
-                            / (2.0 * sigma.pow(2))
-                            - 0.5,
-                            dim=-1,
-                        )
-                        kl_mean = torch.mean(kl)
+                    kl_value = float(kl_mean.detach())
+                    if kl_value > self.desired_kl * 2.0:
+                        self.learning_rate = max(1e-5, self.learning_rate / 1.5)
+                    elif kl_value < self.desired_kl / 2.0 and kl_value > 0.0:
+                        self.learning_rate = min(1e-2, self.learning_rate * 1.5)
 
-                        if kl_mean > self.desired_kl * 2.0:
-                            self.learning_rate = max(1e-5, self.learning_rate / 1.5)
-                        elif kl_mean < self.desired_kl / 2.0 and kl_mean > 0.0:
-                            self.learning_rate = min(1e-2, self.learning_rate * 1.5)
+                    for param_group in self.optimizer.param_groups:
+                        param_group["lr"] = self.learning_rate
 
-                        for param_group in self.optimizer.param_groups:
-                            param_group["lr"] = self.learning_rate
-
-                        mean_kl += kl_mean.item()
-
-                # Value Loss with clipping
-                if self.use_clipped_value_loss:
-                    value_clipped = old_values_mini + (value - old_values_mini).clamp(
-                        -self.clip_param, self.clip_param
-                    )
-                    value_losses = (value - target_values_mini).pow(2)
-                    value_losses_clipped = (value_clipped - target_values_mini).pow(2)
-                    value_loss = torch.max(value_losses, value_losses_clipped).mean()
-                else:
-                    value_loss = (value - target_values_mini).pow(2).mean()
-
-                # Total loss
-                loss = (
-                    surrogate_loss + self.value_loss_coef * value_loss - self.entropy_coef * entropy
-                )
+                    mean_kl += kl_value
 
                 # Gradient step
                 self.optimizer.zero_grad(set_to_none=True)

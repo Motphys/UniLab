@@ -88,6 +88,8 @@ uv run scripts/generate_support_matrix.py --write
 | SAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested |
 | SAC (torch) | `g1_walk_rough` (G1 walk rough) | Tested | Tested |
 | SAC (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested |
+| SAC (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | Registered |
+| SAC (torch) | `g1_wall_flip_tracking` (G1 wall flip tracking) | Tested | Registered |
 | SAC (torch) | `g1_wbt_obs` (g1 wbt obs) | Tested | Registered |
 | TD3 (torch) | `go1_joystick_flat` (Go1 joystick) | Registered | Tested |
 | TD3 (torch) | `go2_joystick_flat` (Go2 joystick) | Registered | Tested |

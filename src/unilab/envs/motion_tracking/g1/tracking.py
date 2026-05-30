@@ -163,7 +163,8 @@ class G1MotionTrackingCfg(G1BaseCfg):
         "right_elbow_link",
         "right_wrist_yaw_link",
     )
-    sampling_mode: Literal["start", "clip_start", "uniform", "adaptive"] = "adaptive"
+    sampling_mode: Literal["start", "clip_start", "uniform", "adaptive", "mixed"] = "adaptive"
+    sampling_start_ratio: float = 0.0
     truncate_on_clip_end: bool = False
     max_episode_seconds: float = 10.0
     reward_config: RewardConfig = field(default_factory=RewardConfig)
@@ -488,7 +489,10 @@ class G1MotionTrackingEnv(G1BaseEnv):
         # Load motion data
         self.motion_loader = MotionLoader(cfg.motion_file, body_indices=motion_body_ids)
         self.motion_sampler = MotionSampler(
-            self.motion_loader, mode=cfg.sampling_mode, num_envs=num_envs
+            self.motion_loader,
+            mode=cfg.sampling_mode,
+            num_envs=num_envs,
+            start_ratio=cfg.sampling_start_ratio,
         )
         needs_kp_kd = cfg.domain_rand.randomize_kp or cfg.domain_rand.randomize_kd
         needs_friction = getattr(cfg.domain_rand, "randomize_geom_friction", False)
