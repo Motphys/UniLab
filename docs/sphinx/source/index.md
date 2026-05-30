@@ -6,16 +6,16 @@ orphan: true
 # UniLab Documentation
 
 ```{raw} html
-<meta http-equiv="refresh" content="0; url=en/index.html" />
-<script>window.location.href = "en/index.html";</script>
-<p>Redirecting to <a href="en/index.html">English documentation</a>…</p>
+<meta http-equiv="refresh" content="0; url=en/0-index.html" />
+<script>window.location.href = "en/0-index.html";</script>
+<p>Redirecting to <a href="en/0-index.html">English documentation</a>…</p>
 ```
 
 ```{toctree}
 :hidden:
 
-en/index
-zh_CN/index
+en/0-index
+zh_CN/0-index
 adr/README
 api_reference/index
 glossary

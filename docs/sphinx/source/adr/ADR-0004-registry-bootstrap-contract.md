@@ -50,5 +50,5 @@ UniLab 的 env 注册依赖 `@registry.envcfg(...)` 与 `@registry.env(...)` dec
 ## Related Documents
 
 - {doc}`ADR Index </adr/README>`
-- {doc}`RL Infrastructure 开发标准 </zh_CN/developer_guide/development-standard>`
-- {doc}`协作流程 </zh_CN/developer_guide/collaboration>`
+- {doc}`RL Infrastructure 开发标准 </zh_CN/2-developer_guide/1-development-standard>`
+- {doc}`协作流程 </zh_CN/2-developer_guide/2-collaboration>`

@@ -7,7 +7,7 @@ Concrete RL tasks split by family:
 - **motion_tracking** — G1 whole-body motion tracking + flips
 
 Every env inherits `NpEnv` and is registered into the task `Registry` so it
-can be selected via `--task <name>/<backend>` on the CLI.
+can be selected via `uv run train --algo <algo> --task <name> --sim <backend>`.
 
 ```{toctree}
 :maxdepth: 2

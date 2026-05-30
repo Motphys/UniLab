@@ -18,7 +18,7 @@ def test_documentation_files_match_current_repo_contracts():
 def test_sharpa_domain_randomization_doc_matches_owner_config():
     root = Path(__file__).resolve().parents[2]
     doc_path = (
-        root / "docs" / "sphinx" / "source" / "zh_CN" / "user_guide" / "05-domain-randomization.md"
+        root / "docs" / "sphinx" / "source" / "zh_CN" / "1-user_guide" / "5-domain-randomization.md"
     )
     content = doc_path.read_text(encoding="utf-8")
 
@@ -166,7 +166,7 @@ def test_collect_doc_errors_scans_scripts_markdown(tmp_path):
 def test_check_zh_cn_doc_shape_requires_language_navigation_and_index(tmp_path):
     root = tmp_path
     doc_path = (
-        root / "docs" / "sphinx" / "source" / "zh_CN" / "user_guide" / "05-domain-randomization.md"
+        root / "docs" / "sphinx" / "source" / "zh_CN" / "1-user_guide" / "5-domain-randomization.md"
     )
     doc_path.parent.mkdir(parents=True)
     content = "# 域随机化\n\n缺少语言头。\n"
@@ -181,7 +181,7 @@ def test_check_zh_cn_doc_shape_requires_language_navigation_and_index(tmp_path):
 def test_check_zh_cn_doc_shape_accepts_user_contract(tmp_path):
     root = tmp_path
     doc_path = (
-        root / "docs" / "sphinx" / "source" / "zh_CN" / "user_guide" / "05-domain-randomization.md"
+        root / "docs" / "sphinx" / "source" / "zh_CN" / "1-user_guide" / "5-domain-randomization.md"
     )
     doc_path.parent.mkdir(parents=True)
     content = (
@@ -202,8 +202,8 @@ def test_check_zh_cn_doc_shape_accepts_developer_contract(tmp_path):
         / "sphinx"
         / "source"
         / "zh_CN"
-        / "developer_guide"
-        / "development-standard.md"
+        / "2-developer_guide"
+        / "1-development-standard.md"
     )
     doc_path.parent.mkdir(parents=True)
     content = (
@@ -224,9 +224,9 @@ def test_check_user_doc_architecture_flags_migration_phrasing_and_missing_task_s
         / "sphinx"
         / "source"
         / "zh_CN"
-        / "user_guide"
-        / "D-tasks"
-        / "01-task-index.md"
+        / "1-user_guide"
+        / "4-tasks"
+        / "1-task-index.md"
     )
     task_index.parent.mkdir(parents=True)
     task_index.write_text("# 任务\n\n语言: 简体中文\n\n已拆成。\n", encoding="utf-8")
@@ -243,7 +243,7 @@ def test_check_user_doc_architecture_flags_migration_phrasing_and_missing_task_s
 def test_check_user_doc_architecture_requires_backend_matrix_route(tmp_path):
     root = tmp_path
     doc_path = (
-        root / "docs" / "sphinx" / "source" / "zh_CN" / "user_guide" / "02-simulation-backends.md"
+        root / "docs" / "sphinx" / "source" / "zh_CN" / "1-user_guide" / "2-simulation-backends.md"
     )
     doc_path.parent.mkdir(parents=True)
     doc_path.write_text("# 仿真后端\n\n语言: 简体中文\n\n正文。\n", encoding="utf-8")
@@ -252,7 +252,7 @@ def test_check_user_doc_architecture_requires_backend_matrix_route(tmp_path):
 
     errors = check_user_doc_architecture(doc_path.read_text(encoding="utf-8"), doc_path, root)
 
-    assert any("E-reference/01-backend-support-matrix.md" in error for error in errors)
+    assert any("5-reference/1-backend-support-matrix.md" in error for error in errors)
 
 
 def test_check_sphinx_source_migration_guards_flags_removed_paths_and_english_navigation(
@@ -266,7 +266,7 @@ def test_check_sphinx_source_migration_guards_flags_removed_paths_and_english_na
 
 See [Documentation](../../README.md).
 See docs/users/zh_CN/03-training.md and docs/developers/zh_CN/collaboration.md.
-See ../../users/zh_CN/02-simulation-backends.md and ../../developers/adr/README.md.
+See ../../users/zh_CN/1-simulation-backends.md and ../../developers/adr/README.md.
 语言: 简体中文
 
 ## Navigation
@@ -302,7 +302,7 @@ def test_check_sphinx_source_migration_guards_accepts_current_doc_roles(tmp_path
 # ADR
 
 - {doc}`Documentation </index>`
-- {doc}`仿真后端 </zh_CN/user_guide/02-simulation-backends>`
+    - {doc}`仿真后端 </zh_CN/1-user_guide/2-simulation-backends>`
 - {doc}`ADR Index </adr/README>`
 """
 

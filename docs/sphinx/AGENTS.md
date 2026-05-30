@@ -8,7 +8,7 @@ Sphinx 文档写作规则。
 
 - 文档基础设施、构建和部署：`docs/sphinx/README.md`
 - Sphinx 配置：`docs/sphinx/source/conf.py`
-- 架构标准：`docs/sphinx/source/zh_CN/developer_guide/development-standard.md`
+- 架构标准：`docs/sphinx/source/zh_CN/2-developer_guide/1-development-standard.md`
 - ADR：`docs/sphinx/source/adr/ADR-0000-index.md`
 - 术语表：`docs/sphinx/source/glossary.md`
 - 文档检查：`tests/scripts/doc_checks.py`、`tests/scripts/test_check_docs.py`
@@ -17,7 +17,7 @@ Sphinx 文档写作规则。
 
 ```text
 source/
-├── index.md                 # root redirect → en/index.html (no language picker)
+├── index.md                 # root redirect → en/0-index.html (no language picker)
 ├── en/                      # English tree (site root, shown in sidebar nav)
 ├── zh_CN/                   # Chinese tree (hidden from sidebar, via switcher only)
 ├── adr/                     # shared ADR, one set
@@ -31,21 +31,60 @@ source/
     └── autosummary/
 ```
 
-`source/en/` is the **default site root**. Visitors land on `/en/index.html`
+`source/en/` is the **default site root**. Visitors land on `/en/0-index.html`
 directly (root `index.md` is a redirect). The sidebar navigation tree only
-shows English pages. `source/zh_CN/` pages are built but accessible only
-through the sidebar language switcher — they never appear in the navigation
-tree.
+shows the **active language root subtree** — when viewing an English page the
+sidebar contains only `en/...` pages; when viewing a Chinese page it contains
+only `zh_CN/...`. Shared resources (`adr/`, `api_reference/`, `glossary.md`,
+`changelog.md`) **do not appear directly in the sidebar** because they live
+outside both language roots.
 
 `source/en/` and `source/zh_CN/` are parallel language roots, but they are
-**not currently a strict 1:1 path mirror**. The Chinese user guide still keeps
-compatibility paths such as `01-getting-started.md`, `A-getting-started/`, and
-`C-algorithms/`. Do not rename those paths just to mirror English during an
-unrelated documentation change. The language switcher uses an explicit path map
-in `conf.py` (`_LANGUAGE_PATH_FORWARD`) to handle the mismatch.
+**not currently a strict 1:1 path mirror**. Both roots use numbered section
+directories and numbered Markdown files, while some sections exist only in one
+language. The language switcher uses an explicit path map in `conf.py`
+(`_LANGUAGE_PATH_FORWARD`) to handle the mismatch — **when adding a new English
+page, add a corresponding entry to that map** so the switcher lands somewhere
+sensible (or omit the entry to fall back to the zh_CN index).
 
 Do not add per-page language button blocks or hand-written cross-language
 navigation. The sidebar language switcher handles language changes globally.
+
+### Section indexes and shared resources
+
+Every multi-page section under a language root has a section index page that
+introduces the section and contains a hidden toctree of its sibling pages.
+Existing unnumbered sections use `index.md` recursively:
+`en/3-deployment/0-index.md`, `en/3-deployment/1-sim_to_real/0-index.md`,
+`en/4-developer_guide/1-architecture/0-index.md`, `en/2-user_guide/7-tooling/0-index.md`,
+etc. Ordered sections may use numbered filenames, such as
+`en/1-getting_started/0-index.md`, `1-quick_demo.md`, and `2-installation.md`.
+When a section uses numbered filenames, keep the file numbers and toctree order
+aligned. Adding a new section means adding its section index page and including
+the section in the parent index's toctree.
+
+Shared resources are reached through **language-local wrapper pages**, not by
+including the shared docs directly in a language toctree. Example: instead of
+
+```markdown
+<!-- BAD: would pull /glossary into the sidebar tree -->
+```{toctree}
+/glossary
+```
+```
+
+the English reference section uses
+
+```markdown
+<!-- GOOD: links via {doc} without inserting the shared page into the
+     sidebar subtree -->
+- {doc}`Shared glossary </glossary>`
+```
+
+See `en/5-reference/4-adr.md`, `en/5-reference/2-glossary.md`, `en/5-reference/3-changelog.md`
+for the established pattern. The wrapper page is what shows up in the
+language sidebar; the actual shared content remains accessible via the
+language-independent absolute path.
 
 ## Core Principles
 
@@ -63,9 +102,11 @@ navigation. The sidebar language switcher handles language changes globally.
 6. **API reference is autodoc**: `source/api_reference/` pages should contain
    autodoc/autosummary directives. Improve API prose in `src/unilab/**/*.py`
    docstrings.
-7. **Use canonical commands**: examples use `uv run scripts/...`, not
-   `python scripts/...`, `uv run python scripts/...`, or removed `unilab train`
-   style commands.
+7. **Use canonical commands**: user-facing examples use the top-level CLI:
+   `uv run train --algo <algo> --task <task> --sim <backend>`,
+   `uv run eval ...`, or `uv run demo`. Script paths such as
+   `scripts/train_rsl_rl.py` may be named as implementation evidence, but they
+   are not the primary command shape for docs readers.
 
 ## Before Writing
 
@@ -101,7 +142,7 @@ navigation. The sidebar language switcher handles language changes globally.
 | --- | --- |
 | Same-language doc link | MyST `{doc}` relative path, such as `{doc}`algorithms/ppo`` |
 | Shared ADR or root-level page | Absolute `{doc}` path, such as `{doc}`/adr/ADR-0003-task-owner-and-config-compose-contract`` |
-| Cross-language canonical link | Absolute `{doc}` path, such as `{doc}`/zh_CN/developer_guide/development-standard`` |
+| Cross-language canonical link | Absolute `{doc}` path, such as `{doc}`/zh_CN/2-developer_guide/1-development-standard`` |
 | Source/config/test path in prose | Backticks: `src/unilab/base/np_env.py` |
 | GitHub source link | Full GitHub URL to an existing file when a clickable source link is needed |
 
@@ -143,7 +184,7 @@ ADR files live in `source/adr/` and are shared across languages.
 
 ## Support Matrix
 
-`source/zh_CN/user_guide/E-reference/01-backend-support-matrix.md` has a
+`source/zh_CN/1-user_guide/5-reference/1-backend-support-matrix.md` has a
 generated block owned by `scripts/generate_support_matrix.py`.
 
 After task/backend support changes, run:
@@ -156,19 +197,32 @@ Do not hand-edit the generated block.
 
 ## Toctree Rules
 
-- Add pages to the relevant language index or section toctree.
-- English toctrees should point to English pages or shared pages.
+- Add pages to the relevant language section's `index.md` toctree (e.g.
+  `en/2-user_guide/7-tooling/0-index.md` for a new tooling page). Then add the
+  section to its parent index if it is a new section.
+- **Do not put shared pages (`/adr/...`, `/api_reference/...`, `/glossary`,
+  `/changelog`) into a language toctree.** That would re-insert them into
+  the sidebar subtree. Use the wrapper-page pattern in `en/5-reference/`
+  (plain `{doc}` link, no toctree).
+- English toctrees should only reference English pages (`en/...`).
 - Chinese toctrees may keep legacy numbered paths for compatibility.
+- Adding a new English page also means adding a `_LANGUAGE_PATH_FORWARD`
+  entry in `conf.py` if there is a Chinese equivalent worth pointing the
+  switcher to.
 - Deleting or renaming a page requires `rg` for all `{doc}` and toctree
-  references. Avoid renames unless the migration is explicitly in scope.
+  references **and** for `_LANGUAGE_PATH_FORWARD` entries. Avoid renames
+  unless the migration is explicitly in scope.
 
 ## Concrete Anti-Patterns
 
 - Marketing claims without benchmark evidence.
 - "Coming soon", roadmap promises, or unsupported feature claims.
 - Backend support claims that are not backed by registry/config/test data.
-- `training.sim_backend=...` as a standalone backend switch. Use
-  `task=<task>/<backend>` or `task=<algo>/<task>/<backend>`.
+- `training.sim_backend=...` as a standalone backend switch. Use the
+  argparse-style flags on the top-level CLI:
+  `uv run train --algo <algo> --task <task> --sim <backend>`
+  (and the matching `uv run eval` / `uv run demo` forms). Do not teach
+  `task=<task>/<backend>` Hydra overrides as user-facing CLI examples.
 - Env hot paths that parse assets/XML or probe backend private methods.
 - Hand-written API signatures in `source/api_reference/`.
 - English `## Navigation` blocks.
@@ -191,5 +245,5 @@ Before reporting success, confirm:
 
 - all cited `src/`, `conf/`, `tests/`, and `scripts/` paths exist;
 - English pages in scope have no manual navigation block;
-- root, `en/index.md`, and `zh_CN/index.md` remain included in toctrees;
+- root, `en/0-index.md`, and `zh_CN/0-index.md` remain included in toctrees;
 - any warnings from Sphinx are understood and not introduced by the current edit.

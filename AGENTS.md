@@ -81,6 +81,6 @@ gh pr create --title "fix: xxx" --body "Fixes #174" --base main
 
 ## Context
 
-- 架构标准与验证详情：[docs/sphinx/source/zh_CN/developer_guide/development-standard.md](docs/sphinx/source/zh_CN/developer_guide/development-standard.md)
-- 协作流程与 PR 规范：[docs/sphinx/source/zh_CN/developer_guide/collaboration.md](docs/sphinx/source/zh_CN/developer_guide/collaboration.md)
+- 架构标准与验证详情：[docs/sphinx/source/zh_CN/2-developer_guide/1-development-standard.md](docs/sphinx/source/zh_CN/2-developer_guide/1-development-standard.md)
+- 协作流程与 PR 规范：[docs/sphinx/source/zh_CN/2-developer_guide/2-collaboration.md](docs/sphinx/source/zh_CN/2-developer_guide/2-collaboration.md)
 - 开发者入口（环境、命令、提交规范）：[CONTRIBUTING.md](CONTRIBUTING.md)

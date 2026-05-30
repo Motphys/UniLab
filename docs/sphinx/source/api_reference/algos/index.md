@@ -7,7 +7,7 @@ Two parallel trees:
 - **`unilab.algos.mlx`** — Apple-silicon native PPO via [MLX](https://github.com/ml-explore/mlx).
 
 All trainers conform to a single runner contract — see
-{doc}`../../developer_guide/contracts/runner_lifecycle`.
+{doc}`../../en/4-developer_guide/2-contracts/5-runner_lifecycle`.
 
 ```{toctree}
 :maxdepth: 2
