@@ -8,7 +8,7 @@ live in the getting-started and algorithm pages.
 - Python `>=3.10,<3.14`, from `pyproject.toml`.
 - `uv`, used for dependency sync and command execution.
 - `cmake`, required by the local setup documented in
-  `docs/sphinx/source/zh_CN/1-user_guide/1-getting-started/1-install.md`.
+  `docs/sphinx/source/zh_CN/1-getting_started/2-installation.md`.
 
 ## Clone And Sync
 

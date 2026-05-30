@@ -41,13 +41,13 @@
 
 ## Evidence In Repo
 
-- 架构标准与配置语义: `docs/sphinx/source/zh_CN/2-developer_guide/1-development-standard.md`
-- 后端选择说明: `docs/sphinx/source/zh_CN/1-user_guide/2-simulation-backends.md`
+- 架构标准与配置语义: `docs/sphinx/source/zh_CN/4-developer_guide/0-index.md`
+- 后端选择说明: `docs/sphinx/source/zh_CN/2-user_guide/3-backends/0-index.md`
 - 配置测试: `tests/config/test_config_system.py`
 
 ## Related Documents
 
 - {doc}`ADR Index </adr/README>`
-- {doc}`RL Infrastructure 开发标准 </zh_CN/2-developer_guide/1-development-standard>`
-- {doc}`仿真后端 </zh_CN/1-user_guide/2-simulation-backends>`
-- {doc}`协作流程 </zh_CN/2-developer_guide/2-collaboration>`
+- {doc}`RL Infrastructure 开发标准 </zh_CN/4-developer_guide/0-index>`
+- {doc}`仿真后端 </zh_CN/2-user_guide/3-backends/0-index>`
+- {doc}`协作流程 </zh_CN/4-developer_guide/5-contributing_workflow>`

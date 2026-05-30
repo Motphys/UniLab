@@ -17,7 +17,7 @@ the composed backend.
 | Task owner exists under `conf/.../<task>/motrix.yaml` and the support matrix marks the combination as tested or configured | Motrix |
 
 The support matrix is generated from registry, owner YAML, and tests; use it as
-the current evidence source: {doc}`/zh_CN/1-user_guide/5-reference/1-backend-support-matrix`.
+the current evidence source: {doc}`/zh_CN/5-reference/5-support_matrix`.
 
 ## Examples
 

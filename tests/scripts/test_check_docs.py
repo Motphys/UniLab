@@ -18,7 +18,14 @@ def test_documentation_files_match_current_repo_contracts():
 def test_sharpa_domain_randomization_doc_matches_owner_config():
     root = Path(__file__).resolve().parents[2]
     doc_path = (
-        root / "docs" / "sphinx" / "source" / "zh_CN" / "1-user_guide" / "5-domain-randomization.md"
+        root
+        / "docs"
+        / "sphinx"
+        / "source"
+        / "zh_CN"
+        / "2-user_guide"
+        / "5-domain_randomization"
+        / "0-index.md"
     )
     content = doc_path.read_text(encoding="utf-8")
 
@@ -302,7 +309,7 @@ def test_check_sphinx_source_migration_guards_accepts_current_doc_roles(tmp_path
 # ADR
 
 - {doc}`Documentation </index>`
-    - {doc}`仿真后端 </zh_CN/1-user_guide/2-simulation-backends>`
+    - {doc}`仿真后端 </zh_CN/2-user_guide/3-backends/0-index>`
 - {doc}`ADR Index </adr/README>`
 """
 

@@ -8,7 +8,7 @@ Sphinx 文档写作规则。
 
 - 文档基础设施、构建和部署：`docs/sphinx/README.md`
 - Sphinx 配置：`docs/sphinx/source/conf.py`
-- 架构标准：`docs/sphinx/source/zh_CN/2-developer_guide/1-development-standard.md`
+- 架构标准：`docs/sphinx/source/zh_CN/4-developer_guide/0-index.md`
 - ADR：`docs/sphinx/source/adr/ADR-0000-index.md`
 - 术语表：`docs/sphinx/source/glossary.md`
 - 文档检查：`tests/scripts/doc_checks.py`、`tests/scripts/test_check_docs.py`
@@ -142,7 +142,7 @@ language-independent absolute path.
 | --- | --- |
 | Same-language doc link | MyST `{doc}` relative path, such as `{doc}`algorithms/ppo`` |
 | Shared ADR or root-level page | Absolute `{doc}` path, such as `{doc}`/adr/ADR-0003-task-owner-and-config-compose-contract`` |
-| Cross-language canonical link | Absolute `{doc}` path, such as `{doc}`/zh_CN/2-developer_guide/1-development-standard`` |
+| Cross-language canonical link | Absolute `{doc}` path, such as `{doc}`/zh_CN/4-developer_guide/0-index`` |
 | Source/config/test path in prose | Backticks: `src/unilab/base/np_env.py` |
 | GitHub source link | Full GitHub URL to an existing file when a clickable source link is needed |
 
@@ -184,7 +184,7 @@ ADR files live in `source/adr/` and are shared across languages.
 
 ## Support Matrix
 
-`source/zh_CN/1-user_guide/5-reference/1-backend-support-matrix.md` has a
+`source/zh_CN/5-reference/5-support_matrix.md` has a
 generated block owned by `scripts/generate_support_matrix.py`.
 
 After task/backend support changes, run:

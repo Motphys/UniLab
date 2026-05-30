@@ -39,7 +39,7 @@ UniLab 同时支持多种算法入口和两种仿真后端。没有统一 runtim
 
 ## Evidence In Repo
 
-- 架构基线文档: `docs/sphinx/source/zh_CN/2-developer_guide/1-development-standard.md`
+- 架构基线文档: `docs/sphinx/source/zh_CN/4-developer_guide/0-index.md`
 - Backend 抽象: `src/unilab/base/backend/base.py`
 - Env contract: `src/unilab/base/np_env.py`
 - Registry 入口: `src/unilab/base/registry.py`
@@ -48,6 +48,6 @@ UniLab 同时支持多种算法入口和两种仿真后端。没有统一 runtim
 ## Related Documents
 
 - {doc}`ADR Index </adr/README>`
-- {doc}`RL Infrastructure 开发标准 </zh_CN/2-developer_guide/1-development-standard>`
-- {doc}`仿真后端 </zh_CN/1-user_guide/2-simulation-backends>`
-- {doc}`协作流程 </zh_CN/2-developer_guide/2-collaboration>`
+- {doc}`RL Infrastructure 开发标准 </zh_CN/4-developer_guide/0-index>`
+- {doc}`仿真后端 </zh_CN/2-user_guide/3-backends/0-index>`
+- {doc}`协作流程 </zh_CN/4-developer_guide/5-contributing_workflow>`

@@ -23,7 +23,7 @@ def main() -> int:
     parser.add_argument(
         "--write",
         action="store_true",
-        help="Update docs/sphinx/source/zh_CN/1-user_guide/5-reference/1-backend-support-matrix.md in place.",
+        help="Update docs/sphinx/source/zh_CN/5-reference/5-support_matrix.md in place.",
     )
     args = parser.parse_args()
 
@@ -32,16 +32,7 @@ def main() -> int:
         print(render_support_matrix(root))
         return 0
 
-    doc_path = (
-        root
-        / "docs"
-        / "sphinx"
-        / "source"
-        / "zh_CN"
-        / "1-user_guide"
-        / "5-reference"
-        / "1-backend-support-matrix.md"
-    )
+    doc_path = root / "docs" / "sphinx" / "source" / "zh_CN" / "5-reference" / "5-support_matrix.md"
     content = doc_path.read_text(encoding="utf-8")
     updated = replace_generated_block(content, render_generated_block(root))
     doc_path.write_text(updated, encoding="utf-8")

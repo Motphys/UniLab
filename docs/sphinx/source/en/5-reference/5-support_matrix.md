@@ -3,7 +3,7 @@
 This matrix is generated conceptually from registry entries, owner YAMLs, and
 tests. The generator implementation is `src/unilab/utils/support_matrix.py`; the
 write target for the generated block is currently the Chinese reference page
-`docs/sphinx/source/zh_CN/1-user_guide/5-reference/1-backend-support-matrix.md`.
+`docs/sphinx/source/zh_CN/5-reference/5-support_matrix.md`.
 
 ## Evidence Grades
 

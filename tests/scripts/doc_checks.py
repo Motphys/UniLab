@@ -331,14 +331,7 @@ def check_generated_support_matrix(content: str, doc_path: Path, root: Path) -> 
     errors: list[str] = []
     if (
         doc_path
-        != root
-        / "docs"
-        / "sphinx"
-        / "source"
-        / "zh_CN"
-        / "1-user_guide"
-        / "5-reference"
-        / "1-backend-support-matrix.md"
+        != root / "docs" / "sphinx" / "source" / "zh_CN" / "5-reference" / "5-support_matrix.md"
     ):
         return errors
 

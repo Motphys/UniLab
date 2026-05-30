@@ -35,4 +35,4 @@
 ## Related Documents
 
 - {doc}`ADR Index </adr/README>`
-- {doc}`RL Infrastructure 开发标准 </zh_CN/2-developer_guide/1-development-standard>`
+- {doc}`RL Infrastructure 开发标准 </zh_CN/4-developer_guide/0-index>`
