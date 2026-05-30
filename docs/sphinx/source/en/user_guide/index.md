@@ -37,94 +37,29 @@ Configure reset, init, and interval randomization through task owner configs.
 :::
 
 :::{grid-item-card} Tooling
-:link: tooling/onnx_export
+:link: tooling/index
 :link-type: doc
 Export ONNX, inspect NaNs, send W&B logs, and export scenes.
+:::
+
+:::{grid-item-card} Manipulation Notes
+:link: manipulation/index
+:link-type: doc
+Task-specific Allegro, Sharpa, and Go2+Airbot notes.
 :::
 
 ::::
 
 ```{toctree}
 :hidden:
-:caption: Training
+:caption: User Guide
 
 training/index
-training/cli_reference
-training/hydra_config
-training/logging
-training/multi_gpu
-training/resume_and_checkpoints
-training/docker
-```
-
-```{toctree}
-:hidden:
-:caption: Algorithms
-
 algorithms/index
-algorithms/ppo
-algorithms/appo
-algorithms/sac
-algorithms/td3
-algorithms/flash_sac
-algorithms/him_ppo
-algorithms/hora
-algorithms/mlx_ppo
-```
-
-```{toctree}
-:hidden:
-:caption: Backends
-
 backends/index
-backends/mujoco
-backends/motrix
-backends/choosing_a_backend
-```
-
-```{toctree}
-:hidden:
-:caption: Tasks
-
 tasks/index
-tasks/locomotion
-tasks/motion_tracking
-tasks/manipulation
-tasks/manip_loco
-```
-
-```{toctree}
-:hidden:
-:caption: Domain Randomization
-
 domain_randomization/index
-domain_randomization/configuration
-domain_randomization/writing_providers
-```
-
-```{toctree}
-:hidden:
-:caption: Terrain
-
 terrain/index
-terrain/procedural
-terrain/heightfield_import
-```
-
-```{toctree}
-:hidden:
-:caption: Tooling
-
-tooling/onnx_export
-tooling/wandb
-tooling/nan_visualizer
-tooling/scene_export
-```
-
-```{toctree}
-:hidden:
-:caption: Manipulation Notes
-
-manipulation/dexterous_inhand
-manipulation/manip_loco
+tooling/index
+manipulation/index
 ```

@@ -55,3 +55,11 @@ the generated source data.
 - {doc}`Task owner contract </en/developer_guide/contracts/task_owner>`
 - {doc}`Backend capability boundary ADR </adr/ADR-0002-backend-capability-boundary-for-play-and-snapshot>`
 - {doc}`Registry bootstrap ADR </adr/ADR-0004-registry-bootstrap-contract>`
+
+```{toctree}
+:hidden:
+
+mujoco
+motrix
+choosing_a_backend
+```

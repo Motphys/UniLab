@@ -303,17 +303,31 @@ _LANGUAGE_PATH_FORWARD: dict[str, str] = {
     "en/user_guide/domain_randomization/index": "zh_CN/user_guide/05-domain-randomization",
     "en/user_guide/domain_randomization/configuration": "zh_CN/user_guide/05-domain-randomization",
     "en/user_guide/domain_randomization/writing_providers": "zh_CN/developer_guide/domain-randomization-contract",
+    "en/user_guide/terrain/index": "zh_CN/user_guide/D-tasks/05-go2-rough-terrain",
+    "en/user_guide/terrain/procedural": "zh_CN/user_guide/D-tasks/05-go2-rough-terrain",
+    "en/user_guide/terrain/heightfield_import": "zh_CN/user_guide/D-tasks/05-go2-rough-terrain",
+    "en/user_guide/tooling/index": "zh_CN/user_guide/index",
+    "en/user_guide/tooling/onnx_export": "zh_CN/user_guide/B-training/02-playback-and-resume",
+    "en/user_guide/tooling/wandb": "zh_CN/user_guide/B-training/04-logging-and-wandb",
+    "en/user_guide/tooling/nan_visualizer": "zh_CN/user_guide/index",
+    "en/user_guide/tooling/scene_export": "zh_CN/user_guide/index",
+    "en/user_guide/manipulation/index": "zh_CN/user_guide/D-tasks/03-allegro-inhand",
+    "en/user_guide/manipulation/dexterous_inhand": "zh_CN/user_guide/D-tasks/03-allegro-inhand",
+    "en/user_guide/manipulation/manip_loco": "zh_CN/user_guide/D-tasks/06-go2-arm-manip-loco",
     "en/developer_guide/index": "zh_CN/developer_guide/index",
+    "en/developer_guide/architecture/index": "zh_CN/developer_guide/development-standard",
     "en/developer_guide/architecture/overview": "zh_CN/developer_guide/development-standard",
     "en/developer_guide/architecture/runtime_model": "zh_CN/developer_guide/development-standard",
     "en/developer_guide/architecture/layer_boundaries": "zh_CN/developer_guide/development-standard",
     "en/developer_guide/architecture/registry": "zh_CN/developer_guide/development-standard",
     "en/developer_guide/architecture/scene_composition": "zh_CN/developer_guide/scene-composition-design",
+    "en/developer_guide/contracts/index": "zh_CN/developer_guide/development-standard",
     "en/developer_guide/contracts/env_contract": "zh_CN/developer_guide/development-standard",
     "en/developer_guide/contracts/dr_contract": "zh_CN/developer_guide/domain-randomization-contract",
     "en/developer_guide/contracts/task_owner": "zh_CN/developer_guide/development-standard",
     "en/developer_guide/contracts/backend_contract": "zh_CN/developer_guide/development-standard",
     "en/developer_guide/contracts/runner_lifecycle": "zh_CN/developer_guide/development-standard",
+    "en/developer_guide/extending/index": "zh_CN/developer_guide/development-standard",
     "en/developer_guide/extending/new_task": "zh_CN/developer_guide/development-standard",
     "en/developer_guide/extending/new_backend": "zh_CN/developer_guide/development-standard",
     "en/developer_guide/extending/new_algorithm": "zh_CN/developer_guide/development-standard",
@@ -321,6 +335,9 @@ _LANGUAGE_PATH_FORWARD: dict[str, str] = {
     "en/developer_guide/contributing": "zh_CN/developer_guide/CONTRIBUTING",
     "en/developer_guide/contributing_workflow": "zh_CN/developer_guide/collaboration",
     "en/deployment/index": "zh_CN/transfer/index",
+    "en/deployment/sim_to_real/index": "zh_CN/transfer/index",
+    "en/deployment/sim_to_sim/index": "zh_CN/transfer/index",
+    "en/deployment/framework_migration/index": "zh_CN/transfer/index",
     "en/developer_guide/agent_quick_reference": "zh_CN/agents/01-agent-quick-reference",
     "en/reference/support_matrix": "zh_CN/user_guide/E-reference/01-backend-support-matrix",
 }
@@ -385,8 +402,9 @@ def _filter_sidebar_navigation_tree(
     pagename: str,
     context: dict[str, Any],
 ) -> str | None:
-    # Root index.md keeps both language roots in the build graph; the opposite
-    # language root should only be reachable through the language switcher.
+    # Root index.md keeps both language roots and shared resources in the build
+    # graph. The sidebar should expose only the active language root; shared
+    # pages stay reachable through language-local wrapper pages.
     navigation_tree = context.get("furo_navigation_tree")
     pathto = context.get("pathto")
     if not navigation_tree or pathto is None:
@@ -395,8 +413,7 @@ def _filter_sidebar_navigation_tree(
     from bs4 import BeautifulSoup
 
     sidebar_language = _sidebar_navigation_language(pagename)
-    opposite_language = "zh_CN" if sidebar_language == "en" else "en"
-    opposite_root_href = pathto(f"{opposite_language}/index")
+    language_root_href = pathto(f"{sidebar_language}/index")
 
     soup = BeautifulSoup(navigation_tree, "html.parser")
     root_list = soup.find("ul")
@@ -406,7 +423,7 @@ def _filter_sidebar_navigation_tree(
     for item in list(root_list.find_all("li", recursive=False)):
         link = item.find("a", recursive=False)
         href = link.get("href", "") if link else ""
-        if href == opposite_root_href:
+        if href != language_root_href:
             item.decompose()
 
     return str(soup)

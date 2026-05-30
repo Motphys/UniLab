@@ -84,40 +84,11 @@ Extend terrain generation while keeping asset access on cold paths.
 
 ```{toctree}
 :hidden:
-:caption: Architecture
+:caption: Developer Guide
 
-architecture/overview
-architecture/runtime_model
-architecture/layer_boundaries
-architecture/scene_composition
-architecture/registry
-```
-
-```{toctree}
-:hidden:
-:caption: Contracts
-
-contracts/env_contract
-contracts/backend_contract
-contracts/task_owner
-contracts/dr_contract
-contracts/runner_lifecycle
-```
-
-```{toctree}
-:hidden:
-:caption: Extending
-
-extending/new_task
-extending/new_backend
-extending/new_algorithm
-extending/new_terrain
-```
-
-```{toctree}
-:hidden:
-:caption: Onboarding
-
+architecture/index
+contracts/index
+extending/index
 contributing
 contributing_workflow
 agent_quick_reference

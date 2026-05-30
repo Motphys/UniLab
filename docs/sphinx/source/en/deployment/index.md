@@ -13,7 +13,7 @@ backends, and source frameworks. Each tutorial follows the same shape:
 :gutter: 3
 
 :::{grid-item-card} 🤖 Sim → Real
-:link: sim_to_real/overview
+:link: sim_to_real/index
 :link-type: doc
 :class-card: sd-shadow-md
 
@@ -22,7 +22,7 @@ deploy-side contract checks.
 :::
 
 :::{grid-item-card} 🔀 Sim → Sim
-:link: sim_to_sim/backend_swap
+:link: sim_to_sim/index
 :link-type: doc
 :class-card: sd-shadow-md
 
@@ -30,7 +30,7 @@ Switch the same task between MuJoCo and Motrix without retraining from scratch.
 :::
 
 :::{grid-item-card} 🔁 Framework Migration
-:link: framework_migration/from_isaac_lab
+:link: framework_migration/index
 :link-type: doc
 :class-card: sd-shadow-md
 
@@ -188,39 +188,9 @@ Common reward terms in UniLab style.
 
 ```{toctree}
 :hidden:
-:caption: Sim-to-Real
+:caption: Deployment
 
-sim_to_real/overview
-sim_to_real/g1_whole_body
-sim_to_real/go2_locomotion
-sim_to_real/allegro_inhand
-sim_to_real/onnx_runtime
-sim_to_real/domain_randomization
-sim_to_real/safety_layers
-sim_to_real/latency_budget
-sim_to_real/troubleshooting
-```
-
-```{toctree}
-:hidden:
-:caption: Sim-to-Sim
-
-sim_to_sim/backend_swap
-sim_to_sim/owner_yaml_swap
-sim_to_sim/contact_and_friction_alignment
-sim_to_sim/reward_parity
-sim_to_sim/playback_and_snapshot_differences
-sim_to_sim/capability_gaps
-```
-
-```{toctree}
-:hidden:
-:caption: Framework Migration
-
-framework_migration/from_isaac_lab
-framework_migration/from_legged_gym
-framework_migration/from_rsl_rl
-framework_migration/from_skrl
-framework_migration/task_config_translation
-framework_migration/reward_porting
+sim_to_real/index
+sim_to_sim/index
+framework_migration/index
 ```

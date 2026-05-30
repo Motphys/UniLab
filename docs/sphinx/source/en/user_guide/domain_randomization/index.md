@@ -198,6 +198,13 @@ The reason is that `geom_size` changes model geometry and model identity; the co
 1. The task provider generates the model variants and env-to-model assignment in `build_init_randomization_plan(...)`.
 2. The MuJoCo backend modifies geom size on the cold path using `MjSpec` and compiles scale-specific `MjModel`s.
 3. The backend constructs `BatchEnvPool` with a model sequence of length `num_envs`.
+
+```{toctree}
+:hidden:
+
+configuration
+writing_providers
+```
 4. The reset stage only performs state and parameter perturbations within the same model identity; it does not handle `geom_size`.
 
 This boundary exists to honor the cold-path asset/model-metadata access principle: `step()`, `reset()`, and hot-path DR do not parse XML, do not read assets, and do not branch at runtime based on asset metadata.
