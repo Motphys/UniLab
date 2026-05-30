@@ -4,6 +4,8 @@
 training:
   task_name: SharpaInhandRotation
   sim_backend: mujoco
+  use_amp: true
+  env_steps_per_sync: 2
   no_play: true
   play_steps: 200
   render_spacing: 0.5
@@ -18,7 +20,7 @@ algo:
   num_envs: 1024
   batch_size: 2048
   replay_buffer_n: 1280
-  updates_per_step: 7
+  updates_per_step: 14
   learning_starts: 1
   policy_frequency: 2
   max_iterations: 39063
@@ -31,6 +33,8 @@ algo:
     priv_mlp_hidden_dims: [256, 128, 9]
   algo_params:
     alpha_lr: 4.5e-4
+    amp_dtype: auto
+    use_compile: true
 
 reward:
   scales:
@@ -79,7 +83,7 @@ env:
     torque_control: false
     dof_limits_scale: 0.9
   domain_rand:
-    scale_list: [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6]
+    scale_list: [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
     randomize_gravity_direction: true
     gravity_direction_magnitude: 9.81
     randomize_pd_gains: true

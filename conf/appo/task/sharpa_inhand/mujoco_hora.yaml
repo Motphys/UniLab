@@ -44,6 +44,7 @@ algo:
     adaptive_lr_factor: 1.1
 
 env:
+  use_default_object_pose_for_object_pos_anchor: true
   obs:
     observation_mode: separated
   domain_rand:

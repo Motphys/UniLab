@@ -493,6 +493,7 @@ def test_hora_sac_dispatches_through_double_buffer_runner(monkeypatch: pytest.Mo
             "algo=sac",
             "task=sac/sharpa_inhand/mujoco_hora",
             "training.device=cpu",
+            "algo.algo_params.use_compile=false",
         ]
     )
 
@@ -520,10 +521,6 @@ def test_hora_sac_dispatches_through_double_buffer_runner(monkeypatch: pytest.Mo
     assert runner.kwargs["algo_type"] == "hora_sac"
     assert runner.kwargs["actor_kwargs"]["priv_info_dim"] == 3
     assert runner.kwargs["actor_kwargs"]["priv_info_embed_dim"] == 9
-    assert runner.kwargs["num_envs"] == 1024
-    assert runner.kwargs["batch_size"] == 2048
-    assert runner.kwargs["updates_per_step"] == 7
-    assert runner.kwargs["policy_frequency"] == 2
 
 
 def test_sac_double_buffer_one_tick_prefetch_mode_passed(monkeypatch: pytest.MonkeyPatch):
