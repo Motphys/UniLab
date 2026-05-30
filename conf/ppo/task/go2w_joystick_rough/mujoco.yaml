@@ -18,7 +18,7 @@ interactive:
 algo:
   num_envs: 2048
   num_steps_per_env: 24
-  max_iterations: 2000
+  max_iterations: 1200
   empirical_normalization: false
   obs_groups:
     actor:
