@@ -39,7 +39,7 @@ training:
   verbose_metrics: false
 
 env:
-  post_step_forward_sensor: true
+  post_step_forward_sensor: false
 
 hydra:
   run:

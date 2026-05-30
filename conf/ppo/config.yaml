@@ -122,7 +122,7 @@ viser:
   max_envs: 16
 
 env:
-  post_step_forward_sensor: true
+  post_step_forward_sensor: false
 
 hydra:
   run:

@@ -269,7 +269,7 @@ class MuJoCoBackend(SimBackend):
         position_actuator_gains: dict | None = None,
         iterations: int | None = None,
         push_body_name: Optional[str] = None,
-        post_step_forward_sensor: bool = True,
+        post_step_forward_sensor: bool = False,
     ):
         scene_context = _build_mujoco_scene_context(scene)
         self.scene_model_file = scene_context.model_file

@@ -77,7 +77,7 @@ class _FakeMuJoCoPool:
         return state_np[:, :1]
 
 
-def _fake_mujoco_backend(pre_step_control_fn=None, post_step_forward_sensor=True):
+def _fake_mujoco_backend(pre_step_control_fn=None, post_step_forward_sensor=False):
     try:
         from unilab.base.backend.mujoco.backend import MuJoCoBackend
     except Exception as exc:
@@ -104,7 +104,7 @@ def test_mujoco_step_without_pre_step_control_keeps_batched_nsteps() -> None:
     assert len(backend._pool.step_calls) == 1
     assert backend._pool.step_calls[0]["nstep"] == 3
     assert backend._pool.step_calls[0]["return_sensor"] is True
-    assert backend._pool.step_calls[0]["post_step_forward_sensor"] is True
+    assert backend._pool.step_calls[0]["post_step_forward_sensor"] is False
     assert backend._pool.forward_calls == []
     expected_control = np.broadcast_to(ctrl[:, None, :], (1, 3, ctrl.shape[-1]))
     np.testing.assert_allclose(backend._pool.step_calls[0]["control"], expected_control)
@@ -113,19 +113,19 @@ def test_mujoco_step_without_pre_step_control_keeps_batched_nsteps() -> None:
 
 
 def test_mujoco_step_honors_post_step_forward_sensor_flag() -> None:
-    backend = _fake_mujoco_backend(post_step_forward_sensor=False)
+    backend = _fake_mujoco_backend(post_step_forward_sensor=True)
     ctrl = np.array([[0.5, -0.5]], dtype=np.float32)
 
     backend.step(ctrl, nsteps=3)
 
     assert backend._pool.step_calls[0]["return_sensor"] is True
-    assert backend._pool.step_calls[0]["post_step_forward_sensor"] is False
+    assert backend._pool.step_calls[0]["post_step_forward_sensor"] is True
 
 
 def test_mujoco_step_with_pre_step_control_recomputes_each_physics_step() -> None:
     seen_sensors: list[np.ndarray] = []
 
-    backend = _fake_mujoco_backend()
+    backend = _fake_mujoco_backend(post_step_forward_sensor=True)
 
     def hook(current_backend, owner_ctrl: np.ndarray) -> np.ndarray:
         seen_sensors.append(current_backend._sensor_data.copy())

@@ -48,6 +48,7 @@ reward:
   angvel_clip_max: 0.5
 
 env:
+  post_step_forward_sensor: true
   zero_action_test_mode: false
   clip_obs: 5.0
   clip_actions: 1.0

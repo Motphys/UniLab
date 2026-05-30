@@ -173,6 +173,16 @@ def test_task_files_keep_full_identity_without_hidden_backend_marker():
         assert "sim_backend" in training_raw, f"task missing sim_backend: {path}"
 
 
+def test_motrix_task_files_do_not_declare_post_step_forward_sensor():
+    for path in sorted(CONF_DIR.glob("*/task/**/*motrix*.yaml")):
+        cfg = OmegaConf.load(path)
+
+        assert OmegaConf.select(cfg, "env.post_step_forward_sensor") is None, (
+            "post_step_forward_sensor is routed only to MuJoCo backends: "
+            f"{path.relative_to(CONF_DIR)}"
+        )
+
+
 @pytest.mark.parametrize(
     "algo_dir,config_name,task,backend,task_file,overrides",
     _supported_task_cases(),
@@ -296,14 +306,49 @@ def test_ppo_g1_backend_specific_hyperparams_remain_separate():
     assert motrix_cfg.reward.max_tilt_deg == pytest.approx(35.0)
 
 
-def test_mujoco_post_step_forward_sensor_default_and_override():
-    default_cfg = _compose("appo", overrides=["task=sharpa_inhand/mujoco_hora"])
+@pytest.mark.parametrize(
+    ("algo_dir", "overrides"),
+    [
+        ("ppo", ["task=g1_walk_flat/mujoco"]),
+        ("ppo_him", ["task=go2_arm_manip_loco/mujoco"]),
+        ("appo", ["task=g1_walk_flat/mujoco"]),
+        ("offpolicy", ["algo=sac", "task=sac/g1_walk_flat/mujoco"]),
+    ],
+)
+def test_post_step_forward_sensor_defaults_false_outside_sharpa_mujoco(
+    algo_dir: str, overrides: list[str]
+):
+    cfg = _compose(algo_dir, overrides=overrides)
+
+    assert cfg.env.post_step_forward_sensor is False
+
+
+@pytest.mark.parametrize(
+    ("algo_dir", "overrides"),
+    [
+        ("ppo", ["task=sharpa_inhand/mujoco"]),
+        ("ppo", ["task=sharpa_inhand/mujoco_hora"]),
+        ("ppo", ["task=sharpa_inhand_grasp/mujoco"]),
+        ("appo", ["task=sharpa_inhand/mujoco"]),
+        ("appo", ["task=sharpa_inhand/mujoco_hora"]),
+        ("offpolicy", ["algo=sac", "task=sac/sharpa_inhand/mujoco_hora"]),
+        ("hora_distill", ["task=sharpa_inhand/mujoco"]),
+    ],
+)
+def test_post_step_forward_sensor_enabled_for_sharpa_mujoco(
+    algo_dir: str, overrides: list[str]
+):
+    cfg = _compose(algo_dir, overrides=overrides)
+
+    assert cfg.env.post_step_forward_sensor is True
+
+
+def test_mujoco_post_step_forward_sensor_can_be_overridden():
     override_cfg = _compose(
         "appo",
         overrides=["task=sharpa_inhand/mujoco_hora", "env.post_step_forward_sensor=false"],
     )
 
-    assert default_cfg.env.post_step_forward_sensor is True
     assert override_cfg.env.post_step_forward_sensor is False
 
 

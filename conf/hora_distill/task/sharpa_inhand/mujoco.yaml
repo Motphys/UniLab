@@ -17,3 +17,6 @@ algo:
   num_envs: 16384
   max_agent_steps: 100000000
   save_interval_steps: 10000000
+
+env:
+  post_step_forward_sensor: true

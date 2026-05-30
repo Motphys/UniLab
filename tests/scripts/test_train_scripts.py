@@ -585,11 +585,11 @@ def test_build_ppo_env_cfg_override_carries_post_step_forward_sensor_override(
     monkeypatch: pytest.MonkeyPatch,
 ):
     mod = _train_rsl_rl(monkeypatch)
-    cfg = _ppo_cfg(["task=g1_walk_flat/mujoco", "env.post_step_forward_sensor=false"])
+    cfg = _ppo_cfg(["task=g1_walk_flat/mujoco", "env.post_step_forward_sensor=true"])
 
     env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
 
-    assert env_cfg_override["post_step_forward_sensor"] is False
+    assert env_cfg_override["post_step_forward_sensor"] is True
 
 
 def test_offpolicy_g1_walk_flat_motrix_env_cfg_override_has_domain_rand():
