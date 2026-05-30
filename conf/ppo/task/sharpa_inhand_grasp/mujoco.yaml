@@ -81,7 +81,7 @@ env:
   reset_height_upper: 0.62406
   reset_angle_diff: 0.5235987755982988
   rot_axis: [0.0, 0.0, 1.0]
-  grasp_cache_path: cache/sharpa_grasp_linspace
+  grasp_cache_path: caches/sharpa_grasp_linspace
   obs:
     observation_mode: flattened
     enable_tactile: true
