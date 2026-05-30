@@ -1,3 +1,7 @@
+---
+orphan: true
+---
+
 # Architecture Decision Records (ADR)
 
 语言: 简体中文

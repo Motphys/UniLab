@@ -1,3 +1,7 @@
+---
+orphan: true
+---
+
 # ADR-XXXX Short Title
 
 语言: 简体中文

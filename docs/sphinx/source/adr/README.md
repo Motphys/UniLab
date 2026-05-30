@@ -39,16 +39,3 @@
 ## Navigation
 
 - Index: {doc}`Documentation </index>`
-
-```{toctree}
-:hidden:
-:maxdepth: 1
-
-ADR-0000-index
-ADR-0001-runtime-model-and-layer-boundaries
-ADR-0002-backend-capability-boundary-for-play-and-snapshot
-ADR-0003-task-owner-and-config-compose-contract
-ADR-0004-registry-bootstrap-contract
-ADR-0005-unified-obs-critic-env-and-ipc-contract
-ADR-TEMPLATE
-```

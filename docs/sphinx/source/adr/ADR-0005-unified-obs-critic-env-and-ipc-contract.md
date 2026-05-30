@@ -1,3 +1,7 @@
+---
+orphan: true
+---
+
 # ADR-0005 Unified Obs Critic Env And IPC Contract
 
 语言: 简体中文

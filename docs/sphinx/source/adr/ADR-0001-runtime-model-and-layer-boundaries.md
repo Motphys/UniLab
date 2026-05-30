@@ -1,3 +1,7 @@
+---
+orphan: true
+---
+
 # ADR-0001 Runtime Model And Layer Boundaries
 
 - Status: Accepted

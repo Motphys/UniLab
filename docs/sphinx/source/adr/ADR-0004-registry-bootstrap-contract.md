@@ -1,3 +1,7 @@
+---
+orphan: true
+---
+
 # ADR-0004 Registry Bootstrap Contract
 
 - Status: Accepted
