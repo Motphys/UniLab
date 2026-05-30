@@ -122,21 +122,22 @@ def test_resolve_scene_dir_returns_immediately_when_marker_exists(tmp_path: Path
     assert result == scene_dir
 
 
-def test_resolve_scene_dir_calls_snapshot_download_when_missing():
+def test_resolve_scene_dir_calls_snapshot_download_when_missing(tmp_path: Path):
     """When the marker file is absent, resolve_scene_dir triggers a
     snapshot_download with the correct arguments."""
-    fake_snapshot = MagicMock(return_value=str(ASSETS_ROOT_PATH))
+    fake_snapshot = MagicMock(return_value=str(tmp_path))
     fake_module = MagicMock()
     fake_module.snapshot_download = fake_snapshot
 
-    with patch.dict("sys.modules", {"huggingface_hub": fake_module}):
-        resolve_scene_dir("scenes/teaser")
+    with patch("unilab.assets.hub.ASSETS_ROOT_PATH", tmp_path):
+        with patch.dict("sys.modules", {"huggingface_hub": fake_module}):
+            resolve_scene_dir("scenes/teaser")
 
     fake_snapshot.assert_called_once_with(
         repo_id="unilabsim/unilab-scenes",
         repo_type="dataset",
         allow_patterns="scenes/teaser/**",
-        local_dir=str(ASSETS_ROOT_PATH),
+        local_dir=str(tmp_path),
     )
 
 
