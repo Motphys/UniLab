@@ -6,6 +6,8 @@ import os
 import sys
 import warnings
 from datetime import datetime
+from importlib import machinery, util
+from types import ModuleType, SimpleNamespace
 from typing import Any
 
 # ---------------------------------------------------------------------------
@@ -22,6 +24,93 @@ for _p in _candidate_siblings:
     if os.path.isdir(os.path.join(_p, "unilab")):
         sys.path.insert(0, _p)
         break
+
+
+class _MlxDocDtype:
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def __repr__(self) -> str:
+        return f"mlx.core.{self.name}"
+
+
+def _make_doc_module(name: str, *, package: bool = False) -> ModuleType:
+    module = ModuleType(name)
+    module.__spec__ = machinery.ModuleSpec(name, loader=None, is_package=package)
+    if package:
+        module.__path__ = []  # type: ignore[attr-defined]
+    return module
+
+
+def _install_mlx_doc_stubs() -> None:
+    # Sphinx's generic mock objects are callable and can look like wrapper
+    # loops to sphinx-autodoc-typehints. MLX dtype defaults need simpler stubs.
+    if "mlx" in sys.modules or util.find_spec("mlx") is not None:
+        return
+
+    mlx_module = _make_doc_module("mlx", package=True)
+    core_module = _make_doc_module("mlx.core")
+    nn_module = _make_doc_module("mlx.nn")
+    optimizers_module = _make_doc_module("mlx.optimizers")
+    utils_module = _make_doc_module("mlx.utils")
+
+    class Dtype:
+        pass
+
+    class array:
+        pass
+
+    class Module:
+        pass
+
+    class Linear:
+        pass
+
+    class Adam:
+        pass
+
+    for cls, module_name in (
+        (Dtype, "mlx.core"),
+        (array, "mlx.core"),
+        (Module, "mlx.nn"),
+        (Linear, "mlx.nn"),
+        (Adam, "mlx.optimizers"),
+    ):
+        cls.__module__ = module_name
+        cls.__qualname__ = cls.__name__
+
+    def _identity(*args: Any, **kwargs: Any) -> Any:
+        return args[0] if args else None
+
+    core_module.Dtype = Dtype
+    core_module.array = array
+    core_module.float32 = _MlxDocDtype("float32")
+    core_module.int32 = _MlxDocDtype("int32")
+    nn_module.Module = Module
+    nn_module.Linear = Linear
+    nn_module.init = SimpleNamespace(orthogonal=lambda *args, **kwargs: _identity)
+    nn_module.value_and_grad = lambda *args, **kwargs: _identity
+    nn_module.softplus = _identity
+    optimizers_module.Adam = Adam
+    utils_module.tree_flatten = lambda tree: []
+    utils_module.tree_map = lambda fn, tree: tree
+
+    mlx_module.core = core_module
+    mlx_module.nn = nn_module
+    mlx_module.optimizers = optimizers_module
+    mlx_module.utils = utils_module
+    sys.modules.update(
+        {
+            "mlx": mlx_module,
+            "mlx.core": core_module,
+            "mlx.nn": nn_module,
+            "mlx.optimizers": optimizers_module,
+            "mlx.utils": utils_module,
+        }
+    )
+
+
+_install_mlx_doc_stubs()
 
 # Probe whether unilab is importable. If not (heavy deps missing), we
 # downgrade the build: skip autodoc / autosummary so a preview build still
@@ -141,11 +230,9 @@ always_document_param_types = True
 
 # Heavy / optional deps that should not block doc builds.
 # These are mocked so `autodoc` can still import unilab modules in CI even
-# when the deps are missing (e.g. mlx on non-macOS runners).
+# when the deps are missing. MLX uses the lightweight docs stubs above because
+# Sphinx's generic mocks interact poorly with dtype defaults.
 autodoc_mock_imports = [
-    "mlx",
-    "mlx.core",
-    "mlx.nn",
     "motrixsim",
     "mxpython",
     "wandb",
