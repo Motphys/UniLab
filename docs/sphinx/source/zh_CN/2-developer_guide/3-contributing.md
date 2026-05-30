@@ -40,6 +40,28 @@ make test-slow      # slow 集成测试和训练冒烟测试
 make test-all       # make check && make test-cov
 ```
 
+## Documentation Builds
+
+文档 PR 的 GitHub Actions 只跑 prose-only HTML 构建: 设置
+`UNILAB_DOCS_SKIP_AUTODOC=1`,不执行 `pip install -e .`,不生成 API reference,
+也不发布外部文档仓库。开发者本地快速验证文档改动时运行:
+
+```bash
+uv run pytest tests/scripts/test_check_docs.py -q
+cd docs/sphinx
+UNILAB_DOCS_SKIP_AUTODOC=1 uv run --no-project --with-requirements requirements.txt sphinx-build -b html -n source build/html
+```
+
+最终刷新完整站点、包含 API reference 并用于 `UniLab-doc` 发布流程时,在本地同步
+UniLab 环境后使用 Sphinx 多进程构建:
+
+```bash
+uv sync
+uv pip install -r docs/sphinx/requirements.txt
+cd docs/sphinx
+uv run --no-sync sphinx-build -j auto -b html -n source build/html
+```
+
 ## Commit Conventions
 
 使用 Conventional Commits:
@@ -112,7 +134,7 @@ uv run pytest -m "slow" -v
 | `pyright` | 在 `ubuntu-slim` 上执行 `uv sync` + `uv run pyright` | ✅ |
 | `test` | 在 `ubuntu-slim` 上以 Python 3.11 执行 `uv sync --extra motrix`，跳过 CUDA torch / nvidia wheel，安装 CPU torch，并用 `uv run --no-sync pytest -m "not slow" --cov=unilab --cov-report markdown-append:$GITHUB_STEP_SUMMARY --cov-fail-under=25` | ✅ |
 
-只有协作元信息改动，例如 `LICENSE`、issue templates、`CODEOWNERS` 和 `.github/pull_request_template.md`，才会跳过 CI。文档改动会触发 CI，并由 `tests/scripts/test_check_docs.py` 校验。
+只有协作元信息改动，例如 `LICENSE`、issue templates、`CODEOWNERS` 和 `.github/pull_request_template.md`，才会跳过 CI。文档改动会触发 CI，并由 `tests/scripts/test_check_docs.py` 校验。`Docs` workflow 是独立的 prose-only Sphinx 校验，支持 PR / push 触发，也可以在 GitHub Actions 网页端通过 `workflow_dispatch` 手动触发。
 
 ## Documentation Expectations
 

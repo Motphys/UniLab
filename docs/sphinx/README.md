@@ -45,76 +45,93 @@ URL 模式:`/`(语言 picker)、`/en/...`、`/zh_CN/...`。两种语言路径 1:
 
 ## 本地构建
 
-需要 Python >= 3.10。建议用 `uv`:
+需要 Python >= 3.10。建议用 `uv`。快速预览散文页时跳过 autodoc:
 
 ```bash
 cd docs/sphinx
-
-# 1. 装文档依赖
-uv venv && source .venv/bin/activate
-uv pip install -r requirements.txt
-
-# 2. 装 UniLab 本身,以便 autodoc 能 import unilab
-#    没装时 conf.py 会自动 fallback 到 "prose-only" 构建,跳过 API reference
-uv pip install -e ../..
-
-# 3. 一次性构建
-make html
-# 输出:build/html/index.html(根 picker)、build/html/en/index.html、build/html/zh_CN/index.html
-
-# 4. live preview(推荐写文档时用)
-make live
-# 默认监听 127.0.0.1:8000
-
-# 5. CI 等价的"严格构建"(warning → error)
-make strict
+UNILAB_DOCS_SKIP_AUTODOC=1 uv run --no-project --with-requirements requirements.txt sphinx-build -b html -n source build/html
 ```
 
-只想快速预览散文页(跳过 autodoc):
+最终发布前的完整 API 文档构建由开发者在本地执行。先在仓库根目录同步 UniLab
+依赖并安装 Sphinx 依赖,再用 Sphinx 多进程构建:
 
 ```bash
-UNILAB_DOCS_SKIP_AUTODOC=1 make html
+uv sync
+uv pip install -r docs/sphinx/requirements.txt
+cd docs/sphinx
+uv run --no-sync sphinx-build -j auto -b html -n source build/html
+```
+
+需要本地 live preview 时:
+
+```bash
+cd docs/sphinx
+UNILAB_DOCS_SKIP_AUTODOC=1 uv run --no-project --with-requirements requirements.txt sphinx-autobuild --watch ../../src source build/html -n
 ```
 
 ## CI / 部署
 
 CI 工作流在 `.github/workflows/docs.yml`:
 
-- **PR**: 只 build,不部署。failed 阻塞 PR(只看 build job,deploy 不跑)
-- **push to main**: build + 用 deploy key 把 `build/html`(含 `/`、`/en/`、`/zh_CN/`)推到
-  `unilabsim/UniLab-doc` 的 `gh-pages` 分支
-- **手动**: `workflow_dispatch` 也能触发
+- **PR**: prose-only HTML build,跳过 API reference,failed 阻塞 PR
+- **push to main**: prose-only HTML build,不部署
+- **手动**: `workflow_dispatch` 可在 GitHub Actions 网页端触发同一套 prose-only CI
 
-### Deploy key 配置(一次性 setup)
-
-CI 用 SSH deploy key 跨仓推送,不需要 PAT:
-
-```bash
-# 1. 在本地生成专用 keypair(不要复用个人 SSH key)
-ssh-keygen -t ed25519 -C "unilab-doc-deploy" -f /tmp/unilab_doc_deploy -N ""
-
-# 2. UniLab-doc 仓 → Settings → Deploy keys → Add deploy key
-#    Title: unilab-docs-ci
-#    Key:   贴 /tmp/unilab_doc_deploy.pub
-#    ✅ Allow write access
-
-# 3. UniLab 仓(本仓) → Settings → Secrets and variables → Actions → New repository secret
-#    Name:  UNILAB_DOC_DEPLOY_KEY
-#    Value: 贴 /tmp/unilab_doc_deploy(private,完整内容含 BEGIN/END 行)
-
-# 4. 删除本地副本
-shred -u /tmp/unilab_doc_deploy /tmp/unilab_doc_deploy.pub
-```
-
-CI step 用的是 `peaceiris/actions-gh-pages@v4`,详见 `.github/workflows/docs.yml`。
+CI 明确设置 `UNILAB_DOCS_SKIP_AUTODOC=1`,不执行 `pip install -e .`,不安装 UniLab
+运行时依赖,也不跑 linkcheck。完整构建和站点发布由开发者本地完成。
 
 ### UniLab-doc 仓的 Pages 设置
 
-`Settings → Pages`:
+发布站点托管在 [`unilabsim/UniLab-doc`](https://github.com/unilabsim/UniLab-doc)。
+该仓库的 Pages 设置保持:
+
 - **Source**: Deploy from a branch
 - **Branch**: `gh-pages` / `/ (root)`
 
-第一次 CI 跑完会自动建 `gh-pages` 分支。
+### 本地发布到 UniLab-doc
+
+完整 API 文档在本地构建完成后,把 `docs/sphinx/build/html/` 的内容同步到
+`unilabsim/UniLab-doc` 的 `gh-pages` 分支根目录:
+
+```bash
+# 在 UniLab 仓库根目录
+uv sync
+uv pip install -r docs/sphinx/requirements.txt
+cd docs/sphinx
+uv run --no-sync sphinx-build -j auto -b html -n source build/html
+cd ../..
+```
+
+准备发布仓库。第一次发布时克隆:
+
+```bash
+git clone -b gh-pages git@github.com:unilabsim/UniLab-doc.git ../UniLab-doc
+```
+
+如果本地已经有 `../UniLab-doc`,先更新到最新:
+
+```bash
+git -C ../UniLab-doc checkout gh-pages
+git -C ../UniLab-doc pull --ff-only
+```
+
+同步构建产物并推送:
+
+```bash
+rsync -a --delete --exclude .git docs/sphinx/build/html/ ../UniLab-doc/
+touch ../UniLab-doc/.nojekyll
+
+SOURCE_SHA=$(git rev-parse --short HEAD)
+cd ../UniLab-doc
+git status --short
+git add -A
+git commit -m "docs: publish UniLab@${SOURCE_SHA}"
+git push origin gh-pages
+```
+
+`.nojekyll` 必须保留,否则 GitHub Pages 可能无法正确服务 Sphinx 的 `_static/`
+等目录。推送后站点会更新到 <https://unilabsim.github.io/UniLab-doc/>。
+不要把 `docs/sphinx/build/html/` 提交回 UniLab 主仓。
 
 ## 写新文档的约定
 
