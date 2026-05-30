@@ -9,6 +9,7 @@ Usage:
 
     # Load a specific run
     uv run scripts/play_interactive.py task=go2_joystick_flat/mujoco algo.load_run=2024-02-04_12-00-00
+    uv run scripts/play_interactive.py task=go2_joystick_rough/mujoco   interactive.action_mode=policy interactive.keyboard=true
 
     # Show target bodies / reward debug overlays
     uv run scripts/play_interactive.py task=g1_motion_tracking/mujoco \
@@ -54,12 +55,17 @@ from unilab.training.rsl_rl import (
     normalize_ppo_train_cfg,
 )
 from unilab.visualization.interactive_playback import (
+    KeyboardCommander,
     PlaybackControls,
     RslRlPlaybackConfig,
     create_rsl_rl_playback_session,
     prepare_motion_overlay_selection,
     select_torch_device,
 )
+
+_KEY_ENTER, _KEY_KP_ENTER = 257, 335
+_KEY_BACKSPACE = 259
+_KEY_RIGHT, _KEY_LEFT, _KEY_DOWN, _KEY_UP = 262, 263, 264, 265
 
 ensure_registries()
 
@@ -111,6 +117,9 @@ class PlayInteractiveArgs:
     use_env_visual_model: bool
     speed: float
     start_paused: bool
+    keyboard: bool = False
+    keyboard_step_lin: float = 0.1
+    keyboard_step_ang: float = 0.2
 
 
 def _infer_checkpoint_actor_input_dim(ckpt_path: str) -> int | None:
@@ -591,6 +600,55 @@ def _build_playback_config(args, *, num_envs: int = 1) -> RslRlPlaybackConfig:
     )
 
 
+def _build_keyboard_commander(env: Any, args) -> KeyboardCommander | None:
+    """Set up keyboard velocity teleop, or return None when unsupported/disabled."""
+    if not bool(getattr(args, "keyboard", False)):
+        return None
+
+    state = getattr(env, "state", None)
+    command_arr = state.info.get("commands") if state is not None else None
+    cmds_cfg = getattr(getattr(env, "cfg", None), "commands", None)
+    if not isinstance(command_arr, np.ndarray) or cmds_cfg is None:
+        print("[play_interactive] interactive.keyboard ignored: task has no velocity 'commands'.")
+        return None
+
+    cmds_cfg.heading_command = False
+    cmds_cfg.resampling_time = 0.0
+
+    commander = KeyboardCommander.from_vel_limit(
+        cmds_cfg.vel_limit,
+        step_lin=float(getattr(args, "keyboard_step_lin", 0.1)),
+        step_ang=float(getattr(args, "keyboard_step_ang", 0.2)),
+    )
+    env.state.info["commands"][:] = commander.command
+    return commander
+
+
+def _handle_command_key(commander: KeyboardCommander, keycode: int) -> None:
+    if keycode == _KEY_UP:
+        commander.nudge(commander.AXIS_VX, +1.0)
+    elif keycode == _KEY_DOWN:
+        commander.nudge(commander.AXIS_VX, -1.0)
+    elif keycode == _KEY_LEFT:
+        commander.nudge(commander.AXIS_VYAW, +1.0)
+    elif keycode == _KEY_RIGHT:
+        commander.nudge(commander.AXIS_VYAW, -1.0)
+    elif keycode in (_KEY_ENTER, _KEY_KP_ENTER):
+        commander.zero()
+    else:
+        return
+    print(f"[play_interactive] {commander.describe()}")
+
+
+def _print_keyboard_legend(args) -> None:
+    print("[play_interactive] Keyboard teleop ENABLED (drive style):")
+    print("  Up / Down    : forward / backward (vx)")
+    print("  Left / Right : turn left / right  (vyaw)")
+    print("  Enter        : full stop")
+    if str(getattr(args, "action_mode", "")) != "policy":
+        print("  NOTE: action_mode is not 'policy'; commands will not drive the robot.")
+
+
 def play_interactive(args, cfg: DictConfig | None = None):
     device = select_torch_device()
     print(f"[play_interactive] Device: {device}")
@@ -693,6 +751,10 @@ def play_interactive(args, cfg: DictConfig | None = None):
         speed=float(getattr(args, "speed", 1.0)),
     )
 
+    commander = _build_keyboard_commander(env, args)
+    if commander is not None:
+        env.set_autoreset(False)
+
     def _on_key(keycode: int) -> None:
         if keycode == ord(" "):
             paused = controls.toggle_pause()
@@ -710,9 +772,17 @@ def play_interactive(args, cfg: DictConfig | None = None):
         elif keycode in (ord("-"), ord("_")):
             controls.set_speed(controls.speed / 1.25)
             print(f"[play_interactive] speed={controls.speed:.2f}x")
+        elif commander is not None and keycode == _KEY_BACKSPACE:
+            playback_session.reset()
+            commander.zero()
+            print("[play_interactive] reset (backspace)")
+        elif commander is not None:
+            _handle_command_key(commander, keycode)
 
     print("[play_interactive] Opening viewer — close the window or press Esc to quit.")
     print("[play_interactive] Controls: Space=pause/resume, N=single-step, +/-=speed")
+    if commander is not None:
+        _print_keyboard_legend(args)
 
     with mujoco.viewer.launch_passive(mj_model, viz_data, key_callback=_on_key) as viewer:
         focus_body_id = _resolve_focus_body_id(
@@ -736,6 +806,10 @@ def play_interactive(args, cfg: DictConfig | None = None):
         with torch.inference_mode():
             while viewer.is_running():
                 t0 = time.perf_counter()
+
+                # Write the command before stepping so this step's obs follow it.
+                if commander is not None and env.state is not None:
+                    env.state.info["commands"][:] = commander.command
 
                 playback_session.advance(controls)
 
@@ -847,6 +921,13 @@ def _build_play_args(cfg: DictConfig) -> PlayInteractiveArgs:
         use_env_visual_model=bool(cfg.interactive.use_env_visual_model),
         speed=float(OmegaConf.select(cfg, "interactive.speed", default=1.0)),
         start_paused=bool(OmegaConf.select(cfg, "interactive.start_paused", default=False)),
+        keyboard=bool(OmegaConf.select(cfg, "interactive.keyboard", default=False)),
+        keyboard_step_lin=float(
+            OmegaConf.select(cfg, "interactive.keyboard_step_lin", default=0.1)
+        ),
+        keyboard_step_ang=float(
+            OmegaConf.select(cfg, "interactive.keyboard_step_ang", default=0.2)
+        ),
     )
 
 
