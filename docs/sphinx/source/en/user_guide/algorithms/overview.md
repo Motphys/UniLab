@@ -1,36 +1,35 @@
-# 算法
+# Algorithms
 
-语言: 简体中文
 
-本页只保留算法级说明。入口脚本和通用 CLI 参数见 [Training Guide](03-training.md)。
+This page only retains algorithm-level descriptions. For entry-point scripts and common CLI parameters, see {doc}`Training Guide <../getting_started/training>`.
 
 ## APPO
 
-APPO 是 UniLab 的异步 PPO 实现，带有 V-trace importance-sampling 修正。collector 子进程负责 CPU 仿真，learner 进程负责 GPU 训练，二者通过 ring-buffer 流水线并行运行。
+APPO is UniLab's asynchronous PPO implementation with V-trace importance-sampling correction. A collector subprocess handles CPU simulation, while the learner process handles GPU training; the two run in parallel through a ring-buffer pipeline.
 
 ### Core Features
 
-| 特性 | 说明 |
+| Feature | Description |
 |------|------|
-| 异步多进程 | collector 和 learner 并行运行 |
-| V-trace IS 修正 | 用 `pi_target / pi_behavior` 修正 off-policy 数据 |
-| 4 槽 ring buffer | 最多 4 条 rollout 可同时在飞 |
-| Replay queue | learner 侧缓存待消费 rollout 的队列 |
-| 日志目录 | `logs/<algo.algo_log_name>/<task>/<timestamp>_<sim_backend>/` |
+| Async multi-process | collector and learner run in parallel |
+| V-trace IS correction | uses `pi_target / pi_behavior` to correct off-policy data |
+| 4-slot ring buffer | up to 4 rollouts may be in flight simultaneously |
+| Replay queue | learner-side queue caching rollouts pending consumption |
+| Log directory | `logs/<algo.algo_log_name>/<task>/<timestamp>_<sim_backend>/` |
 
 ### Usage
 
 ```bash
-# 默认训练
+# Default training
 uv run scripts/train_appo.py task=go1_joystick_flat/mujoco
 
-# 指定环境数和迭代数
+# Specify number of envs and iterations
 uv run scripts/train_appo.py task=go2_joystick_flat/mujoco algo.num_envs=2048 algo.max_iterations=300
 
-# 调整 replay queue 深度
+# Adjust replay queue depth
 uv run scripts/train_appo.py task=go1_joystick_flat/mujoco training.replay_queue_size=2
 
-# 跳过自动回放
+# Skip auto playback
 uv run scripts/train_appo.py task=go1_joystick_flat/mujoco training.no_play=true
 ```
 
@@ -43,54 +42,54 @@ uv run scripts/train_appo.py task=go1_joystick_flat/mujoco training.play_only=tr
 
 ### Key Parameters
 
-| 参数 | 默认值 | 说明 |
+| Parameter | Default | Description |
 |------|--------|------|
-| `task` | `go1_joystick_flat/mujoco` | 单个 task 配置入口，内部同时定义 task + backend |
-| `algo.max_iterations` | 150 | 最大训练迭代数 |
-| `algo.num_envs` | 2048 | 并行环境数量 |
-| `algo.steps_per_env` | 24 | 每个 env 的 rollout 长度 |
-| `training.replay_queue_size` | 3 | learner 侧 rollout 重放深度 |
-| `training.device` | 自动检测 | learner 设备 |
-| `training.collector_device` | auto (follows `training.device`) | collector 设备 |
-| `training.logger` | `tensorboard` | 日志后端 |
-| `training.play_only` | false | 仅回放 |
-| `training.no_play` | false | 跳过自动回放 |
-| `algo.load_run` | `-1` | run 目录名或 checkpoint 路径 |
-| `algo.save_interval` | 50 | checkpoint 保存间隔 |
+| `task` | `go1_joystick_flat/mujoco` | Single task config entry; internally defines both task + backend |
+| `algo.max_iterations` | 150 | Max training iterations |
+| `algo.num_envs` | 2048 | Number of parallel environments |
+| `algo.steps_per_env` | 24 | Rollout length per env |
+| `training.replay_queue_size` | 3 | learner-side rollout replay depth |
+| `training.device` | auto-detect | learner device |
+| `training.collector_device` | auto (follows `training.device`) | collector device |
+| `training.logger` | `tensorboard` | Logging backend |
+| `training.play_only` | false | Playback only |
+| `training.no_play` | false | Skip auto playback |
+| `algo.load_run` | `-1` | Run directory name or checkpoint path |
+| `algo.save_interval` | 50 | Checkpoint save interval |
 
 ### APPO vs PPO
 
-| 维度 | rsl-rl PPO | APPO |
+| Dimension | rsl-rl PPO | APPO |
 |------|------------|------|
-| 采集方式 | 同步 | 异步 |
-| IS 修正 | 无 | V-trace |
-| CPU / GPU 利用率 | 交替满载 | 同时满载 |
-| 适用场景 | 样本效率优先 | 吞吐优先 |
+| Collection mode | Sync | Async |
+| IS correction | None | V-trace |
+| CPU / GPU utilization | Alternating full load | Simultaneous full load |
+| Suited for | Sample-efficiency priority | Throughput priority |
 
 ## FastSAC And FastTD3
 
-FastSAC 和 FastTD3 使用同一套异步多进程架构，通过 shared memory 将 CPU 仿真和 GPU 训练解耦。
+FastSAC and FastTD3 share the same async multi-process architecture, decoupling CPU simulation and GPU training through shared memory.
 
 ### Core Features
 
-| 特性 | 说明 |
+| Feature | Description |
 |------|------|
-| 异步多进程 | collector 与 learner 独立运行 |
-| 统一共享内存 | 使用 PyTorch shared tensors 零拷贝传输 |
-| 同步 / 异步模式 | 同时支持默认同步采集和异步采集 |
-| 自动回放 | 训练结束后自动进入回放 |
+| Async multi-process | collector and learner run independently |
+| Unified shared memory | Zero-copy transfer using PyTorch shared tensors |
+| Sync / async modes | Supports both default sync collection and async collection |
+| Auto playback | Automatically enters playback after training |
 
 ### Usage
 
 ```bash
-# 基本训练
+# Basic training
 uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco
 uv run scripts/train_offpolicy.py algo=td3 task=td3/g1_walk_flat/mujoco
 
-# 异步采集模式
+# Async collection mode
 uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco training.no_sync_collection=true
 
-# 跳过自动回放
+# Skip auto playback
 uv run scripts/train_offpolicy.py algo=td3 task=td3/g1_walk_flat/mujoco training.no_play=true
 ```
 
@@ -103,30 +102,30 @@ uv run scripts/train_offpolicy.py algo=td3 task=td3/g1_walk_flat/mujoco training
 
 ### Key Parameters
 
-| 参数 | 默认值 | 说明 |
+| Parameter | Default | Description |
 |------|--------|------|
-| `algo` | `sac` | 算法选择 |
-| `task` | `sac/g1_walk_flat/mujoco` | 单个 task 配置入口，内部同时定义 algo + task + backend |
-| `algo.max_iterations` | 500 (SAC) / 5000 (TD3) | 最大训练迭代数 |
-| `algo.num_envs` | 4096 | 并行环境数量 |
-| `training.device` | 自动检测 | learner 设备 |
-| `conf/*/task/...` | - | 唯一 owner 配置入口；reward/env/backend-specific algo 都在这里改 |
-| `training.no_sync_collection` | false | 启用异步采集 |
-| `training.env_steps_per_sync` | 1 | 同步模式下每轮采集步数 |
-| `training.play_only` | false | 仅回放 |
-| `training.no_play` | false | 跳过自动回放 |
+| `algo` | `sac` | Algorithm selection |
+| `task` | `sac/g1_walk_flat/mujoco` | Single task config entry; internally defines algo + task + backend |
+| `algo.max_iterations` | 500 (SAC) / 5000 (TD3) | Max training iterations |
+| `algo.num_envs` | 4096 | Number of parallel environments |
+| `training.device` | auto-detect | learner device |
+| `conf/*/task/...` | - | Sole owner config entry; reward/env/backend-specific algo are all changed here |
+| `training.no_sync_collection` | false | Enables async collection |
+| `training.env_steps_per_sync` | 1 | Collection steps per round in sync mode |
+| `training.play_only` | false | Playback only |
+| `training.no_play` | false | Skip auto playback |
 
 ## FlashSAC
 
-FlashSAC 是基于 FlashAttention 风格 Block 的 off-policy 算法，actor 使用 BatchNorm embedder + 结构化噪声探索，critic 使用 distributional Q（C51 变体）。与 FastSAC 共用同一个训练入口 `train_offpolicy.py`，但网络结构和前向接口不同。
+FlashSAC is an off-policy algorithm based on FlashAttention-style Blocks. The actor uses a BatchNorm embedder + structured noise exploration, and the critic uses distributional Q (a C51 variant). It shares the same training entry point `train_offpolicy.py` with FastSAC, but the network architecture and forward interface differ.
 
 ### Usage
 
 ```bash
-# 基本训练
+# Basic training
 uv run scripts/train_offpolicy.py algo=flashsac task=flashsac/g1_walk_flat/mujoco
 
-# 跳过自动回放
+# Skip auto playback
 uv run scripts/train_offpolicy.py algo=flashsac task=flashsac/g1_walk_flat/mujoco training.no_play=true
 ```
 
@@ -139,20 +138,14 @@ uv run scripts/train_offpolicy.py algo=flashsac task=flashsac/g1_walk_flat/mujoc
 
 ### Key Parameters
 
-| 参数 | 默认值 | 说明 |
+| Parameter | Default | Description |
 |------|--------|------|
-| `algo` | `flashsac` | 算法选择 |
-| `task` | `flashsac/g1_walk_flat/mujoco` | 唯一 owner 配置入口；reward/env/algo 都在这里改 |
-| `algo.max_iterations` | 5000 | 最大训练迭代数 |
-| `algo.num_envs` | 1024 | 并行环境数量 |
-| `algo.tau` | 0.01 | target network 软更新系数 |
-| `algo.algo_params.actor_num_blocks` | 2 | actor FlashSAC block 层数 |
-| `algo.algo_params.critic_num_blocks` | 2 | critic FlashSAC block 层数 |
-| `training.play_only` | false | 仅回放 |
-| `training.no_play` | false | 跳过自动回放 |
-
-## Navigation
-
-- Index: [Documentation](../../README.md)
-- Previous: [Training Guide](03-training.md)
-- Next: [G1 Motion Tracking](05-motion-tracking.md)
+| `algo` | `flashsac` | Algorithm selection |
+| `task` | `flashsac/g1_walk_flat/mujoco` | Sole owner config entry; reward/env/algo are all changed here |
+| `algo.max_iterations` | 5000 | Max training iterations |
+| `algo.num_envs` | 1024 | Number of parallel environments |
+| `algo.tau` | 0.01 | Target network soft-update coefficient |
+| `algo.algo_params.actor_num_blocks` | 2 | Actor FlashSAC block layers |
+| `algo.algo_params.critic_num_blocks` | 2 | Critic FlashSAC block layers |
+| `training.play_only` | false | Playback only |
+| `training.no_play` | false | Skip auto playback |

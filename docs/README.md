@@ -3,6 +3,12 @@
 UniLab 的全部文档源码统一在 [`docs/sphinx/`](sphinx/) 下,通过 Sphinx 构建,部署到
 <https://unilabsim.github.io/UniLab-doc/>。
 
+发布入口:
+
+- Project page: <https://unilabsim.github.io>
+- Paper: <https://arxiv.org/abs/2605.30313>
+- Documentation: <https://unilabsim.github.io/UniLab-doc/>
+
 文档采用**双语平行结构**:`source/en/` 是英文版,`source/zh_CN/` 是中文版,
 `source/adr/`、`source/api_reference/`、`source/glossary.md`、`source/changelog.md` 在两种语言间共享。
 

@@ -4,7 +4,7 @@
 # backend so checkpoints trained on mujoco can be replayed via motrix's native
 # renderer (`eval --sim motrix`). Training on motrix is not the intended path.
 defaults:
-  - /task/sac/g1_sac_wbt/mujoco
+  - /task/sac/g1_motion_tracking/mujoco
   - _self_
 
 training:

@@ -1,0 +1,36 @@
+{%- set current = current_language|default("shared") -%}
+{%- set en_target = language_switcher_targets.get("en", "en/index") -%}
+{%- set zh_target = language_switcher_targets.get("zh_CN", "zh_CN/index") -%}
+<div class="language-switcher" data-language-switcher>
+  <label class="language-switcher__label" for="language-switcher-select">Language</label>
+  <select class="language-switcher__select" id="language-switcher-select" aria-label="Documentation language">
+    <option value="" disabled{% if current not in ["en", "zh_CN"] %} selected{% endif %}>Language</option>
+    <option value="en" data-target="{{ pathto(en_target)|e }}"{% if current == "en" %} selected{% endif %}>English</option>
+    <option value="zh_CN" data-target="{{ pathto(zh_target)|e }}"{% if current == "zh_CN" %} selected{% endif %}>简体中文</option>
+  </select>
+</div>
+<script>
+(function () {
+  var roots = document.querySelectorAll("[data-language-switcher]");
+  for (var index = 0; index < roots.length; index += 1) {
+    var select = roots[index].querySelector("select");
+    if (!select) {
+      continue;
+    }
+    select.addEventListener("change", function () {
+      var option = this.options[this.selectedIndex];
+      var target = option ? option.getAttribute("data-target") : "";
+      if (!target) {
+        return;
+      }
+      var nextUrl = new URL(target, window.location.href);
+      if (window.location.hash && !nextUrl.hash) {
+        nextUrl.hash = window.location.hash;
+      }
+      if (nextUrl.href !== window.location.href) {
+        window.location.href = nextUrl.href;
+      }
+    });
+  }
+}());
+</script>

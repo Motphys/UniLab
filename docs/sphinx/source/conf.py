@@ -198,6 +198,17 @@ html_favicon = None  # add _static/favicon.ico when ready
 html_baseurl = "https://unilabsim.github.io/UniLab-doc/"
 sitemap_url_scheme = "{link}"
 
+html_sidebars = {
+    "**": [
+        "sidebar/brand.html",
+        "sidebar/lang_switcher.html",
+        "sidebar/search.html",
+        "sidebar/scroll-start.html",
+        "sidebar/navigation.html",
+        "sidebar/scroll-end.html",
+    ],
+}
+
 html_theme_options = {
     "sidebar_hide_name": False,
     "navigation_with_keys": True,
@@ -205,24 +216,15 @@ html_theme_options = {
     "source_branch": "main",
     "source_directory": "docs/sphinx/source/",
     "top_of_page_buttons": ["view", "edit"],
-    "announcement": (
-        "🚀 <b>UniLab</b> documentation is in active development — "
-        "<a href='https://github.com/unilabsim/UniLab' target='_blank'>"
-        "star the repo</a> and follow along."
-    ),
     "light_css_variables": {
         "color-brand-primary": "#2563eb",
         "color-brand-content": "#1d4ed8",
-        "color-announcement-background": "linear-gradient(90deg,#1e3a8a,#7c3aed)",
-        "color-announcement-text": "#f8fafc",
         "font-stack": "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif",
         "font-stack--monospace": "'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace",
     },
     "dark_css_variables": {
         "color-brand-primary": "#60a5fa",
         "color-brand-content": "#93c5fd",
-        "color-announcement-background": "linear-gradient(90deg,#312e81,#6b21a8)",
-        "color-announcement-text": "#f8fafc",
     },
     "footer_icons": [
         {
@@ -263,6 +265,89 @@ if not _UNILAB_AVAILABLE:
     suppress_warnings.append("toc.excluded")
 
 
+_LANGUAGE_DOC_ROOTS = ("en", "zh_CN")
+
+# Explicit cross-language mapping for pages whose paths don't mirror 1:1.
+# zh_CN still carries legacy numbered paths (01-getting-started, A-getting-started/,
+# etc.) from the pre-migration content. Until those are renamed, this table keeps
+# the language switcher landing on the closest equivalent page instead of
+# bouncing to the language index. Forward direction only — reverse map is
+# computed below.
+_LANGUAGE_PATH_FORWARD: dict[str, str] = {
+    "en/user_guide/getting_started/quickstart": "zh_CN/user_guide/01-getting-started",
+    "en/user_guide/getting_started/installation": "zh_CN/user_guide/A-getting-started/01-install",
+    "en/user_guide/getting_started/training": "zh_CN/user_guide/03-training",
+    "en/user_guide/getting_started/configuration_overrides": "zh_CN/user_guide/B-training/03-hydra-overrides",
+    "en/user_guide/getting_started/evaluation_and_playback": "zh_CN/user_guide/B-training/02-playback-and-resume",
+    "en/user_guide/backends/index": "zh_CN/user_guide/02-simulation-backends",
+    "en/user_guide/backends/choosing_a_backend": "zh_CN/user_guide/E-reference/01-backend-support-matrix",
+    "en/user_guide/algorithms/overview": "zh_CN/user_guide/04-algorithms",
+    "en/user_guide/algorithms/ppo": "zh_CN/user_guide/C-algorithms/01-ppo-torch",
+    "en/user_guide/algorithms/mlx_ppo": "zh_CN/user_guide/C-algorithms/02-mlx-ppo",
+    "en/user_guide/algorithms/appo": "zh_CN/user_guide/C-algorithms/03-appo",
+    "en/user_guide/algorithms/fast_sac": "zh_CN/user_guide/C-algorithms/04-sac",
+    "en/user_guide/algorithms/fast_td3": "zh_CN/user_guide/C-algorithms/05-td3",
+    "en/user_guide/algorithms/flash_sac": "zh_CN/user_guide/C-algorithms/06-flashsac",
+    "en/user_guide/tasks/g1_motion_tracking": "zh_CN/user_guide/D-tasks/02-g1-motion-tracking",
+    "en/user_guide/tasks/go2_arm_manip_loco": "zh_CN/user_guide/D-tasks/06-go2-arm-manip-loco",
+    "en/user_guide/domain_randomization/index": "zh_CN/user_guide/05-domain-randomization",
+    "en/developer_guide/architecture/development_standard": "zh_CN/developer_guide/development-standard",
+    "en/developer_guide/architecture/scene_composition": "zh_CN/developer_guide/scene-composition-design",
+    "en/developer_guide/contracts/domain_randomization": "zh_CN/developer_guide/domain-randomization-contract",
+    "en/developer_guide/contributing": "zh_CN/developer_guide/CONTRIBUTING",
+    "en/developer_guide/contributing_workflow": "zh_CN/developer_guide/collaboration",
+    "en/agents/index": "zh_CN/agents/01-agent-quick-reference",
+}
+# Keyed by (current_pagename, target_language) → target_pagename.
+_LANGUAGE_PATH_MAP: dict[tuple[str, str], str] = {}
+for _en_page, _zh_page in _LANGUAGE_PATH_FORWARD.items():
+    _LANGUAGE_PATH_MAP[(_en_page, "zh_CN")] = _zh_page
+    _LANGUAGE_PATH_MAP[(_zh_page, "en")] = _en_page
+
+
+def _page_language(pagename: str) -> str:
+    root = pagename.split("/", 1)[0]
+    if root in _LANGUAGE_DOC_ROOTS:
+        return root
+    return "shared"
+
+
+def _language_target(app, pagename: str, language_code: str) -> str:
+    found_docs = app.env.found_docs
+    current_language = _page_language(pagename)
+
+    # Same language: stay on the same page.
+    if current_language == language_code:
+        return pagename
+
+    # Try explicit map for known legacy mismatches.
+    mapped = _LANGUAGE_PATH_MAP.get((pagename, language_code))
+    if mapped and mapped in found_docs:
+        return mapped
+
+    # Try direct 1:1 mirror.
+    if current_language in _LANGUAGE_DOC_ROOTS:
+        _, _, rest = pagename.partition("/")
+        candidate = f"{language_code}/{rest}" if rest else f"{language_code}/index"
+        if candidate in found_docs:
+            return candidate
+
+    return f"{language_code}/index"
+
+
+def _inject_language_switcher(app, pagename, templatename, context, doctree):
+    if doctree is None or pagename == "index":
+        return
+
+    context["current_language"] = _page_language(pagename)
+    context["language_switcher_targets"] = {
+        language_code: _language_target(app, pagename, language_code)
+        for language_code in _LANGUAGE_DOC_ROOTS
+    }
+    switcher = app.builder.templates.render("language_switcher.html", context)
+    context["body"] = f"{switcher}\n{context.get('body', '')}"
+
+
 # Expose `_UNILAB_AVAILABLE` as a Sphinx tag so `.. only:: api_ref` blocks
 # in prose can be conditionally rendered.
 def setup(app):
@@ -270,4 +355,5 @@ def setup(app):
         app.tags.add("api_ref")
     else:
         app.tags.add("prose_only")
+    app.connect("html-page-context", _inject_language_switcher)
     return {"parallel_read_safe": True}

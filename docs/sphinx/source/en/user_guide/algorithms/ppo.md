@@ -1,18 +1,33 @@
-# ppo
+# PPO
 
-::::{admonition} TODO
-:class: note
-This page is a stub. PRs welcome. The implementation lives in
-{py:mod}`unilab.algos`; see the API reference for the current interface.
-::::
+PPO is the default synchronous on-policy training path. It uses
+`scripts/train_rsl_rl.py`, composes from `conf/ppo/config.yaml`, and runs the
+RSL-RL adapter code in `src/unilab/algos/torch/rsl_rl_ppo.py` and
+`src/unilab/training/rsl_rl.py`.
 
-## Quick start
+## Quick Start
 
 ```bash
-uv run train --algo ppo --task <task> --sim <backend>
+uv run scripts/train_rsl_rl.py task=go2_joystick_flat/mujoco
+uv run scripts/train_rsl_rl.py task=go2_joystick_flat/motrix training.no_play=true
 ```
 
-## See also
+## Common Overrides
 
-- {doc}`../algorithms/overview`
-- {doc}`../../api_reference/algos/index`
+```bash
+uv run scripts/train_rsl_rl.py task=go2_joystick_flat/mujoco \
+  algo.num_envs=2048 \
+  algo.max_iterations=300 \
+  training.no_play=true
+```
+
+`algo.load_run` and `algo.checkpoint` select checkpoints for resume or playback:
+
+```bash
+uv run scripts/train_rsl_rl.py task=go2_joystick_flat/mujoco \
+  training.play_only=true \
+  algo.load_run=-1
+```
+
+Logs are grouped by `algo.algo_log_name`; the default in `conf/ppo/config.yaml`
+is `rsl_rl_ppo`.

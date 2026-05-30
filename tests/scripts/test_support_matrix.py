@@ -43,7 +43,7 @@ def test_support_matrix_marks_sharpa_motrix_phase1_support():
     appo_row = _row("APPO (torch)", "sharpa_inhand")
 
     assert appo_row.cells["mujoco"].level == EvidenceLevel.TESTED
-    assert appo_row.cells["motrix"].level == EvidenceLevel.REGISTERED
+    assert appo_row.cells["motrix"].level == EvidenceLevel.TESTED
     allegro_appo_row = _row("APPO (torch)", "allegro_inhand")
 
     assert allegro_appo_row.cells["mujoco"].level == EvidenceLevel.TESTED

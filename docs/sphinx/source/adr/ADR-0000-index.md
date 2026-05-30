@@ -32,10 +32,10 @@
 
 ## 与主文档的关系
 
-- 架构总览: [RL Infrastructure 开发标准](../zh_CN/development-standard.md)
-- 后端能力和支持矩阵: [仿真后端](../../users/zh_CN/02-simulation-backends.md)
-- 协作流程与证据标准: [协作流程](../zh_CN/collaboration.md)
+- 架构总览: {doc}`RL Infrastructure 开发标准 </zh_CN/developer_guide/development-standard>`
+- 后端能力和支持矩阵: {doc}`仿真后端 </zh_CN/user_guide/02-simulation-backends>`
+- 协作流程与证据标准: {doc}`协作流程 </zh_CN/developer_guide/collaboration>`
 
 ## Navigation
 
-- Index: [Documentation](../../README.md)
+- Index: {doc}`Documentation </index>`

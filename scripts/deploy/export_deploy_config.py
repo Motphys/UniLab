@@ -64,9 +64,9 @@ CTRL_DT = 0.02
 KEYFRAME_NAME = "stand"
 ROOT_QPOS_DIM = 7  # free joint: xyz + quat(wxyz)
 
-# Default obs history length — matches mujoco_deploy.yaml's
+# Default obs history length — matches g1_wbt_obs/mujoco.yaml's
 # `noise_config.obs_history_length`. Override via --obs-history-length when
-# exporting for other training profiles (e.g. mujoco.yaml uses 1).
+# exporting for other training profiles (e.g. g1_motion_tracking/mujoco.yaml uses 1).
 DEFAULT_OBS_HISTORY_LENGTH = 5
 
 
@@ -164,21 +164,21 @@ def main():
         default=DEFAULT_OBS_HISTORY_LENGTH,
         help="Proprio history length H. Must match training-side "
         "noise_config.obs_history_length. Default 5 = current "
-        "mujoco_deploy.yaml. Set 1 for the legacy 154-d schema.",
+        "g1_wbt_obs/mujoco.yaml. Set 1 for the legacy 154-d schema.",
     )
     ap.add_argument(
         "--enable-zero-anchor-pos",
         action="store_true",
         default=True,
         help="Drop motion_anchor_pos_b from actor obs (mjlab parity). "
-        "Matches mujoco_deploy.yaml's noise_config flag.",
+        "Matches g1_wbt_obs/mujoco.yaml's noise_config flag.",
     )
     ap.add_argument(
         "--enable-zero-linvel",
         action="store_true",
         default=True,
         help="Drop base_lin_vel from actor obs (mjlab parity). "
-        "Matches mujoco_deploy.yaml's noise_config flag.",
+        "Matches g1_wbt_obs/mujoco.yaml's noise_config flag.",
     )
     args = ap.parse_args()
 
@@ -253,7 +253,7 @@ def main():
         #   command_joint_pos(29*1) + command_joint_vel(29*1)
         #   + motion_anchor_ori_b(6*1) + gyro(3*5)
         #   + joint_pos_rel(29*5) + dof_vel(29*5) + last_actions(29*5) = 514
-        # Aligns with deploy-profile training run (mujoco_deploy.yaml) which
+        # Aligns with deploy-profile training run (g1_wbt_obs/mujoco.yaml) which
         # drops motion_anchor_pos_b and base_lin_vel from actor obs to match
         # Unitree's verified mjlab "No-State-Estimation" deploy yaml and
         # adds BeyondMimic-style proprio history (default H=5).

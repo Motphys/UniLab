@@ -83,6 +83,6 @@ UniLab 运行时 observation contract 统一为且仅为两层：
 
 ## Related Documents
 
-- [ADR Index](README.md)
-- [RL Infrastructure 开发标准](../zh_CN/development-standard.md)
-- [协作流程](../zh_CN/collaboration.md)
+- {doc}`ADR Index </adr/README>`
+- {doc}`RL Infrastructure 开发标准 </zh_CN/developer_guide/development-standard>`
+- {doc}`协作流程 </zh_CN/developer_guide/collaboration>`

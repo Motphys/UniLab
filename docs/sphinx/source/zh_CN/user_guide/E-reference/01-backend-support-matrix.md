@@ -77,17 +77,17 @@ uv run scripts/generate_support_matrix.py --write
 | PPO (mlx) | `go2w_joystick_flat` (go2w joystick flat) | Configured | Configured |
 | PPO (mlx) | `go2w_joystick_rough` (go2w joystick rough) | Configured | Configured |
 | APPO (torch) | `go1_joystick_flat` (Go1 joystick) | Tested | Registered |
-| APPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | Registered |
+| APPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | Tested |
 | APPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered |
 | APPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested |
 | APPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | Tested |
 | APPO (torch) | `g1_wall_flip_tracking` (G1 wall flip tracking) | Tested | Tested |
 | APPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | Tested |
-| APPO (torch) | `sharpa_inhand` (Sharpa in-hand) | Tested | Registered |
+| APPO (torch) | `sharpa_inhand` (Sharpa in-hand) | Tested | Tested |
 | APPO (torch) | `g1_climb_tracking` (g1 climb tracking) | Tested | Tested |
 | SAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested |
 | SAC (torch) | `g1_walk_rough` (G1 walk rough) | Tested | Tested |
-| SAC (torch) | `g1_sac_wbt` (g1 sac wbt) | Tested | Tested |
+| SAC (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested |
 | SAC (torch) | `g1_wbt_obs` (g1 wbt obs) | Tested | Registered |
 | TD3 (torch) | `go1_joystick_flat` (Go1 joystick) | Registered | Tested |
 | TD3 (torch) | `go2_joystick_flat` (Go2 joystick) | Registered | Tested |
