@@ -53,9 +53,11 @@ uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1
 uv run eval --algo ppo --task go2_joystick_flat --sim motrix \
   --load-run -1 --render-mode record
 
-# 从本地训练好的检查点进行演示回放
-uv run demo
+# 演示回放（首次运行会从 Hugging Face 拉取预训练检查点）
+uv run demo dance
 ```
+
+可用的 demo 名称：`dance`、`wallflip`、`boxtracking`、`locomani`、`inhandgrasp`。
 
 在 macOS 上，CLI 会在需要时通过 `mxpython` 路由 Motrix 的交互式回放。使用
 `--render-mode record` 进行无头视频导出，或使用

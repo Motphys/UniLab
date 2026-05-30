@@ -45,10 +45,18 @@ uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1 \
 ## 演示
 
 ```bash
-uv run demo
-uv run demo --preset go2_joystick_mujoco_ppo
-uv run demo --refresh --device cpu
+uv run demo dance
+uv run demo wallflip
+uv run demo boxtracking
+uv run demo locomani
+uv run demo inhandgrasp
+uv run demo dance --refresh --device cpu
 ```
+
+可用的 demo：`dance`、`wallflip`、`boxtracking`、`locomani`、`inhandgrasp`。
+每个 demo 在首次运行时会从 `unilabsim/unilab-checkpoints` 这个 Hugging Face
+数据集拉取预训练检查点，并缓存到 `src/unilab/assets/checkpoints/<demo>/model_0.pt`。
+传入 `--refresh` 可重新下载。
 
 demo 入口由 `src/unilab/demo.py` 实现，并从 `src/unilab/cli.py` 路由。
 

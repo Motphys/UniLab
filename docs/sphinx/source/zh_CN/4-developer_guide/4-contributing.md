@@ -33,7 +33,21 @@ make test-all
 ```bash
 uv run pytest tests/scripts/test_check_docs.py -q
 cd docs/sphinx
-UNILAB_DOCS_SKIP_AUTODOC=1 uv run sphinx-build -b html -n source build/html
+UNILAB_DOCS_SKIP_AUTODOC=1 uv run --no-project --with-requirements requirements.txt sphinx-build -b html -n source build/html
+```
+
+`Docs` GitHub Actions workflow 会在匹配的 PR 和 push 上运行同样的 prose-only
+构建，也可以在 GitHub Actions 网页界面通过 `workflow_dispatch` 手动触发。它不会用
+`pip install -e .` 安装 UniLab，不生成 API reference 页面，也不发布外部文档仓库。
+
+如果要在本地对完整站点（含面向 `UniLab-doc` 发布流程的 API reference 页面）做最终
+刷新，请从已同步的开发环境用并行 Sphinx 构建：
+
+```bash
+uv sync
+uv pip install -r docs/sphinx/requirements.txt
+cd docs/sphinx
+uv run --no-sync sphinx-build -j auto -b html -n source build/html
 ```
 
 ## Commit 与 PR 预期

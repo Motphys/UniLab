@@ -14,8 +14,8 @@ uv run eval --algo ppo --task go2_joystick_flat --sim motrix \
 uv run eval --algo sac --task g1_walk_flat --sim mujoco --load-run -1 \
     --render-mode record training.export_onnx=false
 
-# 演示（使用内置的检查点）
-uv run demo
+# 演示（首次运行会从 HF 下载检查点）
+uv run demo dance
 ```
 
 渲染模式：
