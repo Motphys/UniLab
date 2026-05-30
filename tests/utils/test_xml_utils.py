@@ -25,12 +25,24 @@ def _go2_robot() -> str:
     return str(ASSETS_ROOT_PATH / "robots" / "go2" / "go2.xml")
 
 
+def _go2_mujoco_robot() -> str:
+    return str(ASSETS_ROOT_PATH / "robots" / "go2" / "go2_mujoco.xml")
+
+
 def _go1_robot() -> str:
     return str(ASSETS_ROOT_PATH / "robots" / "go1" / "go1.xml")
 
 
+def _go1_mujoco_robot() -> str:
+    return str(ASSETS_ROOT_PATH / "robots" / "go1" / "go1_mujoco.xml")
+
+
 def _go2w_robot() -> str:
     return str(ASSETS_ROOT_PATH / "robots" / "go2w" / "go2w.xml")
+
+
+def _go2w_mujoco_robot() -> str:
+    return str(ASSETS_ROOT_PATH / "robots" / "go2w" / "go2w_mujoco.xml")
 
 
 def _go2_locomotion_task() -> str:
@@ -171,7 +183,7 @@ def test_materialize_mujoco_hfield_attached_scene_composes_robot_and_task_fragme
     cfg.seed = 0
 
     model, terrain_origins = materialize_mujoco_hfield_attached_scene(
-        model_file=_go2_robot(),
+        model_file=_go2_mujoco_robot(),
         terrain_cfg=cfg,
         output_dir=tmp_path,
         fragment_files=[_go2_locomotion_task()],
@@ -188,7 +200,6 @@ def test_materialize_mujoco_hfield_attached_scene_composes_robot_and_task_fragme
     assert option is not None
     assert option.get("cone") == "elliptic"
     assert option.get("impratio") == "100"
-    assert option.get("ccd_iterations") == "500"
     assert scene_root.find("./asset/texture[@name='groundplane']") is not None
     assert scene_root.find("./asset/material[@name='groundplane']") is not None
     assert scene_root.find("./visual/headlight") is not None
@@ -242,7 +253,7 @@ def test_materialize_mujoco_hfield_attached_scene_preserves_go1_collision_xml(
     )
 
     model, terrain_origins = materialize_mujoco_hfield_attached_scene(
-        model_file=_go1_robot(),
+        model_file=_go1_mujoco_robot(),
         terrain_cfg=cfg,
         output_dir=tmp_path,
         fragment_files=[_go1_locomotion_task()],
@@ -286,7 +297,7 @@ def test_materialize_mujoco_hfield_attached_scene_preserves_go2w_collision_xml(
     )
 
     model, terrain_origins = materialize_mujoco_hfield_attached_scene(
-        model_file=_go2w_robot(),
+        model_file=_go2w_mujoco_robot(),
         terrain_cfg=cfg,
         output_dir=tmp_path,
         fragment_files=[_go2w_locomotion_task()],

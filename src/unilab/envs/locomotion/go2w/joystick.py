@@ -379,8 +379,7 @@ class Go2WJoystickEnv(Go2WBaseEnv):
         )
 
         leg_targets = (
-            exec_actions[:, :NUM_LEG_ACTIONS]
-            * self._leg_action_scale
+            exec_actions[:, :NUM_LEG_ACTIONS] * self._leg_action_scale
             + self.default_angles[:NUM_LEG_ACTIONS]
         )
         wheel_velocity_targets = (

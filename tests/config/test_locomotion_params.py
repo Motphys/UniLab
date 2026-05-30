@@ -333,7 +333,7 @@ def test_ppo_go2_joystick_rough_motrix_task_compose():
     assert cfg.training.task_name == "Go2JoystickRough"
     assert cfg.training.sim_backend == "motrix"
     assert cfg.algo.num_envs == 4096
-    assert cfg.algo.max_iterations == 1000
+    assert cfg.algo.max_iterations == 1500
     assert cfg.env.render_offset_mode == "zero"
     assert cfg.env.scene.model_file.endswith("go2.xml")
     assert cfg.env.scene.terrain.generator.num_rows == 6

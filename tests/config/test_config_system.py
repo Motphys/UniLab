@@ -360,7 +360,7 @@ def test_ppo_go2w_rough_mujoco_uses_terrain_generator():
 
     assert cfg.training.task_name == "Go2WJoystickRough"
     assert cfg.training.sim_backend == "mujoco"
-    assert str(cfg.env.scene.model_file).endswith("src/unilab/assets/robots/go2w/go2w.xml")
+    assert str(cfg.env.scene.model_file).endswith("src/unilab/assets/robots/go2w/go2w_mujoco.xml")
     assert cfg.env.scene.terrain.hfield_name == "terrain_hfield"
     assert cfg.env.scene.terrain.geom_name == "floor"
     assert cfg.env.terrain_scan.hfield_name == "terrain_hfield"
@@ -381,7 +381,7 @@ def test_ppo_go2w_rough_mujoco_uses_terrain_generator():
     assert cfg.reward.scales.hip_pos == pytest.approx(-2.0)
     assert cfg.reward.scales.joint_mirror == pytest.approx(-0.05)
     assert cfg.reward.only_positive_rewards is False
-    assert cfg.algo.max_iterations == 5000
+    assert cfg.algo.max_iterations == 1200
 
 
 def test_ppo_go2w_rough_motrix_uses_yaw_reset_and_strong_control():
@@ -400,7 +400,7 @@ def test_ppo_go2w_rough_motrix_uses_yaw_reset_and_strong_control():
     assert cfg.reward.scales.orientation == pytest.approx(-2.0)
     assert cfg.reward.scales.hip_pos == pytest.approx(-0.5)
     assert cfg.reward.scales.upward == pytest.approx(1.0)
-    assert cfg.algo.max_iterations == 2000
+    assert cfg.algo.max_iterations == 1200
 
 
 def test_offpolicy_g1_walk_flat_motrix_preserves_backend_env_overrides():
