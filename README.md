@@ -75,7 +75,18 @@ uv run eval --algo appo --task go2_joystick_flat --sim motrix --load-run -1
 
 # Headless Motrix video export for Linux/server runs
 uv run eval --algo appo --task go2_joystick_flat --sim motrix --load-run -1 --render-mode record
+
+# Pre-trained checkpoint playback (downloads from Hugging Face on first run)
+uv run demo dance
 ```
+
+Available demo names: `teaser`, `dance`, `wallflip`, `boxtracking`, `locomani`, `inhandgrasp`. See the [Unified CLI](docs/sphinx/source/zh_CN/1-user_guide/2-training/1-unified-cli.md) page for the full list and flags.
+
+> Mainland China users: motions, scenes, and demo checkpoints are pulled from Hugging Face on first run. If `huggingface.co` is unreachable, point the client at the community mirror before running training, evaluation, or demo commands:
+>
+> ```bash
+> export HF_ENDPOINT=https://hf-mirror.com
+> ```
 
 On macOS / MacBook, the UniLab CLI routes Motrix interactive playback through `mxpython` when needed. Motrix defaults to interactive playback; use `--render-mode record` for headless video export or `--render-mode none` to skip playback. Detailed script-level commands are in the [Training Guide](docs/sphinx/source/zh_CN/1-user_guide/3-training.md).
 

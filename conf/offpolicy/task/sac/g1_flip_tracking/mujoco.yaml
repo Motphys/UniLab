@@ -1,20 +1,4 @@
 # @package _global_
-# G1 flip tracking with FastSAC on MuJoCo — task ``g1_flip_tracking``.
-#
-# Migrates the PPO flip motion (``conf/ppo/task/g1_flip_tracking/mujoco.yaml``)
-# into the SAC pipeline:
-#   * algo block follows the proven WBT-SAC profile (``g1_sac_wbt``),
-#     since the action is being migrated INTO the SAC algorithm;
-#   * env / reward block follows the flip task (scene / motion / per-joint
-#     action_scale / clean obs), which are task properties, not algo knobs.
-#
-# Train command:
-#   uv run train --algo sac --task g1_flip_tracking --sim mujoco training.use_amp=true
-#
-# task_name binds to ``G1FlipTrackingSAC`` (see
-# ``src/unilab/envs/motion_tracking/g1/flip_tracking_sac.py``): the flip cfg
-# composed with the SAC asymmetric actor-critic obs (base_lin_vel into critic).
-# PPO flip (``G1FlipTracking``) and other SAC tasks are unaffected.
 training:
   task_name: G1FlipTrackingSAC
   sim_backend: mujoco

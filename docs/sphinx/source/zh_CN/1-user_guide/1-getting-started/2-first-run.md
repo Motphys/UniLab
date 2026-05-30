@@ -20,8 +20,18 @@ uv run train --algo ppo --task go2_joystick_flat --sim mujoco
 
 ```bash
 uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1
-uv run demo
+
+# 预训练 checkpoint 回放（首次运行会从 Hugging Face 自动下载）
+uv run demo dance
 ```
+
+可用 demo 名：`teaser`、`dance`、`wallflip`、`boxtracking`、`locomani`、`inhandgrasp`。
+
+> 面向大陆用户：如果 `huggingface.co` 不可达，可在执行上面这些命令前切换镜像：
+>
+> ```bash
+> export HF_ENDPOINT=https://hf-mirror.com
+> ```
 
 ## 第一次最常见的运行差异
 
