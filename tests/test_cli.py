@@ -204,9 +204,11 @@ def test_demo_registry_contains_expected_entries() -> None:
         "boxtracking",
         "locomani",
         "inhandgrasp",
+        "teaser",
     }
     assert demo.DEMO_REGISTRY["locomani"].entry == "play_interactive"
     assert demo.DEMO_REGISTRY["locomani"].sim == "mujoco"
+    assert demo.DEMO_REGISTRY["teaser"].entry == "teaser"
     for name in ("dance", "wallflip", "boxtracking", "inhandgrasp"):
         spec = demo.DEMO_REGISTRY[name]
         assert spec.entry == "eval"
@@ -286,3 +288,46 @@ def test_demo_main_rejects_passthrough_overrides() -> None:
 def test_demo_main_unknown_name_raises_with_available_list() -> None:
     with pytest.raises(SystemExit, match="Available demos"):
         cli.demo_main(["mystery"])
+
+
+def test_demo_teaser_build_command_rejected() -> None:
+    with pytest.raises(SystemExit, match="renderer-only"):
+        demo.build_demo_command(demo_name="teaser", checkpoint_path="/unused.pt")
+
+
+def test_demo_teaser_run_demo_invokes_render_teaser_main(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called: list[str] = []
+
+    def fake_render_teaser_main() -> None:
+        called.append("rendered")
+
+    import unilab.tools.render_teaser as render_teaser_module
+
+    monkeypatch.setattr(render_teaser_module, "main", fake_render_teaser_main)
+
+    def fail_resolve(_: str) -> str:
+        raise AssertionError("teaser entry must not resolve a checkpoint")
+
+    monkeypatch.setattr(demo, "resolve_checkpoint_file", fail_resolve)
+
+    rc = demo.run_demo(demo_name="teaser")
+    assert rc == 0
+    assert called == ["rendered"]
+
+
+def test_demo_main_teaser_dispatches_to_render_teaser(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called: list[str] = []
+
+    def fake_render_teaser_main() -> None:
+        called.append("rendered")
+
+    import unilab.tools.render_teaser as render_teaser_module
+
+    monkeypatch.setattr(render_teaser_module, "main", fake_render_teaser_main)
+    rc = cli.demo_main(["teaser"])
+    assert rc == 0
+    assert called == ["rendered"]

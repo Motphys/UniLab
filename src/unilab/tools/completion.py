@@ -457,6 +457,40 @@ def _load_run_choices(
     return _dedupe(_matching(candidates, prefix))
 
 
+_DEMO_FLAGS: tuple[str, ...] = ("--device", "--refresh")
+_DEMO_VALUE_FLAGS: frozenset[str] = frozenset({"--device"})
+
+
+def _demo_name_consumed(words: Sequence[str], cword: int) -> bool:
+    index = 3
+    limit = min(cword, len(words))
+    while index < limit:
+        token = words[index]
+        if token.startswith("--"):
+            index += 2 if token in _DEMO_VALUE_FLAGS else 1
+            continue
+        return True
+    return False
+
+
+def _demo_completions(
+    *,
+    words: Sequence[str],
+    cword: int,
+    current: str,
+    previous: str,
+    used_options: set[str],
+) -> list[str]:
+    from unilab.demo import DEMO_REGISTRY
+
+    if not _demo_name_consumed(words, cword):
+        return _matching(tuple(sorted(DEMO_REGISTRY)), current)
+    if previous in _DEMO_VALUE_FLAGS:
+        return []
+    available_flags = tuple(flag for flag in _DEMO_FLAGS if flag not in used_options)
+    return _matching(available_flags, current)
+
+
 def complete_words(
     words: Sequence[str],
     cword: int,
@@ -508,6 +542,14 @@ def complete_words(
             selected_algo=option_values.get("--algo"),
             selected_sim=option_values.get("--sim"),
             selected_task=option_values.get("--task"),
+        )
+    if command == "demo":
+        return _demo_completions(
+            words=words,
+            cword=cword,
+            current=current,
+            previous=previous,
+            used_options=used_options,
         )
     if current == "" or current.startswith("-") or previous == command:
         return _matching(_available_flags(selected_metadata, command, used_options), current)

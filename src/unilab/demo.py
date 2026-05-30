@@ -18,7 +18,7 @@ class DemoSpec:
     algo: str
     task: str
     sim: str
-    entry: str  # "eval" or "play_interactive"
+    entry: str  # "eval", "play_interactive", or "teaser"
 
 
 DEMO_REGISTRY: dict[str, DemoSpec] = {
@@ -29,6 +29,7 @@ DEMO_REGISTRY: dict[str, DemoSpec] = {
         algo="ppo", task="go2_arm_manip_loco", sim="mujoco", entry="play_interactive"
     ),
     "inhandgrasp": DemoSpec(algo="ppo", task="sharpa_inhand", sim="motrix", entry="eval"),
+    "teaser": DemoSpec(algo="", task="", sim="", entry="teaser"),
 }
 
 
@@ -108,11 +109,24 @@ def build_demo_command(
         return _build_play_interactive_command(
             spec=spec, checkpoint_path=checkpoint_path, extra_overrides=extra, root=root
         )
+    if spec.entry == "teaser":
+        raise SystemExit(
+            f"Demo {demo_name!r} is a renderer-only entry and has no subprocess command."
+        )
     raise SystemExit(f"Unknown demo entry kind: {spec.entry!r}")
+
+
+def _run_teaser_demo() -> int:
+    from unilab.tools.render_teaser import main as render_teaser_main
+
+    render_teaser_main()
+    return 0
 
 
 def run_demo(*, demo_name: str, refresh: bool = False, device: str | None = None) -> int:
     spec = get_demo_spec(demo_name)
+    if spec.entry == "teaser":
+        return _run_teaser_demo()
     if refresh:
         _refresh_local_checkpoint(demo_name)
     checkpoint_path = resolve_checkpoint_file(_checkpoint_relative_path(demo_name))
