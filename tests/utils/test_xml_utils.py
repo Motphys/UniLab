@@ -53,6 +53,10 @@ def _go1_locomotion_task() -> str:
     return str(ASSETS_ROOT_PATH / "robots" / "go1" / "locomotion_task.xml")
 
 
+def _sharpa_robot() -> str:
+    return str(ASSETS_ROOT_PATH / "robots" / "sharpa_wave" / "right_sharpa_wave.xml")
+
+
 def _go2w_locomotion_task() -> str:
     return str(ASSETS_ROOT_PATH / "robots" / "go2w" / "locomotion_task.xml")
 
@@ -164,6 +168,13 @@ def test_materialize_scene_fragments_merges_static_scene_fragment(tmp_path) -> N
         assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SENSOR, "foot_contact") >= 0
     finally:
         os.remove(tmp_xml)
+
+
+def test_sharpa_contact_excludes_do_not_reference_same_body() -> None:
+    root = ET.parse(_sharpa_robot()).getroot()
+
+    for exclude in root.findall("./contact/exclude"):
+        assert exclude.get("body1") != exclude.get("body2")
 
 
 def test_materialize_mujoco_hfield_attached_scene_composes_robot_and_task_fragment(
