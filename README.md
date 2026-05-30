@@ -63,21 +63,7 @@ make setup-motrix
 # Linux Intel Arc / iGPU
 # make sync-xpu
 
-# 3. Run a first APPO training job
-uv run train --algo appo --task go2_joystick_flat --sim motrix
-```
-
-This command routes through the `go2_joystick_flat/motrix` task owner config and keeps backend selection explicit.
-
-For evaluation and demo playback:
-
-```bash
-uv run eval --algo appo --task go2_joystick_flat --sim motrix --load-run -1
-
-# Headless Motrix video export for Linux/server runs
-uv run eval --algo appo --task go2_joystick_flat --sim motrix --load-run -1 --render-mode record
-
-# Pre-trained checkpoint playback (downloads from Hugging Face on first run)
+# 3. Pre-trained checkpoint playback (downloads from Hugging Face on first run)
 uv run demo dance
 ```
 
@@ -88,6 +74,19 @@ Available demo names: `teaser`, `dance`, `wallflip`, `boxtracking`, `locomani`, 
 > ```bash
 > export HF_ENDPOINT=https://hf-mirror.com
 > ```
+
+For training and evaluation:
+
+```bash
+uv run train --algo appo --task go2_joystick_flat --sim motrix
+
+uv run eval --algo appo --task go2_joystick_flat --sim motrix --load-run -1
+
+# Headless Motrix video export for Linux/server runs
+uv run eval --algo appo --task go2_joystick_flat --sim motrix --load-run -1 --render-mode record
+```
+
+This routes through the `go2_joystick_flat/motrix` task owner config and keeps backend selection explicit.
 
 On macOS / MacBook, the UniLab CLI routes Motrix interactive playback through `mxpython` when needed. Motrix defaults to interactive playback; use `--render-mode record` for headless video export or `--render-mode none` to skip playback. Detailed script-level commands are in the [Training Guide](docs/sphinx/source/zh_CN/2-user_guide/1-training/0-index.md).
 

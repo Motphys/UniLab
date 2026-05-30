@@ -35,25 +35,11 @@ make setup-motrix
 # make sync-xpu
 ```
 
-## 训练
+## 演示
+
+演示回放（首次运行会从 Hugging Face 拉取预训练检查点）：
 
 ```bash
-uv run train --algo ppo --task go2_joystick_flat --sim motrix
-```
-
-该命令会路由到已注册的 `go2_joystick_flat` 任务，并使用 Motrix 后端。CLI 通过
-`--algo`、`--task` 和 `--sim` 让算法、任务和后端的选择保持显式；其内部会组合（compose）出匹配的 owner YAML。
-
-## 评估或演示
-
-```bash
-uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1
-
-# 面向 Linux/服务器运行的 Motrix 无头（headless）视频导出
-uv run eval --algo ppo --task go2_joystick_flat --sim motrix \
-  --load-run -1 --render-mode record
-
-# 演示回放（首次运行会从 Hugging Face 拉取预训练检查点）
 uv run demo dance
 ```
 
@@ -65,6 +51,21 @@ uv run demo dance
 ```bash
 export HF_ENDPOINT=https://hf-mirror.com
 ```
+
+## 训练与评估
+
+```bash
+uv run train --algo ppo --task go2_joystick_flat --sim motrix
+
+uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1
+
+# 面向 Linux/服务器运行的 Motrix 无头（headless）视频导出
+uv run eval --algo ppo --task go2_joystick_flat --sim motrix \
+  --load-run -1 --render-mode record
+```
+
+该命令会路由到已注册的 `go2_joystick_flat` 任务，并使用 Motrix 后端。CLI 通过
+`--algo`、`--task` 和 `--sim` 让算法、任务和后端的选择保持显式；其内部会组合（compose）出匹配的 owner YAML。
 
 在 macOS 上，CLI 会在需要时通过 `mxpython` 路由 Motrix 的交互式回放。使用
 `--render-mode record` 进行无头视频导出，或使用
