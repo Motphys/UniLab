@@ -57,7 +57,14 @@ uv run eval --algo ppo --task go2_joystick_flat --sim motrix \
 uv run demo dance
 ```
 
-可用的 demo 名称：`dance`、`wallflip`、`boxtracking`、`locomani`、`inhandgrasp`。
+可用的 demo 名称：`teaser`、`dance`、`wallflip`、`boxtracking`、`locomani`、`inhandgrasp`。
+
+中国大陆用户：运动、场景和 demo 检查点在首次运行时从 Hugging Face 拉取。如果
+`huggingface.co` 无法访问，请在运行训练、评估或 demo 命令前切到社区镜像：
+
+```bash
+export HF_ENDPOINT=https://hf-mirror.com
+```
 
 在 macOS 上，CLI 会在需要时通过 `mxpython` 路由 Motrix 的交互式回放。使用
 `--render-mode record` 进行无头视频导出，或使用
