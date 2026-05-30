@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 from importlib.machinery import ModuleSpec
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -75,6 +76,34 @@ def test_macos_motrix_train_no_play_uses_current_python(
     assert command[0] == sys.executable
 
 
+def test_macos_motrix_finds_uv_venv_mxpython_when_not_on_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    venv_bin = tmp_path / ".venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    fake_python = venv_bin / "python"
+    fake_mxpython = venv_bin / "mxpython"
+    fake_python.write_text("", encoding="utf-8")
+    fake_mxpython.write_text("", encoding="utf-8")
+    _make_minimal_checkout(tmp_path)
+    _pretend_motrix_is_installed(monkeypatch)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(cli.shutil, "which", lambda name: None)
+    monkeypatch.setattr(cli.sys, "executable", str(fake_python))
+
+    command = cli.build_command(
+        mode="eval",
+        algo="ppo",
+        task="go2_joystick_flat",
+        sim="motrix",
+        overrides=[],
+        load_run="-1",
+        root=tmp_path,
+    )
+
+    assert command[0] == str(fake_mxpython)
+
+
 def test_train_profile_routes_to_owner_variant(tmp_path: Path) -> None:
     (tmp_path / "scripts").mkdir(parents=True)
     (tmp_path / "scripts" / "train_rsl_rl.py").write_text("", encoding="utf-8")
@@ -145,6 +174,7 @@ def test_macos_motrix_eval_requires_mxpython(
     _pretend_motrix_is_installed(monkeypatch)
     monkeypatch.setattr(cli.platform, "system", lambda: "Darwin")
     monkeypatch.setattr(cli.shutil, "which", lambda name: None)
+    monkeypatch.setattr(cli.sys, "executable", str(tmp_path / "python"))
 
     with pytest.raises(SystemExit, match="mxpython"):
         cli.build_command(
@@ -338,6 +368,7 @@ def test_demo_teaser_run_demo_invokes_render_teaser_main(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     called: list[str] = []
+    monkeypatch.setattr(demo.platform, "system", lambda: "Linux")
 
     def fake_render_teaser_main() -> None:
         called.append("rendered")
@@ -356,10 +387,44 @@ def test_demo_teaser_run_demo_invokes_render_teaser_main(
     assert called == ["rendered"]
 
 
+def test_demo_teaser_uses_mxpython_subprocess_on_macos(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[list[str], dict[str, str]]] = []
+    monkeypatch.setattr(demo.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(demo.sys, "executable", "/tmp/unilab/.venv/bin/python")
+    monkeypatch.setattr(demo, "_mxpython_executable", lambda: "/tmp/unilab/.venv/bin/mxpython")
+
+    def fake_run(command: list[str], *, check: bool, env: dict[str, str]) -> SimpleNamespace:
+        assert check is False
+        calls.append((command, env))
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(demo.subprocess, "run", fake_run)
+
+    def fail_render_teaser_main() -> None:
+        raise AssertionError("macOS teaser must route through mxpython")
+
+    import unilab.tools.render_teaser as render_teaser_module
+
+    monkeypatch.setattr(render_teaser_module, "main", fail_render_teaser_main)
+
+    rc = demo.run_demo(demo_name="teaser")
+
+    assert rc == 0
+    command, env = calls[0]
+    assert command == [
+        "/tmp/unilab/.venv/bin/mxpython",
+        str(demo._repo_root() / "src" / "unilab" / "tools" / "render_teaser.py"),
+    ]
+    assert env["UV_PROJECT_ENVIRONMENT"] == str(demo._repo_root() / ".venv")
+
+
 def test_demo_main_teaser_dispatches_to_render_teaser(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     called: list[str] = []
+    monkeypatch.setattr(demo.platform, "system", lambda: "Linux")
 
     def fake_render_teaser_main() -> None:
         called.append("rendered")

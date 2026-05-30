@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import platform
 import subprocess
 import sys
 from collections.abc import Sequence
@@ -116,7 +117,22 @@ def build_demo_command(
     raise SystemExit(f"Unknown demo entry kind: {spec.entry!r}")
 
 
+def _mxpython_executable() -> str:
+    from unilab.cli import _mxpython_executable as resolve_mxpython_executable
+
+    return resolve_mxpython_executable()
+
+
 def _run_teaser_demo() -> int:
+    if platform.system() == "Darwin" and Path(sys.executable).name != "mxpython":
+        command = [
+            _mxpython_executable(),
+            str(_repo_root() / "src" / "unilab" / "tools" / "render_teaser.py"),
+        ]
+        env = os.environ.copy()
+        env.setdefault("UV_PROJECT_ENVIRONMENT", str(_repo_root() / ".venv"))
+        return subprocess.run(command, check=False, env=env).returncode
+
     from unilab.tools.render_teaser import main as render_teaser_main
 
     render_teaser_main()
