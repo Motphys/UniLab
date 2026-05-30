@@ -1,6 +1,6 @@
-"""Cold-path motion asset resolver with Hugging Face fallback.
+"""Cold-path asset resolver with Hugging Face fallback.
 
-Guarantees that requested motion files exist on disk before returning.
+Guarantees that requested asset files exist on disk before returning.
 When a file is missing locally, it is downloaded from the configured
 Hugging Face dataset repo and placed under ``ASSETS_ROOT_PATH`` so that
 existing path references remain valid.
@@ -20,7 +20,8 @@ from unilab.assets import ASSETS_ROOT_PATH
 
 logger = logging.getLogger(__name__)
 
-_HF_REPO_ID = "unilabsim/unilab-motions"
+_HF_MOTIONS_REPO_ID = "unilabsim/unilab-motions"
+_HF_SCENES_REPO_ID = "unilabsim/unilab-scenes"
 _HF_REPO_TYPE = "dataset"
 _HF_OFFICIAL_ENDPOINT = "https://huggingface.co"
 
@@ -72,11 +73,11 @@ def _resolve_single(path_str: str) -> str:
     return _download_from_hf(relative)
 
 
-def _hf_download(hf_hub_download, relative_path: str) -> str:  # type: ignore[no-untyped-def]
+def _hf_download(hf_hub_download, relative_path: str, *, repo_id: str) -> str:  # type: ignore[no-untyped-def]
     """Call ``hf_hub_download`` with the standard arguments."""
     return str(
         hf_hub_download(
-            repo_id=_HF_REPO_ID,
+            repo_id=repo_id,
             filename=relative_path,
             repo_type=_HF_REPO_TYPE,
             local_dir=str(ASSETS_ROOT_PATH),
@@ -84,8 +85,12 @@ def _hf_download(hf_hub_download, relative_path: str) -> str:  # type: ignore[no
     )
 
 
-def _download_from_hf(relative_path: str) -> str:
-    """Download *relative_path* from the HF dataset repo.
+def _download_from_hf(
+    relative_path: str,
+    *,
+    repo_id: str = _HF_MOTIONS_REPO_ID,
+) -> str:
+    """Download *relative_path* from an HF dataset repo.
 
     If the current ``HF_ENDPOINT`` (e.g. a mirror) fails, automatically
     retries with the official ``https://huggingface.co`` endpoint.
@@ -94,17 +99,17 @@ def _download_from_hf(relative_path: str) -> str:
         from huggingface_hub import hf_hub_download
     except ImportError:
         raise ImportError(
-            f"Motion file '{relative_path}' not found locally. "
+            f"Asset file '{relative_path}' not found locally. "
             "Install huggingface_hub to enable automatic downloading:\n"
             "  uv sync\n"
             "Or:\n"
             "  uv pip install huggingface_hub"
         ) from None
 
-    logger.info("Downloading %s from HF repo %s ...", relative_path, _HF_REPO_ID)
+    logger.info("Downloading %s from HF repo %s ...", relative_path, repo_id)
 
     try:
-        local_path = _hf_download(hf_hub_download, relative_path)
+        local_path = _hf_download(hf_hub_download, relative_path, repo_id=repo_id)
     except Exception:
         # If a mirror endpoint is configured and it failed, retry with
         # the official endpoint before giving up.
@@ -118,7 +123,7 @@ def _download_from_hf(relative_path: str) -> str:
             original = os.environ["HF_ENDPOINT"]
             os.environ["HF_ENDPOINT"] = _HF_OFFICIAL_ENDPOINT
             try:
-                local_path = _hf_download(hf_hub_download, relative_path)
+                local_path = _hf_download(hf_hub_download, relative_path, repo_id=repo_id)
             finally:
                 os.environ["HF_ENDPOINT"] = original
         else:
@@ -126,3 +131,72 @@ def _download_from_hf(relative_path: str) -> str:
 
     logger.info("Downloaded to %s", local_path)
     return local_path
+
+
+# ---------------------------------------------------------------------------
+# Scene directory resolver
+# ---------------------------------------------------------------------------
+
+
+def _snapshot_download(snapshot_download_fn, directory: str, *, repo_id: str) -> str:  # type: ignore[no-untyped-def]
+    """Call ``snapshot_download`` with the standard arguments."""
+    return str(
+        snapshot_download_fn(
+            repo_id=repo_id,
+            repo_type=_HF_REPO_TYPE,
+            allow_patterns=f"{directory}/**",
+            local_dir=str(ASSETS_ROOT_PATH),
+        )
+    )
+
+
+def resolve_scene_dir(directory: str, *, marker: str = "teaser.xml") -> Path:
+    """Ensure a scene directory exists locally, downloading from HF if needed.
+
+    Args:
+        directory: ``ASSETS_ROOT_PATH``-relative directory path
+            (e.g. ``"scenes/teaser"``).
+        marker: A file inside the directory used to check completeness.
+
+    Returns:
+        Absolute ``Path`` to the resolved directory.
+    """
+    target = ASSETS_ROOT_PATH / directory
+    if (target / marker).is_file():
+        return target
+
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError:
+        raise ImportError(
+            f"Scene directory '{directory}' not found locally. "
+            "Install huggingface_hub to enable automatic downloading:\n"
+            "  uv sync\n"
+            "Or:\n"
+            "  uv pip install huggingface_hub"
+        ) from None
+
+    repo_id = _HF_SCENES_REPO_ID
+    logger.info("Downloading %s from HF repo %s ...", directory, repo_id)
+
+    try:
+        _snapshot_download(snapshot_download, directory, repo_id=repo_id)
+    except Exception:
+        current_endpoint = os.environ.get("HF_ENDPOINT", "")
+        if current_endpoint and current_endpoint != _HF_OFFICIAL_ENDPOINT:
+            logger.warning(
+                "Download failed with HF_ENDPOINT=%s, retrying with %s ...",
+                current_endpoint,
+                _HF_OFFICIAL_ENDPOINT,
+            )
+            original = os.environ["HF_ENDPOINT"]
+            os.environ["HF_ENDPOINT"] = _HF_OFFICIAL_ENDPOINT
+            try:
+                _snapshot_download(snapshot_download, directory, repo_id=repo_id)
+            finally:
+                os.environ["HF_ENDPOINT"] = original
+        else:
+            raise
+
+    logger.info("Downloaded scene directory to %s", target)
+    return target

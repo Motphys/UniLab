@@ -1,4 +1,4 @@
-"""Tests for the motion asset resolver (``unilab.assets.hub``)."""
+"""Tests for the asset resolvers (``unilab.assets.hub``)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.assets.hub import resolve_motion_files
+from unilab.assets.hub import resolve_motion_files, resolve_scene_dir
 
 # ---------------------------------------------------------------------------
 # Local-path fast path
@@ -102,3 +102,48 @@ def test_resolve_relative_path_falls_back_to_hf():
         repo_type="dataset",
         local_dir=str(ASSETS_ROOT_PATH),
     )
+
+
+# ---------------------------------------------------------------------------
+# Scene directory resolver
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_scene_dir_returns_immediately_when_marker_exists(tmp_path: Path):
+    """When the marker file exists, resolve_scene_dir returns without
+    downloading anything."""
+    scene_dir = tmp_path / "scenes" / "teaser"
+    scene_dir.mkdir(parents=True)
+    (scene_dir / "teaser.xml").write_text("<mujoco/>")
+
+    with patch("unilab.assets.hub.ASSETS_ROOT_PATH", tmp_path):
+        result = resolve_scene_dir("scenes/teaser")
+
+    assert result == scene_dir
+
+
+def test_resolve_scene_dir_calls_snapshot_download_when_missing():
+    """When the marker file is absent, resolve_scene_dir triggers a
+    snapshot_download with the correct arguments."""
+    fake_snapshot = MagicMock(return_value=str(ASSETS_ROOT_PATH))
+    fake_module = MagicMock()
+    fake_module.snapshot_download = fake_snapshot
+
+    with patch.dict("sys.modules", {"huggingface_hub": fake_module}):
+        resolve_scene_dir("scenes/teaser")
+
+    fake_snapshot.assert_called_once_with(
+        repo_id="unilabsim/unilab-scenes",
+        repo_type="dataset",
+        allow_patterns="scenes/teaser/**",
+        local_dir=str(ASSETS_ROOT_PATH),
+    )
+
+
+def test_resolve_scene_dir_raises_import_error_when_hf_hub_missing(tmp_path: Path):
+    """When the scene directory is missing and huggingface_hub is not
+    installed, a clear ImportError is raised."""
+    with patch("unilab.assets.hub.ASSETS_ROOT_PATH", tmp_path):
+        with patch.dict("sys.modules", {"huggingface_hub": None}):
+            with pytest.raises(ImportError, match="huggingface_hub"):
+                resolve_scene_dir("scenes/teaser")

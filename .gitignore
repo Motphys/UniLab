@@ -67,6 +67,9 @@ src/unilab/assets/motions/g1/*.npz
 src/unilab/assets/motions/g1/*.csv
 src/unilab/assets/motions/g1/flip
 src/unilab/assets/motions/g1/flip_npz
+
+# Scene assets (downloaded from HF at runtime)
+src/unilab/assets/scenes/teaser/
 cache/
 
 
