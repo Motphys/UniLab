@@ -43,7 +43,7 @@ unilab-viz-nan = "unilab.tools.viz_nan:main"
 unilab-export-scene = "unilab.tools.export_scene:main"
 
 [project.optional-dependencies]
-motrix = ["motrixsim-core==0.8.1.dev104632"]
+motrix = ["motrixsim-core==0.8.1.dev104665"]
 viser = ["viser>=1.0.26", "trimesh>=3.21.7"]
 
 [dependency-groups]
