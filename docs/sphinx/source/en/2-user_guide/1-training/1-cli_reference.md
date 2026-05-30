@@ -52,11 +52,18 @@ uv run demo inhandgrasp
 uv run demo dance --refresh --device cpu
 ```
 
-Available demos: `dance`, `wallflip`, `boxtracking`, `locomani`, `inhandgrasp`.
+Available demos: `teaser`, `dance`, `wallflip`, `boxtracking`, `locomani`, `inhandgrasp`.
 Each demo fetches a pre-trained checkpoint from the
 `unilabsim/unilab-checkpoints` Hugging Face dataset on first run and caches it
 under `src/unilab/assets/checkpoints/<demo>/model_0.pt`. Pass `--refresh` to
 re-download.
+
+Mainland China users: when `huggingface.co` is unreachable, switch to the
+community mirror before running the demo:
+
+```bash
+export HF_ENDPOINT=https://hf-mirror.com
+```
 
 The demo entrypoint is implemented by `src/unilab/demo.py` and routed from
 `src/unilab/cli.py`.
