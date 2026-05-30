@@ -22,5 +22,5 @@ mlx
    :template: autosummary/module.rst
    :recursive:
 
-   unilab.algos
+   unilab.algos.torch
 ```

@@ -185,11 +185,10 @@ def init_worker(model_path, shape):
 
 
 def render_frame_job(args):
-    """
-    Worker function to render a single frame.
-    args: (state_batch, offsets, transparent, cam_distance, cam_elevation, cam_azimuth,
-           cam_lookat, marker_positions)
-    marker_positions: optional (num_envs, 3) world-frame positions for overlay spheres.
+    """Render a single frame in a worker process.
+
+    ``args`` contains the state batch, grid offsets, transparency flag, camera
+    settings, and optional world-frame marker positions for overlay spheres.
     """
     (
         state_batch,
