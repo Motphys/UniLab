@@ -55,6 +55,44 @@ APPO_MUJOCO_SMOKE_TASKS = [
     "g1_wall_flip_tracking/mujoco",
 ]
 
+APPO_MOTION_SMOKE_TASKS = {
+    "g1_motion_tracking/mujoco",
+    "g1_flip_tracking/mujoco",
+    "g1_wall_flip_tracking/mujoco",
+}
+
+
+def _write_g1_motion_smoke_npz(path: Path) -> None:
+    num_frames = 4
+    num_joints = 29
+    num_bodies = 128
+    joint_pos = np.zeros((num_frames, num_joints), dtype=np.float32)
+    joint_vel = np.zeros((num_frames, num_joints), dtype=np.float32)
+    body_pos_w = np.zeros((num_frames, num_bodies, 3), dtype=np.float32)
+    body_pos_w[..., 2] = 0.8
+    body_quat_w = np.zeros((num_frames, num_bodies, 4), dtype=np.float32)
+    body_quat_w[..., 0] = 1.0
+    body_lin_vel_w = np.zeros((num_frames, num_bodies, 3), dtype=np.float32)
+    body_ang_vel_w = np.zeros((num_frames, num_bodies, 3), dtype=np.float32)
+    np.savez(
+        path,
+        fps=np.array([50], dtype=np.int32),
+        joint_pos=joint_pos,
+        joint_vel=joint_vel,
+        body_pos_w=body_pos_w,
+        body_quat_w=body_quat_w,
+        body_lin_vel_w=body_lin_vel_w,
+        body_ang_vel_w=body_ang_vel_w,
+    )
+
+
+def _appo_motion_file_overrides(task: str, tmp_path: Path) -> list[str]:
+    if task not in APPO_MOTION_SMOKE_TASKS:
+        return []
+    motion_file = tmp_path / f"{task.split('/', 1)[0]}_smoke_motion.npz"
+    _write_g1_motion_smoke_npz(motion_file)
+    return [f"++env.motion_file={motion_file}"]
+
 
 def test_appo_mujoco_smoke_tasks_have_owner_configs():
     """APPO runtime smoke coverage must not declare tasks without owner YAML."""
@@ -68,10 +106,11 @@ def test_appo_mujoco_smoke_tasks_have_owner_configs():
 
 @pytest.mark.slow
 @pytest.mark.parametrize("task", APPO_MUJOCO_SMOKE_TASKS)
-def test_appo_task_configs_load(task):
+def test_appo_task_configs_load(task, tmp_path):
     """APPO can start training with selected MuJoCo owner configs."""
     if not _MLX_RUNTIME_USABLE:
         pytest.skip("mlx runtime aborts in subprocess on this host")
+    motion_overrides = _appo_motion_file_overrides(task, tmp_path)
     result = subprocess.run(
         [
             sys.executable,
@@ -79,6 +118,7 @@ def test_appo_task_configs_load(task):
             f"task={task}",
             "algo.max_iterations=1",
             "training.no_play=true",
+            *motion_overrides,
         ],
         capture_output=True,
         text=True,
