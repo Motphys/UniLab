@@ -274,3 +274,58 @@ def test_task_completion_respects_selected_profile(tmp_path: Path) -> None:
         10,
         metadata,
     ) == ["go1"]
+
+
+def test_demo_positional_completes_all_demo_names(tmp_path: Path) -> None:
+    _write_completion_fixture(tmp_path)
+    metadata = build_metadata(tmp_path)
+
+    choices = complete_words(["uv", "run", "demo", ""], 3, metadata)
+    assert choices == [
+        "boxtracking",
+        "dance",
+        "inhandgrasp",
+        "locomani",
+        "teaser",
+        "wallflip",
+    ]
+
+
+def test_demo_positional_filters_by_prefix(tmp_path: Path) -> None:
+    _write_completion_fixture(tmp_path)
+    metadata = build_metadata(tmp_path)
+
+    assert complete_words(["uv", "run", "demo", "d"], 3, metadata) == ["dance"]
+    assert complete_words(["uv", "run", "demo", "t"], 3, metadata) == ["teaser"]
+
+
+def test_demo_flags_completed_after_demo_name(tmp_path: Path) -> None:
+    _write_completion_fixture(tmp_path)
+    metadata = build_metadata(tmp_path)
+
+    choices = complete_words(["uv", "run", "demo", "dance", "--"], 4, metadata)
+    assert choices == ["--device", "--refresh"]
+
+
+def test_demo_used_flag_excluded_from_completions(tmp_path: Path) -> None:
+    _write_completion_fixture(tmp_path)
+    metadata = build_metadata(tmp_path)
+
+    choices = complete_words(["uv", "run", "demo", "dance", "--refresh", "--"], 5, metadata)
+    assert choices == ["--device"]
+
+
+def test_demo_device_value_position_defers_to_shell(tmp_path: Path) -> None:
+    _write_completion_fixture(tmp_path)
+    metadata = build_metadata(tmp_path)
+
+    assert complete_words(["uv", "run", "demo", "dance", "--device", ""], 5, metadata) == []
+
+
+def test_demo_name_still_completes_when_leading_flag_present(tmp_path: Path) -> None:
+    _write_completion_fixture(tmp_path)
+    metadata = build_metadata(tmp_path)
+
+    assert complete_words(["uv", "run", "demo", "--refresh", "d"], 4, metadata) == [
+        "dance",
+    ]

@@ -52,9 +52,11 @@ uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1
 uv run eval --algo ppo --task go2_joystick_flat --sim motrix \
   --load-run -1 --render-mode record
 
-# Demo playback from a local trained checkpoint
-uv run demo
+# Demo playback (fetches a pre-trained checkpoint from Hugging Face on first run)
+uv run demo dance
 ```
+
+Available demo names: `dance`, `wallflip`, `boxtracking`, `locomani`, `inhandgrasp`.
 
 On macOS, the CLI routes Motrix interactive playback through `mxpython` when
 needed. Use `--render-mode record` for headless video export or

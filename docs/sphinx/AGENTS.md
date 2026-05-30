@@ -7,6 +7,7 @@ Sphinx 文档写作规则。
 ## Ground Truth
 
 - 文档基础设施、构建和部署：`docs/sphinx/README.md`
+- 本地完整构建并发布到 UniLab-doc：`docs/sphinx/README.md#本地发布到-unilab-doc`
 - Sphinx 配置：`docs/sphinx/source/conf.py`
 - 架构标准：`docs/sphinx/source/zh_CN/4-developer_guide/0-index.md`
 - ADR：`docs/sphinx/source/adr/ADR-0000-index.md`
@@ -234,7 +235,7 @@ For docs-only changes, run:
 ```bash
 uv run pytest tests/scripts/test_check_docs.py -q
 cd docs/sphinx
-UNILAB_DOCS_SKIP_AUTODOC=1 uv run sphinx-build -b html -n source build/html
+UNILAB_DOCS_SKIP_AUTODOC=1 uv run --no-project --with-requirements requirements.txt sphinx-build -b html -n source build/html
 ```
 
 If you changed generated support data, run the generator first. If you changed
