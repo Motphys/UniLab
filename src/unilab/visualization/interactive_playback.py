@@ -6,7 +6,7 @@ import copy
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import torch
@@ -66,6 +66,53 @@ class PlaybackControls:
 
     def target_dt(self, ctrl_dt: float) -> float:
         return float(ctrl_dt) / max(float(self.speed), 1e-6)
+
+
+@dataclass
+class KeyboardCommander:
+    """Mutable ``[vx, vy, vyaw]`` velocity command driven by keyboard nudges.
+
+    Per-axis nudges stack and are clamped to the task's ``commands.vel_limit``.
+    """
+
+    low: np.ndarray
+    high: np.ndarray
+    step_lin: float = 0.1
+    step_ang: float = 0.2
+    command: np.ndarray = field(init=False)
+
+    AXIS_VX: ClassVar[int] = 0
+    AXIS_VY: ClassVar[int] = 1
+    AXIS_VYAW: ClassVar[int] = 2
+
+    def __post_init__(self) -> None:
+        self.low = np.asarray(self.low, dtype=np.float64).reshape(3)
+        self.high = np.asarray(self.high, dtype=np.float64).reshape(3)
+        self.command = np.zeros(3, dtype=np.float64)
+
+    @classmethod
+    def from_vel_limit(
+        cls, vel_limit: Any, *, step_lin: float = 0.1, step_ang: float = 0.2
+    ) -> "KeyboardCommander":
+        limit = np.asarray(vel_limit, dtype=np.float64)
+        if limit.shape != (2, 3):
+            raise ValueError(f"commands.vel_limit must have shape (2, 3), got {limit.shape}")
+        return cls(low=limit[0], high=limit[1], step_lin=float(step_lin), step_ang=float(step_ang))
+
+    def nudge(self, axis: int, sign: float) -> None:
+        base = self.step_lin if axis in (self.AXIS_VX, self.AXIS_VY) else self.step_ang
+        delta = base * (1.0 if sign >= 0 else -1.0)
+        self.command[axis] = float(
+            np.clip(self.command[axis] + delta, self.low[axis], self.high[axis])
+        )
+
+    def zero(self) -> None:
+        self.command[:] = 0.0
+
+    def describe(self) -> str:
+        return (
+            f"cmd vx={self.command[0]:+.2f} vy={self.command[1]:+.2f} vyaw={self.command[2]:+.2f}"
+        )
 
 
 @dataclass(frozen=True)
@@ -299,6 +346,7 @@ def prepare_motion_overlay_selection(
 
 
 __all__ = [
+    "KeyboardCommander",
     "MotionOverlaySelection",
     "PlaybackControls",
     "RslRlPlaybackConfig",
