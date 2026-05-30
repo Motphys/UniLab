@@ -14,6 +14,7 @@
 
 - [D.05 Go2 Rough Terrain](5-go2-rough-terrain.md)
 - [D.06 Go2 Arm Manip Loco](6-go2-arm-manip-loco.md)
+- [D.07 Go2 FootStand](7-go2-footstand.md)
 
 ### Allegro Hand
 
@@ -30,6 +31,7 @@
 - [D.02 G1 Motion Tracking](2-g1-motion-tracking.md)
 - [D.05 Go2 Rough Terrain](5-go2-rough-terrain.md)
 - [D.06 Go2 Arm Manip Loco](6-go2-arm-manip-loco.md)
+- [D.07 Go2 FootStand](7-go2-footstand.md)
 
 ### In-hand Manipulation
 

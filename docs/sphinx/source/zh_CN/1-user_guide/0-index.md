@@ -41,6 +41,7 @@ UniLab 中文版用户指南。从一次能跑通的训练开始,再按主题深
 4-tasks/4-sharpa-inhand
 4-tasks/5-go2-rough-terrain
 4-tasks/6-go2-arm-manip-loco
+4-tasks/7-go2-footstand
 5-reference/1-backend-support-matrix
 ```
 
