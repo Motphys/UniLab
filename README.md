@@ -148,6 +148,13 @@ Use the published [UniLab documentation](https://unilabsim.github.io/UniLab-doc/
 - [Development Standard](docs/sphinx/source/en/4-developer_guide/0-index.md): contracts, layering, and validation boundaries
 - [ADR Index](docs/sphinx/source/adr/ADR-0000-index.md): accepted architecture decisions
 
+## 💬 Community
+
+| WeChat Group | WeChat Assistant |
+| --- | --- |
+| <img src="docs/sphinx/source/_static/assets/unilab-wechat-group.jpg" alt="UniLab WeChat group QR code" width="220"> | <img src="docs/sphinx/source/_static/assets/unilab-wechat-assistant.jpg" alt="UniLab WeChat assistant QR code" width="150"> |
+| Scan to join the UniLab WeChat group. | If the group is full, add the assistant and include `unilab交流` in your message. |
+
 ## 🧾 Citation
 
 ### UniLab

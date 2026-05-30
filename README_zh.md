@@ -147,6 +147,13 @@ uv run train --algo ppo --task sharpa_inhand --sim mujoco --profile hora
 - [开发者指南](docs/sphinx/source/zh_CN/4-developer_guide/0-index.md)：契约、分层与验证边界
 - [ADR 索引](docs/sphinx/source/adr/ADR-0000-index.md)：已采纳的架构决策
 
+## 💬 社群交流
+
+| 微信群 | 小助手微信 |
+| --- | --- |
+| <img src="docs/sphinx/source/_static/assets/unilab-wechat-group.jpg" alt="UniLab 微信群二维码" width="220"> | <img src="docs/sphinx/source/_static/assets/unilab-wechat-assistant.jpg" alt="UniLab 小助手微信二维码" width="150"> |
+| 扫码加入 UniLab 微信群。 | 如果微信群已满，请添加小助手微信，并备注 `unilab交流`。 |
+
 ## 🧾 引用
 
 ### UniLab
