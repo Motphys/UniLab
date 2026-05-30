@@ -16,8 +16,4 @@ orphan: true
 
 en/0-index
 zh_CN/0-index
-adr/README
-api_reference/index
-glossary
-changelog
 ```

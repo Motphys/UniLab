@@ -1,3 +1,7 @@
+---
+orphan: true
+---
+
 # ADR-0002 Backend Capability Boundary For Play And Snapshot
 
 - Status: Accepted

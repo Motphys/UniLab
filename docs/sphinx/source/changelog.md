@@ -1,3 +1,7 @@
+---
+orphan: true
+---
+
 # Changelog
 
 UniLab versioning follows [SemVer](https://semver.org/). Notable changes are recorded here; for the day-to-day commit log see the [UniLab repository](https://github.com/unilabsim/UniLab).

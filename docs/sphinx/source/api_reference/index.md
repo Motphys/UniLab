@@ -1,3 +1,7 @@
+---
+orphan: true
+---
+
 # API Reference
 
 Detailed reference for the `unilab` Python package. Every public class,

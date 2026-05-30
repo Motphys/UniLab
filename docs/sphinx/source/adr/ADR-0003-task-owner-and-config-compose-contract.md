@@ -1,3 +1,7 @@
+---
+orphan: true
+---
+
 # ADR-0003 Task Owner And Config Compose Contract
 
 - Status: Accepted
