@@ -11,6 +11,10 @@ uv run scripts/train_offpolicy.py algo=td3 task=td3/g1_walk_flat/mujoco
 
 ## Key Fields
 
+For the off-policy playback path (`scripts/train_offpolicy.py` / CLI `--algo td3`),
+set `training.export_onnx=false` to skip `policy.onnx` export while still recording
+playback video. See {doc}`../getting_started/evaluation_and_playback`.
+
 - Defaults live in `conf/offpolicy/algo/td3.yaml`.
 - `algo.algo_log_name=fast_td3`.
 - `algo.max_iterations=5000`.

@@ -13,6 +13,10 @@ uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_rough/motrix trainin
 
 ## Key Fields
 
+For the off-policy playback path (`scripts/train_offpolicy.py` / CLI `--algo sac`),
+set `training.export_onnx=false` to skip `policy.onnx` export while still recording
+playback video. See {doc}`../getting_started/evaluation_and_playback`.
+
 - `algo.algo_log_name=fast_sac`
 - `algo.num_envs=4096`
 - `algo.max_iterations=500`

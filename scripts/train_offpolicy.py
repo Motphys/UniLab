@@ -381,7 +381,7 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
             normalizer.eval()
 
     # Export actor to ONNX
-    if load_path_dir is not None:
+    if load_path_dir is not None and bool(getattr(cfg.training, "export_onnx", True)):
         onnx_path = os.path.join(load_path_dir, "policy.onnx")
         dummy_input = torch.randn(1, obs_dim, device=device)
         with torch.inference_mode():
@@ -422,6 +422,8 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
             print("WARNING: ONNX output diverges from PyTorch!")
         else:
             print("ONNX export verified OK.")
+    elif load_path_dir is not None:
+        print("Skipping ONNX export because training.export_onnx=false.")
 
     if env.state is None:
         env.init_state()

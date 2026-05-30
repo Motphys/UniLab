@@ -13,6 +13,10 @@ uv run scripts/train_offpolicy.py algo=flashsac task=flashsac/go2_joystick_flat/
 
 ## Key Fields
 
+For the off-policy playback path (`scripts/train_offpolicy.py` / CLI `--algo flashsac`),
+set `training.export_onnx=false` to skip `policy.onnx` export while still recording
+playback video. See {doc}`../getting_started/evaluation_and_playback`.
+
 - `algo.algo_log_name=flash_sac`
 - `algo.num_envs=1024`
 - `algo.max_iterations=5000`

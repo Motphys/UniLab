@@ -20,7 +20,15 @@ uv run eval --algo ppo --task go2_joystick_flat --sim mujoco \
 ```bash
 uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1
 uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1 --render-mode record
+
+# Off-policy 回放可跳过 ONNX 导出, 仍然录制 MP4
+uv run eval --algo sac --task g1_walk_flat --sim mujoco --load-run -1 \
+  --render-mode record training.export_onnx=false
 ```
+
+`training.export_onnx=false` 目前只适用于 off-policy 回放链路, 即
+`scripts/train_offpolicy.py` 以及统一 CLI 的 `--algo sac|td3|flashsac`。它会跳过
+`policy.onnx` 导出与校验, 但不会影响 playback 或 MP4 录制。
 
 ## 恢复训练
 
@@ -44,6 +52,11 @@ uv run train --algo ppo --task go2_joystick_flat --sim mujoco \
 ```bash
 uv run scripts/train_rsl_rl.py task=go2_joystick_flat/mujoco training.play_only=true
 uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco training.play_only=true
+
+# 跳过 off-policy 的 ONNX 导出, 直接录制回放视频
+uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco \
+  training.play_only=true training.play_render_mode=record \
+  training.export_onnx=false
 ```
 
 ## 渲染模式
