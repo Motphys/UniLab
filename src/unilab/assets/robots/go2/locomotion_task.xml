@@ -1,9 +1,9 @@
 <mujoco model="go2 locomotion task">
   <sensor>
-    <contact name="FL_foot_contact" geom1="floor" geom2="FL" data="found" num="1" reduce="mindist"/>
-    <contact name="FR_foot_contact" geom1="floor" geom2="FR" data="found" num="1" reduce="mindist"/>
-    <contact name="RL_foot_contact" geom1="floor" geom2="RL" data="found" num="1" reduce="mindist"/>
-    <contact name="RR_foot_contact" geom1="floor" geom2="RR" data="found" num="1" reduce="mindist"/>
+    <contact name="FL_foot_contact" geom1="floor" geom2="FL" data="force" num="1" reduce="mindist"/>
+    <contact name="FR_foot_contact" geom1="floor" geom2="FR" data="force" num="1" reduce="mindist"/>
+    <contact name="RL_foot_contact" geom1="floor" geom2="RL" data="force" num="1" reduce="mindist"/>
+    <contact name="RR_foot_contact" geom1="floor" geom2="RR" data="force" num="1" reduce="mindist"/>
 
     <contact name="base1_contact" geom1="floor" geom2="base1" data="found" num="1" reduce="mindist"/>
     <contact name="base2_contact" geom1="floor" geom2="base2" data="found" num="1" reduce="mindist"/>

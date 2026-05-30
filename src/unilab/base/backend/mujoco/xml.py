@@ -282,6 +282,23 @@ def _ensure_child(parent: ET.Element, query: str, xml: str) -> None:
         parent.append(ET.fromstring(xml))
 
 
+def _merge_robot_option(root: ET.Element, robot_path: Path) -> None:
+    """Preserve robot-level MuJoCo solver/contact options after MjSpec.attach."""
+    robot_option = ET.parse(robot_path).getroot().find("option")
+    if robot_option is None:
+        return
+
+    option = root.find("option")
+    if option is None:
+        option = ET.Element("option")
+        insert_at = 0
+        compiler = root.find("compiler")
+        if compiler is not None:
+            insert_at = list(root).index(compiler) + 1
+        root.insert(insert_at, option)
+    option.attrib.update(robot_option.attrib)
+
+
 def _ensure_generated_hfield_scene_visuals(root: ET.Element, geom_name: str) -> None:
     asset = root.find("asset")
     if asset is None:
@@ -482,6 +499,7 @@ def materialize_mujoco_hfield_attached_scene(
     root = ET.fromstring(spec.to_xml())
     _strip_attach_prefixes(root)
     _flatten_attach_main_default(root)
+    _merge_robot_option(root, robot_path)
     _ensure_generated_hfield_scene_visuals(root, geom_name)
     for fragment_file in fragment_files:
         _merge_scene_fragment(root, _resolve_scene_fragment_path(fragment_file, robot_path))

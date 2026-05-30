@@ -35,7 +35,6 @@ from unilab.envs.locomotion.common.terrain_spawn import (
     TerrainCurriculumCfg,
     TerrainSpawnManager,
 )
-from unilab.envs.locomotion.go2.rough import Go2RoughTerrainCfg, RoughTerminationConfig
 from unilab.envs.locomotion.go2w.base import NUM_GO2W_ACTIONS, NUM_LEG_ACTIONS
 from unilab.envs.locomotion.go2w.joystick import (
     Go2WJoystickCfg,
@@ -43,6 +42,17 @@ from unilab.envs.locomotion.go2w.joystick import (
     Go2WJoystickEnv,
     build_go2w_backend_reset_randomization,
     sample_go2w_heading_commands,
+)
+from unilab.terrains import (
+    SubTerrainCfg,
+    TerrainGeneratorCfg,
+    flat,
+    hf_pyramid_slope,
+    hf_pyramid_slope_inv,
+    pyramid_stairs,
+    pyramid_stairs_inv,
+    random_rough,
+    wave_terrain,
 )
 
 # pyright: reportIncompatibleVariableOverride=false, reportAttributeAccessIssue=false, reportCallIssue=false
@@ -58,6 +68,66 @@ class Go2WRoughCommands(Commands):
     heading_range: list[float] = field(default_factory=lambda: [-np.pi, np.pi])
 
 
+@dataclass
+class RoughTerminationConfig:
+    terrain_out_of_bounds: bool = True
+    terrain_distance_buffer: float = 3.0
+
+
+@dataclass(kw_only=True)
+class Go2WRoughTerrainCfg(TerrainGeneratorCfg):
+    size: tuple[float, float] = (8.0, 8.0)
+    num_rows: int = 6
+    num_cols: int = 6
+    border_width: float = 1.0
+    add_lights: bool = True
+    horizontal_scale: float = 0.1
+
+    sub_terrains: dict[str, SubTerrainCfg] = field(
+        default_factory=lambda: {
+            "flat": flat(proportion=0.0),
+            "pyramid_stairs": pyramid_stairs(
+                proportion=0.1,
+                step_height_range=(0.025, 0.10),
+                step_width=0.4,
+                platform_width=3.0,
+                border_width=0.2,
+            ),
+            "pyramid_stairs_inv": pyramid_stairs_inv(
+                proportion=0.1,
+                step_height_range=(0.025, 0.10),
+                step_width=0.4,
+                platform_width=3.0,
+                border_width=0.2,
+            ),
+            "hf_pyramid_slope": hf_pyramid_slope(
+                proportion=0.2,
+                slope_range=(0.0, 0.3),
+                platform_width=2.0,
+                border_width=0.2,
+            ),
+            "hf_pyramid_slope_inv": hf_pyramid_slope_inv(
+                proportion=0.2,
+                slope_range=(0.0, 0.3),
+                platform_width=2.0,
+                border_width=0.2,
+            ),
+            "random_rough": random_rough(
+                proportion=0.3,
+                noise_range=(0.01, 0.06),
+                noise_step=0.01,
+                border_width=0.2,
+            ),
+            "wave_terrain": wave_terrain(
+                proportion=0.3,
+                amplitude_range=(0.0, 0.12),
+                num_waves=4,
+                border_width=0.2,
+            ),
+        }
+    )
+
+
 @registry.envcfg("Go2WJoystickRough")
 @dataclass
 class Go2WJoystickRoughCfg(Go2WJoystickCfg):
@@ -70,7 +140,7 @@ class Go2WJoystickRoughCfg(Go2WJoystickCfg):
                 str(ASSETS_ROOT_PATH / "robots" / "go2w" / "locomotion_task.xml"),
             ],
             terrain=TerrainSceneCfg(
-                generator=Go2RoughTerrainCfg(),
+                generator=Go2WRoughTerrainCfg(),
                 hfield_name="terrain_hfield",
                 geom_name="floor",
             ),
@@ -184,7 +254,6 @@ class Go2WJoystickRoughEnv(Go2WJoystickEnv):
             "joint_acc_l2": gated(self._reward_dof_acc),
             "wheel_acc": gated(self._reward_wheel_acc),
             "joint_acc_wheel_l2": gated(self._reward_wheel_acc),
-            "joint_pos_limits": gated(rewards.joint_pos_limits),
             "stand_still": _stand_still,
             "hip_pos": gated(self._reward_hip_pos),
             "dof_error": gated(self._reward_dof_error),

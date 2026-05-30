@@ -350,7 +350,6 @@ class Go1JoystickRoughEnv(Go1WalkTask):
             "joint_torques_l2": gated(rewards.dof_torques_l2),
             "dof_acc_l2": gated(rewards.dof_acc_l2),
             "joint_acc_l2": gated(rewards.dof_acc_l2),
-            "joint_pos_limits": gated(rewards.joint_pos_limits),
             "joint_power": gated(rewards.joint_power),
             "stand_still": _stand_still,
             "hip_pos": self._reward_hip_pos,
@@ -660,7 +659,8 @@ class Go1JoystickRoughEnv(Go1WalkTask):
 
     def _reward_contact_forces(self, ctx: RewardContext) -> np.ndarray:
         force_norm = np.linalg.norm(self.feet_force, axis=2)
-        violation = np.clip(force_norm - self._reward_cfg.contact_forces_threshold, 0.0, None)
+        force_clip = np.minimum(force_norm, 1500.0)
+        violation = np.clip(force_clip - self._reward_cfg.contact_forces_threshold, 0.0, None)
         return np.asarray(
             np.sum(violation, axis=1) * self._upright_scale(ctx.gravity),
             dtype=get_global_dtype(),

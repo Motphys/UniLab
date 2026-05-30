@@ -2,10 +2,23 @@
 training:
   task_name: Go2WJoystickRough
   sim_backend: mujoco
+  play_steps: 500
+  play_env_num: 16
+  render_spacing: 0.0
+  cam_tracking: true
+  cam_tracking_env_idx: 0
+  cam_tracking_extra_envs: 9
+
+interactive:
+  action_mode: policy
+  policy_obs_mode: auto
+  camera_follow_body: true
+  use_env_visual_model: false
+
 algo:
   num_envs: 2048
-  num_steps_per_env: 48
-  max_iterations: 5000
+  num_steps_per_env: 24
+  max_iterations: 1200
   empirical_normalization: false
   obs_groups:
     actor:
@@ -14,7 +27,9 @@ algo:
       - critic
 env:
   scene:
-    model_file: src/unilab/assets/robots/go2w/go2w.xml
+    model_file: src/unilab/assets/robots/go2w/go2w_mujoco.xml
+    fragment_files:
+      - src/unilab/assets/robots/go2w/locomotion_task.xml
     terrain:
       hfield_name: terrain_hfield
       geom_name: floor
@@ -31,8 +46,9 @@ env:
     heading_command: true
     heading_range: [-3.141592653589793, 3.141592653589793]
   control_config:
-    action_scale: 0.5
-    wheel_action_scale: 10.0
+    action_scale: 0.25
+    hip_action_scale: 0.125
+    wheel_action_scale: 5.0
     wheel_Kd: 0.5
     clip_actions: 100.0
     simulate_action_latency: false
@@ -48,13 +64,13 @@ env:
     added_mass_range: [-1.0, 3.0]
     random_com: true
     com_offset_x: [-0.05, 0.05]
-    randomize_kp: false
+    randomize_kp: true
     kp_multiplier_range: [0.5, 1.0]
-    randomize_kd: false
+    randomize_kd: true
     kd_multiplier_range: [0.5, 1.0]
     push_robots: true
-    push_interval: 500
-    max_force: [0.5, 0.5, 0.0]
+    push_interval: 625
+    max_force: [1.0, 1.0, 0.5]
     push_body_name: base_link
 reward:
   scales:
@@ -62,10 +78,10 @@ reward:
     tracking_ang_vel: 1.5
     lin_vel_z: -2.0
     ang_vel_xy: -0.05
+    orientation: -2.0
     joint_torques_l2: -2.5e-5
     joint_acc_l2: -2.5e-7
     joint_acc_wheel_l2: -2.5e-9
-    joint_pos_limits: -5.0
     joint_power: -2.0e-5
     action_rate: -0.01
     stand_still: -2.0

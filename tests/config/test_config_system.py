@@ -360,7 +360,7 @@ def test_ppo_go2w_rough_mujoco_uses_terrain_generator():
 
     assert cfg.training.task_name == "Go2WJoystickRough"
     assert cfg.training.sim_backend == "mujoco"
-    assert str(cfg.env.scene.model_file).endswith("src/unilab/assets/robots/go2w/go2w.xml")
+    assert str(cfg.env.scene.model_file).endswith("src/unilab/assets/robots/go2w/go2w_mujoco.xml")
     assert cfg.env.scene.terrain.hfield_name == "terrain_hfield"
     assert cfg.env.scene.terrain.geom_name == "floor"
     assert cfg.env.terrain_scan.hfield_name == "terrain_hfield"
@@ -371,17 +371,17 @@ def test_ppo_go2w_rough_mujoco_uses_terrain_generator():
     assert cfg.env.commands.heading_range == pytest.approx([-3.141592653589793, 3.141592653589793])
     assert "rel_standing_envs" not in cfg.env.commands
     assert cfg.env.control_config.clip_actions == pytest.approx(100.0)
-    assert cfg.env.control_config.action_scale == pytest.approx(0.5)
-    assert cfg.env.control_config.wheel_action_scale == pytest.approx(10.0)
-    assert cfg.env.domain_rand.randomize_kp is False
-    assert cfg.env.domain_rand.randomize_kd is False
+    assert cfg.env.control_config.action_scale == pytest.approx(0.25)
+    assert cfg.env.control_config.hip_action_scale == pytest.approx(0.125)
+    assert cfg.env.control_config.wheel_action_scale == pytest.approx(5.0)
+    assert cfg.env.domain_rand.randomize_kp is True
+    assert cfg.env.domain_rand.randomize_kd is True
     assert cfg.env.domain_rand.kp_multiplier_range == [0.5, 1.0]
     assert cfg.reward.scales.tracking_lin_vel == pytest.approx(3.0)
-    assert cfg.reward.scales.joint_pos_limits == pytest.approx(-5.0)
     assert cfg.reward.scales.hip_pos == pytest.approx(-2.0)
     assert cfg.reward.scales.joint_mirror == pytest.approx(-0.05)
     assert cfg.reward.only_positive_rewards is False
-    assert cfg.algo.max_iterations == 5000
+    assert cfg.algo.max_iterations == 1200
 
 
 def test_ppo_go2w_rough_motrix_uses_yaw_reset_and_strong_control():
@@ -392,14 +392,15 @@ def test_ppo_go2w_rough_motrix_uses_yaw_reset_and_strong_control():
     assert cfg.env.commands.vel_limit == [[-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]]
     assert cfg.env.commands.heading_range == pytest.approx([-3.141592653589793, 3.141592653589793])
     assert "rel_standing_envs" not in cfg.env.commands
-    assert cfg.env.control_config.action_scale == pytest.approx(0.5)
-    assert cfg.env.control_config.wheel_action_scale == pytest.approx(10.0)
+    assert cfg.env.control_config.action_scale == pytest.approx(0.25)
+    assert cfg.env.control_config.hip_action_scale == pytest.approx(0.125)
+    assert cfg.env.control_config.wheel_action_scale == pytest.approx(5.0)
     assert cfg.env.domain_rand.randomize_kp is True
     assert cfg.env.domain_rand.randomize_kd is True
     assert cfg.reward.scales.orientation == pytest.approx(-2.0)
     assert cfg.reward.scales.hip_pos == pytest.approx(-0.5)
     assert cfg.reward.scales.upward == pytest.approx(1.0)
-    assert cfg.algo.max_iterations == 2000
+    assert cfg.algo.max_iterations == 1200
 
 
 def test_offpolicy_g1_walk_flat_motrix_preserves_backend_env_overrides():
