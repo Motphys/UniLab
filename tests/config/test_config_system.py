@@ -335,9 +335,7 @@ def test_post_step_forward_sensor_defaults_false_outside_sharpa_mujoco(
         ("hora_distill", ["task=sharpa_inhand/mujoco"]),
     ],
 )
-def test_post_step_forward_sensor_enabled_for_sharpa_mujoco(
-    algo_dir: str, overrides: list[str]
-):
+def test_post_step_forward_sensor_enabled_for_sharpa_mujoco(algo_dir: str, overrides: list[str]):
     cfg = _compose(algo_dir, overrides=overrides)
 
     assert cfg.env.post_step_forward_sensor is True
