@@ -109,7 +109,9 @@ def teacher_default_cfg(
                 "HORA distillation SAC teacher owner must select runtime_impl='hora_sac'. "
                 f"Got task={teacher_task} runtime_impl={runtime_impl!r}."
             )
-        actor_cfg = OmegaConf.to_container(OmegaConf.select(teacher_cfg, "algo.actor"), resolve=True)
+        actor_cfg = OmegaConf.to_container(
+            OmegaConf.select(teacher_cfg, "algo.actor"), resolve=True
+        )
         if not isinstance(actor_cfg, dict):
             actor_cfg = {}
         return OmegaConf.create(

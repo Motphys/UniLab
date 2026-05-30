@@ -474,9 +474,7 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
                 export_module = actor
                 output_names = ["action"]
             export_args = (
-                (dummy_input, dummy_priv_info)
-                if dummy_priv_info is not None
-                else (dummy_input,)
+                (dummy_input, dummy_priv_info) if dummy_priv_info is not None else (dummy_input,)
             )
             input_names = ["obs", "priv_info"] if dummy_priv_info is not None else ["obs"]
             torch.onnx.export(
@@ -562,11 +560,15 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
             if current_priv_info is None:
                 raise ValueError("HORA-SAC play step is missing privileged info.")
             priv_info_torch = torch.from_numpy(current_priv_info).to(device)
-            actions_np = actor.explore(
-                obs_torch,
-                priv_info_torch,
-                deterministic=True,
-            ).cpu().numpy()
+            actions_np = (
+                actor.explore(
+                    obs_torch,
+                    priv_info_torch,
+                    deterministic=True,
+                )
+                .cpu()
+                .numpy()
+            )
         elif algo_name in ("sac", "flashsac"):
             actions_np = actor.explore(obs_torch, deterministic=True).cpu().numpy()
         else:

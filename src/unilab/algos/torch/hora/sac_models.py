@@ -121,9 +121,7 @@ class HoraSACActor(nn.Module):
         mean = self.action_mean_head(latent)
         log_std = self.action_logstd_head(latent)
         log_std = torch.tanh(log_std)
-        log_std = self.log_std_min + 0.5 * (self.log_std_max - self.log_std_min) * (
-            log_std + 1
-        )
+        log_std = self.log_std_min + 0.5 * (self.log_std_max - self.log_std_min) * (log_std + 1)
         mean = torch.clamp(mean, -10.0, 10.0)
         mean = torch.nan_to_num(mean, nan=0.0)
         log_std = torch.nan_to_num(log_std, nan=self.log_std_min)

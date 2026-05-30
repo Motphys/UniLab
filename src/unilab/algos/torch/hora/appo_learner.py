@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import torch
 from tensordict import TensorDict
 
@@ -11,6 +13,7 @@ from unilab.algos.torch.appo.learner import (
     _sample_tensor_for_metric,
     vtrace_advantages,
 )
+from unilab.algos.torch.hora.models import HoraActorModel, HoraCriticModel
 
 
 def _build_hora_obs_td(
@@ -59,14 +62,16 @@ class HoraAPPOLearner(APPOLearner):
             critic_obs_mini,
             context="minibatch update",
         )
-        shared_actor = self.actor.shared
+        actor = cast(HoraActorModel, self.actor)
+        critic = cast(HoraCriticModel, self.critic)
+        shared_actor = actor.shared
         mean = shared_actor.policy_mean_from_tensors(
             obs_mini,
             priv_info,
-            prefer_student=self.actor.prefer_student,
+            prefer_student=actor.prefer_student,
         )
         std = _distribution_std(shared_actor.distribution, mean)
-        value = self.critic.shared.value_from_tensors(
+        value = critic.shared.value_from_tensors(
             obs_mini,
             priv_info,
             prefer_student=False,

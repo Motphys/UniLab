@@ -166,6 +166,9 @@ class HoraSACDistillActor(nn.Module):
         self.shared.load_teacher_actor_state_dict(actor_state)
 
 
+DistillActor = HoraActorModel | HoraSACDistillActor
+
+
 @dataclass
 class HoraDistillStats:
     agent_steps: int = 0
@@ -179,7 +182,7 @@ def build_student_actor_and_normalizer(
     cfg: DictConfig,
     *,
     device: torch.device,
-) -> tuple[nn.Module, EmpiricalNormalization]:
+) -> tuple[DistillActor, EmpiricalNormalization]:
     actor_obs = env.get_observations()
     actor_dim = int(actor_obs["actor"].shape[-1])
     priv_info_dim = int(actor_obs["priv_info"].shape[-1])
@@ -200,7 +203,7 @@ def build_student_actor_and_normalizer(
             proprio_frame_dim=int(proprio_hist_shape[1]),
             device=device,
         ).to(device)
-        actor = HoraSACDistillActor(shared_sac).to(device)
+        actor = cast(HoraSACDistillActor, HoraSACDistillActor(shared_sac).to(device))
         hist_normalizer = EmpiricalNormalization(proprio_hist_shape, device=device)
         return actor, hist_normalizer
 
@@ -218,14 +221,17 @@ def build_student_actor_and_normalizer(
         proprio_hist_len=int(proprio_hist_shape[0]),
         proprio_frame_dim=int(proprio_hist_shape[1]),
     ).to(device)
-    actor = HoraActorModel(
-        actor_obs,
-        {"actor": ["actor"], "critic": ["actor"]},
-        "actor",
-        int(env.num_actions),
-        shared_model=shared,
-        use_student_encoder=True,
-    ).to(device)
+    actor = cast(
+        HoraActorModel,
+        HoraActorModel(
+            actor_obs,
+            {"actor": ["actor"], "critic": ["actor"]},
+            "actor",
+            int(env.num_actions),
+            shared_model=shared,
+            use_student_encoder=True,
+        ).to(device),
+    )
     hist_normalizer = EmpiricalNormalization(proprio_hist_shape, device=device)
     return actor, hist_normalizer
 

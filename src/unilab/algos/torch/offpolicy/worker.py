@@ -436,9 +436,7 @@ def _run_collector(
                 critic_np=critic_np,
                 info=info_dict,
             )
-            priv_info_torch = (
-                torch.from_numpy(priv_info_np) if priv_info_np is not None else None
-            )
+            priv_info_torch = torch.from_numpy(priv_info_np) if priv_info_np is not None else None
             actions_torch = sample_offpolicy_actions(
                 actor=actor,
                 algo_type=algo_type,

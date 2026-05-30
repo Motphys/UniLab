@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, cast
 
 import torch
 import torch.optim as optim
@@ -107,7 +107,8 @@ class HoraSACLearner(FastSACLearner):
             critic_obs,
             context="critic update",
         )
-        return self.actor.get_actions_and_log_probs(actor_obs, priv_info)
+        actor = cast(HoraSACActor, self.actor)
+        return actor.get_actions_and_log_probs(actor_obs, priv_info)
 
     def _get_actions_and_log_probs_for_actor(
         self,
@@ -119,4 +120,5 @@ class HoraSACLearner(FastSACLearner):
             critic_obs,
             context="actor update",
         )
-        return self.actor.get_actions_and_log_probs(actor_obs, priv_info)
+        actor = cast(HoraSACActor, self.actor)
+        return actor.get_actions_and_log_probs(actor_obs, priv_info)

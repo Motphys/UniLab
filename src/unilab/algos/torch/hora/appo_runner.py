@@ -54,7 +54,9 @@ def _validate_hora_shared_checkpoint(checkpoint: dict[str, Any]) -> None:
             if actor_value.shape != critic_value.shape or not torch.equal(
                 actor_value.cpu(), critic_value.cpu()
             ):
-                raise ValueError("Invalid HORA APPO checkpoint: shared model state is inconsistent.")
+                raise ValueError(
+                    "Invalid HORA APPO checkpoint: shared model state is inconsistent."
+                )
         elif actor_value != critic_value:
             raise ValueError("Invalid HORA APPO checkpoint: shared model state is inconsistent.")
 

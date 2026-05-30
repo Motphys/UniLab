@@ -254,9 +254,7 @@ def test_appo_runner_uses_explicit_runtime_context(
     assert captured_collector["env_cfg_override"] == {"reward_config": {"scales": {"alive": 1.0}}}
 
 
-def test_appo_runner_restores_resume_checkpoint(
-    monkeypatch: pytest.MonkeyPatch, tmp_path
-) -> None:
+def test_appo_runner_restores_resume_checkpoint(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     def fake_detect_dims(self: APPORunner) -> tuple[int, int]:
         self.critic_dim = 7
         self.critic_input_dim = 5
