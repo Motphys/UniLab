@@ -1,6 +1,6 @@
 {%- set current = current_language|default("shared") -%}
-{%- set en_target = language_switcher_targets.get("en", "en/index") -%}
-{%- set zh_target = language_switcher_targets.get("zh_CN", "zh_CN/index") -%}
+{%- set en_target = language_switcher_targets.get("en", "en/0-index") -%}
+{%- set zh_target = language_switcher_targets.get("zh_CN", "zh_CN/0-index") -%}
 <div class="language-switcher" data-language-switcher>
   <label class="language-switcher__label" for="language-switcher-select">Language</label>
   <select class="language-switcher__select" id="language-switcher-select" aria-label="Documentation language">

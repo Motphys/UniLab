@@ -266,80 +266,83 @@ if not _UNILAB_AVAILABLE:
 
 
 _LANGUAGE_DOC_ROOTS = ("en", "zh_CN")
+_LANGUAGE_ROOT_INDEX = {
+    "en": "en/0-index",
+    "zh_CN": "zh_CN/0-index",
+}
 
 # Explicit cross-language mapping for pages whose paths don't mirror 1:1.
-# zh_CN still carries legacy numbered paths (01-getting-started, A-getting-started/,
-# etc.) from the pre-migration content. Until those are renamed, this table keeps
-# the language switcher landing on the closest equivalent page instead of
-# bouncing to the language index. Forward direction only — reverse map is
-# computed below.
+# The language roots use numbered paths but are not a strict 1:1 mirror. This
+# table keeps the language switcher landing on the closest equivalent page
+# instead of bouncing to the language index. Forward direction only — reverse
+# map is computed below.
 _LANGUAGE_PATH_FORWARD: dict[str, str] = {
-    "en/getting_started/index": "zh_CN/user_guide/01-getting-started",
-    "en/getting_started/installation": "zh_CN/user_guide/A-getting-started/01-install",
-    "en/getting_started/first_training": "zh_CN/user_guide/A-getting-started/02-first-run",
-    "en/getting_started/evaluation_and_playback": "zh_CN/user_guide/B-training/02-playback-and-resume",
-    "en/getting_started/project_structure": "zh_CN/user_guide/01-getting-started",
-    "en/user_guide/training/index": "zh_CN/user_guide/03-training",
-    "en/user_guide/training/cli_reference": "zh_CN/user_guide/B-training/01-unified-cli",
-    "en/user_guide/training/hydra_config": "zh_CN/user_guide/B-training/03-hydra-overrides",
-    "en/user_guide/training/logging": "zh_CN/user_guide/B-training/04-logging-and-wandb",
-    "en/user_guide/training/resume_and_checkpoints": "zh_CN/user_guide/B-training/02-playback-and-resume",
-    "en/user_guide/training/docker": "zh_CN/user_guide/B-training/05-docker",
-    "en/user_guide/training/multi_gpu": "zh_CN/user_guide/03-training",
-    "en/user_guide/backends/index": "zh_CN/user_guide/02-simulation-backends",
-    "en/user_guide/backends/choosing_a_backend": "zh_CN/user_guide/E-reference/01-backend-support-matrix",
-    "en/user_guide/algorithms/index": "zh_CN/user_guide/04-algorithms",
-    "en/user_guide/algorithms/ppo": "zh_CN/user_guide/C-algorithms/01-ppo-torch",
-    "en/user_guide/algorithms/mlx_ppo": "zh_CN/user_guide/C-algorithms/02-mlx-ppo",
-    "en/user_guide/algorithms/appo": "zh_CN/user_guide/C-algorithms/03-appo",
-    "en/user_guide/algorithms/sac": "zh_CN/user_guide/C-algorithms/04-sac",
-    "en/user_guide/algorithms/td3": "zh_CN/user_guide/C-algorithms/05-td3",
-    "en/user_guide/algorithms/flash_sac": "zh_CN/user_guide/C-algorithms/06-flashsac",
-    "en/user_guide/tasks/index": "zh_CN/user_guide/D-tasks/01-task-index",
-    "en/user_guide/tasks/locomotion": "zh_CN/user_guide/D-tasks/01-task-index",
-    "en/user_guide/tasks/motion_tracking": "zh_CN/user_guide/D-tasks/02-g1-motion-tracking",
-    "en/user_guide/tasks/manipulation": "zh_CN/user_guide/D-tasks/03-allegro-inhand",
-    "en/user_guide/tasks/manip_loco": "zh_CN/user_guide/D-tasks/06-go2-arm-manip-loco",
-    "en/user_guide/domain_randomization/index": "zh_CN/user_guide/05-domain-randomization",
-    "en/user_guide/domain_randomization/configuration": "zh_CN/user_guide/05-domain-randomization",
-    "en/user_guide/domain_randomization/writing_providers": "zh_CN/developer_guide/domain-randomization-contract",
-    "en/user_guide/terrain/index": "zh_CN/user_guide/D-tasks/05-go2-rough-terrain",
-    "en/user_guide/terrain/procedural": "zh_CN/user_guide/D-tasks/05-go2-rough-terrain",
-    "en/user_guide/terrain/heightfield_import": "zh_CN/user_guide/D-tasks/05-go2-rough-terrain",
-    "en/user_guide/tooling/index": "zh_CN/user_guide/index",
-    "en/user_guide/tooling/onnx_export": "zh_CN/user_guide/B-training/02-playback-and-resume",
-    "en/user_guide/tooling/wandb": "zh_CN/user_guide/B-training/04-logging-and-wandb",
-    "en/user_guide/tooling/nan_visualizer": "zh_CN/user_guide/index",
-    "en/user_guide/tooling/scene_export": "zh_CN/user_guide/index",
-    "en/user_guide/manipulation/index": "zh_CN/user_guide/D-tasks/03-allegro-inhand",
-    "en/user_guide/manipulation/dexterous_inhand": "zh_CN/user_guide/D-tasks/03-allegro-inhand",
-    "en/user_guide/manipulation/manip_loco": "zh_CN/user_guide/D-tasks/06-go2-arm-manip-loco",
-    "en/developer_guide/index": "zh_CN/developer_guide/index",
-    "en/developer_guide/architecture/index": "zh_CN/developer_guide/development-standard",
-    "en/developer_guide/architecture/overview": "zh_CN/developer_guide/development-standard",
-    "en/developer_guide/architecture/runtime_model": "zh_CN/developer_guide/development-standard",
-    "en/developer_guide/architecture/layer_boundaries": "zh_CN/developer_guide/development-standard",
-    "en/developer_guide/architecture/registry": "zh_CN/developer_guide/development-standard",
-    "en/developer_guide/architecture/scene_composition": "zh_CN/developer_guide/scene-composition-design",
-    "en/developer_guide/contracts/index": "zh_CN/developer_guide/development-standard",
-    "en/developer_guide/contracts/env_contract": "zh_CN/developer_guide/development-standard",
-    "en/developer_guide/contracts/dr_contract": "zh_CN/developer_guide/domain-randomization-contract",
-    "en/developer_guide/contracts/task_owner": "zh_CN/developer_guide/development-standard",
-    "en/developer_guide/contracts/backend_contract": "zh_CN/developer_guide/development-standard",
-    "en/developer_guide/contracts/runner_lifecycle": "zh_CN/developer_guide/development-standard",
-    "en/developer_guide/extending/index": "zh_CN/developer_guide/development-standard",
-    "en/developer_guide/extending/new_task": "zh_CN/developer_guide/development-standard",
-    "en/developer_guide/extending/new_backend": "zh_CN/developer_guide/development-standard",
-    "en/developer_guide/extending/new_algorithm": "zh_CN/developer_guide/development-standard",
-    "en/developer_guide/extending/new_terrain": "zh_CN/developer_guide/scene-composition-design",
-    "en/developer_guide/contributing": "zh_CN/developer_guide/CONTRIBUTING",
-    "en/developer_guide/contributing_workflow": "zh_CN/developer_guide/collaboration",
-    "en/deployment/index": "zh_CN/transfer/index",
-    "en/deployment/sim_to_real/index": "zh_CN/transfer/index",
-    "en/deployment/sim_to_sim/index": "zh_CN/transfer/index",
-    "en/deployment/framework_migration/index": "zh_CN/transfer/index",
-    "en/developer_guide/agent_quick_reference": "zh_CN/agents/01-agent-quick-reference",
-    "en/reference/support_matrix": "zh_CN/user_guide/E-reference/01-backend-support-matrix",
+    "en/1-getting_started/0-index": "zh_CN/1-user_guide/1-getting-started",
+    "en/1-getting_started/1-quick_demo": "zh_CN/1-user_guide/1-getting-started/2-first-run",
+    "en/1-getting_started/2-installation": "zh_CN/1-user_guide/1-getting-started/1-install",
+    "en/1-getting_started/3-evaluation_and_playback": "zh_CN/1-user_guide/2-training/2-playback-and-resume",
+    "en/1-getting_started/4-project_structure": "zh_CN/1-user_guide/1-getting-started",
+    "en/2-user_guide/1-training/0-index": "zh_CN/1-user_guide/3-training",
+    "en/2-user_guide/1-training/1-cli_reference": "zh_CN/1-user_guide/2-training/1-unified-cli",
+    "en/2-user_guide/1-training/2-hydra_config": "zh_CN/1-user_guide/2-training/3-hydra-overrides",
+    "en/2-user_guide/1-training/3-logging": "zh_CN/1-user_guide/2-training/4-logging-and-wandb",
+    "en/2-user_guide/1-training/5-resume_and_checkpoints": "zh_CN/1-user_guide/2-training/2-playback-and-resume",
+    "en/2-user_guide/1-training/6-docker": "zh_CN/1-user_guide/2-training/5-docker",
+    "en/2-user_guide/1-training/4-multi_gpu": "zh_CN/1-user_guide/3-training",
+    "en/2-user_guide/3-backends/0-index": "zh_CN/1-user_guide/2-simulation-backends",
+    "en/2-user_guide/3-backends/3-choosing_a_backend": "zh_CN/1-user_guide/5-reference/1-backend-support-matrix",
+    "en/2-user_guide/2-algorithms/0-index": "zh_CN/1-user_guide/4-algorithms",
+    "en/2-user_guide/2-algorithms/1-ppo": "zh_CN/1-user_guide/3-algorithms/1-ppo-torch",
+    "en/2-user_guide/2-algorithms/8-mlx_ppo": "zh_CN/1-user_guide/3-algorithms/2-mlx-ppo",
+    "en/2-user_guide/2-algorithms/2-appo": "zh_CN/1-user_guide/3-algorithms/3-appo",
+    "en/2-user_guide/2-algorithms/3-sac": "zh_CN/1-user_guide/3-algorithms/4-sac",
+    "en/2-user_guide/2-algorithms/4-td3": "zh_CN/1-user_guide/3-algorithms/5-td3",
+    "en/2-user_guide/2-algorithms/5-flash_sac": "zh_CN/1-user_guide/3-algorithms/6-flashsac",
+    "en/2-user_guide/4-tasks/0-index": "zh_CN/1-user_guide/4-tasks/1-task-index",
+    "en/2-user_guide/4-tasks/1-locomotion": "zh_CN/1-user_guide/4-tasks/1-task-index",
+    "en/2-user_guide/4-tasks/2-motion_tracking": "zh_CN/1-user_guide/4-tasks/2-g1-motion-tracking",
+    "en/2-user_guide/4-tasks/3-manipulation": "zh_CN/1-user_guide/4-tasks/3-allegro-inhand",
+    "en/2-user_guide/4-tasks/4-manip_loco": "zh_CN/1-user_guide/4-tasks/6-go2-arm-manip-loco",
+    "en/2-user_guide/5-domain_randomization/0-index": "zh_CN/1-user_guide/5-domain-randomization",
+    "en/2-user_guide/5-domain_randomization/1-configuration": "zh_CN/1-user_guide/5-domain-randomization",
+    "en/2-user_guide/5-domain_randomization/2-writing_providers": "zh_CN/2-developer_guide/4-domain-randomization-contract",
+    "en/2-user_guide/6-terrain/0-index": "zh_CN/1-user_guide/4-tasks/5-go2-rough-terrain",
+    "en/2-user_guide/6-terrain/1-procedural": "zh_CN/1-user_guide/4-tasks/5-go2-rough-terrain",
+    "en/2-user_guide/6-terrain/2-heightfield_import": "zh_CN/1-user_guide/4-tasks/5-go2-rough-terrain",
+    "en/2-user_guide/7-tooling/0-index": "zh_CN/1-user_guide/0-index",
+    "en/2-user_guide/7-tooling/1-onnx_export": "zh_CN/1-user_guide/2-training/2-playback-and-resume",
+    "en/2-user_guide/7-tooling/2-wandb": "zh_CN/1-user_guide/2-training/4-logging-and-wandb",
+    "en/2-user_guide/7-tooling/3-nan_visualizer": "zh_CN/1-user_guide/0-index",
+    "en/2-user_guide/7-tooling/4-scene_export": "zh_CN/1-user_guide/0-index",
+    "en/2-user_guide/8-manipulation/0-index": "zh_CN/1-user_guide/4-tasks/3-allegro-inhand",
+    "en/2-user_guide/8-manipulation/1-dexterous_inhand": "zh_CN/1-user_guide/4-tasks/3-allegro-inhand",
+    "en/2-user_guide/8-manipulation/2-manip_loco": "zh_CN/1-user_guide/4-tasks/6-go2-arm-manip-loco",
+    "en/4-developer_guide/0-index": "zh_CN/2-developer_guide/0-index",
+    "en/4-developer_guide/1-architecture/0-index": "zh_CN/2-developer_guide/1-development-standard",
+    "en/4-developer_guide/1-architecture/1-overview": "zh_CN/2-developer_guide/1-development-standard",
+    "en/4-developer_guide/1-architecture/2-runtime_model": "zh_CN/2-developer_guide/1-development-standard",
+    "en/4-developer_guide/1-architecture/3-layer_boundaries": "zh_CN/2-developer_guide/1-development-standard",
+    "en/4-developer_guide/1-architecture/5-registry": "zh_CN/2-developer_guide/1-development-standard",
+    "en/4-developer_guide/1-architecture/4-scene_composition": "zh_CN/2-developer_guide/5-scene-composition-design",
+    "en/4-developer_guide/2-contracts/0-index": "zh_CN/2-developer_guide/1-development-standard",
+    "en/4-developer_guide/2-contracts/1-env_contract": "zh_CN/2-developer_guide/1-development-standard",
+    "en/4-developer_guide/2-contracts/4-dr_contract": "zh_CN/2-developer_guide/4-domain-randomization-contract",
+    "en/4-developer_guide/2-contracts/3-task_owner": "zh_CN/2-developer_guide/1-development-standard",
+    "en/4-developer_guide/2-contracts/2-backend_contract": "zh_CN/2-developer_guide/1-development-standard",
+    "en/4-developer_guide/2-contracts/5-runner_lifecycle": "zh_CN/2-developer_guide/1-development-standard",
+    "en/4-developer_guide/3-extending/0-index": "zh_CN/2-developer_guide/1-development-standard",
+    "en/4-developer_guide/3-extending/1-new_task": "zh_CN/2-developer_guide/1-development-standard",
+    "en/4-developer_guide/3-extending/2-new_backend": "zh_CN/2-developer_guide/1-development-standard",
+    "en/4-developer_guide/3-extending/3-new_algorithm": "zh_CN/2-developer_guide/1-development-standard",
+    "en/4-developer_guide/3-extending/4-new_terrain": "zh_CN/2-developer_guide/5-scene-composition-design",
+    "en/4-developer_guide/4-contributing": "zh_CN/2-developer_guide/3-contributing",
+    "en/4-developer_guide/5-contributing_workflow": "zh_CN/2-developer_guide/2-collaboration",
+    "en/3-deployment/0-index": "zh_CN/4-transfer/0-index",
+    "en/3-deployment/1-sim_to_real/0-index": "zh_CN/4-transfer/0-index",
+    "en/3-deployment/2-sim_to_sim/0-index": "zh_CN/4-transfer/0-index",
+    "en/3-deployment/3-framework_migration/0-index": "zh_CN/4-transfer/0-index",
+    "en/4-developer_guide/6-agent_quick_reference": "zh_CN/3-agents/1-agent-quick-reference",
+    "en/5-reference/5-support_matrix": "zh_CN/1-user_guide/5-reference/1-backend-support-matrix",
 }
 # Keyed by (current_pagename, target_language) → target_pagename.
 _LANGUAGE_PATH_MAP: dict[tuple[str, str], str] = {}
@@ -371,11 +374,11 @@ def _language_target(app, pagename: str, language_code: str) -> str:
     # Try direct 1:1 mirror.
     if current_language in _LANGUAGE_DOC_ROOTS:
         _, _, rest = pagename.partition("/")
-        candidate = f"{language_code}/{rest}" if rest else f"{language_code}/index"
+        candidate = f"{language_code}/{rest}" if rest else _LANGUAGE_ROOT_INDEX[language_code]
         if candidate in found_docs:
             return candidate
 
-    return f"{language_code}/index"
+    return _LANGUAGE_ROOT_INDEX[language_code]
 
 
 def _inject_language_switcher(app, pagename, templatename, context, doctree):
@@ -403,7 +406,7 @@ def _filter_sidebar_navigation_tree(
     context: dict[str, Any],
 ) -> str | None:
     # Root index.md keeps both language roots and shared resources in the build
-    # graph. The sidebar should expose only the active language root; shared
+    # graph. The sidebar should expose only the active language sections; shared
     # pages stay reachable through language-local wrapper pages.
     navigation_tree = context.get("furo_navigation_tree")
     pathto = context.get("pathto")
@@ -413,18 +416,52 @@ def _filter_sidebar_navigation_tree(
     from bs4 import BeautifulSoup
 
     sidebar_language = _sidebar_navigation_language(pagename)
-    language_root_href = pathto(f"{sidebar_language}/index")
+    language_root_href = pathto(_LANGUAGE_ROOT_INDEX[sidebar_language])
 
     soup = BeautifulSoup(navigation_tree, "html.parser")
     root_list = soup.find("ul")
     if root_list is None:
         return None
 
+    active_language_item = None
     for item in list(root_list.find_all("li", recursive=False)):
         link = item.find("a", recursive=False)
         href = link.get("href", "") if link else ""
         if href != language_root_href:
             item.decompose()
+        else:
+            active_language_item = item
+
+    if active_language_item is None:
+        return str(soup)
+
+    language_children = active_language_item.find("ul", recursive=False)
+    if language_children is None:
+        return str(soup)
+
+    root_list.clear()
+    for child in list(language_children.find_all("li", recursive=False)):
+        root_list.append(child.extract())
+
+    # Furo's generated classes encode the visual nesting depth. After removing
+    # the language index wrapper, decrement those classes so section roots render
+    # as top-level sidebar entries.
+    for node in root_list.find_all(True):
+        classes = node.get("class")
+        if not classes:
+            continue
+
+        normalized_classes = []
+        for class_name in classes:
+            prefix = "toctree-l"
+            if class_name.startswith(prefix):
+                level = class_name[len(prefix) :]
+                if level.isdigit() and int(level) > 1:
+                    normalized_classes.append(f"{prefix}{int(level) - 1}")
+                    continue
+            normalized_classes.append(class_name)
+
+        node["class"] = normalized_classes
 
     return str(soup)
 

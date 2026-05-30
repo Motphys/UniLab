@@ -17,7 +17,7 @@
 
 确立 `task owner YAML` 为后端与任务组合的唯一入口 contract:
 
-1. 组合入口是 `task=<task>/<backend>`（offpolicy 还包含 algo 维度）。
+1. 用户入口使用顶层 CLI：`uv run train --algo <algo> --task <task> --sim <backend>`；内部 Hydra 组合仍落到完整 task owner YAML。
 2. owner YAML 直接持有 `training.task_name`、`training.sim_backend`、`reward`、`env` 及 task-specific `algo`。
 3. `training.sim_backend` 是 owner 身份字段，不是独立 backend switch。
 4. CLI override 允许参数覆盖，但不能破坏 task owner 的 backend identity。
@@ -30,7 +30,8 @@
 
 ## Consequences
 
-- 文档示例和 issue 模板必须使用完整 `task=.../<backend>` 形式。
+- 文档示例和 issue 模板必须使用顶层 CLI 的 `--algo` / `--task` /
+  `--sim` 形式；`task=.../<backend>` 只作为内部 Hydra 路由事实出现。
 - 配置行为变更应先改 owner YAML，再评估是否需要代码改动。
 
 ## Alternatives Considered
@@ -40,13 +41,13 @@
 
 ## Evidence In Repo
 
-- 架构标准与配置语义: `docs/sphinx/source/zh_CN/developer_guide/development-standard.md`
-- 后端选择说明: `docs/sphinx/source/zh_CN/user_guide/02-simulation-backends.md`
+- 架构标准与配置语义: `docs/sphinx/source/zh_CN/2-developer_guide/1-development-standard.md`
+- 后端选择说明: `docs/sphinx/source/zh_CN/1-user_guide/2-simulation-backends.md`
 - 配置测试: `tests/config/test_config_system.py`
 
 ## Related Documents
 
 - {doc}`ADR Index </adr/README>`
-- {doc}`RL Infrastructure 开发标准 </zh_CN/developer_guide/development-standard>`
-- {doc}`仿真后端 </zh_CN/user_guide/02-simulation-backends>`
-- {doc}`协作流程 </zh_CN/developer_guide/collaboration>`
+- {doc}`RL Infrastructure 开发标准 </zh_CN/2-developer_guide/1-development-standard>`
+- {doc}`仿真后端 </zh_CN/1-user_guide/2-simulation-backends>`
+- {doc}`协作流程 </zh_CN/2-developer_guide/2-collaboration>`

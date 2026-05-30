@@ -336,9 +336,9 @@ def check_generated_support_matrix(content: str, doc_path: Path, root: Path) -> 
         / "sphinx"
         / "source"
         / "zh_CN"
-        / "user_guide"
-        / "E-reference"
-        / "01-backend-support-matrix.md"
+        / "1-user_guide"
+        / "5-reference"
+        / "1-backend-support-matrix.md"
     ):
         return errors
 
@@ -362,7 +362,7 @@ def check_zh_cn_doc_shape(content: str, doc_path: Path, root: Path) -> list[str]
         return errors
     # Section / language landing pages don't carry the language-tag + navigation
     # contract — they have their own toctree-driven layout.
-    if doc_path.name == "index.md":
+    if doc_path.name in {"index.md", "0-index.md"}:
         return errors
 
     lines = content.splitlines()
@@ -372,7 +372,7 @@ def check_zh_cn_doc_shape(content: str, doc_path: Path, root: Path) -> list[str]
     if "\n## Navigation\n" not in content:
         errors.append(f"{doc_path}: zh_CN docs must include a `## Navigation` section")
 
-    if not re.search(r"- Index:\s*\[[^\]]+\]\([^)]+index\.md\)", content):
+    if not re.search(r"- Index:\s*\[[^\]]+\]\([^)]*(?:0-)?index\.md\)", content):
         errors.append(f"{doc_path}: zh_CN docs must link back to a docs index in Navigation")
 
     return errors
@@ -405,14 +405,14 @@ def check_adr_shape(content: str, doc_path: Path, root: Path) -> list[str]:
 
 def check_user_doc_architecture(content: str, doc_path: Path, root: Path) -> list[str]:
     errors: list[str] = []
-    user_root = root / "docs" / "sphinx" / "source" / "zh_CN" / "user_guide"
+    user_root = root / "docs" / "sphinx" / "source" / "zh_CN" / "1-user_guide"
     try:
         doc_path.relative_to(user_root)
     except ValueError:
         return errors
 
     exempt_long_docs = {
-        user_root / "E-reference" / "01-backend-support-matrix.md",
+        user_root / "5-reference" / "1-backend-support-matrix.md",
     }
     if doc_path not in exempt_long_docs and len(content.splitlines()) > USER_DOC_MAX_LINES:
         errors.append(
@@ -426,16 +426,16 @@ def check_user_doc_architecture(content: str, doc_path: Path, root: Path) -> lis
                 f"{doc_path}: user docs should not expose migration/restructure phrasing: `{phrase}`"
             )
 
-    tasks_index = user_root / "D-tasks" / "01-task-index.md"
+    tasks_index = user_root / "4-tasks" / "1-task-index.md"
     if doc_path == tasks_index:
         for token in ("## 按机器人家族", "## 按任务类型"):
             if token not in content:
                 errors.append(f"{doc_path}: task index must include `{token}`")
 
-    backend_overview = user_root / "02-simulation-backends.md"
-    if doc_path == backend_overview and "E-reference/01-backend-support-matrix.md" not in content:
+    backend_overview = user_root / "2-simulation-backends.md"
+    if doc_path == backend_overview and "5-reference/1-backend-support-matrix.md" not in content:
         errors.append(
-            f"{doc_path}: backend overview must route users to `E-reference/01-backend-support-matrix.md`"
+            f"{doc_path}: backend overview must route users to `5-reference/1-backend-support-matrix.md`"
         )
 
     return errors

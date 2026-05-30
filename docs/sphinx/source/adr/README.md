@@ -32,9 +32,9 @@
 
 ## 与主文档的关系
 
-- 架构总览: {doc}`RL Infrastructure 开发标准 </zh_CN/developer_guide/development-standard>`
-- 后端能力和支持矩阵: {doc}`仿真后端 </zh_CN/user_guide/02-simulation-backends>`
-- 协作流程与证据标准: {doc}`协作流程 </zh_CN/developer_guide/collaboration>`
+- 架构总览: {doc}`RL Infrastructure 开发标准 </zh_CN/2-developer_guide/1-development-standard>`
+- 后端能力和支持矩阵: {doc}`仿真后端 </zh_CN/1-user_guide/2-simulation-backends>`
+- 协作流程与证据标准: {doc}`协作流程 </zh_CN/2-developer_guide/2-collaboration>`
 
 ## Navigation
 
