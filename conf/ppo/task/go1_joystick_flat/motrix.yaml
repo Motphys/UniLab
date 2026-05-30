@@ -13,7 +13,7 @@ interactive:
   policy_obs_mode: auto
   camera_follow_body: true
   use_env_visual_model: false
-  
+
 algo:
   num_envs: 1024
   max_iterations: 151

@@ -4,19 +4,21 @@ training:
   sim_backend: mujoco
   play_steps: 200
   render_spacing: 0.5
-  cam_distance: 1.5
-  cam_lookat: [0.75, 0.75, 0]
-  cam_elevation: -20.0
+  cam_distance: 0.75
+  cam_lookat: [0.0, 0.0, 0.15]
+  cam_elevation: -25.0
+  cam_azimuth: 45.0
+  replay_queue_size: 4
 algo:
-  num_envs: 16384
+  num_envs: 1024
   steps_per_env: 8
-  max_iterations: 201
-  save_interval: 100
+  max_iterations: 3000
+  save_interval: 500
   algorithm:
     value_loss_coef: 4.0
     entropy_coef: 0.01
     learning_rate: 0.001
-    desired_kl: 0.02
+    desired_kl: 0.025
     num_learning_epochs: 5
     num_mini_batches: 4
     clip_param: 0.2

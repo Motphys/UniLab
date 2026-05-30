@@ -38,6 +38,9 @@ training:
   replay_prefetch_mode: one_tick
   verbose_metrics: false
 
+env:
+  post_step_forward_sensor: false
+
 hydra:
   run:
     dir: .

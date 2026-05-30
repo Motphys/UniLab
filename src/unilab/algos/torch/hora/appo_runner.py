@@ -13,10 +13,15 @@ import numpy as np
 import torch
 from rsl_rl.utils import resolve_callable
 
-from unilab.algos.torch.appo.runner import APPORunner
+from unilab.algos.torch.appo.runner import (
+    APPORunner,
+    _optimizer_lr_from_state,
+    _sync_resume_target_actor,
+)
 from unilab.algos.torch.appo.staging import RolloutStagingPool
 from unilab.algos.torch.hora.appo_learner import HoraAPPOLearner
 from unilab.algos.torch.hora.appo_worker import hora_appo_collector_fn
+from unilab.algos.torch.hora.models import build_hora_shared_actor_critic
 from unilab.algos.torch.hora.rsl_rl_compat import (
     convert_config_v3_to_v4,
     is_rsl_rl_v4,
@@ -27,6 +32,33 @@ from unilab.base.registry import ensure_registries
 from unilab.ipc import RolloutRingBuffer, SharedWeightSync
 from unilab.logging import OffPolicyLogger
 from unilab.training.seed import apply_training_seed, derive_worker_seed
+
+
+def _validate_hora_shared_checkpoint(checkpoint: dict[str, Any]) -> None:
+    """Validate that a HORA APPO checkpoint matches the current shared model contract."""
+    actor_state = checkpoint.get("actor")
+    critic_state = checkpoint.get("critic")
+    if not isinstance(actor_state, dict) or not isinstance(critic_state, dict):
+        raise ValueError("HORA APPO checkpoint must contain actor and critic state dicts.")
+
+    shared_keys = sorted(
+        key for key in actor_state if key.startswith("shared.") and key in critic_state
+    )
+    if not shared_keys:
+        raise ValueError("HORA APPO checkpoint does not contain shared actor/critic weights.")
+
+    for key in shared_keys:
+        actor_value = actor_state[key]
+        critic_value = critic_state[key]
+        if torch.is_tensor(actor_value) and torch.is_tensor(critic_value):
+            if actor_value.shape != critic_value.shape or not torch.equal(
+                actor_value.cpu(), critic_value.cpu()
+            ):
+                raise ValueError(
+                    "Invalid HORA APPO checkpoint: shared model state is inconsistent."
+                )
+        elif actor_value != critic_value:
+            raise ValueError("Invalid HORA APPO checkpoint: shared model state is inconsistent.")
 
 
 class HoraAPPORunner(APPORunner):
@@ -113,13 +145,35 @@ class HoraAPPORunner(APPORunner):
         actor_cfg = deepcopy(cfg.get("actor", {}))
         actor_cls = resolve_callable(actor_cfg.pop("class_name"))
         actor_cfg.pop("num_actions", None)
-        actor = actor_cls(td_example, cfg["obs_groups"], "actor", self.action_dim, **actor_cfg)
-
         critic_cfg: dict[str, Any] = deepcopy(cfg.get("critic") or cfg.get("actor") or {})
         critic_cls = resolve_callable(critic_cfg.pop("class_name", "rsl_rl.models.MLPModel"))
         critic_cfg.pop("num_actions", None)
         critic_cfg.pop("distribution_cfg", None)
-        critic = critic_cls(td_example, cfg["obs_groups"], "critic", 1, **critic_cfg)
+
+        shared_model = build_hora_shared_actor_critic(
+            obs_dim=self.obs_dim,
+            action_dim=self.action_dim,
+            priv_info_dim=self.priv_info_dim,
+            actor_cfg=actor_cfg,
+            critic_cfg=critic_cfg,
+        ).to(self.device)
+
+        actor = actor_cls(
+            td_example,
+            cfg["obs_groups"],
+            "actor",
+            self.action_dim,
+            shared_model=shared_model,
+            **actor_cfg,
+        )
+        critic = critic_cls(
+            td_example,
+            cfg["obs_groups"],
+            "critic",
+            1,
+            shared_model=shared_model,
+            **critic_cfg,
+        )
 
         algo_cfg = cfg.get("algorithm", cfg)
         return HoraAPPOLearner(
@@ -138,11 +192,14 @@ class HoraAPPORunner(APPORunner):
             use_clipped_value_loss=algo_cfg.get("use_clipped_value_loss", True),
             schedule=algo_cfg.get("schedule", "fixed"),
             desired_kl=algo_cfg.get("desired_kl", 0.01),
+            adaptive_kl_factor=algo_cfg.get("adaptive_kl_factor", 1.2),
+            adaptive_lr_factor=algo_cfg.get("adaptive_lr_factor", 1.1),
             optimizer=algo_cfg.get("optimizer", "adam"),
             tau=algo_cfg.get("tau", 1.0),
             target_update_freq=algo_cfg.get("target_update_freq", 1),
             vtrace_clip_rho=algo_cfg.get("vtrace_clip_rho", 1.0),
             vtrace_clip_c=algo_cfg.get("vtrace_clip_c", 1.0),
+            enable_compile=algo_cfg.get("enable_compile", True),
         )
 
     def _collector_fn(self, stop_event, **kwargs):
@@ -163,6 +220,15 @@ class HoraAPPORunner(APPORunner):
         iteration = 0
 
         learner = self._build_learner()
+        if self.resume_path:
+            checkpoint = torch.load(self.resume_path, map_location=self.device, weights_only=True)
+            _validate_hora_shared_checkpoint(checkpoint)
+            learner.actor.load_state_dict(checkpoint["actor"])
+            learner.critic.load_state_dict(checkpoint["critic"])
+            if "optimizer" in checkpoint:
+                learner.optimizer.load_state_dict(checkpoint["optimizer"])
+                learner.learning_rate = _optimizer_lr_from_state(learner.optimizer)
+            _sync_resume_target_actor(learner)
 
         rollout_ring_buffer = RolloutRingBuffer(
             num_envs=self.num_envs,
@@ -298,6 +364,7 @@ class HoraAPPORunner(APPORunner):
             metrics["staging_pool_len"] = float(staging_pool.active_count)
             metrics["staging_pool_capacity"] = float(staging_pool.capacity)
             metrics["available_on_arrive"] = float(available_on_arrive)
+            metrics["rollouts_read"] = float(num_new)
             logger.update_staging_pool(staging_pool.active_count, staging_pool.capacity)
 
             mean_reward = (
@@ -317,6 +384,9 @@ class HoraAPPORunner(APPORunner):
                 wait_time=wait_time,
                 learner_incremental_h2d_time=learner_incremental_h2d_time,
                 weight_sync_time=weight_sync_time,
+                extra_info={
+                    "throughput_steps": num_new * env_steps_per_sync,
+                },
             )
 
             if save_interval > 0 and iteration % save_interval == 0:

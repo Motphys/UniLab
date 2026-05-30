@@ -59,10 +59,13 @@ def create_backend(
 
     position_actuator_gains = kwargs.pop("position_actuator_gains", None)
     motrix_max_iterations = kwargs.pop("motrix_max_iterations", None)
+    post_step_forward_sensor = kwargs.pop("post_step_forward_sensor", None)
     if backend_type == "mujoco":
         MuJoCoBackend = _load_mujoco_backend()
         if position_actuator_gains is not None:
             kwargs["position_actuator_gains"] = position_actuator_gains
+        if post_step_forward_sensor is not None:
+            kwargs["post_step_forward_sensor"] = post_step_forward_sensor
         return cast(SimBackend, MuJoCoBackend(scene, num_envs, sim_dt, **kwargs))
     if backend_type == "motrix":
         MotrixBackend, motrix_available = _load_motrix_backend()

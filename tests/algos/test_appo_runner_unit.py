@@ -19,8 +19,24 @@ def _reset_fakes() -> None:
 
 
 class _FakeModule:
+    def __init__(self) -> None:
+        self.loaded_state: dict[str, torch.Tensor] | None = None
+
     def state_dict(self) -> dict[str, torch.Tensor]:
         return {"weight": torch.zeros(1)}
+
+    def load_state_dict(self, state_dict: dict[str, torch.Tensor]) -> None:
+        self.loaded_state = state_dict
+
+
+class _FakeOptimizer:
+    def __init__(self) -> None:
+        self.loaded_state: dict | None = None
+        self.param_groups = [{"lr": 0.001}]
+
+    def load_state_dict(self, state_dict: dict) -> None:
+        self.loaded_state = state_dict
+        self.param_groups = state_dict.get("param_groups", self.param_groups)
 
 
 class _FakeLearner:
@@ -29,8 +45,11 @@ class _FakeLearner:
     def __init__(self) -> None:
         self.actor = _FakeModule()
         self.critic = _FakeModule()
+        self.optimizer = _FakeOptimizer()
+        self.learning_rate = 0.001
         self.num_learning_epochs = 1
         self.last_batch: dict[str, torch.Tensor] | None = None
+        self.target_update_calls = 0
         _FakeLearner.last_instance = self
 
     def get_state_dict(self) -> dict[str, int]:
@@ -42,6 +61,9 @@ class _FakeLearner:
     def update(self, batch: dict[str, torch.Tensor]) -> dict[str, float]:
         del batch
         return {"loss": 0.5}
+
+    def update_target_network(self) -> None:
+        self.target_update_calls += 1
 
 
 class _FakeRolloutRingBuffer:
@@ -230,6 +252,50 @@ def test_appo_runner_uses_explicit_runtime_context(
     assert captured_detect["sim_backend"] == "motrix"
     assert captured_collector["sim_backend"] == "motrix"
     assert captured_collector["env_cfg_override"] == {"reward_config": {"scales": {"alive": 1.0}}}
+
+
+def test_appo_runner_restores_resume_checkpoint(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    def fake_detect_dims(self: APPORunner) -> tuple[int, int]:
+        self.critic_dim = 7
+        self.critic_input_dim = 5
+        return (4, 2)
+
+    checkpoint = {
+        "actor": {"weight": torch.ones(1)},
+        "critic": {"weight": torch.full((1,), 2.0)},
+        "optimizer": {"param_groups": [{"lr": 0.004}]},
+    }
+
+    monkeypatch.setattr(APPORunner, "_detect_dims", fake_detect_dims)
+    monkeypatch.setattr(APPORunner, "_build_learner", lambda self: _FakeLearner())
+    monkeypatch.setattr(appo_runner_module, "RolloutRingBuffer", _FakeRolloutRingBuffer)
+    monkeypatch.setattr(appo_runner_module, "SharedWeightSync", _FakeWeightSync)
+    monkeypatch.setattr(appo_runner_module, "OffPolicyLogger", _FakeLogger)
+    monkeypatch.setattr(appo_runner_module.torch, "load", lambda *args, **kwargs: checkpoint)
+    monkeypatch.setattr(appo_runner_module.torch, "save", lambda *args, **kwargs: None)
+
+    runner = APPORunner(
+        env_name="DummyEnv",
+        env_cfg_overrides={},
+        rl_cfg={"actor": {}, "critic": {}, "algorithm": {}},
+        device="cpu",
+        collector_device="cpu",
+        sim_backend="mujoco",
+        num_envs=2,
+        steps_per_env=4,
+        resume_path=str(tmp_path / "model_7.pt"),
+    )
+    monkeypatch.setattr(runner, "_start_collector", lambda *args, **kwargs: None)
+
+    runner.learn(max_iterations=0, save_interval=0, log_dir=str(tmp_path))
+
+    learner = _FakeLearner.last_instance
+    assert learner is not None
+    assert learner.actor.loaded_state == checkpoint["actor"]
+    assert learner.critic.loaded_state == checkpoint["critic"]
+    assert learner.optimizer.loaded_state == checkpoint["optimizer"]
+    assert learner.learning_rate == pytest.approx(0.004)
+    assert learner.target_update_calls == 1
 
 
 def test_appo_runner_logs_learner_timing_for_fps_inputs(

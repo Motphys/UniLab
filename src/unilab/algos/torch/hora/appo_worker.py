@@ -85,6 +85,7 @@ def hora_appo_collector_fn(
 
     from tensordict import TensorDict
 
+    from unilab.algos.torch.hora.models import build_hora_shared_actor_critic
     from unilab.algos.torch.hora.rsl_rl_compat import (
         convert_config_v3_to_v4,
         is_rsl_rl_v4,
@@ -144,15 +145,38 @@ def hora_appo_collector_fn(
     actor_cfg = deepcopy(cfg["actor"])
     actor_cls = resolve_callable(actor_cfg.pop("class_name"))
     actor_cfg.pop("num_actions", None)
-    actor = actor_cls(td_example, cfg["obs_groups"], "actor", action_dim, **actor_cfg)
-    actor = actor.to(collector_device)
-    actor.eval()
 
     critic_cfg = deepcopy(cfg.get("critic") or cfg.get("actor") or {})
     critic_cls = resolve_callable(critic_cfg.pop("class_name", "rsl_rl.models.MLPModel"))
     critic_cfg.pop("num_actions", None)
     critic_cfg.pop("distribution_cfg", None)
-    critic = critic_cls(td_example, cfg["obs_groups"], "critic", 1, **critic_cfg)
+    shared_model = build_hora_shared_actor_critic(
+        obs_dim=obs_dim,
+        action_dim=action_dim,
+        priv_info_dim=priv_info_dim,
+        actor_cfg=actor_cfg,
+        critic_cfg=critic_cfg,
+    ).to(collector_device)
+
+    actor = actor_cls(
+        td_example,
+        cfg["obs_groups"],
+        "actor",
+        action_dim,
+        shared_model=shared_model,
+        **actor_cfg,
+    )
+    actor = actor.to(collector_device)
+    actor.eval()
+
+    critic = critic_cls(
+        td_example,
+        cfg["obs_groups"],
+        "critic",
+        1,
+        shared_model=shared_model,
+        **critic_cfg,
+    )
     critic = critic.to(collector_device)
     critic.eval()
 
