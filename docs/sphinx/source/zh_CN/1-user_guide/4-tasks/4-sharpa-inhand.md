@@ -26,7 +26,10 @@
 
 ## Grasp cache 与 scale
 
-MuJoCo 采集：
+默认 cache 托管在 HF (`unilabsim/unilab-caches`)，首次训练时自动下载到
+`src/unilab/assets/caches/`，无需手动操作。
+
+手动采集（MuJoCo）：
 
 ```bash
 uv run train --algo ppo --task sharpa_inhand_grasp --sim mujoco 'env.domain_rand.scale_list=[0.8]' training.no_play=true
@@ -43,10 +46,7 @@ uv run train --algo ppo --task sharpa_inhand_grasp --sim motrix \
   training.no_play=true
 ```
 
-默认 rotation 读取 `cache/sharpa_grasp_linspace`；Motrix phase-1 读取按 scale 切分的 `<prefix>_<scale>.npy`。
-批量采集时可直接用 `bash scripts/sharpa_collect_grasps.sh 0.8 0.9 1.0 1.1 1.2 1.3 1.4 1.5 1.6`。
-
-自定义 cache：
+自定义 cache（`<prefix>_<scale>.npy` 命名规则）：
 
 ```bash
 uv run train --algo ppo --task sharpa_inhand --sim mujoco \
@@ -56,8 +56,6 @@ uv run train --algo ppo --task sharpa_inhand --sim motrix \
   env.grasp_cache_path=cache/my_sharpa_grasp_cache \
   training.no_play=true
 ```
-
-Motrix 自定义 cache 前缀需要满足 `<prefix>_<scale>.npy` 命名规则，例如 `cache/my_sharpa_grasp_cache_1.0.npy`。
 
 ## Teacher / student
 

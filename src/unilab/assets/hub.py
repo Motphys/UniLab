@@ -1,6 +1,6 @@
-"""Cold-path motion asset resolver with Hugging Face fallback.
+"""Cold-path asset resolver with Hugging Face fallback.
 
-Guarantees that requested motion files exist on disk before returning.
+Guarantees that requested asset files exist on disk before returning.
 When a file is missing locally, it is downloaded from the configured
 Hugging Face dataset repo and placed under ``ASSETS_ROOT_PATH`` so that
 existing path references remain valid.
@@ -20,7 +20,8 @@ from unilab.assets import ASSETS_ROOT_PATH
 
 logger = logging.getLogger(__name__)
 
-_HF_REPO_ID = "unilabsim/unilab-motions"
+_HF_MOTIONS_REPO_ID = "unilabsim/unilab-motions"
+_HF_CACHES_REPO_ID = "unilabsim/unilab-caches"
 _HF_REPO_TYPE = "dataset"
 _HF_OFFICIAL_ENDPOINT = "https://huggingface.co"
 
@@ -40,12 +41,31 @@ def resolve_motion_files(
         returns a list of strings.
     """
     if isinstance(motion_file, str):
-        return _resolve_single(motion_file)
-    return [_resolve_single(p) for p in motion_file]
+        return _resolve_single(motion_file, repo_id=_HF_MOTIONS_REPO_ID)
+    return [_resolve_single(p, repo_id=_HF_MOTIONS_REPO_ID) for p in motion_file]
 
 
-def _resolve_single(path_str: str) -> str:
-    """Resolve one motion file path, downloading if absent."""
+def resolve_grasp_cache_files(
+    cache_file: str | Sequence[str],
+) -> str | list[str]:
+    """Ensure grasp cache file(s) exist locally, downloading from HF if needed.
+
+    Args:
+        cache_file: Absolute path or ``ASSETS_ROOT_PATH``-relative path
+            (single string or sequence of strings).
+
+    Returns:
+        Resolved absolute path(s) guaranteed to exist on disk.
+        A single string input returns a single string; a sequence input
+        returns a list of strings.
+    """
+    if isinstance(cache_file, str):
+        return _resolve_single(cache_file, repo_id=_HF_CACHES_REPO_ID)
+    return [_resolve_single(p, repo_id=_HF_CACHES_REPO_ID) for p in cache_file]
+
+
+def _resolve_single(path_str: str, *, repo_id: str = _HF_MOTIONS_REPO_ID) -> str:
+    """Resolve one asset file path, downloading if absent."""
     path = Path(path_str)
 
     # Already exists locally — fast path.
@@ -65,18 +85,23 @@ def _resolve_single(path_str: str) -> str:
             relative = str(path.relative_to(ASSETS_ROOT_PATH))
         except ValueError:
             raise FileNotFoundError(
-                f"Motion file not found and path is not under "
+                f"Asset file not found and path is not under "
                 f"ASSETS_ROOT_PATH ({ASSETS_ROOT_PATH}): {path_str}"
             ) from None
 
-    return _download_from_hf(relative)
+    return _download_from_hf(relative, repo_id=repo_id)
 
 
-def _hf_download(hf_hub_download, relative_path: str) -> str:  # type: ignore[no-untyped-def]
+def _hf_download(
+    hf_hub_download,  # type: ignore[no-untyped-def]
+    relative_path: str,
+    *,
+    repo_id: str = _HF_MOTIONS_REPO_ID,
+) -> str:
     """Call ``hf_hub_download`` with the standard arguments."""
     return str(
         hf_hub_download(
-            repo_id=_HF_REPO_ID,
+            repo_id=repo_id,
             filename=relative_path,
             repo_type=_HF_REPO_TYPE,
             local_dir=str(ASSETS_ROOT_PATH),
@@ -84,8 +109,12 @@ def _hf_download(hf_hub_download, relative_path: str) -> str:  # type: ignore[no
     )
 
 
-def _download_from_hf(relative_path: str) -> str:
-    """Download *relative_path* from the HF dataset repo.
+def _download_from_hf(
+    relative_path: str,
+    *,
+    repo_id: str = _HF_MOTIONS_REPO_ID,
+) -> str:
+    """Download *relative_path* from an HF dataset repo.
 
     If the current ``HF_ENDPOINT`` (e.g. a mirror) fails, automatically
     retries with the official ``https://huggingface.co`` endpoint.
@@ -94,17 +123,17 @@ def _download_from_hf(relative_path: str) -> str:
         from huggingface_hub import hf_hub_download
     except ImportError:
         raise ImportError(
-            f"Motion file '{relative_path}' not found locally. "
+            f"Asset file '{relative_path}' not found locally. "
             "Install huggingface_hub to enable automatic downloading:\n"
             "  uv sync\n"
             "Or:\n"
             "  uv pip install huggingface_hub"
         ) from None
 
-    logger.info("Downloading %s from HF repo %s ...", relative_path, _HF_REPO_ID)
+    logger.info("Downloading %s from HF repo %s ...", relative_path, repo_id)
 
     try:
-        local_path = _hf_download(hf_hub_download, relative_path)
+        local_path = _hf_download(hf_hub_download, relative_path, repo_id=repo_id)
     except Exception:
         # If a mirror endpoint is configured and it failed, retry with
         # the official endpoint before giving up.
@@ -118,7 +147,9 @@ def _download_from_hf(relative_path: str) -> str:
             original = os.environ["HF_ENDPOINT"]
             os.environ["HF_ENDPOINT"] = _HF_OFFICIAL_ENDPOINT
             try:
-                local_path = _hf_download(hf_hub_download, relative_path)
+                local_path = _hf_download(
+                    hf_hub_download, relative_path, repo_id=repo_id
+                )
             finally:
                 os.environ["HF_ENDPOINT"] = original
         else:

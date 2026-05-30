@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.assets.hub import resolve_motion_files
+from unilab.assets.hub import resolve_grasp_cache_files, resolve_motion_files
 
 # ---------------------------------------------------------------------------
 # Local-path fast path
@@ -98,6 +98,76 @@ def test_resolve_relative_path_falls_back_to_hf():
     assert result == str(local)
     fake_download.assert_called_once_with(
         repo_id="unilabsim/unilab-motions",
+        filename=rel,
+        repo_type="dataset",
+        local_dir=str(ASSETS_ROOT_PATH),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Grasp cache resolve — local fast path
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_grasp_cache_returns_existing_path(tmp_path: Path):
+    npy = tmp_path / "cache.npy"
+    np.save(npy, np.array([1.0]))
+    assert resolve_grasp_cache_files(str(npy)) == str(npy)
+
+
+def test_resolve_grasp_cache_returns_list_for_list_input(tmp_path: Path):
+    a = tmp_path / "a.npy"
+    b = tmp_path / "b.npy"
+    np.save(a, np.array([1.0]))
+    np.save(b, np.array([2.0]))
+    result = resolve_grasp_cache_files([str(a), str(b)])
+    assert result == [str(a), str(b)]
+
+
+# ---------------------------------------------------------------------------
+# Grasp cache resolve — HF download path (mocked)
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_grasp_cache_calls_hf_download_with_caches_repo():
+    """Grasp cache resolver should use the unilab-caches repo, not unilab-motions."""
+    missing = ASSETS_ROOT_PATH / "caches" / "__test_nonexistent__.npy"
+    assert not missing.exists()
+
+    expected_relative = str(missing.relative_to(ASSETS_ROOT_PATH))
+
+    fake_download = MagicMock(return_value=str(missing))
+    fake_module = MagicMock()
+    fake_module.hf_hub_download = fake_download
+
+    with patch.dict("sys.modules", {"huggingface_hub": fake_module}):
+        result = resolve_grasp_cache_files(str(missing))
+
+    assert result == str(missing)
+    fake_download.assert_called_once_with(
+        repo_id="unilabsim/unilab-caches",
+        filename=expected_relative,
+        repo_type="dataset",
+        local_dir=str(ASSETS_ROOT_PATH),
+    )
+
+
+def test_resolve_grasp_cache_relative_path_uses_caches_repo():
+    """A relative path triggers HF download with the caches repo."""
+    rel = "caches/__test_nonexistent_rel__.npy"
+    local = ASSETS_ROOT_PATH / rel
+    assert not local.exists()
+
+    fake_download = MagicMock(return_value=str(local))
+    fake_module = MagicMock()
+    fake_module.hf_hub_download = fake_download
+
+    with patch.dict("sys.modules", {"huggingface_hub": fake_module}):
+        result = resolve_grasp_cache_files(rel)
+
+    assert result == str(local)
+    fake_download.assert_called_once_with(
+        repo_id="unilabsim/unilab-caches",
         filename=rel,
         repo_type="dataset",
         local_dir=str(ASSETS_ROOT_PATH),

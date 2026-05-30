@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
@@ -34,6 +35,7 @@ from unilab.envs.common.rotation import (
     np_quat_mul,
     np_quat_to_axis_angle,
 )
+from unilab.assets.hub import resolve_grasp_cache_files
 from unilab.envs.manipulation.sharpa_inhand.base import (
     SharpaInhandBaseCfg,
     SharpaInhandBaseEnv,
@@ -175,6 +177,9 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
         missing_files: list[str] = []
         for scale_value in np.asarray(env.scale_values, dtype=np.float64):
             cache_file = resolve_grasp_cache_file(env.cfg.grasp_cache_path, float(scale_value))
+            # Auto-download from HF if the cache file is missing locally.
+            resolved = cast(str, resolve_grasp_cache_files(str(cache_file)))
+            cache_file = Path(resolved)
             if not cache_file.exists():
                 missing_files.append(str(cache_file))
                 continue
@@ -182,7 +187,12 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
 
         if missing_files:
             missing = ", ".join(missing_files)
-            raise RuntimeError(f"Missing Sharpa grasp cache file(s): {missing}")
+            raise RuntimeError(
+                f"Missing Sharpa grasp cache file(s): {missing}\n"
+                "Generate them with:\n"
+                "  bash scripts/sharpa_collect_grasps.sh 0.8 0.9 1.0 1.1 1.2 1.3 1.4 1.5 1.6\n"
+                "See docs/sphinx/source/zh_CN/user_guide/D-tasks/04-sharpa-inhand.md"
+            )
 
         env._grasp_cache = tuple(grasp_caches)
         return cast(tuple[np.ndarray, ...], env._grasp_cache)
