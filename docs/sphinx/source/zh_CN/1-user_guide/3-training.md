@@ -9,7 +9,7 @@
 ```bash
 uv run train --algo ppo --task go2_joystick_flat --sim mujoco
 uv run eval --algo ppo --task go2_joystick_flat --sim mujoco --load-run -1
-uv run demo
+uv run demo dance
 ```
 
 ## 训练专题
