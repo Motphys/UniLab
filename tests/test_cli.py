@@ -23,6 +23,7 @@ def _make_minimal_checkout(
 
 
 def _pretend_motrix_is_installed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "unilab.cli", cli)
     monkeypatch.setattr(
         cli,
         "find_spec",
