@@ -31,7 +31,24 @@ For docs-only changes, run:
 ```bash
 uv run pytest tests/scripts/test_check_docs.py -q
 cd docs/sphinx
-UNILAB_DOCS_SKIP_AUTODOC=1 uv run sphinx-build -b html -n source build/html
+UNILAB_DOCS_SKIP_AUTODOC=1 uv run --no-project --with-requirements requirements.txt sphinx-build -b html -n source build/html
+```
+
+The `Docs` GitHub Actions workflow runs the same prose-only build on matching
+PRs and pushes, and it can also be started from the GitHub Actions web UI via
+`workflow_dispatch`. It does not install UniLab with `pip install -e .`, does
+not generate API reference pages, and does not publish the external docs
+repository.
+
+For a final local refresh of the full site, including API reference pages for
+the `UniLab-doc` publication flow, use a parallel Sphinx build from a synced
+developer environment:
+
+```bash
+uv sync
+uv pip install -r docs/sphinx/requirements.txt
+cd docs/sphinx
+uv run --no-sync sphinx-build -j auto -b html -n source build/html
 ```
 
 ## Commit And PR Expectations
