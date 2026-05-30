@@ -172,6 +172,8 @@ def test_resolve_grasp_cache_relative_path_uses_caches_repo():
         repo_type="dataset",
         local_dir=str(ASSETS_ROOT_PATH),
     )
+
+
 # Scene directory resolver
 # ---------------------------------------------------------------------------
 
