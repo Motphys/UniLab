@@ -56,9 +56,11 @@ def test_load_teaser_model_calls_resolve_scene_dir():
     fake_mtx.SceneData.return_value = fake_data
 
     with (
-        patch("unilab.tools.render_teaser.resolve_scene_dir", mock_resolve),
+        patch("unilab.assets.hub.resolve_scene_dir", mock_resolve),
         patch.dict("sys.modules", {"motrixsim": fake_mtx}),
-        patch.object(render_teaser, "DEFAULT_SCENE", MagicMock(is_file=MagicMock(return_value=True))),
+        patch.object(
+            render_teaser, "DEFAULT_SCENE", MagicMock(is_file=MagicMock(return_value=True))
+        ),
     ):
         render_teaser._load_teaser_model()
 
