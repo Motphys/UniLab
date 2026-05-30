@@ -17,7 +17,7 @@ except Exception:
 
 if not hasattr(BatchEnvPool, "sample_hfield_height"):
     pytest.skip(
-        "BatchEnvPool.sample_hfield_height requires mujoco-uni>=3.8.0rc2",
+        "BatchEnvPool.sample_hfield_height requires mujoco-uni>=3.8.0",
         allow_module_level=True,
     )
 
