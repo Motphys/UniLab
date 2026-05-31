@@ -1,7 +1,5 @@
 # 从 Isaac Lab 迁移
 
-语言: 简体中文
-
 如果你有一个想在 UniLab 中运行的 Isaac Lab 任务，本页会告诉你哪些保持不变、
 哪些会改变，以及锋利的边角在哪里。
 
@@ -83,7 +81,3 @@ learner 共享内存。
 - {doc}`3-from_rsl_rl`
 - {doc}`5-task_config_translation`
 - {doc}`6-reward_porting`
-
-## Navigation
-
-- Index: [文档](0-index.md)

@@ -1,7 +1,5 @@
 # 配置
 
-语言: 简体中文
-
 域随机化在所选的 task owner YAML 内部配置，通常位于
 `env.domain_rand` 下。先使用 `--task` 和 `--sim` 选择后端专属行为，
 然后在所选的 owner 内部 override 字段。
@@ -53,7 +51,3 @@ uv run train --algo ppo --task g1_walk_flat --sim mujoco \
 力扰动。
 
 完整的当前清单见 {doc}`0-index`。
-
-## Navigation
-
-- Index: [文档](0-index.md)

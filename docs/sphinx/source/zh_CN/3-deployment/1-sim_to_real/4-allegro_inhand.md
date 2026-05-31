@@ -1,7 +1,5 @@
 # Allegro / Sharpa 手内操作部署
 
-语言: 简体中文
-
 在 16 自由度的 Allegro 手或 17 自由度的 Sharpa 手上进行方块重定向。UniLab 以无触觉
 方式训练它们 —— 观测仅为关节状态 + 方块位姿。
 
@@ -79,7 +77,3 @@ owner 与部署运行时在观测时序上达成一致。见
 - {doc}`5-onnx_runtime`
 - {doc}`6-domain_randomization`
 - {doc}`../../2-user_guide/8-manipulation/1-dexterous_inhand`
-
-## Navigation
-
-- Index: [文档](0-index.md)

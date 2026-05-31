@@ -1,7 +1,5 @@
 # Runner 生命周期
 
-语言: 简体中文
-
 Runner 代码拥有训练生命周期。脚本负责 compose Hydra config 并启动正确的
 runner；它们不应另起第二套 collector/learner 协议。
 
@@ -41,7 +39,3 @@ runner；它们不应另起第二套 collector/learner 协议。
 - 异步生命周期：`src/unilab/ipc/async_runner.py`
 - Runner 测试：`tests/algos/test_appo_runner.py`、
   `tests/algos/test_offpolicy_runner.py`、`tests/ipc/test_async_runner.py`
-
-## Navigation
-
-- Index: [文档](0-index.md)

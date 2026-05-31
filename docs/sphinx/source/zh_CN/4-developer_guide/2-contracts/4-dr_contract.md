@@ -1,7 +1,5 @@
 # Domain Randomization 契约
 
-语言: 简体中文
-
 Domain randomization 是一个 env-owner 的 provider 契约，加上 backend 能力的
 应用。用户配置示例见
 {doc}`../../2-user_guide/5-domain_randomization/0-index`。
@@ -95,7 +93,3 @@ actuator 的机制泄漏到共享 payload 里。
 - 示例 provider：`src/unilab/envs/locomotion/g1/joystick.py`、
   `src/unilab/envs/motion_tracking/g1/tracking.py`、
   `src/unilab/envs/manipulation/sharpa_inhand/rotation.py`
-
-## Navigation
-
-- Index: [文档](0-index.md)

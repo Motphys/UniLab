@@ -1,7 +1,5 @@
 # 动作追踪
 
-语言: 简体中文
-
 G1 动作追踪任务位于 `src/unilab/envs/motion_tracking/` 下，并通过
 `conf/ppo/`、`conf/appo/` 以及选定的 off-policy 路径中的 task owner YAML 选择。
 
@@ -127,7 +125,3 @@ CUDA_VISIBLE_DEVICES=1 uv run train --algo sac --task g1_motion_tracking --sim m
 常规 checkpoint 回放用 `uv run eval`。需要 target body 或 reward debug overlay 时，
 `scripts/play_interactive.py` 是 MuJoCo 专用的低层调试入口，当前没有暴露为统一
 `uv run eval` 参数。
-
-## Navigation
-
-- Index: [文档](0-index.md)

@@ -1,7 +1,5 @@
 # Reward 移植
 
-语言: 简体中文
-
 reward 项是大多数移植 bug 藏身之处。本食谱记录了常见的 reward 项及其 UniLab
 惯用写法。
 
@@ -78,7 +76,3 @@ def reward_termination(self, state):
 - {doc}`5-task_config_translation`
 - `unilab.training.reward`
 - `unilab.envs.locomotion.common.rewards`
-
-## Navigation
-
-- Index: [文档](0-index.md)

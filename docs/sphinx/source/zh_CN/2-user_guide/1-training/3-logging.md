@@ -1,7 +1,5 @@
 # 日志
 
-语言: 简体中文
-
 训练配置默认使用 TensorBoard，即 `training.logger=tensorboard`。设置
 `training.logger=wandb` 可启用 Weights & Biases 集成。
 
@@ -72,7 +70,3 @@ W&B writer 打补丁。当后端为 MuJoCo 且该次 run 产生了 `play_video.m
 off-policy 配置暴露了 trace 字段，例如 `training.trace_enabled`、
 `training.trace_output_dir`、`training.trace_thread_time` 和
 `training.trace_cuda_events`。
-
-## Navigation
-
-- Index: [文档](0-index.md)

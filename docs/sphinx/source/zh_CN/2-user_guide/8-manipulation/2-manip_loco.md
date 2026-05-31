@@ -1,7 +1,5 @@
 # Manip-Loco
 
-语言: 简体中文
-
 `go2_arm_manip_loco` 将 Go2 运动与 Airbot 机械臂结合。已注册的 env 是 `Go2ArmManipLoco`，PPO owner 是 `conf/ppo/task/go2_arm_manip_loco/mujoco.yaml`，HIM-PPO owner 是 `conf/ppo_him/task/go2_arm_manip_loco/mujoco.yaml`。
 
 ## PPO
@@ -38,7 +36,3 @@ uv run python -c "import mujoco; m=mujoco.MjModel.from_xml_path('src/unilab/asse
 ```
 
 关于任务入口，参见 {doc}`../4-tasks/4-manip_loco`。
-
-## Navigation
-
-- Index: [文档](0-index.md)

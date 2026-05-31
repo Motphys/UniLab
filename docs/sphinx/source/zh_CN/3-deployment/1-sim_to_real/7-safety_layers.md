@@ -1,7 +1,5 @@
 # 硬件安全层
 
-语言: 简体中文
-
 策略在训练契约下产生动作。一个部署侧的安全层必须位于**策略输出与电机驱动器之间**，
 并在契约违例成为执行器指令之前将其拒绝。
 
@@ -77,7 +75,3 @@ kd: [...]
 - {doc}`5-onnx_runtime`
 - {doc}`9-troubleshooting`
 - {doc}`2-g1_whole_body`
-
-## Navigation
-
-- Index: [文档](0-index.md)

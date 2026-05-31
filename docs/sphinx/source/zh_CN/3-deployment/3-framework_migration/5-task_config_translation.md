@@ -1,7 +1,5 @@
 # 任务配置翻译速查表
 
-语言: 简体中文
-
 一张并排对照表，列出 Isaac Lab / Legged Gym / skrl 与 UniLab 任务 owner YAML
 之间常见配置字段的对应关系。
 
@@ -109,7 +107,3 @@
 
 - {doc}`6-reward_porting`
 - {doc}`../../4-developer_guide/2-contracts/3-task_owner`
-
-## Navigation
-
-- Index: [文档](0-index.md)

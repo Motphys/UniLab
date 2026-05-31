@@ -1,7 +1,5 @@
 # APPO
 
-语言: 简体中文
-
 APPO 是 UniLab 的异步 PPO 路径。它使用 `scripts/train_appo.py`、
 `conf/appo/config.yaml` 以及 `src/unilab/algos/torch/appo/` 下的运行时。该配置暴露
 了 `algo.steps_per_env`、`training.collector_device` 和
@@ -45,7 +43,3 @@ uv run eval --algo appo --task go2_joystick_flat --sim mujoco --load-run -1
 
 默认日志根目录为 `logs/appo/<task>/`，来自 `conf/appo/config.yaml` 中的
 `algo.algo_log_name=appo`。
-
-## Navigation
-
-- Index: [文档](0-index.md)

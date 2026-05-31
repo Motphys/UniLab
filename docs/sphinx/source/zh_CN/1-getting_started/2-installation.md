@@ -1,7 +1,5 @@
 # 安装
 
-语言: 简体中文
-
 本页仅涉及依赖配置。训练命令和回放细节请参阅快速上手与算法相关页面。
 
 ## 环境要求
@@ -125,7 +123,3 @@ uv run train --algo ppo --task go2_joystick_flat --sim motrix \
 ```
 
 不要单独使用 `training.sim_backend` 字段来切换后端；请通过 `--sim` 选择后端。
-
-## Navigation
-
-- Index: [文档](0-index.md)

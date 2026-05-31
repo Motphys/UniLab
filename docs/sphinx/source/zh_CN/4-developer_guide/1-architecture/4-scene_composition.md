@@ -1,7 +1,5 @@
 # 场景组合
 
-语言: 简体中文
-
 场景组合是一个冷路径契约。env config 通过 `SceneCfg` 描述场景；backend
 materializer 在初始化期间将该声明转换为 backend 的原生模型。
 
@@ -108,7 +106,3 @@ materializer。
   `conf/ppo/task/go2_joystick_rough/motrix.yaml`
 
 用户使用说明见 {doc}`../../2-user_guide/6-terrain/1-procedural`。
-
-## Navigation
-
-- Index: [文档](0-index.md)

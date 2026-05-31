@@ -1,7 +1,5 @@
 # 面向真机迁移的域随机化
 
-语言: 简体中文
-
 本页是域随机化的部署检查清单。关于**契约**层（一个 DR provider 必须实现什么），见
 {doc}`../../4-developer_guide/2-contracts/4-dr_contract`。
 
@@ -99,7 +97,3 @@ uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1
 - {doc}`../../2-user_guide/5-domain_randomization/0-index`
 - {doc}`../../4-developer_guide/2-contracts/4-dr_contract`
 - {doc}`../2-sim_to_sim/3-contact_and_friction_alignment`
-
-## Navigation
-
-- Index: [文档](0-index.md)

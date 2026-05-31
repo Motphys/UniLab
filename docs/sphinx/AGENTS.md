@@ -131,9 +131,11 @@ language-independent absolute path.
 - **English pages**: do not hand-write `## Navigation`, `Previous`, or `Next`
   sections. Furo/Sphinx prev-next navigation comes from toctree order. If an
   English page in your edit scope still has a manual navigation block, remove it.
-- **Chinese non-index pages**: keep the current checked shape: language line plus
-  `## Navigation` with an Index link. The test contract is still enforced by
-  `check_zh_cn_doc_shape`.
+- **Chinese pages**: same rule as English — do not hand-write a `## Navigation`,
+  `Previous`, or `Next` block, and do not add a `语言: 简体中文` language line.
+  Furo's sidebar + prev/next handles navigation; the sidebar language switcher
+  indicates the language. (These manual footers were removed; there is no longer
+  a `check_zh_cn_doc_shape` contract.)
 - **Root/language switching**: route language changes through the root landing and
   language switcher. Do not add ordinary-page language button pickers.
 
@@ -152,23 +154,18 @@ Avoid old paths such as `docs/users/`, `docs/developers/`, and
 
 ## zh_CN Shape
 
-Every `source/zh_CN/**.md` non-index page must keep this shape:
+Every `source/zh_CN/**.md` page uses the same minimal shape as its English
+mirror — title, then body. Do not add a `语言: 简体中文` language line or a
+manual `## Navigation` footer (both removed; Furo handles navigation):
 
 ```markdown
 # <标题>
 
-语言: 简体中文
-
 <正文>
-
-## Navigation
-
-- Index: [Documentation](../index.md)
 ```
 
-The relative depth of the Index link may vary. Do not paste English prose into a
-Chinese placeholder; a short honest Chinese placeholder is better than a fake
-translation.
+Do not paste English prose into a Chinese placeholder; a short honest Chinese
+placeholder is better than a fake translation.
 
 ## ADR Rules
 
@@ -226,7 +223,7 @@ Do not hand-edit the generated block.
   `task=<task>/<backend>` Hydra overrides as user-facing CLI examples.
 - Env hot paths that parse assets/XML or probe backend private methods.
 - Hand-written API signatures in `source/api_reference/`.
-- English `## Navigation` blocks.
+- Manual `## Navigation` / `Previous` / `Next` blocks or `语言: 简体中文` lines on any page (en or zh).
 
 ## Validation
 

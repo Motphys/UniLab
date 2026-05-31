@@ -1,7 +1,5 @@
 # SAC
 
-语言: 简体中文
-
 SAC 通过共享的 off-policy 入口 `scripts/train_offpolicy.py` 选择，TD3 与 FlashSAC
 也共用该脚本。主配置为 `conf/offpolicy/config.yaml`，SAC 算法的默认值位于
 `conf/offpolicy/algo/sac.yaml`。当前的日志名称为 `fast_sac`。
@@ -38,7 +36,3 @@ uv run train --algo sac --task g1_walk_flat --sim mujoco \
   algo.max_iterations=1000 \
   training.no_play=true
 ```
-
-## Navigation
-
-- Index: [文档](0-index.md)

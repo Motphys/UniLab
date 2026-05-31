@@ -136,7 +136,7 @@ More training commands, script-level entrypoints, resume flow, and W&B details a
 
 Use `uv run train` for training, `uv run eval` for checkpoint playback, and `uv run demo` for the local demo preset. These commands keep algorithm, task, and backend selection explicit.
 
-See [03 Training Guide](https://unilabsim.github.io/UniLab-doc/en/2-user_guide/1-training/0-index.html) for the algorithm matrix, log directory layout, Hydra overrides, script-level entrypoints, and demo flags.
+See [Training Guide](https://unilabsim.github.io/UniLab-doc/en/2-user_guide/1-training/0-index.html) for the algorithm matrix, log directory layout, Hydra overrides, script-level entrypoints, and demo flags.
 
 ## 📚 Documentation
 

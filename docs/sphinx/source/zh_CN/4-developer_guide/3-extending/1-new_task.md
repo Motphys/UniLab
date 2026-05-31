@@ -1,7 +1,5 @@
 # 扩展 UniLab：新任务
 
-语言: 简体中文
-
 从契约出发：{doc}`../2-contracts/1-env_contract`、
 {doc}`../2-contracts/3-task_owner` 与
 {doc}`/adr/ADR-0005-unified-obs-critic-env-and-ipc-contract`。
@@ -42,7 +40,3 @@
 - 场景配置：`src/unilab/base/scene.py`
 - 现有任务示例：`src/unilab/envs/locomotion/go2/joystick.py`、
   `src/unilab/envs/manipulation/allegro_inhand/rotation.py`
-
-## Navigation
-
-- Index: [文档](0-index.md)

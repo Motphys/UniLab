@@ -1,7 +1,5 @@
 # Motrix Contact Sensor 适配笔记
 
-语言: 简体中文
-
 ## 背景
 
 Sharpa Inhand Rotation 任务的触觉观测依赖 contact sensor 数据（指尖与物体的接触力）。该代码在 MuJoCo 后端下工作正常，但 Motrix 后端的 contact sensor 返回格式不同，读取路径需要同时兼容两种形状。
@@ -112,7 +110,3 @@ env 层的 `_read_tactile_force()` 对 contact sensor 走 `get_contact_force_mag
 | `src/unilab/base/backend/motrix/backend.py` | Motrix `get_sensor_data()` |
 | `src/unilab/base/backend/mujoco/backend.py` | MuJoCo `get_sensor_data()` |
 | `src/unilab/base/backend/base.py` | `SimBackend` 接口 |
-
-## Navigation
-
-- Index: [文档](0-index.md)

@@ -1,7 +1,5 @@
 # 扩展 UniLab：新后端
 
-语言: 简体中文
-
 在添加后端代码之前，请先阅读 {doc}`../2-contracts/2-backend_contract` 与
 {doc}`/adr/ADR-0002-backend-capability-boundary-for-play-and-snapshot`。
 
@@ -42,7 +40,3 @@
 - 后端工厂：`src/unilab/base/backend/__init__.py`
 - MuJoCo 后端包：`src/unilab/base/backend/mujoco/`
 - Motrix 后端包：`src/unilab/base/backend/motrix/`
-
-## Navigation
-
-- Index: [文档](0-index.md)

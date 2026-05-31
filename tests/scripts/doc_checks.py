@@ -344,33 +344,6 @@ def check_generated_support_matrix(content: str, doc_path: Path, root: Path) -> 
     return errors
 
 
-def check_zh_cn_doc_shape(content: str, doc_path: Path, root: Path) -> list[str]:
-    errors: list[str] = []
-    zh_root = root / "docs" / "sphinx" / "source" / "zh_CN"
-    try:
-        doc_path.relative_to(zh_root)
-    except ValueError:
-        return errors
-    if doc_path.suffix != ".md":
-        return errors
-    # Section / language landing pages don't carry the language-tag + navigation
-    # contract — they have their own toctree-driven layout.
-    if doc_path.name in {"index.md", "0-index.md"}:
-        return errors
-
-    lines = content.splitlines()
-    if len(lines) < 3 or lines[2].strip() != "语言: 简体中文":
-        errors.append(f"{doc_path}: zh_CN docs must declare `语言: 简体中文` after title")
-
-    if "\n## Navigation\n" not in content:
-        errors.append(f"{doc_path}: zh_CN docs must include a `## Navigation` section")
-
-    if not re.search(r"- Index:\s*\[[^\]]+\]\([^)]*(?:0-)?index\.md\)", content):
-        errors.append(f"{doc_path}: zh_CN docs must link back to a docs index in Navigation")
-
-    return errors
-
-
 def check_adr_shape(content: str, doc_path: Path, root: Path) -> list[str]:
     errors: list[str] = []
     adr_dir = root / "docs" / "sphinx" / "source" / "adr"
@@ -499,7 +472,6 @@ def check_document(doc_path: Path, root: Path) -> list[str]:
         errors.extend(check_training_entrypoint_semantics(content, doc_path, root))
 
     errors.extend(check_generated_support_matrix(content, doc_path, root))
-    errors.extend(check_zh_cn_doc_shape(content, doc_path, root))
     errors.extend(check_adr_shape(content, doc_path, root))
     errors.extend(check_user_doc_architecture(content, doc_path, root))
     return errors

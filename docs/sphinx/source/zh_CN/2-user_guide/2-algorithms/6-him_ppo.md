@@ -1,7 +1,5 @@
 # HIM-PPO
 
-语言: 简体中文
-
 HIM-PPO 有自己的配置组和脚本。入口是 `scripts/train_him_ppo.py`，基础配置是
 `conf/ppo_him/config.yaml`，已提交的 task owner 是
 `conf/ppo_him/task/go2_arm_manip_loco/mujoco.yaml`。
@@ -26,7 +24,3 @@ Go2 机械臂 owner 从基础配置中填充所需的历史维度：
 
 HIM-PPO 不是默认的 PPO 路径；请将其用于明确选择 HIM-PPO 配置组的 Go2 机械臂
 manip-loco owner。
-
-## Navigation
-
-- Index: [文档](0-index.md)

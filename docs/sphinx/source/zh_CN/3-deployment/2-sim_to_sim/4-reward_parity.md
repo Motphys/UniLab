@@ -1,7 +1,5 @@
 # 跨后端的 Reward 一致性
 
-语言: 简体中文
-
 两个拥有"相同" reward 函数的后端，很少会产生**数值上完全相同**的 reward ——
 这没关系。你想要的是**轨迹级别的一致性（trajectory-level parity）**：同一个策略，
 施加到相同的初始状态上，会产生相似的 reward 曲线。
@@ -42,7 +40,3 @@
 
 - {doc}`3-contact_and_friction_alignment`
 - {doc}`../../4-developer_guide/2-contracts/2-backend_contract`
-
-## Navigation
-
-- Index: [文档](0-index.md)

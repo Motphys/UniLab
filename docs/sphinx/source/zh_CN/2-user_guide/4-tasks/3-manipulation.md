@@ -1,7 +1,5 @@
 # 操作
 
-语言: 简体中文
-
 操作任务位于 `src/unilab/envs/manipulation/` 中，Go2 机械臂 manip-loco
 env 位于 `src/unilab/envs/locomotion/go2_arm/` 中。
 
@@ -31,7 +29,3 @@ uv run train --algo ppo --task go2_arm_manip_loco --sim mujoco training.no_play=
 
 有关任务专属的说明，请参阅 {doc}`../8-manipulation/1-dexterous_inhand` 和
 {doc}`../8-manipulation/2-manip_loco`。
-
-## Navigation
-
-- Index: [文档](0-index.md)

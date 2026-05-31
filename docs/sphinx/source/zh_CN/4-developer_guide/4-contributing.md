@@ -1,7 +1,5 @@
 # 为 UniLab 做贡献
 
-语言: 简体中文
-
 本页概述面向贡献者的仓库工作流。契约与架构细节见
 {doc}`1-architecture/1-overview`。
 
@@ -144,7 +142,3 @@ tests/
 
 参见 {doc}`2-contracts/3-task_owner` 与
 {doc}`../2-user_guide/1-training/2-hydra_config`。
-
-## Navigation
-
-- Index: [文档](0-index.md)

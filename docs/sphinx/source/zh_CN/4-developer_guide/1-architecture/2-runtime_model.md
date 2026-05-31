@@ -1,7 +1,5 @@
 # 运行时模型
 
-语言: 简体中文
-
 详细的运行时契约见
 {doc}`/adr/ADR-0001-runtime-model-and-layer-boundaries` 与
 {doc}`/zh_CN/4-developer_guide/0-index`。本页将运行时摘要与对应的代码路径放在
@@ -47,7 +45,3 @@ CPU physics env loop -> shared IPC buffer -> learner
 - IPC 原语：`src/unilab/ipc/async_runner.py`、
   `src/unilab/ipc/rollout_ring_buffer.py`、`src/unilab/ipc/replay_buffer.py`、
   `src/unilab/ipc/weight_sync.py`
-
-## Navigation
-
-- Index: [文档](0-index.md)

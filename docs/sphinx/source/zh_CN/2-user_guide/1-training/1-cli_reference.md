@@ -1,7 +1,5 @@
 # CLI 参考
 
-语言: 简体中文
-
 UniLab 为常见的训练与回放路由提供软件包命令，同时保留底层脚本以便调试
 Hydra 组合。
 
@@ -137,7 +135,3 @@ training.logger=wandb
 
 后端选择属于 CLI 的 `--sim` 选项以及由此得到的 owner YAML。不要将
 `training.sim_backend=<backend>` 当作独立的切换开关使用。
-
-## Navigation
-
-- Index: [文档](0-index.md)

@@ -1,7 +1,5 @@
 # Docker
 
-语言: 简体中文
-
 仓库内置的 `Dockerfile` 是 Linux NVIDIA/CUDA 容器路径。它会安装 UniLab 运行时依
 赖、Motrix extra 以及 dev/test 工具。macOS Docker 目前不作为主要路径，ROCm 则使用
 另外的镜像（见下文），而不是这个 CUDA `Dockerfile`。
@@ -72,7 +70,3 @@ docker run --rm -it --network=host --ipc=host \
 
 请使用与本机 ROCm 版本匹配的 ROCm PyTorch 镜像 tag；可用 tag 参见 AMD 的 ROCm
 PyTorch 镜像。
-
-## Navigation
-
-- Index: [文档](0-index.md)

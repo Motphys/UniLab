@@ -135,7 +135,7 @@ uv run train --algo ppo --task sharpa_inhand --sim mujoco --profile hora
 
 训练使用 `uv run train`，检查点回放使用 `uv run eval`，本地 demo 预设使用 `uv run demo`。这些命令会保持算法、任务和后端选择显式化。
 
-请参阅 [03 训练指南](https://unilabsim.github.io/UniLab-doc/zh_CN/2-user_guide/1-training/0-index.html)，查看算法矩阵、日志目录布局、Hydra override、脚本级入口以及 demo 标志。
+请参阅 [训练指南](https://unilabsim.github.io/UniLab-doc/zh_CN/2-user_guide/1-training/0-index.html)，查看算法矩阵、日志目录布局、Hydra override、脚本级入口以及 demo 标志。
 
 ## 📚 文档
 

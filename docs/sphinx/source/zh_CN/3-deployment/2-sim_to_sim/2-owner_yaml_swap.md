@@ -1,7 +1,5 @@
 # 为已有任务添加后端 YAML
 
-语言: 简体中文
-
 假设你有一个跑在 Motrix 上的任务，现在想让它也能跑在 MuJoCo 上。本页
 就是操作配方。
 
@@ -51,7 +49,3 @@ uv run scripts/generate_support_matrix.py --write
 
 证据等级的定义参见 {doc}`/glossary`。
 ::::
-
-## Navigation
-
-- Index: [文档](0-index.md)

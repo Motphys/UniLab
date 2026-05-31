@@ -1,7 +1,5 @@
 # 后端支持矩阵
 
-语言: 简体中文
-
 本页是后端参考页，放生成矩阵和需要精确查证的 backend 规则。它不承担首次阅读职责。
 
 ## 适合谁看
@@ -121,7 +119,3 @@ uv run scripts/generate_support_matrix.py --write
 - MLX-specific compose coverage only upgrades task owners listed in `tests/config/test_config_system.py::_PPO_MLX_TASKS`: `go1_joystick_flat`, `go2_joystick_flat`, `g1_walk_flat`.
 - MLX runtime smoke: `tests/algos/test_mlx_ppo.py::test_mlx_ppo_one_iteration_real_env` currently exercises `go2_joystick_flat/mujoco`.
 <!-- END GENERATED SUPPORT MATRIX -->
-
-## Navigation
-
-- Index: [文档](0-index.md)

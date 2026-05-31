@@ -1,7 +1,5 @@
 # 评估与回放
 
-语言: 简体中文
-
 ```bash
 # 最近一次运行
 uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1
@@ -29,7 +27,3 @@ uv run demo dance
 `policy.onnx` 的导出与校验，但仍会执行回放和视频录制。
 
 底层 API 请参阅 `unilab.visualization.playback`。
-
-## Navigation
-
-- Index: [文档](0-index.md)

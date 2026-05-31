@@ -1,7 +1,5 @@
 # Go2 / Go2W 运动部署
 
-语言: 简体中文
-
 摇杆驱动的运动（平地 + 崎岖）以及轮足式的 Go2W 变体。两者的硬件流程相似；本页指出
 其中的差异。
 
@@ -67,7 +65,3 @@ Go2W 策略为后轮关节输出**连续轮速**，并为腿部输出**位置目
 - {doc}`5-onnx_runtime`
 - {doc}`6-domain_randomization`
 - {doc}`../../2-user_guide/4-tasks/1-locomotion`
-
-## Navigation
-
-- Index: [文档](0-index.md)

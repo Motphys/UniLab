@@ -1,7 +1,5 @@
 # Registry Bootstrap
 
-语言: 简体中文
-
 Registry bootstrap 是一个针对环境的显式导入契约。它由
 {doc}`/adr/ADR-0004-registry-bootstrap-contract` 定义，并在
 `src/unilab/base/registry.py` 中实现。
@@ -37,7 +35,3 @@ Registry bootstrap 是一个针对环境的显式导入契约。它由
   `src/unilab/envs/manipulation/__init__.py`、
   `src/unilab/envs/motion_tracking/__init__.py`
 - 测试：`tests/base/test_registry.py`、`tests/utils/test_algo_utils.py`
-
-## Navigation
-
-- Index: [文档](0-index.md)

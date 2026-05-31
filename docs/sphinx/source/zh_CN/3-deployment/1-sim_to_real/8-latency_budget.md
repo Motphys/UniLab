@@ -1,7 +1,5 @@
 # 延迟预算
 
-语言: 简体中文
-
 本页记录仓库中可见的延迟控制项，以及硬件上机前你需要做的部署侧测量。把数值预算当作
 机器人专属的测量结果，而不是 UniLab 的默认值。
 
@@ -70,7 +68,3 @@ uv run scripts/deploy/sim_prototype.py \
 - {doc}`6-domain_randomization`
 - {doc}`7-safety_layers`
 - `src/unilab/dr/manager.py`
-
-## Navigation
-
-- Index: [文档](0-index.md)

@@ -1,7 +1,5 @@
 # Backend 能力契约
 
-语言: 简体中文
-
 Backend 差异是契约边界，而不是脚本层面的特殊处理。play/render 的决策记录在
 {doc}`/adr/ADR-0002-backend-capability-boundary-for-play-and-snapshot`。
 
@@ -39,7 +37,3 @@ Backend 差异是契约边界，而不是脚本层面的特殊处理。play/rend
 - Motrix backend：`src/unilab/base/backend/motrix/backend.py`
 - Backend 契约测试：`tests/base/test_sim_backend.py`、
   `tests/base/test_backend_imports.py`、`tests/base/test_motrix_backend_options.py`
-
-## Navigation
-
-- Index: [文档](0-index.md)

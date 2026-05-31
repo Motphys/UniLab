@@ -1,7 +1,5 @@
 # ONNX 运行时
 
-语言: 简体中文
-
 UniLab 从既有的训练回放路径导出 ONNX 策略。使用产出该检查点的同一算法家族与任务
 owner；回放代码加载检查点、导出 `policy.onnx`，并在该路径实现了 ONNX Runtime 检查时
 校验所导出的计算图。
@@ -71,7 +69,3 @@ uv run scripts/deploy/sim_prototype.py \
 - {doc}`8-latency_budget`
 - {doc}`7-safety_layers`
 - `unilab.algos.torch.common.ane_actor.ANEActor`
-
-## Navigation
-
-- Index: [文档](0-index.md)

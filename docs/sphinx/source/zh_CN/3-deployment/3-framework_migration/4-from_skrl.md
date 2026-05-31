@@ -1,7 +1,5 @@
 # 从 skrl 迁移
 
-语言: 简体中文
-
 skrl 的强项在于算法广度。UniLab 专注于一组精选算法（PPO、SAC、TD3，以及若干
 优化变体），但增加了一条真实硬件部署路径。
 
@@ -31,7 +29,3 @@ skrl 的强项在于算法广度。UniLab 专注于一组精选算法（PPO、SA
 2. 把 env 移植为 `NpEnv` 形式。
 3. 把超参数 YAML 转换为 `conf/<algo>/<task>/` 下的 Hydra 组。
 4. 验证 reward 一致性。
-
-## Navigation
-
-- Index: [文档](0-index.md)

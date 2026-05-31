@@ -1,7 +1,5 @@
 # 在后端之间对齐接触与摩擦
 
-语言: 简体中文
-
 接触处理是 MuJoCo 与 Motrix 之间产生漂移的常见来源。本页教你如何识别并消除
 这一差距。
 
@@ -35,7 +33,3 @@
 - {doc}`4-reward_parity`
 - {doc}`../1-sim_to_real/6-domain_randomization`
 - {doc}`6-capability_gaps`
-
-## Navigation
-
-- Index: [文档](0-index.md)

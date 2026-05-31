@@ -1,7 +1,5 @@
 # Agent 速查
 
-语言: 简体中文
-
 本页面向需要以最短路径获取当前仓库事实的维护者与 agent。
 
 ## 从这里开始
@@ -29,7 +27,3 @@
 命令示例请使用 `uv run train`、`uv run eval` 或 `uv run demo`。
 通过 `--algo`、`--task` 与 `--sim` 选择算法、任务与后端；
 只写能够追溯到代码、config、测试或当前文档的事实。
-
-## Navigation
-
-- Index: [文档](0-index.md)

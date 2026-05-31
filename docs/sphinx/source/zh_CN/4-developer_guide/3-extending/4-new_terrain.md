@@ -1,7 +1,5 @@
 # 扩展 UniLab：新地形
 
-语言: 简体中文
-
 地形生成是一项冷路径的场景特性。请把生成与资源 materialization 保持在
 `step()`、`reset()` 以及热路径域随机化循环之外。
 
@@ -38,7 +36,3 @@
 - 地形生成器：`src/unilab/terrains/terrain_generator.py`
 - Heightfield 地形类型：`src/unilab/terrains/heightfield_terrains.py`
 - 高度扫描辅助工具：`src/unilab/envs/locomotion/common/height_scan.py`
-
-## Navigation
-
-- Index: [文档](0-index.md)

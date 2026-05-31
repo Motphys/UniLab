@@ -1,7 +1,5 @@
 # MLX PPO
 
-语言: 简体中文
-
 MLX PPO 使用 PPO 的 task-owner 树，但将训练运行时替换为 MLX 实现。入口脚本是
 `scripts/train_mlx_ppo.py`，配置是 `conf/ppo/config_mlx.yaml`，实现位于
 `src/unilab/algos/mlx/ppo/` 下。
@@ -22,7 +20,3 @@ uv run train --algo mlx_ppo --task go2_joystick_flat --sim motrix training.no_pl
 
 当你需要默认训练路径时优先使用 torch PPO；当你有意运行 MLX 运行时时再使用
 MLX PPO。
-
-## Navigation
-
-- Index: [文档](0-index.md)

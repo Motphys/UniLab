@@ -1,7 +1,5 @@
 # 运动控制
 
-语言: 简体中文
-
 运动控制任务注册在 `src/unilab/envs/locomotion/` 和
 `src/unilab/envs/motion_tracking/` 中。`conf/` 下可用的 owner YAML
 定义了哪些算法与后端组合是可运行的。
@@ -103,7 +101,3 @@ uv run pytest tests/envs/locomotion/test_go2_footstand.py tests/config/test_loco
 ```bash
 uv run python -c "import mujoco; m=mujoco.MjModel.from_xml_path('src/unilab/assets/robots/go2/go2.xml'); print(m.nq, m.nv, m.nu, m.nsensor)"
 ```
-
-## Navigation
-
-- Index: [文档](0-index.md)

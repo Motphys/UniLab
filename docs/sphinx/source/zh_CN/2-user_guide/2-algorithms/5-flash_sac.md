@@ -1,7 +1,5 @@
 # FlashSAC
 
-语言: 简体中文
-
 FlashSAC 是共享 off-policy 入口上的第三个算法。使用 `--algo flashsac` 选择它；默认
 值位于 `conf/offpolicy/algo/flashsac.yaml`，实现位于
 `src/unilab/algos/torch/flash_sac/` 下。
@@ -34,7 +32,3 @@ uv run train --algo flashsac --task go2_joystick_flat --sim mujoco training.no_p
 现发生变化，否则请保持默认的单 GPU 路径。
 
 日志根目录为 `logs/flash_sac/<task>/`。
-
-## Navigation
-
-- Index: [文档](0-index.md)

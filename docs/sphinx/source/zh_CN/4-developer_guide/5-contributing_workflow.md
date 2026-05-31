@@ -1,7 +1,5 @@
 # 协作工作流
 
-语言: 简体中文
-
 仓库文档只记录稳定的标准。执行状态、负责人与阶段推进应当存放在 GitHub
 协作对象中。
 
@@ -70,7 +68,3 @@
 并将其反向链接进上述文档。
 新的 ADR 使用 {doc}`ADR Template </adr/ADR-TEMPLATE>`，且必须显式说明
 `Supersedes`、`Superseded by`、`Alternatives Considered` 与 `Evidence In Repo`。
-
-## Navigation
-
-- Index: [文档](0-index.md)

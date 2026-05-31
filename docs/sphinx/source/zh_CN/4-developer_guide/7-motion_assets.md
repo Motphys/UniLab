@@ -1,7 +1,5 @@
 # Motion 资产迁移指南（Hugging Face）
 
-语言: 简体中文
-
 ## 背景
 
 motion 资产（`.npz` / `.csv`）已从 Git 仓库迁移到 Hugging Face 数据集仓库
@@ -84,7 +82,3 @@ env:
   `MotionLoader.__init__`，在冷路径上调用一次 resolver。
 - 热路径（`step` / `reset`）**不会**触发任何文件下载或解析。
 - `ASSETS_ROOT_PATH` 定义不变，下载落盘位置与原始本地路径完全一致。
-
-## Navigation
-
-- Index: [文档](0-index.md)
