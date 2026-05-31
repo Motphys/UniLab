@@ -47,6 +47,15 @@ Common fields:
 - `training.play_render_mode`
 - `training.logger`
 
+## Inspect the Composed Config
+
+To debug composition, append `--cfg job` to print the fully composed config
+without running training:
+
+```bash
+uv run train --algo ppo --task go2_joystick_flat --sim mujoco --cfg job
+```
+
 ## Backend Identity
 
 `training.sim_backend` is an identity field set by the selected owner YAML. It

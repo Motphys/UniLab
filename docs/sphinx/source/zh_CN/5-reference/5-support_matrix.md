@@ -10,6 +10,20 @@
 - 想知道 `Registered`、`Configured`、`Tested` 的证据差异
 - 想确认 playback 和 owner compose 的 backend 规则
 
+## Backend 选择规则
+
+- 默认后端是 `mujoco`
+- 切到 Motrix 用统一 CLI 的 `--sim motrix`
+- `--algo`、`--task`、`--sim` 共同选择 owner YAML
+- 不要把 `training.sim_backend` 当独立 backend switch
+
+## Playback Differences
+
+- `mujoco`: `--render-mode auto` 会导出 `play_video.mp4`
+- `motrix`: `--render-mode auto` 会打开交互式 renderer 窗口，不录制视频，不受 `play_steps` 限制
+- `--render-mode record`: 两个后端都只录制视频
+- `--render-mode none`: 不回放
+
 ## Support Matrix
 
 下面的矩阵由 registry、owner YAML 和测试清单自动汇总；不要手工编辑表格内容。需要刷新时运行：
@@ -107,20 +121,6 @@ uv run scripts/generate_support_matrix.py --write
 - MLX-specific compose coverage only upgrades task owners listed in `tests/config/test_config_system.py::_PPO_MLX_TASKS`: `go1_joystick_flat`, `go2_joystick_flat`, `g1_walk_flat`.
 - MLX runtime smoke: `tests/algos/test_mlx_ppo.py::test_mlx_ppo_one_iteration_real_env` currently exercises `go2_joystick_flat/mujoco`.
 <!-- END GENERATED SUPPORT MATRIX -->
-
-## Backend 选择规则
-
-- 默认后端通常是 `mujoco`
-- 切到 Motrix 用统一 CLI 的 `--sim motrix`
-- `--algo`、`--task`、`--sim` 共同选择 owner YAML
-- 不要把 `training.sim_backend` 当独立 backend switch
-
-## Playback Differences
-
-- `mujoco`: `--render-mode auto` 会导出 `play_video.mp4`
-- `motrix`: `--render-mode auto` 会打开交互式 renderer 窗口，不录制视频，不受 `play_steps` 限制
-- `--render-mode record`: 两个后端都只录制视频
-- `--render-mode none`: 不回放
 
 ## Navigation
 

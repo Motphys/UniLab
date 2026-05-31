@@ -34,12 +34,46 @@ primitives under `src/unilab/ipc/` and `src/unilab/algos/`.
   `uv run eval ...` to select the public algorithm/task/backend route. These
   flags compose the matching owner YAML; `training.sim_backend` is an identity
   field.
+- Prefer config over branching. The escalation order for any extension is config
+  schema -> registry -> env/backend adapter layer -> and only as a last resort a
+  script branch.
 - Do not parse XML or assets in hot paths such as `step`, `reset`, or interval
   domain randomization.
 - If shared env code needs a backend operation, add it to `SimBackend` before
   using it.
+- Make evidence-graded claims. Use grades such as `Registered`, `Configured`,
+  `Tested`, `Benchmarked`, or `Recommended`; do not claim stable support without
+  evidence in the repo.
+- Lift reusable primitives. Shared logic belongs in `src/unilab/base/` or
+  `src/unilab/utils/`, not copy-pasted across workflows.
 - Validate at the closest boundary to the risk: config tests for Hydra changes,
   env tests for observation/reset changes, IPC tests for runner changes.
+
+## Validation
+
+Validate near the risk. A top-level smoke run supplements, but does not replace,
+validation at the boundary a change actually touched.
+
+| Change type | Minimum validation |
+| --- | --- |
+| Docs only | `uv run pytest tests/scripts/test_check_docs.py -q`, plus manually verify every support claim against the repo |
+| Hydra / task / reward config | `make test` (`tests/config/`, `tests/scripts/`) |
+| Env contract / observation | `make test` (`tests/base/test_np_env.py` and env tests) plus a 1-iteration smoke run |
+| Runner / IPC | `make test`; add `make test-slow` when needed |
+| Backend path | the matching backend smoke run, plus a slow test when needed |
+| Training entrypoint | the relevant tests plus a 1-iteration smoke run |
+
+Use `make test` for the fast path and `make test-all` (`make check` plus
+`make test-cov`) before opening a PR.
+
+## Review Checklist
+
+1. Which contract did this change touch?
+2. Should this problem be solved at a lower layer?
+3. Is backend or task behavior expressed through config, or hidden by a script
+   special-case?
+4. Is the support claim backed by registry, config, test, or benchmark evidence?
+5. Is validation done at the closest boundary to the risk?
 
 ## High-Signal Files
 

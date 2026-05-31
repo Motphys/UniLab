@@ -49,6 +49,14 @@ uv run train --algo ppo --task go2_joystick_flat --sim mujoco \
 - `training.play_render_mode`
 - `training.logger`
 
+## 查看完整 compose 结果
+
+调试组合时，可在命令末尾追加 `--cfg job`，打印完整组合后的配置而不真正运行训练：
+
+```bash
+uv run train --algo ppo --task go2_joystick_flat --sim mujoco --cfg job
+```
+
 ## 后端身份
 
 `training.sim_backend` 是由所选 owner YAML 设置的身份字段。它不是一个独立的后端切

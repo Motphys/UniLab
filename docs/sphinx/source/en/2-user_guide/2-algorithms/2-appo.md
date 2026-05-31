@@ -28,5 +28,20 @@ Playback and checkpoint selection use `uv run eval`:
 uv run eval --algo appo --task go2_joystick_flat --sim mujoco --load-run -1
 ```
 
-The default log family is `2-appo`, from `algo.algo_log_name` in
-`conf/appo/config.yaml`.
+## Runtime Model
+
+- The collector runs CPU simulation while the learner runs GPU training.
+- Rollouts are published into a replay queue that the learner consumes.
+- APPO applies a V-trace importance-sampling correction, so its update
+  semantics differ from synchronous PPO.
+- The collector/learner pipeline is backed by a 4-slot ring buffer.
+
+## Key Fields
+
+- `algo.steps_per_env`: rollout length per environment.
+- `training.replay_queue_size`: learner-side cache depth.
+- `training.collector_device`: collector device; defaults to following the learner.
+- `algo.save_interval`: checkpoint save interval.
+
+The default log root is `logs/appo/<task>/`, from `algo.algo_log_name=appo`
+in `conf/appo/config.yaml`.
