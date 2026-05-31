@@ -20,8 +20,8 @@ A Heterogeneous Architecture for Robot RL Beyond GPU-Dominant Paradigms
 
 <p align="center"><em>Train robot RL without a GPU simulation backend. Teaser rendered with MotrixSim.</em></p>
 
-Start with the `Quick Demo` below to run the primary training command from this repository. The recommended setup path uses `uv`; platform-specific notes are in the [installation guide](docs/sphinx/source/en/1-getting_started/2-installation.md).
-Conda and pip users should still follow the repository `uv` workflow for now; see the [installation guide](docs/sphinx/source/en/1-getting_started/2-installation.md) for the current boundaries.
+Start with the `Quick Demo` below to run the primary training command from this repository. The recommended setup path uses `uv`; platform-specific notes are in the [installation guide](https://unilabsim.github.io/UniLab-doc/en/1-getting_started/2-installation.html).
+Conda and pip users should still follow the repository `uv` workflow for now; see the [installation guide](https://unilabsim.github.io/UniLab-doc/en/1-getting_started/2-installation.html) for the current boundaries.
 
 ## ✨ Highlights
 
@@ -67,7 +67,7 @@ make setup-motrix
 uv run demo dance
 ```
 
-Available demo names: `teaser`, `dance`, `wallflip`, `boxtracking`, `locomani`, `inhandgrasp`. See the [Unified CLI](docs/sphinx/source/en/2-user_guide/1-training/1-cli_reference.md) page for the full list and flags.
+Available demo names: `teaser`, `dance`, `wallflip`, `boxtracking`, `locomani`, `inhandgrasp`. See the [Unified CLI](https://unilabsim.github.io/UniLab-doc/en/2-user_guide/1-training/1-cli_reference.html) page for the full list and flags.
 
 > Mainland China users: motions, scenes, and demo checkpoints are pulled from Hugging Face on first run. If `huggingface.co` is unreachable, point the client at the community mirror before running demo commands:
 >
@@ -88,7 +88,7 @@ uv run eval --algo appo --task go2_joystick_flat --sim motrix --load-run -1 --re
 
 This routes through the `go2_joystick_flat/motrix` task owner config and keeps backend selection explicit.
 
-On macOS / MacBook, the UniLab CLI routes Motrix interactive playback through `mxpython` when needed. Motrix defaults to interactive playback; use `--render-mode record` for headless video export or `--render-mode none` to skip playback. Detailed script-level commands are in the [Training Guide](docs/sphinx/source/en/2-user_guide/1-training/0-index.md).
+On macOS / MacBook, the UniLab CLI routes Motrix interactive playback through `mxpython` when needed. Motrix defaults to interactive playback; use `--render-mode record` for headless video export or `--render-mode none` to skip playback. Detailed script-level commands are in the [Training Guide](https://unilabsim.github.io/UniLab-doc/en/2-user_guide/1-training/0-index.html).
 
 The Go2Arm manipulation-locomotion PPO task also supports Motrix after installing the `motrix` extra:
 
@@ -130,23 +130,23 @@ uv run eval --algo ppo --task go2_arm_manip_loco --sim motrix --load-run -1
 uv run train --algo ppo --task sharpa_inhand --sim mujoco --profile hora
 ```
 
-More training commands, script-level entrypoints, resume flow, and W&B details are in the [Training Guide](docs/sphinx/source/en/2-user_guide/1-training/0-index.md).
+More training commands, script-level entrypoints, resume flow, and W&B details are in the [Training Guide](https://unilabsim.github.io/UniLab-doc/en/2-user_guide/1-training/0-index.html).
 
 ## 🎯 Training Entrypoints
 
 Use `uv run train` for training, `uv run eval` for checkpoint playback, and `uv run demo` for the local demo preset. These commands keep algorithm, task, and backend selection explicit.
 
-See [03 Training Guide](docs/sphinx/source/en/2-user_guide/1-training/0-index.md) for the algorithm matrix, log directory layout, Hydra overrides, script-level entrypoints, and demo flags.
+See [Training Guide](https://unilabsim.github.io/UniLab-doc/en/2-user_guide/1-training/0-index.html) for the algorithm matrix, log directory layout, Hydra overrides, script-level entrypoints, and demo flags.
 
 ## 📚 Documentation
 
-Use the published [UniLab documentation](https://unilabsim.github.io/UniLab-doc/) for the rendered docs, or [docs/sphinx/source/en/0-index.md](docs/sphinx/source/en/0-index.md) as the English source documentation index. High-signal entrypoints:
+Use the published [UniLab documentation](https://unilabsim.github.io/UniLab-doc/); start at the [English documentation index](https://unilabsim.github.io/UniLab-doc/en/0-index.html). High-signal entrypoints:
 
-- [Getting Started](docs/sphinx/source/en/1-getting_started/0-index.md): installation, Docker runtime, dependency setup, and first-run commands
-- [Training Guide](docs/sphinx/source/en/2-user_guide/1-training/0-index.md): training, playback, resume flow, Hydra overrides, and W&B
-- [Simulation Backends](docs/sphinx/source/en/2-user_guide/3-backends/0-index.md): generated MuJoCo / Motrix support matrix
-- [Development Standard](docs/sphinx/source/en/4-developer_guide/0-index.md): contracts, layering, and validation boundaries
-- [ADR Index](docs/sphinx/source/adr/ADR-0000-index.md): accepted architecture decisions
+- [Getting Started](https://unilabsim.github.io/UniLab-doc/en/1-getting_started/0-index.html): installation, Docker runtime, dependency setup, and first-run commands
+- [Training Guide](https://unilabsim.github.io/UniLab-doc/en/2-user_guide/1-training/0-index.html): training, playback, resume flow, Hydra overrides, and W&B
+- [Simulation Backends](https://unilabsim.github.io/UniLab-doc/en/2-user_guide/3-backends/0-index.html): generated MuJoCo / Motrix support matrix
+- [Development Standard](https://unilabsim.github.io/UniLab-doc/en/4-developer_guide/0-index.html): contracts, layering, and validation boundaries
+- [ADR Index](https://unilabsim.github.io/UniLab-doc/adr/ADR-0000-index.html): accepted architecture decisions
 
 ## 💬 Community
 

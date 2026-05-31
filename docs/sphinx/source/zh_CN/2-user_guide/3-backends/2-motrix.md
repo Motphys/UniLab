@@ -1,7 +1,5 @@
 # Motrix 后端
 
-语言: 简体中文
-
 Motrix 是一个可选后端，通过 `motrix` extra 安装。在 `pyproject.toml` 中固定的
 软件包是 `motrixsim-core==0.8.1.dev104665`，适配层位于
 `src/unilab/base/backend/motrix/` 下。
@@ -29,7 +27,3 @@ uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1 --ren
 
 使用 `--render-mode record` 进行无头的仅视频回放。后端选择请保留在
 `--sim motrix` 中，而不要单独 override `training.sim_backend`。
-
-## Navigation
-
-- Index: [文档](0-index.md)

@@ -1,7 +1,5 @@
 # 安装
 
-语言: 简体中文
-
 本页仅涉及依赖配置。训练命令和回放细节请参阅快速上手与算法相关页面。
 
 ## 环境要求
@@ -41,6 +39,28 @@ uv sync
 uv sync --extra motrix
 ```
 
+## conda 与 pip
+
+当前推荐路径仍然是源码仓库内的 `make setup` / `make setup-motrix`（或 `uv`）工作
+流。conda 可以作为外层 Python、CUDA 或系统库的隔离环境，但进入环境后仍建议继续使
+用本仓库的 `make` / `uv` 命令：
+
+```bash
+conda create -n unilab python=3.13
+conda activate unilab
+pip install uv
+git clone https://github.com/unilabsim/UniLab.git
+cd UniLab
+make setup-motrix
+```
+
+如果不需要 Motrix，可使用 `make setup`；ROCm / XPU 仍走下方专用的 `make` 路径。
+
+`pip install -e .` 和 `pip install .` 当前只适合源码 checkout 内的开发验证，尚不支
+持通过构建好的 wheel / sdist 在任意目录直接运行训练。训练入口仍依赖仓库中的
+`conf/` 和 `scripts/`。pip-only 安装、仓库外运行以及正式发布 wheel 的验证路径由
+#360 跟踪。
+
 ## 平台配置档
 
 Linux CUDA 和 macOS 使用默认的 `pyproject.toml`。默认的 Linux torch
@@ -55,6 +75,23 @@ make sync-xpu
 
 `make sync-rocm` 会将 `pyproject.rocm.toml` 复制为 `pyproject.toml` 并同步
 ROCm 配置档。`make sync-xpu` 会同步 Motrix 依赖但不安装默认的 torch 包，然后通过 `uv pip` 安装 XPU 版本的 torch wheel。
+
+ROCm 说明：
+
+- `make sync-rocm` 要求 ROCm `>= 7.1`，并按仓库的 ROCm 依赖文件安装对应的 PyTorch
+  wheel。
+- 它会把 `pyproject.rocm.toml` / `uv.rocm.lock` 激活为当前的 `pyproject.toml` /
+  `uv.lock`，因此之后可以直接运行裸 `uv run ...`。
+- 切回默认 CUDA / macOS 配置档时，运行 `git restore -- pyproject.toml uv.lock`，然
+  后重新执行 `make setup-motrix`（或 `uv sync --extra motrix`）；提交任何非 ROCm
+  依赖改动前先确认当前配置档。
+- 训练配置里的设备字段仍沿用 `cuda` 语义，不要改成 `rocm`。
+
+Intel XPU 说明：
+
+- 保持使用 `uv run --no-sync ...`，避免把默认的 Linux 依赖重新同步回来。
+- Ubuntu 24.04+ 上还需要系统驱动包 `intel-opencl-icd` 和 `libze-intel-gpu1`。
+- off-policy 训练可按需加 `training.use_amp=true`。
 
 ## 软件包镜像
 
@@ -86,7 +123,3 @@ uv run train --algo ppo --task go2_joystick_flat --sim motrix \
 ```
 
 不要单独使用 `training.sim_backend` 字段来切换后端；请通过 `--sim` 选择后端。
-
-## Navigation
-
-- Index: [文档](0-index.md)

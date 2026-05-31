@@ -1,7 +1,5 @@
 # 硬件上的 G1 全身运动跟踪
 
-语言: 简体中文
-
 ::::{admonition} 硬件目标
 :class: note
 Unitree G1 人形机器人（29 自由度变体）。假定关节顺序与
@@ -156,7 +154,3 @@ ONNX 输入宽度与 `deploy_config.yaml` 的 `obs_dim` 之间的不匹配是部
 - {doc}`8-latency_budget`
 - {doc}`7-safety_layers`
 - {doc}`../../2-user_guide/4-tasks/2-motion_tracking`
-
-## Navigation
-
-- Index: [文档](0-index.md)

@@ -1,7 +1,5 @@
 # 任务 owner config 契约
 
-语言: 简体中文
-
 任务 owner YAML 是一条已 compose 的 任务/backend/算法 路径的身份。该契约记录在
 {doc}`/adr/ADR-0003-task-owner-and-config-compose-contract`。
 
@@ -38,7 +36,3 @@
 - Config 测试：`tests/config/test_config_system.py`、
   `tests/scripts/test_train_script_configs.py`、
   `tests/envs/locomotion/g1/test_issue175_regression.py`
-
-## Navigation
-
-- Index: [文档](0-index.md)

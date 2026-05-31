@@ -1,7 +1,5 @@
 # 编写 Provider
 
-语言: 简体中文
-
 任务级域随机化 provider 与 task env owner 放在一起。它们采样任务专属的
 状态，并返回由 `DomainRandomizationManager` 消费的 plan。
 
@@ -36,7 +34,3 @@
 
 开发者 contract 详情见
 {doc}`../../4-developer_guide/2-contracts/4-dr_contract`。
-
-## Navigation
-
-- Index: [文档](0-index.md)

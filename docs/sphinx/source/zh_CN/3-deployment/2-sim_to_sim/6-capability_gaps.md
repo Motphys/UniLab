@@ -1,7 +1,5 @@
 # 能力缺口
 
-语言: 简体中文
-
 一张持续维护的表格，记录通过 `SimBackend` 及当前后端实现暴露出来的后端能力。
 当某项能力被加入或从 backend contract 中移除时，请更新本页。
 
@@ -60,7 +58,3 @@
 
 - {doc}`1-backend_swap`
 - {doc}`../../4-developer_guide/2-contracts/2-backend_contract`
-
-## Navigation
-
-- Index: [文档](0-index.md)

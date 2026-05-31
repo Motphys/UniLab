@@ -1,7 +1,5 @@
 # Domain Randomization 契约
 
-语言: 简体中文
-
 Domain randomization 是一个 env-owner 的 provider 契约，加上 backend 能力的
 应用。用户配置示例见
 {doc}`../../2-user_guide/5-domain_randomization/0-index`。
@@ -44,10 +42,37 @@ MuJoCo 与 Motrix 的差异保留在 backend 能力声明、backend 实现与 ow
 
 当前 MuJoCo 的 reset 随机化使用 `BatchEnvPool.reset(..., randomization=...)`，
 并带有固定的字段白名单。带索引的读写可通过 `get_field_indexed(...)` 与
-`set_field_indexed(...)` 实现。
+`set_field_indexed(...)` 实现。该接口位于 `mujoco-uni` 包
+（`mujoco.batch_env`），不在本仓库中；映射到它的 reset-term 常量定义在
+`src/unilab/dr/types.py`。
 
-当前代码路径中记录的字段名包括 `body_mass`、`body_ipos`、`body_iquat`、
-`body_inertia`、`dof_armature`、`gravity`、`geom_friction`、`kp` 与 `kd`。
+支持的 reset 字段及其每 env 整块形状如下。首维始终是 `len(env_ids)`；尾部
+整块大小是该字段在单个 `mjModel` 里的完整 flat 宽度。
+
+| 字段 | 每 env 整块形状 |
+| --- | --- |
+| `body_mass` | `nbody` |
+| `body_ipos` | `3 * nbody` |
+| `body_iquat` | `4 * nbody` |
+| `body_inertia` | `3 * nbody` |
+| `dof_armature` | `nv` |
+| `gravity` | `3` |
+| `geom_friction` | `3 * ngeom` |
+| `kp` | `nu` |
+| `kd` | `nu` |
+
+refresh 行为由 backend 固定：`body_mass`、`body_ipos`、`body_iquat`、
+`body_inertia` 与 `dof_armature` 在写入后会触发 `mj_setConst` refresh，而
+`gravity`、`geom_friction`、`kp` 与 `kd` 不触发。
+
+两点注意：
+
+- `geom_size` 不在 `SUPPORTED_FIELDS` 里。几何尺寸通过 init-lifecycle 的模型
+  materialization 表达（见 `src/unilab/dr/types.py` 中的 `GeomSizeOverride` /
+  `ModelVariantSpec`），不走 reset 随机化。
+- `gravity` 的 reset 随机化需要包含它的 `mujoco-uni` 构建。本仓库锁定
+  `mujoco-uni==3.8.0`，其 `SUPPORTED_FIELDS` 包含 `gravity`；更旧的版本（例如
+  `3.6.0.post6`）则没有。
 
 ## 电机控制扩展
 
@@ -68,7 +93,3 @@ actuator 的机制泄漏到共享 payload 里。
 - 示例 provider：`src/unilab/envs/locomotion/g1/joystick.py`、
   `src/unilab/envs/motion_tracking/g1/tracking.py`、
   `src/unilab/envs/manipulation/sharpa_inhand/rotation.py`
-
-## Navigation
-
-- Index: [文档](0-index.md)

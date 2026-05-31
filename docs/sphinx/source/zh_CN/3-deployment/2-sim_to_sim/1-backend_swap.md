@@ -1,7 +1,5 @@
 # 切换后端
 
-语言: 简体中文
-
 UniLab 支持两个 CPU 物理后端：**MuJoCo**（通过 `mujoco-uni`）和
 **Motrix**（通过 `motrixsim-core`）。两者实现了相同的 `SimBackend`
 contract 和相同的 env contract。后端特有的行为通过显式方法和能力记录
@@ -46,7 +44,3 @@ CLI 会把 `--algo`、`--task` 和 `--sim` 解析为一个 owner YAML，例如
 - {doc}`2-owner_yaml_swap`
 - {doc}`4-reward_parity`
 - {doc}`6-capability_gaps`
-
-## Navigation
-
-- Index: [文档](0-index.md)

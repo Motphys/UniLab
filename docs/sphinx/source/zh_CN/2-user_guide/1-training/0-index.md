@@ -44,6 +44,22 @@ TensorBoard、W&B、运行元数据以及 trace 选项。
 
 ::::
 
+## 什么时候下沉到 `scripts/train_*.py`
+
+日常运行应使用统一 CLI。只有在下面几种场景才直接使用底层
+`scripts/train_*.py` 入口：
+
+- 需要调试特定训练栈，
+- 需要直接观察 Hydra compose 行为，或
+- 需要对照脚本级日志目录或 adapter 行为。
+
+## 关联
+
+- 选择算法：{doc}`../2-algorithms/0-index`
+- 查找任务命令：{doc}`../4-tasks/0-index`
+- 对比后端行为：{doc}`../3-backends/0-index`
+- 查询精确支持状态：{doc}`../../5-reference/5-support_matrix`
+
 ```{toctree}
 :hidden:
 

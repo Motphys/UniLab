@@ -1,7 +1,5 @@
 # HORA
 
-语言: 简体中文
-
 已提交的 HORA 路径是 Sharpa 手内（in-hand）teacher/student 流程。teacher owner 位
 于 PPO 与 APPO 的 task 树下，通过 `sharpa_inhand` 的 `7-hora` profile 选择；student
 蒸馏使用 `scripts/train_hora_distill.py` 和
@@ -26,7 +24,3 @@ HORA 蒸馏 `--algo` 路由，因此本页的公开 CLI 示例仍保持在上面
 
 teacher 检查点的解析在 `src/unilab/algos/torch/hora/distill_config.py` 中实现。
 student 日志族为 `hora_distill`。
-
-## Navigation
-
-- Index: [文档](0-index.md)

@@ -1,7 +1,5 @@
 # 续训与检查点
 
-语言: 简体中文
-
 检查点选择由算法层面的字段控制。请使用 `algo.load_run`，而不是
 `training.load_run`。
 
@@ -39,7 +37,3 @@ uv run eval --algo ppo --task go2_joystick_flat --sim mujoco --load-run -1
 
 训练种子的解析在 `src/unilab/training/seed.py` 中实现。算法配置目前携带
 `algo.seed`，并且在实验跟踪启用时，该辅助逻辑会记录种子元数据。
-
-## Navigation
-
-- Index: [文档](0-index.md)

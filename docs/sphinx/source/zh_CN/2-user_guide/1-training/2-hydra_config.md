@@ -1,7 +1,5 @@
 # Hydra 配置
 
-语言: 简体中文
-
 UniLab 使用基于 task owner YAML 的 Hydra 组合。owner YAML 是 task、backend、
 reward、scene 以及 task 专属运行时字段的身份标识。
 
@@ -49,13 +47,17 @@ uv run train --algo ppo --task go2_joystick_flat --sim mujoco \
 - `training.play_render_mode`
 - `training.logger`
 
+## 查看完整 compose 结果
+
+调试组合时，可在命令末尾追加 `--cfg job`，打印完整组合后的配置而不真正运行训练：
+
+```bash
+uv run train --algo ppo --task go2_joystick_flat --sim mujoco --cfg job
+```
+
 ## 后端身份
 
 `training.sim_backend` 是由所选 owner YAML 设置的身份字段。它不是一个独立的后端切
 换开关。请使用统一 CLI 的 `--sim` flag 来选择后端。
 
 参见 {doc}`../../4-developer_guide/2-contracts/3-task_owner` 中的开发者 contract。
-
-## Navigation
-
-- Index: [文档](0-index.md)

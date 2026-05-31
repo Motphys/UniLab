@@ -1,7 +1,5 @@
 # 扩展 UniLab：新算法
 
-语言: 简体中文
-
 算法相关的工作必须保持 env、config 与 runner 契约。请从
 {doc}`../2-contracts/1-env_contract`、{doc}`../2-contracts/3-task_owner` 与
 {doc}`../2-contracts/5-runner_lifecycle` 开始。
@@ -46,7 +44,3 @@
   `src/unilab/training/run.py`
 - 现有算法包：`src/unilab/algos/torch/`、
   `src/unilab/algos/mlx/`
-
-## Navigation
-
-- Index: [文档](0-index.md)

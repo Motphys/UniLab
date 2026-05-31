@@ -44,6 +44,22 @@ Current off-policy multi-GPU knobs and their config boundary.
 
 ::::
 
+## When to Drop to `scripts/train_*.py`
+
+Day-to-day runs should use the unified CLI. Reach for the low-level
+`scripts/train_*.py` entrypoints only when you are:
+
+- debugging a specific training stack,
+- observing Hydra compose behavior directly, or
+- comparing script-level log directories or adapter behavior.
+
+## Related
+
+- Pick an algorithm: {doc}`../2-algorithms/0-index`
+- Find task commands: {doc}`../4-tasks/0-index`
+- Compare backend behavior: {doc}`../3-backends/0-index`
+- Check exact support status: {doc}`../../5-reference/5-support_matrix`
+
 ```{toctree}
 :hidden:
 

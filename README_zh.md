@@ -21,9 +21,9 @@
 <p align="center"><em>无需 GPU 仿真后端即可训练机器人 RL。预告图由 MotrixSim 渲染。</em></p>
 
 从下面的 `快速演示` 开始，运行本仓库里的主训练命令。推荐的安装路径使用 `uv`；平台相关说明见
-[安装指南](docs/sphinx/source/zh_CN/1-getting_started/2-installation.md)。
+[安装指南](https://unilabsim.github.io/UniLab-doc/zh_CN/1-getting_started/2-installation.html)。
 Conda 和 pip 用户目前也应继续遵循仓库的 `uv` 工作流；当前边界说明见
-[安装指南](docs/sphinx/source/zh_CN/1-getting_started/2-installation.md)。
+[安装指南](https://unilabsim.github.io/UniLab-doc/zh_CN/1-getting_started/2-installation.html)。
 
 ## ✨ 亮点
 
@@ -70,7 +70,7 @@ uv run demo dance
 ```
 
 可用的 demo 名称：`teaser`、`dance`、`wallflip`、`boxtracking`、`locomani`、`inhandgrasp`。
-完整的命令与参数请参阅 [统一 CLI](docs/sphinx/source/zh_CN/2-user_guide/1-training/1-cli_reference.md) 页面。
+完整的命令与参数请参阅 [统一 CLI](https://unilabsim.github.io/UniLab-doc/zh_CN/2-user_guide/1-training/1-cli_reference.html) 页面。
 
 > 中国大陆用户：动作、场景和 demo checkpoint 首次运行时会从 Hugging Face 拉取。如果 `huggingface.co`
 > 无法访问，请在运行 demo 命令前先将客户端切到社区镜像：
@@ -92,7 +92,7 @@ uv run eval --algo appo --task go2_joystick_flat --sim motrix --load-run -1 --re
 
 这会路由到 `go2_joystick_flat/motrix` 任务 owner 配置，并保持后端选择显式化。
 
-在 macOS / MacBook 上，UniLab CLI 在需要时会通过 `mxpython` 路由 Motrix 交互式回放。Motrix 默认使用交互式回放；要导出无头视频请使用 `--render-mode record`，要跳过回放请使用 `--render-mode none`。更细的脚本级命令请参阅 [训练指南](docs/sphinx/source/zh_CN/2-user_guide/1-training/0-index.md)。
+在 macOS / MacBook 上，UniLab CLI 在需要时会通过 `mxpython` 路由 Motrix 交互式回放。Motrix 默认使用交互式回放；要导出无头视频请使用 `--render-mode record`，要跳过回放请使用 `--render-mode none`。更细的脚本级命令请参阅 [训练指南](https://unilabsim.github.io/UniLab-doc/zh_CN/2-user_guide/1-training/0-index.html)。
 
 安装 `motrix` extra 后，Go2Arm 操纵-运动 PPO 任务也支持 Motrix：
 
@@ -129,23 +129,23 @@ uv run eval --algo ppo --task go2_arm_manip_loco --sim motrix --load-run -1
 uv run train --algo ppo --task sharpa_inhand --sim mujoco --profile hora
 ```
 
-更多训练命令、脚本级入口、续训流程以及 W&B 细节请参阅 [训练指南](docs/sphinx/source/zh_CN/2-user_guide/1-training/0-index.md)。
+更多训练命令、脚本级入口、续训流程以及 W&B 细节请参阅 [训练指南](https://unilabsim.github.io/UniLab-doc/zh_CN/2-user_guide/1-training/0-index.html)。
 
 ## 🎯 训练入口
 
 训练使用 `uv run train`，检查点回放使用 `uv run eval`，本地 demo 预设使用 `uv run demo`。这些命令会保持算法、任务和后端选择显式化。
 
-请参阅 [03 训练指南](docs/sphinx/source/zh_CN/2-user_guide/1-training/0-index.md)，查看算法矩阵、日志目录布局、Hydra override、脚本级入口以及 demo 标志。
+请参阅 [训练指南](https://unilabsim.github.io/UniLab-doc/zh_CN/2-user_guide/1-training/0-index.html)，查看算法矩阵、日志目录布局、Hydra override、脚本级入口以及 demo 标志。
 
 ## 📚 文档
 
-渲染后的文档请使用已发布的 [UniLab 文档](https://unilabsim.github.io/UniLab-doc/)，源码文档入口则可使用 [docs/sphinx/source/zh_CN/0-index.md](docs/sphinx/source/zh_CN/0-index.md)。高信号入口如下：
+请使用已发布的 [UniLab 文档](https://unilabsim.github.io/UniLab-doc/)；中文文档入口见 [中文文档索引](https://unilabsim.github.io/UniLab-doc/zh_CN/0-index.html)。高信号入口如下：
 
-- [快速上手](docs/sphinx/source/zh_CN/1-getting_started/0-index.md)：安装、Docker 运行时、依赖配置和首次运行命令
-- [训练指南](docs/sphinx/source/zh_CN/2-user_guide/1-training/0-index.md)：训练、回放、续训流程、Hydra override 和 W&B
-- [仿真后端](docs/sphinx/source/zh_CN/2-user_guide/3-backends/0-index.md)：生成的 MuJoCo / Motrix 支持矩阵
-- [开发者指南](docs/sphinx/source/zh_CN/4-developer_guide/0-index.md)：契约、分层与验证边界
-- [ADR 索引](docs/sphinx/source/adr/ADR-0000-index.md)：已采纳的架构决策
+- [快速上手](https://unilabsim.github.io/UniLab-doc/zh_CN/1-getting_started/0-index.html)：安装、Docker 运行时、依赖配置和首次运行命令
+- [训练指南](https://unilabsim.github.io/UniLab-doc/zh_CN/2-user_guide/1-training/0-index.html)：训练、回放、续训流程、Hydra override 和 W&B
+- [仿真后端](https://unilabsim.github.io/UniLab-doc/zh_CN/2-user_guide/3-backends/0-index.html)：生成的 MuJoCo / Motrix 支持矩阵
+- [开发者指南](https://unilabsim.github.io/UniLab-doc/zh_CN/4-developer_guide/0-index.html)：契约、分层与验证边界
+- [ADR 索引](https://unilabsim.github.io/UniLab-doc/adr/ADR-0000-index.html)：已采纳的架构决策
 
 ## 💬 社群交流
 

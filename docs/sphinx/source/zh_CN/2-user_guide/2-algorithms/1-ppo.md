@@ -1,7 +1,5 @@
 # PPO
 
-语言: 简体中文
-
 PPO 是默认的同步 on-policy 训练路径。它使用 `scripts/train_rsl_rl.py`，从
 `conf/ppo/config.yaml` 组合配置，并运行 `src/unilab/algos/torch/rsl_rl_ppo.py`
 和 `src/unilab/training/rsl_rl.py` 中的 RSL-RL 适配代码。
@@ -30,7 +28,3 @@ uv run eval --algo ppo --task go2_joystick_flat --sim mujoco --load-run -1
 
 日志按 `algo.algo_log_name` 分组；`conf/ppo/config.yaml` 中的默认值为
 `rsl_rl_ppo`。
-
-## Navigation
-
-- Index: [文档](0-index.md)

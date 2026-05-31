@@ -1,7 +1,5 @@
 # 程序化地形
 
-语言: 简体中文
-
 本页只回答四个问题：
 
 1. 如何运行当前仓库中已经存在的崎岖地形任务？
@@ -183,7 +181,3 @@ uv run train --algo ppo --task go2_joystick_rough --sim motrix \
 - **高度扫描支持通过 `create_hfield_scanner(...)`**：崎岖 env 在初始化期间缓存 scanner id 和偏移，然后在观测/奖励代码中消费 scanner 输出，热路径上不解析 XML。
 - **`scene.terrain.generator` 是冷路径配置**：在 env 构建之后修改 generator 不会影响已经实例化的场景。要更换地形，必须重建 env（即重新运行训练命令）。
 - **`import unilab.terrains` 不依赖 mujoco**：`TerrainGenerator.generate()` / `write_png()` 是纯 numpy + imageio 路径。
-
-## Navigation
-
-- Index: [文档](0-index.md)

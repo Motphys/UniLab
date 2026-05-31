@@ -1,7 +1,5 @@
 # 分层边界
 
-语言: 简体中文
-
 本页是
 {doc}`/adr/ADR-0001-runtime-model-and-layer-boundaries` 中所记录架构规则的
 检查清单。项目的权威标准见
@@ -37,7 +35,3 @@
 - Registry 构造路径：`src/unilab/base/registry.py`
 - 训练入口：`scripts/train_rsl_rl.py`、`scripts/train_mlx_ppo.py`、
   `scripts/train_appo.py`、`scripts/train_offpolicy.py`
-
-## Navigation
-
-- Index: [文档](0-index.md)

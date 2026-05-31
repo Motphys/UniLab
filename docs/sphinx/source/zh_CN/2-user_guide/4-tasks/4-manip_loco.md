@@ -1,7 +1,5 @@
 # Manip-Loco
 
-语言: 简体中文
-
 `go2_arm_manip_loco` 将 Go2 运动控制与 Airbot 机械臂结合。其注册的
 env 是 `Go2ArmManipLoco`。
 
@@ -26,7 +24,3 @@ HIM-PPO owner 是 `conf/ppo_him/task/go2_arm_manip_loco/mujoco.yaml`。
 当前已提交的 owner 路径是 MuJoCo。后端选择请保留在
 `--task go2_arm_manip_loco --sim mujoco` 中，不要单独 override
 `training.sim_backend`。
-
-## Navigation
-
-- Index: [文档](0-index.md)

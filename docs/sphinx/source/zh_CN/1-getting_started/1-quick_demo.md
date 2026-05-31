@@ -1,7 +1,5 @@
 # 快速演示
 
-语言: 简体中文
-
 本页对应 README 中的快速演示（Quick Demo），使用一级 UniLab CLI：
 `uv run train`、`uv run eval` 和 `uv run demo`。
 
@@ -88,7 +86,3 @@ uv run train --algo ppo --task go2_joystick_flat --sim motrix \
 - 回放细节：{doc}`3-evaluation_and_playback`。
 - 在 {doc}`../2-user_guide/1-training/1-cli_reference` 中了解统一 CLI。
 - 在 {doc}`../2-user_guide/1-training/2-hydra_config` 中阅读 Hydra owner YAML 的工作方式。
-
-## Navigation
-
-- Index: [文档](0-index.md)

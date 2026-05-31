@@ -170,59 +170,6 @@ def test_collect_doc_errors_scans_scripts_markdown(tmp_path):
     assert any("Use `uv run scripts/...`" in error for error in errors)
 
 
-def test_check_zh_cn_doc_shape_requires_language_navigation_and_index(tmp_path):
-    root = tmp_path
-    doc_path = (
-        root / "docs" / "sphinx" / "source" / "zh_CN" / "1-user_guide" / "5-domain-randomization.md"
-    )
-    doc_path.parent.mkdir(parents=True)
-    content = "# 域随机化\n\n缺少语言头。\n"
-
-    errors = doc_checks.check_zh_cn_doc_shape(content, doc_path, root)
-
-    assert any("语言: 简体中文" in error for error in errors)
-    assert any("## Navigation" in error for error in errors)
-    assert any("docs index" in error for error in errors)
-
-
-def test_check_zh_cn_doc_shape_accepts_user_contract(tmp_path):
-    root = tmp_path
-    doc_path = (
-        root / "docs" / "sphinx" / "source" / "zh_CN" / "1-user_guide" / "5-domain-randomization.md"
-    )
-    doc_path.parent.mkdir(parents=True)
-    content = (
-        "# 域随机化\n\n语言: 简体中文\n\n正文。\n\n"
-        "## Navigation\n\n- Index: [Documentation](../index.md)\n"
-    )
-
-    errors = doc_checks.check_zh_cn_doc_shape(content, doc_path, root)
-
-    assert errors == []
-
-
-def test_check_zh_cn_doc_shape_accepts_developer_contract(tmp_path):
-    root = tmp_path
-    doc_path = (
-        root
-        / "docs"
-        / "sphinx"
-        / "source"
-        / "zh_CN"
-        / "2-developer_guide"
-        / "1-development-standard.md"
-    )
-    doc_path.parent.mkdir(parents=True)
-    content = (
-        "# RL Infrastructure 开发标准\n\n语言: 简体中文\n\n正文。\n\n"
-        "## Navigation\n\n- Index: [Documentation](../index.md)\n"
-    )
-
-    errors = doc_checks.check_zh_cn_doc_shape(content, doc_path, root)
-
-    assert errors == []
-
-
 def test_check_user_doc_architecture_flags_migration_phrasing_and_missing_task_sections(tmp_path):
     root = tmp_path
     task_index = (

@@ -28,6 +28,56 @@ optional `--profile`. Route-defining values must use the CLI flags; Hydra
 overrides after the command are for fields such as `algo.max_iterations`,
 `algo.num_envs`, and `training.no_play`.
 
+### Per-Environment Invocation
+
+The CLI prefix depends on the install flavor:
+
+- ROCm: run `make sync-rocm` once, then use `uv run ...`.
+- Intel XPU: use `uv run --no-sync ...`.
+
+## Tab Completion
+
+Shell completion is optional. It only completes the `uv run train` / `uv run eval`
+entrypoints, their flags, and some choices; it never changes command behavior.
+On a fresh checkout, one setup command syncs the environment and installs the
+completion:
+
+```bash
+make setup
+
+# When you need Motrix:
+make setup-motrix
+```
+
+`make setup` runs `uv sync` followed by `uv run --no-sync unilab-complete install`;
+`make setup-motrix` runs `uv sync --extra motrix` followed by the same completion
+install. The install command picks Bash or Zsh from `$SHELL` / platform and only
+writes user-level rc files. The current shell is not auto-activated; reopen the
+terminal or source the rc file to apply.
+
+If `make` is unavailable, run the steps directly:
+
+```bash
+uv sync && uv run --no-sync unilab-complete install
+```
+
+Bash users (Linux / WSL) can instead add this to `~/.bashrc`:
+
+```bash
+source scripts/completions/unilab.bash
+```
+
+Zsh users (default on macOS) can add this to `~/.zshrc`:
+
+```zsh
+autoload -Uz compinit
+compinit
+source scripts/completions/unilab.zsh
+```
+
+After reopening the terminal or sourcing the rc file, candidates appear for
+`uv run <TAB>`, `uv run train --algo <TAB>`, and `uv run train --sim <TAB>`.
+
 ## Evaluation
 
 `uv run eval` sets `training.play_only=true` and optionally maps `--load-run` to

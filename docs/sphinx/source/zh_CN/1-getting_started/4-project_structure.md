@@ -1,7 +1,5 @@
 # 项目结构
 
-语言: 简体中文
-
 UniLab 将运行时 contract、配置、训练脚本和文档分置于不同的 owner 区域。当你需要在改动行为之前找到正确的层时，请使用这张索引图。
 
 | 路径 | Owner 角色 |
@@ -45,7 +43,3 @@ uv run train --algo sac --task g1_walk_flat --sim mujoco
 - 用户训练命令：{doc}`../2-user_guide/1-training/1-cli_reference`
 - Hydra owner YAML：{doc}`../2-user_guide/1-training/2-hydra_config`
 - 面向贡献者的 contract：{doc}`../4-developer_guide/0-index`
-
-## Navigation
-
-- Index: [文档](0-index.md)

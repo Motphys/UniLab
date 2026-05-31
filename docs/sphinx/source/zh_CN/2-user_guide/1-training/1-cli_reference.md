@@ -1,7 +1,5 @@
 # CLI 参考
 
-语言: 简体中文
-
 UniLab 为常见的训练与回放路由提供软件包命令，同时保留底层脚本以便调试
 Hydra 组合。
 
@@ -28,6 +26,54 @@ uv run train --algo flashsac --task go2_joystick_flat --sim mujoco
 CLI 会根据 `--algo`、`--task`、`--sim` 以及可选的 `--profile` 构造出 owner YAML
 路径。定义路由的取值必须使用 CLI flag；命令之后的 Hydra override 用于设置诸如
 `algo.max_iterations`、`algo.num_envs` 和 `training.no_play` 等字段。
+
+### 各环境的调用方式
+
+CLI 前缀取决于安装方案：
+
+- ROCm：先执行一次 `make sync-rocm`，之后使用 `uv run ...`。
+- Intel XPU：使用 `uv run --no-sync ...`。
+
+## Tab 自动补全
+
+补全脚本是可选项，只补全 `uv run train` / `uv run eval` 的入口、flag 和部分
+choices，不改变命令行为。在新 checkout 上，可用一条 setup 命令完成环境同步和补全
+安装：
+
+```bash
+make setup
+
+# 需要 Motrix 时：
+make setup-motrix
+```
+
+`make setup` 会执行 `uv sync` 和 `uv run --no-sync unilab-complete install`；
+`make setup-motrix` 会执行 `uv sync --extra motrix` 和同样的补全安装。安装命令会按
+`$SHELL` / 平台选择 Bash 或 Zsh，只写入用户级 rc 文件。当前终端不会被自动激活，重新
+打开终端或 source 对应 rc 文件后生效。
+
+如果系统没有 `make`，可直接执行：
+
+```bash
+uv sync && uv run --no-sync unilab-complete install
+```
+
+Linux / WSL 的 Bash 用户也可手动把下面内容写入 `~/.bashrc`：
+
+```bash
+source scripts/completions/unilab.bash
+```
+
+macOS 默认 Zsh 用户可把下面内容写入 `~/.zshrc`：
+
+```zsh
+autoload -Uz compinit
+compinit
+source scripts/completions/unilab.zsh
+```
+
+重新打开终端或 source 对应 rc 文件后，可用 `uv run <TAB>`、
+`uv run train --algo <TAB>`、`uv run train --sim <TAB>` 查看候选项。
 
 ## 评估
 
@@ -89,7 +135,3 @@ training.logger=wandb
 
 后端选择属于 CLI 的 `--sim` 选项以及由此得到的 owner YAML。不要将
 `training.sim_backend=<backend>` 当作独立的切换开关使用。
-
-## Navigation
-
-- Index: [文档](0-index.md)

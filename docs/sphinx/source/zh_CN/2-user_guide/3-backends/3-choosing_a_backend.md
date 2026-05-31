@@ -1,7 +1,5 @@
 # 选择后端
 
-语言: 简体中文
-
 UniLab 通过 task owner config 选择仿真器。常规用法下，使用 `--task` 和 `--sim`
 选择 task 和 backend；off-policy 命令将算法保留在 `--algo` 中，而不是 `--task` 中。
 不要仅靠 override `training.sim_backend` 来切换一次运行；该字段由 owner YAML 设置，
@@ -30,7 +28,3 @@ uv run train --algo sac --task g1_walk_flat --sim mujoco
 
 `registry.make(..., sim_backend=None)` 在 `src/unilab/base/registry.py` 中解析默认后端；
 `--task` 和 `--sim` 仍然是面向用户的路线。
-
-## Navigation
-
-- Index: [文档](0-index.md)

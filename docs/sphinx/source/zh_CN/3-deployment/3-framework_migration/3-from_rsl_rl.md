@@ -1,7 +1,5 @@
 # 从 RSL-RL 迁移
 
-语言: 简体中文
-
 你已经在独立使用 RSL-RL 了？好消息：UniLab 把 RSL-RL PPO 作为其受支持算法之一
 （`unilab.algos.torch.rsl_rl_ppo`）提供，而且几乎是即插即用的。
 
@@ -35,7 +33,3 @@
 如果你已经有一条能用的流水线、没有真实硬件目标，并且你主要只是需要 RSL-RL 提供
 算法 —— 那么 UniLab 就有点杀鸡用牛刀了。当你需要以下任意一项时再用它：多后端、
 异步采集、ONNX 部署，或任务注册。
-
-## Navigation
-
-- Index: [文档](0-index.md)

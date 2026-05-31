@@ -299,6 +299,12 @@ uv run train --algo ppo --task sharpa_inhand --sim mujoco 'env.domain_rand.scale
 - The hot path must not read XML, parse assets, or use `getattr` / `hasattr` to probe backend-private capability to decide scaling behavior.
 - When extending to other shape DR, prefer to reuse the init-lifecycle contract; do not stuff shape fields into the reset payload.
 
+## Related Tasks
+
+- {doc}`G1 Motion Tracking <../4-tasks/2-motion_tracking>`: confirm motion assets and replay first before enabling DR.
+- {doc}`Sharpa In-Hand <../8-manipulation/1-dexterous_inhand>`: the scale / grasp-cache / DR boundary is sensitive.
+- {doc}`Go2 Rough Terrain <../4-tasks/1-locomotion>`: common items are mass, COM, friction, and push.
+
 For configuration examples, see {doc}`1-configuration`. For the developer
 provider interface and backend capability boundary, see
 {doc}`2-writing_providers` and {doc}`Domain Randomization Contract </en/4-developer_guide/2-contracts/4-dr_contract>`.

@@ -1,7 +1,5 @@
 # 仿真到真机故障排查
 
-语言: 简体中文
-
 一本 症状 → 可能原因 → 修复 的手册。当部署出岔子时，从这里开始。
 
 ## 高频关节振荡 / "嗡鸣"
@@ -63,7 +61,3 @@
 - {doc}`1-overview`
 - {doc}`7-safety_layers`
 - {doc}`8-latency_budget`
-
-## Navigation
-
-- Index: [文档](0-index.md)
