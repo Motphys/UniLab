@@ -12,6 +12,9 @@ training:
   cam_elevation: -20.0
   cam_azimuth: 90.0
 
+env:
+  post_step_forward_sensor: true
+
 algo:
   algo_log_name: hora_distill
   num_envs: 16384

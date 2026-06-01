@@ -110,6 +110,11 @@ uv run train --algo sac --task g1_motion_tracking --sim motrix
 ```
 
 ```bash
+bash scripts/sharpa_collect_grasps.sh 0.8 0.9 1.0 1.1 1.2 1.3 1.4 1.5
+uv run train --algo appo --task sharpa_inhand --sim mujoco --profile hora
+```
+
+```bash
 uv run train --algo ppo --task go2_arm_manip_loco --sim motrix
 uv run eval --algo ppo --task go2_arm_manip_loco --sim motrix --load-run -1
 ```

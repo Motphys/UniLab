@@ -29,6 +29,12 @@ from unilab.training import (
 from unilab.training.experiment import ExperimentTracker
 
 
+def _training_resume_requested(load_run: Any) -> bool:
+    if load_run is None:
+        return False
+    return str(load_run) not in {"", "-1"}
+
+
 def build_appo_runner_kwargs(
     cfg: DictConfig,
     env_cfg_override: dict | None,
@@ -54,6 +60,15 @@ def build_appo_runner_kwargs(
     }
     if cfg.training.replay_queue_size is not None:
         runner_kwargs["replay_queue_size"] = cfg.training.replay_queue_size
+    load_run = OmegaConf.select(cfg, "algo.load_run", default="-1")
+    if _training_resume_requested(load_run):
+        resume_path, _ = resolve_appo_checkpoint_path(
+            os.path.join(_get_log_root(cfg), cfg.training.task_name),
+            str(load_run),
+        )
+        if resume_path is None:
+            raise FileNotFoundError(f"Could not resolve APPO resume checkpoint: {load_run}")
+        runner_kwargs["resume_path"] = resume_path
     return runner_kwargs
 
 

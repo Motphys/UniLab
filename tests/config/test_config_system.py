@@ -296,6 +296,43 @@ def test_ppo_g1_backend_specific_hyperparams_remain_separate():
     assert motrix_cfg.reward.max_tilt_deg == pytest.approx(35.0)
 
 
+def test_mujoco_post_step_forward_sensor_is_owner_scoped_and_overrideable():
+    g1_sac_cfg = _compose(
+        "offpolicy",
+        overrides=["algo=sac", "task=sac/g1_walk_flat/mujoco"],
+    )
+    g1_flashsac_cfg = _compose(
+        "offpolicy",
+        overrides=["algo=flashsac", "task=flashsac/g1_walk_flat/mujoco"],
+    )
+    default_cfg = _compose("appo", overrides=["task=sharpa_inhand/mujoco_hora"])
+    override_cfg = _compose(
+        "appo",
+        overrides=["task=sharpa_inhand/mujoco_hora", "env.post_step_forward_sensor=false"],
+    )
+
+    assert OmegaConf.select(g1_sac_cfg, "env.post_step_forward_sensor", default=False) is False
+    assert OmegaConf.select(g1_flashsac_cfg, "env.post_step_forward_sensor", default=False) is False
+    assert default_cfg.env.post_step_forward_sensor is True
+    assert override_cfg.env.post_step_forward_sensor is False
+
+
+def test_appo_adaptive_lr_factors_are_main_default_except_sharpa_owner():
+    g1_cfg = _compose("appo", overrides=["task=g1_walk_flat/mujoco"])
+    allegro_cfg = _compose("appo", overrides=["task=allegro_inhand/mujoco"])
+    sharpa_cfg = _compose("appo", overrides=["task=sharpa_inhand/mujoco"])
+    sharpa_hora_cfg = _compose("appo", overrides=["task=sharpa_inhand/mujoco_hora"])
+
+    assert g1_cfg.algo.algorithm.adaptive_kl_factor == pytest.approx(2.0)
+    assert g1_cfg.algo.algorithm.adaptive_lr_factor == pytest.approx(1.5)
+    assert allegro_cfg.algo.algorithm.adaptive_kl_factor == pytest.approx(2.0)
+    assert allegro_cfg.algo.algorithm.adaptive_lr_factor == pytest.approx(1.5)
+    assert sharpa_cfg.algo.algorithm.adaptive_kl_factor == pytest.approx(1.2)
+    assert sharpa_cfg.algo.algorithm.adaptive_lr_factor == pytest.approx(1.1)
+    assert sharpa_hora_cfg.algo.algorithm.adaptive_kl_factor == pytest.approx(1.2)
+    assert sharpa_hora_cfg.algo.algorithm.adaptive_lr_factor == pytest.approx(1.1)
+
+
 def test_ppo_go1_motrix_preserves_reward_and_algo_values():
     cfg = _compose("ppo", overrides=["task=go1_joystick_flat/motrix"])
 

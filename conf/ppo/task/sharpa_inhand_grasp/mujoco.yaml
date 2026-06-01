@@ -35,6 +35,7 @@ reward:
   angvel_clip_min: -0.5
   angvel_clip_max: 0.5
 env:
+  post_step_forward_sensor: true
   max_episode_seconds: 3.0
   domain_rand:
     scale_list: [0.8]

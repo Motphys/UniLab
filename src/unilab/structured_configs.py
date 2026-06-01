@@ -33,6 +33,8 @@ class SACAlgoParams:
 class SACConfig(BaseConfig):
     algo: str = "sac"
     algo_log_name: str = "fast_sac"
+    runtime_impl: Optional[str] = None
+    runtime_resolver: Optional[str] = None
     seed: int = 1
     num_envs: int = 4096
     batch_size: int = 8192
@@ -53,6 +55,7 @@ class SACConfig(BaseConfig):
     obs_normalization: bool = True
     use_layer_norm: bool = True
     use_symmetry: bool = False
+    actor: dict[str, Any] = field(default_factory=dict)
     algo_params: SACAlgoParams = field(default_factory=SACAlgoParams)
 
 
@@ -168,6 +171,8 @@ class APPOAlgorithmConfig:
     use_clipped_value_loss: bool = True
     schedule: str = "adaptive"
     desired_kl: float = 0.01
+    adaptive_kl_factor: float = 2.0
+    adaptive_lr_factor: float = 1.5
     optimizer: str = "adam"
     tau: float = 1.0
     target_update_freq: int = 1

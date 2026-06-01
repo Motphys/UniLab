@@ -291,6 +291,7 @@ class Go2ArmManipLocoEnv(Go2ArmBaseEnv):
                 cfg.control_config
             )
             backend_kwargs["iterations"] = cfg.iterations
+            backend_kwargs["post_step_forward_sensor"] = cfg.post_step_forward_sensor
         backend = create_backend(
             backend_type,
             scene,

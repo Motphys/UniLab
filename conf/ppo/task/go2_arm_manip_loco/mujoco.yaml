@@ -36,7 +36,7 @@ reward:
     dof_vel: 0.0               # 保留但不使用
     dof_acc: 0.0               # 保留但不使用
     # locomotion: gait（对齐 Go2 Joystick）
-    stand_still: -0.5          
+    stand_still: -0.5
     contact: 0.24
     swing_feet_z: 4.0
     foot_drag: -0.1

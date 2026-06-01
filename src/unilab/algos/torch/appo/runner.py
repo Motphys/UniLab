@@ -25,6 +25,24 @@ from unilab.logging import OffPolicyLogger
 from unilab.training.seed import apply_training_seed, derive_worker_seed
 
 
+def _optimizer_lr_from_state(optimizer: torch.optim.Optimizer) -> float:
+    if not optimizer.param_groups:
+        return 0.0
+    return float(optimizer.param_groups[0].get("lr", 0.0))
+
+
+def _sync_resume_target_actor(learner: APPOLearner) -> None:
+    """After resume, target actor must exactly match the restored actor."""
+    target_actor = getattr(learner, "target_actor", None)
+    if target_actor is None:
+        learner.update_target_network()
+        return
+    target_actor.load_state_dict(learner.actor.state_dict())
+    target_actor.eval()
+    for param in target_actor.parameters():
+        param.requires_grad = False
+
+
 class APPORunner(AsyncRunner):
     """APPO async runner using shared memory."""
 
@@ -41,7 +59,9 @@ class APPORunner(AsyncRunner):
         num_workers: int = 1,  # kept for API compat, but only 1 collector used
         replay_queue_size: int = 3,
         seed: int | None = None,
+        resume_path: str | None = None,
     ):
+        del num_workers
         super().__init__(
             env_name=env_name,
             env_cfg_overrides=env_cfg_overrides,
@@ -56,6 +76,7 @@ class APPORunner(AsyncRunner):
         self.replay_queue_size = replay_queue_size
         self.staging_pool_size = replay_queue_size
         self.seed = seed
+        self.resume_path = resume_path
         if self.staging_pool_size < 1:
             raise ValueError("APPO staging pool size must be >= 1")
 
@@ -161,6 +182,8 @@ class APPORunner(AsyncRunner):
             use_clipped_value_loss=algo_cfg.get("use_clipped_value_loss", True),
             schedule=algo_cfg.get("schedule", "fixed"),
             desired_kl=algo_cfg.get("desired_kl", 0.01),
+            adaptive_kl_factor=algo_cfg.get("adaptive_kl_factor", 2.0),
+            adaptive_lr_factor=algo_cfg.get("adaptive_lr_factor", 1.5),
             optimizer=algo_cfg.get("optimizer", "adam"),
             tau=algo_cfg.get("tau", 1.0),
             target_update_freq=algo_cfg.get("target_update_freq", 1),
@@ -188,6 +211,14 @@ class APPORunner(AsyncRunner):
         iteration = 0
 
         learner = self._build_learner()
+        if self.resume_path:
+            checkpoint = torch.load(self.resume_path, map_location=self.device, weights_only=True)
+            learner.actor.load_state_dict(checkpoint["actor"])
+            learner.critic.load_state_dict(checkpoint["critic"])
+            if "optimizer" in checkpoint:
+                learner.optimizer.load_state_dict(checkpoint["optimizer"])
+                learner.learning_rate = _optimizer_lr_from_state(learner.optimizer)
+            _sync_resume_target_actor(learner)
 
         # Create shared rollout IPC ring buffer; learner-side tensor lifetime is
         # owned by the bounded staging pool below.

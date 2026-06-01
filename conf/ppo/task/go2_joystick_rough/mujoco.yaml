@@ -30,7 +30,7 @@ algo:
   algorithm:
     learning_rate: 1.0e-3
     entropy_coef: 1.0e-2
-    
+
 env:
   sim_dt: 0.002
   control_config:

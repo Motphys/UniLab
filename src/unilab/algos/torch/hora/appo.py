@@ -20,6 +20,7 @@ from unilab.algos.torch.hora.rsl_rl_compat import (
 from unilab.base.observations import get_obs_dims
 from unilab.training import BackendAdapter, create_env, log_playback_plan
 
+from .models import build_hora_shared_actor_critic
 from .observations import build_hora_actor_tensordict, split_hora_obs_with_priv_info
 from .runtime import is_hora_appo_runtime
 
@@ -153,7 +154,27 @@ def play_hora_appo(
     actor_cfg = deepcopy(rl_cfg_dict["actor"])
     actor_cls = resolve_callable(actor_cfg.pop("class_name"))
     actor_cfg.pop("num_actions", None)
-    actor = actor_cls(td_example, rl_cfg_dict["obs_groups"], "actor", action_dim, **actor_cfg)
+
+    critic_cfg = deepcopy(rl_cfg_dict.get("critic") or rl_cfg_dict.get("actor") or {})
+    critic_cfg.pop("class_name", None)
+    critic_cfg.pop("num_actions", None)
+    critic_cfg.pop("distribution_cfg", None)
+
+    shared_model = build_hora_shared_actor_critic(
+        obs_dim=obs_dim,
+        action_dim=action_dim,
+        priv_info_dim=priv_info_dim,
+        actor_cfg=actor_cfg,
+        critic_cfg=critic_cfg,
+    ).to(device)
+    actor = actor_cls(
+        td_example,
+        rl_cfg_dict["obs_groups"],
+        "actor",
+        action_dim,
+        shared_model=shared_model,
+        **actor_cfg,
+    )
     actor = actor.to(device)
     actor.eval()
 

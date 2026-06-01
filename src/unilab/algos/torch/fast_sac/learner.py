@@ -558,6 +558,28 @@ class FastSACLearner:
                 p.grad.copy_(flat[offset : offset + n].view_as(p.grad))
                 offset += n
 
+    def _get_actions_and_log_probs_for_critic(
+        self,
+        actor_obs: torch.Tensor,
+        critic_obs: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Sample actor actions for critic targets.
+
+        Subclasses can use ``critic_obs`` to supply auxiliary policy context while
+        preserving the standard SAC update path.
+        """
+        del critic_obs
+        return self.actor.get_actions_and_log_probs(actor_obs)
+
+    def _get_actions_and_log_probs_for_actor(
+        self,
+        actor_obs: torch.Tensor,
+        critic_obs: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Sample actor actions for the actor loss update."""
+        del critic_obs
+        return self.actor.get_actions_and_log_probs(actor_obs)
+
     def _critic_loss_tensors(
         self,
         critic_obs: torch.Tensor,
@@ -573,7 +595,10 @@ class FastSACLearner:
 
         with torch.no_grad():
             with self._autocast():
-                next_actions, next_log_probs, _ = self.actor.get_actions_and_log_probs(next_obs)
+                next_actions, next_log_probs, _ = self._get_actions_and_log_probs_for_critic(
+                    next_obs,
+                    critic_next_obs,
+                )
             adjusted_rewards = (
                 rewards - discount * bootstrap * self.log_alpha.exp() * next_log_probs
             )
@@ -600,7 +625,10 @@ class FastSACLearner:
         critic_obs: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         with self._autocast():
-            actions, log_probs, log_std = self.actor.get_actions_and_log_probs(obs)
+            actions, log_probs, log_std = self._get_actions_and_log_probs_for_actor(
+                obs,
+                critic_obs,
+            )
 
         with torch.no_grad():
             action_std = log_std.exp().mean()

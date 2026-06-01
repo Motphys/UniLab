@@ -1,30 +1,41 @@
 # @package _global_
+# HORA Sharpa SAC MuJoCo teacher-training owner config.
+
 training:
   task_name: SharpaInhandRotation
   sim_backend: mujoco
+  use_amp: true
+  env_steps_per_sync: 2
+  no_play: true
+  play_steps: 200
   render_spacing: 0.5
   cam_distance: 1.5
   cam_lookat: [0.75, 0.75, 0.4]
   cam_elevation: -20.0
+
 algo:
-  num_envs: 2048
-  num_steps_per_env: 8
-  max_iterations: 301
-  empirical_normalization: true
-  policy:
-    actor_hidden_dims: [512, 256, 128]
-    critic_hidden_dims: [512, 256, 128]
-  algorithm:
-    value_loss_coef: 4.0
-    entropy_coef: 0.01
-    learning_rate: 0.001
-    desired_kl: 0.02
-    num_learning_epochs: 5
-    num_mini_batches: 4
-    clip_param: 0.2
-    gamma: 0.99
-    lam: 0.95
-  save_interval: 50
+  algo_log_name: hora_sac
+  runtime_impl: hora_sac
+  runtime_resolver: unilab.algos.torch.hora.sac:resolve_hora_sac_runtime
+  num_envs: 1024
+  batch_size: 2048
+  replay_buffer_n: 1280
+  updates_per_step: 14
+  learning_starts: 1
+  policy_frequency: 2
+  max_iterations: 5371
+  save_interval: 896
+  actor_lr: 4.5e-4
+  critic_lr: 4.5e-4
+  use_symmetry: false
+  actor:
+    priv_info_embed_dim: 9
+    priv_mlp_hidden_dims: [256, 128, 9]
+  algo_params:
+    alpha_lr: 4.5e-4
+    amp_dtype: auto
+    use_compile: true
+
 reward:
   scales:
     rotate: 2.5
@@ -35,12 +46,13 @@ reward:
     object_pos: 0.003
   angvel_clip_min: -0.5
   angvel_clip_max: 0.5
+
 env:
   post_step_forward_sensor: true
   zero_action_test_mode: false
   clip_obs: 5.0
   clip_actions: 1.0
-  reset_height_lower: 0.59906 # assume the hand base height is 0.5
+  reset_height_lower: 0.59906
   reset_height_upper: 0.63906
   reset_angle_diff: 0.7853981633974483
   rot_axis: [0.0, 0.0, 1.0]
@@ -53,9 +65,9 @@ env:
       - contact_right_ring_elastomer_force
       - contact_right_pinky_elastomer_force
   disable_tactile_ids: []
-  use_default_object_pose_for_object_pos_anchor: false
+  use_default_object_pose_for_object_pos_anchor: true
   obs:
-    observation_mode: flattened # non-hora setting
+    observation_mode: separated
     enable_tactile: true
     binary_contact: false
     enable_contact_pos: false
@@ -67,12 +79,12 @@ env:
     include_gravity_direction: false
   control_config:
     action_scale: 0.041666666666666664
-    p_gain: 1.0 # use the XML value instead of this value by default
+    p_gain: 1.0
     d_gain: 0.1
-    torque_control: false # can only be false
-    dof_limits_scale: 0.9 # tighten the XML dof limits
+    torque_control: false
+    dof_limits_scale: 0.9
   domain_rand:
-    scale_list: [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6] # cylinder object scales
+    scale_list: [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
     randomize_gravity_direction: true
     gravity_direction_magnitude: 9.81
     randomize_pd_gains: true

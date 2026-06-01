@@ -79,6 +79,7 @@ cache/
 # Local tool/runtime artifacts (any subfolder)
 .codex
 **/.codex/
+**/._*
 **/MUJOCO_LOG.TXT
 
 # Backend temp XML emitted next to robot.xml (motrix/mujoco scene materialization)

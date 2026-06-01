@@ -6,6 +6,7 @@ from typing import Any
 
 HORA_APPO_RUNTIME_IMPL = "hora_appo"
 HORA_PPO_RUNTIME_IMPL = "hora_ppo"
+HORA_SAC_RUNTIME_IMPL = "hora_sac"
 
 
 def resolve_hora_runtime_impl(rl_cfg: dict[str, Any]) -> str | None:
@@ -45,3 +46,8 @@ def is_hora_ppo_runtime(rl_cfg: dict[str, Any]) -> bool:
         ``True`` when the config explicitly selects the HORA PPO runtime.
     """
     return resolve_hora_runtime_impl(rl_cfg) == HORA_PPO_RUNTIME_IMPL
+
+
+def is_hora_sac_runtime(rl_cfg: dict[str, Any]) -> bool:
+    """Check whether the resolved algo config selects the HORA SAC runtime."""
+    return resolve_hora_runtime_impl(rl_cfg) == HORA_SAC_RUNTIME_IMPL
