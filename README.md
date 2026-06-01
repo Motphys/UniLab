@@ -20,8 +20,7 @@ A Heterogeneous Architecture for Robot RL Beyond GPU-Dominant Paradigms
 
 <p align="center"><em>Train robot RL without a GPU simulation backend. Teaser rendered with MotrixSim.</em></p>
 
-Start with the `Quick Demo` below to run the primary training command from this repository. The recommended setup path uses `uv`; platform-specific notes are in the [installation guide](https://unilabsim.github.io/UniLab-doc/en/1-getting_started/2-installation.html).
-Conda and pip users should still follow the repository `uv` workflow for now; see the [installation guide](https://unilabsim.github.io/UniLab-doc/en/1-getting_started/2-installation.html) for the current boundaries.
+Start with the `Quick Demo` below to run the primary training command. The recommended setup uses `uv`; Conda and pip users should still follow the `uv` workflow for now. Platform-specific notes and current boundaries are in the [installation guide](https://unilabsim.github.io/UniLab-doc/en/1-getting_started/2-installation.html).
 
 ## ✨ Highlights
 
@@ -90,22 +89,6 @@ This routes through the `go2_joystick_flat/motrix` task owner config and keeps b
 
 On macOS / MacBook, the UniLab CLI routes Motrix interactive playback through `mxpython` when needed. Motrix defaults to interactive playback; use `--render-mode record` for headless video export or `--render-mode none` to skip playback. Detailed script-level commands are in the [Training Guide](https://unilabsim.github.io/UniLab-doc/en/2-user_guide/1-training/0-index.html).
 
-The Go2Arm manipulation-locomotion PPO task also supports Motrix after installing the `motrix` extra:
-
-```bash
-uv run train --algo ppo --task go2_arm_manip_loco --sim motrix
-uv run eval --algo ppo --task go2_arm_manip_loco --sim motrix --load-run -1
-```
-
-### Interactive Notebooks
-
-Prefer a guided, step-by-step experience? Open the notebooks in Jupyter:
-
-- [Demo Notebook](notebook/demo.ipynb): local checkpoint playback via `uv run demo`
-- [PPO Training Walkthrough](notebook/unilab_walkthrough_ppo_go1_joystick_mujoco.ipynb): end-to-end guide from config preview to training and playback
-
-> Notebooks are designed for local environments with MuJoCo access.
-
 ## 🏃 Example Runs
 
 ```bash
@@ -117,9 +100,14 @@ uv run train --algo sac --task g1_motion_tracking --sim motrix
 ```
 
 ```bash
-bash scripts/sharpa_collect_grasps.sh 0.8 0.9 1.0 1.1 1.2 1.3 1.4 1.5
 uv run train --algo appo --task sharpa_inhand --sim mujoco --profile hora
 ```
+
+> Grasp caches auto-download from Hugging Face (`unilabsim/unilab-caches`) on first run into `src/unilab/assets/caches/`; no manual step is needed. To regenerate locally for custom scales (slow):
+>
+> ```bash
+> bash scripts/sharpa_collect_grasps.sh 0.8 0.9 1.0 1.1 1.2 1.3 1.4 1.5
+> ```
 
 ```bash
 uv run train --algo ppo --task go2_arm_manip_loco --sim motrix
@@ -130,13 +118,9 @@ uv run eval --algo ppo --task go2_arm_manip_loco --sim motrix --load-run -1
 uv run train --algo ppo --task sharpa_inhand --sim mujoco --profile hora
 ```
 
-More training commands, script-level entrypoints, resume flow, and W&B details are in the [Training Guide](https://unilabsim.github.io/UniLab-doc/en/2-user_guide/1-training/0-index.html).
-
-## 🎯 Training Entrypoints
-
 Use `uv run train` for training, `uv run eval` for checkpoint playback, and `uv run demo` for the local demo preset. These commands keep algorithm, task, and backend selection explicit.
 
-See [Training Guide](https://unilabsim.github.io/UniLab-doc/en/2-user_guide/1-training/0-index.html) for the algorithm matrix, log directory layout, Hydra overrides, script-level entrypoints, and demo flags.
+More training commands, script-level entrypoints, algorithm matrix, resume flow, and W&B details are in the [Training Guide](https://unilabsim.github.io/UniLab-doc/en/2-user_guide/1-training/0-index.html).
 
 ## 📚 Documentation
 
@@ -151,7 +135,7 @@ Use the published [UniLab documentation](https://unilabsim.github.io/UniLab-doc/
 ## 💬 Community
 
 | WeChat Group | WeChat Assistant |
-| --- | --- |
+| :---: | :---: |
 | <img src="docs/sphinx/source/_static/assets/unilab-wechat-group.jpg" alt="UniLab WeChat group QR code" width="220"> | <img src="docs/sphinx/source/_static/assets/unilab-wechat-assistant.jpg" alt="UniLab WeChat assistant QR code" width="150"> |
 | Scan to join the UniLab WeChat group. | If the group is full, add the assistant and include `unilab交流` in your message. |
 
