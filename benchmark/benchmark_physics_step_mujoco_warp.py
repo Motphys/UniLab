@@ -10,6 +10,14 @@ Legacy env names remain accepted as aliases.
 Run without changing repo dependencies:
     uv run --with mujoco-warp --with warp-lang \
         python benchmark/benchmark_physics_step_mujoco_warp.py
+
+CUDA graph capture (optional) — eager vs captured throughput:
+    uv run --with mujoco-warp --with warp-lang \
+        python benchmark/benchmark_physics_step_mujoco_warp.py --capture both
+
+NOTE: the eager path still synchronizes per step (a known measurement bug to be
+fixed separately). The captured path syncs once per nstep block, so for now an
+eager-vs-graph gap reflects both the sync-granularity bug and the graph speedup.
 """
 
 from __future__ import annotations
@@ -86,7 +94,10 @@ DEFAULT_NJMAX_BY_TASK = {
 
 
 def _display_backend(backend: str) -> str:
-    return backend
+    return {
+        "mujoco_warp": "mujoco_warp (eager)",
+        "mujoco_warp_graph": "mujoco_warp (graph)",
+    }.get(backend, backend)
 
 
 def _uv_run_hint() -> str:
@@ -133,6 +144,9 @@ def _make_warp_data(model: Any, batch_size: int, njmax: int):
 
 
 def _run_warp(warp_model, warp_data, nstep: int, niter: int) -> float:
+    # NOTE: synchronizes per step (a known measurement bug to be fixed
+    # separately). Left as-is on purpose so the captured path below is added
+    # without changing the existing eager baseline.
     mj_warp_mod = cast(Any, mj_warp)
     warp_mod = cast(Any, warp)
     t0 = time.perf_counter()
@@ -143,12 +157,81 @@ def _run_warp(warp_model, warp_data, nstep: int, niter: int) -> float:
     return (time.perf_counter() - t0) / niter
 
 
+def _warp_device_is_cuda() -> bool:
+    """True when warp's default device supports CUDA graph capture."""
+    warp_mod = cast(Any, warp)
+    try:
+        return bool(warp_mod.get_device().is_cuda)
+    except Exception:
+        return False
+
+
+def _build_warp_graph(warp_model, warp_data, nstep: int):
+    """Capture one nstep block of warp steps into a single CUDA graph.
+
+    A few eager steps run first so warp's lazy module loads / allocations happen
+    *before* capture — recording an allocation into a graph is illegal and would
+    make the replay throw. No synchronize may occur inside the capture region.
+    """
+    mj_warp_mod = cast(Any, mj_warp)
+    warp_mod = cast(Any, warp)
+    for _ in range(nstep):
+        mj_warp_mod.step(warp_model, warp_data)
+    warp_mod.synchronize()
+    with warp_mod.ScopedCapture() as capture:
+        for _ in range(nstep):
+            mj_warp_mod.step(warp_model, warp_data)
+    return capture.graph
+
+
+def _run_warp_graph(graph, niter: int) -> float:
+    """Replay a captured nstep-block graph niter times. Avg seconds per iter.
+
+    One synchronize per block replaces the eager path's per-step synchronize:
+    the fused graph launch collapses per-step kernel-launch overhead, which is
+    the CUDA graph speedup. The trailing synchronize is still required because
+    warp launches are async.
+    """
+    warp_mod = cast(Any, warp)
+    t0 = time.perf_counter()
+    for _ in range(niter):
+        warp_mod.capture_launch(graph)
+        warp_mod.synchronize()
+    return (time.perf_counter() - t0) / niter
+
+
+def _resolve_capture_modes(capture_arg: str) -> List[str]:
+    """Map the --capture flag to the list of modes to run.
+
+    ``off`` -> eager only; ``on`` -> graph only; ``both`` -> eager then graph.
+    A graph mode is dropped (with a warning) when the warp device is not CUDA,
+    so a CPU-only run still produces the eager series instead of crashing.
+    """
+    if capture_arg == "off":
+        modes = ["off"]
+    elif capture_arg == "on":
+        modes = ["on"]
+    elif capture_arg == "both":
+        modes = ["off", "on"]
+    else:
+        raise ValueError(f"--capture must be one of off/on/both, got {capture_arg!r}")
+
+    if "on" in modes and not _warp_device_is_cuda():
+        print(
+            "Warning: warp device is not CUDA; CUDA graph capture is unavailable, "
+            "skipping the captured (graph) series."
+        )
+        modes = [m for m in modes if m != "on"] or ["off"]
+    return modes
+
+
 def _bench_one_task(
     task_name: str,
     batch_sizes: List[int],
     nstep: int,
     warmup: int,
     iters: int,
+    capture_modes: List[str],
 ) -> List[BenchRecord]:
     task_key = normalize_locomotion_task_id(task_name)
     model = _load_task_model(task_key)
@@ -157,26 +240,38 @@ def _bench_one_task(
 
     records: List[BenchRecord] = []
     for batch_size in batch_sizes:
-        warp_data = _make_warp_data(model, batch_size, njmax)
+        for mode in capture_modes:
+            backend = "mujoco_warp_graph" if mode == "on" else "mujoco_warp"
+            # Fresh data per mode keeps the two series independent: a captured
+            # graph holds references to the data buffers it was recorded with.
+            warp_data = _make_warp_data(model, batch_size, njmax)
+            try:
+                if mode == "on":
+                    graph = _build_warp_graph(warp_model, warp_data, nstep)
+                    _run_warp_graph(graph, niter=warmup)
+                    avg_t = _run_warp_graph(graph, niter=iters)
+                else:
+                    _run_warp(warp_model, warp_data, nstep=nstep, niter=warmup)
+                    avg_t = _run_warp(warp_model, warp_data, nstep=nstep, niter=iters)
+            except Exception as exc:  # graph capture can fail on non-capturable steps
+                print(f"[{task_key}] batch={batch_size:5d} {backend} FAILED: {exc}")
+                continue
 
-        _run_warp(warp_model, warp_data, nstep=nstep, niter=warmup)
-        avg_t = _run_warp(warp_model, warp_data, nstep=nstep, niter=iters)
-
-        records.append(
-            BenchRecord(
-                task=task_key,
-                backend="mujoco_warp",
-                batch_size=batch_size,
-                nstep=nstep,
-                nthread=0,
-                avg_time_sec=avg_t,
-                sps=batch_size * nstep / avg_t,
+            records.append(
+                BenchRecord(
+                    task=task_key,
+                    backend=backend,
+                    batch_size=batch_size,
+                    nstep=nstep,
+                    nthread=0,
+                    avg_time_sec=avg_t,
+                    sps=batch_size * nstep / avg_t,
+                )
             )
-        )
-        print(
-            f"[{task_key}] batch={batch_size:5d} "
-            f"mujoco_warp={avg_t * 1000:.3f}ms ({batch_size * nstep / avg_t / 1e4:.2f}万fps)"
-        )
+            print(
+                f"[{task_key}] batch={batch_size:5d} "
+                f"{backend}={avg_t * 1000:.3f}ms ({batch_size * nstep / avg_t / 1e4:.2f}万fps)"
+            )
 
     return records
 
@@ -255,6 +350,13 @@ def main():
     parser.add_argument("--warmup", type=int, default=2)
     parser.add_argument("--iters", type=int, default=3)
     parser.add_argument(
+        "--capture",
+        choices=["off", "on", "both"],
+        default="off",
+        help="CUDA graph capture: off=eager only (default), on=graph only, "
+        "both=run eager and captured series for comparison.",
+    )
+    parser.add_argument(
         "--tasks",
         type=str,
         default=",".join(DEFAULT_TASK_IDS),
@@ -279,10 +381,12 @@ def main():
 
     task_names = [normalize_locomotion_task_id(x) for x in args.tasks.split(",") if x.strip()]
     batch_sizes = [int(x.strip()) for x in args.batch_sizes.split(",") if x.strip()]
+    capture_modes = _resolve_capture_modes(args.capture)
 
     print("MuJoCo Warp backend available")
     print(f"Tasks: {task_names}")
     print(f"Batch sizes: {batch_sizes}")
+    print(f"Capture modes: {capture_modes}")
 
     records: List[BenchRecord] = []
     for task_name in task_names:
@@ -293,6 +397,7 @@ def main():
                 nstep=args.nstep,
                 warmup=args.warmup,
                 iters=args.iters,
+                capture_modes=capture_modes,
             )
         )
 
@@ -308,6 +413,8 @@ def main():
             "nthread": 0,
             "warmup": args.warmup,
             "iters": args.iters,
+            "capture": args.capture,
+            "capture_modes": capture_modes,
             "backends": sorted({r.backend for r in records}),
             "task_njmax": {task: _task_njmax(task) for task in task_names},
             "warp_available": mj_warp is not None and warp is not None,
