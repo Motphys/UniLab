@@ -8,6 +8,10 @@ Usage:
     uv run benchmark/benchmark_env_step.py task=g1_walk_flat/motrix
     uv run benchmark/benchmark_env_step.py task=g1_walk_rough/mujoco
 
+    # mjwarp backend (Phase 1: g1_walk_flat only) requires extra deps:
+    uv run --with mujoco-warp --with warp-lang \\
+        benchmark/benchmark_env_step.py task=g1_walk_flat/mjwarp
+
     # Override bench params:
     uv run benchmark/benchmark_env_step.py task=go1_joystick_flat/mujoco num_envs=4096 num_steps=500
 
@@ -70,7 +74,54 @@ _mb = _MEM_PROFILE.mb
 _memory_snapshot = _MEM_PROFILE.memory_snapshot
 save_json = _OUTPUT.save_json
 
-BACKENDS = ["mujoco", "motrix"]
+
+def _install_mjwarp_patch() -> bool:
+    """Route ``backend_type == "mjwarp"`` to ``benchmark/mjwarp`` via factory patch.
+
+    Must run before any task env module (e.g. ``unilab.envs.locomotion.g1.joystick``)
+    is imported, because those modules bind ``create_backend`` at module load
+    time via ``from unilab.base.backend import create_backend``.
+
+    Returns True if ``mujoco_warp`` + ``warp`` are importable, False otherwise.
+    Idempotent.
+    """
+    try:
+        import mujoco_warp  # noqa: F401
+        import warp  # noqa: F401
+    except ImportError:
+        return False
+
+    import unilab.base.backend as _ub_backend
+
+    if getattr(_ub_backend, "_mjwarp_patched", False):
+        return True
+
+    # benchmark/ is not an installed package, so we load the adapter the same
+    # way device_info/mem_profile/output are loaded above (importlib by path).
+    mjwarp_backend_module = _load_helper_module(
+        "bench_env_step_mjwarp_backend",
+        "../mjwarp/backend.py",
+    )
+    mjwarp_backend_cls = mjwarp_backend_module.MjwarpBackend
+
+    _orig_create_backend = _ub_backend.create_backend
+
+    def _patched_create_backend(backend_type, scene, num_envs, sim_dt, **kwargs):
+        if backend_type == "mjwarp":
+            # Strip kwargs that only apply to other backends so MjwarpBackend's
+            # signature stays narrow.
+            kwargs.pop("motrix_max_iterations", None)
+            return mjwarp_backend_cls(scene, num_envs, sim_dt, **kwargs)
+        return _orig_create_backend(backend_type, scene, num_envs, sim_dt, **kwargs)
+
+    _ub_backend.create_backend = _patched_create_backend
+    _ub_backend._mjwarp_patched = True
+    return True
+
+
+MJWARP_AVAILABLE = _install_mjwarp_patch()
+
+BACKENDS = ["mujoco", "motrix", "mjwarp"]
 
 
 @dataclass(frozen=True)
@@ -132,20 +183,32 @@ def _owner_yaml_cfg(
     return cfg
 
 
+# Backends that do not own a task YAML reuse the mujoco YAML during cfg
+# composition. The actual backend selection happens later when the env
+# constructs its SimBackend via the (monkey-patched) create_backend factory.
+_HYDRA_YAML_BACKEND_ALIAS = {"mjwarp": "mujoco"}
+
+
+def _hydra_yaml_backend(backend: str) -> str:
+    return _HYDRA_YAML_BACKEND_ALIAS.get(backend, backend)
+
+
 def _ppo_owner_yaml_cfg(task_id: str, backend: str, env_cfg_cls: Callable[[], Any]) -> Any:
+    yaml_backend = _hydra_yaml_backend(backend)
     return _owner_yaml_cfg(
         config_root="ppo",
         algo_name="ppo",
-        overrides=[f"task={task_id}/{backend}"],
+        overrides=[f"task={task_id}/{yaml_backend}"],
         env_cfg_cls=env_cfg_cls,
     )
 
 
 def _sac_owner_yaml_cfg(task_id: str, backend: str, env_cfg_cls: Callable[[], Any]) -> Any:
+    yaml_backend = _hydra_yaml_backend(backend)
     return _owner_yaml_cfg(
         config_root="offpolicy",
         algo_name="sac",
-        overrides=["algo=sac", f"task=sac/{task_id}/{backend}"],
+        overrides=["algo=sac", f"task=sac/{task_id}/{yaml_backend}"],
         env_cfg_cls=env_cfg_cls,
     )
 
@@ -311,12 +374,13 @@ def _sharpa_inhand_cfg(backend: str) -> Any:
     from unilab.envs.manipulation.sharpa_inhand.rotation import SharpaInhandRotationCfg
     from unilab.training import BackendAdapter
 
+    yaml_backend = _hydra_yaml_backend(backend)
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(ROOT_DIR / "conf" / "ppo"), version_base="1.3"):
         owner_cfg = compose(
             config_name="config",
             overrides=[
-                f"task=sharpa_inhand/{backend}",
+                f"task=sharpa_inhand/{yaml_backend}",
                 "env.grasp_cache_path=/tmp/unilab_benchmark_sharpa_grasp",
                 "hydra.run.dir=.",
                 "hydra.output_subdir=null",
@@ -380,36 +444,42 @@ TASK_CONFIGS: dict[str, TaskConfig] = {
         env_name="Go1JoystickFlat",
         cfg_factory=_go1_cfg,
         env_cls_factory=_go1_env_cls,
+        backends=("mujoco", "motrix", "mjwarp"),
     ),
     "go2": TaskConfig(
         task_id="go2_joystick_flat",
         env_name="Go2JoystickFlat",
         cfg_factory=_go2_cfg,
         env_cls_factory=_go2_env_cls,
+        backends=("mujoco", "motrix", "mjwarp"),
     ),
     "go2_rough": TaskConfig(
         task_id="go2_joystick_rough",
         env_name="Go2JoystickRough",
         cfg_factory=_go2_rough_cfg,
         env_cls_factory=_go2_rough_env_cls,
+        backends=("mujoco", "motrix", "mjwarp"),
     ),
     "go2w": TaskConfig(
         task_id="go2w_joystick_flat",
         env_name="Go2WJoystickFlat",
         cfg_factory=_go2w_cfg,
         env_cls_factory=_go2w_env_cls,
+        backends=("mujoco", "motrix", "mjwarp"),
     ),
     "go2w_rough": TaskConfig(
         task_id="go2w_joystick_rough",
         env_name="Go2WJoystickRough",
         cfg_factory=_go2w_rough_cfg,
         env_cls_factory=_go2w_rough_env_cls,
+        backends=("mujoco", "motrix", "mjwarp"),
     ),
     "g1": TaskConfig(
         task_id="g1_walk_flat",
         env_name="G1WalkFlat",
         cfg_factory=_g1_flat_cfg,
         env_cls_factory=_g1_walk_env_cls,
+        backends=("mujoco", "motrix", "mjwarp"),
     ),
     "g1_rough": TaskConfig(
         task_id="g1_walk_rough",
@@ -417,12 +487,14 @@ TASK_CONFIGS: dict[str, TaskConfig] = {
         cfg_factory=_g1_rough_cfg,
         env_cls_factory=_g1_walk_env_cls,
         aliases=("sac/g1_walk_rough",),
+        backends=("mujoco", "motrix", "mjwarp"),
     ),
     "g1_mt": TaskConfig(
         task_id="g1_motion_tracking",
         env_name="G1MotionTracking",
         cfg_factory=_g1_motion_tracking_cfg,
         env_cls_factory=_g1_motion_tracking_env_cls,
+        backends=("mujoco", "motrix", "mjwarp"),
     ),
     "sharpa_inhand": TaskConfig(
         task_id="sharpa_inhand",
@@ -430,6 +502,7 @@ TASK_CONFIGS: dict[str, TaskConfig] = {
         cfg_factory=_sharpa_inhand_cfg,
         env_cls_factory=_sharpa_inhand_env_cls,
         cfg_finalizer=_ensure_sharpa_benchmark_grasp_cache,
+        backends=("mujoco", "motrix", "mjwarp"),
     ),
 }
 
@@ -453,10 +526,12 @@ TASK_COLORS = {
 BACKEND_STYLES = {
     "mujoco": {"marker": "o", "linestyle": "-", "hatch": "//"},
     "motrix": {"marker": "s", "linestyle": "--", "hatch": "xx"},
+    "mjwarp": {"marker": "^", "linestyle": ":", "hatch": ".."},
 }
 BACKEND_TICK_LABELS = {
     "mujoco": "mj",
     "motrix": "mx",
+    "mjwarp": "wp",
 }
 BREAKDOWN_SEGMENTS = [
     ("apply_action_ms", "apply_action", "#4C78A8"),
@@ -1097,17 +1172,70 @@ def _breakdown_segments_for_results(results: list[dict[str, Any]]) -> list[tuple
     return visible_segments
 
 
-def _save_summary_plot(results: list[dict[str, Any]], output_path: Path) -> bool:
+def _save_single_metric_plot(
+    results: list[dict[str, Any]],
+    output_path: Path,
+    *,
+    values: list[float],
+    ylabel: str,
+    title: str,
+    add_zero_line: bool = False,
+) -> bool:
     if plt is None or not results:
         return False
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     ordered, x, groups = _grouped_positions(results)
-    summaries = [_compute_result_summary(result) for result in ordered]
-    labels = [summary["label"] for summary in summaries]
     width = 0.78
 
-    fig, axes = plt.subplots(1, 3, figsize=(max(13, len(labels) * 2.0), 5.5))
+    fig, ax = plt.subplots(figsize=(max(10, len(ordered) * 1.4), 5.5))
+    for idx, result in enumerate(ordered):
+        style = _backend_style(result["sim_backend"])
+        color = _task_color(_task_key(result))
+        ax.bar(
+            x[idx],
+            values[idx],
+            width=width,
+            color=color,
+            edgecolor="#444444",
+            hatch=style["hatch"],
+            alpha=0.92,
+        )
+
+    if add_zero_line:
+        ax.axhline(0.0, color="#5F6368", linewidth=0.8)
+    ax.set_ylabel(ylabel)
+    ax.set_title(f"{title}\n{get_device_info_line()}")
+    ax.grid(axis="y", alpha=0.3)
+    _decorate_grouped_xaxis(ax, ordered, x, groups)
+
+    handles = _backend_legend_handles()
+    if handles:
+        ax.legend(handles=handles, fontsize=8, loc="upper right")
+    fig.subplots_adjust(bottom=0.24, top=0.88)
+    fig.savefig(output_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved: {output_path.resolve()}")
+    return True
+
+
+def _save_summary_plots(
+    results: list[dict[str, Any]],
+    *,
+    latency_path: Path,
+    throughput_path: Path,
+    memory_path: Path,
+) -> list[Path]:
+    """Save Latency / Throughput / Memory as three separate images.
+
+    The previous single 3-subplot figure became unreadable as task count grew;
+    each metric now lives in its own image so the x-axis labels stay legible.
+    """
+    if plt is None or not results:
+        return []
+
+    ordered, _, _ = _grouped_positions(results)
+    summaries = [_compute_result_summary(result) for result in ordered]
     median_ms = [summary["median_step_ms"] for summary in summaries]
     throughput = [summary["throughput_env_steps_per_s"] for summary in summaries]
     memory_metric = [str(summary["memory"].get("preferred_metric", "rss")) for summary in summaries]
@@ -1116,62 +1244,33 @@ def _save_summary_plot(results: list[dict[str, Any]], output_path: Path) -> bool
         for idx, summary in enumerate(summaries)
     ]
 
-    for idx, result in enumerate(ordered):
-        style = _backend_style(result["sim_backend"])
-        color = _task_color(_task_key(result))
-        axes[0].bar(
-            x[idx],
-            median_ms[idx],
-            width=width,
-            color=color,
-            edgecolor="#444444",
-            hatch=style["hatch"],
-            alpha=0.92,
-        )
-        axes[1].bar(
-            x[idx],
-            throughput[idx],
-            width=width,
-            color=color,
-            edgecolor="#444444",
-            hatch=style["hatch"],
-            alpha=0.92,
-        )
-        axes[2].bar(
-            x[idx],
-            total_memory_delta_mb[idx],
-            width=width,
-            color=color,
-            edgecolor="#444444",
-            hatch=style["hatch"],
-            alpha=0.92,
-        )
-
-    axes[0].set_ylabel("median env.step time (ms)")
-    axes[0].set_title("Latency")
-    axes[0].grid(axis="y", alpha=0.3)
-
-    axes[1].set_ylabel("throughput (env-steps/s)")
-    axes[1].set_title("Throughput")
-    axes[1].grid(axis="y", alpha=0.3)
-
-    axes[2].axhline(0.0, color="#5F6368", linewidth=0.8)
-    axes[2].set_ylabel("memory delta (MB, USS preferred)")
-    axes[2].set_title("Memory")
-    axes[2].grid(axis="y", alpha=0.3)
-
-    for ax in axes:
-        _decorate_grouped_xaxis(ax, ordered, x, groups)
-
-    fig.suptitle(f"Env step benchmark summary\n{get_device_info_line()}")
-    handles = _backend_legend_handles()
-    if handles:
-        axes[2].legend(handles=handles, fontsize=8, loc="upper right")
-    fig.subplots_adjust(bottom=0.24, top=0.82, wspace=0.28)
-    fig.savefig(output_path, dpi=160, bbox_inches="tight")
-    plt.close(fig)
-    print(f"Saved: {output_path.resolve()}")
-    return True
+    saved: list[Path] = []
+    if _save_single_metric_plot(
+        results,
+        latency_path,
+        values=median_ms,
+        ylabel="median env.step time (ms)",
+        title="Env step latency",
+    ):
+        saved.append(latency_path)
+    if _save_single_metric_plot(
+        results,
+        throughput_path,
+        values=throughput,
+        ylabel="throughput (env-steps/s)",
+        title="Env step throughput",
+    ):
+        saved.append(throughput_path)
+    if _save_single_metric_plot(
+        results,
+        memory_path,
+        values=total_memory_delta_mb,
+        ylabel="memory delta (MB, USS preferred)",
+        title="Env step memory",
+        add_zero_line=True,
+    ):
+        saved.append(memory_path)
+    return saved
 
 
 def _save_breakdown_plot(results: list[dict[str, Any]], output_path: Path) -> bool:
@@ -1221,6 +1320,75 @@ def _save_breakdown_plot(results: list[dict[str, Any]], output_path: Path) -> bo
     return True
 
 
+def _save_breakdown_markdown_table(results: list[dict[str, Any]], output_path: Path) -> bool:
+    """Write per-case median breakdown (ms) as a Markdown table.
+
+    One row per case (task/backend), one column per ``BREAKDOWN_SEGMENTS`` entry
+    plus total and throughput. Mirrors the data that the stacked breakdown plot
+    visualizes, but in a form that's easy to paste into a PR description.
+    """
+    if not results:
+        return False
+
+    ordered, _, _ = _grouped_positions(results)
+    headers = ["task/backend", "total_ms"]
+    headers += [label for _, label, _ in BREAKDOWN_SEGMENTS]
+    headers.append("throughput/s")
+
+    rows: list[list[str]] = []
+    for result in ordered:
+        label = f"{_task_key(result)}/{result['sim_backend']}"
+        total_arr = _timing_array(result, "env_step_total_ms")
+        total_ms = float(np.median(total_arr)) if total_arr.size else 0.0
+        total_s = float(total_arr.sum() / 1000.0)
+        steps_per_env = result["num_steps"] * result["num_envs"]
+        throughput = steps_per_env / total_s if total_s > 0 else 0.0
+
+        row = [label, f"{total_ms:.3f}"]
+        for key, _label, _color in BREAKDOWN_SEGMENTS:
+            row.append(f"{_median_timing_ms(result, key):.3f}")
+        row.append(f"{throughput:,.0f}")
+        rows.append(row)
+
+    col_widths = [len(h) for h in headers]
+    for row in rows:
+        for i, cell in enumerate(row):
+            col_widths[i] = max(col_widths[i], len(cell))
+
+    def _format_row(cells: list[str]) -> str:
+        return "| " + " | ".join(cell.ljust(col_widths[i]) for i, cell in enumerate(cells)) + " |"
+
+    separator = "| " + " | ".join("-" * col_widths[i] for i in range(len(headers))) + " |"
+
+    if results:
+        r0 = ordered[0]
+        params_line = (
+            f"_num_envs={r0['num_envs']}, num_steps={r0['num_steps']}, "
+            f"warmup_steps={r0['warmup_steps']}; values are medians over steps in ms; "
+            f"throughput = env-steps/s_"
+        )
+    else:
+        params_line = ""
+
+    lines = [
+        "# Env step breakdown (median ms per segment)",
+        "",
+        get_device_info_line(),
+        "",
+        params_line,
+        "",
+        _format_row(headers),
+        separator,
+    ]
+    lines.extend(_format_row(row) for row in rows)
+    lines.append("")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text("\n".join(lines), encoding="utf-8")
+    print(f"Saved: {output_path.resolve()}")
+    return True
+
+
 def _persist_outputs(
     results: list[dict[str, Any]],
     *,
@@ -1234,18 +1402,30 @@ def _persist_outputs(
     effective_plot_dir = plot_dir or out_json.parent
 
     if not skip_plots:
-        summary_path = effective_plot_dir / "env_step_summary.png"
+        latency_path = effective_plot_dir / "env_step_latency.png"
+        throughput_path = effective_plot_dir / "env_step_throughput.png"
+        memory_path = effective_plot_dir / "env_step_memory.png"
         breakdown_path = effective_plot_dir / "env_step_breakdown.png"
 
-        if _save_summary_plot(results, summary_path):
-            plot_files.append(str(summary_path.resolve()))
+        saved_summary = _save_summary_plots(
+            results,
+            latency_path=latency_path,
+            throughput_path=throughput_path,
+            memory_path=memory_path,
+        )
+        if saved_summary:
+            plot_files.extend(str(path.resolve()) for path in saved_summary)
         elif plt is None and results:
-            print("matplotlib unavailable; skipped env step summary plot.")
+            print("matplotlib unavailable; skipped env step summary plots.")
 
         if _save_breakdown_plot(results, breakdown_path):
             plot_files.append(str(breakdown_path.resolve()))
         elif plt is None and results:
             print("matplotlib unavailable; skipped env step breakdown plot.")
+
+    breakdown_md_path = effective_plot_dir / "env_step_breakdown.md"
+    if _save_breakdown_markdown_table(results, breakdown_md_path):
+        plot_files.append(str(breakdown_md_path.resolve()))
 
     meta: dict[str, Any] = {
         "mode": mode,
@@ -1293,11 +1473,21 @@ def _tail_text(text: str, *, max_lines: int = 24) -> str:
 
 
 def _run_single_isolated(label: str, args: list[str]) -> dict[str, Any]:
+    # mjwarp cases need their optional deps re-declared in the subprocess
+    # because the case is launched via a fresh `uv run` (the parent's
+    # ephemeral --with environment doesn't propagate).
+    needs_mjwarp = any(
+        arg.endswith("/mjwarp") or arg == "training.sim_backend=mjwarp" for arg in args
+    )
     with tempfile.TemporaryDirectory(prefix="unilab_env_step_case_") as tmpdir:
         result_json = Path(tmpdir) / "result.json"
+        uv_extra: list[str] = []
+        if needs_mjwarp:
+            uv_extra = ["--with", "mujoco-warp", "--with", "warp-lang"]
         cmd = [
             "uv",
             "run",
+            *uv_extra,
             "benchmark/benchmark_env_step.py",
             *args,
             "--emit-full-result-json",
@@ -1330,9 +1520,18 @@ def _run_matrix(
     """Run all task x backend combinations and print comparison."""
     from unilab.base.backend import MOTRIX_AVAILABLE
 
-    backends = BACKENDS if MOTRIX_AVAILABLE else ["mujoco"]
-    if not MOTRIX_AVAILABLE:
-        print("Note: motrixsim not available, running mujoco only\n")
+    backends = ["mujoco"]
+    if MOTRIX_AVAILABLE:
+        backends.append("motrix")
+    else:
+        print("Note: motrixsim not available; skipping motrix column\n")
+    if MJWARP_AVAILABLE:
+        backends.append("mjwarp")
+    else:
+        print(
+            "Note: mujoco_warp not available; skipping mjwarp column "
+            "(install via `uv run --with mujoco-warp --with warp-lang`)\n"
+        )
 
     results: list[dict] = []
     failures: list[dict[str, str]] = []

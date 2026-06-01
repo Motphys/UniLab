@@ -1,3 +1,7 @@
+---
+orphan: true
+---
+
 # ADR-0005 Unified Obs Critic Env And IPC Contract
 
 语言: 简体中文
@@ -84,5 +88,5 @@ UniLab 运行时 observation contract 统一为且仅为两层：
 ## Related Documents
 
 - {doc}`ADR Index </adr/README>`
-- {doc}`RL Infrastructure 开发标准 </zh_CN/2-developer_guide/1-development-standard>`
-- {doc}`协作流程 </zh_CN/2-developer_guide/2-collaboration>`
+- {doc}`RL Infrastructure 开发标准 </zh_CN/4-developer_guide/0-index>`
+- {doc}`协作流程 </zh_CN/4-developer_guide/5-contributing_workflow>`

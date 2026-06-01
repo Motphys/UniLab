@@ -3,7 +3,22 @@
 This matrix is generated conceptually from registry entries, owner YAMLs, and
 tests. The generator implementation is `src/unilab/utils/support_matrix.py`; the
 write target for the generated block is currently the Chinese reference page
-`docs/sphinx/source/zh_CN/1-user_guide/5-reference/1-backend-support-matrix.md`.
+`docs/sphinx/source/zh_CN/5-reference/5-support_matrix.md`.
+
+## Backend Selection Rules
+
+- The default backend is `mujoco`.
+- Switch to Motrix with `--sim motrix` on the unified CLI.
+- `--algo`, `--task`, and `--sim` jointly select the owner YAML.
+- Do not treat `training.sim_backend` as a standalone backend switch.
+
+## Playback Differences
+
+- `mujoco`: `--render-mode auto` exports `play_video.mp4`.
+- `motrix`: `--render-mode auto` opens an interactive renderer window; it does
+  not record a video and is not bound by `play_steps`.
+- `--render-mode record`: both backends record a video only.
+- `--render-mode none`: no playback.
 
 ## Evidence Grades
 

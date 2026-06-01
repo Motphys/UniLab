@@ -147,17 +147,26 @@ def _python_executable_for_route(mode: str, sim: str, overrides: Sequence[str]) 
     if platform.system() != "Darwin" or not _needs_motrix_renderer(mode, sim, overrides):
         return sys.executable
 
+    return _mxpython_executable()
+
+
+def _mxpython_executable() -> str:
     if Path(sys.executable).name == "mxpython":
         return sys.executable
 
     mxpython = shutil.which("mxpython")
-    if mxpython is None:
-        raise SystemExit(
-            "macOS Motrix playback uses the native renderer and must be launched with "
-            "`mxpython`. Install the Motrix extra so `mxpython` is on PATH, or use "
-            "`training.no_play=true` for non-rendering training."
-        )
-    return mxpython
+    if mxpython is not None:
+        return mxpython
+
+    venv_mxpython = Path(sys.executable).with_name("mxpython")
+    if venv_mxpython.is_file():
+        return str(venv_mxpython)
+
+    raise SystemExit(
+        "macOS Motrix playback uses the native renderer and must be launched with "
+        "`mxpython`. Install the Motrix extra so `mxpython` is on PATH, or use "
+        "`training.no_play=true` for non-rendering training."
+    )
 
 
 def build_route(algo: str, task: str, sim: str, profile: str | None = None) -> Route:
@@ -255,7 +264,7 @@ def _train_eval_parser(*, mode: str) -> argparse.ArgumentParser:
 
 def _demo_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="demo")
-    parser.add_argument("--preset", default="go2_joystick_mujoco_ppo")
+    parser.add_argument("demo_name")
     parser.add_argument("--refresh", action="store_true")
     parser.add_argument("--device", default=None)
     return parser
@@ -294,7 +303,7 @@ def demo_main(argv: Sequence[str] | None = None) -> int:
             f"demo does not accept passthrough Hydra overrides: {', '.join(overrides)}"
         )
     return run_demo(
-        preset_name=args.preset,
+        demo_name=args.demo_name,
         refresh=args.refresh,
         device=args.device,
     )

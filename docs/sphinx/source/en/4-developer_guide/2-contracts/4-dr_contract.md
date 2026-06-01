@@ -46,11 +46,40 @@ backend implementations, and owner YAMLs.
 
 Current MuJoCo reset randomization uses `BatchEnvPool.reset(...,
 randomization=...)` with a fixed field whitelist. Indexed reads and writes are
-available through `get_field_indexed(...)` and `set_field_indexed(...)`.
+available through `get_field_indexed(...)` and `set_field_indexed(...)`. This
+interface lives in the `mujoco-uni` package (`mujoco.batch_env`), not in this
+repository; the reset-term constants that map onto it are in
+`src/unilab/dr/types.py`.
 
-The field names documented in the current code path include `body_mass`,
-`body_ipos`, `body_iquat`, `body_inertia`, `dof_armature`, `gravity`,
-`geom_friction`, `kp`, and `kd`.
+The supported reset fields and their per-env block shapes are below. The leading
+dimension is always `len(env_ids)`; the trailing block size is the field's full
+flat width in a single `mjModel`.
+
+| Field | Per-env block shape |
+| --- | --- |
+| `body_mass` | `nbody` |
+| `body_ipos` | `3 * nbody` |
+| `body_iquat` | `4 * nbody` |
+| `body_inertia` | `3 * nbody` |
+| `dof_armature` | `nv` |
+| `gravity` | `3` |
+| `geom_friction` | `3 * ngeom` |
+| `kp` | `nu` |
+| `kd` | `nu` |
+
+Refresh behavior is fixed by the backend: `body_mass`, `body_ipos`,
+`body_iquat`, `body_inertia`, and `dof_armature` trigger an `mj_setConst`
+refresh after the write, while `gravity`, `geom_friction`, `kp`, and `kd` do
+not.
+
+Two caveats:
+
+- `geom_size` is not in `SUPPORTED_FIELDS`. Geometry size is expressed through
+  init-lifecycle model materialization (see `GeomSizeOverride` /
+  `ModelVariantSpec` in `src/unilab/dr/types.py`), not reset randomization.
+- `gravity` reset randomization requires a `mujoco-uni` build that ships it.
+  This repository pins `mujoco-uni==3.8.0`, whose `SUPPORTED_FIELDS` includes
+  `gravity`; older packages such as `3.6.0.post6` do not.
 
 ## Motor Control Extension
 

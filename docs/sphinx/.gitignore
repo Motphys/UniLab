@@ -2,6 +2,7 @@
 build/
 _build/
 source/_autosummary/
+source/api_reference/**/_autosummary/
 
 # Python
 __pycache__/

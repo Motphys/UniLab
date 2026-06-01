@@ -49,6 +49,7 @@ class NpEnv(ABEnv):
         self._dr_manager: DomainRandomizationManager | None = None
         self._init_randomization_applied = False
         self._nan_guard: NanGuard | None = None
+        self._autoreset = True
 
     @property
     def cfg(self) -> EnvCfg:
@@ -134,7 +135,7 @@ class NpEnv(ABEnv):
 
         done = self._state.terminated | self._state.truncated
         t0 = time.perf_counter()
-        if np.any(done):
+        if self._autoreset and np.any(done):
             self._reset_done_envs()
         reset_done_time = time.perf_counter() - t0
 
@@ -440,6 +441,14 @@ class NpEnv(ABEnv):
 
     def set_nan_guard(self, guard: "NanGuard") -> None:
         self._nan_guard = guard
+
+    def set_autoreset(self, enabled: bool) -> None:
+        """Toggle automatic reset of done envs at the end of ``step``.
+
+        Defaults to ``True`` (standard RL autoreset). Interactive playback can
+        disable it so a terminated robot stays put until a manual reset.
+        """
+        self._autoreset = bool(enabled)
 
     def close(self) -> None:
         """关闭环境"""

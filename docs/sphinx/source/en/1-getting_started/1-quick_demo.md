@@ -52,8 +52,18 @@ uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1
 uv run eval --algo ppo --task go2_joystick_flat --sim motrix \
   --load-run -1 --render-mode record
 
-# Demo playback from a local trained checkpoint
-uv run demo
+# Demo playback (fetches a pre-trained checkpoint from Hugging Face on first run)
+uv run demo dance
+```
+
+Available demo names: `teaser`, `dance`, `wallflip`, `boxtracking`, `locomani`, `inhandgrasp`.
+
+Mainland China users: motions, scenes, and demo checkpoints come from Hugging
+Face on first run. If `huggingface.co` is unreachable, switch to the community
+mirror before running training, eval, or demo commands:
+
+```bash
+export HF_ENDPOINT=https://hf-mirror.com
 ```
 
 On macOS, the CLI routes Motrix interactive playback through `mxpython` when

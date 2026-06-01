@@ -2,7 +2,7 @@
 
 This page is the English checklist for the architecture rule recorded in
 {doc}`/adr/ADR-0001-runtime-model-and-layer-boundaries`. The canonical project
-standard is {doc}`/zh_CN/2-developer_guide/1-development-standard`.
+standard is {doc}`/zh_CN/4-developer_guide/0-index`.
 
 ## Owner Layers
 

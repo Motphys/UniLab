@@ -2,7 +2,7 @@
 
 The detailed runtime contract is in
 {doc}`/adr/ADR-0001-runtime-model-and-layer-boundaries` and
-{doc}`/zh_CN/2-developer_guide/1-development-standard`. This page keeps the English
+{doc}`/zh_CN/4-developer_guide/0-index`. This page keeps the English
 summary close to the code paths.
 
 ## Two Runtime Shapes

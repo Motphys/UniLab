@@ -1,9 +1,15 @@
 # SAC
 
 SAC is selected through the shared off-policy entrypoint
-`scripts/train_offpolicy.py`. The main config is `conf/offpolicy/config.yaml`,
-and the SAC algorithm defaults live in `conf/offpolicy/algo/sac.yaml`. The
-current log name is `fast_sac`.
+`scripts/train_offpolicy.py`, which TD3 and FlashSAC share as well. The main
+config is `conf/offpolicy/config.yaml`, and the SAC algorithm defaults live in
+`conf/offpolicy/algo/sac.yaml`. The current log name is `fast_sac`.
+
+## Runtime Model
+
+The off-policy runner decouples CPU simulation from GPU learning through shared
+memory: a collector subprocess fills a CPU-resident replay buffer while the
+learner trains on the GPU.
 
 ## Quick Start
 

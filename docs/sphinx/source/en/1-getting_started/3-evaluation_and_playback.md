@@ -12,8 +12,8 @@ uv run eval --algo ppo --task go2_joystick_flat --sim motrix \
 uv run eval --algo sac --task g1_walk_flat --sim mujoco --load-run -1 \
     --render-mode record training.export_onnx=false
 
-# Demo (uses a baked-in checkpoint)
-uv run demo
+# Demo (downloads checkpoint from HF on first run)
+uv run demo dance
 ```
 
 Render modes:

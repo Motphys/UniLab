@@ -585,11 +585,12 @@ def test_build_ppo_env_cfg_override_carries_post_step_forward_sensor_override(
     monkeypatch: pytest.MonkeyPatch,
 ):
     mod = _train_rsl_rl(monkeypatch)
-    cfg = _ppo_cfg(["task=g1_walk_flat/mujoco", "env.post_step_forward_sensor=false"])
+    for value in (True, False):
+        cfg = _ppo_cfg(["task=g1_walk_flat/mujoco", f"env.post_step_forward_sensor={value}"])
 
-    env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
+        env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
 
-    assert env_cfg_override["post_step_forward_sensor"] is False
+        assert env_cfg_override["post_step_forward_sensor"] is value
 
 
 def test_offpolicy_g1_walk_flat_motrix_env_cfg_override_has_domain_rand():
@@ -795,7 +796,7 @@ def test_build_ppo_play_env_cfg_override_applies_g1_motion_tracking_play_profile
 ):
     mod = _train_rsl_rl(monkeypatch)
     cfg = _ppo_cfg(["task=g1_motion_tracking/motrix", "training.play_only=true"])
-    assert cfg.training.play_env_num == 128
+    assert cfg.training.play_env_num == 16
 
     monkeypatch.setattr(
         mod,
@@ -805,7 +806,7 @@ def test_build_ppo_play_env_cfg_override_applies_g1_motion_tracking_play_profile
 
     env_cfg_override = mod.build_ppo_play_env_cfg_override(cfg)
 
-    assert cfg.training.play_env_num == 128
+    assert cfg.training.play_env_num == 16
     assert env_cfg_override["render_spacing"] == pytest.approx(2.5)
     assert env_cfg_override["scene"].model_file == "/tmp/g1_motion_tracking_play_scene.xml"
     assert env_cfg_override["reward_config"]["scales"]["motion_body_pos"] == pytest.approx(1.0)

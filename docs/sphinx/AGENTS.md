@@ -7,8 +7,9 @@ Sphinx 文档写作规则。
 ## Ground Truth
 
 - 文档基础设施、构建和部署：`docs/sphinx/README.md`
+- 本地完整构建并发布到 UniLab-doc：`docs/sphinx/README.md#本地发布到-unilab-doc`
 - Sphinx 配置：`docs/sphinx/source/conf.py`
-- 架构标准：`docs/sphinx/source/zh_CN/2-developer_guide/1-development-standard.md`
+- 架构标准：`docs/sphinx/source/zh_CN/4-developer_guide/0-index.md`
 - ADR：`docs/sphinx/source/adr/ADR-0000-index.md`
 - 术语表：`docs/sphinx/source/glossary.md`
 - 文档检查：`tests/scripts/doc_checks.py`、`tests/scripts/test_check_docs.py`
@@ -130,9 +131,11 @@ language-independent absolute path.
 - **English pages**: do not hand-write `## Navigation`, `Previous`, or `Next`
   sections. Furo/Sphinx prev-next navigation comes from toctree order. If an
   English page in your edit scope still has a manual navigation block, remove it.
-- **Chinese non-index pages**: keep the current checked shape: language line plus
-  `## Navigation` with an Index link. The test contract is still enforced by
-  `check_zh_cn_doc_shape`.
+- **Chinese pages**: same rule as English — do not hand-write a `## Navigation`,
+  `Previous`, or `Next` block, and do not add a `语言: 简体中文` language line.
+  Furo's sidebar + prev/next handles navigation; the sidebar language switcher
+  indicates the language. (These manual footers were removed; there is no longer
+  a `check_zh_cn_doc_shape` contract.)
 - **Root/language switching**: route language changes through the root landing and
   language switcher. Do not add ordinary-page language button pickers.
 
@@ -142,7 +145,7 @@ language-independent absolute path.
 | --- | --- |
 | Same-language doc link | MyST `{doc}` relative path, such as `{doc}`algorithms/ppo`` |
 | Shared ADR or root-level page | Absolute `{doc}` path, such as `{doc}`/adr/ADR-0003-task-owner-and-config-compose-contract`` |
-| Cross-language canonical link | Absolute `{doc}` path, such as `{doc}`/zh_CN/2-developer_guide/1-development-standard`` |
+| Cross-language canonical link | Absolute `{doc}` path, such as `{doc}`/zh_CN/4-developer_guide/0-index`` |
 | Source/config/test path in prose | Backticks: `src/unilab/base/np_env.py` |
 | GitHub source link | Full GitHub URL to an existing file when a clickable source link is needed |
 
@@ -151,23 +154,18 @@ Avoid old paths such as `docs/users/`, `docs/developers/`, and
 
 ## zh_CN Shape
 
-Every `source/zh_CN/**.md` non-index page must keep this shape:
+Every `source/zh_CN/**.md` page uses the same minimal shape as its English
+mirror — title, then body. Do not add a `语言: 简体中文` language line or a
+manual `## Navigation` footer (both removed; Furo handles navigation):
 
 ```markdown
 # <标题>
 
-语言: 简体中文
-
 <正文>
-
-## Navigation
-
-- Index: [Documentation](../index.md)
 ```
 
-The relative depth of the Index link may vary. Do not paste English prose into a
-Chinese placeholder; a short honest Chinese placeholder is better than a fake
-translation.
+Do not paste English prose into a Chinese placeholder; a short honest Chinese
+placeholder is better than a fake translation.
 
 ## ADR Rules
 
@@ -184,7 +182,7 @@ ADR files live in `source/adr/` and are shared across languages.
 
 ## Support Matrix
 
-`source/zh_CN/1-user_guide/5-reference/1-backend-support-matrix.md` has a
+`source/zh_CN/5-reference/5-support_matrix.md` has a
 generated block owned by `scripts/generate_support_matrix.py`.
 
 After task/backend support changes, run:
@@ -225,7 +223,7 @@ Do not hand-edit the generated block.
   `task=<task>/<backend>` Hydra overrides as user-facing CLI examples.
 - Env hot paths that parse assets/XML or probe backend private methods.
 - Hand-written API signatures in `source/api_reference/`.
-- English `## Navigation` blocks.
+- Manual `## Navigation` / `Previous` / `Next` blocks or `语言: 简体中文` lines on any page (en or zh).
 
 ## Validation
 
@@ -234,7 +232,7 @@ For docs-only changes, run:
 ```bash
 uv run pytest tests/scripts/test_check_docs.py -q
 cd docs/sphinx
-UNILAB_DOCS_SKIP_AUTODOC=1 uv run sphinx-build -b html -n source build/html
+UNILAB_DOCS_SKIP_AUTODOC=1 uv run --no-project --with-requirements requirements.txt sphinx-build -b html -n source build/html
 ```
 
 If you changed generated support data, run the generator first. If you changed

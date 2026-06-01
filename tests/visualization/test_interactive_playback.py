@@ -9,12 +9,15 @@ import pytest
 import torch
 
 from unilab.visualization.interactive_playback import (
+    KeyboardCommander,
     PlaybackControls,
     RslRlPlaybackConfig,
     RslRlPlaybackSession,
     create_rsl_rl_playback_session,
     prepare_motion_overlay_selection,
 )
+
+_VEL_LIMIT = [[-0.6, -0.4, -0.8], [1.0, 0.4, 0.8]]
 
 
 class _FakeWrappedEnv:
@@ -186,6 +189,31 @@ def test_create_rsl_rl_playback_session_rejects_missing_env() -> None:
             train_cfg_normalizer=lambda cfg: cfg,
             log=lambda message: None,
         )
+
+
+def test_keyboard_commander_nudges_stack_and_clamp_to_vel_limit() -> None:
+    commander = KeyboardCommander.from_vel_limit(_VEL_LIMIT, step_lin=0.1, step_ang=0.2)
+    assert commander.command.tolist() == [0.0, 0.0, 0.0]
+
+    # Linear and angular axes stack independently.
+    commander.nudge(KeyboardCommander.AXIS_VX, +1.0)
+    commander.nudge(KeyboardCommander.AXIS_VYAW, +1.0)
+    assert commander.command == pytest.approx([0.1, 0.0, 0.2])
+
+    # Repeated nudges saturate at the configured velocity limits.
+    for _ in range(50):
+        commander.nudge(KeyboardCommander.AXIS_VX, +1.0)
+        commander.nudge(KeyboardCommander.AXIS_VY, -1.0)
+    assert commander.command[0] == pytest.approx(1.0)
+    assert commander.command[1] == pytest.approx(-0.4)
+
+    commander.zero()
+    assert commander.command.tolist() == [0.0, 0.0, 0.0]
+
+
+def test_keyboard_commander_rejects_bad_vel_limit_shape() -> None:
+    with pytest.raises(ValueError, match=r"shape \(2, 3\)"):
+        KeyboardCommander.from_vel_limit([[0.0, 0.0], [1.0, 1.0]])
 
 
 def test_prepare_motion_overlay_selection_filters_body_names() -> None:

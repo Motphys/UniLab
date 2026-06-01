@@ -17,11 +17,11 @@ UniLab 的全部文档源码统一在 [`docs/sphinx/`](sphinx/) 下,通过 Sphin
 | 内容 | 路径 |
 |------|------|
 | 英文用户指南 | [`docs/sphinx/source/en/2-user_guide/`](sphinx/source/en/2-user_guide/) |
-| 中文用户指南 | [`docs/sphinx/source/zh_CN/1-user_guide/`](sphinx/source/zh_CN/1-user_guide/) |
+| 中文用户指南 | [`docs/sphinx/source/zh_CN/2-user_guide/`](sphinx/source/zh_CN/2-user_guide/) |
 | 英文 Developer 指南 | [`docs/sphinx/source/en/4-developer_guide/`](sphinx/source/en/4-developer_guide/) |
-| 中文 Developer 指南 | [`docs/sphinx/source/zh_CN/2-developer_guide/`](sphinx/source/zh_CN/2-developer_guide/) |
+| 中文 Developer 指南 | [`docs/sphinx/source/zh_CN/4-developer_guide/`](sphinx/source/zh_CN/4-developer_guide/) |
 | 英文 Deployment(sim-to-real / sim-to-sim) | [`docs/sphinx/source/en/3-deployment/`](sphinx/source/en/3-deployment/) |
-| 中文 Agent 速查 | [`docs/sphinx/source/zh_CN/3-agents/`](sphinx/source/zh_CN/3-agents/) |
+| 中文 Agent 速查 | [`docs/sphinx/source/zh_CN/4-developer_guide/6-agent_quick_reference.md`](sphinx/source/zh_CN/4-developer_guide/6-agent_quick_reference.md) |
 | ADR(共享,中文为主) | [`docs/sphinx/source/adr/`](sphinx/source/adr/) |
 | API Reference(autodoc,英文) | [`docs/sphinx/source/api_reference/`](sphinx/source/api_reference/) |
 | 术语表 | [`docs/sphinx/source/glossary.md`](sphinx/source/glossary.md) |

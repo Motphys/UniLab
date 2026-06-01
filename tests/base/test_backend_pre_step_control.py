@@ -125,7 +125,7 @@ def test_mujoco_step_honors_post_step_forward_sensor_flag() -> None:
 def test_mujoco_step_with_pre_step_control_recomputes_each_physics_step() -> None:
     seen_sensors: list[np.ndarray] = []
 
-    backend = _fake_mujoco_backend()
+    backend = _fake_mujoco_backend(post_step_forward_sensor=True)
 
     def hook(current_backend, owner_ctrl: np.ndarray) -> np.ndarray:
         seen_sensors.append(current_backend._sensor_data.copy())
@@ -139,7 +139,7 @@ def test_mujoco_step_with_pre_step_control_recomputes_each_physics_step() -> Non
     assert len(backend._pool.step_calls) == 3
     assert [call["nstep"] for call in backend._pool.step_calls] == [1, 1, 1]
     assert all(call["return_sensor"] is True for call in backend._pool.step_calls)
-    assert all(call["post_step_forward_sensor"] is False for call in backend._pool.step_calls)
+    assert all(call["post_step_forward_sensor"] is True for call in backend._pool.step_calls)
     assert backend._pool.forward_calls == []
     np.testing.assert_allclose(seen_sensors, [[[0.0]], [[1.0]], [[2.0]]])
     np.testing.assert_allclose(backend._pool.step_calls[0]["control"], (ctrl + 1)[:, None, :])

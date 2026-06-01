@@ -447,6 +447,10 @@ class HoraActorModel(nn.Module):
         del dones
 
     @property
+    def distribution(self) -> GaussianDistribution:
+        return self.shared.distribution
+
+    @property
     def output_mean(self) -> torch.Tensor:
         return self.shared.distribution.mean
 

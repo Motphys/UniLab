@@ -418,6 +418,28 @@ class TestResetDoneEnvs:
         # No additional resets should have occurred
         assert env._reset_count == reset_count_after_init
 
+    def test_autoreset_enabled_by_default_resets_done_env(self):
+        env = _TerminatingStubEnv(num_envs=2, terminate_indices=[0])
+        env.init_state()
+        reset_count_after_init = env._reset_count
+        state = env.step(np.zeros((2, 3)))
+        assert env._reset_count > reset_count_after_init
+        np.testing.assert_array_equal(state.obs["obs"][0], 0.0)  # reset obs
+        assert state.info["steps"][0] == 0
+
+    def test_set_autoreset_false_keeps_done_env_without_reset(self):
+        env = _TerminatingStubEnv(num_envs=2, terminate_indices=[0])
+        env.init_state()
+        reset_count_after_init = env._reset_count
+        env.set_autoreset(False)
+        state = env.step(np.zeros((2, 3)))
+        # No auto-reset: env 0 keeps its update_state obs and its step counter.
+        assert env._reset_count == reset_count_after_init
+        np.testing.assert_array_equal(state.obs["obs"][0], 1.0)
+        assert state.info["steps"][0] == 1
+        # The done flag still surfaces so callers can decide what to do.
+        assert bool(state.terminated[0]) is True
+
     def test_steps_reset_for_done_envs(self):
         env = _TerminatingStubEnv(num_envs=3, terminate_indices=[0, 2])
         env.init_state()

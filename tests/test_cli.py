@@ -3,10 +3,11 @@ from __future__ import annotations
 import sys
 from importlib.machinery import ModuleSpec
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from unilab import cli
+from unilab import cli, demo
 
 
 def _make_minimal_checkout(
@@ -22,6 +23,7 @@ def _make_minimal_checkout(
 
 
 def _pretend_motrix_is_installed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "unilab.cli", cli)
     monkeypatch.setattr(
         cli,
         "find_spec",
@@ -73,6 +75,34 @@ def test_macos_motrix_train_no_play_uses_current_python(
     )
 
     assert command[0] == sys.executable
+
+
+def test_macos_motrix_finds_uv_venv_mxpython_when_not_on_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    venv_bin = tmp_path / ".venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    fake_python = venv_bin / "python"
+    fake_mxpython = venv_bin / "mxpython"
+    fake_python.write_text("", encoding="utf-8")
+    fake_mxpython.write_text("", encoding="utf-8")
+    _make_minimal_checkout(tmp_path)
+    _pretend_motrix_is_installed(monkeypatch)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(cli.shutil, "which", lambda name: None)
+    monkeypatch.setattr(cli.sys, "executable", str(fake_python))
+
+    command = cli.build_command(
+        mode="eval",
+        algo="ppo",
+        task="go2_joystick_flat",
+        sim="motrix",
+        overrides=[],
+        load_run="-1",
+        root=tmp_path,
+    )
+
+    assert command[0] == str(fake_mxpython)
 
 
 def test_train_profile_routes_to_owner_variant(tmp_path: Path) -> None:
@@ -145,6 +175,7 @@ def test_macos_motrix_eval_requires_mxpython(
     _pretend_motrix_is_installed(monkeypatch)
     monkeypatch.setattr(cli.platform, "system", lambda: "Darwin")
     monkeypatch.setattr(cli.shutil, "which", lambda name: None)
+    monkeypatch.setattr(cli.sys, "executable", str(tmp_path / "python"))
 
     with pytest.raises(SystemExit, match="mxpython"):
         cli.build_command(
@@ -222,3 +253,186 @@ def test_macos_motrix_render_mode_record_does_not_require_mxpython(
     )
 
     assert command[0] == sys.executable
+
+
+def _make_demo_checkout(root: Path, *, demo_name: str) -> None:
+    spec = demo.DEMO_REGISTRY[demo_name]
+    (root / "scripts").mkdir(parents=True, exist_ok=True)
+    (root / "scripts" / "train_rsl_rl.py").write_text("", encoding="utf-8")
+    (root / "scripts" / "play_interactive.py").write_text("", encoding="utf-8")
+    owner_dir = root / "conf" / spec.algo / "task" / spec.task
+    owner_dir.mkdir(parents=True, exist_ok=True)
+    (owner_dir / f"{spec.sim}.yaml").write_text(
+        f"training:\n  sim_backend: {spec.sim}\n", encoding="utf-8"
+    )
+
+
+def test_demo_registry_contains_expected_entries() -> None:
+    assert set(demo.DEMO_REGISTRY) == {
+        "dance",
+        "wallflip",
+        "boxtracking",
+        "locomani",
+        "inhandgrasp",
+        "teaser",
+    }
+    assert demo.DEMO_REGISTRY["locomani"].entry == "play_interactive"
+    assert demo.DEMO_REGISTRY["locomani"].sim == "mujoco"
+    assert demo.DEMO_REGISTRY["teaser"].entry == "teaser"
+    for name in ("dance", "wallflip", "boxtracking", "inhandgrasp"):
+        spec = demo.DEMO_REGISTRY[name]
+        assert spec.entry == "eval"
+        assert spec.sim == "motrix"
+        assert spec.algo == "ppo"
+
+
+def test_demo_eval_entry_passes_checkpoint_as_load_run_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_demo_checkout(tmp_path, demo_name="dance")
+    _pretend_motrix_is_installed(monkeypatch)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Linux")
+
+    abs_pt = str(tmp_path / "fake" / "model_0.pt")
+    command = demo.build_demo_command(demo_name="dance", checkpoint_path=abs_pt, root=tmp_path)
+
+    assert command[0] == sys.executable
+    assert command[1] == str(tmp_path / "scripts" / "train_rsl_rl.py")
+    assert "task=g1_motion_tracking/motrix" in command
+    assert "training.play_only=true" in command
+    assert f"algo.load_run={abs_pt}" in command
+
+
+def test_demo_play_interactive_entry_assembles_locomani_command(
+    tmp_path: Path,
+) -> None:
+    _make_demo_checkout(tmp_path, demo_name="locomani")
+    abs_pt = str(tmp_path / "fake" / "model_0.pt")
+    command = demo.build_demo_command(
+        demo_name="locomani", checkpoint_path=abs_pt, device="cpu", root=tmp_path
+    )
+
+    assert command[0] == sys.executable
+    assert command[1] == str(tmp_path / "scripts" / "play_interactive.py")
+    assert "task=go2_arm_manip_loco/mujoco" in command
+    assert f"algo.load_run={abs_pt}" in command
+    assert "training.device=cpu" in command
+
+
+def test_demo_play_interactive_requires_owner_yaml(tmp_path: Path) -> None:
+    (tmp_path / "scripts").mkdir(parents=True)
+    (tmp_path / "scripts" / "play_interactive.py").write_text("", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="owner config"):
+        demo.build_demo_command(
+            demo_name="locomani",
+            checkpoint_path="/tmp/fake/model_0.pt",
+            root=tmp_path,
+        )
+
+
+def test_demo_play_interactive_requires_script(tmp_path: Path) -> None:
+    spec = demo.DEMO_REGISTRY["locomani"]
+    owner_dir = tmp_path / "conf" / spec.algo / "task" / spec.task
+    owner_dir.mkdir(parents=True)
+    (owner_dir / f"{spec.sim}.yaml").write_text("training:\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="play_interactive.py"):
+        demo.build_demo_command(
+            demo_name="locomani",
+            checkpoint_path="/tmp/fake/model_0.pt",
+            root=tmp_path,
+        )
+
+
+def test_demo_unknown_name_lists_available_demos() -> None:
+    with pytest.raises(SystemExit, match="Available demos"):
+        demo.get_demo_spec("not_a_real_demo")
+
+
+def test_demo_main_rejects_passthrough_overrides() -> None:
+    with pytest.raises(SystemExit, match="passthrough"):
+        cli.demo_main(["dance", "training.device=cpu"])
+
+
+def test_demo_main_unknown_name_raises_with_available_list() -> None:
+    with pytest.raises(SystemExit, match="Available demos"):
+        cli.demo_main(["mystery"])
+
+
+def test_demo_teaser_build_command_rejected() -> None:
+    with pytest.raises(SystemExit, match="renderer-only"):
+        demo.build_demo_command(demo_name="teaser", checkpoint_path="/unused.pt")
+
+
+def test_demo_teaser_run_demo_invokes_render_teaser_main(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called: list[str] = []
+    monkeypatch.setattr(demo.platform, "system", lambda: "Linux")
+
+    def fake_render_teaser_main() -> None:
+        called.append("rendered")
+
+    import unilab.tools.render_teaser as render_teaser_module
+
+    monkeypatch.setattr(render_teaser_module, "main", fake_render_teaser_main)
+
+    def fail_resolve(_: str) -> str:
+        raise AssertionError("teaser entry must not resolve a checkpoint")
+
+    monkeypatch.setattr(demo, "resolve_checkpoint_file", fail_resolve)
+
+    rc = demo.run_demo(demo_name="teaser")
+    assert rc == 0
+    assert called == ["rendered"]
+
+
+def test_demo_teaser_uses_mxpython_subprocess_on_macos(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[list[str], dict[str, str]]] = []
+    monkeypatch.setattr(demo.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(demo.sys, "executable", "/tmp/unilab/.venv/bin/python")
+    monkeypatch.setattr(demo, "_mxpython_executable", lambda: "/tmp/unilab/.venv/bin/mxpython")
+
+    def fake_run(command: list[str], *, check: bool, env: dict[str, str]) -> SimpleNamespace:
+        assert check is False
+        calls.append((command, env))
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(demo.subprocess, "run", fake_run)
+
+    def fail_render_teaser_main() -> None:
+        raise AssertionError("macOS teaser must route through mxpython")
+
+    import unilab.tools.render_teaser as render_teaser_module
+
+    monkeypatch.setattr(render_teaser_module, "main", fail_render_teaser_main)
+
+    rc = demo.run_demo(demo_name="teaser")
+
+    assert rc == 0
+    command, env = calls[0]
+    assert command == [
+        "/tmp/unilab/.venv/bin/mxpython",
+        str(demo._repo_root() / "src" / "unilab" / "tools" / "render_teaser.py"),
+    ]
+    assert env["UV_PROJECT_ENVIRONMENT"] == str(demo._repo_root() / ".venv")
+
+
+def test_demo_main_teaser_dispatches_to_render_teaser(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called: list[str] = []
+    monkeypatch.setattr(demo.platform, "system", lambda: "Linux")
+
+    def fake_render_teaser_main() -> None:
+        called.append("rendered")
+
+    import unilab.tools.render_teaser as render_teaser_module
+
+    monkeypatch.setattr(render_teaser_module, "main", fake_render_teaser_main)
+    rc = cli.demo_main(["teaser"])
+    assert rc == 0
+    assert called == ["rendered"]
