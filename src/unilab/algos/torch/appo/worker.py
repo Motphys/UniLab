@@ -103,7 +103,9 @@ def appo_collector_fn(
 ):
     """Entry point for the APPO collector subprocess.
 
-    Creates environment + policy, collects rollouts, writes raw payloads to the IPC ring buffer.
+    Creates environment + policy, collects rollouts, writes raw payloads
+    to the IPC ring buffer. Error handling is provided by the
+    ``_collector_entry_wrapper`` in ``async_runner.py``.
     """
     from copy import deepcopy
 
@@ -361,16 +363,7 @@ def appo_collector_fn(
                 write_buf["last_critic"][:] = critic_np
             ring_buffer.signal_write_done()  # atomic increment, non-blocking
 
-    except Exception as e:
-        import traceback
-
-        print(f"\n[APPO WORKER CRASH]: {e}\n", file=sys.stderr)
-        traceback.print_exc(file=sys.stderr)
-        if metrics_queue is not None:
-            try:
-                metrics_queue.put_nowait({"error": str(e)})
-            except Exception:
-                pass
+    except Exception:
         stop_event.set()
         raise
 

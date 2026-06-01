@@ -39,9 +39,19 @@ class CudaLikeReplayTransferBackend:
         self.direct_pinned_shared = False
 
         if self.h2d_submitter == "pybind11":
-            from unilab.ipc.replay_pipelines.native_h2d import ensure_available
+            from unilab.ipc.replay_pipelines.native_h2d import get_diagnostic, is_available
 
-            ensure_available()
+            if not is_available():
+                import sys
+
+                print(
+                    f"[ReplayTransfer] Native H2D unavailable, using torch_copy_stream.\n"
+                    f"  Reason: {get_diagnostic()}\n"
+                    f"  Performance impact: negligible for pinned-memory transfers.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                self.h2d_submitter = "torch_copy_stream"
 
     def register_host_slots(self, slots: list[torch.Tensor]) -> None:
         for slot in slots:

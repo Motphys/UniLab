@@ -79,6 +79,20 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         ckpt_path: str | None = None
         iteration = 0
 
+        # --- memory budget check ---
+        from unilab.ipc.memory_budget import estimate_offpolicy_bytes, warn_if_over_budget
+
+        mem_est = estimate_offpolicy_bytes(
+            num_envs=self.num_envs,
+            replay_buffer_n=self.replay_buffer_n,
+            obs_dim=self.obs_dim,
+            action_dim=self.action_dim,
+            critic_dim=self.critic_obs_dim,
+            batch_size=self.batch_size,
+            updates_per_step=self.updates_per_step,
+        )
+        warn_if_over_budget(mem_est, label=f"Off-policy ({self.algo_type})")
+
         # --- replay buffer (packed CPU shared storage) ---
         buffer_capacity = self.replay_buffer_n * self.num_envs
         replay_buffer = ReplayBuffer(
