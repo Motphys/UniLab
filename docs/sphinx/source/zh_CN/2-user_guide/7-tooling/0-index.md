@@ -29,6 +29,12 @@
 导出 MuJoCo 场景及复制的 asset 以供检查。
 :::
 
+:::{grid-item-card} 机器人导入
+:link: 5-robot_import
+:link-type: doc
+接入机器人资产、模型描述、控制接口与 keyframe。
+:::
+
 ::::
 
 ```{toctree}
@@ -38,4 +44,5 @@
 2-wandb
 3-nan_visualizer
 4-scene_export
+5-robot_import
 ```
