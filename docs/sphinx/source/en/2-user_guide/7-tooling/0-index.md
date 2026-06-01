@@ -30,6 +30,12 @@ Inspect NaN guard dumps from PPO runs.
 Export MuJoCo scenes and copied assets for inspection.
 :::
 
+:::{grid-item-card} Robot import
+:link: 5-robot_import
+:link-type: doc
+Connect robot assets, model descriptions, control interfaces, and keyframes.
+:::
+
 ::::
 
 ```{toctree}
@@ -39,4 +45,5 @@ Export MuJoCo scenes and copied assets for inspection.
 2-wandb
 3-nan_visualizer
 4-scene_export
+5-robot_import
 ```
