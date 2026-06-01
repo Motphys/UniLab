@@ -80,21 +80,19 @@ The default caches are hosted on Hugging Face (`unilabsim/unilab-caches`) and ar
 downloaded automatically into `src/unilab/assets/caches/` on first training, so
 no manual step is needed.
 
-Sharpa rotation samples from per-scale grasp caches, so multi-scale caches are
-collected by running the grasp task once per scale (cache files are named
-`<prefix>_<scale>.npy`):
+To collect caches for custom scales not on HF — or to regenerate them locally —
+run the grasp task once per scale (cache files are named `<prefix>_<scale>.npy`).
+Generated files land under `src/unilab/assets/caches/`, the same location HF
+downloads to, so subsequent training auto-resolves them without further
+configuration. Regeneration is **slow**.
 
-```bash
-uv run train --algo ppo --task sharpa_inhand_grasp --sim mujoco 'env.domain_rand.scale_list=[0.8]' training.no_play=true
-uv run train --algo ppo --task sharpa_inhand_grasp --sim mujoco 'env.domain_rand.scale_list=[1.0]' training.no_play=true
-uv run train --algo ppo --task sharpa_inhand_grasp --sim mujoco 'env.domain_rand.scale_list=[1.2]' training.no_play=true
-```
-
-Or use the helper script, which collects each scale sequentially:
+The helper script collects each scale sequentially:
 
 ```bash
 bash scripts/sharpa_collect_grasps.sh 0.8 1.0 1.2
 ```
+
+<sub>Equivalent per-scale invocations: `uv run train --algo ppo --task sharpa_inhand_grasp --sim mujoco 'env.domain_rand.scale_list=[0.8]' training.no_play=true` (repeat for `[1.0]`, `[1.2]`, …).</sub>
 
 Motrix can also collect a grasp cache (phase-1 scope only):
 

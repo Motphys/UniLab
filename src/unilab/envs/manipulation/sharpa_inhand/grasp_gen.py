@@ -5,6 +5,7 @@ from typing import Any, cast
 
 import numpy as np
 
+from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.np_env import NpEnvState
 from unilab.dr import ResetPlan
@@ -299,6 +300,8 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
             self._cfg.grasp_cache_path or "caches/sharpa_grasp_linspace",
             float(self.scale_values[0]),
         )
+        if not output_file.is_absolute():
+            output_file = ASSETS_ROOT_PATH / output_file
         output_file.parent.mkdir(parents=True, exist_ok=True)
         save_data = np.concatenate(self._saved_grasping_states[0], axis=0)[
             : self._grasp_target_per_scale
