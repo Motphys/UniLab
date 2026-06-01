@@ -89,11 +89,23 @@ def _materialize_fragment_without_keyframes(fragment_file: Path) -> Path:
     return Path(tmp.name)
 
 
+def _cleanup_temp_xml(path: Path, original: Path) -> None:
+    if path == original:
+        return
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+
+
 def _attach_motrix_scene_fragment(world: World, fragment_file: Path) -> None:
     import motrixsim.msd as msd
 
     sanitized = _materialize_fragment_without_keyframes(fragment_file)
-    fragment = msd.from_file(str(sanitized))
+    try:
+        fragment = msd.from_file(str(sanitized))
+    finally:
+        _cleanup_temp_xml(sanitized, fragment_file)
     world.attach(fragment)
 
 
@@ -157,12 +169,15 @@ def materialize_motrix_scene(
         _resolve_scene_fragment_path(fragment_file, model_path) for fragment_file in fragment_files
     ]
     robot_path = _materialize_robot_with_fragment_keyframes(model_path, fragment_paths)
-    world = msd.from_file(str(robot_path))
-    for fragment_path in fragment_paths:
-        _attach_motrix_scene_fragment(world, fragment_path)
-    if add_body_sensors:
-        add_motrix_tracking_frame_sensors(world, base_name=base_name)
-    return msd.build(world)
+    try:
+        world = msd.from_file(str(robot_path))
+        for fragment_path in fragment_paths:
+            _attach_motrix_scene_fragment(world, fragment_path)
+        if add_body_sensors:
+            add_motrix_tracking_frame_sensors(world, base_name=base_name)
+        return msd.build(world)
+    finally:
+        _cleanup_temp_xml(robot_path, model_path)
 
 
 @overload
@@ -242,10 +257,13 @@ def materialize_motrix_hfield_attached_scene(
         _resolve_scene_fragment_path(fragment_file, robot_path) for fragment_file in fragment_files
     ]
     merged_robot_path = _materialize_robot_with_fragment_keyframes(robot_path, fragment_paths)
-    robot_world = msd.from_file(str(merged_robot_path))
-    world.attach(robot_world)
-    # TODO(motrixsim): remove this once msd.World.attach carries keyframes.
-    world.keyframes.extend(robot_world.keyframes)
+    try:
+        robot_world = msd.from_file(str(merged_robot_path))
+        world.attach(robot_world)
+        # TODO(motrixsim): remove this once msd.World.attach carries keyframes.
+        world.keyframes.extend(robot_world.keyframes)
+    finally:
+        _cleanup_temp_xml(merged_robot_path, robot_path)
 
     for fragment_path in fragment_paths:
         _attach_motrix_scene_fragment(world, fragment_path)
