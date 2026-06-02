@@ -251,13 +251,12 @@ def test_appo_hora_playback_session_uses_hora_wrapper_and_actor_checkpoint(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    import rsl_rl.utils
+    import rsl_rl.utils as rsl_rl_utils
     from omegaconf import OmegaConf
     from tensordict import TensorDict
 
     import unilab.algos.torch.hora.models as hora_models
     import unilab.algos.torch.hora.rsl_rl as hora_rsl
-    import unilab.visualization.interactive_playback as playback
 
     checkpoint = tmp_path / "model_10.pt"
     torch.save({"actor": {"weight": torch.tensor(1.0)}}, checkpoint)
@@ -317,7 +316,8 @@ def test_appo_hora_playback_session_uses_hora_wrapper_and_actor_checkpoint(
             "training": {"task_name": "Task", "play_env_num": 1, "log_root": None},
             "algo": {
                 "algo_log_name": "hora_appo",
-                "load_run": "run",
+                "load_run": str(tmp_path),
+                "checkpoint": str(checkpoint),
                 "runtime_impl": "hora_appo",
                 "obs_groups": {"actor": {"actor": 0, "priv_info": 0}},
                 "actor": {"class_name": "fake.Actor"},
@@ -326,13 +326,8 @@ def test_appo_hora_playback_session_uses_hora_wrapper_and_actor_checkpoint(
         }
     )
 
-    monkeypatch.setattr(
-        playback,
-        "_resolve_appo_checkpoint_from_cfg",
-        lambda cfg, *, root_dir: (str(checkpoint), str(tmp_path)),
-    )
     monkeypatch.setattr(hora_rsl, "HoraRslRlVecEnvWrapper", FakeHoraWrapper)
-    monkeypatch.setattr(rsl_rl.utils, "resolve_callable", lambda path: FakeActor)
+    monkeypatch.setattr(rsl_rl_utils, "resolve_callable", lambda path: FakeActor)
     monkeypatch.setattr(
         hora_models,
         "build_hora_shared_actor_critic",

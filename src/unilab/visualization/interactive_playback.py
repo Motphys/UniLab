@@ -135,18 +135,14 @@ class PlaybackSession(Protocol):
 
     env: Any
 
-    def reset(self) -> Any:
-        ...
+    def reset(self) -> Any: ...
 
-    def advance(self, controls: PlaybackControls) -> bool:
-        ...
+    def advance(self, controls: PlaybackControls) -> bool: ...
 
-    def physics_state(self) -> np.ndarray:
-        ...
+    def physics_state(self) -> np.ndarray: ...
 
     @property
-    def info(self) -> dict[str, Any]:
-        ...
+    def info(self) -> dict[str, Any]: ...
 
 
 class RslRlPlaybackSession:
@@ -474,7 +470,11 @@ def _resolve_appo_checkpoint_from_cfg(
     from train_appo import resolve_appo_checkpoint_path
 
     base_log_dir = get_log_root(root_dir, cfg) / str(cfg.training.task_name)
-    return resolve_appo_checkpoint_path(base_log_dir, cfg.algo.load_run)
+    checkpoint_path, checkpoint_dir = resolve_appo_checkpoint_path(base_log_dir, cfg.algo.load_run)
+    return (
+        str(checkpoint_path) if checkpoint_path is not None else None,
+        str(checkpoint_dir) if checkpoint_dir is not None else None,
+    )
 
 
 def _build_appo_actor(

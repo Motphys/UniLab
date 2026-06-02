@@ -72,7 +72,9 @@ def _build_play_interactive_command(
             selected_root / "conf" / "offpolicy" / "task" / "sac" / spec.task / f"{spec.sim}.yaml"
         )
     elif spec.algo == "hora_distill":
-        owner_yaml = selected_root / "conf" / "hora_distill" / "task" / spec.task / f"{spec.sim}.yaml"
+        owner_yaml = (
+            selected_root / "conf" / "hora_distill" / "task" / spec.task / f"{spec.sim}.yaml"
+        )
     else:
         owner_yaml = selected_root / "conf" / spec.algo / "task" / spec.task / f"{spec.sim}.yaml"
     if not owner_yaml.is_file():
