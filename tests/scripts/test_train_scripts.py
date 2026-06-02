@@ -2495,6 +2495,39 @@ def test_ppo_interactive_config_includes_playback_controls():
     assert cfg.interactive.start_paused is False
 
 
+def test_play_interactive_dynamic_compose_supports_algo_roots():
+    mod = _play_interactive()
+
+    ppo_cfg = mod._compose_interactive_config("ppo", ["task=go1_joystick_flat/mujoco"])
+    appo_cfg = mod._compose_interactive_config("appo", ["task=sharpa_inhand/mujoco_hora"])
+    sac_cfg = mod._compose_interactive_config("sac", ["task=sharpa_inhand/mujoco_hora"])
+    distill_cfg = mod._compose_interactive_config("hora_distill", ["task=sharpa_inhand/mujoco"])
+
+    assert ppo_cfg.algo.algo == "ppo"
+    assert appo_cfg.algo.runtime_impl == "hora_appo"
+    assert appo_cfg.interactive.action_mode == "policy"
+    assert sac_cfg.algo.algo == "sac"
+    assert sac_cfg.algo.runtime_impl == "hora_sac"
+    assert sac_cfg.interactive.policy_obs_mode == "actor"
+    assert distill_cfg.algo.algo_log_name == "hora_distill"
+    assert distill_cfg.interactive.action_mode == "policy"
+
+
+def test_play_interactive_sac_task_shorthand_rewrites_to_owner_group():
+    mod = _play_interactive()
+
+    overrides = mod._normalize_interactive_overrides(
+        "sac",
+        ["task=sharpa_inhand/mujoco_hora", "algo.load_run=my_run"],
+    )
+
+    assert overrides == [
+        "algo=sac",
+        "task=sac/sharpa_inhand/mujoco_hora",
+        "algo.load_run=my_run",
+    ]
+
+
 def test_play_interactive_runner_log_dir_uses_algo_log_name(monkeypatch: pytest.MonkeyPatch):
     import types
 

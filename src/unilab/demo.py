@@ -67,7 +67,14 @@ def _build_play_interactive_command(
     script = selected_root / "scripts" / "play_interactive.py"
     if not script.is_file():
         raise SystemExit(f"Entrypoint script not found: {script}")
-    owner_yaml = selected_root / "conf" / spec.algo / "task" / spec.task / f"{spec.sim}.yaml"
+    if spec.algo == "sac":
+        owner_yaml = (
+            selected_root / "conf" / "offpolicy" / "task" / "sac" / spec.task / f"{spec.sim}.yaml"
+        )
+    elif spec.algo == "hora_distill":
+        owner_yaml = selected_root / "conf" / "hora_distill" / "task" / spec.task / f"{spec.sim}.yaml"
+    else:
+        owner_yaml = selected_root / "conf" / spec.algo / "task" / spec.task / f"{spec.sim}.yaml"
     if not owner_yaml.is_file():
         raise SystemExit(
             f"No owner config exists for algo={spec.algo}, task={spec.task}, sim={spec.sim}: "
@@ -76,6 +83,8 @@ def _build_play_interactive_command(
     return [
         sys.executable,
         str(script),
+        "--algo",
+        spec.algo,
         f"task={spec.task}/{spec.sim}",
         f"algo.load_run={checkpoint_path}",
         *extra_overrides,

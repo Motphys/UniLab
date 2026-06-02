@@ -314,9 +314,41 @@ def test_demo_play_interactive_entry_assembles_locomani_command(
 
     assert command[0] == sys.executable
     assert command[1] == str(tmp_path / "scripts" / "play_interactive.py")
+    assert command[2:4] == ["--algo", "ppo"]
     assert "task=go2_arm_manip_loco/mujoco" in command
     assert f"algo.load_run={abs_pt}" in command
     assert "training.device=cpu" in command
+
+
+def test_demo_play_interactive_sac_owner_path_uses_offpolicy(tmp_path: Path) -> None:
+    (tmp_path / "scripts").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "scripts" / "play_interactive.py").write_text("", encoding="utf-8")
+    owner_dir = tmp_path / "conf" / "offpolicy" / "task" / "sac" / "sharpa_inhand"
+    owner_dir.mkdir(parents=True)
+    (owner_dir / "mujoco_hora.yaml").write_text(
+        "training:\n  sim_backend: mujoco\n", encoding="utf-8"
+    )
+    spec = demo.DemoSpec(
+        algo="sac",
+        task="sharpa_inhand",
+        sim="mujoco_hora",
+        entry="play_interactive",
+    )
+
+    command = demo._build_play_interactive_command(
+        spec=spec,
+        checkpoint_path="/tmp/model_0.pt",
+        extra_overrides=[],
+        root=tmp_path,
+    )
+
+    assert command[1:] == [
+        str(tmp_path / "scripts" / "play_interactive.py"),
+        "--algo",
+        "sac",
+        "task=sharpa_inhand/mujoco_hora",
+        "algo.load_run=/tmp/model_0.pt",
+    ]
 
 
 def test_demo_play_interactive_requires_owner_yaml(tmp_path: Path) -> None:
