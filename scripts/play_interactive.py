@@ -28,6 +28,7 @@ Camera controls (MuJoCo viewer):
 import sys
 import time
 import warnings
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -55,9 +56,11 @@ from unilab.training.rsl_rl import (
     normalize_ppo_train_cfg,
 )
 from unilab.visualization.interactive_playback import (
+    _HORA_DISTILL_CHECKPOINT_UNAVAILABLE,
     KeyboardCommander,
     PlaybackControls,
     RslRlPlaybackConfig,
+    create_hora_distill_playback_session,
     create_rsl_rl_playback_session,
     prepare_motion_overlay_selection,
     select_torch_device,
@@ -84,6 +87,41 @@ except ImportError:
 
 import mujoco
 import mujoco.viewer
+
+_SUPPORTED_INTERACTIVE_ALGOS = ("ppo", "hora_distill")
+
+
+def _extract_interactive_algo(argv: Sequence[str]) -> tuple[str, list[str]]:
+    algo = "ppo"
+    cleaned: list[str] = []
+    index = 0
+    while index < len(argv):
+        arg = str(argv[index])
+        if arg == "--algo":
+            if index + 1 >= len(argv):
+                raise SystemExit("--algo requires one of: ppo, hora_distill")
+            algo = str(argv[index + 1])
+            index += 2
+            continue
+        if arg.startswith("--algo="):
+            algo = arg.split("=", 1)[1]
+            index += 1
+            continue
+        cleaned.append(arg)
+        index += 1
+    if algo not in _SUPPORTED_INTERACTIVE_ALGOS:
+        raise SystemExit(
+            f"Unsupported --algo={algo!r}; choose one of: {', '.join(_SUPPORTED_INTERACTIVE_ALGOS)}"
+        )
+    return algo, cleaned
+
+
+_INTERACTIVE_ALGO, _HYDRA_ARGV = _extract_interactive_algo(sys.argv)
+if _HYDRA_ARGV != sys.argv:
+    sys.argv = _HYDRA_ARGV
+_HYDRA_CONFIG_PATH = (
+    "../conf/hora_distill" if _INTERACTIVE_ALGO == "hora_distill" else "../conf/ppo"
+)
 
 
 @dataclass
@@ -140,14 +178,14 @@ def _infer_checkpoint_actor_input_dim(ckpt_path: str) -> int | None:
     return None
 
 
-def _backend_adapter(cfg: DictConfig):
+def _backend_adapter(cfg: DictConfig, *, algo_name: str = "ppo"):
     from unilab.base.backend.mujoco.xml import materialize_scene_visual_override
     from unilab.training import BackendAdapter
 
     return BackendAdapter(
         cfg,
         root_dir=ROOT_DIR,
-        algo_name="ppo",
+        algo_name=algo_name,
         scene_materializer=materialize_scene_visual_override,
     )
 
@@ -168,6 +206,13 @@ def _algo_config_dict(cfg: DictConfig | None) -> dict[str, Any]:
     if not isinstance(train_cfg_raw, dict):
         raise TypeError("cfg.algo must resolve to a dict")
     return cast(dict[str, Any], train_cfg_raw)
+
+
+def _select_playback_device(cfg: DictConfig | None) -> str:
+    configured = OmegaConf.select(cfg, "training.device") if cfg is not None else None
+    if configured not in (None, ""):
+        return str(configured)
+    return select_torch_device()
 
 
 # ---------------------------------------------------------------------------
@@ -649,8 +694,8 @@ def _print_keyboard_legend(args) -> None:
         print("  NOTE: action_mode is not 'policy'; commands will not drive the robot.")
 
 
-def play_interactive(args, cfg: DictConfig | None = None):
-    device = select_torch_device()
+def play_interactive(args, cfg: DictConfig | None = None, *, algo: str = "ppo"):
+    device = _select_playback_device(cfg)
     print(f"[play_interactive] Device: {device}")
 
     # Always use a single env for interactive view
@@ -668,7 +713,7 @@ def play_interactive(args, cfg: DictConfig | None = None):
             return registry.make(args.task, num_envs=num_envs, sim_backend="mujoco")
         from unilab.training import create_env
 
-        env_cfg_override = _backend_adapter(cfg).build_task_env_cfg_override()
+        env_cfg_override = _backend_adapter(cfg, algo_name=algo).build_task_env_cfg_override()
         try:
             return create_env(
                 cfg,
@@ -688,23 +733,35 @@ def play_interactive(args, cfg: DictConfig | None = None):
             raise
 
     try:
-        session = create_rsl_rl_playback_session(
-            playback_cfg=_build_playback_config(args, num_envs=1),
-            env_factory=_create_env,
-            algo_config=_algo_config_dict(cfg),
-            root_dir=ROOT_DIR,
-            device=device,
-            checkpoint_resolver=resolve_checkpoint,
-            checkpoint_input_dim_reader=_infer_checkpoint_actor_input_dim,
-            entrypoint_log_root=get_entrypoint_log_root,
-            wrapper_cls=RslRlVecEnvWrapper,
-            runner_cls=OnPolicyRunner,
-            policy_obs_dims_getter=get_policy_obs_dims,
-            train_cfg_normalizer=normalize_ppo_train_cfg,
-            log=lambda message: print(f"[play_interactive] {message}"),
-        )
+        playback_cfg = _build_playback_config(args, num_envs=1)
+        if algo == "hora_distill":
+            if cfg is None:
+                raise RuntimeError("hora_distill interactive playback requires a Hydra config.")
+            session = create_hora_distill_playback_session(
+                playback_cfg=playback_cfg,
+                cfg=cfg,
+                root_dir=ROOT_DIR,
+                device=device,
+                log=lambda message: print(f"[play_interactive] {message}"),
+            )
+        else:
+            session = create_rsl_rl_playback_session(
+                playback_cfg=playback_cfg,
+                env_factory=_create_env,
+                algo_config=_algo_config_dict(cfg),
+                root_dir=ROOT_DIR,
+                device=device,
+                checkpoint_resolver=resolve_checkpoint,
+                checkpoint_input_dim_reader=_infer_checkpoint_actor_input_dim,
+                entrypoint_log_root=get_entrypoint_log_root,
+                wrapper_cls=RslRlVecEnvWrapper,
+                runner_cls=OnPolicyRunner,
+                policy_obs_dims_getter=get_policy_obs_dims,
+                train_cfg_normalizer=normalize_ppo_train_cfg,
+                log=lambda message: print(f"[play_interactive] {message}"),
+            )
     except RuntimeError as exc:
-        if str(exc) == _PLAYBACK_ENV_UNAVAILABLE:
+        if str(exc) in {_PLAYBACK_ENV_UNAVAILABLE, _HORA_DISTILL_CHECKPOINT_UNAVAILABLE}:
             return
         raise
     playback_session = session[0]
@@ -931,11 +988,11 @@ def _build_play_args(cfg: DictConfig) -> PlayInteractiveArgs:
     )
 
 
-@hydra.main(version_base="1.3", config_path="../conf/ppo", config_name="config")
+@hydra.main(version_base="1.3", config_path=_HYDRA_CONFIG_PATH, config_name="config")
 def main(cfg: DictConfig) -> None:
     if str(cfg.training.sim_backend) != "mujoco":
         raise ValueError("play_interactive.py only supports MuJoCo viewer; use task=<task>/mujoco.")
-    play_interactive(_build_play_args(cfg), cfg)
+    play_interactive(_build_play_args(cfg), cfg, algo=_INTERACTIVE_ALGO)
 
 
 if __name__ == "__main__":

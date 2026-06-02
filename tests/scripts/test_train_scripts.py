@@ -368,6 +368,77 @@ def test_hora_distill_task_owner_overrides_root_config_defaults():
     assert cfg.algo.save_interval_steps == 10000000
 
 
+def test_hora_distill_sharpa_appo_student_owner_selects_nodr_demo_profile():
+    mod = _train_hora_distill()
+    cfg = mod._apply_teacher_defaults(_hora_distill_cfg(["task=sharpa_inhand/mujoco_nodr"]))
+
+    assert cfg.teacher.algo_family == "appo"
+    assert cfg.teacher.task == "sharpa_inhand/mujoco_hora"
+    assert cfg.training.task_name == "SharpaInhandRotation"
+    assert cfg.training.sim_backend == "mujoco"
+    assert cfg.interactive.action_mode == "policy"
+    assert cfg.interactive.policy_obs_mode == "actor"
+    assert cfg.env.post_step_forward_sensor is True
+    assert cfg.env.domain_rand.scale_list == [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
+    assert cfg.env.domain_rand.randomize_gravity is False
+    assert cfg.env.domain_rand.randomize_gravity_direction is False
+    assert cfg.env.domain_rand.randomize_pd_gains is False
+    assert cfg.env.domain_rand.randomize_friction is False
+    assert cfg.env.domain_rand.randomize_com is False
+    assert cfg.env.domain_rand.randomize_mass is False
+    assert cfg.env.domain_rand.force_scale == pytest.approx(0.0)
+    assert cfg.env.domain_rand.random_force_prob_scalar == pytest.approx(0.0)
+    assert cfg.env.domain_rand.joint_noise_scale == pytest.approx(0.0)
+    assert cfg.env.domain_rand.contact_latency == pytest.approx(0.0)
+    assert cfg.env.domain_rand.contact_sensor_noise == pytest.approx(0.0)
+    assert cfg.algo.model.priv_info_embed_dim == 9
+    assert cfg.algo.model.priv_mlp_hidden_dims == [256, 128, 9]
+
+
+def test_hora_distill_checkpoint_runtime_only_restores_model_structure():
+    mod = _train_hora_distill()
+    cfg = _hora_distill_cfg(["task=sharpa_inhand/mujoco_nodr"])
+    checkpoint = {
+        "distill_runtime_cfg": {
+            "training": {
+                "task_name": "CheckpointTask",
+                "sim_backend": "motrix",
+                "render_spacing": 99.0,
+            },
+            "reward": {"scales": {"rotate": 999.0}},
+            "env": {
+                "post_step_forward_sensor": False,
+                "domain_rand": {
+                    "scale_list": [9.9],
+                    "randomize_mass": True,
+                    "force_scale": 99.0,
+                },
+            },
+            "algo": {
+                "model": {
+                    "hidden_dims": [32, 16],
+                    "priv_info_embed_dim": 7,
+                    "priv_mlp_hidden_dims": [11, 7],
+                }
+            },
+        }
+    }
+
+    restored = mod._cfg_with_checkpoint_runtime(cfg, checkpoint)
+
+    assert restored.training.task_name == "SharpaInhandRotation"
+    assert restored.training.sim_backend == "mujoco"
+    assert restored.training.render_spacing == pytest.approx(0.5)
+    assert restored.reward.scales.rotate != pytest.approx(999.0)
+    assert restored.env.post_step_forward_sensor is True
+    assert restored.env.domain_rand.scale_list == [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
+    assert restored.env.domain_rand.randomize_mass is False
+    assert restored.env.domain_rand.force_scale == pytest.approx(0.0)
+    assert restored.algo.model.hidden_dims == [32, 16]
+    assert restored.algo.model.priv_info_embed_dim == 7
+    assert restored.algo.model.priv_mlp_hidden_dims == [11, 7]
+
+
 def test_hora_distill_script_delegates_teacher_owner_resolution():
     source = (_SCRIPTS_DIR / "train_hora_distill.py").read_text(encoding="utf-8")
 
@@ -2470,6 +2541,33 @@ def test_ppo_interactive_config_includes_playback_controls():
 
     assert cfg.interactive.speed == pytest.approx(1.0)
     assert cfg.interactive.start_paused is False
+
+
+def test_play_interactive_respects_training_device_override(monkeypatch: pytest.MonkeyPatch):
+    mod = _play_interactive()
+    monkeypatch.setattr(mod, "select_torch_device", lambda: "cuda")
+
+    assert mod._select_playback_device(OmegaConf.create({"training": {"device": "cpu"}})) == "cpu"
+    assert mod._select_playback_device(OmegaConf.create({"training": {"device": None}})) == "cuda"
+    assert mod._select_playback_device(None) == "cuda"
+
+
+def test_play_interactive_extracts_optional_algo_flag():
+    mod = _play_interactive()
+
+    algo, cleaned = mod._extract_interactive_algo(
+        ["play_interactive.py", "--algo", "hora_distill", "task=sharpa_inhand/mujoco_nodr"]
+    )
+
+    assert algo == "hora_distill"
+    assert cleaned == ["play_interactive.py", "task=sharpa_inhand/mujoco_nodr"]
+
+
+def test_play_interactive_rejects_unsupported_algo_flag():
+    mod = _play_interactive()
+
+    with pytest.raises(SystemExit, match="Unsupported --algo"):
+        mod._extract_interactive_algo(["play_interactive.py", "--algo=appo"])
 
 
 def test_play_interactive_runner_log_dir_uses_algo_log_name(monkeypatch: pytest.MonkeyPatch):
