@@ -29,8 +29,7 @@ DEMO_REGISTRY: dict[str, DemoSpec] = {
     "locomani": DemoSpec(
         algo="ppo", task="go2_arm_manip_loco", sim="mujoco", entry="play_interactive"
     ),
-    "inhandgrasp": DemoSpec(algo="ppo", task="sharpa_inhand", sim="motrix", entry="eval"),
-    "sharpa_appo_student": DemoSpec(
+    "inhandgrasp": DemoSpec(
         algo="hora_distill",
         task="sharpa_inhand",
         sim="mujoco_nodr",
@@ -38,8 +37,6 @@ DEMO_REGISTRY: dict[str, DemoSpec] = {
     ),
     "teaser": DemoSpec(algo="", task="", sim="", entry="teaser"),
 }
-
-_LOCAL_ONLY_CHECKPOINT_DEMOS = {"sharpa_appo_student"}
 
 
 def _repo_root() -> Path:
@@ -63,15 +60,6 @@ def _local_checkpoint_path(demo_name: str) -> Path:
 
 
 def _resolve_demo_checkpoint(demo_name: str) -> str | None:
-    if demo_name in _LOCAL_ONLY_CHECKPOINT_DEMOS:
-        local = _local_checkpoint_path(demo_name)
-        if local.is_file():
-            return str(local)
-        print(
-            f"Local checkpoint not found for demo {demo_name!r}: {local}\n"
-            "Place the stage-2 PyTorch checkpoint at this path and run the demo again."
-        )
-        return None
     checkpoint_path = resolve_checkpoint_file(_checkpoint_relative_path(demo_name))
     assert isinstance(checkpoint_path, str)
     return checkpoint_path
@@ -177,10 +165,8 @@ def run_demo(*, demo_name: str, refresh: bool = False, device: str | None = None
     spec = get_demo_spec(demo_name)
     if spec.entry == "teaser":
         return _run_teaser_demo()
-    if refresh and demo_name not in _LOCAL_ONLY_CHECKPOINT_DEMOS:
+    if refresh:
         _refresh_local_checkpoint(demo_name)
-    elif refresh:
-        print(f"Refresh ignored for local-only demo {demo_name!r}; no download source is used.")
     checkpoint_path = _resolve_demo_checkpoint(demo_name)
     if checkpoint_path is None:
         return 1

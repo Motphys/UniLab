@@ -274,19 +274,18 @@ def test_demo_registry_contains_expected_entries() -> None:
         "boxtracking",
         "locomani",
         "inhandgrasp",
-        "sharpa_appo_student",
         "teaser",
     }
     assert demo.DEMO_REGISTRY["locomani"].entry == "play_interactive"
     assert demo.DEMO_REGISTRY["locomani"].sim == "mujoco"
-    assert demo.DEMO_REGISTRY["sharpa_appo_student"] == demo.DemoSpec(
+    assert demo.DEMO_REGISTRY["inhandgrasp"] == demo.DemoSpec(
         algo="hora_distill",
         task="sharpa_inhand",
         sim="mujoco_nodr",
         entry="play_interactive",
     )
     assert demo.DEMO_REGISTRY["teaser"].entry == "teaser"
-    for name in ("dance", "wallflip", "boxtracking", "inhandgrasp"):
+    for name in ("dance", "wallflip", "boxtracking"):
         spec = demo.DEMO_REGISTRY[name]
         assert spec.entry == "eval"
         assert spec.sim == "motrix"
@@ -327,13 +326,13 @@ def test_demo_play_interactive_entry_assembles_locomani_command(
     assert "--algo" not in command
 
 
-def test_demo_play_interactive_entry_assembles_sharpa_appo_student_command(
+def test_demo_play_interactive_entry_assembles_inhandgrasp_command(
     tmp_path: Path,
 ) -> None:
-    _make_demo_checkout(tmp_path, demo_name="sharpa_appo_student")
+    _make_demo_checkout(tmp_path, demo_name="inhandgrasp")
     abs_pt = str(tmp_path / "fake" / "model_0.pt")
     command = demo.build_demo_command(
-        demo_name="sharpa_appo_student",
+        demo_name="inhandgrasp",
         checkpoint_path=abs_pt,
         device="cpu",
         root=tmp_path,
@@ -414,74 +413,6 @@ def test_demo_teaser_run_demo_invokes_render_teaser_main(
     rc = demo.run_demo(demo_name="teaser")
     assert rc == 0
     assert called == ["rendered"]
-
-
-def test_sharpa_appo_student_demo_missing_checkpoint_is_local_only(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.setattr(demo, "ASSETS_ROOT_PATH", tmp_path)
-
-    def fail_resolve(_: str) -> str:
-        raise AssertionError("sharpa_appo_student must not download from HF")
-
-    def fail_run(*args, **kwargs) -> SimpleNamespace:
-        del args, kwargs
-        raise AssertionError("missing local checkpoint must not launch subprocess")
-
-    monkeypatch.setattr(demo, "resolve_checkpoint_file", fail_resolve)
-    monkeypatch.setattr(demo.subprocess, "run", fail_run)
-
-    rc = demo.run_demo(demo_name="sharpa_appo_student", device="cpu")
-
-    assert rc == 1
-    out = capsys.readouterr().out
-    assert "Local checkpoint not found" in out
-    assert str(tmp_path / "checkpoints" / "sharpa_appo_student" / "model_0.pt") in out
-
-
-def test_sharpa_appo_student_demo_uses_existing_local_checkpoint(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    checkout = tmp_path / "checkout"
-    _make_demo_checkout(checkout, demo_name="sharpa_appo_student")
-    checkpoint = tmp_path / "assets" / "checkpoints" / "sharpa_appo_student" / "model_0.pt"
-    checkpoint.parent.mkdir(parents=True)
-    checkpoint.write_bytes(b"checkpoint")
-    calls: list[list[str]] = []
-
-    monkeypatch.setattr(demo, "ASSETS_ROOT_PATH", tmp_path / "assets")
-    monkeypatch.setattr(demo, "_repo_root", lambda: checkout)
-    monkeypatch.setattr(
-        demo,
-        "resolve_checkpoint_file",
-        lambda _: (_ for _ in ()).throw(AssertionError("must not download")),
-    )
-
-    def fake_run(command: list[str], *, check: bool, env: dict[str, str]) -> SimpleNamespace:
-        assert check is False
-        assert env["UV_PROJECT_ENVIRONMENT"] == str(checkout / ".venv")
-        calls.append(command)
-        return SimpleNamespace(returncode=0)
-
-    monkeypatch.setattr(demo.subprocess, "run", fake_run)
-
-    rc = demo.run_demo(demo_name="sharpa_appo_student", device="cpu")
-
-    assert rc == 0
-    assert calls == [
-        [
-            sys.executable,
-            str(checkout / "scripts" / "play_interactive.py"),
-            "--algo",
-            "hora_distill",
-            "task=sharpa_inhand/mujoco_nodr",
-            f"algo.load_run={checkpoint}",
-            "training.device=cpu",
-        ]
-    ]
 
 
 def test_demo_teaser_uses_mxpython_subprocess_on_macos(
