@@ -26,6 +26,7 @@ Camera controls (MuJoCo viewer):
 # pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportOptionalMemberAccess=false, reportOptionalSubscript=false
 
 import sys
+import tempfile
 import time
 import warnings
 from collections.abc import Sequence
@@ -73,6 +74,7 @@ _KEY_RIGHT, _KEY_LEFT, _KEY_DOWN, _KEY_UP = 262, 263, 264, 265
 ensure_registries()
 
 from unilab.base import registry
+from unilab.base.backend.mujoco.playback import materialize_visual_playback_model
 from unilab.base.scene import SceneCfg
 from unilab.structured_configs import PPOConfig as _StructuredPPOConfig
 
@@ -593,12 +595,54 @@ def _render_reward_debug_targets(
                     _add_axis_arrow(scene, p, pz, marker_radius * 0.45, z_rgba)
 
 
+def _viewer_playback_model(env: Any) -> Any:
+    try:
+        return env.get_playback_model(0)
+    except TypeError:
+        return env.get_playback_model()
+
+
+def _load_materialized_visual_viewer_model(env: Any, visual_model_file: str):
+    try:
+        playback_model = _viewer_playback_model(env)
+    except NotImplementedError:
+        return None
+
+    if isinstance(playback_model, (str, Path)):
+        return None
+
+    try:
+        visual_base_model = mujoco.MjModel.from_xml_path(str(visual_model_file))
+        with tempfile.TemporaryDirectory(prefix="unilab-interactive-viewer-") as tmp_dir:
+            output_path = Path(tmp_dir) / "viewer_model.mjb"
+            materialize_visual_playback_model(
+                visual_model_file=str(visual_model_file),
+                visual_base_model=visual_base_model,
+                playback_model=playback_model,
+                output_path=output_path,
+            )
+            print(
+                "[play_interactive] Using materialized visual playback model for viewer: "
+                f"{visual_model_file}"
+            )
+            return mujoco.MjModel.from_binary_path(str(output_path))
+    except Exception as exc:
+        print(
+            "[play_interactive] WARNING: failed to materialize visual playback model; "
+            f"falling back to visual model ({exc})."
+        )
+        return None
+
+
 def _load_viewer_model(env: Any, *, use_env_visual_model: bool):
     import mujoco
 
     backend = getattr(env, "_backend", None)
     backend_visual_model_file = getattr(backend, "scene_visual_model_file", None)
     if backend_visual_model_file:
+        materialized = _load_materialized_visual_viewer_model(env, str(backend_visual_model_file))
+        if materialized is not None:
+            return materialized
         print(
             f"[play_interactive] Using backend visual model for viewer: {backend_visual_model_file}"
         )
@@ -611,6 +655,9 @@ def _load_viewer_model(env: Any, *, use_env_visual_model: bool):
         model_file = None if cfg_scene is None else cfg_scene.model_file
         if model_file:
             try:
+                materialized = _load_materialized_visual_viewer_model(env, str(model_file))
+                if materialized is not None:
+                    return materialized
                 print(f"[play_interactive] Using configured visual model for viewer: {model_file}")
                 return mujoco.MjModel.from_xml_path(str(model_file))
             except Exception as exc:
