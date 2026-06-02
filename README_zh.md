@@ -40,6 +40,43 @@
 
 ## 🚀 快速演示
 
+<table>
+  <tr>
+    <td align="center" width="33%">
+      <img src="docs/sphinx/source/_static/demos/dance.jpg" alt="dance demo" width="100%">
+      <br>
+      <sub><b>dance</b><br>G1 动作跟踪</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/sphinx/source/_static/demos/wallflip.jpg" alt="wallflip demo" width="100%">
+      <br>
+      <sub><b>wallflip</b><br>G1 空翻</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/sphinx/source/_static/demos/teaser.jpg" alt="teaser demo" width="100%">
+      <br>
+      <sub><b>teaser</b><br>MotrixSim 预告图</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="33%">
+      <img src="docs/sphinx/source/_static/demos/boxtracking.jpg" alt="boxtracking demo" width="100%">
+      <br>
+      <sub><b>boxtracking</b><br>G1 箱体跟踪</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/sphinx/source/_static/demos/inhandgrasp.jpg" alt="inhandgrasp demo" width="100%">
+      <br>
+      <sub><b>inhandgrasp</b><br>Sharpa 手内抓取</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/sphinx/source/_static/demos/locomani.jpg" alt="locomani demo" width="100%">
+      <br>
+      <sub><b>locomani</b><br>Go2 移动操作</sub>
+    </td>
+  </tr>
+</table>
+
 ```bash
 # 0. 如果还没有安装 uv
 curl -LsSf https://astral.sh/uv/install.sh | sh
