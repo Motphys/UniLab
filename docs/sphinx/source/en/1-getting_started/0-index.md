@@ -31,6 +31,13 @@ Replay checkpoints, export video, and use demo mode.
 Find the directories that own scripts, configs, envs, backends, and docs.
 :::
 
+:::{grid-item-card} FAQ
+:link: 5-faq
+:link-type: doc
+Install and first-run issues: proxy direct connection, HuggingFace SOCKS,
+off-policy JIT compilation prerequisites, and video export.
+:::
+
 ::::
 
 For daily training options after the first run, use
@@ -44,4 +51,5 @@ For daily training options after the first run, use
 2-installation
 3-evaluation_and_playback
 4-project_structure
+5-faq
 ```

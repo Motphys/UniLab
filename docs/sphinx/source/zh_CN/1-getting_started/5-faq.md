@@ -1,6 +1,7 @@
-# 代理环境配置
+# 常见问题
 
-代理环境（HTTP / SOCKS5）下安装 UniLab 的常见问题与解决方案。
+安装与首次运行 UniLab 时的常见问题，按 现象 → 解决 组织。多数与代理环境
+（HTTP / SOCKS5）、off-policy 算法的 JIT 编译依赖或视频导出相关。
 
 ## motrixsim-core 下载超时
 

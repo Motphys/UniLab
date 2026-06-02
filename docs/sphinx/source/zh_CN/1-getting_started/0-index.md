@@ -29,10 +29,10 @@
 找到负责 scripts、configs、envs、backends 和 docs 的各个目录。
 :::
 
-:::{grid-item-card} 代理与网络配置
-:link: 5-proxy_setup
+:::{grid-item-card} 常见问题
+:link: 5-faq
 :link-type: doc
-在代理环境下安装 UniLab：解决 motphys.com 直连、HuggingFace SOCKS、CUDA Toolkit 头文件路径等常见问题。
+安装与首次运行的常见问题：代理直连、HuggingFace SOCKS、off-policy JIT 编译依赖、视频导出等。
 :::
 
 ::::
@@ -48,5 +48,5 @@
 2-installation
 3-evaluation_and_playback
 4-project_structure
-5-proxy_setup
+5-faq
 ```
