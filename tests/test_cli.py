@@ -310,9 +310,10 @@ def test_demo_eval_entry_passes_checkpoint_as_load_run_override(
 
 
 def test_demo_play_interactive_entry_assembles_locomani_command(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _make_demo_checkout(tmp_path, demo_name="locomani")
+    monkeypatch.setattr(demo.platform, "system", lambda: "Linux")
     abs_pt = str(tmp_path / "fake" / "model_0.pt")
     command = demo.build_demo_command(
         demo_name="locomani", checkpoint_path=abs_pt, device="cpu", root=tmp_path
@@ -327,9 +328,10 @@ def test_demo_play_interactive_entry_assembles_locomani_command(
 
 
 def test_demo_play_interactive_entry_assembles_inhandgrasp_command(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _make_demo_checkout(tmp_path, demo_name="inhandgrasp")
+    monkeypatch.setattr(demo.platform, "system", lambda: "Linux")
     abs_pt = str(tmp_path / "fake" / "model_0.pt")
     command = demo.build_demo_command(
         demo_name="inhandgrasp",
@@ -344,6 +346,69 @@ def test_demo_play_interactive_entry_assembles_inhandgrasp_command(
     assert "task=sharpa_inhand/mujoco_nodr" in command
     assert f"algo.load_run={abs_pt}" in command
     assert "training.device=cpu" in command
+
+
+def test_demo_play_interactive_linux_does_not_materialize_mjpython_app(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_demo_checkout(tmp_path, demo_name="locomani")
+    monkeypatch.setattr(demo.platform, "system", lambda: "Linux")
+
+    def fail_materialize(_: Path) -> None:
+        raise AssertionError("Linux demo path must not touch macOS mjpython setup")
+
+    monkeypatch.setattr(demo, "_ensure_mujoco_uni_mjpython_app", fail_materialize)
+
+    command = demo.build_demo_command(
+        demo_name="locomani",
+        checkpoint_path="/tmp/fake/model_0.pt",
+        root=tmp_path,
+    )
+
+    assert command[0] == sys.executable
+
+
+def test_demo_play_interactive_uses_mjpython_on_macos(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_demo_checkout(tmp_path, demo_name="locomani")
+    venv_bin = tmp_path / ".venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    fake_python = venv_bin / "python"
+    fake_mjpython = venv_bin / "mjpython"
+    fake_python.write_text("", encoding="utf-8")
+    fake_mjpython.write_text("", encoding="utf-8")
+    monkeypatch.setattr(demo.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(demo.sys, "executable", str(fake_python))
+    monkeypatch.setattr(demo, "_ensure_mujoco_uni_mjpython_app", lambda root: None)
+
+    command = demo.build_demo_command(
+        demo_name="locomani",
+        checkpoint_path="/tmp/fake/model_0.pt",
+        root=tmp_path,
+    )
+
+    assert command[0] == str(fake_mjpython)
+    assert command[1] == str(tmp_path / "scripts" / "play_interactive.py")
+
+
+def test_demo_play_interactive_materializes_mujoco_uni_mjpython_app_on_macos(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[Path] = []
+    _make_demo_checkout(tmp_path, demo_name="locomani")
+    monkeypatch.setattr(demo.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(demo, "_ensure_mujoco_uni_mjpython_app", lambda root: calls.append(root))
+    monkeypatch.setattr(demo, "_current_env_mjpython", lambda: "/tmp/mjpython")
+
+    command = demo.build_demo_command(
+        demo_name="locomani",
+        checkpoint_path="/tmp/fake/model_0.pt",
+        root=tmp_path,
+    )
+
+    assert command[0] == "/tmp/mjpython"
+    assert calls == [tmp_path]
 
 
 def test_demo_play_interactive_requires_owner_yaml(tmp_path: Path) -> None:
