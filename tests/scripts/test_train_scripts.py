@@ -368,6 +368,96 @@ def test_hora_distill_task_owner_overrides_root_config_defaults():
     assert cfg.algo.save_interval_steps == 10000000
 
 
+def test_hora_distill_runtime_checkpoint_records_model_only():
+    mod = _train_hora_distill()
+    cfg = OmegaConf.create(
+        {
+            "training": {
+                "task_name": "OwnerTask",
+                "sim_backend": "mujoco",
+                "cam_distance": 1.5,
+            },
+            "env": {
+                "post_step_forward_sensor": True,
+                "domain_rand": {"force_scale": 1.2},
+            },
+            "reward": {"scales": {"rotate": 2.5}},
+            "algo": {"model": {"hidden_dims": [512, 256, 128]}},
+        }
+    )
+
+    runtime = OmegaConf.to_container(mod._resolved_distill_runtime_cfg(cfg), resolve=True)
+
+    assert runtime == {"algo": {"model": {"hidden_dims": [512, 256, 128]}}}
+
+
+@pytest.mark.parametrize(
+    ("teacher_algo_family", "checkpoint_model"),
+    [
+        ("ppo", {"hidden_dims": [512, 256, 128], "activation": "elu"}),
+        ("appo", {"hidden_dims": [512, 256, 128], "activation": "elu"}),
+        (
+            "sac",
+            {
+                "teacher_arch": "hora_sac",
+                "actor_hidden_dim": 512,
+                "use_layer_norm": True,
+            },
+        ),
+    ],
+)
+def test_hora_distill_checkpoint_runtime_only_overrides_model_side(
+    monkeypatch: pytest.MonkeyPatch,
+    teacher_algo_family: str,
+    checkpoint_model: dict[str, Any],
+):
+    mod = _train_hora_distill()
+    owner_cfg = OmegaConf.create(
+        {
+            "teacher": {"algo_family": teacher_algo_family},
+            "training": {
+                "task_name": "OwnerTask",
+                "sim_backend": "mujoco",
+                "cam_distance": 1.5,
+            },
+            "env": {
+                "post_step_forward_sensor": False,
+                "domain_rand": {"force_scale": 1.2, "randomize_mass": False},
+            },
+            "reward": {"scales": {"rotate": 2.5}},
+            "algo": {"model": {"owner_model": True}},
+        }
+    )
+    checkpoint = {
+        "teacher_algo_family": teacher_algo_family,
+        "distill_runtime_cfg": {
+            "training": {
+                "task_name": "CheckpointTask",
+                "sim_backend": "mujoco",
+                "cam_distance": 9.0,
+            },
+            "env": {
+                "post_step_forward_sensor": True,
+                "domain_rand": {"force_scale": 9.0, "randomize_mass": True},
+            },
+            "reward": {"scales": {"rotate": 99.0}},
+            "algo": {"model": checkpoint_model},
+        },
+    }
+
+    monkeypatch.setattr(mod, "_apply_teacher_defaults", lambda cfg: owner_cfg)
+
+    effective_cfg = mod._cfg_with_checkpoint_runtime(OmegaConf.create({}), checkpoint)
+
+    assert effective_cfg.training.task_name == "OwnerTask"
+    assert effective_cfg.training.cam_distance == pytest.approx(1.5)
+    assert effective_cfg.env.post_step_forward_sensor is False
+    assert effective_cfg.env.domain_rand.force_scale == pytest.approx(1.2)
+    assert effective_cfg.env.domain_rand.randomize_mass is False
+    assert effective_cfg.reward.scales.rotate == pytest.approx(2.5)
+    assert OmegaConf.to_container(effective_cfg.algo.model, resolve=True) == checkpoint_model
+
+
 def test_hora_distill_script_delegates_teacher_owner_resolution():
     source = (_SCRIPTS_DIR / "train_hora_distill.py").read_text(encoding="utf-8")
 

@@ -273,6 +273,7 @@ def test_demo_registry_contains_expected_entries() -> None:
         "wallflip",
         "boxtracking",
         "locomani",
+        "sharpa_appo_student",
         "inhandgrasp",
         "teaser",
     }
@@ -318,6 +319,25 @@ def test_demo_play_interactive_entry_assembles_locomani_command(
     assert "task=go2_arm_manip_loco/mujoco" in command
     assert f"algo.load_run={abs_pt}" in command
     assert "training.device=cpu" in command
+
+
+def test_demo_play_interactive_hora_distill_nodr_command(tmp_path: Path) -> None:
+    _make_demo_checkout(tmp_path, demo_name="sharpa_appo_student")
+    abs_pt = str(tmp_path / "fake" / "model_0.pt")
+
+    command = demo.build_demo_command(
+        demo_name="sharpa_appo_student",
+        checkpoint_path=abs_pt,
+        root=tmp_path,
+    )
+
+    assert command[1:] == [
+        str(tmp_path / "scripts" / "play_interactive.py"),
+        "--algo",
+        "hora_distill",
+        "task=sharpa_inhand/mujoco_nodr",
+        f"algo.load_run={abs_pt}",
+    ]
 
 
 def test_demo_play_interactive_sac_owner_path_uses_offpolicy(tmp_path: Path) -> None:
@@ -390,6 +410,26 @@ def test_demo_main_rejects_passthrough_overrides() -> None:
 def test_demo_main_unknown_name_raises_with_available_list() -> None:
     with pytest.raises(SystemExit, match="Available demos"):
         cli.demo_main(["mystery"])
+
+
+def test_demo_local_only_checkpoint_missing_warns_without_hf_download(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(demo, "ASSETS_ROOT_PATH", tmp_path / "assets")
+
+    def fail_resolve(_: str) -> str:
+        raise AssertionError("local-only demo must not download from Hugging Face")
+
+    monkeypatch.setattr(demo, "resolve_checkpoint_file", fail_resolve)
+
+    rc = demo.run_demo(demo_name="sharpa_appo_student")
+
+    output = capsys.readouterr().out
+    assert rc == 1
+    assert "Checkpoint not found" in output
+    assert "checkpoints/sharpa_appo_student/model_0.pt" in output
 
 
 def test_demo_teaser_build_command_rejected() -> None:

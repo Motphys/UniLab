@@ -558,10 +558,15 @@ def test_hora_distill_playback_session_loads_stage2_checkpoint_and_student_polic
         "_resolve_stage2_checkpoint_path",
         lambda cfg: (checkpoint, tmp_path),
     )
+
+    def fake_cfg_with_checkpoint_runtime(cfg, checkpoint_payload):
+        captured["runtime_helper_checkpoint"] = checkpoint_payload
+        return cfg
+
     monkeypatch.setattr(
         train_hora_distill,
         "_cfg_with_checkpoint_runtime",
-        lambda cfg, checkpoint_payload: cfg,
+        fake_cfg_with_checkpoint_runtime,
     )
     monkeypatch.setattr(train_hora_distill, "_build_play_env_cfg_override", lambda cfg: {})
     monkeypatch.setattr(
@@ -606,6 +611,10 @@ def test_hora_distill_playback_session_loads_stage2_checkpoint_and_student_polic
     assert session.advance(PlaybackControls()) is True
     assert policy_obs_mode == "actor"
     assert resolved_checkpoint == str(checkpoint)
+    assert captured["runtime_helper_checkpoint"] == {
+        "model_state_dict": {},
+        "distill_runtime_cfg": {},
+    }
     assert captured["policy_obs_mode"] == "actor"
     assert captured["loaded_checkpoint"] == checkpoint
     torch.testing.assert_close(captured["actions"], torch.ones((1, 2)))

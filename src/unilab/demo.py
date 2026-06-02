@@ -29,9 +29,17 @@ DEMO_REGISTRY: dict[str, DemoSpec] = {
     "locomani": DemoSpec(
         algo="ppo", task="go2_arm_manip_loco", sim="mujoco", entry="play_interactive"
     ),
+    "sharpa_appo_student": DemoSpec(
+        algo="hora_distill",
+        task="sharpa_inhand",
+        sim="mujoco_nodr",
+        entry="play_interactive",
+    ),
     "inhandgrasp": DemoSpec(algo="ppo", task="sharpa_inhand", sim="motrix", entry="eval"),
     "teaser": DemoSpec(algo="", task="", sim="", entry="teaser"),
 }
+
+_LOCAL_ONLY_CHECKPOINT_DEMOS = {"sharpa_appo_student"}
 
 
 def _repo_root() -> Path:
@@ -50,10 +58,33 @@ def _checkpoint_relative_path(demo_name: str) -> str:
     return f"checkpoints/{demo_name}/model_0.pt"
 
 
+def _local_checkpoint_path(demo_name: str) -> Path:
+    return ASSETS_ROOT_PATH / _checkpoint_relative_path(demo_name)
+
+
 def _refresh_local_checkpoint(demo_name: str) -> None:
-    local = ASSETS_ROOT_PATH / _checkpoint_relative_path(demo_name)
+    local = _local_checkpoint_path(demo_name)
     if local.exists():
         local.unlink()
+
+
+def _resolve_demo_checkpoint(demo_name: str) -> str | None:
+    local = _local_checkpoint_path(demo_name)
+    if demo_name not in _LOCAL_ONLY_CHECKPOINT_DEMOS:
+        resolved = resolve_checkpoint_file(_checkpoint_relative_path(demo_name))
+        assert isinstance(resolved, str)
+        return resolved
+
+    if local.exists():
+        return str(local)
+
+    print(
+        "Checkpoint not found for temporary local-only demo "
+        f"{demo_name!r}: {local}\n"
+        "Place the stage-2 "
+        f"student checkpoint at that path, then rerun `uv run demo {demo_name}`."
+    )
+    return None
 
 
 def _build_play_interactive_command(
@@ -156,8 +187,9 @@ def run_demo(*, demo_name: str, refresh: bool = False, device: str | None = None
         return _run_teaser_demo()
     if refresh:
         _refresh_local_checkpoint(demo_name)
-    checkpoint_path = resolve_checkpoint_file(_checkpoint_relative_path(demo_name))
-    assert isinstance(checkpoint_path, str)
+    checkpoint_path = _resolve_demo_checkpoint(demo_name)
+    if checkpoint_path is None:
+        return 1
 
     command = build_demo_command(
         demo_name=demo_name, checkpoint_path=checkpoint_path, device=device
