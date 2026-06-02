@@ -263,7 +263,7 @@ MuJoCo 后端如何应用它：
 Sharpa rotation 任务按 `scale_ids` 从多个单 scale 的 grasp cache 中采样：
 
 - cache 文件名默认由 `grasp_cache_path` 和单个 scale 值共同决定。
-- `scale_list: [0.5, 0.6, 0.7, 0.8]` 默认对应 `cache/sharpa_grasp_linspace_0.5.npy`、`cache/sharpa_grasp_linspace_0.6.npy`、`cache/sharpa_grasp_linspace_0.7.npy`、`cache/sharpa_grasp_linspace_0.8.npy`。
+- `scale_list: [0.5, 0.6, 0.7, 0.8]` 默认对应 `caches/sharpa_grasp_linspace_0.5.npy`、`caches/sharpa_grasp_linspace_0.6.npy`、`caches/sharpa_grasp_linspace_0.7.npy`、`caches/sharpa_grasp_linspace_0.8.npy`。
 - 在 rotation 启动时会检查 `scale_list` 的所有 cache 文件；如果有任何缺失，则报错。
 - 每个 scale 桶只从其自身 scale 的 cache 文件中采样，避免在不同物体 scale 之间混用 grasp 初始状态。
 

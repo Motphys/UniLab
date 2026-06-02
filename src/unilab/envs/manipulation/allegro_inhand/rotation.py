@@ -32,6 +32,14 @@ from unilab.envs.common.rotation import np_quat_conjugate, np_quat_mul, np_quat_
 from .base import AllegroBaseCfg, AllegroBaseEnv
 
 
+def resolve_grasp_cache_path(cache_path: str) -> epath.Path:
+    """Resolve Allegro grasp cache paths using the asset-root convention."""
+    path = epath.Path(cache_path)
+    if path.is_absolute() or path.exists():
+        return path
+    return epath.Path(ASSETS_ROOT_PATH / cache_path)
+
+
 def normalize_rotation_axis(rotation_axis: tuple[float, float, float]) -> np.ndarray:
     axis = np.asarray(rotation_axis, dtype=get_global_dtype())
     return np.asarray(axis / np.linalg.norm(axis), dtype=get_global_dtype())
@@ -109,7 +117,7 @@ class AllegroRotationPPOCfg(AllegroBaseCfg):
     reward_config: RewardConfigPPO | None = None
     domain_rand: DomainRandConfig = field(default_factory=DomainRandConfig)
     rotation_axis: tuple[float, float, float] = (0.0, 0.0, 1.0)
-    grasp_cache_path: str = "cache/allegro_grasp_50k.npy"
+    grasp_cache_path: str = "caches/allegro_grasp_50k.npy"
     gen_grasp: bool = False
 
 
@@ -131,11 +139,14 @@ class AllegroRotationDomainRandomizationProvider(DomainRandomizationProvider):
             env._grasp_cache_loaded = True
             return None
 
-        cache_path = env.cfg.grasp_cache_path
-        if not epath.Path(cache_path).exists():
+        cache_path = resolve_grasp_cache_path(env.cfg.grasp_cache_path)
+        if not cache_path.exists():
             print(
-                "[allegro_inhand] Grasp cache missing, falling back to procedural reset: "
-                f"{cache_path}"
+                "[allegro_inhand] Grasp cache is missing; no Hugging Face download will be "
+                f"attempted. Expected local cache: {cache_path}. Generate one with "
+                "`uv run train --algo ppo --task allegro_inhand_grasp --sim mujoco "
+                "training.no_play=true`, or point `env.grasp_cache_path` at an existing "
+                "local cache."
             )
             env._grasp_cache = None
             env._grasp_cache_loaded = True

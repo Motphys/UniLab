@@ -638,7 +638,7 @@ def test_build_ppo_env_cfg_override_allegro_mujoco(
     assert env_cfg_override["reward_config"]["reset_z_threshold"] == pytest.approx(0.125)
     assert env_cfg_override["gen_grasp"] is False
     assert env_cfg_override["max_episode_seconds"] == pytest.approx(20.0)
-    assert env_cfg_override["grasp_cache_path"] == "cache/allegro_grasp_50k.npy"
+    assert env_cfg_override["grasp_cache_path"] == "caches/allegro_grasp_50k.npy"
     assert env_cfg_override["domain_rand"]["randomize_base_mass"] is False
     assert env_cfg_override["domain_rand"]["random_com"] is False
     assert env_cfg_override["domain_rand"]["randomize_gravity"] is False
