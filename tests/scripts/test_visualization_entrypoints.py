@@ -192,7 +192,9 @@ def test_handle_command_key_maps_drive_style_keys():
     assert commander.command.tolist() == [0.0, 0.0, 0.0]
 
 
-def test_play_interactive_viewer_model_prefers_backend_visual_scene(tmp_path: Path, monkeypatch):
+def test_play_interactive_viewer_model_materializes_backend_visual_scene(
+    tmp_path: Path, monkeypatch
+):
     mod = _load_script("play_interactive")
     visual_xml = tmp_path / "scene.xml"
     visual_xml.write_text("<mujoco/>", encoding="utf-8")
@@ -200,12 +202,41 @@ def test_play_interactive_viewer_model_prefers_backend_visual_scene(tmp_path: Pa
     import mujoco
 
     loaded: list[str] = []
+    loaded_binary: list[str] = []
+    materialized: dict[str, object] = {}
+    visual_base_model = object()
+    playback_model = object()
+    viewer_model = object()
 
     def fake_from_xml_path(path: str):
         loaded.append(path)
-        return object()
+        return visual_base_model
+
+    def fake_from_binary_path(path: str):
+        loaded_binary.append(path)
+        return viewer_model
+
+    def fake_materialize_visual_playback_model(
+        *,
+        visual_model_file,
+        visual_base_model,
+        playback_model,
+        output_path,
+    ):
+        materialized["visual_model_file"] = visual_model_file
+        materialized["visual_base_model"] = visual_base_model
+        materialized["playback_model"] = playback_model
+        materialized["output_path"] = output_path
+        Path(output_path).write_bytes(b"fake-mjb")
+        return str(output_path)
 
     monkeypatch.setattr(mujoco.MjModel, "from_xml_path", fake_from_xml_path)
+    monkeypatch.setattr(mujoco.MjModel, "from_binary_path", fake_from_binary_path)
+    monkeypatch.setattr(
+        mod,
+        "materialize_visual_playback_model",
+        fake_materialize_visual_playback_model,
+    )
 
     class FakeBackend:
         scene_visual_model_file = str(visual_xml)
@@ -213,10 +244,19 @@ def test_play_interactive_viewer_model_prefers_backend_visual_scene(tmp_path: Pa
     class FakeEnv:
         _backend = FakeBackend()
 
-        def get_playback_model(self):
-            raise AssertionError("backend visual scene should be preferred")
+        def get_playback_model(self, env_index: int | None = None):
+            assert env_index == 0
+            return playback_model
 
     model = mod._load_viewer_model(FakeEnv(), use_env_visual_model=False)
 
-    assert model is not None
+    assert model is viewer_model
     assert loaded == [str(visual_xml)]
+    assert len(loaded_binary) == 1
+    assert Path(loaded_binary[0]).name == "viewer_model.mjb"
+    assert materialized == {
+        "visual_model_file": str(visual_xml),
+        "visual_base_model": visual_base_model,
+        "playback_model": playback_model,
+        "output_path": Path(loaded_binary[0]),
+    }

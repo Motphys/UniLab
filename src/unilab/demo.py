@@ -30,8 +30,16 @@ DEMO_REGISTRY: dict[str, DemoSpec] = {
         algo="ppo", task="go2_arm_manip_loco", sim="mujoco", entry="play_interactive"
     ),
     "inhandgrasp": DemoSpec(algo="ppo", task="sharpa_inhand", sim="motrix", entry="eval"),
+    "sharpa_appo_student": DemoSpec(
+        algo="hora_distill",
+        task="sharpa_inhand",
+        sim="mujoco_nodr",
+        entry="play_interactive",
+    ),
     "teaser": DemoSpec(algo="", task="", sim="", entry="teaser"),
 }
+
+_LOCAL_ONLY_CHECKPOINT_DEMOS = {"sharpa_appo_student"}
 
 
 def _repo_root() -> Path:
@@ -50,8 +58,27 @@ def _checkpoint_relative_path(demo_name: str) -> str:
     return f"checkpoints/{demo_name}/model_0.pt"
 
 
+def _local_checkpoint_path(demo_name: str) -> Path:
+    return ASSETS_ROOT_PATH / _checkpoint_relative_path(demo_name)
+
+
+def _resolve_demo_checkpoint(demo_name: str) -> str | None:
+    if demo_name in _LOCAL_ONLY_CHECKPOINT_DEMOS:
+        local = _local_checkpoint_path(demo_name)
+        if local.is_file():
+            return str(local)
+        print(
+            f"Local checkpoint not found for demo {demo_name!r}: {local}\n"
+            "Place the stage-2 PyTorch checkpoint at this path and run the demo again."
+        )
+        return None
+    checkpoint_path = resolve_checkpoint_file(_checkpoint_relative_path(demo_name))
+    assert isinstance(checkpoint_path, str)
+    return checkpoint_path
+
+
 def _refresh_local_checkpoint(demo_name: str) -> None:
-    local = ASSETS_ROOT_PATH / _checkpoint_relative_path(demo_name)
+    local = _local_checkpoint_path(demo_name)
     if local.exists():
         local.unlink()
 
@@ -73,13 +100,20 @@ def _build_play_interactive_command(
             f"No owner config exists for algo={spec.algo}, task={spec.task}, sim={spec.sim}: "
             f"{owner_yaml}"
         )
-    return [
+    command = [
         sys.executable,
         str(script),
-        f"task={spec.task}/{spec.sim}",
-        f"algo.load_run={checkpoint_path}",
-        *extra_overrides,
     ]
+    if spec.algo == "hora_distill":
+        command.extend(["--algo", "hora_distill"])
+    command.extend(
+        [
+            f"task={spec.task}/{spec.sim}",
+            f"algo.load_run={checkpoint_path}",
+            *extra_overrides,
+        ]
+    )
+    return command
 
 
 def build_demo_command(
@@ -143,10 +177,13 @@ def run_demo(*, demo_name: str, refresh: bool = False, device: str | None = None
     spec = get_demo_spec(demo_name)
     if spec.entry == "teaser":
         return _run_teaser_demo()
-    if refresh:
+    if refresh and demo_name not in _LOCAL_ONLY_CHECKPOINT_DEMOS:
         _refresh_local_checkpoint(demo_name)
-    checkpoint_path = resolve_checkpoint_file(_checkpoint_relative_path(demo_name))
-    assert isinstance(checkpoint_path, str)
+    elif refresh:
+        print(f"Refresh ignored for local-only demo {demo_name!r}; no download source is used.")
+    checkpoint_path = _resolve_demo_checkpoint(demo_name)
+    if checkpoint_path is None:
+        return 1
 
     command = build_demo_command(
         demo_name=demo_name, checkpoint_path=checkpoint_path, device=device

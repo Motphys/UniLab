@@ -7,12 +7,14 @@ from typing import Any
 import numpy as np
 import pytest
 import torch
+from tensordict import TensorDict
 
 from unilab.visualization.interactive_playback import (
     KeyboardCommander,
     PlaybackControls,
     RslRlPlaybackConfig,
     RslRlPlaybackSession,
+    create_hora_distill_playback_session,
     create_rsl_rl_playback_session,
     prepare_motion_overlay_selection,
 )
@@ -189,6 +191,127 @@ def test_create_rsl_rl_playback_session_rejects_missing_env() -> None:
             train_cfg_normalizer=lambda cfg: cfg,
             log=lambda message: None,
         )
+
+
+def test_create_hora_distill_playback_session_loads_student_policy(tmp_path: Path) -> None:
+    checkpoint_path = tmp_path / "hora_stage2_last.pt"
+    checkpoint_path.write_bytes(b"checkpoint")
+    runtime_cfg = SimpleNamespace(training=SimpleNamespace(task_name="RuntimeTask"))
+    cfg = SimpleNamespace(
+        training=SimpleNamespace(task_name="SharpaInhandRotation"),
+        algo=SimpleNamespace(load_run=str(checkpoint_path)),
+    )
+    captured: dict[str, Any] = {}
+
+    class FakeEnv:
+        num_actions = 2
+        action_space = SimpleNamespace(
+            shape=(2,),
+            low=np.full((2,), -1.0),
+            high=np.full((2,), 1.0),
+        )
+        state = SimpleNamespace(info={})
+
+        def get_physics_state_snapshot(self):
+            return np.zeros((1, 4), dtype=np.float32)
+
+    class FakeWrapper:
+        num_actions = 2
+
+        def __init__(self, env: Any, *, device: str, policy_obs_mode: str):
+            self.env = env
+            captured["wrapper_env"] = env
+            captured["wrapper_device"] = device
+            captured["policy_obs_mode"] = policy_obs_mode
+
+        def reset(self):
+            obs = TensorDict(
+                {
+                    "actor": torch.ones((1, 3), dtype=torch.float32),
+                    "proprio_hist": torch.ones((1, 2, 3), dtype=torch.float32),
+                },
+                batch_size=[1],
+            )
+            return obs, {}
+
+        def step(self, actions):
+            captured["actions"] = actions
+            return self.reset()[0], torch.zeros((1,)), torch.zeros((1,), dtype=torch.bool), {}
+
+    class FakeModule:
+        def __init__(self, name: str):
+            self.name = name
+            self.eval_calls = 0
+
+        def eval(self):
+            self.eval_calls += 1
+
+    actor = FakeModule("actor")
+    hist_normalizer = FakeModule("hist_normalizer")
+
+    def fake_student_policy(actor_obj, hist_obj, obs, *, device):
+        captured["student_policy"] = (actor_obj, hist_obj, obs, device)
+        return torch.full((1, 2), 0.5, dtype=torch.float32)
+
+    deps = {
+        "resolve_stage2_checkpoint_path": lambda cfg_obj: (checkpoint_path, checkpoint_path.parent),
+        "get_log_root": lambda root_dir, cfg_obj: tmp_path / "logs",
+        "format_stage2_play_checkpoint_error": lambda *args, **kwargs: "missing",
+        "checkpoint_reader": lambda path, *, map_location, weights_only: {
+            "model_state_dict": {},
+            "distill_runtime_cfg": {"algo": {"model": {"hidden_dims": [8]}}},
+        },
+        "cfg_with_checkpoint_runtime": lambda cfg_obj, checkpoint: runtime_cfg,
+        "build_play_env_cfg_override": lambda cfg_obj: {"env": "override"},
+        "create_env": lambda cfg_obj, *, num_envs, env_cfg_override: FakeEnv(),
+        "wrapper_cls": FakeWrapper,
+        "build_student_actor_and_normalizer": lambda wrapped_env, cfg_obj, *, device: (
+            actor,
+            hist_normalizer,
+        ),
+        "load_distilled_checkpoint": lambda actor_obj, hist_obj, path, *, device: captured.update(
+            {
+                "loaded": (actor_obj, hist_obj, path, device),
+            }
+        ),
+        "student_policy": fake_student_policy,
+    }
+
+    session, policy_obs_mode, checkpoint = create_hora_distill_playback_session(
+        playback_cfg=RslRlPlaybackConfig(
+            task="SharpaInhandRotation",
+            load_run=str(checkpoint_path),
+            checkpoint=None,
+            action_mode="policy",
+            policy_obs_mode="actor",
+            algo_log_name="hora_distill",
+            log_root=None,
+            num_envs=1,
+        ),
+        cfg=cfg,
+        root_dir=tmp_path,
+        device="cpu",
+        deps=deps,
+        log=lambda message: None,
+    )
+
+    assert session.env is captured["wrapper_env"]
+    assert policy_obs_mode == "actor"
+    assert checkpoint == str(checkpoint_path)
+    assert captured["policy_obs_mode"] == "actor"
+    assert captured["loaded"][0] is actor
+    assert captured["loaded"][1] is hist_normalizer
+    assert captured["loaded"][2] == checkpoint_path
+    assert actor.eval_calls == 1
+    assert hist_normalizer.eval_calls == 1
+
+    session.reset()
+    session.step_once()
+
+    assert torch.equal(captured["actions"], torch.full((1, 2), 0.5))
+    assert captured["student_policy"][0] is actor
+    assert captured["student_policy"][1] is hist_normalizer
+    assert str(captured["student_policy"][3]) == "cpu"
 
 
 def test_keyboard_commander_nudges_stack_and_clamp_to_vel_limit() -> None:
