@@ -267,20 +267,17 @@ The Sharpa rotation task samples from multiple single-scale grasp caches by `sca
 - At rotation startup all cache files for `scale_list` are checked; if any is missing, it errors.
 - Each scale bucket only samples from the cache file of its own scale, avoiding mixing grasp initial states across different object scales.
 
-When generating multi-scale caches, run the grasp collection task multiple times separately:
+Default-scale caches are hosted on Hugging Face (`unilabsim/unilab-caches`) and are downloaded automatically into `src/unilab/assets/caches/` on first rotation training, so no manual collection is needed for the standard `scale_list`.
 
-```bash
-uv run train --algo ppo --task sharpa_inhand_grasp --sim mujoco 'env.domain_rand.scale_list=[0.5]' algo.num_envs=4096
-uv run train --algo ppo --task sharpa_inhand_grasp --sim mujoco 'env.domain_rand.scale_list=[0.6]' algo.num_envs=4096
-uv run train --algo ppo --task sharpa_inhand_grasp --sim mujoco 'env.domain_rand.scale_list=[0.7]' algo.num_envs=4096
-uv run train --algo ppo --task sharpa_inhand_grasp --sim mujoco 'env.domain_rand.scale_list=[0.8]' algo.num_envs=4096
-```
+To collect caches for custom scales not on HF — or to regenerate them locally — run the grasp collection task once per scale. Generated files land under `src/unilab/assets/caches/`, the same location HF downloads to, so subsequent rotation training auto-resolves them. Regeneration is **slow**.
 
-Or use the helper in the repo sequentially:
+The helper script collects each scale sequentially:
 
 ```bash
 ./scripts/sharpa_collect_grasps.sh 0.5 0.6 0.7 0.8
 ```
+
+<sub>Equivalent per-scale invocations: `uv run train --algo ppo --task sharpa_inhand_grasp --sim mujoco 'env.domain_rand.scale_list=[0.5]' algo.num_envs=4096` (repeat for `[0.6]`, `[0.7]`, `[0.8]`, …).</sub>
 
 Then train rotation with the same `scale_list`:
 

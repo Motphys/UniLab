@@ -20,10 +20,7 @@
 
 <p align="center"><em>无需 GPU 仿真后端即可训练机器人 RL。预告图由 MotrixSim 渲染。</em></p>
 
-从下面的 `快速演示` 开始，运行本仓库里的主训练命令。推荐的安装路径使用 `uv`；平台相关说明见
-[安装指南](https://unilabsim.github.io/UniLab-doc/zh_CN/1-getting_started/2-installation.html)。
-Conda 和 pip 用户目前也应继续遵循仓库的 `uv` 工作流；当前边界说明见
-[安装指南](https://unilabsim.github.io/UniLab-doc/zh_CN/1-getting_started/2-installation.html)。
+从下面的 `快速演示` 开始运行主训练命令。推荐使用 `uv` 安装；Conda 和 pip 用户目前也应继续遵循 `uv` 工作流。平台相关说明与当前边界见 [安装指南](https://unilabsim.github.io/UniLab-doc/zh_CN/1-getting_started/2-installation.html)。
 
 ## ✨ 亮点
 
@@ -94,22 +91,6 @@ uv run eval --algo appo --task go2_joystick_flat --sim motrix --load-run -1 --re
 
 在 macOS / MacBook 上，UniLab CLI 在需要时会通过 `mxpython` 路由 Motrix 交互式回放。Motrix 默认使用交互式回放；要导出无头视频请使用 `--render-mode record`，要跳过回放请使用 `--render-mode none`。更细的脚本级命令请参阅 [训练指南](https://unilabsim.github.io/UniLab-doc/zh_CN/2-user_guide/1-training/0-index.html)。
 
-安装 `motrix` extra 后，Go2Arm 操纵-运动 PPO 任务也支持 Motrix：
-
-```bash
-uv run train --algo ppo --task go2_arm_manip_loco --sim motrix
-uv run eval --algo ppo --task go2_arm_manip_loco --sim motrix --load-run -1
-```
-
-### 交互式笔记本
-
-更喜欢带引导的逐步体验？可以在 Jupyter 中打开这些 notebook：
-
-- [Demo Notebook](notebook/demo.ipynb)：通过 `uv run demo` 回放本地 checkpoint
-- [PPO Training Walkthrough](notebook/unilab_walkthrough_ppo_go1_joystick_mujoco.ipynb)：从配置预览到训练和回放的端到端指南
-
-> 这些 notebook 适合可访问 MuJoCo 的本地环境。
-
 ## 🏃 示例运行
 
 ```bash
@@ -121,6 +102,16 @@ uv run train --algo sac --task g1_motion_tracking --sim motrix
 ```
 
 ```bash
+uv run train --algo appo --task sharpa_inhand --sim mujoco --profile hora
+```
+
+> Grasp cache 首次训练时会自动从 Hugging Face (`unilabsim/unilab-caches`) 下载到 `src/unilab/assets/caches/`，无需手动操作；如需为自定义 scale 重新生成（较慢）：
+>
+> ```bash
+> bash scripts/sharpa_collect_grasps.sh 0.8 0.9 1.0 1.1 1.2 1.3 1.4 1.5
+> ```
+
+```bash
 uv run train --algo ppo --task go2_arm_manip_loco --sim motrix
 uv run eval --algo ppo --task go2_arm_manip_loco --sim motrix --load-run -1
 ```
@@ -129,13 +120,9 @@ uv run eval --algo ppo --task go2_arm_manip_loco --sim motrix --load-run -1
 uv run train --algo ppo --task sharpa_inhand --sim mujoco --profile hora
 ```
 
-更多训练命令、脚本级入口、续训流程以及 W&B 细节请参阅 [训练指南](https://unilabsim.github.io/UniLab-doc/zh_CN/2-user_guide/1-training/0-index.html)。
+使用 `uv run train` 进行训练，使用 `uv run eval` 进行检查点回放，`uv run demo` 用于本地 demo 预设。这些命令可以明确指定算法、任务和后端。
 
-## 🎯 训练入口
-
-训练使用 `uv run train`，检查点回放使用 `uv run eval`，本地 demo 预设使用 `uv run demo`。这些命令会保持算法、任务和后端选择显式化。
-
-请参阅 [训练指南](https://unilabsim.github.io/UniLab-doc/zh_CN/2-user_guide/1-training/0-index.html)，查看算法矩阵、日志目录布局、Hydra override、脚本级入口以及 demo 标志。
+更多训练命令、脚本级入口、算法矩阵、续训流程以及 W&B 细节请参阅 [训练指南](https://unilabsim.github.io/UniLab-doc/zh_CN/2-user_guide/1-training/0-index.html)。
 
 ## 📚 文档
 
@@ -150,7 +137,7 @@ uv run train --algo ppo --task sharpa_inhand --sim mujoco --profile hora
 ## 💬 社群交流
 
 | 微信群 | 小助手微信 |
-| --- | --- |
+| :---: | :---: |
 | <img src="docs/sphinx/source/_static/assets/unilab-wechat-group.jpg" alt="UniLab 微信群二维码" width="220"> | <img src="docs/sphinx/source/_static/assets/unilab-wechat-assistant.jpg" alt="UniLab 小助手微信二维码" width="150"> |
 | 扫码加入 UniLab 微信群。 | 如果微信群已满，请添加小助手微信，并备注 `unilab交流`。 |
 
