@@ -79,10 +79,9 @@ def _resolve_demo_checkpoint(demo_name: str) -> str | None:
         return str(local)
 
     print(
-        "Checkpoint not found for temporary local-only demo "
-        f"{demo_name!r}: {local}\n"
-        "Place the stage-2 "
-        f"student checkpoint at that path, then rerun `uv run demo {demo_name}`."
+        f"Local checkpoint not found for demo {demo_name!r}: {local}\n"
+        "Checkpoint not found; no download source is used for this demo.\n"
+        "Place the stage-2 PyTorch checkpoint at this path and run the demo again."
     )
     return None
 
@@ -113,15 +112,20 @@ def _build_play_interactive_command(
             f"No owner config exists for algo={spec.algo}, task={spec.task}, sim={spec.sim}: "
             f"{owner_yaml}"
         )
-    return [
+    command = [
         sys.executable,
         str(script),
         "--algo",
         spec.algo,
-        f"task={spec.task}/{spec.sim}",
-        f"algo.load_run={checkpoint_path}",
-        *extra_overrides,
     ]
+    command.extend(
+        [
+            f"task={spec.task}/{spec.sim}",
+            f"algo.load_run={checkpoint_path}",
+            *extra_overrides,
+        ]
+    )
+    return command
 
 
 def build_demo_command(
@@ -185,8 +189,10 @@ def run_demo(*, demo_name: str, refresh: bool = False, device: str | None = None
     spec = get_demo_spec(demo_name)
     if spec.entry == "teaser":
         return _run_teaser_demo()
-    if refresh:
+    if refresh and demo_name not in _LOCAL_ONLY_CHECKPOINT_DEMOS:
         _refresh_local_checkpoint(demo_name)
+    elif refresh:
+        print(f"Refresh ignored for local-only demo {demo_name!r}; no download source is used.")
     checkpoint_path = _resolve_demo_checkpoint(demo_name)
     if checkpoint_path is None:
         return 1

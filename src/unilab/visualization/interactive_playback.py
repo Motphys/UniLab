@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, Protocol
@@ -325,6 +325,9 @@ class OffPolicyPlaybackSession:
                 size=(self.num_envs, action_dim),
             ).astype(np.float32)
         return np.zeros((self.num_envs, action_dim), dtype=np.float32)
+
+
+_HORA_DISTILL_CHECKPOINT_UNAVAILABLE = "hora_distill_checkpoint_unavailable"
 
 
 def select_torch_device() -> str:
@@ -744,18 +747,8 @@ def create_sac_playback_session(
     )
 
 
-def create_hora_distill_playback_session(
-    *,
-    playback_cfg: RslRlPlaybackConfig,
-    cfg: Any,
-    root_dir: str | Path,
-    device: str | None,
-    log: LogFn = print,
-) -> tuple[RslRlPlaybackSession, str, str | None]:
-    """Create an interactive playback session for HORA stage-2 student checkpoints."""
-
+def _default_hora_distill_playback_deps(root_dir: str | Path) -> dict[str, Any]:
     _ensure_scripts_dir(root_dir)
-
     from train_hora_distill import (
         _apply_teacher_defaults,
         _build_play_env_cfg_override,
@@ -772,18 +765,46 @@ def create_hora_distill_playback_session(
     from unilab.algos.torch.hora.rsl_rl import HoraRslRlVecEnvWrapper
     from unilab.training import create_env, get_log_root
 
+    return {
+        "apply_teacher_defaults": _apply_teacher_defaults,
+        "build_play_env_cfg_override": _build_play_env_cfg_override,
+        "build_student_actor_and_normalizer": build_student_actor_and_normalizer,
+        "cfg_with_checkpoint_runtime": _cfg_with_checkpoint_runtime,
+        "create_env": create_env,
+        "format_stage2_play_checkpoint_error": _format_stage2_play_checkpoint_error,
+        "get_log_root": get_log_root,
+        "load_distilled_checkpoint": load_distilled_checkpoint,
+        "resolve_stage2_checkpoint_path": _resolve_stage2_checkpoint_path,
+        "student_policy": _student_policy,
+        "wrapper_cls": HoraRslRlVecEnvWrapper,
+        "checkpoint_reader": torch.load,
+    }
+
+
+def create_hora_distill_playback_session(
+    *,
+    playback_cfg: RslRlPlaybackConfig,
+    cfg: Any,
+    root_dir: str | Path,
+    device: str | None,
+    deps: Mapping[str, Any] | None = None,
+    log: LogFn = print,
+) -> tuple[RslRlPlaybackSession, str, str | None]:
+    """Create an interactive playback session for HORA stage-2 student checkpoints."""
+
+    resolved_deps = dict(_default_hora_distill_playback_deps(root_dir) if deps is None else deps)
     device_name = select_torch_device() if device is None else str(device)
-    torch_device = torch.device(device_name)
-    load_path, load_path_dir = _resolve_stage2_checkpoint_path(cfg)
+    load_path, load_path_dir = resolved_deps["resolve_stage2_checkpoint_path"](cfg)
     checkpoint_path = str(load_path) if load_path is not None else None
-    policy = None
-    effective_cfg = cfg
+    policy: Callable[[Any], Any] | None = None
 
     if playback_cfg.action_mode == "policy":
-        if load_path is None or load_path_dir is None or not load_path.exists():
-            task_log_root = get_log_root(root_dir, cfg) / str(cfg.training.task_name)
+        if load_path is None or load_path_dir is None or not Path(load_path).exists():
+            task_log_root = resolved_deps["get_log_root"](Path(root_dir), cfg) / str(
+                cfg.training.task_name
+            )
             log(
-                _format_stage2_play_checkpoint_error(
+                resolved_deps["format_stage2_play_checkpoint_error"](
                     cfg,
                     task_log_root=task_log_root,
                     load_path=load_path,
@@ -791,59 +812,77 @@ def create_hora_distill_playback_session(
                 )
             )
             log("WARNING: falling back to zero actions.")
-            effective_cfg = _apply_teacher_defaults(cfg)
+            runtime_cfg = resolved_deps["apply_teacher_defaults"](cfg)
         else:
             log(f"Loading distilled checkpoint: {load_path}")
-            checkpoint = torch.load(load_path, map_location="cpu", weights_only=False)
+            checkpoint = resolved_deps["checkpoint_reader"](
+                load_path, map_location="cpu", weights_only=False
+            )
             if "model_state_dict" not in checkpoint:
                 raise ValueError(
                     f"Checkpoint at {load_path} is not a HORA distillation checkpoint "
                     f"(found keys: {set(checkpoint.keys())})."
                 )
-            effective_cfg = _cfg_with_checkpoint_runtime(cfg, checkpoint)
+            runtime_cfg = resolved_deps["cfg_with_checkpoint_runtime"](cfg, checkpoint)
     else:
-        effective_cfg = _apply_teacher_defaults(cfg)
+        runtime_cfg = resolved_deps["apply_teacher_defaults"](cfg)
 
-    env = create_env(
-        effective_cfg,
-        num_envs=int(playback_cfg.num_envs),
-        env_cfg_override=_build_play_env_cfg_override(effective_cfg),
-        sim_backend="mujoco",
-        task_name=str(effective_cfg.training.task_name),
-    )
-    wrapped_env = HoraRslRlVecEnvWrapper(env, device=device_name, policy_obs_mode="actor")
+    env_cfg_override = resolved_deps["build_play_env_cfg_override"](runtime_cfg)
+    create_env = resolved_deps["create_env"]
+    try:
+        env = create_env(
+            runtime_cfg,
+            num_envs=int(playback_cfg.num_envs),
+            env_cfg_override=env_cfg_override,
+            sim_backend="mujoco",
+            task_name=str(runtime_cfg.training.task_name),
+        )
+    except TypeError:
+        if deps is None:
+            raise
+        env = create_env(
+            runtime_cfg,
+            num_envs=int(playback_cfg.num_envs),
+            env_cfg_override=env_cfg_override,
+        )
+    if env is None:
+        raise RuntimeError("Playback env factory did not return an environment.")
 
-    if playback_cfg.action_mode == "policy" and load_path is not None and load_path.exists():
-        actor, hist_normalizer = build_student_actor_and_normalizer(
+    policy_obs_mode = "actor"
+    wrapper_cls = resolved_deps["wrapper_cls"]
+    wrapped_env = wrapper_cls(env, device=device_name, policy_obs_mode=policy_obs_mode)
+    torch_device = torch.device(device_name)
+
+    if playback_cfg.action_mode == "policy" and load_path is not None and Path(load_path).exists():
+        actor, hist_normalizer = resolved_deps["build_student_actor_and_normalizer"](
             wrapped_env,
-            effective_cfg,
+            runtime_cfg,
             device=torch_device,
         )
-        load_distilled_checkpoint(actor, hist_normalizer, load_path, device=torch_device)
+        resolved_deps["load_distilled_checkpoint"](
+            actor,
+            hist_normalizer,
+            load_path,
+            device=torch_device,
+        )
         actor.eval()
         hist_normalizer.eval()
+        student_policy = resolved_deps["student_policy"]
 
-        def policy(obs):
-            return _student_policy(
-                actor,
-                hist_normalizer,
-                obs,
-                device=torch_device,
-            )
+        def policy(obs: Any) -> Any:
+            return student_policy(actor, hist_normalizer, obs, device=torch_device)
 
+    log(f"Policy obs mode: {policy_obs_mode}")
     log(f"Action mode: {playback_cfg.action_mode}")
-    return (
-        RslRlPlaybackSession(
-            env=env,
-            wrapped_env=wrapped_env,
-            device=device_name,
-            action_mode=playback_cfg.action_mode,
-            policy=policy,
-            num_envs=playback_cfg.num_envs,
-        ),
-        "actor",
-        checkpoint_path,
+    session = RslRlPlaybackSession(
+        env=env,
+        wrapped_env=wrapped_env,
+        device=device_name,
+        action_mode=playback_cfg.action_mode,
+        policy=policy,
+        num_envs=playback_cfg.num_envs,
     )
+    return session, policy_obs_mode, checkpoint_path
 
 
 def prepare_motion_overlay_selection(

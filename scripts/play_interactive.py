@@ -26,8 +26,10 @@ Camera controls (MuJoCo viewer):
 # pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportOptionalMemberAccess=false, reportOptionalSubscript=false
 
 import sys
+import tempfile
 import time
 import warnings
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -56,6 +58,7 @@ from unilab.training.rsl_rl import (
     normalize_ppo_train_cfg,
 )
 from unilab.visualization.interactive_playback import (
+    _HORA_DISTILL_CHECKPOINT_UNAVAILABLE,
     KeyboardCommander,
     PlaybackControls,
     RslRlPlaybackConfig,
@@ -74,6 +77,7 @@ _KEY_RIGHT, _KEY_LEFT, _KEY_DOWN, _KEY_UP = 262, 263, 264, 265
 ensure_registries()
 
 from unilab.base import registry
+from unilab.base.backend.mujoco.playback import resolve_render_play_model_files
 from unilab.base.scene import SceneCfg
 from unilab.structured_configs import PPOConfig as _StructuredPPOConfig
 
@@ -184,6 +188,10 @@ _CONFIG_ROOT_BY_ALGO = {
 }
 
 
+def _extract_interactive_algo(argv: Sequence[str]) -> tuple[str, list[str]]:
+    return _split_algo_arg([str(arg) for arg in argv])
+
+
 def _override_key(override: str) -> str:
     key = override.split("=", 1)[0].strip()
     return key.lstrip("+~")
@@ -249,6 +257,13 @@ def _compose_interactive_config(algo: str, overrides: list[str]) -> DictConfig:
             config_name="config",
             overrides=_normalize_interactive_overrides(algo, overrides),
         )
+
+
+def _select_playback_device(cfg: DictConfig | None) -> str:
+    configured = OmegaConf.select(cfg, "training.device") if cfg is not None else None
+    if configured not in (None, ""):
+        return str(configured)
+    return select_torch_device()
 
 
 # ---------------------------------------------------------------------------
@@ -629,12 +644,38 @@ def _render_reward_debug_targets(
                     _add_axis_arrow(scene, p, pz, marker_radius * 0.45, z_rgba)
 
 
+def _load_mujoco_model_file_for_viewer(model_file: str):
+    if Path(model_file).suffix.lower() == ".mjb":
+        return mujoco.MjModel.from_binary_path(str(model_file))
+    return mujoco.MjModel.from_xml_path(str(model_file))
+
+
+def _load_resolved_visual_viewer_model(env: Any):
+    try:
+        with tempfile.TemporaryDirectory(prefix="unilab-interactive-viewer-") as tmp_dir:
+            model_files = resolve_render_play_model_files(env, num_envs=1, tmp_dir=tmp_dir)
+            model_file = model_files[0] if isinstance(model_files, list) else model_files
+            print(
+                f"[play_interactive] Using resolved visual playback model for viewer: {model_file}"
+            )
+            return _load_mujoco_model_file_for_viewer(str(model_file))
+    except Exception as exc:
+        print(
+            "[play_interactive] WARNING: failed to resolve visual playback model; "
+            f"falling back to visual model ({exc})."
+        )
+        return None
+
+
 def _load_viewer_model(env: Any, *, use_env_visual_model: bool):
     import mujoco
 
     backend = getattr(env, "_backend", None)
     backend_visual_model_file = getattr(backend, "scene_visual_model_file", None)
     if backend_visual_model_file:
+        resolved = _load_resolved_visual_viewer_model(env)
+        if resolved is not None:
+            return resolved
         print(
             f"[play_interactive] Using backend visual model for viewer: {backend_visual_model_file}"
         )
@@ -647,6 +688,9 @@ def _load_viewer_model(env: Any, *, use_env_visual_model: bool):
         model_file = None if cfg_scene is None else cfg_scene.model_file
         if model_file:
             try:
+                resolved = _load_resolved_visual_viewer_model(env)
+                if resolved is not None:
+                    return resolved
                 print(f"[play_interactive] Using configured visual model for viewer: {model_file}")
                 return mujoco.MjModel.from_xml_path(str(model_file))
             except Exception as exc:
@@ -730,10 +774,10 @@ def _print_keyboard_legend(args) -> None:
         print("  NOTE: action_mode is not 'policy'; commands will not drive the robot.")
 
 
-def play_interactive(args, cfg: DictConfig | None = None):
-    device = select_torch_device()
+def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = None):
+    device = _select_playback_device(cfg)
     print(f"[play_interactive] Device: {device}")
-    algo = str(getattr(args, "algo", "ppo"))
+    algo = str(algo or getattr(args, "algo", "ppo"))
 
     # Always use a single env for interactive view
     available_backends = _available_backends_for_task(args.task)
@@ -839,7 +883,7 @@ def play_interactive(args, cfg: DictConfig | None = None):
         else:
             raise ValueError(f"Unsupported interactive playback algo: {algo}")
     except RuntimeError as exc:
-        if str(exc) == _PLAYBACK_ENV_UNAVAILABLE:
+        if str(exc) in {_PLAYBACK_ENV_UNAVAILABLE, _HORA_DISTILL_CHECKPOINT_UNAVAILABLE}:
             return
         raise
     playback_session = session[0]
