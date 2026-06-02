@@ -101,14 +101,15 @@ class AsyncRunner(ABC):
         self._error_send = None
 
     def _check_collector_alive(self) -> bool:
-        """Check if collector is alive; raise with full diagnostic if dead."""
+        """Check if collector is alive. Prints full diagnostic if dead."""
         if self._collector_process is None:
             return True
         if self._collector_process.is_alive():
             return True
 
         death_info = self._read_collector_error()
-        raise RuntimeError(death_info)
+        print(f"\n{death_info}\n", file=sys.stderr, flush=True)
+        return False
 
     def _read_collector_error(self) -> str:
         """Read error info from dead collector — pipe first, then exit code."""
@@ -139,8 +140,7 @@ class AsyncRunner(ABC):
             if exitcode is not None and exitcode != 0 and exitcode != -15:
                 death_info = self._read_collector_error()
                 print(
-                    f"\n[AsyncRunner] Collector exited with code {exitcode}:\n"
-                    f"{death_info}\n",
+                    f"\n[AsyncRunner] Collector exited with code {exitcode}:\n{death_info}\n",
                     file=sys.stderr,
                     flush=True,
                 )

@@ -7,13 +7,12 @@ reach the parent process — even when stderr is lost or interleaved.
 
 from __future__ import annotations
 
+import multiprocessing as _mp
 import signal
 import sys
 import traceback
 from contextlib import contextmanager
 from typing import Any
-
-import multiprocessing as _mp
 
 _SPAWN_CTX = _mp.get_context("spawn")
 
@@ -33,12 +32,12 @@ class ExceptionWrapper:
         self.where = where
 
     def reraise(self) -> None:
-        msg = (
-            f"Caught {self.exc_type.__name__} {self.where}.\n"
-            f"Original traceback:\n{self.exc_msg}"
-        )
+        exc_type = self.exc_type
+        if exc_type is None:
+            raise RuntimeError(f"Unknown exception {self.where}.\n{self.exc_msg}")
+        msg = f"Caught {exc_type.__name__} {self.where}.\nOriginal traceback:\n{self.exc_msg}"
         try:
-            raise self.exc_type(msg)
+            raise exc_type(msg)
         except TypeError:
             raise RuntimeError(msg) from None
 
@@ -69,8 +68,7 @@ def collector_error_guard(
     except Exception:
         wrapper = ExceptionWrapper(where=f"in {label}")
         print(
-            f"\n{'=' * 60}\n[{label.upper()} CRASH]\n"
-            f"{wrapper.exc_msg}\n{'=' * 60}\n",
+            f"\n{'=' * 60}\n[{label.upper()} CRASH]\n{wrapper.exc_msg}\n{'=' * 60}\n",
             file=sys.stderr,
             flush=True,
         )

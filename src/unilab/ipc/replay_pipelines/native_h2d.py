@@ -27,29 +27,30 @@ def _check_build_prerequisites() -> tuple[bool, str]:
     """Pre-validate JIT compilation requirements."""
     try:
         from torch.utils.cpp_extension import is_ninja_available
+
         if not is_ninja_available():
             return False, "ninja not found. Install: pip install ninja"
     except ImportError:
         return False, "torch.utils.cpp_extension unavailable"
 
     from torch.utils.cpp_extension import get_cxx_compiler
+
     compiler = get_cxx_compiler()
     if shutil.which(compiler) is None:
-        return False, (
-            f"C++ compiler '{compiler}' not found. "
-            f"Install: sudo apt install g++"
-        )
+        return False, (f"C++ compiler '{compiler}' not found. Install: sudo apt install g++")
 
     from torch.utils.cpp_extension import CUDA_HOME
+
     if CUDA_HOME is None:
         return False, (
-            "CUDA_HOME not set and nvcc not found. "
-            "Install CUDA toolkit or set CUDA_HOME."
+            "CUDA_HOME not set and nvcc not found. Install CUDA toolkit or set CUDA_HOME."
         )
 
     header = Path(CUDA_HOME) / "include" / "cuda_runtime_api.h"
     if not header.exists():
-        targets_header = Path(CUDA_HOME) / "targets" / "x86_64-linux" / "include" / "cuda_runtime_api.h"
+        targets_header = (
+            Path(CUDA_HOME) / "targets" / "x86_64-linux" / "include" / "cuda_runtime_api.h"
+        )
         if not targets_header.exists():
             return False, (
                 f"cuda_runtime_api.h not found in {CUDA_HOME}/include/ "
@@ -80,6 +81,7 @@ def _try_load_extension() -> Any | None:
 
     try:
         from torch.utils.cpp_extension import CUDA_HOME, load
+
         extra_include_paths = []
         if CUDA_HOME is not None:
             extra_include_paths.append(str(Path(CUDA_HOME) / "include"))
@@ -98,9 +100,7 @@ def _try_load_extension() -> Any | None:
     except Exception as exc:
         _DIAGNOSTIC = f"Compilation failed: {exc}"
         _NATIVE_AVAILABLE = False
-        logger.warning(
-            "Native H2D compilation failed: %s. Using pure-PyTorch fallback.", exc
-        )
+        logger.warning("Native H2D compilation failed: %s. Using pure-PyTorch fallback.", exc)
         return None
 
 

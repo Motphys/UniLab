@@ -18,7 +18,7 @@ def estimate_offpolicy_bytes(
     critic_dim: int,
     batch_size: int,
     updates_per_step: int,
-) -> dict[str, int]:
+) -> dict[str, int | str]:
     """Estimate memory for off-policy replay buffer + double-buffer slots."""
     row_width = 2 * obs_dim + action_dim + 3 + 2 * critic_dim
     capacity = replay_buffer_n * num_envs
@@ -48,7 +48,7 @@ def estimate_appo_bytes(
     action_dim: int,
     critic_dim: int,
     num_slots: int = 4,
-) -> dict[str, int]:
+) -> dict[str, int | str]:
     """Estimate memory for APPO rollout ring buffer."""
     per_step = obs_dim + action_dim + 1 + 1 + 1 + 1 + critic_dim
     per_slot = num_envs * steps_per_env * per_step * 4
@@ -79,7 +79,8 @@ def get_available_memory_bytes() -> int | None:
 
     try:
         import psutil
-        return psutil.virtual_memory().available
+
+        return int(psutil.virtual_memory().available)
     except ImportError:
         pass
 
@@ -87,7 +88,7 @@ def get_available_memory_bytes() -> int | None:
 
 
 def warn_if_over_budget(
-    estimated: dict[str, int],
+    estimated: dict[str, int | str],
     label: str,
     threshold: float = 0.8,
 ) -> None:
@@ -99,7 +100,7 @@ def warn_if_over_budget(
     if available is None:
         return
 
-    total = estimated["total"]
+    total = int(estimated["total"])
     ratio = total / available
 
     if ratio > threshold:
