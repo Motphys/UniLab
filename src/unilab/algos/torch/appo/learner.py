@@ -155,8 +155,8 @@ class APPOLearner:
         use_clipped_value_loss: bool = True,
         schedule: str = "fixed",
         desired_kl: float = 0.01,
-        adaptive_kl_factor: float = 2.0,
-        adaptive_lr_factor: float = 1.5,
+        adaptive_kl_factor: float = 1.2,
+        adaptive_lr_factor: float = 1.1,
         device: str = "cpu",
         optimizer: str = "adam",
         # APPO-specific parameters

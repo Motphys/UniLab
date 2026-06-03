@@ -171,8 +171,8 @@ class APPOAlgorithmConfig:
     use_clipped_value_loss: bool = True
     schedule: str = "adaptive"
     desired_kl: float = 0.01
-    adaptive_kl_factor: float = 2.0
-    adaptive_lr_factor: float = 1.5
+    adaptive_kl_factor: float = 1.2
+    adaptive_lr_factor: float = 1.1
     optimizer: str = "adam"
     tau: float = 1.0
     target_update_freq: int = 1
