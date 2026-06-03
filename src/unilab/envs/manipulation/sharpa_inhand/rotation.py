@@ -276,8 +276,19 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
             targets=targets,
             tactile=tactile,
             contact_pos=contact_pos,
+            add_noise=True,
+        )
+        critic_init_frame = env._build_policy_frame(
+            dof_pos=hand_qpos_f,
+            targets=targets,
+            tactile=tactile,
+            contact_pos=contact_pos,
+            add_noise=False,
         )
         obs_lag_history = repeat_obs_history(init_frame, env.cfg.obs_history_len).astype(dtype)
+        critic_obs_lag_history = repeat_obs_history(
+            critic_init_frame, env.cfg.obs_history_len
+        ).astype(dtype)
 
         object_default_pose = np.concatenate(
             [object_pos_f, object_quat.astype(dtype)], axis=1
@@ -306,6 +317,7 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
             "d_gain": d_gain,
             "critic_info": critic_info,
             "obs_lag_history": obs_lag_history,
+            "critic_obs_lag_history": critic_obs_lag_history,
             "proprio_hist": env._update_proprio_history(obs_lag_history),
         }
         return info_updates
@@ -1219,13 +1231,15 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         targets: np.ndarray,
         tactile: np.ndarray,
         contact_pos: np.ndarray,
+        *,
+        add_noise: bool = True,
     ) -> np.ndarray:
         dof_pos_f = np.asarray(dof_pos, dtype=self._np_dtype)
         targets_f = np.asarray(targets, dtype=self._np_dtype)
 
         dof_norm = self._normalize_joint_pos(dof_pos_f)
         joint_noise_scale = float(self._cfg.domain_rand.joint_noise_scale)
-        if joint_noise_scale > 0.0:
+        if add_noise and joint_noise_scale > 0.0:
             dof_norm += (
                 np.random.uniform(-1.0, 1.0, size=dof_norm.shape).astype(self._np_dtype)
                 * joint_noise_scale
@@ -1306,6 +1320,7 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         self,
         policy_obs: np.ndarray,
         critic_info: np.ndarray,
+        critic_policy_obs: np.ndarray | None = None,
     ) -> dict[str, np.ndarray]:
         """Pack actor and privileged info into the env observation groups.
 
@@ -1322,10 +1337,12 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
             )
             return {"obs": flattened_obs}
 
+        if critic_policy_obs is None:
+            critic_policy_obs = policy_obs
         return {
             "obs": self._clip_observation_values(policy_obs),
             "critic": self._clip_observation_values(
-                np.concatenate([policy_obs, critic_info], axis=1).astype(self._np_dtype)
+                np.concatenate([critic_policy_obs, critic_info], axis=1).astype(self._np_dtype)
             ),
         }
 
@@ -1343,26 +1360,48 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
             targets=targets,
             tactile=tactile,
             contact_pos=contact_pos,
+            add_noise=True,
+        )
+        critic_frame = self._build_policy_frame(
+            dof_pos=dof_pos,
+            targets=targets,
+            tactile=tactile,
+            contact_pos=contact_pos,
+            add_noise=False,
         )
         batch_size = int(frame.shape[0])
 
         history = info.get("obs_lag_history")
+        critic_history = info.get("critic_obs_lag_history")
         if history is None:
             history = repeat_obs_history(frame, self._cfg.obs_history_len).astype(self._np_dtype)
         else:
             history = np.asarray(history, dtype=self._np_dtype)
             history[:, :-1] = history[:, 1:]
             history[:, -1] = frame
+        if critic_history is None:
+            critic_history = repeat_obs_history(critic_frame, self._cfg.obs_history_len).astype(
+                self._np_dtype
+            )
+        else:
+            critic_history = np.asarray(critic_history, dtype=self._np_dtype)
+            critic_history[:, :-1] = critic_history[:, 1:]
+            critic_history[:, -1] = critic_frame
 
         info["obs_lag_history"] = history
+        info["critic_obs_lag_history"] = critic_history
         info["proprio_hist"] = self._update_proprio_history(history)
 
         obs = np.asarray(
             history[:, -self._cfg.obs_lag_steps :].reshape(batch_size, -1),
             dtype=self._np_dtype,
         )
+        critic_obs = np.asarray(
+            critic_history[:, -self._cfg.obs_lag_steps :].reshape(batch_size, -1),
+            dtype=self._np_dtype,
+        )
         critic_info = self._build_critic_info(info, batch_size=batch_size, object_pos=object_pos)
-        return self._pack_observations(obs, critic_info)
+        return self._pack_observations(obs, critic_info, critic_policy_obs=critic_obs)
 
     def _compute_reward(
         self,
