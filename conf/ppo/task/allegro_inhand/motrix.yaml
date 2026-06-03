@@ -40,7 +40,7 @@ reward:
 env:
   gen_grasp: false
   max_episode_seconds: 20.0
-  grasp_cache_path: cache/allegro_grasp_50k.npy
+  grasp_cache_path: caches/allegro_grasp_50k.npy
   # Keep only grasp/pose reset variation. All online DR terms stay disabled.
   domain_rand:
     randomize_base_mass: false

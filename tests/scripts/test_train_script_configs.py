@@ -159,7 +159,7 @@ def test_ppo_sharpa_motrix_one_iteration_training_smoke(tmp_path):
     cache_prefix = tmp_path / "sharpa_grasp"
     _write_sharpa_smoke_cache(
         cache_prefix,
-        [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6],
+        [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5],
     )
 
     result = subprocess.run(

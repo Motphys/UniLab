@@ -35,12 +35,12 @@ uv run train --algo ppo --task allegro_inhand_grasp --sim motrix training.no_pla
 uv run train --algo ppo --task allegro_inhand --sim motrix training.no_play=true
 ```
 
-The rotation owner defaults to the grasp cache at `cache/allegro_grasp_50k.npy`.
+The rotation owner defaults to the grasp cache at `caches/allegro_grasp_50k.npy`.
 To use a custom cache, override `env.grasp_cache_path`:
 
 ```bash
 uv run train --algo ppo --task allegro_inhand --sim mujoco \
-  env.grasp_cache_path=cache/my_allegro_grasp.npy
+  env.grasp_cache_path=caches/my_allegro_grasp.npy
 ```
 
 Replay a trained checkpoint with `eval` (`--load-run -1` picks the latest run):
@@ -107,7 +107,7 @@ To use a custom cache prefix, override `env.grasp_cache_path`:
 
 ```bash
 uv run train --algo ppo --task sharpa_inhand --sim mujoco \
-  env.grasp_cache_path=cache/my_sharpa_grasp_cache
+  env.grasp_cache_path=caches/my_sharpa_grasp_cache
 ```
 
 ### Teacher and student

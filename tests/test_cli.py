@@ -260,7 +260,10 @@ def _make_demo_checkout(root: Path, *, demo_name: str) -> None:
     (root / "scripts").mkdir(parents=True, exist_ok=True)
     (root / "scripts" / "train_rsl_rl.py").write_text("", encoding="utf-8")
     (root / "scripts" / "play_interactive.py").write_text("", encoding="utf-8")
-    owner_dir = root / "conf" / spec.algo / "task" / spec.task
+    if spec.algo == "sac":
+        owner_dir = root / "conf" / "offpolicy" / "task" / "sac" / spec.task
+    else:
+        owner_dir = root / "conf" / spec.algo / "task" / spec.task
     owner_dir.mkdir(parents=True, exist_ok=True)
     (owner_dir / f"{spec.sim}.yaml").write_text(
         f"training:\n  sim_backend: {spec.sim}\n", encoding="utf-8"
@@ -273,12 +276,19 @@ def test_demo_registry_contains_expected_entries() -> None:
         "wallflip",
         "boxtracking",
         "locomani",
+        "sharpa_appo_student",
         "inhandgrasp",
         "teaser",
     }
     assert demo.DEMO_REGISTRY["locomani"].entry == "play_interactive"
     assert demo.DEMO_REGISTRY["locomani"].sim == "mujoco"
     assert demo.DEMO_REGISTRY["inhandgrasp"] == demo.DemoSpec(
+        algo="hora_distill",
+        task="sharpa_inhand",
+        sim="mujoco_nodr",
+        entry="play_interactive",
+    )
+    assert demo.DEMO_REGISTRY["sharpa_appo_student"] == demo.DemoSpec(
         algo="hora_distill",
         task="sharpa_inhand",
         sim="mujoco_nodr",
@@ -321,10 +331,10 @@ def test_demo_play_interactive_entry_assembles_locomani_command(
 
     assert command[0] == sys.executable
     assert command[1] == str(tmp_path / "scripts" / "play_interactive.py")
+    assert command[2:4] == ["--algo", "ppo"]
     assert "task=go2_arm_manip_loco/mujoco" in command
     assert f"algo.load_run={abs_pt}" in command
     assert "training.device=cpu" in command
-    assert "--algo" not in command
 
 
 def test_demo_play_interactive_entry_assembles_inhandgrasp_command(
@@ -346,6 +356,56 @@ def test_demo_play_interactive_entry_assembles_inhandgrasp_command(
     assert "task=sharpa_inhand/mujoco_nodr" in command
     assert f"algo.load_run={abs_pt}" in command
     assert "training.device=cpu" in command
+
+
+def test_demo_play_interactive_hora_distill_nodr_command(tmp_path: Path) -> None:
+    _make_demo_checkout(tmp_path, demo_name="sharpa_appo_student")
+    abs_pt = str(tmp_path / "fake" / "model_0.pt")
+
+    command = demo.build_demo_command(
+        demo_name="sharpa_appo_student",
+        checkpoint_path=abs_pt,
+        root=tmp_path,
+    )
+
+    assert command[1:] == [
+        str(tmp_path / "scripts" / "play_interactive.py"),
+        "--algo",
+        "hora_distill",
+        "task=sharpa_inhand/mujoco_nodr",
+        f"algo.load_run={abs_pt}",
+    ]
+
+
+def test_demo_play_interactive_sac_owner_path_uses_offpolicy(tmp_path: Path) -> None:
+    (tmp_path / "scripts").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "scripts" / "play_interactive.py").write_text("", encoding="utf-8")
+    owner_dir = tmp_path / "conf" / "offpolicy" / "task" / "sac" / "sharpa_inhand"
+    owner_dir.mkdir(parents=True)
+    (owner_dir / "mujoco_hora.yaml").write_text(
+        "training:\n  sim_backend: mujoco\n", encoding="utf-8"
+    )
+    spec = demo.DemoSpec(
+        algo="sac",
+        task="sharpa_inhand",
+        sim="mujoco_hora",
+        entry="play_interactive",
+    )
+
+    command = demo._build_play_interactive_command(
+        spec=spec,
+        checkpoint_path="/tmp/model_0.pt",
+        extra_overrides=[],
+        root=tmp_path,
+    )
+
+    assert command[1:] == [
+        str(tmp_path / "scripts" / "play_interactive.py"),
+        "--algo",
+        "sac",
+        "task=sharpa_inhand/mujoco_hora",
+        "algo.load_run=/tmp/model_0.pt",
+    ]
 
 
 def test_demo_play_interactive_linux_does_not_materialize_mjpython_app(
@@ -450,6 +510,70 @@ def test_demo_main_rejects_passthrough_overrides() -> None:
 def test_demo_main_unknown_name_raises_with_available_list() -> None:
     with pytest.raises(SystemExit, match="Available demos"):
         cli.demo_main(["mystery"])
+
+
+def test_demo_local_only_checkpoint_missing_warns_without_hf_download(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(demo, "ASSETS_ROOT_PATH", tmp_path / "assets")
+
+    def fail_resolve(_: str) -> str:
+        raise AssertionError("local-only demo must not download from Hugging Face")
+
+    monkeypatch.setattr(demo, "resolve_checkpoint_file", fail_resolve)
+
+    rc = demo.run_demo(demo_name="sharpa_appo_student")
+
+    output = capsys.readouterr().out
+    assert rc == 1
+    assert "Checkpoint not found" in output
+    assert "checkpoints/sharpa_appo_student/model_0.pt" in output
+
+
+def test_demo_local_only_checkpoint_uses_existing_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checkout = tmp_path / "checkout"
+    assets = tmp_path / "assets"
+    checkpoint = assets / "checkpoints" / "sharpa_appo_student" / "model_0.pt"
+    _make_demo_checkout(checkout, demo_name="sharpa_appo_student")
+    checkpoint.parent.mkdir(parents=True)
+    checkpoint.write_bytes(b"checkpoint")
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(demo, "ASSETS_ROOT_PATH", assets)
+    monkeypatch.setattr(demo, "_repo_root", lambda: checkout)
+    monkeypatch.setattr(demo.platform, "system", lambda: "Linux")
+
+    def fail_resolve(_: str) -> str:
+        raise AssertionError("local-only demo must not download from Hugging Face")
+
+    def fake_run(command: list[str], *, check: bool, env: dict[str, str]) -> SimpleNamespace:
+        assert check is False
+        assert env["UV_PROJECT_ENVIRONMENT"] == str(checkout / ".venv")
+        calls.append(command)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(demo, "resolve_checkpoint_file", fail_resolve)
+    monkeypatch.setattr(demo.subprocess, "run", fake_run)
+
+    rc = demo.run_demo(demo_name="sharpa_appo_student", device="cpu")
+
+    assert rc == 0
+    assert calls == [
+        [
+            sys.executable,
+            str(checkout / "scripts" / "play_interactive.py"),
+            "--algo",
+            "hora_distill",
+            "task=sharpa_inhand/mujoco_nodr",
+            f"algo.load_run={checkpoint}",
+            "training.device=cpu",
+        ]
+    ]
 
 
 def test_demo_teaser_build_command_rejected() -> None:

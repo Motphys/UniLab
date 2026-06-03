@@ -19,6 +19,8 @@ algo:
     entropy_coef: 0.01
     learning_rate: 0.001
     desired_kl: 0.025
+    adaptive_kl_factor: 2.0
+    adaptive_lr_factor: 1.5
     num_learning_epochs: 5
     num_mini_batches: 4
     clip_param: 0.2
@@ -53,7 +55,7 @@ reward:
 env:
   gen_grasp: false
   max_episode_seconds: 20.0
-  grasp_cache_path: cache/allegro_grasp_50k.npy
+  grasp_cache_path: caches/allegro_grasp_50k.npy
   # Keep only grasp/pose reset variation. All online DR terms stay disabled.
   domain_rand:
     randomize_base_mass: false

@@ -29,11 +29,11 @@ uv run train --algo ppo --task allegro_inhand_grasp --sim motrix training.no_pla
 uv run train --algo ppo --task allegro_inhand --sim motrix training.no_play=true
 ```
 
-旋转 owner 默认使用 `cache/allegro_grasp_50k.npy` 处的抓取缓存。要使用自定义缓存，override `env.grasp_cache_path`：
+旋转 owner 默认使用 `caches/allegro_grasp_50k.npy` 处的抓取缓存。要使用自定义缓存，override `env.grasp_cache_path`：
 
 ```bash
 uv run train --algo ppo --task allegro_inhand --sim mujoco \
-  env.grasp_cache_path=cache/my_allegro_grasp.npy
+  env.grasp_cache_path=caches/my_allegro_grasp.npy
 ```
 
 用 `eval` 回放已训练的 checkpoint（`--load-run -1` 取最新的 run）：
@@ -91,7 +91,7 @@ uv run train --algo ppo --task sharpa_inhand_grasp --sim motrix \
 
 ```bash
 uv run train --algo ppo --task sharpa_inhand --sim mujoco \
-  env.grasp_cache_path=cache/my_sharpa_grasp_cache
+  env.grasp_cache_path=caches/my_sharpa_grasp_cache
 ```
 
 ### Teacher 与 student

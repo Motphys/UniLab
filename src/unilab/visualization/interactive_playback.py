@@ -3,15 +3,22 @@
 from __future__ import annotations
 
 import copy
+import sys
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Protocol
 
 import numpy as np
 import torch
 
 LogFn = Callable[[str], None]
+
+
+def _ensure_scripts_dir(root_dir: str | Path) -> None:
+    scripts_dir = Path(root_dir) / "scripts"
+    if scripts_dir.is_dir() and str(scripts_dir) not in sys.path:
+        sys.path.insert(0, str(scripts_dir))
 
 
 @dataclass(frozen=True)
@@ -123,6 +130,21 @@ class MotionOverlaySelection:
     selected_indices: np.ndarray
 
 
+class PlaybackSession(Protocol):
+    """Viewer-facing session contract shared by all policy families."""
+
+    env: Any
+
+    def reset(self) -> Any: ...
+
+    def advance(self, controls: PlaybackControls) -> bool: ...
+
+    def physics_state(self) -> np.ndarray: ...
+
+    @property
+    def info(self) -> dict[str, Any]: ...
+
+
 class RslRlPlaybackSession:
     """Policy/action stepping core shared by native and web viewers."""
 
@@ -186,6 +208,123 @@ class RslRlPlaybackSession:
             )
             return torch.from_numpy(actions).to(self.device).float()
         return torch.zeros(self.num_envs, action_dim, device=self.device)
+
+
+class OffPolicyPlaybackSession:
+    """Direct env stepping session for SAC-style off-policy actors."""
+
+    def __init__(
+        self,
+        *,
+        env: Any,
+        device: str,
+        action_mode: str,
+        actor: Any | None,
+        actor_algo_type: str,
+        normalizer: Any | None,
+        num_envs: int,
+        obs_extractor: Callable[[dict[str, np.ndarray]], np.ndarray],
+        priv_info_resolver: Callable[..., np.ndarray | None],
+    ) -> None:
+        self.env = env
+        self.device = device
+        self.action_mode = action_mode
+        self.actor = actor
+        self.actor_algo_type = str(actor_algo_type)
+        self.normalizer = normalizer
+        self.num_envs = int(num_envs)
+        self.obs_extractor = obs_extractor
+        self.priv_info_resolver = priv_info_resolver
+        self.obs: np.ndarray | None = None
+        self.current_priv_info: np.ndarray | None = None
+        self.step_count = 0
+
+    def reset(self) -> np.ndarray:
+        if self.env.state is None:
+            self.env.init_state()
+        env_indices = np.arange(self.num_envs, dtype=np.int32)
+        reset_result = self.env.reset(env_indices)
+        if not isinstance(reset_result, tuple) or len(reset_result) != 2:
+            raise ValueError(f"Unexpected env.reset return format: {type(reset_result)!r}")
+        obs_out, info_out = reset_result
+        self.obs = np.asarray(self.obs_extractor(obs_out), dtype=np.float32)
+        self.current_priv_info = self._resolve_priv_info(obs_out, info_out)
+        self.step_count = 0
+        return self.obs
+
+    def step_once(self) -> np.ndarray:
+        actions = self._build_actions()
+        state = self.env.step(actions)
+        self.obs = np.asarray(self.obs_extractor(state.obs), dtype=np.float32)
+        self.current_priv_info = self._resolve_priv_info(state.obs, state.info)
+        self.step_count += 1
+        return self.obs
+
+    def advance(self, controls: PlaybackControls) -> bool:
+        if not controls.consume_step_permission():
+            return False
+        self.step_once()
+        return True
+
+    def physics_state(self) -> np.ndarray:
+        return self.env.get_physics_state_snapshot()
+
+    @property
+    def info(self) -> dict[str, Any]:
+        state = getattr(self.env, "state", None)
+        info = getattr(state, "info", None)
+        return info if isinstance(info, dict) else {}
+
+    def _resolve_priv_info(
+        self,
+        obs_dict: dict[str, np.ndarray],
+        info: dict[str, Any] | None,
+    ) -> np.ndarray | None:
+        if self.actor_algo_type != "hora_sac":
+            return None
+        if self.action_mode != "policy" or self.actor is None:
+            return None
+        from unilab.base.observations import split_obs_dict
+
+        actor_obs_np, critic_np = split_obs_dict(obs_dict)
+        priv_info = self.priv_info_resolver(
+            algo_type=self.actor_algo_type,
+            obs_np=np.asarray(actor_obs_np, dtype=np.float32),
+            critic_np=np.asarray(critic_np, dtype=np.float32),
+            info=info,
+        )
+        if priv_info is None:
+            raise ValueError("HORA-SAC interactive play step is missing privileged info.")
+        return np.asarray(priv_info, dtype=np.float32)
+
+    def _build_actions(self) -> np.ndarray:
+        if self.obs is None:
+            raise RuntimeError("Playback session must be reset before stepping.")
+        action_space = self.env.action_space
+        action_dim = int(action_space.shape[0])
+        if self.action_mode == "policy" and self.actor is not None:
+            obs_torch = torch.from_numpy(self.obs).to(self.device)
+            if self.normalizer is not None:
+                obs_torch = self.normalizer(obs_torch, update=False)
+            if self.actor_algo_type == "hora_sac":
+                if self.current_priv_info is None:
+                    raise ValueError("HORA-SAC interactive play step is missing privileged info.")
+                priv_info_torch = torch.from_numpy(self.current_priv_info).to(self.device)
+                actions = self.actor.explore(
+                    obs_torch,
+                    priv_info_torch,
+                    deterministic=True,
+                )
+            else:
+                actions = self.actor.explore(obs_torch, deterministic=True)
+            return actions.detach().cpu().numpy().astype(np.float32)
+        if self.action_mode == "random":
+            return np.random.uniform(
+                action_space.low,
+                action_space.high,
+                size=(self.num_envs, action_dim),
+            ).astype(np.float32)
+        return np.zeros((self.num_envs, action_dim), dtype=np.float32)
 
 
 _HORA_DISTILL_CHECKPOINT_UNAVAILABLE = "hora_distill_checkpoint_unavailable"
@@ -295,8 +434,323 @@ def create_rsl_rl_playback_session(
     return session, policy_obs_mode, checkpoint_path
 
 
-def _default_hora_distill_playback_deps() -> dict[str, Any]:
+def _normalize_checkpoint_value(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    return None if text in {"", "-1", "None", "null"} else text
+
+
+def _cfg_checkpoint_value(cfg: Any) -> str | None:
+    from omegaconf import OmegaConf
+
+    return _normalize_checkpoint_value(OmegaConf.select(cfg, "algo.checkpoint", default=None))
+
+
+def _resolve_appo_checkpoint_from_cfg(
+    cfg: Any,
+    *,
+    root_dir: str | Path,
+) -> tuple[str | None, str | None]:
+    _ensure_scripts_dir(root_dir)
+    from unilab.training import get_log_root, resolve_task_checkpoint_path
+
+    selected_checkpoint = _cfg_checkpoint_value(cfg)
+    if selected_checkpoint is not None:
+        checkpoint_path, checkpoint_dir = resolve_task_checkpoint_path(
+            root_dir,
+            task_name=str(cfg.training.task_name),
+            load_run=str(cfg.algo.load_run),
+            algo_log_name=str(cfg.algo.algo_log_name),
+            checkpoint=selected_checkpoint,
+            log_root=getattr(cfg.training, "log_root", None),
+        )
+        return (
+            str(checkpoint_path) if checkpoint_path is not None else None,
+            str(checkpoint_dir) if checkpoint_dir is not None else None,
+        )
+
+    from train_appo import resolve_appo_checkpoint_path
+
+    base_log_dir = get_log_root(root_dir, cfg) / str(cfg.training.task_name)
+    checkpoint_path, checkpoint_dir = resolve_appo_checkpoint_path(base_log_dir, cfg.algo.load_run)
+    return (
+        str(checkpoint_path) if checkpoint_path is not None else None,
+        str(checkpoint_dir) if checkpoint_dir is not None else None,
+    )
+
+
+def _build_appo_actor(
+    *,
+    env: Any,
+    wrapped_env: Any,
+    cfg: Any,
+    rl_cfg: dict[str, Any],
+    device: str,
+    is_hora: bool,
+) -> Any:
+    from copy import deepcopy
+
+    from rsl_rl.utils import resolve_callable
+    from tensordict import TensorDict
+
+    from unilab.base.observations import get_obs_dims
+
+    action_shape = env.action_space.shape
+    if action_shape is None:
+        raise ValueError("env.action_space.shape must be defined")
+    action_dim = int(action_shape[0])
+    rl_cfg_dict = deepcopy(rl_cfg)
+
+    if is_hora:
+        from unilab.algos.torch.hora.appo import _update_hora_obs_groups
+        from unilab.algos.torch.hora.models import build_hora_shared_actor_critic
+        from unilab.algos.torch.hora.rsl_rl_compat import (
+            convert_config_v3_to_v4,
+            is_rsl_rl_v4,
+            is_rsl_rl_v5,
+        )
+
+        obs_td = wrapped_env.get_observations()
+        num_envs = int(getattr(wrapped_env, "num_envs", getattr(env, "num_envs", 1)))
+        obs_dim = int(obs_td["actor"].shape[-1])
+        priv_info_dim = int(obs_td["priv_info"].shape[-1])
+        if priv_info_dim <= 0:
+            raise ValueError("HORA APPO interactive play requires privileged info.")
+        _update_hora_obs_groups(rl_cfg_dict, obs_dim=obs_dim, priv_info_dim=priv_info_dim)
+        if is_rsl_rl_v5():
+            pass
+        elif is_rsl_rl_v4():
+            rl_cfg_dict = convert_config_v3_to_v4(rl_cfg_dict)
+
+        actor_cfg = deepcopy(rl_cfg_dict["actor"])
+        actor_cls = resolve_callable(actor_cfg.pop("class_name"))
+        actor_cfg.pop("num_actions", None)
+        critic_cfg = deepcopy(rl_cfg_dict.get("critic") or rl_cfg_dict.get("actor") or {})
+        critic_cfg.pop("class_name", None)
+        critic_cfg.pop("num_actions", None)
+        critic_cfg.pop("distribution_cfg", None)
+        shared_model = build_hora_shared_actor_critic(
+            obs_dim=obs_dim,
+            action_dim=action_dim,
+            priv_info_dim=priv_info_dim,
+            actor_cfg=actor_cfg,
+            critic_cfg=critic_cfg,
+        ).to(device)
+        td_example = TensorDict(
+            {
+                "actor": torch.zeros((num_envs, obs_dim), device=device),
+                "priv_info": torch.zeros(
+                    (num_envs, priv_info_dim),
+                    device=device,
+                ),
+            },
+            batch_size=num_envs,
+        )
+        actor = actor_cls(
+            td_example,
+            rl_cfg_dict["obs_groups"],
+            "actor",
+            action_dim,
+            shared_model=shared_model,
+            **actor_cfg,
+        )
+        return actor.to(device).eval()
+
+    obs_dim, critic_dim = get_obs_dims(env.obs_groups_spec)
+    num_envs = int(getattr(wrapped_env, "num_envs", getattr(env, "num_envs", 1)))
+    obs_groups = rl_cfg_dict.setdefault("obs_groups", {})
+    if "obs_groups" not in rl_cfg_dict or not isinstance(obs_groups, dict):
+        obs_groups = {}
+        rl_cfg_dict["obs_groups"] = obs_groups
+    actor_group = obs_groups.get("actor", obs_groups.get("policy", {}))
+    if isinstance(actor_group, dict) and "policy" in actor_group:
+        actor_group["policy"] = obs_dim
+        obs_groups["actor"] = actor_group
+    else:
+        obs_groups["actor"] = {"policy": obs_dim}
+    critic_group = obs_groups.get("critic")
+    if critic_group is None:
+        obs_groups["critic"] = {"policy": critic_dim if critic_dim > 0 else obs_dim}
+    elif isinstance(critic_group, dict) and "policy" in critic_group:
+        critic_group["policy"] = critic_dim if critic_dim > 0 else obs_dim
+
+    obs_example = torch.zeros((num_envs, obs_dim), device=device)
+    td_example = TensorDict({"policy": obs_example}, batch_size=num_envs)
+    actor_cfg = deepcopy(rl_cfg_dict["actor"])
+    actor_cls = resolve_callable(actor_cfg.pop("class_name"))
+    actor_cfg.pop("num_actions", None)
+    actor = actor_cls(td_example, rl_cfg_dict["obs_groups"], "actor", action_dim, **actor_cfg)
+    return actor.to(device).eval()
+
+
+def create_appo_playback_session(
+    *,
+    playback_cfg: RslRlPlaybackConfig,
+    cfg: Any,
+    rl_cfg: dict[str, Any],
+    env_factory: Callable[[int], Any],
+    root_dir: str | Path,
+    device: str | None,
+    wrapper_cls: Any,
+    log: LogFn = print,
+) -> tuple[RslRlPlaybackSession, str, str | None]:
+    """Create an APPO interactive playback session."""
+
+    device_name = select_torch_device() if device is None else str(device)
+    env = env_factory(int(playback_cfg.num_envs))
+    if env is None:
+        raise RuntimeError("Playback env factory did not return an environment.")
+
+    from unilab.algos.torch.hora.runtime import is_hora_appo_runtime
+
+    is_hora = is_hora_appo_runtime(rl_cfg)
+    selected_wrapper_cls = wrapper_cls
+    policy_obs_mode = playback_cfg.policy_obs_mode
+    if is_hora:
+        from unilab.algos.torch.hora.rsl_rl import HoraRslRlVecEnvWrapper
+
+        selected_wrapper_cls = HoraRslRlVecEnvWrapper
+        policy_obs_mode = "actor"
+
+    wrapped_env = selected_wrapper_cls(env, device=device_name, policy_obs_mode=policy_obs_mode)
+    policy = None
+    checkpoint_path: str | None = None
+    if playback_cfg.action_mode == "policy":
+        checkpoint_path, _checkpoint_dir = _resolve_appo_checkpoint_from_cfg(cfg, root_dir=root_dir)
+        if checkpoint_path is None or not Path(checkpoint_path).exists():
+            log(
+                "WARNING: no APPO checkpoint found for "
+                f"load_run={cfg.algo.load_run} - falling back to zero actions."
+            )
+        else:
+            actor = _build_appo_actor(
+                env=env,
+                wrapped_env=wrapped_env,
+                cfg=cfg,
+                rl_cfg=rl_cfg,
+                device=device_name,
+                is_hora=is_hora,
+            )
+            checkpoint = torch.load(checkpoint_path, map_location=device_name, weights_only=True)
+            actor.load_state_dict(checkpoint["actor"])
+            policy = actor
+            log(f"Loading APPO checkpoint: {checkpoint_path}")
+
+    log(f"Action mode: {playback_cfg.action_mode}")
+    return (
+        RslRlPlaybackSession(
+            env=env,
+            wrapped_env=wrapped_env,
+            device=device_name,
+            action_mode=playback_cfg.action_mode,
+            policy=policy,
+            num_envs=playback_cfg.num_envs,
+        ),
+        policy_obs_mode,
+        checkpoint_path,
+    )
+
+
+def create_sac_playback_session(
+    *,
+    playback_cfg: RslRlPlaybackConfig,
+    cfg: Any,
+    env_factory: Callable[[int], Any],
+    root_dir: str | Path,
+    device: str | None,
+    log: LogFn = print,
+) -> tuple[OffPolicyPlaybackSession, str, str | None]:
+    """Create an interactive playback session for SAC and HORA-SAC teachers."""
+
+    import os
+
+    _ensure_scripts_dir(root_dir)
+
+    from train_offpolicy import (
+        default_device,
+        extract_play_obs,
+        resolve_checkpoint_path,
+        resolve_play_actor_spec,
+        resolve_play_obs_dims,
+    )
+
+    from unilab.algos.torch.common.actor_factory import build_actor
+    from unilab.algos.torch.offpolicy.worker import resolve_offpolicy_actor_priv_info
+
+    device_name = default_device(torch, str(device) if device is not None else None)
+    env = env_factory(int(playback_cfg.num_envs))
+    if env is None:
+        raise RuntimeError("Playback env factory did not return an environment.")
+
+    obs_dim, critic_obs_dim = resolve_play_obs_dims(env.obs_groups_spec)
+    action_shape = env.action_space.shape
+    if action_shape is None:
+        raise ValueError("env.action_space.shape must be defined")
+    action_dim = int(action_shape[0])
+    actor_algo_type, actor_kwargs = resolve_play_actor_spec(
+        "sac",
+        cfg,
+        obs_dim=obs_dim,
+        critic_obs_dim=critic_obs_dim,
+    )
+
+    actor = None
+    checkpoint_path: str | None = None
+    normalizer = None
+    if playback_cfg.action_mode == "policy":
+        actor = build_actor(
+            actor_algo_type,
+            obs_dim,
+            action_dim,
+            cfg.algo.actor_hidden_dim,
+            cfg.algo.use_layer_norm,
+            device_name,
+            **actor_kwargs,
+        )
+        actor.eval()
+        checkpoint_path, _checkpoint_dir = resolve_checkpoint_path(
+            Path(root_dir),
+            cfg.algo.algo_log_name,
+            cfg.training.task_name,
+            cfg.algo.load_run,
+        )
+        if checkpoint_path is None or not os.path.exists(checkpoint_path):
+            log(
+                "WARNING: no SAC checkpoint found for "
+                f"load_run={cfg.algo.load_run} - falling back to zero actions."
+            )
+            actor = None
+        else:
+            checkpoint = torch.load(checkpoint_path, map_location=device_name, weights_only=True)
+            actor.load_state_dict(checkpoint["actor"])
+            if normalizer is not None and checkpoint.get("obs_normalizer"):
+                normalizer.load_state_dict(checkpoint["obs_normalizer"])
+                normalizer.eval()
+            log(f"Loading SAC checkpoint: {checkpoint_path}")
+
+    log(f"Action mode: {playback_cfg.action_mode}")
+    return (
+        OffPolicyPlaybackSession(
+            env=env,
+            device=device_name,
+            action_mode=playback_cfg.action_mode,
+            actor=actor,
+            actor_algo_type=actor_algo_type,
+            normalizer=normalizer,
+            num_envs=playback_cfg.num_envs,
+            obs_extractor=extract_play_obs,
+            priv_info_resolver=resolve_offpolicy_actor_priv_info,
+        ),
+        "actor",
+        checkpoint_path,
+    )
+
+
+def _default_hora_distill_playback_deps(root_dir: str | Path) -> dict[str, Any]:
+    _ensure_scripts_dir(root_dir)
     from train_hora_distill import (
+        _apply_teacher_defaults,
         _build_play_env_cfg_override,
         _cfg_with_checkpoint_runtime,
         _format_stage2_play_checkpoint_error,
@@ -312,6 +766,7 @@ def _default_hora_distill_playback_deps() -> dict[str, Any]:
     from unilab.training import create_env, get_log_root
 
     return {
+        "apply_teacher_defaults": _apply_teacher_defaults,
         "build_play_env_cfg_override": _build_play_env_cfg_override,
         "build_student_actor_and_normalizer": build_student_actor_and_normalizer,
         "cfg_with_checkpoint_runtime": _cfg_with_checkpoint_runtime,
@@ -335,42 +790,61 @@ def create_hora_distill_playback_session(
     deps: Mapping[str, Any] | None = None,
     log: LogFn = print,
 ) -> tuple[RslRlPlaybackSession, str, str | None]:
-    """Create an interactive playback session for a HORA distillation student."""
+    """Create an interactive playback session for HORA stage-2 student checkpoints."""
 
-    resolved_deps = dict(_default_hora_distill_playback_deps() if deps is None else deps)
+    resolved_deps = dict(_default_hora_distill_playback_deps(root_dir) if deps is None else deps)
     device_name = select_torch_device() if device is None else str(device)
     load_path, load_path_dir = resolved_deps["resolve_stage2_checkpoint_path"](cfg)
-    if load_path is None or load_path_dir is None or not Path(load_path).exists():
-        task_log_root = resolved_deps["get_log_root"](Path(root_dir), cfg) / str(
-            cfg.training.task_name
-        )
-        log(
-            resolved_deps["format_stage2_play_checkpoint_error"](
-                cfg,
-                task_log_root=task_log_root,
-                load_path=load_path,
-                load_path_dir=load_path_dir,
+    checkpoint_path = str(load_path) if load_path is not None else None
+    policy: Callable[[Any], Any] | None = None
+
+    if playback_cfg.action_mode == "policy":
+        if load_path is None or load_path_dir is None or not Path(load_path).exists():
+            task_log_root = resolved_deps["get_log_root"](Path(root_dir), cfg) / str(
+                cfg.training.task_name
             )
-        )
-        raise RuntimeError(_HORA_DISTILL_CHECKPOINT_UNAVAILABLE)
+            log(
+                resolved_deps["format_stage2_play_checkpoint_error"](
+                    cfg,
+                    task_log_root=task_log_root,
+                    load_path=load_path,
+                    load_path_dir=load_path_dir,
+                )
+            )
+            log("WARNING: falling back to zero actions.")
+            runtime_cfg = resolved_deps["apply_teacher_defaults"](cfg)
+        else:
+            log(f"Loading distilled checkpoint: {load_path}")
+            checkpoint = resolved_deps["checkpoint_reader"](
+                load_path, map_location="cpu", weights_only=False
+            )
+            if "model_state_dict" not in checkpoint:
+                raise ValueError(
+                    f"Checkpoint at {load_path} is not a HORA distillation checkpoint "
+                    f"(found keys: {set(checkpoint.keys())})."
+                )
+            runtime_cfg = resolved_deps["cfg_with_checkpoint_runtime"](cfg, checkpoint)
+    else:
+        runtime_cfg = resolved_deps["apply_teacher_defaults"](cfg)
 
-    log(f"Loading distilled model: {load_path}")
-    checkpoint = resolved_deps["checkpoint_reader"](
-        load_path, map_location="cpu", weights_only=False
-    )
-    if "model_state_dict" not in checkpoint:
-        raise ValueError(
-            f"Checkpoint at {load_path} is not a HORA distillation checkpoint "
-            f"(found keys: {set(checkpoint.keys())})."
-        )
-
-    runtime_cfg = resolved_deps["cfg_with_checkpoint_runtime"](cfg, checkpoint)
     env_cfg_override = resolved_deps["build_play_env_cfg_override"](runtime_cfg)
-    env = resolved_deps["create_env"](
-        runtime_cfg,
-        num_envs=int(playback_cfg.num_envs),
-        env_cfg_override=env_cfg_override,
-    )
+    create_env = resolved_deps["create_env"]
+    try:
+        env = create_env(
+            runtime_cfg,
+            num_envs=int(playback_cfg.num_envs),
+            env_cfg_override=env_cfg_override,
+            sim_backend="mujoco",
+            task_name=str(runtime_cfg.training.task_name),
+        )
+    except TypeError:
+        if deps is None:
+            raise
+        env = create_env(
+            runtime_cfg,
+            num_envs=int(playback_cfg.num_envs),
+            env_cfg_override=env_cfg_override,
+        )
     if env is None:
         raise RuntimeError("Playback env factory did not return an environment.")
 
@@ -378,22 +852,21 @@ def create_hora_distill_playback_session(
     wrapper_cls = resolved_deps["wrapper_cls"]
     wrapped_env = wrapper_cls(env, device=device_name, policy_obs_mode=policy_obs_mode)
     torch_device = torch.device(device_name)
-    actor, hist_normalizer = resolved_deps["build_student_actor_and_normalizer"](
-        wrapped_env,
-        runtime_cfg,
-        device=torch_device,
-    )
-    resolved_deps["load_distilled_checkpoint"](
-        actor,
-        hist_normalizer,
-        load_path,
-        device=torch_device,
-    )
-    actor.eval()
-    hist_normalizer.eval()
 
-    policy: Callable[[Any], Any] | None = None
-    if playback_cfg.action_mode == "policy":
+    if playback_cfg.action_mode == "policy" and load_path is not None and Path(load_path).exists():
+        actor, hist_normalizer = resolved_deps["build_student_actor_and_normalizer"](
+            wrapped_env,
+            runtime_cfg,
+            device=torch_device,
+        )
+        resolved_deps["load_distilled_checkpoint"](
+            actor,
+            hist_normalizer,
+            load_path,
+            device=torch_device,
+        )
+        actor.eval()
+        hist_normalizer.eval()
         student_policy = resolved_deps["student_policy"]
 
         def policy(obs: Any) -> Any:
@@ -409,7 +882,7 @@ def create_hora_distill_playback_session(
         policy=policy,
         num_envs=playback_cfg.num_envs,
     )
-    return session, policy_obs_mode, str(load_path)
+    return session, policy_obs_mode, checkpoint_path
 
 
 def prepare_motion_overlay_selection(
@@ -468,11 +941,15 @@ def prepare_motion_overlay_selection(
 __all__ = [
     "KeyboardCommander",
     "MotionOverlaySelection",
+    "OffPolicyPlaybackSession",
     "PlaybackControls",
+    "PlaybackSession",
     "RslRlPlaybackConfig",
     "RslRlPlaybackSession",
+    "create_appo_playback_session",
     "create_hora_distill_playback_session",
     "create_rsl_rl_playback_session",
+    "create_sac_playback_session",
     "prepare_motion_overlay_selection",
     "select_torch_device",
 ]

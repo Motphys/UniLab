@@ -93,8 +93,8 @@ class FlashSACActor(nn.Module):
                 self.base = actor
 
             def forward(self, obs: torch.Tensor) -> torch.Tensor:
-                action, _ = self.base(obs, training=False)
-                return cast(torch.Tensor, action)
+                mean, _std = self.base.get_mean_and_std(obs, training=False)
+                return cast(torch.Tensor, torch.tanh(mean))
 
         return _Wrapper()
 

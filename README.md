@@ -152,10 +152,6 @@ uv run train --algo ppo --task go2_arm_manip_loco --sim motrix
 uv run eval --algo ppo --task go2_arm_manip_loco --sim motrix --load-run -1
 ```
 
-```bash
-uv run train --algo ppo --task sharpa_inhand --sim mujoco --profile hora
-```
-
 Use `uv run train` for training, `uv run eval` for checkpoint playback, and `uv run demo` for the local demo preset. These commands keep algorithm, task, and backend selection explicit.
 
 More training commands, script-level entrypoints, algorithm matrix, resume flow, and W&B details are in the [Training Guide](https://unilabsim.github.io/UniLab-doc/en/2-user_guide/1-training/0-index.html).

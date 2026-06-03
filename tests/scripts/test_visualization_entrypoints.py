@@ -192,7 +192,7 @@ def test_handle_command_key_maps_drive_style_keys():
     assert commander.command.tolist() == [0.0, 0.0, 0.0]
 
 
-def test_play_interactive_viewer_model_materializes_backend_visual_scene(
+def test_play_interactive_viewer_model_uses_shared_render_playback_resolver(
     tmp_path: Path, monkeypatch
 ):
     mod = _load_script("play_interactive")
@@ -201,41 +201,27 @@ def test_play_interactive_viewer_model_materializes_backend_visual_scene(
 
     import mujoco
 
-    loaded: list[str] = []
     loaded_binary: list[str] = []
-    materialized: dict[str, object] = {}
-    visual_base_model = object()
-    playback_model = object()
+    resolved: dict[str, object] = {}
     viewer_model = object()
-
-    def fake_from_xml_path(path: str):
-        loaded.append(path)
-        return visual_base_model
 
     def fake_from_binary_path(path: str):
         loaded_binary.append(path)
         return viewer_model
 
-    def fake_materialize_visual_playback_model(
-        *,
-        visual_model_file,
-        visual_base_model,
-        playback_model,
-        output_path,
-    ):
-        materialized["visual_model_file"] = visual_model_file
-        materialized["visual_base_model"] = visual_base_model
-        materialized["playback_model"] = playback_model
-        materialized["output_path"] = output_path
-        Path(output_path).write_bytes(b"fake-mjb")
+    def fake_resolve_render_play_model_files(env, *, num_envs: int, tmp_dir: str | Path):
+        resolved["env"] = env
+        resolved["num_envs"] = num_envs
+        resolved["tmp_dir"] = tmp_dir
+        output_path = Path(tmp_dir) / "model_0.mjb"
+        output_path.write_bytes(b"fake-mjb")
         return str(output_path)
 
-    monkeypatch.setattr(mujoco.MjModel, "from_xml_path", fake_from_xml_path)
     monkeypatch.setattr(mujoco.MjModel, "from_binary_path", fake_from_binary_path)
     monkeypatch.setattr(
         mod,
-        "materialize_visual_playback_model",
-        fake_materialize_visual_playback_model,
+        "resolve_render_play_model_files",
+        fake_resolve_render_play_model_files,
     )
 
     class FakeBackend:
@@ -244,19 +230,12 @@ def test_play_interactive_viewer_model_materializes_backend_visual_scene(
     class FakeEnv:
         _backend = FakeBackend()
 
-        def get_playback_model(self, env_index: int | None = None):
-            assert env_index == 0
-            return playback_model
-
-    model = mod._load_viewer_model(FakeEnv(), use_env_visual_model=False)
+    env = FakeEnv()
+    model = mod._load_viewer_model(env, use_env_visual_model=False)
 
     assert model is viewer_model
-    assert loaded == [str(visual_xml)]
     assert len(loaded_binary) == 1
-    assert Path(loaded_binary[0]).name == "viewer_model.mjb"
-    assert materialized == {
-        "visual_model_file": str(visual_xml),
-        "visual_base_model": visual_base_model,
-        "playback_model": playback_model,
-        "output_path": Path(loaded_binary[0]),
-    }
+    assert Path(loaded_binary[0]).name == "model_0.mjb"
+    assert resolved["env"] is env
+    assert resolved["num_envs"] == 1
+    assert Path(resolved["tmp_dir"]).name.startswith("unilab-interactive-viewer-")

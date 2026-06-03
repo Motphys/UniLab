@@ -43,6 +43,7 @@ class HoraPPO(FinalObservationAwarePPO):
         rnd_cfg: dict | None = None,
         symmetry_cfg: dict | None = None,
         multi_gpu_cfg: dict | None = None,
+        enable_compile: bool = False,
     ) -> None:
         self.device = device
         self.is_multi_gpu = multi_gpu_cfg is not None
@@ -108,6 +109,10 @@ class HoraPPO(FinalObservationAwarePPO):
         self.schedule = schedule
         self.learning_rate = learning_rate
         self.normalize_advantage_per_mini_batch = normalize_advantage_per_mini_batch
+        # FinalObservationAwarePPO supports a compiled MLP fast path. HORA PPO
+        # uses grouped TensorDict models with a shared privileged trunk, so keep
+        # the regular RSL-RL update while accepting the shared PPO config field.
+        self.enable_compile = False
 
     def _unique_trainable_parameters(self) -> list[torch.nn.Parameter]:
         params: list[torch.nn.Parameter] = []

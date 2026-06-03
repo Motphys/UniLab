@@ -204,28 +204,32 @@ def _play_camera_kwargs(cfg: DictConfig) -> dict[str, Any]:
 
 
 def _cfg_with_checkpoint_runtime(cfg: DictConfig, checkpoint: dict[str, Any]) -> DictConfig:
-    """Restore only checkpoint-owned student model structure for playback.
+    """Merge model-side runtime config stored in a stage-2 checkpoint.
 
     Args:
         cfg: Hydra-composed distillation config supplied to play mode.
         checkpoint: Loaded stage-2 checkpoint dictionary.
 
     Returns:
-        Config with current owner env/reward/training fields and checkpoint model structure.
+        Config using the current owner env/reward settings and checkpoint model
+        construction fields.
     """
+    cfg_with_owner_defaults = _apply_teacher_defaults(cfg)
+    cfg_clone = OmegaConf.create(OmegaConf.to_container(cfg_with_owner_defaults, resolve=False))
     runtime_cfg = checkpoint.get("distill_runtime_cfg")
     if runtime_cfg is None:
-        # Backward compatibility for older stage-2 checkpoints that did not
-        # persist teacher-independent playback config.
-        return _apply_teacher_defaults(cfg)
-    cfg_with_owner = _apply_teacher_defaults(cfg)
-    checkpoint_model = OmegaConf.select(OmegaConf.create(runtime_cfg), "algo.model")
-    if checkpoint_model is None:
-        return cfg_with_owner
-    return cast(
-        DictConfig,
-        OmegaConf.merge(cfg_with_owner, OmegaConf.create({"algo": {"model": checkpoint_model}})),
+        return cast(DictConfig, cfg_clone)
+
+    runtime_model_cfg = OmegaConf.select(OmegaConf.create(runtime_cfg), "algo.model")
+    if runtime_model_cfg is None:
+        return cast(DictConfig, cfg_clone)
+    OmegaConf.update(
+        cfg_clone,
+        "algo.model",
+        OmegaConf.to_container(runtime_model_cfg, resolve=True),
+        merge=False,
     )
+    return cast(DictConfig, cfg_clone)
 
 
 def play_hora_distill(cfg: DictConfig, device: str) -> str | None:

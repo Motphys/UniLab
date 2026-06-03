@@ -20,7 +20,7 @@ reward:
 env:
   gen_grasp: true
   max_episode_seconds: 3.0
-  grasp_cache_path: cache/allegro_grasp_50k.npy
+  grasp_cache_path: caches/allegro_grasp_50k.npy
   grasp_collection_target: 50000
   grasp_auto_save: true
   grasp_quality_check: true

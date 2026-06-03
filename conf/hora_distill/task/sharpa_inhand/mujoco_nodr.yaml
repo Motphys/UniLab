@@ -35,9 +35,9 @@ interactive:
   camera_follow_body: true
   camera_focus_body_name: ""
   camera_height_offset: 0.15
-  camera_distance: null
-  camera_elevation: null
-  camera_azimuth: null
+  camera_distance: 1.5
+  camera_elevation: -20.0
+  camera_azimuth: 90.0
   use_env_visual_model: true
   speed: 1.0
   start_paused: false
@@ -64,3 +64,9 @@ env:
     joint_noise_scale: 0.0
     contact_latency: 0.0
     contact_sensor_noise: 0.0
+
+algo:
+  algo_log_name: hora_distill
+  num_envs: 16384
+  max_agent_steps: 100000000
+  save_interval_steps: 10000000
