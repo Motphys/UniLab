@@ -434,23 +434,40 @@ class Go2WJoystickEnv(Go2WBaseEnv):
         leg_diff = dof_pos[:, :NUM_LEG_ACTIONS] - self.default_angles[:NUM_LEG_ACTIONS]
         leg_vel = dof_vel[:, :NUM_LEG_ACTIONS]
         wheel_vel = dof_vel[:, NUM_LEG_ACTIONS:]
-        gyro = self._obs_noise(gyro, noise_cfg.scale_gyro)
-        gravity = self._obs_noise(gravity, noise_cfg.scale_gravity)
-        leg_diff = self._obs_noise(leg_diff, noise_cfg.scale_joint_angle)
-        leg_vel = self._obs_noise(leg_vel, noise_cfg.scale_joint_vel)
-        wheel_vel = self._obs_noise(wheel_vel, noise_cfg.scale_wheel_vel)
-        linvel = self._obs_noise(linvel, noise_cfg.scale_linvel)
+        noisy_gyro = self._obs_noise(gyro, noise_cfg.scale_gyro)
+        noisy_gravity = self._obs_noise(gravity, noise_cfg.scale_gravity)
+        noisy_leg_diff = self._obs_noise(leg_diff, noise_cfg.scale_joint_angle)
+        noisy_leg_vel = self._obs_noise(leg_vel, noise_cfg.scale_joint_vel)
+        noisy_wheel_vel = self._obs_noise(wheel_vel, noise_cfg.scale_wheel_vel)
         num_obs = gyro.shape[0]
         last_actions = info.get("current_actions", np.zeros((num_obs, self._num_action)))
         motor_ctrl = info.get("torques", np.zeros((num_obs, self._num_action), dtype=dof_pos.dtype))
 
         obs = np.concatenate(
-            [gyro, -gravity, leg_diff, leg_vel, wheel_vel, last_actions, info["commands"]],
+            [
+                noisy_gyro,
+                -noisy_gravity,
+                noisy_leg_diff,
+                noisy_leg_vel,
+                noisy_wheel_vel,
+                last_actions,
+                info["commands"],
+            ],
             axis=1,
             dtype=get_global_dtype(),
         )
         critic = np.concatenate(
-            [obs, linvel, motor_ctrl],
+            [
+                gyro,
+                -gravity,
+                leg_diff,
+                leg_vel,
+                wheel_vel,
+                last_actions,
+                info["commands"],
+                linvel,
+                motor_ctrl,
+            ],
             axis=1,
             dtype=get_global_dtype(),
         )
