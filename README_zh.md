@@ -11,6 +11,7 @@
   <a href="https://arxiv.org/abs/2605.30313"><img src="https://img.shields.io/badge/arxiv-2605.30313-red" alt="arXiv"></a>
   <a href="https://unilabsim.github.io/paper/"><img src="https://img.shields.io/badge/paper-UniLab-orange" alt="Paper"></a>
   <a href="https://unilabsim.github.io/UniLab-doc/"><img src="https://img.shields.io/badge/docs-UniLab--doc-blue" alt="Documentation"></a>
+  <a href="https://discord.gg/EPCuguRmGX"><img src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0 License"></a>
 </p>
 
@@ -168,6 +169,8 @@ uv run eval --algo ppo --task go2_arm_manip_loco --sim motrix --load-run -1
 - [ADR 索引](https://unilabsim.github.io/UniLab-doc/adr/ADR-0000-index.html)：已采纳的架构决策
 
 ## 💬 社群交流
+
+海外用户可加入我们的 [Discord 服务器](https://discord.gg/EPCuguRmGX) 交流与获取帮助。
 
 | 微信群 | 小助手微信 |
 | :---: | :---: |
