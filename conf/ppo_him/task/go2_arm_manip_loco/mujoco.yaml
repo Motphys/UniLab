@@ -68,7 +68,7 @@ env:
     use_orientation: false
   commands:
     vel_limit:
-      - [-0.3, -0.2, -0.4]   # 课程学习起始范围（较小）
+      - [-0.3, -0.2, -0.4]   # Smaller initial range for curriculum learning.
       - [0.5, 0.2, 0.4]
     resample_time_s: 5.0
   curriculum:

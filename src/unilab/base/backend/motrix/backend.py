@@ -130,7 +130,7 @@ def _build_motrix_scene_context(
 
 
 class MotrixBackend(SimBackend):
-    """MotrixSim 后端实现"""
+    """MotrixSim backend implementation."""
 
     def __init__(
         self,
@@ -266,7 +266,7 @@ class MotrixBackend(SimBackend):
             if link.name:
                 self._link_cache[link.index] = link
 
-        # 运行一次正向运动学，确保初始 link 位置和传感器数据有效。
+        # Run forward kinematics once so initial link poses and sensor data are valid.
         self._model.forward_kinematic(self._data)
         self._link_velocities: np.ndarray | None = None
         self._link_velocity_cache_valid = False
@@ -883,7 +883,7 @@ class MotrixBackend(SimBackend):
         return self._get_body_sensor_values(body_ids, "track_pos_b")
 
     def get_body_quat_b(self, body_ids: np.ndarray) -> np.ndarray:
-        # motrixsim framequat sensor 输出 xyzw，转换为接口约定的 wxyz
+        # MotrixSim framequat sensors output xyzw; convert to the wxyz contract.
         return self._xyzw_to_wxyz(self._get_body_sensor_values(body_ids, "track_quat_b"))
 
     def get_body_lin_vel_b(self, body_ids: np.ndarray) -> np.ndarray:

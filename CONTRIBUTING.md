@@ -20,6 +20,7 @@ Languages: English | [简体中文](docs/sphinx/source/zh_CN/4-developer_guide/4
 - For user-facing workflow changes, keep `README.md`, `CONTRIBUTING.md`, and the matching localized docs under `docs/` in sync
 - Do not add new owner logic under `src/unilab/utils/`; the current `src/unilab/utils/*.py` files are transition shims only and are scheduled for removal in `0.2.0`
 - Name new owner modules and packages after their responsibility: prefer singular nouns, use plural only for collection-valued contracts, and reserve suffixes such as `_factory` for factory modules
+- Use English for code comments, public API docstrings, internal implementation notes, TODO/FIXME entries, and config comments. Keep Chinese prose in Chinese documentation under `docs/sphinx/source/zh_CN/`; do not duplicate localized explanations inside source comments.
 
 ## Read Before You Start
 

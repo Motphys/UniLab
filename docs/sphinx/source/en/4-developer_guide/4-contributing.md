@@ -36,9 +36,28 @@ Use `uv run` for commands. Do not invoke `python` directly outside `uv run`.
 - Module naming expresses owner responsibility: use singular nouns by default,
   plural only when the semantics are themselves a collection contract, and a
   `_factory` suffix for factory modules.
+- Code comments, public API docstrings, internal implementation notes,
+  TODO/FIXME entries, and config comments use English by default. Chinese prose
+  belongs in the Chinese documentation under `docs/sphinx/source/zh_CN/`, not in
+  source comments or config annotations.
 - When a change affects a user-visible workflow, keep `README.md`,
   `CONTRIBUTING.md`, and the matching pages under `docs/sphinx/source/en/` and
   `docs/sphinx/source/zh_CN/` in sync.
+
+## Comment Language Policy
+
+- Public API docstrings must describe contracts, arguments, return values, and
+  boundary conditions in English.
+- Inline comments should explain non-obvious intent, owner boundaries, or
+  backend/env/config invariants in English. Delete stale comments instead of
+  translating them mechanically.
+- TODO/FIXME comments must be English and should name the owner layer or
+  dependency that can resolve the follow-up.
+- Hydra YAML and example config comments must be English because they are
+  reviewed with the source contract.
+- Existing mixed-language comments should be migrated in small PRs. Prioritize
+  public contracts, backend adapters, env contracts, training runners, config
+  schema, and high-traffic tests before lower-risk examples.
 
 ## Common Commands
 

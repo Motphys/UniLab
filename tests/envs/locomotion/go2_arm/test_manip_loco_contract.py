@@ -69,7 +69,7 @@ def _ensure_go2_arm_manip_loco_registered() -> None:
 
 
 def test_go2_arm_manip_loco_cfg_registered():
-    """验证配置类已正确注册。"""
+    """Go2ArmManipLoco config should be registered."""
     _ensure_go2_arm_manip_loco_registered()
     registry = _registry_module()
     assert registry.contains("Go2ArmManipLoco")
@@ -106,7 +106,7 @@ def test_go2_arm_manip_loco_cfg_declares_scene_for_playback():
 
 
 def test_go2_arm_ee_goal_collision_check_matches_reference_semantics():
-    """EE goal 路径任一点进入 collision box 或地下都应判为 unsafe。"""
+    """Any EE goal path sample inside the collision box or below ground is unsafe."""
     from unilab.envs.locomotion.go2_arm.manip_loco import (
         EEGoalConfig,
         Go2ArmManipLocoCfg,
@@ -130,7 +130,7 @@ def test_go2_arm_ee_goal_collision_check_matches_reference_semantics():
 
 
 def test_go2_arm_command_moving_mask_includes_all_velocity_axes():
-    """vx/vy/vyaw 任一轴超过阈值都应视为运动 command。"""
+    """A command is moving when vx, vy, or vyaw exceeds the motion threshold."""
     from unilab.envs.locomotion.go2_arm.manip_loco import Go2ArmManipLocoEnv
 
     env = object.__new__(Go2ArmManipLocoEnv)
@@ -155,7 +155,7 @@ def test_go2_arm_command_moving_mask_includes_all_velocity_axes():
 
 
 def test_go2_arm_command_postprocess_can_force_zero_commands():
-    """zero_command_prob 应在小命令归零之外显式注入 exact zero command。"""
+    """zero_command_prob should inject exact zero commands after small-command zeroing."""
     from unilab.envs.locomotion.go2_arm.manip_loco import (
         Go2ArmManipLocoCfg,
         Go2ArmManipLocoEnv,
@@ -182,7 +182,7 @@ def test_go2_arm_command_postprocess_can_force_zero_commands():
 
 
 def test_go2_arm_stand_still_reward_uses_same_command_mask():
-    """stand_still 不应惩罚 lateral/yaw/forward command 下的腿部姿态偏差。"""
+    """stand_still should not penalize leg pose under lateral, yaw, or forward commands."""
     from unilab.envs.locomotion.common.rewards import RewardContext
     from unilab.envs.locomotion.go2_arm.manip_loco import Go2ArmManipLocoEnv
 
@@ -211,7 +211,7 @@ def test_go2_arm_stand_still_reward_uses_same_command_mask():
 
 
 def test_go2_arm_write_feet_phase_updates_indexed_envs():
-    """reset env 子集时也要真正写回 feet_phase，不能被 fancy indexing 拷贝吞掉。"""
+    """Resetting env subsets must write back feet_phase instead of losing fancy-index copies."""
     from unilab.envs.locomotion.go2_arm.manip_loco import Go2ArmManipLocoEnv
 
     env = object.__new__(Go2ArmManipLocoEnv)
@@ -228,7 +228,7 @@ def test_go2_arm_write_feet_phase_updates_indexed_envs():
 
 
 def test_go2_arm_apply_action_uses_arm_action_scale_for_arm_residual():
-    """腿部 residual 用 action_scale，机械臂 residual 用 arm_action_scale。"""
+    """Leg residuals use action_scale while arm residuals use arm_action_scale."""
     from unilab.envs.locomotion.go2_arm.manip_loco import (
         Go2ArmManipLocoCfg,
         Go2ArmManipLocoEnv,
@@ -290,7 +290,7 @@ def test_go2_arm_playback_resolves_visual_scene_model(tmp_path):
 
 @pytest.mark.slow
 def test_go2_arm_obs_groups_spec():
-    """验证 obs_groups_spec 维度正确（actor 76，critic 79）。"""
+    """obs_groups_spec should expose the expected actor and critic dimensions."""
     _skip_if_no_mujoco()
     env = _make_env(num_envs=1)
     assert env.obs_groups_spec == {"obs": 76, "critic": 79}
@@ -298,7 +298,7 @@ def test_go2_arm_obs_groups_spec():
 
 @pytest.mark.slow
 def test_go2_arm_reset_step_contract():
-    """验证 init_state/step 返回正确 shape。"""
+    """init_state and step should return the expected shapes."""
     _skip_if_no_mujoco()
     env = _make_env(num_envs=2)
     state = env.init_state()
@@ -313,7 +313,7 @@ def test_go2_arm_reset_step_contract():
 
 @pytest.mark.slow
 def test_go2_arm_ee_goal_valid_after_reset():
-    """验证 reset 后末端目标 shape 和有限性。"""
+    """EE goals should have the expected shape and finite values after reset."""
     _skip_if_no_mujoco()
     env = _make_env(num_envs=2)
     env.init_state()
@@ -323,12 +323,12 @@ def test_go2_arm_ee_goal_valid_after_reset():
 
 @pytest.mark.slow
 def test_go2_arm_ee_goal_resampling():
-    """验证 ee goal timer 到期后目标发生变化（新字段 _arm_goal_timer / _traj_total_steps）。"""
+    """EE goal should change when the arm goal timer expires."""
     _skip_if_no_mujoco()
     env = _make_env(num_envs=4)
     env.init_state()
 
-    # 强制 timer 到期（设为总步数 - 1，step 后触发 >= 条件）
+    # Force timer expiry by setting it to total_steps - 1 before step triggers >=.
     env._arm_goal_timer[:] = env._traj_total_steps - 1
     goal_before = env.curr_ee_goal_cart.copy()
 
@@ -341,12 +341,12 @@ def test_go2_arm_ee_goal_resampling():
 
 @pytest.mark.slow
 def test_go2_arm_ee_goal_interpolation():
-    """验证 timer 处于运动阶段时，每步 curr_ee_goal_cart 在变化（球空间插值）。"""
+    """curr_ee_goal_cart should change during the movement phase via spherical interpolation."""
     _skip_if_no_mujoco()
     env = _make_env(num_envs=2)
     env.init_state()
 
-    # 将 timer 置于运动阶段中间，确保不会触发 expiry
+    # Put the timer in the middle of the movement phase so expiry is not triggered.
     env._arm_goal_timer[:] = 0
     env._traj_steps[:] = 100
     env._traj_total_steps[:] = 150
@@ -360,18 +360,18 @@ def test_go2_arm_ee_goal_interpolation():
 
 @pytest.mark.slow
 def test_go2_arm_command_resampling():
-    """验证 command timer 到期后 command 发生变化。"""
+    """Command should change when the command timer expires."""
     _skip_if_no_mujoco()
     env = _make_env(num_envs=4, env_cfg_override={"commands": {"resample_time_s": 0.02}})
     env.init_state()
 
-    # 强制 timer 到期
+    # Force timer expiry.
     env._cmd_timer[:] = env._cmd_resample_steps - 1
     cmd_before = env._state.info["commands"].copy()
 
     actions = np.zeros((4, 18))
     env.step(actions)
 
-    # 至少部分 env 的 command 应该发生变化
+    # At least some env commands should change.
     changed = not np.allclose(env._state.info["commands"], cmd_before)
     assert changed, "commands should have been resampled after timer expiry"

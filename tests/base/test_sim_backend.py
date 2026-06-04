@@ -921,13 +921,13 @@ def _mx_link_id(mx_model, name: str) -> int:
 
 @pytest.mark.slow
 class TestCrossBackend:
-    """相同 set_state 后，MuJoCo 与 MotrixSim 所有基础接口数值必须一致。"""
+    """MuJoCo and MotrixSim base interfaces must agree after identical set_state."""
 
-    ATOL = 2e-3  # float64 vs float32 + 不同 qpos0 的积累误差
+    ATOL = 2e-3  # float64 vs float32 plus accumulated differences from qpos0.
 
     @pytest.fixture(params=BASIC_ROBOTS)
     def synced(self, request):
-        """创建并同步两后端初始状态，返回 (mj, mx, base_name)。"""
+        """Create both backends, synchronize their initial state, and return them."""
         from unilab.base.backend.motrix.backend import MotrixBackend
         from unilab.base.backend.mujoco.backend import MuJoCoBackend
 
@@ -987,7 +987,7 @@ class TestCrossBackend:
 
 @pytest.mark.slow
 class TestCrossBackendBodySensors:
-    """body 传感器接口双后端对测（G1，add_body_sensors=True）。"""
+    """Cross-check body sensor contracts for G1 with add_body_sensors=True."""
 
     ATOL = 2e-3
 
@@ -1022,7 +1022,7 @@ class TestCrossBackendBodySensors:
 
     @pytest.fixture
     def body_pairs(self, synced):
-        """选前 3 个 body（pelvis + 两个髋关节），分别返回 mujoco IDs 和 motrixsim link IDs。"""
+        """Return MuJoCo and MotrixSim IDs for the first three non-world bodies."""
         mujoco = _mujoco_module()
 
         mj, mx = synced

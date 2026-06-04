@@ -36,7 +36,7 @@ class NpEnvState:
 
 
 class NpEnv(ABEnv):
-    """统一的 numpy 环境基类（backend-agnostic）"""
+    """Backend-agnostic numpy environment base class."""
 
     def __init__(self, cfg: EnvCfg, backend: SimBackend, num_envs: int):
         self._cfg = cfg
@@ -413,11 +413,11 @@ class NpEnv(ABEnv):
 
     @abc.abstractmethod
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
-        """子类实现：action → ctrl"""
+        """Subclasses implement the action-to-control conversion."""
 
     @abc.abstractmethod
     def update_state(self, state: NpEnvState) -> NpEnvState:
-        """子类实现：计算 obs/reward/terminated"""
+        """Subclasses compute observation, reward, and termination state."""
 
     @property
     def play_capabilities(self) -> EnvPlayCapabilities:
@@ -451,7 +451,7 @@ class NpEnv(ABEnv):
         self._autoreset = bool(enabled)
 
     def close(self) -> None:
-        """关闭环境"""
+        """Close the environment and release backend-owned scene assets."""
         cleanup_scene_assets = getattr(self._backend, "cleanup_scene_assets", None)
         if callable(cleanup_scene_assets):
             cleanup_scene_assets()
