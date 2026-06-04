@@ -593,10 +593,7 @@ class OffPolicyRunner(AsyncRunner):
             self._active_logger = None
         super().close()
 
-    def _check_collector_alive(self) -> bool:
-        if self._collector_process is not None and not self._collector_process.is_alive():
-            return False
-        return True
+    # _check_collector_alive() inherited from AsyncRunner base class
 
     @staticmethod
     def _drain_metrics(queue, reward_history, reward_components, logger, trace_recorder=None):

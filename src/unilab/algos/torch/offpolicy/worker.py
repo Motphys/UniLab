@@ -229,51 +229,43 @@ def off_policy_collector_fn(
     collector_pack_shared_slots=None,
     **kwargs,
 ):
-    """Entry point for the off-policy collector subprocess."""
-    import sys
-    import traceback
+    """Entry point for the off-policy collector subprocess.
 
-    try:
-        print("[Collector] Entry point called", file=sys.stderr, flush=True)
-        _run_collector(
-            stop_event=stop_event,
-            env_name=env_name,
-            num_envs=num_envs,
-            replay_buffer=replay_buffer,
-            weight_sync_name=weight_sync_name,
-            weight_param_shapes=weight_param_shapes,
-            algo_type=algo_type,
-            actor_hidden_dim=actor_hidden_dim,
-            use_layer_norm=use_layer_norm,
-            learning_starts=learning_starts,
-            metrics_queue=metrics_queue,
-            weight_sync_lock=weight_sync_lock,
-            sync_collection=sync_collection,
-            collection_ready_queue=collection_ready_queue,
-            trainer_done_queue=trainer_done_queue,
-            env_steps_per_sync=env_steps_per_sync,
-            obs_normalization=obs_normalization,
-            shared_obs_normalizer_stats=shared_obs_normalizer_stats,
-            sim_backend=sim_backend,
-            env_cfg_override=env_cfg_override,
-            obs_dim=obs_dim,
-            action_dim=action_dim,
-            actor_kwargs=actor_kwargs,
-            seed=seed,
-            trace_enabled=trace_enabled,
-            trace_thread_time=trace_thread_time,
-            collector_pack_request_queue=collector_pack_request_queue,
-            collector_pack_ready_queue=collector_pack_ready_queue,
-            collector_pack_shared_slots=collector_pack_shared_slots,
-        )
-    except Exception as e:
-        print(f"[Collector] Exception: {e}", file=sys.stderr, flush=True)
-        traceback.print_exc(file=sys.stderr)
-        if metrics_queue is not None:
-            try:
-                metrics_queue.put_nowait({"error": str(e)})
-            except Exception:
-                pass
+    Error handling is provided by ``_collector_entry_wrapper`` in
+    ``async_runner.py``.
+    """
+    print("[Collector] Entry point called", file=sys.stderr, flush=True)
+    _run_collector(
+        stop_event=stop_event,
+        env_name=env_name,
+        num_envs=num_envs,
+        replay_buffer=replay_buffer,
+        weight_sync_name=weight_sync_name,
+        weight_param_shapes=weight_param_shapes,
+        algo_type=algo_type,
+        actor_hidden_dim=actor_hidden_dim,
+        use_layer_norm=use_layer_norm,
+        learning_starts=learning_starts,
+        metrics_queue=metrics_queue,
+        weight_sync_lock=weight_sync_lock,
+        sync_collection=sync_collection,
+        collection_ready_queue=collection_ready_queue,
+        trainer_done_queue=trainer_done_queue,
+        env_steps_per_sync=env_steps_per_sync,
+        obs_normalization=obs_normalization,
+        shared_obs_normalizer_stats=shared_obs_normalizer_stats,
+        sim_backend=sim_backend,
+        env_cfg_override=env_cfg_override,
+        obs_dim=obs_dim,
+        action_dim=action_dim,
+        actor_kwargs=actor_kwargs,
+        seed=seed,
+        trace_enabled=trace_enabled,
+        trace_thread_time=trace_thread_time,
+        collector_pack_request_queue=collector_pack_request_queue,
+        collector_pack_ready_queue=collector_pack_ready_queue,
+        collector_pack_shared_slots=collector_pack_shared_slots,
+    )
 
 
 def _run_collector(

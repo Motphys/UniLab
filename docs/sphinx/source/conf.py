@@ -363,7 +363,9 @@ _LANGUAGE_ROOT_INDEX = {
 # table keeps the language switcher landing on the closest equivalent page
 # instead of bouncing to the language index. Forward direction only — reverse
 # map is computed below.
-_LANGUAGE_PATH_FORWARD: dict[str, str] = {}
+_LANGUAGE_PATH_FORWARD: dict[str, str] = {
+    "en/1-getting_started/5-faq": "zh_CN/1-getting_started/5-faq",
+}
 # Keyed by (current_pagename, target_language) → target_pagename.
 _LANGUAGE_PATH_MAP: dict[tuple[str, str], str] = {}
 for _en_page, _zh_page in _LANGUAGE_PATH_FORWARD.items():

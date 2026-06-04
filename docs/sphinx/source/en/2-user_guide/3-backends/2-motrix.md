@@ -1,8 +1,8 @@
 # Motrix Backend
 
 Motrix is an optional backend installed through the `motrix` extra. The pinned
-package is `motrixsim-core==0.8.1.dev104665` in `pyproject.toml`, and the adapter
-lives under `src/unilab/base/backend/motrix/`.
+package is `motrixsim-core==0.8.1`, and the adapter lives under
+`src/unilab/base/backend/motrix/`.
 
 ## Setup
 

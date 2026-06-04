@@ -220,6 +220,19 @@ class APPORunner(AsyncRunner):
                 learner.learning_rate = _optimizer_lr_from_state(learner.optimizer)
             _sync_resume_target_actor(learner)
 
+        # --- memory budget check ---
+        from unilab.ipc.memory_budget import estimate_appo_bytes, warn_if_over_budget
+
+        mem_est = estimate_appo_bytes(
+            num_envs=self.num_envs,
+            steps_per_env=self.steps_per_env,
+            obs_dim=self.obs_dim,
+            action_dim=self.action_dim,
+            critic_dim=self.critic_dim,
+            num_slots=4,
+        )
+        warn_if_over_budget(mem_est, label="APPO")
+
         # Create shared rollout IPC ring buffer; learner-side tensor lifetime is
         # owned by the bounded staging pool below.
         rollout_ring_buffer = RolloutRingBuffer(
@@ -414,10 +427,7 @@ class APPORunner(AsyncRunner):
         }
         self.last_run_summary = summary
 
-    def _check_collector_alive(self) -> bool:
-        if self._collector_process is not None and not self._collector_process.is_alive():
-            return False
-        return True
+    # _check_collector_alive() inherited from AsyncRunner base class
 
     @staticmethod
     def _drain_metrics(queue, reward_history, reward_components, logger):

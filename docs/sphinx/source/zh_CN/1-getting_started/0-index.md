@@ -29,6 +29,12 @@
 找到负责 scripts、configs、envs、backends 和 docs 的各个目录。
 :::
 
+:::{grid-item-card} 常见问题
+:link: 5-faq
+:link-type: doc
+安装与首次运行的常见问题：SOCKS 代理支持、可选 native extension 诊断、conda 代理配置、视频导出等。
+:::
+
 ::::
 
 完成第一次运行后，日常训练选项请参阅
@@ -42,4 +48,5 @@
 2-installation
 3-evaluation_and_playback
 4-project_structure
+5-faq
 ```
