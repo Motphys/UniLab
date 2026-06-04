@@ -121,6 +121,20 @@ tests/
 - MLX PPO 测试（`tests/algos/test_mlx_ppo.py`）使用 `pytest.importorskip(...)`，
   在 MLX 不可用时自动跳过，实际上保持 macOS only。
 
+`make test-slow` 运行须知：
+
+- **测试专用 env 注册走子进程钩子**。off-policy / APPO 等 runner 通过
+  `multiprocessing.spawn` 起 collector 子进程，spawn 出来的解释器**不会执行**
+  `tests/conftest.py`，所以 `DummyFlatTest` 等测试 env 不能只在 conftest
+  完成注册。`tests/conftest.py` 会向 `UNILAB_EXTRA_REGISTRY_PACKAGES` 环境
+  变量注入 `tests._test_registry`，`unilab.base.registry.ensure_registries`
+  在子进程内读到后再次完成注册。新增测试 env 时，把模块加进
+  `tests/_test_registry/__init__.py` 的 `__unilab_registry_modules__`。
+- **共享内存预算**。off-policy 整链路测试会按算法默认 `num_envs` /
+  `replay_buffer_n` 在 `/dev/shm` 上申请共享内存。如果运行时看到形如
+  `MemoryError: estimated shared-memory allocation … exceeds /dev/shm
+  available …`，说明本机共享内存额度不够撑默认参数，并非测试或代码缺陷。
+
 ## CI 工作流
 
 指向 `main` 的 PR 会运行 `.github/workflows/ci.yml` 中的五个 job：`ruff-lint`、

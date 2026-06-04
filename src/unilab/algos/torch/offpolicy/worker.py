@@ -7,7 +7,7 @@ actor policy. Runs in a subprocess; writes to ReplayBuffer.
 import queue
 import sys
 import time
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import torch
@@ -227,6 +227,7 @@ def off_policy_collector_fn(
     collector_pack_request_queue=None,
     collector_pack_ready_queue=None,
     collector_pack_shared_slots=None,
+    nan_guard_cfg=None,
     **kwargs,
 ):
     """Entry point for the off-policy collector subprocess.
@@ -265,6 +266,7 @@ def off_policy_collector_fn(
         collector_pack_request_queue=collector_pack_request_queue,
         collector_pack_ready_queue=collector_pack_ready_queue,
         collector_pack_shared_slots=collector_pack_shared_slots,
+        nan_guard_cfg=nan_guard_cfg,
     )
 
 
@@ -298,6 +300,7 @@ def _run_collector(
     collector_pack_request_queue,
     collector_pack_ready_queue,
     collector_pack_shared_slots,
+    nan_guard_cfg=None,
 ):
     del learning_starts
     from unilab.base import registry
@@ -313,9 +316,19 @@ def _run_collector(
         trace_recorder = TraceRecorder("offpolicy_collector")
 
     # Initialize environment
-    env = registry.make(
+    env: Any = registry.make(
         env_name, num_envs=num_envs, sim_backend=sim_backend, env_cfg_override=env_cfg_override
     )
+    if nan_guard_cfg is not None and nan_guard_cfg.enabled:
+        from unilab.utils.nan_guard import NanGuard
+
+        env.set_nan_guard(
+            NanGuard(
+                nan_guard_cfg,
+                num_envs=env.num_envs,
+                supports_state_playback=env.play_capabilities.supports_physics_state_playback,
+            )
+        )
     if env.state is None:
         env.init_state()
 

@@ -59,6 +59,67 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         self.replay_h2d_submitter = "auto"
         self.replay_transfer_backend: dict[str, object] = {}
 
+    def _fail_collector_died(
+        self,
+        logger,
+        replay_buffer,
+        replay_pipeline,
+        iteration: int,
+        ckpt_path: str | None,
+        train_start_wall: float,
+    ) -> None:
+        logger.log_status("[red]ERROR: Collector died[/]")
+        self._sync_logger_replay_counters(logger, replay_buffer)
+        logger.close()
+        self.last_run_summary = self._make_summary(
+            "collector_died",
+            iteration,
+            logger,
+            None,
+            None,
+            ckpt_path,
+            train_start_wall,
+            None,
+        )
+        replay_pipeline.close()
+        raise RuntimeError("Collector process died during off-policy training")
+
+    def _wait_for_replay_batch_ready(
+        self,
+        replay_pipeline,
+        tick_id: int,
+        sample_count: int,
+        metrics_queue,
+        reward_history,
+        latest_reward_components,
+        logger,
+        trace_recorder,
+        replay_buffer,
+        ckpt_path: str | None,
+        train_start_wall: float,
+    ) -> bool:
+        if not replay_pipeline.batch_ready(tick_id, sample_count):
+            replay_pipeline.start_prepare(tick_id, sample_count)
+        while not replay_pipeline.batch_ready(tick_id, sample_count):
+            self._drain_metrics(
+                metrics_queue,
+                reward_history,
+                latest_reward_components,
+                logger,
+                trace_recorder,
+            )
+            if not self._check_collector_alive():
+                self._fail_collector_died(
+                    logger,
+                    replay_buffer,
+                    replay_pipeline,
+                    tick_id,
+                    ckpt_path,
+                    train_start_wall,
+                )
+            time.sleep(0.1)
+        return True
+
     def learn(
         self,
         max_iterations: int = 1500,
@@ -80,7 +141,11 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         iteration = 0
 
         # --- memory budget check ---
-        from unilab.ipc.memory_budget import estimate_offpolicy_bytes, warn_if_over_budget
+        from unilab.ipc.memory_budget import (
+            estimate_offpolicy_bytes,
+            raise_if_shared_memory_over_budget,
+            warn_if_over_budget,
+        )
 
         mem_est = estimate_offpolicy_bytes(
             num_envs=self.num_envs,
@@ -92,6 +157,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             updates_per_step=self.updates_per_step,
         )
         warn_if_over_budget(mem_est, label=f"Off-policy ({self.algo_type})")
+        raise_if_shared_memory_over_budget(mem_est, label=f"Off-policy ({self.algo_type})")
 
         # --- replay buffer (packed CPU shared storage) ---
         buffer_capacity = self.replay_buffer_n * self.num_envs
@@ -245,6 +311,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         )
         if self.verbose_metrics:
             logger.log_status("Verbose metrics: enabled (field-level pack CSV)")
+        self._active_logger = logger
         logger.start()
 
         reward_history: deque = deque(maxlen=100)
@@ -277,20 +344,14 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                                 logger,
                                 trace_recorder,
                             )
-                            logger.log_status("[red]ERROR: Collector died[/]")
-                            logger.finish()
-                            self.last_run_summary = self._make_summary(
-                                "collector_died",
-                                iteration,
+                            self._fail_collector_died(
                                 logger,
-                                None,
-                                None,
+                                replay_buffer,
+                                replay_pipeline,
+                                iteration,
                                 ckpt_path,
                                 train_start_wall,
-                                None,
                             )
-                            replay_pipeline.close()
-                            return
                         continue
 
                     self._drain_metrics(
@@ -330,20 +391,14 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                             latest_reward_components,
                             logger,
                         )
-                        logger.log_status("[red]ERROR: Collector died[/]")
-                        logger.finish()
-                        self.last_run_summary = self._make_summary(
-                            "collector_died",
-                            iteration,
+                        self._fail_collector_died(
                             logger,
-                            None,
-                            None,
+                            replay_buffer,
+                            replay_pipeline,
+                            iteration,
                             ckpt_path,
                             train_start_wall,
-                            None,
                         )
-                        replay_pipeline.close()
-                        return
                     cur_size = int(replay_buffer.size[0])
                     if cur_size - last_buf_log >= self.num_envs * 10:
                         last_buf_log = cur_size
@@ -398,7 +453,19 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 batch_ready = replay_pipeline.batch_ready(iteration, sample_count)
                 _wait_batch_ns = time.perf_counter_ns()
                 if not batch_ready:
-                    batch_ready = replay_pipeline.wait_until_ready(iteration, sample_count)
+                    batch_ready = self._wait_for_replay_batch_ready(
+                        replay_pipeline,
+                        iteration,
+                        sample_count,
+                        metrics_queue,
+                        reward_history,
+                        latest_reward_components,
+                        logger,
+                        trace_recorder,
+                        replay_buffer,
+                        ckpt_path,
+                        train_start_wall,
+                    )
                 if trace_recorder:
                     trace_recorder.add_slice(
                         "learner/wait_for_replay_batch",
@@ -541,6 +608,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 or iteration == max_iterations
                 or iteration % self.LEARNER_LOG_INTERVAL == 0
             ):
+                self._sync_logger_replay_counters(logger, replay_buffer)
                 logger.log_step(
                     iteration=iteration,
                     metrics=avg_metrics,
@@ -581,6 +649,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         ckpt_path = os.path.join(log_dir, f"model_{max_iterations}.pt")
         torch.save(self.learner.get_state_dict(), ckpt_path)
         logger.log_save(ckpt_path)
+        self._sync_logger_replay_counters(logger, replay_buffer)
         logger.finish()
         if trace_recorder and trace_output_path:
             trace_recorder.write_json(trace_output_path)
@@ -595,6 +664,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             train_start_wall,
             str(trace_output_path) if trace_output_path else None,
         )
+        self._active_logger = None
 
     @staticmethod
     def _make_summary(

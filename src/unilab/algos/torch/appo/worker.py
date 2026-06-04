@@ -100,6 +100,7 @@ def appo_collector_fn(
     sim_backend: str = "mujoco",
     env_cfg_override: dict | None = None,
     seed: int | None = None,
+    nan_guard_cfg=None,
 ):
     """Entry point for the APPO collector subprocess.
 
@@ -139,6 +140,17 @@ def appo_collector_fn(
     env: Any = registry.make(
         env_name, num_envs=num_envs, sim_backend=sim_backend, env_cfg_override=env_cfg_override
     )
+
+    if nan_guard_cfg is not None and nan_guard_cfg.enabled:
+        from unilab.utils.nan_guard import NanGuard
+
+        env.set_nan_guard(
+            NanGuard(
+                nan_guard_cfg,
+                num_envs=env.num_envs,
+                supports_state_playback=env.play_capabilities.supports_physics_state_playback,
+            )
+        )
 
     # Build actor (stochastic MLPModel — mirrors runner._build_learner)
     cfg = dict(rl_cfg)

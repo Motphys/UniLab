@@ -135,6 +135,24 @@ Markers and skips:
   `pytest.importorskip(...)` so they skip automatically when MLX is unavailable,
   which keeps them macOS-only in practice.
 
+Notes for `make test-slow`:
+
+- **Test-only env registration uses a subprocess hook.** Off-policy / APPO
+  runners spawn a collector subprocess via `multiprocessing.spawn`, and the
+  spawned interpreter **does not execute** `tests/conftest.py`. As a result,
+  `DummyFlatTest` and similar test envs cannot live in `conftest` alone.
+  `tests/conftest.py` adds `tests._test_registry` to the
+  `UNILAB_EXTRA_REGISTRY_PACKAGES` environment variable, and
+  `unilab.base.registry.ensure_registries` re-registers those modules inside
+  the subprocess. To add a new test env, append its module to
+  `__unilab_registry_modules__` in `tests/_test_registry/__init__.py`.
+- **Shared-memory budget.** Off-policy end-to-end tests allocate shared
+  memory in `/dev/shm` based on each algorithm's default `num_envs` /
+  `replay_buffer_n`. If you see an error like
+  `MemoryError: estimated shared-memory allocation … exceeds /dev/shm
+  available …`, the host's shared-memory quota cannot fit the default
+  parameters; this is an environment limit rather than a test or code bug.
+
 ## CI Workflow
 
 Pull requests to `main` run five jobs in `.github/workflows/ci.yml`:

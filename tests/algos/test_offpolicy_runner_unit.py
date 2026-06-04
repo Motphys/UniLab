@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import queue
+from collections import deque
 from typing import cast
 
 import pytest
@@ -147,6 +148,7 @@ class _FakeLogger:
         self.finish_calls = 0
         self.close_calls = 0
         self._total_steps = 0
+        self._buffer_size = 0
         self._mean_ep_length = 0.0
         _FakeLogger.last_instance = self
 
@@ -182,8 +184,9 @@ class _FakeLogger:
         del timeout_rate, terminated_rate
 
     def log_collector(self, total_steps: int, buffer_size: int, mean_reward: float = 0.0) -> None:
-        del buffer_size, mean_reward
+        del mean_reward
         self._total_steps = total_steps
+        self._buffer_size = buffer_size
 
     def log_step(self, **kwargs) -> None:
         self.step_calls.append(kwargs)
@@ -374,6 +377,9 @@ def test_offpolicy_runner_sync_waits_for_train_start_threshold(
     assert logger.step_calls[0]["weight_sync_time"] >= 0.0
     assert logger.step_calls[0]["extra_info"] == {"throughput_steps": 2}
     assert logger.step_calls[0]["extra_info"]["throughput_steps"] == 2
+    assert logger._total_steps == threshold
+    assert logger._buffer_size == threshold
+    assert runner.last_run_summary["total_env_steps"] == threshold
     assert _FakeWeightSync.last_instance is not None
     assert _FakeWeightSync.last_instance.write_calls == 1
 
@@ -448,6 +454,44 @@ def test_offpolicy_runner_async_waits_for_train_start_threshold(
     assert logger.step_calls[0]["weight_sync_time"] >= 0.0
     assert logger.step_calls[0]["extra_info"] == {"throughput_steps": 2}
     assert logger.step_calls[0]["extra_info"]["throughput_steps"] == 2
+    assert logger._total_steps == threshold
+    assert logger._buffer_size == threshold
+    assert runner.last_run_summary["total_env_steps"] == threshold
+
+
+def test_offpolicy_runner_drain_metrics_propagates_collector_error() -> None:
+    metrics_queue = queue.Queue()
+    metrics_queue.put({"error": "collector boom"})
+    logger = _FakeLogger()
+
+    with pytest.raises(RuntimeError, match="collector boom"):
+        OffPolicyRunner._drain_metrics(metrics_queue, deque(maxlen=100), {}, logger)
+
+
+def test_offpolicy_runner_collector_death_raises_and_summarizes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    runner = _make_runner(monkeypatch, sync_collection=False)
+
+    def fail_alive() -> bool:
+        replay_buffer = _FakeReplayBuffer.last_instance
+        assert replay_buffer is not None
+        replay_buffer.ptr[0] = 4
+        replay_buffer.size[0] = 4
+        return False
+
+    monkeypatch.setattr(runner_module._SPAWN_CTX, "Queue", lambda maxsize=0: queue.Queue())
+    monkeypatch.setattr(runner_module.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(runner, "_check_collector_alive", fail_alive)
+
+    with pytest.raises(RuntimeError, match="Collector process died"):
+        runner.learn(max_iterations=1, save_interval=0, log_dir=str(tmp_path))
+
+    logger = _FakeLogger.last_instance
+    assert logger is not None
+    assert runner.last_run_summary["status"] == "collector_died"
+    assert runner.last_run_summary["total_env_steps"] == 4
+    assert logger.close_calls == 1
 
 
 def test_offpolicy_runner_trace_writes_perfetto_json(
@@ -563,6 +607,7 @@ class _FakeDoubleBufferPipeline:
         self.sample_count = sample_count
         self.trace_recorder = trace_recorder
         self.close_calls = 0
+        self.ready_ticks: set[int] = set()
 
     def start_prepare(self, tick_id: int, sample_count: int, min_snapshot_ptr=None) -> bool:
         del min_snapshot_ptr
@@ -592,11 +637,12 @@ class _FakeDoubleBufferPipeline:
                 end_ns=double_buffer_runner_module.time.perf_counter_ns(),
                 args={"tick_id": tick_id},
             )
+        self.ready_ticks.add(int(tick_id))
         return True
 
     def batch_ready(self, tick_id: int, sample_count: int) -> bool:
-        del tick_id, sample_count
-        return False
+        del sample_count
+        return int(tick_id) in self.ready_ticks
 
     def wait_until_ready(self, tick_id: int, sample_count: int) -> bool:
         self.start_prepare(tick_id, sample_count)
@@ -643,6 +689,75 @@ class _FakeDoubleBufferPipeline:
 
     def close(self) -> None:
         self.close_calls += 1
+
+
+class _NeverReadyDoubleBufferPipeline:
+    def __init__(self) -> None:
+        self.start_calls = 0
+        self.close_calls = 0
+
+    def batch_ready(self, tick_id: int, sample_count: int) -> bool:
+        del tick_id, sample_count
+        return False
+
+    def start_prepare(self, tick_id: int, sample_count: int, min_snapshot_ptr=None) -> bool:
+        del tick_id, sample_count, min_snapshot_ptr
+        self.start_calls += 1
+        return True
+
+    def close(self) -> None:
+        self.close_calls += 1
+
+
+def test_double_buffer_wait_for_replay_batch_raises_when_collector_dies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runner_module, "get_env_dims", lambda *args, **kwargs: (4, 2, 0))
+    learner = _FakeLearner()
+    runner = double_buffer_runner_module.DoubleBufferOffPolicyRunner(
+        learner=learner,
+        env_name="DummyEnv",
+        algo_type="sac",
+        num_envs=2,
+        replay_buffer_n=8,
+        batch_size=8,
+        learning_starts=6,
+        updates_per_step=1,
+        policy_frequency=1,
+        sync_collection=False,
+        env_steps_per_sync=1,
+        device="cpu",
+    )
+    replay_buffer = _FakeReplayBuffer(capacity=16, obs_dim=4, action_dim=2, device="cpu")
+    replay_buffer.ptr[0] = 14
+    replay_buffer.size[0] = 12
+    replay_pipeline = _NeverReadyDoubleBufferPipeline()
+    logger = _FakeLogger()
+    metrics_queue = queue.Queue()
+
+    monkeypatch.setattr(runner, "_check_collector_alive", lambda: False)
+    monkeypatch.setattr(double_buffer_runner_module.time, "sleep", lambda seconds: None)
+
+    with pytest.raises(RuntimeError, match="Collector process died"):
+        runner._wait_for_replay_batch_ready(
+            replay_pipeline,
+            tick_id=1,
+            sample_count=8,
+            metrics_queue=metrics_queue,
+            reward_history=deque(maxlen=100),
+            latest_reward_components={},
+            logger=logger,
+            trace_recorder=None,
+            replay_buffer=replay_buffer,
+            ckpt_path=None,
+            train_start_wall=0.0,
+        )
+
+    assert replay_pipeline.start_calls == 1
+    assert replay_pipeline.close_calls == 1
+    assert runner.last_run_summary["status"] == "collector_died"
+    assert runner.last_run_summary["total_env_steps"] == 14
+    assert logger.close_calls == 1
 
 
 def test_flashsac_double_buffer_runner_trace_writes_b_path_events(

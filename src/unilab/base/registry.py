@@ -1,6 +1,7 @@
 import dataclasses
 import importlib
 import logging
+import os
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import (
@@ -26,6 +27,10 @@ _DEFAULT_REGISTRY_PACKAGES = (
     "unilab.envs.manipulation",
     "unilab.envs.motion_tracking",
 )
+# Environment variable used to extend ensure_registries() with extra packages.
+# Mainly intended for test setups that need to ship a fixture-only registry into
+# spawn subprocesses (which do not inherit pytest conftest state).
+_EXTRA_REGISTRY_PACKAGES_ENV = "UNILAB_EXTRA_REGISTRY_PACKAGES"
 
 logger = logging.getLogger(__name__)
 
@@ -258,8 +263,25 @@ def ensure_registries(
     fail_on_error: bool = True,
 ) -> None:
     """Import env registry bootstrap modules."""
-    package_names = list(packages) if packages is not None else list(_DEFAULT_REGISTRY_PACKAGES)
+    package_names: list[str] = (
+        list(packages) if packages is not None else list(_DEFAULT_REGISTRY_PACKAGES)
+    )
     optional = set(optional_packages) if optional_packages else set()
+
+    # Allow extending the default registry packages via env var. This is the
+    # only seam that lets a pytest conftest inject test-only envs (e.g.
+    # DummyFlatTest) into spawn-based collector subprocesses, which start as
+    # fresh interpreters and therefore never execute conftest.py.
+    extra_env = os.environ.get(_EXTRA_REGISTRY_PACKAGES_ENV, "").strip()
+    if extra_env:
+        for extra in extra_env.split(","):
+            extra = extra.strip()
+            if extra and extra not in package_names:
+                package_names.append(extra)
+                # Treat env-var-provided packages as optional: a missing import
+                # must never break a production training run that happens to
+                # have the env var leaked from a parent shell.
+                optional.add(extra)
 
     for package_name in package_names:
         is_optional = package_name in optional

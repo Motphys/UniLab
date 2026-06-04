@@ -23,6 +23,7 @@ from unilab.algos.torch.appo.worker import appo_collector_fn
 from unilab.ipc import AsyncRunner, RolloutRingBuffer, SharedWeightSync
 from unilab.logging import OffPolicyLogger
 from unilab.training.seed import apply_training_seed, derive_worker_seed
+from unilab.utils.nan_guard import NanGuardCfg
 
 
 def _optimizer_lr_from_state(optimizer: torch.optim.Optimizer) -> float:
@@ -60,6 +61,7 @@ class APPORunner(AsyncRunner):
         replay_queue_size: int = 3,
         seed: int | None = None,
         resume_path: str | None = None,
+        nan_guard_cfg: NanGuardCfg | None = None,
     ):
         del num_workers
         super().__init__(
@@ -77,6 +79,7 @@ class APPORunner(AsyncRunner):
         self.staging_pool_size = replay_queue_size
         self.seed = seed
         self.resume_path = resume_path
+        self.nan_guard_cfg = nan_guard_cfg
         if self.staging_pool_size < 1:
             raise ValueError("APPO staging pool size must be >= 1")
 
@@ -287,6 +290,7 @@ class APPORunner(AsyncRunner):
             "sim_backend": self.sim_backend,
             "env_cfg_override": self.env_cfg_overrides if self.env_cfg_overrides else None,
             "seed": derive_worker_seed(self.seed, worker_index=0),
+            "nan_guard_cfg": self.nan_guard_cfg,
         }
         self._start_collector(
             target_fn=appo_collector_fn,

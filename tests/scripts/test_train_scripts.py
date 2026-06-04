@@ -12,6 +12,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+import types
 from pathlib import Path
 from typing import Any, cast
 from unittest.mock import MagicMock
@@ -1353,6 +1354,116 @@ def test_offpolicy_default_device_cpu_fallback():
     mock_torch.xpu.is_available.return_value = False
     mock_torch.backends.mps.is_available.return_value = False
     assert _offpolicy().default_device(mock_torch) == "cpu"
+
+
+def test_offpolicy_enable_faulthandler_respects_disable_env(monkeypatch: pytest.MonkeyPatch):
+    mod = _offpolicy()
+    fake_faulthandler = types.SimpleNamespace(
+        is_enabled=lambda: False,
+        enable=MagicMock(),
+    )
+    monkeypatch.setitem(sys.modules, "faulthandler", fake_faulthandler)
+    monkeypatch.setenv("UNILAB_FAULTHANDLER", "0")
+
+    mod.enable_faulthandler()
+
+    fake_faulthandler.enable.assert_not_called()
+
+
+def test_offpolicy_enable_faulthandler_default_enables(monkeypatch: pytest.MonkeyPatch):
+    mod = _offpolicy()
+    fake_faulthandler = types.SimpleNamespace(
+        is_enabled=lambda: False,
+        enable=MagicMock(),
+    )
+    monkeypatch.setitem(sys.modules, "faulthandler", fake_faulthandler)
+    monkeypatch.delenv("UNILAB_FAULTHANDLER", raising=False)
+
+    mod.enable_faulthandler()
+
+    fake_faulthandler.enable.assert_called_once_with(all_threads=True)
+
+
+def test_offpolicy_build_failure_summary_preserves_failed_status():
+    mod = _offpolicy()
+    exc = RuntimeError("collector died")
+
+    summary = mod.build_failure_summary(exc, {"status": "collector_died", "total_env_steps": 12})
+
+    assert summary["status"] == "collector_died"
+    assert summary["total_env_steps"] == 12
+    assert summary["error_type"] == "RuntimeError"
+    assert summary["error"] == "collector died"
+
+
+def test_offpolicy_main_failure_summary_and_skips_playback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    mod = _offpolicy()
+    cfg = _offpolicy_cfg(
+        [
+            f"training.log_dir={tmp_path}",
+            "training.no_play=false",
+            "training.play_render_mode=record",
+        ]
+    )
+    captured: dict[str, Any] = {"summaries": []}
+
+    class FakeTracker:
+        def __init__(self, **kwargs):
+            captured["tracker_kwargs"] = kwargs
+
+        def start(self):
+            captured["tracker_started"] = True
+
+        def update_summary(self, summary):
+            captured["summaries"].append(summary)
+
+        def log_video(self, path):
+            captured["video"] = path
+
+        def finish(self):
+            captured["tracker_finished"] = True
+
+    class FakeRunner:
+        last_run_summary = {"status": "collector_died", "total_env_steps": 12}
+
+        def learn(self, **kwargs):
+            del kwargs
+            raise RuntimeError("collector died")
+
+        def close(self):
+            captured["runner_closed"] = True
+
+    monkeypatch.setattr(mod, "enable_faulthandler", lambda: None)
+    monkeypatch.setattr(mod, "ensure_registries", lambda: None)
+    monkeypatch.setattr(mod, "apply_configured_training_seed", lambda *args, **kwargs: {})
+    monkeypatch.setattr(
+        mod, "assert_offpolicy_task_choice_matches_algo", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(mod, "ExperimentTracker", FakeTracker)
+    monkeypatch.setattr(mod, "build_runner", lambda algo_name, cfg: FakeRunner())
+    monkeypatch.setattr(
+        mod,
+        "play_offpolicy",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("playback must not run after training failure")
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="collector died"):
+        mod.main.__wrapped__(cfg)
+
+    assert captured["tracker_started"] is True
+    assert captured["tracker_finished"] is True
+    assert captured["runner_closed"] is True
+    assert len(captured["summaries"]) == 1
+    failure_summary = captured["summaries"][0]
+    assert failure_summary["status"] == "collector_died"
+    assert failure_summary["total_env_steps"] == 12
+    assert failure_summary["error_type"] == "RuntimeError"
+    assert failure_summary["error"] == "collector died"
+    assert "video" not in captured
 
 
 # ---------------------------------------------------------------------------

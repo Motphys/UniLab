@@ -11,6 +11,7 @@ from unilab.algos.torch.offpolicy.double_buffer_runner import DoubleBufferOffPol
 from unilab.training import create_env, ensure_registries
 from unilab.training.seed import apply_training_seed
 from unilab.utils.device import get_default_device
+from unilab.utils.nan_guard import NanGuardCfg
 
 
 def _validate_flashsac_double_buffer_runtime(
@@ -38,6 +39,7 @@ def build_flashsac_double_buffer_runner(
     env_cfg_override: dict[str, Any] | None,
     replay_prefetch_mode: str,
     verbose_metrics: bool,
+    nan_guard_cfg: NanGuardCfg | None = None,
 ) -> DoubleBufferOffPolicyRunner:
     """Build FlashSAC with the opt-in CPU-pinned double-buffer replay pipeline."""
     from unilab.base.observations import get_obs_dims
@@ -126,4 +128,5 @@ def build_flashsac_double_buffer_runner(
         trace_cuda_events=cfg.training.trace_cuda_events,
         replay_prefetch_mode=replay_prefetch_mode,
         verbose_metrics=verbose_metrics,
+        nan_guard_cfg=nan_guard_cfg,
     )

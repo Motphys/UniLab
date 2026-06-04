@@ -18,9 +18,8 @@ if str(SRC_DIR) not in sys.path:
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from unilab.base.backend.xml import materialize_scene_visual_override
-
 from unilab.algos.torch.him_ppo.runner import HIMOnPolicyRunner
+from unilab.base.backend.mujoco.xml import materialize_scene_visual_override
 from unilab.training import (
     BackendAdapter,
     create_env,
@@ -211,6 +210,22 @@ def main(cfg: DictConfig) -> None:
         if not cfg.training.play_only:
             env = create_env(cfg, num_envs=cfg.algo.num_envs, env_cfg_override=env_cfg_override)
             from unilab.training.rsl_rl import RslRlVecEnvWrapper
+
+            nan_guard_cfg = getattr(cfg.training, "nan_guard", None)
+            if nan_guard_cfg is not None and getattr(nan_guard_cfg, "enabled", False):
+                from unilab.utils.nan_guard import NanGuard, NanGuardCfg
+
+                guard = NanGuard(
+                    NanGuardCfg(
+                        enabled=True,
+                        buffer_size=int(getattr(nan_guard_cfg, "buffer_size", 100)),
+                        max_envs_to_dump=int(getattr(nan_guard_cfg, "max_envs_to_dump", 5)),
+                        output_dir=getattr(nan_guard_cfg, "output_dir", None),
+                    ),
+                    num_envs=env.num_envs,
+                    supports_state_playback=env.play_capabilities.supports_physics_state_playback,
+                )
+                env.set_nan_guard(guard)
 
             wrapped_env = RslRlVecEnvWrapper(env, device=device)
             rl_cfg = _algo_config_dict(cfg)

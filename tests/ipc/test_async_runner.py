@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from unilab.ipc.async_runner import AsyncRunner
+from unilab.ipc.collector_error import format_collector_death
 
 _SPAWN_CTX = mp.get_context("spawn")
 
@@ -225,6 +226,28 @@ def test_start_collector_does_not_merge_runner_runtime_fields():
     payload = report_queue.get(timeout=5)
     assert payload == {"sim_backend": "missing", "token": "ok"}
     r.close()
+
+
+def test_format_collector_death_reports_shell_style_sigbus():
+    report = format_collector_death(135)
+
+    assert "shell-style signal 7" in report
+    assert "SIGBUS" in report
+    assert "shared memory" in report
+
+
+def test_format_collector_death_reports_negative_sigbus():
+    report = format_collector_death(-7)
+
+    assert "signal 7" in report
+    assert "SIGBUS" in report
+
+
+def test_format_collector_death_reports_sigkill_oom_hint():
+    report = format_collector_death(137)
+
+    assert "SIGKILL" in report
+    assert "OOM killer" in report
 
 
 # ---------------------------------------------------------------------------

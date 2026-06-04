@@ -1,89 +1,65 @@
-"""Shared fixtures for UniLab tests."""
+"""Shared fixtures for UniLab tests.
+
+Spawn-based collector subprocesses (off-policy / APPO runners) start as fresh
+Python interpreters and therefore never execute this conftest. To make
+test-only envs (e.g. ``DummyFlatTest``) discoverable in those subprocesses,
+this module:
+
+1. Hosts the env class in ``tests._test_registry.dummy_flat_env`` so it can be
+   imported from anywhere — not just from a pytest conftest.
+2. Sets the ``UNILAB_EXTRA_REGISTRY_PACKAGES`` environment variable so that
+   ``unilab.base.registry.ensure_registries`` (called inside collector
+   subprocesses) imports the test registry package and re-registers the env.
+3. Prepends the repo root to ``PYTHONPATH`` so that ``tests._test_registry``
+   resolves inside spawn subprocesses.
+
+If you remove or rename this hook, ``make test-slow`` will fail with
+``ValueError: Environment 'DummyFlatTest' is not registered.`` inside the
+collector subprocess. See ``docs/sphinx/source/{lang}/4-developer_guide/
+4-contributing.md`` ("Notes for ``make test-slow``") for the rationale.
+"""
 
 from __future__ import annotations
 
+import os
 import shutil
-from dataclasses import dataclass
-from typing import Optional
 
-import gymnasium as gym
-import numpy as np
 import pytest
 import torch
 
-from unilab.base import registry
-from unilab.base.base import ABEnv, EnvCfg
-from unilab.ipc.replay_buffer import ReplayBuffer
-from unilab.ipc.rollout_ring_buffer import RolloutRingBuffer
-from unilab.ipc.weight_sync import SharedWeightSync
-
 # ---------------------------------------------------------------------------
 # Dummy flat env — no MuJoCo required
+#
+# The actual class + registry call live in ``tests._test_registry.dummy_flat_env``
+# so that spawn-based collector subprocesses can re-register the env via
+# ``ensure_registries`` + the ``UNILAB_EXTRA_REGISTRY_PACKAGES`` env var
+# (subprocesses do not execute conftest.py).
 # ---------------------------------------------------------------------------
+from tests._test_registry.dummy_flat_env import (  # noqa: E402  (side-effect import)
+    DUMMY_ENV_NAME as _DUMMY_ENV_NAME,
+)
+from unilab.ipc.replay_buffer import ReplayBuffer
+from unilab.ipc.rollout_ring_buffer import RolloutRingBuffer
+
 _DUMMY_OBS_DIM = 8
 _DUMMY_ACT_DIM = 3
-_DUMMY_ENV_NAME = "DummyFlatTest"
 
+# Make the dummy env discoverable inside spawn collector subprocesses.
+_existing = os.environ.get("UNILAB_EXTRA_REGISTRY_PACKAGES", "")
+_pkgs = [p.strip() for p in _existing.split(",") if p.strip()]
+if "tests._test_registry" not in _pkgs:
+    _pkgs.append("tests._test_registry")
+os.environ["UNILAB_EXTRA_REGISTRY_PACKAGES"] = ",".join(_pkgs)
 
-@dataclass
-class _DummyCfg(EnvCfg):
-    pass
-
-
-class _DummyEnv(ABEnv):
-    """Minimal env stub: random obs, zero reward, never done."""
-
-    def __init__(self, cfg: _DummyCfg, num_envs: int = 1, backend_type: str = "mujoco"):
-        self._cfg = cfg
-        self._num_envs = num_envs
-        self._obs_space = gym.spaces.Box(
-            low=-np.inf, high=np.inf, shape=(_DUMMY_OBS_DIM,), dtype=np.float32
-        )
-        self._act_space = gym.spaces.Box(
-            low=-1.0, high=1.0, shape=(_DUMMY_ACT_DIM,), dtype=np.float32
-        )
-
-    @property
-    def num_envs(self) -> int:
-        return self._num_envs
-
-    @property
-    def cfg(self) -> EnvCfg:
-        return self._cfg
-
-    @property
-    def observation_space(self) -> gym.Space:
-        return self._obs_space
-
-    @property
-    def action_space(self) -> gym.Space:
-        return self._act_space
-
-    @property
-    def obs_groups_spec(self) -> dict[str, int]:
-        return {"actor": _DUMMY_OBS_DIM}
-
-    def close(self) -> None:
-        pass
-
-    @property
-    def state(self):
-        return None
-
-    def init_state(self):
-        return None
-
-    def step(self, actions: np.ndarray):
-        return None
-
-
-def _register_dummy_env() -> None:
-    if not registry.contains(_DUMMY_ENV_NAME):
-        registry.register_env_config(_DUMMY_ENV_NAME, _DummyCfg)
-        registry.register_env(_DUMMY_ENV_NAME, _DummyEnv, "mujoco")
-
-
-_register_dummy_env()
+# Spawn-based collector subprocesses start as fresh interpreters and need to
+# import ``tests._test_registry``. Make sure the repo root is on PYTHONPATH so
+# that import resolves there.
+_repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+_existing_pp = os.environ.get("PYTHONPATH", "")
+_pp_parts = [p for p in _existing_pp.split(os.pathsep) if p]
+if _repo_root not in _pp_parts:
+    _pp_parts.insert(0, _repo_root)
+    os.environ["PYTHONPATH"] = os.pathsep.join(_pp_parts)
 
 
 # ---------------------------------------------------------------------------

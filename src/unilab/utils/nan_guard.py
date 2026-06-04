@@ -57,6 +57,14 @@ class NanGuard:
             return None
         return np.flatnonzero(bad_mask).astype(np.int32)
 
+    def check_ctrl(self, ctrl: np.ndarray) -> np.ndarray | None:
+        if not self._cfg.enabled or self._dumped:
+            return None
+        bad_mask = ~np.all(np.isfinite(ctrl), axis=tuple(range(1, ctrl.ndim)))
+        if not np.any(bad_mask):
+            return None
+        return np.flatnonzero(bad_mask).astype(np.int32)
+
     def dump(
         self,
         nan_env_ids: np.ndarray,
