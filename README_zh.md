@@ -172,10 +172,22 @@ uv run eval --algo ppo --task go2_arm_manip_loco --sim motrix --load-run -1
 
 海外用户可加入我们的 [Discord 服务器](https://discord.gg/EPCuguRmGX) 交流与获取帮助。
 
-| 微信群 | 小助手微信 |
+| 微信群 | 作者微信 |
 | :---: | :---: |
-| <img src="docs/sphinx/source/_static/assets/unilab-wechat-group.jpg" alt="UniLab 微信群二维码" width="220"> | <img src="docs/sphinx/source/_static/assets/unilab-wechat-assistant.jpg" alt="UniLab 小助手微信二维码" width="150"> |
-| 扫码加入 UniLab 微信群。 | 如果微信群已满，请添加小助手微信，并备注 `unilab交流`。 |
+| <img src="docs/sphinx/source/_static/assets/unilab-wechat-group.jpg" alt="UniLab 微信群二维码" width="220"> | <img src="docs/sphinx/source/_static/assets/unilab-wechat-assistant.jpg" alt="UniLab 作者微信二维码" width="150"> |
+| 扫码加入 UniLab 微信群。 | 如果微信群已满，请添加作者微信，并备注`unilab交流`。 |
+
+## ⭐ Star 趋势
+
+<p align="center">
+  <a href="https://www.star-history.com/unilabsim/UniLab">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=unilabsim/UniLab&type=date&theme=dark&legend=top-left" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=unilabsim/UniLab&type=date&legend=top-left" />
+      <img src="https://api.star-history.com/chart?repos=unilabsim/UniLab&type=date&legend=top-left" alt="UniLab Star 趋势图" width="70%">
+    </picture>
+  </a>
+</p>
 
 ## 🧾 引用
 

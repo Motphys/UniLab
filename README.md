@@ -170,10 +170,22 @@ Use the published [UniLab documentation](https://unilabsim.github.io/UniLab-doc/
 
 Join our [Discord server](https://discord.gg/EPCuguRmGX) to chat with the community and get help.
 
-| WeChat Group | WeChat Assistant |
+| WeChat Group | Author WeChat |
 | :---: | :---: |
-| <img src="docs/sphinx/source/_static/assets/unilab-wechat-group.jpg" alt="UniLab WeChat group QR code" width="220"> | <img src="docs/sphinx/source/_static/assets/unilab-wechat-assistant.jpg" alt="UniLab WeChat assistant QR code" width="150"> |
-| Scan to join the UniLab WeChat group. | If the group is full, add the assistant and include `unilab交流` in your message. |
+| <img src="docs/sphinx/source/_static/assets/unilab-wechat-group.jpg" alt="UniLab WeChat group QR code" width="220"> | <img src="docs/sphinx/source/_static/assets/unilab-wechat-assistant.jpg" alt="UniLab author WeChat QR code" width="150"> |
+| Scan to join the UniLab WeChat group. | If the group is full, add the author and include `unilab交流` in your message. |
+
+## ⭐ Star History
+
+<p align="center">
+  <a href="https://www.star-history.com/unilabsim/UniLab">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=unilabsim/UniLab&type=date&theme=dark&legend=top-left" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=unilabsim/UniLab&type=date&legend=top-left" />
+      <img src="https://api.star-history.com/chart?repos=unilabsim/UniLab&type=date&legend=top-left" alt="UniLab Star History Chart" width="70%">
+    </picture>
+  </a>
+</p>
 
 ## 🧾 Citation
 
