@@ -32,7 +32,7 @@
 :::{grid-item-card} 常见问题
 :link: 5-faq
 :link-type: doc
-安装与首次运行的常见问题：代理直连、HuggingFace SOCKS、off-policy JIT 编译依赖、视频导出等。
+安装与首次运行的常见问题：SOCKS 代理支持、可选 native extension 诊断、conda 代理配置、视频导出等。
 :::
 
 ::::

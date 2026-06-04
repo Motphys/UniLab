@@ -43,7 +43,7 @@ unilab-viz-nan = "unilab.tools.viz_nan:main"
 unilab-export-scene = "unilab.tools.export_scene:main"
 
 [project.optional-dependencies]
-motrix = ["motrixsim-core==0.8.1.dev104665"]
+motrix = ["motrixsim-core==0.8.1"]
 viser = ["viser>=1.0.26", "trimesh>=3.21.7"]
 
 [dependency-groups]
@@ -56,17 +56,11 @@ url = "https://download.pytorch.org/whl/rocm7.2"
 explicit = true
 
 [[tool.uv.index]]
-name = "motphys-pypi"
-url = "https://pypi.motphys.com/simple/"
-explicit = true
-
-[[tool.uv.index]]
 name = "test-pypi"
 url = "https://test.pypi.org/simple/"
 explicit = true
 
 [tool.uv.sources]
-motrixsim-core = { index = "motphys-pypi" }
 mujoco-uni = { index = "test-pypi" }
 torch = [
     { index = "pytorch-rocm72", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },

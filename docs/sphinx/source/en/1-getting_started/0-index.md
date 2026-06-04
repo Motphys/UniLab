@@ -34,8 +34,8 @@ Find the directories that own scripts, configs, envs, backends, and docs.
 :::{grid-item-card} FAQ
 :link: 5-faq
 :link-type: doc
-Install and first-run issues: proxy direct connection, HuggingFace SOCKS,
-off-policy JIT compilation prerequisites, and video export.
+Install and first-run issues: SOCKS proxy support, optional native extension
+diagnostics, conda proxy settings, and video export.
 :::
 
 ::::
