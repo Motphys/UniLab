@@ -260,8 +260,8 @@ def _make_demo_checkout(root: Path, *, demo_name: str) -> None:
     (root / "scripts").mkdir(parents=True, exist_ok=True)
     (root / "scripts" / "train_rsl_rl.py").write_text("", encoding="utf-8")
     (root / "scripts" / "play_interactive.py").write_text("", encoding="utf-8")
-    if spec.algo == "sac":
-        owner_dir = root / "conf" / "offpolicy" / "task" / "sac" / spec.task
+    if spec.algo in {"sac", "flashsac"}:
+        owner_dir = root / "conf" / "offpolicy" / "task" / spec.algo / spec.task
     else:
         owner_dir = root / "conf" / spec.algo / "task" / spec.task
     owner_dir.mkdir(parents=True, exist_ok=True)
@@ -332,7 +332,7 @@ def test_demo_play_interactive_entry_assembles_locomani_command(
     assert command[0] == sys.executable
     assert command[1] == str(tmp_path / "scripts" / "play_interactive.py")
     assert command[2:4] == ["--algo", "ppo"]
-    assert "task=go2_arm_manip_loco/mujoco" in command
+    assert command[4:8] == ["--task", "go2_arm_manip_loco", "--sim", "mujoco"]
     assert f"algo.load_run={abs_pt}" in command
     assert "training.device=cpu" in command
 
@@ -353,7 +353,7 @@ def test_demo_play_interactive_entry_assembles_inhandgrasp_command(
     assert command[0] == sys.executable
     assert command[1] == str(tmp_path / "scripts" / "play_interactive.py")
     assert command[2:4] == ["--algo", "hora_distill"]
-    assert "task=sharpa_inhand/mujoco_nodr" in command
+    assert command[4:8] == ["--task", "sharpa_inhand", "--sim", "mujoco_nodr"]
     assert f"algo.load_run={abs_pt}" in command
     assert "training.device=cpu" in command
 
@@ -372,7 +372,10 @@ def test_demo_play_interactive_hora_distill_nodr_command(tmp_path: Path) -> None
         str(tmp_path / "scripts" / "play_interactive.py"),
         "--algo",
         "hora_distill",
-        "task=sharpa_inhand/mujoco_nodr",
+        "--task",
+        "sharpa_inhand",
+        "--sim",
+        "mujoco_nodr",
         f"algo.load_run={abs_pt}",
     ]
 
@@ -403,7 +406,10 @@ def test_demo_play_interactive_sac_owner_path_uses_offpolicy(tmp_path: Path) -> 
         str(tmp_path / "scripts" / "play_interactive.py"),
         "--algo",
         "sac",
-        "task=sharpa_inhand/mujoco_hora",
+        "--task",
+        "sharpa_inhand",
+        "--sim",
+        "mujoco_hora",
         "algo.load_run=/tmp/model_0.pt",
     ]
 
@@ -569,7 +575,10 @@ def test_demo_local_only_checkpoint_uses_existing_file(
             str(checkout / "scripts" / "play_interactive.py"),
             "--algo",
             "hora_distill",
-            "task=sharpa_inhand/mujoco_nodr",
+            "--task",
+            "sharpa_inhand",
+            "--sim",
+            "mujoco_nodr",
             f"algo.load_run={checkpoint}",
             "training.device=cpu",
         ]

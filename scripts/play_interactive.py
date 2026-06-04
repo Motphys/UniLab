@@ -1,18 +1,19 @@
-"""MuJoCo-only interactive play script for trained RSL-RL policies.
+"""MuJoCo interactive play script for trained policies.
 
-This tool opens a live MuJoCo viewer for a trained RSL-RL policy. It is wired
-directly to MuJoCo viewer/runtime APIs and is not available for Motrix tasks.
+This MuJoCo-only viewer tool opens a live MuJoCo window for a task owner config.
+``--sim`` selects which owner config to read; playback visualization still uses
+MuJoCo.
 
 Usage:
-    # Load the latest checkpoint for a task/backend owner config
-    uv run scripts/play_interactive.py task=go2_joystick_flat/mujoco
+    # Zero-action playback for a task/backend owner config
+    uv run scripts/play_interactive.py --algo ppo --task go2_joystick_flat --sim mujoco
 
-    # Load a specific run
-    uv run scripts/play_interactive.py task=go2_joystick_flat/mujoco algo.load_run=2024-02-04_12-00-00
-    uv run scripts/play_interactive.py task=go2_joystick_rough/mujoco   interactive.action_mode=policy interactive.keyboard=true
+    # Policy playback and keyboard command control
+    uv run scripts/play_interactive.py --algo ppo --task go2_joystick_rough --sim mujoco \
+      interactive.action_mode=policy interactive.keyboard=true
 
     # Show target bodies / reward debug overlays
-    uv run scripts/play_interactive.py task=g1_motion_tracking/mujoco \
+    uv run scripts/play_interactive.py --algo ppo --task g1_motion_tracking --sim mujoco \
       interactive.show_target_bodies=true \
       interactive.target_show_axes=true \
       interactive.show_reward_debug=true
@@ -25,6 +26,7 @@ Camera controls (MuJoCo viewer):
 
 # pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportOptionalMemberAccess=false, reportOptionalSubscript=false
 
+import argparse
 import sys
 import tempfile
 import time
@@ -77,6 +79,11 @@ _COMMAND_OBS_VERIFY_COMMAND = np.array([0.37, -0.23, 0.19], dtype=np.float64)
 _DEFAULT_CAMERA_DISTANCE = 2.0
 _TERRAIN_FOLLOW_CAMERA_DISTANCE = 3.0
 _FOLLOW_CAMERA_MAX_DISTANCE = 6.0
+_VELOCITY_ARROW_HEIGHT = 0.6
+_VELOCITY_ARROW_SCALE = 0.45
+_VELOCITY_ARROW_WIDTH = 0.025
+_VELOCITY_ARROW_LATERAL_OFFSET = 0.0
+_VELOCITY_COMMAND_TASK_NAME_MARKERS = ("Joystick", "Walk")
 
 ensure_registries()
 
@@ -133,11 +140,6 @@ class PlayInteractiveArgs:
     keyboard_step_lin: float = 0.1
     keyboard_step_ang: float = 0.2
     require_keyboard_command_obs: bool = True
-    show_velocity_arrows: bool = False
-    velocity_arrow_height: float = 0.55
-    velocity_arrow_scale: float = 0.45
-    velocity_arrow_width: float = 0.025
-    velocity_arrow_lateral_offset: float = 0.08
     algo: str = "ppo"
 
 
@@ -200,8 +202,12 @@ _CONFIG_ROOT_BY_ALGO = {
 _OFFPOLICY_INTERACTIVE_ALGOS = {"sac", "flashsac"}
 
 
-def _extract_interactive_algo(argv: Sequence[str]) -> tuple[str, list[str]]:
-    return _split_algo_arg([str(arg) for arg in argv])
+@dataclass(frozen=True)
+class InteractiveCliArgs:
+    algo: str
+    task: str
+    sim: str
+    overrides: list[str]
 
 
 def _override_key(override: str) -> str:
@@ -209,31 +215,48 @@ def _override_key(override: str) -> str:
     return key.lstrip("+~")
 
 
-def _split_algo_arg(argv: list[str]) -> tuple[str, list[str]]:
-    algo = "ppo"
-    overrides: list[str] = []
-    index = 0
-    while index < len(argv):
-        item = argv[index]
-        if item == "--algo":
-            if index + 1 >= len(argv):
-                raise SystemExit(
-                    "--algo requires one of: " + ", ".join(SUPPORTED_INTERACTIVE_ALGOS)
-                )
-            algo = argv[index + 1]
-            index += 2
-            continue
-        if item.startswith("--algo="):
-            algo = item.split("=", 1)[1]
-            index += 1
-            continue
-        overrides.append(item)
-        index += 1
-    if algo not in SUPPORTED_INTERACTIVE_ALGOS:
-        raise SystemExit(
-            f"Unsupported --algo={algo!r}; choose one of: {', '.join(SUPPORTED_INTERACTIVE_ALGOS)}"
-        )
-    return algo, overrides
+def _parse_interactive_cli(argv: Sequence[str]) -> InteractiveCliArgs:
+    parser = argparse.ArgumentParser(
+        prog="play_interactive.py",
+        description="Open a MuJoCo viewer for an interactive policy playback config.",
+    )
+    parser.add_argument("--algo", choices=SUPPORTED_INTERACTIVE_ALGOS, default="ppo")
+    parser.add_argument("--task", required=True, help="Task name, for example go2_joystick_flat.")
+    parser.add_argument("--sim", required=True, help="Owner backend config name to read.")
+    parser.add_argument("overrides", nargs=argparse.REMAINDER, help="Hydra overrides.")
+    namespace = parser.parse_args(list(argv))
+
+    task = str(namespace.task)
+    sim = str(namespace.sim)
+    if "/" in task:
+        parser.error("--task must be a task name without '/'; pass backend via --sim.")
+    if "/" in sim:
+        parser.error("--sim must be a backend/config name without '/'.")
+
+    extra_overrides = [str(item) for item in namespace.overrides]
+    if extra_overrides and extra_overrides[0] == "--":
+        extra_overrides = extra_overrides[1:]
+    overrides = _interactive_overrides_from_cli(task, sim, extra_overrides)
+    return InteractiveCliArgs(
+        algo=str(namespace.algo),
+        task=task,
+        sim=sim,
+        overrides=overrides,
+    )
+
+
+def _interactive_overrides_from_cli(
+    task: str, sim: str, extra_overrides: Sequence[str]
+) -> list[str]:
+    normalized = [f"task={task}/{sim}"]
+    for override in extra_overrides:
+        key = _override_key(str(override))
+        if key in {"task", "training.sim_backend"}:
+            raise SystemExit(
+                f"{key} is controlled by --task/--sim; use explicit CLI flags instead."
+            )
+        normalized.append(str(override))
+    return normalized
 
 
 def _normalize_interactive_overrides(algo: str, overrides: list[str]) -> list[str]:
@@ -709,7 +732,7 @@ def _render_velocity_arrows(
     state = getattr(env, "state", None)
     info = getattr(state, "info", None) if state is not None else None
     commands = info.get("commands") if isinstance(info, dict) else None
-    if not isinstance(commands, np.ndarray) or commands.ndim != 2 or commands.shape[1] < 2:
+    if not isinstance(commands, np.ndarray) or commands.ndim != 2 or commands.shape[1] < 3:
         return
 
     try:
@@ -868,6 +891,37 @@ def _state_has_velocity_commands(env: Any) -> bool:
         and command_arr.shape[0] > 0
         and command_arr.shape[1] >= 3
     )
+
+
+def _is_locomotion_env(env: Any) -> bool:
+    return type(env).__module__.startswith("unilab.envs.locomotion")
+
+
+def _is_velocity_command_locomotion_task(env: Any) -> bool:
+    if not _is_locomotion_env(env):
+        return False
+    cfg = getattr(env, "cfg", None)
+    candidate_names = [
+        type(env).__name__,
+        type(cfg).__name__ if cfg is not None else "",
+        type(env).__module__,
+        type(cfg).__module__ if cfg is not None else "",
+    ]
+    return any(
+        marker in candidate
+        for candidate in candidate_names
+        for marker in _VELOCITY_COMMAND_TASK_NAME_MARKERS
+    )
+
+
+def _should_render_velocity_arrows(env: Any, *, reset_fn=None) -> bool:
+    if not _is_velocity_command_locomotion_task(env):
+        return False
+    if not _state_has_velocity_commands(env):
+        return False
+    if reset_fn is None:
+        return _state_policy_obs_contains_command(env)
+    return _policy_obs_contains_command(env, reset_fn=reset_fn)
 
 
 def _row_contains_contiguous_vector(
@@ -1088,9 +1142,6 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
             f"(vel={args.reward_debug_show_velocity}, connectors={args.reward_debug_show_connectors}, "
             f"global_anchor={args.reward_debug_show_global_anchor})."
         )
-    if bool(getattr(args, "show_velocity_arrows", False)):
-        print("[play_interactive] Velocity arrows enabled (green=target, blue=current).")
-
     # Dedicated MjData for the viewer (never touches the rollout workers)
     use_env_visual_model = bool(getattr(args, "use_env_visual_model", True))
     mj_model = _load_viewer_model(env, use_env_visual_model=use_env_visual_model)
@@ -1100,6 +1151,11 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
     ctrl_dt = env.cfg.ctrl_dt
 
     playback_session.reset()
+    render_velocity_arrows = str(args.action_mode) == "policy" and _should_render_velocity_arrows(
+        env, reset_fn=playback_session.reset
+    )
+    if render_velocity_arrows:
+        print("[play_interactive] Velocity arrows enabled (green=target, blue=current).")
     if bool(getattr(args, "keyboard", False)) and bool(
         getattr(args, "require_keyboard_command_obs", True)
     ):
@@ -1227,16 +1283,16 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
                 else:
                     viewer.user_scn.ngeom = 0
 
-                if bool(getattr(args, "show_velocity_arrows", False)):
+                if render_velocity_arrows:
                     _render_velocity_arrows(
                         viewer,
                         viz_data,
                         focus_body_id,
                         env,
-                        height=float(getattr(args, "velocity_arrow_height", 0.55)),
-                        scale=float(getattr(args, "velocity_arrow_scale", 0.45)),
-                        width=float(getattr(args, "velocity_arrow_width", 0.025)),
-                        lateral_offset=float(getattr(args, "velocity_arrow_lateral_offset", 0.08)),
+                        height=_VELOCITY_ARROW_HEIGHT,
+                        scale=_VELOCITY_ARROW_SCALE,
+                        width=_VELOCITY_ARROW_WIDTH,
+                        lateral_offset=_VELOCITY_ARROW_LATERAL_OFFSET,
                     )
 
                 viewer.sync()
@@ -1314,31 +1370,14 @@ def _build_play_args(cfg: DictConfig, *, algo: str = "ppo") -> PlayInteractiveAr
         require_keyboard_command_obs=bool(
             OmegaConf.select(cfg, "interactive.require_keyboard_command_obs", default=True)
         ),
-        show_velocity_arrows=bool(
-            OmegaConf.select(cfg, "interactive.show_velocity_arrows", default=False)
-        ),
-        velocity_arrow_height=float(
-            OmegaConf.select(cfg, "interactive.velocity_arrow_height", default=0.55)
-        ),
-        velocity_arrow_scale=float(
-            OmegaConf.select(cfg, "interactive.velocity_arrow_scale", default=0.45)
-        ),
-        velocity_arrow_width=float(
-            OmegaConf.select(cfg, "interactive.velocity_arrow_width", default=0.025)
-        ),
-        velocity_arrow_lateral_offset=float(
-            OmegaConf.select(cfg, "interactive.velocity_arrow_lateral_offset", default=0.08)
-        ),
         algo=algo,
     )
 
 
 def main(argv: list[str] | None = None) -> None:
-    algo, overrides = _split_algo_arg(list(sys.argv[1:] if argv is None else argv))
-    cfg = _compose_interactive_config(algo, overrides)
-    if str(cfg.training.sim_backend) != "mujoco":
-        raise ValueError("play_interactive.py only supports MuJoCo viewer; use task=<task>/mujoco.")
-    play_interactive(_build_play_args(cfg, algo=algo), cfg)
+    parsed = _parse_interactive_cli(sys.argv[1:] if argv is None else argv)
+    cfg = _compose_interactive_config(parsed.algo, parsed.overrides)
+    play_interactive(_build_play_args(cfg, algo=parsed.algo), cfg)
 
 
 if __name__ == "__main__":

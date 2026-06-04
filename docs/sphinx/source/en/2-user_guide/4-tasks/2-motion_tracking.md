@@ -131,5 +131,5 @@ zeroing the randomization ranges reuses the exact clip initial state.
 ## Interactive Debugging
 
 Routine checkpoint replay uses `uv run eval`. When you need a target-body or reward
-debug overlay, `scripts/play_interactive.py` is the MuJoCo-only low-level entry
+debug overlay, `scripts/play_interactive.py` is the low-level MuJoCo viewer entry
 point; it is not currently exposed as a `uv run eval` flag.
