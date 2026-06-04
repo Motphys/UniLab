@@ -120,10 +120,21 @@ def test_mujoco_visual_xml_paths_prefer_backend_visual_scene(tmp_path: Path):
     assert robot == robot_xml
 
 
-def _keyboard_env(with_commands: bool = True) -> Any:
+def _keyboard_env(
+    with_commands: bool = True,
+    *,
+    env_cls_name: str = "Env",
+    cfg_cls_name: str = "Cfg",
+    module: str = "tests.fake_env",
+    obs_contains_command: bool = False,
+) -> Any:
     info: dict[str, Any] = (
-        {"commands": np.zeros((1, 3), dtype=np.float32)} if with_commands else {"steps": 0}
+        {"commands": np.asarray([[0.37, -0.23, 0.19]], dtype=np.float32)}
+        if with_commands
+        else {"steps": 0}
     )
+    if obs_contains_command:
+        info["commands"] = np.asarray([[0.37, -0.23, 0.19]], dtype=np.float32)
     commands_cfg = (
         type(
             "Cmds",
@@ -137,9 +148,20 @@ def _keyboard_env(with_commands: bool = True) -> Any:
         if with_commands
         else None
     )
-    cfg = type("Cfg", (), {"commands": commands_cfg})()
-    state = type("State", (), {"info": info})()
-    return type("Env", (), {"state": state, "cfg": cfg})()
+    cfg_type = type(cfg_cls_name, (), {"__module__": module})
+    cfg = cfg_type()
+    cfg.commands = commands_cfg
+    obs = (
+        {"obs": np.asarray([[1.0, 0.37, -0.23, 0.19, 2.0]], dtype=np.float32)}
+        if obs_contains_command
+        else {"obs": np.asarray([[1.0, 2.0, 3.0]], dtype=np.float32)}
+    )
+    state = type("State", (), {"info": info, "obs": obs})()
+    env_type = type(env_cls_name, (), {"__module__": module})
+    env = env_type()
+    env.state = state
+    env.cfg = cfg
+    return env
 
 
 def test_build_keyboard_commander_disabled_when_flag_off():
@@ -171,6 +193,40 @@ def test_build_keyboard_commander_makes_keyboard_authoritative():
     assert env.cfg.commands.heading_command is False
     assert env.cfg.commands.resampling_time == 0.0
     assert env.state.info["commands"].tolist() == [[0.0, 0.0, 0.0]]
+
+
+def test_velocity_arrows_require_velocity_command_task_and_policy_obs():
+    mod = _load_script("play_interactive")
+
+    joystick_env = _keyboard_env(
+        env_cls_name="Go2WalkTask",
+        cfg_cls_name="Go2JoystickCfg",
+        module="unilab.envs.locomotion.go2.joystick",
+        obs_contains_command=True,
+    )
+    handstand_env = _keyboard_env(
+        env_cls_name="Go2HandStandTask",
+        cfg_cls_name="Go2HandStandCfg",
+        module="unilab.envs.locomotion.go2.handstand",
+        obs_contains_command=True,
+    )
+    manip_loco_env = _keyboard_env(
+        env_cls_name="Go2ArmManipLocoEnv",
+        cfg_cls_name="Go2ArmManipLocoCfg",
+        module="unilab.envs.locomotion.go2_arm.manip_loco",
+        obs_contains_command=True,
+    )
+    missing_obs_command_env = _keyboard_env(
+        env_cls_name="Go2WalkTask",
+        cfg_cls_name="Go2JoystickCfg",
+        module="unilab.envs.locomotion.go2.joystick",
+        obs_contains_command=False,
+    )
+
+    assert mod._should_render_velocity_arrows(joystick_env) is True
+    assert mod._should_render_velocity_arrows(handstand_env) is False
+    assert mod._should_render_velocity_arrows(manip_loco_env) is False
+    assert mod._should_render_velocity_arrows(missing_obs_command_env) is False
 
 
 def test_handle_command_key_maps_drive_style_keys():

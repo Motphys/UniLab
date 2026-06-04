@@ -659,9 +659,10 @@ def create_sac_playback_session(
     env_factory: Callable[[int], Any],
     root_dir: str | Path,
     device: str | None,
+    algo_name: str = "sac",
     log: LogFn = print,
 ) -> tuple[OffPolicyPlaybackSession, str, str | None]:
-    """Create an interactive playback session for SAC and HORA-SAC teachers."""
+    """Create an interactive playback session for off-policy actors."""
 
     import os
 
@@ -689,15 +690,27 @@ def create_sac_playback_session(
         raise ValueError("env.action_space.shape must be defined")
     action_dim = int(action_shape[0])
     actor_algo_type, actor_kwargs = resolve_play_actor_spec(
-        "sac",
+        algo_name,
         cfg,
         obs_dim=obs_dim,
         critic_obs_dim=critic_obs_dim,
     )
+    if algo_name == "flashsac":
+        actor_kwargs.update(
+            {
+                "actor_num_blocks": cfg.algo.algo_params.actor_num_blocks,
+                "actor_noise_zeta_mu": cfg.algo.algo_params.actor_noise_zeta_mu,
+                "actor_noise_zeta_max": cfg.algo.algo_params.actor_noise_zeta_max,
+            }
+        )
 
     actor = None
     checkpoint_path: str | None = None
     normalizer = None
+    if bool(getattr(cfg.algo, "obs_normalization", False)):
+        from unilab.algos.torch.common.normalization import EmpiricalNormalization
+
+        normalizer = EmpiricalNormalization(shape=obs_dim, device=device_name)
     if playback_cfg.action_mode == "policy":
         actor = build_actor(
             actor_algo_type,
@@ -717,7 +730,7 @@ def create_sac_playback_session(
         )
         if checkpoint_path is None or not os.path.exists(checkpoint_path):
             log(
-                "WARNING: no SAC checkpoint found for "
+                f"WARNING: no {algo_name} checkpoint found for "
                 f"load_run={cfg.algo.load_run} - falling back to zero actions."
             )
             actor = None
@@ -727,7 +740,7 @@ def create_sac_playback_session(
             if normalizer is not None and checkpoint.get("obs_normalizer"):
                 normalizer.load_state_dict(checkpoint["obs_normalizer"])
                 normalizer.eval()
-            log(f"Loading SAC checkpoint: {checkpoint_path}")
+            log(f"Loading {algo_name} checkpoint: {checkpoint_path}")
 
     log(f"Action mode: {playback_cfg.action_mode}")
     return (

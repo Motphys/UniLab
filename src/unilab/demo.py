@@ -106,9 +106,15 @@ def _build_play_interactive_command(
     script = selected_root / "scripts" / "play_interactive.py"
     if not script.is_file():
         raise SystemExit(f"Entrypoint script not found: {script}")
-    if spec.algo == "sac":
+    if spec.algo in {"sac", "flashsac"}:
         owner_yaml = (
-            selected_root / "conf" / "offpolicy" / "task" / "sac" / spec.task / f"{spec.sim}.yaml"
+            selected_root
+            / "conf"
+            / "offpolicy"
+            / "task"
+            / spec.algo
+            / spec.task
+            / f"{spec.sim}.yaml"
         )
     elif spec.algo == "hora_distill":
         owner_yaml = (
@@ -126,10 +132,13 @@ def _build_play_interactive_command(
         str(script),
         "--algo",
         spec.algo,
+        "--task",
+        spec.task,
+        "--sim",
+        spec.sim,
     ]
     command.extend(
         [
-            f"task={spec.task}/{spec.sim}",
             f"algo.load_run={checkpoint_path}",
             *extra_overrides,
         ]

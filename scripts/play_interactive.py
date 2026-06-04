@@ -1,18 +1,19 @@
-"""MuJoCo-only interactive play script for trained RSL-RL policies.
+"""MuJoCo interactive play script for trained policies.
 
-This tool opens a live MuJoCo viewer for a trained RSL-RL policy. It is wired
-directly to MuJoCo viewer/runtime APIs and is not available for Motrix tasks.
+This MuJoCo-only viewer tool opens a live MuJoCo window for a task owner config.
+``--sim`` selects which owner config to read; playback visualization still uses
+MuJoCo.
 
 Usage:
-    # Load the latest checkpoint for a task/backend owner config
-    uv run scripts/play_interactive.py task=go2_joystick_flat/mujoco
+    # Zero-action playback for a task/backend owner config
+    uv run scripts/play_interactive.py --algo ppo --task go2_joystick_flat --sim mujoco
 
-    # Load a specific run
-    uv run scripts/play_interactive.py task=go2_joystick_flat/mujoco algo.load_run=2024-02-04_12-00-00
-    uv run scripts/play_interactive.py task=go2_joystick_rough/mujoco   interactive.action_mode=policy interactive.keyboard=true
+    # Policy playback and keyboard command control
+    uv run scripts/play_interactive.py --algo ppo --task go2_joystick_rough --sim mujoco \
+      interactive.action_mode=policy interactive.keyboard=true
 
     # Show target bodies / reward debug overlays
-    uv run scripts/play_interactive.py task=g1_motion_tracking/mujoco \
+    uv run scripts/play_interactive.py --algo ppo --task g1_motion_tracking --sim mujoco \
       interactive.show_target_bodies=true \
       interactive.target_show_axes=true \
       interactive.show_reward_debug=true
@@ -25,6 +26,7 @@ Camera controls (MuJoCo viewer):
 
 # pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportOptionalMemberAccess=false, reportOptionalSubscript=false
 
+import argparse
 import sys
 import tempfile
 import time
@@ -73,6 +75,15 @@ from unilab.visualization.interactive_playback import (
 _KEY_ENTER, _KEY_KP_ENTER = 257, 335
 _KEY_BACKSPACE = 259
 _KEY_RIGHT, _KEY_LEFT, _KEY_DOWN, _KEY_UP = 262, 263, 264, 265
+_COMMAND_OBS_VERIFY_COMMAND = np.array([0.37, -0.23, 0.19], dtype=np.float64)
+_DEFAULT_CAMERA_DISTANCE = 2.0
+_TERRAIN_FOLLOW_CAMERA_DISTANCE = 3.0
+_FOLLOW_CAMERA_MAX_DISTANCE = 6.0
+_VELOCITY_ARROW_HEIGHT = 0.6
+_VELOCITY_ARROW_SCALE = 0.45
+_VELOCITY_ARROW_WIDTH = 0.025
+_VELOCITY_ARROW_LATERAL_OFFSET = 0.0
+_VELOCITY_COMMAND_TASK_NAME_MARKERS = ("Joystick", "Walk")
 
 ensure_registries()
 
@@ -128,6 +139,7 @@ class PlayInteractiveArgs:
     keyboard: bool = False
     keyboard_step_lin: float = 0.1
     keyboard_step_ang: float = 0.2
+    require_keyboard_command_obs: bool = True
     algo: str = "ppo"
 
 
@@ -179,17 +191,23 @@ def _algo_config_dict(cfg: DictConfig | None) -> dict[str, Any]:
     return cast(dict[str, Any], train_cfg_raw)
 
 
-SUPPORTED_INTERACTIVE_ALGOS = ("ppo", "appo", "sac", "hora_distill")
+SUPPORTED_INTERACTIVE_ALGOS = ("ppo", "appo", "sac", "flashsac", "hora_distill")
 _CONFIG_ROOT_BY_ALGO = {
     "ppo": "ppo",
     "appo": "appo",
     "sac": "offpolicy",
+    "flashsac": "offpolicy",
     "hora_distill": "hora_distill",
 }
+_OFFPOLICY_INTERACTIVE_ALGOS = {"sac", "flashsac"}
 
 
-def _extract_interactive_algo(argv: Sequence[str]) -> tuple[str, list[str]]:
-    return _split_algo_arg([str(arg) for arg in argv])
+@dataclass(frozen=True)
+class InteractiveCliArgs:
+    algo: str
+    task: str
+    sim: str
+    overrides: list[str]
 
 
 def _override_key(override: str) -> str:
@@ -197,31 +215,48 @@ def _override_key(override: str) -> str:
     return key.lstrip("+~")
 
 
-def _split_algo_arg(argv: list[str]) -> tuple[str, list[str]]:
-    algo = "ppo"
-    overrides: list[str] = []
-    index = 0
-    while index < len(argv):
-        item = argv[index]
-        if item == "--algo":
-            if index + 1 >= len(argv):
-                raise SystemExit(
-                    "--algo requires one of: " + ", ".join(SUPPORTED_INTERACTIVE_ALGOS)
-                )
-            algo = argv[index + 1]
-            index += 2
-            continue
-        if item.startswith("--algo="):
-            algo = item.split("=", 1)[1]
-            index += 1
-            continue
-        overrides.append(item)
-        index += 1
-    if algo not in SUPPORTED_INTERACTIVE_ALGOS:
-        raise SystemExit(
-            f"Unsupported --algo={algo!r}; choose one of: {', '.join(SUPPORTED_INTERACTIVE_ALGOS)}"
-        )
-    return algo, overrides
+def _parse_interactive_cli(argv: Sequence[str]) -> InteractiveCliArgs:
+    parser = argparse.ArgumentParser(
+        prog="play_interactive.py",
+        description="Open a MuJoCo viewer for an interactive policy playback config.",
+    )
+    parser.add_argument("--algo", choices=SUPPORTED_INTERACTIVE_ALGOS, default="ppo")
+    parser.add_argument("--task", required=True, help="Task name, for example go2_joystick_flat.")
+    parser.add_argument("--sim", required=True, help="Owner backend config name to read.")
+    parser.add_argument("overrides", nargs=argparse.REMAINDER, help="Hydra overrides.")
+    namespace = parser.parse_args(list(argv))
+
+    task = str(namespace.task)
+    sim = str(namespace.sim)
+    if "/" in task:
+        parser.error("--task must be a task name without '/'; pass backend via --sim.")
+    if "/" in sim:
+        parser.error("--sim must be a backend/config name without '/'.")
+
+    extra_overrides = [str(item) for item in namespace.overrides]
+    if extra_overrides and extra_overrides[0] == "--":
+        extra_overrides = extra_overrides[1:]
+    overrides = _interactive_overrides_from_cli(task, sim, extra_overrides)
+    return InteractiveCliArgs(
+        algo=str(namespace.algo),
+        task=task,
+        sim=sim,
+        overrides=overrides,
+    )
+
+
+def _interactive_overrides_from_cli(
+    task: str, sim: str, extra_overrides: Sequence[str]
+) -> list[str]:
+    normalized = [f"task={task}/{sim}"]
+    for override in extra_overrides:
+        key = _override_key(str(override))
+        if key in {"task", "training.sim_backend"}:
+            raise SystemExit(
+                f"{key} is controlled by --task/--sim; use explicit CLI flags instead."
+            )
+        normalized.append(str(override))
+    return normalized
 
 
 def _normalize_interactive_overrides(algo: str, overrides: list[str]) -> list[str]:
@@ -230,19 +265,21 @@ def _normalize_interactive_overrides(algo: str, overrides: list[str]) -> list[st
 
     for override in overrides:
         key = _override_key(override)
-        if algo == "sac" and key == "algo":
+        if algo in _OFFPOLICY_INTERACTIVE_ALGOS and key == "algo":
             value = override.split("=", 1)[1] if "=" in override else ""
-            if value != "sac":
-                raise SystemExit("--algo sac cannot be combined with a non-SAC Hydra algo group.")
+            if value != algo:
+                raise SystemExit(
+                    f"--algo {algo} cannot be combined with a non-{algo} Hydra algo group."
+                )
             has_algo_group = True
-        if algo == "sac" and key == "task" and "=" in override:
+        if algo in _OFFPOLICY_INTERACTIVE_ALGOS and key == "task" and "=" in override:
             value = override.split("=", 1)[1]
-            if not value.startswith("sac/"):
-                override = f"task=sac/{value}"
+            if not value.startswith(f"{algo}/"):
+                override = f"task={algo}/{value}"
         normalized.append(override)
 
-    if algo == "sac" and not has_algo_group:
-        normalized.insert(0, "algo=sac")
+    if algo in _OFFPOLICY_INTERACTIVE_ALGOS and not has_algo_group:
+        normalized.insert(0, f"algo={algo}")
     return normalized
 
 
@@ -380,6 +417,28 @@ def _add_vector_arrow(
     return _add_axis_arrow(scene, p0, p1, width, rgba)
 
 
+def _local_xy_to_world_arrow(body_xmat: np.ndarray, local_xy: np.ndarray) -> np.ndarray:
+    rot = np.asarray(body_xmat, dtype=np.float64).reshape(3, 3)
+    forward = rot[:, 0].copy()
+    left = rot[:, 1].copy()
+    forward[2] = 0.0
+    left[2] = 0.0
+
+    forward_norm = float(np.linalg.norm(forward))
+    left_norm = float(np.linalg.norm(left))
+    if forward_norm < 1e-9:
+        forward = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+    else:
+        forward /= forward_norm
+    if left_norm < 1e-9:
+        left = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+    else:
+        left /= left_norm
+
+    xy = np.asarray(local_xy, dtype=np.float64).reshape(2)
+    return forward * xy[0] + left * xy[1]
+
+
 def _resolve_focus_body_id(mj_model, env, preferred_name: str) -> int:
     candidate_names: list[str] = []
     if preferred_name.strip():
@@ -404,6 +463,21 @@ def _resolve_focus_body_id(mj_model, env, preferred_name: str) -> int:
 
     nbody = int(getattr(mj_model, "nbody", 1))
     return 1 if nbody > 1 else 0
+
+
+def _has_generated_terrain(env: Any) -> bool:
+    scene = getattr(getattr(env, "cfg", None), "scene", None)
+    return getattr(scene, "terrain", None) is not None
+
+
+def _default_viewer_camera_distance(mj_model, env: Any, *, follow_body: bool) -> float:
+    model_extent = float(getattr(getattr(mj_model, "stat", None), "extent", 1.0))
+    extent_distance = max(_DEFAULT_CAMERA_DISTANCE, 2.5 * model_extent)
+    if not follow_body:
+        return extent_distance
+    if _has_generated_terrain(env):
+        return _TERRAIN_FOLLOW_CAMERA_DISTANCE
+    return min(extent_distance, _FOLLOW_CAMERA_MAX_DISTANCE)
 
 
 def _available_backends_for_task(task_name: str) -> tuple[str, ...]:
@@ -644,6 +718,64 @@ def _render_reward_debug_targets(
                     _add_axis_arrow(scene, p, pz, marker_radius * 0.45, z_rgba)
 
 
+def _render_velocity_arrows(
+    viewer,
+    viz_data,
+    focus_body_id: int,
+    env: Any,
+    *,
+    height: float,
+    scale: float,
+    width: float,
+    lateral_offset: float,
+) -> None:
+    state = getattr(env, "state", None)
+    info = getattr(state, "info", None) if state is not None else None
+    commands = info.get("commands") if isinstance(info, dict) else None
+    if not isinstance(commands, np.ndarray) or commands.ndim != 2 or commands.shape[1] < 3:
+        return
+
+    try:
+        local_linvel = env.get_local_linvel()
+    except AttributeError:
+        return
+    if (
+        not isinstance(local_linvel, np.ndarray)
+        or local_linvel.ndim != 2
+        or local_linvel.shape[1] < 2
+    ):
+        return
+
+    body_xmat = np.asarray(viz_data.xmat[focus_body_id], dtype=np.float64)
+    origin = np.asarray(viz_data.xpos[focus_body_id], dtype=np.float64).copy()
+    origin[2] += float(height)
+    side = _local_xy_to_world_arrow(body_xmat, np.array([0.0, 1.0], dtype=np.float64))
+
+    target_vec = _local_xy_to_world_arrow(body_xmat, commands[0, :2])
+    current_vec = _local_xy_to_world_arrow(body_xmat, local_linvel[0, :2])
+    target_origin = origin + side * float(lateral_offset)
+    current_origin = origin - side * float(lateral_offset)
+
+    target_rgba = np.array([0.1, 0.95, 0.15, 0.9], dtype=np.float32)
+    current_rgba = np.array([0.1, 0.45, 1.0, 0.9], dtype=np.float32)
+    _add_vector_arrow(
+        viewer.user_scn,
+        target_origin,
+        target_vec,
+        scale,
+        width,
+        target_rgba,
+    )
+    _add_vector_arrow(
+        viewer.user_scn,
+        current_origin,
+        current_vec,
+        scale,
+        width,
+        current_rgba,
+    )
+
+
 def _load_mujoco_model_file_for_viewer(model_file: str):
     if Path(model_file).suffix.lower() == ".mjb":
         return mujoco.MjModel.from_binary_path(str(model_file))
@@ -749,6 +881,100 @@ def _build_keyboard_commander(env: Any, args) -> KeyboardCommander | None:
     return commander
 
 
+def _state_has_velocity_commands(env: Any) -> bool:
+    state = getattr(env, "state", None)
+    info = getattr(state, "info", None) if state is not None else None
+    command_arr = info.get("commands") if isinstance(info, dict) else None
+    return (
+        isinstance(command_arr, np.ndarray)
+        and command_arr.ndim == 2
+        and command_arr.shape[0] > 0
+        and command_arr.shape[1] >= 3
+    )
+
+
+def _is_locomotion_env(env: Any) -> bool:
+    return type(env).__module__.startswith("unilab.envs.locomotion")
+
+
+def _is_velocity_command_locomotion_task(env: Any) -> bool:
+    if not _is_locomotion_env(env):
+        return False
+    cfg = getattr(env, "cfg", None)
+    candidate_names = [
+        type(env).__name__,
+        type(cfg).__name__ if cfg is not None else "",
+        type(env).__module__,
+        type(cfg).__module__ if cfg is not None else "",
+    ]
+    return any(
+        marker in candidate
+        for candidate in candidate_names
+        for marker in _VELOCITY_COMMAND_TASK_NAME_MARKERS
+    )
+
+
+def _should_render_velocity_arrows(env: Any, *, reset_fn=None) -> bool:
+    if not _is_velocity_command_locomotion_task(env):
+        return False
+    if not _state_has_velocity_commands(env):
+        return False
+    if reset_fn is None:
+        return _state_policy_obs_contains_command(env)
+    return _policy_obs_contains_command(env, reset_fn=reset_fn)
+
+
+def _row_contains_contiguous_vector(
+    row: np.ndarray,
+    vector: np.ndarray,
+    *,
+    atol: float = 1.0e-6,
+) -> bool:
+    values = np.asarray(row, dtype=np.float64).reshape(-1)
+    target = np.asarray(vector, dtype=np.float64).reshape(-1)
+    if target.size == 0 or values.size < target.size:
+        return False
+    for start in range(values.size - target.size + 1):
+        if np.allclose(values[start : start + target.size], target, atol=atol, rtol=0.0):
+            return True
+    return False
+
+
+def _state_policy_obs_contains_command(env: Any) -> bool:
+    if not _state_has_velocity_commands(env):
+        return False
+
+    state = env.state
+    obs = getattr(state, "obs", None)
+    actor_obs = obs.get("obs") if isinstance(obs, dict) else None
+    if not isinstance(actor_obs, np.ndarray) or actor_obs.ndim != 2 or actor_obs.shape[0] == 0:
+        return False
+
+    command = np.asarray(state.info["commands"][0, :3], dtype=np.float64)
+    if np.linalg.norm(command) <= 1.0e-9:
+        return False
+    return _row_contains_contiguous_vector(actor_obs[0], command)
+
+
+def _policy_obs_contains_command(env: Any, *, reset_fn) -> bool:
+    if _state_policy_obs_contains_command(env):
+        return True
+
+    cmds_cfg = getattr(getattr(env, "cfg", None), "commands", None)
+    if cmds_cfg is None or not hasattr(cmds_cfg, "vel_limit"):
+        return False
+
+    original_vel_limit = cmds_cfg.vel_limit
+    probe = _COMMAND_OBS_VERIFY_COMMAND.tolist()
+    try:
+        cmds_cfg.vel_limit = [probe, probe]
+        reset_fn()
+        return _state_policy_obs_contains_command(env)
+    finally:
+        cmds_cfg.vel_limit = original_vel_limit
+        reset_fn()
+
+
 def _handle_command_key(commander: KeyboardCommander, keycode: int) -> None:
     if keycode == _KEY_UP:
         commander.nudge(commander.AXIS_VX, +1.0)
@@ -794,10 +1020,10 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
             return registry.make(args.task, num_envs=num_envs, sim_backend="mujoco")
         from unilab.training import create_env
 
-        if algo == "sac":
+        if algo in _OFFPOLICY_INTERACTIVE_ALGOS:
             from train_offpolicy import build_offpolicy_env_cfg_override
 
-            env_cfg_override = build_offpolicy_env_cfg_override("sac", cfg)
+            env_cfg_override = build_offpolicy_env_cfg_override(algo, cfg)
         else:
             env_cfg_override = _backend_adapter(cfg, algo_name=algo).build_task_env_cfg_override()
         try:
@@ -857,15 +1083,16 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
                 wrapper_cls=RslRlVecEnvWrapper,
                 log=lambda message: print(f"[play_interactive] {message}"),
             )
-        elif algo == "sac":
+        elif algo in _OFFPOLICY_INTERACTIVE_ALGOS:
             if cfg is None:
-                raise ValueError("SAC interactive playback requires a composed Hydra config.")
+                raise ValueError(f"{algo} interactive playback requires a composed Hydra config.")
             session = create_sac_playback_session(
                 playback_cfg=playback_cfg,
                 cfg=cfg,
                 env_factory=_create_env,
                 root_dir=ROOT_DIR,
                 device=device,
+                algo_name=algo,
                 log=lambda message: print(f"[play_interactive] {message}"),
             )
         elif algo == "hora_distill":
@@ -915,7 +1142,6 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
             f"(vel={args.reward_debug_show_velocity}, connectors={args.reward_debug_show_connectors}, "
             f"global_anchor={args.reward_debug_show_global_anchor})."
         )
-
     # Dedicated MjData for the viewer (never touches the rollout workers)
     use_env_visual_model = bool(getattr(args, "use_env_visual_model", True))
     mj_model = _load_viewer_model(env, use_env_visual_model=use_env_visual_model)
@@ -925,6 +1151,26 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
     ctrl_dt = env.cfg.ctrl_dt
 
     playback_session.reset()
+    render_velocity_arrows = str(args.action_mode) == "policy" and _should_render_velocity_arrows(
+        env, reset_fn=playback_session.reset
+    )
+    if render_velocity_arrows:
+        print("[play_interactive] Velocity arrows enabled (green=target, blue=current).")
+    if bool(getattr(args, "keyboard", False)) and bool(
+        getattr(args, "require_keyboard_command_obs", True)
+    ):
+        if not _state_has_velocity_commands(env):
+            print(
+                "[play_interactive] interactive.keyboard unavailable: "
+                "task state has no velocity 'commands'."
+            )
+            return
+        if not _policy_obs_contains_command(env, reset_fn=playback_session.reset):
+            print(
+                "[play_interactive] interactive.keyboard unavailable: "
+                "policy obs does not contain the velocity command."
+            )
+            return
     controls = PlaybackControls(
         paused=bool(getattr(args, "start_paused", False)),
         speed=float(getattr(args, "speed", 1.0)),
@@ -971,12 +1217,14 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
         # Initialize camera to a reasonable default and keep lookat on robot base.
         has_cam = hasattr(viewer, "cam")
         if has_cam:
-            model_extent = float(getattr(getattr(mj_model, "stat", None), "extent", 1.0))
-            default_distance = max(2.0, 2.5 * model_extent)
             if getattr(args, "camera_distance", None) is not None:
                 viewer.cam.distance = float(args.camera_distance)
             else:
-                viewer.cam.distance = default_distance
+                viewer.cam.distance = _default_viewer_camera_distance(
+                    mj_model,
+                    env,
+                    follow_body=bool(getattr(args, "camera_follow_body", True)),
+                )
             if getattr(args, "camera_elevation", None) is not None:
                 viewer.cam.elevation = float(args.camera_elevation)
             if getattr(args, "camera_azimuth", None) is not None:
@@ -1034,6 +1282,18 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
                         )
                 else:
                     viewer.user_scn.ngeom = 0
+
+                if render_velocity_arrows:
+                    _render_velocity_arrows(
+                        viewer,
+                        viz_data,
+                        focus_body_id,
+                        env,
+                        height=_VELOCITY_ARROW_HEIGHT,
+                        scale=_VELOCITY_ARROW_SCALE,
+                        width=_VELOCITY_ARROW_WIDTH,
+                        lateral_offset=_VELOCITY_ARROW_LATERAL_OFFSET,
+                    )
 
                 viewer.sync()
 
@@ -1107,16 +1367,17 @@ def _build_play_args(cfg: DictConfig, *, algo: str = "ppo") -> PlayInteractiveAr
         keyboard_step_ang=float(
             OmegaConf.select(cfg, "interactive.keyboard_step_ang", default=0.2)
         ),
+        require_keyboard_command_obs=bool(
+            OmegaConf.select(cfg, "interactive.require_keyboard_command_obs", default=True)
+        ),
         algo=algo,
     )
 
 
 def main(argv: list[str] | None = None) -> None:
-    algo, overrides = _split_algo_arg(list(sys.argv[1:] if argv is None else argv))
-    cfg = _compose_interactive_config(algo, overrides)
-    if str(cfg.training.sim_backend) != "mujoco":
-        raise ValueError("play_interactive.py only supports MuJoCo viewer; use task=<task>/mujoco.")
-    play_interactive(_build_play_args(cfg, algo=algo), cfg)
+    parsed = _parse_interactive_cli(sys.argv[1:] if argv is None else argv)
+    cfg = _compose_interactive_config(parsed.algo, parsed.overrides)
+    play_interactive(_build_play_args(cfg, algo=parsed.algo), cfg)
 
 
 if __name__ == "__main__":
