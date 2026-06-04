@@ -247,6 +247,7 @@ class Go2FootStandTask(Go2HandStandTask):
             (num_envs, self._obs_history_len, _FOOTSTAND_FRAME_OBS_DIM),
             dtype=get_global_dtype(),
         )
+        self._critic_obs_history = np.zeros_like(self._obs_history)
         self._base_geom_friction = self._backend.get_geom_friction()
         self._floor_geom_id = self._backend.get_geom_id(self._cfg.asset.ground)
         self._base_body_id = self._backend.get_body_id(self._cfg.asset.base_name)
@@ -514,12 +515,22 @@ class Go2FootStandTask(Go2HandStandTask):
         noisy_dof_vel = self._obs_noise(dof_vel, noise_cfg.scale_joint_vel)
         last_actions = info.get("last_actions", np.zeros_like(diff))
 
-        obs = np.concatenate(
+        obs_frame = np.concatenate(
             [noisy_linvel, noisy_gyro, noisy_gravity, noisy_diff, noisy_dof_vel, last_actions],
             axis=1,
             dtype=get_global_dtype(),
         )
-        obs = self._update_obs_history(obs, env_ids=env_ids)
+        critic_frame = np.concatenate(
+            [linvel, gyro, gravity, diff, dof_vel, last_actions],
+            axis=1,
+            dtype=get_global_dtype(),
+        )
+        obs = self._update_obs_history(obs_frame, env_ids=env_ids, history_attr="_obs_history")
+        critic_obs = self._update_obs_history(
+            critic_frame,
+            env_ids=env_ids,
+            history_attr="_critic_obs_history",
+        )
         torques = np.asarray(info.get("torques", np.zeros_like(dof_pos)), dtype=get_global_dtype())
         if accelerometer is None:
             accelerometer = np.zeros_like(gyro)
@@ -527,7 +538,7 @@ class Go2FootStandTask(Go2HandStandTask):
             global_angvel = np.zeros_like(gyro)
         critic = np.concatenate(
             [
-                obs,
+                critic_obs,
                 gyro,
                 accelerometer,
                 linvel,
@@ -543,20 +554,24 @@ class Go2FootStandTask(Go2HandStandTask):
         return {"obs": obs, "critic": critic}
 
     def _update_obs_history(
-        self, frame_obs: np.ndarray, *, env_ids: np.ndarray | None = None
+        self,
+        frame_obs: np.ndarray,
+        *,
+        env_ids: np.ndarray | None = None,
+        history_attr: str = "_obs_history",
     ) -> np.ndarray:
         frame_obs = np.asarray(frame_obs, dtype=get_global_dtype())
         batch_size = int(frame_obs.shape[0])
         history_len = self._obs_history_len
         expected_shape = (self._num_envs, history_len, _FOOTSTAND_FRAME_OBS_DIM)
-        history = getattr(self, "_obs_history", None)
+        history = getattr(self, history_attr, None)
         if history is None or history.shape != expected_shape:
             if env_ids is None and batch_size == self._num_envs:
-                self._obs_history = np.zeros(expected_shape, dtype=get_global_dtype())
-                history = self._obs_history
+                history = np.zeros(expected_shape, dtype=get_global_dtype())
+                setattr(self, history_attr, history)
             elif env_ids is not None:
-                self._obs_history = np.zeros(expected_shape, dtype=get_global_dtype())
-                history = self._obs_history
+                history = np.zeros(expected_shape, dtype=get_global_dtype())
+                setattr(self, history_attr, history)
             else:
                 repeated = np.broadcast_to(
                     frame_obs[:, None, :], (batch_size, history_len, frame_obs.shape[1])

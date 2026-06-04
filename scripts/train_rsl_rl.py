@@ -30,7 +30,11 @@ from unilab.training import (
     parse_checkpoint_path,
     should_run_playback,
 )
-from unilab.training.experiment import ExperimentTracker, patch_rsl_rl_wandb_writer
+from unilab.training.experiment import (
+    ExperimentTracker,
+    patch_rsl_rl_resume_state,
+    patch_rsl_rl_wandb_writer,
+)
 from unilab.training.rsl_rl import RslRlVecEnvWrapper, normalize_ppo_train_cfg
 from unilab.utils.device import get_default_device
 
@@ -356,6 +360,8 @@ def main(cfg: DictConfig) -> None:
             )
             train_cfg["runner"]["logger"] = logger_type
             train_cfg["logger"] = logger_type
+
+            patch_rsl_rl_resume_state()
 
             if tracker is not None and logger_type == "wandb":
                 patch_rsl_rl_wandb_writer()

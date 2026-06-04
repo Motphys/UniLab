@@ -99,6 +99,21 @@ def test_flashsac_actor_explore_and_forward_shapes():
     assert info["log_prob"].shape == (4,)
 
 
+def test_flashsac_export_module_matches_deterministic_policy():
+    learner = FlashSACLearner(obs_dim=98, action_dim=29, critic_obs_dim=101, device="cpu")
+    obs = torch.randn(4, 98)
+
+    export_module = learner.actor.as_export_module()
+
+    with torch.inference_mode():
+        exported_once = export_module(obs)
+        exported_twice = export_module(obs)
+        deterministic_actions = learner.actor.explore(obs, deterministic=True)
+
+    torch.testing.assert_close(exported_once, exported_twice)
+    torch.testing.assert_close(exported_once, deterministic_actions)
+
+
 def test_flashsac_update_steps_run_on_cpu():
     learner = FlashSACLearner(obs_dim=98, action_dim=29, critic_obs_dim=101, device="cpu")
     batch = _make_batch()

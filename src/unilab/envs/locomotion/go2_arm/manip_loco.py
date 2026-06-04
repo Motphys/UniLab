@@ -250,7 +250,7 @@ class Go2ArmManipLocoDRProvider(LocomotionDRProvider):
                 sliced_info[k] = v[env_ids]
             else:
                 sliced_info[k] = v
-        raw = env._compute_raw_obs(  # type: ignore[no-any-return]
+        actor_raw = env._compute_raw_obs(  # type: ignore[no-any-return]
             sliced_info,
             linvel,
             gyro,
@@ -260,9 +260,22 @@ class Go2ArmManipLocoDRProvider(LocomotionDRProvider):
             ee_local_pos[env_ids],
             env.curr_ee_goal_cart[env_ids],
             env.feet_phase[env_ids],
+            add_noise=True,
+        )
+        critic_raw = env._compute_raw_obs(  # type: ignore[no-any-return]
+            sliced_info,
+            linvel,
+            gyro,
+            gravity,
+            dof_pos,
+            dof_vel,
+            ee_local_pos[env_ids],
+            env.curr_ee_goal_cart[env_ids],
+            env.feet_phase[env_ids],
+            add_noise=False,
         )
         del n
-        return env._update_history(raw, env_ids=env_ids)  # type: ignore[no-any-return]
+        return env._update_history(actor_raw, env_ids=env_ids, critic_raw_obs=critic_raw)  # type: ignore[no-any-return]
 
 
 @registry.env("Go2ArmManipLoco", sim_backend="motrix")
@@ -773,6 +786,8 @@ class Go2ArmManipLocoEnv(Go2ArmBaseEnv):
         ee_local_pos: np.ndarray,
         ee_goal_cart: np.ndarray,
         feet_phase: np.ndarray,
+        *,
+        add_noise: bool = True,
     ) -> np.ndarray:
         """Compute single-step 79-dim obs (no history).
 
@@ -780,14 +795,15 @@ class Go2ArmManipLocoEnv(Go2ArmBaseEnv):
                 diff(18)+dof_vel(18)+ee_local_pos(3)+ee_goal_cart(3)+ee_error(3)+
                 last_actions(18) = 79
         """
-        noise_cfg = self._cfg.noise_config
         diff = dof_pos - self.default_angles
-        linvel = self._obs_noise(linvel, noise_cfg.scale_linvel)
-        gyro = self._obs_noise(gyro, noise_cfg.scale_gyro)
-        gravity = self._obs_noise(gravity, noise_cfg.scale_gravity)
-        diff = self._obs_noise(diff, noise_cfg.scale_joint_angle)
-        dof_vel = self._obs_noise(dof_vel, noise_cfg.scale_joint_vel)
-        ee_local_pos = self._obs_noise(ee_local_pos, noise_cfg.scale_ee_pos)
+        if add_noise:
+            noise_cfg = self._cfg.noise_config
+            linvel = self._obs_noise(linvel, noise_cfg.scale_linvel)
+            gyro = self._obs_noise(gyro, noise_cfg.scale_gyro)
+            gravity = self._obs_noise(gravity, noise_cfg.scale_gravity)
+            diff = self._obs_noise(diff, noise_cfg.scale_joint_angle)
+            dof_vel = self._obs_noise(dof_vel, noise_cfg.scale_joint_vel)
+            ee_local_pos = self._obs_noise(ee_local_pos, noise_cfg.scale_ee_pos)
         n = len(dof_pos)
         command = info["commands"] if info["commands"].shape[0] == n else info["commands"][:n]
         last_actions = info.get(
@@ -816,25 +832,28 @@ class Go2ArmManipLocoEnv(Go2ArmBaseEnv):
         self,
         raw_obs: np.ndarray,
         env_ids: np.ndarray | None = None,
+        *,
+        critic_raw_obs: np.ndarray | None = None,
     ) -> dict[str, np.ndarray]:
         """Update history buffers and return obs dict (with or without env_ids slice).
 
-        Actor buffer stores obs WITHOUT linvel (raw_obs[:, 3:], 72-dim) so the actor
-        cannot shortcut the estimator.  Critic buffer stores full 75-dim obs (linvel
-        at [0:3] is used as estimator supervision signal).
+        Actor buffer stores obs WITHOUT linvel (raw_obs[:, 3:], 76-dim) so the actor
+        cannot shortcut the estimator. Critic buffer stores clean full 79-dim obs
+        when a separate critic_raw_obs is provided.
         """
-        A = self._actor_one_step_dim  # 72
-        C = self._critic_one_step_dim  # 75
+        A = self._actor_one_step_dim  # 76
+        C = self._critic_one_step_dim  # 79
         H_a = self._cfg.history.num_actor_history
         H_c = self._cfg.history.num_critic_history
         actor_step = raw_obs[:, 3:] if raw_obs.ndim == 2 else raw_obs[3:]
+        critic_step = raw_obs if critic_raw_obs is None else critic_raw_obs
         if env_ids is None:
             if H_a > 1:
                 self._history_obs_buf = np.roll(self._history_obs_buf, -A, axis=1)
             self._history_obs_buf[:, -A:] = actor_step
             if H_c > 1:
                 self._history_critic_buf = np.roll(self._history_critic_buf, -C, axis=1)
-            self._history_critic_buf[:, -C:] = raw_obs
+            self._history_critic_buf[:, -C:] = critic_step
             return {
                 "obs": self._history_obs_buf.copy(),
                 "critic": self._history_critic_buf.copy(),
@@ -847,7 +866,7 @@ class Go2ArmManipLocoEnv(Go2ArmBaseEnv):
                 self._history_critic_buf[env_ids] = np.roll(
                     self._history_critic_buf[env_ids], -C, axis=1
                 )
-            self._history_critic_buf[env_ids, -C:] = raw_obs
+            self._history_critic_buf[env_ids, -C:] = critic_step
             return {
                 "obs": self._history_obs_buf[env_ids].copy(),
                 "critic": self._history_critic_buf[env_ids].copy(),
@@ -865,10 +884,31 @@ class Go2ArmManipLocoEnv(Go2ArmBaseEnv):
         ee_goal_cart: np.ndarray,
         feet_phase: np.ndarray,
     ) -> dict[str, np.ndarray]:
-        raw = self._compute_raw_obs(
-            info, linvel, gyro, gravity, dof_pos, dof_vel, ee_local_pos, ee_goal_cart, feet_phase
+        actor_raw = self._compute_raw_obs(
+            info,
+            linvel,
+            gyro,
+            gravity,
+            dof_pos,
+            dof_vel,
+            ee_local_pos,
+            ee_goal_cart,
+            feet_phase,
+            add_noise=True,
         )
-        return self._update_history(raw)
+        critic_raw = self._compute_raw_obs(
+            info,
+            linvel,
+            gyro,
+            gravity,
+            dof_pos,
+            dof_vel,
+            ee_local_pos,
+            ee_goal_cart,
+            feet_phase,
+            add_noise=False,
+        )
+        return self._update_history(actor_raw, critic_raw_obs=critic_raw)
 
     def _compute_reward(
         self,

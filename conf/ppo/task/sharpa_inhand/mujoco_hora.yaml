@@ -3,6 +3,14 @@ defaults:
   - /task/sharpa_inhand/mujoco
   - _self_
 
+interactive:
+  action_mode: policy
+  policy_obs_mode: actor
+  camera_distance: 1.5
+  camera_elevation: -20.0
+  camera_azimuth: 90.0
+  use_env_visual_model: true
+
 algo:
   algo_log_name: hora_ppo
   runtime_impl: hora_ppo

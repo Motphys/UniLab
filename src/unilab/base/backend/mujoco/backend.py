@@ -1,6 +1,7 @@
 import os
 import tempfile
 import time
+import weakref
 from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
@@ -177,13 +178,21 @@ def _apply_position_actuator_gains_to_mj_model(
     model.actuator_biasprm[actuator_ids, 2] = -kd_arr
 
 
+def _remove_temp_xml(path: str) -> None:
+    if os.path.exists(path):
+        os.remove(path)
+
+
 class _TempXmlCleanup:
     def __init__(self, path: str) -> None:
         self.path = path
+        self._finalizer = weakref.finalize(self, _remove_temp_xml, path)
 
     def cleanup(self) -> None:
-        if os.path.exists(self.path):
-            os.remove(self.path)
+        self._finalizer()
+
+    def __del__(self) -> None:
+        self.cleanup()
 
 
 @dataclass

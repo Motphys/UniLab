@@ -217,19 +217,30 @@ class Go2WalkTask(Go2BaseEnv):
     ) -> dict[str, np.ndarray]:
         noise_cfg = self._cfg.noise_config
         diff = dof_pos - self.default_angles
-        gyro = self._obs_noise(gyro, noise_cfg.scale_gyro)
-        gravity = self._obs_noise(gravity, noise_cfg.scale_gravity)
-        diff = self._obs_noise(diff, noise_cfg.scale_joint_angle)
-        dof_vel = self._obs_noise(dof_vel, noise_cfg.scale_joint_vel)
-        linvel = self._obs_noise(linvel, noise_cfg.scale_linvel)
+        noisy_gyro = self._obs_noise(gyro, noise_cfg.scale_gyro)
+        noisy_gravity = self._obs_noise(gravity, noise_cfg.scale_gravity)
+        noisy_diff = self._obs_noise(diff, noise_cfg.scale_joint_angle)
+        noisy_dof_vel = self._obs_noise(dof_vel, noise_cfg.scale_joint_vel)
         command = info["commands"]
         last_actions = info.get("current_actions", np.zeros_like(diff))
         obs = np.concatenate(
-            [gyro, -gravity, diff, dof_vel, last_actions, command, feet_phase],
+            [
+                noisy_gyro,
+                -noisy_gravity,
+                noisy_diff,
+                noisy_dof_vel,
+                last_actions,
+                command,
+                feet_phase,
+            ],
             axis=1,
             dtype=get_global_dtype(),
         )
-        critic = np.concatenate([obs, linvel], axis=1, dtype=get_global_dtype())
+        critic = np.concatenate(
+            [gyro, -gravity, diff, dof_vel, last_actions, command, feet_phase, linvel],
+            axis=1,
+            dtype=get_global_dtype(),
+        )
         return {"obs": obs, "critic": critic}
 
     def _compute_reward(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:

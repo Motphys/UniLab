@@ -263,7 +263,7 @@ This flow has three important boundaries:
 The Sharpa rotation task samples from multiple single-scale grasp caches by `scale_ids`:
 
 - The cache filename defaults are jointly determined by `grasp_cache_path` and a single scale value.
-- `scale_list: [0.5, 0.6, 0.7, 0.8]` by default corresponds to `cache/sharpa_grasp_linspace_0.5.npy`, `cache/sharpa_grasp_linspace_0.6.npy`, `cache/sharpa_grasp_linspace_0.7.npy`, `cache/sharpa_grasp_linspace_0.8.npy`.
+- `scale_list: [0.5, 0.6, 0.7, 0.8]` by default corresponds to `caches/sharpa_grasp_linspace_0.5.npy`, `caches/sharpa_grasp_linspace_0.6.npy`, `caches/sharpa_grasp_linspace_0.7.npy`, `caches/sharpa_grasp_linspace_0.8.npy`.
 - At rotation startup all cache files for `scale_list` are checked; if any is missing, it errors.
 - Each scale bucket only samples from the cache file of its own scale, avoiding mixing grasp initial states across different object scales.
 

@@ -189,26 +189,15 @@ def apply_teacher_defaults(
 
 
 def resolved_distill_runtime_cfg(cfg: DictConfig) -> DictConfig:
-    """Return stage-2 playback fields that do not depend on teacher algorithm."""
+    """Return checkpoint runtime fields needed to rebuild the student model.
+
+    Stage-2 checkpoints intentionally do not persist owner runtime settings such
+    as env, reward, or domain randomization. Replay should use the currently
+    composed owner config for those fields.
+    """
     model_cfg = OmegaConf.select(cfg, "algo.model")
     return OmegaConf.create(
         {
-            "training": {
-                "task_name": OmegaConf.select(cfg, "training.task_name"),
-                "sim_backend": OmegaConf.select(cfg, "training.sim_backend"),
-                "render_spacing": OmegaConf.select(cfg, "training.render_spacing"),
-                "cam_distance": OmegaConf.select(cfg, "training.cam_distance"),
-                "cam_elevation": OmegaConf.select(cfg, "training.cam_elevation"),
-                "cam_azimuth": OmegaConf.select(cfg, "training.cam_azimuth"),
-                "cam_lookat": OmegaConf.select(cfg, "training.cam_lookat"),
-                "cam_tracking": OmegaConf.select(cfg, "training.cam_tracking"),
-                "cam_tracking_env_idx": OmegaConf.select(cfg, "training.cam_tracking_env_idx"),
-                "cam_tracking_extra_envs": OmegaConf.select(
-                    cfg, "training.cam_tracking_extra_envs"
-                ),
-            },
-            "reward": OmegaConf.select(cfg, "reward"),
-            "env": OmegaConf.select(cfg, "env"),
             "algo": {
                 "model": (
                     OmegaConf.to_container(model_cfg, resolve=True) if model_cfg is not None else {}

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
+from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.np_env import NpEnvState
 
@@ -140,9 +141,9 @@ class AllegroRotationGrasp(AllegroRotationPPO):
         if target > 0:
             all_states = all_states[:target]
 
-        output_file = Path(self._cfg.grasp_cache_path or "cache/allegro_grasp_50k.npy")
+        output_file = Path(self._cfg.grasp_cache_path or "caches/allegro_grasp_50k.npy")
         if not output_file.is_absolute():
-            output_file = Path.cwd() / output_file
+            output_file = ASSETS_ROOT_PATH / output_file
         output_file.parent.mkdir(parents=True, exist_ok=True)
         np.save(output_file, all_states)
 

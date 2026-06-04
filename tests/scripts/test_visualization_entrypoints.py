@@ -192,20 +192,37 @@ def test_handle_command_key_maps_drive_style_keys():
     assert commander.command.tolist() == [0.0, 0.0, 0.0]
 
 
-def test_play_interactive_viewer_model_prefers_backend_visual_scene(tmp_path: Path, monkeypatch):
+def test_play_interactive_viewer_model_uses_shared_render_playback_resolver(
+    tmp_path: Path, monkeypatch
+):
     mod = _load_script("play_interactive")
     visual_xml = tmp_path / "scene.xml"
     visual_xml.write_text("<mujoco/>", encoding="utf-8")
 
     import mujoco
 
-    loaded: list[str] = []
+    loaded_binary: list[str] = []
+    resolved: dict[str, object] = {}
+    viewer_model = object()
 
-    def fake_from_xml_path(path: str):
-        loaded.append(path)
-        return object()
+    def fake_from_binary_path(path: str):
+        loaded_binary.append(path)
+        return viewer_model
 
-    monkeypatch.setattr(mujoco.MjModel, "from_xml_path", fake_from_xml_path)
+    def fake_resolve_render_play_model_files(env, *, num_envs: int, tmp_dir: str | Path):
+        resolved["env"] = env
+        resolved["num_envs"] = num_envs
+        resolved["tmp_dir"] = tmp_dir
+        output_path = Path(tmp_dir) / "model_0.mjb"
+        output_path.write_bytes(b"fake-mjb")
+        return str(output_path)
+
+    monkeypatch.setattr(mujoco.MjModel, "from_binary_path", fake_from_binary_path)
+    monkeypatch.setattr(
+        mod,
+        "resolve_render_play_model_files",
+        fake_resolve_render_play_model_files,
+    )
 
     class FakeBackend:
         scene_visual_model_file = str(visual_xml)
@@ -213,10 +230,12 @@ def test_play_interactive_viewer_model_prefers_backend_visual_scene(tmp_path: Pa
     class FakeEnv:
         _backend = FakeBackend()
 
-        def get_playback_model(self):
-            raise AssertionError("backend visual scene should be preferred")
+    env = FakeEnv()
+    model = mod._load_viewer_model(env, use_env_visual_model=False)
 
-    model = mod._load_viewer_model(FakeEnv(), use_env_visual_model=False)
-
-    assert model is not None
-    assert loaded == [str(visual_xml)]
+    assert model is viewer_model
+    assert len(loaded_binary) == 1
+    assert Path(loaded_binary[0]).name == "model_0.mjb"
+    assert resolved["env"] is env
+    assert resolved["num_envs"] == 1
+    assert Path(resolved["tmp_dir"]).name.startswith("unilab-interactive-viewer-")

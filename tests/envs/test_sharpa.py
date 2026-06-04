@@ -51,7 +51,6 @@ def test_sharpa_motrix_owner_cfg_enables_supported_dr_terms() -> None:
         1.3,
         1.4,
         1.5,
-        1.6,
     ]
     assert env_cfg_override["domain_rand"]["randomize_pd_gains"] is True
     assert env_cfg_override["domain_rand"]["randomize_friction"] is True

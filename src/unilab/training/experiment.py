@@ -461,3 +461,59 @@ def patch_rsl_rl_wandb_writer() -> None:
 
     wandb_utils.WandbSummaryWriter = PatchedWandbSummaryWriter
     setattr(wandb_utils, "_UNILAB_PATCHED", True)
+
+
+def patch_rsl_rl_resume_state() -> None:
+    """Persist + restore ``Logger.tot_time`` / ``tot_timesteps`` across resume.
+
+    Without this patch, rsl-rl's ``Logger.__init__`` writes ``tot_time = 0`` and
+    ``tot_timesteps = 0`` and ``OnPolicyRunner.load`` never refreshes them, so the
+    ``Train/mean_reward/time`` and ``Train/mean_episode_length/time`` TensorBoard
+    scalars (which use ``int(self.tot_time)`` as their step) restart from 0 on
+    every resumed run and visually overlap the original segment. See issue #441.
+
+    The patch wraps ``OnPolicyRunner.save`` / ``OnPolicyRunner.load`` to round-trip
+    a ``unilab_logger_state`` key in the saved dict. Legacy checkpoints (without
+    the key) load unchanged.
+    """
+    try:
+        from rsl_rl.runners.on_policy_runner import OnPolicyRunner
+    except Exception:
+        return
+
+    if getattr(OnPolicyRunner, "_UNILAB_RESUME_PATCHED", False):
+        return
+
+    import torch
+
+    def _patched_save(self: Any, path: str, infos: dict | None = None) -> None:
+        saved_dict = self.alg.save()
+        saved_dict["iter"] = self.current_learning_iteration
+        saved_dict["infos"] = infos
+        saved_dict["unilab_logger_state"] = {
+            "tot_time": float(getattr(self.logger, "tot_time", 0.0)),
+            "tot_timesteps": int(getattr(self.logger, "tot_timesteps", 0)),
+        }
+        torch.save(saved_dict, path)
+        self.logger.save_model(path, self.current_learning_iteration)
+
+    def _patched_load(
+        self: Any,
+        path: str,
+        load_cfg: dict | None = None,
+        strict: bool = True,
+        map_location: str | None = None,
+    ) -> Any:
+        loaded_dict = torch.load(path, weights_only=False, map_location=map_location)
+        load_iteration = self.alg.load(loaded_dict, load_cfg, strict)
+        if load_iteration:
+            self.current_learning_iteration = loaded_dict["iter"]
+        state = loaded_dict.get("unilab_logger_state")
+        if state is not None:
+            self.logger.tot_time = float(state.get("tot_time", 0.0))
+            self.logger.tot_timesteps = int(state.get("tot_timesteps", 0))
+        return loaded_dict["infos"]
+
+    OnPolicyRunner.save = _patched_save  # type: ignore[assignment]
+    OnPolicyRunner.load = _patched_load  # type: ignore[assignment]
+    OnPolicyRunner._UNILAB_RESUME_PATCHED = True  # type: ignore[attr-defined]

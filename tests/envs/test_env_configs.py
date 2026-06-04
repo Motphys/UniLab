@@ -423,6 +423,33 @@ def test_allegro_grasp_obs_groups_spec_dims():
     assert spec == {"obs": 105}
 
 
+def test_allegro_missing_grasp_cache_prints_local_generation_notice(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from unilab.envs.manipulation.allegro_inhand.rotation import (
+        AllegroRotationDomainRandomizationProvider,
+    )
+
+    missing_cache = tmp_path / "missing_allegro_cache.npy"
+    env = SimpleNamespace(
+        _grasp_cache=None,
+        _grasp_cache_loaded=False,
+        cfg=SimpleNamespace(gen_grasp=False, grasp_cache_path=str(missing_cache)),
+    )
+
+    provider = AllegroRotationDomainRandomizationProvider()
+
+    assert provider._load_grasp_cache(env) is None
+    notice = capsys.readouterr().out
+
+    assert env._grasp_cache is None
+    assert env._grasp_cache_loaded is True
+    assert str(missing_cache) in notice
+    assert "no Hugging Face download will be attempted" in notice
+    assert "uv run train --algo ppo --task allegro_inhand_grasp --sim mujoco" in notice
+    assert "env.grasp_cache_path" in notice
+
+
 def test_g1_motion_tracking_uses_combined_body_pose_query():
     """G1MotionTracking should query pos/quat via the stable combined backend API."""
     from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
