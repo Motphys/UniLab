@@ -212,7 +212,11 @@ class Go2JoystickRoughCfg(Go2JoystickCfg):
 class Go2JoystickRoughDomainRandomizationProvider(Go2JoystickDomainRandomizationProvider):
     def _sample_commands(self, env: Any, num_reset: int) -> np.ndarray:
         commands = super()._sample_commands(env, num_reset)
-        zero_small_xy_commands(commands, threshold=0.001)
+        zero_small_xy_commands(commands, threshold=0.08)
+        standing_prob = env.cfg.commands.rel_standing_envs
+        if standing_prob > 0.0:
+            standing = np.random.uniform(size=(num_reset,)) < min(standing_prob, 1.0)
+            commands[standing] = 0.0
         if env.cfg.commands.heading_command:
             commands[:, 2] = 0.0
         return commands
@@ -548,7 +552,7 @@ class Go2JoystickRoughEnv(Go2WalkTask):
                 sampled = np.random.uniform(low=low, high=high, size=(num_resample, 3)).astype(
                     get_global_dtype()
                 )
-                zero_small_xy_commands(sampled, threshold=0.001)
+                zero_small_xy_commands(sampled, threshold=0.08)
                 commands_arr[resample_mask] = sampled
                 if self._cfg.commands.heading_command:
                     heading_commands = self._ensure_heading_commands(info, commands_arr.shape[0])

@@ -45,6 +45,7 @@ env:
     resampling_time: 10.0
     heading_command: true
     heading_range: [-3.141592653589793, 3.141592653589793]
+    rel_standing_envs: 0.1
   control_config:
     action_scale: 0.25
     hip_action_scale: 0.125
