@@ -2361,6 +2361,7 @@ def test_offpolicy_rejects_algo_task_owner_mismatch(algo: str, task: str):
 
 def test_train_rsl_rl_get_log_root_uses_algo_log_name(monkeypatch: pytest.MonkeyPatch):
     """Verify _get_log_root uses algo.algo_log_name (issue #168)."""
+    monkeypatch.delenv("UNILAB_TEST_LOG_ROOT", raising=False)
     mod = _train_rsl_rl(monkeypatch)
     cfg = _ppo_cfg()
 
@@ -2374,6 +2375,7 @@ def test_train_rsl_rl_get_log_root_uses_algo_log_name(monkeypatch: pytest.Monkey
 def test_train_rsl_rl_play_missing_checkpoint_skips_env_creation_and_prints_context(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ):
+    monkeypatch.delenv("UNILAB_TEST_LOG_ROOT", raising=False)
     mod = _train_rsl_rl(monkeypatch)
     cfg = _ppo_cfg(["task=go1_joystick_flat/mujoco", "training.play_only=true"])
     cfg.algo.algo_log_name = "custom_ppo"
@@ -2406,6 +2408,7 @@ def test_train_rsl_rl_play_missing_checkpoint_skips_env_creation_and_prints_cont
 def test_train_rsl_rl_play_reports_missing_requested_checkpoint_in_resolved_run(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ):
+    monkeypatch.delenv("UNILAB_TEST_LOG_ROOT", raising=False)
     mod = _train_rsl_rl(monkeypatch)
     cfg = _ppo_cfg(["task=go1_joystick_flat/mujoco", "training.play_only=true"])
     cfg.algo.algo_log_name = "custom_ppo"
@@ -2618,8 +2621,9 @@ def test_train_rsl_rl_record_play_uses_backend_plan(
     assert captured["output_video"] == run_dir / "play_video.mp4"
 
 
-def test_train_appo_get_log_root_uses_algo_log_name():
+def test_train_appo_get_log_root_uses_algo_log_name(monkeypatch: pytest.MonkeyPatch):
     """Verify APPO _get_log_root uses algo.algo_log_name (issue #168)."""
+    monkeypatch.delenv("UNILAB_TEST_LOG_ROOT", raising=False)
     mod = _train_appo()
     cfg = _appo_cfg()
 
@@ -2629,8 +2633,11 @@ def test_train_appo_get_log_root_uses_algo_log_name():
     assert "logs/test_appo" in log_root
 
 
-def test_play_resolve_checkpoint_uses_algo_log_name(tmp_path):
+def test_play_resolve_checkpoint_uses_algo_log_name(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
     """Verify play_interactive.resolve_checkpoint uses algo_log_name (issue #168)."""
+    monkeypatch.delenv("UNILAB_TEST_LOG_ROOT", raising=False)
     mod = _play_interactive()
 
     # Create test directory structure with custom algo_log_name

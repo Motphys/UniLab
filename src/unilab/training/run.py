@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import os
 from os import PathLike
 from pathlib import Path
 
 from omegaconf import DictConfig, OmegaConf
 
 from unilab.base.backend.base import BackendPlayRenderPlan, normalize_play_render_mode
+
+_TEST_LOG_ROOT_ENV = "UNILAB_TEST_LOG_ROOT"
 
 
 def should_run_playback(*, play_only: bool, no_play: bool, play_render_mode: str | None) -> bool:
@@ -38,6 +41,9 @@ def get_log_root(root_dir: str | Path, cfg: DictConfig) -> Path:
     if configured_root:
         log_root = Path(str(configured_root))
         return log_root if log_root.is_absolute() else Path(root_dir) / log_root
+    test_log_root = os.environ.get(_TEST_LOG_ROOT_ENV)
+    if test_log_root:
+        return Path(test_log_root) / str(OmegaConf.select(cfg, "algo.algo_log_name"))
     return Path(root_dir) / "logs" / str(OmegaConf.select(cfg, "algo.algo_log_name"))
 
 
@@ -53,6 +59,9 @@ def get_entrypoint_log_root(
         return (
             configured_root if configured_root.is_absolute() else Path(root_dir) / configured_root
         )
+    test_log_root = os.environ.get(_TEST_LOG_ROOT_ENV)
+    if test_log_root:
+        return Path(test_log_root) / algo_log_name
     return Path(root_dir) / "logs" / algo_log_name
 
 
