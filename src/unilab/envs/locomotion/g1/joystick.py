@@ -524,7 +524,7 @@ class G1WalkEnv(G1BaseEnv):
         )
 
     def _reward_feet_phase(self, ctx: RewardContext):
-        """步态相位奖励：鼓励正确的摆动腿高度"""
+        """Reward gait phase tracking by encouraging the expected swing-foot height."""
         left_foot = self._backend.get_sensor_data("left_foot_pos")
         right_foot = self._backend.get_sensor_data("right_foot_pos")
         gait_phase = ctx.info.get(
@@ -650,7 +650,7 @@ class G1WalkControlConfig:
 
 @dataclass
 class G1WalkRewardConfig(G1RewardConfig):
-    """对齐 holosoma G1 walking 奖励权重。"""
+    """Align reward weights with holosoma G1 walking."""
 
 
 @registry.envcfg("G1WalkFlat")

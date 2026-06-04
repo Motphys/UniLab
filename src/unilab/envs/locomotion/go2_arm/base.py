@@ -60,8 +60,8 @@ class ControlConfig(ControlConfigBase):
     arm_kd: float | list[float] | None = field(
         default_factory=lambda: [3.5, 3.8, 2.5, 1.5, 1.5, 1.5]
     )
-    # 机械臂动作缩放（独立于腿部 action_scale），IK 已提供主要控制，
-    # policy 仅做残差修正，设小值防止早期随机输出压过 IK
+    # Arm residual action scale, independent from leg action_scale. IK provides
+    # the primary control, so policy output stays small early in training.
     arm_action_scale: float = 0.0
 
 

@@ -60,7 +60,7 @@ def test_get_joint_dof_pos_indices(backend):
     indices = backend.get_joint_dof_pos_indices(list(ARM_JOINT_NAMES))
     assert indices.shape == (6,)
     assert indices.dtype == np.int32
-    # 所有索引在合法 dof_pos 范围内
+    # All indices must stay within the valid dof_pos range.
     assert np.all(indices >= 0)
     assert np.all(indices < backend._num_dof_pos)
 
@@ -85,7 +85,7 @@ def test_get_site_jacobian_shape(backend):
 
 @pytest.mark.slow
 def test_get_site_jacobian_matches_serial(backend):
-    """并行结果与串行逐 env 计算一致（差值 < 1e-6）。"""
+    """Parallel results must match serial per-env computation within 1e-6."""
     import mujoco
 
     site_ids = backend.get_site_ids([EE_SITE_NAME])
@@ -94,7 +94,7 @@ def test_get_site_jacobian_matches_serial(backend):
 
     jacp_par, jacr_par = backend.get_site_jacobian_w(site_id, dof_indices)
 
-    # 串行参考
+    # Serial reference.
     jacp_ser = np.zeros((NUM_ENVS, 3, 6), dtype=np.float64)
     jacr_ser = np.zeros((NUM_ENVS, 3, 6), dtype=np.float64)
     for env_idx in range(NUM_ENVS):

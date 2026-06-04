@@ -33,8 +33,22 @@ make sync-xpu
   长期逻辑上移到对应 owner 层或 `src/unilab/base/`。
 - 模块命名表达 owner 职责：默认使用单数名词；只有当语义本身就是集合契约时才用
   复数；工厂模块使用 `_factory` 后缀。
+- 代码注释、公共 API docstring、内部实现说明、TODO/FIXME 与配置注释默认使用
+  英文。中文说明放在 `docs/sphinx/source/zh_CN/` 下的中文文档中，不在源码注释或
+  配置注释中重复本地化说明。
 - 当改动影响用户可见工作流时，保持 `README.md`、`CONTRIBUTING.md`，以及
   `docs/sphinx/source/en/` 与 `docs/sphinx/source/zh_CN/` 下对应页面同步。
+
+## 注释语言规范
+
+- 公共 API docstring 必须用英文描述 contract、参数、返回值与边界条件。
+- inline comment 用英文解释非显而易见的实现意图、owner 边界，或
+  backend/env/config 不变量；过时注释应删除，而不是机械翻译。
+- TODO/FIXME 使用英文，并尽量写明后续处理所属的 owner layer 或外部依赖。
+- Hydra YAML 与示例配置注释使用英文，因为它们与源码 contract 一起 review。
+- 已存在的中英文混用注释按小 PR 分批迁移。优先级为公共 contract、backend
+  adapter、env contract、training runner、config schema 和高频测试，再处理低风险
+  示例。
 
 ## 常用命令
 

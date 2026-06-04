@@ -522,10 +522,11 @@ def inject_mujoco_tracking_sensors(
     model_file: str,
     baselink_name: str | None = None,
 ) -> tuple[str, list, list]:
-    """为 MuJoCo 后端注入 tracking sensors。
+    """Inject tracking sensors for the MuJoCo backend.
 
-    注入所有 body 的世界系 (_w) sensors；若指定 baselink_name，
-    同时注入相对 baselink 坐标系的 (_b) sensors。
+    The generated sensors track every body in the world frame (``_w``). When
+    ``baselink_name`` is provided, sensors in the baselink-relative frame
+    (``_b``) are added as well.
 
     Returns:
         (tmp_xml_path, tracked_body_ids, valid_bnames)
@@ -584,27 +585,28 @@ def processed_xml(xml_path):
 
 
 def add_sensor(root, sensor_type, name, **kwargs):
-    """
-    在 MuJoCo XML 的 sensor 节点下添加传感器的通用函数。
+    """Add a sensor child under the MuJoCo XML ``<sensor>`` node.
 
-    参数:
-    - root: XML 的根节点
-    - sensor_type: 传感器标签名 (如 'gyro', 'contact', 'framepos')
-    - name: 传感器的 name 属性
-    - **kwargs: 其他任意属性 (如 site='imu', geom1='floor' 等)
+    Args:
+        root: XML root node.
+        sensor_type: Sensor tag name, such as ``"gyro"``, ``"contact"``, or
+            ``"framepos"``.
+        name: Sensor ``name`` attribute.
+        **kwargs: Additional XML attributes such as ``site="imu"`` or
+            ``geom1="floor"``.
     """
-    # 1. 查找或创建 <sensor> 标签
+    # Find or create the <sensor> node.
     sensor_element = root.find("sensor")
     if sensor_element is None:
         sensor_element = ET.SubElement(root, "sensor")
 
-    # 2. 创建具体的传感器子节点
+    # Create the concrete sensor node.
     sensor = ET.SubElement(sensor_element, sensor_type)
 
-    # 3. 设置必选的 name 属性
+    # Set the required name attribute.
     sensor.set("name", name)
 
-    # 4. 循环设置其他传入的属性
+    # Set any extra attributes passed by the caller.
     for key, value in kwargs.items():
         sensor.set(key, str(value))
 

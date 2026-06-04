@@ -265,7 +265,7 @@ def _build_mujoco_scene_context(scene: SceneCfg) -> _MuJoCoSceneContext:
 
 
 class MuJoCoBackend(SimBackend):
-    """MuJoCo 后端实现"""
+    """MuJoCo backend implementation."""
 
     def __init__(
         self,
@@ -313,14 +313,14 @@ class MuJoCoBackend(SimBackend):
         self.backend_type = "mujoco"
         self._pending_xfrc_applied = np.zeros((num_envs, 6 * self._model.nbody), dtype=np.float64)
 
-        # 线程配置
+        # Thread configuration.
         self._n_threads = min(num_envs, cpu_count() * 2)
 
         self._model_variants: tuple[mujoco.MjModel, ...] = (self._model,)
         self._model_assignments = np.zeros((num_envs,), dtype=np.int32)
         self._pool: BatchEnvPool | None = None
 
-        # 索引
+        # State indices.
         self.nq = self._model.nq
         self.nv = self._model.nv
         self._idx_qpos = 1
@@ -329,14 +329,14 @@ class MuJoCoBackend(SimBackend):
         self._num_dof_pos = self.nq - self._root_qpos_dim
         self._num_dof_vel = self.nv - self._root_qvel_dim
 
-        # 状态存储
+        # State storage.
         nstate = mujoco.mj_stateSize(self._model, mujoco.mjtState.mjSTATE_FULLPHYSICS)
         self._physics_state = np.zeros((num_envs, nstate), dtype=self._np_dtype)
-        # 用模型默认 qpos（含 identity 四元数）初始化所有环境
+        # Initialize all envs with the model default qpos, including identity quaternions.
         self._physics_state[:, self._idx_qpos : self._idx_qpos + self._model.nq] = self._model.qpos0
         self._sensor_data = np.zeros((num_envs, self._model.nsensordata), dtype=self._np_dtype)
 
-        # 缓存视图
+        # Cached views.
         self._dof_pos_view = self._physics_state[
             :, self._idx_qpos + self._root_qpos_dim : self._idx_qpos + self.nq
         ]
@@ -365,7 +365,7 @@ class MuJoCoBackend(SimBackend):
             self._base_lin_vel_view = np.zeros((num_envs, 3), dtype=self._np_dtype)
             self._base_ang_vel_view = np.zeros((num_envs, 3), dtype=self._np_dtype)
 
-        # 传感器索引
+        # Sensor indices.
         self._sensor_indices = {}
         self._sensor_views = {}
         for i in range(self._model.nsensor):
@@ -376,7 +376,7 @@ class MuJoCoBackend(SimBackend):
                 self._sensor_indices[name] = list(range(adr, adr + dim))
                 self._sensor_views[name] = self._sensor_data[:, adr : adr + dim]
 
-        # 针对追踪身体传感器的零拷贝视图映射
+        # Zero-copy view mapping for tracked-body sensors.
         if self.add_body_sensors and self._valid_bnames:
 
             def _get_sensor_view(prefix, dim):
@@ -1154,10 +1154,11 @@ class MuJoCoBackend(SimBackend):
         site_id: int,
         dof_indices: np.ndarray,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """批量 Jacobian，shape (num_envs, 3, len(dof_indices))。
+        """Return batched Jacobians with shape ``(num_envs, 3, len(dof_indices))``.
 
-        使用 BatchEnvPool.compute_site_jacobians 原生接口，无需每 env 独立 MjData。
-        scalar site_id → pool 返回 (N, 3, nv)（k 维被 squeeze）。
+        This uses the native ``BatchEnvPool.compute_site_jacobians`` API, so it
+        does not allocate one ``MjData`` per env. For a scalar ``site_id``, the
+        pool returns ``(N, 3, nv)`` because the site dimension is squeezed.
         """
         dof_indices = np.asarray(dof_indices, dtype=np.int32).reshape(-1)
         jp, jr = self._pool.compute_site_jacobians(  # type: ignore[union-attr]

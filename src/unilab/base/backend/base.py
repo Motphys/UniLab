@@ -56,7 +56,7 @@ def normalize_play_render_mode(play_render_mode: str | None) -> str:
 
 
 class SimBackend(abc.ABC):
-    """仿真后端统一接口"""
+    """Unified simulation backend contract."""
 
     _pre_step_control_fn: PreStepControlFn | None
     _scene_cleanup_handle: Any | None
@@ -69,12 +69,12 @@ class SimBackend(abc.ABC):
     @property
     @abc.abstractmethod
     def num_envs(self) -> int:
-        """环境数量"""
+        """Number of vectorized environments."""
 
     @property
     @abc.abstractmethod
     def model(self):
-        """底层物理模型"""
+        """Underlying physics model."""
 
     # ------------------------------------------------------------------ #
     # Model properties                                                     #
@@ -83,30 +83,30 @@ class SimBackend(abc.ABC):
     @property
     @abc.abstractmethod
     def num_actuators(self) -> int:
-        """执行器数量"""
+        """Number of actuators."""
 
     @property
     @abc.abstractmethod
     def num_dof_vel(self) -> int:
-        """关节速度自由度数量（不含浮动基座）"""
+        """Number of joint velocity DoFs, excluding the floating base."""
 
     @abc.abstractmethod
     def get_actuator_ctrl_range(self) -> np.ndarray:
-        """获取执行器控制范围
+        """Return actuator control ranges.
 
         Returns:
-            (num_actuators, 2) 数组，列为 [low, high]
+            Array with shape ``(num_actuators, 2)`` and columns ``[low, high]``.
         """
 
     @abc.abstractmethod
     def get_keyframe_qpos(self, name: str) -> np.ndarray:
-        """获取指定关键帧的完整 qpos（含浮动基座）
+        """Return the full qpos for a named keyframe, including the floating base.
 
         Args:
-            name: 关键帧名称（如 "stand"、"home"）
+            name: Keyframe name such as ``"stand"`` or ``"home"``.
 
         Returns:
-            (nq,) 数组
+            Array with shape ``(nq,)``.
         """
 
     def get_default_qpos(self) -> np.ndarray:
@@ -115,24 +115,24 @@ class SimBackend(abc.ABC):
 
     @abc.abstractmethod
     def get_init_qvel(self) -> np.ndarray:
-        """获取零初始化的 qvel 向量，维度与 set_state 期望一致
+        """Return a zero-initialized qvel vector compatible with ``set_state``.
 
         Returns:
-            全零数组
+            Zero-filled qvel array.
         """
 
     @abc.abstractmethod
     def get_body_ids(self, names: Sequence[str]) -> np.ndarray:
-        """将 body/link 名称解析为后端整数 ID
+        """Resolve body/link names to backend integer IDs.
 
         Args:
-            names: body/link 名称序列
+            names: Body/link names.
 
         Returns:
-            (len(names),) int32 数组
+            ``int32`` array with shape ``(len(names),)``.
 
         Raises:
-            ValueError: 若名称未找到
+            ValueError: If any name is not found.
         """
 
     def get_body_id(self, name: str) -> int:
@@ -220,10 +220,11 @@ class SimBackend(abc.ABC):
 
     @abc.abstractmethod
     def get_joint_range(self) -> np.ndarray | None:
-        """获取关节位置限制（不含浮动基座）
+        """Return joint position limits, excluding the floating base.
 
         Returns:
-            (num_dof, 2) 数组，列为 [low, high]；若后端不支持则返回 None
+            Array with shape ``(num_dof, 2)`` and columns ``[low, high]``, or
+            ``None`` when the backend does not expose limits.
         """
 
     # ------------------------------------------------------------------ #
@@ -232,14 +233,15 @@ class SimBackend(abc.ABC):
 
     @abc.abstractmethod
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> dict | None:
-        """执行物理步进
+        """Advance physics.
 
         Args:
-            ctrl: 控制输入 (num_envs, nu)
-            nsteps: 步进次数
+            ctrl: Control input with shape ``(num_envs, nu)``.
+            nsteps: Number of physics substeps.
 
         Returns:
-            可选的 dict，可包含 "timing" key 记录各阶段耗时（ms）
+            Optional dictionary. Backends may include a ``"timing"`` key with
+            per-phase timings in milliseconds.
         """
 
     def set_pre_step_control(self, fn: PreStepControlFn | None) -> None:
@@ -270,13 +272,13 @@ class SimBackend(abc.ABC):
         qvel: np.ndarray,
         randomization: ResetRandomizationPayload | None = None,
     ) -> None:
-        """设置指定环境的物理状态
+        """Set physics state for selected environments.
 
         Args:
-            env_indices: 环境索引
-            qpos: 位置状态
-            qvel: 速度状态
-            randomization: 可选的后端随机化 payload
+            env_indices: Environment indices.
+            qpos: Position state.
+            qvel: Velocity state.
+            randomization: Optional backend randomization payload.
         """
 
     @abc.abstractmethod
@@ -428,7 +430,7 @@ class SimBackend(abc.ABC):
 
     @abc.abstractmethod
     def get_base_pos(self) -> np.ndarray:
-        """获取 base 在世界系下的位置
+        """Return base position in the world frame.
 
         Returns:
             (num_envs, 3)
@@ -436,7 +438,7 @@ class SimBackend(abc.ABC):
 
     @abc.abstractmethod
     def get_base_quat(self) -> np.ndarray:
-        """获取 base 在世界系下的四元数（wxyz）
+        """Return base quaternion in the world frame as ``wxyz``.
 
         Returns:
             (num_envs, 4)
@@ -444,9 +446,10 @@ class SimBackend(abc.ABC):
 
     @abc.abstractmethod
     def get_base_lin_vel(self) -> np.ndarray:
-        """获取 base 在世界系下的线速度
+        """Return base linear velocity in the world frame.
 
-        即广义速度 qvel 的前 3 维，表达在世界坐标系中。
+        This is the first three dimensions of generalized velocity ``qvel``,
+        expressed in world coordinates.
 
         Returns:
             (num_envs, 3)
@@ -454,12 +457,13 @@ class SimBackend(abc.ABC):
 
     @abc.abstractmethod
     def get_base_ang_vel(self) -> np.ndarray:
-        """获取 base 在世界系下的角速度
+        """Return base angular velocity in the world frame.
 
-        即广义速度 qvel 的第 3-5 维，表达在世界坐标系中。
-        注意与陀螺仪（gyro）读数的区别：陀螺仪返回的是角速度在 body/sensor
-        局部坐标系下的分量（即 body frame 表达），而本接口返回的是世界系表达。
-        若需要 body frame 下的角速度，请使用对应的传感器接口gyro。
+        This is dimensions 3-5 of generalized velocity ``qvel``, expressed in
+        world coordinates. It differs from gyro readings: gyro sensors report
+        angular velocity components in the body/sensor local frame, while this
+        contract returns world-frame values. Use the matching sensor contract
+        when body-frame angular velocity is required.
 
         Returns:
             (num_envs, 3)
@@ -471,7 +475,7 @@ class SimBackend(abc.ABC):
 
     @abc.abstractmethod
     def get_dof_pos(self) -> np.ndarray:
-        """获取关节位置（不含 base）
+        """Return joint positions, excluding the base.
 
         Returns:
             (num_envs, num_dof)
@@ -479,7 +483,7 @@ class SimBackend(abc.ABC):
 
     @abc.abstractmethod
     def get_dof_vel(self) -> np.ndarray:
-        """获取关节速度（不含 base）
+        """Return joint velocities, excluding the base.
 
         Returns:
             (num_envs, num_dof)
@@ -491,10 +495,10 @@ class SimBackend(abc.ABC):
 
     @abc.abstractmethod
     def get_body_pos_w(self, body_ids: np.ndarray) -> np.ndarray:
-        """获取指定 body 在世界系下的位置
+        """Return selected body positions in the world frame.
 
         Args:
-            body_ids: body 索引数组
+            body_ids: Body ID array.
 
         Returns:
             (num_envs, len(body_ids), 3)
@@ -502,40 +506,40 @@ class SimBackend(abc.ABC):
 
     @abc.abstractmethod
     def get_body_quat_w(self, body_ids: np.ndarray) -> np.ndarray:
-        """获取指定 body 在世界系下的四元数（wxyz）
+        """Return selected body quaternions in the world frame as ``wxyz``.
 
         Args:
-            body_ids: body 索引数组
+            body_ids: Body ID array.
 
         Returns:
             (num_envs, len(body_ids), 4)
         """
 
     def get_body_pose_w(self, body_ids: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """获取指定 body 在世界系下的位置和四元数（wxyz）"""
+        """Return selected body positions and quaternions in the world frame."""
         return self.get_body_pos_w(body_ids), self.get_body_quat_w(body_ids)
 
     @abc.abstractmethod
     def get_body_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
-        """获取指定 body 在世界系下的线速度
+        """Return selected body linear velocities in the world frame.
 
         Args:
-            body_ids: body 索引数组
+            body_ids: Body ID array.
 
         Returns:
             (num_envs, len(body_ids), 3)
         """
 
     def get_body_vel_w(self, body_ids: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """获取指定 body 在世界系下的线速度和角速度"""
+        """Return selected body linear and angular velocities in the world frame."""
         return self.get_body_lin_vel_w(body_ids), self.get_body_ang_vel_w(body_ids)
 
     @abc.abstractmethod
     def get_body_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
-        """获取指定 body 在世界系下的角速度
+        """Return selected body angular velocities in the world frame.
 
         Args:
-            body_ids: body 索引数组
+            body_ids: Body ID array.
 
         Returns:
             (num_envs, len(body_ids), 3)
@@ -581,10 +585,10 @@ class SimBackend(abc.ABC):
 
     @abc.abstractmethod
     def get_body_pos_b(self, body_ids: np.ndarray) -> np.ndarray:
-        """获取指定 body 在 baselink 系下的位置
+        """Return selected body positions in the baselink frame.
 
         Args:
-            body_ids: body 索引数组
+            body_ids: Body ID array.
 
         Returns:
             (num_envs, len(body_ids), 3)
@@ -592,10 +596,10 @@ class SimBackend(abc.ABC):
 
     @abc.abstractmethod
     def get_body_quat_b(self, body_ids: np.ndarray) -> np.ndarray:
-        """获取指定 body 在 baselink 系下的四元数（wxyz）
+        """Return selected body quaternions in the baselink frame as ``wxyz``.
 
         Args:
-            body_ids: body 索引数组
+            body_ids: Body ID array.
 
         Returns:
             (num_envs, len(body_ids), 4)
@@ -603,10 +607,10 @@ class SimBackend(abc.ABC):
 
     @abc.abstractmethod
     def get_body_lin_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
-        """获取指定 body 在 baselink 系下的线速度
+        """Return selected body linear velocities in the baselink frame.
 
         Args:
-            body_ids: body 索引数组
+            body_ids: Body ID array.
 
         Returns:
             (num_envs, len(body_ids), 3)
@@ -614,10 +618,10 @@ class SimBackend(abc.ABC):
 
     @abc.abstractmethod
     def get_body_ang_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
-        """获取指定 body 在 baselink 系下的角速度
+        """Return selected body angular velocities in the baselink frame.
 
         Args:
-            body_ids: body 索引数组
+            body_ids: Body ID array.
 
         Returns:
             (num_envs, len(body_ids), 3)
@@ -628,50 +632,53 @@ class SimBackend(abc.ABC):
     # ------------------------------------------------------------------ #
 
     def get_site_ids(self, names: Sequence[str]) -> np.ndarray:
-        """将 site 名称列表转换为整数 ID 数组。
+        """Resolve site names to integer ID arrays.
 
         Args:
-            names: site 名称列表
+            names: Site names.
 
         Returns:
-            shape (len(names),) 的 int32 ID 数组
+            ``int32`` ID array with shape ``(len(names),)``.
         """
         raise NotImplementedError(f"{type(self).__name__} does not implement get_site_ids")
 
     def get_joint_dof_indices(self, names: Sequence[str]) -> np.ndarray:
-        """将关节名称列表转换为速度空间（qvel）的 DoF 索引数组。
+        """Resolve joint names to DoF indices in velocity space (qvel).
 
         Args:
-            names: 关节名称列表
+            names: Joint names.
 
         Returns:
-            shape (len(names),) 的 int32 索引数组（相对于 qvel 起始位置）
+            ``int32`` index array with shape ``(len(names),)`` relative to
+            the qvel start.
         """
         raise NotImplementedError(f"{type(self).__name__} does not implement get_joint_dof_indices")
 
     def get_joint_dof_pos_indices(self, names: Sequence[str]) -> np.ndarray:
-        """将关节名称列表转换为位置空间（qpos）的 DoF 索引数组。
+        """Resolve joint names to DoF indices in position space (qpos).
 
-        仅支持单自由度关节（非 free joint）。
+        Only single-DoF joints are supported; free joints are excluded.
 
         Args:
-            names: 关节名称列表
+            names: Joint names.
 
         Returns:
-            shape (len(names),) 的 int32 索引数组（相对于 qpos 中关节部分的起始位置）
+            ``int32`` index array with shape ``(len(names),)`` relative to
+            the joint section of qpos.
         """
         raise NotImplementedError(
             f"{type(self).__name__} does not implement get_joint_dof_pos_indices"
         )
 
     def get_joint_dof_vel_indices(self, names: Sequence[str]) -> np.ndarray:
-        """将关节名称列表转换为速度空间（qvel）的 DoF 索引数组（相对于关节部分起始）。
+        """Resolve joint names to DoF indices in velocity space (qvel).
 
         Args:
-            names: 关节名称列表
+            names: Joint names.
 
         Returns:
-            shape (len(names),) 的 int32 索引数组
+            ``int32`` index array with shape ``(len(names),)`` relative to
+            the joint section start.
         """
         raise NotImplementedError(
             f"{type(self).__name__} does not implement get_joint_dof_vel_indices"
@@ -682,14 +689,15 @@ class SimBackend(abc.ABC):
         site_id: int,
         dof_indices: np.ndarray,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """批量计算指定 site 相对于指定 DoF 列的世界系 Jacobian。
+        """Compute world-frame Jacobians for one site and selected DoF columns.
 
         Args:
-            site_id: site 整数 ID
-            dof_indices: 要提取的 DoF 列索引，shape (n_dof,)
+            site_id: Integer site ID.
+            dof_indices: DoF column indices to extract, with shape ``(n_dof,)``.
 
         Returns:
-            (jacp, jacr)，各为 shape (num_envs, 3, n_dof) 的平移/旋转 Jacobian
+            ``(jacp, jacr)`` translation/rotation Jacobians, each with shape
+            ``(num_envs, 3, n_dof)``.
         """
         raise NotImplementedError(f"{type(self).__name__} does not implement get_site_jacobian_w")
 
@@ -699,13 +707,13 @@ class SimBackend(abc.ABC):
 
     @abc.abstractmethod
     def get_sensor_data(self, name: str) -> np.ndarray:
-        """获取传感器数据
+        """Return sensor data.
 
         Args:
-            name: 传感器名称
+            name: Sensor name.
 
         Returns:
-            传感器数据数组
+            Sensor data array.
         """
 
     def get_sensor_data_rows(self, name: str, env_ids: np.ndarray) -> np.ndarray:

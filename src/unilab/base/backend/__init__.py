@@ -42,17 +42,18 @@ def create_backend(
     sim_dt: float,
     **kwargs,
 ) -> SimBackend:
-    """创建仿真后端
+    """Create a simulation backend.
 
     Args:
-        backend_type: "mujoco" 或 "motrix"
-        scene: SceneCfg，静态 scene 或组合式 scene 都通过这个 contract 表达
-        num_envs: 环境数量
-        sim_dt: 仿真时间步长
-        **kwargs: 其他参数（position_actuator_gains, motrix_max_iterations 等）
+        backend_type: ``"mujoco"`` or ``"motrix"``.
+        scene: SceneCfg for either static or composed scenes.
+        num_envs: Number of environments.
+        sim_dt: Simulation timestep.
+        **kwargs: Additional backend options such as ``position_actuator_gains``
+            or ``motrix_max_iterations``.
 
     Returns:
-        SimBackend 实例
+        SimBackend instance.
     """
     if scene is None:
         raise ValueError("SceneCfg must be provided")

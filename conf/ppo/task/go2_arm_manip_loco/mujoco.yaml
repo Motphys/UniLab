@@ -25,17 +25,17 @@ reward:
     ang_vel_xy: -0.1
     roll: -5.0 #-2.0
     # locomotion: height / pose
-    base_height: -100 #-20.0   # go2+arm 躯干振荡更大（有机械臂质量），-100 会与步态产生对抗
-    similar_to_default: -0.0   # 对齐 Go2 Joystick（L1）
-    leg_pose: -0.1              # 保留但不使用（被 similar_to_default 替代）
-    dof_pos_limits: 0.0        # 保留但不使用（未配置软限位）
+    base_height: -100 #-20.0   # Go2+arm body oscillates more with arm mass; -100 conflicts with gait.
+    similar_to_default: -0.0   # Align with Go2 Joystick (L1).
+    leg_pose: -0.1              # Kept but unused; replaced by similar_to_default.
+    dof_pos_limits: 0.0        # Kept but unused; soft limits are not configured.
     # locomotion: effort penalties
     action_rate: -0.005
-    torques: 0.0               # 保留但不使用（backend 未提供 torques）
-    energy: 0.0                # 保留但不使用
-    dof_vel: 0.0               # 保留但不使用
-    dof_acc: 0.0               # 保留但不使用
-    # locomotion: gait（对齐 Go2 Joystick）
+    torques: 0.0               # Kept but unused; backend does not expose torques.
+    energy: 0.0                # Kept but unused.
+    dof_vel: 0.0               # Kept but unused.
+    dof_acc: 0.0               # Kept but unused.
+    # locomotion: gait, aligned with Go2 Joystick
     stand_still: -0.5
     contact: 0.24
     swing_feet_z: 4.0
@@ -73,15 +73,15 @@ env:
     gain: 1.0
     dq_clip: 0.2
     use_orientation: true
-    orientation_mode: target  # target: 跟踪采样姿态；zero_error: 用 Jrot 约束姿态变化但不追姿态
+    orientation_mode: target  # target: track sampled orientation; zero_error: constrain orientation change through Jrot without tracking orientation.
   commands:
     vel_limit:
-      - [-0.6, -0.4, -0.8]   # 对齐 Go2 Joystick 默认范围
+      - [-0.6, -0.4, -0.8]   # Align with the default Go2 Joystick range.
       - [1.0, 0.4, 0.8]
-    zero_command_prob: 0.15  # 显式采样 command=0，训练稳定站立
-    resample_time_s: 4.0   # 不设置表示 null，不做中途重采样（对齐 Joystick）
+    zero_command_prob: 0.15  # Explicitly sample command=0 for stable standing.
+    resample_time_s: 4.0   # Omit for null, which disables mid-episode resampling and matches Joystick.
   curriculum:
-    enable: false             # 对齐 Joystick（无课程学习）
+    enable: false             # Align with Joystick; no curriculum.
   domain_rand:
     randomize_base_mass: false
     added_mass_range: [-1.0, 1.0]
