@@ -1,7 +1,7 @@
 <mujoco model="go2">
   <compiler angle="radian" meshdir="assets" autolimits="true"/>
 
-  <option cone="elliptic" impratio="100" ccd_iterations="500" timestep="0.02"/>
+  <option cone="elliptic" impratio="100" ccd_iterations="500" timestep="0.01"/>
 
   <default>
     <default class="go2">
@@ -30,8 +30,9 @@
         <geom group="3" contype="1" conaffinity="2"
           friction="0 0 0" margin="0.001" condim="1" solref="0.01 1"/>
         <default class="foot">
-          <geom size="0.022" pos="-0.002 0 -0.213" priority="1"
-            margin="0.005" condim="6" solref="0.01 1" friction="0.4 0.02 0.01"/>
+          <geom type="sphere" size="0.022" pos="-0.002 0 -0.213" priority="1"
+            solref="0.01 1" solimp="0.015 1 0.023" margin="0.005" condim="6" 
+            friction="0.4 0.02 0.01"/>
         </default>
       </default>
     </default>
