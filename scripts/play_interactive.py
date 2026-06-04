@@ -73,6 +73,10 @@ from unilab.visualization.interactive_playback import (
 _KEY_ENTER, _KEY_KP_ENTER = 257, 335
 _KEY_BACKSPACE = 259
 _KEY_RIGHT, _KEY_LEFT, _KEY_DOWN, _KEY_UP = 262, 263, 264, 265
+_COMMAND_OBS_VERIFY_COMMAND = np.array([0.37, -0.23, 0.19], dtype=np.float64)
+_DEFAULT_CAMERA_DISTANCE = 2.0
+_TERRAIN_FOLLOW_CAMERA_DISTANCE = 3.0
+_FOLLOW_CAMERA_MAX_DISTANCE = 6.0
 
 ensure_registries()
 
@@ -128,6 +132,12 @@ class PlayInteractiveArgs:
     keyboard: bool = False
     keyboard_step_lin: float = 0.1
     keyboard_step_ang: float = 0.2
+    require_keyboard_command_obs: bool = True
+    show_velocity_arrows: bool = False
+    velocity_arrow_height: float = 0.55
+    velocity_arrow_scale: float = 0.45
+    velocity_arrow_width: float = 0.025
+    velocity_arrow_lateral_offset: float = 0.08
     algo: str = "ppo"
 
 
@@ -179,13 +189,15 @@ def _algo_config_dict(cfg: DictConfig | None) -> dict[str, Any]:
     return cast(dict[str, Any], train_cfg_raw)
 
 
-SUPPORTED_INTERACTIVE_ALGOS = ("ppo", "appo", "sac", "hora_distill")
+SUPPORTED_INTERACTIVE_ALGOS = ("ppo", "appo", "sac", "flashsac", "hora_distill")
 _CONFIG_ROOT_BY_ALGO = {
     "ppo": "ppo",
     "appo": "appo",
     "sac": "offpolicy",
+    "flashsac": "offpolicy",
     "hora_distill": "hora_distill",
 }
+_OFFPOLICY_INTERACTIVE_ALGOS = {"sac", "flashsac"}
 
 
 def _extract_interactive_algo(argv: Sequence[str]) -> tuple[str, list[str]]:
@@ -230,19 +242,21 @@ def _normalize_interactive_overrides(algo: str, overrides: list[str]) -> list[st
 
     for override in overrides:
         key = _override_key(override)
-        if algo == "sac" and key == "algo":
+        if algo in _OFFPOLICY_INTERACTIVE_ALGOS and key == "algo":
             value = override.split("=", 1)[1] if "=" in override else ""
-            if value != "sac":
-                raise SystemExit("--algo sac cannot be combined with a non-SAC Hydra algo group.")
+            if value != algo:
+                raise SystemExit(
+                    f"--algo {algo} cannot be combined with a non-{algo} Hydra algo group."
+                )
             has_algo_group = True
-        if algo == "sac" and key == "task" and "=" in override:
+        if algo in _OFFPOLICY_INTERACTIVE_ALGOS and key == "task" and "=" in override:
             value = override.split("=", 1)[1]
-            if not value.startswith("sac/"):
-                override = f"task=sac/{value}"
+            if not value.startswith(f"{algo}/"):
+                override = f"task={algo}/{value}"
         normalized.append(override)
 
-    if algo == "sac" and not has_algo_group:
-        normalized.insert(0, "algo=sac")
+    if algo in _OFFPOLICY_INTERACTIVE_ALGOS and not has_algo_group:
+        normalized.insert(0, f"algo={algo}")
     return normalized
 
 
@@ -380,6 +394,28 @@ def _add_vector_arrow(
     return _add_axis_arrow(scene, p0, p1, width, rgba)
 
 
+def _local_xy_to_world_arrow(body_xmat: np.ndarray, local_xy: np.ndarray) -> np.ndarray:
+    rot = np.asarray(body_xmat, dtype=np.float64).reshape(3, 3)
+    forward = rot[:, 0].copy()
+    left = rot[:, 1].copy()
+    forward[2] = 0.0
+    left[2] = 0.0
+
+    forward_norm = float(np.linalg.norm(forward))
+    left_norm = float(np.linalg.norm(left))
+    if forward_norm < 1e-9:
+        forward = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+    else:
+        forward /= forward_norm
+    if left_norm < 1e-9:
+        left = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+    else:
+        left /= left_norm
+
+    xy = np.asarray(local_xy, dtype=np.float64).reshape(2)
+    return forward * xy[0] + left * xy[1]
+
+
 def _resolve_focus_body_id(mj_model, env, preferred_name: str) -> int:
     candidate_names: list[str] = []
     if preferred_name.strip():
@@ -404,6 +440,21 @@ def _resolve_focus_body_id(mj_model, env, preferred_name: str) -> int:
 
     nbody = int(getattr(mj_model, "nbody", 1))
     return 1 if nbody > 1 else 0
+
+
+def _has_generated_terrain(env: Any) -> bool:
+    scene = getattr(getattr(env, "cfg", None), "scene", None)
+    return getattr(scene, "terrain", None) is not None
+
+
+def _default_viewer_camera_distance(mj_model, env: Any, *, follow_body: bool) -> float:
+    model_extent = float(getattr(getattr(mj_model, "stat", None), "extent", 1.0))
+    extent_distance = max(_DEFAULT_CAMERA_DISTANCE, 2.5 * model_extent)
+    if not follow_body:
+        return extent_distance
+    if _has_generated_terrain(env):
+        return _TERRAIN_FOLLOW_CAMERA_DISTANCE
+    return min(extent_distance, _FOLLOW_CAMERA_MAX_DISTANCE)
 
 
 def _available_backends_for_task(task_name: str) -> tuple[str, ...]:
@@ -644,6 +695,64 @@ def _render_reward_debug_targets(
                     _add_axis_arrow(scene, p, pz, marker_radius * 0.45, z_rgba)
 
 
+def _render_velocity_arrows(
+    viewer,
+    viz_data,
+    focus_body_id: int,
+    env: Any,
+    *,
+    height: float,
+    scale: float,
+    width: float,
+    lateral_offset: float,
+) -> None:
+    state = getattr(env, "state", None)
+    info = getattr(state, "info", None) if state is not None else None
+    commands = info.get("commands") if isinstance(info, dict) else None
+    if not isinstance(commands, np.ndarray) or commands.ndim != 2 or commands.shape[1] < 2:
+        return
+
+    try:
+        local_linvel = env.get_local_linvel()
+    except AttributeError:
+        return
+    if (
+        not isinstance(local_linvel, np.ndarray)
+        or local_linvel.ndim != 2
+        or local_linvel.shape[1] < 2
+    ):
+        return
+
+    body_xmat = np.asarray(viz_data.xmat[focus_body_id], dtype=np.float64)
+    origin = np.asarray(viz_data.xpos[focus_body_id], dtype=np.float64).copy()
+    origin[2] += float(height)
+    side = _local_xy_to_world_arrow(body_xmat, np.array([0.0, 1.0], dtype=np.float64))
+
+    target_vec = _local_xy_to_world_arrow(body_xmat, commands[0, :2])
+    current_vec = _local_xy_to_world_arrow(body_xmat, local_linvel[0, :2])
+    target_origin = origin + side * float(lateral_offset)
+    current_origin = origin - side * float(lateral_offset)
+
+    target_rgba = np.array([0.1, 0.95, 0.15, 0.9], dtype=np.float32)
+    current_rgba = np.array([0.1, 0.45, 1.0, 0.9], dtype=np.float32)
+    _add_vector_arrow(
+        viewer.user_scn,
+        target_origin,
+        target_vec,
+        scale,
+        width,
+        target_rgba,
+    )
+    _add_vector_arrow(
+        viewer.user_scn,
+        current_origin,
+        current_vec,
+        scale,
+        width,
+        current_rgba,
+    )
+
+
 def _load_mujoco_model_file_for_viewer(model_file: str):
     if Path(model_file).suffix.lower() == ".mjb":
         return mujoco.MjModel.from_binary_path(str(model_file))
@@ -749,6 +858,69 @@ def _build_keyboard_commander(env: Any, args) -> KeyboardCommander | None:
     return commander
 
 
+def _state_has_velocity_commands(env: Any) -> bool:
+    state = getattr(env, "state", None)
+    info = getattr(state, "info", None) if state is not None else None
+    command_arr = info.get("commands") if isinstance(info, dict) else None
+    return (
+        isinstance(command_arr, np.ndarray)
+        and command_arr.ndim == 2
+        and command_arr.shape[0] > 0
+        and command_arr.shape[1] >= 3
+    )
+
+
+def _row_contains_contiguous_vector(
+    row: np.ndarray,
+    vector: np.ndarray,
+    *,
+    atol: float = 1.0e-6,
+) -> bool:
+    values = np.asarray(row, dtype=np.float64).reshape(-1)
+    target = np.asarray(vector, dtype=np.float64).reshape(-1)
+    if target.size == 0 or values.size < target.size:
+        return False
+    for start in range(values.size - target.size + 1):
+        if np.allclose(values[start : start + target.size], target, atol=atol, rtol=0.0):
+            return True
+    return False
+
+
+def _state_policy_obs_contains_command(env: Any) -> bool:
+    if not _state_has_velocity_commands(env):
+        return False
+
+    state = env.state
+    obs = getattr(state, "obs", None)
+    actor_obs = obs.get("obs") if isinstance(obs, dict) else None
+    if not isinstance(actor_obs, np.ndarray) or actor_obs.ndim != 2 or actor_obs.shape[0] == 0:
+        return False
+
+    command = np.asarray(state.info["commands"][0, :3], dtype=np.float64)
+    if np.linalg.norm(command) <= 1.0e-9:
+        return False
+    return _row_contains_contiguous_vector(actor_obs[0], command)
+
+
+def _policy_obs_contains_command(env: Any, *, reset_fn) -> bool:
+    if _state_policy_obs_contains_command(env):
+        return True
+
+    cmds_cfg = getattr(getattr(env, "cfg", None), "commands", None)
+    if cmds_cfg is None or not hasattr(cmds_cfg, "vel_limit"):
+        return False
+
+    original_vel_limit = cmds_cfg.vel_limit
+    probe = _COMMAND_OBS_VERIFY_COMMAND.tolist()
+    try:
+        cmds_cfg.vel_limit = [probe, probe]
+        reset_fn()
+        return _state_policy_obs_contains_command(env)
+    finally:
+        cmds_cfg.vel_limit = original_vel_limit
+        reset_fn()
+
+
 def _handle_command_key(commander: KeyboardCommander, keycode: int) -> None:
     if keycode == _KEY_UP:
         commander.nudge(commander.AXIS_VX, +1.0)
@@ -794,10 +966,10 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
             return registry.make(args.task, num_envs=num_envs, sim_backend="mujoco")
         from unilab.training import create_env
 
-        if algo == "sac":
+        if algo in _OFFPOLICY_INTERACTIVE_ALGOS:
             from train_offpolicy import build_offpolicy_env_cfg_override
 
-            env_cfg_override = build_offpolicy_env_cfg_override("sac", cfg)
+            env_cfg_override = build_offpolicy_env_cfg_override(algo, cfg)
         else:
             env_cfg_override = _backend_adapter(cfg, algo_name=algo).build_task_env_cfg_override()
         try:
@@ -857,15 +1029,16 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
                 wrapper_cls=RslRlVecEnvWrapper,
                 log=lambda message: print(f"[play_interactive] {message}"),
             )
-        elif algo == "sac":
+        elif algo in _OFFPOLICY_INTERACTIVE_ALGOS:
             if cfg is None:
-                raise ValueError("SAC interactive playback requires a composed Hydra config.")
+                raise ValueError(f"{algo} interactive playback requires a composed Hydra config.")
             session = create_sac_playback_session(
                 playback_cfg=playback_cfg,
                 cfg=cfg,
                 env_factory=_create_env,
                 root_dir=ROOT_DIR,
                 device=device,
+                algo_name=algo,
                 log=lambda message: print(f"[play_interactive] {message}"),
             )
         elif algo == "hora_distill":
@@ -915,6 +1088,8 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
             f"(vel={args.reward_debug_show_velocity}, connectors={args.reward_debug_show_connectors}, "
             f"global_anchor={args.reward_debug_show_global_anchor})."
         )
+    if bool(getattr(args, "show_velocity_arrows", False)):
+        print("[play_interactive] Velocity arrows enabled (green=target, blue=current).")
 
     # Dedicated MjData for the viewer (never touches the rollout workers)
     use_env_visual_model = bool(getattr(args, "use_env_visual_model", True))
@@ -925,6 +1100,21 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
     ctrl_dt = env.cfg.ctrl_dt
 
     playback_session.reset()
+    if bool(getattr(args, "keyboard", False)) and bool(
+        getattr(args, "require_keyboard_command_obs", True)
+    ):
+        if not _state_has_velocity_commands(env):
+            print(
+                "[play_interactive] interactive.keyboard unavailable: "
+                "task state has no velocity 'commands'."
+            )
+            return
+        if not _policy_obs_contains_command(env, reset_fn=playback_session.reset):
+            print(
+                "[play_interactive] interactive.keyboard unavailable: "
+                "policy obs does not contain the velocity command."
+            )
+            return
     controls = PlaybackControls(
         paused=bool(getattr(args, "start_paused", False)),
         speed=float(getattr(args, "speed", 1.0)),
@@ -971,12 +1161,14 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
         # Initialize camera to a reasonable default and keep lookat on robot base.
         has_cam = hasattr(viewer, "cam")
         if has_cam:
-            model_extent = float(getattr(getattr(mj_model, "stat", None), "extent", 1.0))
-            default_distance = max(2.0, 2.5 * model_extent)
             if getattr(args, "camera_distance", None) is not None:
                 viewer.cam.distance = float(args.camera_distance)
             else:
-                viewer.cam.distance = default_distance
+                viewer.cam.distance = _default_viewer_camera_distance(
+                    mj_model,
+                    env,
+                    follow_body=bool(getattr(args, "camera_follow_body", True)),
+                )
             if getattr(args, "camera_elevation", None) is not None:
                 viewer.cam.elevation = float(args.camera_elevation)
             if getattr(args, "camera_azimuth", None) is not None:
@@ -1034,6 +1226,18 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
                         )
                 else:
                     viewer.user_scn.ngeom = 0
+
+                if bool(getattr(args, "show_velocity_arrows", False)):
+                    _render_velocity_arrows(
+                        viewer,
+                        viz_data,
+                        focus_body_id,
+                        env,
+                        height=float(getattr(args, "velocity_arrow_height", 0.55)),
+                        scale=float(getattr(args, "velocity_arrow_scale", 0.45)),
+                        width=float(getattr(args, "velocity_arrow_width", 0.025)),
+                        lateral_offset=float(getattr(args, "velocity_arrow_lateral_offset", 0.08)),
+                    )
 
                 viewer.sync()
 
@@ -1106,6 +1310,24 @@ def _build_play_args(cfg: DictConfig, *, algo: str = "ppo") -> PlayInteractiveAr
         ),
         keyboard_step_ang=float(
             OmegaConf.select(cfg, "interactive.keyboard_step_ang", default=0.2)
+        ),
+        require_keyboard_command_obs=bool(
+            OmegaConf.select(cfg, "interactive.require_keyboard_command_obs", default=True)
+        ),
+        show_velocity_arrows=bool(
+            OmegaConf.select(cfg, "interactive.show_velocity_arrows", default=False)
+        ),
+        velocity_arrow_height=float(
+            OmegaConf.select(cfg, "interactive.velocity_arrow_height", default=0.55)
+        ),
+        velocity_arrow_scale=float(
+            OmegaConf.select(cfg, "interactive.velocity_arrow_scale", default=0.45)
+        ),
+        velocity_arrow_width=float(
+            OmegaConf.select(cfg, "interactive.velocity_arrow_width", default=0.025)
+        ),
+        velocity_arrow_lateral_offset=float(
+            OmegaConf.select(cfg, "interactive.velocity_arrow_lateral_offset", default=0.08)
         ),
         algo=algo,
     )
