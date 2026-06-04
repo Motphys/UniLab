@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass
 from typing import Optional
 
@@ -88,6 +89,31 @@ _register_dummy_env()
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
+_TEST_SESSION_FAILED = False
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    report = outcome.get_result()
+    if report.failed:
+        global _TEST_SESSION_FAILED
+        _TEST_SESSION_FAILED = True
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolate_training_logs_for_tests(tmp_path_factory: pytest.TempPathFactory):
+    """Keep training smoke-test artifacts out of the repository log tree."""
+    log_root = tmp_path_factory.mktemp("unilab-training-logs")
+    previous = pytest.MonkeyPatch()
+    previous.setenv("UNILAB_TEST_LOG_ROOT", str(log_root))
+    yield log_root
+    previous.undo()
+    if _TEST_SESSION_FAILED:
+        print(f"Preserving UniLab test training logs after failure: {log_root}")
+    else:
+        shutil.rmtree(log_root, ignore_errors=True)
 
 
 @pytest.fixture
