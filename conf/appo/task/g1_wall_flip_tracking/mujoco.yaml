@@ -14,6 +14,8 @@ algo:
     num_learning_epochs: 6
     num_mini_batches: 8
     desired_kl: 0.008
+    adaptive_kl_factor: 2.0
+    adaptive_lr_factor: 1.5
 env:
   sampling_mode: start
   truncate_on_clip_end: true

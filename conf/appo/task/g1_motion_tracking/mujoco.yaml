@@ -7,6 +7,9 @@ algo:
   num_envs: 1024
   max_iterations: 5000
   save_interval: 500
+  algorithm:
+    adaptive_kl_factor: 2.0
+    adaptive_lr_factor: 1.5
 reward:
   scales:
     motion_global_root_pos: 0.5
