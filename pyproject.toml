@@ -110,7 +110,7 @@ markers = [
 addopts = "--tb=short -m 'not slow'"
 
 [tool.coverage.run]
-source = ["unilab"]
+source = ["src/unilab"]
 omit = ["*/rsl_rl/*"]
 
 [tool.coverage.report]

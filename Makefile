@@ -47,7 +47,7 @@ test:
 
 .PHONY: test-cov
 test-cov:
-	uv run pytest -m "not slow" --cov=unilab --cov-report=term-missing
+	uv run pytest -m "not slow" --cov=src/unilab --cov-report=term-missing
 
 .PHONY: test-slow
 test-slow:
