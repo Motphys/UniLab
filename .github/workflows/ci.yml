@@ -124,4 +124,4 @@ jobs:
             --no-install-package triton
           uv pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu
       - name: Test with coverage
-        run: uv run --no-sync pytest -m "not slow" --cov=unilab --cov-report "markdown-append:${GITHUB_STEP_SUMMARY:-/dev/null}" --cov-fail-under=25
+        run: uv run --no-sync pytest -m "not slow" --cov=src/unilab --cov-report "markdown-append:${GITHUB_STEP_SUMMARY:-/dev/null}" --cov-fail-under=25

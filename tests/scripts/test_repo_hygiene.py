@@ -29,6 +29,14 @@ def test_script_usage_examples_do_not_invoke_python_for_repo_scripts():
     assert errors == []
 
 
+def test_coverage_commands_use_src_package_path():
+    root = Path(__file__).resolve().parents[2]
+
+    assert 'source = ["src/unilab"]' in (root / "pyproject.toml").read_text(encoding="utf-8")
+    assert "--cov=src/unilab" in (root / "Makefile").read_text(encoding="utf-8")
+    assert "--cov=src/unilab" in (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+
+
 def test_source_command_anti_patterns_flags_python_script_invocation(tmp_path):
     script_path = tmp_path / "scripts" / "tool.py"
     script_path.parent.mkdir(parents=True)
