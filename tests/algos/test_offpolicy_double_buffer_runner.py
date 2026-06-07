@@ -987,3 +987,184 @@ def test_sac_double_buffer_verbose_metrics_passed(monkeypatch: pytest.MonkeyPatc
     runner = mod.build_runner("sac", cfg)
     assert isinstance(runner, _FakeRunner)
     assert runner.kwargs["verbose_metrics"] is True
+
+
+def test_double_buffer_runner_passes_nan_guard_cfg_to_collector(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    import queue
+
+    import torch
+
+    import unilab.algos.torch.offpolicy.double_buffer_runner as db_mod
+    import unilab.algos.torch.offpolicy.runner as runner_mod
+    from unilab.utils.nan_guard import NanGuardCfg
+
+    class _FakeActor:
+        def state_dict(self):
+            return {"w": torch.zeros(1)}
+
+    class _FakeLearner:
+        def __init__(self):
+            self.actor = _FakeActor()
+            self.update_count = 0
+
+        def get_state_dict(self):
+            return {"update_count": self.update_count}
+
+    class _FakeReplayBuffer:
+        def __init__(self, **kwargs):
+            self.size = torch.zeros(1, dtype=torch.int64)
+            self.ptr = torch.zeros(1, dtype=torch.int64)
+            self._storage = torch.zeros(16, 16)
+
+        def close(self):
+            pass
+
+    class _FakeWeightSync:
+        def __init__(self):
+            self.name = "fake-ws"
+            self._lock = None
+
+        @classmethod
+        def from_state_dict(cls, state_dict, create=True):
+            return cls()
+
+        def close(self):
+            pass
+
+    class _FakePipeline:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(db_mod, "ReplayBuffer", _FakeReplayBuffer)
+    monkeypatch.setattr(db_mod, "SharedWeightSync", _FakeWeightSync)
+    monkeypatch.setattr(db_mod, "CPUPinnedDoubleBufferReplayPipeline", _FakePipeline)
+    monkeypatch.setattr(runner_mod, "get_env_dims", lambda *args, **kwargs: (4, 2, 0))
+    monkeypatch.setattr(db_mod.torch, "save", lambda *args, **kwargs: None)
+
+    learner = _FakeLearner()
+    nan_guard_cfg = NanGuardCfg(enabled=True)
+    runner = db_mod.DoubleBufferOffPolicyRunner(
+        learner=learner,
+        env_name="DummyEnv",
+        algo_type="sac",
+        num_envs=2,
+        replay_buffer_n=8,
+        batch_size=8,
+        learning_starts=6,
+        updates_per_step=1,
+        policy_frequency=1,
+        sync_collection=False,
+        env_steps_per_sync=1,
+        device="cpu",
+        nan_guard_cfg=nan_guard_cfg,
+    )
+
+    captured = {}
+
+    def capture_start_collector(*, target_fn, kwargs):
+        del target_fn
+        captured.update(kwargs)
+
+    monkeypatch.setattr(runner, "_start_collector", capture_start_collector)
+    monkeypatch.setattr(db_mod._SPAWN_CTX, "Queue", lambda maxsize=0: queue.Queue())
+    monkeypatch.setattr(db_mod.time, "sleep", lambda seconds: None)
+
+    runner.learn(max_iterations=0, save_interval=0, log_dir=str(tmp_path))
+
+    assert "nan_guard_cfg" in captured
+    assert captured["nan_guard_cfg"] is nan_guard_cfg
+    assert captured["nan_guard_cfg"].enabled is True
+
+
+# ---------------------------------------------------------------------------
+# _safe_put_trainer_done helper (issue #594 sync deadlock fix)
+# ---------------------------------------------------------------------------
+
+
+def test_safe_put_raises_when_collector_dead(monkeypatch):
+    """Collector death detected -> raises _CollectorDiedError, doesn't block."""
+    import queue as queue_module
+    import time as _time
+
+    import pytest as _pytest
+
+    from unilab.algos.torch.offpolicy.double_buffer_runner import (
+        DoubleBufferOffPolicyRunner,
+        _CollectorDiedError,
+    )
+
+    runner = DoubleBufferOffPolicyRunner.__new__(DoubleBufferOffPolicyRunner)
+    runner._collector_process = None
+    monkeypatch.setattr(runner, "_check_collector_alive", lambda: False)
+
+    class _AlwaysFullQueue:
+        def put(self, item, timeout=None):
+            raise queue_module.Full()
+
+    start = _time.monotonic()
+    with _pytest.raises(_CollectorDiedError, match="test"):
+        runner._safe_put_trainer_done(_AlwaysFullQueue(), timeout=2.0, label="test")
+    elapsed = _time.monotonic() - start
+    assert elapsed < 1.5, f"helper blocked {elapsed:.2f}s, should fail fast"
+
+
+def test_safe_put_raises_on_timeout_when_collector_alive(monkeypatch):
+    """Collector alive but queue stays full -> raises with timeout label."""
+    import queue as queue_module
+
+    import pytest as _pytest
+
+    from unilab.algos.torch.offpolicy.double_buffer_runner import (
+        DoubleBufferOffPolicyRunner,
+        _CollectorDiedError,
+    )
+
+    runner = DoubleBufferOffPolicyRunner.__new__(DoubleBufferOffPolicyRunner)
+    monkeypatch.setattr(runner, "_check_collector_alive", lambda: True)
+
+    class _AlwaysFullQueue:
+        def put(self, item, timeout=None):
+            raise queue_module.Full()
+
+    with _pytest.raises(_CollectorDiedError, match="timeout"):
+        runner._safe_put_trainer_done(_AlwaysFullQueue(), timeout=0.5, label="t")
+
+
+def test_safe_put_succeeds_when_queue_drains(monkeypatch):
+    """Queue eventually drains while collector alive -> succeeds, no raise."""
+    import queue as queue_module
+
+    from unilab.algos.torch.offpolicy.double_buffer_runner import DoubleBufferOffPolicyRunner
+
+    runner = DoubleBufferOffPolicyRunner.__new__(DoubleBufferOffPolicyRunner)
+    monkeypatch.setattr(runner, "_check_collector_alive", lambda: True)
+
+    class _DrainsAfterN:
+        def __init__(self, fail_n=2):
+            self.calls = 0
+            self.fail_n = fail_n
+            self.put_succeeded = False
+
+        def put(self, item, timeout=None):
+            self.calls += 1
+            if self.calls <= self.fail_n:
+                raise queue_module.Full()
+            self.put_succeeded = True
+
+    q = _DrainsAfterN(fail_n=2)
+    runner._safe_put_trainer_done(q, timeout=5.0, label="drain")
+    assert q.put_succeeded
+    assert q.calls == 3
+
+
+def test_safe_put_no_op_for_none_queue():
+    """None queue is a silent no-op."""
+    from unilab.algos.torch.offpolicy.double_buffer_runner import DoubleBufferOffPolicyRunner
+
+    runner = DoubleBufferOffPolicyRunner.__new__(DoubleBufferOffPolicyRunner)
+    runner._safe_put_trainer_done(None, label="noop")

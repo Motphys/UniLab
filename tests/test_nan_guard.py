@@ -205,3 +205,46 @@ def test_no_physics_state_still_detects(tmp_path):
     assert path is not None
     data = np.load(path, allow_pickle=True)
     assert data["states"].size == 0
+
+
+def test_check_warns_each_call_with_nan(caplog):
+    cfg = NanGuardCfg(enabled=True)
+    guard = NanGuard(cfg, num_envs=NUM_ENVS, supports_state_playback=False)
+    obs = _make_clean_obs()
+    obs["policy"][1, 0] = np.nan
+    reward = _make_clean_reward()
+    with caplog.at_level("WARNING", logger="unilab.utils.nan_guard"):
+        guard.check(obs, reward, step=10)
+        guard.check(obs, reward, step=11)
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 2
+    assert "step 10" in warnings[0].getMessage()
+    assert "step 11" in warnings[1].getMessage()
+
+
+def test_check_ctrl_warns_each_call_with_nan(caplog):
+    cfg = NanGuardCfg(enabled=True)
+    guard = NanGuard(cfg, num_envs=NUM_ENVS, supports_state_playback=False)
+    ctrl = np.zeros((NUM_ENVS, 3), dtype=np.float64)
+    ctrl[2, 1] = np.nan
+    with caplog.at_level("WARNING", logger="unilab.utils.nan_guard"):
+        guard.check_ctrl(ctrl, step=5)
+        guard.check_ctrl(ctrl, step=6)
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 2
+    assert all("ctrl" in w.getMessage() for w in warnings)
+
+
+def test_warning_includes_step_and_env_count(caplog):
+    cfg = NanGuardCfg(enabled=True)
+    guard = NanGuard(cfg, num_envs=NUM_ENVS, supports_state_playback=False)
+    obs = _make_clean_obs()
+    obs["policy"][0, 0] = np.nan
+    obs["policy"][2, 0] = np.nan
+    reward = _make_clean_reward()
+    with caplog.at_level("WARNING", logger="unilab.utils.nan_guard"):
+        guard.check(obs, reward, step=42)
+    msg = caplog.records[-1].getMessage()
+    assert "step 42" in msg
+    assert "envs=2" in msg
+    assert "sample_ids=" in msg

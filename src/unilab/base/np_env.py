@@ -121,7 +121,7 @@ class NpEnv(ABEnv):
         self._clear_step_final_observation()
 
         if self._nan_guard is not None:
-            bad_ctrl_ids = self._nan_guard.check_ctrl(ctrl)
+            bad_ctrl_ids = self._nan_guard.check_ctrl(ctrl, step=self.step_counter)
             if bad_ctrl_ids is not None:
                 self._nan_guard.dump(
                     bad_ctrl_ids,
@@ -166,7 +166,7 @@ class NpEnv(ABEnv):
                 if self.play_capabilities.supports_physics_state_playback
                 else None
             )
-            nan_ids = self._nan_guard.check(self._state.obs, self._state.reward)
+            nan_ids = self._nan_guard.check(self._state.obs, self._state.reward, step=self.step_counter)
             if nan_ids is not None:
                 self._nan_guard.dump(nan_ids, self._nan_guard_model_file(), self.step_counter)
 
