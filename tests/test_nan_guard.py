@@ -248,3 +248,102 @@ def test_warning_includes_step_and_env_count(caplog):
     assert "step 42" in msg
     assert "envs=2" in msg
     assert "sample_ids=" in msg
+
+
+# ---------------------------------------------------------------------------
+# Repro #1 (issue #594): NaN guard inside a real NpEnv.step loop warns
+# every step, dumps exactly once, and reward is sanitized at end of step.
+# ---------------------------------------------------------------------------
+
+
+def test_nan_guard_warns_on_every_step_and_dumps_once_real_env_loop(tmp_path, caplog):
+    """End-to-end: NaN-injected NpEnv steps 5x -> 5 warnings, 1 dump file.
+
+    Validates the env-layer NaN guard wiring stays correct across multiple
+    step calls (warns each call) while the dump (heavy I/O) only happens
+    once. Also confirms reward is sanitized after step despite NaN input.
+    """
+    from dataclasses import dataclass
+    from typing import Tuple
+    from unittest.mock import MagicMock
+
+    import gymnasium as gym
+
+    from unilab.base.base import EnvCfg
+    from unilab.base.np_env import NpEnv, NpEnvState
+
+    @dataclass
+    class _StubCfgRepro(EnvCfg):
+        max_episode_seconds: float | None = 1.0
+        ctrl_dt: float = 0.1
+        sim_dt: float = 0.01
+
+    class _StubNpEnvForNaNRepro(NpEnv):
+        OBS_SPEC = {"obs": 5, "critic": 7}
+
+        def __init__(self, num_envs: int = 4, bad_rewards: np.ndarray | None = None):
+            cfg = _StubCfgRepro()
+            backend = MagicMock()
+            backend.backend_type = "mujoco"
+            backend.step = MagicMock()
+            super().__init__(cfg, backend, num_envs)
+            self._bad_rewards = bad_rewards
+
+        @property
+        def obs_groups_spec(self) -> dict[str, int]:
+            return self.OBS_SPEC
+
+        @property
+        def action_space(self) -> gym.Space:
+            return gym.spaces.Box(low=-1.0, high=1.0, shape=(3,), dtype=np.float32)
+
+        def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
+            return actions
+
+        def update_state(self, state: NpEnvState) -> NpEnvState:
+            obs = {
+                "obs": np.ones((self._num_envs, 5), dtype=np.float32),
+                "critic": np.full((self._num_envs, 7), 0.5, dtype=np.float32),
+            }
+            reward = (
+                self._bad_rewards.copy()
+                if self._bad_rewards is not None
+                else np.ones((self._num_envs,), dtype=np.float32)
+            )
+            return state.replace(
+                obs=obs,
+                reward=reward,
+                terminated=np.zeros((self._num_envs,), dtype=bool),
+                truncated=np.zeros((self._num_envs,), dtype=bool),
+            )
+
+        def reset(self, env_indices: np.ndarray) -> Tuple[dict[str, np.ndarray], dict]:
+            n = len(env_indices)
+            obs = {
+                "obs": np.zeros((n, 5), dtype=np.float32),
+                "critic": np.zeros((n, 7), dtype=np.float32),
+            }
+            return obs, {}
+
+    bad_rewards = np.array([0.0, np.nan, 0.0, 0.0], dtype=np.float32)
+    env = _StubNpEnvForNaNRepro(num_envs=4, bad_rewards=bad_rewards)
+    env.init_state()
+
+    dump_dir = tmp_path / "dumps"
+    guard = NanGuard(
+        NanGuardCfg(enabled=True, output_dir=str(dump_dir)),
+        num_envs=4,
+        supports_state_playback=False,
+    )
+    env.set_nan_guard(guard)
+
+    with caplog.at_level("WARNING", logger="unilab.utils.nan_guard"):
+        for _ in range(5):
+            state = env.step(np.zeros((4, 3), dtype=np.float64))
+            assert np.all(np.isfinite(state.reward))
+
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 5, f"expected 5 warnings, got {len(warnings)}"
+
+    dump_files = [p for p in dump_dir.glob("nan_dump_*.npz") if not p.is_symlink()]
+    assert len(dump_files) == 1, f"expected exactly 1 dump file, got {dump_files}"

@@ -1168,3 +1168,92 @@ def test_safe_put_no_op_for_none_queue():
 
     runner = DoubleBufferOffPolicyRunner.__new__(DoubleBufferOffPolicyRunner)
     runner._safe_put_trainer_done(None, label="noop")
+
+
+# ---------------------------------------------------------------------------
+# Repro #3 (issue #594): real spawn-ctx + real dead Process. Validates the
+# liveness check actually breaks the put() blocking when a sync collector
+# dies. Includes a control case demonstrating the unbounded blocking
+# behaviour the helper is designed to avoid.
+# ---------------------------------------------------------------------------
+
+
+def _dummy_exit_immediately() -> None:
+    """Spawn child target: exit cleanly so parent observes a dead Process."""
+    import sys as _sys
+
+    _sys.exit(0)
+
+
+def test_safe_put_trainer_done_does_not_deadlock_on_real_dead_collector():
+    """End-to-end: real Process exits, _safe_put detects death and raises fast.
+
+    Builds a runner with a genuine multiprocessing.Process attached as
+    _collector_process, lets the child exit, fills the queue, and confirms
+    the helper raises within `timeout` seconds rather than blocking on the
+    full put. Part B is a control: a naive `q.put` with no timeout blocks
+    until an external drain happens, demonstrating the bug pre-fix.
+    """
+    import multiprocessing as mp
+    import threading
+    import time
+
+    import pytest as _pytest
+
+    from unilab.algos.torch.offpolicy.double_buffer_runner import (
+        DoubleBufferOffPolicyRunner,
+        _CollectorDiedError,
+    )
+
+    ctx = mp.get_context("spawn")
+
+    # ---- Part A: dead collector + full queue -> _safe_put raises quickly ----
+    child = ctx.Process(target=_dummy_exit_immediately)
+    child.start()
+    child.join(timeout=5)
+    assert not child.is_alive(), "child should have exited"
+    assert child.exitcode == 0, f"unexpected child exitcode: {child.exitcode}"
+
+    q = ctx.Queue(maxsize=1)
+    q.put(1)  # fill so the next put blocks
+
+    runner = DoubleBufferOffPolicyRunner.__new__(DoubleBufferOffPolicyRunner)
+    runner._collector_process = child
+    # _check_collector_alive -> _read_collector_error reads these on death.
+    runner._error_recv = None
+    runner._error_send = None
+
+    start = time.monotonic()
+    with _pytest.raises(_CollectorDiedError, match="collector dead"):
+        runner._safe_put_trainer_done(q, timeout=3.0, label="repro")
+    elapsed = time.monotonic() - start
+    assert elapsed < 5.0, f"helper blocked {elapsed:.2f}s, should fail fast"
+
+    # Drain so the queue can be GC'd cleanly on Linux.
+    try:
+        q.get_nowait()
+    except Exception:
+        pass
+
+    # ---- Part B: control. Naive put with no liveness check blocks. ----
+    q2 = ctx.Queue(maxsize=1)
+    q2.put(1)
+
+    def _drain():
+        time.sleep(2.5)
+        try:
+            q2.get()
+        except Exception:
+            pass
+
+    drainer = threading.Thread(target=_drain, daemon=True)
+    drainer.start()
+
+    start = time.monotonic()
+    q2.put(1)  # blocks until drainer pops
+    elapsed = time.monotonic() - start
+    drainer.join(timeout=2)
+    assert elapsed > 2.0, (
+        f"control case finished in {elapsed:.2f}s; expected > 2s to demonstrate "
+        "the unbounded blocking the helper is meant to avoid"
+    )
