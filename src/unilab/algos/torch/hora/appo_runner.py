@@ -327,9 +327,7 @@ class HoraAPPORunner(APPORunner):
             data_ready = False
             while time.monotonic() < deadline:
                 remaining = deadline - time.monotonic()
-                if rollout_ring_buffer.wait_for_data(
-                    timeout=min(LIVENESS_SLICE_SEC, remaining)
-                ):
+                if rollout_ring_buffer.wait_for_data(timeout=min(LIVENESS_SLICE_SEC, remaining)):
                     data_ready = True
                     break
                 if not self._check_collector_alive():
