@@ -596,6 +596,7 @@ class TestRewardSanitization:
 
     def test_guard_warns_each_step_for_nan_reward(self, caplog):
         from unilab.utils.nan_guard import NanGuard, NanGuardCfg
+
         env = _NanRewardStubEnv(num_envs=4, bad_rewards=np.array([0.0, np.nan, 0.0, 0.0]))
         guard = NanGuard(
             NanGuardCfg(enabled=True, output_dir="/tmp/unilab_test_warn"),

@@ -32,7 +32,6 @@ import torch
 
 from unilab.utils.nan_guard import NanGuardCfg
 
-
 # ---------------------------------------------------------------------------
 # Fake classes (copied from tests/algos/*.py to keep stage3 self-contained)
 # ---------------------------------------------------------------------------
@@ -189,14 +188,15 @@ def _check_double_buffer_runner_wires_nan_guard():
     import unilab.algos.torch.offpolicy.double_buffer_runner as db_mod
     import unilab.algos.torch.offpolicy.runner as runner_mod
 
-    with patch.object(db_mod, "ReplayBuffer", _FakeReplayBuffer), \
-         patch.object(db_mod, "SharedWeightSync", _FakeWeightSync), \
-         patch.object(db_mod, "CPUPinnedDoubleBufferReplayPipeline", _FakePipeline), \
-         patch.object(runner_mod, "get_env_dims", return_value=(4, 2, 0)), \
-         patch.object(db_mod.torch, "save", lambda *args, **kwargs: None), \
-         patch.object(db_mod._SPAWN_CTX, "Queue", lambda maxsize=0: queue.Queue()), \
-         patch.object(db_mod.time, "sleep", lambda seconds: None):
-
+    with (
+        patch.object(db_mod, "ReplayBuffer", _FakeReplayBuffer),
+        patch.object(db_mod, "SharedWeightSync", _FakeWeightSync),
+        patch.object(db_mod, "CPUPinnedDoubleBufferReplayPipeline", _FakePipeline),
+        patch.object(runner_mod, "get_env_dims", return_value=(4, 2, 0)),
+        patch.object(db_mod.torch, "save", lambda *args, **kwargs: None),
+        patch.object(db_mod._SPAWN_CTX, "Queue", lambda maxsize=0: queue.Queue()),
+        patch.object(db_mod.time, "sleep", lambda seconds: None),
+    ):
         learner = _FakeLearner()
         nan_guard_cfg = NanGuardCfg(enabled=True)
         runner = db_mod.DoubleBufferOffPolicyRunner(
@@ -244,13 +244,14 @@ def _check_appo_runner_wires_nan_guard():
         self.critic_input_dim = 4
         return (4, 2)
 
-    with patch.object(APPORunner, "_detect_dims", fake_detect_dims), \
-         patch.object(APPORunner, "_build_learner", lambda self: _FakeLearner()), \
-         patch.object(appo_mod, "RolloutRingBuffer", _FakeRolloutRingBuffer), \
-         patch.object(appo_mod, "SharedWeightSync", _FakeWeightSync), \
-         patch.object(appo_mod, "OffPolicyLogger", _FakeLogger), \
-         patch.object(appo_mod.torch, "save", lambda *args, **kwargs: None):
-
+    with (
+        patch.object(APPORunner, "_detect_dims", fake_detect_dims),
+        patch.object(APPORunner, "_build_learner", lambda self: _FakeLearner()),
+        patch.object(appo_mod, "RolloutRingBuffer", _FakeRolloutRingBuffer),
+        patch.object(appo_mod, "SharedWeightSync", _FakeWeightSync),
+        patch.object(appo_mod, "OffPolicyLogger", _FakeLogger),
+        patch.object(appo_mod.torch, "save", lambda *args, **kwargs: None),
+    ):
         nan_guard_cfg = NanGuardCfg(enabled=True)
         runner = APPORunner(
             env_name="DummyEnv",
@@ -286,14 +287,15 @@ def _check_offpolicy_runner_wires_nan_guard():
     """Verify OffPolicyRunner passes nan_guard_cfg to collector (defensive check)."""
     import unilab.algos.torch.offpolicy.runner as runner_mod
 
-    with patch.object(runner_mod, "ReplayBuffer", _FakeReplayBuffer), \
-         patch.object(runner_mod, "SharedWeightSync", _FakeWeightSync), \
-         patch.object(runner_mod, "OffPolicyLogger", _FakeLogger), \
-         patch.object(runner_mod, "get_env_dims", return_value=(4, 2, 0)), \
-         patch.object(runner_mod.torch, "save", lambda *args, **kwargs: None), \
-         patch.object(runner_mod._SPAWN_CTX, "Queue", lambda maxsize=0: queue.Queue()), \
-         patch.object(runner_mod.time, "sleep", lambda seconds: None):
-
+    with (
+        patch.object(runner_mod, "ReplayBuffer", _FakeReplayBuffer),
+        patch.object(runner_mod, "SharedWeightSync", _FakeWeightSync),
+        patch.object(runner_mod, "OffPolicyLogger", _FakeLogger),
+        patch.object(runner_mod, "get_env_dims", return_value=(4, 2, 0)),
+        patch.object(runner_mod.torch, "save", lambda *args, **kwargs: None),
+        patch.object(runner_mod._SPAWN_CTX, "Queue", lambda maxsize=0: queue.Queue()),
+        patch.object(runner_mod.time, "sleep", lambda seconds: None),
+    ):
         learner = _FakeLearner()
         nan_guard_cfg = NanGuardCfg(enabled=True)
         runner = runner_mod.OffPolicyRunner(
@@ -385,7 +387,10 @@ def main():
     print()
 
     checks = [
-        ("DoubleBufferOffPolicyRunner (SAC/TD3/FlashSAC prod path)", _check_double_buffer_runner_wires_nan_guard),
+        (
+            "DoubleBufferOffPolicyRunner (SAC/TD3/FlashSAC prod path)",
+            _check_double_buffer_runner_wires_nan_guard,
+        ),
         ("APPORunner (APPO prod path)", _check_appo_runner_wires_nan_guard),
         ("OffPolicyRunner (defensive)", _check_offpolicy_runner_wires_nan_guard),
     ]

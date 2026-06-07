@@ -289,7 +289,6 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         self._active_logger = logger
         logger.start()
         try:
-
             # --- sync queues ---
             collection_ready_queue = None
             trainer_done_queue = None
@@ -601,7 +600,10 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
 
                     replay_pipeline.after_tick()
 
-                if self.obs_normalization and getattr(self.learner, "obs_normalizer", None) is not None:
+                if (
+                    self.obs_normalization
+                    and getattr(self.learner, "obs_normalizer", None) is not None
+                ):
                     assert shared_obs_normalizer_stats is not None
                     shared_obs_normalizer_stats.put(
                         (

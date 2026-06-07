@@ -46,7 +46,9 @@ class NanGuard:
             self._buffer[self._buffer_idx] = physics_state
         self._buffer_idx = (self._buffer_idx + 1) % self._cfg.buffer_size
 
-    def check(self, obs: dict[str, np.ndarray], reward: np.ndarray, step: int = 0) -> np.ndarray | None:
+    def check(
+        self, obs: dict[str, np.ndarray], reward: np.ndarray, step: int = 0
+    ) -> np.ndarray | None:
         if not self._cfg.enabled:
             return None
         bad_mask = np.zeros(self._num_envs, dtype=bool)
@@ -135,5 +137,7 @@ class NanGuard:
         except OSError:
             pass
 
-        logger.info("NanGuard: dump written to %s (step=%d, envs=%d)", npz_path, step, len(nan_env_ids))
+        logger.info(
+            "NanGuard: dump written to %s (step=%d, envs=%d)", npz_path, step, len(nan_env_ids)
+        )
         return str(npz_path)

@@ -166,7 +166,9 @@ class NpEnv(ABEnv):
                 if self.play_capabilities.supports_physics_state_playback
                 else None
             )
-            nan_ids = self._nan_guard.check(self._state.obs, self._state.reward, step=self.step_counter)
+            nan_ids = self._nan_guard.check(
+                self._state.obs, self._state.reward, step=self.step_counter
+            )
             if nan_ids is not None:
                 self._nan_guard.dump(nan_ids, self._nan_guard_model_file(), self.step_counter)
 
