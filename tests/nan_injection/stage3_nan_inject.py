@@ -1,167 +1,343 @@
-"""
-Stage 3: NaN guard wiring verification for multi-process algorithms.
+"""Stage 3: NaN guard wiring verification (mock-based assertions).
 
-Multi-process algorithms (APPO, SAC, TD3, FlashSAC) run their environment
-collectors in spawned subprocesses. Direct in-process NaN injection (the
-Stage 2 approach) does not work across the IPC boundary without invasive
-source-code changes to the collector workers.
+Validates that nan_guard_cfg actually flows through the collector_kwargs
+of the production runners (DoubleBuffer / APPO / OffPolicy), not just
+present in source as a substring.
 
-This stage takes a different approach: STATIC VERIFICATION of the wiring.
-
-For each algorithm, verify:
-  1. The train script (scripts/train_<algo>.py) reads nan_guard config and
-     forwards a NanGuardCfg into the runner.
-  2. The collector worker (src/unilab/algos/torch/<algo>/worker.py) constructs
-     a NanGuard from the cfg and calls env.set_nan_guard(...) inside the
-     subprocess.
-  3. The algorithm's hydra config (conf/<algo>/config.yaml) contains a
-     training.nan_guard block.
-
-If all three are present, the wiring is correct and a real NaN that occurs
-inside the collector subprocess will be detected and dumped by the same
-NanGuard machinery validated in Stage 2 (proto + stage2_nan_inject.py).
-
-For end-to-end runtime validation, use the manual test recipe at the bottom.
+This script constructs each runner with a NanGuardCfg, mocks dependencies,
+triggers the collector startup path (via learn(max_iterations=0)), and asserts
+that the captured collector kwargs contain the expected nan_guard_cfg.
 
 Run:
     .venv/bin/python tests/nan_injection/stage3_nan_inject.py
+
+Exit: 0 if all wirings OK, 1 if any failure.
 """
 
 from __future__ import annotations
 
-import re
+import queue
 import sys
+import tempfile
 import textwrap
+import traceback
 from pathlib import Path
+from unittest.mock import patch
 
 # Resolve repo root from this file's location: <repo>/tests/nan_injection/<this>
 ROOT_DIR = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT_DIR / "src"))
+
+import torch
+
+from unilab.utils.nan_guard import NanGuardCfg
 
 
 # ---------------------------------------------------------------------------
-# Specs: what each multi-process algorithm should look like
+# Fake classes (copied from tests/algos/*.py to keep stage3 self-contained)
 # ---------------------------------------------------------------------------
 
 
-SPECS = [
-    {
-        "name": "APPO",
-        "train_script": "scripts/train_appo.py",
-        "worker": "src/unilab/algos/torch/appo/worker.py",
-        "config_yaml": "conf/appo/config.yaml",
-    },
-    {
-        "name": "SAC (offpolicy)",
-        "train_script": "scripts/train_offpolicy.py",
-        "worker": "src/unilab/algos/torch/offpolicy/worker.py",
-        "config_yaml": "conf/offpolicy/config.yaml",
-    },
-    {
-        "name": "TD3 (offpolicy)",
-        "train_script": "scripts/train_offpolicy.py",
-        "worker": "src/unilab/algos/torch/offpolicy/worker.py",
-        "config_yaml": "conf/offpolicy/config.yaml",
-    },
-    {
-        "name": "FlashSAC (offpolicy)",
-        "train_script": "scripts/train_offpolicy.py",
-        "worker": "src/unilab/algos/torch/offpolicy/worker.py",
-        "config_yaml": "conf/offpolicy/config.yaml",
-    },
-]
+class _FakeActor:
+    def __init__(self):
+        self._state = {"weight": torch.zeros(1)}
+
+    def state_dict(self):
+        return {key: value.clone() for key, value in self._state.items()}
+
+    def parameters(self):
+        return [torch.nn.Parameter(torch.zeros(1))]
+
+
+class _FakeLearner:
+    def __init__(self, *args, **kwargs):
+        del args, kwargs
+        self.actor = _FakeActor()
+        self.critic = _FakeActor()  # APPO reads learner.critic.state_dict()
+        self.update_count = 0
+        self.num_learning_epochs = 1  # APPO uses this in log_status
+
+    def get_state_dict(self):
+        return {"update_count": self.update_count}
+
+
+class _FakeReplayBuffer:
+    def __init__(self, **kwargs):
+        del kwargs
+        self.size = torch.zeros(1, dtype=torch.int64)
+        self.ptr = torch.zeros(1, dtype=torch.int64)
+        self._storage = torch.zeros(16, 16)
+
+    def close(self):
+        pass
+
+
+class _FakeWeightSync:
+    def __init__(self):
+        self.name = "fake-ws"
+        self._lock = None
+
+    @classmethod
+    def from_state_dict(cls, state_dict, create=True):
+        del state_dict, create
+        return cls()
+
+    def close(self):
+        pass
+
+    def cleanup(self):
+        pass
+
+
+class _FakeLogger:
+    def __init__(self, **kwargs):
+        del kwargs
+        self._total_steps = 0
+        self._buffer_size = 0
+        self._mean_ep_length = 0.0
+
+    def set_collection_sync(self, enabled, env_steps_per_sync):
+        del enabled, env_steps_per_sync
+
+    def start(self, **kwargs):
+        del kwargs
+
+    def log_status(self, status):
+        del status
+
+    def log_save(self, ckpt_path):
+        del ckpt_path
+
+    def log_collector(self, total_steps, buffer_size, mean_reward=0.0):
+        del total_steps, buffer_size, mean_reward
+
+    def log_buffer_fill(self, current, target):
+        del current, target
+
+    def update_buffer_utilization(self, utilization):
+        del utilization
+
+    def update_ep_length(self, mean_ep_length):
+        del mean_ep_length
+
+    def update_collector_timing(self, timing_ms):
+        del timing_ms
+
+    def update_done_rates(self, timeout_rate, terminated_rate):
+        del timeout_rate, terminated_rate
+
+    def update_replay_queue(self, current_len, max_size):
+        del current_len, max_size
+
+    def update_staging_pool(self, current_len, max_size):
+        del current_len, max_size
+
+    def log_step(self, **kwargs):
+        del kwargs
+
+    def finish(self, *args, **kwargs):
+        del args, kwargs
+
+    def close(self):
+        pass
+
+
+class _FakePipeline:
+    """Mock pipeline for DoubleBuffer test."""
+
+    def __init__(self, *args, **kwargs):
+        del args, kwargs
+
+    def close(self):
+        pass
+
+
+class _FakeRolloutRingBuffer:
+    """Mock rollout storage for APPO test."""
+
+    def __init__(self, **kwargs):
+        del kwargs
+        self.name = "fake-storage"
+        self._write_ptr = object()
+        self._read_ptr = object()
+
+    @property
+    def slot_shapes(self):
+        return {
+            "obs": (2, 4, 4),
+            "critic": (2, 4, 4),
+            "actions": (2, 4, 2),
+            "log_probs": (2, 4),
+            "rewards": (2, 4),
+            "dones": (2, 4),
+            "truncated": (2, 4),
+            "last_obs": (2, 4),
+            "last_critic": (2, 4),
+        }
+
+    def cleanup(self):
+        pass
 
 
 # ---------------------------------------------------------------------------
-# Checks
+# Wiring checks
 # ---------------------------------------------------------------------------
 
 
-def _read(path: Path) -> str:
-    return path.read_text(encoding="utf-8") if path.exists() else ""
+def _check_double_buffer_runner_wires_nan_guard():
+    """Verify DoubleBufferOffPolicyRunner passes nan_guard_cfg to collector."""
+    import unilab.algos.torch.offpolicy.double_buffer_runner as db_mod
+    import unilab.algos.torch.offpolicy.runner as runner_mod
+
+    with patch.object(db_mod, "ReplayBuffer", _FakeReplayBuffer), \
+         patch.object(db_mod, "SharedWeightSync", _FakeWeightSync), \
+         patch.object(db_mod, "CPUPinnedDoubleBufferReplayPipeline", _FakePipeline), \
+         patch.object(runner_mod, "get_env_dims", return_value=(4, 2, 0)), \
+         patch.object(db_mod.torch, "save", lambda *args, **kwargs: None), \
+         patch.object(db_mod._SPAWN_CTX, "Queue", lambda maxsize=0: queue.Queue()), \
+         patch.object(db_mod.time, "sleep", lambda seconds: None):
+
+        learner = _FakeLearner()
+        nan_guard_cfg = NanGuardCfg(enabled=True)
+        runner = db_mod.DoubleBufferOffPolicyRunner(
+            learner=learner,
+            env_name="DummyEnv",
+            algo_type="sac",
+            num_envs=2,
+            replay_buffer_n=8,
+            batch_size=8,
+            learning_starts=6,
+            updates_per_step=1,
+            policy_frequency=1,
+            sync_collection=False,
+            env_steps_per_sync=1,
+            device="cpu",
+            nan_guard_cfg=nan_guard_cfg,
+        )
+
+        captured = {}
+
+        def capture_start_collector(*, target_fn, kwargs):
+            del target_fn
+            captured.update(kwargs)
+
+        with patch.object(runner, "_start_collector", capture_start_collector):
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                runner.learn(max_iterations=0, save_interval=0, log_dir=tmp_dir)
+
+        if "nan_guard_cfg" not in captured:
+            return False
+        if captured["nan_guard_cfg"] is not nan_guard_cfg:
+            return False
+        if captured["nan_guard_cfg"].enabled is not True:
+            return False
+        return True
 
 
-def _check_train_script(path: Path) -> tuple[bool, str]:
-    text = _read(path)
-    if not text:
-        return False, f"file not found: {path}"
-    if "NanGuardCfg" not in text:
-        return False, "NanGuardCfg import/use missing"
-    if "nan_guard" not in text:
-        return False, "no reference to nan_guard config"
-    return True, "OK (reads nan_guard cfg, constructs NanGuardCfg)"
+def _check_appo_runner_wires_nan_guard():
+    """Verify APPORunner passes nan_guard_cfg to collector."""
+    import unilab.algos.torch.appo.runner as appo_mod
+    from unilab.algos.torch.appo.runner import APPORunner
+
+    def fake_detect_dims(self):
+        self.critic_dim = 4
+        self.critic_input_dim = 4
+        return (4, 2)
+
+    with patch.object(APPORunner, "_detect_dims", fake_detect_dims), \
+         patch.object(APPORunner, "_build_learner", lambda self: _FakeLearner()), \
+         patch.object(appo_mod, "RolloutRingBuffer", _FakeRolloutRingBuffer), \
+         patch.object(appo_mod, "SharedWeightSync", _FakeWeightSync), \
+         patch.object(appo_mod, "OffPolicyLogger", _FakeLogger), \
+         patch.object(appo_mod.torch, "save", lambda *args, **kwargs: None):
+
+        nan_guard_cfg = NanGuardCfg(enabled=True)
+        runner = APPORunner(
+            env_name="DummyEnv",
+            env_cfg_overrides={},
+            rl_cfg={"actor": {}, "critic": {}, "algorithm": {}},
+            device="cpu",
+            collector_device="cpu",
+            num_envs=2,
+            steps_per_env=4,
+            nan_guard_cfg=nan_guard_cfg,
+        )
+
+        captured = {}
+
+        def capture_start_collector(*, target_fn, kwargs):
+            del target_fn
+            captured.update(kwargs)
+
+        with patch.object(runner, "_start_collector", capture_start_collector):
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                runner.learn(max_iterations=0, save_interval=0, log_dir=tmp_dir)
+
+        if "nan_guard_cfg" not in captured:
+            return False
+        if captured["nan_guard_cfg"] is not nan_guard_cfg:
+            return False
+        if captured["nan_guard_cfg"].enabled is not True:
+            return False
+        return True
 
 
-def _check_worker(path: Path) -> tuple[bool, str]:
-    text = _read(path)
-    if not text:
-        return False, f"file not found: {path}"
-    if "NanGuard" not in text:
-        return False, "NanGuard import missing"
-    if not re.search(r"env\.set_nan_guard\s*\(", text):
-        return False, "env.set_nan_guard(...) call missing"
-    return True, "OK (constructs NanGuard, calls env.set_nan_guard in subprocess)"
+def _check_offpolicy_runner_wires_nan_guard():
+    """Verify OffPolicyRunner passes nan_guard_cfg to collector (defensive check)."""
+    import unilab.algos.torch.offpolicy.runner as runner_mod
 
+    with patch.object(runner_mod, "ReplayBuffer", _FakeReplayBuffer), \
+         patch.object(runner_mod, "SharedWeightSync", _FakeWeightSync), \
+         patch.object(runner_mod, "OffPolicyLogger", _FakeLogger), \
+         patch.object(runner_mod, "get_env_dims", return_value=(4, 2, 0)), \
+         patch.object(runner_mod.torch, "save", lambda *args, **kwargs: None), \
+         patch.object(runner_mod._SPAWN_CTX, "Queue", lambda maxsize=0: queue.Queue()), \
+         patch.object(runner_mod.time, "sleep", lambda seconds: None):
 
-def _check_config(path: Path) -> tuple[bool, str]:
-    text = _read(path)
-    if not text:
-        return False, f"file not found: {path}"
-    if "nan_guard" not in text:
-        return False, "training.nan_guard block missing in config"
-    return True, "OK (training.nan_guard block present)"
+        learner = _FakeLearner()
+        nan_guard_cfg = NanGuardCfg(enabled=True)
+        runner = runner_mod.OffPolicyRunner(
+            learner=learner,
+            env_name="DummyEnv",
+            algo_type="sac",
+            num_envs=2,
+            replay_buffer_n=8,
+            batch_size=8,
+            learning_starts=6,
+            updates_per_step=1,
+            policy_frequency=1,
+            sync_collection=False,
+            env_steps_per_sync=1,
+            device="cpu",
+            nan_guard_cfg=nan_guard_cfg,
+        )
+
+        captured = {}
+
+        def capture_start_collector(*, target_fn, kwargs):
+            del target_fn
+            captured.update(kwargs)
+
+        with patch.object(runner, "_start_collector", capture_start_collector):
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                runner.learn(max_iterations=0, save_interval=0, log_dir=tmp_dir)
+
+        if "nan_guard_cfg" not in captured:
+            return False
+        if captured["nan_guard_cfg"] is not nan_guard_cfg:
+            return False
+        if captured["nan_guard_cfg"].enabled is not True:
+            return False
+        return True
 
 
 # ---------------------------------------------------------------------------
-# Main
+# Manual end-to-end test recipe
 # ---------------------------------------------------------------------------
 
 
-def main():
-    print("=" * 78)
-    print("Stage 3: Multi-process NaN guard WIRING verification (static check)")
-    print("=" * 78)
-    print()
-    print("Approach: verify each multi-process algorithm has the 3-piece wiring")
-    print("  (train script -> collector worker -> hydra config) so the same")
-    print("  NanGuard machinery validated in Stage 2 will fire in the collector")
-    print("  subprocess on a real NaN.")
-    print()
-
-    all_ok = True
-    for spec in SPECS:
-        print(f"--- {spec['name']} ---")
-
-        train_path = ROOT_DIR / spec["train_script"]
-        worker_path = ROOT_DIR / spec["worker"]
-        cfg_path = ROOT_DIR / spec["config_yaml"]
-
-        for label, fn, p in [
-            ("train script", _check_train_script, train_path),
-            ("collector worker", _check_worker, worker_path),
-            ("hydra config", _check_config, cfg_path),
-        ]:
-            ok, msg = fn(p)
-            mark = "✓" if ok else "✗"
-            print(f"  {mark} {label:<18} {p.relative_to(ROOT_DIR)}")
-            print(f"    {msg}")
-            if not ok:
-                all_ok = False
-        print()
-
-    print("=" * 78)
-    print("Summary")
-    print("=" * 78)
-    if all_ok:
-        print("All multi-process algorithms have correct nan_guard wiring.")
-        print()
-        print("Stage 2 (in-process injection) directly validated NaN detection")
-        print("and dump for PPO/HIM-PPO. Since the same NanGuard class is used")
-        print("inside the APPO/off-policy collector subprocesses (verified above),")
-        print("the detection + dump path is exercised by the same code paths.")
-    else:
-        print("Some wiring checks failed. See details above.")
-    print()
-
+def _print_manual_recipe():
+    """Print the manual smoke test recipe (preserved from original stage3)."""
     print("=" * 78)
     print("Manual end-to-end test recipe (optional)")
     print("=" * 78)
@@ -193,6 +369,51 @@ def main():
     """).strip()
     )
     print()
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+
+def main():
+    print("Stage 3: NaN guard wiring assertions")
+    print("=" * 78)
+    print()
+    print("Approach: mock-based capture of collector_kwargs to verify")
+    print("  that nan_guard_cfg flows from runner.__init__ to _start_collector.")
+    print()
+
+    checks = [
+        ("DoubleBufferOffPolicyRunner (SAC/TD3/FlashSAC prod path)", _check_double_buffer_runner_wires_nan_guard),
+        ("APPORunner (APPO prod path)", _check_appo_runner_wires_nan_guard),
+        ("OffPolicyRunner (defensive)", _check_offpolicy_runner_wires_nan_guard),
+    ]
+
+    all_ok = True
+    for label, fn in checks:
+        try:
+            ok = fn()
+        except Exception as exc:
+            ok = False
+            print(f"  ✗ {label}")
+            print(f"    Exception: {type(exc).__name__}: {exc}")
+            traceback.print_exc()
+            all_ok = False
+            continue
+
+        marker = "✓" if ok else "✗"
+        print(f"  {marker} {label}")
+        if not ok:
+            all_ok = False
+
+    print()
+    print("=" * 78)
+    print("Summary:", "PASS" if all_ok else "FAIL")
+    print("=" * 78)
+    print()
+
+    _print_manual_recipe()
 
     return 0 if all_ok else 1
 
