@@ -409,3 +409,62 @@ def test_appo_runner_stages_multiple_rollouts_without_runner_cat(
     assert torch.equal(torch.unique(batch["observations"]), torch.tensor([1.0, 2.0]))
     assert logger.step_calls[0]["metrics"]["staging_pool_len"] == 2.0
     assert logger.step_calls[0]["metrics"]["rollouts_read"] == 2.0
+
+
+def test_appo_runner_fails_fast_when_collector_dies_during_wait(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Issue #594 B-2: collector dying mid-wait should raise within seconds, not 60s."""
+    import time as _time
+
+    def fake_detect_dims(self: APPORunner) -> tuple[int, int]:
+        self.critic_dim = 7
+        self.critic_input_dim = 5
+        return (4, 2)
+
+    # First call returns True (one liveness slice passes), then False (death detected).
+    call_count = {"n": 0}
+
+    def fake_alive(self: APPORunner) -> bool:
+        del self
+        call_count["n"] += 1
+        return call_count["n"] <= 1
+
+    # wait_for_data must always time out so the chunked loop reaches the
+    # liveness check.
+    def never_ready(self: _FakeRolloutRingBuffer, timeout: float = 60.0) -> bool:
+        del timeout
+        self.wait_calls += 1
+        return False
+
+    monkeypatch.setattr(APPORunner, "_detect_dims", fake_detect_dims)
+    monkeypatch.setattr(APPORunner, "_build_learner", lambda self: _FakeLearner())
+    monkeypatch.setattr(APPORunner, "_check_collector_alive", fake_alive)
+    monkeypatch.setattr(_FakeRolloutRingBuffer, "wait_for_data", never_ready)
+    monkeypatch.setattr(appo_runner_module, "RolloutRingBuffer", _FakeRolloutRingBuffer)
+    monkeypatch.setattr(appo_runner_module, "SharedWeightSync", _FakeWeightSync)
+    monkeypatch.setattr(appo_runner_module, "OffPolicyLogger", _FakeLogger)
+    monkeypatch.setattr(appo_runner_module.mp, "get_context", lambda method: queue)
+    monkeypatch.setattr(appo_runner_module.torch, "save", lambda *args, **kwargs: None)
+
+    runner = APPORunner(
+        env_name="DummyEnv",
+        env_cfg_overrides={},
+        rl_cfg={"actor": {}, "critic": {}, "algorithm": {}},
+        device="cpu",
+        collector_device="cpu",
+        sim_backend="mujoco",
+        num_envs=2,
+        steps_per_env=4,
+    )
+    monkeypatch.setattr(runner, "_start_collector", lambda *args, **kwargs: None)
+
+    start = _time.monotonic()
+    with pytest.raises(RuntimeError, match="collector process died"):
+        runner.learn(max_iterations=1, save_interval=0, log_dir=str(tmp_path))
+    elapsed = _time.monotonic() - start
+
+    # Chunked loop with 0.5s slices should detect death well under 5s, far
+    # below the 60s total wait budget.
+    assert elapsed < 5.0, f"chunked wait took {elapsed:.2f}s — should fail fast"
+    assert call_count["n"] >= 2, "liveness check should be called at least twice"

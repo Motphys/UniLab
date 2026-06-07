@@ -332,10 +332,19 @@ class APPORunner(AsyncRunner):
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
             wait_start = time.time()
 
-            data_ready = rollout_ring_buffer.wait_for_data(timeout=60.0)
-            if not data_ready:
-                # Check if the collector subprocess died — fail fast instead of
-                # burning through remaining iterations with 60s timeouts each.
+            # Chunked wait with periodic liveness check (issue #594 B-2):
+            # avoid freezing the learner for 60s when the collector dies mid-iteration.
+            WAIT_BUDGET_SEC = 60.0
+            LIVENESS_SLICE_SEC = 0.5
+            deadline = time.monotonic() + WAIT_BUDGET_SEC
+            data_ready = False
+            while time.monotonic() < deadline:
+                remaining = deadline - time.monotonic()
+                if rollout_ring_buffer.wait_for_data(
+                    timeout=min(LIVENESS_SLICE_SEC, remaining)
+                ):
+                    data_ready = True
+                    break
                 if not self._check_collector_alive():
                     self._drain_metrics(
                         metrics_queue, reward_history, latest_reward_components, logger
@@ -344,6 +353,7 @@ class APPORunner(AsyncRunner):
                         "APPO collector process died before producing data. "
                         "Check stderr for [APPO WORKER CRASH] messages."
                     )
+            if not data_ready:
                 logger.log_status(
                     f"[yellow]Warning: Timeout waiting for data at iteration {iteration}[/]"
                 )
