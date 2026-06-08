@@ -28,6 +28,7 @@ from unilab.training import (
     resolve_checkpoint_path as resolve_checkpoint_path_common,
 )
 from unilab.training.experiment import ExperimentTracker
+from unilab.training.sim2sim import resolve_sim2sim_config
 from unilab.utils.nan_guard import NanGuardCfg
 
 
@@ -391,6 +392,18 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
     from unilab.algos.torch.common.actor_factory import build_actor
     from unilab.algos.torch.offpolicy.worker import resolve_offpolicy_actor_priv_info
 
+    load_path, load_path_dir = resolve_checkpoint_path(
+        ROOT_DIR,
+        cfg.algo.algo_log_name,
+        cfg.training.task_name,
+        cfg.algo.load_run,
+    )
+    if not load_path or not os.path.exists(load_path):
+        print(f"Could not find checkpoint. load_path={load_path}")
+        return None
+
+    cfg = resolve_sim2sim_config(load_path_dir, cfg, algo_name=algo_name) or cfg
+
     env_cfg_override = build_offpolicy_env_cfg_override(algo_name, cfg)
 
     device = default_device(torch, cfg.training.device)
@@ -464,16 +477,6 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
         raise ValueError(f"Unsupported algo: {algo_name}")
 
     actor.eval()
-
-    load_path, load_path_dir = resolve_checkpoint_path(
-        ROOT_DIR,
-        cfg.algo.algo_log_name,
-        cfg.training.task_name,
-        cfg.algo.load_run,
-    )
-    if not load_path or not os.path.exists(load_path):
-        print(f"Could not find checkpoint. load_path={load_path}")
-        return None
 
     print(f"Loading model: {load_path}")
     checkpoint = torch.load(load_path, map_location=device, weights_only=True)

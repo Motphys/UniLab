@@ -1,16 +1,18 @@
 # @package _global_
+# Inherits the shared cross-backend contract (obs_groups, action_scale,
+# empirical_normalization, policy dims) from base.yaml verbatim; only
+# backend-specific tuning lives here. See base.yaml / issue #579.
+defaults:
+  - /task/g1_walk_flat/base
+  - _self_
+
 training:
   task_name: G1WalkFlat
   sim_backend: mujoco
 algo:
   num_envs: 2048
   max_iterations: 2200
-  obs_groups:
-    actor:
-      - actor
 env:
-  control_config:
-    action_scale: 0.25
   curriculum:
     enabled: false
   noise_config:

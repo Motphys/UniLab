@@ -47,6 +47,7 @@ from unilab.training import (
     get_latest_run as get_latest_run_common,
 )
 from unilab.training.experiment import ExperimentTracker
+from unilab.training.sim2sim import resolve_sim2sim_config
 
 ensure_registries()
 
@@ -196,6 +197,15 @@ def _get_log_root(cfg: DictConfig) -> Path:
 def play_mlx_ppo(cfg: DictConfig, dtype, use_fp16: bool, resolved_sim_backend: str) -> str | None:
     """Play mode for MLX PPO."""
     mx = _require_mlx_runtime().mx
+
+    task_log_root = _get_log_root(cfg) / cfg.training.task_name
+    load_path, run_dir = parse_checkpoint_path(cfg, root_dir=ROOT_DIR, suffix=".safetensors")
+    if load_path is None or run_dir is None or not load_path.exists():
+        print(f"Could not find valid model checkpoint from load_run={cfg.algo.load_run}")
+        return None
+
+    cfg = resolve_sim2sim_config(run_dir, cfg, algo_name="ppo") or cfg
+
     env_cfg_override = BackendAdapter(
         cfg, root_dir=ROOT_DIR, algo_name="ppo"
     ).build_task_env_cfg_override()
@@ -216,13 +226,6 @@ def play_mlx_ppo(cfg: DictConfig, dtype, use_fp16: bool, resolved_sim_backend: s
         raise ValueError("env.action_space.shape must be defined")
     action_dim = int(action_shape[0])
     model = build_model(cfg.algo, obs_dim, action_dim, dtype=play_model_dtype)
-
-    task_log_root = _get_log_root(cfg) / cfg.training.task_name
-    load_path, run_dir = parse_checkpoint_path(cfg, root_dir=ROOT_DIR, suffix=".safetensors")
-    if load_path is None or run_dir is None or not load_path.exists():
-        print(f"Could not find valid model checkpoint from load_run={cfg.algo.load_run}")
-        env.close()
-        return None
 
     model.load_weights(str(load_path), strict=True)
     print(f"[MLX PPO] Loaded model: {load_path}")

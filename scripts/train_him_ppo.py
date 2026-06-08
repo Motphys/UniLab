@@ -30,6 +30,7 @@ from unilab.training import (
     parse_checkpoint_path,
 )
 from unilab.training.experiment import ExperimentTracker
+from unilab.training.sim2sim import resolve_sim2sim_config
 from unilab.visualization import render_play_mode
 
 
@@ -114,6 +115,7 @@ def play_him_ppo(cfg: DictConfig, device: str) -> str | None:
         )
         return None
 
+    cfg = resolve_sim2sim_config(load_path_dir, cfg, algo_name="ppo") or cfg
     env_cfg_override = cast(dict[str, Any], _backend_adapter(cfg).build_play_env_cfg_override())
     env = create_env(cfg, num_envs=cfg.training.play_env_num, env_cfg_override=env_cfg_override)
     from unilab.training.rsl_rl import RslRlVecEnvWrapper

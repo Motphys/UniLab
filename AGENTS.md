@@ -24,6 +24,19 @@ UniLab 是一个 **高性能、模块化、contract 驱动** 的 RL infrastructu
 | Asset / Metadata | `ASSETS_ROOT_PATH`、`model_file`、XML / asset 元数据只允许在 init / materialization / cache 等低频路径访问；`step/reset/domain randomization` 等热路径不得解析 asset 或基于 asset 元数据做运行时分支。 |
 | Asset / XML structure | `<keyframe>` 必须放在 task-level XML（`scene_*.xml` 或 `locomotion_task.xml` 等 fragment），**禁止放进 robot.xml**。robot.xml 是纯机器人描述（body / joint / actuator / sensor），跟 task / 场景无关；keyframe 是 task 起始姿态，属于场景或 task 资源。motrix 后端需要 keyframe 时通过 `scene.fragment_files` 引用 fragment XML。 |
 | Async | 不绕开 runner lifecycle，也不另起 collector / learner 同步协议。 |
+| Sim2Sim 契约 | 跨后端 play（A 后端训练 → B 后端 play）要**可迁移**，则影响策略 I/O / 网络结构的字段必须跨后端一致，应放进 task 的 `base.yaml` 共享。backend YAML 若为单后端调参 override 了某契约字段，则该 task 在该后端**不可 sim2sim 迁移**：训练时写入 `run_config.json` 的 `contract_snapshot`，play 时 `resolve_sim2sim_config` 在建 env 前校验，差异即 `CrossBackendIncompatibleError`（把静默污染变成显式报错）。详见下方 Sim2Sim 章节。 |
+
+## Sim2Sim 跨后端配置契约（#579）
+
+A 后端训练的 checkpoint 在 B 后端 play 时，env 用**目标后端 YAML** 创建；为避免与训练配置静默不一致而污染策略，`src/unilab/training/sim2sim.py` 定义三类字段（按 dotted path 维护，单一事实源）：
+
+- **DENYLIST**（差异即 `CrossBackendIncompatibleError`）：`algo.obs_groups`、`env.control_config.action_scale`、`algo.policy.actor_hidden_dims` / `critic_hidden_dims`、`algo.empirical_normalization`（off-policy 为 `algo.obs_normalization`）、`env.sampling_mode`。即改变策略 I/O 或网络结构的字段。
+- **WARNING_LIST**（允许覆盖、打 warning）：`reward.*`（play 不用 reward）、`env.control_config.simulate_action_latency`、`env.ctrl_dt`。
+- **ALLOWLIST**（目标后端自由覆盖、不快照不比较）：`training.sim_backend`、`env.scene`、`training.play_steps`、`env.domain_rand`、`env.noise_config`、`env.commands.vel_limit`。
+
+机制：训练时 `ExperimentTracker.start()` 把 `DENYLIST + WARNING_LIST` 字段写进 `run_config.json` 的 `contract_snapshot`（**不改 checkpoint 格式**，天然兼容历史 checkpoint）；五个 play 入口（rsl-rl / him-ppo / appo / offpolicy / mlx）在建 env 前调用 `resolve_sim2sim_config(source_run_dir, cfg)` 校验。旧 run（无 snapshot）fallback + warning、不中断。
+
+DENYLIST 字段应通过 task 的 `base.yaml` 作为**跨后端默认契约**（范例：`conf/ppo/task/g1_walk_flat/{base,mujoco,motrix}.yaml`）：mujoco 直接继承 `base`；motrix 出于单后端调参**显式 override** 了部分契约字段，因此 `g1_walk_flat` 当前不可 mujoco↔motrix sim2sim（guard 会按设计报错），去掉这些 override 即可恢复可迁移。
 
 ## Pointers
 
@@ -39,6 +52,7 @@ UniLab 是一个 **高性能、模块化、contract 驱动** 的 RL infrastructu
 - MLX rotation helpers: `src/unilab/algos/mlx/common/rotation.py`
 - config schema: `src/unilab/structured_configs.py`
 - async runner: `src/unilab/ipc/async_runner.py`
+- sim2sim 跨后端契约: `src/unilab/training/sim2sim.py`
 
 ## GitHub CLI (gh) 速查
 

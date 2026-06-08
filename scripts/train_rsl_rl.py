@@ -36,6 +36,7 @@ from unilab.training.experiment import (
     patch_rsl_rl_wandb_writer,
 )
 from unilab.training.rsl_rl import RslRlVecEnvWrapper, normalize_ppo_train_cfg
+from unilab.training.sim2sim import resolve_sim2sim_config
 from unilab.utils.device import get_default_device
 
 try:
@@ -207,6 +208,8 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
             f"(found keys: {_ckpt_keys}). Aborting play."
         )
         return None
+
+    cfg = resolve_sim2sim_config(load_path_dir, cfg, algo_name="ppo") or cfg
 
     env_cfg_override = build_ppo_play_env_cfg_override(cfg)
 

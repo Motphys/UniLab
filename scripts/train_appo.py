@@ -27,6 +27,7 @@ from unilab.training import (
     should_run_playback,
 )
 from unilab.training.experiment import ExperimentTracker
+from unilab.training.sim2sim import resolve_sim2sim_config
 
 
 def _training_resume_requested(load_run: Any) -> bool:
@@ -180,6 +181,19 @@ def play_appo(
     from rsl_rl.utils import resolve_callable
     from tensordict import TensorDict
 
+    if resolve_checkpoint_path is not None:
+        load_path, load_path_dir = resolve_checkpoint_path(cfg)
+    else:
+        log_root = _get_log_root(cfg)
+        base_log_dir = os.path.join(log_root, cfg.training.task_name)
+        load_path, load_path_dir = resolve_appo_checkpoint_path(base_log_dir, cfg.algo.load_run)
+
+    if not load_path or not os.path.exists(load_path):
+        print(f"Could not find run to load. load_path={load_path}")
+        return None
+
+    cfg = resolve_sim2sim_config(load_path_dir, cfg, algo_name="appo") or cfg
+
     env_cfg_override = BackendAdapter(
         cfg, root_dir=ROOT_DIR, algo_name="appo"
     ).build_task_env_cfg_override()
@@ -240,17 +254,6 @@ def play_appo(
     actor = actor_cls(td_example, rl_cfg_dict["obs_groups"], "actor", action_dim, **actor_cfg)
     actor = actor.to(device)
     actor.eval()
-
-    if resolve_checkpoint_path is not None:
-        load_path, load_path_dir = resolve_checkpoint_path(cfg)
-    else:
-        log_root = _get_log_root(cfg)
-        base_log_dir = os.path.join(log_root, cfg.training.task_name)
-        load_path, load_path_dir = resolve_appo_checkpoint_path(base_log_dir, cfg.algo.load_run)
-
-    if not load_path or not os.path.exists(load_path):
-        print(f"Could not find run to load. load_path={load_path}")
-        return None
 
     print(f"Loading model: {load_path}")
     checkpoint = torch.load(load_path, map_location=device, weights_only=True)
