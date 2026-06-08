@@ -193,6 +193,25 @@ class MotrixBackend(SimBackend):
         self._supports_position_actuator_gains = len(self._position_actuators) == int(
             self._model.num_actuators
         )
+        # qpos index of each position actuator's own target joint, in actuator
+        # order. Used to reset position actuators to "hold current pose" without
+        # assuming a fully-actuated model: parallel / under-actuated mechanisms
+        # (e.g. a Stewart platform) have passive joints, so the model-wide
+        # ``joint_dof_pos_indices`` is wider than ``num_actuators``.
+        self._actuator_joint_pos_indices: np.ndarray | None = None
+        if self._supports_position_actuator_gains:
+            joint_pos_idx: list[int] = []
+            for actuator in sorted(self._position_actuators, key=lambda a: int(a.index)):
+                if actuator.target_type != "joint":
+                    joint_pos_idx = []
+                    break
+                joint = self._model.get_joint(actuator.target_name)
+                if joint is None or int(joint.num_dof_pos) != 1:
+                    joint_pos_idx = []
+                    break
+                joint_pos_idx.append(int(joint.dof_pos_index))
+            if len(joint_pos_idx) == int(self._model.num_actuators):
+                self._actuator_joint_pos_indices = np.asarray(joint_pos_idx, dtype=np.intp)
         self._default_actuator_kp = np.zeros((self.num_actuators,), dtype=np.float32)
         self._default_actuator_kd = np.zeros((self.num_actuators,), dtype=np.float32)
         for actuator in self._position_actuators:
@@ -576,8 +595,14 @@ class MotrixBackend(SimBackend):
         data_slice.set_dof_vel(qvel)
         data_slice.set_dof_pos(qpos_motrix, self._model)
 
-        if self._supports_position_actuator_gains:
+        if self._supports_position_actuator_gains and len(self._joint_dof_pos_indices) == int(
+            self.num_actuators
+        ):
+            # Fully-actuated model: hold every joint at its reset position (unchanged).
             ctrl = qpos_motrix[:, self._joint_dof_pos_indices]
+        elif self._actuator_joint_pos_indices is not None:
+            # Under-actuated / parallel model: hold only the actuated joints.
+            ctrl = qpos_motrix[:, self._actuator_joint_pos_indices]
         else:
             ctrl = np.zeros((len(env_indices), self.num_actuators), dtype=self._np_dtype)
         data_slice.actuator_ctrls = np.ascontiguousarray(ctrl)
