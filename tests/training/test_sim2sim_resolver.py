@@ -21,6 +21,7 @@ from unilab.training.sim2sim import (
     WARNING_LIST,
     CrossBackendIncompatibleError,
     extract_contract_snapshot,
+    policy_load_dim_guard,
     resolve_sim2sim_config,
 )
 
@@ -236,6 +237,51 @@ def test_env_field_fail_closed_even_if_default_might_match(tmp_path):
     target = OmegaConf.create({"env": {"control_config": {}}})
     with pytest.raises(CrossBackendIncompatibleError):
         resolve_sim2sim_config(tmp_path, target)
+
+
+# --- issue #579: play-time runtime dimension guard (policy_load_dim_guard) ----------
+
+
+def test_dim_guard_passes_through_on_success():
+    # No error inside the block -> the guard is a no-op.
+    ran = False
+    with policy_load_dim_guard(env_obs_dim=10, env_action_dim=3, algo_name="ppo"):
+        ran = True
+    assert ran
+
+
+def test_dim_guard_translates_torch_size_mismatch():
+    # torch raises RuntimeError("size mismatch ...") on a shape-incompatible load.
+    err = "Error(s) in loading state_dict for ActorCritic:\n\tsize mismatch for actor.0.weight"
+    with pytest.raises(CrossBackendIncompatibleError) as excinfo:
+        with policy_load_dim_guard(env_obs_dim=42, env_action_dim=12, algo_name="ppo"):
+            raise RuntimeError(err)
+    msg = str(excinfo.value)
+    assert "42" in msg and "12" in msg  # env dims surfaced
+    assert "audit_sim2sim_contracts" in msg  # actionable pointer
+    assert isinstance(excinfo.value.__cause__, RuntimeError)  # original chained
+
+
+def test_dim_guard_translates_mlx_shape_valueerror():
+    # mlx load_weights(strict=True) raises ValueError mentioning the expected shape.
+    with pytest.raises(CrossBackendIncompatibleError):
+        with policy_load_dim_guard(env_obs_dim=8, env_action_dim=2, algo_name="ppo"):
+            raise ValueError("Expected shape (256, 8) but received (256, 11)")
+
+
+def test_dim_guard_reraises_unrelated_errors_unchanged():
+    # A non-dimension load failure must propagate as-is (not masked as a sim2sim error).
+    with pytest.raises(RuntimeError) as excinfo:
+        with policy_load_dim_guard(env_obs_dim=10, env_action_dim=3):
+            raise RuntimeError("CUDA out of memory")
+    assert not isinstance(excinfo.value, CrossBackendIncompatibleError)
+
+
+def test_dim_guard_does_not_swallow_keyerror():
+    # A missing checkpoint key is not a dim mismatch; it must surface unchanged.
+    with pytest.raises(KeyError):
+        with policy_load_dim_guard(env_obs_dim=10, env_action_dim=3):
+            raise KeyError("actor")
 
 
 def _compose_task(task: str) -> Any:

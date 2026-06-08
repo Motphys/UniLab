@@ -77,6 +77,16 @@ vs off-policy `obs_normalization`，见
 fail-closed 取向意味着即使两边运行时默认恰好相等也会报错（补 1 行显式声明即解除）；这符合 #579
 「静默污染 → 显式报错」的理念。运行 `scripts/audit_sim2sim_contracts.py` 现报告 guard-blind-spot 字段为 0。
 
+### 1b. 运行时维度最后防线（play 侧、零训练改动）
+
+配置级 guard 只查 YAML 代理;真正决定策略 I/O 维度的是 `env.obs_groups_spec` / action space（运行时算出）。
+为兜住 YAML 看不到的真实维度不匹配,五个 play 入口加载 checkpoint 时用 `policy_load_dim_guard`
+（`src/unilab/training/sim2sim.py`）包裹:torch `load_state_dict` 对张量 size mismatch **无论 strict 与否都会报错**、
+mlx `load_weights(strict=True)` 同理 —— guard 把这类隐晦的 size-mismatch 错误**重抛为显式 sim2sim 维度诊断**
+(指明 env 的 obs/action 维度 + 指向本审计脚本)。它**只在加载本就失败时触发**,因此绝不会阻断正常 play,
+也不碰训练链路。完整的逐算法 obs 维度 assert(含 HORA-SAC priv 拼接、state-dependent std 输出翻倍等)
+留待能真跑 play 的 GPU 冒烟阶段验证。
+
 ### 2. `empirical_normalization` 是真「建模」分歧
 
 它把 running mean/std normalizer 作为 nn.Module 子模块烘进 actor，并将统计 buffer 存入 checkpoint

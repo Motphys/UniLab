@@ -47,7 +47,7 @@ from unilab.training import (
     get_latest_run as get_latest_run_common,
 )
 from unilab.training.experiment import ExperimentTracker
-from unilab.training.sim2sim import resolve_sim2sim_config
+from unilab.training.sim2sim import policy_load_dim_guard, resolve_sim2sim_config
 
 ensure_registries()
 
@@ -227,7 +227,8 @@ def play_mlx_ppo(cfg: DictConfig, dtype, use_fp16: bool, resolved_sim_backend: s
     action_dim = int(action_shape[0])
     model = build_model(cfg.algo, obs_dim, action_dim, dtype=play_model_dtype)
 
-    model.load_weights(str(load_path), strict=True)
+    with policy_load_dim_guard(env_obs_dim=obs_dim, env_action_dim=action_dim, algo_name="ppo"):
+        model.load_weights(str(load_path), strict=True)
     print(f"[MLX PPO] Loaded model: {load_path}")
 
     # Export actor to ONNX (convert MLX weights → PyTorch)

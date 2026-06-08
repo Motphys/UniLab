@@ -28,7 +28,7 @@ from unilab.training import (
     resolve_checkpoint_path as resolve_checkpoint_path_common,
 )
 from unilab.training.experiment import ExperimentTracker
-from unilab.training.sim2sim import resolve_sim2sim_config
+from unilab.training.sim2sim import policy_load_dim_guard, resolve_sim2sim_config
 from unilab.utils.nan_guard import NanGuardCfg
 
 
@@ -480,17 +480,20 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
 
     print(f"Loading model: {load_path}")
     checkpoint = torch.load(load_path, map_location=device, weights_only=True)
-    if algo_name in ("sac", "flashsac"):
-        actor.load_state_dict(checkpoint["actor"])
-        if normalizer and checkpoint.get("obs_normalizer"):
-            normalizer.load_state_dict(checkpoint["obs_normalizer"])
-            normalizer.eval()
-    else:
-        actor_state = {k: v for k, v in checkpoint["actor"].items() if k not in ("noise_scales",)}
-        actor.load_state_dict(actor_state, strict=False)
-        if normalizer and checkpoint.get("obs_normalizer"):
-            normalizer.load_state_dict(checkpoint["obs_normalizer"])
-            normalizer.eval()
+    with policy_load_dim_guard(env_obs_dim=obs_dim, env_action_dim=action_dim, algo_name=algo_name):
+        if algo_name in ("sac", "flashsac"):
+            actor.load_state_dict(checkpoint["actor"])
+            if normalizer and checkpoint.get("obs_normalizer"):
+                normalizer.load_state_dict(checkpoint["obs_normalizer"])
+                normalizer.eval()
+        else:
+            actor_state = {
+                k: v for k, v in checkpoint["actor"].items() if k not in ("noise_scales",)
+            }
+            actor.load_state_dict(actor_state, strict=False)
+            if normalizer and checkpoint.get("obs_normalizer"):
+                normalizer.load_state_dict(checkpoint["obs_normalizer"])
+                normalizer.eval()
 
     # Export actor to ONNX
     if load_path_dir is not None and bool(getattr(cfg.training, "export_onnx", True)):

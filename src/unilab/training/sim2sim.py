@@ -31,6 +31,8 @@ can be imported from :mod:`unilab.training.experiment` without an import cycle.
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -265,3 +267,61 @@ def resolve_sim2sim_config(
         print(f"[sim2sim] WARNING (non-strict) {message}")
 
     return target_cfg
+
+
+# Substrings that mark a tensor shape/size mismatch in torch / mlx load errors. Matched
+# case-insensitively; used only to *re-label* a load that already failed, so a broad set
+# is safe (non-matching errors are re-raised unchanged).
+_DIM_MISMATCH_MARKERS: tuple[str, ...] = (
+    "size mismatch",
+    "copying a param",
+    "shape",
+    "dimension",
+    "expected",
+)
+
+
+def _looks_like_dim_mismatch(message: str) -> bool:
+    low = message.lower()
+    return any(marker in low for marker in _DIM_MISMATCH_MARKERS)
+
+
+@contextmanager
+def policy_load_dim_guard(
+    *,
+    env_obs_dim: int | None = None,
+    env_action_dim: int | None = None,
+    algo_name: str | None = None,
+) -> Iterator[None]:
+    """Wrap a play-time checkpoint load and turn a tensor shape/size mismatch into a
+    clear cross-backend sim2sim diagnostic (issue #579 runtime dimension check).
+
+    The trained policy network's weight shapes are fixed in the checkpoint. Loading it
+    into an env whose actual observation/action dimensions differ -- a sim2sim mismatch
+    the YAML-level guard cannot see, because the real dims come from
+    ``env.obs_groups_spec`` / the action space, not the config -- makes
+    ``load_state_dict`` / ``load_weights`` raise a cryptic size-mismatch error (and note
+    that a size mismatch raises even under ``strict=False``). This wrapper re-raises that
+    as an actionable :class:`CrossBackendIncompatibleError` naming the env dims.
+
+    It only ever acts on a load that ALREADY failed (non-matching errors propagate
+    unchanged), so it cannot block an otherwise-valid play. ``env_obs_dim`` /
+    ``env_action_dim`` are informational only; pass ``None`` if not readily available.
+    """
+    try:
+        yield
+    except (RuntimeError, ValueError) as exc:  # torch -> RuntimeError, mlx -> ValueError
+        if not _looks_like_dim_mismatch(str(exc)):
+            raise
+        raise CrossBackendIncompatibleError(
+            "Trained policy checkpoint does not fit this play environment -- likely a "
+            "cross-backend sim2sim dimension mismatch.\n"
+            f"  algo: {algo_name}\n"
+            f"  env policy obs dim: {env_obs_dim}\n"
+            f"  env action dim: {env_action_dim}\n"
+            "The checkpoint's tensor shapes do not match the env's observation/action "
+            "dimensions. Check the task's obs_groups_spec and action space across "
+            "backends; see resolve_sim2sim_config and run "
+            "`uv run scripts/audit_sim2sim_contracts.py`.\n"
+            f"Original load error:\n{exc}"
+        ) from exc

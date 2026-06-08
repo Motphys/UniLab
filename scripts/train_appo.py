@@ -27,7 +27,7 @@ from unilab.training import (
     should_run_playback,
 )
 from unilab.training.experiment import ExperimentTracker
-from unilab.training.sim2sim import resolve_sim2sim_config
+from unilab.training.sim2sim import policy_load_dim_guard, resolve_sim2sim_config
 
 
 def _training_resume_requested(load_run: Any) -> bool:
@@ -257,7 +257,8 @@ def play_appo(
 
     print(f"Loading model: {load_path}")
     checkpoint = torch.load(load_path, map_location=device, weights_only=True)
-    actor.load_state_dict(checkpoint["actor"])
+    with policy_load_dim_guard(env_obs_dim=obs_dim, env_action_dim=action_dim, algo_name="appo"):
+        actor.load_state_dict(checkpoint["actor"])
 
     # Export actor to ONNX
     if load_path_dir is not None:

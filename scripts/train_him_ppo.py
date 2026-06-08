@@ -30,7 +30,7 @@ from unilab.training import (
     parse_checkpoint_path,
 )
 from unilab.training.experiment import ExperimentTracker
-from unilab.training.sim2sim import resolve_sim2sim_config
+from unilab.training.sim2sim import policy_load_dim_guard, resolve_sim2sim_config
 from unilab.visualization import render_play_mode
 
 
@@ -122,7 +122,12 @@ def play_him_ppo(cfg: DictConfig, device: str) -> str | None:
 
     wrapped_env = RslRlVecEnvWrapper(env, device=device)
     runner = HIMOnPolicyRunner(wrapped_env, rl_cfg, log_dir=None, device=device)
-    runner.load(str(load_path))
+    with policy_load_dim_guard(
+        env_obs_dim=getattr(wrapped_env, "num_obs", None),
+        env_action_dim=getattr(wrapped_env, "num_actions", None),
+        algo_name="him_ppo",
+    ):
+        runner.load(str(load_path))
     policy = runner.get_inference_policy(device=device)
     if EXPORT_POLICY:
         runner.export_policy_to_onnx(path=str(load_path_dir))
