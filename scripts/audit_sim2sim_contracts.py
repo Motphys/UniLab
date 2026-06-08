@@ -9,12 +9,13 @@ runtime guard ``resolve_sim2sim_config`` uses. It prints, per task:
 * for each diverging DENYLIST field whether the runtime guard would actually catch it.
 
 Important nuance this tool surfaces: it compares the *composed YAML*, where a backend
-that does not set a field shows it as ``<absent>``. At runtime the env dataclass fills
-in a default for that path, so an ``asymmetric-presence`` divergence (set on one
-backend, absent on the other) is a divergence the current guard does NOT enforce
-(``resolve_sim2sim_config`` skips fields that are ``None`` in the target config). Such
-rows are flagged ``guard-blind-spot``: re-check the absent backend's dataclass default
-before trusting transferability.
+that does not set a field shows it as ``<absent>``; at runtime the env dataclass fills
+in a default for that path. Since issue #579 P2 the guard fails closed on
+``asymmetric-presence`` of an env-structural field (``action_scale`` / ``sampling_mode``),
+so those are enforced. Algo-specific fields (``empirical_normalization`` /
+``obs_normalization``) remain skipped when absent on the target (cross-algo by design);
+any such row is flagged ``guard-blind-spot`` to re-check the absent side's dataclass
+default.
 
 Run (this repo uses uv):
 
@@ -36,7 +37,7 @@ from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
 
-from unilab.training.sim2sim import DENYLIST, WARNING_LIST, _normalize
+from unilab.training.sim2sim import DENYLIST, ENV_STRUCTURAL_DENYLIST, WARNING_LIST, _normalize
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONF_ROOT = REPO_ROOT / "conf"
@@ -93,9 +94,12 @@ def _diff_field(path: str, mj: Any, mx: Any) -> dict[str, Any] | None:
         return None
     else:
         kind = "value-diff"
-    # The runtime guard only compares when the field is present (non-None) on both the
-    # source snapshot and the target config, so asymmetric-presence slips through.
-    guard_enforced = kind == "value-diff"
+    # The guard compares value-diffs (present on both sides). Since issue #579 P2 it
+    # also fails closed on asymmetric presence of an env-structural field; algo-specific
+    # fields are still skipped when absent on the target (cross-algo by design).
+    guard_enforced = kind == "value-diff" or (
+        kind == "asymmetric-presence" and path in ENV_STRUCTURAL_DENYLIST
+    )
     return {
         "field": path,
         "kind": kind,

@@ -17,6 +17,7 @@ from omegaconf import OmegaConf
 from unilab.training.sim2sim import (
     ALLOWLIST,
     DENYLIST,
+    ENV_STRUCTURAL_DENYLIST,
     WARNING_LIST,
     CrossBackendIncompatibleError,
     extract_contract_snapshot,
@@ -176,6 +177,65 @@ def test_action_scale_list_form(tmp_path):
     bad = OmegaConf.create({"env": {"control_config": {"action_scale": 0.25}}})
     with pytest.raises(CrossBackendIncompatibleError):
         resolve_sim2sim_config(tmp_path, bad)
+
+
+# --- issue #579 P2: env-structural asymmetric-presence fail-closed -----------------
+
+
+def test_env_structural_denylist_is_the_env_subset():
+    assert ENV_STRUCTURAL_DENYLIST == ["env.control_config.action_scale", "env.sampling_mode"]
+    assert set(ENV_STRUCTURAL_DENYLIST) <= set(DENYLIST)
+
+
+def test_env_field_present_in_source_absent_in_target_raises(tmp_path):
+    # Forward asymmetry: source (mujoco) sets action_scale, target (motrix) omits it
+    # and would fall back to a differing env default. Fail closed instead of skipping.
+    _write_sidecar(tmp_path, {"env.control_config.action_scale": [0.5, 0.5, 0.5]})
+    target = OmegaConf.create({"env": {"control_config": {}}})  # no action_scale set
+    with pytest.raises(CrossBackendIncompatibleError) as excinfo:
+        resolve_sim2sim_config(tmp_path, target)
+    msg = str(excinfo.value)
+    assert "action_scale" in msg
+    assert "target=<absent>" in msg
+
+
+def test_env_field_present_in_target_absent_in_source_raises(tmp_path):
+    # Reverse asymmetry: the trained run omitted sampling_mode (used the env default),
+    # the target sets it explicitly. Still unverifiable -> fail closed.
+    _write_sidecar(tmp_path, {"algo.empirical_normalization": False})
+    target = OmegaConf.create(
+        {"algo": {"empirical_normalization": False}, "env": {"sampling_mode": "adaptive"}}
+    )
+    with pytest.raises(CrossBackendIncompatibleError) as excinfo:
+        resolve_sim2sim_config(tmp_path, target)
+    msg = str(excinfo.value)
+    assert "sampling_mode" in msg
+    assert "source=<absent>" in msg
+
+
+def test_env_field_symmetric_absence_does_not_raise(tmp_path):
+    # Neither side sets the env structural field -> both use the same env default -> ok.
+    _write_sidecar(tmp_path, {"algo.empirical_normalization": False})
+    target = OmegaConf.create({"algo": {"empirical_normalization": False}, "env": {}})
+    assert resolve_sim2sim_config(tmp_path, target) is target
+
+
+def test_algo_field_absent_in_target_still_skipped_not_fail_closed(tmp_path):
+    # Regression: algo-specific fields keep the cross-algo skip and must NOT fail closed
+    # the way env structural fields now do.
+    _write_sidecar(tmp_path, {"algo.empirical_normalization": True})
+    target = OmegaConf.create({"algo": {"obs_normalization": True}, "env": {}})
+    assert resolve_sim2sim_config(tmp_path, target) is target
+
+
+def test_env_field_fail_closed_even_if_default_might_match(tmp_path):
+    # Fail-closed semantics: the guard cannot resolve the omitted side's runtime
+    # default, so it raises even when that default could happen to equal the explicit
+    # value. The fix is a one-line explicit declaration in the target YAML.
+    _write_sidecar(tmp_path, {"env.control_config.action_scale": 0.25})
+    target = OmegaConf.create({"env": {"control_config": {}}})
+    with pytest.raises(CrossBackendIncompatibleError):
+        resolve_sim2sim_config(tmp_path, target)
 
 
 def _compose_task(task: str) -> Any:

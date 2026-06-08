@@ -13,7 +13,10 @@ adds a compact ``contract_snapshot`` to that sidecar (see
 source snapshot before the environment is created (see
 :func:`resolve_sim2sim_config`):
 
-* ``DENYLIST``     - a difference raises :class:`CrossBackendIncompatibleError`.
+* ``DENYLIST``     - a difference raises :class:`CrossBackendIncompatibleError`. For
+  the env-structural subset (:data:`ENV_STRUCTURAL_DENYLIST`) an *asymmetric presence*
+  (set on one side, absent on the other) also raises, because the absent side silently
+  falls back to an env default that may differ (issue #579 P2).
 * ``WARNING_LIST`` - a difference is allowed but logged.
 * ``ALLOWLIST``    - target-owned runtime/backend fields; never snapshotted nor
   compared.
@@ -74,6 +77,14 @@ DENYLIST: list[str] = [
 # The snapshot stores exactly the fields we may need to compare at play time.
 SNAPSHOT_FIELDS: list[str] = DENYLIST + WARNING_LIST
 
+# DENYLIST fields backed by an env dataclass default rather than a config.yaml default,
+# so they are absent from the composed config when a backend does not set them. Unlike
+# the algo-specific fields (empirical_normalization / obs_normalization, legitimately
+# absent across algos), these are always meaningful at runtime, so an asymmetric
+# presence between source and target is treated as a contract mismatch (fail closed)
+# instead of skipped. See issue #579 P2 and ``resolve_sim2sim_config`` below.
+ENV_STRUCTURAL_DENYLIST: list[str] = [path for path in DENYLIST if path.startswith("env.")]
+
 
 def _select(cfg: Any, path: str) -> Any:
     """Return the effective value at a dotted path (or ``None`` if absent)."""
@@ -130,6 +141,25 @@ def _diff_line(path: str, source_value: Any, target_value: Any) -> str:
     return f"{path}: source={_format_value(source_value)} target={_format_value(target_value)}"
 
 
+def _asymmetric_line(path: str, present_value: Any, *, source_present: bool) -> str:
+    """Format a denial for an env-structural field set on exactly one side.
+
+    The other side omits it and falls back to an env dataclass default, which the guard
+    cannot resolve, so the contract is unverifiable and we fail closed (issue #579 P2).
+    """
+    value = _format_value(present_value)
+    if source_present:
+        return (
+            f"{path}: source={value} target=<absent> (target omits this field and "
+            "falls back to the env default, which may differ; set it explicitly in the "
+            "target task YAML to make the contract verifiable)"
+        )
+    return (
+        f"{path}: source=<absent> target={value} (the trained run omitted this field "
+        "and used the env default; set it explicitly so the contract can be verified)"
+    )
+
+
 def _read_snapshot(run_dir: Path) -> dict[str, Any] | None:
     """Read ``contract_snapshot`` from ``run_dir/run_config.json``.
 
@@ -172,6 +202,12 @@ def resolve_sim2sim_config(
     field differs between the source snapshot and the target config. ``algo_name``
     is informational only (the normalization fields for every algo are in the
     DENYLIST and absent ones are skipped).
+
+    Also raises (when ``strict``) when an :data:`ENV_STRUCTURAL_DENYLIST` field is
+    present on exactly one side (asymmetric presence): the absent side falls back to an
+    env default the guard cannot resolve, so the contract is unverifiable (issue #579
+    P2). The algo-specific fields keep the skip-on-absent behavior so legitimate
+    cross-algo plays are unaffected.
     """
     if source_run_dir is None:
         print("[sim2sim] no source run dir; skipping cross-backend contract check")
@@ -190,7 +226,14 @@ def resolve_sim2sim_config(
     for path, source_value in snapshot.items():
         target_value = _select(target_cfg, path)
         if target_value is None:
-            continue  # target does not set this field; nothing to compare
+            # Target does not set this field. Algo-specific fields are legitimately
+            # absent across algos (e.g. PPO empirical_normalization vs off-policy
+            # obs_normalization), so skip them. But an env structural field is backed
+            # by a dataclass default that is always meaningful at runtime, so an
+            # asymmetric presence is unverifiable -> fail closed (issue #579 P2).
+            if path in ENV_STRUCTURAL_DENYLIST:
+                denials.append(_asymmetric_line(path, source_value, source_present=True))
+            continue
         if _values_equal(source_value, target_value):
             continue
         line = _diff_line(path, source_value, target_value)
@@ -198,6 +241,17 @@ def resolve_sim2sim_config(
             denials.append(line)
         else:
             print(f"[sim2sim] WARNING override {line}")
+
+    # Reverse asymmetry: an env structural field the target sets explicitly but the
+    # source snapshot never recorded (the trained run used the env default). Also
+    # unverifiable, so fail closed (issue #579 P2).
+    for path in ENV_STRUCTURAL_DENYLIST:
+        if path in snapshot:
+            continue  # presence already handled by the snapshot loop above
+        if _select(target_cfg, path) is not None:
+            denials.append(
+                _asymmetric_line(path, _select(target_cfg, path), source_present=False)
+            )
 
     if denials:
         message = (

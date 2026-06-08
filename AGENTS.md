@@ -30,7 +30,7 @@ UniLab 是一个 **高性能、模块化、contract 驱动** 的 RL infrastructu
 
 A 后端训练的 checkpoint 在 B 后端 play 时，env 用**目标后端 YAML** 创建；为避免与训练配置静默不一致而污染策略，`src/unilab/training/sim2sim.py` 定义三类字段（按 dotted path 维护，单一事实源）：
 
-- **DENYLIST**（差异即 `CrossBackendIncompatibleError`）：`algo.obs_groups`、`env.control_config.action_scale`、`algo.policy.actor_hidden_dims` / `critic_hidden_dims`、`algo.empirical_normalization`（off-policy 为 `algo.obs_normalization`）、`env.sampling_mode`。即改变策略 I/O 或网络结构的字段。
+- **DENYLIST**（差异即 `CrossBackendIncompatibleError`）：`algo.obs_groups`、`env.control_config.action_scale`、`algo.policy.actor_hidden_dims` / `critic_hidden_dims`、`algo.empirical_normalization`（off-policy 为 `algo.obs_normalization`）、`env.sampling_mode`。即改变策略 I/O 或网络结构的字段。其中 `env.*` 子集（`ENV_STRUCTURAL_DENYLIST` = `action_scale`、`sampling_mode`）由 env dataclass 默认兜底、composed config 里常缺省，故**任一方向的不对称出现（源有目标缺 / 源缺目标有）也 fail-closed 报错**（#579 P2），要求目标 YAML 显式声明才能验证；`algo` 专属字段（`empirical_normalization` / `obs_normalization`）目标缺省时仍按设计跳过（跨算法合法）。
 - **WARNING_LIST**（允许覆盖、打 warning）：`reward.*`（play 不用 reward）、`env.control_config.simulate_action_latency`、`env.ctrl_dt`。
 - **ALLOWLIST**（目标后端自由覆盖、不快照不比较）：`training.sim_backend`、`env.scene`、`training.play_steps`、`env.domain_rand`、`env.noise_config`、`env.commands.vel_limit`。
 
