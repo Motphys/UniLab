@@ -128,7 +128,9 @@ def audit_tree(tree: str) -> list[dict[str, Any]]:
                 d for p in DENYLIST if (d := _diff_field(p, mj.get(p, ABSENT), mx.get(p, ABSENT)))
             ]
             warn = [
-                d for p in WARNING_LIST if (d := _diff_field(p, mj.get(p, ABSENT), mx.get(p, ABSENT)))
+                d
+                for p in WARNING_LIST
+                if (d := _diff_field(p, mj.get(p, ABSENT), mx.get(p, ABSENT)))
             ]
             verdict = "TRANSFERABLE" if not deny else "BLOCKED"
         else:
@@ -155,7 +157,9 @@ def _print_human(rows: list[dict[str, Any]]) -> None:
             print(f"  COMPOSE ERRORS: {row['errors']}")
         print(f"  VERDICT (mujoco<->motrix): {row['verdict']}")
         for diff in row["deny_diffs"]:
-            flag = "" if diff["guard_enforced"] else "  [guard-blind-spot: re-check dataclass default]"
+            flag = (
+                "" if diff["guard_enforced"] else "  [guard-blind-spot: re-check dataclass default]"
+            )
             print(
                 f"    DENY  {diff['field']} [{diff['kind']}]: "
                 f"mujoco={diff['mujoco']}  motrix={diff['motrix']}{flag}"
@@ -168,12 +172,12 @@ def _print_human(rows: list[dict[str, Any]]) -> None:
 
     transferable = [r for r in rows if r["verdict"] == "TRANSFERABLE"]
     blocked = [r for r in rows if r["verdict"] == "BLOCKED"]
-    blind = [
-        r for r in blocked if any(not d["guard_enforced"] for d in r["deny_diffs"])
-    ]
+    blind = [r for r in blocked if any(not d["guard_enforced"] for d in r["deny_diffs"])]
     print("\n" + "=" * 80)
-    print(f"TRANSFERABLE: {len(transferable)}   BLOCKED: {len(blocked)}   "
-          f"(of which contain a guard-blind-spot field: {len(blind)})")
+    print(
+        f"TRANSFERABLE: {len(transferable)}   BLOCKED: {len(blocked)}   "
+        f"(of which contain a guard-blind-spot field: {len(blind)})"
+    )
     if blind:
         print("Tasks with an asymmetric-presence DENYLIST field the guard may NOT enforce:")
         for r in blind:
@@ -182,7 +186,9 @@ def _print_human(rows: list[dict[str, Any]]) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument(
         "--trees",
         nargs="+",

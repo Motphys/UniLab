@@ -31,8 +31,8 @@ can be imported from :mod:`unilab.training.experiment` without an import cycle.
 from __future__ import annotations
 
 import json
-from contextlib import contextmanager
 from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -251,9 +251,7 @@ def resolve_sim2sim_config(
         if path in snapshot:
             continue  # presence already handled by the snapshot loop above
         if _select(target_cfg, path) is not None:
-            denials.append(
-                _asymmetric_line(path, _select(target_cfg, path), source_present=False)
-            )
+            denials.append(_asymmetric_line(path, _select(target_cfg, path), source_present=False))
 
     if denials:
         message = (
