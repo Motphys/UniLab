@@ -115,7 +115,15 @@ def play_him_ppo(cfg: DictConfig, device: str) -> str | None:
         )
         return None
 
-    cfg = resolve_sim2sim_config(load_path_dir, cfg, algo_name="ppo") or cfg
+    cfg = (
+        resolve_sim2sim_config(
+            load_path_dir,
+            cfg,
+            algo_name="ppo",
+            strict=bool(getattr(cfg.training, "sim2sim_strict", True)),
+        )
+        or cfg
+    )
     env_cfg_override = cast(dict[str, Any], _backend_adapter(cfg).build_play_env_cfg_override())
     env = create_env(cfg, num_envs=cfg.training.play_env_num, env_cfg_override=env_cfg_override)
     from unilab.training.rsl_rl import RslRlVecEnvWrapper

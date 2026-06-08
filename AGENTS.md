@@ -36,6 +36,8 @@ A 后端训练的 checkpoint 在 B 后端 play 时，env 用**目标后端 YAML*
 
 机制：训练时 `ExperimentTracker.start()` 把 `DENYLIST + WARNING_LIST` 字段写进 `run_config.json` 的 `contract_snapshot`（**不改 checkpoint 格式**，天然兼容历史 checkpoint）；五个 play 入口（rsl-rl / him-ppo / appo / offpolicy / mlx）在建 env 前调用 `resolve_sim2sim_config(source_run_dir, cfg)` 校验。旧 run（无 snapshot）fallback + warning、不中断。此外，五个 play 入口加载 checkpoint 时用 `policy_load_dim_guard` 包裹（运行时维度最后防线）：env 实际 obs/action 维度与 checkpoint 张量形状不符（YAML 级 guard 看不到的真实维度不匹配）时，把隐晦的 size-mismatch 重抛为显式 sim2sim 维度诊断；只在加载本就失败时触发，不影响正常 play，零训练侧改动。
 
+API 以 `Sim2SimConfigResolver` 类（RFC 命名）+ 同名模块级函数双形态提供（清单常量仍是单一事实源）。**用户级绕过**：要强行跨后端 play 一个已知兼容的组合，设 `training.sim2sim_strict=false`——DENYLIST 差异降级为 warning 并继续（默认 `true`，零行为变化；load 时的维度 guard 仍兜底真实维度不匹配）。
+
 DENYLIST 字段应通过 task 的 `base.yaml` 作为**跨后端默认契约**（范例：`conf/ppo/task/g1_walk_flat/{base,mujoco,motrix}.yaml`）：mujoco 直接继承 `base`；motrix 出于单后端调参**显式 override** 了部分契约字段，因此 `g1_walk_flat` 当前不可 mujoco↔motrix sim2sim（guard 会按设计报错），去掉这些 override 即可恢复可迁移。
 
 ## Pointers

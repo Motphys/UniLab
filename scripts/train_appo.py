@@ -192,7 +192,15 @@ def play_appo(
         print(f"Could not find run to load. load_path={load_path}")
         return None
 
-    cfg = resolve_sim2sim_config(load_path_dir, cfg, algo_name="appo") or cfg
+    cfg = (
+        resolve_sim2sim_config(
+            load_path_dir,
+            cfg,
+            algo_name="appo",
+            strict=bool(getattr(cfg.training, "sim2sim_strict", True)),
+        )
+        or cfg
+    )
 
     env_cfg_override = BackendAdapter(
         cfg, root_dir=ROOT_DIR, algo_name="appo"

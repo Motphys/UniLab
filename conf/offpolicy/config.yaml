@@ -25,6 +25,9 @@ training:
   use_amp: true
   play_only: false
   no_play: false
+  # issue #579: set false to bypass the cross-backend sim2sim contract guard at play
+  # (DENYLIST diffs become warnings; the load-time dimension guard still applies).
+  sim2sim_strict: true
   play_render_mode: auto
   export_onnx: true
   play_env_num: 16

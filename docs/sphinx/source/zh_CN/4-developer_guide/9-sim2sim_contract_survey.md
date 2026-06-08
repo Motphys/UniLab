@@ -87,6 +87,14 @@ mlx `load_weights(strict=True)` 同理 —— guard 把这类隐晦的 size-mism
 也不碰训练链路。完整的逐算法 obs 维度 assert(含 HORA-SAC priv 拼接、state-dependent std 输出翻倍等)
 留待能真跑 play 的 GPU 冒烟阶段验证。
 
+### 1c. 用户级绕过开关(应对守卫过度阻断)
+
+配置级守卫对**任何** DENYLIST 值差异都报错,包括"装饰性" `obs_groups` 差异(只差 play 不用的 critic 组)。
+为避免误拦一个已知兼容的跨后端组合,新增 `training.sim2sim_strict`(默认 `true`,零行为变化):
+设 `training.sim2sim_strict=false` 时,`resolve_sim2sim_config(strict=False)` 把 DENYLIST 差异**降级为 warning 并继续**,
+此时 load 时的 `policy_load_dim_guard` 仍兜底真正的维度不匹配。API 同时以 `Sim2SimConfigResolver` 类
+(RFC 命名)与同名模块函数双形态提供。
+
 ### 2. `empirical_normalization` 是真「建模」分歧
 
 它把 running mean/std normalizer 作为 nn.Module 子模块烘进 actor，并将统计 buffer 存入 checkpoint

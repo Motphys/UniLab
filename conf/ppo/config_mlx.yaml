@@ -57,6 +57,9 @@ training:
   sim_backend: mujoco
   play_only: false
   no_play: false
+  # issue #579: set false to bypass the cross-backend sim2sim contract guard at play
+  # (DENYLIST diffs become warnings; the load-time dimension guard still applies).
+  sim2sim_strict: true
   play_render_mode: auto
   play_env_num: 16
   play_steps: 150

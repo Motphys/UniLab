@@ -204,7 +204,15 @@ def play_mlx_ppo(cfg: DictConfig, dtype, use_fp16: bool, resolved_sim_backend: s
         print(f"Could not find valid model checkpoint from load_run={cfg.algo.load_run}")
         return None
 
-    cfg = resolve_sim2sim_config(run_dir, cfg, algo_name="ppo") or cfg
+    cfg = (
+        resolve_sim2sim_config(
+            run_dir,
+            cfg,
+            algo_name="ppo",
+            strict=bool(getattr(cfg.training, "sim2sim_strict", True)),
+        )
+        or cfg
+    )
 
     env_cfg_override = BackendAdapter(
         cfg, root_dir=ROOT_DIR, algo_name="ppo"

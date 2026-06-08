@@ -402,7 +402,15 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
         print(f"Could not find checkpoint. load_path={load_path}")
         return None
 
-    cfg = resolve_sim2sim_config(load_path_dir, cfg, algo_name=algo_name) or cfg
+    cfg = (
+        resolve_sim2sim_config(
+            load_path_dir,
+            cfg,
+            algo_name=algo_name,
+            strict=bool(getattr(cfg.training, "sim2sim_strict", True)),
+        )
+        or cfg
+    )
 
     env_cfg_override = build_offpolicy_env_cfg_override(algo_name, cfg)
 

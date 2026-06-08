@@ -323,3 +323,48 @@ def policy_load_dim_guard(
             "`uv run scripts/audit_sim2sim_contracts.py`.\n"
             f"Original load error:\n{exc}"
         ) from exc
+
+
+class Sim2SimConfigResolver:
+    """Object facade for the cross-backend sim2sim contract (issue #579 RFC name).
+
+    The RFC names this type; it is a thin, stateless wrapper over the module-level
+    functions so callers may use either style. The field lists remain the single source
+    of truth as module constants and are re-exposed here as class attributes.
+    """
+
+    ALLOWLIST = ALLOWLIST
+    WARNING_LIST = WARNING_LIST
+    DENYLIST = DENYLIST
+    ENV_STRUCTURAL_DENYLIST = ENV_STRUCTURAL_DENYLIST
+
+    @staticmethod
+    def extract_snapshot(full_cfg: DictConfig) -> dict[str, Any]:
+        """See :func:`extract_contract_snapshot`."""
+        return extract_contract_snapshot(full_cfg)
+
+    @staticmethod
+    def resolve(
+        source_run_dir: str | Path | None,
+        target_cfg: DictConfig,
+        *,
+        algo_name: str | None = None,
+        strict: bool = True,
+    ) -> DictConfig | None:
+        """See :func:`resolve_sim2sim_config`. ``strict=False`` downgrades DENYLIST
+        denials to warnings (user-level bypass)."""
+        return resolve_sim2sim_config(
+            source_run_dir, target_cfg, algo_name=algo_name, strict=strict
+        )
+
+    @staticmethod
+    def load_dim_guard(
+        *,
+        env_obs_dim: int | None = None,
+        env_action_dim: int | None = None,
+        algo_name: str | None = None,
+    ):
+        """See :func:`policy_load_dim_guard`."""
+        return policy_load_dim_guard(
+            env_obs_dim=env_obs_dim, env_action_dim=env_action_dim, algo_name=algo_name
+        )

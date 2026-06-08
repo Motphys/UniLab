@@ -20,6 +20,7 @@ from unilab.training.sim2sim import (
     ENV_STRUCTURAL_DENYLIST,
     WARNING_LIST,
     CrossBackendIncompatibleError,
+    Sim2SimConfigResolver,
     extract_contract_snapshot,
     policy_load_dim_guard,
     resolve_sim2sim_config,
@@ -282,6 +283,43 @@ def test_dim_guard_does_not_swallow_keyerror():
     with pytest.raises(KeyError):
         with policy_load_dim_guard(env_obs_dim=10, env_action_dim=3):
             raise KeyError("actor")
+
+
+# --- issue #579: Sim2SimConfigResolver class facade + user-level bypass -------------
+
+
+def test_resolver_class_exposes_field_lists():
+    # The RFC names this class; it re-exposes the module constants (single source).
+    assert Sim2SimConfigResolver.DENYLIST is DENYLIST
+    assert Sim2SimConfigResolver.WARNING_LIST is WARNING_LIST
+    assert Sim2SimConfigResolver.ALLOWLIST is ALLOWLIST
+    assert Sim2SimConfigResolver.ENV_STRUCTURAL_DENYLIST is ENV_STRUCTURAL_DENYLIST
+
+
+def test_resolver_class_resolve_delegates_and_raises(tmp_path):
+    _write_sidecar(tmp_path, extract_contract_snapshot(_mujoco_cfg()))
+    target = _mujoco_cfg()
+    target.env.control_config.action_scale = 0.5
+    with pytest.raises(CrossBackendIncompatibleError):
+        Sim2SimConfigResolver.resolve(tmp_path, target)
+
+
+def test_resolver_class_strict_false_is_user_bypass(tmp_path, capsys):
+    # training.sim2sim_strict=false maps to strict=False: a DENYLIST denial becomes a
+    # warning and play proceeds with the target cfg (the load-time dim guard still bites).
+    _write_sidecar(tmp_path, extract_contract_snapshot(_mujoco_cfg()))
+    target = _mujoco_cfg()
+    target.env.control_config.action_scale = 0.5
+    assert Sim2SimConfigResolver.resolve(tmp_path, target, strict=False) is target
+    assert "action_scale" in capsys.readouterr().out
+
+
+def test_resolver_class_extract_and_dim_guard_delegate():
+    snap = Sim2SimConfigResolver.extract_snapshot(_mujoco_cfg())
+    assert snap["env.control_config.action_scale"] == 0.25
+    with pytest.raises(CrossBackendIncompatibleError):
+        with Sim2SimConfigResolver.load_dim_guard(env_obs_dim=5, env_action_dim=2):
+            raise RuntimeError("size mismatch for actor.0.weight")
 
 
 def _compose_task(task: str) -> Any:

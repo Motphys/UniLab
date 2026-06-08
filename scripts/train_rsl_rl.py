@@ -209,7 +209,15 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
         )
         return None
 
-    cfg = resolve_sim2sim_config(load_path_dir, cfg, algo_name="ppo") or cfg
+    cfg = (
+        resolve_sim2sim_config(
+            load_path_dir,
+            cfg,
+            algo_name="ppo",
+            strict=bool(getattr(cfg.training, "sim2sim_strict", True)),
+        )
+        or cfg
+    )
 
     env_cfg_override = build_ppo_play_env_cfg_override(cfg)
 
