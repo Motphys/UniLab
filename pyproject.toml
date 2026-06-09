@@ -48,7 +48,7 @@ unilab-render-teaser = "unilab.tools.render_teaser:main"
 unilab-import-robot = "unilab.tools.import_robot:main"
 
 [project.optional-dependencies]
-motrix = ["motrixsim-core==0.8.1"]
+motrix = ["motrixsim-core==0.8.2"]
 viser = ["viser>=1.0.26", "trimesh>=3.21.7"]
 
 [dependency-groups]
