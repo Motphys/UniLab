@@ -42,6 +42,7 @@ def _make_sac_runner(env_name: str) -> OffPolicyRunner:
         batch_size=16,
         learning_starts=0,
         updates_per_step=1,
+        actor_hidden_dim=cfg.get("actor_hidden_dim", 64),
         device="cpu",
     )
     return runner
@@ -99,6 +100,7 @@ def _make_td3_runner(env_name: str) -> OffPolicyRunner:
         learning_starts=0,
         updates_per_step=1,
         policy_frequency=1,
+        actor_hidden_dim=64,
         device="cpu",
     )
     return runner

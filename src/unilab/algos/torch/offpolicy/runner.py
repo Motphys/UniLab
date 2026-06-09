@@ -18,6 +18,7 @@ from unilab.ipc.replay_buffer import ReplayBuffer
 from unilab.logging import OffPolicyLogger, TraceRecorder
 from unilab.training.seed import apply_training_seed, derive_worker_seed
 from unilab.utils.device import get_default_device
+from unilab.utils.nan_guard import NanGuardCfg
 
 
 def compute_train_start_threshold(batch_size: int, learning_starts: int, num_envs: int) -> int:
@@ -79,6 +80,7 @@ class OffPolicyRunner(AsyncRunner):
         trace_output_dir: str | None = None,
         trace_thread_time: bool = False,
         trace_cuda_events: bool = True,
+        nan_guard_cfg: NanGuardCfg | None = None,
     ):
         super().__init__(
             env_name=env_name,
@@ -115,6 +117,7 @@ class OffPolicyRunner(AsyncRunner):
         self.trace_output_dir = trace_output_dir
         self.trace_thread_time = trace_thread_time
         self.trace_cuda_events = trace_cuda_events
+        self.nan_guard_cfg = nan_guard_cfg
 
         apply_training_seed(self.seed, torch_runtime=True, cuda=True)
         self.obs_dim, self.action_dim, self.critic_obs_dim = get_env_dims(
@@ -129,6 +132,13 @@ class OffPolicyRunner(AsyncRunner):
 
     def _collector_fn(self, stop_event, **kwargs):
         off_policy_collector_fn(stop_event=stop_event, **kwargs)
+
+    @staticmethod
+    def _sync_logger_replay_counters(logger, replay_buffer) -> None:
+        logger.log_collector(
+            int(replay_buffer.ptr[0]),
+            int(replay_buffer.size[0]),
+        )
 
     @staticmethod
     def _read_recent_replay_field(
@@ -264,6 +274,7 @@ class OffPolicyRunner(AsyncRunner):
             "seed": derive_worker_seed(self.seed, worker_index=0),
             "trace_enabled": self.trace_enabled,
             "trace_thread_time": self.trace_thread_time,
+            "nan_guard_cfg": self.nan_guard_cfg,
         }
         self._start_collector(
             target_fn=off_policy_collector_fn,
@@ -323,7 +334,8 @@ class OffPolicyRunner(AsyncRunner):
                                 trace_recorder,
                             )
                             logger.log_status("[red]ERROR: Collector died[/]")
-                            logger.finish()
+                            self._sync_logger_replay_counters(logger, replay_buffer)
+                            logger.close()
                             summary = {
                                 "status": "collector_died",
                                 "completed_iterations": iteration,
@@ -335,7 +347,7 @@ class OffPolicyRunner(AsyncRunner):
                                 "training_wall_time_sec": time.time() - train_start_wall,
                             }
                             self.last_run_summary = summary
-                            return
+                            raise RuntimeError("Collector process died during off-policy training")
                         continue
 
                     self._drain_metrics(
@@ -370,7 +382,8 @@ class OffPolicyRunner(AsyncRunner):
                             metrics_queue, reward_history, latest_reward_components, logger
                         )
                         logger.log_status("[red]ERROR: Collector died[/]")
-                        logger.finish()
+                        self._sync_logger_replay_counters(logger, replay_buffer)
+                        logger.close()
                         summary = {
                             "status": "collector_died",
                             "completed_iterations": iteration,
@@ -382,7 +395,7 @@ class OffPolicyRunner(AsyncRunner):
                             "training_wall_time_sec": time.time() - train_start_wall,
                         }
                         self.last_run_summary = summary
-                        return
+                        raise RuntimeError("Collector process died during off-policy training")
                     cur_size = int(replay_buffer.size[0])
                     if cur_size - last_buf_log >= self.num_envs * 10:
                         last_buf_log = cur_size
@@ -536,6 +549,7 @@ class OffPolicyRunner(AsyncRunner):
             last_mean_reward = float(mean_reward)
             best_mean_reward = max(best_mean_reward, last_mean_reward)
 
+            self._sync_logger_replay_counters(logger, replay_buffer)
             logger.log_step(
                 iteration=iteration,
                 metrics=avg_metrics,
@@ -568,6 +582,7 @@ class OffPolicyRunner(AsyncRunner):
         ckpt_path = os.path.join(log_dir, f"model_{max_iterations}.pt")
         torch.save(self.learner.get_state_dict(), ckpt_path)
         logger.log_save(ckpt_path)
+        self._sync_logger_replay_counters(logger, replay_buffer)
         logger.finish()
         if trace_recorder and trace_output_path:
             trace_recorder.write_json(trace_output_path)
@@ -602,11 +617,11 @@ class OffPolicyRunner(AsyncRunner):
                 m = queue.get_nowait()
             except Exception:
                 break
-            try:
-                if "error" in m:
-                    logger.log_status(f"[red]Collector ERROR: {m['error']}[/]")
-                    raise RuntimeError(f"Collector process failed: {m['error']}")
+            if "error" in m:
+                logger.log_status(f"[red]Collector ERROR: {m['error']}[/]")
+                raise RuntimeError(f"Collector process failed: {m['error']}")
 
+            try:
                 updated_rew = False
                 if "mean_ep_reward" in m:
                     reward_history.append(m["mean_ep_reward"])

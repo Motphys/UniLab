@@ -36,7 +36,9 @@ def estimate_offpolicy_bytes(
             f"Replay: {replay_bytes / 1024**2:.0f} MB "
             f"({num_envs} envs × {replay_buffer_n} steps × {row_width} cols × 4B)\n"
             f"  Double-buffer: {slot_bytes / 1024**2:.0f} MB "
-            f"({sample_count} samples × {row_width} cols × 4B × 2 slots)"
+            f"({sample_count} samples × {row_width} cols × 4B × 2 slots)\n"
+            "  Excludes MuJoCo BatchEnvPool/native allocations, CUDA pinned/shared "
+            "registration, and driver memory."
         ),
     }
 
@@ -87,6 +89,40 @@ def get_available_memory_bytes() -> int | None:
     return None
 
 
+def get_shared_memory_available_bytes(path: str = "/dev/shm") -> int | None:
+    """Best-effort available shared-memory space detection."""
+    try:
+        stat = os.statvfs(path)
+        return int(stat.f_bavail) * int(stat.f_frsize)
+    except (OSError, ValueError):
+        return None
+
+
+def raise_if_shared_memory_over_budget(
+    estimated: dict[str, int | str],
+    label: str,
+    threshold: float = 0.8,
+    path: str = "/dev/shm",
+) -> None:
+    """Fail before allocating shared buffers that exceed shared-memory capacity."""
+    available = get_shared_memory_available_bytes(path)
+    if available is None:
+        return
+
+    total = int(estimated["total"])
+    ratio = total / max(available, 1)
+    if total <= available * threshold:
+        return
+
+    est_gb = total / 1024**3
+    avail_gb = available / 1024**3
+    raise MemoryError(
+        f"{label}: estimated shared-memory allocation {est_gb:.1f} GB exceeds "
+        f"{path} available {avail_gb:.1f} GB ({ratio:.0%} usage). "
+        "Reduce algo.num_envs or algo.replay_buffer_n, or increase /dev/shm."
+    )
+
+
 def warn_if_over_budget(
     estimated: dict[str, int | str],
     label: str,
@@ -112,6 +148,7 @@ def warn_if_over_budget(
             f"available {avail_gb:.1f} GB ({ratio:.0%} usage).\n"
             f"  {breakdown}\n"
             f"  Consider reducing algo.num_envs or algo.replay_buffer_n.\n"
+            f"  Native backend and driver memory may push actual usage higher.\n"
             f"  Suppress: export UNILAB_SKIP_MEMORY_CHECK=1\n",
             file=sys.stderr,
             flush=True,

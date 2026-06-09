@@ -46,8 +46,10 @@ class NanGuard:
             self._buffer[self._buffer_idx] = physics_state
         self._buffer_idx = (self._buffer_idx + 1) % self._cfg.buffer_size
 
-    def check(self, obs: dict[str, np.ndarray], reward: np.ndarray) -> np.ndarray | None:
-        if not self._cfg.enabled or self._dumped:
+    def check(
+        self, obs: dict[str, np.ndarray], reward: np.ndarray, step: int = 0
+    ) -> np.ndarray | None:
+        if not self._cfg.enabled:
             return None
         bad_mask = np.zeros(self._num_envs, dtype=bool)
         for v in obs.values():
@@ -55,7 +57,29 @@ class NanGuard:
         bad_mask |= ~np.isfinite(reward)
         if not np.any(bad_mask):
             return None
-        return np.flatnonzero(bad_mask).astype(np.int32)
+        nan_ids = np.flatnonzero(bad_mask).astype(np.int32)
+        logger.warning(
+            "NanGuard: NaN/Inf detected in obs/reward at step %d (envs=%d, sample_ids=%s)",
+            step,
+            len(nan_ids),
+            nan_ids[:5].tolist(),
+        )
+        return nan_ids
+
+    def check_ctrl(self, ctrl: np.ndarray, step: int = 0) -> np.ndarray | None:
+        if not self._cfg.enabled:
+            return None
+        bad_mask = ~np.all(np.isfinite(ctrl), axis=tuple(range(1, ctrl.ndim)))
+        if not np.any(bad_mask):
+            return None
+        nan_ids = np.flatnonzero(bad_mask).astype(np.int32)
+        logger.warning(
+            "NanGuard: NaN/Inf detected in ctrl at step %d (envs=%d, sample_ids=%s)",
+            step,
+            len(nan_ids),
+            nan_ids[:5].tolist(),
+        )
+        return nan_ids
 
     def dump(
         self,
@@ -113,10 +137,7 @@ class NanGuard:
         except OSError:
             pass
 
-        logger.warning(
-            "NaN guard triggered at step %d for %d envs. Dump: %s",
-            step,
-            len(nan_env_ids),
-            npz_path,
+        logger.info(
+            "NanGuard: dump written to %s (step=%d, envs=%d)", npz_path, step, len(nan_env_ids)
         )
         return str(npz_path)

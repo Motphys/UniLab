@@ -69,6 +69,17 @@ def build_appo_runner_kwargs(
         if resume_path is None:
             raise FileNotFoundError(f"Could not resolve APPO resume checkpoint: {load_run}")
         runner_kwargs["resume_path"] = resume_path
+
+    nan_guard_cfg = getattr(cfg.training, "nan_guard", None)
+    if nan_guard_cfg is not None and getattr(nan_guard_cfg, "enabled", False):
+        from unilab.utils.nan_guard import NanGuardCfg
+
+        runner_kwargs["nan_guard_cfg"] = NanGuardCfg(
+            enabled=True,
+            buffer_size=int(getattr(nan_guard_cfg, "buffer_size", 100)),
+            max_envs_to_dump=int(getattr(nan_guard_cfg, "max_envs_to_dump", 5)),
+            output_dir=getattr(nan_guard_cfg, "output_dir", None),
+        )
     return runner_kwargs
 
 

@@ -104,16 +104,34 @@ def format_collector_death(exitcode: int | None, traceback_text: str | None = No
         sig_name = _signal_name(sig_num)
         parts.append(f"Collector process killed by signal {sig_num} ({sig_name}).")
         parts.append("  No Python traceback available — killed externally.")
-        if sig_num == 9:
-            parts.append("  Common cause: OOM killer. Check: dmesg | grep -i oom")
-        elif sig_num == 11:
-            parts.append("  Common cause: segfault in native code (C++/CUDA).")
+        _append_signal_hint(parts, sig_num)
+    elif exitcode is not None and exitcode >= 128:
+        sig_num = exitcode - 128
+        sig_name = _signal_name(sig_num)
+        parts.append(
+            f"Collector process exited with code {exitcode} "
+            f"(shell-style signal {sig_num}, {sig_name})."
+        )
+        parts.append("  Native process termination may not produce a Python traceback.")
+        _append_signal_hint(parts, sig_num)
     elif exitcode is not None:
         parts.append(f"Collector process exited with code {exitcode}.")
     else:
         parts.append("Collector process died (exit code unknown).")
 
     return "\n".join(parts)
+
+
+def _append_signal_hint(parts: list[str], sig_num: int) -> None:
+    if sig_num == 7:
+        parts.append(
+            "  Common causes: SIGBUS in native mmap/shared memory, CUDA pinned memory, "
+            "or WSL runtime/driver code."
+        )
+    elif sig_num == 9:
+        parts.append("  Common cause: OOM killer. Check: dmesg | grep -i oom")
+    elif sig_num == 11:
+        parts.append("  Common cause: segfault in native code (C++/CUDA).")
 
 
 def _signal_name(sig_num: int) -> str:

@@ -593,3 +593,21 @@ class TestRewardSanitization:
         state = env.step(np.zeros((4, 3)))
         assert guard._dumped, "guard should have detected NaN before sanitization"
         assert np.all(np.isfinite(state.reward)), "reward should be clean after step"
+
+    def test_guard_warns_each_step_for_nan_reward(self, caplog):
+        from unilab.utils.nan_guard import NanGuard, NanGuardCfg
+
+        env = _NanRewardStubEnv(num_envs=4, bad_rewards=np.array([0.0, np.nan, 0.0, 0.0]))
+        guard = NanGuard(
+            NanGuardCfg(enabled=True, output_dir="/tmp/unilab_test_warn"),
+            num_envs=4,
+            supports_state_playback=False,
+        )
+        env.set_nan_guard(guard)
+        with caplog.at_level("WARNING", logger="unilab.utils.nan_guard"):
+            env.step(np.zeros((4, 3), dtype=np.float64))
+            env.step(np.zeros((4, 3), dtype=np.float64))
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert len(warnings) >= 2
+        # reward 仍被清零
+        assert np.all(np.isfinite(env._state.reward))
