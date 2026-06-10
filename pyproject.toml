@@ -12,7 +12,7 @@ license-files = ["LICENSE"]
 requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy",
-    "torch==2.7.0",
+    "torch==2.9.0",
     "mujoco-uni==3.8.0",
     "gymnasium",
     "imageio",
@@ -69,6 +69,7 @@ exclude-dependencies = ["torchvision"]
 required-environments = [
     "sys_platform == 'darwin' and platform_machine == 'arm64'",
     "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'aarch64'",
 ]
 
 [tool.ruff]
