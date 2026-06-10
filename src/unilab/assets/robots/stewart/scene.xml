@@ -1,0 +1,193 @@
+<mujoco>
+    <option timestep="0.004"/>
+
+    <asset>
+        <texture name="skybox" type="skybox" builtin="gradient" rgb1="0.8 0.85 0.9" rgb2="0.3 0.35 0.4" width="512" height="512"/>
+        <texture name="motphys-ground" type="2d" file="motphys-ground.png"/>
+        <material name="motphys-ground" texture="motphys-ground" texuniform="true" texrepeat="0.4 0.4"/>
+
+        <texture type="2d" name="platform" builtin="checker" rgb1="0.5 0.5 0.8" rgb2="0.9 0.9 0.9" markrgb="1 1 1" width="300" height="300"/>
+        <material name="grey_metal" texture="platform" texuniform="true" texrepeat="2 2" specular="1" metallic="0.8"/>
+    </asset>
+
+    <default>
+        <joint damping="1" solreflimit="0.002 1"/>
+        <!-- Softened actuator gain: a rolling ball impacts the plate, and the stiff
+             closed-loop solver (NotPositiveDefinite) needs some contact compliance.
+             2e5 still tracks the small tilt targets and supports the ball. -->
+        <position kp="200000" kv="4000" inheritrange="1"/>
+        <equality solref="0.001 1"/>
+        <default class="leg-slide">
+            <joint type="slide" range="0 0.7" axis="0 0 1" />
+        </default>
+        <default class="no-collision">
+            <geom contype="0" conaffinity="0"/>
+            <default class="leg_down">
+                <geom type="box" size="0.025 0.025 0.48" rgba="0 0 1 1"/>
+            </default>
+            <default class="leg_up">
+                <geom type="box" size="0.01 0.01 0.5" rgba="1 0 0 1"/>
+            </default>
+        </default>
+    </default>
+
+    <worldbody>
+        <light pos="0 0 1.5" dir="0 0 -1" directional="true"/>
+        <light pos="0 0 1.5" dir="0 -5 -1" directional="true"/>
+
+        <geom name="floor" pos="0 0 0" size="0 0 0.01" type="plane" material="motphys-ground"/>
+
+        <body name="ball" pos="0 0 1.18">
+            <joint name="ball_free" type="free"/>
+            <geom name="ball_geom" type="sphere" size="0.10" mass="0.2" rgba="1 0 0 1"/>
+        </body>
+
+        <body name="top" pos="0 0 1">
+            <freejoint/>
+            <geom type="cylinder" size="0.8 0.05" pos="0 0 0.05" material="grey_metal"/>
+        </body>
+
+        <body name="disturb_stage" pos="0 0 0.025">
+            <geom class="no-collision" type="cylinder" size="1.10 0.04" pos="0 0 0.04" rgba="0.20 0.75 0.70 1"/>
+
+            <body childclass="no-collision" pos="-0.707 -0.707 0.08" xyaxes="1 -1 0 1 1 0">
+                <geom type="box" pos="-0.02 0.0 0.03" size="0.005 0.01 0.03"/>
+                <geom type="box" pos="0.02 0.0 0.03" size="0.005 0.01  0.03"/>
+                <geom type="cylinder" pos="0 0 0.05" size="0.005 0.02" axisangle="0 1 0 90"/>
+                <body name="leg00" pos="0 0 0.05" euler="-30 20 0">
+                    <joint type="hinge" axis="0 1 0"/>
+                    <joint type="hinge" axis="1 0 0"/>
+                    <geom type="cylinder" size="0.005 0.03" axisangle="1 0 0 90"/>
+                    <geom type="box" pos="0 -0.03 0.03" size="0.02 0.005 0.04"/>
+                    <geom type="box" pos="0 0.03 0.03" size="0.02 0.005 0.04"/>
+                    <geom class="leg_down" pos="0 0 0.5" rgba="0 0 1 1"/>
+                    <body name="leg_up00" pos="0 0 0.1">
+                        <joint class="leg-slide" name="slide00"/>
+                        <geom class="leg_up" pos="0 0 0.5"/>
+                        <body name="top_connect00" pos="0 0 1">
+                            <geom type="sphere" size="0.02" rgba="1 0 0 1"/>
+                        </body>
+                    </body>
+                </body>
+            </body>
+            <body childclass="no-collision" pos="0.707 -0.707 0.08" xyaxes="1 1 0 -1 1 0">
+                <geom type="box" pos="-0.02 0.0 0.03" size="0.005 0.01 0.03"/>
+                <geom type="box" pos="0.02 0.0 0.03" size="0.005 0.01  0.03"/>
+                <geom type="cylinder" pos="0 0 0.05" size="0.005 0.02" axisangle="0 1 0 90"/>
+                <body name="leg10" pos="0 0 0.05" euler="-30 -20 0">
+                    <joint type="hinge" axis="0 1 0"/>
+                    <joint type="hinge" axis="1 0 0"/>
+                    <geom type="cylinder" size="0.005 0.03" axisangle="1 0 0 90"/>
+                    <geom type="box" pos="0 -0.03 0.03" size="0.02 0.005 0.04"/>
+                    <geom type="box" pos="0 0.03 0.03" size="0.02 0.005 0.04"/>
+                    <geom class="leg_down" pos="0 0 0.5" rgba="0 0 1 1"/>
+                    <body name="leg_up10" pos="0 0 0.1">
+                        <joint class="leg-slide" name="slide10"/>
+                        <geom class="leg_up" pos="0 0 0.5"/>
+                        <body name="top_connect10" pos="0 0 1">
+                            <geom type="sphere" size="0.02" rgba="1 0 0 1"/>
+                        </body>
+                    </body>
+                </body>
+            </body>
+            <body childclass="no-collision" pos="0.96578 -0.25878 0.08" xyaxes="0.366025 1.36603 0 -1.36603 0.366025 0">
+                <geom type="box" pos="-0.02 0.0 0.03" size="0.005 0.01 0.03"/>
+                <geom type="box" pos="0.02 0.0 0.03" size="0.005 0.01  0.03"/>
+                <geom type="cylinder" pos="0 0 0.05" size="0.005 0.02" axisangle="0 1 0 90"/>
+                <body name="leg01" pos="0 0 0.05" euler="-30 20 0">
+                    <joint type="hinge" axis="0 1 0"/>
+                    <joint type="hinge" axis="1 0 0"/>
+                    <geom type="cylinder" size="0.005 0.03" axisangle="1 0 0 90"/>
+                    <geom type="box" pos="0 -0.03 0.03" size="0.02 0.005 0.04"/>
+                    <geom type="box" pos="0 0.03 0.03" size="0.02 0.005 0.04"/>
+                    <geom class="leg_down" pos="0 0 0.5" rgba="0 0 1 1"/>
+                    <body name="leg_up01" pos="0 0 0.1">
+                        <joint class="leg-slide" name="slide01"/>
+                        <geom class="leg_up" pos="0 0 0.5"/>
+                        <body name="top_connect01" pos="0 0 1">
+                            <geom type="sphere" size="0.02" rgba="1 0 0 1"/>
+                        </body>
+                    </body>
+                </body>
+            </body>
+            <body childclass="no-collision" pos="0.25878 0.96578 0.08" xyaxes="-1.36603 0.366025 0 -0.366025 -1.36603 0">
+                <geom type="box" pos="-0.02 0.0 0.03" size="0.005 0.01 0.03"/>
+                <geom type="box" pos="0.02 0.0 0.03" size="0.005 0.01  0.03"/>
+                <geom type="cylinder" pos="0 0 0.05" size="0.005 0.02" axisangle="0 1 0 90"/>
+                <body name="leg11" pos="0 0 0.05" euler="-30 -20 0">
+                    <joint type="hinge" axis="0 1 0"/>
+                    <joint type="hinge" axis="1 0 0"/>
+                    <geom type="cylinder" size="0.005 0.03" axisangle="1 0 0 90"/>
+                    <geom type="box" pos="0 -0.03 0.03" size="0.02 0.005 0.04"/>
+                    <geom type="box" pos="0 0.03 0.03" size="0.02 0.005 0.04"/>
+                    <geom class="leg_down" pos="0 0 0.5" rgba="0 0 1 1"/>
+                    <body name="leg_up11" pos="0 0 0.1">
+                        <joint class="leg-slide" name="slide11"/>
+                        <geom class="leg_up" pos="0 0 0.5"/>
+                        <body name="top_connect11" pos="0 0 1">
+                            <geom type="sphere" size="0.02" rgba="1 0 0 1"/>
+                        </body>
+                    </body>
+                </body>
+            </body>
+            <body childclass="no-collision" pos="-0.25878 0.96578 0.08" xyaxes="-1.36603 -0.366025 0 0.366025 -1.36603 0">
+                <geom type="box" pos="-0.02 0.0 0.03" size="0.005 0.01 0.03"/>
+                <geom type="box" pos="0.02 0.0 0.03" size="0.005 0.01  0.03"/>
+                <geom type="cylinder" pos="0 0 0.05" size="0.005 0.02" axisangle="0 1 0 90"/>
+                <body name="leg02" pos="0 0 0.05" euler="-30 20 0">
+                    <joint type="hinge" axis="0 1 0"/>
+                    <joint type="hinge" axis="1 0 0"/>
+                    <geom type="cylinder" size="0.005 0.03" axisangle="1 0 0 90"/>
+                    <geom type="box" pos="0 -0.03 0.03" size="0.02 0.005 0.04"/>
+                    <geom type="box" pos="0 0.03 0.03" size="0.02 0.005 0.04"/>
+                    <geom class="leg_down" pos="0 0 0.5" rgba="0 0 1 1"/>
+                    <body name="leg_up02" pos="0 0 0.1">
+                        <joint class="leg-slide" name="slide02"/>
+                        <geom class="leg_up" pos="0 0 0.5"/>
+                        <body name="top_connect02" pos="0 0 1">
+                            <geom type="sphere" size="0.02" rgba="1 0 0 1"/>
+                        </body>
+                    </body>
+                </body>
+            </body>
+            <body childclass="no-collision" pos="-0.96578 -0.25878 0.08" xyaxes="0.366025 -1.36603 0 1.36603 0.366025 0">
+                <geom type="box" pos="-0.02 0.0 0.03" size="0.005 0.01 0.03"/>
+                <geom type="box" pos="0.02 0.0 0.03" size="0.005 0.01  0.03"/>
+                <geom type="cylinder" pos="0 0 0.05" size="0.005 0.02" axisangle="0 1 0 90"/>
+                <body name="leg12" pos="0 0 0.05" euler="-30 -20 0">
+                    <joint type="hinge" axis="0 1 0"/>
+                    <joint type="hinge" axis="1 0 0"/>
+                    <geom type="cylinder" size="0.005 0.03" axisangle="1 0 0 90"/>
+                    <geom type="box" pos="0 -0.03 0.03" size="0.02 0.005 0.04"/>
+                    <geom type="box" pos="0 0.03 0.03" size="0.02 0.005 0.04"/>
+                    <geom class="leg_down" pos="0 0 0.5" rgba="0 0 1 1"/>
+                    <body name="leg_up12" pos="0 0 0.1">
+                        <joint class="leg-slide" name="slide12"/>
+                        <geom class="leg_up" pos="0 0 0.5"/>
+                        <body name="top_connect12" pos="0 0 1">
+                            <geom type="sphere" size="0.02" rgba="1 0 0 1"/>
+                        </body>
+                    </body>
+                </body>
+            </body>
+        </body>
+    </worldbody>
+
+    <equality>
+        <connect body1="leg_up00" body2="top" anchor="0 0 1"/>
+        <connect body1="leg_up01" body2="top" anchor="0 0 1"/>
+        <connect body1="leg_up02" body2="top" anchor="0 0 1"/>
+        <connect body1="leg_up10" body2="top" anchor="0 0 1"/>
+        <connect body1="leg_up11" body2="top" anchor="0 0 1"/>
+        <connect body1="leg_up12" body2="top" anchor="0 0 1"/>
+    </equality>
+
+    <actuator>
+        <position name="a0" joint="slide00" />
+        <position name="a1" joint="slide10" />
+        <position name="a2" joint="slide01" />
+        <position name="a3" joint="slide11" />
+        <position name="a4" joint="slide02" />
+        <position name="a5" joint="slide12" />
+    </actuator>
+</mujoco>

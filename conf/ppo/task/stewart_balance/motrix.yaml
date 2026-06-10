@@ -1,0 +1,48 @@
+# @package _global_
+# Stewart-platform ball-balancing (motrix). A short, runnable PPO baseline, not
+# tuned for best final performance (raise max_iterations / num_envs for higher
+# success rates).
+training:
+  task_name: StewartBalance
+  sim_backend: motrix
+  render_spacing: 4.5
+algo:
+  num_envs: 128
+  num_steps_per_env: 64
+  max_iterations: 400
+  empirical_normalization: true
+  obs_groups:
+    actor: [policy]
+    critic: [policy]
+  actor:
+    class_name: rsl_rl.models.MLPModel
+    hidden_dims: [128, 128]
+    activation: tanh
+    obs_normalization: true
+    distribution_cfg:
+      class_name: rsl_rl.modules.distribution.GaussianDistribution
+      init_std: 0.3
+      std_type: scalar
+  critic:
+    class_name: rsl_rl.models.MLPModel
+    hidden_dims: [128, 128]
+    activation: tanh
+    obs_normalization: true
+  algorithm:
+    learning_rate: 1.0e-4
+    num_learning_epochs: 5
+    num_mini_batches: 4
+    clip_param: 0.15
+    entropy_coef: 1.0e-4
+    value_loss_coef: 1.0
+    desired_kl: 0.012
+    max_grad_norm: 0.5
+    gamma: 0.99
+    lam: 0.95
+  save_interval: 50
+reward:
+  scales:
+    center: 0.7
+    progress: 0.6
+    still: 3.0
+  fall_penalty: -6.0

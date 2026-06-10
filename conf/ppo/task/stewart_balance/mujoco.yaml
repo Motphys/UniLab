@@ -1,0 +1,13 @@
+# @package _global_
+# Stewart-platform ball-balancing (mujoco). Reuses the motrix owner config and
+# only switches the backend. NOTE: the mujoco closed-loop solver is not yet
+# training-stable for this stiff parallel mechanism under load (see balance.py);
+# motrix is the validated training backend. This config exists so the task is
+# selectable + steppable on mujoco.
+defaults:
+  - /task/stewart_balance/motrix
+  - _self_
+
+training:
+  task_name: StewartBalance
+  sim_backend: mujoco
