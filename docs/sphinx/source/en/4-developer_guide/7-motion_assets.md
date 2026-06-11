@@ -82,6 +82,34 @@ Alternatively, pre-download into the in-repo directory with `--local-dir`
 
 3. Reference the new file path in the env config.
 
+## Robot Mesh Assets
+
+Robot binary meshes (`.STL`) are externalized the same way, on the Hugging Face
+dataset repo
+[unilabsim/unilab-robots](https://huggingface.co/datasets/unilabsim/unilab-robots).
+X2 meshes download lazily on first use and land under their original path
+`src/unilab/assets/robots/x2/meshes/`, so the XML `meshdir` references resolve
+unchanged. Pre-fetch them without running a task:
+
+```bash
+uv run unilab-pull-assets --robot x2
+```
+
+To add a new robot's meshes:
+
+1. Upload to the HF repo, keeping the directory layout identical:
+
+   ```bash
+   huggingface-cli upload unilabsim/unilab-robots \
+     src/unilab/assets/robots/<robot>/meshes robots/<robot>/meshes \
+     --repo-type dataset
+   ```
+
+2. Ignore the local `*.STL` in `.gitignore` (keep a `.gitkeep` so the directory
+   persists).
+3. Resolve the directory once on a cold path from the env, e.g.
+   `resolve_robot_asset_dir("robots/<robot>/meshes", marker="<some>.STL")`.
+
 ## Architecture Notes
 
 - Asset resolver module: `src/unilab/assets/hub.py`
@@ -92,3 +120,7 @@ Alternatively, pre-download into the in-repo directory with `--local-dir`
 - Hot paths (`step` / `reset`) never trigger any file download or parsing.
 - `ASSETS_ROOT_PATH` is unchanged, so the download target matches the
   original local path exactly.
+- Robot meshes use the same directory resolver (`resolve_robot_asset_dir`),
+  integrated at `X2WallFlipTrackingEnv.__init__` in
+  `src/unilab/envs/motion_tracking/x2/flip_tracking.py`, and exposed as the
+  `unilab-pull-assets` CLI.

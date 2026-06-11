@@ -36,6 +36,7 @@ htmlcov/
 .vscode/
 .idea/
 .kiro/
+.history/
 
 # Project specific
 logs/
@@ -55,6 +56,7 @@ run_summary.json
 *.temp
 *.tmp
 *~
+src/unilab/assets/checkpoints/
 
 benchmark/outputs/
 src/unilab/algos/torch/rsl_rl
@@ -68,6 +70,11 @@ src/unilab/assets/motions/g1/*.npz
 src/unilab/assets/motions/g1/*.csv
 src/unilab/assets/motions/g1/flip
 src/unilab/assets/motions/g1/flip_npz
+src/unilab/assets/motions/x2/*.npz
+src/unilab/assets/motions/x2/*.csv
+
+# Robot mesh assets (downloaded from HF at runtime)
+src/unilab/assets/robots/x2/meshes/*.STL
 
 # Grasp cache assets (downloaded from HF at runtime)
 src/unilab/assets/caches/*.npy

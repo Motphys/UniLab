@@ -108,11 +108,17 @@ uv run demo dance
 可用的 demo 名称：`teaser`、`dance`、`wallflip`、`boxtracking`、`locomani`、`inhandgrasp`。
 完整的命令与参数请参阅 [统一 CLI](https://unilabsim.github.io/UniLab-doc/zh_CN/2-user_guide/1-training/1-cli_reference.html) 页面。
 
-> 中国大陆用户：动作、场景和 demo checkpoint 首次运行时会从 Hugging Face 拉取。如果 `huggingface.co`
+> 中国大陆用户：动作、场景、机器人网格和 demo checkpoint 首次运行时会从 Hugging Face 拉取。如果 `huggingface.co`
 > 无法访问，请在运行 demo 命令前先将客户端切到社区镜像：
 >
 > ```bash
 > export HF_ENDPOINT=https://hf-mirror.com
+> ```
+
+> X2 机器人网格首次运行时会自动从 Hugging Face (`unilabsim/unilab-robots`) 下载到 `src/unilab/assets/robots/x2/meshes/`，无需手动操作。如需提前预拉取：
+>
+> ```bash
+> uv run unilab-pull-assets --robot x2
 > ```
 
 用于训练与评估：

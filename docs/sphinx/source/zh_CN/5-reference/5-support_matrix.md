@@ -57,6 +57,7 @@ uv run scripts/generate_support_matrix.py --write
 | PPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested |
 | PPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | Tested |
 | PPO (torch) | `g1_wall_flip_tracking` (G1 wall flip tracking) | Tested | Tested |
+| PPO (torch) | `x2_wall_flip_tracking` (X2 wall flip tracking) | Tested | - |
 | PPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | Tested |
 | PPO (torch) | `sharpa_inhand` (Sharpa in-hand) | Tested | Tested |
 | PPO (torch) | `sharpa_inhand_grasp` (Sharpa in-hand grasp) | Tested | Tested |
@@ -77,6 +78,7 @@ uv run scripts/generate_support_matrix.py --write
 | PPO (mlx) | `g1_motion_tracking` (G1 motion tracking) | Configured | Configured |
 | PPO (mlx) | `g1_flip_tracking` (G1 flip tracking) | Configured | Configured |
 | PPO (mlx) | `g1_wall_flip_tracking` (G1 wall flip tracking) | Configured | Configured |
+| PPO (mlx) | `x2_wall_flip_tracking` (X2 wall flip tracking) | Configured | - |
 | PPO (mlx) | `allegro_inhand` (Allegro in-hand) | Configured | Configured |
 | PPO (mlx) | `sharpa_inhand` (Sharpa in-hand) | Configured | Configured |
 | PPO (mlx) | `sharpa_inhand_grasp` (Sharpa in-hand grasp) | Configured | Configured |

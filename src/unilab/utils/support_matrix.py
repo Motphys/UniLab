@@ -26,10 +26,11 @@ _TASK_ORDER = {
     "g1_motion_tracking": 5,
     "g1_flip_tracking": 6,
     "g1_wall_flip_tracking": 7,
-    "allegro_inhand": 8,
-    "allegro_sac": 9,
-    "sharpa_inhand": 10,
-    "sharpa_inhand_grasp": 11,
+    "x2_wall_flip_tracking": 8,
+    "allegro_inhand": 9,
+    "allegro_sac": 10,
+    "sharpa_inhand": 11,
+    "sharpa_inhand_grasp": 12,
 }
 _TASK_LABELS = {
     "go1_joystick_flat": "Go1 joystick",
@@ -40,6 +41,7 @@ _TASK_LABELS = {
     "g1_motion_tracking": "G1 motion tracking",
     "g1_flip_tracking": "G1 flip tracking",
     "g1_wall_flip_tracking": "G1 wall flip tracking",
+    "x2_wall_flip_tracking": "X2 wall flip tracking",
     "allegro_inhand": "Allegro in-hand",
     "allegro_sac": "Allegro SAC in-hand",
     "sharpa_inhand": "Sharpa in-hand",
