@@ -1,29 +1,13 @@
-"""Audit cross-backend sim2sim contract divergences across all task owner YAMLs.
+"""Audit cross-backend sim2sim contract divergences across task owner YAMLs.
 
-Issue #579 P1 tool. For every task that has >=2 backend YAMLs, this hydra-composes
-each backend's *effective* config and compares the DENYLIST / WARNING_LIST contract
-fields (defined once in ``unilab.training.sim2sim``) using the SAME normalization the
-runtime guard ``resolve_sim2sim_config`` uses. It prints, per task:
+For every task with >=2 backend YAMLs, hydra-composes each backend's effective config
+and compares the DENYLIST / WARNING_LIST fields from ``unilab.training.sim2sim``.
 
-* the mujoco<->motrix verdict (TRANSFERABLE / BLOCKED), and
-* for each diverging DENYLIST field whether the runtime guard would actually catch it.
-
-Important nuance this tool surfaces: it compares the *composed YAML*, where a backend
-that does not set a field shows it as ``<absent>``; at runtime the env dataclass fills
-in a default for that path. Since issue #579 P2 the guard fails closed on
-``asymmetric-presence`` of an env-structural field (``action_scale`` / ``sampling_mode``),
-so those are enforced. Algo-specific fields (``empirical_normalization`` /
-``obs_normalization``) remain skipped when absent on the target (cross-algo by design);
-any such row is flagged ``guard-blind-spot`` to re-check the absent side's dataclass
-default.
-
-Run (this repo uses uv):
+Read-only.
 
     uv run scripts/audit_sim2sim_contracts.py
     uv run scripts/audit_sim2sim_contracts.py --trees ppo appo offpolicy
     uv run scripts/audit_sim2sim_contracts.py --json
-
-This is a read-only audit; it never mutates configs or checkpoints.
 """
 
 from __future__ import annotations
@@ -43,7 +27,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 CONF_ROOT = REPO_ROOT / "conf"
 ABSENT = "<absent>"
 
-# The canonical cross-backend pair we report a verdict on.
 PRIMARY_PAIR = ("mujoco", "motrix")
 
 
@@ -94,9 +77,6 @@ def _diff_field(path: str, mj: Any, mx: Any) -> dict[str, Any] | None:
         return None
     else:
         kind = "value-diff"
-    # The guard compares value-diffs (present on both sides). Since issue #579 P2 it
-    # also fails closed on asymmetric presence of an env-structural field; algo-specific
-    # fields are still skipped when absent on the target (cross-algo by design).
     guard_enforced = kind == "value-diff" or (
         kind == "asymmetric-presence" and path in ENV_STRUCTURAL_DENYLIST
     )

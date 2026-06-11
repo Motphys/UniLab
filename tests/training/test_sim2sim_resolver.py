@@ -181,7 +181,7 @@ def test_action_scale_list_form(tmp_path):
         resolve_sim2sim_config(tmp_path, bad)
 
 
-# --- issue #579 P2: env-structural asymmetric-presence fail-closed -----------------
+# --- env-structural asymmetric-presence fail-closed --------------------------------
 
 
 def test_env_structural_denylist_is_the_env_subset():
@@ -240,7 +240,7 @@ def test_env_field_fail_closed_even_if_default_might_match(tmp_path):
         resolve_sim2sim_config(tmp_path, target)
 
 
-# --- issue #579: play-time runtime dimension guard (policy_load_dim_guard) ----------
+# --- play-time runtime dimension guard ---------------------------------------------
 
 
 def test_dim_guard_passes_through_on_success():
@@ -285,11 +285,10 @@ def test_dim_guard_does_not_swallow_keyerror():
             raise KeyError("actor")
 
 
-# --- issue #579: Sim2SimConfigResolver class facade + user-level bypass -------------
+# --- Sim2SimConfigResolver class facade + user-level bypass ------------------------
 
 
 def test_resolver_class_exposes_field_lists():
-    # The RFC names this class; it re-exposes the module constants (single source).
     assert Sim2SimConfigResolver.DENYLIST is DENYLIST
     assert Sim2SimConfigResolver.WARNING_LIST is WARNING_LIST
     assert Sim2SimConfigResolver.ALLOWLIST is ALLOWLIST
@@ -338,9 +337,7 @@ def test_g1_walk_flat_mujoco_inherits_base_contract():
 
 
 def test_g1_walk_flat_cross_backend_play_is_guarded(tmp_path):
-    # Motrix intentionally overrides contract fields for backend-specific tuning,
-    # so a MuJoCo-trained policy is not sim2sim-transferable to Motrix: the guard
-    # must surface that on the real composed configs (issue #579 by-design).
+    # Motrix intentionally overrides contract fields, so MuJoCo->Motrix is guarded.
     snapshot = extract_contract_snapshot(_compose_task("g1_walk_flat/mujoco"))
     (tmp_path / "run_config.json").write_text(
         json.dumps({"contract_snapshot": snapshot}), encoding="utf-8"

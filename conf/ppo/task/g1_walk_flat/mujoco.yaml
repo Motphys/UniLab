@@ -1,7 +1,5 @@
 # @package _global_
-# Inherits the shared cross-backend contract (obs_groups, action_scale,
-# empirical_normalization, policy dims) from base.yaml verbatim; only
-# backend-specific tuning lives here. See base.yaml / issue #579.
+# Inherits the shared contract from base.yaml; backend-specific tuning only.
 defaults:
   - /task/g1_walk_flat/base
   - _self_

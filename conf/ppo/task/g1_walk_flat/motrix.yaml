@@ -1,11 +1,6 @@
 # @package _global_
-# Inherits the shared cross-backend contract from base.yaml, then INTENTIONALLY
-# overrides several contract fields (obs_groups, action_scale,
-# empirical_normalization) for Motrix-specific tuning aligned to the UniLab1
-# Motrix runtime. Because these differ from the MuJoCo owner, a MuJoCo-trained
-# g1_walk_flat policy is NOT sim2sim-transferable to Motrix: resolve_sim2sim_config
-# raises CrossBackendIncompatibleError at play time (by design, see issue #579).
-# Drop these overrides to make the task cross-backend transferable.
+# Inherits base.yaml, then overrides contract fields for Motrix-specific tuning
+# (intentionally non-transferable from MuJoCo; drop overrides to restore parity).
 defaults:
   - /task/g1_walk_flat/base
   - _self_
