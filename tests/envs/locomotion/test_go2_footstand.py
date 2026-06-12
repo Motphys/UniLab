@@ -15,8 +15,8 @@ from unilab.envs.locomotion.go2.footstand import (
     Go2FootStandDomainRandConfig,
     Go2FootStandDomainRandomizationProvider,
     Go2FootStandTask,
+    RewardConfig,
 )
-from unilab.envs.locomotion.go2.handstand import RewardConfig
 
 
 def test_go2_footstand_registers_mujoco_only() -> None:

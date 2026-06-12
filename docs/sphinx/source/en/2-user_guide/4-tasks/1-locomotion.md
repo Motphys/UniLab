@@ -7,7 +7,7 @@ define which algorithm and backend combinations are runnable.
 ## Families
 
 - Go1: `go1_joystick_flat`, `go1_joystick_rough`
-- Go2: `go2_joystick_flat`, `go2_joystick_rough`, `go2_handstand`, `go2_footstand`
+- Go2: `go2_joystick_flat`, `go2_joystick_rough`, `go2_footstand`
 - Go2W: `go2w_joystick_flat`, `go2w_joystick_rough`
 - G1 walking: `g1_walk_flat`, `g1_walk_rough`
 - G1 motion tracking: `g1_motion_tracking`, `g1_flip_tracking`,
@@ -34,7 +34,7 @@ backend: {doc}`../../5-reference/5-support_matrix`.
 - PPO config: `conf/ppo/task/go2_footstand/mujoco.yaml`
 - Registered env: `Go2FootStand` (registered for `sim_backend="mujoco"`)
 - Implementation: `src/unilab/envs/locomotion/go2/footstand.py`
-  (extends the Go2 handstand task)
+  (extends the Go2 base task)
 - Go2 model XML: `src/unilab/assets/robots/go2/go2.xml`
 
 ```bash

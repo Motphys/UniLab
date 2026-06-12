@@ -7,7 +7,7 @@
 ## 系列
 
 - Go1：`go1_joystick_flat`、`go1_joystick_rough`
-- Go2：`go2_joystick_flat`、`go2_joystick_rough`、`go2_handstand`、`go2_footstand`
+- Go2：`go2_joystick_flat`、`go2_joystick_rough`、`go2_footstand`
 - Go2W：`go2w_joystick_flat`、`go2w_joystick_rough`
 - G1 行走：`g1_walk_flat`、`g1_walk_rough`
 - G1 动作追踪：`g1_motion_tracking`、`g1_flip_tracking`、
@@ -33,7 +33,7 @@ uv run train --algo sac --task g1_walk_flat --sim mujoco
 
 - PPO 配置：`conf/ppo/task/go2_footstand/mujoco.yaml`
 - 环境注册名：`Go2FootStand`（注册于 `sim_backend="mujoco"`）
-- 环境实现：`src/unilab/envs/locomotion/go2/footstand.py`（继承 Go2 handstand 任务）
+- 环境实现：`src/unilab/envs/locomotion/go2/footstand.py`（继承 Go2 基础任务）
 - Go2 模型 XML：`src/unilab/assets/robots/go2/go2.xml`
 
 ```bash

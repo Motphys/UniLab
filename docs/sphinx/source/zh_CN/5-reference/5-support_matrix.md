@@ -67,7 +67,6 @@ uv run scripts/generate_support_matrix.py --write
 | PPO (torch) | `go1_joystick_rough` (go1 joystick rough) | Tested | Tested |
 | PPO (torch) | `go2_arm_manip_loco` (go2 arm manip loco) | Tested | Tested |
 | PPO (torch) | `go2_footstand` (go2 footstand) | Tested | - |
-| PPO (torch) | `go2_handstand` (go2 handstand) | Tested | Tested |
 | PPO (torch) | `go2w_joystick_flat` (go2w joystick flat) | Tested | Tested |
 | PPO (torch) | `go2w_joystick_rough` (go2w joystick rough) | Tested | Tested |
 | PPO (torch) | `stewart_balance` (stewart balance) | Tested | Tested |
@@ -88,7 +87,6 @@ uv run scripts/generate_support_matrix.py --write
 | PPO (mlx) | `go1_joystick_rough` (go1 joystick rough) | Configured | Configured |
 | PPO (mlx) | `go2_arm_manip_loco` (go2 arm manip loco) | Configured | Configured |
 | PPO (mlx) | `go2_footstand` (go2 footstand) | Configured | - |
-| PPO (mlx) | `go2_handstand` (go2 handstand) | Configured | Configured |
 | PPO (mlx) | `go2w_joystick_flat` (go2w joystick flat) | Configured | Configured |
 | PPO (mlx) | `go2w_joystick_rough` (go2w joystick rough) | Configured | Configured |
 | PPO (mlx) | `stewart_balance` (stewart balance) | Configured | Configured |

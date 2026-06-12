@@ -4,22 +4,212 @@ from dataclasses import dataclass, field
 from typing import Any, cast
 
 import numpy as np
+from etils import epath
 
+from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
+from unilab.base.backend import create_backend
 from unilab.base.np_env import NpEnvState
+from unilab.base.scene import SceneCfg
 from unilab.dr import ResetPlan, ResetRandomizationPayload
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.common.rotation import np_quat_apply, np_quat_apply_inverse
 from unilab.envs.locomotion.common import rewards
+from unilab.envs.locomotion.common.commands import Commands
+from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
+from unilab.envs.locomotion.common.dr_provider import LocomotionDRProvider
 from unilab.envs.locomotion.common.rewards import RewardContext
-from unilab.envs.locomotion.go2.base import ControlConfig, NoiseConfig
-from unilab.envs.locomotion.go2.handstand import (
-    Go2DomainRandConfig,
-    Go2HandStandCfg,
-    Go2HandStandDomainRandomizationProvider,
-    Go2HandStandTask,
-    JoystickSensor,
-)
+from unilab.envs.locomotion.go2.base import ControlConfig, Go2BaseCfg, Go2BaseEnv, NoiseConfig
+
+
+@dataclass
+class InitState:
+    pos = [0.0, 0.0, 0.42]
+
+
+@dataclass
+class Go2DomainRandConfig(DomainRandConfig):
+    randomize_kp: bool = True
+    kp_multiplier_range: list[float] = field(default_factory=lambda: [0.9, 1.1])
+
+    randomize_kd: bool = True
+    kd_multiplier_range: list[float] = field(default_factory=lambda: [0.9, 1.1])
+
+
+@dataclass
+class RewardConfig:
+    scales: dict[str, float]
+    tracking_sigma: float
+    base_height_target: float
+    target_foot_height: float = 0.1
+    knee_height_target: float = 0.08
+
+
+@dataclass
+class JoystickSensor:
+    local_linvel = "local_linvel"
+    gyro = "gyro"
+    feet_force = ["FL_foot_contact", "FR_foot_contact", "RL_foot_contact", "RR_foot_contact"]
+    feet_pos = ["FL_pos", "FR_pos", "RL_pos", "RR_pos"]
+    global_pos = "global_position"
+    ternamate_contact = [
+        "base1_contact",
+        "base2_contact",
+        "base3_contact",
+        "FL_hip_contact",
+        "FR_hip_contact",
+        "FL_thigh_contact",
+        "FR_thigh_contact",
+        "FL_calf_contact1",
+        "FL_calf_contact2",
+        "FR_calf_contact1",
+        "FR_calf_contact2",
+    ]
+    penalty_contact = [
+        "RL_hip_contact",
+        "RR_hip_contact",
+        "RL_thigh_contact",
+        "RR_thigh_contact",
+        "RL_calf_contact1",
+        "RL_calf_contact2",
+        "RR_calf_contact1",
+        "RR_calf_contact2",
+    ]
+
+
+@dataclass
+class Go2HandStandCfg(Go2BaseCfg):
+    scene: SceneCfg = field(
+        default_factory=lambda: SceneCfg(
+            model_file=str(ASSETS_ROOT_PATH / "robots" / "go2" / "scene_flat.xml")
+        )
+    )
+    max_episode_seconds: float = 20.0
+    init_state: InitState = field(default_factory=InitState)
+    commands: Commands = field(default_factory=Commands)
+    reward_config: RewardConfig | None = None
+    sensor: JoystickSensor = field(default_factory=JoystickSensor)  # type: ignore[assignment]
+    domain_rand: Go2DomainRandConfig = field(default_factory=Go2DomainRandConfig)
+
+
+class Go2HandStandDomainRandomizationProvider(LocomotionDRProvider):
+    def _compute_reset_obs(
+        self,
+        env: Any,
+        env_ids: Any,
+        info_updates: Any,
+        linvel: Any,
+        gyro: Any,
+        gravity: Any,
+        dof_pos: Any,
+        dof_vel: Any,
+    ) -> dict[str, np.ndarray]:
+        height = env.torso_height[env_ids].reshape(-1, 1)
+        env.feet_phase[env_ids, :] = 0
+        env.feet_phase[:, 2] = 0.0
+        env.feet_phase[:, 3] = 0.5
+        env._feet_air_time[env_ids, :] = 0.0
+        env._last_contacts[env_ids, :] = False
+
+        return env._compute_obs(  # type: ignore[no-any-return]
+            info_updates,
+            linvel,
+            gyro,
+            gravity,
+            dof_pos,
+            dof_vel,
+            height,
+        )
+
+
+class Go2HandStandTask(Go2BaseEnv):
+    _cfg: Go2HandStandCfg
+
+    def __init__(self, cfg: Go2HandStandCfg, num_envs=1, backend_type="mujoco"):
+        if cfg.reward_config is None:
+            raise ValueError("reward_config must be provided via Hydra configuration")
+        backend = create_backend(
+            backend_type,
+            cfg.scene,
+            num_envs,
+            cfg.sim_dt,
+            base_name=cfg.asset.base_name,
+            push_body_name=cfg.domain_rand.push_body_name,
+            add_body_sensors=bool(getattr(cfg, "add_body_sensors", False)),
+            position_actuator_gains={"kp": cfg.control_config.Kp, "kd": cfg.control_config.Kd},
+            motrix_max_iterations=cfg.motrix_max_iterations,
+            post_step_forward_sensor=cfg.post_step_forward_sensor,
+        )
+        super().__init__(cfg, backend, num_envs)
+        self._enable_reward_log = True
+        self._reward_cfg = cfg.reward_config
+        self._init_reward_functions()
+        self._init_task_domain_randomization()
+        self.phase = np.zeros((num_envs,), dtype=np.float32)
+        self.feet_phase = np.zeros((num_envs, len(cfg.sensor.feet_force)), dtype=np.float32)
+        self.feet_phase[:, 2] = 0.0
+        self.feet_phase[:, 3] = 0.5
+        self.gait_frequency = 2
+        self.feet_force = np.zeros((num_envs, len(cfg.sensor.feet_force), 1), dtype=np.float32)
+        self._feet_air_time = np.zeros((num_envs, len(cfg.sensor.feet_force)), dtype=np.float32)
+        self._last_contacts = np.zeros((num_envs, 2), dtype=bool)
+        self.feet_pos = np.zeros((num_envs, len(cfg.sensor.feet_pos), 3), dtype=np.float32)
+        self.torso_height = np.zeros((num_envs,), dtype=np.float32)
+        self._z_des = 0.55
+        self._desired_gravity = np.array([-1, 0, 0])
+        self.feet_geom_names = [0, 1]
+        self._joint_ids = [0, 1, 2, 3, 4, 5, 6, 9]
+        self._tar_ids = [6, 7, 8, 9, 10, 11]
+        self.target_angle = np.array([0, 1.82, -1.16, 0.0, 1.82, -1.16])
+
+    def _init_task_domain_randomization(self) -> None:
+        self._init_domain_randomization(Go2HandStandDomainRandomizationProvider())
+
+    @property
+    def obs_groups_spec(self) -> dict[str, int]:
+        return {"obs": 42, "critic": 46}
+
+    def _init_reward_functions(self):
+        self._reward_fns: dict[str, Any] = {}
+
+    def update_state(self, state: NpEnvState) -> NpEnvState:
+        return state
+
+    def _compute_obs(
+        self,
+        info: dict,
+        linvel,
+        gyro,
+        gravity,
+        dof_pos,
+        dof_vel,
+        height,
+    ) -> dict[str, np.ndarray]:
+        return {"obs": np.zeros((self._num_envs, 1)), "critic": np.zeros((self._num_envs, 1))}
+
+    def _compute_reward(self, info: dict, linvel, gyro, dof_pos) -> np.ndarray:
+        return np.zeros((self._num_envs,), dtype=get_global_dtype())
+
+    def _cost_pose(self, ctx: RewardContext) -> np.ndarray:
+        dof_pos = self.get_dof_pos()
+        error = dof_pos[:, self._joint_ids] - self.default_angles[self._joint_ids]
+        return cast(np.ndarray, np.sum(np.square(error), axis=1))
+
+    def _reward_penalty_contact(self, ctx: RewardContext) -> np.ndarray:
+        contact_arrays = []
+        for name in self._cfg.sensor.penalty_contact:
+            arr = self._backend.get_sensor_data(name)
+            contact_arrays.append(arr)
+        result = np.concatenate(contact_arrays, axis=1)
+        return np.asarray(np.any(result, axis=1))
+
+    def _reward_tar(self, ctx: RewardContext) -> np.ndarray:
+        dof_pos = self.get_dof_pos()
+        error = dof_pos[:, self._tar_ids] - self.target_angle
+        error = np.sum(np.square(error), axis=1)
+        mask = (self.torso_height >= self._z_des * 0.8).astype(np.float32)
+        return cast(np.ndarray, np.exp(-error / 1) * mask)
+
 
 _GO2_DOF_TO_CTRL = np.array([3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8], dtype=np.int32)
 _WORLD_GRAVITY = np.array([0.0, 0.0, -1.0], dtype=np.float32)
