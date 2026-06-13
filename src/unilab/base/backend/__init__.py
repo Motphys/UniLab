@@ -60,6 +60,12 @@ def _load_motrix_scene_export(name: str) -> Any:
     return getattr(scene, name)
 
 
+def _load_drake_backend() -> tuple[Any, bool]:
+    from .drake.backend import DRAKE_AVAILABLE, DrakeBackend
+
+    return DrakeBackend, bool(DRAKE_AVAILABLE)
+
+
 def create_backend(
     backend_type: str,
     scene: SceneCfg,
@@ -106,6 +112,13 @@ def create_backend(
         if motrix_max_iterations is not None:
             kwargs["max_iterations"] = motrix_max_iterations
         return cast(SimBackend, MotrixBackend(scene, num_envs, sim_dt, **kwargs))
+    if backend_type == "drake":
+        DrakeBackend, drake_available = _load_drake_backend()
+        if not drake_available:
+            raise ImportError("Drake not available, install pydrake/drake package")
+        if position_actuator_gains is not None:
+            kwargs["position_actuator_gains"] = position_actuator_gains
+        return cast(SimBackend, DrakeBackend(scene, num_envs, sim_dt, **kwargs))
     raise ValueError(f"Unknown backend: {backend_type}")
 
 
@@ -116,6 +129,10 @@ def __getattr__(name: str):
         return _load_motrix_backend()[0]
     if name == "MOTRIX_AVAILABLE":
         return _load_motrix_backend()[1]
+    if name == "DrakeBackend":
+        return _load_drake_backend()[0]
+    if name == "DRAKE_AVAILABLE":
+        return _load_drake_backend()[1]
     if name in _MUJOCO_XML_EXPORTS:
         from .mujoco import xml
 
@@ -129,6 +146,8 @@ __all__ = [
     "SimBackend",
     "MuJoCoBackend",
     "MotrixBackend",
+    "DrakeBackend",
+    "DRAKE_AVAILABLE",
     "add_sensor",
     "create_discardvisual_xml",
     "create_backend",
