@@ -58,6 +58,7 @@ training:
   sim_backend: mujoco
   play_only: false
   no_play: false
+  sim2sim_strict: true
   play_env_num: 4
   render_spacing: 1.0
   play_steps: 200

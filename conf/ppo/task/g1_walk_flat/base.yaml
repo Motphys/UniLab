@@ -1,0 +1,13 @@
+# @package _global_
+# Shared cross-backend contract for g1_walk_flat. See AGENTS.md (Sim2Sim).
+algo:
+  empirical_normalization: false
+  obs_groups:
+    actor:
+      - actor
+  policy:
+    actor_hidden_dims: [512, 256, 128]
+    critic_hidden_dims: [512, 256, 128]
+env:
+  control_config:
+    action_scale: 0.25

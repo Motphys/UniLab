@@ -1,4 +1,10 @@
 # @package _global_
+# Inherits base.yaml, then overrides contract fields for Motrix-specific tuning
+# (intentionally non-transferable from MuJoCo; drop overrides to restore parity).
+defaults:
+  - /task/g1_walk_flat/base
+  - _self_
+
 training:
   task_name: G1WalkFlat
   sim_backend: motrix

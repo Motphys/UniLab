@@ -36,6 +36,7 @@ from unilab.training.experiment import (
     patch_rsl_rl_wandb_writer,
 )
 from unilab.training.rsl_rl import RslRlVecEnvWrapper, normalize_ppo_train_cfg
+from unilab.training.sim2sim import policy_load_dim_guard, resolve_sim2sim_config
 from unilab.utils.device import get_default_device
 
 try:
@@ -208,6 +209,16 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
         )
         return None
 
+    cfg = (
+        resolve_sim2sim_config(
+            load_path_dir,
+            cfg,
+            algo_name="ppo",
+            strict=bool(getattr(cfg.training, "sim2sim_strict", True)),
+        )
+        or cfg
+    )
+
     env_cfg_override = build_ppo_play_env_cfg_override(cfg)
 
     env = create_env(
@@ -226,7 +237,12 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
         Any,
         OnPolicyRunner(cast(Any, wrapped_env), train_cfg, log_dir=None, device=device),
     )
-    runner.load(str(load_path), map_location=device)
+    with policy_load_dim_guard(
+        env_obs_dim=getattr(wrapped_env, "num_obs", None),
+        env_action_dim=getattr(wrapped_env, "num_actions", None),
+        algo_name="ppo",
+    ):
+        runner.load(str(load_path), map_location=device)
     policy = runner.get_inference_policy(device=device)
     if EXPORT_POLICY:
         runner.export_policy_to_onnx(path=str(load_path_dir))

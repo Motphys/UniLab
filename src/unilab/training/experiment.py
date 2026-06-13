@@ -18,6 +18,8 @@ from typing import Any
 
 from omegaconf import OmegaConf
 
+from unilab.training.sim2sim import extract_contract_snapshot
+
 
 def _cfg_get(cfg: Any, key: str, default: Any = None) -> Any:
     if cfg is None:
@@ -258,6 +260,7 @@ class ExperimentTracker:
         payload = {
             "run": _json_safe(metadata),
             "config": _json_safe(_plain_dict(self.full_cfg)),
+            "contract_snapshot": _json_safe(extract_contract_snapshot(self.full_cfg)),
         }
         self._write_json(self.log_dir / "run_config.json", payload)
 
