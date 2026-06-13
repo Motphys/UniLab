@@ -45,20 +45,21 @@ def _load_motrix_scene_export(name: str) -> Any:
     return getattr(scene, name)
 
 
-def _load_drake_backend() -> tuple[Any, bool]:
-    from .drake.backend import DRAKE_AVAILABLE, DrakeBackend
-
-    return DrakeBackend, bool(DRAKE_AVAILABLE)
-
-
-def _load_native_drake_backend() -> tuple[Any, bool, ImportError | None]:
-    from .drake.backend_native import (
-        NATIVE_DRAKE_AVAILABLE,
-        NATIVE_DRAKE_IMPORT_ERROR,
+def _load_drake_backend(*, native: bool = False) -> tuple[Any, bool, ImportError | None]:
+    from .drake.backend import (
+        DRAKE_AVAILABLE,
+        DRAKE_IMPORT_ERROR,
+        DRAKE_NATIVE_AVAILABLE,
+        DRAKE_NATIVE_IMPORT_ERROR,
+        DrakeBackend,
         NativeDrakeBackend,
+        ensure_native_drake_available,
     )
 
-    return NativeDrakeBackend, bool(NATIVE_DRAKE_AVAILABLE), NATIVE_DRAKE_IMPORT_ERROR
+    if native:
+        native_available, native_error = ensure_native_drake_available()
+        return NativeDrakeBackend, native_available, native_error or DRAKE_NATIVE_IMPORT_ERROR
+    return DrakeBackend, bool(DRAKE_AVAILABLE), DRAKE_IMPORT_ERROR
 
 
 def _pydrake_loaded() -> bool:
@@ -118,10 +119,9 @@ def create_backend(
                     "been imported in this process. Start a fresh process for "
                     "drake_backend_mode='native', or select drake_backend_mode='pydrake'."
                 )
-            DrakeBackend, drake_available, import_error = _load_native_drake_backend()
+            DrakeBackend, drake_available, import_error = _load_drake_backend(native=True)
         elif mode in {"pydrake", "python"}:
-            DrakeBackend, drake_available = _load_drake_backend()
-            import_error = None
+            DrakeBackend, drake_available, import_error = _load_drake_backend()
         else:
             raise ValueError(
                 "drake_backend_mode must be one of auto, pydrake, python, "
@@ -151,6 +151,8 @@ def __getattr__(name: str):
         return _load_drake_backend()[0]
     if name == "DRAKE_AVAILABLE":
         return _load_drake_backend()[1]
+    if name == "NativeDrakeBackend":
+        return _load_drake_backend(native=True)[0]
     if name in _MUJOCO_XML_EXPORTS:
         from .mujoco import xml
 
