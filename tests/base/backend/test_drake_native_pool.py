@@ -65,14 +65,14 @@ def test_native_import_diagnostic_is_preserved() -> None:
 
 
 def test_native_drake_thread_policy_matches_mujoco_auto(monkeypatch: pytest.MonkeyPatch) -> None:
-    from unilab.base.backend.drake import backend_native
+    from unilab.base.backend.drake import backend
 
-    monkeypatch.setattr(backend_native, "cpu_count", lambda: 10)
+    monkeypatch.setattr(backend, "cpu_count", lambda: 10)
 
-    assert backend_native._resolve_native_nthread(1024, 0) == 20
-    assert backend_native._resolve_native_nthread(8, 0) == 8
-    assert backend_native._resolve_native_nthread(1024, 4) == 4
-    assert backend_native._resolve_native_nthread(2, 8) == 2
+    assert backend._resolve_native_nthread(1024, 0) == 20
+    assert backend._resolve_native_nthread(8, 0) == 8
+    assert backend._resolve_native_nthread(1024, 4) == 4
+    assert backend._resolve_native_nthread(2, 8) == 2
 
 
 def test_native_backend_mode_rejects_existing_pydrake_module() -> None:
