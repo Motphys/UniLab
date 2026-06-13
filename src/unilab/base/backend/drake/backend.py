@@ -17,6 +17,8 @@ from unilab.base.backend.base import (
     SimBackend,
     normalize_play_render_mode,
 )
+from unilab.base.backend.drake.pool import DrakeEnvPool, DrakePoolOutput, SensorPacket
+from unilab.base.backend.mujoco.playback import run_mujoco_playback
 from unilab.base.scene import SceneCfg
 from unilab.dr.types import (
     DomainRandomizationCapabilities,
@@ -32,6 +34,7 @@ try:  # pragma: no cover - exercised by integration smoke tests when Drake is in
         DepthRange,
         DepthRenderCamera,
         DiagramBuilder,
+        ExternallyAppliedSpatialForce,
         JointActuatorIndex,
         LightParameter,
         MakeRenderEngineVtk,
@@ -46,6 +49,7 @@ try:  # pragma: no cover - exercised by integration smoke tests when Drake is in
         StartMeshcat,
     )
     from pydrake.geometry import CollisionFilterDeclaration, GeometrySet
+    from pydrake.multibody.math import SpatialForce
     from pydrake.multibody.plant import ContactModel, DiscreteContactApproximation
     from pydrake.multibody.tree import BodyIndex, PdControllerGains
 
@@ -61,6 +65,7 @@ except ImportError:  # pragma: no cover - optional dependency guard.
     DepthRenderCamera = None
     DiagramBuilder = None
     DiscreteContactApproximation = None
+    ExternallyAppliedSpatialForce = None
     GeometrySet = None
     JointActuatorIndex = None
     LightParameter = None
@@ -73,6 +78,7 @@ except ImportError:  # pragma: no cover - optional dependency guard.
     RgbdSensor = None
     RigidTransform = None
     RotationMatrix = None
+    SpatialForce = None
     StartMeshcat = None
     Simulator = None
     DRAKE_AVAILABLE = False
@@ -91,6 +97,13 @@ BASE_SENSOR_NAMES = frozenset(
         "upvector",
     }
 )
+GO1_FOOT_SENSOR_NAMES = ("FL_pos", "FR_pos", "RL_pos", "RR_pos")
+GO1_FOOT_CONTACT_SENSOR_NAMES = (
+    "FL_foot_contact",
+    "FR_foot_contact",
+    "RL_foot_contact",
+    "RR_foot_contact",
+)
 
 
 @dataclass(frozen=True)
@@ -104,6 +117,13 @@ class DrakeModelMetadata:
     foot_sensor_to_body: dict[str, str]
     foot_sensor_offsets: dict[str, np.ndarray]
     contact_sensors: frozenset[str]
+
+
+@dataclass(frozen=True)
+class _DrakeRuntime:
+    context: Any
+    plant_context: Any
+    simulator: Any
 
 
 def _require_drake() -> None:
@@ -436,12 +456,13 @@ class DrakeBackend(SimBackend):
         sim_dt: float,
         *,
         base_name: str = "trunk",
+        push_body_name: str | None = None,
         position_actuator_gains: dict[str, float] | None = None,
         **_: Any,
     ) -> None:
         _require_drake()
-        if num_envs != 1:
-            raise NotImplementedError("DrakeBackend currently supports exactly one environment.")
+        if int(num_envs) < 1:
+            raise ValueError(f"DrakeBackend requires num_envs >= 1, got {num_envs}")
 
         logging.getLogger("drake").setLevel(logging.ERROR)
         self._pre_step_control_fn = None
@@ -455,13 +476,21 @@ class DrakeBackend(SimBackend):
         self._kp = float((position_actuator_gains or {}).get("kp", 35.0))
         self._kd = float((position_actuator_gains or {}).get("kd", 0.5))
         self._base_name = base_name
+        self._push_body_name = push_body_name or base_name
         self._meshcat = None
         self._meshcat_url: str | None = None
         self._rgbd_sensor = None
         self._rgbd_width = 0
         self._rgbd_height = 0
+        self._runtimes: list[_DrakeRuntime] = []
+        self._physics_state = np.empty((0, 0), dtype=np.float64)
+        self._sensor_packet: SensorPacket = {}
+        self._pool: DrakeEnvPool | None = None
+        self._target_realtime_rate = 0.0
+        self._pending_push_force = np.zeros((self._num_envs, 3), dtype=np.float64)
 
         self._build_drake_system(meshcat=None, camera_pose=None)
+        self._pool = self._make_pool()
         LOGGER.info(
             "Initialized Drake %s backend from %s; filtered %d robot collision geometries",
             self._model_metadata.name,
@@ -487,6 +516,7 @@ class DrakeBackend(SimBackend):
     ) -> None:
         builder = DiagramBuilder()
         plant, scene_graph = AddMultibodyPlantSceneGraph(builder, time_step=self._sim_dt)
+        target_realtime_rate = 1.0 if meshcat is not None else 0.0
         self._rgbd_sensor = None
         self._rgbd_width = 0
         self._rgbd_height = 0
@@ -531,22 +561,23 @@ class DrakeBackend(SimBackend):
                 RigidTransform(),
             )
             depth_camera = DepthRenderCamera(camera_core, DepthRange(0.1, 50.0))
-            self._rgbd_sensor = builder.AddSystem(
+            rgbd_sensor = builder.AddSystem(
                 RgbdSensor(scene_graph.world_frame_id(), camera_pose, depth_camera, False)
             )
             builder.Connect(
                 scene_graph.get_query_output_port(),
-                self._rgbd_sensor.query_object_input_port(),
+                rgbd_sensor.query_object_input_port(),
             )
+            self._rgbd_sensor = rgbd_sensor
             self._rgbd_width = int(camera_width)
             self._rgbd_height = int(camera_height)
 
-        self._diagram = builder.Build()
-        self._context = self._diagram.CreateDefaultContext()
         self._plant = plant
         self._scene_graph = scene_graph
-        self._plant_context = self._plant.GetMyMutableContextFromRoot(self._context)
         self._trunk = self._plant.GetBodyByName(self._base_name, self._model_instance)
+        self._push_body = self._plant.GetBodyByName(self._push_body_name, self._model_instance)
+        self._diagram = builder.Build()
+        self._target_realtime_rate = target_realtime_rate
 
         if self._home_qpos_mujoco.shape != (self._plant.num_positions(),):
             raise RuntimeError(
@@ -571,19 +602,74 @@ class DrakeBackend(SimBackend):
         if self._home_qvel_mujoco.shape != (self._plant.num_velocities(),):
             self._home_qvel_mujoco = np.zeros(self._plant.num_velocities(), dtype=np.float64)
 
-        reset_qpos = self._home_qpos_mujoco if qpos_mujoco is None else qpos_mujoco
-        reset_qvel = self._home_qvel_mujoco if qvel_mujoco is None else qvel_mujoco
-        self._plant.SetPositions(self._plant_context, _mujoco_qpos_to_drake(reset_qpos))
-        self._plant.SetVelocities(self._plant_context, _mujoco_qvel_to_drake(reset_qvel))
-        self._plant.get_actuation_input_port(self._model_instance).FixValue(
-            self._plant_context, np.zeros(self.num_actuators, dtype=np.float64)
-        )
-        self._set_native_pd_target(reset_qpos[ROOT_QPOS_DIM:])
-
-        self._simulator = Simulator(self._diagram, self._context)
-        self._simulator.set_target_realtime_rate(1.0 if meshcat is not None else 0.0)
-        self._simulator.Initialize()
+        reset_qpos, reset_qvel = self._runtime_state_batches(qpos_mujoco, qvel_mujoco)
+        self._runtimes = [
+            self._make_runtime(
+                reset_qpos[env_index],
+                reset_qvel[env_index],
+                target_realtime_rate=self._target_realtime_rate,
+            )
+            for env_index in range(self._num_envs)
+        ]
+        self._bind_primary_runtime()
         self._diagram.ForcedPublish(self._context)
+        self._refresh_cached_outputs_from_live_contexts()
+
+    def _make_pool(self) -> DrakeEnvPool:
+        sensor_shapes = {key: value.shape for key, value in self._sensor_packet.items()}
+        return DrakeEnvPool(
+            nbatch=self._num_envs,
+            state_dim=self._state_dim,
+            control_dim=self.num_actuators,
+            sensor_shapes=sensor_shapes,
+            step_impl=self._pool_step_impl,
+            reset_impl=self._pool_reset_impl,
+        )
+
+    def _runtime_state_batches(
+        self,
+        qpos_mujoco: np.ndarray | None,
+        qvel_mujoco: np.ndarray | None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        qpos = self._home_qpos_mujoco if qpos_mujoco is None else np.asarray(qpos_mujoco)
+        qvel = self._home_qvel_mujoco if qvel_mujoco is None else np.asarray(qvel_mujoco)
+        if qpos.ndim == 1:
+            qpos = np.broadcast_to(qpos, (self._num_envs, qpos.shape[0])).copy()
+        if qvel.ndim == 1:
+            qvel = np.broadcast_to(qvel, (self._num_envs, qvel.shape[0])).copy()
+        expected_qpos = (self._num_envs, self._plant.num_positions())
+        expected_qvel = (self._num_envs, self._plant.num_velocities())
+        if qpos.shape != expected_qpos:
+            raise ValueError(f"qpos_mujoco must have shape {expected_qpos}, got {qpos.shape}")
+        if qvel.shape != expected_qvel:
+            raise ValueError(f"qvel_mujoco must have shape {expected_qvel}, got {qvel.shape}")
+        return qpos.astype(np.float64, copy=False), qvel.astype(np.float64, copy=False)
+
+    def _make_runtime(
+        self,
+        qpos_mujoco: np.ndarray,
+        qvel_mujoco: np.ndarray,
+        *,
+        target_realtime_rate: float,
+    ) -> _DrakeRuntime:
+        context = self._diagram.CreateDefaultContext()
+        plant_context = self._plant.GetMyMutableContextFromRoot(context)
+        self._plant.SetPositions(plant_context, _mujoco_qpos_to_drake(qpos_mujoco))
+        self._plant.SetVelocities(plant_context, _mujoco_qvel_to_drake(qvel_mujoco))
+        self._plant.get_actuation_input_port(self._model_instance).FixValue(
+            plant_context, np.zeros(self.num_actuators, dtype=np.float64)
+        )
+        self._set_native_pd_target(qpos_mujoco[ROOT_QPOS_DIM:], plant_context=plant_context)
+        simulator = Simulator(self._diagram, context)
+        simulator.set_target_realtime_rate(float(target_realtime_rate))
+        simulator.Initialize()
+        return _DrakeRuntime(context=context, plant_context=plant_context, simulator=simulator)
+
+    def _bind_primary_runtime(self) -> None:
+        runtime = self._runtimes[0]
+        self._context = runtime.context
+        self._plant_context = runtime.plant_context
+        self._simulator = runtime.simulator
 
     @property
     def scene_model_file(self) -> str:
@@ -604,6 +690,10 @@ class DrakeBackend(SimBackend):
     @property
     def num_dof_vel(self) -> int:
         return int(self._plant.num_velocities() - ROOT_QVEL_DIM)
+
+    @property
+    def _state_dim(self) -> int:
+        return int(1 + self._plant.num_positions() + self._plant.num_velocities())
 
     def get_actuator_ctrl_range(self) -> np.ndarray:
         return self._model_metadata.ctrl_limits.copy()
@@ -639,23 +729,26 @@ class DrakeBackend(SimBackend):
         return np.asarray(body_ids, dtype=np.int32)
 
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> dict | None:
-        step_start = time.perf_counter()
         values = np.asarray(ctrl, dtype=np.float64)
-        if values.shape != (1, self.num_actuators):
+        if values.shape != (self._num_envs, self.num_actuators):
             raise ValueError(
-                f"DrakeBackend.step expected ctrl shape (1, {self.num_actuators}), "
+                f"DrakeBackend.step expected ctrl shape ({self._num_envs}, {self.num_actuators}), "
                 f"got {values.shape}"
             )
         values = self._apply_pre_step_control(values)
-        target_q = np.clip(
-            values[0],
-            self._model_metadata.ctrl_limits[:, 0],
-            self._model_metadata.ctrl_limits[:, 1],
+        if self._pool is None:
+            raise RuntimeError("DrakeEnvPool is not initialized")
+        output = self._pool.step(
+            self._physics_state,
+            nstep=int(nsteps),
+            control=values,
+            push_force=self._pending_push_force,
+            return_sensor=True,
         )
-        self._set_native_pd_target(target_q)
-        target_time = self._simulator.get_context().get_time() + float(nsteps) * self._sim_dt
-        self._simulator.AdvanceTo(target_time)
-        return {"timing": {"step_ms": (time.perf_counter() - step_start) * 1000.0}}
+        self._pending_push_force.fill(0.0)
+        self._apply_pool_output(output)
+        self._bind_primary_runtime()
+        return {"timing": dict(output.timing)}
 
     def set_state(
         self,
@@ -665,132 +758,158 @@ class DrakeBackend(SimBackend):
         randomization: ResetRandomizationPayload | None = None,
     ) -> None:
         indices = np.asarray(env_indices, dtype=np.int32)
-        if indices.shape != (1,) or int(indices[0]) != 0:
-            raise NotImplementedError("DrakeBackend.set_state currently supports only env index 0")
         if randomization is not None and not randomization.is_empty():
             raise NotImplementedError("DrakeBackend does not apply reset randomization yet")
 
         qpos_rows = np.asarray(qpos, dtype=np.float64)
         qvel_rows = np.asarray(qvel, dtype=np.float64)
-        if qpos_rows.shape != (1, self._plant.num_positions()):
+        if indices.ndim != 1:
+            raise ValueError(f"env_indices must be one-dimensional, got {indices.shape}")
+        if np.any(indices < 0) or np.any(indices >= self._num_envs):
+            raise IndexError(
+                f"env_indices must be in [0, {self._num_envs - 1}], got {indices.tolist()}"
+            )
+        if qpos_rows.shape != (indices.size, self._plant.num_positions()):
             raise ValueError(
-                f"qpos must have shape (1, {self._plant.num_positions()}), "
+                f"qpos must have shape ({indices.size}, {self._plant.num_positions()}), "
                 f"got {qpos_rows.shape}"
             )
-        if qvel_rows.shape != (1, self._plant.num_velocities()):
+        if qvel_rows.shape != (indices.size, self._plant.num_velocities()):
             raise ValueError(
-                f"qvel must have shape (1, {self._plant.num_velocities()}), "
+                f"qvel must have shape ({indices.size}, {self._plant.num_velocities()}), "
                 f"got {qvel_rows.shape}"
             )
 
-        self._plant.SetPositions(self._plant_context, _mujoco_qpos_to_drake(qpos_rows[0]))
-        self._plant.SetVelocities(self._plant_context, _mujoco_qvel_to_drake(qvel_rows[0]))
-        self._set_native_pd_target(qpos_rows[0, ROOT_QPOS_DIM:])
-        self._diagram.ForcedPublish(self._context)
+        if self._pool is None:
+            raise RuntimeError("DrakeEnvPool is not initialized")
+        initial_state = self._pack_state_rows(qpos_rows, qvel_rows)
+        output = self._pool.reset(indices, initial_state)
+        self._apply_pool_output(output)
+        self._bind_primary_runtime()
 
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
-        return DomainRandomizationCapabilities()
+        return DomainRandomizationCapabilities(supports_interval_push=True)
 
     def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
         if plan.is_empty():
             return
-        raise NotImplementedError("DrakeBackend does not support interval randomization yet")
+        self._pending_push_force.fill(0.0)
+        if plan.push_perturbation_limit is not None:
+            self._pending_push_force[:] = self._sample_push_force(plan.push_perturbation_limit)
+        if plan.body_force is not None or plan.body_linear_velocity_delta is not None:
+            raise NotImplementedError(
+                "DrakeBackend currently supports Go1 push_robots interval randomization only"
+            )
 
     def get_play_capabilities(self) -> BackendPlayCapabilities:
         return BackendPlayCapabilities(
             supports_native_interactive_renderer=True,
+            supports_physics_state_playback=True,
             supports_native_video_capture=True,
         )
 
     def get_base_pos(self) -> np.ndarray:
-        return self._body_pos(self._trunk).reshape(1, 3)
+        return self._sensor_packet["base_pos"].copy()
 
     def get_base_quat(self) -> np.ndarray:
-        return self._body_quat(self._trunk).reshape(1, 4)
+        return self._physics_state[:, 1 + 3 : 1 + 7].copy()
 
     def get_base_lin_vel(self) -> np.ndarray:
-        return np.asarray(self._body_spatial_velocity(self._trunk).translational()).reshape(1, 3)
+        qvel_start = 1 + self._plant.num_positions()
+        return self._physics_state[:, qvel_start : qvel_start + 3].copy()
 
     def get_base_ang_vel(self) -> np.ndarray:
-        return np.asarray(self._body_spatial_velocity(self._trunk).rotational()).reshape(1, 3)
+        qvel_start = 1 + self._plant.num_positions()
+        return self._physics_state[:, qvel_start + 3 : qvel_start + 6].copy()
 
     def get_dof_pos(self) -> np.ndarray:
-        q = np.asarray(self._plant.GetPositions(self._plant_context), dtype=np.float64)
-        return q[ROOT_QPOS_DIM:].reshape(1, -1)
+        return self._sensor_packet["dof_pos"].copy()
 
     def get_dof_vel(self) -> np.ndarray:
-        v = np.asarray(self._plant.GetVelocities(self._plant_context), dtype=np.float64)
-        return v[ROOT_QVEL_DIM:].reshape(1, -1)
+        return self._sensor_packet["dof_vel"].copy()
 
     def get_body_pos_w(self, body_ids: np.ndarray) -> np.ndarray:
         bodies = [self._plant.get_body(BodyIndex(int(body_id))) for body_id in body_ids]
-        values = [self._body_pos(body) for body in bodies]
-        return np.asarray(values, dtype=np.float64).reshape(1, len(values), 3)
+        return np.asarray(
+            [
+                [self._body_pos(body, env_index) for body in bodies]
+                for env_index in range(self._num_envs)
+            ],
+            dtype=np.float64,
+        ).reshape(self._num_envs, len(bodies), 3)
 
     def get_body_quat_w(self, body_ids: np.ndarray) -> np.ndarray:
         bodies = [self._plant.get_body(BodyIndex(int(body_id))) for body_id in body_ids]
-        values = [self._body_quat(body) for body in bodies]
-        return np.asarray(values, dtype=np.float64).reshape(1, len(values), 4)
+        return np.asarray(
+            [
+                [self._body_quat(body, env_index) for body in bodies]
+                for env_index in range(self._num_envs)
+            ],
+            dtype=np.float64,
+        ).reshape(self._num_envs, len(bodies), 4)
 
     def get_body_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
         bodies = [self._plant.get_body(BodyIndex(int(body_id))) for body_id in body_ids]
-        values = [self._body_spatial_velocity(body).translational() for body in bodies]
-        return np.asarray(values, dtype=np.float64).reshape(1, len(values), 3)
+        return np.asarray(
+            [
+                [self._body_spatial_velocity(body, env_index).translational() for body in bodies]
+                for env_index in range(self._num_envs)
+            ],
+            dtype=np.float64,
+        ).reshape(self._num_envs, len(bodies), 3)
 
     def get_body_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
         bodies = [self._plant.get_body(BodyIndex(int(body_id))) for body_id in body_ids]
-        values = [self._body_spatial_velocity(body).rotational() for body in bodies]
-        return np.asarray(values, dtype=np.float64).reshape(1, len(values), 3)
+        return np.asarray(
+            [
+                [self._body_spatial_velocity(body, env_index).rotational() for body in bodies]
+                for env_index in range(self._num_envs)
+            ],
+            dtype=np.float64,
+        ).reshape(self._num_envs, len(bodies), 3)
 
     def get_body_pos_b(self, body_ids: np.ndarray) -> np.ndarray:
-        pos_w = self.get_body_pos_w(body_ids)[0]
-        x_wb = self._body_pose(self._trunk)
-        rotation_bw = x_wb.rotation().matrix().T
-        base_pos = np.asarray(x_wb.translation(), dtype=np.float64)
-        return ((pos_w - base_pos) @ rotation_bw.T).reshape(1, len(body_ids), 3)
+        pos_w = self.get_body_pos_w(body_ids)
+        values = []
+        for env_index in range(self._num_envs):
+            x_wb = self._body_pose(self._trunk, env_index)
+            rotation_bw = x_wb.rotation().matrix().T
+            base_pos = np.asarray(x_wb.translation(), dtype=np.float64)
+            values.append((pos_w[env_index] - base_pos) @ rotation_bw.T)
+        return np.asarray(values, dtype=np.float64).reshape(self._num_envs, len(body_ids), 3)
 
     def get_body_quat_b(self, body_ids: np.ndarray) -> np.ndarray:
-        x_wb = self._body_pose(self._trunk)
-        r_bw = x_wb.rotation().matrix().T
         values = []
-        for body_id in body_ids:
-            body = self._plant.get_body(BodyIndex(int(body_id)))
-            r_wi = self._body_pose(body).rotation().matrix()
-            values.append(_quat_from_matrix(r_bw @ r_wi))
-        return np.asarray(values, dtype=np.float64).reshape(1, len(values), 4)
+        for env_index in range(self._num_envs):
+            x_wb = self._body_pose(self._trunk, env_index)
+            r_bw = x_wb.rotation().matrix().T
+            row = []
+            for body_id in body_ids:
+                body = self._plant.get_body(BodyIndex(int(body_id)))
+                r_wi = self._body_pose(body, env_index).rotation().matrix()
+                row.append(_quat_from_matrix(r_bw @ r_wi))
+            values.append(row)
+        return np.asarray(values, dtype=np.float64).reshape(self._num_envs, len(body_ids), 4)
 
     def get_body_lin_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
-        vel_w = self.get_body_lin_vel_w(body_ids)[0]
-        rotation_bw = self._body_pose(self._trunk).rotation().matrix().T
-        return (vel_w @ rotation_bw.T).reshape(1, len(body_ids), 3)
+        vel_w = self.get_body_lin_vel_w(body_ids)
+        values = []
+        for env_index in range(self._num_envs):
+            rotation_bw = self._body_pose(self._trunk, env_index).rotation().matrix().T
+            values.append(vel_w[env_index] @ rotation_bw.T)
+        return np.asarray(values, dtype=np.float64).reshape(self._num_envs, len(body_ids), 3)
 
     def get_body_ang_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
-        vel_w = self.get_body_ang_vel_w(body_ids)[0]
-        rotation_bw = self._body_pose(self._trunk).rotation().matrix().T
-        return (vel_w @ rotation_bw.T).reshape(1, len(body_ids), 3)
+        vel_w = self.get_body_ang_vel_w(body_ids)
+        values = []
+        for env_index in range(self._num_envs):
+            rotation_bw = self._body_pose(self._trunk, env_index).rotation().matrix().T
+            values.append(vel_w[env_index] @ rotation_bw.T)
+        return np.asarray(values, dtype=np.float64).reshape(self._num_envs, len(body_ids), 3)
 
     def get_sensor_data(self, name: str) -> np.ndarray:
-        if name == "gyro":
-            return self._local_spatial_velocity()[0].reshape(1, 3)
-        if name == "local_linvel":
-            return self._local_spatial_velocity()[1].reshape(1, 3)
-        if name == "global_linvel":
-            return self.get_base_lin_vel()
-        if name == "global_angvel":
-            return self.get_base_ang_vel()
-        if name == "position":
-            return self.get_base_pos()
-        if name == "upvector":
-            return self._body_pose(self._trunk).rotation().matrix()[:, 2].reshape(1, 3)
-        foot_body_name = self._model_metadata.foot_sensor_to_body.get(name)
-        if foot_body_name is not None:
-            body = self._plant.GetBodyByName(foot_body_name, self._model_instance)
-            x_wc = self._body_pose(body)
-            foot_offset = self._model_metadata.foot_sensor_offsets[name]
-            foot_pos = x_wc.translation() + x_wc.rotation().matrix() @ foot_offset
-            return np.asarray(foot_pos, dtype=np.float64).reshape(1, 3)
-        if name in self._model_metadata.contact_sensors:
-            return np.zeros((1, 3), dtype=np.float64)
+        if name in self._sensor_packet:
+            return self._sensor_packet[name].copy()
         raise KeyError(f"Unknown Drake sensor: {name}")
 
     def resolve_play_render_plan(
@@ -854,34 +973,24 @@ class DrakeBackend(SimBackend):
         camera_kwargs: dict[str, Any] | None = None,
         extra_data_getter: Callable[[], np.ndarray | None] | None = None,
     ) -> str | None:
-        del render_spacing, render_offset_mode
-        del frame_state_getter, extra_data_getter
+        del render_offset_mode
 
         interactive = not bool(headless)
         should_record = bool(record_video)
         if should_record:
-            if num_steps is None:
-                raise ValueError("Drake video recording requires a finite num_steps value.")
-            if output_video is None:
-                raise ValueError("Drake video recording requires an output_video path.")
-            self.init_renderer(
+            return run_mujoco_playback(
+                env=env,
+                initialize=initialize,
+                step=step,
+                num_steps=num_steps,
+                output_video=output_video,
+                render_spacing=render_spacing,
                 headless=True,
-                capture=True,
-                width=640,
-                height=360,
-                camera_kwargs=dict(camera_kwargs or {}),
+                record_video=True,
+                frame_state_getter=frame_state_getter,
+                camera_kwargs=camera_kwargs,
+                extra_data_getter=extra_data_getter,
             )
-            state = initialize()
-            frames: list[np.ndarray] = []
-            for _ in range(int(num_steps)):
-                state = step(state)
-                frames.append(self.capture_video_frame())
-            import mediapy as media
-
-            ctrl_dt = float(getattr(getattr(env, "cfg", None), "ctrl_dt", 1.0 / 50.0))
-            fps = max(1, int(round(1.0 / ctrl_dt)))
-            media.write_video(str(output_video), frames, fps=fps)
-            return str(output_video)
 
         if interactive:
             url = self._ensure_meshcat()
@@ -932,46 +1041,307 @@ class DrakeBackend(SimBackend):
         image = self._rgbd_sensor.color_image_output_port().Eval(sensor_context)
         return np.asarray(image.data, dtype=np.uint8)[:, :, :3].copy()
 
-    def _set_native_pd_target(self, target_q: np.ndarray) -> None:
+    def _pool_step_impl(
+        self,
+        state0: np.ndarray,
+        control: np.ndarray,
+        nstep: int,
+        push_force: np.ndarray | None,
+        return_sensor: bool,
+    ) -> DrakePoolOutput:
+        del state0
+        step_start = time.perf_counter()
+        push_values = (
+            np.zeros((self._num_envs, 3), dtype=np.float64)
+            if push_force is None
+            else np.asarray(push_force, dtype=np.float64)
+        )
+        if control.ndim == 2:
+            targets = np.clip(
+                control,
+                self._model_metadata.ctrl_limits[:, 0],
+                self._model_metadata.ctrl_limits[:, 1],
+            )
+            advance_dt = float(nstep) * self._sim_dt
+            for env_index, runtime in enumerate(self._runtimes):
+                self._set_native_pd_target(targets[env_index], plant_context=runtime.plant_context)
+                self._set_external_push_force(
+                    push_values[env_index],
+                    plant_context=runtime.plant_context,
+                )
+                target_time = runtime.simulator.get_context().get_time() + advance_dt
+                runtime.simulator.AdvanceTo(target_time)
+        else:
+            targets = np.clip(
+                control,
+                self._model_metadata.ctrl_limits[:, 0],
+                self._model_metadata.ctrl_limits[:, 1],
+            )
+            for env_index, runtime in enumerate(self._runtimes):
+                for substep in range(int(nstep)):
+                    self._set_native_pd_target(
+                        targets[env_index, substep],
+                        plant_context=runtime.plant_context,
+                    )
+                    self._set_external_push_force(
+                        push_values[env_index],
+                        plant_context=runtime.plant_context,
+                    )
+                    target_time = runtime.simulator.get_context().get_time() + self._sim_dt
+                    runtime.simulator.AdvanceTo(target_time)
+
+        self._bind_primary_runtime()
+        timing = {"step_ms": (time.perf_counter() - step_start) * 1000.0}
+        sensors = self._make_sensor_packet_from_live_contexts() if return_sensor else {}
+        return DrakePoolOutput(
+            state=self._make_physics_state_from_live_contexts(),
+            sensor=sensors,
+            timing=timing,
+        )
+
+    def _pool_reset_impl(
+        self,
+        env_ids: np.ndarray,
+        initial_state: np.ndarray,
+    ) -> DrakePoolOutput:
+        qpos_rows, qvel_rows = self._unpack_state_rows(initial_state)
+        for row_index, env_index in enumerate(env_ids):
+            runtime = self._make_runtime(
+                qpos_rows[row_index],
+                qvel_rows[row_index],
+                target_realtime_rate=self._target_realtime_rate,
+            )
+            self._runtimes[int(env_index)] = runtime
+            self._diagram.ForcedPublish(runtime.context)
+        self._bind_primary_runtime()
+        return DrakePoolOutput(
+            state=self._make_physics_state_from_live_contexts(),
+            sensor=self._make_sensor_packet_from_live_contexts(),
+        )
+
+    def _apply_pool_output(self, output: DrakePoolOutput) -> None:
+        self._physics_state = np.asarray(output.state, dtype=np.float64).copy()
+        self._sensor_packet = {
+            key: np.asarray(value, dtype=np.float64).copy() for key, value in output.sensor.items()
+        }
+
+    def _refresh_cached_outputs_from_live_contexts(self) -> None:
+        self._apply_pool_output(
+            DrakePoolOutput(
+                state=self._make_physics_state_from_live_contexts(),
+                sensor=self._make_sensor_packet_from_live_contexts(),
+            )
+        )
+
+    def _pack_state_rows(self, qpos: np.ndarray, qvel: np.ndarray) -> np.ndarray:
+        qpos_rows = np.asarray(qpos, dtype=np.float64)
+        qvel_rows = np.asarray(qvel, dtype=np.float64)
+        state = np.zeros((qpos_rows.shape[0], self._state_dim), dtype=np.float64)
+        state[:, 1 : 1 + self._plant.num_positions()] = qpos_rows
+        state[:, 1 + self._plant.num_positions() :] = qvel_rows
+        return state
+
+    def _unpack_state_rows(self, state: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        values = np.asarray(state, dtype=np.float64)
+        qpos_start = 1
+        qvel_start = qpos_start + self._plant.num_positions()
+        return values[:, qpos_start:qvel_start], values[:, qvel_start:]
+
+    def _make_physics_state_from_live_contexts(self) -> np.ndarray:
+        qpos, qvel = self._current_mujoco_state_batch()
+        state = self._pack_state_rows(qpos, qvel)
+        state[:, 0] = [runtime.context.get_time() for runtime in self._runtimes]
+        return state
+
+    def _make_sensor_packet_from_live_contexts(self) -> SensorPacket:
+        base_pos = np.asarray(
+            [self._body_pos(self._trunk, env_index) for env_index in range(self._num_envs)],
+            dtype=np.float64,
+        )
+        base_quat = np.asarray(
+            [self._body_quat(self._trunk, env_index) for env_index in range(self._num_envs)],
+            dtype=np.float64,
+        )
+        base_lin_vel = np.asarray(
+            [
+                self._body_spatial_velocity(self._trunk, env_index).translational()
+                for env_index in range(self._num_envs)
+            ],
+            dtype=np.float64,
+        )
+        base_ang_vel = np.asarray(
+            [
+                self._body_spatial_velocity(self._trunk, env_index).rotational()
+                for env_index in range(self._num_envs)
+            ],
+            dtype=np.float64,
+        )
+        local_spatial = [self._local_spatial_velocity(env_index) for env_index in range(self._num_envs)]
+        gyro = np.asarray([values[0] for values in local_spatial], dtype=np.float64)
+        local_linvel = np.asarray([values[1] for values in local_spatial], dtype=np.float64)
+        upvector = np.asarray(
+            [
+                self._body_pose(self._trunk, env_index).rotation().matrix()[:, 2]
+                for env_index in range(self._num_envs)
+            ],
+            dtype=np.float64,
+        )
+        dof_pos = np.asarray(
+            [
+                np.asarray(
+                    self._plant.GetPositions(self._runtime(env_index).plant_context),
+                    dtype=np.float64,
+                )[ROOT_QPOS_DIM:]
+                for env_index in range(self._num_envs)
+            ],
+            dtype=np.float64,
+        )
+        dof_vel = np.asarray(
+            [
+                np.asarray(
+                    self._plant.GetVelocities(self._runtime(env_index).plant_context),
+                    dtype=np.float64,
+                )[ROOT_QVEL_DIM:]
+                for env_index in range(self._num_envs)
+            ],
+            dtype=np.float64,
+        )
+
+        foot_names = [
+            name for name in GO1_FOOT_SENSOR_NAMES if name in self._model_metadata.foot_sensor_to_body
+        ]
+        foot_pos = np.zeros((self._num_envs, len(foot_names), 3), dtype=np.float64)
+        for foot_index, sensor_name in enumerate(foot_names):
+            foot_pos[:, foot_index, :] = self._foot_sensor_pos_from_live_contexts(sensor_name)
+
+        contact_names = [
+            name
+            for name in GO1_FOOT_CONTACT_SENSOR_NAMES
+            if name in self._model_metadata.contact_sensors
+        ]
+        feet_contact_force = np.zeros((self._num_envs, len(contact_names), 3), dtype=np.float64)
+
+        packet: SensorPacket = {
+            "gyro": gyro,
+            "local_linvel": local_linvel,
+            "global_linvel": base_lin_vel,
+            "global_angvel": base_ang_vel,
+            "position": base_pos,
+            "upvector": upvector,
+            "base_pos": base_pos,
+            "base_quat": base_quat,
+            "dof_pos": dof_pos,
+            "dof_vel": dof_vel,
+            "feet_pos": foot_pos,
+            "feet_contact_force": feet_contact_force,
+        }
+        for foot_index, sensor_name in enumerate(foot_names):
+            packet[sensor_name] = foot_pos[:, foot_index, :]
+        for foot_index, sensor_name in enumerate(contact_names):
+            packet[sensor_name] = feet_contact_force[:, foot_index, :]
+        return packet
+
+    def _foot_sensor_pos_from_live_contexts(self, name: str) -> np.ndarray:
+        foot_body_name = self._model_metadata.foot_sensor_to_body[name]
+        body = self._plant.GetBodyByName(foot_body_name, self._model_instance)
+        foot_offset = self._model_metadata.foot_sensor_offsets[name]
+        values = []
+        for env_index in range(self._num_envs):
+            x_wc = self._body_pose(body, env_index)
+            values.append(x_wc.translation() + x_wc.rotation().matrix() @ foot_offset)
+        return np.asarray(values, dtype=np.float64).reshape(self._num_envs, 3)
+
+    def _set_native_pd_target(
+        self, target_q: np.ndarray, *, plant_context: Any | None = None
+    ) -> None:
         desired_state = np.concatenate(
             [
                 np.asarray(target_q, dtype=np.float64),
                 np.zeros(self.num_actuators, dtype=np.float64),
             ]
         )
+        target_context = self._plant_context if plant_context is None else plant_context
         self._plant.get_desired_state_input_port(self._model_instance).FixValue(
-            self._plant_context, desired_state
+            target_context, desired_state
         )
 
-    def _body_pose(self, body: Any) -> Any:
-        return self._plant.EvalBodyPoseInWorld(self._plant_context, body)
+    def _sample_push_force(self, force_range: Sequence[float] | np.ndarray) -> np.ndarray:
+        limit = np.asarray(force_range, dtype=np.float64)
+        if limit.shape != (3,):
+            raise ValueError(f"Drake push force range must have shape (3,), got {limit.shape}")
+        direction = np.random.uniform(-1.0, 1.0, size=(self._num_envs, 3))
+        norm = np.linalg.norm(direction, axis=1, keepdims=True)
+        direction = np.divide(direction, np.maximum(norm, 1.0e-12))
+        magnitude = np.random.uniform(0.0, 1.0, size=(self._num_envs, 1))
+        return direction * magnitude * limit.reshape(1, 3)
 
-    def _body_pos(self, body: Any) -> np.ndarray:
-        return np.asarray(self._body_pose(body).translation(), dtype=np.float64)
+    def _set_external_push_force(self, force: np.ndarray, *, plant_context: Any) -> None:
+        if np.allclose(force, 0.0):
+            forces: list[Any] = []
+        else:
+            applied = ExternallyAppliedSpatialForce()
+            applied.body_index = self._push_body.index()
+            applied.p_BoBq_B = np.zeros(3, dtype=np.float64)
+            applied.F_Bq_W = SpatialForce(tau=np.zeros(3, dtype=np.float64), f=force)
+            forces = [applied]
+        self._plant.get_applied_spatial_force_input_port().FixValue(plant_context, forces)
 
-    def _body_quat(self, body: Any) -> np.ndarray:
-        return _quat_from_rotation(self._body_pose(body).rotation())
+    def _runtime(self, env_index: int) -> _DrakeRuntime:
+        if env_index < 0 or env_index >= self._num_envs:
+            raise IndexError(f"env_index must be in [0, {self._num_envs - 1}], got {env_index}")
+        return self._runtimes[env_index]
 
-    def _body_spatial_velocity(self, body: Any) -> Any:
-        return self._plant.EvalBodySpatialVelocityInWorld(self._plant_context, body)
+    def _body_pose(self, body: Any, env_index: int = 0) -> Any:
+        return self._plant.EvalBodyPoseInWorld(self._runtime(env_index).plant_context, body)
 
-    def _local_spatial_velocity(self) -> tuple[np.ndarray, np.ndarray]:
-        x_wb = self._body_pose(self._trunk)
+    def _body_pos(self, body: Any, env_index: int = 0) -> np.ndarray:
+        return np.asarray(self._body_pose(body, env_index).translation(), dtype=np.float64)
+
+    def _body_quat(self, body: Any, env_index: int = 0) -> np.ndarray:
+        return _quat_from_rotation(self._body_pose(body, env_index).rotation())
+
+    def _body_spatial_velocity(self, body: Any, env_index: int = 0) -> Any:
+        return self._plant.EvalBodySpatialVelocityInWorld(
+            self._runtime(env_index).plant_context, body
+        )
+
+    def _local_spatial_velocity(self, env_index: int = 0) -> tuple[np.ndarray, np.ndarray]:
+        x_wb = self._body_pose(self._trunk, env_index)
         r_bw = x_wb.rotation().matrix().T
-        velocity_w = self._body_spatial_velocity(self._trunk)
+        velocity_w = self._body_spatial_velocity(self._trunk, env_index)
         return (
             r_bw @ np.asarray(velocity_w.rotational(), dtype=np.float64),
             r_bw @ np.asarray(velocity_w.translational(), dtype=np.float64),
         )
 
-    def _current_mujoco_state(self) -> tuple[np.ndarray, np.ndarray]:
-        q = np.asarray(self._plant.GetPositions(self._plant_context), dtype=np.float64)
-        v = np.asarray(self._plant.GetVelocities(self._plant_context), dtype=np.float64)
+    def _current_mujoco_state(self, env_index: int = 0) -> tuple[np.ndarray, np.ndarray]:
+        runtime = self._runtime(env_index)
+        q = np.asarray(self._plant.GetPositions(runtime.plant_context), dtype=np.float64)
+        v = np.asarray(self._plant.GetVelocities(runtime.plant_context), dtype=np.float64)
         return _drake_qpos_to_mujoco(q), _drake_qvel_to_mujoco(v)
+
+    def _current_mujoco_state_batch(self) -> tuple[np.ndarray, np.ndarray]:
+        qpos: list[np.ndarray] = []
+        qvel: list[np.ndarray] = []
+        for env_index in range(self._num_envs):
+            qpos_row, qvel_row = self._current_mujoco_state(env_index)
+            qpos.append(qpos_row)
+            qvel.append(qvel_row)
+        return np.asarray(qpos, dtype=np.float64), np.asarray(qvel, dtype=np.float64)
+
+    def get_physics_state(self) -> np.ndarray:
+        return self._physics_state.copy()
+
+    def get_playback_model(self, env_index: int | None = None) -> str:
+        if env_index is not None:
+            idx = int(env_index)
+            if idx < 0 or idx >= self._num_envs:
+                raise IndexError(f"env_index must be in [0, {self._num_envs - 1}], got {idx}")
+        return self._scene_model_file
 
     def _ensure_meshcat(self) -> str:
         if self._meshcat is None:
-            qpos_mujoco, qvel_mujoco = self._current_mujoco_state()
+            qpos_mujoco, qvel_mujoco = self._unpack_state_rows(self._physics_state)
             self._meshcat = StartMeshcat()
             self._meshcat_url = str(self._meshcat.web_url())
             self._build_drake_system(
@@ -991,9 +1361,13 @@ class DrakeBackend(SimBackend):
         height: int,
         camera_kwargs: dict[str, Any],
     ) -> None:
-        if self._rgbd_sensor is not None and self._rgbd_width == width and self._rgbd_height == height:
+        if (
+            self._rgbd_sensor is not None
+            and self._rgbd_width == width
+            and self._rgbd_height == height
+        ):
             return
-        qpos_mujoco, qvel_mujoco = self._current_mujoco_state()
+        qpos_mujoco, qvel_mujoco = self._unpack_state_rows(self._physics_state)
         self._build_drake_system(
             meshcat=None,
             camera_pose=self._make_record_camera_pose(camera_kwargs),
@@ -1012,7 +1386,7 @@ class DrakeBackend(SimBackend):
             if target.shape != (3,):
                 target = np.array([2.0, 0.0, 0.35], dtype=np.float64)
 
-        distance = float(camera_kwargs.get("cam_distance", 6.0))
+        distance = float(camera_kwargs.get("cam_distance", 2.0))
         azimuth = np.deg2rad(float(camera_kwargs.get("cam_azimuth", 90.0)))
         elevation = np.deg2rad(abs(float(camera_kwargs.get("cam_elevation", -20.0))))
         horizontal = distance * np.cos(elevation)

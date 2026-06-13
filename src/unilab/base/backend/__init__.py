@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import sys
 from typing import TYPE_CHECKING, Any, cast
 
 from unilab.base.scene import SceneCfg
@@ -66,6 +68,20 @@ def _load_drake_backend() -> tuple[Any, bool]:
     return DrakeBackend, bool(DRAKE_AVAILABLE)
 
 
+def _load_native_drake_backend() -> tuple[Any, bool, ImportError | None]:
+    from .drake.backend_native import (
+        NATIVE_DRAKE_AVAILABLE,
+        NATIVE_DRAKE_IMPORT_ERROR,
+        NativeDrakeBackend,
+    )
+
+    return NativeDrakeBackend, bool(NATIVE_DRAKE_AVAILABLE), NATIVE_DRAKE_IMPORT_ERROR
+
+
+def _pydrake_loaded() -> bool:
+    return any(name == "pydrake" or name.startswith("pydrake.") for name in sys.modules)
+
+
 def create_backend(
     backend_type: str,
     scene: SceneCfg,
@@ -95,6 +111,8 @@ def create_backend(
     chunk_size = kwargs.pop("chunk_size", None)
     adaptive_chunk_size = kwargs.pop("adaptive_chunk_size", False)
     bench_nsteps = kwargs.pop("bench_nsteps", 1)
+    drake_backend_mode = kwargs.pop("drake_backend_mode", "auto")
+    drake_nthread = kwargs.pop("drake_nthread", None)
     if backend_type == "mujoco":
         MuJoCoBackend = _load_mujoco_backend()
         if position_actuator_gains is not None:
@@ -113,11 +131,34 @@ def create_backend(
             kwargs["max_iterations"] = motrix_max_iterations
         return cast(SimBackend, MotrixBackend(scene, num_envs, sim_dt, **kwargs))
     if backend_type == "drake":
-        DrakeBackend, drake_available = _load_drake_backend()
+        mode = str(drake_backend_mode or "auto").strip().lower()
+        if mode == "auto":
+            mode = os.environ.get("UNILAB_DRAKE_BACKEND", "pydrake").strip().lower()
+        if mode in {"native", "native_pool", "drakeuni"}:
+            if _pydrake_loaded():
+                raise ImportError(
+                    "Native Drake backend cannot be loaded after pydrake has already "
+                    "been imported in this process. Start a fresh process for "
+                    "drake_backend_mode='native', or select drake_backend_mode='pydrake'."
+                )
+            DrakeBackend, drake_available, import_error = _load_native_drake_backend()
+        elif mode in {"pydrake", "python"}:
+            DrakeBackend, drake_available = _load_drake_backend()
+            import_error = None
+        else:
+            raise ValueError(
+                "drake_backend_mode must be one of auto, pydrake, python, "
+                f"native, native_pool, drakeuni; got {drake_backend_mode!r}"
+            )
         if not drake_available:
-            raise ImportError("Drake not available, install pydrake/drake package")
+            message = f"Drake backend mode {mode!r} is not available"
+            if import_error is not None:
+                message = f"{message}: {import_error}"
+            raise ImportError(message) from import_error
         if position_actuator_gains is not None:
             kwargs["position_actuator_gains"] = position_actuator_gains
+        if mode in {"native", "native_pool", "drakeuni"} and drake_nthread is not None:
+            kwargs["nthread"] = drake_nthread
         return cast(SimBackend, DrakeBackend(scene, num_envs, sim_dt, **kwargs))
     raise ValueError(f"Unknown backend: {backend_type}")
 

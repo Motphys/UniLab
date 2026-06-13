@@ -1,14 +1,16 @@
 # Drake Replay Plan
 
-Status: active working plan; minimal Drake backend, Meshcat playback, and MP4 checkpoint recording achieved  
-Last updated: 2026-06-08  
-Owner intent: replay a trained UniLab checkpoint through UniLab using a Drake backend.
+Status: active working plan; replay, visualization, tracked MP4 recording, dog-only DrakeUni training smoke, native C++ pool integration, and strict MuJoCo-recipe alignment achieved
+Last updated: 2026-06-12
+Owner intent: replay a trained UniLab checkpoint through UniLab using a Drake backend, then grow the Go1-only path toward DrakeUni training.
 
 ## Goal
 
 Replay the existing `Go1JoystickFlat` PPO checkpoint through UniLab with `sim_backend=drake`.
 
-The target is replay/evaluation, not training. The policy remains a PyTorch/RSL-RL checkpoint. UniLab should run the policy, send actions to Drake, step Drake physics, rebuild the UniLab observation contract from Drake state/sensors, and visualize or record the replay.
+The original M0-M5 target was replay/evaluation, not training. The policy remains a PyTorch/RSL-RL checkpoint. UniLab should run the policy, send actions to Drake, step Drake physics, rebuild the UniLab observation contract from Drake state/sensors, and visualize or record the replay.
+
+Update for the DrakeUni phase: the current target is dog-only training support for `Go1JoystickFlat`, not a generic Drake backend. The Python reference multi-env gate now has a native C++ DrakeUni pool path behind `drake_backend_mode: native`, with Go1 PPO data collection/update/checkpoint/replay running through UniLab.
 
 Target command shape:
 
@@ -45,6 +47,17 @@ uv run --no-sync eval \
 - The normal RSL-RL script path can load the MuJoCo-trained checkpoint and run finite headless Drake playback with `training.play_render_mode=auto`.
 - The normal RSL-RL script path can record finite Drake MP4 playback with `training.play_render_mode=record`.
 - Drake replay metadata is now parsed from the Drake model files instead of Python-side robot constants.
+- The Drake backend now supports multiple Go1 envs by sharing one static Drake Diagram and keeping one independent Context/Simulator runtime per env.
+- `Go1JoystickFlat` training smoke has run through UniLab/RSL-RL with Drake at `algo.num_envs=2`, `algo.num_envs=4`, the first incomplete alignment batch of `16`, the strict aligned batch of `1024`, and the native C++ pool smoke batch of `8`.
+- A Drake-trained smoke checkpoint can be replayed and recorded through UniLab.
+- Fresh MuJoCoUni comparison training succeeds on the same `Go1JoystickFlat` task:
+  - MuJoCoUni run: `3,710,976` env steps, final mean reward `35.11`, best mean reward `39.89`.
+- Strict-aligned Drake Python reference training now runs the same sample budget:
+  - Drake run: `3,710,976` env steps, final mean reward `34.36`, best mean reward `42.53`.
+  - Drake replay is recorded with the same tracked state-rendering path as MuJoCo playback.
+- Native DrakeUni Stage 3 now routes `task=go1_joystick_flat/drake` through `drake_backend_mode: native`, using the pybind C++ `NativeDrakeEnvPool` for Go1 state/sensor stepping.
+- Native mode enforces the pydrake/native libdrake process boundary and records import diagnostics instead of silently hiding ABI failures.
+- Native Go1 self-collision filtering now mirrors the pydrake backend before Drake plant finalization.
 
 ## Resolved So Far
 
@@ -63,15 +76,19 @@ target_q = action * action_scale + default_angles
 
 - Drake-native actuator PD is now the control direction.
 - Policy-derived joint targets are clamped to MuJoCo actuator `ctrlrange`, matching MuJoCo position-actuator semantics.
-- Robot self-collisions are filtered in Drake, matching the intended MuJoCo collision topology more closely.
+- Robot self-collisions are filtered in both pydrake and native C++ Drake paths before plant finalization, matching the intended MuJoCo collision topology more closely.
 - Drake point-contact SAP is selected for the dirty replay, producing much closer Go1 locomotion than the parser default.
 - The dirty Drake replay visibly walks forward in Meshcat:
   - Drake dirty replay after fixes: `linvel_x=0.5923` at 6 seconds.
   - Direct MuJoCo dirty baseline: `linvel_x=0.670` at 6 seconds.
-- `src/unilab/base/backend/drake/backend.py` implements the first backend contract for single-env Go1 replay.
+- `src/unilab/base/backend/drake/backend.py` implements the Python reference backend contract for Go1 replay and multi-env Go1 training.
+- `src/unilab/base/backend/drake/native/drake_env_pool.cc` implements the first Go1-only native C++ DrakeUni pool, and `src/unilab/base/backend/drake/backend_native.py` wires it into UniLab's backend contract.
 - DrakeBackend parses actuator limits, effort limits, foot site sensors, contact sensor names, and the home keyframe from `scene_flat_drake.xml` plus included robot XML.
 - `Go1JoystickFlat` is registered with `sim_backend="drake"`.
-- `conf/ppo/task/go1_joystick_flat/drake.yaml` selects the Drake-compatible scene, disables unsupported domain randomization/pushes, and fixes the Go1 command to `[0.5, 0.0, 0.0]`.
+- `conf/ppo/task/go1_joystick_flat/drake.yaml` selects the Drake-compatible scene, selects `env.drake_backend_mode: native`, and now follows the MuJoCo Go1 training recipe for command sampling, PPO env count, rollout horizon, iteration count, save interval, observation groups, playback env count, and camera flags.
+- The unsupported contact reward scale is disabled in the Drake config until real Drake contact-force support lands.
+- The remaining intentional config differences are `training.sim_backend=drake`, native Drake backend mode, the Drake-compatible `env.scene.model_file`, and omission of contact reward while contact forces are stubbed.
+- Drake now accepts Go1 push interval randomization. Base mass and COM reset randomization are still skipped at runtime because the Drake backend does not support them yet.
 - Headless checkpoint replay through UniLab's normal RSL-RL entrypoint runs to completion with this command:
 
 ```bash
@@ -90,10 +107,11 @@ uv run python scripts/train_rsl_rl.py \
 
 ## Still Open
 
-- The Drake backend is intentionally narrow: Go1 only, single env only, replay only.
+- The Drake backend is intentionally narrow: Go1 flat only, with Python reference and native C++ pool paths.
 - Drake sensor reconstruction is implemented for the Go1 joystick replay contract, not yet as a generic Drake sensor/site abstraction.
 - Contact/friction parity is improved but not exact; Drake still cannot reproduce MuJoCo `condim=6`, torsional friction, rolling friction, or joint `frictionloss` exactly through MJCF parsing.
-- Multi-env rollout, training, MPI, and cluster-scale data generation remain out of scope for this milestone.
+- The current native DrakeUni path is a first C++ handle pool, not yet the final high-throughput worker-context or portable packaged DrakeUni backend.
+- MPI and cluster-scale data generation remain out of scope for this milestone.
 
 ## Architecture Target
 
@@ -102,11 +120,12 @@ flowchart LR
   A["RSL-RL checkpoint"] --> B["UniLab eval runner"]
   B --> C["Go1JoystickFlat env"]
   C --> D["DrakeBackend"]
-  D --> E["Drake MultibodyPlant"]
-  E --> F["Drake state and sensors"]
-  F --> G["UniLab observation contract"]
-  G --> B
-  E --> H["Meshcat or MP4 replay"]
+  D --> E["Python DrakeBackend or NativeDrakeBackend"]
+  E --> F["Drake MultibodyPlant / NativeDrakeEnvPool"]
+  F --> G["Drake state and sensors"]
+  G --> H["UniLab observation contract"]
+  H --> B
+  F --> I["Meshcat or MP4 replay"]
 ```
 
 ## Success Criteria
@@ -123,14 +142,14 @@ Minimum success:
   - first acceptable: Meshcat interactive replay,
   - final target: `--render-mode record` produces an MP4.
 
-Non-goals for the first milestone:
+Non-goals for the first replay milestone:
 
-- Drake training.
-- Multi-env Drake rollout.
 - MPI.
 - Domain randomization parity.
 - Reward/contact parity.
 - Perfect MuJoCo-to-Drake behavioral match.
+- Generic Drake robot support.
+- Final portable native extension packaging.
 
 ## Contract To Restore
 
@@ -211,12 +230,12 @@ Required Drake-derived quantities:
 
 ### Reset Contract
 
-First milestone reset behavior:
+Current Go1 Drake reset behavior:
 
-- single env only,
 - use Go1 `home` qpos equivalent,
 - support randomized command sampling from UniLab,
-- disable unsupported domain randomization and pushes in the Drake config.
+- support Go1 interval pushes through Drake external spatial force input,
+- skip unsupported base-mass and COM reset randomization until Drake-side variant/context mutation is designed.
 
 ### Visualization Contract
 
@@ -427,7 +446,7 @@ Evidence:
 
 ### M5: Drake Visualization And Recording
 
-Status: done for first-pass Meshcat playback and MP4 recording
+Status: done for Meshcat playback, Drake-native RGBD capture, and tracked MP4 recording
 
 Tasks:
 
@@ -437,6 +456,8 @@ Tasks:
 - Added Drake native RGB recording with `RgbdSensor`, VTK rendering, and `mediapy.write_video`.
 - Supported `training.play_render_mode=record` for finite single-env Drake replay.
 - Updated generated OBJ assets to include face normals so Drake VTK can render them reliably.
+- Added Drake physics-state playback snapshots.
+- Routed Drake recorded playback through the same tracked MuJoCo-state renderer used by MuJoCo playback when recording from UniLab, while keeping Drake as the simulator that generates the qpos/qvel trajectory.
 
 Interactive gate:
 
@@ -471,6 +492,9 @@ Evidence:
 - The backend reported the same Drake Go1 setup as headless playback: `42` filtered robot collision geometries and actor/critic dimensions `49`/`52`.
 - Recording replay wrote:
   - `logs/rsl_rl_ppo/Go1JoystickFlat/2026-06-05_02-36-19_mujoco/play_video.mp4`
+- Strict-aligned Drake checkpoint replay wrote:
+  - `logs/rsl_rl_ppo/Go1JoystickFlat/2026-06-12_00-28-25_drake/play_video.mp4`
+  - `1280x720`, `500` frames, `10.0` seconds, `50` FPS
 - Video readback via `mediapy.read_video` reported:
   - shape `(120, 360, 640, 3)`
   - dtype `uint8`
@@ -482,9 +506,120 @@ Evidence:
 
 M5 caveats:
 
-- The first recording camera is fixed and wide. It is good enough to verify motion, but later work should add camera presets or follow-camera behavior.
-- Lighting is basic VTK directional lighting.
-- Recording is still single-env replay only, matching the current Drake backend scope.
+- Native Drake RGBD capture still uses a fixed camera.
+- The normal UniLab `training.play_render_mode=record` path now uses tracked offline state rendering, so recorded comparison videos are reviewable and camera-aligned with the MuJoCo playback path.
+- The tracked MP4 renderer currently relies on the Go1 MJCF-compatible visual model, so a pure URDF/SDF Drake backend would need a separate renderer or an export/materialization path.
+
+### M6: Dog-Only DrakeUni Multi-Env Training Gate
+
+Status: done for first Python reference training path
+
+Purpose: prove the existing UniLab Go1 PPO training loop can collect Drake rollouts from more than one env, update a policy, write a checkpoint, and replay that checkpoint. This is still Go1-only and intentionally not a generic Drake backend.
+
+Tasks:
+
+- Removed the old `num_envs == 1` Drake backend restriction.
+- Added one independent Drake `Context` and `Simulator` runtime per Go1 env while keeping a shared static `Diagram`.
+- Preserved env 0 aliases for existing Meshcat and MP4 replay paths.
+- Batched the Go1 backend contract used by `Go1JoystickFlat`:
+  - `step(ctrl, nsteps)`,
+  - subset `set_state(env_indices, qpos, qvel)`,
+  - base pose/velocity,
+  - joint position/velocity,
+  - body world/body-frame helpers,
+  - Go1 joystick sensor reconstruction.
+- Kept reset randomization/domain randomization unsupported for Drake, matching the current dog-only config.
+- Added dog-boundary regression tests for batched Go1 Drake state/query/step behavior.
+
+Gate:
+
+```bash
+uv run python scripts/train_rsl_rl.py \
+  task=go1_joystick_flat/drake \
+  algo.num_envs=4 \
+  algo.max_iterations=2 \
+  algo.save_interval=1 \
+  training.logger=tensorboard \
+  training.play_steps=30 \
+  training.play_render_mode=none
+```
+
+Replay gate for the new Drake-trained smoke checkpoint:
+
+```bash
+uv run python scripts/train_rsl_rl.py \
+  task=go1_joystick_flat/drake \
+  training.play_only=true \
+  algo.load_run=2026-06-11_20-48-52_drake \
+  algo.checkpoint=1 \
+  training.play_env_num=1 \
+  training.play_steps=30 \
+  training.play_render_mode=record
+```
+
+Evidence:
+
+- Added test: `tests/base/backend/test_drake_go1_pool.py`
+- Targeted tests:
+  - `uv run pytest tests/base/backend/test_drake_go1_pool.py -q`
+  - result: `5 passed`
+- Static checks:
+  - `uv run ruff check src/unilab/base/backend/drake/backend.py tests/base/backend/test_drake_go1_pool.py`
+  - `uv run python -m compileall src/unilab/base/backend/drake/backend.py tests/base/backend/test_drake_go1_pool.py`
+- Replay regression:
+  - MuJoCo-trained checkpoint replay through Drake recorded `logs/rsl_rl_ppo/Go1JoystickFlat/2026-06-05_02-36-19_mujoco/play_video.mp4`
+- Training smoke:
+  - `algo.num_envs=2`, `algo.max_iterations=1` ran to completion, wrote `logs/rsl_rl_ppo/Go1JoystickFlat/2026-06-11_20-37-54_drake/model_0.pt`, and replayed.
+  - `algo.num_envs=4`, `algo.max_iterations=2` ran to completion after the reset/render fixes, reached `192` total env steps, and wrote `logs/rsl_rl_ppo/Go1JoystickFlat/2026-06-11_20-48-52_drake/model_1.pt`.
+  - Recorded replay of `model_1.pt` wrote `logs/rsl_rl_ppo/Go1JoystickFlat/2026-06-11_20-48-52_drake/play_video.mp4`.
+- MuJoCo-recipe alignment:
+  - Drake config now uses `play_steps=500`, `play_env_num=16`, `num_envs=1024`, `num_steps_per_env=24`, `max_iterations=151`, `save_interval=100`, MuJoCo-style `obs_groups`, default command sampling, matching reward scales, and matching Go1 domain-randomization flags where backend support exists.
+  - One-iteration strict-aligned smoke ran with `algo.num_envs=1024`, reached `24,576` total steps, and wrote `logs/rsl_rl_ppo/Go1JoystickFlat/2026-06-12_00-28-03_drake/model_0.pt`.
+  - Full strict-aligned training ran to `model_150.pt`, reached `3,710,976` total env steps, and wrote `logs/rsl_rl_ppo/Go1JoystickFlat/2026-06-12_00-28-25_drake/model_150.pt`.
+
+M6 caveats:
+
+- This is not yet the high-throughput DrakeUni design. It is a Python reference path using one Drake runtime per env.
+- It proves the UniLab training contract works for the dog task, not that the learned policy has converged.
+- Drake physical parity and sensor/contact fidelity remain quality work before judging final policy behavior.
+
+### M7: MuJoCoUni Comparison And Strict Alignment Baseline
+
+Status: done
+
+Purpose: establish whether the dog task and PPO pipeline can learn under the existing repo backend, so Drake failures can be attributed to Drake-side scale/fidelity gaps rather than a broken task.
+
+Evidence:
+
+- Fresh MuJoCoUni training:
+  - run: `logs/rsl_rl_ppo/Go1JoystickFlat/2026-06-11_22-33-10_mujoco`
+  - checkpoint: `model_150.pt`
+  - total env steps: `3,710,976`
+  - final mean reward: `35.1149`
+  - best mean reward: `39.8948`
+  - mean episode length: `1000.0`
+  - training wall time: `227.45s`
+- Fresh Drake aligned training:
+  - run: `logs/rsl_rl_ppo/Go1JoystickFlat/2026-06-12_00-28-25_drake`
+  - checkpoint: `model_150.pt`
+  - total env steps: `3,710,976`
+  - final mean reward: `34.3625`
+  - best mean reward: `42.5309`
+  - mean episode length: `926.3`
+  - training wall time: `1461.76s`
+- Replay videos:
+  - MuJoCoUni: `logs/rsl_rl_ppo/Go1JoystickFlat/2026-06-11_22-33-10_mujoco/play_video.mp4`
+  - Drake: `logs/rsl_rl_ppo/Go1JoystickFlat/2026-06-12_00-28-25_drake/play_video.mp4`
+
+Current diagnosis:
+
+- Training budget is now aligned: both MuJoCoUni and Drake use `1024` envs, `24` steps/env/iteration, `151` iterations, and `3,710,976` total env steps.
+- Wall-clock throughput remains the main architecture gap: MuJoCoUni reached about `16.3k` env steps/sec in the fresh run, while the Python Drake reference reached about `2.5k` env steps/sec over the full run.
+- The current Drake config intentionally omits the `contact` reward scale until Drake contact-force support exists. The historical MuJoCo comparison config still carries an inert `contact` scale because `_reward_contact` is not registered in `Go1WalkTask._init_reward_functions`.
+- The current Drake backend returns zero vectors for Go1 foot contact sensors, while MuJoCo reports real foot contact forces. This is not the current reward-gap source because contact reward is inert, but it is a backend-fidelity gap before enabling contact reward or contact-conditioned tasks.
+- Go1's Python config defaults base-mass randomization, COM randomization, and pushes for MuJoCo. Drake now stages interval pushes through external spatial forces, but still skips base-mass and COM reset randomization.
+- Forced-home zero-action probe shows both backends stand similarly from the same home state, so the first failure is more likely training scale/physics-contact parity than a gross action or observation shape mismatch.
+- The previous Drake failure was primarily a training-budget/config alignment issue. After strict alignment, Drake trains a functional policy in the same sample budget, but remains far slower wall-clock than MuJoCoUni.
 
 ## Risks And Decisions
 
@@ -501,9 +636,10 @@ M5 caveats:
 ### Current Decisions
 
 - Use Go1, not G1, for the first checkpoint replay.
-- First target is replay only, not training.
-- First target is single env only.
-- Disable domain randomization and pushes for Drake replay config.
+- First target was replay only; current target is dog-only DrakeUni training.
+- First target was single env only; current Python reference path supports multiple Go1 envs through independent Drake contexts.
+- Use default UniLab command sampling for Drake training to match the existing MuJoCo Go1 recipe.
+- Support Go1 interval pushes in Drake; keep base-mass and COM randomization skipped until Drake can apply them correctly.
 - Start with Meshcat for visual debugging.
 - Keep original MuJoCo assets unchanged.
 - Use Drake-native actuator PD for the first backend implementation.
@@ -529,7 +665,10 @@ Use this section to record plan changes as we learn.
 - 2026-06-08: Completed the Meshcat half of M5. `DrakeBackend` now rebuilds its single-env Drake diagram with `MeshcatVisualizer` only when `training.play_render_mode=interactive` is requested. A long UniLab RSL-RL replay printed `Drake Meshcat: http://localhost:7000` and completed with `Done.`.
 - 2026-06-08: Completed the first MP4 half of M5. `DrakeBackend` now supports `training.play_render_mode=record` by rebuilding with a Drake RGBD camera and VTK renderer, recording frames, and writing `play_video.mp4` with `mediapy`. The generated OBJ assets now include face normals for VTK rendering.
 - 2026-06-10: Removed Python-side robot constants from `DrakeBackend`. Replay metadata now comes directly from the Drake model files: position actuator `ctrlrange`, `forcerange`, joint ranges, foot `framepos` site sensors, contact sensor names, and the `home` keyframe.
+- 2026-06-11: Completed the first dog-only Python DrakeUni reference training gate. `DrakeBackend` now supports multiple Go1 envs through independent Drake contexts/simulators, targeted Go1 pool tests pass, 2-env and 4-env PPO training smokes run to completion, and the 4-env Drake-trained checkpoint records an MP4 replay.
+- 2026-06-11: Ran a fresh MuJoCoUni comparison training and replay. The same dog task learns under MuJoCoUni (`final_mean_reward=35.11`, `episode_length=1000`) while the first Drake alignment attempt stalls (`final_mean_reward=5.52`) because it still used a smaller Python reference batch.
+- 2026-06-12: Completed strict MuJoCo recipe alignment for the Drake Go1 path. Drake now trains with `1024` envs, `24` steps/env, `151` iterations, `3,710,976` total env steps, and matching playback/camera config. The strict Drake run reached `final_mean_reward=34.36`, `best_mean_reward=42.53`, and recorded a tracked MP4 replay at `logs/rsl_rl_ppo/Go1JoystickFlat/2026-06-12_00-28-25_drake/play_video.mp4`.
 
 ## Next Action
 
-Decide the next contribution milestone after M5. Reasonable candidates are camera quality/follow-camera polish, deeper Drake-MuJoCo parity audits, or expanding the Drake backend contract beyond this single-env replay path.
+Choose the next DrakeUni design target. The leading choices are: implement real Drake foot contact sensors and contact-force observation parity, add Drake-side base-mass/COM randomization, or begin the real `DrakeEnvPool` abstraction with explicit state/sensor buffers and a C++/pybind path, using the current Python multi-env Go1 backend as the correctness oracle.
