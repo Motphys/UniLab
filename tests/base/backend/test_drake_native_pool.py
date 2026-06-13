@@ -1,18 +1,27 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import subprocess
 import sys
 import textwrap
-from pathlib import Path
 
 import pytest
 
-NATIVE_DIR = Path(__file__).resolve().parents[3] / "src/unilab/base/backend/drake/native"
+
+def _module_available(name: str) -> bool:
+    try:
+        return importlib.util.find_spec(name) is not None
+    except ModuleNotFoundError:
+        return False
+
+
+def _drakeuni_package_installed() -> bool:
+    return _module_available("drakeuni")
 
 
 def _native_extension_built() -> bool:
-    return any(NATIVE_DIR.glob("_drake_env_pool*.so"))
+    return _module_available("drakeuni.native._drake_env_pool")
 
 
 def _run_clean_python(code: str) -> str:
@@ -31,7 +40,14 @@ def test_native_import_diagnostic_is_preserved() -> None:
         """
         import json
 
-        from unilab.base.backend.drake.native import native_available, native_import_error
+        try:
+            from drakeuni.batch_env import native_available, native_import_error
+        except ImportError as exc:
+            def native_available():
+                return False
+
+            def native_import_error():
+                return exc
 
         error = native_import_error()
         summary = {
@@ -92,6 +108,10 @@ def test_native_backend_mode_rejects_existing_pydrake_module() -> None:
     assert "pydrake" in output
 
 
+@pytest.mark.skipif(
+    not _drakeuni_package_installed(),
+    reason="optional drakeuni package has not been installed",
+)
 def test_native_package_direct_import_rejects_existing_pydrake_module() -> None:
     output = _run_clean_python(
         """
@@ -99,7 +119,7 @@ def test_native_package_direct_import_rejects_existing_pydrake_module() -> None:
         import sys
 
         sys.modules["pydrake"] = object()
-        from unilab.base.backend.drake.native import (
+        from drakeuni.batch_env import (
             NativeDrakeEnvPool,
             native_available,
             native_import_error,
@@ -123,7 +143,7 @@ def test_native_package_direct_import_rejects_existing_pydrake_module() -> None:
 def test_native_drake_pool_imports_in_clean_process() -> None:
     output = _run_clean_python(
         """
-        from unilab.base.backend.drake.native import NativeDrakeEnvPool, native_available
+        from drakeuni.batch_env import NativeDrakeEnvPool, native_available
         assert native_available()
         assert NativeDrakeEnvPool is not None
         print(NativeDrakeEnvPool.__name__)
@@ -145,7 +165,7 @@ def test_native_drake_pool_go1_smoke_shapes_and_time() -> None:
         import numpy as np
 
         from unilab.assets import ASSETS_ROOT_PATH
-        from unilab.base.backend.drake.native import NativeDrakeEnvPool
+        from drakeuni.batch_env import DrakeEnvPool
 
         model = ASSETS_ROOT_PATH / "robots/go1/scene_flat_drake.xml"
         robot = ASSETS_ROOT_PATH / "robots/go1/go1_drake.xml"
@@ -178,7 +198,7 @@ def test_native_drake_pool_go1_smoke_shapes_and_time() -> None:
         state = np.zeros((2, 1 + qpos.size + qvel.size), dtype=np.float64)
         state[:, 1 : 1 + qpos.size] = qpos
         state[:, 1 + qpos.size :] = qvel
-        pool = NativeDrakeEnvPool(
+        pool = DrakeEnvPool(
             str(model),
             2,
             0.01,

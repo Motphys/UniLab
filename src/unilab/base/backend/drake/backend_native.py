@@ -17,11 +17,21 @@ from unilab.base.backend.base import (
     SimBackend,
     normalize_play_render_mode,
 )
-from unilab.base.backend.drake.native import (
-    NativeDrakeEnvPool,
-    native_available,
-    native_import_error,
-)
+
+try:
+    from drakeuni.batch_env import DrakeEnvPool, native_available, native_import_error
+except ImportError as exc:  # pragma: no cover - optional local package.
+    DrakeEnvPool = None  # type: ignore[assignment]
+    _DRAKEUNI_IMPORT_ERROR: ImportError | None = exc
+
+    def native_available() -> bool:
+        return False
+
+    def native_import_error() -> ImportError | None:
+        return _DRAKEUNI_IMPORT_ERROR
+
+NativeDrakeEnvPool = DrakeEnvPool
+
 from unilab.base.backend.mujoco.playback import run_mujoco_playback
 from unilab.base.scene import SceneCfg
 from unilab.dr.types import (

@@ -55,7 +55,8 @@ uv run --no-sync eval \
 - Strict-aligned Drake Python reference training now runs the same sample budget:
   - Drake run: `3,710,976` env steps, final mean reward `34.36`, best mean reward `42.53`.
   - Drake replay is recorded with the same tracked state-rendering path as MuJoCo playback.
-- Native DrakeUni Stage 3 now routes `task=go1_joystick_flat/drake` through `drake_backend_mode: native`, using the pybind C++ `NativeDrakeEnvPool` for Go1 state/sensor stepping.
+- Native DrakeUni Stage 3 now routes `task=go1_joystick_flat/drake` through `drake_backend_mode: native`, using the pybind C++ `DrakeEnvPool` from the sibling `drakeuni` package for Go1 state/sensor stepping.
+- UniLab consumes DrakeUni as an editable local dependency with `uv pip install -e /Users/huanghaochen/solver/drakeuni`; the native extension is built from that repo, not from UniLab.
 - Native mode enforces the pydrake/native libdrake process boundary and records import diagnostics instead of silently hiding ABI failures.
 - Native Go1 self-collision filtering now mirrors the pydrake backend before Drake plant finalization.
 
@@ -82,7 +83,7 @@ target_q = action * action_scale + default_angles
   - Drake dirty replay after fixes: `linvel_x=0.5923` at 6 seconds.
   - Direct MuJoCo dirty baseline: `linvel_x=0.670` at 6 seconds.
 - `src/unilab/base/backend/drake/backend.py` implements the Python reference backend contract for Go1 replay and multi-env Go1 training.
-- `src/unilab/base/backend/drake/native/drake_env_pool.cc` implements the first Go1-only native C++ DrakeUni pool, and `src/unilab/base/backend/drake/backend_native.py` wires it into UniLab's backend contract.
+- `/Users/huanghaochen/solver/drakeuni/src/drakeuni/native/drake_env_pool.cc` implements the first Go1-only native C++ DrakeUni pool, and `src/unilab/base/backend/drake/backend_native.py` wires it into UniLab's backend contract.
 - DrakeBackend parses actuator limits, effort limits, foot site sensors, contact sensor names, and the home keyframe from `scene_flat_drake.xml` plus included robot XML.
 - `Go1JoystickFlat` is registered with `sim_backend="drake"`.
 - `conf/ppo/task/go1_joystick_flat/drake.yaml` selects the Drake-compatible scene, selects `env.drake_backend_mode: native`, and now follows the MuJoCo Go1 training recipe for command sampling, PPO env count, rollout horizon, iteration count, save interval, observation groups, playback env count, and camera flags.
@@ -121,7 +122,7 @@ flowchart LR
   B --> C["Go1JoystickFlat env"]
   C --> D["DrakeBackend"]
   D --> E["Python DrakeBackend or NativeDrakeBackend"]
-  E --> F["Drake MultibodyPlant / NativeDrakeEnvPool"]
+  E --> F["Drake MultibodyPlant / drakeuni DrakeEnvPool"]
   F --> G["Drake state and sensors"]
   G --> H["UniLab observation contract"]
   H --> B
