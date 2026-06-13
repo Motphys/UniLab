@@ -145,7 +145,7 @@ recommendation 元数据。
 | 机器人 / 任务族 | 有仓库证据的算法路径 | 后端证据 |
 | --- | --- | --- |
 | Go1 joystick | PPO (torch, MLX)、APPO、TD3 | PPO 有已测试的 MuJoCo 与 Motrix 行。APPO 有已测试的 MuJoCo 行和 Motrix registered 行。TD3 有 `go1_joystick_flat` 的 Motrix owner YAML。 |
-| Go2 joystick / handstand | PPO (torch, MLX)、FlashSAC、TD3 | PPO 有已测试的 MuJoCo 与 Motrix 行。FlashSAC 有 `go2_joystick_flat` 的 MuJoCo owner YAML；TD3 有 `go2_joystick_flat` 的 Motrix owner YAML。 |
+| Go2 joystick | PPO (torch, MLX)、FlashSAC、TD3 | PPO 有已测试的 MuJoCo 与 Motrix 行。FlashSAC 有 `go2_joystick_flat` 的 MuJoCo owner YAML；TD3 有 `go2_joystick_flat` 的 Motrix owner YAML。 |
 | Go2 arm manip-loco | PPO、HIM-PPO | `conf/ppo/task/go2_arm_manip_loco/` 和 `conf/ppo_him/task/go2_arm_manip_loco/` 下有已提交的 MuJoCo owner YAML。 |
 | Go2W joystick | PPO (torch、MLX configured) | `conf/ppo/task/go2w_joystick_*` 下存在 MuJoCo 与 Motrix flat/rough 变体的 PPO owner YAML。 |
 | G1 locomotion / tracking | PPO (torch, MLX)、APPO、SAC、TD3 | PPO、APPO、SAC 都为 G1 任务提供了已提交的 MuJoCo 与 Motrix owner YAML；TD3 有一个 `g1_walk_flat` 的 MuJoCo owner。 |
