@@ -4,6 +4,7 @@ import logging
 import time
 import xml.etree.ElementTree as ET
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
 from typing import Any
@@ -78,54 +79,31 @@ except ImportError:  # pragma: no cover - optional dependency guard.
 
 
 LOGGER = logging.getLogger(__name__)
+ROOT_QPOS_DIM = 7
+ROOT_QVEL_DIM = 6
+BASE_SENSOR_NAMES = frozenset(
+    {
+        "gyro",
+        "local_linvel",
+        "global_linvel",
+        "global_angvel",
+        "position",
+        "upvector",
+    }
+)
 
-DEFAULT_GO1_QPOS_MUJOCO = np.array(
-    [
-        0.0,
-        0.0,
-        0.27,
-        1.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        0.9,
-        -1.8,
-        0.0,
-        0.9,
-        -1.8,
-        0.0,
-        1.0,
-        -1.8,
-        0.0,
-        1.0,
-        -1.8,
-    ],
-    dtype=np.float64,
-)
-GO1_CTRL_LIMITS = np.array(
-    [
-        [-0.863, 0.863],
-        [-0.686, 4.501],
-        [-2.818, -0.888],
-    ]
-    * 4,
-    dtype=np.float64,
-)
-GO1_TORQUE_LIMITS = np.array([23.7, 23.7, 35.55] * 4, dtype=np.float64)
-GO1_FOOT_OFFSET_IN_CALF = np.array([0.0, 0.0, -0.213], dtype=np.float64)
-GO1_FOOT_SENSOR_TO_BODY = {
-    "FR_pos": "FR_calf",
-    "FL_pos": "FL_calf",
-    "RR_pos": "RR_calf",
-    "RL_pos": "RL_calf",
-}
-GO1_CONTACT_SENSORS = {
-    "FR_foot_contact",
-    "FL_foot_contact",
-    "RR_foot_contact",
-    "RL_foot_contact",
-}
+
+@dataclass(frozen=True)
+class DrakeModelMetadata:
+    """UniLab replay metadata parsed from the Drake model files."""
+
+    name: str
+    ctrl_limits: np.ndarray
+    torque_limits: np.ndarray
+    joint_ranges: np.ndarray
+    foot_sensor_to_body: dict[str, str]
+    foot_sensor_offsets: dict[str, np.ndarray]
+    contact_sensors: frozenset[str]
 
 
 def _require_drake() -> None:
@@ -140,19 +118,232 @@ def _resolve_scene_path(scene: SceneCfg) -> Path:
     return path if path.is_absolute() else Path.cwd() / path
 
 
-def _read_home_qpos(scene_path: Path) -> np.ndarray:
+def _load_xml_roots(scene_path: Path) -> list[tuple[Path, ET.Element]]:
+    roots: list[tuple[Path, ET.Element]] = []
+    seen: set[Path] = set()
+
+    def visit(path: Path) -> None:
+        resolved = path.resolve()
+        if resolved in seen:
+            return
+        seen.add(resolved)
+        root = ET.parse(resolved).getroot()
+        roots.append((resolved, root))
+        for include in root.findall(".//include"):
+            include_file = include.attrib.get("file")
+            if include_file:
+                visit(resolved.parent / include_file)
+
+    visit(scene_path)
+    return roots
+
+
+def _parse_vector(text: str | None, *, expected: int | None = None) -> np.ndarray | None:
+    if text is None:
+        return None
+    values = np.fromstring(text, sep=" ", dtype=np.float64)
+    if expected is not None and values.shape != (expected,):
+        return None
+    return values if values.size else None
+
+
+def _required_pair(text: str | None, description: str) -> np.ndarray:
+    values = _parse_vector(text, expected=2)
+    if values is None:
+        raise ValueError(f"Expected two values for {description}, got {text!r}")
+    return values
+
+
+def _collect_default_classes(
+    roots: Sequence[tuple[Path, ET.Element]],
+) -> dict[str, dict[str, dict[str, str]]]:
+    defaults: dict[str, dict[str, dict[str, str]]] = {}
+
+    def walk_default(
+        node: ET.Element,
+        inherited: dict[str, dict[str, str]],
+    ) -> None:
+        current = {tag: dict(attrs) for tag, attrs in inherited.items()}
+        for child in node:
+            if child.tag in {"joint", "position"}:
+                current.setdefault(child.tag, {}).update(child.attrib)
+
+        class_name = node.attrib.get("class")
+        if class_name:
+            defaults[class_name] = {tag: dict(attrs) for tag, attrs in current.items()}
+
+        for child in node:
+            if child.tag == "default":
+                walk_default(child, current)
+
+    for _, root in roots:
+        for default_node in root.findall("./default"):
+            walk_default(default_node, {})
+    return defaults
+
+
+def _merged_default_attrs(
+    defaults: dict[str, dict[str, dict[str, str]]],
+    class_name: str | None,
+    tag: str,
+    attrs: dict[str, str],
+) -> dict[str, str]:
+    merged = dict(defaults.get(class_name or "", {}).get(tag, {}))
+    merged.update(attrs)
+    return merged
+
+
+def _extract_actuator_metadata(
+    roots: Sequence[tuple[Path, ET.Element]],
+    defaults: dict[str, dict[str, dict[str, str]]],
+    joint_ranges_by_name: dict[str, np.ndarray],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ctrl_limits: list[np.ndarray] = []
+    torque_limits: list[float] = []
+    joint_ranges: list[np.ndarray] = []
+
+    for _, root in roots:
+        for actuator in root.findall(".//actuator/position"):
+            attrs = _merged_default_attrs(
+                defaults,
+                actuator.attrib.get("class"),
+                "position",
+                actuator.attrib,
+            )
+            actuator_name = actuator.attrib.get("name", "<unnamed>")
+            ctrl_range = _required_pair(attrs.get("ctrlrange"), f"{actuator_name} ctrlrange")
+            force_range = _required_pair(attrs.get("forcerange"), f"{actuator_name} forcerange")
+            ctrl_limits.append(ctrl_range)
+            torque_limits.append(float(np.max(np.abs(force_range))))
+
+            joint_name = actuator.attrib.get("joint")
+            if joint_name and joint_name in joint_ranges_by_name:
+                joint_ranges.append(joint_ranges_by_name[joint_name])
+            else:
+                joint_ranges.append(ctrl_range)
+
+    if not ctrl_limits:
+        raise ValueError("DrakeBackend requires position actuators with ctrlrange metadata")
+    return (
+        np.asarray(ctrl_limits, dtype=np.float64),
+        np.asarray(torque_limits, dtype=np.float64),
+        np.asarray(joint_ranges, dtype=np.float64),
+    )
+
+
+def _extract_joint_ranges(
+    roots: Sequence[tuple[Path, ET.Element]],
+    defaults: dict[str, dict[str, dict[str, str]]],
+) -> dict[str, np.ndarray]:
+    ranges: dict[str, np.ndarray] = {}
+    for _, root in roots:
+        for joint in root.findall(".//worldbody//joint"):
+            name = joint.attrib.get("name")
+            if not name:
+                continue
+            attrs = _merged_default_attrs(
+                defaults,
+                joint.attrib.get("class"),
+                "joint",
+                joint.attrib,
+            )
+            joint_range = _parse_vector(attrs.get("range"), expected=2)
+            if joint_range is not None:
+                ranges[name] = joint_range
+    return ranges
+
+
+def _extract_sites(
+    roots: Sequence[tuple[Path, ET.Element]],
+) -> dict[str, tuple[str, np.ndarray]]:
+    sites: dict[str, tuple[str, np.ndarray]] = {}
+
+    def walk_body(body: ET.Element) -> None:
+        body_name = body.attrib.get("name")
+        if body_name:
+            for site in body.findall("./site"):
+                site_name = site.attrib.get("name")
+                site_pos = _parse_vector(site.attrib.get("pos"), expected=3)
+                if site_name and site_pos is not None:
+                    sites[site_name] = (body_name, site_pos)
+        for child in body.findall("./body"):
+            walk_body(child)
+
+    for _, root in roots:
+        for body in root.findall("./worldbody/body"):
+            walk_body(body)
+    return sites
+
+
+def _extract_sensor_metadata(
+    roots: Sequence[tuple[Path, ET.Element]],
+    sites: dict[str, tuple[str, np.ndarray]],
+) -> tuple[dict[str, str], dict[str, np.ndarray], frozenset[str]]:
+    foot_sensor_to_body: dict[str, str] = {}
+    foot_sensor_offsets: dict[str, np.ndarray] = {}
+    contact_sensors: set[str] = set()
+
+    for _, root in roots:
+        for sensor in root.findall(".//sensor/framepos"):
+            name = sensor.attrib.get("name")
+            obj_name = sensor.attrib.get("objname")
+            if (
+                not name
+                or not obj_name
+                or name in BASE_SENSOR_NAMES
+                or sensor.attrib.get("objtype") != "site"
+                or obj_name not in sites
+            ):
+                continue
+            body_name, site_offset = sites[obj_name]
+            foot_sensor_to_body[name] = body_name
+            foot_sensor_offsets[name] = site_offset
+
+        for sensor in root.findall(".//sensor/contact"):
+            name = sensor.attrib.get("name")
+            if name:
+                contact_sensors.add(name)
+
+    return foot_sensor_to_body, foot_sensor_offsets, frozenset(contact_sensors)
+
+
+def _load_model_metadata(scene_path: Path) -> DrakeModelMetadata:
+    roots = _load_xml_roots(scene_path)
+    defaults = _collect_default_classes(roots)
+    joint_ranges_by_name = _extract_joint_ranges(roots, defaults)
+    ctrl_limits, torque_limits, joint_ranges = _extract_actuator_metadata(
+        roots,
+        defaults,
+        joint_ranges_by_name,
+    )
+    foot_sensor_to_body, foot_sensor_offsets, contact_sensors = _extract_sensor_metadata(
+        roots,
+        _extract_sites(roots),
+    )
+    return DrakeModelMetadata(
+        name=roots[0][1].attrib.get("model", scene_path.stem),
+        ctrl_limits=ctrl_limits,
+        torque_limits=torque_limits,
+        joint_ranges=joint_ranges,
+        foot_sensor_to_body=foot_sensor_to_body,
+        foot_sensor_offsets=foot_sensor_offsets,
+        contact_sensors=contact_sensors,
+    )
+
+
+def _read_keyframe_qpos(scene_path: Path, name: str) -> np.ndarray | None:
     try:
-        tree = ET.parse(scene_path)
+        roots = _load_xml_roots(scene_path)
     except ET.ParseError:
-        return DEFAULT_GO1_QPOS_MUJOCO.copy()
-    for key in tree.findall(".//key"):
-        if key.attrib.get("name") != "home":
-            continue
-        qpos_text = key.attrib.get("qpos", "")
-        values = np.fromstring(qpos_text, sep=" ", dtype=np.float64)
-        if values.shape == DEFAULT_GO1_QPOS_MUJOCO.shape:
-            return values
-    return DEFAULT_GO1_QPOS_MUJOCO.copy()
+        return None
+    for _, root in roots:
+        for key in root.findall(".//key"):
+            if key.attrib.get("name") != name:
+                continue
+            values = _parse_vector(key.attrib.get("qpos"))
+            if values is not None:
+                return values
+    return None
 
 
 def _mujoco_qpos_to_drake(qpos: np.ndarray) -> np.ndarray:
@@ -229,12 +420,11 @@ def _quat_from_matrix(matrix: np.ndarray) -> np.ndarray:
 
 
 class DrakeBackend(SimBackend):
-    """Minimal Drake backend for the Go1JoystickFlat replay milestone.
+    """Minimal Drake backend for the replay milestone.
 
     The contract intentionally mirrors MuJoCo-shaped qpos/qvel at the UniLab
     boundary while storing Drake's quaternion-first floating-base order inside
-    the plant. This keeps the existing locomotion reset and observation code
-    reusable for the first Drake replay milestone.
+    the plant. Robot-specific replay metadata is parsed from the model files.
     """
 
     backend_type = "drake"
@@ -259,9 +449,9 @@ class DrakeBackend(SimBackend):
         self._num_envs = int(num_envs)
         self._sim_dt = float(sim_dt)
         self._scene_model_file = str(_resolve_scene_path(scene))
-        self._home_qpos_mujoco = _read_home_qpos(Path(self._scene_model_file))
-        self._home_qpos_drake = _mujoco_qpos_to_drake(self._home_qpos_mujoco)
-        self._home_qvel_mujoco = np.zeros(18, dtype=np.float64)
+        self._model_metadata = _load_model_metadata(Path(self._scene_model_file))
+        self._home_qpos_mujoco = self._resolve_home_qpos(Path(self._scene_model_file))
+        self._home_qvel_mujoco = np.empty(0, dtype=np.float64)
         self._kp = float((position_actuator_gains or {}).get("kp", 35.0))
         self._kd = float((position_actuator_gains or {}).get("kd", 0.5))
         self._base_name = base_name
@@ -273,10 +463,17 @@ class DrakeBackend(SimBackend):
 
         self._build_drake_system(meshcat=None, camera_pose=None)
         LOGGER.info(
-            "Initialized Drake Go1 backend from %s; filtered %d robot collision geometries",
+            "Initialized Drake %s backend from %s; filtered %d robot collision geometries",
+            self._model_metadata.name,
             self._scene_model_file,
             self._num_filtered_geometries,
         )
+
+    def _resolve_home_qpos(self, scene_path: Path) -> np.ndarray:
+        qpos = _read_keyframe_qpos(scene_path, "home")
+        if qpos is None:
+            raise ValueError(f"DrakeBackend requires keyframe 'home' in {scene_path}")
+        return qpos.copy()
 
     def _build_drake_system(
         self,
@@ -314,7 +511,7 @@ class DrakeBackend(SimBackend):
             )
         self._model_instance = model_instances[0]
 
-        for i, effort_limit in enumerate(GO1_TORQUE_LIMITS):
+        for i, effort_limit in enumerate(self._model_metadata.torque_limits):
             actuator = plant.get_joint_actuator(JointActuatorIndex(i))
             actuator.set_effort_limit(float(effort_limit))
             actuator.set_controller_gains(PdControllerGains(p=self._kp, d=self._kd))
@@ -351,26 +548,37 @@ class DrakeBackend(SimBackend):
         self._plant_context = self._plant.GetMyMutableContextFromRoot(self._context)
         self._trunk = self._plant.GetBodyByName(self._base_name, self._model_instance)
 
-        if (
-            self._plant.num_positions() != 19
-            or self._plant.num_velocities() != 18
-            or self._plant.num_actuators() != 12
-        ):
+        if self._home_qpos_mujoco.shape != (self._plant.num_positions(),):
             raise RuntimeError(
-                "DrakeBackend currently supports Go1 dimensions only: "
-                f"nq={self._plant.num_positions()} "
-                f"nv={self._plant.num_velocities()} "
-                f"nu={self._plant.num_actuators()}"
+                f"DrakeBackend home keyframe has shape {self._home_qpos_mujoco.shape}, "
+                f"but plant nq={self._plant.num_positions()}"
             )
+        if self._model_metadata.ctrl_limits.shape != (self._plant.num_actuators(), 2):
+            raise RuntimeError(
+                f"DrakeBackend parsed ctrl limits with shape "
+                f"{self._model_metadata.ctrl_limits.shape}, but plant nu={self._plant.num_actuators()}"
+            )
+        if self._model_metadata.torque_limits.shape != (self._plant.num_actuators(),):
+            raise RuntimeError(
+                f"DrakeBackend parsed torque limits with shape "
+                f"{self._model_metadata.torque_limits.shape}, but plant nu={self._plant.num_actuators()}"
+            )
+        if self._model_metadata.joint_ranges.shape != (self._plant.num_actuators(), 2):
+            raise RuntimeError(
+                f"DrakeBackend parsed joint ranges with shape "
+                f"{self._model_metadata.joint_ranges.shape}, but plant nu={self._plant.num_actuators()}"
+            )
+        if self._home_qvel_mujoco.shape != (self._plant.num_velocities(),):
+            self._home_qvel_mujoco = np.zeros(self._plant.num_velocities(), dtype=np.float64)
 
         reset_qpos = self._home_qpos_mujoco if qpos_mujoco is None else qpos_mujoco
         reset_qvel = self._home_qvel_mujoco if qvel_mujoco is None else qvel_mujoco
         self._plant.SetPositions(self._plant_context, _mujoco_qpos_to_drake(reset_qpos))
         self._plant.SetVelocities(self._plant_context, _mujoco_qvel_to_drake(reset_qvel))
         self._plant.get_actuation_input_port(self._model_instance).FixValue(
-            self._plant_context, np.zeros(12, dtype=np.float64)
+            self._plant_context, np.zeros(self.num_actuators, dtype=np.float64)
         )
-        self._set_native_pd_target(reset_qpos[7:])
+        self._set_native_pd_target(reset_qpos[ROOT_QPOS_DIM:])
 
         self._simulator = Simulator(self._diagram, self._context)
         self._simulator.set_target_realtime_rate(1.0 if meshcat is not None else 0.0)
@@ -395,17 +603,17 @@ class DrakeBackend(SimBackend):
 
     @property
     def num_dof_vel(self) -> int:
-        return int(self._plant.num_velocities() - 6)
+        return int(self._plant.num_velocities() - ROOT_QVEL_DIM)
 
     def get_actuator_ctrl_range(self) -> np.ndarray:
-        return GO1_CTRL_LIMITS.copy()
+        return self._model_metadata.ctrl_limits.copy()
 
     def get_joint_range(self) -> np.ndarray | None:
-        return GO1_CTRL_LIMITS.copy()
+        return self._model_metadata.joint_ranges.copy()
 
     def get_keyframe_qpos(self, name: str) -> np.ndarray:
         if name != "home":
-            raise KeyError(f"DrakeBackend only exposes Go1 keyframe 'home', got {name!r}")
+            raise KeyError(f"DrakeBackend only exposes keyframe 'home', got {name!r}")
         return self._home_qpos_mujoco.copy()
 
     def get_default_qpos(self) -> np.ndarray:
@@ -434,9 +642,16 @@ class DrakeBackend(SimBackend):
         step_start = time.perf_counter()
         values = np.asarray(ctrl, dtype=np.float64)
         if values.shape != (1, self.num_actuators):
-            raise ValueError(f"DrakeBackend.step expected ctrl shape (1, 12), got {values.shape}")
+            raise ValueError(
+                f"DrakeBackend.step expected ctrl shape (1, {self.num_actuators}), "
+                f"got {values.shape}"
+            )
         values = self._apply_pre_step_control(values)
-        target_q = np.clip(values[0], GO1_CTRL_LIMITS[:, 0], GO1_CTRL_LIMITS[:, 1])
+        target_q = np.clip(
+            values[0],
+            self._model_metadata.ctrl_limits[:, 0],
+            self._model_metadata.ctrl_limits[:, 1],
+        )
         self._set_native_pd_target(target_q)
         target_time = self._simulator.get_context().get_time() + float(nsteps) * self._sim_dt
         self._simulator.AdvanceTo(target_time)
@@ -458,13 +673,19 @@ class DrakeBackend(SimBackend):
         qpos_rows = np.asarray(qpos, dtype=np.float64)
         qvel_rows = np.asarray(qvel, dtype=np.float64)
         if qpos_rows.shape != (1, self._plant.num_positions()):
-            raise ValueError(f"qpos must have shape (1, 19), got {qpos_rows.shape}")
+            raise ValueError(
+                f"qpos must have shape (1, {self._plant.num_positions()}), "
+                f"got {qpos_rows.shape}"
+            )
         if qvel_rows.shape != (1, self._plant.num_velocities()):
-            raise ValueError(f"qvel must have shape (1, 18), got {qvel_rows.shape}")
+            raise ValueError(
+                f"qvel must have shape (1, {self._plant.num_velocities()}), "
+                f"got {qvel_rows.shape}"
+            )
 
         self._plant.SetPositions(self._plant_context, _mujoco_qpos_to_drake(qpos_rows[0]))
         self._plant.SetVelocities(self._plant_context, _mujoco_qvel_to_drake(qvel_rows[0]))
-        self._set_native_pd_target(qpos_rows[0, 7:])
+        self._set_native_pd_target(qpos_rows[0, ROOT_QPOS_DIM:])
         self._diagram.ForcedPublish(self._context)
 
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
@@ -495,11 +716,11 @@ class DrakeBackend(SimBackend):
 
     def get_dof_pos(self) -> np.ndarray:
         q = np.asarray(self._plant.GetPositions(self._plant_context), dtype=np.float64)
-        return q[7:].reshape(1, -1)
+        return q[ROOT_QPOS_DIM:].reshape(1, -1)
 
     def get_dof_vel(self) -> np.ndarray:
         v = np.asarray(self._plant.GetVelocities(self._plant_context), dtype=np.float64)
-        return v[6:].reshape(1, -1)
+        return v[ROOT_QVEL_DIM:].reshape(1, -1)
 
     def get_body_pos_w(self, body_ids: np.ndarray) -> np.ndarray:
         bodies = [self._plant.get_body(BodyIndex(int(body_id))) for body_id in body_ids]
@@ -561,12 +782,14 @@ class DrakeBackend(SimBackend):
             return self.get_base_pos()
         if name == "upvector":
             return self._body_pose(self._trunk).rotation().matrix()[:, 2].reshape(1, 3)
-        if name in GO1_FOOT_SENSOR_TO_BODY:
-            body = self._plant.GetBodyByName(GO1_FOOT_SENSOR_TO_BODY[name], self._model_instance)
+        foot_body_name = self._model_metadata.foot_sensor_to_body.get(name)
+        if foot_body_name is not None:
+            body = self._plant.GetBodyByName(foot_body_name, self._model_instance)
             x_wc = self._body_pose(body)
-            foot_pos = x_wc.translation() + x_wc.rotation().matrix() @ GO1_FOOT_OFFSET_IN_CALF
+            foot_offset = self._model_metadata.foot_sensor_offsets[name]
+            foot_pos = x_wc.translation() + x_wc.rotation().matrix() @ foot_offset
             return np.asarray(foot_pos, dtype=np.float64).reshape(1, 3)
-        if name in GO1_CONTACT_SENSORS:
+        if name in self._model_metadata.contact_sensors:
             return np.zeros((1, 3), dtype=np.float64)
         raise KeyError(f"Unknown Drake sensor: {name}")
 

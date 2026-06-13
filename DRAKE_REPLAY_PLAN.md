@@ -44,6 +44,7 @@ uv run --no-sync eval \
 - A minimal `DrakeBackend` is now registered for `Go1JoystickFlat`.
 - The normal RSL-RL script path can load the MuJoCo-trained checkpoint and run finite headless Drake playback with `training.play_render_mode=auto`.
 - The normal RSL-RL script path can record finite Drake MP4 playback with `training.play_render_mode=record`.
+- Drake replay metadata is now parsed from the Drake model files instead of Python-side robot constants.
 
 ## Resolved So Far
 
@@ -68,6 +69,7 @@ target_q = action * action_scale + default_angles
   - Drake dirty replay after fixes: `linvel_x=0.5923` at 6 seconds.
   - Direct MuJoCo dirty baseline: `linvel_x=0.670` at 6 seconds.
 - `src/unilab/base/backend/drake/backend.py` implements the first backend contract for single-env Go1 replay.
+- DrakeBackend parses actuator limits, effort limits, foot site sensors, contact sensor names, and the home keyframe from `scene_flat_drake.xml` plus included robot XML.
 - `Go1JoystickFlat` is registered with `sim_backend="drake"`.
 - `conf/ppo/task/go1_joystick_flat/drake.yaml` selects the Drake-compatible scene, disables unsupported domain randomization/pushes, and fixes the Go1 command to `[0.5, 0.0, 0.0]`.
 - Headless checkpoint replay through UniLab's normal RSL-RL entrypoint runs to completion with this command:
@@ -526,6 +528,7 @@ Use this section to record plan changes as we learn.
 - 2026-06-07: Completed headless M4 smoke. UniLab's normal RSL-RL script loads `model_150.pt`, constructs `DrakeBackend`, and runs 120 headless playback frames to `Done.` with `training.play_render_mode=auto`.
 - 2026-06-08: Completed the Meshcat half of M5. `DrakeBackend` now rebuilds its single-env Drake diagram with `MeshcatVisualizer` only when `training.play_render_mode=interactive` is requested. A long UniLab RSL-RL replay printed `Drake Meshcat: http://localhost:7000` and completed with `Done.`.
 - 2026-06-08: Completed the first MP4 half of M5. `DrakeBackend` now supports `training.play_render_mode=record` by rebuilding with a Drake RGBD camera and VTK renderer, recording frames, and writing `play_video.mp4` with `mediapy`. The generated OBJ assets now include face normals for VTK rendering.
+- 2026-06-10: Removed Python-side robot constants from `DrakeBackend`. Replay metadata now comes directly from the Drake model files: position actuator `ctrlrange`, `forcerange`, joint ranges, foot `framepos` site sensors, contact sensor names, and the `home` keyframe.
 
 ## Next Action
 
