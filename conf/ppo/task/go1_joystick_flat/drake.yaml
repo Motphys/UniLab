@@ -2,11 +2,12 @@
 training:
   task_name: Go1JoystickFlat
   sim_backend: drake
-  play_steps: 300
-  play_env_num: 1
-  play_render_mode: auto
+  play_steps: 500
+  play_env_num: 16
   render_spacing: 0.0
-  cam_tracking: false
+  cam_tracking: true
+  cam_tracking_env_idx: 0
+  cam_tracking_extra_envs: 9
 
 interactive:
   action_mode: policy
@@ -15,29 +16,19 @@ interactive:
   use_env_visual_model: false
 
 algo:
-  num_envs: 1
-  max_iterations: 1
+  num_envs: 1024
+  num_steps_per_env: 24
+  max_iterations: 151
+  save_interval: 100
   obs_groups:
     actor:
       - actor
-    critic:
-      - critic
 
 env:
+  drake_backend_mode: native
+  drake_nthread: 0
   scene:
     model_file: src/unilab/assets/robots/go1/scene_flat_drake.xml
-  commands:
-    vel_limit:
-      - [0.5, 0.0, 0.0]
-      - [0.5, 0.0, 0.0]
-  domain_rand:
-    randomize_base_mass: false
-    randomize_body_mass: false
-    random_com: false
-    randomize_gravity: false
-    randomize_ground_friction: false
-    randomize_dof_armature: false
-    push_robots: false
 
 reward:
   scales:
