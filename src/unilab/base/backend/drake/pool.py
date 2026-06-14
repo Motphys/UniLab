@@ -25,10 +25,10 @@ ResetImpl = Callable[[np.ndarray, np.ndarray], DrakePoolOutput]
 
 
 class DrakeEnvPool:
-    """Dog-scoped Python oracle for the future native DrakeUni pool.
+    """Dog-scoped Python oracle for the future compiled DrakeUni pool.
 
     The public contract is intentionally buffer based. Drake-specific handles
-    stay behind the implementation callback so the native C++ pool can later
+    stay behind the implementation callback so the compiled C++ pool can later
     replace this class without changing DrakeBackend or the Go1 task.
     """
 

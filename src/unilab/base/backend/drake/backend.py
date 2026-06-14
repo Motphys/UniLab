@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 import time
 import xml.etree.ElementTree as ET
 from collections.abc import Callable, Sequence
@@ -30,10 +31,10 @@ from unilab.dr.types import (
 
 DRAKE_AVAILABLE = find_spec("pydrake") is not None
 DRAKE_IMPORT_ERROR: ImportError | None = None
-DRAKE_NATIVE_AVAILABLE = find_spec("drakeuni") is not None
-DRAKE_NATIVE_IMPORT_ERROR: ImportError | None = None
-DrakeUniEnvPool = None
-NativeDrakeEnvPool = None
+DRAKE_BATCH_AVAILABLE = find_spec("drakeuni") is not None
+DRAKE_BATCH_IMPORT_ERROR: ImportError | None = None
+DrakeRuntimeConfig = None
+create_drake_runtime = None
 
 _DRAKEUNI_SYMBOLS_LOADED = False
 _PYDRAKE_SYMBOLS_LOADED = False
@@ -66,39 +67,44 @@ StartMeshcat = None
 Simulator = None
 
 
+def _pydrake_loaded() -> bool:
+    return any(name == "pydrake" or name.startswith("pydrake.") for name in sys.modules)
+
+
 def _load_drakeuni_symbols() -> None:
-    global DRAKE_NATIVE_AVAILABLE
-    global DRAKE_NATIVE_IMPORT_ERROR
-    global DrakeUniEnvPool
-    global NativeDrakeEnvPool
+    global DRAKE_BATCH_AVAILABLE
+    global DRAKE_BATCH_IMPORT_ERROR
+    global DrakeRuntimeConfig
+    global create_drake_runtime
     global _DRAKEUNI_SYMBOLS_LOADED
 
     if _DRAKEUNI_SYMBOLS_LOADED:
         return
     try:
-        from drakeuni import DrakeEnvPool as ImportedDrakeUniEnvPool
-        from drakeuni import native_available, native_import_error
+        from drakeuni.runtime import DrakeRuntimeConfig as ImportedDrakeRuntimeConfig
+        from drakeuni.runtime import batch_diagnostics
+        from drakeuni.runtime import create_runtime as imported_create_runtime
     except ImportError as exc:  # pragma: no cover - optional local package.
-        DRAKE_NATIVE_AVAILABLE = False
-        DRAKE_NATIVE_IMPORT_ERROR = exc
-        raise ImportError("Native DrakeUni runtime is not installed.") from exc
+        DRAKE_BATCH_AVAILABLE = False
+        DRAKE_BATCH_IMPORT_ERROR = exc
+        raise ImportError("DrakeUni batch runtime is not installed.") from exc
 
-    if not bool(native_available()):
-        detail = native_import_error()
-        if detail is None:
-            detail = ImportError("Native DrakeEnvPool extension has not been built.")
-        DRAKE_NATIVE_AVAILABLE = False
-        DRAKE_NATIVE_IMPORT_ERROR = detail
-        raise ImportError("Native DrakeEnvPool extension has not been built.") from detail
+    diagnostics = batch_diagnostics()
+    if not diagnostics.batch_available:
+        detail = diagnostics.batch_import_error
+        import_error = ImportError(detail or "DrakeEnvPool batch extension has not been built.")
+        DRAKE_BATCH_AVAILABLE = False
+        DRAKE_BATCH_IMPORT_ERROR = import_error
+        raise ImportError("DrakeEnvPool batch extension has not been built.") from import_error
 
-    DrakeUniEnvPool = ImportedDrakeUniEnvPool
-    NativeDrakeEnvPool = ImportedDrakeUniEnvPool
-    DRAKE_NATIVE_AVAILABLE = True
-    DRAKE_NATIVE_IMPORT_ERROR = None
+    DrakeRuntimeConfig = ImportedDrakeRuntimeConfig
+    create_drake_runtime = imported_create_runtime
+    DRAKE_BATCH_AVAILABLE = True
+    DRAKE_BATCH_IMPORT_ERROR = None
     _DRAKEUNI_SYMBOLS_LOADED = True
 
 
-def ensure_native_drake_available() -> tuple[bool, ImportError | None]:
+def ensure_drake_batch_available() -> tuple[bool, ImportError | None]:
     try:
         _load_drakeuni_symbols()
     except ImportError as exc:
@@ -196,25 +202,6 @@ GO1_FOOT_CONTACT_SENSOR_NAMES = (
     "RR_foot_contact",
 )
 
-# Drake body indices for src/unilab/assets/robots/go1/scene_flat_drake.xml.
-# The native DrakeUni runtime is intentionally Go1-only until DrakeUni grows a
-# model metadata query layer.
-GO1_BODY_INDICES = {
-    "trunk": 1,
-    "FR_hip": 2,
-    "FR_thigh": 3,
-    "FR_calf": 4,
-    "FL_hip": 5,
-    "FL_thigh": 6,
-    "FL_calf": 7,
-    "RR_hip": 8,
-    "RR_thigh": 9,
-    "RR_calf": 10,
-    "RL_hip": 11,
-    "RL_thigh": 12,
-    "RL_calf": 13,
-}
-
 
 @dataclass(frozen=True)
 class DrakeModelMetadata:
@@ -237,7 +224,7 @@ class _DrakeRuntime:
 
 
 @dataclass(frozen=True)
-class _NativeDrakeModelView:
+class _DrakeUniModelView:
     nq: int
     nv: int
     nu: int
@@ -256,7 +243,7 @@ def _require_drake() -> None:
     _load_pydrake_symbols()
 
 
-def _resolve_native_nthread(num_envs: int, requested: int) -> int:
+def _resolve_batch_nthread(num_envs: int, requested: int) -> int:
     env_count = max(1, int(num_envs))
     requested_count = int(requested)
     if requested_count > 0:
@@ -573,6 +560,251 @@ def _quat_from_matrix(matrix: np.ndarray) -> np.ndarray:
 
 
 class DrakeBackend(SimBackend):
+    """Public UniLab Drake adapter over private pydrake and DrakeUni runtimes."""
+
+    backend_type = "drake"
+
+    def __init__(
+        self,
+        scene: SceneCfg,
+        num_envs: int,
+        sim_dt: float,
+        *,
+        drake_backend_mode: str = "pydrake",
+        nthread: int = 0,
+        **kwargs: Any,
+    ) -> None:
+        mode = str(drake_backend_mode or "pydrake").strip().lower()
+        if mode in {"batch", "drakeuni"}:
+            if _pydrake_loaded():
+                raise ImportError(
+                    "Drake batch backend cannot be loaded after pydrake has already "
+                    "been imported in this process. Start a fresh process for "
+                    "drake_backend_mode='batch', or select drake_backend_mode='pydrake'."
+                )
+            self._impl: SimBackend = _DrakeUniBatchBackend(
+                scene,
+                num_envs,
+                sim_dt,
+                nthread=nthread,
+                **kwargs,
+            )
+        elif mode in {"pydrake", "python"}:
+            self._impl = _PydrakeDrakeBackend(scene, num_envs, sim_dt, **kwargs)
+        else:
+            raise ValueError(
+                "drake_backend_mode must be one of pydrake, python, batch, "
+                f"drakeuni; got {drake_backend_mode!r}"
+            )
+        self._pre_step_control_fn = None
+        self._scene_cleanup_handle = None
+
+    def diagnostics(self) -> Any:
+        diagnostics = getattr(self._impl, "diagnostics", None)
+        if diagnostics is None:
+            return {"mode": "pydrake", "available": bool(DRAKE_AVAILABLE)}
+        return diagnostics()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._impl, name)
+
+    @property
+    def scene_model_file(self) -> str:
+        return self._impl.scene_model_file
+
+    @property
+    def num_envs(self) -> int:
+        return self._impl.num_envs
+
+    @property
+    def nthread(self) -> int:
+        return int(getattr(self._impl, "nthread", 0))
+
+    @property
+    def model(self):
+        return self._impl.model
+
+    @property
+    def num_actuators(self) -> int:
+        return self._impl.num_actuators
+
+    @property
+    def num_dof_vel(self) -> int:
+        return self._impl.num_dof_vel
+
+    def get_actuator_ctrl_range(self) -> np.ndarray:
+        return self._impl.get_actuator_ctrl_range()
+
+    def get_joint_range(self) -> np.ndarray | None:
+        return self._impl.get_joint_range()
+
+    def get_keyframe_qpos(self, name: str) -> np.ndarray:
+        return self._impl.get_keyframe_qpos(name)
+
+    def get_default_qpos(self) -> np.ndarray:
+        return self._impl.get_default_qpos()
+
+    def get_init_qvel(self) -> np.ndarray:
+        return self._impl.get_init_qvel()
+
+    def get_actuator_gains(self) -> tuple[np.ndarray, np.ndarray]:
+        return self._impl.get_actuator_gains()
+
+    def get_body_ids(self, names: Sequence[str]) -> np.ndarray:
+        return self._impl.get_body_ids(names)
+
+    def step(self, ctrl: np.ndarray, nsteps: int = 1) -> dict | None:
+        return self._impl.step(ctrl, nsteps)
+
+    def set_pre_step_control(self, fn: Callable[[Any, np.ndarray], np.ndarray] | None) -> None:
+        self._pre_step_control_fn = fn
+        self._impl.set_pre_step_control(fn)
+
+    def set_state(
+        self,
+        env_indices: np.ndarray,
+        qpos: np.ndarray,
+        qvel: np.ndarray,
+        randomization: ResetRandomizationPayload | None = None,
+    ) -> None:
+        self._impl.set_state(env_indices, qpos, qvel, randomization)
+
+    def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
+        return self._impl.get_dr_capabilities()
+
+    def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
+        self._impl.apply_interval_randomization(plan)
+
+    def get_play_capabilities(self) -> BackendPlayCapabilities:
+        return self._impl.get_play_capabilities()
+
+    def resolve_play_render_plan(
+        self,
+        *,
+        play_render_mode: str | None,
+        play_steps: int | None,
+        output_video: str | PathLike[str] | None,
+    ) -> BackendPlayRenderPlan:
+        return self._impl.resolve_play_render_plan(
+            play_render_mode=play_render_mode,
+            play_steps=play_steps,
+            output_video=output_video,
+        )
+
+    def run_playback(
+        self,
+        *,
+        env: Any,
+        initialize: Callable[[], Any],
+        step: Callable[[Any], Any],
+        num_steps: int | None,
+        output_video: str | PathLike[str] | None = None,
+        render_spacing: float | None = None,
+        render_offset_mode: str | None = None,
+        headless: bool | None = None,
+        record_video: bool | None = None,
+        frame_state_getter: Callable[[], np.ndarray] | None = None,
+        camera_kwargs: dict[str, Any] | None = None,
+        extra_data_getter: Callable[[], np.ndarray | None] | None = None,
+    ) -> str | None:
+        return self._impl.run_playback(
+            env=env,
+            initialize=initialize,
+            step=step,
+            num_steps=num_steps,
+            output_video=output_video,
+            render_spacing=render_spacing,
+            render_offset_mode=render_offset_mode,
+            headless=headless,
+            record_video=record_video,
+            frame_state_getter=frame_state_getter,
+            camera_kwargs=camera_kwargs,
+            extra_data_getter=extra_data_getter,
+        )
+
+    def init_renderer(
+        self,
+        spacing: float = 1.0,
+        *,
+        offset_mode: str = "grid",
+        headless: bool = False,
+        capture: bool = False,
+        width: int = 1280,
+        height: int = 720,
+        camera_kwargs: dict[str, Any] | None = None,
+    ) -> None:
+        self._impl.init_renderer(
+            spacing=spacing,
+            offset_mode=offset_mode,
+            headless=headless,
+            capture=capture,
+            width=width,
+            height=height,
+            camera_kwargs=camera_kwargs,
+        )
+
+    def render(self) -> None:
+        self._impl.render()
+
+    def capture_video_frame(self) -> np.ndarray:
+        return self._impl.capture_video_frame()
+
+    def get_physics_state(self) -> np.ndarray:
+        return self._impl.get_physics_state()
+
+    def get_playback_model(self, env_index: int | None = None) -> Any:
+        return self._impl.get_playback_model(env_index)
+
+    def cleanup_scene_assets(self) -> None:
+        self._impl.cleanup_scene_assets()
+
+    def get_base_pos(self) -> np.ndarray:
+        return self._impl.get_base_pos()
+
+    def get_base_quat(self) -> np.ndarray:
+        return self._impl.get_base_quat()
+
+    def get_base_lin_vel(self) -> np.ndarray:
+        return self._impl.get_base_lin_vel()
+
+    def get_base_ang_vel(self) -> np.ndarray:
+        return self._impl.get_base_ang_vel()
+
+    def get_dof_pos(self) -> np.ndarray:
+        return self._impl.get_dof_pos()
+
+    def get_dof_vel(self) -> np.ndarray:
+        return self._impl.get_dof_vel()
+
+    def get_body_pos_w(self, body_ids: np.ndarray) -> np.ndarray:
+        return self._impl.get_body_pos_w(body_ids)
+
+    def get_body_quat_w(self, body_ids: np.ndarray) -> np.ndarray:
+        return self._impl.get_body_quat_w(body_ids)
+
+    def get_body_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
+        return self._impl.get_body_lin_vel_w(body_ids)
+
+    def get_body_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
+        return self._impl.get_body_ang_vel_w(body_ids)
+
+    def get_body_pos_b(self, body_ids: np.ndarray) -> np.ndarray:
+        return self._impl.get_body_pos_b(body_ids)
+
+    def get_body_quat_b(self, body_ids: np.ndarray) -> np.ndarray:
+        return self._impl.get_body_quat_b(body_ids)
+
+    def get_body_lin_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
+        return self._impl.get_body_lin_vel_b(body_ids)
+
+    def get_body_ang_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
+        return self._impl.get_body_ang_vel_b(body_ids)
+
+    def get_sensor_data(self, name: str) -> np.ndarray:
+        return self._impl.get_sensor_data(name)
+
+
+class _PydrakeDrakeBackend(SimBackend):
     """Minimal Drake backend for the replay milestone.
 
     The contract intentionally mirrors MuJoCo-shaped qpos/qvel at the UniLab
@@ -792,7 +1024,7 @@ class DrakeBackend(SimBackend):
         self._plant.get_actuation_input_port(self._model_instance).FixValue(
             plant_context, np.zeros(self.num_actuators, dtype=np.float64)
         )
-        self._set_native_pd_target(qpos_mujoco[ROOT_QPOS_DIM:], plant_context=plant_context)
+        self._set_pd_target(qpos_mujoco[ROOT_QPOS_DIM:], plant_context=plant_context)
         simulator = Simulator(self._diagram, context)
         simulator.set_target_realtime_rate(float(target_realtime_rate))
         simulator.Initialize()
@@ -1197,7 +1429,7 @@ class DrakeBackend(SimBackend):
             )
             advance_dt = float(nstep) * self._sim_dt
             for env_index, runtime in enumerate(self._runtimes):
-                self._set_native_pd_target(targets[env_index], plant_context=runtime.plant_context)
+                self._set_pd_target(targets[env_index], plant_context=runtime.plant_context)
                 self._set_external_push_force(
                     push_values[env_index],
                     plant_context=runtime.plant_context,
@@ -1212,7 +1444,7 @@ class DrakeBackend(SimBackend):
             )
             for env_index, runtime in enumerate(self._runtimes):
                 for substep in range(int(nstep)):
-                    self._set_native_pd_target(
+                    self._set_pd_target(
                         targets[env_index, substep],
                         plant_context=runtime.plant_context,
                     )
@@ -1384,7 +1616,7 @@ class DrakeBackend(SimBackend):
             values.append(x_wc.translation() + x_wc.rotation().matrix() @ foot_offset)
         return np.asarray(values, dtype=np.float64).reshape(self._num_envs, 3)
 
-    def _set_native_pd_target(
+    def _set_pd_target(
         self, target_q: np.ndarray, *, plant_context: Any | None = None
     ) -> None:
         desired_state = np.concatenate(
@@ -1566,7 +1798,7 @@ class DrakeBackend(SimBackend):
         return count
 
 
-class NativeDrakeBackend(SimBackend):
+class _DrakeUniBatchBackend(SimBackend):
     """Go1-only DrakeUni backend that keeps pydrake out of the process."""
 
     backend_type = "drake"
@@ -1584,63 +1816,55 @@ class NativeDrakeBackend(SimBackend):
         **_: Any,
     ) -> None:
         _load_drakeuni_symbols()
-        if NativeDrakeEnvPool is None:
-            detail = DRAKE_NATIVE_IMPORT_ERROR
-            message = "Native DrakeEnvPool extension has not been built."
+        if DrakeRuntimeConfig is None or create_drake_runtime is None:
+            detail = DRAKE_BATCH_IMPORT_ERROR
+            message = "DrakeUni runtime is not available."
             if detail is not None:
                 message = f"{message} Import error: {detail}"
             raise ImportError(message) from detail
         if int(num_envs) < 1:
-            raise ValueError(f"NativeDrakeBackend requires num_envs >= 1, got {num_envs}")
+            raise ValueError(f"DrakeUni batch backend requires num_envs >= 1, got {num_envs}")
 
         self._pre_step_control_fn = None
         self._scene_cleanup_handle = None
         self._num_envs = int(num_envs)
         self._sim_dt = float(sim_dt)
         self._scene_model_file = str(_resolve_scene_path(scene))
-        self._metadata = _load_model_metadata(Path(self._scene_model_file))
-        home_qpos = _read_keyframe_qpos(Path(self._scene_model_file), "home")
-        if home_qpos is None:
-            raise ValueError(f"NativeDrakeBackend requires keyframe 'home' in {self._scene_model_file}")
-        self._home_qpos_mujoco = home_qpos.copy()
         self._kp = float((position_actuator_gains or {}).get("kp", 35.0))
         self._kd = float((position_actuator_gains or {}).get("kd", 0.5))
         self._base_name = str(base_name)
         self._push_body_name = str(push_body_name or base_name)
-        self._nthread = _resolve_native_nthread(self._num_envs, int(nthread))
         self._pending_push_force = np.zeros((self._num_envs, 3), dtype=np.float64)
 
-        base_body_index = self._body_index(self._base_name)
-        push_body_index = self._body_index(self._push_body_name)
-        foot_body_indices, foot_offsets = self._native_foot_metadata()
-        self._pool = NativeDrakeEnvPool(
-            self._scene_model_file,
-            self._num_envs,
-            self._sim_dt,
-            self._metadata.ctrl_limits,
-            self._metadata.torque_limits,
-            base_body_index,
-            push_body_index,
-            foot_body_indices,
-            foot_offsets,
-            self._kp,
-            self._kd,
-            self._nthread,
+        config = DrakeRuntimeConfig(
+            model_file=self._scene_model_file,
+            num_envs=self._num_envs,
+            sim_dt=self._sim_dt,
+            mode="batch",
+            base_name=self._base_name,
+            push_body_name=self._push_body_name,
+            kp=self._kp,
+            kd=self._kd,
+            nthread=int(nthread),
+            robot_profile="go1",
         )
-        nv = int(self._pool.state_dim) - 1 - int(self._home_qpos_mujoco.size)
-        if nv <= ROOT_QVEL_DIM:
-            raise RuntimeError(f"Native Drake pool returned invalid nv={nv}")
-        self._home_qvel_mujoco = np.zeros(nv, dtype=np.float64)
-        self._model = _NativeDrakeModelView(
-            nq=int(self._home_qpos_mujoco.size),
-            nv=nv,
-            nu=int(self._pool.control_dim),
+        self._runtime = create_drake_runtime(config)
+        model_info = self._runtime.model_info()
+        self._home_qpos_mujoco = model_info.home_qpos.copy()
+        self._home_qvel_mujoco = model_info.home_qvel.copy()
+        self._ctrl_limits = model_info.ctrl_limits.copy()
+        self._joint_ranges = model_info.joint_ranges.copy()
+        self._sensor_names = tuple(model_info.sensor_names)
+        self._trunk_body_id = int(self._runtime.body_ids([self._base_name])[0])
+        self._model = _DrakeUniModelView(
+            nq=int(model_info.nq),
+            nv=int(model_info.nv),
+            nu=int(model_info.nu),
         )
-        self._physics_state = np.zeros((self._num_envs, int(self._pool.state_dim)), dtype=np.float64)
+        self._nthread = int(getattr(self._runtime, "nthread", int(nthread)))
+        self._physics_state = self._runtime.physics_state()
         self._sensor_packet: dict[str, np.ndarray] = {}
-        qpos = np.broadcast_to(self._home_qpos_mujoco, (self._num_envs, self._model.nq)).copy()
-        qvel = np.zeros((self._num_envs, self._model.nv), dtype=np.float64)
-        self.set_state(np.arange(self._num_envs, dtype=np.int32), qpos, qvel)
+        self._sync_runtime_state()
 
     @property
     def scene_model_file(self) -> str:
@@ -1655,7 +1879,7 @@ class NativeDrakeBackend(SimBackend):
         return self._nthread
 
     @property
-    def model(self) -> _NativeDrakeModelView:
+    def model(self) -> _DrakeUniModelView:
         return self._model
 
     @property
@@ -1667,14 +1891,14 @@ class NativeDrakeBackend(SimBackend):
         return self._model.nv - ROOT_QVEL_DIM
 
     def get_actuator_ctrl_range(self) -> np.ndarray:
-        return self._metadata.ctrl_limits.copy()
+        return self._ctrl_limits.copy()
 
     def get_joint_range(self) -> np.ndarray | None:
-        return self._metadata.joint_ranges.copy()
+        return self._joint_ranges.copy()
 
     def get_keyframe_qpos(self, name: str) -> np.ndarray:
         if name != "home":
-            raise KeyError(f"NativeDrakeBackend only exposes keyframe 'home', got {name!r}")
+            raise KeyError(f"DrakeUni batch backend only exposes keyframe 'home', got {name!r}")
         return self._home_qpos_mujoco.copy()
 
     def get_default_qpos(self) -> np.ndarray:
@@ -1690,25 +1914,20 @@ class NativeDrakeBackend(SimBackend):
         )
 
     def get_body_ids(self, names: Sequence[str]) -> np.ndarray:
-        return np.asarray([self._body_index(str(name)) for name in names], dtype=np.int32)
+        return self._runtime.body_ids(tuple(str(name) for name in names))
 
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> dict | None:
         values = np.asarray(ctrl, dtype=np.float64)
         if values.shape != (self._num_envs, self.num_actuators):
             raise ValueError(
-                "NativeDrakeBackend.step expected ctrl shape "
+                "DrakeUni batch backend step expected ctrl shape "
                 f"({self._num_envs}, {self.num_actuators}), got {values.shape}"
             )
         values = self._apply_pre_step_control(values)
         start = time.perf_counter()
-        output = self._pool.step(
-            self._physics_state,
-            int(nsteps),
-            values,
-            self._pending_push_force,
-        )
+        output = self._runtime.step(values, int(nsteps), self._pending_push_force)
         self._pending_push_force.fill(0.0)
-        self._apply_native_output(output)
+        self._sync_runtime_state(output)
         timing = dict(output.get("timing", {}))
         timing.setdefault("step_ms", (time.perf_counter() - start) * 1000.0)
         return {"timing": timing}
@@ -1721,7 +1940,7 @@ class NativeDrakeBackend(SimBackend):
         randomization: ResetRandomizationPayload | None = None,
     ) -> None:
         if randomization is not None and not randomization.is_empty():
-            raise NotImplementedError("NativeDrakeBackend does not apply reset randomization yet")
+            raise NotImplementedError("DrakeUni batch backend does not apply reset randomization yet")
         indices = np.asarray(env_indices, dtype=np.int32)
         qpos_rows = np.asarray(qpos, dtype=np.float64)
         qvel_rows = np.asarray(qvel, dtype=np.float64)
@@ -1735,8 +1954,8 @@ class NativeDrakeBackend(SimBackend):
             raise ValueError(f"qpos must have shape ({indices.size}, {self._model.nq})")
         if qvel_rows.shape != (indices.size, self._model.nv):
             raise ValueError(f"qvel must have shape ({indices.size}, {self._model.nv})")
-        output = self._pool.reset(indices, self._pack_state_rows(qpos_rows, qvel_rows))
-        self._apply_native_output(output)
+        self._runtime.reset(indices, qpos_rows, qvel_rows)
+        self._sync_runtime_state()
 
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
         return DomainRandomizationCapabilities(supports_interval_push=True)
@@ -1749,7 +1968,7 @@ class NativeDrakeBackend(SimBackend):
             self._pending_push_force[:] = self._sample_push_force(plan.push_perturbation_limit)
         if plan.body_force is not None or plan.body_linear_velocity_delta is not None:
             raise NotImplementedError(
-                "NativeDrakeBackend currently supports Go1 push_robots interval randomization only"
+                "DrakeUni batch backend currently supports Go1 push_robots interval randomization only"
             )
 
     def get_play_capabilities(self) -> BackendPlayCapabilities:
@@ -1776,11 +1995,11 @@ class NativeDrakeBackend(SimBackend):
                 output_video=None,
             )
         if mode == "interactive":
-            raise NotImplementedError("NativeDrakeBackend does not support interactive rendering")
+            raise NotImplementedError("DrakeUni batch backend does not support interactive rendering")
         if play_steps is None:
-            raise ValueError("Native Drake record playback requires a finite play_steps value.")
+            raise ValueError("DrakeUni record playback requires a finite play_steps value.")
         if output_video is None:
-            raise ValueError("Native Drake record playback requires an output video path.")
+            raise ValueError("DrakeUni record playback requires an output video path.")
         return BackendPlayRenderPlan(
             mode="record",
             headless=True,
@@ -1821,7 +2040,7 @@ class NativeDrakeBackend(SimBackend):
                 extra_data_getter=extra_data_getter,
             )
         if not bool(headless):
-            raise NotImplementedError("NativeDrakeBackend does not support interactive rendering")
+            raise NotImplementedError("DrakeUni batch backend does not support interactive rendering")
         state = initialize()
         steps_run = 0
         while num_steps is None or steps_run < int(num_steps):
@@ -1841,13 +2060,13 @@ class NativeDrakeBackend(SimBackend):
         camera_kwargs: dict[str, Any] | None = None,
     ) -> None:
         del spacing, offset_mode, headless, capture, width, height, camera_kwargs
-        raise NotImplementedError("NativeDrakeBackend records through run_playback")
+        raise NotImplementedError("DrakeUni batch backend records through run_playback")
 
     def render(self) -> None:
-        raise NotImplementedError("NativeDrakeBackend does not support interactive rendering")
+        raise NotImplementedError("DrakeUni batch backend does not support interactive rendering")
 
     def capture_video_frame(self) -> np.ndarray:
-        raise NotImplementedError("NativeDrakeBackend records through run_playback")
+        raise NotImplementedError("DrakeUni batch backend records through run_playback")
 
     def get_base_pos(self) -> np.ndarray:
         return self._sensor_packet["base_pos"].copy()
@@ -1906,7 +2125,7 @@ class NativeDrakeBackend(SimBackend):
     def get_sensor_data(self, name: str) -> np.ndarray:
         if name in self._sensor_packet:
             return self._sensor_packet[name].copy()
-        raise KeyError(f"Unknown Native Drake sensor: {name}")
+        raise KeyError(f"Unknown DrakeUni sensor: {name}")
 
     def get_physics_state(self) -> np.ndarray:
         return self._physics_state.copy()
@@ -1918,62 +2137,35 @@ class NativeDrakeBackend(SimBackend):
                 raise IndexError(f"env_index must be in [0, {self._num_envs - 1}], got {idx}")
         return self._scene_model_file
 
-    def _apply_native_output(self, output: dict[str, Any]) -> None:
-        self._physics_state = np.asarray(output["state"], dtype=np.float64).copy()
-        raw_sensor = output.get("sensor", {})
-        packet = {key: np.asarray(value, dtype=np.float64).copy() for key, value in raw_sensor.items()}
-        feet_pos = packet.get("feet_pos")
-        if feet_pos is not None:
-            for foot_index, sensor_name in enumerate(GO1_FOOT_SENSOR_NAMES):
-                if foot_index < feet_pos.shape[1]:
-                    packet[sensor_name] = feet_pos[:, foot_index, :]
-        feet_contact = packet.get("feet_contact_force")
-        if feet_contact is not None:
-            for foot_index, sensor_name in enumerate(GO1_FOOT_CONTACT_SENSOR_NAMES):
-                if foot_index < feet_contact.shape[1]:
-                    packet[sensor_name] = feet_contact[:, foot_index, :]
+    def diagnostics(self) -> Any:
+        return self._runtime.diagnostics()
+
+    def _sync_runtime_state(self, output: dict[str, Any] | None = None) -> None:
+        if output is None:
+            self._physics_state = self._runtime.physics_state()
+            packet = {name: self._runtime.sensor(name) for name in self._sensor_names}
+        else:
+            self._physics_state = np.asarray(output["state"], dtype=np.float64).copy()
+            raw_sensor = output.get("sensor", {})
+            packet = {
+                key: np.asarray(value, dtype=np.float64).copy() for key, value in raw_sensor.items()
+            }
         packet.setdefault("position", packet["base_pos"])
         self._sensor_packet = packet
-
-    def _pack_state_rows(self, qpos: np.ndarray, qvel: np.ndarray) -> np.ndarray:
-        qpos_rows = np.asarray(qpos, dtype=np.float64)
-        qvel_rows = np.asarray(qvel, dtype=np.float64)
-        state = np.zeros((qpos_rows.shape[0], int(self._pool.state_dim)), dtype=np.float64)
-        state[:, 1 : 1 + self._model.nq] = qpos_rows
-        state[:, 1 + self._model.nq :] = qvel_rows
-        return state
-
-    def _native_foot_metadata(self) -> tuple[list[int], np.ndarray]:
-        body_indices: list[int] = []
-        offsets: list[np.ndarray] = []
-        for sensor_name in GO1_FOOT_SENSOR_NAMES:
-            body_name = self._metadata.foot_sensor_to_body.get(sensor_name)
-            if body_name is None:
-                raise ValueError(f"NativeDrakeBackend missing foot sensor {sensor_name!r}")
-            body_indices.append(self._body_index(body_name))
-            offsets.append(self._metadata.foot_sensor_offsets[sensor_name])
-        return body_indices, np.asarray(offsets, dtype=np.float64)
-
-    def _body_index(self, name: str) -> int:
-        try:
-            return GO1_BODY_INDICES[name]
-        except KeyError as exc:
-            raise ValueError(f"NativeDrakeBackend only knows Go1 body {name!r}") from exc
 
     def _require_trunk_only(self, body_ids: np.ndarray) -> None:
         ids = np.asarray(body_ids, dtype=np.int32)
         if ids.ndim != 1:
             raise ValueError(f"body_ids must be one-dimensional, got {ids.shape}")
-        trunk_id = GO1_BODY_INDICES["trunk"]
-        if np.any(ids != trunk_id):
+        if np.any(ids != self._trunk_body_id):
             raise NotImplementedError(
-                "NativeDrakeBackend only exposes trunk body kinematics in this milestone"
+                "DrakeUni batch backend only exposes trunk body kinematics in this milestone"
             )
 
     def _sample_push_force(self, force_range: Sequence[float] | np.ndarray) -> np.ndarray:
         limit = np.asarray(force_range, dtype=np.float64)
         if limit.shape != (3,):
-            raise ValueError(f"Native Drake push force range must have shape (3,), got {limit.shape}")
+            raise ValueError(f"DrakeUni push force range must have shape (3,), got {limit.shape}")
         direction = np.random.uniform(-1.0, 1.0, size=(self._num_envs, 3))
         norm = np.linalg.norm(direction, axis=1, keepdims=True)
         direction = np.divide(direction, np.maximum(norm, 1.0e-12))
@@ -1984,10 +2176,9 @@ class NativeDrakeBackend(SimBackend):
 __all__ = [
     "DRAKE_AVAILABLE",
     "DRAKE_IMPORT_ERROR",
-    "DRAKE_NATIVE_AVAILABLE",
-    "DRAKE_NATIVE_IMPORT_ERROR",
+    "DRAKE_BATCH_AVAILABLE",
+    "DRAKE_BATCH_IMPORT_ERROR",
     "DrakeBackend",
-    "NativeDrakeBackend",
-    "_resolve_native_nthread",
-    "ensure_native_drake_available",
+    "_resolve_batch_nthread",
+    "ensure_drake_batch_available",
 ]

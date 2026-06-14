@@ -25,7 +25,7 @@ algo:
       - actor
 
 env:
-  drake_backend_mode: native
+  drake_backend_mode: batch
   drake_nthread: 0
   scene:
     model_file: src/unilab/assets/robots/go1/scene_flat_drake.xml

@@ -695,10 +695,10 @@ def test_ppo_task_go2_aligns_mujoco_with_motrix_defaults():
     assert cfg.algo.algorithm.entropy_coef == pytest.approx(1.0e-3)
 
 
-def test_ppo_go1_drake_native_config_matches_current_contact_support():
+def test_ppo_go1_drake_batch_config_matches_current_contact_support():
     cfg = _ppo_cfg(["task=go1_joystick_flat/drake"])
 
-    assert cfg.env.drake_backend_mode == "native"
+    assert cfg.env.drake_backend_mode == "batch"
     assert cfg.env.drake_nthread == 0
     assert "contact" not in cfg.reward.scales
 
