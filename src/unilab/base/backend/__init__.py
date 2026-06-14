@@ -62,20 +62,19 @@ def _load_motrix_scene_export(name: str) -> Any:
     return getattr(scene, name)
 
 
-def _load_drake_backend(*, native: bool = False) -> tuple[Any, bool, ImportError | None]:
+def _load_drake_backend(*, batch: bool = False) -> tuple[Any, bool, ImportError | None]:
     from .drake.backend import (
         DRAKE_AVAILABLE,
+        DRAKE_BATCH_AVAILABLE,
+        DRAKE_BATCH_IMPORT_ERROR,
         DRAKE_IMPORT_ERROR,
-        DRAKE_NATIVE_AVAILABLE,
-        DRAKE_NATIVE_IMPORT_ERROR,
         DrakeBackend,
-        NativeDrakeBackend,
-        ensure_native_drake_available,
+        ensure_drake_batch_available,
     )
 
-    if native:
-        native_available, native_error = ensure_native_drake_available()
-        return NativeDrakeBackend, native_available, native_error or DRAKE_NATIVE_IMPORT_ERROR
+    if batch:
+        batch_available, batch_error = ensure_drake_batch_available()
+        return DrakeBackend, batch_available, batch_error or DRAKE_BATCH_IMPORT_ERROR
     return DrakeBackend, bool(DRAKE_AVAILABLE), DRAKE_IMPORT_ERROR
 
 
@@ -135,20 +134,20 @@ def create_backend(
         mode = str(drake_backend_mode or "auto").strip().lower()
         if mode == "auto":
             mode = os.environ.get("UNILAB_DRAKE_BACKEND", "pydrake").strip().lower()
-        if mode in {"native", "native_pool", "drakeuni"}:
+        if mode in {"batch", "drakeuni"}:
             if _pydrake_loaded():
                 raise ImportError(
-                    "Native Drake backend cannot be loaded after pydrake has already "
+                    "Drake batch backend cannot be loaded after pydrake has already "
                     "been imported in this process. Start a fresh process for "
-                    "drake_backend_mode='native', or select drake_backend_mode='pydrake'."
+                    "drake_backend_mode='batch', or select drake_backend_mode='pydrake'."
                 )
-            DrakeBackend, drake_available, import_error = _load_drake_backend(native=True)
+            DrakeBackend, drake_available, import_error = _load_drake_backend(batch=True)
         elif mode in {"pydrake", "python"}:
             DrakeBackend, drake_available, import_error = _load_drake_backend()
         else:
             raise ValueError(
                 "drake_backend_mode must be one of auto, pydrake, python, "
-                f"native, native_pool, drakeuni; got {drake_backend_mode!r}"
+                f"batch, drakeuni; got {drake_backend_mode!r}"
             )
         if not drake_available:
             message = f"Drake backend mode {mode!r} is not available"
@@ -157,7 +156,8 @@ def create_backend(
             raise ImportError(message) from import_error
         if position_actuator_gains is not None:
             kwargs["position_actuator_gains"] = position_actuator_gains
-        if mode in {"native", "native_pool", "drakeuni"} and drake_nthread is not None:
+        kwargs["drake_backend_mode"] = mode
+        if mode in {"batch", "drakeuni"} and drake_nthread is not None:
             kwargs["nthread"] = drake_nthread
         return cast(SimBackend, DrakeBackend(scene, num_envs, sim_dt, **kwargs))
     raise ValueError(f"Unknown backend: {backend_type}")
@@ -174,8 +174,6 @@ def __getattr__(name: str):
         return _load_drake_backend()[0]
     if name == "DRAKE_AVAILABLE":
         return _load_drake_backend()[1]
-    if name == "NativeDrakeBackend":
-        return _load_drake_backend(native=True)[0]
     if name in _MUJOCO_XML_EXPORTS:
         from .mujoco import xml
 
