@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from unilab.tools.completion import build_metadata, complete_words
+from unilab.tools.completion import (
+    COMPLETION_BLOCK_END,
+    COMPLETION_BLOCK_START,
+    build_metadata,
+    complete_words,
+    install_main,
+)
 
 
 def _write_completion_fixture(root: Path) -> None:
@@ -330,3 +336,21 @@ def test_demo_name_still_completes_when_leading_flag_present(tmp_path: Path) -> 
     assert complete_words(["uv", "run", "demo", "--refresh", "d"], 4, metadata) == [
         "dance",
     ]
+
+
+def test_completion_install_preserves_non_utf8_rc_file_bytes(tmp_path: Path) -> None:
+    rc_file = tmp_path / ".bashrc"
+    original = b"export OK=1\n# non utf8: \x9c\n"
+    rc_file.write_bytes(original)
+
+    assert install_main(["--shell", "bash", "--rc-file", str(rc_file)]) == 0
+
+    installed = rc_file.read_bytes()
+    assert b"\x9c" in installed
+    assert COMPLETION_BLOCK_START.encode("utf-8") in installed
+    assert COMPLETION_BLOCK_END.encode("utf-8") in installed
+
+    assert install_main(["--shell", "bash", "--rc-file", str(rc_file), "--uninstall"]) == 0
+
+    uninstalled = rc_file.read_bytes()
+    assert uninstalled == original
