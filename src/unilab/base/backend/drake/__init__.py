@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-from .pool import DrakeEnvPool, DrakePoolOutput
-
 __all__ = [
     "DRAKE_AVAILABLE",
     "DRAKE_BATCH_AVAILABLE",
     "DrakeBackend",
-    "DrakeEnvPool",
-    "DrakePoolOutput",
+    "run_drake_playback",
 ]
 
 
@@ -25,4 +22,8 @@ def __getattr__(name: str):
             "DrakeBackend": DrakeBackend,
         }
         return values[name]
+    if name == "run_drake_playback":
+        from .playback import run_drake_playback
+
+        return run_drake_playback
     raise AttributeError(name)

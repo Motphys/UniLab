@@ -106,6 +106,7 @@ class Go1WalkTask(Go1BaseEnv):
             position_actuator_gains={"kp": cfg.control_config.Kp, "kd": cfg.control_config.Kd},
             drake_backend_mode=cfg.drake_backend_mode,
             drake_nthread=cfg.drake_nthread,
+            robot_profile="go1",
             motrix_max_iterations=cfg.motrix_max_iterations,
             post_step_forward_sensor=cfg.post_step_forward_sensor,
         )

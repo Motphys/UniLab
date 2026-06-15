@@ -94,6 +94,7 @@ def test_batch_backend_mode_rejects_existing_pydrake_module() -> None:
                 0.01,
                 base_name="trunk",
                 drake_backend_mode="batch",
+                robot_profile="go1",
                 position_actuator_gains={"kp": 35.0, "kd": 0.5},
             )
         except ImportError as exc:
@@ -126,6 +127,7 @@ def test_direct_drake_backend_batch_mode_rejects_existing_pydrake_module() -> No
                 0.01,
                 base_name="trunk",
                 drake_backend_mode="batch",
+                robot_profile="go1",
                 position_actuator_gains={"kp": 35.0, "kd": 0.5},
             )
         except ImportError as exc:
@@ -138,6 +140,75 @@ def test_direct_drake_backend_batch_mode_rejects_existing_pydrake_module() -> No
         """
     )
     assert "pydrake" in output
+
+
+def test_create_backend_rejects_pydrake_mode() -> None:
+    from unilab.assets import ASSETS_ROOT_PATH
+    from unilab.base.backend import create_backend
+    from unilab.base.scene import SceneCfg
+
+    with pytest.raises(ValueError, match="drake_backend_mode='batch'"):
+        create_backend(
+            "drake",
+            SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat_drake.xml")),
+            1,
+            0.01,
+            base_name="trunk",
+            drake_backend_mode="pydrake",
+            robot_profile="go1",
+            position_actuator_gains={"kp": 35.0, "kd": 0.5},
+        )
+
+
+def test_direct_drake_backend_rejects_pydrake_mode() -> None:
+    from unilab.assets import ASSETS_ROOT_PATH
+    from unilab.base.backend.drake.backend import DrakeBackend
+    from unilab.base.scene import SceneCfg
+
+    with pytest.raises(ValueError, match="drake_backend_mode='batch'"):
+        DrakeBackend(
+            SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat_drake.xml")),
+            1,
+            0.01,
+            base_name="trunk",
+            drake_backend_mode="pydrake",
+            robot_profile="go1",
+            position_actuator_gains={"kp": 35.0, "kd": 0.5},
+        )
+
+
+def test_drake_backend_requires_task_robot_profile() -> None:
+    from unilab.assets import ASSETS_ROOT_PATH
+    from unilab.base.backend import create_backend
+    from unilab.base.scene import SceneCfg
+
+    with pytest.raises(ValueError, match="robot_profile"):
+        create_backend(
+            "drake",
+            SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat_drake.xml")),
+            1,
+            0.01,
+            base_name="trunk",
+            drake_backend_mode="batch",
+            position_actuator_gains={"kp": 35.0, "kd": 0.5},
+        )
+
+
+def test_drake_backend_requires_task_base_name() -> None:
+    from unilab.assets import ASSETS_ROOT_PATH
+    from unilab.base.backend import create_backend
+    from unilab.base.scene import SceneCfg
+
+    with pytest.raises(ValueError, match="base_name"):
+        create_backend(
+            "drake",
+            SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat_drake.xml")),
+            1,
+            0.01,
+            drake_backend_mode="batch",
+            robot_profile="go1",
+            position_actuator_gains={"kp": 35.0, "kd": 0.5},
+        )
 
 
 @pytest.mark.skipif(
@@ -459,6 +530,7 @@ def test_create_backend_batch_mode_avoids_pydrake_and_steps() -> None:
             base_name="trunk",
             drake_backend_mode="batch",
             drake_nthread=2,
+            robot_profile="go1",
             position_actuator_gains={"kp": 35.0, "kd": 0.5},
         )
         assert "pydrake" not in sys.modules

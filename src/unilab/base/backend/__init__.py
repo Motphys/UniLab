@@ -1,5 +1,3 @@
-import os
-import sys
 from typing import Any, cast
 
 from unilab.base.scene import SceneCfg
@@ -45,24 +43,16 @@ def _load_motrix_scene_export(name: str) -> Any:
     return getattr(scene, name)
 
 
-def _load_drake_backend(*, batch: bool = False) -> tuple[Any, bool, ImportError | None]:
-    from .drake.backend import (
-        DRAKE_AVAILABLE,
-        DRAKE_BATCH_AVAILABLE,
-        DRAKE_BATCH_IMPORT_ERROR,
-        DRAKE_IMPORT_ERROR,
-        DrakeBackend,
-        ensure_drake_batch_available,
-    )
+def _load_drake_backend() -> Any:
+    from .drake.backend import DrakeBackend
 
-    if batch:
-        batch_available, batch_error = ensure_drake_batch_available()
-        return DrakeBackend, batch_available, batch_error or DRAKE_BATCH_IMPORT_ERROR
-    return DrakeBackend, bool(DRAKE_AVAILABLE), DRAKE_IMPORT_ERROR
+    return DrakeBackend
 
 
-def _pydrake_loaded() -> bool:
-    return any(name == "pydrake" or name.startswith("pydrake.") for name in sys.modules)
+def _drake_available() -> bool:
+    from .drake.backend import ensure_drake_batch_available
+
+    return ensure_drake_batch_available()[0]
 
 
 def create_backend(
@@ -75,7 +65,7 @@ def create_backend(
     """Create a simulation backend.
 
     Args:
-        backend_type: ``"mujoco"`` or ``"motrix"``.
+        backend_type: ``"mujoco"``, ``"motrix"``, or ``"drake"``.
         scene: SceneCfg for either static or composed scenes.
         num_envs: Number of environments.
         sim_dt: Simulation timestep.
@@ -91,7 +81,7 @@ def create_backend(
     position_actuator_gains = kwargs.pop("position_actuator_gains", None)
     motrix_max_iterations = kwargs.pop("motrix_max_iterations", None)
     post_step_forward_sensor = kwargs.pop("post_step_forward_sensor", None)
-    drake_backend_mode = kwargs.pop("drake_backend_mode", "auto")
+    drake_backend_mode = kwargs.pop("drake_backend_mode", "batch")
     drake_nthread = kwargs.pop("drake_nthread", None)
     if backend_type == "mujoco":
         MuJoCoBackend = _load_mujoco_backend()
@@ -108,33 +98,11 @@ def create_backend(
             kwargs["max_iterations"] = motrix_max_iterations
         return cast(SimBackend, MotrixBackend(scene, num_envs, sim_dt, **kwargs))
     if backend_type == "drake":
-        mode = str(drake_backend_mode or "auto").strip().lower()
-        if mode == "auto":
-            mode = os.environ.get("UNILAB_DRAKE_BACKEND", "pydrake").strip().lower()
-        if mode in {"batch", "drakeuni"}:
-            if _pydrake_loaded():
-                raise ImportError(
-                    "Drake batch backend cannot be loaded after pydrake has already "
-                    "been imported in this process. Start a fresh process for "
-                    "drake_backend_mode='batch', or select drake_backend_mode='pydrake'."
-                )
-            DrakeBackend, drake_available, import_error = _load_drake_backend(batch=True)
-        elif mode in {"pydrake", "python"}:
-            DrakeBackend, drake_available, import_error = _load_drake_backend()
-        else:
-            raise ValueError(
-                "drake_backend_mode must be one of auto, pydrake, python, "
-                f"batch, drakeuni; got {drake_backend_mode!r}"
-            )
-        if not drake_available:
-            message = f"Drake backend mode {mode!r} is not available"
-            if import_error is not None:
-                message = f"{message}: {import_error}"
-            raise ImportError(message) from import_error
+        DrakeBackend = _load_drake_backend()
         if position_actuator_gains is not None:
             kwargs["position_actuator_gains"] = position_actuator_gains
-        kwargs["drake_backend_mode"] = mode
-        if mode in {"batch", "drakeuni"} and drake_nthread is not None:
+        kwargs["drake_backend_mode"] = drake_backend_mode
+        if drake_nthread is not None:
             kwargs["nthread"] = drake_nthread
         return cast(SimBackend, DrakeBackend(scene, num_envs, sim_dt, **kwargs))
     raise ValueError(f"Unknown backend: {backend_type}")
@@ -148,9 +116,9 @@ def __getattr__(name: str):
     if name == "MOTRIX_AVAILABLE":
         return _load_motrix_backend()[1]
     if name == "DrakeBackend":
-        return _load_drake_backend()[0]
+        return _load_drake_backend()
     if name == "DRAKE_AVAILABLE":
-        return _load_drake_backend()[1]
+        return _drake_available()
     if name in _MUJOCO_XML_EXPORTS:
         from .mujoco import xml
 
