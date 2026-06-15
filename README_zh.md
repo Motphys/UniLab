@@ -173,10 +173,11 @@ uv run eval --algo ppo --task go2_arm_manip_loco --sim motrix --load-run -1
 
 海外用户可加入我们的 [Discord 服务器](https://discord.gg/EPCuguRmGX) 交流与获取帮助。
 
-| 微信群 | 作者微信 |
-| :---: | :---: |
-| <img src="docs/sphinx/source/_static/assets/unilab-wechat-group.jpg" alt="UniLab 微信群二维码" width="220"> | <img src="docs/sphinx/source/_static/assets/unilab-wechat-assistant.jpg" alt="UniLab 作者微信二维码" width="150"> |
-| 扫码加入 UniLab 微信群。 | 如果微信群已满，请添加作者微信，并备注`unilab交流`。 |
+<p align="center">
+  <img src="docs/sphinx/source/_static/assets/unilab-wechat-assistant.jpg" alt="UniLab 小助手微信二维码" width="180">
+</p>
+
+<p align="center">添加小助手微信进群，请备注：<code>unilab交流</code></p>
 
 ## ⭐ Star 趋势
 
