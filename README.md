@@ -171,10 +171,11 @@ Use the published [UniLab documentation](https://unilabsim.github.io/UniLab-doc/
 
 Join our [Discord server](https://discord.gg/EPCuguRmGX) to chat with the community and get help.
 
-| WeChat Group | Author WeChat |
-| :---: | :---: |
-| <img src="docs/sphinx/source/_static/assets/unilab-wechat-group.jpg" alt="UniLab WeChat group QR code" width="220"> | <img src="docs/sphinx/source/_static/assets/unilab-wechat-assistant.jpg" alt="UniLab author WeChat QR code" width="150"> |
-| Scan to join the UniLab WeChat group. | If the group is full, add the author and include `unilab交流` in your message. |
+<p align="center">
+  <img src="docs/sphinx/source/_static/assets/unilab-wechat-assistant.jpg" alt="UniLab WeChat assistant QR code" width="180">
+</p>
+
+<p align="center">Add the assistant on WeChat to join the group. Please include <code>UniLab community</code> in your request.</p>
 
 ## ⭐ Star History
 
