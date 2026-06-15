@@ -107,6 +107,7 @@ class Go1WalkTask(Go1BaseEnv):
             **env_backend_kwargs(cfg),
             drake_backend_mode=cfg.drake_backend_mode,
             drake_nthread=cfg.drake_nthread,
+            robot_profile="go1",
         )
         self._terrain_surface_sampler = getattr(backend, "terrain_surface_sampler", None)
         terrain_origins = getattr(backend, "terrain_origins", None)
