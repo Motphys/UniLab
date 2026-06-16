@@ -11,7 +11,7 @@
               <geom group="2" type="mesh" contype="0" conaffinity="0" density="0" />
           </default>
           <default class="collision">
-              <geom group="3" type="mesh" condim="3" solref="0.02 1.0" solimp="0.9 0.95 0.001" />
+              <geom group="3" type="mesh" />
               <default class="foot">
                   <geom type="sphere" size="0.005" />
               </default>
@@ -95,13 +95,13 @@
                   <inertial pos="0.035428 2.5e-05 -0.049572" quat="0.614657 0.350346 0.350824 0.613496" mass="1.01617" diaginertia="0.007937 0.0068711 0.0025949" />
                   <joint name="left_ankle_roll_joint" pos="0 0 0" axis="1 0 0" range="-0.262 0.262" actuatorfrcrange="-24 24" />
                   <geom class="visual" type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="1 0.5 0 1" mesh="left_ankle_roll_link" />
-                  <geom name="left_foot1_collision" class="collision" type="capsule" group="3" size="0.01" fromto="-0.040 -0.05 -0.063 0.115 -0.05 -0.063" rgba="0 1 0 0.3"/>
-                  <geom name="left_foot2_collision" class="collision" type="capsule" group="3" size="0.01" fromto="-0.057 -0.0375 -0.063 0.133 -0.0375 -0.063" rgba="0 1 0 0.3"/>
-                  <geom name="left_foot3_collision" class="collision" type="capsule" group="3" size="0.01" fromto="-0.061 -0.02 -0.063 0.137 -0.02 -0.063" rgba="0 1 0 0.3"/>
-                  <geom name="left_foot4_collision" class="collision" type="capsule" group="3" size="0.01" fromto="-0.062 0 -0.063 0.138 0 -0.063" rgba="0 1 0 0.3"/>
-                  <geom name="left_foot5_collision" class="collision" type="capsule" group="3" size="0.01" fromto="-0.061 0.02 -0.063 0.137 0.02 -0.063" rgba="0 1 0 0.3"/>
-                  <geom name="left_foot6_collision" class="collision" type="capsule" group="3" size="0.01" fromto="-0.057 0.0375 -0.063 0.133 0.0375 -0.063" rgba="0 1 0 0.3"/>
-                  <geom name="left_foot7_collision" class="collision" type="capsule" group="3" size="0.01" fromto="-0.040 0.05 -0.063 0.115 0.05 -0.063" rgba="0 1 0 0.3"/>
+                  <geom class="collision" type="capsule" group="3" size="0.01" fromto="-0.040 -0.05 -0.063 0.115 -0.05 -0.063" rgba="0 1 0 0.3"/>
+                  <geom class="collision" type="capsule" group="3" size="0.01" fromto="-0.057 -0.0375 -0.063 0.133 -0.0375 -0.063" rgba="0 1 0 0.3"/>
+                  <geom class="collision" type="capsule" group="3" size="0.01" fromto="-0.061 -0.02 -0.063 0.137 -0.02 -0.063" rgba="0 1 0 0.3"/>
+                  <geom class="collision" type="capsule" group="3" size="0.01" fromto="-0.062 0 -0.063 0.138 0 -0.063" rgba="0 1 0 0.3"/>
+                  <geom class="collision" type="capsule" group="3" size="0.01" fromto="-0.061 0.02 -0.063 0.137 0.02 -0.063" rgba="0 1 0 0.3"/>
+                  <geom class="collision" type="capsule" group="3" size="0.01" fromto="-0.057 0.0375 -0.063 0.133 0.0375 -0.063" rgba="0 1 0 0.3"/>
+                  <geom class="collision" type="capsule" group="3" size="0.01" fromto="-0.040 0.05 -0.063 0.115 0.05 -0.063" rgba="0 1 0 0.3"/>
                 </body>
               </body>
             </body>
@@ -137,13 +137,13 @@
                   <inertial pos="0.035428 2.5e-05 -0.049572" quat="0.614657 0.350346 0.350824 0.613496" mass="1.01617" diaginertia="0.007937 0.0068711 0.0025949" />
                   <joint name="right_ankle_roll_joint" pos="0 0 0" axis="1 0 0" range="-0.2625 0.2625" actuatorfrcrange="-24 24" />
                   <geom class="visual" type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="1 0.5 0 1" mesh="right_ankle_roll_link" />
-                  <geom name="right_foot1_collision" class="collision" type="capsule" group="3" size="0.01" fromto="-0.040 -0.05 -0.063 0.115 -0.05 -0.063" rgba="0 1 0 0.3"/>
-                  <geom name="right_foot2_collision" class="collision" type="capsule" group="3" size="0.01" fromto="-0.057 -0.0375 -0.063 0.133 -0.0375 -0.063" rgba="0 1 0 0.3"/>
-                  <geom name="right_foot3_collision" class="collision" type="capsule" group="3" size="0.01" fromto="-0.061 -0.02 -0.063 0.137 -0.02 -0.063" rgba="0 1 0 0.3"/>
-                  <geom name="right_foot4_collision" class="collision" type="capsule" group="3" size="0.01" fromto="-0.062 0 -0.063 0.138 0 -0.063" rgba="0 1 0 0.3"/>
-                  <geom name="right_foot5_collision" class="collision" type="capsule" group="3" size="0.01" fromto="-0.061 0.02 -0.063 0.137 0.02 -0.063" rgba="0 1 0 0.3"/>
-                  <geom name="right_foot6_collision" class="collision" type="capsule" group="3" size="0.01" fromto="-0.057 0.0375 -0.063 0.133 0.0375 -0.063" rgba="0 1 0 0.3"/>
-                  <geom name="right_foot7_collision" class="collision" type="capsule" group="3" size="0.01" fromto="-0.040 0.05 -0.063 0.115 0.05 -0.063" rgba="0 1 0 0.3"/>
+                  <geom class="collision" type="capsule" group="3" size="0.01" fromto="-0.040 -0.05 -0.063 0.115 -0.05 -0.063" rgba="0 1 0 0.3"/>
+                  <geom class="collision" type="capsule" group="3" size="0.01" fromto="-0.057 -0.0375 -0.063 0.133 -0.0375 -0.063" rgba="0 1 0 0.3"/>
+                  <geom class="collision" type="capsule" group="3" size="0.01" fromto="-0.061 -0.02 -0.063 0.137 -0.02 -0.063" rgba="0 1 0 0.3"/>
+                  <geom class="collision" type="capsule" group="3" size="0.01" fromto="-0.062 0 -0.063 0.138 0 -0.063" rgba="0 1 0 0.3"/>
+                  <geom class="collision" type="capsule" group="3" size="0.01" fromto="-0.061 0.02 -0.063 0.137 0.02 -0.063" rgba="0 1 0 0.3"/>
+                  <geom class="collision" type="capsule" group="3" size="0.01" fromto="-0.057 0.0375 -0.063 0.133 0.0375 -0.063" rgba="0 1 0 0.3"/>
+                  <geom class="collision" type="capsule" group="3" size="0.01" fromto="-0.040 0.05 -0.063 0.115 0.05 -0.063" rgba="0 1 0 0.3"/>
               </body>
             </body>
           </body>
@@ -280,12 +280,6 @@
       </body>
     </body>
   </worldbody>
-  <contact>
-    <exclude body1="pelvis" body2="left_hip_roll_link" />
-    <exclude body1="pelvis" body2="right_hip_roll_link" />
-    <exclude body1="left_wrist_yaw_link" body2="left_wrist_roll_link" />
-    <exclude body1="right_wrist_yaw_link" body2="right_wrist_roll_link" />
-  </contact>
   <actuator>
     <position class="x2" kp="120" kv="5" forcerange="-120 120" name="left_hip_pitch_joint" joint="left_hip_pitch_joint" />
     <position class="x2" kp="100" kv="4" forcerange="-120 120" name="left_hip_roll_joint" joint="left_hip_roll_joint" />
@@ -329,14 +323,8 @@
     <framequat name="body-orientation" objtype="site" objname="imu_0" noise="0" />
     <gyro name="body-angular-velocity" site="imu_0" noise="0.001" />
     <framepos name="body-linear-pos" objtype="site" objname="imu_0" />
-    <velocimeter name="body-linear-vel" site="imu_0" noise="0.001" />
+    <velocimeter name="body-linear-vel" site="imu_0" />
     <accelerometer name="body-linear-acceleration" site="imu_0" noise="0.001" />
-
-    <framequat name="chest-orientation" objtype="site" objname="imu_1" noise="0"/>
-    <gyro name="chest-angular-velocity" site="imu_1" noise="0.001"/>
-    <framepos name="chest-linear-pos" objtype="site" objname="imu_1"/>
-    <velocimeter name="chest-linear-vel" site="imu_1" noise="0.001"/>
-    <accelerometer name="chest-linear-acceleration" site="imu_1" noise="0.001"/>
     
     <jointpos name="jointpos_left_hip_pitch_joint" joint="left_hip_pitch_joint" noise="0" />
     <jointpos name="jointpos_left_hip_roll_joint" joint="left_hip_roll_joint" noise="0" />
