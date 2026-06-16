@@ -100,11 +100,5 @@ src/unilab/assets/robots/**/tmp*.xml
 # Optional local Drake native extension build output
 src/unilab/base/backend/drake/native/*.so
 
-# Local OMX workflow state; keep intentional plans/reviews explicit
-.omx/context/
-.omx/handoffs/
-.omx/specs/
-.omx/state/
-.omx/ultragoal/
-.omx/notepad.md
-.omx/tmux-hook.json
+# Local OMX workflow state
+.omx/
