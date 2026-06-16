@@ -18,23 +18,27 @@ G1 动作追踪任务位于 `src/unilab/envs/motion_tracking/` 下，并通过
 | `g1_motion_tracking` | `G1MotionTracking` | `dance1_subject2_part.npz` | `conf/ppo/task/g1_motion_tracking/`, `conf/appo/task/g1_motion_tracking/` |
 | `g1_flip_tracking` | `G1FlipTracking` | `flip_360_001__A304.npz` | `conf/ppo/task/g1_flip_tracking/`, `conf/appo/task/g1_flip_tracking/` |
 | `g1_wall_flip_tracking` | `G1WallFlipTracking` | `flip_from_wall_104__A304.npz` | `conf/ppo/task/g1_wall_flip_tracking/`, `conf/appo/task/g1_wall_flip_tracking/` |
+| `x2_wall_flip_tracking` | `X2WallFlipTracking` | `tictacflip_6-3_g1format.npz` | `conf/ppo/task/x2_wall_flip_tracking/`（仅 MuJoCo） |
 | `g1_climb_tracking` | G1 climb tracking env | 由 env 配置给出 | `conf/ppo/task/g1_climb_tracking/`, `conf/appo/task/g1_climb_tracking/` |
 | `g1_box_tracking` | G1 box tracking env | 由 env 配置给出 | `conf/ppo/task/g1_box_tracking/` |
 | `g1_wbt_obs` | `G1MotionTrackingSAC` | 与 `g1_motion_tracking` 共用 | `conf/offpolicy/task/sac/g1_wbt_obs/mujoco.yaml` |
 
 默认值在代码中设定：`dance1_subject2_part.npz`（`g1/tracking.py`），
-`flip_360_001__A304.npz` 与 `flip_from_wall_104__A304.npz`（`g1/flip_tracking.py`）。
+`flip_360_001__A304.npz` 与 `flip_from_wall_104__A304.npz`（`g1/flip_tracking.py`），
+以及 `tictacflip_6-3_g1format.npz`（`x2/flip_tracking.py`）。
 
 ## PPO 与 APPO
 
 PPO owner 迭代预算（`--sim mujoco` owner YAML）：`g1_motion_tracking` 为
 `algo.max_iterations=15000`；`g1_flip_tracking` 和 `g1_wall_flip_tracking` 为
-`20000`。（`g1_flip_tracking` 的 Motrix owner YAML 将其提到 `30000`。）
+`20000`；仅 MuJoCo 的 `x2_wall_flip_tracking` 为 `9500`。（`g1_flip_tracking` 的
+Motrix owner YAML 将其提到 `30000`。）
 
 ```bash
 uv run train --algo ppo --task g1_motion_tracking --sim mujoco
 uv run train --algo ppo --task g1_flip_tracking --sim mujoco
 uv run train --algo ppo --task g1_wall_flip_tracking --sim mujoco
+uv run train --algo ppo --task x2_wall_flip_tracking --sim mujoco
 uv run train --algo ppo --task g1_motion_tracking --sim motrix
 uv run train --algo appo --task g1_motion_tracking --sim mujoco training.no_play=true
 uv run train --algo ppo --task g1_motion_tracking --sim mujoco \

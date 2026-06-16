@@ -20,24 +20,27 @@ Each task ships a default motion clip defined in the env config dataclass:
 | `g1_motion_tracking` | `G1MotionTracking` | `dance1_subject2_part.npz` | `conf/ppo/task/g1_motion_tracking/`, `conf/appo/task/g1_motion_tracking/` |
 | `g1_flip_tracking` | `G1FlipTracking` | `flip_360_001__A304.npz` | `conf/ppo/task/g1_flip_tracking/`, `conf/appo/task/g1_flip_tracking/` |
 | `g1_wall_flip_tracking` | `G1WallFlipTracking` | `flip_from_wall_104__A304.npz` | `conf/ppo/task/g1_wall_flip_tracking/`, `conf/appo/task/g1_wall_flip_tracking/` |
+| `x2_wall_flip_tracking` | `X2WallFlipTracking` | `tictacflip_6-3_g1format.npz` | `conf/ppo/task/x2_wall_flip_tracking/` (MuJoCo only) |
 | `g1_climb_tracking` | G1 climb tracking env | clip from env config | `conf/ppo/task/g1_climb_tracking/`, `conf/appo/task/g1_climb_tracking/` |
 | `g1_box_tracking` | G1 box tracking env | clip from env config | `conf/ppo/task/g1_box_tracking/` |
 | `g1_wbt_obs` | `G1MotionTrackingSAC` | shared with `g1_motion_tracking` | `conf/offpolicy/task/sac/g1_wbt_obs/mujoco.yaml` |
 
 The defaults are set in code: `dance1_subject2_part.npz`
 (`g1/tracking.py`), `flip_360_001__A304.npz` and `flip_from_wall_104__A304.npz`
-(`g1/flip_tracking.py`).
+(`g1/flip_tracking.py`), and `tictacflip_6-3_g1format.npz` (`x2/flip_tracking.py`).
 
 ## PPO And APPO
 
 PPO owner iteration budgets (the `--sim mujoco` owner YAMLs): `g1_motion_tracking`
 runs `algo.max_iterations=15000`; `g1_flip_tracking` and `g1_wall_flip_tracking`
-run `20000`. (The Motrix owner YAML for `g1_flip_tracking` raises this to `30000`.)
+run `20000`; the MuJoCo-only `x2_wall_flip_tracking` runs `9500`. (The Motrix
+owner YAML for `g1_flip_tracking` raises this to `30000`.)
 
 ```bash
 uv run train --algo ppo --task g1_motion_tracking --sim mujoco
 uv run train --algo ppo --task g1_flip_tracking --sim mujoco
 uv run train --algo ppo --task g1_wall_flip_tracking --sim mujoco
+uv run train --algo ppo --task x2_wall_flip_tracking --sim mujoco
 uv run train --algo ppo --task g1_motion_tracking --sim motrix
 uv run train --algo appo --task g1_motion_tracking --sim mujoco training.no_play=true
 uv run train --algo ppo --task g1_motion_tracking --sim mujoco \

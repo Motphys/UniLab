@@ -7,7 +7,7 @@ interactive:
   action_mode: policy
 algo:
   num_envs: 1024
-  max_iterations: 20000
+  max_iterations: 9500
   save_interval: 500
   empirical_normalization: true
   obs_groups:
