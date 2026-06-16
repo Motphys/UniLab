@@ -56,7 +56,7 @@ uv run eval --algo ppo --task go2_joystick_flat --sim motrix \
 uv run demo dance
 ```
 
-Available demo names: `teaser`, `dance`, `wallflip`, `boxtracking`, `locomani`, `inhandgrasp`.
+Available demo names: `teaser`, `dance`, `wallflip`, `wallflip2`, `boxtracking`, `locomani`, `inhandgrasp`.
 
 Mainland China users: motions, scenes, robot meshes, and demo checkpoints come
 from Hugging Face on first run. If `huggingface.co` is unreachable, switch to the

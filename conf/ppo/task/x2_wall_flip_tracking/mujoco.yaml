@@ -3,6 +3,8 @@ training:
   task_name: X2WallFlipTracking
   sim_backend: mujoco
   play_steps: 1000
+interactive:
+  action_mode: policy
 algo:
   num_envs: 1024
   max_iterations: 20000
