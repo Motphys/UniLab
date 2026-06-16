@@ -1,3 +1,11 @@
+"""UniLab adapter for the DrakeUni batch runtime.
+
+This module is deliberately a thin contract layer. UniLab owns task logic,
+observations, resets, and training flow; DrakeUni owns Drake model construction,
+batched stepping, and sensor packet generation. The backend's job is to keep
+those two worlds speaking the same API.
+"""
+
 from __future__ import annotations
 
 import sys
@@ -27,6 +35,8 @@ from unilab.dr.types import (
 )
 
 
+# DrakeUni availability globals. These are cheap import-time probes so callers
+# can ask whether Drake support exists without constructing a backend.
 def _module_available(name: str) -> bool:
     try:
         return find_spec(name) is not None
@@ -44,11 +54,16 @@ create_drake_runtime = None
 _DRAKEUNI_SYMBOLS_LOADED = False
 
 
+# Lazy import and pydrake guard helpers.
 def _pydrake_loaded() -> bool:
+    # DrakeUni's batch extension owns Drake symbol loading; mixing it with an
+    # already-imported pydrake module has produced unstable process state.
     return any(name == "pydrake" or name.startswith("pydrake.") for name in sys.modules)
 
 
 def _load_drakeuni_symbols() -> None:
+    """Load DrakeUni only when a Drake backend is actually constructed."""
+
     global DRAKE_AVAILABLE
     global DRAKE_BATCH_AVAILABLE
     global DRAKE_BATCH_IMPORT_ERROR
@@ -86,6 +101,8 @@ def _load_drakeuni_symbols() -> None:
 
 
 def ensure_drake_batch_available() -> tuple[bool, ImportError | None]:
+    """Report whether the DrakeUni batch extension can be used."""
+
     try:
         _load_drakeuni_symbols()
     except ImportError as exc:
@@ -93,11 +110,21 @@ def ensure_drake_batch_available() -> tuple[bool, ImportError | None]:
     return True, None
 
 
+# Floating-base velocity has 3 linear and 3 angular components. UniLab's
+# locomotion code usually wants only the actuated joint velocity dimension.
 ROOT_QVEL_DIM = 6
 
 
+# Small helper types.
 @dataclass(frozen=True)
 class _DrakeUniModelView:
+    """Small shape view that mimics the model methods UniLab asks for.
+
+    MuJoCo exposes a rich model object. DrakeUni exposes model metadata through
+    ``model_info`` instead, so this view only preserves the shape queries that
+    existing UniLab code calls. It is not a Drake ``Diagram`` or ``Plant``.
+    """
+
     nq: int
     nv: int
     nu: int
@@ -112,7 +139,10 @@ class _DrakeUniModelView:
         return self.nu
 
 
+# Path and thread helpers.
 def _resolve_batch_nthread(num_envs: int, requested: int) -> int:
+    """Resolve a worker count without creating idle workers above num_envs."""
+
     env_count = max(1, int(num_envs))
     requested_count = int(requested)
     if requested_count > 0:
@@ -121,6 +151,8 @@ def _resolve_batch_nthread(num_envs: int, requested: int) -> int:
 
 
 def _resolve_scene_path(scene: SceneCfg) -> Path:
+    """Convert UniLab's scene pointer into an absolute model path."""
+
     if not scene.model_file:
         raise ValueError("DrakeBackend requires SceneCfg.model_file")
     path = Path(scene.model_file)
@@ -128,7 +160,11 @@ def _resolve_scene_path(scene: SceneCfg) -> Path:
 
 
 class DrakeBackend(SimBackend):
-    """Public UniLab Drake adapter backed by the DrakeUni batch runtime."""
+    """Single public Drake backend implementation.
+
+    Only the DrakeUni batch path is supported. The class directly owns the
+    DrakeUni runtime; there is no inner ``_impl`` object or second batch backend.
+    """
 
     backend_type = "drake"
 
@@ -139,9 +175,15 @@ class DrakeBackend(SimBackend):
         sim_dt: float,
         *,
         drake_backend_mode: str = "batch",
+        base_name: str | None = None,
+        push_body_name: str | None = None,
+        position_actuator_gains: dict[str, float] | None = None,
         nthread: int = 0,
-        **kwargs: Any,
+        robot_profile: str | None = None,
+        **_: Any,
     ) -> None:
+        # Keep the public knob explicit even though only one mode currently
+        # exists. That gives config errors a clear failure point.
         mode = str(drake_backend_mode or "batch").strip().lower()
         if mode != "batch":
             raise ValueError(
@@ -154,241 +196,10 @@ class DrakeBackend(SimBackend):
                 "been imported in this process. Start a fresh process before "
                 "constructing DrakeBackend."
             )
-        self._impl: SimBackend = _DrakeUniBatchBackend(
-            scene,
-            num_envs,
-            sim_dt,
-            nthread=nthread,
-            **kwargs,
-        )
-        self._pre_step_control_fn = None
-        self._scene_cleanup_handle = None
-
-    def diagnostics(self) -> Any:
-        diagnostics = getattr(self._impl, "diagnostics", None)
-        if diagnostics is None:
-            return {"mode": "batch", "available": False}
-        return diagnostics()
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._impl, name)
-
-    @property
-    def scene_model_file(self) -> str:
-        return self._impl.scene_model_file
-
-    @property
-    def num_envs(self) -> int:
-        return self._impl.num_envs
-
-    @property
-    def nthread(self) -> int:
-        return int(getattr(self._impl, "nthread", 0))
-
-    @property
-    def model(self):
-        return self._impl.model
-
-    @property
-    def num_actuators(self) -> int:
-        return self._impl.num_actuators
-
-    @property
-    def num_dof_vel(self) -> int:
-        return self._impl.num_dof_vel
-
-    def get_actuator_ctrl_range(self) -> np.ndarray:
-        return self._impl.get_actuator_ctrl_range()
-
-    def get_joint_range(self) -> np.ndarray | None:
-        return self._impl.get_joint_range()
-
-    def get_keyframe_qpos(self, name: str) -> np.ndarray:
-        return self._impl.get_keyframe_qpos(name)
-
-    def get_default_qpos(self) -> np.ndarray:
-        return self._impl.get_default_qpos()
-
-    def get_init_qvel(self) -> np.ndarray:
-        return self._impl.get_init_qvel()
-
-    def get_actuator_gains(self) -> tuple[np.ndarray, np.ndarray]:
-        return self._impl.get_actuator_gains()
-
-    def get_body_ids(self, names: Sequence[str]) -> np.ndarray:
-        return self._impl.get_body_ids(names)
-
-    def step(self, ctrl: np.ndarray, nsteps: int = 1) -> dict | None:
-        return self._impl.step(ctrl, nsteps)
-
-    def set_pre_step_control(self, fn: Callable[[Any, np.ndarray], np.ndarray] | None) -> None:
-        self._pre_step_control_fn = fn
-        self._impl.set_pre_step_control(fn)
-
-    def set_state(
-        self,
-        env_indices: np.ndarray,
-        qpos: np.ndarray,
-        qvel: np.ndarray,
-        randomization: ResetRandomizationPayload | None = None,
-    ) -> None:
-        self._impl.set_state(env_indices, qpos, qvel, randomization)
-
-    def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
-        return self._impl.get_dr_capabilities()
-
-    def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
-        self._impl.apply_interval_randomization(plan)
-
-    def get_play_capabilities(self) -> BackendPlayCapabilities:
-        return self._impl.get_play_capabilities()
-
-    def resolve_play_render_plan(
-        self,
-        *,
-        play_render_mode: str | None,
-        play_steps: int | None,
-        output_video: str | PathLike[str] | None,
-    ) -> BackendPlayRenderPlan:
-        return self._impl.resolve_play_render_plan(
-            play_render_mode=play_render_mode,
-            play_steps=play_steps,
-            output_video=output_video,
-        )
-
-    def run_playback(
-        self,
-        *,
-        env: Any,
-        initialize: Callable[[], Any],
-        step: Callable[[Any], Any],
-        num_steps: int | None,
-        output_video: str | PathLike[str] | None = None,
-        render_spacing: float | None = None,
-        render_offset_mode: str | None = None,
-        headless: bool | None = None,
-        record_video: bool | None = None,
-        frame_state_getter: Callable[[], np.ndarray] | None = None,
-        camera_kwargs: dict[str, Any] | None = None,
-        extra_data_getter: Callable[[], np.ndarray | None] | None = None,
-    ) -> str | None:
-        return self._impl.run_playback(
-            env=env,
-            initialize=initialize,
-            step=step,
-            num_steps=num_steps,
-            output_video=output_video,
-            render_spacing=render_spacing,
-            render_offset_mode=render_offset_mode,
-            headless=headless,
-            record_video=record_video,
-            frame_state_getter=frame_state_getter,
-            camera_kwargs=camera_kwargs,
-            extra_data_getter=extra_data_getter,
-        )
-
-    def init_renderer(
-        self,
-        spacing: float = 1.0,
-        *,
-        offset_mode: str = "grid",
-        headless: bool = False,
-        capture: bool = False,
-        width: int = 1280,
-        height: int = 720,
-        camera_kwargs: dict[str, Any] | None = None,
-    ) -> None:
-        self._impl.init_renderer(
-            spacing=spacing,
-            offset_mode=offset_mode,
-            headless=headless,
-            capture=capture,
-            width=width,
-            height=height,
-            camera_kwargs=camera_kwargs,
-        )
-
-    def render(self) -> None:
-        self._impl.render()
-
-    def capture_video_frame(self) -> np.ndarray:
-        return self._impl.capture_video_frame()
-
-    def get_physics_state(self) -> np.ndarray:
-        return self._impl.get_physics_state()
-
-    def get_playback_model(self, env_index: int | None = None) -> Any:
-        return self._impl.get_playback_model(env_index)
-
-    def cleanup_scene_assets(self) -> None:
-        self._impl.cleanup_scene_assets()
-
-    def get_base_pos(self) -> np.ndarray:
-        return self._impl.get_base_pos()
-
-    def get_base_quat(self) -> np.ndarray:
-        return self._impl.get_base_quat()
-
-    def get_base_lin_vel(self) -> np.ndarray:
-        return self._impl.get_base_lin_vel()
-
-    def get_base_ang_vel(self) -> np.ndarray:
-        return self._impl.get_base_ang_vel()
-
-    def get_dof_pos(self) -> np.ndarray:
-        return self._impl.get_dof_pos()
-
-    def get_dof_vel(self) -> np.ndarray:
-        return self._impl.get_dof_vel()
-
-    def get_body_pos_w(self, body_ids: np.ndarray) -> np.ndarray:
-        return self._impl.get_body_pos_w(body_ids)
-
-    def get_body_quat_w(self, body_ids: np.ndarray) -> np.ndarray:
-        return self._impl.get_body_quat_w(body_ids)
-
-    def get_body_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
-        return self._impl.get_body_lin_vel_w(body_ids)
-
-    def get_body_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
-        return self._impl.get_body_ang_vel_w(body_ids)
-
-    def get_body_pos_b(self, body_ids: np.ndarray) -> np.ndarray:
-        return self._impl.get_body_pos_b(body_ids)
-
-    def get_body_quat_b(self, body_ids: np.ndarray) -> np.ndarray:
-        return self._impl.get_body_quat_b(body_ids)
-
-    def get_body_lin_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
-        return self._impl.get_body_lin_vel_b(body_ids)
-
-    def get_body_ang_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
-        return self._impl.get_body_ang_vel_b(body_ids)
-
-    def get_sensor_data(self, name: str) -> np.ndarray:
-        return self._impl.get_sensor_data(name)
-
-
-class _DrakeUniBatchBackend(SimBackend):
-    """DrakeUni-backed UniLab contract adapter."""
-
-    backend_type = "drake"
-
-    def __init__(
-        self,
-        scene: SceneCfg,
-        num_envs: int,
-        sim_dt: float,
-        *,
-        base_name: str | None = None,
-        push_body_name: str | None = None,
-        position_actuator_gains: dict[str, float] | None = None,
-        nthread: int = 0,
-        robot_profile: str | None = None,
-        **_: Any,
-    ) -> None:
         if int(num_envs) < 1:
             raise ValueError(f"DrakeUni batch backend requires num_envs >= 1, got {num_envs}")
+        # These task identity fields replace the old hidden Go1 assumptions.
+        # UniLab task configs must say which body/profile DrakeUni should use.
         if not robot_profile:
             raise ValueError("DrakeUni batch backend requires a robot_profile from the task.")
         if not base_name:
@@ -413,6 +224,8 @@ class _DrakeUniBatchBackend(SimBackend):
         self._robot_profile = str(robot_profile)
         self._pending_push_force = np.zeros((self._num_envs, 3), dtype=np.float64)
 
+        # This config is the UniLab-to-DrakeUni handoff: UniLab supplies the
+        # task identity and runtime dimensions, while DrakeUni owns physics.
         config = DrakeRuntimeConfig(
             model_file=self._scene_model_file,
             num_envs=self._num_envs,
@@ -427,6 +240,8 @@ class _DrakeUniBatchBackend(SimBackend):
         )
         self._runtime = create_drake_runtime(config)
         model_info = self._runtime.model_info()
+        # Cache static model metadata once. The simple getters below expose
+        # these cached arrays to UniLab while protecting them with copy().
         self._home_qpos_mujoco = model_info.home_qpos.copy()
         self._home_qvel_mujoco = model_info.home_qvel.copy()
         self._ctrl_limits = model_info.ctrl_limits.copy()
@@ -439,10 +254,16 @@ class _DrakeUniBatchBackend(SimBackend):
             nu=int(model_info.nu),
         )
         self._nthread = int(getattr(self._runtime, "nthread", int(nthread)))
+        # Runtime state and sensor packets are refreshed after reset/step.
         self._physics_state = self._runtime.physics_state()
         self._sensor_packet: dict[str, np.ndarray] = {}
         self._sync_runtime_state()
 
+    # Static model contract.
+    #
+    # These accessors intentionally look boring: the expensive/model-specific
+    # work happened in DrakeUni during construction, and UniLab now only needs
+    # stable dimensions, limits, and reset defaults.
     @property
     def scene_model_file(self) -> str:
         return self._scene_model_file
@@ -467,6 +288,8 @@ class _DrakeUniBatchBackend(SimBackend):
     def num_dof_vel(self) -> int:
         return self._model.nv - ROOT_QVEL_DIM
 
+    # Return copies for arrays that UniLab may clamp, concatenate, or normalize.
+    # The backend cache should not be mutated by task-side code.
     def get_actuator_ctrl_range(self) -> np.ndarray:
         return self._ctrl_limits.copy()
 
@@ -474,6 +297,8 @@ class _DrakeUniBatchBackend(SimBackend):
         return self._joint_ranges.copy()
 
     def get_keyframe_qpos(self, name: str) -> np.ndarray:
+        # DrakeUni currently materializes the task's home pose as the only
+        # backend-level keyframe exposed through the UniLab contract.
         if name != "home":
             raise KeyError(f"DrakeUni batch backend only exposes keyframe 'home', got {name!r}")
         return self._home_qpos_mujoco.copy()
@@ -485,15 +310,22 @@ class _DrakeUniBatchBackend(SimBackend):
         return self._home_qvel_mujoco.copy()
 
     def get_actuator_gains(self) -> tuple[np.ndarray, np.ndarray]:
+        # UniLab expects per-actuator gain vectors. DrakeUni receives scalar
+        # task gains today, so expand them to the actuator dimension here.
         return (
             np.full(self.num_actuators, self._kp, dtype=np.float64),
             np.full(self.num_actuators, self._kd, dtype=np.float64),
         )
 
     def get_body_ids(self, names: Sequence[str]) -> np.ndarray:
+        # Body IDs are owned by DrakeUni because they depend on the materialized
+        # Drake model, not on UniLab's scene pointer.
         return self._runtime.body_ids(tuple(str(name) for name in names))
 
+    # Stepping and reset.
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> dict | None:
+        # UniLab passes one actuator command per env. An optional pre-step hook
+        # can convert policy actions into backend-native position targets.
         values = np.asarray(ctrl, dtype=np.float64)
         if values.shape != (self._num_envs, self.num_actuators):
             raise ValueError(
@@ -516,6 +348,8 @@ class _DrakeUniBatchBackend(SimBackend):
         qvel: np.ndarray,
         randomization: ResetRandomizationPayload | None = None,
     ) -> None:
+        # Reset is the handoff from UniLab's sampled state tensors into
+        # DrakeUni's per-env runtime contexts.
         if randomization is not None and not randomization.is_empty():
             raise NotImplementedError("DrakeUni batch backend does not apply reset randomization yet")
         indices = np.asarray(env_indices, dtype=np.int32)
@@ -534,7 +368,10 @@ class _DrakeUniBatchBackend(SimBackend):
         self._runtime.reset(indices, qpos_rows, qvel_rows)
         self._sync_runtime_state()
 
+    # Playback and domain randomization.
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
+        # At this milestone Drake supports interval push forces only. Other
+        # randomization knobs must fail loudly instead of silently no-oping.
         return DomainRandomizationCapabilities(supports_interval_push=True)
 
     def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
@@ -549,6 +386,8 @@ class _DrakeUniBatchBackend(SimBackend):
             )
 
     def get_play_capabilities(self) -> BackendPlayCapabilities:
+        # Drake advances playback physics, while the shared playback helper
+        # handles recording. There is no native interactive Drake viewer path.
         return BackendPlayCapabilities(
             supports_native_interactive_renderer=False,
             supports_physics_state_playback=True,
@@ -601,6 +440,8 @@ class _DrakeUniBatchBackend(SimBackend):
         camera_kwargs: dict[str, Any] | None = None,
         extra_data_getter: Callable[[], np.ndarray | None] | None = None,
     ) -> str | None:
+        # Playback keeps Drake as the physics backend. The helper owns rendering
+        # and video capture so training code can use one playback contract.
         return run_drake_playback(
             env=env,
             initialize=initialize,
@@ -636,6 +477,27 @@ class _DrakeUniBatchBackend(SimBackend):
     def capture_video_frame(self) -> np.ndarray:
         raise NotImplementedError("DrakeUni batch backend records through run_playback")
 
+    # Runtime state getters.
+    #
+    # ``physics_state`` is DrakeUni's compact per-env packet used by playback
+    # and debugging. Sensor-specific getters below expose named slices/packets.
+    def get_physics_state(self) -> np.ndarray:
+        return self._physics_state.copy()
+
+    def get_playback_model(self, env_index: int | None = None) -> str:
+        if env_index is not None:
+            idx = int(env_index)
+            if idx < 0 or idx >= self._num_envs:
+                raise IndexError(f"env_index must be in [0, {self._num_envs - 1}], got {idx}")
+        return self._scene_model_file
+
+    def diagnostics(self) -> Any:
+        return self._runtime.diagnostics()
+
+    # Sensor access.
+    #
+    # The task code consumes backend-neutral names such as base_pos, gyro, and
+    # dof_pos. DrakeUni computes those packets; this class only copies them out.
     def get_base_pos(self) -> np.ndarray:
         return self._sensor_packet["base_pos"].copy()
 
@@ -657,6 +519,8 @@ class _DrakeUniBatchBackend(SimBackend):
         return self._sensor_packet["dof_vel"].copy()
 
     def get_body_pos_w(self, body_ids: np.ndarray) -> np.ndarray:
+        # Current locomotion tasks only need configured base-body kinematics
+        # through this body API. Other body queries should fail explicitly.
         self._require_base_body_only(body_ids)
         return np.repeat(self.get_base_pos()[:, None, :], len(body_ids), axis=1)
 
@@ -695,20 +559,9 @@ class _DrakeUniBatchBackend(SimBackend):
             return self._sensor_packet[name].copy()
         raise KeyError(f"Unknown DrakeUni sensor: {name}")
 
-    def get_physics_state(self) -> np.ndarray:
-        return self._physics_state.copy()
-
-    def get_playback_model(self, env_index: int | None = None) -> str:
-        if env_index is not None:
-            idx = int(env_index)
-            if idx < 0 or idx >= self._num_envs:
-                raise IndexError(f"env_index must be in [0, {self._num_envs - 1}], got {idx}")
-        return self._scene_model_file
-
-    def diagnostics(self) -> Any:
-        return self._runtime.diagnostics()
-
+    # Internal helpers.
     def _sync_runtime_state(self, output: dict[str, Any] | None = None) -> None:
+        # Keep UniLab's cached state/sensor contract aligned after every DrakeUni update.
         if output is None:
             self._physics_state = self._runtime.physics_state()
             packet = {name: self._runtime.sensor(name) for name in self._sensor_names}
@@ -722,6 +575,8 @@ class _DrakeUniBatchBackend(SimBackend):
         self._sensor_packet = packet
 
     def _require_base_body_only(self, body_ids: np.ndarray) -> None:
+        """Guard body-kinematics methods that only expose the configured base."""
+
         ids = np.asarray(body_ids, dtype=np.int32)
         if ids.ndim != 1:
             raise ValueError(f"body_ids must be one-dimensional, got {ids.shape}")
@@ -732,6 +587,8 @@ class _DrakeUniBatchBackend(SimBackend):
             )
 
     def _sample_push_force(self, force_range: Sequence[float] | np.ndarray) -> np.ndarray:
+        """Sample one bounded world-frame push force per env."""
+
         limit = np.asarray(force_range, dtype=np.float64)
         if limit.shape != (3,):
             raise ValueError(f"DrakeUni push force range must have shape (3,), got {limit.shape}")
