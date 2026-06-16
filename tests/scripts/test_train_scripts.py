@@ -703,6 +703,25 @@ def test_ppo_go1_drake_batch_config_matches_current_contact_support():
     assert "contact" not in cfg.reward.scales
 
 
+def test_ppo_go2_drake_batch_config_matches_go2_training_defaults():
+    cfg = _ppo_cfg(["task=go2_joystick_flat/drake"])
+
+    assert cfg.training.task_name == "Go2JoystickFlat"
+    assert cfg.training.sim_backend == "drake"
+    assert cfg.algo.num_envs == 1024
+    assert cfg.algo.max_iterations == 151
+    assert cfg.algo.empirical_normalization is True
+    assert cfg.algo.policy.init_noise_std == pytest.approx(0.5)
+    assert cfg.algo.algorithm.learning_rate == pytest.approx(3.0e-4)
+    assert cfg.algo.algorithm.entropy_coef == pytest.approx(1.0e-3)
+    assert cfg.env.drake_backend_mode == "batch"
+    assert cfg.env.drake_nthread == 0
+    assert cfg.env.scene.model_file == "src/unilab/assets/robots/go2/scene_flat.xml"
+    assert cfg.env.domain_rand.randomize_kp is False
+    assert cfg.env.domain_rand.randomize_kd is False
+    assert cfg.reward.scales.contact == pytest.approx(0.24)
+
+
 def test_build_ppo_env_cfg_override_go1_motrix(
     monkeypatch: pytest.MonkeyPatch,
 ):
