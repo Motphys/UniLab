@@ -1,0 +1,27 @@
+# @package _global_
+training:
+  task_name: Go1JoystickFlat2
+  sim_backend: mujoco
+algo:
+  num_envs: 2048
+  max_iterations: 10000
+env:
+  control_config:
+    action_scale: 0.4
+  domain_rand:
+    push_robots: true
+    max_force: [100,100,50]
+reward:
+  scales:
+    tracking_lin_vel: 1.0
+    tracking_ang_vel: 0.5
+    feet_air_time: 0.25
+    lin_vel_z: -2.0
+    ang_vel_xy: -0.05
+    action_rate: -0.02
+    torques: -2.0e-4
+    orientation: -2.0
+    dof_acc: -2.5e-7
+    feet_clearance: 0.25
+  tracking_sigma: 0.25
+  feet_air_time_threshold: 0.5
