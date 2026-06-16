@@ -538,6 +538,75 @@ def test_create_backend_batch_mode_avoids_pydrake_and_steps() -> None:
         qvel = np.stack([backend.get_init_qvel() for _ in range(2)])
         backend.set_state(np.arange(2, dtype=np.int32), qpos, qvel)
         backend.step(backend.get_dof_pos(), nsteps=2)
+        for _ in range(100):
+            backend.step(backend.get_dof_pos(), nsteps=1)
+        diagnostics = backend.diagnostics()
+        foot_contact = backend.get_sensor_data("FL_foot_contact")
+        summary = {
+            "cls": type(backend).__name__,
+            "state_shape": list(backend.get_physics_state().shape),
+            "base_shape": list(backend.get_base_pos().shape),
+            "foot_shape": list(backend.get_sensor_data("FL_pos").shape),
+            "contact_shape": list(foot_contact.shape),
+            "contact_nonzero": bool(np.max(np.abs(foot_contact)) > 0.0),
+            "diagnostic_mode": diagnostics.mode,
+            "nthread": backend.nthread,
+            "workspace_count": diagnostics.workspace_count,
+            "time": np.round(backend.get_physics_state()[:, 0], decimals=6).tolist(),
+            "pydrake_loaded": "pydrake" in sys.modules,
+        }
+        print(json.dumps(summary, sort_keys=True))
+        """
+    )
+    summary = json.loads(output.strip().splitlines()[-1])
+    assert summary == {
+        "base_shape": [2, 3],
+        "cls": "DrakeBackend",
+        "contact_shape": [2, 3],
+        "contact_nonzero": True,
+        "diagnostic_mode": "batch",
+        "foot_shape": [2, 3],
+        "nthread": 2,
+        "pydrake_loaded": False,
+        "state_shape": [2, 38],
+        "time": [1.02, 1.02],
+        "workspace_count": 2,
+    }
+
+
+@pytest.mark.skipif(
+    not _batch_extension_built(),
+    reason="optional Drake batch extension has not been built",
+)
+def test_create_go2_backend_batch_mode_avoids_pydrake_and_steps() -> None:
+    output = _run_clean_python(
+        """
+        import json
+        import sys
+
+        import numpy as np
+
+        from unilab.assets import ASSETS_ROOT_PATH
+        from unilab.base.backend import create_backend
+        from unilab.base.scene import SceneCfg
+
+        assert "pydrake" not in sys.modules
+        backend = create_backend(
+            "drake",
+            SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go2/scene_flat.xml")),
+            2,
+            0.01,
+            base_name="base",
+            drake_backend_mode="batch",
+            drake_nthread=2,
+            robot_profile="go2",
+            position_actuator_gains={"kp": 35.0, "kd": 0.5},
+        )
+        assert "pydrake" not in sys.modules
+        qpos = np.stack([backend.get_keyframe_qpos("home") for _ in range(2)])
+        qvel = np.stack([backend.get_init_qvel() for _ in range(2)])
+        backend.set_state(np.arange(2, dtype=np.int32), qpos, qvel)
+        backend.step(backend.get_dof_pos(), nsteps=2)
         diagnostics = backend.diagnostics()
         summary = {
             "cls": type(backend).__name__,

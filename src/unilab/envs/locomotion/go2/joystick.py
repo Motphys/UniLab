@@ -94,6 +94,7 @@ class Go2JoystickDomainRandomizationProvider(LocomotionDRProvider):
 
 @registry.env("Go2JoystickFlat", sim_backend="mujoco")
 @registry.env("Go2JoystickFlat", sim_backend="motrix")
+@registry.env("Go2JoystickFlat", sim_backend="drake")
 class Go2WalkTask(Go2BaseEnv):
     _cfg: Go2JoystickCfg
 
@@ -114,6 +115,9 @@ class Go2WalkTask(Go2BaseEnv):
             push_body_name=cfg.domain_rand.push_body_name,
             position_actuator_gains={"kp": cfg.control_config.Kp, "kd": cfg.control_config.Kd},
             **env_backend_kwargs(cfg),
+            drake_backend_mode=cfg.drake_backend_mode,
+            drake_nthread=cfg.drake_nthread,
+            robot_profile="go2",
         )
         self._terrain_surface_sampler = getattr(backend, "terrain_surface_sampler", None)
         self._terrain_surface_sample_height = self._resolve_terrain_surface_sample_height()
