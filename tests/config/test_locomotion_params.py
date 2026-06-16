@@ -624,11 +624,13 @@ def test_ppo_x2_wall_flip_tracking():
     assert cfg.training.task_name == "X2WallFlipTracking"
     assert cfg.training.sim_backend == "mujoco"
     assert cfg.algo.num_envs == 1024
-    assert cfg.algo.max_iterations == 20000
+    assert cfg.algo.max_iterations == 9500
     assert cfg.algo.empirical_normalization is True
     assert cfg.algo.obs_groups.critic == ["critic"]
     assert cfg.algo.algorithm.entropy_coef == pytest.approx(0.005)
     assert cfg.algo.algorithm.desired_kl == pytest.approx(0.01)
+    # The `wallflip2` demo relies on the owner config defaulting to policy playback.
+    assert cfg.interactive.action_mode == "policy"
     assert cfg.env.sampling_mode == "start"
     assert cfg.env.truncate_on_clip_end is False
     assert cfg.env.sim_dt == pytest.approx(0.005)
