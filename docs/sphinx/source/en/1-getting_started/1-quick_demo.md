@@ -56,14 +56,22 @@ uv run eval --algo ppo --task go2_joystick_flat --sim motrix \
 uv run demo dance
 ```
 
-Available demo names: `teaser`, `dance`, `wallflip`, `boxtracking`, `locomani`, `inhandgrasp`.
+Available demo names: `teaser`, `dance`, `wallflip`, `wallflip2`, `boxtracking`, `locomani`, `inhandgrasp`.
 
-Mainland China users: motions, scenes, and demo checkpoints come from Hugging
-Face on first run. If `huggingface.co` is unreachable, switch to the community
-mirror before running training, eval, or demo commands:
+Mainland China users: motions, scenes, robot meshes, and demo checkpoints come
+from Hugging Face on first run. If `huggingface.co` is unreachable, switch to the
+community mirror before running training, eval, or demo commands:
 
 ```bash
 export HF_ENDPOINT=https://hf-mirror.com
+```
+
+X2 robot meshes auto-download from Hugging Face (`unilabsim/unilab-robots`) into
+`src/unilab/assets/robots/x2/meshes/` on first run; no manual step is needed. To
+pre-fetch them:
+
+```bash
+uv run unilab-pull-assets --robot x2
 ```
 
 On macOS, the CLI routes Motrix interactive playback through `mxpython` when

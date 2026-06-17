@@ -222,7 +222,7 @@ def _build_mujoco_scene_context(scene: SceneCfg) -> _MuJoCoSceneContext:
             return _MuJoCoSceneContext(
                 model_source=scene.model_file,
                 model_file=scene.model_file,
-                visual_model_file=scene.model_file,
+                visual_model_file=scene.visual_model_file or scene.model_file,
             )
         model_source = materialize_scene_fragments(
             scene.model_file,

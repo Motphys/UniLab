@@ -16,6 +16,9 @@ Usage:
 
     # Slow-motion (0.5x speed)
     uv run scripts/motion/replay_npz.py --npz_file motion.npz --speed 0.5
+
+Controls:
+    Space: pause/resume
 """
 
 # pyright: reportAttributeAccessIssue=false, reportReturnType=false
@@ -33,8 +36,8 @@ from unilab.assets import ASSETS_ROOT_PATH
 
 def load_npz(npz_file: str) -> dict[str, np.ndarray]:
     """Load NPZ motion file and return arrays as a dict."""
-    data = np.load(npz_file)
-    return {
+    data = np.load(npz_file, allow_pickle=True)
+    motion = {
         "fps": int(data["fps"][0]),
         "joint_pos": data["joint_pos"],
         "joint_vel": data["joint_vel"],
@@ -43,6 +46,9 @@ def load_npz(npz_file: str) -> dict[str, np.ndarray]:
         "body_lin_vel_w": data["body_lin_vel_w"],
         "body_ang_vel_w": data["body_ang_vel_w"],
     }
+    if "joint_names" in data:
+        motion["joint_names"] = data["joint_names"]
+    return motion
 
 
 def default_model_path() -> str:
@@ -50,38 +56,57 @@ def default_model_path() -> str:
     return str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
 
 
-# G1 joint names matching csv_to_npz.py order
-G1_JOINT_NAMES = [
-    "left_hip_pitch_joint",
-    "left_hip_roll_joint",
-    "left_hip_yaw_joint",
-    "left_knee_joint",
-    "left_ankle_pitch_joint",
-    "left_ankle_roll_joint",
-    "right_hip_pitch_joint",
-    "right_hip_roll_joint",
-    "right_hip_yaw_joint",
-    "right_knee_joint",
-    "right_ankle_pitch_joint",
-    "right_ankle_roll_joint",
-    "waist_yaw_joint",
-    "waist_roll_joint",
-    "waist_pitch_joint",
-    "left_shoulder_pitch_joint",
-    "left_shoulder_roll_joint",
-    "left_shoulder_yaw_joint",
-    "left_elbow_joint",
-    "left_wrist_roll_joint",
-    "left_wrist_pitch_joint",
-    "left_wrist_yaw_joint",
-    "right_shoulder_pitch_joint",
-    "right_shoulder_roll_joint",
-    "right_shoulder_yaw_joint",
-    "right_elbow_joint",
-    "right_wrist_roll_joint",
-    "right_wrist_pitch_joint",
-    "right_wrist_yaw_joint",
-]
+def model_scalar_joint_names(model: mujoco.MjModel) -> list[str]:
+    """Return non-free scalar joints in MuJoCo qpos order."""
+    joints: list[tuple[int, str]] = []
+    for joint_id in range(model.njnt):
+        if model.jnt_type[joint_id] == mujoco.mjtJoint.mjJNT_FREE:
+            continue
+
+        qpos_adr = int(model.jnt_qposadr[joint_id])
+        qvel_adr = int(model.jnt_dofadr[joint_id])
+        next_qpos_adr = int(model.nq)
+        next_qvel_adr = int(model.nv)
+        for other_id in range(model.njnt):
+            other_qpos_adr = int(model.jnt_qposadr[other_id])
+            other_qvel_adr = int(model.jnt_dofadr[other_id])
+            if other_qpos_adr > qpos_adr:
+                next_qpos_adr = min(next_qpos_adr, other_qpos_adr)
+            if other_qvel_adr > qvel_adr:
+                next_qvel_adr = min(next_qvel_adr, other_qvel_adr)
+
+        name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, joint_id)
+        if not name:
+            raise ValueError(f"Joint id {joint_id} has no name")
+        if next_qpos_adr - qpos_adr != 1 or next_qvel_adr - qvel_adr != 1:
+            raise ValueError(f"Joint '{name}' is not a scalar joint")
+        joints.append((qpos_adr, name))
+    return [name for _, name in sorted(joints)]
+
+
+def resolve_motion_joint_names(
+    motion: dict[str, np.ndarray],
+    model: mujoco.MjModel,
+    num_joints: int,
+) -> list[str]:
+    """Resolve the joint-name order used by joint_pos/joint_vel columns."""
+    if "joint_names" in motion:
+        names = [str(name) for name in motion["joint_names"].tolist()]
+        if len(names) != num_joints:
+            raise ValueError(
+                f"NPZ joint_names length ({len(names)}) does not match joint_pos width ({num_joints})"
+            )
+        print("Joint order: NPZ joint_names")
+        return names
+
+    names = model_scalar_joint_names(model)
+    if len(names) != num_joints:
+        raise ValueError(
+            "NPZ has no joint_names and joint_pos width does not match model scalar joints "
+            f"({num_joints} vs {len(names)})."
+        )
+    print("Joint order: model qpos order (NPZ has no joint_names)")
+    return names
 
 
 def replay(args):
@@ -103,21 +128,18 @@ def replay(args):
 
     model = mujoco.MjModel.from_xml_path(model_file)
     data = mujoco.MjData(model)
+    num_joints = joint_pos.shape[1]
+    joint_names = resolve_motion_joint_names(motion, model, num_joints)
 
     # Resolve joint qpos/qvel addresses
     joint_qpos_adr = []
     joint_qvel_adr = []
-    for name in G1_JOINT_NAMES:
+    for name in joint_names:
         jnt_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name)
         if jnt_id < 0:
-            print(f"Warning: joint '{name}' not found in model, skipping")
-            joint_qpos_adr.append(None)
-            joint_qvel_adr.append(None)
-        else:
-            joint_qpos_adr.append(model.jnt_qposadr[jnt_id])
-            joint_qvel_adr.append(model.jnt_dofadr[jnt_id])
-
-    num_joints = joint_pos.shape[1]
+            raise ValueError(f"Motion joint '{name}' is not found in model")
+        joint_qpos_adr.append(model.jnt_qposadr[jnt_id])
+        joint_qvel_adr.append(model.jnt_dofadr[jnt_id])
 
     def set_frame(frame_idx: int):
         """Set MuJoCo data to the given motion frame."""
@@ -134,26 +156,49 @@ def replay(args):
             pass
 
         # Set joint positions and velocities
-        for j in range(min(num_joints, len(G1_JOINT_NAMES))):
-            if joint_qpos_adr[j] is not None:
-                data.qpos[joint_qpos_adr[j]] = joint_pos[frame_idx, j]
-            if joint_qvel_adr[j] is not None:
-                data.qvel[joint_qvel_adr[j]] = joint_vel[frame_idx, j]
+        for j in range(num_joints):
+            data.qpos[joint_qpos_adr[j]] = joint_pos[frame_idx, j]
+            data.qvel[joint_qvel_adr[j]] = joint_vel[frame_idx, j]
 
         # Run forward kinematics (no dynamics) to update body positions for rendering
         mujoco.mj_forward(model, data)
 
+    paused = False
+    last_status = ""
+
+    def print_frame_status(frame_idx: int) -> None:
+        nonlocal last_status
+        status = "paused" if paused else "playing"
+        message = f"Frame: {frame_idx + 1}/{num_frames} ({status})"
+        if message != last_status:
+            print(f"\r{message}", end="", flush=True)
+            last_status = message
+
+    def on_key(keycode: int) -> None:
+        nonlocal last_status, paused
+        if keycode == ord(" "):
+            paused = not paused
+            print()
+            print(f"{'Paused' if paused else 'Resumed'} playback.")
+            last_status = ""
+
     print("Opening viewer — close window or press Esc to quit.")
+    print("Controls: Space=pause/resume")
     if args.loop:
         print("Looping enabled.")
 
-    with mujoco.viewer.launch_passive(model, data) as viewer:
+    with mujoco.viewer.launch_passive(model, data, key_callback=on_key) as viewer:
         frame = 0
         while viewer.is_running():
             t0 = time.perf_counter()
 
             set_frame(frame)
             viewer.sync()
+            print_frame_status(frame)
+
+            if paused:
+                time.sleep(0.05)
+                continue
 
             frame += 1
             if frame >= num_frames:
@@ -161,10 +206,10 @@ def replay(args):
                     frame = 0
                 else:
                     print("Playback finished.")
-                    # Keep viewer open at last frame
-                    while viewer.is_running():
-                        time.sleep(0.05)
-                    break
+                    frame = num_frames - 1
+                    paused = True
+                    print()
+                    last_status = ""
 
             # Real-time pacing adjusted by speed factor
             target_dt = dt / args.speed
@@ -172,6 +217,7 @@ def replay(args):
             if target_dt - elapsed > 0:
                 time.sleep(target_dt - elapsed)
 
+    print()
     print("Done.")
 
 

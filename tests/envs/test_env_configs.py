@@ -56,15 +56,18 @@ def test_registry_bootstrap_and_config_imports_do_not_require_mujoco():
             G1MotionTrackingCfg,
             G1MotionTrackingDeployEnvCfg,
         )
+        from unilab.envs.motion_tracking.x2 import X2WallFlipTrackingCfg
         from unilab.base.registry import ensure_registries
 
         ensure_registries()
         assert callable(create_backend)
         assert registry.contains("G1MotionTracking")
         assert registry.contains("G1MotionTrackingDeploy")
+        assert registry.contains("X2WallFlipTracking")
         assert registry.contains("AllegroInhandRotation")
         G1MotionTrackingCfg()
         G1MotionTrackingDeployEnvCfg()
+        X2WallFlipTrackingCfg()
         AllegroRotationCfg()
         """
     )
@@ -1356,6 +1359,30 @@ def test_g1_wall_flip_tracking_cfg_uses_wall_flip_profile():
 
     assert cfg.scene.model_file.endswith("scene_flat_with_wall.xml")
     assert str(cfg.motion_file).endswith("flip_from_wall_104__A304.npz")
+    assert cfg.pose_randomization.x == (0.0, 0.0)
+    assert cfg.velocity_randomization.x == (0.0, 0.0)
+    assert cfg.joint_position_range == (0.0, 0.0)
+    assert cfg.truncate_on_clip_end is False
+    assert cfg.anchor_ori_threshold == pytest.approx(1e9)
+    assert cfg.anchor_pos_z_threshold == pytest.approx(0.5)
+    assert cfg.ee_body_pos_z_threshold == pytest.approx(0.5)
+    assert cfg.terminate_on_undesired_contacts is True
+    assert cfg.sampling_mode == "adaptive"
+
+
+def test_x2_wall_flip_tracking_cfg_uses_x2_wall_flip_profile():
+    from unilab.envs.motion_tracking.x2 import X2WallFlipTrackingCfg
+
+    cfg = X2WallFlipTrackingCfg()
+
+    assert cfg.scene.model_file.endswith("scene_flat_with_wall.xml")
+    assert str(cfg.motion_file).endswith("tictacflip_6-3_g1format.npz")
+    assert cfg.sensor.local_linvel == "body-linear-vel"
+    assert cfg.sensor.gyro == "body-angular-velocity"
+    assert cfg.anchor_body_name == "torso_link"
+    assert cfg.body_names[0] == "pelvis"
+    assert cfg.body_names[-1] == "right_wrist_roll_link"
+    assert len(cfg.body_names) == 30
     assert cfg.pose_randomization.x == (0.0, 0.0)
     assert cfg.velocity_randomization.x == (0.0, 0.0)
     assert cfg.joint_position_range == (0.0, 0.0)

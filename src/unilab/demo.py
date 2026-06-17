@@ -29,6 +29,9 @@ class DemoSpec:
 DEMO_REGISTRY: dict[str, DemoSpec] = {
     "dance": DemoSpec(algo="ppo", task="g1_motion_tracking", sim="motrix", entry="eval"),
     "wallflip": DemoSpec(algo="ppo", task="g1_wall_flip_tracking", sim="motrix", entry="eval"),
+    "wallflip2": DemoSpec(
+        algo="ppo", task="x2_wall_flip_tracking", sim="mujoco", entry="play_interactive"
+    ),
     "boxtracking": DemoSpec(algo="ppo", task="g1_box_tracking", sim="motrix", entry="eval"),
     "locomani": DemoSpec(
         algo="ppo", task="go2_arm_manip_loco", sim="mujoco", entry="play_interactive"

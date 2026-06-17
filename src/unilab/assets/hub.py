@@ -24,6 +24,7 @@ _HF_MOTIONS_REPO_ID = "unilabsim/unilab-motions"
 _HF_CACHES_REPO_ID = "unilabsim/unilab-caches"
 _HF_SCENES_REPO_ID = "unilabsim/unilab-scenes"
 _HF_CHECKPOINTS_REPO_ID = "unilabsim/unilab-checkpoints"
+_HF_ROBOTS_REPO_ID = "unilabsim/unilab-robots"
 _HF_REPO_TYPE = "dataset"
 _HF_OFFICIAL_ENDPOINT = "https://huggingface.co"
 
@@ -190,12 +191,16 @@ def _snapshot_download(snapshot_download_fn, directory: str, *, repo_id: str) ->
     )
 
 
-def resolve_scene_dir(directory: str, *, marker: str = "teaser.xml") -> Path:
-    """Ensure a scene directory exists locally, downloading from HF if needed.
+def _resolve_snapshot_dir(directory: str, *, repo_id: str, marker: str) -> Path:
+    """Ensure an HF-hosted directory exists locally, downloading if needed.
+
+    If the current ``HF_ENDPOINT`` (e.g. a mirror) fails, automatically
+    retries with the official ``https://huggingface.co`` endpoint.
 
     Args:
         directory: ``ASSETS_ROOT_PATH``-relative directory path
-            (e.g. ``"scenes/teaser"``).
+            (e.g. ``"scenes/teaser"`` or ``"robots/x2/meshes"``).
+        repo_id: HF dataset repo to pull from.
         marker: A file inside the directory used to check completeness.
 
     Returns:
@@ -209,14 +214,13 @@ def resolve_scene_dir(directory: str, *, marker: str = "teaser.xml") -> Path:
         from huggingface_hub import snapshot_download
     except ImportError:
         raise ImportError(
-            f"Scene directory '{directory}' not found locally. "
+            f"Asset directory '{directory}' not found locally. "
             "Install huggingface_hub to enable automatic downloading:\n"
             "  uv sync\n"
             "Or:\n"
             "  uv pip install huggingface_hub"
         ) from None
 
-    repo_id = _HF_SCENES_REPO_ID
     logger.info("Downloading %s from HF repo %s ...", directory, repo_id)
 
     try:
@@ -238,5 +242,39 @@ def resolve_scene_dir(directory: str, *, marker: str = "teaser.xml") -> Path:
         else:
             raise
 
-    logger.info("Downloaded scene directory to %s", target)
+    logger.info("Downloaded directory to %s", target)
     return target
+
+
+def resolve_scene_dir(directory: str, *, marker: str = "teaser.xml") -> Path:
+    """Ensure a scene directory exists locally, downloading from HF if needed.
+
+    Args:
+        directory: ``ASSETS_ROOT_PATH``-relative directory path
+            (e.g. ``"scenes/teaser"``).
+        marker: A file inside the directory used to check completeness.
+
+    Returns:
+        Absolute ``Path`` to the resolved directory.
+    """
+    return _resolve_snapshot_dir(directory, repo_id=_HF_SCENES_REPO_ID, marker=marker)
+
+
+def resolve_robot_asset_dir(directory: str, *, marker: str) -> Path:
+    """Ensure a robot asset directory (e.g. meshes) exists locally.
+
+    Robot binary assets (STL meshes) are hosted on Hugging Face rather than
+    committed to git. They are downloaded on first use and placed under their
+    original path beneath ``ASSETS_ROOT_PATH`` so that XML ``meshdir``
+    references resolve unchanged — no files need to be moved by hand.
+
+    Args:
+        directory: ``ASSETS_ROOT_PATH``-relative directory path
+            (e.g. ``"robots/x2/meshes"``).
+        marker: A file inside the directory used to check completeness
+            (e.g. ``"pelvis.STL"``).
+
+    Returns:
+        Absolute ``Path`` to the resolved directory.
+    """
+    return _resolve_snapshot_dir(directory, repo_id=_HF_ROBOTS_REPO_ID, marker=marker)

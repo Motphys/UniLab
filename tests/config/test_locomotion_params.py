@@ -40,6 +40,7 @@ G1_BEYONDMIMIC_ACTION_SCALE = [
     0.07450087032950714,
     0.07450087032950714,
 ]
+X2_ACTION_SCALE = [0.25] * 29
 
 
 # ---------------------------------------------------------------------------
@@ -600,6 +601,40 @@ def test_ppo_g1_wall_flip_tracking():
     assert cfg.env.truncate_on_clip_end is False
     assert cfg.env.sim_dt == pytest.approx(0.005)
     assert list(cfg.env.control_config.action_scale) == pytest.approx(G1_BEYONDMIMIC_ACTION_SCALE)
+    assert cfg.env.anchor_pos_z_threshold == pytest.approx(0.5)
+    assert cfg.env.ee_body_pos_z_threshold == pytest.approx(0.5)
+    assert cfg.env.terminate_on_undesired_contacts is True
+    assert cfg.env.noise_config.level == pytest.approx(0.0)
+    assert cfg.reward.scales.motion_joint_pos == pytest.approx(0.5)
+    assert cfg.reward.scales.motion_joint_vel == pytest.approx(0.25)
+    assert cfg.reward.scales.motion_body_pos == pytest.approx(2.0)
+    assert cfg.reward.scales.motion_body_ori == pytest.approx(1.5)
+    assert cfg.reward.scales.motion_ee_body_pos_z == pytest.approx(2.0)
+    assert cfg.reward.scales.action_rate_l2 == pytest.approx(-0.005)
+    assert cfg.reward.scales.undesired_contacts == pytest.approx(-0.1)
+
+
+def test_ppo_x2_wall_flip_tracking():
+    from hydra import compose, initialize_config_dir
+    from hydra.core.global_hydra import GlobalHydra
+
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(CONF_DIR / "ppo"), version_base="1.3"):
+        cfg = compose("config", overrides=["task=x2_wall_flip_tracking/mujoco"])
+    assert cfg.training.task_name == "X2WallFlipTracking"
+    assert cfg.training.sim_backend == "mujoco"
+    assert cfg.algo.num_envs == 1024
+    assert cfg.algo.max_iterations == 9500
+    assert cfg.algo.empirical_normalization is True
+    assert cfg.algo.obs_groups.critic == ["critic"]
+    assert cfg.algo.algorithm.entropy_coef == pytest.approx(0.005)
+    assert cfg.algo.algorithm.desired_kl == pytest.approx(0.01)
+    # The `wallflip2` demo relies on the owner config defaulting to policy playback.
+    assert cfg.interactive.action_mode == "policy"
+    assert cfg.env.sampling_mode == "start"
+    assert cfg.env.truncate_on_clip_end is False
+    assert cfg.env.sim_dt == pytest.approx(0.005)
+    assert list(cfg.env.control_config.action_scale) == pytest.approx(X2_ACTION_SCALE)
     assert cfg.env.anchor_pos_z_threshold == pytest.approx(0.5)
     assert cfg.env.ee_body_pos_z_threshold == pytest.approx(0.5)
     assert cfg.env.terminate_on_undesired_contacts is True

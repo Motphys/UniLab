@@ -105,12 +105,18 @@ make setup-motrix
 uv run demo dance
 ```
 
-Available demo names: `teaser`, `dance`, `wallflip`, `boxtracking`, `locomani`, `inhandgrasp`. See the [Unified CLI](https://unilabsim.github.io/UniLab-doc/en/2-user_guide/1-training/1-cli_reference.html) page for the full list and flags.
+Available demo names: `teaser`, `dance`, `wallflip`, `wallflip2`, `boxtracking`, `locomani`, `inhandgrasp`. See the [Unified CLI](https://unilabsim.github.io/UniLab-doc/en/2-user_guide/1-training/1-cli_reference.html) page for the full list and flags.
 
-> Mainland China users: motions, scenes, and demo checkpoints are pulled from Hugging Face on first run. If `huggingface.co` is unreachable, point the client at the community mirror before running demo commands:
+> Mainland China users: motions, scenes, robot meshes, and demo checkpoints are pulled from Hugging Face on first run. If `huggingface.co` is unreachable, point the client at the community mirror before running demo commands:
 >
 > ```bash
 > export HF_ENDPOINT=https://hf-mirror.com
+> ```
+
+> X2 robot meshes auto-download from Hugging Face (`unilabsim/unilab-robots`) on first run into `src/unilab/assets/robots/x2/meshes/`; no manual step is needed. To pre-fetch them ahead of time:
+>
+> ```bash
+> uv run unilab-pull-assets --robot x2
 > ```
 
 For training and evaluation:

@@ -1,0 +1,94 @@
+# @package _global_
+training:
+  task_name: X2WallFlipTracking
+  sim_backend: mujoco
+  play_steps: 300  # 6s play video @ ctrl_dt=0.02 (fps 50)
+  # Offline-render (play) only — does not affect the training loop. 16 envs are
+  # laid out on a 4x4 grid; render_spacing must exceed the per-env wall reach
+  # (~2.14m toward -Y) so neighbouring cells don't overlap. The oblique
+  # azimuth (225) views the grid corner-on with each robot in front of its
+  # wall (azimuth 90 would put the walls between camera and robots); lookat is
+  # the grid centre (offsets span 0..9m in X/Y at spacing 3.0).
+  play_env_num: 16
+  render_spacing: 3.0
+  cam_distance: 14.0
+  cam_azimuth: 225.0
+  cam_elevation: -18.0
+  cam_lookat: [4.5, 4.5, 1.0]
+interactive:
+  action_mode: policy
+algo:
+  num_envs: 1024
+  max_iterations: 9500
+  save_interval: 500
+  empirical_normalization: true
+  obs_groups:
+    actor:
+      - actor
+    critic:
+      - critic
+  algorithm:
+    entropy_coef: 0.005
+    desired_kl: 0.01
+env:
+  sampling_mode: start
+  truncate_on_clip_end: false
+  sim_dt: 0.005
+  control_config:
+    action_scale:
+      - 0.25
+      - 0.25
+      - 0.25
+      - 0.25
+      - 0.25
+      - 0.25
+      - 0.25
+      - 0.25
+      - 0.25
+      - 0.25
+      - 0.25
+      - 0.25
+      - 0.25
+      - 0.25
+      - 0.25
+      - 0.25
+      - 0.25
+      - 0.25
+      - 0.25
+      - 0.25
+      - 0.25
+      - 0.25
+      - 0.25
+      - 0.25
+      - 0.25
+      - 0.25
+      - 0.25
+      - 0.25
+      - 0.25
+  anchor_pos_z_threshold: 0.5
+  ee_body_pos_z_threshold: 0.5
+  terminate_on_undesired_contacts: true
+  noise_config:
+    level: 0.0
+reward:
+  scales:
+    motion_global_root_pos: 0.5
+    motion_global_root_ori: 0.5
+    motion_body_pos: 2.0
+    motion_body_ori: 1.5
+    motion_body_lin_vel: 1.0
+    motion_body_ang_vel: 1.0
+    motion_ee_body_pos_z: 2.0
+    motion_joint_pos: 0.5
+    motion_joint_vel: 0.25
+    action_rate_l2: -0.005
+    joint_limit: -10.0
+    undesired_contacts: -0.1
+  std_root_pos: 0.3
+  std_root_ori: 0.4
+  std_body_pos: 0.3
+  std_body_ori: 0.4
+  std_body_lin_vel: 1.0
+  std_body_ang_vel: 3.14
+  std_joint_pos: 0.2
+  std_joint_vel: 1.0

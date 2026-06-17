@@ -46,6 +46,7 @@ unilab-viz-nan = "unilab.tools.viz_nan:main"
 unilab-export-scene = "unilab.tools.export_scene:main"
 unilab-render-teaser = "unilab.tools.render_teaser:main"
 unilab-import-robot = "unilab.tools.import_robot:main"
+unilab-pull-assets = "unilab.tools.pull_assets:main"
 
 [project.optional-dependencies]
 motrix = ["motrixsim-core==0.8.2"]
