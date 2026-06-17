@@ -33,8 +33,7 @@ uv run scripts/audit_sim2sim_contracts.py
 | g1_flip_tracking | ❌ | `empirical_normalization` true↔false；`obs_groups`；`action_scale` 29 维↔默认 0.25；`sampling_mode` 两后端运行时同为 `start`（无害） |
 | g1_walk_flat | ❌ | `action_scale` 0.25↔0.5；`empirical_normalization` false↔true；`obs_groups` |
 | go1_joystick_flat | ❌ | `empirical_normalization` false↔true |
-| g1_motion_tracking_deploy | ❌ | `action_scale` 29 维↔默认 0.25 |
-| go2_footstand | ⚪ | 仅 mujoco |
+| g1_motion_tracking_deploy · go2_footstand | ⚪ | 仅 mujoco |
 
 ## `conf/appo/task/`
 
