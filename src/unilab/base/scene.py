@@ -21,3 +21,9 @@ class SceneCfg:
     model_file: str
     fragment_files: list[str] = field(default_factory=list)
     terrain: TerrainSceneCfg | None = None
+    # Optional render-only model override. When set, offline playback/video
+    # export renders this XML instead of ``model_file`` while physics keeps
+    # using ``model_file``. Used to give the renderer a visual twin of the
+    # scene (e.g. a per-env replicable obstacle) without touching the trained
+    # collision model. ``None`` => render with ``model_file`` (unchanged).
+    visual_model_file: str | None = None

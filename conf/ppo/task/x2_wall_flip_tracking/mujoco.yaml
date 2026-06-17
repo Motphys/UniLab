@@ -2,7 +2,19 @@
 training:
   task_name: X2WallFlipTracking
   sim_backend: mujoco
-  play_steps: 1000
+  play_steps: 300  # 6s play video @ ctrl_dt=0.02 (fps 50)
+  # Offline-render (play) only — does not affect the training loop. 16 envs are
+  # laid out on a 4x4 grid; render_spacing must exceed the per-env wall reach
+  # (~2.14m toward -Y) so neighbouring cells don't overlap. The oblique
+  # azimuth (225) views the grid corner-on with each robot in front of its
+  # wall (azimuth 90 would put the walls between camera and robots); lookat is
+  # the grid centre (offsets span 0..9m in X/Y at spacing 3.0).
+  play_env_num: 16
+  render_spacing: 3.0
+  cam_distance: 14.0
+  cam_azimuth: 225.0
+  cam_elevation: -18.0
+  cam_lookat: [4.5, 4.5, 1.0]
 interactive:
   action_mode: policy
 algo:

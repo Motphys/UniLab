@@ -87,7 +87,13 @@ class X2WallFlipTrackingCfg(X2MotionTrackingCfg):
 
     scene: SceneCfg = field(
         default_factory=lambda: SceneCfg(
-            model_file=str(ASSETS_ROOT_PATH / "robots" / "x2" / "scene_flat_with_wall.xml")
+            model_file=str(ASSETS_ROOT_PATH / "robots" / "x2" / "scene_flat_with_wall.xml"),
+            # Render-only twin: wall as a worldbody geom so the offline grid
+            # renderer replicates it under every env cell (matches G1's per-env
+            # wall view). Physics still uses the <body> wall in model_file.
+            visual_model_file=str(
+                ASSETS_ROOT_PATH / "robots" / "x2" / "scene_flat_with_wall_visual.xml"
+            ),
         )
     )
     pose_randomization: PoseRandomization = field(default_factory=_zero_pose_randomization)

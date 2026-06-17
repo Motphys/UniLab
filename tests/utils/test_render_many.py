@@ -85,6 +85,40 @@ def test_egl_runtime_usable_returns_false_on_probe_failure(monkeypatch) -> None:
     assert render_many._egl_runtime_usable() is False
 
 
+def _reload_render_many_with_geom_enums(monkeypatch):
+    monkeypatch.setitem(
+        sys.modules,
+        "mujoco",
+        types.SimpleNamespace(
+            mjtGeom=types.SimpleNamespace(mjGEOM_PLANE=0, mjGEOM_HFIELD=1, mjGEOM_BOX=6),
+        ),
+    )
+    sys.modules.pop("unilab.visualization.render_many", None)
+    return importlib.import_module("unilab.visualization.render_many")
+
+
+def test_replicable_terrain_geom_indices_selects_worldbody_box(monkeypatch) -> None:
+    # The x2 wall-flip render twin declares the wall as a group-0 worldbody box
+    # geom precisely so this selector picks it up and the grid renderer
+    # replicates one wall per env cell. Lock that contract in.
+    render_many = _reload_render_many_with_geom_enums(monkeypatch)
+
+    model = types.SimpleNamespace(
+        ngeom=4,
+        # 0: floor plane (worldbody)  1: robot geom (body 5)
+        # 2: wall box (worldbody)     3: group-2 worldbody box (non-default group)
+        geom_group=np.array([0, 0, 0, 2], dtype=np.int32),
+        geom_bodyid=np.array([0, 5, 0, 0], dtype=np.int32),
+        geom_type=np.array([0, 6, 6, 6], dtype=np.int32),
+    )
+
+    indices = render_many._replicable_terrain_geom_indices(model)
+
+    # Only the worldbody box wall (geom 2) is replicable: the plane is skipped,
+    # the body-attached robot geom is skipped, and the non-group-0 geom is skipped.
+    assert indices.tolist() == [2]
+
+
 def test_offset_freejoint_object_qpos_handles_arbitrary_object_body(monkeypatch) -> None:
     render_many = _reload_render_many(monkeypatch)
 
