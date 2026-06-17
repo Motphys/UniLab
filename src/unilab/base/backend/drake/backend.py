@@ -179,7 +179,6 @@ class DrakeBackend(SimBackend):
         push_body_name: str | None = None,
         position_actuator_gains: dict[str, float] | None = None,
         nthread: int = 0,
-        robot_profile: str | None = None,
         **_: Any,
     ) -> None:
         # Keep the public knob explicit even though only one mode currently
@@ -198,10 +197,8 @@ class DrakeBackend(SimBackend):
             )
         if int(num_envs) < 1:
             raise ValueError(f"DrakeUni batch backend requires num_envs >= 1, got {num_envs}")
-        # These task identity fields replace the old hidden Go1 assumptions.
-        # UniLab task configs must say which body/profile DrakeUni should use.
-        if not robot_profile:
-            raise ValueError("DrakeUni batch backend requires a robot_profile from the task.")
+        # UniLab task configs must say which body represents the floating base.
+        # DrakeUni stays robot-agnostic and only receives backend runtime facts.
         if not base_name:
             raise ValueError("DrakeUni batch backend requires a base_name from the task.")
         _load_drakeuni_symbols()
@@ -221,11 +218,10 @@ class DrakeBackend(SimBackend):
         self._kd = float((position_actuator_gains or {}).get("kd", 0.5))
         self._base_name = str(base_name)
         self._push_body_name = str(push_body_name or base_name)
-        self._robot_profile = str(robot_profile)
         self._pending_push_force = np.zeros((self._num_envs, 3), dtype=np.float64)
 
         # This config is the UniLab-to-DrakeUni handoff: UniLab supplies the
-        # task identity and runtime dimensions, while DrakeUni owns physics.
+        # model path, base body, and runtime dimensions, while DrakeUni owns physics.
         config = DrakeRuntimeConfig(
             model_file=self._scene_model_file,
             num_envs=self._num_envs,
@@ -236,7 +232,6 @@ class DrakeBackend(SimBackend):
             kp=self._kp,
             kd=self._kd,
             nthread=int(nthread),
-            robot_profile=self._robot_profile,
         )
         self._runtime = create_drake_runtime(config)
         model_info = self._runtime.model_info()
@@ -332,17 +327,28 @@ class DrakeBackend(SimBackend):
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> dict | None:
         # UniLab passes one actuator command per env. An optional pre-step hook
         # can convert policy actions into backend-native position targets.
+        step_count = int(nsteps)
+        if step_count < 1:
+            raise ValueError(f"nsteps must be >= 1, got {nsteps}")
         values = np.asarray(ctrl, dtype=np.float64)
         if values.shape != (self._num_envs, self.num_actuators):
             raise ValueError(
                 "DrakeUni batch backend step expected ctrl shape "
                 f"({self._num_envs}, {self.num_actuators}), got {values.shape}"
             )
-        values = self._apply_pre_step_control(values)
         start = time.perf_counter()
-        output = self._runtime.step(values, int(nsteps), self._pending_push_force)
-        self._pending_push_force.fill(0.0)
-        self._sync_runtime_state(output)
+        try:
+            if self._pre_step_control_fn is None:
+                output = self._runtime.step(values, step_count, self._pending_push_force)
+                self._sync_runtime_state(output)
+            else:
+                output = None
+                for _ in range(step_count):
+                    native_ctrl = self._apply_pre_step_control(values)
+                    output = self._runtime.step(native_ctrl, 1, self._pending_push_force)
+                    self._sync_runtime_state(output)
+        finally:
+            self._pending_push_force.fill(0.0)
         timing = dict(output.get("timing", {}))
         timing.setdefault("step_ms", (time.perf_counter() - start) * 1000.0)
         return {"timing": timing}
