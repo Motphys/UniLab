@@ -51,7 +51,7 @@ recommendation metadata, so rows do not auto-promote to `Benchmarked` or
 | PPO (torch) | `allegro_inhand_grasp` | Tested | Tested |
 | PPO (torch) | `g1_box_tracking` | Tested | Tested |
 | PPO (torch) | `g1_climb_tracking` | Tested | Tested |
-| PPO (torch) | `g1_motion_tracking_deploy` | Tested | Tested |
+| PPO (torch) | `g1_motion_tracking_deploy` | Tested | Registered |
 | PPO (torch) | `go1_joystick_rough` | Tested | Tested |
 | PPO (torch) | `go2_arm_manip_loco` | Tested | - |
 | PPO (torch) | `go2_footstand` | Tested | - |
@@ -70,7 +70,7 @@ recommendation metadata, so rows do not auto-promote to `Benchmarked` or
 | PPO (mlx) | `allegro_inhand_grasp` | Configured | Configured |
 | PPO (mlx) | `g1_box_tracking` | Configured | Configured |
 | PPO (mlx) | `g1_climb_tracking` | Configured | Configured |
-| PPO (mlx) | `g1_motion_tracking_deploy` | Configured | Configured |
+| PPO (mlx) | `g1_motion_tracking_deploy` | Configured | Registered |
 | PPO (mlx) | `go1_joystick_rough` | Configured | Configured |
 | PPO (mlx) | `go2_arm_manip_loco` | Configured | - |
 | PPO (mlx) | `go2_footstand` | Configured | - |
