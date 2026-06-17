@@ -99,8 +99,11 @@ def create_backend(
         return cast(SimBackend, MotrixBackend(scene, num_envs, sim_dt, **kwargs))
     if backend_type == "drake":
         DrakeBackend = _load_drake_backend()
-        if position_actuator_gains is not None:
-            kwargs["position_actuator_gains"] = position_actuator_gains
+        # DrakeUni is a generic batch engine. Task-level body names and scalar
+        # gain overrides are consumed by other backends, but Drake reads bodies,
+        # actuators, and sensors from the model contract itself.
+        kwargs.pop("base_name", None)
+        kwargs.pop("push_body_name", None)
         kwargs["drake_backend_mode"] = drake_backend_mode
         if drake_nthread is not None:
             kwargs["nthread"] = drake_nthread
