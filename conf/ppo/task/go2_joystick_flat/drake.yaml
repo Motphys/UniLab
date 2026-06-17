@@ -24,6 +24,7 @@ env:
   domain_rand:
     randomize_kp: false
     randomize_kd: false
+    push_robots: false
 
 reward:
   scales:

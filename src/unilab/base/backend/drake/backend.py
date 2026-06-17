@@ -48,7 +48,7 @@ DRAKE_AVAILABLE = _module_available("drakeuni")
 DRAKE_IMPORT_ERROR: ImportError | None = None
 DRAKE_BATCH_AVAILABLE = _module_available("drakeuni")
 DRAKE_BATCH_IMPORT_ERROR: ImportError | None = None
-DrakeRuntimeConfig = None
+DrakeBatchConfig = None
 create_drake_runtime = None
 
 _DRAKEUNI_SYMBOLS_LOADED = False
@@ -67,14 +67,14 @@ def _load_drakeuni_symbols() -> None:
     global DRAKE_AVAILABLE
     global DRAKE_BATCH_AVAILABLE
     global DRAKE_BATCH_IMPORT_ERROR
-    global DrakeRuntimeConfig
+    global DrakeBatchConfig
     global create_drake_runtime
     global _DRAKEUNI_SYMBOLS_LOADED
 
     if _DRAKEUNI_SYMBOLS_LOADED:
         return
     try:
-        from drakeuni.runtime import DrakeRuntimeConfig as ImportedDrakeRuntimeConfig
+        from drakeuni.runtime import DrakeBatchConfig as ImportedDrakeBatchConfig
         from drakeuni.runtime import batch_diagnostics
         from drakeuni.runtime import create_runtime as imported_create_runtime
     except ImportError as exc:  # pragma: no cover - optional local package.
@@ -92,7 +92,7 @@ def _load_drakeuni_symbols() -> None:
         DRAKE_BATCH_IMPORT_ERROR = import_error
         raise ImportError("DrakeEnvPool batch extension has not been built.") from import_error
 
-    DrakeRuntimeConfig = ImportedDrakeRuntimeConfig
+    DrakeBatchConfig = ImportedDrakeBatchConfig
     create_drake_runtime = imported_create_runtime
     DRAKE_AVAILABLE = True
     DRAKE_BATCH_AVAILABLE = True
@@ -110,8 +110,10 @@ def ensure_drake_batch_available() -> tuple[bool, ImportError | None]:
     return True, None
 
 
-# Floating-base velocity has 3 linear and 3 angular components. UniLab's
-# locomotion code usually wants only the actuated joint velocity dimension.
+# Floating-base compact state starts with xyz + quaternion in qpos and
+# 3 linear + 3 angular components in qvel. UniLab usually wants only the
+# actuated joint slices behind those root coordinates.
+ROOT_QPOS_DIM = 7
 ROOT_QVEL_DIM = 6
 
 
@@ -175,11 +177,7 @@ class DrakeBackend(SimBackend):
         sim_dt: float,
         *,
         drake_backend_mode: str = "batch",
-        base_name: str | None = None,
-        push_body_name: str | None = None,
-        position_actuator_gains: dict[str, float] | None = None,
         nthread: int = 0,
-        **_: Any,
     ) -> None:
         # Keep the public knob explicit even though only one mode currently
         # exists. That gives config errors a clear failure point.
@@ -197,12 +195,8 @@ class DrakeBackend(SimBackend):
             )
         if int(num_envs) < 1:
             raise ValueError(f"DrakeUni batch backend requires num_envs >= 1, got {num_envs}")
-        # UniLab task configs must say which body represents the floating base.
-        # DrakeUni stays robot-agnostic and only receives backend runtime facts.
-        if not base_name:
-            raise ValueError("DrakeUni batch backend requires a base_name from the task.")
         _load_drakeuni_symbols()
-        if DrakeRuntimeConfig is None or create_drake_runtime is None:
+        if DrakeBatchConfig is None or create_drake_runtime is None:
             detail = DRAKE_BATCH_IMPORT_ERROR
             message = "DrakeUni runtime is not available."
             if detail is not None:
@@ -214,23 +208,12 @@ class DrakeBackend(SimBackend):
         self._num_envs = int(num_envs)
         self._sim_dt = float(sim_dt)
         self._scene_model_file = str(_resolve_scene_path(scene))
-        self._kp = float((position_actuator_gains or {}).get("kp", 35.0))
-        self._kd = float((position_actuator_gains or {}).get("kd", 0.5))
-        self._base_name = str(base_name)
-        self._push_body_name = str(push_body_name or base_name)
-        self._pending_push_force = np.zeros((self._num_envs, 3), dtype=np.float64)
-
-        # This config is the UniLab-to-DrakeUni handoff: UniLab supplies the
-        # model path, base body, and runtime dimensions, while DrakeUni owns physics.
-        config = DrakeRuntimeConfig(
+        # DrakeUni receives only generic batch facts. Task concepts such as
+        # base bodies, push targets, and observation semantics stay in UniLab.
+        config = DrakeBatchConfig(
             model_file=self._scene_model_file,
             num_envs=self._num_envs,
             sim_dt=self._sim_dt,
-            mode="batch",
-            base_name=self._base_name,
-            push_body_name=self._push_body_name,
-            kp=self._kp,
-            kd=self._kd,
             nthread=int(nthread),
         )
         self._runtime = create_drake_runtime(config)
@@ -241,10 +224,13 @@ class DrakeBackend(SimBackend):
         self._home_qvel_mujoco = model_info.home_qvel.copy()
         self._ctrl_limits = model_info.ctrl_limits.copy()
         self._joint_ranges = model_info.joint_ranges.copy()
+        self._actuator_stiffness = model_info.actuator_stiffness.copy()
+        self._actuator_damping = model_info.actuator_damping.copy()
         self._sensor_names = tuple(model_info.sensor_names)
         self._sensor_adr = model_info.sensor_adr.copy()
         self._sensor_dim = model_info.sensor_dim.copy()
-        self._base_body_id = int(self._runtime.body_ids([self._base_name])[0])
+        self._num_bodies = int(model_info.num_bodies)
+        self._pending_body_forces = np.zeros((self._num_envs, self._num_bodies, 3), dtype=np.float64)
         self._model = _DrakeUniModelView(
             nq=int(model_info.nq),
             nv=int(model_info.nv),
@@ -311,12 +297,7 @@ class DrakeBackend(SimBackend):
         return self._home_qvel_mujoco.copy()
 
     def get_actuator_gains(self) -> tuple[np.ndarray, np.ndarray]:
-        # UniLab expects per-actuator gain vectors. DrakeUni receives scalar
-        # task gains today, so expand them to the actuator dimension here.
-        return (
-            np.full(self.num_actuators, self._kp, dtype=np.float64),
-            np.full(self.num_actuators, self._kd, dtype=np.float64),
-        )
+        return (self._actuator_stiffness.copy(), self._actuator_damping.copy())
 
     def get_body_ids(self, names: Sequence[str]) -> np.ndarray:
         # Body IDs are owned by DrakeUni because they depend on the materialized
@@ -339,16 +320,16 @@ class DrakeBackend(SimBackend):
         start = time.perf_counter()
         try:
             if self._pre_step_control_fn is None:
-                output = self._runtime.step(values, step_count, self._pending_push_force)
+                output = self._runtime.step(values, step_count, self._pending_body_forces_or_none())
                 self._sync_runtime_state(output)
             else:
                 output = None
                 for _ in range(step_count):
                     native_ctrl = self._apply_pre_step_control(values)
-                    output = self._runtime.step(native_ctrl, 1, self._pending_push_force)
+                    output = self._runtime.step(native_ctrl, 1, self._pending_body_forces_or_none())
                     self._sync_runtime_state(output)
         finally:
-            self._pending_push_force.fill(0.0)
+            self._pending_body_forces.fill(0.0)
         timing = dict(output.get("timing", {}))
         timing.setdefault("step_ms", (time.perf_counter() - start) * 1000.0)
         return {"timing": timing}
@@ -382,19 +363,25 @@ class DrakeBackend(SimBackend):
 
     # Playback and domain randomization.
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
-        # At this milestone Drake supports interval push forces only. Other
+        # At this milestone Drake supports generic interval body forces. Other
         # randomization knobs must fail loudly instead of silently no-oping.
-        return DomainRandomizationCapabilities(supports_interval_push=True)
+        return DomainRandomizationCapabilities(supports_interval_body_force=True)
 
     def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
         if plan.is_empty():
             return
-        self._pending_push_force.fill(0.0)
+        self._pending_body_forces.fill(0.0)
         if plan.push_perturbation_limit is not None:
-            self._pending_push_force[:] = self._sample_push_force(plan.push_perturbation_limit)
-        if plan.body_force is not None or plan.body_linear_velocity_delta is not None:
             raise NotImplementedError(
-                "DrakeUni batch backend currently supports push_perturbation_limit only"
+                "DrakeBackend no longer supports body-less interval push; use body_force"
+            )
+        if plan.body_force is not None:
+            if plan.body_ids is None:
+                raise ValueError("Interval body-force perturbation requires body_ids")
+            self.apply_body_force(plan.body_ids, plan.body_force)
+        if plan.body_linear_velocity_delta is not None:
+            raise NotImplementedError(
+                "DrakeUni batch backend does not support interval body velocity perturbation"
             )
 
     def get_play_capabilities(self) -> BackendPlayCapabilities:
@@ -506,16 +493,32 @@ class DrakeBackend(SimBackend):
     def diagnostics(self) -> Any:
         return self._runtime.diagnostics()
 
+    def apply_body_force(
+        self,
+        body_ids: np.ndarray,
+        force: np.ndarray,
+    ) -> None:
+        ids = np.asarray(body_ids, dtype=np.int32).reshape(-1)
+        values = np.asarray(force, dtype=np.float64)
+        expected_shape = (self._num_envs, ids.size, 3)
+        if values.shape != expected_shape:
+            raise ValueError(f"body force must have shape {expected_shape}, got {values.shape}")
+        for offset, body_id in enumerate(ids):
+            if body_id < 0 or body_id >= self._num_bodies:
+                raise IndexError(f"body id {int(body_id)} is outside [0, {self._num_bodies - 1}]")
+            self._pending_body_forces[:, int(body_id), :] += values[:, offset, :]
+
     # Sensor access.
     #
-    # The task code consumes backend-neutral names such as base_pos, gyro, and
-    # dof_pos. DrakeUni returns one flat sensor array; this class owns the
-    # MuJoCo-style named views over that array.
+    # DrakeUni returns one flat sensor array; this class owns the MuJoCo-style
+    # named views over that array.
     def get_base_pos(self) -> np.ndarray:
-        return self._sensor_views["base_pos"].copy()
+        self._require_floating_root()
+        return self._physics_state[:, 1:4].copy()
 
     def get_base_quat(self) -> np.ndarray:
-        return self._sensor_views["base_quat"].copy()
+        self._require_floating_root()
+        return self._physics_state[:, 4:8].copy()
 
     def get_base_lin_vel(self) -> np.ndarray:
         qvel_start = 1 + self._model.nq
@@ -526,10 +529,13 @@ class DrakeBackend(SimBackend):
         return self._physics_state[:, qvel_start + 3 : qvel_start + 6].copy()
 
     def get_dof_pos(self) -> np.ndarray:
-        return self._sensor_views["dof_pos"].copy()
+        self._require_floating_root()
+        return self._physics_state[:, 1 + ROOT_QPOS_DIM : 1 + self._model.nq].copy()
 
     def get_dof_vel(self) -> np.ndarray:
-        return self._sensor_views["dof_vel"].copy()
+        self._require_floating_root()
+        qvel_start = 1 + self._model.nq
+        return self._physics_state[:, qvel_start + ROOT_QVEL_DIM :].copy()
 
     def get_body_pos_w(self, body_ids: np.ndarray) -> np.ndarray:
         return self._body_state(body_ids)["pos"]
@@ -544,22 +550,32 @@ class DrakeBackend(SimBackend):
         return self._body_state(body_ids)["angvel"]
 
     def get_body_pos_b(self, body_ids: np.ndarray) -> np.ndarray:
-        self._require_base_body_only(body_ids)
-        return np.zeros((self._num_envs, len(body_ids), 3), dtype=np.float64)
+        body_state = self._body_state(body_ids)
+        base_pos = self.get_base_pos()
+        base_rot = _quat_to_rotation_matrix(self.get_base_quat())
+        delta = body_state["pos"] - base_pos[:, None, :]
+        return np.einsum("nij,nkj->nki", np.swapaxes(base_rot, 1, 2), delta)
 
     def get_body_quat_b(self, body_ids: np.ndarray) -> np.ndarray:
-        self._require_base_body_only(body_ids)
-        quat = np.zeros((self._num_envs, len(body_ids), 4), dtype=np.float64)
-        quat[:, :, 0] = 1.0
-        return quat
+        body_quat = self._body_state(body_ids)["quat"]
+        base_inv = _quat_conjugate(self.get_base_quat())
+        return _quat_multiply(base_inv[:, None, :], body_quat)
 
     def get_body_lin_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
-        self._require_base_body_only(body_ids)
-        return np.repeat(self._sensor_views["local_linvel"][:, None, :], len(body_ids), axis=1)
+        base_rot = _quat_to_rotation_matrix(self.get_base_quat())
+        return np.einsum(
+            "nij,nkj->nki",
+            np.swapaxes(base_rot, 1, 2),
+            self._body_state(body_ids)["linvel"],
+        )
 
     def get_body_ang_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
-        self._require_base_body_only(body_ids)
-        return np.repeat(self._sensor_views["gyro"][:, None, :], len(body_ids), axis=1)
+        base_rot = _quat_to_rotation_matrix(self.get_base_quat())
+        return np.einsum(
+            "nij,nkj->nki",
+            np.swapaxes(base_rot, 1, 2),
+            self._body_state(body_ids)["angvel"],
+        )
 
     def get_sensor_data(self, name: str) -> np.ndarray:
         if name in self._sensor_views:
@@ -584,8 +600,6 @@ class DrakeBackend(SimBackend):
             adr = int(self._sensor_adr[index])
             dim = int(self._sensor_dim[index])
             self._sensor_views[name] = self._sensor_data[:, adr : adr + dim]
-        if "position" not in self._sensor_views and "base_pos" in self._sensor_views:
-            self._sensor_views["position"] = self._sensor_views["base_pos"]
 
     def _body_state(self, body_ids: np.ndarray) -> dict[str, np.ndarray]:
         ids = np.asarray(body_ids, dtype=np.int32)
@@ -593,29 +607,56 @@ class DrakeBackend(SimBackend):
             raise ValueError(f"body_ids must be one-dimensional, got {ids.shape}")
         return self._runtime.compute_body_state(ids)
 
-    def _require_base_body_only(self, body_ids: np.ndarray) -> None:
-        """Guard body-kinematics methods that only expose the configured base."""
+    def _pending_body_forces_or_none(self) -> np.ndarray | None:
+        if np.any(self._pending_body_forces):
+            return self._pending_body_forces
+        return None
 
-        ids = np.asarray(body_ids, dtype=np.int32)
-        if ids.ndim != 1:
-            raise ValueError(f"body_ids must be one-dimensional, got {ids.shape}")
-        if np.any(ids != self._base_body_id):
+    def _require_floating_root(self) -> None:
+        if self._model.nq < ROOT_QPOS_DIM or self._model.nv < ROOT_QVEL_DIM:
             raise NotImplementedError(
-                "DrakeUni batch backend only exposes configured base body kinematics "
-                "in this milestone"
+                "DrakeBackend root-state helpers require a floating-root compact state"
             )
 
-    def _sample_push_force(self, force_range: Sequence[float] | np.ndarray) -> np.ndarray:
-        """Sample one bounded world-frame push force per env."""
 
-        limit = np.asarray(force_range, dtype=np.float64)
-        if limit.shape != (3,):
-            raise ValueError(f"DrakeUni push force range must have shape (3,), got {limit.shape}")
-        direction = np.random.uniform(-1.0, 1.0, size=(self._num_envs, 3))
-        norm = np.linalg.norm(direction, axis=1, keepdims=True)
-        direction = np.divide(direction, np.maximum(norm, 1.0e-12))
-        magnitude = np.random.uniform(0.0, 1.0, size=(self._num_envs, 1))
-        return direction * magnitude * limit.reshape(1, 3)
+def _quat_conjugate(quat: np.ndarray) -> np.ndarray:
+    values = np.asarray(quat, dtype=np.float64).copy()
+    values[..., 1:] *= -1.0
+    return values
+
+
+def _quat_multiply(lhs: np.ndarray, rhs: np.ndarray) -> np.ndarray:
+    a = np.asarray(lhs, dtype=np.float64)
+    b = np.asarray(rhs, dtype=np.float64)
+    aw, ax, ay, az = np.moveaxis(a, -1, 0)
+    bw, bx, by, bz = np.moveaxis(b, -1, 0)
+    return np.stack(
+        (
+            aw * bw - ax * bx - ay * by - az * bz,
+            aw * bx + ax * bw + ay * bz - az * by,
+            aw * by - ax * bz + ay * bw + az * bx,
+            aw * bz + ax * by - ay * bx + az * bw,
+        ),
+        axis=-1,
+    )
+
+
+def _quat_to_rotation_matrix(quat: np.ndarray) -> np.ndarray:
+    values = np.asarray(quat, dtype=np.float64)
+    norm = np.linalg.norm(values, axis=-1, keepdims=True)
+    q = np.divide(values, np.maximum(norm, 1.0e-12))
+    w, x, y, z = np.moveaxis(q, -1, 0)
+    matrix = np.empty((*q.shape[:-1], 3, 3), dtype=np.float64)
+    matrix[..., 0, 0] = 1.0 - 2.0 * (y * y + z * z)
+    matrix[..., 0, 1] = 2.0 * (x * y - z * w)
+    matrix[..., 0, 2] = 2.0 * (x * z + y * w)
+    matrix[..., 1, 0] = 2.0 * (x * y + z * w)
+    matrix[..., 1, 1] = 1.0 - 2.0 * (x * x + z * z)
+    matrix[..., 1, 2] = 2.0 * (y * z - x * w)
+    matrix[..., 2, 0] = 2.0 * (x * z - y * w)
+    matrix[..., 2, 1] = 2.0 * (y * z + x * w)
+    matrix[..., 2, 2] = 1.0 - 2.0 * (x * x + y * y)
+    return matrix
 
 
 __all__ = [

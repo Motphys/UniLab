@@ -29,6 +29,10 @@ env:
   drake_nthread: 0
   scene:
     model_file: src/unilab/assets/robots/go1/scene_flat_drake.xml
+  domain_rand:
+    randomize_base_mass: false
+    random_com: false
+    push_robots: false
 
 reward:
   scales:
