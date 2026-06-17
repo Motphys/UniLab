@@ -565,11 +565,10 @@ class DrakeBackend(SimBackend):
         # Keep UniLab's cached state/sensor views aligned after every DrakeUni update.
         if output is None:
             self._physics_state = self._runtime.physics_state()
+            sensor_data = self._runtime.sensor_data()
         else:
             self._physics_state = np.asarray(output["state"], dtype=np.float64).copy()
-        sensor_data = None if output is None else output.get("sensor_data")
-        if sensor_data is None:
-            sensor_data = self._runtime.forward(self._physics_state)
+            sensor_data = output["sensor_data"]
         self._sensor_data = np.asarray(sensor_data, dtype=np.float64).copy()
         self._rebuild_sensor_views()
 
