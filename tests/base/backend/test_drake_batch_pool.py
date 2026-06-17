@@ -386,12 +386,16 @@ def test_drake_batch_pool_go1_smoke_shapes_and_time() -> None:
             0.5,
             1,
         )
-        output = pool.step(state, 2, np.tile(qpos[7:], (2, 1)), None)
-        sensor_data = pool.forward(output["state"])
+        control = np.tile(qpos[7:], (2, 1))
+        state_only = pool.step(state, 2, control, None, False)
+        output = pool.step(state, 2, control, None, True)
+        sensor_data = output["sensor_data"]
         summary = {
+            "forward_removed": not hasattr(pool, "forward"),
+            "state_only_has_sensor_data": "sensor_data" in state_only,
             "state_shape": list(output["state"].shape),
             "sensor_shape": list(sensor_data.shape),
-            "has_sensor_packet": "sensor" in output,
+            "has_sensor_data": "sensor_data" in output,
             "time": output["state"][:, 0].tolist(),
             "state_finite": bool(np.all(np.isfinite(output["state"]))),
             "sensor_finite": bool(np.all(np.isfinite(sensor_data))),
@@ -405,11 +409,13 @@ def test_drake_batch_pool_go1_smoke_shapes_and_time() -> None:
     summary = json.loads(output.strip().splitlines()[-1])
     assert summary.pop("num_filtered_geometries") > 0
     assert summary == {
-        "has_sensor_packet": False,
+        "forward_removed": True,
+        "has_sensor_data": True,
         "nthread": 1,
         "sensor_finite": True,
         "sensor_shape": [2, 73],
         "state_finite": True,
+        "state_only_has_sensor_data": False,
         "state_shape": [2, 38],
         "time": [0.02, 0.02],
         "workspace_count": 1,
@@ -496,15 +502,15 @@ def test_drake_batch_pool_uses_thread_workspaces_not_env_workspaces() -> None:
         control = np.tile(qpos[7:], (4, 1))
         serial_pool = make_pool(1)
         threaded_pool = make_pool(2)
-        serial = serial_pool.step(state, 2, control, None)
-        threaded = threaded_pool.step(state, 2, control, None)
-        serial_sensor = serial_pool.forward(serial["state"])
-        threaded_sensor = threaded_pool.forward(threaded["state"])
-        threaded_snapshot = threaded_pool.snapshot()
+        serial = serial_pool.step(state, 2, control, None, True)
+        threaded = threaded_pool.step(state, 2, control, None, True)
+        serial_sensor = serial["sensor_data"]
+        threaded_sensor = threaded["sensor_data"]
+        threaded_snapshot = threaded_pool.snapshot(True)
 
         reset_state = state[[2]].copy()
         reset_state[0, 1] = 1.23
-        reset_snapshot = threaded_pool.reset(np.array([2], dtype=np.int32), reset_state)
+        reset_snapshot = threaded_pool.reset(np.array([2], dtype=np.int32), reset_state, True)
 
         summary = {
             "serial_workspace_count": serial_pool.workspace_count,
@@ -512,6 +518,9 @@ def test_drake_batch_pool_uses_thread_workspaces_not_env_workspaces() -> None:
             "parity_state": bool(np.allclose(serial["state"], threaded["state"])),
             "parity_sensor": bool(np.allclose(serial_sensor, threaded_sensor)),
             "snapshot_state": bool(np.allclose(threaded["state"], threaded_snapshot["state"])),
+            "snapshot_sensor": bool(np.allclose(threaded_sensor, threaded_snapshot["sensor_data"])),
+            "reset_sensor_finite": bool(np.all(np.isfinite(reset_snapshot["sensor_data"]))),
+            "reset_sensor_shape": list(reset_snapshot["sensor_data"].shape),
             "reset_times": reset_snapshot["state"][:, 0].round(6).tolist(),
             "reset_x": reset_snapshot["state"][:, 1].round(6).tolist(),
         }
@@ -522,9 +531,12 @@ def test_drake_batch_pool_uses_thread_workspaces_not_env_workspaces() -> None:
     assert summary == {
         "parity_sensor": True,
         "parity_state": True,
+        "reset_sensor_finite": True,
+        "reset_sensor_shape": [4, 73],
         "reset_times": [0.02, 0.02, 0.0, 0.02],
         "reset_x": [0.00101, 0.05101, 1.23, 0.15101],
         "serial_workspace_count": 1,
+        "snapshot_sensor": True,
         "snapshot_state": True,
         "threaded_workspace_count": 2,
     }
