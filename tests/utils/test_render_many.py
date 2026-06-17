@@ -34,9 +34,23 @@ def test_resolve_gl_backend_uses_egl_when_probe_succeeds(monkeypatch) -> None:
     assert render_many._resolve_gl_backend() == "egl"
 
 
-def test_resolve_gl_backend_falls_back_to_glfw_when_probe_fails(monkeypatch) -> None:
+def test_resolve_gl_backend_uses_osmesa_when_headless_and_egl_unavailable(monkeypatch) -> None:
+    # Headless host (no DISPLAY): glfw cannot work, so software rendering wins.
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.delenv("MUJOCO_GL", raising=False)
+    monkeypatch.delenv("DISPLAY", raising=False)
+
+    render_many = _reload_render_many(monkeypatch)
+    monkeypatch.setattr(render_many, "_egl_runtime_usable", lambda: False)
+
+    assert render_many._resolve_gl_backend() == "osmesa"
+
+
+def test_resolve_gl_backend_uses_glfw_when_display_present_and_egl_unavailable(monkeypatch) -> None:
+    # A display is available: glfw can create an off-screen context.
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.delenv("MUJOCO_GL", raising=False)
+    monkeypatch.setenv("DISPLAY", ":0")
 
     render_many = _reload_render_many(monkeypatch)
     monkeypatch.setattr(render_many, "_egl_runtime_usable", lambda: False)
@@ -106,3 +120,68 @@ def test_offset_freejoint_object_qpos_handles_arbitrary_object_body(monkeypatch)
     assert data.qpos[1] == pytest.approx(0.0)
     assert data.qpos[7] == pytest.approx(1.5)
     assert data.qpos[8] == pytest.approx(-2.0)
+
+
+def test_render_backend_usable_reflects_resolved_backend(monkeypatch) -> None:
+    render_many = _reload_render_many(monkeypatch)
+
+    seen: dict[str, str] = {}
+
+    def _fake_probe(backend: str) -> bool:
+        seen["backend"] = backend
+        return backend == "egl"
+
+    monkeypatch.setattr(render_many, "_gl_backend_runtime_usable", _fake_probe)
+
+    monkeypatch.setenv("MUJOCO_GL", "egl")
+    assert render_many.render_backend_usable() is True
+    assert seen["backend"] == "egl"
+
+    monkeypatch.setenv("MUJOCO_GL", "osmesa")
+    assert render_many.render_backend_usable() is False
+
+
+def test_render_states_get_frames_skips_when_backend_unusable(monkeypatch) -> None:
+    render_many = _reload_render_many(monkeypatch)
+    monkeypatch.setattr(render_many, "render_backend_usable", lambda: False)
+
+    frames = render_many.render_states_get_frames(
+        [np.zeros((1, 8), dtype=np.float32)],
+        "/no/such/model.xml",
+        num_processes=4,
+    )
+
+    assert frames == []
+
+
+def test_render_states_get_frames_tracking_skips_when_backend_unusable(monkeypatch) -> None:
+    render_many = _reload_render_many(monkeypatch)
+    monkeypatch.setattr(render_many, "render_backend_usable", lambda: False)
+
+    frames = render_many.render_states_get_frames_tracking(
+        [np.zeros((1, 8), dtype=np.float32)],
+        "/no/such/model.xml",
+    )
+
+    assert frames == []
+
+
+def test_render_states_get_frames_fails_fast_on_worker_init_error(monkeypatch) -> None:
+    """A failing pool initializer must NOT respawn workers forever (issue #605).
+
+    ProcessPoolExecutor raises BrokenProcessPool quickly instead of hanging, and
+    render_states_get_frames degrades to an empty result + warning.
+    """
+    # Skip the EGL probe in spawned workers (they inherit MUJOCO_GL via os.environ).
+    monkeypatch.setenv("MUJOCO_GL", "osmesa")
+    render_many = _reload_render_many(monkeypatch)
+    # Bypass the parent pre-flight so we exercise the pool's fail-fast path.
+    monkeypatch.setattr(render_many, "render_backend_usable", lambda: True)
+
+    frames = render_many.render_states_get_frames(
+        [np.zeros((1, 8), dtype=np.float32)],
+        "/nonexistent/model/path.xml",  # init_worker raises while loading this
+        num_processes=2,
+    )
+
+    assert frames == []

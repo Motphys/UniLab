@@ -103,6 +103,13 @@ def run_mujoco_playback(
                 **cam_kw,
             )
 
+    if not frames:
+        # Rendering was skipped (e.g. no usable off-screen GL backend on a
+        # headless host). render_many already warned with actionable guidance;
+        # don't fail the eval/play run — just skip the video export.
+        print(f"[playback] No frames rendered; skipping video export to {output_video}.")
+        return None
+
     import mediapy as media
 
     ctrl_dt = float(env_cfg_value(env, "ctrl_dt", 1.0 / 60.0))
