@@ -116,7 +116,6 @@ class Go2WalkTask(Go2BaseEnv):
             position_actuator_gains={"kp": cfg.control_config.Kp, "kd": cfg.control_config.Kd},
             drake_backend_mode=cfg.drake_backend_mode,
             drake_nthread=cfg.drake_nthread,
-            robot_profile="go2",
             motrix_max_iterations=cfg.motrix_max_iterations,
             post_step_forward_sensor=cfg.post_step_forward_sensor,
         )
@@ -194,7 +193,16 @@ class Go2WalkTask(Go2BaseEnv):
         dof_vel = self.get_dof_vel()
         self.feet_force[:, :, :] = 0
         for i in range(len(self._cfg.sensor.feet_force)):
-            self.feet_force[:, i, :] = self._backend.get_sensor_data(self._cfg.sensor.feet_force[i])
+            contact = self._backend.get_sensor_data(self._cfg.sensor.feet_force[i])
+            if contact.shape[1] == 1:
+                self.feet_force[:, i, 2] = contact[:, 0]
+            elif contact.shape[1] == 3:
+                self.feet_force[:, i, :] = contact
+            else:
+                raise ValueError(
+                    "foot contact sensor must return either scalar found flags "
+                    f"or 3D force vectors, got {contact.shape}"
+                )
         for i in range(len(self._cfg.sensor.feet_pos)):
             self.feet_pos[:, i, :] = self._backend.get_sensor_data(self._cfg.sensor.feet_pos[i])
         terminated = gravity[:, 2] <= 0.5

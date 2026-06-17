@@ -94,7 +94,6 @@ def test_batch_backend_mode_rejects_existing_pydrake_module() -> None:
                 0.01,
                 base_name="trunk",
                 drake_backend_mode="batch",
-                robot_profile="go1",
                 position_actuator_gains={"kp": 35.0, "kd": 0.5},
             )
         except ImportError as exc:
@@ -127,7 +126,6 @@ def test_direct_drake_backend_batch_mode_rejects_existing_pydrake_module() -> No
                 0.01,
                 base_name="trunk",
                 drake_backend_mode="batch",
-                robot_profile="go1",
                 position_actuator_gains={"kp": 35.0, "kd": 0.5},
             )
         except ImportError as exc:
@@ -155,7 +153,6 @@ def test_create_backend_rejects_pydrake_mode() -> None:
             0.01,
             base_name="trunk",
             drake_backend_mode="pydrake",
-            robot_profile="go1",
             position_actuator_gains={"kp": 35.0, "kd": 0.5},
         )
 
@@ -172,24 +169,6 @@ def test_direct_drake_backend_rejects_pydrake_mode() -> None:
             0.01,
             base_name="trunk",
             drake_backend_mode="pydrake",
-            robot_profile="go1",
-            position_actuator_gains={"kp": 35.0, "kd": 0.5},
-        )
-
-
-def test_drake_backend_requires_task_robot_profile() -> None:
-    from unilab.assets import ASSETS_ROOT_PATH
-    from unilab.base.backend import create_backend
-    from unilab.base.scene import SceneCfg
-
-    with pytest.raises(ValueError, match="robot_profile"):
-        create_backend(
-            "drake",
-            SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat_drake.xml")),
-            1,
-            0.01,
-            base_name="trunk",
-            drake_backend_mode="batch",
             position_actuator_gains={"kp": 35.0, "kd": 0.5},
         )
 
@@ -206,7 +185,6 @@ def test_drake_backend_requires_task_base_name() -> None:
             1,
             0.01,
             drake_backend_mode="batch",
-            robot_profile="go1",
             position_actuator_gains={"kp": 35.0, "kd": 0.5},
         )
 
@@ -546,6 +524,91 @@ def test_drake_batch_pool_uses_thread_workspaces_not_env_workspaces() -> None:
     not _batch_extension_built(),
     reason="optional Drake batch extension has not been built",
 )
+def test_drake_batch_pool_worker_exception_reaches_python() -> None:
+    output = _run_clean_python(
+        """
+        import json
+        import xml.etree.ElementTree as ET
+
+        import numpy as np
+
+        from unilab.assets import ASSETS_ROOT_PATH
+        from drakeuni.batch_env import DrakeEnvPool
+        from drakeuni.runtime.mjcf_model_parser import (
+            parse_mjcf_model_contract,
+            tracked_points_as_pool_inputs,
+        )
+
+        model = ASSETS_ROOT_PATH / "robots/go1/scene_flat_drake.xml"
+        robot = ASSETS_ROOT_PATH / "robots/go1/go1_drake.xml"
+        contract = parse_mjcf_model_contract(model)
+        tracked_body_indices, tracked_point_offsets = tracked_points_as_pool_inputs(contract)
+        scene_root = ET.parse(model).getroot()
+        robot_root = ET.parse(robot).getroot()
+        qpos = np.fromstring(
+            scene_root.find('.//key[@name="home"]').attrib["qpos"],
+            sep=" ",
+            dtype=np.float64,
+        )
+        qvel = np.zeros(18, dtype=np.float64)
+        ctrl_limits = []
+        torque_limits = []
+        for actuator in robot_root.findall(".//actuator/position"):
+            ctrl_limits.append(
+                np.fromstring(
+                    actuator.attrib.get("ctrlrange", "-1 1"),
+                    sep=" ",
+                    dtype=np.float64,
+                )
+            )
+            force = np.fromstring(
+                actuator.attrib.get("forcerange", "-23.7 23.7"),
+                sep=" ",
+                dtype=np.float64,
+            )
+            torque_limits.append(float(np.max(np.abs(force))))
+        state = np.zeros((4, 1 + qpos.size + qvel.size), dtype=np.float64)
+        state[:, 1 : 1 + qpos.size] = qpos
+        state[:, 1 + qpos.size :] = qvel
+        state[2, 0] = np.nan
+        pool = DrakeEnvPool(
+            str(model),
+            4,
+            0.01,
+            np.asarray(ctrl_limits, dtype=np.float64),
+            np.asarray(torque_limits, dtype=np.float64),
+            1,
+            1,
+            tracked_body_indices,
+            tracked_point_offsets,
+            contract.sensor_type,
+            contract.sensor_index,
+            contract.sensor_adr,
+            contract.sensor_dim,
+            contract.nsensordata,
+            35.0,
+            0.5,
+            2,
+        )
+        control = np.tile(qpos[7:], (4, 1))
+        try:
+            pool.step(state, 1, control, None, True)
+        except Exception as exc:
+            summary = {"error_type": type(exc).__name__, "message": str(exc)}
+        else:
+            raise AssertionError("non-finite worker state unexpectedly succeeded")
+        print(json.dumps(summary, sort_keys=True))
+        """
+    )
+    summary = json.loads(output.strip().splitlines()[-1])
+    assert summary["error_type"] == "ValueError"
+    assert "non-finite" in summary["message"]
+
+
+@pytest.mark.skipif(
+    not _batch_extension_built(),
+    reason="optional Drake batch extension has not been built",
+)
 def test_create_backend_batch_mode_avoids_pydrake_and_steps() -> None:
     output = _run_clean_python(
         """
@@ -567,7 +630,6 @@ def test_create_backend_batch_mode_avoids_pydrake_and_steps() -> None:
             base_name="trunk",
             drake_backend_mode="batch",
             drake_nthread=2,
-            robot_profile="go1",
             position_actuator_gains={"kp": 35.0, "kd": 0.5},
         )
         assert "pydrake" not in sys.modules
@@ -621,6 +683,120 @@ def test_create_backend_batch_mode_avoids_pydrake_and_steps() -> None:
     not _batch_extension_built(),
     reason="optional Drake batch extension has not been built",
 )
+def test_drake_backend_pre_step_hook_refreshes_between_substeps() -> None:
+    output = _run_clean_python(
+        """
+        import json
+
+        import numpy as np
+
+        from unilab.assets import ASSETS_ROOT_PATH
+        from unilab.base.backend import create_backend
+        from unilab.base.scene import SceneCfg
+
+        backend = create_backend(
+            "drake",
+            SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat_drake.xml")),
+            1,
+            0.01,
+            base_name="trunk",
+            drake_backend_mode="batch",
+            drake_nthread=1,
+            position_actuator_gains={"kp": 35.0, "kd": 0.5},
+        )
+        qpos = np.stack([backend.get_keyframe_qpos("home")])
+        qvel = np.stack([backend.get_init_qvel()])
+        backend.set_state(np.array([0], dtype=np.int32), qpos, qvel)
+        seen_times = []
+
+        def hook(backend_obj, policy_ctrl):
+            seen_times.append(round(float(backend_obj.get_physics_state()[0, 0]), 6))
+            return policy_ctrl
+
+        backend.set_pre_step_control(hook)
+        backend.step(backend.get_dof_pos(), nsteps=3)
+        summary = {
+            "seen_times": seen_times,
+            "final_time": round(float(backend.get_physics_state()[0, 0]), 6),
+        }
+        print(json.dumps(summary, sort_keys=True))
+        """
+    )
+    assert json.loads(output.strip().splitlines()[-1]) == {
+        "final_time": 0.03,
+        "seen_times": [0.0, 0.01, 0.02],
+    }
+
+
+@pytest.mark.skipif(
+    not _batch_extension_built(),
+    reason="optional Drake batch extension has not been built",
+)
+def test_drake_backend_body_frame_getters_are_base_only() -> None:
+    output = _run_clean_python(
+        """
+        import json
+
+        import numpy as np
+
+        from unilab.assets import ASSETS_ROOT_PATH
+        from unilab.base.backend import create_backend
+        from unilab.base.scene import SceneCfg
+
+        backend = create_backend(
+            "drake",
+            SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat_drake.xml")),
+            1,
+            0.01,
+            base_name="trunk",
+            drake_backend_mode="batch",
+            drake_nthread=1,
+            position_actuator_gains={"kp": 35.0, "kd": 0.5},
+        )
+        base_id = backend.get_body_ids(["trunk"])
+        other_id = backend.get_body_ids(["FR_calf"])
+        base_pos = backend.get_body_pos_b(base_id)
+        base_quat = backend.get_body_quat_b(base_id)
+        failures = {}
+        for name in (
+            "get_body_pos_b",
+            "get_body_quat_b",
+            "get_body_lin_vel_b",
+            "get_body_ang_vel_b",
+        ):
+            try:
+                getattr(backend, name)(other_id)
+            except NotImplementedError as exc:
+                failures[name] = "base body" in str(exc)
+            else:
+                failures[name] = False
+        summary = {
+            "base_pos_shape": list(base_pos.shape),
+            "base_pos_zero": bool(np.allclose(base_pos, 0.0)),
+            "base_quat": base_quat.round(6).tolist(),
+            "failures": failures,
+        }
+        print(json.dumps(summary, sort_keys=True))
+        """
+    )
+    summary = json.loads(output.strip().splitlines()[-1])
+    assert summary == {
+        "base_pos_shape": [1, 1, 3],
+        "base_pos_zero": True,
+        "base_quat": [[[1.0, 0.0, 0.0, 0.0]]],
+        "failures": {
+            "get_body_ang_vel_b": True,
+            "get_body_lin_vel_b": True,
+            "get_body_pos_b": True,
+            "get_body_quat_b": True,
+        },
+    }
+
+
+@pytest.mark.skipif(
+    not _batch_extension_built(),
+    reason="optional Drake batch extension has not been built",
+)
 def test_create_go2_backend_batch_mode_avoids_pydrake_and_steps() -> None:
     output = _run_clean_python(
         """
@@ -642,7 +818,6 @@ def test_create_go2_backend_batch_mode_avoids_pydrake_and_steps() -> None:
             base_name="base",
             drake_backend_mode="batch",
             drake_nthread=2,
-            robot_profile="go2",
             position_actuator_gains={"kp": 35.0, "kd": 0.5},
         )
         assert "pydrake" not in sys.modules
@@ -670,7 +845,7 @@ def test_create_go2_backend_batch_mode_avoids_pydrake_and_steps() -> None:
     assert summary == {
         "base_shape": [2, 3],
         "cls": "DrakeBackend",
-        "contact_shape": [2, 3],
+        "contact_shape": [2, 1],
         "diagnostic_mode": "batch",
         "foot_shape": [2, 3],
         "nthread": 2,
