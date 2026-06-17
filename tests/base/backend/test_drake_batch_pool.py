@@ -329,9 +329,15 @@ def test_drake_batch_pool_go1_smoke_shapes_and_time() -> None:
 
         from unilab.assets import ASSETS_ROOT_PATH
         from drakeuni.batch_env import DrakeEnvPool
+        from drakeuni.runtime.mjcf_model_parser import (
+            parse_mjcf_model_contract,
+            tracked_points_as_pool_inputs,
+        )
 
         model = ASSETS_ROOT_PATH / "robots/go1/scene_flat_drake.xml"
         robot = ASSETS_ROOT_PATH / "robots/go1/go1_drake.xml"
+        contract = parse_mjcf_model_contract(model)
+        tracked_body_indices, tracked_point_offsets = tracked_points_as_pool_inputs(contract)
         scene_root = ET.parse(model).getroot()
         robot_root = ET.parse(robot).getroot()
         qpos = np.fromstring(
@@ -369,20 +375,26 @@ def test_drake_batch_pool_go1_smoke_shapes_and_time() -> None:
             torque_limits,
             1,
             1,
-            [7, 4, 13, 10],
-            np.tile(np.array([[0.0, 0.0, -0.213]], dtype=np.float64), (4, 1)),
+            tracked_body_indices,
+            tracked_point_offsets,
+            contract.sensor_type,
+            contract.sensor_index,
+            contract.sensor_adr,
+            contract.sensor_dim,
+            contract.nsensordata,
             35.0,
             0.5,
             1,
         )
         output = pool.step(state, 2, np.tile(qpos[7:], (2, 1)), None)
+        sensor_data = pool.forward(output["state"])
         summary = {
             "state_shape": list(output["state"].shape),
-            "gyro_shape": list(output["sensor"]["gyro"].shape),
-            "feet_shape": list(output["sensor"]["feet_pos"].shape),
+            "sensor_shape": list(sensor_data.shape),
+            "has_sensor_packet": "sensor" in output,
             "time": output["state"][:, 0].tolist(),
             "state_finite": bool(np.all(np.isfinite(output["state"]))),
-            "sensor_finite": bool(np.all(np.isfinite(output["sensor"]["feet_pos"]))),
+            "sensor_finite": bool(np.all(np.isfinite(sensor_data))),
             "nthread": pool.nthread,
             "workspace_count": pool.workspace_count,
             "num_filtered_geometries": pool.num_filtered_geometries,
@@ -393,10 +405,10 @@ def test_drake_batch_pool_go1_smoke_shapes_and_time() -> None:
     summary = json.loads(output.strip().splitlines()[-1])
     assert summary.pop("num_filtered_geometries") > 0
     assert summary == {
-        "feet_shape": [2, 4, 3],
-        "gyro_shape": [2, 3],
+        "has_sensor_packet": False,
         "nthread": 1,
         "sensor_finite": True,
+        "sensor_shape": [2, 73],
         "state_finite": True,
         "state_shape": [2, 38],
         "time": [0.02, 0.02],
@@ -418,9 +430,15 @@ def test_drake_batch_pool_uses_thread_workspaces_not_env_workspaces() -> None:
 
         from unilab.assets import ASSETS_ROOT_PATH
         from drakeuni.batch_env import DrakeEnvPool
+        from drakeuni.runtime.mjcf_model_parser import (
+            parse_mjcf_model_contract,
+            tracked_points_as_pool_inputs,
+        )
 
         model = ASSETS_ROOT_PATH / "robots/go1/scene_flat_drake.xml"
         robot = ASSETS_ROOT_PATH / "robots/go1/go1_drake.xml"
+        contract = parse_mjcf_model_contract(model)
+        tracked_body_indices, tracked_point_offsets = tracked_points_as_pool_inputs(contract)
         scene_root = ET.parse(model).getroot()
         robot_root = ET.parse(robot).getroot()
         qpos = np.fromstring(
@@ -463,8 +481,13 @@ def test_drake_batch_pool_uses_thread_workspaces_not_env_workspaces() -> None:
                 torque_limits,
                 1,
                 1,
-                [7, 4, 13, 10],
-                np.tile(np.array([[0.0, 0.0, -0.213]], dtype=np.float64), (4, 1)),
+                tracked_body_indices,
+                tracked_point_offsets,
+                contract.sensor_type,
+                contract.sensor_index,
+                contract.sensor_adr,
+                contract.sensor_dim,
+                contract.nsensordata,
                 35.0,
                 0.5,
                 nthread,
@@ -475,6 +498,8 @@ def test_drake_batch_pool_uses_thread_workspaces_not_env_workspaces() -> None:
         threaded_pool = make_pool(2)
         serial = serial_pool.step(state, 2, control, None)
         threaded = threaded_pool.step(state, 2, control, None)
+        serial_sensor = serial_pool.forward(serial["state"])
+        threaded_sensor = threaded_pool.forward(threaded["state"])
         threaded_snapshot = threaded_pool.snapshot()
 
         reset_state = state[[2]].copy()
@@ -485,7 +510,7 @@ def test_drake_batch_pool_uses_thread_workspaces_not_env_workspaces() -> None:
             "serial_workspace_count": serial_pool.workspace_count,
             "threaded_workspace_count": threaded_pool.workspace_count,
             "parity_state": bool(np.allclose(serial["state"], threaded["state"])),
-            "parity_feet": bool(np.allclose(serial["sensor"]["feet_pos"], threaded["sensor"]["feet_pos"])),
+            "parity_sensor": bool(np.allclose(serial_sensor, threaded_sensor)),
             "snapshot_state": bool(np.allclose(threaded["state"], threaded_snapshot["state"])),
             "reset_times": reset_snapshot["state"][:, 0].round(6).tolist(),
             "reset_x": reset_snapshot["state"][:, 1].round(6).tolist(),
@@ -495,7 +520,7 @@ def test_drake_batch_pool_uses_thread_workspaces_not_env_workspaces() -> None:
     )
     summary = json.loads(output.strip().splitlines()[-1])
     assert summary == {
-        "parity_feet": True,
+        "parity_sensor": True,
         "parity_state": True,
         "reset_times": [0.02, 0.02, 0.0, 0.02],
         "reset_x": [0.00101, 0.05101, 1.23, 0.15101],
@@ -542,10 +567,14 @@ def test_create_backend_batch_mode_avoids_pydrake_and_steps() -> None:
             backend.step(backend.get_dof_pos(), nsteps=1)
         diagnostics = backend.diagnostics()
         foot_contact = backend.get_sensor_data("FL_foot_contact")
+        body_ids = backend.get_body_ids(["trunk", "FR_calf"])
+        body_pos = backend.get_body_pos_w(body_ids)
         summary = {
             "cls": type(backend).__name__,
             "state_shape": list(backend.get_physics_state().shape),
             "base_shape": list(backend.get_base_pos().shape),
+            "body_shape": list(body_pos.shape),
+            "body_finite": bool(np.all(np.isfinite(body_pos))),
             "foot_shape": list(backend.get_sensor_data("FL_pos").shape),
             "contact_shape": list(foot_contact.shape),
             "contact_nonzero": bool(np.max(np.abs(foot_contact)) > 0.0),
@@ -561,6 +590,8 @@ def test_create_backend_batch_mode_avoids_pydrake_and_steps() -> None:
     summary = json.loads(output.strip().splitlines()[-1])
     assert summary == {
         "base_shape": [2, 3],
+        "body_finite": True,
+        "body_shape": [2, 2, 3],
         "cls": "DrakeBackend",
         "contact_shape": [2, 3],
         "contact_nonzero": True,

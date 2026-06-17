@@ -1,9 +1,9 @@
 """UniLab adapter for the DrakeUni batch runtime.
 
 This module is deliberately a thin contract layer. UniLab owns task logic,
-observations, resets, and training flow; DrakeUni owns Drake model construction,
-batched stepping, and sensor packet generation. The backend's job is to keep
-those two worlds speaking the same API.
+observations, resets, named sensor views, and training flow; DrakeUni owns
+Drake model construction, batched stepping, and raw sensor evaluation. The
+backend's job is to keep those two worlds speaking the same API.
 """
 
 from __future__ import annotations
@@ -247,6 +247,8 @@ class DrakeBackend(SimBackend):
         self._ctrl_limits = model_info.ctrl_limits.copy()
         self._joint_ranges = model_info.joint_ranges.copy()
         self._sensor_names = tuple(model_info.sensor_names)
+        self._sensor_adr = model_info.sensor_adr.copy()
+        self._sensor_dim = model_info.sensor_dim.copy()
         self._base_body_id = int(self._runtime.body_ids([self._base_name])[0])
         self._model = _DrakeUniModelView(
             nq=int(model_info.nq),
@@ -254,9 +256,13 @@ class DrakeBackend(SimBackend):
             nu=int(model_info.nu),
         )
         self._nthread = int(getattr(self._runtime, "nthread", int(nthread)))
-        # Runtime state and sensor packets are refreshed after reset/step.
+        # Runtime state and raw sensor views are refreshed after reset/step.
         self._physics_state = self._runtime.physics_state()
-        self._sensor_packet: dict[str, np.ndarray] = {}
+        self._sensor_data = np.zeros(
+            (self._num_envs, int(model_info.nsensordata)),
+            dtype=np.float64,
+        )
+        self._sensor_views: dict[str, np.ndarray] = {}
         self._sync_runtime_state()
 
     # Static model contract.
@@ -497,12 +503,13 @@ class DrakeBackend(SimBackend):
     # Sensor access.
     #
     # The task code consumes backend-neutral names such as base_pos, gyro, and
-    # dof_pos. DrakeUni computes those packets; this class only copies them out.
+    # dof_pos. DrakeUni returns one flat sensor array; this class owns the
+    # MuJoCo-style named views over that array.
     def get_base_pos(self) -> np.ndarray:
-        return self._sensor_packet["base_pos"].copy()
+        return self._sensor_views["base_pos"].copy()
 
     def get_base_quat(self) -> np.ndarray:
-        return self._sensor_packet["base_quat"].copy()
+        return self._sensor_views["base_quat"].copy()
 
     def get_base_lin_vel(self) -> np.ndarray:
         qvel_start = 1 + self._model.nq
@@ -513,28 +520,22 @@ class DrakeBackend(SimBackend):
         return self._physics_state[:, qvel_start + 3 : qvel_start + 6].copy()
 
     def get_dof_pos(self) -> np.ndarray:
-        return self._sensor_packet["dof_pos"].copy()
+        return self._sensor_views["dof_pos"].copy()
 
     def get_dof_vel(self) -> np.ndarray:
-        return self._sensor_packet["dof_vel"].copy()
+        return self._sensor_views["dof_vel"].copy()
 
     def get_body_pos_w(self, body_ids: np.ndarray) -> np.ndarray:
-        # Current locomotion tasks only need configured base-body kinematics
-        # through this body API. Other body queries should fail explicitly.
-        self._require_base_body_only(body_ids)
-        return np.repeat(self.get_base_pos()[:, None, :], len(body_ids), axis=1)
+        return self._body_state(body_ids)["pos"]
 
     def get_body_quat_w(self, body_ids: np.ndarray) -> np.ndarray:
-        self._require_base_body_only(body_ids)
-        return np.repeat(self.get_base_quat()[:, None, :], len(body_ids), axis=1)
+        return self._body_state(body_ids)["quat"]
 
     def get_body_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
-        self._require_base_body_only(body_ids)
-        return np.repeat(self.get_base_lin_vel()[:, None, :], len(body_ids), axis=1)
+        return self._body_state(body_ids)["linvel"]
 
     def get_body_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
-        self._require_base_body_only(body_ids)
-        return np.repeat(self.get_base_ang_vel()[:, None, :], len(body_ids), axis=1)
+        return self._body_state(body_ids)["angvel"]
 
     def get_body_pos_b(self, body_ids: np.ndarray) -> np.ndarray:
         self._require_base_body_only(body_ids)
@@ -548,31 +549,44 @@ class DrakeBackend(SimBackend):
 
     def get_body_lin_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
         self._require_base_body_only(body_ids)
-        return np.repeat(self._sensor_packet["local_linvel"][:, None, :], len(body_ids), axis=1)
+        return np.repeat(self._sensor_views["local_linvel"][:, None, :], len(body_ids), axis=1)
 
     def get_body_ang_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
         self._require_base_body_only(body_ids)
-        return np.repeat(self._sensor_packet["gyro"][:, None, :], len(body_ids), axis=1)
+        return np.repeat(self._sensor_views["gyro"][:, None, :], len(body_ids), axis=1)
 
     def get_sensor_data(self, name: str) -> np.ndarray:
-        if name in self._sensor_packet:
-            return self._sensor_packet[name].copy()
+        if name in self._sensor_views:
+            return self._sensor_views[name].copy()
         raise KeyError(f"Unknown DrakeUni sensor: {name}")
 
     # Internal helpers.
     def _sync_runtime_state(self, output: dict[str, Any] | None = None) -> None:
-        # Keep UniLab's cached state/sensor contract aligned after every DrakeUni update.
+        # Keep UniLab's cached state/sensor views aligned after every DrakeUni update.
         if output is None:
             self._physics_state = self._runtime.physics_state()
-            packet = {name: self._runtime.sensor(name) for name in self._sensor_names}
         else:
             self._physics_state = np.asarray(output["state"], dtype=np.float64).copy()
-            raw_sensor = output.get("sensor", {})
-            packet = {
-                key: np.asarray(value, dtype=np.float64).copy() for key, value in raw_sensor.items()
-            }
-        packet.setdefault("position", packet["base_pos"])
-        self._sensor_packet = packet
+        sensor_data = None if output is None else output.get("sensor_data")
+        if sensor_data is None:
+            sensor_data = self._runtime.forward(self._physics_state)
+        self._sensor_data = np.asarray(sensor_data, dtype=np.float64).copy()
+        self._rebuild_sensor_views()
+
+    def _rebuild_sensor_views(self) -> None:
+        self._sensor_views = {}
+        for index, name in enumerate(self._sensor_names):
+            adr = int(self._sensor_adr[index])
+            dim = int(self._sensor_dim[index])
+            self._sensor_views[name] = self._sensor_data[:, adr : adr + dim]
+        if "position" not in self._sensor_views and "base_pos" in self._sensor_views:
+            self._sensor_views["position"] = self._sensor_views["base_pos"]
+
+    def _body_state(self, body_ids: np.ndarray) -> dict[str, np.ndarray]:
+        ids = np.asarray(body_ids, dtype=np.int32)
+        if ids.ndim != 1:
+            raise ValueError(f"body_ids must be one-dimensional, got {ids.shape}")
+        return self._runtime.compute_body_state(ids)
 
     def _require_base_body_only(self, body_ids: np.ndarray) -> None:
         """Guard body-kinematics methods that only expose the configured base."""
