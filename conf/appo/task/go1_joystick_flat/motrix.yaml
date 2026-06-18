@@ -1,0 +1,34 @@
+# @package _global_
+training:
+  task_name: Go1JoystickFlat
+  sim_backend: motrix
+algo:
+  num_envs: 1024
+  steps_per_env: 24
+  max_iterations: 300
+  actor:
+    distribution_cfg:
+      init_std: 0.5
+  algorithm:
+    learning_rate: 5.0e-4
+    entropy_coef: 1.0e-3
+    desired_kl: 0.008
+env:
+  sim_dt: 0.01
+  commands:
+    vel_limit:
+      - [0.5, 0.0, 0.0]
+      - [0.5, 0.0, 0.0]
+reward:
+  scales:
+    tracking_lin_vel: 1.0
+    tracking_ang_vel: 0.2
+    lin_vel_z: -5.0
+    ang_vel_xy: -0.1
+    base_height: -100.0
+    action_rate: -0.015
+    action_smooth: -0.01
+    similar_to_default: -0.15
+    swing_feet_z: 2.0
+  tracking_sigma: 0.25
+  base_height_target: 0.3
