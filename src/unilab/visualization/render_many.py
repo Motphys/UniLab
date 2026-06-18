@@ -17,7 +17,10 @@ import imageio
 
 _USER_MUJOCO_GL = os.environ.get("MUJOCO_GL")
 
-_EGL_PROBE_SCRIPT = textwrap.dedent(
+# Backend-agnostic probe: build a tiny off-screen scene and render one frame.
+# Used to verify that a given MUJOCO_GL backend (egl / osmesa / glfw / ...) can
+# actually create a rendering context on this host before we commit to it.
+_GL_PROBE_SCRIPT = textwrap.dedent(
     '''
     import mujoco
 
@@ -40,14 +43,23 @@ _EGL_PROBE_SCRIPT = textwrap.dedent(
 )
 
 
-def _egl_runtime_usable() -> bool:
+def _gl_backend_runtime_usable(backend: str) -> bool:
+    """Return True if *backend* can create and render an off-screen MuJoCo scene.
+
+    The probe runs in a clean subprocess so a broken / half-initialized GL driver
+    cannot corrupt or crash this process.
+    """
+    if not backend:
+        return False
+
     env = os.environ.copy()
-    env["MUJOCO_GL"] = "egl"
-    env.setdefault("MUJOCO_EGL_DEVICE_ID", "0")
+    env["MUJOCO_GL"] = backend
+    if backend == "egl":
+        env.setdefault("MUJOCO_EGL_DEVICE_ID", "0")
 
     try:
         subprocess.run(
-            [sys.executable, "-c", _EGL_PROBE_SCRIPT],
+            [sys.executable, "-c", _GL_PROBE_SCRIPT],
             env=env,
             check=True,
             stdout=subprocess.DEVNULL,
@@ -57,15 +69,23 @@ def _egl_runtime_usable() -> bool:
     except (OSError, subprocess.SubprocessError):
         return False
 
-    os.environ.setdefault("MUJOCO_EGL_DEVICE_ID", env["MUJOCO_EGL_DEVICE_ID"])
+    if backend == "egl":
+        os.environ.setdefault("MUJOCO_EGL_DEVICE_ID", env["MUJOCO_EGL_DEVICE_ID"])
     return True
+
+
+def _egl_runtime_usable() -> bool:
+    """Probe the EGL backend specifically (GPU-backed off-screen rendering)."""
+    return _gl_backend_runtime_usable("egl")
 
 
 def _resolve_gl_backend() -> str:
     """Pick a valid MUJOCO_GL backend for the current platform.
 
     Respects an explicit user setting unless it's provably invalid (e.g. egl
-    on macOS).  Falls back to glfw when EGL is requested but not available.
+    on macOS).  Prefers GPU-backed EGL, then software OSMesa on headless hosts.
+    ``glfw`` is only chosen when a display is available, because it requires an
+    X11 context and would otherwise fail in every render worker.
     """
     current = os.environ.get("MUJOCO_GL", "")
     safe_values = {"glfw", "osmesa", "disabled"}
@@ -82,6 +102,15 @@ def _resolve_gl_backend() -> str:
     if _egl_runtime_usable():
         return "egl"
 
+    # No EGL. On a headless host glfw cannot work (it needs an X11 display), so
+    # prefer software rendering. We return "osmesa" even when its presence is
+    # unverified here: it is the only headless-capable backend, and the playback
+    # pre-flight check (render_backend_usable) turns an unusable backend into a
+    # single clear warning instead of a GLFW failure that respawns workers.
+    if not os.environ.get("DISPLAY"):
+        return "osmesa"
+
+    # A display is available; glfw can create an off-screen context.
     return "glfw"
 
 
@@ -90,6 +119,30 @@ os.environ["MUJOCO_GL"] = _resolve_gl_backend()
 
 import mujoco  # noqa: E402
 import numpy as np
+
+
+def render_backend_usable() -> bool:
+    """Whether the resolved MUJOCO_GL backend can actually render on this host.
+
+    A cheap one-off subprocess probe used before spawning render workers, so a
+    host that cannot render (no EGL, no OSMesa, no display) degrades to a clear
+    warning instead of an endless worker-respawn loop.
+    """
+    return _gl_backend_runtime_usable(os.environ.get("MUJOCO_GL", ""))
+
+
+def _warn_render_unavailable() -> None:
+    """Emit a single actionable message when off-screen rendering is impossible."""
+    backend = os.environ.get("MUJOCO_GL", "<unset>")
+    has_display = "set" if os.environ.get("DISPLAY") else "unset"
+    print(
+        "[render] MuJoCo off-screen rendering is unavailable "
+        f"(MUJOCO_GL={backend!r}, DISPLAY={has_display}); skipping video recording.\n"
+        "[render] On a headless host install software rendering "
+        "(e.g. `apt-get install libosmesa6`) or enable EGL on a GPU "
+        "(`MUJOCO_GL=egl`), then re-run with `--render-mode record`.",
+        file=sys.stderr,
+    )
 
 
 def get_grid_offsets(num_envs, spacing=1.0):
@@ -408,6 +461,10 @@ def render_states_get_frames(
         print("No states to render.")
         return []
 
+    if not render_backend_usable():
+        _warn_render_unavailable()
+        return []
+
     num_envs = state_list[0].shape[0]
     offsets = get_grid_offsets(num_envs, spacing=render_spacing)
     shape = (width, height)
@@ -427,7 +484,7 @@ def render_states_get_frames(
         )
     ]
 
-    frames = []
+    frames: list[Any] = []
 
     if num_processes <= 1:
         # Serial execution
@@ -440,16 +497,35 @@ def render_states_get_frames(
         finally:
             _close_worker()
     else:
-        # Use multiprocessing Pool
-        # On macOS, use spawn to avoid forking OpenGL/MuJoCo contexts.
+        # Use a process pool. ProcessPoolExecutor (unlike multiprocessing.Pool)
+        # fails fast with BrokenProcessPool when a worker dies during init or a
+        # task, instead of silently respawning the dead worker forever — which
+        # would turn a single render failure into an unbounded error-log flood
+        # (see issue #605). spawn avoids forking OpenGL/MuJoCo contexts.
         import multiprocessing
+        from concurrent.futures import BrokenExecutor, ProcessPoolExecutor
 
         ctx = multiprocessing.get_context("spawn")
-        with ctx.Pool(
-            processes=num_processes, initializer=init_worker, initargs=(model_path, shape)
-        ) as pool:
-            results = pool.map(render_frame_job, tasks)
-            frames.extend(results)
+        chunksize = max(1, len(tasks) // (num_processes * 4))
+        try:
+            with ProcessPoolExecutor(
+                max_workers=num_processes,
+                mp_context=ctx,
+                initializer=init_worker,
+                initargs=(model_path, shape),
+            ) as pool:
+                frames = list(pool.map(render_frame_job, tasks, chunksize=chunksize))
+        except BrokenExecutor as exc:
+            # A worker died during init or a task (bad model, OOM, or an
+            # unusable GL backend). Fail fast instead of respawning forever.
+            print(
+                f"[render] A render worker terminated before completing "
+                f"({type(exc).__name__}: {exc}); skipping video recording. "
+                "If this host is headless, ensure a usable MUJOCO_GL backend "
+                "(egl on a GPU, or install OSMesa for software rendering).",
+                file=sys.stderr,
+            )
+            return []
 
     return frames
 
@@ -650,6 +726,10 @@ def render_states_get_frames_tracking(
         print("No states to render.")
         return []
 
+    if not render_backend_usable():
+        _warn_render_unavailable()
+        return []
+
     num_envs = state_list[0].shape[0]
     offsets = get_grid_offsets(num_envs, spacing=render_spacing)
     shape = (width, height)
@@ -717,6 +797,10 @@ def render_states_to_video(
         cam_lookat=cam_lookat,
         render_spacing=render_spacing,
     )
+
+    if not frames:
+        print(f"No frames rendered; skipping video write to {output_path}.")
+        return
 
     print(f"Saving video to {output_path}...")
     imageio.mimsave(output_path, frames, fps=fps)
