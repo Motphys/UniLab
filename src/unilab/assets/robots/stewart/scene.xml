@@ -3,8 +3,8 @@
 
     <asset>
         <texture name="skybox" type="skybox" builtin="gradient" rgb1="0.8 0.85 0.9" rgb2="0.3 0.35 0.4" width="512" height="512"/>
-        <texture name="motphys-ground" type="2d" file="motphys-ground.png"/>
-        <material name="motphys-ground" texture="motphys-ground" texuniform="true" texrepeat="0.4 0.4"/>
+        <texture name="ground" type="2d" file="ground.png"/>
+        <material name="ground" texture="ground" texuniform="true" texrepeat="0.4 0.4"/>
 
         <texture type="2d" name="platform" builtin="checker" rgb1="0.5 0.5 0.8" rgb2="0.9 0.9 0.9" markrgb="1 1 1" width="300" height="300"/>
         <material name="grey_metal" texture="platform" texuniform="true" texrepeat="2 2" specular="1" metallic="0.8"/>
@@ -35,7 +35,7 @@
         <light pos="0 0 1.5" dir="0 0 -1" directional="true"/>
         <light pos="0 0 1.5" dir="0 -5 -1" directional="true"/>
 
-        <geom name="floor" pos="0 0 0" size="0 0 0.01" type="plane" material="motphys-ground"/>
+        <geom name="floor" pos="0 0 0" size="0 0 0.01" type="plane" material="ground"/>
 
         <body name="ball" pos="0 0 1.18">
             <joint name="ball_free" type="free"/>
