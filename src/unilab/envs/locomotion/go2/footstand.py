@@ -139,6 +139,8 @@ class Go2HandStandTask(Go2BaseEnv):
             position_actuator_gains={"kp": cfg.control_config.Kp, "kd": cfg.control_config.Kd},
             motrix_max_iterations=cfg.motrix_max_iterations,
             post_step_forward_sensor=cfg.post_step_forward_sensor,
+            drake_backend_mode=cfg.drake_backend_mode,
+            drake_nthread=cfg.drake_nthread,
         )
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True
@@ -420,6 +422,7 @@ class Go2FootStandDomainRandomizationProvider(Go2HandStandDomainRandomizationPro
 
 
 @registry.env("Go2FootStand", sim_backend="mujoco")
+@registry.env("Go2FootStand", sim_backend="drake")
 class Go2FootStandTask(Go2HandStandTask):
     _cfg: Go2FootStandCfg
 
@@ -438,12 +441,39 @@ class Go2FootStandTask(Go2HandStandTask):
             dtype=get_global_dtype(),
         )
         self._critic_obs_history = np.zeros_like(self._obs_history)
-        self._base_geom_friction = self._backend.get_geom_friction()
-        self._floor_geom_id = self._backend.get_geom_id(self._cfg.asset.ground)
-        self._base_body_id = self._backend.get_body_id(self._cfg.asset.base_name)
-        self._base_body_mass = self._backend.get_body_mass()
-        self._base_body_ipos = self._backend.get_body_ipos()
-        self._base_dof_armature = self._backend.get_dof_armature()
+        domain_rand = self._cfg.domain_rand
+        needs_floor_friction = bool(domain_rand.randomize_floor_friction)
+        needs_body_mass = bool(
+            domain_rand.randomize_link_mass or domain_rand.torso_added_mass_range is not None
+        )
+        needs_body_ipos = bool(domain_rand.randomize_torso_com)
+        needs_dof_armature = bool(domain_rand.randomize_dof_armature)
+        self._base_geom_friction = (
+            self._backend.get_geom_friction()
+            if needs_floor_friction
+            else np.zeros((0, 3), dtype=np.float64)
+        )
+        self._floor_geom_id = (
+            self._backend.get_geom_id(self._cfg.asset.ground) if needs_floor_friction else -1
+        )
+        self._base_body_id = (
+            self._backend.get_body_id(self._cfg.asset.base_name)
+            if needs_body_mass or needs_body_ipos
+            else -1
+        )
+        self._base_body_mass = (
+            self._backend.get_body_mass() if needs_body_mass else np.zeros((0,), dtype=np.float64)
+        )
+        self._base_body_ipos = (
+            self._backend.get_body_ipos()
+            if needs_body_ipos
+            else np.zeros((0, 3), dtype=np.float64)
+        )
+        self._base_dof_armature = (
+            self._backend.get_dof_armature()
+            if needs_dof_armature
+            else np.zeros((0,), dtype=np.float64)
+        )
         self._knee_body_ids = self._backend.get_body_ids(_FOOTSTAND_KNEE_BODY_NAMES)
         self._init_domain_randomization(Go2FootStandDomainRandomizationProvider())
 
