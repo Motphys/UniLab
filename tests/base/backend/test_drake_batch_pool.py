@@ -35,6 +35,87 @@ def _run_clean_python(code: str) -> str:
     return result.stdout
 
 
+_GO1_POOL_HELPER = """
+import xml.etree.ElementTree as ET
+
+import numpy as np
+
+from unilab.assets import ASSETS_ROOT_PATH
+from drakeuni.batch_env import DrakeEnvPool
+from drakeuni.runtime.mjcf_model_parser import (
+    materialize_drake_compatible_mjcf,
+    parse_mjcf_model_contract,
+    sensor_frames_as_pool_inputs,
+)
+
+
+def make_go1_pool(nbatch, nthread):
+    source_model = ASSETS_ROOT_PATH / "robots/go1/scene_flat_drake.xml"
+    robot = ASSETS_ROOT_PATH / "robots/go1/go1_drake.xml"
+    drake_model = materialize_drake_compatible_mjcf(source_model)
+    contract = parse_mjcf_model_contract(drake_model.model_file)
+    sensor_frame_body_indices, sensor_frame_offsets = sensor_frames_as_pool_inputs(contract)
+    scene_root = ET.parse(source_model).getroot()
+    robot_root = ET.parse(robot).getroot()
+    qpos = np.fromstring(
+        scene_root.find('.//key[@name="home"]').attrib["qpos"],
+        sep=" ",
+        dtype=np.float64,
+    )
+    qvel = np.zeros(18, dtype=np.float64)
+    state = np.zeros((nbatch, 1 + qpos.size + qvel.size), dtype=np.float64)
+    state[:, 1 : 1 + qpos.size] = qpos
+    state[:, 1 + qpos.size :] = qvel
+    ctrl_limits = []
+    torque_limits = []
+    for actuator in robot_root.findall(".//actuator/position"):
+        ctrl_limits.append(
+            np.fromstring(
+                actuator.attrib.get("ctrlrange", "-1 1"),
+                sep=" ",
+                dtype=np.float64,
+            )
+        )
+        force = np.fromstring(
+            actuator.attrib.get("forcerange", "-23.7 23.7"),
+            sep=" ",
+            dtype=np.float64,
+        )
+        torque_limits.append(float(np.max(np.abs(force))))
+    pool = DrakeEnvPool(
+        str(drake_model.model_file),
+        nbatch,
+        0.01,
+        np.asarray(ctrl_limits, dtype=np.float64),
+        np.asarray(torque_limits, dtype=np.float64),
+        contract.actuator_kind,
+        contract.actuator_gear,
+        contract.actuator_stiffness,
+        contract.actuator_damping,
+        contract.actuator_gainprm,
+        contract.actuator_biasprm,
+        contract.joint_layout_kind,
+        contract.joint_layout_qpos_adr,
+        contract.joint_layout_qvel_adr,
+        contract.joint_layout_qpos_dim,
+        contract.joint_layout_qvel_dim,
+        contract.joint_layout_names,
+        contract.joint_layout_body_names,
+        contract.collision_filter_geom_names1,
+        contract.collision_filter_geom_names2,
+        sensor_frame_body_indices,
+        sensor_frame_offsets,
+        contract.sensor_type,
+        contract.sensor_index,
+        contract.sensor_adr,
+        contract.sensor_dim,
+        contract.nsensordata,
+        nthread,
+    )
+    return pool, qpos, qvel, state
+"""
+
+
 def test_batch_import_diagnostic_is_preserved() -> None:
     output = _run_clean_python(
         """
@@ -294,73 +375,12 @@ def test_unilab_drake_public_surface_excludes_batch_backend_symbol() -> None:
 )
 def test_drake_batch_pool_go1_smoke_shapes_and_time() -> None:
     output = _run_clean_python(
-        """
+        _GO1_POOL_HELPER
+        + textwrap.dedent(
+            """
         import json
-        import xml.etree.ElementTree as ET
 
-        import numpy as np
-
-        from unilab.assets import ASSETS_ROOT_PATH
-        from drakeuni.batch_env import DrakeEnvPool
-        from drakeuni.runtime.mjcf_model_parser import (
-            parse_mjcf_model_contract,
-            sensor_frames_as_pool_inputs,
-        )
-
-        model = ASSETS_ROOT_PATH / "robots/go1/scene_flat_drake.xml"
-        robot = ASSETS_ROOT_PATH / "robots/go1/go1_drake.xml"
-        contract = parse_mjcf_model_contract(model)
-        sensor_frame_body_indices, sensor_frame_offsets = sensor_frames_as_pool_inputs(contract)
-        scene_root = ET.parse(model).getroot()
-        robot_root = ET.parse(robot).getroot()
-        qpos = np.fromstring(
-            scene_root.find('.//key[@name="home"]').attrib["qpos"],
-            sep=" ",
-            dtype=np.float64,
-        )
-        qvel = np.zeros(18, dtype=np.float64)
-        ctrl_limits = []
-        torque_limits = []
-        for actuator in robot_root.findall(".//actuator/position"):
-            ctrl_limits.append(
-                np.fromstring(
-                    actuator.attrib.get("ctrlrange", "-1 1"),
-                    sep=" ",
-                    dtype=np.float64,
-                )
-            )
-            force = np.fromstring(
-                actuator.attrib.get("forcerange", "-23.7 23.7"),
-                sep=" ",
-                dtype=np.float64,
-            )
-            torque_limits.append(float(np.max(np.abs(force))))
-        ctrl_limits = np.asarray(ctrl_limits, dtype=np.float64)
-        torque_limits = np.asarray(torque_limits, dtype=np.float64)
-        state = np.zeros((2, 1 + qpos.size + qvel.size), dtype=np.float64)
-        state[:, 1 : 1 + qpos.size] = qpos
-        state[:, 1 + qpos.size :] = qvel
-        pool = DrakeEnvPool(
-            str(model),
-            2,
-            0.01,
-            ctrl_limits,
-            torque_limits,
-            contract.actuator_kind,
-            contract.actuator_gear,
-            contract.actuator_stiffness,
-            contract.actuator_damping,
-            contract.actuator_gainprm,
-            contract.actuator_biasprm,
-            sensor_frame_body_indices,
-            sensor_frame_offsets,
-            contract.sensor_type,
-            contract.sensor_index,
-            contract.sensor_adr,
-            contract.sensor_dim,
-            contract.nsensordata,
-            1,
-        )
+        pool, qpos, _, state = make_go1_pool(2, 1)
         control = np.tile(qpos[7:], (2, 1))
         state_only = pool.step(state, 2, control, None, False)
         output = pool.step(state, 2, control, None, True)
@@ -380,6 +400,7 @@ def test_drake_batch_pool_go1_smoke_shapes_and_time() -> None:
         }
         print(json.dumps(summary, sort_keys=True))
         """
+        )
     )
     summary = json.loads(output.strip().splitlines()[-1])
     assert summary.pop("num_filtered_geometries") > 0
@@ -403,50 +424,12 @@ def test_drake_batch_pool_go1_smoke_shapes_and_time() -> None:
 )
 def test_drake_batch_pool_uses_thread_workspaces_not_env_workspaces() -> None:
     output = _run_clean_python(
-        """
+        _GO1_POOL_HELPER
+        + textwrap.dedent(
+            """
         import json
-        import xml.etree.ElementTree as ET
 
-        import numpy as np
-
-        from unilab.assets import ASSETS_ROOT_PATH
-        from drakeuni.batch_env import DrakeEnvPool
-        from drakeuni.runtime.mjcf_model_parser import (
-            parse_mjcf_model_contract,
-            sensor_frames_as_pool_inputs,
-        )
-
-        model = ASSETS_ROOT_PATH / "robots/go1/scene_flat_drake.xml"
-        robot = ASSETS_ROOT_PATH / "robots/go1/go1_drake.xml"
-        contract = parse_mjcf_model_contract(model)
-        sensor_frame_body_indices, sensor_frame_offsets = sensor_frames_as_pool_inputs(contract)
-        scene_root = ET.parse(model).getroot()
-        robot_root = ET.parse(robot).getroot()
-        qpos = np.fromstring(
-            scene_root.find('.//key[@name="home"]').attrib["qpos"],
-            sep=" ",
-            dtype=np.float64,
-        )
-        qvel = np.zeros(18, dtype=np.float64)
-        ctrl_limits = []
-        torque_limits = []
-        for actuator in robot_root.findall(".//actuator/position"):
-            ctrl_limits.append(
-                np.fromstring(
-                    actuator.attrib.get("ctrlrange", "-1 1"),
-                    sep=" ",
-                    dtype=np.float64,
-                )
-            )
-            force = np.fromstring(
-                actuator.attrib.get("forcerange", "-23.7 23.7"),
-                sep=" ",
-                dtype=np.float64,
-            )
-            torque_limits.append(float(np.max(np.abs(force))))
-        ctrl_limits = np.asarray(ctrl_limits, dtype=np.float64)
-        torque_limits = np.asarray(torque_limits, dtype=np.float64)
-        state = np.zeros((4, 1 + qpos.size + qvel.size), dtype=np.float64)
+        _, qpos, qvel, state = make_go1_pool(4, 1)
         for env_index in range(4):
             row_qpos = qpos.copy()
             row_qpos[0] += 0.05 * env_index
@@ -454,27 +437,7 @@ def test_drake_batch_pool_uses_thread_workspaces_not_env_workspaces() -> None:
             state[env_index, 1 + qpos.size :] = qvel
 
         def make_pool(nthread):
-            return DrakeEnvPool(
-                str(model),
-                4,
-                0.01,
-                ctrl_limits,
-                torque_limits,
-                contract.actuator_kind,
-                contract.actuator_gear,
-                contract.actuator_stiffness,
-                contract.actuator_damping,
-                contract.actuator_gainprm,
-                contract.actuator_biasprm,
-                sensor_frame_body_indices,
-                sensor_frame_offsets,
-                contract.sensor_type,
-                contract.sensor_index,
-                contract.sensor_adr,
-                contract.sensor_dim,
-                contract.nsensordata,
-                nthread,
-            )
+            return make_go1_pool(4, nthread)[0]
 
         control = np.tile(qpos[7:], (4, 1))
         serial_pool = make_pool(1)
@@ -503,6 +466,7 @@ def test_drake_batch_pool_uses_thread_workspaces_not_env_workspaces() -> None:
         }
         print(json.dumps(summary, sort_keys=True))
         """
+        )
     )
     summary = json.loads(output.strip().splitlines()[-1])
     assert summary == {
@@ -525,72 +489,13 @@ def test_drake_batch_pool_uses_thread_workspaces_not_env_workspaces() -> None:
 )
 def test_drake_batch_pool_worker_exception_reaches_python() -> None:
     output = _run_clean_python(
-        """
+        _GO1_POOL_HELPER
+        + textwrap.dedent(
+            """
         import json
-        import xml.etree.ElementTree as ET
 
-        import numpy as np
-
-        from unilab.assets import ASSETS_ROOT_PATH
-        from drakeuni.batch_env import DrakeEnvPool
-        from drakeuni.runtime.mjcf_model_parser import (
-            parse_mjcf_model_contract,
-            sensor_frames_as_pool_inputs,
-        )
-
-        model = ASSETS_ROOT_PATH / "robots/go1/scene_flat_drake.xml"
-        robot = ASSETS_ROOT_PATH / "robots/go1/go1_drake.xml"
-        contract = parse_mjcf_model_contract(model)
-        sensor_frame_body_indices, sensor_frame_offsets = sensor_frames_as_pool_inputs(contract)
-        scene_root = ET.parse(model).getroot()
-        robot_root = ET.parse(robot).getroot()
-        qpos = np.fromstring(
-            scene_root.find('.//key[@name="home"]').attrib["qpos"],
-            sep=" ",
-            dtype=np.float64,
-        )
-        qvel = np.zeros(18, dtype=np.float64)
-        ctrl_limits = []
-        torque_limits = []
-        for actuator in robot_root.findall(".//actuator/position"):
-            ctrl_limits.append(
-                np.fromstring(
-                    actuator.attrib.get("ctrlrange", "-1 1"),
-                    sep=" ",
-                    dtype=np.float64,
-                )
-            )
-            force = np.fromstring(
-                actuator.attrib.get("forcerange", "-23.7 23.7"),
-                sep=" ",
-                dtype=np.float64,
-            )
-            torque_limits.append(float(np.max(np.abs(force))))
-        state = np.zeros((4, 1 + qpos.size + qvel.size), dtype=np.float64)
-        state[:, 1 : 1 + qpos.size] = qpos
-        state[:, 1 + qpos.size :] = qvel
+        pool, qpos, _, state = make_go1_pool(4, 2)
         state[2, 0] = np.nan
-        pool = DrakeEnvPool(
-            str(model),
-            4,
-            0.01,
-            np.asarray(ctrl_limits, dtype=np.float64),
-            np.asarray(torque_limits, dtype=np.float64),
-            contract.actuator_kind,
-            contract.actuator_gear,
-            contract.actuator_stiffness,
-            contract.actuator_damping,
-            contract.actuator_gainprm,
-            contract.actuator_biasprm,
-            sensor_frame_body_indices,
-            sensor_frame_offsets,
-            contract.sensor_type,
-            contract.sensor_index,
-            contract.sensor_adr,
-            contract.sensor_dim,
-            contract.nsensordata,
-            2,
-        )
         control = np.tile(qpos[7:], (4, 1))
         try:
             pool.step(state, 1, control, None, True)
@@ -600,10 +505,91 @@ def test_drake_batch_pool_worker_exception_reaches_python() -> None:
             raise AssertionError("non-finite worker state unexpectedly succeeded")
         print(json.dumps(summary, sort_keys=True))
         """
+        )
     )
     summary = json.loads(output.strip().splitlines()[-1])
     assert summary["error_type"] == "ValueError"
     assert "non-finite" in summary["message"]
+
+
+@pytest.mark.skipif(
+    not _batch_extension_built(),
+    reason="optional Drake batch extension has not been built",
+)
+def test_drake_runtime_stewart_compact_state_matches_mujoco_qpos_order() -> None:
+    output = _run_clean_python(
+        """
+        import json
+
+        import mujoco
+        import numpy as np
+
+        from unilab.assets import ASSETS_ROOT_PATH
+        from drakeuni.runtime import DrakeBatchConfig, create_runtime
+
+        model = ASSETS_ROOT_PATH / "robots/stewart/scene.xml"
+        runtime = create_runtime(
+            DrakeBatchConfig(model_file=str(model), num_envs=1, sim_dt=0.005, nthread=1)
+        )
+        drake_home = runtime.model_info().home_qpos
+        mujoco_home = mujoco.MjModel.from_xml_path(str(model)).qpos0
+        summary = {
+            "shape": list(drake_home.shape),
+            "matches_mujoco": bool(np.allclose(drake_home, mujoco_home)),
+            "ball_z": float(drake_home[2]),
+            "top_z": float(drake_home[9]),
+            "max_abs_diff": float(np.max(np.abs(drake_home - mujoco_home))),
+        }
+        print(json.dumps(summary, sort_keys=True))
+        """
+    )
+    assert json.loads(output.strip().splitlines()[-1]) == {
+        "ball_z": 1.18,
+        "matches_mujoco": True,
+        "max_abs_diff": 0.0,
+        "shape": [32],
+        "top_z": 1.0,
+    }
+
+
+@pytest.mark.skipif(
+    not _batch_extension_built(),
+    reason="optional Drake batch extension has not been built",
+)
+def test_drake_runtime_stewart_ball_collides_with_top_plate() -> None:
+    output = _run_clean_python(
+        """
+        import json
+
+        import numpy as np
+
+        from unilab.assets import ASSETS_ROOT_PATH
+        from drakeuni.runtime import DrakeBatchConfig, create_runtime
+
+        model = ASSETS_ROOT_PATH / "robots/stewart/scene.xml"
+        runtime = create_runtime(
+            DrakeBatchConfig(model_file=str(model), num_envs=1, sim_dt=0.005, nthread=1)
+        )
+        info = runtime.model_info()
+        ball_id, top_id = runtime.body_ids(["ball", "top"])
+        control = np.zeros((1, info.nu), dtype=np.float64)
+        runtime.step(control, 720)
+        body_state = runtime.compute_body_state([int(ball_id), int(top_id)])
+        ball_z = float(body_state["pos"][0, 0, 2])
+        top_z = float(body_state["pos"][0, 1, 2])
+        summary = {
+            "ball_z": round(ball_z, 6),
+            "top_z": round(top_z, 6),
+            "gap": round(ball_z - top_z, 6),
+            "num_filtered_geometries": runtime.diagnostics().num_filtered_geometries,
+        }
+        print(json.dumps(summary, sort_keys=True))
+        """
+    )
+    summary = json.loads(output.strip().splitlines()[-1])
+    assert summary["num_filtered_geometries"] == 0
+    assert summary["gap"] > 0.15
+    assert summary["ball_z"] > 1.1
 
 
 @pytest.mark.skipif(
