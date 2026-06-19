@@ -1,0 +1,34 @@
+# @package _global_
+training:
+  task_name: StewartBalance
+  sim_backend: mujoco
+  no_play: true
+  play_steps: 400
+  play_env_num: 1
+  play_render_mode: record
+  render_spacing: 4.5
+
+algo:
+  algo_log_name: fast_sac_mujoco
+  num_envs: 256
+  batch_size: 512
+  replay_buffer_n: 512
+  updates_per_step: 2
+  learning_starts: 2
+  max_iterations: 400
+  save_interval: 100
+  actor_hidden_dim: 128
+  critic_hidden_dim: 256
+  obs_normalization: true
+  use_layer_norm: true
+  algo_params:
+    alpha_init: 0.005
+    target_entropy_ratio: 0.0
+    use_compile: false
+
+reward:
+  scales:
+    center: 0.7
+    progress: 0.6
+    still: 3.0
+  fall_penalty: -6.0
