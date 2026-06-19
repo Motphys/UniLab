@@ -20,11 +20,11 @@ def test_support_matrix_marks_go2_ppo_backends_as_tested():
     assert row.cells["motrix"].level == EvidenceLevel.TESTED
 
 
-def test_support_matrix_marks_appo_go1_motrix_as_registered_only():
+def test_support_matrix_marks_appo_go1_backends_as_tested():
     row = _row("APPO (torch)", "go1_joystick_flat")
 
     assert row.cells["mujoco"].level == EvidenceLevel.TESTED
-    assert row.cells["motrix"].level == EvidenceLevel.REGISTERED
+    assert row.cells["motrix"].level == EvidenceLevel.TESTED
 
 
 def test_support_matrix_keeps_uncovered_mlx_tasks_at_configured():

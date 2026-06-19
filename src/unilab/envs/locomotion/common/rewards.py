@@ -149,6 +149,14 @@ def action_rate(ctx: RewardContext) -> np.ndarray:
     return np.sum(np.square(current - last), axis=1)  # type: ignore[no-any-return]
 
 
+def action_smooth(ctx: RewardContext) -> np.ndarray:
+    """Penalty for second-order action changes between timesteps."""
+    current = ctx.info["current_actions"]
+    last = ctx.info["last_actions"]
+    previous = ctx.info.get("previous_actions", last)
+    return np.sum(np.square(current - 2.0 * last + previous), axis=1)  # type: ignore[no-any-return]
+
+
 # ── effort penalties ─────────────────────────────────────────────────
 
 

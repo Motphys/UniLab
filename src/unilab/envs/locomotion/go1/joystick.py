@@ -142,7 +142,9 @@ class Go1WalkTask(Go1BaseEnv):
             "ang_vel_xy": rewards.ang_vel_xy,
             "base_height": rewards.base_height,
             "action_rate": rewards.action_rate,
+            "action_smooth": rewards.action_smooth,
             "similar_to_default": rewards.similar_to_default,
+            "contact": self._reward_contact,
             "swing_feet_z": self._reward_swing_feet_z,
         }
 
@@ -239,3 +241,19 @@ class Go1WalkTask(Go1BaseEnv):
         swing_rew = np.exp(-height_error / 0.01) * is_swing
         reward: np.ndarray = np.sum(swing_rew, axis=1) / len(self._cfg.sensor.feet_pos)
         return reward
+
+    def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:
+        previous_current = state.info.get("current_actions", np.zeros_like(actions))
+        previous_last = state.info.get("last_actions", np.zeros_like(actions))
+        state.info["previous_actions"] = previous_last
+        state.info["last_actions"] = previous_current
+        state.info["current_actions"] = actions
+        exec_actions = (
+            state.info["last_actions"]
+            if self._cfg.control_config.simulate_action_latency
+            else actions
+        )
+        ctrl: np.ndarray = (
+            exec_actions * self._cfg.control_config.action_scale + self.default_angles
+        )
+        return ctrl
