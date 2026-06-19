@@ -137,6 +137,7 @@ def _roll_pitch_from_quat(quat: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 # backend is the validated training path.
 @registry.env("StewartBalance", sim_backend="mujoco")
 @registry.env("StewartBalance", sim_backend="motrix")
+@registry.env("StewartBalance", sim_backend="drake")
 class StewartBalanceEnv(NpEnv):
     _cfg: StewartBalanceCfg
 
