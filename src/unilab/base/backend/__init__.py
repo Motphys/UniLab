@@ -104,6 +104,7 @@ def create_backend(
         # actuators, and sensors from the model contract itself.
         kwargs.pop("base_name", None)
         kwargs.pop("push_body_name", None)
+        kwargs.pop("add_body_sensors", None)
         kwargs["drake_backend_mode"] = drake_backend_mode
         if drake_nthread is not None:
             kwargs["nthread"] = drake_nthread

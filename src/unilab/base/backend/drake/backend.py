@@ -1,9 +1,9 @@
 """UniLab adapter for the DrakeUni batch runtime.
 
-This module is deliberately a thin contract layer. UniLab owns task logic,
-observations, resets, named sensor views, and training flow; DrakeUni owns
-Drake model construction, batched stepping, and raw sensor evaluation. The
-backend's job is to keep those two worlds speaking the same API.
+UniLab owns task logic, reset sampling, named sensor views, and training flow.
+DrakeUni owns Drake model construction, batched stepping, and raw sensor
+evaluation. This module translates the ``SimBackend`` contract into DrakeUni
+runtime calls and keeps UniLab's cached state/sensor views synchronized.
 """
 
 from __future__ import annotations
@@ -120,11 +120,11 @@ ROOT_QVEL_DIM = 6
 # Small helper types.
 @dataclass(frozen=True)
 class _DrakeUniModelView:
-    """Small shape view that mimics the model methods UniLab asks for.
+    """Read-only model-shape facade for UniLab's ``backend.model`` API.
 
-    MuJoCo exposes a rich model object. DrakeUni exposes model metadata through
-    ``model_info`` instead, so this view only preserves the shape queries that
-    existing UniLab code calls. It is not a Drake ``Diagram`` or ``Plant``.
+    DrakeUni exposes model dimensions through ``model_info``. UniLab's backend
+    contract expects a model-like object with dimension methods, so this facade
+    carries those shape queries without exposing Drake internals.
     """
 
     nq: int
@@ -162,10 +162,10 @@ def _resolve_scene_path(scene: SceneCfg) -> Path:
 
 
 class DrakeBackend(SimBackend):
-    """Single public Drake backend implementation.
+    """UniLab ``SimBackend`` implementation backed by DrakeUni batch runtime.
 
-    Only the DrakeUni batch path is supported. The class directly owns the
-    DrakeUni runtime; there is no inner ``_impl`` object or second batch backend.
+    The backend keeps the public UniLab API stable while delegating model
+    construction, integration, and raw sensor evaluation to DrakeUni.
     """
 
     backend_type = "drake"
@@ -179,8 +179,8 @@ class DrakeBackend(SimBackend):
         drake_backend_mode: str = "batch",
         nthread: int = 0,
     ) -> None:
-        # Keep the public knob explicit even though only one mode currently
-        # exists. That gives config errors a clear failure point.
+        # Validate the backend mode at construction so Hydra/config mistakes
+        # fail at the backend boundary.
         mode = str(drake_backend_mode or "batch").strip().lower()
         if mode != "batch":
             raise ValueError(
@@ -218,8 +218,8 @@ class DrakeBackend(SimBackend):
         )
         self._runtime = create_drake_runtime(config)
         model_info = self._runtime.model_info()
-        # Cache static model metadata once. The simple getters below expose
-        # these cached arrays to UniLab while protecting them with copy().
+        # Cache static model metadata once and expose copies through the
+        # UniLab backend contract.
         self._home_qpos_mujoco = model_info.home_qpos.copy()
         self._home_qvel_mujoco = model_info.home_qvel.copy()
         self._ctrl_limits = model_info.ctrl_limits.copy()
@@ -248,9 +248,8 @@ class DrakeBackend(SimBackend):
 
     # Static model contract.
     #
-    # These accessors intentionally look boring: the expensive/model-specific
-    # work happened in DrakeUni during construction, and UniLab now only needs
-    # stable dimensions, limits, and reset defaults.
+    # These accessors expose stable dimensions, limits, and reset defaults from
+    # the cached model metadata.
     @property
     def scene_model_file(self) -> str:
         return self._scene_model_file
@@ -284,8 +283,7 @@ class DrakeBackend(SimBackend):
         return self._joint_ranges.copy()
 
     def get_keyframe_qpos(self, name: str) -> np.ndarray:
-        # DrakeUni currently materializes the task's home pose as the only
-        # backend-level keyframe exposed through the UniLab contract.
+        # The materialized home pose is exposed through UniLab's keyframe API.
         if name != "home":
             raise KeyError(f"DrakeUni batch backend only exposes keyframe 'home', got {name!r}")
         return self._home_qpos_mujoco.copy()
@@ -363,8 +361,8 @@ class DrakeBackend(SimBackend):
 
     # Playback and domain randomization.
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
-        # At this milestone Drake supports generic interval body forces. Other
-        # randomization knobs must fail loudly instead of silently no-oping.
+        # Unsupported randomization knobs fail explicitly instead of silently
+        # becoming no-ops.
         return DomainRandomizationCapabilities(supports_interval_body_force=True)
 
     def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
@@ -373,7 +371,7 @@ class DrakeBackend(SimBackend):
         self._pending_body_forces.fill(0.0)
         if plan.push_perturbation_limit is not None:
             raise NotImplementedError(
-                "DrakeBackend no longer supports body-less interval push; use body_force"
+                "DrakeBackend interval pushes require explicit body_ids and body_force"
             )
         if plan.body_force is not None:
             if plan.body_ids is None:
