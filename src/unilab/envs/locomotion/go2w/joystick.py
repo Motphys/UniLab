@@ -227,6 +227,7 @@ class Go2WJoystickDomainRandomizationProvider(LocomotionDRProvider):
 
 
 @registry.env("Go2WJoystickFlat", sim_backend="mujoco")
+@registry.env("Go2WJoystickFlat", sim_backend="drake")
 class Go2WJoystickEnv(Go2WBaseEnv):
     _cfg: Go2WJoystickCfg
 
@@ -240,6 +241,8 @@ class Go2WJoystickEnv(Go2WBaseEnv):
             cfg.sim_dt,
             base_name=cfg.asset.base_name,
             push_body_name=cfg.domain_rand.push_body_name,
+            drake_backend_mode=cfg.drake_backend_mode,
+            drake_nthread=cfg.drake_nthread,
             motrix_max_iterations=cfg.motrix_max_iterations,
             post_step_forward_sensor=cfg.post_step_forward_sensor,
         )
