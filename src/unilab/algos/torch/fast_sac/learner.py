@@ -19,6 +19,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
+from unilab.algos.torch.common.compile import get_torch_compile_for_cuda
 from unilab.base.augmentation import SymmetryAugmentation
 
 # ---------------------------------------------------------------------------
@@ -520,8 +521,8 @@ class FastSACLearner:
         return bool(use_amp) and device_type == "cuda" and amp_dtype == torch.float16
 
     def _compile_training_methods(self) -> None:
-        compile_fn = getattr(torch, "compile", None)
-        if compile_fn is None or torch.device(self.device).type != "cuda":
+        compile_fn = get_torch_compile_for_cuda(self.device)
+        if compile_fn is None:
             return
 
         compile_kwargs = {"options": {"triton.cudagraphs": False}}

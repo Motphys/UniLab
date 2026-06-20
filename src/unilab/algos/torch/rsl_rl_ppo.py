@@ -7,6 +7,8 @@ import torch
 from rsl_rl.algorithms import PPO
 from tensordict import TensorDict
 
+from unilab.algos.torch.common.compile import get_torch_compile_for_cuda
+
 _LOG_2_PI = math.log(2.0 * math.pi)
 _NORMAL_ENTROPY_OFFSET = 0.5 * (1.0 + _LOG_2_PI)
 
@@ -24,17 +26,15 @@ class FinalObservationAwarePPO(PPO):
     ) -> None:
         super().__init__(*args, **kwargs)
         self.enable_compile = (
-            bool(enable_compile)
-            and torch.device(self.device).type == "cuda"
-            and hasattr(torch, "compile")
+            bool(enable_compile) and get_torch_compile_for_cuda(self.device) is not None
         )
         self._minibatch_loss_fn = self._minibatch_loss_tensors
         if self.enable_compile:
             self._compile_training_methods()
 
     def _compile_training_methods(self) -> None:
-        compile_fn = getattr(torch, "compile", None)
-        if compile_fn is None or torch.device(self.device).type != "cuda":
+        compile_fn = get_torch_compile_for_cuda(self.device)
+        if compile_fn is None:
             return
 
         self._minibatch_loss_fn = compile_fn(

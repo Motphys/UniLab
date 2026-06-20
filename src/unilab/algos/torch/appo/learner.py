@@ -21,6 +21,8 @@ from rsl_rl.models import MLPModel
 from rsl_rl.utils import resolve_optimizer
 from tensordict import TensorDict
 
+from unilab.algos.torch.common.compile import get_torch_compile_for_cuda
+
 _LOG_2_PI = math.log(2.0 * math.pi)
 _NORMAL_ENTROPY_OFFSET = 0.5 * (1.0 + _LOG_2_PI)
 
@@ -209,7 +211,7 @@ class APPOLearner:
         self._update_counter = 0
         self.last_update_metrics: dict[str, float] = {}
         self.enable_compile = (
-            bool(enable_compile) and self._device_type == "cuda" and hasattr(torch, "compile")
+            bool(enable_compile) and get_torch_compile_for_cuda(device) is not None
         )
 
         # Optimizer
@@ -221,8 +223,8 @@ class APPOLearner:
             self._compile_training_methods()
 
     def _compile_training_methods(self) -> None:
-        compile_fn = getattr(torch, "compile", None)
-        if compile_fn is None or self._device_type != "cuda":
+        compile_fn = get_torch_compile_for_cuda(self._device_type)
+        if compile_fn is None:
             return
 
         self._minibatch_loss_fn = compile_fn(

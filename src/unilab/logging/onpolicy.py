@@ -132,7 +132,11 @@ class OnPolicyLogger(BaseTrainingLogger):
         grid.add_row(left, "", right)
         return Panel(
             Group(header, Text(""), grid, Text(""), bottom),
-            title="[bold] 🚀 UniLab On-Policy Training [/]",
+            title=(
+                "[bold] 🚀 UniLab On-Policy Training [/]"
+                if self._unicode_console
+                else "[bold] UniLab On-Policy Training [/]"
+            ),
             border_style="bright_blue",
             padding=(0, 1),
         )
