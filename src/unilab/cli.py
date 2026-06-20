@@ -102,6 +102,10 @@ def _check_load_run(load_run: str) -> None:
 def _check_runtime_requirements(algo: str, sim: str) -> None:
     if algo == "mlx_ppo" and platform.system() != "Darwin":
         raise SystemExit("mlx_ppo is only supported on macOS; use --algo ppo for torch PPO.")
+    if sim == "mujoco" and find_spec("mujoco") is None:
+        raise SystemExit(
+            "sim=mujoco requires the MuJoCo extra. Install it with `uv sync --extra mujoco`."
+        )
     if sim == "motrix" and find_spec("motrixsim") is None:
         raise SystemExit(
             "sim=motrix requires the Motrix extra. Install it with `uv sync --extra motrix`."

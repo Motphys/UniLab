@@ -1,10 +1,15 @@
 .PHONY: sync
 sync:
-	uv sync
+	uv sync --extra mujoco --extra motrix
 
 .PHONY: setup
 setup:
-	uv sync
+	uv sync --extra mujoco --extra motrix
+	uv run --no-sync unilab-complete install
+
+.PHONY: setup-mujoco
+setup-mujoco:
+	uv sync --extra mujoco
 	uv run --no-sync unilab-complete install
 
 .PHONY: setup-motrix
@@ -20,12 +25,12 @@ install-completion:
 sync-rocm:
 	@cp pyproject.rocm.toml pyproject.toml
 	@if [ -f uv.rocm.lock ]; then cp uv.rocm.lock uv.lock; fi
-	uv sync --extra motrix
+	uv sync --extra mujoco --extra motrix
 	cp uv.lock uv.rocm.lock
 
 .PHONY: sync-xpu
 sync-xpu:
-	uv sync --extra motrix --no-install-package torch
+	uv sync --extra mujoco --extra motrix --no-install-package torch
 	uv pip install torch==2.7.0 --torch-backend xpu
 
 .PHONY: format

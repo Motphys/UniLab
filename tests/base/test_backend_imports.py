@@ -39,3 +39,41 @@ def test_mujoco_backend_import_path_does_not_eagerly_import_motrix() -> None:
     lines = result.stdout.splitlines()
     assert lines[0] in {"mujoco_backend imported", "mujoco_backend skipped"}
     assert lines[1:] == ["motrix_backend False", "motrixsim False"]
+
+
+def test_motrix_backend_import_path_does_not_eagerly_import_mujoco() -> None:
+    code = textwrap.dedent(
+        """
+        import importlib.util
+        import sys
+
+        from unilab.base.backend import (
+            create_backend,
+            materialize_motrix_hfield_attached_scene,
+            materialize_motrix_scene,
+        )
+
+        assert create_backend is not None
+        assert materialize_motrix_scene is not None
+        assert materialize_motrix_hfield_attached_scene is not None
+
+        if importlib.util.find_spec("motrixsim") is not None:
+            import unilab.base.backend.motrix.backend
+            print("motrix_backend imported")
+        else:
+            print("motrix_backend skipped")
+
+        print("mujoco_backend", "unilab.base.backend.mujoco.backend" in sys.modules)
+        print("mujoco", "mujoco" in sys.modules)
+        """
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    lines = result.stdout.splitlines()
+    assert lines[0] in {"motrix_backend imported", "motrix_backend skipped"}
+    assert lines[1:] == ["mujoco_backend False", "mujoco False"]

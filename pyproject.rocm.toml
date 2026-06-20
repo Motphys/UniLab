@@ -14,7 +14,6 @@ dependencies = [
     "numpy",
     "torch==2.11.0",
     "triton-rocm==3.6.0 ; sys_platform == 'linux' and platform_machine == 'x86_64'",
-    "mujoco-uni==3.8.0",
     "gymnasium",
     "imageio",
     "etils",
@@ -43,6 +42,7 @@ unilab-viz-nan = "unilab.tools.viz_nan:main"
 unilab-export-scene = "unilab.tools.export_scene:main"
 
 [project.optional-dependencies]
+mujoco = ["mujoco-uni==3.8.0"]
 motrix = ["motrixsim-core==0.8.2"]
 viser = ["viser>=1.0.26", "trimesh>=3.21.7"]
 

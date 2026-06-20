@@ -3,11 +3,6 @@ from typing import Any, cast
 from unilab.base.scene import SceneCfg
 
 from .base import SimBackend
-from .motrix.scene import (
-    add_motrix_tracking_frame_sensors,
-    materialize_motrix_hfield_attached_scene,
-    materialize_motrix_scene,
-)
 
 _MUJOCO_XML_EXPORTS = frozenset(
     {
@@ -19,6 +14,13 @@ _MUJOCO_XML_EXPORTS = frozenset(
         "materialize_scene_fragments",
         "materialize_scene_visual_override",
         "processed_xml",
+    }
+)
+_MOTRIX_SCENE_EXPORTS = frozenset(
+    {
+        "add_motrix_tracking_frame_sensors",
+        "materialize_motrix_hfield_attached_scene",
+        "materialize_motrix_scene",
     }
 )
 
@@ -33,6 +35,12 @@ def _load_motrix_backend() -> tuple[Any, bool]:
     from .motrix.backend import MOTRIX_AVAILABLE, MotrixBackend
 
     return MotrixBackend, bool(MOTRIX_AVAILABLE)
+
+
+def _load_motrix_scene_export(name: str) -> Any:
+    from .motrix import scene
+
+    return getattr(scene, name)
 
 
 def create_backend(
@@ -89,6 +97,8 @@ def __getattr__(name: str):
         from .mujoco import xml
 
         return getattr(xml, name)
+    if name in _MOTRIX_SCENE_EXPORTS:
+        return _load_motrix_scene_export(name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
