@@ -91,15 +91,18 @@ cd UniLab
 # Pick the setup command for your platform.
 
 # Linux CUDA or macOS
-make setup-motrix
-# Without shell completion setup: uv sync --extra motrix
-# If `make` is not installed: uv sync --extra motrix && uv run --no-sync unilab-complete install
+make setup
 
 # Linux AMD / ROCm
 # make sync-rocm
 
 # Linux Intel Arc / iGPU
 # make sync-xpu
+
+# Without shell completion setup:
+# uv sync --extra mujoco --extra motrix
+# If `make` is not installed:
+# uv sync --extra mujoco --extra motrix && uv run --no-sync unilab-complete install
 
 # 3. Pre-trained checkpoint playback (downloads from Hugging Face on first run)
 uv run demo dance

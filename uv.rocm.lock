@@ -4536,7 +4536,6 @@ dependencies = [
     { name = "lark" },
     { name = "mediapy" },
     { name = "mlx", marker = "sys_platform == 'darwin'" },
-    { name = "mujoco-uni" },
     { name = "notebook" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
@@ -4559,6 +4558,9 @@ dependencies = [
 [package.optional-dependencies]
 motrix = [
     { name = "motrixsim-core" },
+]
+mujoco = [
+    { name = "mujoco-uni" },
 ]
 viser = [
     { name = "trimesh" },
@@ -4584,7 +4586,7 @@ requires-dist = [
     { name = "mediapy" },
     { name = "mlx", marker = "sys_platform == 'darwin'" },
     { name = "motrixsim-core", marker = "extra == 'motrix'", specifier = "==0.8.2" },
-    { name = "mujoco-uni", specifier = "==3.8.0" },
+    { name = "mujoco-uni", marker = "extra == 'mujoco'", specifier = "==3.8.0" },
     { name = "notebook", specifier = ">=7.5.5" },
     { name = "numpy" },
     { name = "onnxruntime", specifier = ">=1.24.3" },
@@ -4603,7 +4605,7 @@ requires-dist = [
     { name = "viser", marker = "extra == 'viser'", specifier = ">=1.0.26" },
     { name = "wandb" },
 ]
-provides-extras = ["motrix", "viser"]
+provides-extras = ["mujoco", "motrix", "viser"]
 
 [package.metadata.requires-dev]
 dev = [

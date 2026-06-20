@@ -91,15 +91,18 @@ cd UniLab
 # 请按你的平台选择对应的安装命令。
 
 # Linux CUDA 或 macOS
-make setup-motrix
-# 不使用 shell completion 设置时：uv sync --extra motrix
-# 如果没有安装 `make`：uv sync --extra motrix && uv run --no-sync unilab-complete install
+make setup
 
 # Linux AMD / ROCm
 # make sync-rocm
 
 # Linux Intel Arc / iGPU
 # make sync-xpu
+
+# 不使用 shell completion 设置时：
+# uv sync --extra mujoco --extra motrix
+# 如果没有安装 `make`：
+# uv sync --extra mujoco --extra motrix && uv run --no-sync unilab-complete install
 
 # 3. 预训练 checkpoint 回放（首次运行会从 Hugging Face 下载）
 uv run demo dance
