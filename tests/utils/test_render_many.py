@@ -68,6 +68,26 @@ def test_resolve_gl_backend_preserves_explicit_safe_value(monkeypatch) -> None:
     assert render_many._resolve_gl_backend() == "osmesa"
 
 
+def test_resolve_gl_backend_uses_glfw_on_windows_without_display(monkeypatch) -> None:
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.delenv("MUJOCO_GL", raising=False)
+    monkeypatch.delenv("DISPLAY", raising=False)
+
+    render_many = _reload_render_many(monkeypatch)
+    monkeypatch.setattr(render_many, "_egl_runtime_usable", lambda: False)
+
+    assert render_many._resolve_gl_backend() == "glfw"
+
+
+def test_resolve_gl_backend_rejects_linux_only_backend_on_windows(monkeypatch) -> None:
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setenv("MUJOCO_GL", "osmesa")
+
+    render_many = _reload_render_many(monkeypatch)
+
+    assert render_many._resolve_gl_backend() == "glfw"
+
+
 def test_egl_runtime_usable_sets_default_device_id(monkeypatch) -> None:
     render_many = _reload_render_many(monkeypatch)
     monkeypatch.delenv("MUJOCO_EGL_DEVICE_ID", raising=False)

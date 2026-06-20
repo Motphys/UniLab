@@ -82,20 +82,24 @@ def _egl_runtime_usable() -> bool:
 def _resolve_gl_backend() -> str:
     """Pick a valid MUJOCO_GL backend for the current platform.
 
-    Respects an explicit user setting unless it's provably invalid (e.g. egl
-    on macOS).  Prefers GPU-backed EGL, then software OSMesa on headless hosts.
-    ``glfw`` is only chosen when a display is available, because it requires an
-    X11 context and would otherwise fail in every render worker.
+    Respects an explicit user setting unless it's provably invalid for the
+    platform. Prefers GPU-backed EGL, then software OSMesa on Linux headless
+    hosts. ``glfw`` is only gated on ``DISPLAY`` for Linux because Windows and
+    macOS do not use that X11 signal.
     """
     current = os.environ.get("MUJOCO_GL", "")
-    safe_values = {"glfw", "osmesa", "disabled"}
 
     if sys.platform == "darwin":
-        # macOS has no EGL support; glfw is the only off-screen option
-        return current if current in safe_values else "glfw"
+        # macOS has no EGL/OSMesa support in the mujoco Python package.
+        return current if current in {"glfw", "disabled"} else "glfw"
+
+    if sys.platform == "win32":
+        # Windows has no DISPLAY and the mujoco Python package rejects egl and
+        # osmesa here. GLFW can still create an off-screen renderer.
+        return current if current in {"glfw", "disabled"} else "glfw"
 
     # Linux / other: honour explicit non-egl choices supplied before import.
-    if current in safe_values and current == _USER_MUJOCO_GL:
+    if current in {"glfw", "osmesa", "disabled"} and current == _USER_MUJOCO_GL:
         return current
 
     # Probe EGL by creating a tiny MuJoCo renderer in a clean subprocess.
@@ -134,13 +138,23 @@ def render_backend_usable() -> bool:
 def _warn_render_unavailable() -> None:
     """Emit a single actionable message when off-screen rendering is impossible."""
     backend = os.environ.get("MUJOCO_GL", "<unset>")
+    platform = sys.platform
     has_display = "set" if os.environ.get("DISPLAY") else "unset"
+    if platform == "win32":
+        advice = (
+            "[render] On Windows, use the default GLFW backend "
+            "(`MUJOCO_GL=glfw`) and make sure a working graphics driver is available."
+        )
+    else:
+        advice = (
+            "[render] On a headless host install software rendering "
+            "(e.g. `apt-get install libosmesa6`) or enable EGL on a GPU "
+            "(`MUJOCO_GL=egl`), then re-run with `--render-mode record`."
+        )
     print(
         "[render] MuJoCo off-screen rendering is unavailable "
-        f"(MUJOCO_GL={backend!r}, DISPLAY={has_display}); skipping video recording.\n"
-        "[render] On a headless host install software rendering "
-        "(e.g. `apt-get install libosmesa6`) or enable EGL on a GPU "
-        "(`MUJOCO_GL=egl`), then re-run with `--render-mode record`.",
+        f"(platform={platform!r}, MUJOCO_GL={backend!r}, DISPLAY={has_display}); "
+        f"skipping video recording.\n{advice}",
         file=sys.stderr,
     )
 

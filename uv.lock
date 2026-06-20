@@ -1213,6 +1213,20 @@ wheels = [
 ]
 
 [[package]]
+name = "imageio-ffmpeg"
+version = "0.6.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/44/bd/c3343c721f2a1b0c9fc71c1aebf1966a3b7f08c2eea8ed5437a2865611d6/imageio_ffmpeg-0.6.0.tar.gz", hash = "sha256:e2556bed8e005564a9f925bb7afa4002d82770d6b08825078b7697ab88ba1755", size = 25210, upload-time = "2025-01-16T21:34:32.747Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/da/58/87ef68ac83f4c7690961bce288fd8e382bc5f1513860fc7f90a9c1c1c6bf/imageio_ffmpeg-0.6.0-py3-none-macosx_10_9_intel.macosx_10_9_x86_64.whl", hash = "sha256:9d2baaf867088508d4a3458e61eeb30e945c4ad8016025545f66c4b5aaef0a61", size = 24932969, upload-time = "2025-01-16T21:34:20.464Z" },
+    { url = "https://files.pythonhosted.org/packages/40/5c/f3d8a657d362cc93b81aab8feda487317da5b5d31c0e1fdfd5e986e55d17/imageio_ffmpeg-0.6.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:b1ae3173414b5fc5f538a726c4e48ea97edc0d2cdc11f103afee655c463fa742", size = 21113891, upload-time = "2025-01-16T21:34:00.277Z" },
+    { url = "https://files.pythonhosted.org/packages/33/e7/1925bfbc563c39c1d2e82501d8372734a5c725e53ac3b31b4c2d081e895b/imageio_ffmpeg-0.6.0-py3-none-manylinux2014_aarch64.whl", hash = "sha256:1d47bebd83d2c5fc770720d211855f208af8a596c82d17730aa51e815cdee6dc", size = 25632706, upload-time = "2025-01-16T21:33:53.475Z" },
+    { url = "https://files.pythonhosted.org/packages/a0/2d/43c8522a2038e9d0e7dbdf3a61195ecc31ca576fb1527a528c877e87d973/imageio_ffmpeg-0.6.0-py3-none-manylinux2014_x86_64.whl", hash = "sha256:c7e46fcec401dd990405049d2e2f475e2b397779df2519b544b8aab515195282", size = 29498237, upload-time = "2025-01-16T21:34:13.726Z" },
+    { url = "https://files.pythonhosted.org/packages/a0/13/59da54728351883c3c1d9fca1710ab8eee82c7beba585df8f25ca925f08f/imageio_ffmpeg-0.6.0-py3-none-win32.whl", hash = "sha256:196faa79366b4a82f95c0f4053191d2013f4714a715780f0ad2a68ff37483cc2", size = 19652251, upload-time = "2025-01-16T21:34:06.812Z" },
+    { url = "https://files.pythonhosted.org/packages/2c/c6/fa760e12a2483469e2bf5058c5faff664acf66cadb4df2ad6205b016a73d/imageio_ffmpeg-0.6.0-py3-none-win_amd64.whl", hash = "sha256:02fa47c83703c37df6bfe4896aab339013f62bf02c5ebf2dce6da56af04ffc0a", size = 31246824, upload-time = "2025-01-16T21:34:28.6Z" },
+]
+
+[[package]]
 name = "importlib-metadata"
 version = "9.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2325,12 +2339,16 @@ sdist = { url = "https://files.pythonhosted.org/packages/d7/af/c042c865b78400d13
 wheels = [
     { url = "https://files.pythonhosted.org/packages/dc/06/662b657925a036b709e82474656b25e39559ef399449c78492a4f9f69b60/mujoco_uni-3.8.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:5e7c9daa247c1237ac4753d6269da39ff260d502e12819a8ba4921d0c8f542fa", size = 7039352, upload-time = "2026-05-30T08:34:01.139Z" },
     { url = "https://files.pythonhosted.org/packages/bd/a1/31f6e13cbe25bcd840cccb7aeccb41235202728ab0e899cc12e6ac617fa6/mujoco_uni-3.8.0-cp310-cp310-manylinux_2_27_x86_64.whl", hash = "sha256:1326817ad54620ecfe473f581667f7be0d8f9df78db59b69c69b33c4c588a17d", size = 10781648, upload-time = "2026-05-30T09:16:34.589Z" },
+    { url = "https://files.pythonhosted.org/packages/07/db/198a7563ae0dee5e2be9adb7ef647170925f20222ff677cdff5e493e5f12/mujoco_uni-3.8.0-cp310-cp310-win_amd64.whl", hash = "sha256:5ce4610c5d8c4378ba90c905826dbd5a2dcdddc6ac6bd4d90f35a270ad8586b5", size = 5151515, upload-time = "2026-06-20T09:11:15.99Z" },
     { url = "https://files.pythonhosted.org/packages/00/6f/cc3a8e72105253587a839732c2cdcedb7f674aaf8ffc250b21caf3e920bb/mujoco_uni-3.8.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:ada4f286820bb982bb88ba14ad825e8f9ae1d2d69dbc1c1bd619ce5952f1ac90", size = 7053583, upload-time = "2026-05-30T08:34:04.819Z" },
     { url = "https://files.pythonhosted.org/packages/72/d0/68202a14dabd695062d121fb706dfa88f97151e41b0bced26e14d0cac953/mujoco_uni-3.8.0-cp311-cp311-manylinux_2_27_x86_64.whl", hash = "sha256:0689b6fff5f69d943f501dcddde02fcc35ffa67821106c35f45643894c21be58", size = 10796553, upload-time = "2026-05-30T09:16:37.602Z" },
+    { url = "https://files.pythonhosted.org/packages/f2/af/5d6ff16a1fa4a51e259dbe33fcab84246a202b6f8faf1e0468b020142db6/mujoco_uni-3.8.0-cp311-cp311-win_amd64.whl", hash = "sha256:bc1679f21eb0a755b33a95c1efc3d7852c006d4592b1f75e2f8e75486a7f2508", size = 5166505, upload-time = "2026-06-20T09:11:17.695Z" },
     { url = "https://files.pythonhosted.org/packages/f1/10/4d385b13ba42948bd806c1ba3101c6cd196cd56ae74692ba8a399c4292de/mujoco_uni-3.8.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:e7df4482799acda1f5817ee4fb3f8ca403692b8120118984b1bcd525bfbe0bcf", size = 7068818, upload-time = "2026-05-30T08:34:07.91Z" },
     { url = "https://files.pythonhosted.org/packages/5d/00/60a2fe19e943eb67d1df1b000c1eedc8dd1ed44106959fb2f9cec4fa4ec1/mujoco_uni-3.8.0-cp312-cp312-manylinux_2_27_x86_64.whl", hash = "sha256:241890f6cfcbd31ef4bc169eee7442fbdca35e48740f0b67ac8f7872fc4b8453", size = 10890544, upload-time = "2026-05-30T09:16:40.622Z" },
+    { url = "https://files.pythonhosted.org/packages/ac/dd/b9ae0e667738b1a0639c7ea17eed582c115613eff02824b776d972a16e76/mujoco_uni-3.8.0-cp312-cp312-win_amd64.whl", hash = "sha256:679fe797bf85cd2324e976883a63031467ff5cd4bdad3f68711f6c26c6c42852", size = 5185412, upload-time = "2026-06-20T09:11:19.296Z" },
     { url = "https://files.pythonhosted.org/packages/90/23/98a7802d7fc5111b2449364aaf1b1a364266f62d7578c4442db5f59eb114/mujoco_uni-3.8.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:bc191279752a4a63f161ff026ed5cb8aac013c1934c308944f3cc5970bae90ca", size = 7069246, upload-time = "2026-05-30T08:34:10.292Z" },
     { url = "https://files.pythonhosted.org/packages/dd/23/a1bce997e15a8d27beadff7c320375bb5c71a9cf2700607ec97c6239240c/mujoco_uni-3.8.0-cp313-cp313-manylinux_2_27_x86_64.whl", hash = "sha256:441bbb1800a8f36985f146c5bc3fa3eb6c1aa16efe6eb94770c653994258c8f7", size = 10890301, upload-time = "2026-05-30T09:16:43.505Z" },
+    { url = "https://files.pythonhosted.org/packages/ea/af/bcd604ea08dbe1426078b9d67de8bfb0c68c139d897f732387c31848259a/mujoco_uni-3.8.0-cp313-cp313-win_amd64.whl", hash = "sha256:b2189c324024eeaf51e5e1121ca186c8b68fd9c3d114da481c5ce5786e345794", size = 5183208, upload-time = "2026-06-20T09:11:20.897Z" },
 ]
 
 [[package]]
@@ -4629,6 +4647,7 @@ dependencies = [
     { name = "huggingface-hub" },
     { name = "hydra-core" },
     { name = "imageio" },
+    { name = "imageio-ffmpeg" },
     { name = "lark" },
     { name = "mediapy" },
     { name = "mlx", marker = "sys_platform == 'darwin'" },
@@ -4679,6 +4698,7 @@ requires-dist = [
     { name = "huggingface-hub", specifier = ">=0.25" },
     { name = "hydra-core", specifier = ">=1.3" },
     { name = "imageio" },
+    { name = "imageio-ffmpeg", specifier = ">=0.6.0" },
     { name = "lark", specifier = ">=1.3.1" },
     { name = "mediapy" },
     { name = "mlx", marker = "sys_platform == 'darwin'" },
