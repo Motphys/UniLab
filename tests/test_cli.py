@@ -342,6 +342,7 @@ def test_demo_play_interactive_entry_assembles_locomani_command(
     assert command[4:8] == ["--task", "go2_arm_manip_loco", "--sim", "mujoco"]
     assert f"algo.load_run={abs_pt}" in command
     assert "training.device=cpu" in command
+    assert "interactive.camera_follow_body=false" in command
 
 
 def test_demo_play_interactive_entry_assembles_wallflip2_command(
@@ -381,6 +382,7 @@ def test_demo_play_interactive_entry_assembles_inhandgrasp_command(
     assert command[4:8] == ["--task", "sharpa_inhand", "--sim", "mujoco_nodr"]
     assert f"algo.load_run={abs_pt}" in command
     assert "training.device=cpu" in command
+    assert "interactive.camera_follow_body=false" in command
 
 
 def test_demo_play_interactive_hora_distill_nodr_command(tmp_path: Path) -> None:
