@@ -14,7 +14,7 @@ dependencies = [
     "numpy",
     "torch==2.11.0",
     "triton-rocm==3.6.0 ; sys_platform == 'linux' and platform_machine == 'x86_64'",
-    "mujoco-uni==3.8.0rc2",
+    "mujoco-uni==3.8.0",
     "gymnasium",
     "imageio",
     "etils",
@@ -55,13 +55,7 @@ name = "pytorch-rocm72"
 url = "https://download.pytorch.org/whl/rocm7.2"
 explicit = true
 
-[[tool.uv.index]]
-name = "test-pypi"
-url = "https://test.pypi.org/simple/"
-explicit = true
-
 [tool.uv.sources]
-mujoco-uni = { index = "test-pypi" }
 torch = [
     { index = "pytorch-rocm72", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
 ]
