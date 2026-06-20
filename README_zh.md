@@ -83,7 +83,7 @@
 # 0. 如果还没有安装 uv
 # Linux / macOS：
 curl -LsSf https://astral.sh/uv/install.sh | sh
-#
+
 # Windows：
 # powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 # choco install make -y
@@ -123,12 +123,6 @@ uv run demo dance
 > export HF_ENDPOINT=https://hf-mirror.com
 > ```
 
-> X2 机器人网格首次运行时会自动从 Hugging Face (`unilabsim/unilab-robots`) 下载到 `src/unilab/assets/robots/x2/meshes/`，无需手动操作。如需提前预拉取：
->
-> ```bash
-> uv run unilab-pull-assets --robot x2
-> ```
-
 用于训练与评估：
 
 ```bash
@@ -159,7 +153,6 @@ uv run train --algo appo --task sharpa_inhand --sim mujoco --profile hora
 ```
 
 > Grasp cache 首次训练时会自动从 Hugging Face (`unilabsim/unilab-caches`) 下载到 `src/unilab/assets/caches/`，无需手动操作；如需为自定义 scale 重新生成（较慢）：
->
 > ```bash
 > bash scripts/sharpa_collect_grasps.sh 0.8 0.9 1.0 1.1 1.2 1.3 1.4 1.5
 > ```
@@ -192,18 +185,6 @@ uv run eval --algo ppo --task go2_arm_manip_loco --sim motrix --load-run -1
 </p>
 
 <p align="center">添加小助手微信进群，请备注：<code>unilab交流</code></p>
-
-## ⭐ Star 趋势
-
-<p align="center">
-  <a href="https://www.star-history.com/unilabsim/UniLab">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=unilabsim/UniLab&type=date&theme=dark&legend=top-left" />
-      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=unilabsim/UniLab&type=date&legend=top-left" />
-      <img src="https://api.star-history.com/chart?repos=unilabsim/UniLab&type=date&legend=top-left" alt="UniLab Star 趋势图" width="70%">
-    </picture>
-  </a>
-</p>
 
 ## 🧾 引用
 

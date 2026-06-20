@@ -83,7 +83,7 @@ Start with the `Quick Demo` below to run the primary training command. The recom
 # 0. Install uv if needed
 # Linux / macOS:
 curl -LsSf https://astral.sh/uv/install.sh | sh
-#
+
 # Windows:
 # powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 # choco install make -y
@@ -121,12 +121,6 @@ Available demo names: `teaser`, `dance`, `wallflip`, `wallflip2`, `boxtracking`,
 > export HF_ENDPOINT=https://hf-mirror.com
 > ```
 
-> X2 robot meshes auto-download from Hugging Face (`unilabsim/unilab-robots`) on first run into `src/unilab/assets/robots/x2/meshes/`; no manual step is needed. To pre-fetch them ahead of time:
->
-> ```bash
-> uv run unilab-pull-assets --robot x2
-> ```
-
 For training and evaluation:
 
 ```bash
@@ -157,7 +151,6 @@ uv run train --algo appo --task sharpa_inhand --sim mujoco --profile hora
 ```
 
 > Grasp caches auto-download from Hugging Face (`unilabsim/unilab-caches`) on first run into `src/unilab/assets/caches/`; no manual step is needed. To regenerate locally for custom scales (slow):
->
 > ```bash
 > bash scripts/sharpa_collect_grasps.sh 0.8 0.9 1.0 1.1 1.2 1.3 1.4 1.5
 > ```
@@ -190,18 +183,6 @@ Join our [Discord server](https://discord.gg/EPCuguRmGX) to chat with the commun
 </p>
 
 <p align="center">Add the assistant on WeChat to join the group. Please include <code>UniLab community</code> in your request.</p>
-
-## ⭐ Star History
-
-<p align="center">
-  <a href="https://www.star-history.com/unilabsim/UniLab">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=unilabsim/UniLab&type=date&theme=dark&legend=top-left" />
-      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=unilabsim/UniLab&type=date&legend=top-left" />
-      <img src="https://api.star-history.com/chart?repos=unilabsim/UniLab&type=date&legend=top-left" alt="UniLab Star History Chart" width="70%">
-    </picture>
-  </a>
-</p>
 
 ## 🧾 Citation
 
