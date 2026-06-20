@@ -407,7 +407,7 @@ class FastSACLearner:
         self.use_autotune = use_autotune
         self.use_amp = bool(use_amp) and self._device_type in ("cuda", "xpu")
         self.use_compile = (
-            bool(use_compile) and self._device_type == "cuda" and hasattr(torch, "compile")
+            bool(use_compile) and get_torch_compile_for_cuda(self.device, warn=True) is not None
         )
         self.amp_dtype = amp_dtype
         self._amp_dtype = self._resolve_amp_dtype(amp_dtype, self._device_type)
@@ -521,7 +521,7 @@ class FastSACLearner:
         return bool(use_amp) and device_type == "cuda" and amp_dtype == torch.float16
 
     def _compile_training_methods(self) -> None:
-        compile_fn = get_torch_compile_for_cuda(self.device)
+        compile_fn = get_torch_compile_for_cuda(self.device, warn=True)
         if compile_fn is None:
             return
 

@@ -183,7 +183,7 @@ class FlashSACLearner:
         self.amp_dtype = amp_dtype
         self._amp_dtype = self._resolve_amp_dtype(amp_dtype, self.device.type)
         self.use_compile = bool(
-            use_compile and hasattr(torch, "compile") and self.device.type == "cuda"
+            use_compile and get_torch_compile_for_cuda(self.device, warn=True) is not None
         )
 
         self.actor = FlashSACActor(
@@ -257,7 +257,7 @@ class FlashSACLearner:
             self._compile_training_methods()
 
     def _compile_training_methods(self) -> None:
-        compile_fn = get_torch_compile_for_cuda(self.device)
+        compile_fn = get_torch_compile_for_cuda(self.device, warn=True)
         if compile_fn is None:
             return
 

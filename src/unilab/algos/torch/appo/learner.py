@@ -211,7 +211,7 @@ class APPOLearner:
         self._update_counter = 0
         self.last_update_metrics: dict[str, float] = {}
         self.enable_compile = (
-            bool(enable_compile) and get_torch_compile_for_cuda(device) is not None
+            bool(enable_compile) and get_torch_compile_for_cuda(device, warn=True) is not None
         )
 
         # Optimizer
@@ -223,7 +223,7 @@ class APPOLearner:
             self._compile_training_methods()
 
     def _compile_training_methods(self) -> None:
-        compile_fn = get_torch_compile_for_cuda(self._device_type)
+        compile_fn = get_torch_compile_for_cuda(self._device_type, warn=True)
         if compile_fn is None:
             return
 

@@ -26,14 +26,14 @@ class FinalObservationAwarePPO(PPO):
     ) -> None:
         super().__init__(*args, **kwargs)
         self.enable_compile = (
-            bool(enable_compile) and get_torch_compile_for_cuda(self.device) is not None
+            bool(enable_compile) and get_torch_compile_for_cuda(self.device, warn=True) is not None
         )
         self._minibatch_loss_fn = self._minibatch_loss_tensors
         if self.enable_compile:
             self._compile_training_methods()
 
     def _compile_training_methods(self) -> None:
-        compile_fn = get_torch_compile_for_cuda(self.device)
+        compile_fn = get_torch_compile_for_cuda(self.device, warn=True)
         if compile_fn is None:
             return
 
