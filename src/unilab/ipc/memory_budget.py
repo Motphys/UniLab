@@ -7,6 +7,7 @@ is likely to OOM before allocating large shared buffers.
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 
 
@@ -92,8 +93,7 @@ def get_available_memory_bytes() -> int | None:
 def get_shared_memory_available_bytes(path: str = "/dev/shm") -> int | None:
     """Best-effort available shared-memory space detection."""
     try:
-        stat = os.statvfs(path)
-        return int(stat.f_bavail) * int(stat.f_frsize)
+        return int(shutil.disk_usage(path).free)
     except (OSError, ValueError):
         return None
 

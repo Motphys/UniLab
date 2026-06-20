@@ -351,7 +351,7 @@ def play_appo(
             on_plan=log_playback_plan,
         )
     if play_video_path is not None:
-        print(f"Saving video to {play_video_path} with mediapy...")
+        print(f"Saving video to {play_video_path} ...")
     print("Done.")
     return play_video_path
 

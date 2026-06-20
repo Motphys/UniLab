@@ -347,7 +347,11 @@ class OffPolicyLogger(BaseTrainingLogger):
         grid.add_row(left, "", right)
         return Panel(
             Group(header, Text(""), grid, Text(""), bottom),
-            title="[bold] 🚀 UniLab Off-Policy Training [/]",
+            title=(
+                "[bold] 🚀 UniLab Off-Policy Training [/]"
+                if self._unicode_console
+                else "[bold] UniLab Off-Policy Training [/]"
+            ),
             border_style="bright_blue",
             padding=(0, 1),
         )
@@ -429,10 +433,10 @@ class OffPolicyLogger(BaseTrainingLogger):
             ]
         )
         system_items.append(("Envs", f"{self.num_envs:,}"))
+        yes_mark = "✓" if self._unicode_console else "yes"
+        no_mark = "✗" if self._unicode_console else "no"
         sync_collect = (
-            f"{'✓' if self._sync_collection else '✗'} ({self._env_steps_per_sync})"
-            if self._sync_collection
-            else "✗"
+            f"{yes_mark} ({self._env_steps_per_sync})" if self._sync_collection else no_mark
         )
         system_items.append(("Sync Collect", sync_collect))
         if self._staging_pool_max > 0:

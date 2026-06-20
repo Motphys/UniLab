@@ -2480,7 +2480,7 @@ def test_train_rsl_rl_get_log_root_uses_algo_log_name(monkeypatch: pytest.Monkey
     cfg.algo.algo_log_name = "test_rsl_rl_ppo"
 
     log_root = mod._get_log_root(cfg)
-    assert "logs/test_rsl_rl_ppo" in log_root
+    assert "logs/test_rsl_rl_ppo" in log_root.replace("\\", "/")
 
 
 def test_train_rsl_rl_play_missing_checkpoint_skips_env_creation_and_prints_context(
@@ -2741,7 +2741,7 @@ def test_train_appo_get_log_root_uses_algo_log_name(monkeypatch: pytest.MonkeyPa
     cfg.algo.algo_log_name = "test_appo"
 
     log_root = mod._get_log_root(cfg)
-    assert "logs/test_appo" in log_root
+    assert "logs/test_appo" in log_root.replace("\\", "/")
 
 
 def test_play_resolve_checkpoint_uses_algo_log_name(
@@ -2971,7 +2971,7 @@ def test_play_interactive_runner_log_dir_uses_algo_log_name(monkeypatch: pytest.
     mod.play_interactive(args)
 
     assert captured["ckpt"] == "/tmp/model_10.pt"
-    assert captured["log_dir"] == "/tmp/custom_ppo/MyTask/play_temp"
+    assert captured["log_dir"].replace("\\", "/") == "/tmp/custom_ppo/MyTask/play_temp"
 
 
 def test_play_interactive_import_does_not_swallow_registry_bootstrap_errors(

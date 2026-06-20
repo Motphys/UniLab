@@ -596,7 +596,7 @@ class TestCPUPinnedDoubleBuffer:
         assert submit["args"]["tick_id"] == 2
         assert submit["args"]["pack_layout"] == "packed"
         assert submit["args"]["pack_executor"] == "collector_thread"
-        assert submit["args"]["h2d_submitter"] == "pybind11"
+        assert submit["args"]["h2d_submitter"] in {"pybind11", "torch_copy_stream"}
         assert submit["args"]["direct_pinned_shared"] is True
         assert submit["args"]["h2d_bytes"] > 0
 
@@ -661,7 +661,7 @@ class TestCPUPinnedDoubleBuffer:
         assert args["sample_seed"] == 3 + 4
         assert args["sample_count"] == 8
         assert args["pinned_memory"] is True
-        assert args["h2d_submitter"] == "pybind11"
+        assert args["h2d_submitter"] in {"pybind11", "torch_copy_stream"}
         assert args["h2d_bytes"] > 0
 
     def test_fixed_pybind11_h2d_submitter_samples_expected_batch(self):

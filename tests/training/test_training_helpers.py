@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import sys
-import types
 from pathlib import Path
 
 import numpy as np
@@ -467,11 +465,12 @@ def test_render_play_mode_uses_motrix_native_video_capture(
             self.capture_calls += 1
             return np.full((2, 3, 3), self.capture_calls, dtype=np.uint8)
 
-    fake_media = types.ModuleType("mediapy")
-    fake_media.write_video = lambda path, frames, fps: captured.update(  # type: ignore[attr-defined]
-        {"video_path": path, "frames": frames, "fps": fps}
+    monkeypatch.setattr(
+        "unilab.base.backend.playback_common.imageio.mimsave",
+        lambda path, frames, fps: captured.update(
+            {"video_path": path, "frames": frames, "fps": fps}
+        ),
     )
-    monkeypatch.setitem(sys.modules, "mediapy", fake_media)
 
     env = FakeEnv()
     output_path = tmp_path / "motrix.mp4"
@@ -533,11 +532,12 @@ def test_render_play_mode_rejects_motrix_record_with_interactive_window(
             self.capture_calls += 1
             return np.full((2, 3, 3), self.capture_calls, dtype=np.uint8)
 
-    fake_media = types.ModuleType("mediapy")
-    fake_media.write_video = lambda path, frames, fps: captured.update(  # type: ignore[attr-defined]
-        {"video_path": path, "frames": frames, "fps": fps}
+    monkeypatch.setattr(
+        "unilab.base.backend.playback_common.imageio.mimsave",
+        lambda path, frames, fps: captured.update(
+            {"video_path": path, "frames": frames, "fps": fps}
+        ),
     )
-    monkeypatch.setitem(sys.modules, "mediapy", fake_media)
 
     env = FakeEnv()
     output_path = tmp_path / "motrix_interactive.mp4"
@@ -586,12 +586,12 @@ def test_render_play_mode_defaults_to_env_physics_snapshot(
         captured["camera_kwargs"] = kwargs
         return [np.zeros((2, 2, 3), dtype=np.uint8)]
 
-    fake_media = types.ModuleType("mediapy")
-    fake_media.write_video = lambda path, frames, fps: captured.update(  # type: ignore[attr-defined]
-        {"video_path": path, "frames": frames, "fps": fps}
+    monkeypatch.setattr(
+        "unilab.base.backend.playback_common.imageio.mimsave",
+        lambda path, frames, fps: captured.update(
+            {"video_path": path, "frames": frames, "fps": fps}
+        ),
     )
-
-    monkeypatch.setitem(sys.modules, "mediapy", fake_media)
     monkeypatch.setattr(
         "unilab.visualization.render_many.render_states_get_frames",
         _render_states_get_frames,
@@ -687,12 +687,12 @@ def test_render_play_mode_uses_visualized_per_env_playback_models_for_video_expo
         captured["ground1_size"] = model1.geom_size[ground1].copy()
         return [np.zeros((2, 2, 3), dtype=np.uint8)]
 
-    fake_media = types.ModuleType("mediapy")
-    fake_media.write_video = lambda path, frames, fps: captured.update(  # type: ignore[attr-defined]
-        {"video_path": path, "frames": frames, "fps": fps}
+    monkeypatch.setattr(
+        "unilab.base.backend.playback_common.imageio.mimsave",
+        lambda path, frames, fps: captured.update(
+            {"video_path": path, "frames": frames, "fps": fps}
+        ),
     )
-
-    monkeypatch.setitem(sys.modules, "mediapy", fake_media)
     monkeypatch.setattr(
         "unilab.visualization.render_many.render_states_get_frames",
         _render_states_get_frames,

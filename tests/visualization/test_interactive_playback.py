@@ -167,7 +167,7 @@ def test_create_rsl_rl_playback_session_loads_checkpoint_and_runner_log_dir() ->
     assert session.env is env
     assert policy_obs_mode == "actor"
     assert checkpoint == "/tmp/model_10.pt"
-    assert captured["runner_log_dir"] == "/tmp/custom_ppo/MyTask/play_temp"
+    assert captured["runner_log_dir"].replace("\\", "/") == "/tmp/custom_ppo/MyTask/play_temp"
     assert captured["checkpoint"] == "/tmp/model_10.pt"
     assert captured["train_cfg"]["runner"]["logger"] == "none"
 

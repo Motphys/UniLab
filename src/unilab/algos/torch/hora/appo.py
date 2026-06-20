@@ -240,7 +240,7 @@ def play_hora_appo(
             ),
         )
     if play_video_path is not None:
-        print(f"Saving video to {play_video_path} with mediapy...")
+        print(f"Saving video to {play_video_path} ...")
     print("Done.")
     return play_video_path
 

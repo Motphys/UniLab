@@ -325,28 +325,23 @@ def play_mlx_ppo(cfg: DictConfig, dtype, use_fp16: bool, resolved_sim_backend: s
         return mx.nan_to_num(raw_obs, nan=0.0, posinf=0.0, neginf=0.0)
 
     output_dir = run_dir if run_dir is not None else task_log_root
-    try:
-        play_video_path = env.run_playback_mode(
-            play_render_mode=getattr(cfg.training, "play_render_mode", "auto"),
-            play_steps=getattr(cfg.training, "play_steps", None),
-            output_video=output_dir / "play_video.mp4",
-            initialize=lambda: obs,
-            step=_play_step,
-            camera_kwargs={
-                "cam_distance": getattr(cfg.training, "cam_distance", 2.0),
-                "cam_elevation": getattr(cfg.training, "cam_elevation", -20.0),
-                "cam_azimuth": getattr(cfg.training, "cam_azimuth", 90.0),
-                "cam_lookat": getattr(cfg.training, "cam_lookat", None),
-                "cam_tracking": getattr(cfg.training, "cam_tracking", False),
-                "cam_tracking_env_idx": getattr(cfg.training, "cam_tracking_env_idx", 0),
-                "cam_tracking_extra_envs": getattr(cfg.training, "cam_tracking_extra_envs", 2),
-            },
-            on_plan=lambda plan: log_playback_plan(plan, prefix="[MLX PPO] "),
-        )
-    except ImportError:
-        print("mediapy is required for play video export. Install with `pip install mediapy`.")
-        env.close()
-        return None
+    play_video_path = env.run_playback_mode(
+        play_render_mode=getattr(cfg.training, "play_render_mode", "auto"),
+        play_steps=getattr(cfg.training, "play_steps", None),
+        output_video=output_dir / "play_video.mp4",
+        initialize=lambda: obs,
+        step=_play_step,
+        camera_kwargs={
+            "cam_distance": getattr(cfg.training, "cam_distance", 2.0),
+            "cam_elevation": getattr(cfg.training, "cam_elevation", -20.0),
+            "cam_azimuth": getattr(cfg.training, "cam_azimuth", 90.0),
+            "cam_lookat": getattr(cfg.training, "cam_lookat", None),
+            "cam_tracking": getattr(cfg.training, "cam_tracking", False),
+            "cam_tracking_env_idx": getattr(cfg.training, "cam_tracking_env_idx", 0),
+            "cam_tracking_extra_envs": getattr(cfg.training, "cam_tracking_extra_envs", 2),
+        },
+        on_plan=lambda plan: log_playback_plan(plan, prefix="[MLX PPO] "),
+    )
     if play_video_path is not None:
         print(f"[MLX PPO] Play video saved: {play_video_path}")
     else:

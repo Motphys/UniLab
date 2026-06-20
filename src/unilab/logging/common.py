@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import os
+import sys
 import time
 from collections import deque
 from typing import Any
@@ -36,6 +37,15 @@ def _fmt_number(v: float) -> str:
     if abs(v) >= 0.001:
         return f"{v:.4f}"
     return f"{v:.2e}"
+
+
+def _console_supports_unicode() -> bool:
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    try:
+        "⏱ ▲ ▼ ━".encode(encoding)
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def _load_wandb() -> Any | None:
@@ -77,7 +87,8 @@ class BaseTrainingLogger:
         self._no_print = log_backend.lower() == "no_print"
         self._log_backend = "none" if self._no_print else log_backend.lower()
 
-        self._console = Console()
+        self._unicode_console = _console_supports_unicode()
+        self._console = Console(force_terminal=False if not self._unicode_console else None)
         self._live: Live | None = None
         self._refresh_rate = refresh_per_second
         self._last_live_refresh_time: float | None = None
@@ -294,7 +305,8 @@ class BaseTrainingLogger:
         header_text.append("  │  ", style="dim")
         header_text.append(f"iter {self._iteration}/{self.max_iterations}", style="yellow")
         header_text.append("  │  ", style="dim")
-        header_text.append(f"⏱ {_fmt_time(elapsed)}", style="green")
+        time_label = "⏱" if self._unicode_console else "time"
+        header_text.append(f"{time_label} {_fmt_time(elapsed)}", style="green")
         if eta:
             header_text.append("  │  ETA ", style="dim")
             header_text.append(eta, style="bold magenta")
@@ -316,7 +328,7 @@ class BaseTrainingLogger:
             (f" {self.algo_name}", "bold cyan"),
             (self.env_name, "bold white"),
             (f"iter {self._iteration}/{self.max_iterations}", "yellow"),
-            (f"⏱ {_fmt_time(elapsed)}", "green"),
+            (f"{'⏱' if self._unicode_console else 'time'} {_fmt_time(elapsed)}", "green"),
         ]
         if eta:
             fields.append((f"ETA {eta}", "bold magenta"))
@@ -359,13 +371,12 @@ class BaseTrainingLogger:
             if len(recent) >= 10:
                 old = sum(recent[-20:-10]) / 10
                 new = sum(recent[-10:]) / 10
-                trend = (
-                    "[green]▲[/]"
-                    if new > old * 1.05
-                    else "[red]▼[/]"
-                    if new < old * 0.95
-                    else "[yellow]━[/]"
-                )
+                if new > old * 1.05:
+                    trend = "[green]▲[/]" if self._unicode_console else "[green]+[/]"
+                elif new < old * 0.95:
+                    trend = "[red]▼[/]" if self._unicode_console else "[red]-[/]"
+                else:
+                    trend = "[yellow]━[/]" if self._unicode_console else "[yellow]=[/]"
             else:
                 trend = ""
 

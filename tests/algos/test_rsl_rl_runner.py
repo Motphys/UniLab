@@ -157,7 +157,12 @@ def test_rsl_rl_ppo_one_iteration(
 
     with tempfile.TemporaryDirectory() as tmpdir:
         runner = OnPolicyRunner(cast(Any, wrapped), train_cfg, log_dir=tmpdir, device="cpu")
-        runner.learn(num_learning_iterations=1, init_at_random_ep_len=True)
+        try:
+            runner.learn(num_learning_iterations=1, init_at_random_ep_len=True)
+        finally:
+            writer = getattr(getattr(runner, "logger", None), "writer", None)
+            if writer is not None and hasattr(writer, "close"):
+                writer.close()
 
     env.close()
 

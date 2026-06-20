@@ -97,7 +97,7 @@ def test_go2_arm_manip_loco_cfg_declares_scene_for_playback():
 
     assert isinstance(cfg.scene, SceneCfg)
     assert cfg.scene.model_file == cfg.model_file
-    assert cfg.scene.model_file.endswith("robots/go2_arm/scene_flat.xml")
+    assert cfg.scene.model_file.replace("\\", "/").endswith("robots/go2_arm/scene_flat.xml")
 
     cfg.model_file = "custom_scene.xml"
     scene = _resolve_go2_arm_scene(cfg)

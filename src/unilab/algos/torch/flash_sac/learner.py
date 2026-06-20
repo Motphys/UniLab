@@ -10,6 +10,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+from unilab.algos.torch.common.compile import get_torch_compile_for_cuda
 from unilab.algos.torch.common.normalization import EmpiricalNormalization
 from unilab.algos.torch.flash_sac.network import (
     FlashSACActor,
@@ -182,7 +183,7 @@ class FlashSACLearner:
         self.amp_dtype = amp_dtype
         self._amp_dtype = self._resolve_amp_dtype(amp_dtype, self.device.type)
         self.use_compile = bool(
-            use_compile and hasattr(torch, "compile") and self.device.type == "cuda"
+            use_compile and get_torch_compile_for_cuda(self.device, warn=True) is not None
         )
 
         self.actor = FlashSACActor(
@@ -256,8 +257,8 @@ class FlashSACLearner:
             self._compile_training_methods()
 
     def _compile_training_methods(self) -> None:
-        compile_fn = getattr(torch, "compile", None)
-        if compile_fn is None or self.device.type != "cuda":
+        compile_fn = get_torch_compile_for_cuda(self.device, warn=True)
+        if compile_fn is None:
             return
 
         compile_kwargs = {"options": {"triton.cudagraphs": False}}

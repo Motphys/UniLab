@@ -63,7 +63,7 @@ def test_resolve_calls_hf_hub_download_for_missing_file():
     missing = ASSETS_ROOT_PATH / "motions" / "g1" / "__test_nonexistent__.npz"
     assert not missing.exists()
 
-    expected_relative = str(missing.relative_to(ASSETS_ROOT_PATH))
+    expected_relative = missing.relative_to(ASSETS_ROOT_PATH).as_posix()
 
     fake_download = MagicMock(return_value=str(missing))
     fake_module = MagicMock()
@@ -104,6 +104,49 @@ def test_resolve_relative_path_falls_back_to_hf():
     )
 
 
+def test_resolve_absolute_windows_path_uses_posix_hf_filename():
+    missing = ASSETS_ROOT_PATH / "motions" / "g1" / "__test_nonexistent_windows_abs__.npz"
+    assert not missing.exists()
+
+    expected_relative = missing.relative_to(ASSETS_ROOT_PATH).as_posix()
+
+    fake_download = MagicMock(return_value=str(missing))
+    fake_module = MagicMock()
+    fake_module.hf_hub_download = fake_download
+
+    with patch.dict("sys.modules", {"huggingface_hub": fake_module}):
+        result = resolve_motion_files(str(missing))
+
+    assert result == str(missing)
+    fake_download.assert_called_once_with(
+        repo_id="unilabsim/unilab-motions",
+        filename=expected_relative,
+        repo_type="dataset",
+        local_dir=str(ASSETS_ROOT_PATH),
+    )
+
+
+def test_resolve_relative_windows_path_uses_posix_hf_filename():
+    rel = r"motions\g1\__test_nonexistent_windows_rel__.npz"
+    local = ASSETS_ROOT_PATH / rel
+    assert not local.exists()
+
+    fake_download = MagicMock(return_value=str(local))
+    fake_module = MagicMock()
+    fake_module.hf_hub_download = fake_download
+
+    with patch.dict("sys.modules", {"huggingface_hub": fake_module}):
+        result = resolve_motion_files(rel)
+
+    assert result == str(local)
+    fake_download.assert_called_once_with(
+        repo_id="unilabsim/unilab-motions",
+        filename="motions/g1/__test_nonexistent_windows_rel__.npz",
+        repo_type="dataset",
+        local_dir=str(ASSETS_ROOT_PATH),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Grasp cache resolve — local fast path
 # ---------------------------------------------------------------------------
@@ -134,7 +177,7 @@ def test_resolve_grasp_cache_calls_hf_download_with_caches_repo():
     missing = ASSETS_ROOT_PATH / "caches" / "__test_nonexistent__.npy"
     assert not missing.exists()
 
-    expected_relative = str(missing.relative_to(ASSETS_ROOT_PATH))
+    expected_relative = missing.relative_to(ASSETS_ROOT_PATH).as_posix()
 
     fake_download = MagicMock(return_value=str(missing))
     fake_module = MagicMock()
@@ -201,6 +244,23 @@ def test_resolve_scene_dir_calls_snapshot_download_when_missing(tmp_path: Path):
     with patch("unilab.assets.hub.ASSETS_ROOT_PATH", tmp_path):
         with patch.dict("sys.modules", {"huggingface_hub": fake_module}):
             resolve_scene_dir("scenes/teaser")
+
+    fake_snapshot.assert_called_once_with(
+        repo_id="unilabsim/unilab-scenes",
+        repo_type="dataset",
+        allow_patterns="scenes/teaser/**",
+        local_dir=str(tmp_path),
+    )
+
+
+def test_resolve_scene_dir_windows_path_uses_posix_hf_pattern(tmp_path: Path):
+    fake_snapshot = MagicMock(return_value=str(tmp_path))
+    fake_module = MagicMock()
+    fake_module.snapshot_download = fake_snapshot
+
+    with patch("unilab.assets.hub.ASSETS_ROOT_PATH", tmp_path):
+        with patch.dict("sys.modules", {"huggingface_hub": fake_module}):
+            resolve_scene_dir(r"scenes\teaser")
 
     fake_snapshot.assert_called_once_with(
         repo_id="unilabsim/unilab-scenes",

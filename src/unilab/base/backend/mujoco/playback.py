@@ -9,7 +9,7 @@ from typing import Any, Callable, TypeVar
 
 import numpy as np
 
-from unilab.base.backend.playback_common import env_cfg_value
+from unilab.base.backend.playback_common import env_cfg_value, write_playback_video
 from unilab.base.scene import SceneCfg
 
 ObsT = TypeVar("ObsT")
@@ -110,10 +110,8 @@ def run_mujoco_playback(
         print(f"[playback] No frames rendered; skipping video export to {output_video}.")
         return None
 
-    import mediapy as media
-
     ctrl_dt = float(env_cfg_value(env, "ctrl_dt", 1.0 / 60.0))
-    media.write_video(str(output_video), frames, fps=int(1.0 / ctrl_dt))
+    write_playback_video(str(output_video), frames, fps=int(1.0 / ctrl_dt))
     return str(output_video)
 
 
