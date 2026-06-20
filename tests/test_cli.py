@@ -560,7 +560,7 @@ def test_demo_local_only_checkpoint_missing_warns_without_hf_download(
     output = capsys.readouterr().out
     assert rc == 1
     assert "Checkpoint not found" in output
-    assert "checkpoints/sharpa_appo_student/model_0.pt" in output
+    assert "checkpoints/sharpa_appo_student/model_0.pt" in output.replace("\\", "/")
 
 
 def test_demo_local_only_checkpoint_uses_existing_file(

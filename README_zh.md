@@ -81,7 +81,12 @@
 
 ```bash
 # 0. 如果还没有安装 uv
+# Linux / macOS：
 curl -LsSf https://astral.sh/uv/install.sh | sh
+#
+# Windows：
+# powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+# choco install make -y
 
 # 1. 克隆仓库
 git clone https://github.com/unilabsim/UniLab.git
@@ -90,7 +95,7 @@ cd UniLab
 # 2. 安装依赖
 # 请按你的平台选择对应的安装命令。
 
-# Linux CUDA 或 macOS
+# Linux CUDA、macOS 或 Windows
 make setup
 
 # Linux AMD / ROCm
@@ -101,7 +106,7 @@ make setup
 
 # 不使用 shell completion 设置时：
 # uv sync --extra mujoco --extra motrix
-# 如果没有安装 `make`：
+# 如果没有安装或无法使用 `make`：
 # uv sync --extra mujoco --extra motrix && uv run --no-sync unilab-complete install
 
 # 3. 预训练 checkpoint 回放（首次运行会从 Hugging Face 下载）

@@ -636,9 +636,11 @@ def _write_completion_block(
     dry_run: bool,
     force: bool,
 ) -> None:
-    content = (
-        rc_file.read_text(encoding="utf-8", errors="surrogateescape") if rc_file.exists() else ""
-    )
+    if rc_file.exists():
+        with rc_file.open("r", encoding="utf-8", errors="surrogateescape", newline="") as file:
+            content = file.read()
+    else:
+        content = ""
     cleaned = _without_completion_block(content, force=force).rstrip()
     block = _completion_block(script_path).rstrip()
     updated = f"{cleaned}\n\n{block}\n" if cleaned else f"{block}\n"
@@ -646,7 +648,7 @@ def _write_completion_block(
         print(updated, end="")
         return
     rc_file.parent.mkdir(parents=True, exist_ok=True)
-    rc_file.write_text(updated, encoding="utf-8", errors="surrogateescape")
+    rc_file.write_text(updated, encoding="utf-8", errors="surrogateescape", newline="")
     print(f"Installed UniLab completion in {rc_file}")
     print(f"Open a new shell or run: source {rc_file}")
 
@@ -655,12 +657,13 @@ def _remove_completion_block(*, rc_file: Path, dry_run: bool, force: bool) -> No
     if not rc_file.exists():
         print(f"No rc file found: {rc_file}")
         return
-    content = rc_file.read_text(encoding="utf-8", errors="surrogateescape")
+    with rc_file.open("r", encoding="utf-8", errors="surrogateescape", newline="") as file:
+        content = file.read()
     updated = _without_completion_block(content, force=force)
     if dry_run:
         print(updated, end="")
         return
-    rc_file.write_text(updated, encoding="utf-8", errors="surrogateescape")
+    rc_file.write_text(updated, encoding="utf-8", errors="surrogateescape", newline="")
     print(f"Removed UniLab completion from {rc_file}")
 
 

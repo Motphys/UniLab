@@ -246,7 +246,7 @@ def test_format_collector_death_reports_negative_sigbus():
 def test_format_collector_death_reports_sigkill_oom_hint():
     report = format_collector_death(137)
 
-    assert "SIGKILL" in report
+    assert "SIGKILL" in report or "SIG9" in report
     assert "OOM killer" in report
 
 

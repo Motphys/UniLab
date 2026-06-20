@@ -12,7 +12,9 @@ environment / loader initialisation, never inside step or reset.
 from __future__ import annotations
 
 import logging
+import ntpath
 import os
+import posixpath
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -89,13 +91,14 @@ def resolve_checkpoint_file(
 def _resolve_single(path_str: str, *, repo_id: str = _HF_MOTIONS_REPO_ID) -> str:
     """Resolve one asset file path, downloading if absent."""
     path = Path(path_str)
+    is_absolute_input = path.is_absolute() or ntpath.isabs(path_str) or posixpath.isabs(path_str)
 
     # Already exists locally — fast path.
     if path.exists():
         return str(path)
 
     # Try interpreting as ASSETS_ROOT_PATH-relative.
-    if not path.is_absolute():
+    if not is_absolute_input:
         local = ASSETS_ROOT_PATH / path
         if local.exists():
             return str(local)

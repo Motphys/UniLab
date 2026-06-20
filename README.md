@@ -80,8 +80,13 @@ Start with the `Quick Demo` below to run the primary training command. The recom
 </table>
 
 ```bash
-# 0. If uv is not installed
+# 0. Install uv if needed
+# Linux / macOS:
 curl -LsSf https://astral.sh/uv/install.sh | sh
+#
+# Windows:
+# powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+# choco install make -y
 
 # 1. Clone the repository
 git clone https://github.com/unilabsim/UniLab.git
@@ -90,7 +95,7 @@ cd UniLab
 # 2. Install dependencies
 # Pick the setup command for your platform.
 
-# Linux CUDA or macOS
+# Linux CUDA, macOS, or Windows
 make setup
 
 # Linux AMD / ROCm
@@ -101,7 +106,7 @@ make setup
 
 # Without shell completion setup:
 # uv sync --extra mujoco --extra motrix
-# If `make` is not installed:
+# If `make` is not installed or unavailable:
 # uv sync --extra mujoco --extra motrix && uv run --no-sync unilab-complete install
 
 # 3. Pre-trained checkpoint playback (downloads from Hugging Face on first run)

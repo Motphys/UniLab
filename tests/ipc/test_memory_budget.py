@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import os
+import shutil
 
 import pytest
 
@@ -28,18 +28,17 @@ def test_offpolicy_memory_budget_notes_native_exclusions() -> None:
 
 
 def test_shared_memory_budget_unknown_available_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(os, "statvfs", lambda path: (_ for _ in ()).throw(OSError()))
+    monkeypatch.setattr(shutil, "disk_usage", lambda path: (_ for _ in ()).throw(OSError()))
     estimate = {"total": 1024, "breakdown": "test"}
 
     raise_if_shared_memory_over_budget(estimate, label="test", path="/missing-shm")
 
 
 def test_shared_memory_budget_allows_within_threshold(monkeypatch: pytest.MonkeyPatch) -> None:
-    class _Stat:
-        f_bavail = 100
-        f_frsize = 1024
+    class _Usage:
+        free = 100 * 1024
 
-    monkeypatch.setattr(os, "statvfs", lambda path: _Stat())
+    monkeypatch.setattr(shutil, "disk_usage", lambda path: _Usage())
     estimate = {"total": 80 * 1024, "breakdown": "test"}
 
     raise_if_shared_memory_over_budget(estimate, label="test", threshold=0.8)
@@ -48,11 +47,10 @@ def test_shared_memory_budget_allows_within_threshold(monkeypatch: pytest.Monkey
 def test_shared_memory_budget_raises_before_over_allocating(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class _Stat:
-        f_bavail = 100
-        f_frsize = 1024
+    class _Usage:
+        free = 100 * 1024
 
-    monkeypatch.setattr(os, "statvfs", lambda path: _Stat())
+    monkeypatch.setattr(shutil, "disk_usage", lambda path: _Usage())
     estimate = {"total": 81 * 1024, "breakdown": "test"}
 
     with pytest.raises(MemoryError) as excinfo:
