@@ -338,8 +338,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--tasks",
-        default="g1_motion_tracking,go1_joystick_flat,go2_joystick_flat",
-        help="Comma-separated task ids.",
+        default="go1_joystick_flat,go2_joystick_flat",
+        help=(
+            "Comma-separated task ids. Defaults stay within committed Drake task configs; "
+            "pass g1_motion_tracking explicitly when its Drake config is available."
+        ),
     )
     parser.add_argument("--backends", default="drake,mujoco", help="Comma-separated backends.")
     parser.add_argument("--num-envs", default="64,256,1024", help="Comma-separated env counts.")
