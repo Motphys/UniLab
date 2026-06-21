@@ -131,11 +131,13 @@ def test_batch_import_diagnostic_is_preserved() -> None:
         try:
             from drakeuni.batch_env import batch_available, batch_import_error
         except ImportError as exc:
+            captured_error = exc
+
             def batch_available():
                 return False
 
             def batch_import_error():
-                return exc
+                return captured_error
 
         error = batch_import_error()
         summary = {
@@ -316,6 +318,10 @@ def test_drake_batch_pool_imports_in_clean_process() -> None:
     assert "DrakeEnvPool" in output
 
 
+@pytest.mark.skipif(
+    not _drakeuni_package_installed(),
+    reason="optional drakeuni package has not been installed",
+)
 def test_drakeuni_runtime_import_is_lazy_and_pydrake_free() -> None:
     output = _run_clean_python(
         """
