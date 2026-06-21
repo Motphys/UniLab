@@ -37,9 +37,13 @@ def test_stewart_registered_backends() -> None:
     ensure_registries()
     registered = registry.list_registered_envs()
     assert "StewartBalance" in registered
-    # motrix is the validated training backend; mujoco is construct/step-capable
-    # (closed-loop stability tuning for mujoco is a follow-up).
-    assert set(registered["StewartBalance"]["available_backends"]) == {"motrix", "mujoco"}
+    # motrix is the original validated backend; mujoco and drake are
+    # construct/step-capable comparison backends.
+    assert set(registered["StewartBalance"]["available_backends"]) == {
+        "drake",
+        "motrix",
+        "mujoco",
+    }
 
 
 def test_stewart_motrix_owner_cfg_composes() -> None:

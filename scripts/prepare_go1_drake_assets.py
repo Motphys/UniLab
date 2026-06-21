@@ -59,10 +59,7 @@ def _read_ascii_stl(path: Path) -> list[tuple[tuple[float, float, float], ...]]:
                 vertices.append((float(parts[1]), float(parts[2]), float(parts[3])))
     if len(vertices) % 3 != 0:
         raise ValueError(f"ASCII STL vertex count is not divisible by 3: {path}")
-    return [
-        (vertices[i], vertices[i + 1], vertices[i + 2])
-        for i in range(0, len(vertices), 3)
-    ]
+    return [(vertices[i], vertices[i + 1], vertices[i + 2]) for i in range(0, len(vertices), 3)]
 
 
 def _read_stl(path: Path) -> list[tuple[tuple[float, float, float], ...]]:
@@ -114,9 +111,7 @@ def stl_to_obj(stl_path: Path, obj_path: Path) -> None:
         for normal in normals:
             f.write(f"vn {normal[0]:.9g} {normal[1]:.9g} {normal[2]:.9g}\n")
         for normal_id, face in enumerate(face_ids, start=1):
-            f.write(
-                f"f {face[0]}//{normal_id} {face[1]}//{normal_id} {face[2]}//{normal_id}\n"
-            )
+            f.write(f"f {face[0]}//{normal_id} {face[1]}//{normal_id} {face[2]}//{normal_id}\n")
 
 
 def _rewrite_go1_xml(source: Path, target: Path) -> None:

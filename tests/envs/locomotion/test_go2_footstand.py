@@ -19,12 +19,12 @@ from unilab.envs.locomotion.go2.footstand import (
 )
 
 
-def test_go2_footstand_registers_mujoco_only() -> None:
+def test_go2_footstand_registers_supported_backends() -> None:
     ensure_registries()
 
     meta = registry.list_registered_envs()["Go2FootStand"]
 
-    assert meta["available_backends"] == ["mujoco"]
+    assert meta["available_backends"] == ["drake", "mujoco"]
 
 
 class _OrientationBackend:
