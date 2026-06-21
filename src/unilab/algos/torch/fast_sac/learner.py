@@ -559,6 +559,15 @@ class FastSACLearner:
                 p.grad.copy_(flat[offset : offset + n].view_as(p.grad))
                 offset += n
 
+    def sync_initial_parameters(self, src: int = 0) -> None:
+        """Broadcast initial learner state for distributed off-policy training."""
+        if self.world_size <= 1:
+            return
+        for module in (self.actor, self.qnet, self.qnet_target):
+            for parameter in module.parameters():
+                dist.broadcast(parameter.data, src=src)
+        dist.broadcast(self.log_alpha.data, src=src)
+
     def _get_actions_and_log_probs_for_critic(
         self,
         actor_obs: torch.Tensor,

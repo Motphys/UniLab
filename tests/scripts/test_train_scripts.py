@@ -2423,25 +2423,26 @@ def test_offpolicy_flashsac_rejects_multi_gpu():
         ]
     )
 
-    with pytest.raises(ValueError, match="FlashSAC does not support training.num_gpus > 1"):
+    with pytest.raises(ValueError, match="Only SAC supports training.num_gpus > 1"):
         _offpolicy().build_runner("flashsac", cfg)
 
 
-def test_offpolicy_sac_multi_gpu_rejected_by_double_buffer():
+def test_offpolicy_sac_multi_gpu_requires_cuda_device():
     cfg = _offpolicy_cfg(
         [
             "algo=sac",
             "task=sac/g1_walk_flat/mujoco",
             "training.num_gpus=2",
             "training.device=cpu",
+            "algo.obs_normalization=false",
         ]
     )
 
-    with pytest.raises(ValueError, match="currently single-GPU only"):
+    with pytest.raises(ValueError, match="requires a CUDA device"):
         _offpolicy().build_runner("sac", cfg)
 
 
-def test_offpolicy_sac_multi_gpu_rejects_even_with_explicit_symmetry_disable():
+def test_offpolicy_sac_multi_gpu_requires_cuda_even_with_explicit_symmetry_disable():
     cfg = _offpolicy_cfg(
         [
             "algo=sac",
@@ -2449,10 +2450,11 @@ def test_offpolicy_sac_multi_gpu_rejects_even_with_explicit_symmetry_disable():
             "training.num_gpus=2",
             "training.device=cpu",
             "algo.use_symmetry=false",
+            "algo.obs_normalization=false",
         ]
     )
 
-    with pytest.raises(ValueError, match="currently single-GPU only"):
+    with pytest.raises(ValueError, match="requires a CUDA device"):
         _offpolicy().build_runner("sac", cfg)
 
 
