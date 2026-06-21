@@ -493,9 +493,7 @@ class Go2FootStandTask(Go2HandStandTask):
             self._backend.get_body_mass() if needs_body_mass else np.zeros((0,), dtype=np.float64)
         )
         self._base_body_ipos = (
-            self._backend.get_body_ipos()
-            if needs_body_ipos
-            else np.zeros((0, 3), dtype=np.float64)
+            self._backend.get_body_ipos() if needs_body_ipos else np.zeros((0, 3), dtype=np.float64)
         )
         self._base_dof_armature = (
             self._backend.get_dof_armature()

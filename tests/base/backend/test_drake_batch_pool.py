@@ -416,7 +416,7 @@ def test_drake_batch_pool_go1_smoke_shapes_and_time() -> None:
         "has_sensor_data": True,
         "nthread": 1,
         "sensor_finite": True,
-            "sensor_shape": [2, 42],
+        "sensor_shape": [2, 42],
         "state_finite": True,
         "state_only_has_sensor_data": False,
         "state_shape": [2, 38],

@@ -16,7 +16,6 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from pydrake.geometry import CollisionFilterDeclaration, GeometrySet
 from pydrake.all import (
     AddMultibodyPlantSceneGraph,
     Box,
@@ -30,19 +29,14 @@ from pydrake.all import (
     Simulator,
     StartMeshcat,
 )
+from pydrake.geometry import CollisionFilterDeclaration, GeometrySet
 from pydrake.multibody.plant import ContactModel, DiscreteContactApproximation
 from pydrake.multibody.tree import PdControllerGains
-
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SCENE = ROOT / "src" / "unilab" / "assets" / "robots" / "go1" / "scene_flat_drake.xml"
 DEFAULT_CHECKPOINT = (
-    ROOT
-    / "logs"
-    / "rsl_rl_ppo"
-    / "Go1JoystickFlat"
-    / "2026-06-05_02-36-19_mujoco"
-    / "model_150.pt"
+    ROOT / "logs" / "rsl_rl_ppo" / "Go1JoystickFlat" / "2026-06-05_02-36-19_mujoco" / "model_150.pt"
 )
 
 CTRL_DT = 0.02
@@ -181,7 +175,9 @@ def add_debug_floor(meshcat: object | None) -> None:
     meshcat.SetTransform("/debug/floor", RigidTransform([0.0, 0.0, -0.005]))
 
 
-def exclude_robot_self_collisions(plant: object, scene_graph: object, model_instance: object) -> int:
+def exclude_robot_self_collisions(
+    plant: object, scene_graph: object, model_instance: object
+) -> int:
     """Mirror MuJoCo's Go1 collision filtering: robot geoms should not collide with each other."""
     robot_geometries = GeometrySet()
     count = 0
@@ -245,9 +241,7 @@ def build_drake_go1(scene: Path, args: argparse.Namespace) -> DrakeGo1:
         )
         set_native_pd_target(plant, plant_context, model_instance, DEFAULT_ANGLES)
     else:
-        plant.get_actuation_input_port().FixValue(
-            plant_context, np.zeros(12, dtype=np.float64)
-        )
+        plant.get_actuation_input_port().FixValue(plant_context, np.zeros(12, dtype=np.float64))
 
     simulator = Simulator(diagram, context)
     simulator.set_target_realtime_rate(max(0.0, float(args.realtime_rate)))
@@ -297,7 +291,9 @@ def feet_phase_from_phase(phase: float) -> np.ndarray:
     return feet_phase
 
 
-def read_drake_state(drake: DrakeGo1) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def read_drake_state(
+    drake: DrakeGo1,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     plant = drake.plant
     context = drake.plant_context
     q = np.asarray(plant.GetPositions(context), dtype=np.float64)
@@ -402,10 +398,7 @@ def run_replay(args: argparse.Namespace) -> None:
     print_model_order(drake)
     if drake.meshcat is not None:
         print(f"Meshcat: {drake.meshcat.web_url()}")
-    print(
-        "Robot self-collision filtering: "
-        f"{drake.num_filtered_geometries} collision geometries"
-    )
+    print(f"Robot self-collision filtering: {drake.num_filtered_geometries} collision geometries")
     if args.start_delay > 0:
         print(f"Starting replay in {args.start_delay:.1f}s...")
         time.sleep(args.start_delay)
@@ -434,9 +427,7 @@ def run_replay(args: argparse.Namespace) -> None:
             action = policy_action(actor, obs, args.clip_action)
         target_q = action_to_target_q(action, args.action_scale)
         if args.control_mode == "native-pd":
-            set_native_pd_target(
-                drake.plant, drake.plant_context, drake.model_instance, target_q
-            )
+            set_native_pd_target(drake.plant, drake.plant_context, drake.model_instance, target_q)
         else:
             tau = pd_torque(
                 action,
@@ -459,7 +450,9 @@ def run_replay(args: argparse.Namespace) -> None:
         last_action = action
         phase = (phase + args.ctrl_dt * GAIT_FREQUENCY) % 1.0
 
-        base_z = float(drake.plant.EvalBodyPoseInWorld(drake.plant_context, drake.trunk).translation()[2])
+        base_z = float(
+            drake.plant.EvalBodyPoseInWorld(drake.plant_context, drake.trunk).translation()[2]
+        )
         final_stats = {
             "step": float(step + 1),
             "time": float((step + 1) * args.ctrl_dt),

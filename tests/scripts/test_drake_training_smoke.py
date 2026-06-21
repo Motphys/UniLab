@@ -49,8 +49,6 @@ def test_drake_ppo_one_iteration_training_smoke(task: str, tmp_path: Path) -> No
     )
 
     assert result.returncode == 0, (
-        f"Drake PPO smoke failed for {task}:\n"
-        f"stdout:\n{result.stdout}\n"
-        f"stderr:\n{result.stderr}"
+        f"Drake PPO smoke failed for {task}:\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
     assert "Learning iteration 0/1" in result.stdout

@@ -16,7 +16,7 @@ from importlib.util import find_spec
 from multiprocessing import cpu_count
 from os import PathLike
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -259,10 +259,16 @@ class DrakeBackend(SimBackend):
                 strict=True,
             )
         }
-        self._root_qpos_dim = int(np.min(self._actuator_qpos_adr)) if self._actuator_qpos_adr.size else 0
-        self._root_qvel_dim = int(np.min(self._actuator_qvel_adr)) if self._actuator_qvel_adr.size else 0
+        self._root_qpos_dim = (
+            int(np.min(self._actuator_qpos_adr)) if self._actuator_qpos_adr.size else 0
+        )
+        self._root_qvel_dim = (
+            int(np.min(self._actuator_qvel_adr)) if self._actuator_qvel_adr.size else 0
+        )
         self._num_bodies = int(model_info.num_bodies)
-        self._pending_body_forces = np.zeros((self._num_envs, self._num_bodies, 3), dtype=np.float64)
+        self._pending_body_forces = np.zeros(
+            (self._num_envs, self._num_bodies, 3), dtype=np.float64
+        )
         self._model = _DrakeUniModelView(
             nq=int(model_info.nq),
             nv=int(model_info.nv),
@@ -419,7 +425,9 @@ class DrakeBackend(SimBackend):
         # Reset is the handoff from UniLab's sampled state tensors into
         # DrakeUni's per-env runtime contexts.
         if randomization is not None and not randomization.is_empty():
-            raise NotImplementedError("DrakeUni batch backend does not apply reset randomization yet")
+            raise NotImplementedError(
+                "DrakeUni batch backend does not apply reset randomization yet"
+            )
         indices = np.asarray(env_indices, dtype=np.int32)
         qpos_rows = np.asarray(qpos, dtype=np.float64)
         qvel_rows = np.asarray(qvel, dtype=np.float64)
@@ -485,7 +493,9 @@ class DrakeBackend(SimBackend):
                 output_video=None,
             )
         if mode == "interactive":
-            raise NotImplementedError("DrakeUni batch backend does not support interactive rendering")
+            raise NotImplementedError(
+                "DrakeUni batch backend does not support interactive rendering"
+            )
         if play_steps is None:
             raise ValueError("DrakeUni record playback requires a finite play_steps value.")
         if output_video is None:
@@ -684,7 +694,7 @@ class DrakeBackend(SimBackend):
         ids = np.asarray(body_ids, dtype=np.int32)
         if ids.ndim != 1:
             raise ValueError(f"body_ids must be one-dimensional, got {ids.shape}")
-        return self._runtime.compute_body_state(ids)
+        return cast(dict[str, np.ndarray], self._runtime.compute_body_state(ids))
 
     def _pending_body_forces_or_none(self) -> np.ndarray | None:
         if np.any(self._pending_body_forces):
