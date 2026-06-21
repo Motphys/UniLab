@@ -491,6 +491,7 @@ class G1MotionTrackingDomainRandomizationProvider(DomainRandomizationProvider):
         return obs
 
 
+@registry.env("G1MotionTracking", sim_backend="drake")
 @registry.env("G1MotionTracking", sim_backend="mujoco")
 @registry.env("G1MotionTracking", sim_backend="motrix")
 class G1MotionTrackingEnv(G1BaseEnv):
@@ -511,6 +512,8 @@ class G1MotionTrackingEnv(G1BaseEnv):
             push_body_name=cfg.domain_rand.push_body_name,
             add_body_sensors=True,
             **env_backend_kwargs(cfg),
+            drake_backend_mode=cfg.drake_backend_mode,
+            drake_nthread=cfg.drake_nthread,
         )
         super().__init__(cfg, backend, num_envs)
 
