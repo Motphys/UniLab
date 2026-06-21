@@ -456,6 +456,7 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
         )
 
 
+@registry.env("SharpaInhandRotation", sim_backend="drake")
 @registry.env("SharpaInhandRotation", sim_backend="mujoco")
 @registry.env("SharpaInhandRotation", sim_backend="motrix")
 class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
@@ -487,6 +488,8 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
             add_body_sensors=True,
             motrix_max_iterations=cfg.motrix_max_iterations,
             post_step_forward_sensor=cfg.post_step_forward_sensor,
+            drake_backend_mode=cfg.drake_backend_mode,
+            drake_nthread=cfg.drake_nthread,
         )
         super().__init__(cfg, backend, num_envs)
 

@@ -443,6 +443,7 @@ class G1MotionTrackingDomainRandomizationProvider(DomainRandomizationProvider):
         )
 
 
+@registry.env("G1MotionTracking", sim_backend="drake")
 @registry.env("G1MotionTracking", sim_backend="mujoco")
 @registry.env("G1MotionTracking", sim_backend="motrix")
 class G1MotionTrackingEnv(G1BaseEnv):
@@ -464,6 +465,8 @@ class G1MotionTrackingEnv(G1BaseEnv):
             add_body_sensors=True,
             motrix_max_iterations=cfg.motrix_max_iterations,
             post_step_forward_sensor=cfg.post_step_forward_sensor,
+            drake_backend_mode=cfg.drake_backend_mode,
+            drake_nthread=cfg.drake_nthread,
         )
         super().__init__(cfg, backend, num_envs)
 

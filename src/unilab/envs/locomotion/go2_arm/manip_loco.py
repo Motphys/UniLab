@@ -279,6 +279,7 @@ class Go2ArmManipLocoDRProvider(LocomotionDRProvider):
 
 
 @registry.env("Go2ArmManipLoco", sim_backend="motrix")
+@registry.env("Go2ArmManipLoco", sim_backend="drake")
 @registry.env("Go2ArmManipLoco", sim_backend="mujoco")
 class Go2ArmManipLocoEnv(Go2ArmBaseEnv):
     _cfg: Go2ArmManipLocoCfg
@@ -286,9 +287,9 @@ class Go2ArmManipLocoEnv(Go2ArmBaseEnv):
     def __init__(self, cfg: Go2ArmManipLocoCfg, num_envs=1, backend_type="mujoco"):
         if cfg.reward_config is None:
             raise ValueError("reward_config must be provided via Hydra configuration")
-        if backend_type not in {"mujoco", "motrix"}:
+        if backend_type not in {"drake", "mujoco", "motrix"}:
             raise ValueError(
-                "Go2ArmManipLoco supports only the mujoco and motrix backends, "
+                "Go2ArmManipLoco supports only the drake, mujoco and motrix backends, "
                 f"got {backend_type!r}"
             )
 
@@ -296,10 +297,12 @@ class Go2ArmManipLocoEnv(Go2ArmBaseEnv):
         backend_kwargs: dict[str, Any] = {
             "base_name": cfg.asset.base_name,
             "push_body_name": cfg.domain_rand.push_body_name,
+            "drake_backend_mode": cfg.drake_backend_mode,
+            "drake_nthread": cfg.drake_nthread,
         }
         if backend_type == "motrix":
             backend_kwargs["motrix_max_iterations"] = cfg.iterations
-        else:
+        elif backend_type == "mujoco":
             backend_kwargs["position_actuator_gains"] = build_go2_arm_position_gains(
                 cfg.control_config
             )
@@ -632,14 +635,6 @@ class Go2ArmManipLocoEnv(Go2ArmBaseEnv):
             else effective_actions
         )
 
-        ee_local_pos, ee_local_quat = self.get_ee_local_pose()
-        dq_ik = self.compute_arm_ik_delta(
-            self.curr_ee_goal_cart,
-            ee_local_pos,
-            self.ee_goal_orn_quat,
-            ee_local_quat,
-        )
-
         leg_ctrl = (
             exec_actions[:, :12] * self._cfg.control_config.action_scale + self.default_angles[:12]
         )
@@ -649,6 +644,13 @@ class Go2ArmManipLocoEnv(Go2ArmBaseEnv):
                 copy=False,
             )
         else:
+            ee_local_pos, ee_local_quat = self.get_ee_local_pose()
+            dq_ik = self.compute_arm_ik_delta(
+                self.curr_ee_goal_cart,
+                ee_local_pos,
+                self.ee_goal_orn_quat,
+                ee_local_quat,
+            )
             arm_ctrl = (
                 self.get_arm_dof_pos()
                 + exec_actions[:, 12:18] * self._cfg.control_config.arm_action_scale
