@@ -113,14 +113,14 @@ def test_td3_dispatches_to_double_buffer_runner(monkeypatch: pytest.MonkeyPatch)
     assert runner.kwargs["learner"].kwargs["critic_obs_dim"] == 6
 
 
-def test_sac_multi_gpu_rejects_cpu_pinned_double_buffer():
+def test_sac_multi_gpu_rejects_obs_normalization_until_synchronized():
     cfg = _offpolicy_cfg(
         [
             "algo=sac",
             "training.num_gpus=2",
         ]
     )
-    with pytest.raises(ValueError, match="currently single-GPU only"):
+    with pytest.raises(ValueError, match="requires algo.obs_normalization=false"):
         _offpolicy().build_runner("sac", cfg)
 
 
@@ -300,7 +300,7 @@ def test_flashsac_double_buffer_multi_gpu_rejected():
             "training.num_gpus=2",
         ]
     )
-    with pytest.raises(ValueError, match="FlashSAC does not support training.num_gpus > 1"):
+    with pytest.raises(ValueError, match="Only SAC supports training.num_gpus > 1"):
         _offpolicy().build_runner("flashsac", cfg)
 
 

@@ -1,11 +1,12 @@
-"""Multi-GPU off-policy runner using NCCL all-reduce for FastSAC.
+"""Multi-GPU off-policy runner using distributed gradient averaging.
 
 Architecture:
   Main process   → creates ReplayBuffer (host-only), WeightSync, queues
                  → spawns Collector subprocess (CPU, env simulation)
                  → spawns N Learner workers via mp.spawn (one per GPU)
-  Learner rank i → samples packed CPU replay rows to its rank device, then
-                   communicates via NCCL all_reduce
+  Learner rank i → samples packed CPU replay rows to its rank device through
+                   a rank-local H2D pipeline, then communicates gradients
+                   through the configured distributed backend.
   Collector      → talks only to rank 0 via collection_ready_queue / trainer_done_queue
 """
 
@@ -18,13 +19,12 @@ import sys
 import time
 from collections import defaultdict, deque
 from datetime import timedelta
-from typing import Any, Dict, Optional, cast
+from typing import Any, Dict, Optional
 
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as tmp  # torch.multiprocessing for spawn
 
-from unilab.algos.torch.fast_sac.learner import FastSACLearner
 from unilab.algos.torch.offpolicy.runner import (
     OffPolicyRunner,
     build_reward_comparison_metrics,
@@ -35,6 +35,7 @@ from unilab.algos.torch.offpolicy.worker import off_policy_collector_fn
 from unilab.ipc import SharedWeightSync
 from unilab.ipc.async_runner import _SPAWN_CTX
 from unilab.ipc.replay_buffer import ReplayBuffer
+from unilab.ipc.replay_pipelines.multi_gpu_cpu_pinned import MultiGPUCPUPinnedReplayPipeline
 from unilab.logging import OffPolicyLogger
 from unilab.training.seed import apply_training_seed, derive_worker_seed
 
@@ -43,17 +44,6 @@ def _find_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("", 0))
         return int(s.getsockname()[1])
-
-
-def _broadcast_initial_params(learner: FastSACLearner, rank: int) -> None:
-    """Broadcast rank-0 initial parameters to all workers for consistent starting point."""
-    for model in (
-        cast(torch.nn.Module, learner.actor),
-        cast(torch.nn.Module, learner.qnet),
-    ):
-        for p in model.parameters():
-            dist.broadcast(p.data, src=0)
-    dist.broadcast(learner.log_alpha.data, src=0)
 
 
 def _drain_metrics(
@@ -98,6 +88,7 @@ def _drain_metrics(
 def _learner_worker(
     rank: int,
     world_size: int,
+    learner_cls: Any,
     learner_kwargs: Dict[str, Any],
     runner_kwargs: Dict[str, Any],
     replay_buffer: ReplayBuffer,
@@ -108,6 +99,9 @@ def _learner_worker(
     collection_ready_queue: Any,
     trainer_done_queue: Any,
     metrics_queue: Any,
+    collector_pack_request_queue: Any,
+    collector_pack_ready_queue: Any,
+    collector_pack_shared_slots: Any,
     master_port: int,
 ) -> None:
     """Worker function executed on each GPU (called via torch.multiprocessing.spawn)."""
@@ -115,12 +109,14 @@ def _learner_worker(
     os.environ["MASTER_PORT"] = str(master_port)
     device = f"cuda:{rank}"
     torch.cuda.set_device(rank)
+    backend = str(runner_kwargs.get("distributed_backend", "nccl"))
     dist.init_process_group(
-        "nccl", rank=rank, world_size=world_size, timeout=timedelta(seconds=120)
+        backend, rank=rank, world_size=world_size, timeout=timedelta(seconds=120)
     )
 
     logger: Optional[OffPolicyLogger] = None
     weight_sync: SharedWeightSync | None = None
+    replay_pipeline: MultiGPUCPUPinnedReplayPipeline | None = None
     try:
         apply_training_seed(
             derive_worker_seed(runner_kwargs.get("seed"), worker_index=rank + 1000),
@@ -131,10 +127,15 @@ def _learner_worker(
         replay_buffer.device = device
 
         # 2. Create learner on this device
-        learner = FastSACLearner(device=device, world_size=world_size, **learner_kwargs)
+        learner = learner_cls(device=device, world_size=world_size, **learner_kwargs)
 
-        # 3. Broadcast rank-0 params so all workers start identically
-        _broadcast_initial_params(learner, rank)
+        # 3. Broadcast rank-0 params so all workers start identically.
+        sync_initial_parameters = getattr(learner, "sync_initial_parameters", None)
+        if not callable(sync_initial_parameters):
+            raise ValueError(
+                "Multi-GPU off-policy learner must implement sync_initial_parameters(src=0)"
+            )
+        sync_initial_parameters(src=0)
 
         # 4. Reconnect to the shared weight-sync buffer
         weight_sync = SharedWeightSync(
@@ -157,12 +158,25 @@ def _learner_worker(
         logger_type: str = runner_kwargs.get("logger_type", "tensorboard")
         learning_starts = max(int(runner_kwargs.get("learning_starts", 0)), 0)
         train_start_threshold = compute_train_start_threshold(batch_size, learning_starts, num_envs)
+        sample_count = batch_size * updates_per_step
+
+        replay_pipeline = MultiGPUCPUPinnedReplayPipeline(
+            replay_buffer,
+            rank=rank,
+            world_size=world_size,
+            device=device,
+            sample_count=sample_count,
+            base_seed=int(runner_kwargs.get("seed") or 0),
+            collector_pack_request_queue=collector_pack_request_queue[rank],
+            collector_pack_ready_queue=collector_pack_ready_queue[rank],
+            collector_pack_shared_slots=collector_pack_shared_slots[rank],
+        )
 
         # 6. Logger (rank 0 only)
         if rank == 0:
             os.makedirs(log_dir, exist_ok=True)
             logger = OffPolicyLogger(
-                algo_name=f"FastSAC_x{world_size}GPU",
+                algo_name=f"Fast{str(runner_kwargs.get('algo_type', 'offpolicy')).upper()}_x{world_size}GPU",
                 max_iterations=max_iterations,
                 num_envs=num_envs,
                 env_name=env_name,
@@ -172,15 +186,19 @@ def _learner_worker(
                 log_backend=logger_type,
             )
             logger.set_collection_sync(sync_collection, env_steps_per_sync)
+            logger.log_status("Replay pipeline: multi_gpu_cpu_pinned")
+            logger.log_status(f"Replay batch semantics: per-rank batch_size={batch_size}")
             logger.start()
 
         reward_history: deque = deque(maxlen=100)
         latest_reward_components: dict = {}
         write_read_ema = 0.0
         last_buf_log = 0
+        prepared_tick: int | None = None
 
         # 7. Training loop
         for it in range(1, max_iterations + 1):
+            collector_released_for_next = False
             # --- Wait for data (rank 0 only, then barrier syncs everyone) ---
             wait_start = time.time()
             if rank == 0:
@@ -228,12 +246,32 @@ def _learner_worker(
             iter_metrics: dict = defaultdict(list)
             ptr_before = int(replay_buffer.ptr[0]) if rank == 0 else 0
 
-            large_batch = replay_buffer.sample(batch_size * updates_per_step)
+            if prepared_tick != it:
+                replay_pipeline.start_prepare(it, sample_count)
+                prepared_tick = it
+            while not replay_pipeline.batch_ready(it, sample_count):
+                if stop_event.is_set():
+                    return
+                time.sleep(0.001)
+            large_batch = replay_pipeline.sample_large_batch(it, sample_count)
             learner_incremental_h2d_time = (
-                float(getattr(replay_buffer, "last_incremental_h2d_time_s", 0.0))
+                float(getattr(replay_pipeline, "last_incremental_h2d_time_s", 0.0))
                 if rank == 0
                 else 0.0
             )
+
+            if it < max_iterations:
+                min_snapshot_ptr = int(replay_buffer.ptr[0]) + (num_envs * env_steps_per_sync)
+                replay_pipeline.start_prepare(
+                    it + 1,
+                    sample_count,
+                    min_snapshot_ptr=min_snapshot_ptr,
+                )
+                prepared_tick = it + 1
+                if rank == 0 and sync_collection and trainer_done_queue is not None:
+                    trainer_done_queue.put(1)
+                    collector_released_for_next = True
+
             train_start = time.time()
 
             for update_idx in range(updates_per_step):
@@ -245,12 +283,14 @@ def _learner_worker(
                 for k, v in critic_metrics.items():
                     iter_metrics[k].append(v)
 
-                if update_idx % policy_frequency == 1:
+                if update_idx % policy_frequency == 0:
                     actor_metrics = learner.update_actor(batch)
                     for k, v in actor_metrics.items():
                         iter_metrics[k].append(v)
 
                 learner.soft_update_target()
+
+            replay_pipeline.after_tick()
 
             # Barrier: all ranks must finish this iteration before rank 0 proceeds
             dist.barrier()
@@ -263,7 +303,11 @@ def _learner_worker(
                 weight_sync.write_weights(learner.actor.state_dict())
                 weight_sync_time = time.perf_counter() - weight_sync_start
 
-                if sync_collection and trainer_done_queue is not None:
+                if (
+                    sync_collection
+                    and trainer_done_queue is not None
+                    and not collector_released_for_next
+                ):
                     trainer_done_queue.put(1)
 
                 write_delta = int(replay_buffer.ptr[0]) - ptr_before
@@ -289,6 +333,8 @@ def _learner_worker(
                         weight_sync_time=weight_sync_time,
                         extra_info={
                             "throughput_steps": num_envs * env_steps_per_sync,
+                            "world_size": world_size,
+                            "effective_batch_size": batch_size * world_size,
                         },
                     )
 
@@ -306,12 +352,17 @@ def _learner_worker(
                 logger.log_save(ckpt_path)
                 logger.finish()
 
+        if replay_pipeline is not None:
+            replay_pipeline.close()
+            replay_pipeline = None
         weight_sync.close()
         weight_sync = None
 
     finally:
         if logger is not None:
             logger.close()
+        if replay_pipeline is not None:
+            replay_pipeline.close()
         if weight_sync is not None:
             weight_sync.close()
         dist.destroy_process_group()
@@ -321,10 +372,9 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
     """Multi-GPU off-policy runner.
 
     Keeps a single Collector on CPU and spawns *num_gpus* Learner workers via
-    ``torch.multiprocessing.spawn``.  Each worker processes independent
-    mini-batches from the same shared ReplayBuffer; gradients are averaged
-    with NCCL all_reduce — equivalent to training on a *num_gpus× larger*
-    effective batch size per wall-clock second.
+    ``torch.multiprocessing.spawn``. Each worker processes an independent
+    mini-batch from the same shared ReplayBuffer through a rank-local H2D
+    pipeline; learner-owned distributed gradient reduction averages gradients.
 
     Falls back transparently to single-GPU when ``num_gpus <= 1``.
     """
@@ -349,8 +399,10 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
         learner: Any,
         env_name: str,
         algo_type: str,
+        learner_cls: Any,
         learner_kwargs: Dict[str, Any],
         num_gpus: int = 1,
+        distributed_backend: str = "nccl",
         **kwargs: Any,
     ) -> None:
         self.validate_capabilities(
@@ -361,7 +413,9 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
         super().__init__(learner=learner, env_name=env_name, algo_type=algo_type, **kwargs)
         self.num_gpus = num_gpus
         self.world_size = num_gpus
+        self._learner_cls = learner_cls
         self._learner_kwargs = learner_kwargs
+        self.distributed_backend = distributed_backend
 
     def learn(
         self,
@@ -378,6 +432,8 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
                 logger_type=logger_type,
             )
             return
+        if not self.sync_collection:
+            raise ValueError("Multi-GPU off-policy replay requires synchronized collection")
         self._learn_multi_gpu(
             max_iterations=max_iterations,
             save_interval=save_interval,
@@ -422,6 +478,17 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
             )
 
         metrics_queue = _SPAWN_CTX.Queue(maxsize=100)
+        collector_pack_request_queues = [_SPAWN_CTX.Queue(maxsize=2) for _ in range(self.num_gpus)]
+        collector_pack_ready_queues = [_SPAWN_CTX.Queue(maxsize=2) for _ in range(self.num_gpus)]
+        sample_count = self.batch_size * self.updates_per_step
+        packed_width = int(replay_buffer._storage.shape[1])
+        collector_pack_shared_slots = [
+            [
+                torch.empty((sample_count, packed_width), dtype=torch.float32).share_memory_()
+                for _ in range(2)
+            ]
+            for _ in range(self.num_gpus)
+        ]
 
         # --- Start Collector (CPU, single process, unchanged) ---
         weight_param_shapes = {k: v.shape for k, v in self.learner.actor.state_dict().items()}
@@ -445,7 +512,13 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
             "shared_obs_normalizer_stats": None,
             "sim_backend": self.sim_backend,
             "env_cfg_override": self.env_cfg_override,
+            "obs_dim": self.obs_dim,
+            "action_dim": self.action_dim,
+            "actor_kwargs": self.actor_kwargs,
             "seed": derive_worker_seed(self.seed, worker_index=0),
+            "collector_pack_request_queue": collector_pack_request_queues,
+            "collector_pack_ready_queue": collector_pack_ready_queues,
+            "collector_pack_shared_slots": collector_pack_shared_slots,
         }
         self._start_collector(
             target_fn=off_policy_collector_fn,
@@ -476,6 +549,8 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
             "action_dim": self.action_dim,
             "logger_type": logger_type,
             "seed": self.seed,
+            "distributed_backend": self.distributed_backend,
+            "algo_type": self.algo_type,
         }
 
         try:
@@ -483,6 +558,7 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
                 _learner_worker,
                 args=(
                     self.num_gpus,
+                    self._learner_cls,
                     self._learner_kwargs,
                     runner_kwargs,
                     replay_buffer,
@@ -493,6 +569,9 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
                     collection_ready_queue,
                     trainer_done_queue,
                     metrics_queue,
+                    collector_pack_request_queues,
+                    collector_pack_ready_queues,
+                    collector_pack_shared_slots,
                     master_port,
                 ),
                 nprocs=self.num_gpus,

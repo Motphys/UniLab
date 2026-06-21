@@ -54,6 +54,9 @@ class _FakeLearner:
     def soft_update_target(self) -> None:
         self.target_updates += 1
 
+    def sync_initial_parameters(self, src: int = 0) -> None:
+        del src
+
     def get_state_dict(self) -> dict[str, int]:
         return {"update_count": self.update_count}
 
@@ -885,6 +888,7 @@ def test_multi_gpu_runner_passes_explicit_runtime_context_to_collector(
         learner=learner,
         env_name="DummyEnv",
         algo_type="sac",
+        learner_cls=_FakeLearner,
         learner_kwargs={},
         num_gpus=2,
         num_envs=2,
@@ -893,7 +897,7 @@ def test_multi_gpu_runner_passes_explicit_runtime_context_to_collector(
         learning_starts=6,
         updates_per_step=1,
         policy_frequency=1,
-        sync_collection=False,
+        sync_collection=True,
         env_steps_per_sync=1,
         device="cpu",
         sim_backend="motrix",
@@ -929,6 +933,7 @@ def test_multi_gpu_runner_allocates_replay_critic_storage(
         learner=_FakeLearner(),
         env_name="DummyEnv",
         algo_type="sac",
+        learner_cls=_FakeLearner,
         learner_kwargs={},
         num_gpus=2,
         num_envs=2,
@@ -937,7 +942,7 @@ def test_multi_gpu_runner_allocates_replay_critic_storage(
         learning_starts=6,
         updates_per_step=1,
         policy_frequency=1,
-        sync_collection=False,
+        sync_collection=True,
         env_steps_per_sync=1,
         device="cpu",
     )
@@ -950,83 +955,72 @@ def test_multi_gpu_runner_allocates_replay_critic_storage(
     assert replay_buffer.critic_dim == 7
 
 
-def test_multi_gpu_worker_rank0_propagates_learner_timing_and_extra_info(
+def test_multi_gpu_runner_spawn_receives_algorithm_agnostic_learner_and_rank_ipc(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     monkeypatch.setattr(multi_gpu_runner_module, "ReplayBuffer", _FakeReplayBuffer)
     monkeypatch.setattr(multi_gpu_runner_module, "SharedWeightSync", _FakeWeightSync)
-    monkeypatch.setattr(multi_gpu_runner_module, "OffPolicyLogger", _FakeLogger)
-    monkeypatch.setattr(multi_gpu_runner_module, "FastSACLearner", _FakeLearner)
-    monkeypatch.setattr(multi_gpu_runner_module.torch.cuda, "set_device", lambda rank: None)
-    monkeypatch.setattr(
-        multi_gpu_runner_module.dist, "init_process_group", lambda *args, **kwargs: None
+    monkeypatch.setattr(multi_gpu_runner_module.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(runner_module, "get_env_dims", lambda *args, **kwargs: (4, 2, 0))
+    captured: dict[str, object] = {}
+
+    def fake_spawn(fn, args, nprocs, join):
+        del fn, join
+        captured["args"] = args
+        captured["nprocs"] = nprocs
+
+    monkeypatch.setattr(multi_gpu_runner_module.tmp, "spawn", fake_spawn)
+
+    runner = multi_gpu_runner_module.MultiGPUOffPolicyRunner(
+        learner=_FakeLearner(),
+        env_name="DummyEnv",
+        algo_type="sac",
+        learner_cls=_FakeLearner,
+        learner_kwargs={"obs_dim": 4, "action_dim": 2},
+        num_gpus=2,
+        num_envs=2,
+        replay_buffer_n=8,
+        batch_size=8,
+        learning_starts=6,
+        updates_per_step=1,
+        policy_frequency=1,
+        sync_collection=True,
+        env_steps_per_sync=1,
+        device="cpu",
     )
-    monkeypatch.setattr(multi_gpu_runner_module.dist, "broadcast", lambda *args, **kwargs: None)
-    monkeypatch.setattr(multi_gpu_runner_module.dist, "barrier", lambda *args, **kwargs: None)
-    monkeypatch.setattr(
-        multi_gpu_runner_module.dist, "destroy_process_group", lambda *args, **kwargs: None
-    )
-    monkeypatch.setattr(multi_gpu_runner_module.torch, "save", lambda *args, **kwargs: None)
+    monkeypatch.setattr(runner, "_start_collector", lambda *args, **kwargs: None)
 
-    fake_clock = _FakeClock([300.1, 310.1, 310.2, 310.7])
-    monkeypatch.setattr(multi_gpu_runner_module.time, "time", fake_clock.time)
+    runner.learn(max_iterations=0, save_interval=0, log_dir=str(tmp_path))
 
-    sleep_sizes = iter([4, 8, 12])
+    args = cast(tuple, captured["args"])
+    assert captured["nprocs"] == 2
+    assert args[1] is _FakeLearner
+    assert args[2] == {"obs_dim": 4, "action_dim": 2}
+    assert len(cast(list, args[13])) == 2
+    assert len(cast(list, args[14])) == 2
 
-    def fake_sleep(seconds: float) -> None:
-        if seconds < 0.5:
-            next_size = next(sleep_sizes, 12)
-            replay_buffer = _FakeReplayBuffer.last_instance
-            assert replay_buffer is not None
-            replay_buffer.size[0] = next_size
-            replay_buffer.ptr[0] = next_size
 
-    monkeypatch.setattr(multi_gpu_runner_module.time, "sleep", fake_sleep)
-
-    replay_buffer = _FakeReplayBuffer(capacity=64, obs_dim=4, action_dim=2, device="cpu")
-    weight_sync = _FakeWeightSync()
-    metrics_queue = queue.Queue()
-    stop_event = type("_Stop", (), {"is_set": staticmethod(lambda: False)})()
-
-    runner_kwargs = {
-        "max_iterations": 1,
-        "save_interval": 0,
-        "log_dir": str(tmp_path),
-        "batch_size": 8,
-        "learning_starts": 6,
-        "updates_per_step": 1,
-        "policy_frequency": 1,
-        "sync_collection": False,
-        "env_steps_per_sync": 1,
-        "env_name": "DummyEnv",
-        "num_envs": 2,
-        "obs_dim": 4,
-        "action_dim": 2,
-        "logger_type": "wandb",
-    }
-
-    multi_gpu_runner_module._learner_worker(
-        rank=0,
-        world_size=2,
-        learner_kwargs={},
-        runner_kwargs=runner_kwargs,
-        replay_buffer=cast(ReplayBuffer, replay_buffer),
-        weight_sync_name=weight_sync.name,
-        weight_sync_lock=weight_sync._lock,
-        weight_param_shapes={"weight": torch.Size([1])},
-        stop_event=stop_event,
-        collection_ready_queue=None,
-        trainer_done_queue=None,
-        metrics_queue=metrics_queue,
-        master_port=12345,
+def test_multi_gpu_runner_rejects_unsynchronized_collection_on_learn(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setattr(runner_module, "get_env_dims", lambda *args, **kwargs: (4, 2, 0))
+    runner = multi_gpu_runner_module.MultiGPUOffPolicyRunner(
+        learner=_FakeLearner(),
+        env_name="DummyEnv",
+        algo_type="sac",
+        learner_cls=_FakeLearner,
+        learner_kwargs={"obs_dim": 4, "action_dim": 2},
+        num_gpus=2,
+        num_envs=2,
+        replay_buffer_n=8,
+        batch_size=8,
+        learning_starts=6,
+        updates_per_step=1,
+        policy_frequency=1,
+        sync_collection=False,
+        env_steps_per_sync=1,
+        device="cpu",
     )
 
-    logger = _FakeLogger.last_instance
-    assert logger is not None
-    assert logger.step_calls
-    step = logger.step_calls[0]
-    assert "collect_time" not in step
-    assert step["learner_incremental_h2d_time"] == pytest.approx(0.004)
-    assert step["weight_sync_time"] >= 0.0
-    assert step["extra_info"] == {"throughput_steps": 2}
-    assert step["extra_info"]["throughput_steps"] == 2
+    with pytest.raises(ValueError, match="requires synchronized collection"):
+        runner.learn(max_iterations=0, save_interval=0, log_dir=str(tmp_path))

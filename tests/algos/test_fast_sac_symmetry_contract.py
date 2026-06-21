@@ -119,6 +119,21 @@ def test_fast_sac_learner_rejects_symmetry_without_augmentation():
         )
 
 
+def test_fast_sac_learner_exposes_multi_gpu_initial_sync_contract():
+    from unilab.algos.torch.fast_sac.learner import FastSACLearner
+
+    learner = FastSACLearner(
+        obs_dim=4,
+        action_dim=2,
+        critic_obs_dim=4,
+        device="cpu",
+        world_size=1,
+    )
+
+    assert callable(getattr(learner, "sync_initial_parameters", None))
+    learner.sync_initial_parameters(src=0)
+
+
 def test_multi_gpu_offpolicy_runner_rejects_sac_symmetry_capability():
     from unilab.algos.torch.offpolicy.multi_gpu_runner import MultiGPUOffPolicyRunner
 
