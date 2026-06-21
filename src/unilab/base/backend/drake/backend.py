@@ -226,9 +226,41 @@ class DrakeBackend(SimBackend):
         self._joint_ranges = model_info.joint_ranges.copy()
         self._actuator_stiffness = model_info.actuator_stiffness.copy()
         self._actuator_damping = model_info.actuator_damping.copy()
+        self._actuator_qpos_adr = model_info.actuator_qpos_adr.astype(np.intp, copy=True)
+        self._actuator_qvel_adr = model_info.actuator_qvel_adr.astype(np.intp, copy=True)
         self._sensor_names = tuple(model_info.sensor_names)
         self._sensor_adr = model_info.sensor_adr.copy()
         self._sensor_dim = model_info.sensor_dim.copy()
+        self._site_name_to_id = {
+            str(name): index for index, name in enumerate(getattr(model_info, "site_names", ()))
+        }
+        self._joint_qpos_adr_by_name = {
+            str(name): int(adr)
+            for name, adr in zip(
+                getattr(model_info, "joint_names", ()),
+                getattr(model_info, "joint_qpos_adr", ()),
+                strict=True,
+            )
+        }
+        self._joint_qvel_adr_by_name = {
+            str(name): int(adr)
+            for name, adr in zip(
+                getattr(model_info, "joint_names", ()),
+                getattr(model_info, "joint_qvel_adr", ()),
+                strict=True,
+            )
+        }
+        self._joint_dims_by_name = {
+            str(name): (int(qpos_dim), int(qvel_dim))
+            for name, qpos_dim, qvel_dim in zip(
+                getattr(model_info, "joint_names", ()),
+                getattr(model_info, "joint_qpos_dim", ()),
+                getattr(model_info, "joint_qvel_dim", ()),
+                strict=True,
+            )
+        }
+        self._root_qpos_dim = int(np.min(self._actuator_qpos_adr)) if self._actuator_qpos_adr.size else 0
+        self._root_qvel_dim = int(np.min(self._actuator_qvel_adr)) if self._actuator_qvel_adr.size else 0
         self._num_bodies = int(model_info.num_bodies)
         self._pending_body_forces = np.zeros((self._num_envs, self._num_bodies, 3), dtype=np.float64)
         self._model = _DrakeUniModelView(
@@ -272,7 +304,7 @@ class DrakeBackend(SimBackend):
 
     @property
     def num_dof_vel(self) -> int:
-        return self._model.nv - ROOT_QVEL_DIM
+        return int(self._actuator_qvel_adr.size)
 
     # Return copies for arrays that UniLab may clamp, concatenate, or normalize.
     # The backend cache should not be mutated by task-side code.
@@ -283,10 +315,9 @@ class DrakeBackend(SimBackend):
         return self._joint_ranges.copy()
 
     def get_keyframe_qpos(self, name: str) -> np.ndarray:
-        # The materialized home pose is exposed through UniLab's keyframe API.
-        if name != "home":
-            raise KeyError(f"DrakeUni batch backend only exposes keyframe 'home', got {name!r}")
-        return self._home_qpos_mujoco.copy()
+        if name == "home":
+            return self._home_qpos_mujoco.copy()
+        return self._runtime.keyframe_qpos(str(name))
 
     def get_default_qpos(self) -> np.ndarray:
         return self._home_qpos_mujoco.copy()
@@ -301,6 +332,52 @@ class DrakeBackend(SimBackend):
         # Body IDs are owned by DrakeUni because they depend on the materialized
         # Drake model, not on UniLab's scene pointer.
         return self._runtime.body_ids(tuple(str(name) for name in names))
+
+    def get_motion_body_ids(self, names: Sequence[str]) -> np.ndarray:
+        return self.get_body_ids(names)
+
+    def get_site_ids(self, names: Sequence[str]) -> np.ndarray:
+        ids: list[int] = []
+        for name in names:
+            key = str(name)
+            try:
+                ids.append(self._site_name_to_id[key])
+            except KeyError as exc:
+                raise ValueError(f"Drake model does not contain MJCF site {key!r}") from exc
+        return np.asarray(ids, dtype=np.int32)
+
+    def get_joint_dof_indices(self, names: Sequence[str]) -> np.ndarray:
+        indices: list[int] = []
+        for name in names:
+            key = str(name)
+            self._require_single_dof_joint(key)
+            try:
+                indices.append(self._joint_qvel_adr_by_name[key])
+            except KeyError as exc:
+                raise ValueError(f"Drake model does not contain joint {key!r}") from exc
+        return np.asarray(indices, dtype=np.int32)
+
+    def get_joint_dof_pos_indices(self, names: Sequence[str]) -> np.ndarray:
+        indices: list[int] = []
+        for name in names:
+            key = str(name)
+            self._require_single_dof_joint(key)
+            try:
+                indices.append(self._joint_qpos_adr_by_name[key] - self._root_qpos_dim)
+            except KeyError as exc:
+                raise ValueError(f"Drake model does not contain joint {key!r}") from exc
+        return np.asarray(indices, dtype=np.int32)
+
+    def get_joint_dof_vel_indices(self, names: Sequence[str]) -> np.ndarray:
+        indices: list[int] = []
+        for name in names:
+            key = str(name)
+            self._require_single_dof_joint(key)
+            try:
+                indices.append(self._joint_qvel_adr_by_name[key] - self._root_qvel_dim)
+            except KeyError as exc:
+                raise ValueError(f"Drake model does not contain joint {key!r}") from exc
+        return np.asarray(indices, dtype=np.int32)
 
     # Stepping and reset.
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> dict | None:
@@ -527,13 +604,11 @@ class DrakeBackend(SimBackend):
         return self._physics_state[:, qvel_start + 3 : qvel_start + 6].copy()
 
     def get_dof_pos(self) -> np.ndarray:
-        self._require_floating_root()
-        return self._physics_state[:, 1 + ROOT_QPOS_DIM : 1 + self._model.nq].copy()
+        return self._physics_state[:, 1 + self._actuator_qpos_adr].copy()
 
     def get_dof_vel(self) -> np.ndarray:
-        self._require_floating_root()
         qvel_start = 1 + self._model.nq
-        return self._physics_state[:, qvel_start + ROOT_QVEL_DIM :].copy()
+        return self._physics_state[:, qvel_start + self._actuator_qvel_adr].copy()
 
     def get_body_pos_w(self, body_ids: np.ndarray) -> np.ndarray:
         return self._body_state(body_ids)["pos"]
@@ -609,6 +684,13 @@ class DrakeBackend(SimBackend):
         if np.any(self._pending_body_forces):
             return self._pending_body_forces
         return None
+
+    def _require_single_dof_joint(self, name: str) -> None:
+        dims = self._joint_dims_by_name.get(name)
+        if dims is None:
+            raise ValueError(f"Drake model does not contain joint {name!r}")
+        if dims != (1, 1):
+            raise ValueError(f"Drake joint {name!r} is not a single-DoF joint")
 
     def _require_floating_root(self) -> None:
         if self._model.nq < ROOT_QPOS_DIM or self._model.nv < ROOT_QVEL_DIM:
