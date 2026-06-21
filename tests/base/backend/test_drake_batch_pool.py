@@ -54,7 +54,12 @@ def make_go1_pool(nbatch, nthread):
     robot = ASSETS_ROOT_PATH / "robots/go1/go1_drake.xml"
     drake_model = materialize_drake_compatible_mjcf(source_model)
     contract = parse_mjcf_model_contract(drake_model.model_file)
-    sensor_frame_body_indices, sensor_frame_offsets = sensor_frames_as_pool_inputs(contract)
+    (
+        sensor_frame_body_indices,
+        sensor_frame_offsets,
+        sensor_frame_ref_body_indices,
+        sensor_frame_ref_offsets,
+    ) = sensor_frames_as_pool_inputs(contract)
     scene_root = ET.parse(source_model).getroot()
     robot_root = ET.parse(robot).getroot()
     qpos = np.fromstring(
@@ -105,6 +110,8 @@ def make_go1_pool(nbatch, nthread):
         contract.collision_filter_geom_names2,
         sensor_frame_body_indices,
         sensor_frame_offsets,
+        sensor_frame_ref_body_indices,
+        sensor_frame_ref_offsets,
         contract.sensor_type,
         contract.sensor_index,
         contract.sensor_adr,
@@ -473,9 +480,9 @@ def test_drake_batch_pool_uses_thread_workspaces_not_env_workspaces() -> None:
         "parity_sensor": True,
         "parity_state": True,
         "reset_sensor_finite": True,
-        "reset_sensor_shape": [4, 42],
-        "reset_times": [0.02, 0.02, 0.0, 0.02],
-        "reset_x": [0.001124, 0.051124, 1.23, 0.151124],
+        "reset_sensor_shape": [1, 42],
+        "reset_times": [0.0],
+        "reset_x": [1.23],
         "serial_workspace_count": 1,
         "snapshot_sensor": True,
         "snapshot_state": True,

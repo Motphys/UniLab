@@ -433,8 +433,8 @@ class DrakeBackend(SimBackend):
             raise ValueError(f"qpos must have shape ({indices.size}, {self._model.nq})")
         if qvel_rows.shape != (indices.size, self._model.nv):
             raise ValueError(f"qvel must have shape ({indices.size}, {self._model.nv})")
-        self._runtime.reset(indices, qpos_rows, qvel_rows)
-        self._sync_runtime_state()
+        output = self._runtime.reset(indices, qpos_rows, qvel_rows)
+        self._sync_runtime_state(output)
 
     # Playback and domain randomization.
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
@@ -661,6 +661,12 @@ class DrakeBackend(SimBackend):
         if output is None:
             self._physics_state = self._runtime.physics_state()
             sensor_data = self._runtime.sensor_data()
+        elif "env_ids" in output:
+            indices = np.asarray(output["env_ids"], dtype=np.int32)
+            self._physics_state[indices] = np.asarray(output["state"], dtype=np.float64)
+            self._sensor_data[indices] = np.asarray(output["sensor_data"], dtype=np.float64)
+            self._rebuild_sensor_views()
+            return
         else:
             self._physics_state = np.asarray(output["state"], dtype=np.float64).copy()
             sensor_data = output["sensor_data"]
