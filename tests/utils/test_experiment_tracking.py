@@ -502,11 +502,16 @@ def test_offpolicy_logger_logs_wait_and_iter_throughput(monkeypatch):
     assert "perf/iter_unaccounted_ms" not in payload
     assert payload["perf/steps_per_sec"] == pytest.approx(8.0 / 10.9)
     assert payload["perf/effective_samples_per_sec"] == pytest.approx(32.0 / 10.9)
-    assert payload["distributed/world_size"] == 2
-    assert payload["distributed/batch_size_per_rank"] == 8
-    assert payload["distributed/effective_batch_size"] == 16
-    assert payload["distributed/replay_samples_per_iter"] == 32
-    assert payload["distributed/learner_samples_per_iter"] == 32
+    for key in (
+        "axis/iteration",
+        "axis/env_steps_total",
+        "distributed/world_size",
+        "distributed/batch_size_per_rank",
+        "distributed/effective_batch_size",
+        "distributed/replay_samples_per_iter",
+        "distributed/learner_samples_per_iter",
+    ):
+        assert key not in payload
     assert "perf/effective_samples_per_sec_smoothed" not in payload
     assert "perf/collect_train_ratio" not in payload
 
@@ -543,7 +548,7 @@ def test_offpolicy_logger_logs_collector_phase_timing_to_backends(monkeypatch):
     tb_logger.finish()
 
 
-def test_offpolicy_logger_tensorboard_logs_wall_clock_and_distributed_timing():
+def test_offpolicy_logger_tensorboard_logs_wall_clock_without_axis_or_distributed_scalars():
     tb_writer = _FakeTensorBoardWriter()
     logger = OffPolicyLogger(
         algo_name="FastSAC_x2GPU",
@@ -577,11 +582,16 @@ def test_offpolicy_logger_tensorboard_logs_wall_clock_and_distributed_timing():
     assert scalars["perf/learner_pipeline_ms"] == pytest.approx(850.0)
     assert scalars["perf/iter_ms"] == pytest.approx(1_950.0)
     assert scalars["perf/effective_samples_per_sec"] == pytest.approx(64.0 / 1.95)
-    assert scalars["distributed/world_size"] == 2
-    assert scalars["distributed/batch_size_per_rank"] == 16
-    assert scalars["distributed/effective_batch_size"] == 32
-    assert scalars["distributed/replay_samples_per_iter"] == 64
-    assert scalars["distributed/learner_samples_per_iter"] == 64
+    for key in (
+        "axis/iteration",
+        "axis/env_steps_total",
+        "distributed/world_size",
+        "distributed/batch_size_per_rank",
+        "distributed/effective_batch_size",
+        "distributed/replay_samples_per_iter",
+        "distributed/learner_samples_per_iter",
+    ):
+        assert key not in scalars
     assert "perf/effective_samples_per_sec_smoothed" not in scalars
     logger.finish()
 

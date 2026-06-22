@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import deque
 from typing import Any
 
 from rich import box
@@ -117,7 +116,6 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._replay_samples_per_iter: int = 0
         self._learner_samples_per_iter: int = 0
         self._has_iteration_extra_info: bool = False
-        self._iter_times: deque = deque(maxlen=50)
         self._collector_timing: dict[str, float] = {}
         self._timeout_rate: float = 0.0
         self._terminated_rate: float = 0.0
@@ -179,13 +177,6 @@ class OffPolicyLogger(BaseTrainingLogger):
         if self._iteration_time is not None and self._iteration_time > 0.0:
             return self._iteration_time
         return self._wait_time + self._get_learner_pipeline_time()
-
-    def _get_iter_pipeline_time(self) -> float:
-        return self._get_iter_wall_time()
-
-    def _get_unaccounted_iter_time(self) -> float:
-        phase_total = self._wait_time + self._get_learner_pipeline_time()
-        return max(self._get_iter_wall_time() - phase_total, 0.0)
 
     def _build_compact_header(
         self,
@@ -278,8 +269,6 @@ class OffPolicyLogger(BaseTrainingLogger):
             self._effective_batch_size = 0
             self._replay_samples_per_iter = 0
             self._learner_samples_per_iter = 0
-        iter_time = self._get_iter_pipeline_time()
-        self._iter_times.append(iter_time)
         if metrics:
             self._latest_metrics.update(metrics)
         if reward is not None:
@@ -311,15 +300,9 @@ class OffPolicyLogger(BaseTrainingLogger):
         iter_steps_per_sec = self._get_iter_steps_per_sec()
         effective_samples_per_sec = self._get_effective_samples_per_sec()
         iter_wall_time = self._get_iter_wall_time()
-        axis_scalars = {
-            "axis/iteration": float(iteration),
-            "axis/env_steps_total": float(global_step),
-        }
 
         if self._tb_writer:
             writer = self._tb_writer
-            for key, value in axis_scalars.items():
-                writer.add_scalar(key, value, global_step)
             if metrics:
                 for key, value in metrics.items():
                     writer.add_scalar(_metric_backend_key(key), value, global_step)
@@ -363,38 +346,12 @@ class OffPolicyLogger(BaseTrainingLogger):
                 self._get_learner_pipeline_time() * 1000,
                 global_step,
             )
-            if self._world_size > 1:
-                writer.add_scalar("distributed/world_size", self._world_size, global_step)
-            if self._batch_size_per_rank > 0:
-                writer.add_scalar(
-                    "distributed/batch_size_per_rank",
-                    self._batch_size_per_rank,
-                    global_step,
-                )
-            if self._effective_batch_size > 0:
-                writer.add_scalar(
-                    "distributed/effective_batch_size",
-                    self._effective_batch_size,
-                    global_step,
-                )
-            if self._replay_samples_per_iter > 0:
-                writer.add_scalar(
-                    "distributed/replay_samples_per_iter",
-                    self._replay_samples_per_iter,
-                    global_step,
-                )
-            if self._learner_samples_per_iter > 0:
-                writer.add_scalar(
-                    "distributed/learner_samples_per_iter",
-                    self._learner_samples_per_iter,
-                    global_step,
-                )
 
         if self._wandb_run:
             wandb = _load_wandb()
             if wandb is None:
                 return
-            log_dict: dict[str, Any] = {"iteration": iteration, **axis_scalars}
+            log_dict: dict[str, Any] = {"iteration": iteration}
             if metrics:
                 for key, value in metrics.items():
                     log_dict[_metric_backend_key(key)] = value
@@ -424,16 +381,6 @@ class OffPolicyLogger(BaseTrainingLogger):
                 log_dict["perf/effective_samples_per_sec"] = effective_samples_per_sec
             log_dict["perf/iter_ms"] = iter_wall_time * 1000
             log_dict["perf/learner_pipeline_ms"] = self._get_learner_pipeline_time() * 1000
-            if self._world_size > 1:
-                log_dict["distributed/world_size"] = self._world_size
-            if self._batch_size_per_rank > 0:
-                log_dict["distributed/batch_size_per_rank"] = self._batch_size_per_rank
-            if self._effective_batch_size > 0:
-                log_dict["distributed/effective_batch_size"] = self._effective_batch_size
-            if self._replay_samples_per_iter > 0:
-                log_dict["distributed/replay_samples_per_iter"] = self._replay_samples_per_iter
-            if self._learner_samples_per_iter > 0:
-                log_dict["distributed/learner_samples_per_iter"] = self._learner_samples_per_iter
             wandb.log(log_dict, step=global_step)
 
     def log_status(self, status: str):

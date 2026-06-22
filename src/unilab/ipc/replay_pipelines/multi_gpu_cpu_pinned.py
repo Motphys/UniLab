@@ -13,6 +13,9 @@ from unilab.ipc.replay_buffer import ReplayBuffer
 from unilab.ipc.replay_pipelines.base import ReplayTickMetadata
 from unilab.ipc.replay_pipelines.transfer import build_replay_transfer_backend
 
+COLLECTOR_H2D_IDLE_POLL_SEC = 0.1
+REPLAY_PREPARE_READY_POLL_SEC = 0.001
+
 
 class MultiGPUCPUPinnedReplayPipeline:
     """Per-rank replay pipeline with independent host slots and H2D stream.
@@ -167,7 +170,7 @@ class MultiGPUCPUPinnedReplayPipeline:
             if self._closed:
                 return
             try:
-                ready = self._collector_pack_ready_queue.get(timeout=0.1)
+                ready = self._collector_pack_ready_queue.get(timeout=COLLECTOR_H2D_IDLE_POLL_SEC)
             except queue.Empty:
                 continue
             if ready is None:
@@ -288,7 +291,7 @@ class MultiGPUCPUPinnedReplayPipeline:
                 self.start_prepare(tick_id, sample_count)
             with self._prepare_condition:
                 while self._prepared_metadata is None and self._prepare_error is None:
-                    self._prepare_condition.wait(timeout=0.1)
+                    self._prepare_condition.wait(timeout=REPLAY_PREPARE_READY_POLL_SEC)
                 if self._prepare_error is not None:
                     raise self._prepare_error
         assert self._prepared_metadata is not None

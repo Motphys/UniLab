@@ -40,6 +40,8 @@ from unilab.ipc.replay_pipelines.multi_gpu_cpu_pinned import MultiGPUCPUPinnedRe
 from unilab.logging import OffPolicyLogger
 from unilab.training.seed import apply_training_seed, derive_worker_seed
 
+MULTIGPU_REPLAY_READY_POLL_SEC = 0.001
+
 
 class _CollectorDiedError(RuntimeError):
     """Raised when the collector dies while multi-GPU learners are running."""
@@ -261,7 +263,7 @@ def _learner_worker(
                         if logger and cur_size - last_buf_log >= num_envs * 10:
                             last_buf_log = cur_size
                             logger.log_buffer_fill(cur_size, train_start_threshold)
-                        time.sleep(0.1)
+                        time.sleep(MULTIGPU_REPLAY_READY_POLL_SEC)
                 _drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
 
             dist.barrier()
@@ -278,7 +280,7 @@ def _learner_worker(
                 while not replay_pipeline.batch_ready(it, sample_count):
                     if stop_event.is_set():
                         return
-                    time.sleep(0.001)
+                    time.sleep(MULTIGPU_REPLAY_READY_POLL_SEC)
             large_batch = replay_pipeline.sample_large_batch(it, sample_count)
             learner_incremental_h2d_time = (
                 float(getattr(replay_pipeline, "last_incremental_h2d_time_s", 0.0))
