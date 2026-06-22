@@ -40,6 +40,10 @@ from unilab.logging import OffPolicyLogger
 from unilab.training.seed import apply_training_seed, derive_worker_seed
 
 
+class _CollectorDiedError(RuntimeError):
+    """Raised when the collector dies while multi-GPU learners are running."""
+
+
 def _find_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("", 0))
@@ -83,6 +87,18 @@ def _drain_metrics(
         except Exception as e:
             print(f"[MultiGPU] metrics drain error: {e}", file=sys.stderr)
             break
+
+
+def _put_trainer_done_or_stop(trainer_done_queue: Any, stop_event: Any) -> bool:
+    if trainer_done_queue is None:
+        return True
+    while not stop_event.is_set():
+        try:
+            trainer_done_queue.put(1, timeout=0.5)
+            return True
+        except queue.Full:
+            continue
+    return False
 
 
 def _learner_worker(
@@ -198,9 +214,10 @@ def _learner_worker(
 
         # 7. Training loop
         for it in range(1, max_iterations + 1):
+            iteration_start = time.perf_counter()
             collector_released_for_next = False
             # --- Wait for data (rank 0 only, then barrier syncs everyone) ---
-            wait_start = time.time()
+            wait_start = time.perf_counter()
             if rank == 0:
                 if sync_collection and collection_ready_queue is not None:
                     while True:
@@ -210,6 +227,8 @@ def _learner_worker(
                             if stop_event.is_set():
                                 return
                             continue
+                        if stop_event.is_set():
+                            return
                         cur_size = int(replay_buffer.size[0])
                         if replay_buffer_ready_for_learning(
                             cur_size,
@@ -222,7 +241,8 @@ def _learner_worker(
                             last_buf_log = cur_size
                             logger.log_buffer_fill(cur_size, train_start_threshold)
                         if trainer_done_queue is not None:
-                            trainer_done_queue.put(1)
+                            if not _put_trainer_done_or_stop(trainer_done_queue, stop_event):
+                                return
                 else:
                     while not replay_buffer_ready_for_learning(
                         int(replay_buffer.size[0]),
@@ -240,12 +260,13 @@ def _learner_worker(
                 _drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
 
             dist.barrier()
-            wait_time = time.time() - wait_start if rank == 0 else 0.0
+            wait_time = time.perf_counter() - wait_start if rank == 0 else 0.0
 
             # --- Training: each rank independently samples a different mini-batch ---
             iter_metrics: dict = defaultdict(list)
             ptr_before = int(replay_buffer.ptr[0]) if rank == 0 else 0
 
+            replay_wait_start = time.perf_counter()
             if prepared_tick != it:
                 replay_pipeline.start_prepare(it, sample_count)
                 prepared_tick = it
@@ -254,6 +275,9 @@ def _learner_worker(
                     return
                 time.sleep(0.001)
             large_batch = replay_pipeline.sample_large_batch(it, sample_count)
+            learner_replay_wait_time = (
+                time.perf_counter() - replay_wait_start if rank == 0 else 0.0
+            )
             learner_incremental_h2d_time = (
                 float(getattr(replay_pipeline, "last_incremental_h2d_time_s", 0.0))
                 if rank == 0
@@ -269,10 +293,11 @@ def _learner_worker(
                 )
                 prepared_tick = it + 1
                 if rank == 0 and sync_collection and trainer_done_queue is not None:
-                    trainer_done_queue.put(1)
+                    if not _put_trainer_done_or_stop(trainer_done_queue, stop_event):
+                        return
                     collector_released_for_next = True
 
-            train_start = time.time()
+            train_start = time.perf_counter()
 
             for update_idx in range(updates_per_step):
                 s = update_idx * batch_size
@@ -294,7 +319,7 @@ def _learner_worker(
 
             # Barrier: all ranks must finish this iteration before rank 0 proceeds
             dist.barrier()
-            train_time = time.time() - train_start if rank == 0 else 0.0
+            train_time = time.perf_counter() - train_start if rank == 0 else 0.0
 
             # --- Post-iteration work: rank 0 only ---
             if rank == 0:
@@ -308,7 +333,9 @@ def _learner_worker(
                     and trainer_done_queue is not None
                     and not collector_released_for_next
                 ):
-                    trainer_done_queue.put(1)
+                    if not _put_trainer_done_or_stop(trainer_done_queue, stop_event):
+                        return
+                iteration_time = time.perf_counter() - iteration_start
 
                 write_delta = int(replay_buffer.ptr[0]) - ptr_before
                 consume = batch_size * updates_per_step
@@ -329,12 +356,17 @@ def _learner_worker(
                         reward_components=latest_reward_components,
                         train_time=train_time,
                         wait_time=wait_time,
+                        learner_replay_wait_time=learner_replay_wait_time,
                         learner_incremental_h2d_time=learner_incremental_h2d_time,
                         weight_sync_time=weight_sync_time,
+                        iteration_time=iteration_time,
                         extra_info={
                             "throughput_steps": num_envs * env_steps_per_sync,
                             "world_size": world_size,
                             "effective_batch_size": batch_size * world_size,
+                            "learner_samples_per_iter": batch_size
+                            * updates_per_step
+                            * world_size,
                         },
                     )
 
@@ -416,6 +448,33 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
         self._learner_cls = learner_cls
         self._learner_kwargs = learner_kwargs
         self.distributed_backend = distributed_backend
+
+    def _join_learner_context_with_collector_monitor(self, process_context: Any) -> None:
+        """Join spawned learners while preserving collector liveness diagnostics."""
+        while True:
+            if not self._check_collector_alive():
+                self._stop_event.set()
+                self._terminate_learner_context(process_context, grace_period=2.0)
+                raise _CollectorDiedError(
+                    "Collector process died during multi-GPU off-policy training"
+                )
+            if process_context.join(timeout=0.5, grace_period=2.0):
+                return
+
+    @staticmethod
+    def _terminate_learner_context(process_context: Any, *, grace_period: float) -> None:
+        deadline = time.monotonic() + grace_period
+        while time.monotonic() < deadline:
+            try:
+                if process_context.join(timeout=0.1, grace_period=grace_period):
+                    return
+            except Exception:
+                return
+        for process in getattr(process_context, "processes", []):
+            if process.is_alive():
+                process.terminate()
+        for process in getattr(process_context, "processes", []):
+            process.join(timeout=grace_period)
 
     def learn(
         self,
@@ -554,7 +613,7 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
         }
 
         try:
-            tmp.spawn(  # pyright: ignore[reportPrivateImportUsage]
+            process_context = tmp.spawn(  # pyright: ignore[reportPrivateImportUsage]
                 _learner_worker,
                 args=(
                     self.num_gpus,
@@ -575,7 +634,8 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
                     master_port,
                 ),
                 nprocs=self.num_gpus,
-                join=True,
+                join=False,
             )
+            self._join_learner_context_with_collector_monitor(process_context)
         finally:
             self._stop_event.set()

@@ -247,6 +247,21 @@ class _FakeProcess:
         self._alive = False
 
 
+class _FakeSpawnContext:
+    def __init__(self) -> None:
+        self.join_calls = 0
+        self.processes: list[_FakeProcess] = []
+
+    def join(
+        self,
+        timeout: float | None = None,
+        grace_period: float | None = None,
+    ) -> bool:
+        del timeout, grace_period
+        self.join_calls += 1
+        return True
+
+
 class _FakeClock:
     def __init__(self, values: list[float]) -> None:
         self._values = list(values)
@@ -378,7 +393,10 @@ def test_offpolicy_runner_sync_waits_for_train_start_threshold(
     assert "collect_time" not in logger.step_calls[0]
     assert logger.step_calls[0]["learner_incremental_h2d_time"] == pytest.approx(0.004)
     assert logger.step_calls[0]["weight_sync_time"] >= 0.0
-    assert logger.step_calls[0]["extra_info"] == {"throughput_steps": 2}
+    assert logger.step_calls[0]["extra_info"] == {
+        "throughput_steps": 2,
+        "learner_samples_per_iter": 8,
+    }
     assert logger.step_calls[0]["extra_info"]["throughput_steps"] == 2
     assert logger._total_steps == threshold
     assert logger._buffer_size == threshold
@@ -455,7 +473,10 @@ def test_offpolicy_runner_async_waits_for_train_start_threshold(
     assert "collect_time" not in logger.step_calls[0]
     assert logger.step_calls[0]["learner_incremental_h2d_time"] == pytest.approx(0.004)
     assert logger.step_calls[0]["weight_sync_time"] >= 0.0
-    assert logger.step_calls[0]["extra_info"] == {"throughput_steps": 2}
+    assert logger.step_calls[0]["extra_info"] == {
+        "throughput_steps": 2,
+        "learner_samples_per_iter": 8,
+    }
     assert logger.step_calls[0]["extra_info"]["throughput_steps"] == 2
     assert logger._total_steps == threshold
     assert logger._buffer_size == threshold
@@ -880,7 +901,7 @@ def test_multi_gpu_runner_passes_explicit_runtime_context_to_collector(
     monkeypatch.setattr(
         multi_gpu_runner_module.tmp,
         "spawn",
-        lambda *args, **kwargs: None,
+        lambda *args, **kwargs: _FakeSpawnContext(),
     )
 
     learner = _FakeLearner()
@@ -926,7 +947,7 @@ def test_multi_gpu_runner_allocates_replay_critic_storage(
     monkeypatch.setattr(
         multi_gpu_runner_module.tmp,
         "spawn",
-        lambda *args, **kwargs: None,
+        lambda *args, **kwargs: _FakeSpawnContext(),
     )
 
     runner = multi_gpu_runner_module.MultiGPUOffPolicyRunner(
@@ -968,6 +989,7 @@ def test_multi_gpu_runner_spawn_receives_algorithm_agnostic_learner_and_rank_ipc
         del fn, join
         captured["args"] = args
         captured["nprocs"] = nprocs
+        return _FakeSpawnContext()
 
     monkeypatch.setattr(multi_gpu_runner_module.tmp, "spawn", fake_spawn)
 
@@ -998,6 +1020,187 @@ def test_multi_gpu_runner_spawn_receives_algorithm_agnostic_learner_and_rank_ipc
     assert args[2] == {"obs_dim": 4, "action_dim": 2}
     assert len(cast(list, args[13])) == 2
     assert len(cast(list, args[14])) == 2
+
+
+def test_multi_gpu_learner_worker_logs_wall_clock_and_per_rank_batch_context(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    replay_buffer = _FakeReplayBuffer(capacity=16, obs_dim=4, action_dim=2, device="cpu")
+    replay_buffer.size[0] = 16
+    replay_buffer.ptr[0] = 16
+    logger = _FakeLogger()
+
+    class _StopEvent:
+        def is_set(self) -> bool:
+            return False
+
+    class _ReadyQueue:
+        def get(self, timeout: float | None = None) -> int:
+            del timeout
+            return 1
+
+    class _DoneQueue:
+        def put(self, item: int, timeout: float | None = None) -> None:
+            del item, timeout
+
+    class _FakePipeline:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+            self.last_incremental_h2d_time_s = 0.025
+
+        def start_prepare(self, tick_id: int, sample_count: int, min_snapshot_ptr=None) -> bool:
+            del tick_id, sample_count, min_snapshot_ptr
+            return True
+
+        def batch_ready(self, tick_id: int, sample_count: int) -> bool:
+            del tick_id, sample_count
+            return True
+
+        def sample_large_batch(self, tick_id: int, sample_count: int) -> dict[str, torch.Tensor]:
+            del tick_id
+            return {
+                "obs": torch.zeros(sample_count, 4),
+                "actions": torch.zeros(sample_count, 2),
+                "rewards": torch.zeros(sample_count),
+                "next_obs": torch.zeros(sample_count, 4),
+                "dones": torch.zeros(sample_count),
+                "truncated": torch.zeros(sample_count),
+                "critic": torch.zeros(sample_count, 4),
+                "next_critic": torch.zeros(sample_count, 4),
+            }
+
+        def after_tick(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(multi_gpu_runner_module.torch.cuda, "set_device", lambda rank: None)
+    monkeypatch.setattr(multi_gpu_runner_module.dist, "init_process_group", lambda *a, **k: None)
+    monkeypatch.setattr(multi_gpu_runner_module.dist, "barrier", lambda: None)
+    monkeypatch.setattr(multi_gpu_runner_module.dist, "destroy_process_group", lambda: None)
+    monkeypatch.setattr(multi_gpu_runner_module.torch, "save", lambda *a, **k: None)
+    monkeypatch.setattr(multi_gpu_runner_module, "SharedWeightSync", _FakeWeightSync)
+    monkeypatch.setattr(multi_gpu_runner_module, "OffPolicyLogger", lambda **kwargs: logger)
+    monkeypatch.setattr(
+        multi_gpu_runner_module,
+        "MultiGPUCPUPinnedReplayPipeline",
+        _FakePipeline,
+    )
+    monkeypatch.setattr(
+        multi_gpu_runner_module.time,
+        "perf_counter",
+        _FakeClock([0.0, 0.1, 0.2, 0.24, 0.3, 0.31, 0.71, 0.72, 0.75, 0.8]).time,
+    )
+
+    multi_gpu_runner_module._learner_worker(
+        rank=0,
+        world_size=2,
+        learner_cls=_FakeLearner,
+        learner_kwargs={},
+        runner_kwargs={
+            "max_iterations": 1,
+            "save_interval": 0,
+            "log_dir": str(tmp_path),
+            "batch_size": 4,
+            "updates_per_step": 2,
+            "policy_frequency": 1,
+            "sync_collection": True,
+            "env_steps_per_sync": 3,
+            "env_name": "DummyEnv",
+            "num_envs": 5,
+            "obs_dim": 4,
+            "action_dim": 2,
+            "logger_type": "none",
+            "learning_starts": 0,
+            "seed": 1,
+            "distributed_backend": "nccl",
+            "algo_type": "sac",
+        },
+        replay_buffer=replay_buffer,
+        weight_sync_name="fake-weight-sync",
+        weight_sync_lock=None,
+        weight_param_shapes={"weight": torch.Size([1])},
+        stop_event=_StopEvent(),
+        collection_ready_queue=_ReadyQueue(),
+        trainer_done_queue=_DoneQueue(),
+        metrics_queue=queue.Queue(),
+        collector_pack_request_queue=[queue.Queue(), queue.Queue()],
+        collector_pack_ready_queue=[queue.Queue(), queue.Queue()],
+        collector_pack_shared_slots=[[torch.zeros(1)], [torch.zeros(1)]],
+        master_port=29500,
+    )
+
+    assert logger.step_calls
+    step = logger.step_calls[-1]
+    assert step["wait_time"] == pytest.approx(0.1)
+    assert step["learner_replay_wait_time"] == pytest.approx(0.06)
+    assert step["learner_incremental_h2d_time"] == pytest.approx(0.025)
+    assert step["train_time"] == pytest.approx(0.4)
+    assert step["weight_sync_time"] == pytest.approx(0.03)
+    assert step["iteration_time"] == pytest.approx(0.8)
+    assert step["extra_info"] == {
+        "throughput_steps": 15,
+        "world_size": 2,
+        "effective_batch_size": 8,
+        "learner_samples_per_iter": 16,
+    }
+
+
+def test_multi_gpu_runner_fails_fast_when_collector_dies_during_spawn_join(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setattr(multi_gpu_runner_module, "ReplayBuffer", _FakeReplayBuffer)
+    monkeypatch.setattr(multi_gpu_runner_module, "SharedWeightSync", _FakeWeightSync)
+    monkeypatch.setattr(multi_gpu_runner_module.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(runner_module, "get_env_dims", lambda *args, **kwargs: (4, 2, 0))
+
+    class _HangingSpawnContext:
+        def __init__(self) -> None:
+            self.processes = [_FakeProcess(), _FakeProcess()]
+            self.join_calls = 0
+
+        def join(
+            self,
+            timeout: float | None = None,
+            grace_period: float | None = None,
+        ) -> bool:
+            del timeout, grace_period
+            self.join_calls += 1
+            return False
+
+    spawn_context = _HangingSpawnContext()
+    monkeypatch.setattr(
+        multi_gpu_runner_module.tmp,
+        "spawn",
+        lambda *args, **kwargs: spawn_context,
+    )
+
+    runner = multi_gpu_runner_module.MultiGPUOffPolicyRunner(
+        learner=_FakeLearner(),
+        env_name="DummyEnv",
+        algo_type="sac",
+        learner_cls=_FakeLearner,
+        learner_kwargs={"obs_dim": 4, "action_dim": 2},
+        num_gpus=2,
+        num_envs=2,
+        replay_buffer_n=8,
+        batch_size=8,
+        learning_starts=6,
+        updates_per_step=1,
+        policy_frequency=1,
+        sync_collection=True,
+        env_steps_per_sync=1,
+        device="cpu",
+    )
+    monkeypatch.setattr(runner, "_start_collector", lambda *args, **kwargs: None)
+    monkeypatch.setattr(runner, "_check_collector_alive", lambda: False)
+
+    with pytest.raises(RuntimeError, match="Collector process died"):
+        runner.learn(max_iterations=0, save_interval=0, log_dir=str(tmp_path))
+
+    assert runner._stop_event.is_set()
+    assert all(not process.is_alive() for process in spawn_context.processes)
 
 
 def test_multi_gpu_runner_rejects_unsynchronized_collection_on_learn(
