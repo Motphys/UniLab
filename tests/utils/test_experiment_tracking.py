@@ -208,6 +208,8 @@ def test_offpolicy_logger_terminal_timing_labels_include_wall_clock_and_distribu
     assert "Replay Wait" in output
     assert "H2D Copy" in output
     assert "Iter Wall" in output
+    assert "Unaccounted" in output
+    assert "Other" not in output
     assert "GPUs" in output
     assert "Batch/Rank" in output
     assert "Batch/Update" in output

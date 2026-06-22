@@ -49,6 +49,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
     """
 
     LEARNER_LOG_INTERVAL = 10
+    REPLAY_BATCH_READY_POLL_SEC = 0.001
 
     def __init__(
         self,
@@ -156,7 +157,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                     ckpt_path,
                     train_start_wall,
                 )
-            time.sleep(0.1)
+            time.sleep(self.REPLAY_BATCH_READY_POLL_SEC)
         return True
 
     def learn(

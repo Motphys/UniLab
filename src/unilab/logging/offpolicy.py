@@ -543,8 +543,8 @@ class OffPolicyLogger(BaseTrainingLogger):
             ("Iter Wall", f"{self._get_iter_wall_time() * 1000:.1f}ms"),
         ]
         unaccounted_ms = self._get_unaccounted_iter_time() * 1000
-        if unaccounted_ms > 0.05:
-            learner_items.append(("Other", f"{unaccounted_ms:.1f}ms"))
+        if unaccounted_ms > 1.0:
+            learner_items.append(("Unaccounted", f"{unaccounted_ms:.1f}ms"))
         collector_items = [
             (OFFPOLICY_COLLECTOR_TIMING_LABELS.get(key, key), f"{value:.1f}ms")
             for key, value in sorted(

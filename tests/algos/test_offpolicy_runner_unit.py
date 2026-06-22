@@ -818,6 +818,69 @@ class _NeverReadyDoubleBufferPipeline:
         self.close_calls += 1
 
 
+class _ReadyAfterOnePollDoubleBufferPipeline:
+    def __init__(self) -> None:
+        self.ready = False
+        self.start_calls = 0
+
+    def batch_ready(self, tick_id: int, sample_count: int) -> bool:
+        del tick_id, sample_count
+        return self.ready
+
+    def start_prepare(self, tick_id: int, sample_count: int, min_snapshot_ptr=None) -> bool:
+        del tick_id, sample_count, min_snapshot_ptr
+        self.start_calls += 1
+        return True
+
+
+def test_double_buffer_wait_for_replay_batch_uses_fine_grained_polling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runner_module, "get_env_dims", lambda *args, **kwargs: (4, 2, 0))
+    runner = double_buffer_runner_module.DoubleBufferOffPolicyRunner(
+        learner=_FakeLearner(),
+        env_name="DummyEnv",
+        algo_type="sac",
+        num_envs=2,
+        replay_buffer_n=8,
+        batch_size=8,
+        learning_starts=6,
+        updates_per_step=1,
+        policy_frequency=1,
+        sync_collection=False,
+        env_steps_per_sync=1,
+        device="cpu",
+    )
+    replay_buffer = _FakeReplayBuffer(capacity=16, obs_dim=4, action_dim=2, device="cpu")
+    replay_pipeline = _ReadyAfterOnePollDoubleBufferPipeline()
+    sleep_calls: list[float] = []
+
+    def fake_sleep(seconds: float) -> None:
+        sleep_calls.append(seconds)
+        replay_pipeline.ready = True
+
+    monkeypatch.setattr(runner, "_check_collector_alive", lambda: True)
+    monkeypatch.setattr(double_buffer_runner_module.time, "sleep", fake_sleep)
+
+    assert runner._wait_for_replay_batch_ready(
+        replay_pipeline,
+        tick_id=1,
+        sample_count=8,
+        metrics_queue=queue.Queue(),
+        reward_history=deque(maxlen=100),
+        latest_reward_components={},
+        logger=_FakeLogger(),
+        trace_recorder=None,
+        replay_buffer=replay_buffer,
+        ckpt_path=None,
+        train_start_wall=0.0,
+    )
+
+    assert replay_pipeline.start_calls == 1
+    assert sleep_calls == [pytest.approx(runner.REPLAY_BATCH_READY_POLL_SEC)]
+    assert sleep_calls[0] < 0.01
+
+
 def test_double_buffer_wait_for_replay_batch_raises_when_collector_dies(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
