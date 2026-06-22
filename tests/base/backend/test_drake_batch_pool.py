@@ -50,8 +50,7 @@ from drakeuni.runtime.mjcf_model_parser import (
 
 
 def make_go1_pool(nbatch, nthread):
-    source_model = ASSETS_ROOT_PATH / "robots/go1/scene_flat_drake.xml"
-    robot = ASSETS_ROOT_PATH / "robots/go1/go1_drake.xml"
+    source_model = ASSETS_ROOT_PATH / "robots/go1/scene_flat.xml"
     drake_model = materialize_drake_compatible_mjcf(source_model)
     contract = parse_mjcf_model_contract(drake_model.model_file)
     (
@@ -61,7 +60,6 @@ def make_go1_pool(nbatch, nthread):
         sensor_frame_ref_offsets,
     ) = sensor_frames_as_pool_inputs(contract)
     scene_root = ET.parse(source_model).getroot()
-    robot_root = ET.parse(robot).getroot()
     qpos = np.fromstring(
         scene_root.find('.//key[@name="home"]').attrib["qpos"],
         sep=" ",
@@ -71,28 +69,12 @@ def make_go1_pool(nbatch, nthread):
     state = np.zeros((nbatch, 1 + qpos.size + qvel.size), dtype=np.float64)
     state[:, 1 : 1 + qpos.size] = qpos
     state[:, 1 + qpos.size :] = qvel
-    ctrl_limits = []
-    torque_limits = []
-    for actuator in robot_root.findall(".//actuator/position"):
-        ctrl_limits.append(
-            np.fromstring(
-                actuator.attrib.get("ctrlrange", "-1 1"),
-                sep=" ",
-                dtype=np.float64,
-            )
-        )
-        force = np.fromstring(
-            actuator.attrib.get("forcerange", "-23.7 23.7"),
-            sep=" ",
-            dtype=np.float64,
-        )
-        torque_limits.append(float(np.max(np.abs(force))))
     pool = DrakeEnvPool(
         str(drake_model.model_file),
         nbatch,
         0.01,
-        np.asarray(ctrl_limits, dtype=np.float64),
-        np.asarray(torque_limits, dtype=np.float64),
+        contract.ctrl_limits,
+        contract.torque_limits,
         contract.actuator_kind,
         contract.actuator_gear,
         contract.actuator_stiffness,
@@ -179,7 +161,7 @@ def test_batch_backend_mode_rejects_existing_pydrake_module() -> None:
         try:
             create_backend(
                 "drake",
-                SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat_drake.xml")),
+                SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat.xml")),
                 1,
                 0.01,
                 drake_backend_mode="batch",
@@ -209,7 +191,7 @@ def test_direct_drake_backend_batch_mode_rejects_existing_pydrake_module() -> No
         sys.modules["pydrake"] = object()
         try:
             DrakeBackend(
-                SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat_drake.xml")),
+                SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat.xml")),
                 1,
                 0.01,
                 drake_backend_mode="batch",
@@ -234,7 +216,7 @@ def test_create_backend_rejects_pydrake_mode() -> None:
     with pytest.raises(ValueError, match="drake_backend_mode='batch'"):
         create_backend(
             "drake",
-            SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat_drake.xml")),
+            SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat.xml")),
             1,
             0.01,
             drake_backend_mode="pydrake",
@@ -248,7 +230,7 @@ def test_direct_drake_backend_rejects_pydrake_mode() -> None:
 
     with pytest.raises(ValueError, match="drake_backend_mode='batch'"):
         DrakeBackend(
-            SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat_drake.xml")),
+            SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat.xml")),
             1,
             0.01,
             drake_backend_mode="pydrake",
@@ -266,7 +248,7 @@ def test_drake_backend_constructs_without_task_base_name() -> None:
 
     backend = create_backend(
         "drake",
-        SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat_drake.xml")),
+        SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat.xml")),
         1,
         0.01,
         drake_backend_mode="batch",
@@ -624,7 +606,7 @@ def test_create_backend_batch_mode_avoids_pydrake_and_steps() -> None:
         assert "pydrake" not in sys.modules
         backend = create_backend(
             "drake",
-            SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat_drake.xml")),
+            SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat.xml")),
             2,
             0.01,
             drake_backend_mode="batch",
@@ -694,7 +676,7 @@ def test_drake_backend_pre_step_hook_refreshes_between_substeps() -> None:
 
         backend = create_backend(
             "drake",
-            SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat_drake.xml")),
+            SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat.xml")),
             1,
             0.01,
             drake_backend_mode="batch",
@@ -741,7 +723,7 @@ def test_drake_backend_body_frame_getters_use_compact_root_frame() -> None:
 
         backend = create_backend(
             "drake",
-            SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat_drake.xml")),
+            SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat.xml")),
             1,
             0.01,
             drake_backend_mode="batch",

@@ -28,7 +28,7 @@ env:
   drake_backend_mode: batch
   drake_nthread: 0
   scene:
-    model_file: src/unilab/assets/robots/go1/scene_flat_drake.xml
+    model_file: src/unilab/assets/robots/go1/scene_flat.xml
   domain_rand:
     randomize_base_mass: false
     random_com: false
