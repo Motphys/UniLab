@@ -22,6 +22,8 @@ training:
     max_envs_to_dump: 5
     output_dir: null
   num_gpus: 1
+  multi_gpu_sync_mode: local_sgd
+  multi_gpu_sync_interval: 1
   use_amp: true
   play_only: false
   no_play: false

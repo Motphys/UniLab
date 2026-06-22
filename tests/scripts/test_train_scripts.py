@@ -328,6 +328,8 @@ def test_offpolicy_hydra_default_trace_flags():
     assert cfg.training.trace_thread_time is False
     assert cfg.training.trace_cuda_events is True
     assert cfg.training.verbose_metrics is False
+    assert cfg.training.multi_gpu_sync_mode == "local_sgd"
+    assert cfg.training.multi_gpu_sync_interval == 1
     assert "replay_h2d_submitter" not in cfg.training
 
 

@@ -4,6 +4,9 @@ from typing import Any
 
 import gymnasium as gym
 import pytest
+import torch
+
+import unilab.algos.torch.fast_sac.learner as learner_module
 
 
 class _FakeSymmetryAugmentation:
@@ -168,3 +171,62 @@ def test_multi_gpu_offpolicy_runner_allows_supported_capabilities(
         learner_kwargs=learner_kwargs,
         num_gpus=num_gpus,
     )
+
+
+def test_fast_sac_local_sgd_skips_per_update_gradient_all_reduce(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from unilab.algos.torch.fast_sac.learner import FastSACLearner
+
+    learner = FastSACLearner(
+        obs_dim=4,
+        critic_obs_dim=5,
+        action_dim=2,
+        device="cpu",
+        world_size=2,
+        distributed_sync_mode="local_sgd",
+    )
+    calls = 0
+
+    def fake_all_reduce(tensor, op=None):
+        del tensor, op
+        nonlocal calls
+        calls += 1
+
+    monkeypatch.setattr(learner_module.dist, "all_reduce", fake_all_reduce)
+    for param in learner.qnet.parameters():
+        param.grad = torch.ones_like(param)
+
+    learner._reduce_gradients(learner.qnet)
+
+    assert calls == 0
+
+
+def test_fast_sac_local_sgd_parameter_average_uses_single_flat_all_reduce(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from unilab.algos.torch.fast_sac.learner import FastSACLearner
+
+    learner = FastSACLearner(
+        obs_dim=4,
+        critic_obs_dim=5,
+        action_dim=2,
+        device="cpu",
+        world_size=2,
+        distributed_sync_mode="local_sgd",
+    )
+    seen_sizes: list[int] = []
+
+    def fake_all_reduce(tensor, op=None):
+        del op
+        seen_sizes.append(tensor.numel())
+        tensor.mul_(2.0)
+
+    monkeypatch.setattr(learner_module.dist, "all_reduce", fake_all_reduce)
+    before = learner.log_alpha.detach().clone()
+
+    learner.average_distributed_parameters()
+
+    assert len(seen_sizes) == 1
+    assert seen_sizes[0] > 0
+    assert torch.allclose(learner.log_alpha, before)

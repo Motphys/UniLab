@@ -176,6 +176,8 @@ def build_runner(algo_name: str, cfg: DictConfig):
         )
     verbose_metrics = bool(getattr(cfg.training, "verbose_metrics", False))
     num_gpus = int(getattr(cfg.training, "num_gpus", 1))
+    multi_gpu_sync_mode = str(getattr(cfg.training, "multi_gpu_sync_mode", "local_sgd"))
+    multi_gpu_sync_interval = int(getattr(cfg.training, "multi_gpu_sync_interval", 1))
     if num_gpus > 1 and algo_name != "sac":
         raise ValueError("Only SAC supports training.num_gpus > 1 in this validation round")
 
@@ -287,6 +289,8 @@ def build_runner(algo_name: str, cfg: DictConfig):
                 learner_kwargs=_learner_kwargs,
                 num_gpus=num_gpus,
                 distributed_backend="nccl",
+                multi_gpu_sync_mode=multi_gpu_sync_mode,
+                multi_gpu_sync_interval=multi_gpu_sync_interval,
                 num_envs=cfg.algo.num_envs,
                 replay_buffer_n=cfg.algo.replay_buffer_n,
                 batch_size=_batch_size,
