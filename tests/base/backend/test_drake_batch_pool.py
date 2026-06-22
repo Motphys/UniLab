@@ -125,6 +125,7 @@ def test_batch_import_diagnostic_is_preserved() -> None:
         summary = {
             "available": bool(batch_available()),
             "error_type": None if error is None else type(error).__name__,
+            "missing_module": getattr(error, "name", None),
         }
         print(json.dumps(summary, sort_keys=True))
         """
@@ -132,8 +133,10 @@ def test_batch_import_diagnostic_is_preserved() -> None:
     summary = json.loads(output.strip().splitlines()[-1])
     if summary["available"]:
         assert summary["error_type"] is None
+        assert summary["missing_module"] is None
     else:
-        assert summary["error_type"] == "ImportError"
+        assert summary["error_type"] == "ModuleNotFoundError"
+        assert summary["missing_module"] == "drakeuni"
 
 
 def test_drake_batch_thread_policy_matches_mujoco_auto(monkeypatch: pytest.MonkeyPatch) -> None:
