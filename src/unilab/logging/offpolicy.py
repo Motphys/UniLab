@@ -170,11 +170,7 @@ class OffPolicyLogger(BaseTrainingLogger):
         return self._learner_samples_per_iter / iter_time
 
     def _get_learner_pipeline_time(self) -> float:
-        return (
-            self._learner_incremental_h2d_time
-            + self._train_time
-            + self._weight_sync_time
-        )
+        return self._learner_incremental_h2d_time + self._train_time + self._weight_sync_time
 
     def _get_iter_wall_time(self) -> float:
         if self._iteration_time is not None and self._iteration_time > 0.0:
@@ -193,9 +189,7 @@ class OffPolicyLogger(BaseTrainingLogger):
         if iter_steps_per_sec is not None:
             header_extra_fields.append((f"Steps/s {iter_steps_per_sec:,.0f}", "bold green"))
         if effective_samples_per_sec is not None:
-            header_extra_fields.append(
-                (f"Samples/s {effective_samples_per_sec:,.0f}", "bold cyan")
-            )
+            header_extra_fields.append((f"Samples/s {effective_samples_per_sec:,.0f}", "bold cyan"))
         if extra_fields:
             header_extra_fields.extend(extra_fields)
         return super()._build_compact_header(
@@ -388,9 +382,7 @@ class OffPolicyLogger(BaseTrainingLogger):
             )
             log_dict["timing/learner_train_ms"] = train_time * 1000
             if self._world_size > 1 or self._learner_param_sync_time > 0.0:
-                log_dict["timing/learner_param_sync_ms"] = (
-                    self._learner_param_sync_time * 1000
-                )
+                log_dict["timing/learner_param_sync_ms"] = self._learner_param_sync_time * 1000
             log_dict["timing/learner_weight_sync_ms"] = self._weight_sync_time * 1000
             for key, value in self._collector_timing.items():
                 log_dict[f"timing/collector_{key}"] = value

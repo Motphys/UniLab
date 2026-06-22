@@ -71,9 +71,7 @@ def build_offpolicy_sample_info(
     return {
         "batch_size_per_rank": batch_size_per_rank,
         "effective_batch_size": batch_size_per_rank * world_size,
-        "replay_samples_per_iter": replay_batch_size_per_rank
-        * updates_per_step
-        * world_size,
+        "replay_samples_per_iter": replay_batch_size_per_rank * updates_per_step * world_size,
         "learner_samples_per_iter": batch_size_per_rank * updates_per_step * world_size,
     }
 

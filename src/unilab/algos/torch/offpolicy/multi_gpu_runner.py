@@ -59,9 +59,7 @@ def normalize_multi_gpu_sync_mode(mode: str) -> str:
     normalized = str(mode).strip().lower()
     if normalized not in MULTIGPU_SYNC_MODES:
         supported = ", ".join(sorted(MULTIGPU_SYNC_MODES))
-        raise ValueError(
-            f"training.multi_gpu_sync_mode must be one of: {supported}; got {mode!r}"
-        )
+        raise ValueError(f"training.multi_gpu_sync_mode must be one of: {supported}; got {mode!r}")
     return normalized
 
 
@@ -69,10 +67,7 @@ def normalize_multi_gpu_sync_interval(interval: int) -> int:
     """Return a validated positive local-SGD synchronization interval."""
     normalized = int(interval)
     if normalized < 1:
-        raise ValueError(
-            "training.multi_gpu_sync_interval must be >= 1; "
-            f"got {interval!r}"
-        )
+        raise ValueError(f"training.multi_gpu_sync_interval must be >= 1; got {interval!r}")
     return normalized
 
 
@@ -364,9 +359,8 @@ def _learner_worker(
             replay_pipeline.after_tick()
 
             should_save_checkpoint = save_interval > 0 and it % save_interval == 0
-            should_param_sync = (
-                sync_mode == "local_sgd"
-                and (it % sync_interval == 0 or it == max_iterations or should_save_checkpoint)
+            should_param_sync = sync_mode == "local_sgd" and (
+                it % sync_interval == 0 or it == max_iterations or should_save_checkpoint
             )
             param_sync_time = 0.0
             did_param_sync = False

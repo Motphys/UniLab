@@ -30,9 +30,7 @@ def normalize_fast_sac_distributed_sync_mode(mode: str) -> str:
     normalized = str(mode).strip().lower()
     if normalized not in FAST_SAC_DISTRIBUTED_SYNC_MODES:
         supported = ", ".join(sorted(FAST_SAC_DISTRIBUTED_SYNC_MODES))
-        raise ValueError(
-            f"FastSAC distributed_sync_mode must be one of: {supported}; got {mode!r}"
-        )
+        raise ValueError(f"FastSAC distributed_sync_mode must be one of: {supported}; got {mode!r}")
     return normalized
 
 
@@ -427,9 +425,7 @@ class FastSACLearner:
         self.amp_dtype = amp_dtype
         self._amp_dtype = self._resolve_amp_dtype(amp_dtype, self._device_type)
         self.world_size = world_size
-        self.distributed_sync_mode = normalize_fast_sac_distributed_sync_mode(
-            distributed_sync_mode
-        )
+        self.distributed_sync_mode = normalize_fast_sac_distributed_sync_mode(distributed_sync_mode)
         self.critic_obs_dim = critic_obs_dim
 
         # Build actor (uses obs only)
