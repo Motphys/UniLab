@@ -37,6 +37,8 @@ class SACConfig(BaseConfig):
     runtime_resolver: Optional[str] = None
     seed: int = 1
     num_envs: int = 4096
+    # Per learner rank batch size for one SAC update. With training.num_gpus=N,
+    # the effective global update batch is batch_size * N.
     batch_size: int = 8192
     replay_buffer_n: int = 512
     updates_per_step: int = 4

@@ -1396,6 +1396,17 @@ def test_offpolicy_build_failure_summary_preserves_failed_status():
     assert summary["error"] == "collector died"
 
 
+def test_offpolicy_build_run_dir_name_adds_gpu_suffix_only_for_multigpu():
+    mod = _offpolicy()
+
+    assert mod.build_run_dir_name("2026-06-22_22-31-24", "mujoco", 1) == (
+        "2026-06-22_22-31-24_mujoco"
+    )
+    assert mod.build_run_dir_name("2026-06-22_22-31-24", "mujoco", 2) == (
+        "2026-06-22_22-31-24_mujoco_2xGPU"
+    )
+
+
 def test_offpolicy_main_failure_summary_and_skips_playback(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):

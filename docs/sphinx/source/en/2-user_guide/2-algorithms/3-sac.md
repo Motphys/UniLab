@@ -40,6 +40,8 @@ playback video. See {doc}`/en/1-getting_started/3-evaluation_and_playback`.
 
 - `algo.algo_log_name=fast_sac`
 - `algo.num_envs=4096`
+- `algo.batch_size=8192` is the per learner rank batch per update; in multi-GPU
+  runs, the global update batch is `algo.batch_size * training.num_gpus`.
 - `algo.max_iterations=500`
 - `training.use_amp=true` in the shared off-policy config
 - Multi-GPU SAC uses `training.num_gpus=<N>`; this validation round requires

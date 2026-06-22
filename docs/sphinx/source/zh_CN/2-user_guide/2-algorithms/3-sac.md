@@ -37,6 +37,8 @@ CUDA_VISIBLE_DEVICES=0,7 uv run train --algo sac --task g1_walk_flat --sim mujoc
 
 - `algo.algo_log_name=fast_sac`
 - `algo.num_envs=4096`
+- `algo.batch_size=8192` 是每个 learner rank 每次 update 的 batch；多卡时全局
+  update batch 为 `algo.batch_size * training.num_gpus`。
 - `algo.max_iterations=500`
 - 共享 off-policy 配置中的 `training.use_amp=true`
 - 多 GPU SAC 使用 `training.num_gpus=<N>`；当前验证要求

@@ -6,6 +6,9 @@ runtime_resolver: null
 load_run: "-1"
 seed: 1
 num_envs: 4096
+# Per learner rank batch size for one SAC update. With training.num_gpus=N,
+# the effective global update batch is batch_size * N. Symmetry may sample
+# fewer replay rows and expand them inside the learner.
 batch_size: 8192
 replay_buffer_n: 512
 updates_per_step: 4

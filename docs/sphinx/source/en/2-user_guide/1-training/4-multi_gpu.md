@@ -10,6 +10,21 @@ rank on demand, pinned-memory pipelines distribute those batches to multiple
 GPUs in parallel, and the GPU learners average gradients with distributed
 training.
 
+## Batch Semantics
+
+For off-policy SAC, `algo.batch_size` is the batch size **per learner rank per
+update**, not the global batch across all GPUs. With `training.num_gpus=N`, the
+effective global update batch is `algo.batch_size * N`. Each rank independently
+samples its own batch from the shared replay buffer, then gradients are averaged
+with distributed training.
+
+As a result, a two-GPU run with the same `algo.batch_size` uses twice as many
+effective samples per update as a single-GPU run. To keep the global update
+batch unchanged, scale `algo.batch_size` down manually; for example, single-GPU
+`algo.batch_size=8192` corresponds to two-GPU `algo.batch_size=4096`. Logger
+field `Batch/Rank` is the per-rank batch, while `Batch/Update` is the global
+batch.
+
 ## Preconditions
 
 - SAC only: `training.num_gpus > 1` rejects TD3, FlashSAC, PPO, MLX PPO, and APPO.
@@ -61,8 +76,9 @@ Multi-GPU mainly targets learner update bottlenecks. For small env counts,
 batches, or short runs, distributed startup, batch packing, and gradient
 synchronization can cost more than they save. When comparing single-GPU and
 multi-GPU runs, keep the task, env count, iteration count, playback settings,
-logger, and visible GPUs consistent, then compare steady-state `train_fps`,
-learner step time, and end-to-end iteration time.
+logger, and visible GPUs consistent; also decide whether you are comparing the
+same per-rank batch or the same global batch. Then compare steady-state
+`train_fps`, learner step time, and end-to-end iteration time.
 
 ## Common Errors
 

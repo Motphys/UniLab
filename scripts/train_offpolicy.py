@@ -56,6 +56,13 @@ def build_failure_summary(exc: BaseException, run_summary: Any | None = None) ->
     return summary
 
 
+def build_run_dir_name(timestamp: str, sim_backend: str, num_gpus: int = 1) -> str:
+    suffix = f"{timestamp}_{sim_backend}"
+    if int(num_gpus) > 1:
+        suffix += f"_{int(num_gpus)}xGPU"
+    return suffix
+
+
 def default_device(torch_module, preferred: str | None = None) -> str:
     """Resolve runtime device with optional user override."""
     if preferred:
@@ -703,9 +710,12 @@ def main(cfg: DictConfig) -> None:
 
     if cfg.training.log_dir is None:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        log_dir = str(
-            get_log_root(ROOT_DIR, cfg) / task_name / f"{timestamp}_{cfg.training.sim_backend}"
+        run_dir_name = build_run_dir_name(
+            timestamp,
+            str(cfg.training.sim_backend),
+            int(getattr(cfg.training, "num_gpus", 1)),
         )
+        log_dir = str(get_log_root(ROOT_DIR, cfg) / task_name / run_dir_name)
     else:
         log_dir = cfg.training.log_dir
 
