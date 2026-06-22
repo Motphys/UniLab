@@ -187,7 +187,6 @@ def test_offpolicy_logger_terminal_timing_labels_include_wall_clock_and_distribu
         reward=1.0,
         train_time=0.5,
         wait_time=1.0,
-        learner_replay_wait_time=0.02,
         learner_incremental_h2d_time=0.01,
         weight_sync_time=0.03,
         iteration_time=1.6,
@@ -476,7 +475,6 @@ def test_offpolicy_logger_logs_wait_and_iter_throughput(monkeypatch):
         metrics={},
         train_time=0.75,
         wait_time=10.0,
-        learner_replay_wait_time=0.03,
         learner_incremental_h2d_time=0.02,
         weight_sync_time=0.05,
         iteration_time=10.9,
@@ -499,7 +497,7 @@ def test_offpolicy_logger_logs_wait_and_iter_throughput(monkeypatch):
     assert "timing/learner_replay_sample_ms" not in payload
     assert payload["timing/learner_train_ms"] == 750.0
     assert payload["timing/learner_weight_sync_ms"] == 50.0
-    assert payload["perf/learner_pipeline_ms"] == pytest.approx(850.0)
+    assert payload["perf/learner_pipeline_ms"] == pytest.approx(820.0)
     assert payload["perf/iter_ms"] == pytest.approx(10_900.0)
     assert "perf/iter_unaccounted_ms" not in payload
     assert payload["perf/steps_per_sec"] == pytest.approx(8.0 / 10.9)
@@ -558,7 +556,6 @@ def test_offpolicy_logger_tensorboard_logs_wall_clock_and_distributed_timing():
         metrics={},
         train_time=0.7,
         wait_time=1.0,
-        learner_replay_wait_time=0.2,
         learner_incremental_h2d_time=0.05,
         weight_sync_time=0.1,
         iteration_time=1.95,
@@ -577,7 +574,7 @@ def test_offpolicy_logger_tensorboard_logs_wall_clock_and_distributed_timing():
     assert "timing/learner_replay_wait_ms" not in scalars
     assert scalars["timing/learner_incremental_h2d_ms"] == pytest.approx(50.0)
     assert "timing/learner_replay_sample_ms" not in scalars
-    assert scalars["perf/learner_pipeline_ms"] == pytest.approx(1_050.0)
+    assert scalars["perf/learner_pipeline_ms"] == pytest.approx(850.0)
     assert scalars["perf/iter_ms"] == pytest.approx(1_950.0)
     assert scalars["perf/effective_samples_per_sec"] == pytest.approx(64.0 / 1.95)
     assert scalars["distributed/world_size"] == 2

@@ -493,10 +493,8 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 with nullcontext():
                     _sample_ns = time.perf_counter_ns()
                     batch_ready = replay_pipeline.batch_ready(iteration, sample_count)
-                    learner_replay_wait_time = 0.0
                     _wait_batch_ns = time.perf_counter_ns()
                     if not batch_ready:
-                        replay_wait_start = time.perf_counter()
                         batch_ready = self._wait_for_replay_batch_ready(
                             replay_pipeline,
                             iteration,
@@ -510,7 +508,6 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                             ckpt_path,
                             train_start_wall,
                         )
-                        learner_replay_wait_time = time.perf_counter() - replay_wait_start
                     if trace_recorder:
                         trace_recorder.add_slice(
                             "learner/wait_for_replay_batch",
@@ -666,7 +663,6 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                         reward_components=latest_reward_components,
                         train_time=train_time,
                         wait_time=wait_time,
-                        learner_replay_wait_time=learner_replay_wait_time,
                         learner_incremental_h2d_time=learner_incremental_h2d_time,
                         weight_sync_time=weight_sync_time,
                         iteration_time=iteration_time,

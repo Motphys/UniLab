@@ -107,7 +107,6 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._buffer_size: int = 0
         self._buffer_target: int = 0
         self._wait_time: float = 0.0
-        self._learner_replay_wait_time: float = 0.0
         self._learner_incremental_h2d_time: float = 0.0
         self._weight_sync_time: float = 0.0
         self._iteration_time: float | None = None
@@ -169,13 +168,9 @@ class OffPolicyLogger(BaseTrainingLogger):
             return None
         return self._learner_samples_per_iter / iter_time
 
-    def _get_replay_blocking_time(self) -> float:
-        return self._learner_replay_wait_time
-
     def _get_learner_pipeline_time(self) -> float:
         return (
-            self._get_replay_blocking_time()
-            + self._learner_incremental_h2d_time
+            self._learner_incremental_h2d_time
             + self._train_time
             + self._weight_sync_time
         )
@@ -250,7 +245,6 @@ class OffPolicyLogger(BaseTrainingLogger):
         reward_components: dict[str, float] | None = None,
         train_time: float = 0.0,
         wait_time: float = 0.0,
-        learner_replay_wait_time: float = 0.0,
         learner_incremental_h2d_time: float = 0.0,
         weight_sync_time: float = 0.0,
         iteration_time: float | None = None,
@@ -260,7 +254,6 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._iteration = iteration
         self._train_time = train_time
         self._wait_time = wait_time
-        self._learner_replay_wait_time = learner_replay_wait_time
         self._learner_incremental_h2d_time = learner_incremental_h2d_time
         self._weight_sync_time = weight_sync_time
         self._iteration_time = iteration_time

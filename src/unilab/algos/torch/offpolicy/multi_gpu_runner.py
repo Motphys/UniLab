@@ -274,16 +274,11 @@ def _learner_worker(
             if prepared_tick != it:
                 replay_pipeline.start_prepare(it, sample_count)
                 prepared_tick = it
-            learner_replay_wait_time = 0.0
             if not replay_pipeline.batch_ready(it, sample_count):
-                replay_wait_start = time.perf_counter()
                 while not replay_pipeline.batch_ready(it, sample_count):
                     if stop_event.is_set():
                         return
                     time.sleep(0.001)
-                learner_replay_wait_time = (
-                    time.perf_counter() - replay_wait_start if rank == 0 else 0.0
-                )
             large_batch = replay_pipeline.sample_large_batch(it, sample_count)
             learner_incremental_h2d_time = (
                 float(getattr(replay_pipeline, "last_incremental_h2d_time_s", 0.0))
@@ -363,7 +358,6 @@ def _learner_worker(
                         reward_components=latest_reward_components,
                         train_time=train_time,
                         wait_time=wait_time,
-                        learner_replay_wait_time=learner_replay_wait_time,
                         learner_incremental_h2d_time=learner_incremental_h2d_time,
                         weight_sync_time=weight_sync_time,
                         iteration_time=iteration_time,

@@ -488,7 +488,6 @@ class OffPolicyRunner(AsyncRunner):
             # Sample from torch buffer (zero-copy on CUDA/MPS)
             _sample_ns = time.perf_counter_ns() if trace_recorder else 0
             large_batch = replay_buffer.sample(self.batch_size * self.updates_per_step)
-            learner_replay_wait_time = 0.0
             learner_incremental_h2d_time = float(
                 getattr(replay_buffer, "last_incremental_h2d_time_s", 0.0)
             )
@@ -598,7 +597,6 @@ class OffPolicyRunner(AsyncRunner):
                 reward_components=latest_reward_components,
                 train_time=train_time,
                 wait_time=wait_time,
-                learner_replay_wait_time=learner_replay_wait_time,
                 learner_incremental_h2d_time=learner_incremental_h2d_time,
                 weight_sync_time=weight_sync_time,
                 iteration_time=iteration_time,

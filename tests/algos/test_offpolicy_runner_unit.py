@@ -428,7 +428,7 @@ def test_offpolicy_runner_sync_waits_for_train_start_threshold(
     assert trainer_done_queue.put_calls == [1, 1, 1, 1]
     assert logger.step_calls and logger.step_calls[0]["iteration"] == 1
     assert "collect_time" not in logger.step_calls[0]
-    assert logger.step_calls[0]["learner_replay_wait_time"] == 0.0
+    assert "learner_replay_wait_time" not in logger.step_calls[0]
     assert logger.step_calls[0]["learner_incremental_h2d_time"] == pytest.approx(0.004)
     assert logger.step_calls[0]["weight_sync_time"] >= 0.0
     assert logger.step_calls[0]["extra_info"] == {
@@ -512,7 +512,7 @@ def test_offpolicy_runner_async_waits_for_train_start_threshold(
     assert replay_buffer.sample_sizes_at_call == [threshold]
     assert logger.step_calls and logger.step_calls[0]["iteration"] == 1
     assert "collect_time" not in logger.step_calls[0]
-    assert logger.step_calls[0]["learner_replay_wait_time"] == 0.0
+    assert "learner_replay_wait_time" not in logger.step_calls[0]
     assert logger.step_calls[0]["learner_incremental_h2d_time"] == pytest.approx(0.004)
     assert logger.step_calls[0]["weight_sync_time"] >= 0.0
     assert logger.step_calls[0]["extra_info"] == {
@@ -558,7 +558,7 @@ def test_offpolicy_runner_logs_symmetry_effective_samples_without_hiding_replay_
     assert logger is not None
     assert replay_buffer is not None
     assert replay_buffer.sample_request_sizes == [8]
-    assert logger.step_calls[0]["learner_replay_wait_time"] == 0.0
+    assert "learner_replay_wait_time" not in logger.step_calls[0]
     assert logger.step_calls[0]["extra_info"] == {
         "throughput_steps": 2,
         "batch_size_per_rank": 16,
@@ -1282,7 +1282,7 @@ def test_multi_gpu_learner_worker_logs_wall_clock_and_per_rank_batch_context(
     assert logger.step_calls
     step = logger.step_calls[-1]
     assert step["wait_time"] == pytest.approx(0.1)
-    assert step["learner_replay_wait_time"] == pytest.approx(0.0)
+    assert "learner_replay_wait_time" not in step
     assert step["learner_incremental_h2d_time"] == pytest.approx(0.025)
     assert step["train_time"] == pytest.approx(0.4)
     assert step["weight_sync_time"] == pytest.approx(0.03)
