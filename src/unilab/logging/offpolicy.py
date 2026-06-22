@@ -317,9 +317,7 @@ class OffPolicyLogger(BaseTrainingLogger):
         global_step = self._total_steps if self._total_steps > 0 else iteration
         iter_steps_per_sec = self._get_iter_steps_per_sec()
         effective_samples_per_sec = self._get_effective_samples_per_sec()
-        replay_blocking_time = self._get_replay_blocking_time()
         iter_wall_time = self._get_iter_wall_time()
-        unaccounted_iter_time = self._get_unaccounted_iter_time()
         axis_scalars = {
             "axis/iteration": float(iteration),
             "axis/env_steps_total": float(global_step),
@@ -346,11 +344,6 @@ class OffPolicyLogger(BaseTrainingLogger):
             writer.add_scalar("episode/terminated_rate", self._terminated_rate, global_step)
             writer.add_scalar("timing/learner_wait_ms", self._wait_time * 1000, global_step)
             writer.add_scalar(
-                "timing/learner_replay_wait_ms",
-                replay_blocking_time * 1000,
-                global_step,
-            )
-            writer.add_scalar(
                 "timing/learner_incremental_h2d_ms",
                 self._learner_incremental_h2d_time * 1000,
                 global_step,
@@ -375,11 +368,6 @@ class OffPolicyLogger(BaseTrainingLogger):
             writer.add_scalar(
                 "perf/learner_pipeline_ms",
                 self._get_learner_pipeline_time() * 1000,
-                global_step,
-            )
-            writer.add_scalar(
-                "perf/iter_unaccounted_ms",
-                unaccounted_iter_time * 1000,
                 global_step,
             )
             if self._world_size > 1:
@@ -430,7 +418,6 @@ class OffPolicyLogger(BaseTrainingLogger):
             log_dict["episode/timeout_rate"] = self._timeout_rate
             log_dict["episode/terminated_rate"] = self._terminated_rate
             log_dict["timing/learner_wait_ms"] = self._wait_time * 1000
-            log_dict["timing/learner_replay_wait_ms"] = replay_blocking_time * 1000
             log_dict["timing/learner_incremental_h2d_ms"] = (
                 self._learner_incremental_h2d_time * 1000
             )
@@ -444,7 +431,6 @@ class OffPolicyLogger(BaseTrainingLogger):
                 log_dict["perf/effective_samples_per_sec"] = effective_samples_per_sec
             log_dict["perf/iter_ms"] = iter_wall_time * 1000
             log_dict["perf/learner_pipeline_ms"] = self._get_learner_pipeline_time() * 1000
-            log_dict["perf/iter_unaccounted_ms"] = unaccounted_iter_time * 1000
             if self._world_size > 1:
                 log_dict["distributed/world_size"] = self._world_size
             if self._batch_size_per_rank > 0:
@@ -532,19 +518,13 @@ class OffPolicyLogger(BaseTrainingLogger):
 
         wait_ms = self._wait_time * 1000
         wait_color = "red" if wait_ms > 1.0 else "yellow"
-        replay_wait_ms = self._get_replay_blocking_time() * 1000
-        replay_wait_color = "red" if replay_wait_ms > 1.0 else "yellow"
         learner_items = [
             ("Wait", f"[{wait_color}]{wait_ms:.1f}ms[/]"),
-            ("Replay Wait", f"[{replay_wait_color}]{replay_wait_ms:.1f}ms[/]"),
             ("H2D Copy", f"{self._learner_incremental_h2d_time * 1000:.1f}ms"),
             ("Train", f"{self._train_time * 1000:.1f}ms"),
             ("Weight Sync", f"{self._weight_sync_time * 1000:.1f}ms"),
             ("Iter Wall", f"{self._get_iter_wall_time() * 1000:.1f}ms"),
         ]
-        unaccounted_ms = self._get_unaccounted_iter_time() * 1000
-        if unaccounted_ms > 1.0:
-            learner_items.append(("Unaccounted", f"{unaccounted_ms:.1f}ms"))
         collector_items = [
             (OFFPOLICY_COLLECTOR_TIMING_LABELS.get(key, key), f"{value:.1f}ms")
             for key, value in sorted(

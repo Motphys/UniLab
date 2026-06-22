@@ -205,10 +205,10 @@ def test_offpolicy_logger_terminal_timing_labels_include_wall_clock_and_distribu
     console.print(logger._build_display())
     output = console.export_text()
 
-    assert "Replay Wait" in output
+    assert "Replay Wait" not in output
     assert "H2D Copy" in output
     assert "Iter Wall" in output
-    assert "Unaccounted" in output
+    assert "Unaccounted" not in output
     assert "Other" not in output
     assert "GPUs" in output
     assert "Batch/Rank" in output
@@ -494,14 +494,14 @@ def test_offpolicy_logger_logs_wait_and_iter_throughput(monkeypatch):
     assert step == 1
     assert payload["timing/learner_wait_ms"] == 10_000.0
     assert "timing/learner_collect_ms" not in payload
-    assert payload["timing/learner_replay_wait_ms"] == 30.0
+    assert "timing/learner_replay_wait_ms" not in payload
     assert payload["timing/learner_incremental_h2d_ms"] == 20.0
     assert "timing/learner_replay_sample_ms" not in payload
     assert payload["timing/learner_train_ms"] == 750.0
     assert payload["timing/learner_weight_sync_ms"] == 50.0
     assert payload["perf/learner_pipeline_ms"] == pytest.approx(850.0)
     assert payload["perf/iter_ms"] == pytest.approx(10_900.0)
-    assert payload["perf/iter_unaccounted_ms"] == pytest.approx(50.0)
+    assert "perf/iter_unaccounted_ms" not in payload
     assert payload["perf/steps_per_sec"] == pytest.approx(8.0 / 10.9)
     assert payload["perf/effective_samples_per_sec"] == pytest.approx(32.0 / 10.9)
     assert payload["distributed/world_size"] == 2
@@ -574,7 +574,7 @@ def test_offpolicy_logger_tensorboard_logs_wall_clock_and_distributed_timing():
 
     scalars = {tag: value for tag, value, _ in tb_writer.scalars}
     assert scalars["timing/learner_wait_ms"] == pytest.approx(1_000.0)
-    assert scalars["timing/learner_replay_wait_ms"] == pytest.approx(200.0)
+    assert "timing/learner_replay_wait_ms" not in scalars
     assert scalars["timing/learner_incremental_h2d_ms"] == pytest.approx(50.0)
     assert "timing/learner_replay_sample_ms" not in scalars
     assert scalars["perf/learner_pipeline_ms"] == pytest.approx(1_050.0)
