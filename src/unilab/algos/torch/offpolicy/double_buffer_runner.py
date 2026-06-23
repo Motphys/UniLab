@@ -371,6 +371,8 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 # -- wait for data --
                 wait_start = time.perf_counter()
                 wait_start_ns = time.perf_counter_ns()
+                sync_coordination_time = 0.0
+                collector_wait_overhead = 0.0
                 if self.sync_collection and collection_ready_queue:
                     import queue
 
@@ -416,9 +418,15 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                             break
                         if cur_size - last_buf_log >= self.num_envs * 10:
                             last_buf_log = cur_size
+                            _fill_t = time.perf_counter()
                             logger.log_buffer_fill(cur_size, train_start_threshold)
+                            collector_wait_overhead += time.perf_counter() - _fill_t
                         if trainer_done_queue:
+                            _coord_t = time.perf_counter()
                             self._safe_put_trainer_done(trainer_done_queue, label="buffer_wait")
+                            _coord_d = time.perf_counter() - _coord_t
+                            sync_coordination_time += _coord_d
+                            collector_wait_overhead += _coord_d
                 else:
                     while not replay_buffer_ready_for_learning(
                         int(replay_buffer.size[0]),
@@ -444,7 +452,9 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                         cur_size = int(replay_buffer.size[0])
                         if cur_size - last_buf_log >= self.num_envs * 10:
                             last_buf_log = cur_size
+                            _fill_t = time.perf_counter()
                             logger.log_buffer_fill(cur_size, train_start_threshold)
+                            collector_wait_overhead += time.perf_counter() - _fill_t
                         time.sleep(0.1)
                         self._drain_metrics(
                             metrics_queue,
@@ -454,7 +464,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                             trace_recorder,
                         )
 
-                collector_wait_time = time.perf_counter() - wait_start
+                collector_wait_time = time.perf_counter() - wait_start - collector_wait_overhead
                 if trace_recorder:
                     trace_recorder.add_slice(
                         "learner/wait_for_data",
@@ -488,7 +498,6 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 iter_metrics = defaultdict(list)
                 ptr_before = int(replay_buffer.ptr[0])
                 collector_released_for_next = False
-                sync_coordination_time = 0.0
                 learner = self.learner
 
                 with nullcontext():

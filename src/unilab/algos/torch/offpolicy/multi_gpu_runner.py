@@ -261,6 +261,7 @@ def _learner_worker(
             iteration_start = time.perf_counter()
             collector_released_for_next = False
             sync_coordination_time = 0.0
+            collector_wait_overhead = 0.0
             # --- Wait for data (rank 0 only, then barrier syncs everyone) ---
             wait_start = time.perf_counter()
             if rank == 0:
@@ -284,9 +285,16 @@ def _learner_worker(
                             break
                         if logger and cur_size - last_buf_log >= num_envs * 10:
                             last_buf_log = cur_size
+                            _fill_t = time.perf_counter()
                             logger.log_buffer_fill(cur_size, train_start_threshold)
+                            collector_wait_overhead += time.perf_counter() - _fill_t
                         if trainer_done_queue is not None:
-                            if not _put_trainer_done_or_stop(trainer_done_queue, stop_event):
+                            _coord_t = time.perf_counter()
+                            _ok = _put_trainer_done_or_stop(trainer_done_queue, stop_event)
+                            _coord_d = time.perf_counter() - _coord_t
+                            sync_coordination_time += _coord_d
+                            collector_wait_overhead += _coord_d
+                            if not _ok:
                                 return
                 else:
                     while not replay_buffer_ready_for_learning(
@@ -300,11 +308,15 @@ def _learner_worker(
                         cur_size = int(replay_buffer.size[0])
                         if logger and cur_size - last_buf_log >= num_envs * 10:
                             last_buf_log = cur_size
+                            _fill_t = time.perf_counter()
                             logger.log_buffer_fill(cur_size, train_start_threshold)
+                            collector_wait_overhead += time.perf_counter() - _fill_t
                         time.sleep(MULTIGPU_REPLAY_READY_POLL_SEC)
                 _drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
 
-            collector_wait_time = time.perf_counter() - wait_start if rank == 0 else 0.0
+            collector_wait_time = (
+                time.perf_counter() - wait_start - collector_wait_overhead if rank == 0 else 0.0
+            )
             _barrier_initial_start = time.perf_counter()
             dist.barrier()
             barrier_initial_time = (

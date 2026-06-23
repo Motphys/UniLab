@@ -357,13 +357,13 @@ class APPORunner(AsyncRunner):
                     f"[yellow]Warning: Timeout waiting for data at iteration {iteration}[/]"
                 )
                 continue
+            wait_time = time.time() - wait_start
 
             if not logger_started:
                 logger.start(status="Training")
                 logger_started = True
 
             available_on_arrive = rollout_ring_buffer.available()
-            wait_time = time.time() - wait_start
 
             # Drain ALL available slots into the staging pool in one pass.
             # This keeps the GPU busy: if the collector produced 3 rollouts while
