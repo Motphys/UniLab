@@ -416,13 +416,9 @@ class OffPolicyLogger(BaseTrainingLogger):
             log_dict["episode/timeout_rate"] = self._timeout_rate
             log_dict["episode/terminated_rate"] = self._terminated_rate
             log_dict["timing/learner_collector_wait_ms"] = self._collector_wait_time * 1000
-            log_dict["timing/learner_replay_batch_wait_ms"] = (
-                self._replay_batch_wait_time * 1000
-            )
+            log_dict["timing/learner_replay_batch_wait_ms"] = self._replay_batch_wait_time * 1000
             log_dict["timing/learner_rank_barrier_ms"] = self._rank_barrier_time * 1000
-            log_dict["timing/learner_sync_coordination_ms"] = (
-                self._sync_coordination_time * 1000
-            )
+            log_dict["timing/learner_sync_coordination_ms"] = self._sync_coordination_time * 1000
             log_dict["timing/learner_incremental_h2d_ms"] = (
                 self._learner_incremental_h2d_time * 1000
             )
@@ -531,9 +527,7 @@ class OffPolicyLogger(BaseTrainingLogger):
         learner_items.append(("H2D Copy", f"{self._learner_incremental_h2d_time * 1000:.1f}ms"))
         learner_items.append(("Train", f"{self._train_time * 1000:.1f}ms"))
         if self._world_size > 1 or self._learner_param_sync_time > 0.0:
-            learner_items.append(
-                ("Param Sync", f"{self._learner_param_sync_time * 1000:.1f}ms")
-            )
+            learner_items.append(("Param Sync", f"{self._learner_param_sync_time * 1000:.1f}ms"))
         learner_items.append(("Weight Sync", f"{self._weight_sync_time * 1000:.1f}ms"))
         learner_items.append(("Iter Wall", f"{self._get_iter_wall_time() * 1000:.1f}ms"))
         collector_items = [
