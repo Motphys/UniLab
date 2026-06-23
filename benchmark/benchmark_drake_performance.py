@@ -22,7 +22,7 @@ import numpy as np
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 SRC_DIR = ROOT_DIR / "src"
-DEFAULT_DRAKEUNI_SRC = ROOT_DIR.parent.parent / "drakeuni" / "src"
+DEFAULT_DRAKEUNI_SRC = ROOT_DIR.parent / "drakeuni" / "src"
 DEFAULT_OUTPUT = ROOT_DIR / "benchmark" / "outputs" / "drake_performance" / "results.json"
 
 
