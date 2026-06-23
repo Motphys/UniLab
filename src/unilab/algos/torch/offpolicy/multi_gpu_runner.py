@@ -260,6 +260,7 @@ def _learner_worker(
         for it in range(1, max_iterations + 1):
             iteration_start = time.perf_counter()
             collector_released_for_next = False
+            sync_coordination_time = 0.0
             # --- Wait for data (rank 0 only, then barrier syncs everyone) ---
             wait_start = time.perf_counter()
             if rank == 0:
@@ -303,8 +304,12 @@ def _learner_worker(
                         time.sleep(MULTIGPU_REPLAY_READY_POLL_SEC)
                 _drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
 
+            collector_wait_time = time.perf_counter() - wait_start if rank == 0 else 0.0
+            _barrier_initial_start = time.perf_counter()
             dist.barrier()
-            wait_time = time.perf_counter() - wait_start if rank == 0 else 0.0
+            barrier_initial_time = (
+                time.perf_counter() - _barrier_initial_start if rank == 0 else 0.0
+            )
 
             # --- Training: each rank independently samples a different mini-batch ---
             iter_metrics: dict = defaultdict(list)
@@ -313,11 +318,15 @@ def _learner_worker(
             if prepared_tick != it:
                 replay_pipeline.start_prepare(it, sample_count)
                 prepared_tick = it
+            _replay_batch_wait_start = time.perf_counter()
             if not replay_pipeline.batch_ready(it, sample_count):
                 while not replay_pipeline.batch_ready(it, sample_count):
                     if stop_event.is_set():
                         return
                     time.sleep(MULTIGPU_REPLAY_READY_POLL_SEC)
+            replay_batch_wait_time = (
+                time.perf_counter() - _replay_batch_wait_start if rank == 0 else 0.0
+            )
             large_batch = replay_pipeline.sample_large_batch(it, sample_count)
             learner_incremental_h2d_time = (
                 float(getattr(replay_pipeline, "last_incremental_h2d_time_s", 0.0))
@@ -334,8 +343,10 @@ def _learner_worker(
                 )
                 prepared_tick = it + 1
                 if rank == 0 and sync_collection and trainer_done_queue is not None:
+                    _sync_coord_start = time.perf_counter()
                     if not _put_trainer_done_or_stop(trainer_done_queue, stop_event):
                         return
+                    sync_coordination_time += time.perf_counter() - _sync_coord_start
                     collector_released_for_next = True
 
             train_start = time.perf_counter()
@@ -358,6 +369,8 @@ def _learner_worker(
 
             replay_pipeline.after_tick()
 
+            train_time = time.perf_counter() - train_start if rank == 0 else 0.0
+
             should_save_checkpoint = save_interval > 0 and it % save_interval == 0
             should_param_sync = sync_mode == "local_sgd" and (
                 it % sync_interval == 0 or it == max_iterations or should_save_checkpoint
@@ -375,10 +388,10 @@ def _learner_worker(
                 param_sync_time = time.perf_counter() - param_sync_start
                 did_param_sync = True
 
-            # train_time intentionally includes local-SGD parameter sync and the
-            # final rank barrier. The separate param-sync timing is a sub-breakdown.
+            _barrier_final_start = time.perf_counter()
             dist.barrier()
-            train_time = time.perf_counter() - train_start if rank == 0 else 0.0
+            barrier_final_time = time.perf_counter() - _barrier_final_start if rank == 0 else 0.0
+            rank_barrier_time = barrier_initial_time + barrier_final_time
 
             # --- Post-iteration work: rank 0 only ---
             if rank == 0:
@@ -394,8 +407,10 @@ def _learner_worker(
                     and trainer_done_queue is not None
                     and not collector_released_for_next
                 ):
+                    _sync_coord_start = time.perf_counter()
                     if not _put_trainer_done_or_stop(trainer_done_queue, stop_event):
                         return
+                    sync_coordination_time += time.perf_counter() - _sync_coord_start
                 iteration_time = time.perf_counter() - iteration_start
 
                 write_delta = int(replay_buffer.ptr[0]) - ptr_before
@@ -416,7 +431,10 @@ def _learner_worker(
                         reward_metrics=build_reward_comparison_metrics(reward_history, mean_reward),
                         reward_components=latest_reward_components,
                         train_time=train_time,
-                        wait_time=wait_time,
+                        collector_wait_time=collector_wait_time,
+                        replay_batch_wait_time=replay_batch_wait_time,
+                        rank_barrier_time=rank_barrier_time,
+                        sync_coordination_time=sync_coordination_time,
                         learner_incremental_h2d_time=learner_incremental_h2d_time,
                         weight_sync_time=weight_sync_time,
                         learner_param_sync_time=param_sync_time,

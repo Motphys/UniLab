@@ -454,7 +454,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                             trace_recorder,
                         )
 
-                wait_time = time.perf_counter() - wait_start
+                collector_wait_time = time.perf_counter() - wait_start
                 if trace_recorder:
                     trace_recorder.add_slice(
                         "learner/wait_for_data",
@@ -488,10 +488,12 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 iter_metrics = defaultdict(list)
                 ptr_before = int(replay_buffer.ptr[0])
                 collector_released_for_next = False
+                sync_coordination_time = 0.0
                 learner = self.learner
 
                 with nullcontext():
                     _sample_ns = time.perf_counter_ns()
+                    _replay_batch_wait_start = time.perf_counter()
                     batch_ready = replay_pipeline.batch_ready(iteration, sample_count)
                     _wait_batch_ns = time.perf_counter_ns()
                     if not batch_ready:
@@ -508,6 +510,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                             ckpt_path,
                             train_start_wall,
                         )
+                    replay_batch_wait_time = time.perf_counter() - _replay_batch_wait_start
                     if trace_recorder:
                         trace_recorder.add_slice(
                             "learner/wait_for_replay_batch",
@@ -533,7 +536,9 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                             min_snapshot_ptr=min_snapshot_ptr,
                         )
                         if self.sync_collection and trainer_done_queue:
+                            _sync_coord_start = time.perf_counter()
                             self._safe_put_trainer_done(trainer_done_queue, label="tick_release")
+                            sync_coordination_time += time.perf_counter() - _sync_coord_start
                             collector_released_for_next = True
                         prepared_tick = iteration + 1
                     if trace_recorder:
@@ -636,7 +641,9 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                     )
 
                 if self.sync_collection and trainer_done_queue and not collector_released_for_next:
+                    _sync_coord_start = time.perf_counter()
                     self._safe_put_trainer_done(trainer_done_queue, label="weight_sync")
+                    sync_coordination_time += time.perf_counter() - _sync_coord_start
                 iteration_time = time.perf_counter() - iteration_start
 
                 write_delta = int(replay_buffer.ptr[0]) - ptr_before
@@ -662,7 +669,10 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                         reward_metrics=build_reward_comparison_metrics(reward_history, mean_reward),
                         reward_components=latest_reward_components,
                         train_time=train_time,
-                        wait_time=wait_time,
+                        collector_wait_time=collector_wait_time,
+                        replay_batch_wait_time=replay_batch_wait_time,
+                        rank_barrier_time=0.0,
+                        sync_coordination_time=sync_coordination_time,
                         learner_incremental_h2d_time=learner_incremental_h2d_time,
                         weight_sync_time=weight_sync_time,
                         iteration_time=iteration_time,

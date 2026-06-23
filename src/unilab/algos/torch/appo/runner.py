@@ -412,7 +412,7 @@ class APPORunner(AsyncRunner):
                 reward=mean_reward,
                 reward_components=latest_reward_components,
                 train_time=train_time,
-                wait_time=wait_time,
+                collector_wait_time=wait_time,
                 learner_incremental_h2d_time=learner_incremental_h2d_time,
                 weight_sync_time=weight_sync_time,
                 iteration_time=iteration_time,

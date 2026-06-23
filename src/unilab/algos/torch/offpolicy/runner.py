@@ -445,7 +445,7 @@ class OffPolicyRunner(AsyncRunner):
                         trace_recorder,
                     )
 
-            wait_time = time.perf_counter() - wait_start
+            collector_wait_time = time.perf_counter() - wait_start
             if trace_recorder:
                 trace_recorder.add_slice(
                     "learner/wait_for_data",
@@ -572,8 +572,11 @@ class OffPolicyRunner(AsyncRunner):
                 )
                 trace_recorder.flush_cuda_pending()
 
+            sync_coordination_time = 0.0
             if self.sync_collection and trainer_done_queue:
+                _sync_coord_start = time.perf_counter()
                 trainer_done_queue.put(1)
+                sync_coordination_time = time.perf_counter() - _sync_coord_start
             iteration_time = time.perf_counter() - iteration_start
 
             write_delta = int(replay_buffer.ptr[0]) - ptr_before
@@ -594,7 +597,10 @@ class OffPolicyRunner(AsyncRunner):
                 reward_metrics=build_reward_comparison_metrics(reward_history, mean_reward),
                 reward_components=latest_reward_components,
                 train_time=train_time,
-                wait_time=wait_time,
+                collector_wait_time=collector_wait_time,
+                replay_batch_wait_time=0.0,
+                rank_barrier_time=0.0,
+                sync_coordination_time=sync_coordination_time,
                 learner_incremental_h2d_time=learner_incremental_h2d_time,
                 weight_sync_time=weight_sync_time,
                 iteration_time=iteration_time,
