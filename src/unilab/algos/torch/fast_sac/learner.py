@@ -22,6 +22,18 @@ import torch.optim as optim
 from unilab.algos.torch.common.compile import get_torch_compile_for_cuda
 from unilab.base.augmentation import SymmetryAugmentation
 
+FAST_SAC_DISTRIBUTED_SYNC_MODES = {"sync_sgd", "local_sgd"}
+
+
+def normalize_fast_sac_distributed_sync_mode(mode: str) -> str:
+    """Return a validated distributed synchronization mode for FastSAC."""
+    normalized = str(mode).strip().lower()
+    if normalized not in FAST_SAC_DISTRIBUTED_SYNC_MODES:
+        supported = ", ".join(sorted(FAST_SAC_DISTRIBUTED_SYNC_MODES))
+        raise ValueError(f"FastSAC distributed_sync_mode must be one of: {supported}; got {mode!r}")
+    return normalized
+
+
 # ---------------------------------------------------------------------------
 # Actor Network (holosoma-style: SiLU + LayerNorm + Tanh squashing)
 # ---------------------------------------------------------------------------
@@ -398,6 +410,7 @@ class FastSACLearner:
         use_compile: bool = False,
         symmetry_augmentation: SymmetryAugmentation | None = None,
         world_size: int = 1,
+        distributed_sync_mode: str = "sync_sgd",
     ):
         self.device = device
         self._device_type = torch.device(device).type
@@ -412,6 +425,7 @@ class FastSACLearner:
         self.amp_dtype = amp_dtype
         self._amp_dtype = self._resolve_amp_dtype(amp_dtype, self._device_type)
         self.world_size = world_size
+        self.distributed_sync_mode = normalize_fast_sac_distributed_sync_mode(distributed_sync_mode)
         self.critic_obs_dim = critic_obs_dim
 
         # Build actor (uses obs only)
@@ -544,7 +558,7 @@ class FastSACLearner:
         Must be called after ``backward()`` and, when using AMP, after
         ``scaler.unscale_(optimizer)`` so that gradients are in full precision.
         """
-        if self.world_size <= 1:
+        if self.world_size <= 1 or self.distributed_sync_mode != "sync_sgd":
             return
         grads = [p.grad.view(-1) for p in model.parameters() if p.grad is not None]
         if not grads:
@@ -558,6 +572,39 @@ class FastSACLearner:
                 n = p.grad.numel()
                 p.grad.copy_(flat[offset : offset + n].view_as(p.grad))
                 offset += n
+
+    def _parameter_sync_tensors(self) -> list[torch.Tensor]:
+        tensors: list[torch.Tensor] = []
+        for module in (self.actor, self.qnet, self.qnet_target):
+            tensors.extend(
+                p.data for p in module.parameters() if p.requires_grad or p.is_floating_point()
+            )
+        tensors.append(self.log_alpha.data)
+        return tensors
+
+    @torch.no_grad()
+    def average_distributed_parameters(self) -> None:
+        """Average learner parameters across ranks for local-SGD synchronization.
+
+        This is intentionally separate from per-update gradient averaging. In
+        ``local_sgd`` mode each rank applies local optimizer updates, then this
+        method averages the resulting actor, critic, target critic, and entropy
+        coefficient parameters at the runner-controlled synchronization boundary.
+        Optimizer state remains rank-local by design.
+        """
+        if self.world_size <= 1:
+            return
+        tensors = self._parameter_sync_tensors()
+        if not tensors:
+            return
+        flat = torch.cat([tensor.view(-1) for tensor in tensors])
+        dist.all_reduce(flat, op=dist.ReduceOp.SUM)
+        flat /= self.world_size
+        offset = 0
+        for tensor in tensors:
+            n = tensor.numel()
+            tensor.copy_(flat[offset : offset + n].view_as(tensor))
+            offset += n
 
     def sync_initial_parameters(self, src: int = 0) -> None:
         """Broadcast initial learner state for distributed off-policy training."""
@@ -735,7 +782,11 @@ class FastSACLearner:
             alpha_loss = (-self.log_alpha.exp() * (next_log_probs + self.target_entropy)).mean()
             if torch.isfinite(alpha_loss):
                 alpha_loss.backward()
-                if self.world_size > 1 and self.log_alpha.grad is not None:
+                if (
+                    self.world_size > 1
+                    and self.distributed_sync_mode == "sync_sgd"
+                    and self.log_alpha.grad is not None
+                ):
                     dist.all_reduce(self.log_alpha.grad, op=dist.ReduceOp.SUM)
                     self.log_alpha.grad /= self.world_size
                 self.alpha_optimizer.step()

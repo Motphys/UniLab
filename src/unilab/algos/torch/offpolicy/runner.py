@@ -41,6 +41,41 @@ def replay_buffer_ready_for_learning(
     )
 
 
+def get_learner_batch_multiplier(learner: Any) -> int:
+    """Return the effective learner batch multiplier for one replay row."""
+    if not bool(getattr(learner, "use_symmetry", False)):
+        return 1
+    symmetry = getattr(learner, "symmetry", None)
+    multiplier = int(getattr(symmetry, "batch_multiplier", 1) or 1)
+    return max(multiplier, 1)
+
+
+def build_offpolicy_sample_info(
+    *,
+    replay_batch_size_per_rank: int,
+    updates_per_step: int,
+    learner: Any,
+    world_size: int = 1,
+) -> dict[str, int]:
+    """Describe replay rows and effective learner samples for logging.
+
+    ``algo.batch_size`` is defined as a per-rank learner batch per update. When
+    symmetry is enabled, the runner samples fewer replay rows and the learner
+    expands them back to the configured per-rank batch.
+    """
+    world_size = max(int(world_size), 1)
+    updates_per_step = max(int(updates_per_step), 0)
+    replay_batch_size_per_rank = max(int(replay_batch_size_per_rank), 0)
+    batch_multiplier = get_learner_batch_multiplier(learner)
+    batch_size_per_rank = replay_batch_size_per_rank * batch_multiplier
+    return {
+        "batch_size_per_rank": batch_size_per_rank,
+        "effective_batch_size": batch_size_per_rank * world_size,
+        "replay_samples_per_iter": replay_batch_size_per_rank * updates_per_step * world_size,
+        "learner_samples_per_iter": batch_size_per_rank * updates_per_step * world_size,
+    }
+
+
 def build_reward_comparison_metrics(
     reward_history: deque,
     smoothed_reward: float,
@@ -315,8 +350,9 @@ class OffPolicyRunner(AsyncRunner):
 
         # Training loop
         for iteration in range(1, max_iterations + 1):
+            iteration_start = time.perf_counter()
             # Wait for data
-            wait_start = time.time()
+            wait_start = time.perf_counter()
             wait_start_ns = time.perf_counter_ns() if trace_recorder else 0
             if self.sync_collection and collection_ready_queue:
                 import queue
@@ -409,7 +445,7 @@ class OffPolicyRunner(AsyncRunner):
                         trace_recorder,
                     )
 
-            wait_time = time.time() - wait_start
+            wait_time = time.perf_counter() - wait_start
             if trace_recorder:
                 trace_recorder.add_slice(
                     "learner/wait_for_data",
@@ -462,7 +498,7 @@ class OffPolicyRunner(AsyncRunner):
                     args={"total_batch": self.batch_size * self.updates_per_step},
                 )
 
-            train_start = time.time()
+            train_start = time.perf_counter()
 
             for update_idx in range(self.updates_per_step):
                 s = update_idx * self.batch_size
@@ -516,7 +552,7 @@ class OffPolicyRunner(AsyncRunner):
                     )
                 )
 
-            train_time = time.time() - train_start
+            train_time = time.perf_counter() - train_start
             self.learner.update_count += 1
             _ws_ns = time.perf_counter_ns() if trace_recorder else 0
             weight_sync_start = time.perf_counter()
@@ -538,6 +574,7 @@ class OffPolicyRunner(AsyncRunner):
 
             if self.sync_collection and trainer_done_queue:
                 trainer_done_queue.put(1)
+            iteration_time = time.perf_counter() - iteration_start
 
             write_delta = int(replay_buffer.ptr[0]) - ptr_before
             consume = self.batch_size * self.updates_per_step
@@ -560,8 +597,14 @@ class OffPolicyRunner(AsyncRunner):
                 wait_time=wait_time,
                 learner_incremental_h2d_time=learner_incremental_h2d_time,
                 weight_sync_time=weight_sync_time,
+                iteration_time=iteration_time,
                 extra_info={
                     "throughput_steps": self.num_envs * self.env_steps_per_sync,
+                    **build_offpolicy_sample_info(
+                        replay_batch_size_per_rank=self.batch_size,
+                        updates_per_step=self.updates_per_step,
+                        learner=self.learner,
+                    ),
                 },
             )
 

@@ -15,6 +15,7 @@ import torch
 
 from unilab.algos.torch.offpolicy.runner import (
     OffPolicyRunner,
+    build_offpolicy_sample_info,
     build_reward_comparison_metrics,
     compute_train_start_threshold,
     replay_buffer_ready_for_learning,
@@ -48,6 +49,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
     """
 
     LEARNER_LOG_INTERVAL = 10
+    REPLAY_BATCH_READY_POLL_SEC = 0.001
 
     def __init__(
         self,
@@ -155,7 +157,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                     ckpt_path,
                     train_start_wall,
                 )
-            time.sleep(0.1)
+            time.sleep(self.REPLAY_BATCH_READY_POLL_SEC)
         return True
 
     def learn(
@@ -365,8 +367,9 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
 
             # ---- training loop ----
             for iteration in range(1, max_iterations + 1):
+                iteration_start = time.perf_counter()
                 # -- wait for data --
-                wait_start = time.time()
+                wait_start = time.perf_counter()
                 wait_start_ns = time.perf_counter_ns()
                 if self.sync_collection and collection_ready_queue:
                     import queue
@@ -451,7 +454,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                             trace_recorder,
                         )
 
-                wait_time = time.time() - wait_start
+                wait_time = time.perf_counter() - wait_start
                 if trace_recorder:
                     trace_recorder.add_slice(
                         "learner/wait_for_data",
@@ -553,7 +556,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                             },
                         )
 
-                    train_start = time.time()
+                    train_start = time.perf_counter()
 
                     for update_idx in range(self.updates_per_step):
                         s = update_idx * self.batch_size
@@ -612,7 +615,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                         )
                     )
 
-                train_time = time.time() - train_start
+                train_time = time.perf_counter() - train_start
                 self.learner.update_count += 1
                 _ws_ns = time.perf_counter_ns()
                 weight_sync_start = time.perf_counter()
@@ -634,6 +637,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
 
                 if self.sync_collection and trainer_done_queue and not collector_released_for_next:
                     self._safe_put_trainer_done(trainer_done_queue, label="weight_sync")
+                iteration_time = time.perf_counter() - iteration_start
 
                 write_delta = int(replay_buffer.ptr[0]) - ptr_before
                 consume = self.batch_size * self.updates_per_step
@@ -661,8 +665,14 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                         wait_time=wait_time,
                         learner_incremental_h2d_time=learner_incremental_h2d_time,
                         weight_sync_time=weight_sync_time,
+                        iteration_time=iteration_time,
                         extra_info={
                             "throughput_steps": self.num_envs * self.env_steps_per_sync,
+                            **build_offpolicy_sample_info(
+                                replay_batch_size_per_rank=self.batch_size,
+                                updates_per_step=self.updates_per_step,
+                                learner=self.learner,
+                            ),
                         },
                     )
 

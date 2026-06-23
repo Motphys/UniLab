@@ -173,6 +173,92 @@ def test_onpolicy_logger_uses_offpolicy_terminal_layout():
     logger.close()
 
 
+def test_offpolicy_logger_terminal_timing_labels_include_wall_clock_and_distributed_context():
+    logger = OffPolicyLogger(
+        algo_name="FastSAC_x2GPU",
+        env_name="G1WalkFlat",
+        max_iterations=10,
+        num_envs=4,
+        log_backend="no_print",
+    )
+    logger.log_step(
+        iteration=1,
+        metrics={"qf_loss": 0.1},
+        reward=1.0,
+        train_time=0.5,
+        wait_time=1.0,
+        learner_incremental_h2d_time=0.01,
+        weight_sync_time=0.03,
+        iteration_time=1.6,
+        extra_info={
+            "throughput_steps": 8,
+            "world_size": 2,
+            "multi_gpu_sync_mode": "local_sgd",
+            "multi_gpu_sync_interval": 1,
+            "batch_size_per_rank": 8,
+            "effective_batch_size": 16,
+            "replay_samples_per_iter": 64,
+            "learner_samples_per_iter": 64,
+        },
+    )
+
+    console = Console(record=True, width=140)
+    console.print(logger._build_display())
+    output = console.export_text()
+
+    assert "Replay Wait" not in output
+    assert "H2D Copy" in output
+    assert "Param Sync (in Train)" in output
+    assert "Iter Wall" in output
+    assert "Unaccounted" not in output
+    assert "Other" not in output
+    assert "GPUs" in output
+    assert "Sync Mode" in output
+    assert "local_sgd" in output
+    assert "Sync Interval" in output
+    assert "Batch/Rank" in output
+    assert "Batch/Update" in output
+    assert "Samples/Iter" in output
+    assert "Samples/s" in output
+
+    logger.close()
+
+
+def test_offpolicy_logger_terminal_shows_replay_rows_when_symmetry_expands_batch():
+    logger = OffPolicyLogger(
+        algo_name="FastSAC",
+        env_name="G1WalkFlat",
+        max_iterations=10,
+        num_envs=4,
+        log_backend="no_print",
+    )
+    logger.log_step(
+        iteration=1,
+        metrics={"qf_loss": 0.1},
+        train_time=0.5,
+        wait_time=0.1,
+        iteration_time=1.0,
+        extra_info={
+            "throughput_steps": 4,
+            "batch_size_per_rank": 16,
+            "effective_batch_size": 16,
+            "replay_samples_per_iter": 8,
+            "learner_samples_per_iter": 16,
+        },
+    )
+
+    console = Console(record=True, width=120)
+    console.print(logger._build_display())
+    output = console.export_text()
+
+    assert "Batch/Rank" in output
+    assert "Replay/Iter" in output
+    assert "Samples/Iter" in output
+    assert "Samples/s" in output
+
+    logger.close()
+
+
 def test_build_wandb_settings_defaults_for_shared_workspace():
     settings = build_wandb_settings(
         {"wandb_project": "unilab"},
@@ -396,19 +482,45 @@ def test_offpolicy_logger_logs_wait_and_iter_throughput(monkeypatch):
         train_time=0.75,
         wait_time=10.0,
         learner_incremental_h2d_time=0.02,
+        learner_param_sync_time=0.04,
         weight_sync_time=0.05,
-        extra_info={"throughput_steps": 8},
+        iteration_time=10.9,
+        extra_info={
+            "throughput_steps": 8,
+            "world_size": 2,
+            "batch_size_per_rank": 8,
+            "effective_batch_size": 16,
+            "replay_samples_per_iter": 32,
+            "learner_samples_per_iter": 32,
+        },
     )
 
     payload, step = fake_wandb.log_calls[-1]
     assert step == 1
     assert payload["timing/learner_wait_ms"] == 10_000.0
     assert "timing/learner_collect_ms" not in payload
+    assert "timing/learner_replay_wait_ms" not in payload
     assert payload["timing/learner_incremental_h2d_ms"] == 20.0
+    assert "timing/learner_replay_sample_ms" not in payload
     assert payload["timing/learner_train_ms"] == 750.0
+    assert payload["timing/learner_param_sync_ms"] == 40.0
     assert payload["timing/learner_weight_sync_ms"] == 50.0
-    assert payload["perf/iter_ms"] == pytest.approx(820.0)
-    assert payload["perf/steps_per_sec"] == pytest.approx(8.0 / 0.82)
+    assert payload["perf/learner_pipeline_ms"] == pytest.approx(820.0)
+    assert payload["perf/iter_ms"] == pytest.approx(10_900.0)
+    assert "perf/iter_unaccounted_ms" not in payload
+    assert payload["perf/steps_per_sec"] == pytest.approx(8.0 / 10.9)
+    assert payload["perf/effective_samples_per_sec"] == pytest.approx(32.0 / 10.9)
+    for key in (
+        "axis/iteration",
+        "axis/env_steps_total",
+        "distributed/world_size",
+        "distributed/batch_size_per_rank",
+        "distributed/effective_batch_size",
+        "distributed/replay_samples_per_iter",
+        "distributed/learner_samples_per_iter",
+    ):
+        assert key not in payload
+    assert "perf/effective_samples_per_sec_smoothed" not in payload
     assert "perf/collect_train_ratio" not in payload
 
     logger.finish()
@@ -442,6 +554,86 @@ def test_offpolicy_logger_logs_collector_phase_timing_to_backends(monkeypatch):
 
     assert ("timing/collector_replay_ms", 2.5, 4) in tb_writer.scalars
     tb_logger.finish()
+
+
+def test_offpolicy_logger_tensorboard_logs_wall_clock_without_axis_or_distributed_scalars():
+    tb_writer = _FakeTensorBoardWriter()
+    logger = OffPolicyLogger(
+        algo_name="FastSAC_x2GPU",
+        env_name="G1WalkFlat",
+        log_backend="none",
+    )
+    logger._tb_writer = tb_writer
+    logger.log_step(
+        iteration=5,
+        metrics={},
+        train_time=0.7,
+        wait_time=1.0,
+        learner_incremental_h2d_time=0.05,
+        learner_param_sync_time=0.02,
+        weight_sync_time=0.1,
+        iteration_time=1.95,
+        extra_info={
+            "throughput_steps": 16,
+            "world_size": 2,
+            "batch_size_per_rank": 16,
+            "effective_batch_size": 32,
+            "replay_samples_per_iter": 64,
+            "learner_samples_per_iter": 64,
+        },
+    )
+
+    scalars = {tag: value for tag, value, _ in tb_writer.scalars}
+    assert scalars["timing/learner_wait_ms"] == pytest.approx(1_000.0)
+    assert "timing/learner_replay_wait_ms" not in scalars
+    assert scalars["timing/learner_incremental_h2d_ms"] == pytest.approx(50.0)
+    assert "timing/learner_replay_sample_ms" not in scalars
+    assert scalars["timing/learner_param_sync_ms"] == pytest.approx(20.0)
+    assert scalars["perf/learner_pipeline_ms"] == pytest.approx(850.0)
+    assert scalars["perf/iter_ms"] == pytest.approx(1_950.0)
+    assert scalars["perf/effective_samples_per_sec"] == pytest.approx(64.0 / 1.95)
+    for key in (
+        "axis/iteration",
+        "axis/env_steps_total",
+        "distributed/world_size",
+        "distributed/batch_size_per_rank",
+        "distributed/effective_batch_size",
+        "distributed/replay_samples_per_iter",
+        "distributed/learner_samples_per_iter",
+    ):
+        assert key not in scalars
+    assert "perf/effective_samples_per_sec_smoothed" not in scalars
+    logger.finish()
+
+
+def test_offpolicy_logger_omits_param_sync_scalar_for_single_gpu_without_sync():
+    tb_writer = _FakeTensorBoardWriter()
+    logger = OffPolicyLogger(
+        algo_name="FastSAC",
+        env_name="G1WalkFlat",
+        log_backend="none",
+    )
+    logger._tb_writer = tb_writer
+    logger.log_step(
+        iteration=5,
+        metrics={},
+        train_time=0.7,
+        wait_time=0.1,
+        learner_param_sync_time=0.0,
+        iteration_time=0.9,
+        extra_info={
+            "throughput_steps": 16,
+            "world_size": 1,
+            "batch_size_per_rank": 16,
+            "effective_batch_size": 16,
+            "replay_samples_per_iter": 16,
+            "learner_samples_per_iter": 16,
+        },
+    )
+
+    scalars = {tag for tag, _, _ in tb_writer.scalars}
+    assert "timing/learner_param_sync_ms" not in scalars
+    logger.finish()
 
 
 def test_offpolicy_logger_logs_reward_comparison_metrics(monkeypatch):
@@ -494,5 +686,6 @@ def test_offpolicy_logger_omits_iteration_extra_fields_when_not_supplied(monkeyp
     payload, _ = fake_wandb.log_calls[-1]
     assert "timing/learner_collect_ms" not in payload
     assert "perf/steps_per_sec" not in payload
+    assert payload["perf/iter_ms"] == pytest.approx(1_820.0)
 
     logger.finish()

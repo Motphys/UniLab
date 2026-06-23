@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import deque
 from typing import Any
 
 from rich import box
@@ -108,10 +107,18 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._buffer_target: int = 0
         self._wait_time: float = 0.0
         self._learner_incremental_h2d_time: float = 0.0
+        self._learner_param_sync_time: float = 0.0
         self._weight_sync_time: float = 0.0
+        self._iteration_time: float | None = None
         self._throughput_steps: int = 0
+        self._world_size: int = 1
+        self._multi_gpu_sync_mode: str = ""
+        self._multi_gpu_sync_interval: int = 0
+        self._batch_size_per_rank: int = 0
+        self._effective_batch_size: int = 0
+        self._replay_samples_per_iter: int = 0
+        self._learner_samples_per_iter: int = 0
         self._has_iteration_extra_info: bool = False
-        self._iter_times: deque = deque(maxlen=50)
         self._collector_timing: dict[str, float] = {}
         self._timeout_rate: float = 0.0
         self._terminated_rate: float = 0.0
@@ -149,13 +156,26 @@ class OffPolicyLogger(BaseTrainingLogger):
     def _get_iter_steps_per_sec(self) -> float | None:
         if not self._has_iteration_extra_info or self._throughput_steps <= 0:
             return None
-        iter_time = self._get_iter_pipeline_time()
+        iter_time = self._get_iter_wall_time()
         if iter_time <= 0:
             return None
         return self._throughput_steps / iter_time
 
-    def _get_iter_pipeline_time(self) -> float:
+    def _get_effective_samples_per_sec(self) -> float | None:
+        if not self._has_iteration_extra_info or self._learner_samples_per_iter <= 0:
+            return None
+        iter_time = self._get_iter_wall_time()
+        if iter_time <= 0:
+            return None
+        return self._learner_samples_per_iter / iter_time
+
+    def _get_learner_pipeline_time(self) -> float:
         return self._learner_incremental_h2d_time + self._train_time + self._weight_sync_time
+
+    def _get_iter_wall_time(self) -> float:
+        if self._iteration_time is not None and self._iteration_time > 0.0:
+            return self._iteration_time
+        return self._wait_time + self._get_learner_pipeline_time()
 
     def _build_compact_header(
         self,
@@ -164,9 +184,12 @@ class OffPolicyLogger(BaseTrainingLogger):
         extra_fields: list[tuple[str, str]] | None = None,
     ) -> Text:
         iter_steps_per_sec = self._get_iter_steps_per_sec()
+        effective_samples_per_sec = self._get_effective_samples_per_sec()
         header_extra_fields: list[tuple[str, str]] = []
         if iter_steps_per_sec is not None:
             header_extra_fields.append((f"Steps/s {iter_steps_per_sec:,.0f}", "bold green"))
+        if effective_samples_per_sec is not None:
+            header_extra_fields.append((f"Samples/s {effective_samples_per_sec:,.0f}", "bold cyan"))
         if extra_fields:
             header_extra_fields.extend(extra_fields)
         return super()._build_compact_header(
@@ -211,7 +234,9 @@ class OffPolicyLogger(BaseTrainingLogger):
         train_time: float = 0.0,
         wait_time: float = 0.0,
         learner_incremental_h2d_time: float = 0.0,
+        learner_param_sync_time: float = 0.0,
         weight_sync_time: float = 0.0,
+        iteration_time: float | None = None,
         extra_info: dict | None = None,
     ):
         metrics = _dedupe_metric_aliases(metrics)
@@ -219,13 +244,34 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._train_time = train_time
         self._wait_time = wait_time
         self._learner_incremental_h2d_time = learner_incremental_h2d_time
+        self._learner_param_sync_time = learner_param_sync_time
         self._weight_sync_time = weight_sync_time
+        self._iteration_time = iteration_time
         self._has_iteration_extra_info = extra_info is not None
         if extra_info:
             self._throughput_steps = int(extra_info.get("throughput_steps", 0))
+            self._world_size = int(extra_info.get("world_size", 1))
+            self._multi_gpu_sync_mode = str(extra_info.get("multi_gpu_sync_mode", ""))
+            self._multi_gpu_sync_interval = int(extra_info.get("multi_gpu_sync_interval", 0))
+            self._batch_size_per_rank = int(extra_info.get("batch_size_per_rank", 0))
+            self._effective_batch_size = int(extra_info.get("effective_batch_size", 0))
+            if self._effective_batch_size <= 0:
+                self._effective_batch_size = self._batch_size_per_rank * self._world_size
+            if self._batch_size_per_rank <= 0 and self._effective_batch_size > 0:
+                self._batch_size_per_rank = self._effective_batch_size // max(self._world_size, 1)
+            self._replay_samples_per_iter = int(extra_info.get("replay_samples_per_iter", 0))
+            self._learner_samples_per_iter = int(extra_info.get("learner_samples_per_iter", 0))
+            if self._replay_samples_per_iter <= 0:
+                self._replay_samples_per_iter = self._learner_samples_per_iter
         else:
             self._throughput_steps = 0
-        self._iter_times.append(self._get_iter_pipeline_time())
+            self._world_size = 1
+            self._multi_gpu_sync_mode = ""
+            self._multi_gpu_sync_interval = 0
+            self._batch_size_per_rank = 0
+            self._effective_batch_size = 0
+            self._replay_samples_per_iter = 0
+            self._learner_samples_per_iter = 0
         if metrics:
             self._latest_metrics.update(metrics)
         if reward is not None:
@@ -255,15 +301,11 @@ class OffPolicyLogger(BaseTrainingLogger):
     ):
         global_step = self._total_steps if self._total_steps > 0 else iteration
         iter_steps_per_sec = self._get_iter_steps_per_sec()
-        axis_scalars = {
-            "axis/iteration": float(iteration),
-            "axis/env_steps_total": float(global_step),
-        }
+        effective_samples_per_sec = self._get_effective_samples_per_sec()
+        iter_wall_time = self._get_iter_wall_time()
 
         if self._tb_writer:
             writer = self._tb_writer
-            for key, value in axis_scalars.items():
-                writer.add_scalar(key, value, global_step)
             if metrics:
                 for key, value in metrics.items():
                     writer.add_scalar(_metric_backend_key(key), value, global_step)
@@ -286,6 +328,12 @@ class OffPolicyLogger(BaseTrainingLogger):
                 global_step,
             )
             writer.add_scalar("timing/learner_train_ms", train_time * 1000, global_step)
+            if self._world_size > 1 or self._learner_param_sync_time > 0.0:
+                writer.add_scalar(
+                    "timing/learner_param_sync_ms",
+                    self._learner_param_sync_time * 1000,
+                    global_step,
+                )
             writer.add_scalar(
                 "timing/learner_weight_sync_ms",
                 self._weight_sync_time * 1000,
@@ -295,13 +343,24 @@ class OffPolicyLogger(BaseTrainingLogger):
                 writer.add_scalar(f"timing/collector_{key}", value, global_step)
             if iter_steps_per_sec is not None:
                 writer.add_scalar("perf/steps_per_sec", iter_steps_per_sec, global_step)
-            writer.add_scalar("perf/iter_ms", self._get_iter_pipeline_time() * 1000, global_step)
+            if effective_samples_per_sec is not None:
+                writer.add_scalar(
+                    "perf/effective_samples_per_sec",
+                    effective_samples_per_sec,
+                    global_step,
+                )
+            writer.add_scalar("perf/iter_ms", iter_wall_time * 1000, global_step)
+            writer.add_scalar(
+                "perf/learner_pipeline_ms",
+                self._get_learner_pipeline_time() * 1000,
+                global_step,
+            )
 
         if self._wandb_run:
             wandb = _load_wandb()
             if wandb is None:
                 return
-            log_dict: dict[str, Any] = {"iteration": iteration, **axis_scalars}
+            log_dict: dict[str, Any] = {"iteration": iteration}
             if metrics:
                 for key, value in metrics.items():
                     log_dict[_metric_backend_key(key)] = value
@@ -322,12 +381,17 @@ class OffPolicyLogger(BaseTrainingLogger):
                 self._learner_incremental_h2d_time * 1000
             )
             log_dict["timing/learner_train_ms"] = train_time * 1000
+            if self._world_size > 1 or self._learner_param_sync_time > 0.0:
+                log_dict["timing/learner_param_sync_ms"] = self._learner_param_sync_time * 1000
             log_dict["timing/learner_weight_sync_ms"] = self._weight_sync_time * 1000
             for key, value in self._collector_timing.items():
                 log_dict[f"timing/collector_{key}"] = value
             if iter_steps_per_sec is not None:
                 log_dict["perf/steps_per_sec"] = iter_steps_per_sec
-            log_dict["perf/iter_ms"] = self._get_iter_pipeline_time() * 1000
+            if effective_samples_per_sec is not None:
+                log_dict["perf/effective_samples_per_sec"] = effective_samples_per_sec
+            log_dict["perf/iter_ms"] = iter_wall_time * 1000
+            log_dict["perf/learner_pipeline_ms"] = self._get_learner_pipeline_time() * 1000
             wandb.log(log_dict, step=global_step)
 
     def log_status(self, status: str):
@@ -407,10 +471,16 @@ class OffPolicyLogger(BaseTrainingLogger):
         wait_color = "red" if wait_ms > 1.0 else "yellow"
         learner_items = [
             ("Wait", f"[{wait_color}]{wait_ms:.1f}ms[/]"),
-            ("H2D", f"{self._learner_incremental_h2d_time * 1000:.1f}ms"),
+            ("H2D Copy", f"{self._learner_incremental_h2d_time * 1000:.1f}ms"),
             ("Train", f"{self._train_time * 1000:.1f}ms"),
             ("Weight Sync", f"{self._weight_sync_time * 1000:.1f}ms"),
+            ("Iter Wall", f"{self._get_iter_wall_time() * 1000:.1f}ms"),
         ]
+        if self._world_size > 1 or self._learner_param_sync_time > 0.0:
+            learner_items.insert(
+                3,
+                ("Param Sync (in Train)", f"{self._learner_param_sync_time * 1000:.1f}ms"),
+            )
         collector_items = [
             (OFFPOLICY_COLLECTOR_TIMING_LABELS.get(key, key), f"{value:.1f}ms")
             for key, value in sorted(
@@ -433,6 +503,26 @@ class OffPolicyLogger(BaseTrainingLogger):
             ]
         )
         system_items.append(("Envs", f"{self.num_envs:,}"))
+        if self._world_size > 1:
+            system_items.append(("GPUs", f"{self._world_size:,}"))
+            if self._multi_gpu_sync_mode:
+                system_items.append(("Sync Mode", self._multi_gpu_sync_mode))
+            if self._multi_gpu_sync_interval > 0:
+                system_items.append(("Sync Interval", f"{self._multi_gpu_sync_interval:,}"))
+        if self._batch_size_per_rank > 0:
+            system_items.append(("Batch/Rank", f"{self._batch_size_per_rank:,}"))
+        if (
+            self._effective_batch_size > 0
+            and self._effective_batch_size != self._batch_size_per_rank
+        ):
+            system_items.append(("Batch/Update", f"{self._effective_batch_size:,}"))
+        if (
+            self._replay_samples_per_iter > 0
+            and self._replay_samples_per_iter != self._learner_samples_per_iter
+        ):
+            system_items.append(("Replay/Iter", f"{self._replay_samples_per_iter:,}"))
+        if self._learner_samples_per_iter > 0:
+            system_items.append(("Samples/Iter", f"{self._learner_samples_per_iter:,}"))
         yes_mark = "✓" if self._unicode_console else "yes"
         no_mark = "✗" if self._unicode_console else "no"
         sync_collect = (

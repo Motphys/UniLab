@@ -12,7 +12,11 @@ from unilab.algos.torch.offpolicy.worker import (
     _service_collector_pack_requests,
 )
 from unilab.ipc.replay_buffer import ReplayBuffer
-from unilab.ipc.replay_pipelines.multi_gpu_cpu_pinned import MultiGPUCPUPinnedReplayPipeline
+from unilab.ipc.replay_pipelines.base import ReplayTickMetadata
+from unilab.ipc.replay_pipelines.multi_gpu_cpu_pinned import (
+    REPLAY_PREPARE_READY_POLL_SEC,
+    MultiGPUCPUPinnedReplayPipeline,
+)
 
 
 def _make_replay_buffer() -> ReplayBuffer:
@@ -164,6 +168,64 @@ def test_rank_local_pipeline_requests_rank_seed_and_consumes_cpu_batch() -> None
         pipeline.after_tick()
     finally:
         pipeline.close()
+
+
+def test_rank_local_pipeline_wait_until_ready_uses_fine_grained_polling() -> None:
+    replay_buffer = _make_replay_buffer()
+    packed_width = int(replay_buffer._storage.shape[1])
+    sample_count = 3
+    request_queue: queue.Queue = queue.Queue()
+    ready_queue: queue.Queue = queue.Queue()
+    shared_slots = [
+        torch.empty((sample_count, packed_width), dtype=torch.float32) for _ in range(2)
+    ]
+    pipeline = MultiGPUCPUPinnedReplayPipeline(
+        replay_buffer,
+        rank=1,
+        world_size=2,
+        device="cpu",
+        sample_count=sample_count,
+        base_seed=100,
+        collector_pack_request_queue=request_queue,
+        collector_pack_ready_queue=ready_queue,
+        collector_pack_shared_slots=shared_slots,
+    )
+
+    class _RecordingCondition:
+        def __init__(self) -> None:
+            self.timeouts: list[float | None] = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            del exc_type, exc, tb
+            return False
+
+        def wait(self, timeout=None) -> bool:
+            self.timeouts.append(timeout)
+            pipeline._prepared_metadata = ReplayTickMetadata(
+                tick_id=5,
+                snapshot_ptr=int(replay_buffer.ptr[0]),
+                snapshot_size=int(replay_buffer.size[0]),
+                sample_seed=111,
+                sample_count=sample_count,
+                batch_host_slot=1,
+                batch_gpu_slot=1,
+            )
+            return True
+
+    condition = _RecordingCondition()
+    pipeline._prepare_condition = condition
+    pipeline._transfer_backend.synchronize_ready = lambda slot: None
+
+    try:
+        assert pipeline.wait_until_ready(5, sample_count)
+    finally:
+        pipeline.close()
+
+    assert condition.timeouts == [pytest.approx(REPLAY_PREPARE_READY_POLL_SEC)]
+    assert condition.timeouts[0] < 0.01
 
 
 def test_rank_local_pipeline_rejects_runner_rank_matrix_slots() -> None:

@@ -328,6 +328,8 @@ def test_offpolicy_hydra_default_trace_flags():
     assert cfg.training.trace_thread_time is False
     assert cfg.training.trace_cuda_events is True
     assert cfg.training.verbose_metrics is False
+    assert cfg.training.multi_gpu_sync_mode == "local_sgd"
+    assert cfg.training.multi_gpu_sync_interval == 1
     assert "replay_h2d_submitter" not in cfg.training
 
 
@@ -1394,6 +1396,17 @@ def test_offpolicy_build_failure_summary_preserves_failed_status():
     assert summary["total_env_steps"] == 12
     assert summary["error_type"] == "RuntimeError"
     assert summary["error"] == "collector died"
+
+
+def test_offpolicy_build_run_dir_name_adds_gpu_suffix_only_for_multigpu():
+    mod = _offpolicy()
+
+    assert mod.build_run_dir_name("2026-06-22_22-31-24", "mujoco", 1) == (
+        "2026-06-22_22-31-24_mujoco"
+    )
+    assert mod.build_run_dir_name("2026-06-22_22-31-24", "mujoco", 2) == (
+        "2026-06-22_22-31-24_mujoco_2xGPU"
+    )
 
 
 def test_offpolicy_main_failure_summary_and_skips_playback(

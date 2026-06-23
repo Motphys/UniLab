@@ -56,6 +56,13 @@ def build_failure_summary(exc: BaseException, run_summary: Any | None = None) ->
     return summary
 
 
+def build_run_dir_name(timestamp: str, sim_backend: str, num_gpus: int = 1) -> str:
+    suffix = f"{timestamp}_{sim_backend}"
+    if int(num_gpus) > 1:
+        suffix += f"_{int(num_gpus)}xGPU"
+    return suffix
+
+
 def default_device(torch_module, preferred: str | None = None) -> str:
     """Resolve runtime device with optional user override."""
     if preferred:
@@ -169,6 +176,8 @@ def build_runner(algo_name: str, cfg: DictConfig):
         )
     verbose_metrics = bool(getattr(cfg.training, "verbose_metrics", False))
     num_gpus = int(getattr(cfg.training, "num_gpus", 1))
+    multi_gpu_sync_mode = str(getattr(cfg.training, "multi_gpu_sync_mode", "local_sgd"))
+    multi_gpu_sync_interval = int(getattr(cfg.training, "multi_gpu_sync_interval", 1))
     if num_gpus > 1 and algo_name != "sac":
         raise ValueError("Only SAC supports training.num_gpus > 1 in this validation round")
 
@@ -280,6 +289,8 @@ def build_runner(algo_name: str, cfg: DictConfig):
                 learner_kwargs=_learner_kwargs,
                 num_gpus=num_gpus,
                 distributed_backend="nccl",
+                multi_gpu_sync_mode=multi_gpu_sync_mode,
+                multi_gpu_sync_interval=multi_gpu_sync_interval,
                 num_envs=cfg.algo.num_envs,
                 replay_buffer_n=cfg.algo.replay_buffer_n,
                 batch_size=_batch_size,
@@ -703,9 +714,12 @@ def main(cfg: DictConfig) -> None:
 
     if cfg.training.log_dir is None:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        log_dir = str(
-            get_log_root(ROOT_DIR, cfg) / task_name / f"{timestamp}_{cfg.training.sim_backend}"
+        run_dir_name = build_run_dir_name(
+            timestamp,
+            str(cfg.training.sim_backend),
+            int(getattr(cfg.training, "num_gpus", 1)),
         )
+        log_dir = str(get_log_root(ROOT_DIR, cfg) / task_name / run_dir_name)
     else:
         log_dir = cfg.training.log_dir
 

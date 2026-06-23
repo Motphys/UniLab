@@ -328,6 +328,7 @@ class APPORunner(AsyncRunner):
         )
 
         for iteration in range(1, max_iterations + 1):
+            iteration_start = time.perf_counter()
             # Drain collector metrics while waiting for next rollout
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
             wait_start = time.time()
@@ -388,6 +389,7 @@ class APPORunner(AsyncRunner):
             actor_weight_sync.write_weights(learner.actor.state_dict())
             critic_weight_sync.write_weights(learner.critic.state_dict())
             weight_sync_time = time.perf_counter() - weight_sync_start
+            iteration_time = time.perf_counter() - iteration_start
 
             metrics["staging_pool_len"] = float(staging_pool.active_count)
             metrics["staging_pool_capacity"] = float(staging_pool.capacity)
@@ -413,6 +415,7 @@ class APPORunner(AsyncRunner):
                 wait_time=wait_time,
                 learner_incremental_h2d_time=learner_incremental_h2d_time,
                 weight_sync_time=weight_sync_time,
+                iteration_time=iteration_time,
                 extra_info={
                     "throughput_steps": num_new * env_steps_per_sync,
                 },
