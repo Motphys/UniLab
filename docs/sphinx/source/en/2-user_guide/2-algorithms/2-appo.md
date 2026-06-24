@@ -36,6 +36,30 @@ uv run eval --algo appo --task go2_joystick_flat --sim mujoco --load-run -1
   semantics differ from synchronous PPO.
 - The collector/learner pipeline is backed by a 4-slot ring buffer.
 
+Per-iteration timing sequence (field meanings on the [logging page](../1-training/3-logging.md)):
+
+```{mermaid}
+sequenceDiagram
+    participant C as Collector
+    participant R as Ring Buffer
+    participant L as Learner
+    participant G as GPU
+    loop Collect one rollout (steps_per_env steps)
+        Note over C: mlp_infer_ms — per-step policy inference
+        Note over C: env_step_total_ms — single env.step() time
+    end
+    C->>R: write rollout (Sync Collect)
+    Note over L: Collector Wait — block until ring buffer has a new rollout
+    R->>L: read available rollout (Rollouts Read / Available On Arrive)
+    L->>G: stage into staging pool (Staging Pool sliding window)
+    Note over L,G: H2D Copy — host-to-device batch copy
+    L->>G: V-trace correction + PPO update (Appo/Updates Executed)
+    Note over L,G: Train — pure SGD compute
+    L->>C: write new weights to shared memory
+    Note over L: Weight Sync — publish weights to the collector
+    Note over L: Iter Wall — whole learner-iteration wall time (includes the above)
+```
+
 ## Key Fields
 
 - `algo.steps_per_env`: rollout length per environment.

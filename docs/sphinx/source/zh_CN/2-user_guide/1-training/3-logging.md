@@ -105,3 +105,31 @@ APPO 沿用 ring buffer，collector 仅上报两项，均为**单步** EMA（非
 | --- | --- | --- |
 | env_step_total_ms | `timing/collector_env_step_total_ms` | 单次 `env.step()` 耗时的 EMA |
 | mlp_infer_ms | `timing/collector_mlp_infer_ms` | 单步策略推理耗时的 EMA |
+
+### 单次迭代时序（以 APPO 为例）
+
+collector 独立进程经 ring buffer 持续产 rollout；learner 每个迭代依次经历下列计时分量（括注为该指标含义）：
+
+```{mermaid}
+sequenceDiagram
+    participant C as Collector
+    participant R as Ring Buffer
+    participant L as Learner
+    participant G as GPU
+    loop 采集一条 rollout（steps_per_env 步）
+        Note over C: mlp_infer_ms — 单步策略推理选动作
+        Note over C: env_step_total_ms — 单次 env.step() 耗时
+    end
+    C->>R: 写入 rollout（Sync Collect）
+    Note over L: Collector Wait — 阻塞等 ring buffer 产出新 rollout
+    R->>L: 读取可用 rollout（Rollouts Read / Available On Arrive）
+    L->>G: 暂存到 staging pool（Staging Pool 滑动窗口）
+    Note over L,G: H2D Copy — host→device 批次拷贝
+    L->>G: V-trace 校正 + PPO 更新（Appo/Updates Executed）
+    Note over L,G: Train — 纯 SGD 计算
+    L->>C: 写共享内存新权重
+    Note over L: Weight Sync — 发布权重给 collector
+    Note over L: Iter Wall — 该 learner 迭代整圈墙钟（含以上各项）
+```
+
+SAC / TD3 与多卡路径在此基础上还会出现 Replay Batch Wait（等 replay pack / H2D batch 就绪）、Rank Barrier（多卡 rank 同步）、Param Sync（多卡参数平均）与 Sync Coordination（同步采集握手）；APPO 单卡不含这些。
