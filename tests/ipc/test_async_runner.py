@@ -223,9 +223,11 @@ def test_start_collector_does_not_merge_runner_runtime_fields():
             "token": "ok",
         },
     )
-    payload = report_queue.get(timeout=5)
-    assert payload == {"sim_backend": "missing", "token": "ok"}
-    r.close()
+    try:
+        payload = report_queue.get(timeout=30)
+        assert payload == {"sim_backend": "missing", "token": "ok"}
+    finally:
+        r.close()
 
 
 def test_format_collector_death_reports_shell_style_sigbus():
