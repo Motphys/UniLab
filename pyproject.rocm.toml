@@ -32,14 +32,21 @@ dependencies = [
     "wandb",
     "notebook>=7.5.5",
     "onnxruntime>=1.24.3",
+    "huggingface_hub>=0.25",
+    "ninja ; sys_platform == 'linux'",
+    "imageio-ffmpeg>=0.6.0",
 ]
 
 [project.scripts]
 train = "unilab.cli:train_main"
 eval = "unilab.cli:eval_main"
 demo = "unilab.cli:demo_main"
+unilab-complete = "unilab.tools.completion:main"
 unilab-viz-nan = "unilab.tools.viz_nan:main"
 unilab-export-scene = "unilab.tools.export_scene:main"
+unilab-render-teaser = "unilab.tools.render_teaser:main"
+unilab-import-robot = "unilab.tools.import_robot:main"
+unilab-pull-assets = "unilab.tools.pull_assets:main"
 
 [project.optional-dependencies]
 mujoco = ["mujoco-uni==3.8.0"]
