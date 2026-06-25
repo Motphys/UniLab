@@ -120,26 +120,30 @@ The collector continuously produces rollouts through the ring buffer; each learn
 iteration goes through the following timed components (the meaning is in parentheses):
 
 ```{mermaid}
-sequenceDiagram
-    participant C as Collector
-    participant R as Ring Buffer
-    participant L as Learner
-    participant G as GPU
-    loop Collect one rollout (steps_per_env steps)
-        Note over C: mlp_infer_ms — per-step policy inference
-        Note over C: env_step_total_ms — single env.step() time
-    end
-    C->>R: write rollout (Sync Collect)
-    Note over L: Collector Wait — block until ring buffer has a new rollout
-    R->>L: read available rollout (Rollouts Read / Available On Arrive)
-    L->>G: stage into staging pool (Staging Pool sliding window)
-    Note over L,G: H2D Copy — host-to-device batch copy
-    L->>G: V-trace correction + PPO update (Appo/Updates Executed)
-    Note over L,G: Train — pure SGD compute
-    L->>C: write new weights to shared memory
-    Note over L: Weight Sync — publish weights to the collector
-    Note over L: Iter Wall — whole learner-iteration wall time (includes the above)
+gantt
+    title Time inside one learner iteration (APPO)
+    dateFormat x
+    axisFormat %S
+
+    section Collector (proc)
+    rollout N · env interaction (mlp_infer + env_step) ×steps_per_env :active, c0, 0, 12000
+    rollout N+1 (collected in parallel with learner)                  :active, c1, 13000, 30000
+
+    section Ring Buffer (4 slots)
+    rollout N ready    :milestone, r0, 12000, 12000
+    rollout N+1 ready  :milestone, r1, 30000, 30000
+
+    section Learner (GPU)
+    Collector Wait (≈0 when buffer full)  :done,   l0, 12000, 13000
+    H2D Copy (ring → staging)             :        l1, 13000, 16000
+    Train (V-trace + PPO SGD)             :active, l2, 16000, 28000
+    Weight Sync → collector               :crit,   l3, 28000, 30000
+
+    section Iter Wall
+    perf/iter_ms (learner loop only)      :        l4, 12000, 30000
 ```
+
+> The axis is schematic (relative, not real-ms). The collector subprocess produces rollouts through the 4-slot ring buffer in parallel with the learner, so **Collector Wait ≈ 0** in steady state. `perf/iter_ms` counts only this learner loop (it includes Collector Wait but not the collector's parallel rollout compute); the red Weight Sync marks the end of the iteration when fresh weights are published to the collector.
 
 SAC / TD3 and multi-GPU paths additionally show Replay Batch Wait (waiting for a
 replay pack / H2D batch), Rank Barrier (multi-GPU rank sync), Param Sync (multi-GPU

@@ -111,25 +111,29 @@ APPO 沿用 ring buffer，collector 仅上报两项，均为**单步** EMA（非
 collector 独立进程经 ring buffer 持续产 rollout；learner 每个迭代依次经历下列计时分量（括注为该指标含义）：
 
 ```{mermaid}
-sequenceDiagram
-    participant C as Collector
-    participant R as Ring Buffer
-    participant L as Learner
-    participant G as GPU
-    loop 采集一条 rollout（steps_per_env 步）
-        Note over C: mlp_infer_ms — 单步策略推理选动作
-        Note over C: env_step_total_ms — 单次 env.step() 耗时
-    end
-    C->>R: 写入 rollout（Sync Collect）
-    Note over L: Collector Wait — 阻塞等 ring buffer 产出新 rollout
-    R->>L: 读取可用 rollout（Rollouts Read / Available On Arrive）
-    L->>G: 暂存到 staging pool（Staging Pool 滑动窗口）
-    Note over L,G: H2D Copy — host→device 批次拷贝
-    L->>G: V-trace 校正 + PPO 更新（Appo/Updates Executed）
-    Note over L,G: Train — 纯 SGD 计算
-    L->>C: 写共享内存新权重
-    Note over L: Weight Sync — 发布权重给 collector
-    Note over L: Iter Wall — 该 learner 迭代整圈墙钟（含以上各项）
+gantt
+    title 一次 Learner 迭代的时间线（APPO）
+    dateFormat x
+    axisFormat %S
+
+    section Collector（进程）
+    rollout N · env interaction（mlp_infer + env_step）×steps_per_env :active, c0, 0, 12000
+    rollout N+1（与 learner 并行采集）                                :active, c1, 13000, 30000
+
+    section Ring Buffer（4 槽）
+    rollout N 就绪    :milestone, r0, 12000, 12000
+    rollout N+1 就绪  :milestone, r1, 30000, 30000
+
+    section Learner（GPU）
+    Collector Wait（缓冲满则约 0）    :done,   l0, 12000, 13000
+    H2D Copy（ring 进 staging）       :        l1, 13000, 16000
+    Train（V-trace + PPO SGD）        :active, l2, 16000, 28000
+    Weight Sync 写回 collector        :crit,   l3, 28000, 30000
+
+    section Iter Wall
+    perf/iter_ms（仅 learner 这圈）   :        l4, 12000, 30000
 ```
+
+> 横轴为示意相对时长（非真实 ms 比例）。collector 子进程经 4 槽 ring buffer 与 learner 并行产出 rollout，稳态下 **Collector Wait ≈ 0**。`perf/iter_ms` 仅计 learner 这一圈（含 Collector Wait，但不含 collector 的并行采集计算）；红色 Weight Sync 标志该轮迭代结束、向 collector 发布新权重。
 
 SAC / TD3 与多卡路径在此基础上还会出现 Replay Batch Wait（等 replay pack / H2D batch 就绪）、Rank Barrier（多卡 rank 同步）、Param Sync（多卡参数平均）与 Sync Coordination（同步采集握手）；APPO 单卡不含这些。
