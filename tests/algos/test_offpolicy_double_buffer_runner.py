@@ -889,6 +889,60 @@ def test_default_sac_dispatches_to_double_buffer_runner(monkeypatch: pytest.Monk
     assert runner.kwargs["replay_prefetch_mode"] == "one_tick"
 
 
+def test_sac_nvtx_profile_ranges_passed_to_learner(monkeypatch: pytest.MonkeyPatch):
+    import gymnasium as gym
+
+    mod = _offpolicy()
+    cfg = _offpolicy_cfg(
+        [
+            "algo=sac",
+            "training.device=cuda",
+            "training.nvtx_profile_ranges=true",
+            "algo.use_symmetry=false",
+        ]
+    )
+
+    class _FakeEnv:
+        obs_groups_spec = {"obs": 4, "critic": 6}
+        action_space = gym.spaces.Box(-1.0, 1.0, shape=(2,))
+
+        def build_symmetry_augmentation(self, device=None):
+            return None
+
+        def close(self):
+            pass
+
+    class _FakeLearner:
+        class actor:
+            @staticmethod
+            def state_dict():
+                return {"w": MagicMock(shape=(4,))}
+
+        update_count = 0
+
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+
+    class _FakeRunner:
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+
+    monkeypatch.setattr(mod, "ensure_registries", lambda: None)
+    monkeypatch.setattr(mod, "create_env", lambda *args, **kwargs: _FakeEnv())
+
+    import unilab.algos.torch.fast_sac.learner as learner_mod
+
+    monkeypatch.setattr(learner_mod, "FastSACLearner", _FakeLearner)
+
+    import unilab.algos.torch.offpolicy.double_buffer_runner as db_mod
+
+    monkeypatch.setattr(db_mod, "DoubleBufferOffPolicyRunner", _FakeRunner)
+
+    runner = mod.build_runner("sac", cfg)
+
+    assert runner.kwargs["learner"].kwargs["nvtx_profile_ranges"] is True
+
+
 def test_flashsac_double_buffer_dispatches_to_correct_runner(monkeypatch: pytest.MonkeyPatch):
     import gymnasium as gym
 

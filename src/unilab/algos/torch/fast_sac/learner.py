@@ -11,6 +11,8 @@ Hyperparameters aligned with holosoma FastSACConfig defaults.
 from __future__ import annotations
 
 import math
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any, Dict, Tuple, cast
 
 import torch
@@ -33,6 +35,19 @@ def normalize_fast_sac_distributed_sync_mode(mode: str) -> str:
         supported = ", ".join(sorted(FAST_SAC_DISTRIBUTED_SYNC_MODES))
         raise ValueError(f"FastSAC distributed_sync_mode must be one of: {supported}; got {mode!r}")
     return normalized
+
+
+@contextmanager
+def _cuda_nvtx_range(name: str, enabled: bool) -> Iterator[None]:
+    if not enabled:
+        yield
+        return
+
+    torch.cuda.nvtx.range_push(name)
+    try:
+        yield
+    finally:
+        torch.cuda.nvtx.range_pop()
 
 
 # ---------------------------------------------------------------------------
@@ -414,6 +429,7 @@ class FastSACLearner:
         amp_dtype: str = "auto",
         use_compile: bool = False,
         obs_normalization: bool = False,
+        nvtx_profile_ranges: bool = False,
         symmetry_augmentation: SymmetryAugmentation | None = None,
         world_size: int = 1,
         distributed_sync_mode: str = "sync_sgd",
@@ -428,6 +444,7 @@ class FastSACLearner:
         self.use_compile = (
             bool(use_compile) and get_torch_compile_for_cuda(self.device, warn=True) is not None
         )
+        self.nvtx_profile_ranges = bool(nvtx_profile_ranges) and self._device_type == "cuda"
         self.amp_dtype = amp_dtype
         self._amp_dtype = self._resolve_amp_dtype(amp_dtype, self._device_type)
         self.world_size = world_size
@@ -775,86 +792,95 @@ class FastSACLearner:
 
         # Apply symmetry augmentation
         if self.use_symmetry:
-            orig_actions = actions
+            with _cuda_nvtx_range("critic/symmetry_augment", self.nvtx_profile_ranges):
+                orig_actions = actions
 
-            assert self.symmetry is not None
-            obs, actions = self.symmetry.augment_obs_and_actions(obs, actions, obs_group="obs")
-            next_obs, _ = self.symmetry.augment_obs_and_actions(
-                next_obs, orig_actions, obs_group="obs"
-            )
+                assert self.symmetry is not None
+                obs, actions = self.symmetry.augment_obs_and_actions(obs, actions, obs_group="obs")
+                next_obs, _ = self.symmetry.augment_obs_and_actions(
+                    next_obs, orig_actions, obs_group="obs"
+                )
 
-            critic_obs, _ = self.symmetry.augment_obs_and_actions(
-                critic_obs,
-                orig_actions,
-                obs_group="critic",
-            )
-            critic_next_obs, _ = self.symmetry.augment_obs_and_actions(
-                critic_next_obs,
-                orig_actions,
-                obs_group="critic",
-            )
+                critic_obs, _ = self.symmetry.augment_obs_and_actions(
+                    critic_obs,
+                    orig_actions,
+                    obs_group="critic",
+                )
+                critic_next_obs, _ = self.symmetry.augment_obs_and_actions(
+                    critic_next_obs,
+                    orig_actions,
+                    obs_group="critic",
+                )
 
-            # Double the batch size for other tensors
-            rewards = rewards.repeat(2)
-            dones = dones.repeat(2)
-            truncated = truncated.repeat(2)
+                # Double the batch size for other tensors
+                rewards = rewards.repeat(2)
+                dones = dones.repeat(2)
+                truncated = truncated.repeat(2)
 
         self.normalize_obs(obs, update=True)
         next_obs = self.normalize_obs(next_obs, update=False)
 
-        qf_loss, target_q_max, target_q_min, next_log_probs = self._critic_loss_tensors(
-            critic_obs,
-            actions,
-            rewards,
-            next_obs,
-            critic_next_obs,
-            dones,
-            truncated,
-        )
+        with _cuda_nvtx_range("critic/loss_compiled", self.nvtx_profile_ranges):
+            qf_loss, target_q_max, target_q_min, next_log_probs = self._critic_loss_tensors(
+                critic_obs,
+                actions,
+                rewards,
+                next_obs,
+                critic_next_obs,
+                dones,
+                truncated,
+            )
 
         # Skip if NaN
         if torch.isfinite(qf_loss):
             self.q_optimizer.zero_grad(set_to_none=True)
             if self.scaler:
-                self.scaler.scale(qf_loss).backward()
+                with _cuda_nvtx_range("critic/backward", self.nvtx_profile_ranges):
+                    self.scaler.scale(qf_loss).backward()
                 self.scaler.unscale_(self.q_optimizer)
                 self._reduce_gradients(self.qnet)
                 if self.max_grad_norm > 0:
-                    critic_grad_norm = torch.nn.utils.clip_grad_norm_(
-                        self.qnet.parameters(), max_norm=self.max_grad_norm
-                    )
+                    with _cuda_nvtx_range("critic/grad_clip", self.nvtx_profile_ranges):
+                        critic_grad_norm = torch.nn.utils.clip_grad_norm_(
+                            self.qnet.parameters(), max_norm=self.max_grad_norm
+                        )
                 else:
                     critic_grad_norm = torch.tensor(0.0, device=self.device)
-                self.scaler.step(self.q_optimizer)
+                with _cuda_nvtx_range("critic/q_optimizer_step", self.nvtx_profile_ranges):
+                    self.scaler.step(self.q_optimizer)
                 self.scaler.update()
             else:
-                qf_loss.backward()
+                with _cuda_nvtx_range("critic/backward", self.nvtx_profile_ranges):
+                    qf_loss.backward()
                 self._reduce_gradients(self.qnet)
                 if self.max_grad_norm > 0:
-                    critic_grad_norm = torch.nn.utils.clip_grad_norm_(
-                        self.qnet.parameters(), max_norm=self.max_grad_norm
-                    )
+                    with _cuda_nvtx_range("critic/grad_clip", self.nvtx_profile_ranges):
+                        critic_grad_norm = torch.nn.utils.clip_grad_norm_(
+                            self.qnet.parameters(), max_norm=self.max_grad_norm
+                        )
                 else:
                     critic_grad_norm = torch.tensor(0.0, device=self.device)
-                self.q_optimizer.step()
+                with _cuda_nvtx_range("critic/q_optimizer_step", self.nvtx_profile_ranges):
+                    self.q_optimizer.step()
         else:
             critic_grad_norm = torch.tensor(0.0, device=self.device)
 
         # Alpha loss (temperature update) - matching holosoma
         alpha_loss = torch.tensor(0.0, device=self.device)
         if self.use_autotune:
-            self.alpha_optimizer.zero_grad(set_to_none=True)
-            alpha_loss = (-self.log_alpha.exp() * (next_log_probs + self.target_entropy)).mean()
-            if torch.isfinite(alpha_loss):
-                alpha_loss.backward()
-                if (
-                    self.world_size > 1
-                    and self.distributed_sync_mode == "sync_sgd"
-                    and self.log_alpha.grad is not None
-                ):
-                    dist.all_reduce(self.log_alpha.grad, op=dist.ReduceOp.SUM)
-                    self.log_alpha.grad /= self.world_size
-                self.alpha_optimizer.step()
+            with _cuda_nvtx_range("critic/alpha_update", self.nvtx_profile_ranges):
+                self.alpha_optimizer.zero_grad(set_to_none=True)
+                alpha_loss = (-self.log_alpha.exp() * (next_log_probs + self.target_entropy)).mean()
+                if torch.isfinite(alpha_loss):
+                    alpha_loss.backward()
+                    if (
+                        self.world_size > 1
+                        and self.distributed_sync_mode == "sync_sgd"
+                        and self.log_alpha.grad is not None
+                    ):
+                        dist.all_reduce(self.log_alpha.grad, op=dist.ReduceOp.SUM)
+                        self.log_alpha.grad /= self.world_size
+                    self.alpha_optimizer.step()
 
         return {
             "qf_loss": qf_loss.item(),
@@ -872,41 +898,49 @@ class FastSACLearner:
 
         # Apply symmetry augmentation
         if self.use_symmetry:
-            assert self.symmetry is not None
-            obs = torch.cat([obs, self.symmetry.mirror_obs(obs, obs_group="obs")], dim=0)
-            critic_obs = torch.cat(
-                [critic_obs, self.symmetry.mirror_obs(critic_obs, obs_group="critic")],
-                dim=0,
-            )
+            with _cuda_nvtx_range("actor/symmetry_augment", self.nvtx_profile_ranges):
+                assert self.symmetry is not None
+                obs = torch.cat([obs, self.symmetry.mirror_obs(obs, obs_group="obs")], dim=0)
+                critic_obs = torch.cat(
+                    [critic_obs, self.symmetry.mirror_obs(critic_obs, obs_group="critic")],
+                    dim=0,
+                )
 
         obs = self.normalize_obs(obs, update=False)
-        actor_loss, policy_entropy, action_std = self._actor_loss_tensors(obs, critic_obs)
+        with _cuda_nvtx_range("actor/loss_compiled", self.nvtx_profile_ranges):
+            actor_loss, policy_entropy, action_std = self._actor_loss_tensors(obs, critic_obs)
 
         # Skip if NaN
         if torch.isfinite(actor_loss):
             self.actor_optimizer.zero_grad(set_to_none=True)
             if self.scaler:
-                self.scaler.scale(actor_loss).backward()
+                with _cuda_nvtx_range("actor/backward", self.nvtx_profile_ranges):
+                    self.scaler.scale(actor_loss).backward()
                 self.scaler.unscale_(self.actor_optimizer)
                 self._reduce_gradients(self.actor)
                 if self.max_grad_norm > 0:
-                    actor_grad_norm = torch.nn.utils.clip_grad_norm_(
-                        self.actor.parameters(), max_norm=self.max_grad_norm
-                    )
+                    with _cuda_nvtx_range("actor/grad_clip", self.nvtx_profile_ranges):
+                        actor_grad_norm = torch.nn.utils.clip_grad_norm_(
+                            self.actor.parameters(), max_norm=self.max_grad_norm
+                        )
                 else:
                     actor_grad_norm = torch.tensor(0.0, device=self.device)
-                self.scaler.step(self.actor_optimizer)
+                with _cuda_nvtx_range("actor/optimizer_step", self.nvtx_profile_ranges):
+                    self.scaler.step(self.actor_optimizer)
                 self.scaler.update()
             else:
-                actor_loss.backward()
+                with _cuda_nvtx_range("actor/backward", self.nvtx_profile_ranges):
+                    actor_loss.backward()
                 self._reduce_gradients(self.actor)
                 if self.max_grad_norm > 0:
-                    actor_grad_norm = torch.nn.utils.clip_grad_norm_(
-                        self.actor.parameters(), max_norm=self.max_grad_norm
-                    )
+                    with _cuda_nvtx_range("actor/grad_clip", self.nvtx_profile_ranges):
+                        actor_grad_norm = torch.nn.utils.clip_grad_norm_(
+                            self.actor.parameters(), max_norm=self.max_grad_norm
+                        )
                 else:
                     actor_grad_norm = torch.tensor(0.0, device=self.device)
-                self.actor_optimizer.step()
+                with _cuda_nvtx_range("actor/optimizer_step", self.nvtx_profile_ranges):
+                    self.actor_optimizer.step()
         else:
             actor_grad_norm = torch.tensor(0.0, device=self.device)
 
@@ -920,8 +954,9 @@ class FastSACLearner:
     def soft_update_target(self) -> None:
         """Polyak-average update of the target Q-network."""
         with torch.no_grad():
-            for tgt, src in zip(self.qnet_target.parameters(), self.qnet.parameters()):
-                tgt.data.mul_(1.0 - self.tau).add_(src.data, alpha=self.tau)
+            with _cuda_nvtx_range("target/soft_update_loop", self.nvtx_profile_ranges):
+                for tgt, src in zip(self.qnet_target.parameters(), self.qnet.parameters()):
+                    tgt.data.mul_(1.0 - self.tau).add_(src.data, alpha=self.tau)
 
     def get_state_dict(self) -> Dict[str, Any]:
         """Save all components."""
