@@ -227,7 +227,15 @@ def file_lock(lock_path: Path):
             f.close()
 
 
-def _median_step_time(
+def _aggregate_times(times) -> float:
+    """Reduce repeated samples to one estimate. Use ``min``: background load only
+    inflates a sample (never deflates it below the compute-bound floor), so the
+    minimum is the most stable proxy for the uncontended cost a dedicated training
+    box sees -- unlike the median, which a loaded machine biases upward."""
+    return float(min(times))
+
+
+def _robust_step_time(
     pool, state, nstep, control, chunk_size, post_step_forward_sensor, reps
 ) -> float:
     times = []
@@ -243,7 +251,7 @@ def _median_step_time(
             post_step_forward_sensor=post_step_forward_sensor,
         )
         times.append(time.perf_counter() - t0)
-    return float(np.median(times))
+    return _aggregate_times(times)
 
 
 def benchmark_chunk_sizes(
@@ -255,12 +263,13 @@ def benchmark_chunk_sizes(
     control,
     post_step_forward_sensor,
     warmup=2,
-    reps=5,
+    reps=20,
     time_budget_s=25.0,  # headroom for the heaviest envs (~16k) to sweep all candidates
 ) -> dict[int | None, float]:
-    """Median wall-clock of a representative ``pool.step`` per candidate.
+    """Min wall-clock of a representative ``pool.step`` per candidate.
 
-    ``None`` (native default) is always measured as the baseline anchor.
+    Each candidate is sampled ``reps`` times and reduced via ``min`` (uncontended
+    cost). ``None`` (native default) is always measured as the baseline anchor.
     """
     results: dict[int | None, float] = {}
     start = time.perf_counter()
@@ -275,7 +284,7 @@ def benchmark_chunk_sizes(
                 return_sensor=True,
                 post_step_forward_sensor=post_step_forward_sensor,
             )
-        results[cs] = _median_step_time(
+        results[cs] = _robust_step_time(
             pool, state, nstep, control, cs, post_step_forward_sensor, reps
         )
         if time.perf_counter() - start > time_budget_s:

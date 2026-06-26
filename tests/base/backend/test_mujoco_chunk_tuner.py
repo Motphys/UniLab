@@ -1,3 +1,4 @@
+import inspect
 import logging
 import math
 from pathlib import Path
@@ -273,6 +274,20 @@ def test_cache_hit_without_candidate_table_still_emits_chosen(capsys, monkeypatc
     monkeypatch.setattr(ct.logger, "level", logging.WARNING)
     ct._emit_cache_hit(4, None, default_chunk=1)
     assert "cache hit -> 4" in capsys.readouterr().err
+
+
+def test_aggregate_times_returns_min():
+    # min rejects background-load spikes (which only inflate, never deflate) and
+    # estimates the uncontended per-step cost a dedicated training box actually sees.
+    assert ct._aggregate_times([0.003, 0.001, 0.002]) == pytest.approx(0.001)
+    assert ct._aggregate_times([0.05, 0.0061, 0.006, 0.0062]) == pytest.approx(0.006)
+
+
+def test_benchmark_reps_default_is_stable():
+    # reps=5 was too few to reject noise on a loaded machine; the default must be
+    # large enough that the per-candidate estimate is stable.
+    reps = inspect.signature(ct.benchmark_chunk_sizes).parameters["reps"].default
+    assert reps >= 15, reps
 
 
 def test_benchmark_respects_time_budget():
