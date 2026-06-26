@@ -36,6 +36,8 @@ class EnvCfg:
     render_offset_mode: str = "grid"
     motrix_max_iterations: Optional[int] = None
     post_step_forward_sensor: bool = False
+    adaptive_chunk_size: bool = True
+    chunk_size: Optional[int] = None
 
     @property
     def max_episode_steps(self) -> Optional[int]:

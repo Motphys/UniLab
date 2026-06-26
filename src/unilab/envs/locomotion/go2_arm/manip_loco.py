@@ -305,6 +305,9 @@ class Go2ArmManipLocoEnv(Go2ArmBaseEnv):
             )
             backend_kwargs["iterations"] = cfg.iterations
             backend_kwargs["post_step_forward_sensor"] = cfg.post_step_forward_sensor
+            backend_kwargs["chunk_size"] = cfg.chunk_size
+            backend_kwargs["adaptive_chunk_size"] = cfg.adaptive_chunk_size
+            backend_kwargs["bench_nsteps"] = cfg.sim_substeps
         backend = create_backend(
             backend_type,
             scene,

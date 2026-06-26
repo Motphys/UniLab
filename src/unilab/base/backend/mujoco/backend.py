@@ -279,6 +279,9 @@ class MuJoCoBackend(SimBackend):
         iterations: int | None = None,
         push_body_name: Optional[str] = None,
         post_step_forward_sensor: bool = False,
+        chunk_size: Optional[int] = None,
+        adaptive_chunk_size: bool = False,
+        bench_nsteps: int = 1,
     ):
         scene_context = _build_mujoco_scene_context(scene)
         self.scene_model_file = scene_context.model_file
@@ -294,6 +297,10 @@ class MuJoCoBackend(SimBackend):
         self._sim_dt = float(sim_dt)
         self._iterations = None if iterations is None else int(iterations)
         self._post_step_forward_sensor = bool(post_step_forward_sensor)
+        self._manual_chunk_size = None if chunk_size is None else int(chunk_size)
+        self._adaptive_chunk_size = bool(adaptive_chunk_size)
+        self._bench_nsteps = max(1, int(bench_nsteps))
+        self._chunk_size: int | None = None
         self._position_actuator_gains = (
             None if position_actuator_gains is None else dict(position_actuator_gains)
         )
@@ -796,6 +803,7 @@ class MuJoCoBackend(SimBackend):
             nstep=nsteps,
             control=control_traj,
             control_spec=control_spec,
+            chunk_size=self._chunk_size,
             return_sensor=True,
             post_step_forward_sensor=self._post_step_forward_sensor,
         )
@@ -841,6 +849,7 @@ class MuJoCoBackend(SimBackend):
                 nstep=1,
                 control=control_traj,
                 control_spec=control_spec,
+                chunk_size=self._chunk_size,
                 return_sensor=True,
                 post_step_forward_sensor=self._post_step_forward_sensor,
             )
@@ -920,6 +929,23 @@ class MuJoCoBackend(SimBackend):
         if self._pool is not None:
             raise RuntimeError("MuJoCo backend pool is already materialized")
         self._pool = self._build_pool()
+
+        from unilab.base.backend.mujoco.chunk_tuner import resolve_chunk_size
+
+        self._chunk_size = resolve_chunk_size(
+            pool=self._pool,
+            state=self._physics_state,
+            model=self._model,
+            n_variants=len(self._model_variants),
+            num_envs=self._num_envs,
+            nthread=self._n_threads,
+            dtype=self._np_dtype,
+            post_step_forward_sensor=self._post_step_forward_sensor,
+            bench_nsteps=self._bench_nsteps,
+            manual_chunk_size=self._manual_chunk_size,
+            adaptive=self._adaptive_chunk_size,
+            model_file=self._model_file,
+        )
 
     def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
         if plan.is_empty():

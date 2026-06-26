@@ -1,8 +1,25 @@
-from typing import Any, cast
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, cast
 
 from unilab.base.scene import SceneCfg
 
 from .base import SimBackend
+
+if TYPE_CHECKING:
+    from unilab.base.base import EnvCfg
+
+
+def env_backend_kwargs(cfg: "EnvCfg") -> dict:
+    """Bundle EnvCfg-level backend tuning fields for create_backend(**...)."""
+    return {
+        "post_step_forward_sensor": cfg.post_step_forward_sensor,
+        "motrix_max_iterations": cfg.motrix_max_iterations,
+        "chunk_size": cfg.chunk_size,
+        "adaptive_chunk_size": cfg.adaptive_chunk_size,
+        "bench_nsteps": cfg.sim_substeps,
+    }
+
 
 _MUJOCO_XML_EXPORTS = frozenset(
     {
@@ -69,12 +86,18 @@ def create_backend(
     position_actuator_gains = kwargs.pop("position_actuator_gains", None)
     motrix_max_iterations = kwargs.pop("motrix_max_iterations", None)
     post_step_forward_sensor = kwargs.pop("post_step_forward_sensor", None)
+    chunk_size = kwargs.pop("chunk_size", None)
+    adaptive_chunk_size = kwargs.pop("adaptive_chunk_size", False)
+    bench_nsteps = kwargs.pop("bench_nsteps", 1)
     if backend_type == "mujoco":
         MuJoCoBackend = _load_mujoco_backend()
         if position_actuator_gains is not None:
             kwargs["position_actuator_gains"] = position_actuator_gains
         if post_step_forward_sensor is not None:
             kwargs["post_step_forward_sensor"] = post_step_forward_sensor
+        kwargs["chunk_size"] = chunk_size
+        kwargs["adaptive_chunk_size"] = adaptive_chunk_size
+        kwargs["bench_nsteps"] = bench_nsteps
         return cast(SimBackend, MuJoCoBackend(scene, num_envs, sim_dt, **kwargs))
     if backend_type == "motrix":
         MotrixBackend, motrix_available = _load_motrix_backend()
