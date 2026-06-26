@@ -80,7 +80,7 @@ independent components, reported separately and never merged.
 
 | Terminal field | TensorBoard / W&B key | Meaning |
 | --- | --- | --- |
-| Collector Wait | `timing/learner_collector_wait_ms` | Waiting for the collector to produce new data; excludes barrier, H2D and logger refresh |
+| Collector Wait | `timing/learner_collector_wait_ms` | Waiting for the collector to produce new data; excludes barrier, H2D and logger refresh (the terminal shows its share of Iter Wall inline on this row) |
 | Replay Batch Wait | `timing/learner_replay_batch_wait_ms` | Waiting for a replay pack / H2D batch to become ready; ~0 on a prefetch hit |
 | Rank Barrier | `timing/learner_rank_barrier_ms` | Multi-GPU `dist.barrier()` (initial + final) total |
 | Sync Coordination | `timing/learner_sync_coordination_ms` | Synchronous-collection handshake; 0 when not in sync collection |
@@ -107,12 +107,15 @@ TensorBoard `timing/collector_*`. SAC / TD3:
 | Replay | `timing/collector_replay_ms` | Replay buffer write and sample packing |
 | Sync Coordination | `timing/collector_sync_coordination_ms` | Synchronous-collection handshake (signal learner, wait for learner) |
 
-APPO uses a ring buffer; the collector reports only two fields, both **per-step** EMAs (not whole-rollout):
+APPO uses a ring buffer; the collector reports two **per-step** EMAs plus one **whole-rollout** total:
 
 | Terminal field | TensorBoard / W&B key | Meaning |
 | --- | --- | --- |
-| env_step_total_ms | `timing/collector_env_step_total_ms` | EMA of a single `env.step()` |
-| mlp_infer_ms | `timing/collector_mlp_infer_ms` | EMA of per-step policy inference |
+| MLP Infer | `timing/collector_mlp_infer_ms` | EMA of per-step policy inference (**per step**) |
+| Env Step | `timing/collector_env_step_ms` | EMA of a single `env.step()` (**per step**) |
+| Rollout | `timing/collector_rollout_ms` | EMA of the real wall-clock time to produce **one full rollout** (`steps_per_env` steps); shown last in the column as the total |
+
+> Rollout ≈ `steps_per_env` × (MLP Infer + Env Step) + untimed per-step overhead (e.g. the timeout-bootstrap critic forward, obs processing). It and the learner's Collector Wait are **two independent-timeline views**: collection overlaps the learner's compute, so Collector Wait (the time the learner is actually blocked) is normally **smaller** than Rollout, and the two are not meant to reconcile exactly. To see "how much of this iteration waits on the collector," read the inline percentage on the Collector Wait row (= Collector Wait / Iter Wall). The former `env_step_total_ms` (`timing/collector_env_step_total_ms`) is renamed to `Env Step` (`timing/collector_env_step_ms`).
 
 ### Per-iteration sequence (APPO example)
 

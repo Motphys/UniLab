@@ -234,9 +234,11 @@ def hora_appo_collector_fn(
     _EMA = 0.1
     ema_mlp_infer_ms = 0.0
     ema_env_step_ms = 0.0
+    ema_rollout_ms = 0.0
 
     try:
         while not stop_event.is_set():
+            t_rollout_start = time.perf_counter()
             if actor_weight_sync.version > local_actor_weight_version:
                 actor_sd = dict(actor.state_dict())
                 local_actor_weight_version = actor_weight_sync.read_weights_into(actor_sd)
@@ -370,8 +372,9 @@ def hora_appo_collector_fn(
                             ep_timeouts = 0
                             ep_terminates = 0
                         msg["collector_timing_ms"] = {
+                            "rollout_ms": ema_rollout_ms,
                             "mlp_infer_ms": ema_mlp_infer_ms,
-                            "env_step_total_ms": ema_env_step_ms,
+                            "env_step_ms": ema_env_step_ms,
                         }
                         if ep_reward_components:
                             msg["reward_components"] = {
@@ -393,6 +396,9 @@ def hora_appo_collector_fn(
             if critic_np is not None:
                 write_buf["last_critic"][:] = critic_np
             ring_buffer.signal_write_done()
+            ema_rollout_ms = (1 - _EMA) * ema_rollout_ms + _EMA * (
+                (time.perf_counter() - t_rollout_start) * 1000
+            )
 
     except Exception as e:
         import traceback

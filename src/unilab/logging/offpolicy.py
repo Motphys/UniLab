@@ -14,14 +14,18 @@ from unilab.logging.common import BaseTrainingLogger, _fmt_number, _load_wandb
 
 OFFPOLICY_COLLECTOR_TIMING_ORDER = {
     "weight_sync_ms": 0,
+    "mlp_infer_ms": 1,
     "action_select_ms": 1,
     "env_step_ms": 2,
     "replay_ms": 3,
     "sync_coordination_ms": 4,
+    "rollout_ms": 9,
 }
 
 OFFPOLICY_COLLECTOR_TIMING_LABELS = {
+    "rollout_ms": "Rollout",
     "weight_sync_ms": "Weight Sync",
+    "mlp_infer_ms": "MLP Infer",
     "action_select_ms": "Action Select",
     "env_step_ms": "Env Step",
     "replay_ms": "Replay",
@@ -510,9 +514,11 @@ class OffPolicyLogger(BaseTrainingLogger):
         table.add_column("Value", style="yellow", justify="right", ratio=1, no_wrap=True)
 
         collector_wait_ms = self._collector_wait_time * 1000
+        iter_wall_ms = self._get_iter_wall_time() * 1000
         wait_color = "red" if collector_wait_ms > 1.0 else "yellow"
+        wait_pct = f" ({collector_wait_ms / iter_wall_ms * 100:.0f}%)" if iter_wall_ms > 0 else ""
         learner_items = [
-            ("Collector Wait", f"[{wait_color}]{collector_wait_ms:.1f}ms[/]"),
+            ("Collector Wait", f"[{wait_color}]{collector_wait_ms:.1f}ms{wait_pct}[/]"),
         ]
         if self._world_size > 1 or self._replay_batch_wait_time > 0.0:
             learner_items.append(
