@@ -8,7 +8,7 @@ from etils import epath
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
-from unilab.base.backend import create_backend
+from unilab.base.backend import create_backend, env_backend_kwargs
 from unilab.base.np_env import NpEnvState
 from unilab.base.scene import SceneCfg
 from unilab.dr import ResetPlan, ResetRandomizationPayload
@@ -137,8 +137,7 @@ class Go2HandStandTask(Go2BaseEnv):
             push_body_name=cfg.domain_rand.push_body_name,
             add_body_sensors=bool(getattr(cfg, "add_body_sensors", False)),
             position_actuator_gains={"kp": cfg.control_config.Kp, "kd": cfg.control_config.Kd},
-            motrix_max_iterations=cfg.motrix_max_iterations,
-            post_step_forward_sensor=cfg.post_step_forward_sensor,
+            **env_backend_kwargs(cfg),
         )
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True

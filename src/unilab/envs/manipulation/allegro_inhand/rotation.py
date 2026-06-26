@@ -10,7 +10,7 @@ from etils import epath
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
-from unilab.base.backend import create_backend
+from unilab.base.backend import create_backend, env_backend_kwargs
 from unilab.base.np_env import NpEnvState
 from unilab.base.scene import SceneCfg
 from unilab.dr import (
@@ -274,8 +274,7 @@ class AllegroRotationPPO(AllegroBaseEnv):
                 "kd": cfg.control_config.kd,
                 "actuator_ids": slice(0, 16),
             },
-            motrix_max_iterations=cfg.motrix_max_iterations,
-            post_step_forward_sensor=cfg.post_step_forward_sensor,
+            **env_backend_kwargs(cfg),
         )
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True

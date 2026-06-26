@@ -16,7 +16,7 @@ import numpy as np
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
-from unilab.base.backend import SimBackend, create_backend
+from unilab.base.backend import SimBackend, create_backend, env_backend_kwargs
 from unilab.base.base import EnvCfg
 from unilab.base.np_env import NpEnv, NpEnvState
 from unilab.base.scene import SceneCfg
@@ -158,6 +158,7 @@ class StewartBalanceEnv(NpEnv):
             cfg.sim_dt,
             base_name=cfg.base_name,
             add_body_sensors=True,
+            **env_backend_kwargs(cfg),
         )
         super().__init__(cfg, backend, num_envs)
 

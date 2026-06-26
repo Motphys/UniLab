@@ -8,7 +8,7 @@ import numpy as np
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
-from unilab.base.backend import create_backend
+from unilab.base.backend import create_backend, env_backend_kwargs
 from unilab.base.np_env import NpEnvState
 from unilab.base.scene import SceneCfg
 from unilab.dtype_config import get_global_dtype
@@ -113,8 +113,7 @@ class Go2WalkTask(Go2BaseEnv):
             base_name=cfg.asset.base_name,
             push_body_name=cfg.domain_rand.push_body_name,
             position_actuator_gains={"kp": cfg.control_config.Kp, "kd": cfg.control_config.Kd},
-            motrix_max_iterations=cfg.motrix_max_iterations,
-            post_step_forward_sensor=cfg.post_step_forward_sensor,
+            **env_backend_kwargs(cfg),
         )
         self._terrain_surface_sampler = getattr(backend, "terrain_surface_sampler", None)
         self._terrain_surface_sample_height = self._resolve_terrain_surface_sample_height()
