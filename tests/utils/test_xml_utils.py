@@ -94,7 +94,9 @@ def test_inject_mujoco_tracking_sensors_uses_mjspec_and_preserves_contract() -> 
         baselink_name="pelvis",
     )
     try:
-        assert tracked_body_ids == list(range(1, len(valid_bnames) + 1))
+        # ``inject_mujoco_tracking_sensors`` still returns legacy placeholder ids; the
+        # MuJoCo backend re-resolves real body ids after ``MjModel.from_xml_path``.
+        assert len(tracked_body_ids) == len(valid_bnames)
         assert valid_bnames[0] == "pelvis"
 
         model = mujoco.MjModel.from_xml_path(tmp_xml)

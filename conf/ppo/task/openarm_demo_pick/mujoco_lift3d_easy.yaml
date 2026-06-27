@@ -1,0 +1,11 @@
+# @package _global_
+# Lift line, easy: same proximity-gated lift fix as mujoco_lift3d but with a lower /
+# wider success criterion (goal z 1.13 -> 1.09, success_dist 0.05 -> 0.06) to make the
+# first non-zero successes easier to reach (curriculum / debugging aid).
+defaults:
+  - /task/openarm_demo_pick/mujoco_lift3d
+  - _self_
+env:
+  goal_pos: [0.46, 0.0, 1.09]
+reward:
+  success_dist: 0.06

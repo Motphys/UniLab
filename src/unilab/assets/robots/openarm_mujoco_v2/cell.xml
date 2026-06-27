@@ -1,0 +1,105 @@
+<!--
+Copyright 2026 Enactic, Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+<mujoco>
+  <compiler meshdir="assets" angle="radian"/>
+
+  <default>
+    <default class="visual">
+      <geom contype="0" conaffinity="0" group="2" />
+    </default>
+    <default class="cell_collision">
+      <geom material="collision_material" condim="3" contype="1" conaffinity="1" priority="1" group="4" solref="0.005 1" friction="1 0.005 0.001" />
+      <equality solimp="0.99 0.999 1e-05" solref="0.005 1" />
+    </default>
+    <default class="cell_visual">
+      <geom contype="0" conaffinity="0" group="1" />
+    </default>
+    <default class="lifter">
+      <joint limited="true" type="slide" damping="50" />
+    </default>
+    <default class="position_lifter">
+      <position kp="8000" kv="4000" forcelimited="true" forcerange="-3000 3000" />
+    </default>
+  </default>
+
+  <statistic center="1.3 0 0.6" extent="3.5" meansize="0.05"/>
+  <option timestep="0.001" />
+
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <global azimuth="0" elevation="-20"/>
+    <quality shadowsize="8192"/>
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3"
+      markrgb="0.8 0.8 0.8" width="300" height="300"/>
+    <material name="groundplane"    texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
+    <material name="cell_matte_black"    rgba="0.247 0.247 0.247 1.0" reflectance="0.05" shininess="0.5"/>
+    <material name="cell_matte_offwhite" rgba="0.95 0.94 0.90 1"      reflectance="0.05" shininess="0.1"/>
+    <mesh name="cell_mesh"    file="visual/cell/cell.obj"   scale="0.01  0.01  0.01"/>
+    <mesh name="sheet_mesh"   file="visual/cell/sheet.obj"  scale="0.01  0.01  0.01"/>
+    <model name="bimanual" file="openarm_bimanual.xml"/>
+  </asset>
+
+  <actuator>
+    <position name="lifter_ctrl" joint="openarm_lifter_joint" class="position_lifter"
+              kp="8000" kv="4000" ctrllimited="true" ctrlrange="0 0.3"/>
+  </actuator>
+
+  <worldbody>
+
+    <light pos="0 0 1.5" dir="0 0 -1" directional="true"/>
+
+    <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/>
+
+    <geom name="cell_vis" type="mesh" mesh="cell_mesh"  pos="0 0.550 0"      euler="0 0 -1.5708" material="cell_matte_black"    class="cell_visual" group="3"/>
+    <geom name="sheet"    type="mesh" mesh="sheet_mesh" pos="0.4225 0 1.005" euler="0 0 -1.5708" material="cell_matte_offwhite" class="cell_visual"/>
+
+    <geom name="cell_table_col"      type="box" pos="0.41 0 1.00"    size="0.41 0.55 0.005" class="cell_collision"/>
+    <geom name="cell_left_wall_col"  type="box" pos="0.43 0.52 1.42" size="0.43 0.03 0.42"  class="cell_collision"/>
+    <geom name="cell_right_wall_col" type="box" pos="0.43 -0.52 1.42" size="0.43 0.03 0.42" class="cell_collision"/>
+    <geom name="cell_front_wall_col" type="box" pos="0.85 0 1.42"    size="0.03 0.49 0.42"  class="cell_collision"/>
+    <geom name="cell_roof_col"       type="box" pos="0.41 0 1.82"    size="0.41 0.55 0.005" class="cell_collision"/>
+    <geom name="cell_rail_col1"       type="box" pos="0.03 0 1.525"   size="0.03 0.03 0.3"  class="cell_collision"/>
+    <geom name="cell_rail_col2"       type="box" pos="0.0915 0 1.535"   size="0.0315 0.039 0.29"  class="cell_collision"/>
+    <!-- <geom name="cell_rail_col"       type="box" pos="0.058 0 1.55"   size="0.003 0.03 0.3"  class="cell_collision"/> -->
+
+    <camera name="camera_ceiling" pos="0.245 0 1.8" xyaxes="0 -1 0 1 0 0"    fovy="66" resolution="960 600"/>
+    <!-- need to adjust x after lifter link is adjusted -->
+    <camera name="camera_head_left"    pos="0.223 -0.0315 1.45"  xyaxes="0 -1 0 0.882948 0 0.469472" fovy="52" resolution="1280 720"/>
+    <camera name="camera_head_right"    pos="0.223 0.0315 1.45"  xyaxes="0 -1 0 0.882948 0 0.469472" fovy="52" resolution="1280 720"/>
+
+    <!-- lifter body: arms attach here and slide vertically -->
+    <body name="openarm_lifter_link" pos="0.185 0 1.34">
+      <geom name="body_lifter" type="box" pos="-0.01575 0 0"   size="0.04575 0.031 0.061"  material="cell_matte_black" class="cell_visual"/>
+      <geom name="body_lifter_col" type="box" pos="-0.01575 0 0"   size="0.04575 0.031 0.061"  class="cell_collision"/>
+      <inertial pos="0 0 0" mass="5.0" diaginertia="0.1 0.1 0.1"/>
+      <joint name="openarm_lifter_joint" class="lifter" axis="0 0 1" range="0 0.3"/>
+      <attach model="bimanual" prefix=""/>
+    </body>
+
+  </worldbody>
+  <keyframe>
+    <key name="home"
+      qpos="0.0
+            0.0 0.0 0.0 1.570796 0.0 0.0 0.0 0.0 0.0
+            0.0 0.0 0.0 1.570796 0.0 0.0 0.0 0.0 0.0" />
+  </keyframe>
+</mujoco>

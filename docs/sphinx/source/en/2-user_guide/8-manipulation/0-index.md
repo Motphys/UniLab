@@ -18,6 +18,12 @@ Allegro and Sharpa owner YAMLs, grasp caches, and train commands.
 Go2 plus Airbot locomotion/manipulation owner paths.
 :::
 
+:::{grid-item-card} OpenArm Pick
+:link: 3-openarm_pick
+:link-type: doc
+Training, evaluation, and video recording for the OpenArm single-arm pick.
+:::
+
 ::::
 
 ```{toctree}
@@ -25,4 +31,5 @@ Go2 plus Airbot locomotion/manipulation owner paths.
 
 1-dexterous_inhand
 2-manip_loco
+3-openarm_pick
 ```

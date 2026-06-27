@@ -1,0 +1,63 @@
+# @package _global_
+# Base OpenArm demo pick task (MuJoCo). The cube pick/place bring-up on the vendored
+# ``demo.xml`` cell. Variants under this folder (e.g. mujoco_lift3d) override the scene,
+# reward shaping and goal for the 3D lift task.
+training:
+  task_name: OpenArmDemoPick
+  sim_backend: mujoco
+  no_play: true
+  render_spacing: 2.0
+  cam_distance: 2.75
+  cam_elevation: -30.0
+  cam_azimuth: 222.0
+  cam_lookat: [0.34, -0.02, 1.05]
+  # Hide only the cell enclosure mesh (group 3) so the work surface (sheet) and the
+  # lifter support block stay visible; the closed cabinet would otherwise occlude the arm.
+  play_hide_geom_groups: [3]
+  # 5 fps over 50 Hz physics = 10x slow motion, easier to inspect the grasp.
+  play_video_fps: 5
+  play_steps: 200
+algo:
+  num_envs: 4096
+  num_steps_per_env: 24
+  max_iterations: 1500
+  save_interval: 500
+  empirical_normalization: true
+  obs_groups:
+    actor: [policy]
+    critic: [policy]
+  policy:
+    init_noise_std: 1.0
+    actor_hidden_dims: [512, 256, 128]
+    critic_hidden_dims: [512, 256, 128]
+    activation: elu
+    class_name: ActorCritic
+  algorithm:
+    value_loss_coef: 1.0
+    clip_param: 0.2
+    entropy_coef: 0.01
+    num_learning_epochs: 4
+    num_mini_batches: 8
+    learning_rate: 0.0003
+    schedule: adaptive
+    gamma: 0.99
+    lam: 0.95
+    desired_kl: 0.015
+    max_grad_norm: 0.5
+env:
+  action_scale: 0.04
+  fix_lifter: true
+  left_arm_only: true
+  rigid_freeze_right_arm: true
+  binary_gripper: false
+  playback_hide_geom_groups: [3]
+  playback_video_fps: 5
+reward:
+  scales:
+    reach: 1.0
+    place: 0.8
+    lift: 0.35
+    grasp: 0.22
+    success: 25.0
+    action: -0.01
+    drop: -1.0

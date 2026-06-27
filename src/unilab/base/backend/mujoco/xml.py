@@ -518,9 +518,53 @@ def materialize_mujoco_hfield_attached_scene(
     return model, generated.terrain_origins
 
 
+def compile_model_with_tracking_sensors(
+    model_file: str,
+    baselink_name: str | None = None,
+    extra_track_body_names: Sequence[str] = (),
+) -> tuple[Any, list]:
+    """Build tracking sensors and compile straight to an ``MjModel``.
+
+    This mirrors :func:`inject_mujoco_tracking_sensors` but avoids the
+    ``MjSpec.to_xml()`` -> ``MjModel.from_xml_path()`` round-trip. For scenes
+    that use ``<attach>``-ed sub-models, MuJoCo (>=3.8) serialises each attached
+    model's main ``<default>`` as an *anonymous nested* default, which the XML
+    parser then rejects (``empty class name`` / ``repeated default class name``).
+    Compiling the in-memory spec directly sidesteps that broken round-trip.
+
+    ``extra_track_body_names`` lists bodies inside attached sub-models that the
+    raw-XML body scan cannot see (end-effector / finger links).
+
+    Returns:
+        (compiled_model, valid_bnames)
+    """
+    mujoco = _mujoco_module()
+    _, valid_bnames = _get_named_bodies(model_file)
+    # The baselink is the reference frame for ``_b`` sensors; it must itself be a
+    # tracked body for the backend's zero-copy ``_b`` views to line up. When it
+    # lives inside an attached sub-model the raw scan misses it, so append it here
+    # alongside the explicitly requested extra bodies.
+    for name in (*extra_track_body_names, baselink_name):
+        if name and name not in valid_bnames:
+            valid_bnames.append(name)
+
+    dv_path = create_discardvisual_xml(model_file)
+    try:
+        spec = mujoco.MjSpec.from_file(dv_path)
+    finally:
+        os.remove(dv_path)
+
+    _add_w_sensors(spec, valid_bnames)
+    if baselink_name and baselink_name in valid_bnames:
+        _add_b_sensors(spec, valid_bnames, baselink_name)
+
+    return spec.compile(), valid_bnames
+
+
 def inject_mujoco_tracking_sensors(
     model_file: str,
     baselink_name: str | None = None,
+    extra_track_body_names: Sequence[str] = (),
 ) -> tuple[str, list, list]:
     """Inject tracking sensors for the MuJoCo backend.
 
@@ -528,11 +572,22 @@ def inject_mujoco_tracking_sensors(
     ``baselink_name`` is provided, sensors in the baselink-relative frame
     (``_b``) are added as well.
 
+    ``extra_track_body_names`` lists bodies that live inside ``<attach>``-ed
+    sub-models: the raw-XML scan in ``_get_named_bodies`` cannot see them, so
+    they are appended explicitly (they are resolved against the post-attach
+    ``MjSpec`` when the sensors are added). The backend remaps tracked-body
+    indices from the compiled model, so the placeholder ids below are unused.
+
     Returns:
         (tmp_xml_path, tracked_body_ids, valid_bnames)
     """
     mujoco = _mujoco_module()
     tracked_body_ids, valid_bnames = _get_named_bodies(model_file)
+
+    for name in extra_track_body_names:
+        if name and name not in valid_bnames:
+            valid_bnames.append(name)
+            tracked_body_ids.append(len(tracked_body_ids) + 1)
 
     spec = mujoco.MjSpec.from_file(model_file)
     _add_w_sensors(spec, valid_bnames)

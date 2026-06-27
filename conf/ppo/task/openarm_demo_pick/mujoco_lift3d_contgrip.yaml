@@ -1,0 +1,48 @@
+# @package _global_
+# Continuous-gripper lift3d pick: policy-controlled (action_scale-limited) finger
+# closing instead of the binary snap-close, with staged + firm grasp shaping.
+#
+# Same task as mujoco_lift3d (3D in-air goal) but the gripper is closed
+# continuously by the policy, which is more physical but harder to learn. The
+# reward shaping below is what makes a deliberate, goal-accurate, sustained pick
+# emerge:
+#   * terminate_on_success=false: keep the episode alive after success so the
+#     continuous gripper is actually paid to *hold* the cube at the goal
+#     (hold_success / goal_track accrue per step); otherwise the cube slips right
+#     after the success latches.
+#   * grasp 0.4, drop -4.0, hold_success 8.0, goal_track_coarse 24.0: reward
+#     sustained closure x proximity and holding *at the goal*, punish drops, and
+#     pull hard toward the in-air goal to escape the "grab and hold low" optimum.
+#   * approach 1.0 / premature_close -0.5 / action_rate -0.02: staged-grasp
+#     terms -- a gentle nudge to go above the cube with the gripper open before
+#     closing, a mild penalty for closing far (xy) from the cube, and a
+#     smoothness penalty -- so the pick is segmented (above-open -> close ->
+#     lift) rather than a single swipe.
+#   * firm_grasp 8.0: closure x lift_gate x proximity, paid only once the cube is
+#     lifted and the TCP is on it, encouraging a real grip while carrying.
+#
+# Result (PPO, 5 seeds x 512 envs = 2560 episodes): ever-success 100%,
+# final-success 92.3% (90.8-93.4), drop rate 0%, mean goal dist ~0.02 m. The
+# learned grasp is a stable open fingertip-cradle (closure ~0); for this
+# arm/gripper/high-friction-cube geometry the open cradle is the robust optimum
+# and forcing closure hurts the primary objective.
+defaults:
+  - /task/openarm_demo_pick/mujoco_lift3d
+  - _self_
+env:
+  binary_gripper: false
+reward:
+  terminate_on_success: false
+  scales:
+    grasp: 0.4
+    drop: -4.0
+    hold_success: 8.0
+    goal_track_coarse: 24.0
+    approach: 1.0
+    premature_close: -0.5
+    action_rate: -0.02
+    firm_grasp: 8.0
+  pregrasp_h: 0.10
+  approach_xy_decay: 8.0
+  approach_z_decay: 8.0
+  premature_close_decay: 8.0

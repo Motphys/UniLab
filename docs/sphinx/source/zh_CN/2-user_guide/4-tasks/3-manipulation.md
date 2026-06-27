@@ -41,5 +41,14 @@ uv run train --algo ppo --task stewart_balance --sim motrix training.no_play=tru
 uv run train --algo ppo --task go2_arm_manip_loco --sim mujoco training.no_play=true
 ```
 
-有关任务专属的说明，请参阅 {doc}`../8-manipulation/1-dexterous_inhand` 和
-{doc}`../8-manipulation/2-manip_loco`。
+## 单臂拾取
+
+`openarm_demo_pick` 是已提交的 OpenArm 单臂拾取 owner 路径（仅 MuJoCo），通过
+`--profile` 选择 lift3d / lift3d_contgrip 等变体：
+
+```bash
+uv run train --algo ppo --task openarm_demo_pick --sim mujoco --profile lift3d_contgrip training.no_play=true
+```
+
+有关任务专属的说明，请参阅 {doc}`../8-manipulation/1-dexterous_inhand`、
+{doc}`../8-manipulation/2-manip_loco` 和 {doc}`../8-manipulation/3-openarm_pick`。

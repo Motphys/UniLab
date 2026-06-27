@@ -1,0 +1,45 @@
+# @package _global_
+# Lift line (hard, in-air goal). Builds on the base demo pick task with:
+#   * graspability-tuned scene (demo_lift3d.xml: 3cm cube, higher friction, no black_frame),
+#   * fingertip TCP reach (reach_use_tcp + reach_tcp_offset, the grasp-alignment fix),
+#   * 3D lift goal (goal_success_mode=lift3d) ~0.12 m above the spawn band,
+#   * binary gripper, and proximity-gated dense lift (lift_gate_mode=proximity)
+#     to escape the "jaws-on-cube, never lift" local optimum.
+defaults:
+  - /task/openarm_demo_pick/mujoco
+  - _self_
+env:
+  action_scale: 0.055
+  binary_gripper: true
+  scene:
+    model_file: src/unilab/assets/robots/openarm_mujoco_v2/demo_lift3d.xml
+  # In-air goal above the (narrowed) spawn band center: lift the cube ~0.12 m straight up.
+  goal_pos: [0.46, 0.0, 1.13]
+  cube_xy_range: [0.44, 0.48, -0.04, 0.04]
+reward:
+  scales:
+    reach: 1.0
+    place: 0.0
+    lift: 12.0
+    grasp: 0.6
+    success: 25.0
+    action: -0.01
+    drop: -1.0
+    lift_bonus: 10.0
+    goal_track_coarse: 16.0
+    goal_track_fine: 5.0
+  fall_z: 0.86
+  table_z: 1.008
+  lift_shaping_span: 0.12
+  grasp_proximity_decay: 6.0
+  place_use_grasp_gate: true
+  # Proximity-only soft gate on dense lift: robust to closure wobble, monotonic rest->goal gradient.
+  lift_gate_mode: proximity
+  lift_use_grasp_gate: true
+  reach_use_tcp: true
+  reach_tcp_offset: [-0.0025, 0.0, -0.0669]
+  goal_success_mode: lift3d
+  success_dist: 0.05
+  lift_margin: 0.05
+  goal_track_coarse_std: 0.1
+  goal_track_fine_std: 0.03

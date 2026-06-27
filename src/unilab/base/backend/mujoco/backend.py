@@ -282,6 +282,7 @@ class MuJoCoBackend(SimBackend):
         chunk_size: Optional[int] = None,
         adaptive_chunk_size: bool = False,
         bench_nsteps: int = 1,
+        extra_track_body_names: Sequence[str] = (),
     ):
         scene_context = _build_mujoco_scene_context(scene)
         self.scene_model_file = scene_context.model_file
@@ -291,6 +292,7 @@ class MuJoCoBackend(SimBackend):
         self.terrain_surface_sampler = scene_context.terrain_surface_sampler
         self._scene_cleanup_handle = scene_context.cleanup_handle
         self.add_body_sensors = add_body_sensors
+        self._extra_track_body_names = tuple(extra_track_body_names)
         self._base_name = base_name
         self._push_body_name = push_body_name
         self._model_file = scene_context.model_source
@@ -413,9 +415,35 @@ class MuJoCoBackend(SimBackend):
         if isinstance(self._model_file, mujoco.MjModel):
             if self.add_body_sensors:
                 raise ValueError("add_body_sensors is not supported for precompiled MuJoCo models")
-            self._tracked_body_ids = []
+            self._tracked_body_ids: list[int] = []
             self._valid_bnames = []
             model = self._model_file
+            self._configure_model(model)
+            return model
+
+        if self.add_body_sensors:
+            # Compile the tracking-sensor spec directly to an MjModel. Going through
+            # ``MjSpec.to_xml()`` -> ``from_xml_path()`` corrupts ``<attach>``-ed scenes
+            # under MuJoCo >=3.8 (anonymous nested ``<default>`` -> parse error), so the
+            # in-memory compile is the only round-trip-safe path here.
+            from unilab.base.backend.mujoco.xml import compile_model_with_tracking_sensors
+
+            model, valid_bnames = compile_model_with_tracking_sensors(
+                str(self._model_file),
+                baselink_name=self._base_name,
+                extra_track_body_names=self._extra_track_body_names,
+            )
+            self._tracked_body_ids = []
+            self._valid_bnames = valid_bnames
+            # Resolve tracked-body indices against the *compiled* model. Bodies inside
+            # attached sub-models (end-effector / finger links) are invisible to the raw
+            # XML scan, so ``mj_name2id`` over ``valid_bnames`` is the authoritative map
+            # and is identical to enumeration order for attachment-free models.
+            self._body_id_to_tracked_idx = np.full(model.nbody, -1, dtype=int)
+            for idx, bname in enumerate(self._valid_bnames):
+                bid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, bname)
+                if bid >= 0:
+                    self._body_id_to_tracked_idx[bid] = idx
             self._configure_model(model)
             return model
 
@@ -427,10 +455,6 @@ class MuJoCoBackend(SimBackend):
                 os.remove(tmp_path)
 
         self._tracked_body_ids = tracked_body_ids
-        if self.add_body_sensors:
-            self._body_id_to_tracked_idx = np.full(model.nbody, -1, dtype=int)
-            for idx, bid in enumerate(self._tracked_body_ids):
-                self._body_id_to_tracked_idx[bid] = idx
         self._valid_bnames = valid_bnames
         self._configure_model(model)
         return model
@@ -447,6 +471,7 @@ class MuJoCoBackend(SimBackend):
             model_path, tracked_body_ids, valid_bnames = inject_mujoco_tracking_sensors(
                 model_path,
                 baselink_name=self._base_name,
+                extra_track_body_names=self._extra_track_body_names,
             )
             tmp_paths.append(model_path)
         else:

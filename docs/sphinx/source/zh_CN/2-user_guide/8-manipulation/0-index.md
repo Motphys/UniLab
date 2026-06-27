@@ -17,6 +17,12 @@ Allegro 和 Sharpa 的 owner YAML、抓取缓存以及训练命令。
 Go2 加 Airbot 的运动/操作 owner 路径。
 :::
 
+:::{grid-item-card} OpenArm 拾取
+:link: 3-openarm_pick
+:link-type: doc
+OpenArm 单臂拾取的训练、评估与视频录制。
+:::
+
 ::::
 
 ```{toctree}
@@ -24,4 +30,5 @@ Go2 加 Airbot 的运动/操作 owner 路径。
 
 1-dexterous_inhand
 2-manip_loco
+3-openarm_pick
 ```

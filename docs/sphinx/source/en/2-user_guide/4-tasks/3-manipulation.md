@@ -44,5 +44,15 @@ uv run train --algo ppo --task stewart_balance --sim motrix training.no_play=tru
 uv run train --algo ppo --task go2_arm_manip_loco --sim mujoco training.no_play=true
 ```
 
-See {doc}`../8-manipulation/1-dexterous_inhand` and
-{doc}`../8-manipulation/2-manip_loco` for task-specific notes.
+## Single-Arm Pick
+
+`openarm_demo_pick` is the committed OpenArm single-arm pick owner path (MuJoCo
+only); select the lift3d / lift3d_contgrip variants with `--profile`:
+
+```bash
+uv run train --algo ppo --task openarm_demo_pick --sim mujoco --profile lift3d_contgrip training.no_play=true
+```
+
+See {doc}`../8-manipulation/1-dexterous_inhand`,
+{doc}`../8-manipulation/2-manip_loco`, and
+{doc}`../8-manipulation/3-openarm_pick` for task-specific notes.

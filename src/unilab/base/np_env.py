@@ -133,6 +133,8 @@ class NpEnv(ABEnv):
         backend_result = self._backend.step(ctrl, self._cfg.sim_substeps)
         step_core_time = time.perf_counter() - t0
 
+        self.after_physics_substeps(actions)
+
         t0 = time.perf_counter()
         self._state = self.update_state(self._state)
         update_state_time = time.perf_counter() - t0
@@ -175,6 +177,10 @@ class NpEnv(ABEnv):
         np.nan_to_num(self._state.reward, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
         return self._state
+
+    def after_physics_substeps(self, actions: np.ndarray) -> None:
+        """Hook after physics substeps; subclasses may adjust backend state before update_state."""
+        del actions
 
     def _reset_done_envs(self) -> None:
         assert self._state is not None
