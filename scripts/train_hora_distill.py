@@ -196,7 +196,14 @@ def _play_camera_kwargs(cfg: DictConfig) -> dict[str, Any]:
         "cam_tracking_env_idx": getattr(cfg.training, "cam_tracking_env_idx", 0),
         "cam_tracking_extra_envs": getattr(cfg.training, "cam_tracking_extra_envs", 2),
     }
-    for key in ("cam_distance", "cam_elevation", "cam_azimuth", "cam_lookat"):
+    for key in (
+        "cam_distance",
+        "cam_elevation",
+        "cam_azimuth",
+        "cam_lookat",
+        "play_hide_geom_groups",
+        "play_video_fps",
+    ):
         value = getattr(cfg.training, key, None)
         if value is not None:
             camera_kwargs[key] = value

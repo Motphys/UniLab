@@ -5,6 +5,8 @@ MuJoCo model/data/renderer objects inside worker processes. It is not available
 for Motrix-only workflows.
 """
 
+from __future__ import annotations
+
 import math
 import os
 import subprocess
@@ -159,6 +161,17 @@ def _warn_render_unavailable() -> None:
     )
 
 
+def _apply_hide_geom_groups(vopt: mujoco.MjvOption, hide_geom_groups: list[int] | None) -> None:
+    """Disable rendering for the given MuJoCo geom group indices (each 0..mjNGROUP-1)."""
+    if not hide_geom_groups:
+        return
+    n = int(mujoco.mjNGROUP)
+    for g in hide_geom_groups:
+        gi = int(g)
+        if 0 <= gi < n:
+            vopt.geomgroup[gi] = 0
+
+
 def get_grid_offsets(num_envs, spacing=1.0):
     rows = int(math.ceil(math.sqrt(num_envs)))
     cols = int(math.ceil(num_envs / rows))
@@ -255,8 +268,9 @@ def render_frame_job(args):
     """
     Worker function to render a single frame.
     args: (state_batch, offsets, transparent, cam_distance, cam_elevation, cam_azimuth,
-           cam_lookat, marker_positions)
+           cam_lookat, marker_positions, hide_geom_groups)
     marker_positions: optional (num_envs, 3) world-frame positions for overlay spheres.
+    hide_geom_groups: optional list of geom group indices to hide in the renderer.
     """
     (
         state_batch,
@@ -267,6 +281,7 @@ def render_frame_job(args):
         cam_azimuth,
         cam_lookat,
         marker_positions,
+        hide_geom_groups,
     ) = args
 
     models = _worker_ctx["models"]
@@ -276,9 +291,11 @@ def render_frame_job(args):
         _replicable_terrain_geom_indices(m) for m in models
     ]
 
-    # Visual options
+    # Visual options (explicit defaults, then per-playback group visibility overrides)
     vopt = mujoco.MjvOption()
+    mujoco.mjv_defaultOption(vopt)
     vopt.flags[mujoco.mjtVisFlag.mjVIS_TRANSPARENT] = transparent
+    _apply_hide_geom_groups(vopt, hide_geom_groups)
     pert = mujoco.MjvPerturb()
     catmask_dynamic = mujoco.mjtCatBit.mjCAT_DYNAMIC
     catmask_static = mujoco.mjtCatBit.mjCAT_STATIC
@@ -451,6 +468,7 @@ def render_states_get_frames(
     cam_lookat=None,
     render_spacing=1.0,
     marker_positions_list=None,
+    hide_geom_groups=None,
 ):
     """
     Render a list of physics states and return the list of frames.
@@ -468,6 +486,7 @@ def render_states_get_frames(
         cam_lookat: Optional [x, y, z] lookat override for the free camera.
         render_spacing: Grid spacing used to offset each env in composed video frames.
         marker_positions_list: Optional list of (num_envs, 3) arrays for overlay spheres.
+        hide_geom_groups: Optional MuJoCo geom group indices to omit from rendering.
     Returns:
         List of numpy arrays (H, W, 3) (RGB)
     """
@@ -489,7 +508,17 @@ def render_states_get_frames(
 
     # Prepare arguments for each frame
     tasks = [
-        (s, offsets, False, cam_distance, cam_elevation, cam_azimuth, cam_lookat, m)
+        (
+            s,
+            offsets,
+            False,
+            cam_distance,
+            cam_elevation,
+            cam_azimuth,
+            cam_lookat,
+            m,
+            hide_geom_groups,
+        )
         for s, m in zip(
             state_list,
             marker_positions_list
@@ -569,6 +598,7 @@ def render_frame_tracking_job(args):
         cam_elevation,
         cam_azimuth,
         marker_positions,
+        hide_geom_groups,
     ) = args
 
     models = _worker_ctx["models"]
@@ -579,6 +609,8 @@ def render_frame_tracking_job(args):
     ]
 
     vopt = mujoco.MjvOption()
+    mujoco.mjv_defaultOption(vopt)
+    _apply_hide_geom_groups(vopt, hide_geom_groups)
     pert = mujoco.MjvPerturb()
     catmask_dynamic = mujoco.mjtCatBit.mjCAT_DYNAMIC
     catmask_static = mujoco.mjtCatBit.mjCAT_STATIC
@@ -720,6 +752,7 @@ def render_states_get_frames_tracking(
     cam_azimuth=90,
     render_spacing=1.0,
     marker_positions_list=None,
+    hide_geom_groups=None,
 ):
     """Render with camera tracking on a single primary environment.
 
@@ -735,6 +768,7 @@ def render_states_get_frames_tracking(
         cam_elevation: Camera elevation angle in degrees.
         cam_azimuth: Camera azimuth angle in degrees.
         render_spacing: Grid spacing for env layout.
+        hide_geom_groups: Optional MuJoCo geom group indices to omit from rendering.
     """
     if not state_list:
         print("No states to render.")
@@ -760,7 +794,17 @@ def render_states_get_frames_tracking(
     )
 
     tasks = [
-        (s, offsets, env_indices, primary_local_idx, cam_distance, cam_elevation, cam_azimuth, m)
+        (
+            s,
+            offsets,
+            env_indices,
+            primary_local_idx,
+            cam_distance,
+            cam_elevation,
+            cam_azimuth,
+            m,
+            hide_geom_groups,
+        )
         for s, m in zip(
             state_list,
             marker_positions_list

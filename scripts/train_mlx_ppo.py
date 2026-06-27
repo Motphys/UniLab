@@ -339,6 +339,8 @@ def play_mlx_ppo(cfg: DictConfig, dtype, use_fp16: bool, resolved_sim_backend: s
             "cam_tracking": getattr(cfg.training, "cam_tracking", False),
             "cam_tracking_env_idx": getattr(cfg.training, "cam_tracking_env_idx", 0),
             "cam_tracking_extra_envs": getattr(cfg.training, "cam_tracking_extra_envs", 2),
+            "play_hide_geom_groups": getattr(cfg.training, "play_hide_geom_groups", None),
+            "play_video_fps": getattr(cfg.training, "play_video_fps", None),
         },
         on_plan=lambda plan: log_playback_plan(plan, prefix="[MLX PPO] "),
     )

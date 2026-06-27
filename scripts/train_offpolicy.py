@@ -693,6 +693,8 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
                 "cam_distance": cfg.training.cam_distance,
                 "cam_elevation": cfg.training.cam_elevation,
                 "cam_azimuth": cfg.training.cam_azimuth,
+                "play_hide_geom_groups": getattr(cfg.training, "play_hide_geom_groups", None),
+                "play_video_fps": getattr(cfg.training, "play_video_fps", None),
             },
             on_plan=log_playback_plan,
         )

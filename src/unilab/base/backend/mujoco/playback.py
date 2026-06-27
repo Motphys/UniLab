@@ -62,6 +62,24 @@ def run_mujoco_playback(
     from unilab.visualization import render_many
 
     cam_kw = dict(camera_kwargs or {})
+    play_video_fps_raw = cam_kw.pop("play_video_fps", None)
+    if play_video_fps_raw is None or str(play_video_fps_raw).strip().lower() in (
+        "",
+        "null",
+        "none",
+    ):
+        fb_fps = env_cfg_value(env, "playback_video_fps", None)
+        if fb_fps is not None and str(fb_fps).strip().lower() not in ("", "null", "none"):
+            play_video_fps_raw = fb_fps
+    hide_raw = cam_kw.pop("play_hide_geom_groups", None)
+    hide_geom_groups: list[int] | None = None
+    if hide_raw is not None and len(hide_raw) > 0:
+        hide_geom_groups = [int(x) for x in list(hide_raw)]
+    if not hide_geom_groups:
+        fb = env_cfg_value(env, "playback_hide_geom_groups", None)
+        if fb is not None and len(fb) > 0:
+            hide_geom_groups = [int(x) for x in list(fb)]
+    render_num_processes = int(cam_kw.pop("render_num_processes", 8))
     use_tracking = bool(cam_kw.pop("cam_tracking", False))
     tracking_env_idx = int(cam_kw.pop("cam_tracking_env_idx", 0))
     tracking_extra_envs = int(cam_kw.pop("cam_tracking_extra_envs", 2))
@@ -90,6 +108,7 @@ def run_mujoco_playback(
                 cam_azimuth=cam_kw.get("cam_azimuth", 90),
                 render_spacing=effective_spacing,
                 marker_positions_list=marker_positions_list,
+                hide_geom_groups=hide_geom_groups,
             )
         else:
             frames = render_many.render_states_get_frames(
@@ -97,9 +116,11 @@ def run_mujoco_playback(
                 model_files,
                 width=1280,
                 height=720,
+                num_processes=render_num_processes,
                 camera_id=-1,
                 render_spacing=effective_spacing,
                 marker_positions_list=marker_positions_list,
+                hide_geom_groups=hide_geom_groups,
                 **cam_kw,
             )
 
@@ -111,7 +132,26 @@ def run_mujoco_playback(
         return None
 
     ctrl_dt = float(env_cfg_value(env, "ctrl_dt", 1.0 / 60.0))
-    write_playback_video(str(output_video), frames, fps=int(1.0 / ctrl_dt))
+    physics_fps = max(1, int(round(1.0 / ctrl_dt)))
+    if play_video_fps_raw is not None and str(play_video_fps_raw).strip().lower() not in (
+        "",
+        "null",
+        "none",
+    ):
+        fps = max(1, min(int(float(play_video_fps_raw)), 480))
+    else:
+        fps = physics_fps
+    out = str(output_video)
+    if record_video:
+        slow = fps < physics_fps
+        print(
+            f"[playback] writing {out}\n"
+            f"  video_fps={fps} physics_hz={physics_fps} ctrl_dt={ctrl_dt:g}s"
+            f" ({'slow motion' if slow else 'matches sim rate'})\n"
+            f"  cam_azimuth={cam_kw.get('cam_azimuth')} cam_elevation={cam_kw.get('cam_elevation')} "
+            f"cam_distance={cam_kw.get('cam_distance')} cam_lookat={cam_kw.get('cam_lookat')}"
+        )
+    write_playback_video(out, frames, fps=fps)
     return str(output_video)
 
 

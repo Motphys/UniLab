@@ -86,6 +86,12 @@ training:
   cam_tracking: false
   cam_tracking_env_idx: 0
   cam_tracking_extra_envs: 2
+  # MuJoCo geom groups to hide during offline play/video (0..5); e.g. OpenArm cell shell uses group 1.
+  play_hide_geom_groups: []
+  # MP4 playback fps; null = match physics (1/ctrl_dt). Lower = slower on-screen motion.
+  play_video_fps: null
+  # If true, play/export uses stochastic policy samples (more motion when the mean is near zero).
+  play_stochastic: false
   log_root: null
   num_timesteps: null
   log_dir: null

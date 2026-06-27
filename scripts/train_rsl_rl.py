@@ -39,6 +39,9 @@ from unilab.training.rsl_rl import RslRlVecEnvWrapper, normalize_ppo_train_cfg
 from unilab.training.sim2sim import policy_load_dim_guard, resolve_sim2sim_config
 from unilab.utils.device import get_default_device
 
+# When this file is imported (e.g. eval shim), avoid NameError in play_rsl_rl.
+EXPORT_POLICY = False
+
 try:
     from rsl_rl.runners import OnPolicyRunner
 except ImportError:
@@ -256,6 +259,8 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
         playback_mode = plan.mode
         log_playback_plan(plan)
 
+    play_stochastic = bool(getattr(cfg.training, "play_stochastic", False))
+
     try:
         with torch.inference_mode():
             play_video_path = env.run_playback_mode(
@@ -267,7 +272,9 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
                 ),
                 render_offset_mode=str(getattr(env.cfg, "render_offset_mode", "grid")),
                 initialize=lambda: wrapped_env.reset()[0],
-                step=lambda obs: wrapped_env.step(policy(obs))[0],
+                step=lambda obs, _p=policy, _st=play_stochastic: wrapped_env.step(
+                    _p(obs, stochastic_output=_st)
+                )[0],
                 camera_kwargs={
                     "cam_distance": cfg.training.cam_distance,
                     "cam_elevation": cfg.training.cam_elevation,
@@ -276,6 +283,8 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
                     "cam_tracking": getattr(cfg.training, "cam_tracking", False),
                     "cam_tracking_env_idx": getattr(cfg.training, "cam_tracking_env_idx", 0),
                     "cam_tracking_extra_envs": getattr(cfg.training, "cam_tracking_extra_envs", 2),
+                    "play_hide_geom_groups": getattr(cfg.training, "play_hide_geom_groups", None),
+                    "play_video_fps": getattr(cfg.training, "play_video_fps", None),
                 },
                 on_plan=_log_plan,
                 extra_data_getter=(

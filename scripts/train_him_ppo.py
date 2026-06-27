@@ -163,6 +163,8 @@ def play_him_ppo(cfg: DictConfig, device: str) -> str | None:
                 "cam_tracking": getattr(cfg.training, "cam_tracking", False),
                 "cam_tracking_env_idx": getattr(cfg.training, "cam_tracking_env_idx", 0),
                 "cam_tracking_extra_envs": getattr(cfg.training, "cam_tracking_extra_envs", 2),
+                "play_hide_geom_groups": getattr(cfg.training, "play_hide_geom_groups", None),
+                "play_video_fps": getattr(cfg.training, "play_video_fps", None),
             },
             extra_data_getter=(
                 (lambda: getattr(env, "curr_ee_goal_world", None))
