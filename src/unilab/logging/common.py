@@ -219,7 +219,7 @@ class BaseTrainingLogger:
 
     def _stop_live(self) -> None:
         if self._live is not None:
-            self._live.update(self._build_display(), refresh=True)
+            self._live.update(self._build_display(), refresh=False)
             self._live.stop()
             self._live = None
             self._last_live_refresh_time = None

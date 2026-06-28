@@ -159,7 +159,7 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._buffer_target = target
         pct = current / max(target, 1) * 100
         self._status = f"Buffer fill: {current:,}/{target:,} ({pct:.0f}%)"
-        if not self._terminal_refresh_started:
+        if self._terminal_refresh_started:
             self._refresh()
 
     def _get_iter_steps_per_sec(self) -> float | None:
@@ -518,8 +518,10 @@ class OffPolicyLogger(BaseTrainingLogger):
 
     def log_status(self, status: str):
         self._status = status
-        if not self._terminal_refresh_started or "[red]" in status or "ERROR" in status:
+        if "[red]" in status or "ERROR" in status:
             self._refresh(force=True)
+        elif self._terminal_refresh_started:
+            self._refresh()
 
     def _build_display(self) -> Panel:
         header = self._build_compact_header(include_status=True)
