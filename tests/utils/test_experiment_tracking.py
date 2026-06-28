@@ -208,10 +208,12 @@ def test_offpolicy_logger_terminal_timing_labels_include_wall_clock_and_distribu
 
     assert "Replay Wait" not in output
     assert "H2D Copy" in output
+    assert "Replay Batch Wait" in output
+    assert "Replay Sample" in output
     assert "Param Sync" in output
     assert "Iter Wall" in output
     assert "Unaccounted" not in output
-    assert "Other" not in output
+    assert "Other Loop" not in output
     assert "GPUs" in output
     assert "Sync Mode" in output
     assert "local_sgd" in output
@@ -255,6 +257,9 @@ def test_offpolicy_logger_terminal_shows_replay_rows_when_symmetry_expands_batch
     assert "Replay/Iter" in output
     assert "Samples/Iter" in output
     assert "Samples/s" in output
+    assert "Rank Barrier" not in output
+    assert "Param Sync" not in output
+    assert "Other Loop" not in output
 
     logger.close()
 
@@ -501,13 +506,17 @@ def test_offpolicy_logger_logs_wait_and_iter_throughput(monkeypatch):
     assert "timing/learner_collect_ms" not in payload
     assert "timing/learner_replay_wait_ms" not in payload
     assert payload["timing/learner_incremental_h2d_ms"] == 20.0
-    assert "timing/learner_replay_sample_ms" not in payload
+    assert payload["timing/learner_replay_sample_ms"] == 0.0
     assert payload["timing/learner_train_ms"] == 750.0
     assert payload["timing/learner_param_sync_ms"] == 40.0
     assert payload["timing/learner_weight_sync_ms"] == 50.0
+    assert payload["timing/learner_other_ms"] == pytest.approx(40.0)
     assert payload["perf/learner_pipeline_ms"] == pytest.approx(860.0)
     assert payload["perf/iter_ms"] == pytest.approx(10_900.0)
     assert "perf/iter_unaccounted_ms" not in payload
+    assert payload["perf/learner_train_pct"] == pytest.approx(0.75 / 10.9 * 100)
+    assert payload["perf/learner_other_pct"] == pytest.approx(0.04 / 10.9 * 100)
+    assert payload["perf/learner_accounted_pct"] == pytest.approx(10.86 / 10.9 * 100)
     assert payload["perf/steps_per_sec"] == pytest.approx(8.0 / 10.9)
     assert payload["perf/effective_samples_per_sec"] == pytest.approx(32.0 / 10.9)
     for key in (
@@ -587,10 +596,13 @@ def test_offpolicy_logger_tensorboard_logs_wall_clock_without_axis_or_distribute
     assert scalars["timing/learner_collector_wait_ms"] == pytest.approx(1_000.0)
     assert "timing/learner_replay_wait_ms" not in scalars
     assert scalars["timing/learner_incremental_h2d_ms"] == pytest.approx(50.0)
-    assert "timing/learner_replay_sample_ms" not in scalars
+    assert scalars["timing/learner_replay_sample_ms"] == pytest.approx(0.0)
     assert scalars["timing/learner_param_sync_ms"] == pytest.approx(20.0)
+    assert scalars["timing/learner_other_ms"] == pytest.approx(80.0)
     assert scalars["perf/learner_pipeline_ms"] == pytest.approx(870.0)
     assert scalars["perf/iter_ms"] == pytest.approx(1_950.0)
+    assert scalars["perf/learner_train_pct"] == pytest.approx(0.7 / 1.95 * 100)
+    assert scalars["perf/learner_other_pct"] == pytest.approx(0.08 / 1.95 * 100)
     assert scalars["perf/effective_samples_per_sec"] == pytest.approx(64.0 / 1.95)
     for key in (
         "axis/iteration",

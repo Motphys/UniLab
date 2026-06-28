@@ -111,6 +111,7 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._buffer_target: int = 0
         self._collector_wait_time: float = 0.0
         self._replay_batch_wait_time: float = 0.0
+        self._learner_replay_sample_time: float = 0.0
         self._rank_barrier_time: float = 0.0
         self._sync_coordination_time: float = 0.0
         self._learner_incremental_h2d_time: float = 0.0
@@ -184,12 +185,32 @@ class OffPolicyLogger(BaseTrainingLogger):
             + self._weight_sync_time
         )
 
+    def _get_learner_accounted_time(self) -> float:
+        return (
+            self._collector_wait_time
+            + self._replay_batch_wait_time
+            + self._learner_replay_sample_time
+            + self._rank_barrier_time
+            + self._sync_coordination_time
+            + self._get_learner_pipeline_time()
+        )
+
+    def _get_learner_other_time(self) -> float:
+        return max(self._get_iter_wall_time() - self._get_learner_accounted_time(), 0.0)
+
+    def _get_iter_pct(self, seconds: float) -> float:
+        iter_time = self._get_iter_wall_time()
+        if iter_time <= 0.0:
+            return 0.0
+        return seconds / iter_time * 100.0
+
     def _get_iter_wall_time(self) -> float:
         if self._iteration_time is not None and self._iteration_time > 0.0:
             return self._iteration_time
         return (
             self._collector_wait_time
             + self._replay_batch_wait_time
+            + self._learner_replay_sample_time
             + self._rank_barrier_time
             + self._sync_coordination_time
             + self._get_learner_pipeline_time()
@@ -252,6 +273,7 @@ class OffPolicyLogger(BaseTrainingLogger):
         train_time: float = 0.0,
         collector_wait_time: float = 0.0,
         replay_batch_wait_time: float = 0.0,
+        learner_replay_sample_time: float = 0.0,
         rank_barrier_time: float = 0.0,
         sync_coordination_time: float = 0.0,
         learner_incremental_h2d_time: float = 0.0,
@@ -265,6 +287,7 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._train_time = train_time
         self._collector_wait_time = collector_wait_time
         self._replay_batch_wait_time = replay_batch_wait_time
+        self._learner_replay_sample_time = learner_replay_sample_time
         self._rank_barrier_time = rank_barrier_time
         self._sync_coordination_time = sync_coordination_time
         self._learner_incremental_h2d_time = learner_incremental_h2d_time
@@ -327,6 +350,8 @@ class OffPolicyLogger(BaseTrainingLogger):
         iter_steps_per_sec = self._get_iter_steps_per_sec()
         effective_samples_per_sec = self._get_effective_samples_per_sec()
         iter_wall_time = self._get_iter_wall_time()
+        learner_other_time = self._get_learner_other_time()
+        learner_accounted_time = self._get_learner_accounted_time()
 
         if self._tb_writer:
             writer = self._tb_writer
@@ -356,6 +381,11 @@ class OffPolicyLogger(BaseTrainingLogger):
                 global_step,
             )
             writer.add_scalar(
+                "timing/learner_replay_sample_ms",
+                self._learner_replay_sample_time * 1000,
+                global_step,
+            )
+            writer.add_scalar(
                 "timing/learner_rank_barrier_ms",
                 self._rank_barrier_time * 1000,
                 global_step,
@@ -382,6 +412,11 @@ class OffPolicyLogger(BaseTrainingLogger):
                 self._weight_sync_time * 1000,
                 global_step,
             )
+            writer.add_scalar(
+                "timing/learner_other_ms",
+                learner_other_time * 1000,
+                global_step,
+            )
             for key, value in self._collector_timing.items():
                 writer.add_scalar(f"timing/collector_{key}", value, global_step)
             if iter_steps_per_sec is not None:
@@ -396,6 +431,17 @@ class OffPolicyLogger(BaseTrainingLogger):
             writer.add_scalar(
                 "perf/learner_pipeline_ms",
                 self._get_learner_pipeline_time() * 1000,
+                global_step,
+            )
+            writer.add_scalar("perf/learner_train_pct", self._get_iter_pct(train_time), global_step)
+            writer.add_scalar(
+                "perf/learner_accounted_pct",
+                self._get_iter_pct(learner_accounted_time),
+                global_step,
+            )
+            writer.add_scalar(
+                "perf/learner_other_pct",
+                self._get_iter_pct(learner_other_time),
                 global_step,
             )
 
@@ -421,6 +467,7 @@ class OffPolicyLogger(BaseTrainingLogger):
             log_dict["episode/terminated_rate"] = self._terminated_rate
             log_dict["timing/learner_collector_wait_ms"] = self._collector_wait_time * 1000
             log_dict["timing/learner_replay_batch_wait_ms"] = self._replay_batch_wait_time * 1000
+            log_dict["timing/learner_replay_sample_ms"] = self._learner_replay_sample_time * 1000
             log_dict["timing/learner_rank_barrier_ms"] = self._rank_barrier_time * 1000
             log_dict["timing/learner_sync_coordination_ms"] = self._sync_coordination_time * 1000
             log_dict["timing/learner_incremental_h2d_ms"] = (
@@ -430,6 +477,7 @@ class OffPolicyLogger(BaseTrainingLogger):
             if self._world_size > 1 or self._learner_param_sync_time > 0.0:
                 log_dict["timing/learner_param_sync_ms"] = self._learner_param_sync_time * 1000
             log_dict["timing/learner_weight_sync_ms"] = self._weight_sync_time * 1000
+            log_dict["timing/learner_other_ms"] = learner_other_time * 1000
             for key, value in self._collector_timing.items():
                 log_dict[f"timing/collector_{key}"] = value
             if iter_steps_per_sec is not None:
@@ -438,6 +486,9 @@ class OffPolicyLogger(BaseTrainingLogger):
                 log_dict["perf/effective_samples_per_sec"] = effective_samples_per_sec
             log_dict["perf/iter_ms"] = iter_wall_time * 1000
             log_dict["perf/learner_pipeline_ms"] = self._get_learner_pipeline_time() * 1000
+            log_dict["perf/learner_train_pct"] = self._get_iter_pct(train_time)
+            log_dict["perf/learner_accounted_pct"] = self._get_iter_pct(learner_accounted_time)
+            log_dict["perf/learner_other_pct"] = self._get_iter_pct(learner_other_time)
             wandb.log(log_dict, step=global_step)
 
     def log_status(self, status: str):
@@ -507,35 +558,40 @@ class OffPolicyLogger(BaseTrainingLogger):
             pad_edge=False,
         )
         table.add_column("Learner", style="white", ratio=2, no_wrap=True)
-        table.add_column("Value", style="yellow", justify="right", ratio=1, no_wrap=True)
+        table.add_column("Value", style="yellow", justify="right", width=16, no_wrap=True)
         table.add_column("Collector", style="white", ratio=2, no_wrap=True)
-        table.add_column("Value", style="yellow", justify="right", ratio=1, no_wrap=True)
+        table.add_column("Value", style="yellow", justify="right", width=16, no_wrap=True)
         table.add_column("System", style="white", ratio=2, no_wrap=True)
-        table.add_column("Value", style="yellow", justify="right", ratio=1, no_wrap=True)
+        table.add_column("Value", style="yellow", justify="right", width=16, no_wrap=True)
+
+        def _fmt_phase(seconds: float, *, color: str | None = None) -> str:
+            ms = seconds * 1000
+            pct = self._get_iter_pct(seconds)
+            text = f"{ms:>7.1f}ms  {pct:>3.0f}%"
+            return f"[{color}]{text}[/]" if color else text
 
         collector_wait_ms = self._collector_wait_time * 1000
-        iter_wall_ms = self._get_iter_wall_time() * 1000
         wait_color = "red" if collector_wait_ms > 1.0 else "yellow"
-        wait_pct = f" ({collector_wait_ms / iter_wall_ms * 100:.0f}%)" if iter_wall_ms > 0 else ""
         learner_items = [
-            ("Collector Wait", f"[{wait_color}]{collector_wait_ms:.1f}ms{wait_pct}[/]"),
+            ("Collector Wait", _fmt_phase(self._collector_wait_time, color=wait_color)),
         ]
         if self._world_size > 1 or self._replay_batch_wait_time > 0.0:
-            learner_items.append(
-                ("Replay Batch Wait", f"{self._replay_batch_wait_time * 1000:.1f}ms")
-            )
+            learner_items.append(("Replay Batch Wait", _fmt_phase(self._replay_batch_wait_time)))
+        learner_items.append(("Replay Sample", _fmt_phase(self._learner_replay_sample_time)))
         if self._world_size > 1 or self._rank_barrier_time > 0.0:
-            learner_items.append(("Rank Barrier", f"{self._rank_barrier_time * 1000:.1f}ms"))
+            learner_items.append(("Rank Barrier", _fmt_phase(self._rank_barrier_time)))
         if self._world_size > 1 or self._sync_coordination_time > 0.0:
-            learner_items.append(
-                ("Sync Coordination", f"{self._sync_coordination_time * 1000:.1f}ms")
-            )
-        learner_items.append(("H2D Copy", f"{self._learner_incremental_h2d_time * 1000:.1f}ms"))
-        learner_items.append(("Train", f"{self._train_time * 1000:.1f}ms"))
+            learner_items.append(("Sync Coordination", _fmt_phase(self._sync_coordination_time)))
+        learner_items.extend(
+            [
+                ("H2D Copy", _fmt_phase(self._learner_incremental_h2d_time)),
+                ("Train", _fmt_phase(self._train_time, color="green")),
+            ]
+        )
         if self._world_size > 1 or self._learner_param_sync_time > 0.0:
-            learner_items.append(("Param Sync", f"{self._learner_param_sync_time * 1000:.1f}ms"))
-        learner_items.append(("Weight Sync", f"{self._weight_sync_time * 1000:.1f}ms"))
-        learner_items.append(("Iter Wall", f"{self._get_iter_wall_time() * 1000:.1f}ms"))
+            learner_items.append(("Param Sync", _fmt_phase(self._learner_param_sync_time)))
+        learner_items.append(("Weight Sync", _fmt_phase(self._weight_sync_time)))
+        learner_items.append(("Iter Wall", f"{self._get_iter_wall_time() * 1000:>7.1f}ms  100%"))
         collector_items = [
             (OFFPOLICY_COLLECTOR_TIMING_LABELS.get(key, key), f"{value:.1f}ms")
             for key, value in sorted(

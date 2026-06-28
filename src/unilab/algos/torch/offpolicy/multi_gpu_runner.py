@@ -339,7 +339,11 @@ def _learner_worker(
             replay_batch_wait_time = (
                 time.perf_counter() - _replay_batch_wait_start if rank == 0 else 0.0
             )
+            replay_sample_start = time.perf_counter()
             large_batch = replay_pipeline.sample_large_batch(it, sample_count)
+            learner_replay_sample_time = (
+                time.perf_counter() - replay_sample_start if rank == 0 else 0.0
+            )
             learner_incremental_h2d_time = (
                 float(getattr(replay_pipeline, "last_incremental_h2d_time_s", 0.0))
                 if rank == 0
@@ -445,6 +449,7 @@ def _learner_worker(
                         train_time=train_time,
                         collector_wait_time=collector_wait_time,
                         replay_batch_wait_time=replay_batch_wait_time,
+                        learner_replay_sample_time=learner_replay_sample_time,
                         rank_barrier_time=rank_barrier_time,
                         sync_coordination_time=sync_coordination_time,
                         learner_incremental_h2d_time=learner_incremental_h2d_time,

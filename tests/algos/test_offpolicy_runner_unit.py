@@ -595,12 +595,13 @@ def test_offpolicy_logger_emits_four_independent_wait_components() -> None:
         train_time=1.2,
         collector_wait_time=0.30,
         replay_batch_wait_time=0.05,
+        learner_replay_sample_time=0.08,
         rank_barrier_time=0.02,
         sync_coordination_time=0.01,
         learner_incremental_h2d_time=0.10,
         learner_param_sync_time=0.04,
         weight_sync_time=0.03,
-        iteration_time=1.75,
+        iteration_time=1.83,
         extra_info={"throughput_steps": 1000, "world_size": 2},
     )
 
@@ -608,10 +609,15 @@ def test_offpolicy_logger_emits_four_independent_wait_components() -> None:
     assert "timing/learner_wait_ms" not in scalars
     assert scalars["timing/learner_collector_wait_ms"] == pytest.approx(300.0)
     assert scalars["timing/learner_replay_batch_wait_ms"] == pytest.approx(50.0)
+    assert scalars["timing/learner_replay_sample_ms"] == pytest.approx(80.0)
     assert scalars["timing/learner_rank_barrier_ms"] == pytest.approx(20.0)
     assert scalars["timing/learner_sync_coordination_ms"] == pytest.approx(10.0)
+    assert scalars["timing/learner_other_ms"] == pytest.approx(0.0)
     assert scalars["perf/learner_pipeline_ms"] == pytest.approx((0.10 + 1.2 + 0.04 + 0.03) * 1000)
-    assert scalars["perf/iter_ms"] == pytest.approx(1750.0)
+    assert scalars["perf/iter_ms"] == pytest.approx(1830.0)
+    assert scalars["perf/learner_train_pct"] == pytest.approx(1.2 / 1.83 * 100)
+    assert scalars["perf/learner_accounted_pct"] == pytest.approx(100.0)
+    assert scalars["perf/learner_other_pct"] == pytest.approx(0.0)
 
 
 def test_offpolicy_runner_logs_symmetry_effective_samples_without_hiding_replay_rows(
@@ -1340,6 +1346,8 @@ def test_multi_gpu_learner_worker_logs_wall_clock_and_per_rank_batch_context(
                 0.25,
                 0.25,
                 0.25,
+                0.25,
+                0.25,
                 0.45,
                 0.45,
                 0.55,
@@ -1399,6 +1407,7 @@ def test_multi_gpu_learner_worker_logs_wall_clock_and_per_rank_batch_context(
     assert "wait_time" not in step
     assert step["collector_wait_time"] == pytest.approx(0.1)
     assert step["replay_batch_wait_time"] == pytest.approx(0.0)
+    assert step["learner_replay_sample_time"] == pytest.approx(0.0)
     assert step["rank_barrier_time"] == pytest.approx(0.12)
     assert step["sync_coordination_time"] == pytest.approx(0.01)
     assert "learner_replay_wait_time" not in step
