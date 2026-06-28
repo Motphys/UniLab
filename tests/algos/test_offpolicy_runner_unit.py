@@ -439,6 +439,8 @@ def test_offpolicy_runner_sync_waits_for_train_start_threshold(
     assert logger.step_calls and logger.step_calls[0]["iteration"] == 1
     assert "collect_time" not in logger.step_calls[0]
     assert "learner_replay_wait_time" not in logger.step_calls[0]
+    assert "wait_time" not in logger.step_calls[0]
+    assert "collector_wait_time" in logger.step_calls[0]
     assert logger.step_calls[0]["learner_incremental_h2d_time"] == pytest.approx(0.004)
     assert logger.step_calls[0]["weight_sync_time"] >= 0.0
     assert logger.step_calls[0]["extra_info"] == {
@@ -523,6 +525,8 @@ def test_offpolicy_runner_async_waits_for_train_start_threshold(
     assert logger.step_calls and logger.step_calls[0]["iteration"] == 1
     assert "collect_time" not in logger.step_calls[0]
     assert "learner_replay_wait_time" not in logger.step_calls[0]
+    assert "wait_time" not in logger.step_calls[0]
+    assert "collector_wait_time" in logger.step_calls[0]
     assert logger.step_calls[0]["learner_incremental_h2d_time"] == pytest.approx(0.004)
     assert logger.step_calls[0]["weight_sync_time"] >= 0.0
     assert logger.step_calls[0]["extra_info"] == {
@@ -536,6 +540,78 @@ def test_offpolicy_runner_async_waits_for_train_start_threshold(
     assert logger._total_steps == threshold
     assert logger._buffer_size == threshold
     assert runner.last_run_summary["total_env_steps"] == threshold
+
+
+def test_offpolicy_async_collector_wait_isolates_wait_components(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    runner = _make_runner(monkeypatch, sync_collection=False)
+    threshold = runner.train_start_threshold
+    sleep_sizes = iter([4, 8, threshold])
+
+    def fake_sleep(seconds: float) -> None:
+        if seconds < 0.5:
+            next_size = next(sleep_sizes, threshold)
+            replay_buffer = _FakeReplayBuffer.last_instance
+            assert replay_buffer is not None
+            replay_buffer.size[0] = next_size
+            replay_buffer.ptr[0] = next_size
+
+    monkeypatch.setattr(runner_module._SPAWN_CTX, "Queue", lambda maxsize=0: queue.Queue())
+    monkeypatch.setattr(runner_module.time, "sleep", fake_sleep)
+
+    runner.learn(max_iterations=1, save_interval=0, log_dir=str(tmp_path))
+
+    logger = _FakeLogger.last_instance
+    assert logger is not None
+    assert logger.step_calls
+    step = logger.step_calls[0]
+    assert "wait_time" not in step
+    assert step["collector_wait_time"] >= 0.0
+    assert step["replay_batch_wait_time"] == 0.0
+    assert step["rank_barrier_time"] == 0.0
+    assert step["sync_coordination_time"] == 0.0
+
+
+def test_offpolicy_logger_emits_four_independent_wait_components() -> None:
+    from unilab.logging.offpolicy import OffPolicyLogger
+
+    class _FakeWriter:
+        def __init__(self) -> None:
+            self.scalars: dict[str, float] = {}
+
+        def add_scalar(self, key: str, value: float, step: int) -> None:
+            self.scalars[key] = value
+
+    logger = OffPolicyLogger(algo_name="SAC", max_iterations=10, num_envs=8, log_backend="none")
+    logger._tb_writer = _FakeWriter()
+    logger._wandb_run = None
+    logger._world_size = 2
+
+    logger.log_step(
+        iteration=1,
+        metrics={"loss/value_loss": 0.5},
+        reward=1.0,
+        train_time=1.2,
+        collector_wait_time=0.30,
+        replay_batch_wait_time=0.05,
+        rank_barrier_time=0.02,
+        sync_coordination_time=0.01,
+        learner_incremental_h2d_time=0.10,
+        learner_param_sync_time=0.04,
+        weight_sync_time=0.03,
+        iteration_time=1.75,
+        extra_info={"throughput_steps": 1000, "world_size": 2},
+    )
+
+    scalars = cast("dict[str, float]", logger._tb_writer.scalars)
+    assert "timing/learner_wait_ms" not in scalars
+    assert scalars["timing/learner_collector_wait_ms"] == pytest.approx(300.0)
+    assert scalars["timing/learner_replay_batch_wait_ms"] == pytest.approx(50.0)
+    assert scalars["timing/learner_rank_barrier_ms"] == pytest.approx(20.0)
+    assert scalars["timing/learner_sync_coordination_ms"] == pytest.approx(10.0)
+    assert scalars["perf/learner_pipeline_ms"] == pytest.approx((0.10 + 1.2 + 0.04 + 0.03) * 1000)
+    assert scalars["perf/iter_ms"] == pytest.approx(1750.0)
 
 
 def test_offpolicy_runner_logs_symmetry_effective_samples_without_hiding_replay_rows(
@@ -569,6 +645,8 @@ def test_offpolicy_runner_logs_symmetry_effective_samples_without_hiding_replay_
     assert replay_buffer is not None
     assert replay_buffer.sample_request_sizes == [8]
     assert "learner_replay_wait_time" not in logger.step_calls[0]
+    assert "wait_time" not in logger.step_calls[0]
+    assert "collector_wait_time" in logger.step_calls[0]
     assert logger.step_calls[0]["extra_info"] == {
         "throughput_steps": 2,
         "batch_size_per_rank": 16,
@@ -1252,7 +1330,28 @@ def test_multi_gpu_learner_worker_logs_wall_clock_and_per_rank_batch_context(
     monkeypatch.setattr(
         multi_gpu_runner_module.time,
         "perf_counter",
-        _FakeClock([0.0, 0.1, 0.2, 0.3, 0.6, 0.7, 0.72, 0.75, 0.78, 0.8]).time,
+        _FakeClock(
+            [
+                0.0,
+                0.1,
+                0.2,
+                0.2,
+                0.25,
+                0.25,
+                0.25,
+                0.25,
+                0.45,
+                0.45,
+                0.55,
+                0.55,
+                0.62,
+                0.62,
+                0.65,
+                0.65,
+                0.66,
+                0.80,
+            ]
+        ).time,
     )
 
     multi_gpu_runner_module._learner_worker(
@@ -1297,10 +1396,14 @@ def test_multi_gpu_learner_worker_logs_wall_clock_and_per_rank_batch_context(
 
     assert logger.step_calls
     step = logger.step_calls[-1]
-    assert step["wait_time"] == pytest.approx(0.1)
+    assert "wait_time" not in step
+    assert step["collector_wait_time"] == pytest.approx(0.1)
+    assert step["replay_batch_wait_time"] == pytest.approx(0.0)
+    assert step["rank_barrier_time"] == pytest.approx(0.12)
+    assert step["sync_coordination_time"] == pytest.approx(0.01)
     assert "learner_replay_wait_time" not in step
     assert step["learner_incremental_h2d_time"] == pytest.approx(0.025)
-    assert step["train_time"] == pytest.approx(0.42)
+    assert step["train_time"] == pytest.approx(0.20)
     assert step["learner_param_sync_time"] == pytest.approx(0.1)
     assert step["weight_sync_time"] == pytest.approx(0.03)
     assert step["iteration_time"] == pytest.approx(0.8)

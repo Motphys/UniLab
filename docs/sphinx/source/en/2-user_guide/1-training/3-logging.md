@@ -72,3 +72,83 @@ produces `play_video.mp4`, that video is uploaded to the W&B run.
 The off-policy config exposes trace fields such as
 `training.trace_enabled`, `training.trace_output_dir`,
 `training.trace_thread_time`, and `training.trace_cuda_events`.
+
+## Off-Policy Timing Fields
+
+For off-policy (SAC / TD3 / FlashSAC and APPO) the learner wait is split into four
+independent components, reported separately and never merged.
+
+| Terminal field | TensorBoard / W&B key | Meaning |
+| --- | --- | --- |
+| Collector Wait | `timing/learner_collector_wait_ms` | Waiting for the collector to produce new data; excludes barrier, H2D and logger refresh (the terminal shows its share of Iter Wall inline on this row) |
+| Replay Batch Wait | `timing/learner_replay_batch_wait_ms` | Waiting for a replay pack / H2D batch to become ready; ~0 on a prefetch hit |
+| Rank Barrier | `timing/learner_rank_barrier_ms` | Multi-GPU `dist.barrier()` (initial + final) total |
+| Sync Coordination | `timing/learner_sync_coordination_ms` | Synchronous-collection handshake; 0 when not in sync collection |
+| H2D Copy | `timing/learner_incremental_h2d_ms` | Host-to-device batch copy |
+| Train | `timing/learner_train_ms` | Pure SGD compute, excluding param sync and barrier |
+| Param Sync | `timing/learner_param_sync_ms` | Multi-GPU local-SGD parameter averaging |
+| Weight Sync | `timing/learner_weight_sync_ms` | Publishing new weights to the collector |
+| Iter Wall | `perf/iter_ms` | Whole-iteration wall time, not the sum of the components |
+
+Single GPU shows only Collector Wait, H2D Copy, Train, Weight Sync and Iter Wall;
+Rank Barrier, Sync Coordination and Param Sync appear only on multi-GPU and are
+recorded on rank 0 only. `perf/learner_pipeline_ms` = H2D + Train + Param Sync +
+Weight Sync. The former `timing/learner_wait_ms` was renamed to
+`timing/learner_collector_wait_ms`.
+
+The collector process reports per-phase timings in the terminal Collector column and
+TensorBoard `timing/collector_*`. SAC / TD3:
+
+| Terminal field | TensorBoard / W&B key | Meaning |
+| --- | --- | --- |
+| Weight Sync | `timing/collector_weight_sync_ms` | Pulling and loading new learner weights |
+| Action Select | `timing/collector_action_select_ms` | Actor inference |
+| Env Step | `timing/collector_env_step_ms` | Environment step |
+| Replay | `timing/collector_replay_ms` | Replay buffer write and sample packing |
+| Sync Coordination | `timing/collector_sync_coordination_ms` | Synchronous-collection handshake (signal learner, wait for learner) |
+
+APPO uses a ring buffer; the collector reports two **per-step** EMAs plus one **whole-rollout** total:
+
+| Terminal field | TensorBoard / W&B key | Meaning |
+| --- | --- | --- |
+| MLP Infer | `timing/collector_mlp_infer_ms` | EMA of per-step policy inference (**per step**) |
+| Env Step | `timing/collector_env_step_ms` | EMA of a single `env.step()` (**per step**) |
+| Rollout | `timing/collector_rollout_ms` | EMA of the real wall-clock time to produce **one full rollout** (`steps_per_env` steps); shown last in the column as the total |
+
+> Rollout ≈ `steps_per_env` × (MLP Infer + Env Step) + untimed per-step overhead (e.g. the timeout-bootstrap critic forward, obs processing). It and the learner's Collector Wait are **two independent-timeline views**: collection overlaps the learner's compute, so Collector Wait (the time the learner is actually blocked) is normally **smaller** than Rollout, and the two are not meant to reconcile exactly. To see "how much of this iteration waits on the collector," read the inline percentage on the Collector Wait row (= Collector Wait / Iter Wall). The former `env_step_total_ms` (`timing/collector_env_step_total_ms`) is renamed to `Env Step` (`timing/collector_env_step_ms`).
+
+### Per-iteration sequence (APPO example)
+
+The collector continuously produces rollouts through the ring buffer; each learner
+iteration goes through the following timed components (the meaning is in parentheses):
+
+```{mermaid}
+gantt
+    title Time inside one learner iteration (APPO)
+    dateFormat x
+    axisFormat %S
+
+    section Collector (proc)
+    rollout N · env interaction (mlp_infer + env_step) ×steps_per_env :active, c0, 0, 12000
+    rollout N+1 (collected in parallel with learner)                  :active, c1, 13000, 30000
+
+    section Ring Buffer (4 slots)
+    rollout N ready    :milestone, r0, 12000, 12000
+    rollout N+1 ready  :milestone, r1, 30000, 30000
+
+    section Learner (GPU)
+    Collector Wait (≈0 when buffer full)  :done,   l0, 12000, 13000
+    H2D Copy (ring → staging)             :        l1, 13000, 16000
+    Train (V-trace + PPO SGD)             :active, l2, 16000, 28000
+    Weight Sync → collector               :crit,   l3, 28000, 30000
+
+    section Iter Wall
+    perf/iter_ms (learner loop only)      :        l4, 12000, 30000
+```
+
+> The axis is schematic (relative, not real-ms). The collector subprocess produces rollouts through the 4-slot ring buffer in parallel with the learner, so **Collector Wait ≈ 0** in steady state. `perf/iter_ms` counts only this learner loop (it includes Collector Wait but not the collector's parallel rollout compute); the red Weight Sync marks the end of the iteration when fresh weights are published to the collector.
+
+SAC / TD3 and multi-GPU paths additionally show Replay Batch Wait (waiting for a
+replay pack / H2D batch), Rank Barrier (multi-GPU rank sync), Param Sync (multi-GPU
+parameter averaging) and Sync Coordination (synchronous-collection handshake);
+APPO single-GPU has none of these.

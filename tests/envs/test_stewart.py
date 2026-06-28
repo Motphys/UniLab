@@ -68,6 +68,7 @@ def test_stewart_mujoco_owner_cfg_composes() -> None:
 
 
 def test_stewart_env_constructs_and_steps() -> None:
+    pytest.importorskip("motrixsim", reason="motrixsim not installed")
     env = _make_env(num_envs=2)
     assert env.obs_groups_spec == {"obs": _OBS_DIM}
     assert env.action_space.shape == (_ACTION_DIM,)
@@ -85,6 +86,7 @@ def test_stewart_env_constructs_and_steps() -> None:
 
 def test_stewart_ik_holds_level_platform() -> None:
     """At zero action the IK should hold the plate near its home height (z=1)."""
+    pytest.importorskip("motrixsim", reason="motrixsim not installed")
     env = _make_env(num_envs=2)
     env.step(np.zeros((2, _ACTION_DIM), dtype=np.float32))  # triggers reset + calibration
     # Level-hold control should be ~zero leg displacement and ~1.1 m neutral legs.
@@ -101,6 +103,7 @@ def test_stewart_ik_holds_level_platform() -> None:
 def test_stewart_solver_stable_under_random_actions() -> None:
     """Regression for the closed-loop solver blow-up (NotPositiveDefinite):
     the fall-radius margin + softened actuator kp must keep it stable."""
+    pytest.importorskip("motrixsim", reason="motrixsim not installed")
     env = _make_env(num_envs=8)
     np.random.seed(0)
     for _ in range(400):

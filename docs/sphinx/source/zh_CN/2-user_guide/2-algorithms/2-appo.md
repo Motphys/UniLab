@@ -34,6 +34,34 @@ uv run eval --algo appo --task go2_joystick_flat --sim mujoco --load-run -1
 - APPO 内部带 V-trace importance-sampling 修正，更新语义不同于同步 PPO。
 - collector / learner 流水线由一个 4 槽 ring buffer 支撑。
 
+单次迭代的计时时序（各指标含义见[日志页](../1-training/3-logging.md)）：
+
+```{mermaid}
+gantt
+    title 一次 Learner 迭代的时间线（APPO）
+    dateFormat x
+    axisFormat %S
+
+    section Collector（进程）
+    rollout N · env interaction（mlp_infer + env_step）×steps_per_env :active, c0, 0, 12000
+    rollout N+1（与 learner 并行采集）                                :active, c1, 13000, 30000
+
+    section Ring Buffer（4 槽）
+    rollout N 就绪    :milestone, r0, 12000, 12000
+    rollout N+1 就绪  :milestone, r1, 30000, 30000
+
+    section Learner（GPU）
+    Collector Wait（缓冲满则约 0）    :done,   l0, 12000, 13000
+    H2D Copy（ring 进 staging）       :        l1, 13000, 16000
+    Train（V-trace + PPO SGD）        :active, l2, 16000, 28000
+    Weight Sync 写回 collector        :crit,   l3, 28000, 30000
+
+    section Iter Wall
+    perf/iter_ms（仅 learner 这圈）   :        l4, 12000, 30000
+```
+
+> 横轴为示意相对时长（非真实 ms 比例）。collector 子进程经 4 槽 ring buffer 与 learner 并行产出 rollout，稳态下 **Collector Wait ≈ 0**。`perf/iter_ms` 仅计 learner 这一圈（含 Collector Wait，但不含 collector 的并行采集计算）；红色 Weight Sync 标志该轮迭代结束、向 collector 发布新权重。各字段含义见[日志页](../1-training/3-logging.md)。
+
 ## 关键字段
 
 - `algo.steps_per_env`：单个环境的 rollout 长度。

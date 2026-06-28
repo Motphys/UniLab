@@ -342,7 +342,8 @@ def test_appo_runner_logs_learner_timing_for_fps_inputs(
 
     step = logger.step_calls[0]
     assert "collect_time" not in step
-    assert step["wait_time"] == pytest.approx(10.0)
+    assert "wait_time" not in step
+    assert step["collector_wait_time"] == pytest.approx(10.0)
     assert step["train_time"] == pytest.approx(0.5)
     assert step["learner_incremental_h2d_time"] >= 0.0
     assert step["weight_sync_time"] >= 0.0

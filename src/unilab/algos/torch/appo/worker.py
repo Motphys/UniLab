@@ -236,9 +236,11 @@ def appo_collector_fn(
     _EMA = 0.1
     ema_mlp_infer_ms: float = 0.0
     ema_env_step_ms: float = 0.0
+    ema_rollout_ms: float = 0.0
 
     try:
         while not stop_event.is_set():
+            t_rollout_start = time.perf_counter()
             # Pull latest weights from learner
             if actor_weight_sync.version > local_actor_weight_version:
                 actor_sd = dict(actor.state_dict())
@@ -352,8 +354,9 @@ def appo_collector_fn(
                             ep_terminates = 0
                         # Collector-side timing breakdown
                         msg["collector_timing_ms"] = {
+                            "rollout_ms": ema_rollout_ms,
                             "mlp_infer_ms": ema_mlp_infer_ms,
-                            "env_step_total_ms": ema_env_step_ms,
+                            "env_step_ms": ema_env_step_ms,
                         }
                         if ep_reward_components:
                             msg["reward_components"] = {
@@ -374,6 +377,9 @@ def appo_collector_fn(
             if critic_np is not None:
                 write_buf["last_critic"][:] = critic_np
             ring_buffer.signal_write_done()  # atomic increment, non-blocking
+            ema_rollout_ms = (1 - _EMA) * ema_rollout_ms + _EMA * (
+                (time.perf_counter() - t_rollout_start) * 1000
+            )
 
     except Exception:
         stop_event.set()

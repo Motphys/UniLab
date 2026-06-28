@@ -347,9 +347,9 @@ class HoraAPPORunner(APPORunner):
                     f"[yellow]Warning: Timeout waiting for data at iteration {iteration}[/]"
                 )
                 continue
+            wait_time = time.time() - wait_start
 
             available_on_arrive = rollout_ring_buffer.available()
-            wait_time = time.time() - wait_start
 
             num_new = rollout_ring_buffer.available()
             learner_incremental_h2d_time = 0.0
@@ -393,7 +393,7 @@ class HoraAPPORunner(APPORunner):
                 reward=mean_reward,
                 reward_components=latest_reward_components,
                 train_time=train_time,
-                wait_time=wait_time,
+                collector_wait_time=wait_time,
                 learner_incremental_h2d_time=learner_incremental_h2d_time,
                 weight_sync_time=weight_sync_time,
                 iteration_time=iteration_time,

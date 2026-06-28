@@ -14,14 +14,18 @@ from unilab.logging.common import BaseTrainingLogger, _fmt_number, _load_wandb
 
 OFFPOLICY_COLLECTOR_TIMING_ORDER = {
     "weight_sync_ms": 0,
+    "mlp_infer_ms": 1,
     "action_select_ms": 1,
     "env_step_ms": 2,
     "replay_ms": 3,
     "sync_coordination_ms": 4,
+    "rollout_ms": 9,
 }
 
 OFFPOLICY_COLLECTOR_TIMING_LABELS = {
+    "rollout_ms": "Rollout",
     "weight_sync_ms": "Weight Sync",
+    "mlp_infer_ms": "MLP Infer",
     "action_select_ms": "Action Select",
     "env_step_ms": "Env Step",
     "replay_ms": "Replay",
@@ -105,7 +109,10 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._total_steps: int = 0
         self._buffer_size: int = 0
         self._buffer_target: int = 0
-        self._wait_time: float = 0.0
+        self._collector_wait_time: float = 0.0
+        self._replay_batch_wait_time: float = 0.0
+        self._rank_barrier_time: float = 0.0
+        self._sync_coordination_time: float = 0.0
         self._learner_incremental_h2d_time: float = 0.0
         self._learner_param_sync_time: float = 0.0
         self._weight_sync_time: float = 0.0
@@ -170,12 +177,23 @@ class OffPolicyLogger(BaseTrainingLogger):
         return self._learner_samples_per_iter / iter_time
 
     def _get_learner_pipeline_time(self) -> float:
-        return self._learner_incremental_h2d_time + self._train_time + self._weight_sync_time
+        return (
+            self._learner_incremental_h2d_time
+            + self._train_time
+            + self._learner_param_sync_time
+            + self._weight_sync_time
+        )
 
     def _get_iter_wall_time(self) -> float:
         if self._iteration_time is not None and self._iteration_time > 0.0:
             return self._iteration_time
-        return self._wait_time + self._get_learner_pipeline_time()
+        return (
+            self._collector_wait_time
+            + self._replay_batch_wait_time
+            + self._rank_barrier_time
+            + self._sync_coordination_time
+            + self._get_learner_pipeline_time()
+        )
 
     def _build_compact_header(
         self,
@@ -232,7 +250,10 @@ class OffPolicyLogger(BaseTrainingLogger):
         reward_metrics: dict[str, float] | None = None,
         reward_components: dict[str, float] | None = None,
         train_time: float = 0.0,
-        wait_time: float = 0.0,
+        collector_wait_time: float = 0.0,
+        replay_batch_wait_time: float = 0.0,
+        rank_barrier_time: float = 0.0,
+        sync_coordination_time: float = 0.0,
         learner_incremental_h2d_time: float = 0.0,
         learner_param_sync_time: float = 0.0,
         weight_sync_time: float = 0.0,
@@ -242,7 +263,10 @@ class OffPolicyLogger(BaseTrainingLogger):
         metrics = _dedupe_metric_aliases(metrics)
         self._iteration = iteration
         self._train_time = train_time
-        self._wait_time = wait_time
+        self._collector_wait_time = collector_wait_time
+        self._replay_batch_wait_time = replay_batch_wait_time
+        self._rank_barrier_time = rank_barrier_time
+        self._sync_coordination_time = sync_coordination_time
         self._learner_incremental_h2d_time = learner_incremental_h2d_time
         self._learner_param_sync_time = learner_param_sync_time
         self._weight_sync_time = weight_sync_time
@@ -321,7 +345,26 @@ class OffPolicyLogger(BaseTrainingLogger):
                 writer.add_scalar("episode/length", self._mean_ep_length, global_step)
             writer.add_scalar("episode/timeout_rate", self._timeout_rate, global_step)
             writer.add_scalar("episode/terminated_rate", self._terminated_rate, global_step)
-            writer.add_scalar("timing/learner_wait_ms", self._wait_time * 1000, global_step)
+            writer.add_scalar(
+                "timing/learner_collector_wait_ms",
+                self._collector_wait_time * 1000,
+                global_step,
+            )
+            writer.add_scalar(
+                "timing/learner_replay_batch_wait_ms",
+                self._replay_batch_wait_time * 1000,
+                global_step,
+            )
+            writer.add_scalar(
+                "timing/learner_rank_barrier_ms",
+                self._rank_barrier_time * 1000,
+                global_step,
+            )
+            writer.add_scalar(
+                "timing/learner_sync_coordination_ms",
+                self._sync_coordination_time * 1000,
+                global_step,
+            )
             writer.add_scalar(
                 "timing/learner_incremental_h2d_ms",
                 self._learner_incremental_h2d_time * 1000,
@@ -376,7 +419,10 @@ class OffPolicyLogger(BaseTrainingLogger):
                 log_dict["episode/length"] = self._mean_ep_length
             log_dict["episode/timeout_rate"] = self._timeout_rate
             log_dict["episode/terminated_rate"] = self._terminated_rate
-            log_dict["timing/learner_wait_ms"] = self._wait_time * 1000
+            log_dict["timing/learner_collector_wait_ms"] = self._collector_wait_time * 1000
+            log_dict["timing/learner_replay_batch_wait_ms"] = self._replay_batch_wait_time * 1000
+            log_dict["timing/learner_rank_barrier_ms"] = self._rank_barrier_time * 1000
+            log_dict["timing/learner_sync_coordination_ms"] = self._sync_coordination_time * 1000
             log_dict["timing/learner_incremental_h2d_ms"] = (
                 self._learner_incremental_h2d_time * 1000
             )
@@ -467,20 +513,29 @@ class OffPolicyLogger(BaseTrainingLogger):
         table.add_column("System", style="white", ratio=2, no_wrap=True)
         table.add_column("Value", style="yellow", justify="right", ratio=1, no_wrap=True)
 
-        wait_ms = self._wait_time * 1000
-        wait_color = "red" if wait_ms > 1.0 else "yellow"
+        collector_wait_ms = self._collector_wait_time * 1000
+        iter_wall_ms = self._get_iter_wall_time() * 1000
+        wait_color = "red" if collector_wait_ms > 1.0 else "yellow"
+        wait_pct = f" ({collector_wait_ms / iter_wall_ms * 100:.0f}%)" if iter_wall_ms > 0 else ""
         learner_items = [
-            ("Wait", f"[{wait_color}]{wait_ms:.1f}ms[/]"),
-            ("H2D Copy", f"{self._learner_incremental_h2d_time * 1000:.1f}ms"),
-            ("Train", f"{self._train_time * 1000:.1f}ms"),
-            ("Weight Sync", f"{self._weight_sync_time * 1000:.1f}ms"),
-            ("Iter Wall", f"{self._get_iter_wall_time() * 1000:.1f}ms"),
+            ("Collector Wait", f"[{wait_color}]{collector_wait_ms:.1f}ms{wait_pct}[/]"),
         ]
-        if self._world_size > 1 or self._learner_param_sync_time > 0.0:
-            learner_items.insert(
-                3,
-                ("Param Sync (in Train)", f"{self._learner_param_sync_time * 1000:.1f}ms"),
+        if self._world_size > 1 or self._replay_batch_wait_time > 0.0:
+            learner_items.append(
+                ("Replay Batch Wait", f"{self._replay_batch_wait_time * 1000:.1f}ms")
             )
+        if self._world_size > 1 or self._rank_barrier_time > 0.0:
+            learner_items.append(("Rank Barrier", f"{self._rank_barrier_time * 1000:.1f}ms"))
+        if self._world_size > 1 or self._sync_coordination_time > 0.0:
+            learner_items.append(
+                ("Sync Coordination", f"{self._sync_coordination_time * 1000:.1f}ms")
+            )
+        learner_items.append(("H2D Copy", f"{self._learner_incremental_h2d_time * 1000:.1f}ms"))
+        learner_items.append(("Train", f"{self._train_time * 1000:.1f}ms"))
+        if self._world_size > 1 or self._learner_param_sync_time > 0.0:
+            learner_items.append(("Param Sync", f"{self._learner_param_sync_time * 1000:.1f}ms"))
+        learner_items.append(("Weight Sync", f"{self._weight_sync_time * 1000:.1f}ms"))
+        learner_items.append(("Iter Wall", f"{self._get_iter_wall_time() * 1000:.1f}ms"))
         collector_items = [
             (OFFPOLICY_COLLECTOR_TIMING_LABELS.get(key, key), f"{value:.1f}ms")
             for key, value in sorted(
