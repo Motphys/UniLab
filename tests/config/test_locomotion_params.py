@@ -56,6 +56,7 @@ def test_sac_config_defaults():
     assert cfg.num_envs == 4096
     assert cfg.batch_size == 8192
     assert cfg.use_symmetry is False
+    assert cfg.obs_normalization is False
     assert isinstance(cfg.algo_params, SACAlgoParams)
     assert cfg.algo_params.alpha_init == 0.01
     assert cfg.algo_params.use_compile is True

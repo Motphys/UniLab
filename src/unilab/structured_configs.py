@@ -54,7 +54,7 @@ class SACConfig(BaseConfig):
     actor_hidden_dim: int = 512
     critic_hidden_dim: int = 768
     num_atoms: int = 101
-    obs_normalization: bool = True
+    obs_normalization: bool = False
     use_layer_norm: bool = True
     use_symmetry: bool = False
     actor: dict[str, Any] = field(default_factory=dict)

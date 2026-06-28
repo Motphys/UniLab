@@ -20,6 +20,10 @@ learner iteration 同步一次；增大该值可以进一步减少 4 卡、8 卡
 增加 rank 间参数漂移。`local_sgd` 下 optimizer state 按设计保持 rank-local，不在同
 步边界平均，以避免把通信量扩展到 AdamW 动量状态。
 
+开启 `algo.obs_normalization=true` 时，每个 learner rank 使用跨 rank 聚合后的全局
+batch moments 更新 observation normalizer；rank0 在发布 actor 权重给 CPU
+collector 的同一同步点发布对应 mean/std。
+
 如需严格的每次 update 梯度平均，可显式设置
 `training.multi_gpu_sync_mode=sync_sgd`。该模式更接近单卡 global batch 的同步
 SGD 语义，但通信次数更多，通常不适合没有高速 GPU 互联的机器。
@@ -42,7 +46,6 @@ batch**，不是跨所有 GPU 的 global batch。`training.num_gpus=N` 时，每
 
 - 只支持 SAC：`training.num_gpus > 1` 会拒绝 TD3、FlashSAC、PPO、MLX PPO 和 APPO。
 - 必须使用 CUDA 设备；用 `CUDA_VISIBLE_DEVICES` 选择物理卡。
-- 本轮验证要求 `algo.obs_normalization=false`。
 - SAC 的对称增强当前不支持多卡；若任务 owner 默认开启，需要设置
   `algo.use_symmetry=false`。
 - 采集必须同步；不要设置 `training.no_sync_collection=true`。
@@ -55,7 +58,6 @@ batch**，不是跨所有 GPU 的 global batch。`training.num_gpus=N` 时，每
 uv run train --algo sac --task g1_walk_flat --sim mujoco \
   training.num_gpus=2 \
   training.multi_gpu_sync_mode=local_sgd \
-  algo.obs_normalization=false \
   algo.use_symmetry=false
 ```
 
@@ -66,7 +68,6 @@ uv run train --algo sac --task g1_walk_flat --sim mujoco \
 CUDA_VISIBLE_DEVICES=0,7 uv run train --algo sac --task g1_walk_flat --sim mujoco \
   training.num_gpus=2 \
   training.multi_gpu_sync_mode=local_sgd \
-  algo.obs_normalization=false \
   algo.use_symmetry=false
 ```
 
@@ -76,7 +77,6 @@ CUDA_VISIBLE_DEVICES=0,7 uv run train --algo sac --task g1_walk_flat --sim mujoc
 CUDA_VISIBLE_DEVICES=0,7 uv run train --algo sac --task g1_walk_flat --sim mujoco \
   training.num_gpus=2 \
   training.multi_gpu_sync_mode=local_sgd \
-  algo.obs_normalization=false \
   algo.use_symmetry=false \
   algo.max_iterations=10 \
   algo.num_envs=512 \
@@ -106,8 +106,6 @@ ring-buffer 窗口，让 CPU 随机 gather 与下一次 env step 重叠，同时
 - `Only SAC supports training.num_gpus > 1`：当前只验证 SAC。
 - `SAC multi-GPU training requires a CUDA device`：没有可用 CUDA，或
   `training.device` 被设成了 CPU。
-- `requires algo.obs_normalization=false`：显式追加
-  `algo.obs_normalization=false`。
 - `set training.num_gpus=1 or algo.use_symmetry=false`：多卡 SAC 暂不支持对称增
   强，显式追加 `algo.use_symmetry=false`。
 

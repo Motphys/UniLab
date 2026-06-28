@@ -92,6 +92,7 @@ class FastSACRunner(OffPolicyRunner):
             max_grad_norm=max_grad_norm,
             use_amp=use_amp,
             amp_dtype=amp_dtype,
+            obs_normalization=obs_normalization,
             use_symmetry=use_symmetry,
             symmetry_augmentation=symmetry_augmentation,
             world_size=getattr(self, "world_size", world_size),

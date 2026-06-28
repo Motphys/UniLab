@@ -26,7 +26,6 @@ uv run train --algo sac --task g1_walk_rough --sim motrix training.no_play=true
 ```bash
 CUDA_VISIBLE_DEVICES=0,7 uv run train --algo sac --task g1_walk_flat --sim mujoco \
   training.num_gpus=2 \
-  algo.obs_normalization=false \
   algo.use_symmetry=false
 ```
 
@@ -42,8 +41,7 @@ CUDA_VISIBLE_DEVICES=0,7 uv run train --algo sac --task g1_walk_flat --sim mujoc
   update batch 为 `algo.batch_size * training.num_gpus`。
 - `algo.max_iterations=500`
 - 共享 off-policy 配置中的 `training.use_amp=true`
-- 多 GPU SAC 使用 `training.num_gpus=<N>`；当前验证要求
-  `algo.obs_normalization=false`，且不支持 `algo.use_symmetry=true`。
+- 多 GPU SAC 使用 `training.num_gpus=<N>`；当前不支持 `algo.use_symmetry=true`。
 - 多 GPU SAC 默认 `training.multi_gpu_sync_mode=local_sgd`，
   `training.multi_gpu_sync_interval=1`。
 

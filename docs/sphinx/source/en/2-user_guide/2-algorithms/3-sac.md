@@ -30,7 +30,6 @@ Two-GPU MuJoCo example:
 ```bash
 CUDA_VISIBLE_DEVICES=0,7 uv run train --algo sac --task g1_walk_flat --sim mujoco \
   training.num_gpus=2 \
-  algo.obs_normalization=false \
   algo.use_symmetry=false
 ```
 
@@ -46,8 +45,8 @@ playback video. See {doc}`/en/1-getting_started/3-evaluation_and_playback`.
   runs, the global update batch is `algo.batch_size * training.num_gpus`.
 - `algo.max_iterations=500`
 - `training.use_amp=true` in the shared off-policy config
-- Multi-GPU SAC uses `training.num_gpus=<N>`; this validation round requires
-  `algo.obs_normalization=false` and does not support `algo.use_symmetry=true`.
+- Multi-GPU SAC uses `training.num_gpus=<N>`; `algo.use_symmetry=true` is not
+  supported yet.
 - Multi-GPU SAC defaults to `training.multi_gpu_sync_mode=local_sgd` and
   `training.multi_gpu_sync_interval=1`.
 
