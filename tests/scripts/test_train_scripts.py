@@ -2447,7 +2447,6 @@ def test_offpolicy_sac_multi_gpu_requires_cuda_device():
             "task=sac/g1_walk_flat/mujoco",
             "training.num_gpus=2",
             "training.device=cpu",
-            "algo.obs_normalization=false",
         ]
     )
 
@@ -2463,7 +2462,6 @@ def test_offpolicy_sac_multi_gpu_requires_cuda_even_with_explicit_symmetry_disab
             "training.num_gpus=2",
             "training.device=cpu",
             "algo.use_symmetry=false",
-            "algo.obs_normalization=false",
         ]
     )
 

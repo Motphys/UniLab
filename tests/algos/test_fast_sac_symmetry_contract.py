@@ -137,6 +137,62 @@ def test_fast_sac_learner_exposes_multi_gpu_initial_sync_contract():
     learner.sync_initial_parameters(src=0)
 
 
+def test_fast_sac_obs_normalization_uses_global_distributed_moments(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from unilab.algos.torch.fast_sac.learner import FastSACLearner
+
+    learner = FastSACLearner(
+        obs_dim=2,
+        action_dim=1,
+        critic_obs_dim=3,
+        device="cpu",
+        actor_hidden_dim=8,
+        critic_hidden_dim=8,
+        num_atoms=3,
+        num_q_networks=2,
+        use_layer_norm=False,
+        use_autotune=False,
+        obs_normalization=True,
+        world_size=2,
+    )
+
+    monkeypatch.setattr(learner_module.dist, "is_available", lambda: True)
+    monkeypatch.setattr(learner_module.dist, "is_initialized", lambda: True)
+
+    def fake_all_reduce(tensor, op=None):
+        del op
+        remote_moments = torch.tensor([12.0, 16.0, 74.0, 130.0, 2.0])
+        tensor.add_(remote_moments)
+
+    monkeypatch.setattr(learner_module.dist, "all_reduce", fake_all_reduce)
+
+    learner.normalize_obs(torch.tensor([[1.0, 3.0], [3.0, 5.0]]), update=True)
+
+    torch.testing.assert_close(learner.obs_normalizer.mean, torch.tensor([4.0, 6.0]))
+    torch.testing.assert_close(
+        learner.obs_normalizer.std,
+        torch.full((2,), 5.0**0.5),
+    )
+    assert int(learner.obs_normalizer.count.item()) == 4
+
+    restored = FastSACLearner(
+        obs_dim=2,
+        action_dim=1,
+        critic_obs_dim=3,
+        device="cpu",
+        actor_hidden_dim=8,
+        critic_hidden_dim=8,
+        num_atoms=3,
+        num_q_networks=2,
+        use_layer_norm=False,
+        use_autotune=False,
+        obs_normalization=True,
+    )
+    restored.load_state_dict(learner.get_state_dict())
+    torch.testing.assert_close(restored.obs_normalizer.mean, learner.obs_normalizer.mean)
+
+
 def test_multi_gpu_offpolicy_runner_rejects_sac_symmetry_capability():
     from unilab.algos.torch.offpolicy.multi_gpu_runner import MultiGPUOffPolicyRunner
 

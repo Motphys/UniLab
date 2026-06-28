@@ -24,7 +24,7 @@ critic_lr: 3.0e-4
 actor_hidden_dim: 512
 critic_hidden_dim: 768
 num_atoms: 101
-obs_normalization: true
+obs_normalization: false
 use_layer_norm: true
 use_symmetry: false
 actor: {}

@@ -33,7 +33,7 @@ from unilab.algos.torch.offpolicy.runner import (
     replay_buffer_ready_for_learning,
 )
 from unilab.algos.torch.offpolicy.worker import off_policy_collector_fn
-from unilab.ipc import SharedWeightSync
+from unilab.ipc import SharedObsNormStats, SharedWeightSync
 from unilab.ipc.async_runner import _SPAWN_CTX
 from unilab.ipc.replay_buffer import ReplayBuffer
 from unilab.ipc.replay_pipelines.multi_gpu_cpu_pinned import MultiGPUCPUPinnedReplayPipeline
@@ -125,6 +125,22 @@ def _put_trainer_done_or_stop(trainer_done_queue: Any, stop_event: Any) -> bool:
     return False
 
 
+def _publish_obs_normalizer_stats(learner: Any, shared_obs_normalizer_stats: Any) -> None:
+    if shared_obs_normalizer_stats is None:
+        return
+    normalizer = getattr(learner, "obs_normalizer", None)
+    if normalizer is None:
+        return
+    try:
+        mean = normalizer.mean
+        std = normalizer.std
+    except Exception:
+        return
+    if not torch.is_tensor(mean) or not torch.is_tensor(std):
+        return
+    shared_obs_normalizer_stats.put((mean.detach().cpu().numpy(), std.detach().cpu().numpy()))
+
+
 def _learner_worker(
     rank: int,
     world_size: int,
@@ -206,6 +222,8 @@ def _learner_worker(
         sync_interval = normalize_multi_gpu_sync_interval(
             int(runner_kwargs.get("multi_gpu_sync_interval", 1))
         )
+        obs_normalization = bool(runner_kwargs.get("obs_normalization", False))
+        shared_obs_normalizer_stats = runner_kwargs.get("shared_obs_normalizer_stats")
         learning_starts = max(int(runner_kwargs.get("learning_starts", 0)), 0)
         train_start_threshold = compute_train_start_threshold(batch_size, learning_starts, num_envs)
         sample_count = batch_size * updates_per_step
@@ -439,6 +457,8 @@ def _learner_worker(
                 learner.update_count += 1
                 weight_sync_time = 0.0
                 if sync_mode != "local_sgd" or did_param_sync:
+                    if obs_normalization:
+                        _publish_obs_normalizer_stats(learner, shared_obs_normalizer_stats)
                     weight_sync_start = time.perf_counter()
                     weight_sync.write_weights(learner.actor.state_dict())
                     weight_sync_time = time.perf_counter() - weight_sync_start
@@ -673,6 +693,9 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
             )
 
         metrics_queue = _SPAWN_CTX.Queue(maxsize=100)
+        shared_obs_normalizer_stats = None
+        if self.obs_normalization:
+            shared_obs_normalizer_stats = SharedObsNormStats(_SPAWN_CTX)
         collector_pack_request_queues = [_SPAWN_CTX.Queue(maxsize=2) for _ in range(self.num_gpus)]
         collector_pack_ready_queues = [_SPAWN_CTX.Queue(maxsize=2) for _ in range(self.num_gpus)]
         sample_count = self.batch_size * self.updates_per_step
@@ -703,8 +726,8 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
             "collection_ready_queue": collection_ready_queue,
             "trainer_done_queue": trainer_done_queue,
             "env_steps_per_sync": self.env_steps_per_sync,
-            "obs_normalization": False,
-            "shared_obs_normalizer_stats": None,
+            "obs_normalization": self.obs_normalization,
+            "shared_obs_normalizer_stats": shared_obs_normalizer_stats,
             "sim_backend": self.sim_backend,
             "env_cfg_override": self.env_cfg_override,
             "obs_dim": self.obs_dim,
@@ -748,6 +771,8 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
             "multi_gpu_sync_mode": self.multi_gpu_sync_mode,
             "multi_gpu_sync_interval": self.multi_gpu_sync_interval,
             "algo_type": self.algo_type,
+            "obs_normalization": self.obs_normalization,
+            "shared_obs_normalizer_stats": shared_obs_normalizer_stats,
         }
 
         try:

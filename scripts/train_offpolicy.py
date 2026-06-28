@@ -265,6 +265,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             "use_amp": cfg.training.use_amp,
             "amp_dtype": cfg.algo.algo_params.amp_dtype,
             "use_compile": cfg.algo.algo_params.use_compile,
+            "obs_normalization": cfg.algo.obs_normalization,
             "use_symmetry": cfg.algo.use_symmetry,
             "symmetry_augmentation": _symmetry_aug,
             "critic_obs_dim": _critic_dim,
@@ -275,10 +276,6 @@ def build_runner(algo_name: str, cfg: DictConfig):
         if num_gpus > 1:
             from unilab.algos.torch.offpolicy.multi_gpu_runner import MultiGPUOffPolicyRunner
 
-            if cfg.algo.obs_normalization:
-                raise ValueError(
-                    "SAC multi-GPU validation currently requires algo.obs_normalization=false"
-                )
             if not str(_device).startswith("cuda"):
                 raise ValueError("SAC multi-GPU training requires a CUDA device")
             return MultiGPUOffPolicyRunner(
@@ -302,7 +299,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
                 device=_device,
                 actor_hidden_dim=cfg.algo.actor_hidden_dim,
                 use_layer_norm=cfg.algo.use_layer_norm,
-                obs_normalization=False,
+                obs_normalization=cfg.algo.obs_normalization,
                 sim_backend=cfg.training.sim_backend,
                 env_cfg_override=env_cfg_override,
                 actor_kwargs=_actor_kwargs,

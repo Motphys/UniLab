@@ -20,6 +20,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from unilab.algos.torch.common.compile import get_torch_compile_for_cuda
+from unilab.algos.torch.common.normalization import EmpiricalNormalization
 from unilab.base.augmentation import SymmetryAugmentation
 
 FAST_SAC_DISTRIBUTED_SYNC_MODES = {"sync_sgd", "local_sgd"}
@@ -408,6 +409,7 @@ class FastSACLearner:
         use_amp: bool = False,
         amp_dtype: str = "auto",
         use_compile: bool = False,
+        obs_normalization: bool = False,
         symmetry_augmentation: SymmetryAugmentation | None = None,
         world_size: int = 1,
         distributed_sync_mode: str = "sync_sgd",
@@ -469,6 +471,12 @@ class FastSACLearner:
         # Entropy coefficient
         self.log_alpha = torch.tensor([math.log(alpha_init)], requires_grad=True, device=device)
         self.target_entropy = -action_dim * target_entropy_ratio
+
+        self.obs_normalizer: EmpiricalNormalization | nn.Identity
+        if obs_normalization:
+            self.obs_normalizer = EmpiricalNormalization(shape=obs_dim, device=device)
+        else:
+            self.obs_normalizer = nn.Identity()
 
         # fused AdamW requires CUDA; MPS and CPU do not support it
         _fused = isinstance(device, str) and device.startswith("cuda")
@@ -552,6 +560,53 @@ class FastSACLearner:
             self._device_type, dtype=self._amp_dtype, enabled=self.use_amp
         )
 
+    def _distributed_normalization_ready(self) -> bool:
+        return self.world_size > 1 and dist.is_available() and dist.is_initialized()
+
+    @torch.no_grad()
+    def _update_obs_normalizer(self, obs: torch.Tensor) -> None:
+        if isinstance(self.obs_normalizer, nn.Identity):
+            return
+        normalizer = cast(EmpiricalNormalization, self.obs_normalizer)
+        if not self._distributed_normalization_ready():
+            normalizer.update(obs)
+            return
+
+        obs_for_stats = obs.detach().to(dtype=normalizer._mean.dtype)
+        obs_dim = int(obs_for_stats.shape[-1])
+        moment_payload = torch.cat(
+            [
+                obs_for_stats.sum(dim=0),
+                obs_for_stats.square().sum(dim=0),
+                torch.tensor(
+                    [obs_for_stats.shape[0]],
+                    device=obs_for_stats.device,
+                    dtype=obs_for_stats.dtype,
+                ),
+            ]
+        )
+        dist.all_reduce(moment_payload, op=dist.ReduceOp.SUM)
+        batch_count = moment_payload[-1].clamp_min(1.0)
+        batch_mean = (moment_payload[:obs_dim] / batch_count).view_as(normalizer._mean)
+        batch_var = (
+            moment_payload[obs_dim : 2 * obs_dim] / batch_count - batch_mean.view(-1).square()
+        ).clamp_min(0.0)
+        normalizer.update_from_moments(
+            batch_mean,
+            batch_var.view_as(normalizer._var),
+            batch_count.round().to(dtype=normalizer.count.dtype),
+        )
+
+    def normalize_obs(self, obs: torch.Tensor, update: bool = False) -> torch.Tensor:
+        """Normalize actor observations using synchronized running statistics."""
+        if isinstance(self.obs_normalizer, nn.Identity):
+            return obs
+        normalizer = cast(EmpiricalNormalization, self.obs_normalizer)
+        if update:
+            self._update_obs_normalizer(obs)
+            return cast(torch.Tensor, normalizer(obs, update=False))
+        return cast(torch.Tensor, normalizer(obs, update=False))
+
     def _reduce_gradients(self, model: nn.Module) -> None:
         """All-reduce gradients across all workers and divide by world_size.
 
@@ -614,6 +669,9 @@ class FastSACLearner:
             for parameter in module.parameters():
                 dist.broadcast(parameter.data, src=src)
         dist.broadcast(self.log_alpha.data, src=src)
+        if not isinstance(self.obs_normalizer, nn.Identity):
+            for buffer in self.obs_normalizer.buffers():
+                dist.broadcast(buffer, src=src)
 
     def _get_actions_and_log_probs_for_critic(
         self,
@@ -737,6 +795,9 @@ class FastSACLearner:
             dones = dones.repeat(2)
             truncated = truncated.repeat(2)
 
+        self.normalize_obs(obs, update=True)
+        next_obs = self.normalize_obs(next_obs, update=False)
+
         qf_loss, target_q_max, target_q_min, next_log_probs = self._critic_loss_tensors(
             critic_obs,
             actions,
@@ -814,6 +875,7 @@ class FastSACLearner:
                 dim=0,
             )
 
+        obs = self.normalize_obs(obs, update=False)
         actor_loss, policy_entropy, action_std = self._actor_loss_tensors(obs, critic_obs)
 
         # Skip if NaN
@@ -867,6 +929,11 @@ class FastSACLearner:
             "actor_optimizer": self.actor_optimizer.state_dict(),
             "q_optimizer": self.q_optimizer.state_dict(),
             "alpha_optimizer": self.alpha_optimizer.state_dict(),
+            "obs_normalizer": (
+                self.obs_normalizer.state_dict()
+                if hasattr(self.obs_normalizer, "state_dict")
+                else None
+            ),
             "update_count": self.update_count,
         }
 
@@ -879,6 +946,8 @@ class FastSACLearner:
         self.actor_optimizer.load_state_dict(state_dict["actor_optimizer"])
         self.q_optimizer.load_state_dict(state_dict["q_optimizer"])
         self.alpha_optimizer.load_state_dict(state_dict["alpha_optimizer"])
+        if state_dict.get("obs_normalizer") and hasattr(self.obs_normalizer, "load_state_dict"):
+            self.obs_normalizer.load_state_dict(state_dict["obs_normalizer"])
         self.update_count = state_dict.get("update_count", 0)
 
 

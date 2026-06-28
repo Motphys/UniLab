@@ -1170,6 +1170,7 @@ def test_multi_gpu_runner_passes_explicit_runtime_context_to_collector(
         sync_collection=True,
         env_steps_per_sync=1,
         device="cpu",
+        obs_normalization=True,
         sim_backend="motrix",
         env_cfg_override={"reward_config": {"scales": {"alive": 1.0}}},
     )
@@ -1184,6 +1185,8 @@ def test_multi_gpu_runner_passes_explicit_runtime_context_to_collector(
 
     assert captured["sim_backend"] == "motrix"
     assert captured["env_cfg_override"] == {"reward_config": {"scales": {"alive": 1.0}}}
+    assert captured["obs_normalization"] is True
+    assert captured["shared_obs_normalizer_stats"] is not None
 
 
 def test_multi_gpu_runner_allocates_replay_critic_storage(
@@ -1215,6 +1218,7 @@ def test_multi_gpu_runner_allocates_replay_critic_storage(
         sync_collection=True,
         env_steps_per_sync=1,
         device="cpu",
+        obs_normalization=True,
     )
     monkeypatch.setattr(runner, "_start_collector", lambda *args, **kwargs: None)
 
@@ -1260,6 +1264,7 @@ def test_multi_gpu_runner_spawn_receives_algorithm_agnostic_learner_and_rank_ipc
         sync_collection=True,
         env_steps_per_sync=1,
         device="cpu",
+        obs_normalization=True,
     )
     monkeypatch.setattr(runner, "_start_collector", lambda *args, **kwargs: None)
 
@@ -1271,8 +1276,35 @@ def test_multi_gpu_runner_spawn_receives_algorithm_agnostic_learner_and_rank_ipc
     assert args[2] == {"obs_dim": 4, "action_dim": 2}
     assert args[3]["multi_gpu_sync_mode"] == "local_sgd"
     assert args[3]["multi_gpu_sync_interval"] == 3
+    assert args[3]["obs_normalization"] is True
+    assert args[3]["shared_obs_normalizer_stats"] is not None
     assert len(cast(list, args[13])) == 2
     assert len(cast(list, args[14])) == 2
+
+
+def test_multi_gpu_publish_obs_normalizer_stats() -> None:
+    class _Normalizer:
+        mean = torch.tensor([1.0, 2.0])
+        std = torch.tensor([3.0, 4.0])
+
+    class _Learner:
+        obs_normalizer = _Normalizer()
+
+    class _SharedStats:
+        def __init__(self) -> None:
+            self.put_calls: list[tuple[object, object]] = []
+
+        def put(self, stats) -> None:
+            self.put_calls.append(stats)
+
+    shared_stats = _SharedStats()
+
+    multi_gpu_runner_module._publish_obs_normalizer_stats(_Learner(), shared_stats)
+
+    assert len(shared_stats.put_calls) == 1
+    mean, std = shared_stats.put_calls[0]
+    assert mean.tolist() == [1.0, 2.0]
+    assert std.tolist() == [3.0, 4.0]
 
 
 def test_multi_gpu_learner_worker_logs_wall_clock_and_per_rank_batch_context(

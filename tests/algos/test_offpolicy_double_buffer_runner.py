@@ -113,15 +113,65 @@ def test_td3_dispatches_to_double_buffer_runner(monkeypatch: pytest.MonkeyPatch)
     assert runner.kwargs["learner"].kwargs["critic_obs_dim"] == 6
 
 
-def test_sac_multi_gpu_rejects_obs_normalization_until_synchronized():
+def test_sac_multi_gpu_passes_obs_normalization_to_learner_and_runner(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    import gymnasium as gym
+
+    mod = _offpolicy()
     cfg = _offpolicy_cfg(
         [
             "algo=sac",
             "training.num_gpus=2",
+            "training.device=cuda",
+            "algo.obs_normalization=true",
+            "algo.use_symmetry=false",
         ]
     )
-    with pytest.raises(ValueError, match="requires algo.obs_normalization=false"):
-        _offpolicy().build_runner("sac", cfg)
+
+    class _FakeEnv:
+        obs_groups_spec = {"obs": 4, "critic": 6}
+        action_space = gym.spaces.Box(-1.0, 1.0, shape=(2,))
+
+        def build_symmetry_augmentation(self, device=None):
+            return None
+
+        def close(self):
+            pass
+
+    class _FakeLearner:
+        class actor:
+            @staticmethod
+            def state_dict():
+                return {"w": MagicMock(shape=(4,))}
+
+        update_count = 0
+
+        def __init__(self, *args, **kwargs):
+            del args
+            self.kwargs = kwargs
+
+    class _FakeRunner:
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+
+    monkeypatch.setattr(mod, "ensure_registries", lambda: None)
+    monkeypatch.setattr(mod, "create_env", lambda *args, **kwargs: _FakeEnv())
+
+    import unilab.algos.torch.fast_sac.learner as learner_mod
+
+    monkeypatch.setattr(learner_mod, "FastSACLearner", _FakeLearner)
+
+    import unilab.algos.torch.offpolicy.multi_gpu_runner as mg_mod
+
+    monkeypatch.setattr(mg_mod, "MultiGPUOffPolicyRunner", _FakeRunner)
+
+    runner = mod.build_runner("sac", cfg)
+
+    assert isinstance(runner, _FakeRunner)
+    assert runner.kwargs["obs_normalization"] is True
+    assert runner.kwargs["learner"].kwargs["obs_normalization"] is True
+    assert runner.kwargs["learner_kwargs"]["obs_normalization"] is True
 
 
 @pytest.mark.parametrize("device", ["cpu", "mps"])

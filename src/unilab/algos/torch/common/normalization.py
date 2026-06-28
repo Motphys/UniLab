@@ -44,16 +44,33 @@ class EmpiricalNormalization(nn.Module):
         batch_size = x.shape[0]
         batch_mean = torch.mean(x, dim=0, keepdim=True)
         batch_var = torch.var(x, dim=0, keepdim=True, unbiased=False)
+        self.update_from_moments(batch_mean, batch_var, batch_size)
 
-        new_count = self.count + batch_size
+    @torch.no_grad()
+    def update_from_moments(
+        self,
+        batch_mean: torch.Tensor,
+        batch_var: torch.Tensor,
+        batch_count: int | torch.Tensor,
+    ) -> None:
+        """Update running stats from precomputed batch moments."""
+        batch_mean = batch_mean.to(device=self._mean.device, dtype=self._mean.dtype).view_as(
+            self._mean
+        )
+        batch_var = batch_var.to(device=self._var.device, dtype=self._var.dtype).view_as(self._var)
+        batch_count_t = torch.as_tensor(batch_count, device=self.count.device).to(
+            dtype=self.count.dtype
+        )
+
+        new_count = self.count + batch_count_t
 
         # Welford's online algorithm
         delta = batch_mean - self._mean
-        self._mean.copy_(self._mean + delta * (batch_size / new_count))
+        self._mean.copy_(self._mean + delta * (batch_count_t / new_count))
         delta2 = batch_mean - self._mean
         m_a = self._var * self.count
-        m_b = batch_var * batch_size
-        M2 = m_a + m_b + delta2.pow(2) * (self.count * batch_size / new_count)
+        m_b = batch_var * batch_count_t
+        M2 = m_a + m_b + delta2.pow(2) * (self.count * batch_count_t / new_count)
         self._var.copy_(M2 / new_count)
         self._std.copy_(self._var.sqrt())
         self.count.copy_(new_count)
