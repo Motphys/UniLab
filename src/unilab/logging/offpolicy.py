@@ -575,7 +575,7 @@ class OffPolicyLogger(BaseTrainingLogger):
         learner_items = [
             ("Collector Wait", _fmt_phase(self._collector_wait_time, color=wait_color)),
         ]
-        if self._world_size > 1 or self._replay_batch_wait_time > 0.0:
+        if self._replay_batch_wait_time > 0.0:
             learner_items.append(("Replay Batch Wait", _fmt_phase(self._replay_batch_wait_time)))
         learner_items.append(("Replay Sample", _fmt_phase(self._learner_replay_sample_time)))
         if self._world_size > 1 or self._rank_barrier_time > 0.0:

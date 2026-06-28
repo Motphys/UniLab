@@ -77,8 +77,8 @@ off-policy（SAC / TD3 / FlashSAC 与 APPO）把 learner loop 记录为已命名
 
 | 终端字段 | TensorBoard / W&B key | 含义 |
 | --- | --- | --- |
-| Collector Wait | `timing/learner_collector_wait_ms` | 等待 collector 产出新数据；不含 barrier、H2D、logger 刷新 |
-| Replay Batch Wait | `timing/learner_replay_batch_wait_ms` | 等待 replay pack / H2D batch 就绪；预取命中时约为 0 |
+| Collector Wait | `timing/learner_collector_wait_ms` | 等待 collector 产出可训练数据；多卡同步采集下也包含 initial barrier 前等待 rank batch 就绪的时间 |
+| Replay Batch Wait | `timing/learner_replay_batch_wait_ms` | 单卡 / double-buffer 预取 miss 时等待 replay pack / H2D batch 就绪；预取命中时约为 0 |
 | Replay Sample | `timing/learner_replay_sample_ms` | wait 结束后，learner 侧 replay 采样 / ready batch 物化耗时 |
 | Rank Barrier | `timing/learner_rank_barrier_ms` | 多卡 `dist.barrier()`（初始 + 最终）耗时之和 |
 | Sync Coordination | `timing/learner_sync_coordination_ms` | 同步采集握手耗时；非同步采集时为 0 |
@@ -140,4 +140,4 @@ gantt
 
 > 横轴为示意相对时长（非真实 ms 比例）。collector 子进程经 4 槽 ring buffer 与 learner 并行产出 rollout，稳态下 **Collector Wait ≈ 0**。`perf/iter_ms` 仅计 learner 这一圈（含 Collector Wait，但不含 collector 的并行采集计算）；红色 Weight Sync 标志该轮迭代结束、向 collector 发布新权重。
 
-所有 off-policy 终端视图都使用同一套数值格式。Replay Batch Wait 只在 replay 预取路径且批次未就绪时显示；Rank Barrier 和 Param Sync 只在多卡路径或非零时显示；Sync Coordination 只在同步采集时显示。
+所有 off-policy 终端视图都使用同一套数值格式。Replay Batch Wait 只在单卡 / double-buffer 预取 miss 非零时显示；多卡同步 batch ready 等待会在 initial barrier 前归入 Collector Wait。Rank Barrier 和 Param Sync 只在多卡路径或非零时显示；Sync Coordination 只在同步采集时显示。

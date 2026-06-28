@@ -1346,8 +1346,6 @@ def test_multi_gpu_learner_worker_logs_wall_clock_and_per_rank_batch_context(
                 0.25,
                 0.25,
                 0.25,
-                0.25,
-                0.25,
                 0.45,
                 0.45,
                 0.55,
@@ -1430,6 +1428,152 @@ def test_multi_gpu_learner_worker_logs_wall_clock_and_per_rank_batch_context(
     assert learner is not None
     assert learner.kwargs["distributed_sync_mode"] == "local_sgd"
     assert learner.average_parameter_calls == 1
+
+
+def test_multi_gpu_batch_ready_wait_is_reported_as_collector_wait(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    replay_buffer = _FakeReplayBuffer(capacity=16, obs_dim=4, action_dim=2, device="cpu")
+    replay_buffer.size[0] = 16
+    replay_buffer.ptr[0] = 16
+    logger = _FakeLogger()
+
+    class _StopEvent:
+        def is_set(self) -> bool:
+            return False
+
+    class _ReadyQueue:
+        def get(self, timeout: float | None = None) -> int:
+            del timeout
+            return 1
+
+    class _DoneQueue:
+        def put(self, item: int, timeout: float | None = None) -> None:
+            del item, timeout
+
+    start_prepare_calls: list[tuple[int, int, int | None]] = []
+
+    class _FakePipeline:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+            self.last_incremental_h2d_time_s = 0.0
+            self.ready_checks = 0
+
+        def start_prepare(self, tick_id: int, sample_count: int, min_snapshot_ptr=None) -> bool:
+            start_prepare_calls.append((tick_id, sample_count, min_snapshot_ptr))
+            return True
+
+        def batch_ready(self, tick_id: int, sample_count: int) -> bool:
+            del tick_id, sample_count
+            self.ready_checks += 1
+            return self.ready_checks >= 3
+
+        def sample_large_batch(self, tick_id: int, sample_count: int) -> dict[str, torch.Tensor]:
+            del tick_id
+            return {
+                "obs": torch.zeros(sample_count, 4),
+                "actions": torch.zeros(sample_count, 2),
+                "rewards": torch.zeros(sample_count),
+                "next_obs": torch.zeros(sample_count, 4),
+                "dones": torch.zeros(sample_count),
+                "truncated": torch.zeros(sample_count),
+                "critic": torch.zeros(sample_count, 4),
+                "next_critic": torch.zeros(sample_count, 4),
+            }
+
+        def after_tick(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    sleep_calls: list[float] = []
+    monkeypatch.setattr(multi_gpu_runner_module.torch.cuda, "set_device", lambda rank: None)
+    monkeypatch.setattr(multi_gpu_runner_module.dist, "init_process_group", lambda *a, **k: None)
+    monkeypatch.setattr(multi_gpu_runner_module.dist, "barrier", lambda: None)
+    monkeypatch.setattr(multi_gpu_runner_module.dist, "destroy_process_group", lambda: None)
+    monkeypatch.setattr(multi_gpu_runner_module.torch, "save", lambda *a, **k: None)
+    monkeypatch.setattr(multi_gpu_runner_module, "SharedWeightSync", _FakeWeightSync)
+    monkeypatch.setattr(multi_gpu_runner_module, "OffPolicyLogger", lambda **kwargs: logger)
+    monkeypatch.setattr(
+        multi_gpu_runner_module,
+        "MultiGPUCPUPinnedReplayPipeline",
+        _FakePipeline,
+    )
+    monkeypatch.setattr(multi_gpu_runner_module.time, "sleep", sleep_calls.append)
+    monkeypatch.setattr(
+        multi_gpu_runner_module.time,
+        "perf_counter",
+        _FakeClock(
+            [
+                0.00,
+                0.00,
+                0.10,
+                0.10,
+                0.15,
+                0.15,
+                0.15,
+                0.15,
+                0.15,
+                0.15,
+                0.20,
+                0.20,
+                0.20,
+                0.20,
+                0.20,
+                0.20,
+                0.20,
+                0.20,
+            ]
+        ).time,
+    )
+
+    multi_gpu_runner_module._learner_worker(
+        rank=0,
+        world_size=2,
+        learner_cls=_FakeLearner,
+        learner_kwargs={},
+        runner_kwargs={
+            "max_iterations": 1,
+            "save_interval": 0,
+            "log_dir": str(tmp_path),
+            "batch_size": 4,
+            "updates_per_step": 1,
+            "policy_frequency": 1,
+            "sync_collection": True,
+            "env_steps_per_sync": 3,
+            "env_name": "DummyEnv",
+            "num_envs": 5,
+            "obs_dim": 4,
+            "action_dim": 2,
+            "logger_type": "none",
+            "learning_starts": 2,
+            "seed": 1,
+            "distributed_backend": "nccl",
+            "multi_gpu_sync_mode": "sync_sgd",
+            "multi_gpu_sync_interval": 1,
+            "algo_type": "sac",
+        },
+        replay_buffer=replay_buffer,
+        weight_sync_name="fake-weight-sync",
+        weight_sync_lock=None,
+        weight_param_shapes={"weight": torch.Size([1])},
+        stop_event=_StopEvent(),
+        collection_ready_queue=_ReadyQueue(),
+        trainer_done_queue=_DoneQueue(),
+        metrics_queue=queue.Queue(),
+        collector_pack_request_queue=[queue.Queue(), queue.Queue()],
+        collector_pack_ready_queue=[queue.Queue(), queue.Queue()],
+        collector_pack_shared_slots=[[torch.zeros(1)], [torch.zeros(1)]],
+        master_port=29500,
+    )
+
+    assert logger.step_calls
+    step = logger.step_calls[-1]
+    assert step["collector_wait_time"] == pytest.approx(0.15)
+    assert step["replay_batch_wait_time"] == pytest.approx(0.0)
+    assert sleep_calls == [multi_gpu_runner_module.MULTIGPU_REPLAY_READY_POLL_SEC]
+    assert start_prepare_calls[0] == (1, 4, 10)
 
 
 def test_multi_gpu_local_sgd_interval_only_publishes_averaged_actor(

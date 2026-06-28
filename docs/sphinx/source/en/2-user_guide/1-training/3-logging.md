@@ -81,8 +81,8 @@ instead of being compared only against wait metrics.
 
 | Terminal field | TensorBoard / W&B key | Meaning |
 | --- | --- | --- |
-| Collector Wait | `timing/learner_collector_wait_ms` | Waiting for the collector to produce new data; excludes barrier, H2D and logger refresh |
-| Replay Batch Wait | `timing/learner_replay_batch_wait_ms` | Waiting for a replay pack / H2D batch to become ready; ~0 on a prefetch hit |
+| Collector Wait | `timing/learner_collector_wait_ms` | Waiting for the collector to produce trainable data; in multi-GPU sync collection this also includes waiting for the rank batch to become ready before the initial barrier |
+| Replay Batch Wait | `timing/learner_replay_batch_wait_ms` | Single-GPU/double-buffer prefetch miss waiting for a replay pack / H2D batch to become ready; ~0 on a prefetch hit |
 | Replay Sample | `timing/learner_replay_sample_ms` | Learner-side replay sampling / ready-batch materialization after the wait is over |
 | Rank Barrier | `timing/learner_rank_barrier_ms` | Multi-GPU `dist.barrier()` (initial + final) total |
 | Sync Coordination | `timing/learner_sync_coordination_ms` | Synchronous-collection handshake; 0 when not in sync collection |
@@ -153,6 +153,7 @@ gantt
 > The axis is schematic (relative, not real-ms). The collector subprocess produces rollouts through the 4-slot ring buffer in parallel with the learner, so **Collector Wait ≈ 0** in steady state. `perf/iter_ms` counts only this learner loop (it includes Collector Wait but not the collector's parallel rollout compute); the red Weight Sync marks the end of the iteration when fresh weights are published to the collector.
 
 All off-policy terminal views use the same value formatting. Replay Batch Wait is
-shown on replay-prefetch paths when the batch is not ready; Rank Barrier and Param
-Sync are shown only on multi-GPU paths or when non-zero. Sync Coordination is shown
-only with synchronous collection.
+shown only when a single-GPU/double-buffer prefetch miss is non-zero; multi-GPU
+synchronized batch readiness is folded into Collector Wait before the initial rank
+barrier. Rank Barrier and Param Sync are shown only on multi-GPU paths or when
+non-zero. Sync Coordination is shown only with synchronous collection.
