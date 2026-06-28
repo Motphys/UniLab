@@ -163,6 +163,7 @@ class _FakeLogger:
         self._total_steps = 0
         self._buffer_size = 0
         self._mean_ep_length = 0.0
+        self._collector_active_steps_per_sec = None
         _FakeLogger.last_instance = self
 
     def set_collection_sync(self, enabled: bool, env_steps_per_sync: int) -> None:
@@ -192,6 +193,9 @@ class _FakeLogger:
 
     def update_collector_timing(self, timing_ms: dict[str, float]) -> None:
         del timing_ms
+
+    def update_collector_active_steps_per_sec(self, steps_per_sec: float) -> None:
+        self._collector_active_steps_per_sec = steps_per_sec
 
     def update_done_rates(self, timeout_rate: float, terminated_rate: float) -> None:
         del timeout_rate, terminated_rate
@@ -443,6 +447,7 @@ def test_offpolicy_runner_sync_waits_for_train_start_threshold(
     assert "collector_wait_time" in logger.step_calls[0]
     assert logger.step_calls[0]["learner_incremental_h2d_time"] == pytest.approx(0.004)
     assert logger.step_calls[0]["weight_sync_time"] >= 0.0
+    assert logger.step_calls[0]["extra_info"].pop("collector_active_steps_per_sec") is None
     assert logger.step_calls[0]["extra_info"] == {
         "throughput_steps": 2,
         "batch_size_per_rank": 8,
@@ -529,6 +534,7 @@ def test_offpolicy_runner_async_waits_for_train_start_threshold(
     assert "collector_wait_time" in logger.step_calls[0]
     assert logger.step_calls[0]["learner_incremental_h2d_time"] == pytest.approx(0.004)
     assert logger.step_calls[0]["weight_sync_time"] >= 0.0
+    assert logger.step_calls[0]["extra_info"].pop("collector_active_steps_per_sec") is None
     assert logger.step_calls[0]["extra_info"] == {
         "throughput_steps": 2,
         "batch_size_per_rank": 8,
@@ -653,6 +659,7 @@ def test_offpolicy_runner_logs_symmetry_effective_samples_without_hiding_replay_
     assert "learner_replay_wait_time" not in logger.step_calls[0]
     assert "wait_time" not in logger.step_calls[0]
     assert "collector_wait_time" in logger.step_calls[0]
+    assert logger.step_calls[0]["extra_info"].pop("collector_active_steps_per_sec") is None
     assert logger.step_calls[0]["extra_info"] == {
         "throughput_steps": 2,
         "batch_size_per_rank": 16,
@@ -1416,6 +1423,7 @@ def test_multi_gpu_learner_worker_logs_wall_clock_and_per_rank_batch_context(
     assert step["learner_param_sync_time"] == pytest.approx(0.1)
     assert step["weight_sync_time"] == pytest.approx(0.03)
     assert step["iteration_time"] == pytest.approx(0.8)
+    assert step["extra_info"].pop("collector_active_steps_per_sec") is None
     assert step["extra_info"] == {
         "throughput_steps": 15,
         "world_size": 2,
