@@ -96,13 +96,22 @@ Logs still use SAC's default directory: `logs/fast_sac/<TaskName>/`.
 
 ## Performance Checks
 
-Multi-GPU mainly targets learner update bottlenecks. For small env counts,
-batches, or short runs, distributed startup, batch packing, and gradient
-synchronization can cost more than they save. When comparing single-GPU and
-multi-GPU runs, keep the task, env count, iteration count, playback settings,
-logger, and visible GPUs consistent; also decide whether you are comparing the
-same per-rank batch or the same global batch. Then compare steady-state
-`train_fps`, learner step time, and end-to-end iteration time.
+Multi-GPU mainly targets learner update bottlenecks. The collector is still one
+CPU process, so `algo.num_envs=4096` is collected by one collector instead of
+being split across two GPUs. With the same per-rank `algo.batch_size`, a two-GPU
+run also doubles replay packing and H2D traffic. The runner prefetches each
+rank's next batch from the current replay snapshot and excludes the next
+collector write window, so CPU random gather can overlap with the next env step
+without reading rows being overwritten.
+
+For small env counts, batches, or short runs, distributed startup, batch packing,
+rank barriers, and parameter synchronization can cost more than they save. When
+comparing single-GPU and multi-GPU runs, keep the task, env count, iteration
+count, playback settings, logger, and visible GPUs consistent; also decide
+whether you are comparing the same per-rank batch or the same global batch. Then
+compare steady-state `perf/iter_ms`, `timing/learner_train_ms`,
+`timing/learner_collector_wait_ms`, `timing/learner_rank_barrier_ms`, and
+`perf/effective_samples_per_sec`.
 
 ## Common Errors
 

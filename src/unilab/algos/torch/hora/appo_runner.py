@@ -361,7 +361,9 @@ class HoraAPPORunner(APPORunner):
 
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
 
+            replay_sample_start = time.perf_counter()
             combined = staging_pool.batch()
+            learner_replay_sample_time = time.perf_counter() - replay_sample_start
 
             train_start = time.time()
             learner.process_batch(combined)
@@ -394,6 +396,7 @@ class HoraAPPORunner(APPORunner):
                 reward_components=latest_reward_components,
                 train_time=train_time,
                 collector_wait_time=wait_time,
+                learner_replay_sample_time=learner_replay_sample_time,
                 learner_incremental_h2d_time=learner_incremental_h2d_time,
                 weight_sync_time=weight_sync_time,
                 iteration_time=iteration_time,
