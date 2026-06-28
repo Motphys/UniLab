@@ -492,6 +492,7 @@ def test_offpolicy_logger_logs_wait_and_iter_throughput(monkeypatch):
         iteration_time=10.9,
         extra_info={
             "throughput_steps": 8,
+            "collector_active_steps_per_sec": 1234.5,
             "world_size": 2,
             "batch_size_per_rank": 8,
             "effective_batch_size": 16,
@@ -518,6 +519,7 @@ def test_offpolicy_logger_logs_wait_and_iter_throughput(monkeypatch):
     assert payload["perf/learner_other_pct"] == pytest.approx(0.04 / 10.9 * 100)
     assert payload["perf/learner_accounted_pct"] == pytest.approx(10.86 / 10.9 * 100)
     assert payload["perf/steps_per_sec"] == pytest.approx(8.0 / 10.9)
+    assert payload["perf/collector_active_steps_per_sec"] == pytest.approx(1234.5)
     assert payload["perf/effective_samples_per_sec"] == pytest.approx(32.0 / 10.9)
     for key in (
         "axis/iteration",
@@ -584,6 +586,7 @@ def test_offpolicy_logger_tensorboard_logs_wall_clock_without_axis_or_distribute
         iteration_time=1.95,
         extra_info={
             "throughput_steps": 16,
+            "collector_active_steps_per_sec": 4321.0,
             "world_size": 2,
             "batch_size_per_rank": 16,
             "effective_batch_size": 32,
@@ -603,6 +606,7 @@ def test_offpolicy_logger_tensorboard_logs_wall_clock_without_axis_or_distribute
     assert scalars["perf/iter_ms"] == pytest.approx(1_950.0)
     assert scalars["perf/learner_train_pct"] == pytest.approx(0.7 / 1.95 * 100)
     assert scalars["perf/learner_other_pct"] == pytest.approx(0.08 / 1.95 * 100)
+    assert scalars["perf/collector_active_steps_per_sec"] == pytest.approx(4321.0)
     assert scalars["perf/effective_samples_per_sec"] == pytest.approx(64.0 / 1.95)
     for key in (
         "axis/iteration",

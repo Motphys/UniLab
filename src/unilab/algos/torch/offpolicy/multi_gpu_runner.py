@@ -94,6 +94,9 @@ def _drain_metrics(
                 logger.update_ep_length(m["mean_ep_length"])
             if "collector_timing_ms" in m and logger:
                 logger.update_collector_timing(m["collector_timing_ms"])
+            collector_active_steps_per_sec = m.get("collector_active_steps_per_sec")
+            if collector_active_steps_per_sec is not None and logger:
+                logger.update_collector_active_steps_per_sec(float(collector_active_steps_per_sec))
             if ("timeout_rate" in m or "terminated_rate" in m) and logger:
                 logger.update_done_rates(
                     timeout_rate=float(m.get("timeout_rate", 0.0)),
@@ -480,6 +483,9 @@ def _learner_worker(
                         iteration_time=iteration_time,
                         extra_info={
                             "throughput_steps": num_envs * env_steps_per_sync,
+                            "collector_active_steps_per_sec": (
+                                logger._collector_active_steps_per_sec
+                            ),
                             "world_size": world_size,
                             "multi_gpu_sync_mode": sync_mode,
                             "multi_gpu_sync_interval": sync_interval,

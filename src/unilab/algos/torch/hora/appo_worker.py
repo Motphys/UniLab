@@ -356,15 +356,16 @@ def hora_appo_collector_fn(
                     if k.startswith("reward/"):
                         ep_reward_components[k].append(v)
 
-                if metrics_queue is not None and total_steps % (num_envs * 10) == 0 and ep_rewards:
+                if metrics_queue is not None and total_steps % (num_envs * 10) == 0:
                     try:
-                        msg = {
+                        msg: dict[str, Any] = {
                             "total_steps": total_steps,
-                            "mean_ep_reward": statistics.mean(ep_rewards[-100:]),
-                            "mean_ep_length": statistics.mean(ep_lengths[-100:])
-                            if ep_lengths
-                            else 0.0,
                         }
+                        if ep_rewards:
+                            msg["mean_ep_reward"] = statistics.mean(ep_rewards[-100:])
+                            msg["mean_ep_length"] = (
+                                statistics.mean(ep_lengths[-100:]) if ep_lengths else 0.0
+                            )
                         total_ep = ep_timeouts + ep_terminates
                         if total_ep > 0:
                             msg["timeout_rate"] = ep_timeouts / total_ep
@@ -376,6 +377,10 @@ def hora_appo_collector_fn(
                             "mlp_infer_ms": ema_mlp_infer_ms,
                             "env_step_ms": ema_env_step_ms,
                         }
+                        if ema_env_step_ms > 0.0:
+                            msg["collector_active_steps_per_sec"] = num_envs / (
+                                ema_env_step_ms / 1000.0
+                            )
                         if ep_reward_components:
                             msg["reward_components"] = {
                                 k: statistics.mean(v) for k, v in ep_reward_components.items() if v

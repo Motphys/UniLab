@@ -618,6 +618,7 @@ class OffPolicyRunner(AsyncRunner):
                 iteration_time=iteration_time,
                 extra_info={
                     "throughput_steps": self.num_envs * self.env_steps_per_sync,
+                    "collector_active_steps_per_sec": (logger._collector_active_steps_per_sec),
                     **build_offpolicy_sample_info(
                         replay_batch_size_per_rank=self.batch_size,
                         updates_per_step=self.updates_per_step,
@@ -697,6 +698,12 @@ class OffPolicyRunner(AsyncRunner):
 
                 if "collector_timing_ms" in m:
                     logger.update_collector_timing(m["collector_timing_ms"])
+
+                collector_active_steps_per_sec = m.get("collector_active_steps_per_sec")
+                if collector_active_steps_per_sec is not None:
+                    logger.update_collector_active_steps_per_sec(
+                        float(collector_active_steps_per_sec)
+                    )
 
                 if "timeout_rate" in m or "terminated_rate" in m:
                     logger.update_done_rates(

@@ -421,6 +421,7 @@ class APPORunner(AsyncRunner):
                 iteration_time=iteration_time,
                 extra_info={
                     "throughput_steps": num_new * env_steps_per_sync,
+                    "collector_active_steps_per_sec": logger._collector_active_steps_per_sec,
                 },
             )
 
@@ -473,6 +474,12 @@ class APPORunner(AsyncRunner):
 
                 if "collector_timing_ms" in m:
                     logger.update_collector_timing(m["collector_timing_ms"])
+
+                collector_active_steps_per_sec = m.get("collector_active_steps_per_sec")
+                if collector_active_steps_per_sec is not None:
+                    logger.update_collector_active_steps_per_sec(
+                        float(collector_active_steps_per_sec)
+                    )
 
                 if "timeout_rate" in m or "terminated_rate" in m:
                     logger.update_done_rates(

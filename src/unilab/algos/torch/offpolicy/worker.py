@@ -949,6 +949,11 @@ def _run_collector(
                             for k, v in timing_accum_ms.items()
                             if timing_counts[k] > 0
                         }
+                        env_step_ms = msg["collector_timing_ms"].get("env_step_ms", 0.0)
+                        if env_step_ms > 0.0:
+                            msg["collector_active_steps_per_sec"] = num_envs / (
+                                env_step_ms / 1000.0
+                            )
 
                     if done_count_window > 0:
                         msg["timeout_rate"] = timeout_count_window / done_count_window

@@ -690,6 +690,9 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                         iteration_time=iteration_time,
                         extra_info={
                             "throughput_steps": self.num_envs * self.env_steps_per_sync,
+                            "collector_active_steps_per_sec": (
+                                logger._collector_active_steps_per_sec
+                            ),
                             **build_offpolicy_sample_info(
                                 replay_batch_size_per_rank=self.batch_size,
                                 updates_per_step=self.updates_per_step,
