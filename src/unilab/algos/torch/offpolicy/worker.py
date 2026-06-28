@@ -120,12 +120,118 @@ def _ranked_entry(collection, rank: int, world_size: int = 1):
     return collection[rank]
 
 
+def _sample_replay_pack_indices(
+    *,
+    snapshot_size: int,
+    sample_count: int,
+    generator: torch.Generator,
+    exclude_start: int | None = None,
+    exclude_count: int = 0,
+    exclude_ranges: list[tuple[int, int]] | None = None,
+) -> torch.Tensor:
+    snapshot_size = int(snapshot_size)
+    sample_count = int(sample_count)
+    if snapshot_size <= 0:
+        raise RuntimeError("Cannot sample an empty replay snapshot")
+    exclude_count = max(int(exclude_count), 0)
+    if exclude_ranges is None and (exclude_start is None or exclude_count <= 0):
+        return torch.randint(0, snapshot_size, (sample_count,), generator=generator)
+
+    if exclude_ranges is None:
+        assert exclude_start is not None
+        exclude_count = min(exclude_count, snapshot_size)
+        start = int(exclude_start) % snapshot_size
+        end = (start + exclude_count) % snapshot_size
+        if start < end:
+            exclude_ranges = [(start, end)]
+        else:
+            exclude_ranges = [(0, end), (start, snapshot_size)]
+
+    normalized_ranges: list[tuple[int, int]] = []
+    for lo, hi in sorted(exclude_ranges):
+        lo = max(0, int(lo))
+        hi = min(snapshot_size, int(hi))
+        if hi <= lo:
+            continue
+        if normalized_ranges and lo <= normalized_ranges[-1][1]:
+            normalized_ranges[-1] = (normalized_ranges[-1][0], max(normalized_ranges[-1][1], hi))
+        else:
+            normalized_ranges.append((lo, hi))
+
+    if not normalized_ranges:
+        return torch.randint(0, snapshot_size, (sample_count,), generator=generator)
+
+    excluded = sum(hi - lo for lo, hi in normalized_ranges)
+    available = snapshot_size - excluded
+    if available <= 0:
+        raise RuntimeError(
+            "Cannot sample replay snapshot because the excluded write window covers it"
+        )
+
+    allowed_ranges = []
+    cursor = 0
+    for lo, hi in normalized_ranges:
+        if cursor < lo:
+            allowed_ranges.append((cursor, lo))
+        cursor = hi
+    if cursor < snapshot_size:
+        allowed_ranges.append((cursor, snapshot_size))
+
+    if len(allowed_ranges) == 1:
+        lo, hi = allowed_ranges[0]
+        return torch.randint(lo, hi, (sample_count,), generator=generator)
+
+    raw = torch.randint(0, available, (sample_count,), generator=generator)
+    indices = torch.empty_like(raw)
+    offset = 0
+    for lo, hi in allowed_ranges:
+        length = hi - lo
+        mask = (raw >= offset) & (raw < offset + length)
+        indices[mask] = lo + (raw[mask] - offset)
+        offset += length
+    return indices
+
+
+def _replay_write_exclude_ranges(
+    *,
+    snapshot_ptr: int,
+    snapshot_size: int,
+    capacity: int,
+    write_count: int,
+) -> list[tuple[int, int]]:
+    snapshot_size = int(snapshot_size)
+    capacity = int(capacity)
+    write_count = max(int(write_count), 0)
+    if snapshot_size <= 0 or capacity <= 0 or write_count <= 0:
+        return []
+    snapshot_size = min(snapshot_size, capacity)
+    if write_count >= capacity:
+        return [(0, snapshot_size)]
+
+    ranges = []
+    write_start = int(snapshot_ptr) % capacity
+    remaining = write_count
+    while remaining > 0:
+        span = min(remaining, capacity - write_start)
+        lo = max(write_start, 0)
+        hi = min(write_start + span, snapshot_size)
+        if hi > lo:
+            ranges.append((lo, hi))
+        remaining -= span
+        write_start = 0
+    return ranges
+
+
 def _collector_pack_shared_batch(replay_buffer, request: dict, shared_slots) -> dict:
     tick_id = int(request["tick_id"])
     rank = int(request.get("rank", 0))
     world_size = int(request.get("world_size", 1))
-    snapshot_ptr = int(replay_buffer.ptr[0])
-    snapshot_size = int(replay_buffer.size[0])
+    if request.get("sample_snapshot_mode") == "request":
+        snapshot_ptr = int(request["snapshot_ptr"])
+        snapshot_size = int(request["snapshot_size"])
+    else:
+        snapshot_ptr = int(replay_buffer.ptr[0])
+        snapshot_size = int(replay_buffer.size[0])
     sample_seed = int(request["sample_seed"])
     sample_count = int(request["sample_count"])
     shared_slot = int(request["shared_slot"])
@@ -138,7 +244,19 @@ def _collector_pack_shared_batch(replay_buffer, request: dict, shared_slots) -> 
     pack_begin_ns = time.perf_counter_ns()
     gen = torch.Generator(device="cpu")
     gen.manual_seed(sample_seed)
-    indices = torch.randint(0, snapshot_size, (sample_count,), generator=gen)
+    exclude_count = int(request.get("exclude_write_count", 0))
+    exclude_ranges = _replay_write_exclude_ranges(
+        snapshot_ptr=snapshot_ptr,
+        snapshot_size=snapshot_size,
+        capacity=int(replay_buffer.capacity),
+        write_count=exclude_count,
+    )
+    indices = _sample_replay_pack_indices(
+        snapshot_size=snapshot_size,
+        sample_count=sample_count,
+        generator=gen,
+        exclude_ranges=exclude_ranges,
+    )
     rank_shared_slots = _ranked_entry(shared_slots, rank, world_size)
     if rank_shared_slots is None:
         raise RuntimeError("collector replay pack request is missing shared slots")
@@ -207,6 +325,8 @@ def _service_collector_pack_requests(
                 "pack_executor": "collector_thread",
                 "shared_memory": True,
                 "pinned_memory": False,
+                "sample_snapshot_mode": request.get("sample_snapshot_mode", "service"),
+                "exclude_write_count": int(request.get("exclude_write_count", 0)),
             },
         )
     target_ready_queue = _ranked_entry(

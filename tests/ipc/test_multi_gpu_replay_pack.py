@@ -9,6 +9,8 @@ import torch
 
 from unilab.algos.torch.offpolicy.worker import (
     _drain_collector_pack_requests,
+    _replay_write_exclude_ranges,
+    _sample_replay_pack_indices,
     _service_collector_pack_requests,
 )
 from unilab.ipc.replay_buffer import ReplayBuffer
@@ -115,6 +117,86 @@ def test_collector_pack_defers_until_min_snapshot_ptr_for_ranked_request() -> No
     assert pending == request
     assert ready_queues[0].empty()
     assert ready_queues[1].empty()
+
+
+def test_sample_replay_pack_indices_excludes_wrapped_write_window() -> None:
+    gen = torch.Generator(device="cpu")
+    gen.manual_seed(123)
+
+    indices = _sample_replay_pack_indices(
+        snapshot_size=8,
+        sample_count=256,
+        generator=gen,
+        exclude_start=6,
+        exclude_count=4,
+    )
+
+    excluded = torch.tensor([6, 7, 0, 1])
+    assert not torch.isin(indices, excluded).any()
+    assert torch.all((indices >= 2) & (indices <= 5))
+
+
+def test_replay_write_exclude_ranges_handles_partial_snapshot_wrap() -> None:
+    ranges = _replay_write_exclude_ranges(
+        snapshot_ptr=6,
+        snapshot_size=6,
+        capacity=8,
+        write_count=4,
+    )
+
+    assert ranges == [(0, 2)]
+
+
+def test_collector_pack_does_not_exclude_unwritten_tail_for_partial_snapshot() -> None:
+    replay_buffer = ReplayBuffer(
+        capacity=16,
+        obs_dim=2,
+        action_dim=1,
+        device="cpu",
+        critic_dim=0,
+        packed_cpu_storage=True,
+    )
+    obs = torch.arange(8, dtype=torch.float32).reshape(4, 2)
+    replay_buffer.add(
+        obs,
+        torch.zeros(4, 1),
+        torch.zeros(4),
+        obs + 100,
+        torch.zeros(4),
+        torch.zeros(4),
+    )
+    packed_width = int(replay_buffer._storage.shape[1])
+    request_queue: queue.Queue = queue.Queue()
+    ready_queue: queue.Queue = queue.Queue()
+    shared_slots = [torch.empty((8, packed_width), dtype=torch.float32) for _ in range(2)]
+    request_queue.put(
+        {
+            "tick_id": 11,
+            "rank": 0,
+            "world_size": 1,
+            "sample_seed": 1100,
+            "sample_count": 8,
+            "shared_slot": 0,
+            "target_gpu_slot": 0,
+            "learner_hot_gpu_slot": 1,
+            "min_snapshot_ptr": int(replay_buffer.ptr[0]),
+            "snapshot_ptr": int(replay_buffer.ptr[0]),
+            "snapshot_size": int(replay_buffer.size[0]),
+            "sample_snapshot_mode": "request",
+            "exclude_write_count": 8,
+        }
+    )
+
+    serviced, pending = _service_collector_pack_requests(
+        replay_buffer,
+        request_queue,
+        ready_queue,
+        shared_slots,
+    )
+
+    assert serviced is True
+    assert pending is None
+    assert ready_queue.get_nowait()["tick_id"] == 11
 
 
 def test_rank_local_pipeline_requests_rank_seed_and_consumes_cpu_batch() -> None:

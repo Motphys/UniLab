@@ -208,7 +208,7 @@ def test_offpolicy_logger_terminal_timing_labels_include_wall_clock_and_distribu
 
     assert "Replay Wait" not in output
     assert "H2D Copy" in output
-    assert "Replay Batch Wait" in output
+    assert "Replay Batch Wait" not in output
     assert "Replay Sample" in output
     assert "Param Sync" in output
     assert "Iter Wall" in output

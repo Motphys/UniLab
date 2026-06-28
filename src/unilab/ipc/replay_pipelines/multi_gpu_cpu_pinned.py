@@ -220,9 +220,13 @@ class MultiGPUCPUPinnedReplayPipeline:
         tick_id: int,
         sample_count: int,
         min_snapshot_ptr: int | None = None,
+        sample_snapshot_mode: str = "service",
+        exclude_write_count: int = 0,
     ) -> bool:
         if int(sample_count) != self._sample_count:
             raise ValueError("sample_count must match the allocated multi-GPU replay slots")
+        if sample_snapshot_mode not in {"service", "request"}:
+            raise ValueError("sample_snapshot_mode must be 'service' or 'request'")
         if self._closed:
             raise RuntimeError("Cannot prepare replay batch after pipeline.close()")
         self._refresh_prepare_state()
@@ -260,6 +264,8 @@ class MultiGPUCPUPinnedReplayPipeline:
             "target_gpu_slot": slot,
             "pack_layout": self._pack_layout,
             "pack_executor": self._pack_executor,
+            "sample_snapshot_mode": sample_snapshot_mode,
+            "exclude_write_count": max(int(exclude_write_count), 0),
         }
         self._prepare_state = "collector_pack_requested"
         self._collector_pack_request_queue.put(request)
