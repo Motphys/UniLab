@@ -402,6 +402,7 @@ class HoraAPPORunner(APPORunner):
                 iteration_time=iteration_time,
                 extra_info={
                     "throughput_steps": num_new * env_steps_per_sync,
+                    "collector_active_steps_per_sec": logger._collector_active_steps_per_sec,
                 },
             )
 

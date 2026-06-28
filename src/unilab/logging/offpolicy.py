@@ -119,6 +119,7 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._weight_sync_time: float = 0.0
         self._iteration_time: float | None = None
         self._throughput_steps: int = 0
+        self._collector_active_steps_per_sec: float | None = None
         self._world_size: int = 1
         self._multi_gpu_sync_mode: str = ""
         self._multi_gpu_sync_interval: int = 0
@@ -227,6 +228,10 @@ class OffPolicyLogger(BaseTrainingLogger):
         header_extra_fields: list[tuple[str, str]] = []
         if iter_steps_per_sec is not None:
             header_extra_fields.append((f"Steps/s {iter_steps_per_sec:,.0f}", "bold green"))
+        if self._collector_active_steps_per_sec is not None:
+            header_extra_fields.append(
+                (f"Collector/s {self._collector_active_steps_per_sec:,.0f}", "bold magenta")
+            )
         if effective_samples_per_sec is not None:
             header_extra_fields.append((f"Samples/s {effective_samples_per_sec:,.0f}", "bold cyan"))
         if extra_fields:
@@ -238,6 +243,9 @@ class OffPolicyLogger(BaseTrainingLogger):
 
     def update_collector_timing(self, timing_ms: dict[str, float]):
         self._collector_timing.update(timing_ms)
+
+    def update_collector_active_steps_per_sec(self, steps_per_sec: float):
+        self._collector_active_steps_per_sec = float(steps_per_sec)
 
     def update_done_rates(self, timeout_rate: float, terminated_rate: float):
         self._timeout_rate = float(timeout_rate)
@@ -297,6 +305,12 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._has_iteration_extra_info = extra_info is not None
         if extra_info:
             self._throughput_steps = int(extra_info.get("throughput_steps", 0))
+            collector_active_steps_per_sec = extra_info.get("collector_active_steps_per_sec")
+            self._collector_active_steps_per_sec = (
+                float(collector_active_steps_per_sec)
+                if collector_active_steps_per_sec is not None
+                else None
+            )
             self._world_size = int(extra_info.get("world_size", 1))
             self._multi_gpu_sync_mode = str(extra_info.get("multi_gpu_sync_mode", ""))
             self._multi_gpu_sync_interval = int(extra_info.get("multi_gpu_sync_interval", 0))
@@ -312,6 +326,7 @@ class OffPolicyLogger(BaseTrainingLogger):
                 self._replay_samples_per_iter = self._learner_samples_per_iter
         else:
             self._throughput_steps = 0
+            self._collector_active_steps_per_sec = None
             self._world_size = 1
             self._multi_gpu_sync_mode = ""
             self._multi_gpu_sync_interval = 0
@@ -421,6 +436,12 @@ class OffPolicyLogger(BaseTrainingLogger):
                 writer.add_scalar(f"timing/collector_{key}", value, global_step)
             if iter_steps_per_sec is not None:
                 writer.add_scalar("perf/steps_per_sec", iter_steps_per_sec, global_step)
+            if self._collector_active_steps_per_sec is not None:
+                writer.add_scalar(
+                    "perf/collector_active_steps_per_sec",
+                    self._collector_active_steps_per_sec,
+                    global_step,
+                )
             if effective_samples_per_sec is not None:
                 writer.add_scalar(
                     "perf/effective_samples_per_sec",
@@ -482,6 +503,10 @@ class OffPolicyLogger(BaseTrainingLogger):
                 log_dict[f"timing/collector_{key}"] = value
             if iter_steps_per_sec is not None:
                 log_dict["perf/steps_per_sec"] = iter_steps_per_sec
+            if self._collector_active_steps_per_sec is not None:
+                log_dict["perf/collector_active_steps_per_sec"] = (
+                    self._collector_active_steps_per_sec
+                )
             if effective_samples_per_sec is not None:
                 log_dict["perf/effective_samples_per_sec"] = effective_samples_per_sec
             log_dict["perf/iter_ms"] = iter_wall_time * 1000

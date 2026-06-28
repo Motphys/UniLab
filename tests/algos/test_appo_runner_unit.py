@@ -163,6 +163,7 @@ class _FakeLogger:
         del kwargs
         self._total_steps = 0
         self._mean_ep_length = 0.0
+        self._collector_active_steps_per_sec = None
         self.step_calls: list[dict] = []
         _FakeLogger.last_instance = self
 
@@ -196,6 +197,9 @@ class _FakeLogger:
 
     def update_collector_timing(self, timing_ms: dict[str, float]) -> None:
         del timing_ms
+
+    def update_collector_active_steps_per_sec(self, steps_per_sec: float) -> None:
+        self._collector_active_steps_per_sec = steps_per_sec
 
     def update_done_rates(self, timeout_rate: float, terminated_rate: float) -> None:
         del timeout_rate, terminated_rate
@@ -347,8 +351,8 @@ def test_appo_runner_logs_learner_timing_for_fps_inputs(
     assert step["train_time"] == pytest.approx(0.5)
     assert step["learner_incremental_h2d_time"] >= 0.0
     assert step["weight_sync_time"] >= 0.0
-    assert step["extra_info"] == {"throughput_steps": 8}
     assert step["extra_info"]["throughput_steps"] == 8
+    assert "collector_active_steps_per_sec" in step["extra_info"]
     assert step["metrics"]["rollouts_read"] == 1.0
     assert step["metrics"]["staging_pool_len"] == 1.0
 
