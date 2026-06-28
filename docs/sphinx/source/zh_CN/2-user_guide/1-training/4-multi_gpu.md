@@ -87,11 +87,19 @@ CUDA_VISIBLE_DEVICES=0,7 uv run train --algo sac --task g1_walk_flat --sim mujoc
 
 ## 性能检查
 
-多 GPU 主要减少 learner 更新瓶颈；如果环境数、batch 或迭代数太小，分布式启动、
-batch 打包和梯度同步开销可能超过收益。对比单卡和多卡时，请保持任务、环境数、迭
-代数、回放设置、logger 和可见 GPU 一致；同时明确是比较相同 per-rank batch 还是相
-同 global batch，并优先比较稳定阶段的
-`train_fps`、learner step 时间和端到端迭代时间。
+多 GPU 主要减少 learner 更新瓶颈。collector 仍是单个 CPU 进程，所以
+`algo.num_envs=4096` 仍由一个 collector 采集，不会按 GPU 数自动拆分。相同
+per-rank `algo.batch_size` 下，两卡也会把 replay pack 和 H2D 流量翻倍。runner 会从
+当前 replay snapshot 预取每个 rank 的下一批 batch，并排除下一次 collector 将写入的
+ring-buffer 窗口，让 CPU 随机 gather 与下一次 env step 重叠，同时避免读取正在覆盖的
+行。
+
+如果环境数、batch 或迭代数太小，分布式启动、batch 打包、rank barrier 和参数同步开
+销可能超过收益。对比单卡和多卡时，请保持任务、环境数、迭代数、回放设置、logger
+和可见 GPU 一致；同时明确是比较相同 per-rank batch 还是相同 global batch，并优先比
+较稳定阶段的 `perf/iter_ms`、`timing/learner_train_ms`、
+`timing/learner_collector_wait_ms`、`timing/learner_rank_barrier_ms` 和
+`perf/effective_samples_per_sec`。
 
 ## 常见错误
 

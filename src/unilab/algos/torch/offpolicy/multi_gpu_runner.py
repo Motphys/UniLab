@@ -262,18 +262,8 @@ def _learner_worker(
             collector_released_for_next = False
             sync_coordination_time = 0.0
             collector_wait_overhead = 0.0
-            if prepared_tick != it:
-                min_prepare_ptr = train_start_threshold
-                if it > 1:
-                    min_prepare_ptr = int(replay_buffer.ptr[0]) + (num_envs * env_steps_per_sync)
-                replay_pipeline.start_prepare(
-                    it,
-                    sample_count,
-                    min_snapshot_ptr=min_prepare_ptr,
-                )
-                prepared_tick = it
 
-            # --- Wait for synchronized collector data, then rank-local replay readiness. ---
+            # --- Wait for data (rank 0 only, then barrier syncs everyone) ---
             wait_start = time.perf_counter()
             if rank == 0:
                 if sync_collection and collection_ready_queue is not None:
@@ -328,17 +318,6 @@ def _learner_worker(
             collector_wait_time = (
                 time.perf_counter() - wait_start - collector_wait_overhead if rank == 0 else 0.0
             )
-            if not replay_pipeline.batch_ready(it, sample_count):
-                replay_batch_ready_wait_start = time.perf_counter()
-                while not replay_pipeline.batch_ready(it, sample_count):
-                    if stop_event.is_set():
-                        return
-                    time.sleep(MULTIGPU_REPLAY_READY_POLL_SEC)
-                if rank == 0:
-                    # Multi-GPU replay batches are produced by the synchronized collector-side
-                    # pack service, so this wait belongs with collector readiness rather than
-                    # the single-GPU/double-buffer Replay Batch Wait metric.
-                    collector_wait_time += time.perf_counter() - replay_batch_ready_wait_start
 
             _barrier_initial_start = time.perf_counter()
             dist.barrier()
@@ -350,6 +329,29 @@ def _learner_worker(
             iter_metrics: dict = defaultdict(list)
             ptr_before = int(replay_buffer.ptr[0]) if rank == 0 else 0
 
+            if prepared_tick != it:
+                min_prepare_ptr = train_start_threshold if it == 1 else int(replay_buffer.ptr[0])
+                replay_pipeline.start_prepare(
+                    it,
+                    sample_count,
+                    min_snapshot_ptr=min_prepare_ptr,
+                )
+                prepared_tick = it
+            replay_batch_ready_wait_time = 0.0
+            if not replay_pipeline.batch_ready(it, sample_count):
+                replay_batch_ready_wait_start = time.perf_counter()
+                while not replay_pipeline.batch_ready(it, sample_count):
+                    if stop_event.is_set():
+                        return
+                    time.sleep(MULTIGPU_REPLAY_READY_POLL_SEC)
+                replay_batch_ready_wait_time = (
+                    time.perf_counter() - replay_batch_ready_wait_start if rank == 0 else 0.0
+                )
+            if rank == 0:
+                # Multi-GPU replay batches are produced by the synchronized collector-side
+                # pack service, so this wait belongs with collector readiness rather than
+                # the single-GPU/double-buffer Replay Batch Wait metric.
+                collector_wait_time += replay_batch_ready_wait_time
             replay_batch_wait_time = 0.0
             replay_sample_start = time.perf_counter()
             large_batch = replay_pipeline.sample_large_batch(it, sample_count)
@@ -363,11 +365,19 @@ def _learner_worker(
             )
 
             if it < max_iterations:
-                min_snapshot_ptr = int(replay_buffer.ptr[0]) + (num_envs * env_steps_per_sync)
+                # Prefetch from the current replay snapshot. The loop still waits for one
+                # synchronized collector chunk per iteration, but off-policy SAC does not
+                # need the just-collected rows to be present in the next sampled batch.
+                # Avoiding that dependency lets CPU random gather for every rank overlap
+                # with the next collector env.step instead of sitting on the learner's
+                # critical path.
+                min_snapshot_ptr = int(replay_buffer.ptr[0])
                 replay_pipeline.start_prepare(
                     it + 1,
                     sample_count,
                     min_snapshot_ptr=min_snapshot_ptr,
+                    sample_snapshot_mode="request",
+                    exclude_write_count=num_envs * env_steps_per_sync,
                 )
                 prepared_tick = it + 1
                 if rank == 0 and sync_collection and trainer_done_queue is not None:

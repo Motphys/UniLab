@@ -1294,8 +1294,10 @@ def test_multi_gpu_learner_worker_logs_wall_clock_and_per_rank_batch_context(
             del args, kwargs
             self.last_incremental_h2d_time_s = 0.025
 
-        def start_prepare(self, tick_id: int, sample_count: int, min_snapshot_ptr=None) -> bool:
-            del tick_id, sample_count, min_snapshot_ptr
+        def start_prepare(
+            self, tick_id: int, sample_count: int, min_snapshot_ptr=None, **kwargs
+        ) -> bool:
+            del tick_id, sample_count, min_snapshot_ptr, kwargs
             return True
 
         def batch_ready(self, tick_id: int, sample_count: int) -> bool:
@@ -1459,7 +1461,10 @@ def test_multi_gpu_batch_ready_wait_is_reported_as_collector_wait(
             self.last_incremental_h2d_time_s = 0.0
             self.ready_checks = 0
 
-        def start_prepare(self, tick_id: int, sample_count: int, min_snapshot_ptr=None) -> bool:
+        def start_prepare(
+            self, tick_id: int, sample_count: int, min_snapshot_ptr=None, **kwargs
+        ) -> bool:
+            del kwargs
             start_prepare_calls.append((tick_id, sample_count, min_snapshot_ptr))
             return True
 
@@ -1512,7 +1517,7 @@ def test_multi_gpu_batch_ready_wait_is_reported_as_collector_wait(
                 0.10,
                 0.15,
                 0.15,
-                0.15,
+                0.20,
                 0.15,
                 0.15,
                 0.15,
@@ -1597,13 +1602,25 @@ def test_multi_gpu_local_sgd_interval_only_publishes_averaged_actor(
         def put(self, item: int, timeout: float | None = None) -> None:
             del item, timeout
 
+    start_prepare_calls: list[tuple[int, int, int | None, str, int]] = []
+
     class _FakePipeline:
         def __init__(self, *args, **kwargs) -> None:
             del args, kwargs
             self.last_incremental_h2d_time_s = 0.0
 
-        def start_prepare(self, tick_id: int, sample_count: int, min_snapshot_ptr=None) -> bool:
-            del tick_id, sample_count, min_snapshot_ptr
+        def start_prepare(
+            self, tick_id: int, sample_count: int, min_snapshot_ptr=None, **kwargs
+        ) -> bool:
+            start_prepare_calls.append(
+                (
+                    tick_id,
+                    sample_count,
+                    min_snapshot_ptr,
+                    str(kwargs.get("sample_snapshot_mode", "service")),
+                    int(kwargs.get("exclude_write_count", 0)),
+                )
+            )
             return True
 
         def batch_ready(self, tick_id: int, sample_count: int) -> bool:
@@ -1691,6 +1708,7 @@ def test_multi_gpu_local_sgd_interval_only_publishes_averaged_actor(
     assert len(logger.step_calls) == 2
     assert logger.step_calls[0]["learner_param_sync_time"] == 0.0
     assert logger.step_calls[0]["weight_sync_time"] == 0.0
+    assert start_prepare_calls == [(1, 4, 4, "service", 0), (2, 4, 64, "request", 5)]
 
 
 def test_multi_gpu_local_sgd_checkpoint_iteration_forces_parameter_average(
@@ -1719,8 +1737,10 @@ def test_multi_gpu_local_sgd_checkpoint_iteration_forces_parameter_average(
             del args, kwargs
             self.last_incremental_h2d_time_s = 0.0
 
-        def start_prepare(self, tick_id: int, sample_count: int, min_snapshot_ptr=None) -> bool:
-            del tick_id, sample_count, min_snapshot_ptr
+        def start_prepare(
+            self, tick_id: int, sample_count: int, min_snapshot_ptr=None, **kwargs
+        ) -> bool:
+            del tick_id, sample_count, min_snapshot_ptr, kwargs
             return True
 
         def batch_ready(self, tick_id: int, sample_count: int) -> bool:
