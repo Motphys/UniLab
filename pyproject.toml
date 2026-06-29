@@ -12,7 +12,8 @@ license-files = ["LICENSE"]
 requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy",
-    "torch==2.7.0",
+    "torch==2.9.0 ; sys_platform == 'linux' and platform_machine == 'aarch64'",
+    "torch==2.7.0 ; sys_platform != 'linux' or platform_machine != 'aarch64'",
     "gymnasium",
     "imageio",
     "etils",
@@ -61,9 +62,16 @@ name = "pytorch-cu128"
 url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
+[[tool.uv.index]]
+name = "r2-cu130"
+url = "https://download-r2.pytorch.org/whl/cu130"
+explicit = true
+
 [tool.uv.sources]
 torch = [
-    { index = "pytorch-cu128", marker = "sys_platform=='linux' or sys_platform=='win32'" },
+    { index = "r2-cu130", marker = "sys_platform=='linux' and platform_machine=='aarch64'" },
+    { index = "pytorch-cu128", marker = "sys_platform=='linux' and platform_machine=='x86_64'" },
+    { index = "pytorch-cu128", marker = "sys_platform=='win32'" },
 ]
 
 [tool.uv]
@@ -71,6 +79,7 @@ exclude-dependencies = ["torchvision"]
 required-environments = [
     "sys_platform == 'darwin' and platform_machine == 'arm64'",
     "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'aarch64'",
 ]
 
 [tool.ruff]
