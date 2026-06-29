@@ -57,13 +57,11 @@ class APPORunner(AsyncRunner):
         sim_backend: str = "mujoco",
         num_envs: int = 1024,
         steps_per_env: int = 24,
-        num_workers: int = 1,  # kept for API compat, but only 1 collector used
         replay_queue_size: int = 3,
         seed: int | None = None,
         resume_path: str | None = None,
         nan_guard_cfg: NanGuardCfg | None = None,
     ):
-        del num_workers
         super().__init__(
             env_name=env_name,
             env_cfg_overrides=env_cfg_overrides,
