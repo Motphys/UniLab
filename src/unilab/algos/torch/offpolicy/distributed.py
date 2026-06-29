@@ -8,7 +8,7 @@ boundary explicit avoids generic DDP wrappers in the hot path.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Protocol, cast
 
 MULTIGPU_SYNC_MODES = frozenset({"sync_sgd", "local_sgd"})
 
@@ -126,14 +126,16 @@ def resolve_distributed_learner_hooks(
         raise ValueError(
             "Multi-GPU off-policy learner must implement sync_initial_parameters(src=0)"
         )
+    sync_initial_parameters = cast(Callable[..., None], sync_initial_parameters)
 
     average_distributed_parameters = getattr(learner, "average_distributed_parameters", None)
+    average_parameters: Callable[[], None]
     if sync_mode == "local_sgd":
         if not callable(average_distributed_parameters):
             raise ValueError(
                 "Multi-GPU local_sgd requires learner.average_distributed_parameters()"
             )
-        average_parameters = average_distributed_parameters
+        average_parameters = cast(Callable[[], None], average_distributed_parameters)
     else:
         average_parameters = _noop_average_parameters
 
