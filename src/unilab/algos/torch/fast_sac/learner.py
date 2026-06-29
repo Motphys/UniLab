@@ -797,29 +797,35 @@ class FastSACLearner:
         # Apply symmetry augmentation
         if self.use_symmetry:
             with _cuda_nvtx_range("critic/symmetry_augment", self.nvtx_profile_ranges):
-                orig_actions = actions
-
                 assert self.symmetry is not None
-                obs, actions = self.symmetry.augment_obs_and_actions(obs, actions, obs_group="obs")
-                next_obs, _ = self.symmetry.augment_obs_and_actions(
-                    next_obs, orig_actions, obs_group="obs"
-                )
+                with _cuda_nvtx_range("critic/symmetry_obs_actions", self.nvtx_profile_ranges):
+                    obs, actions = self.symmetry.augment_obs_and_actions(
+                        obs,
+                        actions,
+                        obs_group="obs",
+                    )
+                with _cuda_nvtx_range("critic/symmetry_next_obs", self.nvtx_profile_ranges):
+                    next_obs = self.symmetry.augment_obs(
+                        next_obs,
+                        obs_group="obs",
+                    )
 
-                critic_obs, _ = self.symmetry.augment_obs_and_actions(
-                    critic_obs,
-                    orig_actions,
-                    obs_group="critic",
-                )
-                critic_next_obs, _ = self.symmetry.augment_obs_and_actions(
-                    critic_next_obs,
-                    orig_actions,
-                    obs_group="critic",
-                )
+                with _cuda_nvtx_range("critic/symmetry_critic_obs", self.nvtx_profile_ranges):
+                    critic_obs = self.symmetry.augment_obs(
+                        critic_obs,
+                        obs_group="critic",
+                    )
+                with _cuda_nvtx_range("critic/symmetry_critic_next_obs", self.nvtx_profile_ranges):
+                    critic_next_obs = self.symmetry.augment_obs(
+                        critic_next_obs,
+                        obs_group="critic",
+                    )
 
                 # Double the batch size for other tensors
-                rewards = rewards.repeat(2)
-                dones = dones.repeat(2)
-                truncated = truncated.repeat(2)
+                with _cuda_nvtx_range("critic/symmetry_aux_repeat", self.nvtx_profile_ranges):
+                    rewards = rewards.repeat(2)
+                    dones = dones.repeat(2)
+                    truncated = truncated.repeat(2)
 
         self.normalize_obs(obs, update=True)
         next_obs = self.normalize_obs(next_obs, update=False)
@@ -911,11 +917,10 @@ class FastSACLearner:
         if self.use_symmetry:
             with _cuda_nvtx_range("actor/symmetry_augment", self.nvtx_profile_ranges):
                 assert self.symmetry is not None
-                obs = torch.cat([obs, self.symmetry.mirror_obs(obs, obs_group="obs")], dim=0)
-                critic_obs = torch.cat(
-                    [critic_obs, self.symmetry.mirror_obs(critic_obs, obs_group="critic")],
-                    dim=0,
-                )
+                with _cuda_nvtx_range("actor/symmetry_obs", self.nvtx_profile_ranges):
+                    obs = self.symmetry.augment_obs(obs, obs_group="obs")
+                with _cuda_nvtx_range("actor/symmetry_critic_obs", self.nvtx_profile_ranges):
+                    critic_obs = self.symmetry.augment_obs(critic_obs, obs_group="critic")
 
         obs = self.normalize_obs(obs, update=False)
         with _cuda_nvtx_range("actor/loss_compiled", self.nvtx_profile_ranges):
