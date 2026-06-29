@@ -36,6 +36,7 @@ from unilab.algos.torch.offpolicy.runner import (
     build_reward_comparison_metrics,
     compute_train_start_threshold,
     replay_buffer_ready_for_learning,
+    update_reward_stats_from_replay,
 )
 from unilab.algos.torch.offpolicy.worker import off_policy_collector_fn
 from unilab.ipc import SharedObsNormStats, SharedWeightSync
@@ -141,6 +142,12 @@ def _publish_obs_normalizer_stats(learner: Any, shared_obs_normalizer_stats: Any
     shared_obs_normalizer_stats.put((mean.detach().cpu().numpy(), std.detach().cpu().numpy()))
 
 
+def _format_multi_gpu_algo_name(algo_type: str, world_size: int) -> str:
+    if algo_type == "flashsac":
+        return f"FlashSAC_x{world_size}GPU"
+    return f"Fast{algo_type.upper()}_x{world_size}GPU"
+
+
 def _learner_worker(
     rank: int,
     world_size: int,
@@ -193,6 +200,13 @@ def _learner_worker(
         # 3. Broadcast rank-0 params so all workers start identically.
         distributed_hooks = resolve_distributed_learner_hooks(learner, sync_mode=sync_mode)
         distributed_hooks.sync_initial_parameters(src=0)
+        sync_reward_normalizer = getattr(learner, "sync_reward_normalizer", None)
+        if not callable(sync_reward_normalizer):
+            sync_reward_normalizer = None
+        has_reward_stats = (
+            hasattr(learner, "update_reward_stats")
+            and getattr(learner, "reward_normalizer", None) is not None
+        )
 
         # 4. Reconnect to the shared weight-sync buffer
         weight_sync = SharedWeightSync(
@@ -238,7 +252,10 @@ def _learner_worker(
         if rank == 0:
             os.makedirs(log_dir, exist_ok=True)
             logger = OffPolicyLogger(
-                algo_name=f"Fast{str(runner_kwargs.get('algo_type', 'offpolicy')).upper()}_x{world_size}GPU",
+                algo_name=_format_multi_gpu_algo_name(
+                    str(runner_kwargs.get("algo_type", "offpolicy")),
+                    world_size,
+                ),
                 max_iterations=max_iterations,
                 num_envs=num_envs,
                 env_name=env_name,
@@ -270,6 +287,7 @@ def _learner_worker(
         write_read_ema = 0.0
         last_buf_log = 0
         prepared_tick: int | None = None
+        reward_stats_ptr = 0
 
         # 7. Training loop
         for it in range(1, max_iterations + 1):
@@ -343,6 +361,19 @@ def _learner_worker(
             # --- Training: each rank independently samples a different mini-batch ---
             iter_metrics: dict = defaultdict(list)
             ptr_before = int(replay_buffer.ptr[0]) if rank == 0 else 0
+            replay_ptr = int(replay_buffer.ptr[0])
+            if sync_reward_normalizer is None or rank == 0:
+                reward_stats_ptr = update_reward_stats_from_replay(
+                    learner,
+                    replay_buffer,
+                    start_ptr=reward_stats_ptr,
+                    end_ptr=replay_ptr,
+                    num_envs=num_envs,
+                )
+            else:
+                reward_stats_ptr = replay_ptr
+            if has_reward_stats and sync_reward_normalizer is not None:
+                sync_reward_normalizer(src=0)
 
             if prepared_tick != it:
                 min_prepare_ptr = train_start_threshold if it == 1 else int(replay_buffer.ptr[0])

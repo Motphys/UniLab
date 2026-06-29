@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 import torch
+import torch.distributed as dist
 import torch.nn as nn
 import torch.optim as optim
 
@@ -22,6 +23,7 @@ from unilab.algos.torch.flash_sac.update import (
     resolve_target_entropy,
     select_min_q_log_probs,
 )
+from unilab.algos.torch.offpolicy.distributed import normalize_distributed_sync_mode
 
 
 @dataclass
@@ -132,11 +134,28 @@ class RewardNormalizer:
         self.g_r = state_dict["g_r"]
         self.g_r_max = state_dict["g_r_max"]
 
+    def broadcast(self, src: int = 0) -> None:
+        if not (dist.is_available() and dist.is_initialized()):
+            return
+        g_r_size = torch.tensor([self.g_r.numel()], device=self.device, dtype=torch.int64)
+        dist.broadcast(g_r_size, src=src)
+        num_envs = int(g_r_size.item())
+        self._ensure_g_r_shape(num_envs)
+        for tensor in (
+            self.rms.mean,
+            self.rms.var,
+            self.rms.count,
+            self.g_r_max,
+        ):
+            dist.broadcast(tensor, src=src)
+        if num_envs > 0:
+            dist.broadcast(self.g_r, src=src)
+
 
 class FlashSACLearner:
-    supports_multi_gpu = False
+    supports_multi_gpu = True
     supports_multi_gpu_symmetry = False
-    supported_multi_gpu_sync_modes = frozenset()
+    supported_multi_gpu_sync_modes = frozenset({"sync_sgd", "local_sgd"})
 
     def __init__(
         self,
@@ -173,6 +192,8 @@ class FlashSACLearner:
         use_amp: bool = False,
         amp_dtype: str = "auto",
         use_compile: bool = False,
+        world_size: int = 1,
+        distributed_sync_mode: str = "sync_sgd",
     ):
         self.device = torch.device(device)
         self.gamma = gamma
@@ -189,6 +210,8 @@ class FlashSACLearner:
         self.use_compile = bool(
             use_compile and get_torch_compile_for_cuda(self.device, warn=True) is not None
         )
+        self.world_size = int(world_size)
+        self.distributed_sync_mode = normalize_distributed_sync_mode(distributed_sync_mode)
 
         self.actor = FlashSACActor(
             num_blocks=actor_num_blocks,
@@ -298,12 +321,125 @@ class FlashSACLearner:
     def _maybe_normalize_obs(self, obs: torch.Tensor, *, update: bool) -> torch.Tensor:
         if isinstance(self.obs_normalizer, nn.Identity):
             return obs
-        return cast(torch.Tensor, self.obs_normalizer(obs, update=update))
+        normalizer = cast(EmpiricalNormalization, self.obs_normalizer)
+        if update:
+            self._update_obs_normalizer(obs)
+            return cast(torch.Tensor, normalizer(obs, update=False))
+        return cast(torch.Tensor, normalizer(obs, update=False))
 
     def _autocast(self):
         return torch.autocast(
             device_type=self.device.type, dtype=self._amp_dtype, enabled=self.use_amp
         )
+
+    def _distributed_normalization_ready(self) -> bool:
+        return self.world_size > 1 and dist.is_available() and dist.is_initialized()
+
+    @torch.no_grad()
+    def _update_obs_normalizer(self, obs: torch.Tensor) -> None:
+        if isinstance(self.obs_normalizer, nn.Identity):
+            return
+        normalizer = cast(EmpiricalNormalization, self.obs_normalizer)
+        if not self._distributed_normalization_ready():
+            normalizer.update(obs)
+            return
+
+        obs_for_stats = obs.detach().to(dtype=normalizer._mean.dtype)
+        obs_dim = int(obs_for_stats.shape[-1])
+        moment_payload = torch.cat(
+            [
+                obs_for_stats.sum(dim=0),
+                obs_for_stats.square().sum(dim=0),
+                torch.tensor(
+                    [obs_for_stats.shape[0]],
+                    device=obs_for_stats.device,
+                    dtype=obs_for_stats.dtype,
+                ),
+            ]
+        )
+        dist.all_reduce(moment_payload, op=dist.ReduceOp.SUM)
+        batch_count = moment_payload[-1].clamp_min(1.0)
+        batch_mean = (moment_payload[:obs_dim] / batch_count).view_as(normalizer._mean)
+        batch_var = (
+            moment_payload[obs_dim : 2 * obs_dim] / batch_count - batch_mean.view(-1).square()
+        ).clamp_min(0.0)
+        normalizer.update_from_moments(
+            batch_mean,
+            batch_var.view_as(normalizer._var),
+            batch_count.round().to(dtype=normalizer.count.dtype),
+        )
+
+    def _reduce_gradients(self, module: nn.Module) -> bool:
+        if self.world_size <= 1 or self.distributed_sync_mode != "sync_sgd":
+            return True
+        grads = [param.grad.reshape(-1) for param in module.parameters() if param.grad is not None]
+        if not grads:
+            return True
+        flat = torch.cat(grads)
+        dist.all_reduce(flat, op=dist.ReduceOp.SUM)
+        flat /= self.world_size
+        if not bool(torch.isfinite(flat).all().item()):
+            return False
+        offset = 0
+        for param in module.parameters():
+            if param.grad is None:
+                continue
+            n = param.grad.numel()
+            param.grad.copy_(flat[offset : offset + n].view_as(param.grad))
+            offset += n
+        return True
+
+    def _backoff_grad_scaler(self) -> None:
+        if self.scaler is None:
+            return
+        self.scaler.update(self.scaler.get_scale() * self.scaler.get_backoff_factor())
+
+    def _parameter_sync_tensors(self) -> list[torch.Tensor]:
+        tensors: list[torch.Tensor] = []
+        for module in (self.actor, self.critic, self.target_critic, self.temperature):
+            tensors.extend(
+                tensor
+                for tensor in module.state_dict().values()
+                if torch.is_tensor(tensor) and tensor.is_floating_point()
+            )
+        return tensors
+
+    @torch.no_grad()
+    def average_distributed_parameters(self) -> None:
+        if self.world_size <= 1:
+            return
+        tensors = self._parameter_sync_tensors()
+        if not tensors:
+            return
+        flat = torch.cat([tensor.reshape(-1) for tensor in tensors])
+        dist.all_reduce(flat, op=dist.ReduceOp.SUM)
+        flat /= self.world_size
+        offset = 0
+        for tensor in tensors:
+            n = tensor.numel()
+            tensor.copy_(flat[offset : offset + n].view_as(tensor))
+            offset += n
+        self.actor.normalize_parameters()
+        self.critic.normalize_parameters()
+        self.target_critic.normalize_parameters()
+
+    def sync_initial_parameters(self, src: int = 0) -> None:
+        if self.world_size <= 1:
+            return
+        for module in (self.actor, self.critic, self.target_critic, self.temperature):
+            for tensor in module.state_dict().values():
+                if torch.is_tensor(tensor):
+                    dist.broadcast(tensor, src=src)
+        if not isinstance(self.obs_normalizer, nn.Identity):
+            for tensor in self.obs_normalizer.state_dict().values():
+                if torch.is_tensor(tensor):
+                    dist.broadcast(tensor, src=src)
+        self.sync_reward_normalizer(src=src)
+
+    def sync_reward_normalizer(self, src: int = 0) -> None:
+        if self.world_size <= 1 or self.reward_normalizer is None:
+            return
+        self.reward_normalizer.broadcast(src=src)
 
     def update_reward_stats(
         self,
@@ -419,15 +555,24 @@ class FlashSACLearner:
             )
 
         self.critic_optimizer.zero_grad(set_to_none=True)
+        critic_step_ok = True
         if self.scaler is not None:
             self.scaler.scale(critic_loss).backward()
-            self.scaler.step(self.critic_optimizer)
-            self.scaler.update()
+            self.scaler.unscale_(self.critic_optimizer)
+            critic_step_ok = self._reduce_gradients(self.critic)
+            if critic_step_ok:
+                self.scaler.step(self.critic_optimizer)
+                self.scaler.update()
+            else:
+                self._backoff_grad_scaler()
         else:
             critic_loss.backward()
-            self.critic_optimizer.step()
-        self.critic_scheduler.step()
-        self.critic.normalize_parameters()
+            critic_step_ok = self._reduce_gradients(self.critic)
+            if critic_step_ok:
+                self.critic_optimizer.step()
+        if critic_step_ok:
+            self.critic_scheduler.step()
+            self.critic.normalize_parameters()
 
         return {
             "critic_loss": float(critic_loss.detach().cpu()),
@@ -462,22 +607,32 @@ class FlashSACLearner:
             )
 
         self.actor_optimizer.zero_grad(set_to_none=True)
+        actor_step_ok = True
         if self.scaler is not None:
             self.scaler.scale(actor_loss).backward()
-            self.scaler.step(self.actor_optimizer)
-            self.scaler.update()
+            self.scaler.unscale_(self.actor_optimizer)
+            actor_step_ok = self._reduce_gradients(self.actor)
+            if actor_step_ok:
+                self.scaler.step(self.actor_optimizer)
+                self.scaler.update()
+            else:
+                self._backoff_grad_scaler()
         else:
             actor_loss.backward()
-            self.actor_optimizer.step()
-        self.actor_scheduler.step()
-        self.actor.normalize_parameters()
+            actor_step_ok = self._reduce_gradients(self.actor)
+            if actor_step_ok:
+                self.actor_optimizer.step()
+        if actor_step_ok:
+            self.actor_scheduler.step()
+            self.actor.normalize_parameters()
 
         temp_value = self.temperature()
         temp_loss = temp_value * (entropy - self.target_entropy)
         self.temperature_optimizer.zero_grad(set_to_none=True)
         temp_loss.backward()
-        self.temperature_optimizer.step()
-        self.temperature_scheduler.step()
+        if self._reduce_gradients(self.temperature):
+            self.temperature_optimizer.step()
+            self.temperature_scheduler.step()
 
         return {
             "actor_loss": float(actor_loss.detach().cpu()),

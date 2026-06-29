@@ -474,15 +474,90 @@ def test_flashsac_double_buffer_portable_devices_allowed(
     assert runner.kwargs["device"] == device
 
 
-def test_flashsac_double_buffer_multi_gpu_rejected():
+def test_flashsac_double_buffer_multi_gpu_dispatches_to_multi_gpu_runner(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    import gymnasium as gym
+
+    import unilab.algos.torch.flash_sac.double_buffer as flash_db_mod
+    import unilab.algos.torch.offpolicy.multi_gpu_runner as mg_mod
+
     cfg = _offpolicy_cfg(
         [
             "algo=flashsac",
             "training.device=cuda",
             "training.num_gpus=2",
+            "training.multi_gpu_sync_mode=sync_sgd",
+            "training.multi_gpu_sync_interval=3",
+            "algo.obs_normalization=true",
         ]
     )
-    with pytest.raises(ValueError, match="FlashSACLearner.*does not support training.num_gpus"):
+
+    class _FakeEnv:
+        obs_groups_spec = {"obs": 4, "critic": 6}
+        action_space = gym.spaces.Box(-1.0, 1.0, shape=(2,))
+
+        def close(self):
+            pass
+
+    class _FakeLearner:
+        supports_multi_gpu = True
+        supports_multi_gpu_symmetry = False
+        supported_multi_gpu_sync_modes = frozenset({"sync_sgd", "local_sgd"})
+
+        class actor:
+            @staticmethod
+            def state_dict():
+                return {"w": MagicMock(shape=(4,))}
+
+        update_count = 0
+
+        def __init__(self, *args, **kwargs):
+            del args
+            self.kwargs = kwargs
+
+        def sync_initial_parameters(self, src=0):
+            del src
+
+        def average_distributed_parameters(self):
+            pass
+
+    class _FakeRunner:
+        def __init__(self, *args, **kwargs):
+            del args
+            self.kwargs = kwargs
+
+    monkeypatch.setattr(flash_db_mod, "ensure_registries", lambda: None)
+    monkeypatch.setattr(flash_db_mod, "create_env", lambda *args, **kwargs: _FakeEnv())
+    monkeypatch.setattr(flash_db_mod, "FlashSACLearner", _FakeLearner)
+    monkeypatch.setattr(mg_mod, "MultiGPUOffPolicyRunner", _FakeRunner)
+
+    runner = _offpolicy().build_runner("flashsac", cfg)
+
+    assert isinstance(runner, _FakeRunner)
+    assert runner.kwargs["algo_type"] == "flashsac"
+    assert runner.kwargs["num_gpus"] == 2
+    assert runner.kwargs["multi_gpu_sync_mode"] == "sync_sgd"
+    assert runner.kwargs["multi_gpu_sync_interval"] == 3
+    assert runner.kwargs["obs_normalization"] is True
+    assert runner.kwargs["learner"].kwargs["obs_normalization"] is True
+    assert runner.kwargs["learner_kwargs"]["obs_normalization"] is True
+    assert runner.kwargs["actor_kwargs"] == {
+        "actor_num_blocks": 2,
+        "actor_noise_zeta_mu": 2.0,
+        "actor_noise_zeta_max": 16,
+    }
+
+
+def test_flashsac_double_buffer_multi_gpu_requires_cuda_device():
+    cfg = _offpolicy_cfg(
+        [
+            "algo=flashsac",
+            "training.device=cpu",
+            "training.num_gpus=2",
+        ]
+    )
+    with pytest.raises(ValueError, match="requires a CUDA device"):
         _offpolicy().build_runner("flashsac", cfg)
 
 

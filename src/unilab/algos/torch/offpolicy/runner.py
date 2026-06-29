@@ -87,6 +87,66 @@ def build_reward_comparison_metrics(
     return {"mean_ep100": float(reward_history[-1])}
 
 
+def read_recent_replay_field(
+    replay_buffer: Any,
+    field_name: str,
+    start_ptr: int,
+    count: int,
+) -> torch.Tensor:
+    idx = start_ptr % replay_buffer.capacity
+
+    if hasattr(replay_buffer, field_name):
+        source = getattr(replay_buffer, field_name)
+    else:
+        packed_key = {
+            "rewards": "_rew_col",
+            "dones": "_done_col",
+            "truncated": "_trunc_col",
+        }[field_name]
+        source = replay_buffer._storage[:, getattr(replay_buffer, packed_key)]
+
+    if idx + count <= replay_buffer.capacity:
+        return cast(torch.Tensor, source[idx : idx + count].clone())
+
+    split = replay_buffer.capacity - idx
+    return cast(torch.Tensor, torch.cat([source[idx:], source[: count - split]], dim=0).clone())
+
+
+def update_reward_stats_from_replay(
+    learner: Any,
+    replay_buffer: Any,
+    *,
+    start_ptr: int,
+    end_ptr: int,
+    num_envs: int,
+) -> int:
+    if not hasattr(learner, "update_reward_stats"):
+        return end_ptr
+    if getattr(learner, "reward_normalizer", None) is None:
+        return end_ptr
+
+    count = end_ptr - start_ptr
+    if count <= 0:
+        return end_ptr
+    if count > replay_buffer.capacity:
+        count = replay_buffer.capacity
+        start_ptr = end_ptr - count
+    if count % num_envs != 0:
+        count -= count % num_envs
+        start_ptr = end_ptr - count
+    if count <= 0:
+        return end_ptr
+
+    rewards = read_recent_replay_field(replay_buffer, "rewards", start_ptr, count)
+    dones = read_recent_replay_field(replay_buffer, "dones", start_ptr, count)
+    num_steps = count // num_envs
+    learner.update_reward_stats(
+        rewards.view(num_steps, num_envs),
+        dones.view(num_steps, num_envs),
+    )
+    return end_ptr
+
+
 class OffPolicyRunner(AsyncRunner):
     """Unified runner for SAC and TD3."""
 
@@ -179,50 +239,16 @@ class OffPolicyRunner(AsyncRunner):
     def _read_recent_replay_field(
         replay_buffer, field_name: str, start_ptr: int, count: int
     ) -> torch.Tensor:
-        idx = start_ptr % replay_buffer.capacity
-
-        if hasattr(replay_buffer, field_name):
-            source = getattr(replay_buffer, field_name)
-        else:
-            packed_key = {
-                "rewards": "_rew_col",
-                "dones": "_done_col",
-                "truncated": "_trunc_col",
-            }[field_name]
-            source = replay_buffer._storage[:, getattr(replay_buffer, packed_key)]
-
-        if idx + count <= replay_buffer.capacity:
-            return cast(torch.Tensor, source[idx : idx + count].clone())
-
-        split = replay_buffer.capacity - idx
-        return cast(torch.Tensor, torch.cat([source[idx:], source[: count - split]], dim=0).clone())
+        return read_recent_replay_field(replay_buffer, field_name, start_ptr, count)
 
     def _update_reward_stats_from_replay(self, replay_buffer, start_ptr: int, end_ptr: int) -> int:
-        if not hasattr(self.learner, "update_reward_stats"):
-            return end_ptr
-        if getattr(self.learner, "reward_normalizer", None) is None:
-            return end_ptr
-
-        count = end_ptr - start_ptr
-        if count <= 0:
-            return end_ptr
-        if count > replay_buffer.capacity:
-            count = replay_buffer.capacity
-            start_ptr = end_ptr - count
-        if count % self.num_envs != 0:
-            count -= count % self.num_envs
-            start_ptr = end_ptr - count
-        if count <= 0:
-            return end_ptr
-
-        rewards = self._read_recent_replay_field(replay_buffer, "rewards", start_ptr, count)
-        dones = self._read_recent_replay_field(replay_buffer, "dones", start_ptr, count)
-        num_steps = count // self.num_envs
-        self.learner.update_reward_stats(
-            rewards.view(num_steps, self.num_envs),
-            dones.view(num_steps, self.num_envs),
+        return update_reward_stats_from_replay(
+            self.learner,
+            replay_buffer,
+            start_ptr=start_ptr,
+            end_ptr=end_ptr,
+            num_envs=self.num_envs,
         )
-        return end_ptr
 
     def learn(
         self,

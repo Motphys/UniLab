@@ -30,9 +30,17 @@ playback video. See {doc}`/en/1-getting_started/3-evaluation_and_playback`.
 - `algo.algo_params.actor_num_blocks=2`
 - `algo.algo_params.critic_num_blocks=2`
 
-The FlashSAC learner does not currently declare the distributed learner
-contract, so `training.num_gpus > 1` is rejected by the capability check. Keep
-the default single-GPU path unless FlashSAC implements and validates multi-GPU
-synchronization semantics.
+FlashSAC supports the shared off-policy multi-GPU runner. Enable it with:
+
+```bash
+uv run train --algo flashsac --task g1_walk_flat --sim mujoco \
+  training.num_gpus=2 \
+  training.multi_gpu_sync_mode=local_sgd
+```
+
+Multi-GPU FlashSAC requires CUDA and synchronized collection. The learner owns
+its distributed synchronization hooks: gradients are averaged in `sync_sgd`,
+parameters and persistent normalization buffers are averaged in `local_sgd`, and
+reward normalizer state is updated on rank 0 then broadcast to the other ranks.
 
 The log root is `logs/flash_sac/<task>/`.
