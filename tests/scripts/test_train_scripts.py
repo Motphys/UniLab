@@ -1198,6 +1198,8 @@ def test_build_appo_runner_kwargs_forwards_sim_backend():
     assert runner_kwargs["collector_device"] == "cpu"
     assert runner_kwargs["num_envs"] == cfg.algo.num_envs
     assert runner_kwargs["steps_per_env"] == cfg.algo.steps_per_env
+    assert "num_workers" not in runner_kwargs
+    assert "num_collectors" not in runner_kwargs
     assert runner_kwargs["env_cfg_overrides"]["reward_config"]["scales"] == {}
 
 

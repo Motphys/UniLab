@@ -5,6 +5,7 @@ from __future__ import annotations
 import multiprocessing as mp
 
 import numpy as np
+import pytest
 import torch
 
 from unilab.ipc.replay_buffer import ReplayBuffer
@@ -188,6 +189,37 @@ def test_add_stores_combined_dones_and_truncated_contract():
 
     torch.testing.assert_close(buf._storage[:3, buf._done_col], torch.tensor([1.0, 1.0, 0.0]))
     torch.testing.assert_close(buf._storage[:3, buf._trunc_col], torch.tensor([0.0, 1.0, 0.0]))
+
+
+def test_add_writes_packed_columns_without_cat(monkeypatch: pytest.MonkeyPatch):
+    """Collector hot path should not allocate a full concatenated transition batch."""
+    buf = ReplayBuffer(
+        capacity=8,
+        obs_dim=_OBS_DIM,
+        action_dim=_ACTION_DIM,
+        critic_dim=5,
+        device=_DEVICE,
+    )
+    obs = torch.randn(4, _OBS_DIM)
+    act = torch.randn(4, _ACTION_DIM)
+    rew = torch.randn(4)
+    nobs = torch.randn(4, _OBS_DIM)
+    done = torch.zeros(4)
+    trunc = torch.zeros(4)
+    critic = torch.randn(4, 5)
+    ncritic = torch.randn(4, 5)
+
+    def _fail_cat(*args, **kwargs):
+        del args, kwargs
+        raise AssertionError("ReplayBuffer.add should write packed columns directly")
+
+    monkeypatch.setattr(torch, "cat", _fail_cat)
+
+    buf.add(obs, act, rew, nobs, done, trunc, critic=critic, next_critic=ncritic)
+
+    torch.testing.assert_close(buf._storage[:4, buf._obs_sl], obs)
+    torch.testing.assert_close(buf._storage[:4, buf._act_sl], act)
+    torch.testing.assert_close(buf._storage[:4, buf._critic_sl], critic)
 
 
 # ---------------------------------------------------------------------------

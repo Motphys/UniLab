@@ -104,44 +104,67 @@ class ReplayBuffer(SharedBufferBase):
         if self._critic_dim > 0 and (critic is None or next_critic is None):
             raise ValueError("ReplayBuffer with critic_dim > 0 requires critic and next_critic")
 
-        parts = [
-            obs,
-            next_obs,
-            actions,
-            rewards.unsqueeze(1),
-            dones.unsqueeze(1),
-            truncated.unsqueeze(1),
-        ]
-        if has_critic:
-            assert next_critic is not None
-            parts.extend([critic, next_critic])
-        row = torch.cat(parts, dim=1)
-
         if idx + n <= self.capacity:
-            self._storage[idx : idx + n] = row
+            target = self._storage[idx : idx + n]
+            self._write_transition_rows(
+                target,
+                obs,
+                actions,
+                rewards,
+                next_obs,
+                dones,
+                truncated,
+                critic,
+                next_critic,
+                has_critic=has_critic,
+            )
             self._patch_terminal_next_observations(
-                self._storage[idx : idx + n, self._nobs_sl],
+                target[:, self._nobs_sl],
                 terminal_mask,
                 terminal_next_obs,
-                self._storage[idx : idx + n, self._ncritic_sl] if has_critic else None,
+                target[:, self._ncritic_sl] if has_critic else None,
                 terminal_next_critic,
             )
         else:
             split = self.capacity - idx
-            self._storage[idx:] = row[:split]
-            self._storage[: n - split] = row[split:]
+            first = self._storage[idx:]
+            second = self._storage[: n - split]
+            self._write_transition_rows(
+                first,
+                obs[:split],
+                actions[:split],
+                rewards[:split],
+                next_obs[:split],
+                dones[:split],
+                truncated[:split],
+                critic[:split] if critic is not None else None,
+                next_critic[:split] if next_critic is not None else None,
+                has_critic=has_critic,
+            )
+            self._write_transition_rows(
+                second,
+                obs[split:],
+                actions[split:],
+                rewards[split:],
+                next_obs[split:],
+                dones[split:],
+                truncated[split:],
+                critic[split:] if critic is not None else None,
+                next_critic[split:] if next_critic is not None else None,
+                has_critic=has_critic,
+            )
             self._patch_terminal_next_observations(
-                self._storage[idx:, self._nobs_sl],
+                first[:, self._nobs_sl],
                 terminal_mask[:split] if terminal_mask is not None else None,
                 terminal_next_obs[:split] if terminal_next_obs is not None else None,
-                self._storage[idx:, self._ncritic_sl] if has_critic else None,
+                first[:, self._ncritic_sl] if has_critic else None,
                 terminal_next_critic[:split] if terminal_next_critic is not None else None,
             )
             self._patch_terminal_next_observations(
-                self._storage[: n - split, self._nobs_sl],
+                second[:, self._nobs_sl],
                 terminal_mask[split:] if terminal_mask is not None else None,
                 terminal_next_obs[split:] if terminal_next_obs is not None else None,
-                self._storage[: n - split, self._ncritic_sl] if has_critic else None,
+                second[:, self._ncritic_sl] if has_critic else None,
                 terminal_next_critic[split:] if terminal_next_critic is not None else None,
             )
 
@@ -155,6 +178,32 @@ class ReplayBuffer(SharedBufferBase):
                 end_ns=time.perf_counter_ns(),
                 args={"batch_size": int(n), "device": self.device},
             )
+
+    def _write_transition_rows(
+        self,
+        target,
+        obs,
+        actions,
+        rewards,
+        next_obs,
+        dones,
+        truncated,
+        critic,
+        next_critic,
+        *,
+        has_critic: bool,
+    ) -> None:
+        target[:, self._obs_sl] = obs
+        target[:, self._nobs_sl] = next_obs
+        target[:, self._act_sl] = actions
+        target[:, self._rew_col] = rewards
+        target[:, self._done_col] = dones
+        target[:, self._trunc_col] = truncated
+        if has_critic:
+            assert critic is not None
+            assert next_critic is not None
+            target[:, self._critic_sl] = critic
+            target[:, self._ncritic_sl] = next_critic
 
     @staticmethod
     def _patch_terminal_next_observations(
