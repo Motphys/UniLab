@@ -755,6 +755,10 @@ class FastSACLearner:
 
         return qf_loss, target_q_max, target_q_min, next_log_probs.detach()
 
+    def _alpha_loss_tensor(self, next_log_probs: torch.Tensor) -> torch.Tensor:
+        entropy_error_mean = (next_log_probs + self.target_entropy).detach().mean()
+        return -(self.log_alpha.exp() * entropy_error_mean)
+
     def _actor_loss_tensors(
         self,
         obs: torch.Tensor,
@@ -870,17 +874,24 @@ class FastSACLearner:
         if self.use_autotune:
             with _cuda_nvtx_range("critic/alpha_update", self.nvtx_profile_ranges):
                 self.alpha_optimizer.zero_grad(set_to_none=True)
-                alpha_loss = (-self.log_alpha.exp() * (next_log_probs + self.target_entropy)).mean()
+                with _cuda_nvtx_range("critic/alpha_loss", self.nvtx_profile_ranges):
+                    alpha_loss = self._alpha_loss_tensor(next_log_probs)
                 if torch.isfinite(alpha_loss):
-                    alpha_loss.backward()
+                    with _cuda_nvtx_range("critic/alpha_backward", self.nvtx_profile_ranges):
+                        alpha_loss.backward()
                     if (
                         self.world_size > 1
                         and self.distributed_sync_mode == "sync_sgd"
                         and self.log_alpha.grad is not None
                     ):
-                        dist.all_reduce(self.log_alpha.grad, op=dist.ReduceOp.SUM)
-                        self.log_alpha.grad /= self.world_size
-                    self.alpha_optimizer.step()
+                        with _cuda_nvtx_range(
+                            "critic/alpha_distributed_reduce",
+                            self.nvtx_profile_ranges,
+                        ):
+                            dist.all_reduce(self.log_alpha.grad, op=dist.ReduceOp.SUM)
+                            self.log_alpha.grad /= self.world_size
+                    with _cuda_nvtx_range("critic/alpha_optimizer_step", self.nvtx_profile_ranges):
+                        self.alpha_optimizer.step()
 
         return {
             "qf_loss": qf_loss.item(),
