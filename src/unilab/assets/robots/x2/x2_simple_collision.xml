@@ -1,5 +1,5 @@
 <mujoco model="x2_simple_collision">
-  <compiler angle="radian" eulerseq="XYZ" meshdir="./meshes" autolimits="true" />
+  <compiler angle="radian" eulerseq="xyz" meshdir="./meshes" autolimits="true" />
 
   <option timestep="0.001" />
 
@@ -11,7 +11,7 @@
               <geom group="2" type="mesh" contype="0" conaffinity="0" density="0" />
           </default>
           <default class="collision">
-              <geom group="3" type="mesh" />
+              <geom group="3" type="mesh" contype="1" conaffinity="2" />
               <default class="foot">
                   <geom type="sphere" size="0.005" />
               </default>

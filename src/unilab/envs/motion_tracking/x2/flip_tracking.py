@@ -118,6 +118,7 @@ class X2WallFlipTrackingEnvCfg(X2WallFlipTrackingCfg):
 
 
 @registry.env("X2WallFlipTracking", sim_backend="mujoco")
+@registry.env("X2WallFlipTracking", sim_backend="motrix")
 class X2WallFlipTrackingEnv(G1MotionTrackingDeployEnv):
     """X2 wall flip-tracking environment implementation."""
 
