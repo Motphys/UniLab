@@ -21,6 +21,7 @@ config group 为 `openarm_demo_pick`，owner YAML 全部在
 | `mujoco_lift3d.yaml` | `lift3d` | 主任务：3cm 方块、空中 3D 目标、binary gripper、proximity-gated dense lift |
 | `mujoco_lift3d_easy.yaml` | `lift3d_easy` | 课程/调试用：目标更低更宽（`goal z 1.13→1.09`、`success_dist 0.05→0.06`） |
 | `mujoco_lift3d_contgrip.yaml` | `lift3d_contgrip` | 连续夹爪变体：策略连续闭合夹爪，配 staged + firm grasp shaping |
+| `mujoco_lift3d_contgrip_lowent.yaml` | `lift3d_contgrip_lowent` | 与 contgrip 任务/reward 完全相同，仅把 `entropy_coef` 0.01→0.003：消除后期 `action std`/`entropy` 单调漂移，成功率持平/略升（详见文件内对照记录） |
 
 顶层 CLI 通过 `--profile` 选择变体：`--task openarm_demo_pick --sim mujoco
 --profile lift3d_contgrip` 会组合 owner `openarm_demo_pick/mujoco_lift3d_contgrip`。
@@ -92,5 +93,31 @@ HIP_VISIBLE_DEVICES=0 uv run scripts/eval_openarm_success.py \
   HIP_VISIBLE_DEVICES=0 uv run scripts/verify_openarm_play_motion.py \
     --run-dir logs/rsl_rl_ppo/OpenArmDemoPick/<run>_mujoco --steps 120
   ```
+
+## 训练结果与曲线对比
+
+`lift3d_contgrip_lowent`（`entropy_coef=0.003`）相对 baseline `lift3d_contgrip`
+（`entropy_coef=0.01`）的对照（PPO，seed=1，4096 env × 24 steps × 1500 iter ≈
+1.47 亿步）：
+
+| 指标 | baseline 0.01 | lowent 0.003 |
+| --- | --- | --- |
+| ever success（512 env 确定性 eval） | 98.8% | 100.0% |
+| final success | 86.3% | 87.9% |
+| drop rate | 0% | 0% |
+| 最终 reward | 2580 | 2800 |
+| 最终 `action std` | 39.08 | 1.35 |
+| 最终 `entropy loss` | ~40（单调爬升） | ~12（平稳） |
+
+把 `entropy_coef` 从 0.01 降到 0.003，消除了任务解出（iter ~600）之后 PPO 因 tanh
+饱和而"白拿熵奖励"导致的 `action std` / `entropy` 单调漂移，训练曲线更干净，且确定性
+成功率持平/略升（评估只用策略均值，不受探索噪声影响）。代价是早期到平台约晚 ~150 iter。
+
+![entropy_coef 0.01 vs 0.003 训练曲线对比](../../../_static/images/openarm_pick_lowent_curves.png)
+
+学到的抓取是稳定的开指托举（fingertip-cradle，闭合度 ≈ 0）；对该高摩擦小方块几何，
+开指托举是更鲁棒的最优解：
+
+![夹爪托举方块特写（左臂右前方机位）](../../../_static/images/openarm_pick_grasp_closeup.png)
 
 关于分类级别的任务页面，参见 {doc}`../4-tasks/3-manipulation`。

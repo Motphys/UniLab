@@ -1,0 +1,28 @@
+# @package _global_
+# Low-entropy continuous-gripper variant: identical task/reward to
+# mujoco_lift3d_contgrip, but lowers the PPO entropy bonus from 0.01 to 0.003.
+#
+# Why: with entropy_coef=0.01 the task is solved by iter ~600, after which the
+# mean-action gradient flattens while the entropy bonus keeps paying for larger
+# pre-squash action std. Because actions are tanh/action_scale-saturated, a huge
+# std barely changes the executed action, so PPO inflates Policy/mean_std and
+# Loss/entropy unboundedly (std -> ~39, entropy -> ~40 by iter 1500). This is a
+# cosmetic exploration-curve artifact, not a control problem -- deterministic
+# eval is unaffected.
+#
+# Dropping entropy_coef to 0.003 removes that free-entropy incentive and keeps
+# the stochastic curves flat without hurting the policy.
+#
+# Control run (PPO, seed=1, 512-env eval, 1500 iter, same machine as the
+# baseline contgrip run):
+#   * Policy/mean_std: final 1.35 (vs baseline 39.08); Loss/entropy: ~12 flat
+#     (vs baseline ~40 monotonic climb).
+#   * ever-success 100.0% (vs 98.8%), final-success 87.9% (vs 86.3%), drop 0%.
+#   * mean reward final 2800 / max 2971 (vs 2580 / 2903) -- slightly slower to
+#     reach the plateau (~150 iter later) but a flatter, less noisy plateau.
+defaults:
+  - /task/openarm_demo_pick/mujoco_lift3d_contgrip
+  - _self_
+algo:
+  algorithm:
+    entropy_coef: 0.003

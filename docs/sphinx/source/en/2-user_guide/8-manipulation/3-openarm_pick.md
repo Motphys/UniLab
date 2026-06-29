@@ -23,6 +23,7 @@ The config group is `openarm_demo_pick`; all owner YAMLs live under
 | `mujoco_lift3d.yaml` | `lift3d` | Main task: 3 cm cube, in-air 3D goal, binary gripper, proximity-gated dense lift |
 | `mujoco_lift3d_easy.yaml` | `lift3d_easy` | Curriculum/debug aid: lower, wider goal (`goal z 1.13→1.09`, `success_dist 0.05→0.06`) |
 | `mujoco_lift3d_contgrip.yaml` | `lift3d_contgrip` | Continuous-gripper variant: policy closes the gripper continuously, with staged + firm grasp shaping |
+| `mujoco_lift3d_contgrip_lowent.yaml` | `lift3d_contgrip_lowent` | Same task/reward as contgrip, only lowers `entropy_coef` 0.01→0.003: removes the late-training `action std`/`entropy` drift with equal/slightly-better success (see the control run notes in the file) |
 
 The top-level CLI selects a variant with `--profile`: `--task openarm_demo_pick
 --sim mujoco --profile lift3d_contgrip` composes the owner
@@ -103,5 +104,34 @@ HIP_VISIBLE_DEVICES=0 uv run scripts/eval_openarm_success.py \
   HIP_VISIBLE_DEVICES=0 uv run scripts/verify_openarm_play_motion.py \
     --run-dir logs/rsl_rl_ppo/OpenArmDemoPick/<run>_mujoco --steps 120
   ```
+
+## Training results and curve comparison
+
+`lift3d_contgrip_lowent` (`entropy_coef=0.003`) vs the baseline
+`lift3d_contgrip` (`entropy_coef=0.01`) (PPO, seed=1, 4096 env x 24 steps x 1500
+iter ~= 147.5M steps):
+
+| Metric | baseline 0.01 | lowent 0.003 |
+| --- | --- | --- |
+| ever success (512-env deterministic eval) | 98.8% | 100.0% |
+| final success | 86.3% | 87.9% |
+| drop rate | 0% | 0% |
+| final reward | 2580 | 2800 |
+| final `action std` | 39.08 | 1.35 |
+| final `entropy loss` | ~40 (monotonic climb) | ~12 (flat) |
+
+Lowering `entropy_coef` from 0.01 to 0.003 removes the `action std` / `entropy`
+drift that PPO accrues after the task is solved (iter ~600): tanh saturation lets
+the policy inflate the pre-squash std for "free" entropy bonus without changing
+the executed action. The result is a cleaner training curve with equal/slightly
+better deterministic success (eval uses the policy mean, so it is unaffected by
+exploration noise). The only cost is reaching the plateau ~150 iter later.
+
+![entropy_coef 0.01 vs 0.003 training curves](../../../_static/images/openarm_pick_lowent_curves.png)
+
+The learned grasp is a stable open fingertip-cradle (closure ~0); for this
+high-friction small-cube geometry the open cradle is the more robust optimum:
+
+![gripper cradling the cube, left-arm right-front close-up](../../../_static/images/openarm_pick_grasp_closeup.png)
 
 For the category-level task page, see {doc}`../4-tasks/3-manipulation`.
