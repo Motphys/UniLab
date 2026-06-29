@@ -142,6 +142,7 @@ uv run eval --algo appo --task go2_joystick_flat --sim motrix --load-run -1 --re
 
 ```bash
 uv run train --algo sac --task g1_walk_flat --sim mujoco
+uv run train --algo flashsac --task g1_walk_flat --sim mujoco
 ```
 
 ```bash

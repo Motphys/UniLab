@@ -140,6 +140,7 @@ On macOS / MacBook, the UniLab CLI routes Motrix interactive playback through `m
 
 ```bash
 uv run train --algo sac --task g1_walk_flat --sim mujoco
+uv run train --algo flashsac --task g1_walk_flat --sim mujoco
 ```
 
 ```bash
